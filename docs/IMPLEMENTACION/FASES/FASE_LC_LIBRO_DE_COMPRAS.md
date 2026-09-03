@@ -177,8 +177,15 @@ vínculo formal.
 | **LC.5** | ✅ **2026-09-01** — `generate-poliza-compras-txt.js`. Junio: 494 renglones, cuadra en $30,278,735.58, UUID en 491 de 493 movimientos | LC.0, LC.3 |
 | **LC.6** | ✅ **2026-09-01** — el trámite en pantalla: `finance.purchase_book_runs` + `/contabilidad/libro-de-compras` (master-detail, answer-first, inclusión optimista, estados borrador→generado→entregado→aplicado) | LC.5 |
 | **LC.6.1** | ✅ **2026-09-02** — sub-módulo **Movimientos no asociados**: `aso_contabilidad` en el feed, criterio de dos condiciones, `tipo` de corrida, `/contabilidad/movimientos-no-asociados` | LC.6 |
-| **LC.7** | Cuadre post-trámite: comparar la póliza real en ContPAQi contra lo entregado. Diferencia = hallazgo en `finance.findings` | LC.5 |
+| **LC.7** | ✅ **2026-09-03** — cuadre post-trámite contra `finance.findings`. Reescrito: **parsea el archivo entregado**, no re-deriva; filtra por `tipo`; guarda de frescura contra el latido `feed_contpaqi`; 3 reglas + cron 03:45 MX | LC.9 |
 | **LC.8** | 3-way match contra la entrada de mercancía de Kepler (`XA2001`) — se empalma con Fase RE | LC.4 |
+| **LC.9** | ✅ **2026-09-03** — **el archivo es importable**: layout a `poliza-txt.ts` (sin Nest, probable sin DI), `parsearTxt()` inverso, y el freno de existencia de cuenta que se había perdido | — |
+| **LC.10** | ✅ **2026-09-03** — carátula editable (folio/concepto) con guarda de folio ocupado + anti-duplicado en los DOS modos + el modo `libro` deja de generar. **Es lo que desbloquea ago-2026** | LC.9 |
+| **LC.11** | ✅ **2026-09-03** — respaldo en Excel derivado del TXT entregado (2 hojas). A ContPAQi va el archivo **y su respaldo** | LC.9 |
+| **LC.12** | ✅ **2026-09-03** — CFDI cancelado fuera del TXT + la ignorancia sobre los 167,053 `desconocido` se **declara** con su monto de IVA+IEPS en riesgo | — |
+| **LC.13** | ⬜ pantalla de `gl_supplier_accounts`. **Gate corrido 2026-09-03: no urge** — ningún proveedor de jul/ago necesita una cuenta 501/502 que no exista. Sí hay 207 facturas de ago (~$2.0M) cuyo RFC no está en el catálogo | — |
+| **LC.14** | ✅ **2026-09-03** — **tercera puerta, exacta por UUID** hasta jul-2026: `finance.purchase_book_history` + 2 vistas + sembrador con auto-chequeos. Bloqueo duro para la certeza, blando y auditado para la sospecha | LC.9 |
+| **LC.15** | ✅ **2026-09-03** — `analytics.gl_poliza_lines.concepto`: leer de vuelta el UUID que nosotros ponemos → **cuarta puerta**, desde ContPAQi mismo. Más el CSV para su Asociador de CFDI | LC.7, LC.14 |
 
 **MVP = LC.0 → LC.6.1**, y ahí está el valor: LC.6.1 es el propósito del módulo (sacar lo no
 asociado en TXT). LC.7 lo vuelve confiable.
@@ -581,10 +588,77 @@ Tracking. Diferido por ahora: 119 ms cada 5 minutos es 0.04% del tiempo.
 | 12 | **Change Tracking** para quitar el polling del feed | Necesita un admin de la instancia SQL Server; `platform_ro` no tiene rol de servidor |
 | 13 | **Índice sobre `Documento.TimeStamp`** | Alternativa barata al punto 12: convierte el scan de 615,511 filas en un seek |
 
+## LC.9 → LC.15 — el archivo era rechazable, y el cuadre miraba lo que no era (2026-09-03)
+
+Siete sprints en un solo bloque. El disparador fue una pregunta simple —"¿ya está listo el
+TXT?"— y la respuesta honesta era **no**: estaba escrito, pero con tres formas de fallar en
+silencio.
+
+### Los bugs que se encontraron leyendo el código (ninguno estaba en el tracker)
+
+1. ⛔ **El freno de existencia de cuenta se perdió al pasar de script a servicio.** `getMes`
+   sólo traía `proveedor_existe`; nunca `compra_exenta_existe` ni `compra_iva_existe`. El
+   freno preguntaba por `cuenta_compra_iva`, que es el string **precalculado** `502<sufijo>`
+   y está poblado para todo el que tenga sufijo — o sea no frenaba nada. Los 14 proveedores
+   sin cuenta `502` pasaban derecho, y `padR(null, 30)` mete **30 espacios**: el renglón no
+   se ve mal en ninguna pantalla y ContPAQi rechaza el archivo entero. El script viejo sí
+   frenaba (`generate-poliza-compras-txt.js:151`).
+2. ⛔ **`gl_poliza_lines` no guardaba el `Concepto` del movimiento.** El importer traía
+   `p.Concepto` (el de la póliza) y nunca `m.Concepto`. Metíamos el UUID ahí y **no lo
+   podíamos leer de vuelta** — la señal se emitía a ciegas.
+3. **`setInclusion` limpiaba `archivo_hash` pero dejaba `archivo_contenido`**, y
+   `obtenerArchivo` sólo miraba que el contenido existiera → servía el TXT viejo con la
+   firma vacía. Y bloqueaba en `aplicado` pero no en `entregado`.
+4. **El cuadre (LC.7) comparaba los datos de HOY**: re-derivaba con `getMes()` en vez de
+   parsear `archivo_contenido`, y no filtraba por `tipo`. Un CFDI nuevo daba descuadre falso.
+5. **El bloqueo anti-duplicado sólo corría en modo `complemento`** — dejando sin freno al
+   modo que abarca el mes entero, que es el de más riesgo.
+6. **La puerta (b) tiene un falso negativo estructural**: compara UNA pata contra el neto
+   completo, pero nuestro asiento parte el neto en DOS. Una factura de base mixta no casa.
+
+### Lo que se midió y cambió el rumbo
+
+| Pregunta | Lo que se creía | Lo que se midió |
+|---|---|---|
+| ¿Los 149 UUID ausentes son anteriores al ADD? | sí | **no**: el ADD arranca en 2018-01 y **148 son de un solo mes, abr-2023**, donde el workbook tiene el UUID corrido un carácter. 136 se recuperan por prefijo único; quedan 13 |
+| ¿Cuántos UUID repite el libro? | ~297 | **1** (`DA573CB9-…` en JUL23.152 y SEP23.194, $133,073.28): doble registro histórico real |
+| ¿Abrir un mes es rápido? | 376 ms | **11,795 ms** para agosto: `to_char(fecha)` anulaba el índice (seq scan de 167k) + dos EXISTS correlacionados. Corregido a **372 ms** con los conteos idénticos |
+| ¿Urge la pantalla de cuentas de proveedor? | tal vez | **no**: ningún proveedor de jul/ago necesita una 501/502 inexistente. Pero 207 facturas de ago (~$2.0M) tienen un RFC fuera del catálogo |
+
+### Las cuatro puertas del anti-duplicado
+
+| # | Prueba | Fuerza | Estado |
+|---|---|---|---|
+| a | abono a `212` por el total, Diario folio 1 | por importe | ✅ ya estaba |
+| b | cargo a `501/502` por el neto, cualquier póliza | por importe | ✅ ya estaba (con el falso negativo de arriba) |
+| c | **UUID en el libro histórico** (hoja `XML`) | **exacta** | ✅ LC.14 — cubre hasta jul-2026 |
+| d | **UUID en el `Concepto` de la pata real** | **exacta** | ✅ LC.15 — cubre lo que entreguemos de aquí en adelante |
+
+La certeza **bloquea sin override** y apaga el checkbox: es el mismo folio fiscal, no hay
+nada que juzgar. La sospecha por importe admite override **con motivo**, que se guarda —
+el cruce tiene falsos positivos por diseño y quitarle la salida al humano convierte una
+molestia en trabajo perdido (271 CFDIs / $32.6M en limbo).
+
+**La cobertura va siempre en pantalla.** Sin el histórico sembrado la puerta (c) es un
+no-op, y un no-op se lee igual que "no hay duplicados" — es lo que dejó
+`analytics.customer_receivables` vacía en producción durante meses.
+
+### Lo que sigue sin estar probado
+
+⚠️ **El separador del TXT.** Los 19 campos se validaron uno a uno contra `Polizas` /
+`MovimientosPoliza`, pero eso prueba qué **significa** cada campo, no cómo se serializa. Si
+`SEP` está mal, ContPAQi rechaza el archivo entero. El bloque 4 de
+`test-newdb-libro-compras-txt.js` skipea limpio y **se pone verde solo** en cuanto haya un
+TXT que ContPAQi ya haya aceptado en `database/tests/fixtures/`. Es lo más barato que queda
+por hacer, y es una dependencia humana: pedirle a la contadora el TXT de jul-2026 (ese mes
+cuadra al centavo, así que hay con qué compararlo).
+
+---
+
 ## Estado
 
-🔨 **EN CURSO 2026-09-02.** LC.0 → LC.6.1 cerrados. El módulo ya hace lo que existe para
-hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
+🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14 y LC.15 cerrados. El módulo ya hace lo que
+existe para hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
 
 - **LC.1 ✅ en prod**: 167,418 CFDIs recibidos de 2018 a hoy en `fiscal.cfdis`
   (`source='contpaqi_add'`), con bases gravables por impuesto y tasa **y** la marca de
