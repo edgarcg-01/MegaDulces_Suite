@@ -196,6 +196,11 @@ export class CommercialVendorRoutesService {
 
       type Wh = { id: string; code: string; name: string };
       let sucursal: Wh | undefined;
+      // De DÓNDE salió la sucursal: una asignación REAL (route/warehouse_code) o el
+      // DEFAULT del tenant (fallback). Normalización del error "veo la sucursal
+      // equivocada": el default no se dibuja como si fuera la sucursal del vendedor;
+      // el app lo muestra como "sin asignar" para que se corrija, no que engañe.
+      let sucursalSource: 'route' | 'warehouse_code' | 'default' | null = null;
 
       // La ruta operativa del vendedor sale de `daily_assignments` — lo que ESCRIBE el
       // panel de supervisor y LEE la cartera ("Mi ruta") + createCustomer. Se prefiere
@@ -235,6 +240,7 @@ export class CommercialVendorRoutesService {
             .whereNull('w.deleted_at')
             .select('w.id', 'w.code', 'w.name')
             .first<Wh>();
+          if (sucursal) sucursalSource = 'route';
         } catch {
           /* route_warehouses aún no migrada → seguimos con los fallbacks */
         }
@@ -246,14 +252,17 @@ export class CommercialVendorRoutesService {
           .whereNull('deleted_at')
           .select('id', 'code', 'name')
           .first<Wh>();
+        if (sucursal) sucursalSource = 'warehouse_code';
       }
-      // 3. Fallback: el almacén default del tenant (para no quedar sin stock).
+      // 3. Fallback: el almacén default del tenant (para no quedar sin stock). NO es
+      //    una asignación real → se marca 'default' para que el app lo declare.
       if (!sucursal) {
         sucursal = await trx('commercial.warehouses')
           .where({ is_default: true, active: true })
           .whereNull('deleted_at')
           .select('id', 'code', 'name')
           .first<Wh>();
+        if (sucursal) sucursalSource = 'default';
       }
 
       const camioneta: Wh | undefined = me
@@ -266,7 +275,15 @@ export class CommercialVendorRoutesService {
 
       return {
         sucursal: sucursal
-          ? { id: sucursal.id, code: sucursal.code, name: sucursal.name }
+          ? {
+              id: sucursal.id,
+              code: sucursal.code,
+              name: sucursal.name,
+              // assigned=false → es el default del tenant, NO la sucursal del vendedor:
+              // el app lo declara "sin asignar" en vez de mostrarlo como su surtido real.
+              assigned: sucursalSource === 'route' || sucursalSource === 'warehouse_code',
+              source: sucursalSource,
+            }
           : null,
         camioneta: camioneta
           ? { id: camioneta.id, code: camioneta.code, name: camioneta.name }
