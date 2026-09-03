@@ -12,7 +12,6 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
-import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-tabs.component';
 import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -53,7 +52,7 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule,
-    MetricStripComponent, PageTabsComponent,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -183,7 +182,12 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
             </div>
           </div>
 
-          <app-metric-strip [items]="kpis()" ariaLabel="Desglose de lo que falta por asociar" />
+          <!-- La tira de 5 mosaicos vivía acá y se fue al PIE de la tabla (LC.16.3). Cuatro
+               de los cinco eran los totales de cuatro columnas de la tabla, y el quinto
+               repetía el número que ya dice el veredicto tres renglones arriba. Al pie,
+               alineados bajo su columna, se leen como el asiento que son: 0% + c/IVA + IEPS
+               + IVA = total. Y ahí sirven — cuando estás en el renglón 400 de agosto
+               revisando, arriba no hay ningún total a la vista. -->
 
           <!-- El límite del anti-duplicado exacto, SIEMPRE a la vista. Si el histórico no
                está cargado la puerta por UUID no cubre nada, y un no-op se lee igual que
@@ -289,6 +293,10 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                   <th class="c-num">IEPS</th>
                   <th class="c-num">IVA</th>
                   <th class="c-num">Total</th>
+                  <!-- Estaban en una sola columna rotulada "Estado" cuyo valor mas comun
+                       (52% en sept, 70% en ago) era un numero de cuenta — y un numero de
+                       cuenta no es un estado. Cuenta es dato, Estado es juicio. -->
+                  <th class="c-cta">Cuenta</th>
                   <th class="c-cta">Estado</th>
                 </tr>
               </ng-template>
@@ -322,12 +330,35 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                     }
                   </td>
                   <td class="c-num mono">{{ f.folio }}</td>
-                  <td class="c-num mono">{{ f.fecha }}</td>
-                  <td class="c-num mono">{{ f.base_exenta | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="c-num mono">{{ f.subtotal16 | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="c-num mono">{{ f.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="c-num mono">{{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <!-- El backend manda 'YYYY-MM-DD' pelado. Angular parsea las fechas ISO
+                       SIN marca de zona con setFullYear local, o sea no corre el dia. Si
+                       alguna vez el backend manda un timestamp completo, el pipe pasa a
+                       UTC y vuelve el bug de restar un dia: mandar solo la fecha. -->
+                  <td class="c-num mono">{{ f.fecha | date:'dd/MM/yy' }}</td>
+                  <!-- Guion en vez de $0.00: medido en prod, 51-55% de las celdas de
+                       impuesto van en cero, o sea la MITAD de la tinta numerica de la tabla
+                       eran ceros con el mismo peso que un importe real. Las dos columnas de
+                       base NO se funden a proposito: son las dos cuentas del asiento (501 al
+                       0% y 502 gravado), y fundirlas esconderia la distincion sobre la que
+                       esta armado el TXT. -->
+                  <td class="c-num mono">
+                    @if (f.base_exenta > 0.004) { {{ f.base_exenta | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
+                  <td class="c-num mono">
+                    @if (f.subtotal16 > 0.004) { {{ f.subtotal16 | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
+                  <td class="c-num mono">
+                    @if (f.ieps > 0.004) { {{ f.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
+                  <td class="c-num mono">
+                    @if (f.iva > 0.004) { {{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
                   <td class="c-num mono strong">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-cta mono muted">{{ f.cuenta_proveedor ?? '—' }}</td>
                   <!-- El ROJO dice una sola cosa: esto impide generar el TXT.
                        Medido en prod antes de cambiarlo: en jul-2026 el 58% de la tabla
                        estaba en rojo y el 62% de esos rojos eran "Ya en el libro", o sea
@@ -349,13 +380,34 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                     } @else if (!f.cuenta_existe) {
                       <p-tag value="Cuenta inexistente" severity="danger" />
                     } @else {
-                      <span class="mono muted">{{ f.cuenta_proveedor }}</span>
+                      <span class="na-cero">—</span>
                     }
                   </td>
                 </tr>
               </ng-template>
+
+              <!-- El desglose que estaba arriba en 5 mosaicos, alineado bajo su columna y
+                   pegado al fondo del scroll. Suma lo que estas VIENDO (filtro + busqueda),
+                   asi que filtrar a "Sin cuenta" te dice cuanto dinero esta trabado. Por eso
+                   la primera celda dice cual filtro esta puesto: sin eso, el pie se leeria
+                   como "lo que va al TXT" estando en cualquier otro grupo. -->
+              <ng-template #footer>
+                <tr class="na-tot">
+                  <td class="c-chk"></td>
+                  <td>{{ etiquetaFiltro() }} <span class="muted">· {{ totales().n }} facturas</span></td>
+                  <td class="c-num"></td>
+                  <td class="c-num"></td>
+                  <td class="c-num mono">{{ totales().exento | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ totales().gravado | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ totales().ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ totales().iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono strong">{{ totales().total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-cta"></td>
+                  <td class="c-cta"></td>
+                </tr>
+              </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="10">
+                <tr><td colspan="11">
                   <div class="lc-empty">
                     <!-- Vacío por el filtro y vacío de verdad NO son lo mismo: decir "no
                          tiene movimientos sin asociar" con un filtro puesto es mentira. -->
@@ -471,30 +523,32 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
 
   /**
-   * La tira desglosa el total del asiento y **cuadra a la vista**:
-   * `0% + c/IVA + IEPS + IVA = Falta por asociar`. El IEPS estaba faltando y por eso los
-   * mosaicos no sumaban (en jul-2026 quedaban $54,912 sin explicar) — justo el concepto
-   * que el Excel venía capturando en cero.
+   * El desglose del asiento, al pie de la tabla y bajo su propia columna:
+   * `0% + c/IVA + IEPS + IVA = Total`. Cuadra a la vista, de izquierda a derecha.
    *
-   * Lo que NO se acciona (ya posteadas, fuera del catálogo) va aparte en `contexto()`, para
-   * que no compita visualmente: en julio "ya posteadas" son $17.7M contra $1.27M del total
-   * que sí importa, y siendo 14× más grande se robaba la lectura.
+   * Suma lo FILTRADO, no lo incluido: así "Sin cuenta" contesta cuánto dinero está trabado
+   * y "Ya en el libro" cuánto no hay que volver a mandar. Cuál está puesto lo dice la
+   * primera celda del pie — un total sin su alcance es una cifra que miente.
    */
-  kpis = computed<MetricStripItem[]>(() => {
-    const d = this.detalle();
-    if (!d) return [];
-    const r = d.resumen;
-    return [
-      { label: 'Falta por asociar', value: r.total, format: 'currency', tone: 'brand',
-        sub: `${r.incluidas} facturas entran al TXT` },
-      { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency' },
-      { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency' },
-      // Sin `tone`: estaba en verde con `ieps > 0 ? 'ok' : 'default'`, o sea verde por ser
-      // distinto de cero. Que haya IEPS no es bueno ni malo, es un hecho — y el color que
-      // no significa nada le resta al que sí.
-      { label: 'IEPS acreditable', value: r.ieps, format: 'currency' },
-      { label: 'IVA acreditable', value: r.iva, format: 'currency' },
-    ];
+  totales = computed(() => {
+    const fs = this.filtradas();
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const suma = (get: (f: FacturaMes) => number) => r2(fs.reduce((a, f) => a + get(f), 0));
+    return {
+      n: fs.length,
+      exento: suma((f) => f.base_exenta),
+      gravado: suma((f) => f.subtotal16),
+      ieps: suma((f) => f.ieps),
+      iva: suma((f) => f.iva),
+      total: suma((f) => f.total),
+    };
+  });
+
+  etiquetaFiltro = computed(() => {
+    const g = this.filtro();
+    const chip = this.chips().find((c) => c.key === g);
+    const base = chip?.label ?? 'Todas';
+    return this.busqueda().trim() ? `${base}, filtrado` : base;
   });
 
   /**
