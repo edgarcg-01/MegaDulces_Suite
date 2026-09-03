@@ -510,6 +510,67 @@ export class PurchaseBookService {
     });
   }
 
+  /**
+   * Cambia la carátula de la corrida: con qué folio y con qué concepto entra la póliza.
+   *
+   * Existe por los meses que NO tienen libro. ago-2026 es el caso: cero abonos a 212 y sin
+   * póliza folio 1, así que "todo lo no asociado" ES el mes — el alcance del complemento es
+   * el correcto, pero tiene que entrar como folio 1 "REGISTRO DE COMPRAS DEL MES", no como
+   * folio 2 "COMPLEMENTO".
+   *
+   * Editar el folio a secas sería peor que no editarlo, así que va con guarda: se rechaza si
+   * ContPAQi YA tiene ese folio ocupado en el Diario de ese mes. ago-2026 folio 1 está libre
+   * (el mes arranca en el 3) y pasa; jul-2026 folio 1 tiene 597 renglones y se rechaza —
+   * julio necesita un complemento en folio 2, que es exactamente lo correcto.
+   */
+  async setCaratula(anioMes: string, datos: { folio_poliza?: number; concepto?: string }, tipo: TipoCorrida = 'complemento') {
+    this.mesValido(anioMes);
+    const folio = datos.folio_poliza === undefined || datos.folio_poliza === null ? null : Number(datos.folio_poliza);
+    const concepto = typeof datos.concepto === 'string' ? datos.concepto.trim() : null;
+    if (folio === null && concepto === null) throw new BadRequestException('nada que cambiar');
+    if (folio !== null && (!Number.isInteger(folio) || folio < 1 || folio > 999999)) {
+      throw new BadRequestException('el folio de la póliza tiene que ser un entero entre 1 y 999999');
+    }
+    if (concepto !== null && !concepto) throw new BadRequestException('el concepto no puede quedar vacío');
+
+    const userId = this.ctx.get()?.userId ?? null;
+    return this.tk.run(async (knex) => {
+      const run = await this.ensureRun(knex, anioMes, tipo);
+      if (run.estado === 'aplicado' || run.estado === 'entregado') {
+        throw new BadRequestException(`la corrida de ${anioMes} ya está ${run.estado}; no se puede cambiar la carátula.`);
+      }
+
+      if (folio !== null && folio !== run.folio_poliza) {
+        const { rows } = await knex.raw(
+          `SELECT coalesce(num_lines, 0) AS patas, round(coalesce(cargos, 0), 2) AS cargos
+             FROM analytics.gl_polizas
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND folio = ? AND anio_mes = ?
+            LIMIT 1`,
+          [TIPO_POLIZA_DIARIO, String(folio), anioMes],
+        );
+        if (rows.length) {
+          throw new BadRequestException(
+            `ContPAQi ya tiene el folio ${folio} del Diario en ${anioMes} `
+            + `(${rows[0].patas} renglones por ${rows[0].cargos}). Elegí otro folio.`,
+          );
+        }
+      }
+
+      const patch: Record<string, unknown> = { updated_at: knex.fn.now(), updated_by: userId };
+      if (folio !== null) patch['folio_poliza'] = folio;
+      if (concepto !== null) patch['concepto'] = concepto;
+      await knex('finance.purchase_book_runs').where({ id: run.id }).update(patch);
+      // Cambió la carátula: el archivo firmado ya no corresponde.
+      await this.invalidar(knex, run, userId);
+      return {
+        ok: true, anio_mes: anioMes, tipo,
+        folio_poliza: folio ?? run.folio_poliza,
+        concepto: concepto ?? run.concepto,
+      };
+    });
+  }
+
   private async ensureRun(knex: any, anioMes: string, tipo: TipoCorrida = 'libro') {
     const existente = await knex('finance.purchase_book_runs')
       .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
@@ -603,30 +664,41 @@ export class PurchaseBookService {
     return parsearTxt(txt);
   }
 
-  /** Genera el archivo del mes y deja la corrida en `generado`, firmada por su hash. */
+  /**
+   * Genera el archivo del mes y deja la corrida en `generado`, firmada por su hash.
+   *
+   * **Sólo genera el `complemento`.** El modo `libro` sirve de tablero de lectura, pero su
+   * camino de generación es un footgun sin caso de uso: cualquier mes real cae en "la
+   * póliza ya existe" (y entonces lo que falta es el complemento) o "no existe" (y entonces
+   * el complemento ES el mes, sólo que con folio 1 — ver `setCaratula`). Y el alcance
+   * `libro` es estrictamente más peligroso: arrastra los CFDIs que ContPAQi YA tiene
+   * asociados, que es una vía de duplicado que ninguna de las dos puertas cubre.
+   */
   async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida } = {}) {
     this.mesValido(anioMes);
     const modo: ImpuestosModo = opts.impuestos === 'por-cuenta' ? 'por-cuenta' : 'global';
     const conUuid = opts.uuid !== false;
     const tipo: TipoCorrida = opts.tipo === 'complemento' ? 'complemento' : 'libro';
+    if (tipo === 'libro') {
+      throw new BadRequestException(
+        'el libro completo del mes ya no se genera: arrastra facturas que ContPAQi ya tiene asociadas y las duplicaría. '
+        + 'Usá "Movimientos no asociados"; si el mes no tiene póliza, cambiale el folio a 1 en la carátula.',
+      );
+    }
     const { facturas, resumen, bloqueantes } = await this.getMes(anioMes, tipo);
     const dentro = facturas.filter((f) => f.incluida);
-    if (!dentro.length) {
-      throw new BadRequestException(tipo === 'complemento'
-        ? 'no hay movimientos sin asociar por entregar en este mes'
-        : 'el mes no tiene facturas incluidas');
-    }
+    if (!dentro.length) throw new BadRequestException('no hay movimientos sin asociar por entregar en este mes');
 
-    // Freno propio del complemento: si alguna de las incluidas ya está posteada, el archivo
-    // duplicaría un asiento. No es un aviso, es un bloqueo — el daño es irreversible del
-    // lado de ContPAQi y nadie lo notaría hasta cuadrar la balanza.
-    if (tipo === 'complemento') {
-      const dobles = dentro.filter((f) => f.ya_en_poliza);
-      if (dobles.length) {
-        throw new BadRequestException(
-          `${dobles.length} factura(s) incluidas ya tienen su importe en la póliza del mes: se duplicarían. Exclúyelas antes de generar.`,
-        );
-      }
+    // Si alguna de las incluidas ya está posteada, el archivo duplicaría un asiento. No es
+    // un aviso, es un bloqueo — el daño es irreversible del lado de ContPAQi y nadie lo
+    // notaría hasta cuadrar la balanza. Va sin condicionar por tipo: la asimetría anterior
+    // (sólo en `complemento`) era un accidente del orden en que se escribió, y dejaba sin
+    // freno justo al modo que abarca el mes entero.
+    const dobles = dentro.filter((f) => f.ya_en_poliza);
+    if (dobles.length) {
+      throw new BadRequestException(
+        `${dobles.length} factura(s) incluidas ya tienen su importe en la póliza del mes: se duplicarían. Exclúyelas antes de generar.`,
+      );
     }
 
     // Frenos duros: mejor no entregar archivo que entregar uno que ContPAQi va a rechazar.
@@ -652,6 +724,25 @@ export class PurchaseBookService {
     return this.tk.run(async (knex) => {
       const run = await this.ensureRun(knex, anioMes, tipo);
       if (run.estado === 'aplicado') throw new BadRequestException('el mes ya está aplicado');
+
+      // Se vuelve a mirar el folio acá y no sólo en `setCaratula`: entre editar la carátula
+      // y generar pudo correr el feed y traerse una póliza nueva en ese folio. Es el último
+      // momento en que se puede avisar antes de que el archivo salga.
+      const { rows: ocupado } = await knex.raw(
+        `SELECT coalesce(num_lines, 0) AS patas, round(coalesce(cargos, 0), 2) AS cargos
+           FROM analytics.gl_polizas
+          WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+            AND tipo_pol = ? AND folio = ? AND anio_mes = ?
+          LIMIT 1`,
+        [TIPO_POLIZA_DIARIO, String(run.folio_poliza ?? FOLIO_COMPLEMENTO), anioMes],
+      );
+      if (ocupado.length) {
+        throw new BadRequestException(
+          `ContPAQi ya tiene el folio ${run.folio_poliza} del Diario en ${anioMes} `
+          + `(${ocupado[0].patas} renglones por ${ocupado[0].cargos}). Cambiá el folio de la carátula antes de generar.`,
+        );
+      }
+
       const concepto = run.concepto || `REGISTRO DE COMPRAS DEL MES ${anioMes}`;
       const txt = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs);
       const hash = createHash('sha256').update(txt, 'latin1').digest('hex');

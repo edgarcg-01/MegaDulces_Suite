@@ -6,7 +6,6 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
-import { SelectButtonModule } from 'primeng/selectbutton';
 import { CheckboxModule } from 'primeng/checkbox';
 import { InputTextModule } from 'primeng/inputtext';
 import { MessageService } from 'primeng/api';
@@ -16,7 +15,7 @@ import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-
 import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
-import { LibroComprasService, MesResumen, MesDetalle, FacturaMes, CuadreContpaqi, ImpuestosModo } from '../../libro-compras.service';
+import { LibroComprasService, MesResumen, MesDetalle, CuadreContpaqi } from '../../libro-compras.service';
 import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
 
 /**
@@ -34,7 +33,7 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
-    SelectButtonModule, CheckboxModule, InputTextModule, ToastModule,
+    CheckboxModule, InputTextModule, ToastModule,
     MetricStripComponent, PageTabsComponent,
   ],
   providers: [MessageService],
@@ -108,25 +107,27 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
               <span class="muted">{{ veredicto().detalle }}</span>
             </div>
             <div class="lc-acciones">
-              @if (puedeGestionar()) {
-                <p-button type="button" label="Generar TXT" icon="pi pi-file-export"
-                          [disabled]="!!d.bloqueantes.length || !d.resumen.incluidas || generando()"
-                          [loading]="generando()" (click)="generar()" />
-                @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
-                  <p-button type="button" label="Descargar" icon="pi pi-download"
-                            styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
-                }
-                @if (estadoRun() === 'generado') {
-                  <p-button type="button" label="Marcar entregado" icon="pi pi-send"
-                            styleClass="p-button-text p-button-secondary" (click)="dlgEntrega.set(true)" />
-                }
-                @if (estadoRun() === 'entregado') {
-                  <p-button type="button" label="Marcar aplicado" icon="pi pi-check-circle"
-                            styleClass="p-button-text p-button-secondary" (click)="marcar('aplicado')" />
-                }
+              @if (estadoRun() === 'generado' || estadoRun() === 'entregado') {
+                <p-button type="button" label="Descargar" icon="pi pi-download"
+                          styleClass="p-button-outlined p-button-secondary" (click)="descargar()" />
               }
+              <p-button type="button" label="Ir a movimientos no asociados" icon="pi pi-arrow-right"
+                        iconPos="right" styleClass="p-button-text"
+                        (click)="irANoAsociados()" />
             </div>
           </div>
+
+          <!-- Esta pantalla es de LECTURA. El libro completo del mes ya no se genera: su
+               universo arrastra los CFDIs que ContPAQi YA tiene asociados y los duplicaría,
+               que es una vía de doble registro que el filtro por importe no cubre. Lo que se
+               entrega sale del sub-módulo; si el mes no tiene póliza, ahí se le cambia el
+               folio a 1 y el complemento ES el libro. -->
+          <p class="lc-solo-lectura">
+            <i class="pi pi-info-circle"></i>
+            Vista de lectura: acá se ve el mes completo y su cuadre contra ContPAQi.
+            <strong>El archivo se genera desde Movimientos no asociados</strong>, que es lo
+            único que se puede entregar sin duplicar asientos.
+          </p>
 
           <app-metric-strip [items]="kpis()" ariaLabel="Totales del mes" />
 
@@ -142,15 +143,6 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
           }
 
           <div class="lc-opciones">
-            <label>
-              <span class="muted">Impuestos</span>
-              <p-selectbutton [options]="opcImpuestos" [(ngModel)]="impuestosModo" optionLabel="label"
-                              optionValue="value" [allowEmpty]="false" aria-label="Cómo postear IVA e IEPS" />
-            </label>
-            <label class="lc-chk">
-              <p-checkbox [(ngModel)]="incluirUuid" [binary]="true" inputId="lc-uuid" />
-              <span for="lc-uuid">Poner el UUID en cada renglón</span>
-            </label>
             @if (cuadre(); as c) {
               <span class="lc-cuadre" [class.ok]="c.existe_en_contpaqi && !c.solo_contpaqi && !c.solo_nuestro">
                 ContPAQi: {{ c.patas_en_contpaqi }} renglones · casan {{ c.casan }}
@@ -179,9 +171,10 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
               <ng-template #body let-f>
                 <tr [class.excluida]="!f.incluida">
                   <td class="c-chk">
-                    <p-checkbox [ngModel]="f.incluida" [binary]="true" [disabled]="!puedeGestionar()"
-                                (ngModelChange)="alternar(f, $event)"
-                                [ariaLabel]="'Incluir ' + f.emisor_nombre" />
+                    <!-- Sólo indicador: la decisión de qué entra se toma en el sub-módulo,
+                         que es el único que genera archivo. -->
+                    <p-checkbox [ngModel]="f.incluida" [binary]="true" [disabled]="true"
+                                [ariaLabel]="f.incluida ? 'Entra al asiento' : 'Fuera del asiento'" />
                   </td>
                   <td>
                     <span class="lc-prov">{{ f.emisor_nombre }}</span>
@@ -225,16 +218,6 @@ import { LIBRO_COMPRAS_STYLES } from './libro-compras.styles';
       </section>
     </div>
 
-    <p-dialog header="Marcar como entregado" [(visible)]="dlgEntregaVisible" [modal]="true" [style]="{ width: '26rem' }">
-      <label class="lc-campo">
-        <span>¿A quién se le entregó?</span>
-        <input pInputText [(ngModel)]="entregadoA" placeholder="Nombre de quien lo sube a ContPAQi" />
-      </label>
-      <ng-template #footer>
-        <p-button type="button" label="Cancelar" styleClass="p-button-text" (click)="dlgEntrega.set(false)" />
-        <p-button type="button" label="Confirmar" (click)="marcar('entregado')" />
-      </ng-template>
-    </p-dialog>
   `,
 })
 export class LibroComprasComponent implements OnInit {
@@ -245,10 +228,6 @@ export class LibroComprasComponent implements OnInit {
   private router = inject(Router);
 
   readonly tabs = CONTABILIDAD_TABS;
-  readonly opcImpuestos = [
-    { label: 'Un renglón al mes', value: 'global' as ImpuestosModo },
-    { label: 'Por proveedor', value: 'por-cuenta' as ImpuestosModo },
-  ];
 
   meses = signal<MesResumen[]>([]);
   detalle = signal<MesDetalle | null>(null);
@@ -256,14 +235,7 @@ export class LibroComprasComponent implements OnInit {
   mesSel = signal<string | null>(null);
   cargandoMeses = signal(false);
   cargandoMes = signal(false);
-  generando = signal(false);
-  dlgEntrega = signal(false);
-  impuestosModo: ImpuestosModo = 'global';
-  incluirUuid = true;
-  entregadoA = '';
 
-  get dlgEntregaVisible() { return this.dlgEntrega(); }
-  set dlgEntregaVisible(v: boolean) { this.dlgEntrega.set(v); }
 
   puedeGestionar = computed(() => {
     const u = this.auth.user();
@@ -365,8 +337,6 @@ export class LibroComprasComponent implements OnInit {
     this.svc.getMes(mes).subscribe({
       next: (d) => {
         this.detalle.set(d);
-        this.impuestosModo = (d.run?.['impuestos_modo'] as ImpuestosModo) ?? 'global';
-        this.incluirUuid = d.run?.['incluye_uuid'] !== false;
         this.cargandoMes.set(false);
       },
       error: (e) => { this.cargandoMes.set(false); this.error('No se pudo abrir el mes', e); },
@@ -374,48 +344,10 @@ export class LibroComprasComponent implements OnInit {
     this.svc.cuadre(mes).subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
   }
 
-  /** Optimista: la fila cambia de inmediato y se revierte si el server dice que no. */
-  alternar(f: FacturaMes, incluida: boolean) {
-    const mes = this.mesSel(); if (!mes) return;
-    const antes = f.incluida;
-    this.aplicarInclusionLocal(f.uuid, incluida);
-    this.svc.setInclusion(mes, [f.uuid], incluida).subscribe({
-      error: (e) => { this.aplicarInclusionLocal(f.uuid, antes); this.error('No se pudo cambiar la factura', e); },
-    });
-  }
-
-  private aplicarInclusionLocal(uuid: string, incluida: boolean) {
-    const d = this.detalle(); if (!d) return;
-    const facturas = d.facturas.map((x) => (x.uuid === uuid ? { ...x, incluida } : x));
-    const dentro = facturas.filter((x) => x.incluida);
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-    this.detalle.set({
-      ...d, facturas,
-      resumen: {
-        ...d.resumen,
-        incluidas: dentro.length,
-        excluidas: facturas.length - dentro.length,
-        total: r2(dentro.reduce((a, x) => a + x.total, 0)),
-        subtotal_exento: r2(dentro.reduce((a, x) => a + x.base_exenta, 0)),
-        subtotal_gravado: r2(dentro.reduce((a, x) => a + x.subtotal16, 0)),
-        iva: r2(dentro.reduce((a, x) => a + x.iva, 0)),
-        ieps: r2(dentro.reduce((a, x) => a + x.ieps, 0)),
-      },
-    });
-  }
-
-  generar() {
-    const mes = this.mesSel(); if (!mes) return;
-    this.generando.set(true);
-    this.svc.generar(mes, this.impuestosModo, this.incluirUuid).subscribe({
-      next: (r) => {
-        this.generando.set(false);
-        this.toast.add({ severity: 'success', summary: 'Póliza generada',
-          detail: `${r.facturas} facturas · ${r.renglones} renglones · ${this.money(r.cargos)}` });
-        this.abrirMes(mes); this.cargarMeses();
-      },
-      error: (e) => { this.generando.set(false); this.error('No se pudo generar', e); },
-    });
+  /** El archivo se entrega desde el sub-módulo: es el único que no duplica asientos. */
+  irANoAsociados() {
+    const mes = this.mesSel();
+    this.router.navigate(['/contabilidad/movimientos-no-asociados'], mes ? { queryParams: { mes } } : {});
   }
 
   descargar() {
@@ -428,18 +360,6 @@ export class LibroComprasComponent implements OnInit {
         a.click(); URL.revokeObjectURL(url);
       },
       error: (e) => this.error('No se pudo descargar', e),
-    });
-  }
-
-  marcar(estado: 'entregado' | 'aplicado' | 'cancelado') {
-    const mes = this.mesSel(); if (!mes) return;
-    this.svc.marcar(mes, estado, { entregado_a: this.entregadoA || undefined }).subscribe({
-      next: () => {
-        this.dlgEntrega.set(false); this.entregadoA = '';
-        this.toast.add({ severity: 'success', summary: 'Trámite actualizado', detail: `Mes marcado como ${estado}.` });
-        this.abrirMes(mes); this.cargarMeses();
-      },
-      error: (e) => this.error('No se pudo actualizar el trámite', e),
     });
   }
 

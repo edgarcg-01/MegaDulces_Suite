@@ -96,6 +96,16 @@ export const LIBRO_COMPRAS_STYLES = `
 
 .lc-campo { display: flex; flex-direction: column; gap: .35rem; font-size: var(--fs-sm); }
 .lc-campo input { width: 100%; }
+
+/* El libro completo es pantalla de LECTURA: el archivo sale del sub-módulo, que es el
+   único que no arrastra los CFDIs que ContPAQi ya tiene asociados. Se dice, no se esconde
+   —un botón que no está y nadie explica se lee como un bug. */
+.lc-solo-lectura { margin: -.25rem 0 0; padding: .55rem .7rem; border-radius: var(--radius-sm);
+  background: var(--surface-subtle); border: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45;
+  display: flex; gap: .5rem; align-items: baseline; }
+.lc-solo-lectura i { color: var(--action); }
+.lc-solo-lectura strong { color: var(--text-color); font-weight: var(--fw-semibold); }
 `;
 
 /**
@@ -122,4 +132,18 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
    a propósito — esconderlas haría creer que el mes tiene menos pendientes de los que tiene. */
 .lc-tablewrap tr.dup td { opacity: .55; }
 .lc-tablewrap tr.dup td:first-child { box-shadow: inset 2px 0 0 var(--warn-fg); }
+
+/* El folio de la póliza es editable: los meses sin libro (ago-2026) tienen que entrar como
+   folio 1, no como complemento en el 2. Se ve como dato, no como botón, hasta el hover. */
+.na-caratula { font: inherit; color: inherit; background: none; border: 0; padding: 0 .15rem;
+  border-radius: var(--radius-xs); cursor: pointer; display: inline-flex; align-items: baseline; gap: .3rem; }
+.na-caratula i { font-size: .7em; opacity: 0; transition: opacity .12s ease; }
+.na-caratula:hover { background: var(--surface-hover); color: var(--text-color); }
+.na-caratula:hover i { opacity: .6; }
+.na-caratula:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.na-caratula:focus-visible i { opacity: .6; }
+
+.na-dlg-nota { margin: 0 0 .9rem; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
+.na-dlg-nota strong { display: block; margin-top: .4rem; color: var(--warn-fg); font-weight: var(--fw-semibold); }
+.na-dlg-aviso { margin: .9rem 0 0; font-size: var(--fs-micro); color: var(--text-muted); }
 `;

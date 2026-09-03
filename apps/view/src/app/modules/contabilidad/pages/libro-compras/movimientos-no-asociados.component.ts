@@ -187,7 +187,16 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
               <span for="na-uuid">Poner el UUID en cada renglón</span>
             </label>
             <span class="lc-cuadre">
-              Póliza {{ folioPoliza() }} del Diario · {{ d.resumen.incluidas }} facturas
+              @if (puedeGestionar() && estadoRun() !== 'aplicado' && estadoRun() !== 'entregado') {
+                <button type="button" class="na-caratula" (click)="abrirCaratula()"
+                        title="Cambiar con qué folio y concepto entra la póliza">
+                  Póliza {{ folioPoliza() }} del Diario
+                  <i class="pi pi-pencil"></i>
+                </button>
+              } @else {
+                <span>Póliza {{ folioPoliza() }} del Diario</span>
+              }
+              · {{ d.resumen.incluidas }} facturas
             </span>
           </div>
 
@@ -271,6 +280,31 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
         <p-button type="button" label="Confirmar" (click)="marcar('entregado')" />
       </ng-template>
     </p-dialog>
+
+    <p-dialog header="Carátula de la póliza" [(visible)]="dlgCaratulaVisible" [modal]="true" [style]="{ width: '30rem' }">
+      <p class="na-dlg-nota">
+        Con qué folio y concepto entra la póliza en ContPAQi. El folio 1 del Diario es
+        siempre el registro de compras del mes; el complemento va en el 2.
+        @if (!existeLibroDelMes()) {
+          <strong>Este mes no tiene póliza de compras, así que lo que falta ES el libro: ponelo en folio 1.</strong>
+        }
+      </p>
+      <label class="lc-campo">
+        <span>Folio de la póliza</span>
+        <input pInputText type="number" min="1" [(ngModel)]="caratulaFolio" />
+      </label>
+      <label class="lc-campo">
+        <span>Concepto</span>
+        <input pInputText [(ngModel)]="caratulaConcepto" placeholder="REGISTRO DE COMPRAS DEL MES" />
+      </label>
+      <p class="na-dlg-aviso">
+        Si ya hay un archivo generado, cambiar esto lo invalida y hay que volver a generarlo.
+      </p>
+      <ng-template #footer>
+        <p-button type="button" label="Cancelar" styleClass="p-button-text" (click)="dlgCaratula.set(false)" />
+        <p-button type="button" label="Guardar" [loading]="guardandoCaratula()" (click)="guardarCaratula()" />
+      </ng-template>
+    </p-dialog>
   `,
 })
 export class MovimientosNoAsociadosComponent implements OnInit {
@@ -293,12 +327,24 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   cargandoMes = signal(false);
   generando = signal(false);
   dlgEntrega = signal(false);
+  dlgCaratula = signal(false);
+  guardandoCaratula = signal(false);
   impuestosModo: ImpuestosModo = 'global';
   incluirUuid = true;
   entregadoA = '';
+  caratulaFolio: number | null = null;
+  caratulaConcepto = '';
 
   get dlgEntregaVisible() { return this.dlgEntrega(); }
   set dlgEntregaVisible(v: boolean) { this.dlgEntrega.set(v); }
+  get dlgCaratulaVisible() { return this.dlgCaratula(); }
+  set dlgCaratulaVisible(v: boolean) { this.dlgCaratula.set(v); }
+
+  /** Si ContPAQi ya tiene la póliza de compras del mes. Si no, lo que falta ES el libro. */
+  existeLibroDelMes = computed(() => {
+    const mes = this.mesSel();
+    return this.meses().find((m) => m.anio_mes === mes)?.existe_libro === true;
+  });
 
   puedeGestionar = computed(() => {
     const u = this.auth.user();
@@ -474,6 +520,36 @@ export class MovimientosNoAsociadosComponent implements OnInit {
         iva: r2(dentro.reduce((a, x) => a + x.iva, 0)),
         ieps: r2(dentro.reduce((a, x) => a + x.ieps, 0)),
       },
+    });
+  }
+
+  abrirCaratula() {
+    const d = this.detalle(); if (!d) return;
+    this.caratulaFolio = this.folioPoliza();
+    this.caratulaConcepto = String(d.run?.['concepto'] ?? '');
+    // El mes sin libro necesita entrar como folio 1: se sugiere ya escrito, no se impone.
+    if (!this.existeLibroDelMes() && this.caratulaFolio === 2) {
+      this.caratulaFolio = 1;
+      this.caratulaConcepto = `REGISTRO DE COMPRAS DEL MES ${d.mes}`;
+    }
+    this.dlgCaratula.set(true);
+  }
+
+  guardarCaratula() {
+    const mes = this.mesSel(); if (!mes) return;
+    const folio = Number(this.caratulaFolio);
+    if (!Number.isInteger(folio) || folio < 1) {
+      this.toast.add({ severity: 'warn', summary: 'Folio inválido', detail: 'Tiene que ser un entero mayor o igual a 1.' });
+      return;
+    }
+    this.guardandoCaratula.set(true);
+    this.svc.setCaratulaNoAsociados(mes, { folio_poliza: folio, concepto: this.caratulaConcepto.trim() }).subscribe({
+      next: (r) => {
+        this.guardandoCaratula.set(false); this.dlgCaratula.set(false);
+        this.toast.add({ severity: 'success', summary: 'Carátula guardada', detail: `Entra como folio ${r.folio_poliza} del Diario.` });
+        this.abrirMes(mes); this.cargarMeses();
+      },
+      error: (e) => { this.guardandoCaratula.set(false); this.error('No se pudo cambiar la carátula', e); },
     });
   }
 
