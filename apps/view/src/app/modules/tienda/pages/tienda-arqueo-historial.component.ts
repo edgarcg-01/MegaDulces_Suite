@@ -467,7 +467,11 @@ export class TiendaArqueoHistorialComponent implements OnInit {
       denominaciones: t.denominaciones || [], total_contado: t.nuestro_contado ?? t.kepler_contado ?? 0,
       esperado: t.esperado, diff_real: t.diff_real, kepler_contado: t.kepler_contado,
       kepler_billetes: t.kepler_billetes, kepler_monedas: t.kepler_monedas, kepler_retirado: t.kepler_retirado,
-      capturado_por: t.capturado_por, validado_por: t.validado_por, validado_at: t.validado_at,
+      kepler_tarjeta: t.kepler_tarjeta, kepler_transfer: t.kepler_transfer, venta: t.venta,
+      tipo: 'cierre', turno: t.turno, duracion_horas: t.duracion_horas, handoff: t.handoff,
+      arqueo_id: t.arqueo_id, incidencia_tipo: t.incidencia_tipo, nota: t.nota, validado_nota: t.validado_nota,
+      capturado_por: t.capturado_por, capturado_at: t.capturado_at,
+      validado_por: t.validado_por, validado_at: t.validado_at,
     }, { revela: this.revela });
     if (!ok) {
       this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permití las ventanas emergentes de este sitio para imprimir.' });

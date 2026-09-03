@@ -617,6 +617,11 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       esperado: r.esperado, diff_real: r.diff_real,
       kepler_contado: r.kepler_contado, kepler_billetes: r.kepler_billetes,
       kepler_monedas: r.kepler_monedas, kepler_retirado: r.kepler_retirado,
+      // Lo que la persona acaba de declarar: sale del formulario, no del server.
+      tipo: r.tipo, cajero_entrante: this.aEntrante || null,
+      turno: t?.turno ?? null,
+      incidencia_tipo: this.aIncidencia || null, nota: this.aNota || null,
+      capturado_at: new Date().toISOString(),
       capturado_por: this.auth.user()?.username || null,
       validado_por: null, validado_at: null,
     }, { revela: this.revela });
