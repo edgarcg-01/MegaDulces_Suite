@@ -135,6 +135,53 @@ const SRC = path.resolve(__dirname, '../../libs/finance/src/lib/purchase-book');
     ok(/archivo_contenido: null/.test(inv) && /archivo_hash: null/.test(inv),
       'invalidar() tira el contenido Y el hash (dejar el contenido servía el TXT viejo sin firma)');
 
+    // ── 5. LC.7: el cuadre compara lo ENTREGADO, no los datos de hoy ──────
+    console.log('\n═══ 5. El cuadre post-entrega ═══');
+    const cua = svc.slice(svc.indexOf('  async cuadrarContraContpaqi('), svc.indexOf('  async sincronizarHallazgos('));
+    ok(cua.length > 500, 'se pudo aislar cuadrarContraContpaqi()');
+    ok(/parsearTxt\(run\.archivo_contenido/.test(cua),
+      'el cuadre PARSEA el archivo entregado (antes re-derivaba con getMes: un CFDI nuevo daba descuadre falso)');
+    ok(!/this\.getMes\(/.test(cua), 'el cuadre ya NO llama a getMes()');
+    ok(/anio_mes: anioMes, tipo \}/.test(cua) || /\{ anio_mes: anioMes, tipo \}/.test(cua),
+      'el cuadre filtra la corrida por TIPO (con dos por mes, .first() tomaba una arbitraria)');
+    ok(/orderByRaw/.test(cua), 'y ordena, para que .first() sea determinista');
+    ok(/header\.folio/.test(cua), 'el folio sale del encabezado del ARCHIVO, no de la corrida');
+    ok(/comparable: false/.test(cua) && /no guardó el archivo entregado/.test(cua),
+      'sin archivo se NIEGA a comparar en vez de re-derivar (la re-derivación silenciosa ES el bug)');
+
+    // La guarda de frescura: sin ella el cuadre grita en falso cada vez que se entrega
+    // antes de que corra el feed, y una alarma que grita en falso deja de leerse.
+    ok(/feed_contpaqi/.test(cua), 'la guarda de frescura mira el latido del feed de pólizas');
+    ok(/last_finish/.test(cua), 'usa last_finish (cron_runs guarda el último latido, no un histórico)');
+    // Sin quitar los comentarios, el propio comentario que explica por qué NO se usa
+    // `computed_at` hace fallar la aserción. (Pasó dos veces al escribir estos tests: es el
+    // mismo tropiezo del escáner de rutas.)
+    const cuaSinComentarios = cua.split(/\r?\n/).filter((l) => !/^\s*(\/\/|\*|\/\*|--)/.test(l)).join('\n');
+    ok(!/computed_at/.test(cuaSinComentarios),
+      'NO usa computed_at: el importer hace DELETE+INSERT sólo del delta, así que una corrida sin cambios no lo mueve');
+
+    if (polizas) {
+      const feed = (await knex('analytics.cron_runs')
+        .where({ tenant_id: T, job_key: 'feed_contpaqi' }).first());
+      ok(!!feed, "existe el latido 'feed_contpaqi' que consulta la guarda");
+      if (feed) ok(/póliza|poliza/i.test(String(feed.label ?? '')), `y su label confirma que trae pólizas ("${feed.label}")`);
+    }
+
+    const sync = svc.slice(svc.indexOf('  async sincronizarHallazgos('), svc.indexOf('  private async medirAsociacion('));
+    ok(/FINANCE_FINDINGS_SINK_PORT|findingsSink/.test(svc), 'el servicio inyecta el sink de hallazgos');
+    for (const regla of ['libro_compras_descuadre_contpaqi', 'libro_compras_poliza_ausente', 'libro_compras_entrega_sin_asociar'])
+      ok(svc.includes(regla), `regla ${regla}`);
+    ok(/dedup_key: `libro_compras_descuadre_contpaqi\|\$\{anioMes\}\|\$\{tipo\}`/.test(sync),
+      'el dedup_key va por (mes, tipo) y no por run_id: regenerar la corrida ACTUALIZA el hallazgo, no lo bifurca');
+    ok(/estado !== 'entregado' && c\.estado !== 'aplicado'/.test(sync),
+      'no se emiten hallazgos de una corrida que todavía no se entrega');
+
+    // El GET no debe escribir: un GET que empuja hallazgos se dispara dos veces con un refresh.
+    const getCuadre = ctrl.slice(ctrl.indexOf("@Get('no-asociados/:mes/cuadre')"), ctrl.indexOf("@Post('no-asociados/:mes/cuadre/sync-findings')"));
+    ok(getCuadre.length > 0 && !/sincronizarHallazgos/.test(getCuadre),
+      'el GET del cuadre NO empuja hallazgos — eso va en su POST');
+    ok(ctrl.includes("@Post('no-asociados/:mes/cuadre/sync-findings')"), 'existe el POST que sí empuja');
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} ok · ${fail} fallidas`);
   } catch (e) {
     console.error('ERROR:', e.message);

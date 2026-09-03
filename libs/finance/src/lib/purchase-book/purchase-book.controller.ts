@@ -91,6 +91,22 @@ export class PurchaseBookController {
     await this.enviarTxt(res, mes, 'complemento');
   }
 
+  @Get('no-asociados/:mes/cuadre')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Compara el TXT entregado contra la póliza que quedó en ContPAQi. Sólo lee.' })
+  cuadreNoAsociados(@Param('mes') mes: string) {
+    return this.svc.cuadrarContraContpaqi(mes, 'complemento');
+  }
+
+  @Post('no-asociados/:mes/cuadre/sync-findings')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'Empuja el descuadre a la bandeja de hallazgos de Maat.' })
+  sincronizarHallazgosNoAsociados(@Param('mes') mes: string) {
+    // Va en POST y no dentro del GET a propósito: un GET que escribe se dispara dos veces
+    // con cualquier refresh de la pantalla.
+    return this.svc.sincronizarHallazgos(mes, 'complemento');
+  }
+
   @Get('no-asociados/:mes/respaldo')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'El respaldo del archivo entregado: sus movimientos y las facturas que lo componen.' })
@@ -117,9 +133,9 @@ export class PurchaseBookController {
 
   @Get(':mes/cuadre')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
-  @ApiOperation({ summary: 'Compara lo entregado contra la póliza que quedó en ContPAQi.' })
+  @ApiOperation({ summary: 'Compara la corrida del libro contra la póliza que quedó en ContPAQi.' })
   cuadre(@Param('mes') mes: string) {
-    return this.svc.cuadrarContraContpaqi(mes);
+    return this.svc.cuadrarContraContpaqi(mes, 'libro');
   }
 
   @Post(':mes/inclusion')

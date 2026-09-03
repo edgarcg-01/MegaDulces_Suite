@@ -1,6 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger, Optional, Inject } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import {
+  FINANCE_FINDINGS_SINK_PORT, FinanceFindingsSinkPort, FinanceFindingInput, FinanceRuleInput,
+} from '@megadulces/contracts';
 import {
   TIPO_POLIZA_DIARIO, r2, construirTxt, parsearTxt, type Movimiento, type PolizaTxtParseada,
 } from './poliza-txt';
@@ -43,6 +46,37 @@ export type TipoCorrida = 'libro' | 'complemento';
 /** Folio 1 del Diario es siempre el registro de compras; el 2 está libre en todos los meses. */
 const FOLIO_LIBRO = 1;
 const FOLIO_COMPLEMENTO = 2;
+
+/**
+ * LC.7 — las reglas del cuadre post-entrega, para la bandeja de hallazgos de Maat.
+ *
+ * Se registran antes de insertar (la FK `(tenant_id, rule_key)` lo exige) y son
+ * idempotentes: si ya existen se preserva la calibración humana.
+ */
+const REGLAS_CUADRE: FinanceRuleInput[] = [
+  {
+    rule_key: 'libro_compras_descuadre_contpaqi', clase: 'error_captura',
+    nombre: 'La póliza en ContPAQi no es la que entregamos',
+    descripcion: 'El multiset (cuenta, cargo/abono, importe) del TXT guardado en la corrida no coincide '
+      + 'con la póliza real. Alguien editó renglones al importar, o el archivo se subió a otro folio.',
+    params: { tolerancia_pesos: 1000 },
+  },
+  {
+    rule_key: 'libro_compras_poliza_ausente', clase: 'riesgo',
+    nombre: 'Entregado y sin póliza en ContPAQi',
+    descripcion: 'La corrida está entregada o aplicada y ContPAQi no tiene la póliza del mes. '
+      + 'Es el modo de falla que tiró julio y agosto de 2026 sin que nadie lo notara.',
+    params: {},
+  },
+  {
+    rule_key: 'libro_compras_entrega_sin_asociar', clase: 'error_captura',
+    nombre: 'Entrega aplicada y sin asociar en ContPAQi',
+    descripcion: 'Pasaron los días de gracia desde que se aplicó y los UUID entregados siguen sin marca '
+      + 'de asociación. El layout del TXT no tiene campo de UUID: si nadie usa el Asociador de CFDI, el '
+      + 'flag miente y el anti-duplicado se queda sin su señal buena.',
+    params: { dias_gracia: 7 },
+  },
+];
 
 export interface FacturaMes {
   uuid: string;
@@ -105,6 +139,9 @@ export class PurchaseBookService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly ctx: TenantContextService,
+    // Best-effort: la bandeja unificada vive en Maat. Sin binding el módulo sigue
+    // funcionando, sólo que el cuadre no consolida hallazgos.
+    @Optional() @Inject(FINANCE_FINDINGS_SINK_PORT) private readonly findingsSink?: FinanceFindingsSinkPort,
   ) {}
 
   private mesValido(anioMes: string) {
@@ -985,46 +1022,250 @@ export class PurchaseBookService {
   }
 
   /**
-   * LC.7 — compara lo que se entregó contra la póliza que quedó en ContPAQi. Se compara
-   * el multiset `(cuenta, cargo/abono, importe)`: si algo se editó a mano al subirlo,
-   * aparece aquí.
+   * LC.7 — compara **lo que se entregó** contra la póliza que quedó en ContPAQi.
+   *
+   * Antes re-derivaba los movimientos con `getMes()` + `construirMovimientos()`, o sea
+   * comparaba los datos de HOY: si entre entregar y cuadrar entraba un CFDI nuevo al mes,
+   * reportaba un descuadre que no existía. Ahora se parsea `archivo_contenido`, que es
+   * inmutable — para eso se guarda. Si no hay archivo **no se compara**: la re-derivación
+   * silenciosa ES el bug, y el arreglo es negarse, no comparar mejor.
+   *
+   * El folio sale del encabezado del ARCHIVO y no de `run.folio_poliza`, porque el folio
+   * definitivo lo decide quien lo sube.
    */
-  async cuadrarContraContpaqi(anioMes: string) {
+  async cuadrarContraContpaqi(anioMes: string, tipo: TipoCorrida = 'complemento') {
     this.mesValido(anioMes);
-    const { facturas } = await this.getMes(anioMes);
     return this.tk.run(async (knex) => {
       const run = await knex('finance.purchase_book_runs')
-        .where({ anio_mes: anioMes }).whereNull('deleted_at').first();
-      const dentro = facturas.filter((f) => f.incluida && f.account_suffix && f.cuenta_existe);
-      const movs = this.construirMovimientos(dentro, (run?.impuestos_modo as ImpuestosModo) ?? 'global', false);
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at')
+        .orderByRaw('generado_at DESC NULLS LAST, created_at DESC')
+        .first();
+
+      const vacio = {
+        anio_mes: anioMes, tipo, comparable: false, motivo: '', estado: run?.estado ?? null,
+        folio_esperado: null as number | null, patas_archivo: 0, patas_en_contpaqi: 0,
+        casan: 0, solo_nuestro: 0, solo_contpaqi: 0, existe_en_contpaqi: false,
+        delta_cargos: 0, delta_abonos: 0,
+        muestra_solo_nuestro: [] as unknown[], muestra_solo_contpaqi: [] as unknown[],
+        folio_candidato: null as number | null, patas_candidato: 0, espejo_at: null as string | null,
+      };
+      if (!run) return { ...vacio, motivo: `no hay corrida ${tipo} para ${anioMes}` };
+      if (!run.archivo_contenido) return { ...vacio, motivo: 'la corrida no guardó el archivo entregado' };
+
+      const { movimientos, invalidos, header } = parsearTxt(run.archivo_contenido as string);
+      if (invalidos.length || !header) {
+        return { ...vacio, motivo: `el archivo guardado no cumple el layout (${invalidos[0]?.motivo ?? 'sin encabezado'})` };
+      }
+      const folio = header.folio;
+
+      // Guarda de frescura. El espejo de pólizas lo alimenta un feed on-prem; si viene más
+      // viejo que la entrega, "no está la póliza" sólo significa "todavía no la trajimos".
+      // Se mira el LATIDO del feed y no `computed_at`: el importer hace DELETE+INSERT sólo
+      // del delta por RowVersion, así que una corrida sin cambios no mueve computed_at y la
+      // guarda gritaría "espejo viejo" estando al día.
+      // `feed_contpaqi` = "Feed ContPAQi (pólizas+bancos @1min)", verificado contra
+      // analytics.cron_runs: es el carril que alimenta gl_poliza_lines. La columna es
+      // `last_finish` (la tabla guarda el ÚLTIMO latido por job_key, no un histórico).
+      const { rows: latido } = await knex.raw(
+        `SELECT last_finish AS ultimo
+           FROM analytics.cron_runs
+          WHERE tenant_id = ? AND job_key = 'feed_contpaqi' AND status = 'ok'`,
+        [this.ctx.get()?.tenantId ?? null],
+      );
+      const espejoAt: Date | null = latido[0]?.ultimo ?? null;
+      const entregadoAt: Date | null = run.entregado_at ?? run.generado_at ?? null;
+      if (entregadoAt && espejoAt && new Date(espejoAt) < new Date(entregadoAt)) {
+        return {
+          ...vacio, folio_esperado: folio, patas_archivo: movimientos.length,
+          espejo_at: new Date(espejoAt).toISOString(),
+          motivo: 'el espejo de pólizas es más viejo que la entrega: todavía no se puede cuadrar',
+        };
+      }
 
       const { rows } = await knex.raw(
-        `SELECT cuenta, cargo_abono, importe FROM analytics.gl_poliza_lines
+        `SELECT cuenta, cargo_abono, round(importe, 2) AS importe
+           FROM analytics.gl_poliza_lines
           WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
             AND tipo_pol = ? AND folio = ? AND anio_mes = ?`,
-        [TIPO_POLIZA_DIARIO, String(run?.folio_poliza ?? 1), anioMes],
+        [TIPO_POLIZA_DIARIO, String(folio), anioMes],
       );
 
-      const clave = (c: string, ab: string, i: number) => `${c}|${ab}|${Math.round(i * 100)}`;
-      const gen = new Map<string, number>(); const real = new Map<string, number>();
-      movs.forEach((m) => { const k = clave(m.cuenta, m.abono ? 'A' : 'C', m.importe); gen.set(k, (gen.get(k) ?? 0) + 1); });
-      rows.forEach((m: Record<string, unknown>) => {
-        const k = clave(String(m['cuenta']), String(m['cargo_abono']), Number(m['importe']));
-        real.set(k, (real.get(k) ?? 0) + 1);
-      });
-      let casan = 0, soloNuestro = 0, soloContpaqi = 0;
-      for (const k of new Set([...gen.keys(), ...real.keys()])) {
-        const g = gen.get(k) ?? 0, a = real.get(k) ?? 0;
-        casan += Math.min(g, a); soloNuestro += Math.max(0, g - a); soloContpaqi += Math.max(0, a - g);
+      const clave = (c: string, ab: string, i: number) => `${c}|${ab}|${Math.round(Number(i) * 100)}`;
+      const mios = new Map<string, number>(); const suyos = new Map<string, number>();
+      for (const m of movimientos) {
+        const k = clave(m.cuenta, m.abono ? 'A' : 'C', m.importe);
+        mios.set(k, (mios.get(k) ?? 0) + 1);
       }
+      for (const m of rows as Record<string, unknown>[]) {
+        const k = clave(String(m['cuenta']), String(m['cargo_abono']), Number(m['importe']));
+        suyos.set(k, (suyos.get(k) ?? 0) + 1);
+      }
+      let casan = 0;
+      const soloN: { cuenta: string; cargo_abono: string; importe: number; veces: number }[] = [];
+      const soloC: { cuenta: string; cargo_abono: string; importe: number; veces: number }[] = [];
+      for (const k of new Set([...mios.keys(), ...suyos.keys()])) {
+        const g = mios.get(k) ?? 0, s = suyos.get(k) ?? 0;
+        casan += Math.min(g, s);
+        const [cuenta, ca, cent] = k.split('|');
+        const fila = { cuenta, cargo_abono: ca, importe: Number(cent) / 100, veces: Math.abs(g - s) };
+        if (g > s) soloN.push(fila); else if (s > g) soloC.push(fila);
+      }
+      const porImporte = (a: { importe: number }, b: { importe: number }) => b.importe - a.importe;
+
+      // Un delta de UN número se lee mucho mejor que un multiset, y atrapa el caso
+      // "editaron un importe a mano al importar".
+      const sumar = (ms: { abono: boolean; importe: number }[], abono: boolean) =>
+        r2(ms.filter((m) => m.abono === abono).reduce((a, m) => a + m.importe, 0));
+      const cargosArchivo = sumar(movimientos, false), abonosArchivo = sumar(movimientos, true);
+      const cargosReal = r2((rows as Record<string, unknown>[]).filter((m) => m['cargo_abono'] === 'C').reduce((a, m) => a + Number(m['importe']), 0));
+      const abonosReal = r2((rows as Record<string, unknown>[]).filter((m) => m['cargo_abono'] === 'A').reduce((a, m) => a + Number(m['importe']), 0));
+
+      // Si el folio esperado está vacío, se BUSCA el más parecido — pero sólo se informa.
+      // Adoptarlo para el veredicto arriesga comparar el complemento contra el libro del
+      // mismo mes: los dos son tipo_pol 3.
+      let candidato: number | null = null, patasCandidato = 0;
+      if (!rows.length) {
+        const { rows: cand } = await knex.raw(
+          `SELECT folio, count(*)::int AS patas
+             FROM analytics.gl_poliza_lines
+            WHERE tenant_id = current_tenant_id() AND source = 'contpaqi'
+              AND tipo_pol = ? AND anio_mes = ?
+            GROUP BY folio ORDER BY 2 DESC LIMIT 1`,
+          [TIPO_POLIZA_DIARIO, anioMes],
+        );
+        if (cand.length) { candidato = Number(cand[0].folio); patasCandidato = Number(cand[0].patas); }
+      }
+
       return {
-        anio_mes: anioMes,
-        patas_nuestras: movs.length,
+        anio_mes: anioMes, tipo, comparable: true, motivo: '', estado: run.estado,
+        folio_esperado: folio,
+        patas_archivo: movimientos.length,
         patas_en_contpaqi: rows.length,
-        casan, solo_nuestro: soloNuestro, solo_contpaqi: soloContpaqi,
-        // Sin póliza del lado de ContPAQi el mes simplemente no se subió.
+        casan,
+        solo_nuestro: soloN.reduce((a, x) => a + x.veces, 0),
+        solo_contpaqi: soloC.reduce((a, x) => a + x.veces, 0),
         existe_en_contpaqi: rows.length > 0,
+        delta_cargos: r2(cargosArchivo - cargosReal),
+        delta_abonos: r2(abonosArchivo - abonosReal),
+        muestra_solo_nuestro: soloN.sort(porImporte).slice(0, 10),
+        muestra_solo_contpaqi: soloC.sort(porImporte).slice(0, 10),
+        folio_candidato: candidato, patas_candidato: patasCandidato,
+        espejo_at: espejoAt ? new Date(espejoAt).toISOString() : null,
       };
+    });
+  }
+
+  /**
+   * Empuja el resultado del cuadre a la bandeja de hallazgos de Maat.
+   *
+   * Va aparte del GET a propósito: un GET que escribe es un GET que se dispara dos veces
+   * con un refresh. Lo llama el cron nocturno y el botón manual.
+   */
+  async sincronizarHallazgos(anioMes: string, tipo: TipoCorrida = 'complemento') {
+    const tenantId = this.ctx.get()?.tenantId ?? null;
+    if (!tenantId) throw new BadRequestException('sin tenant en contexto');
+    if (!this.findingsSink) {
+      this.logger.debug('sink de hallazgos no ligado — sincronizarHallazgos no-op.');
+      return { pushed: 0, inserted: 0, skipped: 0 };
+    }
+    const c = await this.cuadrarContraContpaqi(anioMes, tipo);
+    if (!c.comparable) {
+      this.logger.debug(`cuadre ${anioMes}/${tipo} no comparable: ${c.motivo}`);
+      return { pushed: 0, inserted: 0, skipped: 0, motivo: c.motivo };
+    }
+    if (c.estado !== 'entregado' && c.estado !== 'aplicado') {
+      return { pushed: 0, inserted: 0, skipped: 0, motivo: 'la corrida todavía no se entrega' };
+    }
+
+    const money = (v: number) => Number(v || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+    const findings: FinanceFindingInput[] = [];
+
+    if (!c.existe_en_contpaqi) {
+      findings.push({
+        rule_key: 'libro_compras_poliza_ausente', clase: 'riesgo', severity: 'critical', score: 0.95,
+        titulo: `${anioMes}: entregado y sin póliza en ContPAQi`,
+        resumen: `El ${tipo} de ${anioMes} está ${c.estado} pero ContPAQi no tiene la póliza ${TIPO_POLIZA_DIARIO}-${c.folio_esperado}. `
+          + (c.folio_candidato ? `El folio más parecido del mes es el ${c.folio_candidato}, con ${c.patas_candidato} renglones. ` : '')
+          + 'Es el modo de falla que tiró julio y agosto de 2026 sin que nadie lo notara.',
+        entity: { anio_mes: anioMes, tipo, folio_esperado: c.folio_esperado, folio_candidato: c.folio_candidato },
+        periodo: anioMes, importe: Math.abs(c.delta_cargos),
+        evidencia: { patas_archivo: c.patas_archivo, espejo_at: c.espejo_at, fuente: 'finance.purchase_book_runs.archivo_contenido ⋈ analytics.gl_poliza_lines' },
+        dedup_key: `libro_compras_poliza_ausente|${anioMes}|${tipo}`,
+      });
+    } else if (c.solo_nuestro || c.solo_contpaqi || Math.abs(c.delta_cargos) >= 0.01) {
+      const grave = Math.abs(c.delta_cargos) >= 1000
+        || (c.solo_nuestro + c.solo_contpaqi) >= Math.max(1, Math.round(c.patas_archivo * 0.05));
+      findings.push({
+        rule_key: 'libro_compras_descuadre_contpaqi', clase: 'error_captura',
+        severity: grave ? 'critical' : 'warn', score: grave ? 0.85 : 0.6,
+        titulo: `${anioMes}: la póliza en ContPAQi no es la que entregamos`,
+        resumen: `De ${c.patas_archivo} renglones entregados casan ${c.casan}. Sobran ${c.solo_nuestro} nuestros y `
+          + `${c.solo_contpaqi} de ContPAQi; los cargos difieren en ${money(c.delta_cargos)}. `
+          + 'Alguien editó renglones al importar, o el archivo se subió a otro folio.',
+        entity: { anio_mes: anioMes, tipo, folio_esperado: c.folio_esperado },
+        periodo: anioMes,
+        // Cuando los totales cuadran pero las patas no, el importe del hallazgo es lo que
+        // quedó repartido distinto — si no, un descuadre real saldría con importe cero.
+        importe: Math.abs(c.delta_cargos) >= 0.01
+          ? Math.abs(c.delta_cargos)
+          : (c.muestra_solo_nuestro as { importe: number }[])
+            .reduce((a, x) => a + Number(x.importe ?? 0), 0),
+        evidencia: {
+          patas_archivo: c.patas_archivo, patas_en_contpaqi: c.patas_en_contpaqi, casan: c.casan,
+          solo_nuestro: c.solo_nuestro, solo_contpaqi: c.solo_contpaqi,
+          delta_cargos: c.delta_cargos, delta_abonos: c.delta_abonos,
+          muestra_solo_nuestro: c.muestra_solo_nuestro, muestra_solo_contpaqi: c.muestra_solo_contpaqi,
+          espejo_at: c.espejo_at,
+        },
+        dedup_key: `libro_compras_descuadre_contpaqi|${anioMes}|${tipo}`,
+      });
+    }
+
+    // El lazo que hoy no existe: si a los 7 días de aplicado los UUID entregados siguen sin
+    // marca de asociación, el paso del Asociador de CFDI no está ocurriendo — y sin él el
+    // flag miente y el heurístico por importe carga toda la decisión.
+    const sinAsociar = await this.medirAsociacion(anioMes, tipo);
+    if (sinAsociar && sinAsociar.dias >= 7 && sinAsociar.sin_marca > 0) {
+      findings.push({
+        rule_key: 'libro_compras_entrega_sin_asociar', clase: 'error_captura', severity: 'warn', score: 0.6,
+        titulo: `${anioMes}: ${sinAsociar.sin_marca} de ${sinAsociar.total} facturas entregadas siguen sin asociar`,
+        resumen: `Pasaron ${sinAsociar.dias} días desde que se aplicó el ${tipo} de ${anioMes} y `
+          + `${sinAsociar.sin_marca} de sus ${sinAsociar.total} CFDIs siguen sin marca de asociación en ContPAQi. `
+          + 'El TXT no lleva campo de UUID, así que la asociación se crea aparte; si nadie la hace, el filtro '
+          + 'anti-duplicado se queda sin su señal buena.',
+        entity: { anio_mes: anioMes, tipo },
+        periodo: anioMes, importe: sinAsociar.monto,
+        evidencia: { total: sinAsociar.total, sin_marca: sinAsociar.sin_marca, dias: sinAsociar.dias, fuente: 'fiscal.cfdis.aso_contabilidad' },
+        dedup_key: `libro_compras_entrega_sin_asociar|${anioMes}|${tipo}`,
+      });
+    }
+
+    if (!findings.length) return { pushed: 0, inserted: 0, skipped: 0 };
+    const res = await this.findingsSink.pushFindings(tenantId, findings, REGLAS_CUADRE);
+    this.logger.log(`cuadre ${anioMes}/${tipo}: ${findings.length} hallazgo(s) → Maat (${res.inserted} nuevos).`);
+    return { pushed: findings.length, ...res };
+  }
+
+  /** Cuántos de los UUID que se entregaron siguen sin marca de asociación, y desde cuándo. */
+  private async medirAsociacion(anioMes: string, tipo: TipoCorrida) {
+    return this.tk.run(async (knex) => {
+      const run = await knex('finance.purchase_book_runs')
+        .where({ anio_mes: anioMes, tipo }).whereNull('deleted_at').first();
+      if (!run?.archivo_contenido || !run.aplicado_at) return null;
+      const { movimientos } = parsearTxt(run.archivo_contenido as string);
+      const uuids = [...new Set(movimientos.map((m) => m.concepto).filter((c) => /^[0-9A-Fa-f-]{36}$/.test(c)))]
+        .map((u) => u.toUpperCase());
+      if (!uuids.length) return null;
+      const { rows } = await knex.raw(
+        `SELECT count(*)::int AS total,
+                count(*) FILTER (WHERE aso_contabilidad IS NOT TRUE)::int AS sin_marca,
+                round(coalesce(sum(total) FILTER (WHERE aso_contabilidad IS NOT TRUE), 0), 2) AS monto
+           FROM fiscal.cfdis
+          WHERE tenant_id = current_tenant_id() AND upper(uuid) = ANY (?)`,
+        [uuids],
+      );
+      const dias = Math.floor((Date.now() - new Date(run.aplicado_at as string).getTime()) / 86400000);
+      return { total: Number(rows[0].total), sin_marca: Number(rows[0].sin_marca), monto: Number(rows[0].monto), dias };
     });
   }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { PurchaseBookService } from './purchase-book.service';
 import { PurchaseBookController } from './purchase-book.controller';
+import { PurchaseBookScannerService } from './purchase-book-scanner.service';
 
 /**
  * Fase LC (ADR-052) — Libro de Compras. Lee `fiscal.cfdis` (CFDIs recibidos del ADD de
@@ -10,7 +11,7 @@ import { PurchaseBookController } from './purchase-book.controller';
  */
 @Module({
   controllers: [PurchaseBookController],
-  providers: [PurchaseBookService],
+  providers: [PurchaseBookService, PurchaseBookScannerService],
   exports: [PurchaseBookService],
 })
 export class FinancePurchaseBookModule {}
