@@ -134,6 +134,9 @@ export interface TurnoCorte {
   denominaciones: { denominacion: number; cantidad: number; subtotal: number }[];
   capturado_por: string | null; capturado_at: string | null;
   validado_por: string | null; validado_at: string | null;
+  /** SM.22 — lo que el ticket necesita para ser el arqueo COMPLETO y no un resumen. */
+  turno?: string | null; nota?: string | null; incidencia_tipo?: string | null; validado_nota?: string | null;
+  kepler_tarjeta?: number | null; kepler_transfer?: number | null;
 }
 
 /** Una cajera con todos sus cortes del período. */

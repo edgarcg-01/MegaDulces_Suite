@@ -395,6 +395,9 @@ export class StoreArqueoController {
           nuestro_contado: t.nuestro_contado, denominaciones: t.denominaciones,
           capturado_por: t.capturado_por, capturado_at: t.capturado_at,
           validado_por: t.validado_por, validado_at: t.validado_at,
+          // Su propio arqueo sí lo puede ver entero: turno, motivo y notas son
+          // datos de lo que ELLA hizo. Los montos de Kepler siguen fuera.
+          turno: t.turno, nota: t.nota, incidencia_tipo: t.incidencia_tipo, validado_nota: t.validado_nota,
         })),
       })),
       totales: { cajeras: res.totales.cajeras, cortes: res.totales.cortes, sin_arqueo: res.totales.sin_arqueo },
