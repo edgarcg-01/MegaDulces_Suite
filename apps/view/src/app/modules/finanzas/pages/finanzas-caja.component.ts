@@ -270,13 +270,13 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               <ng-template #header>
                 <tr>
                   <th class="cg-w-date" rowspan="2">Día</th>
-                  <th class="ta-c tw-grp" colspan="4"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th>
-                  <th class="ta-c tw-grp" colspan="4"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th>
+                  <th class="ta-c tw-grp" colspan="5"><i class="pi pi-arrow-down-left tw-in-ico"></i> Ingreso</th>
+                  <th class="ta-c tw-grp" colspan="5"><i class="pi pi-arrow-up-right tw-out-ico"></i> Gasto</th>
                   <th class="cg-w-e ta-c" rowspan="2">Estado</th>
                 </tr>
                 <tr>
-                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th>
-                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th>
+                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th><th class="ta-r tw-kep" title="Control − Kepler">Δ C–K</th>
+                  <th class="ta-r">Control</th><th class="ta-r">Workbook</th><th class="ta-r tw-kep">Kepler</th><th class="ta-r">Δ C–W</th><th class="ta-r tw-kep" title="Control − Kepler">Δ C–K</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
@@ -284,12 +284,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                   <td class="cg-mono">{{ dmy(r.fecha) }} <span class="muted">· {{ r.mdb_n }}</span><i class="pi pi-search-plus tw-drill-ico"></i></td>
                   <td class="ta-r num">{{ money(r.mdb_ingreso) }}</td>
                   <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_ingreso) }}</td>
-                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_ingreso)">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
+                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps">{{ r.kp_n ? money(r.kp_ingreso) : '—' }}</td>
                   <td class="ta-r num" [class.bad]="!r.wb_vacio && abs(r.delta_ingreso)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_ingreso) }}</td>
+                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_ingreso)>d.eps" title="Control − Kepler (informativo)">{{ r.kp_n ? money(r.delta_kep_ingreso) : '—' }}</td>
                   <td class="ta-r num">{{ money(r.mdb_gasto) }}</td>
                   <td class="ta-r num muted">{{ r.wb_vacio ? '—' : money(r.wb_gasto) }}</td>
-                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" [title]="'Δ control–kepler: ' + money(r.delta_kep_gasto)">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
+                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps">{{ r.kp_n ? money(r.kp_gasto) : '—' }}</td>
                   <td class="ta-r num" [class.bad]="!r.wb_vacio && abs(r.delta_gasto)>d.eps">{{ r.wb_vacio ? '—' : money(r.delta_gasto) }}</td>
+                  <td class="ta-r num tw-kep" [class.warn]="r.kp_n && abs(r.delta_kep_gasto)>d.eps" title="Control − Kepler (informativo)">{{ r.kp_n ? money(r.delta_kep_gasto) : '—' }}</td>
                   <td class="cg-w-e ta-c">
                     @if (r.wb_vacio) { <span class="tw-tag muted-tag">sin workbook</span> }
                     @else if (r.cuadra) { <i class="pi pi-check-circle ok" title="Cuadra"></i> }
