@@ -133,6 +133,30 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
 .lc-tablewrap tr.dup td { opacity: .55; }
 .lc-tablewrap tr.dup td:first-child { box-shadow: inset 2px 0 0 var(--warn-fg); }
 
+/* ── El color dice UNA cosa (LC.16.1) ──────────────────────────────────────
+   Medido en prod antes del cambio: jul-2026 tenía 258 de 446 filas (58%) en rojo, y 159 de
+   esas 258 decían "Ya en el libro" — o sea el camino feliz gritando como si fuera un error.
+   El rojo queda reservado a lo que IMPIDE generar el TXT: RFC sin cuenta, cuenta
+   inexistente, CFDI cancelado. */
+
+/* Estado del mes en el rail: punto + texto. Eran 105 pastillas llenas compitiendo con la
+   única acción naranja de la pantalla. */
+.na-estado { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap;
+  font-size: var(--fs-micro); color: var(--text-muted); }
+.na-dot { display: inline-block; width: .4rem; height: .4rem; border-radius: 50%; flex: none;
+  background: var(--text-muted); }
+.na-estado.e-success   .na-dot { background: var(--ok-fg); }
+.na-estado.e-warn      .na-dot { background: var(--warn-fg); }
+.na-estado.e-danger    .na-dot { background: var(--bad-fg); }
+.na-estado.e-info      .na-dot { background: var(--action); }
+.na-estado.e-secondary .na-dot { background: var(--text-muted); }
+
+/* "Ya en el libro": mismo folio fiscal, asunto cerrado. Recede — no es una alarma, es una
+   garantía. Sin pastilla; el check verde alcanza y el texto va en voz baja. */
+.na-listo { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap;
+  font-size: var(--fs-micro); color: var(--text-muted); }
+.na-listo i { font-size: .75em; color: var(--ok-fg); }
+
 /* El folio de la póliza es editable: los meses sin libro (ago-2026) tienen que entrar como
    folio 1, no como complemento en el 2. Se ve como dato, no como botón, hasta el hover. */
 .na-caratula { font: inherit; color: inherit; background: none; border: 0; padding: 0 .15rem;
@@ -154,9 +178,10 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
 .na-cobertura.vacia { color: var(--warn-fg); }
 .na-cobertura.vacia i, .na-cobertura.vacia strong { color: var(--warn-fg); }
 
-/* Prueba EXACTA por UUID: es el mismo folio fiscal, no hay nada que juzgar. Se marca más
-   fuerte que la sospecha por importe y su checkbox va apagado. */
-.lc-tablewrap tr.exacta td:first-child { box-shadow: inset 2px 0 0 var(--bad-fg); }
+/* Prueba EXACTA por UUID: mismo folio fiscal, no hay nada que juzgar; su checkbox va
+   apagado. El filo era ROJO, que la ponía al nivel de un bloqueante siendo lo contrario:
+   está resuelta. Verde tenue = cerrado. */
+.lc-tablewrap tr.exacta td:first-child { box-shadow: inset 2px 0 0 var(--ok-fg); }
 
 .na-dlg-nota { margin: 0 0 .9rem; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
 .na-dlg-nota strong { display: block; margin-top: .4rem; color: var(--warn-fg); font-weight: var(--fw-semibold); }
