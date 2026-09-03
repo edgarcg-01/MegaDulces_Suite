@@ -479,6 +479,13 @@ export class BlindCountService {
           trx.raw('bc.id AS arqueo_id'),
           trx.raw('bc.total_contado::numeric AS nuestro_contado'),
           'bc.denominations', 'bc.validado_por', 'bc.validado_at', 'bc.captured_by', 'bc.captured_at',
+          // Para que el ticket impreso sea el arqueo COMPLETO y no un resumen:
+          // el turno de Kepler, el motivo cuando hubo incidencia y lo que la
+          // cajera escribió. Sin esto el papel pierde justo lo que explica un
+          // descuadre.
+          'bc.nota', 'bc.incidencia_tipo', 'bc.validado_nota', 'cc.turno',
+          trx.raw('cc.tarjeta_contado::numeric AS kepler_tarjeta'),
+          trx.raw('cc.transfer_contado::numeric AS kepler_transfer'),
         )
         .orderBy('cc.business_date', 'desc').orderBy('cc.hora_cierre', 'desc')
         .limit(limite);
