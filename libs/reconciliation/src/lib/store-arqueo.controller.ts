@@ -160,7 +160,7 @@ export class StoreArqueoController {
           : 'Ese turno no es tuyo o ya no existe en Kepler.',
       );
     }
-    await this.exigirElMasViejo(body, folio, revela, cajero_code);
+    await this.exigirElMasViejo(body, folio, revela, cajero_code, warehouse_code);
     return {
       cash_cut_folio: turno.folio,
       caja: turno.caja,                 // la caja la dice Kepler, no el formulario
@@ -188,9 +188,16 @@ export class StoreArqueoController {
    * pararía el mostrador sin proteger nada — el control del dinero es el cierre.
    * Y el supervisor queda exento: captura por otros y en contingencia.
    */
-  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code?: string) {
+  private async exigirElMasViejo(body: BlindCountDto, folio: string, revela: boolean, cajero_code: string | undefined, warehouseCode: string) {
     if (revela) return;
     if ((body?.tipo ?? 'cierre') !== 'cierre') return;
+    // Corregir un conteo YA hecho no es saltarse la fila: el turno viejo sigue
+    // igual de pendiente después de la corrección, así que bloquearla no protege
+    // nada — y sí deja congelada una cifra que la cajera sabe equivocada, que es
+    // justo lo contrario de lo que esta regla busca.
+    // La sucursal RESUELTA, no `body.warehouse_code`: la cajera no lo manda, así
+    // que leerlo del body dejaría el chequeo en un no-op silencioso.
+    if (await this.blind.yaArqueado(warehouseCode, folio)) return;
     const scope = (await this.scope.current()).dims.warehouse;
     const pendientes = await this.blind.turnosPendientes({
       cajeroCode: cajero_code,
