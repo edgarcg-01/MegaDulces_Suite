@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Fixed — incidente real: el rol dedicado no tenía permiso para el login, producción caída unos minutos (CV.17, 2026-09-03)
+- El primer login real contra el rol dedicado `catalogo_kp_runtime` desde el corte de CV.15 (todas las verificaciones previas usaban tokens de prueba) chocó con el `UPDATE` que registra el último inicio de sesión — el rol sólo tenía permiso de lectura ahí. El proceso dejó de responder poco después.
+- `GRANT UPDATE` aplicado de inmediato al cluster real y corregido en el script de rol versionado. Agregada además una defensa en profundidad: esa actualización de auditoría ya no puede volver a impedir un login si el permiso vuelve a fallar por cualquier motivo.
+- Reconstruido, redesplegado y verificado en producción real en minutos.
+- Detalle completo y la lección de diseño en `docs/GOTCHAS.md` §33 y [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
 ### Added — reporte "Actualizar Wix" para MKT dentro del catálogo interno (CV.16, 2026-09-03)
 - Reemplaza el flujo manual que MKT usaba para refrescar el catálogo de la tienda Wix: una laptop conectada a la red de Kepler + un script de Python con login JWT propio + un artefacto Claude/Cowork aparte para el precio/existencia + otro script de Python aparte para las presentaciones (Pieza/Paquete/Caja).
 - Hallazgo antes de escribir código: el endpoint `GET /api/kp/productos`, ya migrado y en producción, ya devuelve todo lo que las tres herramientas viejas necesitaban — cero cambios de backend, sólo una página nueva.
