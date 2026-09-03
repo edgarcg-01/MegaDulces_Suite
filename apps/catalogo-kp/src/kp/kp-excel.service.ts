@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as XLSX from 'xlsx';
+import * as ExcelJS from 'exceljs';
 
 export interface ExcelArticuloMes {
   sucursal: string;         // nombre de sucursal (ej. "Morelia Abastos")
@@ -161,7 +161,7 @@ export class KpExcelService {
 
     for (const file of files) {
       try {
-        const parsed = this.parseXlsxFile(path.join(dir, file), file);
+        const parsed = await this.parseXlsxFile(path.join(dir, file), file);
         results.push(...parsed);
         this.logger.log(`KP Excel: ${file} → ${parsed.length} artículos`);
       } catch (e: any) {
@@ -173,20 +173,17 @@ export class KpExcelService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Parser .xlsx (lógica original conservada)
+  // Parser .xlsx (lógica original conservada, motor exceljs)
   // ─────────────────────────────────────────────────────────────────────────
 
-  private parseXlsxFile(filePath: string, fileName: string): ExcelArticuloMes[] {
+  private async parseXlsxFile(filePath: string, fileName: string): Promise<ExcelArticuloMes[]> {
     const sucursal = this.inferSucursal(fileName);
 
-    const wb = XLSX.readFile(filePath, { cellDates: false, raw: true });
-    const ws = wb.Sheets[wb.SheetNames[0]];
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.readFile(filePath);
+    const ws = wb.worksheets[0];
 
-    const matrix: any[][] = XLSX.utils.sheet_to_json(ws, {
-      header: 1,
-      defval: null,
-      blankrows: true,
-    });
+    const matrix: any[][] = this.worksheetToMatrix(ws);
 
     if (matrix.length === 0) return [];
 
@@ -198,6 +195,32 @@ export class KpExcelService {
 
     const year = this.inferYear(matrix, headerRowIdx);
     return this.extractArticulos(matrix, headerRowIdx, mesColumns, sucursal, year);
+  }
+
+  /** Misma forma que XLSX.utils.sheet_to_json(ws, {header:1, defval:null, blankrows:true}): filas 0-index, mismo ancho (max columnas de la hoja), huecos en null. */
+  private worksheetToMatrix(ws: ExcelJS.Worksheet | undefined): any[][] {
+    if (!ws) return [];
+    const numCols = ws.columnCount || 0;
+    const matrix: any[][] = [];
+    ws.eachRow({ includeEmpty: true }, (row) => {
+      const arr: any[] = new Array(numCols).fill(null);
+      for (let c = 1; c <= numCols; c++) {
+        arr[c - 1] = this.cellValue(row.getCell(c).value);
+      }
+      matrix.push(arr);
+    });
+    return matrix;
+  }
+
+  private cellValue(v: ExcelJS.CellValue): any {
+    if (v === null || v === undefined) return null;
+    if (typeof v === 'object') {
+      if (v instanceof Date) return v;
+      if ('result' in v) return this.cellValue((v as ExcelJS.CellFormulaValue).result as ExcelJS.CellValue);
+      if ('richText' in v) return (v as ExcelJS.CellRichTextValue).richText.map(rt => rt.text).join('');
+      if ('text' in v) return (v as ExcelJS.CellHyperlinkValue).text;
+    }
+    return v;
   }
 
   private findHeaderRow(matrix: any[][]): {
