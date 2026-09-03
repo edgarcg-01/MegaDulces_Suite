@@ -1606,7 +1606,9 @@ export class CommercialAnalyticsService {
       // y todo esto corre en UNA conexión (tk.run abre transacción), así que los tiempos
       // se suman en vez de solaparse. Medido en prod: este endpoint tardaba 4.4 s y era
       // el que dejaba el tablero en esqueletos — los otros 9 paneles ya tenían datos.
-      const channels = await trx('analytics.sales_daily')
+      // PARIDAD/ODS — revenue/cost/units/canal de la venta real CONSOLIDADA (mv_sales_blended: Kepler
+      // del ODS + rutas + Wincaja), NO la copia sales_daily que sub-cuenta Kepler ~$8M/mes.
+      const channels = await trx('analytics.mv_sales_blended')
         .where('tenant_id', tenantId)
         .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('sale_date', '>=', this.since30d(trx))
@@ -1617,13 +1619,23 @@ export class CommercialAnalyticsService {
           trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
           trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
           trx.raw('MAX(sale_date) AS last_sale_date'),
           trx.raw('MAX(updated_at) AS updated_at'),
           // cobertura de costo: % del revenue que tiene costo capturado (para el chip de confianza).
           trx.raw('COALESCE(SUM(revenue) FILTER (WHERE cost > 0),0)::numeric AS revenue_with_cost'),
         )
         .orderByRaw('SUM(revenue) DESC');
+      // TICKETS aún de sales_daily (los matviews del ODS no cuentan folio): total + por canal, mismo
+      // vocabulario de canal → se cruza con el blend. Aproximado (le falta el ticket del telemarketing,
+      // que la copia no tiene) → avg_ticket queda levemente alto; el revenue SÍ es el real consolidado.
+      const ticketRows: any[] = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .groupBy('channel')
+        .select('channel', trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
+      const ticketByChannel = new Map<string, number>(ticketRows.map((r: any) => [r.channel, Number(r.tickets || 0)]));
 
       // El total es la suma de los canales, y los MAX son el mayor de los MAX por canal:
       // exactamente lo mismo que devolvía el agregado global. Sin filas, todo queda en 0 /
@@ -1634,7 +1646,7 @@ export class CommercialAnalyticsService {
         revenue: channels.reduce((a: number, r: any) => a + Number(r.revenue || 0), 0),
         cost: channels.reduce((a: number, r: any) => a + Number(r.cost || 0), 0),
         units: channels.reduce((a: number, r: any) => a + Number(r.units || 0), 0),
-        tickets: channels.reduce((a: number, r: any) => a + Number(r.tickets || 0), 0),
+        tickets: ticketRows.reduce((a: number, r: any) => a + Number(r.tickets || 0), 0), // tickets de sales_daily (ver nota)
         revenue_with_cost: channels.reduce((a: number, r: any) => a + Number(r.revenue_with_cost || 0), 0),
         last_sale_date: maxOf('last_sale_date'),
         updated_at: maxOf('updated_at'),
@@ -1690,7 +1702,7 @@ export class CommercialAnalyticsService {
             margin: chMargin,
             margin_pct: chRev > 0 ? +((chMargin / chRev) * 100).toFixed(1) : 0,
             units: Number(c.units),
-            tickets: Number(c.tickets),
+            tickets: ticketByChannel.get(c.channel) || 0, // tickets de sales_daily por canal (ver nota)
             share_pct: revenue > 0 ? +((chRev / revenue) * 100).toFixed(1) : 0,
           };
         }),
@@ -1711,7 +1723,8 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.sales_daily AS s')
+      // PARIDAD/ODS — venta real consolidada del blend (recupera telemarketing Kepler), no la copia.
+      const rows: any[] = await trx('analytics.mv_sales_blended AS s')
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .leftJoin('analytics.product_sales_stats AS st', (j: any) =>
@@ -1743,7 +1756,7 @@ export class CommercialAnalyticsService {
       // Sin memo fresco → `share_pct: null` ("no lo sé sin otra pasada"), salvo `?share=true`.
       let netTotal = this.netRevenue30dCached(tenantId);
       if (netTotal === null && opts?.share) {
-        const [tot] = await trx('analytics.sales_daily')
+        const [tot] = await trx('analytics.mv_sales_blended')
           .where('tenant_id', tenantId)
           .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
           .andWhere('sale_date', '>=', this.since30d(trx))
@@ -1773,11 +1786,12 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** Mix por marca sobre venta real 30d MÓVIL (analytics.sales_daily join catalog.*), con margen. */
+  /** Mix por marca sobre venta real 30d MÓVIL (analytics.mv_sales_blended join catalog.*), con margen. */
   async networkSalesByBrand(): Promise<SalesByBrandRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.sales_daily AS s')
+      // PARIDAD/ODS — blend consolidado (recupera telemarketing Kepler), no la copia sales_daily.
+      const rows: any[] = await trx('analytics.mv_sales_blended AS s')
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
@@ -1817,27 +1831,31 @@ export class CommercialAnalyticsService {
     const { from, to } = this.parseDateRange(q);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.sales_daily')
+      // PARIDAD/ODS — revenue/units del blend consolidado (recupera telemarketing Kepler).
+      const dayFilter = (qb: any) => qb
         .where('tenant_id', tenantId)
-        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
-        .andWhere('sale_date', '<=', this.untilToday(trx)) // nunca fechas futuras (parseo malo del feed)
-        .modify((qb) => {
-          if (from) qb.where('sale_date', '>=', from);
-          if (to) qb.where('sale_date', '<=', to);
-        })
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .modify((q: any) => { if (from) q.where('sale_date', '>=', from); if (to) q.where('sale_date', '<=', to); });
+      const rows: any[] = await dayFilter(trx('analytics.mv_sales_blended'))
         .groupBy('sale_date')
         .select(
           trx.raw('sale_date::text AS day'),
           trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
         )
         .orderBy('sale_date', 'asc');
+      // Tickets aún de sales_daily (los matviews del ODS no cuentan folio) → sparkline de tickets
+      // aproximado (le falta el telemarketing); revenue/units SÍ son el real consolidado.
+      const tRows: any[] = await dayFilter(trx('analytics.sales_daily'))
+        .groupBy('sale_date')
+        .select(trx.raw('sale_date::text AS day'), trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
+      const tByDay = new Map<string, number>(tRows.map((r: any) => [r.day, Number(r.tickets || 0)]));
       return rows.map((r) => ({
         day: r.day,
         revenue: Number(r.revenue),
         units: Number(r.units),
-        tickets: Number(r.tickets),
+        tickets: tByDay.get(r.day) || 0,
       }));
     });
   }
