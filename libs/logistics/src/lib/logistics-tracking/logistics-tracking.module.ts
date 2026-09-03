@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
 import { LogisticsTrackingService } from './logistics-tracking.service';
 import { LogisticsTrackingController } from './logistics-tracking.controller';
 import { FleetTrackingGateway } from './fleet-tracking.gateway';
@@ -20,8 +21,9 @@ import { FLEET_PROVIDER_PORT } from './fleet-provider.port';
 @Module({
   imports: [
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
-      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any, algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
     }),
   ],
   controllers: [LogisticsTrackingController],

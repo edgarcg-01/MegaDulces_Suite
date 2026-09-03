@@ -17,6 +17,7 @@ import {
   getDataScope,
   TenantContextService,
   PermissionsCacheService,
+  ScopeService,
   Permission,
   branchKeySql,
   branchKeyFilterSql,
@@ -54,6 +55,9 @@ export class UsersService {
     // instancia en tests sin él. Sin cache el complemento tarda el TTL (30s)
     // en verse; con cache se ve al instante.
     @Optional() private readonly permsCache?: PermissionsCacheService,
+    // `[AUTHZ-HARD.0]` Para invalidar el cache de alcance (TTL 30s) al cambiar un scope, igual
+    // que permsCache para permisos. Optional: los tests instancian el service sin él.
+    @Optional() private readonly scopeService?: ScopeService,
   ) {}
 
   /**
@@ -910,6 +914,38 @@ export class UsersService {
     const user = await this.knex('users').where({ id, tenant_id: this.tenantId }).first('id', 'username');
     if (!user) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
 
+    // `[AUTHZ-HARD.0]` Frenos de escalada de alcance. Sin esto, un manager acotado a una sucursal
+    // con USUARIOS_GESTIONAR se ponía `warehouse=all` a sí mismo (el override de usuario gana al
+    // rol) y veía toda la red. Sólo aplica al setear un modo explícito (heredar-del-rol de abajo
+    // es de-escalada y es seguro). Amplitud: none < own < listed < all.
+    if (dto.mode != null) {
+      const requesterRow = await this.knex('users')
+        .where({ id: requester.sub, tenant_id: this.tenantId })
+        .first('role_name');
+      const esSuperadmin = String(requesterRow?.role_name ?? '').toLowerCase() === 'superadmin';
+      if (!esSuperadmin) {
+        if (requester.sub === id) {
+          throw new ForbiddenException('No puedes cambiar tu propio alcance. Pedíselo a un superadmin.');
+        }
+        const amplitud = (m?: string | null): number =>
+          ({ none: 0, own: 1, listed: 2, all: 3 } as Record<string, number>)[String(m ?? 'none')] ?? 0;
+        // Alcance efectivo del que otorga para esta dimensión: su override de usuario, si no el del rol.
+        const propioUser = await this.knex('identity.user_scopes')
+          .where({ tenant_id: this.tenantId, user_id: requester.sub, dimension })
+          .first('mode');
+        const propioRol = await this.knex('identity.role_scopes')
+          .whereRaw('LOWER(role_name) = ?', [String(requesterRow?.role_name ?? '').toLowerCase()])
+          .andWhere({ dimension })
+          .first('mode');
+        const propioMode = propioUser?.mode ?? propioRol?.mode ?? 'none';
+        if (amplitud(dto.mode) > amplitud(propioMode)) {
+          throw new ForbiddenException(
+            `No puedes otorgar un alcance "${dto.mode}" en "${dimension}": es más amplio que el tuyo ("${propioMode}").`,
+          );
+        }
+      }
+    }
+
     const previo = await this.knex('identity.user_scopes')
       .where({ tenant_id: this.tenantId, user_id: id, dimension })
       .first('mode', 'values', 'mode_write');
@@ -920,6 +956,7 @@ export class UsersService {
         .where({ tenant_id: this.tenantId, user_id: id, dimension })
         .del();
       await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: null, hereda_del_rol: true }, requester);
+      this.scopeService?.invalidateUser?.(this.tenantId, id);
       return { dimension, hereda_del_rol: true };
     }
 
@@ -951,6 +988,7 @@ export class UsersService {
       .merge(fila);
 
     await this.recordEvent(this.knex, id, 'scope_changed', { dimension, de: previo ?? null, a: { mode: dto.mode, values, mode_write: dto.mode_write ?? null } }, requester);
+    this.scopeService?.invalidateUser?.(this.tenantId, id);
     return { dimension, mode: dto.mode, values, mode_write: dto.mode_write ?? null };
   }
 
@@ -1090,6 +1128,51 @@ export class UsersService {
 
     const agregados = canonicos.filter((c) => !previos.includes(c));
     const quitados = previos.filter((p) => !canonicos.includes(p));
+
+    // `[AUTHZ-HARD.0]` Frenos de escalada. Sin esto, cualquiera con USUARIOS_GESTIONAR podía
+    // añadirse `superadmin` como COMPLEMENTO y heredar las 164 claves por la unión de roles del
+    // perms-cache (`true` gana) — la ruta que sus hermanos `update`/`setPermissions` sí frenan y
+    // ésta no. Sólo aplican a lo que se AGREGA (quitar un rol nunca eleva).
+    if (agregados.length) {
+      const requesterRow = await this.knex('users')
+        .where({ id: requester.sub, tenant_id: this.tenantId })
+        .first('role_name');
+      const esSuperadmin = String(requesterRow?.role_name ?? '').toLowerCase() === 'superadmin';
+
+      // (a) Rol elevado (superadmin/admin) sólo lo asigna un superadmin.
+      for (const rol of agregados) {
+        await this.assertCanAssignRole(rol, requester);
+      }
+
+      if (!esSuperadmin) {
+        // (b) No editarse los propios roles.
+        if (requester.sub === id) {
+          throw new ForbiddenException(
+            'No puedes cambiarte tus propios roles. Pedíselo a un superadmin.',
+          );
+        }
+        // (c) Techo: no otorgar un rol cuyo mapa tenga claves que el que otorga NO tiene.
+        const propios = await this.permsCache?.getPermissionsForUser?.(
+          requester.sub,
+          this.tenantId,
+          requesterRow?.role_name,
+        );
+        for (const rol of agregados) {
+          const mapa = await this.permsCache?.getPermissionsForRole?.(rol, this.tenantId);
+          const claves = Object.entries(mapa ?? {})
+            .filter(([, v]) => v === true)
+            .map(([k]) => k);
+          const sinTener = claves.filter((k) => propios?.[k] !== true);
+          if (sinTener.length) {
+            throw new ForbiddenException(
+              `No puedes otorgar el rol "${rol}": incluye permisos que no tenés (${sinTener
+                .slice(0, 5)
+                .join(', ')}${sinTener.length > 5 ? '…' : ''}).`,
+            );
+          }
+        }
+      }
+    }
     if (!agregados.length && !quitados.length) {
       return { user_id: id, complementos: canonicos, agregados: [], quitados: [] };
     }

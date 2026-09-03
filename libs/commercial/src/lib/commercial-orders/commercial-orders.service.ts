@@ -153,6 +153,16 @@ export class CommercialOrdersService {
     return this.tk.run(async (trx) => {
       const userId = this.requireUserId();
 
+      // `[AUTHZ-HARD.1]` Un `customer_b2b` sólo puede crear pedidos a SU nombre: el customer_id se
+      // resuelve del JWT, nunca se confía del body (antes podía abrir un draft bajo otro cliente y
+      // quemar folio). Los internos (vendedor/admin) sí eligen el cliente.
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const me = await this.resolveCustomerIdFromUser(trx);
+        if (!me) throw new ForbiddenException('Usuario customer_b2b sin customer_id linkeado');
+        dto = { ...dto, customer_id: me };
+      }
+
       // Idempotencia (Fix #1 preventa): si el device ya creó este pedido y
       // reintenta (respuesta perdida), devolver el existente en vez de duplicar.
       // El índice único parcial (tenant_id, client_uuid) es el backstop ante la
@@ -498,6 +508,16 @@ export class CommercialOrdersService {
     const limit = Math.min(Math.max(opts.limit ?? 50, 1), 200);
 
     return this.tk.run(async (trx) => {
+      // `[AUTHZ-HARD.1]` Ownership: es la ÚNICA lectura de este service que no pasaba por
+      // enforceOrderOwnership. Un `customer_b2b` leía el mix de SKUs, volúmenes y última compra de
+      // la competencia pasando otro customer_id. Para el cliente, exigimos que sea el suyo.
+      const ctx = this.tenantCtx.get();
+      if (ctx?.roleName === 'customer_b2b') {
+        const me = await this.resolveCustomerIdFromUser(trx);
+        if (!me || me !== customerId) {
+          throw new ForbiddenException('No tenés acceso a la información de este cliente.');
+        }
+      }
       return trx('commercial.order_lines as ol')
         .join('commercial.orders as o', 'o.id', 'ol.order_id')
         .leftJoin('public.products as p', 'p.id', 'ol.product_id')

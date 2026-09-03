@@ -17,6 +17,7 @@ import {
   RolesGuard,
   RequirePermissions,
   Permission,
+  TenantContextService,
 } from '@megadulces/platform-core';
 import {
   CommercialTelemetryService,
@@ -35,7 +36,10 @@ interface IngestBody {
 @ApiTags('telemetry')
 @Controller('telemetry')
 export class CommercialTelemetryController {
-  constructor(private readonly service: CommercialTelemetryService) {}
+  constructor(
+    private readonly service: CommercialTelemetryService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
 
   /**
    * Ingesta del portal B2B. PÚBLICO a propósito (review CEO): el beacon llega
@@ -84,15 +88,18 @@ export class CommercialTelemetryController {
   async summary(
     @Query('from') from?: string,
     @Query('to') to?: string,
-    @Query('tenant_id') tenantId?: string,
   ) {
+    // `[AUTHZ-HARD.1]` El tenant sale del JWT autenticado, NUNCA del `?tenant_id`. La tabla
+    // `portal_telemetry_events` no tiene RLS: antes, omitir el query agregaba TODOS los tenants y
+    // pasar uno ajeno lo apuntaba. Con COMMERCIAL_ANALYTICS_VER en el tenant A sólo se ve el A.
+    const tenantId = this.tenantCtx.get()?.tenantId ?? null;
     const now = Date.now();
     const toDate = to ? new Date(to) : new Date(now);
     const fromDate = from ? new Date(from) : new Date(now - 24 * 60 * 60 * 1000);
     return this.service.summary({
       from: isNaN(fromDate.getTime()) ? new Date(now - 24 * 60 * 60 * 1000) : fromDate,
       to: isNaN(toDate.getTime()) ? new Date(now) : toDate,
-      tenantId: tenantId || null,
+      tenantId,
     });
   }
 }

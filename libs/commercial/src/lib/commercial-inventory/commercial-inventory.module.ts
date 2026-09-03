@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
 import { CommercialInventoryService } from './commercial-inventory.service';
 import { CommercialInventoryController } from './commercial-inventory.controller';
 import { InventoryCountService } from './inventory-count.service';
@@ -26,8 +27,9 @@ import { InventoryRiskController } from './inventory-risk.controller';
     // JwtModule embebido para decodificar el token del handshake WS (igual que
     // commercial-alerts). Default secret matched con auth-mt para evitar mismatch.
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
-      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any, algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
     }),
   ],
   controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController],

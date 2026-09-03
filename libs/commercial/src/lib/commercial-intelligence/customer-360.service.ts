@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
@@ -90,6 +91,26 @@ export class Customer360Service {
         'Usuario sin customer_id linkeado — no es customer_b2b',
       );
     return this.getForCustomer(customerId);
+  }
+
+  /**
+   * `[AUTHZ-HARD.1]` Ownership para las rutas `:customer_id` (360/NBA/basket/message). Son "para
+   * vendor/admin" pero quedaban gateadas por `COMMERCIAL_CUSTOMERS_VER`, que `customer_b2b` tiene:
+   * un cliente leía el 360, la NBA y la canasta de CUALQUIER otro cliente pasando su id. Para un
+   * `customer_b2b` exigimos que el id sea el suyo (su ruta propia es `/customer-360/my`); los
+   * internos pasan sin restricción. Centralizado acá y llamado desde el controller.
+   */
+  async assertCustomerAccess(customerId: string): Promise<void> {
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') return;
+    const userId = ctx.userId;
+    const mine = await this.tk.run(async (trx) => {
+      const r = await trx('public.users').where({ id: userId }).select('customer_id').first();
+      return r?.customer_id ?? null;
+    });
+    if (!mine || mine !== customerId) {
+      throw new ForbiddenException('No tenés acceso a la información de este cliente.');
+    }
   }
 
   /**

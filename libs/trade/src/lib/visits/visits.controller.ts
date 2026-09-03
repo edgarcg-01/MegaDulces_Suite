@@ -30,11 +30,14 @@ export class VisitsController {
   }
 
   @Get(':id')
+  @RequirePermissions(Permission.VISITAS_VER)
   @ApiOperation({
     summary: 'Desglosar Checkin mostrando todos sus exhibidores y fotos',
   })
-  findOne(@Param('id') id: string) {
-    return this.visitsService.findOne(id);
+  findOne(@Param('id') id: string, @ReqUser() user: any) {
+    // `[AUTHZ-HARD.1]` Antes: sin permiso y sin `user` → cualquier autenticado de cualquier tenant
+    // leía cualquier visita + fotos por UUID. Ahora exige VISITAS_VER y filtra por tenant + alcance.
+    return this.visitsService.findOne(id, user);
   }
 
   @Post('checkin')
