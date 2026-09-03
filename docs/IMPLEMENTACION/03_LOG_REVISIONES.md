@@ -6,6 +6,83 @@
 
 ---
 
+## 2026-09-03 — AUDITORÍA de la implementación de la BD + el filtro de tenant deja de ser condicional
+
+**Disparador:** Edgar pidió analizar *cómo estamos implementando nuestra BD*. Se midió **contra prod**
+(`trolley…:39023/railway`, 25 GB), no contra la doc. Análisis completo en el plan
+`linear-orbiting-frog.md`; acá el resumen y lo que se cerró.
+
+### Lo que la medición encontró
+
+1. **Dos arquitecturas de datos vivas, y el código sigue a la que pierde.** `CLAUDE.md` manda
+   derive-no-copy sobre el ODS; `ARQUITECTURA_DATOS.md` §4 declara `analytics.*` como espejo
+   materializado **intencional** alimentado por `run-prod-feeds.js`. No es descuido de doc: son dos
+   linajes del mismo hecho. **Agosto 2026 difieren $4,445,220 (17.3%)** — `analytics.sales_daily`
+   dice $21,296,918.56 y `mv_kepler_sales_daily` $25,742,138.56. El código lee **65 veces la tabla
+   contra 13 la matview**, incluido `commercial-profitability.service.ts`.
+   La brecha se descompone exacto: `ruta` +$2,031,381.68 (**la tabla tiene CERO** venta de ruta
+   Kepler) · `credito` +$2,679,322.92 · `tienda` **−$265,484.60**, que resultó ser venta de ruta de
+   **Wincaja archivada como mostrador de Kepler** (bodegas `RUTA-21…28`, $485,710.02) menos las 6
+   sucursales reales subcontadas ($220,225.42). O sea: la tabla se equivoca en **las dos
+   direcciones**, y esas bodegas `RUTA-2x` aparecen en **tres canales a la vez**.
+   El mismo hecho está materializado en **16 objetos = 30.5% de los 25 GB**.
+2. **`analytics` se salió del modelo de tenant sin decirlo:** 59 de 60 tablas sin RLS (la única con
+   RLS es `db_health_alerts`), pero las 60 con `tenant_id`; **1 de 53 FKs** incluye `tenant_id`
+   (contra 188/191 en `commercial`).
+3. **51 tablas vacías en prod, 48 referenciadas por código** — el modo de falla de
+   `customer_receivables` otras 48 veces. `trade.visits` está vacía con **89 referencias**.
+4. **El tablero de salud es síntoma:** ~40 sensores y la mayoría son *"¿sigue fresca esta tabla
+   materializada?"*. Una vista sobre el ODS no necesita sensor.
+5. **11 importers zombie** cuyo destino ya es una VISTA (+2 handlers muertos en
+   `apply-handlers.js:822`), **21 `import-*` que leen los replicas `md_0X` en vez de `kepler_ods`**,
+   **65 importers sin orquestador**, y dos verdes falsos (`wincaja.mv_branch_kpis` sin refrescador;
+   `analytics_refresh_kepler`/`_blended` sin umbral en `CRON_JOBS`).
+6. **`identity.knex_migrations` existe con 0 filas** mientras `public` tiene 561 — y el `search_path`
+   de ambos roles pone `identity` **antes** que `public`. Cualquier consulta sin calificar responde
+   "no hay migraciones": es el origen del mito del "backlog de 91".
+
+### Lo que se cerró en este commit (`fix([AUTHZ])`)
+
+**58 filtros de tenant fail-OPEN → fail-CLOSED.** Había 15 copias del helper
+`tenantId(user): string | undefined` en `libs/trade` y 58 call sites con
+`if (tenantId) q = q.where('tenant_id', tenantId)`. Ese `if` deja la query **sin scope** cuando el
+helper viene vacío — y estos services inyectan `KNEX_CONNECTION`, que conecta como `postgres`
+(superuser), donde **`FORCE ROW LEVEL SECURITY` no aplica**. El filtro manual era la única defensa y
+era condicional. Con un tenant con datos nunca se manifestó: era un arma cargada esperando al segundo.
+
+- Nuevo `requireTenantOf(user, ctx)` en `platform-core` — el invariante en **un** lugar en vez de 15.
+- **2 escrituras** que iban por `id` pelado reciben scope (`approveAction`/`rejectAction`).
+- Se conservan las guardas sobre **parámetro** explícito: el cron no pasa por el helper, itera
+  tenants y llama `*ForTenant(id)`.
+
+**Y una regresión viva de la retirada de CASL (ADR-054):** los usuarios sintéticos del broadcast de
+métricas en `reports.service.ts` declaraban su alcance en `rules` con `permissions: {}`. Desde que
+`getDataScope` lee el mapa de permisos e ignora `rules`, los **tres** ramos colapsaban a `own` → un
+admin con scope global recibía por WS métricas de sólo sus propias capturas. El type-check no lo veía
+porque `rules` era una prop extra sobre un objeto literal.
+
+**Lección:** al retirar una librería de autorización, los objetos-usuario **sintéticos** (crons, WS,
+tests) no los cubre el compilador — hay que buscarlos a mano. Y un permiso declarado en una prop que
+ya nadie lee no falla: **degrada en silencio**.
+
+### Verificación (honesta)
+
+`nx build api` verde · typecheck limpio en `libs/trade` y `libs/platform-core`. **La suite de
+regresión NO pudo validar esto en esta máquina**: la API no está arriba (`:3334` → sin respuesta) y
+las credenciales de `.245/platform_test` fallan con `auth_failed` de Postgres (cluster compartido
+entre devs). Los 72 fallos son ambientales y ninguna de esas suites carga este código, pero **queda
+pendiente correrla donde el entorno esté sano**.
+
+### Pendiente deliberado
+
+`permissions-cache.service.ts:66` tiene el mismo patrón y su propio comentario dice *"tenant_id
+OBLIGATORIO"*. **No se tocó a propósito:** está en el camino de autorización, y si se vuelve estricto
+un JWT legacy sin `tenant_id` deja de resolver permisos y el usuario queda fuera hasta re-login. Los
+JWT viven en `localStorage`, así que el impacto no se limita a los logins nuevos. Requiere decisión
+explícita.
+
+---
+
 ## 2026-09-03 — ADR-055: la cantidad se muestra en la unidad más grande, con el divisor del ERP dueño del almacén
 
 **Disparador:** Edgar, después de dos días de trabajo sobre `/compras/pedido`: *"a diferencia de

@@ -8,6 +8,8 @@ import { MessageService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { filter } from 'rxjs';
 import { AuthService } from '../../core/services/auth.service';
+import { PermissionsService } from '../../core/services/permissions.service';
+import { Permission } from '../../core/constants/permissions';
 import { ThemeService } from '../../core/services/theme.service';
 import { RoutePingService } from '../../core/services/route-ping.service';
 import { PushService } from '../../core/services/push.service';
@@ -166,6 +168,12 @@ interface DiagProbe {
           <i class="pi pi-sparkles"></i>
           <span>Thot</span>
         </a>
+        @if (canAssignRoutes) {
+          <a routerLink="supervisor/routes" routerLinkActive="active">
+            <i class="pi pi-directions"></i>
+            <span>Rutas</span>
+          </a>
+        }
       </nav>
     
       <!-- Overlay de diagnóstico PWA (Ajustes → Diagnóstico PWA): la verdad del device -->
@@ -383,7 +391,10 @@ interface DiagProbe {
 })
 export class VendorShellComponent {
   private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
+  /** ¿Es supervisor con plan de ruta? → muestra el item "Rutas" (asignar rutas). */
+  readonly canAssignRoutes = this.perms.has(Permission.TRADE_ROUTE_PLAN_GESTIONAR);
   readonly theme = inject(ThemeService);
   protected readonly routePing = inject(RoutePingService);
   readonly push = inject(PushService);

@@ -147,7 +147,6 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
         role_name: payload.role_name,
         tenant_id: payload.tenant_id,
         permissions: payload.permissions || {},
-        rules: payload.rules || [],
       };
 
       (client as any).user = user;
@@ -271,7 +270,10 @@ export class ReportsGateway implements OnGatewayConnection, OnGatewayDisconnect 
    * El nombre del room DEBE incluir el tenant del usuario — no se aceptan
    * rooms de otro tenant aunque coincidan el formato.
    */
-  private canJoinRoom(user: { sub: string; tenant_id: string; rules?: any[] }, room: string): boolean {
+  private canJoinRoom(
+    user: { sub: string; tenant_id: string; permissions?: Record<string, boolean> },
+    room: string,
+  ): boolean {
     const scope = getDataScope(user);
     const allowed = this.getRoomsForScope(scope, user);
     return allowed.includes(room);

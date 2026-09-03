@@ -14,6 +14,16 @@ export interface StoreAlert {
   type: string; severity: 'info' | 'warn' | 'critical';
   title: string; message: string; data: any; emitted_at: string;
 }
+/** Aviso dirigido: Kepler cerró TU caja y falta contar. Sin montos (SM.10). */
+export interface ArqueoDue {
+  type: 'arqueo_due'; severity: 'info' | 'warn';
+  title: string; message: string; route: string;
+  cajero_code: string; warehouse_code: string; caja: string;
+  business_date: string; folio: string;
+  hora_cierre?: string | null; cerrado_hace_min: number; vencido: boolean;
+  /** `retiro` = sangría con el turno abierto · `cierre` = corte del cajón. */
+  motivo?: 'cierre' | 'retiro';
+}
 export interface StoreBranchKpi { warehouse_code: string; warehouse_name: string; tickets: number; venta: number; last_ts: string; }
 export interface OpenCaja {
   rank: number;
@@ -57,6 +67,11 @@ export class StoreSocketService {
   readonly connected = signal(false);
   readonly ticket$ = new Subject<LiveTicket>();
   readonly alert$ = new Subject<StoreAlert>();
+  /**
+   * SM.23 — "Haz tu arqueo". Llega por el room PERSONAL de la cajera, así que si
+   * este evento entra es porque le toca a ELLA. No trae montos a propósito.
+   */
+  readonly arqueoDue$ = new Subject<ArqueoDue>();
 
   snapshot(warehouse?: string) {
     const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
@@ -89,6 +104,7 @@ export class StoreSocketService {
     this.socket.on('connect_error', (e) => console.error('[StoreSocket] connect_error', e.message));
     this.socket.on('ticket', (t: LiveTicket) => this.ticket$.next(t));
     this.socket.on('alert', (a: StoreAlert) => this.alert$.next(a));
+    this.socket.on('arqueo_due', (a: ArqueoDue) => this.arqueoDue$.next(a));
   }
 
   disconnect(): void {

@@ -54,6 +54,13 @@ export class CommercialVendorRoutesController {
     return this.service.listVendors();
   }
 
+  @Get('route-catalog')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Catálogo de rutas (trade.catalogs) con zona, para el picker de asignación de rutas' })
+  routeCatalog() {
+    return this.service.listRouteCatalog();
+  }
+
   @Get('customers')
   @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Clientes de una ruta (?sales_route=) ordenados por visit_sequence, para reordenar' })

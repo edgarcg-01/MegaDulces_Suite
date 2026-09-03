@@ -36,5 +36,8 @@ import { StoreIngestGuard } from './store-ingest.guard';
       },
     },
   ],
+  // El gateway sale del módulo para que el binding del notificador pueda mandarle
+  // el aviso "haz tu arqueo" a la cajera por su room personal.
+  exports: [StoreGateway],
 })
 export class StoreModule {}

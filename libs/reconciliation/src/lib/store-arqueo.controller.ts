@@ -97,7 +97,7 @@ export class StoreArqueoController {
     if (dim.modeWrite !== 'all' && dim.valuesWrite.length === 1) return dim.valuesWrite[0];
     throw new BadRequestException(
       dim.valuesWrite.length > 1
-        ? `Elegí la sucursal: tenés ${dim.valuesWrite.length} asignadas (${dim.valuesWrite.join(', ')}).`
+        ? `Elige la sucursal: tienes ${dim.valuesWrite.length} asignadas (${dim.valuesWrite.join(', ')}).`
         : 'Tu usuario no tiene sucursal asignada para capturar arqueos. Pedile al administrador que te asigne una.',
     );
   }
@@ -154,7 +154,7 @@ export class StoreArqueoController {
     if (!folio) {
       if (revela) return {}; // supervisor: puede capturar a mano
       throw new BadRequestException(
-        'Elegí el turno de caja que vas a arquear. Si no aparece ninguno es que Kepler todavía no abrió tu caja.',
+        'Elige el turno de caja que vas a arquear. Si no aparece ninguno es que Kepler todavía no abrió tu caja.',
       );
     }
     const turno = await this.blind.buscarTurno(warehouse_code, folio, revela ? undefined : cajero_code);
@@ -217,8 +217,8 @@ export class StoreArqueoController {
     const cuando = new Date(`${primero.business_date}T12:00:00`)
       .toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' });
     throw new BadRequestException(
-      `Tenés un corte pendiente antes que ese: caja ${primero.caja} del ${cuando}. ` +
-      'Cerrá ese primero — los arqueos se hacen en orden.',
+      `Tienes un corte pendiente antes que ese: caja ${primero.caja} del ${cuando}. ` +
+      'Cierra ese primero — los arqueos se hacen en orden.',
     );
   }
 

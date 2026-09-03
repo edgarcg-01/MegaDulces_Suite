@@ -346,6 +346,8 @@ export class RoutePromoComponent {
   readonly forzarPeriodo = signal(false);
   private t0 = 0;
   private timer: ReturnType<typeof setInterval> | undefined;
+  /** Sube en cada Calcular: descarta respuestas de una corrida ya reemplazada. */
+  private runToken = 0;
   readonly res = signal<RoutePromoResult | null>(null);
   readonly err = signal<string | null>(null);
   enunciado = '';
@@ -428,8 +430,9 @@ export class RoutePromoComponent {
     this.err.set(null);
     this.showDetail.set(false);
     this.openCli.set(new Set<string>());
+    this.runToken++;
     this.startProgress();
-    // Sin `detalle`: el desglose de clientes cuesta ~9 s y se pide sólo al abrirlo.
+    // Sin detalle: el desglose cuesta ~7 s y se trae aparte (prefetch al terminar ésta).
     this.svc.routePromo(body)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -437,6 +440,12 @@ export class RoutePromoComponent {
           this.res.set(r); this.pickSku = null; this.loading.set(false); this.stopProgress();
           // Reusa la regla ya interpretada (incl. vigencia auto) en XLSX/PDF → mismo periodo, sin re-llamar al LLM.
           this.lastBody = { ...body, rule: r.rule };
+          // El desglose tarda ~7 s y no se puede bajar mas sin tocar la vista silver de
+          // Wincaja (medido: el costo es el escaneo, y el planner ignora los indices que
+          // se le ofrezcan). Asi que se trae SOLO, en segundo plano, apenas hay resultado:
+          // cuando la persona lo abre ya esta. No cambia el trabajo de la base — cambia
+          // quien espera.
+          if (r.rows.length) this.prefetchDesglose();
         },
         error: (e) => {
           this.res.set(null); this.loading.set(false); this.stopProgress();
@@ -450,23 +459,35 @@ export class RoutePromoComponent {
   }
 
   /**
-   * Abre el desglose y, la primera vez, lo pide al servidor. Se separa de la corrida
-   * principal porque es la mitad del tiempo total y no todo el mundo lo abre.
+   * Trae el desglose. Se llama solo (prefetch) al terminar la corrida principal, y también
+   * al abrir si por lo que sea todavía no llegó. Nunca dispara dos veces a la vez.
    */
-  toggleDesglose(): void {
-    const abrir = !this.showDetail();
-    this.showDetail.set(abrir);
-    if (!abrir || this.res()?.clientes_detalle?.length || this.detLoading() || !this.lastBody) return;
+  private prefetchDesglose(): void {
+    if (this.detLoading() || this.res()?.clientes_detalle?.length || !this.lastBody) return;
+    const token = this.runToken;
     this.detLoading.set(true);
     this.svc.routePromo({ ...this.lastBody, detalle: true })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.res.set(r); this.detLoading.set(false); },
-        error: (e) => {
+        next: (r) => {
+          // Sólo se acepta si la corrida sigue siendo la misma. Si mientras el desglose
+          // venía en camino se recalculó otra promo, este resultado ya no corresponde y
+          // pisaría el bueno con datos de la corrida anterior.
+          if (token !== this.runToken) return;
+          this.res.set(r);
           this.detLoading.set(false);
-          this.err.set(e?.error?.message || 'No se pudo traer el desglose de clientes');
+        },
+        error: () => {
+          // En prefetch NO se muestra error: nadie lo pidió. Si lo abren, se reintenta.
+          if (token === this.runToken) this.detLoading.set(false);
         },
       });
+  }
+
+  toggleDesglose(): void {
+    const abrir = !this.showDetail();
+    this.showDetail.set(abrir);
+    if (abrir) this.prefetchDesglose();
   }
 
   download(fmt: 'xlsx' | 'pdf'): void {

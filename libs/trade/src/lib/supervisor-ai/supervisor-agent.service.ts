@@ -7,7 +7,12 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService, AnthropicService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  AnthropicService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -82,8 +87,9 @@ export class SupervisorAgentService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /**
@@ -277,7 +283,7 @@ export class SupervisorAgentService {
       source: drafted ? 'agent' : 'engine',
       generated_at: nowIso,
     };
-    if (tenantId) await this.persistBriefing(tenantId, briefing);
+    await this.persistBriefing(tenantId, briefing);
     return briefing;
   }
 
@@ -298,8 +304,7 @@ export class SupervisorAgentService {
     if (!UUID_RE.test(id || '')) throw new BadRequestException('id inválido');
     const tenantId = this.tenantId(user);
 
-    let q = this.knex('commercial.supervisor_actions').where('id', id);
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_actions').where({ id, tenant_id: tenantId });
     const action = await q.first();
     if (!action) throw new NotFoundException('Acción no encontrada');
 
