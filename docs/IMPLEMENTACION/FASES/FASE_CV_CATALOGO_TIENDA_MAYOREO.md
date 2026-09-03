@@ -1017,7 +1017,7 @@ minutos hasta el reinicio):
    la misma batería de páginas/endpoints — todo en 200.
 
 **Detalle completo, incluida la lección de diseño, en `docs/GOTCHAS.md`
-§33.**
+§35.**
 
 ---
 
