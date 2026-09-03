@@ -18,6 +18,7 @@ import type { MenuItem } from 'primeng/api';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { filter, map, startWith } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
+import { branchName } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ThemeService } from '../../../core/services/theme.service';
 import { DataUpdateService } from '../../../core/services/data-update.service';
@@ -87,6 +88,20 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   // ── Auth ──────────────────────────────────────────────────────────
   user = this.authService.user;
+
+  /**
+   * Qué se muestra al lado del rol. Para el personal de tienda, su SUCURSAL; para
+   * el resto, la zona de trade marketing.
+   *
+   * Antes siempre mostraba `zona`, y a una cajera de Padre Hidalgo le decía
+   * "CAJERO · LA PIEDAD RD" — que es su zona comercial, pero ella lo lee como su
+   * tienda. Poner el nombre equivocado de la sucursal arriba de una pantalla donde
+   * se sella efectivo es peor que no poner nada.
+   */
+  readonly contexto = computed(() => {
+    const u = this.user();
+    return u?.warehouse_code ? branchName(u.warehouse_code) : (u?.zona || '');
+  });
 
   // ── UI state ─────────────────────────────────────────────────────
   /** Drawer móvil abierto (overlay). En desktop no aplica. */
