@@ -43,6 +43,13 @@ export class PurchaseBookController {
     return this.svc.listNoAsociados(limit ? Number(limit) : undefined);
   }
 
+  @Get('no-asociados/cobertura')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
+  @ApiOperation({ summary: 'Hasta dónde llega el anti-duplicado exacto por UUID (y desde dónde vuelve a ser por importe).' })
+  cobertura() {
+    return this.svc.coberturaUuid();
+  }
+
   @Get('no-asociados/:mes')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_VER)
   @ApiOperation({ summary: 'Los movimientos no asociados del mes, con los que ya están posteados marcados aparte.' })
@@ -75,7 +82,7 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Genera el TXT del complemento: solo los movimientos que faltan por asociar.' })
   async generarNoAsociados(
     @Param('mes') mes: string,
-    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean },
+    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean; forzar_importe?: boolean; motivo?: string },
   ) {
     const r = await this.svc.generar(mes, { ...(body ?? {}), tipo: 'complemento' });
     const { txt, ...resumen } = r;

@@ -117,10 +117,19 @@ const SRC = path.resolve(__dirname, '../../libs/finance/src/lib/purchase-book');
     const svc = fs.readFileSync(path.join(SRC, 'purchase-book.service.ts'), 'utf8');
     const gen = svc.slice(svc.indexOf('  async generar('), svc.indexOf('  async obtenerArchivo('));
     ok(gen.length > 200, 'se pudo aislar el cuerpo de generar()');
-    ok(/const dobles = dentro\.filter/.test(gen), 'generar() filtra las que ya están posteadas');
+    // El bloqueo está PARTIDO por la fuerza de la prueba, y eso es el diseño, no un detalle:
+    // la certeza no admite override (es el mismo folio fiscal) y la sospecha sí, porque el
+    // cruce por importe tiene falsos positivos y quitarle la salida al humano convierte una
+    // molestia en trabajo perdido.
+    ok(/prueba_certeza === 'exacta'/.test(gen), "generar() aparta las que tienen prueba EXACTA por UUID");
+    ok(/prueba_certeza === 'por_importe'/.test(gen), 'y aparte las que sólo casan por importe');
+    ok(/exactas\.length\) \{[\s\S]{0,400}throw new BadRequestException/.test(gen),
+      'la prueba exacta BLOQUEA sin override posible');
+    ok(/forzar_importe/.test(gen) && /opts\.motivo/.test(gen),
+      'la sospecha por importe admite override, pero exige motivo');
     // La forma vieja: el filtro DENTRO de un if por tipo. Volver a eso deja sin freno al
     // modo que abarca el mes entero, que es el de MÁS riesgo, no el de menos.
-    const dentroDeIf = /if \(tipo === 'complemento'\)\s*\{[^}]*dobles/s.test(gen);
+    const dentroDeIf = /if \(tipo === 'complemento'\)\s*\{[^}]*(dobles|exactas|sospechosas)/s.test(gen);
     ok(!dentroDeIf, 'el bloqueo NO está condicionado por tipo de corrida');
     ok(/tipo === 'libro'/.test(gen) && /throw new BadRequestException/.test(gen),
       'generar() rechaza el modo libro (arrastra los CFDIs que ContPAQi ya tiene asociados)');
@@ -134,6 +143,46 @@ const SRC = path.resolve(__dirname, '../../libs/finance/src/lib/purchase-book');
     const inv = svc.slice(svc.indexOf('  private async invalidar('), svc.indexOf('  async setCaratula('));
     ok(/archivo_contenido: null/.test(inv) && /archivo_hash: null/.test(inv),
       'invalidar() tira el contenido Y el hash (dejar el contenido servía el TXT viejo sin firma)');
+
+    // ── 4b. LC.14: la tercera puerta, exacta por UUID ─────────────────────
+    console.log('\n═══ 4b. La tercera puerta (UUID) ═══');
+    const hist = (await knex.raw(`SELECT to_regclass('finance.purchase_book_history') r`)).rows[0].r;
+    ok(!!hist, 'existe finance.purchase_book_history');
+    if (hist) {
+      const cons2 = (await knex.raw(
+        `SELECT pg_get_constraintdef(oid) d FROM pg_constraint
+          WHERE conrelid = 'finance.purchase_book_history'::regclass`)).rows.map((x) => x.d);
+      ok(cons2.some((d) => /PRIMARY KEY/.test(d) && /source/.test(d) && /source_key/.test(d)),
+        'PK por (tenant_id, source, source_key) y NO por UUID: así sobreviven los renglones que el libro repitió');
+      ok(cons2.some((d) => /CHECK/.test(d) && /upper/.test(d)),
+        'CHECK cfdi_uuid = upper(...): la normalización es estructural, no convención repartida en 6 lugares');
+      ok(!cons2.some((d) => /FOREIGN KEY/.test(d) && /cfdis/.test(d)),
+        'SIN FK a fiscal.cfdis, a propósito: 149 UUID del libro no están en el ADD y con FK no se podrían sembrar');
+      const rlsH = (await knex.raw(
+        `SELECT relrowsecurity, relforcerowsecurity FROM pg_class WHERE oid='finance.purchase_book_history'::regclass`)).rows[0];
+      ok(rlsH.relrowsecurity && rlsH.relforcerowsecurity, 'RLS forzado');
+
+      // ⚠️ security_invoker: sin él la vista corre como su OWNER y salta la RLS de las
+      // tablas base, que tienen FORCE ROW LEVEL SECURITY. Es fuga cross-tenant.
+      for (const v of ['v_purchase_book_uuids', 'v_purchase_book_uuid_prueba']) {
+        const rel = (await knex.raw(
+          `SELECT c.relkind, c.reloptions FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+            WHERE n.nspname='finance' AND c.relname=?`, [v])).rows[0];
+        ok(rel && rel.relkind === 'v', `vista ${v}`);
+        ok(rel && (rel.reloptions ?? []).some((o) => /security_invoker\s*=\s*true/.test(o)),
+          `${v} con security_invoker=true (sin él salta la RLS de las tablas base)`);
+      }
+
+      // Un no-op se ve igual que "no hay duplicados": si el código ya consulta la puerta y
+      // la tabla está vacía, eso es el bug, no un skip.
+      const n = Number((await knex('finance.purchase_book_history').count('* as c').first()).c);
+      const consulta = svc.includes('v_purchase_book_uuid_prueba') && svc.includes('v_purchase_book_uuids');
+      ok(consulta, 'el servicio consulta las dos vistas (getMes y el tablero)');
+      if (consulta) {
+        ok(n > 0, `el histórico está sembrado (${n} renglones) — vacío haría que la puerta exacta sea un no-op silencioso`);
+      }
+      ok(svc.includes('coberturaUuid'), 'hay endpoint de cobertura: el límite del histórico va en pantalla, no en un .md');
+    }
 
     // ── 5. LC.7: el cuadre compara lo ENTREGADO, no los datos de hoy ──────
     console.log('\n═══ 5. El cuadre post-entrega ═══');

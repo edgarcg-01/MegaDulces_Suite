@@ -260,6 +260,10 @@ const MOVS = [
         if (linea.includes('¿')) sospechosos.push(`signo de apertura ¿ en la línea ${i + 1} del SQL`);
         const c = linea.indexOf('--');
         if (c >= 0 && linea.slice(c).includes('?')) sospechosos.push(`un ? dentro del comentario: ${linea.slice(c).trim().slice(0, 50)}`);
+        // Un backtick en un comentario SQL CIERRA el template literal: el archivo deja de
+        // compilar con errores que no apuntan al culpable ("Cannot find name 'agg'").
+        // Mordió el 2026-09-03 escribiendo el CTE de la tercera puerta.
+        if (c >= 0 && linea.slice(c).includes('`')) sospechosos.push(`un backtick dentro del comentario: ${linea.slice(c).trim().slice(0, 50)}`);
       });
     }
     ok(sospechosos.length === 0, `ningún ? ni ¿ suelto dentro del SQL del servicio${sospechosos.length ? ` — ${sospechosos.join(' · ')}` : ''}`);
