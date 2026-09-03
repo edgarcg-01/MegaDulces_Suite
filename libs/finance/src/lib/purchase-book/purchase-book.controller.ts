@@ -121,6 +121,17 @@ export class PurchaseBookController {
     return this.svc.respaldo(mes, 'complemento');
   }
 
+  @Get('no-asociados/:mes/asociador.csv')
+  @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
+  @ApiOperation({ summary: 'CSV movimiento ↔ UUID para el Asociador de CFDI de ContPAQi.' })
+  async asociadorNoAsociados(@Param('mes') mes: string, @Res() res: Response) {
+    const r = await this.svc.asociadorCsv(mes, 'complemento');
+    // latin1 y `;`, igual que el TXT: el Excel es-MX de esta máquina vive en Windows-1252.
+    res.setHeader('Content-Type', 'text/csv; charset=iso-8859-1');
+    res.setHeader('Content-Disposition', `attachment; filename="${r.nombre}"`);
+    res.send(Buffer.from(r.csv, 'latin1'));
+  }
+
   @Post('no-asociados/:mes/estado')
   @RequirePermissions(Permission.FISCAL_PURCHASE_BOOK_GESTIONAR)
   @ApiOperation({ summary: 'Mueve el trámite del complemento: entregado | aplicado | cancelado.' })

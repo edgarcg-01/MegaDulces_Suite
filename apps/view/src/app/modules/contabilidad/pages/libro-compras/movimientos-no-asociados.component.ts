@@ -147,6 +147,13 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                   <p-button type="button" label="Respaldo en Excel" icon="pi pi-file-excel"
                             styleClass="p-button-outlined p-button-secondary"
                             [loading]="bajandoRespaldo()" (click)="exportarRespaldo()" />
+                  <!-- El TXT no lleva campo de UUID: sin este listado ContPAQi contabiliza
+                       la factura y nadie la asocia, el flag se queda en false, y el
+                       anti-duplicado vuelve a depender del cruce por importe. -->
+                  <p-button type="button" label="CSV del asociador" icon="pi pi-link"
+                            styleClass="p-button-text p-button-secondary"
+                            pTooltip="Listado movimiento ↔ UUID para el Asociador de CFDI de ContPAQi"
+                            (click)="descargarAsociador()" />
                 }
                 @if (estadoRun() === 'generado') {
                   <p-button type="button" label="Marcar entregado" icon="pi pi-send"
@@ -673,6 +680,22 @@ export class MovimientosNoAsociadosComponent implements OnInit {
       },
       error: (e) => { this.bajandoRespaldo.set(false); this.error('No se pudo armar el respaldo', e); },
     });
+  }
+
+  descargarAsociador() {
+    const mes = this.mesSel(); if (!mes) return;
+    this.svc.asociadorNoAsociados(mes).subscribe({
+      next: (blob) => this.bajar(blob, `asociador-cfdi-${mes}.csv`),
+      error: (e) => this.error('No se pudo armar el listado del asociador', e),
+    });
+  }
+
+  /** Blob autenticado → descarga. Por HttpClient y no <a href>: la ruta va tras el guard. */
+  private bajar(blob: Blob, nombre: string) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre;
+    a.click(); URL.revokeObjectURL(url);
   }
 
   descargar() {

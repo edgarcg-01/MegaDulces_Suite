@@ -78,6 +78,29 @@ const REGLAS_CUADRE: FinanceRuleInput[] = [
   },
 ];
 
+/**
+ * Una factura del respaldo. Se resuelve desde los UUID que lleva el TXT ENTREGADO, no desde
+ * los datos del mes: si entre generar y bajar el respaldo entró un CFDI nuevo, tomarlo del
+ * mes haría que la hoja deje de cuadrar contra el archivo.
+ */
+export interface FacturaRespaldo {
+  uuid: string;
+  emisor_rfc: string;
+  emisor_nombre: string;
+  serie: string | null;
+  folio: string | null;
+  fecha: string;
+  base_exenta: number;
+  subtotal16: number;
+  ieps: number;
+  iva: number;
+  total: number;
+  supplier_name: string | null;
+  cuenta_proveedor: string | null;
+  cuenta_compra_exenta: string | null;
+  cuenta_compra_iva: string | null;
+}
+
 export interface FacturaMes {
   uuid: string;
   emisor_rfc: string;
@@ -1098,7 +1121,7 @@ export class PurchaseBookService {
         total_cargos: Number(run.total_cargos ?? 0),
         total_abonos: Number(run.total_abonos ?? 0),
         movimientos,
-        facturas: facturas.map((f: Record<string, unknown>) => {
+        facturas: facturas.map((f: Record<string, unknown>): FacturaRespaldo => {
           const total = r2(f['total']), iva = r2(f['iva']), ieps = r2(f['ieps']);
           const subtotal16 = r2(f['subtotal16']);
           return {
@@ -1117,6 +1140,57 @@ export class PurchaseBookService {
         facturas_origen: desdeArchivo ? 'archivo' : 'decision',
       };
     });
+  }
+
+  /**
+   * LC.15 — el listado `movimiento ↔ UUID` para el **Asociador de CFDI** de ContPAQi.
+   *
+   * Rompe el círculo vicioso por el lado de la honestidad del flag: el layout del TXT no
+   * tiene campo de UUID, así que ContPAQi contabiliza la factura y nadie la asocia →
+   * `IsAsoContabilidad` queda en false → nuestro filtro primario dice "no asociada" → el
+   * heurístico por importe tiene que cargar toda la decisión. Con este CSV la contadora
+   * crea la asociación formal y el flag empieza a decir la verdad.
+   *
+   * Un renglón por factura, anclado en la pata de ABONO a `212`: es la única que hay
+   * exactamente una por factura, su importe es el total del CFDI, y es la que ContPAQi liga.
+   *
+   * Sale de `parsearTxt(archivo_contenido)`, no de `getMes()`: tiene que describir el
+   * archivo ENTREGADO o al primer CFDI nuevo deja de casar con la póliza.
+   */
+  async asociadorCsv(anioMes: string, tipo: TipoCorrida = 'complemento') {
+    const r = await this.respaldo(anioMes, tipo);
+    // Tipado explícito: sin él TS infiere el valor del Map como `{}` desde la tupla.
+    const porUuid = new Map<string, FacturaRespaldo>(r.facturas.map((f) => [f.uuid, f] as const));
+
+    // `;` y latin1: el Excel es-MX usa punto y coma como separador de lista, y esta máquina
+    // vive en Windows-1252 — en UTF-8 los acentos de los proveedores llegan rotos.
+    const cab = [
+      'renglon_txt', 'poliza_tipo', 'poliza_folio', 'cuenta', 'referencia', 'cargo_abono',
+      'importe', 'uuid', 'emisor_rfc', 'emisor_nombre', 'fecha_cfdi', 'serie_folio',
+    ];
+    const esc = (v: unknown) => String(v ?? '').replace(/[;\r\n]/g, ' ').trim();
+    const lineas = [cab.join(';')];
+    r.movimientos.forEach((m, i) => {
+      // Sólo la pata del proveedor: es la que se asocia. Las de compras e impuestos son
+      // contrapartida del mismo asiento y asociarlas duplicaría el vínculo.
+      if (!m.abono) return;
+      const f = porUuid.get(m.concepto.toUpperCase());
+      lineas.push([
+        // Se rotula como NUESTRO orden, no como NumMovto: que ContPAQi lo asigne en orden
+        // de importación es una suposición sin verificar. Lo que identifica el renglón sin
+        // suponer nada es cuenta + referencia + cargo_abono + importe.
+        i + 1, TIPO_POLIZA_DIARIO, r.folio_poliza,
+        esc(m.cuenta), esc(m.referencia), 'A', m.importe.toFixed(2),
+        esc(m.concepto), esc(f?.emisor_rfc), esc(f?.emisor_nombre), esc(f?.fecha),
+        esc([f?.serie, f?.folio].filter(Boolean).join(' ')),
+      ].join(';'));
+    });
+
+    return {
+      nombre: `asociador-cfdi-${anioMes}-${tipo}.csv`,
+      csv: `${lineas.join('\r\n')}\r\n`,
+      renglones: lineas.length - 1,
+    };
   }
 
   /** Mueve el trámite. `entregado` = se le pasó a quien lo sube; `aplicado` = ya está en ContPAQi. */

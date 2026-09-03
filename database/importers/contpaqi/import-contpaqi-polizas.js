@@ -97,7 +97,10 @@ const keyOf = (ej, pe, tp, fo) => `${Number(ej)}|${Number(pe)}|${String(tp)}|${S
   const heads = [], lines = [];
   const appendAll = (t, s) => { for (const r of s) t.push(r); }; // NO spread (17k+ args revienta el stack)
   const HEAD_Q = (where) => `SELECT p.Id, p.Ejercicio, p.Periodo, p.TipoPol, p.Folio, p.Fecha, p.Concepto, p.Cargos, p.Abonos, p.Guid, p.tieneDoctoBancario FROM Polizas p WHERE ${where}`;
-  const LINE_Q = (where) => `SELECT m.IdPoliza, m.Ejercicio, m.Periodo, m.TipoPol, m.Folio, m.NumMovto, c.Codigo AS Cuenta, c.Nombre AS CuentaNombre, c.Afectable, a.Codigo AS SatCod, m.TipoMovto, m.Importe, m.Referencia, m.Guid AS Guid FROM MovimientosPoliza m JOIN Cuentas c ON c.Id=m.IdCuenta LEFT JOIN AgrupadoresSAT a ON a.Id=c.IdAgrupadorSAT WHERE ${where}`;
+  // m.Concepto (LC.15): 100 chars, vacío en el 100% de las patas históricas. Ahí metemos
+  // NOSOTROS el UUID del CFDI, porque el layout del TXT no tiene campo propio — y hasta hoy
+  // no lo leíamos de vuelta, así que no había forma de verificar que llegara.
+  const LINE_Q = (where) => `SELECT m.IdPoliza, m.Ejercicio, m.Periodo, m.TipoPol, m.Folio, m.NumMovto, c.Codigo AS Cuenta, c.Nombre AS CuentaNombre, c.Afectable, a.Codigo AS SatCod, m.TipoMovto, m.Importe, m.Referencia, m.Concepto AS MovConcepto, m.Guid AS Guid FROM MovimientosPoliza m JOIN Cuentas c ON c.Id=m.IdCuenta LEFT JOIN AgrupadoresSAT a ON a.Id=c.IdAgrupadorSAT WHERE ${where}`;
 
   if (bigDelta) {
     appendAll(heads, (await mss.request().query(HEAD_Q(`p.Ejercicio >= ${FROM_YEAR}`))).recordset);
@@ -132,7 +135,8 @@ const keyOf = (ej, pe, tp, fo) => `${Number(ej)}|${Number(pe)}|${String(tp)}|${S
     return [TENANT, 'contpaqi', '00', Number(l.Ejercicio), Number(l.Periodo), String(l.TipoPol), String(l.Folio), Number(l.NumMovto) || 0,
       cuenta, (l.CuentaNombre || '').trim() || null, l.Afectable == null ? null : !!l.Afectable, cuenta.split('-')[0], cuenta.slice(0, 1), ca,
       round2(l.Importe), (l.Referencia || '').trim() || null, cfdiByGuid.get(String(l.Guid || '').trim().toUpperCase()) || null,
-      (l.SatCod || '').trim() || null, anioMes(l.Ejercicio, l.Periodo)];
+      (l.SatCod || '').trim() || null, anioMes(l.Ejercicio, l.Periodo),
+      (l.MovConcepto || '').trim() || null];
   });
   const cnt = new Map();
   for (const r of lineOut) { const k = `${r[3]}|${r[4]}|${r[5]}|${r[6]}`; cnt.set(k, (cnt.get(k) || 0) + 1); }
@@ -153,8 +157,19 @@ const keyOf = (ej, pe, tp, fo) => `${Number(ej)}|${Number(pe)}|${String(tp)}|${S
         `DELETE FROM analytics.gl_poliza_lines WHERE tenant_id='${TENANT}' AND source='contpaqi'
            AND (ejercicio,periodo,tipo_pol,folio) IN (${vals.join(',')})`, params);
     }
+    // `concepto` (LC.15) sólo se escribe si la columna YA existe. El runner corre este
+    // working tree, así que este archivo llega a producción en cuanto se guarda — y el
+    // carril de pólizas corre cada minuto. Sin esta guarda, editarlo antes de aplicar la
+    // migración tumba el feed en la siguiente pasada.
+    const LINE_COLS = ['tenant_id', 'source', 'sucursal', 'ejercicio', 'periodo', 'tipo_pol', 'folio', 'num_movto', 'cuenta', 'cuenta_nombre', 'cuenta_afectable', 'cuenta_mayor', 'familia', 'cargo_abono', 'importe', 'referencia', 'cfdi_uuid', 'sat_agrupador', 'anio_mes'];
+    const { rows: colConcepto } = await pg.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema='analytics' AND table_name='gl_poliza_lines' AND column_name='concepto'`);
+    const conConcepto = colConcepto.length > 0;
+    if (!conConcepto) console.log('  · sin columna `concepto` todavía (migración 20260903140000 pendiente): se omite.');
     await insert(pg, 'analytics.gl_poliza_lines',
-      ['tenant_id', 'source', 'sucursal', 'ejercicio', 'periodo', 'tipo_pol', 'folio', 'num_movto', 'cuenta', 'cuenta_nombre', 'cuenta_afectable', 'cuenta_mayor', 'familia', 'cargo_abono', 'importe', 'referencia', 'cfdi_uuid', 'sat_agrupador', 'anio_mes'], lineOut);
+      conConcepto ? [...LINE_COLS, 'concepto'] : LINE_COLS,
+      conConcepto ? lineOut : lineOut.map((r) => r.slice(0, LINE_COLS.length)));
     // borradas: pólizas que ya no existen en la fuente → quitar header + líneas
     for (let i = 0; i < goneKeys.length; i += 500) {
       const chunk = goneKeys.slice(i, i + 500).map((k) => k.split('|'));
