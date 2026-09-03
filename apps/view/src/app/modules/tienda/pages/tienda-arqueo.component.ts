@@ -58,7 +58,7 @@ import { imprimirTicket } from '../ticket-arqueo';
         <div class="surf-page-head-text">
           <h1>Arqueo de caja</h1>
           <p class="surf-page-sub">
-            Contá el efectivo físico por denominación y guardalo.
+            Contá el efectivo físico de <strong>hoy</strong> por denominación y guardalo.
             @if (revela) { Al guardar, el sistema te muestra la diferencia real. }
             @else { El cuadre lo revisa tu encargada. }
           </p>
@@ -82,8 +82,8 @@ import { imprimirTicket } from '../ticket-arqueo';
             <div class="arq-vacio">
               <i class="pi pi-clock"></i>
               <div>
-                <strong>Kepler no te abrió ninguna caja.</strong>
-                <p class="muted">El arqueo se habilita cuando tu turno está abierto en el punto de venta. Si ya estás cobrando y no aparece, avisale a tu encargada.</p>
+                <strong>Hoy no tenés cortes por arquear.</strong>
+                <p class="muted">El arqueo aparece acá cuando Kepler cierra tu caja. Si ya cortaste en el punto de venta y no lo ves, avisale a tu encargada.</p>
                 @if (revela) {
                   <p-button type="button" label="Capturar sin turno" icon="pi pi-pencil" styleClass="p-button-sm p-button-text"
                             (click)="manual.set(true)"></p-button>
@@ -94,9 +94,9 @@ import { imprimirTicket } from '../ticket-arqueo';
 
           @if (turnos().length && !manual()) {
             @if (turnos().length > 1) {
-              <p class="arq-lbl arq-turno-lbl">
-                Tenés <strong>{{ turnos().length }} cortes pendientes</strong>. Se cierran del más viejo al más nuevo.
-              </p>
+              <!-- En una sola línea: partido en tres, el navegador colapsaba los saltos
+                   y dejaba el punto huérfano al principio del renglón siguiente. -->
+              <p class="arq-lbl arq-turno-lbl">Tenés <strong>{{ turnos().length }} cortes de hoy</strong> sin arquear. Se cierran del más viejo al más nuevo.</p>
               <div class="arq-turnos">
                 @for (t of turnosOrdenados(); track t.folio + t.warehouse_code; let i = $index) {
                   <!-- Solo el más viejo es accionable: los cortes se cierran en orden.
