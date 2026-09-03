@@ -333,14 +333,16 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
     `folio=${firmado.rows[0]?.cash_cut_folio} caja=${firmado.rows[0]?.caja_kepler}`);
 
   // Recontar borra la firma: un arqueo distinto es un arqueo sin validar.
-  await req('POST', '/store/arqueo', cajera, {
+  // El status del re-POST se guarda: sin él, un rechazo del backend se veía como
+  // "la validación no se borró" y mandaba a buscar el bug en el lugar equivocado.
+  const recap = await req('POST', '/store/arqueo', cajera, {
     warehouse_code: MIAS[1], cash_cut_folio: TURNO_DE[MIAS[1]], caja: CAJA_DE[MIAS[1]], business_date: FECHA,
     tipo: 'cierre', denominations: { '500': 8 },
   });
   const refirma = await pg.query(
     `SELECT validado_at, total_contado::numeric t FROM reconciliation.blind_counts WHERE tenant_id=$1 AND id=$2`, [M, arqId]);
   check('recapturar el conteo BORRA la validación', refirma.rows[0]?.validado_at === null && Number(refirma.rows[0]?.t) === 4000,
-    `validado_at=${refirma.rows[0]?.validado_at} total=${refirma.rows[0]?.t}`);
+    `re-POST=${recap.status} ${JSON.stringify(recap.body).slice(0, 160)} · validado_at=${refirma.rows[0]?.validado_at} total=${refirma.rows[0]?.t}`);
 
   console.log('\n── 8. Cleanup ──');
   await cleanup(pg, [userId, supId]);
