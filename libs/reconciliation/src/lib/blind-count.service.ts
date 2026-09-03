@@ -199,7 +199,14 @@ export class BlindCountService {
            LEFT JOIN commercial.warehouses w
              ON w.tenant_id = ? AND w.code = k.sucursal AND w.deleted_at IS NULL
           WHERE upper(btrim(k.c8)) = ?
-            AND k.c5::date >= (current_date - ?::int)
+            -- La ventana acota los turnos CERRADOS (el corte del día). El turno
+            -- ABIERTO entra siempre, sin importar la fecha: la cajera lo está
+            -- trabajando ahora. Sin esta excepción, una caja que cruzó la
+            -- medianoche —que es la "caja arrastrada" que el tablero ya vigila—
+            -- desaparecía de su pantalla junto con los retiros que le faltan
+            -- contar. Verificado: la caja 1 de suc 01 quedó abierta desde el
+            -- 02/09 con $15,000 retirados y sin contar.
+            AND (k.c5::date >= (current_date - ?::int) OR k.c10::date = DATE '1800-01-01')
             AND (?::text[] IS NULL OR k.sucursal = ANY(?::text[]))
             AND NOT EXISTS (
                   SELECT 1 FROM reconciliation.blind_counts b
