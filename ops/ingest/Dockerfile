@@ -6,8 +6,15 @@
 #   · PM2 corre en la sesión `Console` del usuario → se muere al cerrar sesión, y el 2026-09-02
 #     reportó `online` para dos carriles cuyo batch nunca se ejecutó (falso verde).
 #   · Docker en esta box ya sostiene pgvector-md, redis-md, api y view con días de uptime, el motor
-#     corre como servicio (sin sesión), y `HEALTHCHECK` permite reiniciar por **falta de entrega**,
-#     no sólo por muerte del proceso. Eso es lo que ningún supervisor anterior podía dar.
+#     corre como servicio (sin sesión), y `HEALTHCHECK` permite DETECTAR la **falta de entrega**,
+#     no sólo la muerte del proceso. Eso es lo que ningún supervisor anterior podía dar.
+#
+# ⚠️ EL `HEALTHCHECK` NO REINICIA NADA POR SÍ SOLO. En Docker standalone `restart: unless-stopped`
+# reacciona a que el proceso MUERA; `unhealthy` es sólo un rótulo (reiniciar por salud lo hace Swarm,
+# no el motor suelto). Este comentario decía lo contrario y esa creencia costó 15 h: el 2026-09-04
+# `ods-live-hot` quedó colgado con el proceso vivo y CPU 0.00 %, el healthcheck lo vio, y nadie actuó.
+# El brazo que ejecuta el veredicto es el servicio `autoheal` del compose. Si algún día se corre esta
+# imagen SIN ese servicio, el healthcheck vuelve a ser decorativo.
 #
 # Imagen AUTOCONTENIDA (mismo criterio que services/feeds-ingest): se copia el código que hace falta
 # en vez de montar el repo del host. Grafo de requires real:

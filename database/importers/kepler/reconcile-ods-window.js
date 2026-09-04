@@ -22,6 +22,13 @@
  * de prod), lee del replica sólo las filas ausentes y las shipea por `raw-upsert` (idempotente, mismo
  * camino que el CDC). No borra nada, no toca el CDC, no lee el POS. Ship = sólo el delta real.
  *
+ * Desde OBS.7 mira el espejo COMPLETO, no sólo la mitad: además de los FALTANTES (que repone) cuenta
+ * los SOBRANTES — llaves que siguen en el ODS y ya no están en el replica. Al retirarse el CDC WAL se
+ * fue lo único que propagaba DELETE, y esta es la señal que lo reemplaza. **Se reporta, no se borra**:
+ * borrar en el ODS necesita autorización explícita, y una fila a la que le cambió su fecha de negocio
+ * sale de la ventana sin haber sido borrada, así que el número trae falsos positivos por construcción.
+ * Su alarma nace APAGADA (`ODS_SOBRANTES_ALERT=0`) hasta que haya observación para fijarle un piso.
+ *
  * La ventana se acota por la FECHA DE NEGOCIO de cada tabla (`RECENT_COL`), no por `c9` en todas:
  * `c9` es fecha sólo en `kdm1`; en `kdm2` es CANTIDAD. Misma tabla de columnas que usaba la red de
  * seguridad vieja, ya verificada (kdm2.c32 ≡ fecha del header en 99.999% de las filas).
@@ -103,8 +110,24 @@ async function reconcile(local, prod, code, table) {
     `SELECT ${pkList} FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 AND ${ventana}`, [code])).rows;
   const presentes = new Set(pro.map((r) => keyOf(meta.pk, r)));
   const faltan = loc.filter((r) => !presentes.has(keyOf(meta.pk, r)));
-  if (!faltan.length) return { suc: code, tabla: table, local: loc.length, faltan: 0 };
-  if (!APPLY) return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, dry: true };
+
+  // SOBRANTES (OBS.7) — llaves que siguen en el ODS y ya no están en el replica. Es la mitad del
+  // espejo que nadie miraba: al retirar el CDC WAL se fue lo único que propagaba DELETE, y la
+  // comparación de conjuntos que ya hacemos acá la da casi gratis (los dos lados ya están en RAM).
+  //
+  // SE REPORTA, NO SE BORRA. Borrar en el ODS necesita autorización explícita, y además hay un falso
+  // positivo legítimo: si a una fila le CAMBIA su fecha de negocio (`RECENT_COL`) y se sale de la
+  // ventana, desaparece del lado local sin haber sido borrada. Por eso este número es una SEÑAL para
+  // que un humano mire, no un gatillo automático. Se muestran unas llaves de ejemplo para que mirar
+  // no cueste otra investigación desde cero.
+  const locales = new Set(loc.map((r) => keyOf(meta.pk, r)));
+  const sobran = pro.filter((r) => !locales.has(keyOf(meta.pk, r)));
+  const extra = sobran.length
+    ? { sobrantes: sobran.length, ej_sobrantes: sobran.slice(0, 3).map((r) => keyOf(meta.pk, r)).join(' ') }
+    : {};
+
+  if (!faltan.length) return { suc: code, tabla: table, local: loc.length, faltan: 0, ...extra };
+  if (!APPLY) return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, dry: true, ...extra };
 
   // Releer las filas COMPLETAS de las llaves ausentes y shipearlas por el camino del CDC.
   const selList = meta.cols.map((c) => qid(c.column_name)).join(', ');
@@ -118,7 +141,7 @@ async function reconcile(local, prod, code, table) {
     const rows = full.map((row) => { const o = { sucursal: code }; for (const c of meta.cols) o[c.column_name] = row[c.column_name]; return o; });
     if (rows.length) { await sink.ship('raw-upsert', { rows, tenantId: TENANT, meta: shipMeta }); enviadas += rows.length; }
   }
-  return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, enviadas };
+  return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, enviadas, ...extra };
 }
 
 /** Una pasada completa. Devuelve el detalle por (sucursal, tabla). */
@@ -144,12 +167,21 @@ async function pasada(destUrl) {
 const resumen = (out) => ({
   huecos: out.reduce((a, r) => a + (r.faltan || 0), 0),
   repuestas: out.reduce((a, r) => a + (r.enviadas || 0), 0),
+  sobrantes: out.reduce((a, r) => a + (r.sobrantes || 0), 0),
   errores: out.filter((r) => r.error).length,
 });
 
 // Umbral de alarma. Cada pasada lee el replica y DESPUÉS prod: lo que se creó en ese intervalo se ve
 // "ausente" sin serlo. Un puñado por pasada es ese ruido; decenas son pérdida real.
 const ALERTA = Math.max(1, Number(process.env.ODS_RECONCILE_ALERT) || 50);
+
+// Umbral de SOBRANTES, aparte y APAGADO por default (0 = sólo reportar en la nota, nunca poner rojo).
+// Deliberado: todavía no está medido cuánto de este número es DELETE sin propagar y cuánto es la fila
+// que se salió de la ventana por cambio de fecha de negocio. Encender una alarma con un piso
+// desconocido fabrica un rojo permanente, y un rojo permanente que nadie atiende enseña a ignorar el
+// tablero — es justo lo que acabábamos de limpiar. Se sube a un número real cuando haya semanas de
+// observación, poniendo ODS_SOBRANTES_ALERT en ops/ingest/docker-compose.yml.
+const ALERTA_SOBRANTES = Math.max(0, Number(process.env.ODS_SOBRANTES_ALERT) || 0);
 
 /**
  * Latido al MISMO tablero que mira Administración (`analytics.cron_runs` → db-health).
@@ -169,7 +201,8 @@ async function latir(destUrl, r, ms) {
   const c = new Client({ connectionString: destUrl, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
   try {
     await c.connect();
-    const malo = r.huecos > ALERTA || r.errores > 0;
+    const sobranMal = ALERTA_SOBRANTES > 0 && r.sobrantes > ALERTA_SOBRANTES;
+    const malo = r.huecos > ALERTA || r.errores > 0 || sobranMal;
     await c.query(`
       INSERT INTO analytics.cron_runs
         (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
@@ -180,8 +213,12 @@ async function latir(destUrl, r, ms) {
         rows_affected=EXCLUDED.rows_affected, duration_ms=EXCLUDED.duration_ms,
         note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
     [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
-      `ventana ${DAYS}d · huecos ${r.huecos} · repuestas ${r.repuestas} · errores ${r.errores}`,
-      malo ? `${r.huecos} filas ausentes en el ODS (umbral ${ALERTA}) · ${r.errores} tablas con error — el CDC esta perdiendo filas` : null,
+      `ventana ${DAYS}d · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes} · errores ${r.errores}`,
+      malo ? [
+        r.huecos > ALERTA ? `${r.huecos} filas ausentes en el ODS (umbral ${ALERTA}) — el carril esta perdiendo filas` : null,
+        sobranMal ? `${r.sobrantes} filas de mas en el ODS (umbral ${ALERTA_SOBRANTES}) — DELETE sin propagar, revisar a mano` : null,
+        r.errores > 0 ? `${r.errores} tablas con error` : null,
+      ].filter(Boolean).join(' · ') : null,
       require('os').hostname()]);
   } catch (e) {
     console.error(`latido falló: ${e.message}`);   // nunca corta la reconciliación
@@ -198,6 +235,7 @@ async function latir(destUrl, r, ms) {
     console.table(out);
     const r = resumen(out);
     console.log(`\nfilas ausentes en el ODS: ${r.huecos}${APPLY ? ` · repuestas: ${r.repuestas}` : ' (dry-run: nada se envió)'}`);
+    console.log(`filas de MÁS en el ODS (DELETE sin propagar, o fecha de negocio cambiada): ${r.sobrantes} — sólo se reportan`);
     process.exit(0);
   }
 
