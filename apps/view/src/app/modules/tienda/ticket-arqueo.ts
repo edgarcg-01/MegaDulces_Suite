@@ -7,9 +7,17 @@
  * porque es como se ve bien en 203 dpi y porque así el ticket sigue siendo legible
  * si alguien lo manda a una impresora de 58 mm.
  *
- * No se usa `window.print()` sobre la página: abre una ventana propia con su
- * `@page`, para no arrastrar el layout de la app ni pelear con los estilos del
- * shell.
+ * No se usa `window.print()` sobre la página: se imprime desde un **iframe oculto**
+ * con su propio `@page`, para no arrastrar el layout de la app ni pelear con los
+ * estilos del shell — y sin la ventana emergente, que el navegador bloquea por
+ * default y obligaba a autorizarla con las manos en el efectivo.
+ *
+ * ⚠️ **El diálogo de impresión no se puede saltar desde la web.** Ningún navegador
+ * permite mandar a la impresora sin confirmación: es una restricción de seguridad,
+ * no algo que falte programar. Para que salga solo, la máquina de la caja debe
+ * abrir el navegador en modo kiosco de impresión —Chrome/Edge con
+ * `--kiosk-printing`— y ahí `print()` imprime directo a la impresora default.
+ * Es configuración de una vez por equipo, el patrón estándar en punto de venta.
  */
 
 export interface TicketDenominacion { denominacion: number; cantidad: number; subtotal: number }
@@ -241,9 +249,20 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
  * nunca aparece.
  */
 export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }): boolean {
-  const w = window.open('', '_blank', 'width=380,height=640');
-  if (!w) return false;
-  w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Arqueo ${esc(a.fecha)} caja ${esc(a.caja)}</title>
+  // IFRAME oculto, no `window.open`: la ventana emergente la bloquea el navegador
+  // por default y obligaba a la cajera a autorizarla con las manos en el efectivo.
+  // El iframe no pide permiso, no roba el foco y no deja una pestaña abierta.
+  const marco = document.createElement('iframe');
+  marco.setAttribute('aria-hidden', 'true');
+  marco.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(marco);
+
+  const doc = marco.contentDocument;
+  const win = marco.contentWindow;
+  if (!doc || !win) { marco.remove(); return false; }
+
+  doc.open();
+  doc.write(`<!doctype html><html><head><meta charset="utf-8"><title>Arqueo ${esc(a.fecha)} caja ${esc(a.caja)}</title>
 <style>
   /* 80 mm de papel; el alto lo pone el contenido (rollo continuo). */
   @page { size: 80mm auto; margin: 0; }
@@ -251,15 +270,18 @@ export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }): bool
   body { width: 72mm; padding: 3mm; color: #000;
          font-family: "Courier New", ui-monospace, monospace; font-size: 11px; line-height: 1.35; }
   pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
-  @media print { .no-print { display: none; } }
-  .no-print { margin-top: 8px; font-family: system-ui, sans-serif; }
-</style></head><body>
-<pre>${cuerpoTicket(a, opts)}</pre>
-<div class="no-print"><button onclick="window.print()">Imprimir</button></div>
-</body></html>`);
-  w.document.close();
-  w.focus();
-  // Deja pintar antes de disparar el diálogo; si no, algunas impresoras salen en blanco.
-  setTimeout(() => { try { w.print(); } catch { /* el usuario tiene el botón */ } }, 250);
+</style></head><body><pre>${cuerpoTicket(a, opts)}</pre></body></html>`);
+  doc.close();
+
+  const lanzar = () => {
+    try { win.focus(); win.print(); } catch { /* si el navegador lo niega, queda el botón manual */ }
+    // El iframe se retira DESPUÉS de imprimir. Quitarlo antes cancela el trabajo en
+    // algunos navegadores; 1.5 s alcanza incluso si el diálogo sigue abierto, porque
+    // para entonces el documento ya se mandó a la cola.
+    setTimeout(() => marco.remove(), 1500);
+  };
+  // Deja pintar antes de disparar; si no, algunas térmicas sacan la hoja en blanco.
+  if (doc.readyState === 'complete') setTimeout(lanzar, 120);
+  else marco.onload = () => setTimeout(lanzar, 120);
   return true;
 }
