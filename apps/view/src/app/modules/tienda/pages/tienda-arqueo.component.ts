@@ -5,7 +5,8 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
-import { SelectButtonModule } from 'primeng/selectbutton';
+import { SelectModule } from 'primeng/select';
+import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { MessageService } from 'primeng/api';
@@ -46,7 +47,7 @@ import { imprimirTicket } from '../ticket-arqueo';
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    SelectButtonModule, InputTextModule, TagModule,
+    SelectModule, SegmentedComponent, InputTextModule, TagModule,
     ContextHelpComponent, FreshnessPillComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -69,7 +70,12 @@ import { imprimirTicket } from '../ticket-arqueo';
         </div>
       </header>
 
-      <div class="arq-2col" [class.arq-1col]="!canCapture() || (!revela && !rows().length)">
+      <!-- Apilado, no dos columnas: en paralelo la captura quedaba en una columna
+           angosta —las denominaciones en una sola fila y los medios amontonados—
+           mientras el historial ocupaba el doble de ancho para una tabla que se
+           mira después, no mientras se cuenta. A lo ancho, el conteo respira y el
+           historial queda donde va: abajo. -->
+      <div class="arq-stack">
         <!-- Captura -->
         @if (canCapture()) {
         <div class="card-premium card-flat arq-panel">
@@ -155,16 +161,15 @@ import { imprimirTicket } from '../ticket-arqueo';
             <!-- Escape hatch del supervisor: relevo, contingencia, caja sin Kepler. -->
             <div class="arq-head">
               <label class="arq-lbl">Sucursal
-                <select class="arq-fld arq-sel arq-fld-suc" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)">
-                  <option value="" disabled>Elegí…</option>
-                  @for (w of sucursales(); track w.value) { <option [value]="w.value">{{ w.value }} — {{ w.label }}</option> }
-                </select>
+                <p-select [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                          optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
+                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label" />
               </label>
               <label class="arq-lbl">Caja <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2"></label>
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
-              <label class="arq-lbl">Cajero <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código"></label>
+              <label class="arq-lbl">Cajero <input pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
@@ -172,47 +177,57 @@ import { imprimirTicket } from '../ticket-arqueo';
           }
 
           @if (puedeContar()) {
-            <p-selectbutton [options]="tipoOptions" [ngModel]="aTipo()" (ngModelChange)="aTipo.set($event); dirty.set(true)"
-                            optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="sb-liquid arq-seg" />
+            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)" ariaLabel="Tipo de arqueo" />
             @if (aTipo() === 'relevo') {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
             }
 
-            <p-table [value]="denoms" styleClass="p-datatable-sm arq-denoms-tbl">
-              <ng-template #header>
-                <tr><th>Denominación</th><th class="ta-r">Cantidad</th><th class="ta-r">Subtotal</th></tr>
-              </ng-template>
-              <ng-template #body let-d let-i="rowIndex">
-                <tr>
-                  <td class="arq-denom-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</td>
-                  <td class="ta-r">
-                    <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
-                         casilla en vez de sumar/restar. Con el spinner puesto, una flecha
-                         de más cambia el conteo del billete sin que la cajera lo note. -->
-                    <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                           [attr.aria-label]="'Cantidad de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
-                           [value]="denomCount[d] ?? ''" placeholder="0"
-                           (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, i)" (focus)="selectAll($event)">
-                  </td>
-                  <td class="ta-r muted">{{ money((denomCount[d] || 0) * d) }}</td>
-                </tr>
-              </ng-template>
-              <ng-template #footer>
-                <tr class="arq-total-row"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(arqTotal()) }}</td></tr>
-              </ng-template>
-            </p-table>
+            <!-- Dos columnas, no once renglones: la tabla vertical obligaba a
+                 scrollear para llegar al botón, y contando efectivo la pantalla se
+                 mira de reojo. En una sola vista entra todo. El grid es intrínseco
+                 (§9): en una pantalla angosta vuelve a una columna sola. -->
+            <div class="arq-denoms" role="group" aria-label="Conteo por denominación">
+              @for (d of denoms; track d; let i = $index) {
+                <label class="arq-den">
+                  <span class="arq-den-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</span>
+                  <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
+                       casilla en vez de sumar/restar. Con el spinner puesto, una flecha
+                       de más cambia el conteo del billete sin que la cajera lo note. -->
+                  <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
+                         [attr.aria-label]="'Cantidad de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
+                         [value]="denomCount[d] ?? ''" placeholder="0"
+                         (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, i)" (focus)="selectAll($event)">
+                  <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
+                </label>
+              }
+            </div>
             <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usa <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
 
+            <!-- SM.24 — El corte no es solo efectivo: Kepler arquea seis renglones.
+                 Acá se declara el total de cada uno (el voucher de la terminal, el
+                 fajo de cheques, los vales). El efectivo NO se repite: sale del
+                 conteo de arriba. -->
+            @if (aTipo() !== 'relevo') {
+              <div class="arq-medios">
+                <span class="arq-medios-t">Otros medios del turno</span>
+                <div class="arq-medios-g">
+                  @for (m of mediosCampos; track m.key) {
+                    <label class="arq-medio">
+                      <span class="arq-medio-lbl">{{ m.label }}</span>
+                      <input pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
+                             [attr.aria-label]="m.label"
+                             [value]="medios[m.key] ?? ''" placeholder="0.00"
+                             (input)="onMedioInput(m.key, $event)" (focus)="selectAll($event)">
+                    </label>
+                  }
+                </div>
+              </div>
+            }
+
             @if (aTipo() === 'cierre') {
-              <label class="arq-lbl arq-block">Incidencia <span class="muted">(opcional — si hubo un motivo)</span>
-                <select class="arq-fld arq-sel" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)">
-                  <option value="">Ninguna</option>
-                  <option value="faltante_justificado">Faltante justificado</option>
-                  <option value="billete_falso">Billete falso</option>
-                  <option value="robo">Robo</option>
-                  <option value="error_cobro">Error de cobro</option>
-                  <option value="otro">Otro</option>
-                </select>
+              <label class="arq-lbl arq-block">Incidencia
+                <p-select [options]="incidenciaOptions" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)"
+                          optionLabel="label" optionValue="value" styleClass="arq-fld" appendTo="body" placeholder="Ninguna" />
               </label>
             }
             <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
@@ -336,9 +351,7 @@ import { imprimirTicket } from '../ticket-arqueo';
   styles: [`
     :host { display: block; }
     .arq-head-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
-    .arq-2col { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
-    .arq-2col.arq-1col { grid-template-columns: 1fr; }
-    @media (max-width: 900px) { .arq-2col { grid-template-columns: 1fr; } }
+    .arq-stack { display: grid; grid-template-columns: 1fr; gap: 1rem; }
     .arq-panel { padding: 1rem; }
     .arq-bar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 1rem;
                margin: .8rem -1rem -1rem; padding: .7rem 1rem;
@@ -389,6 +402,10 @@ import { imprimirTicket } from '../ticket-arqueo';
     .arq-lbl { display: inline-flex; flex-direction: column; gap: .2rem; font-size: .76rem; color: var(--text-muted); }
     :host ::ng-deep .arq-fld { font-size: .82rem; padding: .35rem .6rem; }
     :host ::ng-deep .arq-fld-sm { width: 5.5rem; }
+    /* El codigo de cajera no es un numero corto como la caja: va de 10C02 a
+       DAVID_CISNEROS. Con el ancho de "Caja" se cortaba el nombre de quien firma
+       el conteo, que es justo el dato que no puede quedar a medias. */
+    :host ::ng-deep .arq-fld-cajero { width: 12rem; }
     .arq-fld-suc { width: 11rem; }
     :host ::ng-deep .arq-num { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .25rem .4rem; }
     :host ::ng-deep .arq-date .p-datepicker-input { width: 8.5rem; }
@@ -397,6 +414,20 @@ import { imprimirTicket } from '../ticket-arqueo';
     .arq-block .arq-sel { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-block .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-print { margin-top: .35rem; }
+    /* Grid intrínseco (§9): dos columnas donde caben, una donde no. Sin breakpoints. */
+    .arq-denoms { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+                  gap: .25rem 1.4rem; margin: .5rem 0 .4rem; }
+    .arq-den { display: grid; grid-template-columns: 3.2rem 1fr 5.5rem; align-items: center; gap: .5rem;
+               padding: .12rem 0; font-variant-numeric: tabular-nums; }
+    .arq-den-lbl { font-size: .82rem; font-weight: 600; text-align: right; }
+    .arq-den-sub { font-size: .74rem; color: var(--text-muted); text-align: right; }
+    .arq-medios { margin: .5rem 0 .2rem; padding-top: .5rem; border-top: 1px solid var(--border-color); }
+    .arq-medios-t { display: block; font-size: .66rem; text-transform: uppercase; letter-spacing: .04em;
+                    color: var(--text-muted); margin-bottom: .35rem; }
+    .arq-medios-g { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .25rem 1.4rem; }
+    .arq-medio { display: grid; grid-template-columns: 1fr 6.5rem; align-items: center; gap: .5rem; padding: .12rem 0; }
+    .arq-medio-lbl { font-size: .82rem; }
+    :host ::ng-deep .arq-medio-num { text-align: right; }
     :host ::ng-deep .arq-denoms-tbl { font-variant-numeric: tabular-nums; margin-bottom: .4rem; }
     :host ::ng-deep .arq-denoms-tbl .p-datatable-tbody > tr > td { padding: .2rem .5rem; }
     .arq-denom-lbl { font-variant-numeric: tabular-nums; }
@@ -472,6 +503,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   /** Sucursales del ALCANCE del usuario — solo se usan en la captura manual. */
   readonly sucursales = signal<ScopeOption[]>([]);
+  /** Con el código adelante: la encargada las conoce por número, no por nombre. */
+  readonly sucursalOptions = computed(() =>
+    this.sucursales().map((w) => ({ value: w.value, label: `${w.value} — ${w.label}` })));
   readonly variasSucursales = computed(() => this.sucursales().length > 1);
 
   readonly canCapture = computed(() =>
@@ -482,9 +516,32 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     // La sangría que Kepler pide al llegar al límite de la caja. Va primero
     // después del cierre porque es la MÁS frecuente: una caja hace un cierre al
     // día y tres o cuatro retiros.
-    { label: 'Retiro (sangría)', value: 'retiro' as const },
-    { label: 'Relevo (cambio de turno)', value: 'relevo' as const },
+    { label: 'Retiro', value: 'retiro' as const },
+    { label: 'Relevo', value: 'relevo' as const },
   ];
+
+  readonly incidenciaOptions = [
+    { label: 'Ninguna', value: '' },
+    { label: 'Faltante justificado', value: 'faltante_justificado' },
+    { label: 'Billete falso', value: 'billete_falso' },
+    { label: 'Robo', value: 'robo' },
+    { label: 'Error de cobro', value: 'error_cobro' },
+    { label: 'Otro', value: 'otro' },
+  ];
+
+  /**
+   * Los conceptos no-efectivo del corte. `cuadra` marca los que tienen columna
+   * verificada en Kepler; los otros se guardan igual —tener el dato declarado es
+   * lo que permitirá confirmar su columna— pero no se comparan contra nada.
+   */
+  readonly mediosCampos = [
+    { key: 'tarjeta', label: 'Tarjeta', cuadra: true },
+    { key: 'transferencia', label: 'Transferencia', cuadra: true },
+    { key: 'retiros', label: 'Retiros', cuadra: true },
+    { key: 'creditos', label: 'Créditos', cuadra: false },
+    { key: 'cheques', label: 'Cheques', cuadra: false },
+  ];
+  medios: Record<string, number> = {};
 
   readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
   denomCount: Record<number, number> = {};
@@ -598,6 +655,14 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     return d === 1 ? '1 día' : `${d} días`;
   }
 
+  onMedioInput(key: string, ev: Event) {
+    const v = Number(String((ev.target as HTMLInputElement).value).replace(/[^0-9.]/g, ''));
+    if (Number.isFinite(v) && v > 0) this.medios[key] = v; else delete this.medios[key];
+    this.dirty.set(true);
+  }
+
+  elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.dirty.set(true); }
+
   elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
 
   /**
@@ -636,7 +701,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       validado_por: null, validado_at: null,
     }, { revela: this.revela });
     if (!ok) {
-      this.toast.add({ severity: 'warn', summary: 'El navegador bloqueó la ventana', detail: 'Permite las ventanas emergentes de este sitio para imprimir.' });
+      this.toast.add({ severity: 'warn', summary: 'No se pudo abrir la impresión', detail: 'Usa el botón Imprimir ticket para reintentar.' });
     }
   }
 
@@ -699,6 +764,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.saving.set(true);
     const denominations: Record<string, number> = {};
     for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
+    const medios = Object.keys(this.medios).length ? { ...this.medios } : undefined;
     const relevo = this.aTipo() === 'relevo';
     const t = this.turnoSel();
     // Con turno, el encabezado sale de Kepler; el backend lo vuelve a resolver
@@ -709,7 +775,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     this.svc.submit({
       ...cabecera, tipo: this.aTipo(),
       cajero_entrante: relevo ? (this.aEntrante.trim() || undefined) : undefined,
-      denominations, nota: this.aNota.trim() || undefined,
+      denominations, medios, nota: this.aNota.trim() || undefined,
       incidencia_tipo: !relevo && this.aIncidencia ? this.aIncidencia : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
@@ -722,7 +788,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
           severity: this.revela && (r.diff_real || 0) > 0 ? 'warn' : 'success',
           summary: r.tipo === 'relevo' ? 'Relevo guardado' : 'Arqueo guardado', detail,
         });
-        this.denomCount = {}; this.arqTotal.set(0);
+        // El ticket sale SOLO, antes de limpiar el formulario: es el respaldo que se
+        // firma en el momento, con la encargada al lado. Pedirle a la cajera que
+        // además se acuerde de darle a un botón es perder el papel la mitad de las
+        // veces — y el papel es la prueba física del conteo.
+        this.imprimir(r);
+        this.denomCount = {}; this.arqTotal.set(0); this.medios = {};
         this.cargarTurnos();  // el turno arqueado sale de la lista
         this.load();
       },
