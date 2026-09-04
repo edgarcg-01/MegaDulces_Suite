@@ -22,7 +22,7 @@
  * de prod), lee del replica sólo las filas ausentes y las shipea por `raw-upsert` (idempotente, mismo
  * camino que el CDC). No borra nada, no toca el CDC, no lee el POS. Ship = sólo el delta real.
  *
- * Desde OBS.7 mira el espejo COMPLETO, no sólo la mitad: además de los FALTANTES (que repone) cuenta
+ * Desde OBS.8 mira el espejo COMPLETO, no sólo la mitad: además de los FALTANTES (que repone) cuenta
  * los SOBRANTES — llaves que siguen en el ODS y ya no están en el replica. Al retirarse el CDC WAL se
  * fue lo único que propagaba DELETE, y esta es la señal que lo reemplaza. **Se reporta, no se borra**:
  * borrar en el ODS necesita autorización explícita, y una fila a la que le cambió su fecha de negocio
@@ -111,7 +111,7 @@ async function reconcile(local, prod, code, table) {
   const presentes = new Set(pro.map((r) => keyOf(meta.pk, r)));
   const faltan = loc.filter((r) => !presentes.has(keyOf(meta.pk, r)));
 
-  // SOBRANTES (OBS.7) — llaves que siguen en el ODS y ya no están en el replica. Es la mitad del
+  // SOBRANTES (OBS.8) — llaves que siguen en el ODS y ya no están en el replica. Es la mitad del
   // espejo que nadie miraba: al retirar el CDC WAL se fue lo único que propagaba DELETE, y la
   // comparación de conjuntos que ya hacemos acá la da casi gratis (los dos lados ya están en RAM).
   //

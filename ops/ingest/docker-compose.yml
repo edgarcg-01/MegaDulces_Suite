@@ -91,7 +91,7 @@ services:
     labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
 
-  # ─── EL BRAZO DEL HEALTHCHECK (OBS.7) ───────────────────────────────────────────────────────
+  # ─── EL BRAZO DEL HEALTHCHECK (OBS.8) ───────────────────────────────────────────────────────
   # Sin esto el `HEALTHCHECK` de arriba sólo PINTA un rótulo: en Docker standalone
   # `restart: unless-stopped` reacciona a que el proceso MUERA, y nada reacciona a `unhealthy`
   # (eso sólo lo hace Swarm). El 2026-09-04 `ods-live-hot` estuvo 15 h colgado — proceso vivo,

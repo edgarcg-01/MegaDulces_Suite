@@ -61,7 +61,7 @@ const APP_SOURCES: SourceCfg[] = [
   // (raw-upsert Y raw-delete) → detecta si el pipe se detuvo. Umbral realtime.
   // HISTORIA (para no repetirla): el poll se deshabilitó el 2026-08-26 por el corrimiento +6h de los
   // timestamps, que al estar en la PK duplicaba filas contra el WAL (1,120 pólizas en kdc22608, ver
-  // GOTCHAS §21); volvió corregido y el CDC WAL se retiró el 2026-09-04 (OBS.7). El dead-man's switch
+  // GOTCHAS §21); volvió corregido y el CDC WAL se retiró el 2026-09-04 (OBS.8). El dead-man's switch
   // fino de este carril son `ods_live_hot`/`ods_live_mirror` más abajo, y su COMPLETITUD `cdc_reconcile`.
   { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (poll en Docker, 2 carriles)' },
   // kepler_ods POR-SUCURSAL: el _sync_status de arriba prueba que la LOOP corre, pero con la
@@ -457,7 +457,7 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
-  // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.7): el carril se retiró y sus
+  // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.8): el carril se retiró y sus
   // slots se dropearon. Sus 7 latidos quedaron congelados en `error` desde el 02-sep y siguieron
   // pintando ROJO durante días sin que nadie fuera a arreglarlos — un rojo permanente que nadie va a
   // atender enseña a ignorar el tablero, que es peor que no tenerlo. Lo que el WAL cubría en exclusiva

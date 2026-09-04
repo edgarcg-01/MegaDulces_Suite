@@ -241,19 +241,57 @@ en prod. `tsc --noEmit` del API en verde.
   `last_notified_at` sólo al enviar; (d) el healthcheck sale ≠ 0 con el latido congelado. Reusar
   `test-newdb-db-health-engine.js` y `test-newdb-raw-upsert.js`.
 
+### OBS.8 — Un carril = un dueño ✅ (2026-09-04, commits `f058b0fe` + siguiente)
+
+Disparado por "`/comercial/documentos` no se actualiza al momento". La pantalla no tenía nada: lee
+vistas en vivo sobre `kepler_ods`, así que su frescura *es* la del ODS. Abajo, el carril caliente
+llevaba **15 h colgado** (proceso vivo, CPU 0.00 %) con Docker diciendo `healthy`, y **cinco de las
+siete ramas** (02-06) llevaban **14 h 56 min** sin una sola pasada.
+
+Causa estructural: **el mismo shipper tenía TRES dueños** — Docker, la tarea `\Tienda\OdsLiveLoop` y
+el `dump.pm2` (listo para revivir una tercera copia en el próximo reboot). Los tres escribían el mismo
+renglón de `analytics.cron_runs`, que tiene `PRIMARY KEY (tenant_id, job_key)` y **no guarda host**,
+así que el healthcheck del contenedor muerto leía el pulso que la tarea de Windows escribía desde otra
+máquina. Y `FeedGuardian` mataba la pasada cada ~20 min por **mtime de log**, con lo que el `.cmd`
+re-arrancaba desde la rama 00 y las ramas 02-06 eran inalcanzables por construcción.
+
+- ✅ `replicate-ods-live.js`: `HB_CONN` con `connectionTimeoutMillis` en `latir()`/`marcarRamas()`.
+  `pg` no trae timeout de conexión por default; el latido es lo único que sale de la LAN y es lo
+  primero de cada ciclo → un `connect()` a un peer mudo clava el `for(;;)`. Era el gatillo del cuelgue.
+- ✅ `ops/ingest/health.js`: compara `cron_runs.host` contra su propio `os.hostname()`.
+- ✅ `ops/ingest/docker-compose.yml`: servicio **`autoheal`** acotado por etiqueta. Cierra el agujero
+  de OBS.4: en Docker standalone `restart: unless-stopped` reacciona a que el proceso MUERA, no a
+  `unhealthy` — el `HEALTHCHECK` era un diagnóstico sin brazo. Verificado con contenedor canario.
+- ✅ Bajas: 6 tareas programadas desregistradas (`OdsLiveLoop`, `OdsFastLoop`, `OdsFullMirror`,
+  `OdsReplicate`, `OdsReplicateCatalog`, `OdsReplicateFull`), `dump.pm2` de 12 apps a 2,
+  `FeedGuardian` sin carriles del ODS, `watchtower` (en crash-loop) eliminado.
+- ✅ **CDC WAL retirado** (decisión Edgar): 6 slots `lost` dropeados, `ecosystem.cdc.config.js`
+  convertido en lápida que falla si alguien lo levanta, y los 10 latidos muertos borrados de
+  `cron_runs` (`cdc_wal_00..06`, `cdc_wal_probe`, `cdc_wal_deploycheck`, `ods_live_test`) + sacados de
+  `CRON_JOBS`. Un rojo permanente que nadie va a atender enseña a ignorar el tablero.
+- ✅ `reconcile-ods-window.js` cuenta **SOBRANTES** (llaves que siguen en el ODS y ya no están en el
+  replica) además de los faltantes que repone. Es la señal que reemplaza al DELETE del WAL. Reporta,
+  no borra; su alarma nace apagada (`ODS_SOBRANTES_ALERT=0`) hasta tener un piso medido.
+- ✅ Topología y convención de nombres documentadas → `GOTCHAS.md` §35-§36.
+
+**Medido después:** las 7 ramas a **9-30 s** de rezago (venían de 14 h 56 min).
+
 ---
 
 ## 5. Deuda operacional abierta
 
-- **El shipper corre por `Start-Process`** (PIDs 24740 / 28780) → **no sobrevive un reboot**. Es el
-  stopgap hasta OBS.4.
-- **`FEEDS_INGEST_KEY` en texto plano** en los 4 launchers de `C:\KeplerRunner` (mismo valor de 48
-  chars) y horneada en `~/.pm2/dump.pm2` por `pm2 save`. Rotación → **INFRA.1.4**.
-- **El CDC sigue muerto.** Prod lo sostiene el poll. Sin CDC no hay propagación de **DELETE**
-  (`raw-upsert` no borra) — verificado: la rama 04 tiene **9,532 filas en el ODS contra 9,525 en el
-  replica**, 7 filas que el UPSERT no puede eliminar.
-- **Pasadas largas del carril hot** mientras drena el backlog (>2 h, aún en rama 02). El latido queda
-  en `running` todo ese tiempo; sin `maxRunH` eso da `warn` recién al cruzar `critH`. Transitorio.
+- ⬜ **5,021 pedidos fantasma en el ODS**, medidos con `reconcile-ods-deletes.js` en dry-run
+  (2026-09-04): rama 01 **4,709** de 51,939 (9.07 %), rama 00 **312** (3.21 %), rama 06 **2,664** pero
+  la guarda de 20 % lo saltó (20.2 % huele a réplica reconstruida, no a borrados normales). El script
+  existe, tiene guardas y **nunca se agendó**; borra en prod, así que espera decisión de Edgar. Le
+  falta latido y modo `--watch` para poder ser un servicio Docker.
+- ~~El shipper corre por `Start-Process`~~ → **cerrado en OBS.8**: corre en Docker, sobrevive reboot.
+- **`FEEDS_INGEST_KEY` en texto plano** en los launchers de `C:\KeplerRunner`. Rotación → **INFRA.1.4**.
+- ~~El CDC sigue muerto~~ → **cerrado en OBS.8**: retirado a propósito. Lo que cubría en exclusiva
+  (DELETE) queda como señal en el reconciliador y como la deuda de arriba.
+- **`FeedGuardian` mata por mtime de log.** `LiveFastLoop` y `LivePoller` siguen bajo ese criterio y
+  sobreviven **sólo porque loguean seguido**. Si a alguno se le alarga una pasada silenciosa, le pasa
+  lo mismo que le pasó al ODS. Ver `GOTCHAS.md` §35.
 
 ## 6. Fuera de alcance
 
