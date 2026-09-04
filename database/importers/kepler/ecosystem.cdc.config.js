@@ -1,5 +1,5 @@
 /**
- * ⛔ RETIRADO 2026-09-04 (OBS.7). Este ecosystem YA NO ARRANCA NADA — falla a propósito.
+ * ⛔ RETIRADO 2026-09-04 (OBS.8). Este ecosystem YA NO ARRANCA NADA — falla a propósito.
  *
  * Qué era: 7 consumidores `ods-cdc-wal.js --watch` (uno por sucursal 00-06) que leían el WAL de los
  * replicas locales `:5433/kepler_md_XX` y empujaban los cambios reales (I/U/D, incluido DELETE) a
@@ -31,7 +31,7 @@
  *   docker compose -f ops/ingest/docker-compose.yml ps      # STATUS trae (healthy)/(unhealthy)
  */
 throw new Error(
-  'ecosystem.cdc.config.js está RETIRADO (OBS.7, 2026-09-04). La ingesta del ODS corre en Docker: ' +
+  'ecosystem.cdc.config.js está RETIRADO (OBS.8, 2026-09-04). La ingesta del ODS corre en Docker: ' +
   'docker compose -f ops/ingest/docker-compose.yml up -d. Levantarla también acá reintroduce el ' +
   'doble dueño del watermark y del latido, que es lo que dejó el carril 15 h colgado en verde.',
 );
