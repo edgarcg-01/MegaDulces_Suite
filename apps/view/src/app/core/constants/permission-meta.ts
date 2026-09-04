@@ -62,7 +62,10 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR]: { label: 'Gestionar Almacenes', description: 'Alta y edición de almacenes (incluye almacén default).', category: 'Comercial' },
   [Permission.COMMERCIAL_PRICING_VER]: { label: 'Ver Precios', description: 'Consultar listas de precios y precios por cliente.', category: 'Comercial' },
   [Permission.COMMERCIAL_PRICING_GESTIONAR]: { label: 'Gestionar Precios', description: 'Crear listas y cargar/editar precios de productos.', category: 'Comercial' },
-  [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Inventario', description: 'Consultar stock disponible por almacén.', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Ajustes de stock', description: 'Consola de ajuste sobre el libro transaccional (commercial.stock) y el apartado. Para el censo físico es EXISTENCIA_VER.', category: 'Comercial' },
+  // La descripción dice la FUENTE a propósito: es lo que distingue esta pantalla de la de ajustes.
+  [Permission.EXISTENCIA_VER]: { label: 'Ver Existencia', description: 'Matriz de existencia producto × almacén, derivada del ERP (ODS). Vive en Almacén y en Compras.', category: 'Comercial' },
+  [Permission.EXISTENCIA_GESTIONAR]: { label: 'Exportar Existencia', description: 'Descargar el dataset completo de existencia valuado a costo (toda la red).', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_AJUSTAR]: { label: 'Ajustar Inventario', description: 'Registrar movimientos y ajustes de stock.', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_CONTAR]: { label: 'Contar (inventario físico)', description: 'Registrar conteos ciegos en un folio de inventario físico (rol contador).', category: 'Comercial · Inventario físico' },
   [Permission.COMMERCIAL_INVENTORY_SUPERVISAR]: { label: 'Supervisar inventario físico', description: 'Abrir folios, ver avance/discrepancias y resolver. No reconcilia (rol supervisor).', category: 'Comercial · Inventario físico' },

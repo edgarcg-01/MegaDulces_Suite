@@ -21,6 +21,8 @@ import { InventoryMonitoringService } from './inventory-monitoring.service';
 import { InventoryMonitoringController } from './inventory-monitoring.controller';
 import { InventoryRiskService } from './inventory-risk.service';
 import { InventoryRiskController } from './inventory-risk.controller';
+import { ExistenciaService } from './existencia.service';
+import { ExistenciaController } from './existencia.controller';
 
 @Module({
   imports: [
@@ -32,8 +34,8 @@ import { InventoryRiskController } from './inventory-risk.controller';
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController],
-  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService],
-  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService],
+  controllers: [CommercialInventoryController, InventoryCountController, InventoryAbcController, WarehouseAislesController, InventoryTeamController, BinLocationController, InventoryInvestigationController, InventoryMonitoringController, InventoryRiskController, ExistenciaController],
+  providers: [CommercialInventoryService, InventoryCountService, InventoryAbcService, CycleCountSchedulerService, WarehouseAislesService, InventoryTeamService, InventoryMonitorGateway, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService],
+  exports: [CommercialInventoryService, InventoryCountService, InventoryAbcService, WarehouseAislesService, BinLocationService, InventoryInvestigationService, InventoryMonitoringService, InventoryRiskService, ExistenciaService],
 })
 export class CommercialInventoryModule {}
