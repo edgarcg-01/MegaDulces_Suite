@@ -55,15 +55,15 @@ const APP_SOURCES: SourceCfg[] = [
   // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
   // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
   { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
-  // Espejo crudo Kepler: el carril es el CDC WAL (7 consumidores `cdc-wal-XX` bajo PM2, uno por
-  // sucursal) que lee el WAL de los réplicas lógicos locales y empuja a kepler_ods.* por
-  // feeds-ingest. `last_push_at` la escribe el handler en cada batch (raw-upsert Y raw-delete) →
-  // detecta si el pipe se detuvo. Umbral realtime.
-  // El POLL (`replicate-ods-live`, tareas \Tienda\OdsLiveLoop + OdsFullMirror) quedó DESHABILITADO
-  // el 2026-08-26: escribía los timestamps +6h (pasaban por un Date de JS) y, al estar el timestamp
-  // en la PK, duplicaba filas contra lo que escribe el WAL — 1,120 pólizas duplicadas en kdc22608.
-  // Ver GOTCHAS §21. Los latidos por consumidor (`cdc_wal_00..06`) son el dead-man's switch fino.
-  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (CDC WAL, 7 consumidores PM2)' },
+  // Espejo crudo Kepler: el carril es `replicate-ods-live` en Docker (`ops/ingest/docker-compose.yml`,
+  // servicios ods-live-hot @15s + ods-live-mirror @300s), que lee los réplicas lógicos locales del
+  // :5433 y empuja a kepler_ods.* por feeds-ingest. `last_push_at` la escribe el handler en cada batch
+  // (raw-upsert Y raw-delete) → detecta si el pipe se detuvo. Umbral realtime.
+  // HISTORIA (para no repetirla): el poll se deshabilitó el 2026-08-26 por el corrimiento +6h de los
+  // timestamps, que al estar en la PK duplicaba filas contra el WAL (1,120 pólizas en kdc22608, ver
+  // GOTCHAS §21); volvió corregido y el CDC WAL se retiró el 2026-09-04 (OBS.7). El dead-man's switch
+  // fino de este carril son `ods_live_hot`/`ods_live_mirror` más abajo, y su COMPLETITUD `cdc_reconcile`.
+  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (poll en Docker, 2 carriles)' },
   // kepler_ods POR-SUCURSAL: el _sync_status de arriba prueba que la LOOP corre, pero con la
   // replicación lógica (SYNC.3) apareció un modo de falla nuevo: si UN replica (subscription)
   // se congela, la loop sigue shipeando data VIEJA de esa sucursal → last_push_at fresco pero
@@ -457,11 +457,12 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
-  // CDC WAL-decode (ADR-047): el consumidor on-prem (ods-cdc-wal.js --watch) late cada ~30s POR
-  // sucursal. Dead-man's switch: si un consumidor muere, su slot empieza a RETENER WAL en el :5433
-  // → cron_runs se congela → ROJO antes de que llene disco. Per-sucursal a propósito (uno global
-  // enmascararía un branch caído — la lección de la 00). Sin heartbeat aún = 'unknown' = no alarma.
-  ...['00', '01', '02', '03', '04', '05', '06'].map((c) => ({ key: `cdc_wal_${c}`, label: `CDC WAL sucursal ${c}`, cadence: 'continuo ~30s', warnH: 0.25, critH: 1 })),
+  // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.7): el carril se retiró y sus
+  // slots se dropearon. Sus 7 latidos quedaron congelados en `error` desde el 02-sep y siguieron
+  // pintando ROJO durante días sin que nadie fuera a arreglarlos — un rojo permanente que nadie va a
+  // atender enseña a ignorar el tablero, que es peor que no tenerlo. Lo que el WAL cubría en exclusiva
+  // (propagación de DELETE) lo cubre ahora `cdc_reconcile` detectando SOBRANTES.
+  // Si el carril vuelve, se vuelven a declarar acá — y su dueño sigue siendo UNO solo.
   // CDC.7 — la ÚNICA alarma de COMPLETITUD del sistema. Todo lo demás mide frescura (`max(fecha)`)
   // y por construcción no puede ver un hueco EN MEDIO con datos frescos alrededor: así el CDC perdió
   // 2-7% de las filas diarias del 26 al 31 de agosto **con los 7 latidos de arriba verdes y

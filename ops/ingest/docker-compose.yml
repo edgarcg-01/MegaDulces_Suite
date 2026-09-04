@@ -39,6 +39,7 @@ services:
       ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
     extra_hosts: ["host.docker.internal:host-gateway"]
+    labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
 
   # ESPEJO COMPLETO — todo md.* MENOS el set del hot (para no pelear ods.ctl/ods.shadow). @300 s.
@@ -55,6 +56,7 @@ services:
       ODS_EXCLUDE_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*,kdpv_bitacora_precios
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=300"]
     extra_hosts: ["host.docker.internal:host-gateway"]
+    labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
 
   # RECONCILIADOR (OBS.3.1) — la ÚNICA alarma de COMPLETITUD. Late `cdc_reconcile` DIRECTO a prod.
@@ -86,4 +88,31 @@ services:
       start_period: 20m
       retries: 3
     extra_hosts: ["host.docker.internal:host-gateway"]
+    labels: { autoheal: "true" }
     logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+  # ─── EL BRAZO DEL HEALTHCHECK (OBS.7) ───────────────────────────────────────────────────────
+  # Sin esto el `HEALTHCHECK` de arriba sólo PINTA un rótulo: en Docker standalone
+  # `restart: unless-stopped` reacciona a que el proceso MUERA, y nada reacciona a `unhealthy`
+  # (eso sólo lo hace Swarm). El 2026-09-04 `ods-live-hot` estuvo 15 h colgado — proceso vivo,
+  # CPU 0.00 %, cero entrega — y el motor no movió un dedo. El diagnóstico funcionaba; faltaba
+  # la mano que lo ejecutara.
+  #
+  # ACOTADO POR ETIQUETA a propósito (`AUTOHEAL_CONTAINER_LABEL=autoheal`): sólo reinicia los
+  # contenedores marcados `labels: { autoheal: "true" }`. En modo `all` tocaría también
+  # `pgvector-md`, `api` y `view`, que viven en el mismo motor — reiniciar la base de datos por
+  # un healthcheck ajeno sería un remedio peor que la enfermedad.
+  #
+  # Monta el socket del motor en SOLO LECTURA: necesita listar y reiniciar, no construir.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: ods-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "30"      # cada cuánto revisa el estado de salud, en segundos
+      AUTOHEAL_START_PERIOD: "120" # gracia al arrancar él mismo, para no pelear con los start_period
+      DOCKER_SOCK: /var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "2" } }

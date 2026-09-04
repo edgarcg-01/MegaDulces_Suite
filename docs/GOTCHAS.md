@@ -1174,3 +1174,86 @@ comentarios. En prosa poné el identificador en negritas o sin adornos. En los *
 Pisada dos veces en la misma sesión (2026-09-01): una en un comentario CSS de
 `almacen-area-shell.component.ts`, otra en un comentario HTML de `anden-caducidad.component.ts`.
 Si el build tira `1010` y el diff toca un componente, buscá el backtick antes de buscar el CSS.
+
+---
+
+## 35. Un carril de ingesta con DOS dueños: el muerto pasa el healthcheck con el pulso del vivo
+
+**La regla: un carril = UN dueño. Y el dueño de la ingesta del ODS es Docker.**
+
+El 2026-09-04 `/comercial/documentos` "no se actualizaba al momento". La pantalla no tenía nada: lee
+vistas en vivo sobre `kepler_ods`, así que su frescura *es* la del ODS. Lo que había abajo:
+
+- El contenedor `ods-live-hot` llevaba **15 h colgado** (proceso vivo, CPU 0.00 %, cero salida desde
+  `latido (end) falló: Connection terminated unexpectedly`) y Docker decía `Up 2 days (healthy)`.
+- **Cinco de las siete ramas** (02-06) llevaban **14 h 56 min** sin una sola pasada del carril
+  caliente. Ventas las tapaba a medias el reconciliador @15 min; catálogo, precio, costo y existencia
+  de esas cinco ramas no las tapaba nadie.
+
+Tres trampas encadenadas, y ninguna se ve desde el código de la app:
+
+**1. `analytics.cron_runs` es UN renglón por carril, sin host** — `PRIMARY KEY (tenant_id, job_key)`.
+El mismo shipper corría en Docker, en una tarea de Windows (`\Tienda\OdsLiveLoop` →
+`run-ods-live-loop.cmd`) y dormía en el `dump.pm2` listo para revivir en el próximo reboot. Los tres
+escribían **el mismo renglón** con la misma `ODS_HB_KEY`. `ops/ingest/health.js` sólo miraba la
+antigüedad de ese renglón → el contenedor muerto salía `healthy` porque la tarea de Windows le
+prestaba el pulso desde otra máquina. Arreglado: el healthcheck ahora compara `cron_runs.host` contra
+su propio `os.hostname()` y se declara enfermo si el pulso es de otro.
+
+**2. `FeedGuardian` mata por MTIME DE LOG, no por trabajo hecho.** Su criterio de "trabado" es que el
+log no crezca en `maxMin` minutos. Una pasada real del ODS pasa más de 10 min sin imprimir, así que el
+guardian mataba el `node` **a mitad de pasada** cada ~20 min y el `:loop` del `.cmd` re-arrancaba
+**desde la rama 00**: las ramas 02-06 eran inalcanzables por construcción. En `guardian.log` se ve
+clarito, cuatro veces en una hora: `LOOPS REVIVIDOS: OdsLiveLoop (trabado, log 11min, node matado)`.
+⚠️ `LiveFastLoop` y `LivePoller` siguen bajo ese criterio y hoy sobreviven **sólo porque loguean
+seguido**. Si a alguno se le alarga una pasada silenciosa, le pasa lo mismo.
+
+**3. `HEALTHCHECK` de Docker no reinicia nada.** En Docker standalone `restart: unless-stopped`
+reacciona a que el proceso **muera**; `unhealthy` es sólo un rótulo (reiniciar por salud lo hace
+Swarm). El `Dockerfile` afirmaba lo contrario y esa creencia costó las 15 h: el diagnóstico funcionó,
+faltaba el brazo. Ahora `ops/ingest/docker-compose.yml` trae el servicio `autoheal`, **acotado por
+etiqueta** (`AUTOHEAL_CONTAINER_LABEL=autoheal`) para que no toque `pgvector-md`, `api` ni `view`.
+
+**Y el gatillo del cuelgue:** `pg` **no trae timeout de conexión por default**. `latir()` y
+`marcarRamas()` de `replicate-ods-live.js` abrían su `Client` sin `connectionTimeoutMillis` (el resto
+del script sí lo tenía, vía `CONN`). El latido es lo único que sale de la LAN y es lo primero de cada
+ciclo: un `connect()` contra un peer que no contesta ni resetea espera **para siempre** y clava el
+`for(;;)` del `--watch`. Regla: **toda conexión `pg` lleva `connectionTimeoutMillis`, y con más razón
+la de telemetría** — la que menos importa es la que te deja el proceso vivo y mudo.
+
+---
+
+## 36. La ingesta del ODS: tres saltos, y por qué el tercero no puede ser replicación lógica
+
+```
+POS Kepler (LAN privada, 6 hosts)          publicación `ods_pub`
+        │  replicación lógica (pull)
+        ▼
+:5433  kepler_md_00,01,02,04,05,06  +  kepler_pilot   ← schema `md`, contenedor `pgvector-md`
+        │  shipper HTTP (feeds-ingest) — ops/ingest/docker-compose.yml
+        ▼
+Railway  kepler_ods.<tabla>  (una tabla por tabla de Kepler, con columna `sucursal`)
+```
+
+**Por qué el tercer salto NO puede ser replicación nativa** — y por eso hay un proceso, no un
+`CREATE SUBSCRIPTION`:
+
+1. **Va al revés.** La replicación lógica de Postgres es **pull**: el suscriptor marca al publicador.
+   Prod vive en Railway y los publicadores son cajas POS en LAN privada sin IP pública. Railway no
+   puede marcarles.
+2. **Es fan-in.** El ODS mete 7 fuentes en UNA tabla con columna discriminadora `sucursal`. La
+   replicación nativa mapea por `schema.tabla` y no sabe agregar una columna ni resolver el choque de
+   PK entre ramas.
+
+Lo que **sí** hizo falta eliminar fue el `.cmd`: era una segunda copia del mismo shipper que ya vivía
+en Docker. Ver §35.
+
+**Convención de nombres de los réplicas (verificada 2026-09-04):** `kepler_md_XX`, schema `md`.
+**La excepción: la rama 03 vive en `kepler_pilot`** (nombre del piloto original, rename diferido). El
+mapeo está en [`replicate-ods-live.js`](../database/importers/kepler/replicate-ods-live.js) y en
+[`kepler-branches.js`](../database/importers/lib/kepler-branches.js) — buscar `kepler_md_03` a mano da
+`database "kepler_md_03" does not exist` y manda a investigar un fantasma.
+
+**Bases huérfanas en `:5433` que NO se tocan y no alimentan nada** (declaradas para que nadie las
+confunda con la fuente): `md_03` (2.4 GB, 329 tablas en `md`, **0 subscriptions**, congelada) y
+`kepler_consolidado` (516 MB, 0 tablas en `md`).
