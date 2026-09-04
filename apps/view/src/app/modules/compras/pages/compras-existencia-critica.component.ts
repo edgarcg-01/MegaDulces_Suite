@@ -77,6 +77,14 @@ interface DraftLine {
       <!-- KPIs -->
       @if (summary(); as s) {
         <app-metric-strip [items]="kpiItems(s)" ariaLabel="Resumen de existencia crítica" />
+        <!-- U.2 — el hueco se DECLARA arriba de la tabla. Un total que excluye en silencio se
+             lee como si lo abarcara todo. -->
+        @if (s.sin_valuar_politicas) {
+          <p class="ec-rung-banner">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>{{ sinValuarTexto(s) }}</span>
+          </p>
+        }
       }
 
       <!-- Filtros -->
@@ -301,6 +309,15 @@ interface DraftLine {
     :host { display: block; }
     .ec-head-actions { display: flex; gap: .5rem; align-items: center; }
     app-metric-strip { display:block; margin-bottom: 1rem; }
+    /* U.2 — banner de lo que NO se está midiendo. Tono de aviso, no de error: el dato existe,
+       lo que falta es la certeza de su unidad. Mismo lenguaje que /compras/pedido. */
+    .ec-rung-banner {
+      display:flex; gap:.5rem; align-items:flex-start; margin:-.5rem 0 1rem;
+      padding:.55rem .7rem; border:1px solid var(--border-color); border-radius:var(--radius-md, 8px);
+      background:var(--surface-hover, transparent); color:var(--text-color-secondary);
+      font-size:.78rem; line-height:1.45;
+    }
+    .ec-rung-banner i { color:var(--warn-fg, #b45309); margin-top:.1rem; flex:none; }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
     .ec-wh { display: flex; flex-direction: column; gap: .25rem; }
     .ec-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
@@ -401,7 +418,22 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
       { label: 'Con política', value: s.total_policies },
       { label: 'Traspasable (ya lo tienes)', value: s.traspasable_valor || 0, format: 'currency', tone: (s.traspasable_valor || 0) > 0 ? 'warn' : 'default' },
       { label: 'Compra real', value: s.compra_real_valor ?? (s.sugerido_costo || 0), format: 'currency', tone: 'brand' },
+      // U.2 — lo que los importes de arriba NO incluyen. Va como KPI propio y no como nota al pie:
+      // un total que excluye en silencio se lee como si lo abarcara todo.
+      ...(s.sin_valuar_politicas
+        ? [{ label: 'Sin valuar (peldaño)', value: s.sin_valuar_politicas, tone: 'warn' as const }]
+        : []),
     ];
+  }
+  /** U.2 — el detalle del hueco, para el título del KPI y el banner. */
+  sinValuarTexto(s: ReplenishmentSummary): string {
+    if (!s.sin_valuar_politicas) return '';
+    const arb = s.sin_valuar_arbitrado
+      ? ` Por lo que se pagó valdrían ~${this.money(s.sin_valuar_arbitrado)}, cifra de referencia para revisar — no publicable.`
+      : '';
+    return `${s.sin_valuar_politicas} filas (${s.sin_valuar_skus || 0} productos) quedan FUERA de los importes y de las cajas: `
+      + `el costo de compra contradice el divisor con el que se lee su existencia, así que multiplicar `
+      + `cantidad × costo mezclaría unidades. No valen cero: no se están midiendo.${arb}`;
   }
   accionLabel(a?: string) { return ({ sobrante: 'Sobrante · traspasar', traspaso: 'Traspaso', traspaso_parcial: 'Traspaso + compra', comprar: 'Comprar', ok: 'OK' } as Record<string, string>)[a || 'ok'] || a; }
   accionSev(a?: string): Sev { return ({ sobrante: 'secondary', traspaso: 'success', traspaso_parcial: 'warn', comprar: 'info', ok: 'contrast' } as Record<string, Sev>)[a || 'ok'] || 'info'; }
@@ -734,7 +766,14 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
 
   // Helpers
   /** Postgres numeric llega como STRING por JSON; sin Number() el toLocaleString de string ignora el formato de moneda. */
-  money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  // U.2 — null NO es cero. Un importe ausente significa "no se está midiendo" (el costo de compra
+  // contradice el peldaño de la cantidad, ver rung_veredicto) y se dibuja como raya, nunca como $0:
+  // $0 se lee "no cuesta nada" y es justamente la mentira que este bloque de trabajo quita.
+  // El 0 numérico real sí sigue saliendo como $0.
+  money(v: number | string | null | undefined) {
+    if (v === null || v === undefined || v === '') return '—';
+    return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
   /** venta/mes como número (numeric de Postgres llega string) para el guard de "—". */
   revNum(v: number | string | null | undefined) { return Number(v ?? 0) || 0; }
   /** fecha corta es-MX; '—' si inválida/nula. */

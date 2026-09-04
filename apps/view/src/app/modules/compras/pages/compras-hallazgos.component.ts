@@ -126,7 +126,12 @@ export class ComprasHallazgosComponent implements OnInit {
     });
   }
 
-  money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  // U.2 — null = "no se está midiendo" (peldaño contradicho por el costo), NO cero. Ver la misma
+  // regla en compras-existencia-critica.component.ts.
+  money(v: number | string | null | undefined) {
+    if (v === null || v === undefined || v === '') return '—';
+    return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
   sevLabel(s: FindingSeverity) { return ({ critica: 'Crítica', alta: 'Alta', media: 'Media' } as Record<FindingSeverity, string>)[s]; }
   sevTag(s: FindingSeverity): Sev { return ({ critica: 'danger', alta: 'warn', media: 'secondary' } as Record<FindingSeverity, Sev>)[s]; }
   kindLabel(k: FindingKind) { return ({ agotado_abc: 'Agotado A', bajo_reorden: 'Bajo reorden', cadencia_lenta: 'Surtido lento' } as Record<FindingKind, string>)[k]; }

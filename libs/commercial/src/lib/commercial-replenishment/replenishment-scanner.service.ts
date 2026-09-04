@@ -71,6 +71,13 @@ export class ReplenishmentScannerService {
       // ✅ U.0: "por PIEZA" confirmado midiendo — `cost_with_tax = u1_cost × (1 + impuesto)`,
       // razones 1.0000/1.0800/1.1600/1.2400 exactas sobre 6,626 SKUs. Detalle en costUnit().
       const costUnit = 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+      // U.2 — el $ valorizado NO se persiste cuando el costo de compra contradice el peldaño de la
+      // cantidad: la bandeja guardaría una cifra inflada y la ordenaría por ella. Se lee del fact
+      // (`analytics.replenishment_plan.rung_veredicto`, mig 20260903170000) que este scan YA
+      // joinea como `rpl` — sólo los veredictos en contra se persisten, así que `IS NULL` = medible.
+      // Ver commercial-replenishment.service.ts rungMedible() y analytics.v_unit_rung_audit.
+      const medible = 'rpl.rung_veredicto IS NULL';
+      const suggCost = `CASE WHEN ${medible} THEN ROUND(${sugg} * ${costUnit}, 2) END AS suggested_cost`;
 
       const rows: any[] = await trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
@@ -90,7 +97,7 @@ export class ReplenishmentScannerService {
           trx.raw(`${it} AS in_transit`),
           trx.raw('abc.abc_class AS abc_class'),
           trx.raw(`${sugg} AS suggested_qty`),
-          trx.raw(`ROUND(${sugg} * ${costUnit}, 2) AS suggested_cost`),
+          trx.raw(suggCost),
         );
 
       const seen: string[] = [];
@@ -113,7 +120,10 @@ export class ReplenishmentScannerService {
              suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
              last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
           [tenantId, r.warehouse_id, r.product_id, kind, severity, dedup, abc || null,
-           onHand, Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty), Number(r.suggested_cost)],
+           onHand, Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty),
+           // U.2 — ⚠️ NO `Number(...)`: `Number(null)` es 0 y persistiría "vale cero" donde la
+           // verdad es "no se está midiendo". La columna admite NULL a propósito.
+           r.suggested_cost == null ? null : Number(r.suggested_cost)],
         );
         count++;
       }
@@ -152,7 +162,7 @@ export class ReplenishmentScannerService {
           trx.raw(`${it} AS in_transit`),
           trx.raw(`COALESCE(abc.abc_class, rp.abc_class) AS abc_class`),
           trx.raw(`${sugg} AS suggested_qty`),
-          trx.raw(`ROUND(${sugg} * ${costUnit}, 2) AS suggested_cost`),
+          trx.raw(suggCost),
         );
 
       for (const r of cadRows) {
@@ -171,7 +181,9 @@ export class ReplenishmentScannerService {
              suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
              last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
           [tenantId, r.warehouse_id, r.product_id, severity, dedup, abc || null,
-           Number(r.on_hand), Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty), Number(r.suggested_cost)],
+           Number(r.on_hand), Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty),
+           // U.2 — ver arriba: `Number(null)` sería 0, y 0 no es "no medido".
+           r.suggested_cost == null ? null : Number(r.suggested_cost)],
         );
         count++;
       }
