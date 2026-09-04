@@ -480,6 +480,15 @@ export const routes: Routes = [
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
       { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido
       {
+        // EXISTENCIA — la MISMA pantalla que /almacen/inventory/existencia, mismo componente y
+        // mismo permiso. Acá el comprador ve qué hay antes de decidir qué pedir; el componente
+        // vive en modules/almacen porque Almacén es el dueño del censo (igual que /dashboard
+        // importa los componentes de logistica/).
+        path: 'existencia',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
         path: 'asistente',
         loadComponent: () => import('./modules/compras/pages/compras-asistente.component').then(m => m.ComprasAsistenteComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_GESTIONAR)]
@@ -716,6 +725,18 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/almacen-area-shell.component').then(m => m.AlmacenAreaShellComponent),
         children: [
       {
+        // EXISTENCIA — el censo físico, derivado del ERP (el ODS). MISMO componente que
+        // /compras/existencia y MISMO permiso: es la misma pantalla para las dos audiencias
+        // (precedente vivo: Caducidades en /almacen + /tienda).
+        path: 'inventory/existencia',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
+        // OJO: esta pantalla se llamaba "Existencias" y NO lo es — lee `commercial.stock`, el
+        // libro transaccional (acierta 91% contra el POS). Es la consola de AJUSTE y el único
+        // lugar con el apartado. El censo físico está arriba. No se retira porque la escritura
+        // vive acá; se re-rotuló a "Ajustes de stock" y lo declara en pantalla.
         path: 'inventory',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]

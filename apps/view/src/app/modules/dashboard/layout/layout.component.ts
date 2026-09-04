@@ -558,6 +558,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Planeación',
       items: [
+        // Existencia va ANTES de Pedido, y el orden es la tesis: primero ves qué hay, después
+        // decidís qué comprar. Es el mismo componente que /almacen/inventory/existencia.
+        { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
         { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
         { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
         { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },

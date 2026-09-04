@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -24,6 +25,7 @@ import { Permission } from '../../../core/constants/permissions';
   standalone: true,
   imports: [
     CommonModule,
+    RouterLink, // enlace al censo físico (Existencia) desde el aviso de fuente
     FormsModule,
     ButtonModule,
     TableModule,
@@ -46,11 +48,24 @@ import { Permission } from '../../../core/constants/permissions';
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Inventario</h1>
+          <h1>Ajustes de stock</h1>
           <p class="surf-page-sub">
             <b>{{ total() }}</b> línea{{ total() === 1 ? '' : 's' }} de stock
             <span class="in-divider" aria-hidden="true">·</span>
             on-hand / reservado / disponible
+          </p>
+          <!-- Se llamaba "Inventario"/"Existencias" y no lo es. Q.2 aplicado a un número que
+               SABEMOS malo: en vez de arreglarlo en silencio (o dejar que alguien lo lea como el
+               censo), se dice qué es, cuánto se desvía y dónde está el bueno. Medido contra el
+               POS en vivo, 22,090 SKUs: esta tabla acierta 91%, el ODS 100%. -->
+          <p class="in-source-note">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span>
+              Éste es el <b>libro interno</b> de la app: lleva el apartado y es lo que escriben los
+              ajustes. Su cantidad se desvía del punto de venta cerca del <b>9%</b>.
+              Para saber <b>qué hay físicamente</b>, usá
+              <a routerLink="/almacen/inventory/existencia">Existencia</a>, que sale del ERP.
+            </span>
           </p>
         </div>
         <div class="in-head-actions">
@@ -277,6 +292,13 @@ import { Permission } from '../../../core/constants/permissions';
 
     .in-head-actions { display:flex; gap:.5rem; align-items:center; }
     .in-divider { opacity: 0.4; }
+    /* Aviso de fuente: tono informativo, no de error — el dato sirve para lo que sirve. */
+    .in-source-note {
+      display: flex; gap: .45rem; align-items: flex-start; margin: .4rem 0 0; max-width: 68ch;
+      font-size: .74rem; line-height: 1.45; color: var(--text-color-secondary);
+    }
+    .in-source-note i { margin-top: .15rem; flex: none; opacity: .7; }
+    .in-source-note a { color: var(--action, #c2410c); }
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
 
     /* ── FILTERS TOOLBAR ── */

@@ -325,6 +325,46 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+  // La pantalla que más se va a comparar contra otra. Lo primero que va a preguntar todo el
+  // mundo es "¿por qué no coincide con Pedido?", así que eso va PRIMERO, no al final.
+  existencia: {
+    title: 'Existencia — guía',
+    intro: 'Una fila por producto y una columna por almacén: cuánto hay, dónde, en qué unidad y cuánto vale. Sale del ERP (del ODS), que es la fuente que acierta. Es una pantalla de CONSULTA: la decisión de comprar vive en Compras › Pedido, y el ajuste de saldo en Almacén › Ajustes de stock.',
+    groups: [
+      {
+        heading: 'Por qué no coincide con otras pantallas',
+        entries: [
+          { term: 'vs. Pedido (Compras)', def: 'Las dos tienen razón. Existencia lee el ERP directo cada vez que abrís la pantalla; Pedido lee una foto que se recalcula cada 15-30 minutos, porque además necesita venta, tránsito y estacionalidad. Si acabás de mover mercancía, Existencia lo ve antes.' },
+          { term: 'vs. Ajustes de stock (Almacén)', def: 'Esa pantalla muestra el libro interno de la app —el que lleva los apartados y el que escriben los ajustes— y su cantidad discrepa del punto de venta alrededor del 9%. Para saber qué hay físicamente, esta pantalla. Medido: contra el POS, el ERP acierta 100% y el libro interno 91%.' },
+          { term: '¿Y el apartado?', def: 'No se muestra, y no es un olvido: el apartado sólo existe en el libro interno y hoy tiene 1 producto con 15 unidades en toda la red. Mezclarlo daría una cifra que no es ni el físico ni lo disponible.' },
+        ],
+      },
+      {
+        heading: 'La edad del dato',
+        entries: [
+          { term: 'Frescura por rama', def: 'Los almacenes no se actualizan al mismo ritmo, así que hay una edad por grupo y un aviso en cada columna. Sucursales 01-06 vienen de Kepler; el CEDIS 00 y los de Morelia (MD-30 / MD-32) vienen de Wincaja.' },
+          { term: '¿Por qué no dice "en vivo"?', def: 'Porque no siempre lo está. La pantalla consulta el ERP al momento, pero el ERP se alimenta de feeds que a veces se atrasan horas. En vez de prometer frescura, se publica la edad real y vos decidís si sirve.' },
+        ],
+      },
+      {
+        heading: 'Cuando una celda no dice cajas',
+        entries: [
+          { term: 'Por ejemplo "2,679 kg ⚠"', def: 'Ahí no se pudo convertir a cajas con confianza: el costo que se pagó por esa unidad contradice el divisor que usaríamos. La cantidad suelta SÍ es verdad —hay 2,679 kg— así que se muestra tal cual, con el rótulo que usa el ERP.' },
+          { term: 'Por qué el dinero sale en raya', def: 'Porque valuar exige multiplicar cantidad por costo, y si no se sabe en qué unidad está la cantidad el resultado sería inventado. Raya significa "no se está midiendo", nunca "vale cero".' },
+          { term: 'La cifra "de referencia"', def: 'Es lo que ese inventario valdría según el costo que efectivamente se pagó. Sirve para dimensionar el hueco y priorizar la revisión; no es una cifra publicable ni entra en los totales.' },
+        ],
+      },
+      {
+        heading: 'Las columnas',
+        entries: [
+          { term: 'Existencia (cajas)', def: 'La cantidad del almacén dividida entre las unidades que ese almacén mete en una caja. El divisor es por almacén y producto, no por producto: Kepler y Wincaja no guardan la existencia en la misma unidad.' },
+          { term: 'Estado', def: 'Compara la existencia contra la política de reorden de ESE almacén: agotado, bajo mínimo, bajo reorden, sano o sobrestock. Vacío = ese producto no tiene política ahí, así que no hay contra qué compararlo.' },
+          { term: 'Valor', def: 'Existencia × costo unitario, sumando sólo los almacenes cuya unidad está verificada. El encabezado dice cuántos quedaron fuera.' },
+          { term: 'Total (cajas)', def: 'Σ de las columnas medibles. No se suman las unidades crudas: sumar kilos con paquetes y con piezas da un número que no está en ninguna unidad.' },
+        ],
+      },
+    ],
+  },
   'pedido-compras': {
     title: 'Pedido / Reabastecimiento — guía',
     intro: 'Una fila por producto con lo que conviene pedir. El pedido sugerido = venta × cobertura − existencia − tránsito (en cajas). Clic en una fila abre el desglose por sucursal: qué comprar, qué traspasar desde su CEDIS y su sobrestock, con cantidad editable.',
