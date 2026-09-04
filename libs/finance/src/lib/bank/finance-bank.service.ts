@@ -2020,12 +2020,36 @@ export class FinanceBankService {
       }
 
       const sum = (a: any[]) => Math.round(a.reduce((s, r) => s + (Number(r.amt) || 0), 0) * 100) / 100;
+      const r2 = (v: number) => Math.round(v * 100) / 100;
       const bankTotal = sum(deps as any[]);
       const sinExpl = sum(buckets.sin_explicar);
       const fugaCaja = caja.filter((c) => !c.used);
 
+      // POR CUENTA: mismo desglose por origen, agrupado por account_label. "Kepler" = tesorería
+      // (kdm1) + cobranza (UA0501, también Kepler); "retail" = depósito de tienda (Caja). Así se ve,
+      // banco por banco, cuánto de sus depósitos concilia Kepler (su mayoreo) vs cuánto es tienda.
+      const acctMap = new Map<string, any>();
+      const accInit = (d: any) => {
+        const lbl = String(d.account_label || d.bank || '—');
+        let r = acctMap.get(lbl);
+        if (!r) { r = { account_label: d.account_label || null, bank: d.bank || null, bank_total: 0, n: 0, via_tesoreria: 0, via_cobranza: 0, via_caja: 0, sin_explicar: 0 }; acctMap.set(lbl, r); }
+        return r;
+      };
+      const accAdd = (arr: any[], key: string) => { for (const d of arr) { const r = accInit(d); const v = Number(d.amt) || 0; r[key] += v; r.bank_total += v; r.n++; } };
+      accAdd(buckets.tesoreria, 'via_tesoreria');
+      accAdd(buckets.cobranza, 'via_cobranza');
+      accAdd(buckets.caja, 'via_caja');
+      accAdd(buckets.sin_explicar, 'sin_explicar');
+      const por_cuenta = Array.from(acctMap.values()).map((r) => ({
+        account_label: r.account_label, bank: r.bank, bank_total: r2(r.bank_total), n: r.n,
+        via_tesoreria: r2(r.via_tesoreria), via_cobranza: r2(r.via_cobranza), via_caja: r2(r.via_caja),
+        sin_explicar: r2(r.sin_explicar),
+        kepler: r2(r.via_tesoreria + r.via_cobranza), retail: r2(r.via_caja),
+      })).sort((a, b) => b.bank_total - a.bank_total);
+
       return {
         period, bank_total: bankTotal, bank_n: (deps as any[]).length,
+        por_cuenta,
         via_tesoreria: { n: buckets.tesoreria.length, monto: sum(buckets.tesoreria) },
         via_cobranza: { n: buckets.cobranza.length, monto: sum(buckets.cobranza) },
         via_caja: { n: buckets.caja.length, monto: sum(buckets.caja) },
