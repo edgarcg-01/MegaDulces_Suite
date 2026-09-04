@@ -15,11 +15,19 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService, ScopeOption } from '../../../core/services/data-scope.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno } from '../arqueo.service';
+import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno, TurnoCorte } from '../arqueo.service';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { imprimirTicket } from '../ticket-arqueo';
+
+/** Los cortes de una persona, tal como los pide la fila desplegada. */
+interface CortesPersona {
+  loading: boolean; error: boolean;
+  turnos: TurnoCorte[];
+  /** Cuantos de esos cortes tienen arqueo nuestro - el resto es dinero sin verificar. */
+  arqueados: number; pct: number;
+}
 
 /**
  * Proyecto Tienda — Arqueo ciego de caja para CAJERAS (/tienda/arqueo).
@@ -286,9 +294,10 @@ import { imprimirTicket } from '../ticket-arqueo';
         @if (revela || rows().length) {
         <div class="card-premium card-flat arq-panel">
           <h3 class="arq-card-title">Arqueos recientes</h3>
-          <p-table [value]="rows()" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
+          <p-table [value]="rows()" dataKey="id" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
             <ng-template #header>
               <tr>
+                <th class="arq-ex-th" scope="col"><span class="sr-only">Detalle</span></th>
                 <th>Fecha</th>
                 @if (variasSucursales()) { <th>Sucursal</th> }
                 <th>Caja</th><th>Cajero</th>
@@ -305,8 +314,14 @@ import { imprimirTicket } from '../ticket-arqueo';
                 <th>Validado</th>
               </tr>
             </ng-template>
-            <ng-template #body let-b>
+            <ng-template #body let-b let-expanded="expanded">
               <tr>
+                <td class="arq-ex-td">
+                  <p-button type="button" [text]="true" size="small"
+                            [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'"
+                            [ariaLabel]="expanded ? 'Cerrar el detalle' : 'Ver el conteo y los cortes de esta persona'"
+                            [pRowToggler]="b" (click)="onExpand(b)"></p-button>
+                </td>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
                 @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
                 <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }</td>
@@ -338,6 +353,147 @@ import { imprimirTicket } from '../ticket-arqueo';
                   } @else {
                     <span class="muted">Pendiente</span>
                   }
+                </td>
+              </tr>
+            </ng-template>
+            <!-- SM.25 - La fila se abre a lo que RESPALDA el numero. Dos cosas, en
+                 el orden en que se preguntan: (1) el conteo pieza por pieza - lo
+                 unico que Kepler no tiene, y por lo tanto la unica evidencia de
+                 como se llego al total - contra el desglose grueso del ERP; y
+                 (2) los cortes que Kepler le abrio a esa persona, **incluidos los
+                 que nadie arqueo**, que son los que hay que perseguir. Se carga al
+                 desplegar, no antes: son 30 dias de cortes por persona y la
+                 pantalla arranca con una cajera contando billetes, no auditando. -->
+            <ng-template #expandedrow let-b>
+              <tr class="arq-exp-tr">
+                <td [attr.colspan]="colspan()" class="arq-exp">
+                  <div class="arq-exp-grid">
+                    <section class="arq-exp-block">
+                      <h4 class="arq-exp-t">Nuestro conteo</h4>
+                      @if (b.denominaciones?.length) {
+                        <table class="arq-mini-t">
+                          <tbody>
+                            @for (d of b.denominaciones; track d.denominacion) {
+                              <tr>
+                                <td class="arq-mono">{{ d.denominacion >= 1 ? '$' + d.denominacion : (d.denominacion * 100) + '¢' }}</td>
+                                <td class="arq-mono muted">× {{ d.cantidad }}</td>
+                                <td class="ta-r">{{ money(d.subtotal) }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                          <tfoot>
+                            <tr class="arq-mini-total"><td>Total contado</td><td></td><td class="ta-r strong">{{ money(b.total_contado) }}</td></tr>
+                          </tfoot>
+                        </table>
+                        <p class="arq-exp-note">Billetes {{ money(b.nuestro_billetes) }} · Monedas {{ money(b.nuestro_monedas) }}</p>
+                      } @else {
+                        <p class="muted arq-exp-note">Se guardó sin desglose por denominación.</p>
+                      }
+                    </section>
+
+                    <!-- El bloque de Kepler es del supervisor: sus billetes y monedas
+                         SUMAN el contado declarado, asi que mostrarlos a la cajera es
+                         mostrarle el esperado en partes - y el arqueo deja de ser ciego. -->
+                    @if (revela) {
+                    <section class="arq-exp-block">
+                      <h4 class="arq-exp-t">Kepler declara</h4>
+                      @if (b.tipo !== 'cierre') {
+                        <p class="muted arq-exp-note">Un {{ b.tipo }} es intra-turno: el corte todavía no existe, no hay contra qué comparar.</p>
+                      } @else if (b.kepler_contado == null && b.esperado == null) {
+                        <p class="muted arq-exp-note">El turno todavía no cerró en el ERP.</p>
+                      } @else {
+                        <table class="arq-mini-t">
+                          <tbody>
+                            <tr><td>Billetes</td><td></td><td class="ta-r">{{ b.kepler_billetes != null ? money(b.kepler_billetes) : '—' }}</td></tr>
+                            <tr><td>Monedas</td><td></td><td class="ta-r">{{ b.kepler_monedas != null ? money(b.kepler_monedas) : '—' }}</td></tr>
+                            <tr><td>Retirado</td><td></td><td class="ta-r">{{ b.kepler_retirado != null ? money(b.kepler_retirado) : '—' }}</td></tr>
+                          </tbody>
+                          <tfoot>
+                            <tr class="arq-mini-total"><td>Contado declarado</td><td></td><td class="ta-r strong">{{ b.kepler_contado != null ? money(b.kepler_contado) : '—' }}</td></tr>
+                            <tr><td>Esperado</td><td></td><td class="ta-r">{{ b.esperado != null ? money(b.esperado) : '—' }}</td></tr>
+                          </tfoot>
+                        </table>
+                        @if (b.kepler_desglose_cuadra === false) {
+                          <p class="arq-exp-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                            Billetes + monedas + retirado no dan el contado: {{ money(b.kepler_desglose_faltante || 0) }} sin explicar (suele ser un retiro que nadie registró).</p>
+                        }
+                        @if (b.kepler_enmascaro) {
+                          <p class="arq-exp-warn"><i class="pi pi-eye-slash" aria-hidden="true"></i>
+                            Kepler dio el corte por cuadrado y nuestro conteo dice otra cosa.</p>
+                        }
+                      }
+                    </section>
+                    }
+                  </div>
+
+                  <div class="arq-exp-meta">
+                    @if (b.cash_cut_folio) { <span><span class="arq-ev-k">Corte</span><span class="arq-mono">#{{ b.cash_cut_folio }}</span></span> }
+                    @if (b.turno) { <span><span class="arq-ev-k">Turno</span>{{ b.turno }}</span> }
+                    @if (b.incidencia_tipo) { <span><span class="arq-ev-k">Incidencia</span>{{ incidenciaLabel(b.incidencia_tipo) }}</span> }
+                    <span><span class="arq-ev-k">Capturó</span>{{ b.captured_by || '—' }}@if (b.captured_at) { <span class="muted"> · {{ b.captured_at | date:'dd/MM HH:mm' }}</span> }</span>
+                    <span><span class="arq-ev-k">Validado</span>@if (b.validado_at) { {{ b.validado_por || 'sí' }}<span class="muted"> · {{ b.validado_at | date:'dd/MM HH:mm' }}</span> } @else { <span class="muted">pendiente</span> }</span>
+                    @if (b.nota) { <span class="arq-exp-nota"><span class="arq-ev-k">Nota</span>{{ b.nota }}</span> }
+                  </div>
+
+                  <section class="arq-exp-block arq-exp-cortes">
+                    <h4 class="arq-exp-t">
+                      Sus cortes y arqueos
+                      <span class="muted">— {{ b.cajero_nombre || b.cajero_code || 'sin cajero' }} · últimos {{ cortesDias }} días</span>
+                    </h4>
+                    @if (!b.cajero_code) {
+                      <p class="muted arq-exp-note">Este arqueo no quedó a nombre de nadie, así que no hay cortes que cruzar.</p>
+                    } @else if (cortesDe(b); as c) {
+                      @if (c.loading) {
+                        <p class="muted arq-exp-note"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando sus cortes en Kepler…</p>
+                      } @else if (c.error) {
+                        <div class="arq-exp-warn">
+                          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No se pudieron traer los cortes.
+                          <p-button type="button" label="Reintentar" [text]="true" size="small" (click)="onExpand(b, true)"></p-button>
+                        </div>
+                      } @else if (!c.turnos.length) {
+                        <p class="muted arq-exp-note">Kepler no le abrió ningún corte en el período.</p>
+                      } @else {
+                        <table class="arq-mini-t arq-cortes-t">
+                          <thead>
+                            <tr>
+                              <th scope="col">Fecha</th><th scope="col">Caja</th><th scope="col">Corte</th><th scope="col">Turno</th>
+                              <th scope="col">Arqueo</th><th scope="col" class="ta-r">Contado</th>
+                              @if (revela) { <th scope="col" class="ta-r">Diferencia</th> }
+                            </tr>
+                          </thead>
+                          <tbody>
+                            @for (t of c.turnos; track t.business_date + '|' + t.caja + '|' + t.folio) {
+                              <!-- El corte de ESTA fila va marcado: si no, en una lista de 30
+                                   no se sabe cual de todos es el que se esta mirando. -->
+                              <tr [class.sel]="!!t.arqueo_id && t.arqueo_id === b.id">
+                                <td>{{ t.business_date | date:'dd/MM/yy' }}</td>
+                                <td>{{ t.caja }}</td>
+                                <td class="arq-mono muted">#{{ t.folio }}</td>
+                                <td class="muted">{{ (t.hora_apertura || '—') | slice:0:5 }} → {{ t.hora_cierre ? (t.hora_cierre | slice:0:5) : 'abierta' }}</td>
+                                <td>
+                                  @if (t.arqueo_id) {
+                                    <span class="arq-ok"><i class="pi pi-check-circle" aria-hidden="true"></i> {{ t.capturado_at ? (t.capturado_at | date:'HH:mm') : 'sí' }}</span>
+                                  } @else if (t.hora_cierre) {
+                                    <!-- Corte cerrado sin conteo: el dinero de ese turno nunca se verifico. -->
+                                    <span class="arq-sin"><i class="pi pi-times-circle" aria-hidden="true"></i> sin arqueo</span>
+                                  } @else {
+                                    <span class="muted">turno abierto</span>
+                                  }
+                                </td>
+                                <td class="ta-r strong">{{ t.nuestro_contado != null ? money(t.nuestro_contado) : '—' }}</td>
+                                @if (revela) {
+                                  <td class="ta-r strong" [class.bad]="(t.diff_real || 0) > 0" [class.ok]="(t.diff_real || 0) < 0">{{ t.diff_real != null ? signed(t.diff_real) : '—' }}</td>
+                                }
+                              </tr>
+                            }
+                          </tbody>
+                        </table>
+                        <p class="arq-exp-note">
+                          <strong>{{ c.arqueados }}</strong> de {{ c.turnos.length }} cortes con arqueo ({{ c.pct }}%){{ c.turnos.length - c.arqueados ? ' · ' + (c.turnos.length - c.arqueados) + ' sin contar' : '' }}
+                        </p>
+                      }
+                    }
+                  </section>
                 </td>
               </tr>
             </ng-template>
@@ -448,6 +604,33 @@ import { imprimirTicket } from '../ticket-arqueo';
     .arq-dif-l { display: block; font-size: .62rem; font-weight: 500; text-transform: uppercase; letter-spacing: .04em; opacity: .75; }
     .arq-ok { display: inline-flex; align-items: center; gap: .3rem; font-size: .76rem; color: var(--ok-fg); font-weight: 600; }
     :host ::ng-deep .arq-tag-mini { margin-left: .3rem; transform: scale(.8); }
+    .arq-ex-th { width: 2.4rem; }
+    .arq-ex-td { width: 2.4rem; }
+    /* ::ng-deep: la fila desplegada la renderiza p-table (vendor), el estilo no llega scopeado. */
+    :host ::ng-deep .arq-exp-tr > td.arq-exp { padding: .9rem 1rem 1rem; background: var(--surface-hover-bg); }
+    .arq-exp-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: .9rem 1.6rem; }
+    .arq-exp-block { min-width: 0; }
+    .arq-exp-t { margin: 0 0 .45rem; font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .arq-exp-t .muted { font-weight: 500; text-transform: none; letter-spacing: 0; }
+    .arq-mini-t { width: 100%; border-collapse: collapse; font-size: .78rem; font-variant-numeric: tabular-nums; }
+    .arq-mini-t th { text-align: left; font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em;
+                     color: var(--text-muted); padding: .2rem .45rem; border-bottom: 1px solid var(--border-color); }
+    .arq-mini-t td { padding: .18rem .45rem; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent); }
+    .arq-mini-t tbody tr:last-child td { border-bottom: 0; }
+    .arq-mini-t tfoot td { border-top: 1px solid var(--border-color); border-bottom: 0; padding-top: .3rem; }
+    .arq-mini-total td { font-weight: 700; }
+    .arq-mono { font-family: var(--font-mono, monospace); }
+    .arq-exp-note { margin: .4rem 0 0; font-size: .72rem; color: var(--text-muted); }
+    .arq-exp-warn { display: flex; align-items: baseline; gap: .35rem; flex-wrap: wrap; margin: .45rem 0 0; font-size: .74rem; color: var(--bad-fg); }
+    .arq-exp-meta { display: flex; flex-wrap: wrap; gap: .35rem 1.2rem; margin-top: .85rem; padding-top: .6rem;
+                    border-top: 1px solid var(--border-color); font-size: .74rem; }
+    .arq-exp-meta > span { display: inline-flex; align-items: baseline; gap: .35rem; }
+    .arq-exp-meta .arq-ev-k { display: inline; }
+    .arq-exp-nota { flex: 1 1 100%; }
+    .arq-exp-cortes { margin-top: .9rem; padding-top: .75rem; border-top: 1px solid var(--border-color); }
+    .arq-cortes-t tbody tr.sel { background: color-mix(in srgb, var(--action) 9%, transparent); }
+    .arq-cortes-t tbody tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--action); }
+    .arq-sin { display: inline-flex; align-items: center; gap: .25rem; font-size: .72rem; font-weight: 600; color: var(--bad-fg); }
     .arq-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
     .bad { color: var(--bad-fg); } .ok { color: var(--ok-fg); }
@@ -563,7 +746,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (t === 'retiro') return 'Guardar retiro';
     return this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo';
   });
-  readonly colspan = computed(() => 5 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
+  /** +1 por la columna del expander. */
+  readonly colspan = computed(() => 6 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
 
   /** §13 estado sucio — hay conteo capturado sin guardar. */
   hasUnsavedChanges(): boolean { return this.dirty(); }
@@ -813,6 +997,65 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       },
       error: (e) => { this.validando.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo validar.' }); },
     });
+  }
+
+  // --------------- despliegue de la fila: cortes de la persona ---------------
+  /**
+   * Ventana de los cortes que se traen al desplegar. 30 días es el horizonte con
+   * el que se persigue un turno sin arquear; más atrás ya es auditoría, y para eso
+   * está `/tienda/arqueo-historial`.
+   */
+  readonly cortesDias = 30;
+  private readonly cortesCache = signal<Record<string, CortesPersona>>({});
+
+  /** El estado va por persona×sucursal, no por fila: dos arqueos suyos comparten la lista. */
+  private cortesKey(b: ArqueoRow): string { return `${(b.cajero_code || '').toUpperCase()}|${b.warehouse_code}`; }
+
+  cortesDe(b: ArqueoRow): CortesPersona | null { return this.cortesCache()[this.cortesKey(b)] ?? null; }
+
+  /**
+   * Se dispara al desplegar. Cachea por persona y **no repregunta** si ya trajo la
+   * lista: abrir y cerrar tres filas de la misma cajera es una sola llamada. El
+   * `force` es del botón de reintento.
+   */
+  onExpand(b: ArqueoRow, force = false) {
+    if (!b.cajero_code) return;
+    const key = this.cortesKey(b);
+    const prev = this.cortesCache()[key];
+    if (prev && !force && !prev.error) return;
+    this.setCortes(key, { loading: true, error: false, turnos: [], arqueados: 0, pct: 0 });
+    this.svc.porCajera({ cajero: b.cajero_code, from: this.desdeHace(this.cortesDias), limit: 400 })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          const mismo = (c: string | null) => (c || '').toUpperCase() === (b.cajero_code || '').toUpperCase();
+          // El backend puede devolver la misma persona en varias sucursales (mismo
+          // codigo en dos tiendas): gana la de la fila que se abrio.
+          const card = r.cajeras.find((c) => mismo(c.cajero_code) && c.warehouse_code === b.warehouse_code)
+            ?? r.cajeras.find((c) => mismo(c.cajero_code))
+            ?? null;
+          const turnos = [...(card?.turnos ?? [])].sort((x, y) =>
+            `${y.business_date}${y.hora_cierre || ''}`.localeCompare(`${x.business_date}${x.hora_cierre || ''}`));
+          const arqueados = turnos.filter((t) => !!t.arqueo_id).length;
+          this.setCortes(key, {
+            loading: false, error: false, turnos, arqueados,
+            pct: turnos.length ? Math.round((arqueados / turnos.length) * 100) : 0,
+          });
+        },
+        error: () => this.setCortes(key, { loading: false, error: true, turnos: [], arqueados: 0, pct: 0 }),
+      });
+  }
+
+  private setCortes(key: string, v: CortesPersona) { this.cortesCache.update((m) => ({ ...m, [key]: v })); }
+
+  /** 'YYYY-MM-DD' de hace N días, en la fecha local (la misma que usa el resto). */
+  private desdeHace(dias: number): string {
+    const d = new Date(); d.setDate(d.getDate() - dias); return this.fmtDate(d);
+  }
+
+  incidenciaLabel(v?: string | null): string {
+    if (!v) return '—';
+    return this.incidenciaOptions.find((o) => o.value === v)?.label ?? v;
   }
 
   private load() {
