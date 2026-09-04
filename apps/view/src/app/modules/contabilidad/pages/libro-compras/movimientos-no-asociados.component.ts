@@ -64,10 +64,9 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
     <header class="lc-head">
       <div>
         <h1>Movimientos no asociados</h1>
-        <p class="muted">
-          Las facturas que ContPAQi no tiene ligadas a ninguna póliza. Aquí se revisan y se
-          bajan en TXT; el archivo lo sube contabilidad, como siempre.
-        </p>
+        <!-- Una linea, no dos: el parrafo se envolvia y ocupaba alto arriba de todo para
+             decir algo que la pestana ya dice. Quien sube el archivo es proceso conocido. -->
+        <p class="muted">Las facturas que ContPAQi no tiene ligadas a ninguna póliza.</p>
       </div>
       <!-- Componente p-button, NO la directiva con label/icon: en PrimeNG 22 la directiva
            pButton ya no tiene esos inputs, sólo props de estilo (text, outlined, severity,
@@ -93,7 +92,25 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
             <small class="muted">El feed del ADD de ContPAQi los trae; revisa que esté corriendo.</small>
           </div>
         } @else {
-          @for (m of meses(); track m.anio_mes) {
+          @for (a of anios(); track a.anio) {
+          <!-- Agrupado por ano: el rail pide 24 meses y son ~5rem cada uno, o sea tres
+               pantallas de scroll propio para llegar al ano pasado. El ano en curso queda
+               abierto y los demas se piden. El encabezado lleva el pendiente del ano, asi
+               que un ano cerrado con trabajo adentro no se puede confundir con uno limpio. -->
+          <div class="na-anio">
+            <button type="button" class="na-anio-cab" [class.abierto]="abierto(a.anio)"
+                    [attr.aria-expanded]="abierto(a.anio)" (click)="alternarAnio(a.anio)">
+              <i class="pi" [class.pi-chevron-down]="abierto(a.anio)"
+                 [class.pi-chevron-right]="!abierto(a.anio)" aria-hidden="true"></i>
+              <span class="na-anio-n">{{ a.anio }}</span>
+              @if (a.entran) {
+                <span class="na-anio-pend">{{ a.entran }} por entregar</span>
+              } @else {
+                <span class="na-anio-pend cero">al día</span>
+              }
+            </button>
+          @if (abierto(a.anio)) {
+          @for (m of a.meses; track m.anio_mes) {
             <button type="button" class="lc-mes" [class.sel]="mesSel() === m.anio_mes"
                     [attr.aria-current]="mesSel() === m.anio_mes" (click)="abrirMes(m.anio_mes)">
               <div class="lc-mes-top">
@@ -128,6 +145,9 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                 </span>
               }
             </button>
+          }
+          }
+          </div>
           }
         }
       </aside>
@@ -189,44 +209,62 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                + IVA = total. Y ahí sirven — cuando estás en el renglón 400 de agosto
                revisando, arriba no hay ningún total a la vista. -->
 
-          <!-- El límite del anti-duplicado exacto, SIEMPRE a la vista. Si el histórico no
-               está cargado la puerta por UUID no cubre nada, y un no-op se lee igual que
-               "no hay duplicados" — es el modo de falla que dejó analytics.customer_receivables
-               en prod como tabla vacía durante meses. -->
-          @if (cobertura(); as cob) {
-            <p class="na-cobertura" [class.vacia]="!cob.cargado">
-              <i [class]="cob.cargado ? 'pi pi-shield' : 'pi pi-exclamation-triangle'"></i>
-              @if (cob.cargado) {
-                Anti-duplicado <strong>exacto por UUID</strong> hasta <strong>{{ cob.cubre_hasta }}</strong>
-                ({{ cob.uuids | number }} facturas del libro histórico).
-                De ahí en adelante el control es por importe, que tiene falsos positivos.
-              } @else {
-                <strong>El histórico por UUID no está cargado</strong>: el anti-duplicado
-                sólo compara importes. Corre <code>import-purchase-book-history.js --apply</code>.
-              }
-            </p>
-          }
-
-          @if (contexto().length) {
-            <p class="na-contexto">
-              <span class="muted">Queda fuera del TXT:</span>
-              @for (c of contexto(); track c.texto; let last = $last) {
-                <span [class.warn]="c.tono === 'warn'">
-                  {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
-                </span>@if (!last) { <span class="muted"> · </span> }
-              }
-            </p>
-          }
-
+          <!-- Los BLOQUEANTES nunca se colapsan: son lo que impide generar el archivo, o
+               sea la razon por la que el boton de arriba esta apagado. Esconderlos detras
+               de un click dejaria un boton muerto sin explicacion a la vista. -->
           @if (d.bloqueantes.length) {
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
               @for (a of d.bloqueantes; track a) { <li><i class="pi pi-times-circle"></i>{{ a }}</li> }
             </ul>
           }
-          @if (d.avisos.length) {
-            <ul class="lc-avisos lc-info" aria-label="Cosas que vale la pena revisar">
-              @for (a of d.avisos; track a) { <li><i class="pi pi-info-circle"></i>{{ a }}</li> }
-            </ul>
+
+          <!-- Cobertura + lo que queda fuera + avisos del mes eran cuatro bloques apilados
+               que se comian ~30% del alto antes de la primera factura. Van en un solo
+               renglon que se abre. Nada se pierde: el conteo dice que hay algo adentro. -->
+          @if (cuantasNotas() > 0) {
+            <details class="na-notas">
+              <summary>
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                {{ cuantasNotas() }} {{ cuantasNotas() === 1 ? 'nota' : 'notas' }} sobre este mes
+                <span class="muted">— cobertura del anti-duplicado, lo que queda fuera, avisos</span>
+              </summary>
+              <div class="na-notas-cuerpo">
+                <!-- El límite del anti-duplicado exacto. Si el histórico no está cargado la
+                     puerta por UUID no cubre nada, y un no-op se lee igual que "no hay
+                     duplicados" — el modo de falla que dejó analytics.customer_receivables
+                     en prod como tabla vacía durante meses. -->
+                @if (cobertura(); as cob) {
+                  <p class="na-cobertura" [class.vacia]="!cob.cargado">
+                    <i [class]="cob.cargado ? 'pi pi-shield' : 'pi pi-exclamation-triangle'"></i>
+                    @if (cob.cargado) {
+                      Anti-duplicado <strong>exacto por UUID</strong> hasta <strong>{{ cob.cubre_hasta }}</strong>
+                      ({{ cob.uuids | number }} facturas del libro histórico).
+                      De ahí en adelante el control es por importe, que tiene falsos positivos.
+                    } @else {
+                      <strong>El histórico por UUID no está cargado</strong>: el anti-duplicado
+                      sólo compara importes. Corre <code>import-purchase-book-history.js --apply</code>.
+                    }
+                  </p>
+                }
+
+                @if (contexto().length) {
+                  <p class="na-contexto">
+                    <span class="muted">Queda fuera del TXT:</span>
+                    @for (c of contexto(); track c.texto; let last = $last) {
+                      <span [class.warn]="c.tono === 'warn'">
+                        {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                      </span>@if (!last) { <span class="muted"> · </span> }
+                    }
+                  </p>
+                }
+
+                @if (d.avisos.length) {
+                  <ul class="lc-avisos lc-info" aria-label="Cosas que vale la pena revisar">
+                    @for (a of d.avisos; track a) { <li><i class="pi pi-info-circle"></i>{{ a }}</li> }
+                  </ul>
+                }
+              </div>
+            </details>
           }
 
           <div class="lc-opciones">
@@ -279,8 +317,13 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
           </div>
 
           <div class="lc-tablewrap">
+            <!-- El scroll interno se QUEDA, contra lo que decia el plan. Con el preambulo
+                 colapsado (LC.16.6) la pagina ya casi no scrollea, asi que este deja de ser
+                 un scroll anidado en la practica — y es lo que mantiene clavados el
+                 encabezado y el pie de totales, que es justo lo que se necesita en el
+                 renglon 400 de agosto. Sube a 58vh porque arriba se libero alto. -->
             <p-table [value]="filtradas()" styleClass="p-datatable-sm" [rowHover]="true"
-                     [scrollable]="true" scrollHeight="52vh" [paginator]="filtradas().length > 100"
+                     [scrollable]="true" scrollHeight="58vh" [paginator]="filtradas().length > 100"
                      [rows]="100" dataKey="uuid">
               <ng-template #header>
                 <tr>
@@ -507,6 +550,47 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   get dlgCaratulaVisible() { return this.dlgCaratula(); }
   set dlgCaratulaVisible(v: boolean) { this.dlgCaratula.set(v); }
 
+  /**
+   * El rail agrupado por año. El año más reciente arranca abierto y los demás se piden:
+   * son 24 meses de ~5rem cada uno, o sea tres pantallas de scroll propio para llegar al
+   * año pasado. El encabezado del año lleva su pendiente, para que un año cerrado con
+   * trabajo adentro no se pueda confundir con uno limpio.
+   */
+  anios = computed(() => {
+    const grupos = new Map<string, MesNoAsociado[]>();
+    for (const m of this.meses()) {
+      const y = m.anio_mes.slice(0, 4);
+      const g = grupos.get(y);
+      if (g) g.push(m); else grupos.set(y, [m]);
+    }
+    return [...grupos.entries()].map(([anio, meses]) => ({
+      anio, meses,
+      entran: meses.reduce((a, m) => a + m.entran, 0),
+    }));
+  });
+
+  /** Años cerrados a mano. Vacío = sólo el más reciente abierto (ver `abierto`). */
+  private aniosCerrados = signal<ReadonlySet<string>>(new Set());
+  private aniosAbiertos = signal<ReadonlySet<string>>(new Set());
+
+  abierto(anio: string) {
+    if (this.aniosCerrados().has(anio)) return false;
+    if (this.aniosAbiertos().has(anio)) return true;
+    // Por default sólo el más reciente, y siempre el año del mes que estés viendo — si
+    // llegaste por la URL con ?mes=2025-03 el rail tiene que mostrarte dónde estás parada.
+    const sel = this.mesSel()?.slice(0, 4);
+    return anio === this.anios()[0]?.anio || anio === sel;
+  }
+
+  alternarAnio(anio: string) {
+    const abrir = !this.abierto(anio);
+    const cerr = new Set(this.aniosCerrados());
+    const abre = new Set(this.aniosAbiertos());
+    if (abrir) { cerr.delete(anio); abre.add(anio); } else { abre.delete(anio); cerr.add(anio); }
+    this.aniosCerrados.set(cerr);
+    this.aniosAbiertos.set(abre);
+  }
+
   /** Si ContPAQi ya tiene la póliza de compras del mes. Si no, lo que falta ES el libro. */
   existeLibroDelMes = computed(() => {
     const mes = this.mesSel();
@@ -616,6 +700,11 @@ export class MovimientosNoAsociadosComponent implements OnInit {
     this.filtro.set('todas');
     this.busqueda.set('');
   }
+
+  /** Cuántas cosas hay dentro del renglón colapsado. Va en el resumen para que se sepa que
+   *  hay algo adentro sin tener que abrirlo — un acordeón sin conteo se lee como vacío. */
+  cuantasNotas = computed(() =>
+    (this.cobertura() ? 1 : 0) + this.contexto().length + (this.detalle()?.avisos.length ?? 0));
 
   /** Lo que queda FUERA del TXT, con su razón. Es control, no acción. */
   contexto = computed(() => {
