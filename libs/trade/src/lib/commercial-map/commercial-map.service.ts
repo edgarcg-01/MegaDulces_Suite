@@ -3,6 +3,7 @@ import { Knex } from 'knex';
 import {
   KNEX_CONNECTION,
   TenantContextService,
+  ScopeService,
   toMxDateKey,
   isPlatformAdminRole,
   requireTenantOf,
@@ -38,6 +39,7 @@ export class CommercialMapService {
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
     @Optional() private readonly tenantContext?: TenantContextService,
+    @Optional() private readonly scope?: ScopeService,
   ) {}
 
   /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
@@ -45,16 +47,30 @@ export class CommercialMapService {
     return requireTenantOf(user, this.tenantContext);
   }
 
-  /** zona_id a la que está restringido el requester, o null si tiene acceso amplio. */
-  private async getRequesterZonaId(user: any): Promise<string | null> {
-    // Roles de plataforma (superadmin/admin) son NACIONALES: ven TODAS las tiendas,
-    // aunque su registro de usuario arrastre un zona_id heredado. Sin esto, un
-    // superadmin con zona_id quedaba filtrado a esa zona → mapa vacío.
+  /**
+   * `[AUTHZ-HARD.3]` — Zonas que el requester puede ver, o `null` si su alcance
+   * es `all` (sin filtro). Reemplaza al viejo `getRequesterZonaId`, que leía
+   * `users.zona_id` y era fail-OPEN: `zona_id` NULL resolvía a `null` = "ve
+   * TODAS las tiendas del país". Ahora lo resuelve `ScopeService` (dimensión
+   * `zone`): `own`/`listed` → sus zonas, `none` → `[]` (fail-closed).
+   *
+   *   - `null`  → `all` (dirección/admin/marketing; god-mode incluido).
+   *   - `[...]` → zonas concretas.
+   *   - `[]`    → ninguna.
+   */
+  private async getRequesterZones(user: any): Promise<string[] | null> {
+    // Roles de plataforma son NACIONALES (ScopeService también los resuelve a
+    // `all`; el atajo evita una query).
     if (isPlatformAdminRole(user?.role_name)) return null;
     const uid = user?.sub || user?.id || user?.userId;
-    if (!uid || !CommercialMapService.UUID_RE.test(String(uid))) return null;
-    const row = await this.knex('users').where({ id: uid }).select('zona_id').first();
-    return row?.zona_id ?? null;
+    // Sin ScopeService (contexto degradado) o uid inválido → no ensanchar ni
+    // romper: se conserva el comportamiento previo (acceso amplio) sólo en ese
+    // borde; el caso normal (uid válido) pasa por el alcance real.
+    if (!this.scope || !uid || !CommercialMapService.UUID_RE.test(String(uid))) return null;
+    const scope = await this.scope.forUser(this.tenantId(user), String(uid), user?.role_name);
+    const d = scope.dims.zone;
+    if (d.mode === 'all') return null;
+    return d.values;
   }
 
   private static parseArray(v: any): any[] {
@@ -98,7 +114,7 @@ export class CommercialMapService {
     user: any,
   ) {
     const tenantId = this.tenantId(user);
-    const requesterZonaId = await this.getRequesterZonaId(user);
+    const zones = await this.getRequesterZones(user);
     const isUuid = (v?: string) => !!v && CommercialMapService.UUID_RE.test(v);
 
     // 1) Tiendas en scope (tenant + zona del requester + filtros opcionales).
@@ -119,7 +135,7 @@ export class CommercialMapService {
       )
       .orderBy('s.nombre', 'asc');
     sQ = sQ.where('s.tenant_id', tenantId);
-    if (requesterZonaId) sQ = sQ.where('s.zona_id', requesterZonaId);
+    if (zones) sQ = sQ.whereIn('s.zona_id', zones);
     else if (isUuid(filters.zone_id)) sQ = sQ.where('s.zona_id', filters.zone_id);
     if (isUuid(filters.route_id)) sQ = sQ.where('s.ruta_id', filters.route_id);
     const stores = await sQ;
@@ -261,8 +277,8 @@ export class CommercialMapService {
     const store = await storeQ.first();
     if (!store) throw new NotFoundException('Tienda no encontrada.');
 
-    const requesterZonaId = await this.getRequesterZonaId(user);
-    if (requesterZonaId && store.zona_id !== requesterZonaId) {
+    const zones = await this.getRequesterZones(user);
+    if (zones && !zones.includes(store.zona_id)) {
       throw new ForbiddenException('No puedes ver tiendas fuera de tu zona.');
     }
 
@@ -378,7 +394,7 @@ export class CommercialMapService {
     user: any,
   ) {
     const tenantId = this.tenantId(user);
-    const requesterZonaId = await this.getRequesterZonaId(user);
+    const zones = await this.getRequesterZones(user);
     const empty = { products: [], stores: [], totalStores: 0, totalVisits: 0 };
 
     // 1) Resolver product ids + metadata (marca para display).
@@ -448,7 +464,7 @@ export class CommercialMapService {
         'c.value as ruta',
       );
     sQ = sQ.where('s.tenant_id', tenantId);
-    if (requesterZonaId) sQ = sQ.where('s.zona_id', requesterZonaId);
+    if (zones) sQ = sQ.whereIn('s.zona_id', zones);
     const stores = await sQ;
     const storeMap = new Map<string, any>();
     stores.forEach((s: any) => storeMap.set(s.id, s));
@@ -589,8 +605,8 @@ export class CommercialMapService {
     storeQ = storeQ.where('s.tenant_id', tenantId);
     const store = await storeQ.first();
     if (!store) throw new NotFoundException('Tienda no encontrada.');
-    const requesterZonaId = await this.getRequesterZonaId(user);
-    if (requesterZonaId && store.zona_id !== requesterZonaId) {
+    const zones = await this.getRequesterZones(user);
+    if (zones && !zones.includes(store.zona_id)) {
       throw new ForbiddenException('No puedes ver tiendas fuera de tu zona.');
     }
 
