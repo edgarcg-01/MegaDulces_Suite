@@ -1495,6 +1495,74 @@ celda de MD-30 debe decir **`12 paq ⚠`** (no `1.3`) y su Pedido debe quedar en
 
 ---
 
+### 🧭 Pantalla «Existencia» — una sola, en Almacén y en Compras (2026-09-04)
+
+> Pedida como *"una interfaz que se llame existencia, esa vive en almacén y en compras"*. La
+> exploración encontró que el problema no era que faltara una pantalla: **la de Almacén leía la
+> fuente equivocada.** `commercial.stock` acierta **91%** contra el POS (15,324 unidades de error)
+> y `analytics.v_erp_stock_on_hand` **100%** — SKU `88009` en `01`: POS 2,485 · ODS 2,487 ·
+> **tabla 3,547**.
+
+- [x] ✅ **E.0 Verificaciones que podían cambiar el diseño** (todas de lectura, antes de codear).
+  Resultados que **ahorraron trabajo o lo redirigieron**: el índice de 3 columnas **ya existe** (es
+  la PK) → sin migración · `reserved_quantity` está **vacío** (1 fila de 53,223 con 15 unidades) →
+  no se joinea `commercial.stock` en absoluto, y la ausencia del apartado se declara · **no existe**
+  bandeja HITL de peldaño → `EXISTENCIA_GESTIONAR` gatea sólo el export, no se inventa una bandeja
+  para justificar un permiso.
+- [x] ✅ **E.1 Endpoint** `GET /commercial/inventory/existencia` (+ `/:productId`, `/export`).
+  Archivos propios (`existencia.{service,controller}.ts`) y no un método del servicio de
+  `commercial.stock`: juntarlos invita a que alguien "unifique" los dos SELECT y vuelva a la copia.
+  La vista viva MANDA y el fact ENRIQUECE (`LEFT JOIN` desde lo vivo: los **603 de 52,340** SKUs que
+  aún no están en el fact se muestran igual). Los **aliases se pliegan, no se excluyen** — el
+  workbook los excluye y ahí es correcto ("qué comprar"), acá sería falso: un alias es mercancía.
+- [x] ✅ **E.2 Componente + 2 rutas + navegación**, un solo componente para los dos proyectos
+  (precedente Caducidades). En Compras va **antes de Pedido**. Landing: en Almacén **primero** (el
+  trabajo empieza en el censo), en Compras **después de Pedido** (mover eso cambiaría dónde aterriza
+  todo el equipo sin pedirlo) — la asimetría es deliberada.
+- [x] ✅ **E.3 `/almacen/inventory` se re-rotula a «Ajustes de stock» y lo DECLARA.** No se borra:
+  es lo único con la escritura y el apartado. ⚠️ Heredar el Ajuste habría **roto** la pantalla nueva
+  — escribe `commercial.stock`, Existencia muestra el ODS, así que el usuario ajustaría y el número
+  no se movería (el mismo problema que ya obligó a `deadStock` a migrar de fuente).
+- [x] ✅ **E.4 Permiso `EXISTENCIA_VER`/`_GESTIONAR` + REPARTO** (mig `20260904170000`, **batch 279**):
+  **13 roles VER / 10 GESTIONAR**. ⛔ **`customer_b2b` excluido explícitamente** — verificado, tiene
+  `COMMERCIAL_INVENTORY_VER = true`, así que el ancla obvia le habría dado a un cliente del portal la
+  existencia de la red **valuada a costo**.
+- [x] ✅ **E.5 Query-params en `/compras/pedido`.** No leía `ActivatedRoute` en absoluto, así que
+  "todo dato accionable navegable a su arreglo con el filtro puesto" (Q.4) era humo.
+- [x] ✅ **E.6 Candado** `test-newdb-existencia.js` **20/20**, en la regresión.
+
+**Perf — medida, no estimada.** Los joins no eran el problema (332 ms los cuatro): era el pivot
+`jsonb` sobre los 9,860 productos.
+
+| | ms |
+|---|---|
+| primer prototipo | 4,435 |
+| paginar antes de pivotear (pero la base se escaneaba 2 veces) | 2,905 |
+| **una** CTE `MATERIALIZED` + agregado sin `jsonb` + `LIMIT` + pivot al final | 1,596 |
+| memo 30-60 s del catálogo de almacenes y la frescura | **1,354** |
+
+`jsonb_agg(DISTINCT)` **no** era el culpable (probado: `bool_or` sale más lento, 833 vs 757 ms) y el
+segundo agregado por almacén es casi gratis (+30 ms) porque reusa la materialización.
+
+⚠️ **Corrige una premisa del plan y del header de la mig `20260902170000`**: Kepler NO va "fresco por
+CDC, ~min". En una sola sesión `kdil` pasó de **796 min a 0** y Wincaja de **371 a 761** — por eso la
+frescura va **por rama** y la pantalla no promete "en vivo". Hallazgo lateral:
+`v_feed_freshness.tenant_id` es **NULL** en las filas del ODS (es compartido), así que filtrar por
+tenant escondía la rama Kepler entera sin que se notara.
+
+⚠️ **Lo único sin verificar:** ninguna pantalla del repo combina `#footer` con `pFrozenColumn` en
+PrimeNG 22, y O.2 exige la fila de totales congelada. Si no se pega, el plan B (strip sticky fuera
+de la tabla) está anotado en el template. **Validación visual de Edgar.**
+
+**Pendiente prod:** redeploy api + view · **re-login** (el permiso viaja en el JWT). La migración ya
+está aplicada. **Decisión abierta:** `almacenista` NO recibió el permiso — tiene el ancla en `false`
+explícito y el patrón respeta los `false`; si el bodeguero debe ver el censo, se agrega desde
+`/admin/roles`. **Diferido:** retirar las 814 líneas muertas de
+`compras-existencia-critica.component.ts` (+ `compras-que-toca` y `compras-entradas-revision`, 2,342
+más) — PR aparte para no volver ilegible el diff.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
