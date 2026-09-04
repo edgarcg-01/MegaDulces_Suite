@@ -2109,43 +2109,48 @@ export class FinanceBankService {
     const mkRow = (label: string, w: number, k: number, c: number) => ({
       label, workbook: r2(w), kepler: r2(k), contpaqi: r2(c),
       delta_wk: r2(w - k), delta_wc: r2(w - c), delta_kc: r2(k - c),
-      cuadra: Math.abs(w - k) < TOL && Math.abs(w - c) < TOL && Math.abs(k - c) < TOL,
+      // Cuadre REAL = banco (Workbook) ↔ fiscal (ContPAQi). Kepler es INFORMATIVO: la tesorería
+      // (kdm1) es parcial —no incluye las ventas de tienda posteadas directo al 102— así que su
+      // desviación es esperada y NO debe arrastrar el semáforo a rojo (verificado ene-2026: banco
+      // = fiscal al peso, Kepler −$10.8M por ese hueco estructural).
+      cuadra: Math.abs(w - c) < TOL,
     });
     const total = {
       ingresos: mkRow('Ingresos', cpq.totals.excel_in, kep.in, cpq.totals.contpaqi_in),
       egresos: mkRow('Egresos', cpq.totals.excel_out, kep.out, cpq.totals.contpaqi_out),
     };
 
-    // El veredicto y el orden miran las TRES fuentes, no sólo Workbook↔ContPAQi.
-    // Antes `cuadra` y el sort salían de delta_in/delta_out (ContPAQi) mientras la tabla ya
-    // mostraba Kepler: una cuenta con Kepler desviado millones salía con palomita verde y
-    // hundida al fondo del scroll. Se compara contra cada fuente DISPONIBLE (Kepler si tiene
-    // movimientos de la cuenta, ContPAQi si está enlazada) y se publica la peor desviación
-    // contra el banco: es lo que ordena la tabla y lo que se muestra como cifra.
+    // El cuadre REAL es banco (Workbook) ↔ fiscal (ContPAQi): las dos fuentes completas y por
+    // cuenta. Kepler (tesorería) es INFORMATIVO (parcial: no incluye ventas de tienda posteadas
+    // directo al 102) → no entra al semáforo ni al orden. Y se distingue "sin cargar" (el fiscal
+    // tiene la cuenta pero falta capturar el estado de cuenta del banco) de "descuadre" (ambos
+    // cargados y no coinciden) — para no pintar rojo lo que es un dato pendiente de capturar.
     const por_cuenta = cpq.rows.map((r: any) => {
       const k = kmap.get(r.account_label);
       const kin = k ? k.in : 0, kout = k ? k.out : 0;
       const dwk_in = r2(r.excel_in - kin), dwk_out = r2(r.excel_out - kout);
       const pick = (a: number, b: number) => (Math.abs(a) >= Math.abs(b) ? a : b);
-      const cands: { src: 'K' | 'C'; delta: number }[] = [];
-      if (k) cands.push({ src: 'K', delta: pick(dwk_in, dwk_out) });
-      if (r.linked) cands.push({ src: 'C', delta: pick(r.delta_in, r.delta_out) });
-      cands.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-      const worst = cands[0] ?? null;
+      const wbLoaded = n(r.excel_in) !== 0 || n(r.excel_out) !== 0;
+      const cpLoaded = !!r.linked && (n(r.contpaqi_in) !== 0 || n(r.contpaqi_out) !== 0);
+      const wc = pick(r.delta_in, r.delta_out);                    // Workbook − ContPAQi = el cuadre real
+      const cuadra = wbLoaded && cpLoaded && Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL;
+      const estado: 'cuadra' | 'descuadre' | 'sin_cargar' | 'sin_comparar' =
+        wbLoaded && cpLoaded ? (cuadra ? 'cuadra' : 'descuadre')
+          : (cpLoaded && !wbLoaded ? 'sin_cargar' : 'sin_comparar');
       return {
         bank: r.bank, account_label: r.account_label, alias: r.alias, linked: r.linked,
         wb_in: r.excel_in, wb_out: r.excel_out, cp_in: r.contpaqi_in, cp_out: r.contpaqi_out,
         kep_in: kin, kep_out: kout, kep_has: !!k,
-        delta_in: r.delta_in, delta_out: r.delta_out,               // Workbook − ContPAQi
-        delta_wk_in: dwk_in, delta_wk_out: dwk_out,                 // Workbook − Kepler
-        /** Hay al menos una fuente contra la cual comparar. Sin esto, `cuadra: true` mentiría. */
-        comparable: !!k || !!r.linked,
-        /** Peor desviación contra el banco y de qué fuente viene. 0/null si no hay comparación. */
-        worst_delta: worst ? worst.delta : 0,
-        worst_abs: worst ? Math.abs(worst.delta) : 0,
-        worst_src: worst ? worst.src : null,
-        cuadra: (!k || (Math.abs(dwk_in) < TOL && Math.abs(dwk_out) < TOL))
-          && (!r.linked || (Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL)),
+        delta_in: r.delta_in, delta_out: r.delta_out,               // Workbook − ContPAQi (el cuadre)
+        delta_wk_in: dwk_in, delta_wk_out: dwk_out,                 // Workbook − Kepler (informativo)
+        comparable: wbLoaded && cpLoaded,
+        estado,
+        /** Diferencia = el cuadre REAL banco↔fiscal. Kepler ya no arrastra ni el orden ni la cifra;
+         *  sin_cargar/sin_comparar van a 0 (no son descuadre → no deben encabezar la tabla). */
+        worst_delta: estado === 'descuadre' ? wc : 0,
+        worst_abs: estado === 'descuadre' ? Math.abs(wc) : 0,
+        worst_src: 'C' as const,
+        cuadra,
       };
     }).sort((a: any, b: any) => b.worst_abs - a.worst_abs);
 
