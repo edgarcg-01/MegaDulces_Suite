@@ -1417,6 +1417,56 @@ Reporte de Edgar: *"hay problemas con el usuario luis_piceno en prod, lo arroja 
 
 ---
 
+### 🔎 Barrido de la clase "peldaño cruzado" — Compras + Inventario (2026-09-03)
+
+> **La clase:** dos magnitudes que se multiplican o se restan viven en **peldaños distintos** de la
+> escalera de unidades, y **nada declara el peldaño de cada una**. Nace de un renglón de prod que
+> Edgar mandó a verificar: `20555` publicaba **$4,982,228** de existencia — 6,753 **kilos** valuados
+> al precio del **bulto de 18 kg**. Estrategia: **declarar primero, corregir por bandeja.**
+
+- [x] ✅ **U.0 El peldaño de `cost_with_tax`, resuelto midiendo.** Cuatro archivos lo declaraban distinto y **7 multiplicaciones dependían** de la respuesta. Contra `analytics.v_supplier_cost_ladder`, la razón `cost_with_tax / u1_cost` se agrupa en **múltiplos de impuesto exactos a 4 decimales** (1.0000 / 1.0800 / 1.1600 / 1.2400) sobre 6,626 SKUs: peldaño **BASE**, bruto de impuesto. Los 4 comentarios corregidos. Doc en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8quater.
+- [x] ✅ **U.1 El detector, como vista + candado.** `analytics.v_unit_rung_audit` (mig `20260903150000`, **batch 264**). Una línea, sin escalera: **`display_bf == caja_cost / pagado`**. Dos árbitros — `real_buy_cost` (Kepler) y `wincaja.v_stock.costo_promedio` (Wincaja). Validación del método: en el **97.5% sano** la razón mediana es **1.020** y los dos valuados difieren 4.5% (piso de ruido); los marcados están a 6.7× y 8.6×. **552 celdas / 276 SKUs** marcadas. `test-newdb-unit-rung-audit.js` **40/40**, con 5 testigos por (SKU, almacén).
+- [x] ✅ **U.2 Declarar en vez de dibujar — `/compras/pedido`.** Publica **$55,490,880 verificado** + **276 SKUs / 552 celdas declaradas**. `20555` pasa de $4,982,228 a **$36,889** (la única celda verificada, la de Wincaja `00`). Decisión propia: en `x1`/`x2` la cantidad en cajas **también** está mal, así que la celda **cambia de unidad** (`2,679 kg ⚠`) en vez de vaciarse — retener sólo el dinero dejaba una cifra falsa en pantalla.
+- [x] ✅ **U.2b La misma regla en las otras 5 superficies + el PEDIDO.** Ver detalle abajo.
+- [ ] ⬜ **U.3 Bandeja HITL `peldano_cruzado`** sobre `commercial.replenishment_findings` + `/compras/hallazgos`. ⚠️ Al aprobar, el factor va en **`box_factor`**, nunca en `pieces_per_unit` (lección de los 15 auto-seed). **Triage ya medido:** 93 celdas / 49 SKUs donde *lo pagado ES el costo de la caja* (divisor = 1, sin discusión) · 183 con divisor entero limpio · **265 piden criterio humano**.
+- [ ] ⬜ **U.4 Cerrar el hueco de ADR-055 en Wincaja** — 100 SKUs sin `factor_venta` heredan el factor de Kepler sobre stock en paquetes.
+- [ ] ⬜ **U.5 Retirar los 11 rótulos que mienten.**
+
+#### U.2b — medido en prod (2026-09-03)
+
+| superficie | antes | publica ahora | declarado |
+|---|---|---|---|
+| **Pedido** (el que se gasta) | — | — | **$218k mal dirigido**: $127,274 de sobre-pedido (x2) + $90,409 de sub-pedido (x1) |
+| Sobrestock / inmovilizado | $22,934,479 | **$14,587,321** | 116 filas |
+| Existencia Crítica (7 KPIs) | $60,173,050 | **$57,505,321** | 465 políticas / 231 SKUs |
+| A traspasar | $2,280,798 | **$1,933,160** | 156 filas **+ 19 omitidas** |
+| A comprar | $7,563,021 | **$7,336,802** | 64 SKUs |
+| Bandeja de reabasto | — | — | 135 hallazgos dejan de persistir un $ inflado |
+
+**El lado invisible.** Con el divisor inflado la sucursal se lee abastecida, el déficit da 0 y la
+fila **no existe** en el plan: **19 traspasos** que el árbitro sí pediría, ausentes hoy. Retener lo
+que se ve no basta cuando el error también **borra renglones**.
+
+**Perf — por qué el veredicto bajó al fact.** Joinear la vista auditable cuesta **8.2 s** (552 filas)
+y **25 s** (tenant); `transferPlan` la necesita **dos veces** y pasó de 4.5 s a **29 s**. Mig
+`20260903170000` (**batch 268**) agrega `rung_veredicto`/`_bf_esperado`/`_arbitrado` a
+`analytics.replenishment_plan`, que el nocturno escribe leyendo la vista. Los 6 consumidores **ya**
+joineaban ese fact → **cero joins nuevos**: traspaso **29,362 → 288 ms**, workbook **443 ms**,
+sobrestock **106 ms**. Verificado al mismo instante: fact 552 = vista 552, **0 discrepancias**.
+
+**Dos trampas de "cero" cerradas antes de poder retener nada:** los tres `money()` de Compras hacían
+`Number(v ?? 0) || 0` (un importe retenido salía **$0**), y `replenishment_findings.suggested_cost`
+era `NOT NULL` (mig `20260903160000`, **batch 267**). Y `ORDER BY ... DESC` pone los NULL **primero**
+en Postgres → las filas retenidas encabezaban la lista del comprador (corregido en 4 sitios).
+
+**Pendiente prod:** **redeploy api + view**. Las 2 migraciones ya aplicadas (batches 267 y 268) y el
+importer ya corrido — el fact ya trae el veredicto. **Sin permisos nuevos → sin re-login.**
+
+⚠️ **Validación visual pendiente (de Edgar):** `20555` y `99089` en `/compras/pedido`. En `99089` la
+celda de MD-30 debe decir **`12 paq ⚠`** (no `1.3`) y su Pedido debe quedar en raya, no en 6.9.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
