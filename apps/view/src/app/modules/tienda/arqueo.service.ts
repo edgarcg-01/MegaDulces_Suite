@@ -54,6 +54,8 @@ export interface ArqueoDto {
   cajero_code?: string;
   cajero_entrante?: string;
   denominations: Record<string, number>;
+  /** SM.24 — lo declarado en tarjeta, transferencia, retiros, créditos y cheques. */
+  medios?: Record<string, number>;
   nota?: string;
   incidencia_tipo?: string; // SM.9: motivo cualitativo del descuadre (opcional)
 }
@@ -71,6 +73,8 @@ export interface ArqueoResult {
   kepler_contado?: number | null; kepler_diff?: number | null; kepler_enmascaro?: boolean;
   /** SM.18 — el desglose grueso de Kepler, para imprimir el ticket completo al vuelo. */
   kepler_billetes?: number | null; kepler_monedas?: number | null; kepler_retirado?: number | null;
+  /** Cada medio contra su columna. `cuadra: null` = Kepler no tiene con qué comparar. */
+  medios?: { medio: string; declarado: number; kepler: number | null; diff: number | null; cuadra: boolean | null }[] | null;
 }
 
 export interface ArqueoRow {

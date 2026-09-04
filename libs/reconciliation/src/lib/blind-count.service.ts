@@ -15,6 +15,22 @@ import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.s
  * `reconciliation.blind_counts` tiene RLS forzado → TenantKnexService.run().
  */
 
+/**
+ * SM.24 — Medios de pago que NO son efectivo, tal como los declara la cajera.
+ *
+ * Solo tres se pueden cuadrar hoy contra Kepler: `tarjeta` (c16), `transferencia`
+ * (c17) y `retiros` (c48), verificados. `creditos` y `cheques` caen en `c19`/`c20`
+ * —dos columnas que el ERP arquea pero cuyo significado todavía no está
+ * confirmado—, así que se guardan sin comparar. Declarar el dato ya sirve: es lo
+ * que permitirá confirmar el mapeo contrastándolo contra la columna.
+ */
+const MEDIOS = ['tarjeta', 'transferencia', 'retiros', 'creditos', 'cheques'] as const;
+export type MedioPago = typeof MEDIOS[number];
+/** Los únicos con contraparte verificada en el corte. El resto se guarda y ya. */
+const MEDIOS_CUADRABLES: Record<string, string> = {
+  tarjeta: 'tarjeta_contado', transferencia: 'transfer_contado', retiros: 'efectivo_retirado',
+};
+
 /** Denominaciones MXN válidas (billetes + monedas). */
 const DENOMS = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
 /** Motivos tipificados de incidencia (opcional, alineado al CHECK de la migración SM.9). */
@@ -81,6 +97,8 @@ export interface BlindCountDto {
   nota?: string;
   photo_url?: string;
   incidencia_tipo?: string;       // SM.9: motivo cualitativo del descuadre (opcional)
+  /** SM.24 — lo declarado en tarjeta, transferencia, retiros, créditos y cheques. */
+  medios?: Partial<Record<MedioPago, number>>;
   cash_cut_folio?: string;        // SM.12: folio del turno de Kepler que se está arqueando
   caja_kepler?: string;           // SM.12: la caja tal como la reporta Kepler en ese turno
   turno_abierto_at?: string | Date | null; // SM.12: cuándo abrió el turno (c5 + c6)
@@ -227,6 +245,22 @@ export class BlindCountService {
   }
 
   /**
+   * Solo los medios conocidos y solo montos válidos. Un concepto que no está en la
+   * lista se descarta en silencio en vez de guardarse: la columna es JSONB y sin
+   * este filtro cualquier campo del body terminaría dentro, y mañana alguien lo
+   * leería como si fuera dinero contado.
+   */
+  private saneaMedios(m: BlindCountDto['medios']): Record<string, number> | null {
+    if (!m || typeof m !== 'object') return null;
+    const out: Record<string, number> = {};
+    for (const k of MEDIOS) {
+      const v = Number((m as any)[k]);
+      if (Number.isFinite(v) && v > 0) out[k] = Math.round(v * 100) / 100;
+    }
+    return Object.keys(out).length ? out : null;
+  }
+
+  /**
    * ¿Este turno YA tiene conteo de cierre? Sirve para distinguir un arqueo nuevo
    * de una **corrección** del que ya se hizo — que no es lo mismo y no se puede
    * tratar igual (ver `exigirElMasViejo` en el controlador).
@@ -273,6 +307,7 @@ export class BlindCountService {
     const tipo = dto.tipo === 'relevo' ? 'relevo' : dto.tipo === 'retiro' ? 'retiro' : 'cierre';
     const incidencia = dto.incidencia_tipo && INCIDENCIAS.includes(dto.incidencia_tipo) ? dto.incidencia_tipo : null;
     if (dto.incidencia_tipo && !incidencia) throw new BadRequestException(`incidencia_tipo inválido (${INCIDENCIAS.join('|')})`);
+    const medios = this.saneaMedios(dto.medios);
 
     const { result, badCut } = await this.tk.run(async (trx) => {
       const row = {
@@ -280,6 +315,7 @@ export class BlindCountService {
         warehouse_code: dto.warehouse_code, caja: dto.caja, business_date: dto.business_date,
         turno: dto.turno || null, cajero_code: dto.cajero_code || null, cajero_entrante: dto.cajero_entrante || null,
         denominations: JSON.stringify(dto.denominations || {}), total_contado: total,
+        medios: medios ? JSON.stringify(medios) : null,
         nota: dto.nota || null, photo_url: dto.photo_url || null, captured_by: username || null,
         incidencia_tipo: incidencia,
         // SM.12 — de qué turno de Kepler es este conteo.
@@ -295,6 +331,7 @@ export class BlindCountService {
         // un arqueo sin validar.
         .merge({
           denominations: row.denominations, total_contado: total, cajero_entrante: row.cajero_entrante,
+          medios: row.medios,
           nota: row.nota, photo_url: row.photo_url, captured_by: row.captured_by, incidencia_tipo: incidencia,
           cash_cut_folio: row.cash_cut_folio, caja_kepler: row.caja_kepler, turno_abierto_at: row.turno_abierto_at,
           validado_por: null, validado_at: null, validado_nota: null,
@@ -307,7 +344,7 @@ export class BlindCountService {
         this.logger.log(`arqueo relevo suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: ${dto.cajero_code || '?'}→${dto.cajero_entrante || '?'} entregó ${total}`);
         return { result: { tipo, total_contado: total, matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false }, badCut: null as any };
       }
-      const cmp = await this.compare(trx, tenantId, dto, total);
+      const cmp = await this.compare(trx, tenantId, dto, total, medios);
       this.logger.log(`arqueo cierre suc${dto.warehouse_code} caja${dto.caja} ${dto.business_date}: contado ${total} vs esperado ${cmp.esperado ?? '?'}`);
       // SM.9 — Autolineado: cierre divergente → descuadre al instante en la bandeja del supervisor.
       const badCut = await this.raiseIfDivergent(trx, tenantId, dto, total, cmp, incidencia, username);
@@ -362,7 +399,7 @@ export class BlindCountService {
   }
 
   /** Compara el total ciego vs el corte de Kepler (matchea por suc/caja/fecha[/cajero]). */
-  private async compare(trx: any, tenantId: string, dto: BlindCountDto, total: number) {
+  private async compare(trx: any, tenantId: string, dto: BlindCountDto, total: number, medios: Record<string, number> | null = null) {
     // SM.12 — Con el folio del turno el match es exacto y se acabó la ambigüedad:
     // el arqueo cuenta ESE corte, no "alguno de los de esa caja ese día" (el ~4.5%
     // de caja-días con 2+ cortes era justo lo que obligaba a devolver `ambiguous`).
@@ -370,7 +407,7 @@ export class BlindCountService {
       const cut = await trx('analytics.cash_cuts')
         .where({ tenant_id: tenantId, warehouse_code: dto.warehouse_code, folio: String(dto.cash_cut_folio) })
         .first();
-      if (cut) return this.armarComparacion(cut, total, await this.retirosContados(trx, tenantId, dto.warehouse_code, String(dto.cash_cut_folio)));
+      if (cut) return this.armarComparacion(cut, total, await this.retirosContados(trx, tenantId, dto.warehouse_code, String(dto.cash_cut_folio)), medios);
       // El turno existe en Kepler pero todavía no cerró (o el feed no lo trajo):
       // se guarda el conteo y la diferencia aparece cuando el corte llegue.
       return { matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
@@ -384,7 +421,7 @@ export class BlindCountService {
     if (!dto.cajero_code && cuts.length > 1) {
       return { matched: false, ambiguous: true, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
     }
-    return this.armarComparacion(cuts[0], total, await this.retirosContados(trx, tenantId, dto.warehouse_code, cuts[0].folio));
+    return this.armarComparacion(cuts[0], total, await this.retirosContados(trx, tenantId, dto.warehouse_code, cuts[0].folio), medios);
   }
 
   /**
@@ -422,7 +459,7 @@ export class BlindCountService {
    * `retiros_sin_verificar` en vez de mezclarse con el faltante. Un faltante real
    * y "no lo contamos" son cosas distintas y no pueden sumar al mismo número.
    */
-  private armarComparacion(cut: any, total: number, retirosContados = 0) {
+  private armarComparacion(cut: any, total: number, retirosContados = 0, medios: Record<string, number> | null = null) {
     const esperado = Number(cut.efectivo_esperado);
     const keplerContado = Number(cut.efectivo_contado);
     const keplerDiff = Number(cut.efectivo_diff);
@@ -452,7 +489,33 @@ export class BlindCountService {
       kepler_billetes: cut.arqueo_billetes == null ? null : Number(cut.arqueo_billetes),
       kepler_monedas: cut.arqueo_monedas == null ? null : Number(cut.arqueo_monedas),
       kepler_retirado: retiradoKepler,
+      medios: this.cuadraMedios(cut, medios),
     };
+  }
+
+  /**
+   * SM.24 — Cada medio declarado contra su columna del corte.
+   *
+   * Solo tarjeta, transferencia y retiros tienen contraparte **verificada**. Los
+   * demás salen con `kepler: null` y `cuadra: null` — que se lee como "no hay con
+   * qué compararlo", no como "cuadra". Poner un cero ahí sería afirmar que Kepler
+   * dice cero, y no lo sabemos.
+   */
+  private cuadraMedios(cut: any, medios: Record<string, number> | null) {
+    if (!medios) return null;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    return Object.entries(medios).map(([medio, declarado]) => {
+      const col = MEDIOS_CUADRABLES[medio];
+      const kepler = col && cut[col] != null ? Number(cut[col]) : null;
+      return {
+        medio,
+        declarado: r2(Number(declarado)),
+        kepler,
+        diff: kepler == null ? null : r2(kepler - Number(declarado)),
+        // `null` = sin columna confirmada en Kepler. Distinto de `false`.
+        cuadra: kepler == null ? null : Math.abs(kepler - Number(declarado)) < 1,
+      };
+    });
   }
 
   /**
