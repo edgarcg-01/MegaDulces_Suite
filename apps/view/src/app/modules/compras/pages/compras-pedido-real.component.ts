@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -655,6 +656,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
 })
 export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly api = inject(ComprasService);
+  private readonly route = inject(ActivatedRoute); // Q.4 — deep-link desde Existencia
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -1042,6 +1044,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       }),
     });
     this.restoreFilters();
+    // Q.4 — hidratación por query-params, DESPUÉS de restoreFilters para que el link gane sobre
+    // el localStorage. Es lo que hace navegable "todo dato accionable a su lugar de arreglo con
+    // el filtro puesto": Existencia manda acá con ?search=<sku>. Sin esto el enlace no hacía nada
+    // (esta pantalla no leía ActivatedRoute en absoluto).
+    const qp = this.route.snapshot.queryParamMap;
+    const qSearch = qp.get('search');
+    if (qSearch) this.search = qSearch;
+    const qWh = qp.get('warehouse_ids');
+    if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
     else this.loadWorkbook();
     // Refresca la etiqueta "hace N min" sin recargar datos.
