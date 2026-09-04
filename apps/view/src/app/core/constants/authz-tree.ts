@@ -140,7 +140,18 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-box',
         route: '/almacen',
         modules: [
-          { id: 'inventory', label: 'Existencias', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
+          // ⚠️ PERMISO COMPARTIDO A PROPÓSITO — no lo "arregles". EXISTENCIA_* aparece también en
+          // el proyecto Compras (id 'compras-existencia') porque es LA MISMA pantalla en dos
+          // proyectos, con los mismos números para las dos audiencias. Contradice la regla de
+          // arriba ("cada permiso vive en UN solo módulo") y lo hace calcando el precedente ya
+          // vivo de Caducidades: 'caducidades' (/almacen) + 'store-caducidades' (/tienda)
+          // comparten COMMERCIAL_EXPIRY_*. No hay test que impida repetir; este comentario es el
+          // único freno contra un "cleanup" bienintencionado.
+          { id: 'existencia', label: 'Existencia', route: '/almacen/inventory/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
+          // Se llamaba 'Existencias' y NO lo es: lee commercial.stock, el libro transaccional
+          // (acierta 91% contra el POS). Es la consola de AJUSTE y de apartado. El censo físico
+          // vive arriba, en Existencia, que lee el ODS.
+          { id: 'inventory', label: 'Ajustes de stock', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
           { id: 'warehouses', label: 'Almacenes', route: '/almacen/warehouses', view: [Permission.COMMERCIAL_WAREHOUSES_VER], manage: [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR] },
           { id: 'physical-inventory', label: 'Inventario físico', route: '/almacen/inventory/sessions', view: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR], manage: [Permission.COMMERCIAL_INVENTORY_CONTAR, Permission.COMMERCIAL_INVENTORY_RECONCILIAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR] },
           { id: 'receiving-auditor', label: 'Recepción (caducidad)', route: '/almacen/inventory/recepcion', view: [Permission.COMMERCIAL_INVENTORY_RECIBIR], manage: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR] },
@@ -196,6 +207,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-shopping-bag',
         route: '/compras',
         modules: [
+          // ⚠️ La otra mitad del permiso compartido — ver el comentario largo en el módulo
+          // 'existencia' del proyecto Almacén. Mismo componente, mismos números, un solo permiso.
+          { id: 'compras-existencia', label: 'Existencia', route: '/compras/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
           { id: 'compras-pedido', label: 'Pedido', route: '/compras/pedido', view: [Permission.COMPRAS_PEDIDO_VER], manage: [Permission.COMPRAS_PEDIDO_GESTIONAR] },
           { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR] },
