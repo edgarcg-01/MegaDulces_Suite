@@ -183,6 +183,54 @@ export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
    está resuelta. Verde tenue = cerrado. */
 .lc-tablewrap tr.exacta td:first-child { box-shadow: inset 2px 0 0 var(--ok-fg); }
 
+/* ── Rail agrupado por año (LC.16.5) ───────────────────────────────────────
+   24 meses de ~5rem son tres pantallas de scroll propio para llegar al año pasado. */
+/* Columna propia y NO display:contents — ese valor saca al elemento del arbol de
+   accesibilidad en varios navegadores, y aca el wrapper agrupa contenido real.
+   (Nada de acentos graves en estos comentarios: este archivo ENTERO es un template
+   literal y un acento grave lo corta a la mitad.) */
+.na-anio { display: flex; flex-direction: column; gap: .35rem; }
+.na-anio-cab {
+  display: flex; align-items: baseline; gap: .4rem; width: 100%; text-align: left;
+  font: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+  color: var(--text-muted); cursor: pointer;
+  padding: .45rem .25rem .25rem; border: 0; background: none;
+}
+.na-anio-cab:hover { color: var(--text-color); }
+.na-anio-cab:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.na-anio-cab i { font-size: .65rem; }
+.na-anio-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* El pendiente del año va SIEMPRE, abierto o cerrado: un año colapsado con trabajo
+   adentro no se puede ver igual que uno limpio. */
+.na-anio-pend { margin-left: auto; font-weight: var(--fw-medium); }
+.na-anio-pend.cero { color: var(--ok-fg); }
+
+/* ── Notas colapsadas (LC.16.6) ────────────────────────────────────────────
+   Cobertura + lo que queda fuera + avisos eran cuatro bloques apilados que se comian
+   ~30% del alto antes de la primera factura. Los BLOQUEANTES siguen fuera, siempre
+   visibles: son la razon por la que el boton de generar esta apagado. */
+.na-notas { font-size: var(--fs-sm); }
+.na-notas > summary {
+  display: flex; align-items: baseline; gap: .4rem; cursor: pointer; list-style: none;
+  padding: .4rem .6rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle); background: var(--surface-subtle);
+  color: var(--text-color); font-size: var(--fs-xs);
+}
+.na-notas > summary::-webkit-details-marker { display: none; }
+.na-notas > summary:hover { background: var(--surface-hover); }
+.na-notas > summary:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.na-notas > summary i { color: var(--action); font-size: .8rem; }
+.na-notas[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.na-notas-cuerpo {
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .6rem .7rem; border: 1px solid var(--border-subtle); border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+/* Adentro del acordeon los margenes negativos que los separaban del bloque de arriba
+   sobran: el contenedor ya los espacia. */
+.na-notas-cuerpo > .na-cobertura,
+.na-notas-cuerpo > .na-contexto { margin: 0; }
+
 /* ── Filtros de la tabla (LC.16.2) ─────────────────────────────────────────
    En ago-2026 la tabla trae 725 renglones y 214 no se pueden tocar. Sin esto había que
    scrollear a mano para encontrar un proveedor. Los chips son un desglose además de un
