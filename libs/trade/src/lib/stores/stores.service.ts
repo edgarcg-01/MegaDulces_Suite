@@ -8,10 +8,9 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, ScopeService, TenantContextService } from '@megadulces/platform-core';
 import { CreateStoreDto } from './dto/create-store.dto';
 import { UpdateStoreDto } from './dto/update-store.dto';
-import { getDataScope } from '@megadulces/platform-core';
 import {
   CUSTOMER_PROVISIONING_PORT,
   CustomerProvisioningPort,
@@ -19,7 +18,7 @@ import {
 
 interface RequesterContext {
   sub: string;
-  /** Mapa de permisos que el guard relee del cache en cada request — la fuente de `getDataScope`. */
+  /** Mapa de permisos que el guard relee del cache en cada request. */
   permissions?: Record<string, boolean> | null;
   role_name?: string | null;
 }
@@ -30,6 +29,8 @@ export class StoresService {
 
   constructor(
     @Inject(KNEX_CONNECTION) private readonly knex: Knex,
+    private readonly scope: ScopeService,
+    private readonly tenantCtx: TenantContextService,
     @Optional()
     @Inject(CUSTOMER_PROVISIONING_PORT)
     private readonly customerProvisioning?: CustomerProvisioningPort,
@@ -53,21 +54,29 @@ export class StoresService {
   }
 
   /**
-   * Devuelve el zona_id al que está restringido el requester, o null si tiene
-   * scope global. Se usa para forzar que findAll/findNearby/update/remove no
-   * salgan de la zona propia.
+   * `[AUTHZ-HARD.3]` — Zonas que el requester puede ver, resueltas por el
+   * `ScopeService` (dimensión `zone`). Reemplaza al viejo `getRequesterZonaId`,
+   * que mezclaba ejes (`getDataScope`, que es la jerarquía de REPORTES) y era
+   * fail-OPEN: un usuario sin `zona_id` resolvía a `null` = "ve TODAS las zonas".
+   *
+   *   - `null`  → alcance `all` → sin filtro (dirección, marketing, admin…).
+   *   - `[...]` → sus zonas (uuid). `own` = la de su ficha; `listed` = varias.
+   *   - `[]`    → alcance `none` → ninguna (fail-closed).
+   *
+   * Se resuelve por `forUser` con el `sub` del requester + el tenant del CLS
+   * (igual que `users.controller`), robusto a que el CLS traiga o no el userId.
    */
-  private async getRequesterZonaId(
+  private async getRequesterZones(
     requester: RequesterContext,
-  ): Promise<string | null> {
-    const scope = getDataScope(requester);
-    if (scope.type === 'all') return null;
-
-    const user = await this.knex('users')
-      .where({ id: requester.sub })
-      .select('zona_id')
-      .first();
-    return user?.zona_id ?? null;
+  ): Promise<string[] | null> {
+    const scope = await this.scope.forUser(
+      this.tenantCtx.requireTenantId(),
+      requester.sub,
+      requester.role_name ?? undefined,
+    );
+    const d = scope.dims.zone;
+    if (d.mode === 'all') return null;
+    return d.values;
   }
 
   async findNearby(
@@ -92,13 +101,17 @@ export class StoresService {
       .select('*');
 
     if (requester) {
-      const zonaId = await this.getRequesterZonaId(requester);
+      const zones = await this.getRequesterZones(requester);
       // Incluir tiendas SIN zona asignada: una tienda frente a la que estás
       // parado debe ser detectable aunque no tenga zona_id. Sin este OR, un
       // usuario scopeado a zona NUNCA detecta tiendas con zona_id NULL (todas,
       // hoy) → "no se reconoce la tienda". La cercanía geográfica ya acota.
-      if (zonaId) {
-        query.where((b) => b.where('zona_id', zonaId).orWhereNull('zona_id'));
+      // `[]` (alcance `none`) NO incluye las de zona nula: no ve nada.
+      if (zones) {
+        query.where((b) => {
+          b.whereIn('zona_id', zones);
+          if (zones.length) b.orWhereNull('zona_id');
+        });
       }
     }
 
@@ -141,8 +154,8 @@ export class StoresService {
       );
 
     if (requester) {
-      const zonaId = await this.getRequesterZonaId(requester);
-      if (zonaId) query.where({ zona_id: zonaId });
+      const zones = await this.getRequesterZones(requester);
+      if (zones) query.whereIn('zona_id', zones);
     }
 
     const row = await query.first();
@@ -167,11 +180,15 @@ export class StoresService {
       .select('id', 'nombre', 'direccion', 'latitud', 'longitud', 'zona_id');
 
     if (requester) {
-      const zonaId = await this.getRequesterZonaId(requester);
+      const zones = await this.getRequesterZones(requester);
       // Igual que findNearby: el cache offline debe incluir tiendas sin zona,
-      // si no la detección Haversine offline tampoco las encuentra.
-      if (zonaId) {
-        query.where((b) => b.where('zona_id', zonaId).orWhereNull('zona_id'));
+      // si no la detección Haversine offline tampoco las encuentra. `none` (`[]`)
+      // no ve ninguna, ni las de zona nula.
+      if (zones) {
+        query.where((b) => {
+          b.whereIn('zona_id', zones);
+          if (zones.length) b.orWhereNull('zona_id');
+        });
       }
     }
 
@@ -228,8 +245,11 @@ export class StoresService {
         'Requerimiento fallido: Tienda o Punto de Venta no encontrado.',
       );
     }
-    const requesterZonaId = await this.getRequesterZonaId(requester);
-    if (requesterZonaId && store.zona_id !== requesterZonaId) {
+    const zones = await this.getRequesterZones(requester);
+    // `null` = alcance `all` (puede operar en cualquiera). Con lista, la zona de
+    // la tienda debe estar incluida; una tienda de zona nula tampoco es operable
+    // por un usuario scopeado (igual que antes).
+    if (zones && !zones.includes(store.zona_id as string)) {
       throw new ForbiddenException(
         'No puedes operar sobre tiendas fuera de tu zona.',
       );
@@ -264,9 +284,9 @@ export class StoresService {
     // Scope enforcement: si el requester está restringido a una zona, ignora
     // cualquier zona_id distinto que venga del cliente.
     if (requester) {
-      const requesterZonaId = await this.getRequesterZonaId(requester);
-      if (requesterZonaId) {
-        query.where('s.zona_id', requesterZonaId);
+      const zones = await this.getRequesterZones(requester);
+      if (zones) {
+        query.whereIn('s.zona_id', zones);
       } else if (zona_id) {
         query.where('s.zona_id', zona_id);
       }
@@ -285,9 +305,9 @@ export class StoresService {
     const { zona, ...rest } = data;
     const zona_id = await this.resolveZonaId(zona);
 
-    // Scope: si el requester tiene zona fija, no puede crear fuera de ella.
-    const requesterZonaId = await this.getRequesterZonaId(requester);
-    if (requesterZonaId && zona_id && zona_id !== requesterZonaId) {
+    // Scope: si el requester está acotado a zonas, no puede crear fuera de ellas.
+    const zones = await this.getRequesterZones(requester);
+    if (zones && zona_id && !zones.includes(zona_id)) {
       throw new ForbiddenException(
         'No puedes crear tiendas fuera de tu zona.',
       );
@@ -360,11 +380,11 @@ export class StoresService {
 
     // Scope post-cambio: no permitir mover tiendas a otra zona si el
     // requester no tiene scope global.
-    const requesterZonaId = await this.getRequesterZonaId(requester);
+    const zones = await this.getRequesterZones(requester);
     if (
-      requesterZonaId &&
+      zones &&
       updateData['zona_id'] !== undefined &&
-      updateData['zona_id'] !== requesterZonaId
+      !zones.includes(updateData['zona_id'] as string)
     ) {
       throw new ForbiddenException(
         'No puedes mover tiendas fuera de tu zona.',

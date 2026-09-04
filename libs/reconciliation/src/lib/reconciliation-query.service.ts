@@ -1,24 +1,56 @@
 import { Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { Knex } from 'knex';
 
 /**
  * SM.6 — Queries de la consola del Supervisor de Movimientos. Expone la data
  * CRUDA (cortes de caja, movimientos de inventario) + un overview agregado, para
  * que la consola muestre "todo" y no solo los descuadres flagueados.
  * analytics.* sin RLS → filtro tenant_id EXPLÍCITO. Solo lectura.
+ *
+ * `[AUTHZ-HARD.3]` — Además del tenant, se acota por el ALCANCE de sucursal del
+ * usuario (`ScopeService`). Antes la consola era tenant-wide: un `encargado_tienda`
+ * (alcance `warehouse: own`) veía los cortes y faltantes de caja de TODA la red,
+ * no solo de su tienda. Ahora el alcance recorta cada query:
+ *   - `all`  → sin filtro (dirección, prevención, compras…).
+ *   - `own`/`listed` → sus sucursales (código de 2 dígitos).
+ *   - `none` → `whereIn([])` = nada (fail-closed).
  */
 @Injectable()
 export class ReconciliationQueryService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly scope: ScopeService,
   ) {}
+
+  /**
+   * Sucursales que el usuario del request puede ver, en código de 2 dígitos, o
+   * `null` si su alcance es `all` (no filtrar). Se resuelve FUERA de `tk.run`
+   * porque `ScopeService` usa su propia conexión (no anidar transacciones).
+   */
+  private async warehouseScope(): Promise<string[] | null> {
+    const s = await this.scope.current();
+    const d = s.dims.warehouse;
+    if (d.mode === 'all') return null;
+    return d.values; // own/listed → códigos; none → [] (fail-closed)
+  }
+
+  /**
+   * Aplica el alcance a una query. `null` = no filtra (all). `[]` (array vacío,
+   * truthy en JS) = `WHERE col IN ()` = nada. Nunca cae a "todas" por accidente.
+   */
+  private applyWh<T extends Knex.QueryBuilder>(qb: T, col: string, codes: string[] | null): T {
+    if (codes) qb.whereIn(col, codes);
+    return qb;
+  }
 
   /** KPIs + rankings para el tab Resumen. */
   async overview() {
     const tenantId = this.tenantCtx.requireTenantId();
+    const wh = await this.warehouseScope();
     return this.tk.run(async (trx) => {
-      const caja: any = await trx('analytics.cash_cuts').where('tenant_id', tenantId)
+      const caja: any = await this.applyWh(trx('analytics.cash_cuts').where('tenant_id', tenantId), 'warehouse_code', wh)
         .select(
           trx.raw('COUNT(*)::int AS cortes'),
           trx.raw('COUNT(*) FILTER (WHERE abs(efectivo_diff) >= 50)::int AS con_descuadre'),
@@ -30,13 +62,13 @@ export class ReconciliationQueryService {
           trx.raw('ROUND(SUM(-LEAST(efectivo_diff, 0))::numeric, 2) AS sobrante'),
           trx.raw('ROUND(SUM(venta_total)::numeric, 2) AS venta'),
         ).first();
-      const merma: any = await trx('analytics.stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' })
+      const merma: any = await this.applyWh(trx('analytics.stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
         .select(trx.raw('COUNT(*)::int AS movs'), trx.raw('ROUND(SUM(importe)::numeric, 2) AS monto')).first();
       const disc: any = await trx('reconciliation.discrepancies')
         .where('tenant_id', trx.raw('public.current_tenant_id()')).whereIn('status', ['nuevo', 'en_revision'])
         .select(trx.raw('COUNT(*)::int AS pendientes'), trx.raw("COUNT(*) FILTER (WHERE severity='critical')::int AS criticos")).first();
 
-      const topCajeros = await trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId)
+      const topCajeros = await this.applyWh(trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId), 'cc.warehouse_code', wh)
         .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
@@ -47,13 +79,13 @@ export class ReconciliationQueryService {
           trx.raw('ROUND(SUM(cc.efectivo_diff)::numeric, 2) AS faltante'))
         .orderByRaw('SUM(cc.efectivo_diff) DESC').limit(10);
 
-      const porSucursal = await trx('analytics.cash_cuts').where('tenant_id', tenantId)
+      const porSucursal = await this.applyWh(trx('analytics.cash_cuts').where('tenant_id', tenantId), 'warehouse_code', wh)
         .groupBy('warehouse_code')
         .select('warehouse_code',
           trx.raw('COUNT(*)::int AS cortes'),
           trx.raw('ROUND(SUM(GREATEST(efectivo_diff, 0))::numeric, 2) AS faltante'))
         .orderByRaw('SUM(GREATEST(efectivo_diff, 0)) DESC');
-      const mermaSuc = await trx('analytics.stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' })
+      const mermaSuc = await this.applyWh(trx('analytics.stock_ledger').where({ tenant_id: tenantId, clase_mov: 'merma' }), 'warehouse_code', wh)
         .groupBy('warehouse_code')
         .select('warehouse_code', trx.raw('ROUND(SUM(importe)::numeric, 2) AS merma'))
         .orderByRaw('SUM(importe) DESC');
@@ -83,9 +115,10 @@ export class ReconciliationQueryService {
     const tenantId = this.tenantCtx.requireTenantId();
     const scope = q.scope === 'cajero' ? 'cajero' : 'caja';
     const limit = Math.min(50, Math.max(1, Number(q.limit) || 15));
+    const wh = await this.warehouseScope();
     return this.tk.run(async (trx) => {
       const groupCols = scope === 'cajero' ? ['cc.warehouse_code', 'cc.cajero_cierre'] : ['cc.warehouse_code', 'cc.caja'];
-      const b = trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId);
+      const b = this.applyWh(trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId), 'cc.warehouse_code', wh);
       if (scope === 'cajero') {
         b.whereNotNull('cc.cajero_cierre')
           .leftJoin('analytics.pos_cashiers as pc', (j: any) => j.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre'));
@@ -135,8 +168,9 @@ export class ReconciliationQueryService {
   async cashCuts(q: { sucursal?: string; cajero?: string; from?: string; to?: string; min_diff?: number; solo_descuadres?: boolean; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
+    const wh = await this.warehouseScope();
     return this.tk.run(async (trx) => {
-      const b = trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId)
+      const b = this.applyWh(trx('analytics.cash_cuts as cc').where('cc.tenant_id', tenantId), 'cc.warehouse_code', wh)
         .leftJoin('analytics.pos_cashiers as pc', function (this: any) {
           this.on('pc.tenant_id', '=', 'cc.tenant_id').andOn('pc.warehouse_code', '=', 'cc.warehouse_code').andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
@@ -194,8 +228,9 @@ export class ReconciliationQueryService {
   async movements(q: { clase_mov?: string; sucursal?: string; sku?: string; from?: string; to?: string; limit?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(1000, Math.max(1, Number(q.limit) || 300));
+    const wh = await this.warehouseScope();
     return this.tk.run(async (trx) => {
-      const b = trx('analytics.stock_ledger as sl').where('sl.tenant_id', tenantId)
+      const b = this.applyWh(trx('analytics.stock_ledger as sl').where('sl.tenant_id', tenantId), 'sl.warehouse_code', wh)
         .leftJoin('public.products as p', function (this: any) {
           this.on('p.sku', '=', 'sl.sku').andOn('p.tenant_id', '=', 'sl.tenant_id');
         })

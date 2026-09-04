@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiQuery } from '@nestjs/swagger';
-import { Public, RequirePermissions, RequireAnyPermission, Permission, ReqUser, ScopeService, CANONICAL_PARAM } from '@megadulces/platform-core';
+import { Public, RequirePermissions, RequireAnyPermission, Permission, ScopeService, CANONICAL_PARAM } from '@megadulces/platform-core';
 import { StoreService } from './store.service';
 import { StoreIngestGuard } from './store-ingest.guard';
 import { LiveTicket } from './store.types';
@@ -27,13 +27,16 @@ export class StoreController {
   /** Snapshot inicial para el navegador al conectar (KPIs día + horas + últimos). */
   @Get('snapshot')
   @RequirePermissions(Permission.STORE_LIVE_VER)
-  @ApiQuery({ name: 'warehouse', required: false, description: "Filtro por sucursal ('00'..'05'). Ignorado si el usuario ya está scopeado a una sucursal." })
-  @ApiOperation({ summary: 'TDA — snapshot del día: KPIs por sucursal + curva horaria + tickets del día.' })
-  snapshot(@ReqUser() user: { warehouse_code?: string } | undefined, @Query('warehouse') warehouse?: string) {
-    // Usuario con sucursal asignada → SIEMPRE su sucursal (no puede ampliar).
-    // Rol global (sin warehouse_code) → filtro opcional del UI.
-    const effective = user?.warehouse_code || warehouse || undefined;
-    return this.service.snapshot(effective);
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance. Acepta los nombres viejos (warehouse, sucursal…).' })
+  @ApiOperation({ summary: 'TDA — snapshot del día: KPIs por sucursal + curva horaria + tickets del día. Acotado por tu alcance de sucursales.' })
+  async snapshot(@Query() query: Record<string, unknown>) {
+    // `[AUTHZ-HARD.3]` — El alcance sale de `ScopeService`, no del viejo
+    // `user?.warehouse_code || warehouse`, que era fail-OPEN: a quien no tenía
+    // sucursal asignada se le respetaba el query param → veía la red entera.
+    // `readParam` devuelve `null` (alcance `all`, sin filtro) o la lista recortada
+    // (`[]` = no ve nada). El service filtra con esa distinción.
+    const codes = await this.scope.readParam(query, 'warehouse', 'store/snapshot');
+    return this.service.snapshot(codes);
   }
 
   /**
@@ -59,15 +62,19 @@ export class StoreController {
   @RequireAnyPermission(Permission.STORE_LIVE_VER, Permission.REPARTO_DESPACHAR)
   @ApiQuery({ name: 'folio', required: true })
   @ApiQuery({ name: 'serie', required: false })
-  @ApiQuery({ name: 'warehouse', required: false, description: "Sucursal ('01'..'03'). Ignorado si el usuario ya está scopeado a una sucursal." })
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal a consultar. El despachador la elige; el usuario scopeado a una sucursal queda fijado a la suya.' })
   @ApiOperation({ summary: 'LM-K — busca ticket de venta Kepler por folio (líneas + total + forma de pago) para despacho a domicilio.' })
-  ticketLookup(
-    @ReqUser() user: { warehouse_code?: string } | undefined,
+  async ticketLookup(
+    @Query() query: Record<string, unknown>,
     @Query('folio') folio: string,
     @Query('serie') serie?: string,
-    @Query('warehouse') warehouse?: string,
   ) {
-    const effective = user?.warehouse_code || warehouse || undefined;
+    // `[AUTHZ-HARD.3]` — Es un lookup por sucursal: se resuelve a UNA sucursal
+    // dentro del alcance. `readParam` recorta lo pedido a lo permitido; si queda
+    // exactamente una, se usa; si no (alcance `all` sin pedir, o pidió otra fuera
+    // de su alcance), el service pide la sucursal (400) — nunca cae a "todas".
+    const allowed = await this.scope.readParam(query, 'warehouse', 'store/ticket-lookup');
+    const effective = allowed && allowed.length === 1 ? allowed[0] : undefined;
     return this.service.ticketLookup({ folio, serie, warehouseCode: effective });
   }
 }
