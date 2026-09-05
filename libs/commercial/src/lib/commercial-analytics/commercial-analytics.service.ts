@@ -366,6 +366,9 @@ export interface SellOutColumn {
 export interface SellOutCell {
   cajas: number;
   monto: number;
+  /** NETO DE DESCUENTO (con IVA) = total de la factura (Kepler: c16 prorrateado; Wincaja/rutas: ya neto).
+   *  `monto` es el BRUTO de línea (antes del descuento de cabecera). Las cajas NO cambian (son volumen). */
+  monto_neto: number;
 }
 
 export interface SellOutRow {
@@ -2802,17 +2805,18 @@ export class CommercialAnalyticsService {
       columns: [],
       rows: [],
       column_totals: {},
-      grand_total: { cajas: 0, monto: 0 },
+      grand_total: { cajas: 0, monto: 0, monto_neto: 0 },
       generated_at: new Date().toISOString(),
     };
 
     // Paso 3 — pivote en Node
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
-    const colTotals = new Map<string, { cajas: number; monto: number }>();
+    const colTotals = new Map<string, SellOutCell>();
     const branchesWithData = new Set<string>();
     let grandCajas = 0;
     let grandMonto = 0;
+    let grandMontoNeto = 0;
     let excludedTransfers = 0;
 
     // RS.13 — plaza: pre-crear TODAS las columnas del template (en orden), aun vacías, para que
@@ -2821,7 +2825,7 @@ export class CommercialAnalyticsService {
     if (plaza) {
       for (const col of SELLOUT_PLAZA_COLUMNS) {
         columns.set(col.key, { key: col.key, branch_code: col.key, branch_name: col.label });
-        colTotals.set(col.key, { cajas: 0, monto: 0 });
+        colTotals.set(col.key, { cajas: 0, monto: 0, monto_neto: 0 });
       }
     }
 
@@ -2839,10 +2843,11 @@ export class CommercialAnalyticsService {
         const colKey = plazaColKey(r.branch_code, channel) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
-          colTotals.set(colKey, { cajas: 0, monto: 0 });
+          colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
         }
         const punits = Number(r.units) || 0;
         const pmonto = Number(r.monto) || 0;
+        const pmontoNeto = Number(r.monto_neto) || 0;
         const pIsWeight = r.unit_kind === 'weight';
         const pfs = Number(r.factor_sale);
         const pbox = Number(r.box_size);
@@ -2855,15 +2860,15 @@ export class CommercialAnalyticsService {
           prow = {
             product_id: r.product_id, sku: r.sku, nombre: r.nombre,
             uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
-            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 },
+            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 },
           };
           rowMap.set(r.sku, prow);
         }
-        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0 });
-        pcell.cajas += pcajas; pcell.monto += pmonto;
-        prow.total.cajas += pcajas; prow.total.monto += pmonto;
-        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto;
-        grandCajas += pcajas; grandMonto += pmonto;
+        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
+        pcell.cajas += pcajas; pcell.monto += pmonto; pcell.monto_neto += pmontoNeto;
+        prow.total.cajas += pcajas; prow.total.monto += pmonto; prow.total.monto_neto += pmontoNeto;
+        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto; pct.monto_neto += pmontoNeto;
+        grandCajas += pcajas; grandMonto += pmonto; grandMontoNeto += pmontoNeto;
         continue;
       }
 
@@ -2951,7 +2956,7 @@ export class CommercialAnalyticsService {
               source: src,
               source_label: srcLabel,
             });
-        colTotals.set(colKey, { cajas: 0, monto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
 
       // Filas: por MES (month_summary), por EMPRESA (byBrand → product_id lleva el
@@ -2966,7 +2971,7 @@ export class CommercialAnalyticsService {
               nombre: sellOutMonthLabel(r.sale_month), // el exporter usa nombre como etiqueta de fila
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             }
           : byBrand
           ? {
@@ -2975,7 +2980,7 @@ export class CommercialAnalyticsService {
               nombre: r.brand_nombre || 'Sin empresa',
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             }
           : {
               product_id: r.product_id,
@@ -2984,11 +2989,11 @@ export class CommercialAnalyticsService {
               uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
               unit_kind: isWeight ? 'weight' : 'piece',
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             };
         rowMap.set(rowKey, row);
       }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
       cell.cajas += cajas;
       cell.monto += monto;
       row.total.cajas += cajas;
@@ -3011,7 +3016,7 @@ export class CommercialAnalyticsService {
             nombre: p.nombre,
             uxc: p.factor_sale != null ? Number(p.factor_sale) : null,
             cells: {},
-            total: { cajas: 0, monto: 0 },
+            total: { cajas: 0, monto: 0, monto_neto: 0 },
           });
         }
       }
@@ -3046,8 +3051,8 @@ export class CommercialAnalyticsService {
       }
       row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
     }
-    const columnTotalsObj: Record<string, { cajas: number; monto: number }> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    const columnTotalsObj: Record<string, SellOutCell> = {};
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
 
     return {
       ...base,
@@ -3090,16 +3095,19 @@ export class CommercialAnalyticsService {
     return code === '' || code === '00' || code === '99';
   }
 
-  /**
-   * PARIDAD Kepler↔Wincaja — dedup de la pierna Kepler del sell-out = COMPLEMENTO EXACTO del blend
-   * Wincaja (PH ≥jul / La Piedad ≥oct / Canindo ≥ago15; 03/04/05 Kepler-native). Mismo predicado que
-   * sellOutByVendor L3504. Centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
-   * literales de cutover. (`k` = alias de analytics.mv_kepler_sales_daily.)
-   */
-  private readonly KEPLER_SELLOUT_DEDUP = `((k.source_branch='01' AND k.business_date >= DATE '2026-07-01')
-      OR (k.source_branch='02' AND k.business_date >= DATE '2025-10-01')
-      OR (k.source_branch='06' AND k.business_date >= DATE '2026-08-15')
-      OR k.source_branch IN ('03','04','05'))`;
+  // [VP.1.1] Acá vivía `KEPLER_SELLOUT_DEDUP`, el predicado de cutover Kepler↔Wincaja, con un
+  // docstring que decía "centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
+  // literales". Al mover el dedup adentro de `analytics.v_sellout_daily` (RS) la constante quedó con
+  // UNA sola referencia: su propia declaración. Nadie la leía.
+  //
+  // Se retira en vez de dejarla "por si acaso". Una copia muerta que sigue PARECIENDO canónica es
+  // peor que no tenerla: el próximo que necesite mover una fecha de corte la encuentra primero, la
+  // edita, y no pasa absolutamente nada — o peor, edita la buena y deja ésta contradiciéndola para
+  // el que lea después. Es la misma regla que GOTCHAS §32 aplicada a un literal: no hay copias, hay
+  // una fuente.
+  //
+  // Hoy la fuente es la vista. `database/tests/test-newdb-sellout-parity.js` vigila que las copias
+  // que QUEDAN vivas (las dos migraciones + el proyector del feed) no se separen entre sí.
 
   /** ¿mv_kepler_sales_daily existe, poblado y enriquecido (columna branch_name)? — mismo guard que sellOut. */
   private async keplerMvReady(trx: any): Promise<boolean> {
@@ -3242,7 +3250,7 @@ export class CommercialAnalyticsService {
       .select(
         trx.raw('s.warehouse_code as branch_code'),
         's.product_id', 's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
-        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'),
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
       )
       .groupByRaw('s.warehouse_code, s.product_id, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
     if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
@@ -3275,7 +3283,7 @@ export class CommercialAnalyticsService {
         's.brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
         trx.raw('s.warehouse_code as branch_code'), trx.raw('max(s.branch_name) as branch_name'),
         's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
-        trx.raw(`${cajas} as cajas`), trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'),
+        trx.raw(`${cajas} as cajas`), trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
       )
       .groupByRaw('s.brand_id, s.warehouse_code, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
     if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
@@ -3466,11 +3474,11 @@ export class CommercialAnalyticsService {
       const monto = Number(r.monto) || 0;
       if (!columns.has(colKey)) {
         columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
-        colTotals.set(colKey, { cajas: 0, monto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
       let row = rowMap.get(r.sku);
-      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 } }; rowMap.set(r.sku, row); }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
+      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
       cell.cajas += cajas; cell.monto += monto;
       row.total.cajas += cajas; row.total.monto += monto;
       const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto;
