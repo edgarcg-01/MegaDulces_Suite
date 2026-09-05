@@ -58,7 +58,10 @@ export class CommercialCustomersController {
   }
 
   @Get()
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  // La app del vendedor busca clientes acá (esté o no en su cartera). supervisor_ventas
+  // no tiene CUSTOMERS_VER → aceptamos VENDOR_APP_ACCESS. customer_b2b queda scopeado a
+  // su propio customer en el service.
+  @RequireAnyPermission(Permission.COMMERCIAL_CUSTOMERS_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Listar customers (paginado, búsqueda por name/code/rfc/email). customer_b2b solo ve su propio customer (scoping forzado en service).',
