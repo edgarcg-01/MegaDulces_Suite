@@ -1889,8 +1889,6 @@ export interface SellOutColumn {
 export interface SellOutCell {
   cajas: number;
   monto: number;
-  /** Neto de descuento (con IVA) = total de la factura. `monto` es el bruto de línea. Cajas = volumen (no cambia). */
-  monto_neto: number;
 }
 
 export interface SellOutRow {
