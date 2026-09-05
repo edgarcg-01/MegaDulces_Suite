@@ -6,6 +6,141 @@
 
 ---
 
+## 2026-09-05 — Réplica cruda Wincaja 2025–2026 + purga de higiene (21.8 GB) y lo que NO se purgó
+
+**Disparador:** dos pedidos de Edgar en la misma sesión — *"necesito una réplica cruda de todo lo
+que exista en Wincaja de 2025 a 2026"* y después *"realiza lo que sea mejor para la higiene, para
+las capas y la integridad de la información"*. Todo medido contra prod y contra la box, no contra la doc.
+
+### El inventario que disparó todo: ¿por qué prod tiene sólo 29 tablas de Wincaja?
+
+Porque a prod no la alimenta una réplica sino **un importer con lista blanca escrita a mano**. El
+mapa `DOMAINS` de `import-wincaja.js` declara **27 tablas** en 8 dominios; **27 mapeadas + 2
+propias** (`branches`, `caja_channels`) = 29. Access tiene **71 por sucursal** → **44 afuera**, de
+las cuales 27 están vacías y **17 tienen dato**: `ArticulosRelacion` 13,309 · `Operaciones` 1,943 ·
+`FacturaLibre` 1,850 · **`Eliminacion` 489** (ventas eliminadas: `cortes.eliminadas` trae el conteo,
+no el detalle) · **`Unidades` 49** (el catálogo de unidades, con una fase entera abierta sobre el
+tema) · `IVA`/`IEPS`/`ISuntuoso`/`Monedas`/`Credito`.
+Y un segundo recorte que el conteo de tablas esconde: **288 de las 514 columnas** de Access;
+`articulos` trae **18 de 52**.
+Es el patrón **inverso** al de Kepler (`kepler_ods` = 226 tablas, todo `md.*` crudo, semántica en
+vistas): pedir un campo nuevo en Wincaja obliga a editar el importer y redesplegar. La solución ya
+estaba construida y sin conectar — **WR.6**, "re-apuntar bronze `import-wincaja` a la réplica".
+
+### 2025 ya estaba; 2026 no tenía corte propio
+
+La Fase WR-hist ya tenía cargado 2017–2025 + `Actuales` + `Concentradas`: **14,425 cargas de tabla,
+todas `ok`, ~180 M filas**, schemas `hNN` en `:5433/wincaja`.
+**2025 completo:** 22 ramas × 70 tablas, **1,351,197 cabeceras**, todas al 31-dic (salvo dos cierres
+reales: `42` el 09-oct-2025 y `505` el 28-abr-2025).
+**2026 (474,925 cabeceras) vive dentro de `Actuales` + `Concentradas`.** El `Z:\Salidas\Bases\2026 C`
+que parece ser su carpeta son **11 archivos de 2,142,208 bytes exactos = Access en blanco**, un
+placeholder de marzo que nunca se llenó.
+
+Casi toda la fecha máxima por rama es **cuándo esa rama dejó de escribir en Wincaja**, no una falla
+de carga — coincide al día con prod. Tres sí eran hueco real, y por eso se corrió
+`--years=Actuales,Concentradas --include-live --force`:
+
+- **`00` CEDIS**: su `Concentradas` es uno de los stubs vacíos → su 2026 vivía **sólo** en `w00`, el
+  carril vivo que lee el `.mdb` rodante. Cero respaldo histórico.
+- **`30` Morelia Abastos**: el vivo `w30` arranca el **01-ago-2026** (un mes); ene–jul venía sólo de
+  `Concentradas`.
+- Las tres ramas vivas (`00/30/32`) el histórico **las saltaba por diseño** (`LIVE_MIRRORED`).
+
+### Dos trampas de la réplica cruda, para quien la consulte
+
+1. **`Fecha` es TEXT en los dos carriles, con formatos distintos**: `MM/DD/YY HH:MM:SS` en `h*`
+   (mdbtools) e ISO `YYYY-MM-DDTHH:MM:SS` en `w*` (Jet). Un `min()`/`max()` lexicográfico sobre `h*`
+   **miente** — la primera medición de esta sesión salió mal por eso.
+2. **50,455 filas con `Fecha` no parseable** (`01/00/00`, más años 2000 de relleno). Un `::date`
+   pelado revienta con `date/time field value out of range` en `h10`, `h30`, `h42` y `h50` — cuatro
+   ramas grandes que la consulta ingenua deja fuera **en silencio**. Guarda:
+   `"Fecha" ~ '^(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{2}'`.
+
+Re-verificado contra el archivo de hoy (no contra la nota de agosto): **`Actuales/0 BPIRAPUATO.mdb`
+(417 MB) tiene `MaestroMovAlmacen`=0 y `DetallesMovAlmacen`=0** — es puro catálogo. Leer el `MOV`
+(34 MB, 3,586 cabeceras, 02-ene→04-sep-2026) sigue siendo correcto. Detalle abierto: el no-MOV trae
+**28,405 `Existencias` contra 15,529 del MOV** — puede tener almacenes que el MOV no; sin verificar.
+
+### La purga: 21.8 GB, y el criterio fue medir antes de borrar
+
+| qué | recuperado |
+|---|---|
+| Build cache de Docker (136 → 70 capas) | **20.55 GB** |
+| Imágenes superadas (`neo4j`, `pgvector:pg17`, `postgres:15`/`latest`, 3× `nginx`, `watchtower`, `ghcr…/api`) — 12.38 → 8.01 GB | 4.2 GB |
+| Volumen huérfano de **Neo4j** (layout `databases`/`dbms`/`transactions`, creado el 07-jul, el día que Neo4j se difirió) + imagen dangling + 7 volúmenes vacíos | 1.03 GB |
+| 7 logs de los carriles ODS retirados el 04-sep — `C:\KeplerRunner\logs` 436 → **171 MB** | 265 MB |
+| 3,310 logs de Wincaja de más de 7 días (4,409 → 1,099 archivos) | 16 MB |
+
+Antes de borrar un solo log se mapeó el grafo **tarea → `.vbs` → `.cmd`**: `run-feeds.cmd <modo>`
+escribe `logs/<modo>.log`, así que `stock.log`, `receipts.log`, `catalog.log` etc. están **vivos**.
+Sólo cayeron los de carriles sin tarea.
+
+### Lo que se decidió NO purgar, y por qué pesa más que lo que se purgó
+
+- **Los tres `*_snapshot_bak` (54 MB) se quedan.** La auditoría del 03-sep los listaba como
+  candidatos; medido, es al revés: son el **`down()` de tres migraciones aplicadas hace 2 y 9 días**
+  (`bank_postings` y `kepler_bank_movements` el 03-sep, `kepler_accounts` el 26-ago) y el `down()`
+  hace `ALTER TABLE … RENAME TO <tabla>`. Borrarlos deja sin rollback a las vistas de banco que
+  acaban de entrar — y justo `kdb1`, el feed que alimenta la primera, lleva **71 h** atrasado.
+  **Criterio nuevo: retención, no purga** — se van cuando la vista lleve semanas limpia.
+- **`railway_backup_check` (35 MB) · `lpa_r42` (15 MB) · `r10` (12 MB) se quedan.** `n_live_tup`
+  decía 0 filas y **mentía** (nunca se analizaron): tienen 3,040 / 18,463 / 11,669 filas reales. Y no
+  son copias de prod sino **snapshots viejos**: `railway_backup_check` trae 1,199 productos contra
+  14,805 hoy; `lpa_r42`/`r10` traen `kdii` 9,256/9,276 contra 9,544–9,556. No se pudo probar que sean
+  reproducibles → borrar dato no reproducible es exactamente lo que contradice el pedido. Quedan
+  documentadas acá para que nadie tenga que volver a investigarlas.
+- **`trade-mkt-prov` (3.72 GB) y `scriptsmd-admin-bd` (851 MB) no se tocan**: esta box es compartida
+  y no consta que sean de este proyecto.
+
+### Redundancia PROBADA, pendiente de permiso
+
+- Schema **`zbench`** (150 MB): 4 tablas `DetallesMovAlmacen_v500/_vmax/_j5000/_j20000` del
+  benchmark mdbtools-vs-Jet del 01-sep. **152,714 filas y ΣValorVenta $7,629,584.75 — idéntico al
+  centavo** a `h44/_dataset='2025'`, cuatro veces.
+- Schema **`wincaja_ods`** (29 MB): almacén 44, **48,560 cabeceras = exactamente**
+  `h44/_dataset='2025'`. Intento previo abandonado, cero referencias en el repo.
+
+Los `DROP SCHEMA` los bloqueó el clasificador de auto-mode; **no se rodeó el bloqueo**. Igual
+quedaron bloqueados los borrados de launchers huérfanos en `C:\KeplerRunner`, entre ellos el de
+seguridad: **`run-supplier-payments.cmd` + `-hidden.vbs` tienen el password superuser de prod en
+texto plano e invocan `import-supplier-payments.js`, que se borró en el commit `06edbeb0`** — una
+credencial en disco sirviendo a nada. Más `run-ods*.{cmd,vbs}` ×7 (carriles retirados el 04-sep) y
+`run-feeds-245.cmd` (5 líneas con credenciales, ninguna tarea lo llama).
+
+### Cambios de código
+
+1. **`run-wincaja-live.ps1` — retención de 7 días.** Escribía un archivo nuevo por corrida cada
+   10 min (~144/día) sin rotación: **4,409 archivos** acumulados desde el 13-jul. No era el espacio
+   (23 MB) sino que el directorio deja de ser legible justo cuando hace falta leerlo. El arreglo va
+   en el script, que es donde corresponde.
+2. **`ecosystem.sync.config.js` → ⛔ RETIRADO.** Sus 4 apps ya tienen dueño, verificado renglón por
+   renglón: `sync-product` == el contenedor `ods-live-hot` (mismo script, mismo `ods.ctl`, mismo
+   latido `ods_live_hot`) · `sync-stock` y `sync-sales` ya corren dentro de `run-prod-feeds.js`
+   (líneas 72 y 57/68/114) · `ods-cdc` es el CDC por WAL retirado en OBS.8. Se conserva el archivo:
+   documenta la topología. **Regla: un carril = UN dueño.**
+3. **`orchestrator/ecosystem.config.js` → ⚠️ NO ADOPTADO** (etiqueta distinta a propósito). Medido:
+   `pgboss` tiene sus 10 tablas con `version`=1 y `queue`=1 — arrancó alguna vez y registró su cola —
+   pero **cero jobs**. No murió: nunca se adoptó. Antes de arrancarlo hay que apagar sus tareas de
+   Windows en la misma maniobra, o queda el mismo carril con dos dueños.
+
+### Pendiente de decisión de Edgar
+
+- Permitir los 2 `DROP SCHEMA` probados (179 MB) y el borrado de los 11 launchers huérfanos
+  (incluida la credencial en texto plano). **Borrar el archivo no rota la credencial** — la rotación
+  sigue pendiente aparte.
+- Prod: el usuario **`hacker`** (29-ago, **activo y en el tenant `mega_dulces`**, no en uno de
+  prueba) es residuo de la suite RLS corrida contra prod, junto con `isouser`, `wsisouser`,
+  `supervisor_arqueo_smoke` y los tenants `tenant_isolation_test`/`ws_iso_test`/`test_tenant_b`
+  (0 clientes cada uno). Recomendación: **soft-delete** (`deleted_at`), no borrado duro — en prod
+  `identity.users` tiene 144/195 triggers apagados y las FK no validan, así que un delete duro puede
+  orfanar referencias en silencio.
+- `Concentradas/30 MORELIA ABASTOS 2026.7z` y `32 MORELIA MADERO 2026.7z` sin extraer; carpeta
+  `2025 12` con `10 Movimientos Cajas 2025 12.mdb` (111 MB) que ningún cargador lista porque no está
+  en `YEARS`.
+
+---
+
 ## 2026-09-03 — AUDITORÍA de la implementación de la BD + el filtro de tenant deja de ser condicional
 
 **Disparador:** Edgar pidió analizar *cómo estamos implementando nuestra BD*. Se midió **contra prod**

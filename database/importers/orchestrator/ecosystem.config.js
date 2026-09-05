@@ -1,4 +1,19 @@
 /**
+ * ⚠️ NO ADOPTADO (estado al 2026-09-05) — no está corriendo y NADIE depende de él todavía.
+ * Distinto de `kepler/ecosystem.cdc.config.js` (⛔ retirado, murió) y de
+ * `kepler/ecosystem.sync.config.js` (⛔ retirado, duplicaba dueños): esto **nunca se adoptó**.
+ *
+ * Medido en prod el 2026-09-05: el schema `pgboss` existe con sus 10 tablas y trae `version`=1 y
+ * `queue`=1 — o sea el worker arrancó alguna vez y registró su cola — pero **cero jobs**: ninguna
+ * tabla de trabajo tiene una sola fila. La orquestación real sigue siendo el Programador de tareas
+ * (21 tareas) + Docker (4 contenedores) + PM2 (los 2 carriles de Wincaja).
+ *
+ * Se conserva a propósito: es la migración gradual planeada para reemplazar el pilón de
+ * `.vbs`/`.cmd`, y el código del worker es la parte difícil. Antes de arrancarlo hay que decidir
+ * qué feeds se le pasan (`PGBOSS_MODES`) y APAGAR sus tareas de Windows en la misma maniobra —
+ * si no, queda el mismo carril con DOS dueños, que es lo que ya nos costó un carril mudo.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
  * PM2 — mantiene el worker de feeds vivo (arranca en boot, reinicia al crashear).
  * Reemplaza el pilón de tareas + .vbs + .cmd del Task Scheduler por UN proceso.
  *
