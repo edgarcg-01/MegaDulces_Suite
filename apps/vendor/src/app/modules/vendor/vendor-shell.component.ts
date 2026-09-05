@@ -59,7 +59,17 @@ interface DiagProbe {
           ><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></a>
           <a
             pButton
-           
+
+            severity="secondary"
+            size="small"
+            text
+            routerLink="assistant"
+            routerLinkActive="header-active"
+            aria-label="Thot"
+          ><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span></a>
+          <a
+            pButton
+
             severity="secondary"
             size="small"
             text
@@ -67,21 +77,6 @@ interface DiagProbe {
             routerLinkActive="header-active"
             aria-label="Notificaciones"
           ><span class="p-button-icon p-button-icon-left pi pi-bell" aria-hidden="true"></span></a>
-          <span class="hdr-badge-wrap">
-            <a
-              pButton
-             
-              severity="secondary"
-              size="small"
-              text
-              routerLink="today"
-              routerLinkActive="header-active"
-              [attr.aria-label]="pendingOrders() > 0 ? 'Mi día — ' + pendingOrders() + ' pedidos sin enviar' : 'Mi día'"
-            ><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span></a>
-            @if (pendingOrders() > 0) {
-              <span class="hdr-dot">{{ pendingOrders() }}</span>
-            }
-          </span>
           <button
             pButton
            
@@ -156,22 +151,25 @@ interface DiagProbe {
           <i class="pi pi-map"></i>
           <span>Mi ruta</span>
         </a>
-        @if (canCierre) {
-          <a routerLink="close-route" routerLinkActive="active">
-            <i class="pi pi-receipt"></i>
-            <span>Cierre</span>
-          </a>
-        }
+        <a routerLink="today" routerLinkActive="active" class="has-badge">
+          <i class="pi pi-chart-bar"></i>
+          @if (pendingOrders() > 0) {
+            <span class="nav-badge">{{ pendingOrders() }}</span>
+          }
+          <span>Mi día</span>
+        </a>
         @if (canCarga) {
           <a routerLink="carga" routerLinkActive="active">
             <i class="pi pi-truck"></i>
             <span>Carga</span>
           </a>
         }
-        <a routerLink="assistant" routerLinkActive="active">
-          <i class="pi pi-sparkles"></i>
-          <span>Thot</span>
-        </a>
+        @if (canCierre) {
+          <a routerLink="close-route" routerLinkActive="active">
+            <i class="pi pi-receipt"></i>
+            <span>Cierre</span>
+          </a>
+        }
         @if (canAssignRoutes) {
           <a routerLink="supervisor/routes" routerLinkActive="active">
             <i class="pi pi-directions"></i>
@@ -271,8 +269,6 @@ interface DiagProbe {
       .vendor-brand i { font-size: 1.25rem; }
       .vendor-user { display: flex; align-items: center; gap: 0.25rem; }
       .vendor-user a.header-active { color: var(--brand-700); }
-      .hdr-badge-wrap { position: relative; display: inline-flex; }
-      .hdr-dot { position: absolute; top: -1px; right: -1px; min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px; background: var(--warn-fg, #d97706); color: #fff; font-size: 0.62rem; font-weight: 800; display: grid; place-items: center; pointer-events: none; font-variant-numeric: tabular-nums; box-sizing: border-box; }
       .vendor-main {
         flex: 1;
         /* El scroll lo lleva el DOCUMENTO (no main) → sin overflow propio. main
@@ -329,6 +325,14 @@ interface DiagProbe {
       .vendor-bottom-nav a.active {
         color: var(--brand-700);
         font-weight: 600;
+      }
+      /* Badge de pedidos offline sin enviar, sobre el ícono de "Mi día". */
+      .vendor-bottom-nav a.has-badge { position: relative; }
+      .vendor-bottom-nav .nav-badge {
+        position: absolute; top: 0.35rem; left: 50%; margin-left: 0.35rem;
+        min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px;
+        background: var(--warn-fg, #d97706); color: #fff; font-size: 0.62rem; font-weight: 800;
+        display: grid; place-items: center; pointer-events: none; font-variant-numeric: tabular-nums; box-sizing: border-box;
       }
 
       /* Panel de configuración */
