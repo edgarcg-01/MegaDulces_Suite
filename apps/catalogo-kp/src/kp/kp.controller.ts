@@ -18,7 +18,7 @@ export class KpController {
   constructor(private readonly kpService: KpService) {}
 
   /**
-   * Inspecciona kp.kdm2: columnas reales + mapeo automático + 3 filas de muestra.
+   * Inspecciona kepler_ods.kdm2: columnas reales + mapeo automático + 3 filas de muestra.
    * GET /api/kp/schema
    */
   @UseGuards(AuthGuard('jwt'))
@@ -41,7 +41,7 @@ export class KpController {
   getArticulos() { return this.kpService.getArticulos(); }
 
   /**
-   * Catálogo completo de productos desde kp.kdii.
+   * Catálogo completo de productos desde kepler_ods.kdii.
    * Incluye costo, IVA, IEPS, margen y precio_final calculado.
    * GET /api/kp/productos
    */

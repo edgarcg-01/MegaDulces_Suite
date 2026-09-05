@@ -7,7 +7,7 @@ import { JwtStrategy } from './jwt.strategy';
 
 // El original traía un fallback inseguro hardcodeado
 // ('megadulces-secret-cambiar-en-prod') si el env faltaba. Se retira: mejor
-// fail-fast en boot (mismo criterio que KpConcentradaModule en CV.0) que un
+// fail-fast en boot (mismo criterio que PlatformDbModule en CV.0) que un
 // secreto público conocido firmando sesiones reales.
 const jwtSecret = process.env.CATALOGO_KP_JWT_SECRET;
 if (!jwtSecret) {

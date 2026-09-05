@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { KpConcentradaModule } from './kp-concentrada/kp-concentrada.module';
+import { PlatformDbModule } from './platform-db/platform-db.module';
 import { KpModule } from './kp/kp.module';
 import { AuthModule } from './auth/auth.module';
 import { AdminModule } from './admin/admin.module';
@@ -11,7 +11,7 @@ import { SaludModule } from './salud/salud.module';
 
 @Module({
   imports: [
-    KpConcentradaModule,
+    PlatformDbModule,
     AuthModule,
     AdminModule,
     KpModule,

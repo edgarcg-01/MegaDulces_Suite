@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as nodemailer from 'nodemailer';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 /**
  * Avisos por correo al cliente.
@@ -44,7 +44,7 @@ const pesos = (n: any) =>
 export class AvisosService {
   private readonly logger = new Logger(AvisosService.name);
 
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
     return pgRaw<T>(this.db, sql, params);

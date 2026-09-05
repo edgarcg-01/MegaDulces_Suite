@@ -1026,8 +1026,9 @@ minutos hasta el reinicio):
 - ¿`/api/kp/concentrada` (kp-excel) — confirmado en uso, incluido en CV.0.
   Revisar si conviene migrar su fuente (JSON generado por un script Python
   externo) a algo más integrado en un sub-sprint futuro.
-- ¿Cuándo aplicar `007_rol_dedicado.sql` contra el `KP_CONCENTRADA` real, y
-  quién lo corre?
+- ~~¿Cuándo aplicar `007_rol_dedicado.sql`?~~ **Resuelto 2026-09-05 (CV.22):
+  quedó obsoleto — con el repunte a `postgres_platform` hay una sola base y
+  el app usa `app_runtime`, que ya tiene GRANT sobre `kepler_ods`.**
 - ~~`salidas` (CV.4) — ¿sigue en uso en producción?~~ **Resuelto 2026-09-01:
   no está en uso real hoy. Diferido.**
 - ~~Modelo operativo final (CV.6) — ¿`.163` sigue siendo el destino?~~
@@ -1041,3 +1042,83 @@ minutos hasta el reinicio):
   real (confirmado 2026-09-01, ver CV.6) — 0Sistemas indica que ya está en
   conocimiento/gestión. Cualquier reinicio del Service en `.163` antes de
   resolverlo repetiría la caída del 27/08.
+
+---
+
+## CV.22 — Repunte a `postgres_platform` / `kepler_ods` (2026-09-05)
+
+**Responde al review del PR #62.** Edgar aceptó todo el port como excepción
+on-prem (auth propio, ledger `tienda.pedidos`, frontend HTML, imágenes = deuda
+documentada) y bloqueó una sola cosa: **leer catálogo y precio desde
+`KP_CONCENTRADA`**, que es una base copia, contra la regla #1 del proyecto
+(*cero copias, todo del ODS*).
+
+### El hallazgo que hizo barato el cambio
+
+`KP_CONCENTRADA.kp.<tabla>` y `kepler_ods.<tabla>` **tienen la misma forma**.
+`concentrate-kepler.js` arma cada `kp.<tabla>` como todas las sucursales `md.*`
+más una columna `sucursal` (+ `_loaded_at`), que es exactamente lo que
+`replicate-ods-live.js` deja en el ODS. O sea que el repunte es un **rename de
+schema, no un cambio de semántica** — incluida la multiplicidad por sucursal,
+que ya existía antes y no la introduce este cambio.
+
+### Qué se hizo
+
+| # (review) | Cambio |
+|---|---|
+| 1 | `KpConcentradaModule` → `PlatformDbModule`. Env `DATABASE_URL_KP_CONCENTRADA` → **`DATABASE_URL_NEW`** (mismo nombre que `knexfile-newdb.js`), SSL prendido salvo local/LAN con el mismo criterio de ese knexfile. |
+| 2 | `kp.kdii/kdil/kdig/kdik/kdm2/kdie/kdif/kdms` → `kepler_ods.*` (54 referencias, 6 archivos). `kp.sync_control` → **`analytics.cron_runs`** (`cdc_wal_<suc>`). |
+| 3 | `sql/001`–`006` → 6 migraciones Knex en `database/migrations-newdb/` (`20260905120000`–`120500`), **SQL verbatim**. `sql/007_rol_dedicado.sql` borrado por obsoleto. |
+| extra | Piezas por caja desde **`analytics.v_product_box_factor`** en vez de `kdii.c84` crudo (regla de `UNIDADES_DE_MEDIDA.md`). |
+
+**Trampa encontrada:** `discoverSchema()` filtraba `table_schema = 'kp'` en un
+*literal de string*, no como `kp.kdm2` — un `sed` sobre las referencias de tabla
+no lo habría tocado y el descubrimiento de columnas de `kdm2` habría quedado
+vacío en silencio, degradando `getVentasPorSucursal()` a su fallback sin que
+nada avisara.
+
+**Por qué el rol dedicado dejó de hacer falta:** `catalogo_kp_runtime` existía
+porque `KP_CONCENTRADA` y `postgres_platform` compartían cluster `.245` y
+Postgres liga el password al rol del cluster, no a la base (GOTCHAS §24). Con
+una sola base el problema desaparece: el app usa `app_runtime`, que ya tiene
+`USAGE`+`SELECT` sobre `kepler_ods` desde la mig `20260811120000`, y los `GRANT`
+de los `001`–`006` ya apuntaban ahí.
+
+**Se cae la restricción de LAN.** El README decía "no tiene alternativa Docker"
+porque `KP_CONCENTRADA` sólo se veía desde la oficina. Ya no aplica.
+
+### ⛔ Bloqueante de OPERACIÓN, no de código: 3 tablas no llegan al ODS
+
+`kdie` (familias), `kdif` (subfamilias) y `kdms` (sucursales) **no están en el
+set que el CDC embarca a prod**. El launcher `run-ods-live-loop.cmd` lista hoy
+`kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*`.
+Mientras no se les sume `kdie,kdif,kdms` (catálogos chicos → carril hash, mismo
+criterio que las tablas de finanzas en `RUNBOOK_REPLICACION_LOGICA.md` §8.E),
+quedan vacíos el árbol familia/subfamilia y el listado de sucursales.
+**Requiere editar el launcher y reiniciar el loop ODS.**
+
+### Decisión que quedó abierta a propósito
+
+**La sucursal del catálogo.** Las consultas portadas no filtran `sucursal`, y no
+se cambió: el default sigue siendo no filtrar, que reproduce al pie de la letra
+lo que corre hoy en `.163`. Cambiar la semántica del camino del PRECIO exige
+mirar la data antes (¿cuántas filas por código hay?, ¿difieren los precios entre
+sucursales?), y esta sesión **no tuvo acceso a la base** para verificarlo. Queda
+el knob `CATALOGO_KP_SUCURSAL` documentado para cuando se decida.
+
+### Observación aparte (pre-existente, no tocada)
+
+`kp.service.ts` arma su `codigo` con `LPAD(TRIM(c1),5,'0')`. `LPAD` **trunca**
+cuando la cadena es más larga que el ancho, y `catalogo.service.ts` ya documenta
+que existen 6 códigos de 6 dígitos — para esos, el `codigo` sale cortado. Viene
+del proyecto origen y este cambio no lo altera; se anota para que no se pierda.
+El join nuevo contra `catalog.products.sku` usa `btrim(c1)` sin LPAD, que es el
+canónico de `services/feeds-ingest/ods-derived.js`.
+
+### Verificado
+
+`nx build catalogo-kp` verde · las 6 migraciones pasan `node --check` y se
+comprobó por ejecución que **emiten el SQL original byte a byte** (salvo CRLF).
+**No verificado contra base**: esta sesión no pudo autenticar contra `.245`
+(ni `postgres` ni `app_runtime` del `.env` local), así que nada de esto se
+ejerció contra datos reales.
