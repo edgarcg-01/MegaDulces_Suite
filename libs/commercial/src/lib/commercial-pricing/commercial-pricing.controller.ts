@@ -116,6 +116,16 @@ export class CommercialPricingController {
     });
   }
 
+  @Get('price-lists/:id/coverage')
+  @RequireAnyPermission(Permission.COMMERCIAL_PRICING_VER, Permission.VENDOR_APP_ACCESS)
+  @ApiOperation({
+    summary:
+      'Cobertura de precio de la lista: { total, priced, unpriced }. unpriced = productos reales del maestro (con SKU, no promo) sin precio en esta lista — para "N sin precio · avisar a oficina".',
+  })
+  priceCoverage(@Param('id') priceListId: string) {
+    return this.service.priceCoverage(priceListId);
+  }
+
   @Get('price-lists/:id/top-sellers')
   @RequireAnyPermission(Permission.COMMERCIAL_PRICING_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({

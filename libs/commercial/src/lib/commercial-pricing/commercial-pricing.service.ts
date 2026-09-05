@@ -84,6 +84,9 @@ const PRICE_SORT_SQL: Record<string, string> = {
   sku: 'p.sku',
   category: 'cat.name',
   rotation: 'p.sales_units_30d',
+  // "sales" = ranking de ventas real (consolidado de sucursales, catalog.top_sellers_live).
+  // rank 1 = más vendido → ASC. Los que no están en el top quedan rank NULL → NULLS LAST.
+  sales: 'ts.sales_rank',
   cost: 'p.cost_base',
   price: 'pp.price',
   margin: '(pp.price - p.cost_base) / NULLIF(pp.price, 0)',
@@ -396,6 +399,11 @@ export class CommercialPricingService {
             .andOnVal('s.warehouse_id', warehouseId);
         });
       }
+      // Ranking de ventas (consolidado de sucursales, catalog.top_sellers_live) para
+      // ordenar "más vendido → menos vendido". LEFT JOIN (1:1 por id); fuera del count.
+      q = q.leftJoin('catalog.top_sellers_live as ts', function () {
+        this.on('ts.id', '=', 'p.id').andOn('ts.tenant_id', '=', 'p.tenant_id');
+      });
 
       const selects: any[] = [
         // `pp.id` puede ser null si no hay precio configurado — usamos `p.id` como
@@ -415,6 +423,8 @@ export class CommercialPricingService {
         'p.cost_per_case',
         'p.sales_units_30d',
         'p.rotation_tier',
+        'ts.sales_rank as sales_rank',
+        'ts.units_sold as units_sold',
         'p.location',
         'p.loyalty_points',
         'ipa.image_url as image_url',
@@ -515,6 +525,47 @@ export class CommercialPricingService {
           total: totalNum,
           pageCount: Math.ceil(totalNum / pageSize) || 0,
         },
+      };
+    });
+  }
+
+  /**
+   * Cobertura de precio de UNA lista (para el vendedor: "N sin precio · avisar a
+   * oficina"). Mismo eje que `listPrices`: catalog.products manda, precio por LEFT
+   * JOIN. `unpriced` cuenta productos REALES sin precio en la lista — con SKU y no
+   * promo/regalo — que existen en el maestro pero no se pueden pedir por falta de
+   * precio. No incluye líneas promo ni ruido sin SKU.
+   */
+  async priceCoverage(priceListId: string) {
+    if (!UUID_REGEX.test(priceListId))
+      throw new BadRequestException('price_list_id inválido');
+    return this.tk.run(async (trx) => {
+      const allowed = await this.allowedPriceListIdsForCtx(trx);
+      if (allowed !== null && !allowed.includes(priceListId)) {
+        throw new ForbiddenException('No tenés acceso a esta price list');
+      }
+      const base = () =>
+        trx('catalog.products as p')
+          .leftJoin('commercial.product_prices as pp', function () {
+            this.on('pp.product_id', '=', 'p.id')
+              .andOn('pp.tenant_id', '=', 'p.tenant_id')
+              .andOnVal('pp.price_list_id', priceListId)
+              .andOnNull('pp.deleted_at');
+          })
+          .whereNull('p.deleted_at');
+      const [{ total }] = await base().count<{ total: string }[]>('p.id as total');
+      const [{ priced }] = await base()
+        .whereNotNull('pp.price')
+        .count<{ priced: string }[]>('p.id as priced');
+      const [{ unpriced }] = await base()
+        .whereNull('pp.price')
+        .whereNotNull('p.sku')
+        .whereRaw("p.nombre !~* 'gratis'")
+        .count<{ unpriced: string }[]>('p.id as unpriced');
+      return {
+        total: Number(total) || 0,
+        priced: Number(priced) || 0,
+        unpriced: Number(unpriced) || 0,
       };
     });
   }
