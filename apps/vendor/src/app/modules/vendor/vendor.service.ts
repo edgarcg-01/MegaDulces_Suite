@@ -495,18 +495,34 @@ export class VendorService {
   }
 
   /**
-   * Pedidos a CARGAR: confirmados de la cartera del vendedor. El filtro por fecha
-   * (próximo día hábil sáb→lun + los sin fecha) lo aplica el componente. Solo
-   * cabeceras; las líneas se piden con `orderById` para agregar productos.
+   * Pedidos a CARGAR: TODO pedido confirmado que ESTE vendedor tomó (`user_id`),
+   * sin importar el día que abra Carga. Antes iba por `mine=true`, que scopea a
+   * la ruta asignada para HOY (ISODOW) — frágil: la carga es para un día futuro y
+   * el vendedor podía abrir Carga un día sin asignación → 0 filas. La agrupación
+   * y el filtro por fecha de entrega los hace el componente. Solo cabeceras; las
+   * líneas se piden con `orderById` para agregar productos.
    */
   cargaOrders(): Observable<VendorOrder[]> {
+    const userId = this.vendorUserId;
+    if (!userId) return of([]);
     const params = new HttpParams()
-      .set('mine', 'true')
+      .set('user_id', userId)
       .set('statuses', 'confirmed')
       .set('pageSize', '300');
     return this.http
       .get<{ data: VendorOrder[] }>(`${this.base}/orders`, { params })
       .pipe(map((r) => r.data || []));
+  }
+
+  /**
+   * Reagenda la fecha de entrega de un pedido ya `confirmed` (o `pending_approval`).
+   * `updateDraft` solo acepta drafts; esto corrige un pedido mal fechado (p.ej. el
+   * default viejo que caía en domingo) sin tener que retomarlo.
+   */
+  rescheduleOrder(orderId: string, requestedDeliveryDate: string): Observable<VendorOrder> {
+    return this.http.patch<VendorOrder>(`${this.base}/orders/${orderId}/delivery-date`, {
+      requested_delivery_date: requestedDeliveryDate,
+    });
   }
 
   // ─── Carga: checklist 'sí cargamos / no cargamos' (registrado en backend) ───
