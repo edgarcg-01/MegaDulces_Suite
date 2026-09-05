@@ -2,18 +2,19 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as fs from 'fs';
 import { join } from 'path';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 /**
- * Catálogo de productos de KP_CONCENTRADA con existencias y precios por sucursal.
+ * Catálogo de productos del ODS con existencias y precios por sucursal.
  *
- * Fuentes (esquema kp, una fila por sucursal en todas las tablas):
+ * Fuentes (esquema kepler_ods, una fila por sucursal en todas las tablas):
  *   kdii → catálogo: código, nombre, clasificación, costo, impuestos, precio (c90)
  *   kdik → existencias por almacén: c2=código, c5=existencia, c8=valor, c13=último mov.
  *   kdie / kdif / kdig → nombres de familia / subfamilia / marca
  *   kdms → nombres de las sucursales
- *   sync_control → hasta cuándo están frescos los datos
+ *   analytics.cron_runs → hasta cuándo están frescos los datos (latido del CDC
+ *                          por sucursal; reemplaza al viejo kp.sync_control)
  */
 
 // Sucursal canónica para resolver nombres de clasificación: los códigos de
@@ -24,7 +25,7 @@ const SUC_CANONICA = '03';
 // c77 (costo) es texto en kdii → castear con guarda para no reventar en basura.
 // {0,1} en vez de `?`: equivalente en POSIX/Postgres, pero un `?` literal
 // aquí colisiona con el escaneo de placeholders de knex.raw() — ver
-// kp-concentrada/pg-raw.util.ts.
+// platform-db/pg-raw.util.ts.
 const COSTO = `CASE WHEN TRIM(i.c77) ~ '^-{0,1}[0-9]+(\\.[0-9]+){0,1}$' THEN i.c77::numeric ELSE 0 END`;
 
 // Los códigos casan exactamente con TRIM (no usar LPAD: hay 6 códigos de 6
@@ -76,7 +77,7 @@ const ORDEN_SQL: Record<string, string> = {
 export class CatalogoService {
   private readonly logger = new Logger(CatalogoService.name);
 
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
     return pgRaw<T>(this.db, sql, params);
@@ -97,11 +98,14 @@ export class CatalogoService {
              TRIM(s.c4)      AS direccion,
              TRIM(s.c5)      AS ciudad,
              (SELECT ARRAY_AGG(DISTINCT TRIM(k.c1))
-                FROM kp.kdik k WHERE k.sucursal = s.sucursal) AS almacenes,
-             (SELECT MAX(sc.last_run_at) FROM kp.sync_control sc
-                WHERE sc.sucursal = s.sucursal
-                  AND sc.table_name IN ('kdii','kdik'))       AS datos_al
-      FROM kp.kdms s
+                FROM kepler_ods.kdik k WHERE k.sucursal = s.sucursal) AS almacenes,
+             -- Frescura por sucursal. Antes salía de kp.sync_control (el watermark
+             -- del ETL de KP_CONCENTRADA); el ODS no tiene esa tabla porque no es
+             -- un ETL por tandas sino replicación continua, y su latido equivalente
+             -- es el del consumidor del WAL de esa sucursal.
+             (SELECT cr.last_finish FROM analytics.cron_runs cr
+               WHERE cr.job_key = 'cdc_wal_' || s.sucursal)   AS datos_al
+      FROM kepler_ods.kdms s
       ORDER BY s.sucursal
     `);
     return rows.map(r => ({
@@ -115,20 +119,32 @@ export class CatalogoService {
   }
 
   /**
-   * Frescura del pipeline. La API lee KP_CONCENTRADA en vivo, pero
-   * KP_CONCENTRADA se llena por sincronización: la frescura real es la de ese
-   * proceso, no la del momento de la consulta.
+   * Frescura del pipeline. La API lee el ODS en vivo, pero el ODS se llena por
+   * replicación: la frescura real es la de ese proceso, no la del momento de la
+   * consulta.
+   *
+   * Antes esto leía `kp.sync_control`, el watermark del ETL por tandas de
+   * `KP_CONCENTRADA` — una fila por (tabla, sucursal) con cuántas filas cargó y
+   * en qué modo. El ODS no tiene equivalente: no carga por tandas, replica el
+   * WAL de cada sucursal de forma continua, así que la unidad de frescura es la
+   * SUCURSAL y no la tabla. `analytics.cron_runs` guarda ese latido
+   * (`cdc_wal_<suc>`, cadencia ~30s), que además es el mismo dead-man's switch
+   * que mira Salud BD — o sea que esta pantalla y esa no pueden discrepar.
+   *
+   * Se pierden `filas` y `modo` (eran propios del ETL viejo) y se gana `estado`:
+   * un consumidor puede estar caído, cosa que el watermark no sabía decir.
    */
   async getEstado() {
     const rows = await this.q<any>(`
-      SELECT table_name, sucursal, last_run_at, rows_total, mode
-      FROM kp.sync_control
-      WHERE table_name IN ('kdii','kdik','kdil')
-      ORDER BY table_name, sucursal
+      SELECT REPLACE(job_key, 'cdc_wal_', '') AS sucursal,
+             last_finish, status, note
+      FROM analytics.cron_runs
+      WHERE job_key LIKE 'cdc_wal_%'
+      ORDER BY job_key
     `);
 
     const ultimo = rows.reduce<string | null>((max, r) => {
-      const t = CatalogoService.iso(r.last_run_at);
+      const t = CatalogoService.iso(r.last_finish);
       return t && (!max || t > max) ? t : max;
     }, null);
 
@@ -139,11 +155,10 @@ export class CatalogoService {
         ? Math.round((Date.now() - new Date(ultimo).getTime()) / 3_600_000)
         : null,
       detalle: rows.map(r => ({
-        tabla:       r.table_name,
         sucursal:    r.sucursal,
-        ultimo_sync: CatalogoService.iso(r.last_run_at),
-        filas:       Number(r.rows_total ?? 0),
-        modo:        r.mode,
+        ultimo_sync: CatalogoService.iso(r.last_finish),
+        estado:      r.status,
+        nota:        r.note ?? null,
       })),
     };
   }
@@ -223,7 +238,7 @@ export class CatalogoService {
                   SUM(c8::numeric) AS valor,
                   MAX(${SIN_FECHA}) AS ultimo_mov,
                   STRING_AGG(DISTINCT sucursal || ':' || TRIM(c1), ' ') AS almacenes
-           FROM kp.kdik
+           FROM kepler_ods.kdik
            GROUP BY TRIM(c2)
          )`
       : `exi AS (
@@ -232,7 +247,7 @@ export class CatalogoService {
                   SUM(c8::numeric) AS valor,
                   MAX(${SIN_FECHA}) AS ultimo_mov,
                   STRING_AGG(DISTINCT TRIM(c1), '/') AS almacenes
-           FROM kp.kdik
+           FROM kepler_ods.kdik
            WHERE sucursal = ${p(sucursal)}
            GROUP BY TRIM(c2)
          )`;
@@ -275,7 +290,7 @@ export class CatalogoService {
                   MAX(i.c84)                  AS pzas_bulto,
                   MAX(TRIM(i.c83))            AS unidad_bulto,
                   COUNT(*)                    AS sucursales_en_catalogo
-           FROM kp.kdii i
+           FROM kepler_ods.kdii i
            ${whereSql}
            GROUP BY TRIM(i.c1)
          )`
@@ -299,7 +314,7 @@ export class CatalogoService {
                   i.c84                   AS pzas_bulto,
                   TRIM(i.c83)             AS unidad_bulto,
                   1                       AS sucursales_en_catalogo
-           FROM kp.kdii i
+           FROM kepler_ods.kdii i
            ${whereSql}
          )`;
 
@@ -339,9 +354,9 @@ export class CatalogoService {
              TRIM(f.c2) AS subfamilia,
              TRIM(g.c2) AS marca
       FROM unido u
-      LEFT JOIN kp.kdie e ON e.sucursal = ${p(SUC_CANONICA)} AND TRIM(e.c1) = u.familia_cod
-      LEFT JOIN kp.kdif f ON f.sucursal = ${p(SUC_CANONICA)} AND TRIM(f.c1) = u.subfamilia_cod
-      LEFT JOIN kp.kdig g ON g.sucursal = ${p(SUC_CANONICA)} AND TRIM(g.c1) = u.marca_cod
+      LEFT JOIN kepler_ods.kdie e ON e.sucursal = ${p(SUC_CANONICA)} AND TRIM(e.c1) = u.familia_cod
+      LEFT JOIN kepler_ods.kdif f ON f.sucursal = ${p(SUC_CANONICA)} AND TRIM(f.c1) = u.subfamilia_cod
+      LEFT JOIN kepler_ods.kdig g ON g.sucursal = ${p(SUC_CANONICA)} AND TRIM(g.c1) = u.marca_cod
       ORDER BY ${ordenCol} ${ordenDir} NULLS LAST, codigo ASC
       LIMIT ${p(limit)} OFFSET ${p(offset)}`;
 
@@ -426,12 +441,12 @@ export class CatalogoService {
         SELECT TRIM(c2) AS cod, sucursal,
                SUM(c5)::numeric  AS existencia,
                MAX(${SIN_FECHA}) AS ultimo_mov
-        FROM kp.kdik
+        FROM kepler_ods.kdik
         WHERE TRIM(c2) = ANY($1)
         GROUP BY TRIM(c2), sucursal`, [codigos]),
       this.q<any>(`
         SELECT TRIM(c1) AS cod, sucursal, c90 AS precio
-        FROM kp.kdii
+        FROM kepler_ods.kdii
         WHERE TRIM(c1) = ANY($1)`, [codigos]),
     ]);
 
@@ -474,10 +489,10 @@ export class CatalogoService {
              i.c87 AS margen_pct, ABS(i.c18) AS iva_pct, ABS(i.c19) AS ieps_pct,
              i.c90 AS precio_venta, i.c92 AS precio_bulto,
              i.c84 AS pzas_bulto, TRIM(i.c83) AS unidad_bulto
-      FROM kp.kdii i
-      LEFT JOIN kp.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
-      LEFT JOIN kp.kdif f ON f.sucursal = i.sucursal AND TRIM(f.c1) = TRIM(i.c5)
-      LEFT JOIN kp.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c3)
+      FROM kepler_ods.kdii i
+      LEFT JOIN kepler_ods.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
+      LEFT JOIN kepler_ods.kdif f ON f.sucursal = i.sucursal AND TRIM(f.c1) = TRIM(i.c5)
+      LEFT JOIN kepler_ods.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c3)
       WHERE TRIM(i.c1) = ANY($1)
       ORDER BY i.sucursal`, [variantes]);
 
@@ -489,7 +504,7 @@ export class CatalogoService {
              c8::numeric     AS valor_costo,
              c16             AS costo_promedio,
              ${SIN_FECHA}    AS ultimo_mov
-      FROM kp.kdik
+      FROM kepler_ods.kdik
       WHERE TRIM(c2) = ANY($1)
       ORDER BY sucursal, TRIM(c1)`, [variantes]);
 

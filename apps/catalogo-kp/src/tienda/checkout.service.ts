@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as crypto from 'crypto';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 import { TiendaService } from './tienda.service';
 import { CarritoService } from './carrito.service';
 import { PagosService } from './pagos.service';
@@ -74,7 +74,7 @@ export class CheckoutService {
   private listo = false;
 
   constructor(
-    @Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex,
+    @Inject(KNEX_PLATFORM) private readonly db: Knex,
     private readonly tienda: TiendaService,
     private readonly carrito: CarritoService,
     private readonly pagos: PagosService,

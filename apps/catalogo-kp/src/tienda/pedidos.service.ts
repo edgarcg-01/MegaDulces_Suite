@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 import { TiendaService, SUC_TIENDA } from './tienda.service';
 import { AvisosService, type TipoAviso } from './avisos.service';
 import { ColaService } from './cola.service';
@@ -47,7 +47,7 @@ export class PedidosService {
   private readonly logger = new Logger(PedidosService.name);
 
   constructor(
-    @Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex,
+    @Inject(KNEX_PLATFORM) private readonly db: Knex,
     private readonly tienda: TiendaService,
     private readonly avisos: AvisosService,
     private readonly cola: ColaService,
@@ -109,7 +109,7 @@ export class PedidosService {
       `SELECT TRIM(c2) AS cod,
               SUM(CASE WHEN sucursal =  $1 THEN c5::numeric ELSE 0 END) AS ph,
               SUM(CASE WHEN sucursal <> $1 THEN c5::numeric ELSE 0 END) AS otras
-       FROM kp.kdik
+       FROM kepler_ods.kdik
        WHERE c5::text ~ '^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'
          AND TRIM(c2) = ANY($2)
        GROUP BY TRIM(c2)`, [SUC_TIENDA, codigos]);

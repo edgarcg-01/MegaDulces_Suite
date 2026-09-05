@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 /**
  * Catálogo de la tienda en línea. NO es el mismo que el catálogo interno.
@@ -38,7 +38,7 @@ export const ENVIO_COSTO = 199;
 
 // {0,1} en vez de `?`: equivalente en POSIX/Postgres, pero un `?` literal
 // aquí colisiona con el escaneo de placeholders de knex.raw() — ver
-// kp-concentrada/pg-raw.util.ts.
+// platform-db/pg-raw.util.ts.
 const RE_NUM = `'^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'`;
 const NUM = (c: string) =>
   `CASE WHEN ${c}::text ~ ${RE_NUM} THEN ${c}::numeric ELSE NULL END`;
@@ -134,7 +134,7 @@ const ORDEN_SQL: Record<string, string> = {
 export class TiendaService {
   private readonly logger = new Logger(TiendaService.name);
 
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   private async q<T = any>(sql: string, params?: any[]): Promise<T[]> {
     return pgRaw<T>(this.db, sql, params);
@@ -300,7 +300,7 @@ export class TiendaService {
     const rows = await this.q<any>(`
       WITH ex AS (
         SELECT TRIM(c2) AS cod, SUM(c5)::numeric AS existencia
-        FROM kp.kdik
+        FROM kepler_ods.kdik
         WHERE sucursal = $1 AND c5::text ~ ${RE_NUM}
         GROUP BY TRIM(c2)
       ),
@@ -309,7 +309,7 @@ export class TiendaService {
       -- tienda está, sólo que se puede conseguir.
       ex_otras AS (
         SELECT TRIM(c2) AS cod, SUM(c5)::numeric AS existencia
-        FROM kp.kdik
+        FROM kepler_ods.kdik
         WHERE sucursal <> $1 AND c5::text ~ ${RE_NUM}
         GROUP BY TRIM(c2)
         HAVING SUM(c5)::numeric > 0
@@ -323,11 +323,11 @@ export class TiendaService {
              TRIM(e.c2) AS familia, TRIM(g.c2) AS marca,
              COALESCE(ex.existencia, 0)       AS existencia,
              COALESCE(ex_otras.existencia, 0) AS existencia_otras
-      FROM kp.kdii i
+      FROM kepler_ods.kdii i
       LEFT JOIN ex       ON ex.cod       = TRIM(i.c1)
       LEFT JOIN ex_otras ON ex_otras.cod = TRIM(i.c1)
-      LEFT JOIN kp.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
-      LEFT JOIN kp.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c6)
+      LEFT JOIN kepler_ods.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
+      LEFT JOIN kepler_ods.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c6)
       WHERE i.sucursal = $1
         AND i.c1 IS NOT NULL AND i.c1::text ~ '^[0-9]'
         AND ${FILTRO_SERVICIOS}
@@ -404,13 +404,13 @@ export class TiendaService {
     const rows = await this.q<any>(`
       WITH ex AS (
         SELECT TRIM(c2) AS cod, SUM(c5)::numeric AS existencia
-        FROM kp.kdik
+        FROM kepler_ods.kdik
         WHERE sucursal = $1 AND c5::text ~ ${RE_NUM}
         GROUP BY TRIM(c2)
       ),
       ex_otras AS (
         SELECT TRIM(c2) AS cod, SUM(c5)::numeric AS existencia
-        FROM kp.kdik
+        FROM kepler_ods.kdik
         WHERE sucursal <> $1 AND c5::text ~ ${RE_NUM}
         GROUP BY TRIM(c2)
         HAVING SUM(c5)::numeric > 0
@@ -424,11 +424,11 @@ export class TiendaService {
              TRIM(e.c2) AS familia, TRIM(g.c2) AS marca,
              COALESCE(ex.existencia, 0)       AS existencia,
              COALESCE(ex_otras.existencia, 0) AS existencia_otras
-      FROM kp.kdii i
+      FROM kepler_ods.kdii i
       LEFT JOIN ex       ON ex.cod       = TRIM(i.c1)
       LEFT JOIN ex_otras ON ex_otras.cod = TRIM(i.c1)
-      LEFT JOIN kp.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
-      LEFT JOIN kp.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c6)
+      LEFT JOIN kepler_ods.kdie e ON e.sucursal = i.sucursal AND TRIM(e.c1) = TRIM(i.c4)
+      LEFT JOIN kepler_ods.kdig g ON g.sucursal = i.sucursal AND TRIM(g.c1) = TRIM(i.c6)
       WHERE i.sucursal = $1 AND TRIM(i.c1) = $2
         AND ${FILTRO_SERVICIOS} AND ${FILTRO_DESCUENTO}
       LIMIT 1

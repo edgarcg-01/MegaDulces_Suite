@@ -1,12 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 @Injectable()
 export class AdminService {
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   async listarUsuarios() {
     return this.query(

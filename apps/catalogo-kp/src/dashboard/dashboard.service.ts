@@ -1,13 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 @Injectable()
 export class DashboardService {
   private readonly logger = new Logger(DashboardService.name);
 
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   async getResumen() {
     const hoy = new Date();
@@ -15,14 +15,14 @@ export class DashboardService {
     const mesActual = `${anio}-${String(hoy.getMonth() + 1).padStart(2, '0')}`;
 
     try {
-      // Ventas totales año en curso (kp.kdm2)
+      // Ventas totales año en curso (kepler_ods.kdm2)
       const kpAnual = await pgRaw<any>(this.db, `
         SELECT
           ROUND(SUM(c13::numeric), 2)       AS venta_anual,
           ROUND(SUM(CASE WHEN TO_CHAR(c32::timestamp,'YYYY-MM') = $1
                     THEN c13::numeric ELSE 0 END), 2) AS venta_mes,
           COUNT(DISTINCT sucursal)           AS num_sucursales
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE EXTRACT(YEAR FROM c32::timestamp) = $2
       `, [mesActual, anio]);
 
@@ -30,7 +30,7 @@ export class DashboardService {
       const topSuc = await pgRaw<any>(this.db, `
         SELECT sucursal AS suc,
                ROUND(SUM(c13::numeric), 2) AS total
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE TO_CHAR(c32::timestamp,'YYYY-MM') = $1
         GROUP BY sucursal
         ORDER BY total DESC
@@ -46,7 +46,7 @@ export class DashboardService {
         SELECT
           TO_CHAR(c32::timestamp,'YYYY-MM')  AS mes,
           ROUND(SUM(c13::numeric), 2)         AS total
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE TO_CHAR(c32::timestamp,'YYYY-MM') IN ($1, $2)
         GROUP BY TO_CHAR(c32::timestamp,'YYYY-MM')
       `, [mesActual, mesAnterior]);

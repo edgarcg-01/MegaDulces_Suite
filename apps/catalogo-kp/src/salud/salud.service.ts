@@ -14,7 +14,7 @@ import { Pool } from 'pg';
  * CV, CV.15). Única adaptación: el original arma su propio `pg.Pool` con
  * PG_HOST/PG_PORT/PG_USER/PG_PASSWORD/PG_DATABASE (variables discretas);
  * aquí se usa `DATABASE_URL_KP_CONCENTRADA` (connectionString única, el
- * mismo patrón que ya usa `KpConcentradaModule`) — mismo servidor real,
+ * mismo patrón que ya usa `PlatformDbModule`) — mismo servidor real,
  * mismo comportamiento, sólo cambia cómo arma la cadena de conexión.
  */
 export type EstadoBase = 'ok' | 'sin_acceso' | 'sin_respuesta' | 'revisando';

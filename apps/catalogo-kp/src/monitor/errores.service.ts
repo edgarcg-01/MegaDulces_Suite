@@ -1,8 +1,8 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as crypto from 'crypto';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 /**
  * Captura de errores del navegador.
@@ -75,7 +75,7 @@ export class ErroresService implements OnModuleInit {
   /** Contador por IP para el tope. Se limpia solo. */
   private vistos = new Map<string, { n: number; desde: number }>();
 
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   onModuleInit() {
     void this.comprobar();
@@ -198,7 +198,7 @@ export class ErroresService implements OnModuleInit {
            SELECT id FROM monitor.errores_detalle
            WHERE error_id = $1 ORDER BY ocurrio_en DESC LIMIT $2)`,
         [id, DETALLES_POR_ERROR]).catch(() => {
-          // catalogo_kp_runtime no tiene DELETE en monitor: si no se puede
+          // El rol de runtime puede no tener DELETE en monitor: si no se puede
           // recortar, no es motivo para perder el reporte. Se anota y sigue.
           this.logger.debug('No se pudo recortar el detalle de errores.');
         });

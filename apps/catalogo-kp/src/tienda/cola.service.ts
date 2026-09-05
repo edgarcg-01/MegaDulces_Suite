@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 
 /**
  * Trabajador de la cola (Fase 2, entregable 7).
@@ -30,7 +30,7 @@ import { pgRaw } from '../kp-concentrada/pg-raw.util';
  *
  * PORTADO A CATALOGO-KP (CV.5): el original abría su propia conexión Postgres
  * dedicada (`max:4`). Aquí usa la conexión Knex compartida de todo el app
- * (`KNEX_KP_CONCENTRADA`, `max:10`) — mismo criterio que el resto de los
+ * (`KNEX_PLATFORM`, `max:10`) — mismo criterio que el resto de los
  * servicios desde CV.0. Por eso `onModuleDestroy` YA NO cierra el pool: no es
  * dueño de esa conexión, la comparten los demás módulos.
  */
@@ -130,7 +130,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
   private cuenta = { hechos: 0, fallidos: 0, reintentos: 0, reclamados: 0 };
   private ultimaPasada: Date | null = null;
 
-  constructor(@Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
 
   onModuleInit() {
     void this.arrancar();
@@ -161,7 +161,7 @@ export class ColaService implements OnModuleInit, OnModuleDestroy {
 
     await this.devolverEnVuelo();
     // No se cierra this.db: es la conexión compartida de todo el app
-    // (KpConcentradaModule), no la posee este servicio.
+    // (PlatformDbModule), no la posee este servicio.
   }
 
   // ── Registro de manejadores ────────────────────────────────────────────────

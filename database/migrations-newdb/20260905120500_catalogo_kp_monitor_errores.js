@@ -1,4 +1,31 @@
--- ============================================================================
+/**
+ * catalogo-kp — monitor errores
+ *
+ * **Portada desde `apps/catalogo-kp/sql/006_errores_web.sql` (CV.22, review del PR #62).**
+ * monitor.* — errores del frontend web agrupados + detalle.
+ *
+ * Antes estos schemas vivían en `KP_CONCENTRADA` y se aplicaban a mano con
+ * `psql` como superusuario. Con el repunte de catalogo-kp a `postgres_platform`
+ * pasan a ser migraciones versionadas de la Suite, corridas por el mismo
+ * `knexfile-newdb.js` que el resto — que es lo que pidió el review: que no
+ * queden sueltas contra una base ajena.
+ *
+ * **Idempotente**: el SQL original ya venía escrito así (`CREATE ... IF NOT
+ * EXISTS`, `ADD COLUMN IF NOT EXISTS`, bloques `DO $$ IF NOT EXISTS ... $$`
+ * para los constraints), así que se ejecuta tal cual, sin reescribirlo. Se
+ * preserva a propósito el texto y los comentarios originales: son la
+ * documentación de por qué cada columna existe, y reescribirlos los perdería.
+ *
+ * Los GRANT del archivo van a `app_runtime`, que es el rol de runtime de esta
+ * base — el mismo que ya tiene SELECT sobre `kepler_ods` (mig 20260811120000).
+ * El rol dedicado `catalogo_kp_runtime` de `sql/007_rol_dedicado.sql` queda
+ * **obsoleto**: existía para no compartir credencial entre dos bases del mismo
+ * cluster (GOTCHAS §24), y ahora hay una sola base.
+ *
+ * @param { import("knex").Knex } knex
+ */
+exports.up = async function (knex) {
+  await knex.raw(`-- ============================================================================
 --  Fase 3 — Captura de errores del navegador
 --
 --  QUE PROBLEMA RESUELVE
@@ -13,7 +40,7 @@
 --  CORRER COMO postgres:  ADMINISTRAR.bat, opción 8
 -- ============================================================================
 
--- Los errores son operación, no comercio, así que no van en `tienda`.
+-- Los errores son operación, no comercio, así que no van en \`tienda\`.
 CREATE SCHEMA IF NOT EXISTS monitor;
 GRANT USAGE ON SCHEMA monitor TO app_runtime;
 
@@ -98,4 +125,18 @@ BEGIN
     RAISE EXCEPTION 'Falto crear monitor.errores';
   END IF;
   RAISE NOTICE 'Migracion 006 aplicada correctamente.';
-END $$;
+END $$;`);
+};
+
+/**
+ * Sin `down`. Estos schemas guardan **pedidos de clientes con dinero real**
+ * (`tienda.pedidos`), los usuarios del tablero y el historial de errores: un
+ * rollback de esquema no puede llevárselos por delante. Mismo criterio que el
+ * resto de las migraciones de datos vivos del repo. Para desarmarlo, se hace a
+ * mano y a conciencia.
+ *
+ * @param { import("knex").Knex } knex
+ */
+exports.down = async function () {
+  // no-op deliberado (ver arriba)
+};

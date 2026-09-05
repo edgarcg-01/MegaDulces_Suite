@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_KP_CONCENTRADA } from '../kp-concentrada/kp-concentrada.constants';
-import { pgRaw } from '../kp-concentrada/pg-raw.util';
+import { KNEX_PLATFORM, TENANT_ID } from '../platform-db/platform-db.constants';
+import { pgRaw } from '../platform-db/pg-raw.util';
 import { KpExcelService, ExcelArticuloMes } from './kp-excel.service';
 
 export interface VentaSuc  { suc: string; total: number; docs: number; }
@@ -61,7 +61,7 @@ export interface UnidadPrecio {
 // ─────────────────────────────────────────────────────────────────────────────
 // {0,1} en vez de `?`: equivalente en POSIX/Postgres, pero un `?` literal
 // aquí colisiona con el escaneo de placeholders de knex.raw() — ver
-// kp-concentrada/pg-raw.util.ts.
+// platform-db/pg-raw.util.ts.
 const RE_NUM = "'^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'";
 
 /** Castea a numeric; 0 si el valor no es un número. */
@@ -75,7 +75,7 @@ const NUMC_NULL = (col: string) =>
 /** Redondeo a 2 decimales, para que no se filtren artefactos de punto flotante. */
 const redondea = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
 
-// Mapeo actualizado con columnas reales de kp.kdm2
+// Mapeo actualizado con columnas reales de kepler_ods.kdm2
 // c8=clave, c9=cantidad, c10=descripcion, c13=importe, c32=fecha, c6=documento
 const COL_MAP = {
   sucursal:     ['sucursal', 'cod_sucursal', 'suc', 'branch', 'num_suc', 'no_sucursal', 'c1'],
@@ -94,13 +94,13 @@ export class KpService implements OnModuleInit {
   private ready = false;
 
   constructor(
-    @Inject(KNEX_KP_CONCENTRADA) private readonly db: Knex,
+    @Inject(KNEX_PLATFORM) private readonly db: Knex,
     private readonly kpExcelService: KpExcelService,
   ) {}
 
   onModuleInit() {
     this.discoverSchema().catch(e =>
-      this.logger.error('Error al descubrir esquema kp.kdm2: ' + e.message),
+      this.logger.error('Error al descubrir esquema kepler_ods.kdm2: ' + e.message),
     );
   }
 
@@ -108,12 +108,12 @@ export class KpService implements OnModuleInit {
     const rows = await this.query<{ column_name: string; data_type: string }>(`
       SELECT column_name, data_type
       FROM information_schema.columns
-      WHERE table_schema = 'kp' AND table_name = 'kdm2'
+      WHERE table_schema = 'kepler_ods' AND table_name = 'kdm2'
       ORDER BY ordinal_position
     `);
 
     const available = rows.map(r => r.column_name.toLowerCase());
-    this.logger.log(`kp.kdm2 — ${available.length} columnas: ${available.join(', ')}`);
+    this.logger.log(`kepler_ods.kdm2 — ${available.length} columnas: ${available.join(', ')}`);
 
     for (const [field, candidates] of Object.entries(COL_MAP)) {
       const match = candidates.find(c => available.includes(c));
@@ -132,19 +132,19 @@ export class KpService implements OnModuleInit {
       const rows = await this.query<{ column_name: string; data_type: string; nullable: string }>(`
         SELECT column_name, data_type, is_nullable AS nullable
         FROM information_schema.columns
-        WHERE table_schema = 'kp' AND table_name = 'kdm2'
+        WHERE table_schema = 'kepler_ods' AND table_name = 'kdm2'
         ORDER BY ordinal_position
       `);
 
       let muestra: any[] = [];
       try {
-        muestra = await this.query('SELECT * FROM kp.kdm2 LIMIT 3');
+        muestra = await this.query('SELECT * FROM kepler_ods.kdm2 LIMIT 3');
       } catch (e: any) {
         muestra = [{ error: e.message }];
       }
 
       return {
-        tabla:    'kp.kdm2',
+        tabla:    'kepler_ods.kdm2',
         listo:    this.ready,
         columnas: rows,
         mapeadas: this.cols,
@@ -152,7 +152,7 @@ export class KpService implements OnModuleInit {
       };
     } catch (e: any) {
       return {
-        tabla:    'kp.kdm2',
+        tabla:    'kepler_ods.kdm2',
         listo:    false,
         error:    e.message,
         columnas: [],
@@ -176,7 +176,7 @@ export class KpService implements OnModuleInit {
           ${sucursal}                          AS suc,
           ROUND(SUM(${importe}::numeric), 2)  AS total,
           ${docExpr}
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE EXTRACT(YEAR FROM ${this.cols.fecha ?? 'c32'}::timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)
         GROUP BY ${sucursal}
         ORDER BY total DESC
@@ -197,7 +197,7 @@ export class KpService implements OnModuleInit {
           ${sucursal}                              AS suc,
           TO_CHAR(${fecha}::timestamp, 'YYYY-MM') AS mes,
           ROUND(SUM(${importe}::numeric), 2)       AS total
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE EXTRACT(YEAR FROM ${fecha}::timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)
         GROUP BY ${sucursal}, TO_CHAR(${fecha}::timestamp, 'YYYY-MM')
         ORDER BY suc, mes
@@ -227,7 +227,7 @@ export class KpService implements OnModuleInit {
           ${descExpr},
           ${cantExpr},
           ROUND(SUM(${importe}::numeric), 0)      AS imp
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE EXTRACT(YEAR FROM ${fecha ?? 'c32'}::timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)
         GROUP BY ${clave}${groupDesc}
         ORDER BY imp DESC
@@ -270,7 +270,7 @@ export class KpService implements OnModuleInit {
           MAX(${descripcion ?? clave})             AS desc,
           TO_CHAR(${fecha}::timestamp, 'YYYY-MM') AS mes,
           ROUND(SUM(${importe}::numeric), 2)       AS imp
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE EXTRACT(YEAR FROM ${fecha}::timestamp) = EXTRACT(YEAR FROM CURRENT_DATE)
         GROUP BY ${sucursal}, ${clave}, TO_CHAR(${fecha}::timestamp, 'YYYY-MM')
         ORDER BY suc, cod, mes
@@ -383,15 +383,77 @@ export class KpService implements OnModuleInit {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // Catálogo de productos desde kp.kdii (precios, impuestos, margen)
+  // Catálogo de productos desde kepler_ods.kdii (precios, impuestos, margen)
   // c1=código, c2=nombre, c18=IVA%, c19=IEPS%, c77=costo, c87=margen
   // ─────────────────────────────────────────────────────────────────────────
+
+  /**
+   * Piezas por caja CANÓNICAS, de `analytics.v_product_box_factor`.
+   *
+   * Estar en `postgres_platform` habilita algo que desde `KP_CONCENTRADA` no se
+   * podía: el factor de caja que ya resolvió la plataforma, en vez de leer
+   * `kdii.c84` crudo. No es lo mismo — la vista arbitra entre cuatro fuentes
+   * (override humano → c84 → etiquetera → factor_sale) y aplica la **guarda
+   * anti-pallet**: cuando c84 es ≥3× la caja interior corroborada, c84 es una
+   * tarima y no una caja, y devolverlo multiplicaría por diez el contenido de
+   * un bulto en la tienda mayorista. Regla dura del proyecto
+   * (`docs/UNIDADES_DE_MEDIDA.md`): el factor no se deriva a mano.
+   *
+   * Se resuelve aparte y no dentro del SELECT grande a propósito:
+   *
+   *  - `catalog.products` tiene RLS, así que necesita `SET LOCAL app.tenant_id`
+   *    en su propia transacción; mezclarlo con la lectura del ODS obligaría a
+   *    transaccionar todo el catálogo.
+   *  - Si algo falla acá (la vista no existe todavía en esa base, el rol no
+   *    tiene GRANT, el tenant no matchea), el catálogo **no se cae**: se avisa
+   *    en el log y cada producto se queda con su `c84`, que es exactamente lo
+   *    que devolvía antes de este cambio.
+   *
+   * El join es el canónico verificado en `services/feeds-ingest/ods-derived.js`:
+   * `catalog.products.sku = btrim(kdii.c1)` — sin LPAD (el `codigo` que expone
+   * este app sí va LPAD a 5, pero el `sku` de la plataforma es el código crudo).
+   */
+  private async factoresDeCaja(): Promise<Map<string, number>> {
+    const m = new Map<string, number>();
+    try {
+      await this.db.transaction(async trx => {
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT_ID]);
+        const rows = await pgRaw<{ sku: string; box_factor: string }>(
+          trx as unknown as Knex,
+          `SELECT btrim(p.sku) AS sku, bf.box_factor
+             FROM analytics.v_product_box_factor bf
+             JOIN catalog.products p
+               ON p.tenant_id = bf.tenant_id AND p.id = bf.product_id
+            WHERE bf.tenant_id = $1
+              AND bf.box_factor > 1
+              AND p.deleted_at IS NULL
+              AND btrim(coalesce(p.sku,'')) <> ''`,
+          [TENANT_ID],
+        );
+        for (const r of rows) {
+          const f = Number(r.box_factor);
+          if (Number.isFinite(f) && f > 1) m.set(r.sku, f);
+        }
+      });
+      this.logger.log(`factoresDeCaja: ${m.size} SKUs con factor canónico.`);
+    } catch (e: any) {
+      // Degradación explícita, no silenciosa: quien lea el log tiene que poder
+      // distinguir "no hay factores" de "no pude leerlos".
+      this.logger.warn(
+        `factoresDeCaja: no se pudo leer analytics.v_product_box_factor (${e?.message || e}). ` +
+          'El catálogo sigue con kdii.c84 crudo.',
+      );
+    }
+    return m;
+  }
 
   async getProductos(): Promise<{ total: number; generado: string; productos: ProductoCatalog[] }> {
     try {
       const rows = await this.query<any>(`
         SELECT
           LPAD(TRIM(c1::text), 5, '0')  AS codigo,
+          -- Código crudo, sin LPAD: es la llave contra catalog.products.sku.
+          BTRIM(c1::text)               AS sku,
           TRIM(c2::text)                AS nombre,
           ${NUMC('c18')}                AS iva_raw,
           ${NUMC('c19')}                AS ieps_raw,
@@ -407,31 +469,37 @@ export class KpService implements OnModuleInit {
           ${NUMC_NULL('c81')}           AS u2_factor,
           TRIM(c83::text)               AS u3_nom,
           ${NUMC_NULL('c84')}           AS u3_factor
-        FROM kp.kdii
-        -- Existencia disponible en PH (sucursal 01) desde kp.kdil: c8 - c9.
+        FROM kepler_ods.kdii
+        -- Existencia disponible en PH (sucursal 01) desde kepler_ods.kdil: c8 - c9.
         -- Pre-agregada con JOIN en vez de subconsulta correlacionada, que era lenta.
         LEFT JOIN (
           SELECT LPAD(TRIM(c3::text), 5, '0') AS cod,
                  SUM(${NUMC('c8')} - ${NUMC('c9')}) AS existencia
-          FROM kp.kdil
+          FROM kepler_ods.kdil
           WHERE TRIM(c1::text) = '01'
           GROUP BY LPAD(TRIM(c3::text), 5, '0')
         ) kl ON kl.cod = LPAD(TRIM(kdii.c1::text), 5, '0')
-        -- Proveedor / línea: kp.kdig (c1 = código, c2 = nombre)
+        -- Proveedor / línea: kepler_ods.kdig (c1 = código, c2 = nombre)
         LEFT JOIN (
           SELECT TRIM(c1::text) AS lc, MAX(TRIM(c2::text)) AS prov
-          FROM kp.kdig GROUP BY TRIM(c1::text)
+          FROM kepler_ods.kdig GROUP BY TRIM(c1::text)
         ) kg ON kg.lc = TRIM(kdii.c3::text)
         WHERE kdii.c1 IS NOT NULL
           AND kdii.c1::text ~ '^[0-9]'
         ORDER BY kdii.c1
       `);
 
+      const cajas = await this.factoresDeCaja();
+
       const productos: ProductoCatalog[] = rows.map(r => {
         const iva   = Math.abs(Number(r.iva_raw))  / 100;
         const ieps  = Math.abs(Number(r.ieps_raw)) / 100;
         const costo = Number(r.costo) || 0;
         const margen = r.margen != null ? Number(r.margen) : null;
+
+        // Factor canónico si la plataforma lo tiene; si no, el c84 de siempre.
+        const c84 = r.u3_factor != null ? Number(r.u3_factor) : null;
+        const u3Factor = cajas.get(r.sku) ?? c84;
 
         // c90 es el precio que Kepler ya trae calculado y es el autoritativo.
         // La fórmula sólo entra como respaldo cuando c90 no sirve.
@@ -456,14 +524,14 @@ export class KpService implements OnModuleInit {
           u2_nom:         r.u2_nom || '',
           u2_factor:      r.u2_factor != null ? Number(r.u2_factor) : null,
           u3_nom:         r.u3_nom || '',
-          u3_factor:      r.u3_factor != null ? Number(r.u3_factor) : null,
+          u3_factor:      u3Factor,
           p_u1:           precioConIva,
           p_u2:           r.precio_u2 != null ? Number(r.precio_u2) : null,
           p_u3:           r.precio_u3 != null ? Number(r.precio_u3) : null,
         };
       });
 
-      this.logger.log(`getProductos: ${productos.length} productos de kp.kdii`);
+      this.logger.log(`getProductos: ${productos.length} productos de kepler_ods.kdii`);
       return { total: productos.length, generado: new Date().toISOString(), productos };
     } catch (e: any) {
       // El error se reporta, no se esconde: devolver un arreglo vacío en silencio
@@ -540,7 +608,7 @@ export class KpService implements OnModuleInit {
         SELECT TRIM(c1::text) AS suc,
                LPAD(TRIM(c3::text), 5, '0') AS cod,
                SUM(${NUMC('c8')} - ${NUMC('c9')}) AS ex
-        FROM kp.kdil
+        FROM kepler_ods.kdil
         GROUP BY TRIM(c1::text), LPAD(TRIM(c3::text), 5, '0')
       `);
       for (const r of exRows) {
@@ -569,7 +637,7 @@ export class KpService implements OnModuleInit {
                TO_CHAR(c32, 'YYYY-MM')      AS mes,
                UPPER(TRIM(c3::text))        AS nat,
                SUM(${NUMC('c9')})           AS qty
-        FROM kp.kdm2
+        FROM kepler_ods.kdm2
         WHERE c8 IS NOT NULL
           AND c32 >= date_trunc('year', CURRENT_DATE)
           AND c32 <  date_trunc('year', CURRENT_DATE) + INTERVAL '1 year'
@@ -661,7 +729,7 @@ export class KpService implements OnModuleInit {
     try {
       const rows = await this.query<any>(`
         SELECT ${KpService.COLS_PRECIO}
-        FROM kp.kdii
+        FROM kepler_ods.kdii
         WHERE TRIM(c1::text) = $1
            OR LPAD(TRIM(c1::text), 5, '0') = LPAD($1, 5, '0')
            OR TRIM(c7::text)  = $1
@@ -712,7 +780,7 @@ export class KpService implements OnModuleInit {
     try {
       const rows = await this.query<any>(`
         SELECT ${KpService.COLS_PRECIO}
-        FROM kp.kdii
+        FROM kepler_ods.kdii
         WHERE c1 IS NOT NULL AND c1::text ~ '^[0-9]'
           ${suc ? 'AND sucursal = $1' : ''}
         ORDER BY c1
