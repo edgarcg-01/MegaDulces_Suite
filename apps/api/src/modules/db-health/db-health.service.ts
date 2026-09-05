@@ -383,21 +383,30 @@ const EXT_SOURCES: ExtCfg[] = [
           FROM mart.refresh_state`,
     warnH: 0.25, critH: 1, cadence: 'cada 2 min (tarea RefreshConsolidado)',
   },
-  {
-    key: 'kp_concentrada', label: 'KP_CONCENTRADA (ODS crudo)',
-    envVars: ['KP_DEST_URL'], db: '.245 / KP_CONCENTRADA',
-    sql: `SELECT max(last_run_at) AS last_update,
-                 count(DISTINCT sucursal)::int || '/6 sucursales · más viejo ' ||
-                 coalesce(to_char(min(last_run_at),'DD/MM HH24:MI'),'—') AS note_extra
-          FROM kp.sync_control`,
-    warnH: 8, critH: 48, cadence: 'cada 4h (tarea KP-Concentrate)',
-  },
-  {
-    key: 'mega_dulces', label: 'Mega_Dulces (catálogo/precios FDW)',
-    envVars: ['MEGA_DULCES_URL'], db: '.245 / Mega_Dulces',
-    sql: `SELECT now() AS last_update, count(*)::text || ' productos' AS note_extra FROM public.productos_activos`,
-    warnH: 0, critH: 0, cadence: 'consolidación FDW', reachabilityOnly: true,
-  },
+  // ⛔ RETIRADOS 2026-09-05: los sensores `kp_concentrada` y `mega_dulces` vigilaban dos
+  // concentrados que el ODS dejó sin función. Se quitan JUNTO con las bases, no después: un sensor
+  // que apunta a una DB que ya no existe se pinta rojo para siempre y entrena al equipo a ignorar
+  // el tablero — que es exactamente la falla que ADR-053 (Fase OBS) existe para evitar.
+  //
+  // Por qué quedaron sin función, medido el 2026-09-05 (no asumido):
+  //   · KP_CONCENTRADA (.245, `kp.*`, 368 tablas / 7.7 GB): sus CINCO consumidores que de verdad
+  //     corren — import-cash-sessions y los tres repoint-catalog-{presence,names,prices}, más
+  //     import-label-data — tienen `SOURCE='ods'` por default (CANON.1.1/1.3) y `run-prod-feeds.js`
+  //     no pasa `--source` a ninguno. Verificado en los logs en vivo: imprimen
+  //     `Fuente: kepler_ods (same-DB prod, @min)`. Cero lectores productivos.
+  //   · Mega_Dulces (.245): su ETL por archivos murió el 2026-05-20 (con el bug de fechas DD/MM).
+  //     Las tres vistas `analytics_external.*_legacy` que colgaban de su FDW ya no las lee nadie:
+  //     el código fue repuntado y sólo quedan los comentarios que explican por qué
+  //     ("inalcanzable desde Railway", "el FDW Railway→.245 colgaba").
+  //     ⚠️ CORRECCIÓN medida: `catalog.products_active` (y `public.products_active`, que la
+  //     envuelve) SÍ cuelgan del FDW y SÍ se cuelgan — un `count(*)` dio statement timeout. La
+  //     dependencia es transitiva, así que buscar `erp.*` en la definición de la vista de arriba no
+  //     la encuentra. Y el search_path pone `catalog` ANTES que `public`: un `products_active` sin
+  //     calificar resuelve a la que tiene el FDW. La mig 20260905140000 la repunta a
+  //     `kepler_ods.kdii` en vez de borrarla.
+  //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen la TABLA
+  //     `inventory.products_active` (todos la califican), que llena `refresh-products-active.js`
+  //     desde `catalog.products` + `kepler_ods.kdii`, explícitamente NO desde el FDW.
 ];
 
 const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 };

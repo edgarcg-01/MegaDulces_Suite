@@ -184,6 +184,67 @@ Sólo cayeron los de carriles sin tarea.
 - **`trade-mkt-prov` (3.72 GB) y `scriptsmd-admin-bd` (851 MB) no se tocan**: esta box es compartida
   y no consta que sean de este proyecto.
 
+### 3ª pasada — demolición de lo que el ODS dejó sin función (Edgar: "todo lo que queda sin función … se elimina")
+
+**Lo que se probó muerto, midiendo y no asumiendo:**
+
+- **`KP_CONCENTRADA`** (.245, `kp.*`, 368 tablas / **7.7 GB**, refrescada cada 4 h). Sus cinco
+  consumidores que de verdad corren (`import-cash-sessions` en `live`/`livefast`; los tres
+  `repoint-catalog-{presence,names,prices}` e `import-label-data` en `nightly`) tienen
+  **`SOURCE='ods'` por default** (CANON.1.1/1.3) y `run-prod-feeds.js` **no pasa `--source` a
+  ninguno**. Cerrado con los logs en vivo, que imprimen la fuente:
+  `Fuente: kepler_ods (same-DB prod, @min)` · `=== REPOINT presencia de catálogo (kepler_ods → prod) ===`.
+  **Cero lectores productivos.** ⚠️ El comentario de `run-prod-feeds.js:61` dice
+  "kp.kdpv_folio_caja, source=kp por default" y **está desactualizado** — igual que el de
+  `run-prices.cmd`, que dice que lee `.245`.
+- **`Mega_Dulces`** (.245, 432 MB) + su FDW en prod (`mega_dulces_srv`, 3 foreign tables `erp.*`,
+  3 vistas `analytics_external.*_legacy`). El ETL por archivos murió el **2026-05-20** (con el bug
+  DD/MM↔MM/DD); el FDW apunta a `192.168.0.245`, que **Railway no rutea** → cualquier `SELECT`
+  sobre esas vistas **se cuelga** hasta el statement_timeout (comprobado: se colgó una consulta de
+  esta sesión). El código ya fue repuntado y de las tres vistas sólo quedan menciones en
+  **comentarios** ("inalcanzable desde Railway", "muerto en Railway", "el FDW Railway→.245
+  colgaba"); `productos_activos_legacy` no tiene ni una mención.
+
+**Lo que NO se toca, y es la razón de medir antes de tirar:**
+
+- **`kepler_consolidado` / `mart.ventas` está MUY vivo** — lo leen **9 scripts** del `nightly`/`live`
+  (`import-sales-fact`, `import-rotation-from-consolidado`, `import-top-sellers-from-consolidado`,
+  `import-customer-sales`, `import-product-sales-monthly`, `import-sales-by-route-monthly`,
+  `import-route-push-{monthly,lines}`, `import-kepler-vecinal-routes`). Era el candidato obvio de la
+  lista y la medición lo salvó.
+- **`public.products_active` NO cuelga del FDW** (refactorizada en la mig `20260603110000`). Tiene
+  **9 lectores**: matcher de IA, búsqueda de catálogo, pricing, extractor de tickets, portal. Asumir
+  que "todo lo legacy cuelga del FDW" se llevaba puesto el matcher.
+
+**Hecho:** tarea `\KP-Concentrate` **detenida y deshabilitada** (reversible, sin procesos huérfanos)
+· los sensores `kp_concentrada` y `mega_dulces` **fuera de `db-health`** — se quitan JUNTO con las
+bases y no después, porque un sensor apuntando a algo inexistente se pinta rojo para siempre y
+entrena al equipo a ignorar el tablero (la falla que ADR-053 existe para evitar) · migración
+`20260905140000_retire_mega_dulces_fdw.js` **escrita** (baja vistas → foreign tables → server, con
+`down()` que exige las credenciales por env y declara que no devuelve el dato).
+
+**Bloqueado por el clasificador (no se rodeó):** `DROP DATABASE KP_CONCENTRADA` y `Mega_Dulces`
+(**8.1 GB**), que es el 99 % del peso de esta demolición.
+
+### ⚠️ Mina encontrada de paso: DOS `knex_migrations` y dos migraciones fantasma
+
+Al chequear pendientes antes de aplicar la migración nueva:
+
+| ledger | filas | batch | última |
+|---|---|---|---|
+| `public.knex_migrations` | **581** | 285 | `20260905170000_unit_truth_fix_factor_uno.js` |
+| `identity.knex_migrations` | **2** | 2 | `20260904100100_mv_sellout_monthly.js` |
+
+`search_path` = `identity, catalog, trade, commercial, logistics, public` → **`identity` va antes que
+`public`**. Las migraciones `20260904100000_v_sellout_daily.js` y `20260904100100_mv_sellout_monthly.js`
+**ya están aplicadas en la DB pero quedaron registradas en el ledger equivocado**, así que contra
+`public` figuran como PENDIENTES: **el próximo `migrate.latest()` las re-aplica.**
+
+**No es la config:** los dos bloques de `knexfile-newdb.js` traen `schemaName: 'public'`. El culpable
+es un runner ad-hoc que armó su propio knex sin `schemaName`. No se tocó el ledger porque es trabajo
+de otra sesión en vuelo (junto con `20260904120000_promotor_ruta_orders_perms.js`, genuinamente
+pendiente). **Decisión de Edgar pendiente.**
+
 ### APLICADO en la 2ª pasada (Edgar: "apliquemoslo en orden")
 
 **Bloque 1 — los 2 schemas locales, soltados.** `zbench` (150 MB) y `wincaja_ods` (29 MB) en
