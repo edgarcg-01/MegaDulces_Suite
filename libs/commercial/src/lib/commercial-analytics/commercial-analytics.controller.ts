@@ -591,23 +591,23 @@ export class CommercialAnalyticsController {
   @Get('sell-out/warehouses')
   // Lookup compartido: Sell-Out + /comercial/salidas (filtro de sucursal).
   @RequireAnyPermission(Permission.COMMERCIAL_SELLOUT_VER, Permission.COMMERCIAL_SALIDAS_VER)
-  @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta (para el selector del reporte).' })
-  sellOutWarehouses() {
-    return this.service.sellOutWarehouses();
+  @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta EN EL RANGO (para el selector del reporte).' })
+  sellOutWarehouses(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutWarehouses(from, to);
   }
 
   @Get('sell-out/canales')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
-  @ApiOperation({ summary: 'RS.4 — Árbol CANAL (Sucursal/RD/RV/Mayoreo → sucursales) para el slicer.' })
-  sellOutCanales() {
-    return this.service.sellOutCanales();
+  @ApiOperation({ summary: 'RS.4 — Árbol CANAL (Sucursal/RD/RV/Mayoreo) para el slicer, acotado al rango.' })
+  sellOutCanales(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutCanales(from, to);
   }
 
   @Get('sell-out/vendors')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
-  @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR Wincaja (Mayoreo/RD/RV → vendedores) para el slicer.' })
-  sellOutVendors() {
-    return this.service.sellOutVendors();
+  @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR (Mayoreo/RD/RV → vendedores) para el slicer, acotado al rango.' })
+  sellOutVendors(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutVendors(from, to);
   }
 
   @Get('sell-out')
