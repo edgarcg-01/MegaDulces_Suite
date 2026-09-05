@@ -11,6 +11,7 @@
  */
 require('dotenv').config();
 const { Client } = require('pg');
+const { esFaltaDeAcceso, noMedido } = require('./_lib/no-medido');
 
 const TENANT = process.env.MEGADULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const BASE = (process.env.MAGNI_BASE_URL || 'https://magnitracking.net').replace(/\/$/, '');
@@ -138,7 +139,13 @@ async function scanAlerts(client) {
   if (!USER || !PASS) throw new Error('Faltan MAGNI_USER / MAGNI_PASS');
   const conn = process.env.DATABASE_URL_NEW_RUNTIME || process.env.DATABASE_URL_NEW;
   const client = new Client({ connectionString: conn });
-  await client.connect();
+  // [VP.5.1] No poder LLEGAR a la base no es una falla del codigo bajo prueba: es que no se
+  // pudo medir. Sale con exit 2 (NO MEDIDO) para no dejar un rojo permanente que ensena a
+  // ignorar el tablero. Cualquier otro error sigue siendo falla de verdad.
+  await client.connect().catch((e) => {
+    if (esFaltaDeAcceso(e)) noMedido(`no se pudo conectar a la base — ${e.message}`);
+    throw e;
+  });
   try {
     const objects = await fetchObjects();
     assert(objects.length > 0, `proveedor devolvió ${objects.length} objetos`);

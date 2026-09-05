@@ -168,7 +168,45 @@ const TESTS = [
   // OBS — la ingesta no se cae en silencio (ADR-053). Candados sobre los cuatro "verdes falsos"
   // que dejaron el ODS congelado 6 días sin que nadie lo supiera.
   { file: 'test-newdb-sellout-parity.js', label: 'VP.1 paridad del SELL-OUT — el candado que la migración de v_sellout_daily afirmaba que existía y no existía (literales de corte idénticos entre las copias vivas + complemento EXACTO Kepler>=/Wincaja< + cero doble conteo por sucursal-día + cero HUECO a los dos lados del corte + rollup mensual == vista diaria al peso). Lo que no se puede medir se reporta NO MEDIDO, no verde: con una pierna vacía "cero traslapes" es cierto y no prueba nada', needsApi: false },
+  // [VP.5.1] Las 14 huérfanas deterministas. Estaban escritas y NADIE las corría — ni el runner las
+  // nombraba, así que su ausencia no se veía. La primera es la más cara: `test-newdb-cash-cuts-sync`
+  // valida un sync que YA FALLÓ en prod (20 cortes de la sucursal 02 con $300k+ existían en el ODS y
+  // no en la tabla) y su propio header dice que "una divergencia se ve como hueco, no como silencio"
+  // — pero el smoke que lo garantizaba nunca corría.
+  { file: 'test-newdb-cash-cuts-sync.js', label: 'SM.20 el corte de Kepler llega solo (ODS kdpv_folio_caja → analytics.cash_cuts: el conteo del ODS contra el de la tabla, así una divergencia se ve como HUECO y no como silencio — el incidente 2026-09-02 fueron 20 cortes de la suc. 02 con $300k+ que estaban en el ODS y no en la tabla)', needsApi: false },
+  { file: 'verify-no-transfer-leak.js', label: 'T.1 los TRASPASOS no se filtran a los reportes de VENTA (mover mercancía entre sucursales no es vender: si se cuela, la venta se infla sin que nada falle)', needsApi: false },
+  { file: 'test-newdb-logistics-tracking.js', label: 'LT.0/LT.1 rastreo de flota (MagniTracking → logistics.trackers/vehicle_positions)', needsApi: false },
+  { file: 'test-newdb-lt-routes-sync.js', label: 'LT.7 sync autoritativo ruta↔operador↔camión (API oficial travels/operators)', needsApi: false },
+  { file: 'test-newdb-ltv-trips.js', label: 'LTV.0 reconstrucción de viajes/paradas', needsApi: false },
+  { file: 'test-newdb-ltv-pod-audit.js', label: 'LTV.3 auditoría georreferenciada de POD', needsApi: false },
+  { file: 'test-newdb-ltv-productivity.js', label: 'LTV.5 productividad / tiempos muertos', needsApi: false },
+  { file: 'test-newdb-ltv-business-alerts.js', label: 'LTV.7 alerta de negocio stopped_with_pending', needsApi: false },
+  { file: 'test-newdb-ltv-adherence.js', label: 'LTV.1/13 cumplimiento de RUTA contra tiendas de trade (doble testigo)', needsApi: false },
+  { file: 'test-newdb-ltv-witness.js', label: 'LTV.13 Horus doble testigo (vehicle-witness-audit)', needsApi: false },
+  { file: 'http-televenta-test.js', label: 'E.1 Remote Manager / Televenta (cola priorizada + reserva de lead + log de llamada)', needsApi: true },
+  { file: 'http-denue-prospects-test.js', label: 'DENUE prospección (candidatos del padrón INEGI)', needsApi: true },
+  { file: 'http-thot-findings-test.js', label: 'Thot T.R0 motor de findings comerciales (determinista: el LLM está fuera del camino)', needsApi: true },
+  { file: 'http-horus-test.js', label: 'Horus.0/.1 supervisor de ejecución (motor de findings/acciones/diagnósticos + efectividad; endpoints deterministas, sin visión)', needsApi: true },
   { file: 'test-newdb-feed-observability.js', label: 'OBS observabilidad de ingesta (v_feed_freshness une cron_runs+_sync_status SIN umbrales + clase NULL en ods_table = candado contra el falso positivo de k95doc/RH + los 7 carriles registrados en CRON_JOBS o salen verde incondicional + latido por canal propio ODS_HB_URL + preflight aborta si apunta a la fuente + healthcheck de ENTREGA que reporta enfermo si no puede leer + el hueco del slot se DECLARA + sin señal NO es ok)', needsApi: false },
+];
+
+/**
+ * [VP.5.1] Suites que existen y NO entran a la regresión, **con su motivo**.
+ *
+ * Antes eran simplemente huérfanas: 19 archivos escritos que nadie corría y que nada nombraba. Una
+ * suite invisible es peor que una que no existe — da la sensación de cobertura que no hay. El
+ * runner las imprime al final, así "todo verde" dice exactamente lo que cubre.
+ *
+ * El criterio para quedar afuera es **uno solo**: que la suite dependa de un LLM. Cuestan dinero por
+ * corrida y no son deterministas, así que meterlas en un gate las convierte en ruido intermitente —
+ * y una alarma que falla sola enseña a ignorar el tablero (OBS.8). Todo lo demás entra.
+ */
+const EXCLUIDAS = [
+  { file: 'http-thot-chat-test.js', motivo: 'evals LLM (golden-questions): no determinista + costo por corrida' },
+  { file: 'http-thot-chat-eval-50.js', motivo: 'banco de 50 preguntas al LLM: minutos y costo; se corre al tocar el prompt' },
+  { file: 'http-thot-chat-scoped-test.js', motivo: 'requiere ANTHROPIC_API_KEY; sin ella se degrada a no_api_key' },
+  { file: 'http-maat-chat-test.js', motivo: 'chat LLM de finanzas: no determinista + costo' },
+  { file: 'smoke-ai-order.js', motivo: 'sugerencia de pedido por LLM: no determinista + costo' },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -220,6 +258,11 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
       file: t.file,
       exit: r.status,
       ok: r.status === 0,
+      // [VP.5.1] exit 2 = NO MEDIDO (ver database/tests/_lib/no-medido.js). No es éxito y no es
+      // regresión: es que en este destino no había con qué comprobarlo. Antes caía en ❌ y quedaba
+      // indistinguible de un defecto real — y un rojo que nadie va a atender enseña a ignorar el
+      // tablero (OBS.8).
+      noMedido: r.status === 2,
       ms,
     });
   }
@@ -229,13 +272,34 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
   console.log('╚══════════════════════════════════════════════════════════╝');
   let okCount = 0;
   let failCount = 0;
+  let nmCount = 0;
   for (const r of results) {
-    const status = r.ok ? '✅' : '❌';
+    const status = r.ok ? '✅' : r.noMedido ? 'ⓘ ' : '❌';
     console.log(`${status} ${r.label.padEnd(40)} ${r.ms}ms`);
     if (r.ok) okCount++;
+    else if (r.noMedido) nmCount++;
     else failCount++;
   }
-  console.log(`\nTotal: ${okCount}/${results.length} suites verde, ${failCount} fallaron.`);
+  const medidas = okCount + failCount;
+  console.log(`\nTotal: ${okCount}/${medidas} suites verde, ${failCount} fallaron`
+    + (nmCount ? `, ${nmCount} NO MEDIDAS.` : '.'));
+
+  // [VP.5.1] Las NO MEDIDAS se nombran. El denominador de arriba cuenta sólo lo que SÍ se midió: decir
+  // "131/131 verde" cuando 8 suites ni pudieron conectarse es la misma mentira por omisión que esta
+  // fase persigue en los números.
+  if (nmCount) {
+    console.log('\n┌── NO MEDIDAS (no es "pasaron": no había con qué comprobarlas) ──────────');
+    for (const r of results.filter((x) => x.noMedido)) console.log(`│  ${r.file}`);
+    console.log('└── Revisá el entorno (credenciales, feeds, datos sembrados), no el código.');
+  }
+
+  // [VP.5.1] Y las que ni se intentan, con su motivo. Omitirlas en silencio hace que "todo verde"
+  // signifique menos de lo que parece.
+  if (EXCLUIDAS.length) {
+    console.log('\n┌── FUERA DE LA REGRESIÓN, a propósito ───────────────────────────────────');
+    for (const e of EXCLUIDAS) console.log(`│  ${e.file.padEnd(34)} ${e.motivo}`);
+    console.log('└── Se corren a mano cuando se toca esa superficie.');
+  }
 
   if (failCount > 0) {
     console.log('\n┌── HINTS MEMORIALES (si viste alguno de estos patterns arriba) ──────────');
