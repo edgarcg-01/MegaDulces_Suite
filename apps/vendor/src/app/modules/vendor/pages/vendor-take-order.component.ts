@@ -28,6 +28,7 @@ import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
+import { nextBusinessDayIso, todayIso } from '../../../core/date/biz-days';
 
 type OrderMode = 'instante' | 'futuro';
 
@@ -946,13 +947,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly pendingTotal = computed(() => this.pendingOrders().reduce((s, o) => s + Number(o.total), 0));
   readonly hasPreventa = computed(() => this.pendingOrders().some((o) => o.is_preventa));
 
-  // Fecha de entrega agendada (preventa). Default: mañana.
-  requestedDate = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
-  readonly minDate = new Date().toISOString().slice(0, 10);
+  // Fecha de entrega agendada (preventa). Default: próximo día HÁBIL (sáb→lun),
+  // fuente única compartida con Carga. Antes era `today+1` en UTC → en sábado
+  // caía en domingo (día sin reparto) y Carga —que busca el lunes— nunca lo veía.
+  requestedDate = nextBusinessDayIso();
+  readonly minDate = todayIso();
   private customerId = '';
 
   readonly adding = signal<Record<string, boolean>>({});

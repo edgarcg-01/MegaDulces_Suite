@@ -23,6 +23,7 @@ import {
   SupervisorCoaching,
 } from '../vendor.service';
 import { Order } from '../../portal/portal.service';
+import { nextBusinessDay, nextBusinessDayIso, toLocalIso } from '../../../core/date/biz-days';
 
 /**
  * Notificaciones del vendedor — inbox derivado (sin backend persistente todavía):
@@ -306,24 +307,16 @@ export class VendorNotificationsComponent implements OnInit {
           : 'pi pi-camera';
   }
 
-  /** ISO del próximo día hábil (domingo no hay reparto → sáb pasa a lun). */
+  /** ISO del próximo día hábil (fuente única compartida con Carga y take-order). */
   private nextBizIso(): string {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    return nextBusinessDayIso();
   }
   private nextBusinessDayLabel(): string {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+    const d = nextBusinessDay();
     const tomorrow = new Date();
     tomorrow.setHours(0, 0, 0, 0);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const iso = (x: Date) => `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, '0')}-${String(x.getDate()).padStart(2, '0')}`;
-    return iso(d) === iso(tomorrow) ? 'mañana' : `el ${d.toLocaleDateString('es-MX', { weekday: 'long' })}`;
+    return toLocalIso(d) === toLocalIso(tomorrow) ? 'mañana' : `el ${d.toLocaleDateString('es-MX', { weekday: 'long' })}`;
   }
 
   dueLabel(d: NbaDue): string {

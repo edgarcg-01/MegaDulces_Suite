@@ -581,6 +581,7 @@ export class CommercialVendorRoutesService {
             `EXISTS (
                SELECT 1 FROM commercial.orders o
                WHERE o.customer_id = c.id AND o.deleted_at IS NULL
+                 AND o.status <> 'draft'
                  AND (o.created_at AT TIME ZONE 'America/Mexico_City')::date
                      = (now() AT TIME ZONE 'America/Mexico_City')::date
              ) as ordered_today`,
