@@ -485,8 +485,24 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
   { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
-  { key: 'analytics_refresh_wincaja', label: 'Refresh MVs Wincaja',     cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
+  // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
+  // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
+  // otro por copia:
+  //   · `analytics_refresh_wincaja` era la ÚNICA registrada y estaba con `cadence: 'cada 15 min',
+  //     warnH: 1` — los umbrales del OTRO cron (`analytics_refresh`, ese sí de 15 min). Como la
+  //     escribe el diario, envejecía 24 h legítimas y se pintaba `critical` todo el día, todos los
+  //     días. Una alarma que grita siempre en falso enseña a ignorar el tablero (es la lección de
+  //     las 488 alertas con cero reconocidas, y por eso OBS.8 borró los latidos muertos del CDC).
+  //   · Las otras tres NO estaban → con el viejo `: 'ok'` salían verdes por siempre. Justo las que
+  //     arman el sell-out: si `mv_kepler_sales_daily` deja de refrescarse, el pivote sirve una
+  //     pierna vieja y otra fresca sin que nada avise.
+  // Umbrales de job diario, mismo criterio que `sales_daily`: warn al saltarse una corrida, crítico
+  // al saltarse dos.
+  { key: 'analytics_refresh_wincaja',         label: 'Refresh MV Wincaja (nightly)',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
@@ -760,7 +776,16 @@ export class DbHealthService {
         }
       } else {
         // ok → clasifica por antigüedad de la última corrida vs cadencia.
-        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'ok';
+        //
+        // [VP.0.1] Sin `cfg` esto devolvía `'ok'`: un job que late pero no tiene umbral registrado
+        // en CRON_JOBS salía VERDE por siempre, sin importar la antigüedad. Es el mismo default
+        // permisivo que documenta la regla 1 de `shared/freshness.ts` — un job sin umbral no es
+        // sano, es NO MEDIDO. Va a `unknown`, que el tablero pinta distinto de verde y no invita a
+        // ignorarlo. Un fallo DURO seguía viéndose (la rama `row.status === 'error'` es previa y no
+        // necesita cfg); lo invisible era el REZAGO, que es justo el modo de falla de "los números
+        // cambiaron". Medido: `analytics_refresh_kepler`, `_sellout_monthly` y `_blended` escriben
+        // latido y no estaban en CRON_JOBS → las tres MVs que arman el sell-out, en verde eterno.
+        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'unknown';
         const dur = row.duration_ms != null ? ` · ${Math.round(Number(row.duration_ms) / 1000)}s` : '';
         const filas = row.rows_affected != null ? ` · ${row.rows_affected} filas` : '';
         // La nota decía "OK" SIEMPRE, aunque `status` fuera warn o critical: el job reportó
@@ -769,10 +794,15 @@ export class DbHealthService {
         // filas de la corrida vieja, que se lee como salud. La detección funcionaba; el mensaje
         // mentía. Cuando el estado NO es ok, la nota ARRANCA por el rezago, igual que la rama
         // de `running` dice "desde hace X".
+        const edad = ageSec != null ? this.humanH(ageSec / 3600) : 'sin fecha';
         if (status === 'ok') {
           note = `OK${dur}${filas}`;
+        } else if (status === 'unknown') {
+          // [VP.0.1] No decir "SIN CORRER": corrió y terminó bien. Lo que falta es el umbral, y la
+          // nota tiene que nombrar eso — es accionable (registrar el job en CRON_JOBS), y confundir
+          // "no medido" con "no corrió" manda a alguien a revisar la máquina de feeds sin motivo.
+          note = `SIN UMBRAL: el job late (última hace ${edad}${dur}${filas}) pero no está en CRON_JOBS, así que no se puede juzgar su rezago. Registrarlo.`;
         } else {
-          const edad = ageSec != null ? this.humanH(ageSec / 3600) : 'sin fecha';
           note = `SIN CORRER hace ${edad} (cadencia ${cfg?.cadence || '—'}); la última terminó bien${dur}${filas}`;
         }
       }
