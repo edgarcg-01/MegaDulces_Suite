@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
@@ -392,7 +393,20 @@ export interface SellOutReport {
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  /**
+   * [VP.0.6] `measured` distingue "medí y no falta ninguna sucursal" de "no medí" — que con arreglos
+   * vacíos se leen IGUAL y son cosas opuestas. El camino por vendedor agrupa por vendedor, no por
+   * sucursal: ahí este eje no existe y devolvía `[]` + una nota estática de ALCANCE presentada como
+   * si fuera una medición. Una nota fija en el campo de la cobertura es la falla de fondo de la fase
+   * en miniatura: el consumidor no tiene cómo saber que nadie contó nada.
+   */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del dato con el que se calculó. NO es `generated_at`: ése es cuándo corrió la
+   * consulta, y un servidor que responde en 200 ms sobre matviews de hace seis días lo reporta
+   * igual de fresco. Son las dos preguntas que la fase OBS separó.
+   */
+  freshness: Freshness;
   generated_at: string;
 }
 
@@ -2694,7 +2708,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxFactors, boxPrices, identMap } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxFactors, boxPrices, identMap, freshness } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -2732,6 +2746,9 @@ export class CommercialAnalyticsService {
       // vocabulario de canal horneados en `v_sellout_daily`, y rutea meses cerrados → rollup / borde → vista.
       const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter, needMonth, byBrand });
 
+      // [VP.0.3] Poblado ≠ fresco. Los guards de arriba sólo saben lo primero.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+
 
       // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
       // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
@@ -2762,7 +2779,7 @@ export class CommercialAnalyticsService {
         (qb) => { if (warehouseFilter) qb.whereIn('s.warehouse_code', warehouseFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxFactors, boxPrices, identMap };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxFactors, boxPrices, identMap, freshness };
     });
     // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
     const boxFactorMap = new Map<string, number>(
@@ -2773,7 +2790,9 @@ export class CommercialAnalyticsService {
       boxPrices.map((b: any) => [b.product_id, Number(b.cja_price) || 0]),
     );
 
-    const base: Omit<SellOutReport, 'coverage'> = {
+    // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
+    // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
+    const base: Omit<SellOutReport, 'coverage' | 'freshness'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
@@ -3037,6 +3056,7 @@ export class CommercialAnalyticsService {
       column_totals: columnTotalsObj,
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
+      freshness,
     };
   }
 
@@ -3097,6 +3117,15 @@ export class CommercialAnalyticsService {
   // parcial/actual, de la vista (fresco a la última corrida nocturna). Mismo dedup, mismo vocabulario
   // de canal, misma identidad de vendedor en ambos → adiós a las 9 divergencias A–I.
 
+  /**
+   * [VP.0.3] ¿este rango pasa por el rollup mensual? UNA definición, dos consumidores: el que trae
+   * las filas y el que declara la frescura. Recalcularla aparte en cada uno es cómo un par de
+   * literales se separa en silencio — la lección del dedup escrito a mano en 11 archivos.
+   */
+  private async selloutUsesRollup(trx: any, plan: ReturnType<CommercialAnalyticsService['planSellOutSources']>): Promise<boolean> {
+    return !!plan.monthly && (await this.selloutMonthlyReady(trx));
+  }
+
   /** ¿`mv_sellout_monthly` poblado? (fast-path de meses cerrados). */
   private async selloutMonthlyReady(trx: any): Promise<boolean> {
     return !!(await trx.raw(
@@ -3112,6 +3141,45 @@ export class CommercialAnalyticsService {
       `SELECT bool_and(c.relispopulated) AS ok FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='analytics' AND c.relname IN ('mv_kepler_sales_daily','mv_wincaja_sales_daily')`,
     )).rows?.[0]?.ok === true;
+  }
+
+  /**
+   * [VP.0.3] La EDAD de las matviews que arman el sell-out, declarada en la respuesta.
+   *
+   * Los tres guards de acá arriba preguntan `relispopulated`, que es `true` **para siempre** después
+   * del primer populate. Un `mv_kepler_sales_daily` que falló el refresh cinco noches seguidas los
+   * pasa los tres y se sirve sin una palabra: el reporte queda armado sobre una pierna vieja y otra
+   * fresca, que es la forma exacta de "los números cambiaron sin que nadie tocara nada". Poblado no
+   * es fresco — son dos preguntas distintas y sólo se estaba haciendo la primera.
+   *
+   * La señal ya existía y no llegaba al consumidor: `AnalyticsRefreshService` escribe un latido por
+   * MV en `analytics.cron_runs` (con `status:'error'` cuando falla), y ningún endpoint que sirve esas
+   * MV leía esa fila. `laneAt()` la lee por el mismo camino que el resto de la plataforma
+   * (`analytics.v_feed_freshness`).
+   *
+   * Tolerancia 26 h = el mismo `warnH` con el que `CRON_JOBS` juzga estos jobs: el cron es nocturno
+   * (06:20 MX), así que 24 h de edad son sanas y 26 h significan que se saltó una corrida. Un solo
+   * número para las dos audiencias, tomado de la que ya lo tenía.
+   *
+   * NO bloquea — informa. El 503 sigue siendo sólo para "no hay fuente".
+   */
+  private async selloutFreshness(trx: any, usaRollup: boolean): Promise<Freshness> {
+    try {
+      const carriles: [string, string][] = [
+        ['analytics_refresh_kepler', 'Venta Kepler (mv_kepler_sales_daily)'],
+        ['analytics_refresh_wincaja', 'Venta Wincaja (mv_wincaja_sales_daily)'],
+      ];
+      // El rollup mensual sólo es un eslabón cuando el rango efectivamente lo usa; sumarlo siempre
+      // marcaría viejo un reporte del borde que no lo tocó.
+      if (usaRollup) carriles.push(['analytics_refresh_sellout_monthly', 'Rollup mensual (mv_sellout_monthly)']);
+      const inputs = await Promise.all(
+        carriles.map(async ([key, label]) => evalInput(key, label, await laneAt(trx, key), 26)),
+      );
+      return composeFreshness(inputs);
+    } catch {
+      // Que falle el medidor no autoriza a afirmar lo que no se midió (regla 2 de shared/freshness).
+      return FRESHNESS_UNKNOWN;
+    }
   }
 
   private selloutMonthStart(d: string): string { return d.slice(0, 8) + '01'; }
@@ -3217,7 +3285,7 @@ export class CommercialAnalyticsService {
   /** Overview por empresa: filas a grano MARCA (cajas pre-calculadas) — rollup cerrados + vista borde. */
   private async fetchSelloutBrandRows(trx: any, o: any): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
     if (useRollup) out.push(...await this.selloutBrandLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
@@ -3231,7 +3299,7 @@ export class CommercialAnalyticsService {
   private async fetchSelloutRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; warehouseFilter: string[] | null; needMonth: boolean; byBrand?: boolean }): Promise<any[]> {
     if (o.byBrand) return this.fetchSelloutBrandRows(trx, o);
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
     if (useRollup) out.push(...await this.selloutPivotLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
@@ -3295,7 +3363,7 @@ export class CommercialAnalyticsService {
   /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
   private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo }): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
     if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
@@ -3311,7 +3379,7 @@ export class CommercialAnalyticsService {
    */
   private async selloutLeaves(trx: any, o: { tenantId: string; from: string; to: string }, dims: string, extra?: (b: any) => void): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const acc = new Map<string, any>();
     const run = async (table: string, dateCol: string, lo: string, hi: string) => {
       const rows = await trx(`${table} as s`)
@@ -3356,7 +3424,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, identMap } = await this.tk.run(async (trx) => {
+    const { brand, raw, identMap, freshness } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
@@ -3370,7 +3438,9 @@ export class CommercialAnalyticsService {
       // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
       const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode });
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, raw, identMap };
+      // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+      return { brand: b, raw, identMap, freshness };
     });
 
     const columns = new Map<string, SellOutColumn>();
@@ -3421,7 +3491,16 @@ export class CommercialAnalyticsService {
       period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
       columns: orderedCols, rows, column_totals: columnTotalsObj,
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
-      coverage: { branches_with_data: [], branches_missing: [], note: 'Por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja).' },
+      // [VP.0.6] La nota de alcance es CIERTA y útil, pero no es una cobertura: este pivote agrupa
+      // por vendedor y nunca trae sucursal (`selloutVendorLeg` no la selecciona), así que el eje no
+      // se puede medir acá. `measured: false` lo dice; antes los dos arreglos vacíos se leían como
+      // "no falta ninguna sucursal", que es una afirmación que nadie hizo.
+      coverage: {
+        branches_with_data: [], branches_missing: [], measured: false,
+        note: 'Alcance por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja). '
+          + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
+      },
+      freshness,
       generated_at: new Date().toISOString(),
     };
   }
@@ -4711,7 +4790,7 @@ export class CommercialAnalyticsService {
     }
     if (missing.length)
       parts.push(`Sin venta de esta empresa en el periodo: ${missing.join(', ')}.`);
-    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' ') };
+    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' '), measured: true };
   }
 
   // ─────────── helpers ───────────

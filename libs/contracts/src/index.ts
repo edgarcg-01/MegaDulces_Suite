@@ -17,3 +17,5 @@ export * from './ports/mailer.port';
 
 // ── http wire contracts (ADR-052): request/response del boundary REST ──
 export * from './http/command-center.contract';
+// [VP.2.1] Procedencia (ADR-056): con qué se calculó el número que se publica.
+export * from './http/provenance.contract';

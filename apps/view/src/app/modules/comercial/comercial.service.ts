@@ -2,6 +2,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
+import type { Freshness } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -1909,7 +1911,13 @@ export interface SellOutReport {
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  /** [VP.0.6] `measured: false` = este eje no se midió (no que no falte nada). Ver el backend. */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del DATO (las matviews que arman el reporte), no de la consulta. `generated_at`
+   * dice cuándo respondió el servidor — sobre matviews de hace seis días responde igual de rápido.
+   */
+  freshness: Freshness;
   generated_at: string;
 }
 
