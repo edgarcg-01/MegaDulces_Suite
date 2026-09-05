@@ -68,7 +68,7 @@ type Periodo = 'arranque' | 'mes' | 'semana';
         </div>
         <div class="ec-head">
           <app-table-density />
-          <app-freshness-pill [since]="cargadoAt()" label="calculado" [staleAfterSec]="300" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAt()" label="calculado" [staleAfterSec]="300" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" (click)="reload()"
                   [loading]="loading()" pTooltip="Recalcular la cobertura" tooltipPosition="bottom">

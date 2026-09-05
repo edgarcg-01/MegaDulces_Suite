@@ -108,7 +108,7 @@ import { entityRef } from '../../../shared/components/entity-inspector/entity-re
         <div class="rv-head-actions">
           <!-- RE.17.4 — DESIGN §9: una cola de decisiones es dato volátil (el revisor central y
                el local trabajan la misma) y no decía de cuándo era lo que estabas mirando. -->
-          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="300" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAt()" [staleAfterSec]="300" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>

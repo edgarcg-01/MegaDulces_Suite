@@ -44,7 +44,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
         </div>
         <div class="cf-head-actions">
           <p-selectbutton [options]="rolOpts" [ngModel]="rol()" (ngModelChange)="setRol($event)" optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cf-sb sb-liquid" ariaLabel="Rol de los comprobantes" />
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
         </div>
       </header>
 

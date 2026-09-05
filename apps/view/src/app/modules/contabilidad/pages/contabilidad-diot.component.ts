@@ -41,7 +41,7 @@ import { DiotService, DiotRow, DiotResult, IvaResumen } from '../diot.service';
           <p class="surf-page-sub">Operaciones con terceros e IVA con flujo efectivo (PUE en emisión, PPD al pagarse el REP). Cálculo determinista sobre los CFDI recibidos/emitidos.</p>
         </div>
         <div class="di-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
           <label class="di-period"><span>Periodo</span>
             <p-datepicker [(ngModel)]="periodD" (onSelect)="onPeriod()" view="month" dateFormat="mm/yy" [showIcon]="true" appendTo="body" ariaLabel="Periodo (mes)" styleClass="di-dp" />
           </label>

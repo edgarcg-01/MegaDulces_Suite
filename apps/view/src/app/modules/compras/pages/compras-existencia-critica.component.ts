@@ -66,7 +66,7 @@ interface DraftLine {
           <p class="surf-page-sub">Existencia contra punto de reorden por almacén. El motor sugiere cuánto pedir; tú generas la requisición.</p>
         </div>
         <div class="ec-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
           <a pButton routerLink="/compras/pedido" class="p-button-sm p-button-text" title="Armar el pedido por proveedor y ciclo de reabasto"><span class="p-button-icon p-button-icon-left pi pi-cart-plus" aria-hidden="true"></span><span class="p-button-label">Pedido</span></a>
           <button pButton type="button" class="p-button-sm p-button-outlined p-button-secondary" [loading]="dl()" [disabled]="dl() || total() === 0" (click)="downloadXlsx()"><span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span></button>
           <p-button type="button" [label]="'Generar requisición' + (selCount() ? ' (' + selCount() + ')' : '')" icon="pi pi-file-edit"

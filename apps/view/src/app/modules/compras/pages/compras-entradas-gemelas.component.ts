@@ -82,7 +82,7 @@ import { Permission } from '../../../core/constants/permissions';
           <app-table-density />
           <!-- RE.17.2 — el motor reescribe esta bandeja cada 5 minutos: sin frescura no se sabe
                si lo que estás mirando ya lo resolvió otro (o el propio cron). -->
-          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="300" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAt()" [staleAfterSec]="300" />
           <app-context-help topic="compras-entradas" />
         </div>
       </header>

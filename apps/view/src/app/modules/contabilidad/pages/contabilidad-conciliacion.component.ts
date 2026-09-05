@@ -46,7 +46,7 @@ import { ConciliacionService, PpdRow, ConciliacionStats, CruceStats, CfdiSinPoli
         </div>
         <div class="co-head-actions">
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
         </div>
       </header>
 
