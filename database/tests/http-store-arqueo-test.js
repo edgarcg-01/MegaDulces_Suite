@@ -26,6 +26,9 @@
 const BASE = `http://localhost:${process.env.RECON_TEST_PORT || 3334}/api`;
 const { Client } = require('pg');
 try { require('dotenv').config(); } catch (e) { /* dotenv opcional */ }
+// `[IDG.1]` El más filoso del suite: hace 8 DELETE, entre ellos `identity.users`
+// y `kepler_ods.kdpv_folio_caja` (sin filtro de tenant). No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('http-store-arqueo-test');
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@127.0.0.1:5432/postgres_platform';
 
 const M = '00000000-0000-0000-0000-00000000d01c';

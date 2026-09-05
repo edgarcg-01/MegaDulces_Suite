@@ -15,6 +15,8 @@
 const { Client } = require('pg');
 
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `finance.findings`.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-purchase-adjustments-findings', { url: DST });
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const WINDOW_DAYS = 30;
 const MIN_MONTO = 500;
@@ -116,7 +118,7 @@ async function pushFindings(client, findings) {
     if (!findings.length) {
       console.log('\n  ⚠️  SKIP — sin grupos de duplicados en la data local (feed no cargado). Wiring cubierto por el build.');
       await client.end();
-      process.exit(0);
+      process.exit(2);
     }
 
     // Clean slate SOLO de este rule (nadie más lo usa) → test determinista entre corridas.

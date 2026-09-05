@@ -8,6 +8,8 @@
  */
 const { randomBytes } = require('crypto');
 const knex = require('knex')(require('../knexfile-newdb').development);
+// `[IDG.1]` Este test BORRA `commercial.customers` y acciones de supervisor. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('smoke-horus-missed-visit');
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const SUBJ = '00000000-0000-0000-0000-0000000ac701'; // uuid sintético (subject_id sin FK)
