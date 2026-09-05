@@ -184,7 +184,48 @@ Sólo cayeron los de carriles sin tarea.
 - **`trade-mkt-prov` (3.72 GB) y `scriptsmd-admin-bd` (851 MB) no se tocan**: esta box es compartida
   y no consta que sean de este proyecto.
 
-### Redundancia PROBADA, pendiente de permiso
+### APLICADO en la 2ª pasada (Edgar: "apliquemoslo en orden")
+
+**Bloque 1 — los 2 schemas locales, soltados.** `zbench` (150 MB) y `wincaja_ods` (29 MB) en
+`:5433/wincaja`. La redundancia se **re-verificó dentro de la misma transacción justo antes del
+DROP**, no se confió en la medición de una hora antes: `zbench.DetallesMovAlmacen_vmax` = 152,714
+filas / $7,629,584.75 == `h44/_dataset='2025'` al centavo, y `wincaja_ods.MaestroMovAlmacen` = 48,560
+== `h44/2025`. El script aborta si dejan de coincidir. `:5433/wincaja` queda con 34 schemas, todos
+con significado (29 `hNN` histórico + 3 `wNN` vivo + `ods` + `public`).
+
+**Bloque 2 — los 11 launchers huérfanos, retirados.** `C:\KeplerRunner` pasa de **24 a 13**
+archivos, y los 13 tienen mapeo 1:1 con una tarea. **Se MOVIERON** a
+`C:\KeplerRunner\_retirados_20260905\` en vez de borrarse (reversible), pero **mover no resuelve una
+credencial**: se redactaron los **29 secretos** de las copias archivadas (`postgres:REDACTADO@`,
+`FEEDS_INGEST_KEY=REDACTADO`) → los scripts siguen legibles como documentación, sin secreto vivo.
+Verificado después: las **21 tareas resuelven su archivo** y nada referencia a los retirados.
+
+⚠️ **Esto NO cierra el tema de credenciales.** Quedan **13 líneas con secreto en archivos VIVOS**
+que no se tocan (`run-feeds.cmd` 5 · `ingest.env` 4 · `run-livefast-loop.cmd` 2 · `run-prices.cmd` 1
+· `run-refresh-consolidado.cmd` 1). Y borrar un archivo **no invalida el password**: la rotación
+sigue pendiente aparte.
+
+**Bloque 3 — prod, BLOQUEADO por el clasificador de auto-mode** (no se rodeó). Antes de intentarlo
+se verificó lo que hacía falta para hacerlo bien:
+- `identity.users.activo` **es una columna real, no `GENERATED`** (distinto del patrón de otras
+  tablas del proyecto).
+- El corte funciona por los dos lados: `auth-mt.service.ts:94` filtra `activo: true` en el login, y
+  `JwtAuthGuard` reevalúa por request vía `permissions-cache.isUserActive()`, que exige
+  `activo === true && deleted_at == null` → un token ya emitido recibe 401.
+- `status` admite `invited|active|suspended|terminated` (CHECK `users_status_valido`) →
+  `terminated` es el valor correcto.
+- **No hay ni una baja previa en prod**: los 125 usuarios están `active`/`activo=true`/`deleted_at`
+  null. Esta sería la primera, o sea establece el patrón.
+- Las 4 cuentas objetivo (`hacker` rol **`admin_b` en `mega_dulces`**, `isouser` y `wsisouser`
+  **`superadmin`** en los tenants de prueba, `supervisor_arqueo_smoke`) **nunca iniciaron sesión**.
+  `prueba`, `rep_prueba` y `cliente_demo` SÍ se usan (`cliente_demo` entró el 14-jul) → no se tocan.
+
+El UPDATE quedó escrito y probado en seco, con `BEGIN`/`ROLLBACK`, verificación de que afecta
+exactamente 4 filas y chequeo de daño colateral. Falta el permiso.
+
+**Verificado después de los bloques 1 y 2:** los 17 feeds laten, `cdc_reconcile` volvió a `ok`.
+
+### Redundancia PROBADA (aplicada en la 2ª pasada, ver arriba)
 
 - Schema **`zbench`** (150 MB): 4 tablas `DetallesMovAlmacen_v500/_vmax/_j5000/_j20000` del
   benchmark mdbtools-vs-Jet del 01-sep. **152,714 filas y ΣValorVenta $7,629,584.75 — idéntico al
