@@ -365,11 +365,17 @@ export class VendorService {
         // priced_only: el catálogo del vendedor = solo lo pedible (con precio),
         // completo. Sin esto el backend capa a 500 productos. Devolvemos el
         // priceListId para cachearlo (dedup del catálogo offline por lista).
+        // sort=sales: más vendido → menos vendido (ranking real) arriba.
         return this.portal
-          .listPricesForList(list.id, warehouseId, { pricedOnly: true })
+          .listPricesForList(list.id, warehouseId, { pricedOnly: true, sort: 'sales' })
           .pipe(map((prices) => ({ priceListId: list.id, prices })));
       }),
     );
+  }
+
+  /** Cobertura de precio de una lista (para "N sin precio · avisar a oficina"). */
+  priceCoverage(priceListId: string) {
+    return this.portal.priceListCoverage(priceListId);
   }
 
   // ─── Take order (find-or-create draft scoped al customer) ───
