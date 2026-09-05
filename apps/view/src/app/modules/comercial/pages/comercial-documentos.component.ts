@@ -82,11 +82,19 @@ import { REPORTS_TABS } from '../reports-tabs';
         <input pInputText type="date" [(ngModel)]="hasta" (change)="load()" aria-label="Hasta" />
       </div>
 
+      <p-select [(ngModel)]="cobro" (onChange)="load()" [options]="cobroOpts" optionLabel="label"
+                optionValue="value" placeholder="Estado de cobro" [showClear]="true" ariaLabel="Estado de cobro" />
+
       <label class="f-check">
         <p-checkbox [(ngModel)]="soloVencidas" [binary]="true" (onChange)="load()" inputId="venc" />
-        <span>Solo vencidas</span>
+        <span pTooltip="Vencieron y siguen debiendo. Las que ya se cobraron no cuentan.">Solo vencidas</span>
       </label>
     </div>
+
+    <!-- Lo que no se pudo medir se declara, no se dibuja (ADR-056) -->
+    @if (vencNota(); as nota) {
+      <p class="nota-proc"><i class="pi pi-info-circle"></i> {{ nota }}</p>
+    }
 
     <!-- Tabla -->
     <div class="card-premium card-flat tabla-wrap">
@@ -106,7 +114,8 @@ import { REPORTS_TABS } from '../reports-tabs';
               <th style="width:6.5rem">Fecha</th>
               <th style="width:8.5rem">Vence</th>
               <th style="width:9rem" class="r">Total</th>
-              <th style="width:7rem" class="r">Descuento</th>
+              <th style="width:8.5rem" class="r">Saldo</th>
+              <th style="width:8rem">Cobro</th>
               <th style="width:6.5rem" class="c">Anexo</th>
             </tr>
           </ng-template>
@@ -123,7 +132,12 @@ import { REPORTS_TABS } from '../reports-tabs';
               </td>
               <td class="mono">{{ d.fecha | date: 'dd/MM/yy' }}</td>
               <td>
-                <span class="mono">{{ d.vencimiento | date: 'dd/MM/yy' }}</span>
+                <span class="mono" [class.derivada]="d.vencimiento_source !== 'erp'"
+                      [pTooltip]="d.vencimiento_source === 'erp'
+                        ? 'Fecha registrada en la cartera del ERP.'
+                        : 'El ERP no tiene una fecha válida para este documento: se deriva de los días de crédito actuales del cliente.'">
+                  {{ d.vencimiento | date: 'dd/MM/yy' }}{{ d.vencimiento_source === 'erp' ? '' : ' ~' }}
+                </span>
                 @if (d.vencida) {
                   <p-tag severity="danger" [value]="d.dias_vencida + 'd vencida'" styleClass="tg" />
                 } @else if (d.dias_credito) {
@@ -131,9 +145,17 @@ import { REPORTS_TABS } from '../reports-tabs';
                 }
               </td>
               <td class="r mono strong">{{ d.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
-              <td class="r mono save">
-                @if (+d.descuento > 0) { −{{ d.descuento | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }} }
-                @else { <span class="sub">—</span> }
+              <td class="r mono">
+                @if (d.saldo === null) { <span class="sub">—</span> }
+                @else if (+d.saldo > 0.005) {
+                  <span class="debe">{{ d.saldo | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
+                } @else { <span class="sub">$0.00</span> }
+              </td>
+              <td>
+                <p-tag [severity]="COBRO_TONE[d.estatus_cobro]" [value]="COBRO_LABEL[d.estatus_cobro]" styleClass="tg" />
+                @if (d.estatus_cobro === 'pagada' && d.dias_pago !== null) {
+                  <span class="sub">en {{ d.dias_pago }}d</span>
+                }
               </td>
               <td class="c acciones">
                 @if (d.cancelada) {
@@ -183,11 +205,43 @@ import { REPORTS_TABS } from '../reports-tabs';
 
           <dl class="peek-kv">
             <dt>Fecha</dt><dd class="mono">{{ x.fecha | date: 'dd/MM/yyyy' }}</dd>
-            <dt>Vence</dt><dd class="mono">{{ x.vencimiento | date: 'dd/MM/yyyy' }}@if (x.dias_credito) { ({{ x.dias_credito }} días) }</dd>
+            <dt>Vence</dt>
+            <dd class="mono">{{ x.vencimiento | date: 'dd/MM/yyyy' }}@if (x.dias_credito) { ({{ x.dias_credito }} días) }
+              @if (x.vencimiento_source !== 'erp') {
+                <span class="sub">derivada — el ERP no registró vencimiento válido</span>
+              }
+            </dd>
+            <dt>Cobro</dt>
+            <dd>
+              <p-tag [severity]="COBRO_TONE[x.estatus_cobro]" [value]="COBRO_LABEL[x.estatus_cobro]" styleClass="tg" />
+              @if (x.saldo !== null && +x.saldo > 0.005) {
+                <span class="sub">saldo {{ x.saldo | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</span>
+              } @else if (x.estatus_cobro === 'pagada' && x.dias_pago !== null) {
+                <span class="sub">liquidada en {{ x.dias_pago }} días</span>
+              } @else if (x.estatus_cobro === 'sin_cartera') {
+                <span class="sub">no aparece en la cartera del ERP</span>
+              }
+            </dd>
             <dt>RFC</dt><dd class="mono">{{ x.cliente_rfc || '—' }}</dd>
             @if (x.vendedor_nombre) { <dt>Vendedor</dt><dd>{{ x.vendedor_nombre }}</dd> }
             @if (x.doc_origen) { <dt>Pedido</dt><dd class="mono">{{ x.doc_origen }}</dd> }
           </dl>
+
+          <!-- Los abonos que explican el saldo: sin esto, "pagada" es una palabra sin respaldo -->
+          @if (x.aplicaciones?.length) {
+            <table class="peek-lin">
+              <thead><tr><th>Abonos aplicados</th><th class="r">Fecha</th><th class="r">Monto</th></tr></thead>
+              <tbody>
+                @for (a of x.aplicaciones; track a.folio + a.tipo) {
+                  <tr>
+                    <td><span class="nom">{{ a.label }}</span><span class="sub mono">{{ a.folio }}</span></td>
+                    <td class="r mono">{{ a.fecha || '—' }}</td>
+                    <td class="r mono">{{ a.monto | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          }
 
           <table class="peek-lin">
             <thead><tr><th>Producto</th><th class="r">Cant.</th><th class="r">Neto</th></tr></thead>
@@ -233,6 +287,13 @@ import { REPORTS_TABS } from '../reports-tabs';
     td .sub { display: inline-block; margin-left: .25rem; }
     .strong { font-weight: 700; }
     .save { color: var(--ok, var(--text-main)); }
+    .debe { font-weight: 650; color: var(--danger, var(--text-main)); }
+    /* fecha derivada: se distingue de la que el ERP sí registró, sin gritar */
+    .derivada { color: var(--text-soft); font-style: italic; }
+    .nota-proc {
+      display: flex; align-items: center; gap: .4rem; margin: -.25rem 0 .5rem;
+      font-size: var(--fs-xs, .75rem); color: var(--text-soft);
+    }
     .tg { margin-left: .35rem; }
     .acciones { white-space: nowrap; }
 
@@ -271,7 +332,14 @@ export class ComercialDocumentosComponent {
 
   search = '';
   vendedor: string | null = null;
+  cobro: string | null = null;
   soloVencidas = false;
+  readonly cobroOpts = [
+    { label: 'Pendientes', value: 'pendiente' },
+    { label: 'Abono parcial', value: 'parcial' },
+    { label: 'Pagadas', value: 'pagada' },
+    { label: 'Sin cartera', value: 'sin_cartera' },
+  ];
   desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   hasta = new Date().toISOString().slice(0, 10);
 
@@ -290,16 +358,56 @@ export class ComercialDocumentosComponent {
     if (doc) this.abrirPorFolio(doc);
   }
 
+  /**
+   * AX.9 — el KPI de vencido dejó de contar fechas y pasó a contar deuda.
+   * Antes marcaba 355 documentos "vencidos" por $3.32M en 30 días; 91 de ellos ($567,504) ya
+   * estaban cobrados. Lo que se publica ahora es el **saldo** de las que vencieron y aún deben.
+   */
   kpis(r: SalesDocsReport): MetricStripItem[] {
     const k = r.kpis;
-    return [
+    const porCobrar = Number(k.saldo_vencido) || 0;
+    const items: MetricStripItem[] = [
       { label: 'Documentos', value: k.documentos, format: 'number' },
-      { label: 'Clientes', value: k.clientes, format: 'number' },
       { label: 'Importe', value: Number(k.importe), format: 'currency' },
-      { label: 'Descuento', value: Number(k.descuento), format: 'currency', tone: 'ok' },
-      { label: 'Vencidas', value: k.vencidas, format: 'number', tone: k.vencidas > 0 ? 'bad' : undefined },
+      { label: 'Cobrado', value: Number(k.importe) - (Number(k.saldo) || 0), format: 'currency', tone: 'ok' },
+      { label: 'Vencido por cobrar', value: porCobrar, format: 'currency', tone: porCobrar > 0 ? 'bad' : undefined },
+      { label: 'Facturas vencidas', value: k.vencidas, format: 'number', tone: k.vencidas > 0 ? 'bad' : undefined },
     ];
+    // Lo que no se pudo medir NO se dibuja como cero: si hay documentos fuera de la cartera,
+    // su cobranza es desconocida y ocupa su propio lugar en el strip (ADR-056).
+    if (k.sin_cartera > 0) {
+      items.push({ label: 'Cobro desconocido', value: k.sin_cartera, format: 'number', tone: 'warn' });
+    }
+    return items;
   }
+
+  /**
+   * Declara lo que no se sabe: cuántos vencimientos son una reconstrucción y no el hecho del
+   * ERP, y cuántos documentos ni siquiera están en la cartera (ADR-056: `unknown` es un estado,
+   * no un cero). Medido en prod: 69 de 816 vencimientos derivados y 9 documentos sin cartera.
+   */
+  readonly vencNota = computed(() => {
+    const k = this.report()?.kpis;
+    if (!k || !k.documentos) return null;
+    const partes: string[] = [];
+    const derivadas = k.documentos - (k.venc_erp ?? 0);
+    if (derivadas > 0) {
+      partes.push(`${derivadas} de ${k.documentos} vencimientos no vienen de la cartera del ERP: se derivan de los días de crédito actuales del cliente (marcados con ~).`);
+    }
+    if (k.sin_cartera > 0) {
+      partes.push(`${k.sin_cartera} ${k.sin_cartera === 1 ? 'documento no aparece' : 'documentos no aparecen'} en la cartera: no se puede saber si ya ${k.sin_cartera === 1 ? 'se cobró' : 'se cobraron'}, y quedan fuera del vencido.`);
+    }
+    return partes.length ? partes.join(' ') : null;
+  });
+
+  readonly COBRO_LABEL: Record<string, string> = {
+    pagada: 'Pagada', parcial: 'Abono parcial', pendiente: 'Pendiente',
+    sin_cartera: 'Sin cartera', cancelada: 'Cancelada',
+  };
+  readonly COBRO_TONE: Record<string, 'success' | 'warn' | 'danger' | 'secondary' | 'info'> = {
+    pagada: 'success', parcial: 'warn', pendiente: 'info',
+    sin_cartera: 'secondary', cancelada: 'secondary',
+  };
 
   /** Debounce del texto libre: no dispara una consulta por tecla. */
   queue(): void {
@@ -313,6 +421,7 @@ export class ComercialDocumentosComponent {
     const q = {
       from: this.desde, to: this.hasta, search: this.search || undefined,
       vendedor_code: this.vendedor || undefined,
+      cobro: this.cobro || undefined,
       vencidas: this.soloVencidas ? 'true' : undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

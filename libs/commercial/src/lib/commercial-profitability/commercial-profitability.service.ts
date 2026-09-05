@@ -435,16 +435,26 @@ export class CommercialProfitabilityService {
     };
   }
 
-  /** Descuento otorgado al cliente. Sólo existe sobre lo FACTURADO, y se dice. */
+  /**
+   * Descuento otorgado al cliente. Sólo existe sobre lo FACTURADO, y se dice.
+   *
+   * AX.9 — leía `SUM(descuento)` (= `kdm1.c13`) sobre `SUM(subtotal)`, y ninguno de los dos
+   * describe el documento: `c13` no es lo que se descontó (`Σrenglones − c13 == total` sólo en
+   * 985 de 1,268 facturas) y `subtotal` es un despeje fiscal que coincide con los renglones en
+   * 238 de 1,268. Ahora usa `descuento_efectivo` sobre `importe_bruto`, despejados del % del
+   * documento y validados contra la suma real de renglones en **3,264 de 3,264** (peor delta
+   * $0.93). Medido en prod a 180d: el descuento pasa de $110,943 a **$120,019** (+8.2%) y la
+   * base de $14.92M a **$15.69M**; la tasa publicada, de 0.744% a **0.765%**.
+   */
   private async customerDiscount(trx: any, days: number) {
     const [r] = await trx('analytics.erp_sales_invoices')
       .whereRaw('tenant_id = public.current_tenant_id()')
       .whereRaw(`fecha >= CURRENT_DATE - INTERVAL '${days} days'`)
       .whereRaw('NOT cancelada')
       .select(
-        trx.raw('COALESCE(SUM(descuento), 0)::numeric AS amount'),
-        trx.raw('COUNT(*) FILTER (WHERE descuento > 0)::int AS docs'),
-        trx.raw('COALESCE(SUM(subtotal), 0)::numeric AS invoiced'),
+        trx.raw('COALESCE(SUM(descuento_efectivo), 0)::numeric AS amount'),
+        trx.raw('COUNT(*) FILTER (WHERE descuento_efectivo > 0)::int AS docs'),
+        trx.raw('COALESCE(SUM(importe_bruto), 0)::numeric AS invoiced'),
       );
     const amount = Number(r?.amount) || 0;
     const invoiced = Number(r?.invoiced) || 0;

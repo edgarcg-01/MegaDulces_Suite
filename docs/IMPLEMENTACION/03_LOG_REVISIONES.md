@@ -6,6 +6,92 @@
 
 ---
 
+## 2026-09-05 — AX.9: auditoría de `/comercial/documentos` y los tres números que mentían
+
+**Disparador:** Edgar preguntó *"analiza /comercial/documentos, ¿son ventas o facturas de telemarketing?"*
+y, con el análisis en la mano, *"arreglemos lo que está mal"*.
+
+### La respuesta a la pregunta
+
+**Son facturas de telemarketing, no "las ventas".** La pantalla filtra a un solo doctype:
+`U/D/8` "Factura Telemarketing", con `canal='TELEMARK'` en el **100%** de los documentos —sin una
+excepción— y sólo en las sucursales **01 y 06** (la 02 y la 05 facturaron TM hasta marzo-2026 y
+pararon). Cadena verificada: **Pedido `U/D/40` → Embarque `U/D/41/1` → Factura `U/D/8`**, con padre
+en 1,355 de 1,355 documentos de 90 días.
+
+Peso real (30d): **$8,359,923 / 738 documentos / 188 clientes** = **31%** de la venta al cliente final
+(los doctypes 8+10+12 que define el sell-out) y **7%** de todo lo que se mueve en `U/D` ($117M,
+incluidos traspasos, embarques y factura global). No hay fuga: los clientes TM facturados **en su
+misma sucursal** bajo otro doctype suman $112k en 90 días (0.8%). El $12.3M que a primera vista
+aparecía en `U/D/13` era **colisión de códigos de cliente entre sucursales**, no otro canal.
+
+### Los cuatro defectos, y cómo se midieron
+
+1. **"Vencida" no sabía si ya te habían pagado.** El KPI marcaba **355 documentos por $3,320,754**;
+   cruzados contra la cartera (`kdue`), **91 ya estaban liquidados ($567,504)**. El vencido real eran
+   264 documentos y **$2,028,423** de saldo. `vencida` sólo significaba "pasó la fecha".
+2. **El vencimiento era una reconstrucción y contradecía al ERP.** Se calculaba `fecha + días de
+   crédito del maestro DE HOY`; el ERP guarda el pactado al facturar y **difieren en 329 de 729 (45%)**,
+   hasta 25 días. Pero `kdue` tampoco está limpio: **57 de 729 vencen ANTES de su propia factura** —la
+   misma enfermedad por la que AX ya había descartado `kdm1.c18`.
+3. **El subtotal no cuadraba con los renglones que se imprimen.** Medido sin excepción: **el IEPS ya
+   viene dentro del importe del renglón** (744/744 facturas sin descuento: Σrenglones == `total`
+   EXACTO, y **nunca** `total − ieps`), y la identidad que se cumple siempre es
+   **`total = Σrenglones × (1 − descuento_pct/100)`** en 1,268/1,268. El `subtotal` de la vista
+   (`total − ieps + descuento`) coincidía con el detalle en **238 de 1,268 (19%)**, y `descuento`
+   (`c13`) no es lo que se descontó (`Σrenglones − c13 == total` sólo en 985 de 1,268).
+4. **Etiqueta equivocada:** `U/D/12` se rotulaba "Venta a crédito"; `kdmm` dice **"Factura Cont No
+   Fiscal"** (la de crédito es `U/D/13`).
+
+### Decisiones técnicas
+
+- **El saldo lo manda `kdue`, no la cabecera.** Se decodificó `kdm1.c43` sobre 2,745 documentos con
+  separación perfecta —`N` sin abonos (`c42 == total`), `R` abono parcial, `F` liquidada (`c42 == 0`),
+  `C` cancelada, y en mostrador 62,646 tickets de contado son `F`— pero **va rezagada**: en 563 de
+  1,346 facturas `c42` sigue diciendo que deben todo mientras la cartera ya tiene el cobro con folio
+  y fecha. `c43` se expone decodificado como `doc_estatus_label` (es información real sobre la
+  cabecera), no como estado de cobro.
+- **Una sola definición del saldo.** La tentación era copiar la fórmula de `customer_receivables` a
+  una vista propia; eso es GOTCHAS §32. En vez de eso su CTE `base` se extrajo a
+  `analytics.erp_receivable_documents` y la cartera pasa a apoyarse en él, con un **candado de paridad
+  que corre contra prod y lee el SQL DE LA MIGRACIÓN**, no una copia: 29 columnas, diferencia
+  simétrica **0 en ambos sentidos**, Σ saldo_ajustado y Σ signed_amount idénticas.
+- **Procedencia ternaria (ADR-056).** `vencimiento_source` = `erp` (747) · `derivado_erp_invalido` (60)
+  · `derivado` (9), y la pantalla lo dice: fecha en cursiva con `~` y una línea que declara cuántas
+  no vienen del ERP. Igual con `sin_cartera`: **9 documentos en prod** cuyo cobro **no se puede saber**
+  ocupan su propio KPI ("Cobro desconocido") en vez de contarse como pagados o como vencidos.
+- **El anexo dejó de afirmar sobre el CFDI.** Imprimía *"Tu CFDI presenta: Subtotal + IEPS − Descuento
+  = Total"*. Era cierto por álgebra (el subtotal se despeja del total) pero **nadie lo contrastó nunca
+  contra un CFDI emitido, y no se puede**: `fiscal.cfdis` tiene 167,503 filas y **todas** son
+  `rol='recibidas'`. Ahora dice sólo lo medido: los precios son finales, el IEPS va dentro.
+- **Índice en `kdue`:** scan 162 → **28 ms**, consulta 2,119 → **931 ms**. ⚠️ **Sin el `ANALYZE` el
+  planner lo ignora** y repite el `Parallel Seq Scan` — verificado con el índice ya creado.
+
+### Lecciones
+
+- **Un número correcto en su fuente puede publicarse mal por preguntarle a la columna vecina.** El
+  estado de cobro estaba en la MISMA FILA que la pantalla ya leía (`c42`/`c43`) y parecía gratis;
+  usarlo habría dado un resultado plausible y equivocado en el 42% de los casos.
+- **Un test puede fallar por su propio denominador.** El bloque del IEPS reportó "214 no cumplen"
+  porque el numerador no llevaba las mismas dos condiciones que el denominador; el dato estaba bien
+  (699/699). Se le agregó el **contraejemplo** —si el IEPS estuviera fuera, Σrenglones sería
+  `total − ieps`— para que la aserción no dependa de un solo lado.
+- **`CREATE INDEX CONCURRENTLY` espera transacciones viejas, no locks.** En el `.245` se quedó ~15 min
+  en *"waiting for old snapshots"* detrás de un `REFRESH MATERIALIZED VIEW` ajeno, con el índice ya
+  construido al 100%. No bloquea a nadie; hay que saber que se ve igual que un cuelgue.
+- **Al renombrar la fase, no la migración.** Este trabajo nació como "AX.6", que ya estaba tomado por
+  el sprint de IA; se renombró a **AX.9** en el código, pero los **archivos de migración se quedaron
+  con su timestamp** —ya aplicados en el `.245`— porque renombrar una migración aplicada deja el
+  directorio "corrupt". Comparte timestamp con `20260905150000_blank_retired_role_permissions.js`,
+  de otro trabajo: knex ordena por nombre completo, así que es determinista.
+
+**Estado:** 2 migraciones + 2 smokes (5/5 y 13/13) + builds api y view verdes, todo en el `.245`.
+**Pendiente prod:** aplicar las 2 migraciones, redeploy api+view (sin permisos nuevos → **sin
+re-login**) y **medir ahí el tiempo de la pantalla**. Detalle en
+[`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
+
+---
+
 ## 2026-09-05 — Fase VP: auditoría de procedencia, y por qué "los números cambian" (ADR-056)
 
 **Disparador:** Edgar pidió analizar una plática con Gemini sobre integridad de datos, y después
