@@ -12,6 +12,12 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
+// `[IDG.1]` El runner carga el `.env` para poder MIRAR el destino antes de
+// lanzar nada. Los tests hijos lo cargan igual por su cuenta, así que esto no
+// les cambia el entorno — sólo le da al runner con qué clasificar la base.
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+const { assertSafeTarget } = require('./tests/_lib/assert-safe-target');
+
 const TESTS = [
   // DB direct (no requieren API)
   { file: 'test-newdb-tenant-context.js', label: 'A.0mt.1 tenant context', needsApi: false },
@@ -46,6 +52,7 @@ const TESTS = [
   { file: 'test-newdb-warehouse-box-factor.js', label: 'ADR-055 la cantidad se muestra en la unidad MÁS GRANDE y el divisor es el del ERP dueño del almacén (v_warehouse_box_factor = vista; Kepler por su base, Wincaja por factor_venta de su propia tabla; el fact lleva display_bf alineado; candados: sin duplicar por dataset actual/concentrada, Kepler intacto, el dato BASE sigue crudo, y ninguna cobertura absurda por convertir al revés)', needsApi: false },
   { file: 'test-newdb-unit-rung-audit.js', label: 'U.1 detector de PELDAÑO CRUZADO (v_unit_rung_audit: display_bf == caja_cost/pagado, con DOS árbitros — la compra real en Kepler y el costo propio de Wincaja; el grano es producto × ALMACÉN porque el mismo SKU está en kilos en Kepler y en bultos en Wincaja; candados: la razón mediana del 94% sano no se corre, los dos valuados cuadran al 4.5% de ruido, x1/x2 siguen acotados, y 5 testigos por (SKU,almacén) para que el detector no se rompa devolviendo todo-ok)', needsApi: false },
   { file: 'test-newdb-existencia.js', label: 'E Existencia (matriz producto × almacén): la fuente es analytics.v_erp_stock_on_hand y NO commercial.stock — se exige que DISCREPEN, porque la tabla acierta 91% contra el POS y la vista 100%; ninguna celda con peldaño contradicho publica cajas ni dinero (y se afirma que la población no está vacía, para que el candado no pase en vacío); los totales son del DATASET y no de la página; total_cajas no suma unidades crudas de almacenes con unidades distintas; frescura POR RAMA sin umbral propio; y el candado que ya mordió una vez: que el permiso esté REPARTIDO en prod y que customer_b2b NO lo tenga', needsApi: false },
+  { file: 'test-newdb-existencia-dictamen.js', label: 'D Dictamen de existencia (v_existencia_dictamen): DOS ejes — en qué se apoya el número (apoyo) y qué lo contradice (objecion). Candados: que NO pase en vacío (las poblaciones medidas existen); que qty_publicada sea fila-por-fila lo que publica v_erp_stock_on_hand (el dictamen la EXPLICA, no la reemplaza); que el negativo se MUESTRE pero nunca se sume; anti-regresión del bug del 2026-09-05 (nunca_entro marcaba 1,913 celdas SANAS de Wincaja, donde vender el inventario inicial sin recibir nada es normal porque allá SÍ hay baseline); que el dinero vaya NULL con el peldaño en disputa; y que la vista NO lea stock_movements — cuadrar kdil contra los movimientos es circular, kdil YA es entradas menos salidas', needsApi: false },
   { file: 'test-newdb-seller-incentive.js', label: 'RR-PROMO.2 incentivo multi-canal por vendedor (v_seller_sales_lines: RD+vecinal+mayoreo con el vendedor resuelto; SIN doble conteo del vecinal histórico VEC-PH-H, medido con ventana dirigida para que el candado no pase en vacío; el push NO se pierde porque en RD la ruta ES el vendedor; umbral en dinero inmune a la unidad; público 0001 nunca cobra)', needsApi: false },
   { file: 'test-newdb-route-promo-units.js', label: 'RR-PROMO.1 la cantidad del incentivo se normaliza al peldaño REAL del ERP (v_product_unit_ladder = vista sólo sobre kepler_ods; el peldaño sale del PRECIO, no del rótulo; basura de unidad nunca se publica; lo no resuelto se declara, no se suma; granel marcado; skip-graceful sin venta de ruta)', needsApi: false },
   { file: 'test-newdb-db-health-engine.js', label: 'DBH salud del MOTOR + correo + ruido (SQL de pg_stat_activity/user_tables/settings vive; last_notified_at para el recordatorio 24h; único parcial de alerta abierta; sin alertas de tenants ajenos ni fuentes duplicadas)', needsApi: false },
@@ -175,6 +182,15 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
 
 (async () => {
   const root = path.resolve(__dirname);
+
+  // `[IDG.1]` UNA sola vez, antes de spawnear nada: 37 de estas suites hacen
+  // DELETE / TRUNCATE / DROP y cuatro crean y borran tenants. El 2026-08-29
+  // corrieron contra prod y dejaron residuo en el padrón real. El chequeo va
+  // acá arriba porque `spawnSync` hereda `process.env` sin inspeccionarlo: si
+  // el destino está mal, está mal para las ~170 suites.
+  const destino = assertSafeTarget('run-all-tests');
+  console.log(`Destino de la regresión: ${destino.kind} (${destino.host}/${destino.db})`);
+
   const results = [];
   const useThrottleBypass = process.env.THROTTLE_DISABLED === 'true';
   if (useThrottleBypass) {
