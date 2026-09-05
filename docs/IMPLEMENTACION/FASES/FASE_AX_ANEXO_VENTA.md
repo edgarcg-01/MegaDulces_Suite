@@ -168,6 +168,12 @@ Aplicar sólo las migraciones, sin redeploy, es **seguro**: la vista conserva to
 
 **Falta medir en prod:** el tiempo de la pantalla con el índice puesto. En el `.245` fue 2,119 → 931 ms; en prod, sin el índice y con el núcleo inline, la misma consulta costaba 7.7 s. Correr `test-newdb-sales-docs-cobranza.js` tras aplicar y anotarlo.
 
+### Lo que AX.9 cuesta, y lo que encontró de paso
+
+**El precio del cruce con la cartera: ~750-880 ms fijos**, cobrados igual para 738 documentos que para uno solo (medido en el `.245`, misma sesión: lookup 6→764 ms, lista 30d 25→735 ms). El costo es el `DISTINCT ON` sobre `kdue` (528 ms) y **no se puede filtrar**: el WHERE del consumidor cae sobre columnas derivadas que el planner no puede invertir. `NOT MATERIALIZED` no ayuda (774 vs 755 ms). Se acepta —es el precio de que el vencido deje de contar $567,504 ya cobrados, y esto es un reporte, no un camino caliente— y queda la salida escrita en la migración por si estorba: retirar el LEFT JOIN de la cabecera y resolver la cobranza en el service, sólo en `list()`/`kpis()`.
+
+⚠️ **Hallazgo preexistente, NO tocado: el smoke `test-newdb-erp-sales-invoices.js` (AX.0) no termina.** Su bloque del `box_factor` canónico —el que cruza `erp_sales_invoice_lines` × `erp_sales_invoices` × `v_product_box_factor` a 90 días— **se pasa del `statement_timeout` también en prod, con la vista vieja**, así que el candado que debía cazar a quien vuelva a derivar el factor por su cuenta está muerto. Nadie lo había visto porque el test apunta por default a `localhost:5433/postgres_platform` (el contenedor de réplicas), donde **no existen las vistas** y sale por el `SKIP` sin ejecutar una sola aserción. Se verificó que **no es regresión de AX.9**: la misma consulta ya se colgaba en prod, donde este cambio no está aplicado. Arreglarlo es otro sprint: acotar la ventana cambiaría lo que el candado mide, y hay que decidirlo con la intención original a la vista.
+
 **Orden obligatorio: migración ANTES del redeploy.** El service pide `cancelada`, `box_factor`, `box_factor_dudoso`; con la vista vieja el detalle tira 500.
 
 Sin el paso 1 la pantalla carga vacía: las vistas no existen en prod.

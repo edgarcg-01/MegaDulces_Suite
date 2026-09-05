@@ -85,6 +85,27 @@ aparecía en `U/D/13` era **colisión de códigos de cliente entre sucursales**,
   directorio "corrupt". Comparte timestamp con `20260905150000_blank_retired_role_permissions.js`,
   de otro trabajo: knex ordena por nombre completo, así que es determinista.
 
+### Lo que cuesta, y un candado muerto que apareció de paso
+
+**El cruce con la cartera cobra ~750-880 ms fijos**, y los cobra igual para 738 documentos que
+para uno solo (medido en el `.245`, misma sesión y dos pasadas: lookup 6→764 ms, lista 30d
+25→735 ms). El costo es el `DISTINCT ON` sobre `kdue` (528 ms) y **no se puede filtrar**: el
+WHERE del consumidor cae sobre columnas derivadas (`btrim(c1)`, `'U'||CASE…`) que el planner no
+sabe invertir. Se probó `WITH src AS NOT MATERIALIZED`: no mejora (774 vs 755 ms). Se acepta a
+sabiendas —es el precio de que el vencido deje de contar $567,504 ya cobrados, y esto es un
+reporte— con la salida escrita en la migración: si estorba, retirar el LEFT JOIN de la cabecera
+y resolver la cobranza en el service sólo en `list()`/`kpis()`.
+
+⚠️ **Hallazgo preexistente, no tocado:** el smoke `test-newdb-erp-sales-invoices.js` (AX.0)
+**no termina**. Su bloque del `box_factor` canónico —el que cruza líneas × cabeceras ×
+`v_product_box_factor` a 90 días— se pasa del `statement_timeout` **también en prod, con la
+vista vieja**. O sea el candado que debía cazar a quien vuelva a derivar el factor por su cuenta
+está muerto. Nadie lo había notado porque el test apunta por default a
+`localhost:5433/postgres_platform` (el contenedor de réplicas), donde no existen las vistas y
+sale por el `SKIP` sin ejecutar una sola aserción: **un test que se salta solo se lee igual que
+un test que pasa**. Verificado que no es regresión de AX.9 (se cuelga donde este cambio no está
+aplicado). Arreglarlo es otro sprint: acotar la ventana cambiaría lo que el candado mide.
+
 **Estado:** 2 migraciones + 2 smokes (5/5 y 13/13) + builds api y view verdes, todo en el `.245`.
 **Pendiente prod:** aplicar las 2 migraciones, redeploy api+view (sin permisos nuevos → **sin
 re-login**) y **medir ahí el tiempo de la pantalla**. Detalle en

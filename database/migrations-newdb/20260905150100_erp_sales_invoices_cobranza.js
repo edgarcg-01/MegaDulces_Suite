@@ -60,6 +60,23 @@
  * Sólo se recrea la CABECERA: nada depende de ella (verificado en pg_depend) y
  * `erp_sales_invoice_lines` se queda como está.
  *
+ * ── LO QUE CUESTA, MEDIDO ────────────────────────────────────────────────────
+ * El LEFT JOIN a la cartera cobra **~750-880 ms fijos**, y los cobra igual busques 738
+ * documentos o UNO. Medido en el `.245`, misma sesión, dos pasadas:
+ *     lookup de 1 documento   6-11 ms  ->  764-794 ms
+ *     lista de 30 días       25-29 ms  ->  735-881 ms
+ * El costo es el `DISTINCT ON` sobre `kdue` del núcleo (528 ms; 46,843 filas de 423,799) y
+ * **no se puede filtrar**: el WHERE del consumidor cae sobre columnas DERIVADAS
+ * (`btrim(c1)`, `'U'||CASE…`), que el planner no sabe invertir para empujarlas al índice.
+ * Se probó `WITH src AS NOT MATERIALIZED`: **no mejora** (774 vs 755 ms) y encima el CTE se
+ * evaluaría dos veces.
+ *
+ * Se acepta a sabiendas: es el precio de que el vencido deje de contar $567,504 ya cobrados,
+ * y la pantalla es un reporte, no un camino caliente. **Si algún día estorba** —el sospechoso
+ * natural es el PDF del anexo, que llama a `detail()` por documento— la salida es retirar el
+ * LEFT JOIN de ESTA vista y resolver la cobranza en el service con un segundo query, sólo en
+ * `list()`/`kpis()`. No hay que inventar nada: el núcleo ya existe y ya está validado.
+ *
  * @param { import("knex").Knex } knex
  */
 const M = '00000000-0000-0000-0000-00000000d01c';
