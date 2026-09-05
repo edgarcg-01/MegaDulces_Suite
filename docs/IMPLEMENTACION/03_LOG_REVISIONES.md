@@ -205,8 +205,20 @@ que no se tocan (`run-feeds.cmd` 5 · `ingest.env` 4 · `run-livefast-loop.cmd` 
 · `run-refresh-consolidado.cmd` 1). Y borrar un archivo **no invalida el password**: la rotación
 sigue pendiente aparte.
 
-**Bloque 3 — prod, BLOQUEADO por el clasificador de auto-mode** (no se rodeó). Antes de intentarlo
-se verificó lo que hacía falta para hacerlo bien:
+**Bloque 3 — prod, APLICADO** (Edgar autorizó explícitamente tras el primer bloqueo del clasificador).
+`hacker`, `isouser`, `wsisouser` y `supervisor_arqueo_smoke` quedan con
+`activo=false, status='terminated', deleted_at=now()`. **125 → 121 usuarios activos, 125 filas
+totales: ninguna se borró.** Reversible con un UPDATE.
+
+Corte verificado en las DOS compuertas, no asumido:
+- simulando `permissions-cache.isUserActive()` (`activo = true AND deleted_at IS NULL`) → las 4 dan
+  **BLOQUEADO (401)**; `cliente_demo`, `prueba` y `rep_prueba` siguen dando **PASA**;
+- simulando el login (`auth-mt` filtra `activo: true`) → **0 de las 4** podrían entrar.
+
+Esta es la **primera baja de la historia de la tabla en prod**, así que fija el patrón: soft-delete
+con los tres campos, nunca `DELETE`.
+
+Lo que se verificó ANTES de escribir:
 - `identity.users.activo` **es una columna real, no `GENERATED`** (distinto del patrón de otras
   tablas del proyecto).
 - El corte funciona por los dos lados: `auth-mt.service.ts:94` filtra `activo: true` en el login, y
