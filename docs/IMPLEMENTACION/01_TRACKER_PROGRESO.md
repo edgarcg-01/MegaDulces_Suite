@@ -1645,6 +1645,20 @@ explícito y el patrón respeta los `false`; si el bodeguero debe ver el censo, 
 `compras-existencia-critica.component.ts` (+ `compras-que-toca` y `compras-entradas-revision`, 2,342
 más) — PR aparte para no volver ilegible el diff.
 
+- [x] **[CV.23]** 🔨 **Pivot de alcance: PR #62 recortado a solo el verificador de precios** (2026-09-05)
+  — Edgar exigía auth-mt + `commercial.orders` + `kepler_ods` (este último ya resuelto en CV.22).
+  Los otros dos tienen huecos reales del lado de la Suite (checkout anónimo sin precedente,
+  pasarela de pago inexistente). Decisión del usuario: reducir lo que se integra a la Suite a solo
+  el verificador (`kp/precio`, `kp/precios-todos`, `sucursales`, público, sin sesión). Se elimina de
+  `apps/catalogo-kp`: `admin`/`auth`/`catalogo`/`dashboard`/`monitor`/`tienda` + `apps/tienda` + 6
+  migraciones de schema (nunca aplicadas a una DB real) + assets del catálogo/tienda. Se agrega
+  `src/sucursales/` + `plantilla/`/`herramientas/Actualizar_Verificador.ps1`. Build verde
+  (`main.js` 341 KB → 42 KB), boot con exactamente las 4 rutas esperadas. El resto del trabajo
+  retirado sigue vivo en 3 repos standalone (`github.com/0SistemasMD`): `catalogo-kp`,
+  `verificador-precios` (ya verificado end-to-end contra `KP_CONCENTRADA` real), `Ecommerce-Mayorista`.
+  **Pendiente:** actualizar descripción de PR #62, cerrar PR #63 (huérfano), verificación end-to-end
+  contra `postgres_platform` si hay acceso.
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I

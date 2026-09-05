@@ -1122,3 +1122,90 @@ comprobó por ejecución que **emiten el SQL original byte a byte** (salvo CRLF)
 **No verificado contra base**: esta sesión no pudo autenticar contra `.245`
 (ni `postgres` ni `app_runtime` del `.env` local), así que nada de esto se
 ejerció contra datos reales.
+
+## CV.23 — Pivot de alcance: PR #62 recortado a solo el verificador de precios (2026-09-05)
+
+Edgar revisó PR #62 y exigió 3 cambios no negociables: (1) leer `kepler_ods.*`
+en vez de `KP_CONCENTRADA` — ya resuelto en CV.22, arriba —, (2) auth propio →
+`auth-mt`+`identity.users`+permisos, (3) ledger propio de pedidos →
+`commercial.orders`. Los puntos (2) y (3) son integraciones grandes con huecos
+reales del lado de la Suite, confirmados con una investigación fresca contra
+`main` (post-merge de un lote grande de hardening de auth):
+
+- **Auth-mt**: sí es viable hoy — `catalogo-kp` ya conecta a `postgres_platform`
+  (CV.22), `AuthMtModule` ya está registrado en `AppModule` (antes se creía
+  dormido; un comentario stale lo describía como "no registrado todavía"), y
+  `ScopeService` ya resuelve exactamente el caso de "sucursales por usuario"
+  que `admin.usuarios.sucursales` nunca aplicó de verdad. No hay bloqueo
+  técnico — sólo decisiones de producto pendientes (modelo de rol, migración
+  de datos de `admin.usuarios`).
+- **`commercial.orders`**: sigue bloqueado. Dos huecos reales, confirmados sin
+  cambios desde la última revisión: **(a)** no existe precedente de creación
+  de orden anónima — todo consumidor de `commercial-orders.controller.ts`
+  exige un usuario autenticado de la Suite con permiso RBAC; **(b)** no existe
+  pasarela de pago online — `commercial.payments.payment_method` sigue
+  limitado a `cash|transfer|card|prepaid`, donde `card` es sólo registro
+  manual de una terminal externa, sin `oxxo`/`spei`, sin SDK de ninguna
+  pasarela, sin webhook.
+
+**Decisión del usuario:** en vez de completar (2) y (3), se reduce el alcance
+de lo que se integra a la Suite a **solo el verificador de precios**
+(`GET /api/kp/precio`, `/api/kp/precios-todos`, `GET /api/sucursales`,
+públicos, sin sesión) — el mismo recorte ya hecho y verificado end-to-end en
+el repo standalone [`verificador-precios`](https://github.com/0SistemasMD/verificador-precios).
+
+**Qué se eliminó de `apps/catalogo-kp`:** `admin`, `auth`, `catalogo` interno,
+`dashboard`, `monitor`, `tienda` completos (7 módulos); `apps/tienda` (frontend
+Angular del checkout); las 6 migraciones de CV.22 para `admin.usuarios`/
+`tienda.*`/`monitor.errores` (verificado antes de borrarlas que nunca se
+corrieron contra ninguna DB real — el propio comentario de CV.22 en el PR lo
+confirma); `public/catalogo.html`, `actualizar-wix.html`, `tienda.html`,
+`public/tienda/` (build Angular), `public/img/productos/` (112 imágenes).
+
+**Qué se agregó:** `src/sucursales/` (extraído de
+`CatalogoService.getSucursales()` antes de borrar `catalogo`, mismo patrón que
+el repo standalone) y `plantilla/Verificador_Precios_OFFLINE.html` +
+`herramientas/Actualizar_Verificador.ps1` (copiados y adaptados del repo
+standalone — plantilla dentro del app, no un nivel arriba; puerto/endpoints
+ajustados a este despliegue).
+
+**Nada de este trabajo se descarta.** Todo sigue vivo, sin tocar, en 3 repos
+nuevos, privados, bajo `github.com/0SistemasMD` — separados de la integración
+a la Suite:
+- [`catalogo-kp`](https://github.com/0SistemasMD/catalogo-kp) — catálogo
+  interno + auth + admin, sin la tienda.
+- [`verificador-precios`](https://github.com/0SistemasMD/verificador-precios) —
+  mismo recorte que este pivot, pero standalone (nació antes de CV.22, así que
+  todavía lee `KP_CONCENTRADA`). Ya verificado end-to-end contra
+  `KP_CONCENTRADA` real (los 4 endpoints con datos reales, el script generador
+  corriendo 8/8 verificadores, probado en navegador sin red). Un fix de build
+  real encontrado y corregido ahí: `"incremental": true` de `tsc` podía dejar
+  `dist/` completamente vacío en silencio (exit 0) si el `tsconfig.tsbuildinfo`
+  de una corrida anterior seguía en disco tras borrar `dist/` a mano.
+- [`Ecommerce-Mayorista`](https://github.com/0SistemasMD/Ecommerce-Mayorista) —
+  la tienda completa: backend (`api/`, carrito/checkout/pagos/cola/avisos/
+  pedidos) + frontend (`web/`, Angular 22 standalone, build con hashes
+  idénticos al original). Auth recortada a **sólo verificación** (mismo
+  `CATALOGO_KP_JWT_SECRET` que emite `catalogo-kp`) — sin login ni CRUD de
+  usuarios propio, por decisión explícita.
+
+### Verificado (CV.23)
+
+`nx build catalogo-kp` verde, `main.js` pasa de 341 KB a 42 KB. Boot local con
+env dummy: se mapean exactamente `/api/kp/precio`, `/api/kp/precios-todos`,
+`/api/sucursales`, `/api/salud` — nada de `/api/admin/*`, `/api/catalogo/*`,
+`/api/dashboard/*`, `/api/tienda/*`. Grep repo-wide confirma cero referencias
+colgantes a los módulos/paths eliminados.
+
+### Pendiente
+
+- Actualizar la descripción del PR #62 con el nuevo alcance reducido (o abrir
+  uno nuevo si el diff se lee mejor así).
+- Cerrar PR #63 (CV.18-20: panel de usuarios, filtro de sucursal en Wix,
+  variantes) — queda huérfano, todo su contenido dependía de `admin`/`auth`/
+  `catalogo`. Referenciar los repos standalone donde ese trabajo sigue vivo.
+- Verificación end-to-end contra `postgres_platform` real, si hay acceso
+  (no se pudo ejercer en esta sesión).
+- Actualizar el rol de DB para que el verificador tenga sólo los grants que
+  necesita (`kepler_ods.*` de lectura) — hoy hereda lo que ya tenía
+  `app_runtime`, más amplio de lo necesario para este alcance recortado.
