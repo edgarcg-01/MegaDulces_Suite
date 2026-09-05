@@ -2,7 +2,7 @@
 
 > Kanban con estado granular por item: **código → probado → staging → prod**. Cada ítem tiene código `[Fase.Sprint.N]`. **Mantener actualizado SIEMPRE** — es la fuente de verdad de qué está hecho, qué está probado y qué falta.
 
-**Última actualización:** 2026-08-31 (**Fase WMS — el Almacén como un solo producto: diseño + WMS.1 (sidebar 19 items → 5, tabs `liquid`)**) · antes 2026-08-28 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — gemelas sucursal↔oficinas con motor automático · Fase RE.15 — auditoría de UI contra DESIGN.md · Fase RE.16 — de 6 pantallas a 3, una por rol · **Fase RE.17 — visor de documento compartido, el expediente sale del modal, y la evidencia llega a la pantalla que decide**)
+**Última actualización:** 2026-09-05 (**Fase VP — Verdad y Procedencia, ADR-056: VP.0 ✅ paró tres mentiras vivas · VP.1 ✅ cerró las tres capas ciegas del sell-out · VP.2.1 ✅ el contrato de procedencia**) · antes 2026-08-31 (**Fase WMS — el Almacén como un solo producto: diseño + WMS.1 (sidebar 19 items → 5, tabs `liquid`)**) · antes 2026-08-28 (Fase RE.13 — 4 pantallas por trabajo · Fase RE.14 — gemelas sucursal↔oficinas con motor automático · Fase RE.15 — auditoría de UI contra DESIGN.md · Fase RE.16 — de 6 pantallas a 3, una por rol · **Fase RE.17 — visor de documento compartido, el expediente sale del modal, y la evidencia llega a la pantalla que decide**)
 
 ---
 
@@ -39,6 +39,8 @@
 | **CA — CEDIS (Kepler Access 97) → ODS** | 🔨 **DISEÑADO 2026-08-18** | **ADR-045 propuesto**. Trae el CEDIS (sucursal `00`, almacén central mayorista) al pipeline `kepler_ods.*` como 7ª fuente. **Hallazgo:** las 6 sucursales 01-06 corren Kepler/Postgres (ya replicadas al día), pero el **CEDIS corre sobre Microsoft Access 97 `.mdb`** (fuera del pipeline) y el `192.168.9.95:5432/md_00` Postgres que hoy leen finanzas/compras/cobranza **es data de PRUEBA, no el CEDIS vivo**. Ensamblar piezas probadas: lectura = patrón **Wincaja** (Jet 4.0 **32-bit** `Mode=Read` sobre copia-sombra; ACE rechaza Access 97), CDC = **dos carriles** de `replicate-ods-live` (watermark de negocio para movimientos `kdm1/kdm2/kdij/kdue/kdpord` + **hash-delta md5-en-JS** para catálogos/existencias `kdil/kdii/kdik/…`), ship = mismo sink `raw-upsert`→`kepler_ods sucursal='00'` (destino SIN cambios), estado CDC (watermark+shadow) en Postgres porque el `.mdb` es read-only. **7 sprints**: CA.0 descubrimiento `.mdb` (⛔ ruta crítica: ruta+copia-sombra+esquema+PK+col-watermark) → CA.1 adapter → CA.2 incremental → CA.3 hash-delta (existencias ⭐) → CA.4 orquestador+tarea → CA.5 cutover+monitoreo (source db-health propio; el CEDIS no vende a público) → CA.6 migrar consumidores del `md_00`-prueba (mayor valor de fondo). MVP=CA.0–5. Decisiones abiertas: ruta/copia-sombra del `.mdb`, cadencia ~1-5min, alcance CA.6. Plan en [`FASE_CA`](FASES/FASE_CA_CEDIS_ACCESS_ODS.md). **Sin código aún.** | 0% (diseñado) |
 
 | **WR — Réplica cruda Wincaja (Access 97 → Postgres)** | 🟢 **carril VIVO en beta (WR.0–7 ✅)** · 🔨 **WR-hist EN CARGA 2026-09-01** | **Carril VIVO ✅**: réplica cruda continua en `:5433/wincaja` (`w30`/`w32`/`w00`, 70 tablas c/u, ~807k filas, Σ de control al centavo) con CDC dos carriles bajo **PM2** (`wincaja-inc` cada 2 min · `wincaja-hash` cada 60). WR.6 re-apuntó el bronze (`--source replica`); WR.7 endureció el "girar en cero" (4 días vivo sin mover un dato: descubrimiento vacío cacheado + heartbeat sin destino + una sucursal caída cortando el ciclo). **WR-hist 🔨** (decisión Edgar 2026-09-01: *mudar Wincaja actual e histórico a Postgres*; crudo local + agregados a prod, 2017–2025, las 70 tablas, y *"priorizar lo actual de prod, de reciente a viejo"*): **206 unidades / 23.4 GB** → schemas `hNN` con el corte en la identidad. **Los dos hallazgos que definieron el diseño:** cada carpeta `<año>` es el corte de ESE año (no un acumulado) y **el `Consecutivo` REINICIA en 1 cada año** (suc 32: 2021 `1..89,586` · 2025 `1..129,760`) → sin el corte en la identidad los años se pisan en silencio. **Herramienta cambiada:** mdbtools en contenedor en vez de Jet+PS32 — **97 s vs 554 s** por archivo (5.7×) con filas y ΣValorVenta **idénticos al centavo**; el cuello no era Postgres (16–31 s de escritura) sino `ConvertTo-Json` por fila. Identidad = surrogate `(_dataset, _row_hash)`, nunca la PK natural (mdbtools reporta PK en `ArticulosRelacion.CodigoBarras` y **los datos la violan**). **2026 ya está en prod** dentro del corte `actual` (ene–ago, 65–85k movs/mes), no como corte propio. Plan en [`FASE_WR`](FASES/FASE_WR_WINCAJA_REPLICA.md) §13. **Pendiente:** terminar la corrida (~9 h) + `wincaja-hist-verify.js` (cruce contra el bronze de prod, cargado con OTRO lector) + confirmar la caída de cobertura 20→9 sucursales de ene→ago 2026 + `.7z` 2009–2016 + los agregados a prod. | 85% (vivo ✅ · histórico en carga) |
+
+| **VP — Verdad y Procedencia (ADR-056)** | 🟡 **En progreso** — VP.0 ✅ · VP.1 ✅ · VP.2 🔨 | Nace de *"me dicen que los números de la empresa cambian"*. La auditoría midió que **no falta arquitectura**: cada primitivo (frescura, cobertura, unidad, versión de la regla, valor anterior, cuadre contra árbitro, latido) **ya existía bien hecho en UN solo dominio y nunca se generalizó** — frescura en 4 de 171 endpoints, latido en 13 de 109 importers y **0** de los de datos maestros, **6** menciones de `as_of` en 874 interfaces de respuesta. **VP.0 ✅** paró tres mentiras vivas: `FRESHNESS_UNKNOWN` con `stale:false` dejaba MUDA a la etiquetera cuando fallaba la medición (misma pantalla que imprimió precios 54% bajo costo); **21 de 24** píldoras decían "actualizado" midiendo el navegador; `db-health` daba **verde incondicional** a las 3 matvistas del sell-out por no tener umbral. **VP.1 ✅** cerró las tres capas ciegas del sell-out (el candado de paridad que el docstring prometía y no existía · el refresh que materializaba el rollup sobre una pierna caída · el monitor). **VP.2.1 ✅** subió la forma a `libs/contracts`. **Falta:** VP.2.2/2.3 (envelope + 4ª compuerta de CI), VP.3 (historia de datos maestros — hoy **cero** para precio/costo/reorden), VP.4 (`period_close`: **no existe ninguna cifra oficial congelada**), VP.5 (la suite a CI). Plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md) | 40% |
 
 Leyenda fase:
 - 🔴 No iniciada · 🟡 En progreso · 🔵 En revisión · 🟢 Completada · ⏸️ Bloqueada
@@ -1286,6 +1288,61 @@ dry-run 2026-09-04: rama 01 **4,709**/9.07 %, rama 00 **312**/3.21 %, rama 06 **
 guarda de 20 %). El script existe y tiene guardas, **nunca se agendó**, y borra en prod → espera
 decisión · `FEEDS_INGEST_KEY` en texto plano en los launchers (→ INFRA.1.4) · `FeedGuardian` mata por
 mtime de log (ver OBS.8.2).
+
+---
+
+## Fase VP — Verdad y Procedencia (ADR-056) · plan en [`FASE_VP`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md)
+
+**Lo que la origina (2026-09-05):** Edgar reporta que *"a menudo me dicen que existen cambios en los
+números de la empresa"* y que la plataforma no maneja procedencia, ni log de cambios, ni una verdad
+absoluta. La auditoría encontró algo distinto de lo esperado: **no falta arquitectura — cada primitivo
+necesario ya estaba construido, aplicado a un solo dominio, y nunca generalizado.** Frescura: **4 de
+171** endpoints analíticos. Cobertura: **1** pantalla. Unidad: **9 de 264** servicios. Latido de
+importer: **13 de 109**, y **0** de los de datos maestros. Un solo bloqueo duro en todo el repo.
+El número llegaba desnudo: **6 menciones de `as_of` en 874** interfaces de respuesta del frontend.
+**570 commits** en la historia arreglan corrección numérica (*"recupera $8.07M/mes que la copia
+tiraba"*) — **todos los encontró un humano**. Causa de fondo: el proyecto crece por **fases** y el
+tracker rastrea fases, no **invariantes**.
+
+### VP.0 — Parar la mentira activa ✅ (2026-09-05)
+- [x] ✅ **VP.0.1** `Freshness` pasa a ternario `fresh|stale|unknown`; `stale` queda **derivado** (`status !== 'fresh'`) → un consumidor viejo avisa en `unknown` sin tocarlo. `FRESHNESS_UNKNOWN` salía con `stale: false` y los consumidores preguntan `@if (f.stale)` → **cuando fallaba la medición la etiquetera no mostraba nada**, en la misma pantalla que imprimió seis días de precios viejos (uno **54% bajo costo**). El primitivo escrito para evitar eso lo reproducía, a tres días de nacer. `composeFreshness([])` deja de caer en `some([]) === false` = fresco. Commit `4877bdb1`.
+- [x] ✅ **VP.0.2** La píldora declara **qué mide**: `measures: 'data'|'fetch'` **requerido** (con `strictTemplates`, no compila sin él). **21 de 24** medían el reloj del navegador y decían *"actualizado hace 2 min"*; la peor, `tienda-arqueo` con `label="Kepler"` sobre un `new Date()` local. Ahora dicen "cargado hace N" y pierden el punto verde. **Prueba negativa hecha**: quitar `measures` tumbó el build (exit 255). Commit `7ecc20f6` · 25 archivos.
+- [x] ✅ **VP.0.3** Guard de **edad** en matvistas — los tres del sell-out preguntaban `relispopulated`, que es `true` para siempre tras el primer populate. `SellOutReport.freshness` declara la edad vía `laneAt()` (tolerancia 26 h = el `warnH` de `CRON_JOBS`). Commit `8644f1e9`.
+- [x] ✅ **VP.0.4** `db-health`: el default `cfg ? classify(...) : 'ok'` pasa a `'unknown'` — **un job sin umbral no es sano, es no medido**. Las 4 matvistas del refresh nocturno quedan registradas (26 h/50 h); `analytics_refresh_wincaja` deja de tener los umbrales del cron de 15 min (gritaba `critical` todos los días). Commit `4877bdb1`.
+- [x] ✅ **VP.0.5** Candado **genérico**: todo `job_key` que late en `analytics.cron_runs` tiene que tener umbral. La lista a mano sólo protegía lo que alguien recordó escribir — y no nombraba las 3 huérfanas. Se corrigió además una aserción que medía lo que no era (`FRESHNESS_UNKNOWN no afirma frescura` verificaba `data_as_of: null`, cierto **también con el bug**). `test-newdb-feed-observability` **80/0**. Commit `4877bdb1`.
+- [x] ✅ **VP.0.6** `coverage.measured: boolean`. El sell-out por vendedor **hardcodeaba** `{ branches_with_data: [], branches_missing: [], note: '<fijo>' }` — dos arreglos vacíos se leen como "no falta ninguna sucursal", afirmación que nadie hizo; ese pivote ni selecciona sucursal. Commit `8644f1e9`.
+
+### VP.1 — El candado del sell-out ✅ (2026-09-05)
+- [x] ✅ **VP.1.1** Se retira `KEPLER_SELLOUT_DEDUP`: tenía **una sola referencia, su propia declaración**, y un docstring que seguía diciendo *"centralizado acá para que lo reusen"*. Una copia muerta que sigue **pareciendo** canónica es peor que no tenerla. Commit `0cf06cd4`.
+- [x] ✅ **VP.1.2** `test-newdb-sellout-parity.js` — el candado que la migración **afirmaba que existía** (*"un test de paridad lo verifica"*) y no existía: grep de `v_sellout_daily` daba 6 hits, ninguno un test. Cuatro preguntas: literales idénticos · **cero doble conteo** por sucursal-día · **cero hueco** a los dos lados del corte (*el traslape se ve, el hueco no*) · rollup == vista **al peso**. Con **tercer estado**: lo que no se puede medir reporta `NO MEDIDO`, no ✔. Medido: **16 OK · 0 fallas · 2 NO MEDIDOS**; rollup Δ 0.00 en 2026-06/07/08. Commit `0cf06cd4`.
+- [x] ✅ **VP.1.3** El refresh valida **dependencias**: si falla `mv_kepler_sales_daily`, el rollup no se refresca (mejor el de ayer, viejo pero coherente, que uno mezclando piernas). El `continue` mudo —MV borrada → ni error ni latido, sólo `debug`— pasa a tratarse como falla. Commit `282ea311`.
+
+### VP.2 — El contrato de procedencia 🔨
+- [x] ✅ **VP.2.1** `libs/contracts/src/http/provenance.contract.ts` (`Freshness`, `FreshnessInput`, `FreshnessStatus`, `Coverage`). El tipo nació en `libs/commercial` el 2026-09-02 y **a los tres días ya estaba copiado a mano** en el frontend. Commit `8644f1e9`.
+- [ ] ⬜ **VP.2.2** Aplicar el envelope por tráfico: `commercial-analytics` (62) → `-intelligence` (47) → `-replenishment` (40) → resto.
+- [ ] ⬜ **VP.2.3** `scripts/check-provenance.js` — cuarta compuerta de CI, calcando `check-authz-tree.js`. Ratchet como TS.0.
+
+### VP.3 — Historia de datos maestros ⬜
+- [ ] ⬜ **VP.3.1** `analytics.master_data_history` por trigger genérico (el repo tiene ~20 `trg_auto_populate_tenant_id`: el patrón ya está a escala). Hoy **cero** historial para precio, costo, punto de reorden, etiqueta y factor de caja.
+- [ ] ⬜ **VP.3.2** Los ~11 importers de datos maestros suman `cron-heartbeat` y setean `updated_by` (hoy la columna **miente**: 0 de 11 la escriben). `import-computed-reorder`/`import-network-reorder` pisan **9 columnas de política de golpe** sin dejar rastro del valor anterior.
+- [ ] ⬜ **VP.3.3** `cron_runs` gana historial (PK `(tenant_id, job_key)` guarda **sólo la última corrida**).
+
+### VP.4 — Cerrar el mes ⬜ *(decisión Edgar: congelado manda, la diferencia se declara)*
+- [ ] ⬜ **VP.4.1** `analytics.period_close` (cifra + `definicion_hash` de `pg_get_viewdef` + watermarks). Hoy grep de `period_close`/`cierre_mes`/`frozen` en 578 migraciones da **cero**: no existe ninguna cifra oficial congelada.
+- [ ] ⬜ **VP.4.2** Un mes cerrado se sirve del cierre, no del recálculo.
+- [ ] ⬜ **VP.4.3** Cron comparador → si difiere, **abre hallazgo** nombrando qué se movió. **Ése es el log de cambios que no existe**: *"¿por qué cambió enero?"* pasa a tener respuesta.
+- [ ] ⬜ **VP.4.4** Reusar bandeja, no crear la novena (hay **8** tablas de findings y un puerto que usa sólo finance).
+
+### VP.5 — La compuerta ve números ⬜ *(decisión Edgar: la suite entra a CI)*
+- [ ] ⬜ **VP.5.1** Las **21 pruebas huérfanas** entran a `run-all-tests.js`. Primera: `test-newdb-cash-cuts-sync.js`, que valida un sync que **ya falló en prod** ($300k+).
+- [ ] ⬜ **VP.5.2** Las "skip-graceful" **fallan sin datos** en vez de pasar en verde — hoy pasan justo en el entorno donde alguien las correría.
+- [ ] ⬜ **VP.5.3** Job de CI con Postgres de servicio: las **87 suites DB-direct** primero. Es el pendiente que el propio `ci.yml` declara **dos veces**.
+
+**Pendientes / riesgos abiertos:** ⚠️ **el traslape y el hueco del sell-out siguen SIN MEDIR** —
+`platform_test` tiene `mv_wincaja_sales_daily` vacía, falta correr el candado contra **prod**
+(read-only) · ⚠️ el commit `0cf06cd4` **se llevó trabajo en vuelo ajeno** (`monto_neto`) al stagear el
+service completo con dos manos sobre el mismo archivo · ⚠️ **quinta vez** que un acento grave dentro de
+un `template` literal tumba el build (NG5002, `GOTCHAS.md` §34).
 
 ---
 
