@@ -166,10 +166,19 @@ const HB_URL = process.env.ODS_HB_URL || process.env.FLEET_DB_URL || null;
 const HB_KEY = process.env.ODS_HB_KEY || (ALL_MODE ? 'ods_live_mirror' : 'ods_live_hot');
 const HB_LABEL = ALL_MODE ? 'ODS espejo completo (replica→prod)' : 'ODS carril vivo (replica→prod)';
 
+// El latido viaja a Railway por internet: es la ÚNICA conexión del script que sale de la LAN,
+// y por eso la más expuesta a un socket que se queda a medias. `pg` NO trae timeout de conexión
+// por default — sin `connectionTimeoutMillis` un `connect()` contra un peer que no contesta ni
+// resetea espera PARA SIEMPRE, y como el latido es lo primero de cada ciclo, el `for(;;)` del
+// modo --watch queda clavado con el proceso vivo y CPU 0%. Eso fue el cuelgue del 04-09-2026:
+// última línea `latido (end) falló: Connection terminated unexpectedly` y 15 h de silencio con
+// Docker reportando `healthy`. `HB_CONN` le pone reloj a las dos conexiones de telemetría.
+const HB_CONN = { ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000, statement_timeout: 30000, query_timeout: 30000 };
+
 /** Latido DIRECTO a prod. Nunca tira: un latido que rompe el feed es peor que no tenerlo. */
 async function latir(fase, { status, rows, note, error, ms } = {}) {
   if (!HB_URL) return;
-  const c = new Client({ connectionString: HB_URL, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
+  const c = new Client({ connectionString: HB_URL, ...HB_CONN });
   try {
     await c.connect();
     if (fase === 'begin') {
@@ -213,7 +222,7 @@ async function latir(fase, { status, rows, note, error, ms } = {}) {
  */
 async function marcarRamas(marcas) {
   if (!HB_URL || !marcas.length) return;
-  const c = new Client({ connectionString: HB_URL, ssl: { rejectUnauthorized: false }, statement_timeout: 30000 });
+  const c = new Client({ connectionString: HB_URL, ...HB_CONN });
   try {
     await c.connect();
     for (const m of marcas) {

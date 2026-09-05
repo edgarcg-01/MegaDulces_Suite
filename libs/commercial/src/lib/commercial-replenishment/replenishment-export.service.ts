@@ -116,6 +116,18 @@ export interface WorkbookExport {
  */
 @Injectable()
 export class ReplenishmentExportService {
+  /**
+   * U.2 — rótulo de la unidad NATIVA para el XLSX. Kepler a veces guarda ahí un NÚMERO (el gramaje
+   * de la bolsa: '500', '250') en vez del nombre de la unidad; concatenarlo daba "298 500", que no
+   * se lee como nada. En ese caso se dice completo. Misma regla que `natUnitOf()` en
+   * compras-pedido-real.component.ts — si cambia una, cambia la otra.
+   */
+  private natLabel(natu?: string): string {
+    const raw = (natu || '').trim();
+    if (!raw) return 'u';
+    return /^[\d.]+$/.test(raw) ? `u. de ${raw}` : raw.toLowerCase();
+  }
+
   private thin(): Partial<ExcelJS.Borders> {
     const s = { style: 'thin' as const, color: { argb: 'FFD8D5CE' } };
     return { top: s, left: s, bottom: s, right: s };
@@ -636,9 +648,13 @@ export class ReplenishmentExportService {
         // U.2 — si el peldaño de ese almacén no está verificado, la existencia en cajas no es
         // confiable: va la cantidad SUELTA con su rótulo, no una cifra de cajas inventada.
         const exisCel: string | number = cel.rung
-          ? `${Math.round(Number(cel.nat) || 0).toLocaleString('es-MX')} ${(cel.natu || 'u').toLowerCase()} (sin convertir)`
+          ? `${Math.round(Number(cel.nat) || 0).toLocaleString('es-MX')} ${this.natLabel(cel.natu)} (sin convertir)`
           : (Number(cel.exis) || 0);
-        vals.push(Number(cel.vta) || 0, exisCel, Number(cel.ped) || 0);
+        // U.2 — el PEDIDO de ese almacén sale de restar esa misma existencia: si el peldaño está
+        // contradicho, la resta mezcla peldaños y pide de más. Un 0 en el XLSX se leería
+        // "no pedir nada" (otra mentira), así que va el motivo en texto.
+        const pedCel: string | number = cel.rung ? 'sin calcular' : (Number(cel.ped) || 0);
+        vals.push(Number(cel.vta) || 0, exisCel, pedCel);
       }
       // ⚠️ U.2 — `valor_exis` puede venir NULL (ningún almacén verificado). Va CADENA VACÍA, no 0:
       // un cero en el XLSX se lee como "no hay inventario", que es la mentira opuesta a la que
@@ -854,9 +870,13 @@ export class ReplenishmentExportService {
         // U.2 — si el peldaño de ese almacén no está verificado, la existencia en cajas no es
         // confiable: va la cantidad SUELTA con su rótulo, no una cifra de cajas inventada.
         const exisCel: string | number = cel.rung
-          ? `${Math.round(Number(cel.nat) || 0).toLocaleString('es-MX')} ${(cel.natu || 'u').toLowerCase()} (sin convertir)`
+          ? `${Math.round(Number(cel.nat) || 0).toLocaleString('es-MX')} ${this.natLabel(cel.natu)} (sin convertir)`
           : (Number(cel.exis) || 0);
-        vals.push(Number(cel.vta) || 0, exisCel, Number(cel.ped) || 0);
+        // U.2 — el PEDIDO de ese almacén sale de restar esa misma existencia: si el peldaño está
+        // contradicho, la resta mezcla peldaños y pide de más. Un 0 en el XLSX se leería
+        // "no pedir nada" (otra mentira), así que va el motivo en texto.
+        const pedCel: string | number = cel.rung ? 'sin calcular' : (Number(cel.ped) || 0);
+        vals.push(Number(cel.vta) || 0, exisCel, pedCel);
       }
       // ⚠️ U.2 — `valor_exis` puede venir NULL (ningún almacén verificado). Va CADENA VACÍA, no 0:
       // un cero en el XLSX se lee como "no hay inventario", que es la mentira opuesta a la que

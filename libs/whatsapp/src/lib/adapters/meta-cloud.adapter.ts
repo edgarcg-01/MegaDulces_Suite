@@ -159,8 +159,14 @@ export class MetaCloudWhatsAppAdapter implements WhatsAppPort {
   /** Valida la firma HMAC sha256 del body crudo contra el app secret. */
   private verifySignature(signature: string | undefined, rawBody: Buffer | string | undefined): void {
     if (!this.appSecret) {
-      // Sin secreto configurado no podemos validar; en dev lo permitimos con warning.
-      this.logger.warn('WHATSAPP_APP_SECRET ausente — firma del webhook NO validada.');
+      // `[AUTHZ-HARD.0]` El webhook es @Public(): sin secreto no hay forma de saber que el POST
+      // viene de Meta. Antes se dejaba pasar SIN validar → cualquiera inyectaba mensajes que
+      // disparan el motor conversacional (creación de pedidos). Ahora falla CERRADO en prod;
+      // en dev se tolera con warning para poder probar sin credenciales.
+      if (process.env['NODE_ENV'] === 'production') {
+        throw new BadRequestException('Webhook no configurado: falta WHATSAPP_APP_SECRET.');
+      }
+      this.logger.warn('WHATSAPP_APP_SECRET ausente — firma del webhook NO validada (sólo dev).');
       return;
     }
     if (!signature || rawBody == null) throw new BadRequestException('Firma de webhook ausente');

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Put, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { CommercialCargaService } from './commercial-carga.service';
 import type { SetLoadStatusDto } from './commercial-carga.service';
 
@@ -12,7 +12,13 @@ export class CommercialCargaController {
   constructor(private readonly service: CommercialCargaService) {}
 
   @Get('load-status')
-  @RequirePermissions(Permission.COMMERCIAL_CARGA_VER)
+  // Leer el checklist de carga: quien la GESTIONA (vendedor_ruta) debe poder LEERLA —
+  // nadie tenía CARGA_VER, ni el que carga. Acepta VENDOR_APP_ACCESS (lectura del campo).
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_CARGA_VER,
+    Permission.COMMERCIAL_CARGA_GESTIONAR,
+    Permission.VENDOR_APP_ACCESS,
+  )
   @ApiOperation({ summary: 'Estados de carga (loaded/not_loaded) de las líneas de los pedidos dados (order_ids CSV).' })
   getStatuses(@Query('order_ids') orderIds?: string) {
     return this.service.getStatuses(

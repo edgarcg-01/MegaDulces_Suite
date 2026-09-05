@@ -1266,10 +1266,26 @@ falló fue que la alarma no salió del edificio y que el carril que de verdad al
 - [x] ✅ `test-newdb-feed-observability.js` registrado en `run-all-tests.js`. **46/46 verde.** No prueba que la ingesta funcione — prueba que **no puede volver a mentir**. Candados: `clase IS NULL` en `ods_table` (si alguien le pone ritmo vuelve el falso positivo de `k95doc`/RH) · la vista **sin umbrales** (verifica el `pg_get_viewdef`: ni `warn_h` ni `crit_h` ni `stale`; una 2ª copia se separa en silencio) · los **7 carriles registrados** en `CRON_JOBS` (sin entrada → verde incondicional) · latido por **canal propio** + preflight que aborta si apunta a la fuente (el 26-ago una rotación de key dio 401 en los 7 CDC **sin una sola alarma**) · el **catch del healthcheck sale 1** · el hueco del slot **se declara** · **sin señal = stale**.
 - 🔵 **Nota**: el default del runner (`localhost:5433/postgres_platform`) tiene **100 migraciones pendientes**; el DB de dev real es el de `DATABASE_URL_NEW` (`.245/platform_test`). Como todo test newdb, hay que correrlo con el env cargado.
 
-**Deuda operacional abierta:** el shipper corre por `Start-Process` → **no sobrevive un reboot** ·
-`FEEDS_INGEST_KEY` en texto plano en 4 launchers + horneada en `dump.pm2` (→ INFRA.1.4) · **el CDC
-sigue muerto**, así que no hay propagación de DELETE: la rama 04 tiene **9,532 filas en el ODS contra
-9,525 en el replica**.
+### OBS.8 — Un carril = un dueño ✅ 2026-09-04 (commit `f058b0fe` + doc)
+Disparador: Edgar preguntó por qué `/comercial/documentos` **no se actualiza al momento**. La pantalla no tenía nada — lee vistas en vivo sobre `kepler_ods`, así que su frescura *es* la del ODS.
+- [x] ✅ **OBS.8.0 El diagnóstico.** `ods-live-hot` llevaba **15 h colgado** (proceso vivo, **CPU 0.00 %**, cero salida desde `latido (end) falló: Connection terminated unexpectedly`) y Docker decía `Up 2 days (healthy)`. **Cinco de las siete ramas (02-06) llevaban 14 h 56 min sin una sola pasada**: ventas las tapaba a medias el reconciliador @15 min, pero catálogo/precio/costo/existencia de esas ramas no las tapaba nadie.
+- [x] ✅ **OBS.8.1 La causa: TRES dueños del mismo carril.** Docker + la tarea `\Tienda\OdsLiveLoop` (`run-ods-live-loop.cmd`) + el `dump.pm2` (que en un reboot revivía una tercera copia). Los tres escriben el mismo renglón de `analytics.cron_runs`, cuya **PK es `(tenant_id, job_key)` y no guarda host** → el healthcheck del contenedor muerto leía el pulso que la tarea de Windows escribía **desde otra máquina**. El muerto pasaba el examen con el pulso del vivo.
+- [x] ✅ **OBS.8.2 Y el guardián mataba la pasada sana.** `FeedGuardian` decide "trabado" por **mtime del log** (`maxMin=10`); una pasada real del ODS pasa >10 min sin imprimir → mataba el `node` a mitad de camino cada ~20 min y el `:loop` re-arrancaba **desde la rama 00**, dejando 02-06 inalcanzables por construcción. En `guardian.log`, cuatro veces en una hora. ⚠️ `LiveFastLoop` y `LivePoller` siguen bajo ese criterio y sobreviven **sólo porque loguean seguido**.
+- [x] ✅ **OBS.8.3 El gatillo del cuelgue.** `pg` **no trae timeout de conexión por default** y `latir()`/`marcarRamas()` abrían su `Client` sin `connectionTimeoutMillis` (el resto del script sí, vía `CONN`). El latido es lo único que sale de la LAN y es lo primero de cada ciclo: un `connect()` a un peer que no contesta ni resetea espera **para siempre** y clava el `for(;;)` del `--watch`. Fix: `HB_CONN`.
+- [x] ✅ **OBS.8.4 El healthcheck verifica de quién es el pulso.** `ops/ingest/health.js` compara `cron_runs.host` contra su propio `os.hostname()`.
+- [x] ✅ **OBS.8.5 El brazo que faltaba (cierra el agujero de OBS.4).** En Docker standalone `restart: unless-stopped` reacciona a que el proceso **muera**; `unhealthy` es sólo un rótulo (reiniciar por salud lo hace Swarm). El `Dockerfile` **afirmaba lo contrario** y esa creencia costó las 15 h. Servicio `autoheal` **acotado por etiqueta** (nunca toca `pgvector-md`/`api`/`view`). Verificado con contenedor canario: detectado y reiniciado 3 veces.
+- [x] ✅ **OBS.8.6 Bajas.** 6 tareas programadas desregistradas (`OdsLiveLoop`, `OdsFastLoop`, `OdsFullMirror`, `OdsReplicate`, `OdsReplicateCatalog`, `OdsReplicateFull`) · `dump.pm2` de **12 apps a 2** · `FeedGuardian` sin carriles del ODS · `watchtower` (en crash-loop por API version) y 3 contenedores muertos, eliminados.
+- [x] ✅ **OBS.8.7 CDC WAL retirado** (decisión Edgar). 6 slots `lost` dropeados (retenían 0 bytes) · `ecosystem.cdc.config.js` convertido en **lápida que falla** si alguien lo levanta · 10 latidos muertos borrados de `cron_runs` y sacados de `CRON_JOBS`. Un rojo permanente que nadie va a atender enseña a ignorar el tablero — es lo mismo que OBS.1 arregló por el otro lado (el verde incondicional).
+- [x] ✅ **OBS.8.8 Sobrantes en el reconciliador.** `reconcile-ods-window.js` ahora mira el espejo completo: además de los faltantes que repone, cuenta las llaves que **siguen en el ODS y ya no están en el replica** — la señal que reemplaza al DELETE del WAL. **Reporta, no borra**, y su alarma nace apagada (`ODS_SOBRANTES_ALERT=0`) hasta tener un piso medido: una fila a la que le cambia su fecha de negocio sale de la ventana sin haber sido borrada.
+- [x] ✅ **OBS.8.9 Topología documentada** → `GOTCHAS.md` **§35** (un carril = un dueño; las 3 trampas) y **§36** (los 3 saltos y **por qué el tercero no puede ser replicación nativa**: es *pull* y los POS no tienen IP pública; y hace *fan-in* de 7 fuentes a una tabla con `sucursal`). Convención `kepler_md_XX` con la excepción **03 = `kepler_pilot`**, y las huérfanas `md_03`/`kepler_consolidado` declaradas.
+- 📏 **Medido después:** las 7 ramas a **9-30 s** de rezago.
+- ⚠️ **Colisión de numeración:** este sprint nació rotulado `OBS.7`, que ya era el de Regresión; renumerado a **OBS.8**. El commit `f058b0fe` quedó con `[OBS.7]` en el asunto.
+
+**Deuda operacional abierta:** ⬜ **5,021 pedidos fantasma en el ODS** (`reconcile-ods-deletes.js`
+dry-run 2026-09-04: rama 01 **4,709**/9.07 %, rama 00 **312**/3.21 %, rama 06 **2,664** saltada por la
+guarda de 20 %). El script existe y tiene guardas, **nunca se agendó**, y borra en prod → espera
+decisión · `FEEDS_INGEST_KEY` en texto plano en los launchers (→ INFRA.1.4) · `FeedGuardian` mata por
+mtime de log (ver OBS.8.2).
 
 ---
 
@@ -1341,6 +1357,55 @@ Reporte de Edgar: *"hay problemas con el usuario luis_piceno en prod, lo arroja 
 **Queda abierto — la clase, no el caso:** hay **35 permisos** que gatean pantallas y no abren ningún proyecto. Hoy no rompen a nadie (medido), pero el patrón se repite en cuanto nazca un rol acotado a permisos operativos. El arreglo de fondo es **derivar** el `anyOf` de las tarjetas y los candidatos de landing de `AUTHZ_TREE` —que ya declara qué permiso pertenece a qué app— en vez de mantener tres listas a mano. Con eso el candado sería estructural en vez de una lista más que actualizar.
 
 📌 **Nota de método:** el primer conteo de impacto salió mal tres veces por parsear TypeScript con regex (el `]` de un comentario truncaba el array; varios permisos en una línea; el `anyOf` de una sola línea). Los números de arriba son los del parser corregido, contrastado contra una lectura directa del archivo. Si esto se vuelve un smoke, la lista de tarjetas tiene que salir a un `.ts` de constantes e importarse con `ts-node` —como ya hacen `test-newdb-user-dto` y `test-newdb-scope-params`— no parsearse.
+
+---
+
+## Fase AUTHZ-HARD — Auditoría a fondo + endurecimiento (fail-closed en todo)
+
+> Pedido de Edgar: *"audita a fondo nuestro manejo de permisos, que nada falle y sea 100% seguro"*. Auditoría con 3 barridos de código en paralelo + medición directa contra prod (read-only). La compuerta de permisos (AUTHZ.0–6) estaba bien; los agujeros estaban **debajo**. Decisiones de Edgar: rotar el JWT_SECRET ya · unificar el alcance a `ScopeService` · todo en una pasada.
+
+### AUTHZ-HARD.0 — P0 estructural ✅ 2026-09-03 (en código)
+- [x] 🔨 **0-A El secreto de firma era el default público del repo.** `process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod'` en **16 archivos** (issuers + guard + 11 gateways), y el string está commiteado en `docs/`. Medido: el `JWT_SECRET` de prod **es ese default** (confirmado por Edgar) → cualquiera forja `{role_name:'superadmin'}` HS256 y obtiene god-mode cross-tenant. Fix: helper `requireJwtSecret()` ([`jwt-secret.ts`](../../libs/platform-core/src/lib/auth/jwt-secret.ts)) que **aborta el arranque** si falta o si es el default (en prod); reemplazado en los 16. Pinneado `algorithms:['HS256']` en `signOptions`+`verifyOptions` de cada `JwtModule`. Endurecidos además: `WHATSAPP_APP_SECRET` (el webhook `@Public()` **fallaba abierto** sin él → ahora 400 en prod) y `STORE_INGEST_KEY` (default commiteado → falla cerrado en prod).
+- [x] 🔨 **0-B Toda la auth colgaba de `ENABLE_MULTITENANT`.** `JwtAuthGuard`+`RolesGuard` globales sólo se registran si la env es `'true'`; el runbook de rollback dice literalmente "quitarla" → el procedimiento de emergencia apagaba la autenticación. Fix: `assertAuthWiring()` en `bootstrap()` ([`main.ts`](../../apps/api/src/main.ts)) **aborta** si `NODE_ENV=production` y la env no es `'true'`.
+- [x] 🔨 **0-C Escalada por `PUT /users/:id/roles`.** `setRoles` no tenía **ninguno** de los frenos de sus hermanos (`assertCanAssignRole`, no-self, techo): cualquiera con `USUARIOS_GESTIONAR` se añadía `superadmin` como complemento y heredaba las 164 claves por la unión del perms-cache. Radio HOY = 0 (ningún rol no-admin tiene `USUARIOS_GESTIONAR`), pero el freno debe estar en código. Igual `setScope` (auto-ampliarse `warehouse=all`). Fix: los 3 frenos en `setRoles` + no-self/tope de amplitud en `setScope` + invalida `ScopeService` al cambiar alcance.
+
+### AUTHZ-HARD.1 — P1 IDOR / rutas sin gate ✅ 2026-09-03 (en código)
+- [x] 🔨 **1-A `logistics/analytics/*` (8) + `logistics/reports/*` (3) sin gate.** Cualquier autenticado —incl. `customer_b2b`— leía nómina de choferes, márgenes y ROI. El smoke AUTHZ.5 no lo vio (sólo vigila escrituras + 8 controllers hardcodeados). Gateados por la familia `LOGISTICS_*_VER` (nómina con `LOGISTICS_PAYROLL_VER`). Parametrizado el SQL de `fleet-utilization` (inyección **1-E** por `q.from/q.to` crudos).
+- [x] 🔨 **1-B IDOR cross-tenant en captura.** `GET /visits/:id` (sin permiso + `KNEX_CONNECTION` superusuario sin filtro de tenant), `GET/DELETE /daily-captures/:id`, `DELETE /reports/:id`: todos leían/borraban filas de otro tenant por UUID/folio adivinable. Fix: `@RequirePermissions(VISITAS_VER)` + filtro por `tenant_id` (y alcance own/team en visitas).
+- [x] 🔨 **1-C/1-F IDOR de cliente + superficie interna expuesta al B2B.** `customer_b2b` (3 cuentas activas) tiene `COMMERCIAL_CUSTOMERS_VER`+`ORDERS_VER` → leía el 360, NBA, canasta, pagos e historial de **cualquier** cliente. Fix (ownership, cero migración): `assertCustomerAccess` en customer-360 y recommendations; `enforceOrderOwnership`-style en `payments/orders/:orderId` y `orders/frequent/:customer_id`; `createDraft` resuelve el `customer_id` del JWT. Y los tableros internos (findings/diagnoses/actions/autonomy/signals) se movieron de `ORDERS_VER`/`CUSTOMERS_VER` a una clave nueva **`COMMERCIAL_INTELLIGENCE_VER`** (mig `20260904120000`, se otorga a todo interno que ya tenía los gates viejos, **excepto** `customer_b2b`).
+- [x] 🔨 **1-D/1-G push / telemetry.** `POST /push/unsubscribe` borraba la suscripción de cualquiera por endpoint (tabla sin RLS) → acotado al `user_id` del JWT. `GET /telemetry/portal/summary` leía cross-tenant por `?tenant_id` → forzado el tenant del contexto.
+
+### AUTHZ-HARD.2 — Revocación: desactivar/degradar = revocar ✅ 2026-09-03 (en código)
+- [x] 🔨 **Desactivar = revocar.** El token vive 12h y no es revocable; ni `JwtAuthGuard` ni el perms-cache releían `identity.users`, así que un despedido/degradado (o un token robado) seguía entrando hasta expirar — god-mode incluido. Fix: `PermissionsCacheService.isUserActive()` (cacheado 30s, fail-open ante error de DB) + `JwtAuthGuard` lo consulta en cada request y da 401 si la cuenta está inactiva/borrada. `invalidateUser` limpia también ese cache (baja instantánea desde /admin).
+- [x] 🔨 **God-mode desde el rol FRESCO.** `RolesGuard` decidía el god-mode con `user.role_name` del token: degradar a un superadmin (dejándolo activo) no se lo quitaba hasta el vencimiento. Ahora se evalúa sobre los roles frescos del perms-cache (`getRolesForUser`). **Diferido:** re-lectura de rol/permiso en el handshake de los 11 gateways WS (la revocación aplica a conexiones nuevas; las abiertas siguen hasta reconectar) — documentado.
+
+### AUTHZ-HARD.5 — Login endurecido (código) ✅ 2026-09-03
+- [x] 🔨 **Rate-limit propio del login:** `@Throttle({ short: { limit: 5, ttl: 60_000 } })` en `/auth/login` y `/auth-mt/login` (5/min/IP vs. el global 200/min ≈ 288k/día). 
+- [x] 🔨 **Oráculo de enumeración cerrado:** los chequeos de estado (cuenta de servicio / vencida) pasaban ANTES del `bcrypt.compare` y sus mensajes distintos permitían enumerar cuentas sin la contraseña. Ahora corren DESPUÉS: el estado sólo se revela a quien probó ser el dueño.
+- ⬜ **Diferido (Edgar, desde la UI):** contraseñas compartidas (7 cuentas de finanzas), 2 hashes no-bcrypt, 44 cuentas activas que nunca entraron (2 superadmin), exceso de superadmin (11), roles vacíos (`administrativo`/`admin_b`/`servicio`), cuentas de smoke + tenants de prueba, `must_change_password` sin uso, CORS `origin:'*'`+`credentials`. Y en código: filtro por tenant en el `/auth/login` legacy (no-determinista con usernames repetidos entre tenants).
+
+### AUTHZ-HARD.6 — Smokes anti-regresión 🔨 (en curso)
+- [x] 🔨 **`test-authz-boot.js`** (registrado en `run-all-tests.js`): `requireJwtSecret` lanza sin secreto o con el default en prod y lo tolera en dev; `assertAuthWiring` aborta el boot sin `ENABLE_MULTITENANT` en prod; **cero** default de secreto hardcodeado en el código vivo. 7/7 verde.
+- [x] 🔨 **`test-authz-route-coverage.js`** ya cubre el catálogo (165==165, 0 invisibles, 0 huérfanos) tras sumar `COMMERCIAL_INTELLIGENCE_VER`. 18/18.
+- ⬜ **Diferido:** `test-authz-idor.js` (runtime, con `customer_b2b`) y `test-authz-escalation.js` (que `USUARIOS_GESTIONAR` no se auto-otorgue superadmin) — necesitan la API arriba (los levanta Edgar); `authz-tree.spec.ts` de completitud (se solapa con la cobertura ya existente).
+
+### AUTHZ-HARD.3 — Cerrar los fail-open de alcance (migrar a `ScopeService`) 🔨 2026-09-03 (en código)
+**Reencuadre verificado leyendo el código:** `getDataScope` **NO se retira** — resuelve un eje DISTINTO (la jerarquía de REPORTES: `own`/`team`/`all` vía `supervisor_id`), que `ScopeService` no modela (sus dimensiones son warehouse/zone/route/brand/expense_area/customer), y **ya es fail-closed** (default `own`). Forzarlo a `ScopeService` sería una expansión de diseño de alto riesgo por CERO ganancia de seguridad → viola *"que nada falle"*. La unificación de valor real es cerrar los **fail-open** (ausencia de alcance = ve la red entera) migrándolos a `ScopeService` (fail-closed). Semántica clave: `readParam`/`current` → `null` = alcance `all` (sin filtro), `[]` = `none` (`WHERE IN ()` = nada), `[x]` = esas.
+
+**Medición prod (read-only) antes de tocar, para no cegar a nadie:** los 51 usuarios `zone: own` **todos tienen `zona_id`**; los 35 `warehouse: own` **todos tienen `warehouse_code`**; los únicos que resolverían a "ciego" son cuentas smoke/servicio/`admin_b` (los superadmin quedan cubiertos por god-mode → `all`). Cruce `REPORTES_VER_GLOBAL` × `zone!=all`: **0 usuarios reales** se restringen (los 4 con reportes-global activos son `zone: all`). ⇒ las migraciones son seguras.
+
+- ✅ **store `snapshot` + `ticket-lookup`** (warehouse) → `ScopeService.readParam` (calca el hermano `open-cajas` ya vivo). `snapshot` pasa a lista fail-closed; `ticket-lookup` resuelve a UNA sucursal del alcance (preserva el flujo del despachador, fija al usuario de tienda). [store.controller.ts](../../apps/api/src/modules/store/store.controller.ts) + [store.service.ts](../../apps/api/src/modules/store/store.service.ts).
+- ✅ **consola `reconciliation`** (overview/focos/cash-cuts/movements) → alcance `warehouse` en las 4 (antes un `encargado_tienda`, `warehouse: own`, veía cortes/faltantes de caja de TODA la red). [reconciliation-query.service.ts](../../libs/reconciliation/src/lib/reconciliation-query.service.ts). *Diferido en el mismo dominio:* `discrepancies`/`blind-counts`/`actions` (bandeja de triage, menor volumen).
+- ✅ **`stores.service`** (7 sitios) y **`commercial-map.service`** (5 sitios) → dimensión `zone` de `ScopeService`; mata el fail-open `zona_id NULL = ve TODO el país` y la mezcla de ejes con `getDataScope`. Reads = `whereIn`; guardas de escritura/vista = pertenencia al conjunto de zonas.
+- Build `api` **EXIT 0** tras cada tanda. Verificación runtime (`customer_b2b`/`encargado_tienda` acotados) la levanta Edgar.
+- ✅ **saneo de `user_scopes='all'` (subconjunto seguro) aplicado a prod** 2026-09-04. Hallazgo clave: **las 116 filas tienen el mismo `nota` = `[ID.3] Materializa el acceso amplio`** — son artefactos del materializador del cutover, NO grants deliberados → es completar esa limpieza, no fijar política. Script `database/scripts/sanitize-scope-overrides.js` (dry-run por default, backup full + evento `scope_changed` de auditoría por fila, idempotente, transaccional). Quitó **72 overrides** = vuelven al default del rol: **redundantes** (rol ya `all`, no-op) + **own-poblado** (el usuario tiene su `warehouse_code`/`zona_id` → cae a su sucursal/zona real) + **customer_b2b** (fix de seguridad: portal no ve sucursal/zona internas). Backup en scratchpad, reversible. Validado en local (borra→restaura) antes de prod. Post-estado: 0 seguros restantes (idempotente).
+- ⬜ **A RETENER (padrón, Edgar):** ~42 overrides de usuarios con la **columna propia VACÍA** (`promotor_ruta` 19, `vendedor_ruta` 12, `supervisor_ventas` 3, `telemarketing` 2+2, `supervisor` 1, `cajero` 3 zona): quitarlos los cegaría → primero **asignarles su sucursal/zona** desde `/admin`, después el override sobra. NO se tocan a ciegas.
+- `route-tickets` admin sin scope: `route` dimension es `all` en ~42 roles → scoping = no-op, no es fail-open real.
+
+### AUTHZ-HARD.4 — ⬜ DIFERIDO con motivo
+- ⬜ **Bloque 4 — paridad front/back** (derivar `anyOf`/landing de `AUTHZ_TREE`, 4 landing guards, 9 triples nav≠ruta≠backend, `USUARIOS_ASIGNAR_RUTA`, 4ª copia `shared-auth`): es corrección de UX (el usuario ve de MENOS, no de más) — sin exposición de seguridad. Prioridad tras el bloque de seguridad.
+
+**Pendiente prod (AUTHZ-HARD):** **Edgar rota `JWT_SECRET`** en Railway (≥32 bytes; invalida tokens → re-login de todos) + setea `WHATSAPP_APP_SECRET`/`STORE_INGEST_KEY` reales · aplica mig `20260904120000` · redeploy api+view · re-login (permisos en el JWT). Plan completo en el archivo de plan de la sesión.
 
 ---
 
@@ -1461,6 +1526,124 @@ Migración física de `megadulces-api-ready` (NestJS 10 standalone, en producci�
 - [x] **[CV.10]** ✅ **Revisión visual de la interfaz — 2 archivos estáticos faltantes encontrados y corregidos** (2026-09-02) — 0Sistemas pidió revisar la interfaz completa. Comparar `public/*.html` del origen contra lo portado reveló que **`tienda.html`** (catálogo + carrito local, sólo llama a `/api/catalogo/*` ya portado) y **`reportar-errores.js`** (referenciado por `catalogo.html` desde CV.0/CV.2, causando un 404 silencioso no detectado hasta ahora) nunca se copiaron. Ambos portados literal.
   - **Verificado con Playwright contra `KP_CONCENTRADA` real:** `catalogo.html` carga limpio y su gate de login se activa correctamente sin sesión; `tienda.html` carga con datos reales (6,168 productos/11 categorías/6 sucursales) y el carrito local funciona; `reportar-errores.js` sirve 200.
   - **Lección:** ninguna verificación anterior (CV.0–CV.7) había cargado una página HTML completa en un navegador — todas probaban endpoints JSON. Un `<script>` en 404 no rompe la carga visible, así que este gap pasó desapercibido en 3 sub-sprints previos.
+
+---
+
+### 🔎 Barrido de la clase "peldaño cruzado" — Compras + Inventario (2026-09-03)
+
+> **La clase:** dos magnitudes que se multiplican o se restan viven en **peldaños distintos** de la
+> escalera de unidades, y **nada declara el peldaño de cada una**. Nace de un renglón de prod que
+> Edgar mandó a verificar: `20555` publicaba **$4,982,228** de existencia — 6,753 **kilos** valuados
+> al precio del **bulto de 18 kg**. Estrategia: **declarar primero, corregir por bandeja.**
+
+- [x] ✅ **U.0 El peldaño de `cost_with_tax`, resuelto midiendo.** Cuatro archivos lo declaraban distinto y **7 multiplicaciones dependían** de la respuesta. Contra `analytics.v_supplier_cost_ladder`, la razón `cost_with_tax / u1_cost` se agrupa en **múltiplos de impuesto exactos a 4 decimales** (1.0000 / 1.0800 / 1.1600 / 1.2400) sobre 6,626 SKUs: peldaño **BASE**, bruto de impuesto. Los 4 comentarios corregidos. Doc en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8quater.
+- [x] ✅ **U.1 El detector, como vista + candado.** `analytics.v_unit_rung_audit` (mig `20260903150000`, **batch 264**). Una línea, sin escalera: **`display_bf == caja_cost / pagado`**. Dos árbitros — `real_buy_cost` (Kepler) y `wincaja.v_stock.costo_promedio` (Wincaja). Validación del método: en el **97.5% sano** la razón mediana es **1.020** y los dos valuados difieren 4.5% (piso de ruido); los marcados están a 6.7× y 8.6×. **552 celdas / 276 SKUs** marcadas. `test-newdb-unit-rung-audit.js` **40/40**, con 5 testigos por (SKU, almacén).
+- [x] ✅ **U.2 Declarar en vez de dibujar — `/compras/pedido`.** Publica **$55,490,880 verificado** + **276 SKUs / 552 celdas declaradas**. `20555` pasa de $4,982,228 a **$36,889** (la única celda verificada, la de Wincaja `00`). Decisión propia: en `x1`/`x2` la cantidad en cajas **también** está mal, así que la celda **cambia de unidad** (`2,679 kg ⚠`) en vez de vaciarse — retener sólo el dinero dejaba una cifra falsa en pantalla.
+- [x] ✅ **U.2b La misma regla en las otras 5 superficies + el PEDIDO.** Ver detalle abajo.
+- [ ] ⬜ **U.3 Bandeja HITL `peldano_cruzado`** sobre `commercial.replenishment_findings` + `/compras/hallazgos`. ⚠️ Al aprobar, el factor va en **`box_factor`**, nunca en `pieces_per_unit` (lección de los 15 auto-seed). **Triage ya medido:** 93 celdas / 49 SKUs donde *lo pagado ES el costo de la caja* (divisor = 1, sin discusión) · 183 con divisor entero limpio · **265 piden criterio humano**.
+- [ ] ⬜ **U.4 Cerrar el hueco de ADR-055 en Wincaja** — 100 SKUs sin `factor_venta` heredan el factor de Kepler sobre stock en paquetes.
+- [ ] ⬜ **U.5 Retirar los 11 rótulos que mienten.**
+
+#### U.2b — medido en prod (2026-09-03)
+
+| superficie | antes | publica ahora | declarado |
+|---|---|---|---|
+| **Pedido** (el que se gasta) | — | — | **$218k mal dirigido**: $127,274 de sobre-pedido (x2) + $90,409 de sub-pedido (x1) |
+| Sobrestock / inmovilizado | $22,934,479 | **$14,587,321** | 116 filas |
+| Existencia Crítica (7 KPIs) | $60,173,050 | **$57,505,321** | 465 políticas / 231 SKUs |
+| A traspasar | $2,280,798 | **$1,933,160** | 156 filas **+ 19 omitidas** |
+| A comprar | $7,563,021 | **$7,336,802** | 64 SKUs |
+| Bandeja de reabasto | — | — | 135 hallazgos dejan de persistir un $ inflado |
+
+**El lado invisible.** Con el divisor inflado la sucursal se lee abastecida, el déficit da 0 y la
+fila **no existe** en el plan: **19 traspasos** que el árbitro sí pediría, ausentes hoy. Retener lo
+que se ve no basta cuando el error también **borra renglones**.
+
+**Perf — por qué el veredicto bajó al fact.** Joinear la vista auditable cuesta **8.2 s** (552 filas)
+y **25 s** (tenant); `transferPlan` la necesita **dos veces** y pasó de 4.5 s a **29 s**. Mig
+`20260903170000` (**batch 268**) agrega `rung_veredicto`/`_bf_esperado`/`_arbitrado` a
+`analytics.replenishment_plan`, que el nocturno escribe leyendo la vista. Los 6 consumidores **ya**
+joineaban ese fact → **cero joins nuevos**: traspaso **29,362 → 288 ms**, workbook **443 ms**,
+sobrestock **106 ms**. Verificado al mismo instante: fact 552 = vista 552, **0 discrepancias**.
+
+**Dos trampas de "cero" cerradas antes de poder retener nada:** los tres `money()` de Compras hacían
+`Number(v ?? 0) || 0` (un importe retenido salía **$0**), y `replenishment_findings.suggested_cost`
+era `NOT NULL` (mig `20260903160000`, **batch 267**). Y `ORDER BY ... DESC` pone los NULL **primero**
+en Postgres → las filas retenidas encabezaban la lista del comprador (corregido en 4 sitios).
+
+**Pendiente prod:** **redeploy api + view**. Las 2 migraciones ya aplicadas (batches 267 y 268) y el
+importer ya corrido — el fact ya trae el veredicto. **Sin permisos nuevos → sin re-login.**
+
+⚠️ **Validación visual pendiente (de Edgar):** `20555` y `99089` en `/compras/pedido`. En `99089` la
+celda de MD-30 debe decir **`12 paq ⚠`** (no `1.3`) y su Pedido debe quedar en raya, no en 6.9.
+
+---
+
+### 🧭 Pantalla «Existencia» — una sola, en Almacén y en Compras (2026-09-04)
+
+> Pedida como *"una interfaz que se llame existencia, esa vive en almacén y en compras"*. La
+> exploración encontró que el problema no era que faltara una pantalla: **la de Almacén leía la
+> fuente equivocada.** `commercial.stock` acierta **91%** contra el POS (15,324 unidades de error)
+> y `analytics.v_erp_stock_on_hand` **100%** — SKU `88009` en `01`: POS 2,485 · ODS 2,487 ·
+> **tabla 3,547**.
+
+- [x] ✅ **E.0 Verificaciones que podían cambiar el diseño** (todas de lectura, antes de codear).
+  Resultados que **ahorraron trabajo o lo redirigieron**: el índice de 3 columnas **ya existe** (es
+  la PK) → sin migración · `reserved_quantity` está **vacío** (1 fila de 53,223 con 15 unidades) →
+  no se joinea `commercial.stock` en absoluto, y la ausencia del apartado se declara · **no existe**
+  bandeja HITL de peldaño → `EXISTENCIA_GESTIONAR` gatea sólo el export, no se inventa una bandeja
+  para justificar un permiso.
+- [x] ✅ **E.1 Endpoint** `GET /commercial/inventory/existencia` (+ `/:productId`, `/export`).
+  Archivos propios (`existencia.{service,controller}.ts`) y no un método del servicio de
+  `commercial.stock`: juntarlos invita a que alguien "unifique" los dos SELECT y vuelva a la copia.
+  La vista viva MANDA y el fact ENRIQUECE (`LEFT JOIN` desde lo vivo: los **603 de 52,340** SKUs que
+  aún no están en el fact se muestran igual). Los **aliases se pliegan, no se excluyen** — el
+  workbook los excluye y ahí es correcto ("qué comprar"), acá sería falso: un alias es mercancía.
+- [x] ✅ **E.2 Componente + 2 rutas + navegación**, un solo componente para los dos proyectos
+  (precedente Caducidades). En Compras va **antes de Pedido**. Landing: en Almacén **primero** (el
+  trabajo empieza en el censo), en Compras **después de Pedido** (mover eso cambiaría dónde aterriza
+  todo el equipo sin pedirlo) — la asimetría es deliberada.
+- [x] ✅ **E.3 `/almacen/inventory` se re-rotula a «Ajustes de stock» y lo DECLARA.** No se borra:
+  es lo único con la escritura y el apartado. ⚠️ Heredar el Ajuste habría **roto** la pantalla nueva
+  — escribe `commercial.stock`, Existencia muestra el ODS, así que el usuario ajustaría y el número
+  no se movería (el mismo problema que ya obligó a `deadStock` a migrar de fuente).
+- [x] ✅ **E.4 Permiso `EXISTENCIA_VER`/`_GESTIONAR` + REPARTO** (mig `20260904170000`, **batch 279**):
+  **13 roles VER / 10 GESTIONAR**. ⛔ **`customer_b2b` excluido explícitamente** — verificado, tiene
+  `COMMERCIAL_INVENTORY_VER = true`, así que el ancla obvia le habría dado a un cliente del portal la
+  existencia de la red **valuada a costo**.
+- [x] ✅ **E.5 Query-params en `/compras/pedido`.** No leía `ActivatedRoute` en absoluto, así que
+  "todo dato accionable navegable a su arreglo con el filtro puesto" (Q.4) era humo.
+- [x] ✅ **E.6 Candado** `test-newdb-existencia.js` **20/20**, en la regresión.
+
+**Perf — medida, no estimada.** Los joins no eran el problema (332 ms los cuatro): era el pivot
+`jsonb` sobre los 9,860 productos.
+
+| | ms |
+|---|---|
+| primer prototipo | 4,435 |
+| paginar antes de pivotear (pero la base se escaneaba 2 veces) | 2,905 |
+| **una** CTE `MATERIALIZED` + agregado sin `jsonb` + `LIMIT` + pivot al final | 1,596 |
+| memo 30-60 s del catálogo de almacenes y la frescura | **1,354** |
+
+`jsonb_agg(DISTINCT)` **no** era el culpable (probado: `bool_or` sale más lento, 833 vs 757 ms) y el
+segundo agregado por almacén es casi gratis (+30 ms) porque reusa la materialización.
+
+⚠️ **Corrige una premisa del plan y del header de la mig `20260902170000`**: Kepler NO va "fresco por
+CDC, ~min". En una sola sesión `kdil` pasó de **796 min a 0** y Wincaja de **371 a 761** — por eso la
+frescura va **por rama** y la pantalla no promete "en vivo". Hallazgo lateral:
+`v_feed_freshness.tenant_id` es **NULL** en las filas del ODS (es compartido), así que filtrar por
+tenant escondía la rama Kepler entera sin que se notara.
+
+⚠️ **Lo único sin verificar:** ninguna pantalla del repo combina `#footer` con `pFrozenColumn` en
+PrimeNG 22, y O.2 exige la fila de totales congelada. Si no se pega, el plan B (strip sticky fuera
+de la tabla) está anotado en el template. **Validación visual de Edgar.**
+
+**Pendiente prod:** redeploy api + view · **re-login** (el permiso viaja en el JWT). La migración ya
+está aplicada. **Decisión abierta:** `almacenista` NO recibió el permiso — tiene el ancla en `false`
+explícito y el patrón respeta los `false`; si el bodeguero debe ver el censo, se agrega desde
+`/admin/roles`. **Diferido:** retirar las 814 líneas muertas de
+`compras-existencia-critica.component.ts` (+ `compras-que-toca` y `compras-entradas-revision`, 2,342
+más) — PR aparte para no volver ilegible el diff.
 
 ---
 

@@ -12,7 +12,6 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { ToastModule } from 'primeng/toast';
-import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { PageTabsComponent } from '../../../../shared/components/page-tabs/page-tabs.component';
 import { CONTABILIDAD_TABS } from '../../contabilidad-tabs';
 import { AuthService } from '../../../../core/services/auth.service';
@@ -20,6 +19,17 @@ import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
 import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
+
+/**
+ * Los cuatro grupos en que cae una factura del mes. Son excluyentes y cubren el total, así
+ * que los chips se leen como un desglose y no como filtros sueltos. (El conteo del chip
+ * "Entran al TXT" es el de las marcadas, no el del grupo — ver `chips`.)
+ *
+ * Coinciden por construcción con el `entran` del rail y con `resumen.incluidas`: los tres
+ * salen de `con cuenta AND NOT ya en póliza AND NOT cancelada`. Si alguna vez divergen, es
+ * que el backend cambió una de las dos definiciones y no la otra.
+ */
+type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
 
 /**
  * Fase LC (ADR-052) — Movimientos no asociados.
@@ -42,7 +52,7 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule,
     SelectButtonModule, CheckboxModule, InputTextModule, ToastModule, TooltipModule,
-    MetricStripComponent, PageTabsComponent,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -54,10 +64,9 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
     <header class="lc-head">
       <div>
         <h1>Movimientos no asociados</h1>
-        <p class="muted">
-          Las facturas que ContPAQi no tiene ligadas a ninguna póliza. Aquí se revisan y se
-          bajan en TXT; el archivo lo sube contabilidad, como siempre.
-        </p>
+        <!-- Una linea, no dos: el parrafo se envolvia y ocupaba alto arriba de todo para
+             decir algo que la pestana ya dice. Quien sube el archivo es proceso conocido. -->
+        <p class="muted">Las facturas que ContPAQi no tiene ligadas a ninguna póliza.</p>
       </div>
       <!-- Componente p-button, NO la directiva con label/icon: en PrimeNG 22 la directiva
            pButton ya no tiene esos inputs, sólo props de estilo (text, outlined, severity,
@@ -83,12 +92,35 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
             <small class="muted">El feed del ADD de ContPAQi los trae; revisa que esté corriendo.</small>
           </div>
         } @else {
-          @for (m of meses(); track m.anio_mes) {
+          @for (a of anios(); track a.anio) {
+          <!-- Agrupado por ano: el rail pide 24 meses y son ~5rem cada uno, o sea tres
+               pantallas de scroll propio para llegar al ano pasado. El ano en curso queda
+               abierto y los demas se piden. El encabezado lleva el pendiente del ano, asi
+               que un ano cerrado con trabajo adentro no se puede confundir con uno limpio. -->
+          <div class="na-anio">
+            <button type="button" class="na-anio-cab" [class.abierto]="abierto(a.anio)"
+                    [attr.aria-expanded]="abierto(a.anio)" (click)="alternarAnio(a.anio)">
+              <i class="pi" [class.pi-chevron-down]="abierto(a.anio)"
+                 [class.pi-chevron-right]="!abierto(a.anio)" aria-hidden="true"></i>
+              <span class="na-anio-n">{{ a.anio }}</span>
+              @if (a.entran) {
+                <span class="na-anio-pend">{{ a.entran }} por entregar</span>
+              } @else {
+                <span class="na-anio-pend cero">al día</span>
+              }
+            </button>
+          @if (abierto(a.anio)) {
+          @for (m of a.meses; track m.anio_mes) {
             <button type="button" class="lc-mes" [class.sel]="mesSel() === m.anio_mes"
                     [attr.aria-current]="mesSel() === m.anio_mes" (click)="abrirMes(m.anio_mes)">
               <div class="lc-mes-top">
                 <span class="lc-mes-nombre">{{ nombreMes(m.anio_mes) }}</span>
-                <p-tag [value]="etiquetaEstado(m)" [severity]="severidadEstado(m)" />
+                <!-- Punto + texto, NO pastilla llena: son 105 meses en el rail y 105
+                     pastillas de color le compiten a la única acción naranja de la pantalla.
+                     El estado del mes es orientación, no alarma. -->
+                <span class="na-estado" [class]="'e-' + severidadEstado(m)">
+                  <i class="na-dot" aria-hidden="true"></i>{{ etiquetaEstado(m) }}
+                </span>
               </div>
               <!-- La tarjeta muestra lo ACCIONABLE (lo que entra al TXT), el mismo número
                    que el encabezado del detalle. Mostrar aquí el total sin asociar y allá
@@ -113,6 +145,9 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                 </span>
               }
             </button>
+          }
+          }
+          </div>
           }
         }
       </aside>
@@ -167,46 +202,69 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
             </div>
           </div>
 
-          <app-metric-strip [items]="kpis()" ariaLabel="Desglose de lo que falta por asociar" />
+          <!-- La tira de 5 mosaicos vivía acá y se fue al PIE de la tabla (LC.16.3). Cuatro
+               de los cinco eran los totales de cuatro columnas de la tabla, y el quinto
+               repetía el número que ya dice el veredicto tres renglones arriba. Al pie,
+               alineados bajo su columna, se leen como el asiento que son: 0% + c/IVA + IEPS
+               + IVA = total. Y ahí sirven — cuando estás en el renglón 400 de agosto
+               revisando, arriba no hay ningún total a la vista. -->
 
-          <!-- El límite del anti-duplicado exacto, SIEMPRE a la vista. Si el histórico no
-               está cargado la puerta por UUID no cubre nada, y un no-op se lee igual que
-               "no hay duplicados" — es el modo de falla que dejó analytics.customer_receivables
-               en prod como tabla vacía durante meses. -->
-          @if (cobertura(); as cob) {
-            <p class="na-cobertura" [class.vacia]="!cob.cargado">
-              <i [class]="cob.cargado ? 'pi pi-shield' : 'pi pi-exclamation-triangle'"></i>
-              @if (cob.cargado) {
-                Anti-duplicado <strong>exacto por UUID</strong> hasta <strong>{{ cob.cubre_hasta }}</strong>
-                ({{ cob.uuids | number }} facturas del libro histórico).
-                De ahí en adelante el control es por importe, que tiene falsos positivos.
-              } @else {
-                <strong>El histórico por UUID no está cargado</strong>: el anti-duplicado
-                sólo compara importes. Corre <code>import-purchase-book-history.js --apply</code>.
-              }
-            </p>
-          }
-
-          @if (contexto().length) {
-            <p class="na-contexto">
-              <span class="muted">Queda fuera del TXT:</span>
-              @for (c of contexto(); track c.texto; let last = $last) {
-                <span [class.warn]="c.tono === 'warn'">
-                  {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
-                </span>@if (!last) { <span class="muted"> · </span> }
-              }
-            </p>
-          }
-
+          <!-- Los BLOQUEANTES nunca se colapsan: son lo que impide generar el archivo, o
+               sea la razon por la que el boton de arriba esta apagado. Esconderlos detras
+               de un click dejaria un boton muerto sin explicacion a la vista. -->
           @if (d.bloqueantes.length) {
             <ul class="lc-avisos lc-bloq" aria-label="Lo que impide generar">
               @for (a of d.bloqueantes; track a) { <li><i class="pi pi-times-circle"></i>{{ a }}</li> }
             </ul>
           }
-          @if (d.avisos.length) {
-            <ul class="lc-avisos lc-info" aria-label="Cosas que vale la pena revisar">
-              @for (a of d.avisos; track a) { <li><i class="pi pi-info-circle"></i>{{ a }}</li> }
-            </ul>
+
+          <!-- Cobertura + lo que queda fuera + avisos del mes eran cuatro bloques apilados
+               que se comian ~30% del alto antes de la primera factura. Van en un solo
+               renglon que se abre. Nada se pierde: el conteo dice que hay algo adentro. -->
+          @if (cuantasNotas() > 0) {
+            <details class="na-notas">
+              <summary>
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                {{ cuantasNotas() }} {{ cuantasNotas() === 1 ? 'nota' : 'notas' }} sobre este mes
+                <span class="muted">— cobertura del anti-duplicado, lo que queda fuera, avisos</span>
+              </summary>
+              <div class="na-notas-cuerpo">
+                <!-- El límite del anti-duplicado exacto. Si el histórico no está cargado la
+                     puerta por UUID no cubre nada, y un no-op se lee igual que "no hay
+                     duplicados" — el modo de falla que dejó analytics.customer_receivables
+                     en prod como tabla vacía durante meses. -->
+                @if (cobertura(); as cob) {
+                  <p class="na-cobertura" [class.vacia]="!cob.cargado">
+                    <i [class]="cob.cargado ? 'pi pi-shield' : 'pi pi-exclamation-triangle'"></i>
+                    @if (cob.cargado) {
+                      Anti-duplicado <strong>exacto por UUID</strong> hasta <strong>{{ cob.cubre_hasta }}</strong>
+                      ({{ cob.uuids | number }} facturas del libro histórico).
+                      De ahí en adelante el control es por importe, que tiene falsos positivos.
+                    } @else {
+                      <strong>El histórico por UUID no está cargado</strong>: el anti-duplicado
+                      sólo compara importes. Corre <code>import-purchase-book-history.js --apply</code>.
+                    }
+                  </p>
+                }
+
+                @if (contexto().length) {
+                  <p class="na-contexto">
+                    <span class="muted">Queda fuera del TXT:</span>
+                    @for (c of contexto(); track c.texto; let last = $last) {
+                      <span [class.warn]="c.tono === 'warn'">
+                        {{ c.texto }}@if (c.monto) { <span class="mono"> ({{ c.monto | currency:'MXN':'symbol-narrow':'1.0-0' }})</span> }
+                      </span>@if (!last) { <span class="muted"> · </span> }
+                    }
+                  </p>
+                }
+
+                @if (d.avisos.length) {
+                  <ul class="lc-avisos lc-info" aria-label="Cosas que vale la pena revisar">
+                    @for (a of d.avisos; track a) { <li><i class="pi pi-info-circle"></i>{{ a }}</li> }
+                  </ul>
+                }
+              </div>
+            </details>
           }
 
           <div class="lc-opciones">
@@ -233,9 +291,39 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
             </span>
           </div>
 
+          <!-- El trabajo de la contadora no es toda la tabla: en ago-2026 son 725 renglones
+               y 214 de ellos no puede tocarlos. Sin chips ni buscador tenia que scrollear
+               a mano para encontrar un proveedor. Arranca en "Entran al TXT" — lo
+               accionable — y el resto lo pide si lo quiere ver. -->
+          <div class="na-filtros">
+            <div class="na-chips" role="group" aria-label="Filtrar la tabla">
+              @for (c of chips(); track c.key) {
+                <button type="button" class="na-chip" [class.on]="filtro() === c.key"
+                        [class.vacio]="!c.n" [disabled]="!c.n && c.key !== 'todas'"
+                        [attr.aria-pressed]="filtro() === c.key" (click)="filtro.set(c.key)">
+                  {{ c.label }}<span class="na-chip-n">{{ c.n }}</span>
+                </button>
+              }
+            </div>
+            <span class="na-buscar">
+              <i class="pi pi-search" aria-hidden="true"></i>
+              <input pInputText [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
+                     placeholder="Proveedor, RFC o folio" aria-label="Buscar en la tabla" />
+              @if (busqueda()) {
+                <button type="button" class="na-buscar-x" (click)="busqueda.set('')"
+                        aria-label="Limpiar la busqueda"><i class="pi pi-times"></i></button>
+              }
+            </span>
+          </div>
+
           <div class="lc-tablewrap">
-            <p-table [value]="d.facturas" styleClass="p-datatable-sm" [rowHover]="true"
-                     [scrollable]="true" scrollHeight="52vh" [paginator]="d.facturas.length > 100"
+            <!-- El scroll interno se QUEDA, contra lo que decia el plan. Con el preambulo
+                 colapsado (LC.16.6) la pagina ya casi no scrollea, asi que este deja de ser
+                 un scroll anidado en la practica — y es lo que mantiene clavados el
+                 encabezado y el pie de totales, que es justo lo que se necesita en el
+                 renglon 400 de agosto. Sube a 58vh porque arriba se libero alto. -->
+            <p-table [value]="filtradas()" styleClass="p-datatable-sm" [rowHover]="true"
+                     [scrollable]="true" scrollHeight="58vh" [paginator]="filtradas().length > 100"
                      [rows]="100" dataKey="uuid">
               <ng-template #header>
                 <tr>
@@ -248,11 +336,21 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                   <th class="c-num">IEPS</th>
                   <th class="c-num">IVA</th>
                   <th class="c-num">Total</th>
+                  <!-- Estaban en una sola columna rotulada "Estado" cuyo valor mas comun
+                       (52% en sept, 70% en ago) era un numero de cuenta — y un numero de
+                       cuenta no es un estado. Cuenta es dato, Estado es juicio. -->
+                  <th class="c-cta">Cuenta</th>
                   <th class="c-cta">Estado</th>
                 </tr>
               </ng-template>
               <ng-template #body let-f>
-                <tr [class.excluida]="!f.incluida" [class.dup]="f.ya_en_poliza"
+                <!-- La clase dup es SÓLO la sospecha por importe (ámbar = hay que juzgarla).
+                     La certeza exacta lleva su propia clase, neutra: antes las dos caían en
+                     dup y encima exacta le pintaba el filo en rojo.
+                     (Nada de acentos graves en estos comentarios: van dentro del template
+                     literal del decorador y lo cortan a la mitad. Ya pasó tres veces.) -->
+                <tr [class.excluida]="!f.incluida"
+                    [class.dup]="f.prueba_certeza === 'por_importe'"
                     [class.exacta]="f.prueba_certeza === 'exacta'">
                   <td class="c-chk">
                     <!-- Con prueba EXACTA el checkbox se apaga: es el mismo folio fiscal, no
@@ -275,17 +373,49 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                     }
                   </td>
                   <td class="c-num mono">{{ f.folio }}</td>
-                  <td class="c-num mono">{{ f.fecha }}</td>
-                  <td class="c-num mono">{{ f.base_exenta | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="c-num mono">{{ f.subtotal16 | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="c-num mono">{{ f.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="c-num mono">{{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <!-- El backend manda 'YYYY-MM-DD' pelado. Angular parsea las fechas ISO
+                       SIN marca de zona con setFullYear local, o sea no corre el dia. Si
+                       alguna vez el backend manda un timestamp completo, el pipe pasa a
+                       UTC y vuelve el bug de restar un dia: mandar solo la fecha. -->
+                  <td class="c-num mono">{{ f.fecha | date:'dd/MM/yy' }}</td>
+                  <!-- Guion en vez de $0.00: medido en prod, 51-55% de las celdas de
+                       impuesto van en cero, o sea la MITAD de la tinta numerica de la tabla
+                       eran ceros con el mismo peso que un importe real. Las dos columnas de
+                       base NO se funden a proposito: son las dos cuentas del asiento (501 al
+                       0% y 502 gravado), y fundirlas esconderia la distincion sobre la que
+                       esta armado el TXT. -->
+                  <td class="c-num mono">
+                    @if (f.base_exenta > 0.004) { {{ f.base_exenta | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
+                  <td class="c-num mono">
+                    @if (f.subtotal16 > 0.004) { {{ f.subtotal16 | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
+                  <td class="c-num mono">
+                    @if (f.ieps > 0.004) { {{ f.ieps | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
+                  <td class="c-num mono">
+                    @if (f.iva > 0.004) { {{ f.iva | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    @else { <span class="na-cero">—</span> }
+                  </td>
                   <td class="c-num mono strong">{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-cta mono muted">{{ f.cuenta_proveedor ?? '—' }}</td>
+                  <!-- El ROJO dice una sola cosa: esto impide generar el TXT.
+                       Medido en prod antes de cambiarlo: en jul-2026 el 58% de la tabla
+                       estaba en rojo y el 62% de esos rojos eran "Ya en el libro", o sea
+                       "listo, no lo toques". Si más de la mitad grita, nada grita. -->
                   <td class="c-cta">
                     @if (f.estatus_sat === 'cancelado') {
                       <p-tag value="Cancelada en el SAT" severity="danger" />
                     } @else if (f.prueba_certeza === 'exacta') {
-                      <p-tag value="Ya en el libro" severity="danger" [pTooltip]="f.prueba_detalle ?? ''" />
+                      <!-- Camino feliz: mismo folio fiscal, asunto cerrado. Se apaga, no se
+                           marca. Sigue visible porque esconderlo haría creer que el mes
+                           tiene menos de lo que tiene. -->
+                      <span class="na-listo" [pTooltip]="f.prueba_detalle ?? ''">
+                        <i class="pi pi-check" aria-hidden="true"></i>Ya en el libro
+                      </span>
                     } @else if (f.prueba_certeza === 'por_importe') {
                       <p-tag value="Importe ya posteado" severity="warn" [pTooltip]="f.prueba_detalle ?? ''" />
                     } @else if (!f.account_suffix) {
@@ -293,17 +423,50 @@ import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
                     } @else if (!f.cuenta_existe) {
                       <p-tag value="Cuenta inexistente" severity="danger" />
                     } @else {
-                      <span class="mono muted">{{ f.cuenta_proveedor }}</span>
+                      <span class="na-cero">—</span>
                     }
                   </td>
                 </tr>
               </ng-template>
+
+              <!-- El desglose que estaba arriba en 5 mosaicos, alineado bajo su columna y
+                   pegado al fondo del scroll. Suma lo que estas VIENDO (filtro + busqueda),
+                   asi que filtrar a "Sin cuenta" te dice cuanto dinero esta trabado. Por eso
+                   la primera celda dice cual filtro esta puesto: sin eso, el pie se leeria
+                   como "lo que va al TXT" estando en cualquier otro grupo. -->
+              <ng-template #footer>
+                <tr class="na-tot">
+                  <td class="c-chk"></td>
+                  <td>{{ etiquetaFiltro() }} <span class="muted">· {{ totales().n }} facturas</span></td>
+                  <td class="c-num"></td>
+                  <td class="c-num"></td>
+                  <td class="c-num mono">{{ totales().exento | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ totales().gravado | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ totales().ieps | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono">{{ totales().iva | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-num mono strong">{{ totales().total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td class="c-cta"></td>
+                  <td class="c-cta"></td>
+                </tr>
+              </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="10">
+                <tr><td colspan="11">
                   <div class="lc-empty">
-                    <i class="pi pi-check-circle"></i>
-                    <p>{{ nombreMes(mesSel()!) }} no tiene movimientos sin asociar.</p>
-                    <small class="muted">Todas sus facturas ya están ligadas a una póliza.</small>
+                    <!-- Vacío por el filtro y vacío de verdad NO son lo mismo: decir "no
+                         tiene movimientos sin asociar" con un filtro puesto es mentira. -->
+                    @if (busqueda() || filtro() !== 'todas') {
+                      <i class="pi pi-filter-slash"></i>
+                      <p>Nada coincide con el filtro.</p>
+                      <small class="muted">
+                        El mes tiene {{ d.facturas.length }} facturas sin asociar — toca
+                        <button type="button" class="na-link" (click)="verTodas()">Todas</button>
+                        para verlas.
+                      </small>
+                    } @else {
+                      <i class="pi pi-check-circle"></i>
+                      <p>{{ nombreMes(mesSel()!) }} no tiene movimientos sin asociar.</p>
+                      <small class="muted">Todas sus facturas ya están ligadas a una póliza.</small>
+                    }
                   </div>
                 </td></tr>
               </ng-template>
@@ -366,6 +529,8 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   meses = signal<MesNoAsociado[]>([]);
   detalle = signal<MesDetalle | null>(null);
   mesSel = signal<string | null>(null);
+  filtro = signal<Grupo | 'todas'>('entran');
+  busqueda = signal('');
   cargandoMeses = signal(false);
   cargandoMes = signal(false);
   generando = signal(false);
@@ -385,6 +550,47 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   get dlgCaratulaVisible() { return this.dlgCaratula(); }
   set dlgCaratulaVisible(v: boolean) { this.dlgCaratula.set(v); }
 
+  /**
+   * El rail agrupado por año. El año más reciente arranca abierto y los demás se piden:
+   * son 24 meses de ~5rem cada uno, o sea tres pantallas de scroll propio para llegar al
+   * año pasado. El encabezado del año lleva su pendiente, para que un año cerrado con
+   * trabajo adentro no se pueda confundir con uno limpio.
+   */
+  anios = computed(() => {
+    const grupos = new Map<string, MesNoAsociado[]>();
+    for (const m of this.meses()) {
+      const y = m.anio_mes.slice(0, 4);
+      const g = grupos.get(y);
+      if (g) g.push(m); else grupos.set(y, [m]);
+    }
+    return [...grupos.entries()].map(([anio, meses]) => ({
+      anio, meses,
+      entran: meses.reduce((a, m) => a + m.entran, 0),
+    }));
+  });
+
+  /** Años cerrados a mano. Vacío = sólo el más reciente abierto (ver `abierto`). */
+  private aniosCerrados = signal<ReadonlySet<string>>(new Set());
+  private aniosAbiertos = signal<ReadonlySet<string>>(new Set());
+
+  abierto(anio: string) {
+    if (this.aniosCerrados().has(anio)) return false;
+    if (this.aniosAbiertos().has(anio)) return true;
+    // Por default sólo el más reciente, y siempre el año del mes que estés viendo — si
+    // llegaste por la URL con ?mes=2025-03 el rail tiene que mostrarte dónde estás parada.
+    const sel = this.mesSel()?.slice(0, 4);
+    return anio === this.anios()[0]?.anio || anio === sel;
+  }
+
+  alternarAnio(anio: string) {
+    const abrir = !this.abierto(anio);
+    const cerr = new Set(this.aniosCerrados());
+    const abre = new Set(this.aniosAbiertos());
+    if (abrir) { cerr.delete(anio); abre.add(anio); } else { abre.delete(anio); cerr.add(anio); }
+    this.aniosCerrados.set(cerr);
+    this.aniosAbiertos.set(abre);
+  }
+
   /** Si ContPAQi ya tiene la póliza de compras del mes. Si no, lo que falta ES el libro. */
   existeLibroDelMes = computed(() => {
     const mes = this.mesSel();
@@ -401,29 +607,104 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   folioPoliza = computed(() => Number(this.detalle()?.run?.['folio_poliza'] ?? 2));
 
   /**
-   * La tira desglosa el total del asiento y **cuadra a la vista**:
-   * `0% + c/IVA + IEPS + IVA = Falta por asociar`. El IEPS estaba faltando y por eso los
-   * mosaicos no sumaban (en jul-2026 quedaban $54,912 sin explicar) — justo el concepto
-   * que el Excel venía capturando en cero.
+   * El desglose del asiento, al pie de la tabla y bajo su propia columna:
+   * `0% + c/IVA + IEPS + IVA = Total`. Cuadra a la vista, de izquierda a derecha.
    *
-   * Lo que NO se acciona (ya posteadas, fuera del catálogo) va aparte en `contexto()`, para
-   * que no compita visualmente: en julio "ya posteadas" son $17.7M contra $1.27M del total
-   * que sí importa, y siendo 14× más grande se robaba la lectura.
+   * Suma lo FILTRADO, no lo incluido: así "Sin cuenta" contesta cuánto dinero está trabado
+   * y "Ya en el libro" cuánto no hay que volver a mandar. Cuál está puesto lo dice la
+   * primera celda del pie — un total sin su alcance es una cifra que miente.
    */
-  kpis = computed<MetricStripItem[]>(() => {
+  totales = computed(() => {
+    const fs = this.filtradas();
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    const suma = (get: (f: FacturaMes) => number) => r2(fs.reduce((a, f) => a + get(f), 0));
+    return {
+      n: fs.length,
+      exento: suma((f) => f.base_exenta),
+      gravado: suma((f) => f.subtotal16),
+      ieps: suma((f) => f.ieps),
+      iva: suma((f) => f.iva),
+      total: suma((f) => f.total),
+    };
+  });
+
+  etiquetaFiltro = computed(() => {
+    const g = this.filtro();
+    const chip = this.chips().find((c) => c.key === g);
+    const base = chip?.label ?? 'Todas';
+    return this.busqueda().trim() ? `${base}, filtrado` : base;
+  });
+
+  /**
+   * En qué grupo cae la factura, para los chips y el filtro.
+   *
+   * Por ELEGIBILIDAD, no por el checkbox: si el grupo dependiera de `incluida`, destildar
+   * una fila la haría desaparecer de la lista que estás mirando y habría que cambiar de
+   * filtro para volver a marcarla. El checkbox dice si entra; el grupo dice qué clase de
+   * renglón es.
+   *
+   * El orden importa: "ya está en el libro" gana sobre "no tiene cuenta", porque si ya
+   * está posteada su cuenta da igual — no es un bloqueante.
+   */
+  private grupo(f: FacturaMes): Grupo {
+    if (f.prueba_certeza === 'exacta') return 'ya_libro';
+    if (f.estatus_sat === 'cancelado' || f.prueba_certeza === 'por_importe') return 'revisar';
+    if (!f.account_suffix || !f.cuenta_existe) return 'sin_cuenta';
+    return 'entran';
+  }
+
+  /** Sin acentos y en minúsculas: en el catálogo conviven "PEÑA" y "PENA". Con
+   *  \p{Diacritic} y no con un rango de combinantes literales, que en el editor son
+   *  caracteres invisibles y cualquiera los borra sin darse cuenta. */
+  private norm(s: string) {
+    return s.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+  }
+
+  filtradas = computed<FacturaMes[]>(() => {
     const d = this.detalle();
     if (!d) return [];
-    const r = d.resumen;
+    const g = this.filtro();
+    const q = this.norm(this.busqueda().trim());
+    return d.facturas.filter((f) => {
+      if (g !== 'todas' && this.grupo(f) !== g) return false;
+      if (!q) return true;
+      return this.norm(`${f.emisor_nombre} ${f.emisor_rfc} ${f.serie ?? ''} ${f.folio ?? ''}`).includes(q);
+    });
+  });
+
+  /** Los chips SIEMPRE se muestran, aunque vayan en cero: un cero dice "no hay canceladas",
+   *  y un chip que aparece y desaparece hace saltar la fila de filtros. En cero va apagado
+   *  y no se puede tocar, para no meterte a una lista vacía.
+   *
+   *  El conteo de "Entran al TXT" cuenta las MARCADAS, no las elegibles. Los otros tres
+   *  cuentan su grupo entero. Es a propósito y es la única asimetría: el número rotulado
+   *  "entran al TXT" tiene que ser el que entra al archivo — si excluís tres a mano, tiene
+   *  que bajar a 479. Las tres siguen visibles en la lista, destildadas. */
+  chips = computed(() => {
+    const d = this.detalle();
+    const n: Record<Grupo, number> = { entran: 0, sin_cuenta: 0, revisar: 0, ya_libro: 0 };
+    for (const f of d?.facturas ?? []) {
+      const g = this.grupo(f);
+      if (g !== 'entran' || f.incluida) n[g]++;
+    }
     return [
-      { label: 'Falta por asociar', value: r.total, format: 'currency', tone: 'brand',
-        sub: `${r.incluidas} facturas entran al TXT` },
-      { label: 'Compras al 0%', value: r.subtotal_exento, format: 'currency' },
-      { label: 'Compras c/IVA', value: r.subtotal_gravado, format: 'currency' },
-      { label: 'IEPS acreditable', value: r.ieps, format: 'currency',
-        tone: r.ieps > 0 ? 'ok' : 'default' },
-      { label: 'IVA acreditable', value: r.iva, format: 'currency' },
+      { key: 'entran' as const, label: 'Entran al TXT', n: n.entran },
+      { key: 'sin_cuenta' as const, label: 'Sin cuenta', n: n.sin_cuenta },
+      { key: 'revisar' as const, label: 'Revisar', n: n.revisar },
+      { key: 'ya_libro' as const, label: 'Ya en el libro', n: n.ya_libro },
+      { key: 'todas' as const, label: 'Todas', n: d?.facturas.length ?? 0 },
     ];
   });
+
+  verTodas() {
+    this.filtro.set('todas');
+    this.busqueda.set('');
+  }
+
+  /** Cuántas cosas hay dentro del renglón colapsado. Va en el resumen para que se sepa que
+   *  hay algo adentro sin tener que abrirlo — un acordeón sin conteo se lee como vacío. */
+  cuantasNotas = computed(() =>
+    (this.cobertura() ? 1 : 0) + this.contexto().length + (this.detalle()?.avisos.length ?? 0));
 
   /** Lo que queda FUERA del TXT, con su razón. Es control, no acción. */
   contexto = computed(() => {
@@ -523,6 +804,10 @@ export class MovimientosNoAsociadosComponent implements OnInit {
   abrirMes(mes: string) {
     this.mesSel.set(mes);
     this.cargandoMes.set(true);
+    // El filtro y la búsqueda se reinician al cambiar de mes: arrastrar "Sin cuenta" de
+    // agosto a septiembre haría que el mes nuevo se vea vacío sin razón visible.
+    this.filtro.set('entran');
+    this.busqueda.set('');
     // El mes queda en la URL para poder compartir la vista (DESIGN §10).
     this.router.navigate([], { relativeTo: this.route, queryParams: { mes }, replaceUrl: true });
     this.svc.getNoAsociados(mes).subscribe({

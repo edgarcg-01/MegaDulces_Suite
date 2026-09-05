@@ -42,7 +42,17 @@ function monthWindow(n) {
   const first = tables[tables.length - 1];
   const fy = 2000 + Number(first.slice(4, 6)), fm = Number(first.slice(6, 8));
   const from = `${fy}-${String(fm).padStart(2, '0')}-01`;
-  const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-31`;
+  // Último día REAL del mes en curso. Antes esto clavaba el 31 y en los meses de 30
+  // días (y en febrero) Postgres rechaza la fecha con "date/time field value out of
+  // range" → la transacción ENTERA hace rollback y no se escribe nada.
+  // Medido: analytics.ap_provider quedó congelada en computed_at = 2026-08-30, o sea
+  // desde el día que entró septiembre; y la queja sólo salía en el log del nightly.
+  // Rompe 5 de cada 12 meses (feb/abr/jun/sep/nov). Los consumidores del auxiliar 201
+  // son el detector de Maat (DPO largo / saldo alto) y el drill-down de proveedores,
+  // así que el riesgo se evaluaba sobre saldos viejos sin que nada avisara.
+  // new Date(y, mesIndex + 1, 0) = día 0 del mes siguiente = último día de este.
+  const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const to = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   return { tables, from, to };
 }
 

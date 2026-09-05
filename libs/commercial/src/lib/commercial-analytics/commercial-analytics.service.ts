@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException, Logger, Inject } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
 import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
@@ -2692,27 +2692,8 @@ export class CommercialAnalyticsService {
 
     const tenantId = this.tenantCtx.requireTenantId();
 
-    // Canal: analytics.sales_daily ya trae `channel` (tienda/credito/mayoreo/…)
-    // derivado de forma_pago por el ETL. Normalizamos a nuestras etiquetas.
-    // `mayoreo` = traspaso interno (CEDIS→sucursales) → NO es venta (se excluye).
-    const channelExpr = `CASE sd.channel
-        WHEN 'tienda'  THEN 'mostrador'
-        WHEN 'ruta'    THEN 'ruta'
-        WHEN 'credito' THEN 'credito'
-        WHEN 'mayoreo' THEN 'traspaso'
-        WHEN 'wincaja_mostrador' THEN 'mostrador'
-        WHEN 'wincaja_preventa'  THEN 'preventa'
-        WHEN 'wincaja_ruta'      THEN 'ruta'
-        WHEN 'wincaja_credito'   THEN 'credito'
-        ELSE 'otro' END`;
-    // RS.5 — fuente separada (no fusionar): los canales `wincaja_*` son Wincaja; el resto Kepler.
-    const sourceExpr = `CASE WHEN sd.channel LIKE 'wincaja_%' THEN 'wincaja' ELSE 'kepler' END`;
-    // RS.7 — los almacenes de RUTA (código `RUTA-NN`; legacy `01-NNN`) son RUTAS aunque su venta
-    // se cobre a crédito/contado → forzarlos al canal `ruta` (RD), no clasificar por forma_pago.
-    const canalExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr}) END`;
-
-    // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
-    // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
+    // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
+    // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
     const { brand, products, raw, retail, boxFactors, boxPrices, identMap } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
@@ -2738,364 +2719,19 @@ export class CommercialAnalyticsService {
             .orderBy('p.nombre')
         : [];
 
-      // RS.3b — fast path: si el período abarca MESES COMPLETOS (month/quarter/year),
-      // leemos del rollup persistido `analytics.sales_boxes_monthly` (cajas/kg ya
-      // calculados, grano mensual → mucho menos que escanear sales_daily diario). Rango
-      // arbitrario o meses parciales → sales_daily on-the-fly. Ambos alimentan el MISMO
-      // pivote: units=canónico (piezas o kg), factor_sale=divisor, unit_kind manda.
-      const monthAligned = this.isMonthAligned(from, to);
-      // Wincaja: rollup también para el mes en curso (kepler no) — ver isWincajaRollupOk.
-      const winRollupOk = this.isWincajaRollupOk(from, to);
+      // FUENTE UNIFICADA (sintonía + velocidad) — el pivote lee el MISMO universo que los filtros:
+      // meses ENTEROS y CERRADOS desde el rollup `analytics.mv_sellout_monthly` (rápido) + el borde
+      // parcial/mes-en-curso desde la vista `analytics.v_sellout_daily` (fresco). Un solo dedup, un
+      // solo vocabulario de canal, una sola identidad de vendedor → adiós a las divergencias A–I y al
+      // 500 del full-year. Se RETIRAN los fallbacks legacy (sales_boxes_monthly / sales_by_vendor_monthly
+      // / v_sales_lines vivo / mv_sales_current_month): si las MV base no están pobladas → 503 "Refresh".
+      if (!(await this.selloutViewReady(trx)))
+        throw new ServiceUnavailableException('Analytics de sell-out aún no poblado — corré Refresh en el Command Center.');
 
-      // PERF (mig 20260831160000): el MES EN CURSO nunca es month-aligned (isMonthAligned
-      // exige `to < inicioMesActual`), así que el default siempre cae al path diario, que
-      // escanea sales_daily del mes (~111k filas) con Sort a disco (~1 s). Cuando el rango ES
-      // exactamente el mes en curso y la vista es por producto, leemos el matview
-      // `mv_sales_current_month` (mismo units/revenue, pre-agregado) en vez de sales_daily.
-      // FALLBACK seguro: si el matview no existe (entorno sin la migración) se usa sales_daily
-      // como siempre — nunca rompe el reporte, solo lo acelera cuando está disponible.
-      const curMonthMv = !monthAligned && !needMonth && this.isCurrentMonthRange(from, to)
-        && !!(await trx.raw(`SELECT to_regclass('analytics.mv_sales_current_month') AS t`)).rows?.[0]?.t;
-      const keplerDailySrc = curMonthMv ? 'analytics.mv_sales_current_month' : 'analytics.sales_daily';
+      // El resolvedor unifica las 3 piernas (kepler dedup + wincaja blend + rutas) con el dedup y el
+      // vocabulario de canal horneados en `v_sellout_daily`, y rutea meses cerrados → rollup / borde → vista.
+      const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter, needMonth, byBrand });
 
-      // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
-      // registran la aplicación de la promo en el ticket, no venta de producto.
-      // RS.6 / PARIDAD Kepler↔Wincaja — la pierna KEPLER se lee HÍBRIDA:
-      //   (a) SUCURSALES desde analytics.mv_kepler_sales_daily (matview del ODS, all-history) → recupera
-      //       el vendedor kdm1.c12 (Sergio/Cinthia en Mayoreo) + los ~$8M/mes que la copia sub-cuenta
-      //       (telemarketing suc 01 + Canindo 06). Dedup = COMPLEMENTO EXACTO del blend wincaja (mismo
-      //       predicado que sellOutByVendor) → no doble-cuenta con la pierna wincaja de abajo.
-      //   (b) RUTAS NUMERADAS (RUTA-NN) que AÚN NO están en kepler_ods (venta-push de un puller externo)
-      //       → se leen de analytics.sales_daily SOLO para almacenes RUTA-% y post-cutover (>=2026-07-01;
-      //       pre-julio esas rutas viven en la pierna wincaja source_branch 21-28, el >= elimina el
-      //       solape de junio que el sellOut previo doble-contaba). Cuando entren al ODS, se retira (b).
-      // Fallback (matview aún sin poblar, arranque en frío): la fuente previa (sales_daily/boxes).
-      const keplerMvOk = !!(await trx.raw(
-        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
-            AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
-      )).rows?.[0];
-      // channel del matview kepler → vocabulario del pivote: 'mayoreo' (telemarketing) entra al bucket
-      // Mayoreo (canal 'credito'), igual que el mayoreo_credito de wincaja. Resto passthrough.
-      const keplerChanExpr = `CASE k.channel WHEN 'mayoreo' THEN 'credito' ELSE k.channel END`;
-      const keplerRows: any[] = keplerMvOk
-        ? [
-            // (a) SUCURSALES desde el matview del ODS (con vendedor horneado para el desglose de Mayoreo)
-            ...(await trx('analytics.mv_kepler_sales_daily as k')
-              .where('k.tenant_id', tenantId)
-              .where('k.product_deleted', false)
-              .modify((qb) => { if (promoMode === 'solo') qb.andWhere('k.is_promo', true); else if (promoMode !== 'todo') qb.andWhere('k.is_promo', false); })
-              .andWhereRaw(this.KEPLER_SELLOUT_DEDUP)
-              .andWhere('k.business_date', '>=', from).andWhere('k.business_date', '<=', to)
-              .modify((qb) => {
-                if (brandId) qb.andWhere('k.brand_id', brandId);
-                if (search) qb.andWhereRaw('(k.sku ILIKE ? OR k.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-                if (warehouseFilter) qb.whereIn('k.warehouse_code', warehouseFilter);
-              })
-              .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(k.business_date, 'YYYY-MM') as sale_month`)); })
-              .select(
-                'k.warehouse_code as branch_code',
-                trx.raw('max(k.branch_name) as branch_name'),
-                'k.product_id as product_id',
-                trx.raw('max(k.sku) as sku'),
-                trx.raw('max(k.nombre) as nombre'),
-                trx.raw('max(k.factor_sale) as factor_sale'),
-                'k.brand_id as brand_id',
-                trx.raw('max(k.brand_nombre) as brand_nombre'),
-                trx.raw('max(k.brand_code) as brand_code'),
-                trx.raw(`${keplerChanExpr} as channel`),
-                trx.raw(`'kepler'::text as source`),
-                'k.vendor_code as vendor_code',
-                'k.vendor_name as vendor_name',
-                'k.unit_kind as unit_kind',
-                trx.raw('max(k.box_size) as box_size'),
-                trx.raw('SUM(k.units) as units'),
-                trx.raw('SUM(k.monto) as monto'),
-              )
-              .groupByRaw(
-                `k.warehouse_code, k.product_id, k.brand_id, ${keplerChanExpr}, k.vendor_code, k.vendor_name, k.unit_kind` +
-                (needMonth ? `, to_char(k.business_date, 'YYYY-MM')` : ''),
-              )),
-            // (b) RUTAS NUMERADAS (aún fuera del ODS) — sales_daily, sólo almacenes RUTA-% y >= cutover
-            ...(await trx('analytics.sales_daily as sd')
-              .join('catalog.products as p', 'p.id', 'sd.product_id')
-              .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-              .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-              .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-              .where('sd.tenant_id', tenantId)
-              .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-              .andWhereRaw(`w.code LIKE 'RUTA-%'`)
-              .andWhere('sd.sale_date', '>=', '2026-07-01')
-              .modify((qb) => this.promoFilter(qb, promoMode))
-              .modify((qb) => {
-                if (brandId) qb.andWhere('p.brand_id', brandId);
-                if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-                if (warehouseFilter) qb.whereIn('w.code', warehouseFilter);
-              })
-              .andWhere('sd.sale_date', '>=', from).andWhere('sd.sale_date', '<=', to)
-              .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`)
-              .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
-              .select(
-                'w.code as branch_code', 'w.name as branch_name', 'sd.product_id as product_id',
-                'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
-                'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-                trx.raw(`${canalExpr} as channel`),
-                trx.raw(`'kepler'::text as source`),
-                trx.raw('NULL::text as vendor_code'), trx.raw('NULL::text as vendor_name'),
-                trx.raw('max(sd.unit_kind) as unit_kind'),
-                trx.raw('max(lp.box_size) as box_size'),
-              )
-              .sum({ units: 'sd.units' })
-              .sum({ monto: 'sd.revenue' })
-              .groupByRaw(
-                `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${canalExpr}` +
-                (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
-              )),
-          ]
-        : monthAligned
-        ? await trx('analytics.sales_boxes_monthly as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            .where('sd.tenant_id', tenantId)
-            .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-            .modify((qb) => this.promoFilter(qb, promoMode))
-            .modify((qb) => {
-              if (brandId) qb.andWhere('p.brand_id', brandId);
-              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-            })
-            .andWhere('sd.year_month', '>=', from.slice(0, 7))
-            .andWhere('sd.year_month', '<=', to.slice(0, 7))
-            .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-            .modify((qb) => { if (needMonth) qb.select(trx.raw(`sd.year_month as sale_month`)); })
-            .select(
-              'w.code as branch_code', 'w.name as branch_name', 'sd.product_id as product_id',
-              'p.sku as sku', 'p.nombre as nombre',
-              trx.raw('max(sd.uxc) as factor_sale'),
-              'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-              trx.raw(`${canalExpr} as channel`),
-              trx.raw(`${sourceExpr} as source`),
-              trx.raw('max(sd.unit_kind) as unit_kind'),
-              trx.raw('NULL::numeric as box_size'),
-              trx.raw('COALESCE(SUM(sd.pieces), SUM(sd.kg), 0) as units'),
-            )
-            .sum({ monto: 'sd.revenue' })
-            .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
-              (needMonth ? `, sd.year_month` : ''),
-            )
-        : await trx(`${keplerDailySrc} as sd`)
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            .leftJoin('commercial.product_label_prices as lp', function () {
-              this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
-            })
-            .where('sd.tenant_id', tenantId)
-            .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-            .modify((qb) => this.promoFilter(qb, promoMode))
-            .modify((qb) => {
-              if (brandId) qb.andWhere('p.brand_id', brandId);
-              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-            })
-            .modify((qb) => {
-              if (!curMonthMv) {
-                qb.andWhere('sd.sale_date', '>=', from)
-                  .andWhere('sd.sale_date', '<=', to)
-                  .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`);
-              }
-            })
-            .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-            .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
-            .select(
-              'w.code as branch_code', 'w.name as branch_name', 'sd.product_id as product_id',
-              'p.sku as sku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
-              'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-              trx.raw(`${canalExpr} as channel`),
-              trx.raw(`${sourceExpr} as source`),
-              trx.raw('max(sd.unit_kind) as unit_kind'),
-              trx.raw('max(lp.box_size) as box_size'),
-            )
-            .sum({ units: 'sd.units' })
-            .sum({ monto: 'sd.revenue' })
-            .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
-              (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
-            );
-
-      // WINCAJA abierto POR VENDEDOR: mismo shape que keplerRows + vendor_code/vendor_name.
-      // RS.9 — fast path: si el rango son MESES COMPLETOS, lee del rollup persistido
-      // `analytics.sales_by_vendor_monthly` (units/unit_kind ya canónicos por el feed, que
-      // replica exacto el blend y mapeo de abajo) → ~ms en vez de escanear v_sales_lines
-      // (~10s/mes por el LATERAL/anti-join → daba 504). Rango parcial → view on-the-fly.
-      const winChanRollup = `CASE sd.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
-      const winChanExpr = `CASE vl.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
-      const winWhExpr = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' WHEN vl.source_branch='50' THEN '06' ELSE vl.warehouse_code END`;
-      // PERF (2026-09-01) — versiones sobre `base` (CTE materializado). El GROUP BY directo sobre
-      // v_sales_lines hacía flipear al planner a un plan que re-evalúa la vista compleja por grupo
-      // → 45s timeout en prod (sin group by: 1.1s; con group by: >45s). Materializando la base ya
-      // filtrada por marca ANTES de agrupar, el plan es sano (~2s). Mismo SQL/números (MATERIALIZED
-      // es no-op semántico en Postgres; verificado en prod units 407 / monto $20,168.0802 idénticos).
-      const winChanBase = `CASE base.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
-      const winWhBase = `CASE WHEN base.source_branch='10' THEN '01' WHEN base.source_branch='42' THEN '02' WHEN base.source_branch='50' THEN '06' ELSE base.warehouse_code END`;
-      // Fallback SOLO para arranque en frío (matview aún sin poblar): el scan en vivo de v_sales_lines
-      // (maestro 1.49M + detalles 9.9M) corre por la conexión admin sin RLS (con filtros tenant_id
-      // explícitos) para no hacer Seq Scan bajo RLS; si no hay admin, cae a trx. En operación normal
-      // este path NO se usa (el matview all-history del paso 3 cubre todo rango) → sin pool admin.
-      const winLiveKnex: any = this.adminKnex ?? trx;
-      // PASO 3 (mig 20260901160000): el matview ENRIQUECIDO de wincaja (analytics.mv_wincaja_sales_daily,
-      // SIN RLS, all-history) trae vendedor/unidad/canal/almacén/marca/etiquetas ya HORNEADOS. Si existe
-      // y está poblado, el path wincaja se lee de ahí en `trx` como un group-by por índice
-      // (tenant_id, brand_id, business_date) SIN un solo join → ~0 ms server-side (vs ~519 ms del raw
-      // con los CTE de 383k en vivo) — ver la rama winDailyMvOk abajo. Solo si aún no se pobló (arranque
-      // en frío, raro) cae al fallback COMPLEJO sobre v_sales_lines por la conexión admin (winLiveKnex,
-      // paso 1). Dinero idéntico al live (verificado al centavo: grand + marca).
-      // Blindaje anti-desajuste de deploy: el fast-path lee columnas del matview ENRIQUECIDO
-      // (branch_name, product_id, channel…). Si prod aún tiene el matview RAW (o windowed) poblado
-      // —p.ej. la migración enriquecida no corrió—, usar el fast-path tira 42703 (column does not
-      // exist). Por eso exigimos NO solo `relispopulated` sino también que exista la columna
-      // `branch_name` (marca de la forma enriquecida). Si no, winDailyMvOk=false → fallback seguro.
-      const winDailyMvOk = !winRollupOk
-        && !!(await trx.raw(
-          `SELECT 1 FROM pg_class c
-             JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
-              AND EXISTS (SELECT 1 FROM pg_attribute a
-                           WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
-        )).rows?.[0];
-      const wincajaRows: any[] = winRollupOk
-        ? await trx('analytics.sales_by_vendor_monthly as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-            .where('sd.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-            .andWhere('sd.year_month', '>=', from.slice(0, 7)).andWhere('sd.year_month', '<=', to.slice(0, 7))
-            .modify((qb) => {
-              if (brandId) qb.andWhere('p.brand_id', brandId);
-              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-              if (warehouseFilter) qb.whereIn('w.code', warehouseFilter);
-              if (needMonth) qb.select(trx.raw(`sd.year_month as sale_month`));
-            })
-            .select(
-              'w.code as branch_code', 'w.name as branch_name',
-              'sd.product_id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-              'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-              trx.raw(`${winChanRollup} as channel`),
-              trx.raw(`'wincaja'::text as source`),
-              'sd.vendor_code as vendor_code', 'sd.vendor_name as vendor_name',
-              trx.raw(`max(sd.unit_kind) as unit_kind`),
-              trx.raw('max(lp.box_size) as box_size'),
-              trx.raw('SUM(sd.units) as units'),
-              trx.raw('SUM(sd.revenue) as monto'),
-            )
-            .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${winChanRollup}, sd.vendor_code, sd.vendor_name` +
-              (needMonth ? `, sd.year_month` : ''),
-            )
-        : winDailyMvOk
-        // PASO 3 fast-path — el matview enriquecido ya trae TODO horneado (vendedor/unidad/canal/
-        // almacén/marca/etiquetas), así que esto es un group-by por índice (tenant_id, brand_id,
-        // business_date) SIN un solo join → ~0 ms server-side (vs ~519 ms del path raw con los CTE de
-        // 383k). Mismas columnas de salida que las otras ramas; dinero idéntico al live (verificado).
-        // El anti-doble-conteo, promo y borrados se filtran en request sobre columnas del matview.
-        ? await trx('analytics.mv_wincaja_sales_daily as vl')
-            .where('vl.tenant_id', tenantId)
-            .where('vl.product_deleted', false)
-            .modify((qb) => {
-              if (promoMode === 'solo') qb.andWhere('vl.is_promo', true);
-              else if (promoMode !== 'todo') qb.andWhere('vl.is_promo', false);
-            })
-            .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-            .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
-            .modify((qb) => {
-              if (brandId) qb.andWhere('vl.brand_id', brandId);
-              if (search) qb.andWhereRaw('(vl.sku ILIKE ? OR vl.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-              if (warehouseFilter) qb.whereIn('vl.warehouse_code', warehouseFilter);
-            })
-            .select(
-              'vl.warehouse_code as branch_code',
-              trx.raw('max(vl.branch_name) as branch_name'),
-              'vl.product_id as product_id',
-              trx.raw('max(vl.sku) as sku'),
-              trx.raw('max(vl.nombre) as nombre'),
-              trx.raw('max(vl.factor_sale) as factor_sale'),
-              'vl.brand_id as brand_id',
-              trx.raw('max(vl.brand_nombre) as brand_nombre'),
-              trx.raw('max(vl.brand_code) as brand_code'),
-              'vl.channel as channel',
-              trx.raw(`'wincaja'::text as source`),
-              'vl.vendor_code as vendor_code',
-              'vl.vendor_name as vendor_name',
-              'vl.unit_kind as unit_kind',
-              trx.raw('max(vl.box_size) as box_size'),
-              trx.raw('SUM(vl.units) as units'),
-              trx.raw('SUM(vl.monto) as monto'),
-            )
-            .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(vl.business_date, 'YYYY-MM') as sale_month`)); })
-            .groupByRaw(
-              `vl.warehouse_code, vl.product_id, vl.brand_id, vl.channel, vl.vendor_code, vl.vendor_name, vl.unit_kind` +
-              (needMonth ? `, to_char(vl.business_date, 'YYYY-MM')` : ''),
-            )
-        : await winLiveKnex
-        .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
-          .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
-          .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
-        .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
-          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
-        // Base MATERIALIZED: v_sales_lines ⋈ productos (+marca) con TODOS los filtros selectivos
-        // (marca/fecha/promo/almacén/anti-doble-conteo). Colapsa a las pocas filas de la marca
-        // ANTES de agrupar → el planner no re-evalúa la vista compleja por grupo. El enriquecimiento
-        // (almacén/etiqueta/artículo/vendedor) y el GROUP BY corren sobre esta base chica.
-        .withMaterialized('base', (qb) => qb
-          .select(
-            'vl.sale_channel as sale_channel', 'vl.source_branch as source_branch', 'vl.vendedor as vendedor',
-            'vl.qty as qty', 'vl.importe as importe', 'vl.sku as sku', 'vl.warehouse_code as warehouse_code',
-            'vl.tenant_id as tenant_id', 'vl.business_date as business_date',
-            'p.id as pid', 'p.sku as psku', 'p.nombre as nombre', 'p.factor_sale as factor_sale',
-            'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-          )
-          // Fallback de arranque en frío (matview aún sin poblar): el scan complejo en vivo de
-          // v_sales_lines por la conexión admin (paso 1), con los CTE de dedup en request. En operación
-          // normal NO se llega acá (el matview enriquecido del paso 3 cubre todo rango).
-          .from('wincaja.v_sales_lines as vl')
-          .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
-          .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-          .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-          .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-          .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
-          .modify((qb) => {
-            if (brandId) qb.andWhere('p.brand_id', brandId);
-            if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-            if (warehouseFilter) qb.whereRaw(`${winWhExpr} = ANY(?)`, [warehouseFilter]);
-          }))
-        .select(
-          'w.code as branch_code', 'w.name as branch_name',
-          'base.pid as product_id', 'base.psku as sku', 'base.nombre as nombre',
-          'base.factor_sale as factor_sale', 'base.brand_id as brand_id', 'base.brand_nombre as brand_nombre', 'base.brand_code as brand_code',
-          trx.raw(`${winChanBase} as channel`),
-          trx.raw(`'wincaja'::text as source`),
-          trx.raw(`(base.source_branch || ':' || base.vendedor) as vendor_code`),
-          trx.raw(`coalesce(ven.nombre, base.vendedor) as vendor_name`),
-          trx.raw(`CASE WHEN am.uv='KGS' THEN 'weight' ELSE 'piece' END as unit_kind`),
-          trx.raw('max(lp.box_size) as box_size'),
-          trx.raw(`SUM(CASE WHEN am.uv='CJA' THEN base.qty * COALESCE(NULLIF(am.factor_venta,0),1) ELSE base.qty END) as units`),
-          trx.raw('SUM(base.importe) as monto'),
-        )
-        .from('base')
-        .joinRaw(`JOIN commercial.warehouses w ON w.tenant_id = base.tenant_id AND w.deleted_at IS NULL AND w.code = ${winWhBase}`)
-        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'base.pid').andOn('lp.tenant_id', '=', 'base.tenant_id'); })
-        .leftJoin('am', 'am.sku', 'base.sku')
-        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'base.source_branch').andOn('ven.vendedor', '=', 'base.vendedor'); })
-        .modify((qb) => {
-          if (needMonth) qb.select(trx.raw(`to_char(base.business_date, 'YYYY-MM') as sale_month`));
-        })
-        .groupByRaw(
-          `w.code, w.name, base.pid, base.psku, base.nombre, base.factor_sale, base.brand_id, base.brand_nombre, base.brand_code, base.sale_channel, base.source_branch, base.vendedor, coalesce(ven.nombre, base.vendedor), am.uv, am.factor_venta` +
-          (needMonth ? `, to_char(base.business_date, 'YYYY-MM')` : ''),
-        );
-
-      const rawRows: any[] = [...keplerRows, ...wincajaRows];
 
       // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
       // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
@@ -3120,26 +2756,13 @@ export class CommercialAnalyticsService {
             .select('product_id', 'cja_price')
         : [];
 
-      // Sucursales con venta (cualquier marca) en el periodo — para cobertura. PERF (2026-09-01):
-      // era un DISTINCT que ESCANEABA todo sales_daily del rango (~111k filas/mes → ~495ms server-side)
-      // solo para saber cuáles de los ~7 almacenes tuvieron venta. Ahora: por cada almacén un EXISTS
-      // que corta al primer hit por el índice (tenant_id, sale_date) → ~142ms. Mismo conjunto de
-      // nombres (verificado 19=19). Sin filtro de deleted (igual que antes) para no cambiar semántica.
-      const retailRows = await trx('commercial.warehouses as w')
-        .where('w.tenant_id', tenantId)
-        .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-        .whereExists(function () {
-          this.select(trx.raw('1')).from('analytics.sales_daily as sd')
-            .whereRaw('sd.warehouse_id = w.id')
-            .andWhere('sd.tenant_id', tenantId)
-            .andWhere('sd.sale_date', '>=', from)
-            .andWhere('sd.sale_date', '<=', to);
-        })
-        .distinct('w.name as name')
-        .orderBy('w.name');
+      // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
+      // el pivote (antes escaneaba sales_daily aparte → su universo podía no coincidir con lo mostrado).
+      const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.warehouse_code, s.branch_name',
+        (qb) => { if (warehouseFilter) qb.whereIn('s.warehouse_code', warehouseFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors, boxPrices, identMap };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxFactors, boxPrices, identMap };
     });
     // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
     const boxFactorMap = new Map<string, number>(
@@ -3236,7 +2859,7 @@ export class CommercialAnalyticsService {
       // RS.11b — en Mayoreo, fuera los que no son vendedor real (buckets 00/99, nulos, genéricos).
       if (isMayoreo && r.vendor_code && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
       const mayoreoLeaf = isMayoreo
-        ? (mayId ? mayId.key : (r.source === 'wincaja' ? 'w-sin-vendedor' : 'k-sin-vendedor'))
+        ? (mayId ? mayId.key : 'sin-vendedor')   // fix D: bucket ÚNICO seleccionable (el árbol emite credito|sin-vendedor)
         : null;
       // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
       if (cellFilter) {
@@ -3258,11 +2881,13 @@ export class CommercialAnalyticsService {
       const box = Number(r.box_size);
       const divisor = boxFactorMap.get(r.product_id) ?? (fs > 1 ? fs : (box > 1 ? box : 1));
       const cjaPrice = boxPriceMap.get(r.product_id) || 0;
-      const cajas = isWeight
-        ? units                                    // granel → kg
-        : cjaPrice > 0
-          ? monto / cjaPrice                        // money-anchored (robusto)
-          : units / divisor;                        // fallback: factor del resolvedor
+      const cajas = r.cajas != null
+        ? Number(r.cajas)                          // fast-path byBrand: cajas money-anchored ya sumadas en SQL
+        : isWeight
+          ? units                                  // granel → kg
+          : cjaPrice > 0
+            ? monto / cjaPrice                      // money-anchored (robusto)
+            : units / divisor;                      // fallback: factor del resolvedor
       branchesWithData.add(r.branch_name);
 
       // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
@@ -3465,23 +3090,246 @@ export class CommercialAnalyticsService {
     )).rows?.[0];
   }
 
+  // ============ SELL-OUT — resolvedor de fuente UNIFICADO (sintonía + velocidad) ============
+  // Un solo universo (`analytics.v_sellout_daily` + su rollup `analytics.mv_sellout_monthly`) del que
+  // derivan EL PIVOTE y TODOS los filtros → filtros↔datos en sintonía POR CONSTRUCCIÓN. Los meses
+  // cerrados salen del rollup mensual (velocidad: full-year ~0.9s vs ~70s del diario); el borde
+  // parcial/actual, de la vista (fresco a la última corrida nocturna). Mismo dedup, mismo vocabulario
+  // de canal, misma identidad de vendedor en ambos → adiós a las 9 divergencias A–I.
+
+  /** ¿`mv_sellout_monthly` poblado? (fast-path de meses cerrados). */
+  private async selloutMonthlyReady(trx: any): Promise<boolean> {
+    return !!(await trx.raw(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relname='mv_sellout_monthly' AND n.nspname='analytics' AND c.relispopulated`,
+    )).rows?.[0];
+  }
+
+  /** ¿la vista `v_sellout_daily` es consultable? (sus dos matviews base poblados). Si no, el sell-out
+   *  no tiene fuente (se retiraron los fallbacks legacy) → el caller lanza 503 "corré Refresh". */
+  private async selloutViewReady(trx: any): Promise<boolean> {
+    return (await trx.raw(
+      `SELECT bool_and(c.relispopulated) AS ok FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='analytics' AND c.relname IN ('mv_kepler_sales_daily','mv_wincaja_sales_daily')`,
+    )).rows?.[0]?.ok === true;
+  }
+
+  private selloutMonthStart(d: string): string { return d.slice(0, 8) + '01'; }
+  private selloutShiftDay(d: string, days: number): string {
+    return new Date(new Date(`${d}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+  }
+  private selloutNextMonthStart(d: string): string {
+    const y = +d.slice(0, 4), m = +d.slice(5, 7);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  }
+  private selloutIsLastDayOfMonth(d: string): boolean {
+    return this.selloutShiftDay(d, 1).slice(8, 10) === '01';
+  }
+
   /**
-   * PARIDAD — vendedores KEPLER del mayoreo (canal mayoreo/credito del matview del ODS) para los
-   * árboles/filtros del sell-out, simétrico a los vendedores Wincaja de sales_by_vendor_monthly. Cada
-   * fila sale por canonVendor/isNoiseVendor en el consumidor (la identidad Kepler ya está sembrada en
-   * analytics.vendor_identity: excludes + merges cross-cutover). Rutas vecinales (canal 'ruta') quedan
-   * fuera hasta decidir RD vs RV. Devuelve [] si el matview aún no está poblado.
+   * Descompone [from,to] en: meses ENTEROS y CERRADOS (→ rollup `mv_sellout_monthly`, rápido) +
+   * bordes DIARIOS (primer mes parcial + mes en curso y posteriores → vista `v_sellout_daily`, fresco).
+   * El mes en curso NUNCA va al rollup (decisión de frescura nocturna). Ej. `2026-01-01..2026-12-31`
+   * hoy 2026-09 → monthly=`2026-01..2026-08`, daily=`[2026-09-01..2026-12-31]` (la vista se auto-acota
+   * a <= hoy_MX, así que el borde sólo escanea sep-a-hoy). Éste es el fix del 500 del full-year.
    */
-  private async keplerVendorLeaves(trx: any, tenantId: string): Promise<Array<{ code: string; name: string }>> {
-    if (!(await this.keplerMvReady(trx))) return [];
-    return trx('analytics.mv_kepler_sales_daily as k')
-      .where('k.tenant_id', tenantId)
-      .where('k.product_deleted', false)
-      .whereIn('k.channel', ['mayoreo', 'credito'])
-      .andWhereRaw(this.KEPLER_SELLOUT_DEDUP)
-      .select(trx.raw('k.vendor_code as code'), trx.raw('k.vendor_name as name'))
-      .groupByRaw('k.vendor_code, k.vendor_name')
-      .havingRaw('sum(k.monto) > 0');
+  private planSellOutSources(from: string, to: string): { monthly: { fromMonth: string; toMonth: string } | null; daily: Array<{ from: string; to: string }> } {
+    const openStart = this.currentMonthStartMx();
+    const dayBeforeOpen = this.selloutShiftDay(openStart, -1);
+    const daily: Array<{ from: string; to: string }> = [];
+    const firstWhole = from.slice(8, 10) === '01' ? from : this.selloutNextMonthStart(from);
+    const lastWhole = this.selloutIsLastDayOfMonth(to) ? to : this.selloutShiftDay(this.selloutMonthStart(to), -1);
+    const lastClosed = dayBeforeOpen < lastWhole ? dayBeforeOpen : lastWhole; // min(lastWhole, díaAntesDelMesEnCurso)
+    let monthly: { fromMonth: string; toMonth: string } | null = null;
+    if (firstWhole <= lastClosed) {
+      monthly = { fromMonth: firstWhole.slice(0, 7), toMonth: lastClosed.slice(0, 7) };
+      if (from < firstWhole) daily.push({ from, to: this.selloutShiftDay(firstWhole, -1) });   // borde inicial parcial
+      const afterClosed = this.selloutShiftDay(lastClosed, 1);
+      if (afterClosed <= to) daily.push({ from: afterClosed, to });                             // cola parcial + mes en curso
+    } else {
+      daily.push({ from, to });                                                                 // sin meses cerrados enteros → todo diario
+    }
+    return { monthly, daily };
+  }
+
+  /**
+   * Un tramo de fuente (rollup mensual o vista diaria) → filas del pivote, en versión LEAN: la
+   * agregación SÓLO toca las columnas del índice covering (warehouse/product/channel/source/vendor/
+   * unit_kind + sumas) → INDEX-ONLY, sin heap-fetch de los `max(sku/nombre/marca/box_size)` que en
+   * prod costaban ~3s del full-year (medido: FULL ~7-10s vs LEAN ~3.8s). Los textos por producto/almacén
+   * se resuelven en Node en `fetchSelloutRows` (un lookup por id, barato). `vendor_name` se conserva
+   * (pocos valores) para no dar otra vuelta.
+   */
+  private selloutPivotLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
+    const qb = trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(
+        trx.raw('s.warehouse_code as branch_code'),
+        's.product_id', 's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'),
+      )
+      .groupByRaw('s.warehouse_code, s.product_id, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
+    if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
+    return qb;
+  }
+
+  /**
+   * VELOCIDAD (overview por empresa) — un tramo agregado a grano MARCA con las `cajas` money-anchored
+   * calculadas EN SQL (join a `v_product_box_factor` + `product_box_price`), no a grano producto. El
+   * overview default (byBrand) mostraba ~40 empresas pero traía 126k filas de producto para colapsarlas
+   * en Node (~4-12s en Railway, single-thread). A grano marca son ~16k grupos → **~1s** (medido). Las
+   * cajas quedan CORRECTAS (Σ por-producto de `weight→units / cja_price>0→monto/cja_price / else
+   * units/box_factor`; la fórmula es sumable porque cja_price y box_factor son constantes por producto).
+   */
+  private selloutBrandLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
+    // MISMA fórmula que el pivote por-producto (divisor = box_factor ?? factor_sale>1 ?? box_size>1 ?? 1),
+    // sumable a grano marca porque cja_price/box_factor/factor_sale/box_size son constantes por producto.
+    const cajas = `sum(CASE WHEN s.unit_kind='weight' THEN s.units WHEN bp.cja_price>0 THEN s.monto/bp.cja_price ELSE s.units/GREATEST(COALESCE(bf.box_factor, CASE WHEN s.factor_sale>1 THEN s.factor_sale WHEN s.box_size>1 THEN s.box_size ELSE 1 END), 1) END)`;
+    const qb = trx(`${table} as s`)
+      .leftJoin('analytics.v_product_box_factor as bf', function (this: any) { this.on('bf.tenant_id', 's.tenant_id').andOn('bf.product_id', 's.product_id'); })
+      .leftJoin('analytics.product_box_price as bp', function (this: any) { this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id'); })
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(
+        's.brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
+        trx.raw('s.warehouse_code as branch_code'), trx.raw('max(s.branch_name) as branch_name'),
+        's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
+        trx.raw(`${cajas} as cajas`), trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'),
+      )
+      .groupByRaw('s.brand_id, s.warehouse_code, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
+    if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
+    return qb;
+  }
+
+  /** Overview por empresa: filas a grano MARCA (cajas pre-calculadas) — rollup cerrados + vista borde. */
+  private async fetchSelloutBrandRows(trx: any, o: any): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutBrandLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutBrandLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, `to_char(s.business_date, 'YYYY-MM')`));
+    return out;
+  }
+
+  /** Filas del pivote unificadas (rollup meses cerrados + vista borde), LEAN + enriquecidas en Node con
+   *  los nombres por producto/almacén → el pivote recibe el MISMO shape de siempre (sin cambios abajo).
+   *  `byBrand` (overview sin empresa/búsqueda) toma el fast-path a grano marca (cajas en SQL). */
+  private async fetchSelloutRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; warehouseFilter: string[] | null; needMonth: boolean; byBrand?: boolean }): Promise<any[]> {
+    if (o.byBrand) return this.fetchSelloutBrandRows(trx, o);
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutPivotLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutPivotLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, `to_char(s.business_date, 'YYYY-MM')`));
+    if (!out.length) return out;
+    // Enriquecimiento en Node (sku/nombre/factor_sale/box_size/marca por producto + nombre de almacén).
+    const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const pidsAll = out.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
+    const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
+    const whAll = out.map((r) => r.branch_code).filter((w) => typeof w === 'string' && w);
+    const whs = whAll.filter((v, i) => whAll.indexOf(v) === i);
+    const pmeta = pids.length
+      ? await trx('catalog.products as p')
+          .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+          .where('p.tenant_id', o.tenantId).whereRaw('p.id = ANY(?::uuid[])', [pids])
+          .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale', 'p.brand_id',
+            trx.raw('b.nombre as brand_nombre'), trx.raw('b.code as brand_code'),
+            trx.raw('(SELECT max(lp.box_size) FROM commercial.product_label_prices lp WHERE lp.product_id = p.id AND lp.tenant_id = p.tenant_id) as box_size'))
+      : [];
+    const pm = new Map<string, any>(pmeta.map((r: any) => [r.id, r]));
+    const wmeta = whs.length
+      ? await trx('commercial.warehouses').where('tenant_id', o.tenantId).whereIn('code', whs).select('code', 'name')
+      : [];
+    const wm = new Map<string, string>(wmeta.map((r: any) => [r.code, r.name]));
+    for (const r of out) {
+      const p = pm.get(r.product_id) || {};
+      r.branch_name = wm.get(r.branch_code) ?? r.branch_code;
+      r.sku = p.sku; r.nombre = p.nombre; r.factor_sale = p.factor_sale; r.box_size = p.box_size;
+      r.brand_id = p.brand_id; r.brand_nombre = p.brand_nombre; r.brand_code = p.brand_code;
+    }
+    return out;
+  }
+
+  /** Un tramo → filas con el SHAPE de `sellOutByVendor()`. Scoped a canales con vendedor: crédito
+   *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
+  private selloutVendorLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+    return trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+      })
+      .select(
+        's.vendor_code as vendor_code', 's.vendor_name as vendor_name',
+        trx.raw(`CASE s.channel WHEN 'credito' THEN 'mayoreo_credito' WHEN 'ruta' THEN 'ruta_venta' WHEN 'preventa' THEN 'preventa_vecinal' END as sale_channel`),
+        's.product_id as product_id',
+        trx.raw('max(s.sku) as sku'), trx.raw('max(s.nombre) as nombre'), trx.raw('max(s.factor_sale) as factor_sale'),
+        's.brand_id as brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
+        trx.raw('max(s.box_size) as box_size'),
+        trx.raw(`CASE WHEN s.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
+        trx.raw('1 as fac_win'),
+        trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'),
+      )
+      .groupByRaw('s.vendor_code, s.vendor_name, s.channel, s.product_id, s.brand_id, s.unit_kind');
+  }
+
+  /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
+  private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo }): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    return out;
+  }
+
+  /**
+   * Hojas del universo sell-out (dimensiones + `monto>0`) para los ÁRBOLES de filtro y el selector de
+   * almacenes — MISMA fuente/dedup/rango que el pivote → sintonía. `dims` = columnas raw a agrupar;
+   * `extra` = filtros opcionales (canal/fuente). El `monto>0` se evalúa DESPUÉS de sumar rollup+borde
+   * (una hoja puede ser >0 sólo al juntar meses cerrados con el borde).
+   */
+  private async selloutLeaves(trx: any, o: { tenantId: string; from: string; to: string }, dims: string, extra?: (b: any) => void): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const acc = new Map<string, any>();
+    const run = async (table: string, dateCol: string, lo: string, hi: string) => {
+      const rows = await trx(`${table} as s`)
+        .where('s.tenant_id', o.tenantId).andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+        .modify((b: any) => { if (extra) extra(b); })
+        .select(trx.raw(dims)).sum({ _m: 's.monto' }).groupByRaw(dims);
+      for (const r of rows) {
+        const { _m, ...key } = r;
+        const k = JSON.stringify(key);
+        const cur = acc.get(k) || { ...key, _m: 0 };
+        cur._m += Number(_m) || 0;
+        acc.set(k, cur);
+      }
+    };
+    if (useRollup) await run('analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth);
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const dr of dailyRanges) await run('analytics.v_sellout_daily', 's.business_date', dr.from, dr.to);
+    return [...acc.values()].filter((r) => r._m > 0);
   }
 
   /**
@@ -3503,9 +3351,6 @@ export class CommercialAnalyticsService {
     const cellFilter = (q.cells && q.cells.length) ? new Set(q.cells.map((c) => c.trim().toLowerCase())) : null;
     const tenantId = this.tenantCtx.requireTenantId();
     const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
-    // RS.9 — fast path por rollup para meses completos, INCLUIDO el mes en curso (esta
-    // vista es 100% wincaja → el live escanea v_sales_lines y da 504; ver isWincajaRollupOk).
-    const monthAligned = this.isWincajaRollupOk(from, to);
     // mayoreo_credito → 'mayoreo' · ruta_venta → 'ruta' (RD) · preventa_vecinal → 'preventa' (RV)
     const GROUP: Record<string, string> = { mayoreo_credito: 'mayoreo', ruta_venta: 'ruta', preventa_vecinal: 'preventa' };
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
@@ -3517,147 +3362,15 @@ export class CommercialAnalyticsService {
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
         : { id: null, nombre: 'Todas las empresas', code: null };
       if (!b) throw new BadRequestException('Marca no encontrada');
-      // FIRE-FIX (2026-09-02): para rangos PARCIALES el path live escanea `wincaja.v_sales_lines`
-      // bajo RLS (Seq Scan de maestro 1.49M + detalles 9.9M → ~67s → tumbaba prod). Si el matview
-      // enriquecido `analytics.mv_wincaja_sales_daily` (vendedor/canal/unidades ya horneados) existe
-      // y está poblado, se lee de ahí como un group-by por índice — igual que `sellOut`. Fallback al
-      // live solo en arranque en frío. Dinero == live (verificado celda×celda; by-vendor agrupa más
-      // grueso —sin almacén— así que el total se conserva).
-      const winDailyMvOk = !monthAligned
-        && !!(await trx.raw(
-          `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-            WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
-              AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
-        )).rows?.[0];
-      // ODS (2026-09-02) — la pierna KEPLER del mayoreo por vendedor. Esta vista era 100% wincaja,
-      // así que al cutovear PH a Kepler (2026-07-01) los telemarketers (Sergio, Cinthia) salían en $0
-      // en Q3: sus ventas viven ahora en kepler_ods.kdm1.c12, que la copia sales_daily tira. Se leen del
-      // matview DERIVADO DEL ODS `analytics.mv_kepler_sales_daily` (vendedor `kduv` + canal horneados).
-      // Dedup: COMPLEMENTO EXACTO del blend wincaja de arriba (PH ≥jul, La Piedad ≥oct, Canindo ≥ago-15;
-      // 03/04/05 Kepler-native) → nunca doble-cuenta (verificado: wincaja 10 en Q3 = $0; 50 = pre-ago15).
-      // Rutas numeradas (21-28…) son source_branch WINCAJA, NO Kepler → sólo canal mayoreo/credito acá.
-      const keplerMvOk = !!(await trx.raw(
-        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
-            AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
-      )).rows?.[0];
-      // RS.9 — fast path: meses completos → rollup persistido (units/unit_kind canónicos).
-      // Se mapea al MISMO shape que espera el pivote (uv_win/fac_win/qty): uv_win='KGS'|'PZA',
-      // fac_win=1, qty=units canónico → el cálculo de units/cajas de abajo funciona igual.
-      const rows = monthAligned
-        ? await trx('analytics.sales_by_vendor_monthly as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-            .where('sd.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-            .andWhere('sd.year_month', '>=', from.slice(0, 7)).andWhere('sd.year_month', '<=', to.slice(0, 7))
-            .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-            .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-            .select(
-              trx.raw(`sd.vendor_code as vendor_code`),
-              trx.raw(`sd.vendor_name as vendor_name`),
-              'sd.sale_channel as sale_channel',
-              'sd.product_id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-              'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-              trx.raw('max(lp.box_size) as box_size'),
-              trx.raw(`CASE WHEN max(sd.unit_kind)='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
-              trx.raw('1 as fac_win'),
-              trx.raw('sum(sd.units) as qty'), trx.raw('sum(sd.revenue) as monto'),
-            )
-            .groupByRaw('sd.vendor_code, sd.vendor_name, sd.sale_channel, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code')
-        : winDailyMvOk
-        // FIRE-FIX — matview enriquecido (vendedor/canal/unidades ya horneados): group-by por índice,
-        // sin joins, sin el scan de v_sales_lines. Mismo shape que el rollup (uv_win/fac_win=1/qty=units
-        // canónico). El matview `channel` es el mapeado (credito/ruta/preventa); lo devolvemos como el
-        // sale_channel crudo que el pivote espera (mayoreo_credito/ruta_venta/preventa_vecinal). El
-        // filtro `channel IN (credito,ruta,preventa)` == `sale_channel IN (mayoreo_credito,…)` (1:1 en
-        // wincaja). Anti-doble-conteo/promo/borrados sobre columnas del matview.
-        ? await trx('analytics.mv_wincaja_sales_daily as vl')
-            .where('vl.tenant_id', tenantId)
-            .where('vl.product_deleted', false)
-            .modify((qb) => { if (promoMode === 'solo') qb.andWhere('vl.is_promo', true); else if (promoMode !== 'todo') qb.andWhere('vl.is_promo', false); })
-            .whereIn('vl.channel', ['credito', 'ruta', 'preventa'])
-            .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-            .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
-            .modify((qb) => { if (brandId) qb.andWhere('vl.brand_id', brandId); if (search) qb.andWhereRaw('(vl.sku ILIKE ? OR vl.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-            .select(
-              'vl.vendor_code as vendor_code',
-              'vl.vendor_name as vendor_name',
-              trx.raw(`CASE vl.channel WHEN 'credito' THEN 'mayoreo_credito' WHEN 'ruta' THEN 'ruta_venta' WHEN 'preventa' THEN 'preventa_vecinal' END as sale_channel`),
-              'vl.product_id as product_id',
-              trx.raw('max(vl.sku) as sku'), trx.raw('max(vl.nombre) as nombre'), trx.raw('max(vl.factor_sale) as factor_sale'),
-              'vl.brand_id as brand_id', trx.raw('max(vl.brand_nombre) as brand_nombre'), trx.raw('max(vl.brand_code) as brand_code'),
-              trx.raw('max(vl.box_size) as box_size'),
-              trx.raw(`CASE WHEN vl.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
-              trx.raw('1 as fac_win'),
-              trx.raw('sum(vl.units) as qty'), trx.raw('sum(vl.monto) as monto'),
-            )
-            .groupByRaw('vl.vendor_code, vl.vendor_name, vl.channel, vl.product_id, vl.brand_id, vl.unit_kind')
-        : await trx
-        .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
-          .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
-          .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
-        // Nombre por (sucursal, vendedor): los códigos se reusan entre plazas para
-        // PERSONAS distintas (ej. cód 75 = Sergio en PH pero Alberto Ayala en Morelia).
-        .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
-          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
-        .select(
-          trx.raw(`(vl.source_branch || ':' || vl.vendedor) as vendor_code`),
-          trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
-          'vl.sale_channel as sale_channel',
-          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-          'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-          trx.raw('max(lp.box_size) as box_size'),
-          trx.raw(`max(am.uv) as uv_win`), trx.raw('max(am.factor_venta) as fac_win'),
-          trx.raw('sum(vl.qty) as qty'), trx.raw('sum(vl.importe) as monto'),
-        )
-        .from('wincaja.v_sales_lines as vl')
-        .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
-        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-        .leftJoin('am', 'am.sku', 'vl.sku')
-        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId)
-        .whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-        // Mismo BLEND que el feed (import-wincaja-analytics): las wincaja_only (30/32/50)
-        // + PH(10) pre-2026-07-01 + La Piedad(42) pre-2025-10-01. Sin esto se caían los
-        // telemarketers de PH (Yareth, Sergio) porque PH es sucursal COMPARTIDA (wincaja_only=false).
-        .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-        .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-        .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
-        .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-        .groupByRaw('vl.source_branch, vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
-      // ODS — pierna KEPLER del mayoreo por vendedor (matview all-history, sin RLS, group-by por índice).
-      // channel IN (mayoreo,credito) → sale_channel 'mayoreo_credito' (el pivote lo agrupa como 'Mayoreo').
-      // Rutas/preventa quedan en wincaja. Mismo shape que las ramas wincaja (uv_win/fac_win=1/qty=units).
-      const keplerRows: any[] = keplerMvOk
-        ? await trx('analytics.mv_kepler_sales_daily as k')
-            .where('k.tenant_id', tenantId)
-            .where('k.product_deleted', false)
-            .modify((qb) => { if (promoMode === 'solo') qb.andWhere('k.is_promo', true); else if (promoMode !== 'todo') qb.andWhere('k.is_promo', false); })
-            .whereIn('k.channel', ['mayoreo', 'credito'])
-            .andWhereRaw(`((k.source_branch='01' AND k.business_date >= DATE '2026-07-01')
-              OR (k.source_branch='02' AND k.business_date >= DATE '2025-10-01')
-              OR (k.source_branch='06' AND k.business_date >= DATE '2026-08-15')
-              OR k.source_branch IN ('03','04','05'))`)
-            .andWhere('k.business_date', '>=', from).andWhere('k.business_date', '<=', to)
-            .modify((qb) => { if (brandId) qb.andWhere('k.brand_id', brandId); if (search) qb.andWhereRaw('(k.sku ILIKE ? OR k.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-            .select(
-              'k.vendor_code as vendor_code',
-              'k.vendor_name as vendor_name',
-              trx.raw(`'mayoreo_credito'::text as sale_channel`),
-              'k.product_id as product_id',
-              trx.raw('max(k.sku) as sku'), trx.raw('max(k.nombre) as nombre'), trx.raw('max(k.factor_sale) as factor_sale'),
-              'k.brand_id as brand_id', trx.raw('max(k.brand_nombre) as brand_nombre'), trx.raw('max(k.brand_code) as brand_code'),
-              trx.raw('max(k.box_size) as box_size'),
-              trx.raw(`CASE WHEN k.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
-              trx.raw('1 as fac_win'),
-              trx.raw('sum(k.units) as qty'), trx.raw('sum(k.monto) as monto'),
-            )
-            .groupByRaw('k.vendor_code, k.vendor_name, k.product_id, k.brand_id, k.unit_kind')
-        : [];
+      if (!(await this.selloutViewReady(trx)))
+        throw new ServiceUnavailableException('Analytics de sell-out aún no poblado — corré Refresh en el Command Center.');
+      // FUENTE UNIFICADA — mismo universo/dedup/rango que el pivote y los filtros, scoped a los canales
+      // CON vendedor: crédito (ambas fuentes: Kepler telemarketing Sergio/Cinthia + Wincaja) + ruta/preventa
+      // SÓLO de Wincaja (RD/RV; kepler ruta = decisión RD-vs-RV, diferida). Rutas numeradas → sin vendedor
+      // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
+      const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode });
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, raw: [...rows, ...keplerRows], identMap };
+      return { brand: b, raw, identMap };
     });
 
     const columns = new Map<string, SellOutColumn>();
@@ -3708,119 +3421,96 @@ export class CommercialAnalyticsService {
       period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
       columns: orderedCols, rows, column_totals: columnTotalsObj,
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
-      coverage: { branches_with_data: [], branches_missing: [], note: 'Por vendedor: solo canales Wincaja (mayoreo/RD/RV). Kepler no registra vendedor.' },
+      coverage: { branches_with_data: [], branches_missing: [], note: 'Por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja).' },
       generated_at: new Date().toISOString(),
     };
   }
 
   /** RS.4 — Árbol CANAL para el slicer: grupos (Sucursal/RD/RV/Mayoreo) → sucursales con venta. */
-  async sellOutCanales(): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
+  async sellOutCanales(from?: string, to?: string): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const channelExpr0 = `CASE sd.channel
-        WHEN 'tienda' THEN 'mostrador' WHEN 'wincaja_mostrador' THEN 'mostrador'
-        WHEN 'ruta' THEN 'ruta' WHEN 'wincaja_ruta' THEN 'ruta'
-        WHEN 'wincaja_preventa' THEN 'preventa'
-        WHEN 'credito' THEN 'credito' WHEN 'wincaja_credito' THEN 'credito'
-        ELSE 'otro' END`;
-    // RS.7 — almacenes de RUTA (RUTA-NN; legacy 01-NNN) → RD aunque cobren a crédito/contado.
-    const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
-    const { rows, vendors, keplerLeaves, identMap } = await this.tk.run(async (trx) => {
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
+    const { chanRows, credRows, identMap } = await this.tk.run(async (trx) => {
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      // PERF (2026-09-02): el árbol de canales sale del rollup mensual `sales_boxes_monthly` (634k
-      // filas) en vez de `sales_daily` (4.4M) → mismo set canal×almacén (verificado IDÉNTICO) en ~230 ms
-      // vs ~1.2 s. El árbol es "qué canal×almacén tuvo venta EN CUALQUIER momento" → el grano mensual
-      // da exactamente lo mismo (un mes tiene venta sii algún día la tiene). Mismas columnas.
-      const rows = await trx('analytics.sales_boxes_monthly as sd')
-        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-        .where('sd.tenant_id', tenantId)
-        .select(trx.raw(`${channelExpr} as channel`), 'w.code as code', 'w.name as name')
-        .sum({ rev: 'sd.revenue' })
-        .groupByRaw(`${channelExpr}, w.code, w.name`)
-        .havingRaw('sum(sd.revenue) > 0');
-      // RS.10 — Mayoreo NO por sucursal: sus hojas son VENDEDORES (rollup por vendedor).
-      const vendors = await trx('analytics.sales_by_vendor_monthly as sd')
-        .where('sd.tenant_id', tenantId).andWhere('sd.sale_channel', 'mayoreo_credito')
-        .select(trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
-        .sum({ rev: 'sd.revenue' })
-        .groupByRaw('sd.vendor_code, sd.vendor_name')
-        .havingRaw('sum(sd.revenue) > 0');
-      // PARIDAD Kepler↔Wincaja — el crédito/mayoreo Kepler ahora se abre POR VENDEDOR (Sergio/Cinthia/…)
-      // desde el matview del ODS, simétrico a Wincaja, en vez del bucket único 'Sin vendedor (Kepler)'.
-      const keplerLeaves = await this.keplerVendorLeaves(trx, tenantId);
-      return { rows, vendors, keplerLeaves, identMap };
+      if (!(await this.selloutViewReady(trx))) return { chanRows: [] as any[], credRows: [] as any[], identMap };
+      // Hojas Sucursal/RD/RV = canal×almacén, de la MISMA fuente/dedup/rango que el pivote → sintonía
+      // (fix A/B/F: mismo origen, dedup aplicado, vocabulario unificado, acotado al rango elegido).
+      const chanRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.channel, s.warehouse_code, s.branch_name',
+        (qb) => qb.whereIn('s.channel', ['mostrador', 'ruta', 'preventa']));
+      // Mayoreo (credito) = por VENDEDOR (ambas fuentes vía canonVendor).
+      const credRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.vendor_code, s.vendor_name',
+        (qb) => qb.andWhere('s.channel', 'credito'));
+      return { chanRows, credRows, identMap };
     });
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
       mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
       ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
       preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
-      credito: { g: 'credito', label: 'Mayoreo', ord: 3 },
     };
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
-    for (const r of rows as any[]) {
+    for (const r of chanRows as any[]) {
       const meta = GROUP[r.channel]; if (!meta) continue;
-      if (meta.g === 'credito') continue; // Mayoreo se arma por vendedor abajo, no por sucursal
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
-      map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.code, name: r.name });
+      map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.warehouse_code, name: r.branch_name });
     }
-    // Grupo Mayoreo = vendedores (token 'credito|<canonical_key>') + Kepler sin vendedor (separado).
-    // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a UNA hoja, nombre limpio.
-    if (vendors.length || keplerLeaves.length) {
-      const seen = new Map<string, { channel: string; code: string; name: string }>();
-      // Wincaja + Kepler por el MISMO canonVendor/isNoiseVendor → fragmentos del mismo vendedor (y su
-      // yo Wincaja/Kepler a través del cutover) colapsan a UNA hoja; los pseudo-vendedores caen por exclude.
-      for (const v of [...vendors, ...keplerLeaves] as any[]) {
-        const id = this.canonVendor(identMap, v.code, v.name);
-        if (id.exclude || this.isNoiseVendor(v.code)) continue; // RS.11b — fuera no-vendedores
-        if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
-      }
-      map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves: Array.from(seen.values()) });
+    // Mayoreo = vendedores canónicos (Wincaja+Kepler colapsados por canonVendor) + bucket ÚNICO
+    // 'sin-vendedor' seleccionable (fix D) cuando hay crédito sin vendedor real con venta.
+    const seen = new Map<string, { channel: string; code: string; name: string }>();
+    let sinVend = 0;
+    for (const v of credRows as any[]) {
+      if (this.isNoiseVendor(v.vendor_code)) { sinVend += Number(v._m) || 0; continue; }
+      const id = this.canonVendor(identMap, v.vendor_code, v.vendor_name);
+      if (id.exclude) continue;
+      if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
     }
+    const credLeaves = Array.from(seen.values());
+    if (sinVend > 0) credLeaves.push({ channel: 'credito', code: 'sin-vendedor', name: 'Sin vendedor' });
+    if (credLeaves.length) map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves: credLeaves });
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
-      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => a.name.localeCompare(b.name, 'es')) }));
+      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
   }
 
-  /** RS.4 — Árbol VENDEDOR (solo Wincaja) para el slicer: MAYOREO/RD/RV → vendedores con venta. */
-  async sellOutVendors(): Promise<{ group: string; group_label: string; leaves: { code: string; name: string }[] }[]> {
+  /** RS.4 — Árbol VENDEDOR para el slicer: MAYOREO (Kepler+Wincaja) / RD / RV (Wincaja) → vendedores con
+   *  venta EN EL RANGO. Misma fuente/dedup que el pivote by-vendor → sintonía (fix B/C/E). */
+  async sellOutVendors(from?: string, to?: string): Promise<{ group: string; group_label: string; leaves: { code: string; name: string }[] }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
-      mayoreo_credito: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
-      ruta_venta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
-      preventa_vecinal: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
+      credito: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
+      ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
+      preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
     };
-    // RS.9 — desde el rollup persistido (venta por vendedor, todo el histórico). El feed ya
-    // aplicó el mismo blend/mapeo → mismos vendedores que la view, pero en ~ms (era 504).
-    const { rows, keplerLeaves, identMap } = await this.tk.run(async (trx) => ({
-      rows: await trx('analytics.sales_by_vendor_monthly as sd')
-        .select('sd.sale_channel as sale_channel', trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
-        .sum({ rev: 'sd.revenue' })
-        .where('sd.tenant_id', tenantId)
-        .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-        .groupByRaw('sd.sale_channel, sd.vendor_code, sd.vendor_name')
-        .havingRaw('sum(sd.revenue) > 0'),
-      // PARIDAD — vendedores Kepler del mayoreo (Sergio/Cinthia/…) para que el slicer no sea wincaja-only.
-      keplerLeaves: await this.keplerVendorLeaves(trx, tenantId),
-      identMap: await this.loadVendorIdentity(trx, tenantId),
-    }));
+    const { rows, identMap } = await this.tk.run(async (trx) => {
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      if (!(await this.selloutViewReady(trx))) return { rows: [] as any[], identMap };
+      // Vendedores del universo unificado, scoped como el reporte by-vendor: crédito (ambas fuentes) +
+      // ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida).
+      const rows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.channel, s.vendor_code, s.vendor_name',
+        (qb) => qb.andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`));
+      return { rows, identMap };
+    });
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
     const addLeaf = (g: string, label: string, ord: number, id: { key: string; name: string }) => {
       if (!map.has(g)) map.set(g, { group: g, group_label: label, ord, leaves: [] });
       const bucket = map.get(g)!;
       if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
     };
+    let sinVend = 0;
     for (const r of rows as any[]) {
-      const meta = GROUP[r.sale_channel]; if (!meta) continue;
-      // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a una hoja.
-      const id = this.canonVendor(identMap, r.code, r.name);
-      // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
-      if (id.exclude || this.isNoiseVendor(r.code)) continue;
+      const meta = GROUP[r.channel]; if (!meta) continue;
+      // RS.11b — fuera los que no son vendedor real; sólo Mayoreo expone el bucket 'sin-vendedor' (fix D).
+      if (this.isNoiseVendor(r.vendor_code)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
+      // RS.11 — identidad canónica: fragmentos del mismo vendedor (y su yo Wincaja/Kepler) colapsan a una hoja.
+      const id = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      if (id.exclude) continue;
       addLeaf(meta.g, meta.label, meta.ord, id);
     }
-    // PARIDAD — pierna Kepler (mayoreo/credito → grupo Mayoreo), misma identidad/ruido que Wincaja.
-    for (const r of keplerLeaves as any[]) {
-      const id = this.canonVendor(identMap, r.code, r.name);
-      if (id.exclude || this.isNoiseVendor(r.code)) continue;
-      addLeaf('mayoreo', 'Mayoreo', 0, id);
-    }
+    if (sinVend > 0) addLeaf('mayoreo', 'Mayoreo', 0, { key: 'sin-vendedor', name: 'Sin vendedor' });
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
   }
@@ -3852,41 +3542,19 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** Almacenes/sucursales con venta en analytics.sales_daily — para el selector. */
-  async sellOutWarehouses(): Promise<SellOutWarehouseRow[]> {
+  /** Almacenes con venta en el rango — para el selector. MISMA fuente unificada que el pivote/filtros
+   *  (sintonía): lista exactamente los almacenes que el reporte puede mostrar para [from,to]. Sin rango
+   *  → all-time (selector estable). */
+  async sellOutWarehouses(from?: string, to?: string): Promise<SellOutWarehouseRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31'; // la vista se auto-acota a hoy_MX
     return this.tk.run(async (trx) => {
-      // Almacenes con venta en CUALQUIER fact de sell-out (sales_daily del consolidado O
-      // product_sales_monthly del feed por-sucursal). Antes solo sales_daily → Canindo '06'
-      // (migró de Wincaja '50' a Kepler '06') NO salía porque su venta aún no llega a sales_daily
-      // (gap del consolidado on-prem mart.ventas_enriched), aunque product_sales SÍ la tiene.
-      // El union NO enmascara el gap: Sell-Out sigue mostrando 0 para Canindo hasta arreglar el
-      // consolidado; pero al menos el reporte Salidas (que lee product_sales) ya lo lista.
-      // PARIDAD Kepler↔Wincaja — presencia de venta en CUALQUIER fact del sell-out, incluidos los DOS
-      // matviews simétricos del ODS → un almacén cuya venta sólo vive ahí (Canindo 06) aparece en el filtro.
-      // Los EXISTS sobre matview sólo se agregan si está POBLADO (un matview WITH NO DATA no es consultable).
-      const exists = [
-        `EXISTS (SELECT 1 FROM analytics.sales_daily sd WHERE sd.tenant_id = w.tenant_id AND sd.warehouse_id = w.id)`,
-        `EXISTS (SELECT 1 FROM analytics.product_sales_monthly ps WHERE ps.tenant_id = w.tenant_id AND ps.warehouse_id = w.id)`,
-      ];
-      if (await this.keplerMvReady(trx)) {
-        exists.push(`EXISTS (SELECT 1 FROM analytics.mv_kepler_sales_daily mk WHERE mk.tenant_id = w.tenant_id AND mk.warehouse_code = w.code)`);
-      }
-      const winReady = !!(await trx.raw(
-        `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-          WHERE c.relname = 'mv_wincaja_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
-            AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
-      )).rows?.[0];
-      if (winReady) {
-        exists.push(`EXISTS (SELECT 1 FROM analytics.mv_wincaja_sales_daily mw WHERE mw.tenant_id = w.tenant_id AND mw.warehouse_code = w.code)`);
-      }
-      const rows = await trx('commercial.warehouses as w')
-        .where('w.tenant_id', tenantId)
-        .whereNull('w.deleted_at')
-        .whereRaw(`(${exists.join(' OR ')})`)
-        .distinct('w.code as code', 'w.name as name')
-        .orderBy('w.code');
-      return rows as SellOutWarehouseRow[];
+      if (!(await this.selloutViewReady(trx))) return [];
+      const leaves = await this.selloutLeaves(trx, { tenantId, from: f, to: t }, 's.warehouse_code, s.branch_name');
+      return leaves
+        .map((r: any) => ({ code: r.warehouse_code, name: r.branch_name }))
+        .sort((a: any, b: any) => String(a.code).localeCompare(String(b.code), 'es')) as SellOutWarehouseRow[];
     });
   }
 

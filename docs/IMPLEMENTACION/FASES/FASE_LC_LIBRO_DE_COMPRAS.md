@@ -643,6 +643,41 @@ molestia en trabajo perdido (271 CFDIs / $32.6M en limbo).
 no-op, y un no-op se lee igual que "no hay duplicados" — es lo que dejó
 `analytics.customer_receivables` vacía en producción durante meses.
 
+### Aplicado a producción (2026-09-03)
+
+Las 3 migraciones + el sembrado, verificados con los smokes **37/37 y 66/66 contra prod**.
+
+**Cómo se aplicaron, y por qué así:** una por una con `migrate.up()` y `lock_timeout = 15s`,
+**no** con `migrate.latest()`. Knex mete todo el batch en una sola transacción, y había 6
+migraciones de otras sesiones intercaladas — varias construyen matviews. El índice sobre
+`analytics.gl_poliza_lines` (**480,863 filas / 291 MB**) toma `ACCESS EXCLUSIVE`, así que en
+un solo batch ese lock quedaba tomado mientras se construían las matviews de después,
+bloqueando el feed de pólizas que escribe **cada minuto**. Una por una, el lock dura lo que
+dura su propia migración (4.5 s). Las 6 ajenas se leyeron antes: todas aditivas, cero
+`DROP TABLE` / `DROP COLUMN` / `DELETE`.
+
+**Lo que la puerta exacta agregó, medido con datos reales** (2×2 por mes, UUID × importe):
+
+| mes | ambas | **solo UUID** | solo importe | ninguna |
+|---|---:|---:|---:|---:|
+| 2026-03 | 28 | 0 | 3 | 83 |
+| 2026-06 | 31 | 0 | 5 | 139 |
+| **2026-07** | 149 | **4 ($109,782)** | 22 | 265 |
+| 2026-08 | 0 | 0 | 34 | 688 |
+
+Las **4 de julio** son facturas que el cruce por importe **no atrapaba**: se habrían
+re-entregado y duplicado. Y `solo_importe` aparece en todos los meses, o sea **las puertas
+suman y ninguna es superconjunto** — como predecía el análisis. Agosto sale 0 por UUID
+porque el histórico llega hasta jul-2026; ese mes queda cubierto sólo por importe, que es
+exactamente lo que el renglón de cobertura declara en pantalla.
+
+⚠️ **`concepto` llena hacia adelante, no retroactivo.** El importer sólo reescribe el delta
+por `RowVersion`, así que las 480k patas existentes se quedan en `NULL`. No hace falta
+backfill: las patas de compras históricas tienen el concepto **vacío en el 100%**, que es la
+razón por la que esta columna existe.
+
+**Falta:** redeploy de api + view, y que los roles de contabilidad vuelvan a entrar.
+
 ### Lo que sigue sin estar probado
 
 ⚠️ **El separador del TXT.** Los 19 campos se validaron uno a uno contra `Polizas` /
@@ -655,10 +690,114 @@ cuadra al centavo, así que hay con qué compararlo).
 
 ---
 
+## LC.16 — la pantalla se lee (2026-09-03)
+
+Disparado por una revisión visual poniéndose del lado de la contadora: *¿dónde está cada
+cosa? ¿tengo que scrollear? ¿me abruma el color?* Se midió antes de opinar, contra prod.
+
+### Lo que medía la pantalla
+
+```text
+sept-2026   157 filas ·  75 rojas (48%) · 52% de las celdas de impuesto en $0.00
+ago-2026    725 filas · 214 rojas (30%) · 51% ceros
+jul-2026    446 filas · 258 rojas (58%) · 55% ceros
+```
+
+La primera factura aparecía **al 63% del alto de la primera pantalla**: nueve bloques
+apilados antes del dato. Tres barras de scroll (página, rail, tabla).
+
+### El hallazgo caro: el rojo significaba cuatro cosas
+
+| Tag rojo | Qué le pedía | jul-2026 |
+|---|---|---:|
+| `Ya en el libro` | **nada — está resuelto** | **159 (36%)** |
+| `RFC sin cuenta` | configurar el proveedor | 93 |
+| `Cuenta inexistente` | avisar a contabilidad | 6 |
+| `Cancelada en el SAT` | sacarla | 0 |
+
+En julio **58% de la tabla estaba en rojo y el 62% de esos rojos querían decir "listo, no
+lo toques"**. Si más de la mitad grita, nada grita.
+
+### LC.16.7 — la fecha salía con el día equivocado *(no era cosmético)*
+
+`String(r['fecha']).slice(0, 10)` sobre un `date` de pg daba **`"Mon Aug 31"` para una
+factura del `2026-09-01`**: pg devuelve la columna como `Date` en UTC-midnight y `String()`
+la renderiza en hora de México (−06:00), o sea **el día anterior**. Verificado contra prod.
+
+Salía por cuatro lados, todos hacia la contadora: la tabla, el **respaldo XLSX** (columna
+declarada `type: 'date'` recibiendo el texto `"Mon Aug 31"`), el **CSV del Asociador**, y el
+**orden de los renglones del TXT entregado** — porque `construirMovimientos` ordena por
+`a.fecha < b.fecha` y eso ordenaba alfabéticamente por día de la semana
+(`Fri < Mon < Sat < Tue < Wed`).
+
+Arreglado en el origen con `to_char(f.fecha, 'YYYY-MM-DD')` en los tres SELECT. En la lista
+de selección `to_char` es gratis: lo que anula el índice es envolver la columna **en el
+WHERE**, no ahí.
+
+Además el breadcrumb decía **"Contabilidad / Página Actual"** — placeholder en prod. Las
+páginas que viven en pestañas no son items de nav, así que caían al genérico; ahora se
+deriva del último segmento del slug, con guarda para no titular "Abc 123".
+
+### Los cambios
+
+| # | Qué | Efecto medido |
+|---|---|---|
+| **16.1** | El rojo sólo para lo que **impide generar**. `Ya en el libro` pasa a texto apagado con check; el filo de la fila de `--bad-fg` a `--ok-fg`; fuera el verde del KPI de IEPS (era `ieps > 0 ? ok : default`); el estado del mes de pastilla llena a punto + texto | jul: de 258 rojos a 99 |
+| **16.2** | Chips de filtro + buscador. Cuatro grupos excluyentes, default "Entran al TXT" | ago: esconde 240 filas intocables · jul: 262 |
+| **16.3** | La tira de 5 mosaicos baja al **pie de la tabla**, alineada bajo su columna. Suma lo filtrado y rotula cuál filtro | 4 de 5 mosaicos eran totales de columnas; el 5º repetía el veredicto |
+| **16.4** | `$0.00` → guion tenue. `Estado` se parte en `Cuenta` + `Estado` | recupera ~la mitad de la tinta numérica |
+| **16.5** | Rail agrupado por año, el más reciente abierto, con el pendiente en el encabezado | 24 tarjetas → ~9 + 2 encabezados |
+| **16.6** | Cobertura + contexto + avisos en un renglón que se abre. **Los bloqueantes quedan fuera, siempre visibles** | ~30% del alto recuperado |
+
+**Verificación de 16.2 — los cuatro grupos particionan la tabla, y `entran` coincide exacto
+con lo que el rail ya mostraba en cada tarjeta:**
+
+```text
+mes      filas | entran  sin_cta  revisar  ya_libro | suma
+2026-09    157 |     82       75        0         0 |  157  ✓
+2026-08    722 |    482      206       34         0 |  722  ✓
+2026-07    440 |    178       87       22       153 |  440  ✓
+2026-06    175 |    108       31        5        31 |  175  ✓
+```
+
+### Dos cosas del plan que NO se hicieron, con motivo
+
+- **Fundir `Exento` y `Gravado 16%` en una columna `Base`.** Son las dos cuentas del asiento
+  (`501` al 0% y `502` gravado) y fundirlas escondía la distinción sobre la que está armado
+  el TXT. El ruido eran **los ceros**, no las columnas.
+- **Quitar el scroll interno de la tabla.** Con el preámbulo colapsado la página ya casi no
+  scrollea, así que deja de ser un scroll anidado en la práctica — y ese contenedor es lo
+  que mantiene clavados el encabezado y el nuevo pie de totales, que es justo lo que hace
+  falta en el renglón 400 de agosto.
+
+### Lección
+
+**El color se gana con significado.** Cuatro estados semánticamente opuestos compartiendo
+`severity="danger"` —incluido el camino feliz— convierten la columna en ruido. Y el verde
+del IEPS estaba puesto por `> 0`: color por ser distinto de cero.
+
+**Y un `slice(0,10)` sobre un `Date` no es un formateador.** Se veía bien en el código, el
+build pasaba, el smoke pasaba, y el daño aparecía en el archivo que sube la contadora.
+Hermano de [`feedback_brake_checks_precomputed_not_existence`].
+
+⚠️ **Cuarta vez que un acento grave dentro de un comentario rompe el build** en este módulo
+(dos en el `template:` del componente, una en el SQL, una en el CSS). Los tres literales de
+este módulo son template literals: **sin acentos graves en los comentarios**.
+
+### Pendiente de 16.x
+
+Sigue abierta la pregunta anterior: **ver los renglones contables** con su cuenta
+(`212` / `501` / `502`) y filtrarlos por familia. Hoy los movimientos sólo existen en la
+hoja *Movimientos* del respaldo XLSX; en pantalla no hay ninguna vista de asiento. Es una
+vista nueva, no un filtro de ésta. (Y ojo: en la contabilidad 2026 **`201` y `202` no
+existen** — sólo `212`, `501`, `502` y `147x`.)
+
+---
+
 ## Estado
 
-🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14 y LC.15 cerrados. El módulo ya hace lo que
-existe para hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
+🔨 **EN CURSO 2026-09-03.** LC.0 → LC.12, LC.14, LC.15 y LC.16 cerrados. El módulo ya hace
+lo que existe para hacer: dice cuánto falta por asociar, mes por mes, y lo baja en TXT.
 
 - **LC.1 ✅ en prod**: 167,418 CFDIs recibidos de 2018 a hoy en `fiscal.cfdis`
   (`source='contpaqi_add'`), con bases gravables por impuesto y tasa **y** la marca de

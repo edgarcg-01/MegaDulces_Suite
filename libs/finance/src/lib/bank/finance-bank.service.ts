@@ -994,6 +994,10 @@ export class FinanceBankService {
       const kepler = hasTes
         ? await trx('analytics.kepler_bank_movements as k')
             .where('k.tenant_id', tenantId).where('k.signo', '<', 0).whereNotNull('k.account_label')
+            // Excluir caja (kind='cash', CG): es lista de pagos de BANCO sin casar; una salida de
+            // caja jamás casa contra un movimiento bancario → saldría siempre como "sin conciliar".
+            .whereNotIn('k.account_label', trx('finance.bank_accounts')
+              .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
             .andWhere('k.fecha_valor', '>=', tIni).andWhere('k.fecha_valor', '<', tFin)
             .whereNotExists(function () {
               this.select(trx.raw('1')).from('finance.bank_recon_matches as m')
@@ -1249,7 +1253,12 @@ export class FinanceBankService {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
         titulo: 'Faltan las pólizas del 102 de Kepler (no se puede conciliar aún)',
         detalle: 'No hay pólizas del 102 (bancos/caja) de Kepler cargadas para este periodo, así que la conciliación por-transacción no puede correr y toda la evidencia dirá «sin conciliar en Kepler». Eso NO significa que falte en Kepler — todavía no hay con qué cruzar.',
-        accion: 'Carga el feed de pólizas 102 del periodo (import-bank-postings) y luego presiona «Conciliar» en la pestaña Conciliación. Recién entonces la evidencia mostrará el folio exacto de Kepler de cada pago.' });
+        // Ya NO se "carga un feed": `analytics.bank_postings` es una MATERIALIZED VIEW derivada
+        // del ODS (mig 20260903130000) que refresca `AnalyticsRefreshService` cada 15 min. Decirle
+        // a alguien que corra `import-bank-postings` era mandarlo a un script que ya no existe.
+        // Si está vacío para el periodo hay dos causas reales, y conviene nombrarlas: el refresh
+        // aún no corrió, o el periodo cae fuera de la ventana rodante de 12 meses de la vista.
+        accion: 'Las pólizas del 102 se derivan del ODS y se refrescan solas cada ~15 min: si el periodo es reciente, espera ese ciclo o pide un refresh manual de analytics. Si es un periodo de más de 12 meses atrás, queda fuera de la ventana rodante de la vista y no habrá con qué cruzar. Cuando aparezcan, presiona «Conciliar» en la pestaña Conciliación.' });
     } else if (!conciliacionCorrida && !!recon?.accounts?.length) {
       items.unshift({ tipo: 'aviso_conciliar', severidad: 'info', importe: 0,
         titulo: 'Corre «Conciliar» primero',
@@ -1854,6 +1863,10 @@ export class FinanceBankService {
       const kFin = km >= 12 ? `${ky + 1}-01-01` : `${ky}-${String(km + 1).padStart(2, '0')}-01`;
       const tesRow: any = await trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
+        // Excluir caja (kind='cash', CG): consistente con bankIn/bankOut de arriba (banco-only,
+        // la caja va como memo no-fiscal) y con el Cuadre (threeWay). Banco-vs-banco.
+        .whereNotIn('account_label', trx('finance.bank_accounts')
+          .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
         .andWhere('fecha_valor', '>=', kIni).andWhere('fecha_valor', '<', kFin)
         .select(trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo > 0),0) AS cargos`),
           trx.raw(`COALESCE(SUM(importe) FILTER (WHERE signo < 0),0) AS abonos`)).first();
@@ -2007,12 +2020,36 @@ export class FinanceBankService {
       }
 
       const sum = (a: any[]) => Math.round(a.reduce((s, r) => s + (Number(r.amt) || 0), 0) * 100) / 100;
+      const r2 = (v: number) => Math.round(v * 100) / 100;
       const bankTotal = sum(deps as any[]);
       const sinExpl = sum(buckets.sin_explicar);
       const fugaCaja = caja.filter((c) => !c.used);
 
+      // POR CUENTA: mismo desglose por origen, agrupado por account_label. "Kepler" = tesorería
+      // (kdm1) + cobranza (UA0501, también Kepler); "retail" = depósito de tienda (Caja). Así se ve,
+      // banco por banco, cuánto de sus depósitos concilia Kepler (su mayoreo) vs cuánto es tienda.
+      const acctMap = new Map<string, any>();
+      const accInit = (d: any) => {
+        const lbl = String(d.account_label || d.bank || '—');
+        let r = acctMap.get(lbl);
+        if (!r) { r = { account_label: d.account_label || null, bank: d.bank || null, bank_total: 0, n: 0, via_tesoreria: 0, via_cobranza: 0, via_caja: 0, sin_explicar: 0 }; acctMap.set(lbl, r); }
+        return r;
+      };
+      const accAdd = (arr: any[], key: string) => { for (const d of arr) { const r = accInit(d); const v = Number(d.amt) || 0; r[key] += v; r.bank_total += v; r.n++; } };
+      accAdd(buckets.tesoreria, 'via_tesoreria');
+      accAdd(buckets.cobranza, 'via_cobranza');
+      accAdd(buckets.caja, 'via_caja');
+      accAdd(buckets.sin_explicar, 'sin_explicar');
+      const por_cuenta = Array.from(acctMap.values()).map((r) => ({
+        account_label: r.account_label, bank: r.bank, bank_total: r2(r.bank_total), n: r.n,
+        via_tesoreria: r2(r.via_tesoreria), via_cobranza: r2(r.via_cobranza), via_caja: r2(r.via_caja),
+        sin_explicar: r2(r.sin_explicar),
+        kepler: r2(r.via_tesoreria + r.via_cobranza), retail: r2(r.via_caja),
+      })).sort((a, b) => b.bank_total - a.bank_total);
+
       return {
         period, bank_total: bankTotal, bank_n: (deps as any[]).length,
+        por_cuenta,
         via_tesoreria: { n: buckets.tesoreria.length, monto: sum(buckets.tesoreria) },
         via_cobranza: { n: buckets.cobranza.length, monto: sum(buckets.cobranza) },
         via_caja: { n: buckets.caja.length, monto: sum(buckets.caja) },
@@ -2061,6 +2098,12 @@ export class FinanceBankService {
     const kepRows = await this.tk.run(async (trx) =>
       trx('analytics.kepler_bank_movements')
         .where('tenant_id', tenantId).whereNotNull('account_label')
+        // Excluir cuentas de CAJA (kind='cash', p.ej. CG): el cuadre es contra un estado de
+        // cuenta BANCARIO y el universo Workbook/ContPAQi es kind='bank'. Mezclar caja
+        // inflaba/enmascaraba el total Kepler (ene-2026: CG metía $6.18M dep / $10.24M ret
+        // de caja como si fueran banco). Debe ser banco-vs-banco.
+        .whereNotIn('account_label', trx('finance.bank_accounts')
+          .where({ tenant_id: tenantId, kind: 'cash' }).whereNotNull('account_label').select('account_label'))
         .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
         .groupBy('account_label')
         .select('account_label',
@@ -2090,43 +2133,48 @@ export class FinanceBankService {
     const mkRow = (label: string, w: number, k: number, c: number) => ({
       label, workbook: r2(w), kepler: r2(k), contpaqi: r2(c),
       delta_wk: r2(w - k), delta_wc: r2(w - c), delta_kc: r2(k - c),
-      cuadra: Math.abs(w - k) < TOL && Math.abs(w - c) < TOL && Math.abs(k - c) < TOL,
+      // Cuadre REAL = banco (Workbook) ↔ fiscal (ContPAQi). Kepler es INFORMATIVO: la tesorería
+      // (kdm1) es parcial —no incluye las ventas de tienda posteadas directo al 102— así que su
+      // desviación es esperada y NO debe arrastrar el semáforo a rojo (verificado ene-2026: banco
+      // = fiscal al peso, Kepler −$10.8M por ese hueco estructural).
+      cuadra: Math.abs(w - c) < TOL,
     });
     const total = {
       ingresos: mkRow('Ingresos', cpq.totals.excel_in, kep.in, cpq.totals.contpaqi_in),
       egresos: mkRow('Egresos', cpq.totals.excel_out, kep.out, cpq.totals.contpaqi_out),
     };
 
-    // El veredicto y el orden miran las TRES fuentes, no sólo Workbook↔ContPAQi.
-    // Antes `cuadra` y el sort salían de delta_in/delta_out (ContPAQi) mientras la tabla ya
-    // mostraba Kepler: una cuenta con Kepler desviado millones salía con palomita verde y
-    // hundida al fondo del scroll. Se compara contra cada fuente DISPONIBLE (Kepler si tiene
-    // movimientos de la cuenta, ContPAQi si está enlazada) y se publica la peor desviación
-    // contra el banco: es lo que ordena la tabla y lo que se muestra como cifra.
+    // El cuadre REAL es banco (Workbook) ↔ fiscal (ContPAQi): las dos fuentes completas y por
+    // cuenta. Kepler (tesorería) es INFORMATIVO (parcial: no incluye ventas de tienda posteadas
+    // directo al 102) → no entra al semáforo ni al orden. Y se distingue "sin cargar" (el fiscal
+    // tiene la cuenta pero falta capturar el estado de cuenta del banco) de "descuadre" (ambos
+    // cargados y no coinciden) — para no pintar rojo lo que es un dato pendiente de capturar.
     const por_cuenta = cpq.rows.map((r: any) => {
       const k = kmap.get(r.account_label);
       const kin = k ? k.in : 0, kout = k ? k.out : 0;
       const dwk_in = r2(r.excel_in - kin), dwk_out = r2(r.excel_out - kout);
       const pick = (a: number, b: number) => (Math.abs(a) >= Math.abs(b) ? a : b);
-      const cands: { src: 'K' | 'C'; delta: number }[] = [];
-      if (k) cands.push({ src: 'K', delta: pick(dwk_in, dwk_out) });
-      if (r.linked) cands.push({ src: 'C', delta: pick(r.delta_in, r.delta_out) });
-      cands.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
-      const worst = cands[0] ?? null;
+      const wbLoaded = n(r.excel_in) !== 0 || n(r.excel_out) !== 0;
+      const cpLoaded = !!r.linked && (n(r.contpaqi_in) !== 0 || n(r.contpaqi_out) !== 0);
+      const wc = pick(r.delta_in, r.delta_out);                    // Workbook − ContPAQi = el cuadre real
+      const cuadra = wbLoaded && cpLoaded && Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL;
+      const estado: 'cuadra' | 'descuadre' | 'sin_cargar' | 'sin_comparar' =
+        wbLoaded && cpLoaded ? (cuadra ? 'cuadra' : 'descuadre')
+          : (cpLoaded && !wbLoaded ? 'sin_cargar' : 'sin_comparar');
       return {
         bank: r.bank, account_label: r.account_label, alias: r.alias, linked: r.linked,
         wb_in: r.excel_in, wb_out: r.excel_out, cp_in: r.contpaqi_in, cp_out: r.contpaqi_out,
         kep_in: kin, kep_out: kout, kep_has: !!k,
-        delta_in: r.delta_in, delta_out: r.delta_out,               // Workbook − ContPAQi
-        delta_wk_in: dwk_in, delta_wk_out: dwk_out,                 // Workbook − Kepler
-        /** Hay al menos una fuente contra la cual comparar. Sin esto, `cuadra: true` mentiría. */
-        comparable: !!k || !!r.linked,
-        /** Peor desviación contra el banco y de qué fuente viene. 0/null si no hay comparación. */
-        worst_delta: worst ? worst.delta : 0,
-        worst_abs: worst ? Math.abs(worst.delta) : 0,
-        worst_src: worst ? worst.src : null,
-        cuadra: (!k || (Math.abs(dwk_in) < TOL && Math.abs(dwk_out) < TOL))
-          && (!r.linked || (Math.abs(r.delta_in) < TOL && Math.abs(r.delta_out) < TOL)),
+        delta_in: r.delta_in, delta_out: r.delta_out,               // Workbook − ContPAQi (el cuadre)
+        delta_wk_in: dwk_in, delta_wk_out: dwk_out,                 // Workbook − Kepler (informativo)
+        comparable: wbLoaded && cpLoaded,
+        estado,
+        /** Diferencia = el cuadre REAL banco↔fiscal. Kepler ya no arrastra ni el orden ni la cifra;
+         *  sin_cargar/sin_comparar van a 0 (no son descuadre → no deben encabezar la tabla). */
+        worst_delta: estado === 'descuadre' ? wc : 0,
+        worst_abs: estado === 'descuadre' ? Math.abs(wc) : 0,
+        worst_src: 'C' as const,
+        cuadra,
       };
     }).sort((a: any, b: any) => b.worst_abs - a.worst_abs);
 

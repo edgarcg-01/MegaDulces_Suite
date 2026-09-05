@@ -156,6 +156,41 @@ const leer = (rel) => {
       'wincaja_replica_inc', 'wincaja_replica_hash', 'contpaqi_add_cfdis', 'analytics_refresh_wincaja']) {
       check(`CRON_JOBS registra "${job}" (si no, sale verde incondicional)`, svc.includes(`'${job}'`));
     }
+
+    // [VP.0.1] ⭐ El candado GENÉRICO, que la lista de arriba no podía dar.
+    //
+    // Enumerar los carriles a mano sólo protege los que alguien se acordó de escribir. Las tres MVs
+    // del refresh nocturno (`analytics_refresh_kepler`, `_sellout_monthly`, `_blended`) latían en
+    // prod desde el día uno, NO estaban en CRON_JOBS, y esta lista no las nombraba — así que el test
+    // pasaba en verde mientras las tres superficies que arman el sell-out salían verdes por el
+    // default permisivo. El test escrito contra ese bug exacto no lo veía.
+    //
+    // El invariante real no es "estos siete están": es **todo lo que late tiene umbral**. Se mide
+    // contra la tabla, que es la única que sabe quién late de verdad. Falla en los DOS sentidos y
+    // los dos son accionables:
+    //   · job vivo sin umbral        → registrarlo en CRON_JOBS
+    //   · latido muerto sin umbral   → borrar la fila (es la lección de OBS.8: un rojo permanente
+    //                                  que nadie va a atender enseña a ignorar el tablero)
+    const bloque = svc.match(/const CRON_JOBS[^=]*=\s*\[([\s\S]*?)\n\];/);
+    check('se puede parsear el bloque CRON_JOBS', !!bloque);
+    const registrados = new Set(
+      [...((bloque && bloque[1]) || '').matchAll(/key:\s*'([^']+)'/g)].map((m) => m[1]),
+    );
+    check('CRON_JOBS trae claves parseadas', registrados.size > 5, `parseadas: ${registrados.size}`);
+
+    const latiendo = (await c.query(
+      `SELECT DISTINCT job_key FROM analytics.cron_runs ORDER BY job_key`,
+    )).rows.map((r) => r.job_key);
+    check('analytics.cron_runs tiene latidos que auditar', latiendo.length > 0);
+
+    const huerfanos = latiendo.filter((k) => !registrados.has(k));
+    check(
+      'TODO job_key que late está registrado en CRON_JOBS (ninguno cae en el default)',
+      huerfanos.length === 0,
+      huerfanos.length
+        ? `sin umbral: ${huerfanos.join(', ')} — registrarlos en CRON_JOBS, o borrar el latido si el job está retirado`
+        : '',
+    );
   }
 
   // ── 3. El carril late a PROD, por un canal que NO es el que vigila ───────────────────────
@@ -281,13 +316,30 @@ const leer = (rel) => {
   check('libs/commercial/.../shared/freshness.ts existe', !!fr);
   if (fr) {
     // Las dos reglas de la fase, verificadas en el código y no sólo en el comentario.
-    check('evalInput trata la ausencia de señal como rezago',
-      /ms\s*===\s*null\s*\?\s*true/.test(fr),
+    //
+    // [VP.0.1] Estas aserciones eran DOS y una medía lo que no era. `FRESHNESS_UNKNOWN no afirma
+    // frescura` verificaba `data_as_of: null`, que era cierto **también con el bug**: la constante
+    // salía con `stale: false`, los consumidores preguntan `@if (f.stale)`, y la etiquetera callaba
+    // cuando fallaba la medición. El test estuvo verde todo el tiempo que la mentira estuvo viva,
+    // porque miraba el campo vecino. Ahora se pinta contra el campo que DECIDE.
+    check('evalInput trata la ausencia de señal como no-medida, no como fresca',
+      /ms\s*===\s*null\s*\?\s*'unknown'/.test(fr),
       'sin señal es la falla MÁS grave: la fuente ni siquiera reporta');
+    check('el veredicto es TERNARIO (stale booleano no puede decir "no sé")',
+      /'fresh'\s*\|\s*'stale'\s*\|\s*'unknown'/.test(fr),
+      'con stale:boolean, "no medido" es indistinguible de "al día"');
+    check('stale queda DERIVADO de status (un consumidor viejo avisa igual)',
+      /stale:\s*status\s*!==\s*'fresh'/.test(fr),
+      'si stale se calcula aparte, los dos campos se separan en silencio');
     check('composeFreshness toma el eslabón más VIEJO (Math.min), no el mejor',
       /Math\.min/.test(fr),
       'una cadena es tan fresca como su peor tramo');
-    check('FRESHNESS_UNKNOWN no afirma frescura', /FRESHNESS_UNKNOWN[\s\S]{0,200}data_as_of:\s*null/.test(fr));
+    check('composeFreshness sin eslabones NO devuelve fresco',
+      /inputs\.length\s*===\s*0\s*\|\|/.test(fr),
+      'some([]) es false: una lista vacía se caía a "fresco" por construcción');
+    check('FRESHNESS_UNKNOWN se declara no-medido Y obliga a avisar',
+      /FRESHNESS_UNKNOWN[\s\S]{0,240}status:\s*'unknown'[\s\S]{0,80}stale:\s*true/.test(fr),
+      'con stale:false la pantalla afirma frescura por silencio');
     check('laneAt tolera que la vista no esté aplicada (to_regclass)', fr.includes('to_regclass'),
       'el consumidor no puede romperse entre el deploy y la migración');
   }
@@ -301,6 +353,21 @@ const leer = (rel) => {
     check('la etiquetera vigila el recálculo (max(computed_at), NO el de la fila)',
       /computed_at/.test(lab) && /max\(/i.test(lab),
       'el computed_at de la FILA se mueve sólo si ESE producto cambió → semanas de falsa edad');
+  }
+
+  // [VP.0.1] El candado del lado de la VISTA. Todo lo de arriba puede estar bien y la pantalla
+  // seguir callada: el silencio se materializaba acá, en un `@if (freshness()?.stale)` único que
+  // con `unknown` (antes `stale: false`) no pintaba nada. El backend puede declarar perfecto; si la
+  // vista sólo sabe preguntar por un caso, la declaración se pierde en el camino.
+  const etq = leer('apps/view/src/app/modules/tienda/pages/tienda-etiquetas.component.ts');
+  check('la vista de la etiquetera se puede leer', !!etq);
+  if (etq) {
+    check('la vista distingue "viejo" de "no se pudo medir"',
+      /status\s*===\s*'stale'/.test(etq) && /status\s*===\s*'unknown'/.test(etq),
+      'un solo bloque deja mudo al caso no-medido, o le imprime una edad nula en la frase');
+    check('el caso no-medido tiene su propio texto (no habla de rezago sin edad)',
+      /No se pudo verificar/.test(etq),
+      '"El precio puede estar viejo — {{null}} de rezago" no es un aviso, es un bug a la vista');
   }
 
   await c.end();

@@ -558,6 +558,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Planeación',
       items: [
+        // Existencia va ANTES de Pedido, y el orden es la tesis: primero ves qué hay, después
+        // decidís qué comprar. Es el mismo componente que /almacen/inventory/existencia.
+        { label: 'Existencia',       icon: 'pi pi-box',       route: '/compras/existencia', permission: Permission.EXISTENCIA_VER },
         { label: 'Pedido',           icon: 'pi pi-cart-plus', route: '/compras/pedido',    permission: Permission.COMPRAS_PEDIDO_VER },
         { label: 'Asistente (Thot)', icon: 'pi pi-comments',  route: '/compras/asistente', permission: Permission.COMPRAS_PEDIDO_GESTIONAR },
         { label: 'Red de abasto',    icon: 'pi pi-sitemap',   route: '/compras/red',       permission: Permission.COMPRAS_RED_VER },
@@ -942,8 +945,25 @@ export class LayoutComponent implements OnInit, OnDestroy {
       all.find((i) => url === i.route) ||
       all.find((i) => url.startsWith(i.route + '/')) ||
       all.find((i) => url.startsWith(i.route + '?'));
-    return item?.label ?? 'Página Actual';
+    if (item) return item.label;
+    // Las páginas que viven en pestañas (Contabilidad, Compras, Finanzas…) no son items de
+    // nav, así que caían acá — y "Página Actual" es un placeholder que NUNCA es correcto: en
+    // /contabilidad/movimientos-no-asociados el breadcrumb decía "Contabilidad / Página
+    // Actual". El último segmento del slug ya es el nombre de la página en toda la app.
+    return this.tituloDesdeUrl(url) ?? 'Página Actual';
   });
+
+  /**
+   * "movimientos-no-asociados" → "Movimientos no asociados". Sólo para slugs de palabras:
+   * un id o un UUID en la URL devuelve null y se mantiene el texto anterior, porque
+   * "Abc 123" como título de página es peor que un genérico.
+   */
+  private tituloDesdeUrl(url: string): string | null {
+    const seg = url.split(/[?#]/)[0].split('/').filter(Boolean).pop();
+    if (!seg || !/^[a-záéíóúüñ]+(-[a-záéíóúüñ]+)*$/i.test(seg)) return null;
+    const t = seg.replace(/-/g, ' ');
+    return t.charAt(0).toUpperCase() + t.slice(1);
+  }
 
   // ── Routing ───────────────────────────────────────────────────────
   /** En mobile el sidebar se cierra al tocar un link de navegación. */

@@ -47,13 +47,19 @@ export interface CriticalStockRow {
   unit_cost: number | null;
   bucket: Bucket;
   suggested_qty: number;
-  suggested_cost: number;
+  // U.2 — null = NO SE ESTÁ MIDIENDO, nunca cero: el costo de compra contradice el peldaño de la
+  // cantidad (ver `rung_veredicto`), así que multiplicar cantidad × costo mezcla unidades. Se
+  // dibuja como raya. Ver docs/UNIDADES_DE_MEDIDA.md §8quater.
+  suggested_cost: number | null;
+  // 'x1_inflada' (divisor chico → existencia se lee grande) / 'x2_deflactada' (al revés) / null.
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_base_label?: string | null; // rótulo de la unidad NATIVA del almacén (KG, PAQ, PZA…)
   // RA-PRO.16 — redistribución (cruce de red): traspaso vs compra real.
   surplus_here?: number;      // sobrante en ESTE almacén (existencia − máximo) → traspasar a otra
   surplus_network?: number;   // sobrante del producto en OTRAS sucursales (disponible para traspaso)
   transfer_in?: number;       // del sugerido, cuánto se cubre con traspaso (min(sugerido, sobrante_red))
   buy_qty?: number;           // compra REAL (sugerido − traspaso)
-  buy_cost?: number;          // $ de la compra real
+  buy_cost?: number | null;   // $ de la compra real — null = no medible (ver suggested_cost)
   accion?: 'sobrante' | 'traspaso' | 'traspaso_parcial' | 'comprar' | 'ok';
   // RA-PRO.9 — contexto de canal/ciclo (cómo se surte y cuándo toca)
   replenish_via?: 'purchase' | 'transfer' | null;
@@ -83,7 +89,12 @@ export interface PurchaseSuggestionRow {
   safety_source?: string;     // RA-PRO.27/41 — manual | quantil | auto | none
   season_ratio?: number;      // RA-PRO.41 — razón estacional aplicada a la demanda del horizonte
   season_src?: string | null; // RA-PRO.41 — sku | cat | global
-  suggested_cost: number; days_cover: number | null;
+  // U.2 — null = no medible: alguno de los almacenes que aportan a la existencia de red trae el
+  // peldaño contradicho por el costo, así que la suma no está en cajas. Ver `rung_almacenes`.
+  suggested_cost: number | null; days_cover: number | null;
+  rung_almacenes?: number;   // cuántos almacenes del scope traen el peldaño contradicho (0 = medible)
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_arbitrado?: number | null; // existencia valuada por lo PAGADO — referencia a revisar, no publicable
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
   sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
   sales_rank: number | null; // RA-PRO.18 — ranking por venta $ (red)
@@ -93,6 +104,9 @@ export interface PurchaseSuggestionRow {
 export interface PurchaseSuggestionResponse {
   total: number; needed?: number; total_valor: number; total_revenue?: number; page: number; pageSize: number; coverage_days: number;
   rows: PurchaseSuggestionRow[];
+  // U.2 — lo que el total NO incluye porque no se puede medir. `arbitrado` es la cifra del árbitro
+  // (existencia × costo pagado): sirve para dimensionar el hueco, NO para publicarla como verificada.
+  unit_rung?: { skus: number; arbitrado: number };
 }
 export interface PurchaseSuggestionQuery {
   warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; brand_id?: string; category_id?: string;
@@ -107,11 +121,18 @@ export interface TransferSuggestionRow {
   supplier_name: string | null; uxc: number;
   deficit_pieces: number; deficit_cajas: number;
   transfer_pieces: number; transfer_cajas: number; shortfall_pieces: number;
-  unit_cost: number; transfer_value: number;
+  // U.2 — null = no medible: el divisor del destino o el del origen está contradicho por el costo.
+  unit_cost: number; transfer_value: number | null;
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_lado?: 'destino' | 'origen' | 'ambos' | null; // de qué lado viene el peldaño contradicho
 }
 export interface TransferSuggestionResponse {
   total: number; total_valor: number; total_cajas: number; page: number; pageSize: number; coverage_days: number;
   rows: TransferSuggestionRow[];
+  // U.2 — `filas` = traspasos listados cuyo $ queda retenido. `omitidos` = traspasos que NO están
+  // en la lista: con el divisor inflado la sucursal se lee abastecida y el déficit da 0, así que
+  // no hay renglón que marcar. Es el lado del error que ninguna retención puede mostrar.
+  unit_rung?: { filas: number; omitidos: number };
 }
 export interface TransferSuggestionQuery {
   warehouse_id?: string; supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
@@ -124,10 +145,15 @@ export interface OverstockRow {
   supplier_name: string | null; uxc: number;
   on_hand_pieces: number; on_hand_cajas: number;
   surplus_cajas: number; surplus_pieces: number; days_on_hand: number | null;
-  unit_cost: number; immobilized_value: number;
+  // U.2 — null = no medible: el costo de compra contradice el divisor con el que se leyó la
+  // existencia, así que el excedente no es una cantidad de cajas y no se puede valuar.
+  unit_cost: number; immobilized_value: number | null;
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_arbitrado?: number | null; // existencia valuada por lo pagado — referencia, no publicable
 }
 export interface OverstockResponse {
   total: number; total_valor: number; total_cajas: number; page: number; pageSize: number; over_days: number;
+  unit_rung?: { filas: number }; // U.2 — filas cuyo inmovilizado queda sin valuar
   rows: OverstockRow[];
 }
 export interface OverstockQuery {
@@ -197,6 +223,9 @@ export interface WorkbookRow {
   // lo está. Los que quedaron fuera se declaran acá abajo; nunca se dibujan como cero.
   valor_exis: number | null;
   almacenes_sin_valuar: number;          // cuántas celdas quedaron sin valuar
+  // U.2 — cuántos almacenes NO aportan al pedido de red porque su peldaño está contradicho: el
+  // total viene CORTO, no es que no haga falta comprar ahí.
+  almacenes_sin_pedido?: number;
   valor_exis_arbitrado: number | null;   // lo que el árbitro (la compra real) sí puede afirmar
   rung_peor: 'x1_inflada' | 'x2_deflactada' | null;
   // RA-PRO.36 — Índice de Aceleración de Demanda (señal −2..+2, por SKU)
@@ -292,6 +321,11 @@ export interface ReplenishmentSummary {
   // RA-PRO.16 — del sugerido: cuánto se cubre por traspaso (sobrante de red) vs compra real.
   traspasable_valor: number | null;
   compra_real_valor: number | null;
+  // U.2 — TODOS los importes y las cajas de arriba suman SÓLO lo medible. Esto es lo que quedó
+  // fuera: una suma no puede cambiar de unidad como una celda, así que se excluye y se declara.
+  sin_valuar_politicas?: number;  // filas (producto × almacén) excluidas
+  sin_valuar_skus?: number;       // productos distintos involucrados
+  sin_valuar_arbitrado?: number | null; // su existencia por lo PAGADO — referencia a revisar
 }
 export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
 export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boolean; }

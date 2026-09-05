@@ -260,19 +260,31 @@ export class LogisticsAnalyticsService {
       // Filtra solo shipments en rango via LEFT JOIN condition extra
       // (más simple: dejar el JOIN amplio y filtrar en agg)
 
+      // `[AUTHZ-HARD.1]` q.from/q.to venían del @Query y se interpolaban CRUDO en el SQL del FILTER
+      // → inyección. Ahora el fragmento de fecha va con placeholders `?` y bindings. Cada `raw`
+      // recibe su propia copia de los bindings (mismo orden que el `?` en el fragmento).
+      let dateFrag = '';
+      const dateBind: string[] = [];
+      if (q.from) { dateFrag += ' AND s.shipment_date >= ?'; dateBind.push(q.from); }
+      if (q.to) { dateFrag += ' AND s.shipment_date <= ?'; dateBind.push(q.to); }
+
       const rows = await qry.select([
         'v.id', 'v.plate', 'v.model', 'v.brand', 'v.status',
         trx.raw(
-          `COALESCE(COUNT(s.id) FILTER (WHERE s.status IN ('entregado','cerrado')${q.from ? ` AND s.shipment_date >= '${q.from}'` : ''}${q.to ? ` AND s.shipment_date <= '${q.to}'` : ''}), 0)::int AS shipments_realized`,
+          `COALESCE(COUNT(s.id) FILTER (WHERE s.status IN ('entregado','cerrado')${dateFrag}), 0)::int AS shipments_realized`,
+          [...dateBind],
         ),
         trx.raw(
-          `COALESCE(SUM(s.actual_km) FILTER (WHERE s.status IN ('entregado','cerrado')${q.from ? ` AND s.shipment_date >= '${q.from}'` : ''}${q.to ? ` AND s.shipment_date <= '${q.to}'` : ''}), 0)::int AS total_km`,
+          `COALESCE(SUM(s.actual_km) FILTER (WHERE s.status IN ('entregado','cerrado')${dateFrag}), 0)::int AS total_km`,
+          [...dateBind],
         ),
         trx.raw(
-          `COALESCE(SUM(s.freight_revenue) FILTER (WHERE s.status IN ('entregado','cerrado')${q.from ? ` AND s.shipment_date >= '${q.from}'` : ''}${q.to ? ` AND s.shipment_date <= '${q.to}'` : ''}), 0)::numeric AS total_revenue`,
+          `COALESCE(SUM(s.freight_revenue) FILTER (WHERE s.status IN ('entregado','cerrado')${dateFrag}), 0)::numeric AS total_revenue`,
+          [...dateBind],
         ),
         trx.raw(
-          `COALESCE(SUM(e.total_cost) FILTER (WHERE s.status IN ('entregado','cerrado')${q.from ? ` AND s.shipment_date >= '${q.from}'` : ''}${q.to ? ` AND s.shipment_date <= '${q.to}'` : ''}), 0)::numeric AS total_cost`,
+          `COALESCE(SUM(e.total_cost) FILTER (WHERE s.status IN ('entregado','cerrado')${dateFrag}), 0)::numeric AS total_cost`,
+          [...dateBind],
         ),
       ]).groupBy('v.id', 'v.plate', 'v.model', 'v.brand', 'v.status')
         .orderBy('total_revenue', 'desc');

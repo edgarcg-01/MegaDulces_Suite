@@ -160,26 +160,27 @@ export class AuthMtService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // `[ID.17]` Una cuenta de SERVICIO no entra con contraseña. Existe para que
-    // los feeds y las tareas programadas tengan identidad (`created_by`), no para
-    // que alguien se loguee con ella. El hash guardado además no es un bcrypt
-    // válido, así que esto es la segunda barrera, no la única.
+    // 3. Verificar password PRIMERO.
+    // `[AUTHZ-HARD.5]` Antes los chequeos de estado (servicio/vencida) corrían ANTES del bcrypt, y
+    // sus mensajes distintos convertían el login en un oráculo de enumeración: un atacante sin la
+    // contraseña distinguía "no existe" de "existe y es cuenta de servicio/vencida". Ahora el
+    // estado de la cuenta sólo se revela a quien probó ser el dueño (password correcto).
+    const valid = await bcrypt.compare(dto.password, user.password_hash);
+    if (!valid) {
+      throw new UnauthorizedException('Credenciales inválidas');
+    }
+
+    // `[ID.17]` Una cuenta de SERVICIO no entra con contraseña (su hash además no es bcrypt válido,
+    // así que en la práctica el compare de arriba ya la corta; esto es la barrera explícita).
     if (user.kind === 'servicio') {
       throw new UnauthorizedException('Esta es una cuenta de servicio: no tiene acceso interactivo.');
     }
 
-    // `[ID.13]` Cuentas con vencimiento (contador/auditor externo). Se corta
-    // ANTES de comparar el password: una cuenta vencida no es una credencial
-    // inválida, es una cuenta que dejó de existir para efectos de acceso. Se
-    // hace en el login y no con un cron para que no dependa de que un job corra.
+    // `[ID.13]` Cuentas con vencimiento (contador/auditor externo). Una cuenta vencida no es una
+    // credencial inválida, es una cuenta que dejó de existir para efectos de acceso. En el login
+    // (no en un cron) para que no dependa de que un job corra.
     if (user.expires_at && new Date(user.expires_at).getTime() <= Date.now()) {
       throw new UnauthorizedException('La cuenta venció. Pedí una extensión al administrador.');
-    }
-
-    // 3. Verificar password
-    const valid = await bcrypt.compare(dto.password, user.password_hash);
-    if (!valid) {
-      throw new UnauthorizedException('Credenciales inválidas');
     }
 
     // 3.5 Registrar último login (fire-and-forget — el éxito del login NO

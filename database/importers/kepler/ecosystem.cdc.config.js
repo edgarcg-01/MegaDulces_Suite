@@ -1,79 +1,37 @@
 /**
- * PM2 ecosystem — CDC WAL-decode (ADR-047): 7 consumidores `ods-cdc-wal.js --watch` (uno por
- * sucursal 00-06) que leen el WAL de los replicas locales `:5433/kepler_md_XX` y empujan SOLO los
- * cambios reales (I/U/D, INCLUIDO DELETE) a `kepler_ods` en prod por feeds-ingest (ingress gratis).
- * Reemplaza el poll (`OdsLiveLoop` + `OdsFullMirror`) — ver FASE_CDC_ODS_LOGICAL.md.
+ * ⛔ RETIRADO 2026-09-04 (OBS.8). Este ecosystem YA NO ARRANCA NADA — falla a propósito.
  *
- * ⛔ PREREQUISITOS antes de arrancar (si no, no funciona / arriesga disco):
- *   1) feeds-ingest REDESPLEGADO con los handlers `raw-delete` + `cdc-heartbeat` (apply-handlers.js).
- *   2) `:5433` con `wal_level=logical` (ya hecho) + **`max_slot_wal_keep_size`** puesto (backstop de
- *      disco: si un consumidor muere, su slot retiene WAL → sin este cap, llena disco).
- *   3) En la box on-prem: env `FEEDS_INGEST_KEY` exportado (secreto; NO se hardcodea acá — mismo
- *      lote de rotación que los .cmd de KeplerRunner).
+ * Qué era: 7 consumidores `ods-cdc-wal.js --watch` (uno por sucursal 00-06) que leían el WAL de los
+ * replicas locales `:5433/kepler_md_XX` y empujaban los cambios reales (I/U/D, incluido DELETE) a
+ * `kepler_ods` en prod. Más `cdc-reconcile`, su red de seguridad.
  *
- * Arranque (una vez, en la box on-prem que tiene los replicas :5433):
- *   $env:FEEDS_INGEST_KEY = "<key>"      # (o ya presente en el entorno del servicio)
- *   pm2 start database/importers/kepler/ecosystem.cdc.config.js
- *   pm2 save ; pm2 startup               # persiste + revive tras reinicio
- * Cutover (CDC.6, tras validar en sombra): deshabilitar OdsLiveLoop + OdsFullMirror.
+ * Por qué se retiró:
+ *   · Los 7 estaban en `error` con el slot en `lost` desde el 2026-09-02 15:14 y nadie los levantó.
+ *     Un stream de WAL no tiene reintento hacia atrás: cuando el slot se pierde, lo que pasó mientras
+ *     tanto no vuelve nunca, así que "revivirlo" nunca fue tan barato como parecía.
+ *   · El carril de poll (`replicate-ods-live` en Docker, `ops/ingest/docker-compose.yml`) entrega hoy
+ *     las 7 ramas con 9-30 s de rezago, que es para lo que existía el CDC.
+ *   · Y sobre todo: mientras esto vivía en PM2 **y** en Docker **y** en una tarea de Windows, el mismo
+ *     carril tenía TRES dueños peleando el mismo watermark (`ods.ctl`/`ods.shadow`) y escribiendo el
+ *     MISMO renglón de `analytics.cron_runs` — que sólo tiene PRIMARY KEY (tenant_id, job_key), sin
+ *     host. Resultado medido el 2026-09-04: el contenedor llevaba 15 h colgado y salía `healthy`
+ *     porque la tarea de Windows le prestaba el pulso desde otra máquina. Regla que sale de ahí:
+ *     **un carril = UN dueño**, y ese dueño es Docker.
  *
- * Operación:  pm2 ls · pm2 logs cdc-wal-03 · pm2 restart cdc-wal-03 · pm2 stop all
- * Observabilidad: cada consumidor late `cdc_wal_<suc>` → cron_runs (db-health dead-man's switch,
- *   CRON_JOBS cdc_wal_00..06). Un consumidor caído → su latido envejece → ROJO antes de llenar disco.
+ * Los slots `ods_cdc_00..06` y la publication `ods_cdc_pub` ya fueron dropeados de los replicas
+ * (retenían 0 bytes, sin riesgo de disco). `ods-cdc-wal.js` se conserva: es el decodificador de WAL
+ * y sabe recrear su propio slot si algún día se decide volver.
  *
- * Rollback: `pm2 delete all` (de este ecosystem) + re-enable de OdsLiveLoop/OdsFullMirror. Los slots
- *   `ods_cdc` quedan en :5433 reteniendo WAL → dropearlos: `node ods-cdc-wal.js --branch=XX --drop-slot`.
+ * Lo que se PIERDE al retirarlo: sólo el WAL propagaba DELETE. Eso ahora lo cubre
+ * `reconcile-ods-window.js`, que además de faltantes detecta SOBRANTES (llaves que siguen en el ODS y
+ * ya no están en el replica) y los REPORTA — borrar en el ODS necesita autorización explícita.
+ *
+ * Dónde vive hoy la ingesta:  ops/ingest/docker-compose.yml
+ *   docker compose -f ops/ingest/docker-compose.yml up -d
+ *   docker compose -f ops/ingest/docker-compose.yml ps      # STATUS trae (healthy)/(unhealthy)
  */
-const path = require('path');
-const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
-// Lee el .env del repo (gitignored) para que FEEDS_INGEST_KEY salga de UN lugar y cada
-// `pm2 restart` tome la vigente. Antes se heredaba del shell del operador: al rotar la key,
-// los 7 consumidores quedaron tirando `HTTP 401` cada 3 s — sin alerta, porque su latido
-// también viaja por el mismo sink (si el sink no autoriza, tampoco late: el dead-man's switch
-// se queda mudo justo cuando hace falta). Vivido el 2026-08-26.
-require('dotenv').config({ path: path.join(REPO, '.env') });
-const SCRIPT = 'database/importers/kepler/ods-cdc-wal.js';
-const BRANCHES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
-
-// Empuja a prod por feeds-ingest (ingress gratis). ODS_SOURCE_BASE = BASE local :5433 (el consumidor
-// le cambia el nombre de la DB por sucursal). FEEDS_INGEST_KEY sale del .env (ver arriba).
-//
-// Antes esto seteaba DATABASE_URL_NEW, que es la base de la APP: dev la mueve (p. ej. a la réplica
-// de pruebas en .245) y entonces el consumidor se va a buscar los `kepler_md_XX` al server
-// equivocado y se calla. La fuente ahora tiene env propia. NO poner DATABASE_URL_NEW acá: el
-// destino de este consumidor es http (feeds-ingest), no una DB.
-const env = {
-  FEEDS_SINK: 'http',
-  FEEDS_INGEST_URL: process.env.FEEDS_INGEST_URL || 'https://feeds-ingest-production.up.railway.app',
-  FEEDS_INGEST_KEY: process.env.FEEDS_INGEST_KEY, // del .env; sin esto todo POST da 401
-  // Sin fallback a DATABASE_URL_NEW a propósito: si dev la movió, heredarla reintroduce la trampa.
-  ODS_SOURCE_BASE: process.env.ODS_SOURCE_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform',
-};
-if (!env.FEEDS_INGEST_KEY) {
-  // Fallar acá es MUCHO mejor que arrancar 7 procesos que loguean 401 cada 3 s en silencio.
-  throw new Error('FEEDS_INGEST_KEY ausente (ni en el .env del repo ni en el entorno) — no arranco el CDC.');
-}
-const base = { cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true, env };
-
-// CDC.7 — RED DE SEGURIDAD. Un stream de WAL no tiene reintento hacia atrás: lo que se pierde (slot
-// `lost` por el cap de disco, o el bug de buffer que costó ~4,200 filas entre el 26 y el 31 de agosto)
-// no vuelve nunca. Hasta el 26/08 eso lo tapaba el POLL (`replicate-ods-live`), que se deshabilitó por
-// el corrimiento +6h (GOTCHAS §21) — y con él se fue lo único capaz de sanar huecos.
-// `reconcile-ods-window` compara las PK de la ventana reciente (replica vs kepler_ods) y repone sólo
-// el delta. Con el CDC sano imprime `huecos 0` y no shipea nada; cualquier número > 0 es la firma de
-// que algo se está perdiendo otra vez. Necesita DATABASE_URL_NEW (lee las llaves del ODS de prod).
-const RECONCILE = 'database/importers/kepler/reconcile-ods-window.js';
-const DEST = process.env.DATABASE_URL_NEW || process.env.DATABASE_URL || null;
-
-module.exports = {
-  apps: [
-    ...BRANCHES.map((code) => ({ name: `cdc-wal-${code}`, script: SCRIPT, args: `--branch=${code} --watch`, ...base })),
-    ...(DEST ? [{
-      name: 'cdc-reconcile',
-      script: RECONCILE,
-      args: '--days=3 --apply --watch=900',
-      ...base,
-      env: { ...env, DATABASE_URL_NEW: DEST },
-    }] : []),
-  ],
-};
+throw new Error(
+  'ecosystem.cdc.config.js está RETIRADO (OBS.8, 2026-09-04). La ingesta del ODS corre en Docker: ' +
+  'docker compose -f ops/ingest/docker-compose.yml up -d. Levantarla también acá reintroduce el ' +
+  'doble dueño del watermark y del latido, que es lo que dejó el carril 15 h colgado en verde.',
+);

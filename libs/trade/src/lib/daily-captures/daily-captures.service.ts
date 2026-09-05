@@ -1002,13 +1002,16 @@ export class DailyCapturesService {
   async findOne(id: string) {
     // `id` puede ser el UUID o el folio. Consultar la columna uuid con un folio
     // (no-uuid) tira 22P02 y abortaba el handler con 500 antes de probar folio.
+    // `[AUTHZ-HARD.1]` `KNEX_CONNECTION` es superusuario y bypassea RLS: el WHERE por tenant es la
+    // única defensa. Sin él, cualquiera leía la captura de otro tenant por UUID/folio (adivinable).
+    const tenantId = this.tenantCtx.requireTenantId();
     const isUuid =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
     let row = isUuid
-      ? await this.knex('daily_captures').where({ id }).first()
+      ? await this.knex('daily_captures').where({ id, tenant_id: tenantId }).first()
       : null;
     if (!row) {
-      row = await this.knex('daily_captures').where({ folio: id }).first();
+      row = await this.knex('daily_captures').where({ folio: id, tenant_id: tenantId }).first();
     }
     if (!row) {
       throw new NotFoundException(
@@ -1022,8 +1025,11 @@ export class DailyCapturesService {
     id: string,
     requester?: { sub: string; username: string; role_name: string },
   ) {
-    const visit = await this.knex('daily_captures').where({ id }).first()
-      || await this.knex('daily_captures').where({ folio: id }).first();
+    // `[AUTHZ-HARD.1]` Filtro por tenant (superusuario ⇒ RLS inerte). Un superadmin de tenant A
+    // podía borrar una captura de tenant B con sólo su UUID/folio.
+    const tenantId = this.tenantCtx.requireTenantId();
+    const visit = await this.knex('daily_captures').where({ id, tenant_id: tenantId }).first()
+      || await this.knex('daily_captures').where({ folio: id, tenant_id: tenantId }).first();
     if (!visit) {
       throw new NotFoundException(`Visita con identificador ${id} no encontrada`);
     }
