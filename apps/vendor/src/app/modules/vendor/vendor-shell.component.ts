@@ -156,14 +156,18 @@ interface DiagProbe {
           <i class="pi pi-map"></i>
           <span>Mi ruta</span>
         </a>
-        <a routerLink="close-route" routerLinkActive="active">
-          <i class="pi pi-receipt"></i>
-          <span>Cierre</span>
-        </a>
-        <a routerLink="carga" routerLinkActive="active">
-          <i class="pi pi-truck"></i>
-          <span>Carga</span>
-        </a>
+        @if (canCierre) {
+          <a routerLink="close-route" routerLinkActive="active">
+            <i class="pi pi-receipt"></i>
+            <span>Cierre</span>
+          </a>
+        }
+        @if (canCarga) {
+          <a routerLink="carga" routerLinkActive="active">
+            <i class="pi pi-truck"></i>
+            <span>Carga</span>
+          </a>
+        }
         <a routerLink="assistant" routerLinkActive="active">
           <i class="pi pi-sparkles"></i>
           <span>Thot</span>
@@ -395,6 +399,9 @@ export class VendorShellComponent {
   private readonly router = inject(Router);
   /** ¿Es supervisor con plan de ruta? → muestra el item "Rutas" (asignar rutas). */
   readonly canAssignRoutes = this.perms.has(Permission.TRADE_ROUTE_PLAN_GESTIONAR);
+  /** Nav 'Cierre' / 'Carga' solo para quien puede usarlos (no 403 al abrir). */
+  readonly canCierre = this.perms.has(Permission.ROUTE_TICKET_CAPTURE);
+  readonly canCarga = this.perms.has(Permission.COMMERCIAL_CARGA_GESTIONAR);
   readonly theme = inject(ThemeService);
   protected readonly routePing = inject(RoutePingService);
   readonly push = inject(PushService);
