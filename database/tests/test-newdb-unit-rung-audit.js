@@ -169,6 +169,43 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
      WHERE tenant_id=$1 AND (display_bf IS NULL OR display_bf < 1)`, [T])).rows[0];
   check('ningún display_bf NULL ni < 1', div.n === 0, `n=${div.n}`);
 
+  // ── 11. ⛔ EL CANDADO DE U.2b: el veredicto que LEEN las pantallas ──────────────────────────
+  // Las seis superficies de dinero (pedido, existencia crítica, traspaso, sobrestock, la bandeja
+  // y el XLSX) NO leen esta vista: leen `analytics.replenishment_plan.rung_veredicto`, que el
+  // importer nocturno copia de acá porque la vista cuesta 8-25 s (joinearla dos veces llevó el
+  // plan de traspaso de 4.5 s a 29 s). Esa copia es el punto ciego: si el importer deja de
+  // escribirla, TODO pasa a "medible" y volvemos a publicar la mentira **en silencio** — un
+  // no-op se lee igual que "no hay nada marcado" (la lección del incidente de ingesta, OBS).
+  const sync = (await c.query(`
+    WITH f AS (SELECT warehouse_id, product_id, rung_veredicto AS v
+                 FROM analytics.replenishment_plan
+                WHERE tenant_id=$1 AND rung_veredicto IS NOT NULL),
+         v AS (SELECT warehouse_id, product_id, veredicto AS v
+                 FROM analytics.v_unit_rung_audit
+                WHERE tenant_id=$1 AND veredicto IN ('x1_inflada','x2_deflactada'))
+    SELECT (SELECT count(*) FROM f)::int AS en_fact,
+           (SELECT count(*) FROM v)::int AS en_vista,
+           (SELECT count(*) FROM f FULL JOIN v USING (warehouse_id, product_id)
+             WHERE f.v IS DISTINCT FROM v.v)::int AS discrepan`, [T])).rows[0];
+  console.log(`  fact=${sync.en_fact} · vista=${sync.en_vista} · discrepan=${sync.discrepan}`);
+  check('el fact TIENE el veredicto (si sale 0, el importer dejó de escribirlo y las pantallas están ciegas)',
+    sync.en_fact > 0, `en_fact=${sync.en_fact}`);
+  // Tolerancia: el fact se refresca cada 15-30 min y la vista es viva, así que puede haber
+  // desfase de unas pocas filas mientras el ODS mueve existencias. Un desfase GRANDE no es
+  // frescura: es que la copia se rompió.
+  const desfase = sync.en_vista ? sync.discrepan / sync.en_vista : 1;
+  check('fact y vista coinciden (desfase < 10% = sólo frescura del nocturno)',
+    desfase < 0.10, `discrepan=${sync.discrepan} de ${sync.en_vista} (${(desfase * 100).toFixed(1)}%)`);
+
+  // ── 12. Y el $ retenido no se cuela por otra puerta: la bandeja admite NULL ────────────────
+  // Si `suggested_cost` volviera a ser NOT NULL, el scanner tendría que escribir 0 y el hallazgo
+  // diría "no cuesta nada" en vez de "no se está midiendo".
+  const nul = (await c.query(`SELECT is_nullable FROM information_schema.columns
+     WHERE table_schema='commercial' AND table_name='replenishment_findings'
+       AND column_name='suggested_cost'`)).rows[0];
+  check('commercial.replenishment_findings.suggested_cost admite NULL (mig 20260903160000)',
+    nul && nul.is_nullable === 'YES', `is_nullable=${nul ? nul.is_nullable : 'columna ausente'}`);
+
   console.log(`\n=== ${ok} OK · ${fail} FAIL${skip ? ` · ${skip} skip` : ''} ===\n`);
   await c.end();
   process.exit(fail ? 1 : 0);

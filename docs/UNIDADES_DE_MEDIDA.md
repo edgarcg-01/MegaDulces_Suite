@@ -181,6 +181,9 @@ equivocada. **No usar esta prueba para "corregir" unidades.**
 8. **La unidad de una columna NO se hereda de su fuente.** Cada tabla derivada puede normalizar una columna y no la otra, y el nombre no avisa (`replenishment_plan.stock_pz` dice "pz" y trae paquetes). Probar la unidad **en la tabla que el consumidor lee de verdad**, no en el crudo. Cuando dos fuentes disputan la unidad, llevar **el cálculo** al peldaño más grande (la caja) — es el único que los dos ERPs declaran. Ver §8ter.
 9. **Antes de creerle a un comentario sobre el peldaño de un costo, medirlo contra la escalera del ERP.** Si las razones se agrupan en **tasas de impuesto** (1.00 / 1.08 / 1.16 / 1.24) el costo está en el peldaño base; si se agrupan en **factores de empaque** está en el bulto. Un factor de unidad no vale 1.08. Ver §8quater — cuatro archivos del repo lo declaraban distinto y siete multiplicaciones dependían de la respuesta.
 10. **Resolver el peldaño del costo no resuelve el de la cantidad.** Son dos auditorías: el costo se arbitra con la escalera del ERP; la cantidad, con **lo que se pagó** (`real_buy_cost` en Kepler, `costo_promedio` en Wincaja) — `display_bf == caja_cost / pagado`. Ver §8quater consecuencia 4.
+11. **Una cantidad con precio se puede convertir; una cantidad pelona, no.** La venta se normaliza sola porque el ingreso delata la unidad ($371.86 no puede ser un paquete de $45.42); la existencia es un conteo sin nada que la delate. Para auditar una cantidad hay que **prestarle un precio**. Corolario incómodo: **la venta no está verificada, está sin árbitro** — no tiene con qué probarse, y por eso nunca se marca. Ver §8quinquies.
+12. **Retener el número que se ve no basta: el mismo error también BORRA renglones.** Con el divisor inflado la sucursal se lee abastecida, el déficit da 0 y la fila nunca entra al plan — no hay cifra que marcar. Hay que contar las ausencias aparte (window ANTES del filtro) y declararlas. Medido: 19 traspasos invisibles contra 156 marcados.
+13. **Si un dato derivado alimenta pantallas, la copia al fact necesita candado propio.** El veredicto vive en una vista auditable de 8-25 s y se copia al fact para que los lectores no paguen. Si el importer deja de copiarla, **todo pasa a "medible" y la mentira vuelve en silencio**: un no-op se lee igual que "no hay nada marcado". El test exige que el fact tenga veredictos y coincida con la vista.
 
 ---
 
@@ -376,6 +379,47 @@ en las tasas fiscales de México **exactas a cuatro decimales** —y que la raz�
    Van a la bandeja de `peldano_cruzado`, no al `COALESCE` de `costUnit()`.
 4. **Esto resuelve el peldaño del COSTO, no el de la CANTIDAD que lo multiplica.** Sigue sin declarar
    en 47 sitios; es lo que audita `analytics.v_unit_rung_audit`.
+
+---
+
+## 8quinquies. Por qué la VENTA sí se convierte a cajas y la EXISTENCIA no (U.2b, 2026-09-03)
+
+La pregunta salió del piso: *"si podemos sacar la venta en cajas, ¿cómo es posible que no saquemos
+la existencia? ¿qué cambia?"*. Es la pregunta correcta y la respuesta desarma la intuición.
+
+**No cambia el divisor: cambia la unidad del numerador.** `99089 SALSA VALENTINA SOBRE 10G /900`
+en los 9 almacenes usa el mismo divisor `9.00`. Funciona en los 7 de Kepler y falla sólo en MD-30.
+
+| | de dónde sale | ¿trae su unidad pegada? |
+|---|---|---|
+| **Venta** | `analytics.product_demand.daily_pieces` = **ingreso ÷ precio unitario mínimo de la red** | **Sí.** El dinero la delata |
+| **Existencia** | `replenishment_plan.stock_pz`, **crudo de cada ERP** | **No.** Es un conteo pelón |
+
+La prueba, mismo SKU y mismos 30 días: las sucursales Kepler venden a **$45.42/unidad** (el paquete)
+y MD-30 a **$371.86/unidad** (la caja) — 8.19×. El importer divide el ingreso de MD-30
+($3,347) entre el precio mínimo de la red ($45.42) → 73.7 paquetes → ÷9 = **8.2 cajas**, y MD-30
+vendió 9. Da bien **porque un renglón de $371.86 no puede ser un paquete de $45**.
+
+La existencia no tiene esa suerte: `stock_pz = 12` y nada en ese 12 dice si son sobres, paquetes o
+cajas. Por eso hay que **prestarle un precio** — y eso es exactamente lo que hace el detector: le
+pega el **costo que se pagó** por esa unidad. `display_bf == caja_cost / pagado`.
+
+> ⚠️ **Que la venta se convierta NO quiere decir que esté verificada.** No tiene árbitro
+> independiente: nadie persiste el peldaño realmente cobrado, así que su unidad flota con el mix de
+> precios de la red y **nunca se marca**. Ausencia de bandera no es certificado — es que no hay con
+> qué probarla. Eso es **MR.7.1**, no esto.
+
+### Triage de los 552 marcados (insumo de U.3)
+
+| | celdas | SKUs | valor del árbitro |
+|---|---|---|---|
+| **lo pagado ES el costo de la caja** → divisor = 1, sin discusión | **93** | 49 | $657,237 |
+| divisor entero limpio | 183 | 90 | $1,159,393 |
+| desviación chica | 103 | 36 | $466,741 |
+| **pide criterio humano** | 265 | 157 | $1,475,813 |
+
+Un tercio es mecánico. El resto **no**, y por eso U.3 es bandeja y no script: en `57009` el divisor
+1 era el correcto y "corregir parejo" proponía **$2.59 M** de compra contra $132 k/mes de venta.
 
 ---
 

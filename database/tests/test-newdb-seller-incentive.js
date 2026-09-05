@@ -154,6 +154,40 @@ const money = (n) => `$${Math.round(Number(n) || 0).toLocaleString('es-MX')}`;
       check('…y al centavo',
         Math.abs(Number(eq.a_imp) - Number(eq.b_imp)) < 0.01, `${money(eq.a_imp)} vs ${money(eq.b_imp)}`);
 
+      // RR-PROMO.9: los brazos de vecinal y mayoreo se arman de las tablas base (con el
+      // canal filtrado junto a las cabeceras, para no leer el 91% de mostrador y tirarlo).
+      // Eso REPLICA los filtros de wincaja.v_sales_lines. Este candado es lo único que
+      // impide que las dos definiciones diverjan en silencio y el incentivo pague mal.
+      for (const [canal, sc] of [['vecinal', 'preventa_vecinal'], ['mayoreo', 'mayoreo_credito']]) {
+        const e2 = (await c.query(
+          `SELECT (SELECT count(*) FROM wincaja.v_sales_lines
+                    WHERE tenant_id=$1 AND sale_channel=$4
+                      AND business_date>=$2 AND business_date<=$3) AS a_filas,
+                  (SELECT COALESCE(sum(importe),0) FROM wincaja.v_sales_lines
+                    WHERE tenant_id=$1 AND sale_channel=$4
+                      AND business_date>=$2 AND business_date<=$3) AS a_imp,
+                  (SELECT count(*) FROM analytics.v_seller_sales_lines
+                    WHERE tenant_id=$1 AND canal=$5
+                      AND business_date>=$2 AND business_date<=$3) AS b_filas,
+                  (SELECT COALESCE(sum(importe),0) FROM analytics.v_seller_sales_lines
+                    WHERE tenant_id=$1 AND canal=$5
+                      AND business_date>=$2 AND business_date<=$3) AS b_imp`,
+          [T, vLo, vHi, sc, canal])).rows[0];
+        check(`canal ${canal} = silver ${sc}, fila por fila`,
+          Number(e2.a_filas) === Number(e2.b_filas), `${e2.a_filas} vs ${e2.b_filas}`);
+        check(`canal ${canal} …y al centavo`,
+          Math.abs(Number(e2.a_imp) - Number(e2.b_imp)) < 0.01, `${money(e2.a_imp)} vs ${money(e2.b_imp)}`);
+      }
+
+      // NOTA (RR-PROMO.9, revertido): se intentó filtrar el canal junto con las cabeceras
+      // para no leer el 91% de mostrador que se descarta. Es cierto que se descarta —
+      // 132,835 de 145,690 cabeceras medidas— pero materializar las cabeceras primero le
+      // quita al planner el camino bueno: medido A/B intercalado (para aislar la carga de
+      // prod, que ese día oscilaba 5×), la versión "optimizada" salió **5× más lenta**
+      // (26.6 s contra 5.3 s de mediana, con las mismas 560 filas). Revertido.
+      // Lección: acá el nested-loop cabecera→detalle es EFICIENTE (índice ix_wcj_det_join,
+      // ~15 µs por vuelta); leer de más no siempre es el costo dominante.
+
       console.log('\n3) el push no se pierde (en RD la ruta ES el vendedor)');
       const p = (await c.query(
         `SELECT COALESCE(sum(importe) FILTER (WHERE source='push'),0) push,

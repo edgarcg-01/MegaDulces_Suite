@@ -63,6 +63,14 @@ export class RolesGuard implements CanActivate {
       user.tenant_id,
       user.role_name,
     );
+    // `[AUTHZ-HARD.2]` God-mode desde los roles FRESCOS de DB, no del token. Antes se decidía con
+    // `user.role_name` del JWT: degradar a un superadmin (dejándolo activo) no le quitaba el
+    // god-mode hasta que expiraba el token (12h). Ahora si su rol vigente ya no es admin, no pasa.
+    const rolesFrescos = await this.permsCache.getRolesForUser(
+      user.sub ?? user.id,
+      user.tenant_id,
+      user.role_name,
+    );
     // Adjuntamos al request para que controllers/services downstream consulten
     // `req.user.permissions` fresco (anti-escalation, /me).
     //
@@ -76,8 +84,9 @@ export class RolesGuard implements CanActivate {
     request.user.permissions = permissions;
 
     // God-mode de plataforma (admin/superadmin) pasa todo. Ya no depende de un
-    // permiso de negocio (ver `ability/platform-admin.ts`).
-    if (isPlatformAdminRole(user.role_name)) {
+    // permiso de negocio (ver `ability/platform-admin.ts`). Se evalúa sobre los roles
+    // FRESCOS (perfil base + complementos), no sobre el snapshot del token.
+    if (rolesFrescos.some((r) => isPlatformAdminRole(r))) {
       return true;
     }
 

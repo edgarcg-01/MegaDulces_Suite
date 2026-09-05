@@ -6,12 +6,19 @@ import { LabelModel } from './components/label.component';
 
 export interface SearchHit { product_id: string; sku: string | null; name: string; barcode: string | null; }
 
+/**
+ * [VP.0.1] El veredicto, espejo de `libs/commercial/src/lib/shared/freshness.ts`.
+ * `unknown` = no se pudo medir, que NO es lo mismo que estar al día.
+ */
+export type FreshnessStatus = 'fresh' | 'stale' | 'unknown';
+
 /** [OBS.6.2] Un eslabón de la cadena que produce el precio, con su edad y su veredicto. */
 export interface FreshnessInput {
   key: string;
   label: string;
   at: string | null;
   age_human: string | null;
+  status: FreshnessStatus;
   stale: boolean;
 }
 
@@ -21,10 +28,13 @@ export interface FreshnessInput {
  * El 2026-09-02 el carril del ODS llevaba 6 días parado y esta pantalla imprimió precios de hace
  * una semana sin decir nada — uno de ellos 54% bajo costo. No bloquea: declara.
  *
- * `inputs` vacío = no se pudo medir. Eso NO es "está fresco": se muestra como desconocido.
+ * [VP.0.1] `inputs` vacío = no se pudo medir, y eso llega como `status: 'unknown'` + `stale: true`.
+ * Antes llegaba como `stale: false` y la pantalla callaba: el mismo silencio que la fase vino a
+ * matar. La vista tiene que distinguir los dos casos — "viejo" tiene edad, "desconocido" no.
  */
 export interface Freshness {
   data_as_of: string | null;
+  status: FreshnessStatus;
   stale: boolean;
   age_human: string | null;
   inputs: FreshnessInput[];

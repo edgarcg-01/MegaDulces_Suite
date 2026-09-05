@@ -1021,7 +1021,12 @@ export class ComprasQueTocaComponent implements OnInit {
   basisLabel(b: OrderBasis): string { return ({ cadence: 'Cadencia', reorder: 'Reorden', max: 'Máximo', min: 'Mínimo' } as Record<string, string>)[b] || b; }
   bandLabel(b: string): string { return ({ rapida: 'rápida', promedio: 'promedio', mal_abasto: 'lento' } as Record<string, string>)[b] || b; }
   bandSev(b: string): Sev { return ({ rapida: 'success', promedio: 'info', mal_abasto: 'danger' } as Record<string, Sev>)[b] || 'secondary'; }
-  money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+  // U.2 — null = "no se está midiendo" (peldaño contradicho por el costo), NO cero. Ver la misma
+  // regla en compras-existencia-critica.component.ts.
+  money(v: number | string | null | undefined) {
+    if (v === null || v === undefined || v === '') return '—';
+    return (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+  }
   abastoUnidadOpts = [{ label: 'En $', value: 'valor' }, { label: 'En cajas', value: 'cajas' }];
   abastoFmt(valor: number | null | undefined, cajas: number | null | undefined): string {
     return this.abastoUnidad() === 'valor'

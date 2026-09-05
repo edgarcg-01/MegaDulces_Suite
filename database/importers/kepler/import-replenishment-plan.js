@@ -462,7 +462,20 @@ const cte = (hist, tr, lead) => `
   -- Medido: cambia 388 filas por almacén; saca $866,756 de sobre-pedido y hace visibles $2.68M
   -- de inventario en MD-30/MD-32/00. Las sucursales Kepler no se mueven ni un peso.
   dbf AS (SELECT product_id, warehouse_id, box_factor
-            FROM analytics.v_warehouse_box_factor WHERE tenant_id=$1)`;
+            FROM analytics.v_warehouse_box_factor WHERE tenant_id=$1),
+  -- U.2 — el VEREDICTO DEL PELDAÑO, aquí y no en las pantallas. SIN BACKTICKS ACÁ.
+  -- analytics.v_unit_rung_audit contrasta el divisor que usamos (display_bf, del CTE de arriba)
+  -- contra el que implica el costo pagado por esa MISMA unidad (caja_cost / real_buy_cost en
+  -- Kepler; costo_promedio de Wincaja en los suyos). Coinciden si y solo si el peldaño es el que
+  -- creemos. Es la vista auditable y se queda como fuente de verdad, pero cuesta 8.2 s para las
+  -- 552 filas marcadas y 25 s para el tenant entero (deriva escalera de costo + factor por almacen
+  -- + existencia Wincaja). Joinearla desde /compras/pedido llevo el plan de traspaso de 4.5 s a
+  -- 29 s. Acá se paga UNA vez por corrida y las seis pantallas leen una columna indexada.
+  -- Solo se persisten los veredictos EN CONTRA: ok / sin_dato / z_no_arbitrable quedan NULL,
+  -- porque el lector pregunta "hay algo que me impida valuar esto" y el default es NO.
+  rung AS (SELECT product_id, warehouse_id, veredicto, display_bf_esperado, valor_arbitrado
+             FROM analytics.v_unit_rung_audit
+            WHERE tenant_id=$1 AND veredicto IN ('x1_inflada', 'x2_deflactada'))`;
 
 const PROJECT = `
     SELECT $1::uuid AS tenant_id, b.warehouse_id, b.product_id, e.sku, e.nombre, e.supplier_id, e.category_id,
@@ -499,11 +512,16 @@ const PROJECT = `
            se.season_src,
            round(sa.safety_pct_q::numeric, 3) AS safety_pct_q,
            round(COALESCE(sl.lead_d, lg.lead_d)::numeric, 1) AS lead_days,
+           -- U.2 — ver el CTE rung. NULL = sin veredicto en contra = se puede valuar.
+           ru.veredicto AS rung_veredicto,
+           round(ru.display_bf_esperado::numeric, 4) AS rung_bf_esperado,
+           round(ru.valor_arbitrado::numeric, 2) AS rung_arbitrado,
            now() AS computed_at
       FROM base b
       JOIN econ e ON e.product_id = b.product_id
       LEFT JOIN whs w      ON w.id = b.warehouse_id
       LEFT JOIN dbf db     ON db.warehouse_id = b.warehouse_id AND db.product_id = b.product_id
+      LEFT JOIN rung ru    ON ru.warehouse_id = b.warehouse_id AND ru.product_id = b.product_id
       LEFT JOIN dem d      ON d.warehouse_id = b.warehouse_id AND d.product_id = b.product_id
       LEFT JOIN stk s      ON s.warehouse_id = b.warehouse_id AND s.product_id = b.product_id
       LEFT JOIN tr_eff t   ON t.warehouse_id = b.warehouse_id AND t.product_id = b.product_id
@@ -518,7 +536,8 @@ const COLS = ['tenant_id', 'warehouse_id', 'product_id', 'sku', 'nombre', 'suppl
   'source_warehouse_id', 'is_hub', 'daily_pieces', 'revenue30', 'eff_daily', 'stock_pz', 'transit_cajas',
   'transit_eff_cajas',
   'suf', 'bf', 'display_bf', 'caja_cost', 'cost_source', 'price_ratio', 'unit_source', 'buy_rate', 'real_buy_cost', 'last_purchase',
-  'order_days', 'primary_wh', 'season_ratio', 'season_src', 'safety_pct_q', 'lead_days', 'computed_at'];
+  'order_days', 'primary_wh', 'season_ratio', 'season_src', 'safety_pct_q', 'lead_days',
+  'rung_veredicto', 'rung_bf_esperado', 'rung_arbitrado', 'computed_at'];
 const KEY = ['tenant_id', 'warehouse_id', 'product_id'];
 const DATA = COLS.filter((c) => !KEY.includes(c) && c !== 'computed_at');
 const SET_CLAUSE = DATA.map((c) => `${c}=EXCLUDED.${c}`).join(', ') + ', computed_at=now()';

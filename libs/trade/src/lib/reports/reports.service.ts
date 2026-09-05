@@ -943,7 +943,13 @@ export class ReportsService {
   }
 
   async deleteReport(id: string, user: any) {
-    const report = await this.knex('daily_captures').where({ id }).first();
+    // `[AUTHZ-HARD.1]` `this.knex` es superusuario (RLS inerte): sin filtro por tenant, el permiso
+    // REPORTES_GESTIONAR autorizaba borrar la captura de CUALQUIER tenant por UUID. Acotamos al
+    // tenant del token (o del CLS) tanto en la lectura como en el DELETE.
+    const tenantId = user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    const baseWhere: Record<string, unknown> = { id };
+    if (tenantId) baseWhere['tenant_id'] = tenantId;
+    const report = await this.knex('daily_captures').where(baseWhere).first();
 
     if (!report) {
       throw new Error('Reporte no encontrado');
@@ -952,19 +958,19 @@ export class ReportsService {
     // Role check: Only superadmin or Permission allowed (controller handles Permission)
     // Here we just perform the deletion.
     this.logger.log(`Deleting report ${id} by user ${user.username}`);
-    await this.knex('daily_captures').where({ id }).del();
+    await this.knex('daily_captures').where(baseWhere).del();
 
     this.cache.invalidateAllReports();
 
-    // tenant_id puede venir del row (multi-tenant DB) o del context CLS.
+    // tenant_id puede venir del row (multi-tenant DB) o del context CLS/token.
     // Si ninguno está, no emitimos para no leakear cross-tenant.
-    const tenantId = report.tenant_id || this.tenantContext?.get()?.tenantId;
-    if (tenantId) {
+    const emitTenantId = report.tenant_id || tenantId;
+    if (emitTenantId) {
       this.eventsService.emitCaptureDeleted({
         type: 'capture:deleted',
         captureId: id,
         userId: report.user_id,
-        tenantId,
+        tenantId: emitTenantId,
       });
     } else {
       this.logger.warn(`Skipping capture:deleted emit — sin tenant_id (id=${id})`);

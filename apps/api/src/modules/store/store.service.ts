@@ -180,14 +180,21 @@ export class StoreService {
   }
 
   /**
-   * Snapshot del día. `warehouseCode` opcional: si viene (usuario scopeado a
-   * sucursal, o filtro del UI), acota TODO al code dado. Vacío = todas.
+   * Snapshot del día. `warehouseCodes` es el alcance ya resuelto por
+   * `ScopeService` (`[AUTHZ-HARD.3]`):
+   *   - `null`  → alcance `all` sin filtro pedido → TODAS las sucursales.
+   *   - `[...]` → exactamente esas (código de 2 dígitos).
+   *   - `[]`    → alcance `none`/recorte vacío → NINGUNA (fail-closed, `WHERE 1=0`).
+   * La distinción `null` vs `[]` es la que mata el viejo fail-open: antes "vacío"
+   * significaba "todas"; ahora sólo `null` es "todas".
    */
-  async snapshot(warehouseCode?: string): Promise<any> {
+  async snapshot(warehouseCodes?: string[] | null): Promise<any> {
     const k = this.knex;
     const today = `(ticket_ts AT TIME ZONE '${TZ}')::date = (now() AT TIME ZONE '${TZ}')::date`;
     const scope = (q: Knex.QueryBuilder) =>
-      warehouseCode ? q.andWhere('warehouse_code', warehouseCode) : q;
+      warehouseCodes !== null && warehouseCodes !== undefined
+        ? q.whereIn('warehouse_code', warehouseCodes)
+        : q;
 
     const byBranch = await scope(k('analytics.store_live_tickets')
       .where('tenant_id', TENANT)

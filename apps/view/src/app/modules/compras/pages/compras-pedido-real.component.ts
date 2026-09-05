@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -230,9 +231,19 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     } @else {
                       <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
                     }
-                    <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
+                    <!-- U.2 — el PEDIDO es lo que se gasta, y sale de restar la existencia
+                         convertida con el mismo divisor. Con el peldaño contradicho la resta mezcla
+                         peldaños y pide de más: 99089 en MD-30 lee 1.3 cajas donde hay 12 y encarga
+                         6.9 que ya están en el piso. Se retiene, no se publica. -->
+                    @if (rungOf(r, t.code)) {
+                      <td class="pr-r pr-rung" [title]="rungTitle(r, t.code)">—</td>
+                    } @else {
+                      <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
+                    }
                   }
-                  <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
+                    {{ r.suma_pedido_cajas | number:'1.0-1' }}@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                  </td>
                   <td class="pr-r pr-muted-h">{{ (r.suma_pedido_cajas * r.uxc) | number:'1.0-0' }}</td>
                   <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="r.suma_pedido_cajas > 0">{{ money(r.pedido_valor) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
@@ -645,6 +656,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
 })
 export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly api = inject(ComprasService);
+  private readonly route = inject(ActivatedRoute); // Q.4 — deep-link desde Existencia
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -716,14 +728,35 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   rungOf(r: WorkbookRow, code: string): string | null { return r.cells?.[code]?.rung ?? null; }
   /** Cantidad en la unidad NATIVA del almacén (la que el ERP realmente guarda). */
   natOf(r: WorkbookRow, code: string): number { return r.cells?.[code]?.nat ?? 0; }
-  /** Rótulo de esa unidad, tal como lo declara el ERP dueño del almacén. Sin dato → "u". */
+  /**
+   * Rótulo de esa unidad, tal como lo declara el ERP dueño del almacén. Sin dato → "u".
+   *
+   * ⚠️ 65 de las 552 celdas marcadas traen un rótulo que es un NÚMERO ('500', '250'): Kepler ahí
+   * no guarda el nombre de la unidad sino el GRAMAJE de la bolsa. Concatenarlo sin más daba
+   * "298 500", que no se lee como nada. En ese caso la cantidad va con "u." y el gramaje queda en
+   * el tooltip, que es donde cabe la explicación completa.
+   */
   natUnitOf(r: WorkbookRow, code: string): string {
-    return (r.cells?.[code]?.natu || '').trim().toLowerCase() || 'u';
+    const raw = (r.cells?.[code]?.natu || '').trim();
+    if (!raw) return 'u';
+    return /^[\d.]+$/.test(raw) ? 'u' : raw.toLowerCase();
+  }
+  /** El rótulo CRUDO del ERP, para el tooltip: ahí sí vale la pena decir "de 500". */
+  private natUnitRaw(r: WorkbookRow, code: string): string { return (r.cells?.[code]?.natu || '').trim(); }
+  /** U.2 — por qué el pedido de red puede venir corto: hay almacenes que no se pudieron calcular. */
+  pedidoTitle(r: WorkbookRow): string {
+    const n = r.almacenes_sin_pedido || 0;
+    if (!n) return '';
+    return `Este total NO incluye ${n} almacén${n > 1 ? 'es' : ''}: ahí el costo de compra contradice `
+      + 'el divisor con el que se lee la existencia, así que restar demanda − existencia mezclaría '
+      + 'peldaños y el sugerido saldría mal. Falta pedido, no es que no haga falta comprar.';
   }
   rungTitle(r: WorkbookRow, code: string): string {
     const v = this.rungOf(r, code);
     const n = this.natOf(r, code).toLocaleString('es-MX');
-    const u = this.natUnitOf(r, code);
+    const raw = this.natUnitRaw(r, code);
+    // Si el ERP rotula la unidad con un número, es el gramaje de la bolsa: se dice completo acá.
+    const u = /^[\d.]+$/.test(raw) ? `unidades de ${raw}` : (this.natUnitOf(r, code));
     const dir = v === 'x1_inflada'
       ? 'el divisor de cajas es más chico de lo que el costo justifica (la valuación saldría inflada)'
       : 'el divisor de cajas es más grande de lo que el costo justifica (la valuación saldría corta)';
@@ -1011,6 +1044,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       }),
     });
     this.restoreFilters();
+    // Q.4 — hidratación por query-params, DESPUÉS de restoreFilters para que el link gane sobre
+    // el localStorage. Es lo que hace navegable "todo dato accionable a su lugar de arreglo con
+    // el filtro puesto": Existencia manda acá con ?search=<sku>. Sin esto el enlace no hacía nada
+    // (esta pantalla no leía ActivatedRoute en absoluto).
+    const qp = this.route.snapshot.queryParamMap;
+    const qSearch = qp.get('search');
+    if (qSearch) this.search = qSearch;
+    const qWh = qp.get('warehouse_ids');
+    if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
     else this.loadWorkbook();
     // Refresca la etiqueta "hace N min" sin recargar datos.

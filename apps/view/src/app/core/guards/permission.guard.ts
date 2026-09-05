@@ -135,6 +135,8 @@ export const comercialHomeGuard: CanActivateFn = landingRedirectGuard(
 /** Landing de `/almacen`. */
 export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
   [
+    // El trabajo del almacén empieza en el CENSO, así que Existencia va primera.
+    { perm: Permission.EXISTENCIA_VER, url: '/almacen/inventory/existencia' },
     { perm: Permission.COMMERCIAL_INVENTORY_VER, url: '/almacen/inventory' },
     { perm: Permission.COMMERCIAL_WAREHOUSES_VER, url: '/almacen/warehouses' },
     { perm: Permission.COMMERCIAL_DEADSTOCK_VER, url: '/almacen/dead-stock' },
@@ -160,6 +162,9 @@ export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(
 export const comprasHomeGuard: CanActivateFn = landingRedirectGuard(
   [
     { perm: Permission.COMPRAS_PEDIDO_VER, url: '/compras/pedido' },
+    // Acá va DESPUÉS de Pedido a propósito: el trabajo del comprador empieza en el pedido, y
+    // moverlo cambiaría dónde aterriza todo el equipo de compras sin que nadie lo pidiera.
+    { perm: Permission.EXISTENCIA_VER, url: '/compras/existencia' },
     { perm: Permission.COMPRAS_REQUISICIONES_VER, url: '/compras/requisiciones' },
     { perm: Permission.COMPRAS_ORDENES_VER, url: '/compras/ordenes' },
     { perm: Permission.COMPRAS_ENTRADAS_VER, url: '/compras/entradas' },

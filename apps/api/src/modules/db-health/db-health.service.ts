@@ -55,15 +55,15 @@ const APP_SOURCES: SourceCfg[] = [
   // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
   // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
   { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
-  // Espejo crudo Kepler: el carril es el CDC WAL (7 consumidores `cdc-wal-XX` bajo PM2, uno por
-  // sucursal) que lee el WAL de los réplicas lógicos locales y empuja a kepler_ods.* por
-  // feeds-ingest. `last_push_at` la escribe el handler en cada batch (raw-upsert Y raw-delete) →
-  // detecta si el pipe se detuvo. Umbral realtime.
-  // El POLL (`replicate-ods-live`, tareas \Tienda\OdsLiveLoop + OdsFullMirror) quedó DESHABILITADO
-  // el 2026-08-26: escribía los timestamps +6h (pasaban por un Date de JS) y, al estar el timestamp
-  // en la PK, duplicaba filas contra lo que escribe el WAL — 1,120 pólizas duplicadas en kdc22608.
-  // Ver GOTCHAS §21. Los latidos por consumidor (`cdc_wal_00..06`) son el dead-man's switch fino.
-  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (CDC WAL, 7 consumidores PM2)' },
+  // Espejo crudo Kepler: el carril es `replicate-ods-live` en Docker (`ops/ingest/docker-compose.yml`,
+  // servicios ods-live-hot @15s + ods-live-mirror @300s), que lee los réplicas lógicos locales del
+  // :5433 y empuja a kepler_ods.* por feeds-ingest. `last_push_at` la escribe el handler en cada batch
+  // (raw-upsert Y raw-delete) → detecta si el pipe se detuvo. Umbral realtime.
+  // HISTORIA (para no repetirla): el poll se deshabilitó el 2026-08-26 por el corrimiento +6h de los
+  // timestamps, que al estar en la PK duplicaba filas contra el WAL (1,120 pólizas en kdc22608, ver
+  // GOTCHAS §21); volvió corregido y el CDC WAL se retiró el 2026-09-04 (OBS.8). El dead-man's switch
+  // fino de este carril son `ods_live_hot`/`ods_live_mirror` más abajo, y su COMPLETITUD `cdc_reconcile`.
+  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (poll en Docker, 2 carriles)' },
   // kepler_ods POR-SUCURSAL: el _sync_status de arriba prueba que la LOOP corre, pero con la
   // replicación lógica (SYNC.3) apareció un modo de falla nuevo: si UN replica (subscription)
   // se congela, la loop sigue shipeando data VIEJA de esa sucursal → last_push_at fresco pero
@@ -181,8 +181,12 @@ const APP_SOURCES: SourceCfg[] = [
     warnH: 48, critH: 120, cadence: 'continuo (réplica lógica md_00 → CDC WAL)',
   },
   // (AUDIT 2026-08-21) Cobertura de FINANZAS de oficinas '00' en el ODS. El ship a prod usa un whitelist
-  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), import-kepler-bank-movements hace SKIP MUDO
-  //   y la columna Kepler de /finanzas/bancos + Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), la columna Kepler de /finanzas/bancos +
+  //   Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   El mecanismo cambió y el sensor importa MÁS, no menos: antes el que hacía SKIP MUDO era
+  //   `import-kepler-bank-movements` (retirado 2026-09-03); ahora `analytics.kepler_bank_movements`
+  //   es una VISTA sobre kdm1⋈kdb1, así que sin kdb1 no hay "skip" — simplemente devuelve vacío al
+  //   instante y en cada lectura. Este sensor es el único aviso.
   //   Este sensor lo hace RUIDOSO: kdb1 suc-00 en 0 → crítico. Es el canario de toda la capa finanzas-00
   //   (kdco/kdc3/kdpv_folio_caja/kdxd/kdxe/kdc2* viajan en el mismo whitelist).
   {
@@ -453,11 +457,12 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
-  // CDC WAL-decode (ADR-047): el consumidor on-prem (ods-cdc-wal.js --watch) late cada ~30s POR
-  // sucursal. Dead-man's switch: si un consumidor muere, su slot empieza a RETENER WAL en el :5433
-  // → cron_runs se congela → ROJO antes de que llene disco. Per-sucursal a propósito (uno global
-  // enmascararía un branch caído — la lección de la 00). Sin heartbeat aún = 'unknown' = no alarma.
-  ...['00', '01', '02', '03', '04', '05', '06'].map((c) => ({ key: `cdc_wal_${c}`, label: `CDC WAL sucursal ${c}`, cadence: 'continuo ~30s', warnH: 0.25, critH: 1 })),
+  // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.8): el carril se retiró y sus
+  // slots se dropearon. Sus 7 latidos quedaron congelados en `error` desde el 02-sep y siguieron
+  // pintando ROJO durante días sin que nadie fuera a arreglarlos — un rojo permanente que nadie va a
+  // atender enseña a ignorar el tablero, que es peor que no tenerlo. Lo que el WAL cubría en exclusiva
+  // (propagación de DELETE) lo cubre ahora `cdc_reconcile` detectando SOBRANTES.
+  // Si el carril vuelve, se vuelven a declarar acá — y su dueño sigue siendo UNO solo.
   // CDC.7 — la ÚNICA alarma de COMPLETITUD del sistema. Todo lo demás mide frescura (`max(fecha)`)
   // y por construcción no puede ver un hueco EN MEDIO con datos frescos alrededor: así el CDC perdió
   // 2-7% de las filas diarias del 26 al 31 de agosto **con los 7 latidos de arriba verdes y
@@ -480,8 +485,24 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
   { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
   { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
-  { key: 'analytics_refresh_wincaja', label: 'Refresh MVs Wincaja',     cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
+  // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
+  // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
+  // otro por copia:
+  //   · `analytics_refresh_wincaja` era la ÚNICA registrada y estaba con `cadence: 'cada 15 min',
+  //     warnH: 1` — los umbrales del OTRO cron (`analytics_refresh`, ese sí de 15 min). Como la
+  //     escribe el diario, envejecía 24 h legítimas y se pintaba `critical` todo el día, todos los
+  //     días. Una alarma que grita siempre en falso enseña a ignorar el tablero (es la lección de
+  //     las 488 alertas con cero reconocidas, y por eso OBS.8 borró los latidos muertos del CDC).
+  //   · Las otras tres NO estaban → con el viejo `: 'ok'` salían verdes por siempre. Justo las que
+  //     arman el sell-out: si `mv_kepler_sales_daily` deja de refrescarse, el pivote sirve una
+  //     pierna vieja y otra fresca sin que nada avise.
+  // Umbrales de job diario, mismo criterio que `sales_daily`: warn al saltarse una corrida, crítico
+  // al saltarse dos.
+  { key: 'analytics_refresh_wincaja',         label: 'Refresh MV Wincaja (nightly)',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
@@ -755,9 +776,35 @@ export class DbHealthService {
         }
       } else {
         // ok → clasifica por antigüedad de la última corrida vs cadencia.
-        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'ok';
+        //
+        // [VP.0.1] Sin `cfg` esto devolvía `'ok'`: un job que late pero no tiene umbral registrado
+        // en CRON_JOBS salía VERDE por siempre, sin importar la antigüedad. Es el mismo default
+        // permisivo que documenta la regla 1 de `shared/freshness.ts` — un job sin umbral no es
+        // sano, es NO MEDIDO. Va a `unknown`, que el tablero pinta distinto de verde y no invita a
+        // ignorarlo. Un fallo DURO seguía viéndose (la rama `row.status === 'error'` es previa y no
+        // necesita cfg); lo invisible era el REZAGO, que es justo el modo de falla de "los números
+        // cambiaron". Medido: `analytics_refresh_kepler`, `_sellout_monthly` y `_blended` escriben
+        // latido y no estaban en CRON_JOBS → las tres MVs que arman el sell-out, en verde eterno.
+        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'unknown';
         const dur = row.duration_ms != null ? ` · ${Math.round(Number(row.duration_ms) / 1000)}s` : '';
-        note = `OK${dur}${row.rows_affected != null ? ` · ${row.rows_affected} filas` : ''}`;
+        const filas = row.rows_affected != null ? ` · ${row.rows_affected} filas` : '';
+        // La nota decía "OK" SIEMPRE, aunque `status` fuera warn o critical: el job reportó
+        // éxito, y el texto repetía ese éxito ignorando que la última corrida era vieja. Así
+        // `contpaqi_add_cfdis` pasó 30 h muerto mostrando "OK · 167224 filas" — el número de
+        // filas de la corrida vieja, que se lee como salud. La detección funcionaba; el mensaje
+        // mentía. Cuando el estado NO es ok, la nota ARRANCA por el rezago, igual que la rama
+        // de `running` dice "desde hace X".
+        const edad = ageSec != null ? this.humanH(ageSec / 3600) : 'sin fecha';
+        if (status === 'ok') {
+          note = `OK${dur}${filas}`;
+        } else if (status === 'unknown') {
+          // [VP.0.1] No decir "SIN CORRER": corrió y terminó bien. Lo que falta es el umbral, y la
+          // nota tiene que nombrar eso — es accionable (registrar el job en CRON_JOBS), y confundir
+          // "no medido" con "no corrió" manda a alguien a revisar la máquina de feeds sin motivo.
+          note = `SIN UMBRAL: el job late (última hace ${edad}${dur}${filas}) pero no está en CRON_JOBS, así que no se puede juzgar su rezago. Registrarlo.`;
+        } else {
+          note = `SIN CORRER hace ${edad} (cadencia ${cfg?.cadence || '—'}); la última terminó bien${dur}${filas}`;
+        }
       }
       out.push({
         ...base, last_update: finish ? finish.toISOString() : null, age_seconds: ageSec,

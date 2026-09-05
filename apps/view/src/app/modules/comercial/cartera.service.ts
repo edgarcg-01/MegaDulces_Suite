@@ -83,4 +83,8 @@ export class CarteraService {
   setRouteWarehouse(routeId: string, warehouse_id: string) {
     return this.http.put(`${this.base}/routes/${routeId}/warehouse`, { warehouse_id });
   }
+  /** Renombra una sucursal (warehouse). Gateado COMMERCIAL_WAREHOUSES_GESTIONAR. */
+  renameWarehouse(id: string, name: string) {
+    return this.http.patch(`${environment.apiUrl}/commercial/warehouses/${id}`, { name });
+  }
 }

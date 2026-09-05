@@ -285,7 +285,15 @@ flowchart LR
 - **KP_CONCENTRADA** (`.245`, schema `kp.*`): ODS crudo de las 6 sucursales, una tabla
   por tabla-fuente + columna `sucursal`, con watermark incremental. Cada 4h.
 - **mart.ventas** (Docker `:5433`): solo ventas, FDW+dblink, refresco cada 2 min.
-- **kepler_ods** (Railway): espejo crudo al minuto (CDC por `ctid`), tablas `kdm1/kdm2/…`.
+- **kepler_ods** (Railway): espejo crudo, tablas `kdm1/kdm2/…` con columna `sucursal`. Se alimenta en
+  **tres saltos** — POS en LAN → replicación lógica → réplicas `:5433/kepler_md_XX` (schema `md`) →
+  shipper HTTP a prod. El tercer salto **no puede** ser replicación nativa (es *pull* y los POS no
+  tienen IP pública; y hace *fan-in* de 7 fuentes a una tabla): por eso hay un proceso.
+  Ese proceso vive **sólo en Docker** (`ops/ingest/docker-compose.yml`: `ods-live-hot` @15 s,
+  `ods-live-mirror` @300 s, `ods-reconcile` @15 min, más `autoheal`). **Un carril = UN dueño**: ni
+  Task Scheduler ni PM2 vuelven a levantar un shipper del ODS — tenerlo por triplicado dejó un carril
+  15 h colgado en verde el 2026-09-04. Topología, convención de nombres (ojo: la rama **03** vive en
+  `kepler_pilot`) y las trampas, en [`GOTCHAS.md` §35-§36](GOTCHAS.md).
 - Mapa de conexión/creds de las sucursales: ver runbook interno (no versionado).
 
 ---

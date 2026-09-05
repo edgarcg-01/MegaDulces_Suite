@@ -10,6 +10,7 @@ import {
   AssignableVendor,
   RouteCatalogRow,
   DailyAssignment,
+  Warehouse,
 } from '../supervisor-routes.service';
 
 const DAY_LABELS: Record<number, string> = { 1: 'L', 2: 'M', 3: 'M', 4: 'J', 5: 'V', 6: 'S', 7: 'D' };
@@ -89,6 +90,27 @@ const WORK_DAYS = [1, 2, 3, 4, 5, 6];
           </button>
         </div>
       }
+
+      <!-- Sucursales: editar el nombre que ven los vendedores -->
+      <div class="ra-section">
+        <div class="ra-section-h">Sucursales</div>
+        @for (w of warehouses(); track w.id) {
+          <div class="ra-wh">
+            <code class="ra-wh-code">{{ w.code }}</code>
+            @if (editingWhId() === w.id) {
+              <input class="ra-wh-input" type="text" [ngModel]="whDraft()" (ngModelChange)="whDraft.set($event)"
+                (keyup.enter)="saveWhName(w)" [attr.aria-label]="'Nombre de ' + w.code" />
+              <button class="ra-wh-ic ok" (click)="saveWhName(w)" [disabled]="savingWhId() === w.id || !whDraft().trim()" aria-label="Guardar">
+                <i class="pi" [class.pi-spin]="savingWhId() === w.id" [class.pi-spinner]="savingWhId() === w.id" [class.pi-check]="savingWhId() !== w.id"></i>
+              </button>
+              <button class="ra-wh-ic" (click)="cancelEditWh()" aria-label="Cancelar"><i class="pi pi-times"></i></button>
+            } @else {
+              <span class="ra-wh-name">{{ w.name }}</span>
+              <button class="ra-wh-ic" (click)="startEditWh(w)" aria-label="Editar nombre"><i class="pi pi-pencil"></i></button>
+            }
+          </div>
+        }
+      </div>
     </div>
   `,
   styles: [`
@@ -113,6 +135,14 @@ const WORK_DAYS = [1, 2, 3, 4, 5, 6];
     .ra-day-btn.on { background: var(--action); color: #fff; border-color: var(--action); }
     .ra-assign-btn { width: 100%; display: inline-flex; align-items: center; justify-content: center; gap: .5rem; padding: .8rem; border: none; border-radius: var(--r-md, 10px); background: var(--action); color: #fff; font-weight: 700; font-size: .95rem; cursor: pointer; }
     .ra-assign-btn:disabled { opacity: .5; }
+    .ra-wh { display: flex; align-items: center; gap: .5rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 10px); background: var(--card-bg); margin-bottom: .4rem; }
+    .ra-wh-code { flex-shrink: 0; font-family: var(--font-mono, monospace); font-size: .72rem; font-weight: 700; color: var(--text-muted); background: var(--surface-ground); padding: .1rem .4rem; border-radius: 6px; }
+    .ra-wh-name { flex: 1; font-weight: 600; color: var(--text-main); font-size: .9rem; }
+    .ra-wh-input { flex: 1; padding: .45rem .55rem; border: 1px solid var(--action); border-radius: 8px; background: var(--card-bg); color: var(--text-main); font-size: .9rem; }
+    .ra-wh-ic { flex-shrink: 0; width: 2rem; height: 2rem; display: grid; place-items: center; border: none; background: transparent; color: var(--text-muted); border-radius: 8px; cursor: pointer; }
+    .ra-wh-ic:active { background: var(--surface-ground); }
+    .ra-wh-ic.ok { color: var(--action); }
+    .ra-wh-ic:disabled { opacity: .4; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -130,6 +160,11 @@ export class VendorRouteAdminComponent implements OnInit {
   readonly newRouteId = signal<string | null>(null);
   readonly newDays = signal<Set<number>>(new Set(WORK_DAYS));
   readonly saving = signal(false);
+  // Sucursales (editar nombre)
+  readonly warehouses = signal<Warehouse[]>([]);
+  readonly editingWhId = signal<string | null>(null);
+  readonly whDraft = signal('');
+  readonly savingWhId = signal<string | null>(null);
 
   private readonly routeName = computed(() => new Map(this.routes().map((r) => [r.route_id, r.route])));
 
@@ -150,12 +185,40 @@ export class VendorRouteAdminComponent implements OnInit {
   dayLabel(d: number): string { return DAY_LABELS[d] || String(d); }
 
   ngOnInit(): void {
-    forkJoin({ vendors: this.api.vendors(), routes: this.api.routeCatalog() })
+    forkJoin({ vendors: this.api.vendors(), routes: this.api.routeCatalog(), warehouses: this.api.warehouses() })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ vendors, routes }) => { this.vendors.set(vendors); this.routes.set(routes); },
+        next: ({ vendors, routes, warehouses }) => {
+          this.vendors.set(vendors);
+          this.routes.set(routes);
+          // Solo sucursales (no camionetas) — el nombre que ven los vendedores.
+          this.warehouses.set((warehouses || []).filter((w) => w.kind !== 'truck'));
+        },
         error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar vendedores/rutas' }),
       });
+  }
+
+  startEditWh(w: Warehouse): void {
+    this.editingWhId.set(w.id);
+    this.whDraft.set(w.name);
+  }
+  cancelEditWh(): void {
+    this.editingWhId.set(null);
+    this.whDraft.set('');
+  }
+  saveWhName(w: Warehouse): void {
+    const name = this.whDraft().trim();
+    if (!name || name === w.name) { this.cancelEditWh(); return; }
+    this.savingWhId.set(w.id);
+    this.api.renameWarehouse(w.id, name).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => {
+        this.savingWhId.set(null);
+        this.warehouses.update((ws) => ws.map((x) => (x.id === w.id ? { ...x, name } : x)));
+        this.editingWhId.set(null);
+        this.toast.add({ severity: 'success', summary: 'Nombre actualizado' });
+      },
+      error: (e) => { this.savingWhId.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo renombrar' }); },
+    });
   }
 
   selectVendor(id: string): void {

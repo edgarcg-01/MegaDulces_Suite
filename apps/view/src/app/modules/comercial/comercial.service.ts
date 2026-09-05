@@ -1179,8 +1179,11 @@ export class ComercialService {
     return this.http.get<SellOutBrandRow[]>(`${this.base}/analytics/sell-out/brands`, { params });
   }
 
-  sellOutWarehouses() {
-    return this.http.get<SellOutWarehouseRow[]>(`${this.base}/analytics/sell-out/warehouses`);
+  sellOutWarehouses(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<SellOutWarehouseRow[]>(`${this.base}/analytics/sell-out/warehouses`, { params });
   }
 
   // ── Fase SAL — Salidas/Ventas por Producto ──
@@ -1329,11 +1332,17 @@ export class ComercialService {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out/by-vendor`, { params });
   }
 
-  sellOutCanales() {
-    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/canales`);
+  sellOutCanales(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/canales`, { params });
   }
-  sellOutVendors() {
-    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/vendors`);
+  sellOutVendors(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/vendors`, { params });
   }
 
   /** Descarga XLSX/PDF vía blob (respeta el interceptor de auth). */

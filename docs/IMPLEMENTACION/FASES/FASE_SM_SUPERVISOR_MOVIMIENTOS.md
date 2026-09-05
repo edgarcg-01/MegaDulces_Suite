@@ -399,6 +399,53 @@ La ventana de "solo hoy" (SM.21) se llevó por delante el turno **abierto** de a
 
 Los `2xXXX` de Padre Hidalgo son las **rutas** (21, 22, 23, 26, 27, 28) y los `50xx` son **Canindo**. Se resuelve dando de alta usuarios con el código exacto de Kepler como username — no necesita código.
 
+## SM.25 — La fila del historial se abre a su respaldo (✅ local 2026-09-04)
+
+"Arqueos recientes" mostraba un total y nada más: `$1,888.00` y a confiar. Para
+validar hace falta ver **cómo se llegó a ese número** y **qué más hizo esa
+persona** — y las dos cosas vivían en otra pantalla, así que la encargada firmaba
+sin abrirla.
+
+Cada fila **se despliega** (`p-table` + `pRowToggler`, `dataKey="id"`) a dos bloques:
+
+1. **Nuestro conteo contra lo que Kepler declara.** El desglose pieza por pieza
+   (`$1000 × 1 = $1,000.00` … total, más el corte billetes/monedas) al lado de los
+   tres renglones del ERP — billetes, monedas, retirado — y su contado declarado.
+   El conteo por denominación **es la única evidencia** de cómo se armó el total:
+   Kepler no lo tiene (verificado sobre las 307 tablas del catálogo), existe solo
+   porque la cajera lo capturó. Se marcan las dos incoherencias que ya calculaba el
+   backend y nadie veía: `billetes + monedas + retirado ≠ contado` (suele ser un
+   retiro que nadie registró) y el corte que **Kepler dio por cuadrado** mientras
+   nuestro conteo dice otra cosa.
+2. **Sus cortes y arqueos, últimos 30 días.** Sale de `GET /por-cajera` con filtro
+   de cajero, así que arranca de los **cortes de Kepler** — no de nuestros arqueos —
+   y por eso incluye los turnos que **nadie contó**, que son los que hay que
+   perseguir. Cada renglón: fecha, caja, folio, horario del turno, si tiene arqueo
+   (y a qué hora se capturó) o `sin arqueo`, el contado y la diferencia. Cierra con
+   la cobertura real (`N de M cortes con arqueo (X%) · K sin contar`). El corte de la
+   fila abierta va **marcado**: en una lista de 30 no se sabría cuál se está mirando.
+
+**Sigue siendo ciego.** El bloque de Kepler y la columna Diferencia se renderizan
+solo con `revela` (`RECONCILIATION_VER`): los billetes y monedas del ERP **suman el
+contado declarado**, así que mostrarlos a la cajera es mostrarle el esperado en
+partes. El endpoint `/por-cajera` ya proyecta ciego del lado del backend — la UI
+espeja esa regla, no la sostiene sola.
+
+**Se carga al desplegar, no antes** (§17 INP): son 30 días de cortes por persona y
+la pantalla arranca con una cajera contando billetes de pie, no auditando. El estado
+se cachea por **persona×sucursal**, así que abrir y cerrar tres arqueos de la misma
+cajera es **una sola llamada**; el error trae su botón de reintento.
+
+Sin código de cajero la fila lo dice y no llama a nada. Un `relevo` o un `retiro`
+no compara contra el corte (es intra-turno, el corte todavía no existe) y el bloque
+lo explica en vez de pintar guiones.
+
+**Sin backend nuevo:** `GET /store/arqueo` ya devolvía `denominaciones[]`,
+`nuestro_billetes/monedas`, `kepler_billetes/monedas/retirado` y
+`kepler_desglose_cuadra/faltante`. Estaba todo en la respuesta y la tabla lo tiraba.
+
+**Pendiente prod:** redeploy view. No requiere migración ni re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

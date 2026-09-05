@@ -37,6 +37,8 @@ export class PermissionsCacheService {
   private rolesCache = new Map<string, { roles: string[]; expiresAt: number }>();
   /** `[ID.21]` Diferencia de permisos de cada persona contra su puesto. */
   private overridesCache = new Map<string, { overrides: Record<string, boolean>; expiresAt: number }>();
+  /** `[AUTHZ-HARD.2]` ¿La cuenta sigue activa? (desactivar = revocar en ≤TTL). */
+  private activeCache = new Map<string, { active: boolean; expiresAt: number }>();
 
   constructor(@Inject(KNEX_CONNECTION) private readonly knex: Knex) {}
 
@@ -191,11 +193,45 @@ export class PermissionsCacheService {
     return efectivos;
   }
 
+  /**
+   * `[AUTHZ-HARD.2]` ¿La cuenta sigue activa y no borrada? Cacheado con el mismo TTL corto.
+   *
+   * Desactivar a alguien (o degradarlo) no surtía efecto hasta que expiraba su token (12h):
+   * ni `JwtAuthGuard` ni este cache releían `identity.users`. Ahora `JwtAuthGuard` consulta esto
+   * en cada request y expulsa al desactivado en ≤30s — incluido un superadmin (el god-mode se
+   * decide con el rol del token, así que sin este chequeo un admin degradado seguía siendo dios).
+   *
+   * Fail-open deliberado ante error de DB: si la query falla, se asume activo (no romper toda la
+   * app por un hipo de la DB). El caso normal —cuenta desactivada— sí se detecta.
+   */
+  async isUserActive(userId: string | undefined, tenantId: string | undefined): Promise<boolean> {
+    if (!userId || !tenantId) return true; // sin identidad clara, no es acá donde se corta
+    const now = Date.now();
+    const key = `active:${tenantId}:${userId}`;
+    const cached = this.activeCache.get(key);
+    if (cached && cached.expiresAt > now) return cached.active;
+
+    let active = true;
+    try {
+      const row = await this.knex('identity.users')
+        .where({ id: userId, tenant_id: tenantId })
+        .first('activo', 'deleted_at');
+      // Si el usuario ya no existe para ese tenant, tampoco pasa.
+      active = !!row && row.activo === true && row.deleted_at == null;
+    } catch (e: any) {
+      this.logger.warn(`isUserActive: no se pudo verificar (${e?.message}); se asume activo`);
+      active = true;
+    }
+    this.activeCache.set(key, { active, expiresAt: now + TTL_MS });
+    return active;
+  }
+
   /** `[ID.13]` + `[ID.21]` Llamar al cambiar complementos o permisos de un usuario. */
   invalidateUser(userId: string, tenantId?: string): void {
     if (tenantId) {
       this.rolesCache.delete(`roles:${tenantId}:${userId}`);
       this.overridesCache.delete(`ovr:${tenantId}:${userId}`);
+      this.activeCache.delete(`active:${tenantId}:${userId}`);
       return;
     }
     for (const k of Array.from(this.rolesCache.keys())) {
@@ -203,6 +239,9 @@ export class PermissionsCacheService {
     }
     for (const k of Array.from(this.overridesCache.keys())) {
       if (k.endsWith(`:${userId}`)) this.overridesCache.delete(k);
+    }
+    for (const k of Array.from(this.activeCache.keys())) {
+      if (k.endsWith(`:${userId}`)) this.activeCache.delete(k);
     }
   }
 
@@ -237,5 +276,6 @@ export class PermissionsCacheService {
     this.cache.clear();
     this.rolesCache.clear();
     this.overridesCache.clear();
+    this.activeCache.clear();
   }
 }

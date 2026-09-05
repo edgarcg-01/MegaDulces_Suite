@@ -104,7 +104,12 @@ export const appRoutes: Routes = [
           import('./modules/dashboard/vendor-capture/vendor-capture.component').then(
             (m) => m.VendorCaptureComponent,
           ),
-        canActivate: [permissionGuard(Permission.CAPTURE_TICKET_USE)],
+        // La captura de EXHIBICIÓN postea a POST /daily-captures, que exige
+        // VISITAS_REGISTRAR — ese es el gate correcto, no CAPTURE_TICKET_USE (que es
+        // del OCR de tickets de VENTA, otra feature). promotor_ruta tiene
+        // VISITAS_REGISTRAR pero no CAPTURE_TICKET_USE → quedaba bloqueado de su propia
+        // chamba. Todos los que tenían CAPTURE_TICKET_USE también tienen VISITAS_REGISTRAR.
+        canActivate: [permissionGuard(Permission.VISITAS_REGISTRAR)],
       },
       {
         // Panel de supervisor: asignar rutas a vendedores (escribe daily_assignments).
