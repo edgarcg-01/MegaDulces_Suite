@@ -35,34 +35,12 @@
  * declara la suya y explica por qué.
  */
 
-/**
- * El veredicto. `fresh` = medido y al día · `stale` = medido y viejo · `unknown` = **no se pudo
- * medir**, que no es lo mismo que estar al día y nunca se pinta como si lo fuera.
- */
-export type FreshnessStatus = 'fresh' | 'stale' | 'unknown';
-
-/** Un eslabón de la cadena que produce un dato, con su edad y su veredicto. */
-export interface FreshnessInput {
-  key: string;
-  label: string;
-  /** ISO del último avance real, o `null` si la fuente no reporta. */
-  at: string | null;
-  age_human: string | null;
-  status: FreshnessStatus;
-  /** Derivado de `status`: `true` salvo que sea `fresh`. Ver el bloque VP.0.1 del encabezado. */
-  stale: boolean;
-}
-
-export interface Freshness {
-  /** El más viejo de los eslabones: hasta cuándo se puede afirmar que el dato es el vigente. */
-  data_as_of: string | null;
-  status: FreshnessStatus;
-  /** Derivado de `status`: `true` salvo que sea `fresh`. Ver el bloque VP.0.1 del encabezado. */
-  stale: boolean;
-  age_human: string | null;
-  /** Qué eslabón falla, para que el aviso nombre algo accionable y no sólo "hay rezago". */
-  inputs: FreshnessInput[];
-}
+// [VP.2.1] La FORMA del wire vive en `@megadulces/contracts` (`http/provenance.contract.ts`), no
+// acá: el frontend la necesita igual, y a los tres días de nacer este archivo el tipo ya estaba
+// copiado a mano en `apps/view/.../tienda/etiquetas.service.ts`. Acá queda la LÓGICA — medir,
+// componer, las tolerancias. Se re-exporta para no romper a quien ya importaba desde este módulo.
+export type { Freshness, FreshnessInput, FreshnessStatus } from '@megadulces/contracts';
+import type { Freshness, FreshnessInput, FreshnessStatus } from '@megadulces/contracts';
 
 /** Edad en palabras. Corta en días arriba de 48 h: "73 h" no le dice nada a nadie. */
 export function ageHuman(ms: number): string {

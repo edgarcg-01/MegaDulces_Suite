@@ -299,6 +299,32 @@ const CHANNEL_OPTS = [
           </div>
         }
 
+        <!--
+          [VP.0.3] El reporte declara la EDAD del dato con el que se calculó, no la hora en que
+          respondio el servidor. Las matvistas que arman este pivote se refrescan de noche; si una
+          falla, los guards de poblado no lo ven (relispopulated queda en true para siempre) y el
+          reporte sale con una pierna vieja y otra fresca sin decir nada. Eso es exactamente "los
+          numeros cambiaron y nadie toco nada". No bloquea: declara, y nombra el eslabon.
+        -->
+        @if (r.freshness.status !== 'fresh') {
+          <p class="so-note so-note-stale" role="status">
+            <i class="pi" [class.pi-clock]="r.freshness.status === 'stale'"
+               [class.pi-question-circle]="r.freshness.status === 'unknown'"></i>
+            @if (r.freshness.status === 'stale') {
+              <strong>Datos de hace {{ r.freshness.age_human }}</strong> — el consolidado nocturno no corrio.
+            } @else {
+              <strong>No se pudo verificar que tan actual es este consolidado.</strong>
+            }
+            @if (staleLanes(r).length) {
+              <span class="so-note-lanes">
+                @for (i of staleLanes(r); track i.key) {
+                  {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
+                }
+              </span>
+            }
+          </p>
+        }
+
         @if (r.coverage.note) {
           <p class="so-note"><i class="pi pi-info-circle"></i> {{ r.coverage.note }}</p>
         }
@@ -463,7 +489,11 @@ const CHANNEL_OPTS = [
     /* KPI grid — mismo lenguaje que /dashboard/reports (card-premium + rk-card). */
     app-metric-strip { display:block; margin-bottom:1rem; }
     .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border-color);
-      border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
+      border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; flex-wrap:wrap; }
+    /* [VP.0.3] Condicion del DATO, no de una accion: tono warn y no se puede cerrar. */
+    .so-note-stale { color:var(--warn-fg); border-color:color-mix(in srgb, var(--warn-fg) 35%, var(--border-color)); }
+    .so-note-stale strong { font-weight:700; }
+    .so-note-lanes { flex-basis:100%; opacity:.85; font-size:var(--fs-xs,.72rem); padding-left:1.2rem; }
     /* Concentrado: total consolidado por dimensión */
     .so-conc { padding:1.25rem 1.5rem; margin-top:1rem; }
     .so-conc-head { display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; }
@@ -664,6 +694,12 @@ export class ComercialSellOutComponent {
     { label: 'Empresa', value: 'empresa' },
   ];
   setConcentrar(v: string) { this.concentrar.set(v as '' | 'ruta' | 'canal' | 'sucursal' | 'empresa'); this.generate(); }
+  /**
+   * [VP.0.3] Los eslabones que fallan, para que el aviso nombre algo accionable ("la MV de Kepler
+   * lleva 3 días") y no un genérico "hay rezago" que nadie sabe a quién escalar.
+   */
+  staleLanes(r: SellOutReport) { return (r.freshness?.inputs || []).filter((i) => i.stale); }
+
   private readonly concLabels: Record<string, string> = { ruta: 'Rutas', canal: 'Canales', sucursal: 'Sucursales', empresa: 'Empresas' };
   concentrarLabel = computed(() => (this.concLabels[this.concentrar()] ?? '').toUpperCase());
   concentradoNoun = computed(() => this.concLabels[this.concentrar()] ?? '');
