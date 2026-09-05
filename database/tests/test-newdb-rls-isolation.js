@@ -17,6 +17,9 @@
 
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Este test CREA y BORRA un tenant completo (barre toda tabla con
+// tenant_id) y escribe en el tenant real. Corrió contra prod el 2026-08-29.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-rls-isolation');
 
 const { Client } = require('pg');
 
@@ -211,6 +214,19 @@ async function runWithTenant(client, tenantId, fn) {
     // ─────────────────────────────────────────────────────────────────────
     console.log('\n═══ Cleanup ═══\n');
 
+    // ── Lo que este test escribió en el tenant REAL (A) ─────────────────────
+    // `[IDG.2]` Un smoke limpia en TODOS los tenants donde escribió, no sólo en
+    // el ajeno. El cleanup de abajo barre el tenant B completo, pero Test 7
+    // inserta en el tenant A — y si el assert FALLA (el insert pasa cuando
+    // debía ser rechazado) la fila queda para siempre. Fue exactamente lo que
+    // ocurrió el 2026-08-29 contra prod: el usuario `hacker` sobrevivió cinco
+    // días hasta convertirse en una línea de CHANGELOG citada como dato real.
+    // Va INCONDICIONAL y antes de los asserts finales: no depende de que el
+    // insert haya fallado, que es justo el caso que no hay que confiar.
+    await adminClient.query(
+      `DELETE FROM identity.users WHERE tenant_id = '${TENANT_A}' AND username = 'hacker'`,
+    );
+
     // Borrar data de tenant B (como postgres para evitar RLS issues con FKs)
     await adminClient.query(`DELETE FROM zones WHERE name IN ('ZONA_B_TEST') AND tenant_id = '${TENANT_B}'`);
     await adminClient.query(`DELETE FROM zones WHERE name = 'ZONA_A_TEST' AND tenant_id = '${TENANT_A}'`);
@@ -250,6 +266,12 @@ async function runWithTenant(client, tenantId, fn) {
   } catch (err) {
     console.error('\n✗ Excepción inesperada:', err.message);
     console.error(err.stack);
+    // `[IDG.2]` También acá: el `finally` de abajo NO corre después de un
+    // `process.exit()`, así que si una excepción cae en medio del run, la fila
+    // que Test 7 mete en el tenant REAL quedaría sin barrer. Best-effort.
+    await adminClient
+      .query(`DELETE FROM identity.users WHERE tenant_id = '${TENANT_A}' AND username = 'hacker'`)
+      .catch(() => {});
     process.exit(2);
   } finally {
     await appClient.end();

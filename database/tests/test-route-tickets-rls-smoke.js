@@ -12,6 +12,8 @@
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Crea un tenant y borra tickets de ruta. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-route-tickets-rls-smoke');
 const { Client } = require('pg');
 
 const adminUrl = process.env.DATABASE_URL_NEW;
