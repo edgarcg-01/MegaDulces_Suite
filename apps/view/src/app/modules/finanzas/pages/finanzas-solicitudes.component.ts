@@ -81,7 +81,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'ca
                ver qué tan fresco es lo que se mira y volver a pedirlo (§9 / §13). -->
           <div class="so-freshness">
             @if (liveConnected()) { <span class="so-live"><i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo</span> }
-            <app-freshness-pill [since]="lastLoaded()" [staleAfterSec]="300" />
+            <app-freshness-pill measures="fetch" [since]="lastLoaded()" [staleAfterSec]="300" />
             <button pButton type="button" class="p-button-text p-button-sm so-refresh"
                     [loading]="loading()" (click)="load()" aria-label="Volver a consultar" title="Volver a consultar">
               <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>

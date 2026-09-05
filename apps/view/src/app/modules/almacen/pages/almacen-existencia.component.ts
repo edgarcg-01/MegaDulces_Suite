@@ -62,7 +62,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <!-- O.2 — la frescura va arriba y POR RAMA. Una sola píldora promediaría un feed de
                minutos con uno de horas y mentiría sobre las dos. -->
           @for (f of freshness(); track f.rama) {
-            <app-freshness-pill [since]="f.dato_al" [label]="f.label" [staleAfterSec]="staleFor(f)" />
+            <app-freshness-pill measures="data" [since]="f.dato_al" [label]="f.label" [staleAfterSec]="staleFor(f)" />
           }
           <app-context-help topic="existencia" />
         </div>

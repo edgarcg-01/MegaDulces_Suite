@@ -46,7 +46,7 @@ import { imprimirTicket } from '../ticket-arqueo';
         </div>
         <div class="ah-head-right">
           <app-segmented [options]="ventanas" [value]="ventana()" (valueChange)="cambiarVentana($event)" ariaLabel="Ventana" />
-          <app-freshness-pill [since]="cargadoAl()" [staleAfterSec]="180" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAl()" [staleAfterSec]="180" />
           <button pButton type="button" class="p-button-sm p-button-text" [class.ah-on]="soloPendientes()" (click)="togglePendientes()">
             <span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span>
             <span class="p-button-label">Solo sin conteo físico</span>

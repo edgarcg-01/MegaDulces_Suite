@@ -42,7 +42,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
           <p class="surf-page-sub">Proveedores del negocio que aparecen en las listas negras del SAT (EFOS 69-B y Art. 69) y RFCs con problema de captura. El cruce es determinista sobre tus egresos; el triage alimenta a Maat.</p>
         </div>
         <div class="ls-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="scanning()" (click)="scan()"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear</span></button>
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="refreshing()" (click)="refresh()"><span class="p-button-icon p-button-icon-left pi pi-cloud-download" aria-hidden="true"></span><span class="p-button-label">Refrescar listas SAT</span></button>
         </div>

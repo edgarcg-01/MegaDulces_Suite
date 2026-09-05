@@ -55,7 +55,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
           <h1>Pedido</h1>
           <p class="surf-page-sub">Ciclos de reabasto por proveedor y sucursal. Selecciona renglones para un pedido general, o abre uno para armar la compra (base, cajas, mínimo, traspaso). También hay pedido consolidado por proveedor.</p>
         </div>
-        @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+        @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
       </header>
 
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de ciclos de reabasto" />

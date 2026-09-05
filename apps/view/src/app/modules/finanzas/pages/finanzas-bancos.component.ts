@@ -93,7 +93,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
             @if (sc.last_synced_at) { · <span class="mono">{{ sc.last_synced_at | date:'dd/MM HH:mm' }}</span> }
           </span>
         }
-        <app-freshness-pill [since]="lastImported()" />
+        <app-freshness-pill measures="data" [since]="lastImported()" label="importado" />
         @if (wsConnected()) {
           <span class="fb-status-chip fb-live" title="Actualización en vivo activa — el tablero se refresca solo">
             <i class="pi pi-circle-fill" aria-hidden="true"></i> En vivo

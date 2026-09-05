@@ -42,7 +42,7 @@ import { SAT_COD_AGRUPADOR } from '../../../shared/constants/sat-cod-agrupador';
           <h1 class="cb-h1">Contabilidad electrónica <app-context-help topic="contabilidad-e" /></h1>
           <p class="surf-page-sub">Genera los XML que exige el SAT desde la balanza contable: catálogo de cuentas y balanza de comprobación (1.3).</p>
         </div>
-        @if (loadedAt()) { <span class="cb-head-fresh"><app-freshness-pill [since]="loadedAt()" /></span> }
+        @if (loadedAt()) { <span class="cb-head-fresh"><app-freshness-pill measures="fetch" [since]="loadedAt()" /></span> }
       </header>
     
       <div class="card-premium card-flat cb-panel">

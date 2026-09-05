@@ -73,7 +73,9 @@ interface CortesPersona {
           </p>
         </div>
         <div class="arq-head-right">
-          <app-freshness-pill [since]="turnosAl()" label="Kepler" [staleAfterSec]="180" />
+          <!-- [VP.0.2] Decía label="Kepler" sobre un new Date() del navegador: se leía como "los datos
+               de Kepler tienen 3 minutos" y era la hora en que cargó esta pantalla. -->
+          <app-freshness-pill measures="fetch" [since]="turnosAl()" [staleAfterSec]="180" />
           <app-context-help topic="arqueo" />
         </div>
       </header>
