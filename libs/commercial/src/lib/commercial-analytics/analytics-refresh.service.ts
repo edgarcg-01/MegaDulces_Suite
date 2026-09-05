@@ -103,6 +103,8 @@ export class AnalyticsRefreshService {
     for (const [mv, jobKey, label] of [
       ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)'],
       ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)'],
+      // Rollup mensual del sell-out (deriva de v_sellout_daily → de los dos anteriores) → va DESPUÉS de ellos.
+      ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)'],
       ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)'],
     ] as const) {
       const start = Date.now();
@@ -167,6 +169,7 @@ export class AnalyticsRefreshService {
       ? [...MVS,
          { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean },
          { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_sellout_monthly' } as { name: string; requires_fdw?: boolean },
          { name: 'analytics.mv_sales_blended' } as { name: string; requires_fdw?: boolean }]
       : MVS;
     try {

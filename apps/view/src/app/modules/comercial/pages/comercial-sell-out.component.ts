@@ -58,9 +58,38 @@ const CHANNEL_OPTS = [
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Sell-Out por empresa</h1>
-          <p class="surf-page-sub">Venta real consolidada (Kepler) por producto y sucursal · exporta XLSX / PDF</p>
+          <p class="surf-page-sub">Venta real consolidada (Kepler + Wincaja) por producto y sucursal · exporta XLSX / PDF</p>
         </div>
+        <button type="button" class="so-about-btn" [class.is-open]="aboutOpen()"
+                [attr.aria-expanded]="aboutOpen()" (click)="aboutOpen.set(!aboutOpen())">
+          <i class="pi pi-info-circle"></i><span>¿Qué filtra cada filtro?</span>
+        </button>
       </header>
+
+      <!-- About: qué filtra cada control (plegable) -->
+      @if (aboutOpen()) {
+        <div class="so-about card-premium card-flat">
+          <p class="so-about-lead">
+            Todos los filtros y la tabla derivan del <strong>mismo universo</strong> de venta,
+            acotado al periodo que elijas — lo que aparece en un filtro es exactamente lo que suma
+            en la matriz (sin doble conteo entre Kepler y Wincaja).
+          </p>
+          <dl class="so-about-list">
+            <div><dt>Empresa</dt><dd>Marca / proveedor. Deja las filas de sus productos. Vacío = todas las empresas.</dd></div>
+            <div><dt>Ver</dt><dd><b>Por canal</b> desglosa por canal · sucursal; <b>Por vendedor</b> por vendedor (mayoreo Kepler + Wincaja, y RD/RV de Wincaja).</dd></div>
+            <div><dt>Formato</dt><dd>Solo «Por canal». <b>Detalle</b> = columnas dinámicas; <b>Por plaza</b> = formato estándar plaza × tipo, en cajas, con todos los SKUs.</dd></div>
+            <div><dt>Periodo</dt><dd>El rango de fechas (mes, trimestre, año o rango libre). Meses cerrados salen del consolidado nocturno; el mes en curso, en vivo.</dd></div>
+            <div><dt>Canal · Sucursal / Vendedor</dt><dd>Elige qué canales y sucursales (o vendedores) suman. Solo aparecen los que tienen venta en el periodo. Vacío = todos.</dd></div>
+            <div><dt>Buscar SKU</dt><dd>Acota a un producto por SKU o descripción, en todas las empresas a la vez.</dd></div>
+            <div><dt>Vista</dt><dd>Solo «Por canal». <b>Por producto</b>, <b>Mes en columnas</b> o <b>Resumen mensual</b> — cambia cómo se despliegan filas y columnas.</dd></div>
+            <div><dt>Medida</dt><dd>Qué números se muestran: <b>Cajas</b>, <b>Monto</b> o <b>Ambas</b>. Solo afecta la vista; el total no cambia.</dd></div>
+            <div><dt>Promos</dt><dd><b>Sin promos</b> (excluye marcadores de $0.01), <b>Solo promos</b> o <b>Todo</b>.</dd></div>
+            <div><dt>Concentrar por</dt><dd>Colapsa el detalle en <b>un</b> total consolidado por canal, sucursal, empresa o ruta.</dd></div>
+            <div><dt>Desglosar canal · Incluir sin venta</dt><dd>Abre columnas por canal / muestra también los productos que no vendieron en el periodo.</dd></div>
+            <div><dt>Limpiar filtros</dt><dd>Restablece todos los controles a sus valores por defecto.</dd></div>
+          </dl>
+        </div>
+      }
 
       <!-- Controles -->
       <div class="so-filters card-premium card-flat">
@@ -361,6 +390,23 @@ const CHANNEL_OPTS = [
   `,
   styles: [`
     :host { display:block; }
+    /* About: botón en el head + panel plegable con la leyenda de cada filtro. */
+    .so-about-btn { display:inline-flex; align-items:center; gap:.4rem; align-self:center; white-space:nowrap;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px);
+      color:var(--text-muted); font-size:.8rem; font-weight:600; cursor:pointer; padding:.4rem .7rem;
+      transition:border-color .15s ease, color .15s ease, background-color .15s ease; }
+    .so-about-btn:hover { border-color:var(--action); color:var(--text-main); }
+    .so-about-btn.is-open { border-color:var(--action); color:var(--action); box-shadow:0 0 0 2px var(--action-ring); }
+    .so-about-btn i { font-size:.85rem; }
+    .so-about { padding:1rem 1.25rem; margin-bottom:1rem; }
+    .so-about-lead { margin:0 0 .85rem; font-size:.82rem; line-height:1.5; color:var(--text-muted); }
+    .so-about-lead strong { color:var(--text-main); font-weight:700; }
+    .so-about-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:.55rem 1.5rem; margin:0; }
+    .so-about-list > div { display:grid; grid-template-columns:minmax(9rem,auto) 1fr; gap:.6rem; align-items:baseline;
+      padding-bottom:.5rem; border-bottom:1px solid var(--border-color); }
+    .so-about-list dt { font-size:.78rem; font-weight:700; color:var(--text-main); }
+    .so-about-list dd { margin:0; font-size:.78rem; line-height:1.45; color:var(--text-muted); }
+    .so-about-list dd b { color:var(--text-main); font-weight:600; }
     .so-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .so-field { display:flex; flex-direction:column; gap:.3rem; }
     .so-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -674,6 +720,10 @@ export class ComercialSellOutComponent {
   selectedCells = signal<Set<string>>(new Set());
   slicerOpen = signal(false);
   readonly selectedCount = computed(() => this.selectedCells().size);
+  // "About" plegable: qué filtra cada control (los filtros y la tabla derivan del MISMO
+  // universo `analytics.v_sellout_daily`, acotado al periodo → lo que ves en el slicer suma
+  // en la matriz, sin doble conteo Kepler↔Wincaja).
+  aboutOpen = signal(false);
 
   private curFrom = '';
   private curTo = '';
@@ -701,10 +751,12 @@ export class ComercialSellOutComponent {
     this.generate();
   }
 
+  // Los árboles se piden ACOTADOS AL RANGO (from/to) → sus hojas reflejan exactamente lo que el reporte
+  // muestra para el periodo elegido (sintonía filtros↔datos). Se re-piden al cambiar el rango.
   private loadTrees() {
-    this.svc.sellOutCanales().pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.sellOutCanales(this.curFrom, this.curTo).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (t) => { this.canalTree.set(t); if (this.reportMode() === 'canal') this.pruneStaleCells(); }, error: () => {} });
-    this.svc.sellOutVendors().pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.sellOutVendors(this.curFrom, this.curTo).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (t) => { this.vendorTree.set(t); if (this.reportMode() === 'vendedor') this.pruneStaleCells(); }, error: () => {} });
   }
 
@@ -811,7 +863,7 @@ export class ComercialSellOutComponent {
 
   private loadWarehouses() {
     this.loadingWarehouses.set(true);
-    this.svc.sellOutWarehouses()
+    this.svc.sellOutWarehouses(this.curFrom, this.curTo)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (w) => { this.warehouseOpts.set(w); this.loadingWarehouses.set(false); },
@@ -823,7 +875,15 @@ export class ComercialSellOutComponent {
 
   /** Cambio de periodo/selector → recalcula rango y RE-GENERA solo (como Vista/Promos),
    *  salvo rango incompleto (from/to vacíos → espera a que el usuario complete + Generar). */
-  refreshPeriod() { this.syncPeriod(); if (this.curFrom && this.curTo) this.generate(); }
+  refreshPeriod() {
+    this.syncPeriod();
+    if (this.curFrom && this.curTo) {
+      // Filtros y datos van juntos: al mover el rango, re-pedí los árboles/almacenes acotados y re-generá.
+      this.loadWarehouses();
+      this.loadTrees();
+      this.generate();
+    }
+  }
 
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
