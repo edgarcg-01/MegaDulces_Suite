@@ -29,7 +29,7 @@ export class CommercialSalesDocumentsController {
     return {
       from: raw.from, to: raw.to, warehouse_ids: raw.warehouse_ids, doc_tipo: raw.doc_tipo,
       cliente_code: raw.cliente_code, vendedor_code: raw.vendedor_code, search: raw.search,
-      vencidas: raw.vencidas, min: raw.min, canceladas: raw.canceladas,
+      vencidas: raw.vencidas, cobro: raw.cobro, min: raw.min, canceladas: raw.canceladas,
       page: raw.page ? Number(raw.page) : undefined,
       pageSize: raw.pageSize ? Number(raw.pageSize) : undefined,
     };

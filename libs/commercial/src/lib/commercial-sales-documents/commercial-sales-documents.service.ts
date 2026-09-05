@@ -24,8 +24,9 @@ export interface SalesDocsQuery {
   cliente_code?: string;
   vendedor_code?: string;
   search?: string;         // cliente / RFC / folio / monto
-  vencidas?: string;       // 'true' → sólo las que ya vencieron
+  vencidas?: string;       // 'true' → sólo las vencidas QUE AÚN DEBEN (ver base())
   canceladas?: string;     // 'true' → incluir las canceladas en Kepler (por defecto NO)
+  cobro?: string;          // pagada | parcial | pendiente | sin_cartera
   min?: string;            // importe mínimo
   page?: number;
   pageSize?: number;
@@ -75,7 +76,14 @@ export class CommercialSalesDocumentsService {
     if (q.cliente_code) b.andWhere('i.cliente_code', q.cliente_code.trim());
     if (q.vendedor_code) b.andWhere('i.vendedor_code', q.vendedor_code.trim());
     if (q.min && Number.isFinite(Number(q.min))) b.andWhere('i.total', '>=', Number(q.min));
-    if (q.vencidas === 'true') b.andWhere('i.vencimiento', '<', trx.raw('current_date'));
+    // "Vencida" = pasó la fecha **y sigue debiendo**. Antes era sólo lo primero, y de las 355
+    // que marcaba en 30d, 91 ($567,504) ya estaban liquidadas en la cartera. El saldo lo manda
+    // `kdue` (vía `estatus_cobro` de la vista), no la cabecera de Kepler — ver mig 20260905150100.
+    if (q.vencidas === 'true') {
+      b.andWhere('i.vencimiento', '<', trx.raw('current_date'))
+        .whereIn('i.estatus_cobro', ['pendiente', 'parcial']);
+    }
+    if (q.cobro) b.andWhere('i.estatus_cobro', q.cobro.trim());
 
     applySmartSearch(b, q.search, {
       columns: ['i.cliente_nombre', 'i.cliente_code', 'i.cliente_rfc', 'i.folio', 'i.folio_digital', 'i.vendedor_nombre'],
@@ -99,8 +107,13 @@ export class CommercialSalesDocumentsService {
             'i.cliente_code', 'i.cliente_nombre', 'i.cliente_rfc',
             'i.vendedor_code', 'i.vendedor_nombre', 'i.canal', 'i.referencia',
             'i.total', 'i.ieps', 'i.descuento', 'i.descuento_pct', 'i.subtotal',
-            'i.doc_estatus', 'i.cancelada',
-            trx.raw('(i.vencimiento < current_date) AS vencida'),
+            'i.doc_estatus', 'i.doc_estatus_label', 'i.cancelada',
+            'i.importe_bruto', 'i.descuento_efectivo',
+            'i.saldo', 'i.cobrado', 'i.estatus_cobro', 'i.dias_pago',
+            'i.vencimiento_erp', 'i.vencimiento_source',
+            // Vencida = venció Y debe. Sin saldo, la fecha ya no significa nada.
+            trx.raw(`(i.vencimiento < current_date
+                      AND i.estatus_cobro IN ('pendiente','parcial')) AS vencida`),
             trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
           )
           .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.folio', order: 'desc' }])
@@ -110,8 +123,19 @@ export class CommercialSalesDocumentsService {
             trx.raw('count(*)::int AS documentos'),
             trx.raw('count(DISTINCT i.cliente_code)::int AS clientes'),
             trx.raw('coalesce(sum(i.total),0)::numeric AS importe'),
-            trx.raw('coalesce(sum(i.descuento),0)::numeric AS descuento'),
-            trx.raw('count(*) FILTER (WHERE i.vencimiento < current_date)::int AS vencidas'),
+            // `descuento` (c13) NO es lo que se descontó: Σrenglones − c13 == total sólo en
+            // 985 de 1,268. El efectivo se despeja del % y cuadra 3,264/3,264.
+            trx.raw('coalesce(sum(i.descuento_efectivo),0)::numeric AS descuento'),
+            // Cobranza: vencido = venció Y debe. El resto se declara en vez de esconderse.
+            trx.raw(`count(*) FILTER (WHERE i.vencimiento < current_date
+                     AND i.estatus_cobro IN ('pendiente','parcial'))::int AS vencidas`),
+            trx.raw(`coalesce(sum(i.saldo) FILTER (WHERE i.vencimiento < current_date
+                     AND i.estatus_cobro IN ('pendiente','parcial')),0)::numeric AS saldo_vencido`),
+            trx.raw('coalesce(sum(i.saldo),0)::numeric AS saldo'),
+            trx.raw(`count(*) FILTER (WHERE i.estatus_cobro='pagada')::int AS pagadas`),
+            trx.raw(`count(*) FILTER (WHERE i.estatus_cobro='sin_cartera')::int AS sin_cartera`),
+            // Cuántas fechas de vencimiento son el hecho del ERP y cuántas una reconstrucción.
+            trx.raw(`count(*) FILTER (WHERE i.vencimiento_source='erp')::int AS venc_erp`),
           ).first(),
       ]);
       return { rows, kpis, page, pageSize, range: this.range(q) };

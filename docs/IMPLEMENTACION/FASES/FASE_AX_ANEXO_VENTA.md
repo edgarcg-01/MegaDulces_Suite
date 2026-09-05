@@ -114,6 +114,19 @@ Leyenda: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 - 🧪 **AX.4.2** Pagaré como **anexo del mismo documento** (mismo membrete y jerarquía de sección), no hoja suelta. 6 requisitos de LGTOC 170 + moratorio 3% mensual pactado.
 - 🧪 **AX.4.3** Logo de impresión 400px (36 KB vs 477 KB): el PDF baja **70%** y queda a 600 DPI. Tipografías del sistema, sin webfonts.
 
+### AX.9 — cobranza, procedencia y el dinero que sí cuadra 🧪 (2026-09-05)
+
+Salió de auditar la pantalla contra prod. **La respuesta corta a "¿son ventas o facturas de telemarketing?": son telemarketing y nada más** — `U/D/8`, canal `TELEMARK` en el **100%**, 2 sucursales (01 y 06), **$8.36M / 738 docs en 30 días = 31%** de la venta al cliente final (doctypes 8+10+12) y **7%** de todo lo que se mueve en `U/D`. Cadena verificada: Pedido `U/D/40` → Embarque `U/D/41/1` → Factura `U/D/8` (1,355 de 1,355 con padre). Sin fugas: los clientes TM facturados en su misma sucursal bajo otro doctype suman **$112k en 90d (0.8%)**.
+
+Lo que estaba mal, y se arregló:
+
+- 🧪 **AX.9.1 — "vencida" no sabía si ya te pagaron.** Marcaba 355 documentos por $3,320,754 (30d); **91 ya estaban liquidados ($567,504)**. El vencido real: 264 docs y **$2,028,423** de saldo. Ahora `vencida` = venció **y** debe, y el KPI publica **saldo**, no importe facturado. Fuente: `kdue` vía el núcleo compartido — **no** `kdm1.c42/c43`, que van rezagados (563 de 1,346 facturas siguen diciendo "sin abonos" con el cobro ya registrado con folio y fecha).
+- 🧪 **AX.9.2 — el vencimiento era una reconstrucción y contradecía al ERP.** Se calculaba `fecha + días de crédito de HOY`; el ERP guarda el pactado al facturar y **difieren en 329 de 729 (45%)**, hasta 25 días. Pero `kdue` tampoco está limpio: **57 de 729 vencen antes de su propia factura**. Veredicto ternario que viaja con el dato (ADR-056): `vencimiento_source` = `erp` (747) · `derivado_erp_invalido` (60) · `derivado` (9), y la pantalla lo declara.
+- 🧪 **AX.9.3 — el subtotal no cuadraba con los renglones impresos.** Medido sin excepción: **el IEPS ya viene dentro del renglón** (744/744 sin descuento: Σrenglones == total EXACTO, nunca `total − ieps`) y **`total = Σrenglones × (1 − d%)`** en 1,268/1,268. De ahí `importe_bruto = total/(1−d)`, validado contra la suma real en **3,264 de 3,264** (peor delta $0.93) contra 1,039 del `subtotal` viejo. El anexo dejó de **afirmar** el desglose del CFDI: no hay con qué contrastarlo — `fiscal.cfdis` tiene 167,503 filas y **todas** son `rol='recibidas'`. `commercial-profitability` leía esos dos números; su tasa de descuento pasa de 0.744% a **0.765%**.
+- 🧪 **AX.9.4 — etiqueta equivocada.** `U/D/12` decía "Venta a crédito"; `kdmm` dice **"Factura Cont No Fiscal"** (y `U/D/13` es la de crédito). `doc_tipo`: `credito` → `contado_nf`.
+- 🧪 **AX.9.5 — `kdm1.c43` decodificado** sobre 2,745 documentos, separación perfecta: `N` sin abonos (`c42 == total`) · `R` abono parcial (`0 < c42 < total`) · `F` liquidada (`c42 == 0`) · `C` cancelada. Confirmado en mostrador: 62,646 tickets de contado son `F`. Viaja como `doc_estatus_label`, **no** como estado de cobro.
+- 🧪 **AX.9.6 — una sola definición del saldo.** En vez de copiar la fórmula de la cartera (GOTCHAS §32), su CTE `base` se extrajo a `analytics.erp_receivable_documents` y `customer_receivables` pasa a apoyarse en él. Candado de paridad contra prod: 29 columnas, diferencia simétrica en ambos sentidos = **0**, Σ saldo y Σ signed idénticas. Índice de expresión en `kdue`: scan 162 → **28 ms**, consulta 2,119 → **931 ms** (requiere el `ANALYZE`, sin él el planner lo ignora).
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).
@@ -137,6 +150,23 @@ Leyenda: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 1. `npm run migrate:new` — aplica lo que falte de: `20260822140000` (vistas) ✅, `20260822140100` (índices) ✅, `20260824120000` (unidades) ✅, **`20260824140000` (estatus + empaque canónico) ⬜**.
 2. `node database/tests/test-newdb-erp-sales-invoices.js` (avisa si quedó lento = faltó la de índices).
 3. Redeploy api + view.
+
+### AX.9 (2026-09-05) — pendiente en prod
+
+Aplicadas y verdes en el `.245`; en prod **no** (al 2026-09-05 hay 9 migraciones pendientes ahí, de otros trabajos: el orden lo decide quien despliegue).
+
+1. **`20260905150000_erp_receivable_documents_core.js`** — índice + núcleo + `CREATE OR REPLACE` de la cartera.
+   ⚠️ Corre **fuera de transacción** (`CONCURRENTLY`) y puede quedarse en *"waiting for old snapshots"* detrás de un `REFRESH MATERIALIZED VIEW`. En el `.245` esperó ~15 min. No bloquea a nadie; si urge, lanzarla sin refresh en vuelo.
+   ⚠️ Comparte timestamp con `20260905150000_blank_retired_role_permissions.js` (de otro trabajo). Knex ordena por nombre completo, así que `blank_…` va primero — determinista, pero conviene saberlo. **No se renombra**: ya está aplicada en el `.245` y borrar/renombrar una migración aplicada deja el directorio "corrupt".
+2. **`20260905150100_erp_sales_invoices_cobranza.js`** — recrea sólo la cabecera (`_lines` no se toca; nada depende de la cabecera, verificado en `pg_depend`).
+3. `node database/tests/test-newdb-receivable-core-parity.js` → debe decir **REGRESION** y 0 FAIL (antes de aplicar dice PRE-APLICACION, y también sirve).
+4. `node database/tests/test-newdb-sales-docs-cobranza.js` → 13 OK.
+5. Redeploy api + view. **Sin permisos nuevos → no hace falta re-login.**
+
+**Orden obligatorio: migración ANTES del redeploy** — el service pide `estatus_cobro`, `saldo`, `importe_bruto`, `vencimiento_source`. Al revés (código nuevo, vista vieja) el listado tira 500.
+Aplicar sólo las migraciones, sin redeploy, es **seguro**: la vista conserva todas las columnas viejas y el código en prod sigue leyendo `subtotal`/`descuento`.
+
+**Falta medir en prod:** el tiempo de la pantalla con el índice puesto. En el `.245` fue 2,119 → 931 ms; en prod, sin el índice y con el núcleo inline, la misma consulta costaba 7.7 s. Correr `test-newdb-sales-docs-cobranza.js` tras aplicar y anotarlo.
 
 **Orden obligatorio: migración ANTES del redeploy.** El service pide `cancelada`, `box_factor`, `box_factor_dudoso`; con la vista vieja el detalle tira 500.
 

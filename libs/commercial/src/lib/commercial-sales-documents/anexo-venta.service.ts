@@ -19,6 +19,16 @@ import { CommercialSalesDocumentsService } from './commercial-sales-documents.se
  * El documento NO es fiscal: el comprobante es el CFDI timbrado. Eso va dicho en el banner,
  * en el aviso final y en el pie de cada página.
  *
+ * AX.9 — el anexo dejó de AFIRMAR el desglose del CFDI. Imprimía "Tu CFDI presenta:
+ * Subtotal + IEPS − Descuento = Total" con `subtotal` (un despeje: `total − ieps + descuento`)
+ * y `descuento` (`kdm1.c13`). Era cierto por álgebra —el despeje se construye del total— pero
+ * nadie lo contrastó nunca contra un CFDI emitido, y no se puede: `fiscal.cfdis` tiene 167,503
+ * filas y **todas son `rol='recibidas'`**, cero emitidos. Encima ninguno de los dos cuadra con
+ * los renglones impresos: el subtotal coincide con Σrenglones en 238 de 1,268, y `c13` no es
+ * lo que se descontó (985 de 1,268). Ahora el bloque dice sólo lo medido —los precios son
+ * finales, el IEPS ya va dentro (744/744 sin descuento: Σrenglones == total EXACTO, nunca
+ * total − ieps)— y sobre el CFDI se limita a que ampara el mismo total.
+ *
  * Tipografías del SISTEMA (Segoe UI / Georgia): un PDF que se imprime en cualquier equipo no
  * debe depender de webfonts.
  */
@@ -497,8 +507,7 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
   <div class="letra">
     <div class="cl">Importe con letra</div>
     <div class="cv">${this.conLetra(Number(doc.total))}</div>
-    ${ahorro > 0 ? `<div class="save-line">Ahorraste ${this.m(ahorro)} en este pedido (${pctTxt}% sobre el importe de lista).</div>
-    ${Number(doc.descuento) > 0 ? `<div class="save-note">En tu CFDI ese descuento se registra como ${this.m(doc.descuento)}, porque el SAT lo calcula sobre el precio sin IEPS. Pagas exactamente el mismo total.</div>` : ''}` : ''}
+    ${ahorro > 0 ? `<div class="save-line">Ahorraste ${this.m(ahorro)} en este pedido (${pctTxt}% sobre el importe de lista).</div>` : ''}
   </div>
   <div class="tot">
     ${conDesc ? `<div class="r"><span class="l">Importe (${L.length} productos)</span><span class="v">${this.m(doc.importe_bruto)}</span></div>` : ''}
@@ -510,10 +519,12 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
 </div>
 
 <div class="admin">
-  <div class="fiscal"><h4>Referencia fiscal</h4>
-    <div class="cfdi-eq">Tu CFDI presenta el mismo total con el desglose que pide el SAT:<br>
-      <b>Subtotal ${this.m(doc.subtotal)}</b> + <b>IEPS ${this.m(doc.ieps)}</b> − <b>Descuento ${this.m(doc.descuento)}</b> = <b>Total ${this.m(doc.total)}</b></div>
-    <div class="small">Aquí los precios se muestran como los pagas (impuesto ya incluido); el CFDI los separa. El total es idéntico en ambos.</div>
+  <div class="fiscal"><h4>Cómo leer estos importes</h4>
+    <div class="cfdi-eq">Todos los precios de este anexo son <b>finales</b>: ya incluyen el IEPS
+      (${this.m(doc.ieps)} en este documento) y llevan IVA 0%.<br>
+      <b>Importe ${this.m(doc.importe_bruto)}</b>${ahorro > 0 ? ` − <b>Descuento ${this.m(ahorro)}</b>` : ''} = <b>Total ${this.m(doc.total)}</b></div>
+    <div class="small">Tu CFDI ampara el mismo total, presentado con el desglose que pide el SAT
+      (base sin impuesto, traslados y descuento por separado). Este anexo no es comprobante fiscal.</div>
   </div>
   <div class="pago"><h4>¿Dónde pagar?</h4>
     <div class="benef">Beneficiario: <b>${EMISOR.nombre.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())}</b> · RFC ${EMISOR.rfc} · Referencia de pago: <b>${this.esc(doc.cliente_code)}</b> (tu número de cliente)</div>
