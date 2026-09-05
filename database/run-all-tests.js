@@ -159,6 +159,7 @@ const TESTS = [
   { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },
   // OBS — la ingesta no se cae en silencio (ADR-053). Candados sobre los cuatro "verdes falsos"
   // que dejaron el ODS congelado 6 días sin que nadie lo supiera.
+  { file: 'test-newdb-sellout-parity.js', label: 'VP.1 paridad del SELL-OUT — el candado que la migración de v_sellout_daily afirmaba que existía y no existía (literales de corte idénticos entre las copias vivas + complemento EXACTO Kepler>=/Wincaja< + cero doble conteo por sucursal-día + cero HUECO a los dos lados del corte + rollup mensual == vista diaria al peso). Lo que no se puede medir se reporta NO MEDIDO, no verde: con una pierna vacía "cero traslapes" es cierto y no prueba nada', needsApi: false },
   { file: 'test-newdb-feed-observability.js', label: 'OBS observabilidad de ingesta (v_feed_freshness une cron_runs+_sync_status SIN umbrales + clase NULL en ods_table = candado contra el falso positivo de k95doc/RH + los 7 carriles registrados en CRON_JOBS o salen verde incondicional + latido por canal propio ODS_HB_URL + preflight aborta si apunta a la fuente + healthcheck de ENTREGA que reporta enfermo si no puede leer + el hueco del slot se DECLARA + sin señal NO es ok)', needsApi: false },
 ];
 
