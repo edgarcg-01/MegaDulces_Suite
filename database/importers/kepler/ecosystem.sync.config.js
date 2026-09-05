@@ -1,4 +1,26 @@
 /**
+ * ⛔ RETIRADO 2026-09-05. NO arrancar: los CUATRO apps ya tienen dueño en otro lado, y levantarlos
+ * acá crea un SEGUNDO dueño del mismo carril — el modo de falla que documenta el hermano
+ * `ecosystem.cdc.config.js` (dos procesos peleando el mismo watermark y escribiendo el MISMO
+ * renglón de `analytics.cron_runs`, que sólo tiene PK (tenant_id, job_key), sin host → uno le
+ * presta el pulso al otro y un carril colgado sale `healthy`).
+ *
+ * Verificado renglón por renglón el 2026-09-05:
+ *   · sync-product → `replicate-ods-live.js --tables=kdii` == el contenedor `ods-live-hot`
+ *     (`ops/ingest/docker-compose.yml`), que ya trae kdii en KP_ODS_TABLES y ODS_HASH_TABLES.
+ *     Mismo script, mismo `ods.ctl`/`ods.shadow`, mismo latido `ods_live_hot`.
+ *   · sync-stock   → `import-branch-stock-live.js` ya corre dentro de `run-prod-feeds.js`
+ *     (tarea `\Kepler\Stock`, latido `feed_stock`).
+ *   · sync-sales   → `import-sales-fact.js` ya corre dentro de `run-prod-feeds.js`
+ *     (tareas `\Live` y `\Kepler\Nightly`, latido `kepler_sales_fact`).
+ *   · ods-cdc      → `ods-cdc-forward.js`, el CDC por WAL retirado en OBS.8; sus slots ya se
+ *     dropearon de los replicas. Ver `ecosystem.cdc.config.js`.
+ *
+ * Se conserva el archivo (no se borra) porque documenta la topología de la Fase SYNC y el
+ * `--watch` de cada carril. Regla que sale de acá: **un carril = UN dueño**, y hoy ese dueño es
+ * Docker para el ODS y el Programador de tareas para los feeds.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────────────────────
  * PM2 ecosystem — loops de sincronización "al momento" (Fase SYNC). DURABLE (autorestart,
  * sobrevive reinicios con `pm2 save` + `pm2 startup`). Reemplaza correr los loops a mano.
  *
