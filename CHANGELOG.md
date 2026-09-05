@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Removed — catalogo-kp se recorta al verificador de precios (CV, 2026-09-05)
+- **PR #62 cambió de alcance:** en vez de completar los 3 requisitos no negociables de Edgar (auth-mt, `commercial.orders`, y la ya resuelta lectura de `kepler_ods.*`), se decidió reducir lo que se integra a la Suite a **solo el verificador de precios de mostrador** (`GET /api/kp/precio`, `/api/kp/precios-todos`, `GET /api/sucursales`, públicos, sin sesión).
+- Se eliminan de `apps/catalogo-kp`: `admin`, `auth`, `catalogo` interno, `dashboard`, `monitor`, `tienda` completos + `apps/tienda` (frontend Angular) + 6 migraciones de schema (`admin.usuarios`/`tienda.*`/`monitor.errores`, nunca corridas contra una DB real) + imágenes de producto y HTML del catálogo/tienda.
+- Se agrega `src/sucursales/` (extraído antes de borrar `catalogo`) y `plantilla/`+`herramientas/Actualizar_Verificador.ps1`, adaptados del repo standalone `verificador-precios`.
+- **El resto del trabajo no se descarta** — sigue vivo, sin tocar, en 3 repos standalone nuevos bajo `github.com/0SistemasMD`: `catalogo-kp`, `verificador-precios` (ya verificado end-to-end contra `KP_CONCENTRADA` real) y `Ecommerce-Mayorista` (tienda completa, backend+frontend).
+- Build verificado: `main.js` pasa de 341 KB a 42 KB; boot con exactamente las 4 rutas esperadas.
+
 ### Added — Existencia: una sola pantalla del censo físico, en Almacén y en Compras (E, 2026-09-04)
 - **La razón de fondo no era que faltara una pantalla: era que la que había leía la fuente equivocada.** Almacén tenía una tab llamada literalmente «Existencias» (`/almacen/inventory`) que lee `commercial.stock` — y contra el POS en vivo esa tabla **acierta 91%** (15,324 unidades de error) frente al **100%** de `analytics.v_erp_stock_on_hand`. Caso: SKU `88009` en almacén `01` → POS **2,485** · ODS **2,487** · tabla **3,547**.
 - **Un componente, dos rutas** (`/almacen/inventory/existencia` + `/compras/existencia`), **un permiso** — precedente vivo: Caducidades en `/almacen` + `/tienda`. En Compras va **antes de Pedido**: primero ves qué hay, después decidís qué comprar.
@@ -218,6 +225,119 @@
 - **Dinero verificado al centavo contra prod (read-only):** el matview enriquecido == el path live en total (grand all-brands Ago **$23,050,393.16**; multi-mes May–Ago **$136.77M**) y **celda por celda** del pivote (50/50 celdas de la marca reportada, 0 mismatches). **Sin hueco de datos** en el handoff wincaja→Kepler (almacenes 01/02/06 con venta Kepler post-cutover). Único ruido: **$137 fechados en "2029"** (basura del POS) que la cota `business_date <= hoy` del matview descarta sola.
 - **Incidente + resuelto en prod (2026-09-02):** hubo un 500 `column vl.branch_name does not exist` porque la mig `160000` se editó in-place de *raw*→*enriquecido* después de aplicarse como raw (batch 246 en prod), y knex NO la re-corre por nombre → el código enriquecido corrió contra el matview raw. Fix: mig nueva **`20260901170000`** (nombre nuevo, con guard idempotente) **aplicada a prod a mano (autorizado) + matview poblado** (4.0M filas). Verificado matview==live al centavo AHORA (grand Ago **$23,727,559.86**). La query que tronaba ya devuelve datos; fast-path **0.4 ms** server-side. `160000` registrada → el deploy la salta; el guard de `170000` la vuelve no-op en el deploy → no clobber.
 - Pendiente prod (no urgente, prod ya funciona): redeploy api+view cuando convenga (trae el blindaje de `winDailyMvOk` —defensa extra— y los cambios de view). El cron 06:20 MX mantiene el matview fresco. Sin permisos nuevos → sin re-login.
+### Fixed — incidente real: el rol dedicado no tenía permiso para el login, producción caída unos minutos (CV.17, 2026-09-03)
+- El primer login real contra el rol dedicado `catalogo_kp_runtime` desde el corte de CV.15 (todas las verificaciones previas usaban tokens de prueba) chocó con el `UPDATE` que registra el último inicio de sesión — el rol sólo tenía permiso de lectura ahí. El proceso dejó de responder poco después.
+- `GRANT UPDATE` aplicado de inmediato al cluster real y corregido en el script de rol versionado. Agregada además una defensa en profundidad: esa actualización de auditoría ya no puede volver a impedir un login si el permiso vuelve a fallar por cualquier motivo.
+- Reconstruido, redesplegado y verificado en producción real en minutos.
+- Detalle completo y la lección de diseño en `docs/GOTCHAS.md` §33 y [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — reporte "Actualizar Wix" para MKT dentro del catálogo interno (CV.16, 2026-09-03)
+- Reemplaza el flujo manual que MKT usaba para refrescar el catálogo de la tienda Wix: una laptop conectada a la red de Kepler + un script de Python con login JWT propio + un artefacto Claude/Cowork aparte para el precio/existencia + otro script de Python aparte para las presentaciones (Pieza/Paquete/Caja).
+- Hallazgo antes de escribir código: el endpoint `GET /api/kp/productos`, ya migrado y en producción, ya devuelve todo lo que las tres herramientas viejas necesitaban — cero cambios de backend, sólo una página nueva.
+- Nueva página `apps/catalogo-kp/public/actualizar-wix.html`, con la misma sesión que el catálogo interno: MKT sube únicamente el catálogo exportado de Wix y elige entre actualizar precio+existencia o generar el menú de presentaciones como variantes — la data de Kepler llega en vivo, sin archivos intermedios.
+- Verificado con Playwright contra la base real: ambos modos coinciden byte a byte con los valores calculados a mano para varios SKUs reales.
+- Las herramientas viejas no se retiraron — quedan de respaldo hasta que MKT confirme el reemplazo con su export real de Wix.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — corte real del Service en `.163`: catalogo-kp corre en producción desde este monorepo (CV.15, 2026-09-03)
+- Autorizado explícitamente por 0Sistemas. Es el paso de mayor riesgo de toda la Fase CV: reemplazar el proceso que sirve producción real (`megadulces-api-ready` standalone) por el build de `apps/catalogo-kp`.
+- Tres hallazgos reales resueltos antes de tocar el proceso en vivo: (1) un módulo `salud` (`GET /api/salud`) que el vigilante necesita y nunca se había portado; (2) un bug crítico de orden en `main.ts` — `dotenv.config()` corría después de que ya hiciera falta, lo que habría causado un crash-loop infinito en cualquier arranque real dependiendo sólo del `.env`; (3) el bundle externaliza sus dependencias (knex, pg, bcryptjs, NestJS), resuelto apuntando `NODE_PATH` al `node_modules` de la Suite.
+- El código nuevo se copió a la raíz del proyecto viejo (no a `dist/`) para que siga sirviendo el mismo `public/` real de siempre, sin tocar el script que regenera los verificadores de mostrador a diario. Sólo se ajustó una asunción de ruta en el vigilante existente.
+- Verificado con 0 fallos en 11 pruebas tras el corte real, downtime de unos segundos.
+- Con esto, el runbook de corte de la Fase CV queda 100% completo — `.163` corre en producción real desde este monorepo.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Changed — el `.env` de producción de `catalogo-kp` ya usa el rol dedicado (CV.14, 2026-09-02)
+- Autorizado explícitamente por 0Sistemas. `PG_USER`/`PG_PASSWORD` del `.env` real de `megadulces-api-ready` en `.163` actualizados de `app_runtime` a `catalogo_kp_runtime`, con respaldo previo del `.env` anterior.
+- Verificado antes de aplicar: el único `DELETE` en el código (limpieza de retención de `monitor.errores_detalle`) ya tenía manejo gracioso porque `app_runtime` tampoco tenía ese permiso — no es una regresión.
+- Reinicio con el mismo mecanismo confiable que usa la herramienta de compilación del proyecto (detener, relanzar por tarea programada, correr la misma batería de 5 pruebas). 0 fallos; conexión real confirmada usando el rol nuevo.
+- Cierra de punta a punta, para `catalogo-kp`, el riesgo de credencial compartida documentado en `docs/GOTCHAS.md` §24.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y el runbook de corte.
+
+### Verified — primer pedido real de la historia, creado vía UI (CV.13, 2026-09-02)
+- Completado el clic final de checkout que había quedado pendiente en CV.11/Paso 3b del runbook: catálogo → producto → carrito → checkout completo → envío real, contra producción.
+- Folio `MD-2026-00012`: verificado en `tienda.pedidos` (estado, totales), `tienda.pedido_items` (línea correcta) y `tienda.avisos` (el correo de confirmación se envió de verdad por SMTP, no sólo se encoló).
+- Confirma de punta a punta el pipeline checkout→orden→cola→correo contra la base real, con el frontend nuevo (`apps/tienda`) como único cliente.
+- Cancelado después vía la API real (mismo endpoint que usa el panel de administración) con motivo explícito, por ser un pedido de prueba.
+- Con esto, el Paso 3b del runbook de corte queda completo. Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Fixed — oculta productos "* DESC" y expone compra por unidad individual (CV.12, 2026-09-02)
+- Los productos `* DESC ...` encontrados en CV.11 resultaron ser un código de producto aparte en Kepler para un descuento por volumen (desde 3 piezas/cajas/paquetes), no mercancía normal — investigado contra la base real antes de tocar código, sin asumir el patrón.
+- Ocultos temporalmente (`FILTRO_DESCUENTO`, comentado como temporal en el código) mientras se decide cómo representar el descuento correctamente.
+- Aprovechando la investigación: `kdii.c90` (precio de la unidad base — pieza o el empaque más chico real) se leía pero nunca se exponía; ahora el catálogo y la ficha de producto dejan elegir entre unidad individual y las presentaciones de mayoreo (caja/paquete), no sólo mayoreo.
+- Verificado contra datos reales: catálogo sin productos "DESC", ficha de producto con ambas opciones de compra.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — frontend Angular real para el checkout transaccional de la tienda mayorista (CV.11, 2026-09-02)
+- Nuevo app Nx standalone `apps/tienda` (patrón `apps/portal`/`apps/vendor`, no un módulo de `apps/view`): catálogo (grid/lista, filtros, búsqueda) → ficha de producto → carrito → checkout de 4 pasos (contacto/dirección/pago/revisión) → seguimiento de pedido. Primer consumidor real de `/api/tienda/carrito` y `/api/tienda/carrito/:token/checkout` en la historia del proyecto — `tienda.html` nunca los llamaba, sólo armaba un mensaje de WhatsApp.
+- Corrección de fondo: usa `GET /api/tienda/catalogo` (PH-only, reglas de mayoreo) en vez del `/api/catalogo` multi-sucursal que `tienda.html` usa por error.
+- Despliegue on-prem junto al backend: el build se copia a `apps/catalogo-kp/public/tienda/`, servido por el mismo proceso NestJS (mismo origen, sin CORS ni exposición pública nueva). `tienda.html` sigue viva sin tocarse; el app nuevo vive en `/tienda/` hasta que se decida promoverlo.
+- Estado del carrito 100% autoritativo del servidor (`CarritoStateService`, token en `localStorage`, totales nunca calculados en el cliente); validadores del checkout espejan exacto las reglas server-side (estados de la República, regex de RFC).
+- Verificado con Playwright contra `KP_CONCENTRADA` real: catálogo con 4,562 productos, búsqueda, ficha, agregar al carrito (carrito real creado), recuperación tras recarga completa, los 4 pasos de checkout hasta revisión. El envío final no se ejecutó a propósito — crearía el primer pedido real de la historia; el carrito de prueba se canceló limpio.
+- Hallazgo de datos (no de código) para revisar con 0Sistemas: el catálogo de la tienda, sin buscar/filtrar, muestra primero productos tipo "DESC..." (ajustes/descuentos contables, no mercancía real) que pasan el filtro de unidad de mayoreo.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y [`apps/tienda/README.md`](apps/tienda/README.md).
+
+### Fixed — dos archivos estáticos faltantes en `catalogo-kp`, encontrados en revisión visual (CV.10, 2026-09-02)
+- `public/tienda.html` (catálogo + carrito local para el cliente mayorista) y `public/reportar-errores.js` (captura de errores del navegador) nunca se copiaron durante la migración — ninguna verificación anterior había cargado una página HTML completa en un navegador, sólo endpoints JSON.
+- Más grave: `catalogo.html`, ya "verificado" desde CV.0/CV.2, referencia `reportar-errores.js` — esa página llevaba un 404 silencioso en su primer script desde el día uno de la migración.
+- Ambos copiados literal. Verificado con Playwright contra `KP_CONCENTRADA` real: `catalogo.html` limpio (gate de login correcto sin sesión), `tienda.html` con datos reales (6,168 productos), `reportar-errores.js` ya sirve 200.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Verified — canario de la cola de `catalogo-kp` probado contra datos reales (CV.9, 2026-09-02)
+- 0Sistemas autorizó el Paso 3b del runbook con el enfoque de menor riesgo: canario ahora (sin dinero de por medio), carrito real de punta a punta en una ventana fuera de horario a definir.
+- App completa (`tienda`+`admin`) corrida contra `KP_CONCENTRADA` real, ya con el rol dedicado `catalogo_kp_runtime` (primera vez ejercitado en escritura). `POST /api/admin/cola/prueba` simple → `HECHO` al primer intento; con fallo forzado dos veces → backoff exponencial exacto (60s, 120s) y éxito al tercer intento.
+- Confirma el motor de colas (`FOR UPDATE SKIP LOCKED`, reintentos, backoff) funcionando contra datos reales, y los permisos de escritura del rol dedicado sobre `tienda.trabajos`.
+- Pendiente: carrito real de punta a punta, para cuando se defina la ventana fuera de horario.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y [`CV_CORTE_CATALOGO_KP`](docs/IMPLEMENTACION/RUNBOOKS/CV_CORTE_CATALOGO_KP.md).
+
+### Added — rol dedicado `catalogo_kp_runtime` aplicado al cluster real (CV.8, 2026-09-02)
+- `apps/catalogo-kp/sql/007_rol_dedicado.sql` corrido contra `KP_CONCENTRADA` real (`192.168.0.245`) como `postgres`, mismo mecanismo que usa `ADMINISTRAR.bat` opción 8 (`psql -v ON_ERROR_STOP=1`). Aditivo: no tocó `app_runtime` ni ninguna tabla existente.
+- Verificado en el cluster real: rol sin superuser/createdb/createrole, grants exactos por schema (`kp.*` sólo lectura en 368 tablas, `admin.usuarios` sólo lectura, `tienda.*`/`monitor.*` sin `DELETE`). Smoke test conectado como el rol nuevo: lectura OK, `DELETE` denegado como se diseñó.
+- La contraseña real generada quedó sólo en la copia externa a este git (carpeta del proyecto origen en `.163`); el archivo versionado en este monorepo mantiene el placeholder.
+- Cierra el riesgo de credencial compartida entre `catalogo-kp` y `postgres_platform` (`docs/GOTCHAS.md` §24) a nivel de rol — falta el corte del `.env` de producción para que deje de usarse `app_runtime` ahí (sin downtime, pendiente de ventana).
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) y [`CV_CORTE_CATALOGO_KP`](docs/IMPLEMENTACION/RUNBOOKS/CV_CORTE_CATALOGO_KP.md).
+
+### Fixed — bug crítico de bindings SQL en `catalogo-kp`, primera verificación real de lectura (CV.7, 2026-09-02)
+- Con la credencial de `app_runtime` ya resuelta, la primera corrida real de `catalogo-kp` contra `KP_CONCENTRADA` reveló que **ninguna query parametrizada funcionaba** (`Expected N bindings, saw M`). Causa: `knex.raw()` sólo soporta su propio placeholder `?`, no los `$1,$2,...` nativos de Postgres que todo el código portado usaba (fiel al original con `pg.Pool`); tres constantes regex (`RE_NUM`, `COSTO`) sumaban `?` sueltos como cuantificador POSIX, agravando el conteo.
+- Fix: nuevo `apps/catalogo-kp/src/kp-concentrada/pg-raw.util.ts` (`pgRaw()`, traduce `$N`→`?`) + conversión de los 12 archivos de servicio afectados + 3 regex reescritas con `{0,1}`.
+- Verificado con paridad byte a byte contra el sistema en vivo (`.163:3000`): `/api/kp/precio`, `/api/catalogo/sucursales`, `/api/kp/precios-todos`, `/api/auth/login` con credenciales inválidas, y los guards de auth de `admin`/`dashboard`/`kp`. Build final con los 8 módulos verde.
+- Pendiente: el camino de escritura (`carrito`/`checkout`/`cola`) sigue sin ejercerse contra datos reales — requiere autorización explícita por el riesgo de negocio, no un problema técnico conocido.
+- Detalle en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md) sección "Verificación real 2026-09-02".
+
+### Fixed/Documented — hallazgo de credencial rota en producción + modelo operativo de catalogo-kp (CV.6, 2026-09-01)
+- Al intentar la verificación end-to-end de CV.5 se descubrió que la sesión de Claude Code corría físicamente en `192.168.0.163` — la máquina de producción del proyecto origen. Investigación en solo lectura, sin tocar nada: el Windows Service original sigue vivo (`:3000` responde) y las 3 tareas programadas de `Vigilar_API.ps1`/sincronización/verificador siguen activas.
+- **Hallazgo de producción, ajeno a esta migración, ya en conocimiento de 0Sistemas**: la contraseña de `app_runtime` guardada en el `.env` real no autentica contra el `KP_CONCENTRADA` real (`28P01`, confirmado con `psql` directo) — mismo síntoma que `docs/GOTCHAS.md` §24. La API en `.163` sigue respondiendo porque sus conexiones ya estaban abiertas; **cualquier reinicio repetiría la caída del 27/08/2026**. Documentado en `GOTCHAS.md` y en `FASE_CV` para que nadie más lo redescubra a ciegas.
+- Recomendación de corte de `catalogo-kp` hacia el Service/tareas programadas reales, documentada pero **no ejecutada** (requiere resolver la credencial primero, luego `007_rol_dedicado.sql`, luego verificación real).
+- Con esto, el roadmap CV.0–CV.6 de la Fase CV queda completo (CV.4 diferido).
+
+### Added — `catalogo-kp` gana la tienda mayorista completa (CV.5, 2026-09-01)
+- **`tienda` completo portado**: catálogo de mayoreo, carrito (tokens HMAC firmados, revalidación de precio/existencia), checkout (folio, datos fiscales, aviso de privacidad, dos flujos de pago tarjeta/efectivo), el motor de la cola de trabajos (`FOR UPDATE SKIP LOCKED`, backoff exponencial, reclamo de huérfanos — portado línea por línea, sin cambiar comportamiento), avisos por correo, configuración de Mercado Pago, y la pantalla de confirmación en lote. Las rutas `pedidos/pagos/cola` vuelven al `AdminController` de CV.1.
+- **Transacciones migradas a Knex**: el original pasaba un `PoolClient` de `pg.Pool.connect()` entre servicios para enlazar operaciones en la misma transacción (p. ej. registrar el pedido y programar su aviso atómicamente); ahora es `this.db.transaction(async trx => ...)`, mismo patrón de paso explícito entre servicios, commit/rollback automático.
+- `ColaService` deja de abrir su propia conexión Postgres dedicada — usa la compartida de todo el app, mismo criterio ya establecido desde CV.0.
+- `salidas` (CV.4) queda diferido: confirmado que no está en uso real hoy.
+- Con esto, **el roadmap principal de la Fase CV queda cerrado**; sólo falta CV.6 (modelo operativo, no bloqueante) y la verificación end-to-end que requiere LAN on-prem a `.245`.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — `catalogo-kp` gana captura de errores del navegador (CV.3, 2026-09-01)
+- **`monitor` portado**: ingesta pública `POST /api/errores` con dedupe por hash SHA-256 (mensaje + origen + primera línea del rastro), tope de 20/min por IP, y tablero interno `GET/POST /api/admin/errores*`. Sin dependencias de módulos aún no portados.
+- **Contrato verificado exacto**: el endpoint nunca falla visible al navegador, ni con la base de datos completamente inalcanzable — un visitante que ya tuvo un error no debe enterarse de un segundo.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — `catalogo-kp` gana el tablero interno y el dashboard de ventas (CV.2, 2026-09-01)
+- **`catalogo` + `dashboard` portados**: catálogo paginado con existencia/precio por sucursal, filtros de familia/subfamilia/marca, ficha de producto y frescura de datos; rollup de ventas anual/mensual con top-3 sucursales. Gating de costo/margen preservado igual (sesión opcional, sin rechazar la petición — la tienda anónima y el tablero interno comparten el mismo endpoint).
+- **Bug de ruta encontrado y corregido antes de compilar** (mismo patrón que el de estáticos en CV.0): `getImagenes()` asumía el layout de `nest build` del proyecto origen (un `.js` por módulo) en vez del bundle único de este monorepo. Verificado después contra el disco real: 112/112 fotos.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — `catalogo-kp` gana auth propio y CRUD de usuarios (CV.1, 2026-09-01)
+- **`auth` + `admin` portados**: JWT propio (`CATALOGO_KP_JWT_SECRET`, no `JWT_SECRET`) + `bcryptjs` sobre `admin.usuarios`, y CRUD de usuarios del tablero (rol `admin`). Los endpoints de `kp` que en CV.0 respondían 503 (`PendingAuthGuard`, mientras no había auth) ahora exigen sesión real.
+- **Mismo patrón de riesgo que la credencial de DB en CV.0, esta vez con JWT**: `JWT_SECRET` ya está en uso en 33 archivos del auth multi-tenant de esta Suite — se usa un nombre propio para no firmar tokens de dos sistemas de auth distintos con el mismo secreto. El fallback inseguro del original (`JWT_SECRET || 'secreto-hardcodeado'`) se retira a favor de fail-fast en boot.
+- Las rutas `pedidos/pagos/cola` del `AdminController` original quedan fuera de esta entrega — dependen de servicios de `tienda` (CV.5, no portado); se agregan cuando ese módulo aterrice.
+- Plan y verificación en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md).
+
+### Added — migración del catálogo/verificador/tienda mayorista externo (CV.0, 2026-09-01)
+- **Nuevo app `apps/catalogo-kp`**: primer paso de la migración física de `megadulces-api-ready` (NestJS 10 standalone, en producción real en `.163`, catálogo público + verificador de precios de mostrador + tienda mayorista) a este monorepo. Módulo `kp` completo portado a NestJS 11 sobre una conexión Knex propia a `KP_CONCENTRADA` — mismas queries SQL, mismas rutas `/api/kp/*`.
+- **Hallazgo de seguridad durante la migración:** el proyecto origen reusaba el rol `app_runtime`, que resultó ser **el mismo rol de cluster** que usa `postgres_platform` en `.245` (`docs/GOTCHAS.md` §24 ya advertía sobre esto) — sospechoso de una caída de producción de 6h ajena a esta Suite. Se preparó un rol dedicado (`catalogo_kp_runtime`, `apps/catalogo-kp/sql/007_rol_dedicado.sql`), aditivo, pendiente de aplicar contra el cluster real.
+- Deployment on-prem (no Railway), consistente con el principio ya aceptado para `kepler-consolidado`/Fase KV. Roadmap completo en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), ADR-056.
 
 ### Fixed — el CDC perdía 2-7% de las filas todos los días (CDC.7, 2026-08-31)
 - **Lo encontró Edgar abriendo una factura, no un sensor.** `/comercial/documentos` mostraba `06 UD0801-0000265` como *"su único renglón es de servicio"*; el documento tiene **3 renglones reales por $4,518.00** —el total exacto de su cabecera— que estaban en Kepler y nunca llegaron. Al barrer llave por llave contra las réplicas: **~4,200 filas ausentes en 12 días**, en las 7 sucursales y 5 tablas (`kdm2` renglones de venta, `kdij`, `kdue` saldos de clientes, `kdm1`, `kdpord`). Cuadraba al 25 de agosto y desde el 26 perdía **entre 2% y 7% diario**.
