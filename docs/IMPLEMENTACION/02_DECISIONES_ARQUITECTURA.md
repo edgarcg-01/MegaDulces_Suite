@@ -1606,3 +1606,65 @@ Son **~355 SKUs** (sucursal 30) los multipack de verdad, no el catálogo entero.
 Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión), con candados explícitos contra los dos errores previos: convertir el dato base, y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia — razón 2.000).
 
 Ver [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8ter · hereda **ADR-051** (la unidad se declara, no se dibuja).
+
+---
+
+## ADR-056
+
+**Verdad y procedencia** (Fase VP): un número publicado carga con qué se calculó, y **lo que no se pudo medir se declara** · *aceptado 2026-09-05*
+
+### Contexto
+
+Edgar reporta que "a menudo me dicen que existen cambios en los números de la empresa" y que la plataforma no maneja procedencia, ni log de cambios, ni una verdad absoluta. La auditoría lo midió contra el repo y encontró algo distinto de lo esperado: **no falta arquitectura. Cada primitivo necesario ya estaba construido, aplicado a exactamente un dominio, y nunca generalizado.**
+
+| Primitivo | Dónde ya existía, bien hecho | Alcance real |
+|---|---|---|
+| Frescura declarada | `libs/commercial/src/lib/shared/freshness.ts` (fase OBS, 2026-09-02) | **4 de 171** endpoints analíticos |
+| Cobertura medida | `commercial-profitability.service.ts` (`coverage_pct`, `source_empty`) | **1** pantalla |
+| Unidad que viaja con el número | 5 vistas canónicas + la puerta `unitMargin()` | **9 de 264** servicios |
+| Versión de la regla amarrada al hecho | `daily_captures.config_version_id → scoring_config_versions` | **1** dominio |
+| Valor anterior | `route_rebalance_log.previous_state` | **3 de 13** tablas de historia |
+| Cuadre contra árbitro externo | `test-newdb-fact-vs-kepler.js` (mediana por SKU + candado anti-`bf`) | **1** superficie |
+| Latido de importer | `database/importers/lib/cron-heartbeat.js` | **13 de 109** — **0** de los de datos maestros |
+| Bloqueo duro al no cuadrar | `purchase-book.service.ts:962` | **1 en todo el repo** |
+
+La causa es de proceso: el proyecto crece por **fases**. Cada una entrega una rebanada vertical, inventa el primitivo que necesita, lo documenta en su `.md` y cierra. Nada en el flujo dice *"y ahora subí el primitivo a `libs/` compartido"*. El tracker rastrea **fases**, no **invariantes**.
+
+Y el número llegaba desnudo: **6 menciones de `as_of` en 874 interfaces de respuesta** del frontend. **1 de 187 rutas** consumía `db-health`. El costo histórico está en los mensajes de commit — **570** arreglan corrección numérica, con líneas como *"recupera $8.07M/mes que la copia tiraba"*. **Todos los encontró un humano.**
+
+Tres mentiras concretas, medidas y ya corregidas por esta fase:
+
+- `FRESHNESS_UNKNOWN` salía con `stale: false`, y los consumidores preguntan `@if (f.stale)` → **cuando fallaba la medición la etiquetera no mostraba nada**, en la misma pantalla que imprimió seis días de precios viejos (uno **54% bajo costo**). El primitivo escrito para evitar eso lo reproducía, a tres días de nacer. Y su test decía *"FRESHNESS_UNKNOWN no afirma frescura"* verificando `data_as_of: null` — cierto **también con el bug**: estuvo verde todo el tiempo que la mentira estuvo viva.
+- **21 de 24** píldoras de frescura decían *"actualizado hace 2 min"* midiendo el reloj del navegador.
+- `db-health` clasificaba con `cfg ? classify(...) : 'ok'` → las **3** matvistas del refresh nocturno que arman el sell-out latían sin umbral registrado y salían **verdes por siempre**; la única registrada tenía los umbrales del otro cron y gritaba `critical` todos los días.
+
+### Decisión
+
+1. **El número viaja con su procedencia, y la forma la define un contrato — no cada consumidor.** `libs/contracts/src/http/provenance.contract.ts` (`Freshness`, `FreshnessInput`, `FreshnessStatus`, `Coverage`), siguiendo el precedente de `command-center.contract.ts` (ADR-052). Un cambio de forma es error de compilación en los dos lados. El dominio conserva la **lógica** (medir, componer, tolerancias); el contrato define la **forma**.
+
+2. **El veredicto es ternario: `fresh | stale | unknown`.** Un booleano no puede decir "no sé", y el default permisivo es exactamente cómo un feed muerto se disfraza de sano. `stale` sobrevive pero **derivado** (`status !== 'fresh'`), así un consumidor viejo empieza a avisar en `unknown` sin tocarlo. Corolario aplicado al monitor: **un job sin umbral no es sano, es no medido.**
+
+3. **Lo que no se pudo medir se declara — nunca se dibuja como cero ni como verde.** Vale para el dato (`status: 'unknown'`), para la cobertura (`measured: false` distingue *"medí y no falta nada"* de *"nadie contó"*, que sin él se serializan igual) y **para los tests**: un bloque que no tuvo con qué comprobarse reporta **NO MEDIDO**, no ✔. Con una pierna vacía, "cero traslapes" es cierto y no prueba nada.
+
+4. **Poblado no es fresco.** `relispopulated` queda en `true` para siempre tras el primer populate: toda lectura de matvista declara además su **edad**, tomada del latido del job que la refresca. Y **ordenar no es depender**: una matvista no se refresca si aquella de la que deriva falló — mejor el rollup de ayer, viejo pero coherente y declarado, que uno de hoy mezclando piernas.
+
+5. **Un primitivo inventado en una fase no cierra la fase.** Si al resolver un item construiste un mecanismo genérico —declarar frescura, medir cobertura, versionar una definición, guardar el valor anterior, cuadrar contra un árbitro— el item no está cerrado hasta que el mecanismo vive en `libs/` compartido **o** queda declarado como deuda con nombre en el tracker.
+
+6. **Un gate sin prueba negativa es una intención.** Al agregar una compuerta hay que romperla a propósito una vez y ver el rojo. (`measures` requerido se verificó así: quitarlo de un call-site tumbó el build de producción con exit 255.)
+
+### Consecuencias
+
+- **La verdad absoluta se construye congelando el mes** (VP.4, pendiente): no existe hoy ninguna cifra oficial — grep de `period_close`/`cierre_mes`/`frozen` en 578 migraciones da **cero**. Todo se recalcula desde fuentes que se mueven hacia atrás, así que cuando el número de enero cambia nadie puede decir cuánto valía ni por qué. `analytics.period_close` guardará cifra + hash de la definición + watermarks; un recálculo que difiera **abre hallazgo**, no cambia el número en silencio. Es materialización legítima por [`GOTCHAS.md`](../GOTCHAS.md) §32 (snapshot histórico), no una copia.
+- **El log de cambios de datos maestros no existe** (VP.3, pendiente): cero historial para precio, costo, punto de reorden, precio de etiqueta y factor de caja; **0 de los ~11 importers** que los escriben setean `updated_by` o tienen latido. La columna `updated_by` **miente** en esas tablas.
+- **La compuerta de `main` no puede ver un número** (VP.5, pendiente): CI corre build + lint + `nx affected -t test` sobre **9** `.spec.ts` con `--passWithNoTests`. Las 128 suites de `run-all-tests.js` son gate local y manual, y hay **21 pruebas escritas que ni siquiera están en el runner** — incluida la del sync de cortes de caja que ya falló en prod con $300k+.
+- Al agregar un endpoint analítico, el envelope de procedencia es parte del contrato (VP.2.3 lo hará compuerta de CI, calcando `scripts/check-authz-tree.js`).
+
+### Alternativas rechazadas
+
+- **Reordenar en capas (repositorio/ORM, hexagonal estricta)** — no protege la verdad de un número. Evidencia propia: MR.5 tenía capas limpias y publicaba 14.62% de margen contra 11.32% real. Las capas resuelven acoplamiento, no verdad; además un ORM esconde justo el SQL que hay que auditar, cuando la regla del proyecto es que la verdad viva en vistas `derive-no-copy` sobre `kepler_ods`.
+- **Golden master / snapshot dorado como defensa principal** — no atrapa los tres modos de falla reales de este proyecto (unidad, frescura, cobertura), porque el snapshot nace de la misma consulta con el mismo defecto. Sirve como complemento, no como cimiento.
+- **Precalcular más (matvistas, rutinas nocturnas) para estabilizar los números** — es el incidente OBS: batch es una mentira que envejece en silencio. Se admite por costo (§19) *con la edad declarada*, que es lo que agrega esta fase.
+- **Tomar el Excel de contabilidad como verdad absoluta** — medido y falso acá: el workbook del libro de compras traía un typo de **$183M** y 41% de descuadre; el de bancos, códigos sobrecargados que no empatan Kepler. Es *una* fuente, no *el* árbitro.
+- **Tomar el CFDI/PAC como árbitro del sell-out** — CP.0 midió que la contabilidad casi no segmenta por sucursal (~2%), así que no puede arbitrar un reporte de venta por sucursal.
+
+Hereda **ADR-053** (la ingesta no se cae en silencio) y **ADR-052** (contratos del boundary). Plan en [`FASE_VP_VERDAD_Y_PROCEDENCIA.md`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md).

@@ -6,6 +6,97 @@
 
 ---
 
+## 2026-09-05 — Fase VP: auditoría de procedencia, y por qué "los números cambian" (ADR-056)
+
+**Disparador:** Edgar pidió analizar una plática con Gemini sobre integridad de datos, y después
+—descartado ese encuadre— pidió mirar el proyecto entero: *"siento que hay cosas que se están
+haciendo mal… no manejamos procedencia, logs de cambios, una verdad absoluta"*.
+
+### Lo que Gemini recomendaba y por qué no aplicaba
+
+La respuesta externa proponía reordenar en **capas** (repositorio/ORM), **golden master** como defensa
+principal, **precalcular más** (matvistas/rutinas nocturnas), y tomar el **Excel de contabilidad** o el
+**CFDI** como verdad absoluta. Las cuatro cosas están medidas y no aplican acá:
+
+- Las capas no protegen un número: **MR.5 tenía capas limpias y publicaba 14.62% de margen contra
+  11.32% real**. Un ORM además esconde el SQL que hay que auditar, cuando la regla del proyecto es que
+  la verdad viva en vistas `derive-no-copy`.
+- El snapshot dorado nace de la misma consulta con el mismo defecto: no atrapa los tres modos de falla
+  reales (unidad, frescura, cobertura).
+- Precalcular más **es el incidente OBS**: batch es una mentira que envejece en silencio.
+- El Excel de contabilidad **es medible y falso** acá: el del libro de compras traía un typo de $183M
+  y 41% de descuadre. Y el CFDI no puede arbitrar un reporte por sucursal (CP.0: la contabilidad casi
+  no segmenta, ~2%).
+
+### El hallazgo de la auditoría (3 exploraciones en paralelo, medido contra el repo)
+
+**No falta arquitectura. Cada primitivo necesario ya estaba construido, bien hecho, aplicado a
+exactamente un dominio, y nunca generalizado.** Frescura **4 de 171** endpoints · cobertura **1**
+pantalla · unidad **9 de 264** servicios · versión de la regla **1** dominio · valor anterior **3 de
+13** tablas de historia · cuadre contra árbitro **1** superficie · latido **13 de 109** importers y
+**0** de los de datos maestros · **1** bloqueo duro en todo el repo.
+
+Y el número llegaba desnudo: **6 menciones de `as_of` en 874** interfaces de respuesta del frontend;
+**1 de 187** rutas consumía `db-health`. **570 commits** en la historia arreglan corrección numérica
+(*"recupera $8.07M/mes que la copia tiraba"*) y **todos los encontró un humano**.
+
+**La causa es de proceso, no de diseño:** el proyecto crece por fases; cada una inventa el primitivo
+que necesita, lo documenta en su `.md` y cierra. El tracker rastrea **fases**, no **invariantes**.
+
+### Las tres mentiras que estaban vivas (VP.0 ✅)
+
+1. **El primitivo anti-mentira mentía.** `FRESHNESS_UNKNOWN` salía con `stale: false` y los consumidores
+   preguntan `@if (f.stale)` → **cuando fallaba la medición la etiquetera no mostraba nada**. Afirmaba
+   frescura por silencio, en la misma pantalla que el 27-ago imprimió seis días de precios viejos, uno
+   **54% bajo costo**. Escrito tres días antes para evitar exactamente eso.
+   Y su test lo declaraba cubierto: *"FRESHNESS_UNKNOWN no afirma frescura"* verificaba
+   `data_as_of: null` — cierto **también con el bug**. Verde todo el tiempo que la mentira estuvo viva.
+2. **21 de 24 píldoras** decían *"actualizado hace 2 min"* midiendo el reloj del navegador. La peor,
+   `tienda-arqueo` con `label="Kepler"` sobre un `new Date()` local.
+3. **`db-health` daba verde incondicional** (`cfg ? classify(...) : 'ok'`) a las 3 matvistas del refresh
+   nocturno que arman el sell-out, y a la única registrada le sobraba alarma (umbrales del otro cron).
+
+### El sell-out tenía tres capas ciegas apiladas (VP.1 ✅)
+
+El reporte más consultado del negocio iba de la migración a la pantalla **sin tocar un archivo de
+prueba**. (a) El dedup Kepler↔Wincaja es un predicado de fechas a mano y la migración prometía en un
+comentario que *"un test de paridad lo verifica"* — no existía. (b) El refresh materializaba el rollup
+aunque fallara la pierna Kepler: **ordenar no es depender**. (c) El monitor los daba verdes. Los tres
+mecanismos de detección estaban ciegos **en el mismo punto**.
+
+### Decisiones (ADR-056)
+
+El número viaja con su procedencia y **la forma la define un contrato**; el veredicto es **ternario**
+(`fresh|stale|unknown` — un booleano no puede decir "no sé"); **lo que no se pudo medir se declara**,
+también en los tests (`NO MEDIDO` ≠ ✔); **poblado no es fresco** y **ordenar no es depender**; un
+primitivo inventado en una fase **no cierra la fase** hasta que vive en `libs/`; y **un gate sin prueba
+negativa es una intención**.
+
+### Lecciones
+
+- **Un test puede estar verde mirando el campo vecino.** La aserción decía "no afirma frescura" y medía
+  `data_as_of`. Al agregar un candado, pintarlo contra **el campo que decide**, no contra uno cercano.
+- **Enumerar a mano sólo protege lo que alguien recordó.** La lista de carriles en `CRON_JOBS` no
+  nombraba las 3 huérfanas; el invariante real (*todo lo que late tiene umbral*) se mide contra la
+  tabla y falla en los dos sentidos.
+- **Una copia muerta que sigue pareciendo canónica es peor que no tenerla** (`KEPLER_SELLOUT_DEDUP`
+  tenía una sola referencia: su propia declaración).
+- **Verificar que la compuerta muerde.** Se quitó `measures` de un call-site a propósito → build en
+  rojo (exit 255). Sin esa prueba, un gate es una intención.
+- ⚠️ **Con dos manos sobre el mismo archivo, revisar `git diff` antes de stagear.** El commit
+  `0cf06cd4` se llevó trabajo en vuelo ajeno (`monto_neto`) al stagear el service completo.
+- ⚠️ **Quinta vez** que un acento grave dentro de un `template` literal tumba el build (NG5002).
+
+**Commits:** `4877bdb1` (VP.0.1/0.4/0.5) · `8644f1e9` (VP.0.3/0.6/2.1) · `0cf06cd4` (VP.1.1/1.2) ·
+`282ea311` (VP.1.3) · `7ecc20f6` (VP.0.2).
+**Verificado:** `test-newdb-feed-observability` 80/0 · `test-newdb-sellout-parity` 16 OK/0 fallas/2 NO
+MEDIDOS (rollup Δ 0.00 en 3 meses cerrados) · `typecheck:fast` limpio · `check:templates` 285/285 ·
+build de prod api+view verde.
+**Pendiente:** correr el candado de paridad **contra prod** (el traslape y el hueco siguen sin medir),
+VP.2.2/2.3, VP.3, VP.4, VP.5.
+
+---
+
 ## 2026-09-05 — Réplica cruda Wincaja 2025–2026 + purga de higiene (21.8 GB) y lo que NO se purgó
 
 **Disparador:** dos pedidos de Edgar en la misma sesión — *"necesito una réplica cruda de todo lo
