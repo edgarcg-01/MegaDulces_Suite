@@ -204,19 +204,45 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
         [OBS.6.2] El precio declara su edad. Va ARRIBA del escáner y no se puede cerrar: es una
         condición del dato, no un mensaje de una acción. El 27-ago esta pantalla imprimió seis días
         de precios viejos — uno 54% bajo costo — sin nada que mirar. No bloquea: informa.
+
+        [VP.0.1] Dos avisos, no uno. "Viejo" tiene una edad que mostrar; "no se pudo medir" no la
+        tiene, y con un solo bloque salía el texto roto "El precio puede estar viejo — de rezago".
+        Peor: antes del fix el caso no-medido llegaba con stale:false y acá NO se pintaba nada,
+        o sea la pantalla afirmaba frescura por silencio. Son problemas distintos y se dicen
+        distinto — el ERP no reporta, o nosotros no pudimos preguntar.
+        (Sin acentos graves acá adentro: el template es un literal y NG5002 tumba el build.)
       -->
-      @if (freshness()?.stale) {
-        <div class="etqp-stale" role="status">
-          <i class="pi pi-clock"></i>
-          <div>
-            <strong>El precio puede estar viejo — {{ freshness()?.age_human }} de rezago.</strong>
-            <span>
-              @for (i of staleInputs(); track i.key) {
-                {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
-              }
-            </span>
+      @if (freshness(); as f) {
+        @if (f.status === 'stale') {
+          <div class="etqp-stale" role="status">
+            <i class="pi pi-clock"></i>
+            <div>
+              <strong>El precio puede estar viejo — {{ f.age_human }} de rezago.</strong>
+              <span>
+                @for (i of staleInputs(); track i.key) {
+                  {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
+                }
+              </span>
+            </div>
           </div>
-        </div>
+        } @else if (f.status === 'unknown') {
+          <div class="etqp-stale" role="status">
+            <i class="pi pi-question-circle"></i>
+            <div>
+              <strong>No se pudo verificar qué tan actual es este precio.</strong>
+              <span>
+                @if (staleInputs().length) {
+                  @for (i of staleInputs(); track i.key) {
+                    {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
+                  }
+                } @else {
+                  Falló la medición de frescura. El precio puede estar al día o no — confirmalo
+                  antes de imprimir.
+                }
+              </span>
+            </div>
+          </div>
+        }
       }
 
       <div class="etqp-scanbar">
