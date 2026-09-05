@@ -13,6 +13,8 @@
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Este test BORRA filas (incluido `commercial.stock`). No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-inventory-monitoring');
 const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW_RUNTIME });
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
