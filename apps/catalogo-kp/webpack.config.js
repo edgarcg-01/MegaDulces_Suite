@@ -29,7 +29,7 @@ class SwcSinLoose {
 module.exports = {
   externals: [
     function ({ request }, callback) {
-      const externals = ['knex', 'pg', 'pg-native', 'xlsx'];
+      const externals = ['knex', 'pg', 'pg-native'];
       if (externals.some((pkg) => request === pkg || request.startsWith(pkg + '/'))) {
         return callback(null, 'commonjs ' + request);
       }

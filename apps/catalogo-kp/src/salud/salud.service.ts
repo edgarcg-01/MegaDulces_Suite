@@ -11,11 +11,11 @@ import { Pool } from 'pg';
  *   revisando     todavia no hay una primera lectura.
  *
  * Portado literal de megadulces-api-ready/src/salud/salud.service.ts (Fase
- * CV, CV.15). Única adaptación: el original arma su propio `pg.Pool` con
- * PG_HOST/PG_PORT/PG_USER/PG_PASSWORD/PG_DATABASE (variables discretas);
- * aquí se usa `DATABASE_URL_KP_CONCENTRADA` (connectionString única, el
- * mismo patrón que ya usa `PlatformDbModule`) — mismo servidor real,
- * mismo comportamiento, sólo cambia cómo arma la cadena de conexión.
+ * CV, CV.15). Adaptado dos veces: primero a `DATABASE_URL_KP_CONCENTRADA`
+ * (connectionString única en vez de PG_HOST/PORT/USER/PASSWORD/DATABASE
+ * discretas); luego, al recortar este app al verificador (post CV.22, ya
+ * sin conexión a `KP_CONCENTRADA`), a `DATABASE_URL_NEW` — la misma base
+ * que usa `PlatformDbModule`, que es de la que este app depende de verdad.
  */
 export type EstadoBase = 'ok' | 'sin_acceso' | 'sin_respuesta' | 'revisando';
 
@@ -48,7 +48,7 @@ export class SaludService implements OnModuleInit {
     // por delante a los pools de los demas servicios. Y con tiempos de espera
     // cortos, porque esto tiene que contestar rapido aunque nada funcione.
     this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL_KP_CONCENTRADA,
+      connectionString: process.env.DATABASE_URL_NEW,
       max:      1,
       connectionTimeoutMillis: 4000,
       statement_timeout: 4000,

@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Removed — catalogo-kp se recorta al verificador de precios (CV, 2026-09-05)
+- **PR #62 cambió de alcance:** en vez de completar los 3 requisitos no negociables de Edgar (auth-mt, `commercial.orders`, y la ya resuelta lectura de `kepler_ods.*`), se decidió reducir lo que se integra a la Suite a **solo el verificador de precios de mostrador** (`GET /api/kp/precio`, `/api/kp/precios-todos`, `GET /api/sucursales`, públicos, sin sesión).
+- Se eliminan de `apps/catalogo-kp`: `admin`, `auth`, `catalogo` interno, `dashboard`, `monitor`, `tienda` completos + `apps/tienda` (frontend Angular) + 6 migraciones de schema (`admin.usuarios`/`tienda.*`/`monitor.errores`, nunca corridas contra una DB real) + imágenes de producto y HTML del catálogo/tienda.
+- Se agrega `src/sucursales/` (extraído antes de borrar `catalogo`) y `plantilla/`+`herramientas/Actualizar_Verificador.ps1`, adaptados del repo standalone `verificador-precios`.
+- **El resto del trabajo no se descarta** — sigue vivo, sin tocar, en 3 repos standalone nuevos bajo `github.com/0SistemasMD`: `catalogo-kp`, `verificador-precios` (ya verificado end-to-end contra `KP_CONCENTRADA` real) y `Ecommerce-Mayorista` (tienda completa, backend+frontend).
+- Build verificado: `main.js` pasa de 341 KB a 42 KB; boot con exactamente las 4 rutas esperadas.
+
 ### Added — Existencia: una sola pantalla del censo físico, en Almacén y en Compras (E, 2026-09-04)
 - **La razón de fondo no era que faltara una pantalla: era que la que había leía la fuente equivocada.** Almacén tenía una tab llamada literalmente «Existencias» (`/almacen/inventory`) que lee `commercial.stock` — y contra el POS en vivo esa tabla **acierta 91%** (15,324 unidades de error) frente al **100%** de `analytics.v_erp_stock_on_hand`. Caso: SKU `88009` en almacén `01` → POS **2,485** · ODS **2,487** · tabla **3,547**.
 - **Un componente, dos rutas** (`/almacen/inventory/existencia` + `/compras/existencia`), **un permiso** — precedente vivo: Caducidades en `/almacen` + `/tienda`. En Compras va **antes de Pedido**: primero ves qué hay, después decidís qué comprar.

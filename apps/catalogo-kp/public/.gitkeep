@@ -1,0 +1,3 @@
+Los verificador-NN.html los genera herramientas/Actualizar_Verificador.ps1
+(gitignored, ver .gitignore raíz). Esta carpeta existe para que la app tenga
+dónde servirlos (app.useStaticAssets en main.ts).

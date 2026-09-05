@@ -20,11 +20,6 @@
             "glob": "**/*",
             "input": "apps/catalogo-kp/public",
             "output": "public"
-          },
-          {
-            "glob": "**/*",
-            "input": "apps/catalogo-kp/sql",
-            "output": "sql"
           }
         ]
       },
