@@ -77,6 +77,8 @@ export enum Permission {
   // Comercial — Cierre de ruta (tickets venta/carga/combustible)
   ROUTE_TICKET_CAPTURE = 'ROUTE_TICKET_CAPTURE',
   ROUTE_CONTROL_VER = 'ROUTE_CONTROL_VER',
+  // Carga del camión (gatea el nav 'Carga' — solo quien la gestiona)
+  COMMERCIAL_CARGA_GESTIONAR = 'COMMERCIAL_CARGA_GESTIONAR',
 
   // Logística (Fase J)
   LOGISTICS_FLEET_VER = 'LOGISTICS_FLEET_VER',
