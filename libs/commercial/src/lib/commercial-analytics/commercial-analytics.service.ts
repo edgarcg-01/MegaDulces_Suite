@@ -2894,6 +2894,7 @@ export class CommercialAnalyticsService {
       }
       const units = Number(r.units) || 0;
       const monto = Number(r.monto) || 0;
+      const montoNeto = Number(r.monto_neto) || 0;
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
       // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
       const isWeight = r.unit_kind === 'weight';
@@ -2996,13 +2997,17 @@ export class CommercialAnalyticsService {
       const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
       cell.cajas += cajas;
       cell.monto += monto;
+      cell.monto_neto += montoNeto;
       row.total.cajas += cajas;
       row.total.monto += monto;
+      row.total.monto_neto += montoNeto;
       const ct = colTotals.get(colKey)!;
       ct.cajas += cajas;
       ct.monto += monto;
+      ct.monto_neto += montoNeto;
       grandCajas += cajas;
       grandMonto += monto;
+      grandMontoNeto += montoNeto;
     }
 
     // Filas: incluir SKUs sin venta si include_zeros (solo aplica a filas por producto).
@@ -3047,9 +3052,9 @@ export class CommercialAnalyticsService {
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     for (const row of rows) {
       for (const k of Object.keys(row.cells)) {
-        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
+        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
       }
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
     }
     const columnTotalsObj: Record<string, SellOutCell> = {};
     for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
@@ -3059,7 +3064,7 @@ export class CommercialAnalyticsService {
       columns: orderedCols,
       rows,
       column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
       freshness,
     };
@@ -3363,7 +3368,7 @@ export class CommercialAnalyticsService {
         trx.raw('max(s.box_size) as box_size'),
         trx.raw(`CASE WHEN s.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
         trx.raw('1 as fac_win'),
-        trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'),
+        trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'), trx.raw('sum(s.monto_neto) as monto_neto'),
       )
       .groupByRaw('s.vendor_code, s.vendor_name, s.channel, s.product_id, s.brand_id, s.unit_kind');
   }
@@ -3453,8 +3458,8 @@ export class CommercialAnalyticsService {
 
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
-    const colTotals = new Map<string, { cajas: number; monto: number }>();
-    let grandCajas = 0, grandMonto = 0;
+    const colTotals = new Map<string, SellOutCell>();
+    let grandCajas = 0, grandMonto = 0, grandMontoNeto = 0;
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
       // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
@@ -3472,6 +3477,7 @@ export class CommercialAnalyticsService {
       const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
       const cajas = isWeight ? units : units / divisor;
       const monto = Number(r.monto) || 0;
+      const montoNeto = Number(r.monto_neto) || 0;
       if (!columns.has(colKey)) {
         columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
         colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
@@ -3479,26 +3485,26 @@ export class CommercialAnalyticsService {
       let row = rowMap.get(r.sku);
       if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
       const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
-      cell.cajas += cajas; cell.monto += monto;
-      row.total.cajas += cajas; row.total.monto += monto;
-      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto;
-      grandCajas += cajas; grandMonto += monto;
+      cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto;
+      row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto;
+      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto; ct.monto_neto += montoNeto;
+      grandCajas += cajas; grandMonto += monto; grandMontoNeto += montoNeto;
     }
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     const rows = Array.from(rowMap.values()).sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
     for (const row of rows) {
-      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
     }
     const orderedCols = Array.from(columns.values()).sort((a, b) =>
       (GROUP_ORD[a.channel ?? ''] ?? 9) - (GROUP_ORD[b.channel ?? ''] ?? 9) || a.branch_name.localeCompare(b.branch_name, 'es'));
     const columnTotalsObj: Record<string, SellOutCell> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
     return {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
       columns: orderedCols, rows, column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
       // [VP.0.6] La nota de alcance es CIERTA y útil, pero no es una cobertura: este pivote agrupa
       // por vendedor y nunca trae sucursal (`selloutVendorLeg` no la selecciona), así que el eje no
       // se puede medir acá. `measured: false` lo dice; antes los dos arreglos vacíos se leían como

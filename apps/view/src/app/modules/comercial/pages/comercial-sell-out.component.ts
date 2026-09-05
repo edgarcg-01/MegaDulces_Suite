@@ -186,6 +186,13 @@ const CHANNEL_OPTS = [
           <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
         </div>
 
+        @if (showMonto()) {
+          <div class="so-field">
+            <label>Base del monto</label>
+            <app-segmented [options]="montoBaseOpts" [value]="montoBase()" (valueChange)="setMontoBase($event)" ariaLabel="Base del monto: neto de descuento o bruto de línea" />
+          </div>
+        }
+
         <div class="so-field">
           <label>Promos</label>
           <app-segmented [options]="promoOpts" [value]="promo()" (valueChange)="setPromo($event)" ariaLabel="Filtro de promociones" />
@@ -291,7 +298,7 @@ const CHANNEL_OPTS = [
               <span class="so-conc-scope">{{ concentradoCount() }} {{ concentradoNoun().toLowerCase() }} con venta · {{ (meta()?.period) || '' }}</span>
             </div>
             <div class="so-conc-grid">
-              <div class="so-conc-kpi"><span class="k-lbl">Monto consolidado</span><span class="k-val">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+              <div class="so-conc-kpi"><span class="k-lbl">Monto consolidado</span><span class="k-val">{{ mo(r.grand_total) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
               <div class="so-conc-kpi"><span class="k-lbl">Cajas</span><span class="k-val">{{ r.grand_total.cajas | number:'1.0-1' }}</span></div>
               <div class="so-conc-kpi"><span class="k-lbl">{{ concentradoNoun() }}</span><span class="k-val">{{ concentradoCount() }}</span></div>
               <div class="so-conc-kpi"><span class="k-lbl">Productos</span><span class="k-val">{{ r.rows.length | number }}</span></div>
@@ -375,10 +382,10 @@ const CHANNEL_OPTS = [
                     }
                     @for (c of r.columns; track c.key) {
                       @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
-                      @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
+                      @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (mo(cell(row, c.key)) | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
                     }
                     @if (showCajas()) { <td class="n b">{{ row.total.cajas | number:'1.0-2' }}</td> }
-                    @if (showMonto()) { <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                    @if (showMonto()) { <td class="n m b">{{ mo(row.total) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   </tr>
                 }
               </tbody>
@@ -387,10 +394,10 @@ const CHANNEL_OPTS = [
                   <td class="frz c0" [attr.colspan]="r.row_dim === 'month' ? 1 : 3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
                     @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
-                    @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                    @if (showMonto()) { <td class="n m">{{ mo(colTotal(r, c.key)) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   }
                   @if (showCajas()) { <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td> }
-                  @if (showMonto()) { <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                  @if (showMonto()) { <td class="n m">{{ mo(r.grand_total) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                 </tr>
               </tfoot>
             </table>
@@ -649,7 +656,7 @@ export class ComercialSellOutComponent {
     const r = this.report();
     if (!r) return [];
     return [
-      { label: 'Monto total', value: r.grand_total.monto, format: 'currency', sub: 'Sell-out del periodo' },
+      { label: 'Monto total', value: this.mo(r.grand_total), format: 'currency', sub: this.montoBase() === 'neto' ? 'Neto de descuento (factura)' : 'Bruto de línea' },
       { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Unidades ÷ UXC' },
       { label: this.rowNounCap(r), value: r.rows.length, sub: r.row_dim === 'brand' ? 'Con venta · click para ver' : r.row_dim === 'month' ? 'Meses con venta' : 'Con venta en el periodo' },
       { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
@@ -675,6 +682,16 @@ export class ComercialSellOutComponent {
   showMonto = computed(() => this.measure() !== 'cajas');
   grpColspan = computed(() => (this.measure() === 'ambas' ? 2 : 1));
   setMeasure(m: string) { this.measure.set(m as Measure); }
+  // Base del monto: 'neto' = NETO DE DESCUENTO (= total de la factura, verdad; default) · 'bruto' = venta
+  // de línea antes del descuento de cabecera. Solo display; el backend siempre trae ambos. Cajas = volumen (no cambia).
+  montoBase = signal<'neto' | 'bruto'>('neto');
+  readonly montoBaseOpts = [
+    { label: 'Neto c/desc.', value: 'neto' },
+    { label: 'Bruto', value: 'bruto' },
+  ];
+  setMontoBase(b: string) { this.montoBase.set(b as 'neto' | 'bruto'); }
+  /** Monto según la base elegida (neto de descuento por default = total factura). */
+  mo(cell: SellOutCell | null | undefined): number { return cell ? (this.montoBase() === 'neto' ? cell.monto_neto : cell.monto) : 0; }
   // RS — filtro de promos: sin (default, excluye marcadores $0.01) / solo / todo.
   promo = signal<'sin' | 'solo' | 'todo'>('sin');
   readonly promoOpts = [
@@ -991,7 +1008,7 @@ export class ComercialSellOutComponent {
   private saveFilters(): void {
     try {
       localStorage.setItem(ComercialSellOutComponent.FKEY, JSON.stringify({
-        brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(),
+        brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(), montoBase: this.montoBase(),
         promo: this.promo(), concentrar: this.concentrar(), view: this.view(),
         reportMode: this.reportMode(), layout: this.layout(), search: this.search(),
         selectedCells: Array.from(this.selectedCells()),
@@ -1011,6 +1028,7 @@ export class ComercialSellOutComponent {
       if (s.periodMode === 'month' || s.periodMode === 'quarter' || s.periodMode === 'year' || s.periodMode === 'range') this.periodMode.set(s.periodMode);
       if ('brandId' in s) this.brandId.set(s.brandId ?? null);
       if (s.measure === 'cajas' || s.measure === 'monto' || s.measure === 'ambas') this.measure.set(s.measure);
+      if (s.montoBase === 'neto' || s.montoBase === 'bruto') this.montoBase.set(s.montoBase);
       if (s.promo === 'sin' || s.promo === 'solo' || s.promo === 'todo') this.promo.set(s.promo);
       if (['', 'ruta', 'canal', 'sucursal', 'empresa'].includes(s.concentrar)) this.concentrar.set(s.concentrar);
       if (s.view === 'product' || s.view === 'month_columns' || s.view === 'month_summary') this.view.set(s.view);
