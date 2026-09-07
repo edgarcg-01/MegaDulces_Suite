@@ -9,6 +9,14 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_SELLOUT_VER,
   },
   {
+    // BI — sub-modulo Analisis (Sell-Out BI). Misma venta que Sell-Out, forma de
+    // interrogarla: explica el cambio, preguntale, radar. Permiso propio.
+    label: 'Análisis',
+    route: '/comercial/analisis',
+    icon: 'pi pi-chart-bar',
+    permission: Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER,
+  },
+  {
     label: 'Salidas por producto',
     route: '/comercial/salidas',
     icon: 'pi pi-box',
