@@ -493,7 +493,11 @@ const CRON_JOBS: CronCfg[] = [
   // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
   { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
   { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
-  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
+  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
+  // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
+  // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
+  // el pulso al incremental — ver la nota en `import-contpaqi-cfdis.js`.
+  { key: 'contpaqi_add_cfdis_full', label: 'ContPAQi CFDIs (ADD, reconciliador)', cadence: '1×día', warnH: 26, critH: 50 },
   { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
   // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
   // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
