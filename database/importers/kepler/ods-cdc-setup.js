@@ -26,7 +26,8 @@ const TEARDOWN = process.argv.includes('--teardown');
 const ONLY_BRANCH = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || null;
 const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
-const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
+// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
+const localDbName = (code) => `kepler_md_${code}`;
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // Mismas append-only del carril ctid → NO se les pone trigger (alto volumen, ya son CDC barato).
 const CTID_TABLES = new Set(

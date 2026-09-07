@@ -42,7 +42,8 @@ const FLUSH_MS = Math.max(1000, Number(process.env.ODS_CDC_FLUSH_MS) || 3000);
 const HEARTBEAT_MS = Math.max(10000, Number(process.env.ODS_CDC_HEARTBEAT_MS) || 30000);
 const WARN_LAG_MB = Number(process.env.ODS_CDC_WARN_LAG_MB) || 500; // lag del slot > esto → status error (visible)
 
-const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
+// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
+const localDbName = (code) => `kepler_md_${code}`;
 const localCfg = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return { connectionString: u.toString() }; };
 const mapType = (dt) => ({ 'timestamp without time zone': 'timestamp', 'timestamp with time zone': 'timestamptz' }[dt] || (['numeric','double precision','real','integer','bigint','smallint','boolean','date'].includes(dt) ? dt : 'text'));
 // pgoutput NO resuelve nombres de tipos builtin (typeName=null) → trae typeOid. Mapear el OID al
