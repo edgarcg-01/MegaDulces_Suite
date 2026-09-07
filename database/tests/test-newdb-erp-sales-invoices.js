@@ -37,7 +37,7 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
   if (!existen.h || !existen.l) {
     console.log('SKIP — faltan las vistas analytics.erp_sales_invoice*; corré las migraciones (20260822140000 / 20260824120000).');
     await db.end();
-    process.exit(0);
+    process.exit(2);
   }
 
   for (const v of ['erp_sales_invoices', 'erp_sales_invoice_lines']) {

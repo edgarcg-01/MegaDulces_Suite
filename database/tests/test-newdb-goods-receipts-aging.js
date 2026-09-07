@@ -33,14 +33,14 @@ const ventana = (trx, dias) => trx.raw(`
     const cols = (await knex.raw(
       `SELECT column_name FROM information_schema.columns
         WHERE table_schema='analytics' AND table_name='erp_goods_receipts' AND column_name='fecha_vence'`)).rows;
-    if (!cols.length) { console.log('  ⚠️  sin `fecha_vence` (¿RE.1 pendiente?) — SKIP'); process.exit(0); }
+    if (!cols.length) { console.log('  ⚠️  sin `fecha_vence` (¿RE.1 pendiente?) — SKIP'); process.exit(2); }
 
     // 1. El universo completo: el número que NO se debe publicar.
     const todo = (await knex.raw(`
       SELECT count(*) FILTER (WHERE fecha_vence < current_date)::int vencidas,
              COALESCE(sum(monto) FILTER (WHERE fecha_vence < current_date),0)::numeric dinero
         FROM analytics.erp_goods_receipts WHERE tenant_id = ? AND dup_of_folio IS NULL`, [T])).rows[0];
-    if (!todo.vencidas) { console.log('  ⚠️  sin recepciones vencidas en este entorno — SKIP'); process.exit(0); }
+    if (!todo.vencidas) { console.log('  ⚠️  sin recepciones vencidas en este entorno — SKIP'); process.exit(2); }
     console.log(`     universo con vencimiento pasado: ${todo.vencidas} docs / ${money(todo.dinero)} (casi todo YA PAGADO)`);
 
     // 2. La ventana sólo mira hacia adelante.

@@ -36,7 +36,7 @@ const CORE = `
   console.log('CXP.3 — Compras 360 (recepción + ajuste ligado + neto)\n');
   try {
     const nRec = Number((await c.query(`SELECT count(*)::int n FROM analytics.erp_goods_receipts WHERE tenant_id=$1`, [TENANT])).rows[0].n);
-    if (nRec === 0) { console.log('\n  ⚠️  SKIP — sin recepciones (feed no cargado). Wiring cubierto por el build.'); await c.end(); process.exit(0); }
+    if (nRec === 0) { console.log('\n  ⚠️  SKIP — sin recepciones (feed no cargado). Wiring cubierto por el build.'); await c.end(); process.exit(2); }
 
     // Totales globales (como el endpoint)
     const tot = (await c.query(

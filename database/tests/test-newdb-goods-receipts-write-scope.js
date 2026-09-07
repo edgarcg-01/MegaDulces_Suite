@@ -50,7 +50,7 @@ const ok = (c, m) => { console.log(`${c ? '  ✅' : '  ❌'} ${m}`); if (!c) fai
        WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL
          AND (rp.permissions -> 'COMPRAS_ENTRADAS_VALIDAR')::text = 'true'`, [T]);
 
-    if (!rows.length) { console.log('  ⚠️  nadie con COMPRAS_ENTRADAS_VALIDAR — SKIP'); process.exit(0); }
+    if (!rows.length) { console.log('  ⚠️  nadie con COMPRAS_ENTRADAS_VALIDAR — SKIP'); process.exit(2); }
 
     const god = [], todos = [], acotados = [], sinRegla = [];
     for (const u of rows) {

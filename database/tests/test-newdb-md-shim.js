@@ -34,7 +34,7 @@ const chk = (cond, msg) => { cond ? ok++ : fallos.push(msg); };
 
   if (!(await db.query(`SELECT 1 FROM pg_namespace WHERE nspname='md'`)).rows.length) {
     console.log('SKIP — no existe el esquema md; falta la migración 20260827130000 en esta DB.');
-    await db.end(); process.exit(0);
+    await db.end(); process.exit(2);
   }
 
   // Cobertura: una vista por tabla del ODS que tenga columna sucursal.
@@ -57,7 +57,7 @@ const chk = (cond, msg) => { cond ? ok++ : fallos.push(msg); };
     ORDER BY CASE c.relname WHEN 'kdm1' THEN 1 WHEN 'kdud' THEN 2 ELSE 3 END LIMIT 1`)).rows[0];
   if (!t) {
     console.log('SKIP — el shim existe pero sin kdm1/kdud/doctype; nada representativo que probar.');
-    await db.end(); process.exit(0);
+    await db.end(); process.exit(2);
   }
   const tabla = t.relname;
 

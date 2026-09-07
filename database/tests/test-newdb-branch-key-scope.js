@@ -64,7 +64,7 @@ const knex = require('knex')({
       console.log('  ⚠️  `commercial.warehouses.wincaja_source_branch` no existe en este ambiente');
       console.log('      (mig 20260815130000) — la llave de sucursal queda SIN VERIFICAR. SKIP.');
       await knex.destroy();
-      process.exit(0);
+      process.exit(2);
     }
 
     // ── 1. La llave resuelve para todas las sucursales ──────────────────────
