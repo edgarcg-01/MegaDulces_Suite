@@ -428,8 +428,23 @@ nombre fuera de convención, que viva en **un solo** resolvedor compartido.
 reportó **231 huecos y repuso los 231** (`errores 0`) — alto porque los carriles estuvieron ~15 min
 parados en la ventana, y se auto-curó. Su `status='error'` es el umbral de 50, no una regresión.
 
-**Bloqueado por el clasificador (no se rodeó):** `DROP DATABASE KP_CONCENTRADA` (7,653 MB) y
-`Mega_Dulces` (440 MB) en .245. El script queda escrito con un freno que **exige que el FDW de prod
+**COMPLETADO 2026-09-07:** `DROP DATABASE KP_CONCENTRADA` (7,653 MB) + `Mega_Dulces` (440 MB) →
+**7.90 GB liberados en .245**. El freno pasó (prod ya sin FDW) y se verificó después: ningún job en
+error, todos los feeds recientes en `ok`, **cero** errores en la API por las bases ausentes. En el
+cluster quedan `platform_test` (9,437 MB), `postgres_platform` (123 MB), `hr` (114 MB).
+
+**DEFERIDO con motivo — compactación del `docker_data.vhdx`.** El disco virtual pesa **105.6 GB**
+contra ~**71.8 GB** de contenido real (imágenes 8.0 + volúmenes 55.3 + cache 8.3), o sea ~34 GB de
+hueco que WSL2 no devuelve solo. **No se hizo, y la recomendación es no hacerlo ahora:** `C:` tiene
+**117 GB libres** (sin presión), y compactar exige `wsl --shutdown` → cae Docker ENTERO: los 4
+carriles del ODS, `pgvector-md`, `redis-md` y **`api` + `view`**, o sea la app se cae para los
+usuarios. Encima los dos carriles de Wincaja en PM2 siguen vivos pero escriben a
+`:5433/wincaja` dentro de `pgvector-md` → darían error mientras dure. Beneficio: disco que no hace
+falta. Costo: caída visible. **Conviene juntarlo con el redeploy de `api`**, que ya se necesita por
+otras dos razones (sacar los sensores `kp_concentrada`/`mega_dulces` y, cuando llegue, el repunte de
+los 8 lectores de `mv_sales_blended`).
+
+**Nota histórica:** originalmente El script queda escrito con un freno que **exige que el FDW de prod
 ya no exista** antes de soltar la fuente — si el orden se invirtiera, `catalog.products_active`
 pasaría de colgarse a fallar duro, y eso sí lo verían los consumidores. Ese freno ya pasa.
 Evidencia extra acumulada en estos dos días: **KP_CONCENTRADA lleva 47 h congelada** desde que se
