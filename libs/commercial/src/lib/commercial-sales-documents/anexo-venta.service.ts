@@ -414,8 +414,11 @@ export class AnexoVentaService {
   --accent:#8a3c06;--accent-soft:#fbf1e6;--save:#155e35}
 *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.25}
-.head{display:flex;justify-content:space-between;align-items:flex-end;gap:14px}
-.logo{height:44px;width:auto;flex:0 0 auto}
+/* El logo manda en el membrete: es la marca del documento que se le entrega al cliente. 62 px
+   es GRATIS en alto — el bloque del emisor (razón social + RFC/régimen/plaza + folio) ya hace
+   esta fila de ~72 px, así que el logo cabe dentro sin empujar nada. */
+.head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.logo{height:62px;width:auto;flex:0 0 auto}
 .hd-title{flex:1 1 auto}
 .hd-title .sub{font-size:7pt;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);font-weight:700}
 .hd-title h1{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:15pt;margin:0;line-height:1.05}
@@ -423,19 +426,23 @@ body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",
 .emisor b{display:block;color:var(--ink);font-size:9pt;font-weight:700;margin-bottom:0}
 .emisor .fl{font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .emisor .fv{font-size:10.5pt;font-weight:700;color:var(--ink)}
-.rule{height:2px;background:var(--accent);margin:5px 0 0}
-.nofiscal{display:flex;align-items:center;gap:8px;margin-top:6px;padding:3px 9px;background:var(--accent-soft);
+.rule{height:2px;background:var(--accent);margin:4px 0 0}
+.nofiscal{display:flex;align-items:center;gap:8px;margin-top:5px;padding:2px 9px;background:var(--accent-soft);
   border:1.5px solid var(--accent);border-radius:4px;color:#6d2f04;font-size:7.5pt;font-weight:600;line-height:1.25;break-inside:avoid}
 .nofiscal .badge{flex:0 0 auto;font-size:7pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
   background:var(--accent);color:#fff;padding:2px 7px;border-radius:3px}
 .info{display:flex;gap:8px;margin-top:7px}
 .box{flex:1 1 0;background:var(--soft);border:1px solid var(--line-2);border-radius:4px;padding:4px 8px;break-inside:avoid}
+/* La caja del cliente carga el domicilio, que es el único texto largo de la tira: con las tres
+   cajas iguales se partía en 3 renglones y fijaba el alto de la fila entera, mientras las otras
+   dos (fechas, tipo de documento) desperdiciaban su ancho. */
+.info>.box:first-child{flex:1.45 1 0}
 .box h4{margin:0 0 2px;font-size:7pt;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);font-weight:700}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:0 9px;font-size:8pt;margin:0;line-height:1.18}
 .kv dt{color:var(--muted);font-weight:600;white-space:nowrap}
 .kv dd{margin:0;text-align:right;font-weight:600}
 .kv dd i{font-style:normal;font-weight:600;color:var(--muted);font-size:7pt}
-.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:9px 0 3px;break-after:avoid}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:6px 0 3px;break-after:avoid}
 .sec-h h2{font-size:11pt;font-weight:700;margin:0}
 .sec-h span{font-size:8pt;color:var(--muted)}
 /* Anchos DIMENSIONADOS CON EL DATO, no a ojo: medidos sobre los 14,872 renglones de 90 días,
@@ -496,34 +503,39 @@ table.ctas td{padding:3px 10px;border-bottom:1px solid var(--line-2);white-space
 table.ctas tr:last-child td{border-bottom:0}
 table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing:.03em}
 .pago .nota{padding:3px 10px;font-size:7pt;color:var(--muted);background:var(--soft);border-top:1px solid var(--line-2);line-height:1.3}
-.disclaimer{margin-top:5px;font-size:6.5pt;color:var(--ink-2);line-height:1.3;break-inside:avoid;text-align:justify}
+.disclaimer{margin-top:4px;font-size:6.5pt;color:var(--ink-2);line-height:1.3;break-inside:avoid;text-align:justify}
 .disclaimer b{color:var(--ink)}
 /* El pagaré es UNA SECCIÓN MÁS del anexo (misma jerarquía que "¿Qué compraste?"), compacta.
    Sin membrete repetido y sin salto de página forzado: fluye tras los totales, y solo se
    mantiene ENTERA (break-inside) porque lleva firma. */
-.hoja-pagare{margin-top:9px;break-inside:avoid;page-break-inside:avoid}
+.hoja-pagare{margin-top:7px;break-inside:avoid;page-break-inside:avoid}
 .pg-sec{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 3px;break-after:avoid}
 .pg-sec h2{font-size:11pt;font-weight:700;margin:0}
 .pg-sec .ref{font-size:8pt;color:var(--muted)}
 .pg-sec .ref b{color:var(--ink);font-weight:700}
-.pg-doc{border:1px solid var(--line);border-radius:4px;padding:8px 10px}
-.pg-band{display:flex;gap:12px;margin:0 0 5px;align-items:stretch}
+.pg-doc{border:1px solid var(--line);border-radius:4px;padding:6px 10px}
+.pg-band{display:flex;gap:12px;margin:0 0 4px;align-items:stretch}
 .pg-bueno{border:1.5px solid var(--ink);border-radius:3px;padding:3px 10px;min-width:42mm}
 .pg-bueno span{display:block;font-size:6.5pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .pg-bueno b{font-size:12.5pt;font-weight:800}
 .pg-lugar{flex:1;display:flex;flex-direction:column;justify-content:center}
 .pg-lugar span{font-size:6.5pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
 .pg-lugar b{font-size:8.5pt;margin-top:1px}
-.pg-cuerpo{font-size:8.5pt;line-height:1.35;text-align:justify;margin:4px 0}
-.pg-grid{display:flex;gap:14px;margin-top:5px;padding-top:5px;border-top:1px solid var(--line)}
+.pg-cuerpo{font-size:8.5pt;line-height:1.32;text-align:justify;margin:3px 0}
+.pg-grid{display:flex;gap:14px;margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
 .pg-col{flex:1 1 0}
 .pg-col h5{margin:0 0 2px;font-size:6.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
-.pg-kv{display:grid;grid-template-columns:auto 1fr;gap:1px 9px;font-size:7.5pt;margin:0;line-height:1.22}
+.pg-kv{display:grid;grid-template-columns:auto 1fr;gap:0 9px;font-size:7.5pt;margin:0;line-height:1.18}
 .pg-kv dt{color:var(--muted);font-weight:600;white-space:nowrap}.pg-kv dd{margin:0;font-weight:600}
-.pg-firma{margin:7mm auto 1px;width:62mm;text-align:center}
+.pg-acepto{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
+.pg-acepto h5{margin:0;font-size:7pt;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:800}
+/* 8 mm de aire sobre la raya: espacio real para firmar a mano sin gastar media hoja. */
+.pg-firmas{display:flex;gap:16px;justify-content:space-around;margin-top:7mm}
+.pg-firma{flex:0 1 66mm;text-align:center}
 .pg-firma .linea{border-bottom:1px solid var(--ink);height:1px}
 .pg-firma .rot{font-size:7pt;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-top:4px}
 .pg-firma .rot2{font-size:8.5pt;font-weight:700;margin-top:1px}
+.pg-firma .rot2.vacio{color:var(--muted);font-weight:600}
 </style>
 
 <!-- Membrete y título en UNA fila. Eran dos bloques apilados (logo+emisor, luego título+folio)
@@ -602,10 +614,12 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
   </div>
 </div>
 
+<!-- El aviso de "no es comprobante fiscal" ya va ARRIBA, en la banda con borde: repetirlo acá
+     era decir dos veces lo mismo en la misma hoja. Queda sólo lo que no está en otro lado. -->
 <p class="disclaimer"><b>Cómo leer estos importes.</b> Todos son <b>finales</b>: ya incluyen el IEPS
   (${this.m(doc.ieps)} en este documento) y llevan IVA 0%. Tu CFDI ampara el mismo total, con el desglose que
-  pide el SAT (base, traslados y descuento por separado). <b>Éste es un anexo informativo, no un comprobante
-  fiscal.</b> Las unidades y la equivalencia de bulto son las registradas en el catálogo del sistema.</p>
+  pide el SAT (base, traslados y descuento por separado). Las unidades y la equivalencia de bulto son las
+  registradas en el catálogo del sistema.</p>
 ${opts.pagare ? this.pagare(doc, EMISOR) : ''}`;
   }
 
@@ -653,8 +667,21 @@ ${opts.pagare ? this.pagare(doc, EMISOR) : ''}`;
         <dt>Importe</dt><dd>${this.m(total)}</dd>
       </dl></div>
     </div>
-    <div class="pg-firma"><div class="linea"></div>
-      <div class="rot">Firma del suscriptor</div><div class="rot2">${this.esc(doc.cliente_nombre)}</div></div>
+    <!-- Apartado ACEPTAMOS: es el bloque de aceptación del título. Va en plural porque el
+         pagaré admite DOS firmantes — el suscriptor (deudor) y, si lo hay, el aval u obligado
+         solidario (LGTOC 109-116: el aval responde igual que el avalado). La línea del aval va
+         en blanco a propósito: se llena a mano cuando hay uno, y vacía no obliga a nadie. -->
+    <div class="pg-acepto">
+      <h5>Aceptamos</h5>
+      <div class="pg-firmas">
+        <div class="pg-firma"><div class="linea"></div>
+          <div class="rot">Firma del suscriptor (deudor)</div>
+          <div class="rot2">${this.esc(doc.cliente_nombre)}</div></div>
+        <div class="pg-firma"><div class="linea"></div>
+          <div class="rot">Aval u obligado solidario</div>
+          <div class="rot2 vacio">Nombre y firma</div></div>
+      </div>
+    </div>
   </div>
 </section>`;
   }
