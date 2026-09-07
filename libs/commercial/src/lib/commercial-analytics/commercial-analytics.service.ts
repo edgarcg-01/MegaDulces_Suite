@@ -486,6 +486,32 @@ export interface SellOutExplainReport {
   generated_at: string;
 }
 
+// ─── BI.6 "Radar" (anomalías proactivas) ─────────────────────────────────────
+// Cada miembro contra SU PROPIO promedio de los meses previos (baseline), no solo
+// vs el mes pasado. Surface lo raro sin que el usuario pregunte. Solo meses cerrados.
+export interface SelloutAnomaliesQuery {
+  month?: string;   // 'YYYY-MM' (default: último mes cerrado)
+  dim?: string;     // brand | branch | channel (default brand)
+  lookback?: number; // meses de baseline (default 3)
+}
+export interface SelloutAnomaly {
+  key: string;
+  label: string;
+  current: number;
+  baseline: number;
+  deviation: number;
+  deviation_pct: number | null;
+  kind: 'caida' | 'pico' | 'perdido' | 'nuevo';
+  reason: string;
+}
+export interface SelloutAnomaliesReport {
+  month: string;
+  baseline_months: string[];
+  dim: SellOutExplainDim;
+  anomalies: SelloutAnomaly[];
+  generated_at: string;
+}
+
 export interface SellOutBrandRow {
   id: string;
   nombre: string;
@@ -3735,6 +3761,77 @@ export class CommercialAnalyticsService {
         freshness,
         generated_at: new Date().toISOString(),
       };
+    });
+  }
+
+  // ─── BI.6 "Radar" ───────────────────────────────────────────────────────────
+  private selloutMonthMinus(ym: string, n: number): string {
+    const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const idx = y * 12 + (m - 1) - n;
+    return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Anomalías: por cada miembro (empresa/sucursal/canal), su venta del mes objetivo vs su
+   * PROPIO promedio de los `lookback` meses previos. Surface caídas/picos/perdidos/nuevos con
+   * materialidad mínima para no gritar por ruido. Solo meses cerrados (rollup). Cero heurística
+   * del LLM: umbrales fijos, deterministas.
+   */
+  async selloutAnomalies(q: SelloutAnomaliesQuery): Promise<SelloutAnomaliesReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const lookback = Math.min(6, Math.max(1, Number(q.lookback) || 3));
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    const lastClosed = this.selloutMonthMinus(openYm, 1);
+    let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : lastClosed;
+    if (month >= openYm) month = lastClosed; // el mes en curso es parcial → no se juzga
+    const baselineMonths: string[] = [];
+    for (let i = 1; i <= lookback; i++) baselineMonths.push(this.selloutMonthMinus(month, i));
+    const months = [month, ...baselineMonths];
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    return this.tk.run(async (trx) => {
+      const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
+      const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).whereIn('s.year_month', months)
+        .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), 's.year_month', trx.raw('SUM(s.monto)::numeric as monto'))
+        .groupByRaw(`COALESCE(${keyExpr}::text, '__none__'), s.year_month`);
+
+      const mem = new Map<string, { label: string | null; by: Record<string, number> }>();
+      for (const r of rows) {
+        const e = mem.get(r.k) || { label: null, by: {} };
+        e.by[r.year_month] = Number(r.monto) || 0;
+        if (!e.label && r.label) e.label = r.label;
+        mem.set(r.k, e);
+      }
+
+      const R = (n: number) => Math.round(n);
+      const fmt = (n: number) => '$' + R(n).toLocaleString('en-US');
+      const anomalies: SelloutAnomaly[] = [];
+      for (const [k, e] of mem) {
+        if (k === '__none__') continue;
+        const current = e.by[month] || 0;
+        const baseline = baselineMonths.reduce((a, m) => a + (e.by[m] || 0), 0) / baselineMonths.length;
+        const deviation = current - baseline;
+        const dpct = baseline > 0 ? deviation / baseline : null;
+        const label = this.explainDimLabel(dim, k, e.label);
+        let kind: SelloutAnomaly['kind'] | null = null;
+        let reason = '';
+        // Baseline < $5k = sin historial real: el % es ruido (un baseline de $8 da "+1166763%").
+        // Se juzga como aparición ("nuevo"), no como pico. El pico/caída exige baseline material.
+        if (baseline >= 50000 && current === 0) {
+          kind = 'perdido'; reason = `Dejó de vender (promedio ${fmt(baseline)} en ${lookback}m).`;
+        } else if (baseline < 5000 && current >= 100000) {
+          kind = 'nuevo'; reason = `Nuevo: ${fmt(current)} sin historial en ${lookback}m.`;
+        } else if (baseline >= 5000 && dpct !== null && Math.abs(dpct) >= 0.35 && Math.abs(deviation) >= 50000) {
+          kind = deviation < 0 ? 'caida' : 'pico';
+          reason = `${deviation < 0 ? 'Cayó' : 'Subió'} ${Math.abs(dpct * 100).toFixed(0)}% vs su promedio (${fmt(baseline)} → ${fmt(current)}).`;
+        }
+        if (kind) anomalies.push({ key: k, label, current: R(current), baseline: R(baseline), deviation: R(deviation), deviation_pct: dpct == null ? null : Number((dpct * 100).toFixed(1)), kind, reason });
+      }
+      anomalies.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
+      return { month, baseline_months: baselineMonths, dim, anomalies: anomalies.slice(0, 12), generated_at: new Date().toISOString() };
     });
   }
 

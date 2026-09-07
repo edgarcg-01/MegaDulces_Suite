@@ -1346,6 +1346,15 @@ export class ComercialService {
     return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
   }
 
+  /** BI.6 — Radar: anomalías del sell-out (cada miembro vs su propio promedio). */
+  sellOutAnomalies(opts: { month?: string; dim?: string; lookback?: number }) {
+    let params = new HttpParams();
+    if (opts.month) params = params.set('month', opts.month);
+    if (opts.dim) params = params.set('dim', opts.dim);
+    if (opts.lookback) params = params.set('lookback', String(opts.lookback));
+    return this.http.get<SelloutAnomaliesReport>(`${this.base}/analytics/sell-out/anomalies`, { params });
+  }
+
   /** BI.5 — Pregúntale al Sell-Out: pregunta en lenguaje natural, respuesta con números de la DB. */
   sellOutAsk(body: { message: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
     return this.http.post<SelloutChatResult>(`${this.base}/analytics/sell-out/ask`, body);
@@ -1974,6 +1983,25 @@ export interface SellOutExplainReport {
   otros: { count: number; delta: number };
   narrative: string;
   freshness: Freshness;
+  generated_at: string;
+}
+
+// ─── BI.6 "Radar" ───
+export interface SelloutAnomaly {
+  key: string;
+  label: string;
+  current: number;
+  baseline: number;
+  deviation: number;
+  deviation_pct: number | null;
+  kind: 'caida' | 'pico' | 'perdido' | 'nuevo';
+  reason: string;
+}
+export interface SelloutAnomaliesReport {
+  month: string;
+  baseline_months: string[];
+  dim: SellOutExplainDim;
+  anomalies: SelloutAnomaly[];
   generated_at: string;
 }
 

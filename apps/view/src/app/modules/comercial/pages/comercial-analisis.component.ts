@@ -16,6 +16,7 @@ import {
   SellOutMover,
   SellOutExplainParams,
   SelloutChatBlock,
+  SelloutAnomaliesReport,
 } from '../comercial.service';
 
 interface ChatMsg {
@@ -151,6 +152,29 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
         </section>
       }
 
+      @if (radar(); as rd) {
+        @if (rd.anomalies.length) {
+          <section class="an-radar card-premium">
+            <header class="an-radar-head">
+              <h2><i class="pi pi-bell"></i> Radar</h2>
+              <span class="an-sub">Lo que se movió raro en {{ rd.month }} vs su propio promedio ({{ rd.baseline_months.length }}m). Sin que preguntes.</span>
+            </header>
+            <ul class="an-radar-list">
+              @for (a of rd.anomalies; track a.key) {
+                <li [class]="'k-' + a.kind">
+                  <i [class]="radarIcon(a.kind)"></i>
+                  <div class="an-radar-txt">
+                    <strong>{{ a.label }}</strong>
+                    <span>{{ a.reason }}</span>
+                  </div>
+                  <span class="an-radar-dev" [class.up]="a.deviation > 0" [class.down]="a.deviation < 0">{{ signed(a.deviation) }}</span>
+                </li>
+              }
+            </ul>
+          </section>
+        }
+      }
+
       <section class="an-chat card-premium">
         <header class="an-chat-head">
           <h2><i class="pi pi-comments"></i> Pregúntale al Sell-Out</h2>
@@ -203,14 +227,6 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
         </div>
       </section>
 
-      <section class="an-grid">
-        <article class="an-card">
-          <i class="pi pi-bell"></i>
-          <h3>Radar</h3>
-          <p>El tablero te avisa qué se movió raro sin que preguntes: caídas contra el promedio, marcas que aparecen o desaparecen.</p>
-          <span class="an-soon">Próximamente · BI.6</span>
-        </article>
-      </section>
     </div>
   `,
   styles: [`
@@ -259,6 +275,19 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-card h3 { margin: 0; font-size: 1rem; }
     .an-card p { margin: 0; font-size: .85rem; color: var(--text-muted); line-height: 1.45; }
     .an-soon { margin-top: auto; font-size: .72rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); opacity: .8; }
+    .an-radar { padding: 1.25rem 1.5rem; margin-top: 1.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
+    .an-radar-head h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: .5rem; }
+    .an-radar-list { list-style: none; margin: 1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+    .an-radar-list li { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: .75rem; padding: .55rem .7rem; border: 1px solid var(--border-color); border-radius: 10px; }
+    .an-radar-list li > i { font-size: 1.05rem; }
+    .an-radar-list li.k-caida > i, .an-radar-list li.k-perdido > i { color: var(--danger-fg, #c0392b); }
+    .an-radar-list li.k-pico > i, .an-radar-list li.k-nuevo > i { color: var(--success-fg, #2e7d32); }
+    .an-radar-txt { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+    .an-radar-txt strong { font-size: .92rem; }
+    .an-radar-txt span { font-size: .82rem; color: var(--text-muted); }
+    .an-radar-dev { font-variant-numeric: tabular-nums; font-weight: 600; font-size: .9rem; }
+    .an-radar-dev.up { color: var(--success-fg, #2e7d32); }
+    .an-radar-dev.down { color: var(--danger-fg, #c0392b); }
     .an-chat { padding: 1.25rem 1.5rem; margin-top: 1.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
     .an-chat-head h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: .5rem; }
     .an-chat-body { margin: 1rem 0; display: flex; flex-direction: column; gap: .85rem; max-height: 440px; overflow-y: auto; }
@@ -293,7 +322,12 @@ export class ComercialAnalisisComponent {
   readonly compare = signal<SellOutExplainCompare>('prev');
   readonly report = signal<SellOutReport | null>(null);
   readonly explain = signal<SellOutExplainReport | null>(null);
+  readonly radar = signal<SelloutAnomaliesReport | null>(null);
   readonly loading = signal(false);
+
+  radarIcon(kind: string): string {
+    return kind === 'perdido' ? 'pi pi-times-circle' : kind === 'nuevo' ? 'pi pi-star' : kind === 'pico' ? 'pi pi-arrow-up-right' : 'pi pi-arrow-down-right';
+  }
 
   private readonly fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
@@ -327,13 +361,15 @@ export class ComercialAnalisisComponent {
     forkJoin({
       report: this.svc.sellOut({ from, to }),
       explain: this.svc.sellOutExplain({ from, to, dim: this.dim(), compare: this.compare() }),
+      radar: this.svc.sellOutAnomalies({ month: from.slice(0, 7), dim: 'brand' }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ report, explain }) => {
+        next: ({ report, explain, radar }) => {
           this.report.set(report);
           this.drill.set(null);
           this.explain.set(explain);
+          this.radar.set(radar);
           this.loading.set(false);
         },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo generar el análisis' }); },

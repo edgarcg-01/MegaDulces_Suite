@@ -3,7 +3,7 @@
 > Propuesta 2026-09-07 · hereda [`FASE_RS`](../01_TRACKER_PROGRESO.md) (sell-out), [`FASE_AX`](FASE_AX_ANEXO_VENTA.md)
 > (drill a factura) y [`FASE_VP`](FASE_VP_VERDAD_Y_PROCEDENCIA.md) (ADR-056: el número declara con qué se calculó).
 >
-> **Estado: BI.0 ✅ (permiso en prod+.245, `17b7e07a`) · BI.3 🔨 (`961c95db`) · BI.5 🔨 (`7475fc7a`) · BI.2 🔨 EN CÓDIGO (drill navegable en Explica el cambio) · BI.1/BI.4/BI.6–BI.9 ⬜ DISEÑADO.**
+> **Estado: BI.0 ✅ (permiso en prod+.245, `17b7e07a`) · BI.3 🔨 (`961c95db`) · BI.5 🔨 (`7475fc7a`) · BI.2 🔨 (`1185f573`) · BI.6 🔨 EN CÓDIGO (Radar de anomalías) · BI.1/BI.4/BI.7–BI.9 ⬜ DISEÑADO.**
 > Pendiente prod: redeploy view/api (Edgar) + re-login + `ANTHROPIC_API_KEY` en Railway (BI.5 degrada limpio sin ella).
 > BI.3 verificado (read-only): invariante Σcontrib==Δtotal exacto (ago vs jul 2026, −$1,058,992). BI.5 tools verificadas
 > (total agosto $53,838,718 == universo del reporte; cero números del LLM). Builds view+api verdes.

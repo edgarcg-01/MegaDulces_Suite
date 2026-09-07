@@ -681,6 +681,14 @@ export class CommercialAnalyticsController {
     });
   }
 
+  // ─────────── BI.6 — "Radar": anomalias proactivas ───────────
+  @Get('sell-out/anomalies')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.6 — Radar: anomalias del sell-out (cada miembro vs su propio promedio). Params: month=YYYY-MM, dim=brand|branch|channel, lookback.' })
+  sellOutAnomalies(@Query('month') month?: string, @Query('dim') dim?: string, @Query('lookback') lookback?: string) {
+    return this.service.selloutAnomalies({ month, dim, lookback: lookback ? Number(lookback) : undefined });
+  }
+
   // ─────────── BI.5 — "Preguntale al Sell-Out" (chat tool-use, cero numeros del LLM) ───────────
   @Post('sell-out/ask')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
