@@ -92,31 +92,45 @@ export class CommercialSalesDocumentsService {
     return b;
   }
 
-  /** Listado paginado + KPIs de la MISMA selección. */
+  /**
+   * Listado paginado + KPIs de la MISMA selección.
+   *
+   * ⚠️ La página va envuelta en un CTE **MATERIALIZED** y se ordena y recorta AFUERA. No es
+   * cosmético: medido en prod, `ORDER BY … LIMIT 50` directo sobre la vista costaba **23,856 ms**
+   * y así cuesta **970 ms** — 24× — y se mantiene en 959 ms en la última página.
+   * El motivo es el `LIMIT`: invita al planner a un nested loop que **re-escanea el CTE `src` de
+   * la cartera (14,623 filas, en disco) una vez por fila devuelta** (`loops=50` en el EXPLAIN).
+   * Con la selección materializada primero, elige hash join —igual que en `kpis()`, que por ser
+   * agregado nunca tuvo el problema (791 ms)— y luego ordena 738 filas ya resueltas.
+   * Si alguien "simplifica" esto quitando el CTE, la pantalla vuelve a tardar 24 segundos.
+   */
   async list(q: SalesDocsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(MAX_PAGE, Math.max(1, Number(q.pageSize) || 50));
 
     return this.tk.run(async (trx) => {
+      const seleccion = this.base(trx, tenantId, q)
+        .select(
+          'i.folio_digital', 'i.sucursal', 'i.warehouse_id', 'i.doc_prefix', 'i.doc_tipo', 'i.doc_label',
+          'i.folio', 'i.fecha', 'i.vencimiento', 'i.dias_credito', 'i.limite_credito',
+          'i.cliente_code', 'i.cliente_nombre', 'i.cliente_rfc',
+          'i.vendedor_code', 'i.vendedor_nombre', 'i.canal', 'i.referencia',
+          'i.total', 'i.ieps', 'i.descuento', 'i.descuento_pct', 'i.subtotal',
+          'i.doc_estatus', 'i.doc_estatus_label', 'i.cancelada',
+          'i.importe_bruto', 'i.descuento_efectivo',
+          'i.saldo', 'i.cobrado', 'i.estatus_cobro', 'i.dias_pago',
+          'i.vencimiento_erp', 'i.vencimiento_source',
+          // Vencida = venció Y debe. Sin saldo, la fecha ya no significa nada.
+          trx.raw(`(i.vencimiento < current_date
+                    AND i.estatus_cobro IN ('pendiente','parcial')) AS vencida`),
+          trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
+        );
+
       const [rows, kpis] = await Promise.all([
-        this.base(trx, tenantId, q)
-          .select(
-            'i.folio_digital', 'i.sucursal', 'i.warehouse_id', 'i.doc_prefix', 'i.doc_tipo', 'i.doc_label',
-            'i.folio', 'i.fecha', 'i.vencimiento', 'i.dias_credito', 'i.limite_credito',
-            'i.cliente_code', 'i.cliente_nombre', 'i.cliente_rfc',
-            'i.vendedor_code', 'i.vendedor_nombre', 'i.canal', 'i.referencia',
-            'i.total', 'i.ieps', 'i.descuento', 'i.descuento_pct', 'i.subtotal',
-            'i.doc_estatus', 'i.doc_estatus_label', 'i.cancelada',
-            'i.importe_bruto', 'i.descuento_efectivo',
-            'i.saldo', 'i.cobrado', 'i.estatus_cobro', 'i.dias_pago',
-            'i.vencimiento_erp', 'i.vencimiento_source',
-            // Vencida = venció Y debe. Sin saldo, la fecha ya no significa nada.
-            trx.raw(`(i.vencimiento < current_date
-                      AND i.estatus_cobro IN ('pendiente','parcial')) AS vencida`),
-            trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
-          )
-          .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.folio', order: 'desc' }])
+        trx.withMaterialized('sel', seleccion)
+          .select('*').from('sel')
+          .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
           .limit(pageSize).offset((page - 1) * pageSize),
         this.base(trx, tenantId, q)
           .select(
@@ -307,24 +321,42 @@ export class CommercialSalesDocumentsService {
     };
   }
 
-  /** Catálogos para poblar los filtros de la pantalla (de la misma ventana consultada). */
+  /**
+   * Catálogos para poblar los filtros de la pantalla (de la misma ventana consultada).
+   *
+   * ⚠️ Un solo query, con la ventana materializada primero — por la misma razón que `list()`.
+   * Medido en prod: el `DISTINCT warehouse_id, sucursal` directo sobre la vista costaba
+   * **10,853 ms** (el planner recorría el CTE de la cartera por cada fila del join a
+   * `commercial.warehouses`) y así cuesta **430 ms**, los dos catálogos juntos.
+   * Se piden en UNA pasada porque el trabajo caro —resolver la ventana— es el mismo para ambos.
+   */
   async filtros(q: SalesDocsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     return this.tk.run(async (trx) => {
-      const [vendedores, sucursales] = await Promise.all([
-        trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
-          .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
-          .andWhere('doc_tipo', 'telemarketing')
-          .whereNotNull('vendedor_code')
-          .distinct('vendedor_code', 'vendedor_nombre').orderBy('vendedor_nombre'),
-        trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
-          .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
-          .andWhere('doc_tipo', 'telemarketing')
-          .whereNotNull('warehouse_id')
-          .distinct('warehouse_id', 'sucursal').orderBy('sucursal'),
-      ]);
-      return { vendedores, sucursales, doc_tipos: DOC_TIPOS };
+      const ventana = trx('analytics.erp_sales_invoices')
+        .where('tenant_id', tenantId)
+        .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+        .andWhere('doc_tipo', 'telemarketing')
+        .select('warehouse_id', 'sucursal', 'vendedor_code', 'vendedor_nombre');
+
+      const r = await trx.withMaterialized('sel', ventana)
+        .select(
+          trx.raw(`(SELECT coalesce(jsonb_agg(x ORDER BY x->>'vendedor_nombre'), '[]'::jsonb) FROM (
+                      SELECT DISTINCT jsonb_build_object(
+                        'vendedor_code', vendedor_code, 'vendedor_nombre', vendedor_nombre) AS x
+                      FROM sel WHERE vendedor_code IS NOT NULL) v) AS vendedores`),
+          trx.raw(`(SELECT coalesce(jsonb_agg(x ORDER BY x->>'sucursal'), '[]'::jsonb) FROM (
+                      SELECT DISTINCT jsonb_build_object(
+                        'warehouse_id', warehouse_id, 'sucursal', sucursal) AS x
+                      FROM sel WHERE warehouse_id IS NOT NULL) s) AS sucursales`),
+        ).first();
+
+      return {
+        vendedores: r?.vendedores || [],
+        sucursales: r?.sucursales || [],
+        doc_tipos: DOC_TIPOS,
+      };
     });
   }
 }

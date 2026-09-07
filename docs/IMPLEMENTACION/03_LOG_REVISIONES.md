@@ -106,7 +106,25 @@ sale por el `SKIP` sin ejecutar una sola aserción: **un test que se salta solo 
 un test que pasa**. Verificado que no es regresión de AX.9 (se cuelga donde este cambio no está
 aplicado). Arreglarlo es otro sprint: acotar la ventana cambiaría lo que el candado mide.
 
-**Estado:** 2 migraciones + 2 smokes (5/5 y 13/13) + builds api y view verdes, todo en el `.245`.
+### En prod (2026-09-07): aplicada, y la trampa que sólo se vio ahí
+
+Las 2 migraciones aplicadas por nombre (batch 288 y 289, 6 s y 3 s), sin arrastrar ninguna de las
+9 pendientes ajenas. Paridad 6/6 en modo REGRESION, cobranza 13/13. **A 90 días, el KPIviejo
+contaba 366 facturas por $2,819,231.67 como vencidas estando ya cobradas** (928 → 553).
+
+⚠️ **La pantalla tardaba 24 segundos, y en el `.245` no se veía.** El `LEFT JOIN` a la cartera es
+inocuo hasta que aparece un `LIMIT`: ahí el planner elige nested loop y **re-escanea el CTE de la
+cartera —14,623 filas, en disco— una vez por fila devuelta** (`loops=50`). `list()` 23,856 ms y
+`filtros()` 10,853 ms. Arreglado materializando la selección antes de ordenar y recortar:
+**970 ms** y **418 ms**, y la última página cuesta igual que la primera.
+
+**La lección es sobre cómo medí, no sobre el planner:** yo había medido "la lista de 30 días" con
+un `count(*)` y con un `SELECT … LIMIT 50` sin `ORDER BY`, y daba ~880 ms. La consulta REAL del
+service —con su `ORDER BY fecha DESC, folio DESC` y su `LIMIT`— es la que se iba a 24 s. Una
+medición "parecida" a la de producción es una medición que se pone verde y publica una pantalla
+inusable: hay que ejecutar **la consulta que el service arma**, contra la DB donde va a correr.
+
+**Estado:** 2 migraciones **aplicadas en prod** (batch 288/289) + 2 smokes (6/6 y 13/13 contra prod) + builds api y view verdes.
 **Pendiente prod:** aplicar las 2 migraciones, redeploy api+view (sin permisos nuevos → **sin
 re-login**) y **medir ahí el tiempo de la pantalla**. Detalle en
 [`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
