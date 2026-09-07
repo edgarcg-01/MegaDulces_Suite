@@ -45,7 +45,7 @@ const gate = async (trx, sucursal, folio, delta) => {
     const e = (await knex.raw(
       `SELECT sucursal, folio, proveedor_code FROM analytics.erp_goods_receipts
         WHERE tenant_id = ? AND dup_of_folio IS NULL AND receipt_date >= '2026-08-01' LIMIT 1`, [T])).rows[0];
-    if (!e) { console.log('  ⚠️  sin entradas del carril vivo — SKIP'); process.exit(0); }
+    if (!e) { console.log('  ⚠️  sin entradas del carril vivo — SKIP'); process.exit(2); }
     console.log(`\n  entrada de prueba: ${e.sucursal}/${e.folio}\n`);
 
     await knex.transaction(async (trx) => {

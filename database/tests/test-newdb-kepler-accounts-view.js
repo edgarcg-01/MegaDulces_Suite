@@ -34,11 +34,11 @@ const norm = (v) => (v === null || v === undefined ? '' : String(v).trim());
   const rk = (await db.query(`SELECT relkind FROM pg_class WHERE oid = to_regclass('finance.kepler_accounts')`)).rows[0];
   if (!rk) {
     console.log('SKIP — finance.kepler_accounts no existe en esta DB.');
-    await db.end(); process.exit(0);
+    await db.end(); process.exit(2);
   }
   if (rk.relkind !== 'v') {
     console.log(`SKIP — todavía es '${rk.relkind}', falta la migración 20260826190000 en esta DB.`);
-    await db.end(); process.exit(0);
+    await db.end(); process.exit(2);
   }
   chk(true, '');
   console.log('  relkind = v (vista)');

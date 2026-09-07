@@ -34,7 +34,7 @@ const estado = async (trx, suc, folio) => {
   const e = (await knex.raw(
     `SELECT sucursal, folio, monto::numeric FROM analytics.erp_goods_receipts
       WHERE tenant_id=? AND dup_of_folio IS NULL AND receipt_date>='2026-08-01' LIMIT 1`, [T])).rows[0];
-  if (!e) { console.log('SKIP sin entradas'); process.exit(0); }
+  if (!e) { console.log('SKIP sin entradas'); process.exit(2); }
   console.log(`\nCiclo de vida de la evidencia — entrada ${e.sucursal}/${e.folio}\n`);
 
   await knex.transaction(async (trx) => {

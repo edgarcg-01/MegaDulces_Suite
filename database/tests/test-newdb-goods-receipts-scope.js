@@ -69,7 +69,7 @@ const BASE = `
     const nTotal = Number((await c.query(`SELECT count(*)::int n ${AL_DIA}`, [TENANT])).rows[0].n);
     if (nTotal === 0) {
       console.log('  ⚠️  SKIP — sin entradas desde el arranque (feed no cargado). El wiring lo cubre el build.');
-      await c.end(); process.exit(0);
+      await c.end(); process.exit(2);
     }
     console.log(`  ${nTotal} entradas en el carril "al día"\n`);
 

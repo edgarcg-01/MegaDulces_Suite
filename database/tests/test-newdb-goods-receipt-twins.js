@@ -46,7 +46,7 @@ const one = async (sql, p = []) => (await knex.raw(sql, p)).rows[0];
             count(*) FILTER (WHERE status IN ('auto','confirmado'))::int vigentes,
             count(*) FILTER (WHERE status='propuesto')::int propuestos
        FROM analytics.erp_goods_receipt_dedup WHERE tenant_id=?`, [T]);
-  if (!tot.n) { console.log('  SKIP sin pares detectados — corré detect-goods-receipt-duplicates.js --apply'); process.exit(0); }
+  if (!tot.n) { console.log('  SKIP sin pares detectados — corré detect-goods-receipt-duplicates.js --apply'); process.exit(2); }
   console.log(`  (${tot.n} pares: ${tot.vigentes} vigentes · ${tot.propuestos} por dictaminar)\n`);
 
   // ── 1. Sólo lo vigente oculta ────────────────────────────────────────────

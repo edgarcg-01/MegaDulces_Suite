@@ -33,7 +33,7 @@ const clasifica = (doctype, nLineas) =>
   try {
     const existe = (await knex.raw(
       `SELECT to_regclass('analytics.erp_purchase_adjustment_lines') AS t`)).rows[0]?.t;
-    if (!existe) { console.log('  ⚠️  sin la vista de renglones (¿migración pendiente?) — SKIP'); process.exit(0); }
+    if (!existe) { console.log('  ⚠️  sin la vista de renglones (¿migración pendiente?) — SKIP'); process.exit(2); }
 
     const kind = (await knex.raw(
       `SELECT relkind FROM pg_class WHERE oid = to_regclass('analytics.erp_purchase_adjustment_lines')`)).rows[0].relkind;
