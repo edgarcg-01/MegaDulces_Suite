@@ -26,6 +26,12 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_BANK_VER,
   },
   {
+    label: 'Cancelados',
+    route: '/finanzas/cancelados',
+    icon: 'pi pi-ban',
+    permission: Permission.FINANCE_BANK_VER,
+  },
+  {
     label: 'Cobranza',
     route: '/finanzas/cobranza',
     icon: 'pi pi-money-bill',

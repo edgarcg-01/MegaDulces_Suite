@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Aprendizaje L1: baselines por sujeto (BaselineLearnerService).
@@ -33,8 +37,9 @@ export class BaselineLearnerService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /**
@@ -122,8 +127,9 @@ export class BaselineLearnerService {
   /** Baselines para el panel L7 (lo "normal" aprendido por sujeto). */
   async list(filters: { subject_type?: string; metric?: string }, user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.execution_baselines').select('*');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.execution_baselines')
+      .select('*')
+      .where('tenant_id', tenantId);
     if (filters.subject_type) q = q.where('subject_type', filters.subject_type);
     if (filters.metric) q = q.where('metric', filters.metric);
     q = q.orderBy('floor_met', 'desc').orderBy('n_obs', 'desc');

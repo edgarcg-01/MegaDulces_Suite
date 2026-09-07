@@ -1,13 +1,15 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
 import { ReportsGateway, EventsService } from './events.service';
 
 @Module({
   imports: [
     JwtModule.register({
       global: true,
-      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
-      signOptions: { expiresIn: '12h' },
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: '12h', algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
     }),
   ],
   providers: [ReportsGateway, EventsService],

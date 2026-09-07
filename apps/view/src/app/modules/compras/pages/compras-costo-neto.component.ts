@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
@@ -28,15 +28,15 @@ import { ComprasService, LandedCostResponse } from '../compras.service';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
-    CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
+    CommonModule, FormsModule, RouterLink, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, CheckboxModule, SelectModule, DatePickerModule, SkeletonModule, MetricStripComponent, ContextHelpComponent,
   ],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Costo neto por proveedor <app-context-help topic="compras-costo-neto" /></h1>
-          <p class="surf-page-sub">Tu costo REAL con cada proveedor = compras − descuentos efectivos (pronto pago + notas comerciales). El reabasto debería decidirse con este costo, no con el de lista.</p>
+          <h1 style="display:inline-flex;align-items:center;gap:.4rem">Costo por proveedor <app-context-help topic="compras-costo-neto" /></h1>
+          <p class="surf-page-sub">Tu <strong>costo neto</strong> con cada proveedor = compras − descuentos efectivos (pronto pago + notas comerciales). El reabasto debería decidirse con este costo, no con el de lista. Compra por compra, en <a routerLink="/compras/compras-360">Costo por compra</a>.</p>
         </div>
         <div class="cn-head-actions">
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>

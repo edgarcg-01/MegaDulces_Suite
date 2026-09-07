@@ -20,6 +20,7 @@ export * from './lib/tenant/tenant.module';
 export * from './lib/tenant/tenant-context.service';
 export * from './lib/tenant/tenant-context.interceptor';
 export * from './lib/tenant/legacy-tx.als';
+export * from './lib/tenant/require-tenant';
 
 // ── cache (tenant-aware) ──
 export * from './lib/cache/tenant-cache.service';
@@ -27,14 +28,14 @@ export * from './lib/cache/tenant-cache.module';
 
 // ── ability / permisos ──
 export * from './lib/ability/ability.module';
-export * from './lib/ability/ability.factory';
-export * from './lib/ability/ability.types';
+export * from './lib/ability/platform-admin';
 export * from './lib/ability/data-scope';
 export * from './lib/ability/permissions-cache.service';
 
 // ── auth ──
 export * from './lib/auth/jwt-auth.guard';
 export * from './lib/auth/public.decorator';
+export * from './lib/auth/jwt-secret';
 
 // ── guards ──
 export * from './lib/guards/require-auth.guard';
@@ -62,9 +63,19 @@ export * from './lib/storage/object-storage.service';
 
 // ── constants / schemas / date ──
 export * from './lib/constants/permissions';
+export * from './lib/constants/branches';
 export * from './lib/schemas/jsonb-schemas';
 export * from './lib/date/mx-date';
 export * from './lib/phone/mx-phone';
 
+// ── scope (alcance de datos — ADR-050) ──
+export * from './lib/scope/scope.module';
+export * from './lib/scope/scope.service';
+export * from './lib/scope/scope.types';
+export * from './lib/scope/scope-params';
+
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';
+
+// ── pipes (validacion Zod del boundary — ADR-052) ──
+export * from './lib/pipes/zod-validation.pipe';

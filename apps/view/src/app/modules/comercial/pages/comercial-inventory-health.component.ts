@@ -9,9 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryHealthResponse, Warehouse } from '../comercial.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 
 /**
  * KV.5 — Salud de inventario: días de cobertura (stock ÷ velocidad de venta 90d)
@@ -20,13 +18,12 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-inventory-health',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -96,7 +93,6 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialInventoryHealthComponent {
-  readonly tabs = INV_ANALYTICS_TABS;
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

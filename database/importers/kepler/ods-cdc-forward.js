@@ -101,8 +101,38 @@ async function drainBranch(code) {
   finally { await c.end().catch(() => {}); }
 }
 
+/**
+ * [OBS.1.2] ⛔ RETIRADO — es el forwarder del approach por TRIGGERS, que se abandonó.
+ *
+ * `FASE_CDC_ODS_LOGICAL.md` §Limpieza ya lo listaba como "el forwarder por triggers del approach
+ * ABANDONADO". El CDC vivo decodifica el WAL (`ods-cdc-wal.js`); el carril de respaldo es
+ * `replicate-ods-live.js`. Éste además **no late**: shipearía a prod sin que el tablero lo vea, que
+ * es la forma exacta del incidente del 2026-08-27.
+ *
+ * No se le puso latido a propósito: instrumentar código abandonado lo revive de hecho, y
+ * registrarlo en `CRON_JOBS` lo dejaría en crítico permanente por no correr nunca.
+ *
+ * Verificado 2026-09-02: no corre en la box y ningún lanzador lo invoca.
+ */
+const RETIRO_OK = process.env.ODS_CDC_FWD_RETIRED_OK === '1' || process.argv.includes('--si-se-que-esta-retirado');
+if (APPLY && !RETIRO_OK) {
+  console.error([
+    '',
+    '⛔ ods-cdc-forward está RETIRADO: es el forwarder por triggers del approach abandonado.',
+    '   No reporta a analytics.cron_runs → shipearía sin que db-health lo vea.',
+    '',
+    '   El CDC vivo es ods-cdc-wal.js (decodifica el WAL); el respaldo, replicate-ods-live.js.',
+    '',
+    '   Si de verdad lo necesitás, decilo explícito:',
+    '     ODS_CDC_FWD_RETIRED_OK=1 node database/importers/kepler/ods-cdc-forward.js --apply …',
+    '',
+  ].join('\n'));
+  process.exit(1);
+}
+
 (async () => {
-  console.log(`\n=== ods-cdc-forward (${APPLY ? 'APPLY' : 'DRY-RUN'}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) · sink: ${sink.sinkMode()} ===`);
+  console.log(`\n=== ods-cdc-forward [RETIRADO] (${APPLY ? 'APPLY' : 'DRY-RUN'}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) · sink: ${sink.sinkMode()} ===`);
+  if (APPLY) console.log('  ⚠ corriendo un carril RETIRADO y MUDO: db-health no lo vigila.');
   do {
     const summary = [];
     for (const code of BRANCH_CODES) {

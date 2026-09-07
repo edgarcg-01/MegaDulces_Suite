@@ -1,0 +1,290 @@
+/**
+ * Fase LC — estilos del Libro de Compras. Surface Operations: hairline en vez de sombra,
+ * cero hex crudo, cifras en mono tabular. Master-detail permanente (sector Fiscal).
+ */
+export const LIBRO_COMPRAS_STYLES = `
+:host { display: block; }
+
+.lc-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem;
+  margin: 0 0 1rem;
+}
+.lc-head h1 { font-size: var(--fs-xl); font-weight: var(--fw-bold); margin: 0 0 .15rem; }
+.lc-head p { margin: 0; font-size: var(--fs-sm); max-width: 62ch; }
+.muted { color: var(--text-muted); }
+.mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.strong { font-weight: var(--fw-semibold); }
+
+/* Master-detail: la lista de meses no desaparece al abrir uno. */
+.lc-layout { display: grid; grid-template-columns: minmax(15rem, 18rem) 1fr; gap: 1rem; align-items: start; }
+@media (max-width: 60rem) { .lc-layout { grid-template-columns: 1fr; } }
+
+/* ── Meses ─────────────────────────────────────────────────────────────── */
+.lc-meses { display: flex; flex-direction: column; gap: .35rem; position: sticky; top: 1rem; max-height: 78vh; overflow-y: auto; }
+.lc-mes {
+  display: flex; flex-direction: column; gap: .3rem; width: 100%; text-align: left;
+  padding: .6rem .7rem; border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  background: var(--card-bg); color: inherit; cursor: pointer;
+  transition: background var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
+}
+.lc-mes:hover { background: rgba(var(--ink-rgb), .035); }
+.lc-mes:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.lc-mes.sel { border-color: var(--action); background: rgba(var(--ink-rgb), .05); }
+.lc-mes-top { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+/* Sólo la inicial. 'capitalize' ponía mayúscula en CADA palabra y salía "Septiembre De
+   2026": el mes viene de Intl como "septiembre de 2026" y el "de" es preposición. */
+.lc-mes-nombre { font-weight: var(--fw-medium); font-size: var(--fs-sm); }
+.lc-mes-nombre::first-letter { text-transform: uppercase; }
+.lc-mes-cifras { display: flex; justify-content: space-between; gap: .5rem; font-size: var(--fs-xs); color: var(--text-muted); font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.lc-mes-alerta { font-size: var(--fs-micro); color: var(--bad-fg); }
+.lc-mes-skel { height: 4.1rem; border-radius: var(--radius-md); background: var(--skeleton-bg, rgba(var(--ink-rgb), .06)); }
+
+/* ── Detalle ───────────────────────────────────────────────────────────── */
+.lc-detalle { display: flex; flex-direction: column; gap: .85rem; min-width: 0; }
+.lc-skel-bloque { height: 22rem; border-radius: var(--radius-md); background: var(--skeleton-bg, rgba(var(--ink-rgb), .06)); }
+
+/* Answer-first: el veredicto antes que el grid. */
+.lc-veredicto {
+  display: flex; align-items: center; gap: .75rem; flex-wrap: wrap;
+  padding: .75rem .9rem; border: 1px solid var(--border-color); border-radius: var(--radius-md);
+  background: var(--card-bg); border-left-width: 3px;
+}
+.lc-veredicto > div:first-of-type { display: flex; flex-direction: column; gap: .1rem; flex: 1 1 20rem; min-width: 0; }
+.lc-veredicto strong { font-size: var(--fs-base); }
+.lc-veredicto span { font-size: var(--fs-sm); }
+.lc-veredicto i { font-size: 1.15rem; }
+.lc-veredicto.v-ok { border-left-color: var(--ok-fg); } .lc-veredicto.v-ok i { color: var(--ok-fg); }
+.lc-veredicto.v-warn { border-left-color: var(--warn-fg); } .lc-veredicto.v-warn i { color: var(--warn-fg); }
+.lc-veredicto.v-bad { border-left-color: var(--bad-fg); } .lc-veredicto.v-bad i { color: var(--bad-fg); }
+.lc-veredicto.v-neutral { border-left-color: var(--action); } .lc-veredicto.v-neutral i { color: var(--action); }
+.lc-acciones { display: flex; gap: .4rem; flex-wrap: wrap; }
+
+.lc-avisos { list-style: none; margin: 0; padding: .55rem .7rem; display: flex; flex-direction: column; gap: .3rem;
+  border: 1px solid var(--border-color); border-left: 3px solid var(--border-color); border-radius: var(--radius-md);
+  background: var(--card-bg); font-size: var(--fs-sm); }
+.lc-avisos li { display: flex; align-items: center; gap: .45rem; }
+.lc-avisos i { font-size: .8rem; }
+/* Lo que traba el trámite. */
+.lc-bloq { border-left-color: var(--bad-fg); }
+.lc-bloq i { color: var(--bad-fg); }
+/* Lo que solo hay que mirar: se postea igual. */
+.lc-info { border-left-color: var(--warn-fg); }
+.lc-info i { color: var(--warn-fg); }
+
+.lc-opciones { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; font-size: var(--fs-sm); }
+.lc-opciones > label { display: flex; align-items: center; gap: .45rem; }
+.lc-chk { cursor: pointer; }
+.lc-cuadre { margin-left: auto; font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+  font-size: var(--fs-xs); color: var(--text-muted); }
+.lc-cuadre.ok { color: var(--ok-fg); }
+
+/* ── Tabla densa ───────────────────────────────────────────────────────── */
+.lc-tablewrap { border: 1px solid var(--border-color); border-radius: var(--radius-md); overflow: hidden; background: var(--card-bg); }
+.lc-tablewrap :is(td, th).c-num { text-align: right; white-space: nowrap; }
+.lc-tablewrap :is(td, th).c-chk { width: 2.4rem; text-align: center; }
+.lc-tablewrap :is(td, th).c-cta { white-space: nowrap; }
+.lc-tablewrap td.c-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+.lc-tablewrap tr.excluida td { opacity: .5; }
+.lc-prov { display: block; font-size: var(--fs-sm); }
+.lc-prov + small { display: block; font-size: var(--fs-micro); }
+
+/* ── Vacíos ────────────────────────────────────────────────────────────── */
+.lc-empty { display: flex; flex-direction: column; gap: .3rem; padding: 1.5rem 1rem; }
+.lc-empty i { font-size: 1.4rem; color: var(--text-muted); }
+.lc-empty p { margin: 0; font-size: var(--fs-sm); }
+.lc-empty-lg { padding: 4rem 1.5rem; border: 1px dashed var(--border-color); border-radius: var(--radius-md); }
+
+.lc-campo { display: flex; flex-direction: column; gap: .35rem; font-size: var(--fs-sm); }
+.lc-campo input { width: 100%; }
+
+/* El libro completo es pantalla de LECTURA: el archivo sale del sub-módulo, que es el
+   único que no arrastra los CFDIs que ContPAQi ya tiene asociados. Se dice, no se esconde
+   —un botón que no está y nadie explica se lee como un bug. */
+.lc-solo-lectura { margin: -.25rem 0 0; padding: .55rem .7rem; border-radius: var(--radius-sm);
+  background: var(--surface-subtle); border: 1px solid var(--border-subtle);
+  font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45;
+  display: flex; gap: .5rem; align-items: baseline; }
+.lc-solo-lectura i { color: var(--action); }
+.lc-solo-lectura strong { color: var(--text-color); font-weight: var(--fw-semibold); }
+`;
+
+/**
+ * Extras del sub-módulo "Movimientos no asociados". Se concatenan a los de arriba en vez de
+ * duplicar el archivo: es la misma pantalla con otro alcance, no otro diseño.
+ */
+export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
+/* En el tablero del sub-módulo el número que manda es lo que ENTRA AL TXT, no el total sin
+   asociar del mes: es el mismo número que el encabezado del detalle, para que no se lean
+   dos cifras distintas del mismo mes. */
+.na-falta { font-weight: var(--fw-semibold); color: var(--text-color); }
+.na-falta.cero { color: var(--ok-fg); font-weight: var(--fw-medium); }
+.na-mes-sinlibro { font-size: var(--fs-micro); color: var(--bad-fg); }
+/* Lo que NO entra, en voz baja: es contexto, no la acción del mes. */
+.na-mes-nota { font-size: var(--fs-micro); color: var(--text-muted); }
+
+/* Renglón de contexto bajo la tira: lo que queda fuera del TXT y por qué. Deliberadamente
+   en texto y no en mosaicos — "ya posteadas" puede ser 14× el total accionable y como KPI
+   se robaba la lectura de la pantalla. */
+.na-contexto { margin: -.35rem 0 0; font-size: var(--fs-sm); display: flex; flex-wrap: wrap; gap: .25rem; align-items: baseline; }
+.na-contexto .warn { color: var(--warn-fg); }
+
+/* Las que ya están posteadas: visibles pero apagadas, con la razón a la vista. Se muestran
+   a propósito — esconderlas haría creer que el mes tiene menos pendientes de los que tiene. */
+.lc-tablewrap tr.dup td { opacity: .55; }
+.lc-tablewrap tr.dup td:first-child { box-shadow: inset 2px 0 0 var(--warn-fg); }
+
+/* ── El color dice UNA cosa (LC.16.1) ──────────────────────────────────────
+   Medido en prod antes del cambio: jul-2026 tenía 258 de 446 filas (58%) en rojo, y 159 de
+   esas 258 decían "Ya en el libro" — o sea el camino feliz gritando como si fuera un error.
+   El rojo queda reservado a lo que IMPIDE generar el TXT: RFC sin cuenta, cuenta
+   inexistente, CFDI cancelado. */
+
+/* Estado del mes en el rail: punto + texto. Eran 105 pastillas llenas compitiendo con la
+   única acción naranja de la pantalla. */
+.na-estado { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap;
+  font-size: var(--fs-micro); color: var(--text-muted); }
+.na-dot { display: inline-block; width: .4rem; height: .4rem; border-radius: 50%; flex: none;
+  background: var(--text-muted); }
+.na-estado.e-success   .na-dot { background: var(--ok-fg); }
+.na-estado.e-warn      .na-dot { background: var(--warn-fg); }
+.na-estado.e-danger    .na-dot { background: var(--bad-fg); }
+.na-estado.e-info      .na-dot { background: var(--action); }
+.na-estado.e-secondary .na-dot { background: var(--text-muted); }
+
+/* "Ya en el libro": mismo folio fiscal, asunto cerrado. Recede — no es una alarma, es una
+   garantía. Sin pastilla; el check verde alcanza y el texto va en voz baja. */
+.na-listo { display: inline-flex; align-items: center; gap: .3rem; white-space: nowrap;
+  font-size: var(--fs-micro); color: var(--text-muted); }
+.na-listo i { font-size: .75em; color: var(--ok-fg); }
+
+/* El folio de la póliza es editable: los meses sin libro (ago-2026) tienen que entrar como
+   folio 1, no como complemento en el 2. Se ve como dato, no como botón, hasta el hover. */
+.na-caratula { font: inherit; color: inherit; background: none; border: 0; padding: 0 .15rem;
+  border-radius: var(--radius-xs); cursor: pointer; display: inline-flex; align-items: baseline; gap: .3rem; }
+.na-caratula i { font-size: .7em; opacity: 0; transition: opacity .12s ease; }
+.na-caratula:hover { background: var(--surface-hover); color: var(--text-color); }
+.na-caratula:hover i { opacity: .6; }
+.na-caratula:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.na-caratula:focus-visible i { opacity: .6; }
+
+/* El límite del anti-duplicado exacto, siempre a la vista. Va en voz baja cuando está
+   cargado (es una garantía, no una alerta) y en warn cuando NO — porque sin histórico la
+   puerta por UUID no cubre nada y eso se lee igual que "no hay duplicados". */
+.na-cobertura { margin: -.25rem 0 0; font-size: var(--fs-micro); color: var(--text-muted);
+  display: flex; gap: .45rem; align-items: baseline; line-height: 1.45; }
+.na-cobertura i { color: var(--ok-fg); }
+.na-cobertura strong { color: var(--text-color); font-weight: var(--fw-semibold); }
+.na-cobertura code { font-family: var(--font-mono); font-size: .95em; }
+.na-cobertura.vacia { color: var(--warn-fg); }
+.na-cobertura.vacia i, .na-cobertura.vacia strong { color: var(--warn-fg); }
+
+/* Prueba EXACTA por UUID: mismo folio fiscal, no hay nada que juzgar; su checkbox va
+   apagado. El filo era ROJO, que la ponía al nivel de un bloqueante siendo lo contrario:
+   está resuelta. Verde tenue = cerrado. */
+.lc-tablewrap tr.exacta td:first-child { box-shadow: inset 2px 0 0 var(--ok-fg); }
+
+/* ── Rail agrupado por año (LC.16.5) ───────────────────────────────────────
+   24 meses de ~5rem son tres pantallas de scroll propio para llegar al año pasado. */
+/* Columna propia y NO display:contents — ese valor saca al elemento del arbol de
+   accesibilidad en varios navegadores, y aca el wrapper agrupa contenido real.
+   (Nada de acentos graves en estos comentarios: este archivo ENTERO es un template
+   literal y un acento grave lo corta a la mitad.) */
+.na-anio { display: flex; flex-direction: column; gap: .35rem; }
+.na-anio-cab {
+  display: flex; align-items: baseline; gap: .4rem; width: 100%; text-align: left;
+  font: inherit; font-size: var(--fs-xs); font-weight: var(--fw-semibold);
+  color: var(--text-muted); cursor: pointer;
+  padding: .45rem .25rem .25rem; border: 0; background: none;
+}
+.na-anio-cab:hover { color: var(--text-color); }
+.na-anio-cab:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--radius-xs); }
+.na-anio-cab i { font-size: .65rem; }
+.na-anio-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+/* El pendiente del año va SIEMPRE, abierto o cerrado: un año colapsado con trabajo
+   adentro no se puede ver igual que uno limpio. */
+.na-anio-pend { margin-left: auto; font-weight: var(--fw-medium); }
+.na-anio-pend.cero { color: var(--ok-fg); }
+
+/* ── Notas colapsadas (LC.16.6) ────────────────────────────────────────────
+   Cobertura + lo que queda fuera + avisos eran cuatro bloques apilados que se comian
+   ~30% del alto antes de la primera factura. Los BLOQUEANTES siguen fuera, siempre
+   visibles: son la razon por la que el boton de generar esta apagado. */
+.na-notas { font-size: var(--fs-sm); }
+.na-notas > summary {
+  display: flex; align-items: baseline; gap: .4rem; cursor: pointer; list-style: none;
+  padding: .4rem .6rem; border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle); background: var(--surface-subtle);
+  color: var(--text-color); font-size: var(--fs-xs);
+}
+.na-notas > summary::-webkit-details-marker { display: none; }
+.na-notas > summary:hover { background: var(--surface-hover); }
+.na-notas > summary:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+.na-notas > summary i { color: var(--action); font-size: .8rem; }
+.na-notas[open] > summary { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.na-notas-cuerpo {
+  display: flex; flex-direction: column; gap: .5rem;
+  padding: .6rem .7rem; border: 1px solid var(--border-subtle); border-top: 0;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+}
+/* Adentro del acordeon los margenes negativos que los separaban del bloque de arriba
+   sobran: el contenedor ya los espacia. */
+.na-notas-cuerpo > .na-cobertura,
+.na-notas-cuerpo > .na-contexto { margin: 0; }
+
+/* ── Filtros de la tabla (LC.16.2) ─────────────────────────────────────────
+   En ago-2026 la tabla trae 725 renglones y 214 no se pueden tocar. Sin esto había que
+   scrollear a mano para encontrar un proveedor. Los chips son un desglose además de un
+   filtro: los cuatro grupos son excluyentes y suman el total. */
+.na-filtros { display: flex; align-items: center; gap: .75rem; flex-wrap: wrap; }
+.na-chips { display: flex; gap: .3rem; flex-wrap: wrap; }
+.na-chip {
+  display: inline-flex; align-items: baseline; gap: .4rem; cursor: pointer;
+  font: inherit; font-size: var(--fs-xs); color: var(--text-muted);
+  padding: .28rem .6rem; border-radius: 999px;
+  border: 1px solid var(--border-color); background: var(--card-bg);
+  transition: background var(--dur-short) var(--ease-out), border-color var(--dur-short) var(--ease-out);
+}
+.na-chip:hover:not(:disabled) { background: var(--surface-hover); color: var(--text-color); }
+.na-chip:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
+/* El seleccionado se marca con TINTA, no con color: el naranja es de la acción primaria
+   (Generar TXT) y un chip naranja le competiría. */
+.na-chip.on { border-color: var(--text-color); color: var(--text-color); background: var(--surface-hover); }
+.na-chip.on .na-chip-n { color: var(--text-color); }
+.na-chip-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-semibold); }
+/* En cero se apaga y no se puede tocar: el conteo sigue informando ("no hay canceladas")
+   pero no te mete a una lista vacía. */
+.na-chip.vacio { opacity: .45; }
+.na-chip:disabled { cursor: default; }
+
+.na-buscar { position: relative; display: inline-flex; align-items: center; margin-left: auto; }
+.na-buscar > i { position: absolute; left: .55rem; font-size: .8rem; color: var(--text-muted); pointer-events: none; }
+.na-buscar input { padding-left: 1.85rem; padding-right: 1.7rem; font-size: var(--fs-xs); min-width: 15rem; }
+.na-buscar-x { position: absolute; right: .35rem; display: inline-flex; padding: .2rem; cursor: pointer;
+  border: 0; background: none; color: var(--text-muted); border-radius: var(--radius-xs); }
+.na-buscar-x:hover { color: var(--text-color); }
+.na-buscar-x i { font-size: .7rem; }
+
+/* ── Ceros y pie de totales (LC.16.3 / LC.16.4) ────────────────────────────
+   Medido: 51-55% de las celdas de impuesto van en cero. Un $0.00 en mono a tamaño completo
+   pesa lo mismo que un importe real, así que la mitad de la tinta numérica de la tabla no
+   decía nada. El guion ocupa el lugar sin gritar. */
+.na-cero { color: var(--text-muted); opacity: .5; }
+
+/* El desglose vive acá, no arriba: bajo su propia columna se lee como el asiento que es
+   (0% + c/IVA + IEPS + IVA = total) y sigue a la vista en el renglón 400. */
+.lc-tablewrap tr.na-tot td {
+  border-top: 1px solid var(--border-color);
+  background: var(--surface-subtle);
+  font-weight: var(--fw-semibold); font-size: var(--fs-xs);
+  padding-top: .45rem; padding-bottom: .45rem;
+}
+.lc-tablewrap tr.na-tot .muted { font-weight: var(--fw-medium); }
+
+/* El link del vacío-por-filtro: lleva a "Todas" sin que haya que buscar el chip. */
+.na-link { font: inherit; color: var(--action); background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+.na-dlg-nota { margin: 0 0 .9rem; font-size: var(--fs-sm); color: var(--text-muted); line-height: 1.45; }
+.na-dlg-nota strong { display: block; margin-top: .4rem; color: var(--warn-fg); font-weight: var(--fw-semibold); }
+.na-dlg-aviso { margin: .9rem 0 0; font-size: var(--fs-micro); color: var(--text-muted); }
+`;

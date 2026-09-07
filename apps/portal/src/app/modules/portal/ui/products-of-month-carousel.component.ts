@@ -11,6 +11,7 @@ import {
   OnDestroy,
   Output,
   inject,
+  input
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import type { PriceRow } from '../portal.service';
@@ -94,14 +95,14 @@ import { CartFxService } from '../cart-fx.service';
                 <button
                   type="button"
                   class="pom-add"
-                  [disabled]="addingId === p.product_id || p.price == null"
+                  [disabled]="addingId() === p.product_id || p.price == null"
                   (click)="$event.stopPropagation(); onAdd(p, $event)"
                   [attr.aria-label]="'Agregar ' + p.product_name"
                   >
-                  @if (addingId === p.product_id) {
+                  @if (addingId() === p.product_id) {
                     <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
                   }
-                  @if (addingId !== p.product_id) {
+                  @if (addingId() !== p.product_id) {
                     <i class="pi pi-plus" aria-hidden="true"></i>
                   }
                 </button>
@@ -117,17 +118,17 @@ import { CartFxService } from '../cart-fx.service';
                   <button
                     type="button"
                     class="pom-step"
-                    [disabled]="addingId === p.product_id"
+                    [disabled]="addingId() === p.product_id"
                     (click)="$event.stopPropagation(); dec.emit(p)"
                     [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
                     >
                     <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
                   </button>
-                  <span class="pom-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
+                  <span class="pom-step-val" aria-live="polite">{{ addingId() === p.product_id ? '·' : qtyOf(p) }}</span>
                   <button
                     type="button"
                     class="pom-step"
-                    [disabled]="addingId === p.product_id"
+                    [disabled]="addingId() === p.product_id"
                     (click)="$event.stopPropagation(); inc.emit(p)"
                     aria-label="Aumentar"
                     >
@@ -379,10 +380,10 @@ import { CartFxService } from '../cart-fx.service';
 })
 export class ProductsOfMonthCarouselComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) products: PriceRow[] = [];
-  @Input() addingId: string | null = null;
-  @Input() addedIds = new Set<string>();
+  readonly addingId = input<string | null>(null);
+  readonly addedIds = input(new Set<string>());
   /** product_id → cantidad en carrito. >0 → muestra stepper en vez de "Agregar". */
-  @Input() cartQty: Record<string, number> = {};
+  readonly cartQty = input<Record<string, number>>({});
 
   @Output() open = new EventEmitter<PriceRow>();
   @Output() add = new EventEmitter<PriceRow>();
@@ -390,7 +391,7 @@ export class ProductsOfMonthCarouselComponent implements AfterViewInit, OnChange
   @Output() dec = new EventEmitter<PriceRow>();
 
   qtyOf(p: PriceRow): number {
-    return this.cartQty[p.product_id] || 0;
+    return this.cartQty()[p.product_id] || 0;
   }
 
   private readonly host = inject(ElementRef<HTMLElement>);

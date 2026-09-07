@@ -599,3 +599,200 @@ Cuánto pedimos vs cuánto llegó, para compensar faltantes crónicos del provee
 - Bandeja/scanner: `libs/reconciliation/*` + `apps/view/.../almacen/pages/almacen-cuadre.component.ts`.
 - Reporte análogo: `commercial-analytics.service.ts` `lowStock()`/`inventoryHealth()` + `import-inventory-health.js`.
 - Existencia/sugerido de referencia (Kepler): `invconpanecrrep.kpl` (lógica de buckets + `cantidad = objetivo − existencia`).
+
+---
+
+## RA-PRO.41 — El pedido aprende de la historia: estacionalidad + colchón cuantílico + lead derivado + rutas/mayoreo (2026-08-28) ✅
+
+**Regla de Edgar:** *"no hay que dejar nada manual, todo automático considerando históricos, considerar mayoreo y rutas, que no se nos pase nada"*. Todo se deriva en `import-replenishment-plan` (una tabla primaria, cero captura). Detalle completo en [`03_LOG_REVISIONES.md`](../03_LOG_REVISIONES.md) 2026-08-28.
+
+| Señal | Cómo se deriva | Resultado medido |
+|---|---|---|
+| `season_ratio` | idx(próx. 30d) ÷ idx(últ. 30d), jerárquico SKU→cat→global, normalizado POR AÑO, shrinkage n/(n+1), banda muerta 0.85–1.15, cap [0.5, 2.0] | Backtest ene–ago 2026: **bias enero +39.6% → −4.7%**, \|bias\| medio 9.4% → 5.0% |
+| `safety_pct_q` | cuantiles de sumas rodantes 4-sem (26 sem, red): A p90 cap 50 / B p80 cap 35 / C p70 cap 25 | reemplaza el 20% plano del CV (89% caía en Z); A mediana 29%, C promedio 18% |
+| `lead_days` | mediana lag OC X-A-35→X-A-40 del ODS (n≥5 por proveedor; ~16% de OCs con señal) | mediana 4d; 108 proveedores con señal propia; `covEff` = cadencia Kepler + lead |
+| Rutas → sucursal | `sales_by_route_monthly` WIN-⟨n⟩ → moda por revenue: 21-28→01, 501-505→06, 321/322→MD-32 | 11% de la demanda dejó de perderse en la vista por-sucursal; RUTA-* ya no genera "comprar" |
+| Frescura | `import-demand-clean`: ventana anclada al último día reportado POR ALMACÉN (≤21d; más viejo = inactivo→0) + warning por corrida | MD-30/32 iban 4d atrás y rutas 501-505 17d (feed caído — **pendiente arreglar el push**) |
+
+El motor multiplica la demanda por `season_ratio` en los 4 caminos (compra, workbook, detalle, traspaso, sobrestock — el navideño con pila en noviembre ya no es "sobrestock"). Engine expone `season_ratio/season_src`; UI columna **Est.** con chip ×N.NN. Mig `20260828140000` (aditiva, aplicada a prod a mano). Controles de cordura en cada corrida del fact: tránsito-vs-inventario, rango de estación, rutas sin mapear, puntos ciegos (tránsito MD-30/32 no está en el ODS).
+
+**Advertencia honesta:** oct–dic tienen UNA observación (dic-2025); el shrinkage y el cap acotan el error. La validación real de la temporada alta es este oct-dic. Efecto Pascua móvil no modelable aún (abril −10% en backtest).
+
+---
+
+## RA-PRO.45 — El tránsito se pesa por la probabilidad de que llegue (2026-08-29) ✅
+
+**El hallazgo que reordena todo:** en Kepler la orden de compra `X-A-35` **se captura cuando la
+mercancía ya llegó**. De las OCs cerradas de los últimos 200 días, el **81% en CEDIS** y el
+**95–100% en sucursales** cierran el MISMO día que se abren (p90 CEDIS = 4 d, resto = 0 d). O sea:
+Kepler casi no tiene visibilidad real de tránsito, y una OC que sigue abierta no es "el pipeline
+normal" sino un **documento estancado**.
+
+Consecuencia medida el 2026-08-29: el motor restaba **$20.26M** de "en camino" al 100%, cuando lo
+que de verdad venía eran ~$9.9M. Los otros **$10.4M (51%)** eran papel abierto apagando pedido en
+**420 filas producto×almacén en piso CERO**.
+
+### Curva de supervivencia (derivada del ODS, cero captura)
+
+`P(la OC termina llegando | seguía abierta al día d)`, sobre OCs de hace 180–400 días (ya todas
+resueltas, sin censura, canceladas excluidas):
+
+| día | 0 | 4 | 8 | 15 | 22 | 31 | 46 | 61 |
+|---|---|---|---|---|---|---|---|---|
+| P(llega) | 85.6% | 77.2% | 68.9% | 56.8% | 49.3% | **24.0%** | **13.6%** | 11.6% |
+| muestra | 264 | 167 | 122 | 88 | 75 | 50 | 44 | 43 |
+
+Monótona no creciente por construcción (running min). Si un tramo no junta n≥25 cae a una curva de
+respaldo y se marca `fallback`. Se **materializa** en `analytics.oc_survival_curve` desde el MISMO
+importer del fact — un solo productor, para que la probabilidad que ve el comprador sea exactamente
+la que usó el motor (definirla dos veces es el patrón que ya nos costó el tránsito fantasma).
+
+### Qué cambia en el motor
+
+1. **El ERP manda primero.** `kdm1.c43` = estatus del documento (`N` pendiente · `F` finalizada ·
+   `C` cancelada · `R` recibida). Las `F/C/R` se excluyen del tránsito sin ninguna heurística: la
+   cadena quedó rota pero Kepler ya sabe que no viene nada (22 OCs / $1.28M).
+2. **Dos columnas, dos verdades.** `transit_cajas` = lo que dicen los papeles (lo que el comprador
+   ve y puede rastrear folio por folio). `transit_eff_cajas` = lo mismo pesado por P(llega|edad), y
+   es lo que el motor descuenta. Se pesa ANTES de repartir por el árbol de abasto (RA-PRO.42).
+3. **Todos los consumidores del descuento** usan la pesada: `purchaseSuggestion`, workbook, detalle
+   por sucursal, plan de traspaso, sobrestock y el `ReplenishmentScannerService` (si el scanner se
+   quedaba con el crudo, la bandeja de hallazgos se cegaba justo en los SKUs tapados).
+
+**Resultado:** tránsito descontado $19.96M → **$10.95M** (se ignora $9.0M, 45%). El pedido sugerido
+pasa de **$13.48M a $14.47M (+$993k, +7.4%)**, con **568 filas que despiertan de cero** y 1,378 que
+suben. Ejemplo: COBERTURA LUSSEL en 01 tenía piso 0, vendía 22/día y pedía nada porque "venían"
+43.4 cajas de una OC estancada; ahora pide 10.9.
+
+### Interfaz
+
+- El diálogo de **En camino** agrega columna **Abierta** (días, con semáforo) y una nota que explica
+  la brecha entre las cajas del papel y las que el pedido descuenta. Las cajas del listado siguen
+  siendo las CRUDAS: tienen que cuadrar folio por folio con lo que el comprador ve en Kepler.
+- Página nueva **`/compras/oc-abiertas`** ("Abiertas en Kepler"): la vista inversa — todas las OCs
+  abiertas por antigüedad, con valor, estatus del ERP y probabilidad de llegar. Es la lista de lo
+  que compras tiene que cerrar o cancelar (104 con +30 días al momento de escribir esto).
+
+### Rendimiento
+
+Las dos CTEs de la curva van `AS MATERIALIZED` **obligatoriamente**: sin eso el planner las inlinea
+y re-evalúa `surv_raw` (2 s) por cada línea de OC → la corrida pasó de 30 s a **>15 min**. Con
+MATERIALIZED: 35 s (baseline ~30 s).
+
+### Migraciones
+
+`20260829180000_replenishment_plan_transit_eff.js` (columna aditiva) +
+`20260829180100_oc_survival_curve.js` (tabla de la curva, 8 filas). Ambas aplicadas a prod a mano
+(idempotentes con guarda `hasColumn`/`hasTable`).
+
+Smoke: `database/tests/test-newdb-oc-survival.js` (11 aserciones) en la suite.
+
+**Pendiente:** que el runner on-prem tome el importer nuevo. Mientras convivan las dos versiones,
+`transit_eff_cajas` se dejó en NULL a propósito — el servicio cae al crudo (comportamiento previo)
+en vez de mezclar dos cálculos.
+
+### RA-PRO.45.1 — La OC se lee de una vista normalizada, no re-decodificando `kdm1`
+
+Corrección a lo entregado arriba. `analytics.erp_purchase_docs` / `_lines` ya eran vistas
+derive-no-copy sobre `kepler_ods` (mig 20260820200000) y cubrían X-A-35 y X-A-37 con el anti-réplica
+`c1 = sucursal` puesto — y aun así el decode quedó escrito a mano en **cinco** lugares (el CTE del
+tránsito, el de la curva, el del lead time, `inTransitDetail` y `openPurchaseOrders`). Es la misma
+duplicación que provocó el tránsito fantasma.
+
+Lo que quedó:
+
+| Antes | Ahora |
+|---|---|
+| 5 decodes de `c2='X' AND c3='A' AND c4='35'` + cadena `NOT EXISTS` | 1 vista + 1 CTE del importer |
+| `c43`, `c55/c57/c58` leídos crudos en cada consulta | columnas normalizadas de la vista |
+
+- `analytics.erp_purchase_docs` += `estatus` (c43) · `_lines` += `unidad_caja` / `unidades_por_caja`
+  / `costo_caja` (c55/c58/c57). Aditivas: mismo conjunto de filas, `entity-ref` no se entera.
+- **`analytics.erp_purchase_orders`** (nueva): sólo las OC, con `cerrada` (cadena 35→37→40 resuelta),
+  `dias_abierta` y `estatus`. La leen el fact, `inTransitDetail` y la bandeja.
+- El importer conserva **un** decode a mano: `oc_hist`, que resuelve la FECHA de entrada. La vista
+  expone `cerrada` (booleano) y no la fecha porque exponerla costaba 213 s. `oc_hist` unificó la
+  curva de supervivencia y el lead time, que antes la derivaban por separado.
+
+Costo verificado: fact **41.7 s** (antes del refactor 42.2 s), vista de OC 332 ms, detalle del SKU
+2.8 s. El camino hasta ahí dejó dos lecciones en GOTCHAS §28: el `btrim` de la vista mataba el
+índice de la cadena (331 s → 332 ms) y la vista con `EXISTS` por fila necesita `MATERIALIZED` río
+arriba (>10 min → 41 s). Mig `20260829190000`. Smoke ampliado a 15 aserciones.
+
+---
+
+## RA-PRO.46 — El costo de caja se LEE de Kepler, no se reconstruye (2026-08-31) ✅
+
+**Disparador:** Edgar mandó una captura de la pantalla real de Kepler *"Costos por Proveedor por
+Productos"* y después una fila del `/compras/pedido` con `50 pz · $799` para el azúcar `99029`.
+
+### El bug
+
+`caja_cost = costo_unitario × bf`. Fallaba **por los dos lados**, y ninguno se veía:
+
+1. **El multiplicador.** `bf` no siempre está en el peldaño del costo. En el azúcar 99029 lo pagado
+   está en **KG** y `bf=50` es el factor **500 g→costal**: $798.57 por un costal que Kepler cotiza
+   en **$415**. El peor caso llegó a **25×** — `70344 CARAT COVERLUX 10KG` en $28,343 contra $1,130.
+2. **La base.** `real_cost` es el promedio ponderado de 90 d, o sea **rezagado**. Los cerillos
+   `00303` se compran a $11.0793 clavado (tres entradas seguidas de 50 pzas = **$553.97 exacto**),
+   pero una compra vieja a $11.8774 subía el promedio a $11.3454 → $567.27 por una caja de $553.97.
+   **Multiplicar bien una base podrida sigue dando mal**, y por eso el primer arreglo —que sólo
+   corregía el multiplicador— marcaba ese SKU como correcto.
+
+### La corrección
+
+Kepler ya trae el dato: **"Costo Uni Mayor" (`kdpv_prov_prod.c4`) ES el costo de una caja.**
+
+```sql
+COALESCE(lad.box_cost, e.real_cost * e.bf) AS caja_cost   -- lee; bf sólo sin escalera
+CASE WHEN lad.box_cost IS NOT NULL THEN 'kepler' ELSE 'bf' END AS cost_source
+```
+
+Medido antes de rediseñar: el costo del proveedor sigue a la **última compra con mediana 1.0000**
+(62.6% exacto al 0.5%); el promedio de 90 d da 1.0058 y sólo 37.6% exacto. **El dato de Kepler es el
+costo actual** — no había nada que calcular.
+
+| | antes | ahora |
+|---|---|---|
+| costo de caja del catálogo | $7,705,489 | **$6,639,376** |
+| valuación de inventario del plan | $59.6M | **$55.6M** |
+
+Cobertura real **88.7%**; el 11.3% que cae a `bf` no es fallo nuestro — de 983 SKUs distintos sólo 1
+existe en `kdpv_prov_prod` (piezas sueltas de mostrador, 0.43% de la venta).
+
+- **Mig `20260831120000`**: `analytics.v_supplier_cost_ladder` **derivada del ODS** (montos
+  `c4/c8/c9/c10` + rótulos `kdii.c11/c80/c83`), sin importer ni tabla espejo, + columna `cost_source`.
+- **El fact declara** de dónde salió cada costo. Nada se esconde.
+- **UI**: el rótulo de la unidad sale de `u1_label`. Antes decía `pz` **hardcodeado** y mentía en
+  todo lo granel — y no es marginal: **el 79.1% de los SKUs no tiene base PZA** (la dominante es
+  PAQ, 74.9%; hay KG, 500, 250, CUB, BTO, SER). Sin dato muestra `u`, no un "pz" falso.
+
+### Auditoría de las otras dos magnitudes — salieron limpias
+
+Mismo protocolo (hecho independiente + prueba de unidad). **El costo era el único roto:**
+
+| | vs Kepler | mediana | unidad |
+|---|---|---|---|
+| Existencia (03/01/05) | 98.4–99.5% exacta | **1.0000** | 0.0% en `bf` / `1÷bf` |
+| Ventas importe | — | **1.0000** | total dentro de 1.7% |
+| Ventas unidades | — | **1.0000** | 0.0% en `bf` / `1÷bf` |
+
+### Candados
+
+- `test-newdb-cost-ladder` (23/23): exige que donde Kepler declara el costo el fact lo **copie**
+  (≤ $0.01), que 99029/70344/00303 no vuelvan a su número inventado, y que lo que cae a `bf` siga
+  pesando <2% de la venta.
+- `test-newdb-fact-vs-kepler` (21/21): vigila la **mediana por SKU** de existencia y ventas —no el
+  total, que puede cuadrar compensando errores opuestos— y que la razón no se pegue a `bf` ni `1/bf`.
+
+### Lecciones
+
+- **Kepler ya tiene el dato; el trabajo es tomar la columna correcta, no calcularla.** Regla 0 de
+  [`ERP_KEPLER.md`](../../ERP_KEPLER.md) §5.
+- **Arreglar el multiplicador y dejar la base rezagada no arregla nada** — y encima hace que el
+  SKU se vea correcto.
+- **Desconfiá de tu propia consulta cuando el número sorprende.** Comparando ventas me dio 0.5445 y
+  casi reporto un hueco de $4M: era mi join (folios reciclados, ver [`GOTCHAS`](../../GOTCHAS.md) §31).
+  Los números redondos son firma de duplicación, no de pérdida.
+
+**Pendiente:** redeploy api + view (sin migraciones ni permisos nuevos → sin re-login).

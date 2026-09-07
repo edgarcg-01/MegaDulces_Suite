@@ -26,8 +26,8 @@ function planFor(w) {
   const kind = String(w.kind || '').trim();
   let kepler_code = null, wincaja_source_branch = null, sells_to_public = null, note = '';
 
-  if (/^0[0-5]$/.test(code)) kepler_code = code;                 // sucursal Kepler
-  if (code === '00') { wincaja_source_branch = '00'; sells_to_public = false; note = 'CEDIS (kepler+wincaja Irapuato, mayoreo)'; }
+  if (/^0[1-5]$/.test(code)) kepler_code = code;                 // sucursal Kepler (01-05; CEDIS 00 NO es Kepler)
+  if (code === '00') { wincaja_source_branch = '00'; sells_to_public = false; note = 'CEDIS (Wincaja Irapuato únicamente, mayoreo)'; }
   else if (/^MD-(30|32|50)$/.test(code)) { wincaja_source_branch = code.slice(3); sells_to_public = true; note = 'wincaja-only'; }
   else if (/^0[1-5]$/.test(code)) { sells_to_public = true; note = 'sucursal retail Kepler'; }
   else if (kind === 'truck') { sells_to_public = true; note = 'camión de ruta'; }

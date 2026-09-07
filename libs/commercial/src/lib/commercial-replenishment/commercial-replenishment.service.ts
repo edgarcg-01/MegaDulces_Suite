@@ -204,23 +204,64 @@ export class CommercialReplenishmentService {
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
   private onHand() { return '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))'; }
-  // Factor de caja POR ALMACÉN, solo para MOSTRAR en cajas. Los almacenes ciegos de Wincaja
-  // (MD-30/32/50) guardan la existencia en SU unidad (paquetes en multi-pack), no en piezas como
-  // Kepler → dividir por el resolver canónico (c84) daría cajas ~10x bajas. Ahí se usa
-  // factor_venta (analytics.wincaja_product_box_factor, set doble-testigo: anida + costo=paquete);
-  // el resto usa el resolver c84/etiquetera. Es SOLO display: buckets/orden/costos siguen en la
-  // unidad cruda por almacén (auto-consistente), así el sugerido y la clasificación no cambian.
-  // Requiere que la query joinee `w` (warehouses), `wcf` y `cbf`. >=1.
+  // Factor de caja POR ALMACÉN, para mostrar cantidades en la unidad más grande (la caja). Los
+  // almacenes de Wincaja guardan la existencia en SU unidad de venta (el paquete en multi-pack),
+  // no en la unidad base como Kepler → dividir por el resolver canónico (c84) daba cajas ~10× bajas.
+  //
+  // ADR-055 — la regla ya NO vive acá: sale de `analytics.v_warehouse_box_factor`. La versión
+  // anterior hardcodeaba `w.code IN ('MD-30','MD-32')`, así que dejaba fuera el CEDIS `00` (que
+  // también es Wincaja), y leía `analytics.wincaja_product_box_factor`, una tabla alimentada por
+  // importer — justo lo que la regla principal del proyecto retira. La vista lo deriva de
+  // `wincaja.articulos.factor_venta` y de la escalera del ODS, sin importer de por medio.
+  // Requiere que la query joinee `vbf` (analytics.v_warehouse_box_factor). >=1.
   private cajaFactor() {
-    return `CASE WHEN w.code IN ('MD-30','MD-32') AND wcf.factor_venta > 1
-                 THEN wcf.factor_venta ELSE GREATEST(COALESCE(cbf.box_factor, 1), 1) END`;
+    return 'GREATEST(COALESCE(vbf.box_factor, 1), 1)';
   }
-  private inTransit() { return 'COALESCE(pit.qty_in_transit, 0)'; } // RA.5 analytics.purchase_in_transit (OC a recibir)
+  // OC a recibir, en UNIDADES DE STOCK (que es la unidad de `oh`/`target` acá). Sale del fact
+  // `analytics.replenishment_plan`, que lo deriva del ODS en cajas → ×bf lo devuelve exacto a
+  // unidades de stock (round-trip del mismo bf, sin pérdida). Antes venía de la tabla
+  // `analytics.purchase_in_transit`, que se retiró junto con su importer — ver GOTCHAS §25.
+  //
+  // RA-PRO.45: para DESCONTAR se usa `transit_eff_cajas` — las mismas cajas pesadas por la
+  // probabilidad de que la OC efectivamente llegue (curva derivada del ODS: una OC abierta hace
+  // 45 días llega el 13.6% de las veces). `transit_cajas` crudo se sigue MOSTRANDO al comprador,
+  // porque tiene que cuadrar folio por folio con el diálogo de "En camino". El COALESCE al crudo
+  // es el puente para la primera corrida, antes de que el importer pueble la columna nueva.
+  private inTransit() { return 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)'; }
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
   // multiplicarlo por piezas. Ambos reportes (crítica + /salidas) valorizan igual ahora.
+  //
+  // ✅ U.0 (2026-09-03) — "por PIEZA" CONFIRMADO con medición, no con la palabra del comentario.
+  // Contra la escalera del ERP (`analytics.v_supplier_cost_ladder`), `cost_with_tax / u1_cost` se
+  // agrupa en múltiplos de IMPUESTO exactos a 4 decimales sobre 6,626 SKUs / $116.8M de venta 90d:
+  // 1.0000 exento (960) · 1.0800 IVA 8% (1,886 · $69.3M) · 1.1600 IVA 16% (1,507) · 1.2400 IVA+IEPS
+  // (1,987 · $29.8M). La razón contra `box_cost` es 0.058. O sea `cost_with_tax = u1_cost × (1+imp)`:
+  // peldaño BASE, bruto de impuesto. `import-demand-clean.js` decía "por CAJA" y estaba equivocado
+  // (corregido allá). ⚠️ La cantidad que lo multiplica sigue sin declarar su peldaño — eso es lo
+  // que audita `analytics.v_unit_rung_audit`. Ver docs/UNIDADES_DE_MEDIDA.md §8quater.
+  //
+  // ⚠️ 110 SKUs ($493k de venta 90d) dan razón mediana 3.47 contra `u1_cost`: ésos SÍ son
+  // sospechosos de peldaño, no de impuesto. Van a la bandeja, no a este COALESCE.
   private costUnit() { return 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)'; }
+  /**
+   * U.2 — ¿se puede valuar esta fila? El costo unitario de arriba está en peldaño BASE (medido en
+   * U.0); la CANTIDAD que lo multiplica está en la unidad nativa del almacén, y quien dice si esas
+   * dos coinciden es `analytics.v_unit_rung_audit`: contrasta el divisor que usamos contra el que
+   * implica el costo que el ERP pagó por esa MISMA unidad.
+   *
+   * ⚠️ Se lee del FACT (`analytics.replenishment_plan.rung_veredicto`), NO de la vista. La vista es
+   * la fuente auditable pero cuesta 8.2 s / 25 s; joinearla dos veces en el plan de traspaso llevó
+   * esa página de 4.5 s a 29 s. El nocturno la paga una vez y baja el veredicto al fact (mig
+   * 20260903170000); todos los consumidores de acá ya traen `replenishment_plan` joineado, así que
+   * esto no agrega NI UN join.
+   *
+   * Sólo los veredictos EN CONTRA se persisten → `IS NULL` significa "nada me impide valuar",
+   * no "sin dato". `z_no_arbitrable` NO entra: es ausencia de árbitro (el SKU no tuvo compra
+   * reciente que comparar), y ausencia de evidencia no es evidencia en contra.
+   */
+  private rungMedible() { return 'rpl.rung_veredicto IS NULL'; }
   // Venta mensual estimada ($) = demanda diaria × 30 × precio de venta (costo × (1+markup)).
   // Usa columnas ya joineadas (ih.avg_daily_units, pr.cost_with_tax, pr.markup_pct) — sin join
   // nuevo. Da el PESO en dinero del producto para priorizar junto al rank por unidades: el #1
@@ -301,9 +342,9 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
-        // RA.5 — analytics.purchase_in_transit (sin RLS → tenant_id explícito en el ON)
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        // RA.5 — tránsito desde el fact (sin RLS → tenant_id explícito en el ON)
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         // RA-PRO.2 — analytics.inventory_health (avg diario para mostrar cobertura; sin RLS)
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
@@ -316,11 +357,9 @@ export class CommercialReplenishmentService {
         .leftJoin(
           trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
           (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
-        // Factor de caja por-almacén para DISPLAY (cajas): resolver canónico + override Wincaja.
-        .leftJoin('analytics.v_product_box_factor as cbf', (j) =>
-          j.on('cbf.tenant_id', 'rp.tenant_id').andOn('cbf.product_id', 'rp.product_id'))
-        .leftJoin('analytics.wincaja_product_box_factor as wcf', (j) =>
-          j.on('wcf.tenant_id', 'rp.tenant_id').andOn('wcf.product_id', 'rp.product_id'))
+        // ADR-055 — factor de caja POR ALMACÉN para display (resolvedor canónico único).
+        .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
+          j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
         // RA-PRO.16 — SUPERÁVIT DE RED por producto: Σ (existencia − máximo) en TODAS las sucursales del tenant.
         // Sirve para cubrir el déficit de una sucursal con el sobrante de otra (traspaso) ANTES de comprar.
         .leftJoin(
@@ -404,13 +443,18 @@ export class CommercialReplenishmentService {
           trx.raw(`${this.costUnit()} AS unit_cost`),
           trx.raw(`${this.bucketExpr()} AS bucket`),
           trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) / (${cf}), 1) AS suggested_qty`),
-          trx.raw(`ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}, 2) AS suggested_cost`),
+          // U.2 — el $ del sugerido sólo si el costo de compra NO contradice el peldaño de la
+          // cantidad. NULL = "no se está midiendo"; el veredicto viaja en la fila para declararlo.
+          trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}, 2) END AS suggested_cost`),
+          trx.raw('rpl.rung_veredicto AS rung_veredicto'),
+          // El rótulo de la unidad NATIVA sale del resolvedor por almacén, ya joineado como vbf.
+          trx.raw('vbf.base_label AS rung_base_label'),
           // RA-PRO.16 — Redistribución: cubrir el sugerido con sobrante de OTRA sucursal antes de comprar.
           trx.raw(`ROUND(GREATEST(0, ${oh} - rp.max_stock) / (${cf}), 1) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
           trx.raw(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1) AS surplus_network`), // sobrante del producto en OTRAS sucursales
           trx.raw(`ROUND(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
           trx.raw(`ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
-          trx.raw(`ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${this.costUnit()}, 2) AS buy_cost`),
+          trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${this.costUnit()}, 2) END AS buy_cost`),
           trx.raw(`CASE
               WHEN GREATEST(0, ${oh} - rp.max_stock) > 0 THEN 'sobrante'
               WHEN LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) > 0
@@ -432,7 +476,10 @@ export class CommercialReplenishmentService {
             qb.orderByRaw(`${sortExpr} ${dir} NULLS LAST`)
               .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`);
           } else {
-            qb.orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`)
+            // U.2 — lo medible primero: sin esto un SKU con el peldaño contradicho (cuyo $ está
+            // inflado justamente por eso) encabeza la lista del comprador con una cifra retenida.
+            qb.orderByRaw(`(${this.rungMedible()}) DESC`)
+              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`)
               .orderByRaw(`CASE ${this.bucketExpr()}
                   WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
               .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`);
@@ -486,12 +533,11 @@ export class CommercialReplenishmentService {
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))
-        .leftJoin('analytics.v_product_box_factor as cbf', (j) =>
-          j.on('cbf.tenant_id', 'rp.tenant_id').andOn('cbf.product_id', 'rp.product_id'))
-        .leftJoin('analytics.wincaja_product_box_factor as wcf', (j) =>
-          j.on('wcf.tenant_id', 'rp.tenant_id').andOn('wcf.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        // ADR-055 — factor de caja POR ALMACÉN para display (resolvedor canónico único).
+        .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
+          j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         // RA-PRO.16 — superávit de red por producto (para el $ traspasable vs compra real del filtro)
         .leftJoin(
           trx.raw(`(SELECT rp2.product_id, SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
@@ -512,6 +558,7 @@ export class CommercialReplenishmentService {
       }
       const cost = this.costUnit();
       const cf = this.cajaFactor(); // divisor por-almacén para SUMar cajas reales (display)
+      const medible = this.rungMedible(); // U.2 — el peldaño no está contradicho por el costo
 
       const r: any = await base
         .select(
@@ -520,19 +567,26 @@ export class CommercialReplenishmentService {
           trx.raw(`COUNT(*) FILTER (WHERE ${oh} > rp.min_stock AND ${oh} <= rp.reorder_point)::int AS bajo_reorden`),
           trx.raw(`COUNT(*) FILTER (WHERE rp.max_stock > 0 AND ${oh} > rp.max_stock)::int AS sobrestock`),
           trx.raw('COUNT(*)::int AS total_policies'),
-          trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${cost}) FILTER (WHERE ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
+          // U.2 — los 7 KPIs de dinero y los 4 de cajas suman SOLO las políticas cuyo peldaño el
+          // costo de compra NO contradice (`medible`). Una suma no puede cambiar de unidad como la
+          // celda del workbook, así que lo no medible sale del total y se DECLARA aparte abajo.
+          trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${cost}) FILTER (WHERE ${medible} AND ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
           // RA-PRO.16 — del sugerido, cuánto se cubre con TRASPASO (sobrante de otra sucursal) vs COMPRA real.
-          trx.raw(`ROUND(SUM(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) * ${cost}), 2) AS traspasable_valor`),
-          trx.raw(`ROUND(SUM(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${cost}), 2) AS compra_real_valor`),
+          trx.raw(`ROUND(SUM(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) * ${cost}) FILTER (WHERE ${medible}), 2) AS traspasable_valor`),
+          trx.raw(`ROUND(SUM(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${cost}) FILTER (WHERE ${medible}), 2) AS compra_real_valor`),
           // RA-PRO.15 — VALOR del punto de abasto (Σ umbral × costo/caja) + existencia actual, según el filtro.
-          trx.raw(`ROUND(SUM(rp.min_stock * ${cost}), 2) AS min_valor`),
-          trx.raw(`ROUND(SUM(rp.reorder_point * ${cost}), 2) AS reorden_valor`),
-          trx.raw(`ROUND(SUM(rp.max_stock * ${cost}), 2) AS max_valor`),
-          trx.raw(`ROUND(SUM(${oh} * ${cost}), 2) AS existencia_valor`),
-          trx.raw(`ROUND(SUM(rp.min_stock / (${cf})), 2) AS min_cajas`),
-          trx.raw(`ROUND(SUM(rp.reorder_point / (${cf})), 2) AS reorden_cajas`),
-          trx.raw(`ROUND(SUM(rp.max_stock / (${cf})), 2) AS max_cajas`),
-          trx.raw(`ROUND(SUM(${oh} / (${cf})), 2) AS existencia_cajas`),
+          trx.raw(`ROUND(SUM(rp.min_stock * ${cost}) FILTER (WHERE ${medible}), 2) AS min_valor`),
+          trx.raw(`ROUND(SUM(rp.reorder_point * ${cost}) FILTER (WHERE ${medible}), 2) AS reorden_valor`),
+          trx.raw(`ROUND(SUM(rp.max_stock * ${cost}) FILTER (WHERE ${medible}), 2) AS max_valor`),
+          trx.raw(`ROUND(SUM(${oh} * ${cost}) FILTER (WHERE ${medible}), 2) AS existencia_valor`),
+          trx.raw(`ROUND(SUM(rp.min_stock / (${cf})) FILTER (WHERE ${medible}), 2) AS min_cajas`),
+          trx.raw(`ROUND(SUM(rp.reorder_point / (${cf})) FILTER (WHERE ${medible}), 2) AS reorden_cajas`),
+          trx.raw(`ROUND(SUM(rp.max_stock / (${cf})) FILTER (WHERE ${medible}), 2) AS max_cajas`),
+          trx.raw(`ROUND(SUM(${oh} / (${cf})) FILTER (WHERE ${medible}), 2) AS existencia_cajas`),
+          // Lo que quedó FUERA de los totales de arriba, para que el encabezado lo pueda decir.
+          trx.raw(`COUNT(*) FILTER (WHERE NOT (${medible}))::int AS sin_valuar_politicas`),
+          trx.raw(`COUNT(DISTINCT rp.product_id) FILTER (WHERE NOT (${medible}))::int AS sin_valuar_skus`),
+          trx.raw(`ROUND(SUM(rpl.rung_arbitrado) FILTER (WHERE NOT (${medible})), 2) AS sin_valuar_arbitrado`),
         ).first();
       return r;
     });
@@ -578,8 +632,15 @@ export class CommercialReplenishmentService {
       const SUF = 'COALESCE(plan.suf, 1)';
       const BF = 'COALESCE(plan.bf, 1)';
       const sellDayPz = 'COALESCE(plan.sell_day_pz, 0)';   // venta diaria (red o sucursal) en piezas
-      const stockPz = 'COALESCE(plan.stock_pz, 0)';         // existencia (unidades de stock)
-      const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas)
+      // ADR-055 — la existencia llega YA EN CAJAS, convertida almacén por almacén con SU propio
+      // factor antes de sumarse (ver el subquery `plan`). Sumar las unidades crudas y dividir
+      // después mezclaba piezas de Kepler con paquetes de Wincaja bajo un mismo divisor.
+      const stockCjs = 'COALESCE(plan.stock_cjs, 0)';       // existencia de la red, en CAJAS
+      const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas) — lo que se MUESTRA
+      // RA-PRO.45 — lo que se DESCUENTA: las mismas cajas pesadas por P(llega | edad de la OC).
+      // No todo lo que está en papel llega: en Kepler la OC se captura al recibir, así que una que
+      // sigue abierta hace 45 días sólo se materializa el 13.6% de las veces.
+      const transitEff = 'COALESCE(plan.transit_eff, plan.transit, 0)';
       // costo real POR CAJA — en el fact ya = costE(unidad de stock) × BF. La DEMANDA manda el reorden:
       // objetivo = venta_diaria × cobertura; sugerido = objetivo − existencia − tránsito (0 si ya cubre).
       const costCaja = 'COALESCE(plan.caja_cost, 0)';
@@ -593,20 +654,30 @@ export class CommercialReplenishmentService {
       // Precedencia (ambos): override manual del proveedor → valor auto del análisis → global.
       const autoCov = `CASE WHEN scad.recs >= 2 AND scad.cadence > 0 THEN ceil(scad.cadence + COALESCE(sup.lead_time_days, 7)) END`;
       const autoSafety = `CASE WHEN scv.cv >= 1.0 THEN 20 WHEN scv.cv >= 0.5 THEN 10 ELSE 0 END`;
-      const covEff = `COALESCE(${colCov}, ${autoCov}, :cov)`;
-      const safetyEff = `COALESCE(${colSafety}, ${autoSafety}, 0)`;
+      // RA-PRO.41 — TODO AUTOMÁTICO desde históricos (fact):
+      //   cobertura: manual → cadencia Kepler real del producto + lead time derivado del ODS → cadencia
+      //              de nuestras POs → knob global. lead_days trae fallback global (~4d) desde el fact.
+      //   colchón:   manual → cuantiles por clase (plan.safety_pct_q, robusto a intermitencia) → CV → 0.
+      //   estación:  la demanda del horizonte se multiplica por season_ratio (idx próximos 30d ÷ idx
+      //              últimos 30d, jerárquico y con banda muerta) — el trailing ya trae la estación del
+      //              mes que pasó, la razón la corrige (backtest: bias enero +39.6% → −4.7%).
+      const autoCovKepler = `CASE WHEN plan.order_days BETWEEN 1 AND 90
+                                  THEN LEAST(120, GREATEST(7, ceil(plan.order_days + COALESCE(plan.lead_days, 4)))) END`;
+      const seasonR = `COALESCE(plan.season_ratio, 1)`;
+      const covEff = `COALESCE(${colCov}, ${autoCovKepler}, ${autoCov}, :cov)`;
+      const safetyEff = `COALESCE(${colSafety}, plan.safety_pct_q * 100, ${autoSafety}, 0)`;
       const frSku = `CASE WHEN COALESCE(frp.n,0) >= :fmin AND COALESCE(frp.ord,0) > 0 THEN LEAST(1.0, frp.recv::numeric / frp.ord) END`;
       const frSup = `CASE WHEN COALESCE(frs.n,0) >= :fmin AND COALESCE(frs.ord,0) > 0 THEN LEAST(1.0, frs.recv::numeric / frs.ord) END`;
       const fillRate = `COALESCE(${colFill}, ${frSku}, ${frSup}, 1.0)`;
       const fillSource = `CASE WHEN ${colFill} IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
-      const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
-      const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
+      const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCovKepler} IS NOT NULL THEN 'kepler' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
+      const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN plan.safety_pct_q IS NOT NULL THEN 'quantil' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
       // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
       const fillFactor = `(1.0 / GREATEST(${fillRate}, 1.0 / :maxinf)) * (1 + ${safetyEff}/100.0)`;
-      // En CAJAS: demanda (sub-unidades) ÷ SUF ÷ BF; existencia (unidades de stock) ÷ BF; tránsito ya en cajas.
-      const needBase = `GREATEST(0, ${sellDayPz} * ${covEff} / (${SUF} * ${BF}) - ${stockPz} / ${BF} - ${transit})`; // necesidad neta (sin fill)
+      // En CAJAS: demanda (sub-unidades, × estación) ÷ SUF ÷ BF; existencia ÷ BF; tránsito ya en cajas.
+      const needBase = `GREATEST(0, ${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}) - ${stockCjs} - ${transitEff})`; // necesidad neta (sin fill)
       const sug = `(${needBase} * ${fillFactor})`;                                                          // sugerido personalizado
-      const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true'];
+      const filters: string[] = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL'];
       const binds: Record<string, unknown> = { t: tenantId, cov, fwin, fmin, maxinf };
       // Almacén: seleccionar almacén en Comprar = PEDIDO PER-SUCURSAL (demanda + existencia de
       // ESE almacén), NO "productos comprados ahí". Los proveedores DIRECTOS a sucursal (Ferrero)
@@ -631,8 +702,10 @@ export class CommercialReplenishmentService {
       // Bucket por COBERTURA (días que aguanta la red vendiendo): agotado / crítico(<7) / bajo(<cobertura) /
       // sano / sobrestock(>90). DEFAULT = TODOS los productos (visibilidad total); scope='needed' o un
       // bucket lo acotan. Ordenado por valor del sugerido → lo accionable arriba, lo cubierto abajo.
-      const cover = `(${stockPz} * ${SUF} / NULLIF(${sellDayPz}, 0))`; // días: existencia(stock) ÷ demanda diaria en unidades de stock (sellDayPz/SUF)
-      const bucketExpr = `CASE WHEN ${stockPz} <= 0 AND ${sellDayPz} <= 0 THEN 'sin_dato' WHEN ${stockPz} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < ${covEff} THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
+      // Días de cobertura = existencia en CAJAS ÷ demanda diaria en CAJAS. Las dos en la misma
+      // unidad; antes se dividía la existencia cruda por la demanda en piezas.
+      const cover = `(${stockCjs} * ${SUF} * ${BF} / NULLIF(${sellDayPz}, 0))`;
+      const bucketExpr = `CASE WHEN ${stockCjs} <= 0 AND ${sellDayPz} <= 0 THEN 'sin_dato' WHEN ${stockCjs} <= 0 THEN 'agotado' WHEN ${cover} < 7 THEN 'critico' WHEN ${cover} < ${covEff} THEN 'bajo' WHEN ${cover} > 90 THEN 'sobrestock' ELSE 'sano' END`;
       if (q.bucket && ['agotado', 'critico', 'bajo', 'sano', 'sobrestock', 'sin_dato'].includes(q.bucket)) { filters.push(`${bucketExpr} = :bkt`); binds.bkt = q.bucket; }
       else if (q.scope === 'needed') { filters.push(`${sug} > 0`); }
       const where = filters.join(' AND ');
@@ -645,12 +718,28 @@ export class CommercialReplenishmentService {
         FROM catalog.products pr
         LEFT JOIN (
           SELECT product_id,
-                 sum(daily_pieces) AS sell_day_pz, sum(stock_pz) AS stock_pz, sum(transit_cajas) AS transit,
+                 sum(daily_pieces) AS sell_day_pz, sum(stock_pz) AS stock_pz,
+                 -- ADR-055: cada almacén aporta su existencia YA en cajas, con su propio factor.
+                 sum(stock_pz / GREATEST(COALESCE(display_bf, bf, 1), 1)) AS stock_cjs,
+                 sum(transit_cajas) AS transit,
+                 sum(transit_eff_cajas) AS transit_eff,
                  sum(revenue30) AS rev30,
                  max(suf) AS suf, max(bf) AS bf, max(caja_cost) AS caja_cost,
                  max(price_ratio) AS price_ratio, max(unit_source) AS unit_source,
                  max(buy_rate) AS buy_rate, max(order_days) AS order_days, max(last_purchase) AS last_purchase,
-                 min(primary_wh::text)::uuid AS primary_wh
+                 min(primary_wh::text)::uuid AS primary_wh,
+                 -- RA-PRO.41 — señales derivadas (grano producto: idénticas en todas las filas)
+                 max(season_ratio) AS season_ratio, max(season_src) AS season_src,
+                 max(safety_pct_q) AS safety_pct_q, max(lead_days) AS lead_days,
+                 -- U.2 — cuántos de los almacenes que aportan a stock_cjs traen el peldaño
+                 -- CONTRADICHO por el costo de compra. La suma los MEZCLA: si uno viene con el
+                 -- divisor roto, el total no está en cajas ni en nada, y el sugerido que sale de él
+                 -- tampoco → su dinero no se publica. Columna del propio fact: CERO joins nuevos
+                 -- (la vista auditable cuesta 8-25 s; ver rungMedible()). Sólo x1/x2 se persisten,
+                 -- porque z_no_arbitrable es ausencia de árbitro, no veredicto en contra.
+                 count(*) FILTER (WHERE rung_veredicto IS NOT NULL) AS rung_bad,
+                 max(rung_veredicto)                                AS rung_veredicto,
+                 sum(rung_arbitrado)                                AS rung_arbitrado
             FROM analytics.replenishment_plan
            WHERE tenant_id = :t${planWh}
            GROUP BY product_id
@@ -702,7 +791,11 @@ export class CommercialReplenishmentService {
         SELECT z.*,
                COUNT(*) OVER() AS _total,
                COUNT(*) FILTER (WHERE z.suggested_units > 0) OVER() AS _needed,
+               -- U.2 — SUM() ignora los NULL por sí solo: el total publica lo verificado. Lo
+               -- retenido se cuenta APARTE, con la cifra del árbitro como referencia a revisar.
                ROUND(SUM(z.suggested_cost) OVER()::numeric, 2) AS _total_valor,
+               COUNT(*) FILTER (WHERE z.rung_almacenes > 0) OVER() AS _sin_medir_skus,
+               ROUND(COALESCE(SUM(z.rung_arbitrado) OVER(), 0)::numeric, 2) AS _sin_medir_arbitrado,
                ROUND(SUM(z.sell_month_mxn) OVER()::numeric, 2) AS _total_revenue,
                RANK() OVER (ORDER BY z.sell_month_mxn DESC NULLS LAST) AS sales_rank,
                CASE
@@ -721,11 +814,13 @@ export class CommercialReplenishmentService {
                  COALESCE(plan.unit_source, 'catalog') AS unit_source,
                  round(COALESCE(plan.buy_rate,0)::numeric, 3) AS daily_rate,
                  plan.order_days, plan.last_purchase,
-                 round((${stockPz} / ${BF})::numeric, 1) AS on_hand_pieces,
-                 round((${stockPz} / ${BF})::numeric, 2) AS on_hand_units,
+                 round((${stockCjs})::numeric, 1) AS on_hand_pieces,
+                 round((${stockCjs})::numeric, 2) AS on_hand_units,
                  ${transit} AS in_transit_units,
                  round((${costCaja})::numeric, 4) AS unit_cost,
-                 round((${sellDayPz} * ${covEff} / (${SUF} * ${BF}))::numeric, 2) AS target_units,
+                 round((${sellDayPz} * ${seasonR} * ${covEff} / (${SUF} * ${BF}))::numeric, 2) AS target_units,
+                 round((${seasonR})::numeric, 3) AS season_ratio,
+                 plan.season_src,
                  round(${sug}::numeric, 2) AS suggested_units,
                  round(${needBase}::numeric, 2) AS base_units,
                  round((${fillRate})::numeric, 3) AS fill_rate,
@@ -735,15 +830,21 @@ export class CommercialReplenishmentService {
                  round((${safetyEff})::numeric, 0) AS safety_pct_eff,
                  ${safetySource} AS safety_source,
                  round((${sug} * ${BF})::numeric, 0) AS suggested_pieces,
-                 round((${sug} * ${costCaja})::numeric, 2) AS suggested_cost,
+                 -- U.2 — el costo del sugerido se publica SOLO si ningún almacén del scope trae el
+                 -- peldaño contradicho. NULL = "no se está midiendo", no cero.
+                 CASE WHEN COALESCE(plan.rung_bad, 0) = 0
+                      THEN round((${sug} * ${costCaja})::numeric, 2) END AS suggested_cost,
+                 COALESCE(plan.rung_bad, 0)::int AS rung_almacenes,
+                 plan.rung_veredicto             AS rung_veredicto,
+                 round(plan.rung_arbitrado::numeric, 2) AS rung_arbitrado,
                  round((${sellDayPz} / (${SUF} * ${BF}))::numeric, 2) AS sell_daily_cajas,
                  round((${sellDayPz} * 30 / (${SUF} * ${BF}))::numeric, 0) AS sell_month_cajas,
                  round(COALESCE(plan.rev30,0)::numeric, 2) AS sell_month_mxn,
-                 round((${stockPz} * ${SUF} / NULLIF(${sellDayPz}, 0))::numeric, 0) AS days_cover,
+                 round((${cover})::numeric, 0) AS days_cover,
                  ${bucketExpr} AS bucket
           ${from}
         ) z
-        ORDER BY z.suggested_cost DESC, z.sell_month_mxn DESC, z.on_hand_pieces DESC
+        ORDER BY z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       const agg: any = rows[0] || {};
@@ -752,6 +853,11 @@ export class CommercialReplenishmentService {
         needed: Number(agg._needed || 0),
         total_valor: Number(agg._total_valor || 0),
         total_revenue: Number(agg._total_revenue || 0),
+        // U.2 — lo que la pantalla NO puede medir, declarado en el encabezado.
+        unit_rung: {
+          skus: Number(agg._sin_medir_skus || 0),
+          arbitrado: Number(agg._sin_medir_arbitrado || 0),
+        },
         page, pageSize, coverage_days: cov, rows,
       };
     });
@@ -775,7 +881,7 @@ export class CommercialReplenishmentService {
     const offset = (page - 1) * pageSize;
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
-      const filters = ['pr.tenant_id = :t', 'pr.activo = true',
+      const filters = ['pr.tenant_id = :t', 'pr.activo = true', 'pr.deleted_at IS NULL',
         'NOT EXISTS (SELECT 1 FROM commercial.product_aliases pa WHERE pa.tenant_id = :t AND pa.alias_product_id = pr.id AND pa.deleted_at IS NULL)'];
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('pr.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('pr.brand_id = :bid'); binds.bid = q.brand_id; }
@@ -804,7 +910,22 @@ export class CommercialReplenishmentService {
           ) sw ON sw.warehouse_id = rp.warehouse_id`;
       const colExpr = general ? `'GENERAL'` : 'w.code';
       const SUF = 'COALESCE(max(b.suf),1)';
+      // BF = unidades BASE de Kepler por caja. Es el divisor de la DEMANDA: `product_demand`
+      // normaliza la venta de Wincaja a la unidad base (verificado: 159 de 166 multipack de MD-30
+      // con razón ≈ f2 contra `analytics.sales_daily`), así que la venta ya viaja en base.
       const BF = 'COALESCE(max(b.bf),1)';
+      // ADR-055 — DBF = unidades NATIVAS DE ESE ALMACÉN por caja. Es el divisor de todo lo que
+      // sale de la EXISTENCIA (existencia, reorden, máximo), porque esas tres viven en la unidad
+      // cruda del almacén: Kepler en su unidad base, Wincaja en su unidad de venta (el PAQUETE en
+      // los multipack). Con un único factor por producto la existencia de MD-30/MD-32/00 salía
+      // ~10× más chica y el motor pedía de más — $866,756 de sobre-pedido y $2.68M de inventario
+      // que no se veía. Resuelto en `analytics.v_warehouse_box_factor` y materializado en el fact.
+      const DBF = 'COALESCE(max(b.display_bf), max(b.bf), 1)';
+      // U.2 — ¿el peldaño de este almacén está verificado? `sin_dato` cuenta como OK a propósito:
+      // el detector sólo opina donde hay existencia y costo de compra; ausencia de veredicto no es
+      // veredicto negativo (misma regla que `freshness.ts`: no poder MEDIR no se reporta como malo,
+      // pero tampoco se castiga al 99% que nunca tuvo problema).
+      const RUNG_OK = `max(b.rung_veredicto) IN ('ok', 'sin_dato', 'z_no_arbitrable')`;
       // RA-PRO.36.2 — filtros de PRODUCTO server-side (aplican sobre TODO el dataset, antes de paginar):
       // scope (con pedido) + tendencia IAD + sobrestock. Sin esto, los chips filtrarían solo la página cargada.
       const wbConds: string[] = [];
@@ -816,15 +937,47 @@ export class CommercialReplenishmentService {
       const inner = `
         WITH base AS (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
-                 rp.suf, rp.bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas, rp.revenue30,
+                 rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
+                 COALESCE(rp.transit_eff_cajas, rp.transit_cajas) AS transit_eff_cajas, rp.revenue30,
                  -- RA — política de reorden por (producto, almacén). reorder_point/max_stock en PIEZAS
                  -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
+                 -- ⚠️ SIN BACKTICKS EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 -- reorder_point/max_stock salen de inventory_health.on_hand, que lee la vista de
+                 -- existencia SIN convertir → están en la unidad NATIVA del almacén, igual que
+                 -- stock_pz. Por eso se dividen por DBF, no por BF (antes se sumaban piezas de
+                 -- Kepler con paquetes de Wincaja y se dividía todo por un factor de piezas).
                  rop.reorder_point AS rop_reorder, rop.max_stock AS rop_max, rop.xyz_class AS rop_xyz,
+                 rp.season_ratio, rp.season_src,
+                 -- RA-PRO.46 — el rótulo de la unidad base LO DICE KEPLER (kdii.c11 vía la vista
+                 -- derivada del ODS); antes la pantalla escribía "pz" a mano y mentía en los
+                 -- productos a granel (el azúcar 99029 se mide en 500 g, no en piezas).
+                 lad.u1_label AS unidad_base,
+                 -- U.2 — VEREDICTO DEL PELDAÑO por (producto, almacén). Cuando el divisor no
+                 -- cuadra con lo que se pagó, la conversion a cajas de ESTE almacen no es
+                 -- confiable: ni la cantidad ni su valuado. Se DECLARA, no se dibuja.
+                 -- Ver analytics.v_unit_rung_audit (mig 20260903150000) y UNIDADES_DE_MEDIDA 8quater.
+                 -- Se lee del FACT, no de la vista: la vista es la fuente auditable pero cuesta
+                 -- 8-25 s (deriva escalera de costo + factor por almacén + existencia Wincaja), y
+                 -- esto se evalúa por CELDA sobre todo el catálogo. El nocturno la paga una vez
+                 -- y baja el veredicto a replenishment_plan (mig 20260903170000). Ver rungMedible().
+                 COALESCE(rp.rung_veredicto, 'sin_dato') AS rung_veredicto,
+                 -- La razón se DERIVA de los dos divisores, no se guarda repetida: cuánto se
+                 -- desvía el que usamos del que implica el costo pagado.
+                 CASE WHEN rp.rung_bf_esperado > 0
+                      THEN GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1) / rp.rung_bf_esperado END AS rung_razon,
+                 rp.rung_arbitrado                   AS rung_valor_arbitrado,
+                 -- Rótulo de la unidad NATIVA del almacén: del resolvedor canónico por almacén
+                 -- (v_warehouse_box_factor, 545 ms), que es el que fija el divisor.
+                 vbf.base_label                      AS rung_base_label,
                  ${colExpr} AS col_code
             FROM catalog.products pr
             JOIN analytics.replenishment_plan rp ON rp.tenant_id = pr.tenant_id AND rp.product_id = pr.id
             JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = rp.warehouse_id
             LEFT JOIN commercial.reorder_policy rop ON rop.tenant_id = pr.tenant_id AND rop.product_id = pr.id AND rop.warehouse_id = rp.warehouse_id
+            LEFT JOIN analytics.v_supplier_cost_ladder lad ON lad.sku = pr.sku
+            LEFT JOIN analytics.v_warehouse_box_factor vbf
+                   ON vbf.tenant_id = rp.tenant_id AND vbf.warehouse_id = rp.warehouse_id
+                  AND vbf.product_id = rp.product_id
             ${stockJoin}
            WHERE ${where}${whFilter}
              AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
@@ -833,25 +986,80 @@ export class CommercialReplenishmentService {
           SELECT b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code,
                  ${BF} AS bf, round(COALESCE(max(b.caja_cost),0)::numeric, 2) AS caja_cost,
                  round((COALESCE(sum(b.daily_pieces),0) * 30 / (${SUF} * ${BF}))::numeric, 1) AS vta,
-                 round((COALESCE(sum(b.stock_pz),0) / ${BF})::numeric, 1) AS exis,
-                 round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${BF} - COALESCE(sum(b.transit_cajas),0))::numeric, 1) AS ped,
+                 round((COALESCE(sum(b.stock_pz),0) / ${DBF})::numeric, 1) AS exis,
+                 -- RA-PRO.41 — la demanda del horizonte lleva la estación (razón desestacionalizada).
+                 -- U.2 — ⚠️ EL PEDIDO ES LO QUE SE GASTA. Resta la existencia convertida con DBF;
+                 -- si el costo contradice ese divisor, la resta es entre magnitudes de peldaños
+                 -- distintos y el sugerido sale mal EN LA DIRECCIÓN CARA: con el divisor 9× de más
+                 -- (99089 en MD-30) la existencia se lee 1.3 cajas donde hay 12, el máximo es 10.3
+                 -- y pide 6.9 cajas que ya están en el piso — $2,308 en un solo renglón.
+                 -- Se retiene igual que el valuado: NULL, no un número.
+                 CASE WHEN ${RUNG_OK} THEN
+                   round(GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - COALESCE(sum(b.transit_eff_cajas),0))::numeric, 1)
+                 END AS ped,
+                 -- Reorden/máximo YA EN CAJAS de este almacén, y el valuado de su existencia. Se
+                 -- convierten ACÁ (por almacén, cada uno con SU factor) y no en el CTE prod: sumar
+                 -- las unidades crudas de varios almacenes y dividir después mezcla las unidades.
+                 round((COALESCE(sum(b.rop_reorder),0) / ${DBF})::numeric, 1) AS reorder_cjs,
+                 round((COALESCE(sum(b.rop_max),0) / ${DBF})::numeric, 1) AS max_cjs,
+                 -- U.2 — el valuado SÓLO se publica si el peldaño de este almacén está verificado.
+                 -- Si no, va NULL: sumar un valuado que el dinero contradice lo esconde. Lo que el
+                 -- árbitro sí puede afirmar viaja aparte, en rung_arbitrado.
+                 CASE WHEN ${RUNG_OK}
+                      THEN round((COALESCE(sum(b.stock_pz),0) / ${DBF} * COALESCE(max(b.caja_cost),0))::numeric, 2)
+                 END                                                          AS valor_exis_col,
+                 max(b.rung_veredicto)                                        AS rung_veredicto,
+                 round(max(b.rung_razon)::numeric, 3)                         AS rung_razon,
+                 round(max(b.rung_valor_arbitrado)::numeric, 2)               AS rung_arbitrado,
+                 max(b.rung_base_label)                                       AS rung_base_label,
+                 -- La CANTIDAD suelta, que sí es verdad aunque su conversión a cajas no lo sea:
+                 -- el comprador necesita saber que hay 2,679 KG ahí, no un blanco.
+                 round(COALESCE(sum(b.stock_pz),0)::numeric, 0)               AS exis_nativa,
+                 -- tran es el CRUDO a propósito: es lo que ve el comprador y lo que tiene que
+                 -- cuadrar con los folios del diálogo "En camino". Descontar usa el pesado (arriba).
+                 round(COALESCE(sum(b.transit_cajas),0)::numeric, 1) AS tran,
                  COALESCE(sum(b.revenue30),0) AS rev, COALESCE(sum(b.stock_pz),0) AS stock_pz,
-                 COALESCE(sum(b.rop_reorder),0) AS reorder_pz, COALESCE(sum(b.rop_max),0) AS max_pz, max(b.rop_xyz) AS xyz
+                 max(b.rop_xyz) AS xyz,
+                 max(b.season_ratio) AS season_ratio, max(b.season_src) AS season_src,
+                 max(b.unidad_base) AS unidad_base
             FROM base b
            GROUP BY b.product_id, b.sku, b.nombre, b.supplier_id, b.col_code
         ),
         prod AS (
           SELECT product_id, sku, nombre, supplier_id,
                  max(bf) AS uxc, round(max(caja_cost)::numeric, 2) AS caja_cost,
-                 jsonb_object_agg(col_code, jsonb_build_object('vta', vta, 'exis', exis, 'ped', ped)) AS cells,
-                 -- Reorden/Máximo de RED en cajas (Σ piezas de las sucursales ÷ BF) + XYZ peor-caso.
-                 round((sum(reorder_pz) / NULLIF(max(bf),0))::numeric, 1) AS reorder_cajas,
-                 round((sum(max_pz) / NULLIF(max(bf),0))::numeric, 1) AS max_cajas,
+                 max(unidad_base) AS unidad_base,
+                 -- U.2 — cada celda declara su propio veredicto de peldaño. SIN BACKTICKS ACÁ: va
+                 -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
+                 -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta
+                 -- celda no se puede convertir a cajas" y muestra la cantidad suelta con su rótulo.
+                 jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
+                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran,
+                   'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
+                   'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
+                   'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
+                 ))) AS cells,
+                 round(sum(tran)::numeric, 1) AS transito_cajas,   -- RA-PRO.44: explica el "Pedido 0"
+                 -- Reorden/Máximo de RED en cajas = Σ de las cajas ya convertidas por almacén.
+                 round(sum(reorder_cjs)::numeric, 1) AS reorder_cajas,
+                 round(sum(max_cjs)::numeric, 1) AS max_cajas,
                  max(xyz) AS xyz_class,
+                 round(max(season_ratio)::numeric, 3) AS season_ratio, max(season_src) AS season_src,
+                 -- U.2 — sum() ignora los NULL: el pedido de red suma SOLO los almacenes cuyo
+                 -- peldaño está verificado. almacenes_sin_pedido dice cuántos quedaron fuera,
+                 -- para que un total más chico no se lea como "no hace falta comprar".
+                 -- ⚠️ SIN BACKTICKS ACÁ: este comentario va dentro de un template literal de JS.
                  round(sum(ped)::numeric, 1) AS suma_pedido_cajas,
                  round(sum(ped * caja_cost)::numeric, 2) AS pedido_valor,
+                 count(*) FILTER (WHERE ped IS NULL)::int AS almacenes_sin_pedido,
                  round(sum(rev)::numeric, 2) AS valor_venta,
-                 round((sum(stock_pz) / max(bf) * max(caja_cost))::numeric, 2) AS valor_exis,
+                 -- U.2 — el valuado publicado es Σ de los almacenes VERIFICADOS. Los marcados no se
+                 -- suman ni se dibujan como cero: se declaran en las 3 columnas de abajo, que el
+                 -- front usa para el banner ("N almacenes sin valuar") y el KPI aparte.
+                 round(sum(valor_exis_col)::numeric, 2)                                  AS valor_exis,
+                 count(*) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::int AS almacenes_sin_valuar,
+                 round(sum(rung_arbitrado) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada'))::numeric, 2) AS valor_exis_arbitrado,
+                 max(rung_veredicto) FILTER (WHERE rung_veredicto IN ('x1_inflada','x2_deflactada')) AS rung_peor,
                  bool_or(exis > 0 AND (vta <= 0 OR exis * 30.0 / NULLIF(vta, 0) > 90)) AS has_over
             FROM per
            GROUP BY product_id, sku, nombre, supplier_id
@@ -871,7 +1079,18 @@ export class CommercialReplenishmentService {
          ${wbWhere}`;
 
       const rows = (await trx.raw(`${inner} ORDER BY valor_venta DESC NULLS LAST, sku LIMIT ${pageSize} OFFSET ${offset}`, binds)).rows;
-      const tot = (await trx.raw(`SELECT count(*)::int c, round(SUM(pedido_valor)::numeric,2) total_pedido, round(SUM(valor_venta)::numeric,2) total_venta, round(SUM(valor_exis)::numeric,2) total_exis FROM (${inner}) z`, binds)).rows[0];
+      // U.2 — el total del inventario declara su propio hueco: `total_exis` es Σ de lo VERIFICADO, y
+      // `exis_sin_valuar_*` dice cuántos SKUs y cuánto valor (según el árbitro) quedaron fuera. Sin
+      // esto el total bajaría en silencio y se leería como "hay menos inventario", que es otra
+      // mentira distinta de la que estamos quitando.
+      const tot = (await trx.raw(`SELECT count(*)::int c,
+          round(SUM(pedido_valor)::numeric,2) total_pedido,
+          round(SUM(valor_venta)::numeric,2)  total_venta,
+          round(SUM(valor_exis)::numeric,2)   total_exis,
+          COUNT(*) FILTER (WHERE almacenes_sin_valuar > 0)::int          exis_sin_valuar_skus,
+          COALESCE(SUM(almacenes_sin_valuar), 0)::int                    exis_sin_valuar_celdas,
+          round(COALESCE(SUM(valor_exis_arbitrado), 0)::numeric, 2)      exis_sin_valuar_arbitrado
+        FROM (${inner}) z`, binds)).rows[0];
       // Columnas presentes → dinámicas. General = 1 columna; por sucursal = 1 almacén por columna.
       const territories = general
         ? [{ code: 'GENERAL', name: 'General (red)' }]
@@ -895,6 +1114,15 @@ export class CommercialReplenishmentService {
           venta: Number(tot?.total_venta || 0),
           exis: Number(tot?.total_exis || 0),
         },
+        // U.2 — lo que la pantalla NO puede valuar, declarado en vez de omitido. `arbitrado` es lo
+        // que el árbitro (la compra real / el costo propio de Wincaja) sí puede afirmar; es una
+        // referencia para el triage, no una cifra publicable — el árbitro es un tamiz, no un
+        // veredicto. Ver analytics.v_unit_rung_audit.
+        unit_rung: {
+          skus: Number(tot?.exis_sin_valuar_skus || 0),
+          celdas: Number(tot?.exis_sin_valuar_celdas || 0),
+          arbitrado: Number(tot?.exis_sin_valuar_arbitrado || 0),
+        },
         rows,
       };
     });
@@ -904,6 +1132,171 @@ export class CommercialReplenishmentService {
    * RA-PRO.32 — Detalle (drill-down) de un SKU de la Vista Excel: economía del producto +
    * desglose POR ALMACÉN (con su punto de compra/raíz resuelto por topología, sin hardcodear códigos).
    */
+  /**
+   * RA-PRO.44 — QUÉ VIENE EN CAMINO de un SKU, con folio y fecha. Es la explicación del "Pedido 0":
+   * cuando el motor no pide es casi siempre porque hay OC abierta, y hasta ahora eso era invisible
+   * (el comprador veía un cero sin causa). Lee el ODS en vivo — mismo criterio que el CTE `tr` del
+   * fact: OC `X-A-35` sin orden de entrada `X-A-40` aguas abajo vía su vale `X-A-37`.
+   *
+   * `llega_aprox` = fecha de la OC + lead time del proveedor (mediana derivada del ODS, RA-PRO.41).
+   * Es una ESTIMACIÓN: Kepler no registra fecha prometida (captura la cadena de un jalón), así que
+   * se marca `estimada: true` — no inventamos precisión que el ERP no tiene.
+   */
+  async inTransitDetail(productId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
+    return this.tk.run(async (trx) => {
+      const hasOds = (await trx.raw(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0]?.t;
+      const prod = (await trx('catalog.products').where({ tenant_id: tenantId, id: productId })
+        .first('sku', 'nombre')) as { sku: string; nombre: string } | undefined;
+      if (!hasOds || !prod) return { product: prod ?? null, rows: [], total_cajas: 0, total_valor: 0 };
+
+      // El factor de caja y el costo salen del fact (misma fuente que el pedido) → las cantidades
+      // que ve el comprador acá cuadran con la columna "En camino" de la matriz.
+      const econ = (await trx.raw(
+        `SELECT max(bf) AS bf, max(caja_cost) AS caja_cost, max(lead_days) AS lead_days,
+                sum(transit_cajas) AS tr, sum(COALESCE(transit_eff_cajas, transit_cajas)) AS tr_eff
+           FROM analytics.replenishment_plan WHERE tenant_id = ? AND product_id = ?`,
+        [tenantId, productId])).rows[0] || {};
+      const bf = Number(econ.bf) || 1;
+      const cajaCost = Number(econ.caja_cost) || 0;
+      const lead = Number(econ.lead_days) || 4;
+
+      // RA-PRO.45.1 — lee la capa normalizada (`analytics.erp_purchase_orders` / `_doc_lines`),
+      // no `kdm1` crudo: el decode de "OC abierta" y del empaque declarado vive en la vista.
+      const rows = (await trx.raw(`
+        SELECT oc.folio,
+               oc.sucursal,
+               oc.doc_date                         AS fecha_oc,
+               (oc.doc_date + (?::numeric)::int)   AS llega_aprox,
+               oc.dias_abierta,
+               oc.proveedor_nombre                 AS proveedor,
+               l.unidad,
+               sum(l.cantidad)                     AS cantidad,
+               round(sum(CASE
+                     WHEN l.unidades_por_caja > 0 AND l.costo_caja > 0 AND ?::numeric > 0
+                          AND abs(l.costo_caja - ?::numeric) <= 0.15 * (?::numeric)
+                       THEN l.cantidad / l.unidades_por_caja
+                     ELSE l.cantidad / (?::numeric) END)::numeric, 1) AS cajas
+          FROM analytics.erp_purchase_orders oc
+          JOIN analytics.erp_purchase_doc_lines l
+            ON l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio
+         WHERE oc.doc_date >= CURRENT_DATE - 120
+           AND NOT oc.cerrada
+           AND oc.estatus NOT IN ('F', 'C', 'R')   -- mismo criterio que el fact (RA-PRO.45)
+           AND l.sku = ?
+         GROUP BY oc.folio, oc.sucursal, oc.doc_date, oc.dias_abierta, oc.proveedor_nombre, l.unidad
+         ORDER BY oc.doc_date`,
+        [lead, cajaCost, cajaCost, cajaCost, bf, prod.sku])).rows as Array<Record<string, unknown>>;
+
+      const out = rows.map((r) => ({
+        folio: String(r.folio ?? '').trim(),
+        sucursal: String(r.sucursal ?? '').trim(),
+        fecha_oc: r.fecha_oc,
+        llega_aprox: r.llega_aprox,
+        llega_estimada: true,          // Kepler no guarda fecha prometida — es OC + lead derivado
+        dias_abierta: Number(r.dias_abierta) || 0,
+        proveedor: (r.proveedor as string) || null,
+        unidad: (r.unidad as string) || null,
+        cantidad: Number(r.cantidad) || 0,
+        cajas: Number(r.cajas) || 0,
+        valor: Math.round((Number(r.cajas) || 0) * cajaCost * 100) / 100,
+      }));
+      return {
+        product: { sku: prod.sku, nombre: prod.nombre },
+        lead_days: lead,
+        rows: out,
+        total_cajas: Math.round(out.reduce((s, r) => s + r.cajas, 0) * 10) / 10,
+        total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
+        // RA-PRO.45 — lo que el motor DESCUENTA de verdad: las mismas cajas pesadas por la
+        // probabilidad de que cada OC llegue. La diferencia con `total_cajas` es papel que ya no
+        // se va a surtir; mostrarla evita la pregunta "si vienen 180 cajas, ¿por qué pide?".
+        descuenta_cajas: Math.round((Number(econ.tr_eff) || 0) * 10) / 10,
+        fact_cajas: Math.round((Number(econ.tr) || 0) * 10) / 10,
+      };
+    });
+  }
+
+  /**
+   * RA-PRO.45 — La vista INVERSA de "En camino": todas las OCs de Kepler que siguen abiertas,
+   * ordenadas por antigüedad, con la probabilidad de que lleguen.
+   *
+   * Existe porque el motor ya dejó de creerles, pero alguien tiene que ir a cerrarlas o cancelarlas
+   * en el ERP: mientras vivan, siguen ensuciando la cadena de compras. Las de +45 días llegan el
+   * 13.6% de las veces — son papel abierto, no pipeline.
+   *
+   * La curva sale del propio ODS (misma que usa el fact); por eso esta consulta cuesta ~2 s y es una
+   * pantalla de trabajo, no un widget de dashboard.
+   */
+  async openPurchaseOrders(q: { sucursal?: string; min_days?: number } = {}) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const minDays = Math.min(120, Math.max(0, Number(q.min_days) || 0));
+    const suc = /^[0-9]{1,3}$/.test(String(q.sucursal ?? '')) ? String(q.sucursal) : null;
+    return this.tk.run(async (trx) => {
+      const hasOds = (await trx.raw(`SELECT to_regclass('kepler_ods.kdm1') AS t`)).rows[0]?.t;
+      if (!hasOds) return { rows: [], total: 0, total_valor: 0, curva: [] };
+
+      // La curva NO se re-deriva acá: la escribe el importer del fact (un solo productor) — así la
+      // probabilidad que ve el comprador es exactamente la que usó el motor para descontar.
+      const curva = (await trx('analytics.oc_survival_curve')
+        .where({ tenant_id: tenantId }).orderBy('edad')
+        .select('edad', 'muestra', 'fallback', trx.raw('round(p*100, 1) AS pct'))) as Array<Record<string, unknown>>;
+
+      // RA-PRO.45.1 — todo sale de `analytics.erp_purchase_orders`: el decode de "abierta" no se
+      // vuelve a escribir acá. MATERIALIZED en `oc` porque la vista trae un EXISTS por fila y sin
+      // la barrera el planner lo multiplica por el LATERAL de renglones.
+      const rows = (await trx.raw(`
+        WITH surv AS (SELECT edad, p FROM analytics.oc_survival_curve WHERE tenant_id = :t),
+        oc AS MATERIALIZED (
+          SELECT sucursal, folio, doc_date AS fecha_oc, proveedor_nombre AS proveedor,
+                 estatus, dias_abierta AS dias
+            FROM analytics.erp_purchase_orders
+           WHERE doc_date >= CURRENT_DATE - 120
+             AND NOT cerrada
+             AND dias_abierta >= :mind
+             AND (:suc::text IS NULL OR sucursal = :suc)
+        )
+        SELECT oc.sucursal AS almacen, oc.folio, oc.fecha_oc, oc.proveedor, oc.estatus, oc.dias,
+               v.lineas, round(v.valor::numeric, 2) AS valor,
+               -- El ERP manda sobre la curva: si él ya la dio por cerrada/cancelada, no llega nada.
+               CASE WHEN oc.estatus IN ('F','C','R') THEN 0 ELSE round((sv.p * 100)::numeric, 1) END AS prob
+          FROM oc
+          -- LEFT: si el importer todavía no escribió la curva, la bandeja igual lista las OCs
+          -- (con prob NULL). Una pantalla de trabajo no se queda en blanco por eso.
+          LEFT JOIN surv sv ON sv.edad = (CASE WHEN oc.dias <= 3 THEN 0 WHEN oc.dias <= 7 THEN 4
+                                          WHEN oc.dias <= 14 THEN 8 WHEN oc.dias <= 21 THEN 15
+                                          WHEN oc.dias <= 30 THEN 22 WHEN oc.dias <= 45 THEN 31
+                                          WHEN oc.dias <= 60 THEN 46 ELSE 61 END)
+          JOIN LATERAL (
+            SELECT count(*) AS lineas, COALESCE(sum(l.importe), 0) AS valor
+              FROM analytics.erp_purchase_doc_lines l
+             WHERE l.doctype='XA3501' AND l.sucursal=oc.sucursal AND l.folio=oc.folio) v ON true
+         WHERE v.valor > 0
+         ORDER BY oc.dias DESC, v.valor DESC
+         LIMIT 500`, { t: tenantId, mind: minDays, suc })).rows as Array<Record<string, unknown>>;
+
+      const out = rows.map((r) => ({
+        almacen: String(r.almacen ?? '').trim(),
+        folio: String(r.folio ?? '').trim(),
+        fecha_oc: r.fecha_oc,
+        proveedor: (r.proveedor as string) || null,
+        estatus: String(r.estatus ?? 'N'),
+        dias: Number(r.dias) || 0,
+        lineas: Number(r.lineas) || 0,
+        valor: Number(r.valor) || 0,
+        prob: r.prob === null || r.prob === undefined ? null : Number(r.prob),
+      }));
+      return {
+        rows: out,
+        total: out.length,
+        total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
+        // Lo que de verdad sigue en juego: el valor pesado por la probabilidad de que llegue.
+        valor_esperado: Math.round(out.reduce((s, r) => s + r.valor * ((r.prob ?? 100) / 100), 0) * 100) / 100,
+        curva: curva.map((c) => ({ edad: Number(c.edad), n: Number(c.muestra), pct: Number(c.pct), fallback: !!c.fallback })),
+      };
+    });
+  }
+
   async workbookDetail(productId: string, coverageDays?: number) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(productId)) throw new BadRequestException('product_id inválido');
@@ -911,6 +1304,9 @@ export class CommercialReplenishmentService {
     return this.tk.run(async (trx) => {
       const suf = 'COALESCE(rp.suf,1)';
       const bf = 'COALESCE(rp.bf,1)';
+      // ADR-055 — divisor de la EXISTENCIA de este almacén (unidades nativas por caja). Distinto
+      // de `bf` (base de Kepler por caja) en los almacenes de Wincaja. La demanda sí va con `bf`.
+      const dbf = 'GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1)';
       const product = (await trx.raw(`
         SELECT pr.sku, pr.nombre, sup.name AS supplier_name,
                max(rp.bf) AS uxc, round(max(rp.caja_cost)::numeric, 2) AS caja_cost,
@@ -929,10 +1325,11 @@ export class CommercialReplenishmentService {
                pr.supplier_id, round(COALESCE(rp.caja_cost, 0)::numeric, 2) AS unit_cost,
                NULL::text AS territory,
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
-               round((rp.stock_pz / ${bf})::numeric, 1) AS existencia_cajas,
+               round((rp.stock_pz / ${dbf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * :cov / (${suf} * ${bf}) - rp.stock_pz / ${bf} - rp.transit_cajas)::numeric, 1) AS pedido_cajas,
-               round((rp.stock_pz * ${suf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
+               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - COALESCE(rp.transit_eff_cajas, rp.transit_cajas, 0))::numeric, 1) AS pedido_cajas,
+               -- días = existencia en cajas ÷ venta diaria en cajas (las dos en la misma unidad)
+               round((rp.stock_pz / ${dbf} * ${suf} * ${bf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
           JOIN commercial.warehouses w ON w.tenant_id = rp.tenant_id AND w.id = rp.warehouse_id
           JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
@@ -969,7 +1366,7 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, cov };
-      const filters: string[] = ['bd.transfer_pz > 0'];
+      const filters: string[] = ['bd.transfer_cjs > 0'];
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('bd.wh = :dw'); binds.dw = q.warehouse_id; }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('bd.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('bd.category_id = :cat'); binds.cat = q.category_id; }
@@ -979,24 +1376,55 @@ export class CommercialReplenishmentService {
       if (q.brand_id && UUID_RX.test(q.brand_id)) { brandScope = ' AND rp.product_id IN (SELECT id FROM catalog.products WHERE tenant_id = :t AND brand_id = :bid)'; binds.bid = q.brand_id; }
       const where = filters.join(' AND ');
 
-      // RA-PRO.31 — LEE del fact precomputado. déficit sucursal = demanda(pieza)/suf×cov − existencia
-      // (unidades de stock); avail_pz = stock del CEDIS origen (misma fila-fact del source_warehouse_id).
-      // Reparto proporcional del stock del CEDIS vía window SUM (RA-PRO.29.1). suf/bf/caja_cost del fact.
+      // RA-PRO.31 — LEE del fact precomputado. Reparto proporcional del stock del CEDIS vía window
+      // SUM (RA-PRO.29.1). suf/bf/caja_cost del fact.
+      //
+      // ADR-055 — TODO EL CÁLCULO VA EN CAJAS, no en "unidades de stock". Antes restaba la demanda
+      // (que viene en la unidad BASE de Kepler) menos `stock_pz` (que en los almacenes de Wincaja
+      // está en unidad de venta), y además comparaba el déficit del destino contra el stock del
+      // CEDIS origen — que puede tener OTRA unidad nativa. La caja es la única unidad común entre
+      // los dos ERPs, así que es la que hace el cálculo comparable Y la que se muestra.
       const cte = `WITH def AS (
         SELECT rp.warehouse_id AS wh, rp.source_warehouse_id AS src, rp.product_id, rp.sku, rp.nombre,
                rp.supplier_id, rp.category_id, rp.bf AS uxc, rp.caja_cost,
-               GREATEST(0, rp.daily_pieces / rp.suf * :cov - rp.stock_pz) AS deficit_pz,
-               COALESCE(cs.stock_pz, 0) AS avail_pz
+               -- RA-PRO.41: el traspaso también anticipa la estación
+               rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (GREATEST(rp.suf,1) * GREATEST(rp.bf,1)) AS dem_cjs,
+               rp.stock_pz / GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1) AS stock_cjs,
+               COALESCE(cs.stock_pz / GREATEST(COALESCE(cs.display_bf, cs.bf, 1), 1), 0) AS avail_cjs,
+               -- U.2 — el traspaso resta DOS existencias, cada una con el divisor de SU almacén.
+               -- Si cualquiera de los dos está contradicho por el costo de compra, la cantidad
+               -- resultante no está en cajas y su valor no se publica. El veredicto viene en el
+               -- fact, así que sale de las filas que esta query YA lee (rp = destino, cs = origen):
+               -- cero joins nuevos. Joinear la vista dos veces costaba 29 s. Ver rungMedible().
+               COALESCE(rp.rung_veredicto, cs.rung_veredicto)   AS rung_veredicto,
+               (rp.rung_veredicto IS NOT NULL) AS rung_dest, (cs.rung_veredicto IS NOT NULL) AS rung_src,
+               -- La misma existencia leída con el divisor que el ÁRBITRO deduce del costo pagado.
+               -- Sirve para contar lo que este plan NO PUEDE mostrar (abajo).
+               rp.stock_pz / GREATEST(rp.rung_bf_esperado, 1) AS stock_cjs_arb
           FROM analytics.replenishment_plan rp
           LEFT JOIN analytics.replenishment_plan cs
                  ON cs.tenant_id = rp.tenant_id AND cs.warehouse_id = rp.source_warehouse_id AND cs.product_id = rp.product_id
          WHERE rp.tenant_id = :t AND rp.source_warehouse_id IS NOT NULL${brandScope}
       ),
+      dx AS (
+        -- U.2 — EL LADO INVISIBLE. Cuando el divisor del destino sale CHICO (x1_inflada), la
+        -- existencia se lee ~16× más grande, el déficit da 0 y la fila **nunca entra al plan**:
+        -- no hay cifra que retener porque no hay renglón. Medido en prod: 19 traspasos que el
+        -- árbitro sí pediría, ausentes hoy (y 67 al revés — ésos sí salen, marcados). Se cuenta
+        -- con un window ANTES del filtro de abajo, que es lo único que ve el resto de la query.
+        SELECT *,
+               GREATEST(0, dem_cjs - stock_cjs) AS deficit_cjs,
+               count(*) FILTER (
+                 WHERE rung_dest AND dem_cjs - stock_cjs <= 0 AND dem_cjs - stock_cjs_arb > 0
+               ) OVER () AS omitidos
+          FROM def
+      ),
       bd AS (
-        SELECT wh, src, product_id, sku, nombre, supplier_id, category_id, uxc, caja_cost, deficit_pz,
-               deficit_pz * LEAST(1.0, CASE WHEN SUM(deficit_pz) OVER (PARTITION BY src, product_id) > 0
-                                            THEN avail_pz / SUM(deficit_pz) OVER (PARTITION BY src, product_id) ELSE 0 END) AS transfer_pz
-          FROM def WHERE deficit_pz > 0
+        SELECT wh, src, product_id, sku, nombre, supplier_id, category_id, uxc, caja_cost, deficit_cjs,
+               rung_veredicto, rung_dest, rung_src, omitidos,
+               deficit_cjs * LEAST(1.0, CASE WHEN SUM(deficit_cjs) OVER (PARTITION BY src, product_id) > 0
+                                             THEN avail_cjs / SUM(deficit_cjs) OVER (PARTITION BY src, product_id) ELSE 0 END) AS transfer_cjs
+          FROM dx WHERE deficit_cjs > 0
       )`;
       const from = `
         FROM bd
@@ -1012,18 +1440,28 @@ export class CommercialReplenishmentService {
                bd.src AS from_warehouse_id, sw.code AS from_code,
                sup.name AS supplier_name,
                bd.uxc,
-               round(bd.deficit_pz::numeric, 0) AS deficit_pieces,
-               round((bd.deficit_pz / bd.uxc)::numeric, 1) AS deficit_cajas,
-               round(bd.transfer_pz::numeric, 0) AS transfer_pieces,
-               round((bd.transfer_pz / bd.uxc)::numeric, 1) AS transfer_cajas,
-               round(GREATEST(0, bd.deficit_pz - bd.transfer_pz)::numeric, 0) AS shortfall_pieces,
+               -- Las cantidades ya vienen en CAJAS; la equivalencia en unidades base se DERIVA
+               -- (× uxc), no al revés. Antes el cálculo era en unidades crudas y las cajas eran
+               -- el derivado — que es justo lo que mezclaba las unidades de los dos ERPs.
+               round((bd.deficit_cjs * bd.uxc)::numeric, 0) AS deficit_pieces,
+               round(bd.deficit_cjs::numeric, 1) AS deficit_cajas,
+               round((bd.transfer_cjs * bd.uxc)::numeric, 0) AS transfer_pieces,
+               round(bd.transfer_cjs::numeric, 1) AS transfer_cajas,
+               round(GREATEST(0, (bd.deficit_cjs - bd.transfer_cjs) * bd.uxc)::numeric, 0) AS shortfall_pieces,
                round(bd.caja_cost::numeric, 4) AS unit_cost,
-               round(((bd.transfer_pz / bd.uxc) * bd.caja_cost)::numeric, 2) AS transfer_value,
+               -- U.2 — sólo se valúa el traspaso cuyos DOS almacenes tienen el peldaño verificado.
+               CASE WHEN bd.rung_veredicto IS NULL
+                    THEN round((bd.transfer_cjs * bd.caja_cost)::numeric, 2) END AS transfer_value,
+               bd.rung_veredicto,
+               CASE WHEN bd.rung_dest AND bd.rung_src THEN 'ambos'
+                    WHEN bd.rung_dest THEN 'destino' WHEN bd.rung_src THEN 'origen' END AS rung_lado,
                COUNT(*) OVER() AS _total,
-               ROUND(SUM((bd.transfer_pz / bd.uxc) * bd.caja_cost) OVER()::numeric, 2) AS _total_valor,
-               ROUND(SUM(bd.transfer_pz / bd.uxc) OVER()::numeric, 0) AS _total_cajas
+               ROUND(SUM(bd.transfer_cjs * bd.caja_cost) FILTER (WHERE bd.rung_veredicto IS NULL) OVER()::numeric, 2) AS _total_valor,
+               ROUND(SUM(bd.transfer_cjs) OVER()::numeric, 0) AS _total_cajas,
+               COUNT(*) FILTER (WHERE bd.rung_veredicto IS NOT NULL) OVER() AS _sin_medir,
+               MAX(bd.omitidos) OVER() AS _omitidos
         ${from}
-        ORDER BY (bd.transfer_pz / bd.uxc) * bd.caja_cost DESC
+        ORDER BY (bd.rung_veredicto IS NULL) DESC, bd.transfer_cjs * bd.caja_cost DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       const agg: any = rows[0] || {};
@@ -1031,6 +1469,10 @@ export class CommercialReplenishmentService {
         total: Number(agg._total || 0),
         total_valor: Number(agg._total_valor || 0),
         total_cajas: Number(agg._total_cajas || 0),
+        // U.2 — `filas` = traspasos LISTADOS cuya cantidad sale de un divisor que el costo
+        // contradice (su $ queda retenido). `omitidos` = traspasos que NO están en esta lista
+        // porque el divisor hace ver la sucursal abastecida: ésos no se pueden marcar, sólo contar.
+        unit_rung: { filas: Number(agg._sin_medir || 0), omitidos: Number(agg._omitidos || 0) },
         page, pageSize, coverage_days: cov, rows,
       };
     });
@@ -1055,7 +1497,7 @@ export class CommercialReplenishmentService {
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     return this.tk.run(async (trx) => {
       const binds: Record<string, unknown> = { t: tenantId, over };
-      const filters: string[] = ['ov.surplus_pz > 0'];
+      const filters: string[] = ['ov.surplus_cjs > 0'];
       if (q.warehouse_id && UUID_RX.test(q.warehouse_id)) { filters.push('ov.wh = :dw'); binds.dw = q.warehouse_id; }
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('ov.supplier_id = :sid'); binds.sid = q.supplier_id; }
       if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('ov.category_id = :cat'); binds.cat = q.category_id; }
@@ -1070,11 +1512,23 @@ export class CommercialReplenishmentService {
       // Universo = sucursales (source set) + hubs reales (is_hub), SOLO con demanda (eff_daily>0);
       // el stock sin venta va a la pestaña "Stock muerto", no a sobrestock. eff_daily en el fact es
       // demanda en PIEZAS → /suf = unidades de stock/día (igual que el recompute ov.eff_daily).
+      // ADR-055 — en CAJAS, por la misma razón que transferPlan: `stock_pz` viene en la unidad
+      // nativa del almacén (paquetes en Wincaja) y `eff_daily` en la unidad base de Kepler, así que
+      // la resta cruda mezclaba unidades y marcaba sobrestock donde no había (o lo escondía).
       const cte = `WITH ov AS (
         SELECT rp.warehouse_id AS wh, rp.product_id, rp.sku, rp.nombre, rp.supplier_id, rp.category_id,
                rp.bf AS uxc, rp.caja_cost, rp.source_warehouse_id,
-               rp.eff_daily / rp.suf AS eff_daily, rp.stock_pz,
-               GREATEST(0, rp.stock_pz - rp.eff_daily / rp.suf * :over) AS surplus_pz
+               rp.eff_daily * COALESCE(rp.season_ratio,1) / (GREATEST(rp.suf,1) * GREATEST(rp.bf,1)) AS eff_daily_cjs,
+               rp.stock_pz / GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1) AS on_hand_cjs,
+               -- RA-PRO.41: el sobrestock se mide contra la demanda del HORIZONTE (un SKU navideño con
+               -- pila en noviembre no es sobrestock; el mismo en enero sí).
+               GREATEST(0, rp.stock_pz / GREATEST(COALESCE(rp.display_bf, rp.bf, 1), 1)
+                           - rp.eff_daily * COALESCE(rp.season_ratio,1) * :over / (GREATEST(rp.suf,1) * GREATEST(rp.bf,1))) AS surplus_cjs,
+               -- U.2 — el excedente resta existencia (divisor del almacén) menos demanda (peldaño
+               -- base): si el costo de compra contradice ese divisor, el excedente no es una
+               -- cantidad de cajas y no se puede valuar. Se declara, no se dibuja en cero.
+               -- Columna del fact → sin joins (la vista auditable cuesta 8-25 s, ver rungMedible()).
+               rp.rung_veredicto, rp.rung_arbitrado
           FROM analytics.replenishment_plan rp
          WHERE rp.tenant_id = :t AND (rp.source_warehouse_id IS NOT NULL OR rp.is_hub) AND rp.eff_daily > 0${brandScope}
       )`;
@@ -1090,18 +1544,22 @@ export class CommercialReplenishmentService {
                ov.wh AS warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
                (w.source_warehouse_id IS NULL) AS is_hub,
                sup.name AS supplier_name, ov.uxc,
-               round(ov.stock_pz::numeric, 0) AS on_hand_pieces,
-               round((ov.stock_pz / ov.uxc)::numeric, 1) AS on_hand_cajas,
-               round((ov.surplus_pz / ov.uxc)::numeric, 1) AS surplus_cajas,
-               round(ov.surplus_pz::numeric, 0) AS surplus_pieces,
-               CASE WHEN ov.eff_daily > 0 THEN round((ov.stock_pz / ov.eff_daily)::numeric, 0) END AS days_on_hand,
+               round((ov.on_hand_cjs * ov.uxc)::numeric, 0) AS on_hand_pieces,
+               round(ov.on_hand_cjs::numeric, 1) AS on_hand_cajas,
+               round(ov.surplus_cjs::numeric, 1) AS surplus_cajas,
+               round((ov.surplus_cjs * ov.uxc)::numeric, 0) AS surplus_pieces,
+               CASE WHEN ov.eff_daily_cjs > 0 THEN round((ov.on_hand_cjs / ov.eff_daily_cjs)::numeric, 0) END AS days_on_hand,
                round(ov.caja_cost::numeric, 4) AS unit_cost,
-               round(((ov.surplus_pz / ov.uxc) * ov.caja_cost)::numeric, 2) AS immobilized_value,
+               -- U.2 — capital inmovilizado sólo donde el peldaño está verificado.
+               CASE WHEN ov.rung_veredicto IS NULL
+                    THEN round((ov.surplus_cjs * ov.caja_cost)::numeric, 2) END AS immobilized_value,
+               ov.rung_veredicto, round(ov.rung_arbitrado::numeric, 2) AS rung_arbitrado,
                COUNT(*) OVER() AS _total,
-               ROUND(SUM((ov.surplus_pz / ov.uxc) * ov.caja_cost) OVER()::numeric, 2) AS _total_valor,
-               ROUND(SUM(ov.surplus_pz / ov.uxc) OVER()::numeric, 0) AS _total_cajas
+               ROUND(SUM(ov.surplus_cjs * ov.caja_cost) FILTER (WHERE ov.rung_veredicto IS NULL) OVER()::numeric, 2) AS _total_valor,
+               ROUND(SUM(ov.surplus_cjs) OVER()::numeric, 0) AS _total_cajas,
+               COUNT(*) FILTER (WHERE ov.rung_veredicto IS NOT NULL) OVER() AS _sin_medir
         ${from}
-        ORDER BY (ov.surplus_pz / ov.uxc) * ov.caja_cost DESC
+        ORDER BY (ov.rung_veredicto IS NULL) DESC, ov.surplus_cjs * ov.caja_cost DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       const agg: any = rows[0] || {};
@@ -1109,6 +1567,8 @@ export class CommercialReplenishmentService {
         total: Number(agg._total || 0),
         total_valor: Number(agg._total_valor || 0),
         total_cajas: Number(agg._total_cajas || 0),
+        // U.2 — filas cuyo excedente sale de un divisor que el costo de compra contradice.
+        unit_rung: { filas: Number(agg._sin_medir || 0) },
         page, pageSize, over_days: over, rows,
       };
     });
@@ -1130,7 +1590,7 @@ export class CommercialReplenishmentService {
     const whIds = this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
-      const it = 'COALESCE(pit.qty_in_transit,0)';
+      const it = this.inTransit();   // pesado por P(llega) — ver inTransit()
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
       // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
@@ -1189,7 +1649,7 @@ export class CommercialReplenishmentService {
                        AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
                   LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
                   LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-                  LEFT JOIN analytics.purchase_in_transit pit ON pit.tenant_id=rp.tenant_id AND pit.warehouse_id=rp.warehouse_id AND pit.product_id=rp.product_id
+                  LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
                  WHERE rp.tenant_id=rc.tenant_id AND rp.warehouse_id=rc.warehouse_id
               ) x
           ) agg ON true
@@ -1226,7 +1686,21 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
-    const valueExpr = 'COALESCE(s.quantity,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+    // ADR-055 — la existencia sale de la vista derivada del ODS (`qty_stock_units`), no de la copia
+    // `commercial.stock`. Importa acá porque este panel vive en la MISMA pantalla que el Pedido
+    // (tab "Stock muerto") y el Pedido ya lee la vista: con dos fuentes, la pantalla se contradecía
+    // sola. Contra el POS en vivo la vista acierta 100.0% y la copia 91.0%.
+    //
+    // La vista sirve la existencia en la UNIDAD NATIVA de cada fuente y no la convierte (ver
+    // mig 20260902200000: la demanda de Wincaja viene en esa misma unidad, así que convertir sólo
+    // la existencia rompía el cálculo). Para MOSTRAR cajas está `display_box_factor`.
+    //
+    // ⚠️ DEUDA PREEXISTENTE (ADR-051): el multiplicador es `cost_with_tax`/`cost_base` del
+    // CATÁLOGO, que en buena parte viene por CAJA, no por la unidad de stock — así que el
+    // "inmovilizado" mezcla unidades y está inflado para esos SKUs. El costo correcto por unidad
+    // de stock es `analytics.v_supplier_cost_ladder.box_cost / display_box_factor`. Se DECLARA acá
+    // en vez de dibujarlo: arreglarlo es de la Fase MR, no de este cambio de fuente.
+    const valueExpr = 'COALESCE(s.qty_stock_units,0) * COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
     // GREATEST ignora NULLs → la más reciente entre última venta y último movimiento.
     const lastActivity =
       `GREATEST(
@@ -1238,8 +1712,11 @@ export class CommercialReplenishmentService {
       const base = trx('catalog.products as pr')
         // cross join producto × almacén (mismo tenant); luego filtra a los gestionados
         .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'pr.tenant_id'))
-        .leftJoin('commercial.stock as s', (j) =>
+        .leftJoin('analytics.v_erp_stock_on_hand as s', (j) =>
           j.on('s.tenant_id', 'pr.tenant_id').andOn('s.warehouse_id', 'w.id').andOn('s.product_id', 'pr.id'))
+        // ADR-055 — divisor a CAJAS de ESTE almacén (unidades nativas por caja).
+        .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
+          j.on('vbf.tenant_id', 'pr.tenant_id').andOn('vbf.warehouse_id', 'w.id').andOn('vbf.product_id', 'pr.id'))
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'pr.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .where('pr.tenant_id', tenantId)
         .andWhere('pr.activo', true)
@@ -1266,8 +1743,18 @@ export class CommercialReplenishmentService {
           'pr.id as product_id', 'w.id as warehouse_id',
           trx.raw('w.code AS warehouse_code'),
           trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
-          trx.raw('COALESCE(s.quantity,0) AS on_hand'),
+          trx.raw('COALESCE(s.qty_stock_units,0) AS on_hand'),
+          // La cantidad se MUESTRA en cajas (la unidad más grande); la nativa viaja igual para el
+          // tooltip y porque es la que multiplica `dead_value`. El valor NO se toca: sigue con la
+          // deuda ADR-051 declarada arriba, y convertirlo sin arreglar el costo la escondería.
+          trx.raw('GREATEST(COALESCE(vbf.box_factor, 1), 1) AS box_factor'),
+          trx.raw('ROUND((COALESCE(s.qty_stock_units,0) / GREATEST(COALESCE(vbf.box_factor,1),1))::numeric, 1) AS on_hand_cajas'),
+          trx.raw(`COALESCE(vbf.base_label, 'u') AS base_label`),
           trx.raw('COALESCE(pr.cost_with_tax, pr.cost_base, 0) AS unit_cost'),
+          // Costo POR CAJA = costo de la unidad nativa × unidades por caja. Así el renglón
+          // multiplica exacto en la unidad que se muestra (cajas × costo_caja = inmovilizado),
+          // sin cambiar ni un peso el total: es el MISMO valor, re-expresado.
+          trx.raw('ROUND((COALESCE(pr.cost_with_tax, pr.cost_base, 0) * GREATEST(COALESCE(vbf.box_factor,1),1))::numeric, 2) AS caja_cost'),
           trx.raw(`ROUND(${valueExpr}, 2) AS dead_value`),
           trx.raw(`${lastActivity} AS last_activity`),
           trx.raw('pr.created_at::date AS created_at'),
@@ -1606,7 +2093,10 @@ export class CommercialReplenishmentService {
           trx.raw('pr.sku AS sku'), trx.raw('pr.nombre AS nombre'),
           trx.raw('w.code AS warehouse_code'), trx.raw('sup.name AS supplier_name'))
         .orderByRaw(`CASE f.severity WHEN 'critica' THEN 0 WHEN 'alta' THEN 1 ELSE 2 END`)
-        .orderBy('f.suggested_cost', 'desc')
+        // U.2 — `suggested_cost` ahora puede ser NULL ("no se está midiendo"). En Postgres un
+        // DESC pone los NULL PRIMERO, así que sin esto las filas sin valuar encabezarían la
+        // bandeja por encima de los quiebres reales.
+        .orderByRaw('f.suggested_cost DESC NULLS LAST')
         .limit(pageSize).offset((page - 1) * pageSize);
       return { total: Number(totalRow?.c || 0), page, pageSize, status, rows };
     });

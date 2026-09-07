@@ -1,5 +1,7 @@
 import { Global, Injectable, Module } from '@nestjs/common';
-import { RECON_NOTIFIER_PORT, ReconNotifierPort, ReconBadCutItem } from '@megadulces/contracts';
+import { RECON_NOTIFIER_PORT, ReconNotifierPort, ReconBadCutItem, ReconArqueoDueItem } from '@megadulces/contracts';
+import { StoreGateway } from '../modules/store/store.gateway';
+import { StoreModule } from '../modules/store/store.module';
 import { CommercialAlertsModule } from '@megadulces/commercial';
 import { AlertsService } from '@megadulces/commercial';
 
@@ -14,7 +16,7 @@ import { AlertsService } from '@megadulces/commercial';
  */
 @Injectable()
 class ReconNotifierAdapter implements ReconNotifierPort {
-  constructor(private readonly alerts: AlertsService) {}
+  constructor(private readonly alerts: AlertsService, private readonly store: StoreGateway) {}
 
   async notifyBadCut(tenantId: string, item: ReconBadCutItem): Promise<void> {
     const abs = Math.abs(Number(item.diff_real) || 0);
@@ -28,11 +30,35 @@ class ReconNotifierAdapter implements ReconNotifierPort {
       data: { source: 'reconciliation', route: '/almacen/cuadre', ...item },
     });
   }
+
+  /**
+   * Va por el room PERSONAL del `/store` gateway, no por AlertsService: éste emite
+   * al tenant entero y el aviso terminaría en la pantalla de todas las cajeras.
+   * Un aviso que no es tuyo se ignora, y a los dos días se ignoran todos.
+   *
+   * El payload no lleva un solo monto: es un recordatorio de que cuentes, no una
+   * pista de cuánto debería haber (SM.10).
+   */
+  async notifyArqueoDue(tenantId: string, item: ReconArqueoDueItem): Promise<void> {
+    const esRetiro = item.motivo === 'retiro';
+    this.store.emitToCajero(tenantId, item.cajero_code, 'arqueo_due', {
+      type: 'arqueo_due',
+      severity: item.vencido ? 'warn' : 'info',
+      title: esRetiro ? 'Cuenta el retiro' : 'Haz tu arqueo',
+      message: esRetiro
+        ? `Kepler te pidió sacar efectivo de la caja ${item.caja}. Cuenta los billetes antes de entregarlos.`
+        : item.vencido
+          ? `Kepler cerró tu caja ${item.caja} hace ${Math.round(item.cerrado_hace_min / 60)} h y todavía no cuentas el efectivo.`
+          : `Kepler cerró tu caja ${item.caja}${item.hora_cierre ? ` a las ${item.hora_cierre.slice(0, 5)}` : ''}. Cuenta el efectivo y guárdalo.`,
+      route: '/tienda/arqueo',
+      ...item,
+    });
+  }
 }
 
 @Global()
 @Module({
-  imports: [CommercialAlertsModule],
+  imports: [CommercialAlertsModule, StoreModule],
   providers: [
     ReconNotifierAdapter,
     { provide: RECON_NOTIFIER_PORT, useExisting: ReconNotifierAdapter },

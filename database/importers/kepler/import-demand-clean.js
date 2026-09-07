@@ -46,13 +46,30 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
     // limpias = revenue/precio_pieza para TODOS los almacenes (incl. caja-vendedores).
     // CTE base (sin proyección) — reutilizado por el resumen y por el INSERT..SELECT.
     const CTE = `
-      WITH wp AS (
-        SELECT product_id, warehouse_id,
-               sum(units)::numeric   AS u,
-               sum(revenue)::numeric AS rev
+      WITH wl AS (
+        -- FRESCURA POR ALMACÉN (RA-PRO.41): la ventana se ancla al último día que ESE almacén
+        -- reportó venta, no a current_date. Si un feed se atrasa (MD-30/32 iban 4 días atrás;
+        -- rutas 501-505 llevaban 17 sin push) la ventana fija diluía su demanda ~día/30 por día
+        -- de atraso → el pedido salía corto justo en los almacenes más grandes. Con el anclaje,
+        -- demanda = sus últimos $2 días CON datos. Tope 21 días: más viejo = almacén inactivo
+        -- (RUTA-322 muerta desde jun) → fuera (demanda 0, la fila se borra por delete-not-seen).
+        -- sale_date <= current_date filtra filas basura con fecha futura (hay un 2026-12-05).
+        SELECT warehouse_id, max(sale_date) AS last_d
           FROM analytics.sales_daily
-         WHERE tenant_id = $1 AND sale_date >= current_date - $2::int
-         GROUP BY product_id, warehouse_id
+         WHERE tenant_id = $1 AND sale_date <= current_date
+         GROUP BY warehouse_id
+        HAVING current_date - max(sale_date) <= 21
+      ),
+      wp AS (
+        SELECT sd.product_id, sd.warehouse_id,
+               sum(sd.units)::numeric   AS u,
+               sum(sd.revenue)::numeric AS rev
+          FROM analytics.sales_daily sd
+          JOIN wl ON wl.warehouse_id = sd.warehouse_id
+         WHERE sd.tenant_id = $1
+           AND sd.sale_date > wl.last_d - $2::int AND sd.sale_date <= wl.last_d
+           AND sd.channel NOT IN ('mayoreo')  -- =TI% traspaso interno CEDIS→suc, no es demanda de venta
+         GROUP BY sd.product_id, sd.warehouse_id
       ),
       pf AS (
         SELECT id AS product_id, COALESCE(factor_sale, 1)::numeric AS fs,
@@ -64,9 +81,27 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
         -- cja_price/box_factor (precio de venta REAL de la unidad — PAQ), money-anchored. Corrige
         -- que el MIN($/u) tomaba precios sub-unidad y ×8-16 la demanda (70056: 2103 vs ~120 PAQ/día
         -- reales verificado en Kepler). Fuera de scope o sin cja_price → lógica MIN+piso previa:
-        -- RA-PRO.29.2/35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto. cost_with_tax
-        -- es costo por CAJA (bruto); para fs∈{2..48} con cwt/fs ≥ $1 el piso va por pieza = cwt/fs,
-        -- fuera de ese rango (factor basura o granel) se conserva el piso CRUDO cwt. Granel intacto.
+        -- RA-PRO.29.2/35 — PISO DE COSTO por PIEZA para no inflar boxed vendido suelto: para
+        -- fs∈{2..48} con cwt/fs ≥ $1 el piso va = cwt/fs, fuera de ese rango (factor basura o
+        -- granel) se conserva el piso CRUDO cwt.
+        --
+        -- ⛔ U.0 (2026-09-03) — LA PREMISA DE ESE /fs ES FALSA.
+        -- OJO: sin backticks en este comentario — va dentro de un template literal de JS.
+        -- Este comentario decía que cost_with_tax es "costo por CAJA (bruto)". MEDIDO contra la
+        -- escalera del ERP (analytics.v_supplier_cost_ladder) sobre 6,626 SKUs / $116.8M de venta
+        -- 90d: la razón cost_with_tax / u1_cost se agrupa en múltiplos de IMPUESTO exactos a 4
+        -- decimales —1.0000 exento (960 SKUs) · 1.0800 IVA 8% (1,886 · $69.3M) · 1.1600 IVA 16%
+        -- (1,507) · 1.2400 IVA+IEPS (1,987 · $29.8M)— y NO en factores de unidad (la razón contra
+        -- box_cost es 0.058). O sea cost_with_tax = u1_cost × (1 + impuesto): peldaño BASE/SUELTO.
+        --
+        -- Consecuencia: cwt/fs deja el piso fs veces más BAJO de lo que debe, así que min(rev/u)
+        -- gana más seguido y piece_price puede quedarse en un precio sub-unidad →
+        -- daily_pieces = revenue / piece_price sale INFLADO, que es justo lo que el piso existe
+        -- para evitar. El piso correcto es pf.cwt a secas (la rama ELSE).
+        -- NO se corrige acá a propósito: daily_pieces es el numerador de todo /compras/pedido y su
+        -- peldaño ya flota con el mix de precios de la red (ver el min(rev/u) de arriba).
+        -- Estabilizarlo es MR.7.1 (persistir el peldaño), no un parche de una línea.
+        -- Ver docs/UNIDADES_DE_MEDIDA.md 8quater.
         SELECT wp.product_id,
                CASE
                  WHEN b.nombre ILIKE '${MONEY_BRAND_LIKE}' AND bp.cja_price > 0 AND vbf.box_factor > 0
@@ -95,6 +130,22 @@ const MONEY_BRAND_LIKE = process.env.MONEY_ANCHOR_BRAND_LIKE || '%rosa%';
          FROM wp JOIN pp USING (product_id) ${WHERE}`, [M, DAYS]);
     const s = summary.rows[0];
     console.log(`  filas almacén×producto: ${Number(s.filas).toLocaleString()} · piezas limpias=${Number(s.piezas).toLocaleString()} · revenue=$${Number(s.revenue).toLocaleString()}`);
+
+    // Frescura por almacén — que el atraso de un feed no pase en silencio ("que no se nos pase nada").
+    const fresh = await db.query(`
+      SELECT w.code, current_date - max(sd.sale_date) AS lag_d,
+             CASE WHEN current_date - max(sd.sale_date) > 21 THEN 'INACTIVO (demanda 0)'
+                  WHEN current_date - max(sd.sale_date) > 1  THEN 'ventana desplazada' END AS estado
+        FROM analytics.sales_daily sd
+        JOIN commercial.warehouses w ON w.id = sd.warehouse_id AND w.tenant_id = sd.tenant_id
+       WHERE sd.tenant_id = $1 AND sd.sale_date <= current_date AND sd.sale_date >= current_date - 90
+       GROUP BY w.code
+      HAVING current_date - max(sd.sale_date) > 1
+       ORDER BY 2 DESC`, [M]);
+    if (fresh.rows.length) {
+      console.log(`  ⚠ almacenes con feed atrasado (la ventana se ancla a su último día con datos):`);
+      for (const f of fresh.rows) console.log(`     ${f.code}: ${f.lag_d} día(s) — ${f.estado}`);
+    }
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió.'); return; }
 

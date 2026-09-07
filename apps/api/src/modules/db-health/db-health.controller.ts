@@ -24,6 +24,13 @@ export class DbHealthController {
     return this.service.getReport();
   }
 
+  @Get('engine')
+  @ApiOperation({ summary: 'Salud del MOTOR Postgres: hinchazón, peso, actividad, autovacuum' })
+  @RequirePermissions(Permission.USUARIOS_GESTIONAR)
+  getEngine() {
+    return this.service.getEngineReport();
+  }
+
   @Get('alerts')
   @ApiOperation({ summary: 'Bandeja de alertas de salud (abiertas + resueltas recientes)' })
   @RequirePermissions(Permission.USUARIOS_GESTIONAR)

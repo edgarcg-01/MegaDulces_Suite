@@ -175,14 +175,250 @@ export class CommercialVendorRoutesService {
     });
   }
 
-  /** Vendedores asignables (usuarios de campo activos). */
+  /**
+   * Fuentes de existencia del vendedor logueado, para el toggle "ver sucursal / ver
+   * camioneta" del take-order:
+   *   - `sucursal`: el almacén central que lo surte (por `users.warehouse_code` →
+   *     `warehouses.kepler_code`). Si no tiene sucursal asignada, cae al almacén
+   *     default del tenant (para que el catálogo nunca quede sin stock).
+   *   - `camioneta`: el almacén `kind='truck'` cuyo `owner_user_id` es el vendedor
+   *     (null si no tiene camión asignado → el app no muestra ese toggle).
+   * El app pasa el `id` elegido como `warehouse_id` al catálogo → stock_available de
+   * ESA fuente. Todo lectura, scope de tenant (RLS via tk.run).
+   */
+  async myStockSources() {
+    const me = this.tenantCtx.get()?.userId || null;
+    return this.tk.run(async (trx) => {
+      // route_id vive en identity.users (la vista public.users no lo expone).
+      const user = me
+        ? await trx('identity.users').where({ id: me }).select('route_id', 'warehouse_code').first()
+        : null;
+
+      type Wh = { id: string; code: string; name: string };
+      let sucursal: Wh | undefined;
+      // De DÓNDE salió la sucursal: una asignación REAL (route/warehouse_code) o el
+      // DEFAULT del tenant (fallback). Normalización del error "veo la sucursal
+      // equivocada": el default no se dibuja como si fuera la sucursal del vendedor;
+      // el app lo muestra como "sin asignar" para que se corrija, no que engañe.
+      let sucursalSource: 'route' | 'warehouse_code' | 'default' | null = null;
+
+      // La ruta operativa del vendedor sale de `daily_assignments` — lo que ESCRIBE el
+      // panel de supervisor y LEE la cartera ("Mi ruta") + createCustomer. Se prefiere
+      // la ruta de HOY (ISODOW MX); si no hay, cualquiera asignada. Fallback: el legacy
+      // `users.route_id`. Así una asignación desde el panel maneja también el stock, sin
+      // tener que setear route_id aparte (era la causa de "veo otra sucursal").
+      let routeId: string | null = user?.route_id || null;
+      if (me) {
+        try {
+          const da = await trx('public.daily_assignments')
+            .where({ user_id: me })
+            .whereNull('deleted_at')
+            .select('route_id')
+            .orderByRaw(
+              `(day_of_week = EXTRACT(ISODOW FROM (now() AT TIME ZONE 'America/Mexico_City'))::int) DESC`,
+            )
+            .first();
+          if (da?.route_id) routeId = da.route_id;
+        } catch {
+          /* sin daily_assignments → usamos users.route_id */
+        }
+      }
+
+      // 1. La verdad operativa: usuario → su ruta → sucursal de la ruta.
+      //    En try/catch: la tabla route_warehouses es nueva; si el código despliega
+      //    antes que su migración, NO rompemos la resolución (cae a warehouse_code /
+      //    default). Lección del incidente client_uuid: código y migración pueden
+      //    llegar desfasados.
+      if (routeId) {
+        try {
+          sucursal = await trx('commercial.route_warehouses as rw')
+            .join('commercial.warehouses as w', function () {
+              this.on('w.id', '=', 'rw.warehouse_id').andOn('w.tenant_id', '=', 'rw.tenant_id');
+            })
+            .where('rw.route_id', routeId)
+            .where('w.active', true)
+            .whereNull('w.deleted_at')
+            .select('w.id', 'w.code', 'w.name')
+            .first<Wh>();
+          if (sucursal) sucursalSource = 'route';
+        } catch {
+          /* route_warehouses aún no migrada → seguimos con los fallbacks */
+        }
+      }
+      // 2. Fallback: warehouse_code directo del usuario (scoping Tienda).
+      if (!sucursal && user?.warehouse_code) {
+        sucursal = await trx('commercial.warehouses')
+          .where({ kepler_code: user.warehouse_code, kind: 'central', active: true })
+          .whereNull('deleted_at')
+          .select('id', 'code', 'name')
+          .first<Wh>();
+        if (sucursal) sucursalSource = 'warehouse_code';
+      }
+      // 3. Fallback: el almacén default del tenant (para no quedar sin stock). NO es
+      //    una asignación real → se marca 'default' para que el app lo declare.
+      if (!sucursal) {
+        sucursal = await trx('commercial.warehouses')
+          .where({ is_default: true, active: true })
+          .whereNull('deleted_at')
+          .select('id', 'code', 'name')
+          .first<Wh>();
+        if (sucursal) sucursalSource = 'default';
+      }
+
+      const camioneta: Wh | undefined = me
+        ? await trx('commercial.warehouses')
+            .where({ kind: 'truck', owner_user_id: me, active: true })
+            .whereNull('deleted_at')
+            .select('id', 'code', 'name')
+            .first<Wh>()
+        : undefined;
+
+      return {
+        sucursal: sucursal
+          ? {
+              id: sucursal.id,
+              code: sucursal.code,
+              name: sucursal.name,
+              // assigned=false → es el default del tenant, NO la sucursal del vendedor:
+              // el app lo declara "sin asignar" en vez de mostrarlo como su surtido real.
+              assigned: sucursalSource === 'route' || sucursalSource === 'warehouse_code',
+              source: sucursalSource,
+            }
+          : null,
+        camioneta: camioneta
+          ? { id: camioneta.id, code: camioneta.code, name: camioneta.name }
+          : null,
+      };
+    });
+  }
+
+  /**
+   * Admin: las rutas del catálogo (`trade.catalogs` cat 'rutas') con su zona, la sucursal
+   * de surtido ya asignada (si hay) y una SUGERENCIA por zona/nombre para pre-llenar la UI
+   * (el admin confirma/corrige — no se inventa el vínculo, se propone). Devuelve además los
+   * almacenes central asignables.
+   */
+  async listRoutesWithWarehouse() {
+    return this.tk.run(async (trx) => {
+      const whs = await trx('commercial.warehouses')
+        .where({ kind: 'central', active: true })
+        .whereNull('deleted_at')
+        .select('id', 'code', 'name', 'kepler_code')
+        .orderBy('code');
+      const byKepler = new Map(whs.filter((w: any) => w.kepler_code).map((w: any) => [w.kepler_code, w]));
+      const byCode = new Map(whs.map((w: any) => [w.code, w]));
+
+      const routes = await trx('trade.catalogs as r')
+        .leftJoin('public.zones as z', 'z.id', 'r.parent_id')
+        .leftJoin('commercial.route_warehouses as rw', function () {
+          this.on('rw.route_id', '=', 'r.id').andOn('rw.tenant_id', '=', 'r.tenant_id');
+        })
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 'rw.warehouse_id').andOn('w.tenant_id', '=', 'rw.tenant_id');
+        })
+        .where('r.catalog_id', 'rutas')
+        .whereNull('r.deleted_at')
+        .select(
+          'r.id as route_id',
+          'r.value as route',
+          'z.name as zone',
+          'rw.warehouse_id as assigned_id',
+          'w.name as assigned_name',
+        )
+        .orderBy(['z.name', 'r.value']);
+
+      // Sugerencia por zona/nombre (heurística; el admin la confirma). RVLPA = La Piedad
+      // Abastos (02); el resto de La Piedad = Padre Hidalgo (01); Zamora=05; Canindo=06;
+      // Morelia Madero = MD-32.
+      const suggest = (zone: string | null, route: string | null) => {
+        const zn = (zone || '').toUpperCase();
+        const rv = (route || '').toUpperCase();
+        if (rv.startsWith('RVLPA')) return byKepler.get('02');
+        if (zn.includes('LA PIEDAD')) return byKepler.get('01');
+        if (zn.includes('ZAMORA')) return byKepler.get('05');
+        if (zn.includes('CANINDO')) return byKepler.get('06');
+        if (zn.includes('MORELIA')) return byCode.get('MD-32') || byCode.get('MD-30');
+        return undefined;
+      };
+
+      return {
+        warehouses: whs.map((w: any) => ({ id: w.id, code: w.code, name: w.name })),
+        routes: routes.map((r: any) => {
+          const s = r.assigned_id ? null : suggest(r.zone, r.route);
+          return {
+            route_id: r.route_id,
+            route: r.route,
+            zone: r.zone,
+            warehouse_id: r.assigned_id || null,
+            warehouse_name: r.assigned_name || null,
+            suggested_id: s?.id || null,
+            suggested_name: s?.name || null,
+          };
+        }),
+      };
+    });
+  }
+
+  /** Admin: asigna (o cambia) la sucursal de surtido de una ruta. Idempotente (UPSERT). */
+  async setRouteWarehouse(routeId: string, warehouseId: string) {
+    if (!UUID_REGEX.test(routeId)) throw new BadRequestException('route_id inválido');
+    if (!UUID_REGEX.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
+    const me = this.tenantCtx.get()?.userId || null;
+    return this.tk.run(async (trx) => {
+      const route = await trx('trade.catalogs')
+        .where({ id: routeId, catalog_id: 'rutas' })
+        .whereNull('deleted_at')
+        .select('id', 'tenant_id')
+        .first();
+      if (!route) throw new NotFoundException('Ruta no encontrada');
+      const wh = await trx('commercial.warehouses')
+        .where({ id: warehouseId, kind: 'central' })
+        .whereNull('deleted_at')
+        .first();
+      if (!wh) throw new BadRequestException('Almacén inválido (debe ser una sucursal central)');
+      await trx('commercial.route_warehouses')
+        .insert({
+          tenant_id: route.tenant_id,
+          route_id: routeId,
+          warehouse_id: warehouseId,
+          created_by: me,
+          updated_by: me,
+        })
+        .onConflict(['tenant_id', 'route_id'])
+        .merge({ warehouse_id: warehouseId, updated_by: me, updated_at: trx.fn.now() });
+      return { route_id: routeId, warehouse_id: warehouseId };
+    });
+  }
+
+  /** Vendedores asignables (usuarios de campo activos). Los roles reales de campo son
+   *  `vendedor_ruta`/`promotor_ruta` (no `vendedor` a secas, que no existe) — el filtro
+   *  viejo devolvía [] y dejaba vacíos los dropdowns de asignación. */
   async listVendors() {
     return this.tk.run(async (trx) =>
       trx('public.users')
-        .whereIn('role_name', ['vendedor', 'colaborador', 'ejecutivo'])
+        .whereIn('role_name', [
+          'vendedor_ruta',
+          'promotor_ruta',
+          'vendedor',
+          'colaborador',
+          'ejecutivo',
+        ])
         .where('activo', true)
         .select('id', 'username', 'role_name')
         .orderBy('username'),
+    );
+  }
+
+  /** Catálogo de rutas (trade.catalogs 'rutas') con su zona — para el picker del panel
+   *  de supervisores que asigna rutas a vendedores. */
+  async listRouteCatalog() {
+    return this.tk.run(async (trx) =>
+      trx('trade.catalogs as r')
+        .leftJoin('public.zones as z', 'z.id', 'r.parent_id')
+        .where('r.catalog_id', 'rutas')
+        .whereNull('r.deleted_at')
+        .select('r.id as route_id', 'r.value as route', 'z.name as zone')
+        .orderBy(['z.name', 'r.value']),
     );
   }
 
@@ -345,6 +581,7 @@ export class CommercialVendorRoutesService {
             `EXISTS (
                SELECT 1 FROM commercial.orders o
                WHERE o.customer_id = c.id AND o.deleted_at IS NULL
+                 AND o.status <> 'draft'
                  AND (o.created_at AT TIME ZONE 'America/Mexico_City')::date
                      = (now() AT TIME ZONE 'America/Mexico_City')::date
              ) as ordered_today`,

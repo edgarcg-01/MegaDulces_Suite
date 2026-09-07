@@ -276,24 +276,37 @@ export class CommandCenterComponent implements OnInit {
 
   loadAll(): void {
     this.degraded.set(0);
-    const today = new Date();
-    const from = new Date(today.getTime() - 29 * 86400_000);
-    const fromIso = from.toISOString().slice(0, 10);
-    const toIso = today.toISOString().slice(0, 10);
 
-    // Venta real de la red — best-effort: si analytics.* está vacío/caído, no rompe.
-    this.panel(this.api.networkOverview(), null, this.ovLoading, (v) => this.overview.set(v));
-    this.panel(this.api.networkDailySeries(fromIso, toIso), [] as NetworkDailyRow[], this.dsLoading, (v) => this.dailySeries.set(v));
-    this.panel(this.api.networkTopProducts(8), [] as NetworkTopProductRow[], this.tpLoading, (v) => this.topProducts.set(v));
-    this.panel(this.api.networkSalesByBrand(), [] as SalesByBrandRow[], this.sbbLoading, (v) => this.salesByBrand.set(v));
+    // BFF (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 request tipada
+    // (contrato compartido). Antes eran 7 llamadas sueltas; sus banderas de carga se
+    // resuelven juntas porque llegan en la misma respuesta. Los params (30d, low-stock
+    // 200, inactivos 5) los fija el BFF server-side para replicar exactamente esta vista.
+    const bffFlags = [this.ovLoading, this.dsLoading, this.tpLoading, this.sbbLoading, this.lsLoading, this.icLoading];
+    bffFlags.forEach((f) => f.set(true));
+    this.api
+      .commandCenter()
+      .pipe(
+        timeout(CommandCenterComponent.PANEL_TIMEOUT_MS),
+        catchError(() => { this.degraded.update((n) => n + 1); return of(null); }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe((d) => {
+        if (d) {
+          this.overview.set(d.overview);
+          this.dailySeries.set(d.daily_series);
+          this.topProducts.set(d.top_products);
+          this.salesByBrand.set(d.sales_by_brand);
+          this.lowStock.set(d.low_stock);
+          this.inactiveCustomers.set(d.inactive_customers);
+          this.rankingOOS.set(d.ranking_out_of_stock);
+        }
+        bffFlags.forEach((f) => f.set(false));
+        this.markEntered();
+      });
+
+    // Los 4 paneles con OTRO permiso (erp-customers=CUSTOMERS360_VER, conversion/nba=
+    // intelligence) siguen APARTE, best-effort y progresivos, para no bypassear su gate.
     this.panel(this.api.erpCustomers(6), [] as ErpCustomerRow[], this.custLoading, (v) => this.netCustomers.set(v));
-    // Operacional (commercial.* / ERP FDW) — best-effort.
-    this.panel(this.api.lowStock(200), null, this.lsLoading, (v) => this.lowStock.set(v));
-    this.panel(this.api.inactiveCustomers(30, 5), null, this.icLoading, (v) => this.inactiveCustomers.set(v));
-    // El ranking de quiebres ya se oculta solo cuando viene vacío → no necesita esqueleto.
-    this.panel(this.api.rankingOutOfStock(10, 200), [] as RankingOutOfStockRow[], null, (v) => this.rankingOOS.set(v));
-    // Motor de Inteligencia (Fase M) — best-effort. La sheet entera se muestra sólo si hay
-    // `conversion()`, así que las tres llamadas comparten su bandera.
     this.panel(this.api.conversionSummary(30), null, this.convLoading, (v) => this.conversion.set(v));
     this.panel(this.api.conversionDaily(30), [] as ConversionDailyRow[], null, (v) => this.conversionSeries.set(v));
     this.panel(this.api.nbaDue(100), [] as Array<{ customer_id: string }>, null, (v) => this.dueCount.set(v.length));

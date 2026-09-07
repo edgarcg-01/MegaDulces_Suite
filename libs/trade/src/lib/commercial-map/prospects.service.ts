@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 import { DenueClientService, DenueUnit } from './denue-client.service';
 
 type Status = 'candidate' | 'covered' | 'dismissed' | 'converted';
@@ -32,8 +36,9 @@ export class ProspectsService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   // ── Config ───────────────────────────────────────────────────────────────
@@ -233,7 +238,6 @@ export class ProspectsService {
    */
   async dedup(user: any): Promise<{ scanned: number; covered: number; candidate: number; purged: number }> {
     const tenantId = this.tenantId(user);
-    if (!tenantId) return { scanned: 0, covered: 0, candidate: 0, purged: 0 };
     const cfg = await this.getConfig(user);
 
     // Purga prospectos fuera de la geocerca (data vieja / config que se achicó).

@@ -15,8 +15,6 @@ import { DecodeHintType, BarcodeFormat } from '@zxing/library';
 import { App as CapApp } from '@capacitor/app';
 import type { PluginListenerHandle } from '@capacitor/core';
 import { ComercialService, InventoryCount, InventoryCounterProgress, ResolvedProduct } from '../comercial.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_COUNT_TABS } from '../inventory-tabs';
 import { CountFocusService } from '../../../core/services/count-focus.service';
 import { InventoryOfflineService } from '../../../core/services/inventory-offline.service';
 import type { InventoryScanPending } from '../../../core/services/offline-database.service';
@@ -48,7 +46,6 @@ interface FeedEntry {
     TagModule,
     ToastModule,
     TooltipModule,
-    PageTabsComponent
 ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -56,7 +53,6 @@ interface FeedEntry {
     <div class="surf-page in ic-page" [class.is-counting]="sessionActive()">
       <p-toast position="top-center"></p-toast>
       @if (!sessionActive()) {
-        <app-page-tabs [tabs]="inventoryTabs" />
       }
 
       <header class="surf-page-head">
@@ -358,7 +354,6 @@ interface FeedEntry {
   `],
 })
 export class ComercialInventoryCountComponent {
-  readonly inventoryTabs = INV_COUNT_TABS;
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);

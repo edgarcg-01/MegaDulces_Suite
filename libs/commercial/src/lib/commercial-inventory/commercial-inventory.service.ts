@@ -175,11 +175,27 @@ export class CommercialInventoryService {
   // ───── stock writes ─────
 
   async recordMovement(dto: RecordMovementDto) {
+    return this.tk.run(async (trx) => this.recordMovementInTx(trx, dto));
+  }
+
+  /**
+   * Igual que `recordMovement`, pero corriendo DENTRO de una transacción que ya
+   * abrió el llamador.
+   *
+   * Existe para quien ya está dentro de un `tk.run` y necesita mover stock de forma
+   * atómica con el resto de su trabajo (p.ej. el cierre del vale de entrada, que da
+   * de alta la mercancía y marca los renglones en la MISMA transacción). Llamar a
+   * `recordMovement` desde ahí abriría una transacción anidada en otra conexión:
+   * se trabaría contra las filas que la primera tiene bloqueadas.
+   *
+   * Es exactamente la misma lógica —una sola fuente de verdad—, no una copia.
+   */
+  async recordMovementInTx(trx: any, dto: RecordMovementDto) {
     this.validateMovement(dto);
     if (dto.expiry_date && !/^\d{4}-\d{2}-\d{2}$/.test(dto.expiry_date))
       throw new BadRequestException('expiry_date debe ser YYYY-MM-DD');
 
-    return this.tk.run(async (trx) => {
+    {
       const userId = await this.getUserIdFromCtx();
       await this.assertWarehouseNotFrozen(trx, dto.warehouse_id);
 
@@ -294,6 +310,111 @@ export class CommercialInventoryService {
           reference_type: dto.reference_type || null,
           reference_id: dto.reference_id || null,
           notes: dto.notes || null,
+          created_by: userId,
+        })
+        .returning('*');
+
+      return movement;
+    }
+  }
+
+  /**
+   * Le pone lote/caducidad a mercancía que YA ESTÁ en existencia sin fecha.
+   *
+   * Es la operación de la bandeja de Caducidades: la recepción dio luz verde y la
+   * mercancía entró al lote `NA`; el bodeguero llega después y declara de qué lote
+   * y cuándo vence. Eso **reclasifica** `NA` → lote fechado: el TOTAL no se mueve.
+   *
+   * Por qué no es un `recordMovement('in')`: ese suma. Si sumara acá, la mercancía
+   * quedaría contada dos veces —una al aprobar la recepción y otra al fecharla— y
+   * el inventario diría que hay el doble de lo que hay en el piso.
+   *
+   * Mecánica del invariante: se sube el lote fechado y luego se re-escribe
+   * `stock.quantity` con SU MISMO VALOR. Eso dispara `trg_rebalance_stock_lots`
+   * (que corre en `UPDATE OF quantity`, no sólo cuando el valor cambia), y el
+   * trigger recalcula `NA = stock − Σ(otros lotes)`: baja exactamente lo declarado.
+   * Así el invariante `SUM(lotes) = stock` lo sigue manteniendo una sola pieza.
+   *
+   * Se asienta en la bitácora como `adjust` con cantidad **0**, que es la verdad:
+   * el total no cambió, cambió de qué lote es. Y sirve de marca de idempotencia
+   * (la captura guarda ese id en `stock_movement_id`).
+   */
+  async assignLotToUndeclared(dto: {
+    warehouse_id: string;
+    product_id: string;
+    lot_code: string;
+    expiry_date?: string | null;
+    quantity: number;
+    reference_type?: string;
+    reference_id?: string;
+    notes?: string;
+  }) {
+    if (!UUID_REGEX.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
+    if (!UUID_REGEX.test(dto.product_id)) throw new BadRequestException('product_id inválido');
+    if (typeof dto.quantity !== 'number' || dto.quantity <= 0)
+      throw new BadRequestException('quantity debe ser número > 0');
+    const lote = String(dto.lot_code || '').trim();
+    if (!lote) throw new BadRequestException('lot_code requerido');
+    if (dto.expiry_date && !/^\d{4}-\d{2}-\d{2}$/.test(dto.expiry_date))
+      throw new BadRequestException('expiry_date debe ser YYYY-MM-DD');
+    if (dto.reference_id && !UUID_REGEX.test(dto.reference_id))
+      throw new BadRequestException('reference_id inválido (UUID)');
+
+    return this.tk.run(async (trx) => {
+      await this.assertWarehouseNotFrozen(trx, dto.warehouse_id);
+      const userId = await this.getUserIdFromCtx();
+
+      const stockRow = await trx('commercial.stock')
+        .where({ warehouse_id: dto.warehouse_id, product_id: dto.product_id })
+        .forUpdate()
+        .first();
+      if (!stockRow)
+        throw new ConflictException(
+          'No hay existencia de este producto en el almacén: no hay nada que fechar',
+        );
+
+      // Sólo se puede fechar lo que está SIN fecha. Si se pide más, se dice cuánto hay:
+      // el error tiene que ser accionable para el bodeguero, no un 500.
+      const na = await trx('commercial.stock_lots')
+        .where({ warehouse_id: dto.warehouse_id, product_id: dto.product_id, lot_code: 'NA' })
+        .whereNull('expiry_date')
+        .first('quantity');
+      const sinFecha = Number(na?.quantity || 0);
+      if (sinFecha < dto.quantity)
+        throw new ConflictException(
+          `Sólo hay ${sinFecha} sin fecha en existencia y se quieren declarar ${dto.quantity}`,
+        );
+
+      await trx.raw(
+        `INSERT INTO commercial.stock_lots
+           (tenant_id, warehouse_id, product_id, lot_code, expiry_date, quantity, reserved_quantity, received_at, updated_by)
+         VALUES (public.current_tenant_id(), ?, ?, ?, ?, ?, 0, now(), ?)
+         ON CONFLICT (tenant_id, warehouse_id, product_id, lot_code, expiry_date)
+         DO UPDATE SET quantity = commercial.stock_lots.quantity + EXCLUDED.quantity,
+                       received_at = now(), updated_at = now(), updated_by = EXCLUDED.updated_by`,
+        [dto.warehouse_id, dto.product_id, lote, dto.expiry_date || null, dto.quantity, userId],
+      );
+
+      // Re-escribir el total con su mismo valor: dispara el rebalanceo de 'NA'.
+      const total = Number(stockRow.quantity);
+      await trx('commercial.stock')
+        .where({ id: stockRow.id })
+        .update({ quantity: total, updated_at: trx.fn.now(), updated_by: userId });
+
+      const [movement] = await trx('commercial.stock_movements')
+        .insert({
+          tenant_id: trx.raw('public.current_tenant_id()'),
+          warehouse_id: dto.warehouse_id,
+          product_id: dto.product_id,
+          movement_type: 'adjust',
+          quantity: 0,
+          quantity_before: total,
+          quantity_after: total,
+          reference_type: dto.reference_type || 'expiry_reclass',
+          reference_id: dto.reference_id || null,
+          notes:
+            dto.notes ||
+            `Caducidad declarada: ${dto.quantity} de NA → lote ${lote}${dto.expiry_date ? ` vence ${dto.expiry_date}` : ''}`,
           created_by: userId,
         })
         .returning('*');

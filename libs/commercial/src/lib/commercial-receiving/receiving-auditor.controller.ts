@@ -37,6 +37,16 @@ export class ReceivingAuditorController {
     return this.service.ocrLabel(body?.photo_data_uri);
   }
 
+  @Get('resolve')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({
+    summary:
+      'Resolver un código escaneado → producto FECHABLE (con product_id real). Distinto del resolve de conteo, que devuelve product_id null.',
+  })
+  resolveForDating(@Query('code') code: string) {
+    return this.service.resolveForDating(code);
+  }
+
   @Post('evaluate')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({
@@ -49,12 +59,17 @@ export class ReceivingAuditorController {
 
   @Get('captures')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
-  @ApiOperation({ summary: 'Capturas de recepción (filtros: warehouse/supplier/verdict/status/from/to)' })
+  @ApiOperation({
+    summary:
+      'Capturas de recepción (filtros: warehouse/supplier/verdict/status/from/to + receiving_line_id o session_id para los lotes de un renglón/vale — ADR-044)',
+  })
   listCaptures(
     @Query('warehouse_id') warehouseId?: string,
     @Query('supplier_code') supplierCode?: string,
     @Query('verdict') verdict?: Verdict,
     @Query('status') status?: string,
+    @Query('receiving_line_id') receivingLineId?: string,
+    @Query('session_id') sessionId?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('limit') limit?: string,
@@ -64,6 +79,8 @@ export class ReceivingAuditorController {
       supplier_code: supplierCode,
       verdict,
       status,
+      receiving_line_id: receivingLineId,
+      session_id: sessionId,
       from,
       to,
       limit: limit ? Number(limit) : undefined,

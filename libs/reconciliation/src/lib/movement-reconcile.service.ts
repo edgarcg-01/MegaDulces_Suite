@@ -82,6 +82,12 @@ const RULES: RuleMeta[] = [
     params: { umbral: 50, critico: 1000 },
   },
   {
+    rule_key: 'arqueo_no_realizado', plano: 'caja',
+    nombre: 'Corte sin conteo físico',
+    descripcion: 'Kepler cerró el turno y nadie contó el efectivo dentro del plazo. No es un descuadre: es la AUSENCIA de la única verificación real que existe — el contado de Kepler es un número declarado (74.6% cierra al centavo exacto). Sube a crítico cuando el turno ya cambió de día: ese efectivo ya se movió y no se puede contar.',
+    params: { sla_min: 45, critico_min: 720 },
+  },
+  {
     rule_key: 'venta_vs_tickets', plano: 'cruce',
     nombre: 'Venta del corte vs tickets', descripcion: 'La venta total del corte (capa agregada de Kepler) no reconcilia con la suma de tickets POS del turno (capa atómica) por encima del umbral — tickets cancelados/editados tras el cierre o corte manipulado. Cruce independiente que la cuadre propia no ve.',
     params: { umbral: 500, critico: 5000 },

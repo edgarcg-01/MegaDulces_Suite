@@ -71,9 +71,16 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **Estado PROD (2026-08-10):** `analytics.erp_goods_receipts` = **9 sucursales / 14,377 recepciones / ~$654M** (antes 1 suc / 8,373 / $427M). Sin redeploy para la data; el **mapeo de nombres SÍ requiere redeploy** de api+view.
 - **Notas operacionales:** el feed Kepler corre desde la **máquina de feeds** (LAN; Railway no alcanza las DBs de sucursal) con `DATABASE_URL_NEW=<prod>`; el feed Wincaja puede correr desde cualquier lado (newdb→newdb) pero depende de que `import-wincaja.js` haya corrido antes (ese sí desde LAN por el .mdb). **Pendiente:** agregar ambos a la rotación de feeds para frescura; `payments` sigue CEDIS-only (correcto, centralizado).
 
-### RE.1 — Enriquecer el ancla (paridad de campos)
+### RE.1 — Enriquecer el ancla (paridad de campos) · ✅ COMPLETO (LOCAL) 2026-08-31
 - **Objetivo:** traer los campos del Excel que faltan.
 - **Entregable:** `fecha_vence` (`c18`), `condicion_pago` (`c30`), `dias_credito`, `poliza` (join `kdc2`). En `erp_goods_receipts` + importer.
+- **✅ Hecho (mig `20260831190000`):** las 3 primeras columnas se agregan **al final** de la vista viva con `CREATE OR REPLACE` (verificado que ninguna vista depende de ésta). Expuestas en la lista y en el detalle de `goods-receipt-proofs`, más `dias_para_vencer` calculado. Smoke `test-newdb-goods-receipts-vencimiento` en la regression. `tsc` api+view en 0.
+- **Decode verificado contra 12,200 documentos, no supuesto:** `c18` poblada **12,200/12,200**; `c30` en 12,199; el vencimiento casa con el plazo declarado en **99.92%** (±3 días).
+- **⚠️ Hallazgo de decode — "30 días" en Kepler es UN MES DE CALENDARIO, no 30 días.** La condición *"30 días fecha factura"* da **31** días en 711 documentos y **28** en 111: es el largo del mes de origen. Por eso `c18` **se guarda cruda y no se deriva del texto** — derivar `fecha + 30` habría inventado un vencimiento distinto al que el ERP y el proveedor tienen, en **822 documentos**.
+- **Dato que dimensiona RE.3:** el **68%** (8,323/12,200) es *"Pago de contado"* → vence el mismo día y **no genera cuenta por pagar a plazo**. El aging corre sobre las ~3,874 restantes, no sobre las 12,200.
+- **`dias_credito` puede ser negativo** (2 documentos con −1). Se deja crudo: es calidad de dato del ERP y clamparlo a 0 lo escondería.
+- **⬜ Wincaja (30/32/50): mapeado pero SIN VERIFICAR.** `movimiento_proveedores.fecha_vencimiento` existe en el esquema, pero la tabla está **vacía en local** (0 filas) → cobertura y formato sin comprobar. `condicion_pago` va NULL a propósito: Wincaja no tiene equivalente y poner "contado" sería inventarlo.
+- **⬜ La póliza NO entró a la vista.** `analytics.gl_polizas` está **vacía en local** (join inverificable); `polizaForReceipt` ya la sirve bajo demanda para el detalle; y una subconsulta correlacionada correría **12,200 veces** en el listado para un dato que sólo se mira al abrir un documento. Si se quiere en la lista, va como agregado, no como join.
 - **Reuso:** `expense_doc_chain` para la póliza.
 
 ### RE.2 — Cuadre 3-vías + AUTO-explicación del descuadre
@@ -84,9 +91,15 @@ Detalle verificado en memoria `reference_kepler_reception_flow`.
 - **✅ Integración UI (2026-08-05):** en el diálogo de detalle de `/compras/entradas` — sección **"¿Por qué no cuadra? — ajustes del proveedor"**: al abrir una entrada carga `adjustmentsForEntrada({ proveedor_code, entrada_folio, date, ±15d })` y lista devoluciones/notas de crédito con doctype + folio + motivo + grupo (Descuento-apoyo / Operativo / Error de captura) + badge `exacto`/`≈ prov+fecha` + monto. Empty-state honesto ("la diferencia suele ser IVA o captura"). Build view OK. Commit `e1dae914`. **Falta:** reglas typo(Δ>70%)/IVA(≤2%) sobre la remisión OCR + persistir `discrepancy_kind`; **QA visual** (Edgar).
 - **Reuso:** OCR `extractRemision`, cuadre actual, `LlmExtractorService`, espejo `erp_purchase_adjustments`.
 
-### RE.3 — CxP / vencimientos (aging + worklist)
+### RE.3 — CxP / vencimientos (aging + worklist) · 🔨 PARCIAL (LOCAL) 2026-08-31 — **recortado a propósito**
 - **Objetivo:** lo que el Excel tenía roto.
 - **Entregable:** aging buckets (por vencer / vencidas) sobre `c18` + Wincaja `fecha_vencimiento`/`saldo`; worklist "por pagar esta semana"; tab/página. Días vencidos calculado bien (nunca −46,238).
+- **⛔ El "aging de cuentas por pagar" NO se puede construir hoy, y el orden del plan está invertido.** RE.3 depende de RE.8, no al revés: **no existe la liga recepción→pago**. `analytics.erp_supplier_payments` (4,436 pagos) **no trae folio de entrada**, y `analytics.expense_doc_chain` —que sí lo tendría— está **vacía**. Sin eso no hay forma de saber qué ya se pagó.
+- **El número que lo prueba:** **10,940** recepciones tienen vencimiento pasado, por **$507.8M**. Casi todo está pagado (los datos arrancan en ago-2024). Una pantalla de "CxP" publicaría esos $507M como deuda vencida.
+- **✅ Lo que sí se entregó — `GET /finance/goods-receipts/aging` + página `/compras/vencimientos` ("Qué vence"):** sólo **lo que todavía no vence**, donde la pregunta *"¿ya se pagó?"* casi no aplica. Ventana configurable 7/30/90d, buckets hoy · semana · ventana, respeta alcance por sucursal, excluye descartadas y **excluye gemelas** (`dup_of_folio`) — pagar dos veces la misma compra es el riesgo. Medido: **289 órdenes / $24.8M** en 30 días.
+- **Lo vencido se DECLARA, no se lista.** 1,023 órdenes de los últimos 30 días aparecen como un número con su explicación (*"no sabemos cuáles siguen sin pagarse"*), sin tabla. Listarlas mandaría a perseguir facturas mayormente pagadas: eso es daño operativo, no una funcionalidad incompleta.
+- ✅ Smoke `test-newdb-goods-receipts-aging` en la regression — afirma sobre todo **lo que no debe pasar**: que no se publique el histórico, que no se cuele un vencido en la lista, que lo declarado esté acotado a 30 días y que las gemelas queden fuera. `tsc` api+view en 0.
+- **⬜ Falta (bloqueado por RE.8):** abrir lo vencido de verdad, el saldo nativo de Wincaja (tabla vacía en local) y el worklist accionable "pagar esta semana" con estado.
 - **Reuso:** `c18` (limpio), Wincaja saldo nativo.
 
 ### RE.4 — Bandeja de excepciones + alertas
@@ -157,6 +170,8 @@ OCR `LlmExtractorService`, `expense_doc_chain` (Maat), `finance.findings`+scanne
 - **Clasificación `c24`:** keyword vs Haiku — arrancar keyword, Haiku para el ~$13.2M terso.
 - **Histórico (RE.9):** ¿migrar las 910 filas o arrancar limpio desde hoy?
 - **ADR-041:** aceptar el enfoque read-only multi-fuente + pago heurístico + **ajustes `X-D-40`/`X-D-55` clasificados por `c24`**.
+- **[RE.23] Alcance de quien captura Morelia:** el defecto de código está cerrado (la dimensión `warehouse` ya sabe nombrar `30`/`32`), pero falta la decisión de datos — **acotar a `janette_garcia` de `all` a `listed ['30','32']`** desde `/admin/usuarios`. Es *restringir* a una persona, así que lo decide Edgar. Vale para los otros 73 con `all` heredado de `[ID.3]`: la regla trae la nota *"Candidato a recortar"* y nadie la ha recortado.
+- **`zone_id` NULL en los almacenes de Morelia:** asignarle la sucursal a alguien no le deriva la zona (el alta la toma de `warehouses.zone_id`). La zona *"MORELIA ABASTOS"* existe y tiene 9 usuarios; el almacén no la apunta. ¿Se liga?
 
 ## 9. Riesgos / notas
 - **Pago heurístico** (no estructural) — comunicar como "match aproximado", no trazabilidad exacta.

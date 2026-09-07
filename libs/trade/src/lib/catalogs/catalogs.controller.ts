@@ -20,6 +20,7 @@ import { RequireAuthGuard } from '@megadulces/platform-core';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
+import { isPlatformAdminRole } from '@megadulces/platform-core';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -27,8 +28,6 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
-import { createMongoAbility } from '@casl/ability';
-import type { AppAbility } from '@megadulces/platform-core';
 
 @ApiTags('catalogs')
 @ApiBearerAuth()
@@ -38,24 +37,36 @@ import type { AppAbility } from '@megadulces/platform-core';
 export class CatalogsController {
   constructor(private readonly catalogsService: CatalogsService) {}
 
+  /**
+   * Autorización por CLAVE EXACTA del permiso, igual que `RolesGuard`.
+   *
+   * Antes esto reconstruía una ability de CASL desde `req.user.rules` y preguntaba
+   * `can('manage', <subject>)`. Estaba **roto y en silencio**: en CASL `manage` es comodín sólo
+   * del lado de la REGLA, no de la consulta, y `ability.factory` concede
+   * `CATALOGO_GESTIONAR` / `SCORING_CONFIG_GESTIONAR` como `['read','create','update','delete']`.
+   * Verificado 2026-09-02: con esas reglas `can('manage','catalogs')` devuelve **false**, así que
+   * gestionar catálogos maestros y parámetros de scoring daba 403 a TODO rol no-admin aunque la
+   * matriz de permisos dijera que sí — sólo pasaba `manage:all` (admin/superadmin). `roles` no se
+   * veía afectado porque `ROLES_CONFIGURAR` sí mapeaba a `'manage'`.
+   */
   private checkCatalogManageAccess(req: any, type: string) {
-    const ability = createMongoAbility<AppAbility>(req.user.rules || []);
-    if (ability.can('manage', 'all')) return;
+    if (isPlatformAdminRole(req.user?.role_name)) return;
+    const perms: Record<string, boolean> = req.user?.permissions ?? {};
 
     if (['conceptos', 'ubicaciones', 'niveles'].includes(type)) {
-      if (!ability.can('manage', 'scoring_config')) {
+      if (perms[Permission.SCORING_CONFIG_GESTIONAR] !== true) {
         throw new ForbiddenException(
           'No tienes permisos suficientes para gestionar parámetros del scoring.',
         );
       }
     } else if (type === 'roles') {
-      if (!ability.can('manage', 'roles_config')) {
+      if (perms[Permission.ROLES_CONFIGURAR] !== true) {
         throw new ForbiddenException(
           'No tienes permisos para gestionar roles del sistema.',
         );
       }
     } else {
-      if (!ability.can('manage', 'catalogs')) {
+      if (perms[Permission.CATALOGO_GESTIONAR] !== true) {
         throw new ForbiddenException(
           'No tienes permisos para gestionar catálogos maestros.',
         );

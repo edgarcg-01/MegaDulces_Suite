@@ -99,7 +99,9 @@ npm run api:dev    # build --watch + node --watch dist/apps/api/main.js
 > ```
 > Esa es la forma confiable de arrancar la API en Windows.
 
-La API levanta en el puerto configurado (default `:3333`; la regression asume `:3334`). Swagger en `/api`.
+La API levanta en **`127.0.0.1:3334`** (`API_PORT`, default 3334 — ver `apps/api/src/main.ts`),
+que es el mismo puerto al que apunta el proxy del front (`apps/view/proxy.conf.json`)
+y el que asume la regression. Swagger en `/api`.
 
 ### Frontends (Angular)
 

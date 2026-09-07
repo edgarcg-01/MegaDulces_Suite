@@ -1,43 +1,37 @@
 /**
- * PM2 ecosystem — CDC WAL-decode (ADR-047): 7 consumidores `ods-cdc-wal.js --watch` (uno por
- * sucursal 00-06) que leen el WAL de los replicas locales `:5433/kepler_md_XX` y empujan SOLO los
- * cambios reales (I/U/D, INCLUIDO DELETE) a `kepler_ods` en prod por feeds-ingest (ingress gratis).
- * Reemplaza el poll (`OdsLiveLoop` + `OdsFullMirror`) — ver FASE_CDC_ODS_LOGICAL.md.
+ * ⛔ RETIRADO 2026-09-04 (OBS.8). Este ecosystem YA NO ARRANCA NADA — falla a propósito.
  *
- * ⛔ PREREQUISITOS antes de arrancar (si no, no funciona / arriesga disco):
- *   1) feeds-ingest REDESPLEGADO con los handlers `raw-delete` + `cdc-heartbeat` (apply-handlers.js).
- *   2) `:5433` con `wal_level=logical` (ya hecho) + **`max_slot_wal_keep_size`** puesto (backstop de
- *      disco: si un consumidor muere, su slot retiene WAL → sin este cap, llena disco).
- *   3) En la box on-prem: env `FEEDS_INGEST_KEY` exportado (secreto; NO se hardcodea acá — mismo
- *      lote de rotación que los .cmd de KeplerRunner).
+ * Qué era: 7 consumidores `ods-cdc-wal.js --watch` (uno por sucursal 00-06) que leían el WAL de los
+ * replicas locales `:5433/kepler_md_XX` y empujaban los cambios reales (I/U/D, incluido DELETE) a
+ * `kepler_ods` en prod. Más `cdc-reconcile`, su red de seguridad.
  *
- * Arranque (una vez, en la box on-prem que tiene los replicas :5433):
- *   $env:FEEDS_INGEST_KEY = "<key>"      # (o ya presente en el entorno del servicio)
- *   pm2 start database/importers/kepler/ecosystem.cdc.config.js
- *   pm2 save ; pm2 startup               # persiste + revive tras reinicio
- * Cutover (CDC.6, tras validar en sombra): deshabilitar OdsLiveLoop + OdsFullMirror.
+ * Por qué se retiró:
+ *   · Los 7 estaban en `error` con el slot en `lost` desde el 2026-09-02 15:14 y nadie los levantó.
+ *     Un stream de WAL no tiene reintento hacia atrás: cuando el slot se pierde, lo que pasó mientras
+ *     tanto no vuelve nunca, así que "revivirlo" nunca fue tan barato como parecía.
+ *   · El carril de poll (`replicate-ods-live` en Docker, `ops/ingest/docker-compose.yml`) entrega hoy
+ *     las 7 ramas con 9-30 s de rezago, que es para lo que existía el CDC.
+ *   · Y sobre todo: mientras esto vivía en PM2 **y** en Docker **y** en una tarea de Windows, el mismo
+ *     carril tenía TRES dueños peleando el mismo watermark (`ods.ctl`/`ods.shadow`) y escribiendo el
+ *     MISMO renglón de `analytics.cron_runs` — que sólo tiene PRIMARY KEY (tenant_id, job_key), sin
+ *     host. Resultado medido el 2026-09-04: el contenedor llevaba 15 h colgado y salía `healthy`
+ *     porque la tarea de Windows le prestaba el pulso desde otra máquina. Regla que sale de ahí:
+ *     **un carril = UN dueño**, y ese dueño es Docker.
  *
- * Operación:  pm2 ls · pm2 logs cdc-wal-03 · pm2 restart cdc-wal-03 · pm2 stop all
- * Observabilidad: cada consumidor late `cdc_wal_<suc>` → cron_runs (db-health dead-man's switch,
- *   CRON_JOBS cdc_wal_00..06). Un consumidor caído → su latido envejece → ROJO antes de llenar disco.
+ * Los slots `ods_cdc_00..06` y la publication `ods_cdc_pub` ya fueron dropeados de los replicas
+ * (retenían 0 bytes, sin riesgo de disco). `ods-cdc-wal.js` se conserva: es el decodificador de WAL
+ * y sabe recrear su propio slot si algún día se decide volver.
  *
- * Rollback: `pm2 delete all` (de este ecosystem) + re-enable de OdsLiveLoop/OdsFullMirror. Los slots
- *   `ods_cdc` quedan en :5433 reteniendo WAL → dropearlos: `node ods-cdc-wal.js --branch=XX --drop-slot`.
+ * Lo que se PIERDE al retirarlo: sólo el WAL propagaba DELETE. Eso ahora lo cubre
+ * `reconcile-ods-window.js`, que además de faltantes detecta SOBRANTES (llaves que siguen en el ODS y
+ * ya no están en el replica) y los REPORTA — borrar en el ODS necesita autorización explícita.
+ *
+ * Dónde vive hoy la ingesta:  ops/ingest/docker-compose.yml
+ *   docker compose -f ops/ingest/docker-compose.yml up -d
+ *   docker compose -f ops/ingest/docker-compose.yml ps      # STATUS trae (healthy)/(unhealthy)
  */
-const path = require('path');
-const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
-const SCRIPT = 'database/importers/kepler/ods-cdc-wal.js';
-const BRANCHES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
-
-// Empuja a prod por feeds-ingest (ingress gratis). DATABASE_URL_NEW = BASE local :5433 (el consumidor
-// le cambia el nombre de la DB por sucursal). FEEDS_INGEST_KEY se hereda del entorno (secreto).
-const env = {
-  FEEDS_SINK: 'http',
-  FEEDS_INGEST_URL: process.env.FEEDS_INGEST_URL || 'https://feeds-ingest-production.up.railway.app',
-  DATABASE_URL_NEW: process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform',
-};
-const base = { cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true, env };
-
-module.exports = {
-  apps: BRANCHES.map((code) => ({ name: `cdc-wal-${code}`, script: SCRIPT, args: `--branch=${code} --watch`, ...base })),
-};
+throw new Error(
+  'ecosystem.cdc.config.js está RETIRADO (OBS.8, 2026-09-04). La ingesta del ODS corre en Docker: ' +
+  'docker compose -f ops/ingest/docker-compose.yml up -d. Levantarla también acá reintroduce el ' +
+  'doble dueño del watermark y del latido, que es lo que dejó el carril 15 h colgado en verde.',
+);

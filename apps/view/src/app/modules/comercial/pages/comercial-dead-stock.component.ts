@@ -9,10 +9,8 @@ import { SelectModule } from 'primeng/select';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, DeadStockReport, Warehouse } from '../comercial.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
-import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 
 /**
  * Reporte de STOCK MUERTO: existencia > 0 sin venta en 90 días = capital parado
@@ -21,14 +19,13 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-dead-stock',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, ProductSearchComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent, MetricStripComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
 
-      <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -107,7 +104,6 @@ import { INV_ANALYTICS_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialDeadStockComponent {
-  readonly inventoryTabs = INV_ANALYTICS_TABS;
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

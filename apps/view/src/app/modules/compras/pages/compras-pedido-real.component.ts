@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, HostListener, OnInit, c
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -21,7 +22,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  WorkbookTerritory,
+  WorkbookTerritory, InTransitOc, InTransitResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -135,6 +136,27 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
               <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorkbook()"></p-button></div>
           </div>
         } @else {
+          <!-- U.2 — el inventario valuado declara su hueco. Sin este banner el total baja en
+               silencio al dejar de sumar lo no verificado, y eso se lee como "hay menos
+               inventario" — otra mentira distinta de la que estamos quitando. -->
+          @if (rungGap(); as g) {
+            <div class="pr-rung-banner">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              <p>
+                <strong>{{ g.skus | number }} {{ g.skus === 1 ? 'producto' : 'productos' }}</strong>
+                ({{ g.celdas | number }} {{ g.celdas === 1 ? 'almacén' : 'almacenes' }})
+                quedan <strong>sin valuar</strong>: su divisor de cajas no cuadra con lo que se pagó
+                por unidad de stock, así que la existencia no se convierte a cajas ni se multiplica
+                por el costo de caja. <strong>No valen cero — no se están midiendo.</strong>
+                @if (g.arbitrado > 0) {
+                  Contra lo pagado rondarían <strong>{{ money(g.arbitrado) }}</strong>, cifra de
+                  referencia para revisar y no para publicar.
+                }
+                En esos renglones la celda muestra la cantidad en la unidad que el ERP realmente
+                guarda (kg, paquete, cubeta), que sí es verdad.
+              </p>
+            </div>
+          }
           <div class="pr-wb-scroll">
             <p-table [value]="wbRows()" [loading]="loading()"
                      styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle()">
@@ -144,7 +166,9 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   <th rowspan="2" class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
                   <th rowspan="2" class="pr-r">Costo/Cja</th>
                   <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
+                  <th rowspan="2" class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
                   <th rowspan="2" class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
+                  <th rowspan="2" class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. El Pedido la descuenta PESADA por la probabilidad de que llegue: una orden abierta hace semanas casi no cuenta, porque en Kepler la OC se captura al recibir.">En camino</th>
                   <th rowspan="2" class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th rowspan="2" class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   @for (t of wbTerritories(); track t.code) {
@@ -158,7 +182,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 </tr>
                 <tr class="pr-sub-row">
                   @for (t of wbTerritories(); track t.code) {
-                    <th class="pr-r pr-sub-h">Vta</th><th class="pr-r pr-sub-h">Exist.</th><th class="pr-r pr-sub-h pr-ped-h">Pedido</th>
+                    <th class="pr-r pr-sub-h" title="Venta 30 días, en CAJAS.">Vta</th><th class="pr-r pr-sub-h" title="Existencia, en CAJAS.">Exist.</th><th class="pr-r pr-sub-h pr-ped-h" title="Pedido sugerido, en CAJAS.">Pedido</th>
                   }
                 </tr>
               </ng-template>
@@ -167,8 +191,8 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
                   <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
-                    <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit">pz</span></div>
-                    @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' pz por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
+                    <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
+                    @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
                   </td>
                   <td class="pr-r pr-muted">{{ money(r.caja_cost) }}</td>
                   <td class="pr-r">
@@ -176,19 +200,64 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                       <p-tag [value]="iadLabel(r)" [severity]="iadSev(r)" styleClass="pr-cov-tag" [title]="iadTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" [title]="iadTitle(r)">—</span> }
                   </td>
+                  <td class="pr-r">
+                    @if (seasonOn(r)) {
+                      <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" styleClass="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
+                    } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
+                  </td>
                   <td class="pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
+                  <td class="pr-r">
+                    @if (r.transito_cajas && r.transito_cajas > 0) {
+                      <button type="button" class="pr-tran-btn" (click)="openTransit(r); $event.stopPropagation()"
+                              [title]="'Ver las órdenes de compra abiertas de ' + r.sku">
+                        <i class="pi pi-truck" aria-hidden="true"></i> {{ r.transito_cajas | number:'1.0-1' }}
+                      </button>
+                    } @else { <span class="pr-muted">—</span> }
+                  </td>
                   <td class="pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
                   <td class="pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
                   @for (t of wbTerritories(); track t.code) {
                     <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
-                    <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
-                    <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
+                    <!-- U.2 — si el peldaño de este almacén no está verificado, la conversión a
+                         cajas no es confiable: se muestra la cantidad SUELTA con su rótulo (que sí
+                         es verdad) en vez de una cifra de cajas inventada. -->
+                    @if (rungOf(r, t.code); as rung) {
+                      <td class="pr-r">
+                        <span class="pr-rung" [title]="rungTitle(r, t.code)">
+                          {{ natOf(r, t.code) | number:'1.0-0' }} {{ natUnitOf(r, t.code) }}
+                          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        </span>
+                      </td>
+                    } @else {
+                      <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
+                    }
+                    <!-- U.2 — el PEDIDO es lo que se gasta, y sale de restar la existencia
+                         convertida con el mismo divisor. Con el peldaño contradicho la resta mezcla
+                         peldaños y pide de más: 99089 en MD-30 lee 1.3 cajas donde hay 12 y encarga
+                         6.9 que ya están en el piso. Se retiene, no se publica. -->
+                    @if (rungOf(r, t.code)) {
+                      <td class="pr-r pr-rung" [title]="rungTitle(r, t.code)">—</td>
+                    } @else {
+                      <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
+                    }
                   }
-                  <td class="pr-r pr-strong">{{ r.suma_pedido_cajas | number:'1.0-1' }}</td>
+                  <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
+                    {{ r.suma_pedido_cajas | number:'1.0-1' }}@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                  </td>
                   <td class="pr-r pr-muted-h">{{ (r.suma_pedido_cajas * r.uxc) | number:'1.0-0' }}</td>
                   <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="r.suma_pedido_cajas > 0">{{ money(r.pedido_valor) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
-                  <td class="pr-r pr-muted">{{ money(r.valor_exis) }}</td>
+                  <!-- U.2 — el valuado no se dibuja si algún almacén tiene el peldaño sin verificar:
+                       un cero o un parcial silencioso se lee como "hay poco inventario", que es otra
+                       mentira. Se declara con el conteo de almacenes y el motivo en el tooltip. -->
+                  <td class="pr-r pr-muted" [title]="valorExisTitle(r)">
+                    @if (r.almacenes_sin_valuar) {
+                      <span class="pr-rung">
+                        @if (r.valor_exis) { {{ money(r.valor_exis) }} } @else { sin valuar }
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      </span>
+                    } @else { {{ money(r.valor_exis) }} }
+                  </td>
                 </tr>
                 @if (isOpen(r)) {
                   <tr class="pr-wb-exp">
@@ -216,7 +285,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                                 <thead><tr>
                                   <th>Sucursal</th><th>Acción</th>
                                   <th class="pr-r" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
-                                  <th class="pr-r">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r" title="Equivalente TOTAL en piezas de lo pedido (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                  <th class="pr-r" title="Existencia de la sucursal, en CAJAS.">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r" title="Equivalente TOTAL en piezas de lo pedido (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
                                 </tr></thead>
                                 <tbody>
                                   @for (u of urows; track u.type + ':' + u.warehouse_code) {
@@ -285,7 +354,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × cobertura − existencia − tránsito. Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
+          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong> (la columna <strong>Est.</strong> muestra la razón estacional aplicada; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas; se descuenta pesado por la probabilidad de que cada orden llegue, así que una OC estancada deja de tapar el pedido; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
         }
 
         @if (wbRows().length) {
@@ -300,6 +369,62 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
             <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisiciones (global)'" icon="pi pi-check" styleClass="p-button-sm p-button-text" (click)="buildReq()" [disabled]="saving() || totCajas() <= 0"></p-button>
           </div>
         }
+
+        <!-- RA-PRO.44 — QUÉ VIENE EN CAMINO: las OCs abiertas del SKU. Es la explicación del
+             "Pedido 0" — el motor descuenta lo ya pedido, y hasta ahora eso era invisible. -->
+        <p-dialog [(visible)]="tranVisible" [modal]="true" [style]="{ width: '46rem' }" [dismissableMask]="true"
+                  [header]="'En camino — ' + (tranProduct()?.nombre || '')">
+          @if (tranLoading()) {
+            <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Consultando órdenes de compra…</div>
+          } @else if (tranError()) {
+            <div class="pr-state pr-error"><i class="pi pi-exclamation-triangle"></i>
+              <p>No se pudieron leer las órdenes de compra.</p></div>
+          } @else if (tranRows().length) {
+            <p class="pr-uov-hint">
+              <strong>{{ tranTotalCajas() | number:'1.0-1' }} cajas</strong> ya pedidas y sin recibir
+              ({{ money(tranTotalValor()) }}).
+              La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
+              como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
+            </p>
+            <!-- RA-PRO.45 — la brecha entre lo que dice el papel y lo que el motor descuenta. Sin
+                 esto la pantalla se contradice sola: "vienen 180 cajas" y aun así sugiere pedir. -->
+            @if (tranGap() > 0.05) {
+              <p class="pr-tran-gap">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                El pedido descuenta <strong>{{ tranDescuenta() | number:'1.0-1' }} cajas</strong>, no las
+                {{ tranTotalCajas() | number:'1.0-1' }}: en Kepler la orden se captura al recibir, así que
+                una que sigue abierta hace semanas casi nunca llega. Cada orden pesa según su antigüedad.
+              </p>
+            }
+            <table class="pr-peek-tbl">
+              <thead><tr>
+                <th>Folio</th><th>Suc.</th><th>Proveedor</th><th>Fecha OC</th><th>Llega aprox.</th>
+                <th class="pr-r">Abierta</th>
+                <th class="pr-r">Pedido</th><th class="pr-r">Cajas</th><th class="pr-r">Valor</th>
+              </tr></thead>
+              <tbody>
+                @for (o of tranRows(); track o.folio + ':' + o.sucursal) {
+                  <tr>
+                    <td class="pr-mono">{{ o.folio }}</td>
+                    <td class="pr-mono pr-muted">{{ o.sucursal }}</td>
+                    <td class="pr-supp">{{ o.proveedor || '—' }}</td>
+                    <td class="pr-muted">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
+                    <td>
+                      <p-tag [value]="(o.llega_aprox | date:'dd/MM/yy') || ''"
+                             [severity]="llegaSev(o)" styleClass="pr-cov-tag" [title]="llegaTitle(o)"></p-tag>
+                    </td>
+                    <td class="pr-r"><span [class]="edadCls(o)" [title]="edadTitle(o)">{{ o.dias_abierta }} d</span></td>
+                    <td class="pr-r pr-muted">{{ o.cantidad | number:'1.0-0' }} {{ o.unidad }}</td>
+                    <td class="pr-r pr-strong">{{ o.cajas | number:'1.0-1' }}</td>
+                    <td class="pr-r pr-val">{{ money(o.valor) }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          } @else {
+            <div class="pr-peek-loading">Este producto no tiene órdenes de compra abiertas.</div>
+          }
+        </p-dialog>
 
         <!-- RA-PRO.28 — override manual de unidad de venta (se abre desde el desglose por sucursal) -->
         <p-dialog [(visible)]="unitVisible" [modal]="true" [style]="{ width: '32rem' }" [dismissableMask]="true" header="Unidad de venta">
@@ -343,15 +468,16 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                  [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
                  styleClass="p-datatable-sm pr-table" [tableStyle]="deadTableStyle">
           <ng-template #header>
-            <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th><th class="pr-r">Existencia</th>
+            <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
+              <th class="pr-r" title="Existencia en CAJAS. La cantidad en la unidad suelta del almacén va en el tooltip de la celda.">Exist.<br/>cajas</th>
               <th class="pr-r">Costo</th><th class="pr-r pr-val">Inmovilizado</th><th>Última actividad</th><th>Proveedor</th></tr>
           </ng-template>
           <ng-template #body let-r>
             <tr>
               <td><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
               <td class="pr-mono pr-muted">{{ r.warehouse_code }}</td>
-              <td class="pr-r pr-muted">{{ r.on_hand | number:'1.0-0' }}</td>
-              <td class="pr-r pr-muted">{{ money(r.unit_cost) }}</td>
+              <td class="pr-r pr-muted" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
+              <td class="pr-r pr-muted" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
               <td class="pr-r pr-val pr-strong">{{ money(r.dead_value) }}</td>
               <td class="pr-muted">{{ r.last_activity ? (r.last_activity | date:'dd/MM/yy') : 'sin actividad' }}</td>
               <td class="pr-supp">{{ r.supplier_name || '—' }}</td>
@@ -393,6 +519,38 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
     .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: .7rem; color: var(--text-faint); }
     .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
+    /* RA-PRO.44 — "En camino": chip accionable que abre las OCs abiertas del SKU. */
+    .pr-tran-btn { display: inline-flex; align-items: center; gap: .25rem; font: inherit; font-size: .78rem;
+      padding: .1rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px);
+      background: transparent; color: var(--info-fg, var(--text-main)); cursor: pointer;
+      font-variant-numeric: tabular-nums; }
+    .pr-tran-btn:hover { background: var(--overlay-hover, var(--hover-bg)); border-color: var(--action); color: var(--action); }
+    .pr-tran-btn:focus-visible { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
+    .pr-tran-btn i { font-size: .7rem; }
+    /* RA-PRO.45 — por qué el pedido no descuenta todo lo que dice el papel. */
+    .pr-tran-gap { display: flex; gap: .4rem; align-items: flex-start; font-size: .78rem; line-height: 1.45;
+      margin: 0 0 1rem; padding: .5rem .65rem; border: 1px solid var(--border-color);
+      border-left: 2px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
+      background: var(--surface-2, transparent); color: var(--text-muted); }
+    .pr-tran-gap i { color: var(--warn-fg); margin-top: .12rem; }
+    /* U.2 — el hueco del valuado, declarado. Mismo lenguaje visual que .pr-tran-gap (hairline +
+       filete ámbar): es una advertencia de dato, no un error de la pantalla. */
+    .pr-rung-banner { display: flex; gap: .5rem; align-items: flex-start; font-size: .8rem;
+      line-height: 1.5; margin: 0 0 1rem; padding: .6rem .75rem;
+      border: 1px solid var(--border-color); border-left: 2px solid var(--warn-fg);
+      border-radius: var(--r-sm, 8px); background: var(--surface-2, transparent);
+      color: var(--text-muted); }
+    .pr-rung-banner i { color: var(--warn-fg); margin-top: .18rem; flex: none; }
+    .pr-rung-banner p { margin: 0; max-width: 78ch; }
+    .pr-rung-banner strong { color: var(--text-main); font-weight: 600; }
+    /* La celda que no se puede convertir a cajas: muestra la cantidad SUELTA con su rótulo. */
+    .pr-rung { display: inline-flex; align-items: baseline; gap: .25rem;
+      font-family: var(--font-mono, ui-monospace); font-variant-numeric: tabular-nums;
+      color: var(--warn-fg); cursor: help; }
+    .pr-rung i { font-size: .68rem; }
+    .pr-edad { font-variant-numeric: tabular-nums; color: var(--text-muted); }
+    .pr-edad-warn { color: var(--warn-fg); font-weight: 600; }
+    .pr-edad-bad { color: var(--bad-fg); font-weight: 600; }
     .pr-uov-prod { margin: 0 0 .5rem; }
     .pr-uov-hint { font-size: .78rem; color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
     .pr-uov-f { display: block; margin-bottom: .9rem; }
@@ -498,6 +656,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
 })
 export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly api = inject(ComprasService);
+  private readonly route = inject(ActivatedRoute); // Q.4 — deep-link desde Existencia
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -536,6 +695,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbRows = signal<WorkbookRow[]>([]);
   wbTerritories = signal<WorkbookTerritory[]>([]);   // puntos de compra (columnas dinámicas)
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
+  // U.2 — el hueco del valuado. null cuando no hay nada sin verificar (el banner no se pinta).
+  private readonly wbRung = signal<{ skus: number; celdas: number; arbitrado: number } | null>(null);
+  rungGap(): { skus: number; celdas: number; arbitrado: number } | null {
+    const g = this.wbRung();
+    return g && g.skus > 0 ? g : null;
+  }
   wbTotal = signal(0);
   // RA-PRO.36.2 — paginación SERVER-SIDE (20/página): la matriz pedía 1000 filas + 3 motores en
   // paralelo → saturaba Railway. Ahora trae solo la página; los filtros (pedido/IAD/sobrestock) van
@@ -548,10 +713,67 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
   // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
   // referencia estable entre cargas (evita ExpressionChanged).
-  wbTableStyle = computed(() => ({ 'min-width': (40 + this.wbTerritories().length * 13) + 'rem' }));
-  wbColCount = computed(() => 7 + this.wbTerritories().length * 3 + 5);
+  wbTableStyle = computed(() => ({ 'min-width': (48 + this.wbTerritories().length * 13) + 'rem' }));
+  // 7 base + Est. (RA-PRO.41) + En camino (RA-PRO.44) + 3/territorio + 5 de cierre
+  wbColCount = computed(() => 9 + this.wbTerritories().length * 3 + 5);
   /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
   cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
+
+  // ── U.2 — DECLARAR el peldaño sin verificar en vez de dibujar una cifra de cajas inventada ──
+  // El backend marca la celda cuando el divisor de ESE almacén no cuadra con lo que se pagó
+  // (`analytics.v_unit_rung_audit`: `display_bf == caja_cost / pagado`). En esos casos la
+  // conversión a cajas no es confiable —ni la cantidad ni su valuado— pero la cantidad SUELTA sí
+  // es verdad, y el comprador la necesita: hay 2,679 KG ahí, no un blanco.
+  /** `'x1_inflada' | 'x2_deflactada' | null`. null = el peldaño de esa celda está verificado. */
+  rungOf(r: WorkbookRow, code: string): string | null { return r.cells?.[code]?.rung ?? null; }
+  /** Cantidad en la unidad NATIVA del almacén (la que el ERP realmente guarda). */
+  natOf(r: WorkbookRow, code: string): number { return r.cells?.[code]?.nat ?? 0; }
+  /**
+   * Rótulo de esa unidad, tal como lo declara el ERP dueño del almacén. Sin dato → "u".
+   *
+   * ⚠️ 65 de las 552 celdas marcadas traen un rótulo que es un NÚMERO ('500', '250'): Kepler ahí
+   * no guarda el nombre de la unidad sino el GRAMAJE de la bolsa. Concatenarlo sin más daba
+   * "298 500", que no se lee como nada. En ese caso la cantidad va con "u." y el gramaje queda en
+   * el tooltip, que es donde cabe la explicación completa.
+   */
+  natUnitOf(r: WorkbookRow, code: string): string {
+    const raw = (r.cells?.[code]?.natu || '').trim();
+    if (!raw) return 'u';
+    return /^[\d.]+$/.test(raw) ? 'u' : raw.toLowerCase();
+  }
+  /** El rótulo CRUDO del ERP, para el tooltip: ahí sí vale la pena decir "de 500". */
+  private natUnitRaw(r: WorkbookRow, code: string): string { return (r.cells?.[code]?.natu || '').trim(); }
+  /** U.2 — por qué el pedido de red puede venir corto: hay almacenes que no se pudieron calcular. */
+  pedidoTitle(r: WorkbookRow): string {
+    const n = r.almacenes_sin_pedido || 0;
+    if (!n) return '';
+    return `Este total NO incluye ${n} almacén${n > 1 ? 'es' : ''}: ahí el costo de compra contradice `
+      + 'el divisor con el que se lee la existencia, así que restar demanda − existencia mezclaría '
+      + 'peldaños y el sugerido saldría mal. Falta pedido, no es que no haga falta comprar.';
+  }
+  rungTitle(r: WorkbookRow, code: string): string {
+    const v = this.rungOf(r, code);
+    const n = this.natOf(r, code).toLocaleString('es-MX');
+    const raw = this.natUnitRaw(r, code);
+    // Si el ERP rotula la unidad con un número, es el gramaje de la bolsa: se dice completo acá.
+    const u = /^[\d.]+$/.test(raw) ? `unidades de ${raw}` : (this.natUnitOf(r, code));
+    const dir = v === 'x1_inflada'
+      ? 'el divisor de cajas es más chico de lo que el costo justifica (la valuación saldría inflada)'
+      : 'el divisor de cajas es más grande de lo que el costo justifica (la valuación saldría corta)';
+    return `No se puede convertir a cajas: ${dir}. Lo que sí es verdad: hay ${n} ${u} en este almacén. `
+      + 'Se compara el divisor contra lo que se pagó por unidad de stock; el detalle está en la '
+      + 'bandeja de hallazgos.';
+  }
+  valorExisTitle(r: WorkbookRow): string {
+    if (!r.almacenes_sin_valuar) return 'Dinero inmovilizado en existencia: existencia × costo de caja.';
+    const n = r.almacenes_sin_valuar;
+    const arb = r.valor_exis_arbitrado
+      ? ` Contra lo pagado rondarían ${this.money(r.valor_exis_arbitrado)}, pero es una referencia `
+        + 'para revisar, no una cifra publicable.'
+      : '';
+    return `${n} ${n === 1 ? 'almacén' : 'almacenes'} con el peldaño de unidad sin verificar: su `
+      + `existencia NO se valúa acá para no publicar un número que el costo contradice.${arb}`;
+  }
   /** ABC por producto (del motor por-sucursal) → etiqueta en el renglón del Excel. */
   private readonly abcMap = computed(() => {
     const m = new Map<string, string>();
@@ -573,6 +795,28 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   unitOf(pid: string): 'caja' | 'paquete' | 'pieza' { return this.orderUnit()[pid] ?? 'caja'; }
   setUnit(pid: string, u: 'caja' | 'paquete' | 'pieza'): void { this.orderUnit.update((m) => ({ ...m, [pid]: u })); }
   unitLabelShort(pid: string): string { const u = this.unitOf(pid); return u === 'pieza' ? 'pz' : u === 'paquete' ? 'paq' : 'caja'; }
+  /**
+   * RA-PRO.46 — el rótulo de la unidad base LO DICE KEPLER (`kdii.c11`), no lo escribimos nosotros.
+   * Antes acá decía "pz" fijo y mentía en todo lo que se vende a granel: el azúcar 99029 se mide en
+   * 500 g (rótulo `500`), no en piezas. Sin dato, se muestra "u" — genérico honesto, no "pz" falso.
+   */
+  unidadBase(r: WorkbookRow): string { return (r.unidad_base || '').trim().toLowerCase() || 'u'; }
+  unidadTitle(r: WorkbookRow): string {
+    const u = (r.unidad_base || '').trim();
+    return u ? `${r.uxc} ${u} por caja (unidad declarada en Kepler)` : `${r.uxc} unidades por caja — Kepler no declara la unidad`;
+  }
+  /**
+   * ADR-055 — la existencia se muestra en CAJAS (la unidad más grande), y el tooltip declara la
+   * cantidad suelta con el rótulo que da el ERP dueño del almacén: la unidad base de Kepler en las
+   * sucursales, la unidad de venta de Wincaja en MD-30/MD-32/00 (que es el PAQUETE en los
+   * multipack). Sin factor de caja la celda ya viene igual a la cantidad suelta.
+   */
+  deadUnitsTitle(r: { on_hand: number; box_factor?: number; base_label?: string }): string {
+    const bf = Number(r.box_factor) || 1;
+    const u = (r.base_label || '').trim() || 'u';
+    const n = Math.round(Number(r.on_hand) || 0).toLocaleString('es-MX');
+    return bf > 1 ? `${n} ${u} sueltas · ${bf} ${u} por caja` : `${n} ${u} — sin factor de caja`;
+  }
   /** Factor cajas→unidad elegida: pieza=uxc(pz/caja), paquete=packs/caja, caja=1. */
   unitFactor(pid: string): number {
     const u = this.unitOf(pid), p = this.packOf(pid);
@@ -667,6 +911,64 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return `${b?.txt ?? ''} ${v > 0 ? '+' : ''}${v.toFixed(2)}`.trim();
   }
   iadSev(r: WorkbookRow): Sev { return this.IAD_BANDS[r.iad_band ?? '']?.sev ?? 'secondary'; }
+
+  // ── RA-PRO.44 — "En camino": las OCs abiertas del SKU ────────────────
+  tranVisible = false;
+  readonly tranLoading = signal(false);
+  readonly tranError = signal(false);
+  readonly tranRows = signal<InTransitOc[]>([]);
+  readonly tranProduct = signal<{ sku: string; nombre: string } | null>(null);
+  readonly tranLead = signal<number | null>(null);
+  readonly tranDescuenta = signal(0);          // RA-PRO.45 — cajas que el motor sí resta
+  tranTotalCajas = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.cajas) || 0), 0));
+  tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
+  tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
+
+  openTransit(r: WorkbookRow): void {
+    this.tranProduct.set({ sku: r.sku, nombre: r.nombre });
+    this.tranRows.set([]); this.tranError.set(false); this.tranLoading.set(true); this.tranVisible = true;
+    this.api.inTransit(r.product_id)
+      .pipe(catchError(() => of(null as InTransitResponse | null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((res) => {
+        this.tranLoading.set(false);
+        if (!res) { this.tranError.set(true); return; }   // NO tragar el error: se avisa (DESIGN §Ing.UI 6)
+        this.tranRows.set(res.rows ?? []);
+        this.tranLead.set(res.lead_days ?? null);
+        this.tranDescuenta.set(Number(res.descuenta_cajas ?? 0));
+        if (res.product) this.tranProduct.set(res.product);
+      });
+  }
+  /** Antigüedad de la OC: es lo que decide cuánto pesa. +30 d = prácticamente muerta. */
+  edadCls(o: InTransitOc): string {
+    const d = Number(o.dias_abierta) || 0;
+    return d > 30 ? 'pr-edad pr-edad-bad' : d > 14 ? 'pr-edad pr-edad-warn' : 'pr-edad';
+  }
+  edadTitle(o: InTransitOc): string {
+    const d = Number(o.dias_abierta) || 0;
+    if (d > 30) return 'Lleva más de un mes abierta: históricamente sólo una de cada siete llega. Casi no descuenta pedido.';
+    if (d > 14) return 'Lleva más de dos semanas abierta: cerca de la mitad de estas ya no se surte.';
+    return 'Orden reciente: se descuenta casi completa.';
+  }
+  /** Semáforo de llegada: vencida (debió llegar) · esta semana · más adelante. */
+  llegaSev(o: InTransitOc): Sev {
+    const d = Math.ceil((new Date(o.llega_aprox).getTime() - Date.now()) / 86400000);
+    return d < 0 ? 'danger' : d <= 7 ? 'warn' : 'info';
+  }
+  llegaTitle(o: InTransitOc): string {
+    const d = Math.ceil((new Date(o.llega_aprox).getTime() - Date.now()) / 86400000);
+    const base = o.llega_estimada ? 'Estimado (fecha de la orden + tiempo de surtido del proveedor)' : 'Fecha comprometida';
+    return d < 0 ? `${base} — lleva ${-d} día(s) de retraso` : `${base} — en ${d} día(s)`;
+  }
+
+  // RA-PRO.41 — estacionalidad (el Pedido ya la trae puesta; el chip la hace visible).
+  seasonOn(r: WorkbookRow): boolean { const v = Number(r.season_ratio ?? 1); return v !== 1 && v > 0; }
+  seasonLabel(r: WorkbookRow): string { return '×' + Number(r.season_ratio ?? 1).toFixed(2); }
+  seasonSev(r: WorkbookRow): Sev { return Number(r.season_ratio ?? 1) > 1 ? 'warn' : 'info'; }
+  seasonTitle(r: WorkbookRow): string {
+    const v = Number(r.season_ratio ?? 1);
+    const src: Record<string, string> = { sku: 'historia del propio SKU', cat: 'historia de su categoría', global: 'estación de toda la red' };
+    return `Los próximos 30 días venden ×${v.toFixed(2)} vs los últimos 30 (${src[r.season_src ?? ''] ?? 'historia'}). El Pedido ya lo incluye.`;
+  }
   iadTitle(r: WorkbookRow): string {
     if (r.iad == null) {
       const m: Record<string, string> = {
@@ -742,6 +1044,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       }),
     });
     this.restoreFilters();
+    // Q.4 — hidratación por query-params, DESPUÉS de restoreFilters para que el link gane sobre
+    // el localStorage. Es lo que hace navegable "todo dato accionable a su lugar de arreglo con
+    // el filtro puesto": Existencia manda acá con ?search=<sku>. Sin esto el enlace no hacía nada
+    // (esta pantalla no leía ActivatedRoute en absoluto).
+    const qp = this.route.snapshot.queryParamMap;
+    const qSearch = qp.get('search');
+    if (qSearch) this.search = qSearch;
+    const qWh = qp.get('warehouse_ids');
+    if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
     else this.loadWorkbook();
     // Refresca la etiqueta "hace N min" sin recargar datos.
@@ -826,6 +1137,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.loading.set(false);
         if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
         this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        this.wbRung.set(r.unit_rung ?? null);
         this.loadedAt.set(Date.now());
         if (reloadEnrichment) {
           this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
@@ -987,8 +1299,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
     const lines: PedidoExportLine[] = rows.map((r) => ({
       warehouse_code: r.warehouse_code, supplier_name: r.supplier_name,
-      sku: r.sku, nombre: r.nombre, on_hand: Math.round(Number(r.on_hand) || 0),
-      unit_cost: Number(r.unit_cost) || 0, line_cost: Number(r.dead_value) || 0,
+      // ADR-055 — en CAJAS, igual que la pantalla; el costo va por caja para que cuadre.
+      sku: r.sku, nombre: r.nombre, on_hand: Number(r.on_hand_cajas) || 0,
+      unit_cost: Number(r.caja_cost) || 0, line_cost: Number(r.dead_value) || 0,
     }));
     this.dl.set(true);
     this.api.exportPedidoXlsx({

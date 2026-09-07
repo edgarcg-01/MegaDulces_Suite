@@ -328,7 +328,7 @@ export class ReportsComponent implements OnInit, AfterViewInit {
     this.showAllProductsDialog = true;
   }
 
-  isSupervisor = this.perms.can$('read', 'reports_team');
+  isSupervisor = this.perms.has$(Permission.REPORTES_VER_EQUIPO);
 
   /** Título del PDF */
   pdfTitle = 'Reporte de mercadeo';
@@ -349,9 +349,9 @@ export class ReportsComponent implements OnInit, AfterViewInit {
   /** Rangos de KPI editables */
   editableKpi = [...this.metasConfig.kpiRanges()].map((k) => ({ ...k }));
 
-  canEditMetas = this.perms.can$('manage', 'kpi_goals');
+  canEditMetas = this.perms.hasAny$(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
 
-  canManageReports = this.perms.can$('delete', 'reports_manage');
+  canManageReports = this.perms.has$(Permission.REPORTES_GESTIONAR);
 
   /**
    * Muestra el diálogo de confirmación para eliminar un reporte

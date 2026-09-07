@@ -29,9 +29,25 @@ import {
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const VALID_CONDITIONS = ['bueno', 'regular', 'malo'] as const;
+/**
+ * Unidades reales de recepción en tienda: al almacén no todo llega en piezas.
+ * caja (lo común con código numérico de anaquel) · pieza (piñatas, suelto) ·
+ * bulto (las bolsas grandes) · kg (granel). Espeja el CHECK de la migración
+ * 20260825180000.
+ */
+const VALID_UNITS = ['caja', 'pieza', 'bulto', 'kg'] as const;
+export type LineUnit = (typeof VALID_UNITS)[number];
 type Condition = (typeof VALID_CONDITIONS)[number];
 
-export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ReviewFile {
+  role: string;
+  url: string;
+  public_id?: string;
+  kind?: string;
+  name?: string;
+  /** Firma efímera que devuelve /upload solo para la vista previa; NO se persiste. */
+  preview_url?: string;
+}
 
 export interface CreateReviewDto {
   warehouse_id: string;
@@ -50,6 +66,7 @@ export interface ReviewLineDto {
   observations?: string;
   action?: string;
   location?: string; // ubicación física del renglón (anaquel/bodega/exhibidor)
+  unit?: LineUnit; // caja | pieza | bulto | kg
   files?: ReviewFile[];
 }
 
@@ -175,6 +192,7 @@ export class CommercialExpiryReviewsService {
           'l.observations',
           'l.action',
           'l.location',
+          'l.unit',
           'l.files',
           'l.fed_to_fefo',
           'l.fefo_qty',
@@ -209,13 +227,16 @@ export class CommercialExpiryReviewsService {
           observations: dto.observations || null,
           action: dto.action || null,
           location: dto.location || null,
+          unit: dto.unit || null,
           files: JSON.stringify(dto.files || []),
           created_by: ctx?.userId || null,
           updated_by: ctx?.userId || null,
         })
         .returning('*');
       await this.touchReview(trx, reviewId, ctx?.userId);
-      return row;
+      // El GET del detalle firma los files (signFiles) pero esta respuesta salía cruda,
+      // así que el renglón recién agregado mostraba "sin vista previa" hasta recargar.
+      return this.signRowFiles(row);
     });
   }
 
@@ -238,11 +259,12 @@ export class CommercialExpiryReviewsService {
       if (dto.observations !== undefined) patch.observations = dto.observations || null;
       if (dto.action !== undefined) patch.action = dto.action || null;
       if (dto.location !== undefined) patch.location = dto.location || null;
+      if (dto.unit !== undefined) patch.unit = dto.unit || null;
       if (dto.files !== undefined) patch.files = JSON.stringify(dto.files || []);
 
       const [row] = await trx('commercial.expiry_review_lines').where({ id: lineId }).update(patch).returning('*');
       await this.touchReview(trx, line.review_id, ctx?.userId);
-      return row;
+      return this.signRowFiles(row);
     });
   }
 
@@ -261,12 +283,24 @@ export class CommercialExpiryReviewsService {
 
   // ───── foto de evidencia (base64 → Railway Bucket; acepta imagen o PDF) ─────
 
+  /** Firma los `files` de un renglón para mostrarlos. No altera lo persistido. */
+  private async signRowFiles<T extends { files?: unknown }>(row: T): Promise<T> {
+    if (!row) return row;
+    const raw = typeof row.files === 'string' ? JSON.parse((row.files as string) || '[]') : row.files || [];
+    return { ...row, files: await this.storage.signFiles(raw as ReviewFile[]) };
+  }
+
   async uploadFile(dataUri: string, role = 'evidencia'): Promise<ReviewFile> {
     if (!dataUri) throw new BadRequestException('file_base64 requerido');
     const tenantId = this.tenantCtx.requireTenantId();
     // Caducidad = fotos de producto → putFile (imagen o PDF). url = key; la lectura la firma.
     const f = await this.storage.putFile(dataUri, `commercial/${tenantId}/expiry-reviews`);
-    return { role, url: f.key, public_id: f.key, kind: f.kind };
+    // `url` = la KEY (es lo que se persiste; la lectura la firma con signFiles).
+    // `preview_url` = firma efímera SOLO para que el operador vea lo que acaba de
+    // adjuntar antes de guardar el renglón. Antes el <img> recibía la key cruda →
+    // 404 → la caja de la foto se veía vacía. No se persiste ni reemplaza a `url`.
+    const previewUrl = await this.storage.signedUrl(f.key).catch(() => '');
+    return { role, url: f.key, public_id: f.key, kind: f.kind, preview_url: previewUrl || undefined };
   }
 
   // ───── submit → alimenta FEFO ─────
@@ -353,6 +387,8 @@ export class CommercialExpiryReviewsService {
       throw new BadRequestException('quantity debe ser número >= 0');
     if (dto.condition && !VALID_CONDITIONS.includes(dto.condition))
       throw new BadRequestException(`condition debe ser: ${VALID_CONDITIONS.join(', ')}`);
+    if (dto.unit && !VALID_UNITS.includes(dto.unit))
+      throw new BadRequestException(`unit debe ser: ${VALID_UNITS.join(', ')}`);
   }
 
   /** Normaliza un valor de fecha (Date que devuelve pg para `date`, o string) a 'YYYY-MM-DD'. */

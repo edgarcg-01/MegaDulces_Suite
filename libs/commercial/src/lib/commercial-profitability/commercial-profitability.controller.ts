@@ -32,7 +32,7 @@ export class CommercialProfitabilityController {
   @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
   @ApiOperation({
     summary:
-      'Desglose por proveedor / marca / categoría / SKU con margen bruto, brecha en pp y en pesos, inventario, GMROI y contribución anual. Mismo cálculo en los 4 niveles.',
+      'Desglose por proveedor / marca / categoría / SKU / sucursal / canal con margen bruto, brecha en pp y en pesos, inventario, GMROI y contribución anual. Mismo cálculo en los 6 niveles. A nivel SKU agrega el margen POR UNIDAD (precio − costo en la unidad que cobra el PdV) y la equivalencia por caja. `warehouse` y `channel` suben el grano del fact: el inventario se une al mismo grano (por canal no existe y se declara en cero).',
   })
   breakdown(
     @Query('window') window?: string,
@@ -43,6 +43,8 @@ export class CommercialProfitabilityController {
     @Query('supplier_id') supplierId?: string,
     @Query('brand_id') brandId?: string,
     @Query('category_id') categoryId?: string,
+    @Query('warehouse_id') warehouseId?: string,
+    @Query('channel') channel?: string,
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('sort') sort?: string,
@@ -57,6 +59,8 @@ export class CommercialProfitabilityController {
       supplierId,
       brandId,
       categoryId,
+      warehouseId,
+      channel,
       page: page ? Number(page) : undefined,
       pageSize: pageSize ? Number(pageSize) : undefined,
       sort,

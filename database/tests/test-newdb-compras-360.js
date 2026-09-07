@@ -2,8 +2,14 @@
  * CXP.3 — Smoke de "Compras 360" (el Excel de recepciones).
  *
  * Verifica el join del grid: fila = analytics.erp_goods_receipts + ajuste LIGADO
- * EXACTO por entrada_folio (agregado) + neto = factura − ajuste. Replica la SQL de
- * PurchaseAdjustmentsService.compras360. Skip-graceful si no hay recepciones.
+ * EXACTO por (sucursal, entrada_folio) + neto = factura − ajuste. Replica la SQL de
+ * PurchaseAdjustmentsService.compras360Base. Skip-graceful si no hay recepciones.
+ *
+ * ⚠️ La aserción que importa es la de ATRIBUCIÓN (2026-08-25): el folio de Kepler NO es
+ * único entre sucursales (1,106 casos), así que ligar solo por folio le pegaba el ajuste de
+ * una sucursal a las homónimas de otras — atribuyéndolo a OTRO proveedor. La versión previa
+ * de este smoke no lo cazaba porque solo comprobaba que el join no inflara FILAS (cierto),
+ * no que no inflara ATRIBUCIONES.
  * Uso: DATABASE_URL_NEW=... node database/tests/test-newdb-compras-360.js
  */
 const { Client } = require('pg');
@@ -17,11 +23,11 @@ const ok = (c, m) => { console.log(`${c ? '  ✅' : '  ❌'} ${m}`); if (!c) fai
 const CORE = `
   FROM analytics.erp_goods_receipts c
   LEFT JOIN (
-    SELECT entrada_folio, sum(monto) AS ajuste, count(*) AS n_ajuste
+    SELECT sucursal, entrada_folio, sum(monto) AS ajuste, count(*) AS n_ajuste
       FROM analytics.erp_purchase_adjustments
      WHERE tenant_id=$1 AND entrada_folio IS NOT NULL
-     GROUP BY entrada_folio
-  ) a ON a.entrada_folio = c.folio
+     GROUP BY sucursal, entrada_folio
+  ) a ON a.sucursal = c.sucursal AND a.entrada_folio = c.folio
   WHERE c.tenant_id=$1`;
 
 (async () => {
@@ -59,6 +65,26 @@ const CORE = `
       console.log('  · (sin recepciones con ajuste ligado exacto — entrada_folio es escaso en Kepler; ok)');
       ok(true, 'sin ajuste ligado exacto en esta muestra (esperable: entrada_folio ~9%)');
     }
+
+    // ── ATRIBUCIÓN: cada ajuste ligado se cuenta UNA vez y en SU sucursal ──────────
+    const atribuidos = Number((await c.query(
+      `SELECT COALESCE(sum(a.n_ajuste),0)::int n ${CORE}`, [TENANT])).rows[0].n);
+    const ligables = Number((await c.query(
+      `SELECT count(*)::int n FROM analytics.erp_purchase_adjustments x
+        WHERE x.tenant_id=$1 AND x.entrada_folio IS NOT NULL
+          AND EXISTS (SELECT 1 FROM analytics.erp_goods_receipts c
+                       WHERE c.tenant_id=x.tenant_id AND c.sucursal=x.sucursal AND c.folio=x.entrada_folio)`, [TENANT])).rows[0].n);
+    ok(atribuidos === ligables, `atribucion exacta: ${atribuidos} ajustes atribuidos == ${ligables} ligables (join sucursal+folio, sin duplicar)`);
+
+    // El proveedor del ajuste debe ser el de la recepcion a la que se le pega.
+    const cruzados = Number((await c.query(
+      `SELECT count(*)::int n
+         FROM analytics.erp_goods_receipts c
+         JOIN analytics.erp_purchase_adjustments x
+           ON x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.entrada_folio = c.folio
+        WHERE c.tenant_id=$1 AND x.proveedor_code IS NOT NULL AND c.proveedor_code IS NOT NULL
+          AND x.proveedor_code <> c.proveedor_code`, [TENANT])).rows[0].n);
+    ok(cruzados === 0, `sin atribucion cruzada de proveedor (${cruzados} ajustes pegados a otro proveedor)`);
 
     console.log(`\n${failed ? '❌ ' + failed + ' fallo(s)' : '✅ PASS — grid Compras 360 coherente (cobertura total + neto + join exacto)'}`);
   } catch (e) {

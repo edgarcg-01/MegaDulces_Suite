@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ObjectStorageService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ObjectStorageService, applySmartSearch, KEPLER_BRANCH_NAMES } from '@megadulces/platform-core';
+import { composeFreshness, evalInput } from '../shared/freshness';
 
 /**
  * Fase RE.10 — Ajustes de compra (X-D-40 "Devolución compra" + X-D-55 "Nota crédito").
@@ -56,6 +57,9 @@ const grupoOf = (cat: string | null): string => (cat ? (GRUPO[cat] || 'sin_clasi
  * ~3 de cada 4 ajustes son comerciales — pintarlos todos como error convierte $12M de
  * descuentos ganados en una alarma falsa.
  */
+/** Ver `PROOF_ORDER` en `goods-receipt-proofs.service.ts`: mismo orden, mismo motivo. */
+const PROOF_ORDER = `created_at DESC, (status = 'recibido') DESC, id DESC`;
+
 const COMERCIAL_CATS = ['descuento_comercial', 'pronto_pago', 'apoyo_marca'];
 
 @Injectable()
@@ -178,10 +182,14 @@ export class PurchaseAdjustmentsService {
    * (Kepler no liga la nota a la entrada estructuralmente — igual que el pago). Etiqueta
    * cada match como 'exacto' | 'proveedor+fecha' para ser honestos con la precisión.
    */
-  async forEntrada(p: { proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number }) {
+  async forEntrada(p: { proveedor_code?: string; entrada_folio?: string; date?: string; window_days?: number; delta?: number; tolerancia?: number }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const win = Math.min(90, Math.max(0, Number(p.window_days) || 15));
-    if (!p.proveedor_code && !p.entrada_folio) return { rows: [], total_monto: 0 };
+    if (!p.proveedor_code && !p.entrada_folio) return { rows: [], total_monto: 0, explicacion: null };
+    // `[RE.21]` — el hueco a explicar y con cuánta holgura. Sin `delta` esto se comporta igual
+    // que antes (lista de candidatos sin ranking), que es lo que piden los llamadores viejos.
+    const delta = p.delta != null && Number.isFinite(Number(p.delta)) ? Math.abs(Number(p.delta)) : null;
+    const tol = Math.max(0.01, Number(p.tolerancia) || 1);
     return this.tk.run(async (trx) => {
       let b = trx('analytics.erp_purchase_adjustments').where('tenant_id', tenantId);
       b = b.andWhere((w: any) => {
@@ -196,11 +204,120 @@ export class PurchaseAdjustmentsService {
       const rows: any[] = await b
         .select('doctype', 'sucursal', 'folio', 'adjustment_date', 'proveedor_code', 'proveedor_nombre', 'factura_ref', 'entrada_folio', 'monto', 'iva', 'motivo', 'categoria')
         .orderBy('adjustment_date', 'desc').limit(50);
-      const out = rows.map((r) => ({
-        ...r, grupo: grupoOf(r.categoria),
-        match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto' : 'proveedor+fecha',
+
+      const out = rows.map((r) => {
+        const monto = Math.abs(Number(r.monto || 0));
+        // `[RE.21]` — **explica por MONTO, no por folio.** No hay llave estructural entre la nota
+        // de crédito y la recepción: `entrada_folio` (c39) viene vacío en el 96% y en las X-D-55
+        // en el 100%, y `factura_ref` (c11) es texto libre —el 29% trae el CÓDIGO DE PROVEEDOR—.
+        // Lo único defendible es lo que haría una persona: ver cuál ajuste tiene el tamaño del
+        // hueco. Se compara la MAGNITUD y no el signo, porque la dirección contable no es estable
+        // (verificado: el ajuste va del 8% al 100% de la entrada, y varios son la recepción
+        // entera revertida). Afirmar dirección sería inventar; comparar tamaños no.
+        const explica = delta != null && delta > 0 && Math.abs(monto - delta) <= tol;
+        // `[RE.21.3]` — **el cuadre es una FOTO, y esto lo dice.** El `monto_match` se calcula
+        // cuando se captura la factura, pero el 63% de los ajustes que ligan a una recepción
+        // llegan DESPUÉS (mediana 4 días, p90 40). Sin este número el revisor no puede saber si
+        // el ajuste ya existía cuando se juzgó el cuadre — o sea, si el descuadre era evitable.
+        const diasDespues = p.date && r.adjustment_date
+          ? Math.round((new Date(r.adjustment_date).getTime() - new Date(p.date).getTime()) / 86400000)
+          : null;
+        return {
+          ...r, grupo: grupoOf(r.categoria), explica, dias_despues: diasDespues,
+          // Tres niveles honestos en vez de dos: `exacto` es el 4% que Kepler sí liga; `monto`
+          // es fuerte pero circunstancial; `proveedor+fecha` es un candidato que puede ser ruido.
+          match: (p.entrada_folio && r.entrada_folio === p.entrada_folio) ? 'exacto'
+            : explica ? 'monto' : 'proveedor+fecha',
+        };
+      });
+      // Lo que explica el hueco primero; después lo ligado; después por fecha.
+      const peso = (m: string) => (m === 'exacto' ? 0 : m === 'monto' ? 1 : 2);
+      out.sort((a, b2) => peso(a.match) - peso(b2.match)
+        || String(b2.adjustment_date).localeCompare(String(a.adjustment_date)));
+
+      // El veredicto para la pantalla: ¿hay UNO que explique el hueco al peso, y de qué
+      // naturaleza es? Un descuadre explicado por un ajuste OPERATIVO (no llegó completo) es otra
+      // cosa que uno explicado por uno COMERCIAL (beneficio negociado que llega después).
+      const explican = out.filter((r) => r.explica);
+      const explicacion = delta == null ? null : {
+        delta,
+        explicado: explican.length > 0,
+        // `grupoOf` ya separa negociado de problema; se reporta el del mejor candidato.
+        grupo: explican[0]?.grupo ?? null,
+        candidatos: explican.length,
+        // Honestidad: si el que explica NO es el ligado por Kepler, es evidencia circunstancial.
+        confianza: explican[0]?.match === 'exacto' ? 'alta' : explican.length === 1 ? 'media' : explican.length > 1 ? 'ambigua' : 'ninguna',
+        // RE.21.3 — cuántos días después de recibir llegó el que explica. Si es > 0, el cuadre
+        // que se guardó al capturar NO pudo tomarlo en cuenta: no es que estuviera mal, es que
+        // se calculó antes. Es la diferencia entre "el capturista se equivocó" y "todavía no
+        // existía", y hoy el revisor no tiene con qué distinguirlas.
+        dias_despues: explican[0]?.dias_despues ?? null,
+      };
+      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0), explicacion };
+    });
+  }
+
+  /**
+   * `[RE.22.1]` — **Los renglones de UN ajuste**: qué mercancía se devolvió. Se pide al expandir
+   * la fila, no con la lista, porque sólo importa el documento que el revisor abre (12–16 ms).
+   *
+   * **La asimetría de abajo es del negocio, no un hueco de datos** (medido 2026-08-31 sobre el
+   * ODS): las notas de crédito **X-D-55 no tienen renglones en Kepler** — 1,256 documentos y
+   * $21.4M con CERO líneas — porque una nota no es mercancía, es dinero; sus motivos son
+   * "3% PP a 48 hrs", "DESCUENTO DEL 5%", "Complemento de Factura 1111". Las X-D-40 sí:
+   * 235 documentos con 766 renglones.
+   *
+   * Por eso el resultado NO es sólo una lista: `desglose` distingue tres situaciones que la
+   * pantalla tiene que contar distinto, porque una lista vacía se lee como falla de carga:
+   *   · `renglones`  → hay desglose, se muestra.
+   *   · `no_aplica`  → es una nota de crédito: no se desglosa por producto, y eso es correcto.
+   *   · `sin_dato`   → es una devolución que DEBERÍA traer renglones y no los trae (hay ~55 así).
+   * Confundir `no_aplica` con `sin_dato` es afirmar que falta información cuando no falta.
+   */
+  async lines(p: { sucursal: string; doctype: string; folio: string }) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const sucursal = String(p.sucursal || '').trim();
+    const folio = String(p.folio || '').trim();
+    const doctype = String(p.doctype || '').trim().toUpperCase();
+    if (!sucursal || !folio) return { desglose: 'sin_dato' as const, lineas: [], total_importe: 0, motivo: null, nota: 'falta sucursal o folio' };
+    return this.tk.run(async (trx) => {
+      // La vista es una dependencia nueva; si el entorno no replica Kepler no existe. Se degrada
+      // en vez de tirar un 500 en la pantalla que ya funcionaba sin esto.
+      const hayVista = (await trx.raw(`SELECT to_regclass('analytics.erp_purchase_adjustment_lines') AS t`)).rows[0]?.t;
+      const cab = await trx('analytics.erp_purchase_adjustments')
+        .where({ tenant_id: tenantId, sucursal, folio, ...(doctype ? { doctype } : {}) })
+        .first('doctype', 'motivo', 'categoria', trx.raw('monto::numeric AS monto'));
+      if (!hayVista) {
+        return { desglose: 'sin_dato' as const, lineas: [], total_importe: 0,
+          motivo: cab?.motivo ?? null, nota: 'el desglose por renglón no está disponible en este entorno' };
+      }
+      const crudas: any[] = await trx('analytics.erp_purchase_adjustment_lines')
+        .where({ tenant_id: tenantId, sucursal, folio, ...(doctype ? { doctype } : {}) })
+        // El nº de línea es texto en Kepler: se ordena por su valor numérico o "10" va antes de "2".
+        .orderByRaw(`NULLIF(regexp_replace(linea, '[^0-9]', '', 'g'), '')::int NULLS LAST, linea`)
+        .limit(200)
+        .select('linea', 'sku', 'nombre', 'unidad',
+          trx.raw('cantidad::numeric AS cantidad'),
+          trx.raw('costo_unitario::numeric AS costo_unitario'),
+          trx.raw('importe::numeric AS importe'));
+      const lineas = crudas.map((l) => ({
+        ...l, cantidad: Number(l.cantidad), costo_unitario: Number(l.costo_unitario), importe: Number(l.importe),
       }));
-      return { rows: out, total_monto: out.reduce((s, r) => s + Number(r.monto || 0), 0) };
+      const dt = String(cab?.doctype || doctype || '');
+      const desglose = lineas.length ? ('renglones' as const)
+        : dt === 'XD55' ? ('no_aplica' as const)
+        : ('sin_dato' as const);
+      return {
+        desglose, lineas,
+        total_importe: Math.round(lineas.reduce((s, l) => s + Math.abs(l.importe), 0) * 100) / 100,
+        motivo: cab?.motivo ?? null,
+        categoria: cab?.categoria ?? null,
+        nota: desglose === 'no_aplica'
+          ? 'Una nota de crédito no se desglosa por producto: es un ajuste de dinero, no de mercancía. Lo que la explica es su motivo.'
+          : desglose === 'sin_dato'
+            ? 'Esta devolución no trae renglones en Kepler. No es que falten acá: el documento se capturó sin desglose.'
+            : null,
+      };
     });
   }
 
@@ -346,20 +463,102 @@ export class PurchaseAdjustmentsService {
   }
 
   /**
+   * Base compartida de Compras 360 (lista, totales y facetas leen EXACTAMENTE lo mismo).
+   *
+   * ⚠️ **El folio de Kepler NO es único entre sucursales** — hay 1,106 folios que existen en
+   * más de una. Por eso el ajuste se agrupa y se liga por **(sucursal, entrada_folio)**: con
+   * el join anterior (solo folio) una devolución de la 00 se le pegaba a las entradas 02 y 03
+   * con el mismo folio, atribuyendo el ajuste a OTRO proveedor (caso vivo: folio `0000505`,
+   * GONAC → CUERITOS LUPITA / PADRE HIDALGO). Verificado 2026-08-25.
+   *
+   * `skipDim` sirve a las facetas: cuenta ignorando la dimensión que se está listando, para
+   * que el conteo del dropdown sea el que la tabla va a dar al elegir esa opción.
+   */
+  private compras360Base(
+    trx: Knex,
+    tenantId: string,
+    q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number },
+    skipDim?: 'sucursal' | 'proveedor_code',
+  ): Knex.QueryBuilder {
+    // Un ajuste NO es de suyo un problema: 3 de cada 4 son beneficio negociado (descuento
+    // comercial, pronto pago, apoyo de marca) y el resto sí es algo que salió mal (faltante,
+    // mal estado, no solicitado, factura duplicada…). Se parte acá para que la pantalla pueda
+    // dejar de pintar de rojo un apoyo de marca.
+    const adj = trx('analytics.erp_purchase_adjustments')
+      .select('sucursal', 'entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
+      .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
+      .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
+      .where('tenant_id', tenantId).whereNotNull('entrada_folio')
+      .groupBy('sucursal', 'entrada_folio').as('a');
+    // RE.9 — estado del comprobante adjunto por entrada (finance.goods_receipt_proofs; RLS
+    // satisfecho por tk.run). Agregado por (sucursal, folio). El cuadre sale del MISMO
+    // depósito que el estado (el último): con `bool_or` la fila podía decir "Rechazado" y
+    // "cuadra" a la vez, tomando cada mitad de un depósito distinto.
+    const dep = trx('finance.goods_receipt_proofs')
+      .select('sucursal', 'folio').count('* as n')
+      // El orden de TODOS los array_agg es el mismo (`PROOF_ORDER`) y lleva desempate: `now()`
+      // es el inicio de la transacción y el request entero corre en una, así que dos evidencias
+      // del mismo request empatan en `created_at` y sin desempate el resultado es indefinido.
+      // En empate gana la pendiente. Debe coincidir con el de `goods-receipt-proofs.service`.
+      .select(trx.raw(`(array_agg(status ORDER BY ${PROOF_ORDER}))[1] AS last_status`))
+      .select(trx.raw(`(array_agg(monto_match ORDER BY ${PROOF_ORDER}))[1] AS any_match`))
+      // RE.13.4 — el lente de CUMPLIMIENTO necesita el descuadre y quién decidió, no sólo
+      // si cuadra: la pregunta de esa vista es "¿en qué anda el proceso?", no "¿cuánto costó?".
+      .select(trx.raw(`(array_agg(discrepancy_amount ORDER BY ${PROOF_ORDER}))[1] AS last_disc`))
+      .select(trx.raw(`(array_agg(validated_by ORDER BY ${PROOF_ORDER}))[1] AS last_by`))
+      .select(trx.raw(`(array_agg(created_at ORDER BY ${PROOF_ORDER}))[1] AS last_at`))
+      .groupBy('sucursal', 'folio').as('d');
+    const b = trx('analytics.erp_goods_receipts as c')
+      .leftJoin(adj, (j: any) => { j.on('c.sucursal', 'a.sucursal').andOn('c.folio', 'a.entrada_folio'); })
+      .leftJoin(dep, (j: any) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
+      .where('c.tenant_id', tenantId)
+      .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); la canónica (sucursal) manda
+    if (q.sucursal && skipDim !== 'sucursal') b.where('c.sucursal', q.sucursal);
+    if (q.proveedor_code && skipDim !== 'proveedor_code') b.where('c.proveedor_code', q.proveedor_code);
+    if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);
+    if (q.date_to) b.where('c.receipt_date', '<=', q.date_to);
+    if (q.monto_min != null && !Number.isNaN(q.monto_min)) b.where('c.monto', '>=', q.monto_min);
+    if (q.monto_max != null && !Number.isNaN(q.monto_max)) b.where('c.monto', '<=', q.monto_max);
+    if (q.con_oc === 'con') b.whereRaw("COALESCE(c.oc_folio,'') <> ''");
+    else if (q.con_oc === 'sin') b.whereRaw("COALESCE(c.oc_folio,'') = ''");
+    if (q.comprobante === 'sin') b.whereRaw('d.n IS NULL');
+    else if (q.comprobante === 'con') b.whereRaw('d.n > 0');
+    else if (q.comprobante === 'validado') b.whereRaw(`d.last_status = 'validado'`);
+    else if (q.comprobante === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
+    else if (q.comprobante === 'rechazado') b.whereRaw(`d.last_status = 'rechazado'`);
+    // Buscador canónico del repo: multi-token en cualquier orden, sin acentos, con typos.
+    // Antes era un `ILIKE '%q%'` plano: "gonac comercializadora" y "yurécuaro" daban 0.
+    applySmartSearch(b, q.search, {
+      columns: ['c.proveedor_nombre', 'c.proveedor_code', 'c.oc_folio', 'c.folio', 'c.vale_folio', 'c.concepto'],
+      numeric: ['c.monto'],
+    });
+    // "Con ajuste" = tiene ajuste LIGADO, aunque el monto sea $0 (los XD40 de faltante se
+    // capturan en 0 y son justo los que hay que revisar). Antes se filtraba por monto ≠ 0
+    // y se caían 3 de cada 12.
+    if (q.ajuste === 'con') b.whereRaw('COALESCE(a.n_ajuste,0) > 0');
+    else if (q.ajuste === 'sin') b.whereRaw('COALESCE(a.n_ajuste,0) = 0');
+    else if (q.ajuste === 'operativo') b.whereRaw('COALESCE(a.ajuste_operativo,0) <> 0');
+    else if (q.ajuste === 'comercial') b.whereRaw('COALESCE(a.ajuste_comercial,0) <> 0');
+    return b;
+  }
+
+  /**
    * CXP.3 — "Compras 360": el Excel de recepciones en una vista. Fila = orden de
    * entrada / factura (`analytics.erp_goods_receipts`) con su OC (`oc_folio`), el ajuste
-   * LIGADO EXACTO por `entrada_folio` (devoluciones/notas confirmadas) y el neto. Los
-   * ajustes heurísticos (proveedor+fecha) NO se suman aquí para no inflar el neto — viven
-   * en el detalle (`forEntrada`). El join a.entrada_folio=c.folio es 1:0..1 (no infla).
+   * LIGADO EXACTO por `(sucursal, entrada_folio)` (devoluciones/notas confirmadas) y el neto.
+   * Los ajustes heurísticos (proveedor+fecha) NO se suman aquí para no inflar el neto — viven
+   * en el detalle (`forEntrada`). El join es 1:0..1 (no infla filas).
    * analytics.* sin RLS → filtro `tenant_id` explícito.
    */
   async compras360(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; con_ajuste?: boolean; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number; sort?: string; dir?: 'asc' | 'desc'; page?: number; pageSize?: number; all?: boolean } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, q.page || 1);
     const pageSize = q.all ? 5000 : Math.min(200, Math.max(1, q.pageSize || 50));
-    // Ajuste: enum 'con'|'sin' (nuevo), con back-compat del boolean con_ajuste.
-    const ajusteMode: 'con' | 'sin' | undefined =
-      q.ajuste === 'con' ? 'con' : q.ajuste === 'sin' ? 'sin' : (q.con_ajuste ? 'con' : undefined);
+    // Ajuste: enum 'con'|'sin'|'operativo'|'comercial', con back-compat del boolean con_ajuste.
+    const AJUSTE_MODES = ['con', 'sin', 'operativo', 'comercial'] as const;
+    const ajusteMode = (AJUSTE_MODES as readonly string[]).includes(q.ajuste || '')
+      ? (q.ajuste as 'con' | 'sin' | 'operativo' | 'comercial')
+      : (q.con_ajuste ? 'con' : undefined);
     const SORTS: Record<string, string> = {
       receipt_date: 'c.receipt_date', sucursal: 'c.sucursal', proveedor_nombre: 'c.proveedor_nombre',
       oc_folio: 'c.oc_folio', folio: 'c.folio', factura: 'c.monto',
@@ -374,50 +573,11 @@ export class PurchaseAdjustmentsService {
       : 'c.receipt_date DESC, c.monto DESC, c.folio DESC';
 
     return this.tk.run(async (trx) => {
-      // Un ajuste NO es de suyo un problema: 3 de cada 4 son beneficio negociado (descuento
-      // comercial, pronto pago, apoyo de marca) y el resto sí es algo que salió mal (faltante,
-      // mal estado, no solicitado, factura duplicada…). Se parte acá para que la pantalla pueda
-      // dejar de pintar de rojo un apoyo de marca.
-      const adj = trx('analytics.erp_purchase_adjustments')
-        .select('entrada_folio').sum({ ajuste: 'monto' }).count({ n_ajuste: '*' })
-        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria = ANY(?)), 0) AS ajuste_comercial`, [COMERCIAL_CATS]))
-        .select(trx.raw(`COALESCE(sum(monto) FILTER (WHERE categoria IS NULL OR NOT (categoria = ANY(?))), 0) AS ajuste_operativo`, [COMERCIAL_CATS]))
-        .where('tenant_id', tenantId).whereNotNull('entrada_folio')
-        .groupBy('entrada_folio').as('a');
-      // RE.9 — estado del comprobante adjunto por entrada (finance.goods_receipt_proofs; RLS
-      // satisfecho por tk.run). Agregado por (sucursal, folio): último estado + cuadre OCR.
-      const dep = trx('finance.goods_receipt_proofs')
-        .select('sucursal', 'folio').count('* as n')
-        .select(trx.raw(`(array_agg(status ORDER BY created_at DESC))[1] AS last_status`))
-        .select(trx.raw(`bool_or(monto_match) AS any_match`))
-        .groupBy('sucursal', 'folio').as('d');
-      const base = () => {
-        const b = trx('analytics.erp_goods_receipts as c')
-          .leftJoin(adj, 'a.entrada_folio', 'c.folio')
-          .leftJoin(dep, (j: any) => { j.on('c.sucursal', 'd.sucursal').andOn('c.folio', 'd.folio'); })
-          .where('c.tenant_id', tenantId)
-          .whereRaw('c.dup_of_folio IS NULL'); // RE.12 — oculta la copia CEDIS ('00'); la canónica (sucursal) manda
-        if (q.sucursal) b.where('c.sucursal', q.sucursal);
-        if (q.proveedor_code) b.where('c.proveedor_code', q.proveedor_code);
-        if (q.date_from) b.where('c.receipt_date', '>=', q.date_from);
-        if (q.date_to) b.where('c.receipt_date', '<=', q.date_to);
-        if (q.monto_min != null && !Number.isNaN(q.monto_min)) b.where('c.monto', '>=', q.monto_min);
-        if (q.monto_max != null && !Number.isNaN(q.monto_max)) b.where('c.monto', '<=', q.monto_max);
-        if (q.con_oc === 'con') b.whereRaw("COALESCE(c.oc_folio,'') <> ''");
-        else if (q.con_oc === 'sin') b.whereRaw("COALESCE(c.oc_folio,'') = ''");
-        if (q.comprobante === 'sin') b.whereRaw('d.n IS NULL');
-        else if (q.comprobante === 'con') b.whereRaw('d.n > 0');
-        else if (q.comprobante === 'validado') b.whereRaw(`d.last_status = 'validado'`);
-        else if (q.comprobante === 'por_validar') b.whereRaw(`d.last_status = 'recibido'`);
-        else if (q.comprobante === 'rechazado') b.whereRaw(`d.last_status = 'rechazado'`);
-        if (q.search && q.search.trim()) {
-          const s = `%${q.search.trim()}%`;
-          b.where((w: any) => w.where('c.proveedor_nombre', 'ilike', s).orWhere('c.proveedor_code', 'ilike', s).orWhere('c.oc_folio', 'ilike', s).orWhere('c.folio', 'ilike', s).orWhere('c.vale_folio', 'ilike', s).orWhere('c.concepto', 'ilike', s));
-        }
-        if (ajusteMode === 'con') b.whereRaw('COALESCE(a.ajuste,0) <> 0');
-        else if (ajusteMode === 'sin') b.whereRaw('COALESCE(a.ajuste,0) = 0');
-        return b;
-      };
+      const base = () => this.compras360Base(trx, tenantId, { ...q, ajuste: ajusteMode });
+      // Frescura del feed: la pantalla es read-only sobre un espejo que puebla un importer.
+      // Sin esto el comprador no puede distinguir "no hay recepciones" de "el feed no corrió".
+      const [fresh]: any = await trx('analytics.erp_goods_receipts')
+        .where('tenant_id', tenantId).max({ m: 'computed_at' });
       const [{ count }]: any = await base().count({ count: '*' });
       const [tot]: any = await base().sum({ factura: 'c.monto' })
         .select(trx.raw('COALESCE(sum(a.ajuste),0) AS ajuste'),
@@ -433,12 +593,32 @@ export class PurchaseAdjustmentsService {
           trx.raw('COALESCE(a.ajuste_operativo,0)::numeric AS ajuste_operativo'),
           trx.raw('COALESCE(d.n,0)::int AS deposits'),
           trx.raw('d.last_status AS deposit_status'),
-          trx.raw('COALESCE(d.any_match, false) AS monto_match'))
+          trx.raw('COALESCE(d.any_match, false) AS monto_match'),
+          // RE.13.4 — columnas del lente de cumplimiento. `dias` va acotado a hoy: hay una
+          // entrada de CEDIS con fecha 29/12/2026 que si no daba días negativos.
+          trx.raw('d.last_disc::numeric AS discrepancy_amount'),
+          trx.raw('d.last_by AS decidio'),
+          trx.raw('(current_date - LEAST(c.receipt_date, current_date))::int AS dias'))
         .orderByRaw(orderSql)
         .limit(pageSize).offset(q.all ? 0 : (page - 1) * pageSize);
       const factura = Number(tot?.factura) || 0, ajuste = Number(tot?.ajuste) || 0;
       return {
         total: Number(count), page, pageSize,
+        /** Última corrida del importer que puebla el espejo (frescura del dato). */
+        data_as_of: fresh?.m ? new Date(fresh.m).toISOString() : null,
+        /**
+         * [OBS.6.3] El veredicto sobre esa frescura, no sólo la marca de tiempo.
+         *
+         * 26 h de tolerancia porque el importer es nocturno: 24 h sería un empate técnico contra
+         * su propio período y prendería la alarma cada madrugada. **Sin marca cuenta como rezago**,
+         * nunca como ok — que el espejo esté vacío porque el importer jamás corrió es exactamente
+         * la falla que hay que ver (pasó en Fase CXC: `customer_receivables` vivió vacía en prod).
+         */
+        freshness: composeFreshness([
+          evalInput('erp_goods_receipts', 'Espejo de recepciones (importer)', fresh?.m ?? null, 26),
+        ]),
+        /** El export corta en `pageSize`; se dice, no se calla (§10 "sin topes silenciosos"). */
+        truncated: !!q.all && Number(count) > pageSize,
         totals: {
           factura, ajuste, neto: factura - ajuste,
           ajuste_comercial: Number(tot?.ajuste_comercial) || 0,
@@ -447,34 +627,39 @@ export class PurchaseAdjustmentsService {
         },
         rows: rows.map((r) => ({ ...r, factura: Number(r.factura), ajuste: Number(r.ajuste),
           ajuste_comercial: Number(r.ajuste_comercial) || 0, ajuste_operativo: Number(r.ajuste_operativo) || 0,
-          neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true })),
+          neto: Number(r.factura) - Number(r.ajuste), deposits: Number(r.deposits) || 0, monto_match: r.monto_match === true,
+          discrepancy_amount: r.discrepancy_amount == null ? null : Number(r.discrepancy_amount),
+          dias: Number(r.dias) || 0 })),
       };
     });
   }
 
-  /** CXP.3 — catálogo para los filtros de Compras 360: sucursales + proveedores (con conteo) + monto máximo. */
-  async compras360Filters() {
+  /**
+   * CXP.3 — catálogo para los filtros de Compras 360: sucursales + proveedores (con conteo).
+   *
+   * Los conteos son **facetas**, no totales globales: respetan los demás filtros activos
+   * (fecha, comprobante, ajuste…) e ignoran la propia dimensión, así que el "· N" del
+   * dropdown es exactamente lo que la tabla va a devolver al elegir esa opción. Antes eran
+   * globales y prometían filas que la tabla, con el rango de fechas puesto, no daba.
+   * También excluye las copias CEDIS (`dup_of_folio`) que la tabla oculta.
+   */
+  async compras360Filters(q: { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: string; con_oc?: string; comprobante?: string; monto_min?: number; monto_max?: number } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      // Mapa código→nombre (Kepler '00'..'05' + Wincaja '30'/'32'/'50'). El código crudo no dice
-      // nada al comprador; se muestra el nombre en el filtro y la tabla de Compras 360 (RE.0).
-      const NOMBRES: Record<string, string> = {
-        '00': 'CEDIS Irapuato', '01': 'Padre Hidalgo', '02': 'La Piedad Abastos',
-        '03': '8 Esquinas', '04': 'Yurécuaro', '05': 'Zamora Centro',
-        '30': 'Morelia Abastos', '32': 'Morelia Madero', '50': 'Canindo',
-      };
-      const sucs: any[] = await trx('analytics.erp_goods_receipts')
-        .where('tenant_id', tenantId).whereNotNull('sucursal')
-        .groupBy('sucursal').select('sucursal').count({ n: '*' }).orderBy('sucursal', 'asc');
-      const provs: any[] = await trx('analytics.erp_goods_receipts')
-        .where('tenant_id', tenantId).whereNotNull('proveedor_code')
-        .groupBy('proveedor_code')
-        .select('proveedor_code', trx.raw('max(proveedor_nombre) AS proveedor_nombre'))
+      const sucs: any[] = await this.compras360Base(trx, tenantId, q, 'sucursal')
+        .whereNotNull('c.sucursal')
+        .groupBy('c.sucursal').select('c.sucursal').count({ n: '*' }).orderBy('c.sucursal', 'asc');
+      const provs: any[] = await this.compras360Base(trx, tenantId, q, 'proveedor_code')
+        .whereNotNull('c.proveedor_code')
+        .groupBy('c.proveedor_code')
+        .select('c.proveedor_code', trx.raw('max(c.proveedor_nombre) AS proveedor_nombre'))
         .count({ n: '*' })
-        .orderByRaw('max(proveedor_nombre) asc nulls last');
+        .orderByRaw('max(c.proveedor_nombre) asc nulls last');
       const [mx]: any = await trx('analytics.erp_goods_receipts').where('tenant_id', tenantId).max({ m: 'monto' });
       return {
-        sucursales: sucs.map((r) => ({ code: r.sucursal as string, name: NOMBRES[r.sucursal as string] || (r.sucursal as string), n: Number(r.n) || 0 })),
+        // Nombre legible de sucursal: fuente única en platform-core (estaba copiado en varios
+        // services y ya divergía: "8 Esquinas" / "8ESQ" / "Ocho Esquinas").
+        sucursales: sucs.map((r) => ({ code: r.sucursal as string, name: KEPLER_BRANCH_NAMES[r.sucursal as string] || (r.sucursal as string), n: Number(r.n) || 0 })),
         proveedores: provs.map((r) => ({ code: r.proveedor_code as string, nombre: (r.proveedor_nombre as string) || null, n: Number(r.n) || 0 })),
         monto_max: Number(mx?.m) || 0,
       };
@@ -693,13 +878,16 @@ export class PurchaseAdjustmentsService {
         nombre = nm[0]?.proveedor_nombre || null;
       }
 
-      // 3. ajustes estructurales ligados por entrada_folio (devolución/nota → reducen lo adeudado)
+      // 3. ajustes estructurales ligados por (sucursal, entrada_folio) — devolución/nota reducen
+      //    lo adeudado. La sucursal va en la llave por lo mismo que en Compras 360: el folio de
+      //    Kepler se repite entre sucursales (1,106 casos), y aunque acá ya se filtra por
+      //    proveedor, un proveedor que surte a dos sucursales podía cruzar ajustes entre ellas.
       const adjRows: any[] = await trx('analytics.erp_purchase_adjustments')
         .where('tenant_id', tenantId).where('proveedor_code', code)
         .whereNotNull('entrada_folio').whereRaw("entrada_folio <> ''")
-        .groupBy('entrada_folio').select('entrada_folio').sum({ m: 'monto' });
+        .groupBy('sucursal', 'entrada_folio').select('sucursal', 'entrada_folio').sum({ m: 'monto' });
       const adjByFolio = new Map<string, number>();
-      for (const a of adjRows) adjByFolio.set(String(a.entrada_folio), Number(a.m) || 0);
+      for (const a of adjRows) adjByFolio.set(`${a.sucursal}|${a.entrada_folio}`, Number(a.m) || 0);
 
       // 4. total pagado (histórico) + conteo
       const payAgg: any[] = await trx('analytics.erp_supplier_payments')
@@ -712,7 +900,7 @@ export class PurchaseAdjustmentsService {
       let cum = 0, nPagadas = 0, nParciales = 0, nPendientes = 0;
       const all = facts.map((f) => {
         const bruto = Number(f.monto) || 0;
-        const ajuste = adjByFolio.get(String(f.folio)) || 0;
+        const ajuste = adjByFolio.get(`${f.sucursal}|${f.folio}`) || 0;
         const neto = bruto - ajuste;
         const prev = cum; cum += neto;
         let pagado = 0; let estado = 'pendiente';

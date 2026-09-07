@@ -45,6 +45,29 @@ export class ReceivingSessionController {
     return this.service.list({ status, warehouse_id: warehouseId, limit: limit ? Number(limit) : undefined });
   }
 
+  @Get('pending-expiry')
+  @RequirePermissions(Permission.COMMERCIAL_EXPIRY_CAPTURAR)
+  @ApiOperation({
+    summary:
+      'Bandeja de Caducidades: mercancía ya aprobada en recepción (vale cerrado) a la que le falta declarar lote/caducidad. Ordenada por días esperando.',
+  })
+  pendingExpiry(@Query('warehouse_id') warehouseId?: string, @Query('limit') limit?: string) {
+    return this.service.pendingExpiry({
+      warehouse_id: warehouseId,
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('erp-search')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
+  @ApiOperation({
+    summary:
+      'Busca órdenes de entrada del ERP SOLO por folio, en todas las sucursales (el mismo folio existe en varias). Devuelve las coincidencias con proveedor, almacén, monto y nº de renglones para que el operador elija.',
+  })
+  erpSearch(@Query('folio') folio: string, @Query('limit') limit?: string) {
+    return this.service.searchErpOrders(folio, limit ? Number(limit) : undefined);
+  }
+
   @Get('erp-order')
   @RequirePermissions(Permission.COMMERCIAL_INVENTORY_RECIBIR)
   @ApiOperation({ summary: 'Buscar una orden de entrada del ERP por sucursal + últimos dígitos del folio (autollena proveedor + almacén)' })

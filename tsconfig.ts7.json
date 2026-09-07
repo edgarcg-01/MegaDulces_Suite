@@ -1,0 +1,39 @@
+// Typecheck-only con el compilador nativo Go (tsgo / TypeScript 7).
+// No participa de ningun build. Standalone a proposito: TS 7 removio `baseUrl`
+// y exige `paths` relativos, asi que no puede extender tsconfig.base.json.
+// Si cambian los `paths` en tsconfig.base.json, replicarlos aca.
+{
+  "compilerOptions": {
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "resolvePackageJsonExports": true,
+    "esModuleInterop": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "allowSyntheticDefaultImports": true,
+    "target": "ES2022",
+    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "strict": false,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "@megadulces/commercial": ["./libs/commercial/src/index.ts"],
+      "@megadulces/contracts": ["./libs/contracts/src/index.ts"],
+      "@megadulces/finance": ["./libs/finance/src/index.ts"],
+      "@megadulces/fiscal": ["./libs/fiscal/src/index.ts"],
+      "@megadulces/logistics": ["./libs/logistics/src/index.ts"],
+      "@megadulces/platform-core": ["./libs/platform-core/src/index.ts"],
+      "@megadulces/reconciliation": ["./libs/reconciliation/src/index.ts"],
+      "@megadulces/shared-auth": ["./libs/shared-auth/index.ts"],
+      "@megadulces/shared-auth/core": ["./libs/shared-auth/core/index.ts"],
+      "@megadulces/shared-auth/ui": ["./libs/shared-auth/ui/index.ts"],
+      "@megadulces/shared-scoring": ["./libs/shared-scoring/index.ts"],
+      "@megadulces/trade": ["./libs/trade/src/index.ts"],
+      "@megadulces/whatsapp": ["./libs/whatsapp/src/index.ts"]
+    }
+  },
+  "include": ["apps/api/src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "apps/api/src/**/*.spec.ts"]
+}

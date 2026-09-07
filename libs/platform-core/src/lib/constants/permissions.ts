@@ -169,12 +169,27 @@ export enum Permission {
   COMMERCIAL_SELLOUT_VER = 'COMMERCIAL_SELLOUT_VER',
   COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
   COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
+  // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació
+  // reusando COMMERCIAL_ORDERS_VER, así que no se podía asignar sin dar Pedidos
+  // ni quitar sin quitarlos. Backfill ← ORDERS_VER en 20260825120000.
+  COMMERCIAL_SALES_DOCS_VER = 'COMMERCIAL_SALES_DOCS_VER',
   // Traspasos NO tiene permiso propio nuevo: reusa el ya existente
   // LOGISTICS_TRANSFERS_VER (la ruta /logistica/traspasos ya lo usa).
   COMMERCIAL_CUSTOMERS360_VER = 'COMMERCIAL_CUSTOMERS360_VER',
   COMMERCIAL_HISTORICAL_VER = 'COMMERCIAL_HISTORICAL_VER',
   COMMERCIAL_DEADSTOCK_VER = 'COMMERCIAL_DEADSTOCK_VER',
   COMMERCIAL_INVHEALTH_VER = 'COMMERCIAL_INVHEALTH_VER',
+  // Existencia — la matriz producto × almacén, en vivo desde el ODS. Vive en DOS proyectos
+  // (Almacén y Compras) con UN solo permiso, calcando el precedente de Caducidades
+  // (/almacen/inventory/caducidades + /tienda/caducidades comparten COMMERCIAL_EXPIRY_VER).
+  // SIN prefijo de proyecto a propósito: un ALMACEN_* sería falso — vive en los dos, y ese
+  // prefijo no existe (Almacén reusa COMMERCIAL_*). Precedentes de nombre pelado: RUTAS_VER,
+  // RECONCILIATION_VER.
+  // _GESTIONAR gatea el EXPORT del dataset valuado (privilegio real: es la existencia de toda
+  // la red a costo). No gatea una bandeja de arbitraje de unidad porque esa bandeja NO EXISTE
+  // todavía — verificado, no supuesto; se agrega cuando exista.
+  EXISTENCIA_VER = 'EXISTENCIA_VER',
+  EXISTENCIA_GESTIONAR = 'EXISTENCIA_GESTIONAR',
   // Páginas independientes que estaban bajo un permiso compartido:
   COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /comercial/erp-promos (promos del ERP)
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)
@@ -184,6 +199,10 @@ export enum Permission {
   COMMERCIAL_PRODUCTS_GESTIONAR = 'COMMERCIAL_PRODUCTS_GESTIONAR',
   COMMERCIAL_THOT_VER = 'COMMERCIAL_THOT_VER',
   COMMERCIAL_THOT_GESTIONAR = 'COMMERCIAL_THOT_GESTIONAR',
+  // `[AUTHZ-HARD.1]` Superficie INTERNA de inteligencia (hallazgos/diagnósticos/acciones/autonomía/
+  // señales agregadas). Antes esas lecturas colgaban de ORDERS_VER/CUSTOMERS_VER, que `customer_b2b`
+  // tiene → un cliente veía el back-office. Se separa en su propia clave, que el cliente NO recibe.
+  COMMERCIAL_INTELLIGENCE_VER = 'COMMERCIAL_INTELLIGENCE_VER',
   TRADE_ROUTE_PLAN_VER = 'TRADE_ROUTE_PLAN_VER',
   TRADE_ROUTE_PLAN_GESTIONAR = 'TRADE_ROUTE_PLAN_GESTIONAR',
   LOGISTICS_TRANSFERS_VER = 'LOGISTICS_TRANSFERS_VER',
@@ -281,6 +300,12 @@ export enum Permission {
   FISCAL_CONTAB_VER = 'FISCAL_CONTAB_VER',
   // FE.11 = gestión del mapeo cuenta mayor → código agrupador SAT.
   FISCAL_CONTAB_GESTIONAR = 'FISCAL_CONTAB_GESTIONAR',
+  // LC (ADR-052) = Libro de Compras: el trámite mensual de la póliza que se le
+  // entrega a ContPAQi. Permiso PROPIO — no se hereda de contabilidad electrónica
+  // ni de Pólizas: quien arma el libro no es necesariamente quien emite los XML
+  // del SAT, y el árbol de authz exige que cada permiso viva en un solo módulo.
+  FISCAL_PURCHASE_BOOK_VER = 'FISCAL_PURCHASE_BOOK_VER',
+  FISCAL_PURCHASE_BOOK_GESTIONAR = 'FISCAL_PURCHASE_BOOK_GESTIONAR',
   // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
   FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
   FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',

@@ -45,7 +45,9 @@ const APP_SOURCES: SourceCfg[] = [
   { key: 'sales_daily',     label: 'Ventas (Command Center)', table: 'analytics.sales_daily',          tsCandidates: ['updated_at'],                warnH: 26,  critH: 50,  cadence: 'intradía + nightly' },
   { key: 'stock',           label: 'Stock sucursales',        table: 'commercial.stock',               tsCandidates: ['updated_at', 'created_at'],  warnH: 6,   critH: 14,  cadence: 'cada 15-30 min' },
   { key: 'stock_movements', label: 'Movimientos inventario',  table: 'analytics.stock_movements',      tsCandidates: ['imported_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
-  { key: 'in_transit',      label: 'OC en tránsito',          table: 'analytics.purchase_in_transit',  tsCandidates: ['computed_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
+  // El tránsito ya no es tabla propia: se deriva del ODS dentro del fact del pedido (GOTCHAS §25),
+  // que además se refresca cada 15-30 min, no nightly.
+  { key: 'in_transit',      label: 'Pedido (demanda/stock/OC)', table: 'analytics.replenishment_plan', tsCandidates: ['computed_at', 'updated_at'], warnH: 6,   critH: 14,  cadence: 'cada 15-30 min' },
   { key: 'sales_stats',     label: 'Sell-out ABC',            table: 'analytics.product_sales_stats',  tsCandidates: ['computed_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
   { key: 'reorder_policy',  label: 'Política de reorden',     table: 'commercial.reorder_policy',      tsCandidates: ['updated_at', 'computed_at'], warnH: 200, critH: 400, cadence: 'nightly / semanal' },
   { key: 'products',        label: 'Catálogo de productos',   table: 'catalog.products',               tsCandidates: ['updated_at', 'created_at'],  warnH: 360, critH: 720, cadence: 'semanal' },
@@ -53,10 +55,15 @@ const APP_SOURCES: SourceCfg[] = [
   // si el feed (import-label-data) se atrasa, el anaquel imprime precios viejos (bug ago-2026:
   // quedó fuera del nightly → ~10% abajo del vigente, caja bajo costo). Cadencia nightly.
   { key: 'label_prices',    label: 'Precios de etiqueta (anaquel)', table: 'commercial.product_label_prices', tsCandidates: ['updated_at', 'computed_at'], warnH: 50, critH: 96, cadence: 'nightly' },
-  // Espejo crudo Kepler (SYNC.3): replicate-ods-live lee los replicas lógicos locales y empuja
-  // a kepler_ods.* de forma CONTINUA (~15s, tarea OdsLiveLoop). La marca last_push_at se escribe
-  // en cada corrida (aunque no cambie nada) → detecta si el pipe se detuvo. Umbral realtime.
-  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo ~15s (tarea OdsLiveLoop)' },
+  // Espejo crudo Kepler: el carril es `replicate-ods-live` en Docker (`ops/ingest/docker-compose.yml`,
+  // servicios ods-live-hot @15s + ods-live-mirror @300s), que lee los réplicas lógicos locales del
+  // :5433 y empuja a kepler_ods.* por feeds-ingest. `last_push_at` la escribe el handler en cada batch
+  // (raw-upsert Y raw-delete) → detecta si el pipe se detuvo. Umbral realtime.
+  // HISTORIA (para no repetirla): el poll se deshabilitó el 2026-08-26 por el corrimiento +6h de los
+  // timestamps, que al estar en la PK duplicaba filas contra el WAL (1,120 pólizas en kdc22608, ver
+  // GOTCHAS §21); volvió corregido y el CDC WAL se retiró el 2026-09-04 (OBS.8). El dead-man's switch
+  // fino de este carril son `ods_live_hot`/`ods_live_mirror` más abajo, y su COMPLETITUD `cdc_reconcile`.
+  { key: 'kepler_ods',      label: 'Espejo crudo Kepler (kepler_ods)', table: 'kepler_ods._sync_status', tsCandidates: ['last_push_at'], warnH: 0.25, critH: 1, cadence: 'continuo (poll en Docker, 2 carriles)' },
   // kepler_ods POR-SUCURSAL: el _sync_status de arriba prueba que la LOOP corre, pero con la
   // replicación lógica (SYNC.3) apareció un modo de falla nuevo: si UN replica (subscription)
   // se congela, la loop sigue shipeando data VIEJA de esa sucursal → last_push_at fresco pero
@@ -96,6 +103,57 @@ const APP_SOURCES: SourceCfg[] = [
             FROM agg`,
     warnH: 3, critH: 6, cadence: 'continuo en horario (detecta 1 replica caído)',
   },
+  // [OBS.3.2] CATÁLOGO por sucursal — el hueco por el que pasaron los 6 días de 2026-08-27.
+  //
+  // El sensor de arriba mira `kdm1` = **venta**. Un catálogo congelado no mueve la venta, así que
+  // seis días sin precios nuevos no dispararon un solo sensor por rama. Y el agregado
+  // `kepler_ods._sync_status` tampoco servía: esa marca sólo se escribe cuando LLEGA un lote, y el
+  // carril hash no empuja nada si no hay cambios — vieja puede ser "el carril murió" o "esa rama
+  // no cambió de precio en tres días". Ambiguo no sirve para alarmar.
+  //
+  // `analytics.ods_branch_checks` la escribe el shipper al cerrar la pasada de CADA rama, haya o no
+  // filas que mandar. Por eso acá "viejo" tiene un solo significado: **nadie miró esa rama**.
+  //
+  // `tables_checked` caza la deriva de configuración: si alguien deja el contenedor con
+  // `--branch=03` o recorta `KP_ODS_TABLES`, el latido agregado seguiría verde (diría "1/1 ramas")
+  // y esto no.
+  {
+    key: 'ods_branch_check_stale', label: 'ODS — sucursal sin revisar (catálogo)', table: 'analytics.ods_branch_checks', tsCandidates: [],
+    sql: `WITH hot AS (
+            SELECT sucursal, last_check_at, tables_checked, last_error
+              FROM analytics.ods_branch_checks WHERE lane = 'ods_live_hot'
+          ),
+          agg AS (
+            SELECT count(*)::int                                       AS ramas,
+                   count(*) FILTER (WHERE last_check_at IS NULL)::int  AS nunca,
+                   min(last_check_at)                                  AS mas_vieja,
+                   (array_agg(sucursal ORDER BY last_check_at ASC NULLS FIRST))[1] AS suc_vieja,
+                   min(tables_checked)                                 AS min_tablas,
+                   max(tables_checked)                                 AS max_tablas
+              FROM hot
+          )
+          SELECT CASE
+                   -- Sin ninguna fila el sensor NO puede afirmar salud. NULL → crítico, con la
+                   -- nota diciendo qué falta. Un "ok" acá sería el verde falso de siempre.
+                   WHEN agg.ramas = 0 THEN NULL
+                   -- Una rama que nunca se pudo revisar es lo peor que hay: se fuerza crítico.
+                   WHEN agg.nunca > 0 THEN now() - interval '100 days'
+                   ELSE agg.mas_vieja
+                 END AS last_update,
+                 CASE WHEN agg.ramas = 0
+                      THEN 'sin marcas por sucursal — requiere el shipper de OBS.3.2 desplegado'
+                      ELSE 'ramas ' || agg.ramas ||
+                           CASE WHEN agg.nunca > 0 THEN ' · ' || agg.nunca || ' NUNCA revisada(s)' ELSE '' END ||
+                           ' · más atrasada ' || coalesce(agg.suc_vieja, '—') ||
+                           ' · tablas ' || coalesce(agg.min_tablas, 0) || '-' || coalesce(agg.max_tablas, 0) ||
+                           CASE WHEN agg.max_tablas > agg.min_tablas
+                                THEN ' ⚠ desparejo (¿config recortada?)' ELSE '' END
+                 END AS note_extra
+            FROM agg`,
+    // El carril hot pasa cada 15 s. 1 h de holgura tolera un reinicio del contenedor sin ruido;
+    // 3 h ya es un carril que dejó de mirar esa sucursal.
+    warnH: 1, critH: 3, cadence: 'continuo (@15s por rama)',
+  },
   // ── AUDITORÍA FRESCURA 2026-08-20 (lección sucursal 00): dead-man's switches POR-ENTIDAD que el
   //    max() GLOBAL no ve. Cada uno alarma si UNA fuente se congela mientras el resto avanza. ──
   // (P0-1) Stock CEDIS '00': el sensor 'stock' usa max(updated_at) GLOBAL → 01-06 enmascaran un freeze
@@ -120,11 +178,15 @@ const APP_SOURCES: SourceCfg[] = [
                  'oficinas 00 · último mov. ' || coalesce(to_char(max(c9::date),'DD/MM'),'—') AS note_extra
             FROM kepler_ods.kdm1
            WHERE sucursal='00' AND c9::date <= current_date AND c9::date > current_date - 30`,
-    warnH: 48, critH: 120, cadence: 'continuo (replica lógica md_00 → OdsLiveLoop)',
+    warnH: 48, critH: 120, cadence: 'continuo (réplica lógica md_00 → CDC WAL)',
   },
   // (AUDIT 2026-08-21) Cobertura de FINANZAS de oficinas '00' en el ODS. El ship a prod usa un whitelist
-  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), import-kepler-bank-movements hace SKIP MUDO
-  //   y la columna Kepler de /finanzas/bancos + Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   (KP_ODS_TABLES); si se OMITE kdb1 (cuentas de banco), la columna Kepler de /finanzas/bancos +
+  //   Cuadre de caja se congela sin aviso (vivido 2026-08-21).
+  //   El mecanismo cambió y el sensor importa MÁS, no menos: antes el que hacía SKIP MUDO era
+  //   `import-kepler-bank-movements` (retirado 2026-09-03); ahora `analytics.kepler_bank_movements`
+  //   es una VISTA sobre kdm1⋈kdb1, así que sin kdb1 no hay "skip" — simplemente devuelve vacío al
+  //   instante y en cada lectura. Este sensor es el único aviso.
   //   Este sensor lo hace RUIDOSO: kdb1 suc-00 en 0 → crítico. Es el canario de toda la capa finanzas-00
   //   (kdco/kdc3/kdpv_folio_caja/kdxd/kdxe/kdc2* viajan en el mismo whitelist).
   {
@@ -133,7 +195,10 @@ const APP_SOURCES: SourceCfg[] = [
                  CASE WHEN count(*) > 0 THEN count(*)::text || ' cuentas banco (00) en ODS'
                       ELSE 'kdb1 oficinas 00 VACÍA — bank feed en SKIP; falta kdb1 en KP_ODS_TABLES del runner' END AS note_extra
             FROM kepler_ods.kdb1 WHERE btrim(sucursal)='00'`,
-    warnH: 24, critH: 48, cadence: 'continuo (OdsLiveLoop carril hash)',
+    // (2026-08-26) Con el poll deshabilitado este modo de falla se fue: la publicación del WAL
+    // (`ods_cdc_pub`) lleva TODAS las tablas de cada rama (319-350 según sucursal, verificado: 0 del
+    // ODS sin publicar), así que ya no hay whitelist que pueda omitir kdb1 en silencio.
+    warnH: 24, critH: 48, cadence: 'continuo (CDC WAL, sin whitelist)',
   },
   // (P0-2) Flota GPS: vehicle_positions es FUENTE ÚNICA; el FleetPoller @1min no late en cron_runs → si
   //        el poller muere (o faltan creds MAGNI en prod) el mapa sigue verde con datos viejos. Verde si
@@ -239,6 +304,30 @@ const APP_SOURCES: SourceCfg[] = [
                  COALESCE((SELECT string_agg(source_branch || '=' || days || 'd', ', ' ORDER BY source_branch) FROM bad),
                           'cobertura completa') AS note_extra`,
     warnH: 24, critH: 48, cadence: 'mensual (verifica el mes anterior completo)',
+  },
+  //  (c) EL CEDIS — el punto ciego que los dos sensores de arriba NO cubren. Ambos miran
+  //      `v_sales_lines` de las sucursales con `kepler_code IS NULL`, y el CEDIS queda fuera por
+  //      PARTIDA DOBLE: tiene `kepler_code='00'` (lo excluye el predicado) y **no vende** — es
+  //      bodegón, cero cortes/arqueos/retiros, cero filas en v_sales_lines. Podía congelarse
+  //      indefinidamente sin que nadie se enterara, y es el nodo que SURTE A LA RED.
+  //      Detectado 2026-08-31: llevaba 6 días parado (último movimiento 26/08) y ninguna alerta.
+  //
+  //      ⚠️ El CEDIS real es **BPIRAPUATO (Irapuato) y vive en WINCAJA**, no en Kepler — la
+  //      sucursal Kepler '00' es OFICINAS. Ver docs/ERP_KEPLER.md §2.3.
+  //
+  //      Se mide sobre MOVIMIENTOS (`maestro_mov_almacen`), no ventas. Umbrales derivados de la
+  //      cadencia real, no inventados: opera lunes-sábado (73 de 90 días), hueco máximo entre
+  //      días con movimiento = **2 días**, promedio 1.16. Con domingo cerrado, un lunes sano
+  //      puede mostrar el sábado (~48 h) → warn a 60 h para no flapear, crítico a 96 h.
+  {
+    key: 'wincaja_cedis_stale', label: 'Wincaja — CEDIS Irapuato (surte la red)', table: 'wincaja.maestro_mov_almacen', tsCandidates: [],
+    sql: `SELECT max(fecha)::timestamp AS last_update,
+                 'BPIRAPUATO · último mov. ' ||
+                 COALESCE(to_char(max(fecha), 'DD/MM'), '—') || ' · ' ||
+                 count(*) FILTER (WHERE fecha >= current_date - 7)::text || ' movs 7d' AS note_extra
+            FROM wincaja.maestro_mov_almacen
+           WHERE source_branch = '00'`,
+    warnH: 60, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
   },
   // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
   // (proceso vivo pero mudo, visto 2026-08-04: se colgó 3h y nadie se enteró). Umbral
@@ -361,14 +450,59 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_receipts',       label: 'Feed recepciones (XA2001)',         cadence: 'cada 1-2 min', warnH: 0.5, critH: 2, maxRunH: 1 },
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
-  { key: 'feed_catalog',        label: 'Feed catálogo',                     cadence: 'diario 02:00', warnH: 30,  critH: 50, maxRunH: 3 },
+  // La tarea \Kepler\Catalog es SEMANAL (MSFT_TaskWeeklyTrigger, domingos 02:00), no diaria:
+  // con umbrales de 30/50 h quedaba en ROJO PERMANENTE entre corridas legítimas. Eso es peor
+  // que no monitorear — un tablero que grita siempre entrena a ignorarlo, y es la explicación
+  // más probable de que el feed_nightly muriera 2 noches (25 y 26-ago) sin que nadie lo viera.
+  { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
-  // CDC WAL-decode (ADR-047): el consumidor on-prem (ods-cdc-wal.js --watch) late cada ~30s POR
-  // sucursal. Dead-man's switch: si un consumidor muere, su slot empieza a RETENER WAL en el :5433
-  // → cron_runs se congela → ROJO antes de que llene disco. Per-sucursal a propósito (uno global
-  // enmascararía un branch caído — la lección de la 00). Sin heartbeat aún = 'unknown' = no alarma.
-  ...['00', '01', '02', '03', '04', '05', '06'].map((c) => ({ key: `cdc_wal_${c}`, label: `CDC WAL sucursal ${c}`, cadence: 'continuo ~30s', warnH: 0.25, critH: 1 })),
+  // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.8): el carril se retiró y sus
+  // slots se dropearon. Sus 7 latidos quedaron congelados en `error` desde el 02-sep y siguieron
+  // pintando ROJO durante días sin que nadie fuera a arreglarlos — un rojo permanente que nadie va a
+  // atender enseña a ignorar el tablero, que es peor que no tenerlo. Lo que el WAL cubría en exclusiva
+  // (propagación de DELETE) lo cubre ahora `cdc_reconcile` detectando SOBRANTES.
+  // Si el carril vuelve, se vuelven a declarar acá — y su dueño sigue siendo UNO solo.
+  // CDC.7 — la ÚNICA alarma de COMPLETITUD del sistema. Todo lo demás mide frescura (`max(fecha)`)
+  // y por construcción no puede ver un hueco EN MEDIO con datos frescos alrededor: así el CDC perdió
+  // 2-7% de las filas diarias del 26 al 31 de agosto **con los 7 latidos de arriba verdes y
+  // correctos** (un latido prueba que el caño se mueve, no que llegó todo), y lo encontró un
+  // humano abriendo una factura. `reconcile-ods-window --watch` compara las llaves de la ventana
+  // reciente (replica vs kepler_ods), repone el delta y late acá con lo que encontró; si supera el
+  // umbral escribe status='error' → CRÍTICO. Un número > 0 sostenido = se está perdiendo otra vez.
+  { key: 'cdc_reconcile',       label: 'Reconciliador ODS (completitud)', cadence: 'continuo ~15 min', warnH: 1, critH: 3 },
+  // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
+  // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
+  // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear
+  // (10,248 de costo) — y lo encontró un humano al corregir un precio a mano. Dos carriles, dos
+  // umbrales: el hot corre @15s y el espejo completo @300s con pasadas de minutos.
+  { key: 'ods_live_hot',        label: 'ODS carril vivo (replica→prod)',  cadence: 'continuo ~15 s',  warnH: 0.5, critH: 2 },
+  { key: 'ods_live_mirror',     label: 'ODS espejo completo (replica→prod)', cadence: 'continuo ~5 min', warnH: 2, critH: 6 },
+  // OBS.1 — HUÉRFANOS: estos SÍ latían, pero al no estar acá caían en el `cfg ? classify : 'ok'` de
+  // checkCronRuns() y se pintaban VERDE INCONDICIONAL por viejos que estuvieran. Un latido sin
+  // umbral registrado no es una alarma, es decoración. (wincaja_replica_* justo se pasó 4 días en
+  // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
+  { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
+  { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
+  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
+  { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
+  // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
+  // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
+  // otro por copia:
+  //   · `analytics_refresh_wincaja` era la ÚNICA registrada y estaba con `cadence: 'cada 15 min',
+  //     warnH: 1` — los umbrales del OTRO cron (`analytics_refresh`, ese sí de 15 min). Como la
+  //     escribe el diario, envejecía 24 h legítimas y se pintaba `critical` todo el día, todos los
+  //     días. Una alarma que grita siempre en falso enseña a ignorar el tablero (es la lección de
+  //     las 488 alertas con cero reconocidas, y por eso OBS.8 borró los latidos muertos del CDC).
+  //   · Las otras tres NO estaban → con el viejo `: 'ok'` salían verdes por siempre. Justo las que
+  //     arman el sell-out: si `mv_kepler_sales_daily` deja de refrescarse, el pivote sirve una
+  //     pierna vieja y otra fresca sin que nada avise.
+  // Umbrales de job diario, mismo criterio que `sales_daily`: warn al saltarse una corrida, crítico
+  // al saltarse dos.
+  { key: 'analytics_refresh_wincaja',         label: 'Refresh MV Wincaja (nightly)',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
@@ -384,6 +518,55 @@ export interface SourceHealth {
 export interface DbHealthReport {
   checked_at: string; db_label: string; overall: Status; sources: SourceHealth[];
 }
+
+// ── DBH.1 — SALUD DEL MOTOR (no es lo mismo que frescura del dato) ────────────
+//
+// Las ~45 fuentes de arriba responden "¿llegó la información?". Ninguna responde "¿cómo está la
+// base?". Son preguntas distintas y se miden distinto: la frescura es una EDAD (`classify()`), y
+// esto son MAGNITUDES — % de filas muertas, MB, conexiones, segundos de una consulta. Forzarlas al
+// molde viejo obliga al truco de la fecha sintética (`now() - interval '100 days'`) que ya usan dos
+// fuentes: legible una vez, ilegible como patrón. Por eso van con tipo, umbral y endpoint propios.
+//
+// Medido en prod el 2026-09-01 (22 GB, Postgres 18.6) al construir esto: `detalles_mov_almacen` con
+// 1,339,125 filas muertas (13.6%) y **sin un solo autovacuum registrado**, `stock_movements` con
+// 435,608 (12.0%) igual. No están abandonadas: `autovacuum_vacuum_scale_factor` es el default 0.2,
+// así que una tabla de 9.8M filas junta 2M de basura antes de que se limpie sola.
+export interface EngineTable {
+  schema: string; table: string; live: number; dead: number; dead_pct: number | null;
+  last_autovacuum: string | null; last_autoanalyze: string | null;
+  size_bytes: number; size_pretty: string; status: Status;
+}
+
+export interface EngineMetric {
+  key: string; label: string; display: string; status: Status; note?: string;
+}
+
+export interface EngineReport {
+  checked_at: string; db_label: string; overall: Status;
+  database: { name: string; size_pretty: string; version: string };
+  metrics: EngineMetric[];
+  bloat: EngineTable[];
+  schemas: { schema: string; size_pretty: string; tables: number }[];
+  autovacuum: { name: string; setting: string }[];
+}
+
+/**
+ * Umbrales del motor. Cada uno lleva su porqué — un número sin razón es un número que nadie se
+ * atreve a mover después.
+ *
+ *  · `dead_pct`: autovacuum dispara al 20% (`autovacuum_vacuum_scale_factor`). Una tabla POR ENCIMA
+ *    de ese número significa que autovacuum no está alcanzando, no que falte configurarlo.
+ *  · `conn_pct`: 70/85% del `max_connections` — antes del "too many clients", con margen para actuar.
+ *  · `query_s` / `idle_tx_s`: 5 y 15 minutos. El `idle in transaction` importa más de lo que parece:
+ *    una transacción abierta **bloquea el vacuum** de las tablas que tocó, así que es causa directa
+ *    de la hinchazón de arriba, no un problema aparte.
+ */
+const ENGINE_LIMITS = {
+  dead_pct: { warn: 20, crit: 40 },
+  conn_pct: { warn: 70, crit: 85 },
+  query_s: { warn: 300, crit: 900 },
+  idle_tx_s: { warn: 300, crit: 900 },
+} as const;
 
 @Injectable()
 export class DbHealthService {
@@ -437,6 +620,19 @@ export class DbHealthService {
     const h = ageSec / 3600;
     if (h >= critH) return 'critical';
     if (h >= warnH) return 'warn';
+    return 'ok';
+  }
+
+  /**
+   * Clasifica una MAGNITUD (no una edad). Deliberadamente separada de `classify()`: aquella asume
+   * que el valor son segundos y que más viejo es peor; acá el valor puede ser un porcentaje, un
+   * conteo o unos segundos, y sólo comparte la forma de los umbrales. Mezclarlas obligaría a que
+   * `classify` supiera de unidades.
+   */
+  private classifyMetric(value: number | null, warn: number, crit: number): Status {
+    if (value == null || !Number.isFinite(value)) return 'unknown';
+    if (value >= crit) return 'critical';
+    if (value >= warn) return 'warn';
     return 'ok';
   }
 
@@ -580,9 +776,35 @@ export class DbHealthService {
         }
       } else {
         // ok → clasifica por antigüedad de la última corrida vs cadencia.
-        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'ok';
+        //
+        // [VP.0.1] Sin `cfg` esto devolvía `'ok'`: un job que late pero no tiene umbral registrado
+        // en CRON_JOBS salía VERDE por siempre, sin importar la antigüedad. Es el mismo default
+        // permisivo que documenta la regla 1 de `shared/freshness.ts` — un job sin umbral no es
+        // sano, es NO MEDIDO. Va a `unknown`, que el tablero pinta distinto de verde y no invita a
+        // ignorarlo. Un fallo DURO seguía viéndose (la rama `row.status === 'error'` es previa y no
+        // necesita cfg); lo invisible era el REZAGO, que es justo el modo de falla de "los números
+        // cambiaron". Medido: `analytics_refresh_kepler`, `_sellout_monthly` y `_blended` escriben
+        // latido y no estaban en CRON_JOBS → las tres MVs que arman el sell-out, en verde eterno.
+        status = cfg ? this.classify(ageSec, cfg.warnH, cfg.critH) : 'unknown';
         const dur = row.duration_ms != null ? ` · ${Math.round(Number(row.duration_ms) / 1000)}s` : '';
-        note = `OK${dur}${row.rows_affected != null ? ` · ${row.rows_affected} filas` : ''}`;
+        const filas = row.rows_affected != null ? ` · ${row.rows_affected} filas` : '';
+        // La nota decía "OK" SIEMPRE, aunque `status` fuera warn o critical: el job reportó
+        // éxito, y el texto repetía ese éxito ignorando que la última corrida era vieja. Así
+        // `contpaqi_add_cfdis` pasó 30 h muerto mostrando "OK · 167224 filas" — el número de
+        // filas de la corrida vieja, que se lee como salud. La detección funcionaba; el mensaje
+        // mentía. Cuando el estado NO es ok, la nota ARRANCA por el rezago, igual que la rama
+        // de `running` dice "desde hace X".
+        const edad = ageSec != null ? this.humanH(ageSec / 3600) : 'sin fecha';
+        if (status === 'ok') {
+          note = `OK${dur}${filas}`;
+        } else if (status === 'unknown') {
+          // [VP.0.1] No decir "SIN CORRER": corrió y terminó bien. Lo que falta es el umbral, y la
+          // nota tiene que nombrar eso — es accionable (registrar el job en CRON_JOBS), y confundir
+          // "no medido" con "no corrió" manda a alguien a revisar la máquina de feeds sin motivo.
+          note = `SIN UMBRAL: el job late (última hace ${edad}${dur}${filas}) pero no está en CRON_JOBS, así que no se puede juzgar su rezago. Registrarlo.`;
+        } else {
+          note = `SIN CORRER hace ${edad} (cadencia ${cfg?.cadence || '—'}); la última terminó bien${dur}${filas}`;
+        }
       }
       out.push({
         ...base, last_update: finish ? finish.toISOString() : null, age_seconds: ageSec,
@@ -615,5 +837,123 @@ export class DbHealthService {
       return RANK[s.status] > RANK[worst] ? s.status : worst;
     }, 'ok');
     return { checked_at, db_label: this.dbLabel(), overall, sources };
+  }
+
+  // ── DBH.1 — Reporte del MOTOR ───────────────────────────────────────────────
+  /**
+   * Estado de Postgres mismo: hinchazón por filas muertas, peso por schema, actividad y la
+   * configuración de autovacuum. Lee con el knex ADMIN (rol `postgres`), que es el único que ve
+   * `pg_stat_activity` de otras sesiones — y es la conexión que `new-database.module.ts` ya
+   * reservaba para esto ("Operaciones de mantenimiento (VACUUM, ANALYZE, etc.)").
+   *
+   * Todo es SELECT sobre catálogos; no toca datos de negocio y no depende de ningún tenant.
+   */
+  async getEngineReport(): Promise<EngineReport> {
+    const checked_at = new Date().toISOString();
+    const vacio: EngineReport = {
+      checked_at, db_label: 'no configurada', overall: 'unknown',
+      database: { name: '—', size_pretty: '—', version: '—' },
+      metrics: [], bloat: [], schemas: [], autovacuum: [],
+    };
+    if (!this.knex) return vacio;
+
+    try {
+      const [db, act, bloatRows, schemaRows, avRows] = await Promise.all([
+        this.knex.raw(`SELECT current_database() AS name,
+                              pg_size_pretty(pg_database_size(current_database())) AS size_pretty,
+                              split_part(version(), ' on ', 1) AS version`),
+        // `FILTER` en vez de subconsultas: una sola pasada por pg_stat_activity.
+        this.knex.raw(`
+          SELECT count(*)::int AS conns,
+                 count(*) FILTER (WHERE state = 'active')::int AS activas,
+                 count(*) FILTER (WHERE state = 'idle in transaction')::int AS idle_tx,
+                 COALESCE(max(EXTRACT(EPOCH FROM (now() - query_start)))
+                          FILTER (WHERE state = 'active'), 0)::int AS query_s,
+                 COALESCE(max(EXTRACT(EPOCH FROM (now() - state_change)))
+                          FILTER (WHERE state = 'idle in transaction'), 0)::int AS idle_tx_s,
+                 (SELECT setting::int FROM pg_settings WHERE name = 'max_connections') AS max_conns
+            FROM pg_stat_activity WHERE backend_type = 'client backend'`),
+        this.knex.raw(`
+          SELECT schemaname, relname, n_live_tup, n_dead_tup, last_autovacuum, last_autoanalyze,
+                 pg_total_relation_size(relid) AS size_bytes,
+                 pg_size_pretty(pg_total_relation_size(relid)) AS size_pretty
+            FROM pg_stat_user_tables
+           WHERE n_dead_tup > 0
+           ORDER BY n_dead_tup DESC LIMIT 25`),
+        this.knex.raw(`
+          SELECT schemaname, count(*)::int AS tablas,
+                 pg_size_pretty(sum(pg_total_relation_size(relid))) AS size_pretty
+            FROM pg_stat_user_tables GROUP BY 1
+           ORDER BY sum(pg_total_relation_size(relid)) DESC LIMIT 12`),
+        this.knex.raw(`SELECT name, setting FROM pg_settings WHERE name LIKE 'autovacuum%' ORDER BY name`),
+      ]);
+
+      const a = act.rows[0] ?? {};
+      const connPct = a.max_conns > 0 ? Math.round((100 * a.conns) / a.max_conns) : null;
+
+      const metrics: EngineMetric[] = [
+        {
+          key: 'connections', label: 'Conexiones',
+          display: `${a.conns ?? 0} de ${a.max_conns ?? '—'} (${connPct ?? '—'}%)`,
+          status: this.classifyMetric(connPct, ENGINE_LIMITS.conn_pct.warn, ENGINE_LIMITS.conn_pct.crit),
+          note: `${a.activas ?? 0} activas`,
+        },
+        {
+          key: 'longest_query', label: 'Consulta más larga',
+          display: this.humanSec(a.query_s ?? 0),
+          status: this.classifyMetric(a.query_s, ENGINE_LIMITS.query_s.warn, ENGINE_LIMITS.query_s.crit),
+          note: (a.query_s ?? 0) >= ENGINE_LIMITS.query_s.warn ? 'una consulta larga retiene su snapshot y frena el vacuum' : undefined,
+        },
+        {
+          key: 'idle_in_transaction', label: 'Transacción abierta sin trabajar',
+          display: `${a.idle_tx ?? 0} · la más vieja ${this.humanSec(a.idle_tx_s ?? 0)}`,
+          status: this.classifyMetric(a.idle_tx_s, ENGINE_LIMITS.idle_tx_s.warn, ENGINE_LIMITS.idle_tx_s.crit),
+          note: (a.idle_tx_s ?? 0) >= ENGINE_LIMITS.idle_tx_s.warn ? 'bloquea el vacuum de las tablas que tocó' : undefined,
+        },
+      ];
+
+      const bloat: EngineTable[] = bloatRows.rows.map((r: Record<string, unknown>) => {
+        const live = Number(r.n_live_tup) || 0;
+        const dead = Number(r.n_dead_tup) || 0;
+        const pct = live > 0 ? Math.round((1000 * dead) / live) / 10 : null;
+        return {
+          schema: String(r.schemaname), table: String(r.relname), live, dead, dead_pct: pct,
+          last_autovacuum: r.last_autovacuum ? new Date(r.last_autovacuum as string).toISOString() : null,
+          last_autoanalyze: r.last_autoanalyze ? new Date(r.last_autoanalyze as string).toISOString() : null,
+          size_bytes: Number(r.size_bytes) || 0, size_pretty: String(r.size_pretty),
+          status: this.classifyMetric(pct, ENGINE_LIMITS.dead_pct.warn, ENGINE_LIMITS.dead_pct.crit),
+        };
+      });
+
+      const overall = [...metrics.map((m) => m.status), ...bloat.map((b) => b.status)]
+        .reduce<Status>((worst, s) => (s === 'unknown' ? worst : RANK[s] > RANK[worst] ? s : worst), 'ok');
+
+      return {
+        checked_at, db_label: this.dbLabel(), overall,
+        database: {
+          name: String(db.rows[0]?.name ?? '—'),
+          size_pretty: String(db.rows[0]?.size_pretty ?? '—'),
+          version: String(db.rows[0]?.version ?? '—'),
+        },
+        metrics, bloat,
+        schemas: schemaRows.rows.map((r: Record<string, unknown>) => ({
+          schema: String(r.schemaname), size_pretty: String(r.size_pretty), tables: Number(r.tablas) || 0,
+        })),
+        autovacuum: avRows.rows.map((r: Record<string, unknown>) => ({
+          name: String(r.name), setting: String(r.setting),
+        })),
+      };
+    } catch (e) {
+      this.logger.warn(`db-health engine: ${(e as Error).message}`);
+      return { ...vacio, db_label: this.dbLabel() };
+    }
+  }
+
+  /** "12 min" / "2 h 5 min" / "45 s" — el panel muestra tiempo, no segundos crudos. */
+  private humanSec(s: number): string {
+    if (!s || s < 60) return `${Math.max(0, Math.round(s))} s`;
+    if (s < 3600) return `${Math.round(s / 60)} min`;
+    const h = Math.floor(s / 3600);
+    return `${h} h ${Math.round((s - h * 3600) / 60)} min`;
   }
 }

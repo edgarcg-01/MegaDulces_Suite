@@ -168,8 +168,42 @@ async function cycleAll(ctrl, { apply, full }) {
   return summary;
 }
 
+/**
+ * [OBS.1.2] ⛔ RETIRADO — lo reemplazó `replicate-ods-live.js`.
+ *
+ * Este script **no late**: no escribe en `analytics.cron_runs` ni tiene entrada en `CRON_JOBS`, así
+ * que si alguien lo arranca por costumbre shipea a prod **sin que el tablero lo vea**. Es
+ * exactamente la forma del incidente del 2026-08-27, donde un carril mudo dejó seis días de
+ * catálogo congelado sin una sola señal.
+ *
+ * Se evaluó ponerle latido y se descartó: instrumentar código muerto lo revive de hecho, y
+ * registrarlo en `CRON_JOBS` lo dejaría en **crítico permanente** por no correr nunca. Lo que
+ * protege de verdad es que no pueda shipear mudo por accidente — el rollback manual sigue
+ * disponible, pero explícito.
+ *
+ * Verificado 2026-09-02: no corre en la box, y sus 3 lanzadores (`run-ods.cmd`, `run-ods-loop.cmd`,
+ * `run-ods-catalog.cmd`) están detenidos.
+ */
+const RETIRO_OK = process.env.ODS_FAST_RETIRED_OK === '1' || process.argv.includes('--si-se-que-esta-retirado');
+if (APPLY && !RETIRO_OK) {
+  console.error([
+    '',
+    '⛔ replicate-ods-fast está RETIRADO: lo reemplazó replicate-ods-live.js, que SÍ late a prod.',
+    '   Este script no reporta a analytics.cron_runs → shipearía sin que db-health lo vea.',
+    '',
+    '   Lo que querés casi seguro es:',
+    '     docker compose -f ops/ingest/docker-compose.yml up -d',
+    '',
+    '   Si de verdad necesitás este como rollback, decilo explícito:',
+    '     ODS_FAST_RETIRED_OK=1 node database/importers/kepler/replicate-ods-fast.js --apply …',
+    '',
+  ].join('\n'));
+  process.exit(1);
+}
+
 (async () => {
-  console.log(`\n=== replicate-ods-FAST — sucursales → kepler_ods (${APPLY ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) ===`);
+  console.log(`\n=== replicate-ods-FAST [RETIRADO] — sucursales → kepler_ods (${APPLY ? 'APPLY' : 'DRY-RUN'}${FULL ? ', FULL' : ''}${WATCH_SEC ? `, WATCH ${WATCH_SEC}s` : ''}) ===`);
+  if (APPLY) console.log('  ⚠ corriendo un carril RETIRADO y MUDO: db-health no lo vigila.');
   console.log(`  sink: ${sink.sinkMode()}  ·  tablas: ${TABLES.join(', ')}${ONLY_BRANCH ? ` · solo suc ${ONLY_BRANCH}` : ''}`);
 
   let ctrl = new Client({ connectionString: CTRL_URL, ...CONN });

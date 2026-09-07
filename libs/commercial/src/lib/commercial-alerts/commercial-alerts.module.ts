@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
+import { requireJwtSecret, jwtVerifyOptions } from '@megadulces/platform-core';
 import { AlertsGateway } from './alerts.gateway';
 import { AlertsService } from './alerts.service';
 import { AlertsScannerService } from './alerts-scanner.service';
@@ -15,8 +16,9 @@ import { AlertsController } from './alerts.controller';
 @Module({
   imports: [
     JwtModule.register({
-      secret: process.env.JWT_SECRET || 'super_secret_dev_key_change_in_prod',
-      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any },
+      secret: requireJwtSecret(),
+      signOptions: { expiresIn: (process.env.JWT_EXPIRES_IN || '12h') as any, algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
     }),
   ],
   controllers: [AlertsController],

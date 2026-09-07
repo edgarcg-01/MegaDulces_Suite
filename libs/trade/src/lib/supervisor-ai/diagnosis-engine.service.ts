@@ -7,7 +7,11 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Track Razonamiento (Horus.R), Sprint R1: motor de causa raíz.
@@ -74,8 +78,9 @@ export class DiagnosisEngineService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /** Frase determinista por síntoma, citando los números reales de evidence. */
@@ -299,8 +304,7 @@ export class DiagnosisEngineService {
     const userId = user?.sub || user?.id || user?.userId || null;
     const reviewedBy =
       userId && /^[0-9a-f-]{36}$/i.test(String(userId)) ? String(userId) : null;
-    let q = this.knex('commercial.supervisor_diagnoses').where('id', id);
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_diagnoses').where({ id, tenant_id: tenantId });
     const [updated] = await q
       .update({
         status,
@@ -316,8 +320,9 @@ export class DiagnosisEngineService {
   /** Listado para el panel (filtrable por status). */
   async list(filters: { status?: string }, user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.supervisor_diagnoses').select('*');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_diagnoses')
+      .select('*')
+      .where('tenant_id', tenantId);
     q = q.where('status', filters.status || 'open');
     q = q
       .orderByRaw(`CASE severity WHEN 'critical' THEN 0 WHEN 'warn' THEN 1 ELSE 2 END`)

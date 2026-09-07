@@ -46,6 +46,11 @@ export class StoreGateway implements OnGatewayConnection, OnGatewayDisconnect {
     const warehouse: string | undefined = payload?.warehouse_code || undefined;
     const room = warehouse ? `tenant:${tenantId}:wh:${warehouse}` : `tenant:${tenantId}`;
     client.join(room);
+    // Room PERSONAL, además del de sucursal: "haz tu arqueo" es un aviso dirigido a
+    // UNA cajera, no a la tienda. Mandarlo al room de sucursal se lo mostraría a
+    // todas y en dos días nadie lo miraría. El username ES el código de cajera de
+    // Kepler, así que la llave del aviso y la del turno son la misma.
+    if (payload?.username) client.join(`tenant:${tenantId}:user:${String(payload.username).toUpperCase()}`);
     client.data = { tenantId, userId: payload.sub, username: payload.username, warehouse };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());
     this.tenantSockets.get(tenantId)!.add(client.id);
@@ -72,6 +77,17 @@ export class StoreGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`tenant:${tenantId}`).emit('alert', alert);
     const wh = alert?.data?.warehouse_code;
     if (wh) this.server.to(`tenant:${tenantId}:wh:${wh}`).emit('alert', alert);
+  }
+
+  /**
+   * Aviso dirigido a una cajera por su código de Kepler. Best-effort: si no está
+   * conectada no pasa nada — el turno igual la espera en la pantalla y, si nadie
+   * cuenta, el vencimiento lo levanta el supervisor. Esto acorta el tiempo, no
+   * reemplaza el control.
+   */
+  emitToCajero(tenantId: string, cajeroCode: string, evento: string, payload: unknown): void {
+    if (!this.server || !cajeroCode) return;
+    this.server.to(`tenant:${tenantId}:user:${cajeroCode.toUpperCase()}`).emit(evento, payload);
   }
 
   getStats() {

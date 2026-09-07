@@ -1,6 +1,11 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService, AnthropicService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  AnthropicService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Capa de VISIÓN (Sprint H2.2).
@@ -86,8 +91,9 @@ export class PhotoAuditService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   private static parseArray(v: any): any[] {
@@ -405,7 +411,7 @@ export class PhotoAuditService {
         this.knex.ref('dc.captured_by_username').as('captured_by'),
         this.knex.ref('s.nombre').as('store_name'),
       );
-    if (tenantId) q = q.where('cv.tenant_id', tenantId);
+    q = q.where('cv.tenant_id', tenantId);
     if (filters.capture_id && UUID_RE.test(filters.capture_id)) q = q.where('cv.capture_id', filters.capture_id);
     if (filters.flagged) {
       q = q.where((b) =>
@@ -423,7 +429,6 @@ export class PhotoAuditService {
   /** Cobertura de visión: cuántas fotos hay vs analizadas + banderas. */
   async coverage(user: any) {
     const tenantId = this.tenantId(user);
-    if (!tenantId) return { photos_total: 0, analyzed: 0, is_shelf: 0, out_of_stock: 0, mismatch: 0, unusable: 0, has_api_key: !!this.apiKey };
 
     const caps = await this.knex('daily_captures as dc')
       .where('dc.tenant_id', tenantId)

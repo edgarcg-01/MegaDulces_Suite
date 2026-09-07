@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
@@ -292,5 +293,22 @@ export class RecommendationsService {
       );
     }
     return this.getForCustomer(customerId);
+  }
+
+  /**
+   * `[AUTHZ-HARD.1]` Ownership para `GET /commercial/recommendations/:customer_id`: gateado por
+   * `COMMERCIAL_CUSTOMERS_VER`, que `customer_b2b` tiene → un cliente leía la canasta estratégica
+   * de otro. Para el cliente, sólo la suya (su ruta propia es `/recommendations/my`).
+   */
+  async assertCustomerAccess(customerId: string): Promise<void> {
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') return;
+    const mine = await this.tk.run(async (trx) => {
+      const r = await trx('public.users').where({ id: ctx.userId }).select('customer_id').first();
+      return r?.customer_id ?? null;
+    });
+    if (!mine || mine !== customerId) {
+      throw new ForbiddenException('No tenés acceso a la información de este cliente.');
+    }
   }
 }

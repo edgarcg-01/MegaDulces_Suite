@@ -135,16 +135,9 @@ export const FINANZAS_SHARED_STYLES = `
   /* ── Filtros y orden del detalle ──────────────────────────────────────────
      El drill de las dos pantallas filtra y ordena igual: segmentos chicos, buscador y
      contador "X de Y" que deja escrito cuánto se está ocultando. */
-  /* Encabezado ordenable: el th completo es el objetivo de clic. */
-  .tw-sort { display: inline-flex; align-items: center; gap: 4px; width: 100%; background: none; border: none;
-    font: inherit; color: inherit; cursor: pointer; padding: 0; text-align: inherit; justify-content: inherit; }
-  .ta-r .tw-sort { justify-content: flex-end; }
-  .ta-c .tw-sort { justify-content: center; }
-  .tw-sort i { font-size: .65rem; opacity: .45; }
-  .tw-sort:hover i { opacity: .9; }
-  .tw-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
-  th[aria-sort]:not([aria-sort='none']) .tw-sort { color: var(--action); }
-  th[aria-sort]:not([aria-sort='none']) .tw-sort i { opacity: 1; }
+  /* El encabezado ordenable (.surf-sort) se mudó a styles.css en [RE.20.2]: lo necesitaba
+     también Compras, y un estilo de encabezado de tabla adentro de un módulo es invisible
+     para el resto de la app. */
   .tw-drill-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); margin-bottom: var(--sp-2); }
   .tw-fg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
   .tw-fg button { background: var(--card-bg); border: none; border-right: 1px solid var(--border-color); padding: 3px var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); cursor: pointer; }

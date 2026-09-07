@@ -8,6 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { IS_PUBLIC_KEY } from './public.decorator';
+import { PermissionsCacheService } from '../ability/permissions-cache.service';
 
 /**
  * Guard global que valida `Authorization: Bearer <jwt>` en cada request.
@@ -30,9 +31,10 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private readonly reflector: Reflector,
     private readonly jwtService: JwtService,
+    private readonly permsCache: PermissionsCacheService,
   ) {}
 
-  canActivate(context: ExecutionContext): boolean {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     // ┌─────────────────────────────────────────────────────────────────────┐
     // │ 1. Endpoints marcados @Public() pasan sin auth                      │
     // └─────────────────────────────────────────────────────────────────────┘
@@ -76,6 +78,15 @@ export class JwtAuthGuard implements CanActivate {
 
     // Populate request.user para que controllers/services lo lean directo.
     request.user = payload;
+
+    // `[AUTHZ-HARD.2]` Desactivar = revocar. El token vive 12h y no es revocable; sin este chequeo
+    // un usuario despedido/degradado (o su token robado) seguía entrando hasta que expiraba —
+    // god-mode incluido, porque el rol se lee del token. Releemos `identity.users` (cacheado 30s):
+    // si la cuenta está inactiva o borrada, 401. Fail-open ante error de DB (ver isUserActive).
+    const active = await this.permsCache.isUserActive(payload?.sub, payload?.tenant_id);
+    if (!active) {
+      throw new UnauthorizedException('La cuenta está desactivada. Iniciá sesión de nuevo.');
+    }
     return true;
   }
 }

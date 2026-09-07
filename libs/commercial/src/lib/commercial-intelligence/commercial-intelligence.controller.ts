@@ -119,6 +119,9 @@ export class CommercialIntelligenceController {
     @Query('limit') limit?: string,
     @Query('log') log?: string,
   ) {
+    // `[AUTHZ-HARD.1]` Ownership: `customer_b2b` tiene ORDERS_VER. Sin esto leía sugerencias para
+    // otro cliente y, con ?log, ESCRIBÍA una señal `offer_shown` en la cuenta de la víctima.
+    await this.customer360.assertCustomerAccess(customerId);
     const suggestions = await this.thot.suggest(customerId, {
       cartProductIds: cart ? cart.split(',').filter(Boolean) : [],
       zona: zona || null,
@@ -143,7 +146,7 @@ export class CommercialIntelligenceController {
   // ─── Thot T.R0: findings comerciales (portafolio/distribución + churn) ───
 
   @Get('findings')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({
     summary: 'Findings comerciales del motor (default open): dead-stock priceado, margen rezagado, brecha de distribución, churn. ?status= ?severity= ?subject_type=',
   })
@@ -172,7 +175,7 @@ export class CommercialIntelligenceController {
   // ─── Thot T.R1: diagnóstico de causa raíz (correlación de findings) ───
 
   @Get('diagnoses')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Diagnósticos de causa raíz comercial (correlación de ≥2 findings del mismo sujeto). Default open.' })
   listDiagnoses(@Query('status') status?: string) {
     return this.diagnosis.list({ status });
@@ -195,7 +198,7 @@ export class CommercialIntelligenceController {
   // ─── Thot T.R2: co-piloto comercial (acciones con confianza/impacto$/prioridad) ───
 
   @Get('actions')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Acciones del co-piloto comercial (default pending_approval), ordenadas por prioridad. ?kind=finding|diagnosis' })
   listActions(@Query('status') status?: string, @Query('kind') kind?: string) {
     return this.actions.listActions({ status, kind });
@@ -209,7 +212,7 @@ export class CommercialIntelligenceController {
   }
 
   @Get('actions/:id/explain')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'T.R3: explica el razonamiento de una acción (cadena determinista + redacción del agente, fallback sin LLM).' })
   explainAction(@Param('id') id: string) {
     return this.agent.explainAction(id);
@@ -232,7 +235,7 @@ export class CommercialIntelligenceController {
   // ─── Thot T.L2: aprendizaje (calibración de reglas por feedback humano) ───
 
   @Get('learning/rules')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'T.L2: scorecard de precisión por regla — qué findings comerciales sirven (aprende de confirm/dismiss).' })
   learningRules() {
     return this.calibration.list();
@@ -255,7 +258,7 @@ export class CommercialIntelligenceController {
   // ─── Thot ADR-022: autonomía acotada (el dial + auto-ejecución + auditoría) ───
 
   @Get('autonomy/policies')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Dial de autonomía por action_type (off/dry_run/auto + min_confidence/daily_cap/value_cap). __global__ = kill-switch.' })
   autonomyPolicies() {
     return this.autonomy.list();
@@ -279,7 +282,7 @@ export class CommercialIntelligenceController {
   }
 
   @Get('autonomy/log')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Panel "Thot actuó solo": acciones auto-ejecutadas (auditoría post-hoc + base para deshacer).' })
   autonomyLog() {
     return this.autonomy.autoLog();
@@ -297,7 +300,8 @@ export class CommercialIntelligenceController {
   @Get('customer-360/:customer_id')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({ summary: 'Customer 360 de un customer (admin/vendor). Recomputa si stale.' })
-  getForCustomer(@Param('customer_id') customerId: string) {
+  async getForCustomer(@Param('customer_id') customerId: string) {
+    await this.customer360.assertCustomerAccess(customerId);
     return this.customer360.getForCustomer(customerId);
   }
 
@@ -327,30 +331,35 @@ export class CommercialIntelligenceController {
   @Get('nba/:customer_id')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({ summary: 'Next-Best-Action de un customer (¿toca reorden?)' })
-  nba(@Param('customer_id') customerId: string) {
+  async nba(@Param('customer_id') customerId: string) {
+    await this.customer360.assertCustomerAccess(customerId);
     return this.engine.nextBestAction(customerId);
   }
 
   @Get('nba/:customer_id/basket')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({ summary: 'Canasta sugerida de reorden (categoría base de la canasta estratégica)' })
-  basket(@Param('customer_id') customerId: string) {
+  async basket(@Param('customer_id') customerId: string) {
+    await this.customer360.assertCustomerAccess(customerId);
     return this.engine.suggestedBasket(customerId);
   }
 
   @Get('nba/:customer_id/message')
   @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
   @ApiOperation({ summary: 'Mensaje de reorden redactado (agente). Datos del motor; Claude solo redacta, fallback a plantilla.' })
-  message(@Param('customer_id') customerId: string) {
+  async message(@Param('customer_id') customerId: string) {
+    await this.customer360.assertCustomerAccess(customerId);
     return this.agent.composeReorderMessage(customerId);
   }
 
   // ─── Feedback loop (oferta → resultado) ───
 
   @Post('signals')
-  @RequirePermissions(Permission.COMMERCIAL_ORDERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Registra una señal del feedback loop (oferta/impresión) para un customer.' })
   recordSignal(@Body() dto: RecordSignalDto) {
+    // `[AUTHZ-HARD.1]` Interno: escribe una señal para un customer_id ARBITRARIO del body. El
+    // cliente registra las suyas por `signals/my`. Antes ORDERS_VER lo abría al customer_b2b.
     return this.feedback.record(dto);
   }
 
@@ -362,21 +371,21 @@ export class CommercialIntelligenceController {
   }
 
   @Get('signals/summary')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Conversión del feedback loop: ofertas → pedidos en ventana (default 30d).' })
   signalsSummary(@Query('days') days?: string) {
     return this.feedback.conversionSummary(days ? parseInt(days, 10) || 30 : 30);
   }
 
   @Get('signals/daily')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({ summary: 'Serie diaria de conversión (ofertas/convertidas por día) para mini-charts.' })
   signalsDaily(@Query('days') days?: string) {
     return this.feedback.conversionDaily(days ? parseInt(days, 10) || 30 : 30);
   }
 
   @Get('signals/conversion-by-reason')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  @RequirePermissions(Permission.COMMERCIAL_INTELLIGENCE_VER)
   @ApiOperation({
     summary: 'Conversión ATRIBUIDA por razón de Thot (whitespace/recompra/afinidad/...). Producto ofrecido → comprado en ventana. ?days= ?attribution_days=',
   })

@@ -13,8 +13,6 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, WarehouseAisle, AisleBrand, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_COUNT_TABS } from '../inventory-tabs';
 
 /**
  * Fase PA.1b — Editor 2D de pasillos. Surface Operations (DESIGN.md): page-head
@@ -25,14 +23,13 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
 @Component({
   selector: 'app-comercial-inventory-aisles',
   standalone: true,
-  imports: [FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, InputNumberModule, TagModule, ToastModule, ConfirmDialogModule, PageTabsComponent],
+  imports: [FormsModule, ButtonModule, SelectModule, DialogModule, InputTextModule, InputNumberModule, TagModule, ToastModule, ConfirmDialogModule],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -178,7 +175,6 @@ import { INV_COUNT_TABS } from '../inventory-tabs';
   `],
 })
 export class ComercialInventoryAislesComponent {
-  readonly inventoryTabs = INV_COUNT_TABS;
   readonly assignModes = [
     { label: 'Por marca', value: 'brand' },
     { label: 'Por clase ABC', value: 'abc' },

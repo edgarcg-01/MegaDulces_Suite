@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Track Razonamiento (Horus.R), Sprint R4: verificador de resultado (L3).
@@ -44,8 +48,9 @@ export class OutcomeVerifierService {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /** Promedio + n del métrico en una ventana de días relativa a executed_at, desde snapshots 30d. */
@@ -178,7 +183,7 @@ export class OutcomeVerifierService {
         this.knex.raw(`round(avg(outcome_delta)::numeric, 2) AS avg_delta`),
       )
       .groupByRaw(`COALESCE(root_cause, action_type), action_type`);
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    q = q.where('tenant_id', tenantId);
     const rows = await q;
     return {
       rows: rows.map((r: any) => {
@@ -205,7 +210,7 @@ export class OutcomeVerifierService {
     let q = this.knex('commercial.supervisor_actions')
       .where('outcome_status', 'measured')
       .select('id', 'action_type', 'subject_type', 'label', 'title', 'root_cause', 'outcome_verdict', 'outcome_delta', 'outcome_detail', 'outcome_measured_at');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    q = q.where('tenant_id', tenantId);
     q = q.orderBy('outcome_measured_at', 'desc').limit(50);
     const rows = await q;
     return { rows, total: rows.length };

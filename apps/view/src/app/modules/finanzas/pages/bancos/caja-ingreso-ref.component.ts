@@ -51,6 +51,33 @@ import { BANCOS_STYLES } from './bancos.styles';
           } @else { Todo depósito tiene origen. }
         </p>
 
+        @if (c.por_cuenta?.length) {
+          <button type="button" class="ic-toggle" (click)="openAcct.set(!openAcct())" [attr.aria-expanded]="openAcct()">
+            <i class="pi" [class.pi-chevron-right]="!openAcct()" [class.pi-chevron-down]="openAcct()"></i>
+            {{ openAcct() ? 'Ocultar' : 'Ver' }} desglose por cuenta ({{ c.por_cuenta.length }})
+          </button>
+          @if (openAcct()) {
+            <div class="ic-tablewrap">
+              <table class="ic-table">
+                <thead><tr><th>Cuenta</th><th class="ta-r">Depósitos</th><th class="ta-r">Kepler (mayoreo)</th><th class="ta-r">Tienda</th><th class="ta-r">Sin explicar</th><th class="ta-r">% Kepler</th></tr></thead>
+                <tbody>
+                  @for (a of c.por_cuenta; track a.account_label) {
+                    <tr>
+                      <td class="mono">{{ a.account_label || a.bank || '—' }}</td>
+                      <td class="ta-r mono">{{ a.bank_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      <td class="ta-r mono ok">{{ a.kepler | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      <td class="ta-r mono">{{ a.retail | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      <td class="ta-r mono" [class.bad]="a.sin_explicar > 1">{{ a.sin_explicar | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                      <td class="ta-r mono">{{ pct(a.kepler, a.bank_total) | number:'1.0-0' }}%</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+              <p class="ic-more muted"><b>Kepler (mayoreo)</b> = tesorería (kdm1) + cobranza (UA0501). <b>Tienda</b> = depósito de Caja. Los depósitos de venta de menudeo (Wincaja) que Kepler no ve NO son de Kepler — por eso su rebanada es el mayoreo.</p>
+            </div>
+          }
+        }
+
         @if (c.sin_explicar.n > 0) {
           <button type="button" class="ic-toggle" (click)="open.set(!open())" [attr.aria-expanded]="open()">
             <i class="pi" [class.pi-chevron-right]="!open()" [class.pi-chevron-down]="open()"></i>
@@ -116,6 +143,7 @@ export class CajaIngresoRefComponent {
   private readonly destroyRef = inject(DestroyRef);
   readonly data = signal<IngresosControl | null>(null);
   readonly open = signal(false);
+  readonly openAcct = signal(false);
   dmShort = dmShort;
   money = money;
   private seq = 0;
@@ -126,6 +154,7 @@ export class CajaIngresoRefComponent {
       if (!p || !/^\d{4}-\d{2}$/.test(p)) { this.data.set(null); return; }
       const token = ++this.seq;
       this.open.set(false);
+      this.openAcct.set(false);
       this.api.ingresosControl(p).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { if (token === this.seq) this.data.set(d); },
         error: () => { if (token === this.seq) this.data.set(null); },

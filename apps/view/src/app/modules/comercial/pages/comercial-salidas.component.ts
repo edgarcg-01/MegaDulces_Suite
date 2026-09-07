@@ -129,7 +129,7 @@ const MES: Record<string, string> = {
                   <th scope="col" pFrozenColumn style="min-width:110px" pSortableColumn="sku">Clave <p-sorticon field="sku" /></th>
                   <th scope="col" pFrozenColumn style="min-width:240px" pSortableColumn="nombre">Descripción <p-sorticon field="nombre" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="pack_size" pTooltip="Piezas por paquete (Kepler c81)">Pz/Paq <p-sorticon field="pack_size" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja (etiqueta c84, o factor de venta) — la unidad con que se calcula Costo x Caja">Pz/Cja <p-sorticon field="box_size" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="box_size" pTooltip="Piezas por caja — factor canónico de Kepler (kdii.c84). Con este divisor se calculan TODAS las columnas 'en cajas': Exist. Cja, Costo x Caja y Venta cja.">Pz/Cja <p-sorticon field="box_size" /></th>
                   <th scope="col" pSortableColumn="unit_sale">Unidad <p-sorticon field="unit_sale" /></th>
                   <th scope="col" pSortableColumn="brand">Marca <p-sorticon field="brand" /></th>
                   <th scope="col" pSortableColumn="supplier">Proveedor <p-sorticon field="supplier" /></th>
@@ -137,10 +137,10 @@ const MES: Record<string, string> = {
                   <th scope="col" pSortableColumn="rotation_tier">Rot. <p-sorticon field="rotation_tier" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="exist_paq">Exist. Pza <p-sorticon field="exist_paq" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="exist_paquete">Exist. Paq <p-sorticon field="exist_paquete" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="exist_caja">Exist. Cja <p-sorticon field="exist_caja" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="costo_caja">Costo x Caja <p-sorticon field="costo_caja" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="exist_caja" pTooltip="Existencia en CAJAS = piezas en existencia ÷ Pz/Cja">Exist. Cja <p-sorticon field="exist_caja" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="costo_caja" pTooltip="Costo de UNA caja (costo unitario × Pz/Cja)">Costo x Caja <p-sorticon field="costo_caja" /></th>
                   @if (isRange()) {
-                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta <p-sorticon field="venta_total" /></th>
+                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total" pTooltip="Venta del período en PIEZAS. La columna 'Venta cja' la muestra en cajas.">Venta <p-sorticon field="venta_total" /></th>
                     <th scope="col" class="comm-num" pSortableColumn="venta_prev">Anterior <p-sorticon field="venta_prev" /></th>
                     <th scope="col" class="comm-num" pSortableColumn="venta_delta_pct">Var % <p-sorticon field="venta_delta_pct" /></th>
                     <th scope="col" class="comm-num sl-sec" pSortableColumn="costo_total">Costo <p-sorticon field="costo_total" /></th>
@@ -149,10 +149,10 @@ const MES: Record<string, string> = {
                       <th scope="col" class="comm-num" [pSortableColumn]="'monthly.' + m + '.venta'">Venta {{ mes(m) }} <p-sorticon [field]="'monthly.' + m + '.venta'" /></th>
                       <th scope="col" class="comm-num sl-sec" [pSortableColumn]="'monthly.' + m + '.costo'">Costo {{ mes(m) }} <p-sorticon [field]="'monthly.' + m + '.costo'" /></th>
                     }
-                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total">Venta TOTAL <p-sorticon field="venta_total" /></th>
+                    <th scope="col" class="comm-num sl-strong" pSortableColumn="venta_total" pTooltip="Venta total del año en PIEZAS. La columna 'Venta cja' la muestra en cajas.">Venta TOTAL <p-sorticon field="venta_total" /></th>
                   }
-                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes">Venta paq <p-sorticon field="venta_paquetes" /></th>
-                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas">Venta cja <p-sorticon field="venta_cajas" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_paquetes" pTooltip="Venta del período en PAQUETES (piezas ÷ Pz/Paq)">Venta paq <p-sorticon field="venta_paquetes" /></th>
+                  <th scope="col" class="comm-num" pSortableColumn="venta_cajas" pTooltip="Venta del período en CAJAS (piezas ÷ Pz/Cja)">Venta cja <p-sorticon field="venta_cajas" /></th>
                   <th scope="col" class="comm-num" pSortableColumn="dias_cobertura">Cobertura <p-sorticon field="dias_cobertura" /></th>
                 </tr>
               </ng-template>
@@ -170,7 +170,7 @@ const MES: Record<string, string> = {
                   <td class="sl-rot comm-muted">{{ row.rotation_tier ?? '—' }}</td>
                   <td class="comm-num">{{ row.exist_paq | number:'1.0-0' }}</td>
                   <td class="comm-num">{{ row.exist_paquete == null ? '—' : (row.exist_paquete | number:'1.0-2') }}</td>
-                  <td class="comm-num">{{ row.exist_caja == null ? '—' : (row.exist_caja | number:'1.0-2') }}</td>
+                  <td class="comm-num" [pTooltip]="row.exist_caja == null ? '' : ((row.exist_caja | number:'1.0-2') + ' cajas')">{{ row.exist_caja == null ? '—' : (row.exist_caja | number:'1.0-2') }}</td>
                   <td class="comm-num">{{ row.costo_caja | currency:'MXN':'symbol-narrow':'1.0-2' }}</td>
                   @if (isRange()) {
                     <td class="comm-num sl-strong">{{ row.venta_total != null ? (row.venta_total | number:'1.0-0') : '·' }}</td>
@@ -185,7 +185,7 @@ const MES: Record<string, string> = {
                     <td class="comm-num sl-strong">{{ row.venta_total | number:'1.0-0' }}</td>
                   }
                   <td class="comm-num">{{ row.venta_paquetes != null ? (row.venta_paquetes | number:'1.0-1') : '—' }}</td>
-                  <td class="comm-num">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '—' }}</td>
+                  <td class="comm-num" [pTooltip]="row.venta_cajas != null ? ((row.venta_cajas | number:'1.0-1') + ' cajas') : ''">{{ row.venta_cajas != null ? (row.venta_cajas | number:'1.0-1') : '—' }}</td>
                   <td class="comm-num comm-muted">{{ row.dias_cobertura == null ? '—' : (row.dias_cobertura | number:'1.0-0') }}</td>
                 </tr>
               </ng-template>

@@ -17,6 +17,7 @@
 const { buildSalesDailySrc } = require('./sales-daily-projection');
 const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
+const { computeBarcodes } = require('./barcode-compute');
 const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -259,160 +260,36 @@ async function copyIntoTemp(client, tempName, cols, rows, perInsert) {
       const ph = cols.map((c) => { params.push(r[c] === undefined ? null : r[c]); return `$${params.length}`; });
       return `(${ph.join(',')})`;
     });
-    await client.query(`INSERT INTO ${tempName} (${cols.join(',')}) VALUES ${tuples.join(',')}`, params);
+    // Identificadores CITADOS: la staging se crea con comillas (preserva el case del origen) y sin
+    // citar acá, Postgres bajaba el nombre a minúsculas → `column "almacen" of relation "stg_raw"
+    // does not exist` con las tablas CamelCase de Wincaja (WR.8.0). Para los demás handlers, que
+    // pasan snake_case en minúsculas, citar no cambia nada.
+    const colList = cols.map((c) => '"' + String(c).replace(/"/g, '""') + '"').join(',');
+    await client.query(`INSERT INTO ${tempName} (${colList}) VALUES ${tuples.join(',')}`, params);
   }
 }
 
 /**
- * feed 'erp-goods-receipts' — órdenes de entrada Kepler (XA2001) → analytics.erp_goods_receipts (+ _lines).
- * rows: cada fila lleva `k`: 'h' (cabecera) o 'l' (línea). El poller on-prem detecta XA2001 nuevos/cambiados
- *   en las sucursales Kepler y los empuja. Ledger append-only (upsert por PK, SIN delete). Mismo SQL que
- *   import-goods-receipts (una sola fuente de verdad de columnas/conflictos).
- */
-const GR_COLS = ['sucursal', 'folio', 'doc_prefix', 'receipt_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'vale_folio', 'oc_folio', 'concepto', 'monto', 'source_branch'];
-const GRL_COLS = ['sucursal', 'folio', 'linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe'];
-
-async function applyErpGoodsReceipts(client, tenantId, rows) {
-  assertTenant(tenantId);
-  const headers = [], lines = [];
-  for (const r of Array.isArray(rows) ? rows : []) { if (r.k === 'h') headers.push(r); else if (r.k === 'l') lines.push(r); }
-  if (!headers.length && !lines.length) return 0;
-
-  await client.query('BEGIN');
-  try {
-    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    let up = 0, upl = 0;
-
-    if (headers.length) {
-      await client.query(`CREATE TEMP TABLE stg_gr (sucursal text, folio text, doc_prefix text, receipt_date date, proveedor_code text, proveedor_nombre text, proveedor_rfc text, vale_folio text, oc_folio text, concepto text, monto numeric, source_branch text) ON COMMIT DROP`);
-      await copyIntoTemp(client, 'stg_gr', GR_COLS, headers);
-      up = (await client.query(
-        `INSERT INTO analytics.erp_goods_receipts AS t
-           (tenant_id, sucursal, folio, doc_prefix, receipt_date, proveedor_code, proveedor_nombre, proveedor_rfc, vale_folio, oc_folio, concepto, monto, source_branch, computed_at)
-         SELECT $1, sucursal, folio, doc_prefix, receipt_date, proveedor_code, proveedor_nombre, proveedor_rfc, vale_folio, oc_folio, concepto, monto, source_branch, now() FROM stg_gr
-         ON CONFLICT (tenant_id, sucursal, doc_prefix, folio) DO UPDATE SET
-           doc_prefix=EXCLUDED.doc_prefix, receipt_date=EXCLUDED.receipt_date,
-           proveedor_code=EXCLUDED.proveedor_code, proveedor_nombre=EXCLUDED.proveedor_nombre,
-           proveedor_rfc=EXCLUDED.proveedor_rfc, vale_folio=EXCLUDED.vale_folio, oc_folio=EXCLUDED.oc_folio,
-           concepto=EXCLUDED.concepto, monto=EXCLUDED.monto, source_branch=EXCLUDED.source_branch, computed_at=now()
-         WHERE (t.receipt_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.vale_folio, t.oc_folio, t.concepto, t.monto)
-               IS DISTINCT FROM
-               (EXCLUDED.receipt_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre, EXCLUDED.proveedor_rfc, EXCLUDED.vale_folio, EXCLUDED.oc_folio, EXCLUDED.concepto, EXCLUDED.monto)`,
-        [tenantId])).rowCount;
-    }
-
-    if (lines.length) {
-      await client.query(`CREATE TEMP TABLE stg_grl (sucursal text, folio text, linea text, sku text, nombre text, cantidad numeric, unidad text, costo_unitario numeric, importe numeric) ON COMMIT DROP`);
-      await copyIntoTemp(client, 'stg_grl', GRL_COLS, lines);
-      upl = (await client.query(
-        `INSERT INTO analytics.erp_goods_receipt_lines AS t
-           (tenant_id, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, computed_at)
-         SELECT $1, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, now() FROM stg_grl
-         ON CONFLICT (tenant_id, sucursal, folio, linea) DO UPDATE SET
-           sku=EXCLUDED.sku, nombre=EXCLUDED.nombre, cantidad=EXCLUDED.cantidad, unidad=EXCLUDED.unidad,
-           costo_unitario=EXCLUDED.costo_unitario, importe=EXCLUDED.importe, computed_at=now()
-         WHERE (t.sku, t.nombre, t.cantidad, t.unidad, t.costo_unitario, t.importe)
-               IS DISTINCT FROM
-               (EXCLUDED.sku, EXCLUDED.nombre, EXCLUDED.cantidad, EXCLUDED.unidad, EXCLUDED.costo_unitario, EXCLUDED.importe)`,
-        [tenantId])).rowCount;
-    }
-
-    await client.query('COMMIT');
-    return up + upl;
-  } catch (e) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw e;
-  }
-}
-
-/**
- * feed 'erp-purchase-docs' — OC (X-A-35) y Vales (X-A-37) → analytics.erp_purchase_docs (+ _lines).
- * rows: cada fila lleva `k`: 'h' (cabecera) o 'l' (línea). Mismo SQL que import-purchase-docs
- *   (una sola fuente de verdad de columnas/conflictos). Ledger append-only, upsert por PK sin delete.
- *   Los dos doctypes van en la MISMA tabla — comparten shape en kdm1/kdm2 — y `doctype` es parte de la PK.
- */
-const PD_COLS = ['doctype', 'sucursal', 'folio', 'doc_date', 'due_date', 'proveedor_code', 'proveedor_nombre', 'proveedor_rfc', 'concepto', 'condicion_pago', 'referencia', 'monto', 'ref_doctype', 'ref_folio', 'source_branch'];
-const PDL_COLS = ['doctype', 'sucursal', 'folio', 'linea', 'sku', 'nombre', 'cantidad', 'unidad', 'costo_unitario', 'importe'];
-
-async function applyErpPurchaseDocs(client, tenantId, rows) {
-  assertTenant(tenantId);
-  const headers = [], lines = [];
-  for (const r of Array.isArray(rows) ? rows : []) { if (r.k === 'h') headers.push(r); else if (r.k === 'l') lines.push(r); }
-  if (!headers.length && !lines.length) return 0;
-
-  // Espejo convertido a vista en vivo (mig 20260820200000): el feed queda sin efecto a
-  // proposito — la vista ya trae los documentos al segundo desde kepler_ods.
-  const kind = await client.query(`SELECT relkind FROM pg_class WHERE oid = to_regclass('analytics.erp_purchase_docs')`);
-  if (kind.rows[0] && kind.rows[0].relkind === 'v') return 0;
-
-  await client.query('BEGIN');
-  try {
-    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
-    let up = 0, upl = 0;
-
-    if (headers.length) {
-      await client.query(`CREATE TEMP TABLE stg_pd (doctype text, sucursal text, folio text, doc_date date, due_date date, proveedor_code text, proveedor_nombre text, proveedor_rfc text, concepto text, condicion_pago text, referencia text, monto numeric, ref_doctype text, ref_folio text, source_branch text) ON COMMIT DROP`);
-      await copyIntoTemp(client, 'stg_pd', PD_COLS, headers);
-      up = (await client.query(
-        `INSERT INTO analytics.erp_purchase_docs AS t
-           (tenant_id, doctype, sucursal, folio, doc_date, due_date, proveedor_code, proveedor_nombre,
-            proveedor_rfc, concepto, condicion_pago, referencia, monto, ref_doctype, ref_folio, source_branch, computed_at)
-         SELECT $1, doctype, sucursal, folio, doc_date, due_date, proveedor_code, proveedor_nombre,
-                proveedor_rfc, concepto, condicion_pago, referencia, monto, ref_doctype, ref_folio, source_branch, now() FROM stg_pd
-         ON CONFLICT (tenant_id, doctype, sucursal, folio) DO UPDATE SET
-           doc_date=EXCLUDED.doc_date, due_date=EXCLUDED.due_date,
-           proveedor_code=EXCLUDED.proveedor_code, proveedor_nombre=EXCLUDED.proveedor_nombre,
-           proveedor_rfc=EXCLUDED.proveedor_rfc, concepto=EXCLUDED.concepto,
-           condicion_pago=EXCLUDED.condicion_pago, referencia=EXCLUDED.referencia, monto=EXCLUDED.monto,
-           ref_doctype=EXCLUDED.ref_doctype, ref_folio=EXCLUDED.ref_folio,
-           source_branch=EXCLUDED.source_branch, computed_at=now()
-         WHERE (t.doc_date, t.due_date, t.proveedor_code, t.proveedor_nombre, t.proveedor_rfc, t.concepto,
-                t.condicion_pago, t.referencia, t.monto, t.ref_doctype, t.ref_folio)
-               IS DISTINCT FROM
-               (EXCLUDED.doc_date, EXCLUDED.due_date, EXCLUDED.proveedor_code, EXCLUDED.proveedor_nombre,
-                EXCLUDED.proveedor_rfc, EXCLUDED.concepto, EXCLUDED.condicion_pago, EXCLUDED.referencia,
-                EXCLUDED.monto, EXCLUDED.ref_doctype, EXCLUDED.ref_folio)`,
-        [tenantId])).rowCount;
-    }
-
-    if (lines.length) {
-      await client.query(`CREATE TEMP TABLE stg_pdl (doctype text, sucursal text, folio text, linea text, sku text, nombre text, cantidad numeric, unidad text, costo_unitario numeric, importe numeric) ON COMMIT DROP`);
-      await copyIntoTemp(client, 'stg_pdl', PDL_COLS, lines);
-      upl = (await client.query(
-        `INSERT INTO analytics.erp_purchase_doc_lines AS t
-           (tenant_id, doctype, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, computed_at)
-         SELECT $1, doctype, sucursal, folio, linea, sku, nombre, cantidad, unidad, costo_unitario, importe, now() FROM stg_pdl
-         ON CONFLICT (tenant_id, doctype, sucursal, folio, linea) DO UPDATE SET
-           sku=EXCLUDED.sku, nombre=EXCLUDED.nombre, cantidad=EXCLUDED.cantidad, unidad=EXCLUDED.unidad,
-           costo_unitario=EXCLUDED.costo_unitario, importe=EXCLUDED.importe, computed_at=now()
-         WHERE (t.sku, t.nombre, t.cantidad, t.unidad, t.costo_unitario, t.importe)
-               IS DISTINCT FROM
-               (EXCLUDED.sku, EXCLUDED.nombre, EXCLUDED.cantidad, EXCLUDED.unidad, EXCLUDED.costo_unitario, EXCLUDED.importe)`,
-        [tenantId])).rowCount;
-    }
-
-    await client.query('COMMIT');
-    return up + upl;
-  } catch (e) {
-    await client.query('ROLLBACK').catch(() => {});
-    throw e;
-  }
-}
-
-/**
- * feed 'raw-upsert' — CDC genérico Kepler → kepler_ods.<tabla> (SYNC.2).
+ * feed 'raw-upsert' — CDC genérico Access/Kepler → <schema>.<tabla> (SYNC.2 · WR.8).
  *
- * TABLA-AGNÓSTICO: replica cualquier tabla `md.*` de Kepler sin código por tabla. El replicador
- * (replicate-ods.js) descubre columnas + PK del origen y los manda en `meta`; este handler:
- *   1) auto-crea/auto-altera kepler_ods.<tabla> (DDL confinado a ese schema),
+ * TABLA-AGNÓSTICO: replica cualquier tabla de origen sin código por tabla. El replicador
+ * descubre columnas + PK del origen y los manda en `meta`; este handler:
+ *   1) auto-crea/auto-altera <schema>.<tabla> (DDL confinado a un schema de la whitelist),
  *   2) UPSERT SIN CHURN: ON CONFLICT (sucursal, PK…) DO UPDATE … WHERE IS DISTINCT FROM
  *      → una fila que no cambió NO se reescribe (cero I/O, cero bloat).
  *
- * meta: { table, pk:[cols-origen sin 'sucursal'], columns:[{name,type}] (incluye 'sucursal') }.
+ * meta: { table, pk:[cols-origen sin 'sucursal'], columns:[{name,type}] (incluye 'sucursal'),
+ *         schema?: 'kepler_ods' (default) | 'wincaja_ods' }.
  * rows: objetos { sucursal, <col>:val, … }. Los identificadores vienen por HTTP → se validan
- *   contra whitelist estricta (solo tablas/columnas estilo Kepler). kepler_ods es single-tenant
- *   (sin tenant_id/RLS); assertTenant solo protege el endpoint.
+ *   contra whitelist estricta. Los ODS son single-tenant (sin tenant_id/RLS); assertTenant solo
+ *   protege el endpoint.
+ *
+ * `meta.schema` (WR.8.0) permite reusar este mismo handler para el agente-POS de Wincaja, que
+ * empuja desde el `.mdb` VIVO de la caja. El UPSERT sin churn de acá es justamente lo que le
+ * permite al agente mandar SNAPSHOTS COMPLETOS de catálogos sin hashear en PowerShell: el delta
+ * lo calcula Postgres. Default sin cambios → el carril Kepler no se entera.
  */
+const ODS_SCHEMAS = new Set(['kepler_ods', 'wincaja_ods']);
 const ODS_IDENT_RE = /^[a-z_][a-z0-9_]*$/i;
 const ODS_TYPES = new Set(['text', 'numeric', 'double precision', 'real', 'integer', 'bigint', 'smallint', 'boolean', 'date', 'timestamp', 'timestamptz']);
 const odsQid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
@@ -422,6 +299,11 @@ function odsIdent(x) {
   return s;
 }
 function odsType(t) { return ODS_TYPES.has(String(t)) ? String(t) : 'text'; }
+function odsSchema(s) {
+  const v = String(s == null || s === '' ? 'kepler_ods' : s);
+  if (!ODS_SCHEMAS.has(v)) throw new Error(`raw-upsert: schema no permitido '${v}'`);
+  return v;
+}
 
 async function applyRawUpsert(client, tenantId, rows, meta) {
   assertTenant(tenantId);
@@ -436,24 +318,30 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
   for (const k of pk) if (!colSet.has(k)) throw new Error(`raw-upsert: PK '${k}' no está en columns`);
 
   // Destino: PK compuesta (sucursal, PK-origen). No-clave = todo lo demás.
+  const schema = odsSchema(meta.schema);
   const conflict = ['sucursal', ...pk.filter((k) => k !== 'sucursal')];
   const conflictSet = new Set(conflict);
   const nonKey = cols.map((c) => c.name).filter((n) => !conflictSet.has(n));
-  const rel = `kepler_ods.${odsQid(table)}`;
+  const rel = `${odsQid(schema)}.${odsQid(table)}`;
 
   await client.query('BEGIN');
   try {
-    await client.query(`CREATE SCHEMA IF NOT EXISTS kepler_ods`);
+    await client.query(`CREATE SCHEMA IF NOT EXISTS ${odsQid(schema)}`);
 
     // Auto-create / auto-alter.
-    const exists = (await client.query(`SELECT to_regclass('kepler_ods.${table.replace(/'/g, "''")}') t`)).rows[0].t;
+    // OJO: `to_regclass` sobre un literal SIN comillas baja el identificador a minúsculas → con
+    // nombres CamelCase (las tablas de Wincaja: `MaestroMovAlmacen`) daba null aunque la tabla
+    // existiera, y el handler intentaba CREATE de nuevo. `quote_ident` lo resuelve para los dos
+    // carriles (Kepler ya venía en minúsculas, así que no cambia nada allá).
+    const exists = (await client.query(
+      `SELECT to_regclass(quote_ident($1) || '.' || quote_ident($2)) t`, [schema, table])).rows[0].t;
     if (!exists) {
       const defs = cols.map((c) => `${odsQid(c.name)} ${c.type}`).join(', ');
       await client.query(`CREATE TABLE ${rel} (${defs}, PRIMARY KEY (${conflict.map(odsQid).join(', ')}))`);
       try { await client.query(`GRANT SELECT ON ${rel} TO app_runtime`); } catch { /* rol ausente en dev */ }
     } else {
       const have = new Set((await client.query(
-        `SELECT column_name FROM information_schema.columns WHERE table_schema='kepler_ods' AND table_name=$1`, [table]
+        `SELECT column_name FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2`, [schema, table]
       )).rows.map((r) => r.column_name));
       for (const c of cols) {
         if (!have.has(c.name)) await client.query(`ALTER TABLE ${rel} ADD COLUMN ${odsQid(c.name)} ${c.type}`);
@@ -484,23 +372,41 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
       changed = (await client.query(sql)).rowCount;
     }
 
-    // Marca de frescura (siempre, aunque changed=0 → prueba que el sync corrió).
+    // Marca de frescura (siempre, aunque changed=0 → prueba que el sync corrió). Por schema:
+    // el carril Wincaja tiene su propio `_sync_status` y no se mezcla con el de Kepler.
+    // La sucursal va en la llave porque el agente-POS empuja por caja: un `MaestroMovAlmacen`
+    // fresco en la 30 no dice nada de la 32, y una sola fila por tabla lo taparía.
     await client.query(`
-      CREATE TABLE IF NOT EXISTS kepler_ods._sync_status (
+      CREATE TABLE IF NOT EXISTS ${odsQid(schema)}._sync_status (
         table_name text PRIMARY KEY, last_push_at timestamptz NOT NULL DEFAULT now(),
         rows_last integer DEFAULT 0, rows_seen integer DEFAULT 0)`);
+    // Sólo el carril nuevo lleva sucursal en la llave. En `kepler_ods` la llave sigue siendo la
+    // tabla a secas: `db-health` ya lee esas llaves y cambiarlas le rompería el sensor de frescura.
+    //
+    // [OBS.3.2] Se evaluó sumar acá una llave `tabla@sucursal` para vigilar el catálogo por rama y
+    // se DESCARTÓ: esta marca sólo se escribe cuando llega un lote, y el carril hash **no empuja
+    // nada cuando no hay cambios** (`replicate-ods-live.js:382` corta antes del POST). O sea la
+    // llave por rama heredaría la misma ambigüedad que ya documenta `analytics.v_feed_freshness`
+    // para las tablas del ODS — vieja puede ser "el carril murió" o "esa rama no cambió de precio
+    // en tres días" — y alarmaría sobre ramas tranquilas. La marca de que una rama se **REVISÓ**
+    // (distinta de que se le **EMPUJÓ** algo) la escribe el shipper en `analytics.ods_branch_checks`.
+    const branches = schema === 'kepler_ods' ? [] : (Array.isArray(rows)
+      ? Array.from(new Set(rows.map((r) => (r && r.sucursal != null ? String(r.sucursal).trim() : '')).filter(Boolean)))
+      : []);
+    const stKey = branches.length === 1 ? `${table}@${branches[0]}` : table;
     await client.query(
-      `INSERT INTO kepler_ods._sync_status (table_name, last_push_at, rows_last, rows_seen)
+      `INSERT INTO ${odsQid(schema)}._sync_status (table_name, last_push_at, rows_last, rows_seen)
        VALUES ($1, now(), $2, $3)
        ON CONFLICT (table_name) DO UPDATE SET last_push_at=now(), rows_last=EXCLUDED.rows_last, rows_seen=EXCLUDED.rows_seen`,
-      [table, changed, Array.isArray(rows) ? rows.length : 0]);
+      [stKey, changed, Array.isArray(rows) ? rows.length : 0]);
 
     await client.query('COMMIT');
 
     // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
     // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
     // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.
-    const cfg = ODS_NORMALIZERS[table];
+    // Los normalizadores son de Kepler (kdii…); wincaja_ods no matchea ninguno y no corre nada.
+    const cfg = schema === 'kepler_ods' ? ODS_NORMALIZERS[table] : null;
     if (cfg && Array.isArray(rows) && rows.length) {
       const skuCol = cfg.skuCol || pk[0];
       const keys = Array.from(new Set(rows.map((r) => (r[skuCol] == null ? '' : String(r[skuCol]).trim())).filter(Boolean)));
@@ -700,11 +606,71 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
   }
 }
 
+/**
+ * Normaliza SOLO estos SKUs desde kepler_ods.kdii → catalog.product_barcodes (barcodes por UNIDAD,
+ * 1 SKU→N). Hop-2 AL-MOMENTO: un cambio de kdii recomputa los barcodes al instante (misma lógica que
+ * el reconciliador nocturno, vía barcode-compute — single source of truth). Churn-free (solo escribe
+ * si algo cambió). Soft-delete de los barcodes kepler_* que ya no salen de Kepler para ese SKU (no toca
+ * source='wincaja' ni manual). Ver feedback_everything_derivable_from_ods + project_etiquetera_tienda.
+ */
+async function normalizeBarcodesFromOds(client, tenantId, skus) {
+  assertTenant(tenantId);
+  const clean = Array.from(new Set((Array.isArray(skus) ? skus : []).map((s) => String(s == null ? '' : s).trim()).filter(Boolean)));
+  if (!clean.length) return 0;
+  await client.query('BEGIN');
+  try {
+    await client.query(`SET LOCAL app.tenant_id = '${tenantId}'`);
+    const rows = await computeBarcodes(client, { schema: 'kepler_ods', skus: clean });
+    // stg_bc SIEMPRE (aunque vacía) para que el soft-delete de stale funcione uniforme.
+    await client.query(`CREATE TEMP TABLE stg_bc (
+      sku text, barcode text, unit text, factor numeric, source text, is_primary boolean) ON COMMIT DROP`);
+    const BATCH = 1000;
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const vals = [], params = [];
+      chunk.forEach((r, ri) => {
+        const b = ri * 6;
+        vals.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6})`);
+        params.push(r.sku, r.barcode, r.unit, r.factor, r.source, r.is_primary);
+      });
+      await client.query(`INSERT INTO stg_bc VALUES ${vals.join(',')}`, params);
+    }
+    let changed = 0;
+    if (rows.length) {
+      const up = await client.query(`
+        INSERT INTO catalog.product_barcodes (id, tenant_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
+        SELECT gen_random_uuid(), $1, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now()
+          FROM stg_bc s
+        ON CONFLICT (tenant_id, sku, barcode) WHERE deleted_at IS NULL DO UPDATE SET
+          unit=EXCLUDED.unit, factor=EXCLUDED.factor, source=EXCLUDED.source,
+          is_primary=EXCLUDED.is_primary, synced_at=now(), updated_at=now()
+        WHERE (catalog.product_barcodes.unit, catalog.product_barcodes.factor,
+               catalog.product_barcodes.source, catalog.product_barcodes.is_primary)
+              IS DISTINCT FROM (EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
+        [tenantId]);
+      changed += up.rowCount;
+    }
+    // soft-delete de barcodes kepler_* que ya NO salen de Kepler para estos SKUs (no toca wincaja/manual).
+    const del = await client.query(`
+      UPDATE catalog.product_barcodes p SET deleted_at=now(), updated_at=now()
+       WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND p.source LIKE 'kepler\\_%'
+         AND btrim(p.sku) = ANY($2)
+         AND NOT EXISTS (SELECT 1 FROM stg_bc s WHERE s.sku=btrim(p.sku) AND s.barcode=p.barcode)`,
+      [tenantId, clean]);
+    changed += del.rowCount;
+    await client.query('COMMIT');
+    return changed;
+  } catch (e) {
+    await client.query('ROLLBACK').catch(() => {});
+    throw e;
+  }
+}
+
 // Una tabla → { skuCol?, fns:[...] }. skuCol = de qué columna sacar los SKUs que llegaron (default pk[0];
 // kdik lo tiene en c2, no en su pk[0]=c1). Cada fn se corre en orden, en su PROPIA tx.
 // Todo lo derivado de current-state del ODS va acá (al-momento) → feedback_ods_derived_realtime_no_batch_lag.
 const ODS_NORMALIZERS = {
-  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
+  kdii: { fns: [normalizeProductsFromOds, normalizeSalePrice, normalizeLabelsFromOds, normalizeBarcodesFromOds, normalizeCost, normalizeBoxFactor, normalizeReorder] },
   kdik: { skuCol: 'c2', fns: [normalizeCost] },              // costo: c16 es la fuente primaria
   kdpv_prod_util: { fns: [normalizeSalePrice, normalizeLabelsFromOds, normalizeBoxPrice] },
   // Bitácora de cambios de precio de Kepler: es la FUENTE del precio de venta, así que un cambio de
@@ -713,15 +679,21 @@ const ODS_NORMALIZERS = {
   kdm2: { skuCol: 'c8', fns: [normalizeSalePrice] },
 };
 
+// RETIRADOS 2026-09-03: los feeds 'erp-goods-receipts' y 'erp-purchase-docs'. Sus destinos
+// (`analytics.erp_goods_receipts`/`_lines` y `erp_purchase_docs`/`_lines`) son VISTAS
+// derive-no-copy sobre `kepler_ods` desde las migs 20260819120000 / 20260820200000 —
+// verificado en prod: relkind='v' en los cuatro. Escribir ahí no desactualiza nada, revienta.
+// `applyErpPurchaseDocs` ya había quedado como no-op explícito (probaba relkind y devolvía 0);
+// `applyErpGoodsReceipts` no tenía ni esa guarda. Sus únicos emisores eran
+// `import-goods-receipts.js` / `import-wincaja-receipts.js` / `import-purchase-docs.js`,
+// borrados en este mismo commit.
 const HANDLERS = {
   'stock-delta': applyStockDelta,
   'wincaja-stock': applyWincajaStock,
   'wincaja-sales-bronze': applyWincajaSalesBronze,
-  'erp-goods-receipts': applyErpGoodsReceipts,
-  'erp-purchase-docs': applyErpPurchaseDocs,
   'raw-upsert': applyRawUpsert,
   'raw-delete': applyRawDelete,
   'cdc-heartbeat': applyCdcHeartbeat,
 };
 
-module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyErpGoodsReceipts, applyErpPurchaseDocs, applyRawUpsert, applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE };
+module.exports = { HANDLERS, applyStockDelta, applyWincajaStock, applyWincajaSalesBronze, applyRawUpsert, applyRawDelete, applyCdcHeartbeat, normalizeProductsFromOds, UUID_RE };

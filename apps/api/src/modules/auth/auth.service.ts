@@ -4,13 +4,12 @@ import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
-import { buildAbility } from '@megadulces/platform-core';
 
 /**
  * El JWT carga:
  *   - Identidad estable (sub, username, role_name, zona) — usada por el
  *     backend para identificar al usuario.
- *   - `permissions` y `rules` — usadas SOLO por el frontend para gating de UI
+ *   - `permissions` — usado SOLO por el frontend para gating de UI (el backend relee de DB)
  *     (esconder/mostrar menús). El backend las IGNORA: el `RolesGuard` lee
  *     permisos frescos de `role_permissions` en cada request (via cache TTL
  *     30s + invalidación en update). Así los cambios de permisos se aplican
@@ -19,7 +18,7 @@ import { buildAbility } from '@megadulces/platform-core';
  *
  * Por qué siguen en el JWT (y no solo en el response): cuando el usuario
  * recarga la página, el frontend restaura sesión desde la cookie. Sin
- * `rules` en el JWT, la UI se quedaría sin permisos hasta hacer una request
+ * `permissions` en el JWT, la UI se quedaría sin menú hasta hacer una request
  * adicional a /auth/me. Mantenerlas en el JWT es un hint de UI cómodo,
  * no una source-of-truth de seguridad.
  */
@@ -30,7 +29,6 @@ interface JwtPayload {
   role_name: string;
   tenant_id?: string;
   permissions?: Record<string, boolean>;
-  rules?: any[];
 }
 
 @Injectable()
@@ -68,7 +66,6 @@ export class AuthService {
 
     const permissions = rolePermissions ? rolePermissions.permissions : {};
 
-    const ability = buildAbility(permissions, { roleName: user.role_name });
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -78,7 +75,6 @@ export class AuthService {
       tenant_id: user.tenant_id,
       // Snapshot para UI gating (no para autorización backend).
       permissions: permissions,
-      rules: ability.rules,
     };
 
     return {
@@ -90,7 +86,6 @@ export class AuthService {
         zona: user.zona,
         role_name: user.role_name,
         permissions: permissions,
-        rules: ability.rules,
       },
     };
   }

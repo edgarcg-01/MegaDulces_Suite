@@ -1,8 +1,6 @@
 // OTel: DEBE ir PRIMERO de todo (instrumenta al cargar). Inerte sin
 // OTEL_EXPORTER_OTLP_ENDPOINT. Ver apps/api/src/otel.ts (INFRA.2, ADR-043).
 import './otel';
-// Sentry: DEBE ir primero (instrumenta al cargar). Inerte sin SENTRY_DSN.
-import './instrument';
 import * as dotenv from 'dotenv';
 dotenv.config();
 import { Logger } from '@nestjs/common';
@@ -99,7 +97,25 @@ class ReportsIoAdapter extends IoAdapter {
   }
 }
 
+/**
+ * `[AUTHZ-HARD.0]` Postura de fallo: la autenticación GLOBAL (JwtAuthGuard + RolesGuard) sólo
+ * se registra en AppModule cuando ENABLE_MULTITENANT==='true'. Si por config esa var quedara
+ * fuera en producción, el API arrancaría **sin autenticar** — sin error, sin log. El runbook de
+ * rollback dice literalmente "quitar ENABLE_MULTITENANT", así que el procedimiento de emergencia
+ * podía apagar la auth. Acá abortamos el arranque antes de servir una sola request.
+ */
+function assertAuthWiring(): void {
+  const isProd = process.env['NODE_ENV'] === 'production';
+  if (isProd && process.env['ENABLE_MULTITENANT'] !== 'true') {
+    throw new Error(
+      '[AUTHZ-HARD] En producción ENABLE_MULTITENANT debe ser "true": de él dependen los guards ' +
+        'globales de autenticación y autorización. Abortando arranque para no servir sin auth.',
+    );
+  }
+}
+
 async function bootstrap() {
+  assertAuthWiring();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     // Con LOG_JSON=true, bufferLogs deja que nestjs-pino tome el control (los logs
@@ -122,6 +138,15 @@ async function bootstrap() {
     app.useLogger(app.get(PinoLogger));
     app.flushLogs();
   }
+
+  // INFRA.2: filtro global que loguea las excepciones >= 500 con stacktrace a
+  // nivel error (reemplaza al SentryGlobalFilter removido). Tras el useLogger
+  // para que el error salga por pino (stdout Railway + Loki).
+  const { HttpAdapterHost } = await import('@nestjs/core');
+  const { AllExceptionsFilter } = await import('./all-exceptions.filter');
+  app.useGlobalFilters(
+    new AllExceptionsFilter(app.get(HttpAdapterHost).httpAdapter),
+  );
 
   // Detrás de nginx (mismo container) y del edge de Railway: confiar en el
   // primer proxy para que `req.ip` use X-Forwarded-For en vez de 127.0.0.1.

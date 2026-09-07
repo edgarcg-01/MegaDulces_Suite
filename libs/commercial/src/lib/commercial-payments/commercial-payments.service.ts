@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -352,11 +353,26 @@ export class CommercialPaymentsService {
   async listByOrder(orderId: string): Promise<PaymentRow[]> {
     if (!UUID_RE.test(orderId)) throw new BadRequestException('orderId inválido');
     return this.tk.run(async (trx) => {
+      // `[AUTHZ-HARD.1]` Ownership: `customer_b2b` tiene COMMERCIAL_ORDERS_VER, así que sin este
+      // check leía los pagos (monto/método/referencia/received_by) de CUALQUIER pedido del tenant.
+      // Los pedidos ya lo hacen con enforceOrderOwnership; los pagos del pedido no lo hacían.
+      await this.assertOrderAccess(trx, orderId);
       const rows = await trx('commercial.payments')
         .where({ order_id: orderId })
         .whereNull('deleted_at')
         .orderBy('received_at', 'desc');
       return rows.map((r: any) => this.toRow(r));
     });
+  }
+
+  /** Para `customer_b2b`, exige que el pedido sea suyo. Internos pasan sin restricción. */
+  private async assertOrderAccess(trx: any, orderId: string): Promise<void> {
+    const ctx = this.tenantCtx.get();
+    if (ctx?.roleName !== 'customer_b2b') return;
+    const order = await trx('commercial.orders').where({ id: orderId }).first('customer_id');
+    const me = await trx('public.users').where({ id: ctx.userId }).first('customer_id');
+    if (!order || !me?.customer_id || order.customer_id !== me.customer_id) {
+      throw new ForbiddenException('No tenés acceso a los pagos de este pedido.');
+    }
   }
 }

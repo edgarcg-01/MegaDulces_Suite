@@ -311,28 +311,56 @@ export class SellOutExportService {
     ws.mergeCells(2, 1, 2, 5);
     ws.getCell(2, 1).value = `${r.rule.descripcion || r.metric_label} · ${r.period.label} · $${r.rule.rate.toFixed(2)} por ${r.base_label.toLowerCase()}`;
     ws.getCell(2, 1).font = { italic: true, size: 10, color: { argb: 'FF52525B' } };
-    ws.addRow([]);
-    head(ws.addRow(['Ruta', 'Clientes', 'Piezas', 'Importe', 'Pago']));
+    // La unidad se imprime en el documento: es el papel con el que se le paga a la gente.
+    ws.mergeCells(3, 1, 3, 5);
+    ws.getCell(3, 1).value = r.unit.nota;
+    ws.getCell(3, 1).font = { size: 9, color: { argb: r.unit.confiable ? 'FF52525B' : 'FFB45309' } };
+    const uCol = `Cantidad (${r.unit.unit_base || 'u'})`;
+    head(ws.addRow(['Ruta', 'Clientes', uCol, 'Importe', 'Pago']));
     for (const row of r.rows) {
-      const a = ws.addRow([row.label, row.clientes, row.piezas, row.importe, row.payout]);
+      const a = ws.addRow([row.label, row.clientes, row.unidades, row.importe, row.payout]);
       a.getCell(3).numFmt = NUM; a.getCell(4).numFmt = MONEY; a.getCell(5).numFmt = MONEY; a.getCell(5).font = { bold: true };
       a.eachCell((c) => (c.border = this.thin()));
     }
-    const tot = ws.addRow(['TOTAL', r.total_clientes, r.total_piezas, r.total_importe, r.total_payout]);
+    const tot = ws.addRow(['TOTAL', r.total_clientes, r.total_unidades, r.total_importe, r.total_payout]);
     tot.getCell(3).numFmt = NUM; tot.getCell(4).numFmt = MONEY; tot.getCell(5).numFmt = MONEY;
     tot.eachCell((c) => { c.font = { bold: true }; c.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F0EC' } }; c.border = this.thin(); });
     ws.getColumn(1).width = 34; ws.getColumn(2).width = 11; ws.getColumn(3).width = 11; ws.getColumn(4).width = 15; ws.getColumn(5).width = 13;
 
     // Hoja 2 — Clientes que participaron
     const wc = wb.addWorksheet('Clientes', { views: [{ state: 'frozen', ySplit: 1 }] });
-    head(wc.addRow(['Ruta', 'Cliente', 'Nombre', 'Piezas', 'Importe']));
+    head(wc.addRow(['Vendedor', 'Cliente', 'Nombre', '¿Nombre dudoso?', 'Tickets', 'Importe', 'Bono']));
     for (const c of r.clientes_detalle) {
-      const a = wc.addRow([c.route_label, c.cliente, c.nombre, c.piezas, c.importe]);
-      a.getCell(4).numFmt = NUM; a.getCell(5).numFmt = MONEY;
+      const a = wc.addRow([c.route_label, c.cliente, c.nombre, c.nombre_ambiguo ? 'SÍ' : '',
+        c.tickets, c.importe, c.califica ? r.rule.rate : 0]);
+      a.getCell(6).numFmt = MONEY; a.getCell(7).numFmt = MONEY;
+      if (c.califica) a.getCell(7).font = { bold: true };
       a.eachCell((cc) => (cc.border = this.thin()));
     }
-    wc.getColumn(1).width = 32; wc.getColumn(2).width = 12; wc.getColumn(3).width = 40; wc.getColumn(4).width = 11; wc.getColumn(5).width = 15;
-    if (r.clientes_detalle.length) wc.autoFilter = `A1:E${1 + r.clientes_detalle.length}`;
+    wc.getColumn(1).width = 32; wc.getColumn(2).width = 12; wc.getColumn(3).width = 40;
+    wc.getColumn(4).width = 15; wc.getColumn(5).width = 9; wc.getColumn(6).width = 15; wc.getColumn(7).width = 11;
+    if (r.clientes_detalle.length) wc.autoFilter = `A1:G${1 + r.clientes_detalle.length}`;
+
+    // Hoja 3 — Qué se le vendió a cada cliente. Una fila por (cliente, producto), con su
+    // UNIDAD al lado: en el mismo cliente conviven PAQ y PZA y sumarlas no significa nada.
+    if (r.clientes_detalle.some((c) => c.items?.length)) {
+      const wd = wb.addWorksheet('Detalle por producto', { views: [{ state: 'frozen', ySplit: 1 }] });
+      head(wd.addRow(['Vendedor', 'Cliente', 'Nombre', 'Producto', 'SKU', 'Cantidad', 'Unidad', 'Sin resolver', 'Importe']));
+      let n = 0;
+      for (const c of r.clientes_detalle) {
+        for (const it of c.items || []) {
+          const a = wd.addRow([c.route_label, c.cliente, c.nombre, it.nombre, it.sku,
+            it.unidades, it.unidad || '(no declarada)', it.unidades_sin_resolver || 0, it.importe]);
+          a.getCell(6).numFmt = NUM; a.getCell(8).numFmt = NUM; a.getCell(9).numFmt = MONEY;
+          a.eachCell((cc) => (cc.border = this.thin()));
+          n++;
+        }
+      }
+      wd.getColumn(1).width = 32; wd.getColumn(2).width = 12; wd.getColumn(3).width = 32;
+      wd.getColumn(4).width = 42; wd.getColumn(5).width = 10; wd.getColumn(6).width = 11;
+      wd.getColumn(7).width = 15; wd.getColumn(8).width = 13; wd.getColumn(9).width = 14;
+      if (n) wd.autoFilter = `A1:I${1 + n}`;
+    }
 
     const buf = await wb.xlsx.writeBuffer();
     return Buffer.from(buf as ArrayBuffer);
@@ -342,8 +370,18 @@ export class SellOutExportService {
     const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, (m) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[m] as string));
     const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
     const num = (n: number) => Number(n || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });
-    const sumRows = r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${x.clientes}</td><td class="n">${num(x.piezas)}</td><td class="n">${money(x.importe)}</td><td class="n b">${money(x.payout)}</td></tr>`).join('');
-    const cliRows = r.clientes_detalle.map((c) => `<tr><td>${esc(c.route_label)}</td><td>${esc(c.cliente)}</td><td class="d">${esc(c.nombre)}</td><td class="n">${num(c.piezas)}</td><td class="n">${money(c.importe)}</td></tr>`).join('');
+    const uCol = `Cantidad (${esc(r.unit.unit_base || 'u')})`;
+    const sumRows = r.rows.map((x) => `<tr><td>${esc(x.label)}</td><td class="n">${x.clientes}</td><td class="n">${num(x.unidades)}</td><td class="n">${money(x.importe)}</td><td class="n b">${money(x.payout)}</td></tr>`).join('');
+    // Cada cliente y, debajo, qué se le vendió con su unidad. El que no llegó al umbral se
+    // imprime igual, en gris: sin eso no se puede auditar por qué no cobró.
+    const cliRows = r.clientes_detalle.map((c) => {
+      const items = (c.items || []).map((it) =>
+        `<tr class="it"><td colspan="2"></td><td class="d">${esc(it.nombre)} <span class="sku">${esc(it.sku)}</span></td>` +
+        `<td class="n">${num(it.unidades)} <span class="uu">${esc(it.unidad || '?')}</span></td><td class="n">${money(it.importe)}</td></tr>`).join('');
+      return `<tr class="${c.califica ? 'q' : 'nq'}"><td>${esc(c.route_label)}</td><td>${esc(c.cliente)}</td>` +
+        `<td class="d">${esc(c.nombre)}${c.nombre_ambiguo ? ' <span class="amb">(nombre dudoso)</span>' : ''}</td>` +
+        `<td class="n">${money(c.importe)}</td><td class="n b">${c.califica ? money(r.rule.rate) : '—'}</td></tr>${items}`;
+    }).join('');
     const html = `<!doctype html><html><head><meta charset="utf-8"><style>
       *{box-sizing:border-box} body{font-family:Helvetica,Arial,sans-serif;color:#09090b;margin:0;padding:22px 18px}
       h1{font-size:15px;margin:0 0 2px} .sub{font-size:10px;color:#52525b;margin:0 0 14px}
@@ -352,14 +390,19 @@ export class SellOutExportService {
       th,td{border:.5px solid #e4e4e7;padding:3px 5px;text-align:left} th{background:#f4f4f5;font-weight:700}
       td.n{text-align:right;font-variant-numeric:tabular-nums} td.b,tr.tot td{font-weight:700} tr.tot td{background:#f4f4f5}
       td.d{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .u{font-size:8px;margin:0 0 12px;padding:5px 7px;border-radius:3px;background:#f4f4f5;color:#52525b}
+      .u.warn{background:#fef3c7;color:#92400e}
+      tr.nq td{color:#a1a1aa} tr.it td{font-size:7px;color:#52525b;border-top:none;padding-top:1px;padding-bottom:1px}
+      tr.it td.d{padding-left:14px} span.sku,span.uu{color:#a1a1aa} span.amb{color:#92400e}
     </style></head><body>
       <h1>Incentivo — ${esc(r.product?.nombre || '')}${r.product?.sku ? ' · ' + esc(r.product.sku) : ''}</h1>
       <p class="sub">${esc(r.rule.descripcion || r.metric_label)} · ${esc(r.period.label)} · $${r.rule.rate.toFixed(2)} por ${esc(r.base_label.toLowerCase())}</p>
+      <p class="u${r.unit.confiable ? '' : ' warn'}">${esc(r.unit.nota)}</p>
       <h2>Resumen por ruta</h2>
-      <table><thead><tr><th>Ruta</th><th>Clientes</th><th>Piezas</th><th>Importe</th><th>Pago</th></tr></thead>
-      <tbody>${sumRows}<tr class="tot"><td>TOTAL</td><td class="n">${r.total_clientes}</td><td class="n">${num(r.total_piezas)}</td><td class="n">${money(r.total_importe)}</td><td class="n">${money(r.total_payout)}</td></tr></tbody></table>
-      <h2>Clientes que participaron (${r.clientes_detalle.length})</h2>
-      <table><thead><tr><th>Ruta</th><th>Cliente</th><th>Nombre</th><th>Piezas</th><th>Importe</th></tr></thead><tbody>${cliRows}</tbody></table>
+      <table><thead><tr><th>Ruta</th><th>Clientes</th><th>${uCol}</th><th>Importe</th><th>Pago</th></tr></thead>
+      <tbody>${sumRows}<tr class="tot"><td>TOTAL</td><td class="n">${r.total_clientes}</td><td class="n">${num(r.total_unidades)}</td><td class="n">${money(r.total_importe)}</td><td class="n">${money(r.total_payout)}</td></tr></tbody></table>
+      <h2>Desglose de clientes (${r.clientes_detalle.filter((c) => c.califica).length} con bono · ${r.clientes_detalle.filter((c) => !c.califica).length} sin llegar)</h2>
+      <table><thead><tr><th>Vendedor</th><th>Cliente</th><th>Nombre / producto</th><th>Importe</th><th>Bono</th></tr></thead><tbody>${cliRows}</tbody></table>
     </body></html>`;
     const browser = await puppeteer.launch({
       headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],

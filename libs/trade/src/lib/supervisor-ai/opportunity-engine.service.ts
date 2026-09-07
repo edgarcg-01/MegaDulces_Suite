@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Motor de MEJORAS (Sprint H2.5).
@@ -107,8 +111,9 @@ export class OpportunityEngineService {
     return [];
   }
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /** Km de un recorrido (suma de tramos haversine consecutivos). */
@@ -126,7 +131,6 @@ export class OpportunityEngineService {
    */
   async listRouteOptimizations(user: any): Promise<{ routes: any[] }> {
     const tenantId = this.tenantId(user);
-    if (!tenantId) return { routes: [] };
     const custs = await this.knex('commercial.customers')
       .where({ tenant_id: tenantId })
       .whereNull('deleted_at')

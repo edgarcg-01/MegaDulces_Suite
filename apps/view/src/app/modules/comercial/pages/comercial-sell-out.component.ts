@@ -58,9 +58,38 @@ const CHANNEL_OPTS = [
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Sell-Out por empresa</h1>
-          <p class="surf-page-sub">Venta real consolidada (Kepler) por producto y sucursal · exporta XLSX / PDF</p>
+          <p class="surf-page-sub">Venta real consolidada (Kepler + Wincaja) por producto y sucursal · exporta XLSX / PDF</p>
         </div>
+        <button type="button" class="so-about-btn" [class.is-open]="aboutOpen()"
+                [attr.aria-expanded]="aboutOpen()" (click)="aboutOpen.set(!aboutOpen())">
+          <i class="pi pi-info-circle"></i><span>¿Qué filtra cada filtro?</span>
+        </button>
       </header>
+
+      <!-- About: qué filtra cada control (plegable) -->
+      @if (aboutOpen()) {
+        <div class="so-about card-premium card-flat">
+          <p class="so-about-lead">
+            Todos los filtros y la tabla derivan del <strong>mismo universo</strong> de venta,
+            acotado al periodo que elijas — lo que aparece en un filtro es exactamente lo que suma
+            en la matriz (sin doble conteo entre Kepler y Wincaja).
+          </p>
+          <dl class="so-about-list">
+            <div><dt>Empresa</dt><dd>Marca / proveedor. Deja las filas de sus productos. Vacío = todas las empresas.</dd></div>
+            <div><dt>Ver</dt><dd><b>Por canal</b> desglosa por canal · sucursal; <b>Por vendedor</b> por vendedor (mayoreo Kepler + Wincaja, y RD/RV de Wincaja).</dd></div>
+            <div><dt>Formato</dt><dd>Solo «Por canal». <b>Detalle</b> = columnas dinámicas; <b>Por plaza</b> = formato estándar plaza × tipo, en cajas, con todos los SKUs.</dd></div>
+            <div><dt>Periodo</dt><dd>El rango de fechas (mes, trimestre, año o rango libre). Meses cerrados salen del consolidado nocturno; el mes en curso, en vivo.</dd></div>
+            <div><dt>Canal · Sucursal / Vendedor</dt><dd>Elige qué canales y sucursales (o vendedores) suman. Solo aparecen los que tienen venta en el periodo. Vacío = todos.</dd></div>
+            <div><dt>Buscar SKU</dt><dd>Acota a un producto por SKU o descripción, en todas las empresas a la vez.</dd></div>
+            <div><dt>Vista</dt><dd>Solo «Por canal». <b>Por producto</b>, <b>Mes en columnas</b> o <b>Resumen mensual</b> — cambia cómo se despliegan filas y columnas.</dd></div>
+            <div><dt>Medida</dt><dd>Qué números se muestran: <b>Cajas</b>, <b>Monto</b> o <b>Ambas</b>. Solo afecta la vista; el total no cambia.</dd></div>
+            <div><dt>Promos</dt><dd><b>Sin promos</b> (excluye marcadores de $0.01), <b>Solo promos</b> o <b>Todo</b>.</dd></div>
+            <div><dt>Concentrar por</dt><dd>Colapsa el detalle en <b>un</b> total consolidado por canal, sucursal, empresa o ruta.</dd></div>
+            <div><dt>Desglosar canal · Incluir sin venta</dt><dd>Abre columnas por canal / muestra también los productos que no vendieron en el periodo.</dd></div>
+            <div><dt>Limpiar filtros</dt><dd>Restablece todos los controles a sus valores por defecto.</dd></div>
+          </dl>
+        </div>
+      }
 
       <!-- Controles -->
       <div class="so-filters card-premium card-flat">
@@ -156,6 +185,13 @@ const CHANNEL_OPTS = [
           <label>Medida</label>
           <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
         </div>
+
+        @if (showMonto()) {
+          <div class="so-field">
+            <label>Base del monto</label>
+            <app-segmented [options]="montoBaseOpts" [value]="montoBase()" (valueChange)="setMontoBase($event)" ariaLabel="Base del monto: neto de descuento o bruto de línea" />
+          </div>
+        }
 
         <div class="so-field">
           <label>Promos</label>
@@ -262,12 +298,38 @@ const CHANNEL_OPTS = [
               <span class="so-conc-scope">{{ concentradoCount() }} {{ concentradoNoun().toLowerCase() }} con venta · {{ (meta()?.period) || '' }}</span>
             </div>
             <div class="so-conc-grid">
-              <div class="so-conc-kpi"><span class="k-lbl">Monto consolidado</span><span class="k-val">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
+              <div class="so-conc-kpi"><span class="k-lbl">Monto consolidado</span><span class="k-val">{{ mo(r.grand_total) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span></div>
               <div class="so-conc-kpi"><span class="k-lbl">Cajas</span><span class="k-val">{{ r.grand_total.cajas | number:'1.0-1' }}</span></div>
               <div class="so-conc-kpi"><span class="k-lbl">{{ concentradoNoun() }}</span><span class="k-val">{{ concentradoCount() }}</span></div>
               <div class="so-conc-kpi"><span class="k-lbl">Productos</span><span class="k-val">{{ r.rows.length | number }}</span></div>
             </div>
           </div>
+        }
+
+        <!--
+          [VP.0.3] El reporte declara la EDAD del dato con el que se calculó, no la hora en que
+          respondio el servidor. Las matvistas que arman este pivote se refrescan de noche; si una
+          falla, los guards de poblado no lo ven (relispopulated queda en true para siempre) y el
+          reporte sale con una pierna vieja y otra fresca sin decir nada. Eso es exactamente "los
+          numeros cambiaron y nadie toco nada". No bloquea: declara, y nombra el eslabon.
+        -->
+        @if (r.freshness.status !== 'fresh') {
+          <p class="so-note so-note-stale" role="status">
+            <i class="pi" [class.pi-clock]="r.freshness.status === 'stale'"
+               [class.pi-question-circle]="r.freshness.status === 'unknown'"></i>
+            @if (r.freshness.status === 'stale') {
+              <strong>Datos de hace {{ r.freshness.age_human }}</strong> — el consolidado nocturno no corrio.
+            } @else {
+              <strong>No se pudo verificar que tan actual es este consolidado.</strong>
+            }
+            @if (staleLanes(r).length) {
+              <span class="so-note-lanes">
+                @for (i of staleLanes(r); track i.key) {
+                  {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
+                }
+              </span>
+            }
+          </p>
         }
 
         @if (r.coverage.note) {
@@ -320,10 +382,10 @@ const CHANNEL_OPTS = [
                     }
                     @for (c of r.columns; track c.key) {
                       @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
-                      @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
+                      @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (mo(cell(row, c.key)) | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
                     }
                     @if (showCajas()) { <td class="n b">{{ row.total.cajas | number:'1.0-2' }}</td> }
-                    @if (showMonto()) { <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                    @if (showMonto()) { <td class="n m b">{{ mo(row.total) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   </tr>
                 }
               </tbody>
@@ -332,10 +394,10 @@ const CHANNEL_OPTS = [
                   <td class="frz c0" [attr.colspan]="r.row_dim === 'month' ? 1 : 3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
                     @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
-                    @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                    @if (showMonto()) { <td class="n m">{{ mo(colTotal(r, c.key)) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   }
                   @if (showCajas()) { <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td> }
-                  @if (showMonto()) { <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
+                  @if (showMonto()) { <td class="n m">{{ mo(r.grand_total) | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                 </tr>
               </tfoot>
             </table>
@@ -361,6 +423,23 @@ const CHANNEL_OPTS = [
   `,
   styles: [`
     :host { display:block; }
+    /* About: botón en el head + panel plegable con la leyenda de cada filtro. */
+    .so-about-btn { display:inline-flex; align-items:center; gap:.4rem; align-self:center; white-space:nowrap;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px);
+      color:var(--text-muted); font-size:.8rem; font-weight:600; cursor:pointer; padding:.4rem .7rem;
+      transition:border-color .15s ease, color .15s ease, background-color .15s ease; }
+    .so-about-btn:hover { border-color:var(--action); color:var(--text-main); }
+    .so-about-btn.is-open { border-color:var(--action); color:var(--action); box-shadow:0 0 0 2px var(--action-ring); }
+    .so-about-btn i { font-size:.85rem; }
+    .so-about { padding:1rem 1.25rem; margin-bottom:1rem; }
+    .so-about-lead { margin:0 0 .85rem; font-size:.82rem; line-height:1.5; color:var(--text-muted); }
+    .so-about-lead strong { color:var(--text-main); font-weight:700; }
+    .so-about-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:.55rem 1.5rem; margin:0; }
+    .so-about-list > div { display:grid; grid-template-columns:minmax(9rem,auto) 1fr; gap:.6rem; align-items:baseline;
+      padding-bottom:.5rem; border-bottom:1px solid var(--border-color); }
+    .so-about-list dt { font-size:.78rem; font-weight:700; color:var(--text-main); }
+    .so-about-list dd { margin:0; font-size:.78rem; line-height:1.45; color:var(--text-muted); }
+    .so-about-list dd b { color:var(--text-main); font-weight:600; }
     .so-filters { display:flex; flex-wrap:wrap; gap:.75rem 1rem; align-items:flex-end; margin-bottom:1rem; }
     .so-field { display:flex; flex-direction:column; gap:.3rem; }
     .so-field > label { font-size:.72rem; font-weight:600; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; }
@@ -417,7 +496,11 @@ const CHANNEL_OPTS = [
     /* KPI grid — mismo lenguaje que /dashboard/reports (card-premium + rk-card). */
     app-metric-strip { display:block; margin-bottom:1rem; }
     .so-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border-color);
-      border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; }
+      border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; flex-wrap:wrap; }
+    /* [VP.0.3] Condicion del DATO, no de una accion: tono warn y no se puede cerrar. */
+    .so-note-stale { color:var(--warn-fg); border-color:color-mix(in srgb, var(--warn-fg) 35%, var(--border-color)); }
+    .so-note-stale strong { font-weight:700; }
+    .so-note-lanes { flex-basis:100%; opacity:.85; font-size:var(--fs-xs,.72rem); padding-left:1.2rem; }
     /* Concentrado: total consolidado por dimensión */
     .so-conc { padding:1.25rem 1.5rem; margin-top:1rem; }
     .so-conc-head { display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; }
@@ -573,7 +656,7 @@ export class ComercialSellOutComponent {
     const r = this.report();
     if (!r) return [];
     return [
-      { label: 'Monto total', value: r.grand_total.monto, format: 'currency', sub: 'Sell-out del periodo' },
+      { label: 'Monto total', value: this.mo(r.grand_total), format: 'currency', sub: this.montoBase() === 'neto' ? 'Neto de descuento (factura)' : 'Bruto de línea' },
       { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Unidades ÷ UXC' },
       { label: this.rowNounCap(r), value: r.rows.length, sub: r.row_dim === 'brand' ? 'Con venta · click para ver' : r.row_dim === 'month' ? 'Meses con venta' : 'Con venta en el periodo' },
       { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
@@ -599,6 +682,16 @@ export class ComercialSellOutComponent {
   showMonto = computed(() => this.measure() !== 'cajas');
   grpColspan = computed(() => (this.measure() === 'ambas' ? 2 : 1));
   setMeasure(m: string) { this.measure.set(m as Measure); }
+  // Base del monto: 'neto' = NETO DE DESCUENTO (= total de la factura, verdad; default) · 'bruto' = venta
+  // de línea antes del descuento de cabecera. Solo display; el backend siempre trae ambos. Cajas = volumen (no cambia).
+  montoBase = signal<'neto' | 'bruto'>('neto');
+  readonly montoBaseOpts = [
+    { label: 'Neto c/desc.', value: 'neto' },
+    { label: 'Bruto', value: 'bruto' },
+  ];
+  setMontoBase(b: string) { this.montoBase.set(b as 'neto' | 'bruto'); }
+  /** Monto según la base elegida (neto de descuento por default = total factura). */
+  mo(cell: SellOutCell | null | undefined): number { return cell ? (this.montoBase() === 'neto' ? cell.monto_neto : cell.monto) : 0; }
   // RS — filtro de promos: sin (default, excluye marcadores $0.01) / solo / todo.
   promo = signal<'sin' | 'solo' | 'todo'>('sin');
   readonly promoOpts = [
@@ -618,6 +711,12 @@ export class ComercialSellOutComponent {
     { label: 'Empresa', value: 'empresa' },
   ];
   setConcentrar(v: string) { this.concentrar.set(v as '' | 'ruta' | 'canal' | 'sucursal' | 'empresa'); this.generate(); }
+  /**
+   * [VP.0.3] Los eslabones que fallan, para que el aviso nombre algo accionable ("la MV de Kepler
+   * lleva 3 días") y no un genérico "hay rezago" que nadie sabe a quién escalar.
+   */
+  staleLanes(r: SellOutReport) { return (r.freshness?.inputs || []).filter((i) => i.stale); }
+
   private readonly concLabels: Record<string, string> = { ruta: 'Rutas', canal: 'Canales', sucursal: 'Sucursales', empresa: 'Empresas' };
   concentrarLabel = computed(() => (this.concLabels[this.concentrar()] ?? '').toUpperCase());
   concentradoNoun = computed(() => this.concLabels[this.concentrar()] ?? '');
@@ -674,6 +773,10 @@ export class ComercialSellOutComponent {
   selectedCells = signal<Set<string>>(new Set());
   slicerOpen = signal(false);
   readonly selectedCount = computed(() => this.selectedCells().size);
+  // "About" plegable: qué filtra cada control (los filtros y la tabla derivan del MISMO
+  // universo `analytics.v_sellout_daily`, acotado al periodo → lo que ves en el slicer suma
+  // en la matriz, sin doble conteo Kepler↔Wincaja).
+  aboutOpen = signal(false);
 
   private curFrom = '';
   private curTo = '';
@@ -701,10 +804,12 @@ export class ComercialSellOutComponent {
     this.generate();
   }
 
+  // Los árboles se piden ACOTADOS AL RANGO (from/to) → sus hojas reflejan exactamente lo que el reporte
+  // muestra para el periodo elegido (sintonía filtros↔datos). Se re-piden al cambiar el rango.
   private loadTrees() {
-    this.svc.sellOutCanales().pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.sellOutCanales(this.curFrom, this.curTo).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (t) => { this.canalTree.set(t); if (this.reportMode() === 'canal') this.pruneStaleCells(); }, error: () => {} });
-    this.svc.sellOutVendors().pipe(takeUntilDestroyed(this.destroyRef))
+    this.svc.sellOutVendors(this.curFrom, this.curTo).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (t) => { this.vendorTree.set(t); if (this.reportMode() === 'vendedor') this.pruneStaleCells(); }, error: () => {} });
   }
 
@@ -811,7 +916,7 @@ export class ComercialSellOutComponent {
 
   private loadWarehouses() {
     this.loadingWarehouses.set(true);
-    this.svc.sellOutWarehouses()
+    this.svc.sellOutWarehouses(this.curFrom, this.curTo)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (w) => { this.warehouseOpts.set(w); this.loadingWarehouses.set(false); },
@@ -823,7 +928,15 @@ export class ComercialSellOutComponent {
 
   /** Cambio de periodo/selector → recalcula rango y RE-GENERA solo (como Vista/Promos),
    *  salvo rango incompleto (from/to vacíos → espera a que el usuario complete + Generar). */
-  refreshPeriod() { this.syncPeriod(); if (this.curFrom && this.curTo) this.generate(); }
+  refreshPeriod() {
+    this.syncPeriod();
+    if (this.curFrom && this.curTo) {
+      // Filtros y datos van juntos: al mover el rango, re-pedí los árboles/almacenes acotados y re-generá.
+      this.loadWarehouses();
+      this.loadTrees();
+      this.generate();
+    }
+  }
 
   private iso(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -895,7 +1008,7 @@ export class ComercialSellOutComponent {
   private saveFilters(): void {
     try {
       localStorage.setItem(ComercialSellOutComponent.FKEY, JSON.stringify({
-        brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(),
+        brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(), montoBase: this.montoBase(),
         promo: this.promo(), concentrar: this.concentrar(), view: this.view(),
         reportMode: this.reportMode(), layout: this.layout(), search: this.search(),
         selectedCells: Array.from(this.selectedCells()),
@@ -915,6 +1028,7 @@ export class ComercialSellOutComponent {
       if (s.periodMode === 'month' || s.periodMode === 'quarter' || s.periodMode === 'year' || s.periodMode === 'range') this.periodMode.set(s.periodMode);
       if ('brandId' in s) this.brandId.set(s.brandId ?? null);
       if (s.measure === 'cajas' || s.measure === 'monto' || s.measure === 'ambas') this.measure.set(s.measure);
+      if (s.montoBase === 'neto' || s.montoBase === 'bruto') this.montoBase.set(s.montoBase);
       if (s.promo === 'sin' || s.promo === 'solo' || s.promo === 'todo') this.promo.set(s.promo);
       if (['', 'ruta', 'canal', 'sucursal', 'empresa'].includes(s.concentrar)) this.concentrar.set(s.concentrar);
       if (s.view === 'product' || s.view === 'month_columns' || s.view === 'month_summary') this.view.set(s.view);

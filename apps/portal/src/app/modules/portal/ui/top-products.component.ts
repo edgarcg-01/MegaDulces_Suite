@@ -11,6 +11,7 @@ import {
   OnDestroy,
   Output,
   inject,
+  input
 } from '@angular/core';
 import { CommonModule, CurrencyPipe } from '@angular/common';
 import type { PriceRow } from '../portal.service';
@@ -35,11 +36,11 @@ import { CartFxService } from '../cart-fx.service';
       <section class="tp">
         <header class="tp-head">
           <div class="tp-title">
-            <span class="tp-eyebrow">{{ eyebrow }}</span>
-            <h2>{{ heading }}</h2>
+            <span class="tp-eyebrow">{{ eyebrow() }}</span>
+            <h2>{{ heading() }}</h2>
           </div>
           <div class="tp-head-right">
-            <span class="tp-meta">{{ meta }}</span>
+            <span class="tp-meta">{{ meta() }}</span>
             <div class="tp-nav">
               <button type="button" class="tp-arrow" (click)="onArrow(-1)" aria-label="Anterior">
                 <i class="pi pi-chevron-left" aria-hidden="true"></i>
@@ -79,7 +80,7 @@ import { CartFxService } from '../cart-fx.service';
                 @if (!hasImg(p)) {
                   <span class="tp-mono">{{ initials(p) }}</span>
                 }
-                @if (showRank) {
+                @if (showRank()) {
                   <span class="tp-rank" [class.is-gold]="i === 0">#{{ i + 1 }}</span>
                 }
               </div>
@@ -103,14 +104,14 @@ import { CartFxService } from '../cart-fx.service';
                     <button
                       type="button"
                       class="tp-add"
-                      [disabled]="addingId === p.product_id || p.price == null"
+                      [disabled]="addingId() === p.product_id || p.price == null"
                       (click)="$event.stopPropagation(); onAdd(p, $event)"
                       [attr.aria-label]="'Agregar ' + p.product_name"
                       >
-                      @if (addingId === p.product_id) {
+                      @if (addingId() === p.product_id) {
                         <i class="pi pi-spin pi-spinner" aria-hidden="true"></i>
                       }
-                      @if (addingId !== p.product_id) {
+                      @if (addingId() !== p.product_id) {
                         <i class="pi pi-plus" aria-hidden="true"></i>
                       }
                     </button>
@@ -126,17 +127,17 @@ import { CartFxService } from '../cart-fx.service';
                       <button
                         type="button"
                         class="tp-step"
-                        [disabled]="addingId === p.product_id"
+                        [disabled]="addingId() === p.product_id"
                         (click)="$event.stopPropagation(); dec.emit(p)"
                         [attr.aria-label]="qtyOf(p) <= (p.min_qty || 1) ? 'Quitar del carrito' : 'Disminuir'"
                         >
                         <i [class]="qtyOf(p) <= (p.min_qty || 1) ? 'pi pi-trash' : 'pi pi-minus'" aria-hidden="true"></i>
                       </button>
-                      <span class="tp-step-val" aria-live="polite">{{ addingId === p.product_id ? '·' : qtyOf(p) }}</span>
+                      <span class="tp-step-val" aria-live="polite">{{ addingId() === p.product_id ? '·' : qtyOf(p) }}</span>
                       <button
                         type="button"
                         class="tp-step"
-                        [disabled]="addingId === p.product_id"
+                        [disabled]="addingId() === p.product_id"
                         (click)="$event.stopPropagation(); inc.emit(p)"
                         aria-label="Aumentar"
                         >
@@ -440,16 +441,16 @@ import { CartFxService } from '../cart-fx.service';
 export class TopProductsComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) products: PriceRow[] = [];
   /** product_id → etiqueta del badge "por qué" (tendencia MX, razón IA…). Pisa la señal de venta. */
-  @Input() notes: Record<string, string> = {};
-  @Input() eyebrow = 'Tendencia en México';
-  @Input() heading = 'Productos top';
-  @Input() meta = 'Lo que mueve el mercado';
+  readonly notes = input<Record<string, string>>({});
+  readonly eyebrow = input('Tendencia en México');
+  readonly heading = input('Productos top');
+  readonly meta = input('Lo que mueve el mercado');
   /** Muestra el ribbon de ranking #N (apagar para recomendaciones). */
-  @Input() showRank = true;
-  @Input() addingId: string | null = null;
-  @Input() addedIds = new Set<string>();
+  readonly showRank = input(true);
+  readonly addingId = input<string | null>(null);
+  readonly addedIds = input(new Set<string>());
   /** product_id → cantidad en carrito. >0 → muestra stepper en vez de "Agregar". */
-  @Input() cartQty: Record<string, number> = {};
+  readonly cartQty = input<Record<string, number>>({});
 
   @Output() open = new EventEmitter<PriceRow>();
   @Output() add = new EventEmitter<PriceRow>();
@@ -457,7 +458,7 @@ export class TopProductsComponent implements AfterViewInit, OnChanges, OnDestroy
   @Output() dec = new EventEmitter<PriceRow>();
 
   qtyOf(p: PriceRow): number {
-    return this.cartQty[p.product_id] || 0;
+    return this.cartQty()[p.product_id] || 0;
   }
 
   private readonly host = inject(ElementRef<HTMLElement>);
@@ -606,7 +607,7 @@ export class TopProductsComponent implements AfterViewInit, OnChanges, OnDestroy
 
   /** Nota del card: tendencia MX que matchea (si vino) o señal de venta. */
   noteFor(p: PriceRow, i: number): string {
-    return this.notes[p.product_id] || this.salesNote(p, i);
+    return this.notes()[p.product_id] || this.salesNote(p, i);
   }
 
   /** "Descripción" = prueba social a partir de las señales de venta del MV. */

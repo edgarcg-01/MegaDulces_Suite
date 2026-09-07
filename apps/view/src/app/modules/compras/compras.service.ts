@@ -47,13 +47,19 @@ export interface CriticalStockRow {
   unit_cost: number | null;
   bucket: Bucket;
   suggested_qty: number;
-  suggested_cost: number;
+  // U.2 — null = NO SE ESTÁ MIDIENDO, nunca cero: el costo de compra contradice el peldaño de la
+  // cantidad (ver `rung_veredicto`), así que multiplicar cantidad × costo mezcla unidades. Se
+  // dibuja como raya. Ver docs/UNIDADES_DE_MEDIDA.md §8quater.
+  suggested_cost: number | null;
+  // 'x1_inflada' (divisor chico → existencia se lee grande) / 'x2_deflactada' (al revés) / null.
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_base_label?: string | null; // rótulo de la unidad NATIVA del almacén (KG, PAQ, PZA…)
   // RA-PRO.16 — redistribución (cruce de red): traspaso vs compra real.
   surplus_here?: number;      // sobrante en ESTE almacén (existencia − máximo) → traspasar a otra
   surplus_network?: number;   // sobrante del producto en OTRAS sucursales (disponible para traspaso)
   transfer_in?: number;       // del sugerido, cuánto se cubre con traspaso (min(sugerido, sobrante_red))
   buy_qty?: number;           // compra REAL (sugerido − traspaso)
-  buy_cost?: number;          // $ de la compra real
+  buy_cost?: number | null;   // $ de la compra real — null = no medible (ver suggested_cost)
   accion?: 'sobrante' | 'traspaso' | 'traspaso_parcial' | 'comprar' | 'ok';
   // RA-PRO.9 — contexto de canal/ciclo (cómo se surte y cuándo toca)
   replenish_via?: 'purchase' | 'transfer' | null;
@@ -77,11 +83,18 @@ export interface PurchaseSuggestionRow {
   stock_unit_factor?: number; // SUF: sub-unidades de demanda por unidad de stock (>1 = granel corregido)
   price_ratio?: number;       // ratio mayoreo $/u ÷ retail $/u (señal de unidad)
   unit_source?: string;       // manual | granel | revisar | catalog
-  coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (override del proveedor o global)
-  coverage_source?: string;   // RA-PRO.27 — manual | auto | global
+  coverage_days_eff?: number; // RA-PRO.27 — cobertura aplicada (manual → cadencia Kepler+lead → auto → global)
+  coverage_source?: string;   // RA-PRO.27/41 — manual | kepler | auto | global
   safety_pct_eff?: number;    // RA-PRO.27 — colchón % aplicado
-  safety_source?: string;     // RA-PRO.27 — manual | auto | none
-  suggested_cost: number; days_cover: number | null;
+  safety_source?: string;     // RA-PRO.27/41 — manual | quantil | auto | none
+  season_ratio?: number;      // RA-PRO.41 — razón estacional aplicada a la demanda del horizonte
+  season_src?: string | null; // RA-PRO.41 — sku | cat | global
+  // U.2 — null = no medible: alguno de los almacenes que aportan a la existencia de red trae el
+  // peldaño contradicho por el costo, así que la suma no está en cajas. Ver `rung_almacenes`.
+  suggested_cost: number | null; days_cover: number | null;
+  rung_almacenes?: number;   // cuántos almacenes del scope traen el peldaño contradicho (0 = medible)
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_arbitrado?: number | null; // existencia valuada por lo PAGADO — referencia a revisar, no publicable
   sell_daily_cajas: number; sell_month_cajas: number; // venta de la red (30d): la señal del reorden
   sell_month_mxn: number; // RA-PRO.18 — venta 30d en $
   sales_rank: number | null; // RA-PRO.18 — ranking por venta $ (red)
@@ -91,6 +104,9 @@ export interface PurchaseSuggestionRow {
 export interface PurchaseSuggestionResponse {
   total: number; needed?: number; total_valor: number; total_revenue?: number; page: number; pageSize: number; coverage_days: number;
   rows: PurchaseSuggestionRow[];
+  // U.2 — lo que el total NO incluye porque no se puede medir. `arbitrado` es la cifra del árbitro
+  // (existencia × costo pagado): sirve para dimensionar el hueco, NO para publicarla como verificada.
+  unit_rung?: { skus: number; arbitrado: number };
 }
 export interface PurchaseSuggestionQuery {
   warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; brand_id?: string; category_id?: string;
@@ -105,11 +121,18 @@ export interface TransferSuggestionRow {
   supplier_name: string | null; uxc: number;
   deficit_pieces: number; deficit_cajas: number;
   transfer_pieces: number; transfer_cajas: number; shortfall_pieces: number;
-  unit_cost: number; transfer_value: number;
+  // U.2 — null = no medible: el divisor del destino o el del origen está contradicho por el costo.
+  unit_cost: number; transfer_value: number | null;
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_lado?: 'destino' | 'origen' | 'ambos' | null; // de qué lado viene el peldaño contradicho
 }
 export interface TransferSuggestionResponse {
   total: number; total_valor: number; total_cajas: number; page: number; pageSize: number; coverage_days: number;
   rows: TransferSuggestionRow[];
+  // U.2 — `filas` = traspasos listados cuyo $ queda retenido. `omitidos` = traspasos que NO están
+  // en la lista: con el divisor inflado la sucursal se lee abastecida y el déficit da 0, así que
+  // no hay renglón que marcar. Es el lado del error que ninguna retención puede mostrar.
+  unit_rung?: { filas: number; omitidos: number };
 }
 export interface TransferSuggestionQuery {
   warehouse_id?: string; supplier_id?: string; brand_id?: string; category_id?: string; search?: string; coverage_days?: number; page?: number; pageSize?: number;
@@ -122,10 +145,15 @@ export interface OverstockRow {
   supplier_name: string | null; uxc: number;
   on_hand_pieces: number; on_hand_cajas: number;
   surplus_cajas: number; surplus_pieces: number; days_on_hand: number | null;
-  unit_cost: number; immobilized_value: number;
+  // U.2 — null = no medible: el costo de compra contradice el divisor con el que se leyó la
+  // existencia, así que el excedente no es una cantidad de cajas y no se puede valuar.
+  unit_cost: number; immobilized_value: number | null;
+  rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
+  rung_arbitrado?: number | null; // existencia valuada por lo pagado — referencia, no publicable
 }
 export interface OverstockResponse {
   total: number; total_valor: number; total_cajas: number; page: number; pageSize: number; over_days: number;
+  unit_rung?: { filas: number }; // U.2 — filas cuyo inmovilizado queda sin valuar
   rows: OverstockRow[];
 }
 export interface OverstockQuery {
@@ -135,10 +163,52 @@ export interface OverstockQuery {
 // RA-PRO.32 — réplica del workbook del comprador (una fila por SKU, columnas por PUNTO DE COMPRA
 // dinámico: la raíz de abasto resuelta por topología, sin hardcodear códigos de almacén).
 export interface WorkbookTerritory { code: string; name: string; }
-export interface WorkbookCell { vta: number; exis: number; ped: number; }
+export interface WorkbookCell {
+  vta: number; exis: number; ped: number; tran?: number;
+  // U.2 — sólo viaja cuando el peldaño de unidad de ESE almacén NO está verificado
+  // (`analytics.v_unit_rung_audit`). Con `rung` presente, `exis` no es confiable y la celda debe
+  // mostrar `nat` + `natu` (la cantidad y el rótulo de la unidad que el ERP realmente guarda).
+  rung?: 'x1_inflada' | 'x2_deflactada';
+  nat?: number;    // existencia en la unidad NATIVA del almacén
+  natu?: string;   // rótulo de esa unidad, declarado por el ERP dueño (KG, PAQ, CUB…)
+}
+// RA-PRO.44 — qué viene en camino de un SKU (OCs abiertas), para explicar el "Pedido 0".
+export interface InTransitOc {
+  folio: string; sucursal: string;
+  fecha_oc: string; llega_aprox: string;
+  llega_estimada: boolean;              // Kepler no guarda fecha prometida: es OC + lead derivado
+  dias_abierta: number;                 // RA-PRO.45 — el dato que decide si esta OC sigue viva
+  proveedor: string | null; unidad: string | null;
+  cantidad: number;                     // en la unidad de la línea de la OC
+  cajas: number; valor: number;
+}
+export interface InTransitResponse {
+  product: { sku: string; nombre: string } | null;
+  lead_days?: number;
+  rows: InTransitOc[];
+  total_cajas: number; total_valor: number;
+  // RA-PRO.45 — cajas que el motor descuenta de verdad (pesadas por P(llega|edad)) vs las que
+  // dicen los papeles. La brecha es papel abierto que ya no se va a surtir.
+  descuenta_cajas?: number; fact_cajas?: number;
+}
+// RA-PRO.45 — bandeja: las OCs de Kepler que siguen abiertas, para cerrarlas o cancelarlas.
+export interface OpenOcRow {
+  almacen: string; folio: string; fecha_oc: string;
+  proveedor: string | null;
+  estatus: string;                      // c43 en Kepler: N pendiente · F finalizada · C cancelada · R recibida
+  dias: number; lineas: number; valor: number;
+  prob: number | null;                  // % histórico de que una OC de esa edad termine llegando
+}
+export interface OpenOcResponse {
+  rows: OpenOcRow[];
+  total: number; total_valor: number; valor_esperado: number;
+  curva: Array<{ edad: number; n: number; pct: number; fallback: boolean }>;
+}
 export interface WorkbookRow {
   product_id: string; sku: string; nombre: string; supplier_name: string | null;
   uxc: number; caja_cost: number;
+  unidad_base: string | null;      // RA-PRO.46 — rótulo REAL de la unidad, dicho por Kepler
+                                   // (kdii.c11): PZA/PAQ, pero también 500/KG/CUB en granel.
   box_size: number | null;         // Pz/Caja (etiqueta) — normalmente = uxc
   pack_size: number | null;        // Pz/Paquete (solo multipacks)
   packs_per_box: number | null;    // box_size ÷ pack_size (solo si divide exacto)
@@ -146,8 +216,18 @@ export interface WorkbookRow {
   xyz_class: string | null;        // clase XYZ de red (peor-caso entre sucursales)
   reorder_cajas: number | null;    // punto de reorden de red, en cajas
   max_cajas: number | null;        // máximo de red, en cajas
+  transito_cajas: number | null;   // RA-PRO.44 — OC abierta (lo que ya se pidió y no ha llegado)
   suma_pedido_cajas: number; pedido_valor: number;
-  valor_venta: number; valor_exis: number;
+  valor_venta: number;
+  // U.2 — `valor_exis` es Σ de los almacenes con el peldaño VERIFICADO. Puede venir null si NINGUNO
+  // lo está. Los que quedaron fuera se declaran acá abajo; nunca se dibujan como cero.
+  valor_exis: number | null;
+  almacenes_sin_valuar: number;          // cuántas celdas quedaron sin valuar
+  // U.2 — cuántos almacenes NO aportan al pedido de red porque su peldaño está contradicho: el
+  // total viene CORTO, no es que no haga falta comprar ahí.
+  almacenes_sin_pedido?: number;
+  valor_exis_arbitrado: number | null;   // lo que el árbitro (la compra real) sí puede afirmar
+  rung_peor: 'x1_inflada' | 'x2_deflactada' | null;
   // RA-PRO.36 — Índice de Aceleración de Demanda (señal −2..+2, por SKU)
   iad: number | null;
   iad_band: string | null;         // accel_extra|accel|accel_leve|estable|desacel_leve|desacel|desacel_extra
@@ -155,11 +235,18 @@ export interface WorkbookRow {
   iad_z_short: number | null;      // Welch-Z 30v30 (tooltip)
   iad_z_seasonal: number | null;   // Welch-Z YoY (tooltip)
   iad_has_seasonal: boolean | null;
+  // RA-PRO.41 — estacionalidad: la demanda del horizonte YA va multiplicada por esta razón
+  // (idx próximos 30d ÷ idx últimos 30d, jerárquico sku→categoría→global). 1 = mes plano.
+  season_ratio: number | null;
+  season_src: string | null;       // sku | cat | global
 }
 export interface WorkbookResponse {
   total: number; page: number; pageSize: number; coverage_days: number;
   territories: WorkbookTerritory[];       // puntos de compra presentes → columnas dinámicas
   totals: { pedido: number; venta: number; exis: number };
+  // U.2 — el hueco del inventario valuado, declarado. `exis` de arriba es sólo lo verificado, así
+  // que sin esto el total bajaría en silencio y se leería como "hay menos inventario".
+  unit_rung?: { skus: number; celdas: number; arbitrado: number };
   rows: WorkbookRow[];
 }
 export interface WorkbookQuery {
@@ -195,8 +282,14 @@ export interface DeadStockRow {
   warehouse_code: string;
   sku: string;
   nombre: string;
-  on_hand: number;           // 0 = descontinuado / nunca surtido en este almacén
-  unit_cost: number;
+  on_hand: number;           // unidad NATIVA del almacén. 0 = descontinuado / nunca surtido acá
+  // ADR-055 — la misma existencia en CAJAS (la unidad más grande) + el divisor y el rótulo de la
+  // unidad suelta, para que la pantalla no tenga que adivinar en qué unidad está `on_hand`.
+  on_hand_cajas: number;
+  box_factor: number;        // unidades nativas por caja (1 = el producto no viene en caja)
+  base_label: string;        // rótulo de la unidad suelta, tal como lo declara el ERP del almacén
+  unit_cost: number;         // costo de la unidad NATIVA
+  caja_cost: number;         // = unit_cost × box_factor → cuadra con on_hand_cajas
   dead_value: number;        // existencia × costo = capital inmovilizado (0 si sin stock)
   last_activity: string | null; // última venta/movimiento en el almacén; null = nunca
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
@@ -228,6 +321,11 @@ export interface ReplenishmentSummary {
   // RA-PRO.16 — del sugerido: cuánto se cubre por traspaso (sobrante de red) vs compra real.
   traspasable_valor: number | null;
   compra_real_valor: number | null;
+  // U.2 — TODOS los importes y las cajas de arriba suman SÓLO lo medible. Esto es lo que quedó
+  // fuera: una suma no puede cambiar de unidad como una celda, así que se excluye y se declara.
+  sin_valuar_politicas?: number;  // filas (producto × almacén) excluidas
+  sin_valuar_skus?: number;       // productos distintos involucrados
+  sin_valuar_arbitrado?: number | null; // su existencia por lo PAGADO — referencia a revisar
 }
 export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
 export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boolean; }
@@ -580,10 +678,64 @@ export interface DuplicateGroup {
 }
 export interface DuplicatesResponse { window_days: number; groups: number; total_riesgo: number; rows: DuplicateGroup[]; }
 
-/** RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada. */
-export type AdjustmentMatch = 'exacto' | 'proveedor+fecha';
-export interface AdjustmentForEntradaRow extends AdjustmentRow { match: AdjustmentMatch; }
-export interface AdjustmentsForEntradaResponse { rows: AdjustmentForEntradaRow[]; total_monto: number; }
+/**
+ * RE.2/RE.21 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada.
+ *
+ * `match` tiene tres niveles a propósito: Kepler **no liga** la nota de crédito a la recepción
+ * (`entrada_folio` viene vacío en el 96%, y en las X-D-55 en el 100%), así que `exacto` es el
+ * 4% que sí liga, `monto` es fuerte pero circunstancial —el ajuste tiene el tamaño del hueco— y
+ * `proveedor+fecha` es un candidato que puede ser ruido. Mezclarlos sería mentir sobre la
+ * precisión.
+ */
+export type AdjustmentMatch = 'exacto' | 'monto' | 'proveedor+fecha';
+export interface AdjustmentForEntradaRow extends AdjustmentRow {
+  match: AdjustmentMatch;
+  /** `[RE.21]` — su magnitud casa con el hueco dentro de la tolerancia. */
+  explica?: boolean;
+  /** `[RE.21.3]` — días entre la recepción y el ajuste. >0 = el cuadre se calculó ANTES de que existiera. */
+  dias_despues?: number | null;
+}
+/** `[RE.21]` — el veredicto: ¿alguien explica el hueco, de qué naturaleza y con cuánta certeza? */
+export interface AdjustmentExplicacion {
+  delta: number;
+  explicado: boolean;
+  /** `negociado` (descuento/pronto pago/apoyo) vs `problema` (faltante/mal estado/…). */
+  grupo: string | null;
+  candidatos: number;
+  confianza: 'alta' | 'media' | 'ambigua' | 'ninguna';
+  /**
+   * `[RE.21.3]` — días entre recibir y el ajuste que explica. Si es > 0, el `monto_match` que se
+   * guardó al capturar **no pudo** tomarlo en cuenta. Es la diferencia entre "se equivocó el
+   * capturista" y "todavía no existía".
+   */
+  dias_despues?: number | null;
+}
+/** `[RE.22.1]` — un renglón del ajuste: qué mercancía se devolvió. */
+export interface AdjustmentLine {
+  linea: string; sku: string | null; nombre: string | null; unidad: string | null;
+  cantidad: number; costo_unitario: number; importe: number;
+}
+/**
+ * `[RE.22.1]` — el desglose de un ajuste. `desglose` NO es un estado de carga:
+ *  · `renglones` → hay detalle.
+ *  · `no_aplica` → es nota de crédito (X-D-55): no se desglosa por producto porque es dinero, no
+ *    mercancía. Medido: 1,256 documentos / $21.4M sin una sola línea en Kepler. La lista vacía es
+ *    la respuesta CORRECTA y hay que decirlo, no dejar un hueco que se lee como falla.
+ *  · `sin_dato`  → es una devolución que debería traer renglones y no los trae (~55 documentos).
+ */
+export interface AdjustmentLinesResponse {
+  desglose: 'renglones' | 'no_aplica' | 'sin_dato';
+  lineas: AdjustmentLine[];
+  total_importe: number;
+  motivo: string | null;
+  categoria?: string | null;
+  nota: string | null;
+}
+export interface AdjustmentsForEntradaResponse {
+  rows: AdjustmentForEntradaRow[];
+  total_monto: number;
+  explicacion: AdjustmentExplicacion | null;
+}
 
 /** RE.10 — reconciliación de los 2 canales de descuento de proveedor (pago c84 vs nota X-D-55). */
 export type DiscountCanal = 'pago' | 'nota' | 'ambos';
@@ -676,6 +828,20 @@ export class ComprasService {
   workbookDetail(productId: string, coverageDays?: number): Observable<WorkbookDetailResponse> {
     const qs = coverageDays ? `?coverage_days=${coverageDays}` : '';
     return this.http.get<WorkbookDetailResponse>(`${this.base}/workbook/${productId}${qs}`);
+  }
+
+  /** RA-PRO.44 — OCs abiertas del SKU: folio, fecha, llegada estimada y qué se pidió. */
+  inTransit(productId: string): Observable<InTransitResponse> {
+    return this.http.get<InTransitResponse>(`${this.base}/in-transit/${productId}`);
+  }
+
+  /** RA-PRO.45 — todas las OCs de Kepler abiertas, por antigüedad. La vista inversa de "En camino". */
+  openPurchaseOrders(q?: { sucursal?: string; min_days?: number }): Observable<OpenOcResponse> {
+    const p = new URLSearchParams();
+    if (q?.sucursal) p.set('sucursal', q.sucursal);
+    if (q?.min_days) p.set('min_days', String(q.min_days));
+    const qs = p.toString();
+    return this.http.get<OpenOcResponse>(`${this.base}/open-purchase-orders${qs ? '?' + qs : ''}`);
   }
 
   /**
@@ -978,14 +1144,28 @@ export class ComprasService {
    * RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada: por
    * `entrada_folio` exacto cuando existe, si no por proveedor + ventana de fecha.
    */
-  adjustmentsForEntrada(p: { proveedor_code?: string | null; entrada_folio?: string | null; date?: string | null; window_days?: number }): Observable<AdjustmentsForEntradaResponse> {
+  adjustmentsForEntrada(p: { proveedor_code?: string | null; entrada_folio?: string | null; date?: string | null; window_days?: number; delta?: number | null; tolerancia?: number }): Observable<AdjustmentsForEntradaResponse> {
     const q = new URLSearchParams();
     if (p.proveedor_code) q.set('proveedor_code', p.proveedor_code);
     if (p.entrada_folio) q.set('entrada_folio', p.entrada_folio);
     if (p.date) q.set('date', p.date);
     if (p.window_days) q.set('window_days', String(p.window_days));
+    // RE.21 — el hueco a explicar. Sin él, el server devuelve candidatos sin ranking (compat).
+    if (p.delta != null && isFinite(p.delta) && p.delta !== 0) q.set('delta', String(Math.abs(p.delta)));
+    if (p.tolerancia) q.set('tolerancia', String(p.tolerancia));
     const qs = q.toString();
     return this.http.get<AdjustmentsForEntradaResponse>(`${this.adjBase}/for-entrada${qs ? '?' + qs : ''}`);
+  }
+  /**
+   * `[RE.22.1]` — renglones de UN ajuste, al expandirlo. Ver `AdjustmentLinesResponse.desglose`:
+   * en una nota de crédito la lista vacía es la respuesta correcta, no un error.
+   */
+  adjustmentLines(p: { sucursal: string; folio: string; doctype?: string | null }): Observable<AdjustmentLinesResponse> {
+    const q = new URLSearchParams();
+    q.set('sucursal', p.sucursal);
+    q.set('folio', p.folio);
+    if (p.doctype) q.set('doctype', p.doctype);
+    return this.http.get<AdjustmentLinesResponse>(`${this.adjBase}/lines?${q.toString()}`);
   }
   /** RE.10 — reconciliación descuento pago (c84) vs nota (X-D-55) por proveedor. */
   adjustmentsDiscountReconciliation(q: { date_from?: string; date_to?: string; search?: string } = {}): Observable<DiscountReconResponse> {
@@ -1035,9 +1215,24 @@ export class ComprasService {
     return this.http.get<Compras360Response>(`${this.adjBase}/compras-360${qs ? '?' + qs : ''}`);
   }
 
-  /** CXP.3 — catálogo de filtros de Compras 360 (sucursales con conteo + monto máximo). */
-  compras360Filters(): Observable<Compras360Filters> {
-    return this.http.get<Compras360Filters>(`${this.adjBase}/compras-360/filters`);
+  /**
+   * CXP.3 — catálogo de filtros de Compras 360. Los conteos son FACETAS: se le pasan los
+   * filtros activos para que el "· N" del dropdown sea lo que la tabla va a devolver.
+   */
+  compras360Filters(q: Compras360Query = {}): Observable<Compras360Filters> {
+    const p = new URLSearchParams();
+    if (q.search) p.set('search', q.search);
+    if (q.sucursal) p.set('sucursal', q.sucursal);
+    if (q.proveedor_code) p.set('proveedor_code', q.proveedor_code);
+    if (q.date_from) p.set('date_from', q.date_from);
+    if (q.date_to) p.set('date_to', q.date_to);
+    if (q.ajuste) p.set('ajuste', q.ajuste);
+    if (q.con_oc) p.set('con_oc', q.con_oc);
+    if (q.comprobante) p.set('comprobante', q.comprobante);
+    if (q.monto_min != null) p.set('monto_min', String(q.monto_min));
+    if (q.monto_max != null) p.set('monto_max', String(q.monto_max));
+    const qs = p.toString();
+    return this.http.get<Compras360Filters>(`${this.adjBase}/compras-360/filters${qs ? '?' + qs : ''}`);
   }
 
   /** RE.9 — evidencia (comprobante + OCR, URL de lectura prefirmada) de una orden de entrada, para el visor de Compras 360. */
@@ -1131,15 +1326,18 @@ export interface PolizaForReceipt { found: boolean; cuadra: boolean; polizas: Po
 export interface LandedCostRow { proveedor_code: string | null; proveedor_nombre: string | null; compras: number; desc_pago: number; desc_nota: number; descuento: number; rate: number; costo_neto: number; anomalo: boolean }
 export interface LandedCostResponse { summary: { compras: number; descuento: number; costo_neto: number; rate: number; suppliers: number }; rows: LandedCostRow[] }
 
-export type Compras360AjusteMode = 'con' | 'sin';
+export type Compras360AjusteMode = 'con' | 'sin' | 'operativo' | 'comercial';
 export type Compras360OcMode = 'con' | 'sin';
 export type Compras360CompMode = 'sin' | 'con' | 'validado' | 'por_validar' | 'rechazado';
 export interface Compras360Query { search?: string; sucursal?: string; proveedor_code?: string; date_from?: string; date_to?: string; ajuste?: Compras360AjusteMode; con_oc?: Compras360OcMode; comprobante?: Compras360CompMode; monto_min?: number; monto_max?: number; sort?: string; dir?: 'asc' | 'desc'; page?: number; pageSize?: number; all?: boolean }
 export interface Compras360Row { sucursal: string; folio: string; receipt_date: string; proveedor_code: string; proveedor_nombre: string; oc_folio: string | null; vale_folio: string | null; factura: number; ajuste: number; n_ajuste: number;
   /** Parte del ajuste que es beneficio negociado (descuento/pronto pago/apoyo) vs la que es un problema. */
   ajuste_comercial: number; ajuste_operativo: number;
-  neto: number; deposits: number; deposit_status: string | null; monto_match: boolean }
-export interface Compras360Response { total: number; page: number; pageSize: number; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
+  neto: number; deposits: number; deposit_status: string | null; monto_match: boolean;
+  // RE.13.4 — lente de CUMPLIMIENTO: el descuadre, quién decidió y la antigüedad. La pregunta
+  // de ese lente es "¿en qué anda el proceso?", no "¿cuánto costó?".
+  discrepancy_amount: number | null; decidio: string | null; dias: number }
+export interface Compras360Response { total: number; page: number; pageSize: number; /** Última corrida del importer que puebla el espejo (ISO) — frescura del dato. */ data_as_of?: string | null; /** [OBS.6.3] Veredicto sobre esa frescura (tolerancia 26 h: el importer es nocturno). Sin marca = rezago, nunca ok. */ freshness?: { data_as_of: string | null; stale: boolean; age_human: string | null; inputs: { key: string; label: string; at: string | null; age_human: string | null; stale: boolean }[] }; /** El export cortó filas (all + total > tope). */ truncated?: boolean; totals: { factura: number; ajuste: number; neto: number; ajuste_comercial: number; ajuste_operativo: number; con_comprobante: number }; rows: Compras360Row[] }
 export interface Compras360Filters { sucursales: { code: string; name?: string; n: number }[]; proveedores: { code: string; nombre: string | null; n: number }[]; monto_max: number }
 export interface ReceiptEvidenceFile { role?: string; url: string; public_id?: string; kind?: string; name?: string }
 export interface ReceiptEvidenceDeposit { id: string; files: ReceiptEvidenceFile[]; ocr_folio: string | null; ocr_fecha: string | null; ocr_proveedor: string | null; ocr_rfc: string | null; ocr_subtotal: number | null; ocr_iva: number | null; ocr_monto: number | null; ocr_status: string | null; monto_match: boolean | null; discrepancy_kind: string | null; discrepancy_amount: number | null; status: string; comentarios: string | null; validated_by: string | null; validated_at: string | null; motivo_rechazo: string | null; created_by: string | null; created_at: string }

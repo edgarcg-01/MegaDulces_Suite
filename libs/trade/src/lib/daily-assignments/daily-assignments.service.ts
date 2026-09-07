@@ -13,7 +13,9 @@ import { getDataScope } from '@megadulces/platform-core';
 
 interface RequesterContext {
   sub: string;
-  rules?: unknown[];
+  /** Mapa de permisos que el guard relee del cache en cada request — la fuente de `getDataScope`. */
+  permissions?: Record<string, boolean> | null;
+  role_name?: string | null;
 }
 
 @Injectable()
@@ -40,7 +42,7 @@ export class DailyAssignmentsService {
 
     if (target.id === requester.sub) return target;
 
-    const scope = getDataScope({ sub: requester.sub, rules: requester.rules as never });
+    const scope = getDataScope(requester);
     if (scope.type === 'all') return target;
     if (target.supervisor_id === requester.sub) return target;
 
@@ -125,10 +127,7 @@ export class DailyAssignmentsService {
     },
     requester: RequesterContext,
   ) {
-    const scope = getDataScope({
-      sub: requester.sub,
-      rules: requester.rules as never,
-    });
+    const scope = getDataScope(requester);
 
     const query = this.knex('daily_assignments as da')
       .join('users as u', 'da.user_id', 'u.id')

@@ -714,7 +714,7 @@ export class ComercialPricingComponent {
   ];
 
   readonly canManage = computed(
-    () => this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_PRICING_GESTIONAR],
+    () => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_PRICING_GESTIONAR],
   );
 
   // ── Listas ────────────────────────────────────────────────────────────

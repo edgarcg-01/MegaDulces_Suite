@@ -118,6 +118,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'sellout', label: 'Sell-Out por empresa', route: '/comercial/sell-out', view: [Permission.COMMERCIAL_SELLOUT_VER], manage: [] },
           { id: 'salidas', label: 'Salidas por producto', route: '/comercial/salidas', view: [Permission.COMMERCIAL_SALIDAS_VER], manage: [] },
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
+          { id: 'sales-docs', label: 'Documentos de venta', route: '/comercial/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
           { id: 'customers360', label: 'Clientes 360', route: '/comercial/customers-360', view: [Permission.COMMERCIAL_CUSTOMERS360_VER], manage: [] },
           { id: 'historical', label: 'Histórico de venta', route: '/comercial/historical', view: [Permission.COMMERCIAL_HISTORICAL_VER], manage: [] },
           { id: 'customers', label: 'Clientes', route: '/comercial/customers', view: [Permission.COMMERCIAL_CUSTOMERS_VER], manage: [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR] },
@@ -128,6 +129,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'vendor-sales', label: 'Ventas de vendedor', route: '/comercial/vendor-sales', view: [Permission.COMMERCIAL_VENDOR_SALES_VER], manage: [] },
           { id: 'products', label: 'Productos', route: '/comercial/products', view: [Permission.COMMERCIAL_PRODUCTS_VER], manage: [Permission.COMMERCIAL_PRODUCTS_GESTIONAR] },
           { id: 'thot', label: 'Thot / IA comercial', route: '/comercial/thot-chat', view: [Permission.COMMERCIAL_THOT_VER], manage: [Permission.COMMERCIAL_THOT_GESTIONAR] },
+          { id: 'intelligence', label: 'Inteligencia (hallazgos / acciones / autonomía)', route: '/comercial/command-center', view: [Permission.COMMERCIAL_INTELLIGENCE_VER], manage: [] },
           { id: 'route-control', label: 'Control de ruta / tickets', route: '/comercial/route-tickets', view: [Permission.ROUTE_CONTROL_VER], manage: [Permission.ROUTE_TICKET_CAPTURE] },
           { id: 'carga', label: 'Carga al camión', route: '/comercial/orders', view: [Permission.COMMERCIAL_CARGA_VER], manage: [Permission.COMMERCIAL_CARGA_GESTIONAR] },
         ],
@@ -138,7 +140,18 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-box',
         route: '/almacen',
         modules: [
-          { id: 'inventory', label: 'Existencias', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
+          // ⚠️ PERMISO COMPARTIDO A PROPÓSITO — no lo "arregles". EXISTENCIA_* aparece también en
+          // el proyecto Compras (id 'compras-existencia') porque es LA MISMA pantalla en dos
+          // proyectos, con los mismos números para las dos audiencias. Contradice la regla de
+          // arriba ("cada permiso vive en UN solo módulo") y lo hace calcando el precedente ya
+          // vivo de Caducidades: 'caducidades' (/almacen) + 'store-caducidades' (/tienda)
+          // comparten COMMERCIAL_EXPIRY_*. No hay test que impida repetir; este comentario es el
+          // único freno contra un "cleanup" bienintencionado.
+          { id: 'existencia', label: 'Existencia', route: '/almacen/inventory/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
+          // Se llamaba 'Existencias' y NO lo es: lee commercial.stock, el libro transaccional
+          // (acierta 91% contra el POS). Es la consola de AJUSTE y de apartado. El censo físico
+          // vive arriba, en Existencia, que lee el ODS.
+          { id: 'inventory', label: 'Ajustes de stock', route: '/almacen/inventory', view: [Permission.COMMERCIAL_INVENTORY_VER], manage: [Permission.COMMERCIAL_INVENTORY_AJUSTAR] },
           { id: 'warehouses', label: 'Almacenes', route: '/almacen/warehouses', view: [Permission.COMMERCIAL_WAREHOUSES_VER], manage: [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR] },
           { id: 'physical-inventory', label: 'Inventario físico', route: '/almacen/inventory/sessions', view: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR], manage: [Permission.COMMERCIAL_INVENTORY_CONTAR, Permission.COMMERCIAL_INVENTORY_RECONCILIAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR] },
           { id: 'receiving-auditor', label: 'Recepción (caducidad)', route: '/almacen/inventory/recepcion', view: [Permission.COMMERCIAL_INVENTORY_RECIBIR], manage: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR] },
@@ -194,13 +207,25 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-shopping-bag',
         route: '/compras',
         modules: [
+          // ⚠️ La otra mitad del permiso compartido — ver el comentario largo en el módulo
+          // 'existencia' del proyecto Almacén. Mismo componente, mismos números, un solo permiso.
+          { id: 'compras-existencia', label: 'Existencia', route: '/compras/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
           { id: 'compras-pedido', label: 'Pedido', route: '/compras/pedido', view: [Permission.COMPRAS_PEDIDO_VER], manage: [Permission.COMPRAS_PEDIDO_GESTIONAR] },
           { id: 'compras-red', label: 'Red de abasto', route: '/compras/red', view: [Permission.COMPRAS_RED_VER], manage: [Permission.COMPRAS_RED_GESTIONAR] },
           { id: 'compras-requisiciones', label: 'Requisiciones', route: '/compras/requisiciones', view: [Permission.COMPRAS_REQUISICIONES_VER], manage: [Permission.COMPRAS_REQUISICIONES_GESTIONAR] },
           { id: 'compras-ordenes', label: 'Órdenes de compra', route: '/compras/ordenes', view: [Permission.COMPRAS_ORDENES_VER], manage: [Permission.COMPRAS_ORDENES_GESTIONAR] },
+          { id: 'compras-oc-abiertas', label: 'Abiertas en Kepler', route: '/compras/oc-abiertas', view: [Permission.COMPRAS_PEDIDO_VER], manage: [] },
           { id: 'compras-entradas', label: 'Órdenes de entrada', route: '/compras/entradas', view: [Permission.COMPRAS_ENTRADAS_VER], manage: [Permission.COMPRAS_ENTRADAS_GESTIONAR, Permission.COMPRAS_ENTRADAS_VALIDAR] },
-          { id: 'compras-360', label: 'Compras 360', route: '/compras/compras-360', view: [Permission.COMPRAS_360_VER], manage: [] },
-          { id: 'compras-costo-neto', label: 'Costo neto', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
+          // RE.20.1 — fusionada con `Control de entradas · Listado`: es la misma pantalla con
+          // otro lente, así que la gatea el mismo permiso.
+          //
+          // `[AUTHZ.5]` — Acá decía que `COMPRAS_360_VER` "queda huérfano a propósito… un permiso
+          // de más no le abre nada a nadie". Es cierto para el árbol y **falso para el guard**:
+          // `purchase-adjustments.controller` exige esa clave en 2 rutas (`compras-360` y sus
+          // filtros), que son las que llenan esta tabla. Estando fuera del árbol no se podía
+          // otorgar a un rol nuevo desde `/admin/roles`. Va como `view` junto al otro.
+          { id: 'compras-360', label: 'Costo por compra', route: '/compras/costo-por-compra', view: [Permission.COMPRAS_ENTRADAS_VER, Permission.COMPRAS_360_VER], manage: [] },
+          { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },
@@ -217,7 +242,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
-          { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR] },
+          // `[AUTHZ.5]` `FINANCE_RECON_RECIBIR` estaba en el enum y **fuera del árbol**: no se podía
+          // otorgar desde acá. No es un permiso de pantalla sino un MARCADOR — `maat-recon-tasks`
+          // consulta `role_permissions` directo para saber a qué roles repartirle tareas. Sin
+          // casilla, el equipo de conciliación sólo se podía cambiar por SQL.
+          { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR, Permission.FINANCE_RECON_RECIBIR] },
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
           { id: 'solicitudes', label: 'Solicitudes de gasto (evidencia)', route: '/finanzas/solicitudes', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'capturar-gasto', label: 'Capturar gasto (comprobante)', route: '/finanzas/capturar-gasto', view: [Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER], manage: [] },
@@ -233,6 +262,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'listas-sat', label: 'Listas SAT (EFOS 69-B / Art. 69)', route: '/contabilidad/listas-sat', view: [Permission.FISCAL_LISTAS_VER], manage: [Permission.FISCAL_LISTAS_GESTIONAR] },
           { id: 'cfdi', label: 'CFDI', route: '/contabilidad/cfdi', view: [Permission.FISCAL_CFDI_VER], manage: [] },
+          // Un solo módulo con dos pantallas (no asociados + libro completo del mes); el
+          // par de permisos vive acá y en ningún otro nodo. La ruta apunta a la principal.
+          { id: 'libro-compras', label: 'Libro de Compras (no asociados → TXT a ContPAQi)', route: '/contabilidad/movimientos-no-asociados', view: [Permission.FISCAL_PURCHASE_BOOK_VER], manage: [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] },
           { id: 'facturar', label: 'Facturación (emisión CFDI)', route: '/contabilidad/facturar', view: [Permission.FISCAL_FACTURAR_VER], manage: [Permission.FISCAL_FACTURAR_GESTIONAR] },
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
@@ -251,6 +283,20 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'reparto-despacho', label: 'Despacho (tienda)', route: '/reparto', view: [Permission.REPARTO_DESPACHAR], manage: [] },
           { id: 'reparto-entrega', label: 'Entrega (repartidor)', route: '/reparto', view: [Permission.REPARTO_ENTREGAR], manage: [] },
+        ],
+      },
+      {
+        // `[AUTHZ.5]` — El bot de WhatsApp **no tiene pantalla todavía** (`libs/whatsapp` es sólo
+        // backend), pero sus dos permisos ya los exige `whatsapp-broadcast.controller` en 4 rutas.
+        // Estando fuera del árbol no había forma de otorgarlos desde `/admin/roles`: los 9 usuarios
+        // que hoy los tienen los recibieron por seed, y un rol nuevo no podía. `route` vacío porque
+        // aún no hay a dónde ir — el nodo existe para poder repartir el permiso, que es el punto.
+        id: 'whatsapp',
+        label: 'WhatsApp (bot)',
+        icon: 'pi pi-whatsapp',
+        route: '',
+        modules: [
+          { id: 'whatsapp-bot', label: 'Bot conversacional', route: '', view: [Permission.WHATSAPP_BOT_VER], manage: [Permission.WHATSAPP_BOT_GESTIONAR] },
         ],
       },
     ],

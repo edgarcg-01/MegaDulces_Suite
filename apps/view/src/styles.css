@@ -2392,6 +2392,24 @@ input:focus, textarea:focus, select:focus {
 }
 .comm-num.is-strong { font-weight: 600; }
 
+/* ============================================================
+ * .mono — la base global que faltaba.
+ *
+ * `.mono` es la clase que la app usa para SKU, folio, fecha y cifra suelta (fuera de tabla,
+ * donde manda `comm-num`). No estaba definida en ningún lado global: 28 componentes la
+ * redefinían por su cuenta y **sólo 9 ponían `tabular-nums`**. Los otros 19 pintan cifras con
+ * figuras proporcionales, o sea que el "1" es más angosto que el "8" y una columna de montos
+ * baila renglón a renglón — justo lo que la regla 4 del checklist marca como obligatorio.
+ *
+ * Se define acá una vez. Los componentes que ya traen su `.mono` con `font-size` propio la
+ * siguen ganando por especificidad (Angular les agrega el atributo de encapsulación); lo que
+ * heredan de acá es lo que ninguno declaraba: las figuras tabulares.
+ * ============================================================ */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
 .comm-actions {
   display: flex;
   gap: 0.25rem;
@@ -2881,6 +2899,111 @@ code.comm-code,
     min-height: var(--tap-min);
   }
 }
+
+/* ============================================================
+ * SURF-TABLE--PLAIN — la BASE que faltaba para tablas crudas.
+ *
+ * `surf-table` y sus modificadores (`--sticky`, `--frozen-first`, `--compact`) son
+ * exactamente eso: modificadores. Asumen debajo la base de `p-datatable-sm` (tipografía,
+ * densidad, bordes, header). Una `<table>` propia —la salida cuando PrimeNG v22 pasó a
+ * licencia comercial— se quedaba sin esa base, y cada pantalla la reinventaba: tres
+ * definiciones distintas de `th`, tres paddings, tres tamaños de letra. Ninguna se parecía
+ * a las tablas del resto de la app.
+ *
+ * Esto es esa base, una vez. Uso:
+ *   <table class="surf-table surf-table--plain surf-table--sticky">
+ * Los modificadores siguen siendo opt-in y funcionan igual. `--compact` NO se combina con
+ * esta base (pisa el padding con !important); la densidad acá se pide con `is-dense`.
+ *
+ * Alineación de números: `comm-num` en la celda Y en su `<th>` (DESIGN_TABLES §2.1).
+ * ============================================================ */
+.surf-table--plain {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-sm);
+  color: var(--text-main);
+}
+/* El header se separa del cuerpo por PESO y por una regla más marcada que el divisor de
+ * fila — si usa el mismo hairline, la primera fila se lee como encabezado. */
+.surf-table--plain > thead > tr > th {
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-micro);
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  text-align: left;
+  white-space: nowrap;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+}
+/* Altura tokenizada + padding vertical mínimo: la fila mide `--row-h-md` exacto y crece
+ * sola cuando la celda lleva dos líneas. En touch los tokens ya suben a 48px. */
+.surf-table--plain > tbody > tr > td {
+  padding: var(--sp-1) var(--sp-3);
+  height: var(--row-h-md);
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in oklab, var(--border-color) 55%, transparent);
+}
+.surf-table--plain.is-dense > tbody > tr > td { height: var(--row-h-sm); }
+/* El último divisor sobra: ya está el borde de la card. */
+.surf-table--plain > tbody > tr:last-child > td { border-bottom: 0; }
+.surf-table--plain > tfoot > tr > td {
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--border-color);
+  font-weight: 600;
+  background: var(--surface-2);
+}
+/* Números a la derecha en la celda y en su encabezado, sin que cada pantalla lo repita.
+ * `comm-num` ya trae mono + tabular-nums; acá sólo se arrastra la alineación al `<th>`. */
+.surf-table--plain > thead > tr > th.comm-num,
+.surf-table--plain > thead > tr > th.num { text-align: right; }
+
+/* El separador de la columna congelada usa `--table-border`, que en claro es #FBF9F6 —
+ * invisible sobre la card blanca. Sobre esta base se dibuja con el borde real. */
+.surf-table--plain.surf-table--frozen-first > thead > tr > th:first-child,
+.surf-table--plain.surf-table--frozen-first > tbody > tr > td:first-child {
+  box-shadow: inset -1px 0 0 var(--border-color);
+}
+
+/* ============================================================
+ * SURF-SORT — encabezado ordenable para tablas crudas.
+ *
+ * `p-table` trae `pSortableColumn`; una `<table>` propia no. Cada pantalla que necesitó
+ * ordenar se dibujó el suyo, y el de Finanzas (`.tw-sort`) vivía adentro de un archivo de
+ * estilos de módulo — invisible para el resto. `[RE.20.2]` lo subió acá, junto a la base de
+ * tabla que ya es global, y Finanzas pasó a usar este.
+ *
+ * Uso — el `<th>` lleva el `aria-sort` y el `<button>` adentro es el objetivo de clic
+ * (un `<th>` clickeable no es un control para el teclado; un botón sí):
+ *   <th class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'monto')">
+ *     <button type="button" class="surf-sort" (click)="ordenar('monto')">
+ *       Monto <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+ *     </button>
+ *   </th>
+ * ============================================================ */
+.surf-sort {
+  display: inline-flex; align-items: center; gap: 4px;
+  width: 100%; padding: 0;
+  background: none; border: none;
+  /* Hereda del `th`: el encabezado ordenable NO se ve distinto del que no lo es hasta
+   * que el mouse encima lo delata. Una tabla donde 4 de 6 columnas gritan "clickeame"
+   * es más ruidosa que útil. */
+  font: inherit; color: inherit; letter-spacing: inherit; text-transform: inherit;
+  text-align: inherit; justify-content: inherit;
+  cursor: pointer;
+}
+/* La flecha sigue la alineación de la columna: pegada al número a la derecha, al texto a la
+ * izquierda. `comm-num`/`num` ya alinean el `th` (ver arriba), esto arrastra al botón. */
+.comm-num > .surf-sort, .num > .surf-sort, .ta-r > .surf-sort { justify-content: flex-end; }
+.ta-c > .surf-sort { justify-content: center; }
+.surf-sort i { font-size: .65rem; opacity: .45; }
+.surf-sort:hover i { opacity: .9; }
+.surf-sort:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+/* La columna activa se marca con el color de acción — es el único estado que tiene que
+ * leerse de reojo, porque contesta "¿por qué está en este orden?". */
+th[aria-sort]:not([aria-sort='none']) > .surf-sort { color: var(--action); }
+th[aria-sort]:not([aria-sort='none']) > .surf-sort i { opacity: 1; }
 
 /* Alias canónico de celda numérica: .num == .comm-num (unifica
  * logística/command-center). Solo en celdas de tabla, no global. */

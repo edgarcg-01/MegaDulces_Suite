@@ -55,6 +55,34 @@ module.exports = [
     // Override or add rules here
     rules: {},
   },
+  // ── TS.0 / ADR-052 — ratchet de tipado del boundary REST ───────────────────
+  // `libs/contracts` es la fuente unica de tipos del wire: se mantiene PRISTINO.
+  {
+    files: ['libs/contracts/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/explicit-module-boundary-types': 'error',
+    },
+  },
+  // Boundary REST (controllers/services back + services front): `any` visible
+  // como WARN — no bloquea el lint. El gate de CI (scripts/lint-boundary-gate.js
+  // + eslint.gate.config.js) lo eleva a ERROR solo en los archivos CAMBIADOS,
+  // asi la deuda vieja no revienta pero no entra deuda nueva. Ver
+  // docs/IMPLEMENTACION/FASES/FASE_TS_CONTRATOS_TIPADOS.md
+  {
+    files: [
+      'libs/**/*.controller.ts',
+      'libs/**/*.service.ts',
+      'apps/api/**/*.controller.ts',
+      'apps/api/**/*.service.ts',
+      'apps/view/**/*.service.ts',
+      'apps/vendor/**/*.service.ts',
+      'apps/portal/**/*.service.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'warn',
+    },
+  },
   {
     files: ['**/*.html'],
     rules: {

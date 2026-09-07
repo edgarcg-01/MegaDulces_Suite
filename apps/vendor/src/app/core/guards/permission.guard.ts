@@ -4,30 +4,6 @@ import { AuthService } from '../services/auth.service';
 import { PermissionsService } from '../services/permissions.service';
 import { Permission } from '../constants/permissions';
 
-const subjectMap: Record<string, string> = {
-  [Permission.USUARIOS_VER]: 'users',
-  [Permission.USUARIOS_GESTIONAR]: 'users',
-  [Permission.USUARIOS_PASSWORDS]: 'users_passwords',
-  [Permission.USUARIOS_ASIGNAR_RUTA]: 'users_assign_route',
-  [Permission.REPORTES_VER_PROPIO]: 'reports_own',
-  [Permission.REPORTES_VER_EQUIPO]: 'reports_team',
-  [Permission.REPORTES_VER_GLOBAL]: 'reports_global',
-  [Permission.REPORTES_EXPORTAR]: 'reports_export',
-  [Permission.REPORTES_GESTIONAR]: 'reports_manage',
-  [Permission.VISITAS_REGISTRAR]: 'visits',
-  [Permission.VISITAS_VER]: 'visits',
-  [Permission.VISITAS_AUDITAR]: 'visits_audit',
-  [Permission.CATALOGO_GESTIONAR]: 'catalogs',
-  [Permission.TIENDAS_VER]: 'stores',
-  [Permission.TIENDAS_CREAR]: 'stores_create',
-  [Permission.PLANOGRAMAS_GESTIONAR]: 'planograms',
-  [Permission.ROLES_CONFIGURAR]: 'roles_config',
-  [Permission.SCORING_CONFIG_VER]: 'scoring_config',
-  [Permission.SCORING_CONFIG_GESTIONAR]: 'scoring_config',
-  [Permission.VER_SEGUIMIENTO]: 'seguimiento',
-  [Permission.RUTAS_VER]: 'routes_analytics',
-};
-
 export const permissionGuard = (requiredPermission: Permission): CanActivateFn => {
   return () => {
     const authService = inject(AuthService);
@@ -39,12 +15,9 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
       return false;
     }
 
-    const subject = subjectMap[requiredPermission];
-    const hasAccess = subject ? perms.can('read', subject as any) : false;
-    const legacyPerms = authService.user()?.permissions;
-    const hasFallback = legacyPerms ? legacyPerms[requiredPermission] === true : false;
-
-    if (!hasAccess && !hasFallback) {
+    // Gate por CLAVE EXACTA. El paso viejo por `subjectMap` + can('read', subject) era mas
+    // permisivo: varias claves comparten subject, asi que abria rutas que el API 403ea.
+    if (!perms.has(requiredPermission)) {
       // En la app de vendedor standalone NO existen /dashboard ni /captures.
       // El usuario ya pasó vendorGuard (es vendedor válido): si le falta este
       // permiso puntual, lo mandamos a su home /vendor — nunca a rutas de otra
@@ -67,7 +40,7 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
     return false;
   }
 
-  const canAccessFullDashboard = perms.can('read', 'reports_team') || perms.can('read', 'reports_global');
+  const canAccessFullDashboard = perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
   const legacyPerms = authService.user()?.permissions;
   const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
 

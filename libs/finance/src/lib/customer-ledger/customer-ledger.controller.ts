@@ -58,8 +58,11 @@ export class CustomerLedgerController {
   @Get('resumen')
   @RequirePermissions(Permission.FINANCE_RECEIVABLES_VER)
   @ApiOperation({ summary: 'Resumen gerencial: DSO, concentración top-10, proyección de cobranza, por vendedor/zona.' })
-  resumen(@Query('sucursal') sucursal?: string, @Query('grupo') grupo?: string, @Query('zona') zona?: string) {
-    return this.svc.resumen({ sucursal, grupo, zona });
+  resumen(
+    @Query('sucursal') sucursal?: string, @Query('grupo') grupo?: string, @Query('zona') zona?: string,
+    @Query('vendedor') vendedor?: string, @Query('search') search?: string,
+  ) {
+    return this.svc.resumen({ sucursal, grupo, zona, vendedor, search });
   }
 
   @Get('tendencia')

@@ -32,7 +32,8 @@ export class RecommendationsController {
     summary:
       'Canasta estratégica de un customer específico (admin). Recomputa si stale.',
   })
-  getForCustomer(@Param('customer_id') customerId: string) {
+  async getForCustomer(@Param('customer_id') customerId: string) {
+    await this.recommendations.assertCustomerAccess(customerId);
     return this.recommendations.getForCustomer(customerId);
   }
 

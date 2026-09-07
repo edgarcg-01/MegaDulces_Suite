@@ -52,8 +52,16 @@ export interface ReconCash {
 // CB.35 — Control de ingresos: cada depósito clasificado por su fuente + excepciones.
 export interface IngresosControlBucket { n: number; monto: number; }
 export interface IngresosException { id: string; fecha: string; bank: string; account_label: string; monto: number; concept: string; }
+// Desglose por cuenta: cuánto de los depósitos de esa cuenta explica Kepler (tesorería+cobranza=mayoreo)
+// vs tienda (caja) vs sin explicar.
+export interface IngresosControlCuenta {
+  account_label: string | null; bank: string | null; bank_total: number; n: number;
+  via_tesoreria: number; via_cobranza: number; via_caja: number; sin_explicar: number;
+  kepler: number; retail: number;
+}
 export interface IngresosControl {
   period: string; bank_total: number; bank_n: number;
+  por_cuenta: IngresosControlCuenta[];
   via_tesoreria: IngresosControlBucket; via_cobranza: IngresosControlBucket; via_caja: IngresosControlBucket;
   sin_explicar: IngresosControlBucket; explicado: number; cuadra: boolean; tol: number;
   exceptions: IngresosException[];
