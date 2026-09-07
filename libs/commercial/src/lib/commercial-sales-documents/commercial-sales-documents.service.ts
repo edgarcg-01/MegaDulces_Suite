@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 
 /**
- * AX.1 — Documentos de venta al cliente (factura telemarketing / venta a crédito).
+ * AX.1 — Facturación de Telemarketing (`U/D/8`; la ruta y el módulo conservan el nombre
+ * genérico "sales-documents" porque renombrarlos movería la URL y el permiso).
  *
  * Lee las VISTAS EN VIVO `analytics.erp_sales_invoices` / `_lines` (mig 20260822140000),
  * derivadas de `kepler_ods` por el CDC → frescura de segundos, sin feed ni tabla copiada.
