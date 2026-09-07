@@ -188,7 +188,16 @@ async function main() {
   const knex = knexLib({
     client: 'pg',
     connection: LOCAL_URL,
-    migrations: { directory: path.resolve(__dirname, '../migrations-newdb') },
+    // `schemaName: 'public'` NO es opcional: sin él knex usa el search_path, y en estas bases
+    // `identity` va PRIMERO → el ledger se escribe en `identity.knex_migrations`, que el knexfile
+    // real no lee. Resultado: migraciones aplicadas que el próximo `migrate.latest()` re-aplica.
+    // Pasó en prod (4 filas, GOTCHAS §29); acá el destino es siempre localhost, pero el mecanismo
+    // es idéntico y deja los dos ledgers en desacuerdo.
+    migrations: {
+      directory: path.resolve(__dirname, '../migrations-newdb'),
+      tableName: 'knex_migrations',
+      schemaName: 'public',
+    },
   });
   try {
     const [batch, applied] = await knex.migrate.latest();

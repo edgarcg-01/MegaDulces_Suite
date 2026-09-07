@@ -14,7 +14,8 @@ module.exports = {
     pool: { min: 2, max: 10 },
     migrations: {
       tableName: 'knex_migrations_products',
-      directory: path.join(__dirname, 'migrations-products'),  
+      schemaName: 'public', // sin esto el ledger cae en `identity` (va primero en el search_path)
+      directory: path.join(__dirname, 'migrations-products'),
       loadExtensions: ['.js'],
     },
   },
@@ -33,6 +34,7 @@ module.exports = {
     pool: { min: 2, max: 10 },
     migrations: {
       tableName: 'knex_migrations_products',
+      schemaName: 'public', // sin esto el ledger cae en `identity` (va primero en el search_path)
       directory: path.join(__dirname, 'migrations-products'),
       extension: 'js',
     },
