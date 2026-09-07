@@ -7,6 +7,7 @@ import {
 import { randomBytes } from 'crypto';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import { isPlatformAdminRole } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -392,10 +393,17 @@ export class CommercialVendorRoutesService {
 
   /** Vendedores asignables (usuarios de campo activos). Los roles reales de campo son
    *  `vendedor_ruta`/`promotor_ruta` (no `vendedor` a secas, que no existe) — el filtro
-   *  viejo devolvía [] y dejaba vacíos los dropdowns de asignación. */
+   *  viejo devolvía [] y dejaba vacíos los dropdowns de asignación.
+   *
+   *  Alcance: un supervisor solo ve SU equipo (`supervisor_id = él`), no todo el tenant
+   *  — antes veía a todos. El god-mode (platform admin) sí ve todos. Sin identidad →
+   *  nada (fail-closed). Todo vendedor de campo activo tiene supervisor_id poblado. */
   async listVendors() {
-    return this.tk.run(async (trx) =>
-      trx('public.users')
+    const ctx = this.tenantCtx.get();
+    const me = ctx?.userId || null;
+    const seeAll = isPlatformAdminRole(ctx?.roleName);
+    return this.tk.run(async (trx) => {
+      let q = trx('public.users')
         .whereIn('role_name', [
           'vendedor_ruta',
           'promotor_ruta',
@@ -403,10 +411,13 @@ export class CommercialVendorRoutesService {
           'colaborador',
           'ejecutivo',
         ])
-        .where('activo', true)
-        .select('id', 'username', 'role_name')
-        .orderBy('username'),
-    );
+        .where('activo', true);
+      if (!seeAll) {
+        if (!me) return [];
+        q = q.where('supervisor_id', me);
+      }
+      return q.select('id', 'username', 'role_name').orderBy('username');
+    });
   }
 
   /** Catálogo de rutas (trade.catalogs 'rutas') con su zona — para el picker del panel
