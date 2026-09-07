@@ -130,6 +130,27 @@ export class ExistenciaService {
     // Calificarla con `rp.` reventaría con "missing FROM-clause entry for table rp".
     const MEDIBLE = 'rung_veredicto IS NULL';
 
+    // `[W1.0/W1.3]` — La celda que se convierte SIN un factor con fuente. `factor_source` viene de
+    // `analytics.v_warehouse_box_factor`; `'default'`/`'none'` significan que NINGUNA de las cuatro
+    // fuentes declaró un factor, así que el divisor vale 1 y la cantidad nativa se publica en la
+    // columna de CAJAS como si 1 unidad fuera 1 caja. Eso no está verificado para ninguna de ellas.
+    // Y `is_weight` con un factor que NO vino de Wincaja es peor: el divisor cuenta PIEZAS por caja
+    // y se le aplica a kilos.
+    //
+    // ⚠️ Esto NO entra en `MEDIBLE`: se DECLARA, no se descuenta. Medido en prod el 2026-09-07,
+    // aplicar la regla estricta borraría entre 24% y 58% del total de cajas de CADA almacén
+    // —Kepler incluido: `01` pasaría de 29,774 a 18,854— y eso es una decisión de negocio, no una
+    // corrección técnica. Lo que sí corresponde es que el usuario VEA cuántas celdas del total
+    // están sostenidas por un divisor sin fuente (mismo patrón que `sin_valuar`).
+    // Dos formas del MISMO predicado, por la razón que ya documenta `MEDIBLE` unas líneas arriba:
+    // dentro de las CTEs que leen `FROM src` las columnas van DESNUDAS, y en el SELECT final —que
+    // hace `JOIN src`— hay que calificarlas o revienta con "missing FROM-clause entry".
+    const sinFactor = (t = '') => `(${t}rung_veredicto IS NULL
+        AND (${t}factor_source IN ('default','none')
+             OR (${t}is_weight AND ${t}factor_source <> 'wincaja_factor_venta')))`;
+    const SIN_FACTOR = sinFactor();
+    const SIN_FACTOR_SRC = sinFactor('src.');
+
     // El bucket se compara contra la cantidad NATIVA a propósito: los umbrales de
     // `commercial.reorder_policy` se derivan de la misma vista de existencia SIN convertir, así
     // que viven en la unidad nativa del almacén. Convertir un lado solo los descuadraría.
@@ -154,6 +175,8 @@ export class ExistenciaService {
                  s.qty_stock_units AS nat,
                  ${DBF} AS dbf,
                  vbf.base_label, vbf.erp,
+                 COALESCE(vbf.factor_source, 'none') AS factor_source,
+                 COALESCE(vbf.is_weight, false)      AS is_weight,
                  rp.rung_veredicto, rp.rung_bf_esperado, rp.rung_arbitrado,
                  ${BUCKET} AS bucket,
                  p.sku, p.nombre,
@@ -205,6 +228,10 @@ export class ExistenciaService {
                  bool_or(nat > 0)                                         AS hay_existencia,
                  count(*) FILTER (WHERE nat > 0)::int                     AS n_almacenes,
                  count(*) FILTER (WHERE NOT (${MEDIBLE}))::int            AS sin_valuar,
+                 -- [W1.0/W1.3] celdas que SÍ entran al total de cajas pero con un divisor sin
+                 -- fuente. No se descuentan: se cuentan, para que el total no se lea como si
+                 -- todas sus celdas tuvieran un factor verificado.
+                 count(*) FILTER (WHERE ${SIN_FACTOR})::int               AS sin_factor,
                  sum(rung_arbitrado) FILTER (WHERE NOT (${MEDIBLE}))      AS arbitrado,
                  jsonb_agg(DISTINCT bucket) FILTER (WHERE bucket IS NOT NULL) AS buckets
             FROM src GROUP BY product_id
@@ -214,6 +241,8 @@ export class ExistenciaService {
                  count(*) OVER()::int                        AS _skus,
                  sum(valor) OVER()                           AS _valor,
                  sum(sin_valuar) OVER()::int                 AS _celdas_sin_valuar,
+                 sum(sin_factor) OVER()::int                 AS _celdas_sin_factor,
+                 count(*) FILTER (WHERE sin_factor > 0) OVER()::int AS _skus_sin_factor,
                  sum(arbitrado) OVER()                       AS _arbitrado,
                  count(*) FILTER (WHERE sin_valuar > 0) OVER()::int AS _skus_sin_valuar
             FROM agg0 ${having}
@@ -234,6 +263,7 @@ export class ExistenciaService {
                      'valor', round(sum(CASE WHEN ${MEDIBLE} THEN nat * cu END)::numeric, 2),
                      'cajas', round(sum(CASE WHEN ${MEDIBLE} THEN nat / dbf END)::numeric, 1),
                      'sin_valuar', count(*) FILTER (WHERE NOT (${MEDIBLE}))::int,
+                     'sin_factor', count(*) FILTER (WHERE ${SIN_FACTOR})::int,
                      'skus_con_existencia', count(*) FILTER (WHERE nat > 0)::int
                    ) AS x
               FROM src GROUP BY warehouse_code) z
@@ -244,24 +274,32 @@ export class ExistenciaService {
         SELECT pg.product_id, pg.sku, pg.nombre,
                round(pg.valor::numeric, 2)      AS valor,
                round(pg.total_cajas::numeric, 1) AS total_cajas,
-               pg.n_almacenes, pg.sin_valuar,
+               pg.n_almacenes, pg.sin_valuar, pg.sin_factor,
                round(pg.arbitrado::numeric, 2)  AS arbitrado,
                pg.buckets,
                pg._skus, round(pg._valor::numeric, 2) AS _valor,
                pg._celdas_sin_valuar, round(pg._arbitrado::numeric, 2) AS _arbitrado,
-               pg._skus_sin_valuar, tw.per_warehouse AS _per_warehouse,
+               pg._skus_sin_valuar, pg._celdas_sin_factor, pg._skus_sin_factor,
+               tw.per_warehouse AS _per_warehouse,
                jsonb_object_agg(src.warehouse_code, jsonb_strip_nulls(jsonb_build_object(
                  'q',    CASE WHEN src.rung_veredicto IS NULL THEN round((src.nat / src.dbf)::numeric, 1) END,
                  'val',  CASE WHEN src.rung_veredicto IS NULL THEN round((src.nat * src.cu)::numeric, 2) END,
                  'nat',  CASE WHEN src.rung_veredicto IS NOT NULL THEN round(src.nat::numeric, 0) END,
                  'natu', CASE WHEN src.rung_veredicto IS NOT NULL THEN src.base_label END,
                  'rung', src.rung_veredicto,
+                 -- [W1.0/W1.3] la celda declara que su cifra en cajas se apoya en un divisor SIN
+                 -- fuente. jsonb_strip_nulls borra la clave cuando no aplica, así que su sola
+                 -- presencia es la señal y no engorda el payload de las ~6,600 celdas sanas.
+                 -- (sin acentos graves acá: este SQL vive dentro de un template literal)
+                 'nf',   CASE WHEN ${SIN_FACTOR_SRC}
+                              THEN CASE WHEN src.is_weight THEN 'peso' ELSE 'sin_factor' END END,
                  'b',    src.bucket
                ))) AS cells
           FROM pg CROSS JOIN tw JOIN src ON src.product_id = pg.product_id
          GROUP BY pg.product_id, pg.sku, pg.nombre, pg.valor, pg.total_cajas, pg.n_almacenes,
-                  pg.sin_valuar, pg.arbitrado, pg.buckets, pg._skus, pg._valor,
-                  pg._celdas_sin_valuar, pg._arbitrado, pg._skus_sin_valuar, tw.per_warehouse
+                  pg.sin_valuar, pg.sin_factor, pg.arbitrado, pg.buckets, pg._skus, pg._valor,
+                  pg._celdas_sin_valuar, pg._arbitrado, pg._skus_sin_valuar,
+                  pg._celdas_sin_factor, pg._skus_sin_factor, tw.per_warehouse
          ORDER BY ${this.sortExpr(q.sort_by)} ${dir} NULLS LAST, pg.sku`;
 
       const rows = (await trx.raw(sql, binds)).rows;
@@ -279,6 +317,10 @@ export class ExistenciaService {
           valor: agg._valor == null ? null : Number(agg._valor),
           celdas_sin_valuar: Number(agg._celdas_sin_valuar || 0),
           skus_sin_valuar: Number(agg._skus_sin_valuar || 0),
+          // [W1.0/W1.3] celdas que SÍ suman al total de cajas con un divisor sin fuente. Se
+          // publican para que el total no se lea como si todo tuviera factor verificado.
+          celdas_sin_factor: Number(agg._celdas_sin_factor || 0),
+          skus_sin_factor: Number(agg._skus_sin_factor || 0),
           // Lo que el árbitro (el costo pagado) SÍ puede afirmar de lo retenido. Es REFERENCIA
           // para revisar, no una cifra publicable — el front tiene que rotularla así.
           arbitrado: agg._arbitrado == null ? null : Number(agg._arbitrado),

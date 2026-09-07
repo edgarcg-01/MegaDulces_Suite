@@ -370,13 +370,36 @@ hoy**. De esos 2,532, **1,385 sí están en `wincaja.articulos` con `factor_vent
 120 KGS, 84 CJA) y los otros **1,147 no existen en `articulos`**: son productos del catálogo de
 Kepler parados en un almacén de Wincaja, y para ellos el divisor de Kepler es defendible.
 
-**W1.0 — 2,263 productos (20% del almacén) con divisor 1 sin fuente que lo respalde** 🔴
+**W1.0 — 2,263 productos (20% del almacén) con divisor 1 sin fuente que lo respalde** 🟠 *DECLARADO
+en pantalla 2026-09-07; la cifra NO se cambió, y el motivo está medido abajo*
 Es el hallazgo grande, y no el que se nombró primero. `default` significa que ninguna fuente declaró
 un factor, así que la pantalla divide por 1 = "se muestra en unidad nativa". Eso es correcto **sólo
 si** el producto de verdad va uno por caja, y **no está verificado para ninguno de los 2,263** (169
-con existencia). Es el patrón que ADR-056 nombra: lo que no se pudo medir se declara, y hoy el
-divisor 1 se publica como si fuera un hecho. Mínimo: que `factor_source = 'default'` llegue a la
-pantalla como "sin factor", no como una caja de 1.
+con existencia). Es el patrón que ADR-056 nombra: lo que no se pudo medir se declara, y el divisor 1
+se publicaba como si fuera un hecho.
+
+**Resuelto como DECLARACIÓN, no como corrección de la cifra — y el motivo está medido.** Ocultar
+esas celdas del total (la regla estricta *"convertir sólo con factor con fuente y unidad que no sea
+peso"*) borraría entre **24% y 58% del total de cajas de CADA almacén**, y **no sólo de Wincaja**:
+
+| almacén | cajas hoy | con la regla estricta | |
+|---|---|---|---|
+| `00` CEDIS | 25,699.6 | 11,788.5 | −54.1% |
+| `01` (Kepler) | 29,774.4 | 18,854.3 | −36.7% |
+| `05` (Kepler) | 6,320.3 | 2,630.3 | −58.4% |
+| `MD-30` | 32,450.9 | 24,695.8 | −23.9% |
+| `MD-32` | 8,988.6 | 4,646.4 | −48.3% |
+
+Son 1,692 celdas, y **11 de ellas no tienen ni rótulo nativo** que mostrar en su lugar. Eso es una
+decisión de negocio, no una corrección técnica, así que la cifra se dejó intacta y lo que se agregó
+es que **se vea**: KPI "Sin factor de caja", banner que declara la causa, y un grado `°` por celda
+con su explicación en el `title` (y en texto para lector de pantalla, porque el símbolo no puede ser
+el único portador). Vive en `existencia.service.ts` como el predicado `sinFactor()`, hermano de
+`MEDIBLE`, y en la respuesta como `celdas_sin_factor` / `skus_sin_factor` / `cells[].nf`.
+
+**Lo que falta decidir (de Edgar):** si el total de cajas debe excluir lo que no tiene factor. Hasta
+entonces el número es el mismo de siempre, pero ya no se lee como si todas sus celdas tuvieran
+respaldo.
 
 **W1.1 — `unidad_venta = 'CJA'` + `factor_venta = 1`: el divisor de Kepler pisa la declaración de
 Wincaja** 🟡 *(chico, pero es el único caso con prueba positiva)*
