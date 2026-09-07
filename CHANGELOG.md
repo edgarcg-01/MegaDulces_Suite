@@ -10,6 +10,33 @@
 
 ## [Unreleased]
 
+### Fixed — El precio "a veces se veía más chico": lo decidía una medición hecha antes de que cargara la tipografía (2026-09-07)
+
+Salió de *"últimamente existe un bug que en ocasiones el número se ve más chico, ¿dónde está el error?"*.
+
+`fitPrice()` encoge el precio midiendo su ancho. **Si mide antes de que la tipografía esté usable, mide con la fallback** —que tiene otro ancho— y deja el tamaño mal en la dirección de esa fallback. Medido, mismo precio y misma caja, cambiando sólo la fuente de la medición:
+
+| midiendo con | ancho vs Anton | un precio de 4 cifras queda en |
+|---|---|---|
+| **Anton** (la que imprime) | — | 9.00 mm |
+| **Impact** (Windows) | +5…8% | 8.50 mm |
+| **Helvetica** (iPad / Android) | **+13…21%** | **7.50 mm** ← 17% más chico |
+| **Arial Narrow** | −1…7% | 9.25 mm (y al llegar Anton se **recorta**) |
+
+**Por qué era intermitente:** ya existía `document.fonts.ready.then(() => layout())` y no alcanza. Las familias llegan por un `@import` a fonts.googleapis.com **dentro del CSS del componente**, así que mientras esa hoja no baja **no existe ningún `@font-face`**: no hay carga pendiente, `fonts.ready` resuelve al instante y se mide con la fallback. Dependía de si la CSS de Google estaba en caché. Y el re-layout vivía **sólo en `ngAfterViewInit`**, mientras que las etiquetas de la cola nacen de un cambio de input → esas se quedaban con la medida mala para siempre. **Segunda mitad:** con `clientWidth` 0 el espacio disponible salía negativo y el bucle llegaba al piso, dejando el precio en 4.5 mm.
+
+Arreglado con `FUENTES_USABLES` (promesa memoizada que espera `fonts.load` + `fonts.check` con tope de 3 s, y re-ajusta desde los dos hooks) más la guarda "sin medida no se encoge". Sin internet se sigue midiendo con la fallback, que ahí es lo correcto: es la que imprime.
+
+### Changed — El apartado de mayoreo, legible: de 3.7 a 5.4 mm (2026-09-07)
+
+Al reducir la etiqueta a 82×35 bajé la celda del monto de 20 a 16 mm y el auto-encogido dejaba el precio de mayoreo en **~3.7 mm**. Ahora el precio unitario cede **4.4 mm** de ancho a la columna de tiers (34 / 43.4, ya no el 54:55 original) y su arranque baja de 11.5 a 10 mm; la celda del monto sube a 22 mm y el monto a **5.4 mm**.
+
+**El bold no se podía hacer con `font-weight`:** Bebas Neue no tiene bold real y el navegador no la sintetiza — medido, `font-weight:700` daba **el mismo ancho al píxel**. El peso va por trazo óptico, más grueso en las filas de mayoreo, que además llevan chip amarillo de marca. Los rótulos se acortaron ("Mayoreo 3+ cajas" en vez de "Mayoreo desde 3 cajas:") porque el rótulo era lo que se comía el ancho.
+
+**Y de paso, un recorte silencioso que ya existía:** el bloque de tiers no tenía ajuste vertical y con 4 renglones el contenido medía **100 px contra 92 de caja ya en la etiqueta de 115×40** — el 4º tier se perdía tapado por el `overflow:hidden`. Nuevo `fitTiers()` baja todos los montos por igual hasta que quepan. Dimensionado con el dato: de los **9,013 productos** con precios de etiqueta, **76.1% tiene 2 renglones** y **sólo 2.0% cuatro** → 1, 2 y 3 tiers imprimen a 5.4 mm (94.5% del catálogo) y los de 4 bajan a 4.0, sin recortes ni rótulos partidos.
+
+⚠️ **Sexta vez:** un acento grave en un comentario CSS parte el template literal y el compilador tira `Failed to resolve styles at position 1 to a string`. **ts-jest no lo detecta** (no hace el análisis estático de Angular): los 81 tests salían verdes con el build roto. El spec ahora lo prohíbe. Candado del módulo extendido a **16 casos**.
+
 ### Changed — La etiqueta de anaquel baja a 82×35 mm: de 8 a 15 por hoja (2026-09-07)
 
 Salió de *"necesito reducir el tamaño de la etiqueta"*. Edgar fijó el alto en 35 mm y eligió el ancho tras ver el cálculo.
