@@ -6,6 +6,86 @@
 
 ---
 
+## 2026-09-07 — El ledger doble de knex: 4 migraciones aplicadas que el próximo deploy iba a re-aplicar
+
+**Disparador:** *"sigue con los bloques del 1 y autorizo que corras las migraciones"*. Va antes del
+redeploy pendiente, no después: si el deploy corre `migrate.latest()`, estas 4 se re-aplican.
+
+### Lo que estaba mal
+
+Prod tiene **DOS** tablas `knex_migrations`. La real es `public` — la que declara
+`database/knexfile-newdb.js` con `schemaName: 'public'`. La otra vive en `identity` y se llena porque
+el `search_path` del rol pone `identity` **primero**
+(`identity, catalog, trade, commercial, logistics, public, "$user"`): cualquier runner ad-hoc que
+arme su knex **sin** `migrations.schemaName` escribe ahí y no se da cuenta.
+
+Medido: `public` 599 filas / batch 303 · `identity` **4** filas — eran **2** la semana pasada, o sea
+la tabla sigue creciendo. Las 4: `20260904100000_v_sellout_daily.js`,
+`20260904100100_mv_sellout_monthly.js`, `20260905120000_sellout_monto_neto_descuento.js`,
+`20260907120000_vendor_identity_tlmk_ph.js`. Ninguna estaba en `public`.
+
+Y no son inocuas al re-correr: la tercera arranca con
+`DROP MATERIALIZED VIEW analytics.mv_kepler_sales_daily CASCADE` —que se lleva `v_sellout_daily` y el
+rollup mensual— más un `REFRESH` completo; su `down()` lanza a propósito.
+
+### El falso negativo que casi me hace re-aplicar una de ellas
+
+Verifiqué el DDL contra prod antes de registrar nada, porque *"aplicada"* en un ledger no prueba que
+el objeto exista. El primer chequeo dijo que `mv_sellout_monthly` y `mv_kepler_sales_daily` **no**
+tenían `monto_neto` → lectura: la migración se registró sin correr, hay que aplicarla de verdad.
+
+**Falso.** `information_schema.columns` **no lista MATVISTAS** — sólo tablas y vistas. Por eso
+`v_sellout_daily` (vista normal) sí aparecía y sus dos hermanas materializadas no. Repetido contra
+`pg_attribute`: **12/12 OK**, incluida la invariante `monto_neto <= monto`.
+
+Creerle al primer resultado significaba dropear con CASCADE la cadena del sell-out **en prod** para
+arreglar algo que ya estaba bien.
+
+### Lo que se hizo
+
+- Las 4 registradas en `public.knex_migrations` (batch **304**) preservando su `migration_time`
+  original, en una transacción con freno (`si no son exactamente 4 → rollback`). **599 → 603**.
+- `identity.knex_migrations` **no se borró** — no se borra nada en prod. Queda con un `COMMENT` que
+  dice que no es el ledger y que **si vuelve a crecer, hay un runner mal configurado corriendo contra
+  prod**. Ese comentario es el detector: la tabla es el sensor de su propia causa.
+- Las 2 genuinamente pendientes, una por una con `database/scripts/apply-one-migration-prod.js` —que
+  **sí** declara `schemaName: 'public'`, no fue el culpable—:
+  `20260904120000_promotor_ruta_orders_perms.js` (batch 305) y
+  `20260907130000_commercial_sellout_analysis_perm_backfill.js` (batch 306).
+- Cierre: **605 aplicadas / 0 pendientes**, 605 archivos == 605 filas, **0** filas en el ledger sin
+  archivo (o sea cero riesgo de *"directory corrupt"*).
+
+### Las 2 pendientes ya eran no-ops, y el baseline lo predijo
+
+Capturado **antes** de aplicar: `promotor_ruta` ya tenía `COMMERCIAL_ORDERS_CREAR`,
+`COMMERCIAL_ORDERS_VER` y `COMMERCIAL_WAREHOUSES_VER` en `true`; y de los 50 roles, **0** estaban sin
+la clave `COMMERCIAL_SELLOUT_ANALYSIS_VER` (13 en `true`, exactamente los 13 que tienen el ancla
+`COMMERCIAL_SELLOUT_VER`). El backfill reportó `filas = 0`, lo previsto al dedo. Alguien ya había
+aplicado el efecto a mano por `/admin/roles`.
+
+O sea: aplicarlas **no movió un dato** — sinceró el ledger. Post-estado idéntico al baseline.
+
+**Lección:** el `WHERE permissions -> 'KEY' IS NULL` del backfill respeta a propósito lo manual, así
+que medir el baseline no es ceremonia: es lo único que distingue *"el backfill no hizo falta"* de
+*"el backfill no llegó"* — que es como se veía LC.6.2 desde afuera.
+
+### Tres cosas que no venía a buscar
+
+- **`role_permissions` existe en `identity` Y en `public`.** El de `public` es **vista** con
+  `security_invoker=true`, 50 filas contra 50 — correcto, no hay segunda fuente de verdad. La tabla
+  real tiene RLS activo y **forzado**.
+- **`recursos_humanos` aparece dos veces**: una fila por tenant. Legítimo.
+- **Los tenants de prueba en prod bajaron de 3 a 1.** Quedan `mega_dulces` (120 usuarios activos) y
+  `test_tenant_b` (**0** usuarios). `tenant_isolation_test` y `ws_iso_test` ya no están.
+
+### Higiene que le toca a Edgar
+
+El área de staging trae **31 archivos `.tmpq/`** (PDFs y benches de scratch) marcados `A`, más WIP
+real de `anexo-venta`. **`.tmpq` no está en `.gitignore`** — por eso se cuela en cada `git add`. No lo
+toqué; el commit de esta pasada nombra sus archivos por ruta.
+
+---
+
 ## 2026-09-05 — AX.9: auditoría de `/comercial/documentos` y los tres números que mentían
 
 **Disparador:** Edgar preguntó *"analiza /comercial/documentos, ¿son ventas o facturas de telemarketing?"*
