@@ -610,12 +610,12 @@ edad sale 6 h más joven y **un `warnH: 30` dispara en realidad a las 36 h**.
 Es el mismo patrón que VP.0 encontró en el frontend —21 de 24 píldoras midiendo el reloj del
 navegador—, pero del lado del servidor y sobre el tablero que existe para avisar.
 
-**Arreglado sólo en el sensor nuevo** (`wincaja_existencias_entrega`, sin el cast: la edad de JS
-cuadra al centésimo con la de SQL). **NO se barrió el resto, y el motivo importa:** el sesgo aplica
-únicamente a los sensores cuya columna subyacente es `timestamptz`. Donde el dato ya es `timestamp`
-naive en hora MX, el cast es inocuo y "arreglarlo" metería el error de 6 h **en el otro sentido**. La
-barrida necesita verificar el TIPO de la columna de cada sensor uno por uno — queda declarado como
-deuda con nombre, no dibujado como hecho.
+**Arreglado primero en el sensor nuevo** (`wincaja_existencias_entrega`, sin el cast: la edad de
+JS cuadra al centésimo con la de SQL) y **barrido completo el 2026-09-07 — ver W4.3**. El motivo
+de no haberlo barrido de entrada era el correcto y quedó demostrado: el sesgo aplica sólo a los
+sensores cuya columna subyacente es `timestamptz` **y que la castean**, y existe un caso donde el
+cast es load-bearing (`wincaja_cedis_stale`, que guarda medianoche UTC como fecha de negocio)
+donde "arreglarlo" habría metido el error de 6 h en el otro sentido.
 
 **W4.2 — el sensor que faltaba: entrega vs fecha de negocio** 🟠 *(construido)*
 `wincaja_cedis_stale` mide `max(fecha)` —la fecha de NEGOCIO del movimiento— con `warnH: 60` porque
@@ -634,6 +634,59 @@ Detalles de diseño que se corrigieron sobre la marcha, los dos por medir antes 
 
 Verificado contra prod: **5/5** — edad JS == edad SQL, veredicto **WARN** hoy (o sea caza el
 incidente que ningún otro sensor veía), la nota declara cuántas ramas ve, y **208 ms** de costo.
+
+**W4.3 — la barrida del sesgo de 6 h: 3 sensores mordían, 6 casteaban con razón** 🟢 *(cerrado 2026-09-07)*
+
+W4.1 dejó la barrida como deuda con nombre porque exigía verificar el TIPO de la columna de cada
+sensor. Hecho, contra prod, preguntándole al **driver** el OID que devuelve cada uno (`result.fields`)
+en vez de leer el SQL a ojo. Los 30 sensores de `APP_SOURCES`:
+
+| | |
+|---|---|
+| Sensores por-columna (`tsCandidates`, sin cast) | **15 de 15 limpios** — las 15 columnas son `timestamptz` |
+| Sensores con SQL propio | **15** |
+| … de ésos, naive ANTES del arreglo | **9** = 3 con sesgo real + 6 con el cast correcto |
+| … de ésos, naive DESPUÉS | **6**, los seis declarados con su motivo y su tipo medido |
+
+**Los 3 que mordían** (ninguno era teórico):
+
+- `stock_cedis_00` — `commercial.stock.updated_at` es `timestamptz`. Reportaba **29.44 h** con la
+  edad real en **35.44 h** y `warnH: 30`: el warn no estaba apagado por sanidad, estaba **tapado por
+  el sesgo**. Es el CEDIS, el nodo que surte a la red.
+- `fleet_positions` — `captured_at` es `timestamptz` y el umbral es `warnH: 3`. O sea el sensor
+  **no podía disparar** antes de las 9 h reales, y por debajo de 6 h publicaba **edad negativa**. Un
+  dead-man's switch que no alcanza su propia ventana no es un sensor.
+- `ods_finance_00` — centinela (`now()` / `now() - 100 días`), así que el veredicto no se movía,
+  pero el tablero publicaba **"hace −6.00 h"**. Un número imposible en pantalla enseña a desconfiar
+  del tablero entero, que es la falla que ADR-053 existe para evitar.
+
+**El contraejemplo que justifica no haber usado un sed** — `wincaja_cedis_stale`: su `fecha` **es**
+`timestamptz`, igual que los tres de arriba, pero **no guarda un instante: guarda una fecha de
+negocio en medianoche UTC** (medido: 3,586 de 3,586 filas de la rama 00 caen en 00:00 UTC y **ninguna**
+en 00:00 MX; `max(fecha)` = 04/09 00:00 UTC = 03/09 18:00 MX). El cast la devuelve a medianoche MX,
+que es exactamente la semántica que el sensor mide. Quitarlo lo habría envejecido 6 h de más.
+
+Los otros cinco naive están bien por una razón distinta y más aburrida: derivan de un `date`
+(`kepler_ods_00_stale`, `wincaja_feed`, `wincaja_branch_stale`, `sales_daily_date`) o de aritmética
+de fechas (`bank_recon_period`), donde el cast es **redundante, no sesgado**.
+
+**El candado**: `database/tests/test-db-health-tz-bias.js` (registrado en `run-all-tests.js`).
+El cast se permite, pero sólo **declarado con su motivo y su tipo medido** en `CAST_JUSTIFICADO`.
+Cuatro bloques: estático sin DB, OID por sensor contra la DB, prueba negativa del predicado **y del
+sesgo medido en vivo** (`now()::timestamp` aparenta −6.00 h), y el tipo de columna de los 15
+por-columna. **40 OK · 0 FALLA** contra prod.
+
+**Dos hallazgos del propio candado, que valen más que el arreglo:**
+
+1. La primera versión del parser usaba una ventana de 400 caracteres entre `key:` y `sql:`. Al
+   documentar los arreglos, los comentarios empujaron `sql:` fuera de la ventana y **los 4 sensores
+   recién editados desaparecieron del test en silencio**. Lo cazó la guarda anti-no-op del bloque 1
+   —la que exige reconocer ≥12 sensores— que existe justamente porque *un no-op se lee igual que
+   "no hay problemas"*. El parser pasó a cortar por tramos, sin ventana.
+2. Con el parser arreglado apareció **`wincaja_branch_stale`, un sensor que el barrido manual nunca
+   vio** (el parser viejo también lo saltaba, por la misma razón). Su cast resultó redundante —deriva
+   de un `date`— pero el hecho importa: el conteo "14 sensores con SQL propio" del barrido a mano
+   estaba mal, y sólo el candado lo notó.
 
 ---
 

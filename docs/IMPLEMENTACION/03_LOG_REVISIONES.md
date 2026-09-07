@@ -6,6 +6,50 @@
 
 ---
 
+## 2026-09-07 — `[W4.3]` La barrida del sesgo de 6 h en el tablero de salud
+
+**Qué se cerró.** W4.1 había medido que `db-health` sub-reporta la edad del dato en exactamente
+**6.00 h** (la sesión de pg corre en `Etc/UTC`, el proceso de la API en `America/Mexico_City`, la
+edad se calcula en JS y casi todos los sensores devolvían `max(col)::timestamp`), y la dejó como
+deuda con nombre porque barrerla exigía verificar el TIPO de la columna de cada sensor. Hecho.
+
+**Cómo se midió, que es el punto.** No se leyó el SQL a ojo: se le preguntó al **driver** el OID que
+devuelve cada sensor (`result.fields`), contra prod. 1184 = `timestamptz` (el driver reconstruye el
+instante exacto), 1114 = naive (el driver lo reinterpreta como hora local del proceso).
+
+**Resultado.** Los 15 sensores por-columna estaban **limpios** (las 15 columnas son `timestamptz` y
+ninguno castea). De los 15 con SQL propio, 3 tenían sesgo real y se arreglaron:
+
+- `stock_cedis_00` reportaba **29.44 h** con la edad real en **35.44 h** y `warnH: 30` → el warn
+  estaba **tapado por el sesgo**. Es el CEDIS, el nodo que surte a la red.
+- `fleet_positions` tenía `warnH: 3` sobre un `timestamptz`: **no podía disparar** antes de las 9 h
+  reales, y por debajo de 6 h publicaba edad negativa.
+- `ods_finance_00` es un centinela, así que el veredicto no se movía — pero publicaba "hace −6.00 h".
+
+**Lo que NO se tocó, y por qué importa más que lo que sí.** `wincaja_cedis_stale` tiene su `fecha` en
+`timestamptz` igual que los tres de arriba, pero **no guarda un instante: guarda una fecha de negocio
+en medianoche UTC** (3,586 de 3,586 filas de la rama 00 en 00:00 UTC, **ninguna** en 00:00 MX). Ahí el
+cast es load-bearing: quitarlo habría envejecido el dato 6 h de más. Es la razón por la que este
+barrido se hizo sensor por sensor y no con un `sed`.
+
+**El candado.** `database/tests/test-db-health-tz-bias.js`, registrado en la suite. El cast se
+permite, pero sólo **declarado con su motivo y su tipo medido**. Prueba negativa doble: el predicado
+contra sensores sintéticos, y el sesgo **medido en vivo** (`now()::timestamp` aparenta −6.00 h).
+**40 OK · 0 FALLA** contra prod.
+
+**Lecciones**
+
+1. **Un parser que se calla cuando no entiende se lee como "todo bien".** La primera versión del
+   candado usaba una ventana de 400 caracteres entre `key:` y `sql:`; al documentar los arreglos, los
+   comentarios empujaron `sql:` fuera de la ventana y **los 4 sensores recién editados desaparecieron
+   del test en silencio**. Lo cazó la guarda anti-no-op —la que exige reconocer ≥12 sensores— y no la
+   revisión a ojo. Toda extracción por regex sobre código necesita su piso mínimo declarado.
+2. **El candado encontró lo que el barrido a mano no**: con el parser corregido apareció
+   `wincaja_branch_stale`, un sensor que el conteo manual ("14 con SQL propio") nunca vio.
+3. **El mismo tipo de columna no implica la misma semántica.** Tres `timestamptz` querían perder el
+   cast y un cuarto lo necesitaba, porque guardaba una fecha de negocio disfrazada de instante.
+   Verificar el tipo era necesario pero no suficiente: había que preguntar **qué reloj guarda**.
+
 ## 2026-09-07 — El factor de caja de Wincaja: uno se arregló, dos se declararon (y por qué no los tres)
 
 **Disparador:** *"mencionaste que ahora sí se trae todas las unidades × caja de wincaja, ¿verdad?"* —
