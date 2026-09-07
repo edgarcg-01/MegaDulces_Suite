@@ -6,6 +6,7 @@ import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { RoutePromoService, PromoQuery } from './route-promo.service';
+import { SelloutChatService } from './sellout-chat.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -21,6 +22,7 @@ export class CommercialAnalyticsController {
     private readonly refresh: AnalyticsRefreshService,
     private readonly exporter: SellOutExportService,
     private readonly routePromoSvc: RoutePromoService,
+    private readonly selloutChat: SelloutChatService,
   ) {}
 
   @Get('overview')
@@ -676,6 +678,15 @@ export class CommercialAnalyticsController {
       from, to, dim, compare, brand_id: brandId, measure, promo, search,
       warehouses: warehouses ? warehouses.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
     });
+  }
+
+  // ─────────── BI.5 — "Preguntale al Sell-Out" (chat tool-use, cero numeros del LLM) ───────────
+  @Post('sell-out/ask')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
+  @ApiOperation({ summary: 'BI.5 — Pregunta en lenguaje natural sobre el sell-out. El LLM elige tools deterministas; los numeros salen de la DB. Body: { message, history?, think? }.' })
+  sellOutAsk(@Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
+    return this.selloutChat.ask({ message: body?.message || '', history: body?.history, think: !!body?.think });
   }
 
   @Get('sell-out.xlsx')
