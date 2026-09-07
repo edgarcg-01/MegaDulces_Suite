@@ -6,8 +6,10 @@
  * schema por sucursal, en dos carriles:
  *
  *   CARRIL INCREMENTAL (movimientos append-only, monótonos): MaestroMovAlmacen, DetallesMovAlmacen,
- *     PagosDia, Arqueos, Cortes, Retiros. Lee `WHERE <wm_col> > watermark` (barato, acotado).
- *     Watermark en `ods.wincaja_watermark`.
+ *     PagosDia, Arqueos. Lee `WHERE <wm_col> > watermark` (barato, acotado).
+ *     Watermark en `ods.wincaja_watermark`. `[WR.7]` Cortes y Retiros SALIERON de este carril: su
+ *     `Folio` reinicia por caja, y una marca escalar dejaba ciegas 5 de 6 cajas (ver
+ *     `watermarkSeguro` y el invariante en `wincaja-replica-config.js`).
  *
  *   CARRIL HASH-DELTA (catálogos + ledgers mutables): Articulos, Precios, Existencias, Clientes,
  *     MovimientoClientes/Proveedores… Full-scan → md5(fila) en JS → UPSERT solo si el hash cambió
@@ -29,7 +31,9 @@ const path = require('path');
 const { Client } = require('pg');
 const A = require(path.join(__dirname, '..', 'lib', 'access-adapter'));
 const { conflictTarget, dataColumns, HK_HASH } = require(path.join(__dirname, '..', 'lib', 'access-mirror'));
-const { BRANCHES, REPLICA_URL, watermarkCol, MDB_BASE } = require('./wincaja-replica-config');
+const {
+  BRANCHES, REPLICA_URL, watermarkCol, MDB_BASE, WM_INVARIANTE, WM_SIN_PK,
+} = require('./wincaja-replica-config');
 
 const DRY = process.argv.includes('--dry');
 const ONCE = process.argv.includes('--once');
@@ -129,11 +133,49 @@ async function upsertRows(c, schema, table, cols, conflict, rows) {
 function pick(row, cols) { const o = {}; for (const c of cols) o[c] = row[c] === undefined ? null : row[c]; return o; }
 function toNum(v) { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 
+/**
+ * `[WR.7]` El carril incremental sólo es legítimo si su columna de watermark es TODA la identidad
+ * de la tabla. Con una PK de dos ejes —`Cortes`/`Retiros` tienen `(Folio, Caja)` y el folio
+ * reinicia por caja— la marca escalar no se "atrasa": deja permanentemente ciegas a las cajas cuyo
+ * folio quede por debajo del máximo global. Medido: 5 de 6 cajas y 2,939 de 4,193 retiros de la 30.
+ *
+ * Ante la duda se cae a hash-delta, que es el carril COMPLETO (full-scan): puede costar tiempo,
+ * nunca datos. Y avisa una vez por tabla, porque una degradación muda se lee como que todo va bien.
+ */
+const wmAvisado = new Set();
+function watermarkSeguro(t) {
+  const col = watermarkCol(t.table);
+  if (!col) return null;
+  const pk = (t.pk || []).filter(Boolean);
+  if (pk.length > 1) {
+    if (!wmAvisado.has(t.table)) {
+      wmAvisado.add(t.table);
+      console.warn(`  ⚠️ ${t.table}: watermark '${col}' pero la PK es (${pk.join(', ')}) → `
+        + `${WM_INVARIANTE}. Se usa hash-delta (completo) en vez de incremental (ciego).`);
+    }
+    return null;
+  }
+  if (pk.length === 1 && pk[0].toLowerCase() !== col.toLowerCase()) {
+    if (!wmAvisado.has(t.table)) {
+      wmAvisado.add(t.table);
+      console.warn(`  ⚠️ ${t.table}: watermark '${col}' no es la PK ('${pk[0]}') → hash-delta.`);
+    }
+    return null;
+  }
+  if (pk.length === 0 && !WM_SIN_PK[t.table] && !wmAvisado.has(t.table)) {
+    wmAvisado.add(t.table);
+    console.warn(`  ⚠️ ${t.table}: incremental sin PK y sin motivo declarado en WM_SIN_PK → `
+      + 'no se puede probar que la columna sea monótona global. Se usa hash-delta.');
+    return null;
+  }
+  return col;
+}
+
 /** Sincroniza una tabla (elige carril). Devuelve {carril, read, wrote}. */
 async function syncTable(c, b, t) {
   const cols = dataColumns(t);
   const conflict = conflictTarget(t);
-  const wmCol = watermarkCol(t.table);
+  const wmCol = watermarkSeguro(t);
   const file = t._file || b.mdb;
 
   if (wmCol) {
@@ -158,7 +200,10 @@ async function syncTable(c, b, t) {
 async function syncBranch(c, b) {
   const tables = branchSchema(b)
     .filter((t) => !ONLY || ONLY.has(t.table))
-    .filter((t) => CARRIL === 'all' || (CARRIL === 'inc' ? !!watermarkCol(t.table) : !watermarkCol(t.table)));
+    // El split usa `watermarkSeguro`, no `watermarkCol`: una tabla degradada a hash-delta por el
+    // invariante tiene que caer en el carril HASH (cadencia baja), no en el rapido haciendo
+    // full-scan cada 2 minutos.
+    .filter((t) => CARRIL === 'all' || (CARRIL === 'inc' ? !!watermarkSeguro(t) : !watermarkSeguro(t)));
   console.log(`\n=== ${b.code} ${b.name} → ${b.schema} (${tables.length} tablas${ONLY ? ' [filtro]' : ''}${CARRIL !== 'all' ? ' carril=' + CARRIL : ''}) ===`);
   const t0 = Date.now();
   let totRead = 0, totWrote = 0, incN = 0, hashN = 0;

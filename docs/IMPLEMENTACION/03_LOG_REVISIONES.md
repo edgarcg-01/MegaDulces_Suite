@@ -6,6 +6,105 @@
 
 ---
 
+## 2026-09-07 — `[WR.7][WR.8]` La réplica cruda de Wincaja perdía filas por dos mecanismos, ninguno visible
+
+**Disparador:** *"la réplica cruda de wincaja solo tiene 69 tablas?"* → no, son **70 por rama y son
+todas las del `.mdb`** (el descubridor lista todo menos `MSys*` y `~*`). Y después el requisito que
+cambió el alcance: *"necesito que sea una réplica tal cual, con sus tablas y columnas idénticas,
+ninguna diferencia y toda poblada"*.
+
+### Lo que la auditoría encontró bien (y no había que tocar)
+
+Medido contra `:5433/wincaja` — **34 schemas, 38 GB**: 3 con CDC vivo (`w30`/`w32`/`w00`, ~minutos de
+frescura) y 31 históricos `h*` (carga única del 05-sep, dato hasta 31/12/2025).
+
+| | |
+|---|---|
+| Columnas idénticas entre los 33 schemas | **70 de 70 tablas** — cero discrepancias |
+| Tablas del universo común presentes | **33 de 33 schemas** |
+| Tablas vacías en la réplica con origen poblado | **0** (las 29–36 vacías por rama lo están porque el `.mdb` no usa esas features) |
+| Cargas del histórico en estado ≠ ok | **0** de 14,635 |
+
+La `Errores de pegado` que hace que 4 schemas tengan 71 tablas **no es un defecto del espejo**: es una
+tabla que Access genera cuando falla un pegado, y sólo existe en 4 de los 33 archivos de origen. El
+espejo la copia donde está, que es lo correcto. (Es también la única tabla con columnas dispares
+entre schemas, por la misma razón: guarda el pegado fallido de lo que sea.)
+
+### Defecto 1 — `[WR.7]` watermark CIEGO: 5 de 6 cajas invisibles, y no se recuperaba solo
+
+`Cortes` y `Retiros` iban por el carril incremental con watermark `Folio`. Su PK es **`(Folio, Caja)`**
+y **el folio reinicia por caja**. Con una marca escalar sobre `Folio`, en cuanto la caja más alta la
+fija, todo lo que emitan las demás queda `<= marca` y **no se vuelve a leer nunca**:
+
+| | marca | cajas por debajo | filas |
+|---|---|---|---|
+| `w30.Cortes` | 174,815 (caja 70) | **5 de 6** (folios 663–7,157) | 110 de 193 en la réplica |
+| `w30.Retiros` | 88,154 (caja 32) | **5 de 6** | 2,675 de 4,193 |
+| `w32.Cortes` | 3,029 | 2 de 3 | 193 de 226 |
+| `w32.Retiros` | 47,777 | 2 de 3 | 3,764 de 4,344 |
+
+No era atraso: la marca ya estaba en el máximo. Son **cortes de caja y retiros de efectivo** — dinero.
+
+**Arreglo:** las dos salen del carril incremental y pasan a hash-delta (full-scan; son 193 y 4,193
+filas, el escaneo es barato). Verificado post-arreglo: `w30` 203/4,487 y `w32` 231/4,480, las cuatro
+al día o por arriba del archivo.
+
+**Y el arreglo no bastaba con editar el config:** PM2 tenía el código viejo en memoria y **volvió a
+escribir las marcas a los tres minutos** de borrarlas. Hubo que reiniciar `wincaja-inc`/`wincaja-hash`.
+Un importer bajo PM2 no se despliega guardando el archivo.
+
+**Generalización, que es lo que queda:** `watermarkSeguro()` en el replicador rechaza el carril
+incremental si la columna de marca no es la PK completa, y cae a hash-delta — **puede costar tiempo,
+nunca datos**. Con las 4 tablas que quedan medidas una por una: `MaestroMovAlmacen` y `Arqueos` con
+PK == watermark (probado), `DetallesMovAlmacen` y `PagosDia` sin PK y por eso **declaradas** en
+`WM_SIN_PK` con el motivo de por qué su columna es monótona global.
+
+### Defecto 2 — `[WR.8]` dos filas idénticas entraban como una: 19,321 filas
+
+El carril histórico escribe con identidad `(_dataset, _row_hash)` y `ON CONFLICT DO NOTHING`, sobre una
+partición que **acaba de borrar**. O sea: el único choque posible era contra el propio archivo, y dos
+filas byte-idénticas colapsaban en una.
+
+Medido sobre las 14,635 cargas / **146,289,530 filas**: **19,321 perdidas (0.0132%)** —
+`DetallesMovAlmacen` 18,433 · `DetalleCotizaciones` 882 · `MovimientoClientes` 4 · `OrdenesCompra` 2.
+
+Estaba **declarado como efecto lateral aceptable** en el comentario del loader. Dejó de serlo con el
+requisito de espejo exacto, y con razón: dos renglones iguales de un ticket son dos veces la cantidad.
+
+**Arreglo:** columna de housekeeping `_ocurrencia` — el número de repetición de una fila byte-idéntica
+dentro del corte — y la identidad pasa a `(_dataset, _row_hash, _ocurrencia)`. Se calcula
+`row_number() OVER (PARTITION BY <hash>)`: **determinista**, porque cuál de las filas idénticas se
+lleva el 1 da exactamente igual — son la misma fila byte a byte.
+
+La migración de las 2,104 tablas ya creadas vive **dentro de `ensureTable`**, no en un script aparte:
+el costo real es reconstruir el índice único, y así se paga sólo en las tablas que de verdad se
+recargan, y una tabla que se recargue el año que viene queda arreglada sin que nadie se acuerde.
+
+Probado primero en la partición más chica con pérdida (`h505/Actuales/DetallesMovAlmacen`, perdía 589
+de 13,061): **read = wrote = 13,061**, y en la tabla quedaron **589 filas con `_ocurrencia > 1`** —
+exactamente las que faltaban, con grupos de hasta 4 filas idénticas.
+
+### El candado
+
+`database/tests/test-wincaja-replica-fidelidad.js`, en la suite. Cinco bloques: read == written en las
+14,635 cargas · ninguna carga sin cerrar · el invariante del watermark con **prueba negativa** del
+predicado · paridad de tablas y columnas entre los 33 schemas · el mecanismo de `_ocurrencia` aplicado.
+Vive on-prem, así que si no alcanza `:5433/wincaja` declara **NO MEDIDO**, no verde. Y el bloque 1
+lleva guarda anti-no-op: un ledger vacío haría que "cero pérdidas" fuera cierto sin probar nada.
+
+**Lecciones**
+
+1. **Un watermark escalar es una promesa sobre la identidad de la tabla.** Si la clave tiene dos ejes,
+   la marca no se atrasa: ciega un eje completo, para siempre. El invariante barato es *la columna de
+   marca tiene que ser la PK entera* — y acá la PK estaba a la vista, en el propio espejo.
+2. **"Efecto lateral aceptado" en un comentario no es una decisión, es una deuda sin medir.** Los dos
+   defectos estaban documentados como tolerables por quien los escribió; ninguno tenía número al lado.
+   Con el número (19,321 filas · 5 de 6 cajas) ninguno era tolerable.
+3. **Editar un importer bajo PM2 no lo despliega.** El proceso viejo siguió escribiendo las marcas que
+   yo acababa de borrar.
+4. **`ON CONFLICT DO NOTHING` sobre una partición recién borrada no es idempotencia: es un dedup.**
+   La idempotencia la daba el `DELETE`; el conflict target sólo podía chocar consigo mismo.
+
 ## 2026-09-07 — `[W4.3]` La barrida del sesgo de 6 h en el tablero de salud
 
 **Qué se cerró.** W4.1 había medido que `db-health` sub-reporta la edad del dato en exactamente

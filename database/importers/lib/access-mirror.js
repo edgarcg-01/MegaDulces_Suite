@@ -24,6 +24,23 @@ const { jetToPg } = require('./access-adapter');
 
 const HK_HASH = '_row_hash';
 const HK_SYNC = '_synced_at';
+/**
+ * `[WR.8]` Número de repetición de una fila **byte-idéntica** dentro de la partición: 1 para la
+ * primera, 2 para la segunda igual, etc.
+ *
+ * Por qué existe: con identidad `(_dataset, _row_hash)` dos filas idénticas colapsan en una y el
+ * espejo deja de ser espejo. Medido el 2026-09-07 sobre el corpus histórico (14,635 cargas /
+ * 146,289,530 filas): **19,321 filas perdidas** — DetallesMovAlmacen 18,433 · DetalleCotizaciones
+ * 882 · MovimientoClientes 4 · OrdenesCompra 2. Son renglones de ticket y de cotización: dos
+ * renglones idénticos son dos veces la cantidad, no un error de captura que corresponda deduplicar.
+ * El espejo crudo no está para discutirle a la fuente.
+ *
+ * Es DETERMINISTA y por eso sirve como identidad: se calcula
+ * `row_number() OVER (PARTITION BY <hash>)` — cuál de las filas idénticas recibe el 1 es arbitrario,
+ * y da exactamente igual, porque son la misma fila byte a byte. Recargar la partición reproduce el
+ * mismo conjunto.
+ */
+const HK_OCC = '_ocurrencia';
 
 /** Cita un identificador Postgres preservando el case exacto de Access. */
 function q(id) { return '"' + String(id).replace(/"/g, '""') + '"'; }
@@ -32,7 +49,7 @@ function q(id) { return '"' + String(id).replace(/"/g, '""') + '"'; }
  * DDL del espejo de una tabla. Devuelve null si la tabla no expuso columnas.
  * `extraKeys` = columnas `text NOT NULL` de partición que se prefijan a la identidad (ver cabecera).
  */
-function mirrorDDL(schema, t, { extraKeys = [] } = {}) {
+function mirrorDDL(schema, t, { extraKeys = [], withOccurrence = false } = {}) {
   const cols = (t.columns || []).filter((c) => c && c.name);
   if (!cols.length) return null;
   const lines = extraKeys.map((k) => `  ${q(k)} text NOT NULL`);
@@ -40,20 +57,26 @@ function mirrorDDL(schema, t, { extraKeys = [] } = {}) {
   // `c.jet` = tipo Jet crudo (lo trae `access-adapter.discoverSchema`). Un solo generador para los dos.
   lines.push(...cols.map((c) => `  ${q(c.name)} ${c.pg || jetToPg(c.jet)}`));
   lines.push(`  ${HK_HASH} text`);
-  lines.push(`  ${HK_SYNC} timestamptz NOT NULL DEFAULT now()`);
   const pk = (t.pk || []).filter(Boolean);
+  // `_ocurrencia` sólo tiene sentido donde la identidad es el CONTENIDO de la fila: con PK natural
+  // dos filas idénticas ya son distinguibles por su clave.
+  const conOcc = withOccurrence && !pk.length;
+  if (conOcc) lines.push(`  ${HK_OCC} integer NOT NULL DEFAULT 1`);
+  lines.push(`  ${HK_SYNC} timestamptz NOT NULL DEFAULT now()`);
   if (pk.length) {
     lines.push(`  CONSTRAINT ${q(t.table + '_pk')} PRIMARY KEY (${[...extraKeys, ...pk].map(q).join(', ')})`);
   } else {
-    lines.push(`  CONSTRAINT ${q(t.table + '_uq')} UNIQUE (${[...extraKeys, HK_HASH].map(q).join(', ')})`);
+    const ident = [...extraKeys, HK_HASH, ...(conOcc ? [HK_OCC] : [])];
+    lines.push(`  CONSTRAINT ${q(t.table + '_uq')} UNIQUE (${ident.map(q).join(', ')})`);
   }
   return `CREATE TABLE IF NOT EXISTS ${q(schema)}.${q(t.table)} (\n${lines.join(',\n')}\n);`;
 }
 
 /** Columnas que forman el conflict target del UPSERT (PK natural o el surrogate _row_hash). */
-function conflictTarget(t, { extraKeys = [] } = {}) {
+function conflictTarget(t, { extraKeys = [], withOccurrence = false } = {}) {
   const pk = (t.pk || []).filter(Boolean);
-  return [...extraKeys, ...(pk.length ? pk : [HK_HASH])];
+  if (pk.length) return [...extraKeys, ...pk];
+  return [...extraKeys, HK_HASH, ...(withOccurrence ? [HK_OCC] : [])];
 }
 
 /** Nombres de las columnas de datos (sin housekeeping) — el orden del INSERT. */
@@ -61,4 +84,4 @@ function dataColumns(t) {
   return (t.columns || []).filter((c) => c && c.name).map((c) => c.name);
 }
 
-module.exports = { mirrorDDL, conflictTarget, dataColumns, q, HK_HASH, HK_SYNC };
+module.exports = { mirrorDDL, conflictTarget, dataColumns, q, HK_HASH, HK_SYNC, HK_OCC };
