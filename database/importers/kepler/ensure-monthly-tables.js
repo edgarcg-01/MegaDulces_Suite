@@ -43,7 +43,7 @@ const { Client } = require('pg');
 const SUB_BASE = process.env.ODS_SOURCE_BASE
   || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
-const localDbName = (code) => `kepler_md_${code}`;
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 

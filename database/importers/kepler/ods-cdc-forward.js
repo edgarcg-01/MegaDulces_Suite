@@ -25,7 +25,7 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
 const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
-const localDbName = (code) => `kepler_md_${code}`;
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
