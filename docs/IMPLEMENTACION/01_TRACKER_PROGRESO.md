@@ -1322,9 +1322,13 @@ tracker rastrea fases, no **invariantes**.
 - [ ] ⬜ **VP.2.2** Aplicar el envelope por tráfico: `commercial-analytics` (62) → `-intelligence` (47) → `-replenishment` (40) → resto.
 - [ ] ⬜ **VP.2.3** `scripts/check-provenance.js` — cuarta compuerta de CI, calcando `check-authz-tree.js`. Ratchet como TS.0.
 
-### VP.3 — Historia de datos maestros ⬜
-- [ ] ⬜ **VP.3.1** `analytics.master_data_history` por trigger genérico (el repo tiene ~20 `trg_auto_populate_tenant_id`: el patrón ya está a escala). Hoy **cero** historial para precio, costo, punto de reorden, etiqueta y factor de caja.
-- [ ] ⬜ **VP.3.2** Los ~11 importers de datos maestros suman `cron-heartbeat` y setean `updated_by` (hoy la columna **miente**: 0 de 11 la escriben). `import-computed-reorder`/`import-network-reorder` pisan **9 columnas de política de golpe** sin dejar rastro del valor anterior.
+### VP.3 — Historia de datos maestros 🔨
+- [x] ✅ **VP.3.1** (2026-09-07) `analytics.master_data_history` + trigger genérico sobre precio / etiqueta / reorden / catálogo. **Una fila por CAMBIO con el diff en JSONB** — se descartó una fila por campo por volumen (9 columnas × ~9,800 SKUs = ~88k filas por corrida contra ~9,800) y porque **el evento es uno**: las 9 columnas las escribió UNA pasada del importer. **No viola §32**: es un hecho nuevo (el evento), no una copia — la primaria sólo conserva el estado actual. **El trigger NO se traga errores** (distinto de `cron-heartbeat`, que nunca lanza): un latido perdido cuesta una alarma, una historia perdida deja una tabla incompleta que se lee igual que una completa. El `tenant_id` sale de **la fila**, no de `current_tenant_id()` — los importers corren como `postgres` sin sesión de tenant y colgarlo de un GUC habría tumbado los feeds la primera noche. `app_runtime` tiene INSERT+SELECT y **nada más**. `up()` aborta si una columna vigilada no existe (sería un hueco mudo). Migración `20260907130000`, batch 253 en `platform_test`. Commit `53c745c6`.
+- [x] ✅ **VP.3.2** (2026-09-07) Los **9** importers de datos maestros declaran quién escriben (`app.actor` vía `database/importers/lib/declare-actor.js`). El `db_role` ya distinguía app de feed, pero **no un importer de otro** — y `commercial.reorder_policy` la pisan **TRES**, dos de ellos escribiendo la misma columna `service_level` con políticas de forma distinta. ⚠️ Editar un importer es **deploy a prod inmediato**, así que el helper es incapaz de cambiar el resultado de una corrida: si el `SET` falla se lo traga (el actor es metadata, no el trabajo). Verificado contra la DB, no por lectura: `repoint-catalog-prices` en dry-run sigue dando su resultado normal. Commit `7387b0ef`.
+- [ ] ⬜ **VP.3.3** `cron_runs` gana historial (PK `(tenant_id, job_key)` guarda **sólo la última corrida**: no se puede contestar *"¿cuántas filas tocó el importer de precios el martes?"*).
+- [ ] ⬜ **VP.3.4** Latido (`cron-heartbeat`) en esos 9 importers — cambia control de flujo, merece deploy vigilado.
+
+Candado: `test-newdb-master-data-history.js` **29/29**, en la regresión.
 - [ ] ⬜ **VP.3.3** `cron_runs` gana historial (PK `(tenant_id, job_key)` guarda **sólo la última corrida**).
 
 ### VP.4 — Cerrar el mes ⬜ *(decisión Edgar: congelado manda, la diferencia se declara)*
