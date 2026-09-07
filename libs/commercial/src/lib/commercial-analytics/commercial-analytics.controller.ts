@@ -681,6 +681,21 @@ export class CommercialAnalyticsController {
     });
   }
 
+  // ─────────── BI.4 — graficas de soporte (tendencia + Pareto) ───────────
+  @Get('sell-out/series')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.4 — Serie mensual de monto (tendencia). Params: to_month=YYYY-MM, months, brand_id, channel.' })
+  sellOutSeries(@Query('to_month') toMonth?: string, @Query('months') months?: string, @Query('brand_id') brandId?: string, @Query('channel') channel?: string) {
+    return this.service.selloutSeries({ to_month: toMonth, months: months ? Number(months) : undefined, brand_id: brandId, channel });
+  }
+
+  @Get('sell-out/pareto')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.4 — Pareto/ABC: miembros por contribucion con share acumulado y clase. Params: month=YYYY-MM, dim, n, channel.' })
+  sellOutPareto(@Query('month') month?: string, @Query('dim') dim?: string, @Query('n') n?: string, @Query('channel') channel?: string) {
+    return this.service.selloutPareto({ month, dim, n: n ? Number(n) : undefined, channel });
+  }
+
   // ─────────── BI.6 — "Radar": anomalias proactivas ───────────
   @Get('sell-out/anomalies')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)

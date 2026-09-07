@@ -512,6 +512,12 @@ export interface SelloutAnomaliesReport {
   generated_at: string;
 }
 
+// ─── BI.4 gráficas de soporte (tendencia + Pareto/ABC) ───────────────────────
+export interface SelloutSeriesPoint { month: string; monto: number; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; }
+export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
+
 export interface SellOutBrandRow {
   id: string;
   nombre: string;
@@ -3832,6 +3838,64 @@ export class CommercialAnalyticsService {
       }
       anomalies.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
       return { month, baseline_months: baselineMonths, dim, anomalies: anomalies.slice(0, 12), generated_at: new Date().toISOString() };
+    });
+  }
+
+  // ─── BI.4 gráficas ───────────────────────────────────────────────────────────
+  /** Serie mensual de monto (tendencia) terminando en `to_month`, N meses hacia atrás. Meses cerrados. */
+  async selloutSeries(q: { to_month?: string; months?: number; brand_id?: string; channel?: string }): Promise<SelloutSeriesReport> {
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    let toM = /^\d{4}-\d{2}$/.test(q.to_month || '') ? (q.to_month as string) : this.selloutMonthMinus(openYm, 1);
+    if (toM >= openYm) toM = this.selloutMonthMinus(openYm, 1);
+    const n = Math.min(24, Math.max(2, Number(q.months) || 12));
+    const monthsArr: string[] = [];
+    for (let i = n - 1; i >= 0; i--) monthsArr.push(this.selloutMonthMinus(toM, i));
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).whereIn('s.year_month', monthsArr).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .modify((b: any) => { if (brandId) b.andWhere('s.brand_id', brandId); if (channel) b.andWhere('s.channel', channel); })
+        .select('s.year_month', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.year_month');
+      const map = new Map<string, number>(rows.map((r: any) => [r.year_month, Number(r.monto) || 0]));
+      return { months: monthsArr.map((m) => ({ month: m, monto: Math.round(map.get(m) || 0) })), brand_id: brandId || null, generated_at: new Date().toISOString() };
+    });
+  }
+
+  /** Pareto/ABC: miembros ordenados por monto con share acumulado y clase A(<=80%)/B(<=95%)/C. */
+  async selloutPareto(q: { month?: string; dim?: string; n?: number; channel?: string }): Promise<SelloutParetoReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : this.selloutMonthMinus(openYm, 1);
+    if (month >= openYm) month = this.selloutMonthMinus(openYm, 1);
+    const topN = Math.min(50, Math.max(5, Number(q.n) || 20));
+    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
+      const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).andWhere('s.year_month', month).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .modify((b: any) => { if (channel) b.andWhere('s.channel', channel); })
+        .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), trx.raw('SUM(s.monto)::numeric as monto'))
+        .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`)
+        .havingRaw('SUM(s.monto) > 0')
+        .orderByRaw('SUM(s.monto) desc');
+      const total = rows.reduce((a: number, r: any) => a + (Number(r.monto) || 0), 0) || 1;
+      let cum = 0;
+      const out: SelloutParetoRow[] = rows.slice(0, topN).map((r: any) => {
+        const monto = Number(r.monto) || 0;
+        cum += monto;
+        const cumShare = cum / total;
+        return {
+          key: r.k, label: this.explainDimLabel(dim, r.k, r.label),
+          monto: Math.round(monto), share: Number(((monto / total) * 100).toFixed(1)), cum_share: Number((cumShare * 100).toFixed(1)),
+          abc: (cumShare <= 0.8 ? 'A' : cumShare <= 0.95 ? 'B' : 'C') as 'A' | 'B' | 'C',
+        };
+      });
+      return { month, dim, total: Math.round(total), rows: out, generated_at: new Date().toISOString() };
     });
   }
 

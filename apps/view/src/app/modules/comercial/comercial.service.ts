@@ -1346,6 +1346,26 @@ export class ComercialService {
     return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
   }
 
+  /** BI.4 — Serie mensual (tendencia). */
+  sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
+    let params = new HttpParams();
+    if (opts.to_month) params = params.set('to_month', opts.to_month);
+    if (opts.months) params = params.set('months', String(opts.months));
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.channel) params = params.set('channel', opts.channel);
+    return this.http.get<SelloutSeriesReport>(`${this.base}/analytics/sell-out/series`, { params });
+  }
+
+  /** BI.4 — Pareto/ABC por contribución. */
+  sellOutPareto(opts: { month?: string; dim?: string; n?: number; channel?: string }) {
+    let params = new HttpParams();
+    if (opts.month) params = params.set('month', opts.month);
+    if (opts.dim) params = params.set('dim', opts.dim);
+    if (opts.n) params = params.set('n', String(opts.n));
+    if (opts.channel) params = params.set('channel', opts.channel);
+    return this.http.get<SelloutParetoReport>(`${this.base}/analytics/sell-out/pareto`, { params });
+  }
+
   /** BI.6 — Radar: anomalías del sell-out (cada miembro vs su propio promedio). */
   sellOutAnomalies(opts: { month?: string; dim?: string; lookback?: number }) {
     let params = new HttpParams();
@@ -1985,6 +2005,12 @@ export interface SellOutExplainReport {
   freshness: Freshness;
   generated_at: string;
 }
+
+// ─── BI.4 gráficas ───
+export interface SelloutSeriesPoint { month: string; monto: number; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; }
+export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
 
 // ─── BI.6 "Radar" ───
 export interface SelloutAnomaly {
