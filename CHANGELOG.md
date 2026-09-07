@@ -87,8 +87,24 @@ cuenta como sana; el candado reportaba 98.2% por eso. No faltaba el dato, faltab
 porque cambiaron de ERP (Wincaja hasta 2026-06-26, Kepler desde 2026-06-29) y **su divisor depende
 de la fecha**. Cobertura final **94.8%**, el 5.2% declarado en `analytics.v_unit_truth_coverage`.
 
-Efecto colateral medido antes de aplicar: aparecen **+$233,726** de inventario — 7,528 unidades en
-7 camionetas que dejaron de vender entre el 1-jun y el 12-ago. Hallazgo para Almacén.
+⚠️ **CORRECCION (medida despues de aplicar):** afirme que aparecian **+$233,726** de inventario y
+**era falso**. `analytics.v_erp_stock_on_hand` excluye las rutas a proposito -- su pierna de
+Wincaja termina en `AND v.warehouse_code NOT LIKE 'RUTA-%'` (el stock de una camioneta no es stock
+de bodega para reabasto) -- asi que el mapeo no agrego **ni un peso**: la vista sigue en 9
+almacenes. Medi el valor de la red tres veces en una hora ($68.63M -> $68.86M -> $68.95M) y le
+atribui la deriva del importer a mi cambio, sin controlarla. **La leccion: para atribuir un delta
+hay que medir el mismo instante con y sin el cambio, no dos instantes distintos.**
+
+El efecto real y no previsto estaba en otra parte: el CTE `win` de `analytics.v_existencia_dictamen`
+une por la MISMA columna y **no** tenia ese filtro, asi que los 7 almacenes de camioneta entraron
+al dictamen -- de 52,421 a **122,117 celdas**. Eso rompia su promesa central (*"la EXPLICA, no la
+reemplaza"*): dos universos del inventario publicados a la vez. Corregido con el mismo filtro
+(mig `20260907200000`, auto-verificada: 52,553 = 52,553).
+
+⭐ **Y su candado paso en VERDE con 69,564 filas de mas.** Comparaba `count(*)` del **JOIN** contra
+la canonica, y el JOIN solo empareja lo que esta en LAS DOS: probaba `canonica ⊆ dictamen` y se
+leia como igualdad. **Una comparacion que solo mira la interseccion no puede ver lo que sobra.**
+Ahora cuenta los dos lados y afirma que ningun ALMACEN aparece de un lado y no del otro.
 
 ### Internal — Tres errores propios que la medición atrapó antes de publicarse (2026-09-07)
 

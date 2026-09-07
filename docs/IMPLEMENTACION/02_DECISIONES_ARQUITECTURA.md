@@ -1706,7 +1706,7 @@ Y el árbitro de dinero (`cajas = revenue ÷ cja_price`, que no depende de ning�
 - **Los 44 consumidores se parten por lo que necesitan**, no se migran todos al divisor: los que muestran cajas van al método; los que valúan o rotulan empaque, al veredicto. Pendiente el resto (`commercial-replenishment`, `/compras`, 6 importers, `ods-derived.js`).
 - **45 SKUs de Wincaja tienen `factor_venta = f2` en vez de `f3/f2`** → divisor 4–40× chico. Es el defecto vivo de ADR-055, ahora con nombre.
 - **`unit-normalization.js:60-61` sigue con `factor_sale` como fallback de los DOS peldaños**, declarado y NO corregido: cambiarlo mueve `sales_daily.units` en silencio para miles de SKUs.
-- Aparecen **+$233,726** de inventario al mapear 7 rutas Wincaja: mercancía real en camionetas que dejaron de vender entre el 1-jun y el 12-ago. Hallazgo para Almacén.
+- ⚠️ **Correccion registrada:** al mapear las 7 rutas afirme que aparecian **+$233,726** de inventario y era **falso** -- `v_erp_stock_on_hand` excluye las rutas a proposito (`NOT LIKE 'RUTA-%'`) y el mapeo no agrego nada; le habia atribuido la deriva del importer a mi cambio midiendo dos instantes distintos. El efecto real no previsto fue otro: el CTE `win` del **dictamen de existencia** une por la misma columna sin ese filtro, asi que paso de 52,421 a **122,117 celdas** y rompio su promesa de "explicar, no reemplazar" a la canonica (mig `20260907200000` lo corrige y se auto-verifica). Su candado paso en verde con 69,564 filas de mas porque comparaba el conteo del **JOIN**: probaba `canonica ⊆ dictamen` y se leia como igualdad. **Una comparacion que solo mira la interseccion no ve lo que sobra.**
 
 ### Alternativas rechazadas
 
