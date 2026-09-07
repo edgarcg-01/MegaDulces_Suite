@@ -51,7 +51,7 @@ Cada pantalla se evalúa contra estas 8 dimensiones. Score por dimensión: ✅ b
 | Surface | Rutas | Mode | Density | Display font |
 |---|---|---|---|---|
 | **Storefront** | `/portal/*` | editorial + tool | comfortable / compact | Fraunces + Hanken + Geist |
-| **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta` | tool only | compact++ | Hanken + Geist (NO Fraunces) |
+| **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/telemarketing` | tool only | compact++ | Hanken + Geist (NO Fraunces) |
 
 ---
 
@@ -164,7 +164,7 @@ Cada pantalla se evalúa contra estas 8 dimensiones. Score por dimensión: ✅ b
 
 ---
 
-# OPERATIONS — Televenta `/televenta/*`
+# OPERATIONS — Telemarketing `/telemarketing/*`
 
 > Operador call center. Queue priorizada como organismo central. Velocidad de captura clave.
 

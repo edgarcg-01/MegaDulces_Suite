@@ -1,4 +1,5 @@
-import { Routes } from '@angular/router';
+import { inject } from '@angular/core';
+import { Router, Routes } from '@angular/router';
 import { LoginComponent } from './modules/auth/login/login.component';
 import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
@@ -1102,7 +1103,7 @@ export const routes: Routes = [
     ]
   },
   {
-    path: 'televenta',
+    path: 'telemarketing',
     canActivate: [televentaGuard],
     loadComponent: () =>
       import('./modules/televenta/televenta-shell.component').then((m) => m.TeleventaShellComponent),
@@ -1144,6 +1145,29 @@ export const routes: Routes = [
           import('./modules/televenta/pages/televenta-take-order.component').then(
             (m) => m.TeleventaTakeOrderComponent,
           ),
+      },
+    ],
+  },
+  {
+    // E.9 — la ruta canónica es /telemarketing (el ERP, el rol de prod y toda la pantalla
+    // llaman así al canal). `/televenta/*` sigue viva como redirect porque hay enlaces
+    // guardados y marcadores: el `**` conserva los segmentos, así que
+    // /televenta/lead/123/take-order aterriza en /telemarketing/lead/123/take-order.
+    // Sin componente a propósito: no debe existir una segunda copia de la pantalla en la
+    // URL vieja — una sola URL canónica.
+    //
+    // Devuelve UrlTree, no string: un `redirectTo` FUNCIONAL que devuelve string **tira los
+    // query params** (el `redirectTo` estático sí los conserva — la asimetría no está en la
+    // doc y la cazó el spec). Con el UrlTree armado a mano viajan query params y fragment.
+    path: 'televenta',
+    children: [
+      {
+        path: '**',
+        redirectTo: ({ url, queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/telemarketing', ...url.map((s) => s.path)], {
+            queryParams,
+            fragment: fragment ?? undefined,
+          }),
       },
     ],
   },

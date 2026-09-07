@@ -45,7 +45,7 @@ interface CartRow {
     
     @if (!loading() && customer()) {
       <section class="page">
-        <a [routerLink]="['/televenta/lead', customerId]" class="back-link">
+        <a [routerLink]="['/telemarketing/lead', customerId]" class="back-link">
           <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver al cliente
         </a>
         <header class="head card">
@@ -232,7 +232,7 @@ export class TeleventaTakeOrderComponent implements OnInit {
   private bootstrap(): void {
     if (!this.customerId) {
       this.toast.add({ severity: 'error', summary: 'Sin cliente', detail: 'Falta customer_id en la URL.' });
-      this.router.navigate(['/televenta/queue']);
+      this.router.navigate(['/telemarketing/queue']);
       return;
     }
 
@@ -337,7 +337,7 @@ export class TeleventaTakeOrderComponent implements OnInit {
         detail: 'Llamada registrada como venta. Reserva liberada.',
         life: 4000,
       });
-      this.router.navigate(['/televenta/queue']);
+      this.router.navigate(['/telemarketing/queue']);
     } catch (err: any) {
       this.saving.set(false);
       this.toast.add({

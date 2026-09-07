@@ -28,7 +28,7 @@
 > **Regla dura:** antes de crear o editar cualquier archivo frontend (componente Angular, HTML, SCSS/CSS, token), se lee esta sección + [`tokens.css`](libs/design-tokens/tokens.css). No es opcional.
 > Cada punto enlaza a su detalle binding abajo. Si algo aquí choca con el requerimiento, se expone el conflicto y decide Edgar — no se resuelve en silencio.
 
-**1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) (`/portal/*`, editorial, Poppins, comfortable) o [Operations](#mercado--operations--surface-interno) (`/dashboard` · `/comercial` · `/logistica` · `/admin` · `/vendor` · `/televenta`; denso, sin Fraunces/Poppins display, quiet-luxury). Las reglas cambian por surface.
+**1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) (`/portal/*`, editorial, Poppins, comfortable) o [Operations](#mercado--operations--surface-interno) (`/dashboard` · `/comercial` · `/logistica` · `/admin` · `/vendor` · `/telemarketing`; denso, sin Fraunces/Poppins display, quiet-luxury). Las reglas cambian por surface.
 
 **2. Cero hex crudo.** Referenciá un [rol/token de 3 tiers](#arquitectura-de-tokens-3-tiers--interacción--densidad-por-puntero); si no existe, agregá el token, no un literal. Estados de superficie = alpha-overlays sobre `--ink-rgb`, no hex por interacción.
 
@@ -92,7 +92,7 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | Surface | Alcance | Mode | Decoración | Display font |
 |---|---|---|---|---|
 | **Storefront** | `/portal/*` (Portal Web B2B) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
-| **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta` | **solo tool** | nula | Hanken Grotesk + Geist Mono (sin Fraunces) |
+| **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/telemarketing` | **solo tool** | nula | Hanken Grotesk + Geist Mono (sin Fraunces) |
 
 Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, escala de radios, tokens semánticos. **El dark NO se comparte**: Operations usa zinc neutro `#111111` ("esto es serio"), Storefront usa espresso cálido `#16130F` (scopeado a `.portal-shell`/`.pl-wrap`). Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
 
@@ -375,7 +375,7 @@ Preview de referencia: `~/.gstack/projects/edgarcg-01-Trade_marketing/designs/po
 
 ## Mercado / Operations — surface interno
 
-> Alcance: `/dashboard/*` (Trade Marketing), `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/televenta/*`. Usuario tipo: supervisor PdV, vendedor, gerente comercial / logística, admin de tenant. NO es el cliente B2B (eso es Storefront).
+> Alcance: `/dashboard/*` (Trade Marketing), `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/telemarketing/*`. Usuario tipo: supervisor PdV, vendedor, gerente comercial / logística, admin de tenant. NO es el cliente B2B (eso es Storefront).
 
 ### Tesis Operations
 Una herramienta de operación que se siente de Mega Dulces, no de Salesforce. **McMaster-Carr LATAM**: densa, instantánea, keyboard-first, cifras alineadas. La calidez viene del color y la tipografía; la velocidad viene del layout y la disciplina. "Esto es serio."
@@ -792,7 +792,7 @@ Para UI **nueva** (no se reescribe lo que ya funciona con PrimeNG):
 - **Lectura a distancia:** contraste alto y tamaño suficiente (el operador mira de lejos / en movimiento).
 - **Tolerante a red:** indicador **offline prominente** (§PWA 5) + **frescura visible** (§9). El dato de existencia es volátil: nunca se ve estático sin señal de cuán fresco es.
 
-**O.3 — Comercial / Mostrador (velocidad, fricción cero).** Alcance: superficie **POS / captura en vivo** — `/tienda` (POS), `/vendor` take-order, `/televenta` take-order.
+**O.3 — Comercial / Mostrador (velocidad, fricción cero).** Alcance: superficie **POS / captura en vivo** — `/tienda` (POS), `/vendor` take-order, `/telemarketing` take-order.
 - **Layout: keyboard-first / POS.** Foco **permanente** en el input de búsqueda/captura (listo para escáner / ingreso rápido). El **TOTAL y las acciones de cobro dominan** la jerarquía visual sobre cualquier otra métrica.
 - **Adición en tiempo real al tope** de la lista (feed de ticket/captura), **no paginación tradicional**.
 - **Reconciliación (crítica) con §datos densos 7:** esto aplica SOLO a la superficie de captura/POS en vivo. Las **listas transaccionales/auditables** (bandeja de pedidos, facturas, ledger de stock) **siguen paginadas** — auditabilidad manda. No confundir "mostrador" (feed) con "bandeja" (registro).

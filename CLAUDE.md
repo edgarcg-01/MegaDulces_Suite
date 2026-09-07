@@ -168,7 +168,7 @@ O alternativamente: cutover a Railway (operacional, A.0mt.5.3-7), JwtAuthGuard f
 | B | Core Comercial (built from scratch, no ERP externo) | 🟢 CERRADA (beta) — B.0+B.1+B.2+B.3 ✅ |
 | C | Sales Intelligence ampliado | 🟢 CERRADA (beta) — C.0+C.1+C.3+C.4+C.5 ✅ |
 | D | Catálogo + Portal B2B + Pedidos | 🟢 CERRADA (beta) — D.0+D.1+D.2+D.3+D.4+D.5 ✅ |
-| **E** | **Remote Manager (televenta)** | **🟢 CERRADA (beta) — E.0+E.1+E.2 ✅ 2026-05-27. MVP delgado (sin Twilio, pool autoservicio, cartera scoped). Schema (lead_reservations UNIQUE PARTIAL + call_logs 6 outcomes), rol `tele_operator`, backend 7 endpoints + smoke HTTP 29/29 + cron @5min libera expired. Frontend `/televenta/*` con 4 páginas standalone (queue priorizada + lead snapshot + modal log call + take-order que reusa VendorService). Lesson: `TenantKnexService.run()` obligatorio para queries con RLS forzado. Validación visual pendiente. Deferred: E.4 dashboard métricas, E.5 telefonía Twilio, E.6 asignación inteligente, E.7 handoff WhatsApp, E.8 recordatorios callback.** |
+| **E** | **Telemarketing** (antes "Remote Manager / Televenta") | **🟢 CERRADA (beta) — E.0+E.1+E.2 ✅ 2026-05-27. MVP delgado (sin Twilio, pool autoservicio, cartera scoped). Schema (lead_reservations UNIQUE PARTIAL + call_logs 6 outcomes), rol `tele_operator`, backend 7 endpoints + smoke HTTP 29/29 + cron @5min libera expired. Frontend `/telemarketing/*` (antes `/televenta/*`, hoy **redirect** que conserva los segmentos — E.9.1) con 4 páginas standalone (queue priorizada + lead snapshot + modal log call + take-order que reusa VendorService). Lesson: `TenantKnexService.run()` obligatorio para queries con RLS forzado. Validación visual pendiente. Deferred: E.4 dashboard métricas, E.5 telefonía Twilio, E.6 asignación inteligente, E.7 handoff WhatsApp, E.8 recordatorios callback.** |
 | F | WhatsApp Bot conversacional | ⏸️ |
 | G | Growth (campañas + promociones) | ⏸️ |
 | H | Fintech (wallet) | ⏸️ |
@@ -278,7 +278,7 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 Antes de cualquier decisión visual/UI, leer [`DESIGN.md`](DESIGN.md). Un solo sistema, dos modes:
 
 - **Storefront** (`/portal/*`): Fraunces editorial + Hanken Grotesk + Geist Mono. Decoración intencional, ilustraciones SVG, density comfortable.
-- **Operations** (`/dashboard/*`, `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/televenta/*`): **NO Fraunces**, NO ilustraciones. Page-head = Hanken Bold. Tabla densa + master-detail como primary organism. Density compact++. Tesis "esto es serio".
+- **Operations** (`/dashboard/*`, `/comercial/*`, `/logistica/*`, `/admin/*`, `/vendor/*`, `/telemarketing/*`): **NO Fraunces**, NO ilustraciones. Page-head = Hanken Bold. Tabla densa + master-detail como primary organism. Density compact++. Tesis "esto es serio".
 
 Comparten: paleta Stone, sunset acción (`--action`), IA ember (mata morado `#8b5cf6` y azul `#2563EB`), dark **zinc `#111111` en Operations / espresso `#16130F` en Storefront** (mata `#000` puro), escala de radios. Tokens en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) — **archivo único para las 3 apps**. No desviarse sin aprobación. En QA, marcar código que no respete `DESIGN.md`.
 
