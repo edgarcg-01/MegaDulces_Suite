@@ -112,9 +112,15 @@ Corrección de Edgar, 2026-08-31. Es la confusión más cara del modelo porque e
   sale del **CEDIS de verdad**, no de oficinas. Medido el 2026-09-07: **201 SKUs con existencia,
   183,213 unidades base, $6,481,431** a costo promedio, última venta 2026-09-04 (los 149 SKUs que
   esta tabla citaba eran de la ruta anterior por `commercial.stock`).
-  ⚠️ Lo que **sigue abierto**: `zone_id` de ese almacén apunta a la zona **OFICINAS**
-  (mig `20260829130000`) y con el nombre nuevo queda incoherente. No se movió porque `zone_id`
-  alimenta el **alcance por zona** (Fase ID) — cambiarlo es decisión de permisos, no de rótulo.
+  ✅ Y su **plaza también se corrigió** (mig `20260907220000`, autorizada por Edgar el mismo día):
+  apuntaba a la zona **OFICINAS**, que es plaza de La Piedad, cuando el CEDIS está en **Irapuato**.
+  Queda en **NULL** — no hay zona de Irapuato y crearle una con cero usuarios sería inventar
+  estructura; es el precedente que `20260829130000` fijó para `04`. Medido antes de tocar:
+  `warehouses.zone_id` **no filtra nada por sí sola** (es el default que propone el alta de usuarios;
+  `UsersService.derivarZona()` devuelve `undefined` = *"no toques lo que ya tiene"*) y **0 usuarios**
+  tienen el `00` como almacén, así que ningún alcance cambió. En la misma migración se cerró el hueco
+  de `[ID.23]` que dejaba `MD-30`/`MD-32` sin plaza (su seed filtraba a códigos de 2 dígitos) mientras
+  las zonas `MORELIA ABASTOS` y `MORELIA MADERO` tenían 10 y 4 usuarios y ningún almacén.
 - ⚠️ **Desactualizado, se conserva por trazabilidad:** *"`wincaja.branches` apunta el CEDIS a
   `warehouse_code='MD-00'`, que no existe en `commercial.warehouses`: la existencia del CEDIS real
   no está modelada."* Ese crosswalk sigue diciendo `MD-00`, pero la vista canónica **no une por el
