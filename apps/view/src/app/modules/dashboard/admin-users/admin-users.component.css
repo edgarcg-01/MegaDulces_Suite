@@ -357,6 +357,50 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
 .au-perm-plus { color: var(--ok-fg); font-weight: 600; }
 .au-perm-minus { color: var(--bad-fg); font-weight: 600; }
 
+/* ── [RE.27.B1] Alcance de datos ─────────────────────────────────────────
+   Una dimensión por bloque. Los cuatro modos van como segmented y no como
+   select: son cuatro, caben, y hay que poder comparar dónde está parada la
+   persona sin abrir nada. */
+.au-scope {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border-top: 1px solid var(--border-color);
+}
+.au-scope-head { display: flex; align-items: center; gap: var(--sp-2); }
+.au-scope-t { font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
+.au-scope-head .au-derived-btn { margin-left: auto; }
+.au-scope-modes { display: flex; flex-wrap: wrap; gap: 2px; }
+.au-scope-m {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border-color);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.au-scope-m:first-child { border-radius: var(--r-sm, 0.4rem) 0 0 var(--r-sm, 0.4rem); }
+.au-scope-m:last-child { border-radius: 0 var(--r-sm, 0.4rem) var(--r-sm, 0.4rem) 0; }
+.au-scope-m:hover { color: var(--text-main); border-color: var(--action); }
+/* El modo activo NO se distingue sólo por color: cambia también el peso y el
+   fondo, para quien no separa el acento del gris. */
+.au-scope-m-on {
+  background: var(--action);
+  border-color: var(--action);
+  color: var(--action-contrast, #fff);
+  font-weight: 600;
+}
+.au-scope-w {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
 /* ── Móvil: el índice se vuelve una tira horizontal sobre la tabla. ─────── */
 @media (max-width: 900px) {
   .au-grid { grid-template-columns: minmax(0, 1fr); }
