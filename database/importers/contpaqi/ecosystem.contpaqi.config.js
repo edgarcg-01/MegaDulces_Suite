@@ -58,6 +58,10 @@ module.exports = {
       name: 'contpaqi-cfdis-full',
       script: SCRIPT,
       args: '--apply --full --from 2018-01-01 --watch 86400',
+      // Latido PROPIO: sin esto los dos carriles escriben el mismo renglón de
+      // `analytics.cron_runs` (PK sin host) y el diario le presta el pulso al de 5 min → un `inc`
+      // muerto se vería sano. Su umbral vive en `CRON_JOBS` como `contpaqi_add_cfdis_full`.
+      env: { ...base.env, CONTPAQI_HB_KEY: 'contpaqi_add_cfdis_full' },
     },
   ],
 };
