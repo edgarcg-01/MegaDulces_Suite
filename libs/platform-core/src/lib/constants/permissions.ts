@@ -171,6 +171,9 @@ export enum Permission {
   // radar de anomalias. Lee el mismo SellOutReport; se reparte a los roles que
   // ya tienen COMMERCIAL_SELLOUT_VER (mig 20260907130000). El reporte base no se toca.
   COMMERCIAL_SELLOUT_ANALYSIS_VER = 'COMMERCIAL_SELLOUT_ANALYSIS_VER',
+  // BI.9 — capturar/editar metas de venta (commercial.sales_targets). Leerlas va con
+  // ANALYSIS_VER; escribirlas es management -> permiso GESTIONAR propio.
+  COMMERCIAL_SELLOUT_TARGETS_GESTIONAR = 'COMMERCIAL_SELLOUT_TARGETS_GESTIONAR',
   COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
   COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
   // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació

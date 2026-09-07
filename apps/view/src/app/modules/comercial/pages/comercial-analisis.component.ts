@@ -32,6 +32,10 @@ interface ChatMsg {
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { REPORTS_TABS } from '../reports-tabs';
+import { AuthService } from '../../../core/services/auth.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
+import { SelloutTargetsReport, SelloutTargetRow } from '../comercial.service';
 
 const DIM_OPTS: { key: SellOutExplainDim; label: string; icon: string }[] = [
   { key: 'brand', label: 'Marca', icon: 'pi pi-tag' },
@@ -92,6 +96,47 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
 
       @if (report(); as r) {
         <app-metric-strip [items]="kpiItems()" mode="spark" />
+      }
+
+      @if (targets(); as tg) {
+        <section class="an-targets card-premium">
+          <header class="an-targets-head">
+            <h2><i class="pi pi-flag"></i> Objetivos · {{ tg.month }}</h2>
+            @if (canEditTargets()) {
+              <button type="button" class="an-tgt-editbtn" (click)="editTargets.set(!editTargets())">
+                <i class="pi" [class.pi-pencil]="!editTargets()" [class.pi-check]="editTargets()"></i> {{ editTargets() ? 'Listo' : 'Editar metas' }}
+              </button>
+            }
+          </header>
+          <div class="an-tgt-row head t-{{ tgtTone(tg.total) }}">
+            <span class="an-tgt-label"><strong>{{ tg.total.label }}</strong></span>
+            <span class="an-tgt-bar"><span class="an-tgt-fill" [style.width.%]="tgtBarPct(tg.total)"></span></span>
+            <span class="an-tgt-nums">
+              <b>{{ money(tg.total.actual) }}</b>
+              @if (editTargets()) { <span class="an-tgt-in">/ <input type="number" [value]="tg.total.target || ''" (change)="saveTarget(tg.total, $any($event.target).value)" placeholder="meta" /></span> }
+              @else if (tg.total.target > 0) { <span class="an-tgt-meta">/ {{ money(tg.total.target) }}</span> }
+              @else { <span class="an-tgt-nometa">sin meta</span> }
+            </span>
+            <span class="an-tgt-pct t-{{ tgtTone(tg.total) }}">{{ tg.total.pct == null ? '—' : (tg.total.pct.toFixed(0) + '%') }}</span>
+          </div>
+          @if (tg.branches.length) {
+            <h3 class="an-tgt-sub">Por sucursal</h3>
+            @for (r of tg.branches; track r.scope_key) {
+              <div class="an-tgt-row t-{{ tgtTone(r) }}">
+                <span class="an-tgt-label">{{ r.label }}</span>
+                <span class="an-tgt-bar"><span class="an-tgt-fill" [style.width.%]="tgtBarPct(r)"></span></span>
+                <span class="an-tgt-nums">
+                  <b>{{ money(r.actual) }}</b>
+                  @if (editTargets()) { <span class="an-tgt-in">/ <input type="number" [value]="r.target || ''" (change)="saveTarget(r, $any($event.target).value)" placeholder="meta" /></span> }
+                  @else if (r.target > 0) { <span class="an-tgt-meta">/ {{ money(r.target) }}</span> }
+                  @else { <span class="an-tgt-nometa">sin meta</span> }
+                </span>
+                <span class="an-tgt-pct t-{{ tgtTone(r) }}">{{ r.pct == null ? '—' : (r.pct.toFixed(0) + '%') }}</span>
+              </div>
+            }
+          }
+          <p class="an-foot"><i class="pi pi-info-circle"></i> Cumplimiento = real ÷ meta. Sin meta capturada no hay % (no se inventa). @if (!canEditTargets()) { Para capturar metas necesitas el permiso de gestión.}</p>
+        </section>
       }
 
       @if (activeExplain(); as e) {
@@ -299,6 +344,27 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-card h3 { margin: 0; font-size: 1rem; }
     .an-card p { margin: 0; font-size: .85rem; color: var(--text-muted); line-height: 1.45; }
     .an-soon { margin-top: auto; font-size: .72rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); opacity: .8; }
+    .an-targets { padding: 1.25rem 1.5rem; margin-top: 1.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
+    .an-targets-head { display: flex; justify-content: space-between; align-items: center; }
+    .an-targets-head h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: .5rem; }
+    .an-tgt-editbtn { border: 1px solid var(--border-color); background: transparent; color: var(--action, #d9772e); padding: .35rem .7rem; border-radius: 8px; cursor: pointer; font-size: .82rem; display: inline-flex; align-items: center; gap: .35rem; }
+    .an-tgt-sub { margin: 1rem 0 .5rem; font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .an-tgt-row { display: grid; grid-template-columns: minmax(120px, 1.2fr) minmax(90px, 1.6fr) minmax(150px, auto) 56px; align-items: center; gap: .75rem; padding: .4rem 0; font-variant-numeric: tabular-nums; }
+    .an-tgt-row.head { border-bottom: 1px solid var(--border-color); padding-bottom: .7rem; margin-bottom: .3rem; }
+    .an-tgt-label { font-size: .9rem; }
+    .an-tgt-bar { height: 8px; background: var(--surface-hover, #f0ede8); border-radius: 5px; overflow: hidden; }
+    .an-tgt-fill { display: block; height: 100%; border-radius: 5px; background: var(--text-faint, #aaa); }
+    .an-tgt-row.t-ok .an-tgt-fill { background: var(--success-fg, #2e7d32); }
+    .an-tgt-row.t-warn .an-tgt-fill { background: var(--action, #d9772e); }
+    .an-tgt-row.t-bad .an-tgt-fill { background: var(--danger-fg, #c0392b); }
+    .an-tgt-nums { font-size: .88rem; display: flex; align-items: baseline; gap: .35rem; }
+    .an-tgt-meta { color: var(--text-muted); }
+    .an-tgt-nometa { color: var(--text-faint, #aaa); font-size: .78rem; font-style: italic; }
+    .an-tgt-in input { width: 96px; border: 1px solid var(--border-color); border-radius: 6px; padding: .2rem .4rem; font-size: .82rem; }
+    .an-tgt-pct { text-align: right; font-weight: 600; font-size: .9rem; }
+    .an-tgt-pct.t-ok { color: var(--success-fg, #2e7d32); }
+    .an-tgt-pct.t-warn { color: var(--action, #d9772e); }
+    .an-tgt-pct.t-bad { color: var(--danger-fg, #c0392b); }
     .an-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
     .an-chart { padding: 1rem 1.25rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
     .an-chart-head h3 { margin: 0 0 .75rem; font-size: .95rem; display: flex; align-items: center; gap: .5rem; }
@@ -345,6 +411,29 @@ export class ComercialAnalisisComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+  private readonly perms = inject(PermissionsService);
+
+  // BI.9 — objetivos
+  readonly targets = signal<SelloutTargetsReport | null>(null);
+  readonly editTargets = signal(false);
+  readonly canEditTargets = computed(() => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR]);
+
+  tgtBarPct(r: SelloutTargetRow): number { return r.pct == null ? 0 : Math.max(0, Math.min(100, r.pct)); }
+  tgtTone(r: SelloutTargetRow): string { return r.pct == null ? 'none' : r.pct >= 100 ? 'ok' : r.pct >= 70 ? 'warn' : 'bad'; }
+
+  saveTarget(r: SelloutTargetRow, value: string) {
+    const tg = this.targets();
+    const n = Number(value);
+    if (!tg || !Number.isFinite(n) || n < 0) return;
+    this.svc
+      .sellOutTargetUpsert({ scope: r.scope, scope_key: r.scope_key, year_month: tg.month, target_monto: n })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => this.svc.sellOutTargets(tg.month).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((t) => this.targets.set(t)),
+        error: () => this.toast.add({ severity: 'error', summary: 'No se pudo guardar la meta' }),
+      });
+  }
 
   readonly reportTabs = REPORTS_TABS;
   readonly dimOpts = DIM_OPTS;
@@ -435,16 +524,18 @@ export class ComercialAnalisisComponent {
       radar: this.svc.sellOutAnomalies({ month, dim: 'brand' }),
       series: this.svc.sellOutSeries({ to_month: month, months: 12 }),
       pareto: this.svc.sellOutPareto({ month, dim: 'brand', n: 20 }),
+      targets: this.svc.sellOutTargets(month),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ report, explain, radar, series, pareto }) => {
+        next: ({ report, explain, radar, series, pareto, targets }) => {
           this.report.set(report);
           this.drill.set(null);
           this.explain.set(explain);
           this.radar.set(radar);
           this.series.set(series);
           this.pareto.set(pareto);
+          this.targets.set(targets);
           this.loading.set(false);
         },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo generar el análisis' }); },
@@ -534,6 +625,10 @@ export class ComercialAnalisisComponent {
 
   signed(n: number): string {
     return (n >= 0 ? '+' : '-') + this.fmt.format(Math.abs(n)).replace('MX$', '$');
+  }
+
+  money(n: number): string {
+    return this.fmt.format(n).replace('MX$', '$');
   }
 
   private iso(d: Date): string {

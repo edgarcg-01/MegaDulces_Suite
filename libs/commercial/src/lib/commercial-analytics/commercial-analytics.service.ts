@@ -518,6 +518,11 @@ export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: s
 export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
 export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
 
+// ─── BI.9 objetivos / metas ───────────────────────────────────────────────────
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; }
+export interface SelloutTargetUpsert { scope?: string; scope_key?: string; year_month?: string; target_monto?: number; }
+
 export interface SellOutBrandRow {
   id: string;
   nombre: string;
@@ -3896,6 +3901,66 @@ export class CommercialAnalyticsService {
         };
       });
       return { month, dim, total: Math.round(total), rows: out, generated_at: new Date().toISOString() };
+    });
+  }
+
+  // ─── BI.9 objetivos ───────────────────────────────────────────────────────────
+  private selloutMonthRange(ym: string): { from: string; to: string } {
+    const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { from: `${ym}-01`, to: `${ym}-${String(lastDay).padStart(2, '0')}` };
+  }
+
+  /** Metas del mes vs lo real (total + por sucursal + por canal). El real sale de v_sellout_daily
+   *  (sirve mes cerrado o en curso hasta hoy). Sin metas capturadas -> target 0 (se declara, no se inventa). */
+  async selloutTargets(q: { month?: string }): Promise<SelloutTargetsReport> {
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    const month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : openYm;
+    const { from, to } = this.selloutMonthRange(month);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const baseActual = () => trx('analytics.v_sellout_daily as s')
+        .where('s.tenant_id', tenantId).andWhere('s.business_date', '>=', from).andWhere('s.business_date', '<=', to)
+        .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`);
+      const [totRow, branchRows, channelRows, targets] = await Promise.all([
+        baseActual().select(trx.raw('COALESCE(SUM(s.monto),0)::numeric as monto')).first(),
+        baseActual().select('s.warehouse_code as k', trx.raw('max(s.branch_name) as label'), trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.warehouse_code'),
+        baseActual().select('s.channel as k', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.channel'),
+        trx('commercial.sales_targets').where('tenant_id', tenantId).andWhere('year_month', month).select('scope', 'scope_key', 'target_monto'),
+      ]);
+      const tgt = new Map<string, number>(targets.map((r: any) => [`${r.scope}|${r.scope_key}`, Number(r.target_monto) || 0]));
+      const mk = (scope: 'total' | 'branch' | 'channel', key: string, label: string, actual: number): SelloutTargetRow => {
+        const target = tgt.get(`${scope}|${key}`) || 0;
+        return { scope, scope_key: key, label, target: Math.round(target), actual: Math.round(actual), pct: target > 0 ? Number(((actual / target) * 100).toFixed(1)) : null };
+      };
+      const total = mk('total', '', 'Total', Number(totRow?.monto || 0));
+      const branches = branchRows.map((r: any) => mk('branch', r.k, r.label || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      const chLabels: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa' };
+      const channels = channelRows.map((r: any) => mk('channel', r.k, chLabels[r.k] || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      return { month, total, branches, channels, generated_at: new Date().toISOString() };
+    });
+  }
+
+  /** Upsert de una meta (captura HITL). scope total|branch|channel; total -> scope_key=''. */
+  async upsertSelloutTarget(b: SelloutTargetUpsert): Promise<{ ok: true }> {
+    const scope = ['total', 'branch', 'channel'].includes(b.scope || '') ? (b.scope as string) : null;
+    if (!scope) throw new BadRequestException('scope inválido');
+    const year_month = String(b.year_month || '');
+    if (!/^\d{4}-\d{2}$/.test(year_month)) throw new BadRequestException('year_month inválido (YYYY-MM)');
+    const scope_key = scope === 'total' ? '' : String(b.scope_key || '').trim();
+    if (scope !== 'total' && !scope_key) throw new BadRequestException('scope_key requerido');
+    const target = Number(b.target_monto);
+    if (!Number.isFinite(target) || target < 0) throw new BadRequestException('target_monto inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(
+        `INSERT INTO commercial.sales_targets (tenant_id, scope, scope_key, year_month, target_monto)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (tenant_id, scope, scope_key, year_month)
+         DO UPDATE SET target_monto = EXCLUDED.target_monto, updated_at = now()`,
+        [tenantId, scope, scope_key, year_month, target],
+      );
+      return { ok: true };
     });
   }
 
