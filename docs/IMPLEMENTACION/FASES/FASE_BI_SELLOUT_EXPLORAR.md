@@ -3,7 +3,8 @@
 > Propuesta 2026-09-07 · hereda [`FASE_RS`](../01_TRACKER_PROGRESO.md) (sell-out), [`FASE_AX`](FASE_AX_ANEXO_VENTA.md)
 > (drill a factura) y [`FASE_VP`](FASE_VP_VERDAD_Y_PROCEDENCIA.md) (ADR-056: el número declara con qué se calculó).
 >
-> **Estado: DISEÑADO (planeación). Sin código.**
+> **Estado: BI.0 ✅ (permiso aplicado a prod+.245, commit `17b7e07a`) · BI.3 🔨 EN CÓDIGO (builds verdes) · BI.1/BI.2/BI.4–BI.9 ⬜ DISEÑADO.**
+> Pendiente prod: redeploy view/api (Edgar) + re-login. BI.3 verificado contra prod (read-only): invariante Σcontrib==Δtotal exacto al centavo (ago vs jul 2026, −$1,058,992).
 >
 > Decisión del usuario (2026-09-07): **el reporte actual se mantiene intacto** (formato original), y el poder BI vive
 > en un **submódulo hermano** (pestaña + URL propias) que consume el mismo backend. Las **4 capacidades base** +
