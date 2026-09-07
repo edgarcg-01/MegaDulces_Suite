@@ -446,6 +446,27 @@ lo explica en vez de pintar guiones.
 
 **Pendiente prod:** redeploy view. No requiere migración ni re-login.
 
+## SM.26 — El arqueo es UNA sección, no dos entradas del menú (✅ local 2026-09-07)
+
+`Arqueo de caja` y `Arqueos por cajera` colgaban sueltas del sidebar, una debajo de
+la otra. Son la misma pregunta desde dos lados — `/tienda/arqueo` es **el acto**
+(contar el cajón, sellar el conteo, validarlo) y `/tienda/arqueos` es **la persona**
+(cómo viene cada cajera, qué cortes le quedaron sin contar) — pero en el menú
+parecían módulos distintos y había que adivinar en cuál mirar.
+
+Ahora es **una entrada** (`Arqueo de caja`) con las dos vistas en pestañas
+(`ARQUEO_TABS` + `<app-page-tabs>`, el patrón de Clientes/Finanzas/Contabilidad).
+Saltar de una a otra es un clic y el contexto no se pierde. Misma tesis que WMS.1
+con el Almacén: un tema, un lugar.
+
+**Detalle de permisos:** el tab de captura va **sin `permission`** a propósito. Esa
+ruta la guarda un `anyPermissionGuard(STORE_ARQUEO_VER, STORE_ARQUEO_CAPTURAR)` y
+`PageTab` acepta un solo permiso — exigirle `VER` le escondería su propia pantalla a
+la cajera que solo captura. Si le falta `VER`, el tab "Por cajera" se filtra y la
+barra se oculta sola (`PageTabs` se esconde con un único tab visible).
+
+**Pendiente prod:** redeploy view. Sin migración, sin re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

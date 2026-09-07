@@ -463,8 +463,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Análisis y control',
       items: [
         { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
+        // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
+        // la vista por persona son el mismo tema, no dos modulos.
         { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
-        { label: 'Arqueos por cajera',  icon: 'pi pi-users',   route: '/tienda/arqueos',          permission: Permission.STORE_ARQUEO_VER },
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER },
         { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
       ],

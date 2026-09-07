@@ -19,6 +19,8 @@ import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno, TurnoCorte }
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ARQUEO_TABS } from '../arqueo-tabs';
 import { imprimirTicket } from '../ticket-arqueo';
 
 /** Los cortes de una persona, tal como los pide la fila desplegada. */
@@ -56,13 +58,14 @@ interface CortesPersona {
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
     SelectModule, SegmentedComponent, InputTextModule, TagModule,
-    ContextHelpComponent, FreshnessPillComponent,
+    ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in arq-page">
       <p-toast></p-toast>
+      <app-page-tabs [tabs]="arqueoTabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Arqueo de caja</h1>
@@ -652,6 +655,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * Espeja la regla del backend — acá es cosmético (el backend ya no manda los
    * campos), pero evita renderizar columnas que siempre saldrían vacías.
    */
+  /** El arqueo es UNA seccion con dos vistas (el acto / la persona). */
+  readonly arqueoTabs = ARQUEO_TABS;
+
   readonly revela = this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
 
