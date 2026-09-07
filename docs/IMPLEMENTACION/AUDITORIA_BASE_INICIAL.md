@@ -440,6 +440,50 @@ separar lo que se ve en pantalla hoy de lo que sólo está en el catálogo. Ejem
 
 ---
 
+## Addendum — El sync de Wincaja entrega la MITAD y reporta `ok` (2026-09-07)
+
+**W2.1 — la carga de las 05:00 refresca unas tablas bronze y otras no, y el latido dice `ok`** 🔴
+
+Salió del smoke de Existencia, que reportó `frescura: kepler=0.4min · wincaja=1955.6min` (**32.6 h**).
+Antes de dar la alarma se descartaron las dos explicaciones inocentes:
+
+1. **¿Cadencia normal?** No. La carga es **diaria ~05:00 MX** (`sync-wincaja-actual.ps1`, latido
+   `wincaja_sync` "Wincaja sync (BRONZE+GOLD)"). El historial de `imported_at` da saltos de 23.9 h /
+   24.0 h — y luego uno de **47.9 h** entre el 04-sep y el 06-sep. O sea ya se había saltado un día.
+2. **¿UPSERT sin churn?** Tampoco, y esto es lo que lo cierra: `detalles_mov_almacen` tuvo
+   **1,159,050 de 1,159,050 filas tocadas hoy** mientras su propio maestro `maestro_mov_almacen`
+   tuvo **0**. Un detalle no puede ganar los renglones de hoy si su maestro no gana ninguno.
+
+**Reparto medido (dataset `actual`), tras una corrida que reportó `ok` hace 6.7 h:**
+
+| refrescadas hoy (7.6–7.9 h) | clavadas en 32.6–32.7 h, **0 filas tocadas** |
+|---|---|
+| `detalles_mov_almacen` 1,159,050 | `precios` 1,882,733 · `existencias` **321,977** · `articulos` 322,019 |
+| `cotizacion_lineas` 118,948 | `movimiento_clientes` 253,306 · `pagos_dia` 249,215 |
+| `faltantes_cotizacion` 15,236 | `maestro_mov_almacen` 186,413 · `clientes` 30,480 |
+| `autorizaciones` 10,827 | `arqueos` 15,598 · `retiros` 15,472 · `ofertas` 14,246 |
+| | `cotizaciones` 12,246 · `cortes` 3,261 · `movimiento_proveedores` 4,460 |
+
+`pagos_dia` con 249 k filas y **cero** tocadas en un día que las tiendas vendieron no se sostiene;
+`cortes` tampoco (una tienda que vende genera cortes diarios).
+
+**Consecuencia concreta:** `wincaja.existencias` es del **06-sep 05:11 MX**, así que la pantalla de
+Existencia muestra el inventario de CEDIS, MD-30 y MD-32 con **día y medio** de atraso mientras la
+mitad Kepler va en 0.4 min. Y el sensor no lo dice: `wincaja_sync` está en **`ok`**.
+
+Es exactamente el modo de falla de **ADR-053 / Fase OBS**: *latido de proceso, no de entrega*. El
+incidente del carril de catálogos (6 días parado mientras la app publicaba precios) fue esta misma
+forma. Lo que falta es lo que OBS.1 ya hizo para el ODS: que el latido mida **filas entregadas por
+tabla**, no "el script terminó sin lanzar" — un paso que sale con código 0 sin escribir nada hoy
+pasa la compuerta.
+
+**No diagnosticado todavía:** POR QUÉ divergen los dominios. `import-wincaja.js` corre con
+`--domain all --source replica` (las ramas 30/32/00 leen de `:5433/wincaja`, las demás caen a Jet);
+hay que ver el log de la corrida de hoy para saber si un dominio falló silenciosamente o si el
+`--source replica` sólo cubre parte de las tablas.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
