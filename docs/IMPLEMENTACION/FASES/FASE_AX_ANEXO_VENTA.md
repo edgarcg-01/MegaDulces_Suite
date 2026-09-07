@@ -166,7 +166,40 @@ Aplicadas y verdes en el `.245`; en prod **no** (al 2026-09-05 hay 9 migraciones
 **Orden obligatorio: migración ANTES del redeploy** — el service pide `estatus_cobro`, `saldo`, `importe_bruto`, `vencimiento_source`. Al revés (código nuevo, vista vieja) el listado tira 500.
 Aplicar sólo las migraciones, sin redeploy, es **seguro**: la vista conserva todas las columnas viejas y el código en prod sigue leyendo `subtotal`/`descuento`.
 
-**Falta medir en prod:** el tiempo de la pantalla con el índice puesto. En el `.245` fue 2,119 → 931 ms; en prod, sin el índice y con el núcleo inline, la misma consulta costaba 7.7 s. Correr `test-newdb-sales-docs-cobranza.js` tras aplicar y anotarlo.
+**Medido en prod (2026-09-07):** ver la tabla de la sección siguiente. Falta sólo el **redeploy de api + view** (el código con el CTE materializado) y la validación visual.
+
+### AX.9 en PROD (2026-09-07) — aplicada, medida y con una trampa del planner de por medio
+
+**Las 2 migraciones están en prod**: batch **288** (núcleo + índice + cartera, 6 s) y batch **289**
+(cabecera, 3 s). Cada una aplicada por nombre, sin arrastrar ninguna de las 9 pendientes ajenas.
+Smokes contra prod: paridad **6/6** (modo REGRESION) y cobranza **13/13**. El `CONCURRENTLY` esta
+vez no esperó: no había refresh en vuelo.
+
+**Lo que el KPI estaba contando mal, medido en prod a 90 días: 366 facturas por $2,819,231.67**
+que decía vencidas y ya estaban cobradas (928 → 553). En la ventana de 30 días: 371 documentos con
+la fecha pasada → **292 realmente vencidos con $2,340,863 de saldo**, 80 pagados y 9 sin cartera.
+
+⚠️ **Y una trampa que sólo aparece en prod: la pantalla tardaba 24 segundos.** El `LEFT JOIN` a la
+cartera es inocuo hasta que aparece un `LIMIT`: ahí el planner cambia a nested loop y
+**re-escanea el CTE `src` de la cartera (14,623 filas, en disco) una vez por fila devuelta**
+(`loops=50` en el EXPLAIN). Medido en prod, tres consultas y tres veces el mismo patrón:
+
+| consulta | antes de AX.9 | AX.9 sin arreglo | AX.9 arreglada |
+|---|---|---|---|
+| `list()` página 1 | 387 ms | **23,856 ms** | **970 ms** |
+| `filtros()` sucursales | ~470 ms | **10,853 ms** | **418 ms** (los dos catálogos juntos) |
+| `kpis()` | 1,056 ms | 791 ms | 791 ms |
+| `detail()` cabecera | 182 ms | 405 ms | 405 ms |
+
+El arreglo es el mismo en los dos casos: **materializar la selección ANTES de ordenar/recortar**
+(`WITH sel AS MATERIALIZED`). Con eso el planner elige hash join —lo que `kpis()` hacía desde el
+principio por ser agregado, y por eso nunca se vio afectado— y la última página cuesta lo mismo
+que la primera (959 ms con OFFSET 500).
+
+**Lección:** el costo de un join a una vista con CTE **no es un porcentaje, es un salto**, y sólo
+se dispara con un LIMIT. Medirlo en el .245 (donde `list()` daba ~880 ms) no lo destapó: hizo
+falta la consulta REAL del service —con su `ORDER BY` y su `LIMIT`— contra prod. Una medición de
+"la misma consulta pero sin paginar" habría dado verde y publicado una pantalla inusable.
 
 ### Lo que AX.9 cuesta, y lo que encontró de paso
 
