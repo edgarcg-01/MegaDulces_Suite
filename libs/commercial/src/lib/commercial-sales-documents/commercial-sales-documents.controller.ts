@@ -6,7 +6,7 @@ import { CommercialSalesDocumentsService, SalesDocsQuery } from './commercial-sa
 import { AnexoVentaService } from './anexo-venta.service';
 
 /**
- * AX.1 — Documentos de venta al cliente. Lectura sobre vistas en vivo de `kepler_ods`.
+ * AX.1 — Facturación de Telemarketing. Lectura sobre vistas en vivo de `kepler_ods`.
  *
  * Gateado con COMMERCIAL_SALES_DOCS_VER, permiso PROPIO de esta superficie.
  * Antes reusaba COMMERCIAL_ORDERS_VER ("quien ve pedidos ve su factura") y eso
@@ -37,7 +37,7 @@ export class CommercialSalesDocumentsController {
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
-  @ApiOperation({ summary: 'Facturas de venta (telemarketing / crédito) con KPIs. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_ids, doc_tipo, cliente_code, vendedor_code, min, vencidas, search (cliente/RFC/folio/monto).' })
+  @ApiOperation({ summary: 'Facturas de telemarketing (U/D/8) con KPIs de cobranza. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_ids, doc_tipo, cliente_code, vendedor_code, min, vencidas (venció Y debe), cobro (pagada|parcial|pendiente|sin_cartera), search (cliente/RFC/folio/monto).' })
   list(@Query() raw: Record<string, string>) { return this.svc.list(this.q(raw)); }
 
   @Get('filtros')

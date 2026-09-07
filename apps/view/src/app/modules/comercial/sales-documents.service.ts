@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
-/** AX.2 — Documentos de venta al cliente. Lee las vistas en vivo de kepler_ods (frescura de segundos). */
+/** AX.2 — Facturación de Telemarketing. Lee las vistas en vivo de kepler_ods (frescura de segundos). */
 
 export interface SalesDocRow {
   folio_digital: string; sucursal: string; warehouse_id: string | null;

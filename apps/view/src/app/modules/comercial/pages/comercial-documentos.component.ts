@@ -24,7 +24,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { REPORTS_TABS } from '../reports-tabs';
 
 /**
- * AX.2/AX.3 — Documentos de venta al cliente.
+ * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
  *
  * Surface Operations: tabla densa + side-peek para el detalle (DESIGN.md §7/§14: documento
  * extenso NO va en modal). Los datos vienen de vistas en vivo sobre kepler_ods → lo que se ve
@@ -50,9 +50,9 @@ import { REPORTS_TABS } from '../reports-tabs';
 
     <div class="surf-page-head">
       <div>
-        <h1>Documentos de venta</h1>
+        <h1>Facturación de Telemarketing</h1>
         <p class="surf-page-sub">
-          Facturas de telemarketing · imprime el detalle desglosado para el cliente
+          Facturas emitidas · imprime el detalle desglosado para el cliente
           <span class="live" title="Se leen en vivo del ERP; no dependen de un proceso nocturno.">· en vivo</span>
         </p>
       </div>
