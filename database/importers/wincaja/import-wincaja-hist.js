@@ -47,7 +47,9 @@ const { Client } = require('pg');
 
 const A = require(path.join(__dirname, '..', 'lib', 'access-adapter'));
 const M = require(path.join(__dirname, '..', 'lib', 'mdb-tools'));
-const { mirrorDDL, conflictTarget, dataColumns, q, HK_HASH } = require(path.join(__dirname, '..', 'lib', 'access-mirror'));
+const {
+  mirrorDDL, conflictTarget, dataColumns, q, HK_HASH, HK_OCC,
+} = require(path.join(__dirname, '..', 'lib', 'access-mirror'));
 const CFG = require('./wincaja-hist-config');
 
 const argv = process.argv.slice(2);
@@ -153,7 +155,7 @@ async function clearPartition(c, schema, table, dataset) {
  * cast es peor que guardarlo como texto; el saneamiento vive en silver).
  */
 async function ensureTable(c, schema, t) {
-  const ddl = mirrorDDL(schema, surrogate(t), { extraKeys: EXTRA });
+  const ddl = mirrorDDL(schema, surrogate(t), { extraKeys: EXTRA, withOccurrence: true });
   if (!ddl) return { created: false, added: [], widened: [] };
   const before = await c.query(
     `SELECT column_name, data_type FROM information_schema.columns WHERE table_schema=$1 AND table_name=$2`,
@@ -185,7 +187,39 @@ async function ensureTable(c, schema, t) {
       widened.push(`${col.name}:${have}→text`);
     }
   }
-  return { created: false, added, widened };
+  // `[WR.8]` RECONCILIACIÓN DE IDENTIDAD. Las tablas creadas antes del 2026-09-07 llevan
+  // `UNIQUE (_dataset, _row_hash)`, que colapsa dos filas byte-idénticas en una (19,321 filas
+  // medidas). Se migran acá, no con un script aparte, por dos razones: el costo real es reconstruir
+  // el índice único y así se paga SÓLO en las tablas que de verdad se cargan; y una tabla que se
+  // recargue mañana queda arreglada sin que nadie se acuerde de correr nada.
+  // Agregar la columna con DEFAULT es metadata-only en Postgres 11+; el índice sí se reconstruye.
+  const identidad = await reconciliarIdentidad(c, schema, t.table);
+  return { created: false, added, widened, identidad };
+}
+
+/**
+ * Lleva una tabla ya existente a la identidad `(_dataset, _row_hash, _ocurrencia)`.
+ * Idempotente: si ya está migrada no hace nada. Devuelve null si no hubo cambio.
+ */
+async function reconciliarIdentidad(c, schema, table) {
+  const uq = `${table}_uq`;
+  const { rows } = await c.query(
+    `SELECT pg_get_constraintdef(con.oid) def
+       FROM pg_constraint con
+       JOIN pg_class k ON k.oid = con.conrelid
+       JOIN pg_namespace n ON n.oid = k.relnamespace
+      WHERE n.nspname = $1 AND k.relname = $2 AND con.conname = $3`,
+    [schema, table, uq]);
+  // Sin constraint surrogate = la tabla usa PK natural: no aplica.
+  if (!rows.length) return null;
+  if (rows[0].def.includes(HK_OCC)) return null;
+
+  await c.query(`ALTER TABLE ${q(schema)}.${q(table)}
+    ADD COLUMN IF NOT EXISTS ${q(HK_OCC)} integer NOT NULL DEFAULT 1`);
+  await c.query(`ALTER TABLE ${q(schema)}.${q(table)} DROP CONSTRAINT ${q(uq)}`);
+  await c.query(`ALTER TABLE ${q(schema)}.${q(table)}
+    ADD CONSTRAINT ${q(uq)} UNIQUE (${[...EXTRA, HK_HASH, HK_OCC].map(q).join(', ')})`);
+  return 'identidad → (_dataset, _row_hash, _ocurrencia)';
 }
 
 /* ───────────── carril mdbtools: mdb-export → psql \copy → INSERT..SELECT ───────────── */
@@ -247,11 +281,16 @@ async function loadTableCopy(c, pg, u, desc, csvPath) {
   await c.query(`CREATE UNLOGGED TABLE ${stg} (${cols.map((cc) => `${q(cc.name)} text`).join(', ')})`);
   try {
     const read = await copyCsv(pg, csvPath, `${STG_SCHEMA}.${JSON.stringify(stgName)}`);
-    const conflict = conflictTarget(surrogate(desc), { extraKeys: EXTRA }); // → (_dataset, _row_hash)
+    const conflict = conflictTarget(surrogate(desc), { extraKeys: EXTRA, withOccurrence: true }); // → (_dataset, _row_hash)
     const res = await c.query(
-      `INSERT INTO ${q(u.schema)}.${q(desc.table)} (${[...EXTRA, ...cols.map((cc) => cc.name), HK_HASH].map(q).join(', ')})
-       SELECT $1, ${cols.map(castExpr).join(', ')}, md5(s::text)
-         FROM ${stg} s
+      // `[WR.8]` El hash se calcula en el CTE sobre la fila CRUDA del staging (mismo valor que
+      // antes, para no invalidar lo ya cargado) y la ocurrencia se numera por grupo de hash: dos
+      // filas byte-identicas entran como (h,1) y (h,2) en vez de colapsar en una.
+      `WITH src AS (SELECT s.*, md5(s::text) AS _h FROM ${stg} s)
+       INSERT INTO ${q(u.schema)}.${q(desc.table)} (${[...EXTRA, ...cols.map((cc) => cc.name), HK_HASH, HK_OCC].map(q).join(', ')})
+       SELECT $1, ${cols.map(castExpr).join(', ')}, s._h,
+              row_number() OVER (PARTITION BY s._h)
+         FROM src s
        ON CONFLICT (${conflict.map(q).join(', ')}) DO NOTHING`, [u.dataset]);
     return { read, wrote: res.rowCount || 0 };
   } finally {
@@ -262,7 +301,7 @@ async function loadTableCopy(c, pg, u, desc, csvPath) {
 /* ───────────── carril jet (fallback): PS32 → JSONL en streaming → INSERT ───────────── */
 
 function buildUpsertJet(schema, table, cols, conflict, batchRows) {
-  const insertCols = [...EXTRA, ...cols, HK_HASH];
+  const insertCols = [...EXTRA, ...cols, HK_HASH, HK_OCC];
   const ph = (r) => '(' + insertCols.map((_, j) => `$${r * insertCols.length + j + 1}`).join(', ') + ')';
   const values = Array.from({ length: batchRows }, (_, r) => ph(r)).join(', ');
   // Identidad surrogate siempre (ver `surrogate` arriba) → DO NOTHING, sin rama de UPSERT.
@@ -272,14 +311,20 @@ function buildUpsertJet(schema, table, cols, conflict, batchRows) {
 
 function pick(row, cols) { const o = {}; for (const k of cols) o[k] = row[k] === undefined ? null : row[k]; return o; }
 
-async function flushJet(c, schema, table, cols, conflict, dataset, rows) {
+async function flushJet(c, schema, table, cols, conflict, dataset, rows, occ) {
   if (!rows.length) return 0;
   const sql = buildUpsertJet(schema, table, cols, conflict, rows.length);
   const params = [];
   for (const row of rows) {
     params.push(dataset);
     for (const k of cols) params.push(row[k] === undefined ? null : row[k]);
-    params.push(A.rowHash(pick(row, cols)));
+    const h = A.rowHash(pick(row, cols));
+    params.push(h);
+    // `[WR.8]` La ocurrencia se cuenta a lo largo de TODA la tabla, no del lote: un hash repetido
+    // en dos lotes distintos reiniciaria en 1 y colapsaria contra la fila ya escrita.
+    const n = (occ.get(h) || 0) + 1;
+    occ.set(h, n);
+    params.push(n);
   }
   const res = await c.query(sql, params);
   return res.rowCount || 0;
@@ -371,9 +416,10 @@ async function loadUnit(c, pg, u) {
         let r;
         if (READER === 'jet') {
           const cols = dataColumns(t);
-          const conflict = conflictTarget(surrogate(t), { extraKeys: EXTRA });
+          const conflict = conflictTarget(surrogate(t), { extraKeys: EXTRA, withOccurrence: true });
           const batchRows = Math.max(50, Math.min(500, Math.floor(PARAM_CAP / (cols.length + EXTRA.length + 1))));
-          r = await streamTableJet(local, t.table, (rows) => flushJet(c, u.schema, t.table, cols, conflict, u.dataset, rows), batchRows);
+          const occ = new Map();   // `[WR.8]` estado de ocurrencias, vive por TABLA
+          r = await streamTableJet(local, t.table, (rows) => flushJet(c, u.schema, t.table, cols, conflict, u.dataset, rows, occ), batchRows);
         } else {
           r = await loadTableCopy(c, pg, u, t, t.csv);
         }
