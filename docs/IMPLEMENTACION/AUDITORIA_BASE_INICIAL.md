@@ -342,6 +342,53 @@ que no rompe; endurecer como defensa.
 
 ---
 
+## Addendum — Cobertura del factor de caja de Wincaja (2026-09-07)
+
+Medido en prod al preguntarse *"¿ya se traen todas las unidades por caja de Wincaja?"*. **La
+respuesta es no**, y el faltante se parte en tres casos con veredicto distinto.
+
+`analytics.v_warehouse_box_factor` (ADR-055) toma el divisor de `wincaja.articulos.factor_venta`
+**sólo donde `factor_venta > 1`**; si no, cae al `box_factor` de Kepler, que está en unidades BASE.
+Por almacén de Wincaja, de ~11,212 productos del catálogo:
+
+| origen del divisor | productos | qué significa |
+|---|---|---|
+| `wincaja_factor_venta` | **8,672–8,681** (77%) | correcto, es Wincaja quien manda |
+| `default` (divisor 1) | **2,263** | sin factor en ninguna fuente |
+| heredado de Kepler | **243** | ver desglose |
+
+**W1.1 — `unidad_venta = 'CJA'` + `factor_venta = 1`: el divisor de Kepler pisa la declaración de
+Wincaja** 🔴
+**15 productos por almacén** (7 con existencia en MD-30, 1 en MD-32, 0 en el 00). Wincaja declara que
+su unidad de venta **ya es la caja** — `CJA` con factor 1 es coherente y sin ambigüedad — y la vista
+divide por **21.07** de todos modos, porque el `> 1` descarta la declaración. Es el espejo del bug
+que ADR-055 cerró: aquel dividía entre 140 en vez de 14; éste divide entre 21 en vez de 1. Arreglo =
+una condición en la vista (tomar `factor_venta` cuando el SKU existe en `articulos`, no cuando es
+`> 1`), pero **cambia una cantidad en pantalla para 8 SKUs**, así que va con su antes/después.
+
+**W1.2 — `unidad_venta = 'PZA'` + `factor_venta = 1`: supuesto no declarado** 🟡
+**215 productos por almacén** (84 con existencia en MD-30). Acá `fv = 1` **no** es declaración: "1
+pieza = 1 caja" no se sostiene en dulcería, es ausencia de captura. Reparto que lo prueba (rama 30,
+`actual`): con `fv = 1` hay 1,872 PZA / 193 CJA / 152 KGS, y con `fv > 1` hay 13,282 PZA — o sea el
+campo está poblado para unos PZA y no para otros. El fallback a Kepler es lo menos malo, pero hoy
+**no se declara**: la pantalla muestra el divisor sin decir que vino del ERP que no manda en ese
+almacén. `factor_source` ya lo sabe (`kepler_c84`, `etiquetera`, `factor_sale`, `override`); falta
+que llegue al usuario.
+
+**W1.3 — `unidad_venta = 'KGS'` con divisor de caja** 🟡
+**13 productos por almacén** (7 con existencia en MD-30), divididos por **41.54**. Dividir kilos por
+un factor de caja no significa nada. La vista **ya expone `is_weight`** y `existencia.service.ts` la
+selecciona (línea 360), pero pasa la bandera hacia el frontend sin cortar la división — hay que
+verificar si la pantalla la respeta. Nota lateral: `v_product_box_factor` marca `is_weight` en **44**
+de los 215 que Wincaja llama `PZA`; las dos fuentes no coinciden en qué es peso.
+
+**Cómo se midió:** cruce de `analytics.v_warehouse_box_factor` contra `wincaja.articulos`
+(`source_dataset = 'actual'`, por `source_branch` del almacén) y contra `commercial.stock` para
+separar lo que se ve en pantalla hoy de lo que sólo está en el catálogo. Ejemplos vivos: MD-30 sku
+`59038` con 465 PZA se ve como **19.38** (divide por 24); el 00 con 1,646 PZA se ve como **68.58**.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
