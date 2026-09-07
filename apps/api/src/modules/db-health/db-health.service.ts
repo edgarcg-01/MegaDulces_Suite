@@ -161,7 +161,11 @@ const APP_SOURCES: SourceCfg[] = [
   //        alta-actividad → si su stock no se movió en 24-48h es congelamiento real, no falta de venta.
   {
     key: 'stock_cedis_00', label: 'Stock CEDIS 00 (no enmascarado por 01-06)', table: 'commercial.stock', tsCandidates: [],
-    sql: `SELECT max(s.updated_at)::timestamp AS last_update,
+    // `[W4.3]` SIN `::timestamp` — ver el bloque ⚠️ de `wincaja_existencias_entrega` más abajo.
+    // `commercial.stock.updated_at` es `timestamptz` (medido), así que el cast le quitaba 6.00 h
+    // exactas a la edad. Con el sensor en `warnH: 30`, el día del barrido reportaba **29.44 h** y
+    // la edad real era **35.44 h**: la alarma estaba tapada por el sesgo, no apagada por sanidad.
+    sql: `SELECT max(s.updated_at) AS last_update,
                  'CEDIS 00 · última act. ' || coalesce(to_char(max(s.updated_at) AT TIME ZONE 'America/Mexico_City','DD/MM HH24:MI'),'—') ||
                  ' · ' || count(*)::text || ' SKUs' AS note_extra
             FROM commercial.stock s
@@ -191,7 +195,11 @@ const APP_SOURCES: SourceCfg[] = [
   //   (kdco/kdc3/kdpv_folio_caja/kdxd/kdxe/kdc2* viajan en el mismo whitelist).
   {
     key: 'ods_finance_00', label: 'Kepler ODS — cuentas banco oficinas 00 (kdb1)', table: 'kepler_ods.kdb1', tsCandidates: [],
-    sql: `SELECT CASE WHEN count(*) > 0 THEN now() ELSE now() - interval '100 days' END::timestamp AS last_update,
+    // `[W4.3]` SIN `::timestamp`: acá el valor es un CENTINELA (`now()` = sano / `now() - 100 días`
+    // = crítico), así que el sesgo de 6 h no movía el veredicto — pero sí publicaba una **edad
+    // negativa** ("hace −6.00 h", medido) en el tablero. Un número imposible en pantalla enseña a
+    // desconfiar del tablero entero, que es la falla que ADR-053 existe para evitar.
+    sql: `SELECT CASE WHEN count(*) > 0 THEN now() ELSE now() - interval '100 days' END AS last_update,
                  CASE WHEN count(*) > 0 THEN count(*)::text || ' cuentas banco (00) en ODS'
                       ELSE 'kdb1 oficinas 00 VACÍA — bank feed en SKIP; falta kdb1 en KP_ODS_TABLES del runner' END AS note_extra
             FROM kepler_ods.kdb1 WHERE btrim(sucursal)='00'`,
@@ -205,9 +213,13 @@ const APP_SOURCES: SourceCfg[] = [
   //        no hay trackers vinculados (fleet no configurada en este env); alarma si los hay y no llega posición.
   {
     key: 'fleet_positions', label: 'Flota GPS (posiciones vivas)', table: 'logistics.vehicle_positions', tsCandidates: [],
+    // `[W4.3]` SIN `::timestamp`. Es el caso más grave del barrido: `captured_at` es `timestamptz`
+    // (medido) y el umbral es `warnH: 3`, así que el sesgo de 6.00 h dejaba al sensor **incapaz de
+    // avisar** — no podía pasar a warn hasta las 9 h reales, y por debajo de 6 h publicaba edad
+    // negativa. Un dead-man's switch que no puede disparar en su propia ventana no es un sensor.
     sql: `WITH linked AS (SELECT count(*) n FROM logistics.trackers WHERE vehicle_id IS NOT NULL AND active AND deleted_at IS NULL)
           SELECT CASE WHEN (SELECT n FROM linked)=0 THEN now()
-                      ELSE (SELECT max(captured_at) FROM logistics.vehicle_positions) END::timestamp AS last_update,
+                      ELSE (SELECT max(captured_at) FROM logistics.vehicle_positions) END AS last_update,
                  CASE WHEN (SELECT n FROM linked)=0 THEN 'sin trackers vinculados (fleet inactiva)'
                       ELSE (SELECT n FROM linked)::text || ' trackers · última posición ' ||
                            coalesce(to_char((SELECT max(captured_at) FROM logistics.vehicle_positions) AT TIME ZONE 'America/Mexico_City','DD/MM HH24:MI'),'—') END AS note_extra`,
@@ -321,6 +333,14 @@ const APP_SOURCES: SourceCfg[] = [
   //      puede mostrar el sábado (~48 h) → warn a 60 h para no flapear, crítico a 96 h.
   {
     key: 'wincaja_cedis_stale', label: 'Wincaja — CEDIS Irapuato (surte la red)', table: 'wincaja.maestro_mov_almacen', tsCandidates: [],
+    // `[W4.3]` Acá el `::timestamp` **SE QUEDA, y es load-bearing** — es el contraejemplo que hizo
+    // que este barrido se midiera sensor por sensor en vez de aplicar un sed. `fecha` es
+    // `timestamptz` (como en los dos sensores que sí se corrigieron), pero **no guarda un instante:
+    // guarda una fecha de negocio en medianoche UTC** (medido: 3,586 de 3,586 filas de la rama 00
+    // caen en 00:00 UTC y ninguna en 00:00 MX; `max(fecha)` = 04/09 00:00 UTC = 03/09 18:00 MX).
+    // El cast en la sesión `Etc/UTC` la devuelve a "04/09 medianoche" naive, que node-postgres lee
+    // como medianoche MX = exactamente la semántica que este sensor quiere medir. Quitarlo haría
+    // envejecer el dato 6 h de más — el error en el sentido contrario.
     sql: `SELECT max(fecha)::timestamp AS last_update,
                  'BPIRAPUATO · último mov. ' ||
                  COALESCE(to_char(max(fecha), 'DD/MM'), '—') || ' · ' ||
@@ -362,11 +382,22 @@ const APP_SOURCES: SourceCfg[] = [
   // `America/Mexico_City`. Resultado medido: la edad sale **exactamente 6.00 h más joven** (33.38 h
   // reales contra 27.38 h reportadas), así que un `warnH: 30` dispararía a las 36. Sin el cast,
   // el driver recibe el timestamptz y la edad cuadra al centésimo con la de SQL.
-  // ⚠️ El sesgo NO es exclusivo de este sensor: **cualquier** sensor cuyo SQL devuelva
-  // `max(col)::timestamp` sobre una columna `timestamptz` lo tiene. Ver el addendum de
-  // `AUDITORIA_BASE_INICIAL.md` — no se barrió acá porque cada sensor necesita que se verifique el
-  // TIPO de su columna: donde el dato ya es `timestamp` naive en hora MX, el cast es inocuo y
-  // "arreglarlo" metería el error de 6 h en el otro sentido.
+  // ⚠️ El sesgo NO era exclusivo de este sensor: **cualquier** sensor cuyo SQL devuelva
+  // `max(col)::timestamp` sobre una columna `timestamptz` lo tiene. `[W4.3]` barrió los 30 sensores
+  // contra prod el 2026-09-07, preguntándole al driver el OID que devuelve cada uno y verificando
+  // el TIPO de la columna de origen. Resultado:
+  //   · los 15 sensores por-columna (`tsCandidates`) están **limpios**: los 15 leen `timestamptz`
+  //     y ninguno castea, así que la edad en JS es el instante exacto;
+  //   · 3 tenían sesgo real y se corrigieron: `stock_cedis_00` (tapaba un warn de 35.4 h reales),
+  //     `fleet_positions` (`warnH: 3` que no podía disparar antes de las 9 h) y `ods_finance_00`
+  //     (centinela que publicaba edad negativa);
+  //   · 6 devuelven naive **con razón** y el cast se queda: `wincaja_cedis_stale` porque su
+  //     `timestamptz` guarda medianoche UTC como fecha de negocio (ver su comentario), y
+  //     `kepler_ods_00_stale` / `wincaja_feed` / `wincaja_branch_stale` / `sales_daily_date` /
+  //     `bank_recon_period` porque derivan de un `date` y el cast es redundante, no sesgado.
+  // Nota honesta: el sexto (`wincaja_branch_stale`) NO lo vio el barrido manual —el parser lo
+  // saltaba— sino el candado, en su primera corrida.
+  // El candado que impide que vuelva: `database/tests/test-db-health-tz-bias.js`.
   {
     key: 'wincaja_existencias_entrega',
     label: 'Wincaja — existencia ENTREGADA (imported_at, no fecha de negocio)',

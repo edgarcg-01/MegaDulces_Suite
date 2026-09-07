@@ -94,3 +94,76 @@ describe('etiquetera · la etiqueta, la hoja y el rótulo dicen lo mismo', () =>
     expect(head).toBeLessThan(H * 0.25); // la banda no puede comerse un cuarto de la etiqueta
   });
 });
+
+/**
+ * El número que "a veces se ve más chico" y el mayoreo ilegible. Dos defectos distintos con
+ * la misma raíz: el tamaño de un número lo decide una MEDICIÓN, y una medición puede hacerse
+ * en el momento equivocado (fuente no cargada, caja sin ancho) o contra una caja demasiado
+ * chica. Ninguno de los dos rompía nada visible en código.
+ */
+describe('etiquetera · el tamaño de los números no se decide por accidente', () => {
+  it('el arranque del CSS y el del TS son el MISMO número', () => {
+    // Si divergen, el número arranca de un tamaño y se mide contra otro. Están duplicados
+    // porque el CSS lo necesita antes de que corra el TS (primer render y clon de impresión).
+    const precioCss = Number(/\.etq-price\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    const montoCss = Number(/\.etq-tier \.amt\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(precioCss).toBe(Number(/const PRECIO_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(montoCss).toBe(Number(/const MONTO_MM = ([\d.]+)/.exec(LABEL)![1]));
+  });
+
+  it('no se mide antes de que la tipografía esté usable', () => {
+    // NEGATIVA del bug: `document.fonts.ready` resuelve ANTES de que exista el @font-face
+    // (las familias llegan por un @import), así que medir ahí da la fallback — hasta 21% más
+    // ancha → el precio quedaba 17% más chico. Tiene que esperar `check`, no `ready`.
+    expect(LABEL).toContain('FUENTES_USABLES');
+    // Nadie vuelve a colgar el re-layout de `fonts.ready` a secas.
+    expect(/ngAfterViewInit\(\)[^\n]*fonts\??\.ready/.test(LABEL)).toBe(false);
+    expect(LABEL).toContain('f.check(s)');
+    // …y el re-ajuste tiene que colgar de los DOS hooks: las etiquetas de la cola nacen de un
+    // cambio de input, no de un primer render.
+    expect(/ngAfterViewInit\(\): void \{[^\n]*FUENTES_USABLES/.test(LABEL)).toBe(true);
+    expect(/ngOnChanges\(\): void \{[^\n]*FUENTES_USABLES/.test(LABEL)).toBe(true);
+  });
+
+  it('una caja sin ancho NO encoge el número hasta el piso', () => {
+    // La otra mitad del bug: clientWidth 0 → avail negativo → el bucle llegaba al mínimo.
+    expect(LABEL).toContain('if (!(avail > 0)) return;');
+    expect(LABEL).toContain('if (!(box.clientHeight > 0)) return;');
+  });
+
+  it('el bloque de tiers se ajusta a lo ALTO antes de encoger cada monto', () => {
+    // Sin esto el 4º renglón se recortaba en silencio (lo tapa el overflow:hidden) — ya pasaba
+    // en la etiqueta de 115×40: 100 px de contenido contra 92 de caja.
+    expect(LABEL).toContain('private fitTiers()');
+    const orden = /private layout\(\): void \{([^}]*)\}/.exec(LABEL)![1];
+    expect(orden.indexOf('fitTiers')).toBeLessThan(orden.indexOf('fitAmts'));
+    expect(orden.indexOf('fitTiers')).toBeGreaterThan(-1);
+  });
+
+  it('el monto de mayoreo es el más visible del renglonaje', () => {
+    const trazoNormal = Number(/\.etq-tier \.amt\{[^}]*-webkit-text-stroke:([\d.]+)mm/.exec(LABEL)![1]);
+    const trazoMayoreo = Number(/\.etq-tier\.is-mayoreo \.amt\{[^}]*-webkit-text-stroke:([\d.]+)mm/.exec(LABEL)![1]);
+    // El peso va por TRAZO porque Bebas Neue no tiene bold real: medido, `font-weight:700`
+    // daba el mismo ancho al píxel, o sea ningún cambio visible.
+    expect(trazoMayoreo).toBeGreaterThan(trazoNormal);
+    expect(LABEL).toMatch(/\.etq-tier\.is-mayoreo\{[^}]*background:/);
+    // y los dos renglones de mayoreo del template tienen que llevar la clase
+    expect((LABEL.match(/class="etq-tier is-mayoreo"/g) || []).length).toBe(2);
+  });
+
+  it('el bloque de estilos no tiene acentos graves (parten el template literal)', () => {
+    // Pasó otra vez al documentar el CSS: un acento grave dentro de un comentario CSS cierra
+    // el template literal y el compilador de Angular tira "Failed to resolve styles at
+    // position 1 to a string". ⚠️ ts-jest NO lo detecta (no hace el análisis estático de
+    // Angular), así que los tests salían verdes con el build roto.
+    const bloque = /styles:\s*\[`([\s\S]*?)`\],/.exec(LABEL)![1];
+    expect(bloque).not.toContain('`');
+  });
+
+  it('la celda del monto es más ancha que la mitad del precio unitario', () => {
+    // El reparto se movió a propósito: el mayoreo es donde el cliente compara.
+    const izq = Number(/\.etq-left\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const cell = Number(/\.etq-tier \.pricecell\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(cell).toBeGreaterThan(izq / 2);
+  });
+});

@@ -119,6 +119,45 @@ Disparador: *"necesito reducir el tamaño de la etiqueta"*. Edgar fijó el alto 
 
 ---
 
+## 9. El número que "a veces se ve más chico", y el mayoreo legible (2026-09-07)
+
+Disparador: *"últimamente existe un bug que en ocasiones el número se ve más chico, ¿dónde está el error? … también el apartado de mayoreo con esta reducción quedó ilegible, hay que darle más tamaño, haciendo bold en el precio y reduciendo un poco el tamaño del precio unitario normal"*.
+
+### El bug: el tamaño lo decidía una medición hecha en el momento equivocado
+
+`fitPrice()` encoge el precio midiendo su ancho. **Si mide antes de que la tipografía definitiva esté usable, mide con la fallback** —que tiene otro ancho— y el tamaño que deja queda mal en la dirección de esa fallback. Medido, mismo precio y misma caja, cambiando sólo la fuente con la que se mide:
+
+| midiendo con | ancho vs Anton | un precio de 4 cifras queda en |
+|---|---|---|
+| **Anton** (la que imprime) | — | 9.00 mm |
+| **Impact** (Windows) | +5…8% | 8.50 mm |
+| **Helvetica** (iPad / Android) | **+13…21%** | **7.50 mm** ← 17% más chico |
+| **Arial Narrow** | −1…7% | 9.25 mm (y al llegar Anton se **recorta**) |
+
+**Por qué era intermitente:** el componente ya hacía `document.fonts.ready.then(() => this.layout())`, y no alcanza. Las familias llegan por un `@import` a `fonts.googleapis.com` **dentro del CSS del propio componente**, así que mientras esa hoja no baja **no existe ningún `@font-face`**: no hay carga pendiente, `fonts.ready` resuelve al instante y el layout mide con la fallback. Depende de si la CSS de Google estaba en caché → a veces sí y a veces no. Y encima **el re-layout vivía sólo en `ngAfterViewInit`**: toda etiqueta creada por un cambio de input —que es exactamente cómo las crea la etiquetera al armar la cola— se quedaba con la medida equivocada para siempre.
+
+**Segunda mitad del bug:** si la caja todavía no tenía ancho (`clientWidth` 0), `avail` salía **negativo** y el bucle corría hasta el piso → el precio quedaba en **4.5 mm**, la versión dramática de "se ve más chico".
+
+**Arreglo:** `FUENTES_USABLES`, una promesa memoizada por app que espera a que las tres familias estén **realmente usables** (`fonts.load` + `fonts.check`, tope de 3 s) y re-ajusta desde **los dos** hooks. Si no llegan —equipo sin internet— se sigue midiendo con la fallback, que ahí es lo **correcto**: es la que va a imprimir. Más la guarda de "sin medida no se encoge".
+
+### El mayoreo: de 3.7 mm a 5.4 mm
+
+Al reducir la etiqueta bajé la celda del monto de 20 a 16 mm, y el auto-encogido horizontal dejaba el monto de mayoreo en **~3.7 mm**: ilegible. Se reparte distinto el ancho, **ya no 54:55** como el original: el precio unitario cede **4.4 mm** a la columna de los tiers (34 / 43.4), su arranque baja de 11.5 a **10 mm**, la celda del monto sube a **22 mm** y el monto a **5.4 mm**.
+
+**El "bold" no se puede hacer con `font-weight`:** Bebas Neue no tiene bold real y el navegador no la sintetiza — medido, `font-weight:700` daba **el mismo ancho al píxel**, o sea ningún cambio visible. El peso va por **trazo óptico** (`-webkit-text-stroke`), más grueso en las filas de mayoreo, que además llevan **chip amarillo de marca** (el mismo de la caja del precio grande, para que se lean como pareja). Los rótulos se acortaron —"Mayoreo 3+ cajas" en vez de "Mayoreo desde 3 cajas:"— porque **el rótulo era lo que se comía el ancho**, y sin eso el monto grande no cabía.
+
+### Y de paso, un recorte silencioso que ya existía
+
+El bloque de tiers no tenía ajuste **vertical**: con 4 renglones el contenido medía **100 px contra 92 de caja ya en la etiqueta de 115×40**, y el 4º tier se perdía tapado por el `overflow:hidden`. Nuevo `fitTiers()` baja el tamaño de todos los montos **por igual** (para que sigan alineados) hasta que quepan, y corre **antes** del ajuste por celda.
+
+**Dimensionado con el dato:** de los **9,013 productos** con precios de etiqueta, **76.1% tiene 2 renglones** de tier, 11.3% uno, 7.1% tres y **sólo 2.0% cuatro**. Resultado medido: 1, 2 y 3 tiers imprimen a **5.4 mm** (94.5% de los productos) y los de 4 bajan a 4.0 mm — **sin recortes y sin rótulos partidos en ningún caso**.
+
+⚠️ **Sexta vez en este repo:** un **acento grave dentro de un comentario CSS** parte el template literal y el compilador tira `Failed to resolve styles at position 1 to a string`. Lo peor es que **ts-jest no lo detecta** (no hace el análisis estático de Angular), así que los 81 tests salían verdes con el build roto. El spec ahora también prohíbe acentos graves en el bloque de estilos.
+
+**Candado extendido a 16 casos** (`etiqueta-hoja.spec.ts`): que el arranque del CSS y el del TS sean el mismo número (verificado en rojo poniéndolos en 12 vs 10), que no se vuelva a colgar el re-layout de `fonts.ready` a secas, que el re-ajuste esté en los dos hooks, las dos guardas de "sin medida no se encoge", que `fitTiers` corra antes de `fitAmts`, y que el monto de mayoreo tenga más trazo y su chip.
+
+---
+
 ## 7. Diferido / futuro
 
 - ZPL/térmica nativa (hoy impresión a color por navegador).
