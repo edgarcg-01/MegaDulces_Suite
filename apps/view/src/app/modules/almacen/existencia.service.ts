@@ -43,7 +43,13 @@ export interface ExistenciaRow {
   cells: Record<string, ExistenciaCell> | null;
 }
 
-export interface ExistenciaColumn { code: string; name: string; es_hub: boolean; }
+/**
+ * `label` = el rótulo corto con el que se nombra el almacén en piso (PH, MA, MM, 8ES, LPA, YU,
+ * CAN, DAMASO, CEDIS). Viene de `commercial.warehouses.short_label` con caída al `code`, así que
+ * un almacén nuevo aparece con su código y nadie tiene que tocar el front.
+ * El ORDEN del array ya viene resuelto del backend (`display_order`): no reordenar acá.
+ */
+export interface ExistenciaColumn { code: string; name: string; label: string; es_hub: boolean; }
 
 /** Edad del dato POR RAMA del ODS. Una sola cifra promediaría feeds de ritmos muy distintos. */
 export interface ExistenciaFreshness { rama: string; label: string; dato_al: string; minutos: number; }

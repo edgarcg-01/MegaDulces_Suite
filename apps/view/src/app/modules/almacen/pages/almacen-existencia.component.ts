@@ -114,7 +114,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               <th pFrozenColumn class="ex-name" pSortableColumn="nombre">Producto <p-sorticon field="nombre" /></th>
               @for (c of columns(); track c.code) {
                 <th class="ex-r ex-wh" [title]="colTitle(c)">
-                  {{ c.code }}
+                  {{ c.label }}
                   @if (c.es_hub) { <i class="pi pi-building" aria-hidden="true"></i> }
                   @if (staleCol(c)) { <i class="pi pi-clock ex-stale" aria-hidden="true"></i> }
                 </th>
@@ -434,13 +434,17 @@ export class AlmacenExistenciaComponent implements OnInit {
       + (d.arbitrado ? ` Por lo pagado valdría ~${this.money(d.arbitrado)} (referencia).` : '');
   }
 
+  /**
+   * La cabecera muestra el rótulo corto (PH, MA, …), así que el CÓDIGO va acá: es la llave con la
+   * que se une contra el ERP y el operador la necesita para reclamar sobre una celda.
+   */
   colTitle(c: ExistenciaColumn): string {
     const f = this.freshness().find((x) => this.ramaOf(c.code) === x.rama);
     const edad = f ? ` · dato de hace ${this.edad(f.minutos)}` : '';
-    return `${c.name}${c.es_hub ? ' (centro de distribución)' : ''}${edad}`;
+    return `${c.code} · ${c.name}${c.es_hub ? ' (centro de distribución)' : ''}${edad}`;
   }
 
-  /** Kepler alimenta 01-06; Wincaja el CEDIS 00 y los de Morelia. */
+  /** Kepler alimenta 01-06; Wincaja el CEDIS 00 (BPIRAPUATO) y los dos de Morelia. */
   private ramaOf(code: string): string {
     return (code === '00' || code.startsWith('MD-')) ? 'wincaja' : 'kepler';
   }

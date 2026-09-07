@@ -293,16 +293,23 @@ export class ExistenciaService {
   /**
    * Las columnas del pivot son DINÁMICAS: salen del catálogo de almacenes, nunca de una lista
    * hardcodeada. Si mañana entra una sucursal, la columna aparece sola.
+   *
+   * El ORDEN también sale de la tabla (`display_order`, mig 20260907210000) y no de un array acá:
+   * es un atributo del almacén y lo tienen que ver todos los consumidores igual. Ordenar por
+   * `code` ponía el CEDIS primero y separaba las dos Morelia del resto por venir con prefijo
+   * `MD-` — un artefacto de cómo se codificó la fuente, no de cómo se opera la red.
+   * `NULLS LAST`: un almacén sin orden asignado (las RUTA-*, o uno nuevo) va al final.
    */
   private async columns(trx: any, tenantId: string, codes: string[], present: string[]) {
     // ⚠️ SIN el EXISTS sobre la vista: costaba 335 ms contra 79 ms. Las columnas que de verdad
     // tienen dato ya vienen en `totals.per_warehouse` (salen de la misma pasada), así que el
     // filtrado se hace acá en memoria sobre una tabla de 22 filas.
     const rows = (await trx.raw(`
-      SELECT w.code, w.name, w.source_warehouse_id IS NULL AS es_hub
+      SELECT w.code, w.name, COALESCE(w.short_label, w.code) AS label,
+             w.source_warehouse_id IS NULL AS es_hub
         FROM commercial.warehouses w
        WHERE w.tenant_id = ? AND w.deleted_at IS NULL
-       ORDER BY w.code`, [tenantId])).rows;
+       ORDER BY w.display_order NULLS LAST, w.code`, [tenantId])).rows;
     const conDato = new Set(present);
     return rows.filter((r: any) => conDato.has(r.code) && (!codes.length || codes.includes(r.code)));
   }
@@ -376,7 +383,7 @@ export class ExistenciaService {
                  ON pol.tenant_id = s.tenant_id AND pol.warehouse_id = s.warehouse_id
                 AND pol.product_id = s.product_id
          WHERE s.tenant_id = ? AND s.product_id = ?
-         ORDER BY w.code`, [tenantId, productId])).rows;
+         ORDER BY w.display_order NULLS LAST, w.code`, [tenantId, productId])).rows;
       return { product, rows };
     });
   }
