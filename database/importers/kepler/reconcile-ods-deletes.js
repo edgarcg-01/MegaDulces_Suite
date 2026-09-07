@@ -66,7 +66,7 @@ const CHUNK = 5000;
 
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`). Las 7 ramas
 // siguen la misma convención; ver la nota en `replicate-ods-live.js`.
-const localDbName = (code) => `kepler_md_${code}`;
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const branchUrl = (code) => SRC_BASE.replace(/\/[^/]*$/, '/' + localDbName(code));
 
 // Tipos que acepta el handler raw-delete (el resto degrada a text del otro lado).

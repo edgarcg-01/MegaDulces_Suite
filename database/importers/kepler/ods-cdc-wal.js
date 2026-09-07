@@ -43,7 +43,7 @@ const HEARTBEAT_MS = Math.max(10000, Number(process.env.ODS_CDC_HEARTBEAT_MS) ||
 const WARN_LAG_MB = Number(process.env.ODS_CDC_WARN_LAG_MB) || 500; // lag del slot > esto → status error (visible)
 
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
-const localDbName = (code) => `kepler_md_${code}`;
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localCfg = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return { connectionString: u.toString() }; };
 const mapType = (dt) => ({ 'timestamp without time zone': 'timestamp', 'timestamp with time zone': 'timestamptz' }[dt] || (['numeric','double precision','real','integer','bigint','smallint','boolean','date'].includes(dt) ? dt : 'text'));
 // pgoutput NO resuelve nombres de tipos builtin (typeName=null) → trae typeOid. Mapear el OID al

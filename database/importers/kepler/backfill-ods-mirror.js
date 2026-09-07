@@ -32,10 +32,9 @@ const PSQL = process.env.PSQL_BIN || 'C:\\Program Files\\PostgreSQL\\18\\bin\\ps
 
 // 2026-09-07: las 7 ramas siguen la MISMA convención. Antes la 03 era `kepler_pilot` y convivía
 // con una `md_03` sobrante de junio — dos bases con nombre de la 03, una viva y una muerta.
-const BRANCHES = [
-  ['00', 'kepler_md_00'], ['01', 'kepler_md_01'], ['02', 'kepler_md_02'], ['03', 'kepler_md_03'],
-  ['04', 'kepler_md_04'], ['05', 'kepler_md_05'], ['06', 'kepler_md_06'],
-];
+// El nombre lo resuelve `lib/kepler-branches` (dueño único de la convención); acá sólo la lista.
+const { replicaDbName } = require('../lib/kepler-branches');
+const BRANCHES = ['00', '01', '02', '03', '04', '05', '06'].map((c) => [c, replicaDbName(c)]);
 // Meta del CDC: se replica sola, no tiene sentido copiarla.
 const SKIP = new Set(['_sync_status']);
 

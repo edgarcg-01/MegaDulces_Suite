@@ -21,7 +21,8 @@ const { branchUrl, BRANCHES } = require('../lib/kepler-branches');
 const CODE = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || '00';
 const APPLY = process.argv.includes('--apply');
 const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const DBNAME = `kepler_md_${CODE}`;
+const { replicaDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
+const DBNAME = replicaDbName(CODE);
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
 
 (async () => {
