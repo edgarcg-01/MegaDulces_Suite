@@ -1322,5 +1322,59 @@ aporta nada y sí toca el slot del publicador): si ves `sub_pilot` alimentando `
 bien.
 
 **Bases huérfanas en `:5433` que NO se tocan y no alimentan nada** (declaradas para que nadie las
-confunda con la fuente): `md_03` (2.4 GB, 329 tablas en `md`, **0 subscriptions**, congelada) y
-`kepler_consolidado` (516 MB, 0 tablas en `md`).
+confunda con la fuente). Inventario re-medido el 2026-09-07: `kepler_consolidado` (516 MB),
+`railway_backup_check` (35 MB), `lpa_r42` (15 MB) y `r10` (12 MB) — las cuatro con **0 conexiones**.
+La `md_03` que este párrafo declaraba (2.4 GB, 329 tablas, 0 subscriptions) **ya no existe**: se
+dropeó el 2026-09-07 junto con el rename `kepler_pilot` → `kepler_md_03`, justo porque tener dos
+bases con nombre de la 03 —una viva y una congelada— era la trampa perfecta para leer la equivocada.
+Las que sí alimentan: `kepler_md_00..06` (875 MB a 2,928 MB, todas con conexión activa) y `wincaja`
+(38 GB, la réplica cruda de Access).
+
+---
+
+## 37. Un hueco en un contador NO es una fila perdida (y el centinela que estira el calendario)
+
+Auditando el carril incremental de Wincaja —que avanza por watermark sobre `Consecutivo`— los huecos
+en la secuencia parecían la prueba de que se perdían filas: **w32 con el 80% del rango ausente y un
+tramo de 21,602 consecutivos seguidos, w30 45%, w00 57%.**
+
+No lo eran. `w30` cubre `2026-08-01 → 2026-09-06` con **CERO días sin documento** (31/31 de agosto) y
+al mismo tiempo le "faltan" 19,290 consecutivos. **Un contador con huecos y una cobertura sin huecos
+no pueden ser la misma falla:** el `Consecutivo` de Wincaja es global a la base y
+`MaestroMovAlmacen` trae una sola familia de documentos (`Tipo` V=25,156 de 25,815), repartida
+además entre 8 cajas. El contador **no es denso** y nunca lo fue.
+
+**Regla:** antes de tratar una discontinuidad como pérdida, probá que el contador es denso. Basta un
+contraejemplo para tumbar la hipótesis. Y medí la cobertura donde el negocio la tiene —**en el
+tiempo** (días con cero documentos dentro del rango), no en el número.
+
+### El centinela de Access estira el calendario
+
+**7 filas de `w32."MaestroMovAlmacen"` están fechadas `2000-01-01`** (con consecutivos normales,
+13,539..37,160): es la fecha centinela de Access, no dato. Con ellas dentro, el conteo de "días sin
+documento dentro del rango" pasó de 0 a **9,677** — 26 años de hueco inexistente, porque el rango se
+calcula `min..max` y un centinela en la punta convierte todo lo de en medio en falta. Cualquier
+métrica de cobertura que derive su rango de los datos necesita recortar los extremos centinela.
+
+### Y los dos instrumentos que mintieron en el camino
+
+- **El formato de fecha en Wincaja es POR TABLA, no por base.** `MaestroMovAlmacen."Fecha"` es TEXT
+  en **ISO** (`2026-08-25T00:00:00`); otras tablas usan `MM/DD/YY` (con `01/00/00` que revienta el
+  `::date`). La guarda de formato copiada de la otra auditoría **rechazó el 100%** de las filas y
+  reportó "fecha no parseable" en las tres sucursales. Mirá valores antes de parsear.
+- **`Consecutivo` es `numeric`, no texto** — `WHERE "Consecutivo" ~ '^[0-9]+$'` tira
+  `operator does not exist: numeric ~ unknown`.
+- **Un script de medición en background NO se canaliza por `sed`/`grep`:** buffean, así que el error
+  de arriba no salió nunca y el proceso se veía "corriendo" con salida vacía. Dos veces seguidas.
+  Escribí directo al archivo de salida y filtrá al leerlo.
+
+### Lo que sí queda pendiente
+
+El modo de falla real del watermark —un documento escrito al `.mdb` con `Consecutivo` **por debajo**
+del último visto— sigue siendo posible, pero **no se detecta desde la réplica**: hay que comparar
+contra el `.mdb`. Lo que lo cazaría es un **sensor de cobertura diaria** por sucursal. Propuesto, no
+construido: hoy no hay evidencia medida de que haga falta.
+
+**Y no confundir dos coberturas:** la réplica CDC sólo tiene lo que trae el `.mdb` **vivo** — `w30`
+arranca el 1-ago-2026 y `w32` el 1-jul-2026. La historia 2025→2026 vive en la carga histórica, que
+es otro camino y otros archivos.

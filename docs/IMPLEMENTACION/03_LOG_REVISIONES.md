@@ -6,6 +6,68 @@
 
 ---
 
+## 2026-09-07 — El reconciliador de Wincaja que NO hace falta (y los dos instrumentos que mintieron al medirlo)
+
+**Disparador:** quedaba pendiente *"agendar `import-wincaja-hist.js` como reconciliador per-corte"*,
+apuntado como remedio a la fuga del carril incremental. Antes de escribirlo, medirlo.
+
+### Veredicto: no hay fuga medible, y el item se cierra sin código
+
+El carril avanza por watermark sobre `Consecutivo`. La hipótesis era que se saltaba filas y quedaban
+huecos en la secuencia. Los huecos existen y son enormes — **w32: 80% del rango ausente, el mayor
+tramo de 21,602 consecutivos; w30: 45%; w00: 57%**. Parecía la prueba.
+
+**No lo es.** `w30` cubre **2026-08-01 → 2026-09-06 con CERO días sin documento** (31/31 de agosto),
+y sin embargo le "faltan" 19,290 consecutivos. Un contador con huecos y una cobertura sin huecos no
+pueden ser la misma falla: **los huecos son del ERP, no del carril**. El `Consecutivo` de Wincaja no
+es denso — es global a la base y `MaestroMovAlmacen` trae una familia (`Tipo` V=25,156 de 25,815 en
+w32; C/D/S/E/X/P el resto), repartida además entre 8 cajas.
+
+La medición que sí decide es la **cobertura en el tiempo**, no en el número. Y sale limpia:
+
+| esquema | rango | docs | días sin ningún documento |
+|---|---|---|---|
+| `w00` | 2026-01-02 → 2026-09-05 | 3,604 | 42, de los cuales **7 no son domingo** |
+| `w30` | 2026-08-01 → 2026-09-06 | 23,134 | **0** |
+| `w32` | 2026-07-01 → 2026-09-06 | 25,815 | 0 (los 9,677 que reportó el script son artefacto, ver abajo) |
+
+Consistencia maestro↔detalle en w32: 25,815 vs 25,747, **68 sólo en maestro y 0 huérfanos en
+detalle** — la dirección sana (un maestro sin líneas es un documento vacío del ERP; una línea sin
+maestro sería corrupción).
+
+Así que el reconciliador quedaría resolviendo un problema que no está medido. El mecanismo que temía
+—un documento escrito al `.mdb` con `Consecutivo` POR DEBAJO del watermark— sigue siendo posible en
+teoría, pero **no se puede detectar desde la réplica**: hay que comparar contra el `.mdb`. Lo que sí
+detectaría una fuga real, y es barato, es un **sensor de cobertura diaria** (días con cero documentos
+dentro del rango). Queda propuesto, no construido.
+
+### Dos hallazgos que la medición dejó de paso
+
+- **La réplica CDC sólo tiene lo que trae el `.mdb` vivo**, y eso es un período corto, no la
+  historia: `w30` arranca el 1-ago-2026 y `w32` el 1-jul-2026. Lo de "2025→2026 completo" vive en la
+  carga histórica, que es otro camino y otros archivos. No confundir las dos coberturas.
+- **7 filas en `w32."MaestroMovAlmacen"` fechadas `2000-01-01`** con consecutivos repartidos
+  (13,539..37,160). Es la fecha centinela de Access, no dato. Son las que inflaron el conteo de
+  "9,677 días sin documento" a 8 meses de hueco inexistente: **un centinela en el extremo del rango
+  estira el calendario y todo lo de en medio aparece como falta.**
+
+### Los dos instrumentos que mintieron, y los dos avisos que quedan
+
+1. **`Fecha` es TEXT pero en ISO** (`2026-08-25T00:00:00`) en esta tabla — no el `MM/DD/YY` que ya
+   documentamos para otras tablas de Wincaja. Mi guarda de formato, copiada de esa auditoría,
+   **rechazó el 100% de las filas** y reportó "fecha no parseable" en las tres sucursales. El formato
+   de fecha en Wincaja es **por tabla**, no por base: hay que mirar valores antes de parsear.
+2. **`Consecutivo` es `numeric`, no texto.** El `WHERE "Consecutivo" ~ '^[0-9]+$'` que puse de guarda
+   tiró `operator does not exist: numeric ~ unknown` — y como había canalizado la salida por `sed`,
+   que buffea, el error **no apareció**: el script se veía "corriendo" con salida vacía. Dos veces.
+   Para medir en background, sin pipe.
+
+**La lección de fondo:** *un hueco en un contador no es una fila perdida.* Antes de tratar una
+discontinuidad como pérdida, hay que probar que el contador es denso — y acá basta un contraejemplo
+(w30: 45% del rango ausente, 0 días ausentes) para tumbar la hipótesis.
+
+---
+
 ## 2026-09-07 — El ledger doble de knex: 4 migraciones aplicadas que el próximo deploy iba a re-aplicar
 
 **Disparador:** *"sigue con los bloques del 1 y autorizo que corras las migraciones"*. Va antes del
