@@ -1347,6 +1347,32 @@ un `template` literal tumba el build (NG5002, `GOTCHAS.md` §34).
 
 ---
 
+## Fase IDG — Integridad del padrón (hermana de AUTHZ e ID)
+
+Disparador: al auditar cómo funcionan los usuarios apareció una cuenta llamada **`hacker`** en el padrón de PRODUCCIÓN. La pregunta "¿de dónde salió?" destapó tres problemas encadenados: un suite destructivo corrido contra prod, las FK de `identity.users` apagadas, y las 23 vistas de `public.*` bypassando RLS. Detalle completo en [`CHANGELOG.md`](../../CHANGELOG.md) (IDG.1-8, 2026-09-07).
+
+### IDG.1 — Que no vuelva a pasar ✅ 2026-09-07 (commits `ab37cb47`, `f96ea892`)
+- [x] ✅ **IDG.1a** `database/tests/_lib/assert-safe-target.js`: guarda de destino **allowlist y fail-closed** (prod → `exit(2)` · host no declarado → `exit(2)` · la `.245` compartida avisa y sigue). NO se calcó el regex de `_smoke-sink-mirror.js`: sólo reconoce Railway y **no** la `.245` a la que el `.env` apunta hoy. Cableada en `run-all-tests.js` — es el cambio de mayor palanca, porque `spawnSync` heredaba `process.env` sin inspeccionarlo y cubre las ~170 suites de una.
+- [x] ✅ **IDG.1b** Los **33 tests destructivos** con la guarda (de 37 archivos que hacen DELETE/TRUNCATE/DROP, 4 matchearon sólo por comentarios). Tres patrones de adquisición de conexión → tres colocaciones; a los 8 con default hardcodeado a `localhost:5433` se les **pasa** la URL resuelta, y en los 2 con `getDb()` lazy la guarda va dentro. Verificado: los 33 pasan `node --check` y 5 representativos abortan con `exit=2` contra prod.
+- [x] ✅ **IDG.2** El cleanup de `test-newdb-rls-isolation` barre el tenant **real** incondicionalmente y también en el `catch` — el `finally` no corre después de un `process.exit()`.
+- [x] ✅ **IDG.3** JSDoc de `TenantKnexService`: su ejemplo canónico era `trx('users')` con el comentario "RLS filtra automáticamente" — cierto por el `search_path` del rol, **falso** escrito como `public.users`.
+
+### IDG.4-6 — Prod recupera la integridad ✅ 2026-09-07 (commit `8c2c4f41`)
+- [x] ✅ **IDG.4** Smoke `test-newdb-fk-triggers-enabled.js`: cero `tgenabled='D'` en los 7 schemas de negocio + cero referencias colgadas + la prueba de **COMPORTAMIENTO** (`role_name` inexistente ⇒ `23503` dentro de un `ROLLBACK`). ⚠️ **No consulta `convalidated`**: decía `true` mientras la FK no validaba nada, y un chequeo de metadata habría dado verde el día del incidente. Prod pasó de **7/3** a **10/0**.
+- [x] ✅ **IDG.5** `cleanup-test-identity-residue.js` (dry-run por default + guarda invertida que exige prod para `--apply`). Barridas 5 cuentas, 2 roles de smoke, 2 `user_scopes` —uno con sucursales inexistentes `['ZA','ZB']`—, 4 `user_roles` y los tenants `tenant_isolation_test`/`ws_iso_test` con sus 270 filas → **120 activos, 0 violaciones de FK**. El barrido usa **SAVEPOINT por tabla**: sin eso el primer DELETE bloqueado por FK abortaba la transacción (25P02) y las ~200 restantes se reportaban como "bloqueadas".
+- [x] ✅ **IDG.6** Migración que re-enciende los **144 triggers apagados** de `identity.users` (prod batch 284), con gate que ABORTA si quedan referencias colgadas: `ENABLE TRIGGER` **no valida lo ya escrito**. `lock_timeout` de 15s (toma ACCESS EXCLUSIVE y los feeds escriben cada minuto). `down()` no revierte a propósito.
+
+### IDG.7-8 — Higiene del padrón ✅ 2026-09-07
+- [x] ✅ **IDG.3b** `security_invoker` en **22 de 23** vistas de `public.*` (prod batch 282). Elegido sobre migrar los **180 call sites** (la cifra de "28" era mía y estaba mal). Riesgo **medido**: de los 30 reads sin tenant, 28 son `public.tenants` (base sin RLS) y 2 van por `KNEX_CONNECTION` (postgres, exento). `products_active` **excluida con motivo** (FDW `mega_dulces_srv`, `08001`, cero consumidores). Verificado en prod: `public.users` sin tenant **125 → 0**; con tenant 120; escribir a otro tenant ⇒ `42501`.
+- [x] ✅ **IDG.7** **643 concesiones retiradas** de los 14 roles `retirado_*`, todos sin usuarios (prod batch 287). `retirado_sistemas` otorgaba **145 de 167 claves**. Las filas se conservan como etiqueta histórica (la FK `ON DELETE RESTRICT` impide borrarlas igual).
+- [x] ✅ **IDG.8** Rol **`recursos_humanos`** con las 4 claves `USUARIOS_*` + `ROLES_VER` y sus 6 dimensiones de alcance explícitas (prod batch 291). `USUARIOS_GESTIONAR`/`_PASSWORDS` los concedía **sólo `superadmin`** (9 cuentas, todas de `sistemas`) y no había rol de RH — por eso **41 de 123 cuentas nunca entraron** y **cero** están en `suspended`/`terminated`. Seguro fuera de Sistemas por el **techo** de `[AUTHZ-HARD.0]`. Sin nadie asignado: eso va por `/admin/usuarios`.
+
+**Pendientes:** ⬜ las ~167 referencias restantes a `public.*` (higiene) · ⬜ **IDG.9** el eje ruta: `route_id` lo tienen **6 de 120**, y quitar los 38 overrides `warehouse=all` sin poblarlo antes deja **32 personas ciegas** — necesita investigar cuál es la fuente canónica de la ruta (hay 4 desincronizadas) · ⬜ columna "último acceso" + filtro "nunca entró" en `/admin/usuarios` para triage de las 41 · ⬜ las 10 claves que sólo tiene el god-mode · ⬜ retirar `finance_expense_area_ids` (0 usuarios, `expense-proofs` la sigue leyendo) y `warehouse_id` (duplica a `warehouse_code`).
+
+**Riesgos abiertos que no son de esta fase:** ⚠️ `app_runtime` en `.245` falla con `28P01` → **la regresión completa no corre** · ⚠️ hay **dos** `knex_migrations` (`public` 577 filas es el real; `identity` 2 filas es espurio y `npm run migrate:new` escribe al equivocado, así que 2 migraciones aplicadas figuran "pendientes") · ⚠️ `public.products_active` se cuelga consultando el FDW · ⚠️ sigue vivo un tercer tenant de prueba, `test_tenant_b`.
+
+---
+
 ## Fase AUTHZ — Retiro de CASL (ADR-054)
 
 Disparador: Edgar, revisando `/admin/users`, preguntó **"¿qué tan bien se está usando CASL?"**. La medición contestó que no se estaba usando: el backend ya gateaba por clave exacta, y lo que quedaba de CASL sólo agregaba modos de falla. Se retiró en 3 fases para no romper el consumidor antes que el productor.
