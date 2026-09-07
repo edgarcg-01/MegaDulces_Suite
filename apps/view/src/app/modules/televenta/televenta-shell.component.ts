@@ -13,8 +13,10 @@ import { Permission } from '../../core/constants/permissions';
  *
  * E.9: el módulo se llamaba "Televenta" en el código y "Remote Manager" en el plan, mientras
  * el ERP y el rol de prod lo llaman **telemarketing** (canal TELEMARK en el 100% de las
- * facturas U/D/8). Se unifica a Telemarketing en lo visible; la ruta `/televenta` se queda
- * para no romper enlaces guardados ni el guard.
+ * facturas U/D/8). Se unifica a Telemarketing: la ruta canónica es `/telemarketing` y
+ * `/televenta/*` queda como redirect que conserva los segmentos (enlaces guardados).
+ * Los archivos y las clases siguen diciendo `televenta` — renombrarlos es churn sin efecto
+ * visible; lo que el usuario ve y teclea ya es telemarketing.
  *
  * "Dashboard" pasa a "Resumen" y se le suma "Facturación", que es el resultado del canal:
  * el tablero medía sólo actividad (llamadas, minutos) y no veía los $8.2M/30d que el ERP

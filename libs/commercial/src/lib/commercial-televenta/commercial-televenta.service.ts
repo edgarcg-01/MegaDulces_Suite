@@ -448,7 +448,7 @@ export class CommercialTeleventaService {
    *
    * Devuelve KPIs operativos del día/período + breakdown por operador para
    * managers, y stats personales para operadores. Endpoint usado por la
-   * página `/televenta/dashboard`.
+   * página `/telemarketing/dashboard`.
    */
   async dashboardMetrics(opts: { from?: string; to?: string } = {}): Promise<any> {
     const { tenantId, userId } = this.context();

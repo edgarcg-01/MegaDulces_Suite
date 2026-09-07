@@ -214,7 +214,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <td><strong>{{ c.name }}</strong></td>
               <td>{{ c.phone || '—' }}</td>
               <td>{{ c.last_order_at ? (c.last_order_at | date:'mediumDate') : '—' }}</td>
-              <td><a pButton [routerLink]="['/televenta/lead', c.id]" size="small" [text]="true"><span class="p-button-icon p-button-icon-left pi pi-phone" aria-hidden="true"></span><span class="p-button-label">Tomar</span></a></td>
+              <td><a pButton [routerLink]="['/telemarketing/lead', c.id]" size="small" [text]="true"><span class="p-button-icon p-button-icon-left pi pi-phone" aria-hidden="true"></span><span class="p-button-label">Tomar</span></a></td>
             </tr>
           </ng-template>
           <ng-template #emptymessage>

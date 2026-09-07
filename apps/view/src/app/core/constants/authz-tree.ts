@@ -196,9 +196,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         id: 'televenta',
         label: 'Telemarketing',
         icon: 'pi pi-headphones',
-        route: '/televenta',
+        route: '/telemarketing',
         modules: [
-          { id: 'televenta', label: 'Telemarketing', route: '/televenta', view: [Permission.COMMERCIAL_TELEVENTA_VER], manage: [Permission.COMMERCIAL_TELEVENTA_OPERATE] },
+          { id: 'televenta', label: 'Telemarketing', route: '/telemarketing', view: [Permission.COMMERCIAL_TELEVENTA_VER], manage: [Permission.COMMERCIAL_TELEVENTA_OPERATE] },
         ],
       },
       {

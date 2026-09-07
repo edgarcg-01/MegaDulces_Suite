@@ -10,6 +10,35 @@
 
 ## [Unreleased]
 
+### Changed — Telemarketing: el tablero ve la facturación de su canal, y el módulo (y su ruta) se llaman como el canal (E.9 + E.9.1, 2026-09-07)
+
+Salió de *"hay que cambiar /televenta/dashboard para que ahí también se vean las facturas, y ordenemos este módulo para telemarketing"*, y después de *"cambiemos la ruta a telemarketing"*.
+
+**Lo que la auditoría encontró antes de tocar nada** (medido en prod):
+
+- **`commercial.call_logs` está VACÍA: 0 llamadas.** Todo el tablero —llamadas, minutos, conversión, top operadores, outcomes 7d— publicaba **ceros**. El módulo nunca se usó.
+- **La cola apunta al universo equivocado:** trabaja 412 clientes `V-…` captados en campo y **0 de 412** son clientes de telemarketing. Los reales son 206 códigos del ERP.
+- **La operación real sólo vive en el ERP:** 4 operadores, **732 facturas y $8,243,050 en 30 días**, con **$2,340,863 vencidos por cobrar**.
+- **No hay puente operador↔usuario** (`identity.users` no tiene `vendedor_code`), así que la factura se atribuye por el vendedor del ERP y no se puede cruzar con quien registre la llamada.
+
+**Lo que cambió:**
+
+- **`billing` en `GET /commercial/televenta/dashboard`**: hoy / mes / 30 días, cobrado, **vencido por cobrar**, desglose por operador del ERP y las últimas 8 facturas con su estado de cobro. Sale de `analytics.erp_sales_invoices` — la misma vista en vivo que consume Facturación de Telemarketing— y el smoke **exige que cuadren al peso**: si divergen, una de las dos pantallas miente. Va **primero** en la pantalla; es lo que existe todos los días.
+- **La actividad se declara** (ADR-056): sin captura el tablero dice *"no hay llamadas capturadas en este módulo"* en vez de pintar 0% de conversión como si fuera desempeño.
+- **Nombre unificado a Telemarketing** en todo lo visible (encabezado, marca del shell, nav "Dashboard"→"Resumen" + "Facturación", los 2 labels de permiso y su categoría, `authz-tree`, preset de rol, selector de proyectos). El rol en prod **ya se llamaba `telemarketing`**: el código era el que iba desfasado.
+- **La ruta canónica es `/telemarketing/*`** y `/televenta/*` queda como **redirect sin componente** (dos componentes montados en dos URLs serían dos copias de la misma pantalla, no un redirect). El `**` reconstruye los segmentos: un marcador de `/televenta/lead/123/take-order` aterriza completo.
+- **NO se tocaron** las claves de permiso ni la clave de área —viven en `role_permissions` / `area_role_presets` de la DB y renombrarlas silencia accesos— ni el endpoint `/api/commercial/televenta/*`: nadie lo ve y renombrarlo abre una ventana de 404 entre el deploy de api y el de view (si se quiere, con alias `@Controller([...])` y sin prisa).
+- ⚠️ Cada consulta del bloque va con su selección **materializada antes de ordenar/recortar**: sobre esta vista un `ORDER BY … LIMIT` directo dispara el nested loop de AX.9 (23,856 ms vs 970 ms). El bloque responde en **1,096 ms**.
+
+**Candados:** `database/tests/test-newdb-telemarketing-billing.js` **9/9 contra prod** (incluye la prueba negativa del puente inexistente: si algún día aparece `vendedor_code`, avisa) y `apps/view/src/app/telemarketing-route.spec.ts` **11/11** con el Router real, con su prueba negativa (sin el bloque legacy la URL vieja no resuelve).
+
+**Dos cosas que el gate de rutas encontró y que no se veían a ojo:**
+
+- **Un `redirectTo` funcional que devuelve string TIRA los query params**, mientras el estático sí los conserva. Asimetría no documentada; el redirect devuelve `UrlTree` armado con `createUrlTree({ queryParams, fragment })`.
+- **El entorno de jest de `apps/view` nunca se inicializaba.** `test-setup.ts` hacía `import 'jest-preset-angular/setup-env/zone'`, pero ese módulo **exporta** `setupZoneTestEnv` en vez de ejecutarlo: cualquier spec con TestBed moría en *"Need to call TestBed.initTestEnvironment() first"*. Nadie lo notó porque ningún spec de la app usaba TestBed — el único con esa forma son 3 `it.todo` que declaran la deuda. Arreglado en 2 líneas; la suite de view queda **6 suites / 66 tests verde**.
+
+**Abierto:** ⬜ **E.10** re-apuntar la cola a los 206 clientes reales del ERP (es lo que hace que el módulo sirva para operar y no sólo para mirar) · ⬜ **E.11** puente operador↔usuario. **Pendiente prod: redeploy api+view** (sin permisos nuevos → sin re-login).
+
 ### Fixed — Identidad: el padrón dejó de tener un `hacker` dentro, y las FK volvieron a existir (IDG.1-8, 2026-09-07)
 
 Salió de rastrear **un usuario llamado `hacker`** en el padrón de producción. La cadena completa:

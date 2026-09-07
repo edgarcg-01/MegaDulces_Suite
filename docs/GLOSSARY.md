@@ -61,7 +61,7 @@
 |---|---|
 | **Portal B2B** | Web donde el cliente hace sus pedidos solo. `apps/portal`, rutas `/portal/*`. |
 | **Modo Vendedor** | App móvil del vendedor para tomar pedidos en ruta. `apps/vendor`, `/vendor/*`. |
-| **Televenta** | Venta telefónica (remote manager). `/televenta/*`. Rol `tele_operator`. |
+| **Telemarketing** (antes Televenta) | Venta telefónica (remote manager). `/telemarketing/*` (antes `/televenta/*`, hoy redirect). Rol `tele_operator`. |
 | **Última Milla** | Entrega a domicilio local (en moto). Fase LM. |
 | **Venta en Ruta** | Autoventa offline-first desde el camión. Fase VR. |
 

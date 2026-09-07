@@ -133,7 +133,7 @@ export class ProjectsComponent implements OnInit {
       name: 'Telemarketing',
       description: 'Call center B2B: cola priorizada de clientes, perfil + recomendaciones, pedidos a su nombre y registro de llamadas.',
       icon: 'pi pi-headphones',
-      route: '/televenta',
+      route: '/telemarketing',
       status: 'Activo',
       anyOf: [
         Permission.COMMERCIAL_TELEVENTA_OPERATE,

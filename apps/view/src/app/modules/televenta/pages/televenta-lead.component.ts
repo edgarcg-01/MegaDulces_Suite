@@ -400,7 +400,7 @@ export class TeleventaLeadComponent implements OnInit {
             detail: this.logReleaseRes ? 'Llamada guardada y reserva liberada.' : 'Llamada guardada.',
           });
           if (this.logReleaseRes) {
-            this.router.navigate(['/televenta/queue']);
+            this.router.navigate(['/telemarketing/queue']);
           } else {
             this.refresh();
           }
@@ -416,7 +416,7 @@ export class TeleventaLeadComponent implements OnInit {
   }
 
   takeOrder(customerId: string): void {
-    this.router.navigate(['/televenta/lead', customerId, 'take-order']);
+    this.router.navigate(['/telemarketing/lead', customerId, 'take-order']);
   }
 
   formatTtl(secs: number): string {
