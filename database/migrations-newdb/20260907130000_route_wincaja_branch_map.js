@@ -36,6 +36,22 @@
  * 505. Todas dejaron de vender entre el 2026-06-01 y el 2026-08-11, asi que esto no cambia ninguna
  * cifra viva -- ordena el historico, que es donde se leen.
  *
+ * ── ⚠️ RADIO REAL, medido DESPUES de aplicar (correccion de este header) ───────────────────
+ * Antes de aplicar estime que aparecerian **+$233,726** de inventario y **fue falso**.
+ * `analytics.v_erp_stock_on_hand` excluye las rutas a proposito: su pierna de Wincaja termina en
+ * `AND v.warehouse_code NOT LIKE 'RUTA-%'` (el stock de una camioneta no es stock de bodega para
+ * reabasto). El mapeo no agrego **ni un peso** -- la vista sigue en 9 almacenes. Habia medido el
+ * valor de la red en dos instantes distintos y le atribui la deriva del importer al cambio.
+ *
+ * El efecto no previsto estaba en otra vista: el CTE `win` de `analytics.v_existencia_dictamen`
+ * une por la MISMA columna y NO tenia ese filtro, asi que los 7 almacenes de camioneta entraron
+ * al dictamen (52,421 -> 122,117 celdas), rompiendo su promesa de explicar a la canonica en vez de
+ * reemplazarla. Corregido en la mig 20260907200000.
+ *
+ * La leccion, que es de metodo: **para atribuir un delta hay que medir el mismo instante con y sin
+ * el cambio.** Y al tocar una columna de MAPEO hay que buscar TODOS los que unen por ella (5 vistas
+ * la leen), no solo el que uno vino a arreglar.
+ *
  * Idempotente: sólo escribe donde la columna está NULL, y sólo si la sucursal existe de verdad en
  * `wincaja.articulos` (si el replica todavía no la trajo, no se inventa el mapeo).
  *

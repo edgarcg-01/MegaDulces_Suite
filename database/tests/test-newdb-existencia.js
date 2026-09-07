@@ -178,11 +178,29 @@ Module._load = function (req, parent, isMain) {
 
     // ── 7. NO se suman unidades crudas de almacenes con unidades distintas.
     // `total_cajas` tiene que ser consistente con la suma de las celdas medibles de la fila.
+    // Un candado que sólo dice "1 fila descuadrada" obliga a reproducir el arnés entero para saber
+    // cuál. Nombra al culpable con su desglose: es la diferencia entre 5 minutos y una hora.
     let malSuma = 0;
+    const enCol = new Set(r.columns.map((c) => c.code));
     for (const row of r.rows) {
-      const suma = Object.values(row.cells || {})
-        .filter((cl) => cl.q !== undefined).reduce((s, cl) => s + Number(cl.q), 0);
-      if (Math.abs(suma - Number(row.total_cajas || 0)) > 0.3) malSuma++;
+      const cells = Object.entries(row.cells || {});
+      const conQ = cells.filter(([, cl]) => cl.q !== undefined);
+      const suma = conQ.reduce((s, [, cl]) => s + Number(cl.q), 0);
+      // La tolerancia sale de la PRECISIÓN que publica la pantalla, no de un número elegido a
+      // dedo: cada celda va redondeada a 1 decimal (±0.05) y `total_cajas` se calcula sin
+      // redondear, así que el error máximo legítimo es 0.05 × celdas. Con 0.3 fijo, `97250` daba
+      // Δ = 0.300 exacto sobre 9 columnas — falla por aritmética, no por unidades mezcladas, que
+      // es lo que este candado existe para atrapar.
+      const tol = 0.05 * conQ.length + 0.05;
+      const d = Math.abs(suma - Number(row.total_cajas || 0));
+      if (d > tol) {
+        malSuma++;
+        const fuera = cells.filter(([k]) => !enCol.has(k)).map(([k]) => k);
+        console.log(`     ↳ ${row.sku} ${row.nombre}: total_cajas=${row.total_cajas} `
+          + `Σceldas=${suma.toFixed(3)} Δ=${d.toFixed(3)}`);
+        console.log(`       celdas: ${cells.map(([k, cl]) => `${k}=${cl.q ?? `⚠${cl.nat ?? '?'}`}`).join(' ')}`);
+        if (fuera.length) console.log(`       ⚠️ celdas FUERA de las columnas publicadas: ${fuera.join(',')}`);
+      }
     }
     check('total_cajas == Σ de las celdas medibles (no suma unidades crudas)', malSuma === 0,
       `filas descuadradas=${malSuma}`);
