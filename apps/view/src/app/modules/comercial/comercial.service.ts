@@ -1334,6 +1334,17 @@ export class ComercialService {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out/by-vendor`, { params });
   }
 
+  /** BI.3 — Explica el cambio: descomposición del delta por dimensión (marca/sucursal/canal). */
+  sellOutExplain(opts: SellOutExplainParams) {
+    let params = new HttpParams().set('from', opts.from).set('to', opts.to).set('dim', opts.dim).set('compare', opts.compare);
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.measure) params = params.set('measure', opts.measure);
+    if (opts.promo && opts.promo !== 'sin') params = params.set('promo', opts.promo);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
+    return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
+  }
+
   sellOutCanales(from?: string, to?: string) {
     let params = new HttpParams();
     if (from) params = params.set('from', from);
@@ -1917,6 +1928,44 @@ export interface SellOutReport {
    * [VP.0.3] Edad del DATO (las matviews que arman el reporte), no de la consulta. `generated_at`
    * dice cuándo respondió el servidor — sobre matviews de hace seis días responde igual de rápido.
    */
+  freshness: Freshness;
+  generated_at: string;
+}
+
+// ─── BI.3 "Explica el cambio" ───
+export type SellOutExplainDim = 'brand' | 'branch' | 'channel';
+export type SellOutExplainCompare = 'prev' | 'yoy';
+export interface SellOutExplainParams {
+  from: string;
+  to: string;
+  dim: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  brand_id?: string;
+  measure?: 'monto' | 'neto';
+  promo?: 'sin' | 'solo' | 'todo';
+  search?: string;
+  warehouses?: string[];
+}
+export interface SellOutMover {
+  key: string;
+  label: string;
+  code: string | null;
+  prev: number;
+  curr: number;
+  delta: number;
+  delta_pct: number | null;
+  kind: 'nuevo' | 'perdido' | 'crecio' | 'cayo' | 'igual';
+}
+export interface SellOutExplainReport {
+  dimension: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  measure: 'monto' | 'monto_neto';
+  period: { from: string; to: string };
+  mirror: { from: string; to: string };
+  total: { curr: number; prev: number; delta: number; delta_pct: number | null };
+  movers: SellOutMover[];
+  otros: { count: number; delta: number };
+  narrative: string;
   freshness: Freshness;
   generated_at: string;
 }

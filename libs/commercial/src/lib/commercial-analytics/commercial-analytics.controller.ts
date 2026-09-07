@@ -654,6 +654,30 @@ export class CommercialAnalyticsController {
     );
   }
 
+  // ─────────── BI.3 — Sub-modulo Analisis: "Explica el cambio" ───────────
+  @Get('sell-out/explain')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({
+    summary:
+      'BI.3 — Explica el cambio: descompone el delta del sell-out por dimension (dim=brand|branch|channel) vs periodo anterior o YoY (compare=prev|yoy). Suma exacta al delta total. Params: from, to, dim, compare, brand_id, measure=monto|neto, promo, search, warehouses=csv.',
+  })
+  sellOutExplain(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('dim') dim?: string,
+    @Query('compare') compare?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('measure') measure?: string,
+    @Query('promo') promo?: string,
+    @Query('search') search?: string,
+    @Query('warehouses') warehouses?: string,
+  ) {
+    return this.service.explainChange({
+      from, to, dim, compare, brand_id: brandId, measure, promo, search,
+      warehouses: warehouses ? warehouses.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  }
+
   @Get('sell-out.xlsx')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
   @ApiOperation({ summary: 'RS — Descarga XLSX del reporte Sell-Out (mismos params que /sell-out).' })

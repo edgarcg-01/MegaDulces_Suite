@@ -439,6 +439,51 @@ export interface SellOutReport {
   generated_at: string;
 }
 
+// ─── BI.3 "Explica el cambio" (delta_bridge) ─────────────────────────────────
+// Descompone el delta del sell-out entre dos periodos por UNA dimension. La venta
+// es una SUMA sobre la dimension, asi que el reparto es EXACTO: Σ contrib = Δ total,
+// al centavo (a diferencia de la heuristica de PowerBI). Mismo universo que el
+// reporte (v_sellout_daily/mv_sellout_monthly) -> cuadra por construccion.
+export type SellOutExplainDim = 'brand' | 'branch' | 'channel';
+export type SellOutExplainCompare = 'prev' | 'yoy';
+export interface SellOutExplainQuery {
+  from: string;
+  to: string;
+  dim?: string;
+  compare?: string;
+  brand_id?: string;
+  measure?: string;
+  promo?: string;
+  search?: string;
+  warehouses?: string[];
+}
+export interface SellOutMover {
+  key: string;
+  label: string;
+  code: string | null;
+  prev: number;
+  curr: number;
+  delta: number;
+  /** null = no habia base en el periodo espejo (delta% indefinido, es un 'nuevo'). */
+  delta_pct: number | null;
+  kind: 'nuevo' | 'perdido' | 'crecio' | 'cayo' | 'igual';
+}
+export interface SellOutExplainReport {
+  dimension: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  measure: 'monto' | 'monto_neto';
+  period: { from: string; to: string };
+  mirror: { from: string; to: string };
+  total: { curr: number; prev: number; delta: number; delta_pct: number | null };
+  /** Los movimientos que explican ~80% del |Δ| (min 3, max 15), ordenados por |Δ| desc. */
+  movers: SellOutMover[];
+  /** El resto agrupado (lo que no entro al top), para que Σ siga cuadrando. */
+  otros: { count: number; delta: number };
+  narrative: string;
+  freshness: Freshness;
+  generated_at: string;
+}
+
 export interface SellOutBrandRow {
   id: string;
   nombre: string;
@@ -3528,6 +3573,165 @@ export class CommercialAnalyticsService {
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
     for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
     return out;
+  }
+
+  // ─── BI.3 "Explica el cambio" (delta_bridge) ───────────────────────────────
+  // Un tramo agregado a grano de UNA dimension (marca/sucursal/canal). Mismo universo
+  // y mismos filtros que el pivote; excluye 'traspaso' igual que sellOut(). La venta
+  // es sumable sobre la dimension -> la contribucion por miembro es EXACTA.
+  private selloutExplainLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+    const keyExpr = o.dim === 'branch' ? 's.warehouse_code' : o.dim === 'channel' ? 's.channel' : 's.brand_id';
+    const qb = trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .andWhereRaw(`s.channel <> 'traspaso'`)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`))
+      .select(trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'), trx.raw('SUM(s.units) as units'))
+      .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`);
+    if (o.dim === 'brand') qb.select(trx.raw('max(s.brand_nombre) as label'), trx.raw('max(s.brand_code) as code'));
+    else if (o.dim === 'branch') qb.select(trx.raw('max(s.branch_name) as label'));
+    return qb;
+  }
+
+  /** Suma por miembro de la dimension en [from,to] (rollup cerrados + vista borde), unificado en Node. */
+  private async fetchExplainDims(trx: any, o: any): Promise<Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const rows: any[] = [];
+    if (useRollup) rows.push(...await this.selloutExplainLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) rows.push(...await this.selloutExplainLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    const m = new Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>();
+    for (const r of rows) {
+      const cur = m.get(r.k) || { label: null, code: null, monto: 0, monto_neto: 0, units: 0 };
+      cur.monto += Number(r.monto) || 0;
+      cur.monto_neto += Number(r.monto_neto) || 0;
+      cur.units += Number(r.units) || 0;
+      if (!cur.label && r.label) cur.label = r.label;
+      if (!cur.code && r.code) cur.code = r.code;
+      m.set(r.k, cur);
+    }
+    return m;
+  }
+
+  /** Rango espejo del mismo largo: 'prev' = inmediatamente antes; 'yoy' = -1 año. */
+  private selloutMirrorRange(from: string, to: string, compare: SellOutExplainCompare): { from: string; to: string } {
+    if (compare === 'yoy') {
+      const shift = (d: string) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCFullYear(x.getUTCFullYear() - 1); return x.toISOString().slice(0, 10); };
+      return { from: shift(from), to: shift(to) };
+    }
+    const lenDays = Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000) + 1;
+    return { from: this.selloutShiftDay(from, -lenDays), to: this.selloutShiftDay(from, -1) };
+  }
+
+  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null): string {
+    if (dim === 'channel') {
+      const map: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa', otro: 'Otro' };
+      return map[k] || k;
+    }
+    if (dim === 'brand' && k === '__none__') return 'Sin marca';
+    if (dim === 'branch' && k === '__none__') return 'Sin sucursal';
+    return raw || k;
+  }
+
+  private explainNarrative(dim: SellOutExplainDim, compare: SellOutExplainCompare, total: SellOutExplainReport['total'], top: SellOutMover[]): string {
+    const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+    const signed = (n: number) => (n >= 0 ? '+' : '-') + fmt.format(Math.abs(n)).replace('MX$', '$');
+    const vs = compare === 'yoy' ? 'el mismo periodo del año pasado' : 'el periodo anterior';
+    if (total.delta === 0 || total.prev === 0) {
+      return `La venta ${total.prev === 0 ? 'no tiene base comparable en' : 'quedó igual vs'} ${vs}.`;
+    }
+    const dir = total.delta > 0 ? 'subió' : 'cayó';
+    const pct = total.delta_pct == null ? '' : ` ${total.delta_pct > 0 ? '+' : ''}${total.delta_pct.toFixed(1)}%`;
+    const drops = top.filter((m) => m.delta < 0).slice(0, 2);
+    const gains = top.filter((m) => m.delta > 0).slice(0, 1);
+    const lost = top.find((m) => m.kind === 'perdido');
+    const drivers = (total.delta < 0 ? drops : gains.concat(top.filter((m) => m.delta > 0).slice(1, 2)))
+      .map((m) => `${m.label} (${signed(m.delta)})`);
+    let s = `La venta ${dir}${pct} (${signed(total.delta)}) vs ${vs}.`;
+    if (drivers.length) s += ` Lo explican sobre todo ${drivers.join(' y ')}.`;
+    if (lost && lost.delta < 0 && (!drops.length || lost.key !== drops[0].key)) s += ` Ojo con ${lost.label}, que dejó de vender (${signed(lost.delta)}).`;
+    const comp = total.delta < 0 ? gains[0] : drops[0];
+    if (comp) s += ` Parcialmente compensado por ${comp.label} (${signed(comp.delta)}).`;
+    return s;
+  }
+
+  /**
+   * BI.3 — descompone el cambio del sell-out entre [from,to] y su periodo espejo, por dimension.
+   * Σ de las contribuciones = Δ total EXACTO (la venta es sumable). Mismo universo que el reporte.
+   */
+  async explainChange(q: SellOutExplainQuery): Promise<SellOutExplainReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const compare: SellOutExplainCompare = q.compare === 'yoy' ? 'yoy' : 'prev';
+    const measure: 'monto' | 'monto_neto' = q.measure === 'neto' || q.measure === 'monto_neto' ? 'monto_neto' : 'monto';
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
+    const search = (q.search || '').trim();
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    const warehouseFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const mirror = this.selloutMirrorRange(from, to, compare);
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    return this.tk.run(async (trx) => {
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
+      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter };
+      const cur = await this.fetchExplainDims(trx, { ...base, from, to });
+      const prev = await this.fetchExplainDims(trx, { ...base, from: mirror.from, to: mirror.to });
+      const usaRollup = await this.selloutUsesRollup(trx, this.planSellOutSources(from, to));
+      const freshness = await this.selloutFreshness(trx, usaRollup);
+
+      const pick = (x: any) => (x ? (measure === 'monto_neto' ? x.monto_neto : x.monto) : 0);
+      const keys = new Set<string>([...cur.keys(), ...prev.keys()]);
+      const all: SellOutMover[] = [];
+      let totalCur = 0, totalPrev = 0;
+      for (const k of keys) {
+        const c = cur.get(k), p = prev.get(k);
+        const cv = pick(c), pv = pick(p);
+        totalCur += cv; totalPrev += pv;
+        const delta = cv - pv;
+        const kind: SellOutMover['kind'] = pv === 0 && cv > 0 ? 'nuevo' : cv === 0 && pv > 0 ? 'perdido' : delta > 0 ? 'crecio' : delta < 0 ? 'cayo' : 'igual';
+        all.push({
+          key: k,
+          label: this.explainDimLabel(dim, k, (c?.label ?? p?.label) ?? null),
+          code: (c?.code ?? p?.code) ?? null,
+          prev: pv, curr: cv, delta,
+          delta_pct: pv > 0 ? (delta / pv) * 100 : null,
+          kind,
+        });
+      }
+      all.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      const totalAbs = all.reduce((s, m) => s + Math.abs(m.delta), 0);
+      const top: SellOutMover[] = [];
+      let acc = 0;
+      for (const m of all) {
+        top.push(m); acc += Math.abs(m.delta);
+        if ((top.length >= 3 && acc >= 0.8 * totalAbs) || top.length >= 15) break;
+      }
+      const rest = all.slice(top.length);
+      const total = { curr: totalCur, prev: totalPrev, delta: totalCur - totalPrev, delta_pct: totalPrev > 0 ? ((totalCur - totalPrev) / totalPrev) * 100 : null };
+      return {
+        dimension: dim, compare, measure,
+        period: { from, to }, mirror,
+        total,
+        movers: top,
+        otros: { count: rest.length, delta: rest.reduce((s, m) => s + m.delta, 0) },
+        narrative: this.explainNarrative(dim, compare, total, top),
+        freshness,
+        generated_at: new Date().toISOString(),
+      };
+    });
   }
 
   /**
