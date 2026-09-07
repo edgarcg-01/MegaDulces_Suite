@@ -64,8 +64,21 @@ export class PermissionsCacheService {
     }
     // tenant_id OBLIGATORIO para aislar: sin él, `.first()` sobre el mismo
     // role_name en varios tenants es no-determinista (cross-tenant leak).
+    //
+    // `[W3.2]` El comentario de arriba decía OBLIGATORIO y el código lo aplicaba con un `if`, o sea
+    // opcional. Ese camino existe de verdad: `roles.guard.ts` pasa `user.tenant_id` CRUDO del JWT,
+    // sin fallback — un token sin tenant llegaba acá y la query corría sin filtro. Y no es teórico:
+    // medido en prod, `recursos_humanos` existe en **2 tenants**, así que para ese rol `.first()`
+    // sin filtro devuelve el mapa de permisos de cualquiera de los dos.
+    //
+    // NO se resuelve con un throw: reventaría el login de un token legacy en cada request, y esta
+    // ruta no se puede probar de punta a punta desde acá. Se resuelve haciéndolo DETERMINISTA y
+    // fail-CLOSED: sin tenant se exige `tenant_id IS NULL`, que en `identity.role_permissions`
+    // —columna **NOT NULL**, 0 filas en NULL— no puede casar con nada. Resultado: cero permisos en
+    // vez de los de un tenant ajeno, y el camino sano queda idéntico.
     const q = this.knex('role_permissions').whereRaw('LOWER(role_name) = ?', [normRole]);
     if (tenantId) q.where({ tenant_id: tenantId });
+    else q.whereNull('tenant_id');
     const row = await q.first();
     const permissions: Record<string, boolean> = row?.permissions ?? {};
     this.cache.set(key, { permissions, expiresAt: now + TTL_MS });

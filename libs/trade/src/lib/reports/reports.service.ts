@@ -946,9 +946,13 @@ export class ReportsService {
     // `[AUTHZ-HARD.1]` `this.knex` es superusuario (RLS inerte): sin filtro por tenant, el permiso
     // REPORTES_GESTIONAR autorizaba borrar la captura de CUALQUIER tenant por UUID. Acotamos al
     // tenant del token (o del CLS) tanto en la lectura como en el DELETE.
-    const tenantId = user?.tenant_id || this.tenantContext?.get()?.tenantId;
-    const baseWhere: Record<string, unknown> = { id };
-    if (tenantId) baseWhere['tenant_id'] = tenantId;
+    //
+    // `[W3.1]` El arreglo original resolvía el tenant a mano y lo aplicaba con un `if` — fail-OPEN
+    // en un camino DESTRUCTIVO: con el tenant vacío el `where` se quedaba en `{ id }` y el DELETE
+    // alcanzaba la captura de cualquier tenant. `requireTenantOf` **lanza** en vez de devolver
+    // vacío, así que el filtro deja de ser condicional y el 403 es visible.
+    const tenantId = requireTenantOf(user, this.tenantContext);
+    const baseWhere: Record<string, unknown> = { id, tenant_id: tenantId };
     const report = await this.knex('daily_captures').where(baseWhere).first();
 
     if (!report) {
@@ -962,19 +966,15 @@ export class ReportsService {
 
     this.cache.invalidateAllReports();
 
-    // tenant_id puede venir del row (multi-tenant DB) o del context CLS/token.
-    // Si ninguno está, no emitimos para no leakear cross-tenant.
-    const emitTenantId = report.tenant_id || tenantId;
-    if (emitTenantId) {
-      this.eventsService.emitCaptureDeleted({
-        type: 'capture:deleted',
-        captureId: id,
-        userId: report.user_id,
-        tenantId: emitTenantId,
-      });
-    } else {
-      this.logger.warn(`Skipping capture:deleted emit — sin tenant_id (id=${id})`);
-    }
+    // `[W3.1]` El emit ya no necesita rama de escape: `tenantId` viene de `requireTenantOf`, y la
+    // fila se leyó filtrando por él, así que `report.tenant_id` sólo puede ser el mismo o NULL en
+    // un renglón legacy. Se prefiere el del row y se cae al del requester.
+    this.eventsService.emitCaptureDeleted({
+      type: 'capture:deleted',
+      captureId: id,
+      userId: report.user_id,
+      tenantId: report.tenant_id || tenantId,
+    });
 
     return { success: true, message: 'Reporte eliminado correctamente' };
   }
