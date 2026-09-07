@@ -681,6 +681,21 @@ export class CommercialAnalyticsController {
     });
   }
 
+  // ─────────── BI.9 — objetivos / metas ───────────
+  @Get('sell-out/targets')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.9 — Metas del mes vs lo real (total/sucursal/canal). Param: month=YYYY-MM.' })
+  sellOutTargets(@Query('month') month?: string) {
+    return this.service.selloutTargets({ month });
+  }
+
+  @Post('sell-out/targets')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR)
+  @ApiOperation({ summary: 'BI.9 — Captura/edita una meta. Body: { scope: total|branch|channel, scope_key?, year_month, target_monto }.' })
+  sellOutTargetUpsert(@Body() body: { scope?: string; scope_key?: string; year_month?: string; target_monto?: number }) {
+    return this.service.upsertSelloutTarget(body || {});
+  }
+
   // ─────────── BI.4 — graficas de soporte (tendencia + Pareto) ───────────
   @Get('sell-out/series')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)

@@ -1346,6 +1346,17 @@ export class ComercialService {
     return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
   }
 
+  /** BI.9 — Metas del mes vs lo real. */
+  sellOutTargets(month?: string) {
+    let params = new HttpParams();
+    if (month) params = params.set('month', month);
+    return this.http.get<SelloutTargetsReport>(`${this.base}/analytics/sell-out/targets`, { params });
+  }
+  /** BI.9 — Captura/edita una meta. */
+  sellOutTargetUpsert(body: { scope: string; scope_key?: string; year_month: string; target_monto: number }) {
+    return this.http.post<{ ok: true }>(`${this.base}/analytics/sell-out/targets`, body);
+  }
+
   /** BI.4 — Serie mensual (tendencia). */
   sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
     let params = new HttpParams();
@@ -2005,6 +2016,10 @@ export interface SellOutExplainReport {
   freshness: Freshness;
   generated_at: string;
 }
+
+// ─── BI.9 objetivos ───
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; }
 
 // ─── BI.4 gráficas ───
 export interface SelloutSeriesPoint { month: string; monto: number; }
