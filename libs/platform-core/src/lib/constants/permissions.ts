@@ -97,7 +97,7 @@ export enum Permission {
   COMMERCIAL_PROMOTIONS_VER = 'COMMERCIAL_PROMOTIONS_VER',
   COMMERCIAL_PROMOTIONS_GESTIONAR = 'COMMERCIAL_PROMOTIONS_GESTIONAR',
 
-  // Módulo: Comercial — Televenta / Remote Manager (Fase E)
+  // Módulo: Comercial — Telemarketing (Fase E; antes "Televenta" / "Remote Manager")
   COMMERCIAL_TELEVENTA_VER = 'COMMERCIAL_TELEVENTA_VER',
   COMMERCIAL_TELEVENTA_OPERATE = 'COMMERCIAL_TELEVENTA_OPERATE',
 

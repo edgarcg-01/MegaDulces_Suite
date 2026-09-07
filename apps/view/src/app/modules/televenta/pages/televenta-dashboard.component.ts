@@ -33,20 +33,116 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     
     <div class="header-row">
       <div>
-        <h2>Dashboard Televenta</h2>
-        <p class="muted">Productividad del día + conversión 7d + ranking operadores.</p>
+        <h2>Telemarketing</h2>
+        <p class="muted">Facturación del canal + productividad del día + conversión 7d.</p>
       </div>
       <button pButton severity="secondary" (click)="reload()" [loading]="loading()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Actualizar</span></button>
     </div>
     
     @if (data(); as d) {
+      <!-- ── FACTURACIÓN: el resultado del canal. Va primero porque es lo que existe ──
+           (el ERP factura telemarketing todos los días; la captura de llamadas puede no
+           haber arrancado, y entonces los bloques de actividad son ceros sin significado) -->
+      <h3 class="section-title">
+        <i class="pi pi-file"></i> Facturación del canal · últimos 30 días
+        @if (d.billing.ultima_factura) {
+          <span class="asof">última factura {{ d.billing.ultima_factura | date: 'dd/MM/yy' }}</span>
+        }
+      </h3>
+      <app-metric-strip [items]="billingItems(d)" ariaLabel="Facturación de telemarketing" />
+
+      <div class="two-col">
+        <p-card>
+          <div class="card-header-row">
+            <h3>Por operador · 30 días</h3>
+            <span class="muted">atribución del ERP</span>
+          </div>
+          <p-table [value]="d.billing.por_operador" styleClass="p-datatable-sm">
+            <ng-template #header>
+              <tr>
+                <th>Operador</th>
+                <th class="num">Facturas</th>
+                <th class="num">Clientes</th>
+                <th class="num">Facturado</th>
+                <th class="num">Por cobrar</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-o>
+              <tr>
+                <td>
+                  <strong>{{ o.vendedor_nombre || 'Sin vendedor asignado' }}</strong>
+                  @if (o.vendedor_code) { <span class="sub mono">{{ o.vendedor_code }}</span> }
+                </td>
+                <td class="num">{{ o.facturas }}</td>
+                <td class="num">{{ o.clientes }}</td>
+                <td class="num">{{ +o.importe | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
+                <td class="num debe">{{ +o.saldo | currency: 'MXN':'symbol-narrow':'1.0-0':'es-MX' }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="5" class="muted">Sin facturas de telemarketing en los últimos 30 días.</td></tr>
+            </ng-template>
+          </p-table>
+          <p class="nota">
+            <i class="pi pi-info-circle"></i>
+            El operador lo asigna el ERP (<code>vendedor_code</code>). No se puede cruzar con el
+            usuario que registra las llamadas: no hay campo que los ligue.
+          </p>
+        </p-card>
+
+        <p-card>
+          <div class="card-header-row">
+            <h3>Últimas facturas</h3>
+            <a pButton routerLink="/comercial/documentos" severity="secondary" [text]="true" size="small"
+              ><span class="p-button-label">Ver todas</span
+              ><span class="p-button-icon p-button-icon-right pi pi-arrow-right" aria-hidden="true"></span
+            ></a>
+          </div>
+          <p-table [value]="d.billing.ultimas" styleClass="p-datatable-sm">
+            <ng-template #header>
+              <tr><th>Folio</th><th>Cliente</th><th class="num">Total</th><th>Cobro</th></tr>
+            </ng-template>
+            <ng-template #body let-f>
+              <tr>
+                <td>
+                  <code>{{ f.sucursal }} {{ f.doc_prefix }}-{{ f.folio }}</code>
+                  <span class="sub">{{ f.fecha | date: 'dd/MM/yy' }}</span>
+                </td>
+                <td>{{ f.cliente_nombre }}</td>
+                <td class="num">{{ +f.total | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</td>
+                <td>
+                  <p-tag [severity]="COBRO_TONE[f.estatus_cobro]" [value]="COBRO_LABEL[f.estatus_cobro]"></p-tag>
+                  @if (f.vencida) { <span class="sub bad">vencida</span> }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="4" class="muted">Sin facturas en el periodo.</td></tr>
+            </ng-template>
+          </p-table>
+        </p-card>
+      </div>
+
+      <!-- ── ACTIVIDAD: sólo significa algo si alguien capturó llamadas ── -->
+      <h3 class="section-title"><i class="pi pi-phone"></i> Actividad de llamadas</h3>
+      @if (!d.actividad.registrada) {
+        <p class="sin-captura">
+          <i class="pi pi-exclamation-triangle"></i>
+          <span>
+            <strong>No hay llamadas capturadas en este módulo</strong>, así que los indicadores de
+            actividad están en cero por falta de registro, no por falta de trabajo. Se llenan solos
+            cuando los operadores empiecen a registrar sus llamadas desde la cola.
+            La facturación de arriba no depende de esto: sale del ERP.
+          </span>
+        </p>
+      }
       <!-- Mi performance (operador) -->
       @if (d.my_stats) {
-        <h3 class="section-title"><i class="pi pi-user"></i> Mi performance hoy</h3>
+        <h4 class="sub-title"><i class="pi pi-user"></i> Mi performance hoy</h4>
         <app-metric-strip [items]="myItems(d)" ariaLabel="Mi performance de hoy" />
       }
       <!-- KPIs del equipo (hoy) -->
-      <h3 class="section-title">Equipo · Hoy</h3>
+      <h4 class="sub-title">Equipo · Hoy</h4>
       <app-metric-strip [items]="teamItems(d)" ariaLabel="Métricas del equipo hoy" />
       <!-- Two-column -->
       <div class="two-col">
@@ -144,6 +240,24 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .two-col h3 { margin: 0 0 .75rem; font-size: 1rem; }
     .num { text-align: right; font-variant-numeric: tabular-nums; }
     .num.pos { color: var(--ok-fg); font-weight: 600; }
+    /* E.9 — facturación */
+    .sub-title { margin: 1rem 0 .5rem; font-size: .8rem; font-weight: 600; color: var(--text-color-secondary); }
+    .sub-title i { margin-right: .35rem; }
+    .section-title .asof { margin-left: .5rem; text-transform: none; letter-spacing: 0; font-weight: 400; opacity: .8; }
+    .num.debe { color: var(--danger, var(--text-color)); font-weight: 600; }
+    .sub { display: inline-block; margin-left: .35rem; font-size: .75rem; color: var(--text-color-secondary); }
+    .sub.bad { color: var(--danger, var(--text-color)); }
+    .mono { font-family: var(--font-mono, ui-monospace, monospace); }
+    .nota { display: flex; gap: .4rem; margin: .75rem 0 0; font-size: .75rem; color: var(--text-color-secondary); }
+    /* Lo que no se pudo medir se declara, no se dibuja como cero (ADR-056) */
+    .sin-captura {
+      display: flex; gap: .5rem; align-items: flex-start; margin: 0 0 .75rem;
+      padding: .625rem .75rem; border-radius: var(--radius-md, 6px);
+      background: var(--warn-bg, rgba(234,179,8,.08));
+      border: 1px solid var(--warn-border, rgba(234,179,8,.28));
+      font-size: .8rem; line-height: 1.45;
+    }
+    .sin-captura i { margin-top: .1rem; color: var(--warn-fg, #b45309); }
 
     .outcome-row { margin-bottom: .75rem; }
     .outcome-header { display:flex; justify-content:space-between; align-items:center; margin-bottom: .25rem; }
@@ -175,6 +289,34 @@ export class TeleventaDashboardComponent {
         this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se cargó el dashboard' });
       },
     });
+  }
+
+  readonly COBRO_LABEL: Record<string, string> = {
+    pagada: 'Pagada', parcial: 'Parcial', pendiente: 'Pendiente',
+    sin_cartera: 'Sin cartera', cancelada: 'Cancelada',
+  };
+  readonly COBRO_TONE: Record<string, 'success' | 'warn' | 'danger' | 'secondary' | 'info'> = {
+    pagada: 'success', parcial: 'warn', pendiente: 'info',
+    sin_cartera: 'secondary', cancelada: 'secondary',
+  };
+
+  /**
+   * E.9 — el dinero del canal. Lo que se cobra va como tono `ok` y lo vencido como `bad`:
+   * el saldo total no es malo (es crédito vivo), el vencido sí.
+   */
+  billingItems(d: TeleventaDashboard): MetricStripItem[] {
+    const b = d.billing;
+    return [
+      { label: 'Facturado 30d', value: b.d30.importe, format: 'currency' },
+      { label: 'Facturas', value: b.d30.facturas, format: 'number', sub: `${b.d30.clientes} clientes` },
+      { label: 'Este mes', value: b.mes.importe, format: 'currency', sub: `${b.mes.facturas} facturas` },
+      { label: 'Cobrado 30d', value: b.d30.importe - b.d30.saldo, format: 'currency', tone: 'ok' },
+      {
+        label: 'Vencido por cobrar', value: b.d30.saldo_vencido, format: 'currency',
+        tone: b.d30.saldo_vencido > 0 ? 'bad' : undefined,
+        sub: `${b.d30.facturas_vencidas} facturas`,
+      },
+    ];
   }
 
   myItems(d: TeleventaDashboard): MetricStripItem[] {

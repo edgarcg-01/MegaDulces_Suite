@@ -631,7 +631,7 @@ export class AdminUsersComponent implements OnInit {
       case 'zona': return 'Supervisa una plaza completa: se le asigna la zona, no una ruta.';
       case 'sucursal': return 'Está en una tienda o almacén: se le asigna la sucursal y la zona sale de ella.';
       case 'red': return 'Es de oficinas: su alcance es la red, no un lugar. No se le pide zona ni sucursal.';
-      case 'cartera': return 'Televenta: su universo son los clientes que atiende, no un lugar.';
+      case 'cartera': return 'Telemarketing: su universo son los clientes que atiende, no un lugar.';
       case 'cliente': return 'Externo: su acceso es a su propio cliente.';
       default: return '';
     }
