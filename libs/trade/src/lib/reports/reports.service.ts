@@ -1976,6 +1976,37 @@ export class ReportsService {
       trendMap[r.route_id] = Number(r.score);
     }
 
+    // ── Pedidos REALES del vendedor por ruta (commercial.orders) ──
+    // La transacción que la auditoría no veía: la "venta" de arriba es el monto
+    // TECLEADO en la captura; esto es el pedido levantado en la app. Ruta =
+    // customer.sales_route ⋈ catalogs.value (mismo eje que la cartera). Solo
+    // confirmed/fulfilled (venta real). Scope por o.user_id (el vendedor).
+    let ordersQuery = this.knex('commercial.orders as o')
+      .join('commercial.customers as cu', 'cu.id', 'o.customer_id')
+      .join('catalogs as c', function () {
+        this.on('c.value', '=', 'cu.sales_route').andOnVal('c.catalog_id', '=', 'rutas');
+      })
+      .whereNull('o.deleted_at')
+      .whereIn('o.status', ['confirmed', 'fulfilled'])
+      .select('c.id as route_id')
+      .count('o.id as pedidos')
+      .sum('o.total as pedidos_monto')
+      .groupBy('c.id');
+    if (filters.startDate) ordersQuery.whereRaw("DATE(o.created_at AT TIME ZONE 'America/Mexico_City') >= ?", [filters.startDate]);
+    if (filters.endDate) ordersQuery.whereRaw("DATE(o.created_at AT TIME ZONE 'America/Mexico_City') <= ?", [filters.endDate]);
+    if (scope.type === 'own') ordersQuery = ordersQuery.where('o.user_id', scope.userId);
+    else if (scope.type === 'team' && scope.userId && scope.userId !== 'null' && scope.userId !== 'undefined')
+      ordersQuery = ordersQuery.whereIn('o.user_id', this.knex('users').select('id').where('supervisor_id', scope.userId));
+    if (filters.supervisorId && filters.supervisorId !== 'null' && filters.supervisorId !== 'undefined')
+      ordersQuery = ordersQuery.whereIn('o.user_id', this.knex('users').select('id').where('supervisor_id', filters.supervisorId));
+    else if (filters.userIds?.length)
+      ordersQuery = ordersQuery.whereIn('o.user_id', filters.userIds);
+    const orderRows = await ordersQuery;
+    const ordersMap: Record<string, { pedidos: number; monto: number }> = {};
+    for (const o of orderRows) {
+      ordersMap[o.route_id] = { pedidos: Number(o.pedidos), monto: Number(o.pedidos_monto) || 0 };
+    }
+
     // ── Executive breakdown per route ──
     const routeIds = routes.map((r: any) => r.route_id);
     let execQuery = this.knex('daily_captures as dc')
@@ -2023,6 +2054,7 @@ export class ReportsService {
       const diff = currentScore - prevScore;
       const trend = diff >= 0 ? `+${Math.round(diff)}` : `${Math.round(diff)}`;
 
+      const ord = ordersMap[r.route_id];
       return {
         id: r.route_id,
         name: r.route_name,
@@ -2030,6 +2062,9 @@ export class ReportsService {
         visitas: Number(r.visitas),
         score: Math.round(currentScore),
         venta: Math.round(Number(r.venta)),
+        // Pedidos reales levantados en la app del vendedor (sincronía con la auditoría).
+        pedidos: ord?.pedidos || 0,
+        pedidos_monto: Math.round(ord?.monto || 0),
         trend,
         execs: execMap[r.route_id] || [],
       };
@@ -2045,6 +2080,9 @@ export class ReportsService {
     const avgScore = scoredRoutes.length > 0 ? Math.round(scoredRoutes.reduce((s, r) => s + r.score, 0) / scoredRoutes.length) : 0;
     const routesInMeta = result.filter(r => r.score >= 80).length;
 
+    const totalPedidos = result.reduce((s, r) => s + (r.pedidos || 0), 0);
+    const totalPedidosMonto = result.reduce((s, r) => s + (r.pedidos_monto || 0), 0);
+
     return {
       routes: result,
       kpis: {
@@ -2053,6 +2091,8 @@ export class ReportsService {
         avgScore,
         routesInMeta,
         metaPct: totalRoutes > 0 ? Math.round((routesInMeta / totalRoutes) * 100) : 0,
+        totalPedidos,
+        totalPedidosMonto,
       },
     };
   }
