@@ -57,6 +57,14 @@ function productKind(unitSale, unitBase) {
  */
 function buildModel(row) {
   const kind = productKind(row.unit_sale, row.unit_base);
+  // ⚠️ U.5 — DEFECTO CONOCIDO, declarado y NO corregido acá: `factor_sale` es el fallback de los
+  // DOS peldaños. Es la única fuente que la investigación probó que no tiene unidad (mitad cuenta
+  // piezas, un tercio paquetes, y nada los distingue — docs/UNIDADES_DE_MEDIDA.md §4). Cuando
+  // faltan `pack_size` y `box_size`, `packF === boxF` y `pickPriceTier` termina eligiendo entre
+  // dos factores IDÉNTICOS: el peldaño que dice identificar no lleva información.
+  // No se toca en esta pasada porque cambiar el fallback mueve `sales_daily.units` en silencio
+  // para miles de SKUs. Primero se DECLARA (`rung_factor` / `rung_mixed` / `units_unresolved`);
+  // corregirlo es un cambio propio, con su baseline y su validación. Ver ADR-056.
   const packF = Number(row.pack_size) > 1 ? Number(row.pack_size) : (Number(row.factor_sale) > 1 ? Number(row.factor_sale) : 1);
   const boxF = Number(row.box_size) > 1 ? Number(row.box_size) : (Number(row.factor_sale) > 1 ? Number(row.factor_sale) : 1);
   // Escala de precios PROPIA de Kepler (kdii): c90 pieza, c91 paquete, c92 caja + factores c81/c84.
@@ -97,8 +105,11 @@ function pickPriceTier(model, unitPrice) {
 function toCanonicalPriced(model, u, cant, unitPrice) {
   if (model.kind === 'weight') return toCanonical(model, u, cant);
   const f = pickPriceTier(model, unitPrice);
-  if (f != null) return { qty: cant * f, ok: true };
-  return { qty: cant, ok: false }; // fallback atómico (no inflar)
+  // U.5 — `f` viaja en el resultado. Antes se calculaba acá y se perdía al volver: el fact
+  // guardaba la cantidad convertida sin ninguna huella de EN QUÉ PELDAÑO se cobró, así que una
+  // línea resuelta y una no resuelta quedaban indistinguibles al sumarlas.
+  if (f != null) return { qty: cant * f, ok: true, f };
+  return { qty: cant, ok: false, f: null }; // fallback atómico (no inflar)
 }
 
 /**
@@ -109,14 +120,14 @@ function toCanonical(model, u, cant) {
   const uu = String(u || '').trim().toUpperCase();
   if (model.kind === 'weight') {
     const k = kgFromUnit(uu);
-    if (k != null) return { qty: cant * k, ok: true };
-    if (model.gk != null) return { qty: cant * model.gk, ok: true }; // PAQ/PZA/CUB/BTO → gramaje
-    return { qty: cant, ok: false };
+    if (k != null) return { qty: cant * k, ok: true, f: k };
+    if (model.gk != null) return { qty: cant * model.gk, ok: true, f: model.gk }; // PAQ/PZA/CUB/BTO → gramaje
+    return { qty: cant, ok: false, f: null };
   }
-  if (uu === 'PZA' || uu === 'PZ' || uu === 'PIEZA') return { qty: cant, ok: true };
-  if (uu === 'PAQ') return { qty: cant * (model.packF || 1), ok: true };
-  if (uu === 'CJA') return { qty: cant * (model.boxF || 1), ok: true };
-  return { qty: cant, ok: false }; // unidad de peso en producto de pieza (raro)
+  if (uu === 'PZA' || uu === 'PZ' || uu === 'PIEZA') return { qty: cant, ok: true, f: 1 };
+  if (uu === 'PAQ') return { qty: cant * (model.packF || 1), ok: true, f: model.packF || 1 };
+  if (uu === 'CJA') return { qty: cant * (model.boxF || 1), ok: true, f: model.boxF || 1 };
+  return { qty: cant, ok: false, f: null }; // unidad de peso en producto de pieza (raro)
 }
 
 module.exports = { WEIGHT_U, kgFromUnit, gramajeKg, productKind, buildModel, toCanonical, pickPriceTier, toCanonicalPriced };
