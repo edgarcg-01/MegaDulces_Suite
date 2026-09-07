@@ -136,3 +136,6 @@ database/importers/checadores/.scan-*.json
 /s2.txt
 /chunks.txt
 /sizes.txt
+
+# Scratch de sondas y mediciones (PDFs, harnesses) — nunca se commitea
+.tmpq/

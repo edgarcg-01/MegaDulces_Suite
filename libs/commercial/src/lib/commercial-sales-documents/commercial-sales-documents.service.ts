@@ -13,6 +13,16 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  */
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Identidad fiscal del emisor, leída de `fiscal.issuer_config` (ver `emisorFiscal()`). */
+export interface EmisorFiscal {
+  rfc: string;
+  nombre: string;
+  regimen_code: string;
+  cp: string;
+}
+const EMISOR_CACHE = new Map<string, EmisorFiscal>();
+
 // AX 2026-08-25: /comercial/documentos = SOLO telemarketing (se sacó la venta a crédito, U/D/12).
 const DOC_TIPOS = ['telemarketing'] as const;
 const MAX_PAGE = 200;
@@ -155,6 +165,43 @@ export class CommercialSalesDocumentsService {
       ]);
       return { rows, kpis, page, pageSize, range: this.range(q) };
     });
+  }
+
+  /**
+   * Identidad fiscal del EMISOR, de `fiscal.issuer_config` — la fuente que ya existe (Fase FE).
+   *
+   * AX.10: el anexo la traía **hardcodeada y equivocada**. Imprimía `LOGL8810144QS` y
+   * `C.P. 59701, Michoacán`; lo correcto es **`LOGL851014AQ5`** y **C.P. 36910**, confirmado
+   * por tres fuentes independientes: esta tabla, los **167,503 CFDIs recibidos** de
+   * `fiscal.cfdis` (todos con `receptor_rfc = 'LOGL851014AQ5'` desde 2018 — el receptor de una
+   * factura recibida somos nosotros) y 11 fichas internas de `kepler_ods.kdud`. El CP viejo
+   * además se contradecía con el propio pagaré del mismo documento, que dice C.P. 36910.
+   *
+   * Si no hay fila configurada **se niega a imprimir**: un RFC inventado en un pagaré es peor
+   * que no emitirlo. Cache en proceso (una fila que cambia cada varios años).
+   */
+  async emisorFiscal(): Promise<EmisorFiscal> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hit = EMISOR_CACHE.get(tenantId);
+    if (hit) return hit;
+    const row = await this.tk.run(async (trx) =>
+      trx('fiscal.issuer_config')
+        .where({ tenant_id: tenantId, active: true })
+        .orderBy('is_default', 'desc')
+        .first('rfc', 'tax_name', 'regimen_fiscal', 'cp'));
+    if (!row?.rfc || !row?.tax_name) {
+      throw new NotFoundException(
+        'No hay identidad fiscal configurada (fiscal.issuer_config): el anexo y el pagaré no se '
+        + 'emiten sin RFC y razón social verificados.');
+    }
+    const emisor: EmisorFiscal = {
+      rfc: String(row.rfc).trim().toUpperCase(),
+      nombre: String(row.tax_name).trim(),
+      regimen_code: String(row.regimen_fiscal ?? '').trim(),
+      cp: String(row.cp ?? '').trim(),
+    };
+    EMISOR_CACHE.set(tenantId, emisor);
+    return emisor;
   }
 
   /**

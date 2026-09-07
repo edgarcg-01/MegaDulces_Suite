@@ -127,6 +127,48 @@ Lo que estaba mal, y se arregló:
 - 🧪 **AX.9.5 — `kdm1.c43` decodificado** sobre 2,745 documentos, separación perfecta: `N` sin abonos (`c42 == total`) · `R` abono parcial (`0 < c42 < total`) · `F` liquidada (`c42 == 0`) · `C` cancelada. Confirmado en mostrador: 62,646 tickets de contado son `F`. Viaja como `doc_estatus_label`, **no** como estado de cobro.
 - 🧪 **AX.9.6 — una sola definición del saldo.** En vez de copiar la fórmula de la cartera (GOTCHAS §32), su CTE `base` se extrajo a `analytics.erp_receivable_documents` y `customer_receivables` pasa a apoyarse en él. Candado de paridad contra prod: 29 columnas, diferencia simétrica en ambos sentidos = **0**, Σ saldo y Σ signed idénticas. Índice de expresión en `kdue`: scan 162 → **28 ms**, consulta 2,119 → **931 ms** (requiere el `ANALYZE`, sin él el planner lo ignora).
 
+### AX.10 — el papel: identidad fiscal de verdad, y la hoja usada 🧪 (2026-09-07)
+
+Disparador: *"necesito que mejoremos el apartado de las facturas… que la hoja optimice todo el uso en columnas para que use todo el espacio disponible, y optimice el consumo de hojas verticalmente. el rfc esta mal y como se imprimi el nombre"*.
+
+**Los dos datos equivocados, verificados antes de tocar (no se adivinó ninguno):**
+
+- 🧪 **AX.10.1 — el RFC del emisor estaba HARDCODEADO y MAL.** Imprimía `LOGL8810144QS` y *"Lugar de expedición: C.P. 59701, Michoacán"*. Lo correcto es **`LOGL851014AQ5`** y **C.P. 36910**, confirmado por **tres fuentes independientes**: `fiscal.issuer_config` (la config del emisor de la Fase FE: RFC, razón social, régimen 612, CP 36910), los **167,503 CFDIs recibidos** de `fiscal.cfdis` —todos con `receptor_rfc = 'LOGL851014AQ5'` desde 2018-01, y el receptor de una factura recibida somos nosotros— y **11 fichas internas** de `kepler_ods.kdud`. Iba impreso en el membrete, en el beneficiario del pago y **en el pagaré**. El CP viejo además **se contradecía con el propio pagaré del mismo documento**, que dice Santa Ana Pacueco, C.P. 36910. ⚠️ **El resto del repo ya tenía el correcto** (el importer de ContPAQi, el placeholder del formulario de facturación, el matcher de OCR): era un typo en una constante que nadie cruzó nunca contra nada. Ahora sale de `issuer_config` vía `emisorFiscal()`, con cache en proceso, y **si no hay fila configurada el anexo se niega a imprimir** — un RFC inventado en un pagaré es peor que no emitirlo.
+- 🧪 **AX.10.2 — el nombre se imprimía roto.** El beneficiario del pago se capitalizaba con `/\b\w+/g`, y en JS `\w` **no matchea letras acentuadas**: `LUIS FRANCISCO LÓPEZ GUTIÉRREZ` salía como **"Luis Francisco LÓPez GutiÉRrez"** en todos los anexos. Se imprime **verbatim**, que además es lo correcto para un beneficiario de pago: la razón social tal como consta en el RFC, no una versión bonita.
+- 🧪 **AX.10.3 — el RFC genérico del SAT se pasaba por RFC del cliente.** **1,298 de 1,640 facturas imprimibles (79.1%)** traen `XAXX010101000` en `kdm1.c22`, y el anexo lo ponía bajo la etiqueta "RFC" al lado de un nombre propio. Ahora se **rotula** (`XAXX010101000 · público en general`) y en el **pagaré se OMITE**: en un título de crédito un RFC que no es del deudor es peor que ninguno (el art. 170 LGTOC no lo pide; el deudor queda identificado por nombre, domicilio y número de cliente).
+
+**El papel — medido, no estimado.** Banco A/B sobre **15 facturas reales** de 14 días (3 por tramo de renglones), renderizando la misma muestra con el anexo de `HEAD` y con el nuevo:
+
+| renglones | antes | después |
+|---|---|---|
+| 1 (×3) | 2 hojas | **1** |
+| 4 (×3) | 2 hojas | **1** |
+| 9 (×3) | 2-3 hojas | **2** |
+| 17 (×3) | 3 hojas | **2** |
+| 31 (×3) | 4 hojas | **2** |
+| **TOTAL** | **41 hojas** | **24 (−41%)** |
+
+14 de 15 facturas bajan de hojas; promedio 2.73 → **1.60 por factura**. Y una factura de hasta ~8 renglones ahora entra **completa con su pagaré en UNA hoja**.
+
+De dónde salió, en orden de rendimiento:
+
+1. **La unidad pegada al precio.** Iba en su propio renglón (`$495.00` / `por CJA`), así que un producto de 3 niveles gastaba **6 líneas por columna** — y hay dos columnas de precio. Pegada (`$495.00 /CJA`) son 3. Es la mitad del alto de la tabla en facturas largas.
+2. **Dos filas del pie fundidas en una.** "Importe con letra + totales" y "cómo leer + bancos" eran dos filas apiladas de **252 px** con la mitad de cada una en blanco; encima el `align-items:stretch` estiraba la caja de texto hasta el alto de la tabla de bancos. Y su renglón central (`Importe − Descuento = Total`) **repetía al peso** el bloque de totales de arriba. Ahora: bancos a la izquierda, totales a la derecha con el importe con letra como pie (donde se lee, como en un cheque), y las dos notas como prosa al pie.
+3. **Anchos dimensionados con el dato.** Medido sobre los **14,872 renglones de 90 días**: la cifra más larga es `$49,750.20` de precio por caja (≈90 px con la unidad) y `$36,810.00` de importe (≈65 px); el nombre de producto llega a 70 caracteres con p95 = 41. El nombre tenía **22%** y se partía en dos renglones constantemente —una línea de alto pagada en TODAS las facturas— mientras `CANTIDAD` gastaba 14.5% para decir "1 CJA". Ahora el nombre toma **38.5%** (60% en el modo sin descuento) y el dinero se queda con su peor caso más un margen.
+4. **Membrete y título en una fila** (eran dos bloques apilados con una regla en medio: 82 px para cuatro datos), **tira de datos en tres columnas** en vez de dos (el alto lo fijaba la columna más larga: 7 renglones contra 4, tres de alto pagados en blanco), márgenes **12 → 9 mm** de lado (+3% de ancho útil, dentro del área imprimible de cualquier láser) y el rótulo de grupo sólo **desde 10 productos** (con 6 costaba 40 px para decir algo que la columna Cantidad ya dice en cada línea).
+5. Régimen por **código** en el membrete: su descripción de 62 caracteres envolvía dos renglones para repetir un dato del catálogo público del SAT que el CFDI ya trae.
+
+**Candado `libs/commercial/.../anexo-venta.spec.ts` (19/19, `nx test commercial`).** Es la primera prueba automática que tiene este documento: antes sólo existía al imprimirlo. Cubre las tres correcciones **con su prueba negativa** —las tres pasaban en verde con el bug puesto—:
+
+- ningún literal con forma de RFC puede volver al archivo (el gate lee su propio fuente), y el RFC viejo no aparece ni en la salida ni en el código;
+- el nombre acentuado sale intacto, y el test **ejecuta la capitalización vieja** y afirma que producía exactamente `Luis Francisco LÓPez GutiÉRrez`: si esa línea deja de producir basura, el que lea el test se entera;
+- `emisorFiscal()` **truena** sin fila en `issuer_config`;
+- el genérico se rotula y el pagaré lo omite; con RFC real, lo pone;
+- **los anchos de columna suman 100%** en los dos modos (nada de papel sin repartir) — verificado en rojo a propósito subiendo `neto` de 10% a 14%;
+- no vuelve ningún bloque del layout viejo (`foot-grid`, `admin`, `titleband`) ni la unidad en renglón aparte.
+
+Smoke `test-newdb-sales-docs-cobranza.js` **13/13 contra prod** (el dinero no cambió). Builds api y view verdes. **Sin migraciones y sin permisos nuevos → sin re-login.**
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).
