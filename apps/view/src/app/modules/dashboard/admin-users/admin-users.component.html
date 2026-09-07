@@ -464,6 +464,95 @@
       </div>
     }
 
+    <!-- ── [RE.27.B1] Qué DATOS ve esta persona ─────────────────────────────
+         El permiso dice qué acción; el alcance dice sobre qué filas. Hasta acá
+         sólo se administraba el primero: `user_scopes` se tocaba por script
+         contra prod, y en los hechos nadie acotaba a nadie — medido, ningún
+         usuario tenía `listed` en sucursales. Es el bisturí que hace innecesario
+         el martillo de quitarle el permiso a un rol entero. ─────────────────── -->
+    @if (isEditing() && alcanceDetalle()) {
+      <div class="au-perms">
+        <button type="button" class="au-perms-head" (click)="alcanceAbierto.set(!alcanceAbierto())"
+                [attr.aria-expanded]="alcanceAbierto()">
+          <i class="pi" [class.pi-chevron-right]="!alcanceAbierto()" [class.pi-chevron-down]="alcanceAbierto()"
+             aria-hidden="true"></i>
+          <span class="au-perms-t">Qué datos ve esta persona</span>
+          <span class="au-perms-sum mono">{{ alcanceResumen() }}</span>
+        </button>
+
+        @if (alcanceAbierto()) {
+          @if (alcanceEsAdminPlataforma()) {
+            <p class="au-hint au-perms-note">
+              <b>{{ alcanceDetalle()?.role_name }}</b> ve toda la red por su nivel de acceso: el alcance por
+              persona no le aplica. Para limitarla hay que cambiarle el nivel de acceso.
+            </p>
+          } @else {
+            <p class="au-hint au-perms-note">
+              Acotar acá <b>no le quita permisos</b>: le dice sobre qué filas los ejerce.
+              Aplica en menos de un minuto, <b>sin volver a iniciar sesión</b>.
+            </p>
+
+            @for (d of alcanceFilas(); track d.code) {
+              <div class="au-scope">
+                <div class="au-scope-head">
+                  <span class="au-scope-t">{{ d.label }}</span>
+                  @if (d.sucio) {
+                    <span class="au-perm-tag au-perm-plus">sin guardar</span>
+                  } @else if (d.source === 'user') {
+                    <span class="au-perm-tag au-perm-plus">propio de esta persona</span>
+                  } @else if (d.source === 'role') {
+                    <span class="au-perm-tag">de su rol</span>
+                  } @else {
+                    <span class="au-perm-tag au-perm-minus">sin regla</span>
+                  }
+                  @if (d.sucio) {
+                    <button type="button" class="au-derived-btn" (click)="descartarAlcance(d.code)">Deshacer</button>
+                  } @else if (d.source === 'user') {
+                    <button type="button" class="au-derived-btn" (click)="heredarAlcance(d.code)">Volver a su rol</button>
+                  }
+                </div>
+
+                <div class="au-scope-modes" role="group" [attr.aria-label]="'Alcance de ' + d.label">
+                  @for (m of MODOS_ALCANCE; track m.value) {
+                    @if (m.value !== 'own' || d.puedeOwn) {
+                      <button type="button" class="au-scope-m" [class.au-scope-m-on]="d.mode === m.value"
+                              [title]="m.hint" (click)="setAlcanceModo(d.code, m.value)">{{ m.label }}</button>
+                    }
+                  }
+                </div>
+
+                @if (d.mode === 'listed') {
+                  <p-multiselect [options]="d.universo"
+                                 [ngModel]="d.values" (ngModelChange)="setAlcanceValores(d.code, $event)"
+                                 [ngModelOptions]="{ standalone: true }"
+                                 placeholder="Elegí cuáles" [filter]="true"
+                                 optionLabel="label" optionValue="value" [maxSelectedLabels]="4"
+                                 selectedItemsLabel="{0} seleccionadas"
+                                 appendTo="body" styleClass="w-full"></p-multiselect>
+                  @if (!d.values.length) {
+                    <small class="au-err">Sin ninguna marcada no ve nada. Si es lo que querés, usá «Nada».</small>
+                  }
+                }
+
+                <small class="au-hint">{{ d.ayuda }}</small>
+
+                <!-- La escritura puede ser más chica que la lectura: «ve las tres
+                     sucursales de su zona, captura sólo en la suya». Se pregunta
+                     sólo cuando hay algo que ver, y hereda por default. -->
+                @if (d.mode !== 'none') {
+                  <label class="au-scope-w">
+                    <input type="checkbox" [checked]="!d.heredaEscritura"
+                           (change)="setAlcanceEscritura(d.code, d.heredaEscritura ? 'none' : null)" />
+                    <span>Sólo lectura: alcanza lo mismo, pero no puede modificarlo</span>
+                  </label>
+                }
+              </div>
+            }
+          }
+        }
+      </div>
+    }
+
     <div class="au-field au-boxed">
       <label for="password">{{ isEditing() ? 'Actualizar contraseña (opcional)' : 'Contraseña segura' }}</label>
       <input pInputText id="password" type="password" formControlName="password"

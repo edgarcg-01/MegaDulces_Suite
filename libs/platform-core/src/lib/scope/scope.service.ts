@@ -429,13 +429,39 @@ export class ScopeService {
     return todos.filter((o: { value: string }) => d.values.includes(o.value));
   }
 
-  /** Vista completa para `/admin/usuarios` y para el picker. */
+  /**
+   * Vista completa para `/admin/usuarios` y para el picker.
+   *
+   * `[RE.27.B1]` `values` / `valuesWrite` viajan **además** de `options`, y no son lo mismo:
+   * `options` es lo que la persona alcanza a ver YA etiquetado y filtrado por su modo, mientras
+   * que `values` es la selección cruda que hay guardada en `user_scopes`/`role_scopes`. Para
+   * MOSTRAR alcanza `options`; para EDITARLO hace falta saber qué está marcado hoy — con `all`
+   * u `own`, `options` trae valores que nadie eligió (el universo, o la sucursal de su ficha), y
+   * un editor que los tomara por selección convertiría un `own` en un `listed` clavado a mano en
+   * cuanto alguien tocara Guardar.
+   *
+   * Salen del scope ya resuelto: cero consultas extra.
+   */
   async describe(scope: ResolvedScope): Promise<
     Record<
       ScopeDimension,
-      { mode: ScopeMode; modeWrite: ScopeMode; source: string; nota?: string | null; options: { value: string; label: string }[] }
+      {
+        mode: ScopeMode; modeWrite: ScopeMode; source: string; nota?: string | null;
+        values: string[]; valuesWrite: string[]; supportsOwn: boolean;
+        options: { value: string; label: string }[];
+      }
     >
   > {
+    // `[RE.27.B1]` `supportsOwn` sale de `identity.scope_dimensions`, que es **la misma fuente
+    // contra la que `setScope()` valida**. Sin esto el editor ofrecería el modo "su ficha" en
+    // dimensiones donde el endpoint lo rechaza con 400 — que es exactamente el defecto que esta
+    // fase acaba de arreglar en el alta de usuarios: un formulario que ofrece lo que él mismo
+    // rebota. Se pregunta acá y no se copia a mano al front.
+    const { rows: cat } = await this.knex.raw(
+      `SELECT code, supports_own FROM identity.scope_dimensions`,
+    );
+    const ownOk = new Map<string, boolean>(cat.map((r: any) => [String(r.code), !!r.supports_own]));
+
     const out: any = {};
     for (const dim of SCOPE_DIMENSIONS) {
       const d = scope.dims[dim];
@@ -444,6 +470,9 @@ export class ScopeService {
         modeWrite: d.modeWrite,
         source: d.source,
         nota: d.nota ?? null,
+        values: d.values ?? [],
+        valuesWrite: d.valuesWrite ?? [],
+        supportsOwn: ownOk.get(dim) ?? false,
         options: await this.optionsFor(scope, dim),
       };
     }
