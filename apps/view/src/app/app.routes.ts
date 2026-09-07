@@ -169,6 +169,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_SELLOUT_VER)]
       },
       {
+        // BI.0 — sub-modulo Analisis (Sell-Out BI). Reusa el SellOutReport; permiso propio.
+        path: 'analisis',
+        loadComponent: () => import('./modules/comercial/pages/comercial-analisis.component').then(m => m.ComercialAnalisisComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)]
+      },
+      {
         path: 'salidas',
         loadComponent: () => import('./modules/comercial/pages/comercial-salidas.component').then(m => m.ComercialSalidasComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_SALIDAS_VER)]

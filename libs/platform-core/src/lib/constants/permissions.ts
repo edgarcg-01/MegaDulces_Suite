@@ -167,6 +167,10 @@ export enum Permission {
   // para poder acotar un rol a un solo reporte sin abrir todo el analytics.
   COMMERCIAL_ANALYTICS_VER = 'COMMERCIAL_ANALYTICS_VER',
   COMMERCIAL_SELLOUT_VER = 'COMMERCIAL_SELLOUT_VER',
+  // BI — sub-modulo "Analisis" (Sell-Out BI): explica el cambio, preguntale,
+  // radar de anomalias. Lee el mismo SellOutReport; se reparte a los roles que
+  // ya tienen COMMERCIAL_SELLOUT_VER (mig 20260907130000). El reporte base no se toca.
+  COMMERCIAL_SELLOUT_ANALYSIS_VER = 'COMMERCIAL_SELLOUT_ANALYSIS_VER',
   COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
   COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
   // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació
