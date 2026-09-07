@@ -10,6 +10,98 @@
 
 ## [Unreleased]
 
+### Added — La unidad de venta deja de ser una suposición heredada: un resolvedor con testigo y método (U.4–U.7, ADR-057, 2026-09-07)
+
+Arranca de *"las capas lógicas están fallando demasiado; necesito una verdad absoluta en unidades
+de venta"*. Medido: **27 archivos** leen `catalog.products.factor_sale` (la única fuente probada
+**sin** unidad), **17** leen `product_label_prices.box_size`, y **UNO** lee la escalera anclada al
+ERP. La unidad no se resolvía una vez: se re-derivaba en cada piso.
+
+- **⭐ El testigo que nadie había buscado.** `docs/UNIDADES_DE_MEDIDA.md` marcaba la etiquetera con
+  ❌ y concluía que el 40% de la venta *"no tiene contra qué verificarse"*. Existe un segundo
+  testigo independiente: `analytics.v_supplier_cost_ladder.units_per_box` = `box_cost / u1_cost`
+  sobre `kepler_ods.kdpv_prov_prod` — **lo que se le pagó al proveedor**. Coincide con la
+  etiquetera en **5,569 de 5,578 SKUs (99.84%), razón mediana 1.00**. Cobertura verificable de la
+  venta: 44.8% → **93.1%**.
+- **⚠️ Y se da vuelta la sospecha:** la fuente peor es la corrección **manual**. Los `override`
+  contradicen lo pagado en **62 de 277 (22%), $6,174,488** — casi todos granel con `override = 1`
+  contra 12–18 pagados, incluido `20555 CAR SURTIDO 18KG`, el SKU que destapó U.1. Van a bandeja,
+  no se corrigen parejo.
+- **`analytics.v_unit_truth`** (vista `derive-no-copy`, tenant × almacén × producto). No
+  reimplementa la precedencia: la lee de `v_warehouse_box_factor` y `v_product_box_factor`. Su
+  `box_factor` es **idéntico** al que ya se publica (100,908 filas, 0 discrepancias) — eso es lo
+  que autoriza a migrarle consumidores sin revalidar cada pantalla.
+- **`metodo_cajas` ordena los testigos en vez de elegir uno**: `dinero` (87.8% de la venta,
+  inmune a la unidad del numerador) › `peso` › `divisor` verificado › `unidad_es_caja` ›
+  `sin_metodo` (**NULL con motivo, nunca 0**). **91.7% de la venta con cifra defendible.** El
+  árbitro de dinero había refutado la solución obvia: en **296 SKUs ($78.3M) ningún divisor
+  acierta**, porque `sales_daily.units` mezcla peldaños incluso dentro de un mismo almacén
+  (`42029` en `01` promedia $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25).
+- **ADR-055 queda auditado, no sólo afirmado**: 24,795 celdas de Wincaja dan razón 1 y 1,085 dan
+  `f2` exacto = **99.5%**. Las 128 restantes (**45 SKUs**) traen `factor_venta = f2` en vez de
+  `f3/f2` → divisor 4–40× chico. Es su defecto vivo y ahora tiene nombre.
+
+### Fixed — El sell-out publicaba 716,742 piezas rotuladas como "cajas" (U.7, 2026-09-07)
+
+Las tres cascadas del sell-out terminaban en `factor_sale ?? box_size ?? 1`, y ese `1` publicaba
+piezas con la etiqueta "cajas": **710 SKUs, $14,279,457 = 2.2% de la venta 365d**. El pivote por
+vendedor era el peor — convertía **sólo** con `factor_sale`. Efecto del arreglo sobre 90 días:
+602,049 → 592,102 cajas (**−1.65%**), con $8,540,925 declarados en `sin_metodo`.
+
+De paso, el pivote por vendedor **nunca seleccionaba `monto_neto`**, así que publicaba siempre
+$0 en esa columna.
+
+### Added — El hecho de venta persiste el peldaño que se cobró (U.5, 2026-09-07)
+
+`import-sales-fact.js:150` ya lo identificaba por precio y lo tiraba: `if (!conv.ok) unconv++`
+mandaba el veredicto a un `console.log`. Tres columnas aditivas en `analytics.sales_daily`:
+`rung_factor`, `rung_mixed`, `units_unresolved`. ⚠️ La mezcla vive **entre celdas** (311 SKUs /
+$17.4M = 12.8% de la venta 90d), no dentro de una fila — el dry-run sobre 695,127 filas dio cero
+mezcladas, así que `rung_mixed` nace como candado. A grano SKU sin almacén el no-base baja de
+7.2% a 0.7%: **el grano grueso lo escondía 8×**.
+
+### Fixed — La cobertura del resolvedor se declara, y 7 rutas dejan de ser un hueco silencioso (U.6, 2026-09-07)
+
+13 almacenes `RUTA-*` no tenían **ninguna fila**: **$60,148,173 (9.4%)** sin divisor. Y una fila
+ausente se lee peor que una mala — en un LEFT JOIN llega NULL y un `COALESCE(medible, true)` la
+cuenta como sana; el candado reportaba 98.2% por eso. No faltaba el dato, faltaba el **mapeo**:
+`wincaja.articulos` tiene las 13 sucursales de ruta. Se mapearon **7**; las 6 de La Piedad **no**,
+porque cambiaron de ERP (Wincaja hasta 2026-06-26, Kepler desde 2026-06-29) y **su divisor depende
+de la fecha**. Cobertura final **94.8%**, el 5.2% declarado en `analytics.v_unit_truth_coverage`.
+
+Efecto colateral medido antes de aplicar: aparecen **+$233,726** de inventario — 7,528 unidades en
+7 camionetas que dejaron de vender entre el 1-jun y el 12-ago. Hallazgo para Almacén.
+
+### Internal — Tres errores propios que la medición atrapó antes de publicarse (2026-09-07)
+
+1. **El factor 1 archivado como "nada que verificar"**: `base_per_box <= 1 → no_aplica` cortaba
+   antes de mirar al testigo, así que **13 SKUs / $5,135,134** que declaran "no hay caja" contra
+   dos testigos coincidiendo en 18/12/5/10/20/24/25/27/40 quedaban invisibles.
+2. **`no_aplica` tratado como ignorancia**: tiraba el total del sell-out **−33.6%**. Verificado
+   contra la escalera de precio, 240 de 278 SKUs cobran dentro de banda de `p1` y **no tienen `f2`
+   ni `f3`** — su unidad de venta ES la más grande (`57009 CUBETA 20K`, `87234` con
+   `unit_base = CJA`). **"No hay factor de caja" y "no sé convertir a cajas" son cosas distintas.**
+3. **El `motivo` de cobertura mezclaba dos preguntas** y etiquetaba $300.6M de sucursales Kepler
+   sanas como "ERP mixto".
+
+⭐ **El patrón, tres veces en una fase: cuando un `CASE` mezcla dos preguntas, la precedencia le
+miente a una de las dos** — y le miente al caso más común o más caro.
+
+⚠️ Y el candado atrapó una **regresión de RLS**: un `CREATE OR REPLACE VIEW` se llevó
+`security_invoker` y `v_unit_truth` dejó de filtrar por tenant. Lo vio **sólo** la aserción de
+metadata — la vista seguía devolviendo datos correctos y ninguna prueba funcional lo notaba.
+**Regla: después de cada `CREATE OR REPLACE VIEW` sobre una vista con RLS, re-aplicar
+`security_invoker` y el `GRANT`.**
+
+⚠️ `CREATE INDEX CONCURRENTLY` es una trampa en esta base: espera a TODAS las transacciones más
+viejas, incluso ajenas. Con una consulta de analítica de **1h54m** corriendo, el build se sentó
+575 s en `Lock/virtualxid` y encoló detrás dos `ANALYZE` del propio importer.
+
+Migraciones en prod: batches 283, 285, 286, 290, 293, 294, 295, 296, 300, 301, 303. Candado
+`database/tests/test-newdb-unit-truth.js` **40/40** contra prod. Detalle en
+[`UNIDADES_DE_MEDIDA.md`](docs/UNIDADES_DE_MEDIDA.md) §8sexies y **ADR-057**.
+
+
 ### Changed — Telemarketing: el tablero ve la facturación de su canal, y el módulo (y su ruta) se llaman como el canal (E.9 + E.9.1, 2026-09-07)
 
 Salió de *"hay que cambiar /televenta/dashboard para que ahí también se vean las facturas, y ordenemos este módulo para telemarketing"*, y después de *"cambiemos la ruta a telemarketing"*.

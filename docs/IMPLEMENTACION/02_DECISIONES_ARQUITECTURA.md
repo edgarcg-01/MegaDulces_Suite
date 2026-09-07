@@ -1668,3 +1668,58 @@ Tres mentiras concretas, medidas y ya corregidas por esta fase:
 - **Tomar el CFDI/PAC como árbitro del sell-out** — CP.0 midió que la contabilidad casi no segmenta por sucursal (~2%), así que no puede arbitrar un reporte de venta por sucursal.
 
 Hereda **ADR-053** (la ingesta no se cae en silencio) y **ADR-052** (contratos del boundary). Plan en [`FASE_VP_VERDAD_Y_PROCEDENCIA.md`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md).
+
+---
+
+## ADR-057
+
+**La unidad se resuelve UNA vez, con testigo y con método** (Fase U): el resolvedor no elige entre fuentes, las **ordena**, y declara dónde no llega ninguna · *aceptado 2026-09-07*
+
+### Contexto
+
+Edgar: *"lleguemos a una verdad absoluta en unidades de venta; las capas lógicas están fallando demasiado"*. Medido, el desorden tiene tamaño exacto: **27 archivos** leen `catalog.products.factor_sale` — la única fuente que [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §4 probó que **no tiene unidad** (la mitad cuenta piezas, un tercio paquetes) —, **17** leen `commercial.product_label_prices.box_size`, y **UNO** lee la escalera anclada al ERP. Cuatro vistas resuelven la precedencia y cada capa la vuelve a resolver por su cuenta.
+
+Dos hallazgos dieron vuelta la premisa del propio doc:
+
+1. **La etiquetera SÍ tiene testigo.** §1 la marcaba con ❌ y §5 concluía que el 40% de la venta *"no tiene contra qué verificarse… no hay forma de saberlo"*. El testigo existe y es independiente: `analytics.v_supplier_cost_ladder.units_per_box` = `box_cost / u1_cost` sobre `kepler_ods.kdpv_prov_prod` — **lo que se le pagó al proveedor**. Coincide con la etiquetera en **5,569 de 5,578 SKUs (99.84%), razón mediana 1.00**. La cobertura verificable de la venta pasa de 44.8% a **93.1%**.
+2. **La fuente peor es la corrección MANUAL.** Los `override` contradicen lo pagado en **62 de 277 (22%), $6,174,488** de venta — `70006`, `70043`, `20555`, `70140` traen `override = 1` contra 18, 12, 18 y 18 pagados. Son los de granel, y `20555 CAR SURTIDO 18KG` es el SKU que destapó la auditoría de peldaño (U.1).
+
+Y el árbitro de dinero (`cajas = revenue ÷ cja_price`, que no depende de ningún divisor) refutó la solución obvia: sobre los 570 SKUs donde las fórmulas privadas y el resolvedor discrepan, `factor_sale` sobra **3.286×**, el resolvedor falta **0.369×**, y en **296 SKUs ($78.3M) no acierta NINGUNO**. Porque ahí el numerador no tiene unidad: `42029` en el almacén `01` promedia $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25. **Un mismo almacén mezcla los dos peldaños.**
+
+### Decisión
+
+1. **`analytics.v_unit_truth` es EL resolvedor** (vista `derive-no-copy`, grano tenant × almacén × producto). **No reimplementa la precedencia**: la lee de `v_warehouse_box_factor` (ADR-055) y `v_product_box_factor` (UM.1). Su `box_factor` es **idéntico** al que ya se publica — 100,908 filas, 0 discrepancias — y eso es lo que autoriza a migrarle consumidores sin revalidar cada pantalla. Lo que agrega es el **testigo** y el **veredicto**.
+
+2. **Dos ejes, porque son dos preguntas.** `veredicto` juzga `base_per_box` (propiedad del EMPAQUE: la caja trae lo que trae en las 9 bodegas). `veredicto_nativo` audita ADR-055 (el divisor de PRESENTACIÓN de cada almacén). ⛔ Cruzarlos marca los 355 multipack legítimos de Wincaja como falsos positivos — la primera versión del chequeo lo hizo y daba 16,897 celdas "mal".
+
+3. **No se elige entre testigos: se ORDENAN, y donde no llega ninguno se declara.** `metodo_cajas`: `dinero` (ingreso ÷ precio de caja, **inmune a la unidad del numerador**, 87.8% de la venta) › `peso` (granel: ya está en kilos) › `divisor` (÷ `box_factor`, **sólo verificado**) › `unidad_es_caja` (no hay paquete ni caja en la escalera y ningún testigo dice que la haya) › `sin_metodo` (**NULL con motivo, nunca 0**). **91.7% de la venta con cifra defendible**, 8.4% declarado.
+
+4. **El peldaño cobrado se PERSISTE.** `import-sales-fact.js` ya lo identificaba por precio y lo tiraba a un `console.log`. `analytics.sales_daily` gana `rung_factor`, `rung_mixed`, `units_unresolved`. ⛔ **No se normaliza `units`**: es el numerador de todo `/compras/pedido` y de la rentabilidad, y convertirlo es el movimiento que ya se revirtió una vez (mig `20260902200000`).
+
+5. **Lo que el resolvedor NO cubre tiene su propia vista.** `v_unit_truth_coverage` enumera los almacenes sin divisor y el motivo, porque **una fila ausente se lee peor que una fila mala**: en un LEFT JOIN llega NULL y un `COALESCE(medible, true)` la cuenta como sana. El candado de U.4 reportaba 98.2% de cobertura mientras 13 almacenes con el 9.4% de la venta no tenían fila.
+
+6. **Un almacén que cambió de ERP no recibe divisor estático.** Las 6 rutas de La Piedad fueron Wincaja hasta 2026-06-26 y Kepler desde 2026-06-29: su divisor **depende de la fecha**. Se declaran (`erp_mixto_por_fecha`), no se les elige uno.
+
+### Consecuencias
+
+- **El sell-out publicaba 716,742 PIEZAS rotuladas como "cajas"** (710 SKUs, $14,279,457 = 2.2% de la venta 365d), porque las tres cascadas terminaban en `factor_sale ?? box_size ?? 1`. Corregido: −1.65% en el total de 90 días, con $8,540,925 declarados.
+- **Los 44 consumidores se parten por lo que necesitan**, no se migran todos al divisor: los que muestran cajas van al método; los que valúan o rotulan empaque, al veredicto. Pendiente el resto (`commercial-replenishment`, `/compras`, 6 importers, `ods-derived.js`).
+- **45 SKUs de Wincaja tienen `factor_venta = f2` en vez de `f3/f2`** → divisor 4–40× chico. Es el defecto vivo de ADR-055, ahora con nombre.
+- **`unit-normalization.js:60-61` sigue con `factor_sale` como fallback de los DOS peldaños**, declarado y NO corregido: cambiarlo mueve `sales_daily.units` en silencio para miles de SKUs.
+- Aparecen **+$233,726** de inventario al mapear 7 rutas Wincaja: mercancía real en camionetas que dejaron de vender entre el 1-jun y el 12-ago. Hallazgo para Almacén.
+
+### Alternativas rechazadas
+
+- **Migrar los 44 consumidores al resolvedor, sin más** (era la opción elegida al arrancar) — el árbitro de dinero lo refutó antes de tocar código: movería ~$80M de cifras publicadas **sin volverlas correctas**, porque en 296 SKUs ningún divisor acierta.
+- **Normalizar `units` en el fact** — ya se intentó y rompió el pedido sugerido (cobertura de 534–900 días, el motor dejó de pedir).
+- **Corregir los 62 override contra lo pagado** — en granel el `1` puede ser deliberado; corregir parejo propuso $2.59M de compra contra $132k/mes de venta en `57009`.
+- **Dar a las 6 rutas de La Piedad el divisor de Wincaja** — es el error de peldaño que la fase cierra: hoy sus datos vienen en unidad base de Kepler.
+
+### Reglas de operación que salieron
+
+- **Después de CADA `CREATE OR REPLACE VIEW` sobre una vista con RLS, re-aplicar `security_invoker` y el `GRANT` — no se heredan.** Una migración de esta fase lo perdió y la vista dejó de filtrar por tenant. Lo vio **sólo** la aserción de metadata del candado: la vista seguía devolviendo datos correctos y ninguna prueba funcional lo notaba.
+- **`CREATE INDEX CONCURRENTLY` es una trampa en esta base**: espera a TODAS las transacciones más viejas, incluso ajenas. Había una consulta de analítica de **1h54m** corriendo → el build se sentó 575 s en `Lock/virtualxid` y encoló detrás dos `ANALYZE` del propio importer. Sin `CONCURRENTLY` entró al instante.
+- **⭐ Cuando un `CASE` mezcla dos preguntas, la precedencia le miente a una de las dos** — y le miente al caso más común o más caro. Apareció **tres veces** en esta fase: el factor 1 archivaba $5.1M como "nada que verificar"; tratar `no_aplica` como ignorancia tiraba el sell-out **−33.6%**; el `motivo` de cobertura etiquetaba $300.6M de sucursales sanas como "ERP mixto".
+- **⭐ "No se puede verificar" casi nunca es una propiedad del problema: es una conclusión sobre las fuentes que ya estabas mirando.** Antes de declarar algo inverificable, preguntá qué OTRA cosa dejó rastro.
+
+Hereda **ADR-055** (el divisor es del ERP dueño del almacén), **ADR-051** (el dinero arbitra la unidad) y **ADR-056** (lo que no se pudo medir se declara). Detalle en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8sexies. Candado: `database/tests/test-newdb-unit-truth.js` (40 aserciones).
