@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DatePickerModule } from 'primeng/datepicker';
@@ -55,7 +56,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
 @Component({
   selector: 'app-comercial-analisis',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, ToastModule, ChartModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, DatePickerModule, ToastModule, ChartModule, PageTabsComponent, MetricStripComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -193,6 +194,9 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
             }
           </ul>
           <p class="an-foot"><i class="pi pi-verified"></i> Reparto exacto: la suma de los movimientos es el cambio total, al centavo.@if (!drill()) {  Toca un renglón para ver qué lo explica.}</p>
+          @if (canSeeDocs()) {
+            <a routerLink="/comercial/documentos" class="an-docs-link"><i class="pi pi-file"></i> Ver las facturas (Facturación TM) →</a>
+          }
         </section>
       } @else {
         <section class="an-empty">
@@ -336,6 +340,8 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-m-pct { text-align: right; font-size: .8rem; display: inline-flex; align-items: center; gap: .2rem; justify-content: flex-end; }
     .an-otros { opacity: .7; }
     .an-foot { margin: 1.25rem 0 0; font-size: .78rem; color: var(--text-muted); display: flex; align-items: center; gap: .4rem; }
+    .an-docs-link { display: inline-flex; align-items: center; gap: .4rem; margin-top: .6rem; font-size: .85rem; color: var(--action, #d9772e); text-decoration: none; }
+    .an-docs-link:hover { text-decoration: underline; }
     .an-empty { display: flex; flex-direction: column; align-items: center; gap: .6rem; padding: 3rem 1rem; color: var(--text-muted); text-align: center; }
     .an-empty > i { font-size: 2rem; opacity: .5; }
     .an-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
@@ -418,6 +424,9 @@ export class ComercialAnalisisComponent {
   readonly targets = signal<SelloutTargetsReport | null>(null);
   readonly editTargets = signal(false);
   readonly canEditTargets = computed(() => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR]);
+  // BI.7 — drill a factura: enlace a la pantalla optimizada de Facturacion TM (las vistas vivas
+  // no aguantan una query por marca/mes en linea: 20s sin marca, >120s con marca). Solo si tiene el permiso.
+  readonly canSeeDocs = computed(() => this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_SALES_DOCS_VER]);
 
   tgtBarPct(r: SelloutTargetRow): number { return r.pct == null ? 0 : Math.max(0, Math.min(100, r.pct)); }
   tgtTone(r: SelloutTargetRow): string { return r.pct == null ? 'none' : r.pct >= 100 ? 'ok' : r.pct >= 70 ? 'warn' : 'bad'; }
