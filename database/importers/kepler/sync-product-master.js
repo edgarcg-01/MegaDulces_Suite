@@ -102,8 +102,16 @@ const INS_FROM = `(SELECT DISTINCT ON (eff.brand_id, eff.nombre) eff.brand_id, e
       AND NOT EXISTS (SELECT 1 FROM catalog.products p2 WHERE p2.tenant_id=$1 AND p2.brand_id=eff.brand_id AND p2.nombre=eff.nombre)
     ORDER BY eff.brand_id, eff.nombre, eff.sku) d`;
 
-// Reconcile de bajas: source='kepler' activo ausente del snapshot del ERP.
-const DEL_WHERE = `p.tenant_id=$1 AND p.source='kepler' AND p.deleted_at IS NULL
+// Reconcile de bajas — REGLA (Edgar 2026-08-26): "si un SKU no está en el maestro de Kepler,
+// no debe existir en la plataforma". Kepler = autoridad del catálogo. Antes el reconcile SOLO
+// tocaba source='kepler' y exceptuaba los POS-only de Wincaja → dejaba productos fantasma
+// (p.ej. 68523 "PALO 4X45 500GR", vendido en Wincaja pero ausente de kdii). Ahora el reconcile
+// también da de baja los source='wincaja' ausentes del ERP, de forma AUTOMÁTICA (nightly), no manual.
+// `manual` (curado a mano) queda FUERA por default; RECONCILE_INCLUDE_MANUAL=1 lo incluye.
+const RECON_SOURCES = process.env.RECONCILE_INCLUDE_MANUAL === '1'
+  ? `'kepler','wincaja','manual'`
+  : `'kepler','wincaja'`;
+const DEL_WHERE = `p.tenant_id=$1 AND p.source IN (${RECON_SOURCES}) AND p.deleted_at IS NULL
   AND NOT EXISTS (SELECT 1 FROM snap s WHERE s.sku=p.sku)`;
 
 (async () => {

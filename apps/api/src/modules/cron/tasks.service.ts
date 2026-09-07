@@ -23,7 +23,9 @@ export class TasksService {
     await this.cleanOldPhotos();
   }
 
-  @Cron('0 2 * * *')
+  // 02:00 MX. Era `'0 2 * * *'` (5 campos) — el único cron de 5 campos del repo entre ~40 de 6, y
+  // leído como 6 significaría "cada hora al minuto 2". Se explicita a 6 campos, mismo horario.
+  @Cron('0 0 2 * * *', { timeZone: 'America/Mexico_City' })
   async cleanOldPhotos() {
     this.logger.log(
       'Iniciando limpieza de Cloudinary imágenes huérfanas (>30 días)...',

@@ -192,7 +192,7 @@ export const routes: Routes = [
         // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
         path: 'documentos',
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_ORDERS_VER)]
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
       },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },
@@ -336,6 +336,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
+        // Documentos cancelados de Kepler (c43='C') — lo que los cuadres excluyen, aquí se audita.
+        path: 'cancelados',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-cancelados.component').then(m => m.FinanzasCanceladosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      {
         path: 'maat',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-maat-chat.component').then(m => m.FinanzasMaatChatComponent),
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
@@ -423,6 +429,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
+        // LC — lo que ContPAQi no tiene atado a ninguna póliza. Es el propósito del módulo:
+        // sacar lo que falta en TXT para que contabilidad cierre el trámite.
+        path: 'movimientos-no-asociados',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/movimientos-no-asociados.component').then(m => m.MovimientosNoAsociadosComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
+        // LC — el libro completo del mes. Solo aplica a un mes que nunca se subió.
+        path: 'libro-de-compras',
+        loadComponent: () => import('./modules/contabilidad/pages/libro-compras/libro-compras.component').then(m => m.LibroComprasComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_PURCHASE_BOOK_VER)]
+      },
+      {
         path: 'impuestos',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-impuestos.component').then(m => m.ContabilidadImpuestosComponent),
         canActivate: [permissionGuard(Permission.FISCAL_DIOT_VER)]
@@ -461,6 +480,15 @@ export const routes: Routes = [
       { path: 'pedido-real', redirectTo: 'pedido', pathMatch: 'full' },        // fusionada en Pedido
       { path: 'existencia-critica', redirectTo: 'pedido', pathMatch: 'full' }, // fusionada en Pedido
       {
+        // EXISTENCIA — la MISMA pantalla que /almacen/inventory/existencia, mismo componente y
+        // mismo permiso. Acá el comprador ve qué hay antes de decidir qué pedir; el componente
+        // vive en modules/almacen porque Almacén es el dueño del censo (igual que /dashboard
+        // importa los componentes de logistica/).
+        path: 'existencia',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
         path: 'asistente',
         loadComponent: () => import('./modules/compras/pages/compras-asistente.component').then(m => m.ComprasAsistenteComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_GESTIONAR)]
@@ -476,6 +504,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
       },
       {
+        // RA-PRO.45 — la vista inversa del "En camino" del Pedido: las OCs de Kepler que quedaron
+        // abiertas. Mismo permiso que Pedido porque es la otra cara del mismo dato.
+        path: 'oc-abiertas',
+        loadComponent: () => import('./modules/compras/pages/compras-oc-abiertas.component').then(m => m.ComprasOcAbiertasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)]
+      },
+      {
         path: 'proveedores',
         loadComponent: () => import('./modules/compras/pages/compras-proveedores.component').then(m => m.ComprasProveedoresComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PROVEEDORES_VER)]
@@ -486,22 +521,103 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_RED_VER)]
       },
       {
-        // CC ext — comprobantes de orden de entrada (remisión/factura + OCR sobre X-A-40).
+        // RE.13.1 — "Mis pendientes": la worklist del capturista de sucursal (scopeada por
+        // alcance, lo más viejo primero, con cámara). Es la puerta del proceso.
+        //
+        // RE.16.9 — pide GESTIONAR, no VER: acá TODO lo que se puede hacer (OCR, adjuntar,
+        // lote) exige GESTIONAR en el backend. Con VER a secas la pantalla se abría entera y
+        // el 403 llegaba recién al soltar el PDF. `direccion` ya está en ese caso hoy
+        // (VER sí, GESTIONAR no). El que sólo observa entra por el Centro de control.
         path: 'entradas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-pendientes.component').then(m => m.ComprasEntradasPendientesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_GESTIONAR)],
+        // RE.17.2 — la bandeja de PDFs ya leídos por OCR no vive en el servidor hasta que se
+        // envía: salir sin avisar tira el trabajo (y las llamadas de visión ya pagadas).
+        canDeactivate: [unsavedChangesGuard]
+      },
+      {
+        // RE.3 — el calendario de pago. Permiso de LECTURA de entradas: es una vista derivada
+        // del vencimiento que ya trae la orden, no una operación sobre dinero.
+        path: 'vencimientos',
+        loadComponent: () => import('./modules/compras/pages/compras-vencimientos.component').then(m => m.ComprasVencimientosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+
+      // ── RE.16 — Centro de control: lo que el administrador OBSERVA, en 4 pestañas ────────
+      // Antes eran items de sidebar sueltos y se leían como módulos distintos. Las rutas
+      // viejas quedan como redirect: hay links pegados en chats y en Compras 360.
+      {
+        // RE.16.2 — cobertura por sucursal + quién tiene permiso de subir en cada una.
+        path: 'entradas/control',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-control.component').then(m => m.ComprasEntradasControlComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // CC ext — la vista completa (auditoría por línea + conciliación + validación). Es el
+        // único camino "tengo el papel y no sé de qué entrada es", por eso sigue viva.
+        path: 'entradas/control/ordenes',
         loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
+      {
+        // RE.20.1 — la MISMA pantalla con el otro lente. `Compras 360` era un componente aparte
+        // (1,059 líneas), con su propio endpoint, su propio detalle y su propia paginación
+        // **sobre la misma entidad**: una fila por orden de entrada. No era solape de datos —
+        // era la misma fila con dos preguntas, y nadie sabía cuál de las dos abrir. Tanto que
+        // la otra ya se había construido adentro un lente de "cumplimiento".
+        //
+        // Absorbe ÉSTA y no al revés por dos razones medidas (2026-08-29):
+        //   1. `COMPRAS_360_VER` ⊂ `COMPRAS_ENTRADAS_VER` — todo rol con 360 tiene ENT_VER, y
+        //      `auxiliar_tienda` (4 personas) tiene ENT_VER SIN 360. Fusionar hacia 360 los
+        //      dejaba afuera; hacia acá no pierde nadie.
+        //   2. Acá viven las escrituras (adjuntar/validar/devolver/descartar, 3 permisos), el
+        //      alcance, el carril y la conciliación por línea RE.11. Mover columnas hacia
+        //      adentro es aditivo; mover escrituras hacia afuera es riesgoso.
+        //
+        // Ruta propia y no un `?lente=` a secas para que el sidebar no marque dos items a la vez.
+        path: 'costo-por-compra',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas.component').then(m => m.ComprasEntradasComponent),
+        data: { lente: 'dinero' },
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      // El nombre viejo sigue vivo como redirect: hay links pegados en chats y en el detalle de
+      // otras pantallas. Misma regla que los redirects de RE.16.
+      { path: 'compras-360', redirectTo: 'costo-por-compra', pathMatch: 'full' },
+      {
+        // RE.14 — la misma recepción capturada dos veces (sucursal + oficinas 9.95). Ver el par y
+        // dictaminar los dudosos. Se entra con VER; los botones piden VALIDAR (mueve el conteo).
+        path: 'entradas/control/gemelas',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-gemelas.component').then(m => m.ComprasEntradasGemelasComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
+        // RE.16.3 — parámetros del proceso (arranque, tolerancia, los dos SLA, tope de lote).
+        // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
+        path: 'entradas/control/ajustes',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-ajustes.component').then(m => m.ComprasEntradasAjustesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VALIDAR)],
+        // RE.17.2 — mover el arranque o el SLA recalcula el tablero de las 9 sucursales; la
+        // pantalla ya decía "hay cambios sin guardar" y después te dejaba salir en silencio.
+        canDeactivate: [unsavedChangesGuard]
+      },
+
+      // Rutas viejas → su lugar nuevo. `lote` desaparece como pantalla: soltar N PDFs en la
+      // tabla de pendientes ES el lote (una pantalla menos que aprender).
+      { path: 'entradas/lote', redirectTo: 'entradas', pathMatch: 'full' },
+      { path: 'entradas/todas', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
+      { path: 'entradas/gemelas', redirectTo: 'entradas/control/gemelas', pathMatch: 'full' },
+      // `[RE.24]` La cabina de revisión sale de uso (decisión de Edgar, 2026-09-02). Validar y
+      // rechazar ya viven en la lista de órdenes, que además es la pantalla donde se llega
+      // buscando un folio. Se redirige y NO se borra: el componente queda en el repo, y una
+      // ruta muerta que tira 404 es peor que una que lleva a donde sí se trabaja (hay links
+      // guardados y el Centro de control apuntaba acá). Angular conserva los query params, así
+      // que el `?suc=30` con el que llegaba desde Cobertura sigue filtrando.
+      { path: 'entradas/revision', redirectTo: 'entradas/control/ordenes', pathMatch: 'full' },
       {
         // RE.10 — descuentos/apoyos + facturas duplicadas (ajustes de compra X-D-40/55).
         path: 'descuentos',
         loadComponent: () => import('./modules/compras/pages/compras-descuentos.component').then(m => m.ComprasDescuentosComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_DESCUENTOS_VER)]
-      },
-      {
-        // CXP.3 — "Compras 360" (el Excel): recepción/factura + OC + ajuste + neto en un grid.
-        path: 'compras-360',
-        loadComponent: () => import('./modules/compras/pages/compras-compras360.component').then(m => m.ComprasCompras360Component),
-        canActivate: [permissionGuard(Permission.COMPRAS_360_VER)]
       },
       {
         // CXP.4 — Costo neto (landed cost) por proveedor: compras − descuento efectivo.
@@ -558,17 +674,72 @@ export const routes: Routes = [
         canActivate: [almacenHomeGuard],
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
       },
-      {
-        path: 'inventory',
-        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
-      },
+      // ── Pantallas de FOCO (handheld) — Fase WMS.1 ─────────────────────
+      // Cuelgan FUERA del shell de área a propósito: NO llevan barra de tabs.
+      // Una barra acá invita al operario a irse a otra pantalla a media tarima
+      // (el conteo además tiene `countFocusGuard` en canDeactivate). Van ANTES
+      // del shell porque el router matchea en orden y el shell tiene path ''.
       {
         // Fase I.2 — página del contador (handheld, conteo ciego)
         path: 'inventory/count',
         loadComponent: () => import('./modules/comercial/pages/comercial-inventory-count.component').then(m => m.ComercialInventoryCountComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_CONTAR)],
         canDeactivate: [countFocusGuard]
+      },
+      {
+        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
+        path: 'inventory/recepcion-sesiones/:id',
+        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
+        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
+        // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
+        //
+        // ⛔ INTOCABLE (decisión del equipo, 2026-08-31): queda como estaba —
+        // item propio de sidebar, FUERA del shell de áreas y por lo tanto SIN
+        // barra de tabs. No moverlo a un área en refactors futuros.
+        path: 'movimientos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+      },
+      {
+        // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
+        // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
+        // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
+        // Pantalla de foco: se entra escaneando el folio del papel, no eligiendo
+        // de una lista, así que no lleva barra de tabs.
+        path: 'anden',
+        loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      // ── Áreas con barra de tabs — Fase WMS.1 ──────────────────────────
+      // Padre con `path: ''`: las URLs de los hijos NO cambian, así que los
+      // deep-links y los redirects viejos (`/comercial/inventory/**`) siguen
+      // valiendo. La barra `liquid` se pinta UNA sola vez en el shell, en vez
+      // de repetir `<app-page-tabs>` en los ~19 componentes. El mapa
+      // área → tabs vive en `modules/almacen/almacen-tabs.ts`.
+      // Va AL FINAL: un padre con path vacío matchea cualquier URL restante.
+      {
+        path: '',
+        loadComponent: () => import('./modules/almacen/almacen-area-shell.component').then(m => m.AlmacenAreaShellComponent),
+        children: [
+      {
+        // EXISTENCIA — el censo físico, derivado del ERP (el ODS). MISMO componente que
+        // /compras/existencia y MISMO permiso: es la misma pantalla para las dos audiencias
+        // (precedente vivo: Caducidades en /almacen + /tienda).
+        path: 'inventory/existencia',
+        loadComponent: () => import('./modules/almacen/pages/almacen-existencia.component').then(m => m.AlmacenExistenciaComponent),
+        canActivate: [permissionGuard(Permission.EXISTENCIA_VER)]
+      },
+      {
+        // OJO: esta pantalla se llamaba "Existencias" y NO lo es — lee `commercial.stock`, el
+        // libro transaccional (acierta 91% contra el POS). Es la consola de AJUSTE y el único
+        // lugar con el apartado. El censo físico está arriba. No se retira porque la escritura
+        // vive acá; se re-rotuló a "Ajustes de stock" y lo declara en pantalla.
+        path: 'inventory',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventory.component').then(m => m.ComercialInventoryComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
       },
       {
         // Fase I.3 — supervisor: lista + apertura de folios
@@ -607,16 +778,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
-        // WMS-REC Pieza 1 — estación handheld de una sesión (escaneo + líneas + cierre)
-        path: 'inventory/recepcion-sesiones/:id',
-        loadComponent: () => import('./modules/almacen/pages/almacen-recepcion-sesion.component').then(m => m.AlmacenRecepcionSesionComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
-      },
-      {
         // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)
         path: 'inventory/ubicaciones',
         loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones.component').then(m => m.AlmacenUbicacionesComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_VER)]
+      },
+      {
+        // WMS-REC (ADR-044, Opción A) — Caducidades · Por fechar: la cola del bodeguero.
+        // Ruta hermana de 'inventory/caducidades' (hojas de anaquel), no su reemplazo:
+        // son dos trabajos distintos y los dos siguen existiendo.
+        path: 'inventory/por-fechar',
+        loadComponent: () => import('./modules/almacen/pages/almacen-caducidades-por-fechar.component').then(m => m.AlmacenCaducidadesPorFecharComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
       },
       {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
@@ -687,12 +860,7 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/pages/almacen-cuadre.component').then(m => m.AlmacenCuadreComponent),
         canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
-      {
-        // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
-        // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
-        path: 'movimientos',
-        loadComponent: () => import('./modules/almacen/pages/almacen-movimientos.component').then(m => m.AlmacenMovimientosComponent),
-        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER)]
+        ]
       },
     ]
   },
@@ -736,6 +904,11 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo.component').then(m => m.TiendaArqueoComponent),
         canActivate: [anyPermissionGuard(Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR)],
         canDeactivate: [unsavedChangesGuard]
+      },
+      {
+        path: 'arqueos',
+        loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-historial.component').then(m => m.TiendaArqueoHistorialComponent),
+        canActivate: [permissionGuard(Permission.STORE_ARQUEO_VER)]
       },
       {
         path: 'analisis-semanal',

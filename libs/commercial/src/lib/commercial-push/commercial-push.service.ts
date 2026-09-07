@@ -91,9 +91,14 @@ export class CommercialPushService {
       });
   }
 
-  async unsubscribe(endpoint: string): Promise<void> {
+  async unsubscribe(endpoint: string, userId?: string | null): Promise<void> {
     if (!endpoint) return;
-    await this.knex(TABLE).where({ endpoint }).del();
+    // `[AUTHZ-HARD.1]` Acotado al dueño: la tabla no tiene RLS, así que sin el filtro por user_id
+    // cualquiera borraba la suscripción push de otro pasando su endpoint. Con userId presente,
+    // sólo borra la fila que además es suya (el endpoint es único, pero el filtro es la defensa).
+    const q = this.knex(TABLE).where({ endpoint });
+    if (userId) q.andWhere({ user_id: userId });
+    await q.del();
   }
 
   /**

@@ -10,8 +10,6 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, ExpiringLot, Warehouse } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_ANALYTICS_TABS } from '../inventory-tabs';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 
@@ -22,14 +20,13 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 @Component({
   selector: 'app-comercial-inventory-expiring',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, PageTabsComponent, MetricCardComponent, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, MetricCardComponent, ProductSearchComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
       <p-toast></p-toast>
     
-      <app-page-tabs [tabs]="inventoryTabs" />
     
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -103,7 +100,6 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
   `],
 })
 export class ComercialInventoryExpiringComponent {
-  readonly inventoryTabs = INV_ANALYTICS_TABS;
 
   readonly dayOptions = [
     { label: 'Próx. 7 días', value: 7 },

@@ -146,7 +146,11 @@ const matchR = (total, sub, val) => {
         FROM analytics.erp_supplier_payments c
         LEFT JOIN (SELECT sucursal, doc_prefix, folio, count(*) n FROM finance.supplier_payment_proofs GROUP BY sucursal, doc_prefix, folio) d
           ON c.sucursal=d.sucursal AND c.doc_prefix=d.doc_prefix AND c.folio=d.folio
-        WHERE c.tenant_id=? AND c.sucursal=? AND c.doc_prefix=? AND c.folio=?`, [T, SH.sucursal, dp, SH.folio])).rows[0].deposits;
+        WHERE c.tenant_id=? AND c.sucursal=? AND c.doc_prefix=? AND c.folio=?`, [T, SH.sucursal, dp, SH.folio])).rows[0]?.deposits ?? 0;
+      // Sin fila para ese doctype hay CERO comprobantes contados, que es exactamente lo que la
+      // aserción de aislamiento afirma. Antes reventaba con "cannot read 'deposits' of undefined"
+      // cuando el folio de muestra no existía además como transferencia — un smoke que fallaba
+      // por la data, no por el código.
       ok(Number(await isoJoin('XD2501')) === 1, 'aislamiento: el comprobante cuenta sobre el cheque (XD2501)');
       ok(Number(await isoJoin('XD2601')) === 0, 'aislamiento: NO se filtra a la transferencia (XD2601) del mismo folio');
 

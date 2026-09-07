@@ -9,6 +9,7 @@ import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
+import { CommandCenterDashboard } from '@megadulces/contracts';
 
 @ApiTags('commercial-analytics')
 @ApiBearerAuth()
@@ -91,6 +92,53 @@ export class CommercialAnalyticsController {
   @ApiOperation({ summary: 'Serie diaria de venta real (revenue/units/tickets) para sparklines' })
   networkDailySeries(@Query('from') from?: string, @Query('to') to?: string) {
     return this.service.networkDailySeries({ from, to });
+  }
+
+  @Get('command-center')
+  @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)
+  @ApiOperation({
+    summary:
+      'BFF del Command Center (ADR-052): los 7 paneles COMMERCIAL_ANALYTICS_VER en 1 respuesta tipada (contrato compartido en libs/contracts). Los paneles con otro permiso (erp-customers=CUSTOMERS360_VER, conversion/nba=intelligence) siguen como llamadas aparte para NO bypassear su gate.',
+  })
+  async commandCenter(): Promise<CommandCenterDashboard> {
+    // Mismos parámetros que el dashboard usaba en sus 11 llamadas sueltas, para que el
+    // BFF sea un reemplazo EXACTO (misma data): ventana 30d, low-stock threshold 200,
+    // inactivos limit 5. Ver command-center.component.ts → loadAll().
+    const to = new Date();
+    const from = new Date(to.getTime() - 29 * 86400_000);
+    const fromIso = from.toISOString().slice(0, 10);
+    const toIso = to.toISOString().slice(0, 10);
+    const [
+      overview,
+      top_products,
+      sales_by_brand,
+      daily_series,
+      low_stock,
+      inactive_customers,
+      ranking_out_of_stock,
+    ] = await Promise.all([
+      this.service.networkOverview(),
+      this.service.networkTopProducts('8', { share: false }),
+      this.service.networkSalesByBrand(),
+      this.service.networkDailySeries({ from: fromIso, to: toIso }),
+      this.service.lowStock('200'),
+      this.service.inactiveCustomers('30', '5'),
+      this.service.rankingOutOfStock({ limit: 10, topN: 200 }),
+    ]);
+    // El BFF es el punto donde se hace CUMPLIR el contrato: valida en runtime que
+    // los 7 paneles cuadren con `CommandCenterDashboard` (ADR-052). Si un service
+    // devuelve una forma que viola el contrato, revienta acá — drift visible, no
+    // silencioso. `.parse` acepta `unknown`, así que también resuelve el gap de que
+    // los métodos del service estén tipados suelto (source: string, campos any).
+    return CommandCenterDashboard.parse({
+      overview,
+      top_products,
+      sales_by_brand,
+      daily_series,
+      low_stock,
+      inactive_customers,
+      ranking_out_of_stock,
+    });
   }
 
   @Get('top-customers')
@@ -543,23 +591,23 @@ export class CommercialAnalyticsController {
   @Get('sell-out/warehouses')
   // Lookup compartido: Sell-Out + /comercial/salidas (filtro de sucursal).
   @RequireAnyPermission(Permission.COMMERCIAL_SELLOUT_VER, Permission.COMMERCIAL_SALIDAS_VER)
-  @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta (para el selector del reporte).' })
-  sellOutWarehouses() {
-    return this.service.sellOutWarehouses();
+  @ApiOperation({ summary: 'RS — Almacenes/sucursales con venta EN EL RANGO (para el selector del reporte).' })
+  sellOutWarehouses(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutWarehouses(from, to);
   }
 
   @Get('sell-out/canales')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
-  @ApiOperation({ summary: 'RS.4 — Árbol CANAL (Sucursal/RD/RV/Mayoreo → sucursales) para el slicer.' })
-  sellOutCanales() {
-    return this.service.sellOutCanales();
+  @ApiOperation({ summary: 'RS.4 — Árbol CANAL (Sucursal/RD/RV/Mayoreo) para el slicer, acotado al rango.' })
+  sellOutCanales(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutCanales(from, to);
   }
 
   @Get('sell-out/vendors')
   @RequirePermissions(Permission.COMMERCIAL_SELLOUT_VER)
-  @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR Wincaja (Mayoreo/RD/RV → vendedores) para el slicer.' })
-  sellOutVendors() {
-    return this.service.sellOutVendors();
+  @ApiOperation({ summary: 'RS.4 — Árbol VENDEDOR (Mayoreo/RD/RV → vendedores) para el slicer, acotado al rango.' })
+  sellOutVendors(@Query('from') from?: string, @Query('to') to?: string) {
+    return this.service.sellOutVendors(from, to);
   }
 
   @Get('sell-out')
@@ -761,13 +809,73 @@ export class CommercialAnalyticsController {
     @Query('to') to?: string,
     @Query('sku') sku?: string,
     @Query('client') client?: string,
+    @Query('unit') unit?: string,
   ) {
     return this.service.salesByRouteDetail(route, year ? Number(year) : new Date().getFullYear(), {
       from: from?.trim() || undefined,
       to: to?.trim() || undefined,
       sku: sku?.trim() || undefined,
       client: client?.trim() || undefined,
+      unit: unit?.trim() || undefined,
     });
+  }
+
+  @Get('sales-by-route/tickets')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR2 — Tickets de una ruta, paginado server-side. `route` es obligatoria (sin scope barre la tabla-hecho). '
+      + 'Filtros: from/to o year, client, sku, unit, payment_method, doc_type, min/max_revenue, q. '
+      + 'sort=date|revenue|units|lines|margin · dir=asc|desc · limit≤500.',
+  })
+  salesByRouteTickets(
+    @Query('route') route: string,
+    @Query('year') year?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('client') client?: string,
+    @Query('sku') sku?: string,
+    @Query('unit') unit?: string,
+    @Query('payment_method') paymentMethod?: string,
+    @Query('doc_type') docType?: string,
+    @Query('min_revenue') minRevenue?: string,
+    @Query('max_revenue') maxRevenue?: string,
+    @Query('q') q?: string,
+    @Query('sort') sort?: string,
+    @Query('dir') dir?: string,
+    @Query('limit') limit?: string,
+    @Query('offset') offset?: string,
+  ) {
+    return this.service.salesByRouteTickets({
+      route,
+      year: year ? Number(year) : undefined,
+      from: from?.trim() || undefined,
+      to: to?.trim() || undefined,
+      client: client?.trim() || undefined,
+      sku: sku?.trim() || undefined,
+      unit: unit?.trim() || undefined,
+      paymentMethod: paymentMethod?.trim() || undefined,
+      docType: docType?.trim() || undefined,
+      minRevenue: minRevenue != null && minRevenue !== '' ? Number(minRevenue) : undefined,
+      maxRevenue: maxRevenue != null && maxRevenue !== '' ? Number(maxRevenue) : undefined,
+      q: q?.trim() || undefined,
+      sort: sort as any,
+      dir: dir as any,
+      limit: limit ? Number(limit) : undefined,
+      offset: offset ? Number(offset) : undefined,
+    });
+  }
+
+  @Get('sales-by-route/ticket')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RR2 — Un ticket con sus renglones: unidad en la que se vendió, precio unitario, equivalencia en cajas '
+      + '(factor canónico, sólo si el renglón se vendió en esa unidad), costo/margen e impuestos. '
+      + 'Param: key = `source|route|YYYY-MM-DD|consecutivo` (el folio no es único entre rutas y días).',
+  })
+  salesByRouteTicket(@Query('key') key: string) {
+    return this.service.salesByRouteTicket(key);
   }
 
   @Get('sales-by-route/closure-reconciliation')

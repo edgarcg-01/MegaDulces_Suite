@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, Input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, Input, input } from '@angular/core';
 
 import { SkeletonModule } from 'primeng/skeleton';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
@@ -24,27 +24,27 @@ type OrdersMode = 'pending' | 'history';
       <div class="surf-grid">
         <!-- HERO: ventas (sparkline de monto diario) -->
         <app-metric-card class="panel-col-6" [large]="true"
-          [label]="mode === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana'"
-          [value]="totalAmount" format="currency" accent="var(--action)"
-          [variant]="series.length > 1 ? 'sparkline' : 'plain'" [series]="series"
-        [sub]="total + (total === 1 ? ' pedido' : ' pedidos') + ' en período'"></app-metric-card>
-        @if (mode === 'pending') {
+          [label]="mode() === 'pending' ? 'Ventas potenciales' : 'Ventas en la ventana'"
+          [value]="totalAmount()" format="currency" accent="var(--action)"
+          [variant]="series().length > 1 ? 'sparkline' : 'plain'" [series]="series()"
+        [sub]="total() + (total() === 1 ? ' pedido' : ' pedidos') + ' en período'"></app-metric-card>
+        @if (mode() === 'pending') {
           <app-metric-card class="panel-col-3" variant="progress"
-            label="Por aprobar" [value]="statusCounts['pending_approval'] ?? 0" [goal]="windowTotal"
+            label="Por aprobar" [value]="statusCounts()['pending_approval'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--warn-fg)" sub="requieren acción"></app-metric-card>
           <app-metric-card class="panel-col-3" variant="progress"
-            label="Borradores" [value]="statusCounts['draft'] ?? 0" [goal]="windowTotal"
+            label="Borradores" [value]="statusCounts()['draft'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--c-text-3)" sub="sin enviar a aprobación"></app-metric-card>
         }
-        @if (mode === 'history') {
+        @if (mode() === 'history') {
           <app-metric-card class="panel-col-2" variant="progress"
-            label="En curso" [value]="statusCounts['confirmed'] ?? 0" [goal]="windowTotal"
+            label="En curso" [value]="statusCounts()['confirmed'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--info-fg)" sub="a despachar"></app-metric-card>
           <app-metric-card class="panel-col-2" variant="progress"
-            label="Entregados" [value]="statusCounts['fulfilled'] ?? 0" [goal]="windowTotal"
+            label="Entregados" [value]="statusCounts()['fulfilled'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--ok-fg)" sub="cerrados"></app-metric-card>
           <app-metric-card class="panel-col-2" variant="progress"
-            label="Cancelados" [value]="statusCounts['cancelled'] ?? 0" [goal]="windowTotal"
+            label="Cancelados" [value]="statusCounts()['cancelled'] ?? 0" [goal]="windowTotal"
           format="number" accent="var(--bad-fg)" sub="en el período"></app-metric-card>
         }
       </div>
@@ -65,16 +65,16 @@ export class OrderKpisComponent {
     return this._loading && !this._seen;
   }
 
-  @Input() mode: OrdersMode = 'pending';
-  @Input() totalAmount = 0;
-  @Input() total = 0;
-  @Input() statusCounts: Record<string, number> = {};
+  readonly mode = input<OrdersMode>('pending');
+  readonly totalAmount = input(0);
+  readonly total = input(0);
+  readonly statusCounts = input<Record<string, number>>({});
   /** J16 — serie diaria de monto para el sparkline del hero. */
-  @Input() series: number[] = [];
+  readonly series = input<number[]>([]);
 
   /** Total del libro en la ventana (suma de todos los status, independiente del filtro). */
   get windowTotal(): number {
-    const c = this.statusCounts;
+    const c = this.statusCounts();
     return (
       (c['pending_approval'] || 0) +
       (c['draft'] || 0) +

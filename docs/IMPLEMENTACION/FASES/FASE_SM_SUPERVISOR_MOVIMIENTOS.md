@@ -205,6 +205,268 @@ Builds api+view OK. Smoke DB verde: join liga arqueo→corte (diff_real $500, in
 
 **Pendiente prod:** mig `20260730120000` a Railway + redeploy api+view + re-login.
 
+## SM.10 — El arqueo de la cajera, ciego de verdad + alcance real (✅ local 2026-08-27)
+
+Tres huecos que quedaron abiertos en SM.9, los tres en `/tienda/arqueo`.
+
+**1. El ciego dejaba de serlo al primer guardado.** `StoreArqueoController` quitaba los `kepler_*` pero seguía devolviendo `esperado` y `diff_real`, y la pantalla los revelaba ("Guardar y **revelar diferencia**"). Con la diferencia en la mano el esperado se despeja (`esperado = contado + diferencia`), y como `submit` es un **UPSERT** por `(sucursal, caja, fecha, cajero, tipo)`, la cajera podía recapturar "ajustando" hasta cuadrar — que es exactamente el mecanismo detrás del 73 % de cortes exactos al centavo de SM.7. Ahora:
+
+- el backend **no manda los campos**: `proyectar()` los quita salvo `RECONCILIATION_VER` (o admin de plataforma). Se ocultan `esperado` y `diff_real` **juntos**, a propósito;
+- el `submit` de la cajera responde lo mínimo (`tipo`, `total_contado`, `reveal:false`); se quitó también `ambiguous`, que filtraba que hay más de un corte en su caja;
+- el **autolineado SM.9 no cambia**: el descuadre se levanta igual en la bandeja del supervisor + WS. Ocultar el número a la cajera no es dejar de detectarlo.
+
+**2. El alcance venía de la ficha, no del alcance** (`[ID.4]`, ADR-050). Vivía acá el fail-OPEN `user?.warehouse_code || query.warehouse_code`. Ahora la lectura va por `ScopeService.readParam()` (`warehouse_codes[]`) y la escritura por `assertCanWrite` → **403** al capturar fuera, no un filtro que se salta mandando otro `warehouse_code` en el body. Se puede expresar "la 01 y la 03" con un `user_scopes` `listed`; con una sola sucursal el comportamiento es idéntico al de antes. `BlindCountService.list` acepta `warehouse_codes` (`[]` → cero filas, no 403: un historial vacío es una respuesta legítima).
+
+**3. Las flechas del pad sumaban billetes.** El conteo usaba `p-inputnumber`, cuyo spinner incrementa con ↑/↓ — una flecha de más cambia el conteo de una denominación sin que la cajera lo note, y eso es un descuadre fabricado por la UI. Pasó a input de texto con navegación propia: **↑ sube, ↓/Enter bajan**, el foco selecciona lo que hay y sólo entran dígitos.
+
+Además: `DataScopeService` en el front (`GET /users/me/scope`, cacheado — primer consumidor del alcance desde la UI) alimenta el selector de sucursal, la columna Sucursal del historial cuando hay más de una, y el empty-state "tu usuario no tiene sucursal asignada".
+
+**Verificado.** Smoke `http-store-arqueo-test.js` **28/28** contra `platform_test` (afirma la AUSENCIA de las claves, no su valor: un `esperado: null` seguiría siendo un contrato que filtra) + contraste con un supervisor sembrado que sí las recibe + el faltante de $2,000 que la cajera no vio y la bandeja sí registró. Builds api+view verdes. Padrón: las **27 cajeras** (`rol cajero`) resuelven `own` con sucursal asignada → nadie pierde acceso; y ese rol **sólo** tiene los permisos de arqueo (sin `STORE_ANALYTICS_VER` ni `STORE_LIVE_VER`), así que no hay otra pantalla por donde ver la venta.
+
+**Pendiente prod:** migs **`20260826120000` + `20260826121000`** (alcance) en Railway — sin ellas `ScopeService` no tiene de dónde leer — + redeploy api+view. **No requiere re-login** (el alcance no viaja en el JWT).
+
+**Decisión abierta (Edgar):** `auxiliar_tienda` (3 usuarios) captura arqueo y tiene `STORE_ANALYTICS_VER` pero no `RECONCILIATION_VER` → con este cambio deja de ver la diferencia en el arqueo, pero puede ver la venta en Análisis. O se le quita la analítica, o se lo trata como supervisor.
+
+## SM.11 — El arqueo de Kepler, jalado del ODS + firma del que cuenta (✅ local 2026-08-27)
+
+Para que el arqueo ciego sirva hace falta contra qué compararlo. Esto trae ese lado.
+
+### Qué ES el arqueo de Kepler (verificado sobre 3,048 cortes cerrados del ODS)
+
+| Columna | Significado | Confianza |
+|---|---|---|
+| `c15` | efectivo **esperado** | ✅ |
+| `c25` | efectivo **contado** — el arqueo | ✅ como dato, ⚠️ como hecho |
+| `c35` | **diferencia** (`c15 − c25`) | ✅ **3048/3048** coherentes |
+| `c48` | efectivo retirado | ✅ monto (604 valores distintos) |
+| `c43` | **billetes** | ✅ poblado en 2,901/3,051 (rectificado 2026-09-02) |
+| `c44` | **monedas** | ✅ poblado en 2,807/3,051 (rectificado 2026-09-02) |
+| `c45` | otros — **NO** es efectivo contado | ⚠️ no sumar al arqueo |
+| `c46`/`c47` | límites/parámetros | ⚠️ 42 y 44 valores distintos en 3,048 filas → **no son montos** |
+| `c49` | ≈ `c15` — **no** es la venta total (venta = `c15+c16+c17`) | ✅ (ya corregido en SM.7) |
+
+Dos cosas que hay que tener presentes al comparar:
+
+1. **`c25` no es un conteo físico verificado, es un número declarado.** El **74.5%** de los cortes cierra con `c25` idéntico a `c15` al centavo. Comparar nuestro arqueo ciego contra `c25` mide *contra qué se declaró*; compararlo contra `c15` mide el hueco real. Por eso `compare()` usa `c15` como esperado y guarda `c25`/`c35` solo para levantar el flag `kepler_enmascaro`.
+2. **Kepler no guarda denominaciones**, solo el total. El detalle pieza por pieza vive en `wincaja.arqueos` (3 sucursales) y en `reconciliation.blind_counts`. La comparación es **total contra total**.
+
+**Rectificación (2026-09-02).** Una versión previa de esta tabla daba `c43/c44/c45` por no confiables porque su suma reproducía `c25` en apenas 428/3048 cortes. El análisis estaba mal armado: metía `c45` en la suma y exigía tolerancia de centavos. La identidad que sí cierra es
+
+    c43 (billetes) + c44 (monedas) + c48 (retirado) = c25 (contado)   → 63.6%
+
+porque lo que queda en el cajón al cerrar es lo contado **menos** las sangrías del turno. Ejemplo real: `590 + 67 + 9,000 = 9,657` contra un contado de `9,657.16`. En la sucursal 04, que no registra retiros así, cuadra directo (48% exacto, desvío mediano $16.68). Cuando no cierra, el hueco suele ser un número redondo ($9,000) = un retiro que no quedó en `c48`, lo que sirve como chequeo de coherencia del corte.
+
+Lo que Kepler efectivamente **no** tiene sigue siendo el conteo **por denominación** (cuántos billetes de $500): eso vive solo en `wincaja.arqueos` (3 sucursales) y en el nuestro. Corrección aplicada a `KEPLER_TABLAS_COMPLETO.md` y a la cabecera del importer.
+
+### Cómo se jala: `load-cash-cuts-from-ods.js`
+
+Hermano de `import-cash-cuts.js` — **misma tabla destino, misma llave de conflicto**, otra fuente: `kepler_ods.kdpv_folio_caja`, que el CDC ya replica **dentro de la misma base** que el destino. Consecuencias: un solo UPSERT en SQL (no viajan filas por la red), corre desde cualquier lado (Railway incluido, no solo la máquina de feeds), y la frescura es la del CDC en vez de la del último nightly. El importer de LAN queda como respaldo para sucursales que el ODS no cubra.
+
+Detalles que el SQL tiene que respetar: `DISTINCT ON (sucursal, caja, fecha, folio)` porque el CDC puede reemitir la misma fila y el `ON CONFLICT` reventaría con *"cannot affect row a second time"*; `handoff` **no** se lista (es `GENERATED ALWAYS`); y el corte ABIERTO (`c10='1800-01-01'`, montos en cero) no es un arqueo — se filtra.
+
+Cargado en `platform_test`: **3,044 cortes**, 6 sucursales, oct-2024 → ago-2026, 248 con descuadre declarado ≥$50 y **$509,869** de diferencias acumuladas.
+
+### La firma: el arqueo queda a nombre de quien lo hace
+
+El `username` **es** el código de cajero de Kepler. Verificado contra los cortes reales: `upper(username) = upper(cash_cuts.cajero_cierre)` liga a cada cajera con los suyos — `10c02`→48, `42dmar`→204, `40ammv`→172, `54tysl`→120. Es además la llave con la que `compare()` encuentra el turno.
+
+- **El backend estampa `cajero_code`** desde el usuario autenticado. A la cajera se le **impone** el suyo: firmar un conteo de efectivo a nombre de otra persona no es un campo de formulario. El supervisor sí puede capturar por alguien (relevo, cajera sin acceso al sistema) y, si no dice nada, queda a su nombre.
+- El autofill del front dejó de estar gateado por tener sucursal propia — de ahí que el campo apareciera **vacío** al entrar con un rol global — y para la cajera se muestra fijo, no como input.
+- `captured_by` sigue guardando el username tal cual (auditoría de quién tecleó), separado de `cajero_code` (a quién se le imputa el turno).
+
+Smoke `http-store-arqueo-test.js` **30/30**: manda un `cajero_code` falseado y verifica que la fila quede a nombre de quien captura. La prueba se auto-refuerza — si el backend respetara el body, el motor no encontraría el turno y el paso del autolineado se caería solo.
+
+**Pendiente prod:** correr `load-cash-cuts-from-ods.js --apply` contra Railway (requiere que `kepler_ods.kdpv_folio_caja` esté replicada ahí) y decidir si reemplaza al `import-cash-cuts` del nightly o convive.
+
+### El desglose por denominación no existe en ningún ERP (cerrado 2026-09-02)
+
+Pregunta recurrente: *"¿por qué no jalás el arqueo del corte pieza por pieza —$500 × 4, $200 × 3— como lo hace Wincaja?"*. Se agotó la búsqueda, con método, y la respuesta es que **ese dato no se genera en ningún sistema**. Queda escrito para no volver a buscarlo.
+
+**Kepler — tres pruebas independientes, todas negativas:**
+
+1. **Barrido por forma del dato.** Se recorrieron las **1,275 columnas numéricas** de `KP_CONCENTRADA` (242 tablas con datos, incluidas las 3 de más de 2M de filas) buscando cualquier columna cuyos valores distintos fueran todos denominaciones mexicanas. Aparecieron 3 y ninguna es arqueo: `kdpv_descuxq.c5` (descuento por cantidad), `kduv.c5` (zonas de vendedor), `kdvtamano.c6` (tamaño de empresa).
+2. **Persecución del monto.** Un desglose guardado como *11 columnas de cantidades* (17, 1, 1, 2…) no lo encuentra el barrido anterior, porque las cantidades no parecen nada. Así que se persiguió el **total del corte**: `$59,995.54` aparece en **una sola columna de toda la base**, `kdpv_folio_caja.c25`. Si existiera una tabla de detalle, su fila padre cargaría ese total. No existe.
+3. **Conteo de columnas.** `kdpv_folio_caja` tiene exactamente 50 columnas (`c1`–`c49` + `sucursal`), todas identificadas. No hay lugar físico donde meter 11 conteos.
+
+**Wincaja — sí tiene denominaciones, pero NO del corte.** Leído en vivo del `.mdb` de Morelia Abastos: la tabla `Arqueos` (`Consecutivo, Folio, Caja, Denominacion, Cantidad`) parece el arqueo soñado, pero **su `Folio` no existe en `Cortes`** — ata a **`Retiros`**. Verificado con el folio 88036 caja 32:
+
+    500 × 15 + 200 × 4 + 100 × 22 + 50 × 12 + 20 × 10 = 11,300
+    Retiros.Folio 88036 → Monto 11,300 · Observacion 'BILLETE'
+
+O sea: Wincaja desglosa **cada sangría**, no el corte. (Lo confirma la vista `v_cash_denomination`, que trae `dotacion_inicial` y `por_diferencia_corte` — columnas de `Retiros`.) Y de todos modos no cubriría estas tiendas: Padre Hidalgo dejó de escribir en Wincaja el **26/06/2026** y su tabla `Arqueos` está **vacía**; La Piedad Abastos tiene el `.mdb` congelado en enero de 2024.
+
+**Consecuencia.** Para una tienda en Kepler, la tabla `$500 × 4 = $2,000` solo puede salir de que **alguien abra el cajón y cuente** — que es exactamente `reconciliation.blind_counts`. No es una integración pendiente: es el trabajo que el arqueo ciego existe para capturar. Un turno marcado "solo Kepler" es un turno que nadie contó, y ninguna fuente lo va a llenar por detrás.
+
+## SM.12–SM.19 — El arqueo como acto, no como formulario (✅ local 2026-08-27 → 2026-09-02)
+
+Ocho ajustes que comparten una sola idea: **el turno lo declara Kepler y el efectivo lo cuenta una persona**. Todo lo que la app puede dejar que alguien escriba a mano es una superficie para que el número salga distinto del hecho.
+
+- **SM.12 — nada de lo que identifica el turno se teclea.** Sucursal, caja, fecha y cajero llegan del corte de Kepler y son de solo lectura. `anclarAlTurno()` exige `cash_cut_folio`: caja y fecha se toman del turno, no del body. La captura **se habilita únicamente cuando Kepler ya pidió el corte** — el ERP dice cuándo toca, la app no inventa el momento.
+- **SM.12.1 — el cuadre se ve completo.** En pantalla conviven el total de Kepler y el nuestro, que es el que vale, con la diferencia entre ambos.
+- **SM.13 — cajas abiertas en vivo (solo encargadas).** Qué cajas están cobrando ahora y cuánto llevan vendido, leído del ODS (`kdm1`). La ventana es de 2 días, no "hoy": con `= hoy` la pantalla mostraba 0 mientras había 14 sesiones abiertas arrastradas del día anterior. Cruce `caja` con `c5::bigint::text` — el `numeric` contra `text` fallaba en silencio.
+- **SM.14 — historial por cajera y por quien validó.**
+- **SM.15 — todo en vivo, sin elegir fechas del pasado.** La pantalla va a la par de Kepler: cuando el ERP pide el corte, la app lo pide.
+- **SM.16 — no se puede saltar la fila.** `exigirElMasViejo()` rechaza capturar un cierre si hay uno anterior pendiente. El supervisor está exento (relevos, correcciones).
+- **SM.17 — aviso antes del corte.** La hora de corte tiene patrón: dos picos (mediodía y cierre), distintos por sucursal, con IQR de ±7–13 min en el de cierre. Se calcula la mediana por caja y modo, y la pantalla avisa que se acerca. Cuando la dispersión es grande el pronóstico no se muestra: un aviso que falla seguido deja de leerse.
+- **SM.18 — el desglose de Kepler.** `c43` billetes / `c44` monedas, ahora sí bien decodificados (ver rectificación arriba), comparados contra nuestro conteo pieza por pieza. Se agregó un chequeo `kepler_desglose_cuadra` = `|billetes + monedas + retirado − contado| < 1`.
+- **SM.19 — tarjetas por persona + ticket de 80 mm.** El historial dejó de ser una tabla de eventos: una tarjeta por cajera (iniciales, cortes, días, faltantes/sobrantes) con sus turnos desplegables — fecha, caja, horario, duración — y el desglose por denominación adentro. Cada corte se imprime en **formato ticket térmico** (`ticket-arqueo.ts`): 80 mm de papel pero maquetado a **72 mm**, que es el área imprimible real, en monoespaciada de 32 columnas y con dos firmas (cajera / encargada). La cajera ve solo sus propias tarjetas y sin nada del cuadre — un "faltante acumulado" sobre un único arqueo **es** la diferencia de ese arqueo, así que a ella también se le quitan los agregados.
+
+
+## SM.20 — El corte de Kepler llega solo (✅ local 2026-09-02)
+
+Edgar lo dijo en una línea: *"no debe existir ninguno sin arquear, Kepler lo genera, solo jálalo."* Al ir a verificarlo aparecieron **dos** cosas distintas debajo de esa frase, y conviene no confundirlas porque una era un bug y la otra es la tesis de toda la fase.
+
+### 1. El bug: había cortes que Kepler generó y nosotros no jalamos
+
+`analytics.cash_cuts` se llenaba **corriendo un CLI a mano**. Medido el 2026-09-02 sobre los últimos 30 días: el ODS tenía 515 cortes cerrados con dinero y nuestra tabla 499. Los **20 que faltaban** eran todos de la sucursal 02, con montos de $23,513 / $46,676 / $34,395 — más de $300k de efectivo declarado que la pantalla no mostraba. Y no los mostraba como *pendientes*: no los mostraba en absoluto, que es peor, porque un turno ausente no se persigue.
+
+Un dato que llega cuando alguien se acuerda de correr un script no es un dato. Como el origen (`kepler_ods.kdpv_folio_caja`) vive en **la misma base** que el destino, jalar el corte es un UPSERT de una sentencia: no viajan filas por la red, no depende de la máquina de feeds y cuesta milisegundos. Así que ahora se jala solo, por dos caminos que se cubren entre sí:
+
+- **`CashCutsSyncService`** con `@Cron` cada 10 min (la frescura pasa a ser la del CDC, minutos).
+- **Sync perezoso al abrir la pantalla**: `GET /store/arqueo/por-cajera` sincroniza antes de leer. Es best-effort a propósito — si el ODS está caído la pantalla muestra lo que ya había, en vez de romperse.
+
+El scope lo decide `commercial.warehouses` con un `JOIN` interno: un corte del ODS es del tenant dueño de esa sucursal, no de quien corra el job. El CLI se queda para backfills largos y para sucursales que el ODS no cubra.
+
+**Lo que el filtro deja fuera, y solo eso:** la caja **abierta** (Kepler la marca `c10 = 1800-01-01` — es una caja en operación, no un arqueo) y el turno que abrió y cerró en cero sin un peso (32 en 30 días, todos de segundos: aperturas fallidas). El corte descuadrado entra siempre; es justamente el que interesa.
+
+Smoke nuevo `test-newdb-cash-cuts-sync.js` **3/3**, y la aserción que importa es una sola: **cero cortes de Kepler sin espejo nuestro**. Se verificó que falla cuando debe — borrando una fila a mano el test la reporta con nombre y monto ($18,430.50) en vez de callarse.
+
+### 2. La tesis: "sin arquear" era una etiqueta que mentía
+
+La otra mitad no era un bug sino una palabra mal elegida. La pantalla marcaba `SIN ARQUEAR` y decía *"nadie contó el efectivo"* en turnos donde Kepler **sí** traía su cifra (contado, billetes, monedas, retirado) — la fila ni siquiera estaba vacía, mostraba esos números justo debajo del cartel.
+
+Kepler genera **su** arqueo. Lo que falta en esos turnos es **nuestro conteo físico**. Son cosas distintas y llamarlas igual borra el hallazgo que sostiene la fase: el **74.6%** de los cortes de Kepler cierra al centavo exacto contra el esperado, algo imposible en un conteo físico real. `c25` es un número **declarado**, no verificado.
+
+Entonces no se renombró a "arqueado" —eso habría dado por bueno un conteo que nadie hizo— sino a lo que es:
+
+- chip **`solo Kepler`** en vez de `SIN ARQUEAR`, con tooltip *"Kepler declaró este corte; nadie contó el efectivo a ciegas"*;
+- la fila **siempre muestra un monto** (el de Kepler cuando el nuestro no existe), así ningún turno se ve vacío;
+- el detalle dice *"cifra **declarada** al cerrar el corte, sin conteo físico a ciegas"*;
+- KPI y filtro pasan a **"sin conteo físico"**;
+- el ticket de 80 mm imprime el bloque **`ARQUEO DECLARADO EN KEPLER`** con su advertencia, en vez del desglose por denominación que no existe — para que el papel no pueda usarse como comprobante de un conteo que nadie hizo.
+
+**A la cajera se le sigue ocultando el monto** (SM.10): ve que su corte quedó sin contar, no cuánto declaró Kepler. Publicarle ese número sería darle el esperado por la puerta de atrás.
+
+**Pendiente prod:** redeploy api+view. No requiere migración ni re-login.
+
+## SM.21–SM.23 — Que el arqueo OCURRA, y que cubra el dinero completo (✅ local 2026-09-03)
+
+### SM.21 — El corte sin contar deja de ser invisible
+
+76 de 78 cortes sin conteo físico no es un dato que falte jalar: es trabajo que no se hizo. `CashCountSlaService` manda los vencidos a `reconciliation.discrepancies` con la regla `arqueo_no_realizado` — a la bandeja que el encargado ya abre, no a una cola nueva que nadie mira. **45 min** = aviso; **12 h** = crítico y `arqueo_no_verificable`, porque pasado eso el efectivo ya se depositó y el corte queda sin verificar de forma permanente: el hallazgo no se apaga, sube. `GET /cumplimiento` puso el número a la vista: **1% de los cortes con conteo físico, $5.8M sin verificar**.
+
+### SM.22 — El ticket, el idioma y el orden
+
+- El ticket pasó de resumen a **arqueo completo**: turno, duración, aviso de cambio de cajera, billetes/monedas por separado, tarjeta/transferencia/venta, observaciones con motivo y nota, firmas con fecha y hora, folio del arqueo. Se imprime **en la captura**, no en el historial: antes había que salir a buscar el corte, o sea firmar el respaldo media hora después del conteo.
+- **La app le hablaba a las cajeras en voseo argentino** ("tenés", "avisale", "contá"). Son de Michoacán y Guanajuato; en la pantalla donde se sella efectivo, la confianza en la herramienta es parte del control. Barrido completo del módulo Tienda y de los mensajes de error del backend.
+- El **orden de los turnos** lo decidía la posición en el arreglo (`i > 0`), no la fecha: salía accionable el corte del 02/09 con el del 01/09 bloqueado detrás. Y **SM.16 impedía CORREGIR** un conteo ya hecho, dejando congelada una cifra que la cajera sabe equivocada.
+
+### SM.23 — El aviso, el retiro, y el faltante inventado
+
+**El programa no avisaba.** El turno esperaba en la pantalla y si la cajera no la abría no se enteraba. La única alerta que salía sola era al supervisor, a los 45 minutos. Ahora el aviso le llega esté donde esté (barra fija en la raíz + notificación del navegador con la pestaña oculta), por un **room personal** del gateway `/store` — un aviso que no es tuyo se ignora, y a los dos días se ignoran todos.
+
+**El disparador de los $15,000 (decode nuevo).** Edgar lo describió y el ERP lo confirmó: `kdpv_folio_caja.c46` es el **límite de efectivo en caja** (en suc 01 vale exactamente $15,000, el valor más común: 206 de ~318 cortes) y `c47` el tope duro. Cuando la caja junta el límite, Kepler pide sacar el dinero y **sube `c48` en el turno ABIERTO** — verificado en vivo: suc 01 caja 1 con `c48 = 15,000.00` contra `c46 = 15,000.00`, sin cerrar.
+
+**Corrige un modelo equivocado:** SM.17 predecía el corte por HORA con la mediana histórica de cada caja. El disparador **no es el reloj, es el monto** — por eso algunas cajas daban dispersiones de ±210 min.
+
+**Dónde está el dinero, medido sobre 919 cortes:** el cajón se queda bajo el límite en el **89%** de los casos (promedio $8,977) mientras el contado promedia **$27,564** y lo retirado $18,148. O sea que **el 63–81% del efectivo sale en sangrías** y contar solo al cierre verifica un tercio.
+
+`blind_counts.tipo` acepta `retiro` (mig `20260903170000`; el rollback falla a propósito si ya hay retiros capturados). La detección es **stateless**: compara `c48` contra la suma de lo contado, sin guardar "último visto".
+
+### El faltante inventado (bug latente que encontró este trabajo)
+
+`diff_real = esperado − total_contado` **estaba mal** y nadie lo había visto: el `esperado` de Kepler es de TODO el turno e incluye el efectivo que ya salió en sangrías, mientras que el conteo del cierre es solo del cajón. Con los promedios reales —esperado $27,564 contra un cajón de $8,977— **acusaba a una cajera honesta de $18,587 de faltante**. Pasó desapercibido porque los dos únicos arqueos capturados eran de datos sembrados con retiro cero.
+
+La identidad correcta cierra el turno entero:
+
+    Σ retiros contados + cajón contado = esperado
+
+Y lo que no se contó **se declara aparte**, no se mezcla con el faltante: `retiros_sin_verificar` + `cobertura`. Un faltante real y "no lo contamos" son cosas distintas y no pueden sumar al mismo número. Verificado con el escenario real (esperado $20,000, $15,000 en sangrías, $5,000 en el cajón): `diff_real` pasa de **$15,000 inventados** a **$0**, con cobertura 25% sin contar los retiros y 100% contándolos.
+
+### El turno abierto que cruzó la medianoche
+
+La ventana de "solo hoy" (SM.21) se llevó por delante el turno **abierto** de ayer: la cajera lo sigue trabajando y no le aparecía nada. Es la "caja arrastrada" que el tablero ya vigila aparte — y en staging era la caja 1 de suc 01, con $15,000 retirados sin contar y sin nadie a quien pedírselo. Ahora el turno abierto entra siempre; la ventana solo acota los cerrados.
+
+### ⛔ Pendiente que NO es código: 16 códigos de Kepler sin usuario
+
+**114 cortes por $3,035,115** cuyos turnos no le aparecen a nadie en la pantalla de captura, porque el código de cajera del ERP no existe como usuario. `turnosPendientes` filtra por `upper(c8) = username`, así que sin usuario no hay a quién mostrárselo ni a quién avisarle.
+
+| Código | Sucursal | Cortes | Efectivo |
+|---|---|---|---|
+| `50C01` · `50C02` · `5050` · `5001` · `5002` · `5003` · `50C06` | Canindo | 43 | $1,580,880 |
+| `10AUX` · `21VUO` · `22EFM` · `23JHO` · `26VHGH` · `27MMP` · `28MEVL` | Padre Hidalgo | 57 | $1,087,295 |
+| `42MIDR` · `42BODGA` | La Piedad Abastos | 14 | $366,940 |
+
+Los `2xXXX` de Padre Hidalgo son las **rutas** (21, 22, 23, 26, 27, 28) y los `50xx` son **Canindo**. Se resuelve dando de alta usuarios con el código exacto de Kepler como username — no necesita código.
+
+## SM.25 — La fila del historial se abre a su respaldo (✅ local 2026-09-04)
+
+"Arqueos recientes" mostraba un total y nada más: `$1,888.00` y a confiar. Para
+validar hace falta ver **cómo se llegó a ese número** y **qué más hizo esa
+persona** — y las dos cosas vivían en otra pantalla, así que la encargada firmaba
+sin abrirla.
+
+Cada fila **se despliega** (`p-table` + `pRowToggler`, `dataKey="id"`) a dos bloques:
+
+1. **Nuestro conteo contra lo que Kepler declara.** El desglose pieza por pieza
+   (`$1000 × 1 = $1,000.00` … total, más el corte billetes/monedas) al lado de los
+   tres renglones del ERP — billetes, monedas, retirado — y su contado declarado.
+   El conteo por denominación **es la única evidencia** de cómo se armó el total:
+   Kepler no lo tiene (verificado sobre las 307 tablas del catálogo), existe solo
+   porque la cajera lo capturó. Se marcan las dos incoherencias que ya calculaba el
+   backend y nadie veía: `billetes + monedas + retirado ≠ contado` (suele ser un
+   retiro que nadie registró) y el corte que **Kepler dio por cuadrado** mientras
+   nuestro conteo dice otra cosa.
+2. **Sus cortes y arqueos, últimos 30 días.** Sale de `GET /por-cajera` con filtro
+   de cajero, así que arranca de los **cortes de Kepler** — no de nuestros arqueos —
+   y por eso incluye los turnos que **nadie contó**, que son los que hay que
+   perseguir. Cada renglón: fecha, caja, folio, horario del turno, si tiene arqueo
+   (y a qué hora se capturó) o `sin arqueo`, el contado y la diferencia. Cierra con
+   la cobertura real (`N de M cortes con arqueo (X%) · K sin contar`). El corte de la
+   fila abierta va **marcado**: en una lista de 30 no se sabría cuál se está mirando.
+
+**Sigue siendo ciego.** El bloque de Kepler y la columna Diferencia se renderizan
+solo con `revela` (`RECONCILIATION_VER`): los billetes y monedas del ERP **suman el
+contado declarado**, así que mostrarlos a la cajera es mostrarle el esperado en
+partes. El endpoint `/por-cajera` ya proyecta ciego del lado del backend — la UI
+espeja esa regla, no la sostiene sola.
+
+**Se carga al desplegar, no antes** (§17 INP): son 30 días de cortes por persona y
+la pantalla arranca con una cajera contando billetes de pie, no auditando. El estado
+se cachea por **persona×sucursal**, así que abrir y cerrar tres arqueos de la misma
+cajera es **una sola llamada**; el error trae su botón de reintento.
+
+Sin código de cajero la fila lo dice y no llama a nada. Un `relevo` o un `retiro`
+no compara contra el corte (es intra-turno, el corte todavía no existe) y el bloque
+lo explica en vez de pintar guiones.
+
+**Sin backend nuevo:** `GET /store/arqueo` ya devolvía `denominaciones[]`,
+`nuestro_billetes/monedas`, `kepler_billetes/monedas/retirado` y
+`kepler_desglose_cuadra/faltante`. Estaba todo en la respuesta y la tabla lo tiraba.
+
+**Pendiente prod:** redeploy view. No requiere migración ni re-login.
+
+## SM.26 — El arqueo es UNA sección, no dos entradas del menú (✅ local 2026-09-07)
+
+`Arqueo de caja` y `Arqueos por cajera` colgaban sueltas del sidebar, una debajo de
+la otra. Son la misma pregunta desde dos lados — `/tienda/arqueo` es **el acto**
+(contar el cajón, sellar el conteo, validarlo) y `/tienda/arqueos` es **la persona**
+(cómo viene cada cajera, qué cortes le quedaron sin contar) — pero en el menú
+parecían módulos distintos y había que adivinar en cuál mirar.
+
+Ahora es **una entrada** (`Arqueo de caja`) con las dos vistas en pestañas
+(`ARQUEO_TABS` + `<app-page-tabs>`, el patrón de Clientes/Finanzas/Contabilidad).
+Saltar de una a otra es un clic y el contexto no se pierde. Misma tesis que WMS.1
+con el Almacén: un tema, un lugar.
+
+**Detalle de permisos:** el tab de captura va **sin `permission`** a propósito. Esa
+ruta la guarda un `anyPermissionGuard(STORE_ARQUEO_VER, STORE_ARQUEO_CAPTURAR)` y
+`PageTab` acepta un solo permiso — exigirle `VER` le escondería su propia pantalla a
+la cajera que solo captura. Si le falta `VER`, el tab "Por cajera" se filtra y la
+barra se oculta sola (`PageTabs` se esconde con un único tab visible).
+
+**Pendiente prod:** redeploy view. Sin migración, sin re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.

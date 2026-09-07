@@ -1,6 +1,22 @@
-import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
+import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import type {
+  NetworkOverview,
+  NetworkTopProductRow,
+  SalesByBrandRow,
+  NetworkDailyRow,
+  LowStockResponse,
+  InactiveCustomersResponse,
+  RankingOutOfStockRow,
+  OverviewResponse,
+  TopCustomerRow,
+  TopProductRow,
+  DailySeriesRow,
+  ErpCustomerRow,
+} from '@megadulces/contracts';
 
 /**
  * Sales analytics agregado sobre `commercial.*`.
@@ -149,11 +165,99 @@ export interface SalesByRouteDetail {
   route_code: string;
   warehouse_name: string;
   year: number;
-  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number };
-  products: { sku: string; name: string; units: number; revenue: number; share_pct: number }[];
+  /** `lines` = renglones del periodo. Con él salen los dos promedios que pidió negocio:
+   *  `units/lines` = profundidad (cuánto se llevan de cada producto) y
+   *  `lines/tickets` = surtido (cuántos productos distintos entra la visita). */
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
   tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
+  /** RR2 — Mezcla por unidad de medida en la que se vendió (PZA/PAQ/KG/CJA…). El rótulo
+   * lo dice la fuente; `unidad: null` = el SKU no está en el catálogo de la fuente. */
+  units_mix: { unidad: string | null; lines: number; units: number; revenue: number; share_pct: number }[];
+  /** RR2 — Margen del periodo. `coverage_pct` = % del importe que SÍ trae costo en la
+   * fuente (el push de camionetas no lo trae) → un margen sin su cobertura sería falso. */
+  margin: { revenue_with_cost: number; cost: number; margin_pct: number | null; coverage_pct: number };
+}
+
+// ── RR2 — Desglose por TICKET ──
+export interface SalesByRouteTicketsQuery {
+  /** Ruta obligatoria: sin scope la consulta barre toda la tabla-hecho. */
+  route: string;
+  year?: number;
+  from?: string;
+  to?: string;
+  client?: string;
+  sku?: string;
+  /** Unidad de venta (rótulo tal como lo dice la fuente). */
+  unit?: string;
+  /** Código de forma de pago (sólo tramo Wincaja). */
+  paymentMethod?: string;
+  /** 'ticket' | 'factura' (sólo tramo Wincaja). */
+  docType?: string;
+  minRevenue?: number;
+  maxRevenue?: number;
+  q?: string;
+  sort?: 'date' | 'revenue' | 'units' | 'lines' | 'margin';
+  dir?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+export interface SalesByRouteTicket {
+  /** Llave del drill: el folio del documento no basta (el push repite folio entre rutas). */
+  key: string;
+  source: 'wincaja' | 'push';
+  route_no: string;
+  folio: string;
+  date: string;
+  time: string | null;
+  doc_type: string | null;
+  client_code: string | null;
+  client_name: string | null;
+  is_public: boolean;
+  payment_method: string | null;
+  payment_method_label: string | null;
+  seller: string | null;
+  lines: number;
+  skus: number;
+  units: number;
+  revenue: number;
+  cost: number | null;
+  margin_pct: number | null;
+}
+
+export interface SalesByRouteTicketsPage {
+  rows: SalesByRouteTicket[];
+  total: number;
+  limit: number;
+  offset: number;
+  totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
+  generated_at: string;
+}
+
+export interface SalesByRouteTicketLine {
+  sku: string;
+  name: string | null;
+  unidad: string | null;
+  /** 'linea' = la fuente lo declara por renglón · 'catalogo' = sale del catálogo del SKU. */
+  unidad_origen: string | null;
+  qty: number;
+  /** Equivalencia en cajas: sólo con factor canónico real y compra ≥ 1 caja. */
+  boxes: number | null;
+  box_factor: number | null;
+  precio_unitario: number | null;
+  importe: number;
+  costo: number | null;
+  margin_pct: number | null;
+  iva: number | null;
+  ieps: number | null;
+}
+
+export interface SalesByRouteTicketDetail extends SalesByRouteTicket {
+  warehouse_name: string | null;
+  lines_detail: SalesByRouteTicketLine[];
 }
 
 export interface SalesByRouteCell {
@@ -262,6 +366,9 @@ export interface SellOutColumn {
 export interface SellOutCell {
   cajas: number;
   monto: number;
+  /** NETO DE DESCUENTO (con IVA) = total de la factura (Kepler: c16 prorrateado; Wincaja/rutas: ya neto).
+   *  `monto` es el BRUTO de línea (antes del descuento de cabecera). Las cajas NO cambian (son volumen). */
+  monto_neto: number;
 }
 
 export interface SellOutRow {
@@ -289,7 +396,20 @@ export interface SellOutReport {
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  /**
+   * [VP.0.6] `measured` distingue "medí y no falta ninguna sucursal" de "no medí" — que con arreglos
+   * vacíos se leen IGUAL y son cosas opuestas. El camino por vendedor agrupa por vendedor, no por
+   * sucursal: ahí este eje no existe y devolvía `[]` + una nota estática de ALCANCE presentada como
+   * si fuera una medición. Una nota fija en el campo de la cobertura es la falla de fondo de la fase
+   * en miniatura: el consumidor no tiene cómo saber que nadie contó nada.
+   */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del dato con el que se calculó. NO es `generated_at`: ése es cuándo corrió la
+   * consulta, y un servidor que responde en 200 ms sobre matviews de hace seis días lo reporta
+   * igual de fresco. Son las dos preguntas que la fase OBS separó.
+   */
+  freshness: Freshness;
   generated_at: string;
 }
 
@@ -318,6 +438,11 @@ const CHANNEL_ORDER: Record<string, number> = {
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
+// Canales CRUDOS de analytics.sales_daily / sales_boxes_monthly que NO son venta
+// real. `mayoreo` = forma_pago 'TI%' = traspaso interno CEDIS→sucursal (la venta
+// de mayoreo/telemarketing real vive en el canal `credito`). Decisión 2026-08-27:
+// unificar la definición de venta con Sell-Out excluyéndolo en TODO consumidor.
+const NON_SALE_RAW_CHANNELS = ['mayoreo'];
 // RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
 const SELLOUT_STMT_TIMEOUT = '45s';
 
@@ -382,6 +507,12 @@ export class CommercialAnalyticsService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    // PERF/RLS (2026-09-01): conexión admin (postgres, bypassa RLS) para el scan en vivo de
+    // wincaja. Bajo RLS (app_runtime) la barrera de seguridad impide usar el índice de fecha
+    // de maestro_mov_almacen → Seq Scan de 1.44M filas → timeout 45s en /comercial/sell-out.
+    // Se lee con filtro tenant_id EXPLÍCITO (aislamiento garantizado, mismo patrón que los
+    // matviews analytics.* que tampoco tienen RLS). Fallback a `trx` (RLS) si no está disponible.
+    @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
   ) {}
 
   /**
@@ -444,7 +575,7 @@ export class CommercialAnalyticsService {
    * Overview rolling 30d desde MV (default) o on-the-fly si live=true o si hay
    * date range explícito (las MVs son siempre 30d).
    */
-  async overview30dFromMv() {
+  async overview30dFromMv(): Promise<OverviewResponse> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const row = await trx('analytics.mv_sales_overview_30d')
@@ -460,7 +591,7 @@ export class CommercialAnalyticsService {
       const orders = Number(row.orders_fulfilled);
 
       return {
-        source: 'mv',
+        source: 'mv' as const,
         refreshed_at: row.refreshed_at,
         period: { rolling_days: 30 },
         revenue: {
@@ -486,7 +617,7 @@ export class CommercialAnalyticsService {
    * Si `q` viene vacío, prefiere leer de MV (mucho más rápido). Si hay date range
    * o `live=true`, agrega on-the-fly.
    */
-  async overview(q: DateRangeQuery & { live?: boolean }) {
+  async overview(q: DateRangeQuery & { live?: boolean }): Promise<OverviewResponse> {
     const hasRange = !!(q.from || q.to);
     if (!hasRange && !q.live) {
       return this.overview30dFromMv();
@@ -506,7 +637,7 @@ export class CommercialAnalyticsService {
     };
   }
 
-  private async overviewLive(q: DateRangeQuery) {
+  private async overviewLive(q: DateRangeQuery): Promise<OverviewResponse> {
     const { from, to } = this.parseDateRange(q);
 
     return this.tk.run(async (trx) => {
@@ -557,7 +688,8 @@ export class CommercialAnalyticsService {
       const ordersCount = Number(fulfilledStats.orders_count);
 
       return {
-        source: 'live',
+        source: 'live' as const,
+        refreshed_at: null,
         period: { from: from || null, to: to || null },
         revenue: {
           gross: revenue,
@@ -582,7 +714,7 @@ export class CommercialAnalyticsService {
    * Top N customers por revenue. Sin date range → MV (rolling 30d).
    * Con date range o live=true → on-the-fly.
    */
-  async topCustomers(q: DateRangeQuery & { limit?: number; live?: boolean }) {
+  async topCustomers(q: DateRangeQuery & { limit?: number; live?: boolean }): Promise<TopCustomerRow[]> {
     const hasRange = !!(q.from || q.to);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
 
@@ -648,7 +780,7 @@ export class CommercialAnalyticsService {
    */
   async topProducts(
     q: DateRangeQuery & { limit?: number; orderBy?: 'units' | 'revenue'; live?: boolean },
-  ) {
+  ): Promise<TopProductRow[]> {
     const hasRange = !!(q.from || q.to);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 10));
     const orderBy = q.orderBy === 'revenue' ? 'revenue' : 'units';
@@ -716,7 +848,7 @@ export class CommercialAnalyticsService {
   /**
    * Customers sin pedidos en los últimos N días (oportunidad de recuperación).
    */
-  async inactiveCustomers(daysParam?: string | number, limitParam?: string | number) {
+  async inactiveCustomers(daysParam?: string | number, limitParam?: string | number): Promise<InactiveCustomersResponse> {
     const days = Math.max(1, Math.min(365, Number(daysParam) || 30));
     const limit = Math.min(200, Math.max(1, Number(limitParam) || 50));
 
@@ -763,7 +895,7 @@ export class CommercialAnalyticsService {
   /**
    * Revenue/units por brand en el período + share % del total.
    */
-  async salesByBrand(q: DateRangeQuery) {
+  async salesByBrand(q: DateRangeQuery): Promise<SalesByBrandRow[]> {
     const { from, to } = this.parseDateRange(q);
 
     return this.tk.run(async (trx) => {
@@ -883,7 +1015,7 @@ export class CommercialAnalyticsService {
     thresholdParam?: string | number,
     warehouseIdParam?: string,
     limitParam?: string | number,
-  ) {
+  ): Promise<LowStockResponse> {
     const threshold = Math.max(0, Number(thresholdParam) || 10);
     // Límite duro: el command-center solo muestra los más críticos. Sin esto, con
     // threshold alto sobre el catálogo real la respuesta llegaba a ~10 MB.
@@ -944,7 +1076,7 @@ export class CommercialAnalyticsService {
   /**
    * Series diarias de revenue + orders count para gráficos. Solo fulfilled.
    */
-  async dailySeries(q: DateRangeQuery) {
+  async dailySeries(q: DateRangeQuery): Promise<DailySeriesRow[]> {
     const { from, to } = this.parseDateRange(q);
 
     return this.tk.run(async (trx) => {
@@ -997,6 +1129,7 @@ export class CommercialAnalyticsService {
     return this.tk.run(async (trx) => {
       const rows = await trx('analytics.sales_daily')
         .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .modify((qb) => {
           if (from) qb.where('sale_date', '>=', from);
           if (to) qb.where('sale_date', '<=', to);
@@ -1030,14 +1163,15 @@ export class CommercialAnalyticsService {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 20));
     const tenantId = this.tenantCtx.requireTenantId();
-    // KV.1: venta real desde analytics.sales_daily ⋈ catálogo. subfamilia = marca
-    // (en Kepler subfamilia == brand). revenue/units exactos.
+    // PARIDAD/ODS: venta real consolidada del blend (recupera telemarketing Kepler) ⋈ catálogo.
+    // subfamilia = marca (en Kepler subfamilia == brand). revenue/units exactos.
     return this.tk.run(async (trx) => {
-      const rows = await trx('analytics.sales_daily AS s')
+      const rows = await trx('analytics.mv_sales_blended AS s')
         .join('catalog.products AS p', 'p.id', 's.product_id')
         .leftJoin('catalog.categories AS cat', 'cat.id', 'p.category_id')
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .modify((qb) => {
           if (from) qb.where('s.sale_date', '>=', from);
           if (to) qb.where('s.sale_date', '<=', to);
@@ -1116,9 +1250,9 @@ export class CommercialAnalyticsService {
   async historicalMarginByCategory(q: { from?: string; to?: string; limit?: number }) {
     const { from, to } = this.parseDateRange(q);
     const limit = Math.min(100, Math.max(1, Number(q.limit) || 30));
-    // KV.4: margen por categoría desde analytics.sales_daily (cost = revenue/(1+markup),
-    // markup del ERP). Antes leía el FDW ventas_legacy (muerto en Railway). cost/margin
-    // sólo de productos con markup; categorías sin costo dan margin_pct NULL.
+    // KV.4 / PARIDAD-ODS: margen por categoría desde el blend consolidado (mv_sales_blended, recupera
+    // telemarketing Kepler). cost = revenue/(1+markup) (cero regresión de margen; costo real por peldaño
+    // = MR/ADR-051). cost/margin sólo de productos con markup; categorías sin costo dan margin_pct NULL.
     return this.tk.run(async (trx) => {
       const tenantId = this.tenantCtx.requireTenantId();
       const rows = await trx.raw(
@@ -1135,10 +1269,11 @@ export class CommercialAnalyticsService {
           CASE WHEN SUM(s.cost) IS NOT NULL AND SUM(s.revenue) > 0
             THEN ROUND(((SUM(s.revenue) - SUM(s.cost)) / SUM(s.revenue)) * 100, 2)
             ELSE NULL END                             AS margin_pct
-        FROM analytics.sales_daily s
+        FROM analytics.mv_sales_blended s
         JOIN catalog.products p ON p.id = s.product_id
         LEFT JOIN catalog.categories cat ON cat.id = p.category_id AND cat.tenant_id = ?
         WHERE s.tenant_id = ?
+          AND s.channel NOT IN ('mayoreo')  -- =TI% traspaso interno, no es venta
           ${from ? `AND s.sale_date >= ?` : ''}
           ${to ? `AND s.sale_date <= ?` : ''}
         GROUP BY cat.id, cat.name
@@ -1168,7 +1303,7 @@ export class CommercialAnalyticsService {
    *
    * Match por SKU = articulo del ERP.
    */
-  async rankingOutOfStock(q: { limit?: number; topN?: number }) {
+  async rankingOutOfStock(q: { limit?: number; topN?: number }): Promise<RankingOutOfStockRow[]> {
     const limit = Math.min(50, Math.max(1, Number(q.limit) || 10));
     // Solo escaneamos el top-N del ERP (más relevante; el ERP ya ordenó).
     const topN = Math.min(1000, Math.max(50, Number(q.topN) || 200));
@@ -1244,6 +1379,7 @@ export class CommercialAnalyticsService {
       const rows = await trx('analytics.sales_daily AS s')
         .join('commercial.warehouses AS w', 'w.id', 's.warehouse_id')
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .modify((qb) => {
           if (from) qb.where('s.sale_date', '>=', from);
           if (to) qb.where('s.sale_date', '<=', to);
@@ -1350,6 +1486,7 @@ export class CommercialAnalyticsService {
       // brand/category via EXISTS sobre catalog.products → compone con cualquier dimensión
       // sin chocar con los joins (alias p) que agregan las ramas producto/marca/categoria.
       const applyFilters = (qb: any) => {
+        qb.whereNotIn('s.channel', NON_SALE_RAW_CHANNELS); // mayoreo=TI% traspaso, no es venta
         if (channel) qb.andWhere('s.channel', channel);
         if (warehouseId) qb.andWhere('s.warehouse_id', warehouseId);
         if (brandIdEff) qb.whereExists(function (this: any) {
@@ -1477,7 +1614,7 @@ export class CommercialAnalyticsService {
    * clientes activos (KV.3). El pipeline (draft/confirmed/cancelled) se conserva
    * de `commercial.orders` — es el único bloque que sigue en data de plataforma.
    */
-  async networkOverview() {
+  async networkOverview(): Promise<NetworkOverview> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       // UNA sola pasada por sales_daily, agrupada por canal; los totales salen de sumar
@@ -1486,8 +1623,11 @@ export class CommercialAnalyticsService {
       // y todo esto corre en UNA conexión (tk.run abre transacción), así que los tiempos
       // se suman en vez de solaparse. Medido en prod: este endpoint tardaba 4.4 s y era
       // el que dejaba el tablero en esqueletos — los otros 9 paneles ya tenían datos.
-      const channels = await trx('analytics.sales_daily')
+      // PARIDAD/ODS — revenue/cost/units/canal de la venta real CONSOLIDADA (mv_sales_blended: Kepler
+      // del ODS + rutas + Wincaja), NO la copia sales_daily que sub-cuenta Kepler ~$8M/mes.
+      const channels = await trx('analytics.mv_sales_blended')
         .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('sale_date', '>=', this.since30d(trx))
         .andWhere('sale_date', '<=', this.untilToday(trx))
         .groupBy('channel')
@@ -1496,13 +1636,23 @@ export class CommercialAnalyticsService {
           trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
           trx.raw('COALESCE(SUM(cost),0)::numeric AS cost'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
           trx.raw('MAX(sale_date) AS last_sale_date'),
           trx.raw('MAX(updated_at) AS updated_at'),
           // cobertura de costo: % del revenue que tiene costo capturado (para el chip de confianza).
           trx.raw('COALESCE(SUM(revenue) FILTER (WHERE cost > 0),0)::numeric AS revenue_with_cost'),
         )
         .orderByRaw('SUM(revenue) DESC');
+      // TICKETS aún de sales_daily (los matviews del ODS no cuentan folio): total + por canal, mismo
+      // vocabulario de canal → se cruza con el blend. Aproximado (le falta el ticket del telemarketing,
+      // que la copia no tiene) → avg_ticket queda levemente alto; el revenue SÍ es el real consolidado.
+      const ticketRows: any[] = await trx('analytics.sales_daily')
+        .where('tenant_id', tenantId)
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .andWhere('sale_date', '>=', this.since30d(trx))
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .groupBy('channel')
+        .select('channel', trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
+      const ticketByChannel = new Map<string, number>(ticketRows.map((r: any) => [r.channel, Number(r.tickets || 0)]));
 
       // El total es la suma de los canales, y los MAX son el mayor de los MAX por canal:
       // exactamente lo mismo que devolvía el agregado global. Sin filas, todo queda en 0 /
@@ -1513,7 +1663,7 @@ export class CommercialAnalyticsService {
         revenue: channels.reduce((a: number, r: any) => a + Number(r.revenue || 0), 0),
         cost: channels.reduce((a: number, r: any) => a + Number(r.cost || 0), 0),
         units: channels.reduce((a: number, r: any) => a + Number(r.units || 0), 0),
-        tickets: channels.reduce((a: number, r: any) => a + Number(r.tickets || 0), 0),
+        tickets: ticketRows.reduce((a: number, r: any) => a + Number(r.tickets || 0), 0), // tickets de sales_daily (ver nota)
         revenue_with_cost: channels.reduce((a: number, r: any) => a + Number(r.revenue_with_cost || 0), 0),
         last_sale_date: maxOf('last_sale_date'),
         updated_at: maxOf('updated_at'),
@@ -1569,7 +1719,7 @@ export class CommercialAnalyticsService {
             margin: chMargin,
             margin_pct: chRev > 0 ? +((chMargin / chRev) * 100).toFixed(1) : 0,
             units: Number(c.units),
-            tickets: Number(c.tickets),
+            tickets: ticketByChannel.get(c.channel) || 0, // tickets de sales_daily por canal (ver nota)
             share_pct: revenue > 0 ? +((chRev / revenue) * 100).toFixed(1) : 0,
           };
         }),
@@ -1586,16 +1736,18 @@ export class CommercialAnalyticsService {
    * Top productos por venta real 30d MÓVIL. Fuente = `analytics.sales_daily` (misma que el KPI
    * total) para traer COSTO→MARGEN consistente; `abc_class` desde product_sales_stats (KV.2).
    */
-  async networkTopProducts(limitParam?: number | string, opts?: { share?: boolean }) {
+  async networkTopProducts(limitParam?: number | string, opts?: { share?: boolean }): Promise<NetworkTopProductRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(50, Math.max(1, Number(limitParam) || 5));
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.sales_daily AS s')
+      // PARIDAD/ODS — venta real consolidada del blend (recupera telemarketing Kepler), no la copia.
+      const rows: any[] = await trx('analytics.mv_sales_blended AS s')
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .leftJoin('analytics.product_sales_stats AS st', (j: any) =>
           j.on('st.product_id', 's.product_id').andOn('st.tenant_id', 's.tenant_id'))
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('s.sale_date', '>=', this.since30d(trx))
         .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .andWhere('p.is_promo', false)
@@ -1621,8 +1773,9 @@ export class CommercialAnalyticsService {
       // Sin memo fresco → `share_pct: null` ("no lo sé sin otra pasada"), salvo `?share=true`.
       let netTotal = this.netRevenue30dCached(tenantId);
       if (netTotal === null && opts?.share) {
-        const [tot] = await trx('analytics.sales_daily')
+        const [tot] = await trx('analytics.mv_sales_blended')
           .where('tenant_id', tenantId)
+          .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
           .andWhere('sale_date', '>=', this.since30d(trx))
           .andWhere('sale_date', '<=', this.untilToday(trx))
           .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
@@ -1650,14 +1803,16 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** Mix por marca sobre venta real 30d MÓVIL (analytics.sales_daily join catalog.*), con margen. */
-  async networkSalesByBrand() {
+  /** Mix por marca sobre venta real 30d MÓVIL (analytics.mv_sales_blended join catalog.*), con margen. */
+  async networkSalesByBrand(): Promise<SalesByBrandRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.sales_daily AS s')
+      // PARIDAD/ODS — blend consolidado (recupera telemarketing Kepler), no la copia sales_daily.
+      const rows: any[] = await trx('analytics.mv_sales_blended AS s')
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
         .andWhere('s.sale_date', '>=', this.since30d(trx))
         .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .groupBy('b.id', 'b.nombre')
@@ -1689,30 +1844,35 @@ export class CommercialAnalyticsService {
   }
 
   /** Serie diaria de venta real (revenue/units/tickets) para el sparkline del hero. */
-  async networkDailySeries(q: DateRangeQuery) {
+  async networkDailySeries(q: DateRangeQuery): Promise<NetworkDailyRow[]> {
     const { from, to } = this.parseDateRange(q);
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const rows: any[] = await trx('analytics.sales_daily')
+      // PARIDAD/ODS — revenue/units del blend consolidado (recupera telemarketing Kepler).
+      const dayFilter = (qb: any) => qb
         .where('tenant_id', tenantId)
-        .andWhere('sale_date', '<=', this.untilToday(trx)) // nunca fechas futuras (parseo malo del feed)
-        .modify((qb) => {
-          if (from) qb.where('sale_date', '>=', from);
-          if (to) qb.where('sale_date', '<=', to);
-        })
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
+        .andWhere('sale_date', '<=', this.untilToday(trx))
+        .modify((q: any) => { if (from) q.where('sale_date', '>=', from); if (to) q.where('sale_date', '<=', to); });
+      const rows: any[] = await dayFilter(trx('analytics.mv_sales_blended'))
         .groupBy('sale_date')
         .select(
           trx.raw('sale_date::text AS day'),
           trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'),
           trx.raw('COALESCE(SUM(units),0)::numeric AS units'),
-          trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'),
         )
         .orderBy('sale_date', 'asc');
+      // Tickets aún de sales_daily (los matviews del ODS no cuentan folio) → sparkline de tickets
+      // aproximado (le falta el telemarketing); revenue/units SÍ son el real consolidado.
+      const tRows: any[] = await dayFilter(trx('analytics.sales_daily'))
+        .groupBy('sale_date')
+        .select(trx.raw('sale_date::text AS day'), trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
+      const tByDay = new Map<string, number>(tRows.map((r: any) => [r.day, Number(r.tickets || 0)]));
       return rows.map((r) => ({
         day: r.day,
         revenue: Number(r.revenue),
         units: Number(r.units),
-        tickets: Number(r.tickets),
+        tickets: tByDay.get(r.day) || 0,
       }));
     });
   }
@@ -2371,7 +2531,7 @@ export class CommercialAnalyticsService {
   }
 
   /** KV.3 — Lista de clientes Kepler con su compra agregada (180d). */
-  async erpCustomers(q: { search?: string; limit?: number }) {
+  async erpCustomers(q: { search?: string; limit?: number }): Promise<ErpCustomerRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
     return this.tk.run(async (trx) => {
@@ -2549,28 +2709,9 @@ export class CommercialAnalyticsService {
 
     const tenantId = this.tenantCtx.requireTenantId();
 
-    // Canal: analytics.sales_daily ya trae `channel` (tienda/credito/mayoreo/…)
-    // derivado de forma_pago por el ETL. Normalizamos a nuestras etiquetas.
-    // `mayoreo` = traspaso interno (CEDIS→sucursales) → NO es venta (se excluye).
-    const channelExpr = `CASE sd.channel
-        WHEN 'tienda'  THEN 'mostrador'
-        WHEN 'ruta'    THEN 'ruta'
-        WHEN 'credito' THEN 'credito'
-        WHEN 'mayoreo' THEN 'traspaso'
-        WHEN 'wincaja_mostrador' THEN 'mostrador'
-        WHEN 'wincaja_preventa'  THEN 'preventa'
-        WHEN 'wincaja_ruta'      THEN 'ruta'
-        WHEN 'wincaja_credito'   THEN 'credito'
-        ELSE 'otro' END`;
-    // RS.5 — fuente separada (no fusionar): los canales `wincaja_*` son Wincaja; el resto Kepler.
-    const sourceExpr = `CASE WHEN sd.channel LIKE 'wincaja_%' THEN 'wincaja' ELSE 'kepler' END`;
-    // RS.7 — los almacenes de RUTA (código `RUTA-NN`; legacy `01-NNN`) son RUTAS aunque su venta
-    // se cobre a crédito/contado → forzarlos al canal `ruta` (RD), no clasificar por forma_pago.
-    const canalExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr}) END`;
-
-    // Paso 1 y 2 — marca + agregación desde analytics.sales_daily (misma DB,
-    // alimentada por el cron on-prem import-sales-fact.js). Tenant-scoped.
-    const { brand, products, raw, retail, boxFactors, boxPrices, identMap } = await this.tk.run(async (trx) => {
+    // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
+    // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
+    const { brand, products, raw, retail, boxFactors, boxPrices, identMap, freshness } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -2595,178 +2736,22 @@ export class CommercialAnalyticsService {
             .orderBy('p.nombre')
         : [];
 
-      // RS.3b — fast path: si el período abarca MESES COMPLETOS (month/quarter/year),
-      // leemos del rollup persistido `analytics.sales_boxes_monthly` (cajas/kg ya
-      // calculados, grano mensual → mucho menos que escanear sales_daily diario). Rango
-      // arbitrario o meses parciales → sales_daily on-the-fly. Ambos alimentan el MISMO
-      // pivote: units=canónico (piezas o kg), factor_sale=divisor, unit_kind manda.
-      const monthAligned = this.isMonthAligned(from, to);
-      // Wincaja: rollup también para el mes en curso (kepler no) — ver isWincajaRollupOk.
-      const winRollupOk = this.isWincajaRollupOk(from, to);
+      // FUENTE UNIFICADA (sintonía + velocidad) — el pivote lee el MISMO universo que los filtros:
+      // meses ENTEROS y CERRADOS desde el rollup `analytics.mv_sellout_monthly` (rápido) + el borde
+      // parcial/mes-en-curso desde la vista `analytics.v_sellout_daily` (fresco). Un solo dedup, un
+      // solo vocabulario de canal, una sola identidad de vendedor → adiós a las divergencias A–I y al
+      // 500 del full-year. Se RETIRAN los fallbacks legacy (sales_boxes_monthly / sales_by_vendor_monthly
+      // / v_sales_lines vivo / mv_sales_current_month): si las MV base no están pobladas → 503 "Refresh".
+      if (!(await this.selloutViewReady(trx)))
+        throw new ServiceUnavailableException('Analytics de sell-out aún no poblado — corré Refresh en el Command Center.');
 
-      // is_promo fuera: marcadores de promo Kepler (precio simbólico $0.01) —
-      // registran la aplicación de la promo en el ticket, no venta de producto.
-      // RS.6 — la parte KEPLER sale de sales_daily/boxes (sin vendedor); la parte WINCAJA
-      // se abre POR VENDEDOR desde v_sales_lines (abajo) y se une al mismo pivote.
-      const keplerRows: any[] = monthAligned
-        ? await trx('analytics.sales_boxes_monthly as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            .where('sd.tenant_id', tenantId)
-            .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-            .modify((qb) => this.promoFilter(qb, promoMode))
-            .modify((qb) => {
-              if (brandId) qb.andWhere('p.brand_id', brandId);
-              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-            })
-            .andWhere('sd.year_month', '>=', from.slice(0, 7))
-            .andWhere('sd.year_month', '<=', to.slice(0, 7))
-            .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-            .modify((qb) => { if (needMonth) qb.select(trx.raw(`sd.year_month as sale_month`)); })
-            .select(
-              'w.code as branch_code',
-              'w.name as branch_name',
-              'sd.product_id as product_id',
-              'p.sku as sku',
-              'p.nombre as nombre',
-              trx.raw('max(sd.uxc) as factor_sale'),   // divisor ya baked (factor_sale o box_size)
-              'p.brand_id as brand_id',
-              'b.nombre as brand_nombre',
-              'b.code as brand_code',
-              trx.raw(`${canalExpr} as channel`),
-              trx.raw(`${sourceExpr} as source`),
-              trx.raw('max(sd.unit_kind) as unit_kind'),
-              trx.raw('NULL::numeric as box_size'),
-              trx.raw('COALESCE(SUM(sd.pieces), SUM(sd.kg), 0) as units'), // canónico (piezas o kg)
-            )
-            .sum({ monto: 'sd.revenue' })
-            .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
-              (needMonth ? `, sd.year_month` : ''),
-            )
-        : await trx('analytics.sales_daily as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            // RS.3 — box_size del catálogo de etiquetas: divisor de respaldo cuando factor_sale
-            // viene en 1 (ej. 60101, factor_sale=1 pero caja de 20). unit_kind decide si se divide.
-            .leftJoin('commercial.product_label_prices as lp', function () {
-              this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id');
-            })
-            .where('sd.tenant_id', tenantId)
-            .andWhereRaw(`sd.channel NOT LIKE 'wincaja_%'`)
-            .modify((qb) => this.promoFilter(qb, promoMode))
-            .modify((qb) => {
-              if (brandId) qb.andWhere('p.brand_id', brandId);
-              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-            })
-            .andWhere('sd.sale_date', '>=', from)
-            .andWhere('sd.sale_date', '<=', to)
-            .andWhereRaw(`sd.sale_date <= (now() AT TIME ZONE 'America/Mexico_City')::date`) // nunca fechas futuras (montos)
-            .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-            .modify((qb) => { if (needMonth) qb.select(trx.raw(`to_char(sd.sale_date, 'YYYY-MM') as sale_month`)); })
-            .select(
-              'w.code as branch_code',
-              'w.name as branch_name',
-              'sd.product_id as product_id',
-              'p.sku as sku',
-              'p.nombre as nombre',
-              'p.factor_sale as factor_sale',
-              'p.brand_id as brand_id',
-              'b.nombre as brand_nombre',
-              'b.code as brand_code',
-              trx.raw(`${canalExpr} as channel`),
-              trx.raw(`${sourceExpr} as source`),
-              trx.raw('max(sd.unit_kind) as unit_kind'),
-              trx.raw('max(lp.box_size) as box_size'),
-            )
-            .sum({ units: 'sd.units' })
-            .sum({ monto: 'sd.revenue' })
-            .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${canalExpr}, ${sourceExpr}` +
-              (needMonth ? `, to_char(sd.sale_date, 'YYYY-MM')` : ''),
-            );
+      // El resolvedor unifica las 3 piernas (kepler dedup + wincaja blend + rutas) con el dedup y el
+      // vocabulario de canal horneados en `v_sellout_daily`, y rutea meses cerrados → rollup / borde → vista.
+      const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter, needMonth, byBrand });
 
-      // WINCAJA abierto POR VENDEDOR: mismo shape que keplerRows + vendor_code/vendor_name.
-      // RS.9 — fast path: si el rango son MESES COMPLETOS, lee del rollup persistido
-      // `analytics.sales_by_vendor_monthly` (units/unit_kind ya canónicos por el feed, que
-      // replica exacto el blend y mapeo de abajo) → ~ms en vez de escanear v_sales_lines
-      // (~10s/mes por el LATERAL/anti-join → daba 504). Rango parcial → view on-the-fly.
-      const winChanRollup = `CASE sd.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
-      const winChanExpr = `CASE vl.sale_channel WHEN 'mayoreo_credito' THEN 'credito' WHEN 'preventa_vecinal' THEN 'preventa' WHEN 'ruta_venta' THEN 'ruta' ELSE 'mostrador' END`;
-      const winWhExpr = `CASE WHEN vl.source_branch='10' THEN '01' WHEN vl.source_branch='42' THEN '02' WHEN vl.source_branch='50' THEN '06' ELSE vl.warehouse_code END`;
-      const wincajaRows: any[] = winRollupOk
-        ? await trx('analytics.sales_by_vendor_monthly as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-            .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-            .where('sd.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-            .andWhere('sd.year_month', '>=', from.slice(0, 7)).andWhere('sd.year_month', '<=', to.slice(0, 7))
-            .modify((qb) => {
-              if (brandId) qb.andWhere('p.brand_id', brandId);
-              if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-              if (warehouseFilter) qb.whereIn('w.code', warehouseFilter);
-              if (needMonth) qb.select(trx.raw(`sd.year_month as sale_month`));
-            })
-            .select(
-              'w.code as branch_code', 'w.name as branch_name',
-              'sd.product_id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-              'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-              trx.raw(`${winChanRollup} as channel`),
-              trx.raw(`'wincaja'::text as source`),
-              'sd.vendor_code as vendor_code', 'sd.vendor_name as vendor_name',
-              trx.raw(`max(sd.unit_kind) as unit_kind`),
-              trx.raw('max(lp.box_size) as box_size'),
-              trx.raw('SUM(sd.units) as units'),
-              trx.raw('SUM(sd.revenue) as monto'),
-            )
-            .groupByRaw(
-              `w.code, w.name, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, ${winChanRollup}, sd.vendor_code, sd.vendor_name` +
-              (needMonth ? `, sd.year_month` : ''),
-            )
-        : await trx
-        .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
-          .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
-          .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
-        .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
-          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
-        .select(
-          'w.code as branch_code', 'w.name as branch_name',
-          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-          'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-          trx.raw(`${winChanExpr} as channel`),
-          trx.raw(`'wincaja'::text as source`),
-          trx.raw(`(vl.source_branch || ':' || vl.vendedor) as vendor_code`),
-          trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
-          trx.raw(`CASE WHEN am.uv='KGS' THEN 'weight' ELSE 'piece' END as unit_kind`),
-          trx.raw('max(lp.box_size) as box_size'),
-          trx.raw(`SUM(CASE WHEN am.uv='CJA' THEN vl.qty * COALESCE(NULLIF(am.factor_venta,0),1) ELSE vl.qty END) as units`),
-          trx.raw('SUM(vl.importe) as monto'),
-        )
-        .from('wincaja.v_sales_lines as vl')
-        .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
-        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-        .joinRaw(`JOIN commercial.warehouses w ON w.tenant_id = vl.tenant_id AND w.deleted_at IS NULL AND w.code = ${winWhExpr}`)
-        .leftJoin('am', 'am.sku', 'vl.sku')
-        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-        .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-        .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
-        .modify((qb) => {
-          if (brandId) qb.andWhere('p.brand_id', brandId);
-          if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]);
-          if (warehouseFilter) qb.whereRaw(`${winWhExpr} = ANY(?)`, [warehouseFilter]);
-          if (needMonth) qb.select(trx.raw(`to_char(vl.business_date, 'YYYY-MM') as sale_month`));
-        })
-        .groupByRaw(
-          `w.code, w.name, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code, vl.sale_channel, vl.source_branch, vl.vendedor, coalesce(ven.nombre, vl.vendedor), am.uv, am.factor_venta` +
-          (needMonth ? `, to_char(vl.business_date, 'YYYY-MM')` : ''),
-        );
+      // [VP.0.3] Poblado ≠ fresco. Los guards de arriba sólo saben lo primero.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
 
-      const rawRows: any[] = [...keplerRows, ...wincajaRows];
 
       // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
       // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
@@ -2791,18 +2776,13 @@ export class CommercialAnalyticsService {
             .select('product_id', 'cja_price')
         : [];
 
-      // Sucursales con venta (cualquier marca) en el periodo — para cobertura.
-      const retailRows = await trx('analytics.sales_daily as sd')
-        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-        .where('sd.tenant_id', tenantId)
-        .andWhere('sd.sale_date', '>=', from)
-        .andWhere('sd.sale_date', '<=', to)
-        .modify((qb) => { if (warehouseFilter) qb.whereIn('w.code', warehouseFilter); })
-        .distinct('w.name as name')
-        .orderBy('w.name');
+      // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
+      // el pivote (antes escaneaba sales_daily aparte → su universo podía no coincidir con lo mostrado).
+      const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.warehouse_code, s.branch_name',
+        (qb) => { if (warehouseFilter) qb.whereIn('s.warehouse_code', warehouseFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.name), boxFactors, boxPrices, identMap };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxFactors, boxPrices, identMap, freshness };
     });
     // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
     const boxFactorMap = new Map<string, number>(
@@ -2813,7 +2793,9 @@ export class CommercialAnalyticsService {
       boxPrices.map((b: any) => [b.product_id, Number(b.cja_price) || 0]),
     );
 
-    const base: Omit<SellOutReport, 'coverage'> = {
+    // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
+    // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
+    const base: Omit<SellOutReport, 'coverage' | 'freshness'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
@@ -2823,17 +2805,18 @@ export class CommercialAnalyticsService {
       columns: [],
       rows: [],
       column_totals: {},
-      grand_total: { cajas: 0, monto: 0 },
+      grand_total: { cajas: 0, monto: 0, monto_neto: 0 },
       generated_at: new Date().toISOString(),
     };
 
     // Paso 3 — pivote en Node
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
-    const colTotals = new Map<string, { cajas: number; monto: number }>();
+    const colTotals = new Map<string, SellOutCell>();
     const branchesWithData = new Set<string>();
     let grandCajas = 0;
     let grandMonto = 0;
+    let grandMontoNeto = 0;
     let excludedTransfers = 0;
 
     // RS.13 — plaza: pre-crear TODAS las columnas del template (en orden), aun vacías, para que
@@ -2842,7 +2825,7 @@ export class CommercialAnalyticsService {
     if (plaza) {
       for (const col of SELLOUT_PLAZA_COLUMNS) {
         columns.set(col.key, { key: col.key, branch_code: col.key, branch_name: col.label });
-        colTotals.set(col.key, { cajas: 0, monto: 0 });
+        colTotals.set(col.key, { cajas: 0, monto: 0, monto_neto: 0 });
       }
     }
 
@@ -2860,10 +2843,11 @@ export class CommercialAnalyticsService {
         const colKey = plazaColKey(r.branch_code, channel) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
-          colTotals.set(colKey, { cajas: 0, monto: 0 });
+          colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
         }
         const punits = Number(r.units) || 0;
         const pmonto = Number(r.monto) || 0;
+        const pmontoNeto = Number(r.monto_neto) || 0;
         const pIsWeight = r.unit_kind === 'weight';
         const pfs = Number(r.factor_sale);
         const pbox = Number(r.box_size);
@@ -2876,29 +2860,30 @@ export class CommercialAnalyticsService {
           prow = {
             product_id: r.product_id, sku: r.sku, nombre: r.nombre,
             uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
-            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 },
+            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 },
           };
           rowMap.set(r.sku, prow);
         }
-        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0 });
-        pcell.cajas += pcajas; pcell.monto += pmonto;
-        prow.total.cajas += pcajas; prow.total.monto += pmonto;
-        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto;
-        grandCajas += pcajas; grandMonto += pmonto;
+        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
+        pcell.cajas += pcajas; pcell.monto += pmonto; pcell.monto_neto += pmontoNeto;
+        prow.total.cajas += pcajas; prow.total.monto += pmonto; prow.total.monto_neto += pmontoNeto;
+        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto; pct.monto_neto += pmontoNeto;
+        grandCajas += pcajas; grandMonto += pmonto; grandMontoNeto += pmontoNeto;
         continue;
       }
 
       if (channelFilter && !channelFilter.has(channel)) continue;
-      // RS.10 — Mayoreo (credito) se desglosa y filtra POR VENDEDOR, no por sucursal (solo en la
-      // vista por canal). Wincaja trae el vendedor; el crédito Kepler (sin vendedor) queda en una
-      // hoja/columna aparte "Sin vendedor (Kepler)" — separado, sin mezclar ni perderse.
+      // RS.10 / PARIDAD — Mayoreo (credito) se desglosa POR VENDEDOR. Wincaja SIEMPRE trae vendedor;
+      // Kepler AHORA también (kdm1.c12 horneado en mv_kepler) → el telemarketing Kepler (Sergio/Cinthia)
+      // se abre por persona, simétrico a Wincaja, y el mismo humano colapsa a UNA columna a través del
+      // cutover vía la identidad canónica. Sólo las filas sin vendedor caen en un bucket 'Sin vendedor'.
       const isMayoreo = channel === 'credito' && groupBy === 'branch_channel';
-      // RS.11 — identidad canónica del vendedor (une fragmentos + nombre limpio Kepler).
-      const mayId = isMayoreo && r.source === 'wincaja' ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
+      // RS.11 — identidad canónica del vendedor (une fragmentos Wincaja+Kepler + nombre limpio).
+      const mayId = isMayoreo && r.vendor_code ? this.canonVendor(identMap, r.vendor_code, r.vendor_name) : null;
       // RS.11b — en Mayoreo, fuera los que no son vendedor real (buckets 00/99, nulos, genéricos).
-      if (isMayoreo && r.source === 'wincaja' && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
+      if (isMayoreo && r.vendor_code && (mayId!.exclude || this.isNoiseVendor(r.vendor_code))) continue;
       const mayoreoLeaf = isMayoreo
-        ? (r.source === 'wincaja' ? mayId!.key : 'k-sin-vendedor')
+        ? (mayId ? mayId.key : 'sin-vendedor')   // fix D: bucket ÚNICO seleccionable (el árbol emite credito|sin-vendedor)
         : null;
       // RS.4 — filtro CANAL jerárquico por celda (canal|almacén o canal|*); Mayoreo → canal|vendedor.
       if (cellFilter) {
@@ -2909,6 +2894,7 @@ export class CommercialAnalyticsService {
       }
       const units = Number(r.units) || 0;
       const monto = Number(r.monto) || 0;
+      const montoNeto = Number(r.monto_neto) || 0;
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
       // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
       const isWeight = r.unit_kind === 'weight';
@@ -2920,11 +2906,13 @@ export class CommercialAnalyticsService {
       const box = Number(r.box_size);
       const divisor = boxFactorMap.get(r.product_id) ?? (fs > 1 ? fs : (box > 1 ? box : 1));
       const cjaPrice = boxPriceMap.get(r.product_id) || 0;
-      const cajas = isWeight
-        ? units                                    // granel → kg
-        : cjaPrice > 0
-          ? monto / cjaPrice                        // money-anchored (robusto)
-          : units / divisor;                        // fallback: factor del resolvedor
+      const cajas = r.cajas != null
+        ? Number(r.cajas)                          // fast-path byBrand: cajas money-anchored ya sumadas en SQL
+        : isWeight
+          ? units                                  // granel → kg
+          : cjaPrice > 0
+            ? monto / cjaPrice                      // money-anchored (robusto)
+            : units / divisor;                      // fallback: factor del resolvedor
       branchesWithData.add(r.branch_name);
 
       // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
@@ -2934,8 +2922,10 @@ export class CommercialAnalyticsService {
       const vendorCode = src === 'wincaja' ? String(r.vendor_code ?? '·') : null;
       const srcLabel = src === 'wincaja' ? String(r.vendor_name ?? 'Wincaja') : 'Kepler';
       const colTail = src === 'wincaja' ? `wincaja|${vendorCode}` : 'kepler';
-      // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente.
-      const mayVendorName = src === 'wincaja' ? (mayId?.name ?? String(r.vendor_name ?? vendorCode ?? 'Wincaja')) : 'Sin vendedor (Kepler)';
+      // RS.10 — Mayoreo: la columna ES el vendedor (una por persona), no sucursal·fuente. Ambas fuentes.
+      const mayVendorName = mayId
+        ? mayId.name
+        : (src === 'wincaja' ? String(r.vendor_name ?? vendorCode ?? 'Wincaja') : 'Sin vendedor (Kepler)');
       const colKey = monthCols
         ? r.sale_month
         : isMayoreo ? `credito|${mayoreoLeaf}`
@@ -2967,7 +2957,7 @@ export class CommercialAnalyticsService {
               source: src,
               source_label: srcLabel,
             });
-        colTotals.set(colKey, { cajas: 0, monto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
 
       // Filas: por MES (month_summary), por EMPRESA (byBrand → product_id lleva el
@@ -2982,7 +2972,7 @@ export class CommercialAnalyticsService {
               nombre: sellOutMonthLabel(r.sale_month), // el exporter usa nombre como etiqueta de fila
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             }
           : byBrand
           ? {
@@ -2991,7 +2981,7 @@ export class CommercialAnalyticsService {
               nombre: r.brand_nombre || 'Sin empresa',
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             }
           : {
               product_id: r.product_id,
@@ -3000,20 +2990,24 @@ export class CommercialAnalyticsService {
               uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
               unit_kind: isWeight ? 'weight' : 'piece',
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             };
         rowMap.set(rowKey, row);
       }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
       cell.cajas += cajas;
       cell.monto += monto;
+      cell.monto_neto += montoNeto;
       row.total.cajas += cajas;
       row.total.monto += monto;
+      row.total.monto_neto += montoNeto;
       const ct = colTotals.get(colKey)!;
       ct.cajas += cajas;
       ct.monto += monto;
+      ct.monto_neto += montoNeto;
       grandCajas += cajas;
       grandMonto += monto;
+      grandMontoNeto += montoNeto;
     }
 
     // Filas: incluir SKUs sin venta si include_zeros (solo aplica a filas por producto).
@@ -3027,7 +3021,7 @@ export class CommercialAnalyticsService {
             nombre: p.nombre,
             uxc: p.factor_sale != null ? Number(p.factor_sale) : null,
             cells: {},
-            total: { cajas: 0, monto: 0 },
+            total: { cajas: 0, monto: 0, monto_neto: 0 },
           });
         }
       }
@@ -3058,20 +3052,21 @@ export class CommercialAnalyticsService {
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     for (const row of rows) {
       for (const k of Object.keys(row.cells)) {
-        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
+        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
       }
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
     }
-    const columnTotalsObj: Record<string, { cajas: number; monto: number }> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    const columnTotalsObj: Record<string, SellOutCell> = {};
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
 
     return {
       ...base,
       columns: orderedCols,
       rows,
       column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
+      freshness,
     };
   }
 
@@ -3105,6 +3100,319 @@ export class CommercialAnalyticsService {
     return code === '' || code === '00' || code === '99';
   }
 
+  // [VP.1.1] Acá vivía `KEPLER_SELLOUT_DEDUP`, el predicado de cutover Kepler↔Wincaja, con un
+  // docstring que decía "centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
+  // literales". Al mover el dedup adentro de `analytics.v_sellout_daily` (RS) la constante quedó con
+  // UNA sola referencia: su propia declaración. Nadie la leía.
+  //
+  // Se retira en vez de dejarla "por si acaso". Una copia muerta que sigue PARECIENDO canónica es
+  // peor que no tenerla: el próximo que necesite mover una fecha de corte la encuentra primero, la
+  // edita, y no pasa absolutamente nada — o peor, edita la buena y deja ésta contradiciéndola para
+  // el que lea después. Es la misma regla que GOTCHAS §32 aplicada a un literal: no hay copias, hay
+  // una fuente.
+  //
+  // Hoy la fuente es la vista. `database/tests/test-newdb-sellout-parity.js` vigila que las copias
+  // que QUEDAN vivas (las dos migraciones + el proyector del feed) no se separen entre sí.
+
+  /** ¿mv_kepler_sales_daily existe, poblado y enriquecido (columna branch_name)? — mismo guard que sellOut. */
+  private async keplerMvReady(trx: any): Promise<boolean> {
+    return !!(await trx.raw(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+        WHERE c.relname = 'mv_kepler_sales_daily' AND n.nspname = 'analytics' AND c.relispopulated
+          AND EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid AND a.attname = 'branch_name' AND NOT a.attisdropped)`,
+    )).rows?.[0];
+  }
+
+  // ============ SELL-OUT — resolvedor de fuente UNIFICADO (sintonía + velocidad) ============
+  // Un solo universo (`analytics.v_sellout_daily` + su rollup `analytics.mv_sellout_monthly`) del que
+  // derivan EL PIVOTE y TODOS los filtros → filtros↔datos en sintonía POR CONSTRUCCIÓN. Los meses
+  // cerrados salen del rollup mensual (velocidad: full-year ~0.9s vs ~70s del diario); el borde
+  // parcial/actual, de la vista (fresco a la última corrida nocturna). Mismo dedup, mismo vocabulario
+  // de canal, misma identidad de vendedor en ambos → adiós a las 9 divergencias A–I.
+
+  /**
+   * [VP.0.3] ¿este rango pasa por el rollup mensual? UNA definición, dos consumidores: el que trae
+   * las filas y el que declara la frescura. Recalcularla aparte en cada uno es cómo un par de
+   * literales se separa en silencio — la lección del dedup escrito a mano en 11 archivos.
+   */
+  private async selloutUsesRollup(trx: any, plan: ReturnType<CommercialAnalyticsService['planSellOutSources']>): Promise<boolean> {
+    return !!plan.monthly && (await this.selloutMonthlyReady(trx));
+  }
+
+  /** ¿`mv_sellout_monthly` poblado? (fast-path de meses cerrados). */
+  private async selloutMonthlyReady(trx: any): Promise<boolean> {
+    return !!(await trx.raw(
+      `SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE c.relname='mv_sellout_monthly' AND n.nspname='analytics' AND c.relispopulated`,
+    )).rows?.[0];
+  }
+
+  /** ¿la vista `v_sellout_daily` es consultable? (sus dos matviews base poblados). Si no, el sell-out
+   *  no tiene fuente (se retiraron los fallbacks legacy) → el caller lanza 503 "corré Refresh". */
+  private async selloutViewReady(trx: any): Promise<boolean> {
+    return (await trx.raw(
+      `SELECT bool_and(c.relispopulated) AS ok FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='analytics' AND c.relname IN ('mv_kepler_sales_daily','mv_wincaja_sales_daily')`,
+    )).rows?.[0]?.ok === true;
+  }
+
+  /**
+   * [VP.0.3] La EDAD de las matviews que arman el sell-out, declarada en la respuesta.
+   *
+   * Los tres guards de acá arriba preguntan `relispopulated`, que es `true` **para siempre** después
+   * del primer populate. Un `mv_kepler_sales_daily` que falló el refresh cinco noches seguidas los
+   * pasa los tres y se sirve sin una palabra: el reporte queda armado sobre una pierna vieja y otra
+   * fresca, que es la forma exacta de "los números cambiaron sin que nadie tocara nada". Poblado no
+   * es fresco — son dos preguntas distintas y sólo se estaba haciendo la primera.
+   *
+   * La señal ya existía y no llegaba al consumidor: `AnalyticsRefreshService` escribe un latido por
+   * MV en `analytics.cron_runs` (con `status:'error'` cuando falla), y ningún endpoint que sirve esas
+   * MV leía esa fila. `laneAt()` la lee por el mismo camino que el resto de la plataforma
+   * (`analytics.v_feed_freshness`).
+   *
+   * Tolerancia 26 h = el mismo `warnH` con el que `CRON_JOBS` juzga estos jobs: el cron es nocturno
+   * (06:20 MX), así que 24 h de edad son sanas y 26 h significan que se saltó una corrida. Un solo
+   * número para las dos audiencias, tomado de la que ya lo tenía.
+   *
+   * NO bloquea — informa. El 503 sigue siendo sólo para "no hay fuente".
+   */
+  private async selloutFreshness(trx: any, usaRollup: boolean): Promise<Freshness> {
+    try {
+      const carriles: [string, string][] = [
+        ['analytics_refresh_kepler', 'Venta Kepler (mv_kepler_sales_daily)'],
+        ['analytics_refresh_wincaja', 'Venta Wincaja (mv_wincaja_sales_daily)'],
+      ];
+      // El rollup mensual sólo es un eslabón cuando el rango efectivamente lo usa; sumarlo siempre
+      // marcaría viejo un reporte del borde que no lo tocó.
+      if (usaRollup) carriles.push(['analytics_refresh_sellout_monthly', 'Rollup mensual (mv_sellout_monthly)']);
+      const inputs = await Promise.all(
+        carriles.map(async ([key, label]) => evalInput(key, label, await laneAt(trx, key), 26)),
+      );
+      return composeFreshness(inputs);
+    } catch {
+      // Que falle el medidor no autoriza a afirmar lo que no se midió (regla 2 de shared/freshness).
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
+  private selloutMonthStart(d: string): string { return d.slice(0, 8) + '01'; }
+  private selloutShiftDay(d: string, days: number): string {
+    return new Date(new Date(`${d}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
+  }
+  private selloutNextMonthStart(d: string): string {
+    const y = +d.slice(0, 4), m = +d.slice(5, 7);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, '0')}-01`;
+  }
+  private selloutIsLastDayOfMonth(d: string): boolean {
+    return this.selloutShiftDay(d, 1).slice(8, 10) === '01';
+  }
+
+  /**
+   * Descompone [from,to] en: meses ENTEROS y CERRADOS (→ rollup `mv_sellout_monthly`, rápido) +
+   * bordes DIARIOS (primer mes parcial + mes en curso y posteriores → vista `v_sellout_daily`, fresco).
+   * El mes en curso NUNCA va al rollup (decisión de frescura nocturna). Ej. `2026-01-01..2026-12-31`
+   * hoy 2026-09 → monthly=`2026-01..2026-08`, daily=`[2026-09-01..2026-12-31]` (la vista se auto-acota
+   * a <= hoy_MX, así que el borde sólo escanea sep-a-hoy). Éste es el fix del 500 del full-year.
+   */
+  private planSellOutSources(from: string, to: string): { monthly: { fromMonth: string; toMonth: string } | null; daily: Array<{ from: string; to: string }> } {
+    const openStart = this.currentMonthStartMx();
+    const dayBeforeOpen = this.selloutShiftDay(openStart, -1);
+    const daily: Array<{ from: string; to: string }> = [];
+    const firstWhole = from.slice(8, 10) === '01' ? from : this.selloutNextMonthStart(from);
+    const lastWhole = this.selloutIsLastDayOfMonth(to) ? to : this.selloutShiftDay(this.selloutMonthStart(to), -1);
+    const lastClosed = dayBeforeOpen < lastWhole ? dayBeforeOpen : lastWhole; // min(lastWhole, díaAntesDelMesEnCurso)
+    let monthly: { fromMonth: string; toMonth: string } | null = null;
+    if (firstWhole <= lastClosed) {
+      monthly = { fromMonth: firstWhole.slice(0, 7), toMonth: lastClosed.slice(0, 7) };
+      if (from < firstWhole) daily.push({ from, to: this.selloutShiftDay(firstWhole, -1) });   // borde inicial parcial
+      const afterClosed = this.selloutShiftDay(lastClosed, 1);
+      if (afterClosed <= to) daily.push({ from: afterClosed, to });                             // cola parcial + mes en curso
+    } else {
+      daily.push({ from, to });                                                                 // sin meses cerrados enteros → todo diario
+    }
+    return { monthly, daily };
+  }
+
+  /**
+   * Un tramo de fuente (rollup mensual o vista diaria) → filas del pivote, en versión LEAN: la
+   * agregación SÓLO toca las columnas del índice covering (warehouse/product/channel/source/vendor/
+   * unit_kind + sumas) → INDEX-ONLY, sin heap-fetch de los `max(sku/nombre/marca/box_size)` que en
+   * prod costaban ~3s del full-year (medido: FULL ~7-10s vs LEAN ~3.8s). Los textos por producto/almacén
+   * se resuelven en Node en `fetchSelloutRows` (un lookup por id, barato). `vendor_name` se conserva
+   * (pocos valores) para no dar otra vuelta.
+   */
+  private selloutPivotLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
+    const qb = trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(
+        trx.raw('s.warehouse_code as branch_code'),
+        's.product_id', 's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
+      )
+      .groupByRaw('s.warehouse_code, s.product_id, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
+    if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
+    return qb;
+  }
+
+  /**
+   * VELOCIDAD (overview por empresa) — un tramo agregado a grano MARCA con las `cajas` money-anchored
+   * calculadas EN SQL (join a `v_product_box_factor` + `product_box_price`), no a grano producto. El
+   * overview default (byBrand) mostraba ~40 empresas pero traía 126k filas de producto para colapsarlas
+   * en Node (~4-12s en Railway, single-thread). A grano marca son ~16k grupos → **~1s** (medido). Las
+   * cajas quedan CORRECTAS (Σ por-producto de `weight→units / cja_price>0→monto/cja_price / else
+   * units/box_factor`; la fórmula es sumable porque cja_price y box_factor son constantes por producto).
+   */
+  private selloutBrandLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
+    // MISMA fórmula que el pivote por-producto (divisor = box_factor ?? factor_sale>1 ?? box_size>1 ?? 1),
+    // sumable a grano marca porque cja_price/box_factor/factor_sale/box_size son constantes por producto.
+    const cajas = `sum(CASE WHEN s.unit_kind='weight' THEN s.units WHEN bp.cja_price>0 THEN s.monto/bp.cja_price ELSE s.units/GREATEST(COALESCE(bf.box_factor, CASE WHEN s.factor_sale>1 THEN s.factor_sale WHEN s.box_size>1 THEN s.box_size ELSE 1 END), 1) END)`;
+    const qb = trx(`${table} as s`)
+      .leftJoin('analytics.v_product_box_factor as bf', function (this: any) { this.on('bf.tenant_id', 's.tenant_id').andOn('bf.product_id', 's.product_id'); })
+      .leftJoin('analytics.product_box_price as bp', function (this: any) { this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id'); })
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(
+        's.brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
+        trx.raw('s.warehouse_code as branch_code'), trx.raw('max(s.branch_name) as branch_name'),
+        's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
+        trx.raw(`${cajas} as cajas`), trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
+      )
+      .groupByRaw('s.brand_id, s.warehouse_code, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
+    if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
+    return qb;
+  }
+
+  /** Overview por empresa: filas a grano MARCA (cajas pre-calculadas) — rollup cerrados + vista borde. */
+  private async fetchSelloutBrandRows(trx: any, o: any): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutBrandLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutBrandLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, `to_char(s.business_date, 'YYYY-MM')`));
+    return out;
+  }
+
+  /** Filas del pivote unificadas (rollup meses cerrados + vista borde), LEAN + enriquecidas en Node con
+   *  los nombres por producto/almacén → el pivote recibe el MISMO shape de siempre (sin cambios abajo).
+   *  `byBrand` (overview sin empresa/búsqueda) toma el fast-path a grano marca (cajas en SQL). */
+  private async fetchSelloutRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; warehouseFilter: string[] | null; needMonth: boolean; byBrand?: boolean }): Promise<any[]> {
+    if (o.byBrand) return this.fetchSelloutBrandRows(trx, o);
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutPivotLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutPivotLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o, `to_char(s.business_date, 'YYYY-MM')`));
+    if (!out.length) return out;
+    // Enriquecimiento en Node (sku/nombre/factor_sale/box_size/marca por producto + nombre de almacén).
+    const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const pidsAll = out.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
+    const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
+    const whAll = out.map((r) => r.branch_code).filter((w) => typeof w === 'string' && w);
+    const whs = whAll.filter((v, i) => whAll.indexOf(v) === i);
+    const pmeta = pids.length
+      ? await trx('catalog.products as p')
+          .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+          .where('p.tenant_id', o.tenantId).whereRaw('p.id = ANY(?::uuid[])', [pids])
+          .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale', 'p.brand_id',
+            trx.raw('b.nombre as brand_nombre'), trx.raw('b.code as brand_code'),
+            trx.raw('(SELECT max(lp.box_size) FROM commercial.product_label_prices lp WHERE lp.product_id = p.id AND lp.tenant_id = p.tenant_id) as box_size'))
+      : [];
+    const pm = new Map<string, any>(pmeta.map((r: any) => [r.id, r]));
+    const wmeta = whs.length
+      ? await trx('commercial.warehouses').where('tenant_id', o.tenantId).whereIn('code', whs).select('code', 'name')
+      : [];
+    const wm = new Map<string, string>(wmeta.map((r: any) => [r.code, r.name]));
+    for (const r of out) {
+      const p = pm.get(r.product_id) || {};
+      r.branch_name = wm.get(r.branch_code) ?? r.branch_code;
+      r.sku = p.sku; r.nombre = p.nombre; r.factor_sale = p.factor_sale; r.box_size = p.box_size;
+      r.brand_id = p.brand_id; r.brand_nombre = p.brand_nombre; r.brand_code = p.brand_code;
+    }
+    return out;
+  }
+
+  /** Un tramo → filas con el SHAPE de `sellOutByVendor()`. Scoped a canales con vendedor: crédito
+   *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
+  private selloutVendorLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+    return trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+      })
+      .select(
+        's.vendor_code as vendor_code', 's.vendor_name as vendor_name',
+        trx.raw(`CASE s.channel WHEN 'credito' THEN 'mayoreo_credito' WHEN 'ruta' THEN 'ruta_venta' WHEN 'preventa' THEN 'preventa_vecinal' END as sale_channel`),
+        's.product_id as product_id',
+        trx.raw('max(s.sku) as sku'), trx.raw('max(s.nombre) as nombre'), trx.raw('max(s.factor_sale) as factor_sale'),
+        's.brand_id as brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
+        trx.raw('max(s.box_size) as box_size'),
+        trx.raw(`CASE WHEN s.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
+        trx.raw('1 as fac_win'),
+        trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'), trx.raw('sum(s.monto_neto) as monto_neto'),
+      )
+      .groupByRaw('s.vendor_code, s.vendor_name, s.channel, s.product_id, s.brand_id, s.unit_kind');
+  }
+
+  /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
+  private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo }): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const out: any[] = [];
+    if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    return out;
+  }
+
+  /**
+   * Hojas del universo sell-out (dimensiones + `monto>0`) para los ÁRBOLES de filtro y el selector de
+   * almacenes — MISMA fuente/dedup/rango que el pivote → sintonía. `dims` = columnas raw a agrupar;
+   * `extra` = filtros opcionales (canal/fuente). El `monto>0` se evalúa DESPUÉS de sumar rollup+borde
+   * (una hoja puede ser >0 sólo al juntar meses cerrados con el borde).
+   */
+  private async selloutLeaves(trx: any, o: { tenantId: string; from: string; to: string }, dims: string, extra?: (b: any) => void): Promise<any[]> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const acc = new Map<string, any>();
+    const run = async (table: string, dateCol: string, lo: string, hi: string) => {
+      const rows = await trx(`${table} as s`)
+        .where('s.tenant_id', o.tenantId).andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+        .modify((b: any) => { if (extra) extra(b); })
+        .select(trx.raw(dims)).sum({ _m: 's.monto' }).groupByRaw(dims);
+      for (const r of rows) {
+        const { _m, ...key } = r;
+        const k = JSON.stringify(key);
+        const cur = acc.get(k) || { ...key, _m: 0 };
+        cur._m += Number(_m) || 0;
+        acc.set(k, cur);
+      }
+    };
+    if (useRollup) await run('analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth);
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const dr of dailyRanges) await run('analytics.v_sellout_daily', 's.business_date', dr.from, dr.to);
+    return [...acc.values()].filter((r) => r._m > 0);
+  }
+
   /**
    * RS.4 — Sell-Out POR VENDEDOR (solo Wincaja: la dimensión vendedor solo existe ahí;
    * Kepler mart.ventas no la trae). Matriz Producto × Vendedor, agrupada MAYOREO
@@ -3124,86 +3432,34 @@ export class CommercialAnalyticsService {
     const cellFilter = (q.cells && q.cells.length) ? new Set(q.cells.map((c) => c.trim().toLowerCase())) : null;
     const tenantId = this.tenantCtx.requireTenantId();
     const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
-    // RS.9 — fast path por rollup para meses completos, INCLUIDO el mes en curso (esta
-    // vista es 100% wincaja → el live escanea v_sales_lines y da 504; ver isWincajaRollupOk).
-    const monthAligned = this.isWincajaRollupOk(from, to);
     // mayoreo_credito → 'mayoreo' · ruta_venta → 'ruta' (RD) · preventa_vecinal → 'preventa' (RV)
     const GROUP: Record<string, string> = { mayoreo_credito: 'mayoreo', ruta_venta: 'ruta', preventa_vecinal: 'preventa' };
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, identMap } = await this.tk.run(async (trx) => {
+    const { brand, raw, identMap, freshness } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
         : { id: null, nombre: 'Todas las empresas', code: null };
       if (!b) throw new BadRequestException('Marca no encontrada');
-      // RS.9 — fast path: meses completos → rollup persistido (units/unit_kind canónicos).
-      // Se mapea al MISMO shape que espera el pivote (uv_win/fac_win/qty): uv_win='KGS'|'PZA',
-      // fac_win=1, qty=units canónico → el cálculo de units/cajas de abajo funciona igual.
-      const rows = monthAligned
-        ? await trx('analytics.sales_by_vendor_monthly as sd')
-            .join('catalog.products as p', 'p.id', 'sd.product_id')
-            .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-            .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-            .where('sd.tenant_id', tenantId).whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-            .andWhere('sd.year_month', '>=', from.slice(0, 7)).andWhere('sd.year_month', '<=', to.slice(0, 7))
-            .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-            .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-            .select(
-              trx.raw(`sd.vendor_code as vendor_code`),
-              trx.raw(`sd.vendor_name as vendor_name`),
-              'sd.sale_channel as sale_channel',
-              'sd.product_id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-              'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-              trx.raw('max(lp.box_size) as box_size'),
-              trx.raw(`CASE WHEN max(sd.unit_kind)='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
-              trx.raw('1 as fac_win'),
-              trx.raw('sum(sd.units) as qty'), trx.raw('sum(sd.revenue) as monto'),
-            )
-            .groupByRaw('sd.vendor_code, sd.vendor_name, sd.sale_channel, sd.product_id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code')
-        : await trx
-        .with('am', (qb) => qb.distinctOn('articulo').select('articulo as sku')
-          .select(trx.raw(`upper(btrim(coalesce(unidad_venta,''))) as uv`), 'factor_venta')
-          .from('wincaja.articulos').where('tenant_id', tenantId).orderByRaw('articulo, source_dataset DESC'))
-        // Nombre por (sucursal, vendedor): los códigos se reusan entre plazas para
-        // PERSONAS distintas (ej. cód 75 = Sergio en PH pero Alberto Ayala en Morelia).
-        .with('ven', (qb) => qb.distinctOn('source_branch', 'vendedor').select('source_branch', 'vendedor', 'nombre')
-          .from('wincaja.vendedores').where('tenant_id', tenantId).orderByRaw('source_branch, vendedor, source_dataset DESC'))
-        .select(
-          trx.raw(`(vl.source_branch || ':' || vl.vendedor) as vendor_code`),
-          trx.raw(`coalesce(ven.nombre, vl.vendedor) as vendor_name`),
-          'vl.sale_channel as sale_channel',
-          'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
-          'p.factor_sale as factor_sale', 'p.brand_id as brand_id', 'b.nombre as brand_nombre', 'b.code as brand_code',
-          trx.raw('max(lp.box_size) as box_size'),
-          trx.raw(`max(am.uv) as uv_win`), trx.raw('max(am.factor_venta) as fac_win'),
-          trx.raw('sum(vl.qty) as qty'), trx.raw('sum(vl.importe) as monto'),
-        )
-        .from('wincaja.v_sales_lines as vl')
-        .join('catalog.products as p', function () { this.on('p.tenant_id', '=', 'vl.tenant_id').andOn('p.sku', '=', 'vl.sku'); })
-        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
-        .leftJoin('commercial.product_label_prices as lp', function () { this.on('lp.product_id', '=', 'p.id').andOn('lp.tenant_id', '=', 'p.tenant_id'); })
-        .leftJoin('am', 'am.sku', 'vl.sku')
-        .leftJoin('ven', function () { this.on('ven.source_branch', '=', 'vl.source_branch').andOn('ven.vendedor', '=', 'vl.vendedor'); })
-        .where('vl.tenant_id', tenantId)
-        .whereNull('p.deleted_at').modify((qb) => this.promoFilter(qb, promoMode))
-        // Mismo BLEND que el feed (import-wincaja-analytics): las wincaja_only (30/32/50)
-        // + PH(10) pre-2026-07-01 + La Piedad(42) pre-2025-10-01. Sin esto se caían los
-        // telemarketers de PH (Yareth, Sergio) porque PH es sucursal COMPARTIDA (wincaja_only=false).
-        .andWhereRaw(`(vl.wincaja_only = true OR (vl.source_branch = '10' AND vl.business_date < DATE '2026-07-01') OR (vl.source_branch = '42' AND vl.business_date < DATE '2025-10-01') OR (vl.source_branch = '50' AND vl.business_date < DATE '2026-08-15'))`)
-        .whereIn('vl.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-        .andWhere('vl.business_date', '>=', from).andWhere('vl.business_date', '<=', to)
-        .modify((qb) => { if (brandId) qb.andWhere('p.brand_id', brandId); if (search) qb.andWhereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
-        .groupByRaw('vl.source_branch, vl.vendedor, vendor_name, vl.sale_channel, p.id, p.sku, p.nombre, p.factor_sale, p.brand_id, b.nombre, b.code');
+      if (!(await this.selloutViewReady(trx)))
+        throw new ServiceUnavailableException('Analytics de sell-out aún no poblado — corré Refresh en el Command Center.');
+      // FUENTE UNIFICADA — mismo universo/dedup/rango que el pivote y los filtros, scoped a los canales
+      // CON vendedor: crédito (ambas fuentes: Kepler telemarketing Sergio/Cinthia + Wincaja) + ruta/preventa
+      // SÓLO de Wincaja (RD/RV; kepler ruta = decisión RD-vs-RV, diferida). Rutas numeradas → sin vendedor
+      // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
+      const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode });
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, raw: rows, identMap };
+      // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+      return { brand: b, raw, identMap, freshness };
     });
 
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
-    const colTotals = new Map<string, { cajas: number; monto: number }>();
-    let grandCajas = 0, grandMonto = 0;
+    const colTotals = new Map<string, SellOutCell>();
+    let grandCajas = 0, grandMonto = 0, grandMontoNeto = 0;
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
       // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
@@ -3221,132 +3477,133 @@ export class CommercialAnalyticsService {
       const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
       const cajas = isWeight ? units : units / divisor;
       const monto = Number(r.monto) || 0;
+      const montoNeto = Number(r.monto_neto) || 0;
       if (!columns.has(colKey)) {
         columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
-        colTotals.set(colKey, { cajas: 0, monto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
       let row = rowMap.get(r.sku);
-      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 } }; rowMap.set(r.sku, row); }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
-      cell.cajas += cajas; cell.monto += monto;
-      row.total.cajas += cajas; row.total.monto += monto;
-      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto;
-      grandCajas += cajas; grandMonto += monto;
+      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
+      cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto;
+      row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto;
+      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto; ct.monto_neto += montoNeto;
+      grandCajas += cajas; grandMonto += monto; grandMontoNeto += montoNeto;
     }
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     const rows = Array.from(rowMap.values()).sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
     for (const row of rows) {
-      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
     }
     const orderedCols = Array.from(columns.values()).sort((a, b) =>
       (GROUP_ORD[a.channel ?? ''] ?? 9) - (GROUP_ORD[b.channel ?? ''] ?? 9) || a.branch_name.localeCompare(b.branch_name, 'es'));
     const columnTotalsObj: Record<string, SellOutCell> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
     return {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
       columns: orderedCols, rows, column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
-      coverage: { branches_with_data: [], branches_missing: [], note: 'Por vendedor: solo canales Wincaja (mayoreo/RD/RV). Kepler no registra vendedor.' },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
+      // [VP.0.6] La nota de alcance es CIERTA y útil, pero no es una cobertura: este pivote agrupa
+      // por vendedor y nunca trae sucursal (`selloutVendorLeg` no la selecciona), así que el eje no
+      // se puede medir acá. `measured: false` lo dice; antes los dos arreglos vacíos se leían como
+      // "no falta ninguna sucursal", que es una afirmación que nadie hizo.
+      coverage: {
+        branches_with_data: [], branches_missing: [], measured: false,
+        note: 'Alcance por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja). '
+          + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
+      },
+      freshness,
       generated_at: new Date().toISOString(),
     };
   }
 
   /** RS.4 — Árbol CANAL para el slicer: grupos (Sucursal/RD/RV/Mayoreo) → sucursales con venta. */
-  async sellOutCanales(): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
+  async sellOutCanales(from?: string, to?: string): Promise<{ group: string; group_label: string; leaves: { channel: string; code: string; name: string }[] }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const channelExpr0 = `CASE sd.channel
-        WHEN 'tienda' THEN 'mostrador' WHEN 'wincaja_mostrador' THEN 'mostrador'
-        WHEN 'ruta' THEN 'ruta' WHEN 'wincaja_ruta' THEN 'ruta'
-        WHEN 'wincaja_preventa' THEN 'preventa'
-        WHEN 'credito' THEN 'credito' WHEN 'wincaja_credito' THEN 'credito'
-        ELSE 'otro' END`;
-    // RS.7 — almacenes de RUTA (RUTA-NN; legacy 01-NNN) → RD aunque cobren a crédito/contado.
-    const channelExpr = `CASE WHEN w.code LIKE 'RUTA-%' OR w.code LIKE '01-%' THEN 'ruta' ELSE (${channelExpr0}) END`;
-    const { rows, vendors, keplerCredito, identMap } = await this.tk.run(async (trx) => {
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
+    const { chanRows, credRows, identMap } = await this.tk.run(async (trx) => {
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      const rows = await trx('analytics.sales_daily as sd')
-        .join('commercial.warehouses as w', 'w.id', 'sd.warehouse_id')
-        .where('sd.tenant_id', tenantId)
-        .select(trx.raw(`${channelExpr} as channel`), 'w.code as code', 'w.name as name')
-        .sum({ rev: 'sd.revenue' })
-        .groupByRaw(`${channelExpr}, w.code, w.name`)
-        .havingRaw('sum(sd.revenue) > 0');
-      // RS.10 — Mayoreo NO por sucursal: sus hojas son VENDEDORES (rollup por vendedor).
-      const vendors = await trx('analytics.sales_by_vendor_monthly as sd')
-        .where('sd.tenant_id', tenantId).andWhere('sd.sale_channel', 'mayoreo_credito')
-        .select(trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
-        .sum({ rev: 'sd.revenue' })
-        .groupByRaw('sd.vendor_code, sd.vendor_name')
-        .havingRaw('sum(sd.revenue) > 0');
-      // Crédito Kepler (canal 'credito' NO wincaja): sin vendedor → una sola hoja aparte.
-      const kc = await trx('analytics.sales_daily as sd')
-        .where('sd.tenant_id', tenantId).andWhere('sd.channel', 'credito')
-        .sum({ rev: 'sd.revenue' }).first();
-      return { rows, vendors, keplerCredito: Number((kc as any)?.rev) || 0, identMap };
+      if (!(await this.selloutViewReady(trx))) return { chanRows: [] as any[], credRows: [] as any[], identMap };
+      // Hojas Sucursal/RD/RV = canal×almacén, de la MISMA fuente/dedup/rango que el pivote → sintonía
+      // (fix A/B/F: mismo origen, dedup aplicado, vocabulario unificado, acotado al rango elegido).
+      const chanRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.channel, s.warehouse_code, s.branch_name',
+        (qb) => qb.whereIn('s.channel', ['mostrador', 'ruta', 'preventa']));
+      // Mayoreo (credito) = por VENDEDOR (ambas fuentes vía canonVendor).
+      const credRows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.vendor_code, s.vendor_name',
+        (qb) => qb.andWhere('s.channel', 'credito'));
+      return { chanRows, credRows, identMap };
     });
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
       mostrador: { g: 'mostrador', label: 'Sucursal', ord: 0 },
       ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
       preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
-      credito: { g: 'credito', label: 'Mayoreo', ord: 3 },
     };
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
-    for (const r of rows as any[]) {
+    for (const r of chanRows as any[]) {
       const meta = GROUP[r.channel]; if (!meta) continue;
-      if (meta.g === 'credito') continue; // Mayoreo se arma por vendedor abajo, no por sucursal
       if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
-      map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.code, name: r.name });
+      map.get(meta.g)!.leaves.push({ channel: r.channel, code: r.warehouse_code, name: r.branch_name });
     }
-    // Grupo Mayoreo = vendedores (token 'credito|<canonical_key>') + Kepler sin vendedor (separado).
-    // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a UNA hoja, nombre limpio.
-    if (vendors.length || keplerCredito > 0) {
-      const seen = new Map<string, { channel: string; code: string; name: string }>();
-      for (const v of vendors as any[]) {
-        const id = this.canonVendor(identMap, v.code, v.name);
-        if (id.exclude || this.isNoiseVendor(v.code)) continue; // RS.11b — fuera no-vendedores
-        if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
-      }
-      const leaves = Array.from(seen.values());
-      if (keplerCredito > 0) leaves.push({ channel: 'credito', code: 'k-sin-vendedor', name: 'Sin vendedor (Kepler)' });
-      map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves });
+    // Mayoreo = vendedores canónicos (Wincaja+Kepler colapsados por canonVendor) + bucket ÚNICO
+    // 'sin-vendedor' seleccionable (fix D) cuando hay crédito sin vendedor real con venta.
+    const seen = new Map<string, { channel: string; code: string; name: string }>();
+    let sinVend = 0;
+    for (const v of credRows as any[]) {
+      if (this.isNoiseVendor(v.vendor_code)) { sinVend += Number(v._m) || 0; continue; }
+      const id = this.canonVendor(identMap, v.vendor_code, v.vendor_name);
+      if (id.exclude) continue;
+      if (!seen.has(id.key)) seen.set(id.key, { channel: 'credito', code: id.key, name: id.name });
     }
+    const credLeaves = Array.from(seen.values());
+    if (sinVend > 0) credLeaves.push({ channel: 'credito', code: 'sin-vendedor', name: 'Sin vendedor' });
+    if (credLeaves.length) map.set('credito', { group: 'credito', group_label: 'Mayoreo', ord: 3, leaves: credLeaves });
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
-      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => a.name.localeCompare(b.name, 'es')) }));
+      .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
   }
 
-  /** RS.4 — Árbol VENDEDOR (solo Wincaja) para el slicer: MAYOREO/RD/RV → vendedores con venta. */
-  async sellOutVendors(): Promise<{ group: string; group_label: string; leaves: { code: string; name: string }[] }[]> {
+  /** RS.4 — Árbol VENDEDOR para el slicer: MAYOREO (Kepler+Wincaja) / RD / RV (Wincaja) → vendedores con
+   *  venta EN EL RANGO. Misma fuente/dedup que el pivote by-vendor → sintonía (fix B/C/E). */
+  async sellOutVendors(from?: string, to?: string): Promise<{ group: string; group_label: string; leaves: { code: string; name: string }[] }[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31';
     const GROUP: Record<string, { g: string; label: string; ord: number }> = {
-      mayoreo_credito: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
-      ruta_venta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
-      preventa_vecinal: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
+      credito: { g: 'mayoreo', label: 'Mayoreo', ord: 0 },
+      ruta: { g: 'ruta', label: 'RD (Reparto)', ord: 1 },
+      preventa: { g: 'preventa', label: 'RV (Vecinal)', ord: 2 },
     };
-    // RS.9 — desde el rollup persistido (venta por vendedor, todo el histórico). El feed ya
-    // aplicó el mismo blend/mapeo → mismos vendedores que la view, pero en ~ms (era 504).
-    const { rows, identMap } = await this.tk.run(async (trx) => ({
-      rows: await trx('analytics.sales_by_vendor_monthly as sd')
-        .select('sd.sale_channel as sale_channel', trx.raw(`sd.vendor_code as code`), trx.raw(`sd.vendor_name as name`))
-        .sum({ rev: 'sd.revenue' })
-        .where('sd.tenant_id', tenantId)
-        .whereIn('sd.sale_channel', ['mayoreo_credito', 'ruta_venta', 'preventa_vecinal'])
-        .groupByRaw('sd.sale_channel, sd.vendor_code, sd.vendor_name')
-        .havingRaw('sum(sd.revenue) > 0'),
-      identMap: await this.loadVendorIdentity(trx, tenantId),
-    }));
+    const { rows, identMap } = await this.tk.run(async (trx) => {
+      const identMap = await this.loadVendorIdentity(trx, tenantId);
+      if (!(await this.selloutViewReady(trx))) return { rows: [] as any[], identMap };
+      // Vendedores del universo unificado, scoped como el reporte by-vendor: crédito (ambas fuentes) +
+      // ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida).
+      const rows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
+        's.channel, s.vendor_code, s.vendor_name',
+        (qb) => qb.andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`));
+      return { rows, identMap };
+    });
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
-    for (const r of rows as any[]) {
-      const meta = GROUP[r.sale_channel]; if (!meta) continue;
-      // RS.11 — identidad canónica: fragmentos del mismo vendedor colapsan a una hoja.
-      const id = this.canonVendor(identMap, r.code, r.name);
-      // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
-      if (id.exclude || this.isNoiseVendor(r.code)) continue;
-      if (!map.has(meta.g)) map.set(meta.g, { group: meta.g, group_label: meta.label, ord: meta.ord, leaves: [] });
-      const bucket = map.get(meta.g)!;
+    const addLeaf = (g: string, label: string, ord: number, id: { key: string; name: string }) => {
+      if (!map.has(g)) map.set(g, { group: g, group_label: label, ord, leaves: [] });
+      const bucket = map.get(g)!;
       if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
+    };
+    let sinVend = 0;
+    for (const r of rows as any[]) {
+      const meta = GROUP[r.channel]; if (!meta) continue;
+      // RS.11b — fuera los que no son vendedor real; sólo Mayoreo expone el bucket 'sin-vendedor' (fix D).
+      if (this.isNoiseVendor(r.vendor_code)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
+      // RS.11 — identidad canónica: fragmentos del mismo vendedor (y su yo Wincaja/Kepler) colapsan a una hoja.
+      const id = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      if (id.exclude) continue;
+      addLeaf(meta.g, meta.label, meta.ord, id);
     }
+    if (sinVend > 0) addLeaf('mayoreo', 'Mayoreo', 0, { key: 'sin-vendedor', name: 'Sin vendedor' });
     return Array.from(map.values()).sort((a, b) => a.ord - b.ord)
       .map((g) => ({ group: g.group, group_label: g.group_label, leaves: g.leaves.sort((a, b) => String(a.name).localeCompare(String(b.name), 'es')) }));
   }
@@ -3378,26 +3635,19 @@ export class CommercialAnalyticsService {
     });
   }
 
-  /** Almacenes/sucursales con venta en analytics.sales_daily — para el selector. */
-  async sellOutWarehouses(): Promise<SellOutWarehouseRow[]> {
+  /** Almacenes con venta en el rango — para el selector. MISMA fuente unificada que el pivote/filtros
+   *  (sintonía): lista exactamente los almacenes que el reporte puede mostrar para [from,to]. Sin rango
+   *  → all-time (selector estable). */
+  async sellOutWarehouses(from?: string, to?: string): Promise<SellOutWarehouseRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
+    const f = from && this.isIsoDate(from) ? from.slice(0, 10) : '2020-01-01';
+    const t = to && this.isIsoDate(to) ? to.slice(0, 10) : '2099-12-31'; // la vista se auto-acota a hoy_MX
     return this.tk.run(async (trx) => {
-      // Almacenes con venta en CUALQUIER fact de sell-out (sales_daily del consolidado O
-      // product_sales_monthly del feed por-sucursal). Antes solo sales_daily → Canindo '06'
-      // (migró de Wincaja '50' a Kepler '06') NO salía porque su venta aún no llega a sales_daily
-      // (gap del consolidado on-prem mart.ventas_enriched), aunque product_sales SÍ la tiene.
-      // El union NO enmascara el gap: Sell-Out sigue mostrando 0 para Canindo hasta arreglar el
-      // consolidado; pero al menos el reporte Salidas (que lee product_sales) ya lo lista.
-      const rows = await trx('commercial.warehouses as w')
-        .where('w.tenant_id', tenantId)
-        .whereNull('w.deleted_at')
-        .whereRaw(
-          `(EXISTS (SELECT 1 FROM analytics.sales_daily sd WHERE sd.tenant_id = w.tenant_id AND sd.warehouse_id = w.id)
-         OR EXISTS (SELECT 1 FROM analytics.product_sales_monthly ps WHERE ps.tenant_id = w.tenant_id AND ps.warehouse_id = w.id))`,
-        )
-        .distinct('w.code as code', 'w.name as name')
-        .orderBy('w.code');
-      return rows as SellOutWarehouseRow[];
+      if (!(await this.selloutViewReady(trx))) return [];
+      const leaves = await this.selloutLeaves(trx, { tenantId, from: f, to: t }, 's.warehouse_code, s.branch_name');
+      return leaves
+        .map((r: any) => ({ code: r.warehouse_code, name: r.branch_name }))
+        .sort((a: any, b: any) => String(a.code).localeCompare(String(b.code), 'es')) as SellOutWarehouseRow[];
     });
   }
 
@@ -3434,9 +3684,14 @@ export class CommercialAnalyticsService {
     const term = (q.search || '').trim();
     const tenantId = this.tenantCtx.requireTenantId();
 
-    // Modo AÑO → product_sales_monthly (columnas por mes). Modo RANGO → product_sales_daily
-    // (una Venta/Costo del período). El diario suma EXACTO al mensual (misma fuente/filtro).
-    let year = 0, from = '', toIncl = '', toExcl = '';
+    // Fuente CANÓNICA (primaria): modo AÑO → analytics.sales_boxes_monthly (piezas/kg + cajas ya
+    // calculadas con v_product_box_factor = Kepler kdii.c84); modo RANGO → analytics.sales_daily
+    // (piezas/kg canónicas; cajas = piezas / factor canónico). Incluye los canales de VENTA
+    // (mostrador/crédito/preventa/ruta, Kepler y Wincaja) y EXCLUYE `mayoreo` (=TI% traspaso
+    // interno, ver NON_SALE_RAW_CHANNELS) para igualar la definición de Sell-Out. Reemplaza a
+    // product_sales_* (crudo: unidad vendida sin normalizar, solo U-D-10) que subcontaba el
+    // crédito y no convertía a cajas los productos vendidos en paquete/granel.
+    let year = 0, from = '', toIncl = '';
     if (isRange) {
       if (!this.isIsoDate(q.from!) || !this.isIsoDate(q.to!)) throw new BadRequestException('from/to inválido (ISO 8601)');
       from = q.from!; toIncl = q.to!;
@@ -3444,10 +3699,9 @@ export class CommercialAnalyticsService {
     } else {
       year = Number(q.year) || new Date().getFullYear();
       if (year < 2020 || year > 2100) throw new BadRequestException('year inválido');
-      from = `${year}-01-01`; toExcl = `${year + 1}-01-01`;
+      from = `${year}-01-01`;
     }
-    const src = isRange ? 'analytics.product_sales_daily as m' : 'analytics.product_sales_monthly as m';
-    const dcol = isRange ? 'm.sale_date' : 'm.month';
+    const ymFrom = `${year}-01`, ymTo = `${year}-12`; // bounds de year_month (texto) para sales_boxes_monthly
 
     // SAL.6 — días del período (cobertura) + ventana anterior (tendencia).
     const DAY = 86400000;
@@ -3468,10 +3722,6 @@ export class CommercialAnalyticsService {
     }
 
     const { salesRows, prodRows, prevRows, stkRows, scopeWh } = await this.tk.run(async (trx) => {
-      const applyDate = (qb: any) => {
-        qb.where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
-        if (isRange) qb.andWhere(dcol, '<=', toIncl); else qb.andWhere(dcol, '<', toExcl);
-      };
       const applyFilters = (qb: any) => {
         if (whFilter) qb.whereIn('w.code', whFilter);
         if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -3480,44 +3730,64 @@ export class CommercialAnalyticsService {
         if (term) qb.andWhere((b: any) => b.where('p.nombre', 'ilike', `%${term}%`).orWhere('p.sku', 'ilike', `%${term}%`));
       };
 
-      // Venta por (sucursal, producto[, mes]).
-      const sq = trx(src)
-        .join('catalog.products as p', 'p.id', 'm.product_id')
-        .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .sum({ units: 'm.units' });
-      applyDate(sq);
+      // Venta por (sucursal, producto[, mes]) desde la fuente CANÓNICA: `units` = base natural
+      // (piezas para pieza, kg para granel) · `boxes` = cajas con el factor canónico. Todos los canales.
+      let sq: any;
       if (isRange) {
-        sq.select('w.code as wcode', 'm.product_id as product_id').groupByRaw('w.code, m.product_id');
+        sq = trx('analytics.sales_daily as m')
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
+            this.on('vbf.product_id', 'm.product_id').andOn('vbf.tenant_id', 'm.tenant_id');
+          })
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .select('w.code as wcode', 'm.product_id as product_id')
+          .select(trx.raw('sum(m.units) as units'))
+          .select(trx.raw(`sum(CASE WHEN m.unit_kind = 'weight' THEN 0 ELSE m.units / GREATEST(COALESCE(vbf.box_factor, 1), 1) END) as boxes`))
+          .groupByRaw('w.code, m.product_id');
       } else {
-        sq.select('w.code as wcode', 'm.product_id as product_id', trx.raw(`to_char(m.month,'MM') as mes`))
-          .groupByRaw(`w.code, m.product_id, to_char(m.month,'MM')`);
+        sq = trx('analytics.sales_boxes_monthly as m')
+          .join('catalog.products as p', 'p.id', 'm.product_id')
+          .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .select('w.code as wcode', 'm.product_id as product_id', trx.raw(`right(m.year_month, 2) as mes`))
+          .select(trx.raw('sum(coalesce(m.pieces, 0) + coalesce(m.kg, 0)) as units'))
+          .select(trx.raw('sum(coalesce(m.boxes, 0)) as boxes'))
+          .groupByRaw('w.code, m.product_id, right(m.year_month, 2)');
       }
       applyFilters(sq);
 
       // SAL.6 — tendencia: venta del período ANTERIOR (misma duración, solo rango).
       let prevRows: any[] = [];
       if (isRange && prevFrom && prevTo) {
-        const pq = trx('analytics.product_sales_daily as m')
+        const pq = trx('analytics.sales_daily as m')
           .join('catalog.products as p', 'p.id', 'm.product_id')
           .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', prevFrom).andWhere('m.sale_date', '<=', prevTo)
-          .sum({ units: 'm.units' })
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .select('w.code as wcode', 'm.product_id as product_id')
+          .select(trx.raw('sum(m.units) as units'))
           .groupByRaw('w.code, m.product_id');
         applyFilters(pq);
         prevRows = await pq;
       }
 
-      // CATÁLOGO COMPLETO × SUCURSALES (decisión Edgar 2026-07-15): mostrar TODO producto
-      // activo en cada sucursal, aunque no tenga venta NI existencia (Venta 0 / Exist 0).
-      // La matriz sucursal×producto se arma en Node desde 3 queries planas (no cartesiano SQL).
-      // Scope de sucursales = las que tuvieron venta en el período (excluye rutas/Cedis sin
-      // venta). Con filtro de sucursal/marca la matriz se achica sola.
-      const swq = trx(src).join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .where('m.tenant_id', tenantId).andWhere(dcol, '>=', from);
-      if (isRange) swq.andWhere(dcol, '<=', toIncl); else swq.andWhere(dcol, '<', toExcl);
-      swq.distinct('w.id as id', 'w.code as code', 'w.name as name');
-      let scopeWh: any[] = await swq;
+      // CATÁLOGO COMPLETO × SUCURSALES (decisión Edgar 2026-07-15): mostrar TODO producto activo en
+      // cada sucursal en scope (venta 0 / exist 0 permitidos). Scope = sucursales con venta en el período.
+      let scopeWh: any[];
+      if (isRange) {
+        scopeWh = await trx('analytics.sales_daily as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .distinct('w.id as id', 'w.code as code', 'w.name as name');
+      } else {
+        scopeWh = await trx('analytics.sales_boxes_monthly as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+          .where('m.tenant_id', tenantId).andWhere('m.year_month', '>=', ymFrom).andWhere('m.year_month', '<=', ymTo)
+          .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
+          .distinct('w.id as id', 'w.code as code', 'w.name as name');
+      }
       if (whFilter) scopeWh = scopeWh.filter((w) => whFilter.includes(w.code));
 
       const pq2 = trx('catalog.products as p')
@@ -3527,11 +3797,14 @@ export class CommercialAnalyticsService {
         .leftJoin('commercial.product_label_prices as lp', function (this: any) {
           this.on('lp.product_id', 'p.id').andOn('lp.tenant_id', 'p.tenant_id');
         })
+        .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
+          this.on('vbf.product_id', 'p.id').andOn('vbf.tenant_id', 'p.tenant_id');
+        })
         .where('p.tenant_id', tenantId).andWhere('p.activo', true)
         .select(
           'p.id as product_id', 'p.sku as sku', 'p.nombre as nombre',
           'p.factor_sale as factor_sale', 'p.unit_sale as unit_sale',
-          'lp.pack_size as pack_size', 'lp.box_size as box_size',
+          'lp.pack_size as pack_size', 'lp.box_size as box_size', 'vbf.box_factor as box_factor',
           'p.cost_with_tax as cost_with_tax', 'p.cost_per_case as cost_per_case',
           's.name as supplier', 'b.nombre as brand', 'cat.name as categoria', 'p.rotation_tier as rotation_tier',
         );
@@ -3554,10 +3827,12 @@ export class CommercialAnalyticsService {
 
     // Merge en Node.
     const monthsSet = new Set<string>();
-    const salesByKey = new Map<string, Record<string, number>>(); // modo año: mes→units
+    const salesByKey = new Map<string, Record<string, number>>(); // modo año: mes→units (piezas/kg canónicas)
     const totalByKey = new Map<string, number>();                 // modo rango: units del período
+    const boxesByKey = new Map<string, number>();                 // cajas canónicas del período (ambos modos)
     for (const r of salesRows as any[]) {
       const key = `${r.wcode}|${r.product_id}`;
+      boxesByKey.set(key, (boxesByKey.get(key) ?? 0) + (Number(r.boxes) || 0));
       if (isRange) {
         totalByKey.set(key, Number(r.units) || 0);
       } else {
@@ -3591,7 +3866,7 @@ export class CommercialAnalyticsService {
         if (isGhost(p)) continue;
         allMeta.push({
           wcode: w.code, wname: w.name, product_id: p.product_id, sku: p.sku, nombre: p.nombre,
-          factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size,
+          factor_sale: p.factor_sale, unit_sale: p.unit_sale, pack_size: p.pack_size, box_size: p.box_size, box_factor: p.box_factor,
           cost_with_tax: p.cost_with_tax, cost_per_case: p.cost_per_case, supplier: p.supplier,
           brand: p.brand, categoria: p.categoria, rotation_tier: p.rotation_tier,
           stock_qty: stockMap.get(`${w.code}|${p.product_id}`) ?? 0,
@@ -3638,12 +3913,19 @@ export class CommercialAnalyticsService {
       // estricto de etiquetas → un producto SIN etiqueta mostraba Costo x Caja $565.20
       // pero Pz/Cja y Exist. Cja en "—" (incoherente; caso 83769 GUSTINOS /20KG).
       const packF = Number(r.pack_size) > 0 ? Number(r.pack_size) : 0;
-      const boxF = Number(r.box_size) > 0 ? Number(r.box_size)
-        : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0);
+      // boxF = factor de caja CANÓNICO (v_product_box_factor = Kepler kdii.c84); cae a la etiqueta y
+      // luego a factor_sale solo si falta el canónico. Mismo factor en venta, existencia y costo.
+      const boxF = Number(r.box_factor) > 1 ? Number(r.box_factor)
+        : (Number(r.box_size) > 0 ? Number(r.box_size)
+        : (Number(r.factor_sale) > 0 ? Number(r.factor_sale) : 0));
+      const weightUnit = unitSale === 'KG' || unitSale === 'KGS' || unitSale === 'KILO' || unitSale === 'KILOS';
       const existPaquete = pieceUnit && packF > 0 ? round(existPaq / packF, 2) : (paqUnit ? existPaq : null);
       const existCaja = pieceUnit && boxF > 0 ? round(existPaq / boxF, 2) : (cjaUnit ? existPaq : null);
-      const ventaPaquetes = pieceUnit && packF > 0 ? round(ventaTotal / packF, 2) : (paqUnit ? round(ventaTotal, 2) : null);
-      const ventaCajas = pieceUnit && boxF > 0 ? round(ventaTotal / boxF, 2) : (cjaUnit ? round(ventaTotal, 2) : null);
+      // Venta en CAJAS: ya viene en cajas de la fuente canónica (piezas ÷ factor canónico, TODA
+      // unidad incl. paquete). Granel (kg) no tiene caja → "—".
+      const ventaCajas = weightUnit ? null : round(boxesByKey.get(key) ?? 0, 2);
+      // Paquetes: desde las piezas canónicas (ventaTotal) ÷ pzas por paquete.
+      const ventaPaquetes = weightUnit ? null : (packF > 0 ? round(ventaTotal / packF, 2) : null);
       const diasCobertura = ventaTotal > 0 ? Math.round((existPaq * diasPeriodo) / ventaTotal) : null;
       const ventaPrev = isRange ? (prevByKey.get(key) ?? 0) : null;
       const ventaDelta = isRange && ventaPrev != null && ventaPrev > 0
@@ -3878,7 +4160,7 @@ export class CommercialAnalyticsService {
    */
   async salesByRouteDetail(
     routeCode: string, year: number,
-    opts?: { from?: string; to?: string; sku?: string; client?: string },
+    opts?: { from?: string; to?: string; sku?: string; client?: string; unit?: string },
   ): Promise<SalesByRouteDetail> {
     const y = Number(year) || new Date().getFullYear();
     if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
@@ -3907,16 +4189,31 @@ export class CommercialAnalyticsService {
       const P: any[] = [tenantId, src, from, to];
       if (opts?.sku) { W += ' AND sl.sku = ?'; P.push(opts.sku); }
       if (opts?.client) { W += ' AND sl.cliente = ?'; P.push(opts.client); }
+      // RR3: la faceta de unidad acota TODO el desglose (no sólo la lista de tickets),
+      // para que las pestañas sigan contando la misma población que los chips declaran.
+      if (opts?.unit) { W += ' AND sl.unidad = ?'; P.push(opts.unit.toUpperCase()); }
 
+      // RR2: el margen viaja en el MISMO barrido (sólo suma dos columnas más). `cost` sale
+      // de `valor_costo`, que es el monto EXTENDIDO de la línea (verificado: Σcosto/Σventa
+      // da 13-16% por ruta; × qty daría −93%..−1234%) → NUNCA multiplicar por qty.
+      // `revenue_with_cost` es el denominador honesto: el push de camionetas no trae costo.
       const totals = (await trx.raw(
         `SELECT sum(sl.importe) revenue, sum(sl.qty) units, count(distinct sl.consecutivo) tickets,
                 count(distinct sl.sku) skus,
-                count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients
+                count(distinct sl.cliente) FILTER (WHERE sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001') clients,
+                count(*) lines,
+                sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
          FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
       const totRev = num(totals.revenue);
+      const revWithCost = num(totals.revenue_with_cost);
+      const cost = num(totals.cost);
 
+      // `lines` por SKU sale del mismo barrido; `units/lines` dice si el producto se
+      // vende de a uno o de a bulto — la señal directa para el tamaño de empaque.
       const products = (await trx.raw(
-        `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue
+        `SELECT sl.sku, COALESCE(p.nombre, sl.sku) AS name, sum(sl.qty) units, sum(sl.importe) revenue,
+                count(*) lines
          FROM analytics.v_route_sales_lines sl
          LEFT JOIN catalog.products p ON p.tenant_id=sl.tenant_id AND p.sku=sl.sku AND p.deleted_at IS NULL
          WHERE ${W} GROUP BY sl.sku, p.nombre ORDER BY revenue DESC NULLS LAST LIMIT 50`, P)).rows;
@@ -3946,6 +4243,14 @@ export class CommercialAnalyticsService {
          FROM analytics.v_route_sales_lines sl WHERE ${W}
          GROUP BY sl.consecutivo ORDER BY max(sl.business_date) DESC, revenue DESC NULLS LAST LIMIT 100`, P)).rows;
 
+      // RR2: mezcla por unidad de medida. El rótulo es passthrough de la fuente
+      // (Wincaja: catálogo del artículo · push/Kepler: `unidad` del renglón) — cero
+      // unidades inventadas, cero pluralización.
+      const unitsMix = (await trx.raw(
+        `SELECT sl.unidad, count(*) lines, sum(sl.qty) units, sum(sl.importe) revenue
+         FROM analytics.v_route_sales_lines sl WHERE ${W}
+         GROUP BY sl.unidad ORDER BY revenue DESC NULLS LAST`, P)).rows;
+
       return {
         route_no: head.route_no,
         route_code: `WIN-${src}`,
@@ -3953,12 +4258,17 @@ export class CommercialAnalyticsService {
         year: y,
         totals: {
           revenue: totRev, units: num(totals.units), tickets: num(totals.tickets),
-          skus: num(totals.skus), clients: num(totals.clients),
+          skus: num(totals.skus), clients: num(totals.clients), lines: num(totals.lines),
         },
-        products: products.map((r: any) => ({
-          sku: r.sku, name: r.name, units: num(r.units), revenue: num(r.revenue),
-          share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
-        })),
+        products: products.map((r: any) => {
+          const lines = num(r.lines);
+          return {
+            sku: r.sku, name: r.name, units: num(r.units), revenue: num(r.revenue),
+            share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+            lines,
+            units_per_line: lines > 0 ? Math.round((num(r.units) / lines) * 100) / 100 : 0,
+          };
+        }),
         daily: daily.map((r: any) => ({
           date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
           revenue: num(r.revenue), units: num(r.units), tickets: num(r.tickets),
@@ -3971,6 +4281,286 @@ export class CommercialAnalyticsService {
           folio: r.folio || r.consecutivo, date: r.date instanceof Date ? r.date.toISOString().slice(0, 10) : String(r.date).slice(0, 10),
           lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
         })),
+        units_mix: unitsMix.map((r: any) => ({
+          unidad: r.unidad ?? null, lines: num(r.lines), units: num(r.units), revenue: num(r.revenue),
+          share_pct: totRev > 0 ? Math.round((num(r.revenue) / totRev) * 1000) / 10 : 0,
+        })),
+        margin: {
+          revenue_with_cost: revWithCost,
+          cost,
+          margin_pct: revWithCost > 0 ? Math.round((1 - cost / revWithCost) * 1000) / 10 : null,
+          coverage_pct: totRev > 0 ? Math.round((revWithCost / totRev) * 1000) / 10 : 0,
+        },
+      };
+    });
+  }
+
+  // ── RR2 — Desglose por TICKET ────────────────────────────────────────────────
+  /** Ruta → `source_branch` de la tabla-hecho (el UI manda `WIN-<n>`). */
+  private routeSrc(routeCode: string): string {
+    const src = (routeCode || '').replace(/^WIN-/i, '').trim();
+    if (!src) throw new BadRequestException('route requerido');
+    return src;
+  }
+
+  /** Llave del ticket: el folio NO es único (el push lo repite entre rutas y días). */
+  private ticketKey(r: { source: string; source_branch: string; date: string; consecutivo: string }): string {
+    return [r.source, r.source_branch, r.date, r.consecutivo].join('|');
+  }
+
+  private parseTicketKey(key: string) {
+    const parts = (key || '').split('|');
+    if (parts.length < 4) throw new BadRequestException('key de ticket inválida');
+    const [source, sourceBranch, date] = parts;
+    const consecutivo = parts.slice(3).join('|'); // el consecutivo puede traer separadores
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new BadRequestException('key de ticket inválida');
+    if (source !== 'wincaja' && source !== 'push') throw new BadRequestException('key de ticket inválida');
+    return { source, sourceBranch, date, consecutivo };
+  }
+
+  private static readonly TICKET_SORT: Record<string, string> = {
+    date: 'business_date', revenue: 'revenue', units: 'units', lines: 'lines', margin: 'margin_pct',
+  };
+
+  /**
+   * RR2 — Lista de TICKETS de una ruta (paginada, server-side). Grano = documento:
+   * `(source, source_branch, business_date, consecutivo)`.
+   *
+   * `route` es OBLIGATORIA a propósito: sin scope la consulta barre la tabla-hecho
+   * completa (medido en prod: 1 ruta × 1 mes = 1.9 s vs barrido anual de todas = 110 s).
+   *
+   * Los filtros de LÍNEA (sku, unidad) eligen QUÉ tickets salen, pero los totales del
+   * ticket siguen siendo los completos — un ticket con un total recortado a las líneas
+   * que casaron el filtro sería una cifra falsa.
+   */
+  async salesByRouteTickets(q: SalesByRouteTicketsQuery): Promise<SalesByRouteTicketsPage> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const src = this.routeSrc(q.route);
+    const dRx = /^\d{4}-\d{2}-\d{2}$/;
+    const y = Number(q.year) || new Date().getFullYear();
+    if (y < 2020 || y > 2100) throw new BadRequestException('year inválido');
+    const from = q.from && dRx.test(q.from) ? q.from : `${y}-01-01`;
+    const to = q.to && dRx.test(q.to) ? q.to : `${y + 1}-01-01`;
+    const limit = Math.min(Math.max(Number(q.limit) || 100, 1), 500);
+    const offset = Math.max(Number(q.offset) || 0, 0);
+    const sortCol = CommercialAnalyticsService.TICKET_SORT[q.sort || 'date'] || 'business_date';
+    const dir = q.dir === 'asc' ? 'ASC' : 'DESC';
+    const num = (v: any) => Number(v) || 0;
+
+    // Scope: común a los dos pasos (selección de tickets y agregación de sus líneas).
+    const scope = `sl.tenant_id = ? AND sl.source_branch = ? AND sl.sale_channel = 'ruta_venta'
+                   AND sl.business_date >= ? AND sl.business_date < ? AND sl.business_date <= CURRENT_DATE`;
+    const scopeP: any[] = [tenantId, src, from, to];
+
+    // Filtros de LÍNEA → sólo acotan el conjunto de tickets.
+    let lineW = '';
+    const lineP: any[] = [];
+    if (q.sku) { lineW += ' AND sl.sku = ?'; lineP.push(q.sku); }
+    if (q.unit) { lineW += ' AND sl.unidad = ?'; lineP.push(q.unit.toUpperCase()); }
+
+    // Filtros de TICKET → se aplican sobre el agregado.
+    let tickW = '';
+    const tickP: any[] = [];
+    if (q.client) { tickW += ' AND a.cliente = ?'; tickP.push(q.client); }
+    if (q.paymentMethod) { tickW += ' AND a.forma_pago = ?'; tickP.push(q.paymentMethod); }
+    if (q.docType) { tickW += ' AND a.doc_tipo = ?'; tickP.push(q.docType); }
+    if (q.minRevenue != null && Number.isFinite(Number(q.minRevenue))) { tickW += ' AND a.revenue >= ?'; tickP.push(Number(q.minRevenue)); }
+    if (q.maxRevenue != null && Number.isFinite(Number(q.maxRevenue))) { tickW += ' AND a.revenue <= ?'; tickP.push(Number(q.maxRevenue)); }
+    if (q.q && q.q.trim()) {
+      // Paréntesis obligatorios: sin ellos el OR se come los AND anteriores.
+      tickW += ` AND (a.folio ILIKE ? OR COALESCE(a.cliente,'') ILIKE ? OR COALESCE(a.cliente_nombre,'') ILIKE ?)`;
+      const like = `%${q.q.trim()}%`;
+      tickP.push(like, like, like);
+    }
+
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `WITH sel AS (
+         SELECT DISTINCT sl.source, sl.source_branch, sl.business_date, sl.consecutivo
+         FROM analytics.v_route_sales_lines sl
+         WHERE ${scope}${lineW}
+       ),
+       agg AS (
+         SELECT sl.source, sl.source_branch, sl.business_date, sl.consecutivo,
+                max(sl.doc_ref) folio, max(sl.hora) hora, max(sl.doc_tipo) doc_tipo,
+                max(sl.forma_pago) forma_pago, max(sl.forma_pago_desc) forma_pago_desc,
+                max(sl.vendedor) vendedor, max(sl.cliente) cliente,
+                count(*) lines, count(distinct sl.sku) skus,
+                sum(sl.qty) units, sum(sl.importe) revenue,
+                sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl
+         JOIN sel ON sel.source = sl.source AND sel.source_branch = sl.source_branch
+                 AND sel.business_date = sl.business_date AND sel.consecutivo = sl.consecutivo
+         WHERE ${scope}
+         GROUP BY 1, 2, 3, 4
+       ),
+       enr AS (
+         SELECT a.*, c.nombre AS cliente_nombre,
+                CASE WHEN a.revenue_with_cost > 0 THEN round((1 - a.cost / a.revenue_with_cost) * 100, 1) END AS margin_pct
+         FROM agg a
+         LEFT JOIN (SELECT DISTINCT ON (cliente) cliente, nombre FROM wincaja.clientes
+                    WHERE tenant_id = ? AND source_branch = ? ORDER BY cliente, source_dataset DESC) c
+           ON c.cliente = a.cliente
+       )
+       SELECT *, count(*) OVER () AS total_rows,
+              sum(revenue) OVER () AS grand_revenue,
+              sum(units)   OVER () AS grand_units
+       FROM enr a
+       WHERE true${tickW}
+       ORDER BY ${sortCol} ${dir} NULLS LAST, folio ${dir}
+       LIMIT ? OFFSET ?`,
+      [...scopeP, ...lineP, ...scopeP, tenantId, src, ...tickP, limit, offset],
+    )).rows);
+
+    const total = rows.length ? num(rows[0].total_rows) : 0;
+    const grandRevenue = rows.length ? num(rows[0].grand_revenue) : 0;
+    const grandUnits = rows.length ? num(rows[0].grand_units) : 0;
+    const isPublic = (code: any) => !code || !String(code).trim() || String(code) === '0001';
+
+    return {
+      rows: rows.map((r) => {
+        const date = r.business_date instanceof Date
+          ? r.business_date.toISOString().slice(0, 10)
+          : String(r.business_date).slice(0, 10);
+        return {
+          key: this.ticketKey({ source: r.source, source_branch: r.source_branch, date, consecutivo: r.consecutivo }),
+          source: r.source,
+          route_no: r.source_branch,
+          folio: r.folio || r.consecutivo,
+          date,
+          time: r.hora ?? null,
+          doc_type: r.doc_tipo ?? null,
+          client_code: isPublic(r.cliente) ? null : r.cliente,
+          client_name: isPublic(r.cliente) ? 'Mostrador a bordo (público)' : (r.cliente_nombre || r.cliente),
+          is_public: isPublic(r.cliente),
+          payment_method: r.forma_pago ?? null,
+          payment_method_label: r.forma_pago_desc ?? null,
+          seller: r.vendedor ?? null,
+          lines: num(r.lines),
+          skus: num(r.skus),
+          units: num(r.units),
+          revenue: num(r.revenue),
+          cost: r.cost == null ? null : num(r.cost),
+          margin_pct: r.margin_pct == null ? null : Number(r.margin_pct),
+        };
+      }),
+      total,
+      limit,
+      offset,
+      totals: {
+        revenue: Math.round(grandRevenue * 100) / 100,
+        units: Math.round(grandUnits * 100) / 100,
+        tickets: total,
+        avg_ticket: total > 0 ? Math.round((grandRevenue / total) * 100) / 100 : 0,
+      },
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * RR2 — Un TICKET con sus renglones: unidad en la que se vendió, precio unitario,
+   * equivalencia en cajas, costo/margen e impuestos.
+   *
+   * Equivalencia en cajas (misma regla que la Fase AX, para no contradecir al resto del
+   * sistema): sólo con el factor CANÓNICO (`analytics.v_product_box_factor`), sólo si
+   * el renglón se vendió EN LA UNIDAD que ese factor cuenta (`unit_base`), sólo si el
+   * factor es > 1, no está marcado sospechoso, no es producto a peso y la compra alcanza
+   * al menos una caja. Si algo de eso falla se devuelve NULL — no se dibuja una
+   * equivalencia falsa.
+   */
+  async salesByRouteTicket(key: string): Promise<SalesByRouteTicketDetail> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { source, sourceBranch, date, consecutivo } = this.parseTicketKey(key);
+    const num = (v: any) => Number(v) || 0;
+
+    return this.tk.run(async (trx) => {
+      const W = `sl.tenant_id = ? AND sl.source = ? AND sl.source_branch = ?
+                 AND sl.business_date = ? AND sl.consecutivo = ?`;
+      const P: any[] = [tenantId, source, sourceBranch, date, consecutivo];
+
+      const head = (await trx.raw(
+        `SELECT max(sl.doc_ref) folio, max(sl.hora) hora, max(sl.doc_tipo) doc_tipo,
+                max(sl.forma_pago) forma_pago, max(sl.forma_pago_desc) forma_pago_desc,
+                max(sl.vendedor) vendedor, max(sl.cliente) cliente,
+                count(*) lines, count(distinct sl.sku) skus,
+                sum(sl.qty) units, sum(sl.importe) revenue, sum(sl.costo) cost,
+                sum(sl.importe) FILTER (WHERE sl.costo IS NOT NULL) revenue_with_cost
+         FROM analytics.v_route_sales_lines sl WHERE ${W}`, P)).rows[0];
+      if (!head || !num(head.lines)) throw new NotFoundException('ticket no encontrado');
+
+      const wname = (await trx.raw(
+        `SELECT COALESCE(pw.name, initcap(pb.branch_name)) AS wname
+         FROM wincaja.branches b
+         LEFT JOIN wincaja.branches pb ON pb.tenant_id = b.tenant_id AND pb.source_branch = b.parent_branch
+         LEFT JOIN commercial.warehouses pw ON pw.tenant_id = b.tenant_id
+           AND pw.code = COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
+         WHERE b.tenant_id = ? AND b.source_branch = ?`, [tenantId, sourceBranch])).rows[0];
+
+      const clientRow = (await trx.raw(
+        `SELECT nombre FROM wincaja.clientes
+         WHERE tenant_id = ? AND cliente = ? ORDER BY (source_branch = ?) DESC, source_dataset DESC LIMIT 1`,
+        [tenantId, head.cliente || '', sourceBranch])).rows[0];
+
+      const lines = (await trx.raw(
+        `SELECT sl.sku, COALESCE(sl.producto, p.nombre) AS name, sl.unidad, sl.unidad_origen,
+                sl.qty, sl.precio_unitario, sl.importe, sl.costo, sl.iva, sl.ieps,
+                CASE WHEN bf.box_factor > 1 AND COALESCE(bf.is_master_suspect, false) = false
+                       AND COALESCE(bf.is_weight, false) = false
+                       AND sl.unidad IS NOT NULL AND upper(btrim(bf.unit_base)) = sl.unidad
+                       AND sl.qty >= bf.box_factor
+                     THEN bf.box_factor END AS box_factor
+         FROM analytics.v_route_sales_lines sl
+         LEFT JOIN catalog.products p ON p.tenant_id = sl.tenant_id AND p.sku = sl.sku AND p.deleted_at IS NULL
+         LEFT JOIN analytics.v_product_box_factor bf
+           ON bf.tenant_id = sl.tenant_id AND bf.product_id = COALESCE(sl.product_id, p.id)
+         WHERE ${W}
+         ORDER BY sl.importe DESC NULLS LAST, sl.sku`, P)).rows;
+
+      const revWithCost = num(head.revenue_with_cost);
+      const cost = num(head.cost);
+      const isPublic = !head.cliente || !String(head.cliente).trim() || String(head.cliente) === '0001';
+
+      return {
+        key,
+        source: source as 'wincaja' | 'push',
+        route_no: sourceBranch,
+        folio: head.folio || consecutivo,
+        date,
+        time: head.hora ?? null,
+        doc_type: head.doc_tipo ?? null,
+        client_code: isPublic ? null : head.cliente,
+        client_name: isPublic ? 'Mostrador a bordo (público)' : (clientRow?.nombre || head.cliente),
+        is_public: isPublic,
+        payment_method: head.forma_pago ?? null,
+        payment_method_label: head.forma_pago_desc ?? null,
+        seller: head.vendedor ?? null,
+        lines: num(head.lines),
+        skus: num(head.skus),
+        units: num(head.units),
+        revenue: num(head.revenue),
+        cost: head.cost == null ? null : cost,
+        margin_pct: revWithCost > 0 ? Math.round((1 - cost / revWithCost) * 1000) / 10 : null,
+        warehouse_name: wname?.wname ?? null,
+        lines_detail: lines.map((r: any) => {
+          const importe = num(r.importe);
+          const lineCost = r.costo == null ? null : num(r.costo);
+          const factor = r.box_factor == null ? null : Number(r.box_factor);
+          return {
+            sku: r.sku,
+            name: r.name ?? null,
+            unidad: r.unidad ?? null,
+            unidad_origen: r.unidad_origen ?? null,
+            qty: num(r.qty),
+            box_factor: factor,
+            boxes: factor ? Math.round((num(r.qty) / factor) * 100) / 100 : null,
+            precio_unitario: r.precio_unitario == null ? null : num(r.precio_unitario),
+            importe,
+            costo: lineCost,
+            margin_pct: lineCost != null && importe > 0 ? Math.round((1 - lineCost / importe) * 1000) / 10 : null,
+            iva: r.iva == null ? null : num(r.iva),
+            ieps: r.ieps == null ? null : num(r.ieps),
+          };
+        }),
       };
     });
   }
@@ -4214,7 +4804,7 @@ export class CommercialAnalyticsService {
     }
     if (missing.length)
       parts.push(`Sin venta de esta empresa en el periodo: ${missing.join(', ')}.`);
-    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' ') };
+    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' '), measured: true };
   }
 
   // ─────────── helpers ───────────
@@ -4253,6 +4843,15 @@ export class CommercialAnalyticsService {
     return this.isFullMonthRange(from, to) && to < this.currentMonthStartMx();
   }
 
+  /** PERF — ¿el rango ES el mes en curso? (el default de sellOut). `from` = inicio del mes
+   *  actual y `to` dentro del mismo mes. Habilita el fast path por matview
+   *  `mv_sales_current_month`, que cubre [inicio de mes .. hoy] — el mismo universo que el
+   *  path diario acota con `sale_date <= hoy`, así que da los mismos números (verificado). */
+  private isCurrentMonthRange(from: string, to: string): boolean {
+    const start = this.currentMonthStartMx();
+    return from === start && to.slice(0, 7) === start.slice(0, 7);
+  }
+
   /** Habilita el fast path por rollup WINCAJA (`sales_by_vendor_monthly`) para CUALQUIER
    *  rango de meses completos, INCLUIDO el mes en curso. Razón: el live de wincaja escanea
    *  la vista `v_sales_lines` (CTE conc_dates + LATERAL por fila) → ~9s/mes para todas las
@@ -4268,4 +4867,5 @@ export class CommercialAnalyticsService {
     const mx = new Date(Date.now() - 6 * 3600 * 1000);
     return `${mx.getUTCFullYear()}-${String(mx.getUTCMonth() + 1).padStart(2, '0')}-01`;
   }
+
 }

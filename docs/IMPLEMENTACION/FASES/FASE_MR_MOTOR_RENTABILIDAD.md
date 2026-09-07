@@ -1,9 +1,13 @@
 # Fase MR — Motor de Rentabilidad (cascada de margen)
 
-> **Estado:** 🔨 DISEÑADO (planeación) — 2026-08-21 · **ADR-048** propuesto
+> **Estado:** 🧪 PROBADO (local) — pantalla MR.5 en código y corregida 2026-08-29 · **ADR-051** aceptado
 > **Tesis:** no es un reporte de margen. Es el **lenguaje económico común** de Mega Dulces:
 > un sistema que explica *de dónde viene* el margen, *dónde se pierde* y *qué puede hacer cada área* para recuperarlo.
 > **Meta de negocio:** margen actual ~**11.5%** → objetivo **15.0%**. Brecha **−3.5 pp**.
+>
+> **MR.0 (diccionario del margen):** redactado y **sin firmar** — [`FASE_MR_DICCIONARIO_MARGEN.md`](FASE_MR_DICCIONARIO_MARGEN.md).
+>
+> ⚠️ El ADR de esta fase era **ADR-048**, número ya ocupado por CxC (Cartera de clientes). Corregido a **ADR-051**.
 
 ---
 
@@ -238,7 +242,7 @@ días de crédito.
 
 | Sprint | Entregable | Depende de |
 |---|---|---|
-| **MR.0** | **Diccionario del margen firmado** — ficha por componente (§3.2) + regla de atribución + decisión neto/bruto (§2.2). **Sin código.** | — |
+| **MR.0** | 🧪 **REDACTADO, sin firmar** — [`FASE_MR_DICCIONARIO_MARGEN.md`](FASE_MR_DICCIONARIO_MARGEN.md): ficha por componente (§3.2), reglas duras, atribución y las **10 decisiones abiertas** con dueño. **Sin código.** | — |
 | **MR.1** | Normalización de unidad: todo a `c11` vía la escalera `kdii`. Vista canónica `analytics.v_product_unit_ladder`. | MR.0 |
 | **MR.2** | Venta y descuento al cliente desde sell-out (§2.1). Verificar que el sell-out trae precio de línea. | MR.1 |
 | **MR.3** | `analytics.margin_components` + motor de atribución de X-D-55 / `c84` / `erp_promotions` a SKU. | MR.0, MR.2 |
@@ -251,6 +255,30 @@ días de crédito.
 
 **MVP = MR.0 → MR.5.** MR.6 es lo que convierte el tablero en herramienta de decisión;
 no debería quedar fuera del primer release aunque llegue una semana después.
+
+---
+
+## 8.1 Estado real y corrección (2026-08-29)
+
+**La pantalla MR.5 se construyó sin MR.0–MR.4.** El resultado fue exactamente lo que
+§2 y §9 predijeron: se automatizaron las ambigüedades. Auditoría contra
+`platform_test` y corrección aplicada — detalle y decisión en **ADR-051**.
+
+| # | Hallazgo | Estado |
+|---|---|---|
+| 1 | **El costo mezclaba unidades.** `cost_base × units` con `cost_base` por CAJA. **En prod: 57 SKUs metían $3,565,336 de COGS falso (10.0% del total) sobre $386k de venta, y la pantalla publicaba 14.62% contra 11.32% del fact — 3.30 pp, el 94% de la brecha.** El negocio reporta ~11.5%: el fact coincide, la pantalla decía que la brecha estaba casi cerrada. | ✅ Costo y venta salen de `analytics.sales_daily`; margen estable 10.32/10.29/10.33% a 30/90/365 d en local |
+| 2 | **Cascada de "Margen negociado" en ceros.** `erp_purchase_adjustments` = 0 filas **en local**: las 4 palancas por categoría no se medían, pero se dibujaban como $0. | ✅ `levers_source_empty` + aviso explícito. **Prod verificado: 1,403 ajustes** (descuento_comercial $10.98M · apoyo_marca $1.16M · pronto_pago $757k · saldo_favor $124k) **y 147 políticas** — allá la cascada sí opera |
+| 3 | **El KPI de capital no cuadraba con la tabla** ($23M de diferencia invisible). El "$375M / 666 días" que apareció en la auditoría era de `platform_test`: **en prod el inventario está sano** ($59.1M = 38 días de COGS). | ✅ Cuadre `total = in_scope + stock muerto` + `cost_quality`. ⚠️ Lo que sí persiste en prod es la calidad del costo: **564 de 6,972 SKUs (8.1%) valúan $11.4M = 19.3% del capital** con un costo que el PdV contradice |
+| 4 | **El panel de cobertura decía 100% siempre** (4,117/4,117 por construcción). | ✅ Cobertura real (99.88%, 4,009/4,082) + canales + `data_as_of` |
+| 5 | **`promo_pct` publicado como "−4.0%"** cuando `benefit` sólo toma 2/3/4/5 y la unidad no está confirmada. | ✅ Viaja crudo como `promo_benefit`, rotulado "unidad sin confirmar" |
+| 6 | **Ventanas desalineadas**: el fact iba 2 días atrás y compras/pagos usaban `CURRENT_DATE`, sin decirlo. | ✅ `data_as_of` en pantalla |
+| 7 | **Bandas clavadas en 10/15/25** con objetivo editable. | ✅ Derivadas de `target` desde un solo origen (TS + `CASE` SQL) |
+| 8 | **ADR-048 duplicado** con CxC; sin entrada en el tracker. | ✅ ADR-051 + tracker |
+
+**Sigue abierto:** MR.0 (diccionario firmado) y MR.6 (`margin_gap_bridge`) no existen.
+La descomposición de la brecha de §4 —lo que convierte el tablero en herramienta de
+decisión— sigue sin construirse. Y la decisión §10.1 (`cost_base` neto o bruto) dejó de
+bloquear el margen, pero **sigue bloqueando la valuación de inventario**.
 
 ---
 

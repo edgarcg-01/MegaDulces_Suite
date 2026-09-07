@@ -14,17 +14,36 @@ export interface StoreAlert {
   type: string; severity: 'info' | 'warn' | 'critical';
   title: string; message: string; data: any; emitted_at: string;
 }
+/** Aviso dirigido: Kepler cerró TU caja y falta contar. Sin montos (SM.10). */
+export interface ArqueoDue {
+  type: 'arqueo_due'; severity: 'info' | 'warn';
+  title: string; message: string; route: string;
+  cajero_code: string; warehouse_code: string; caja: string;
+  business_date: string; folio: string;
+  hora_cierre?: string | null; cerrado_hace_min: number; vencido: boolean;
+  /** `retiro` = sangría con el turno abierto · `cierre` = corte del cajón. */
+  motivo?: 'cierre' | 'retiro';
+}
 export interface StoreBranchKpi { warehouse_code: string; warehouse_name: string; tickets: number; venta: number; last_ts: string; }
 export interface OpenCaja {
   rank: number;
   warehouse_code: string; warehouse_name?: string; caja: string;
   cajero: string | null; cajero_nombre: string | null; abrio: string;
   tickets: number; venta: number; last_ticket: string | null; idle_min: number | null; cobrando: boolean;
+  /** `arrastrada` = abrió un día anterior y nadie la cerró. Es una incidencia, no actividad de hoy. */
+  desde_dia?: string; dias_abierta?: number; arrastrada?: boolean;
 }
 export interface OpenCajasResponse {
-  generated_at: string; cajas_abiertas: number; cobrando_ahora: number;
+  generated_at: string; cajas_abiertas: number; cobrando_ahora: number; arrastradas?: number;
   open_cajas: OpenCaja[];
   cajeros_sin_sesion: { warehouse_code: string; cajero: string; tickets: number; venta: number; last_ticket: string }[];
+  /**
+   * Salud del feed. "0 cajas abiertas" tiene dos causas opuestas —la tienda está
+   * cerrada, o dejamos de recibir datos de Kepler— y sin esto se ven igual.
+   * `al`/`minutos` = cuándo corrió el importer · `ultimo_dia` = de qué día son
+   * los datos · `sospechoso` = el cero no es de fiar.
+   */
+  feed?: { al: string | null; minutos: number | null; ultimo_dia: string | null; hoy: string | null; sospechoso: boolean; atrasado: boolean };
 }
 export interface StoreSnapshot {
   generated_at: string;
@@ -48,6 +67,11 @@ export class StoreSocketService {
   readonly connected = signal(false);
   readonly ticket$ = new Subject<LiveTicket>();
   readonly alert$ = new Subject<StoreAlert>();
+  /**
+   * SM.23 — "Haz tu arqueo". Llega por el room PERSONAL de la cajera, así que si
+   * este evento entra es porque le toca a ELLA. No trae montos a propósito.
+   */
+  readonly arqueoDue$ = new Subject<ArqueoDue>();
 
   snapshot(warehouse?: string) {
     const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
@@ -80,6 +104,7 @@ export class StoreSocketService {
     this.socket.on('connect_error', (e) => console.error('[StoreSocket] connect_error', e.message));
     this.socket.on('ticket', (t: LiveTicket) => this.ticket$.next(t));
     this.socket.on('alert', (a: StoreAlert) => this.alert$.next(a));
+    this.socket.on('arqueo_due', (a: ArqueoDue) => this.arqueoDue$.next(a));
   }
 
   disconnect(): void {

@@ -107,13 +107,14 @@ export class ThotService {
             AND (d.valid_to   IS NULL OR d.valid_to   >= CURRENT_DATE)
           GROUP BY pr.id
         ),
-        mom AS (  -- CT-C.4 momentum: velocidad reciente (30d) vs baseline (90d) en CAJAS (units_base)
-          SELECT product_id,
-                 SUM(COALESCE(units_base, units)) FILTER (WHERE sale_date >= CURRENT_DATE - 30) / 30.0 AS r30,
-                 SUM(COALESCE(units_base, units)) FILTER (WHERE sale_date >= CURRENT_DATE - 90) / 90.0 AS r90
-          FROM analytics.sales_daily
-          WHERE tenant_id = public.current_tenant_id() AND sale_date >= CURRENT_DATE - 90
-          GROUP BY product_id
+        mom AS (  -- CT-C.4 momentum: velocidad reciente (30d) vs baseline (90d) en CAJAS (units_base).
+          -- PERF: precomputado en la matview mv_product_momentum (refresco 15 min, mig
+          -- 20260831150000). Antes esta CTE agregaba 90 días de sales_daily EN VIVO por cada
+          -- request de recomendación (~1.4 s); el momentum es un promedio de ventana que cambia
+          -- por día, así que no hay razón para recomputarlo por request.
+          SELECT product_id, r30, r90
+          FROM analytics.mv_product_momentum
+          WHERE tenant_id = public.current_tenant_id()
         ),
         cand AS (
           SELECT p.id AS product_id, p.nombre AS product_name,

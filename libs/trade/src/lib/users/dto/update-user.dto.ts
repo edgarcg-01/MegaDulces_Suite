@@ -1,85 +1,48 @@
-import { ApiProperty } from '@nestjs/swagger';
-import {
-  IsArray,
-  IsBoolean,
-  IsOptional,
-  IsString,
-  IsUUID,
-  Matches,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { ApiProperty, PartialType } from '@nestjs/swagger';
+import { IsBoolean, IsIn, IsOptional } from 'class-validator';
+import { UserWriteDto } from './user-write.dto';
 
-export class UpdateUserDto {
-  @ApiProperty({ description: 'Nombre de usuario', required: false })
+/**
+ * `[ID.7]` — Edición de usuario: `UserWriteDto` con todo opcional.
+ *
+ * `PartialType` es lo que mata la duplicación: antes este archivo repetía 9
+ * campos literal del create, y las dos listas ya habían divergido (el create
+ * exigía `department_code`, el update no; el update aceptaba
+ * `finance_expense_area_ids`, el create no).
+ *
+ * El ciclo de vida vive SÓLO acá: un alta nace activa, y cambiar de estado es
+ * una operación de edición. `[ID.8]` reemplazó el booleano `activo` por `status`
+ * (`invited | active | suspended | terminated`); el booleano se sigue aceptando
+ * como alias deprecado y la DB los mantiene de acuerdo por trigger.
+ */
+export const USER_STATUSES = ['invited', 'active', 'suspended', 'terminated'] as const;
+
+export class UpdateUserDto extends PartialType(UserWriteDto) {
+  /**
+   * `[ID.8]` — Estado del ciclo de vida. FUENTE DE VERDAD; `activo` se deriva.
+   *
+   * `invited` creado y nunca entró · `active` · `suspended` baja temporal, vuelve
+   * · `terminated` ya no trabaja acá (conserva historial). Un booleano no
+   * distinguía las tres últimas y por eso en prod había 117 usuarios "activos"
+   * incluidas 9 cuentas POS muertas.
+   */
+  @ApiProperty({ description: `Ciclo de vida: ${USER_STATUSES.join(' | ')}. Reemplaza a 'activo', que se deriva.`, required: false, enum: USER_STATUSES })
   @IsOptional()
-  @IsString()
-  @MinLength(3)
-  @MaxLength(64)
-  @Matches(/^[a-z0-9._-]+$/i, {
-    message: 'username solo admite letras, números, ".", "_" y "-"',
-  })
-  username?: string;
+  @IsIn(USER_STATUSES as unknown as string[])
+  status?: (typeof USER_STATUSES)[number];
 
-  @ApiProperty({ description: 'Nueva contraseña', required: false })
-  @IsOptional()
-  @IsString()
-  @MinLength(6)
-  @MaxLength(128)
-  password?: string;
-
-  @ApiProperty({ description: 'Nombre completo', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
-  nombre?: string;
-
-  @ApiProperty({ description: 'Nombre de zona — se resuelve a zona_id', required: false })
-  @IsOptional()
-  @IsString()
-  zona?: string;
-
-  @ApiProperty({ description: 'ID de zona (UUID)', required: false })
-  @IsOptional()
-  @IsUUID()
-  zona_id?: string;
-
-  @ApiProperty({ description: 'Rol del sistema', required: false })
-  @IsOptional()
-  @IsString()
-  role_name?: string;
-
-  @ApiProperty({ description: 'Estado activo o inactivo', required: false })
+  /**
+   * @deprecated usar `status`. Se sigue aceptando: el trigger de la DB deriva
+   * `status` desde el booleano para los clientes que todavía mandan esto.
+   */
+  @ApiProperty({ description: "DEPRECADO — usar `status`. Se mapea a active/suspended.", required: false, deprecated: true })
   @IsOptional()
   @IsBoolean()
   activo?: boolean;
 
-  @ApiProperty({ description: 'ID del supervisor (UUID)', required: false })
+  /** `[ID.8]` — Fuerza cambio de contraseña en el próximo login. */
+  @ApiProperty({ description: 'Fuerza al usuario a cambiar su contraseña en el próximo login', required: false })
   @IsOptional()
-  @IsUUID()
-  supervisor_id?: string;
-
-  @ApiProperty({ description: 'Departamento del organigrama (identity.departments.code)', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  department_code?: string | null;
-
-  @ApiProperty({ description: 'Puesto del organigrama (identity.positions.code)', required: false })
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  position_code?: string | null;
-
-  @ApiProperty({ description: "Sucursal Kepler ('00'..'05'). Vacío = ve todas (rol global).", required: false })
-  @IsOptional()
-  @IsString()
-  @Matches(/^[0-9]{2}$/, { message: "warehouse_code debe ser 2 dígitos ('00'..'05')" })
-  warehouse_code?: string;
-
-  @ApiProperty({ description: 'IDs de áreas de gasto que el usuario puede ver (finance.expense_areas). Vacío = ninguna salvo que tenga FINANCE_EXPENSES_VER_ALL.', required: false, type: [String] })
-  @IsOptional()
-  @IsArray()
-  @IsUUID('all', { each: true })
-  finance_expense_area_ids?: string[];
+  @IsBoolean()
+  must_change_password?: boolean;
 }

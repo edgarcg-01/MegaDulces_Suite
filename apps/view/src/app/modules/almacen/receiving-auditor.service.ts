@@ -47,6 +47,8 @@ export interface EvaluatePayload {
   product_id: string;
   supplier_code?: string;
   source_ref?: string;
+  /** Renglón del vale al que pertenece este lote (ADR-044). */
+  receiving_line_id?: string;
   quantity: number;
   confirmed_lot?: string;
   confirmed_expiry?: string;
@@ -79,6 +81,14 @@ export interface ReceivingPolicy {
   updated_at?: string;
 }
 
+/** Lo mínimo para fechar algo: identidad del producto con su UUID. */
+export interface ProductoFechable {
+  product_id: string;
+  sku: string | null;
+  product_name: string | null;
+  barcode: string | null;
+}
+
 @Injectable({ providedIn: 'root' })
 export class ReceivingAuditorService {
   private readonly http = inject(HttpClient);
@@ -88,12 +98,27 @@ export class ReceivingAuditorService {
     return this.http.post<ExpiryOcrResult>(`${this.base}/lot-capture`, { photo_data_uri: photoDataUri });
   }
 
+  /**
+   * Código escaneado → producto **fechable** (con `product_id` real).
+   *
+   * No se reusa el `resolve` de Conteo: aquél devuelve `product_id: null` cuando
+   * el producto viene del catálogo de almacén, y `evaluate()` exige un UUID — el
+   * escaneo se vería bien y el guardado fallaría después.
+   */
+  resolveForDating(code: string): Observable<ProductoFechable> {
+    return this.http.get<ProductoFechable>(`${this.base}/resolve`, {
+      params: new HttpParams().set('code', code),
+    });
+  }
+
   evaluate(payload: EvaluatePayload): Observable<ReceivingCapture> {
     return this.http.post<ReceivingCapture>(`${this.base}/evaluate`, payload);
   }
 
-  listCaptures(filters: { warehouse_id?: string; supplier_code?: string; verdict?: string; status?: string; limit?: number } = {}): Observable<ReceivingCapture[]> {
+  listCaptures(filters: { warehouse_id?: string; supplier_code?: string; verdict?: string; status?: string; receiving_line_id?: string; session_id?: string; limit?: number } = {}): Observable<ReceivingCapture[]> {
     let params = new HttpParams();
+    if (filters.receiving_line_id) params = params.set('receiving_line_id', filters.receiving_line_id);
+    if (filters.session_id) params = params.set('session_id', filters.session_id);
     if (filters.warehouse_id) params = params.set('warehouse_id', filters.warehouse_id);
     if (filters.supplier_code) params = params.set('supplier_code', filters.supplier_code);
     if (filters.verdict) params = params.set('verdict', filters.verdict);

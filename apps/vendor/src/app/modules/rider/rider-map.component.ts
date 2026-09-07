@@ -5,7 +5,8 @@ import {
   Input,
   OnDestroy,
   ViewChild,
-  ChangeDetectionStrategy
+  ChangeDetectionStrategy,
+  input,
 } from '@angular/core';
 import * as L from 'leaflet';
 import { environment } from '../../../environments/environment';
@@ -28,7 +29,7 @@ export interface RiderMapPoint {
 @Component({
   selector: 'app-rider-map',
   standalone: true,
-  template: `<div #host class="rider-map" [style.height]="height"></div>`,
+  template: `<div #host class="rider-map" [style.height]="height()"></div>`,
   changeDetection: ChangeDetectionStrategy.Eager,
   styles: [`
     .rider-map { width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid var(--border-color, #e5e5e5); z-index: 0; }
@@ -40,8 +41,8 @@ export interface RiderMapPoint {
 export class RiderMapComponent implements AfterViewInit, OnDestroy {
   @ViewChild('host', { static: true }) host!: ElementRef<HTMLDivElement>;
 
-  @Input() height = '280px';
-  @Input() origin: { lat: number; lng: number } | null = null;
+  readonly height = input('280px');
+  readonly origin = input<{ lat: number; lng: number } | null>(null);
 
   private _stops: RiderMapPoint[] = [];
   @Input() set stops(v: RiderMapPoint[]) { this._stops = v || []; this.redraw(); }
@@ -91,10 +92,11 @@ export class RiderMapComponent implements AfterViewInit, OnDestroy {
     const group = L.layerGroup();
     const pts: L.LatLngExpression[] = [];
 
-    if (this.origin) {
+    const origin = this.origin();
+    if (origin) {
       const icon = L.divIcon({ className: '', html: `<div class="rm-pin rm-origin">🏪</div>`, iconSize: [26, 26], iconAnchor: [13, 13] });
-      L.marker([this.origin.lat, this.origin.lng], { icon }).addTo(group);
-      pts.push([this.origin.lat, this.origin.lng]);
+      L.marker([origin.lat, origin.lng], { icon }).addTo(group);
+      pts.push([origin.lat, origin.lng]);
     }
     this._stops.forEach((s, i) => {
       if (!Number.isFinite(s.lat) || !Number.isFinite(s.lng)) return;

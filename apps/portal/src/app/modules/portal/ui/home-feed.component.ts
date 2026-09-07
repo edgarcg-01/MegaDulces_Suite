@@ -10,6 +10,7 @@ import {
   ViewChild,
   inject,
   signal,
+  input
 } from '@angular/core';
 
 import { RouterModule } from '@angular/router';
@@ -83,8 +84,8 @@ interface RailSpec {
                 [heading]="b.heading!"
                 meta=""
                 [showRank]="false"
-                [addingId]="addingId"
-                [addedIds]="addedIds"
+                [addingId]="addingId()"
+                [addedIds]="addedIds()"
                 (open)="open.emit($event)"
                 (add)="add.emit($event)"
               ></portal-top-products>
@@ -112,7 +113,7 @@ interface RailSpec {
                   @for (p of b.products!; track trackProd($index, p)) {
                     <portal-product-card
                       [product]="p"
-                      [adding]="addingId === p.product_id"
+                      [adding]="addingId() === p.product_id"
                       (open)="open.emit(p)"
                       (add)="add.emit(p)"
                     ></portal-product-card>
@@ -252,8 +253,8 @@ interface RailSpec {
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class HomeFeedComponent implements AfterViewInit, OnDestroy {
-  @Input() warehouseId: string | null = null;
-  @Input() addingId: string | null = null;
+  readonly warehouseId = input<string | null>(null);
+  readonly addingId = input<string | null>(null);
 
   /** Banner de promo. Llega por HTTP aparte de las marcas; si la receta ya se
    *  armó sin él, lo inyectamos en la cola de specs (carrera facets vs promos). */
@@ -270,7 +271,7 @@ export class HomeFeedComponent implements AfterViewInit, OnDestroy {
   get bannerUrl(): string | null {
     return this._bannerUrl;
   }
-  @Input() addedIds = new Set<string>();
+  readonly addedIds = input(new Set<string>());
 
   /** Marcas top (de catalogFacets). Al llegar, arma la receta y arranca el feed. */
   @Input() set brands(v: Array<{ brand_id: string | null; brand_name: string | null }>) {
@@ -423,7 +424,7 @@ export class HomeFeedComponent implements AfterViewInit, OnDestroy {
           q: spec.query,
           page: 1,
           pageSize: 24,
-          warehouseId: this.warehouseId || undefined,
+          warehouseId: this.warehouseId() || undefined,
         }),
       );
       // Los rails NO tocan el `seen` global (eso starvaba rails posteriores).
@@ -459,7 +460,7 @@ export class HomeFeedComponent implements AfterViewInit, OnDestroy {
         this.api.listCatalogPage({
           page: this.gridPage,
           pageSize: 24,
-          warehouseId: this.warehouseId || undefined,
+          warehouseId: this.warehouseId() || undefined,
         }),
       );
       const data = r?.data || [];

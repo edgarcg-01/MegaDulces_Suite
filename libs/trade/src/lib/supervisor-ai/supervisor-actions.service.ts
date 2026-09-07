@@ -8,7 +8,11 @@ import {
 } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 import { DiagnosisEngineService } from './diagnosis-engine.service';
 import { RuleCalibrationService } from './rule-calibration.service';
 import { BaselineLearnerService } from './baseline-learner.service';
@@ -127,8 +131,9 @@ export class SupervisorActionsService {
     }
   }
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   private titleFor(f: FindingForAction): string {
@@ -439,8 +444,9 @@ export class SupervisorActionsService {
 
   async listActions(filters: { status?: string; kind?: string }, user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.supervisor_actions').select('*');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_actions')
+      .select('*')
+      .where('tenant_id', tenantId);
     q = q.where('status', filters.status || 'pending_approval');
     if (filters.kind) q = q.where('kind', filters.kind);
     q = q.orderByRaw('priority DESC NULLS LAST').orderBy('created_at', 'desc');
@@ -455,9 +461,9 @@ export class SupervisorActionsService {
     const userId = user?.sub || user?.id || user?.userId || null;
     const approvedBy = userId && UUID_RE.test(String(userId)) ? userId : null;
 
-    let q = this.knex('commercial.supervisor_actions').where('id', id);
-    if (tenantId) q = q.where('tenant_id', tenantId);
-    const action = await q.first();
+    const action = await this.knex('commercial.supervisor_actions')
+      .where({ id, tenant_id: tenantId })
+      .first();
     if (!action) throw new NotFoundException('Acción no encontrada');
     if (action.status !== 'pending_approval') {
       throw new BadRequestException(`La acción ya está ${action.status}`);
@@ -469,7 +475,7 @@ export class SupervisorActionsService {
     (result as any).executed_at = new Date().toISOString();
 
     // Confirma el finding asociado: el supervisor lo validó y accionó.
-    if (action.finding_id && tenantId) {
+    if (action.finding_id) {
       await this.knex('commercial.supervisor_findings')
         .where({ id: action.finding_id, tenant_id: tenantId })
         .whereIn('status', ['open', 'reviewed'])
@@ -482,7 +488,7 @@ export class SupervisorActionsService {
     }
 
     const [updated] = await this.knex('commercial.supervisor_actions')
-      .where({ id })
+      .where({ id, tenant_id: tenantId })
       .update({
         status: 'executed',
         approved_by: approvedBy,
@@ -501,16 +507,16 @@ export class SupervisorActionsService {
     const userId = user?.sub || user?.id || user?.userId || null;
     const approvedBy = userId && UUID_RE.test(String(userId)) ? userId : null;
 
-    let q = this.knex('commercial.supervisor_actions').where('id', id);
-    if (tenantId) q = q.where('tenant_id', tenantId);
-    const action = await q.first();
+    const action = await this.knex('commercial.supervisor_actions')
+      .where({ id, tenant_id: tenantId })
+      .first();
     if (!action) throw new NotFoundException('Acción no encontrada');
     if (action.status !== 'pending_approval') {
       throw new BadRequestException(`La acción ya está ${action.status}`);
     }
 
     const [updated] = await this.knex('commercial.supervisor_actions')
-      .where({ id })
+      .where({ id, tenant_id: tenantId })
       .update({
         status: 'rejected',
         approved_by: approvedBy,
@@ -563,7 +569,7 @@ export class SupervisorActionsService {
   private async executeAction(
     action: any,
     approvedBy: string | null,
-    tenantId?: string,
+    tenantId: string,
   ): Promise<Record<string, any>> {
     const at = String(action.action_type);
     const subjectType = String(action.subject_type);
@@ -575,7 +581,7 @@ export class SupervisorActionsService {
     if (at === 'coaching' || at === 'coaching_focus' || at === 'replicate_best') {
       const collaboratorId =
         subjectType === 'collaborator' && UUID_RE.test(subjectId) ? subjectId : null;
-      if (!collaboratorId || !tenantId) {
+      if (!collaboratorId) {
         return { effect: 'noop', reversible: false, note: 'Coaching sin colaborador válido.' };
       }
       const category = payload.category || (at === 'replicate_best' ? 'recognition' : 'general');
@@ -856,8 +862,10 @@ export class SupervisorActionsService {
   /** Tareas de campo creadas por el co-piloto (panel "hecho por Horus"). */
   async listTasks(filters: { status?: string }, user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.supervisor_tasks').select('*').whereNull('deleted_at');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.supervisor_tasks')
+      .select('*')
+      .whereNull('deleted_at')
+      .where('tenant_id', tenantId);
     if (filters.status) q = q.where('status', filters.status);
     q = q.orderBy('created_at', 'desc').limit(50);
     const rows = await q;
@@ -867,8 +875,10 @@ export class SupervisorActionsService {
   /** Notas de coaching creadas por el co-piloto (panel "hecho por Horus"). */
   async listCoachingNotes(filters: { status?: string }, user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.coaching_notes').select('*').whereNull('deleted_at');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+    let q = this.knex('commercial.coaching_notes')
+      .select('*')
+      .whereNull('deleted_at')
+      .where('tenant_id', tenantId);
     if (filters.status) q = q.where('status', filters.status);
     q = q.orderBy('created_at', 'desc').limit(50);
     const rows = await q;
@@ -892,8 +902,8 @@ export class SupervisorActionsService {
       .select('id', 'task_type', 'title', 'details', 'status', 'due_date', 'store_id', 'route_id', 'created_at')
       .whereNull('deleted_at')
       .where('assigned_to_user', uid)
-      .where('status', 'pending');
-    if (tenantId) q = q.where('tenant_id', tenantId);
+      .where('status', 'pending')
+      .where('tenant_id', tenantId);
     q = q.orderBy('created_at', 'desc').limit(50);
     const rows = await q;
     return { rows, total: rows.length };
@@ -908,8 +918,8 @@ export class SupervisorActionsService {
       .select('id', 'category', 'message', 'status', 'created_at')
       .whereNull('deleted_at')
       .where('collaborator_id', uid)
-      .whereIn('status', ['open', 'acknowledged']);
-    if (tenantId) q = q.where('tenant_id', tenantId);
+      .whereIn('status', ['open', 'acknowledged'])
+      .where('tenant_id', tenantId);
     q = q.orderBy('created_at', 'desc').limit(50);
     const rows = await q;
     return { rows, total: rows.length };
@@ -921,9 +931,9 @@ export class SupervisorActionsService {
     const tenantId = this.tenantId(user);
     const uid = this.userId(user);
     if (!uid) throw new BadRequestException('usuario inválido');
-    let q = this.knex('commercial.supervisor_tasks').where({ id, assigned_to_user: uid }).whereNull('deleted_at');
-    if (tenantId) q = q.where('tenant_id', tenantId);
-    const updated = await q
+    const updated = await this.knex('commercial.supervisor_tasks')
+      .where({ id, assigned_to_user: uid, tenant_id: tenantId })
+      .whereNull('deleted_at')
       .update({ status: 'done', done_at: this.knex.fn.now(), updated_at: this.knex.fn.now() })
       .returning(['id', 'status']);
     if (!updated.length) throw new NotFoundException('Tarea no encontrada');
@@ -936,9 +946,9 @@ export class SupervisorActionsService {
     const tenantId = this.tenantId(user);
     const uid = this.userId(user);
     if (!uid) throw new BadRequestException('usuario inválido');
-    let q = this.knex('commercial.coaching_notes').where({ id, collaborator_id: uid }).whereNull('deleted_at');
-    if (tenantId) q = q.where('tenant_id', tenantId);
-    const updated = await q
+    const updated = await this.knex('commercial.coaching_notes')
+      .where({ id, collaborator_id: uid, tenant_id: tenantId })
+      .whereNull('deleted_at')
       .update({ status: 'acknowledged', acknowledged_at: this.knex.fn.now(), updated_at: this.knex.fn.now() })
       .returning(['id', 'status']);
     if (!updated.length) throw new NotFoundException('Nota no encontrada');

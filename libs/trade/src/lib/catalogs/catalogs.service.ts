@@ -122,7 +122,7 @@ export class CatalogsService {
         .groupBy('role_name')
         .as('uc');
 
-      const roles = await this.knex('role_permissions as rp')
+      const rolesQ = this.knex('role_permissions as rp')
         .where('rp.tenant_id', tenantId)
         .leftJoin(userCounts, 'uc.role_name', 'rp.role_name')
         .orderBy('rp.role_name', 'asc')
@@ -131,8 +131,20 @@ export class CatalogsService {
           'rp.role_name as value',
           'rp.permissions',
           'rp.updated_at',
+          // `[ID.14]` perfil = puesto tipo (uno por cuenta) · complemento = tarea
+          // que se suma. La pantalla necesita separarlos: ofrecer `captura_gastos`
+          // (1 permiso) en la misma lista que `encargado_tienda` (63) es lo que
+          // llevó a que 22 personas tengan una tarea como perfil base.
+          'rp.kind',
           this.knex.raw('COALESCE(uc.user_count, 0)::int as user_count'),
         );
+      // `[ID.14]` Los roles RETIRADOS no se ofrecen. Sin este filtro los 14 que
+      // se retiraron seguían apareciendo en el dropdown del alta y se podían
+      // volver a asignar, que es exactamente lo que el retiro quiere evitar.
+      if (!includeInactive) {
+        rolesQ.whereNull('rp.deleted_at');
+      }
+      const roles = await rolesQ;
       return roles.map((r) => ({ ...r, is_system: isSystemRole(r.value) }));
     }
 

@@ -39,6 +39,18 @@ export interface PriceRow {
   sales_units_30d?: number | null;
   /** Rotación: 'alta' | 'media' | 'baja' (derivada en el sync ERP). */
   rotation_tier?: 'alta' | 'media' | 'baja' | null;
+  /**
+   * Quiebres de mayoreo por cantidad (analytics.product_volume_tiers): cada uno es
+   * un descuento real (min_qty>1 y price<base). Ordenados por min_qty asc. Sirve
+   * para incitar al vendedor ("mayoreo desde N → $X") — viaja en el catálogo offline.
+   */
+  tiers?: { min_qty: number; price: number }[];
+  /**
+   * Medidas de venta (analytics.product_units): presentaciones que ofrece el SKU con
+   * su factor a la unidad base. `units[0]` es la unidad base (factor 1). Sirve para el
+   * selector PZA/PAQ/CJA — viaja en el catálogo offline. Vacío si el SKU no tiene medidas.
+   */
+  units?: { unit: string; factor: number }[];
 }
 
 /**

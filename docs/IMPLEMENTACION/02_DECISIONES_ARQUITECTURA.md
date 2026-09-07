@@ -1197,6 +1197,8 @@ Al mapear la cascada contra prod (2026-08-21) aparecieron tres hechos que cambia
 
 **Consecuencias:** ✅ el stream de Maat ya no muere por proxy idle (keepalive 15s) ni quema tokens contra un socket muerto (corta en el borde de la iteración cuando el cliente se va, y no audita respuestas que nadie va a leer). ✅ menos superficie: fuera un módulo global inerte y dos dependencias muertas. ✅ `generate:openapi` vuelve a correr y ahora sirve para revisar el diff del contrato antes de commitear. ⚠️ el snapshot `swagger.json` está gitignored: el diff es local, no un gate de CI (candidato a CI después). Hereda ADR-016 (motor decide / LLM fuera del camino) y ADR-043 (monolito modular + worker-tier).
 
+**Actualización 2026-08-29 (ADR-052):** la cláusula de *contrato de tipos* (services a mano + OpenAPI solo snapshot, cliente generado rechazado) se **revisa** con dato nuevo medido — 849 contratos HTTP escritos a mano y desacoplados + hueco de validación en 310 `@Body()`. Se adopta una **fuente única de tipos en `libs/contracts` importada por los dos lados** (no el cliente OpenAPI generado, que sigue rechazado). Ver **ADR-052** (abajo). El resto de ADR-045 (REST+Socket.IO, GraphQL rechazado, puertos in-process, SSE, snapshot OpenAPI) queda intacto.
+
 ---
 
 ### ADR-046: Consolidación de la ingesta — `kepler_ods` como único crudo canónico Kepler
@@ -1276,3 +1278,331 @@ Al mapear la cascada contra prod (2026-08-21) aparecieron tres hechos que cambia
 - **`.hbs` + `PdfService` de `libs/trade`**: el dinero debe cuadrar al centavo y conviene formatearlo en TS; además `PdfService` no está en el barrel de trade y colgar `ReportsModule` crearía una arista commercial→trade arrastrando WebSocketModule/Mapbox/scanners.
 
 Plan en [`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
+
+---
+
+## ADR-044 — **Estación de recepción**: la app es dueña de lote/caducidad/evidencia, Kepler SoR de la cantidad; captura **por renglón** con aceptación parcial
+
+**Estado:** Aceptado
+
+**Fecha:** 2026-08-25
+
+**Contexto:** la Fase WMS-REC construyó tres piezas (Vale vivo por escaneo · auditor de caducidad con semáforo · bin-level) y el plan proponía este ADR sin escribirlo — quedó el hueco entre ADR-043 y ADR-045. Sin la decisión escrita, la costura entre Pieza 1 y Pieza 2 quedó abierta y se notó en tres síntomas concretos:
+
+1. **Dos pantallas que no se hablan.** `receiving_lot_captures` liga al vale por `source_ref` (string libre de 120), **no** por FK al renglón. La sesión sabe *cuánto llegó* (`received_qty`) y el auditor sabe *qué lote es*, pero nadie cruza los dos → no existe la pregunta "¿de las 100 pz recibidas, cuántas tienen caducidad declarada?".
+2. **La cascada de política por categoría nunca pudo funcionar.** `resolvePolicy` resuelve `producto → categoría → proveedor` leyendo `products.category`, y **esa columna no existe** en `catalog.products`: la query `select "category" from public.products` devuelve `42703 undefined_column` (reproducido contra la DB, 2026-08-25). Como el request va en una sola transacción (GOTCHAS §2), el error aborta la trx → **500 en toda captura**. La taxonomía real es `department` (Kepler `kdie`: DULCES/BEBIDAS/BOTANAS) y `product_line` (`kdif`); `category_id` apunta a **proveedores**, no a categorías (ver mig `20260615130000`).
+3. **El smoke probaba una copia.** `test-newdb-receiving-auditor.js` reimplementa `computeVerdict` en JS ("mirror exacto") e inserta filas directo con knex: nunca llama `evaluate()`/`authorize()`. 17/17 verde con la ruta de producción caída.
+
+**Decisión:**
+
+- **Reparto de autoridad.** Kepler sigue siendo *system of record* de la **cantidad** recibida (`X-A-40`, espejado en `analytics.erp_goods_receipts`). La plataforma es dueña de la capa que Kepler **no codifica**: `lote · caducidad · ubicación · evidencia fotográfica · veredicto de auditoría`. **Sin write-back al ERP**; la relación es por **reconciliación** (`source_kind`/`source_ref`), coherente con el trato read-only que el proyecto le da a Kepler en todas las fases.
+- **Un único escritor de stock.** El alta de existencia la hace **siempre la captura de lote** (`ReceivingAuditorService` → `recordMovement('in', lot_code, expiry_date)`, y de ahí el trigger `trg_rebalance_stock_lots` mantiene el invariante `SUM(stock_lots)=stock`). El **renglón del vale nunca escribe stock**: es la *cuenta física* (cuánto llegó), no el asiento. `receiving_sessions` se mantiene como captura de realidad, tal como se construyó.
+- **Granularidad = 1 fila por lote, ligada al renglón.** `receiving_lot_captures` gana `receiving_line_id` (FK compuesta `(tenant_id, receiving_line_id)`). Un SKU con 3 lotes = 3 capturas del mismo renglón. No hay cambio en el modelo de lotes: `stock_lots` ya es único por `(tenant, almacén, producto, lot_code, expiry_date)` con `NULLS NOT DISTINCT`, o sea N-lotes-por-producto es nativo.
+- **Aceptación parcial con veredicto mixto.** El veredicto es **por lote**, no por renglón: 100 pz en 3 lotes pueden dar 🟢/🟡/🔴. Los 🟢/🟡 entran a stock de inmediato; el 🔴 queda `pending_authorization` **sin escribir stock**. El renglón expone dos cantidades derivadas — `declared_qty` (Σ capturas) y `undeclared_qty` (`received_qty − declared_qty`) — y **la sesión no se puede cerrar con capturas pendientes de autorización** (409). Cerrar un vale con mercancía retenida sin resolver sería declarar como recibido algo que no entró al inventario.
+- **Eje de la política de caducidad = `products.department`.** La columna `expiry_receiving_policy.category` **conserva su nombre** (hay filas y UI que lo usan) pero se define como "valor de `catalog.products.department`". Se descarta `category_id` porque semánticamente es proveedor y ya está cubierto por la regla `supplier_code` — tener dos ámbitos que significan lo mismo invita a políticas contradictorias.
+- **Convención de fecha incompleta.** Una etiqueta con solo `MM/AAAA` (frecuente en dulcería) se normaliza al **último día del mes**: es la lectura conservadora del lado del inventario (no acorta vida útil que el proveedor sí entregó) y hace determinista el `days_of_life`, el semáforo y el orden FEFO.
+- **Verificación: smoke HTTP contra los endpoints reales.** Todo cambio de la estación se prueba llamando la API (login → abrir vale → escanear → capturar lotes → autorizar → cerrar), no reimplementando el motor en el test. El *mirror* de `computeVerdict` se conserva **solo** como prueba de tabla de decisión pura, nunca como sustituto del recorrido real.
+
+**Alternativas y compuertas (qué tendría que pasar para reabrir):**
+- **Lote/caducidad como columnas de `receiving_lines`** — rechazado: obliga a 1 lote por renglón o a duplicar renglones del mismo SKU, y rompe la inmutabilidad (una corrección sería un UPDATE del dato capturado). *Compuerta:* ninguna prevista.
+- **Que el renglón escriba stock al cerrar el vale** — rechazado: con la captura escribiendo también, duplica existencia; y el cierre no sabe de lotes. *Compuerta:* que se decida que un vale puede cerrarse sin declarar caducidad y aun así afectar inventario (hoy eso es justamente lo que se quiere medir, no permitir).
+- **Bloquear el vale completo ante un 🔴** — rechazado: castiga la mercancía buena de la misma entrega. La aceptación parcial es lo que hace usable el gate.
+- **`MM/AAAA` → primer día del mes** — rechazado: adelanta el vencimiento y dispararía semáforos y alertas falsas.
+- **Write-back del lote a Kepler** — diferido (sin spec de escritura al ERP en ninguna fase). *Compuerta:* que Kepler exponga un formato de importación soportado.
+
+**Consecuencias:** ✅ queda medible el indicador que hoy no existe — **% de piezas recibidas con lote y caducidad declarados**, por almacén y por proveedor, que es exactamente la mercancía que entra sin trazabilidad. ✅ la política por categoría empieza a funcionar por primera vez (antes era letra muerta *y* causa de 500). ✅ el gate 🔴 se vuelve operable: retiene sólo lo malo y deja pasar el resto. ⚠️ el renglón puede quedar "recibido pero no declarado" — es deliberado: se vuelve visible en vez de invisible, pero exige que alguien lo trabaje. ⚠️ `receiving_line_id` es **nullable**: las capturas sueltas (sin vale, desde `/almacen/inventory/recepcion`) siguen siendo válidas, así que el cuadre por renglón solo aplica a lo capturado dentro de un vale. Hereda ADR-016 (el motor decide, el operador confirma la realidad física, el OCR propone y no autoriza) y ADR-022 (sub-ledger de lotes aditivo).
+
+### Revisión 2026-08-27 — **el alta de existencia pasa al cierre del vale ("luz verde")**
+
+**Qué cambia.** El ADR decidía que *"el alta de existencia la hace **siempre** la captura de lote"* y listaba como alternativa **rechazada** *"que el renglón escriba stock al cerrar el vale"*, con esta compuerta explícita: *"que se decida que un vale puede cerrarse sin declarar caducidad y aun así afectar inventario"*. **Esa compuerta se cruzó** por decisión de negocio (2026-08-27): se invierte el orden.
+
+**Cómo queda:**
+
+| Momento | Quién | Qué pasa con el inventario |
+|---|---|---|
+| **Recepción** — teclear folio, verificar cantidades, dar **luz verde** (`close`) | operador de recepción | la mercancía **entra**, en el lote `NA` (sin fecha) |
+| **Caducidades** — declarar lote + caducidad | bodeguero | **reclasifica** `NA` → lote fechado; el **total no se mueve** |
+
+**Por qué.** Son dos trabajos de dos personas en dos momentos, y atarlos obligaba a mantener el vale abierto mientras alguien recorría la tarima con las etiquetas. Peor: el inventario no reflejaba mercancía que ya estaba físicamente en el piso y ya se había aprobado, con la fecha de captura como cuello de botella. El orden nuevo hace que **el inventario diga la verdad desde que se aprueba la recepción**, y convierte la falta de caducidad en un pendiente medido en vez de en una ausencia de existencia.
+
+**Lo que NO cambia** (y es lo que evita el doble conteo que motivaba la decisión original): sigue habiendo **un solo asiento por mercancía recibida**.
+- El cierre da de alta **lo recibido menos lo que una captura ya dio de alta** (la pantalla del auditor permite capturar con el vale abierto; sin ese descuento, capturar-y-luego-cerrar contaría doble).
+- La captura pregunta al **ledger** si la sesión del renglón ya generó el alta: si sí **reclasifica** (`assignLotToUndeclared`), si no **suma** (`recordMovement('in')`, caso de captura suelta sin vale).
+- La reclasificación mantiene el invariante con la pieza que ya existía: sube el lote fechado y re-escribe `stock.quantity` **con su mismo valor**, lo que dispara `trg_rebalance_stock_lots` (corre en `UPDATE OF quantity`, no sólo cuando el valor cambia) y el trigger recalcula `NA = stock − Σ(otros lotes)`. Se asienta en la bitácora como `adjust` con cantidad **0** — que es la verdad: el total no cambió, cambió de qué lote es — y ese movimiento sirve de marca de idempotencia en `receiving_lot_captures.stock_movement_id`.
+- El veredicto 🔴 sigue sin liberar nada a FEFO hasta que un supervisor autorice.
+- El auditor acepta capturas con el vale `open` **y** `closed` (cerrado es ahora el caso normal); sólo `cancelled` se rechaza, porque fechar mercancía de un vale anulado no describe nada real.
+
+**Consecuencia nueva:** el vale ya **sí** se cierra sin caducidades declaradas — eso ya no es un pendiente que frene la aprobación. (El 409 por **capturas 🔴 sin resolver** se mantiene: aprobar un vale con mercancía retenida seguiría declarando como recibido algo que no entró.) La falta de fecha pasa a ser **cola de trabajo visible**: `GET /commercial/receiving/sessions/pending-expiry` (bandeja *Caducidades · Por fechar*, ordenada por días esperando). ⚠️ Riesgo asumido: existe una ventana en la que hay existencia sin trazabilidad de caducidad. Es deliberado y **medido** (`undeclared_qty`, días esperando), no tapado.
+
+**Aviso que se agregó en el camino:** un renglón cuyo SKU **no existe en el catálogo** no puede entrar a inventario. Medido en prod: **23 de 89,257** renglones históricos (0.03%). Antes se filtraba en silencio; ahora la pantalla del vale lo dice antes de cerrar (`progress.sin_catalogo`) y el cierre lo registra como `warn`.
+
+**Migraciones:** ninguna. Todo se derivó de tablas existentes.
+
+**Verificación:** `database/tests/http-luz-verde-caducidades-test.js` (22/22) recorre luz verde → alta en `NA` → bandeja → fechado → reclasificación, y afirma el invariante `SUM(lotes) = stock` y que fechar no mueve el total.
+
+Plan en [`FASE_WMS_ESTACION_RECEPCION`](FASES/FASE_WMS_ESTACION_RECEPCION.md).
+
+---
+
+## ADR-050 — **Permiso ≠ alcance** (Fase ID): el rol dice qué acción, el scope dice sobre qué filas
+
+**Estado:** Propuesto
+
+**Fecha:** 2026-08-26
+
+**Contexto:** el proyecto nació como auditoría de rutas (una zona, un supervisor, un colaborador) y `users.zona_id` alcanzaba. Hoy hay 41 módulos, 7 sucursales y 117 usuarios, y la tabla de usuarios sigue siendo la de rutas con 10 columnas pegadas encima. Medido en prod 2026-08-26: **83 de 117 usuarios sin `warehouse_code`**, y la convención vigente — escrita en el propio DTO — es *"vacío = ve todas"*, o sea **la ausencia de dato significa acceso ilimitado**. El enforcement es por-controller (`user?.warehouse_code || query.warehouse_code`), hay **6 mecanismos de alcance distintos** (`warehouse_code`, `warehouse_id`, `zona_id`, `finance_expense_area_ids`, `customer_id`, `promoter_brands`) sin nada compartido, y **16 nombres de query param** para decir "qué sucursal" (115 ocurrencias). No se puede expresar "su sucursal + la 03", ni "ve la red pero escribe solo en la suya". Y como el rol hace dos trabajos a la vez (puesto y bundle de permisos), cada combinación permiso × sucursal terminó siendo un rol nuevo: **33 roles para 117 usuarios**, 14 sin nadie.
+
+**Decisión:**
+
+1. **Cuatro ejes ortogonales:** persona (`identity.people`) · organigrama (`department_code`/`position_code`/`supervisor_id`, ya normalizado en `[UN.1]`) · **permiso** (`role_name` → JSONB, no se toca) · **alcance** (nuevo). El permiso dice *qué acción*; el alcance dice *sobre qué filas*.
+2. **El alcance es un dato de primera clase:** `identity.role_scopes` (default por rol) + `identity.user_scopes` (override por usuario), una fila por dimensión, con `mode ∈ {none, own, listed, all}`. Resolución `user → role → none`. Con 33 roles y 117 usuarios, configurar solo por usuario es la garantía de que quede mal.
+3. **`fail-closed`:** sin fila = `none`. `all` tiene que ser explícito. Por eso la migración de arranque **materializa** el `all` implícito de los 83 usuarios de hoy — preservar primero, cortar después (misma disciplina que `[UN.13]`).
+4. **`mode_write` separado de lectura** desde el schema, aunque se aplique más tarde: "ve las 3 sucursales de su zona, captura solo en la suya" es requisito de ERP y agregarlo después obliga a re-migrar.
+5. **Un solo punto de aplicación:** `ScopeResolver` en `platform-core` resuelve una vez por request y lo deja en el CLS (donde ya vive `tenantId`); los servicios usan `scoped(qb, dim, col)`. Más `@ScopeDimension(...)` en el controller y un test de cobertura que falla si un endpoint que consulta una tabla con `warehouse_code` no la declara — el test que faltó y produjo las fugas de `[UN.4]` (Finanzas) y `[UN.11]` (Compras).
+6. **El alcance NO viaja en el JWT** (a diferencia de los permisos): arrays que rotan, y el token ya carga 162 permisos + rules de CASL. Va en DB con cache TTL. Consecuencia deseada: **cambiar un alcance no exige re-login; cambiar un permiso sí.**
+7. **El alcance no se implementa con RLS.** RLS se queda en `tenant_id`. Hacerlo con RLS exigiría GUCs y policies por dimensión en ~200 tablas, y `analytics.*` no tiene RLS por diseño.
+
+**Consecuencias:**
+- Se puede responder, para cualquier usuario, *qué ve exactamente y por qué* — hoy no se puede.
+- La proliferación de roles deja de tener causa: el eje sucursal sale del rol.
+- ⚠️ El día del corte, cualquier dominio migrado depende de que la materialización haya corrido antes. El orden es migración → deploy, verificado con el snapshot de alcance.
+- ⚠️ Dos semánticas de invalidación conviviendo (permiso/re-login vs alcance/TTL) — hay que decirlo en la UI.
+- Se acepta migrar dimensión por dimensión y dominio por dominio: el resolver se despliega inerte y los 41 módulos convergen por goteo.
+
+**Alternativas rechazadas:**
+- **RLS por sucursal** — ver punto 7. *Compuerta:* si aparece un tenant con requisito de aislamiento por sucursal a nivel DB.
+- **Un rol por combinación permiso × sucursal** (lo que pasa hoy de facto) — es la causa de los 33 roles; no escala a 7 sucursales × 6 dimensiones.
+- **Meter los scopes en el JWT** — tamaño de token y obliga a re-login por cada cambio de alcance operativo.
+
+Plan en [`FASE_ID_IDENTIDAD_ACCESOS_ALCANCE`](FASES/FASE_ID_IDENTIDAD_ACCESOS_ALCANCE.md).
+
+---
+
+## ADR-052 — **Contratos de tipos del boundary REST**: fuente única en `libs/contracts`, importada por los dos lados (evoluciona ADR-045)
+
+**Estado:** ✅ Aceptado — 2026-08-29. Revisa en parte la cláusula de *contrato de tipos* de **ADR-045**.
+
+**Fecha:** 2026-08-29
+
+**Contexto:** ADR-045 (2026-08-18) cerró el catálogo de transportes — REST + Socket.IO como columna, GraphQL rechazado (over-fetching no medido) — y, sobre el *contrato de tipos*, dejó los ~41 módulos de services Angular escritos a mano con OpenAPI solo como snapshot para diff, porque "reescribir 41 módulos sin ganancia funcional" no se justificaba entonces. Esa ganancia ahora está **medida** (2026-08-29):
+
+- **849** llamadas HTTP del front tipadas con genéricos escritos **a mano** = 849 contratos duplicados y desacoplados del backend. Un cambio de forma en el backend **no rompe el compile del front**; llega mal formado en runtime.
+- **47** `Promise<any>` en services del backend + **55** `: any` en services del front + solo **25** `.dto.ts` para **117** controllers → el boundary está ~78% sin tipar.
+- **310** `@Body()` en 91 controllers, la mayoría **sin DTO validado** → además del drift, hueco de validación en runtime.
+
+El costo de "no romper en silencio" que ADR-045 ya resolvió para los puertos in-process (`libs/contracts` — su propio `index.ts` lo dice: "producer y consumer importan el mismo tipo → error de compilación en ambos lados") **no se aplicó al boundary HTTP**, que es donde vive el 99% del tráfico. La decisión de Edgar ("hay que tipar todo") reabre esa cláusula con dato nuevo.
+
+**Decisión:** extender el mismo lib y el mismo principio al wire REST.
+
+1. **`libs/contracts` es la fuente única del contrato HTTP.** Nuevo `src/http/<dominio>.contract.ts` con esquemas **Zod** (ya es dependencia, v4). `z.infer` da el tipo TS que importan **NestJS (controller/service) y Angular (service)** — el mismo símbolo en los dos lados. Cero codegen, cero spec que se pone stale.
+2. **El schema Zod es también la validación de entrada.** Un `ZodValidationPipe` (propio, ~15 líneas; `nestjs-zod` opcional) valida `@Body()`/`@Query()` contra el mismo schema → cierra el hueco de los 310 `@Body()`. Tipo y validación de un solo lugar.
+3. **El response se tipa declarando el return type del controller** (`Promise<z.infer<typeof X>>`). El eslabón difícil es Knex (no es type-safe): se generan los **tipos de fila desde el schema Postgres** (`pg-to-ts` / `kysely-codegen`) y los queries usan `knex<Row>()`. El controller compone el response desde filas tipadas.
+4. **No es el cliente OpenAPI generado** (lo que ADR-045 rechazó). Es import directo de tipos del monorepo — una tercera opción que ADR-045 no evaluó (planteó "services a mano vs cliente generado" y omitió "services a mano importando el contrato compartido"). No se reescriben los services de golpe: cada service **cambia solo el tipo** que importa y borra su interface local.
+5. **Migración incremental con ratchet, no big-bang.** Gate de CI que frena `any` en el boundary del código **nuevo** primero; luego barrido por tráfico; el lint pasa a `error` por módulo a medida que se cierra.
+6. **OpenAPI snapshot (`generate:openapi`) se queda** como está para diff/documentación externa (ADR-045 intacto ahí); deja de ser el puente de tipos. Opcional: enriquecerlo desde los Zod (`z.toJSONSchema()` nativo de Zod 4).
+
+Lo que **no cambia** de ADR-045: REST + Socket.IO, GraphQL sigue rechazado (misma compuerta: consumidor externo que arme sus propias consultas), los puertos in-process, SSE artesanal, el snapshot OpenAPI.
+
+**Consecuencias:**
+- ✅ Un cambio de forma en el backend es **error de compilación en el front** — la garantía que el lib ya prometía, extendida al boundary donde está el tráfico.
+- ✅ Los 310 `@Body()` ganan validación de runtime del mismo schema (correctness + seguridad).
+- ✅ RLS/tenant intacto: es tipado en compile-time, no toca runtime. `TenantKnexService.run()` sigue igual.
+- ⚠️ `libs/contracts` deja de ser "solo tipos" y gana **una dep de runtime (zod)**; entra al bundle del front (~12–14 kB gzip, aceptable). Los `ports/*` siguen type-only.
+- ⚠️ El costo real es el **response typing sobre Knex** (117 controllers): semanas, incremental. El gate de CI (TS.0) evita que la deuda vuelva a subir mientras se baja.
+- ⚠️ `nestjs-zod` + Zod v4 puede tener fricción de versión → se arranca con pipe propio.
+
+**Alternativas rechazadas:**
+- **Cliente OpenAPI generado** — ya rechazado por ADR-045 (codegen externo + reescribir services). El import de tipo compartido logra el mismo fin sin esas dos cosas.
+- **Tipar a mano los dos lados** — duplica los 849 contratos y reintroduce el drift el día 1.
+- **Migrar a Prisma/Drizzle/Kysely** por type-safety de DB — descartado: inversión enorme en Knex + RLS vía `TenantKnexService`; generar tipos de fila da el 80% sin tocar el runtime.
+- **GraphQL / tRPC** — exigen tipar todo el schema por adelantado (peor contra un boundary 78% sin tipar) y rompen Throttler / multiplican el riesgo de RLS. Ver ADR-045.
+
+Plan en [`FASE_TS_CONTRATOS_TIPADOS`](FASES/FASE_TS_CONTRATOS_TIPADOS.md).
+
+---
+
+## ADR-051 — **Rentabilidad** (Fase MR): el margen se mide con el costo del hecho de venta, no con el de catálogo
+
+**Estado:** ✅ Aceptado — 2026-08-29 · ⚠️ **enmendado 2026-08-31**. Reemplaza el cálculo original de `/comercial/rentabilidad`.
+
+> **Enmienda 2026-08-31 — la redacción original era falsa en la mitad del negocio.** Este ADR decía
+> que `analytics.sales_daily.cost` es "el costo que registró el PdV, en la unidad en que cobró". Eso
+> vale **sólo para la mitad Wincaja** (48.9% de la venta). En los canales Kepler (50.8%) el fact no
+> guarda un costo: guarda `revenue / (1 + markup_pct/100)`, con `markup_pct` copiado de
+> `md.kdpv_prod_util.c6` **de una sola sucursal**. Por álgebra ese margen es función únicamente del
+> markup y **no reacciona al precio cobrado** — medido: 3,269 SKUs vendidos a precios que difieren
+> hasta 20% entre almacenes dan **0.0000 pp** de spread de margen. Subdeclara **2.02 pp**
+> ($411,220 en 30 d).
+>
+> **Lo que sigue en pie:** la decisión de dejar de usar `cost_base × units` es correcta, porque
+> `markup_pct` es adimensional y no puede descuadrar unidades, mientras `cost_base` viene por CAJA.
+> Lo que estaba mal era el *por qué*, y con él la creencia de que el margen ya se estaba midiendo.
+>
+> **Lo que cambia:** el costo canónico pasa a ser `kdm2.c62`/`c63` (existe, 99.1% de cobertura en los
+> doctypes de venta grandes) resuelto contra `analytics.v_supplier_cost_ladder` — y eso **requiere
+> persistir primero el peldaño cobrado**, que hoy el ETL deduce y descarta. Diagnóstico completo,
+> con las cuatro pruebas, en [`FASE_MR_COSTO_Y_UNIDAD`](FASES/FASE_MR_COSTO_Y_UNIDAD.md).
+
+**Contexto:** la pantalla publicaba el margen como `revenue − (catalog.products.cost_base × units)`. Ese `cost_base` está capturado **por CAJA** en buena parte del catálogo, y las unidades vendidas vienen **por PIEZA**. `analytics.v_product_box_factor` reproduce el ratio casi exacto (78210 `bf=15`: $51.00/15 = $3.40 contra un precio implícito de $3.04; 95285 `bf=32`: $4,356.72/32 = $136.15 contra $176.41).
+
+Medido en **prod** (2026-08-29, ventana de 30 días, $42M de venta): **57 SKUs metían $3,565,336 de COGS falso — el 10.0% del COGS total — sobre $386k de venta (0.9%)**. La pantalla publicaba **14.62%** cuando el fact dice **11.32%**: **3.30 pp de diferencia, el 94% de la brecha de 3.5 pp que la fase existe para cerrar**. El negocio reporta su margen real en **~11.5%** — o sea el fact coincide con lo que Compras sabe, y la pantalla le estaba diciendo que la brecha estaba casi cerrada cuando no lo está. (En `platform_test`: 30 SKUs, $1.76M de COGS falso, 13.05% publicado contra 10.32% real.)
+
+Es exactamente el riesgo #1 del plan de fase (§2.3) y del sprint MR.1, que la pantalla salteó.
+
+**Decisión:**
+
+1. **La venta Y el costo salen de `analytics.sales_daily`.** `cost` es lo que el punto de venta registró en la transacción, en la **misma unidad en que cobró** — la unidad deja de ser una categoría de bug en vez de algo que hay que normalizar renglón por renglón. Estable en las tres ventanas: 10.32% / 10.29% / 10.33% a 30/90/365 días.
+2. **El denominador del margen es `revenue_costed`**, no la venta total: la venta sin costo no se puede juzgar y se reporta como cobertura (99.88% real, contra el 100% que el panel viejo mostraba siempre por construcción).
+3. **`catalog.products.cost_base` se conserva SOLO para valuar inventario** — sigue siendo la regla canónica del proyecto para valuación/ABC/capital parado — y se **contrasta** contra el costo del fact: fuera de `[1/1.5, 1.5]×` el SKU se marca (`cost_quality`), su GMROI se suprime en vez de imprimir un número inventado, y el monto de capital afectado se declara en pantalla.
+4. **Las bandas de salud se derivan del objetivo** (`⅔·target`, `target`, `5/3·target`) en un solo origen que genera el TS y el `CASE` de SQL. Estaban clavadas en 10/15/25 mientras el objetivo era editable.
+5. **Fuente vacía ≠ resultado en cero.** Si `erp_purchase_adjustments` no tiene filas, la respuesta lo declara (`levers_source_empty`) y la UI dice que no se está midiendo, en vez de dibujar una cascada de ceros indistinguible de "este mes no hubo descuentos". *(Verificado: en prod la tabla **sí** tiene 1,403 ajustes y `supplier_discount_policy` sus 147 políticas — el vacío es de la DB local. El flag es la defensa para que la diferencia entre "no hubo" y "no se midió" nunca vuelva a ser invisible.)*
+6. **Lo que no está confirmado no se publica con unidad.** `erp_promotions.benefit` sólo toma los valores 2/3/4/5: viaja crudo como `promo_benefit`, no como `−4.0%`, y no se resta del margen.
+
+**Consecuencias:**
+- El número de la pantalla coincide con el resto de los reportes de sell-out; deja de haber dos verdades del mismo mes.
+- El KPI de capital en inventario cuadra con la suma de la tabla (`total = in_scope + stock muerto`); antes diferían $23M sin explicación visible.
+- ⚠️ **La valuación de inventario queda acotada, no corregida.** En **prod está sana**: $59,095,184 contra $564M de COGS anuales = **38 días** (el $375M / ~4 años que apareció en la auditoría inicial era de `platform_test`, la DB local, no de prod). Lo que sí persiste en prod es la **calidad del costo**: 564 de 6,972 SKUs (8.1%) tienen un `cost_base` que el PdV contradice, y valúan **$11,423,059 = 19.3% del capital**. Se marca y se suprime su GMROI; corregir el catálogo es de su feed.
+- ⚠️ `sales_daily` arranca en 2025-10-03: la ventana de 365 días todavía no cubre 12 meses completos.
+- El costo por request sube (~0.7 s de agregación sobre 641k filas) contra leer un snapshot pre-calculado. Se acepta: el snapshot mentía.
+
+**Alternativas rechazadas:**
+- **Corregir `cost_base` dividiendo por `v_product_box_factor`** — arregla el margen pero deja el catálogo mal y no aplica a granel (31008 tiene `box_factor=1` con costo por bulto). El catálogo se corrige en su feed, no acá.
+- **Valuar el inventario con el costo implícito de la venta** — se midió: el CEDIS no vende, cae al costo de retail y la valuación **sube** a $398M. Peor que el número que reemplaza.
+- **Seguir con `product_sales_stats`** — es un snapshot de dos días de antigüedad, no trae costo y obligaba a recomputarlo. Queda sólo como origen de `abc_class`.
+
+Plan en [`FASE_MR_MOTOR_RENTABILIDAD`](FASES/FASE_MR_MOTOR_RENTABILIDAD.md).
+
+---
+
+## ADR-053
+
+**Un feed sin latido propio es un feed invisible** (Fase OBS) · *propuesto 2026-09-02*
+
+**Contexto:** el carril de catálogos del ODS estuvo **parado 6 días** (2026-08-27 → 09-02) con ~23,200 filas sin shipear, 10,248 de ellas de costo, mientras la plataforma publicaba precio, costo, margen y reorden con toda confianza. Lo encontró un humano al corregir un precio a mano en Kepler (SKU `88222`, $54.00 → $165.28) y notar que el cambio no llegaba.
+
+**Lo importante del diagnóstico: la detección funcionó.** `db-health` tenía los 7 `cdc_wal_*` en `error` —con el comando exacto a correr en el `note`— y el sensor `kepler_ods` en crítico. El problema no fue la falta de alarma; fue que la alarma no salió del edificio y que el carril que de verdad alimentaba prod no estaba siendo vigilado por nadie.
+
+**Decisión:**
+
+1. **Todo carril de ingesta late su propia ENTREGA a `analytics.cron_runs`.** No "el proceso corre": una rama ilegible o una tabla en error es un `status='error'` del carril aunque el proceso siga vivo. Un carril mudo es inaceptable — `replicate-ods-live.js` alimentaba prod sin escribir una sola fila de latido.
+2. **Un latido no viaja por el canal que vigila.** `ods-cdc-wal.js` late por el sink que monitorea: el 2026-08-26 una rotación de key dio 401 en los 7 consumidores **sin alarma**. Todo latido va **directo a prod**, con su propia variable de conexión — en los shippers `DATABASE_URL_NEW` apunta al contenedor de replicas, no a prod (GOTCHAS §17).
+3. **Un latido sin umbral registrado no es una alarma.** `checkCronRuns()` pinta verde incondicional a cualquier job ausente de `CRON_JOBS`; había **cinco feeds reales** en esa condición. Registrar el umbral es parte de entregar el latido, no un paso opcional.
+4. **Latido ≠ completitud.** Un latido prueba que el caño se mueve, no que llegó todo: el CDC perdió 2-7% de las filas diarias con los 7 latidos verdes. El reconciliador (`cdc_reconcile`) es la única alarma que mide huecos y **tiene que estar corriendo**.
+5. **CDC y scan son complementos, no sustitutos.** Después de perder un slot queda un hueco de WAL que sólo un scan puede reponer. Tratarlos como sustitutos —el cutover de CDC.6, hecho sin su requisito CDC.5— es lo que convirtió **una** falla en 6 días de congelamiento. Los dos carriles quedan permanentes.
+6. **El supervisor mide entrega, no proceso vivo.** `restart: unless-stopped` + `HEALTHCHECK` que falla si el latido no avanzó. PM2 reportó `online` mientras el batch no se ejecutaba; un supervisor que sólo sabe si el PID existe reproduce el falso verde.
+7. **El proceso se auto-cura de sus modos de muerte conocidos.** Un slot `lost` se recrea y se dispara el backfill solo, en vez de reiniciarse 5,000 veces pidiéndole a un humano que corra un comando.
+8. **Lo derivado del ODS declara su rezago** (hereda ADR-051). La etiquetera dice *"precio con N h de rezago"* en vez de imprimir con confianza. No bloquea la operación.
+
+**Consecuencias:**
+- Objetivo medible: un carril parado se sabe en **< 15 min**, contra los 6 días de este incidente.
+- El sustrato queda **mixto a propósito**: Docker para lo que habla Postgres/HTTP, Windows para lo que necesita Jet 32-bit (los `.mdb` de Wincaja no se pueden containerizar).
+- Más piezas que latir y registrar. Se acepta: el costo de un feed invisible ya se pagó.
+- ⚠️ Se **descartó** endurecer el default de `checkCronRuns()` para huérfanos (decisión de Edgar): el próximo job que late sin registrarse puede volver a ser invisible. Se mitiga registrando a mano.
+
+**Alternativas rechazadas:**
+- **Grafana Alerting** — el stack LGTM está en prod (INFRA.2.3), pero `db-health` + `MAILER_PORT` ya cubren el caso con menos piezas.
+- **Túnel para que Railway se suscriba nativo a los replicas** — eliminaría el proceso del hop 2, pero el Postgres administrado de Railway no admite cliente de túnel adentro y la replicación nativa **no puede hacer el fan-in de 7 bases a una tabla con `sucursal`**: quedarían 7 esquemas + vista `UNION ALL`. Es rediseño.
+- **Redundancia multi-nodo con elección de líder** — sobrevive la pérdida de una máquina, pero pide una 2ª box en la LAN. Se eligió un nodo + auto-curación.
+- **Tarea programada de Windows** — es lo que se venía usando y lo que Edgar descartó explícitamente.
+
+Plan en [`FASE_OBS_INGESTA_OBSERVABLE`](FASES/FASE_OBS_INGESTA_OBSERVABLE.md).
+
+---
+
+## ADR-054
+
+**El permiso es una CLAVE, no una tupla acción/sujeto — CASL se retira** · *aceptado 2026-09-02*
+
+**Contexto:** la autorización se modelaba dos veces. La verdad es `role_permissions.permissions`, un `Record<clave, boolean>` de 164 claves; encima vivía una traducción a CASL (`permissionToSubject` + `permissionToAction`, ~113 entradas cada uno) que producía reglas `(action, subject)`, se serializaba en el JWT como `rules` y se consultaba con `can(action, subject)`.
+
+El backend **ya había abandonado ese modelo** meses antes: `RolesGuard` chequea la clave exacta, y su propio comentario explica por qué — al colapsar `Permission → subject`, cualquier clave del módulo abría todas sus rutas (`ORDERS_VER` habilitaba `ORDERS_FULFILL/CANCELAR/…`). O sea: el modelo de CASL era **más pobre que el del negocio** y se lo reemplazó en el camino crítico, pero la traducción quedó viva alrededor.
+
+**Lo que la medición encontró (2026-09-02, contra el código y la data de prod):**
+
+1. **Cuatro compuertas muertas.** De los 32 permisos `*_GESTIONAR/CONFIGURAR`, **sólo `ROLES_CONFIGURAR`** concedía la acción `'manage'`; los otros 31 concedían `['read','create','update','delete']`. Y en CASL `manage` es comodín **del lado de la regla, no de la consulta** (verificado ejecutando el CASL del repo: con esas 4 reglas, `can('manage','users')` = `false`). Resultado: `can('manage', X)` sólo pasaba con `manage:all`, o sea sólo para superadmin/admin. Escondía los controles de gestión de **usuarios, catálogos, parámetros de scoring y planogramas**.
+2. **No era teórico: 5 usuarios activos en prod tenían un permiso que el sistema no honraba.** `jefe_marketing` (2) con `CATALOGO_GESTIONAR` + `SCORING_CONFIG_GESTIONAR` + `PLANOGRAMAS_GESTIONAR`, y `supervisor_ventas` (3) con `CATALOGO_GESTIONAR`. En catálogos no era cosmético: `catalogs.controller` decidía con `can('manage','catalogs')` → **403 real** al guardar. (`USUARIOS_GESTIONAR` no tenía víctimas sólo porque hoy el único rol que lo lleva es `superadmin`.)
+3. **La copia era incompleta por construcción.** **51 de las 164 claves** del enum no tenían subject, y `buildAbility` las salteaba en silencio (`if (!subject || !actions) continue`). Son justo las de las fases nuevas: FISCAL 17, FINANCE 15, COMMERCIAL 7, STORE 5. Por rol real: `marketing` 38 claves sin regla, `credito_cobranza` 37, `finanzas` 31, `contabilidad` 29. Esos módulos funcionaban **porque** el guard ya no usaba CASL.
+4. **Cero uso de lo único que justifica la librería.** Ni una regla con `conditions` ni `fields` en todo el repo: se usaba como `Set<string>` con sintaxis de dos niveles. El alcance por fila —el caso de uso de CASL— ya vive en `ScopeService` + `identity.user_scopes` (ADR-050).
+5. **Peaje en cada request.** El JWT llevaba `permissions` **y** `rules`: la misma verdad dos veces. Medido con data de prod, `marketing` = 4,901 B de mapa + 3,554 B de reglas → **~11.6 KB de token**; de ahí el `large_client_header_buffers 4 32k` en los 3 nginx. De sus 65 reglas, el front consultaba a lo sumo 3 pares.
+6. **El front no podía ni nombrar la mayoría de los sujetos:** 53 subjects en el back contra ~24 declarados en `AppSubject`, en **tres copias** del `PermissionsService` (view/vendor/portal).
+
+**Decisión:** se retira `@casl/ability`. El gating —back y front— se hace por **clave exacta** sobre el mapa de permisos, con el god-mode de plataforma resuelto por **nombre de rol**.
+
+- Back: `buildAbility`, `ability.factory.ts` y `ability.types.ts` borrados. Sobrevive `isPlatformAdminRole` en `ability/platform-admin.ts`. `RolesGuard` deja de serializar `rules` al request; `accessFor` y los dos servicios de auth dejan de devolverlas; `rules` sale del JWT.
+- Front: `PermissionsService` pasa a `has()` / `hasAny()` / `has$()` / `isAdmin()`. **`has()` corta por rol de plataforma antes de mirar el mapa** — indispensable: el rol `superadmin` tiene el mapa **vacío** en prod (11 cuentas), su acceso siempre vino del nombre del rol.
+- `getDataScope` deja de reconstruir una ability desde `rules` y lee `permissions`. Es además **mejor fuente**: el guard la relee del cache en cada request, mientras `rules` viajaba congelada en el token hasta el próximo login — un permiso revocado ahora se respeta al instante.
+
+**Consecuencias:**
+- Un permiso nuevo se cablea en **un** lugar (el enum + el árbol de authz), no en tres mapas. Desaparece la clase de bug "el permiso existe pero CASL no lo conoce".
+- **Cambia lo que se ve**: aparecen los controles que `can('manage', X)` escondía y desaparece el nav que se mostraba por colapso de subject (p. ej. la acción rápida _Registrar visita_ se le ofrecía a quien sólo tenía `VISITAS_VER`). Requiere validación en navegador.
+- El token adelgaza ~3.5 KB por sesión.
+- ⚠️ **La trampa de este retiro es el productor.** Al dejar de emitir `rules`, el `if (payload.rules)` que envolvía el `perms.load()` de `vendor` y `portal` se volvió falso y las dos apps quedaban con **cero permisos**. El type-check no lo ve. Por eso se hizo en 3 fases (backend → UI → borrado) y no de un golpe. Mismo patrón, versión suave: `RequesterContext` de `users.service` siguió declarando `rules?: unknown[]` y **no** los dos campos de los que de verdad depende — funcionaba sólo porque en runtime llega el `req.user` completo.
+- La carpeta `lib/ability/` queda mal nombrada (hoy sólo tiene el cache de permisos, `platform-admin` y `data-scope`). Deuda cosmética aceptada.
+
+**Alternativas rechazadas:**
+- **Arreglar CASL** (mapear las 51 claves faltantes, fijar la convención `*_GESTIONAR → 'manage'`, sacar `rules` del JWT) — deja dos mapas de 164 entradas que hay que mantener sincronizados a perpetuidad para responder lo mismo que un lookup por clave. Se descartó por eso, no por el esfuerzo.
+- **Conservar CASL sólo para el alcance por fila** (su caso de uso real, con `conditions`) — sería reemplazar `ScopeService`, que ya está en prod y expresa `mode_write` (_"ve las 3 de su zona, captura sólo en la suya"_), algo que las conditions de CASL no modelan sin reescribir el motor.
+- **Mantener `manage` como alias de escritura** con un resolver de aliases de CASL — arregla los 4 gates y deja intactos los otros cinco problemas.
+
+---
+
+## ADR-055
+
+**La cantidad se muestra en la unidad MÁS GRANDE, y el divisor es el del ERP que manda en ese almacén** (Fase RA / `/compras/pedido`) · *aceptado 2026-09-03*
+
+> ⚠️ **Colisión de numeración:** este trabajo se escribió durante dos días citando **ADR-052**, número que ya estaba tomado por *Contratos de tipos del boundary REST* y que además usan la **Fase LC** y el **BFF del Command Center**. Se renumeró a **ADR-055** en los archivos de esta línea (las 5 migraciones `2026090217/19/20/21/22*`, los importers de existencia, `commercial-replenishment.service.ts`, el módulo de compras del front y `docs/UNIDADES_DE_MEDIDA.md`). **LC y el Command Center siguen citando ADR-052 y hay que decidir qué número les toca** — no se tocaron acá.
+
+### Contexto
+
+Mega Dulces corre **dos ERPs** y cada uno eligió otra unidad base de inventario:
+
+- **Kepler** (sucursales `01`–`06`) guarda la existencia en su **unidad base**.
+- **Wincaja** (`MD-30`, `MD-32`, CEDIS `00`) la guarda en **su unidad de venta**, que en los multipack es el **PAQUETE**.
+
+`/compras/pedido` dividía la existencia de **todos** los almacenes por un solo factor por producto — `analytics.v_product_box_factor.box_factor`, que cuenta **unidades base por caja**. En los almacenes de Wincaja eso dividía entre 140 lo que había que dividir entre 14: la existencia se veía **~10× más chica**.
+
+Y no era cosmético. La capa cruda **sí** es auto-consistente (existencia y venta de Wincaja vienen las dos en paquetes), **pero la derivada no**: `analytics.product_demand.daily_pieces` normaliza la demanda a la unidad base — medido, **159 de 166** multipack de MD-30 con venta, razón ≈ `f2` contra `analytics.sales_daily`, $1.79M de venta 30 d — mientras `replenishment_plan.stock_pz` se queda en paquetes (**el nombre miente**). El motor restaba *piezas de demanda menos paquetes de existencia*.
+
+| medido en prod (368 filas por almacén, de ~9,800) | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion · $pedido | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan · $traspaso | $2,256,065 | $2,237,132 |
+| **las 6 sucursales Kepler** | — | **sin cambio, ni un peso** |
+
+Son **~355 SKUs** (sucursal 30) los multipack de verdad, no el catálogo entero.
+
+### Decisión
+
+1. **La unidad de presentación es la CAJA** — el peldaño más grande que declara el ERP. Es la única unidad que los dos ERPs saben expresar, así que es la que hace comparables sus cifras.
+2. **El divisor es por (almacén, producto), no por producto**, y sale de un resolvedor canónico único: **`analytics.v_warehouse_box_factor`** (vista, `derive-no-copy`, mig `20260902220000`). Kepler resuelve por `v_product_box_factor`; Wincaja por **`wincaja.articulos.factor_venta`** — el ERP dueño de ese almacén. Expone además `box_label` / `base_label` / `is_weight` / `factor_source` para que nadie tenga que adivinar en qué unidad está un número.
+3. **El dato base NO se convierte.** La conversión es de presentación. Materializado en `analytics.replenishment_plan.display_bf` sólo por costo del camino de lectura; la regla vive en la vista y el importer la **lee**.
+4. **Los cálculos que cruzan almacenes se hacen EN CAJAS.** `transferPlan` y `overstockList` restaban demanda-en-base menos existencia-en-nativa, y `transferPlan` además comparaba el déficit del destino contra el stock del CEDIS origen, que puede tener otra unidad nativa. El workbook convierte reorden/máximo/valuado **por almacén antes de sumar**.
+
+### Por qué se le puede creer a `factor_venta` — tres testigos
+
+`wincaja.articulos.factor_venta` está definido como *"cuántas de MIS unidades de venta hacen una caja"*, así que sirve venda piezas o paquetes, sin clasificar el SKU.
+
+1. **Dinero crudo** (no derivado): en la sucursal 30, precio realmente cobrado (`wincaja.v_sales_daily`) × `factor_venta` cae a **±11%** del precio de caja del ODS (`p3`): `42029` $115.54×14 = $1,617 vs $1,701 · `08057` $119.20×28 = $3,338 vs $3,521.
+2. **La escalera del ODS**: `fv = f3/f2` en **355** SKUs (venden paquete) y `fv = f3` en **1,818** (venden la base). Las dos formas son coherentes con la definición.
+3. **Concordancia donde NO debe haber diferencia**: en las **5,475** filas de los casos "sin escalera" y "misma unidad", `factor_venta` y `box_factor` dan el mismo valuado con **Δ < 0.1%** ($9,573 y −$140). Divergen sólo en los **348** multipack (+$2.63M), que es exactamente el defecto. *Dos fuentes independientes que coinciden donde deben y difieren donde debe: eso es lo que autoriza a usar una.*
+
+### Consecuencias
+
+- Se retira el `cajaFactor()` hardcodeado (`w.code IN ('MD-30','MD-32')`, que dejaba fuera el CEDIS `00`) y la lectura de `analytics.wincaja_product_box_factor`, tabla alimentada por importer — alineado con la regla principal del proyecto.
+- ⚠️ **`06 Canindo` trae `wincaja_source_branch='50'` residual y es KEPLER** (su POS migró). El gate correcto es `wincaja_source_branch IS NOT NULL AND kepler_code IS NULL`.
+- Al agregar un almacén de un ERP nuevo, el único lugar a tocar es la vista.
+- **Regla que sale de acá (va a `UNIDADES_DE_MEDIDA.md` §8ter):** *la unidad de una columna no se hereda de su fuente.* Cada tabla derivada puede normalizar una columna y no la otra, y el nombre no avisa. Hay que probar la unidad **en la tabla que el consumidor lee**, con el precio realizado contra `v_product_unit_ladder.p1/p2/p3`.
+
+### Alternativas rechazadas
+
+- **Normalizar la existencia cruda a la unidad base** — se intentó y llegó a prod (mig `20260902200000`, revertida el mismo día): `inventory_health` y `reorder_policy` se derivan de `sales_daily`, que está en la unidad nativa, así que convertir sólo la existencia la dejó `f2` veces más grande que sus propios umbrales → cobertura de 534–900 días y **el motor dejó de pedir** (~$785k de sub-pedido en Morelia).
+- **Normalizar todo el pipeline a la unidad base de Kepler** — toca `sales_daily`, márgenes, reportes y sell-out. Radio de impacto enorme para un defecto de ~355 SKUs, y deja igual el problema de fondo (los dos ERPs seguirían sin unidad común declarada).
+- **Un toggle "en cajas / en piezas"** en la pantalla — no arregla el cálculo, sólo cambia lo que se ve; el sobre-pedido seguiría.
+- **Dejarlo como deuda declarada** — es el camino del dinero: el comprador firma órdenes con esos números.
+
+Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión), con candados explícitos contra los dos errores previos: convertir el dato base, y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia — razón 2.000).
+
+Ver [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8ter · hereda **ADR-051** (la unidad se declara, no se dibuja).

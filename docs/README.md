@@ -20,6 +20,7 @@
 
 - [`../DESIGN.md`](../DESIGN.md) — sistema de diseño ("Mercado"). **Obligatorio antes de tocar UI.**
 - `DESIGN_FOUNDATIONS.md`, `DESIGN_TABLES.md`, `DESIGN_MOTION_KPI_CARDS.md` — referencias de diseño.
+- `DESIGN_TENDENCIAS_2026.md` (estético) y `DESIGN_TECNOLOGIA_2026.md` (técnico: plataforma web, responsividad, tooling, agentic UX) — investigación del estado del arte.
 
 ## Tracking y decisiones
 

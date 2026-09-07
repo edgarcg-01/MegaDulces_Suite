@@ -1,11 +1,11 @@
 import {
   Directive,
   ElementRef,
-  Input,
   NgZone,
   OnChanges,
   OnDestroy,
   inject,
+  input
 } from '@angular/core';
 
 /**
@@ -29,9 +29,9 @@ import {
   standalone: true,
 })
 export class TypeHintDirective implements OnChanges, OnDestroy {
-  @Input('typeHint') phrases: string[] = [];
-  @Input() typeHintPrefix = '';
-  @Input() typeHintBase = '';
+  readonly phrases = input<string[]>([], { alias: "typeHint" });
+  readonly typeHintPrefix = input('');
+  readonly typeHintBase = input('');
 
   private readonly el = inject<ElementRef<HTMLElement>>(ElementRef);
   private readonly zone = inject(NgZone);
@@ -109,11 +109,11 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
     this.gen++;
     this.tl?.kill?.();
     this.tl = undefined;
-    this.setHint(this.typeHintBase);
+    this.setHint(this.typeHintBase());
   }
 
   private write(text: string, caret = true): void {
-    this.setHint(this.typeHintPrefix + text + (caret ? '|' : ''));
+    this.setHint(this.typeHintPrefix() + text + (caret ? '|' : ''));
   }
 
   private restart(): void {
@@ -125,27 +125,27 @@ export class TypeHintDirective implements OnChanges, OnDestroy {
     const focused =
       typeof document !== 'undefined' && el === document.activeElement;
     // Sin animación: deja el base (reduced-motion, sin frases, enfocado o con valor).
-    if (this.reduced || !this.phrases?.length || focused || this.input?.value) {
-      this.setHint(this.typeHintBase);
+    if (this.reduced || !this.phrases()?.length || focused || this.input?.value) {
+      this.setHint(this.typeHintBase());
       return;
     }
 
     // Base inmediato: nunca un hint vacío mientras GSAP carga (lazy).
-    this.setHint(this.typeHintBase);
+    this.setHint(this.typeHintBase());
 
     this.zone.runOutsideAngular(async () => {
       let gsap: any;
       try {
         gsap = await this.ensureGsap();
       } catch {
-        this.setHint(this.typeHintBase);
+        this.setHint(this.typeHintBase());
         return;
       }
       // El estado pudo cambiar mientras cargaba GSAP (focus, valor, nuevas frases).
       if (myGen !== this.gen || el === document.activeElement || this.input?.value) return;
 
       const tl = gsap.timeline({ repeat: -1 });
-      for (const phrase of this.phrases) {
+      for (const phrase of this.phrases()) {
         const st = { n: 0 };
         tl.to(st, {
           n: phrase.length,

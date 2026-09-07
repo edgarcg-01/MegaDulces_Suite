@@ -16,8 +16,6 @@ import { MessageService } from 'primeng/api';
 import { ComercialService, InventoryCount, Warehouse, AssignableUser } from '../comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_COUNT_TABS } from '../inventory-tabs';
 import { forkJoin } from 'rxjs';
 
 /**
@@ -28,7 +26,7 @@ import { forkJoin } from 'rxjs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterModule,
-    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule, PageTabsComponent,
+    ButtonModule, TableModule, TagModule, SelectModule, DialogModule, ToggleSwitchModule, InputNumberModule, MultiSelectModule, ToastModule,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -36,7 +34,6 @@ import { forkJoin } from 'rxjs';
     <div class="surf-page in">
       <p-toast></p-toast>
 
-      <app-page-tabs [tabs]="inventoryTabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -155,7 +152,6 @@ import { forkJoin } from 'rxjs';
   `],
 })
 export class ComercialInventorySessionsComponent {
-  readonly inventoryTabs = INV_COUNT_TABS;
 
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);

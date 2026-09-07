@@ -21,6 +21,16 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@loca
 const APPLY = process.argv.includes('--apply');
 const eanOk = (v) => { const s = String(v || '').trim(); return /^\d{13}$/.test(s) || /^\d{12}$/.test(s) || /^\d{8}$/.test(s); };
 
+// RETIRADO (Edgar 2026-08-26): Kepler es la AUTORIDAD del catálogo. Crear productos que solo
+// existen en Wincaja y no en el maestro de Kepler contradice la regla "si no está en Kepler, no
+// debe salir". La reconciliación automática (sync-product-master, paso RECONCILE) ahora da de baja
+// los wincaja-only. Si un SKU vende en Wincaja pero no está en Kepler, se da de ALTA EN KEPLER.
+if (process.env.WINCAJA_ALLOW_MISSING_CREATE !== '1') {
+  console.log('import-wincaja-missing-products: DESHABILITADO por política (Kepler = autoridad del catálogo).');
+  console.log('  Un SKU que vende en Wincaja pero no está en Kepler debe darse de alta en Kepler, no crearse aquí.');
+  process.exit(0);
+}
+
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();

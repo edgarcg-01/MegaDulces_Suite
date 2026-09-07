@@ -34,8 +34,9 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env
 const { Client } = require('pg');
 
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const DST = process.env.DATABASE_URL_NEW;
-if (!DST) { console.error('FALTA DATABASE_URL_NEW'); process.exit(1); }
+// Mismo destino que el importer: base dedicada `hr` si está configurada.
+const DST = process.env.DATABASE_URL_HR || process.env.DATABASE_URL_NEW;
+if (!DST) { console.error('FALTA DATABASE_URL_HR (o DATABASE_URL_NEW)'); process.exit(1); }
 const APPLY = process.argv.includes('--apply');
 
 /**

@@ -29,7 +29,7 @@ const path = require('path');
 const { Client } = require('pg');
 const A = require(path.join(__dirname, '..', 'lib', 'access-adapter'));
 const { conflictTarget, dataColumns, HK_HASH } = require(path.join(__dirname, '..', 'lib', 'access-mirror'));
-const { BRANCHES, REPLICA_URL, watermarkCol } = require('./wincaja-replica-config');
+const { BRANCHES, REPLICA_URL, watermarkCol, MDB_BASE } = require('./wincaja-replica-config');
 
 const DRY = process.argv.includes('--dry');
 const ONCE = process.argv.includes('--once');
@@ -70,13 +70,21 @@ function branchSchema(b) {
   if (schemaCache.has(b.code)) return schemaCache.get(b.code);
   const files = [b.mdb, b.mov].filter(Boolean);
   const seen = new Map();
+  const fallas = [];
   for (const f of files) {
     let sc;
     try { sc = A.discoverSchema(f, { noCounts: true }); }
-    catch (e) { console.warn(`  ⚠️ esquema ${path.basename(f)}: ${e.message}`); continue; }
+    catch (e) { fallas.push(`${path.basename(f)}: ${e.message}`); continue; }
     for (const t of sc) if (t.columns.length && !seen.has(t.table)) seen.set(t.table, { ...t, _file: f });
   }
   const arr = [...seen.values()];
+  // Un descubrimiento VACÍO no es un estado válido: es la fuente inalcanzable (Z: sin montar, .mdb
+  // movido). Cachearlo dejó los dos carriles girando en "0 tablas" del 27 al 31 de agosto de 2026
+  // sin recuperarse solos al volver la red. Se tira y NO se cachea → el próximo ciclo reintenta.
+  if (!arr.length) {
+    throw new Error(`esquema vacío para ${b.code}/${b.schema} — fuente inalcanzable`
+      + (fallas.length ? `: ${fallas.join(' · ')}` : ` (revisar ${files.join(', ')})`));
+  }
   schemaCache.set(b.code, arr);
   return arr;
 }
@@ -166,19 +174,51 @@ async function syncBranch(c, b) {
   return { totRead, totWrote };
 }
 
+/**
+ * La fuente tiene que existir ANTES de abrir conexiones. Se revisa en CADA ciclo (no una sola vez
+ * al arrancar) para que el proceso se cure solo cuando el share vuelve, sin reiniciar PM2.
+ */
+function preflightSource() {
+  if (require('fs').existsSync(MDB_BASE)) return;
+  const drive = /^([A-Za-z]):/.exec(MDB_BASE);
+  if (drive) {
+    console.error(`  "${drive[1]}:" es una unidad MAPEADA, y los mapeos de Windows son POR SESIÓN`);
+    console.error('  de login: un servicio o una tarea como SYSTEM puede no verla nunca. Preferí una');
+    console.error('  ruta UNC (\\\\servidor\\share\\...) en WINCAJA_MDB_BASE — no depende de la sesión.');
+  }
+  throw new Error(`WINCAJA_MDB_BASE inalcanzable: ${MDB_BASE}`);
+}
+
 async function cycle() {
   const list = branchArg ? BRANCHES.filter((b) => b.code === branchArg) : BRANCHES;
+  preflightSource();
   const c = new Client({ connectionString: REPLICA_URL, statement_timeout: 120000 });
   await c.connect();
+  const fallas = [];
   try {
     if (!DRY) await ensureState(c);
-    for (const b of list) { if (b.mdb) await syncBranch(c, b); }
+    // Una sucursal caída NO debe tapar a las otras: se registra y se sigue con las que sí responden.
+    for (const b of list) {
+      if (!b.mdb) continue;
+      try { await syncBranch(c, b); }
+      catch (e) { fallas.push(`${b.code}: ${e.message}`); console.error(`  ✖ ${b.code} ${b.name}: ${e.message}`); }
+    }
   } finally { await c.end(); }
+  if (fallas.length) throw new Error(`${fallas.length}/${list.length} sucursales fallaron — ${fallas.join(' · ')}`);
 }
 
 (async () => {
   const mode = DRY ? 'DRY' : WATCH_MS ? `WATCH ${WATCH_MS / 60000}min` : ONCE ? 'ONCE' : 'ONCE (default)';
   console.log(`=== WR.3 réplica cruda Wincaja (${mode}) · batch ${BATCH} ===`);
+  // El vigilante no puede fallar en silencio: sin destino para el heartbeat, un feed muerto es
+  // indistinguible de uno sano — PM2 sigue diciendo "online". Pasó del 27 al 31 de agosto de 2026:
+  // 4 días en cero con los dos carriles "online" y el heartbeat abortando por falta de esta var.
+  // En watch (desatendido) se aborta el arranque antes que correr a ciegas.
+  if (WATCH_MS && !DRY && !process.env.DATABASE_URL_NEW && !process.env.DATABASE_URL) {
+    console.error('✖ falta DATABASE_URL_NEW/DATABASE_URL: el heartbeat no podría reportar a cron_runs.');
+    console.error('  Exportala antes de "pm2 start" — el ecosystem la pasa explícita. Abortando.');
+    process.exit(1);
+  }
   // Heartbeat SOLO en modo watch (proceso largo bajo PM2, reemplaza el wrapper PS1/Task Scheduler).
   // Keyed por carril → FeedGuardian/db-health ve cada carril con su propio umbral (inc ~2min / hash ~1h).
   const hb = (WATCH_MS && !DRY) ? require('../lib/cron-heartbeat') : null;
@@ -193,7 +233,14 @@ async function cycle() {
       throw e;
     }
   };
-  await runCycle();
+  // En watch, un primer ciclo fallido NO debe matar el proceso: PM2 quemaría sus max_restarts en
+  // minutos y quedaría "errored". Se reporta (el heartbeat ya registró el error) y se entra al loop,
+  // que reintenta — y como el esquema vacío ya no se cachea, se cura solo cuando la fuente vuelve.
+  try { await runCycle(); }
+  catch (e) {
+    if (!WATCH_MS || DRY) throw e;
+    console.error('primer ciclo falló:', e.message);
+  }
   if (WATCH_MS && !DRY) {
     console.log(`\n(loop cada ${WATCH_MS / 60000} min — Ctrl+C para salir)`);
     setInterval(() => { runCycle().catch((e) => console.error('ciclo falló:', e.message)); }, WATCH_MS);

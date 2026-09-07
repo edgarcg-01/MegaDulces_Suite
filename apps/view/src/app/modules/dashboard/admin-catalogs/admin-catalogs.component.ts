@@ -29,10 +29,8 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { AdminCatalogsService } from './admin-catalogs.service';
 import { AdminRolesGridComponent } from './admin-roles-grid.component';
-import {
-  AppSubject,
-  PermissionsService,
-} from '../../../core/services/permissions.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 type CatalogType =
   | 'conceptos'
@@ -99,16 +97,24 @@ export class AdminCatalogsComponent implements OnInit, AfterViewInit {
 
   /** Catálogos navegables vía selector inline. El sidebar sigue siendo
    *  válido pero el usuario puede saltar entre tipos sin abandonar la página. */
-  private readonly ALL_CATALOG_TYPES: { type: CatalogType; label: string; icon: string; subject: AppSubject }[] = [
-    { type: 'conceptos',   label: 'Conceptos',   icon: 'pi pi-box',         subject: 'scoring_config' },
-    { type: 'ubicaciones', label: 'Ubicaciones', icon: 'pi pi-map-marker',  subject: 'scoring_config' },
-    { type: 'niveles',     label: 'Niveles',     icon: 'pi pi-chart-bar',   subject: 'scoring_config' },
-    { type: 'zonas',       label: 'Zonas',       icon: 'pi pi-globe',       subject: 'catalogs' },
-    { type: 'roles',       label: 'Roles',       icon: 'pi pi-shield',      subject: 'roles_config' },
+  private readonly ALL_CATALOG_TYPES: {
+    type: CatalogType; label: string; icon: string;
+    /** Claves EXACTAS del permiso. Antes esto era un `subject` de CASL y el gate de escritura
+     *  preguntaba `can('manage', subject)` — que devuelve false contra reglas
+     *  `['read','create','update','delete']`, o sea escondia los controles a todo rol no-admin. */
+    ver: Permission[]; gestionar: Permission;
+  }[] = [
+    { type: 'conceptos',   label: 'Conceptos',   icon: 'pi pi-box',        ver: [Permission.SCORING_CONFIG_VER, Permission.SCORING_CONFIG_GESTIONAR], gestionar: Permission.SCORING_CONFIG_GESTIONAR },
+    { type: 'ubicaciones', label: 'Ubicaciones', icon: 'pi pi-map-marker', ver: [Permission.SCORING_CONFIG_VER, Permission.SCORING_CONFIG_GESTIONAR], gestionar: Permission.SCORING_CONFIG_GESTIONAR },
+    { type: 'niveles',     label: 'Niveles',     icon: 'pi pi-chart-bar',  ver: [Permission.SCORING_CONFIG_VER, Permission.SCORING_CONFIG_GESTIONAR], gestionar: Permission.SCORING_CONFIG_GESTIONAR },
+    { type: 'zonas',       label: 'Zonas',       icon: 'pi pi-globe',      ver: [Permission.CATALOGO_GESTIONAR], gestionar: Permission.CATALOGO_GESTIONAR },
+    // `ROLES_VER` es uno de los 51 permisos que `ability.factory` no mapeaba a ningun subject, asi
+    // que ver el catalogo de roles exigia `ROLES_CONFIGURAR` — aunque el endpoint pide ROLES_VER.
+    { type: 'roles',       label: 'Roles',       icon: 'pi pi-shield',     ver: [Permission.ROLES_VER, Permission.ROLES_CONFIGURAR], gestionar: Permission.ROLES_CONFIGURAR },
   ];
 
   readonly availableCatalogTypes = computed(() =>
-    this.ALL_CATALOG_TYPES.filter(c => this.perms.can('read', c.subject)),
+    this.ALL_CATALOG_TYPES.filter(c => this.perms.hasAny(...c.ver)),
   );
 
   readonly filteredItems = computed(() => {
@@ -145,14 +151,9 @@ export class AdminCatalogsComponent implements OnInit, AfterViewInit {
    * Permiso de gestión según el tipo activo. El backend valida igual; este
    * computed solo gobierna la visibilidad de los botones de write.
    */
-  readonly canManageCurrent = computed(() => {
-    const type = this.selectedType();
-    if (type === 'roles') return this.perms.can('manage', 'roles_config');
-    if (SCORING_TYPES.includes(type as CatalogType)) {
-      return this.perms.can('manage', 'scoring_config');
-    }
-    return this.perms.can('manage', 'catalogs');
-  });
+  readonly canManageCurrent = computed(() =>
+    this.perms.has(this.specForType(this.selectedType()).gestionar),
+  );
 
   readonly hasScoring = computed(() =>
     SCORING_TYPES.includes(this.selectedType() as CatalogType),
@@ -187,11 +188,9 @@ export class AdminCatalogsComponent implements OnInit, AfterViewInit {
           type = 'conceptos';
         }
 
-        const subject = this.subjectForType(type);
-        if (!this.perms.can('read', subject)) {
+        if (!this.perms.hasAny(...this.specForType(type).ver)) {
           if (
-            this.perms.can('read', 'reports_team') ||
-            this.perms.can('read', 'reports_global')
+            this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)
           ) {
             this.router.navigate(['/dashboard']);
           } else {
@@ -253,10 +252,12 @@ export class AdminCatalogsComponent implements OnInit, AfterViewInit {
     }
   }
 
-  private subjectForType(type: string): AppSubject {
-    if (type === 'roles') return 'roles_config';
-    if (SCORING_TYPES.includes(type as CatalogType)) return 'scoring_config';
-    return 'catalogs';
+  /** Fila del plan para un tipo de catalogo (default: el generico `zonas`/catalogos). */
+  private specForType(type: string) {
+    return (
+      this.ALL_CATALOG_TYPES.find((c) => c.type === type) ??
+      this.ALL_CATALOG_TYPES.find((c) => c.type === 'zonas')!
+    );
   }
 
   private updateTitle(type: string): void {

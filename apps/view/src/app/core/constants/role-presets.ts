@@ -85,12 +85,17 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.COMMERCIAL_SELLOUT_VER,
     Permission.COMMERCIAL_SALIDAS_VER,
     Permission.COMMERCIAL_ROUTE_SALES_VER,
+    Permission.COMMERCIAL_SALES_DOCS_VER,
     Permission.COMMERCIAL_CUSTOMERS360_VER,
     Permission.COMMERCIAL_HISTORICAL_VER,
     Permission.COMMERCIAL_DEADSTOCK_VER,
     Permission.COMMERCIAL_INVHEALTH_VER,
   ],
   almacen: [
+    // Existencia vive en Almacén y en Compras con UN permiso (precedente Caducidades), así que
+    // aparece en los dos grupos. La repetición es legal: MODULE_GROUPS es Record<string, Permission[]>.
+    Permission.EXISTENCIA_VER,
+    Permission.EXISTENCIA_GESTIONAR,
     Permission.COMMERCIAL_INVENTORY_VER,
     Permission.COMMERCIAL_INVENTORY_AJUSTAR,
     Permission.COMMERCIAL_INVENTORY_CONTAR,
@@ -103,6 +108,8 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
   ],
   cuadre: [Permission.RECONCILIATION_VER, Permission.RECONCILIATION_GESTIONAR],
   compras: [
+    // Repetido a propósito — ver la nota en el grupo `almacen`.
+    Permission.EXISTENCIA_VER, Permission.EXISTENCIA_GESTIONAR,
     Permission.COMPRAS_PEDIDO_VER, Permission.COMPRAS_PEDIDO_GESTIONAR,
     Permission.COMPRAS_RED_VER, Permission.COMPRAS_RED_GESTIONAR,
     Permission.COMPRAS_REQUISICIONES_VER, Permission.COMPRAS_REQUISICIONES_GESTIONAR,

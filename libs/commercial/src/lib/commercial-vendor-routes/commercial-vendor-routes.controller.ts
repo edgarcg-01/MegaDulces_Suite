@@ -21,6 +21,7 @@ import {
 } from './commercial-vendor-routes.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 /**
@@ -53,6 +54,13 @@ export class CommercialVendorRoutesController {
     return this.service.listVendors();
   }
 
+  @Get('route-catalog')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
+  @ApiOperation({ summary: 'Catálogo de rutas (trade.catalogs) con zona, para el picker de asignación de rutas' })
+  routeCatalog() {
+    return this.service.listRouteCatalog();
+  }
+
   @Get('customers')
   @RequirePermissions(Permission.COMMERCIAL_CARTERA_VER)
   @ApiOperation({ summary: 'Clientes de una ruta (?sales_route=) ordenados por visit_sequence, para reordenar' })
@@ -65,6 +73,15 @@ export class CommercialVendorRoutesController {
   @ApiOperation({ summary: 'Cartera del vendedor logueado: sus rutas de venta' })
   myRoutes() {
     return this.service.myRoutes();
+  }
+
+  @Get('my-stock-sources')
+  @RequireAnyPermission(Permission.COMMERCIAL_CARTERA_VER, Permission.VENDOR_APP_ACCESS)
+  @ApiOperation({
+    summary: 'Fuentes de existencia del vendedor: su sucursal de surtido + su camioneta (para el toggle ver sucursal/camioneta)',
+  })
+  myStockSources() {
+    return this.service.myStockSources();
   }
 
   @Get('coverage')
@@ -147,6 +164,20 @@ export class CommercialVendorRoutesController {
   @ApiOperation({ summary: 'Asigna una ruta de venta a un vendedor (idempotente)' })
   assign(@Body() body: AssignRouteDto) {
     return this.service.assign(body);
+  }
+
+  @Get('routes-warehouses')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Rutas del catálogo con su sucursal de surtido asignada + sugerencia por zona (para asignar)' })
+  routesWarehouses() {
+    return this.service.listRoutesWithWarehouse();
+  }
+
+  @Put('routes/:routeId/warehouse')
+  @RequirePermissions(Permission.COMMERCIAL_CARTERA_GESTIONAR)
+  @ApiOperation({ summary: 'Asigna/cambia la sucursal de surtido de una ruta (idempotente)' })
+  setRouteWarehouse(@Param('routeId') routeId: string, @Body('warehouse_id') warehouseId: string) {
+    return this.service.setRouteWarehouse(routeId, warehouseId);
   }
 
   @Put('order')

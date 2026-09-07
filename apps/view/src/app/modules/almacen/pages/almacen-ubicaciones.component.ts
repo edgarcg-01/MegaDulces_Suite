@@ -265,10 +265,10 @@ export class AlmacenUbicacionesComponent implements OnInit {
 
   // bins admin
   canReceive(): boolean {
-    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_RECIBIR];
+    return this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_RECIBIR];
   }
   canAssign(): boolean {
-    return this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_ASIGNAR];
+    return this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_INVENTORY_ASIGNAR];
   }
   openBins(): void { this.binsOpen.set(true); if (!this.bins().length) this.reload(); }
 

@@ -115,6 +115,12 @@ jobs:
         env:
           NX_DAEMON: 'false'
 
+      # TS.0 (ADR-052): gate de tipado del boundary. Corre eslint SOLO sobre los
+      # .controller.ts/.service.ts CAMBIADOS y falla si agregan `any` o returns
+      # sin tipar. Usa NX_BASE/NX_HEAD que expone nx-set-shas arriba.
+      - name: Boundary type gate (nuevo/cambiado)
+        run: node scripts/lint-boundary-gate.js
+
       - name: Test (affected)
         run: npx nx affected -t test --parallel=3 --passWithNoTests
         env:

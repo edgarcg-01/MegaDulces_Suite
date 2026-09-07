@@ -29,6 +29,19 @@ const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
   { name: 'analytics.mv_top_customers_30d' },
   { name: 'analytics.mv_top_products_30d' },
   { name: 'public.products_top_sellers', requires_fdw: true },
+  // PERF (mig 20260831150000): momentum r30/r90 para ThotService.suggest(). Antes se
+  // agregaba 90d de sales_daily en vivo por request (~1.4 s); ahora es un join al matview.
+  { name: 'analytics.mv_product_momentum' },
+  // PERF (mig 20260831160000): ventas del mes en curso pre-agregadas para el path diario
+  // de sellOut (mes en curso nunca es month-aligned → escaneaba 111k filas + sort-a-disco).
+  { name: 'analytics.mv_sales_current_month' },
+  // Regla ⭐ (mig 20260903130000): postings del 102 = matview derive-no-copy sobre kepler_ods.kdc2YYMM
+  // (reemplazó import-bank-postings.js). Fan-out mensual = ~1.1 s en REFRESH; lectura indexada = 15 ms.
+  { name: 'analytics.bank_postings' },
+  // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
+  // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
+  // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
+  // era puro desperdicio y devolvía la contención del pool admin (0-2) → 2.6 min por request de sell-out.
 ];
 
 @Injectable()
@@ -64,6 +77,93 @@ export class AnalyticsRefreshService {
   }
 
   /**
+   * PASO 3 (mig 20260901160000) — refresh del rollup diario de wincaja
+   * (`analytics.mv_wincaja_sales_daily`, all-history). Va aparte del cron de 15 min y corre UNA vez al
+   * día porque wincaja se alimenta por una carga Access→Postgres que aterriza ~05:00 MX (medido: las
+   * 3 sucursales vivas 00/30/32 cargaron 05:01–05:06); el resto del histórico está congelado. Refrescar
+   * cada 15 min era puro desperdicio y devolvía la contención del pool admin (0-2) que causaba los
+   * 2.6 min por request de sell-out.
+   *
+   * 06:20 MX: DESPUÉS de la carga (~05:06) con margen, y off del borde de 15 min (:00/:15/:30/:45) para
+   * no competir por el pool admin con el otro cron. El contenedor ya corre en America/Mexico_City → sin
+   * `timeZone`. REFRESH CONCURRENTLY (no bloquea las lecturas de sellOut) + ANALYZE (grano fino → el
+   * planner necesita stats frescas o elige un plan catastrófico). No es FDW → sin el gate de FDW del loop.
+   */
+  @Cron('0 20 6 * * *')
+  async refreshWincajaDaily(): Promise<void> {
+    const admin = this.adminKnex;
+    if (!admin) {
+      this.logger.debug('Skip refreshWincajaDaily: KNEX_NEW_DB_ADMIN no disponible');
+      return;
+    }
+    // Rollups diarios de venta DERIVADOS de las fuentes crudas (sin RLS): wincaja (carga Access→PG
+    // ~05:00) + kepler (mv_kepler desde kepler_ods, live CDC) + el BLEND consolidado (mv_sales_blended,
+    // deriva de los dos anteriores → va AL FINAL para tomarlos ya frescos). Nightly basta: el sell-out
+    // no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
+    // [VP.1.3] `deps` = de qué MV deriva ésta. El orden ya estaba bien pensado, pero el `try/catch`
+    // por MV lo dejaba sin efecto: si fallaba `mv_kepler_sales_daily`, el rollup se materializaba
+    // IGUAL sobre `v_sellout_daily`, que hace UNION de la pierna Kepler (ahora rancia) con la de
+    // Wincaja (fresca). Quedaba un rollup construido a medias, indistinguible de uno sano — y
+    // después `REFRESH CONCURRENTLY` sobre el siguiente lo consolida. Ordenar no es depender.
+    const fallidas = new Set<string>();
+    for (const [mv, jobKey, label, deps] of [
+      ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)', []],
+      ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)', []],
+      // Rollup mensual del sell-out (deriva de v_sellout_daily → de los dos anteriores) → va DESPUÉS de ellos.
+      ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)',
+        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+      ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)',
+        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+    ] as const) {
+      const start = Date.now();
+      let ok = false;
+      let errMsg: string | null = null;
+      try {
+        const rotas = deps.filter((d) => fallidas.has(d));
+        if (rotas.length) {
+          // NO se refresca: mejor servir el rollup de ayer —viejo pero COHERENTE, y su latido lo
+          // declara— que uno de hoy mezclando una pierna de ayer con otra de hoy. La frescura se
+          // declara (VP.0.3); la incoherencia no se ve.
+          throw new Error(`dependencia sin refrescar: ${rotas.join(', ')} — se omite para no mezclar piernas`);
+        }
+        const found = (
+          await admin.raw(`SELECT relkind, relispopulated FROM pg_class WHERE oid = ?::regclass`, [mv])
+        ).rows;
+        if (!found.length || found[0].relkind !== 'm') {
+          // [VP.1.3] Antes acá había un `continue` que saltaba ANTES del latido: una MV borrada o
+          // renombrada no dejaba fila en `cron_runs` y sólo rastro en nivel `debug`. Ni error ni
+          // latido: silencio, que en el tablero se lee igual que "nunca corrió". Se trata como falla.
+          throw new Error(`no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'})`);
+        }
+        const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
+        await admin.raw(`REFRESH MATERIALIZED VIEW ${concurrently}${mv}`);
+        await admin.raw(`ANALYZE ${mv}`);
+        ok = true;
+        this.logger.log(
+          `Refreshed ${mv} (${Date.now() - start}ms, source=cron-nightly${concurrently ? '' : ', initial populate'})`,
+        );
+      } catch (e: any) {
+        errMsg = e.message || String(e);
+        fallidas.add(mv); // lo que dependa de ésta no se refresca sobre datos a medias
+        this.logger.error(`Refresh ${mv} (nightly) failed: ${errMsg}`);
+      }
+      // Heartbeat → Salud BD (grupo Crons), job propio para no pisar el del cron de 15 min.
+      try {
+        const MEGA = '00000000-0000-0000-0000-00000000d01c';
+        await admin('analytics.cron_runs')
+          .insert({
+            tenant_id: MEGA, job_key: jobKey, label,
+            last_start: admin.fn.now(), last_finish: admin.fn.now(),
+            status: ok ? 'ok' : 'error', rows_affected: ok ? 1 : 0,
+            error: errMsg ? errMsg.slice(0, 500) : null, host: 'api', updated_at: admin.fn.now(),
+          })
+          .onConflict(['tenant_id', 'job_key'])
+          .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+      } catch { /* heartbeat no debe romper el refresh */ }
+    }
+  }
+
+  /**
    * Refresh manual disparado por endpoint. Devuelve resultado por MV.
    */
   async refreshAll(source: 'cron' | 'manual' = 'manual'): Promise<{
@@ -78,8 +178,18 @@ export class AnalyticsRefreshService {
     this.isRefreshing = true;
     const results: Array<{ mv: string; ok: boolean; ms?: number; error?: string; skipped?: boolean }> = [];
     const now = Date.now();
+    // El MV de wincaja NO va en el cron de 15 min (MVS) pero SÍ en el refresh MANUAL, para que el botón
+    // "Refresh" lo pueble on-demand — p.ej. la 1ª vez tras aplicar la migración (nace WITH NO DATA) sin
+    // esperar al cron nocturno de 06:20. El loop ya maneja WITH NO DATA (REFRESH inicial no-CONCURRENTLY).
+    const list = source === 'manual'
+      ? [...MVS,
+         { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_sellout_monthly' } as { name: string; requires_fdw?: boolean },
+         { name: 'analytics.mv_sales_blended' } as { name: string; requires_fdw?: boolean }]
+      : MVS;
     try {
-      for (const entry of MVS) {
+      for (const entry of list) {
         const mv = entry.name;
 
         // FDW health gate: si una corrida previa marcó el FDW como caído,
@@ -120,6 +230,11 @@ export class AnalyticsRefreshService {
           await this.adminKnex.raw(
             `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`,
           );
+          // ANALYZE post-refresh: REFRESH reemplaza los datos pero no actualiza las stats del
+          // planner. En MVs de grano fino (p.ej. mv_wincaja_sales_daily ~99k filas/mes) sin stats
+          // frescas el planner elige un plan catastrófico al leerlas (verificado: timeout vs 739ms
+          // con ANALYZE). Barato para las MVs chicas; `mv` sale de MVS (no user input).
+          await this.adminKnex.raw(`ANALYZE ${mv}`);
           const ms = Date.now() - start;
           this.logger.log(
             `Refreshed ${mv} (${ms}ms, source=${source}${concurrently ? '' : ', initial populate'})`,

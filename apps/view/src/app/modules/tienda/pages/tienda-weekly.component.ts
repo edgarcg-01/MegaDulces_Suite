@@ -38,7 +38,7 @@ type Mode = 'rango' | 'semana';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Análisis de ventas</h1>
-          <p class="surf-page-sub">Venta, tickets y productos por ticket de tu sucursal. Elegí un rango o mirá por semana.</p>
+          <p class="surf-page-sub">Venta, tickets y productos por ticket de tu sucursal. Elige un rango o mira por semana.</p>
         </div>
         @if (scopedWarehouse) { <span class="wk-scope"><i class="pi pi-map-marker"></i> {{ branchLabel() }}</span> }
       </header>
@@ -61,7 +61,7 @@ type Mode = 'rango' | 'semana';
                           [ngModel]="preset()" (ngModelChange)="onPreset($event)" styleClass="sb-liquid" />
           @if (preset() === 'custom') {
             <p-datepicker [(ngModel)]="customRange" selectionMode="range" [readonlyInput]="true" dateFormat="dd/mm/yy"
-                          [showIcon]="true" [maxDate]="today" appendTo="body" (onSelect)="onCustom()" styleClass="wk-dp" placeholder="Elegí el rango" />
+                          [showIcon]="true" [maxDate]="today" appendTo="body" (onSelect)="onCustom()" styleClass="wk-dp" placeholder="Elige el rango" />
           }
         </div>
 

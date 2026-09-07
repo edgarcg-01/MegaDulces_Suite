@@ -62,7 +62,10 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR]: { label: 'Gestionar Almacenes', description: 'Alta y edición de almacenes (incluye almacén default).', category: 'Comercial' },
   [Permission.COMMERCIAL_PRICING_VER]: { label: 'Ver Precios', description: 'Consultar listas de precios y precios por cliente.', category: 'Comercial' },
   [Permission.COMMERCIAL_PRICING_GESTIONAR]: { label: 'Gestionar Precios', description: 'Crear listas y cargar/editar precios de productos.', category: 'Comercial' },
-  [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Inventario', description: 'Consultar stock disponible por almacén.', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Ajustes de stock', description: 'Consola de ajuste sobre el libro transaccional (commercial.stock) y el apartado. Para el censo físico es EXISTENCIA_VER.', category: 'Comercial' },
+  // La descripción dice la FUENTE a propósito: es lo que distingue esta pantalla de la de ajustes.
+  [Permission.EXISTENCIA_VER]: { label: 'Ver Existencia', description: 'Matriz de existencia producto × almacén, derivada del ERP (ODS). Vive en Almacén y en Compras.', category: 'Comercial' },
+  [Permission.EXISTENCIA_GESTIONAR]: { label: 'Exportar Existencia', description: 'Descargar el dataset completo de existencia valuado a costo (toda la red).', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_AJUSTAR]: { label: 'Ajustar Inventario', description: 'Registrar movimientos y ajustes de stock.', category: 'Comercial' },
   [Permission.COMMERCIAL_INVENTORY_CONTAR]: { label: 'Contar (inventario físico)', description: 'Registrar conteos ciegos en un folio de inventario físico (rol contador).', category: 'Comercial · Inventario físico' },
   [Permission.COMMERCIAL_INVENTORY_SUPERVISAR]: { label: 'Supervisar inventario físico', description: 'Abrir folios, ver avance/discrepancias y resolver. No reconcilia (rol supervisor).', category: 'Comercial · Inventario físico' },
@@ -115,6 +118,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_SELLOUT_VER]: { label: 'Ver Sell-Out por empresa', description: 'Solo el reporte Sell-Out por empresa (RS): matriz producto × sucursal con cajas y monto, + XLSX/PDF. No abre el resto de la analítica.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_SALIDAS_VER]: { label: 'Ver Salidas por producto', description: 'Solo el reporte Salidas por producto (ventas/existencia/costos por sucursal × producto) + XLSX.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_ROUTE_SALES_VER]: { label: 'Ver Ventas por ruta', description: 'Solo el reporte Ventas por ruta (mensual sucursal × ruta) + XLSX.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SALES_DOCS_VER]: { label: 'Ver Documentos de venta', description: 'Facturas de venta del ERP y su anexo imprimible con pagaré. No incluye Pedidos.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_CUSTOMERS360_VER]: { label: 'Ver Clientes 360', description: 'Solo la ficha analítica Clientes 360 (compra agregada del ERP por cliente y sus productos).', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_HISTORICAL_VER]: { label: 'Ver Histórico de venta', description: 'Solo el histórico de venta del ERP (diario, top productos, por zona, ranking, margen por categoría).', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_DEADSTOCK_VER]: { label: 'Ver Stock muerto', description: 'Solo el reporte de stock muerto (productos sin rotación).', category: 'Comercial · Analítica' },
@@ -127,6 +131,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_PRODUCTS_GESTIONAR]: { label: 'Gestionar Productos', description: 'Alta y edición del catálogo comercial de productos.', category: 'Comercial' },
   [Permission.COMMERCIAL_THOT_VER]: { label: 'Ver Thot / IA', description: 'Chat comercial e inteligencia de recomendación (Thot).', category: 'Comercial · Thot' },
   [Permission.COMMERCIAL_THOT_GESTIONAR]: { label: 'Gestionar Thot / IA', description: 'Curar contenido y recomendaciones del motor Thot.', category: 'Comercial · Thot' },
+  [Permission.COMMERCIAL_INTELLIGENCE_VER]: { label: 'Ver inteligencia interna', description: 'Tableros internos: hallazgos, diagnósticos, acciones, autonomía y señales agregadas. NO para clientes B2B.', category: 'Comercial · Thot' },
   [Permission.TRADE_ROUTE_PLAN_VER]: { label: 'Ver Agenda de Rutas', description: 'Consultar la agenda diaria de rutas del equipo de campo.', category: 'Seguimiento' },
   [Permission.TRADE_ROUTE_PLAN_GESTIONAR]: { label: 'Gestionar Agenda de Rutas', description: 'Definir y editar la asignación diaria de rutas al equipo.', category: 'Seguimiento' },
   [Permission.LOGISTICS_TRANSFERS_VER]: { label: 'Ver Traspasos', description: 'Consultar traspasos y movimientos que no son venta (consolidación/recepción).', category: 'Logística' },
@@ -154,6 +159,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.FISCAL_CONCILIACION_VER]: { label: 'Ver Conciliación fiscal', description: 'Conciliación PUE/PPD ↔ REP (saldo insoluto, PPD sin complemento de pago) y CFDI ↔ póliza contable.', category: 'Finanzas' },
   [Permission.FISCAL_DIOT_VER]: { label: 'Ver DIOT / IVA', description: 'DIOT (operaciones con terceros) y conciliación de IVA con flujo efectivo (PUE/PPD).', category: 'Finanzas' },
   [Permission.FISCAL_CONTAB_VER]: { label: 'Ver Contabilidad electrónica', description: 'Generar los XML que exige el SAT: catálogo de cuentas y balanza de comprobación.', category: 'Finanzas' },
+  [Permission.FISCAL_PURCHASE_BOOK_VER]: { label: 'Ver Libro de Compras', description: 'Las facturas del mes con su cuadre, el estado del trámite y la póliza que se le entrega a ContPAQi.', category: 'Finanzas' },
+  [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR]: { label: 'Gestionar Libro de Compras', description: 'Incluir o excluir facturas del mes, generar el TXT de la póliza y mover el trámite (entregado / aplicado).', category: 'Finanzas' },
   [Permission.FISCAL_CONTAB_GESTIONAR]: { label: 'Gestionar código agrupador SAT', description: 'Editar el mapeo cuenta mayor → código agrupador del SAT (catálogo de cuentas 100% válido).', category: 'Finanzas' },
   [Permission.FISCAL_DESCARGA_VER]: { label: 'Ver Descarga masiva CFDI', description: 'Bandeja de solicitudes de descarga masiva de CFDI ante el SAT (estado + paquetes).', category: 'Finanzas' },
   [Permission.FISCAL_DESCARGA_GESTIONAR]: { label: 'Gestionar Descarga masiva CFDI', description: 'Crear solicitudes de descarga masiva de CFDI (dispara el pipeline con la e.firma).', category: 'Finanzas' },
@@ -180,8 +187,14 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMPRAS_ENTRADAS_VER]: { label: 'Ver Órdenes de entrada', description: 'Recepción de mercancía + evidencia/comprobantes. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_ENTRADAS_GESTIONAR]: { label: 'Gestionar Órdenes de entrada', description: 'Subir evidencia, correr OCR y adjuntar la remisión/factura a la entrada.', category: 'Compras' },
   [Permission.COMPRAS_ENTRADAS_VALIDAR]: { label: 'Validar Órdenes de entrada', description: 'Validar o rechazar la evidencia (remisión). Permiso especial restringido — no lo tiene "Gestionar".', category: 'Compras' },
-  [Permission.COMPRAS_360_VER]: { label: 'Ver Compras 360', description: 'Grid recepción/factura + OC + ajuste + neto (el Excel). Solo lectura.', category: 'Compras' },
-  [Permission.COMPRAS_COSTO_NETO_VER]: { label: 'Ver Costo neto', description: 'Landed cost por proveedor: compras − descuento efectivo. Solo lectura.', category: 'Compras' },
+  // RE.20.5 — la CLAVE del permiso no se toca (vive en identity.role_permissions); cambia la
+  // etiqueta, que es lo que lee quien reparte permisos.
+  // RE.20.1 — la pantalla que gateaba se fusionó con el Listado de entradas y ahora la protege
+  // `COMPRAS_ENTRADAS_VER`. Este permiso queda SIN uso: se deja en el catálogo (retirarlo obliga
+  // a tocar `identity.role_permissions` en prod) y se dice que no abre nada, para que nadie lo
+  // reparta creyendo que sí.
+  [Permission.COMPRAS_360_VER]: { label: 'Ver Costo por compra (retirado)', description: 'Sin uso desde RE.20.1: la pantalla se fusionó con el Listado de entradas y hoy la gatea "Ver Entradas". Dar este permiso no abre nada.', category: 'Compras' },
+  [Permission.COMPRAS_COSTO_NETO_VER]: { label: 'Ver Costo por proveedor', description: 'La misma cifra agregada por proveedor (landed cost): compras − descuento efectivo. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_DESCUENTOS_VER]: { label: 'Ver Descuentos y apoyos', description: 'Ajustes de compra (X-D-40/55), descuentos/apoyos y facturas duplicadas. Solo lectura.', category: 'Compras' },
   [Permission.COMPRAS_DESCUENTOS_GESTIONAR]: { label: 'Gestionar Descuentos', description: 'Empujar facturas duplicadas a la bandeja de hallazgos.', category: 'Compras' },
   [Permission.COMPRAS_HALLAZGOS_VER]: { label: 'Ver Hallazgos', description: 'Bandeja de hallazgos de reabastecimiento (agotados/bajo reorden). Solo lectura.', category: 'Compras' },
@@ -201,6 +214,11 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   // ── Reparto / Última Milla (proyecto propio — ADR-027) ────────────────
   [Permission.REPARTO_DESPACHAR]: { label: 'Despachar reparto', description: 'Persona de tienda: captura el folio, asigna repartidor + moto, ve el tracking y los KPIs de entrega a domicilio.', category: 'Reparto' },
   [Permission.REPARTO_ENTREGAR]: { label: 'Entregar (repartidor)', description: 'Repartidor: ve su ruta y paradas, cierra la entrega con evidencia + cobro, y hace su arqueo ciego de fin de día.', category: 'Reparto' },
+
+  // WhatsApp (Fase F). Sin entrada acá, estos dos permisos salían con la clave
+  // cruda en "Otros" y `[ID.21]` no los podía encontrar por nombre.
+  [Permission.WHATSAPP_BOT_VER]: { label: 'Ver conversaciones de WhatsApp', description: 'Acceso de lectura al bot conversacional: chats, pedidos iniciados por WhatsApp y estado de la sesión.', category: 'Comunicación' },
+  [Permission.WHATSAPP_BOT_GESTIONAR]: { label: 'Operar el bot de WhatsApp', description: 'Responder, tomar el control de una conversación y configurar plantillas y flujos del bot.', category: 'Comunicación' },
 
   // ── Comercial — Carga / Movimientos (features propias) ────────────────
   [Permission.COMMERCIAL_CARGA_VER]: { label: 'Ver Carga', description: 'Consultar el estado de carga al camión de las líneas de pedido. Solo lectura.', category: 'Comercial · Pedidos' },
@@ -231,6 +249,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Finanzas',
   'Tienda',
   'Portal B2B',
+  'Comunicación',
   'Otros',
 ];
 

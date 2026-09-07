@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { PERMISSIONS_KEY, ANY_PERMISSIONS_KEY } from '../decorators/permissions.decorator';
 import { PermissionsCacheService } from '../ability/permissions-cache.service';
-import { buildAbility } from '../ability/ability.factory';
+import { isPlatformAdminRole } from '../ability/platform-admin';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
@@ -53,20 +53,40 @@ export class RolesGuard implements CanActivate {
     // Fuente de verdad = `role_permissions` en DB (no el snapshot del JWT),
     // cacheada en memoria con TTL 30s + invalidación en update. Así un cambio
     // en /admin/roles aplica al instante sin re-login.
-    const permissions = await this.permsCache.getPermissionsForRole(
-      user.role_name,
+    //
+    // `[ID.13]` Los permisos son la UNIÓN de los roles del usuario (perfil base
+    // + complementos de `identity.user_roles`), no los de una sola columna. Si
+    // el usuario no tiene filas ahí, cae al comportamiento anterior con
+    // `role_name` — nunca a cero permisos.
+    const permissions = await this.permsCache.getPermissionsForUser(
+      user.sub ?? user.id,
       user.tenant_id,
+      user.role_name,
     );
-    const ability = buildAbility(permissions, { roleName: user.role_name });
-
+    // `[AUTHZ-HARD.2]` God-mode desde los roles FRESCOS de DB, no del token. Antes se decidía con
+    // `user.role_name` del JWT: degradar a un superadmin (dejándolo activo) no le quitaba el
+    // god-mode hasta que expiraba el token (12h). Ahora si su rol vigente ya no es admin, no pasa.
+    const rolesFrescos = await this.permsCache.getRolesForUser(
+      user.sub ?? user.id,
+      user.tenant_id,
+      user.role_name,
+    );
     // Adjuntamos al request para que controllers/services downstream consulten
     // `req.user.permissions` fresco (anti-escalation, /me).
+    //
+    // Ya NO se construye una ability de CASL acá. No aportaba: la decisión de abajo es un lookup
+    // por clave exacta sobre este mismo mapa, y el god-mode se resuelve por rol. Lo único que
+    // hacía era serializar `rules` al request — una copia paralela del permiso, incompleta por
+    // construcción (51 de 164 claves del enum no tienen subject en `ability.factory`) y que ya
+    // causó los dos errores opuestos: dejar pasar de más (el colapso a subject que documenta el
+    // comentario de abajo) y de menos (`can('manage','catalogs')` con reglas
+    // `['read','create','update','delete']` da false → 403 a todo rol no-admin).
     request.user.permissions = permissions;
-    request.user.rules = ability.rules;
 
     // God-mode de plataforma (admin/superadmin) pasa todo. Ya no depende de un
-    // permiso de negocio (ver ability.factory: isPlatformAdminRole).
-    if (ability.can('manage', 'all')) {
+    // permiso de negocio (ver `ability/platform-admin.ts`). Se evalúa sobre los roles
+    // FRESCOS (perfil base + complementos), no sobre el snapshot del token.
+    if (rolesFrescos.some((r) => isPlatformAdminRole(r))) {
       return true;
     }
 

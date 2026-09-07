@@ -17,6 +17,7 @@ import {
 } from './commercial-warehouses.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 @ApiTags('commercial-warehouses')
@@ -34,7 +35,9 @@ export class CommercialWarehousesController {
   }
 
   @Get()
-  @RequirePermissions(Permission.COMMERCIAL_WAREHOUSES_VER)
+  // Interfaz vendedor independiente: el take-order resuelve el almacén con
+  // VENDOR_APP_ACCESS, sin exigir el permiso del proyecto Comercial.
+  @RequireAnyPermission(Permission.COMMERCIAL_WAREHOUSES_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Listar warehouses del tenant. customer_b2b lo necesita para el portal (default warehouse del carrito) — la migración 20260601200000 le agrega WAREHOUSES_VER.',
@@ -53,8 +56,14 @@ export class CommercialWarehousesController {
   }
 
   @Patch(':id')
-  @RequirePermissions(Permission.COMMERCIAL_WAREHOUSES_GESTIONAR)
-  @ApiOperation({ summary: 'Actualizar warehouse (parcial)' })
+  // El supervisor de ruta renombra las sucursales que ven sus vendedores desde la
+  // app (panel de supervisor) → acepta también TRADE_ROUTE_PLAN_GESTIONAR, sin exigir
+  // el permiso completo del proyecto Comercial.
+  @RequireAnyPermission(
+    Permission.COMMERCIAL_WAREHOUSES_GESTIONAR,
+    Permission.TRADE_ROUTE_PLAN_GESTIONAR,
+  )
+  @ApiOperation({ summary: 'Actualizar warehouse (parcial). Rename desde el panel de supervisor.' })
   update(@Param('id') id: string, @Body() body: UpdateWarehouseDto) {
     return this.service.update(id, body);
   }

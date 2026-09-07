@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
@@ -51,7 +52,7 @@ import { REPORTS_TABS } from '../reports-tabs';
       <div>
         <h1>Documentos de venta</h1>
         <p class="surf-page-sub">
-          Facturas de telemarketing y venta a crédito · imprime el detalle desglosado para el cliente
+          Facturas de telemarketing · imprime el detalle desglosado para el cliente
           <span class="live" title="Se leen en vivo del ERP; no dependen de un proceso nocturno.">· en vivo</span>
         </p>
       </div>
@@ -71,9 +72,6 @@ import { REPORTS_TABS } from '../reports-tabs';
         <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
                placeholder="Cliente, RFC, folio o monto" aria-label="Buscar documentos" />
       </p-iconfield>
-
-      <p-select [(ngModel)]="docTipo" (onChange)="load()" [options]="tipoOpts" optionLabel="label"
-                optionValue="value" placeholder="Tipo" [showClear]="true" ariaLabel="Tipo de documento" />
 
       <p-select [(ngModel)]="vendedor" (onChange)="load()" [options]="vendedorOpts()" optionLabel="label"
                 optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" ariaLabel="Vendedor" />
@@ -166,6 +164,10 @@ import { REPORTS_TABS } from '../reports-tabs';
             @if (x.cancelada) {
               <p-tag severity="secondary" value="Cancelada en Kepler" />
               <span class="peek-hint">Sin anexo: el documento fue cancelado (estatus {{ x.doc_estatus }}).</span>
+            } @else if (x.detalle_ausente) {
+              <p-tag severity="danger" value="Detalle no replicado" />
+              <span class="peek-hint">Kepler tiene los renglones de este documento, pero no llegaron a la plataforma.
+                No es una factura de servicio: falta el detalle de nuestro lado.</span>
             } @else if (x.sin_detalle) {
               <p-tag severity="warn" value="Sin detalle de producto" />
               <span class="peek-hint">Su único renglón es de servicio, no hay mercancía que desglosar.</span>
@@ -254,6 +256,7 @@ export class ComercialDocumentosComponent {
   private readonly svc = inject(SalesDocumentsService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
 
   readonly report = signal<SalesDocsReport | null>(null);
   readonly rows = computed(() => this.report()?.rows || []);
@@ -267,23 +270,25 @@ export class ComercialDocumentosComponent {
   private readonly filtros = signal<SalesDocsFiltros | null>(null);
 
   search = '';
-  docTipo: string | null = null;
   vendedor: string | null = null;
   soloVencidas = false;
   desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
   hasta = new Date().toISOString().slice(0, 10);
 
   readonly tabs = REPORTS_TABS;
-  readonly tipoOpts = [
-    { label: 'Telemarketing', value: 'telemarketing' },
-    { label: 'Venta a crédito', value: 'credito' },
-  ];
   readonly vendedorOpts = computed(() =>
     (this.filtros()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   private timer?: ReturnType<typeof setTimeout>;
 
-  constructor() { this.load(); }
+  constructor() {
+    this.load();
+    // Deep-link `?doc=01UD0801-0000875`: se llega desde otra pantalla (p.ej. el auxiliar de
+    // /finanzas/cartera) con un documento concreto en la mano. Abre el side-peek directo, sin
+    // depender de que ese folio caiga en la ventana de fechas de la tabla.
+    const doc = this.route.snapshot.queryParamMap.get('doc');
+    if (doc) this.abrirPorFolio(doc);
+  }
 
   kpis(r: SalesDocsReport): MetricStripItem[] {
     const k = r.kpis;
@@ -307,7 +312,7 @@ export class ComercialDocumentosComponent {
     this.error.set(null);
     const q = {
       from: this.desde, to: this.hasta, search: this.search || undefined,
-      doc_tipo: this.docTipo || undefined, vendedor_code: this.vendedor || undefined,
+      vendedor_code: this.vendedor || undefined,
       vencidas: this.soloVencidas ? 'true' : undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -322,10 +327,15 @@ export class ComercialDocumentosComponent {
   abrir(row: SalesDocRow | null): void {
     if (!row) return;
     this.sel.set(row);
+    this.abrirPorFolio(row.folio_digital);
+  }
+
+  /** Abre el detalle por folio digital, venga de la tabla o de un deep-link. */
+  private abrirPorFolio(folioDigital: string): void {
     this.det.set(null);
     this.detLoading.set(true);
     this.peek.set(true);
-    this.svc.detail(row.folio_digital).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.detail(folioDigital).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.det.set(d); this.detLoading.set(false); },
       error: () => {
         this.detLoading.set(false);

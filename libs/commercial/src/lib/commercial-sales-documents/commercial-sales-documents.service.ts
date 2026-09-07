@@ -12,7 +12,8 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  */
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const DOC_TIPOS = ['telemarketing', 'credito'] as const;
+// AX 2026-08-25: /comercial/documentos = SOLO telemarketing (se sacó la venta a crédito, U/D/12).
+const DOC_TIPOS = ['telemarketing'] as const;
 const MAX_PAGE = 200;
 
 export interface SalesDocsQuery {
@@ -68,7 +69,9 @@ export class CommercialSalesDocumentsService {
 
     const whs = this.whIds(q);
     if (whs.length) b.whereIn('i.warehouse_id', whs);
-    if (q.doc_tipo && (DOC_TIPOS as readonly string[]).includes(q.doc_tipo)) b.andWhere('i.doc_tipo', q.doc_tipo);
+    // AX 2026-08-25 (Edgar): /comercial/documentos = SOLO facturas de telemarketing.
+    // Se saca la venta a crédito (U/D/12). Filtro en el service (no en la vista compartida).
+    b.andWhere('i.doc_tipo', 'telemarketing');
     if (q.cliente_code) b.andWhere('i.cliente_code', q.cliente_code.trim());
     if (q.vendedor_code) b.andWhere('i.vendedor_code', q.vendedor_code.trim());
     if (q.min && Number.isFinite(Number(q.min))) b.andWhere('i.total', '>=', Number(q.min));
@@ -137,15 +140,54 @@ export class CommercialSalesDocumentsService {
       const lineas = await trx('analytics.erp_sales_invoice_lines')
         .where(donde)
         .select('linea', 'sku', 'descripcion', 'unidad', 'cantidad', 'precio_unitario',
-                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'product_id',
+                'importe', 'factor_caja', 'unidad_venta', 'unidad_bulto', 'unidad_paq', 'factor_paq', 'product_id',
                 'box_factor', 'box_factor_source', 'box_factor_dudoso')
         .orderBy('linea');
 
       // derivar() devuelve `lineas` ya enriquecidas (descuento/neto/precios por unidad) → esas mandan.
       // `sin_detalle`: 95 facturas traen un único renglón de SERVICIO y quedan sin producto;
       // la pantalla no debe ofrecer el anexo ahí (el PDF también lo rechaza).
-      return { ...doc, sin_detalle: lineas.length === 0, ...this.derivar(doc, lineas) };
+      //
+      // ⚠️ "cero renglones" tiene DOS causas y hasta 2026-08-31 la pantalla afirmaba la primera para
+      // ambas ("su único renglón es de servicio"). El 06UD0801-0000265 la delató: tiene 3 renglones
+      // reales por $4,518.00 —el total exacto de la cabecera— que nunca llegaron al ODS. Un hueco de
+      // datos disfrazado de hecho de negocio es peor que un error visible: nadie lo va a reportar.
+      // Se distinguen preguntándole al ODS crudo si el documento tiene renglones ANTES de los filtros
+      // de la vista (SER / cantidad 0). Sólo se paga cuando ya hay 0 renglones — el camino raro.
+      const sinRenglones = lineas.length === 0;
+      const detalleAusente = sinRenglones ? await this.detalleAusente(trx, p) : false;
+      return {
+        ...doc,
+        sin_detalle: sinRenglones && !detalleAusente,
+        detalle_ausente: detalleAusente,
+        ...this.derivar(doc, lineas),
+      };
     });
+  }
+
+  /**
+   * ¿El documento no tiene renglones en el ODS, o sí los tiene y la vista los filtró?
+   *
+   * `true` = el ODS no trae NINGUNA fila de `kdm2` para el documento → es un hueco de replicación
+   * (la cabecera llegó, el detalle no), no una factura de servicio. Devuelve `false` ante cualquier
+   * duda (folio con formato inesperado, error de lectura): degradar al mensaje viejo es preferible a
+   * acusar de hueco un documento legítimo.
+   */
+  private async detalleAusente(trx: any, p: { sucursal: string; docPrefix: string; folio: string } | null): Promise<boolean> {
+    if (!p) return false;
+    const c4 = Number(p.docPrefix.slice(2, 4));
+    const c5 = Number(p.docPrefix.slice(4, 6));
+    if (!Number.isFinite(c4) || !Number.isFinite(c5)) return false;
+    try {
+      const r = await trx.raw(
+        `SELECT count(*)::int AS n FROM kepler_ods.kdm2
+          WHERE btrim(sucursal) = ? AND c2::text = 'U' AND c3::text = 'D'
+            AND (c4)::int = ? AND (c5)::int = ? AND btrim(c6::text) = ?`,
+        [p.sucursal, c4, c5, p.folio]);
+      return Number(r?.rows?.[0]?.n ?? 1) === 0;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -249,10 +291,12 @@ export class CommercialSalesDocumentsService {
       const [vendedores, sucursales] = await Promise.all([
         trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
           .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+          .andWhere('doc_tipo', 'telemarketing')
           .whereNotNull('vendedor_code')
           .distinct('vendedor_code', 'vendedor_nombre').orderBy('vendedor_nombre'),
         trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
           .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+          .andWhere('doc_tipo', 'telemarketing')
           .whereNotNull('warehouse_id')
           .distinct('warehouse_id', 'sucursal').orderBy('sucursal'),
       ]);

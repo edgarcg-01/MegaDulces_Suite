@@ -26,6 +26,10 @@ export interface SyncStatus {
   visitasPendientes: number;
   /** Visitas en cap de reintentos: requieren acción manual del usuario. */
   visitasMuertas: number;
+  /** Pedidos offline que aún se reintentan (intentos < MAX). */
+  pedidosPendientes: number;
+  /** Pedidos offline en cap de reintentos: dinero real que necesita acción manual. */
+  pedidosMuertos: number;
   ultimoSync: string | null;
   errores: string[];
 }
@@ -49,6 +53,8 @@ export class OfflineSyncService {
     sincronizando: false,
     visitasPendientes: 0,
     visitasMuertas: 0,
+    pedidosPendientes: 0,
+    pedidosMuertos: 0,
     ultimoSync: null,
     errores: [],
   });
@@ -140,6 +146,8 @@ export class OfflineSyncService {
     ultimoSync?: string | null;
     visitasPendientes?: number;
     visitasMuertas?: number;
+    pedidosPendientes?: number;
+    pedidosMuertos?: number;
   } = {}): void {
     if (this._watchdogTimer) {
       clearTimeout(this._watchdogTimer);
@@ -156,6 +164,10 @@ export class OfflineSyncService {
         opts.visitasPendientes !== undefined ? opts.visitasPendientes : curr.visitasPendientes,
       visitasMuertas:
         opts.visitasMuertas !== undefined ? opts.visitasMuertas : curr.visitasMuertas,
+      pedidosPendientes:
+        opts.pedidosPendientes !== undefined ? opts.pedidosPendientes : curr.pedidosPendientes,
+      pedidosMuertos:
+        opts.pedidosMuertos !== undefined ? opts.pedidosMuertos : curr.pedidosMuertos,
     });
   }
 
@@ -258,6 +270,8 @@ export class OfflineSyncService {
         ...this._syncStatus.value,
         visitasPendientes: estadisticas.visitasPendientes,
         visitasMuertas: estadisticas.visitasMuertas,
+        pedidosPendientes: estadisticas.pedidosPendientes,
+        pedidosMuertos: estadisticas.pedidosMuertos,
         ultimoSync: estadisticas.ultimoSync,
       });
     } catch (error) {
@@ -410,10 +424,14 @@ export class OfflineSyncService {
       // por separado y podía quedar stuck si algo lanzaba entre medio.
       let pendientes = this._syncStatus.value.visitasPendientes;
       let muertas = this._syncStatus.value.visitasMuertas;
+      let pedPend = this._syncStatus.value.pedidosPendientes;
+      let pedMuertos = this._syncStatus.value.pedidosMuertos;
       try {
         const estadisticas = await this.db.getEstadisticasOffline();
         pendientes = estadisticas.visitasPendientes;
         muertas = estadisticas.visitasMuertas;
+        pedPend = estadisticas.pedidosPendientes;
+        pedMuertos = estadisticas.pedidosMuertos;
       } catch {
         /* si el estado falla, mantenemos los contadores anteriores */
       }
@@ -422,6 +440,8 @@ export class OfflineSyncService {
         ultimoSync: new Date().toISOString(),
         visitasPendientes: pendientes,
         visitasMuertas: muertas,
+        pedidosPendientes: pedPend,
+        pedidosMuertos: pedMuertos,
       });
     }
   }
@@ -1144,6 +1164,11 @@ export class OfflineSyncService {
           const created = await firstValueFrom(
             this.http
               .post<any>(`${this.apiUrl}/commercial/orders`, {
+                // Fix #1 integridad: client_uuid = id local del pedido → si el
+                // server commiteó el draft pero la respuesta se perdió, el
+                // reintento devuelve el MISMO pedido (dedup server-side) en vez
+                // de crear un draft huérfano con folio desperdiciado.
+                client_uuid: p.id,
                 customer_id: p.customerId,
                 warehouse_id: p.warehouseId,
                 delivery_type: 'route',
@@ -1177,11 +1202,24 @@ export class OfflineSyncService {
         await this.db.marcarPedidoSincronizado(p.id, serverOrderId, placed?.code);
         console.log(`[OfflineSync] Pedido offline ${p.id} → ${placed?.code || serverOrderId}`);
       } catch (err: any) {
-        await this.db.incrementarIntentoPedido(
-          p.id,
-          err?.error?.message || err?.message || `status ${err?.status}`,
-        );
-        console.warn(`[OfflineSync] Pedido offline ${p.id} falló (status=${err?.status}): reintenta`);
+        // Fix #2 integridad: NO consumir el contador de reintentos por errores
+        // transitorios (red caída, timeout, gateway) — igual que las visitas. Un
+        // pedido no debe "morir" (dead tras MAX_RETRY) por mala red en ruta; solo
+        // los errores permanentes (validación/4xx/500) cuentan hacia el descarte.
+        const status: number | undefined = err?.status;
+        const TRANSIENT_STATUSES = new Set([0, 408, 502, 503, 504, 522, 524]);
+        const isTransient = status === undefined || TRANSIENT_STATUSES.has(status);
+        if (isTransient) {
+          // Transitorio: NO se consume intento; el pedido queda activo y reintenta
+          // en el próximo ciclo cuando vuelva la red.
+          console.warn(`[OfflineSync] Pedido offline ${p.id} transient (status=${status}): reintenta sin consumir intento`);
+        } else {
+          await this.db.incrementarIntentoPedido(
+            p.id,
+            err?.error?.message || err?.message || `status ${status}`,
+          );
+          console.warn(`[OfflineSync] Pedido offline ${p.id} falló permanente (status=${status}): intento consumido`);
+        }
       }
     }
   }
@@ -1417,6 +1455,8 @@ export class OfflineSyncService {
       ...curr,
       visitasPendientes: estadisticas.visitasPendientes,
       visitasMuertas: estadisticas.visitasMuertas,
+      pedidosPendientes: estadisticas.pedidosPendientes,
+      pedidosMuertos: estadisticas.pedidosMuertos,
     });
     if (curr.online && !curr.sincronizando) {
       this.sincronizarTodo().catch(() => {

@@ -2,6 +2,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
+import type { Freshness } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -397,7 +399,9 @@ export interface ExpiringLot {
 }
 
 // ── P2.6 — Control de Caducidades ──────────────────────────────────
-export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
+export interface ReviewFile { role: string; url: string; public_id?: string; kind?: string; name?: string;
+  /** Firma efímera que devuelve /upload solo para la vista previa; no se persiste. */
+  preview_url?: string; }
 
 export interface ExpiryReview {
   id: string;
@@ -430,6 +434,8 @@ export interface ExpiryReviewLine {
   files?: ReviewFile[];
   fed_to_fefo?: boolean;
   fefo_qty?: number | string;
+  /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
+  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
 }
 
 export interface ExpiryReviewDetail extends ExpiryReview {
@@ -447,6 +453,8 @@ export interface ExpiryLineInput {
   action?: string;
   location?: string;
   files?: ReviewFile[];
+  /** Unidad de medida del renglón: caja | pieza | bulto | kg. */
+  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
 }
 
 export interface AbcRow {
@@ -1173,8 +1181,11 @@ export class ComercialService {
     return this.http.get<SellOutBrandRow[]>(`${this.base}/analytics/sell-out/brands`, { params });
   }
 
-  sellOutWarehouses() {
-    return this.http.get<SellOutWarehouseRow[]>(`${this.base}/analytics/sell-out/warehouses`);
+  sellOutWarehouses(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<SellOutWarehouseRow[]>(`${this.base}/analytics/sell-out/warehouses`, { params });
   }
 
   // ── Fase SAL — Salidas/Ventas por Producto ──
@@ -1222,18 +1233,47 @@ export class ComercialService {
     return this.http.get<{ value: string; label: string }[]>(`${this.base}/analytics/sales-by-route/clients`);
   }
 
-  salesByRouteDetail(routeCode: string, year: number, opts?: { from?: string; to?: string; sku?: string; client?: string }) {
+  salesByRouteDetail(routeCode: string, year: number, opts?: { from?: string; to?: string; sku?: string; client?: string; unit?: string }) {
     let params = new HttpParams().set('route', routeCode).set('year', String(year));
     if (opts?.from) params = params.set('from', opts.from);
     if (opts?.to) params = params.set('to', opts.to);
     if (opts?.sku) params = params.set('sku', opts.sku);
     if (opts?.client) params = params.set('client', opts.client);
+    if (opts?.unit) params = params.set('unit', opts.unit);
     return this.http.get<SalesByRouteDetail>(`${this.base}/analytics/sales-by-route/detail`, { params });
   }
 
   salesByRouteDownloadXlsx(p: SalesByRouteParams) {
     return this.http.get(`${this.base}/analytics/sales-by-route.xlsx`, {
       params: this.salesByRouteParams(p), responseType: 'blob', observe: 'response',
+    });
+  }
+
+  /** RR2 — Tickets de una ruta (paginado server-side). */
+  salesByRouteTickets(p: SalesByRouteTicketsParams) {
+    let params = new HttpParams().set('route', p.route);
+    if (p.year) params = params.set('year', String(p.year));
+    if (p.from) params = params.set('from', p.from);
+    if (p.to) params = params.set('to', p.to);
+    if (p.client) params = params.set('client', p.client);
+    if (p.sku) params = params.set('sku', p.sku);
+    if (p.unit) params = params.set('unit', p.unit);
+    if (p.paymentMethod) params = params.set('payment_method', p.paymentMethod);
+    if (p.docType) params = params.set('doc_type', p.docType);
+    if (p.minRevenue != null) params = params.set('min_revenue', String(p.minRevenue));
+    if (p.maxRevenue != null) params = params.set('max_revenue', String(p.maxRevenue));
+    if (p.q) params = params.set('q', p.q);
+    if (p.sort) params = params.set('sort', p.sort);
+    if (p.dir) params = params.set('dir', p.dir);
+    if (p.limit != null) params = params.set('limit', String(p.limit));
+    if (p.offset != null) params = params.set('offset', String(p.offset));
+    return this.http.get<SalesByRouteTicketsPage>(`${this.base}/analytics/sales-by-route/tickets`, { params });
+  }
+
+  /** RR2 — Un ticket con sus renglones (unidad, precio, cajas, margen, impuestos). */
+  salesByRouteTicket(key: string) {
+    return this.http.get<SalesByRouteTicketDetail>(`${this.base}/analytics/sales-by-route/ticket`, {
+      params: new HttpParams().set('key', key),
     });
   }
 
@@ -1294,11 +1334,17 @@ export class ComercialService {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out/by-vendor`, { params });
   }
 
-  sellOutCanales() {
-    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/canales`);
+  sellOutCanales(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/canales`, { params });
   }
-  sellOutVendors() {
-    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/vendors`);
+  sellOutVendors(from?: string, to?: string) {
+    let params = new HttpParams();
+    if (from) params = params.set('from', from);
+    if (to) params = params.set('to', to);
+    return this.http.get<SellOutTreeGroup[]>(`${this.base}/analytics/sell-out/vendors`, { params });
   }
 
   /** Descarga XLSX/PDF vía blob (respeta el interceptor de auth). */
@@ -1584,11 +1630,88 @@ export interface SalesByRouteDetail {
   route_code: string;
   warehouse_name: string;
   year: number;
-  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number };
-  products: { sku: string; name: string; units: number; revenue: number; share_pct: number }[];
+  /** `lines` habilita los dos promedios: units/lines = profundidad, lines/tickets = surtido. */
+  totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
   tickets: { folio: string; date: string; lines: number; units: number; revenue: number }[];
+  /** RR2 — Mezcla por unidad de medida en la que se vendió. `unidad: null` = SKU sin catálogo. */
+  units_mix: { unidad: string | null; lines: number; units: number; revenue: number; share_pct: number }[];
+  /** RR2 — `coverage_pct` = % del importe que trae costo en la fuente (el push no lo trae). */
+  margin: { revenue_with_cost: number; cost: number; margin_pct: number | null; coverage_pct: number };
+}
+
+// ── RR2 — Desglose por ticket ──
+export interface SalesByRouteTicketsParams {
+  route: string;
+  year?: number;
+  from?: string;
+  to?: string;
+  client?: string;
+  sku?: string;
+  unit?: string;
+  paymentMethod?: string;
+  docType?: string;
+  minRevenue?: number | null;
+  maxRevenue?: number | null;
+  q?: string;
+  sort?: 'date' | 'revenue' | 'units' | 'lines' | 'margin';
+  dir?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+export interface SalesByRouteTicket {
+  key: string;
+  source: 'wincaja' | 'push';
+  route_no: string;
+  folio: string;
+  date: string;
+  time: string | null;
+  doc_type: string | null;
+  client_code: string | null;
+  client_name: string | null;
+  is_public: boolean;
+  payment_method: string | null;
+  payment_method_label: string | null;
+  seller: string | null;
+  lines: number;
+  skus: number;
+  units: number;
+  revenue: number;
+  cost: number | null;
+  margin_pct: number | null;
+}
+
+export interface SalesByRouteTicketsPage {
+  rows: SalesByRouteTicket[];
+  total: number;
+  limit: number;
+  offset: number;
+  totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
+  generated_at: string;
+}
+
+export interface SalesByRouteTicketLine {
+  sku: string;
+  name: string | null;
+  unidad: string | null;
+  unidad_origen: string | null;
+  qty: number;
+  boxes: number | null;
+  box_factor: number | null;
+  precio_unitario: number | null;
+  importe: number;
+  costo: number | null;
+  margin_pct: number | null;
+  iva: number | null;
+  ieps: number | null;
+}
+
+export interface SalesByRouteTicketDetail extends SalesByRouteTicket {
+  warehouse_name: string | null;
+  lines_detail: SalesByRouteTicketLine[];
 }
 
 export interface SalesByRouteCell {
@@ -1621,9 +1744,17 @@ export interface SalesByRouteReport {
 
 // ── RR-PROMO — Evaluador de mecánicas de incentivo por enunciado (agente AI) ──
 export type PromoMetric = 'clientes_distintos' | 'piezas' | 'tickets' | 'monto';
-export interface RoutePromoBody { enunciado?: string; sku?: string; year?: number; from?: string; to?: string; rule?: Partial<PromoRule>; }
+export interface RoutePromoBody { enunciado?: string; sku?: string; year?: number; from?: string; to?: string; rule?: Partial<PromoRule>; /** Pide el desglose cliente×producto (cuesta ~9 s: sólo al abrirlo). */ detalle?: boolean; }
+export type PromoCanal = 'ruta' | 'vecinal' | 'mayoreo' | 'mostrador';
 export interface PromoRule {
   canal: 'ruta' | 'todos';
+  /** Alcance de la mercancía: un SKU o toda una marca/proveedor. */
+  alcance?: 'sku' | 'marca';
+  marca_texto?: string | null;
+  /** Canales cuyos vendedores participan. */
+  canales?: PromoCanal[];
+  /** Umbral en pesos por cliente ("al que se le venda $500"). 0 = sin umbral de dinero. */
+  min_importe?: number;
   sku: string | null;
   producto_texto: string | null;
   metric: PromoMetric;
@@ -1635,8 +1766,32 @@ export interface PromoRule {
   date_to?: string | null;
   periodo_texto?: string | null;
 }
-export interface PromoRouteRow { warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; piezas: number; importe: number; base: number; payout: number; }
-export interface PromoClientRow { warehouse_name: string; route_no: string; route_label: string; cliente: string; nombre: string; piezas: number; importe: number; }
+export interface PromoRouteRow { canal: PromoCanal; vendedor: string; vendedor_nombre: string | null; source_branch: string; sucursal_nombre: string | null; warehouse_code: string; warehouse_name: string; route_no: string; label: string; clientes: number; clientes_indeterminados: number; unidades: number; unidades_sin_resolver: number; importe: number; base: number; payout: number; }
+/** Qué se le vendió a un cliente, por producto, con su unidad declarada. */
+export interface PromoClientItem { sku: string; nombre: string; unidades: number; unidad: string | null; unidades_sin_resolver: number; importe: number; }
+export interface PromoClientRow {
+  canal: PromoCanal; vendedor: string;
+  warehouse_name: string; route_no: string; route_label: string;
+  cliente: string; nombre: string;
+  /** El código se repite entre sucursales: el nombre puede ser de otro cliente. */
+  nombre_ambiguo: boolean;
+  unidades: number; importe: number; tickets: number;
+  califica: boolean;
+  items: PromoClientItem[];
+}
+/** Estado de la unidad de medida del cálculo — se muestra siempre, salga limpia o no. */
+export interface PromoUnitInfo {
+  unit_base: string | null;
+  is_weight: boolean;
+  sin_escalera: boolean;
+  lineas_sin_resolver: number;
+  unidades_sin_resolver: number;
+  importe_sin_resolver: number;
+  confiable: boolean;
+  /** ¿Se puede sumar la cantidad entre productos? Con marca casi nunca (PAQ + PZA). */
+  unidades_sumables: boolean;
+  nota: string;
+}
 export interface RoutePromoResult {
   enunciado: string;
   rule: PromoRule;
@@ -1645,12 +1800,14 @@ export interface RoutePromoResult {
   period: { from: string; to: string; label: string };
   metric_label: string;
   base_label: string;
+  unit: PromoUnitInfo;
   rows: PromoRouteRow[];
   clientes_detalle: PromoClientRow[];
   total_base: number;
   total_payout: number;
   total_clientes: number;
-  total_piezas: number;
+  total_clientes_indeterminados: number;
+  total_unidades: number;
   total_importe: number;
   note: string;
   generated_at: string;
@@ -1732,6 +1889,8 @@ export interface SellOutColumn {
 export interface SellOutCell {
   cajas: number;
   monto: number;
+  /** Neto de descuento (con IVA) = total de la factura. `monto` es el bruto de línea. Cajas = volumen (no cambia). */
+  monto_neto: number;
 }
 
 export interface SellOutRow {
@@ -1754,7 +1913,13 @@ export interface SellOutReport {
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  /** [VP.0.6] `measured: false` = este eje no se midió (no que no falte nada). Ver el backend. */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del DATO (las matviews que arman el reporte), no de la consulta. `generated_at`
+   * dice cuándo respondió el servidor — sobre matviews de hace seis días responde igual de rápido.
+   */
+  freshness: Freshness;
   generated_at: string;
 }
 

@@ -83,7 +83,7 @@ export class WhatsAppCampaignService {
     if (!dto?.name?.trim()) throw new BadRequestException('name requerido');
     if (!dto?.template_name?.trim()) throw new BadRequestException('template_name requerido (plantilla aprobada en Meta)');
     const optedIn = new Set(await this.optin.listOptedInPhones());
-    const targets = [...new Set(phones)].filter((p) => optedIn.has(p));
+    const targets = Array.from(new Set(phones)).filter((p) => optedIn.has(p));
     return this.tk.run(async (trx) => {
       const [c] = await trx('whatsapp.campaigns')
         .insert({

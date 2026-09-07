@@ -38,7 +38,7 @@ export class AccessibleRoutesService {
 
   /** Las que el usuario puede abrir hoy. */
   readonly accessible = computed<RouteLink[]>(() => {
-    const godMode = this.perms.can('manage', 'all');
+    const godMode = this.perms.isAdmin();
     const mine = this.auth.user()?.permissions ?? {};
     return this.catalog
       .filter((t) => godMode || t.perms.some((p) => !!mine[p]))

@@ -96,8 +96,25 @@ export class VisitsService {
     return query;
   }
 
-  async findOne(id: string) {
-    const visit = await this.knex('visits').where({ id }).first();
+  async findOne(id: string, user?: any) {
+    // `[AUTHZ-HARD.1]` `KNEX_CONNECTION` es superusuario y bypassea RLS: el WHERE es la única
+    // defensa. Filtramos por tenant del token y aplicamos el mismo alcance own/team que `findAll`
+    // (un ejecutivo sólo ve sus visitas; un supervisor las de su equipo; scope 'all' ve el tenant).
+    const q = this.knex('visits').where({ id });
+    if (user?.tenant_id) q.andWhere('tenant_id', user.tenant_id);
+    if (user) {
+      const scope = getDataScope(user);
+      if (scope.type === 'own') {
+        q.andWhere('user_id', scope.userId);
+      } else if (scope.type === 'team') {
+        const subquery = this.knex('users')
+          .select('id')
+          .where('supervisor_id', scope.userId)
+          .orWhere('id', scope.userId);
+        q.whereIn('user_id', subquery);
+      }
+    }
+    const visit = await q.first();
     if (!visit) throw new NotFoundException();
 
     // Retornamos la visita con sus estantes y evidencias atadas

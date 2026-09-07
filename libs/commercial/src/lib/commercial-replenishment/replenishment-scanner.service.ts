@@ -51,13 +51,33 @@ export class ReplenishmentScannerService {
       await trx.raw(`SET LOCAL app.tenant_id = '${tenantId}'`); // Postgres NO acepta bind param en SET (42601); literal como los demás scanners
 
       const oh = '(COALESCE(s.quantity,0) - COALESCE(s.reserved_quantity,0))';
-      const it = 'COALESCE(pit.qty_in_transit, 0)';
+      // OC a recibir en unidades de stock, desde el fact (que lo deriva del ODS en cajas → ×bf
+      // vuelve exacto). La tabla analytics.purchase_in_transit se retiró — ver GOTCHAS §25.
+      // RA-PRO.45: se usa la columna PESADA por P(llega|edad), igual que el pedido — si no, la
+      // bandeja de hallazgos se queda ciega justo en los SKUs que una OC estancada está tapando.
+      //
+      // ⚠️ U.0 (2026-09-03) — "×bf vuelve exacto" SÓLO vale en las sucursales Kepler. `bf` cuenta
+      // unidades BASE de Kepler por caja; en los almacenes de Wincaja la existencia (`oh`) está en
+      // la unidad de venta de Wincaja, y ahí el divisor correcto es `display_bf` (ADR-055), que
+      // ≈ bf/10 en los multipack. O sea `it` sale ~10× inflado y **se sobre-acredita el tránsito →
+      // sub-pedido** en MD-30/MD-32/00. La mig 20260902220000 introdujo `display_bf` y NO tocó esta
+      // ruta. Queda declarado, no parchado: el fix va con la bandeja `peldano_cruzado`.
+      const it = 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)';
       // Objetivo = máximo (restock real). Sugerido neto de tránsito.
       const sugg = `GREATEST(0, rp.max_stock - ${oh} - ${it})`;
       // Costo unitario canónico = cost_with_tax (por PIEZA); cost_base es fallback (está a
       // escala de CAJA en granel e inflaba el valorizado ~16.6%). Debe casar con Existencia
       // Crítica (ver commercial-replenishment.service.ts costUnit()).
+      // ✅ U.0: "por PIEZA" confirmado midiendo — `cost_with_tax = u1_cost × (1 + impuesto)`,
+      // razones 1.0000/1.0800/1.1600/1.2400 exactas sobre 6,626 SKUs. Detalle en costUnit().
       const costUnit = 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)';
+      // U.2 — el $ valorizado NO se persiste cuando el costo de compra contradice el peldaño de la
+      // cantidad: la bandeja guardaría una cifra inflada y la ordenaría por ella. Se lee del fact
+      // (`analytics.replenishment_plan.rung_veredicto`, mig 20260903170000) que este scan YA
+      // joinea como `rpl` — sólo los veredictos en contra se persisten, así que `IS NULL` = medible.
+      // Ver commercial-replenishment.service.ts rungMedible() y analytics.v_unit_rung_audit.
+      const medible = 'rpl.rung_veredicto IS NULL';
+      const suggCost = `CASE WHEN ${medible} THEN ROUND(${sugg} * ${costUnit}, 2) END AS suggested_cost`;
 
       const rows: any[] = await trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
@@ -65,8 +85,8 @@ export class ReplenishmentScannerService {
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('rp.reorder_point', '>', 0)
         .andWhereRaw(`${oh} <= rp.reorder_point`) // sólo crítico (≤ punto de reorden)
@@ -77,7 +97,7 @@ export class ReplenishmentScannerService {
           trx.raw(`${it} AS in_transit`),
           trx.raw('abc.abc_class AS abc_class'),
           trx.raw(`${sugg} AS suggested_qty`),
-          trx.raw(`ROUND(${sugg} * ${costUnit}, 2) AS suggested_cost`),
+          trx.raw(suggCost),
         );
 
       const seen: string[] = [];
@@ -100,7 +120,10 @@ export class ReplenishmentScannerService {
              suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
              last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
           [tenantId, r.warehouse_id, r.product_id, kind, severity, dedup, abc || null,
-           onHand, Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty), Number(r.suggested_cost)],
+           onHand, Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty),
+           // U.2 — ⚠️ NO `Number(...)`: `Number(null)` es 0 y persistiría "vale cero" donde la
+           // verdad es "no se está midiendo". La columna admite NULL a propósito.
+           r.suggested_cost == null ? null : Number(r.suggested_cost)],
         );
         count++;
       }
@@ -120,8 +143,8 @@ export class ReplenishmentScannerService {
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
         .leftJoin('analytics.inventory_health as ih', (j) =>
           j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
-        .leftJoin('analytics.purchase_in_transit as pit', (j) =>
-          j.on('pit.tenant_id', 'rp.tenant_id').andOn('pit.warehouse_id', 'rp.warehouse_id').andOn('pit.product_id', 'rp.product_id'))
+        .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+          j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
         .where('rc.tenant_id', tenantId)
         .andWhere('rc.via', 'purchase')
         .andWhere('rc.cadence_days', '>', 21)
@@ -139,7 +162,7 @@ export class ReplenishmentScannerService {
           trx.raw(`${it} AS in_transit`),
           trx.raw(`COALESCE(abc.abc_class, rp.abc_class) AS abc_class`),
           trx.raw(`${sugg} AS suggested_qty`),
-          trx.raw(`ROUND(${sugg} * ${costUnit}, 2) AS suggested_cost`),
+          trx.raw(suggCost),
         );
 
       for (const r of cadRows) {
@@ -158,7 +181,9 @@ export class ReplenishmentScannerService {
              suggested_qty=EXCLUDED.suggested_qty, suggested_cost=EXCLUDED.suggested_cost,
              last_seen_at=now(), resolved_at=NULL, updated_at=now()`,
           [tenantId, r.warehouse_id, r.product_id, severity, dedup, abc || null,
-           Number(r.on_hand), Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty), Number(r.suggested_cost)],
+           Number(r.on_hand), Number(r.reorder_point), Number(r.in_transit), Number(r.suggested_qty),
+           // U.2 — ver arriba: `Number(null)` sería 0, y 0 no es "no medido".
+           r.suggested_cost == null ? null : Number(r.suggested_cost)],
         );
         count++;
       }

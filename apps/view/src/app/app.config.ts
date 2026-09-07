@@ -27,7 +27,8 @@ export const appConfig: ApplicationConfig = {
   providers: [
     // Zoneless (Angular 22). NOTA: el stack overflow de /compras/pedido NO es de zoneless
     // (se reproduce igual bajo zone.js) — es una recursión real de render; ver diagnóstico en
-    // compras-pedido-real (money() guard). zone.js sigue en polyfills.
+    // compras-pedido-real (money() guard). Migración zoneless COMPLETA: zone.js removido de
+    // polyfills (~13 kB menos + arranque más rápido); NgZone queda como NoopNgZone.
     provideZonelessChangeDetection(),
     { provide: LOCALE_ID, useValue: 'es-MX' },
     // Sin esto una excepción no capturada dejaba la pantalla en blanco: nada

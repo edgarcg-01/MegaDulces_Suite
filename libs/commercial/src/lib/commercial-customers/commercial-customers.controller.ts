@@ -17,6 +17,7 @@ import {
 } from './commercial-customers.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
+import { RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
 
 /**
@@ -57,7 +58,10 @@ export class CommercialCustomersController {
   }
 
   @Get()
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  // La app del vendedor busca clientes acá (esté o no en su cartera). supervisor_ventas
+  // no tiene CUSTOMERS_VER → aceptamos VENDOR_APP_ACCESS. customer_b2b queda scopeado a
+  // su propio customer en el service.
+  @RequireAnyPermission(Permission.COMMERCIAL_CUSTOMERS_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Listar customers (paginado, búsqueda por name/code/rfc/email). customer_b2b solo ve su propio customer (scoping forzado en service).',
@@ -96,7 +100,9 @@ export class CommercialCustomersController {
   }
 
   @Get(':id')
-  @RequirePermissions(Permission.COMMERCIAL_CUSTOMERS_VER)
+  // Interfaz vendedor (preventa) independiente: la toma de pedido lee el cliente
+  // con su propio permiso VENDOR_APP_ACCESS, sin exigir el del proyecto Comercial.
+  @RequireAnyPermission(Permission.COMMERCIAL_CUSTOMERS_VER, Permission.VENDOR_APP_ACCESS)
   @ApiOperation({
     summary:
       'Obtener customer por id. customer_b2b solo puede leer SU propio customer (ownership check en service).',

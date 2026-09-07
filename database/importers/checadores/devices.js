@@ -28,16 +28,17 @@ module.exports = [
   { ip: '192.168.50.12',  serial: 'CC5B194660472', model: 'MB160',    label: null, site_code: null }, //  95 usr / 10,561 — firmware 2018
   { ip: '192.168.54.10',  serial: 'CC5B194760731', model: 'MB160',    label: null, site_code: null }, //  27 usr /  8,040 — firmware 2018
 
-  // ── Declarados por el operador pero NO encontrados al 2026-08-17 ───────
-  // Se dejan en el inventario para que el sync los reporte como 'unreachable'
-  // en vez de que desaparezcan del radar sin dejar rastro.
-  //
-  // La subred 192.168.10.x NO EXISTE (ningún gateway responde; el túnel muere
-  // en 172.16.1.2). Las vecinas 11 y 13 solo tienen el router vivo, sin LAN
-  // detrás y sin ZK por TCP ni UDP → sitio sin enlace.
-  { ip: '192.168.10.2',   serial: null, model: null, label: null, site_code: null, expected: true },
-  // La subred 192.168.30.x SÍ vive (39 hosts + gateway .30.1), pero se barrieron
-  // los 254 IPs por TCP 4370, por UDP 4370 (3 rondas) y por banner HTTP
-  // "ZK Web Server": no hay NINGÚN ZKTeco → equipo apagado o con IP cambiada.
+  // ── Padre Hidalgo (recuperado 2026-08-20) ─────────────────────────────
+  // Estaba invisible desde la central porque su GATEWAY estaba mal
+  // (0.0.0.0 / 192.168.10.254 = un DNS, no el router). Respondía local pero
+  // no podía enrutar la respuesta a través del túnel. Fix: gateway → .10.1
+  // (el mismo que usan las PCs de PH). Modelo MB300 (familia distinta).
+  { ip: '192.168.10.2',   serial: '3266161700219', model: 'MB300',     label: 'Padre Hidalgo', site_code: null }, // 175 usr / 29,563
+
+  // ── Declarado por el operador pero NO recuperado aún ──────────────────
+  // Sucursal 30: la red vive (gateway .30.1 responde) pero el equipo tenía el
+  // gateway en 8.8.8.8 (un DNS, no el router). MISMO problema que PH: hay que
+  // corregir su gateway a 192.168.30.1 en la pantalla del equipo. Hasta que se
+  // haga, no puede contestar a la central. Se deja para que el sync lo reporte.
   { ip: '192.168.30.253', serial: null, model: null, label: null, site_code: null, expected: true },
 ];

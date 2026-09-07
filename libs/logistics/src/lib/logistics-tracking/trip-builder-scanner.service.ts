@@ -13,7 +13,7 @@ export class TripBuilderScannerService {
 
   constructor(private readonly trips: TripBuilderService) {}
 
-  @Cron('0 30 3 * * *')
+  @Cron('0 30 3 * * *', { timeZone: 'America/Mexico_City' })
   async run(): Promise<void> {
     if (this.running) return;
     this.running = true;

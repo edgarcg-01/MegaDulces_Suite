@@ -52,14 +52,35 @@ export class PurchaseAdjustmentsController {
 
   @Get('for-entrada')
   @RequirePermissions(Permission.COMPRAS_DESCUENTOS_VER)
-  @ApiOperation({ summary: 'RE.2 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada: por entrada_folio exacto (cuando existe) o por proveedor + ventana de fecha (window_days, default 15). Params: proveedor_code, entrada_folio, date, window_days.' })
+  @ApiOperation({ summary: 'RE.2/RE.21 — ajustes (X-D-40/55) que EXPLICAN el descuadre de una entrada. Kepler NO liga la nota de crédito a la recepción (entrada_folio viene vacío en el 96%, y en las X-D-55 en el 100%), así que se buscan candidatos por entrada_folio exacto cuando existe o por proveedor + ventana de fecha. Con `delta` (el hueco a explicar) cada candidato se marca `explica` si su MAGNITUD casa dentro de `tolerancia`, se ordena por eso y se devuelve `explicacion` {explicado, grupo, confianza: alta|media|ambigua|ninguna}. Se compara magnitud y no signo: la dirección contable no es estable. Params: proveedor_code, entrada_folio, date, window_days, delta, tolerancia.' })
   forEntrada(
     @Query('proveedor_code') proveedor_code?: string,
     @Query('entrada_folio') entrada_folio?: string,
     @Query('date') date?: string,
     @Query('window_days') window_days?: string,
+    @Query('delta') delta?: string,
+    @Query('tolerancia') tolerancia?: string,
   ) {
-    return this.svc.forEntrada({ proveedor_code, entrada_folio, date, window_days: window_days ? Number(window_days) : undefined });
+    return this.svc.forEntrada({
+      proveedor_code, entrada_folio, date,
+      window_days: window_days ? Number(window_days) : undefined,
+      delta: delta ? Number(delta) : undefined,
+      tolerancia: tolerancia ? Number(tolerancia) : undefined,
+    });
+  }
+
+  // Va por query params y no por segmentos (`:sucursal/:doctype/:folio`) a propósito: este
+  // controller ya tiene rutas literales como `duplicates` y `compras-360`, y una ruta de 3
+  // segmentos variables las empezaría a capturar según el orden de declaración.
+  @Get('lines')
+  @RequirePermissions(Permission.COMPRAS_DESCUENTOS_VER)
+  @ApiOperation({ summary: 'RE.22 — renglones de UN ajuste (qué mercancía se devolvió), desde la vista viva analytics.erp_purchase_adjustment_lines. Devuelve `desglose`: `renglones` (hay detalle), `no_aplica` (es nota de crédito X-D-55: no se desglosa por producto porque es dinero, no mercancía — 1,256 docs/$21.4M sin líneas en Kepler) o `sin_dato` (devolución que debería traer renglones y no los trae). Params: sucursal, doctype, folio.' })
+  lines(
+    @Query('sucursal') sucursal: string,
+    @Query('folio') folio: string,
+    @Query('doctype') doctype?: string,
+  ) {
+    return this.svc.lines({ sucursal, folio, doctype: doctype || '' });
   }
 
   @Get('duplicates')
@@ -96,14 +117,29 @@ export class PurchaseAdjustmentsController {
 
   @Get('compras-360/filters')
   @RequirePermissions(Permission.COMPRAS_360_VER)
-  @ApiOperation({ summary: 'CXP.3 — catálogo de filtros de Compras 360: sucursales presentes (con conteo) + monto máximo, para poblar los dropdowns.' })
-  compras360Filters() {
-    return this.svc.compras360Filters();
+  @ApiOperation({ summary: 'CXP.3 — catálogo de filtros de Compras 360: sucursales y proveedores presentes + monto máximo. Los conteos son FACETAS: respetan los demás filtros activos e ignoran la propia dimensión, así el "· N" es lo que la tabla va a dar. Mismos params que /compras-360 (sin sort/page).' })
+  compras360Filters(
+    @Query('search') search?: string,
+    @Query('sucursal') sucursal?: string,
+    @Query('proveedor_code') proveedor_code?: string,
+    @Query('date_from') date_from?: string,
+    @Query('date_to') date_to?: string,
+    @Query('ajuste') ajuste?: string,
+    @Query('con_oc') con_oc?: string,
+    @Query('comprobante') comprobante?: string,
+    @Query('monto_min') monto_min?: string,
+    @Query('monto_max') monto_max?: string,
+  ) {
+    return this.svc.compras360Filters({
+      search, sucursal, proveedor_code, date_from, date_to, ajuste, con_oc, comprobante,
+      monto_min: monto_min != null && monto_min !== '' ? Number(monto_min) : undefined,
+      monto_max: monto_max != null && monto_max !== '' ? Number(monto_max) : undefined,
+    });
   }
 
   @Get('compras-360')
   @RequirePermissions(Permission.COMPRAS_360_VER)
-  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto + neto. Filtros: search (prov/OC/folio/vale/concepto), sucursal, proveedor_code, date_from, date_to, ajuste (con|sin), con_oc (con|sin), comprobante (sin|con|validado|por_validar|rechazado), monto_min, monto_max, sort+dir (whitelist), page, pageSize, all (export ≤5000). con_ajuste sigue por back-compat.' })
+  @ApiOperation({ summary: 'CXP.3 — "Compras 360" (el Excel): fila = orden de entrada/factura + OC + ajuste ligado exacto por (sucursal, folio) + neto. Filtros: search (smart-search: multi-token, sin acentos, typos), sucursal, proveedor_code, date_from, date_to, ajuste (con|sin|operativo|comercial), con_oc (con|sin), comprobante (sin|con|validado|por_validar|rechazado), monto_min, monto_max, sort+dir (whitelist), page, pageSize, all (export ≤5000; responde truncated=true si se cortó). Devuelve data_as_of (frescura del feed). con_ajuste sigue por back-compat.' })
   compras360(
     @Query('search') search?: string,
     @Query('sucursal') sucursal?: string,

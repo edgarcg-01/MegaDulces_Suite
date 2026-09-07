@@ -14,8 +14,6 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../comercial.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { INV_STOCK_TABS } from '../inventory-tabs';
 
 @Component({
   selector: 'app-comercial-warehouses',
@@ -33,14 +31,12 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
     ToastModule,
     TooltipModule,
     ConfirmDialogModule,
-    PageTabsComponent
 ],
   providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page wh">
       <p-toast></p-toast>
       <p-confirmdialog></p-confirmdialog>
-      <app-page-tabs [tabs]="inventoryTabs" />
     
       <!-- PAGE HEAD -->
       <header class="surf-page-head">
@@ -222,7 +218,6 @@ import { INV_STOCK_TABS } from '../inventory-tabs';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialWarehousesComponent {
-  readonly inventoryTabs = INV_STOCK_TABS;
   private readonly api = inject(ComercialService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);

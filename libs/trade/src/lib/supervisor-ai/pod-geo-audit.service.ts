@@ -162,7 +162,8 @@ export class PodGeoAuditService {
     return { open: findings.length, resolved };
   }
 
-  @Cron('0 15 4 * * *')
+  // 04:15 MX — después del nightly on-prem (03:00) para auditar con la data del día ya cargada.
+  @Cron('0 15 4 * * *', { timeZone: 'America/Mexico_City' })
   async generateAll(): Promise<void> {
     if (this.running) return;
     this.running = true;

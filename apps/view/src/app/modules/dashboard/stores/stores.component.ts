@@ -143,8 +143,7 @@ export class StoresComponent implements OnInit {
 
   readonly canSeeAllZones = computed(
     () =>
-      this.perms.can('read', 'reports_global') ||
-      this.perms.can('read', 'reports_team'),
+      this.perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL),
   );
 
   readonly userHasFixedZone = computed(() => {

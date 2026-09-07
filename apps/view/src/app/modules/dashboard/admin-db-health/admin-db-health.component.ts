@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth, HealthAlert } from './db-health.service';
+import { DbHealthService, DbHealthReport, HealthStatus, SourceHealth, HealthAlert, EngineReport } from './db-health.service';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 type Sev = 'success' | 'warn' | 'danger' | 'secondary';
@@ -92,6 +92,79 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
               <span class="muted">falló {{ a.first_seen_at | date: 'dd/MM HH:mm' }} → recuperada {{ a.resolved_at | date: 'dd/MM HH:mm' }}</span>
             </div>
           }
+        </details>
+      }
+
+      <!-- DBH.1 — MOTOR. Las tablas de abajo responden "¿llegó el dato?"; esto, "¿cómo está la base?" -->
+      @if (engine(); as e) {
+        <h2 class="sec">Motor de la base
+          <span class="cnt">{{ e.database.size_pretty }} · {{ e.database.version }}</span>
+          <p-tag [severity]="sev(e.overall)" [value]="statusLabel(e.overall)" [rounded]="true" />
+        </h2>
+
+        <div class="metrics">
+          @for (m of e.metrics; track m.key) {
+            <div class="metric" [class.warn]="m.status==='warn'" [class.crit]="m.status==='critical'">
+              <span class="l">{{ m.label }}</span>
+              <span class="v">{{ m.display }}</span>
+              @if (m.note) { <span class="n">{{ m.note }}</span> }
+            </div>
+          }
+        </div>
+
+        <div class="card">
+          <p-table [value]="e.bloat" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
+            <ng-template #header>
+              <tr>
+                <th>Tabla</th>
+                <th class="num">Filas vivas</th>
+                <th class="num">Muertas</th>
+                <th class="num">%</th>
+                <th>Última limpieza</th>
+                <th class="num">Peso</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-t>
+              <tr>
+                <td>
+                  <div class="src">{{ t.table }}</div>
+                  <div class="tbl">{{ t.schema }}</div>
+                </td>
+                <td class="num tnum">{{ t.live | number }}</td>
+                <td class="num tnum">{{ t.dead | number }}</td>
+                <td class="num tnum" [class.txt-warn]="t.status==='warn'" [class.txt-crit]="t.status==='critical'">
+                  {{ t.dead_pct != null ? t.dead_pct + '%' : '—' }}
+                </td>
+                <td>
+                  @if (t.last_autovacuum) {
+                    <span class="when">{{ t.last_autovacuum | date: 'dd/MM HH:mm' }}</span>
+                  } @else {
+                    <span class="when muted" title="autovacuum todavía no la tocó: está por debajo de su umbral">nunca</span>
+                  }
+                </td>
+                <td class="num tnum">{{ t.size_pretty }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="6" class="empty">Sin filas muertas acumuladas.</td></tr>
+            </ng-template>
+          </p-table>
+        </div>
+
+        <details class="det">
+          <summary>Peso por schema y configuración de autovacuum</summary>
+          <div class="two">
+            <div>
+              @for (s of e.schemas; track s.schema) {
+                <div class="kv"><span>{{ s.schema }}</span><b>{{ s.size_pretty }}</b><i>{{ s.tables }} tablas</i></div>
+              }
+            </div>
+            <div>
+              @for (a of e.autovacuum; track a.name) {
+                <div class="kv"><span>{{ a.name }}</span><b>{{ a.setting }}</b></div>
+              }
+            </div>
+          </div>
         </details>
       }
 
@@ -202,6 +275,24 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
     .resolved summary { cursor: pointer; color: var(--text-faint); }
     .rrow { display: flex; gap: .6rem; padding: .25rem 0 .25rem .8rem; align-items: baseline; }
     .rrow .muted { color: var(--text-faint); font-size: .72rem; }
+
+    /* DBH.1 motor — grid intrinseco: sin breakpoints, se acomoda al ancho del contenedor */
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: .5rem; margin-bottom: .7rem; }
+    .metric { display: flex; flex-direction: column; gap: .1rem; padding: .55rem .75rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 8px); background: var(--surface-card, transparent); }
+    .metric .l { font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
+    .metric .v { font-size: .95rem; font-weight: 600; color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .metric .n { font-size: .68rem; color: var(--text-faint); }
+    .metric.warn { border-color: color-mix(in srgb, var(--warn-fg, #D97706) 45%, var(--border-color)); }
+    .metric.warn .v { color: var(--warn-fg, #D97706); }
+    .metric.crit { border-color: color-mix(in srgb, var(--danger-fg, #DC2626) 45%, var(--border-color)); }
+    .metric.crit .v { color: var(--danger-fg, #DC2626); }
+    .det { margin-top: .6rem; font-size: .76rem; }
+    .det summary { cursor: pointer; color: var(--text-faint); }
+    .two { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: .4rem 1.5rem; padding: .5rem 0 0 .8rem; }
+    .kv { display: flex; gap: .5rem; align-items: baseline; padding: .12rem 0; }
+    .kv span { color: var(--text-faint); min-width: 12rem; }
+    .kv b { font-variant-numeric: tabular-nums; color: var(--text-main); font-weight: 600; }
+    .kv i { font-style: normal; color: var(--text-faint); font-size: .7rem; }
   `],
 })
 export class AdminDbHealthComponent implements OnInit, OnDestroy {
@@ -213,6 +304,8 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
   readonly error = signal<string | null>(null);
   readonly openAlerts = signal<HealthAlert[]>([]);
   readonly resolvedAlerts = signal<HealthAlert[]>([]);
+  /** DBH.1 — salud del motor. Nulo hasta que responde (o si el endpoint aún no existe). */
+  readonly engine = signal<EngineReport | null>(null);
   /** Filtro de severidad activo (clic en el marcador). null = ver todo. */
   readonly filter = signal<HealthStatus | null>(null);
   /** Auto-refresco cada 60s (pantalla viva). */
@@ -261,6 +354,7 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
       error: () => { /* silencioso: no romper la pantalla viva por un blip de red */ },
     });
     this.loadAlerts();
+    this.loadEngine();
   }
 
   load(): void {
@@ -271,6 +365,16 @@ export class AdminDbHealthComponent implements OnInit, OnDestroy {
       error: (e) => { this.error.set(e?.error?.message || e?.message || 'Error de red'); this.loading.set(false); },
     });
     this.loadAlerts();
+    this.loadEngine();
+  }
+
+  /** El motor va en su propia llamada: si el endpoint no existe todavía (pre-deploy) la pantalla
+   *  de frescura tiene que seguir funcionando igual. Falla en silencio, como `loadAlerts`. */
+  loadEngine(): void {
+    this.svc.getEngine().subscribe({
+      next: (e) => this.engine.set(e),
+      error: () => { /* pre-deploy o sin permiso: la sección simplemente no se dibuja */ },
+    });
   }
 
   loadAlerts(): void {

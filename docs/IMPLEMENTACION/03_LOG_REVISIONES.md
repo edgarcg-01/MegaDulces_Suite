@@ -6,6 +6,815 @@
 
 ---
 
+## 2026-09-03 — AUDITORÍA de la implementación de la BD + el filtro de tenant deja de ser condicional
+
+**Disparador:** Edgar pidió analizar *cómo estamos implementando nuestra BD*. Se midió **contra prod**
+(`trolley…:39023/railway`, 25 GB), no contra la doc. Análisis completo en el plan
+`linear-orbiting-frog.md`; acá el resumen y lo que se cerró.
+
+### Lo que la medición encontró
+
+1. **Dos arquitecturas de datos vivas, y el código sigue a la que pierde.** `CLAUDE.md` manda
+   derive-no-copy sobre el ODS; `ARQUITECTURA_DATOS.md` §4 declara `analytics.*` como espejo
+   materializado **intencional** alimentado por `run-prod-feeds.js`. No es descuido de doc: son dos
+   linajes del mismo hecho. **Agosto 2026 difieren $4,445,220 (17.3%)** — `analytics.sales_daily`
+   dice $21,296,918.56 y `mv_kepler_sales_daily` $25,742,138.56. El código lee **65 veces la tabla
+   contra 13 la matview**, incluido `commercial-profitability.service.ts`.
+   La brecha se descompone exacto: `ruta` +$2,031,381.68 (**la tabla tiene CERO** venta de ruta
+   Kepler) · `credito` +$2,679,322.92 · `tienda` **−$265,484.60**, que resultó ser venta de ruta de
+   **Wincaja archivada como mostrador de Kepler** (bodegas `RUTA-21…28`, $485,710.02) menos las 6
+   sucursales reales subcontadas ($220,225.42). O sea: la tabla se equivoca en **las dos
+   direcciones**, y esas bodegas `RUTA-2x` aparecen en **tres canales a la vez**.
+   El mismo hecho está materializado en **16 objetos = 30.5% de los 25 GB**.
+2. **`analytics` se salió del modelo de tenant sin decirlo:** 59 de 60 tablas sin RLS (la única con
+   RLS es `db_health_alerts`), pero las 60 con `tenant_id`; **1 de 53 FKs** incluye `tenant_id`
+   (contra 188/191 en `commercial`).
+3. **51 tablas vacías en prod, 48 referenciadas por código** — el modo de falla de
+   `customer_receivables` otras 48 veces. `trade.visits` está vacía con **89 referencias**.
+4. **El tablero de salud es síntoma:** ~40 sensores y la mayoría son *"¿sigue fresca esta tabla
+   materializada?"*. Una vista sobre el ODS no necesita sensor.
+5. **11 importers zombie** cuyo destino ya es una VISTA (+2 handlers muertos en
+   `apply-handlers.js:822`), **21 `import-*` que leen los replicas `md_0X` en vez de `kepler_ods`**,
+   **65 importers sin orquestador**, y dos verdes falsos (`wincaja.mv_branch_kpis` sin refrescador;
+   `analytics_refresh_kepler`/`_blended` sin umbral en `CRON_JOBS`).
+6. **`identity.knex_migrations` existe con 0 filas** mientras `public` tiene 561 — y el `search_path`
+   de ambos roles pone `identity` **antes** que `public`. Cualquier consulta sin calificar responde
+   "no hay migraciones": es el origen del mito del "backlog de 91".
+
+### Lo que se cerró en este commit (`fix([AUTHZ])`)
+
+**58 filtros de tenant fail-OPEN → fail-CLOSED.** Había 15 copias del helper
+`tenantId(user): string | undefined` en `libs/trade` y 58 call sites con
+`if (tenantId) q = q.where('tenant_id', tenantId)`. Ese `if` deja la query **sin scope** cuando el
+helper viene vacío — y estos services inyectan `KNEX_CONNECTION`, que conecta como `postgres`
+(superuser), donde **`FORCE ROW LEVEL SECURITY` no aplica**. El filtro manual era la única defensa y
+era condicional. Con un tenant con datos nunca se manifestó: era un arma cargada esperando al segundo.
+
+- Nuevo `requireTenantOf(user, ctx)` en `platform-core` — el invariante en **un** lugar en vez de 15.
+- **2 escrituras** que iban por `id` pelado reciben scope (`approveAction`/`rejectAction`).
+- Se conservan las guardas sobre **parámetro** explícito: el cron no pasa por el helper, itera
+  tenants y llama `*ForTenant(id)`.
+
+**Y una regresión viva de la retirada de CASL (ADR-054):** los usuarios sintéticos del broadcast de
+métricas en `reports.service.ts` declaraban su alcance en `rules` con `permissions: {}`. Desde que
+`getDataScope` lee el mapa de permisos e ignora `rules`, los **tres** ramos colapsaban a `own` → un
+admin con scope global recibía por WS métricas de sólo sus propias capturas. El type-check no lo veía
+porque `rules` era una prop extra sobre un objeto literal.
+
+**Lección:** al retirar una librería de autorización, los objetos-usuario **sintéticos** (crons, WS,
+tests) no los cubre el compilador — hay que buscarlos a mano. Y un permiso declarado en una prop que
+ya nadie lee no falla: **degrada en silencio**.
+
+### Verificación (honesta)
+
+`nx build api` verde · typecheck limpio en `libs/trade` y `libs/platform-core`. **La suite de
+regresión NO pudo validar esto en esta máquina**: la API no está arriba (`:3334` → sin respuesta) y
+las credenciales de `.245/platform_test` fallan con `auth_failed` de Postgres (cluster compartido
+entre devs). Los 72 fallos son ambientales y ninguna de esas suites carga este código, pero **queda
+pendiente correrla donde el entorno esté sano**.
+
+### Pendiente deliberado
+
+`permissions-cache.service.ts:66` tiene el mismo patrón y su propio comentario dice *"tenant_id
+OBLIGATORIO"*. **No se tocó a propósito:** está en el camino de autorización, y si se vuelve estricto
+un JWT legacy sin `tenant_id` deja de resolver permisos y el usuario queda fuera hasta re-login. Los
+JWT viven en `localStorage`, así que el impacto no se limita a los logins nuevos. Requiere decisión
+explícita.
+
+---
+
+## 2026-09-03 — ADR-055: la cantidad se muestra en la unidad más grande, con el divisor del ERP dueño del almacén
+
+**Disparador:** Edgar, después de dos días de trabajo sobre `/compras/pedido`: *"a diferencia de
+Kepler, usemos la unidad más grande de medida para mostrar las cantidades de venta y existencia;
+usar la tabla de existencias de Kepler para las que ya lo tienen, y la de Wincaja la tabla de
+Wincaja."* No era una preferencia visual: era el nombre correcto del defecto.
+
+**El defecto.** Los dos ERPs guardan la existencia en unidades distintas — Kepler en su unidad
+base, Wincaja en su unidad de venta (el **paquete** en los multipack). La pantalla dividía la de
+**todos** los almacenes por un solo factor por producto (`v_product_box_factor.box_factor` =
+unidades base por caja), así que en Wincaja dividía entre 140 lo que iba entre 14.
+
+Y no era cosmético. La capa **cruda** es auto-consistente, pero la **derivada** no:
+
+| columna | unidad en MD-30 / MD-32 / 00 |
+|---|---|
+| `wincaja.v_sales_daily.qty` · `analytics.sales_daily.units` | paquetes |
+| `inventory_health` · `commercial.reorder_policy` | paquetes |
+| `v_erp_stock_on_hand.qty_stock_units` | paquetes (crudo, a propósito) |
+| **`analytics.product_demand.daily_pieces`** | ⚠️ **unidad BASE** — normaliza |
+| **`replenishment_plan.stock_pz`** | paquetes (**el nombre miente**) |
+
+El motor restaba *piezas de demanda menos paquetes de existencia*. Medido: **159 de 166** multipack
+de MD-30 con venta traen la demanda convertida (razón ≈ `f2`, $1.79M de venta 30 d).
+
+| medido en prod | antes | después |
+|---|---|---|
+| workbook · $pedido | $12,570,980 | **$11,704,175** (−$866,805) |
+| workbook · $existencia | $63,247,108 | **$65,931,933** (+$2,684,825) |
+| purchaseSuggestion | $7,139,115 | $6,778,956 (−$360,159) |
+| overstock · $inmovilizado | $22,290,269 | $22,902,514 |
+| transferPlan | $2,256,065 | $2,237,132 |
+| **6 sucursales Kepler** | — | **sin cambio, ni un peso** |
+
+**Lo que se construyó.** `analytics.v_warehouse_box_factor` (vista, mig `20260902220000`, batch 260
+en Railway): una fila por (tenant, almacén, producto) con el divisor **en unidades nativas de ese
+almacén**. Kepler resuelve por el resolvedor canónico, Wincaja por `wincaja.articulos.factor_venta`
+— el ERP dueño del almacén, tal como lo pidió Edgar. Materializado en `replenishment_plan.display_bf`
+(la regla vive en la vista; el importer la lee). `transferPlan` y `overstockList` pasaron a calcular
+**en cajas**: restaban unidades de universos distintos, y `transferPlan` además comparaba el déficit
+del destino contra el stock del CEDIS origen, que puede tener otra unidad nativa.
+
+Se retiró el `cajaFactor()` hardcodeado (`w.code IN ('MD-30','MD-32')`, que dejaba fuera el CEDIS
+`00`) y la lectura de `analytics.wincaja_product_box_factor`, tabla alimentada por importer.
+
+**Lecciones — dos son sobre cómo trabajé, no sobre el código:**
+
+1. **La unidad de una columna no se hereda de su fuente.** Verifiqué la consistencia en la capa
+   cruda (`sales_daily` vs el POS: 1:1, 182/182) y concluí que todo estaba bien. Pero el motor no
+   lee `sales_daily`: lee `product_demand`, que normaliza una columna y no la otra. Hay que probar
+   la unidad **en la tabla que el consumidor lee de verdad**.
+2. **Una retractación es una afirmación, y necesita la misma evidencia.** El 2026-09-02 reporté este
+   sobre-pedido, después me retracté con un test que medía la capa equivocada, y dejé la retractación
+   escrita en la memoria del proyecto como hecho. El hallazgo original era correcto.
+3. **El testigo que no miente es el precio realizado** contra la escalera del ODS
+   (`v_product_unit_ladder.p1/p2/p3`). `42029`: crudo Wincaja $115.54 ≈ `p2` (paquete) ·
+   `product_demand` $12.52 ≈ `p1` (base). El nombre del campo, el rótulo y `unit_kind` no discriminan.
+4. **Dos fuentes que coinciden donde deben y difieren donde debe** es lo que autoriza a usar una.
+   `factor_venta` vs `box_factor`: Δ < 0.1% en 5,475 filas, y divergen sólo en los 348 multipack.
+5. **Los backticks dentro de un template literal de SQL rompen el archivo** — trampa ya documentada en el
+   repo, y caí en ella dos veces más en esta sesión.
+
+**Numeración:** este trabajo se escribió citando **ADR-052**, número ya tomado por *Contratos de
+tipos del boundary REST* y usado además por la **Fase LC** y el **BFF del Command Center**. Se
+renumeró a **ADR-055** en los archivos de esta línea. **LC y Command Center siguen colisionando con
+ADR-052 y falta decidir su número.**
+
+**Estado:** mig `20260902220000` aplicada a Railway (batch 260) + importer corrido (`display_bf`
+poblado, 0 nulos). Builds `api` y `view` verdes. Smoke `test-newdb-warehouse-box-factor` **29/29**
+contra prod, en la regresión. **Falta: redeploy api+view.** Sin permisos nuevos → sin re-login.
+
+⚠️ El commit quedó mezclado: un commit concurrente de otro dev barrió el índice y estos archivos
+viajaron dentro de `0f7ab814 feat([sell-out]): identidad de vendedor Kepler…`. El código está, el
+mensaje no le corresponde.
+
+---
+
+## 2026-09-02 — Fase AUTHZ: CASL se retira (y el retiro deja un cabo en el módulo de usuarios)
+
+**Disparador:** una revisión a fondo de `/admin/users` encontró que los botones de alta/edición/baja
+se gateaban con `can('manage','users')`, que **ningún permiso podía satisfacer**. Edgar no pidió el
+parche: preguntó *"¿qué tan bien se está usando CASL?"* — y ahí la respuesta dejó de ser un fix de
+una línea.
+
+**Lo que se midió** (código + data de prod, no supuestos):
+
+| Qué | Medida |
+|---|---|
+| Llamadas `can(action, subject)` en los 3 frontends | 74, en 14 pares distintos — **40 (54%) eran `can('manage','all')`** |
+| Permisos `*_GESTIONAR/CONFIGURAR` que concedían `'manage'` | **1 de 32** (`ROLES_CONFIGURAR`) |
+| Compuertas muertas (sólo pasaban con `manage:all`) | **4**: usuarios, catálogos, scoring, planogramas |
+| Usuarios activos en prod con un permiso que no se honraba | **5** (`jefe_marketing` 2, `supervisor_ventas` 3) |
+| Claves del enum sin regla CASL | **51 de 164** (FISCAL 17, FINANCE 15, COMMERCIAL 7, STORE 5) |
+| Reglas con `conditions`/`fields` (el caso de uso de CASL) | **0** |
+| Sujetos declarados: back vs front | 53 vs ~24, en **3 copias** del `PermissionsService` |
+| JWT del rol `marketing` | 4,901 B de `permissions` **+** 3,554 B de `rules` = **~11.6 KB** |
+
+**El dato que decidió:** en CASL `manage` es comodín del lado de la **regla**, no de la consulta.
+Verificado ejecutando el CASL del propio repo: con reglas `['read','create','update','delete']`
+sobre `users`, `can('manage','users')` da **`false`**. O sea que la convención de acciones —31
+permisos a CRUD y uno solo a `manage`— no era un detalle de estilo: era la causa de las 4
+compuertas. Y el backend **ya había abandonado** el modelo `(action, subject)` por el problema
+opuesto (colapsar a subject dejaba pasar de más), así que CASL ya no decidía nada en el camino
+crítico salvo el god-mode.
+
+**Decisión (ADR-054):** retirarlo, no arreglarlo. Arreglarlo dejaba dos mapas de 164 entradas que
+hay que mantener sincronizados a perpetuidad para responder lo mismo que un lookup por clave.
+
+**Cómo se ejecutó:** 3 fases, backend → UI → borrado (`5ccb571f`, `15c60bd7`, `1555e817`).
+
+**Las dos lecciones, que son la misma:**
+
+1. **Retirar el productor antes que sus consumidores es cómo se encuentran los consumidores.** Al
+   dejar de emitir `rules`, el `if (payload.rules)` que envolvía el `perms.load()` de `vendor` y
+   `portal` se volvió falso y las dos apps quedaban con **cero permisos**. El type-check no lo ve
+   porque el campo era opcional.
+2. **Un tipo opcional que miente no falla: degrada en silencio.** El cabo que quedó del retiro:
+   `RequesterContext` de `users.service` y `AuthUser` de `users.controller` seguían declarando
+   `rules?: unknown[]` —campo ya muerto— y **no** declaraban `permissions`/`role_name`, de los que
+   `getDataScope` depende para acotar el padrón. Compilaba y funcionaba porque en runtime llega el
+   `req.user` completo; pero nada impedía que un caller armara `{ sub, username }` y el alcance
+   cayera **a `own`** sin un solo error. Es el mismo bug que (1), en versión suave: ambos campos
+   opcionales, ambos invisibles al compilador.
+
+**Beneficio colateral, no buscado:** `getDataScope` pasó a leer `permissions`, que el guard relee
+del cache en cada request, en vez de las `rules` congeladas en el token. **Un permiso de reportes
+revocado ahora se respeta al instante**; antes esperaba al próximo login.
+
+**Verificación:** `tsc` api limpio · `nx build` verde en **view, vendor y portal** · cero `.can(` en
+los 3 frontends · cero referencias a `@casl` (incluido el lockfile, que el commit no había bajado) ·
+los 3 `permissions.service.ts` idénticos por md5.
+
+**Cuidado al desplegar:** este cambio **cambia lo que se ve** en las dos direcciones — aparecen los
+controles que `can('manage', X)` escondía y desaparece el nav que se mostraba por colapso de subject
+(*Registrar visita* se le ofrecía a quien sólo tenía `VISITAS_VER`). Los 5 usuarios de la tabla son
+el caso de prueba. **No requiere re-login.**
+
+**Lo que este retiro NO arregló** (misma revisión, abiertos): el padrón de `/admin/users` se acota
+por permisos de **reportes** y no de usuarios — un rol de RH con `USUARIOS_GESTIONAR` y sin reportes
+vería **sólo su propia fila**; y `authz-tree` declara `view: USUARIOS_VER` mientras la ruta y el
+sidebar exigen `USUARIOS_GESTIONAR` para *ver*, o sea que `USUARIOS_VER` no habilita nada ahí.
+
+---
+
+## 2026-08-31 — MR.7: el margen no se estaba midiendo (dos costos, una unidad descartada)
+
+**Disparador:** *"que tipos de margenes… de donde sacas el costo estandar"*, y después: *"tenemos dos
+problemas claros que necesitan un análisis"*. La pregunta por el costo estándar destapó que
+`sales_daily.cost` tiene **dos escritores incompatibles**, uno de los cuales no guarda un costo sino
+un markup despejado de la venta.
+
+**Lo que se midió** (prod, 30 d, $41.1 M): Kepler 50.8% = `revenue/(1+markup_pct)` → margen que
+**no reacciona al precio** (3,269 SKUs, 51 con precios >20% distintos entre almacenes,
+**0.0000 pp** de spread); subdeclara 2.02 pp / $411,220. Wincaja 48.9% = `ValorCosto` real. La
+unidad: 91.4% cae en pieza, 5.5% se cuenta en paquete/caja publicado como «unidades», 3.1% no se
+ubica, 257 SKUs cuentan distinto según canal. Y **el costo por línea existe** (`kdm2.c62/c63`, 99.1%
+en `U-D-10`/`U-D-6`) pero viene por peldaño: 7.4% de líneas darían costo > venta.
+
+**Tres afirmaciones retiradas**, todas publicadas por el propio tablero: el spread por sucursal
+(artefacto de método), la validación tautológica del margen unitario, y el 11.32% como medición.
+ADR-051 enmendado.
+
+**Lecciones.**
+1. **Preguntar "de dónde sale este número" es una prueba, no una formalidad.** Tres documentos, la
+   ayuda contextual y dos respuestas mías afirmaban que el costo era del PdV. Nadie lo había seguido
+   hasta el importer.
+2. **La regla de Edgar de no copiar tablas predice el daño con precisión medible**: primarias y
+   vistas, 0 datos rotos; copias materializadas, todos. Con un matiz que hay que conservar —
+   materializar por costo es legítimo; el pecado es materializar un **valor inventado**, porque no
+   hay origen contra el cual cuadrarlo y ninguna verificación lo atrapa.
+3. **Una validación que no puede fallar no valida.** El «0 discrepancias en 4,922 productos» que
+   reporté como confirmación era el mismo cociente comparado consigo mismo.
+
+**Pendiente:** MR.7.1 (persistir el peldaño, ruta crítica) → MR.7.2 (costear con el peldaño) →
+MR.7.3 (declarar el método y bloquear cortes mixtos). Y MR.0 #10 sigue sin firma.
+
+---
+
+## 2026-08-31 — RA-PRO.46: el costo de caja se leía mal porque lo calculábamos en vez de leerlo
+
+**Disparador:** Edgar mandó dos capturas de Kepler —la pantalla *"Costos por Proveedor por
+Productos"* y una fila de `/compras/pedido`— y una corrección seca: *"nosotros no debemos inventar
+nada, ya está en Kepler, sólo es tomar las columnas adecuadas"*.
+
+### Qué estaba roto
+
+`caja_cost = costo_unitario × bf`, y fallaba **por los dos lados**:
+
+1. **Multiplicador** — `bf` no siempre está en el peldaño del costo. Azúcar `99029`: lo pagado está
+   en **KG**, `bf=50` es el factor **500 g→costal** → $798.57 por un costal de $415. Peor caso 25×.
+2. **Base** — `real_cost` es el promedio ponderado de 90 d, o sea rezagado. Cerillos `00303`: se
+   compran a $11.0793 clavado (**$553.97 la caja, exacto, tres entradas seguidas**), pero una compra
+   vieja a $11.8774 subía el promedio a $11.3454 → $567.27.
+
+El segundo punto es el que importa metodológicamente: **mi primer arreglo corrigió sólo el
+multiplicador y marcó `00303` como correcto.** Edgar tuvo que corregirme una segunda vez. Arreglar
+el multiplicador y dejar la base podrida no arregla nada — y encima hace que el SKU se vea sano.
+
+### El decode que lo destrabó
+
+Las capturas decodificaron en un minuto lo que la aritmética tardaba horas en inferir:
+
+- **`kdpv_prov_prod`** = la pantalla de costos por proveedor: `c1`=proveedor · `c2`=SKU ·
+  `c4`=**Costo Uni Mayor** · `c5/c6/c7`=%Desc · `c8/c9/c10`=**Total Uni 1/2/3**.
+- **`kdii.c11/c80/c83`** = los **rótulos** de esos tres peldaños (`PZA/PAQ/CJA`, pero también
+  `500/KG/BTO`). La escalera puede venir **corrida** (`c83` vacío → el costo de caja vive en `c9`).
+- **`kdik.c16`** = costo neto del peldaño base, **promedio móvil por sucursal** (no es costo
+  estándar ni último costo: 20.2% coincide con la última compra, 92.1% con la valuación `c9/c6`).
+
+### Resultado
+
+| | antes | ahora |
+|---|---|---|
+| costo de caja del catálogo | $7,705,489 | **$6,639,376** |
+| valuación de inventario del plan | $59.6M | **$55.6M** |
+
+Vista `analytics.v_supplier_cost_ladder` **derivada del ODS** (mig `20260831120000`, batch 238 en
+prod), `cost_source` declara `kepler` vs `bf`, y se fue el `pz` hardcodeado de la UI (**79.1% de los
+SKUs no tiene base PZA**).
+
+### Auditoría de existencia y ventas — limpias
+
+Mismo protocolo. **Mediana 1.0000 en las tres magnitudes, 0% de desfase de unidad.** El costo era el
+único roto. De paso salió un error de doc: `kdil.c9` **no** es la existencia, son las **salidas**.
+
+### Lecciones
+
+- **El trabajo es tomar la columna correcta, no calcularla.** Nueva **regla 0** en `ERP_KEPLER.md` §5
+  y en `CLAUDE.md`, a pedido de Edgar.
+- **Desconfiá de tu propia consulta cuando el número sorprende.** Comparando ventas me dio 0.5445 y
+  casi reporto un hueco de $4M: era mi join (folios reciclados, GOTCHAS §31). Los números redondos
+  son firma de duplicación, no de pérdida.
+- **Un umbral inventado es tan malo como un dato inventado.** El smoke falló por mi corte de 90%
+  cuando la cobertura real es 88.7%; investigué antes de bajarlo y resultó que a esos SKUs Kepler
+  no les captura costo (983 SKUs, sólo 1 en `kdpv_prov_prod`). La aserción pasó a vigilar que **no
+  se degrade** y que lo no cubierto siga siendo irrelevante (<2% de la venta).
+
+**Pendiente:** redeploy api + view (sin migraciones ni permisos → sin re-login).
+
+---
+
+## 2026-08-31 — WR.7: la réplica Wincaja estuvo 4 días en cero diciendo "online"
+
+Tres fallas que se tapaban entre sí: `branchSchema()` **cacheaba el descubrimiento vacío** y no
+reintentaba nunca; el **heartbeat abortaba** por falta de `DATABASE_URL_NEW` (el vigilante muerto por
+la misma causa que lo vigilado); y **una sucursal caída cortaba el ciclo entero**. Causa de fondo:
+`Z:` es una **unidad mapeada**, y los mapeos de Windows son **por sesión de login**.
+
+**Lo más caro no fue la falla, fue el último tramo:** el sensor `wincaja_branch_stale` **sí** detectó
+todo — estaba en `critical` con 154 h y llevaba **18.9 días abierta**, junto a otras 23 alertas,
+**ninguna reconocida**. El WS emite sólo en transiciones, así que el toast salió una vez hacia quien
+tuviera la pestaña abierta. **Un toast a un navegador abierto no es una notificación.**
+
+Y una comparación que decide el rumbo: el mismo día, **MD-32 empujaba en vivo** por el agente que
+corre **en el servidor POS** (lee el `.mdb` local, sin drive mapeado) mientras su réplica por `Z:`
+llevaba 6 días muerta. La misma tienda, viva por un transporte y muerta por el otro.
+
+**Pendiente:** MD-30 tiene el agente desplegado pero muerto desde el 13-ago (447 h). Y el último
+tramo de alertas (entrega fuera de la app + sacar los 3 tenants de prueba del barrido).
+
+---
+
+## 2026-08-29 — MR.5: auditoría de `/comercial/rentabilidad` y corrección de la cascada
+
+**Disparador:** Edgar — *"necesito que analices /comercial/rentabilidad"*, y después de la auditoría: *"hay que corregir todas estas acciones"*.
+
+### El hallazgo que cambia el número
+
+La pantalla calculaba el margen como `revenue − (catalog.products.cost_base × unidades vendidas)`. Ese costo de catálogo **viene por CAJA** en buena parte del catálogo, mientras las unidades del sell-out vienen **por PIEZA**. Medido contra `platform_test`:
+
+- **30 SKUs aportaban $1,757,050 de COGS — el 10.4% del total — sobre $123,289 de venta (0.6%).**
+- `analytics.v_product_box_factor` reproduce el ratio casi exacto: 78210 BUBBULUBU `bf=15` → $51.00/15 = **$3.40** contra un precio implícito de **$3.04**; 95285 TURIN `bf=32` → $4,356.72/32 = **$136.15** contra **$176.41**; 01007 BIMBO `bf=8` → **$7.77** contra **$7.19**.
+- La pantalla publicaba **13.05%**. `analytics.sales_daily` —que ya trae el costo que registró el punto de venta, en la misma unidad en que cobró— dice **10.32%**.
+
+La banda "Bajo costo" mostraba 60 SKUs con un margen promedio de **−665%**. No vendían bajo costo: estaban medidos en otra unidad.
+
+**Verificado después contra prod** (misma ventana de 30 días, $42M de venta): **57 SKUs, $3,565,336 de COGS falso — el 10.0% del COGS total — sobre $386,125 de venta (0.9%). La pantalla publicaba 14.62% contra 11.32% real: 3.30 pp, el 94% de la brecha.** Y el dato que cierra el caso: **el negocio reporta su margen en ~11.5%**. O sea el fact coincide con lo que Compras ya sabe por otras vías, y la pantalla —el tablero construido justamente para cerrar esa brecha— les estaba diciendo que ya casi estaba cerrada.
+
+### Por qué pasó
+
+**La pantalla (MR.5) se construyó sin MR.0–MR.4.** El plan de fase abre con *"esto no arranca programando la pantalla"* y pone cuatro sprints de definición antes de la UI, con la normalización de unidad (MR.1) como bloqueante explícito: *"un motor de rentabilidad que mezcle unidades produce números convincentes y falsos — que es peor que no tener el tablero"*. Los seis hallazgos restantes son variantes de lo mismo: cada ambigüedad sin cerrar se automatizó con un valor por defecto que después nadie volvió a mirar.
+
+### Decisiones (ADR-051)
+
+- **La venta y el costo salen del fact.** No se normaliza la unidad renglón por renglón: se toma la fuente que ya la tiene resuelta porque es la misma transacción. Estable en las tres ventanas: 10.32 / 10.29 / 10.33% a 30/90/365 días.
+- **`cost_base` no se corrige acá, se contrasta.** Dividir por `v_product_box_factor` arreglaría el margen y dejaría el catálogo mal — y no aplica a granel (31008 tiene `box_factor=1` con costo por bulto). El catálogo se corrige en su feed. Acá se marca el conflicto (83 SKUs, $21.6M de capital) y **se suprime el GMROI** de esas filas.
+- **Se descartó valuar el inventario con el costo implícito de la venta.** Se midió en local: **empeora** ($375M → $398M). El CEDIS concentra el stock y no vende, así que cae al costo de retail. Un número que no se puede defender no reemplaza a otro que tampoco.
+- **⚠️ Corrección posterior (mismo día):** el "$375M / ~4 años de inventario" es de **`platform_test`, no de prod**. En prod el inventario está **sano**: $59,095,184 contra $564M de COGS anuales = **38 días**. Lo que sí persiste en prod es la calidad del costo — **564 de 6,972 SKUs (8.1%) valúan $11,423,059 = 19.3% del capital** con un `cost_base` que el PdV contradice. La lección de método: medir el hallazgo en la DB que sirve la pantalla **y** en prod antes de escribirlo como problema de negocio.
+- **Fuente vacía ≠ resultado en cero.** `erp_purchase_adjustments` está en 0 filas **en la DB local**: la cascada de palancas no valía cero, estaba ciega. Ahora lo dice. *(Prod sí tiene sus 1,403 ajustes y las 147 políticas de descuento, así que allá la cascada opera. El flag queda igual: la diferencia entre "no hubo descuentos" y "no los estamos midiendo" no puede depender de que alguien se acuerde de revisar la tabla.)*
+- **Lo no confirmado no se publica con unidad.** `erp_promotions.benefit` sólo toma 2/3/4/5 y el propio servicio advertía *"confirmar antes de restarlo del margen"* mientras la UI imprimía "−4.0%".
+
+### Bugs propios que salieron de la revisión
+
+- **El panel de cobertura decía 100% siempre.** 4,117 de 4,117 SKUs — por construcción, porque el filtro `cost_base > 0` ya había excluido a los demás antes de contar. Era el elemento de honestidad de la pantalla y no medía nada. Cobertura real: 99.88%, 4,009/4,082.
+- **El KPI de inventario y la columna de la tabla medían universos distintos** ($23.2M de diferencia): el KPI todo el stock, la tabla sólo productos con venta. El propio docstring del servicio decía que ese tipo de descuadre *"pierde credibilidad a la primera revisión"*.
+- **Las bandas estaban clavadas en 10/15/25** con el objetivo editable: con objetivo 20%, el KPI coloreaba contra 20 y las bandas contra 15.
+- **Ventanas mezcladas:** el fact iba dos días atrás y compras/pagos usaban `CURRENT_DATE`, sin decirlo en pantalla.
+- **ADR-048 estaba duplicado** con CxC, y MR no tenía entrada en el tracker.
+
+### Validación
+
+DB-direct 7/7 (margen, bandas contra objetivo, cuadre de inventario, testigos) + breakdown 26/26 (los 4 niveles cuadran exacto con el resumen: 10.32% vs 10.32%; las 9 columnas ordenables corren; los filtros de banda son exactos; 575–661 ms). Smoke HTTP extendido pero **sin correr**: los dev servers los levanta Edgar. Builds `api` + `view` verdes.
+
+### Lo que sigue abierto
+
+**MR.6** (la descomposición de la brecha) y **MR.0** (el diccionario) se construyeron el mismo día, después de esta entrada — ver [`FASE_MR_DICCIONARIO_MARGEN.md`](FASES/FASE_MR_DICCIONARIO_MARGEN.md), que queda **redactado y sin firmar**. Lo que sigue abierto son las **10 decisiones** de su §6, con dueño; la más importante es si el objetivo del 15% se mide contra el margen **bruto** o contra el **negociado**, porque a 365 días el negociado ya está en 15.87% y de eso depende si la fase está cerrada.
+
+### Lección
+
+El plan de fase había escrito el riesgo, con nombre y con datos, meses antes: *"la unidad de medida es el riesgo #1 (ya demostrado con datos)"*, con un ejemplo casi idéntico encontrado en `/comercial/pricing`. Un riesgo documentado no protege de nada si el sprint que lo mitiga se saltea; y la señal de que se salteó no fue un error, fue un tablero que se veía perfectamente bien.
+
+---
+
+## 2026-08-28 — RE.17: las 6 pantallas de facturas de entrada contra los 18 puntos de DESIGN.md
+
+**Disparador:** Edgar — *"ahora nos vamos a enfocar 100% en el aspecto visual; analizá cuáles son nuestras necesidades visuales, qué falta mejorar respecto a cómo se trabaja cada interfaz"*. Después de la auditoría: *"arreglemos todo documentando el plan e implementando con atención al detalle"*.
+
+### Lo que la auditoría encontró (6 pantallas × 18 puntos, código contra `DESIGN.md`)
+
+RE.13/RE.16 habían partido el proceso **por trabajo** y eso quedó bien. Lo que faltaba era cerrar el **sistema visual** — cada pantalla se había construido con lo que había a mano ese día:
+
+1. **Dos motores de tabla para el mismo dato.** Pendientes/Control/Gemelas con `<table class="surf-table--plain">`, Revisión/Órdenes con `p-datatable-sm` sin `surf-table`. Órdenes era **la única tabla de todo `/compras`** sin la clase compartida — sus vecinas (`compras-360`, `costo-neto`, `cuadre-proveedor`) sí la llevan.
+2. **Faltaba el organismo canónico de detalle.** `SidePeek` estaba adoptado en 10+ pantallas de la app y en **0** de entradas: Órdenes leía el expediente completo (veredicto + 3 cifras + ficha + N renglones + conciliación por línea + ajustes) en un `p-dialog` de 72rem, y abría un **cuarto** diálogo encima para ver la hoja. Antipatrón textual de §O.1.
+3. **El documento no estaba donde se decide.** Revisión lo tenía al lado de las cifras (bien); Pendientes confirmaba facturas de seis cifras mostrando sólo lo que leyó el OCR; Gemelas pedía dictaminar sin mostrar nada; Órdenes lo escondía en un tercer diálogo. Y donde estaba, era un `<iframe>` pelado de 64vh: sin zoom, sin rotar, sin páginas — sobre remisiones escritas a mano y escaneadas torcidas.
+
+### Decisiones
+
+- **Un visor, no cuatro parches.** `DocViewerComponent` compartido y **sin librería nueva** (checklist 3/16 + la decisión de licencia de PrimeNG está abierta): *fragment params* del visor nativo para PDF, `transform` CSS para imágenes. La degradación es a "como estaba antes", nunca a "no se puede leer".
+- **Pantalla completa por Fullscreen API y no por `position: fixed`.** El visor vive dentro del `SidePeek`, cuyo panel tiene `transform: translateX(...)`; un ancestro transformado es bloque contenedor de sus descendientes fijos, así que un overlay "a pantalla completa" quedaría **atrapado dentro del cajón**.
+- **La tabla de Órdenes se alinea con sus hermanas, no se reescribe.** PrimeNG-first sigue vigente para lo existente; migrar las tres `--plain` a `p-table` queda fuera de alcance mientras la licencia esté abierta.
+- **El vocabulario no se toca.** El diccionario de ayuda ya cubría gemelas, cobertura y documento: las 4 pantallas que faltaban sólo tenían que **montar el `?`**, no redactar.
+
+### Bugs reales que salieron de la revisión visual
+
+- **`--danger-fg` no existe.** Tres reglas de Órdenes lo usaban como `var(--danger-fg, #b91c1c)`, o sea el rojo literal quedaba fijo en los **dos** temas. Junto con dos fondos `#00000010` que desaparecen sobre fondo oscuro justo donde tienen que contrastar con el papel blanco.
+- **El link "ver todo" mentía desde RE.16**: enlazaba `?suc=03` y Órdenes ignoraba el parámetro. También paginaba 150 filas en memoria mientras el server mandaba 300 y el KPI contaba miles.
+- **La fecha de arranque se corría un día**: `<input type="date">` con `new Date('2026-08-01')` = medianoche UTC = 31 de julio en México.
+- **Dos pérdidas de trabajo sin guard**, con `unsavedChangesGuard` ya escrito en el repo y sin usar acá.
+
+### Lecciones
+
+- **Los backticks dentro de un comentario CSS o HTML cierran el template literal.** Ya estaba en la memoria del proyecto y volvió a costar dos builds: el error no dice "backtick", dice `NG1002: Incorrect number of arguments to @Component decorator` más veinte `TS1005` en cascada.
+- **`[styleClass]` no es un `@Input` de `p-table` en PrimeNG 22** (el atributo estático sí funciona). Para densidad condicional va `[class.surf-table--compact]` sobre el host.
+- **Una regla del sistema que nadie expone es deuda invisible**: `surf-table--plain.is-dense` existía desde que se escribió la regla de densidad y ninguna pantalla la ofrecía.
+
+### Verificación
+
+Builds `view` + `api` verdes. **Sin verificación visual** (dev servers prohibidos y los MCP de navegador no conectaron en la sesión). Smokes de entradas: `goods-receipts-lifecycle` y `goods-receipts-scope` verdes; **3 aserciones rojas preexistentes y ajenas a este diff** (que no toca migraciones ni la función de apareo) — `goods-receipt-twins` avisa que el motor **desaparea un par** con la ventana corta (968 vs 969, es justo lo que ese smoke vigila y vale mirarlo aparte), y `supplier-receipt-proofs` ×2 por data local desactualizada (`analytics.erp_supplier_payments` sin PK en local + falta el anticipo CONVERMEX).
+## 2026-08-29 — RA-PRO.45: el tránsito se pesa por la probabilidad de que llegue
+
+**Disparador:** Edgar — *"realizá un análisis de estas órdenes de compra en tránsito, seguí su flujo para saber más de estas"*, después de que la columna "En camino" (RA-PRO.44) hiciera visible que 58% del tránsito ya estaba vencido.
+
+### Lo que apareció al seguir la cadena
+
+**En Kepler la orden de compra se captura CUANDO LLEGA la mercancía.** De las OCs cerradas de hace 200–30 días, cierran el mismo día el **81% en CEDIS** y el **95–100% en sucursales** (p90 CEDIS 4 d, resto 0 d). El `X-A-35` no es una promesa a futuro: es papeleo de recepción. Por lo tanto una OC abierta no es "el pipeline", es un documento estancado — y el motor le creía al 100%.
+
+Universo real: **273 OCs abiertas / $20.26M**, 96% concentradas en CEDIS (156) y Padre Hidalgo (109). PH deja abierto el **17%** de sus documentos contra 1–3% del resto (eso es captura, no motor).
+
+### Hipótesis probadas — cada una contra su placebo
+
+El placebo es la misma prueba corrida sobre la ventana ANTERIOR a la OC. Sin él, dos de las cuatro hipótesis hubieran pasado por buenas:
+
+| Hipótesis | Post | Placebo | Veredicto |
+|---|---|---|---|
+| "entró el mismo SKU después → se surtió" | 78.0% | **78.3%** | ❌ ruido de rotación puro |
+| "se surtió como vale directo sin ligar" (897 vales `X-A-37` con `c37=0`) | 1 de 218 | 1 de 218 | ❌ descartada |
+| "se re-pidió y llegó contra la OC nueva" (mismo prov + misma cantidad) | 52.6% | 19.3% | ✅ confirmada; el 91% de esas entradas ya tiene otra OC dueña |
+| "el ERP ya las da por muertas" (`kdm1.c43` = F/C/R) | 22 OCs / $1.28M | — | ✅ confirmada |
+
+**Hallazgo de columna:** `kdm1.c43` es el estatus del documento (`N` pendiente · `F` finalizada · `C` cancelada · `R` recibida). Se encontró diffeando las 200 columnas de `kdm1` entre OCs abiertas viejas y cerradas — era la única que separaba los dos grupos. Es una segunda fuente independiente de la cadena de documentos, y gratis.
+
+### La curva de supervivencia
+
+`P(llega | seguía abierta al día d)`, sobre OCs de hace 180–400 días (todas resueltas, sin censura): **85.6% al día 0 → 56.8% a los 15 → 24.0% a los 31 → 13.6% a los 45 → 11.6% a los 61**. Derivada del ODS en cada corrida y **materializada** en `analytics.oc_survival_curve` (8 filas, un solo productor: el importer del fact). Monótona no creciente por construcción; `fallback` marcado si un tramo no junta n≥25.
+
+### Qué cambió
+
+- `transit_cajas` = los papeles (lo que ve el comprador, cuadra folio por folio). `transit_eff_cajas` = pesado por P(llega|edad), **es lo que el motor descuenta**. Se pesa ANTES de repartir por el árbol de abasto.
+- `c43 IN ('F','C','R')` se excluye del tránsito: el ERP ya lo dijo, no hace falta heurística.
+- Todos los consumidores del descuento: pedido, workbook, detalle, traspaso, sobrestock y el **scanner de hallazgos** (si se quedaba con el crudo, la bandeja se cegaba justo en los SKUs tapados).
+- UI: columna **Abierta** (días + semáforo) en el diálogo de En camino + nota que explica la brecha; página nueva **`/compras/oc-abiertas`** con las 202 OCs abiertas con valor, su estatus y su probabilidad — la lista de lo que compras tiene que barrer.
+
+**Resultado:** tránsito descontado $19.96M → **$10.95M** (−45%). Pedido sugerido **$13.48M → $14.47M (+$993k, +7.4%)**, **568 filas despiertan de cero**. Ejemplo: COBERTURA LUSSEL en 01, piso 0 y 22 pz/día, no pedía nada porque "venían" 43.4 cajas de una OC estancada.
+
+### Lecciones
+
+1. **Sin placebo, el 78% parecía evidencia.** La prueba obvia ("el producto entró después") tenía exactamente la misma tasa hacia atrás en el tiempo. Toda prueba de coincidencia temporal necesita su ventana espejo.
+2. **`AS MATERIALIZED` no es opcional acá.** Sin eso el planner re-evalúa la curva (2 s) por cada línea de OC: la corrida pasó de 30 s a **>15 min**. Con MATERIALIZED, 35 s.
+3. **Definir la curva dos veces (importer + servicio) era repetir el bug de agosto.** Se materializó en una tabla para que haya UN productor.
+4. **Dos versiones del importer escribiendo la misma tabla se detectan solo si el smoke cruza magnitudes.** El runner on-prem corrió el importer viejo a mitad de la prueba y el test lo cazó con `eff > papel`. Mientras convivan, `transit_eff_cajas` se dejó en NULL a propósito.
+
+**Pendiente:** desplegar el importer nuevo al runner on-prem (hasta entonces el servicio cae al crudo = comportamiento previo) + redeploy api/view. Reporte forense completo: artifact "Tránsito fantasma".
+
+---
+
+## 2026-08-28 — RA-PRO.41: el pedido aprende de la historia (estacionalidad, colchón cuantílico, lead derivado, rutas y mayoreo)
+
+**Disparador:** Edgar — *"no hay que dejar nada manual, todo automático considerando históricos, además considerar mayoreo y rutas, que no se nos pase nada"*. Continuación directa del incidente del tránsito (misma fecha, abajo).
+
+### Qué se midió antes de escribir código
+
+- **Estacionalidad 1.69× pico/piso** (dic 1.518 · sep 0.899) y el motor solo miraba 30 días hacia atrás → error estructural repetido cada año: −27% en diciembre, +46% en enero. NO es pareja (bombones ×3.3, chocolates ×2.1) → un multiplicador global sería otro error.
+- **89% del universo caía en clase Z** (CV≈4): el 77% de los pares SKU×almacén venden <⅓ de los días — el CV clásico no discrimina intermitencia, todo recibía el mismo colchón 20%.
+- **Kepler no tiene lead time** (84% de OCs cierran el mismo día que se capturan) pero el ~16% capturado antes de recibir SÍ es señal: mediana 4d, 108 proveedores con n≥5. Y los 971 proveedores tenían TODOS los overrides manuales en NULL.
+- **Feeds atrasados invisibles**: MD-30/MD-32 (el 38% de la demanda) llevaban 4 días sin reportar venta; rutas 501-505, 17-18 días (push caído); RUTA-321/322 muertas desde jun/jul. El db-health global no lo veía (mira el max global, no por almacén).
+- **Rutas = 11% de la demanda** y se PERDÍAN en la vista por-sucursal (stock 0 → filtradas) o generaban filas "comprar" para camionetas.
+
+### Qué quedó (todo derivado, cero manual)
+
+1. **`season_ratio`** — razón desestacionalizar→re-estacionalizar: `idx(próximos 30d) / idx(últimos 30d)`. Jerárquico SKU→categoría→global (shrinkage n/(n+1)), índices normalizados **dentro de cada año** (mata la deriva de crecimiento 2026>2025), banda muerta 0.85–1.15→1, cap [0.5, 2.0]. **Backtest real ene–ago 2026: bias de enero +39.6% → −4.7%; |bias| medio del año 9.4% → 5.0%.** La primera versión (multiplicar por el índice del mes destino sin dividir por el del trailing) dejaba enero en +35% — el trailing YA trae la estación del mes que pasó; la razón es lo correcto.
+2. **`safety_pct_q`** — colchón por cuantiles de sumas rodantes de 4 semanas (26 sem, grano red), por clase: A p90 cap 50% / B p80 cap 35% / C p70 cap 25%. Costo medido: $12.1M vs $9.4M del 20% plano — más protección en A (donde se pierde venta), menos capital muerto en C.
+3. **`lead_days`** — mediana del lag OC→entrada del ODS por proveedor (n≥5, fallback global 4d). `covEff` = manual → **cadencia Kepler del producto + lead** → cadencia de nuestras POs → knob.
+4. **Rutas → sucursal madre** en el fact (`rmap` derivado de `sales_by_route_monthly`: WIN-⟨n⟩ por moda de revenue → 21-28→01 · 501-505→06 · 321/322→MD-32). El fact pasó de 20 almacenes a 9; la demanda de 01 subió 7.7k→12.7k pz/día, 06 9.1k→11.6k.
+5. **Frescura por almacén** en `import-demand-clean`: la ventana se ancla al último día reportado por ESE almacén (tope 21d; más viejo = inactivo → demanda 0) + warning impreso por corrida. MD-30/32 recuperaron ~13% de demanda diluida.
+6. **Estación en los 4 caminos**: compra, workbook/detalle, traspaso Y sobrestock (el navideño con pila en noviembre ya no es "sobrestock").
+7. **Cordura en cada corrida**: tránsito-vs-inventario, rango estacional, rutas sin mapear, y los puntos ciegos DECLARADOS (tránsito de MD-30/32 no existe en el ODS — sus compras directas son invisibles hasta extender la replicación).
+
+Mig `20260828140000` (4 columnas aditivas, DDL aplicado a prod a mano). UI: columna **Est.** con chip ×N.NN + tooltip con la fuente. Verificado en prod: pedido $7.6M→$7.8M hoy (ago→sep casi plano — correcto), 261 SKUs suben / 275 bajan (efecto dirigido), top al alza plausibles (Pingüino mini ×2.0, Takis mini ×1.41). Builds api+view OK. **El runner ya corre el fact nuevo** (Live 13:51 plegó las rutas él solo).
+
+### Advertencias honestas
+
+- **Oct–dic tienen UNA observación** (2025). El shrinkage y el cap acotan el daño de un dato raro; la validación real de temporada alta es ESTE oct–dic. Enero (el simétrico) sí se pudo backtestear y pasó de +39.6% a −4.7%.
+- **Pascua móvil no modelable** con 20 meses (abril quedó −10% vs −3% viejo). Se acepta.
+- **El push de rutas 501-505 está CAÍDO desde el 10-ago** — el motor ahora lo compensa (ventana anclada) y lo grita en cada corrida, pero el feed hay que arreglarlo (revenue real que no llega a sales_daily).
+- Backtest de agosto contaminado por el propio staleness (el "actual" está incompleto) — no es señal.
+
+---
+
+## 2026-08-28 — Incidente prod: el pedido restaba inventario fantasma (RA.5, ~$5.9M de compra suprimida)
+
+**Disparador:** Edgar reportó *"los pedidos no se están realizando correctamente"* y pidió detalle de cómo se arma el pedido ahorita mismo. Salió de una revisión de `/compras/pedido`.
+
+### La falla
+
+`import-in-transit` sumaba `kdm2.c9` crudo. Esa columna trae la cantidad **en la unidad de `c11`** — en una misma OC conviven `PAQ`, `PZA`, `KG` y `CJA` (en Padre Hidalgo, 120 d: 4,271 líneas PAQ · 1,529 PZA · 363 KG · **15 CJA**). `import-replenishment-plan` copiaba ese número a `transit_cajas` y el motor lo restaba como cajas, mientras la existencia sí se dividía por el factor de caja.
+
+| | antes | después |
+|---|---:|---:|
+Tránsito que el motor creía en camino | **$1,930,899,262** | **$20,790,556** |
+Inventario real de la red | $53,758,845 | $53,815,757 |
+Productos con tránsito imposible (>6 meses o sin venta) | 1,401 | 185 |
+Pedido de red propuesto | $5,132,955 | **$7,080,868** |
+Productos con necesidad real suprimidos | 595 | 454 |
+
+Caso testigo **70038** (PAL MALVABONY C/CHOC /40, `bf`=16): la OC real son 640 PAQ a $51.07; el motor restaba **640 cajas** ($521k) en vez de **40** ($32.7k). La red concluía "no pedir" mientras Morelia Abastos vendía 227.5 cajas/mes con 36.3 en piso. Ahora pide **93 cajas / $75,913**.
+
+### El fix
+
+`c9 × c12` es invariante a la unidad, así que `c12 / costo_por_unidad_de_stock` dice cuántas unidades de stock trae la línea. El **nombre** de la unidad no sirve: en la sucursal 03 las líneas `PZA` traen ratio 13.5 (son cajas). Debajo de 1.5× se toma como unidad de stock (mediana 1.00, ~95% de las líneas); arriba se usa el ratio topado en el factor de caja.
+
+Se hizo en dos pasos. Primero la corrección mínima sobre el importer y el fact. Después, por indicación de Edgar — *"no debe existir ningún import externo, todo desde ODS y una tabla primaria"* — el tránsito **dejó de ser tabla e importer**: se deriva del ODS en el CTE `tr` de `import-replenishment-plan`, reusando el mismo `econ` que el resto del fact. Se retiró `import-in-transit.js` y su paso en `run-prod-feeds`; `criticalStock`, el worklist y el scanner de hallazgos leen el tránsito del fact (`transit_cajas × bf`, round-trip exacto del mismo `bf`).
+
+**A/B del refactor:** el derive desde el ODS reprodujo el tránsito de la tabla en **1,924 de 1,926 filas** (las 2 restantes son OCs recibidas entre corridas; suma 939,730 vs 938,831 = 0.1 %). El fact completo pasó de 2.8 s a **3.3 s** — el derive suelto cuesta 11.6 s, pero plegado a la query que ya tiene `econ` en memoria casi no pesa.
+
+### Lo que enseñó
+
+**1. El repo ya contenía la respuesta y nadie los enfrentó.** `criticalStock` dividía la MISMA columna por el factor de caja mientras el fact la trataba como cajas. Dos lecturas opuestas del mismo dato, sin una sola prueba que las comparara.
+
+**2. Ninguna pieza se veía mal por separado.** El importer sumaba bien, el fact copiaba bien, el motor restaba bien. El error sólo aparece al **cruzar dos magnitudes** — tránsito contra inventario — y eso no lo miraba nadie. Por eso quedó como regla en [`GOTCHAS §25`](../GOTCHAS.md).
+
+**3. Un rename es una conversión.** El bug entró en RA-PRO.31 al materializar el fact: `qty_in_transit` → `transit_cajas`. El nombre nuevo afirmaba una unidad que nadie convirtió.
+
+**4. El entorno resetea `main` a `origin/main` y se come los commits locales.** Pasó dos veces durante este trabajo (reflog 10:53 y 12:01). Se recuperó del reflog a la rama `mg-ra5-transito`. Refuerza la regla de worktree por agente: esto no se trabaja en `main` local.
+
+**Pendiente detectado, no cerrado:** `MD-30` y `MD-32` no están en `stockMap` ni en el ODS → los dos mayores centros de demanda de la red (21.5k pz/día combinados) nunca reciben datos de tránsito. Y el toggle *Englobar/Desglosar* de `/compras/pedido` cambia el total del pedido de $5.08M a $14.24M porque netea sobrantes entre sucursales hermanas, entre las que no existe traspaso.
+
+---
+
+## 2026-08-27 — WMS-REC.5: el alta de inventario pasa al cierre del vale, y Caducidades se vuelve la bandeja del bodeguero
+
+**Disparador:** decisión de negocio sobre cómo se reparte el trabajo real de la bodega — *"en el área de recepción teclea el folio, verifica lo que mandaron y al dar luz verde, pum, le aparezca a la sección de caducidades para que el bodeguero le pueda poner sus fechas"*. Es un cambio de planes respecto a lo construido en WMS-REC.4, y revisa ADR-044.
+
+### 1. Qué se invirtió
+
+ADR-044 decía *"el alta de existencia la hace **siempre** la captura de lote"* y listaba como **rechazada** la alternativa *"que el renglón escriba stock al cerrar el vale"*, dejando esta compuerta escrita: *"que se decida que un vale puede cerrarse sin declarar caducidad y aun así afectar inventario"*. **Esa compuerta se cruzó.**
+
+| Momento | Quién | Inventario |
+|---|---|---|
+| Recepción: folio → verificar → **luz verde** | operador | la mercancía **entra**, lote `NA` (sin fecha) |
+| Caducidades: declarar lote + caducidad | bodeguero | **reclasifica** `NA` → lote fechado, **el total no se mueve** |
+
+El motivo es operativo, no técnico: son dos personas en dos momentos. Atarlos obligaba a mantener el vale abierto mientras alguien recorría la tarima leyendo etiquetas, y dejaba al inventario negando mercancía que ya estaba aprobada y en el piso.
+
+### 2. Cómo se evita el doble conteo (que era justo lo que motivaba la decisión original)
+
+Sigue habiendo **un solo asiento por mercancía recibida**, y no por convención sino por construcción:
+
+- **El cierre da de alta lo recibido menos lo que una captura ya dio de alta.** La pantalla del auditor permite capturar con el vale abierto; sin ese descuento, capturar-y-luego-cerrar contaba doble. El descuento se calcula uniendo la captura con su movimiento (`movement_type = 'in'`), o sea contra el ledger, no contra un flag.
+- **La captura le pregunta al ledger** si la sesión del renglón ya generó el alta (`reference_type='receiving_session'`). Si sí, **reclasifica** (`assignLotToUndeclared`); si no, **suma** (`recordMovement('in')`, que es el caso de la captura suelta sin vale). Es la misma marca que usa el cierre para ser idempotente, así que las dos piezas no pueden desincronizarse.
+- **La reclasificación reusa el invariante que ya existía** en vez de reimplementarlo: sube el lote fechado y re-escribe `stock.quantity` **con su mismo valor**. Eso dispara `trg_rebalance_stock_lots` —que corre en `UPDATE OF quantity`, no sólo cuando el valor cambia— y el trigger recalcula `NA = stock − Σ(otros lotes)`, bajando exactamente lo declarado.
+- Se asienta en la bitácora como **`adjust` con cantidad 0**, que es la verdad literal: el total no cambió, cambió de qué lote es. Y ese movimiento sirve de marca de idempotencia en `receiving_lot_captures.stock_movement_id`.
+
+El veredicto 🔴 sigue sin liberar nada a FEFO hasta que un supervisor autorice, y el 409 por capturas retenidas sin resolver se mantiene. Lo que dejó de frenar el cierre es la **ausencia** de fechas.
+
+### 3. Lo nuevo visible
+
+- `GET /commercial/receiving/sessions/pending-expiry` — derivado, sin tabla ni columna nuevas: renglones de vales cerrados donde `Σ(capturas) < received_qty`, con `pending_qty`, vale de origen, almacén y **días esperando**.
+- Página **`/almacen/inventory/por-fechar`** (tab "Por fechar", permiso `COMMERCIAL_EXPIRY_CAPTURAR`), ordenada por antigüedad porque el costo de no saber cuándo vence algo crece con el tiempo que lleva en el piso. Semáforo de plazo (corto <30 d, intermedio <90 d) y declaración **parcial**: si la tarima trae varios lotes se declara uno por vez y el renglón sigue en la lista con lo que falte.
+- El auditor ahora acepta capturas con el vale `open` **y** `closed` (cerrado es el caso normal del flujo nuevo); sólo `cancelled` se rechaza, porque fechar mercancía de un vale anulado no describe nada real. Esa validación la habíamos escrito para el flujo viejo y quedó invertida.
+
+**Nada se borró:** las hojas de inspección de anaquel (P2.6) siguen en su ruta y su tab.
+
+### 4. Hallazgo lateral que se hizo visible en vez de filtrarse
+
+Un renglón cuyo **SKU no existe en el catálogo** no puede entrar a inventario: no hay producto al que asignarle existencia. Antes esto se filtraba en silencio —el operador confirmaba cantidades, cerraba, y no pasaba nada. Medido en prod: **23 de 89,257** renglones históricos (0.03%), o sea es raro pero real. Ahora el vale lo dice **antes** de cerrar (`progress.sin_catalogo` → banner) y el cierre lo registra como `warn` nombrando cuántos renglones quedaron fuera.
+
+### 5. Verificación
+
+- Smoke nuevo `database/tests/http-luz-verde-caducidades-test.js` — **22/22** contra los endpoints reales: luz verde → alta en `NA` → bandeja con su faltante → captura sobre vale cerrado → reclasificación. Afirma explícitamente lo que podría romperse: que el stock sube *exactamente* lo recibido, que entró sin caducidad inventada, que re-cerrar no duplica, que fechar **no** mueve el total, que `NA` baja lo declarado y que `SUM(lotes) = stock` sigue valiendo.
+- Vecino `http-vale-entrada-autollenado-test.js` — **30/30**. Estaba fallando 12 aserciones por interferencia entre suites: al dejar el folio ya recibido, su primer `open` chocaba con el guard de duplicado. Se le puso `force: true` a ese `open` (ahí prueba el autollenado, no el guard, que tiene sus propias aserciones) para que deje de depender de que el folio esté virgen.
+- `nx build api` y `nx build view` OK.
+
+### 6. Dos trampas de entorno, ninguna del cambio (quedan anotadas porque cuestan horas)
+
+1. **`localhost` resuelve a IPv6 `::1` en esta máquina y Docker no contesta ahí** → `read ECONNRESET`. Con `.env` tal cual, la API muere al arrancar (el cliente de Redis tira una excepción no capturada) y **casi toda la regresión falla** sin relación con el código. Con `127.0.0.1` arranca. Aplica a `DATABASE_URL*`, `REDIS_URL`, `DB_HOST`, `NEW_DB_HOST`.
+2. **La API en runtime lee `DATABASE_URL_NEW_RUNTIME`** (rol `app_runtime`), no `DATABASE_URL_NEW`. Sin ella cae al fallback `192.168.0.245` y el login da 500. Y `PermissionsCacheService` resuelve permisos por `KNEX_CONNECTION` (la legacy) filtrando por `tenant_id`, así que en local `DATABASE_URL` **también** tiene que apuntar a `postgres_platform` o todo endpoint con permiso da 500 por `relation "role_permissions" does not exist`.
+3. **44 de 96 suites traen `password: 'superoot'` hardcodeada** (sólo 3 leen `SUPEROOT_INITIAL_PASSWORD`). En cualquier máquina donde esa variable sea otra, esas suites no pueden loguearse y la regresión completa es inutilizable como red de seguridad: 46 rojos que no dicen nada del código. Vale la pena unificarlas a `process.env.SUPEROOT_INITIAL_PASSWORD || 'superoot'` en su propio commit.
+
+### 6b. Tres hallazgos que sólo aparecieron al abrir la pantalla
+
+Los tres pasaban `nx build view` sin una queja.
+
+1. **La tabla no pintaba nada.** `thead` y `tbody` quedaban vacíos y sólo se veía el paginador. Causa: usé `<ng-template pTemplate="header">`, la API vieja de PrimeNG, que en esta versión **no engancha**. El proyecto usa `#header` / `#body` / `#emptymessage` — **612 usos contra 2** del `pTemplate`. El mismo error en el diálogo dejó al `#footer` sin proyectar, o sea **un diálogo sin botones**: no se podía guardar. Regla práctica: en este repo, template de PrimeNG = `#nombre`, nunca `pTemplate`.
+2. **Un `computed()` sobre un campo que no es señal nunca se invalida.** El semáforo de plazo leía `vence`, escrito por `[(ngModel)]` sobre una propiedad plana: el `computed` no se recalculaba jamás y el semáforo no aparecía nunca. Pasó a ser método.
+3. **La bandeja contaba como "declarado" lo que estaba retenido.** `pending_qty` restaba toda captura no rechazada, incluidas las 🔴 que esperan autorización y **no reclasifican nada**. Reproducido en la UI: declaré 5 unidades con fecha anterior a la existente → veredicto rojo → el renglón bajó de 105 a 100 por fechar **sin que se creara el lote**. Esas 5 unidades quedaban fuera del radar: ni fechadas en el ledger ni pendientes en la bandeja. Ahora *declarado* = sólo `accepted`, y lo retenido va en su propia columna (`held_qty`) con el renglón **todavía** en la lista, porque es trabajo abierto de otra persona, no algo resuelto.
+
+### 6c. Cobertura de permisos en prod (decisión de configuración, no de código)
+
+Medido sobre los 48 roles del tenant:
+
+| Permiso | Presente en | En `true` |
+|---|---|---|
+| `COMMERCIAL_INVENTORY_RECIBIR` | 5 roles | **0** |
+| `COMMERCIAL_EXPIRY_CAPTURAR` | 11 roles | **1** (`encargado_sucursal`, 6 usuarios) |
+| `COMMERCIAL_INVENTORY_VER` | 46 roles | 19 |
+
+O sea: la bandeja de Caducidades la verían 6 personas, y **Recepción (el vale de entrada) no la puede usar ningún rol** salvo lo que resuelva `superadmin` (7 usuarios) por manage-all. Otorgar permisos es escribir en prod, así que queda como decisión pendiente, no como cambio hecho. Nota lateral: `PageTabs` filtra por permiso **literal** y no honra manage-all, así que un superadmin no ve esas pestañas aunque el guard de ruta sí lo deje entrar.
+
+### 7. Pendiente
+
+- Redeploy `api` + `view` (el código de WMS-REC.4 y .5 está en local; la mig `20260825180000` ya está en Railway como Batch 216, la `20260825120000` falta confirmar).
+- PR #27 (`fix/vale-folio-default-y-guards`) sigue abierta — sin ella Recepción no abre con el folio en prod.
+- Validación visual de la bandeja en browser.
+- Rotar la credencial de prod que se pegó en el chat (`RUNBOOKS/ROTACION_SECRETOS.md`).
+
+**Lesson learned:** cuando una validación existe para hacer cumplir un orden de trabajo (*"el vale debe estar abierto para capturar"*), al invertir el orden esa validación no queda obsoleta: queda **invertida**, y rechaza justo el caso normal. Conviene buscarlas explícitamente al cambiar un flujo, porque el compilador no las encuentra y el síntoma aparece hasta el final del recorrido.
+## 2026-08-27 — Fase ID: el sistema de usuarios sale de la era rutas (ID.13–ID.15, 47 roles → 28, cero pérdidas)
+
+**Disparador:** Edgar pidió *"entender las necesidades de la empresa y bajo eso generar un esquema de usuarios, pensando para un CRM/ERP que cubra toda la empresa; anteriormente los usuarios eran pensados para ruta"*, y después *"aplicalo"*. Plan y medición en [`FASE_ID_ESQUEMA_USUARIOS_ERP.md`](FASES/FASE_ID_ESQUEMA_USUARIOS_ERP.md).
+
+### Lo que estaba mal, medido
+
+47 roles para 142 cuentas · 22 con 1 o 2 usuarios · nombrados por la **persona** que los ocupa (`coordinadora_marketing`, `encargada_prevencion`, `Coordinador_ecommerce`, y `auxiliar finanzas` **con espacio**) · 13 sin ningún usuario, uno (`sistemas`) con **145 permisos otorgados y cero personas** · 43 puestos del organigrama cargados y **sólo 7 en uso** · y `role_name` como **una** columna, lo que ya había producido **6 personas con 2 cuentas** — una de ellas `superadmin` bajo el username `01jzico`.
+
+### Lo que se hizo
+
+| | Resultado |
+|---|---|
+`[ID.13]` N:M | `identity.user_roles` (perfil base + complementos, permisos = unión) + `users.kind` + `users.expires_at`. `role_name` sobrevive como espejo con trigger bidireccional: cero cambios en los ~200 archivos que lo leen |
+`[ID.14]` catálogo | **47 → 28** (25 perfiles + 3 complementos): 14 retirados, 14 renombrados a función, 5 fusionados. Cierra `[UN.5]` |
+`[ID.15]` organigrama | `positions.department_code` + `default_role`: el alta es *persona + puesto + sucursal* y el sistema propone. 23/43 puestos proponen perfil |
+UI | Selector de **Complementos**, aviso *"este rol es una tarea, no un puesto"*, y el puesto autocompleta departamento y perfil |
+
+### Lo que enseñó
+
+**1. El arnés atrapó lo que yo no vi.** `snapshot-user-permissions.js` compara el **conjunto efectivo de permisos por persona** antes y después. Resultado final: 128 idénticos · 14 ganan (máx +2, listados uno por uno) · **0 pierden**. Pero en la primera corrida marcó **2 PIERDE**: los 2 usuarios de `admin` se quedaban sin `PORTAL_B2B_ACCESS` y `FINANCE_EXPENSES_VER_ALL` porque el rol caía por la rama "muerto" (retirar) en vez de la rama "fusionar" (unión). Sin el arnés eso se descubre cuando alguien reclama, semanas después.
+
+**2. El guard de la fusión valía más que la fusión.** Regla: si algún usuario ganaría más de 3 permisos, la fusión no se hace y queda reportada como decisión. Frenó una escalada de **40 permisos** — `coordinador_presupuestos` apuntaba al `contabilidad` viejo de 66p, que arrastraba `COMPRAS_*` y `LOGISTICS_*` completos. Un merge "obvio por el nombre" habría repartido acceso a compras y logística a contabilidad.
+
+**3. Un smoke encontró un bug de diseño, no de código.** Promover un rol a perfil base **reventaba** con "llave duplicada": el índice parcial de un-solo-perfil-base se validaba antes de que algo degradara al anterior. Se resolvió con un trigger **BEFORE**; ahora la operación es idempotente. Y el perfil anterior queda como **complemento, no borrado**: quitarle un permiso a alguien tiene que ser explícito.
+
+**4. `FINANCE_EXPENSES_CAPTURAR` estaba copiado dentro de 5 roles distintos.** Ahí se ve por qué `captura_gastos` (22 usuarios, **1 permiso**) no era un rol: era una tarea. Y como el rol venía pegado al departamento, los 22 quedaron en `administracion` — incluyendo gente de Logística y de una sucursal. **El rol le pisó el departamento a la persona.**
+
+**5. `cajera` son 3 permisos.** Arqueo ver + arqueo capturar + capturar gasto. Por eso la encargada de tienda que además cobra en caja no necesitaba otra cuenta: necesitaba un complemento.
+
+**6. Dos cosas se decidieron distinto al construirlas.** `positions.default_scope` no se hizo: el alcance por default ya vive en `role_scopes` y duplicarlo crea dos fuentes de verdad. Y `superadmin` **no** se renombró a `admin_plataforma`: ese nombre está como literal en `ELEVATED_ROLES` y `isPlatformAdminRole`, y renombrarlo sin tocar el código deja a los 7 gods sin god-mode.
+
+**7. `[ID.16]` (RH) se bloqueó al ir a hacerlo.** `hr.*` tiene 6 tablas y 10 checadores, pero **cero referencias en `libs/` y `apps/`**: no hay módulo ni pantalla. Crear los permisos `RH_*` ahora sería gatear el vacío. Primero el módulo.
+
+**8. Reincidencia útil:** `role_permissions.activo` es `GENERATED AS (deleted_at IS NULL)` y escribirla tira *"sólo puede actualizarse a DEFAULT"* — el mismo patrón de K-debt. Y el `down` de la migración falló dos veces por FK compuestas sin `ON UPDATE CASCADE`: renombrar un rol **no** es un `UPDATE` del nombre.
+
+### Verificación
+
+Builds api + view verdes. Smokes `test-newdb-user-roles` **34/34** (nuevo, en la suite), `identity-scopes` 30/30, `user-dto` 32/32.
+
+**Pendiente prod:** 3 migraciones a Railway (`20260828120000`, `130000`, `140000`) + redeploy + re-login. Y las decisiones que no son código: los 22 con una tarea como perfil base, los 20 puestos sin perfil, y los **5 tipos de usuario que el ERP necesita y no existen** (dirección con lectura global, RH, proveedor, auditor externo y cuentas de servicio).
+
+---
+
+## 2026-08-26 — Réplica de pruebas en .245 (estructura de prod) + espejo del sink · y el CDC del ODS llevaba 2 días colgado
+
+**Disparador:** Edgar pidió una copia de prod en `.245` para usarla de pruebas — **estructura, no data** — y que *"la bd local que alimenta a prod también alimente .245"*.
+
+### 1. Réplica de estructura → `192.168.0.245:5432/platform_test`
+
+`pg_dump --schema-only` de prod (`trolley`, PG 18.6) restaurado en .245 (PG 18.4). Paridad verificada objeto por objeto:
+
+| | prod | .245 | |
+|---|---|---|---|
+| schemas / tablas | 18 / 571 | 18 / 571 | ✅ |
+| PK / FK / UNIQUE / CHECK | 627 / 478 / 262 / 257 | idem | ✅ |
+| vistas / matviews | 55 / 4 | idem | ✅ |
+| índices | 1453 | 1452 | −1 = el HNSW (ver abajo) |
+| RLS forzado / policies | 257 / 257 | idem | ✅ |
+| funciones | 257 | 139 | −118 = las de pgvector |
+| triggers / secuencias | 68 / 8 | idem | ✅ |
+
+Se copió **solo** la data de arranque: `knex_migrations` (486, última `20260825180000_expense_proofs_clasificacion`), `knex_migrations_lock` e `identity.tenants` (1). Sin esas 486 filas, un `knex migrate:latest` contra .245 intentaría replayear todo sobre un schema ya completo. **No** se copiaron usuarios/roles → todavía no hay con qué loguearse.
+
+**pgvector no existe en .245** (PG de Windows; `vector` no está en `pg_available_extensions`). El dump se adapta con `scripts` de sesión: la extensión se omite, las 3 columnas `embedding vector(1024)` bajan a `text`, el índice HNSW y 118 `GRANT` de funciones pgvector se descartan (auditados uno por uno: todos de la extensión). Consecuencia: el match AI de la Fase K **no** funciona en la réplica; todo lo demás sí.
+
+**La réplica vive en `D:` de .245** (tablespace `ts_platform_test` → `D:\pgdata_test`). El `data_directory` de .245 está en `C:` y su espacio libre no es legible desde acá (WinRM y `c$` denegados); `D:` tiene 750 GB verificados vía `Z:`. Sin esto, un espejo continuo podía llenar el disco de sistema de .245.
+
+### 2. Espejo del alimentador: una lectura del origen → dos destinos
+
+`database/importers/lib/sink.js` gana `FEEDS_MIRROR_URL`: además del destino primario (prod por `feeds-ingest` en modo http, o el `Client` del importer en modo pg), aplica **el mismo changeset** a una segunda DB reusando los mismos `HANDLERS` — el SQL de apply sigue teniendo una sola fuente.
+
+Decisiones que importan:
+
+- **Best-effort:** si el espejo está caído o falla, el feed primario sigue igual (nunca lanza, nunca cambia el valor de retorno). Se auto-desactiva por corrida al primer fallo de conexión.
+- **Guard anti-pie:** si `FEEDS_MIRROR_URL` apunta a Railway, se ignora con aviso (evita doble-apply sobre prod).
+- **Socket `unref()`:** el `Client` del espejo no debe impedir que el proceso termine — los importers cierran con `process.exitCode`, no con `process.exit()`. Se hace `ref()` solo mientras hay una escritura en vuelo. Sin esto se reproducía el patrón de *feeds on-prem colgados* que ya nos costó dos días (ver §3).
+- **Si el primario falla, el espejo no corre.** El watermark del origen (`ods.ctl` / `ods.shadow`, co-locado en el réplica local) solo avanza tras un push OK, así que ambos destinos reintentan juntos y quedan consistentes.
+
+Wiring, sin tocar código de los runners:
+- `.env` → `FEEDS_MIRROR_URL=...` cubre los dos loops del ODS (`replicate-ods-live.js` carga dotenv) **sin reiniciar tareas**: cada iteración lanza un `node` nuevo que relee `.env`.
+- `C:\KeplerRunner\run-feeds.cmd` → misma línea (backup `.bak-20260826`), para los importers del sink que **no** cargan dotenv: `import-branch-stock-live`, `import-goods-receipts`, `import-purchase-docs`. Se dejó a propósito **sin** dotenv esos tres: con `.env` cargado, una corrida manual pasaría a apuntar a la copia stale de `localhost:5433` en vez de fallar (el footgun documentado en `reference_prod_db_connection_topology`).
+
+Smoke `database/importers/_smoke-sink-mirror.js` — **7/7**, corriendo contra la réplica (no toca prod): llega el changeset (auto-crea la tabla), es idempotente, un espejo caído no tumba el primario, el guard de Railway funciona y **el proceso termina solo**.
+
+Verificado en vivo: 23 tablas `kepler_ods` espejadas, réplica 49 MB → 106 MB.
+
+**Alcance real del espejo:** cubre el CDC del ODS (que es la fuente de la capa derivada — `analytics.*` es en su mayoría VISTA sobre `kepler_ods`) + existencias + recepciones + docs de compra. **No** cubre los importers que escriben directo (`import-sales-fact`, `import-demand-clean`, `import-replenishment-plan`, …): esos necesitarían una segunda corrida `DATABASE_URL_NEW=<.245> run-prod-feeds.js <modo> --apply --local` (el guard `--local` ya acepta `192.168.*`), a costa de duplicar la lectura LAN a las sucursales.
+
+**Es hacia adelante, no historia.** El watermark/shadow ya venía avanzado, así que .245 recibe únicamente lo que cambia de ahora en más. Traer el histórico es otra operación (copia bulk de `kepler_ods`, el grueso de los 21 GB de prod).
+
+### 3. Hallazgo aparte: el CDC del ODS estaba congelado desde el 24-ago 05:18
+
+Buscando evidencia del espejo apareció esto: `\Tienda\OdsLiveLoop` y `\Tienda\OdsFullMirror` figuraban **Running** y con proceso vivo, pero sus logs no se escribían **desde el 24-ago 05:18 / 05:24** — ~2 días. Los PIDs 6256 y 27096 llevaban **1s y 0s de CPU**: colgados, no trabajando. Antes de congelarse: **607 + 16** respuestas `HTTP 404 {"code":404,"message":"Application not found"}` del edge de Railway (esa forma de error es del edge, no de la app: `feeds-ingest` responde `{"error":"not found"}`).
+
+Impacto: `kepler_ods` en prod 2 días viejo, y con él **todo lo derive-no-copy** que cuelga de ahí (ventas, recepciones, pagos a proveedor, cobranza, bancos Kepler).
+
+Arreglo: matar los dos procesos. El `:loop` del `.cmd` seguía vivo esperándolos → arrancó pasada nueva sola. Recuperado y verificado: 33 tablas con push en 10 min, `kdm1`/`kdm2` en 0 filas de delta (al día), cero 404 en la última pasada. `/ingest/raw-upsert` responde 401 sin key → la ruta y la app están sanas ahora; el 404 fue una ventana mala del edge.
+
+**Lo que queda abierto:** el `FeedGuardian` no vigila estos dos loops (sus logs sí estaban frescos mientras el ODS moría en silencio) y `shipHttp` tiene `timeout: 60000` que evidentemente no cortó el cuelgue. Dos días de atraso silencioso en la fuente de la capa derivada merecen: (a) que el guardian cubra los loops del ODS por *mtime de log*, no por proceso vivo, y (b) un `AbortController` de verdad en `shipHttp`.
+
+### 4. Maestros sembrados — el espejo escribía 0 filas y no avisaba
+
+La réplica solo acumulaba ODS crudo. **Prueba:** la corrida de `stock` de 09:50 shipeó 110 filas de delta, el espejo corrió sin un error… y `commercial.stock` seguía en 0. `applyStockDelta` hace `JOIN commercial.warehouses ON w.code=…` y `JOIN public.products ON p.id=…`; con la estructura clonada y sin maestros, el JOIN daba vacío. **Silencioso por diseño** (un UPSERT que no matchea no es un error) — la lección es que clonar estructura no alcanza: lo que resuelve por clave de negocio necesita a qué colgarse.
+
+Se sembró el **cierre transitivo de FKs** del set de maestros (18 tablas, calculado con un `WITH RECURSIVE` sobre `pg_constraint`, no a ojo): products 14,755 · product_prices 44,973 · customers 3,210 · barcodes 12,339 · suppliers 1,295 · brands 648 · categories 386 · stores 1,584 · routes 139 · warehouses 27 · users 117 · role_permissions 48 · positions 43 · catalogs 41 · departments 13 · price_lists 6. Más `commercial.stock` (52,755), que el feed solo actualiza por delta y nunca se llenaría solo. Carga con `session_replication_role = replica` (FKs y triggers off → el orden entre tablas deja de importar) + `DELETE` previo en vez de `TRUNCATE` (que exigiría `CASCADE`).
+
+Dos tropiezos que valen como nota: (1) `catalog.product_barcodes` chocó con `uniq_catalog_product_barcodes` — no era colación ni data sucia, era que **el espejo ya había insertado 184 barcodes** vía los normalizadores que `raw-upsert` dispara sobre `kdii` (`normalizeProductsFromOds`, `normalizeBarcodesFromOds`, …); el ODS no solo llena `kepler_ods`, también normaliza hacia `catalog.*`. (2) La lista de tablas salía con `\r` pegado porque **`psql.exe` escribe CRLF** — `pg_dump -t` no matcheaba nada y el `TRUNCATE` decía "no existe la relación". `tr -d '\r'`.
+
+### 5. Segundo hallazgo en prod: el `nightly` no corría desde el 25-ago
+
+Al correr `nightly` contra .245 explotó antes del primer paso: `ERR_INVALID_ARG_TYPE` en `sweepStaleOrphans`. La causa está en el repo, no en la réplica: el archivo ya tiene `pathOf(entry)` para las entradas que son `[ruta, ...flags]`, pero `sweepStaleOrphans` llamaba `path.basename(s)` **sobre la entrada cruda**. El commit `7b3c2d3b` (24-ago) agregó el primer step-array (`[repoint-catalog-prices.js, '--gap-fill-only']`) y desde ahí **el modo entero muere al arrancar**.
+
+Confirmado contra el log de prod: corridas de 20 a 24-ago con ~840 líneas cada una, y **21 y 22 líneas el 25 y el 26** — dos noches sin `sales_daily`, `import-margin`, `sales_monthly`, `inventory-health`, `reorder-policy` ni el DRP. Fix de una línea (`path.basename(pathOf(s))`). Nadie se enteró porque el runner sale con código ≠ 0 pero **no hay nada mirando el resultado del nightly**.
+
+### 6. Corrección de rumbo de Edgar: *"no debe vivir ningún nightly, todo vive en ODS"*
+
+Se estaba wireando una segunda corrida de feeds cocinados contra .245 (`run-feeds-245.cmd`, leyendo **solo** los réplicas lógicos locales vía `STOCK_BRANCH_MAP`/`SALES_BRANCH_MAP` → cero carga extra al POS). Edgar cortó eso: la dirección es **derive-no-copy**, no más batch.
+
+Medición para calibrar cuánto falta de esa migración: `analytics` en prod tiene **57 tablas, 17 vistas y 3 matviews** — el 23% convertido. Las pesadas siguen siendo tablas (`sales_daily` 4.4 M filas, `stock_movements`, `product_sales_daily`). Consecuencia práctica para .245: mientras esas 57 sigan siendo tablas, la réplica las tiene vacías; lo que ya es vista responde solo con que `kepler_ods` tenga data. Por eso el trabajo se movió de "correr feeds" a "traer la historia del ODS".
+
+`run-feeds-245.cmd` queda como herramienta **manual** (sirvió para `catalog` 2/2 y `stock` 3/3 — 22,028 filas de existencia y `replenishment_plan` 56,819, todo por pg directo sin tocar prod), **sin tarea agendada**.
+
+### 7. Historia del ODS + rotación de credenciales
+
+**Backfill — y el error de rumbo que Edgar cazó:** `kepler_ods` son 5.2 GB de heap real en 226 tablas, sin una sola FK. El primer intento fue **copiarlo de prod** (`pg_dump -n kepler_ods --data-only` por el proxy). Mal por dos motivos: es **egress pago de Railway** y es lentísimo — medido, ~11 MB/min comprimidos, con las 4 tablas grandes (`kdm2`, `kdmx_26`, `kdpv_bitacora_precios`, `kdmx_25` = 3.5 de los 5.2 GB) copándolo todo. Se abortó a los ~480 MB (el cable va **sin comprimir**, así que fueron algún GB de egress tirado).
+
+Lo correcto es **local → local**: los réplicas lógicos ya están en el contenedor de `:5433`, en la misma LAN que .245. Medido en la misma tabla: **4 s** por las 49 k filas de `kdm1` de una rama, contra ~30 min de proxy para una fracción del total.
+
+Por qué un script nuevo (`kepler/backfill-ods-mirror.js`) y no `replicate-ods-live.js --full`: el watermark (`ods.ctl`) y el shadow de hashes viven en el **origen** y son **estado compartido con el CDC de prod** — una pasada full los avanzaría y prod se saltearía filas que nunca shipeó. El backfill solo LEE `md.*` y escribe la réplica; no toca una fila de estado. Detalles que importan: la contraseña va por `PGPASSWORD` y no en la línea de comando (un `Get-CimInstance Win32_Process` la muestra a cualquiera con la máquina abierta — pasó en esta sesión); la lista de columnas es la **intersección** origen∩destino (el ODS pudo ganar columnas que el origen ya no tiene); `TRUNCATE` una vez por tabla y cada rama escribe su propio `sucursal`, así que no se pisan. Cobertura: 223 de 225 tablas tienen origen local, 1,437 pares tabla×rama.
+
+Y no hace falta detener el CDC: alcanza con **apagar el espejo** y esperar a que no quede ninguna pasada en vuelo (`application_name='feeds-mirror'` en `pg_stat_activity` del destino). Con el espejo prendido, el `TRUNCATE` global entra en deadlock contra un `raw-upsert` en vuelo — vivido dos veces.
+
+**Rotación:** `FEEDS_INGEST_KEY` rotada (Railway `feeds-ingest` + los 6 `.cmd` on-prem) y verificada — cero 401/404 y 24 tablas con push a prod en los 5 min siguientes. Truco para editar `.cmd` en ejecución sin riesgo: **key nueva del mismo largo** (48 hex) → el reemplazo no mueve ningún byte, así que el offset de lectura de `cmd.exe` sigue siendo válido. Los dos endpoints validan **una sola** key exacta (`===`), así que toda rotación tiene ventana; el CDC la tolera porque reintenta cada 15 s sin avanzar watermark.
+## 2026-08-26 — FKJ: dónde SÍ y dónde NO puede morir un paso del nightly (gate de costo medido)
+
+**Disparador:** pregunta de Edgar — "las tablas que consumen esto, ¿pueden hacerse join o FK de ODS?". La respuesta corta: **JOIN sí, FK no**, y "vista sí" solo pasando un gate de costo que hay que medir, no suponer.
+
+**Lo que se midió en prod (no se supuso):**
+
+| Pregunta | Medición |
+|---|---|
+| ¿Se le puede colgar una FK al ODS? | Técnicamente sí: **226/226 tablas con PK** `(sucursal, clave_natural)`. Pero 0 con `tenant_id`, 0 con RLS, y hoy hay **0 FKs** apuntándole |
+| ¿Conviene? | **No.** El CDC aplica `DELETE` reales y el backfill hace `TRUNCATE`: con cascade, el botón de borrar de Kepler borra nuestra data; sin cascade, el `DELETE` falla, el consumidor se atasca y su slot WAL retiene disco. `TRUNCATE` sobre tabla referenciada falla de plano |
+| ¿Ya se joinea? | Sí: **14 de las 20** vistas/matviews de `analytics` ya derivan del ODS. El patrón está probado |
+| ¿Hasta dónde llega la historia del ODS? | `kdm1` arranca 2024-08 en el CEDIS, 2025-01 en 02/03 y **2026-02 / 2026-03 en las sucursales 04 y 05**, contra `sales_monthly` que cubre 2024-04 → 2026-08 (627k filas). Los rollups largos son **archivo, no caché** |
+| Fechas basura en el ODS | `1800-01-01` en sucursales 01 y 06; **futuras** (`2026-12-31` CEDIS, `2026-12-14` en la 02). Cualquier vista que filtre por `c9` necesita guard |
+
+**El gate de costo (lo importante):** convertir `analytics.stock_movements` (1.9 GB) en vista da **89× a 517×** más lento y una de las 4 formas de query del módulo DM **se pasa de 180 s**. Causa: el join a `kdm2` va envuelto en `btrim()`/casts → ningún índice aplica; y `warehouse_id`/`product_id` nacen del join, así que el filtro del consumidor no baja al scan del ODS. **Corolario contra-intuitivo:** las tablas grandes son grandes *porque* son caras de derivar; los candidatos reales a vista son los chicos. Medición reproducible en `database/scripts/bench-ods-derive-stock-movements.js`.
+
+**Segundo filtro que casi se pasa por alto:** varias `analytics.*` que parecen espejo de Kepler son **uniones de fuentes** — `stock_movements` = Kepler + Wincaja (`source_branch LIKE 'W%'`, otra DB) + re-derivación por bloques del ingest + enriquecimiento propio; `gl_polizas`/`gl_poliza_lines` = Kepler + ContPAQi. Una vista solo cubre la mitad que sale del ODS.
+
+**Lo que sí se convirtió:** `finance.kepler_accounts` (1 escritor, 1 lector, fuente de 2,548 filas) → vista sobre `analytics.ledger_monthly`, mig `20260826190000`. Paridad 175/175 filas, la búsqueda real del lector cuesta lo mismo (140 ms), smoke **18/18**.
+
+**Dos lecciones que valen más que la conversión:**
+
+1. **Si la tabla vive en un schema con RLS, el filtro de tenant se muda adentro de la vista.** Una vista no hereda RLS. Esta tabla tenía RLS forzada y su lector no filtra tenant. El smoke lo verifica *como superusuario* (a quien la RLS no aplicaría) → prueba que el filtro es real y no un accidente de privilegios.
+2. **`MAX(texto)` para desempatar depende del collation.** El importer elegía el nombre de la cuenta con `MAX(cuenta_nombre)`: para `605-005` (renombrada en Kepler) prod (`en_US.utf8`) devuelve `MANT. NO BREAK` y la réplica (`Spanish_Mexico.1252`) la otra. Mismo código, misma data, dos resultados; 3 cuentas afectadas. La vista desempata por `anio_mes COLLATE "C" DESC` = el nombre **vigente**. Efecto visible: `607-002` decía `HONORARIOS CONTADOR` y hoy es `AUDITORIA CONTABLE`. Aplica igual a `DISTINCT ON`, `MIN()` y a los fingerprints md5 armados con `string_agg` ordenado por texto.
+
+**Pendiente:** los 57 `analytics.*` materializados siguen ahí; ahora hay criterio (y script) para saber cuáles se pueden tocar. Y "cero nightly" no es un interruptor mientras la historia larga no viva en el ODS.
+
+---
+
+## 2026-08-25 — Compras 360: auditoría de la pantalla + 12 arreglos (atribución, buscador, carrera)
+
+**Disparador:** revisión de `/compras/compras-360` pedida por Edgar. La pantalla estaba bien construida (answer-first, empty≠error, estado en URL, sort server-side, split comercial/operativo) y el problema no era el estilo: eran **la atribución del dato y el comportamiento de los filtros**.
+
+**Lo que se encontró y arregló** (detalle en `CHANGELOG.md`):
+
+| # | Hallazgo | Verificación |
+|---|---|---|
+| 1 | Ajuste ligado **solo por `entrada_folio`** → atribución cruzada de proveedor entre sucursales | 1,106 folios existen en >1 sucursal; folio `0000505` pegaba ajustes de GONAC a CUERITOS LUPITA y PADRE HIDALGO. Fix `(sucursal, entrada_folio)`: atribuidos **16 → 12** = los ligables reales |
+| 2 | Buscador `ILIKE '%q%'` de un token, sensible a acentos | `"gonac comercializadora"` y `"yurécuaro"` daban **0**; con `applySmartSearch` dan 82 y 144 (y `"gonak"` con typo, 82) |
+| 3 | Sin cancelación de requests | `Subject` + `switchMap`; debounces cancelados al cambiar de filtro y en `DestroyRef` |
+| 4 | Sin frescura del feed | `data_as_of` + chip "Datos de hace N" + botón Actualizar (el espejo local tenía 15 días) |
+| 5 | KPI de cobertura fijo en verde | tono por cobertura (0 comprobantes de 11,405 se pintaba ok) |
+| 6 | "Con ajuste" excluía los ajustes de $0 | filtra por *tener ajuste*; + modos Solo operativo / Solo comercial |
+| 7 | Conteos de dropdown globales | **facetas**: 8 Esquinas decía 872, la tabla daba 85 |
+| 8 | Export con tope silencioso y error callado | `truncated` + aviso + split operativo/comercial en el CSV |
+| 9–12 | Deep-link `?ent=`, preset en URL, guard del sanitizer, `@container` + `rem` + CSS muerto + `::ng-deep` documentado | §R / §S / §Ing.UI 8 del `DESIGN.md` |
+
+**Lección (la que importa):** el smoke `test-newdb-compras-360` **pasaba en verde con el bug adentro**. Verificaba que el join no inflara **filas** (era cierto: 11,405 == 11,405) y nadie había preguntado si inflaba **atribuciones**. Un join 1:0..1 correcto en cardinalidad puede ser incorrecto en semántica. Se le agregaron dos aserciones: `Σ ajustes atribuidos == ajustes ligables` y `0 ajustes pegados a un proveedor distinto` — con el join viejo la primera daba 16 ≠ 12 y habría fallado.
+
+**Estado:** `tsc` del API verde; smoke 6/6. El `nx build view` **no se pudo cerrar en verde por WIP ajeno** en el árbol (`finanzas/expense-evidence-peek` + `finanzas-solicitudes` referencian exports que `comprobaciones.service` todavía no tiene, junto a la migración sin trackear `20260825180000_expense_proofs_clasificacion`). El compilador de Angular hizo el pase completo y **no reportó ningún diagnóstico en los archivos de compras** — falta re-correr el build cuando ese trabajo cierre.
+
+---
+
 ## 2026-08-20 — FKJ: integridad referencial + JOINs correctos + copias→vista
 
 **Origen:** el usuario pidió un análisis de tablas sin FK, que la integridad referencial fuera correcta, y que se usara JOIN donde debe. El audit del código (uso de JOINs a dims canónicas) se corrió con un **Workflow de 13 agentes** (6 dimensiones × find→verify adversarial + síntesis): 14 hallazgos confirmados, 0 falsos positivos.

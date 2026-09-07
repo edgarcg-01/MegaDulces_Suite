@@ -1,16 +1,22 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { ActivatedRoute, Router } from '@angular/router';
 import { FormsModule } from '@angular/forms';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of, map } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
+import { SelectModule } from 'primeng/select';
+import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
+// `[RE.24]` Entró con el motivo tipificado de rechazo, que se portó desde la cabina de revisión
+// al retirarla. `p-radiobutton` y no un radio crudo: en tema oscuro el del sistema operativo se
+// ve fuera del diseño (ya corregido una vez en la cabina).
+import { RadioButtonModule } from 'primeng/radiobutton';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -18,12 +24,22 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { EntradasService, EntradaRow, EntradasReport, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine } from '../entradas.service';
-import { money, moneyShort } from '../../../shared/util';
+import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
+import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
+import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
+import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
+import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 
 /** Una foto en el set de evidencia de la recepción (lo normal son 3–4). */
 interface AttachFile {
@@ -54,7 +70,10 @@ interface AttachFile {
 @Component({
   selector: 'app-compras-entradas',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, DialogModule, ToastModule, ConfirmDialogModule, SegmentedComponent, MetricStripComponent, LoadStateComponent, EntityInspectorComponent],
+  imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
+    DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent,
+    LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
+    FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService, ConfirmationService],
   template: `
@@ -63,16 +82,85 @@ interface AttachFile {
       <p-confirmdialog />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <h1>Órdenes de entrada — factura del proveedor</h1>
-          <p class="surf-page-sub">Identificá la entrada por los <strong>últimos 4 dígitos</strong> de su folio y subí solo la <strong>factura del proveedor</strong> · el OCR la compara contra el total de Kepler · pendiente → validado/rechazado</p>
+          <h1>{{ dinero() ? 'Costo por compra' : 'Control de entradas · Listado' }}</h1>
+          <!-- RE.19 — la ventana se dice, no se deduce. La lista arranca en el inicio del
+               proceso y lo anterior vive en "Ver rezago"; sin decirlo, una orden de julio que
+               no aparece se lee como dato faltante.
+               RE.20.1 — la bajada cambia con el lente porque la pregunta cambia. -->
+          <p class="surf-page-sub">
+            @if (dinero()) {
+              Una fila por compra: lo que facturó el proveedor, los ajustes ligados que lo
+              bajaron (devoluciones y notas de crédito) y el <strong>neto que realmente
+              pagamos</strong>
+              @if (report()?.settings; as cfg) { , <strong>desde el {{ cfg.reception_start }}</strong> }.
+              La misma cifra agregada por proveedor está en
+              <a routerLink="/compras/costo-neto">Costo por proveedor</a>.
+            } @else {
+              Las órdenes de entrada de la red
+              @if (report()?.settings; as cfg) { <strong>desde el {{ cfg.reception_start }}</strong> }
+              , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
+              o por proveedor / RFC / OC / vale. Para el trabajo diario están las pantallas por
+              oficio: <strong>Captura de facturas</strong> y <strong>Revisión de facturas</strong>.
+            }
+          </p>
+        </div>
+        <div class="cb-head-actions">
+          <app-table-density />
+          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="600" />
+          <app-context-help topic="compras-entradas" />
         </div>
       </header>
 
+      <app-page-tabs [tabs]="tabs" />
+
       <div class="cb-filters card-premium card-flat">
+        <!-- RE.20.1 — EL LENTE. Las mismas filas contestando dos preguntas. Era una pantalla
+             aparte ("Compras 360") con su propio endpoint, su propio detalle y su propia
+             paginación sobre exactamente la misma entidad; nadie sabía cuál de las dos abrir. -->
+        <div class="cb-field"><label>Ver</label>
+          <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" /></div>
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
+        <!--
+          RE.25 — Cuadre. Eje SEPARADO del Estado a propósito: "Validado" dice que alguien
+          decidió, "Cuadra" dice que los números concuerdan. Una entrada puede estar validada a
+          mano y no cuadrar, y ése es justo el caso que hay que poder pedir.
+        -->
+        <div class="cb-field"><label>Cuadre</label>
+          <p-select [options]="cuadreOpts" [ngModel]="cuadreSel()" (onChange)="setCuadre($event.value)"
+                    optionLabel="label" optionValue="value" placeholder="Cualquiera" [showClear]="true"
+                    appendTo="body" ariaLabel="Filtrar por cuadre del documento" /></div>
+        @if (dinero()) {
+          <div class="cb-field"><label>Ajuste</label>
+            <p-select [options]="ajusteOpts" [ngModel]="ajusteSel()" (onChange)="setAjuste($event.value)"
+                      optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Filtrar por ajuste" /></div>
+          <div class="cb-field"><label>Orden de compra</label>
+            <p-select [options]="ocOpts" [ngModel]="ocSel()" (onChange)="setOc($event.value)"
+                      optionLabel="label" optionValue="value" appendTo="body" ariaLabel="Filtrar por orden de compra" /></div>
+        }
+        @if (variasSucursales()) {
+          <div class="cb-field"><label>Sucursal</label>
+            <p-select [options]="sucursalOpts()" [ngModel]="sucursalSel()" (onChange)="setSucursal($event.value)"
+                      optionLabel="label" optionValue="value" placeholder="Todas las mías" [showClear]="true"
+                      appendTo="body" ariaLabel="Sucursal" /></div>
+        }
         <div class="cb-field cb-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Últimos 4 del folio (ej. 0397), o proveedor / RFC / OC…" (keyup.enter)="load()" (blur)="queue()" /></div>
+        <div class="cb-field"><label>&nbsp;</label>
+          @if (rezago()) {
+            <button pButton type="button" class="p-button-text" (click)="setRezago(false)"
+                    pTooltip="Volver al periodo del proceso" tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span>
+              <span class="p-button-label">Salir del rezago</span>
+            </button>
+          } @else if (report()?.settings; as cfg) {
+            <button pButton type="button" class="p-button-text" (click)="setRezago(true)"
+                    [pTooltip]="'Entradas anteriores al ' + cfg.reception_start + ' — fuera del proceso vivo'" tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-history" aria-hidden="true"></span>
+              <span class="p-button-label">Ver rezago</span>
+            </button>
+          }
+        </div>
         <div class="cb-field"><label>&nbsp;</label>
           <button pButton type="button" (click)="openAttachPhotoFirst()" title="Identificá la entrada por folio y subí la factura"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Subir factura</span></button></div>
         @if (newCount() > 0) {
@@ -106,21 +194,54 @@ interface AttachFile {
         <app-load-state [error]="error()" (retry)="load()"></app-load-state>
       } @else {
       <div class="card-premium card-flat">
-        <p-table [value]="rows()" styleClass="p-datatable-sm cb-table" [rowHover]="true" [scrollable]="true" scrollHeight="62vh"
-                 [paginator]="rows().length > 150" [rows]="150" [loading]="loading()">
+        <!-- RE.17.5 — surf-table como sus hermanas de /compras (compras-360, costo-neto,
+             cuadre-proveedor). Era la única tabla del proyecto sin la clase compartida: fila más
+             alta, otro header y otro hover para la MISMA entidad que la lista de pendientes. -->
+        <!-- La densidad la lleva surf-table--compact y no is-dense: el primero es el modificador
+             de la tabla PrimeNG, el segundo el de la variante plain (tabla cruda). -->
+        <p-table [value]="rows()" styleClass="p-datatable-sm surf-table surf-table--sticky cb-table"
+                 [class.surf-table--compact]="density.dense()"
+                 [rowHover]="true" [scrollable]="true" scrollHeight="62vh" [loading]="loading()">
+          <!-- RE.20.2 — encabezados ordenables. Sólo Fecha, Proveedor y Monto: son las tres que
+               contestan una pregunta de trabajo. Entrada y OC son identificadores (para eso está
+               el buscador), y Remisión/Acciones son estado y controles, no datos que ordenen. -->
           <ng-template #header>
             <tr>
-              <th style="width:6rem">Fecha</th>
+              <th style="width:6rem" [attr.aria-sort]="ariaSort(sort(), 'fecha')">
+                <button type="button" class="surf-sort" (click)="ordenarPor('fecha', 'desc')" aria-label="Ordenar por fecha">
+                  Fecha <i [class]="sortIcon(sort(), 'fecha')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th style="width:7rem">Entrada</th>
-              <th>Proveedor</th>
+              <th [attr.aria-sort]="ariaSort(sort(), 'proveedor')">
+                <button type="button" class="surf-sort" (click)="ordenarPor('proveedor', 'asc')" aria-label="Ordenar por proveedor">
+                  Proveedor <i [class]="sortIcon(sort(), 'proveedor')" aria-hidden="true"></i>
+                </button>
+              </th>
               <th style="width:7rem">OC</th>
-              <th class="ta-r" style="width:9rem">Monto</th>
+              <!-- RE.20.1 — en el lente del dinero la columna del importe se llama FACTURA: es
+                   el mismo número, pero acá la pregunta es contable y "monto" no dice de qué
+                   lado está. Y aparecen las dos que explican el neto. -->
+              <th class="ta-r" style="width:9rem" [attr.aria-sort]="ariaSort(sort(), 'monto')">
+                <button type="button" class="surf-sort" (click)="ordenarPor('monto', 'desc')"
+                        [attr.aria-label]="dinero() ? 'Ordenar por factura' : 'Ordenar por monto'">
+                  {{ dinero() ? 'Factura' : 'Monto' }} <i [class]="sortIcon(sort(), 'monto')" aria-hidden="true"></i>
+                </button>
+              </th>
+              @if (dinero()) {
+                <th class="ta-r" style="width:8.5rem">Ajuste</th>
+                <th class="ta-r" style="width:9.5rem">Neto</th>
+              }
               <th style="width:11rem">Remisión</th>
               <th style="width:12rem">Acciones</th>
             </tr>
           </ng-template>
           <ng-template #body let-c>
-            <tr>
+            <!-- RE.22.2 — la fila se despliega: hasta ahora, para saber QUÉ traía una recepción
+                 había que abrir el expediente completo en un diálogo y cerrarlo. Auditar varias
+                 seguidas era abrir y cerrar. El clic en la fila (no en sus controles) muestra los
+                 renglones ahí mismo; el folio sigue abriendo el expediente. -->
+            <tr [class.cb-row-open]="filaAbierta() === claveFila(c)" (click)="filaClick(c, $event)">
               <td>
                 {{ c.receipt_date | date:'dd/MM/yy' }}
                 @if (c.fecha_futura) {
@@ -128,7 +249,35 @@ interface AttachFile {
                      title="Fecha capturada adelante de hoy en el ERP"></i>
                 }
               </td>
-              <td><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver detalle por línea (auditoría)">{{ c.folio }}</button></td>
+              <td><button type="button" class="cb-caret" (click)="toggleFila(c)"
+                          [attr.aria-expanded]="filaAbierta() === claveFila(c)"
+                          [attr.aria-label]="'Ver los renglones de la entrada ' + c.folio">
+                    <i class="pi" [ngClass]="filaAbierta() === claveFila(c) ? 'pi-chevron-down' : 'pi-chevron-right'" aria-hidden="true"></i>
+                  </button><button type="button" class="cb-foliolink" (click)="openDetail(c)" title="Ver el expediente completo (remisión + historial)">{{ c.folio }}</button>
+                <!--
+                  RE.26.1 — los DOS folios: arriba el de la entrada en Kepler, abajo el que trae
+                  impreso nuestra hoja dentro del paquete. Se muestran siempre que se haya leído,
+                  coincidan o no: quien audita necesita ver contra qué se comparó, no sólo el
+                  veredicto. Cuando difieren es evidencia pegada a otra entrada — medido, pasa.
+                -->
+                @if (c.folio_interno) {
+                  <em class="cb-folint" [attr.data-ok]="c.folio_interno_ok"
+                      [title]="c.folio_interno_ok === false
+                        ? 'La hoja interna del paquete dice ' + c.folio_interno + ', no ' + c.folio + ' — puede ser evidencia de otra orden'
+                        : 'La hoja interna del paquete trae el mismo folio que la entrada'">
+                    <i class="pi" [ngClass]="c.folio_interno_ok === false ? 'pi-exclamation-triangle' : 'pi-check'" aria-hidden="true"></i>
+                    hoja: {{ c.folio_interno }}
+                  </em>
+                }
+                <!-- RE.14 — la misma recepción capturada dos veces. Se muestra el otro folio acá
+                     porque esta pantalla es donde alguien llega con "tengo este número": el par
+                     tiene que ser visible sin abrir el detalle. -->
+                @if (c.gemela_folio) {
+                  <em class="cb-gem" [title]="'Oficinas capturó la misma recepción como 00/' + c.gemela_folio + (c.gemela_monto != null ? ' por ' + money(c.gemela_monto) : '')">
+                    <i class="pi pi-link" aria-hidden="true"></i> 00/{{ c.gemela_folio }}
+                  </em>
+                }
+              </td>
               <td>
                 @if (c.proveedor_code) {
                   <button type="button" class="cb-reflink" (click)="inspect.set(refProv(c.proveedor_code))"
@@ -143,28 +292,185 @@ interface AttachFile {
                 } @else { — }
               </td>
               <td class="ta-r strong">{{ money(c.monto) }}</td>
+              @if (dinero()) {
+                <!-- El ajuste NO es de suyo un problema: 3 de cada 4 son beneficio negociado
+                     (descuento, pronto pago, apoyo de marca). Por eso el ámbar es sólo para el
+                     operativo —faltante, mal estado, no solicitado—, que sí es algo que salió
+                     mal. Pintar de rojo un apoyo de marca es entrenar a ignorar el color. -->
+                <td class="ta-r cb-ajuste" [class.is-op]="(c.ajuste_operativo || 0) !== 0">
+                  @if (c.n_ajuste) {
+                    <span [pTooltip]="ajusteTip(c)" tooltipPosition="left">−{{ money(c.ajuste) }}</span>
+                  } @else { <span class="muted">—</span> }
+                </td>
+                <td class="ta-r strong">{{ money(c.neto) }}</td>
+              }
               <td class="cb-comp-cell" (click)="openDetail(c)" [title]="c.deposits > 0 ? 'Ver remisión adjunta + detalle por línea' : 'Ver detalle por línea'">
                 @if (c.deposits > 0) {
                   <div class="cb-comp">
                     <p-tag [value]="depLabel(c.deposit_status)" [severity]="depSev(c.deposit_status)" />
-                    <span class="cb-match" [class.ok]="c.monto_match" [class.bad]="!c.monto_match" [title]="c.monto_match ? 'El total de la remisión cuadra con la entrada' : 'El total de la remisión NO cuadra'">
-                      <i class="pi" [ngClass]="c.monto_match ? 'pi-check-circle' : 'pi-exclamation-triangle'"></i>
+                    <!--
+                      RE.25 — el cuadre del DOCUMENTO. Reemplaza al ícono anterior, que miraba
+                      SÓLO el importe y por eso ponía la palomita en facturas del proveedor
+                      equivocado con el monto correcto — que es justo donde se paga de más.
+                      El motivo va en el tooltip: el chip dice qué, el texto dice por qué.
+                    -->
+                    <span class="cb-cuadre" [attr.data-cuadre]="c.cuadre"
+                          [pTooltip]="c.cuadre_motivo || ''" tooltipPosition="left">
+                      <i class="pi" [ngClass]="cuadreIcon(c.cuadre)" aria-hidden="true"></i>
+                      <span class="cb-cuadre-txt">{{ cuadreLabel(c.cuadre) }}</span>
                     </span>
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
+                } @else if (verDescartadas()) {
+                  <!-- RE.20.3 — en la vista de descartadas la columna dice POR QUÉ salió del
+                       proceso. Sin el motivo a la vista, "descartada" es una fila que
+                       desapareció y nadie puede auditar la decisión. -->
+                  <span class="cb-descartada" [pTooltip]="descarteTip(c)" tooltipPosition="top">
+                    <i class="pi pi-ban" aria-hidden="true"></i> {{ motivoDescarteLabel(c.descarte_motivo) || 'Descartada' }}
+                  </span>
                 } @else { <span class="muted cb-comp-empty"><i class="pi pi-paperclip" aria-hidden="true"></i> Sin remisión</span> }
               </td>
               <td>
-                <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
-                @if (c.deposit_id && canValidate()) {
-                  @if (c.deposit_status !== 'validado') { <button pButton type="button" size="small" text severity="success" [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()" (click)="doValidate(c)" title="Validar"><span class="p-button-icon pi pi-check" aria-hidden="true"></span></button> }
-                  @if (c.deposit_status !== 'rechazado') { <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)" title="Rechazar"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button> }
+                @if (verDescartadas()) {
+                  @if (canValidate()) {
+                    <button pButton type="button" size="small" text severity="secondary"
+                            [loading]="descartando() === clave(c)" [disabled]="!!descartando()"
+                            (click)="reactivar(c)" title="Vuelve al proceso: apareció la factura">
+                      <span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reactivar</span>
+                    </button>
+                  }
+                } @else {
+                  <button pButton type="button" size="small" text (click)="openAttach(c)" [title]="c.deposits > 0 ? 'Agregar otra remisión' : 'Adjuntar remisión'"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">{{ c.deposits > 0 ? 'Otra' : 'Adjuntar' }}</span></button>
+                  <!--
+                    RE.26 — el apartado de VALIDACIÓN. Antes eran dos íconos sueltos entre los
+                    demás botones y la palomita ejecutaba SIN preguntar (sólo el rechazo abría
+                    diálogo), aunque las dos decisiones pesan lo mismo: una da por bueno un
+                    documento de dinero. Ahora van juntas, separadas del resto, y las dos
+                    confirman.
+
+                    Y el estado se DICE, no se deduce de qué botón falta: "Validada" / "Devuelta"
+                    con su ícono. Antes, que la palomita no estuviera era la única señal de que
+                    ya estaba validada — una ausencia no es un mensaje.
+                  -->
+                  @if (c.deposit_id && canValidate()) {
+                    <span class="cb-valida" [attr.data-estado]="c.deposit_status">
+                      @if (c.deposit_status === 'validado') {
+                        <span class="cb-valida-hecho"><i class="pi pi-check-circle" aria-hidden="true"></i> Validada</span>
+                      } @else if (c.deposit_status === 'rechazado') {
+                        <span class="cb-valida-hecho"><i class="pi pi-times-circle" aria-hidden="true"></i> Devuelta</span>
+                      }
+                      @if (c.deposit_status !== 'validado') {
+                        <button pButton type="button" size="small" text severity="success"
+                                [loading]="actingId() === c.deposit_id" [disabled]="!!actingId()"
+                                (click)="confirmarValidar(c)"
+                                [attr.aria-label]="'Dar por buena la remisión de la entrada ' + c.folio" title="Dar por buena">
+                          <span class="p-button-icon pi pi-check" aria-hidden="true"></span>
+                        </button>
+                      }
+                      @if (c.deposit_status !== 'rechazado') {
+                        <button pButton type="button" size="small" text severity="danger" (click)="openReject(c)"
+                                [attr.aria-label]="'Devolver la remisión de la entrada ' + c.folio" title="Devolver">
+                          <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
+                        </button>
+                      }
+                    </span>
+                  }
+                  <!-- RE.20.3 — sólo sin evidencia: si la factura ya está subida la respuesta es
+                       validarla o devolverla. El server lo vuelve a comprobar. -->
+                  @if (!c.deposits && canValidate()) {
+                    <button pButton type="button" size="small" text severity="secondary"
+                            (click)="openDescartar(c)" title="Nunca va a tener factura (traspaso, $0, cancelada)">
+                      <span class="p-button-icon pi pi-ban" aria-hidden="true"></span>
+                    </button>
+                  }
                 }
               </td>
             </tr>
+            @if (filaAbierta() === claveFila(c)) {
+              <tr class="cb-exp">
+                <td [attr.colspan]="dinero() ? 9 : 7">
+                  @if (filaLoading()) {
+                    <p class="cb-exp-nota"><i class="pi pi-spin pi-spinner"></i> Abriendo el movimiento…</p>
+                  } @else if (filaError()) {
+                    <p class="cb-exp-nota">No se pudo abrir el movimiento. <button type="button" class="cb-exp-retry" (click)="reintentarFila(c)">Reintentar</button></p>
+                  } @else if (filaDetalle(); as fd) {
+                    @if (fd.lineas.length) {
+                      <!-- surf-table--plain es la BASE compartida para tablas crudas: existe
+                           justamente para que cada pantalla no reinvente th/padding/tamaño.
+                           comm-num ya trae mono + tabular-nums y, de paso, evita que la regla
+                           descendente .cb-table td.ta-r se filtre acá adentro. -->
+                      <div class="cb-exp-scroll">
+                        <table class="surf-table surf-table--plain is-dense">
+                          <thead><tr><th>SKU</th><th>Producto</th><th class="comm-num">Cant.</th><th>Unidad</th><th class="comm-num">Costo</th><th class="comm-num">Importe</th></tr></thead>
+                          <tbody>
+                            @for (l of fd.lineas; track l.linea) {
+                              <tr>
+                                <td class="mono">{{ l.sku || '—' }}</td>
+                                <td>{{ l.nombre || '—' }}</td>
+                                <td class="comm-num">{{ l.cantidad }}</td>
+                                <td>{{ l.unidad || '—' }}</td>
+                                <td class="comm-num">{{ money(l.costo_unitario) }}</td>
+                                <td class="comm-num">{{ money(l.importe) }}</td>
+                              </tr>
+                            }
+                          </tbody>
+                          <tfoot>
+                            <tr>
+                              <!-- lineasMeta explica de una vez por qué Σ renglones ≠ total del
+                                   documento: son el SUBTOTAL y c16 va con impuestos. No se afirma
+                                   "es el IVA" salvo que el número lo confirme — en dulcería hay IEPS. -->
+                              <td colspan="5">{{ filaLineasMeta(fd) }}</td>
+                              <td class="comm-num">{{ money(lineasTotal(fd.lineas)) }}</td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    } @else {
+                      <!-- Wincaja (sucursales 30/32/50) manda la recepción SIN renglones: es
+                           header-only en el origen, no un fallo de carga. Decirlo evita que
+                           alguien lo reporte como bug. -->
+                      <p class="cb-exp-nota">Esta recepción no trae renglones en el ERP. Se capturó sólo con el total.</p>
+                    }
+                  }
+                </td>
+              </tr>
+            }
           </ng-template>
-          <ng-template #emptymessage><tr><td colspan="7" class="cb-empty">Sin entradas para el filtro.</td></tr></ng-template>
+          <!-- RE.20.1 — los totales del lente son de TODO lo filtrado, no de la página: la
+               pregunta "¿cuánto pagamos?" no se contesta con las 100 filas de enfrente. Por eso
+               los manda el server y no se suman acá. -->
+          @if (dinero() && report()?.totales; as t) {
+            <ng-template #footer>
+              <tr class="cb-tot">
+                <td colspan="4">Todo lo filtrado · <strong>{{ report()?.total }}</strong> compras</td>
+                <td class="ta-r">{{ money(t.factura) }}</td>
+                <td class="ta-r cb-ajuste">{{ t.ajuste ? '−' + money(t.ajuste) : '—' }}</td>
+                <td class="ta-r strong">{{ money(t.neto) }}</td>
+                <td colspan="2"></td>
+              </tr>
+            </ng-template>
+          }
+          <ng-template #emptymessage><tr><td [attr.colspan]="dinero() ? 9 : 7" class="cb-empty">Sin entradas para el filtro.</td></tr></ng-template>
         </p-table>
+
+        <!-- RE.17.5 — paginación de servidor. El p-table paginaba las 150 filas que ya tenía en
+             memoria mientras el server mandaba 300 y el KPI contaba miles: el corte era mudo
+             y no había forma de llegar a la fila 301. Regla de datos densos 7: lo auditable se
+             pagina, y se dice cuánto hay. -->
+        @if (report(); as r) {
+          <div class="cb-pager">
+            <!-- RE.20.2 — el orden, dicho. Se leía en el segmentado del filtro; ahora que vive
+                 en el encabezado hace falta escribirlo en algún lado, y el contador es la misma
+                 frase: "qué estás viendo y en qué orden". -->
+            <span>{{ desde() }}–{{ hasta() }} de <strong>{{ r.total }}</strong><em class="cb-orden">{{ ordenTexto() }}</em></span>
+            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="page() === 1 || loading()" (click)="irPagina(page() - 1)">
+              <span class="p-button-icon pi pi-angle-left" aria-hidden="true"></span><span class="p-button-label">Anterior</span>
+            </button>
+            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="hasta() >= r.total || loading()" (click)="irPagina(page() + 1)">
+              <span class="p-button-label">Siguiente</span><span class="p-button-icon pi pi-angle-right" aria-hidden="true"></span>
+            </button>
+          </div>
+        }
       </div>
       }
     </div>
@@ -286,9 +592,12 @@ interface AttachFile {
                   <div class="cb-file-body">
                     <div class="cb-file-name" [title]="f.name">{{ f.name }}</div>
                     <div class="cb-file-controls">
-                      <select class="cb-role" [ngModel]="f.role" (ngModelChange)="setRole(f, $event)" [attr.aria-label]="'Tipo de ' + f.name">
-                        @for (r of roleOpts(); track r.value) { <option [value]="r.value">{{ r.label }}</option> }
-                      </select>
+                      <!-- RE.17.5 — p-select y no un select crudo (checklist 3): era el único
+                           control de esta pantalla fuera del sistema, y el nativo no toma el
+                           tema (en oscuro salía con la lista blanca del sistema operativo). -->
+                      <p-select class="cb-role" [options]="roleOpts()" [ngModel]="f.role"
+                                (ngModelChange)="setRole(f, $event)" optionLabel="label" optionValue="value"
+                                appendTo="body" styleClass="cb-role-sel" [ariaLabel]="'Tipo de ' + f.name" />
                       <button type="button" class="cb-star" [class.on]="f.primary" (click)="setPrimary(f)" [title]="f.primary ? 'Enlaza la entrada' : 'Usar esta para enlazar'"><i class="pi" [ngClass]="f.primary ? 'pi-star-fill' : 'pi-star'" aria-hidden="true"></i></button>
                       @if (f.ocrLoading) { <span class="cb-file-stat" title="Leyendo con OCR…"><i class="pi pi-spin pi-spinner"></i></span> }
                       @else if (f.ocrFolio && !f.dup) { <span class="cb-file-folio" title="Folio leído por OCR">#{{ f.ocrFolio }}</span> }
@@ -393,21 +702,87 @@ interface AttachFile {
       </ng-template>
     </p-dialog>
 
-    <!-- Diálogo: rechazo -->
-    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '26rem' }" [draggable]="false" header="Rechazar remisión">
+    <!--
+      Diálogo: rechazo.
+
+      RE.24 — el motivo pasó de TEXTO LIBRE a tipificado, portado de la cabina de revisión al
+      retirarla. El catálogo existe para poder medir: su propio docstring dice "sin esto el
+      motivo es texto libre y no se puede medir", y esta pantalla era la que lo mandaba suelto
+      — o sea que retirar la cabina sin traerlo dejaba motivo_codigo en NULL para siempre.
+      El detalle sigue siendo libre, y obligatorio sólo en "Otro".
+    -->
+    <p-dialog [visible]="showReject()" (visibleChange)="onRejectVisible($event)" [modal]="true" [style]="{ width: '28rem' }" [draggable]="false" header="Rechazar remisión">
       <div class="cb-form">
         <p class="muted">Entrada <strong>{{ rejectTarget()?.folio }}</strong> · {{ rejectTarget()?.proveedor_nombre }}</p>
-        <label class="cb-f"><span>Motivo del rechazo *</span>
-          <textarea pInputText [(ngModel)]="rejectMotivo" rows="3" placeholder="Ej. remisión ilegible, total no cuadra, no corresponde…"></textarea></label>
+        <div class="cb-rej-motivos" role="radiogroup" aria-label="Motivo del rechazo">
+          @for (m of MOTIVOS_RECHAZO; track m.code) {
+            <label class="cb-rej-m" [class.is-sel]="rejectCodigo() === m.code" [attr.for]="'rej-' + m.code">
+              <p-radiobutton name="motivoRechazo" [value]="m.code" [ngModel]="rejectCodigo()"
+                             (ngModelChange)="rejectCodigo.set($event)" [inputId]="'rej-' + m.code" />
+              <span>{{ m.label }}</span>
+            </label>
+          }
+        </div>
+        <label class="cb-f"><span>Detalle {{ rejectCodigo() === 'otro' ? '*' : '(opcional)' }}</span>
+          <textarea pInputText [(ngModel)]="rejectMotivo" rows="2" placeholder="Ej. la hoja 2 salió cortada"></textarea></label>
+        @if (rejectError()) { <p class="cb-err">{{ rejectError() }}</p> }
       </div>
       <ng-template #footer>
         <button pButton type="button" text (click)="closeReject()"><span class="p-button-label">Cancelar</span></button>
-        <button pButton type="button" severity="danger" [loading]="saving()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+        <button pButton type="button" severity="danger" [loading]="saving()" [disabled]="!rejectCodigo()" (click)="doReject()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
       </ng-template>
     </p-dialog>
 
+    <!--
+      RE.20.3 — Descartar. Le faltaba al proceso la salida para lo que NUNCA va a tener factura:
+      hasta acá el único camino era "Devuelta", que rebota a la sucursal pidiéndole que suba algo
+      que no existe. La entrada se queda Sin factura para siempre e infla el atraso de esa
+      sucursal. El motivo es obligatorio y tipificado porque el descarte RESTA del denominador de
+      cobertura: sin motivo medible, descartar es el camino corto al 100%.
+    -->
+    <p-dialog [visible]="showDescartar()" (visibleChange)="showDescartar.set($event)" [modal]="true"
+              [style]="{ width: '30rem' }" [draggable]="false" header="Sacar del proceso">
+      @if (descartarFila(); as c) {
+        <div class="cb-form">
+          <p class="muted">
+            Entrada <strong>{{ c.folio }}</strong> · {{ c.proveedor_nombre || c.proveedor_code }} · {{ money(c.monto) }}
+          </p>
+          <p class="cb-desc-lead">
+            Esta entrada deja de pedir factura y <strong>sale del atraso</strong> de {{ suc(c.sucursal) }}.
+            Se sigue contando aparte, en el tablero de Control.
+          </p>
+          <div class="cb-desc-motivos" role="radiogroup" aria-label="Motivo del descarte">
+            @for (m of MOTIVOS_DESCARTE; track m.code) {
+              <label class="cb-desc-m" [class.is-sel]="descarteMotivo() === m.code">
+                <input type="radio" name="motivoDescarte" [value]="m.code"
+                       [checked]="descarteMotivo() === m.code" (change)="descarteMotivo.set(m.code)" />
+                <span><b>{{ m.label }}</b><em>{{ m.pista }}</em></span>
+              </label>
+            }
+          </div>
+          <label class="cb-f"><span>Nota {{ descarteMotivo() === 'otro' ? '*' : '(opcional)' }}</span>
+            <textarea pInputText [ngModel]="descarteNota()" (ngModelChange)="descarteNota.set($event)" rows="2"
+                      placeholder="Qué pasó con esta entrada"></textarea></label>
+        </div>
+        <ng-template #footer>
+          <button pButton type="button" text (click)="showDescartar.set(false)"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" severity="secondary" [loading]="!!descartando()" (click)="confirmarDescarte()">
+            <span class="p-button-icon p-button-icon-left pi pi-ban" aria-hidden="true"></span><span class="p-button-label">Descartar</span>
+          </button>
+        </ng-template>
+      }
+    </p-dialog>
+
     <!-- Diálogo: detalle por línea (auditoría) + comparación documento vs OCR (RE.8) -->
-    <p-dialog [(visible)]="showDetail" [modal]="true" [style]="{ width: '72rem', maxWidth: '96vw' }" [draggable]="false" [maximizable]="true" header="Detalle de la orden de entrada — documento vs OCR">
+    <!--
+      RE.17.5 — el expediente sale del modal. Era un p-dialog de 72rem maximizable con la
+      auditoría renglón por renglón adentro, y encima abría un CUARTO diálogo para ver la hoja:
+      DESIGN §O.1 prohíbe leer un documento financiero extenso en un overlay superpuesto. Ahora
+      es el organismo canónico de detalle (SidePeek, regla #8 de datos densos) — la lista se
+      sigue viendo detrás, que es lo que permite ir de una orden a la siguiente.
+    -->
+    <app-side-peek [(open)]="showDetail" [width]="1060" title="Orden de entrada"
+                   [subtitle]="detailSubtitulo()">
       @if (detailLoading()) {
         <!-- Esqueleto con la FORMA del contenido (veredicto + 3 cifras + ficha + renglones):
              sin salto de layout al llegar los datos. Regla de datos densos: skeleton de
@@ -479,12 +854,27 @@ interface AttachFile {
           </strong></div>
           <div class="ta-r"><span class="cb-lbl">Total Kepler</span><strong class="cb-monto">{{ money(d.entrada.monto) }}</strong></div>
         </div>
+        @if (d.redirigido_de) {
+          <div class="cb-twin"><i class="pi pi-directions" aria-hidden="true"></i>
+            <span>Buscaste <strong class="mono">{{ d.redirigido_de.sucursal }}/{{ d.redirigido_de.folio }}</strong>,
+              el folio con el que <strong>oficinas</strong> capturó esta recepción. Lo que ves es el documento de la
+              sucursal, que es el que trae los productos y el que lleva la evidencia.</span>
+          </div>
+        }
         @if (d.cedis_twins?.length) {
           <div class="cb-twin"><i class="pi pi-clone" aria-hidden="true"></i>
-            <span>Incluye la copia de <strong>CEDIS</strong> (misma recepción, otra póliza) — no requiere evidencia aparte:</span>
+            <span>La misma recepción está capturada también en <strong>oficinas</strong> (servidor 9.95) —
+              no requiere evidencia aparte:</span>
             @for (t of d.cedis_twins; track t.sucursal + '/' + t.folio) {
               <button type="button" class="cb-twin-folio cb-reflink mono" (click)="inspect.set(refEnt(t.sucursal, t.folio))"
-                      [attr.aria-label]="'Abrir la copia CEDIS ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+                      [attr.aria-label]="'Abrir la copia de oficinas ' + t.sucursal + '/' + t.folio">{{ t.sucursal }}/{{ t.folio }}</button>
+              <span class="cb-twin-meta">
+                {{ t.monto == null ? '' : money(t.monto) }}<!--
+                --><!-- El delta entre nuestras dos capturas: pequeño pero hay que poder verlo,
+                        porque es lo que explica un "no cuadra" que no es del proveedor. -->
+                @if (t.delta_monto) { · Δ {{ money(t.delta_monto) }} }
+                @if (t.status === 'propuesto') { · <strong>sin dictaminar</strong> }
+              </span>
             }
           </div>
         }
@@ -656,7 +1046,8 @@ interface AttachFile {
               </div>
               <div class="cb-view-files">
                 @for (f of dep.files; track f.url) {
-                  <button type="button" class="cb-view-filebtn" [class.on]="selectedDoc()?.url === f.url" (click)="selectDoc(f)" [title]="'Ver ' + (f.name || 'documento') + ' a la derecha'">
+                  <button type="button" class="cb-view-filebtn" [class.on]="hojaIdx() === indiceHoja(f)"
+                          (click)="verHoja(f)" [title]="'Ver ' + (f.name || 'documento') + ' a la derecha'">
                     <i class="pi" [ngClass]="isImageUrl(f) ? 'pi-image' : 'pi-file-pdf'" aria-hidden="true"></i>
                     <span class="cb-filebtn-name">{{ f.name || (isImageUrl(f) ? 'imagen' : 'remisión (PDF)') }}</span>
                   </button>
@@ -678,40 +1069,23 @@ interface AttachFile {
         </div>
         </div><!-- /.cb-review-main -->
 
-        <!-- Panel derecho: documento (PDF/imagen) para comparar contra la lectura OCR de la izquierda -->
+        <!-- Panel derecho: el documento, con el visor compartido. Antes era un iframe fijo y la
+             hoja sólo se podía agrandar abriendo OTRO diálogo encima. -->
         <aside class="cb-review-doc">
-          @if (selectedDoc(); as doc) {
-            <div class="cb-doc-head">
-              <span class="cb-doc-name" [title]="doc.name"><i class="pi" [ngClass]="doc.kind === 'pdf' ? 'pi-file-pdf' : 'pi-image'" aria-hidden="true"></i> {{ doc.name }}</span>
-              <a pButton type="button" text size="small" [href]="doc.url" target="_blank" rel="noopener" title="Abrir en pestaña"><span class="p-button-icon pi pi-external-link" aria-hidden="true"></span></a>
-            </div>
-            <div class="cb-doc-frame">
-              @if (doc.kind === 'pdf') { <iframe [src]="doc.safeUrl" title="Documento de la orden de entrada"></iframe> }
-              @else { <img [src]="doc.url" [alt]="doc.name" /> }
-            </div>
-          } @else {
-            <div class="cb-doc-empty"><i class="pi pi-file" aria-hidden="true"></i><span>Elegí una hoja abajo para verla acá, junto a la lectura OCR.</span></div>
-          }
+          <app-doc-viewer [files]="hojas()" [(idx)]="hojaIdx"
+                          emptyTitle="Sin remisión adjunta"
+                          emptyHint="Adjuntá la factura del proveedor para poder compararla contra lo que registró Kepler." />
         </aside>
         </div><!-- /.cb-review -->
-      }
-      <ng-template #footer>
-        <button pButton type="button" text (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
-        <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
-      </ng-template>
-    </p-dialog>
 
-    <!-- Visor de imagen: se abre solo al pedirlo (no carga la imagen en el detalle) -->
-    <p-dialog [(visible)]="viewerOpen" [modal]="true" [dismissableMask]="true" [draggable]="false" [style]="{ width: '56rem', maxWidth: '94vw' }"
-              [header]="viewerName() || 'Imagen de la remisión'" [baseZIndex]="10000" appendTo="body">
-      @if (viewerUrl(); as url) {
-        <div class="cb-viewer"><img [src]="url" [alt]="viewerName() || 'remisión'" /></div>
+        <!-- El SidePeek no tiene pie: las acciones van al final del contenido, que además es
+             donde quedan después de leer el expediente. -->
+        <div class="cb-review-acts">
+          <button pButton type="button" text (click)="showDetail.set(false)"><span class="p-button-label">Cerrar</span></button>
+          <button pButton type="button" (click)="fromDetailToAttach()"><span class="p-button-icon p-button-icon-left pi pi-paperclip" aria-hidden="true"></span><span class="p-button-label">Adjuntar remisión</span></button>
+        </div>
       }
-      <ng-template #footer>
-        <a pButton type="button" text [href]="viewerUrl()" target="_blank" rel="noopener"><span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span><span class="p-button-label">Abrir en pestaña</span></a>
-        <button pButton type="button" (click)="closeImage()"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Cerrar</span></button>
-      </ng-template>
-    </p-dialog>
+    </app-side-peek>
 
     <!-- Panel de ficha: proveedor, entrada, renglón, producto y ajuste se abren acá y
          se navegan entre sí sin salir de la pantalla ni apilar diálogos. -->
@@ -719,6 +1093,76 @@ interface AttachFile {
   `,
   styles: [`
     :host { display: block; }
+
+    /* RE.17.5 */
+    .cb-head-actions { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .cb-pager {
+      display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2);
+      padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color);
+      font-size: var(--fs-xs); color: var(--text-muted);
+    }
+    .cb-pager strong { color: var(--text-main); font-variant-numeric: tabular-nums; }
+
+    /* ── RE.20.3: descartar ────────────────────────────────────────────────
+       Gris y no rojo: descartar no es un error ni un castigo, es reconocer que esa entrada
+       nunca iba a tener factura. El rojo está reservado para "no cuadra". */
+    .cb-descartada {
+      display: inline-flex; align-items: center; gap: var(--sp-1);
+      color: var(--text-muted); font-size: var(--fs-xs);
+    }
+    .cb-descartada i { font-size: .75rem; }
+    .cb-desc-lead {
+      margin: 0; padding: var(--sp-2) var(--sp-3);
+      background: var(--surface-ground); border-radius: var(--r-md);
+      font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45;
+    }
+    .cb-desc-lead strong { color: var(--text-main); }
+    .cb-desc-motivos { display: grid; gap: var(--sp-1); }
+    /* Cada motivo con su pista debajo: el revisor tiene que reconocer el caso en la fila que
+       está mirando, no traducir una etiqueta de catálogo. */
+    .cb-desc-m {
+      display: flex; align-items: flex-start; gap: var(--sp-2);
+      padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      cursor: pointer;
+    }
+    .cb-desc-m:hover { background: var(--surface-ground); }
+    .cb-desc-m.is-sel { border-color: var(--action); background: var(--surface-ground); }
+    .cb-desc-m input { margin-top: 2px; accent-color: var(--action); }
+    .cb-desc-m span { display: grid; gap: 1px; min-width: 0; }
+    .cb-desc-m b { font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
+    .cb-desc-m em { font-style: normal; font-size: var(--fs-micro); color: var(--text-muted); line-height: 1.4; }
+    /* RE.24 — motivos de RECHAZO: mismo lenguaje visual que los de descarte, pero de una línea
+       (el catálogo de rechazo no trae pista, la explicación va en el detalle libre de abajo).
+       Van en dos columnas porque son seis y en una sola el diálogo pedía scroll. */
+    .cb-rej-motivos { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); }
+    @media (max-width: 30rem) { .cb-rej-motivos { grid-template-columns: 1fr; } }
+    .cb-rej-m {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      font-size: var(--fs-xs); color: var(--text-main); cursor: pointer;
+      min-height: var(--tap-min);
+    }
+    .cb-rej-m:hover { background: var(--surface-ground); }
+    .cb-rej-m.is-sel { border-color: var(--action); background: var(--surface-ground); }
+    /* El orden en palabras, pegado al contador: es la misma frase. Punto medio y no guion,
+       para que no se lea como continuación del rango "1–100". */
+    /* ── RE.20.1: lente del dinero ─────────────────────────────────────────
+       El ajuste en gris por default y ámbar SÓLO cuando tiene parte operativa (faltante, mal
+       estado, no solicitado). 3 de cada 4 ajustes son beneficio negociado —descuento, pronto
+       pago, apoyo de marca— y pintar de rojo un apoyo de marca entrena a ignorar el color. */
+    .cb-ajuste { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .cb-ajuste.is-op { color: var(--warn-fg); font-weight: 600; }
+    /* Totales de TODO lo filtrado, no de la página: se separan del cuerpo por peso y fondo. */
+    .cb-tot > td {
+      background: var(--surface-2); font-weight: 600;
+      border-top: 1px solid var(--border-color);
+    }
+    .cb-orden { font-style: normal; }
+    .cb-orden::before { content: ' · '; opacity: .55; }
+    /* En rem y no en px (regla 9): con px el breakpoint ignora el zoom del navegador y a 200%
+       la columna sigue escondida cuando ya había lugar de sobra. */
+    @media (max-width: 35rem) { .cb-orden { display: none; } }
+    .cb-role-sel { min-width: 9rem; font-size: var(--fs-xs); }
     /* Cualquier dato que lleva a una ficha. Discreto en reposo: la tabla ya tiene
        suficiente color y esto aparece en muchas celdas a la vez. */
     .cb-reflink { border:0; background:transparent; color:inherit; cursor:pointer; padding:0; font:inherit; text-align:left; }
@@ -729,7 +1173,7 @@ interface AttachFile {
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-field.cb-grow { flex: 1 1 16rem; }
     /* RE.10 — pill de órdenes nuevas (WS) */
-    .cb-newpill { background: var(--action); border-color: var(--action); color: #fff; }
+    .cb-newpill { background: var(--action); border-color: var(--action); color: var(--action-ink); }
     .cb-newpill:hover { filter: brightness(1.06); }
     app-metric-strip { display: block; margin-bottom: 1rem; }
     /* Tira de frescura por fuente. Discreta cuando todo está al día; la fuente atrasada
@@ -751,11 +1195,35 @@ interface AttachFile {
     .cb-sub { font-size: .7rem; color: var(--text-muted); }
     .mono { font-family: var(--font-mono); font-size: .85em; }
     .cb-comp { display: inline-flex; align-items: center; gap: .45rem; }
-    .cb-match.ok { color: var(--ok-fg); }
-    .cb-match.bad { color: var(--bad-fg); }
+    /* RE.25 — el cuadre del documento. El color NUNCA va solo (DESIGN.md §5): cada estado
+       trae su ícono Y su palabra, porque el veredicto tiene que leerse en gris, en dark y
+       para quien no distingue verde de ámbar. */
+    .cb-cuadre { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); white-space: nowrap; }
+    .cb-cuadre .pi { font-size: .8rem; }
+    .cb-cuadre-txt { font-weight: 600; }
+    .cb-cuadre[data-cuadre="cuadra"] { color: var(--ok-fg); }
+    .cb-cuadre[data-cuadre="revisar"] { color: var(--warn-fg); }
+    /* "No se leyó" en gris a propósito: no es un descuadre del proveedor, es una hoja que no se
+       pudo leer. Pintarla de ámbar la mete en la misma cola que los descuadres reales, y son
+       cosas que se arreglan distinto — una se re-escanea, la otra se audita. */
+    .cb-cuadre[data-cuadre="sin_datos"] { color: var(--text-muted); }
+    /* RE.26 — el apartado de validación: los dos botones que deciden van juntos y separados
+       del resto de las acciones, con el estado dicho en palabras al lado. */
+    .cb-valida { display: inline-flex; align-items: center; gap: .15rem; }
+    .cb-valida-hecho { display: inline-flex; align-items: center; gap: .25rem; font-size: var(--fs-micro); font-weight: 600; }
+    .cb-valida[data-estado="validado"] .cb-valida-hecho { color: var(--ok-fg); }
+    .cb-valida[data-estado="rechazado"] .cb-valida-hecho { color: var(--bad-fg); }
+    /* RE.26.1 — el folio de la hoja interna se muestra siempre que se haya leído. Cuando casa va
+       en gris (es contexto: contra qué se comparó); cuando NO casa sube a ámbar y cambia de ícono,
+       porque el color no puede ser el único portador del aviso. */
+    .cb-folint {
+      display: block; font-style: normal; font-size: var(--fs-micro);
+      color: var(--text-muted); white-space: nowrap;
+    }
+    .cb-folint[data-ok="false"] { color: var(--warn-fg); }
     .cb-empty { text-align: center; color: var(--text-muted); padding: 2rem; }
     .cb-form { display: flex; flex-direction: column; gap: .85rem; padding: .25rem 0; }
-    .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
+    .cb-cobro { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: flex-end; padding: .7rem .9rem; background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); }
     .cb-cobro > div { display: flex; flex-direction: column; gap: .15rem; }
     .cb-lbl { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-monto { color: var(--action); font-size: 1.05rem; font-family: var(--font-mono); }
@@ -793,8 +1261,43 @@ interface AttachFile {
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
     .w-full { width: 100%; }
     .cb-foliolink { border: none; background: transparent; color: var(--action); cursor: pointer; padding: 0; font-family: var(--font-mono); font-size: .85em; }
+    /* El folio de oficinas es contexto, no la identidad de la fila: se lee en segundo plano. */
+    .cb-gem { display: block; font-style: normal; font-size: .68rem; color: var(--text-muted); font-family: var(--font-mono); }
     .cb-foliolink:hover { text-decoration: underline; }
     .cb-detail-loading { padding: 2rem; text-align: center; color: var(--text-muted); display: flex; align-items: center; justify-content: center; gap: .5rem; }
+
+    /* ── RE.22.2 desglose en línea ────────────────────────────────────────
+       La fila abierta se ancla con un borde izquierdo: el desglose queda visualmente colgado de
+       ella y no flotando entre dos recepciones. Sin zebra (DESIGN Operations). */
+    .cb-caret {
+      border: none; background: transparent; color: var(--text-faint); cursor: pointer;
+      padding: 0 var(--sp-1) 0 0; font-size: var(--fs-micro); vertical-align: middle;
+      border-radius: var(--r-sm);
+    }
+    .cb-caret:hover { color: var(--text-main); }
+    .cb-caret:active { color: var(--action); }
+    .cb-caret:focus-visible { outline: var(--focus-ring); outline-offset: 1px; }
+    /* El caret es el objetivo táctil más chico de la fila: las celdas ya crecen solas por los
+       tokens de altura, el botón no. En touch tiene que llegar al mínimo (Fitts). */
+    @media (pointer: coarse) {
+      .cb-caret { min-width: var(--tap-min); min-height: var(--tap-min); }
+    }
+    /* Datos densos: elevación por BORDE o sombra, nunca las dos. La fila abierta se ancla con
+       la barra de acento a la izquierda + el fondo de selección tokenizado. */
+    .cb-row-open > td { background: var(--table-row-selected-bg); }
+    .cb-row-open > td:first-child { box-shadow: inset 2px 0 0 var(--action); }
+    .cb-exp > td { padding: var(--sp-2) var(--sp-3) var(--sp-3) var(--sp-6); background: var(--surface-ground); }
+    .cb-exp-nota { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+    .cb-exp-nota b { color: var(--text-main); }
+    .cb-exp-retry {
+      background: none; border: 0; padding: 0; font: inherit; cursor: pointer;
+      color: var(--action); text-decoration: underline;
+    }
+    .cb-exp-retry:focus-visible { outline: var(--focus-ring); outline-offset: 2px; }
+    /* Lo único que la base compartida no cubre: el nombre del producto puede envolver, y la
+       tabla anidada scrollea sola para no empujar la página en móvil. */
+    .cb-exp-scroll { overflow-x: auto; }
+    .cb-exp .surf-table--plain > tbody > tr > td:nth-child(2) { white-space: normal; min-width: 12rem; }
 
     /* ── Detalle: veredicto + tres cifras ────────────────────────────────
        Jerarquia explicita en tres niveles y por TIPO+CONTRASTE, no por color
@@ -851,8 +1354,9 @@ interface AttachFile {
     .cb-detail-total strong { font-family: var(--font-mono); color: var(--text-main); }
     .cb-detail-total > span:last-child { display: inline-flex; align-items: center; gap: .5rem; }
     /* RE.12 — copia CEDIS (espejo) adjunta a la vista de la canónica */
-    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
-    .cb-twin .pi-clone { color: var(--action); }
+    .cb-twin { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; margin: .6rem 0 0; padding: .45rem .7rem; font-size: .8rem; color: var(--text-muted); background: var(--surface-2); border: 1px dashed var(--border-color); border-radius: var(--r-sm, .4rem); }
+    .cb-twin .pi-clone, .cb-twin .pi-directions { color: var(--action); }
+    .cb-twin-meta { font-variant-numeric: tabular-nums; }
     .cb-twin-folio { color: var(--text-main); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .35rem; }
     /* columna Remisión clickable */
     .cb-comp-cell { cursor: pointer; }
@@ -862,8 +1366,10 @@ interface AttachFile {
     .cb-comp-empty { display: inline-flex; align-items: center; gap: .35rem; }
     .cb-comp-empty i { font-size: .75rem; opacity: .7; }
     /* preview antes de subir */
-    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-sunken, var(--card-bg)); }
-    .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: #00000008; }
+    .cb-preview { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: var(--surface-2); }
+    /* Fondo del papel: token, no un negro con alpha. En tema oscuro un #00000008 no existe y
+       la hoja quedaba flotando sin marco. */
+    .cb-preview img { display: block; width: 100%; max-height: 15rem; object-fit: contain; background: var(--surface-ground); }
     .cb-preview-pdf { display: flex; align-items: center; gap: .7rem; padding: .8rem 1rem; }
     .cb-preview-pdf > i { font-size: 1.8rem; color: var(--bad-fg); }
     .cb-preview-pdf-txt { display: flex; flex-direction: column; gap: .1rem; }
@@ -871,9 +1377,9 @@ interface AttachFile {
     .cb-preview-pdf-txt span { font-size: .74rem; color: var(--text-muted); }
     /* multi-archivo: set de 3–4 fotos de la recepción */
     .cb-files { display: flex; flex-direction: column; gap: .5rem; }
-    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-file-card { display: flex; align-items: center; gap: .7rem; padding: .5rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); }
     .cb-file-card.primary { border-color: var(--action); box-shadow: inset 3px 0 0 var(--action); }
-    .cb-file-thumb { flex: 0 0 auto; width: 3rem; height: 3rem; border-radius: var(--r-sm, .4rem); overflow: hidden; display: flex; align-items: center; justify-content: center; background: #00000010; }
+    .cb-file-thumb { flex: 0 0 auto; width: 3rem; height: 3rem; border-radius: var(--r-sm, .4rem); overflow: hidden; display: flex; align-items: center; justify-content: center; background: var(--surface-ground); }
     .cb-file-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .cb-file-thumb .pi-file-pdf { font-size: 1.4rem; color: var(--bad-fg); }
     .cb-file-body { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: .35rem; }
@@ -881,14 +1387,14 @@ interface AttachFile {
     .cb-file-controls { display: flex; align-items: center; gap: .5rem; }
     .cb-role { font-size: .76rem; padding: .2rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--card-bg); color: var(--text-main); max-width: 12rem; }
     .cb-star { border: none; background: transparent; cursor: pointer; color: var(--text-faint); padding: .1rem .2rem; font-size: .95rem; }
-    .cb-star.on { color: var(--warn-soft-fg, #d19a00); }
+    .cb-star.on { color: var(--warn-soft-fg); }
     .cb-file-stat { display: inline-flex; align-items: center; font-size: .85rem; color: var(--text-muted); }
     .cb-file-stat.ok { color: var(--ok-fg); }
     .cb-file-retry { border: none; background: transparent; cursor: pointer; color: var(--bad-fg); padding: .1rem .2rem; }
     .cb-file-x { flex: 0 0 auto; border: none; background: transparent; cursor: pointer; color: var(--text-muted); padding: .2rem .3rem; border-radius: var(--r-sm, .4rem); }
     .cb-file-x:hover { color: var(--bad-fg); background: var(--surface-hover, rgba(0,0,0,.04)); }
     /* foto-primero: enlace de la entrada por OCR / búsqueda manual */
-    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); }
+    .cb-link { display: flex; flex-direction: column; gap: .5rem; padding: .7rem .9rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); }
     .cb-link-hint { margin: 0; font-size: .82rem; color: var(--text-muted); display: flex; align-items: center; gap: .4rem; }
     .cb-link-head { font-size: .82rem; font-weight: 600; color: var(--text-main); }
     .cb-link-search { display: flex; gap: .4rem; }
@@ -897,13 +1403,13 @@ interface AttachFile {
     .cb-link-cand:hover { border-color: var(--action); }
     .cb-link-prov { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
     .cb-link-monto { font-family: var(--font-mono); color: var(--text-main); }
-    .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
-    .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg, #b26a00); background: var(--warn-soft-bg, #fff3e0); border: 1px solid var(--warn-border, #f0c987); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
+    .cb-link-has { font-size: .7rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); padding: .05rem .35rem; border-radius: var(--r-sm, .4rem); }
+    .cb-missing { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE (#4) — checklist de completitud por fuente (Kepler/Wincaja), packet-aware */
-    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-sunken, var(--card-bg)); display: flex; flex-direction: column; gap: .45rem; }
+    .cb-checklist { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); padding: .6rem .8rem; background: var(--surface-2); display: flex; flex-direction: column; gap: .45rem; }
     .cb-checklist-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; color: var(--text-main); }
     .cb-chk-ok { display: inline-flex; align-items: center; gap: .3rem; color: var(--ok-fg); font-weight: 600; }
-    .cb-chk-miss { color: var(--warn-soft-fg, #b26a00); font-weight: 600; }
+    .cb-chk-miss { color: var(--warn-soft-fg); font-weight: 600; }
     .cb-chk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .3rem .9rem; }
     .cb-chk-list li { display: inline-flex; align-items: center; gap: .35rem; font-size: .82rem; color: var(--text-muted); }
     .cb-chk-list li.ok { color: var(--text-main); }
@@ -925,8 +1431,8 @@ interface AttachFile {
     .cb-chk-hint { margin: 0; font-size: .72rem; color: var(--text-faint); }
     /* wizard foto-primero: paso 1 (orden) → continuar → paso 2 (demás docs) */
     .cb-step-head { display: flex; align-items: center; gap: .5rem; font-size: .82rem; color: var(--text-main); line-height: 1.35; }
-    .cb-step-n { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--action); color: #fff; font-size: .74rem; font-weight: 700; }
-    .cb-cobro-ok { border: 1px solid var(--ok-fg, #2e7d32); }
+    .cb-step-n { flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--action); color: var(--action-ink); font-size: .74rem; font-weight: 700; }
+    .cb-cobro-ok { border: 1px solid var(--ok-fg); }
     .cb-role-fixed { display: inline-flex; align-items: center; gap: .3rem; font-size: .78rem; font-weight: 600; color: var(--action); }
     .cb-role-fixed .pi { font-size: .8rem; }
     .cb-addmore { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; padding-top: .1rem; border-radius: var(--r-sm, .4rem); transition: outline-color .15s; }
@@ -934,7 +1440,7 @@ interface AttachFile {
     .cb-addmore-drop { font-size: .74rem; color: var(--text-muted); display: inline-flex; align-items: center; gap: .3rem; }
     .cb-addmore-n { font-size: .76rem; color: var(--text-muted); margin-left: auto; }
     /* RE.7 — dropzone de arrastre del PDF (dispara el OCR solo) */
-    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-sunken, var(--card-bg)); text-align: center; transition: border-color .15s, background .15s; }
+    .cb-drop { display: flex; flex-direction: column; align-items: center; gap: .5rem; padding: 1.6rem 1rem; border: 2px dashed var(--border-color); border-radius: var(--r-md, .5rem); background: var(--surface-2); text-align: center; transition: border-color .15s, background .15s; }
     .cb-drop.drag { border-color: var(--action); background: var(--action-soft-bg, rgba(0,0,0,.03)); }
     .cb-drop-ico { font-size: 2rem; color: var(--bad-fg); }
     .cb-drop-main { font-size: .88rem; color: var(--text-main); }
@@ -943,10 +1449,10 @@ interface AttachFile {
     .cb-drop-opt { border-style: dotted; opacity: .82; }
     .cb-opt-tag { display: inline-block; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); border: 1px solid var(--border-color); border-radius: var(--r-sm, .3rem); padding: 0 .3rem; margin-right: .35rem; vertical-align: middle; }
     /* OCR por-archivo + duplicados */
-    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-sunken, var(--card-bg)); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-file-folio { font-size: .72rem; font-family: var(--font-mono); color: var(--text-muted); background: var(--surface-2); border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); padding: .05rem .3rem; max-width: 8rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cb-file-card.dup { border-color: var(--bad-fg); box-shadow: inset 3px 0 0 var(--bad-fg); }
     .cb-file-dup { display: flex; align-items: center; gap: .3rem; margin-top: .25rem; font-size: .74rem; color: var(--bad-fg); }
-    .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg, #fdecea); border: 1px solid var(--bad-border, #f5c2c0); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
+    .cb-dup { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--bad-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); border-radius: var(--r-sm, .4rem); padding: .4rem .6rem; }
     /* RE.2 — ajustes que explican el descuadre */
     .cb-explains { margin-top: .9rem; padding-top: .8rem; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .5rem; }
     .cb-explains-head { display: flex; align-items: center; justify-content: space-between; gap: .6rem; font-size: .8rem; font-weight: 600; color: var(--text-main); }
@@ -955,7 +1461,7 @@ interface AttachFile {
     .cb-explains-none { font-size: .82rem; margin: 0; display: inline-flex; align-items: center; gap: .4rem; }
     .cb-explains-hint { font-size: .76rem; margin: 0; }
     .cb-explains-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
-    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-sunken, var(--card-bg)); font-size: .82rem; }
+    .cb-explains-item { display: flex; align-items: center; gap: .55rem; padding: .4rem .55rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); background: var(--surface-2); font-size: .82rem; }
     .cb-explains-folio { color: var(--text-main); }
     .cb-explains-fecha { font-size: .76rem; white-space: nowrap; }
     .cb-explains-motivo { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-main); }
@@ -970,10 +1476,10 @@ interface AttachFile {
     .cb-recon-kpis { display: inline-flex; gap: .4rem; flex-wrap: wrap; }
     .cb-rk { font-size: .74rem; padding: .1rem .45rem; border-radius: var(--r-sm, .4rem); border: 1px solid var(--border-color); white-space: nowrap; }
     .cb-rk.ok { color: var(--ok-fg); border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); }
-    .cb-rk.warn { color: var(--warn-fg, #b45309); border-color: color-mix(in srgb, var(--warn-fg, #b45309) 40%, transparent); }
-    .cb-rk.bad { color: var(--danger-fg, #b91c1c); border-color: color-mix(in srgb, var(--danger-fg, #b91c1c) 40%, transparent); }
+    .cb-rk.warn { color: var(--warn-fg); border-color: color-mix(in srgb, var(--warn-fg) 40%, transparent); }
+    .cb-rk.bad { color: var(--bad-fg); border-color: color-mix(in srgb, var(--bad-fg) 40%, transparent); }
     .cb-rk.sec { color: var(--text-muted); }
-    .cb-qty-bad { color: var(--danger-fg, #b91c1c); font-weight: 600; }
+    .cb-qty-bad { color: var(--bad-fg); font-weight: 600; }
     .cb-method { font-size: .76rem; color: var(--text-muted); }
     .cb-method.alias { color: var(--action); font-weight: 600; }
     .cb-learned { font-size: .78rem; color: var(--ok-fg); display: inline-flex; align-items: center; gap: .3rem; }
@@ -991,29 +1497,21 @@ interface AttachFile {
     .cb-view-filebtn { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); background: var(--card-bg); font-size: .85rem; cursor: pointer; transition: border-color .15s, color .15s; }
     .cb-view-filebtn:hover { border-color: var(--action); }
     .cb-filebtn-name { color: var(--text-muted); font-size: .78rem; }
-    /* visor modal de la imagen */
-    .cb-viewer { display: flex; align-items: center; justify-content: center; background: #00000010; border-radius: var(--r-md, .5rem); padding: .5rem; }
-    .cb-viewer img { display: block; max-width: 100%; max-height: 74vh; object-fit: contain; }
-    .cb-view-pdf { display: inline-flex; align-items: center; gap: .4rem; padding: .55rem .9rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, .4rem); color: var(--action); text-decoration: none; font-size: .85rem; }
-    .cb-view-pdf:hover { border-color: var(--action); }
-    .cb-view-pdf .pi-file-pdf { color: var(--bad-fg); }
     .cb-view-ocr { display: flex; flex-wrap: wrap; gap: .3rem 1.1rem; font-size: .78rem; color: var(--text-main); }
     .cb-view-ocr em { font-style: normal; color: var(--text-muted); margin-right: .3rem; }
     .cb-view-coment { font-size: .8rem; color: var(--text-muted); font-style: italic; }
-    /* RE.8 — comparación de dos paneles: contenido/OCR (izq) + documento (der) */
-    .cb-review { display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
-    @media (min-width: 62rem) { .cb-review { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; } }
+    /* RE.8/RE.17.5 — el expediente en dos paneles: contenido/OCR (izq) + documento (der).
+       Consulta de CONTENEDOR: el mismo bloque vive en el cajón de ~1060px y, en pantalla
+       chica, en el ancho completo — el @media miraba la ventana, que acá no dice nada. */
+    .cb-review { container-type: inline-size; display: grid; grid-template-columns: 1fr; gap: 1.1rem; }
+    @container (min-width: 62rem) { .cb-review { grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); align-items: start; } }
     .cb-review-main { min-width: 0; }
-    .cb-review-doc { min-width: 0; }
-    @media (min-width: 62rem) { .cb-review-doc { position: sticky; top: 0; align-self: start; } }
-    .cb-doc-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin-bottom: .4rem; }
-    .cb-doc-name { display: inline-flex; align-items: center; gap: .4rem; min-width: 0; font-size: .8rem; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .cb-doc-name .pi-file-pdf { color: var(--bad-fg); }
-    .cb-doc-frame { border: 1px solid var(--border-color); border-radius: var(--r-md, .5rem); overflow: hidden; background: #00000010; height: 64vh; min-height: 24rem; display: flex; }
-    .cb-doc-frame iframe { width: 100%; height: 100%; border: 0; background: #fff; }
-    .cb-doc-frame img { width: 100%; height: 100%; object-fit: contain; }
-    .cb-doc-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .6rem; height: 64vh; min-height: 24rem; border: 1px dashed var(--border-color); border-radius: var(--r-md, .5rem); color: var(--text-muted); text-align: center; padding: 1rem; background: var(--surface-sunken, var(--card-bg)); }
-    .cb-doc-empty .pi { font-size: 1.9rem; opacity: .5; }
+    /* El visor trae su propio marco: acá sólo el alto y quedar pegado mientras se baja por
+       los renglones, que es la comparación que hace el trabajo. */
+    .cb-review-doc { min-width: 0; height: 64vh; min-height: 24rem; }
+    @container (min-width: 62rem) { .cb-review-doc { position: sticky; top: 0; align-self: start; } }
+    .cb-review-acts { display: flex; justify-content: flex-end; gap: var(--sp-2); margin-top: var(--sp-4);
+      padding-top: var(--sp-3); border-top: 1px solid var(--border-color); }
     .cb-view-filebtn.on { border-color: var(--action); color: var(--action); box-shadow: inset 0 0 0 1px var(--action); }
   `],
 })
@@ -1024,9 +1522,14 @@ export class ComprasEntradasComponent {
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
-  private readonly sanitizer = inject(DomSanitizer);
   private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly density = inject(TableDensityService);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
+  readonly tabs = ENTRADAS_CONTROL_TABS;
+  /** Momento de la última carga — lo lee la píldora de frescura del header. */
+  readonly cargadoAt = signal<number | null>(null);
   // RE.10 — órdenes de entrada nuevas detectadas por WS (pill "N nuevas — actualizar").
   readonly newCount = signal(0);
 
@@ -1044,14 +1547,161 @@ export class ComprasEntradasComponent {
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
   readonly actingId = signal<string | null>(null);
-  readonly estadoSel = signal<string>('pendiente');
+  // RE.13.0 — el estado del listado ahora es un tipo cerrado (`EntradasQuery`), no un string
+  // cualquiera: un filtro mal escrito era un `where` que nunca aplicaba y nadie notaba.
+  readonly estadoSel = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');
   // Captura de evidencia (subir/OCR/adjuntar) requiere gestionar entradas.
-  readonly canManage = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+  readonly canManage = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
   // Validación restringida: permiso especial COMPRAS_ENTRADAS_VALIDAR (o god-mode admin).
   // GESTIONAR NO alcanza — que no todos puedan validar la evidencia.
-  readonly canValidate = computed(() => this.perms.can('manage', 'all') || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  readonly canValidate = computed(() => this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
 
-  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }];
+  /**
+   * `[RE.20.1]` — **el lente.** Las MISMAS filas contestando dos preguntas distintas:
+   *   `proceso` → *¿tengo el papel?* — evidencia, días, gemela, descarte.
+   *   `dinero`  → *¿cuánto pagamos?* — factura, ajuste ligado y neto.
+   *
+   * Era una pantalla aparte (*Compras 360*) con su propio endpoint, su propio detalle y su
+   * propia paginación **sobre exactamente la misma entidad**. No era un solape de datos: era la
+   * misma fila con dos lentes, y el usuario no tenía cómo saber cuál de las dos abrir. La otra
+   * ya traía un lente de "cumplimiento" adentro — la fusión iba a pasar, sólo que del lado
+   * equivocado.
+   *
+   * El lente lo fija la puerta por la que se entra (`/compras/costo-por-compra` abre en dinero)
+   * y viaja en la URL, así que un link pegado en un chat llega con el lente que se compartió.
+   */
+  readonly lente = signal<'proceso' | 'dinero'>('proceso');
+  readonly dinero = computed(() => this.lente() === 'dinero');
+  readonly lenteOpts = [
+    { label: 'El proceso', value: 'proceso' },
+    { label: 'El dinero', value: 'dinero' },
+  ];
+  /** Filtros que sólo existen en el lente del dinero (venían de Compras 360). */
+  readonly ajusteSel = signal<'' | 'con' | 'sin' | 'operativo' | 'comercial'>('');
+  readonly ajusteOpts = [
+    { label: 'Todas', value: '' },
+    { label: 'Con ajuste', value: 'con' },
+    { label: 'Sin ajuste', value: 'sin' },
+    // El orden no es alfabético: primero el que es un problema. Operativo = faltante, mal
+    // estado, no solicitado. Comercial = descuento, pronto pago, apoyo de marca.
+    { label: 'Sólo ajuste operativo', value: 'operativo' },
+    { label: 'Sólo ajuste comercial', value: 'comercial' },
+  ];
+  readonly ocSel = signal<'' | 'con' | 'sin'>('');
+  readonly ocOpts = [
+    { label: 'Todas', value: '' },
+    { label: 'Con orden de compra', value: 'con' },
+    { label: 'Sin orden de compra', value: 'sin' },
+  ];
+
+  setLente(v: string): void {
+    this.lente.set(v === 'dinero' ? 'dinero' : 'proceso');
+    // Los filtros de dinero no aplican en proceso: dejarlos puestos filtraría la lista sin que
+    // se vea el control que lo está haciendo.
+    if (!this.dinero()) { this.ajusteSel.set(''); this.ocSel.set(''); }
+    this.page.set(1); this.syncUrl(); this.load();
+  }
+  setAjuste(v: string): void { this.ajusteSel.set((v || '') as any); this.page.set(1); this.load(); }
+  setOc(v: string): void { this.ocSel.set((v || '') as any); this.page.set(1); this.load(); }
+
+  /** Qué compone el ajuste de esta fila, para el tooltip: el total solo no dice si preocupa. */
+  ajusteTip(c: EntradaRow): string {
+    const op = Number(c.ajuste_operativo || 0), com = Number(c.ajuste_comercial || 0);
+    const partes: string[] = [];
+    if (com) partes.push(`${money(com)} negociado (descuento · pronto pago · apoyo)`);
+    if (op) partes.push(`${money(op)} operativo (faltante · mal estado · no solicitado)`);
+    const n = Number(c.n_ajuste || 0);
+    return `${n} ${n === 1 ? 'ajuste ligado' : 'ajustes ligados'}${partes.length ? ' — ' + partes.join(' · ') : ''}`;
+  }
+
+  // RE.20.3 — "Descartadas" al final y separada: no es una etapa del proceso, es la salida.
+  // Está para TODOS los que ven (no sólo `_VALIDAR`) porque el descarte resta del denominador
+  // de cobertura y quien mira el número tiene que poder ver qué se le restó.
+  /**
+   * `[RE.24]` **"Por validar" es nuevo acá** y entró al retirar la cabina de revisión: el
+   * backend siempre supo filtrar esa cola (`d.last_status='recibido'`) pero la lista no la
+   * ofrecía, así que al mandar el "revisar" del Centro de control a esta pantalla el
+   * `?estado=por_validar` lo habría **descartado el guard de la línea de abajo, en silencio**
+   * — el link prometía la cola del revisor y entregaba las primeras 300 sin filtrar.
+   *
+   * No es lo mismo que "Con remisión": ésa trae todo lo que tiene papel (validado, rechazado
+   * y esperando); "Por validar" es sólo lo que espera decisión, que es el trabajo del revisor.
+   */
+  readonly estadoOpts = [{ label: 'Pendientes', value: 'pendiente' }, { label: 'Con remisión', value: 'con_comprobante' }, { label: 'Por validar', value: 'por_validar' }, { label: 'Validadas', value: 'validado' }, { label: 'Todas', value: '' }, { label: 'Descartadas', value: 'descartada' }];
+
+  // ── RE.20.3: descartar / reactivar ────────────────────────────────────────
+  readonly verDescartadas = computed(() => this.estadoSel() === 'descartada');
+  readonly descartando = signal<string | null>(null);
+  readonly showDescartar = signal(false);
+  readonly descartarFila = signal<EntradaRow | null>(null);
+  readonly descarteMotivo = signal<MotivoDescarte>('traspaso');
+  readonly descarteNota = signal('');
+  readonly MOTIVOS_DESCARTE = MOTIVOS_DESCARTE;
+  /** `[RE.24]` Portado de la cabina: el rechazo también se tipifica, o no se puede medir. */
+  readonly MOTIVOS_RECHAZO = MOTIVOS_RECHAZO;
+  motivoDescarteLabel = motivoDescarteLabel;
+
+  clave(c: EntradaRow): string { return `${c.sucursal}/${c.folio}`; }
+
+  /** El descarte completo en una línea, para el tooltip de la fila. */
+  descarteTip(c: EntradaRow): string {
+    const quien = c.descarte_por ? ` — ${c.descarte_por}` : '';
+    const nota = c.descarte_nota ? `: ${c.descarte_nota}` : '';
+    return `${motivoDescarteLabel(c.descarte_motivo) || 'Descartada'}${nota}${quien}`;
+  }
+
+  openDescartar(c: EntradaRow): void {
+    this.descartarFila.set(c);
+    // Pre-elige el motivo por lo que dice la fila: un traspaso se reconoce por el código de
+    // proveedor (TI*) y una entrada en $0 por el monto. El revisor confirma, no adivina.
+    const pre: MotivoDescarte = (c.proveedor_code || '').toUpperCase().startsWith('TI')
+      ? 'traspaso'
+      : Number(c.monto) === 0 ? 'sin_costo' : 'cancelada_erp';
+    this.descarteMotivo.set(pre);
+    this.descarteNota.set('');
+    this.showDescartar.set(true);
+  }
+
+  confirmarDescarte(): void {
+    const c = this.descartarFila();
+    if (!c) return;
+    const motivo = this.descarteMotivo();
+    if (motivo === 'otro' && !this.descarteNota().trim()) {
+      this.toast.add({ severity: 'warn', summary: 'Falta el motivo', detail: 'Con "Otro" hay que escribir por qué.' });
+      return;
+    }
+    this.descartando.set(this.clave(c));
+    this.svc.descartar(c.sucursal, c.folio, motivo, this.descarteNota().trim() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.descartando.set(null); this.showDescartar.set(false);
+          this.toast.add({ severity: 'success', summary: 'Fuera del proceso', detail: `${c.folio} ya no cuenta como atraso de la sucursal.` });
+          this.load();
+        },
+        error: (e) => {
+          this.descartando.set(null);
+          this.toast.add({ severity: 'error', summary: 'No se pudo descartar', detail: e?.error?.message || 'Intentá de nuevo.' });
+        },
+      });
+  }
+
+  reactivar(c: EntradaRow): void {
+    this.descartando.set(this.clave(c));
+    this.svc.reactivar(c.sucursal, c.folio)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.descartando.set(null);
+          this.toast.add({ severity: 'success', summary: 'De vuelta al proceso', detail: `${c.folio} vuelve a pedir factura.` });
+          this.load();
+        },
+        error: (e) => {
+          this.descartando.set(null);
+          this.toast.add({ severity: 'error', summary: 'No se pudo reactivar', detail: e?.error?.message || 'Intentá de nuevo.' });
+        },
+      });
+  }
   search = '';
   private timer: ReturnType<typeof setTimeout> | null = null;
 
@@ -1178,6 +1828,81 @@ export class ComprasEntradasComponent {
   readonly showReject = signal(false);
   readonly rejectTarget = signal<EntradaRow | null>(null);
   rejectMotivo = '';
+  /** `[RE.24]` El código del catálogo. Sin él el botón queda deshabilitado. */
+  readonly rejectCodigo = signal<string | null>(null);
+  readonly rejectError = signal('');
+
+  // ── `[RE.22.2]` desglose en línea (clic en la fila) ──
+  /** Acordeón: una sola fila abierta. Clave = sucursal/folio. */
+  readonly filaAbierta = signal<string | null>(null);
+  /**
+   * Se guarda el `EntradaDetail` completo y no sólo `lineas` para poder usar `receiptVerdict`:
+   * su `lineasMeta` ya explica bien por qué Σ renglones ≠ total del documento (los renglones son
+   * el SUBTOTAL y `c16` va con impuestos, y en dulcería no es sólo IVA — hay IEPS). Escribir acá
+   * una comparación propia era repetir peor lo que ese código ya afina.
+   */
+  readonly filaDetalle = signal<EntradaDetail | null>(null);
+  readonly filaLoading = signal(false);
+  readonly filaError = signal(false);
+  /** Caché por clave: reabrir no vuelve a pedir. `null` = se pidió y falló. */
+  private readonly filaCache = new Map<string, EntradaDetail | null>();
+
+  claveFila(c: EntradaRow): string { return c.sucursal + '/' + c.folio; }
+
+  /**
+   * Clic en cualquier parte de la fila. Se ignora si salió de un control: la fila está llena de
+   * botones (adjuntar, validar, rechazar, descartar, el folio, las fichas de proveedor/OC) y sin
+   * este corte cada uno de ellos abriría además el desglose.
+   */
+  filaClick(c: EntradaRow, ev: Event): void {
+    const t = ev.target as HTMLElement | null;
+    if (t?.closest('button, a, input, .cb-comp-cell, .p-checkbox')) return;
+    this.toggleFila(c);
+  }
+
+  toggleFila(c: EntradaRow): void {
+    const clave = this.claveFila(c);
+    if (this.filaAbierta() === clave) { this.filaAbierta.set(null); return; }
+    this.abrirFila(c, clave);
+  }
+
+  /** Reintento: hay que OLVIDAR el fallo cacheado o se repite la misma respuesta. */
+  reintentarFila(c: EntradaRow): void {
+    this.filaCache.delete(this.claveFila(c));
+    this.abrirFila(c, this.claveFila(c));
+  }
+
+  /**
+   * Reusa `detail()` en vez de un endpoint nuevo: ya devuelve `lineas` y es la misma lectura que
+   * hace el expediente. La respuesta se descarta si mientras viajaba se abrió otra fila — sin ese
+   * corte se pintarían los renglones de una recepción bajo otra, que se ve correcto y no lo es.
+   */
+  private abrirFila(c: EntradaRow, clave: string): void {
+    this.filaAbierta.set(clave);
+    this.filaError.set(false);
+    if (this.filaCache.has(clave)) {
+      const hit = this.filaCache.get(clave) ?? null;
+      this.filaDetalle.set(hit); this.filaError.set(hit === null); this.filaLoading.set(false);
+      return;
+    }
+    this.filaDetalle.set(null);
+    this.filaLoading.set(true);
+    this.svc.detail(c.sucursal, c.folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.filaCache.set(clave, d);
+        if (this.filaAbierta() !== clave) return;
+        this.filaDetalle.set(d); this.filaLoading.set(false);
+      },
+      error: () => {
+        this.filaCache.set(clave, null);
+        if (this.filaAbierta() !== clave) return;
+        this.filaLoading.set(false); this.filaError.set(true);
+      },
+    });
+  }
+
+  /** Cómo se compone el total, con las palabras que ya afinó `receiptVerdict` (IVA/IEPS incluidos). */
+  filaLineasMeta(d: EntradaDetail): string { return receiptVerdict(d).lineasMeta; }
 
   // detail dialog (auditoría por línea + remisión adjunta)
   /** Ficha abierta en el panel lateral (`null` = cerrado). Hace clickeable la vista entera. */
@@ -1201,23 +1926,26 @@ export class ComprasEntradasComponent {
   readonly reconLoading = signal(false);
   readonly reconConfirming = signal<number | null>(null); // idx del renglón que se está aprendiendo
 
-  // Visor de imagen bajo demanda (no se carga la imagen inline en el detalle).
-  readonly viewerOpen = signal(false);
-  readonly viewerUrl = signal<string | null>(null);
-  readonly viewerName = signal<string>('');
-  openImage(url: string, name?: string): void { this.viewerName.set(name || ''); this.viewerUrl.set(url); this.viewerOpen.set(true); }
-  closeImage(): void { this.viewerOpen.set(false); }
+  /**
+   * `[RE.17.5]` — las hojas del expediente para el visor compartido. Reemplaza a `selectedDoc`
+   * (que resolvía el sanitizado a mano) y al diálogo de imagen que se abría ENCIMA del detalle:
+   * el visor ya trae pestañas de hoja y pantalla completa.
+   */
+  readonly hojas = computed<DocViewerFile[]>(() =>
+    (this.detailData()?.deposits || []).flatMap((dep) =>
+      (dep.files || []).map((f) => ({ url: f.url, name: f.name, role: f.role, kind: f.kind }))));
+  readonly hojaIdx = signal(0);
+  /** La lista de hojas es plana; el botón de cada archivo apunta a su posición en ella. */
+  indiceHoja(f: ProofFile): number { return this.hojas().findIndex((h) => h.url === f.url); }
+  verHoja(f: ProofFile): void { const i = this.indiceHoja(f); if (i >= 0) this.hojaIdx.set(i); }
 
-  // RE.8 — documento mostrado en el panel derecho del detalle (comparación vs OCR).
-  readonly selectedDoc = signal<{ url: string; safeUrl: SafeResourceUrl | null; kind: 'image' | 'pdf'; name: string } | null>(null);
-  selectDoc(f: ProofFile): void {
-    const isImg = this.isImageUrl(f);
-    this.selectedDoc.set({
-      url: f.url,
-      safeUrl: isImg ? null : this.sanitizer.bypassSecurityTrustResourceUrl(f.url), // iframe requiere SafeResourceUrl
-      kind: isImg ? 'image' : 'pdf',
-      name: f.name || (isImg ? 'imagen' : 'remisión (PDF)'),
-    });
+  /** Subtítulo del cajón: la entrada y el proveedor, que es como se la nombra. */
+  detailSubtitulo(): string {
+    const d = this.detailData(); const t = this.detailTarget();
+    const suc = d?.entrada.sucursal ?? t?.sucursal ?? '';
+    const folio = d?.entrada.folio ?? t?.folio ?? '';
+    const prov = d?.entrada.proveedor_nombre ?? t?.proveedor_nombre ?? '';
+    return [`${suc}/${folio}`, prov].filter(Boolean).join(' · ');
   }
 
   // RE.2 — ajustes (X-D-40/55) que explican el descuadre de esta entrada
@@ -1226,6 +1954,25 @@ export class ComprasEntradasComponent {
   readonly explainsTotal = signal(0);
 
   constructor() {
+    // RE.17.5 — deep-link desde el Centro de control ("ver todo" de una sucursal). Se lee ANTES
+    // de la primera carga, o el primer viaje sale sin el filtro que el link promete.
+    const qp = this.route.snapshot.queryParamMap;
+    const suc = qp.get('suc');
+    if (suc) this.sucursalSel.set(suc);
+    // RE.20.1 — el lente lo fija la puerta. `data.lente` viene de la ruta (Costo por compra
+    // abre en dinero); `?lente=` lo pisa, para que un link pegado en un chat llegue con el que
+    // se compartió. Antes de la primera carga: si no, el primer viaje va con el lente que no es
+    // y la tabla parpadea de un juego de columnas al otro.
+    const deRuta = this.route.snapshot.data?.['lente'];
+    const deUrl = qp.get('lente');
+    if (deUrl === 'dinero' || deUrl === 'proceso') this.lente.set(deUrl);
+    else if (deRuta === 'dinero') this.lente.set('dinero');
+    const est = qp.get('estado');
+    if (est && this.estadoOpts.some((o) => o.value === est)) this.estadoSel.set(est as any);
+    // RE.25 — se valida contra las opciones por la misma razón que `estado`: un valor inventado
+    // en la URL tiene que ignorarse, no convertirse en un filtro vacío que parece "sin datos".
+    const cua = qp.get('cuadre');
+    if (cua && this.cuadreOpts.some((o) => o.value === cua)) this.cuadreSel.set(cua);
     this.load();
     // RE.10 — WS near-real-time: el watcher del backend avisa cuando llegan órdenes nuevas.
     this.grSocket.connect();
@@ -1237,10 +1984,35 @@ export class ComprasEntradasComponent {
     this.destroyRef.onDestroy(() => this.grSocket.disconnect());
   }
 
-  /** Aplica las nuevas: recarga la lista y limpia el contador del pill. */
-  applyNew(): void { this.newCount.set(0); this.load(); }
+  /**
+   * Aplica las nuevas: recarga la lista y limpia el contador del pill.
+   *
+   * `[RE.19]` — **vuelve a la página 1**. El pill lo dispara el watcher del ERP: las órdenes
+   * que anuncia son las más nuevas, y con el orden por reciente entran arriba. Recargar sin
+   * volver al principio dejaba al usuario en la página 4 mirando lo de la semana pasada
+   * después de haber hecho clic en "3 nuevas".
+   */
+  applyNew(): void { this.newCount.set(0); this.page.set(1); this.load(); }
 
+  /**
+   * `[RE.25]` En el lente de **dinero** la pregunta es *"¿este documento cuadra?"*, así que la
+   * tira muestra el reparto del cuadre. En **proceso** la pregunta sigue siendo *"¿tengo el
+   * papel?"* y los KPIs no cambian: son dos preguntas distintas sobre las mismas filas, y
+   * mostrar los seis números a la vez no contesta ninguna.
+   *
+   * `No se leyó` va aparte de `Por revisar` porque son dos trabajos: uno se re-escanea, el otro
+   * se audita. Y va en tono neutro, no de alerta — el proveedor no hizo nada mal.
+   */
   kpiItems(r: EntradasReport): MetricStripItem[] {
+    if (this.dinero()) {
+      return [
+        { label: 'Entradas', value: r.kpis.entradas },
+        { label: 'Cuadran', value: r.kpis.cuadran ?? 0, tone: 'ok' },
+        { label: 'Por revisar', value: r.kpis.por_revisar ?? 0, tone: 'warn' },
+        { label: 'No se leyó', value: r.kpis.sin_datos ?? 0 },
+        { label: '$ por comprobar', value: this.moneyShort(r.kpis.monto_pendiente), tone: 'warn' },
+      ];
+    }
     return [
       { label: 'Entradas', value: r.kpis.entradas },
       { label: 'Con remisión', value: r.kpis.con_comprobante, tone: 'ok' },
@@ -1249,17 +2021,123 @@ export class ComprasEntradasComponent {
     ];
   }
 
-  setEstado(v: string) { this.estadoSel.set(v); this.load(); }
-  queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => this.load(), 300); }
+  setEstado(v: string) { this.estadoSel.set((v || '') as Exclude<EntradasQuery['estado'], undefined>); this.page.set(1); this.load(); }
+  queue() { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => { this.page.set(1); this.load(); }, 300); }
+
+  // ── RE.17.5: filtros que la pantalla decía tener y no mandaba ────────────────
+  /**
+   * `?suc=03` llega desde el "ver todo" del Centro de control y esta pantalla lo **ignoraba**:
+   * el link prometía la sucursal filtrada y caías en las primeras 300 de la red entera. Ahora
+   * viaja como `warehouse_codes` (el server igual lo intersecta con el alcance).
+   */
+  readonly sucursalSel = signal<string | null>(null);
+  /**
+   * `[RE.25]` — el cuadre del documento. `sin_evidencia` NO se ofrece acá: para eso ya está
+   * `Estado = Pendientes`, y dos controles que contestan lo mismo con nombres distintos es la
+   * forma más rápida de que nadie confíe en ninguno.
+   */
+  readonly cuadreSel = signal<string | null>(null);
+  readonly cuadreOpts = [
+    { label: 'Cuadra', value: 'cuadra' },
+    { label: 'Por revisar', value: 'revisar' },
+    { label: 'No se leyó', value: 'sin_datos' },
+  ];
+  setCuadre(v: string | null) { this.cuadreSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
+  readonly rezago = signal(false);
+  readonly page = signal(1);
+  readonly pageSize = 100;
+  /**
+   * `[RE.19]` — **lo más reciente primero**, igual que Pendientes. Esta lista no mandaba `orden`
+   * y se comía el default del servidor (antigüedad), así que una pantalla alimentada por el
+   * watcher del ERP —que anuncia órdenes NUEVAS— abría mostrando lo más viejo. Con el orden por
+   * reciente, lo que el pill anuncia entra arriba.
+   *
+   * El backend acota las fechas futuras al ordenar (`LEAST(receipt_date, current_date)` + los
+   * futuros al final), así que la captura de CEDIS con fecha 29/12/2026 no se queda clavada
+   * en el primer renglón para siempre.
+   *
+   * `[RE.20.2]` — el orden salió del filtro y se fue al **encabezado de la tabla**, que es donde
+   * se ordena una lista de 875 filas y donde además alcanza proveedor y monto. El default no
+   * cambia: sigue abriendo por lo más reciente.
+   */
+  readonly sort = signal<SortState<OrdenEntradas>>({ field: 'fecha', dir: 'desc' });
+  readonly sortIcon = sortIcon;
+  readonly ariaSort = ariaSort;
+
+  /** El orden dicho en palabras, para el contador del pager (ver Captura de facturas). */
+  readonly ordenTexto = computed(() => {
+    const s = this.sort();
+    if (s.field === 'proveedor') return s.dir === 'asc' ? 'por proveedor, A→Z' : 'por proveedor, Z→A';
+    if (s.field === 'monto') return s.dir === 'asc' ? 'por monto, del más chico al más grande' : 'por monto, del más grande al más chico';
+    return s.dir === 'asc' ? 'de la más vieja a la más reciente' : 'de la más reciente a la más vieja';
+  });
+
+  /** `inicial` por columna: en un monto el primer clic útil es lo más grande, en un nombre la A. */
+  ordenarPor(field: OrdenEntradas, inicial: SortDir = 'desc'): void {
+    this.sort.set(toggleSort(this.sort(), field, inicial));
+    this.page.set(1); this.load();
+  }
+
+  private readonly alcance = computed(() => this.report()?.alcance?.sucursales ?? null);
+  readonly variasSucursales = computed(() => { const a = this.alcance(); return a === null || a.length > 1; });
+  /**
+   * `[RE.23]` El fallback es `NETWORK_BRANCHES` (9), no `STORE_BRANCHES` (7): con
+   * alcance `all` el server no manda lista y el desplegable se armaba con las
+   * sucursales Kepler nada más, así que Morelia —que sí entra en la lista, 331
+   * recepciones en el carril al día— no se podía aislar. Quien es de Morelia
+   * abría 1,493 renglones de la red entera y sus 410 quedaban enterrados.
+   */
+  readonly sucursalOpts = computed(() => {
+    const a = this.alcance() ?? NETWORK_BRANCHES.map((b) => b.code);
+    return a.map((c) => ({ label: branchName(c) || c, value: c }));
+  });
+  suc(code: string): string { return branchName(code) || code; }
+
+  setSucursal(v: string | null) { this.sucursalSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
+  setRezago(v: boolean) { this.rezago.set(v); this.page.set(1); this.load(); }
+  irPagina(n: number) { this.page.set(Math.max(1, n)); this.load(); }
+  desde(): number { const r = this.report(); return !r || r.total === 0 ? 0 : (this.page() - 1) * this.pageSize + 1; }
+  hasta(): number { const r = this.report(); return !r ? 0 : Math.min(r.total, this.page() * this.pageSize); }
+
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      // RE.20.1 — el lente viaja en la URL para que el link se pueda pegar. `proceso` es el
+      // default, así que se omite y la URL no se ensucia con lo que ya es implícito.
+      queryParams: {
+        suc: this.sucursalSel() || null, lente: this.dinero() ? 'dinero' : null,
+        // RE.25 — el cuadre viaja en la URL para que "mandame las 44 que no se leyeron" sea un
+        // link que se pega en un chat, igual que el resto de los lentes de esta pantalla.
+        cuadre: this.cuadreSel() || null,
+      },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
 
   load() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null; }
     this.loading.set(true);
     this.error.set(null);
-    this.svc.list({ estado: this.estadoSel() || undefined, search: this.search || undefined })
+    this.svc.list({
+      estado: this.estadoSel() || undefined,
+      search: this.search || undefined,
+      warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
+      cuadre: (this.cuadreSel() || undefined) as EntradasQuery['cuadre'],
+      carril: this.rezago() ? 'rezago' : 'al_dia',
+      // RE.20.2 — server-paginada: el orden viaja y la lista se recarga. Ordenar las 100 filas
+      // de enfrente no ordena las 875.
+      ...serverSortParams(this.sort()),
+      // RE.20.1 — el lente. En `proceso` el server no paga el join de ajustes.
+      lente: this.lente(),
+      ajuste: this.dinero() ? (this.ajusteSel() || undefined) : undefined,
+      con_oc: this.dinero() ? (this.ocSel() || undefined) : undefined,
+      page: this.page(),
+      pageSize: this.pageSize,
+    })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.report.set(r); this.loading.set(false); },
+        next: (r) => { this.report.set(r); this.cargadoAt.set(Date.now()); this.loading.set(false); },
         error: () => { this.error.set('No se pudieron cargar las entradas.'); this.loading.set(false); },
       });
   }
@@ -1272,7 +2150,7 @@ export class ComprasEntradasComponent {
   /** Hay trabajo real que se perdería: hojas subidas, OCR corrido, tipos asignados a mano. */
   readonly attachDirty = computed(() => this.attachFiles().length > 0);
   /** Motivo tecleado que se perdería. */
-  private rejectDirty(): boolean { return !!this.rejectMotivo.trim(); }
+  private rejectDirty(): boolean { return !!this.rejectMotivo.trim() || !!this.rejectCodigo(); }
 
   private askDiscard(detail: string, onDiscard: () => void) {
     this.confirm.confirm({
@@ -1610,6 +2488,36 @@ export class ComprasEntradasComponent {
     });
   }
 
+  /**
+   * `[RE.26]` — Validar **pregunta antes**, igual que rechazar.
+   *
+   * Antes la palomita ejecutaba de una. Es una decisión sobre dinero —da por buena una factura
+   * y la saca de la cola de revisión— y no tiene deshacer en la pantalla; el rechazo, que pesa
+   * lo mismo, ya abría diálogo. La asimetría no estaba justificada.
+   *
+   * El texto dice **lo que la fila sabe**: si el cuadre no está limpio, la pregunta lo trae. Un
+   * "¿estás seguro?" pelado no aporta nada — quien va a confirmar necesita ver contra qué.
+   */
+  confirmarValidar(c: EntradaRow) {
+    if (!c.deposit_id || this.actingId()) return;
+    const aviso = c.cuadre === 'cuadra'
+      ? 'El importe y el proveedor concuerdan.'
+      : (c.cuadre_motivo || 'Este documento no cuadró automáticamente.');
+    const folio = c.folio_interno_ok === false
+      ? ` Ojo: la hoja interna del paquete dice ${c.folio_interno}, no ${c.folio}.`
+      : '';
+    this.confirm.confirm({
+      header: 'Dar por buena la remisión',
+      message: `Entrada ${c.folio} · ${c.proveedor_nombre || c.proveedor_code || 'sin proveedor'} · ${this.money(c.monto)}.\n\n${aviso}${folio}`,
+      icon: 'pi pi-check-circle',
+      acceptLabel: 'Sí, darla por buena',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-success',
+      rejectButtonStyleClass: 'p-button-text',
+      accept: () => this.doValidate(c),
+    });
+  }
+
   doValidate(c: EntradaRow) {
     if (!c.deposit_id || this.actingId()) return;
     this.actingId.set(c.deposit_id);
@@ -1620,20 +2528,31 @@ export class ComprasEntradasComponent {
       });
   }
 
-  openReject(c: EntradaRow) { this.rejectTarget.set(c); this.rejectMotivo = ''; this.showReject.set(true); }
+  openReject(c: EntradaRow) {
+    this.rejectTarget.set(c); this.rejectMotivo = '';
+    this.rejectCodigo.set(null); this.rejectError.set('');
+    this.showReject.set(true);
+  }
   doReject() {
     const c = this.rejectTarget();
     if (!c?.deposit_id) return;
+    // `[RE.24]` Mismas dos reglas que tenía la cabina: el código es obligatorio (el botón ya
+    // está deshabilitado sin él) y "Otro" no vale sin explicación — si no, el catálogo se
+    // vuelve un `otro` universal y volvemos al texto libre por la puerta de atrás.
+    const code = this.rejectCodigo();
+    if (!code) { this.rejectError.set('Elegí un motivo.'); return; }
+    if (code === 'otro' && !this.rejectMotivo.trim()) { this.rejectError.set('Con "Otro" hace falta explicar.'); return; }
+    this.rejectError.set('');
     this.saving.set(true);
-    this.svc.reject(c.deposit_id, this.rejectMotivo || undefined).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
+    this.svc.reject(c.deposit_id, this.rejectMotivo.trim() || undefined, code).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: () => { this.saving.set(false); this.rejectMotivo = ''; this.rejectCodigo.set(null); this.showReject.set(false); this.toast.add({ severity: 'info', summary: 'Rechazada', detail: `Entrada ${c.folio}` }); this.load(); }, error: () => { this.saving.set(false); this.toast.add({ severity: 'error', summary: 'Error al rechazar' }); } });
   }
 
   openDetail(c: EntradaRow) {
     this.detailTarget.set(c);
     this.detailData.set(null);
     this.recon.set(null);
-    this.selectedDoc.set(null);
+    this.hojaIdx.set(0);
     this.detailLoading.set(true);
     this.showDetail.set(true);
     this.loadExplains(c);
@@ -1642,10 +2561,8 @@ export class ComprasEntradasComponent {
         next: (d) => {
           this.detailData.set(d);
           this.detailLoading.set(false);
-          // Muestra el 1er documento en el panel derecho para comparar contra el OCR.
-          let first: ProofFile | null = null;
-          for (const dep of d.deposits || []) { if (dep.files && dep.files.length) { first = dep.files[0]; break; } }
-          if (first) this.selectDoc(first);
+          // La 1ª hoja se muestra sola: el trabajo es comparar, no hacer clics.
+          this.hojaIdx.set(0);
           // RE.11 — si alguna remisión trae renglones OCR, concilia automáticamente por línea.
           const withLines = (d.deposits || []).find((dep) => (dep.ocr_lines || []).length > 0);
           if (withLines) this.runReconcile(withLines.ocr_lines || []);
@@ -1720,84 +2637,24 @@ export class ComprasEntradasComponent {
   adjGrupoSev(g: AdjustmentGrupo): 'success' | 'warn' | 'danger' | 'secondary' { return ({ comercial: 'success', operacional: 'warn', error: 'danger', sin_clasificar: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[g] || 'secondary'; }
 
   fromDetailToAttach() { const c = this.detailTarget(); this.showDetail.set(false); if (c) this.openAttach(c); }
-  lineasTotal(lineas: EntradaLinea[]): number { return (lineas || []).reduce((s, l) => s + (Number(l.importe) || 0), 0); }
+  lineasTotal(lineas: EntradaLinea[]): number { return lineasTotal(lineas); }
   lineasDiff(d: EntradaDetail): number { return Math.abs(this.lineasTotal(d.lineas) - (Number(d.entrada.monto) || 0)); }
   lineasCuadra(d: EntradaDetail): boolean { return this.lineasDiff(d) <= ComprasEntradasComponent.EPS; }
 
-  /** Dos importes son el mismo por debajo de esto (centavos de redondeo del OCR). */
-  private static readonly EPS = 1;
-  /** IVA estándar MX. Sirve para decir "la diferencia ES el IVA" en vez de dejar un delta crudo. */
-  private static readonly IVA = 0.16;
+  /** Los umbrales viven en `receipt-verdict.ts`: son los mismos que usa la bandeja. */
+  private static readonly EPS = EPS;
 
-  /** "1 renglón" / "2 renglones". Un plural mal puesto es de lo primero que se nota. */
-  plural(n: number, sing: string, plur: string): string { return `${n} ${n === 1 ? sing : plur}`; }
+  plural(n: number, sing: string, plur: string): string { return plural(n, sing, plur); }
 
   /** El comprobante que manda para el cuadre: el validado si lo hay, si no el más reciente. */
-  private depForCuadre(d: EntradaDetail) {
-    const deps = d.deposits || [];
-    return deps.find((x) => x.status === 'validado') ?? deps[0] ?? null;
-  }
+  private depForCuadre(d: EntradaDetail) { return depForCuadre(d); }
 
   /**
-   * La respuesta de esta pantalla, en llano.
-   *
-   * El diálogo se llama "documento vs OCR" pero las tres cifras comparables —lo que Kepler
-   * registró, la suma de los renglones y lo que dice el papel del proveedor— vivían en tres
-   * bloques distintos, así que no se podían comparar. Esto las junta y, sobre todo, dice qué
-   * significa la diferencia: un descuadre que resulta ser exactamente el IVA no es un
-   * problema, y un delta crudo de $1,234.56 no le dice eso a nadie.
+   * La respuesta de esta pantalla, en llano. La lógica vive en `receipt-verdict.ts` porque la
+   * **bandeja de revisión** (RE.13.2) muestra el mismo veredicto: dos copias garantizaban que
+   * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.
    */
-  cuadre(d: EntradaDetail) {
-    const E = ComprasEntradasComponent.EPS;
-    const kepler = Number(d.entrada.monto) || 0;
-    const lineas = this.lineasTotal(d.lineas);
-    const dep = this.depForCuadre(d);
-    const ocr = dep?.ocr_monto != null ? Number(dep.ocr_monto) : null;
-    const delta = ocr == null ? null : Number((ocr - kepler).toFixed(2));
-    const conIva = Math.abs(lineas * (1 + ComprasEntradasComponent.IVA) - kepler) <= E;
-    // Cómo se compone el total de Kepler: lo dice una vez, acá, y no se repite abajo.
-    const ocrMeta = !dep ? 'sin remisión adjunta'
-      : ocr == null ? 'el OCR no leyó el total'
-      : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
-    // Q.2 también acá: los renglones son el SUBTOTAL (cantidad x costo, kdm2) y el total de
-    // Kepler (c16) va con impuestos, así que casi siempre difieren. Dejar la diferencia a la
-    // vista sin explicarla hace dudar de un dato que está bien — y en dulcería no es solo
-    // IVA: hay IEPS, por eso no se afirma "16%" salvo que el número lo confirme.
-    const nLin = this.plural(d.lineas.length, 'renglón', 'renglones');
-    const dImp = Number((kepler - lineas).toFixed(2));
-    const lineasMeta =
-      Math.abs(dImp) <= E ? `${nLin} · igual al total, sin impuestos`
-      : conIva ? `${nLin} · subtotal; Kepler suma el IVA (+${money(dImp)})`
-      : dImp > 0 ? `${nLin} · subtotal; Kepler suma impuestos (+${money(dImp)})`
-      : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
-
-    if (!dep) {
-      return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'Falta la remisión del proveedor',
-        lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
-    }
-    if (ocr == null) {
-      return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'El documento está, pero no se pudo leer su total',
-        lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
-    }
-    if (Math.abs(delta as number) <= E) {
-      return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-        titulo: 'El documento cuadra con Kepler',
-        lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
-    }
-    const dif = Math.abs(delta as number);
-    const sentido = (delta as number) > 0 ? 'El documento cobra de MÁS' : 'El documento cobra de MENOS';
-    // Explicaciones frecuentes, en orden de probabilidad. Son pistas, no conclusiones.
-    const pista = Math.abs(dif - lineas * ComprasEntradasComponent.IVA) <= E
-      ? ' La diferencia es exactamente el IVA de los renglones — probablemente uno de los dos importes va sin impuesto.'
-      : this.explains().length
-        ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
-        : '';
-    return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta,
-      titulo: `${sentido} ${money(dif)}`,
-      lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}.${pista}` };
-  }
+  cuadre(d: EntradaDetail) { return receiptVerdict(d, this.explains().length > 0); }
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
@@ -1808,8 +2665,27 @@ export class ComprasEntradasComponent {
     return /\.(jpe?g|png|webp|gif)(\?|$)/i.test(f.url || '');
   }
 
-  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra' } as Record<string, string>)[k] || k; }
-  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
+  // `gemela` (RE.14) no es un descuadre con el proveedor: la factura cuadra con la captura de
+  // oficinas y la diferencia es contra la de la sucursal. Etiquetarla como "Descuadre" mandaría
+  // a reclamarle a quien no se equivocó.
+  discLabel(k: string): string { return ({ iva: 'Diferencia = IVA', typo: 'Posible error de captura', otro: 'Descuadre', cuadra: 'Cuadra', gemela: 'Cuadra con oficinas' } as Record<string, string>)[k] || k; }
+  discSev(k: string): 'success' | 'warn' | 'danger' | 'secondary' { return ({ cuadra: 'success', iva: 'secondary', typo: 'danger', otro: 'warn', gemela: 'secondary' } as Record<string, 'success' | 'warn' | 'danger' | 'secondary'>)[k] || 'secondary'; }
+  /**
+   * `[RE.25]` — El cuadre del DOCUMENTO, que es un eje distinto del estado del trámite:
+   * `Validado` dice que alguien decidió, `Cuadra` dice que los números concuerdan. Una entrada
+   * puede estar validada a mano y no cuadrar — y ése es exactamente el caso a mirar.
+   *
+   * `sin_datos` se llama **"No se leyó"** y no "Revisar" a propósito: no es un descuadre, es una
+   * hoja ilegible. El trabajo es re-escanearla, no auditarla, y son 27% de los comprobantes.
+   */
+  cuadreLabel(k: string | null): string {
+    return ({ cuadra: 'Cuadra', revisar: 'Revisar', sin_datos: 'No se leyó', sin_evidencia: '' } as Record<string, string>)[k || ''] ?? '';
+  }
+  cuadreIcon(k: string | null): string {
+    return ({
+      cuadra: 'pi-check-circle', revisar: 'pi-exclamation-triangle', sin_datos: 'pi-eye-slash',
+    } as Record<string, string>)[k || ''] || 'pi-minus';
+  }
   depLabel(s: string | null): string { return ({ recibido: 'Recibido', validado: 'Validado', rechazado: 'Rechazado' } as Record<string, string>)[s || ''] || '—'; }
   depSev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' { return ({ recibido: 'warn', validado: 'success', rechazado: 'danger' } as Record<string, 'success' | 'warn' | 'danger'>)[s || ''] || 'secondary'; }
   /**

@@ -1,6 +1,10 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import {
+  KNEX_CONNECTION,
+  TenantContextService,
+  requireTenantOf,
+} from '@megadulces/platform-core';
 
 /**
  * Horus — Execution Feature Store (Sprint Horus.0).
@@ -112,8 +116,9 @@ export class Execution360Service {
     @Optional() private readonly tenantContext?: TenantContextService,
   ) {}
 
-  private tenantId(user: any): string | undefined {
-    return user?.tenant_id || this.tenantContext?.get()?.tenantId;
+  /** Tenant del requester; LANZA si no hay. Ver `requireTenantOf` (fail-CLOSED). */
+  private tenantId(user: any): string {
+    return requireTenantOf(user, this.tenantContext);
   }
 
   /**
@@ -207,8 +212,9 @@ export class Execution360Service {
   /** Lee el feature store (endpoint GET). Scoped por tenant explícito. */
   async list(filters: { subject_type?: string; window_days?: number }, user: any) {
     const tenantId = this.tenantId(user);
-    let q = this.knex('commercial.execution_360 as e').select('*');
-    if (tenantId) q = q.where('e.tenant_id', tenantId);
+    let q = this.knex('commercial.execution_360 as e')
+      .select('*')
+      .where('e.tenant_id', tenantId);
     if (filters.subject_type) q = q.where('e.subject_type', filters.subject_type);
     if (filters.window_days) q = q.where('e.window_days', filters.window_days);
     q = q.orderBy('e.window_days', 'asc').orderBy('e.visits_done', 'desc');

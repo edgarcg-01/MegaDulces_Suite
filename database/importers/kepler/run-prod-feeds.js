@@ -91,7 +91,8 @@ const STEPS = {
     path.join(K, 'import-pos-ticket-sales.js'),    // venta de tickets → analytics.pos_ticket_sales
     path.join(K, 'import-kardex.js'),              // movimientos de inventario → analytics.stock_ledger
     path.join(K, 'import-purchase-adjustments.js'), // ajustes de compra → analytics.erp_purchase_adjustments
-    path.join(K, 'import-kepler-bank-movements.js'), // CB 3ª fuente: bancos Kepler por cuenta (kdm1⋈kdb1) → analytics.kepler_bank_movements
+    // RETIRADO 2026-09-03: import-kepler-bank-movements.js → analytics.kepler_bank_movements ahora es
+    // VISTA derive-no-copy sobre kepler_ods.kdm1⋈kdb1 (mig 20260903120000). Cero importer, siempre fresca.
     // CG.16 — Control de CAJA GENERAL (.mdb/Doctos): los GASTOS se capturan/suben al .mdb (no
     // viven en Kepler), así que el importer del .mdb es la fuente válida. Sube a INTRADAY (no solo
     // nightly) para que refresque seguido junto al ritmo del libro. Requiere Z: (.245) montado.
@@ -119,7 +120,9 @@ const STEPS = {
     path.join(K, 'import-reorder-policy.js'),   // RA.2 umbrales reorden Kepler (kdii.c33/34/35 → reorder_policy source=kepler)
     path.join(K, 'import-computed-reorder.js'), // RA.3/RA-PRO.1 reorden por demanda + safety stock por nivel de servicio + XYZ — tras inventory-health
     path.join(K, 'import-network-reorder.js'),  // RA-PRO.6 DRP: reorden del CEDIS por demanda dependiente (Σ sucursales) — tras computed-reorder
-    path.join(K, 'import-in-transit.js'),       // RA.5 OC en tránsito (X-A-35 sin X-A-40) → analytics.purchase_in_transit (resta del sugerido)
+    // RETIRADO 2026-08-28: import-in-transit — el tránsito (X-A-35 sin X-A-40) se DERIVA del ODS
+    // dentro de import-replenishment-plan (CTE `tr`). Mientras fue tabla + importer aparte, el
+    // rename qty_in_transit → transit_cajas se comió la conversión de unidad. Ver GOTCHAS §25.
     path.join(K, 'import-auto-received.js'),     // RA.15.1 auto-received: X-A-40 Kepler → cierra nuestras OC abiertas (OE source=kepler, sin mover stock)
     path.join(K, 'import-stock-movements.js'),  // DM — Diario de movimientos (kdm1⋈kdm2 filtrado por doctype.k_binv) → analytics.stock_movements (ventana 120d)
     path.join(K, 'import-purchase-velocity.js'), // RA-PRO.17 velocidad de compra real (entrada X-A-40) → analytics.purchase_velocity — TRAS stock-movements (ancla del sugerido)
@@ -156,7 +159,9 @@ const STEPS = {
     path.join(K, 'import-expense-requests.js'),  // GX.6 — vínculo solicitud↔gasto (expense_documents.solicitud_*) + hallazgos. `expense_requests` es VISTA (mig 20260819160000); lee de kepler_ods (local, sin timeout) — TRAS expenses-polizas
     path.join(K, 'import-sales-by-channel.js'),  // venta contable 401 reclasificada por canal real (solo CEDIS)
     path.join(K, 'import-cash-cuts.js'),         // SM.1 — cortes/arqueos de caja POS (kdpv_folio_caja)
-    path.join(K, 'import-bank-postings.js'),     // CB.4.1 — postings 102 Kepler (matching banco↔libro conciliación bancaria)
+    // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings ahora es MATERIALIZED VIEW
+    // derive-no-copy sobre kepler_ods.kdc2YYMM vía analytics.bank_postings_src() (mig 20260903130000).
+    // La refresca AnalyticsRefreshService (cron 15m). Cero importer.
     path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
     // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
     path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
@@ -164,7 +169,9 @@ const STEPS = {
     path.join(DIR, 'wincaja', 'import-sales-by-vendor-monthly.js'), // AUDIT 2026-08-20 — era HUÉRFANO (648k filas sell-out x vendedor, sin modo ni latido). Al nightly + hereda heartbeat feed_nightly. Idempotente (UPSERT + DELETE-orphan + Canindo remap).
     path.join(K, 'import-pos-cashiers.js'),      // dim cajeros POS → analytics.pos_cashiers
     path.join(K, 'import-supplier-params.js'),   // params de proveedor → catalog.suppliers (UPDATE)
-    path.join(K, 'import-kepler-accounts.js'),   // dim cuentas contables → finance.kepler_accounts
+    // RETIRADO 2026-08-26: import-kepler-accounts — finance.kepler_accounts es VISTA derive-no-copy
+    // sobre analytics.ledger_monthly (mig 20260826190000). Correrlo pegaría INSERT contra la vista.
+    // Pasó el gate de costo: fuente 2,548 filas, paridad 175/175 exacta, misma latencia de lectura.
     path.join(K, 'import-replenishment-cadence.js'), // cadencia de reabasto → commercial.replenishment_channel
     // CT-C.3 — feature store de Thot al nightly (antes eran scripts manuales): afinidad de canasta + demanda por zona
     // + presencia en PdV. Alimentan el score de suggest (afinidad/zona/whitespace) y los findings de distribución.
@@ -221,7 +228,7 @@ const STEPS = {
     path.join(K, 'import-expense-requests.js'), // tras expenses-polizas (UPDATE a expense_documents)
     path.join(K, 'import-sales-by-channel.js'),
     path.join(K, 'import-cash-cuts.js'),
-    path.join(K, 'import-bank-postings.js'),
+    // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings es MATERIALIZED VIEW (mig 20260903130000).
     path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 vivo + Base Movimientos. Requiere Z: (.245) montado.
   ],
 };
@@ -296,11 +303,16 @@ function run(entry) {
 // Barre node huérfanos de una corrida previa (scripts de ESTE modo, vivos > timeout+3min
 // → colgados). El umbral protege una corrida concurrente legítima de otro modo (joven).
 // Se apoya en kill-stale-feeds.ps1 (Windows) para evitar el infierno de comillas inline.
+// TODO el cuerpo va dentro del try: esto es limpieza best-effort y NO puede tumbar la corrida.
+// Lo que pasó el 25 y el 26-ago: `names` se calculaba FUERA del try, tiró ERR_INVALID_ARG_TYPE
+// (un step `[ruta, ...flags]` llegando a basename) y se llevó el modo `nightly` entero — y encima
+// antes del primer latido, así que ni `cron_runs` registró el intento.
 function sweepStaleOrphans(steps) {
   if (process.platform !== 'win32') return;
-  const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
-  const names = [...new Set(steps.map((s) => path.basename(s)))].join(',');
   try {
+    const ps1 = path.join(__dirname, 'kill-stale-feeds.ps1');
+    // pathOf: una entrada puede ser `[ruta, ...flags]` (ver arriba); basename() sobre el Array explota.
+    const names = [...new Set(steps.map((s) => path.basename(pathOf(s))))].join(',');
     const r = spawnSync('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps1,
       '-Names', names, '-MaxAgeMin', String(MAX_STEP_MIN + 3), '-SelfPid', String(process.pid)],
       { encoding: 'utf8', timeout: 30000 });
@@ -336,11 +348,15 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'default localhost:5433/postgres_platform') + ')');
 
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
-  sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
 
-  // Latido de arranque (solo en corridas reales). NUNCA lanza (cron-heartbeat traga errores).
+  // El latido va PRIMERO, antes de cualquier otra cosa. Si el runner se cae despues (o se lo
+  // matan), queda un latido 'running' que envejece y Salud BD lo marca en rojo por maxRunH: es
+  // el dead-man's switch. Cuando el latido iba DESPUES del sweep, el crash del 25 y 26-ago no
+  // dejo rastro en cron_runs — el nightly simplemente no existio dos noches y nadie se entero.
   const hbKey = `feed_${MODE}`;
   if (APPLY) await hb.begin(hbKey, FEED_LABELS[MODE] || `Feed ${MODE}`);
+
+  sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
 
   let failed = 0;
   const failedSteps = [];

@@ -9,7 +9,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
 import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail, BankMovDetail, BankMovSource } from '../../bank.service';
 import { money, dmShort } from './bancos-shared';
-import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../finanzas-sort';
+import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../../shared/util';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
 import { BANCOS_STYLES } from './bancos.styles';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
@@ -108,7 +108,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   <td class="ta-r mono">{{ row.workbook | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono">{{ row.kepler | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                   <td class="ta-r mono">{{ row.contpaqi | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">
+                  <td class="ta-r mono" [class.warn]="!cuad(row.delta_wk)" [class.ok]="cuad(row.delta_wk)">
                     @if (cuad(row.delta_wk)) { {{ row.delta_wk | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                     @else {
                       <button type="button" class="tw-dlink" (click)="explain(d, row, 'wk')"
@@ -126,7 +126,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                       </button>
                     }
                   </td>
-                  <td class="ta-r mono" [class.bad]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">
+                  <td class="ta-r mono" [class.warn]="!cuad(row.delta_kc)" [class.ok]="cuad(row.delta_kc)">
                     @if (cuad(row.delta_kc)) { {{ row.delta_kc | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                     @else {
                       <button type="button" class="tw-dlink" (click)="explain(d, row, 'kc')"
@@ -145,7 +145,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           </table>
         </div>
         <p class="tw-note muted"><i class="pi pi-info-circle"></i>
-          <b>Workbook</b> = tu estado de cuenta (lo que movió el banco). <b>Kepler (tesorería)</b> = movimientos de banco del ERP por cuenta (kdm1, {{ d.kepler_movs }} movs) — <b>misma fuente que la pestaña Conciliación</b>. <b>ContPAQi</b> = libros fiscales ({{ d.kepler_linked }} cuentas enlazadas).
+          El <b>cuadre es banco ↔ fiscal (Workbook ↔ ContPAQi)</b> — las dos fuentes completas y por cuenta; el semáforo mira sólo ese par. <b>Workbook</b> = tu estado de cuenta. <b>ContPAQi</b> = libros fiscales ({{ d.kepler_linked }} cuentas enlazadas). <b>Kepler (tesorería)</b> (kdm1, {{ d.kepler_movs }} movs) es <b>informativo</b>: es parcial —no incluye las ventas de tienda posteadas directo al 102— así que su diferencia (ámbar) es esperada, no descuadre. Una cuenta que el fiscal tiene pero el banco no cargó sale <b>"sin cargar"</b>, no en rojo.
         </p>
       </div>
 
@@ -165,7 +165,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-down-left tw-in-ico"></i> Depósitos</th>
                 <th colspan="3" class="ta-c tw-grp"><i class="pi pi-arrow-up-right"></i> Retiros</th>
                 <th rowspan="2" class="ta-r tw-col-dif" pSortableColumn="worst_abs"
-                    title="Peor desviación contra el banco entre las fuentes disponibles">Diferencia <p-sorticon field="worst_abs" /></th>
+                    title="Diferencia del cuadre real: banco (Workbook) − fiscal (ContPAQi)">Diferencia <p-sorticon field="worst_abs" /></th>
               </tr>
               <tr>
                 <th class="ta-r" pSortableColumn="wb_in" title="Estado de cuenta (Workbook)">WB <p-sorticon field="wb_in" /></th>
@@ -183,24 +183,31 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   @if (!r.linked) { <span class="tw-tag muted-tag" title="La cuenta no está enlazada a una cuenta de ContPAQi: se compara sólo contra Kepler">sin enlazar</span> }
                   <i class="pi pi-search-plus tw-drill-ico"></i></td>
                 <td class="ta-r mono">{{ r.wb_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_in)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                <td class="ta-r mono tw-kep" [class.warn]="r.kep_has && !cuad(r.delta_wk_in)" title="Kepler tesorería (informativo — parcial, no incluye ventas de tienda del 102)">{{ r.kep_has ? (r.kep_in | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_in)">{{ r.cp_in | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <td class="ta-r mono">{{ r.wb_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                <td class="ta-r mono tw-kep" [class.bad]="r.kep_has && !cuad(r.delta_wk_out)">{{ r.kep_has ? (r.kep_out | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                <td class="ta-r mono tw-kep" [class.warn]="r.kep_has && !cuad(r.delta_wk_out)" title="Kepler tesorería (informativo — parcial, no incluye ventas de tienda del 102)">{{ r.kep_has ? (r.kep_out | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
                 <td class="ta-r mono" [class.bad]="r.linked && !cuad(r.delta_out)">{{ r.cp_out | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 <!-- La diferencia se muestra como CIFRA, no sólo como tinte: antes había que
                      restar mentalmente entre columnas separadas para saber cuánto faltaba, y
                      el color era el único portador del problema (§Q.2 / §Q.6). -->
                 <td class="ta-r tw-col-dif">
-                  @if (!r.comparable) {
-                    <span class="tw-tag muted-tag" title="No hay contra qué comparar: la cuenta no está enlazada a ContPAQi y Kepler no tiene movimientos suyos en el periodo">sin comparar</span>
-                  } @else if (r.cuadra) {
-                    <i class="pi pi-check-circle ok" [attr.title]="'Cuadra contra las fuentes disponibles (±' + money(tol()) + ')'"></i>
-                  } @else {
-                    <span class="tw-dif">
-                      <span class="mono bad">{{ r.worst_delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                      <span class="tw-tag warn-tag">vs {{ r.worst_src === 'K' ? 'Kepler' : 'ContPAQi' }}</span>
-                    </span>
+                  @switch (r.estado) {
+                    @case ('sin_cargar') {
+                      <span class="tw-tag muted-tag" title="El fiscal (ContPAQi) tiene esta cuenta pero el banco (Workbook) no está cargado este mes. Falta capturar el estado de cuenta — NO es descuadre.">sin cargar</span>
+                    }
+                    @case ('sin_comparar') {
+                      <span class="tw-tag muted-tag" title="No hay contra qué comparar: la cuenta no está enlazada a ContPAQi ni tiene estado de cuenta cargado en el periodo">sin comparar</span>
+                    }
+                    @case ('cuadra') {
+                      <i class="pi pi-check-circle ok" [attr.title]="'Banco ↔ fiscal cuadran (±' + money(tol()) + ')'"></i>
+                    }
+                    @default {
+                      <span class="tw-dif">
+                        <span class="mono bad">{{ r.worst_delta | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                        <span class="tw-tag warn-tag">vs ContPAQi</span>
+                      </span>
+                    }
                   }
                 </td>
               </tr>
@@ -379,7 +386,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             <thead><tr>
               @for (c of DRILL_COLS; track c.field) {
                 <th [class]="c.cls" [attr.aria-sort]="ariaSort(drillSort(), c.field)">
-                  <button type="button" class="tw-sort" (click)="sortDrill(c.field)"
+                  <button type="button" class="surf-sort" (click)="sortDrill(c.field)"
                           [attr.aria-label]="'Ordenar por ' + c.label">
                     {{ c.label }}<i [class]="sortIcon(drillSort(), c.field)" aria-hidden="true"></i>
                   </button>
@@ -407,7 +414,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (k of dd.kepler_only; track k.doc) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (k of dd.kepler_only; track k.doc) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             }
@@ -415,7 +422,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
               <div class="tw-orphan">
                 <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of dd.contpaqi_only; track c.poliza) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (c of dd.contpaqi_only; track c.poliza) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
             }
