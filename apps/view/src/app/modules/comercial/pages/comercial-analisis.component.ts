@@ -91,7 +91,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
       </section>
 
       @if (report(); as r) {
-        <app-metric-strip [items]="kpiItems()" />
+        <app-metric-strip [items]="kpiItems()" mode="spark" />
       }
 
       @if (activeExplain(); as e) {
@@ -399,8 +399,15 @@ export class ComercialAnalisisComponent {
   readonly kpiItems = computed<MetricStripItem[]>(() => {
     const r = this.report();
     if (!r) return [];
+    const e = this.explain();
+    const s = this.series();
     return [
-      { label: 'Monto total', value: r.grand_total.monto, format: 'currency', sub: 'Sell-out del periodo' },
+      {
+        label: 'Monto total', value: r.grand_total.monto, format: 'currency',
+        delta: e ? e.total.delta_pct : null,                              // BI.1 — Δ vs periodo comparado
+        series: s ? s.months.map((m) => m.monto) : undefined,            // BI.1 — sparkline 12m
+        sub: e ? (this.compare() === 'yoy' ? 'vs año anterior' : 'vs periodo anterior') : 'Sell-out del periodo',
+      },
       { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Unidades ÷ UXC' },
       { label: 'Empresas', value: r.rows.length, sub: 'Con venta' },
       { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
