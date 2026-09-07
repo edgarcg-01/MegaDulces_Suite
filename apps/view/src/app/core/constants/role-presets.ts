@@ -262,7 +262,7 @@ export const AREA_PRESETS: AreaPreset[] = [
   {
     role: 'telemarketing',
     label: 'Telemarketing',
-    description: 'Televenta (call center B2B); ve/opera comercial.',
+    description: 'Telemarketing (call center B2B); ve/opera comercial.',
     primary: ['televenta'],
     secondary: ['comercial'],
   },

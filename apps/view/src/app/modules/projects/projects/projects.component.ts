@@ -130,7 +130,7 @@ export class ProjectsComponent implements OnInit {
     },
     {
       id: 'televenta',
-      name: 'Televenta',
+      name: 'Telemarketing',
       description: 'Call center B2B: cola priorizada de clientes, perfil + recomendaciones, pedidos a su nombre y registro de llamadas.',
       icon: 'pi pi-headphones',
       route: '/televenta',

@@ -9,7 +9,8 @@ import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 
 /**
- * Fase E — Remote Manager / Televenta.
+ * Fase E — Telemarketing (antes "Remote Manager" / "Televenta"; el ERP y el rol de prod lo
+ * llaman telemarketing, canal TELEMARK).
  *
  * Pool autoservicio: operadores ven cola priorizada de clientes, toman un
  * lead (reserva TTL), trabajan al cliente (snapshot + pedido + log llamada),
@@ -582,8 +583,102 @@ export class CommercialTeleventaService {
         top_operators: topOperators,
         outcomes_7d: outcomesBreakdown,
         queue_preview: queuePreview,
+        // ── E.9: el dinero del canal, medido en el ERP (no en esta plataforma) ──
+        billing: await this.facturacion(trx, tenantId),
+        // Lo que este tablero NO puede afirmar, dicho aquí y no en la UI (ADR-056): si la
+        // plataforma no tiene una sola llamada registrada, "0 llamadas" no es desempeño,
+        // es ausencia de captura — y la pantalla debe decirlo en vez de pintar ceros.
+        actividad: {
+          registrada: Number(callsToday?.total || 0) > 0 || totalCalls7d > 0,
+          nota: 'La actividad (llamadas, minutos, conversión) sale de commercial.call_logs, que se llena al registrar llamadas en este módulo. La facturación sale del ERP y es independiente de esa captura.',
+        },
       };
     });
+  }
+
+  /**
+   * E.9 — Facturación REAL del canal telemarketing, para el tablero del módulo.
+   *
+   * Sale de `analytics.erp_sales_invoices` (doc_tipo `telemarketing` = `U/D/8`, canal TELEMARK
+   * en el 100% de los documentos), la misma vista en vivo que consume `/comercial/documentos`.
+   * Se lee aquí porque el tablero del canal medía sólo actividad —llamadas y minutos— y no el
+   * resultado: en prod hay 732 facturas y $8.2M en 30 días que este módulo no veía.
+   *
+   * ⚠️ **La atribución es la del ERP, no la de la plataforma.** El operador viene de
+   * `vendedor_code`; `identity.users` no tiene con qué empatarlo (sólo `route_id`), así que
+   * NO se puede cruzar con quien registró la llamada. Se muestra tal cual viene y se dice.
+   *
+   * ⚠️ Cada consulta va con su selección **materializada antes de ordenar o recortar**: sobre
+   * esta vista un `ORDER BY … LIMIT` directo dispara un nested loop que re-escanea el CTE de la
+   * cartera por fila (medido en prod: 23,856 ms vs 970 ms). Ver `commercial-sales-documents`.
+   */
+  private async facturacion(trx: any, tenantId: string): Promise<any> {
+    const W = `WHERE tenant_id = ? AND doc_tipo = 'telemarketing' AND NOT cancelada`;
+
+    const [totales, porOperador, ultimas] = await Promise.all([
+      trx.raw(
+        `WITH sel AS MATERIALIZED (
+           SELECT fecha, total, saldo, estatus_cobro, vencimiento, cliente_code
+           FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
+         SELECT
+           count(*) FILTER (WHERE fecha = current_date)::int                        AS facturas_hoy,
+           coalesce(sum(total) FILTER (WHERE fecha = current_date), 0)::numeric     AS importe_hoy,
+           count(*) FILTER (WHERE fecha >= date_trunc('month', current_date))::int  AS facturas_mes,
+           coalesce(sum(total) FILTER (WHERE fecha >= date_trunc('month', current_date)), 0)::numeric AS importe_mes,
+           count(*)::int                                                            AS facturas_30d,
+           coalesce(sum(total), 0)::numeric                                         AS importe_30d,
+           count(DISTINCT cliente_code)::int                                        AS clientes_30d,
+           coalesce(sum(saldo), 0)::numeric                                         AS saldo_30d,
+           coalesce(sum(saldo) FILTER (WHERE vencimiento < current_date
+             AND estatus_cobro IN ('pendiente','parcial')), 0)::numeric             AS saldo_vencido,
+           count(*) FILTER (WHERE vencimiento < current_date
+             AND estatus_cobro IN ('pendiente','parcial'))::int                     AS facturas_vencidas,
+           max(fecha)                                                               AS ultima_factura
+         FROM sel`,
+        [tenantId],
+      ),
+      trx.raw(
+        `WITH sel AS MATERIALIZED (
+           SELECT vendedor_code, vendedor_nombre, total, saldo, cliente_code
+           FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
+         SELECT vendedor_code, vendedor_nombre,
+                count(*)::int AS facturas,
+                coalesce(sum(total), 0)::numeric AS importe,
+                coalesce(sum(saldo), 0)::numeric AS saldo,
+                count(DISTINCT cliente_code)::int AS clientes
+         FROM sel GROUP BY 1, 2 ORDER BY 4 DESC`,
+        [tenantId],
+      ),
+      trx.raw(
+        `WITH sel AS MATERIALIZED (
+           SELECT folio_digital, sucursal, doc_prefix, folio, fecha, cliente_code, cliente_nombre,
+                  vendedor_nombre, total, saldo, estatus_cobro,
+                  (vencimiento < current_date AND estatus_cobro IN ('pendiente','parcial')) AS vencida
+           FROM analytics.erp_sales_invoices ${W} AND fecha >= current_date - 30)
+         SELECT * FROM sel ORDER BY fecha DESC, folio DESC LIMIT 8`,
+        [tenantId],
+      ),
+    ]);
+
+    const t = totales?.rows?.[0] || {};
+    return {
+      hoy: { facturas: Number(t.facturas_hoy || 0), importe: Number(t.importe_hoy || 0) },
+      mes: { facturas: Number(t.facturas_mes || 0), importe: Number(t.importe_mes || 0) },
+      d30: {
+        facturas: Number(t.facturas_30d || 0),
+        importe: Number(t.importe_30d || 0),
+        clientes: Number(t.clientes_30d || 0),
+        saldo: Number(t.saldo_30d || 0),
+        saldo_vencido: Number(t.saldo_vencido || 0),
+        facturas_vencidas: Number(t.facturas_vencidas || 0),
+      },
+      /** Fecha de NEGOCIO del dato más reciente; null si no hay facturas en la ventana. */
+      ultima_factura: t.ultima_factura || null,
+      por_operador: porOperador?.rows || [],
+      ultimas: ultimas?.rows || [],
+      /** La atribución es del ERP: no hay forma de cruzarla con los usuarios de la plataforma. */
+      atribucion: 'erp_vendedor_code',
+    };
   }
 
   async getCustomerCallHistory(customerId: string, limit = 20): Promise<any[]> {

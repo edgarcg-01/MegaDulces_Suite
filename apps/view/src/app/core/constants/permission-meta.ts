@@ -93,9 +93,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_PROMOTIONS_VER]: { label: 'Ver Promociones', description: 'Consultar campañas y promociones vigentes.', category: 'Comercial · Promociones' },
   [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR]: { label: 'Gestionar Promociones', description: 'Crear y editar promociones y campañas.', category: 'Comercial · Promociones' },
 
-  // Televenta
-  [Permission.COMMERCIAL_TELEVENTA_VER]: { label: 'Ver Televenta', description: 'Acceso de lectura al módulo de televenta / call center.', category: 'Televenta' },
-  [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Televenta', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Televenta' },
+  // Telemarketing (el ERP y el rol de prod lo llaman asi)
+  [Permission.COMMERCIAL_TELEVENTA_VER]: { label: 'Ver Telemarketing', description: 'Acceso de lectura al módulo de telemarketing / call center: resumen del canal (facturación del ERP + actividad), cola de leads y reservas.', category: 'Telemarketing' },
+  [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Telemarketing', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Telemarketing' },
 
   // Logística
   [Permission.LOGISTICS_FLEET_VER]: { label: 'Ver Flotilla', description: 'Consultar unidades, choferes y personal de logística.', category: 'Logística' },
@@ -243,7 +243,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Promociones',
   'Comercial · Thot',
   'Comercial · Inventario físico',
-  'Televenta',
+  'Telemarketing',
   'Logística',
   'Reparto',
   'Finanzas',

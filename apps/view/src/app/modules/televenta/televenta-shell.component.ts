@@ -5,9 +5,20 @@ import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../core/services/auth.service';
+import { PermissionsService } from '../../core/services/permissions.service';
+import { Permission } from '../../core/constants/permissions';
 
 /**
- * Shell de Televenta — single-pane responsive, header + nav top + outlet.
+ * Shell de Telemarketing — single-pane responsive, header + nav top + outlet.
+ *
+ * E.9: el módulo se llamaba "Televenta" en el código y "Remote Manager" en el plan, mientras
+ * el ERP y el rol de prod lo llaman **telemarketing** (canal TELEMARK en el 100% de las
+ * facturas U/D/8). Se unifica a Telemarketing en lo visible; la ruta `/televenta` se queda
+ * para no romper enlaces guardados ni el guard.
+ *
+ * "Dashboard" pasa a "Resumen" y se le suma "Facturación", que es el resultado del canal:
+ * el tablero medía sólo actividad (llamadas, minutos) y no veía los $8.2M/30d que el ERP
+ * factura por telemarketing.
  */
 @Component({
   selector: 'app-televenta-shell',
@@ -21,12 +32,12 @@ import { AuthService } from '../../core/services/auth.service';
       <header class="televenta-header">
         <div class="brand">
           <i class="pi pi-headphones" aria-hidden="true"></i>
-          <span>Televenta</span>
+          <span>Telemarketing</span>
         </div>
-        <nav class="nav" aria-label="Secciones de Televenta">
+        <nav class="nav" aria-label="Secciones de Telemarketing">
           <a routerLink="dashboard" routerLinkActive="active">
             <i class="pi pi-chart-bar" aria-hidden="true"></i>
-            <span>Dashboard</span>
+            <span>Resumen</span>
           </a>
           <a routerLink="queue" routerLinkActive="active">
             <i class="pi pi-list" aria-hidden="true"></i>
@@ -36,6 +47,17 @@ import { AuthService } from '../../core/services/auth.service';
             <i class="pi pi-bookmark" aria-hidden="true"></i>
             <span>Mis activos</span>
           </a>
+          <!-- La facturación completa vive en su propia pantalla (Operations, tabla densa +
+               side-peek + anexo imprimible). Aquí sólo el enlace: duplicar esa UI dentro del
+               shell sería una segunda copia de la misma pantalla.
+               Va gateado por SU permiso: un enlace que lleva a un rechazo del guard es peor
+               que no mostrarlo. Medido en prod, los 3 roles con acceso al módulo ya lo tienen. -->
+          @if (verFacturacion()) {
+            <a routerLink="/comercial/documentos" routerLinkActive="active">
+              <i class="pi pi-file" aria-hidden="true"></i>
+              <span>Facturación</span>
+            </a>
+          }
         </nav>
         <div class="user">
           <span class="username">{{ username() }}</span>
@@ -131,8 +153,11 @@ import { AuthService } from '../../core/services/auth.service';
 export class TeleventaShellComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly perms = inject(PermissionsService);
 
   readonly username = signal<string>(this.auth.user()?.username || '');
+  /** La facturación es otra superficie con su propio permiso; sin él, el enlace no se ofrece. */
+  readonly verFacturacion = this.perms.has$(Permission.COMMERCIAL_SALES_DOCS_VER);
 
   logout(): void {
     this.auth.logout();

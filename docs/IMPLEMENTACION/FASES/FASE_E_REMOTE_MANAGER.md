@@ -143,3 +143,34 @@ Páginas:
 | Operador genera pedido pero no registra call_log | `take-order` confirm puede auto-loguear con outcome=sale + order_id. Aceptable que algunos calls queden sin log si el operador descarta. |
 | Cola vacía (raro) | UI muestra empty state "Todos los clientes están al día — chequeá callbacks programados". |
 | Cliente bloqueado por crédito intenta pedido | OrdersService ya valida `credit_limit` y rebota — el operador ve el error y registra llamada con outcome=no_sale + notes. |
+
+## E.9 — el tablero ve la facturación del canal, y el módulo se llama Telemarketing (2026-09-07)
+
+Disparador: *"hay que cambiar /televenta/dashboard para que ahí también se vean las facturas, y ordenemos este módulo para telemarketing"*.
+
+### Lo que la auditoría encontró antes de tocar nada
+
+Medido en prod:
+
+- **`commercial.call_logs` está VACÍA: 0 llamadas.** Todo el tablero (llamadas, minutos, conversión, top operadores, outcomes 7d) publicaba **ceros**. El módulo nunca se usó.
+- **La cola de leads apunta al universo equivocado:** sale de `commercial.customers`, que son 412 clientes con código `V-…` captados por vendedores en campo. **0 de 412 empatan** con los clientes que telemarketing factura de verdad (206 códigos del ERP).
+- **La operación real existe y sólo vive en el ERP:** 4 operadores (30003 Daniel Francisco Franco, 10002 Sergio Mendoza, 10001 Cinthia del Valle, 30004 José Ramón Rodríguez), **732 facturas y $8,243,050 en 30 días**, con **$2,340,863 vencidos por cobrar**.
+- **No hay puente operador↔usuario:** `identity.users` no tiene `vendedor_code` (sólo `route_id`), así que la factura se atribuye por el vendedor del ERP y **no** se puede cruzar con quien registre la llamada.
+- **El rol en prod ya se llama `telemarketing`** (no `televenta`) y los 3 roles con acceso al módulo (direccion, superadmin, telemarketing) **ya tienen `COMMERCIAL_SALES_DOCS_VER`**: el enlace a facturación funciona sin repartir permisos nuevos.
+
+### Qué se hizo
+
+- **Facturación real en el tablero** (`billing` en `GET /commercial/televenta/dashboard`): hoy / mes / 30 días, cobrado, **vencido por cobrar**, desglose **por operador** del ERP y las **últimas 8 facturas** con su estado de cobro. Sale de `analytics.erp_sales_invoices` — la misma vista en vivo que consume `/comercial/documentos`, sin copiar nada.
+- **Va primero en la pantalla**, antes de la actividad: es lo que existe todos los días.
+- **La actividad se declara**: si `call_logs` no tiene registros, el tablero dice *"no hay llamadas capturadas en este módulo"* en vez de pintar 0% de conversión como si fuera un resultado (ADR-056). La facturación no depende de esa captura y se dice.
+- **Nombre unificado a Telemarketing** en lo visible: encabezado, marca del shell, nav ("Dashboard" → "Resumen", + "Facturación"), labels de los dos permisos y su categoría, nodo de `authz-tree`, preset de rol, selector de proyectos. **La ruta `/televenta` se queda** (enlaces guardados y el guard) y los nombres de clase/archivo también: renombrarlos es churn sin nada visible.
+- El enlace a Facturación va **gateado por `COMMERCIAL_SALES_DOCS_VER`**: un enlace que lleva a un rechazo del guard es peor que no mostrarlo.
+- ⚠️ Cada consulta del bloque va con su selección **materializada antes de ordenar/recortar**: sobre esta vista un `ORDER BY … LIMIT` directo dispara el nested loop de AX.9 (23,856 ms vs 970 ms).
+
+Smoke `test-newdb-telemarketing-billing.js` **9/9 contra prod** (incluye que la facturación cuadre al peso con `/comercial/documentos` y la prueba negativa del puente inexistente). Builds api y view verdes. El bloque responde en **1,096 ms**.
+
+### Lo que sigue abierto (decisión de Edgar, 2026-09-07)
+
+- ⬜ **E.10 — re-apuntar la cola al ERP.** Hoy prioriza 412 clientes de campo que no son de telemarketing; debería trabajar los 206 reales, ordenados por su historial de facturación (última factura, saldo, días sin comprar). Es el trabajo que hace que el módulo sirva para operar, no sólo para mirar. Se pospuso a propósito para entregar la facturación primero.
+- ⬜ **E.11 — puente operador↔usuario.** Sin un `vendedor_code` en `identity.users` no hay forma de medir a un operador de punta a punta (sus llamadas y sus facturas). Mientras no exista, el tablero muestra dos atribuciones distintas y lo dice.
+- ⬜ Los bloques de actividad siguen en el tablero aunque publiquen ceros: se declaran, no se retiran. Si la captura no arranca, conviene quitarlos.

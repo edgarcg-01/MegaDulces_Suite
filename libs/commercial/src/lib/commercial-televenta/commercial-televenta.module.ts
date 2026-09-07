@@ -4,7 +4,7 @@ import { CommercialTeleventaService } from './commercial-televenta.service';
 import { TeleventaCronService } from './televenta-cron.service';
 
 /**
- * Fase E — Remote Manager / Televenta.
+ * Fase E — Telemarketing (antes "Remote Manager" / "Televenta").
  *
  * Exposes:
  *   - GET    /api/commercial/televenta/queue
