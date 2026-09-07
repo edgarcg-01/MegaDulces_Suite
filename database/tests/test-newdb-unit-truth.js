@@ -232,6 +232,36 @@ const NATIVOS = ['nativo_es_base', 'vende_la_base', 'vende_paquete', 'no_explica
   check('el cambio de ERP se conserva como dato aparte, no se pierde',
     mot.con_cambio_de_erp > 0);
 
+  // ── 8ter. ⭐ EL MÉTODO DE CAJAS: ordena los testigos en vez de elegir uno.
+  // El divisor solo no alcanza: en 296 SKUs ($78.3M) NINGÚN divisor acierta contra el árbitro de
+  // dinero, porque `units` mezcla peldaños. Pero el divisor verificado SÍ coincide con el dinero
+  // donde dice estarlo (razón mediana 0.997 sobre $547M). Por eso hay orden: dinero > peso >
+  // divisor verificado > declarar NULL.
+  const met = (await c.query(
+    `WITH s AS (SELECT product_id, warehouse_id, sum(revenue)::numeric rev
+                  FROM analytics.sales_daily
+                 WHERE tenant_id = $1 AND sale_date >= current_date - 365 GROUP BY 1,2)
+     SELECT round(100 * sum(s.rev) FILTER (WHERE t.metodo_cajas IN ('dinero','divisor','peso'))
+                      / NULLIF(sum(s.rev), 0), 1) pct_convertible,
+            round(sum(s.rev) FILTER (WHERE t.metodo_cajas = 'sin_metodo'))::numeric venta_sin_metodo,
+            count(*) FILTER (WHERE t.metodo_cajas = 'divisor' AND NOT t.medible)::int divisor_no_medible,
+            count(*) FILTER (WHERE t.metodo_cajas = 'dinero' AND COALESCE(t.cja_price,0) <= 0)::int dinero_sin_precio
+       FROM s LEFT JOIN analytics.v_unit_truth t
+              ON t.tenant_id = $1 AND t.warehouse_id = s.warehouse_id
+             AND t.product_id = s.product_id`, [T],
+  )).rows[0];
+  console.log(`  método de cajas: ${met.pct_convertible}% de la venta convertible · `
+    + `$${Number(met.venta_sin_metodo || 0).toLocaleString('es-MX')} sin método (declarado)`);
+
+  check('más del 85% de la venta tiene un método de cajas defendible',
+    Number(met.pct_convertible) > 85, `${met.pct_convertible}%`);
+  check('el método `divisor` NUNCA se usa con un factor no verificado',
+    met.divisor_no_medible === 0,
+    `${met.divisor_no_medible} celdas usarían un divisor sin testigo`);
+  check('el método `dinero` NUNCA se elige sin precio de caja', met.dinero_sin_precio === 0);
+  check('queda venta SIN método, declarada (si diera 0, se estaría dibujando lo que no se sabe)',
+    Number(met.venta_sin_metodo) > 0);
+
   // ── 9. Perf. Se mide, no se estima.
   check('la agregación completa cuesta < 8,000 ms', ms < 8000, `${ms} ms`);
 
