@@ -238,10 +238,20 @@ export interface CoverageRow {
   rechazadas: number;
   monto: number;
   monto_pendiente: number;
+  /** Fuera del plazo de CAPTURA (`sla_capture_days`): entradas sin que nadie suba el papel. */
   atrasadas: number;
   /** antigüedad de lo PENDIENTE: el promedio esconde la cola larga, que es la que hay que perseguir */
   dias_p50: number;
   dias_p90: number;
+  /**
+   * `[RE.28.2]` Fuera del plazo del REVISOR (`sla_review_days`): evidencia subida que nadie
+   * dictaminó. No estaba en ninguna pantalla — `por_validar` es el conteo total, sin plazo, así
+   * que una cola de 27 días se veía igual que una de ayer. Medido al agregarlo: 144 comprobantes
+   * vencidos en 9 sucursales.
+   */
+  por_validar_vencidas: number;
+  dias_peor_revision: number;
+  monto_revision: number;
   pct_evidencia: number;
   pct_validadas: number;
   /**

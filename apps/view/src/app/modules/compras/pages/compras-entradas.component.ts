@@ -167,6 +167,17 @@ interface AttachFile {
         </div>
         <div class="cb-field"><label>&nbsp;</label>
           <button pButton type="button" (click)="openAttachPhotoFirst()" title="Identificá la entrada por folio y subí la factura"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Subir factura</span></button></div>
+        <!-- RE.28.4 — el lote vuelve. Aparece sólo con "Por validar" + "Cuadra": el filtro ES la
+             selección, y con esos dos puestos lo que hay en pantalla es exactamente lo que el
+             server va a aceptar. Sin el segundo filtro prometería N y entregaría 3. -->
+        @if (puedeLote()) {
+          <div class="cb-field"><label>&nbsp;</label>
+            <button pButton type="button" severity="success" (click)="abrirLote()"
+                    [title]="'Aprobar las ' + loteObjetivo().length + ' que cuadran, de una'">
+              <span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span>
+              <span class="p-button-label">Aprobar {{ loteObjetivo().length }}</span>
+            </button></div>
+        }
         @if (newCount() > 0) {
           <div class="cb-field cb-field-pill"><label>&nbsp;</label>
             <button pButton type="button" class="cb-newpill" (click)="applyNew()" [title]="newCount() + ' orden(es) de entrada nueva(s) en el ERP'"><span class="p-button-icon p-button-icon-left pi pi-arrow-down" aria-hidden="true"></span><span class="p-button-label">{{ newCount() }} nueva(s) — actualizar</span></button></div>
@@ -738,6 +749,62 @@ interface AttachFile {
     </p-dialog>
 
     <!--
+      RE.28.4 — Aprobar en lote. Portado de la cabina retirada, que ya lo tenía bien resuelto:
+      se muestra QUÉ se va a aprobar antes de aprobarlo, y el resultado vuelve POR EXPEDIENTE.
+      Un toast que dice "12 de 15" no sirve para saber cuáles tres se quedaron ni por qué —y el
+      server omite por motivos distintos: descuadre, la subiste vos, otro ya decidió.
+    -->
+    <p-dialog [visible]="showLote()" (visibleChange)="onLoteVisible($event)" [modal]="true"
+              [draggable]="false" [style]="{ width: '34rem', maxWidth: '96vw' }"
+              [header]="loteResultado().length ? 'Resultado del lote' : 'Aprobar las que cuadran'">
+      @if (loteResultado(); as res) {
+        @if (res.length) {
+          <ul class="cb-lote-res">
+            @for (r of res; track r.id) {
+              <li [class.bad]="!r.ok">
+                <i class="pi" [ngClass]="r.ok ? 'pi-check-circle' : 'pi-times-circle'" aria-hidden="true"></i>
+                <span class="mono">{{ etiquetaLote(r.id) }}</span>
+                <em>{{ r.ok ? 'aprobada' : r.motivo }}</em>
+              </li>
+            }
+          </ul>
+        } @else {
+          <div class="cb-form">
+            <p>
+              Se van a aprobar <strong>{{ loteObjetivo().length }}</strong> remisiones por
+              <strong>{{ money(loteMonto()) }}</strong>, cuyo importe y proveedor concuerdan con Kepler.
+            </p>
+            <p class="muted">
+              El servidor revisa cada una otra vez: las que no cuadren, las que subiste vos o las
+              que ya decidió alguien más se quedan en la cola, y te dice cuáles.
+            </p>
+            <ul class="cb-lote-res">
+              @for (c of loteObjetivo(); track c.deposit_id) {
+                <li>
+                  <span class="mono">{{ branchName(c.sucursal) }} · {{ c.folio }}</span>
+                  <em>{{ c.proveedor_nombre }}</em>
+                  <b>{{ money(c.monto) }}</b>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+      }
+      <ng-template #footer>
+        @if (loteResultado().length) {
+          <button pButton type="button" (click)="cerrarLote()"><span class="p-button-label">Entendido</span></button>
+        } @else {
+          <button pButton type="button" text (click)="cerrarLote()"><span class="p-button-label">Cancelar</span></button>
+          <button pButton type="button" severity="success" [loading]="bulking()"
+                  [disabled]="!loteObjetivo().length || bulking()" (click)="aprobarLote()">
+            <span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span>
+            <span class="p-button-label">Aprobar {{ loteObjetivo().length }}</span>
+          </button>
+        }
+      </ng-template>
+    </p-dialog>
+
+    <!--
       RE.20.3 — Descartar. Le faltaba al proceso la salida para lo que NUNCA va a tener factura:
       hasta acá el único camino era "Devuelta", que rebota a la sucursal pidiéndole que suba algo
       que no existe. La entrada se queda Sin factura para siempre e infla el atraso de esa
@@ -1263,6 +1330,24 @@ interface AttachFile {
     .cb-linkbtn:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
     .cb-grid { display: grid; grid-template-columns: 1fr 1fr; gap: .7rem; border-top: 1px solid var(--border-color); padding-top: .8rem; }
     .cb-err { color: var(--bad-fg); font-size: .82rem; }
+    /* RE.28.4 — el lote: qué se va a aprobar, y después qué pasó con cada una. La lista se
+       desplaza sola porque un lote de 40 no cabe, y el diálogo no debe crecer fuera de la
+       pantalla; lo que falló va primero a la vista por el color y el ícono, no sólo el color. */
+    .cb-lote-res {
+      list-style: none; margin: 0; padding: 0;
+      max-height: 46vh; overflow-y: auto;
+      font-size: var(--fs-micro); display: flex; flex-direction: column; gap: 2px;
+    }
+    .cb-lote-res li {
+      display: flex; align-items: center; gap: var(--sp-2);
+      padding: .25rem 0; border-bottom: 1px solid var(--border-color);
+    }
+    .cb-lote-res li:last-child { border-bottom: 0; }
+    .cb-lote-res li.bad { color: var(--bad-fg); }
+    .cb-lote-res li em { font-style: normal; color: var(--text-muted); flex: 1;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cb-lote-res li.bad em { color: var(--bad-fg); }
+    .cb-lote-res li b { font-family: var(--font-mono); }
     .w-full { width: 100%; }
     .cb-foliolink { border: none; background: transparent; color: var(--action); cursor: pointer; padding: 0; font-family: var(--font-mono); font-size: .85em; }
     /* El folio de oficinas es contexto, no la identidad de la fila: se lee en segundo plano. */
@@ -1551,6 +1636,64 @@ export class ComprasEntradasComponent {
   readonly error = signal<string | null>(null);
   readonly saving = signal(false);
   readonly actingId = signal<string | null>(null);
+
+  // ── `[RE.28.4]` Validación en lote ────────────────────────────────────────
+  //
+  // Murió con la cabina de RE.24: el endpoint `validate-bulk` sigue vivo —con su puerta de
+  // cuadre `[RE.21.2]` y su segregación de funciones— y su único llamador quedó siendo el
+  // componente retirado. O sea que nadie puede aprobar en lote desde entonces.
+  //
+  // Vuelve **sin columna de selección**: acá el FILTRO es la selección. La lista ya tiene el eje
+  // `cuadre` que construyó RE.25, así que el botón actúa sobre lo que está en pantalla y sólo
+  // aparece con los dos filtros que lo hacen seguro. Una columna de checkboxes en una tabla
+  // paginada de 875 filas además miente: seleccionar "todo" selecciona la página.
+
+  /** Elegibles = lo filtrado que tiene evidencia esperando decisión. */
+  readonly loteObjetivo = computed<EntradaRow[]>(() =>
+    this.rows().filter((c) => !!c.deposit_id && c.deposit_status === 'recibido'));
+  readonly loteMonto = computed(() => this.loteObjetivo().reduce((t, c) => t + (Number(c.monto) || 0), 0));
+  /**
+   * El botón aparece sólo con `estado=por_validar` **y** `cuadre=cuadra`. No es cosmético: sin
+   * el segundo filtro el lote se ofrecería sobre descuadres que el server va a omitir de todos
+   * modos, y un botón que promete N y entrega 3 se deja de usar.
+   */
+  readonly puedeLote = computed(() =>
+    this.canValidate() && this.estadoSel() === 'por_validar' && this.cuadreSel() === 'cuadra'
+    && this.loteObjetivo().length > 1);
+  readonly showLote = signal(false);
+  readonly bulking = signal(false);
+  /** Resultado POR EXPEDIENTE de la última corrida. Vacío = el diálogo pide confirmación. */
+  readonly loteResultado = signal<{ id: string; ok: boolean; motivo?: string }[]>([]);
+
+  abrirLote(): void { this.loteResultado.set([]); this.showLote.set(true); }
+  cerrarLote(): void { this.showLote.set(false); this.loteResultado.set([]); }
+  onLoteVisible(v: boolean): void { if (!v) this.cerrarLote(); }
+
+  /** Del id de evidencia al folio, que es como la nombra quien revisa. */
+  etiquetaLote(id: string): string {
+    const c = this.rows().find((x) => x.deposit_id === id);
+    return c ? `${branchName(c.sucursal)} · ${c.folio}` : id.slice(0, 8);
+  }
+
+  aprobarLote(): void {
+    const ids = this.loteObjetivo().map((c) => c.deposit_id as string).filter(Boolean);
+    if (!ids.length || this.bulking()) return;
+    this.bulking.set(true);
+    this.svc.validateBulk(ids).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.bulking.set(false);
+        // El diálogo se queda abierto con el detalle: un toast que dice "12 de 15" no sirve para
+        // saber CUÁLES tres se quedaron ni por qué, y el server omite por motivos distintos
+        // (descuadre, la subiste vos, ya la decidió otro).
+        this.loteResultado.set(r.detalle || []);
+        this.load();
+      },
+      error: (e) => {
+        this.bulking.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo aprobar el lote', detail: e?.error?.message || 'Intentá de nuevo.' });
+      },
+    });
+  }
   // RE.13.0 — el estado del listado ahora es un tipo cerrado (`EntradasQuery`), no un string
   // cualquiera: un filtro mal escrito era un `where` que nunca aplicaba y nadie notaba.
   readonly estadoSel = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');

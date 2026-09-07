@@ -1002,7 +1002,11 @@ export class GoodsReceiptProofsService {
         ? ` AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x
               WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)`
         : '';
-      // Los `?` van en el orden en que aparecen en la SQL: sla → tenant → arranque → filtros.
+      // Los `?` van en el orden en que aparecen en la SQL:
+      //   sla_captura → sla_revision ×3 → tenant → arranque → filtros.
+      // Son posicionales, así que agregar una columna en medio del SELECT corre TODO lo de
+      // abajo sin que nada falle: la query sigue corriendo con los parámetros cambiados de
+      // lugar. Por eso las tres de `[RE.28.2]` se pusieron al FINAL del SELECT.
       let filtro = '';
       const filtroParams: any[] = [];
       if (alcance) {
@@ -1015,7 +1019,11 @@ export class GoodsReceiptProofsService {
       const r = await trx.raw(`
         WITH d AS (
           SELECT sucursal, folio, count(*) AS n,
-                 (array_agg(status ORDER BY created_at DESC))[1] AS last_status
+                 (array_agg(status ORDER BY created_at DESC))[1] AS last_status,
+                 -- [RE.28.2] Cuándo llegó la última evidencia: sin esto no se puede medir el
+                 -- plazo del REVISOR, que era el que no estaba en ninguna pantalla.
+                 -- (sin comillas invertidas acá dentro: esto vive en un template literal)
+                 (array_agg(created_at ORDER BY created_at DESC))[1] AS last_at
             FROM finance.goods_receipt_proofs GROUP BY sucursal, folio
         )
         SELECT c.sucursal,
@@ -1037,14 +1045,35 @@ export class GoodsReceiptProofsService {
                ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p50,
                COALESCE(percentile_disc(0.9) WITHIN GROUP (
                  ORDER BY (current_date - LEAST(c.receipt_date, current_date))
-               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p90
+               ) FILTER (WHERE d.n IS NULL), 0)::int                              AS dias_p90,
+               -- [RE.28.2] El plazo del REVISOR. La columna atrasadas (arriba) ya era el SLA de
+               -- CAPTURA; el de revisión no estaba en ninguna pantalla: por_validar es el conteo
+               -- total, sin plazo, así que una cola de 27 días se veía igual que una de ayer.
+               -- Se agrega acá y no en un endpoint aparte para no calcular dos veces lo que ya
+               -- se calcula: la mitad de captura estaría duplicada.
+               COUNT(*) FILTER (
+                 WHERE d.last_status = 'recibido'
+                   AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?
+               )::int                                                            AS por_validar_vencidas,
+               COALESCE(MAX(current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date)
+                 FILTER (WHERE d.last_status = 'recibido'
+                   AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?), 0)::int
+                                                                                 AS dias_peor_revision,
+               COALESCE(SUM(c.monto::numeric) FILTER (
+                 WHERE d.last_status = 'recibido'
+                   AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?
+               ), 0)::numeric                                                     AS monto_revision
           FROM analytics.erp_goods_receipts c
           LEFT JOIN d ON d.sucursal = c.sucursal AND d.folio = c.folio
          WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL
            AND c.receipt_date >= ?${excluirDescartes}${filtro}
          GROUP BY c.sucursal
          ORDER BY c.sucursal`,
-        [cfg.sla_capture_days, tenantId, cfg.reception_start, ...filtroParams]);
+        [
+          cfg.sla_capture_days,
+          cfg.sla_review_days, cfg.sla_review_days, cfg.sla_review_days,
+          tenantId, cfg.reception_start, ...filtroParams,
+        ]);
 
       // Cuántas se descartaron por sucursal (y con qué motivo). Se pide en la MISMA transacción.
       const desc = await this.descartesPorSucursal(trx, alcance);
