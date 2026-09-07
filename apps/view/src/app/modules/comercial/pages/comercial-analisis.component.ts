@@ -13,7 +13,15 @@ import {
   SellOutExplainReport,
   SellOutExplainDim,
   SellOutExplainCompare,
+  SelloutChatBlock,
 } from '../comercial.service';
+
+interface ChatMsg {
+  role: 'user' | 'assistant';
+  content: string;
+  blocks?: SelloutChatBlock[];
+  suggestions?: string[];
+}
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { REPORTS_TABS } from '../reports-tabs';
@@ -132,13 +140,59 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
         </section>
       }
 
+      <section class="an-chat card-premium">
+        <header class="an-chat-head">
+          <h2><i class="pi pi-comments"></i> Pregúntale al Sell-Out</h2>
+          <span class="an-sub">En español. Los números salen del modelo verificado, no se inventan.</span>
+        </header>
+
+        <div class="an-chat-body">
+          @for (m of chatMsgs(); track $index) {
+            <div class="an-msg" [class.user]="m.role === 'user'">
+              <div class="an-msg-text" [innerHTML]="mdLite(m.content)"></div>
+              @for (b of (m.blocks || []); track $index) {
+                @if (asTable(b); as t) {
+                  <div class="an-block">
+                    <table>
+                      <thead><tr>@for (c of t.columns; track $index) { <th>{{ c }}</th> }</tr></thead>
+                      <tbody>
+                        @for (row of t.data; track $index) {
+                          <tr>@for (cell of row; track $index) { <td>{{ fmtCell(cell) }}</td> }</tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                }
+              }
+              @if (m.suggestions?.length) {
+                <div class="an-chips">
+                  @for (s of m.suggestions; track $index) {
+                    <button type="button" (click)="ask(s)">{{ s }}</button>
+                  }
+                </div>
+              }
+            </div>
+          }
+          @if (chatLoading()) { <div class="an-msg"><div class="an-msg-text"><i class="pi pi-spin pi-spinner"></i> Consultando la venta...</div></div> }
+          @if (!chatMsgs().length && !chatLoading()) {
+            <div class="an-chat-empty">
+              <p>Prueba con:</p>
+              <div class="an-chips">
+                <button type="button" (click)="ask('¿Cuánto vendimos en agosto 2026?')">¿Cuánto vendimos en agosto?</button>
+                <button type="button" (click)="ask('Top 5 empresas de agosto 2026')">Top 5 empresas</button>
+                <button type="button" (click)="ask('¿Por qué cambió la venta de agosto vs julio 2026, por marca?')">¿Por qué cambió agosto vs julio?</button>
+              </div>
+            </div>
+          }
+        </div>
+
+        <div class="an-chat-input">
+          <input type="text" [(ngModel)]="chatInput" (keydown.enter)="ask(chatInput)" placeholder="Escribe tu pregunta sobre la venta..." [disabled]="chatLoading()" />
+          <button pButton type="button" icon="pi pi-send" (click)="ask(chatInput)" [disabled]="chatLoading() || !chatInput.trim()"></button>
+        </div>
+      </section>
+
       <section class="an-grid">
-        <article class="an-card">
-          <i class="pi pi-comments"></i>
-          <h3>Pregúntale al Sell-Out</h3>
-          <p>En español: "¿por qué bajó Padre Hidalgo en agosto?", "top 5 marcas que cayeron vs julio". Números del modelo, no inventados.</p>
-          <span class="an-soon">Próximamente · BI.5</span>
-        </article>
         <article class="an-card">
           <i class="pi pi-bell"></i>
           <h3>Radar</h3>
@@ -189,6 +243,24 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-card h3 { margin: 0; font-size: 1rem; }
     .an-card p { margin: 0; font-size: .85rem; color: var(--text-muted); line-height: 1.45; }
     .an-soon { margin-top: auto; font-size: .72rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); opacity: .8; }
+    .an-chat { padding: 1.25rem 1.5rem; margin-top: 1.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
+    .an-chat-head h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: .5rem; }
+    .an-chat-body { margin: 1rem 0; display: flex; flex-direction: column; gap: .85rem; max-height: 440px; overflow-y: auto; }
+    .an-msg { max-width: 92%; }
+    .an-msg.user { align-self: flex-end; background: var(--action, #d9772e); color: #fff; padding: .5rem .85rem; border-radius: 12px 12px 2px 12px; }
+    .an-msg-text { font-size: .92rem; line-height: 1.5; }
+    .an-msg:not(.user) .an-msg-text { color: var(--text-color); }
+    .an-block { margin: .6rem 0; overflow-x: auto; }
+    .an-block table { border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; width: 100%; }
+    .an-block th, .an-block td { border-bottom: 1px solid var(--border-color); padding: .3rem .6rem; text-align: left; }
+    .an-block th { color: var(--text-muted); font-weight: 600; }
+    .an-block td:not(:first-child), .an-block th:not(:first-child) { text-align: right; }
+    .an-chips { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .6rem; }
+    .an-chips button { border: 1px solid var(--border-color); background: transparent; color: var(--text-color); padding: .35rem .7rem; border-radius: 999px; font-size: .8rem; cursor: pointer; }
+    .an-chips button:hover { border-color: var(--action, #d9772e); }
+    .an-chat-empty { color: var(--text-muted); font-size: .9rem; }
+    .an-chat-input { display: flex; gap: .5rem; }
+    .an-chat-input input { flex: 1; border: 1px solid var(--border-color); border-radius: 10px; padding: .6rem .85rem; font-size: .92rem; background: var(--surface-ground, #fff); color: var(--text-color); }
   `],
 })
 export class ComercialAnalisisComponent {
@@ -248,6 +320,51 @@ export class ComercialAnalisisComponent {
 
   barPct(delta: number): number {
     return Math.max(2, Math.round((Math.abs(delta) / this.maxAbs) * 100));
+  }
+
+  // ── BI.5 chat ──
+  readonly chatMsgs = signal<ChatMsg[]>([]);
+  readonly chatLoading = signal(false);
+  chatInput = '';
+
+  ask(text: string) {
+    const message = (text || '').trim();
+    if (!message || this.chatLoading()) return;
+    const history = this.chatMsgs().map((m) => ({ role: m.role, content: m.content }));
+    this.chatMsgs.update((ms) => [...ms, { role: 'user', content: message }]);
+    this.chatInput = '';
+    this.chatLoading.set(true);
+    this.svc
+      .sellOutAsk({ message, history })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.chatMsgs.update((ms) => [...ms, { role: 'assistant', content: r.narrative, blocks: r.blocks, suggestions: r.suggestions }]);
+          this.chatLoading.set(false);
+        },
+        error: () => {
+          this.chatMsgs.update((ms) => [...ms, { role: 'assistant', content: 'No pude responder en este momento. Intenta de nuevo.' }]);
+          this.chatLoading.set(false);
+        },
+      });
+  }
+
+  /** Un bloque de tool con formato columnar {columns,data} -> tabla. */
+  asTable(b: SelloutChatBlock): { columns: string[]; data: any[][] } | null {
+    const r = b?.result;
+    return r && Array.isArray(r.columns) && Array.isArray(r.data) && r.data.length ? { columns: r.columns, data: r.data } : null;
+  }
+
+  fmtCell(cell: any): string {
+    if (cell === null || cell === undefined) return '—';
+    if (typeof cell === 'number') return cell.toLocaleString('es-MX');
+    return String(cell);
+  }
+
+  /** Markdown ligero y seguro (escapa HTML, negritas y saltos). */
+  mdLite(s: string): string {
+    const esc = (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
   }
 
   signed(n: number): string {

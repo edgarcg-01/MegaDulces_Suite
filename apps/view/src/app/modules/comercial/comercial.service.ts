@@ -1345,6 +1345,11 @@ export class ComercialService {
     return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
   }
 
+  /** BI.5 — Pregúntale al Sell-Out: pregunta en lenguaje natural, respuesta con números de la DB. */
+  sellOutAsk(body: { message: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
+    return this.http.post<SelloutChatResult>(`${this.base}/analytics/sell-out/ask`, body);
+  }
+
   sellOutCanales(from?: string, to?: string) {
     let params = new HttpParams();
     if (from) params = params.set('from', from);
@@ -1968,6 +1973,21 @@ export interface SellOutExplainReport {
   narrative: string;
   freshness: Freshness;
   generated_at: string;
+}
+
+// ─── BI.5 "Pregúntale al Sell-Out" ───
+export interface SelloutChatBlock {
+  tool: string;
+  input: any;
+  result: any;
+}
+export interface SelloutChatResult {
+  narrative: string;
+  blocks: SelloutChatBlock[];
+  suggestions: string[];
+  source: 'llm' | 'no_api_key' | 'error';
+  model?: string;
+  tokens?: { in: number; out: number };
 }
 
 export interface InventoryHealthRow {

@@ -3,8 +3,11 @@
 > Propuesta 2026-09-07 · hereda [`FASE_RS`](../01_TRACKER_PROGRESO.md) (sell-out), [`FASE_AX`](FASE_AX_ANEXO_VENTA.md)
 > (drill a factura) y [`FASE_VP`](FASE_VP_VERDAD_Y_PROCEDENCIA.md) (ADR-056: el número declara con qué se calculó).
 >
-> **Estado: BI.0 ✅ (permiso aplicado a prod+.245, commit `17b7e07a`) · BI.3 🔨 EN CÓDIGO (builds verdes) · BI.1/BI.2/BI.4–BI.9 ⬜ DISEÑADO.**
-> Pendiente prod: redeploy view/api (Edgar) + re-login. BI.3 verificado contra prod (read-only): invariante Σcontrib==Δtotal exacto al centavo (ago vs jul 2026, −$1,058,992).
+> **Estado: BI.0 ✅ (permiso en prod+.245, `17b7e07a`) · BI.3 🔨 (`961c95db`) · BI.5 🔨 EN CÓDIGO · BI.1/BI.2/BI.4/BI.6–BI.9 ⬜ DISEÑADO.**
+> Pendiente prod: redeploy view/api (Edgar) + re-login + `ANTHROPIC_API_KEY` en Railway (BI.5 degrada limpio sin ella).
+> BI.3 verificado (read-only): invariante Σcontrib==Δtotal exacto (ago vs jul 2026, −$1,058,992). BI.5 tools verificadas
+> (total agosto $53,838,718 == universo del reporte; cero números del LLM). Builds view+api verdes.
+> **Deuda declarada (ADR-056):** el loop ReAct de BI.5 es un 3er calco (thot/maat/sellout) → extraer motor genérico = BI.5.1.
 >
 > Decisión del usuario (2026-09-07): **el reporte actual se mantiene intacto** (formato original), y el poder BI vive
 > en un **submódulo hermano** (pestaña + URL propias) que consume el mismo backend. Las **4 capacidades base** +
