@@ -79,6 +79,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <button type="button" class="ex-link" (click)="soloSinUnidad()">Ver sólo ésos</button>
           </p>
         }
+        <!-- [W1.0/W1.3] El hermano del banner de arriba, y NO lo mismo: éstas SÍ están dentro del
+             total. Se declara para que el total no se lea como si todas sus celdas tuvieran un
+             factor con origen. -->
+        @if (t.celdas_sin_factor) {
+          <p class="ex-banner">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            <span>{{ sinFactorTexto(t) }}</span>
+          </p>
+        }
       }
 
       <div class="ex-filters">
@@ -138,8 +147,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                       <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                     </td>
                   } @else {
-                    <td class="ex-r">
+                    <!-- [W1.0/W1.3] La cifra SE MUESTRA igual (ocultarla borraría entre 24% y 58%
+                         del total de cada almacén y eso es decisión de negocio), pero cuando su
+                         divisor no tiene fuente la celda lo DECLARA con un grado en vez de
+                         presentarla como un dato verificado. -->
+                    <td class="ex-r" [title]="cl.nf ? nfTitle(cl) : ''">
                       <span [class]="'ex-q ' + bClass(cl.b)">{{ cl.q | number:'1.0-1' }}</span>
+                      @if (cl.nf) { <span class="ex-nf" aria-hidden="true">°</span>
+                        <span class="ex-sr">{{ nfTitle(cl) }}</span> }
                     </td>
                   }
                 } @else {
@@ -274,6 +289,15 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex-rung i { font-size: .65rem; margin-left: .2rem; }
     .ex-rung-row td { background: color-mix(in srgb, var(--warn-fg, #b45309) 7%, transparent); }
 
+    /* W1.0/W1.3 — el grado de la celda cuyo divisor no tiene fuente. Deliberadamente MAS discreto
+       que .ex-rung: la cifra ahi si esta dentro del total, lo que falta es el respaldo del divisor.
+       El texto vive en el title y en .ex-sr, asi que el simbolo no es el unico portador (Q.6). */
+    .ex-nf { color: var(--warn-fg, #b45309); font-weight: 600; margin-left: .15rem; }
+    .ex-sr {
+      position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+      overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+    }
+
     /* Estado por FORMA además de tono: el color no puede ser el único portador (Q.6). */
     .ex-q.b-agotado { color: var(--danger-fg, #b91c1c); font-weight: 700; }
     .ex-q.b-bajo_minimo { color: var(--danger-fg, #b91c1c); }
@@ -400,7 +424,25 @@ export class AlmacenExistenciaComponent implements OnInit {
     if (t.celdas_sin_valuar) {
       items.push({ label: 'Sin unidad verificada', value: t.skus_sin_valuar, tone: 'warn' });
     }
+    // [W1.0/W1.3] Distinto de "sin unidad verificada": acá la celda SÍ entró al total, pero con un
+    // divisor que ninguna fuente respalda. El total no puede leerse como si todo tuviera factor.
+    if (t.celdas_sin_factor) {
+      items.push({ label: 'Sin factor de caja', value: t.skus_sin_factor, tone: 'warn' });
+    }
     return items;
+  }
+
+  /** [W1.0/W1.3] Por qué esta celda lleva grado. Dos causas distintas, dos textos distintos. */
+  nfTitle(cl: ExistenciaCell): string {
+    return cl.nf === 'peso'
+      ? 'Este producto se mide en peso y el divisor cuenta piezas por caja: la cifra en cajas no es comparable.'
+      : 'Ninguna fuente declara cuántas unidades hacen una caja de este producto. Se está dividiendo por 1, o sea la cifra es la cantidad suelta.';
+  }
+
+  /** [W1.0/W1.3] El texto del banner. Se declara la CAUSA, no sólo el conteo. */
+  sinFactorTexto(t: ExistenciaTotals): string {
+    return `${t.skus_sin_factor} productos (${t.celdas_sin_factor} celdas) suman al total de cajas `
+      + 'con un divisor que ninguna fuente respalda: van marcadas con ° y su cifra es la cantidad suelta, no cajas.';
   }
 
   sinValuarTexto(t: ExistenciaTotals): string {

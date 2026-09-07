@@ -6,6 +6,87 @@
 
 ---
 
+## 2026-09-07 — El factor de caja de Wincaja: uno se arregló, dos se declararon (y por qué no los tres)
+
+**Disparador:** *"mencionaste que ahora sí se trae todas las unidades × caja de wincaja, ¿verdad?"* —
+no lo había dicho, y al medirlo salió que **no se traen todas**. Después *"no es posible que sólo
+sea 15 productos"*, que era una duda correcta y me hizo encontrar que mi propio corte había
+estrechado el número. Y por último *"arreglemos wincaja"*.
+
+### La cobertura real, con el corte abierto
+
+`analytics.v_warehouse_box_factor` (ADR-055) saca el divisor de `wincaja.articulos.factor_venta`
+**sólo donde `factor_venta > 1`**; si no, cae al `box_factor` de Kepler, que está en unidades BASE.
+Por almacén de Wincaja, de 11,212 productos del catálogo (cifras de MD-30, antes del arreglo):
+
+| origen | productos | con existencia | divisor prom |
+|---|---|---|---|
+| `wincaja_factor_venta` | 8,680 (77.4%) | 3,074 | 29.48 |
+| `default` — **sin factor en ninguna fuente** | 2,263 (20.2%) | 169 | 1.00 |
+| `kepler_c84` / `etiquetera` / `override` / `factor_sale` | 269 | 110 | 16–24 |
+
+**Mi primer conteo estaba estrechado y lo dije como si fuera el problema.** Llevaba un filtro
+`box_factor > 1` que escondía todo lo que caía en divisor 1, y reporté "243 heredan de Kepler"
+presentando el sub-caso de 15 como el hallazgo. La exposición son **2,532 productos, 279 con
+existencia**. De ésos, 1,385 sí están en `articulos` con `factor_venta = 1` y **1,147 no existen en
+`articulos`** — productos del catálogo de Kepler parados en un almacén de Wincaja, donde el divisor
+de Kepler sí se defiende.
+
+### W1.1 ✅ — `CJA` + `factor_venta = 1` significa divisor 1 (mig 20260907230000, batch 312)
+
+`CJA` con factor 1 es una **declaración** auto-consistente ("mi unidad de venta ya es la caja"); en
+`PZA` el mismo 1 es **ausencia** de captura, porque "1 pieza = 1 caja" no se sostiene en dulcería.
+Lo prueba el reparto: con `fv = 1` hay 1,872 PZA / 193 CJA / 152 KGS, y con `fv > 1` hay 13,282 PZA
+— el campo está poblado para unos PZA y no para otros. Así que la condición nueva se acota a `CJA`.
+
+Medido antes y después: **840 filas** pasan a origen Wincaja (84 CJA × 10 almacenes), de las cuales
+**150 cambian de divisor** (exactamente lo predicho) y **650 sólo sinceran la procedencia** — ya
+tenían divisor 1 vía `default`, ahora dicen quién lo declaró. MD-30: `default` 2,263 → 2,198. Los
+**6 almacenes Kepler: idénticos, ni una fila.** Abanico: **0** (11,212 filas == 11,212 productos en
+los 16 almacenes, y la migración lo mide y lanza si no cuadra).
+
+**El delta sobre los totales publicados fue CERO, por una razón que conviene registrar:** las 8
+filas con existencia ya traían `rung_veredicto = 'x2_deflactada'` — el árbitro que ya existe **había
+detectado este defecto** y la pantalla mostraba la cantidad nativa en vez de inventar cajas. El
+beneficio real es que esas 8 celdas pueden volver a ser MEDIBLES en la próxima corrida del nocturno.
+
+### W1.0 y W1.3 🟠 — se DECLARAN, no se corrigen, y el motivo está medido
+
+Los dos son defectos vivos: **345 celdas** con divisor 1 sin fuente se muestran como cajas (24,853
+unidades nativas, y **ninguna** tiene veredicto) y **98 celdas de peso** se dividen por un factor de
+hasta 25 sin que nada lo declare (el árbitro sólo atrapó 38 de 229).
+
+Pero la regla estricta —*convertir sólo con factor con fuente y unidad que no sea peso*— **borraría
+entre 24% y 58% del total de cajas de CADA almacén, y no sólo de los de Wincaja**: `01` pasaría de
+29,774 a 18,854; el CEDIS de 25,700 a 11,789; la 05 −58.4%. Son 1,692 celdas y **11 no tienen ni
+rótulo nativo** que poner en su lugar. Eso es una decisión de negocio, no una corrección técnica.
+
+Así que la cifra queda intacta y lo que se agregó es que **se vea**: predicado `sinFactor()` hermano
+de `MEDIBLE`, KPI "Sin factor de caja", banner que declara la causa, y un grado `°` por celda con su
+explicación en el `title` más texto para lector de pantalla (el símbolo no puede ser el único
+portador). Nuevo en la respuesta: `celdas_sin_factor`, `skus_sin_factor`, `cells[].nf`
+(`'sin_factor'` | `'peso'`) y `per_warehouse[].sin_factor`.
+
+**Falta la decisión:** si el total de cajas debe excluir lo que no tiene factor.
+
+### Frenos que se pusieron antes de tocar la vista
+
+- **Abanico (Fase FKJ):** `wcf` se une por (warehouse_id, sku), así que agregar filas al CTE podía
+  duplicar el producto. Verificado que no: PK única en `wincaja.articulos`, **0** grupos con más de
+  una fila y **0** SKUs con una fila `fv > 1` y otra `CJA + fv = 1` a la vez. Y la migración **mide
+  el abanico y lanza** en vez de confiar en que el análisis siga siendo cierto cuando corra.
+- **`CJA` tiene una sola escritura** (4,128 filas, largo 3): no hay `PAQ`, `CAJ` ni `PQT`
+  subcontando. Los rótulos son PZA 15,154 / CJA 197 / KGS 165 / SER 11 / N/A 1.
+- **`CREATE OR REPLACE`, nunca `DROP`** (vista viva → `0A000`), 12 columnas en el mismo orden,
+  `security_invoker` re-declarado.
+- La definición se sacó **VIVA de prod** con `pg_get_viewdef`, no del archivo de migración — había
+  migraciones posteriores que la referenciaban y hacía falta confirmar que ninguna la había
+  reemplazado. ⚠️ Y `pg_get_viewdef` devuelve `FROM warehouses` **sin calificar** (lo resolvió el
+  `search_path` al crearla): la migración nueva usa `commercial.warehouses` / `catalog.products`
+  explícitos, porque copiar el viewdef habría dejado la vista colgada del `search_path`.
+
+---
+
 ## 2026-09-07 — El reconciliador de Wincaja que NO hace falta (y los dos instrumentos que mintieron al medirlo)
 
 **Disparador:** quedaba pendiente *"agendar `import-wincaja-hist.js` como reconciliador per-corte"*,

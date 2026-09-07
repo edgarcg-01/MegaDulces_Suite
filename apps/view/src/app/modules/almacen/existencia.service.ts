@@ -22,6 +22,16 @@ export interface ExistenciaCell {
   natu?: string;
   /** 'x1_inflada' | 'x2_deflactada'. Presente SÓLO cuando el costo contradice el divisor. */
   rung?: string;
+  /**
+   * `[W1.0/W1.3]` La cifra en cajas de ESTA celda se apoya en un divisor SIN fuente. Presente sólo
+   * cuando aplica, así que su ausencia significa "el factor tiene origen verificado".
+   *   · `'sin_factor'` — ninguna de las cuatro fuentes declaró factor → el divisor vale 1 y la
+   *     cantidad nativa se está publicando como si 1 unidad fuera 1 caja. Nadie lo verificó.
+   *   · `'peso'` — el producto se mide en kilos y el divisor cuenta PIEZAS por caja.
+   * La cifra NO se oculta (eso borraría entre 24% y 58% del total de cada almacén, medido en prod
+   * el 2026-09-07, y es decisión de negocio): se DECLARA.
+   */
+  nf?: 'sin_factor' | 'peso';
   /** Bucket contra la política de reorden de ESE almacén. Ausente si el producto no tiene política. */
   b?: 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
 }
@@ -37,6 +47,8 @@ export interface ExistenciaRow {
   n_almacenes: number;
   /** Cuántas celdas de este SKU quedaron sin valuar por peldaño contradicho. */
   sin_valuar: number;
+  /** `[W1.0/W1.3]` Cuántas celdas de este SKU SÍ suman al total con un divisor sin fuente. */
+  sin_factor: number;
   /** Lo que el costo pagado SÍ afirma de lo retenido. REFERENCIA para revisar, no publicable. */
   arbitrado: number | null;
   buckets: string[] | null;
@@ -59,8 +71,11 @@ export interface ExistenciaTotals {
   valor: number | null;
   celdas_sin_valuar: number;
   skus_sin_valuar: number;
+  /** `[W1.0/W1.3]` Celdas que SÍ suman al total de cajas con un divisor sin fuente. */
+  celdas_sin_factor: number;
+  skus_sin_factor: number;
   arbitrado: number | null;
-  per_warehouse: { code: string; valor: number | null; cajas: number | null; sin_valuar: number; skus_con_existencia: number }[];
+  per_warehouse: { code: string; valor: number | null; cajas: number | null; sin_valuar: number; sin_factor: number; skus_con_existencia: number }[];
 }
 
 export interface ExistenciaResponse {
