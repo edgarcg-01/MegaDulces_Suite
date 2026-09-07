@@ -183,12 +183,54 @@ const NATIVOS = ['nativo_es_base', 'vende_la_base', 'vende_paquete', 'no_explica
             round(sum(s.rev) FILTER (WHERE NOT COALESCE(u.medible, true)))::numeric venta_no_medible
        FROM s LEFT JOIN u ON u.product_id = s.product_id`, [T],
   )).rows[0];
-  console.log(`\n  cobertura: ${cob.pct_medible}% de la venta 365d es medible · `
+  console.log(`\n  cobertura por PRODUCTO: ${cob.pct_medible}% de la venta 365d es medible · `
     + `$${Number(cob.venta_no_medible).toLocaleString('es-MX')} no lo es`);
   check('la cobertura medible supera el 85% de la venta', Number(cob.pct_medible) > 85,
     `${cob.pct_medible}%`);
   check('queda venta NO medible declarada (si diera 0, nadie estaría mirando)',
     Number(cob.venta_no_medible) > 0);
+
+  // ── 8bis. ⭐ EL EJE QUE SE ESCAPÓ. La medición de arriba agrupa por PRODUCTO y por eso decía
+  // 98.2% mientras 13 almacenes con el 9.4% de la venta no tenían NINGUNA fila en el resolvedor.
+  // Una fila ausente llega como NULL a un LEFT JOIN y un COALESCE(medible, true) la cuenta como
+  // medible: el hueco se lee igual que la salud. Esto vigila el eje ALMACÉN, contra la vista que
+  // lo declara.
+  const cov = (await c.query(
+    `SELECT count(*)::int almacenes,
+            count(*) FILTER (WHERE cubierto)::int cubiertos,
+            count(*) FILTER (WHERE NOT cubierto AND venta_365d > 0)::int sin_cubrir_con_venta,
+            round(100 * sum(venta_365d) FILTER (WHERE cubierto)
+                      / NULLIF(sum(venta_365d), 0), 1) pct_venta_cubierta,
+            round(sum(venta_365d) FILTER (WHERE NOT cubierto))::numeric venta_sin_cubrir,
+            count(*) FILTER (WHERE NOT cubierto AND motivo = 'sin_mapeo_erp'
+                               AND venta_365d > 0)::int sin_explicacion
+       FROM analytics.v_unit_truth_coverage WHERE tenant_id = $1`, [T],
+  )).rows[0];
+  console.log(`  cobertura por ALMACÉN: ${cov.pct_venta_cubierta}% de la venta · `
+    + `${cov.sin_cubrir_con_venta} almacenes vivos sin divisor `
+    + `($${Number(cov.venta_sin_cubrir || 0).toLocaleString('es-MX')})`);
+
+  check('existe la vista de cobertura y no viene vacía', cov.almacenes > 0);
+  check('la venta con divisor resuelto supera el 90% (eje almacén, no producto)',
+    Number(cov.pct_venta_cubierta) > 90, `${cov.pct_venta_cubierta}%`);
+  check('TODO almacén vivo sin divisor tiene un motivo declarado (ninguno queda "sin_mapeo_erp")',
+    cov.sin_explicacion === 0,
+    `${cov.sin_explicacion} almacenes con venta y sin explicación — hay que investigarlos`);
+  check('los almacenes sin cubrir SIGUEN visibles (si dieran 0, o se cerró el hueco o se ocultó)',
+    cov.sin_cubrir_con_venta > 0,
+    'si de verdad se cerró, actualizar este candado y la cifra del header');
+
+  // El fix del motivo: mezclarlo con el cambio de ERP marcaba 5 sucursales Kepler cubiertas
+  // ($300.6M) como "ERP mixto". La cobertura va primero; el cambio de ERP viaja aparte.
+  const mot = (await c.query(
+    `SELECT count(*) FILTER (WHERE cubierto AND motivo = 'erp_mixto_por_fecha')::int mal_etiquetados,
+            count(*) FILTER (WHERE cambio_de_erp)::int con_cambio_de_erp
+       FROM analytics.v_unit_truth_coverage WHERE tenant_id = $1`, [T],
+  )).rows[0];
+  check('ningún almacén CUBIERTO se etiqueta como "erp_mixto_por_fecha"',
+    mot.mal_etiquetados === 0, `${mot.mal_etiquetados} mal etiquetados — es el bug del 2026-09-07`);
+  check('el cambio de ERP se conserva como dato aparte, no se pierde',
+    mot.con_cambio_de_erp > 0);
 
   // ── 9. Perf. Se mide, no se estima.
   check('la agregación completa cuesta < 8,000 ms', ms < 8000, `${ms} ms`);
