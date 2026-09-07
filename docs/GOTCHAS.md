@@ -80,8 +80,24 @@ dbWork con SAVEPOINT.
     columnas **puede llegar en otro despliegue, se prueba solo** — un probe compartido convierte un
     "falta una columna" en una pantalla caída. El guard existía justo para eso y no sirvió porque
     preguntaba por la columna equivocada.
-  - Antes de dar por aplicada una migración, mirá **las columnas**, no el registro:
-    `SELECT column_name FROM information_schema.columns WHERE table_schema=… AND table_name=…`.
+  - Antes de dar por aplicada una migración, mirá **las columnas**, no el registro. Pero preguntale a
+    `pg_attribute`, **no** a `information_schema.columns`: el `information_schema` **no lista
+    MATVISTAS** (sólo tablas y vistas), así que sobre una matview devuelve cero filas y eso se lee
+    igual que *"la columna no está"*. Vivido el 2026-09-07: el chequeo dijo que `mv_sellout_monthly` y
+    `mv_kepler_sales_daily` no tenían `monto_neto` —su hermana `v_sellout_daily`, vista normal, sí
+    aparecía— y la conclusión era re-aplicar una migración que arranca con
+    `DROP MATERIALIZED VIEW … CASCADE` **en prod**. Con `pg_attribute`: 12/12 OK, ya estaba aplicada.
+
+    ```sql
+    SELECT a.attname FROM pg_attribute a
+      JOIN pg_class k ON k.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = k.relnamespace
+     WHERE n.nspname = 'analytics' AND k.relname = 'mv_sellout_monthly'
+       AND a.attnum > 0 AND NOT a.attisdropped;
+    ```
+
+    Y el chequeo no termina en que la columna exista: **medí una invariante del dato**
+    (acá `monto_neto <= monto`). Que la columna esté no dice que se haya poblado bien.
 
 ---
 
@@ -888,7 +904,7 @@ Reglas al normalizar sobre el ODS:
 ## 29. Hay DOS `knex_migrations` y el `search_path` te da la equivocada
 
 En la DB nueva conviven `public.knex_migrations` (**la real**, la que configura
-`knexfile-newdb.js` con `schemaName: 'public'`) e `identity.knex_migrations` (**vacía**). Y el
+`knexfile-newdb.js` con `schemaName: 'public'`) e `identity.knex_migrations`. Y el
 `search_path` de la base es:
 
 ```
@@ -901,6 +917,30 @@ había ninguna migración registrada, cuando había 517 y sólo faltaban 3.
 
 **Siempre `public.knex_migrations` explícito.** Y desconfiá de cualquier nombre de tabla sin
 calificar que pueda existir también en `identity` / `catalog` / `commercial`.
+
+### La otra mitad del problema: el ledger equivocado también se ESCRIBE
+
+`identity.knex_migrations` ya no está vacía y no es un adorno: **cualquier runner ad-hoc que arme su
+knex sin `migrations.schemaName` registra ahí**, porque el default de knex es el `search_path`. Y una
+migración registrada en `identity` está, para el knex bien configurado, **pendiente** → el próximo
+`migrate.latest()` la vuelve a correr.
+
+Medido en prod el 2026-09-07: 4 filas en `identity` (eran 2 cinco días antes — la tabla estaba
+creciendo), las 4 con su DDL ya aplicado y **ninguna** en `public`. Entre ellas
+`20260905120000_sellout_monto_neto_descuento.js`, cuyo `up()` arranca con
+`DROP MATERIALIZED VIEW analytics.mv_kepler_sales_daily CASCADE` — re-aplicarla dropeaba la cadena
+del sell-out en prod. Se re-registraron en `public` (batch 304) preservando su `migration_time`, sin
+borrar nada, y la tabla quedó con un `COMMENT` que dice que si vuelve a crecer hay un runner mal
+configurado. **La tabla es el sensor de su propia causa.**
+
+Para aplicar UNA a prod, usá `database/scripts/apply-one-migration-prod.js` (declara
+`schemaName: 'public'` y lee `FLEET_DB_URL`, que es prod — `DATABASE_URL_NEW` del `.env` no lo es).
+Detector, corre en segundos:
+
+```sql
+SELECT i.name FROM identity.knex_migrations i
+ WHERE NOT EXISTS (SELECT 1 FROM public.knex_migrations p WHERE p.name = i.name);
+```
 
 ### Registrar migraciones ya aplicadas a mano
 
