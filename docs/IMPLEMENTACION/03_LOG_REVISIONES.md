@@ -326,6 +326,26 @@ universo del reporte Sell-Out". Pero quedaron **dos cabos sueltos**:
    `relation "analytics.mv_sales_blended" does not exist` — es el único síntoma visible, y estaba
    perdido entre los verdes.
 
+**El repunte NO es drop-in — medido columna por columna:**
+
+| lo que usan los 8 sitios | `mv_sales_blended` (retirada) | `v_sellout_daily` (sucesora) |
+|---|---|---|
+| fecha | `sale_date` | **`business_date`** (renombrada) |
+| almacén | `warehouse_id` (uuid) | **`warehouse_code`** / `source_branch` (otra llave) |
+| dinero | una sola columna | **`monto` Y `monto_neto`** (bruto y neto de descuento) |
+| grano | día | día ✔ (pero `mv_sellout_monthly` es MENSUAL) |
+
+Las tres primeras filas son trabajo mecánico; **la tercera es una decisión de plata**: elegir
+`monto` o `monto_neto` cambia el ingreso reportado. Y el historial muestra que ya se fue y se volvió
+sobre exactamente eso — `feat([RS]): monto_neto` → `Revert` → `fix([RS]): monto_neto por factor de
+cabecera c16/(c16+desc)`. Nadie de afuera de la Fase RS debería elegir por ellos.
+
+⚠️ **Y NO silenciar el sensor.** El primer impulso fue sacar `analytics_refresh_blended` de la lista
+de refresh para que el tablero dejara de estar en rojo. **Sería lo peor:** ese rojo es hoy la
+ÚNICA señal de que el linaje quedó a medias — los 8 lectores no fallan porque nadie los llama.
+Apagarlo convierte una rotura visible en una rotura invisible, que es la definición del problema que
+ADR-053 existe para evitar. Se deja encendido a propósito hasta que los 8 sitios se repunten.
+
 **No se tocó**, y el motivo es que los dos arreglos posibles son OPUESTOS y la elección no es mía:
 o se recrea `mv_sales_blended` (si el drop fue colateral de un `CASCADE`), o se retira el linaje y
 se repuntan los 8 sitios. Y repuntar exige decidir, **sitio por sitio**, si el sucesor es
