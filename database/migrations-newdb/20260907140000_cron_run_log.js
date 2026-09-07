@@ -45,6 +45,11 @@
  * @param { import("knex").Knex } knex
  */
 exports.up = async function (knex) {
+  // Ver la nota de `20260907130000`: `CREATE TRIGGER` toma ACCESS EXCLUSIVE y encolaría a todos los
+  // escritores detrás si la tabla está tomada. `analytics.cron_runs` la escriben ~15 feeds, así que
+  // acá importa más todavía: fallar rápido y reintentar es preferible a congelar los latidos.
+  await knex.raw(`SET LOCAL lock_timeout = '5s'`);
+
   if (!(await knex.schema.withSchema('analytics').hasTable('cron_run_log'))) {
     await knex.raw(`
       CREATE TABLE analytics.cron_run_log (
