@@ -124,6 +124,39 @@ describe('AX.10 · el RFC del cliente no se disfraza', () => {
   });
 });
 
+describe('AX.10 · membrete y aceptación del pagaré', () => {
+  const css = readFileSync(join(__dirname, 'anexo-venta.service.ts'), 'utf8');
+
+  it('el logo se imprime y NO se encoge', () => {
+    // El logo se cachea del disco; se inyecta para que el test no dependa del cwd.
+    const conLogo = new AnexoVentaService({} as CommercialSalesDocumentsService) as any;
+    conLogo.logoCache = 'data:image/png;base64,IMG';
+    const html = conLogo.html(doc(), conLogo.emisorImpreso(EMISOR_OK), { pagare: true }) as string;
+    expect(html).toContain('<img class="logo" src="data:image/png;base64,IMG"');
+    // NEGATIVA del encogimiento: al compactar el membrete bajó de 64 a 44 px y quedó
+    // irreconocible. Es la marca del documento que se le entrega al cliente.
+    const alto = Number(/\.logo\{height:(\d+)px/.exec(css)![1]);
+    expect(alto).toBeGreaterThanOrEqual(56);
+  });
+
+  it('el pagaré lleva el apartado ACEPTAMOS con sus dos firmas', () => {
+    const html = render();
+    const pagare = html.slice(html.indexOf('hoja-pagare'));
+    expect(pagare).toContain('Aceptamos');
+    expect(pagare).toContain('Firma del suscriptor (deudor)');
+    expect(pagare).toContain('Aval u obligado solidario');
+    // Dos rayas de firma, no una.
+    expect((pagare.match(/class="linea"/g) || []).length).toBe(2);
+  });
+
+  it('la línea del aval va EN BLANCO: vacía no obliga a nadie', () => {
+    const html = render();
+    const aval = html.slice(html.indexOf('Aval u obligado solidario'));
+    expect(aval).toContain('Nombre y firma');
+    expect(aval).not.toContain('JUAN PABLO FONSECA'); // el deudor no firma por el aval
+  });
+});
+
 describe('AX.10 · la hoja usa el ancho y el alto que tiene', () => {
   const css = readFileSync(join(__dirname, 'anexo-venta.service.ts'), 'utf8');
   /** Anchos declarados; el lookbehind separa el modo de 7 columnas del de 4 (sin descuento). */

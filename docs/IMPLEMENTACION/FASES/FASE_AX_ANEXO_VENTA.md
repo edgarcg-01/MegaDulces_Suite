@@ -169,6 +169,13 @@ De dónde salió, en orden de rendimiento:
 
 Smoke `test-newdb-sales-docs-cobranza.js` **13/13 contra prod** (el dinero no cambió). Builds api y view verdes. **Sin migraciones y sin permisos nuevos → sin re-login.**
 
+**AX.10.4 — revisión visual (2026-09-07).** Al ver las hojas impresas salieron dos cosas:
+
+- 🧪 **Al compactar el membrete encogí el logo de 64 a 44 px** y quedó irreconocible al lado del título. Vuelve a **62 px**, y **no cuesta alto**: el bloque del emisor (razón social + RFC/régimen/plaza + folio) ya hace esa fila de ~72 px, así que el logo cabe dentro sin empujar nada. El gate mide el alto declarado y falla bajo 56 px.
+- 🧪 **Faltaba el apartado ACEPTAMOS del pagaré.** Va en **plural** porque el título admite dos firmantes: el **suscriptor (deudor)** y, si lo hay, el **aval u obligado solidario** (LGTOC 109-116: el aval responde igual que el avalado). La línea del aval va **en blanco** a propósito — se llena a mano cuando hay uno, y vacía no obliga a nadie.
+
+El apartado costaba ~21 px, que en una factura al filo son una hoja entera. Se recuperaron **sin tocar información**: el aviso *"no es comprobante fiscal"* estaba **dos veces en la misma hoja** (la banda con borde de arriba y otra vez en la prosa del pie) → queda sólo arriba, donde es prominente; el espacio de firma pasa de 11 a **7 mm** (sigue siendo espacio real para firmar); y una decena de paddings de 1-2 px. La caja del cliente además toma **1.45×** el ancho de las otras dos: es la única que carga un texto largo (el domicilio), y con las tres iguales se partía en 3 renglones y fijaba el alto de la fila mientras las otras desperdiciaban su ancho. **El A/B se mantiene en 41 → 24 hojas** con el logo grande y el apartado nuevo dentro. Gate **22/22**.
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).
