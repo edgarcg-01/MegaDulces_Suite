@@ -121,25 +121,75 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
      WHERE tenant_id=$1 AND veredicto IS NULL`, [T])).rows[0];
   check('los veredictos PARTICIONAN (ninguna celda sin veredicto)', nulos.n === 0, `${nulos.n} sin veredicto`);
 
-  const malo = ver.find((r) => r.veredicto === 'caja_sin_capturar');
-  check('⭐ `caja_sin_capturar` EXISTE — un 0 significaría que el detector se rompió (se midieron 1,286 SKUs)',
-    !!malo && malo.skus > 500, malo ? `${N(malo.skus)} SKUs` : 'ninguno');
-  if (malo) {
-    console.log(`     ⚠️  ${N(malo.skus)} SKUs donde Wincaja se contradice: se compran por CJA y declaran`);
-    console.log(`        que en una caja cabe UNA unidad. ${N(malo.con_exist)} con existencia = ${money(malo.valor)}`);
-  }
+  // ── ⛔ LA RETRACTACIÓN, con candado ────────────────────────────────────────────────────────
+  // Este archivo afirmaba antes que 1,286 SKUs tenían "la caja sin capturar", y exigía que ese
+  // número fuera > 500. Era FALSO y lo inventé yo: la regla se apoyaba en `unidad_compra` (que vale
+  // 'CJA' en el 94.53% de los artículos) y en `factor_compra` (que vale 1 en el 100%), dos campos
+  // que Wincaja no mantiene. El candado defendía una afirmación falsa, que es peor que no tenerlo.
+  check('⛔ `caja_sin_capturar` NO vuelve — era un defecto inventado, no medido',
+    !ver.some((r) => r.veredicto === 'caja_sin_capturar'));
 
-  const relleno = (await c.query(`
+  const nulosDiv = (await c.query(`
     SELECT count(*)::int n FROM analytics.v_wincaja_unit_audit
-     WHERE tenant_id=$1 AND veredicto='caja_sin_capturar' AND divisor_wincaja IS NOT NULL`, [T])).rows[0];
-  check('⛔ lo incoherente viaja con divisor NULL, jamás con un 1 de relleno (ADR-056)',
-    relleno.n === 0, `${relleno.n} con divisor`);
+     WHERE tenant_id=$1 AND divisor_wincaja IS NULL`, [T])).rows[0];
+  check('⭐ `divisor_wincaja` NUNCA es NULL — Wincaja siempre declara su divisor',
+    nulosDiv.n === 0, `${nulosDiv.n} en NULL`);
 
   const caja = (await c.query(`
     SELECT count(*)::int n, count(*) FILTER (WHERE divisor_wincaja = 1)::int div1
       FROM analytics.v_wincaja_unit_audit WHERE tenant_id=$1 AND veredicto='unidad_es_caja'`, [T])).rows[0];
   check('`unidad_es_caja` lleva divisor 1 — es una AFIRMACIÓN, no una ausencia (lección W1.1)',
     caja.n > 0 && caja.n === caja.div1, `${caja.div1}/${caja.n}`);
+
+  // ── ⭐ LA PRUEBA QUE SOSTIENE LA RETRACTACIÓN ─────────────────────────────────────────────
+  // Lo que antes marcaba como defecto (`factor_venta <= 1`) está PRECIFICADO COMO CAJA. Ésa es la
+  // evidencia que tumbó mi regla, y tiene que seguir siendo cierta o la retractación fue prematura.
+  // ⚠️ Este bloque cruza a Kepler A PROPÓSITO (el costo pagado al proveedor) — es un TEST, no la
+  // vista. La vista sigue sin tocar Kepler; el test usa un testigo externo para juzgarla.
+  console.log('\n── 4b. ⭐ Por qué `factor_venta = 1` es CORRECTO: el dinero ──');
+  const dinero = (await c.query(`
+    WITH a AS (
+      SELECT DISTINCT articulo, upper(btrim(coalesce(unidad_venta,''))) uv, COALESCE(factor_venta,0) fv
+        FROM wincaja.articulos
+       WHERE tenant_id=$1 AND source_dataset='actual' AND source_branch IN ('00','30','32')),
+    z AS (
+      SELECT CASE WHEN a.fv > 1 THEN 'multipack (fv>1)' ELSE 'unidad simple (fv<=1)' END g,
+             (p.precio/NULLIF(sc.u1_cost,0))::numeric  r_uni,
+             (p.precio/NULLIF(sc.box_cost,0))::numeric r_caja
+        FROM a
+        JOIN analytics.v_supplier_cost_ladder sc ON sc.sku=a.articulo
+         AND sc.units_per_box>1 AND sc.u1_cost>0 AND sc.box_cost>0
+        JOIN wincaja.precios p ON p.tenant_id=$1 AND p.articulo=a.articulo
+         AND p.source_dataset='actual' AND p.no_precio=1 AND p.precio>0
+       WHERE a.uv NOT IN ('KGS','SER'))
+    SELECT g, count(*)::int n,
+           count(*) FILTER (WHERE r_uni  BETWEEN 0.8 AND 3)::int como_unidad,
+           count(*) FILTER (WHERE r_caja BETWEEN 0.8 AND 3)::int como_caja
+      FROM z GROUP BY 1`, [T])).rows;
+  for (const r of dinero) {
+    console.log(`     ${String(r.g).padEnd(24)} precio parece de UNIDAD ${(100 * r.como_unidad / r.n).toFixed(1)}%`
+      + ` · de CAJA ${(100 * r.como_caja / r.n).toFixed(1)}%`);
+  }
+  const simple = dinero.find((r) => r.g === 'unidad simple (fv<=1)');
+  const multi = dinero.find((r) => r.g === 'multipack (fv>1)');
+  check('⭐ los `fv <= 1` están PRECIFICADOS COMO CAJA (≥ 80%) — por eso su divisor 1 es correcto',
+    !!simple && (100 * simple.como_caja / simple.n) >= 80,
+    simple ? `${(100 * simple.como_caja / simple.n).toFixed(1)}%` : 'sin datos');
+  check('⭐ y los `fv > 1` están precificados por UNIDAD (≥ 80%) — los dos grupos se separan solos',
+    !!multi && (100 * multi.como_unidad / multi.n) >= 80,
+    multi ? `${(100 * multi.como_unidad / multi.n).toFixed(1)}%` : 'sin datos');
+
+  // El campo sobre el que apoyé la regla falsa: si algún día se empieza a mantener, hay que saberlo.
+  const compra = (await c.query(`
+    SELECT count(DISTINCT articulo)::int skus,
+           count(DISTINCT articulo) FILTER (WHERE upper(btrim(coalesce(unidad_compra,'')))='CJA')::int uc_cja,
+           count(DISTINCT articulo) FILTER (WHERE COALESCE(factor_compra,0) > 1)::int fc_gt1
+      FROM wincaja.articulos
+     WHERE tenant_id=$1 AND source_dataset='actual' AND source_branch IN ('00','30','32')`, [T])).rows[0];
+  console.log(`     unidad_compra='CJA' en ${(100 * compra.uc_cja / compra.skus).toFixed(2)}%`
+    + ` · factor_compra > 1 en ${compra.fc_gt1} de ${N(compra.skus)}`);
+  check('⛔ el par de COMPRA sigue sin mantenerse (factor_compra = 1 en todos) — no sirve de testigo',
+    compra.fc_gt1 === 0, `${compra.fc_gt1} con factor_compra > 1`);
 
   // ── 5. El límite estructural, declarado ⭐ ─────────────────────────────────────────────────
   // Sin esto alguien lee "Wincaja ya está auditada" y lo aplica a una pregunta que la vista no
