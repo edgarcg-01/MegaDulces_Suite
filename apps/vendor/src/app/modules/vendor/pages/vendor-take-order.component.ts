@@ -28,6 +28,7 @@ import { PriceRow, OrderLine } from '../../portal/portal.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
+import { nextBusinessDayIso, todayIso } from '../../../core/date/biz-days';
 
 type OrderMode = 'instante' | 'futuro';
 
@@ -235,7 +236,7 @@ const foldText = (s: string | null | undefined): string =>
             @if (suggestRows().length) {
               <div class="list-head sug">
                 <span class="lh-t"><i class="pi pi-sparkles"></i> Sugeridos</span>
-                <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }} · buscá para ver los {{ pricedCount() }}</span>
+                <span class="lh-s">{{ usingThot() ? 'Thot' : 'motor' }}</span>
               </div>
               <div class="catalog">
                 @for (p of suggestRows(); track trackProduct($index, p)) {
@@ -243,11 +244,29 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
             }
-            @if (!habitualRows().length && !suggestRows().length) {
+            <!-- Catálogo navegable: más vendido → menos vendido (sin tener que buscar) -->
+            @if (browseRows().length) {
+              <div class="list-head">
+                <span class="lh-t"><i class="pi pi-chart-bar"></i> Catálogo · más vendidos</span>
+                <span class="lh-s">buscá para ver los {{ pricedCount() }}</span>
+              </div>
+              <div class="catalog">
+                @for (p of browseRows(); track trackProduct($index, p)) {
+                  <ng-container *ngTemplateOutlet="prodRow; context: { $implicit: p }"></ng-container>
+                }
+              </div>
+            }
+            @if (!habitualRows().length && !suggestRows().length && !browseRows().length) {
               <div class="no-res">
                 <i class="pi pi-search"></i>
                 <p>Buscá un producto para empezar el pedido.</p>
               </div>
+            }
+            @if (unpricedCount() > 0) {
+              <p class="unpriced-note">
+                <i class="pi pi-info-circle"></i>
+                {{ unpricedCount() }} productos existen pero sin precio — avisar a oficina para cargarlos.
+              </p>
             }
           }
           <!-- Fila de producto (reusada en búsqueda / habituales / sugeridos) -->
@@ -597,6 +616,8 @@ const foldText = (s: string | null | undefined): string =>
       .list-head .lh-s { font-size: 0.72rem; color: var(--text-muted); text-align: right; }
       .no-res { text-align: center; padding: 2rem 1rem; color: var(--text-muted); }
       .no-res i { font-size: 1.75rem; display: block; margin-bottom: 0.5rem; color: var(--text-faint); }
+      .unpriced-note { display: flex; align-items: center; gap: 0.45rem; margin: 0.9rem 0 0.2rem; padding: 0.55rem 0.7rem; border-radius: var(--r-md, 10px); background: var(--surface-ground, transparent); color: var(--text-muted); font-size: 0.78rem; line-height: 1.35; }
+      .unpriced-note i { color: var(--text-faint); flex-shrink: 0; }
 
       .catalog { display: flex; flex-direction: column; gap: 0.5rem; }
       .prod { display: flex; align-items: center; gap: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0.55rem 0.7rem; }
@@ -946,13 +967,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly pendingTotal = computed(() => this.pendingOrders().reduce((s, o) => s + Number(o.total), 0));
   readonly hasPreventa = computed(() => this.pendingOrders().some((o) => o.is_preventa));
 
-  // Fecha de entrega agendada (preventa). Default: mañana.
-  requestedDate = (() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().slice(0, 10);
-  })();
-  readonly minDate = new Date().toISOString().slice(0, 10);
+  // Fecha de entrega agendada (preventa). Default: próximo día HÁBIL (sáb→lun),
+  // fuente única compartida con Carga. Antes era `today+1` en UTC → en sábado
+  // caía en domingo (día sin reparto) y Carga —que busca el lunes— nunca lo veía.
+  requestedDate = nextBusinessDayIso();
+  readonly minDate = todayIso();
   private customerId = '';
 
   readonly adding = signal<Record<string, boolean>>({});
@@ -1011,6 +1030,30 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly pricedCount = computed(
     () => this.prices().filter((p) => p.price != null && Number(p.price) > 0).length,
   );
+  /** Productos del maestro SIN precio en esta lista (existen pero no se pueden pedir). */
+  readonly unpricedCount = signal(0);
+
+  /**
+   * Catálogo navegable por default (sin buscar): TODO lo pedible ordenado de más
+   * vendido a menos vendido (el backend ya lo ordena por ranking real), quitando lo
+   * que ya está en habituales/sugeridos. Cap para no pintar miles de filas — el
+   * resto se alcanza por búsqueda.
+   */
+  private readonly BROWSE_CAP = 120;
+  readonly browseRows = computed(() => {
+    const skip = new Set<string>([
+      ...this.habitualRows().map((p) => p.product_id),
+      ...this.suggestRows().map((p) => p.product_id),
+    ]);
+    const out: PriceRow[] = [];
+    for (const p of this.prices()) {
+      if (p.price == null || Number(p.price) <= 0) continue;
+      if (skip.has(p.product_id)) continue;
+      out.push(p);
+      if (out.length >= this.BROWSE_CAP) break;
+    }
+    return out;
+  });
 
   /** Sugerencias del motor Thot (server-side: rotación·margen·afinidad·zona). */
   readonly suggestions = signal<ThotSuggestion[]>([]);
@@ -1320,6 +1363,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.prices.set(catalog.prices);
           this.priceListId = catalog.priceListId;
           this.warehouseId.set(warehouseId || '');
+          // Cobertura de precio: cuántos productos del maestro existen pero no se
+          // pueden pedir por falta de precio (para avisar a oficina). Best-effort.
+          if (catalog.priceListId) {
+            this.api
+              .priceCoverage(catalog.priceListId)
+              .pipe(takeUntilDestroyed(this.destroyRef))
+              .subscribe({ next: (cov) => this.unpricedCount.set(cov?.unpriced || 0), error: () => void 0 });
+          }
           this.pendingOrders.set(pending);
           this.frequent.set(frequent);
           this.loading.set(false);

@@ -63,7 +63,7 @@ import { Permission } from '../../../core/constants/permissions';
             <div class="mt-v-title">{{ d.beneficiario || d.rfc }} <span class="mono muted">{{ d.rfc }}</span></div>
             <div class="mt-v-msg">{{ d.veredicto.mensaje }}</div>
           </div>
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" label="armado" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" label="armado" /> }
         </div>
 
         <app-metric-strip [items]="kpiItems(d)" ariaLabel="Resumen de materialidad" />

@@ -55,7 +55,7 @@ import { ImpuestosService, ProvisionalResult } from '../impuestos.service';
       @if (res(); as r) {
         <div class="im-resulthead">
           <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen de impuestos" />
-          @if (calcAt()) { <app-freshness-pill [since]="calcAt()" label="calculado" /> }
+          @if (calcAt()) { <app-freshness-pill measures="fetch" [since]="calcAt()" label="calculado" /> }
         </div>
 
 

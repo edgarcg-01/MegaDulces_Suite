@@ -63,9 +63,19 @@ export async function setTenantContext(
  * Uso típico desde un service:
  * ```ts
  *   await runWithTenant(this.knex, tenantId, async (trx) => {
- *     return trx('users').select('*'); // RLS filtra automáticamente
+ *     return trx('identity.users').select('*'); // RLS filtra automáticamente
  *   });
  * ```
+ *
+ * ⚠️ **Nombrar el schema real, nunca `public.*`.** Las 23 vistas de
+ * `public.<tabla>` son shims de compatibilidad del cutover: pertenecen a
+ * `postgres` y NO llevan `security_invoker`, así que el RLS de la tabla base se
+ * evalúa como el DUEÑO de la vista —que está exento— y la vista devuelve TODOS
+ * los tenants. Medido: como `app_runtime` sin tenant en sesión,
+ * `identity.users` da 0 filas y `public.users` da 125 de 3 tenants, con los
+ * hashes de contraseña incluidos. Sin calificar (`trx('users')`) hoy resuelve a
+ * `identity` por el `search_path` del rol, pero eso es una coincidencia de
+ * configuración: escribilo completo y no dependas de ella.
  */
 export async function runWithTenant<T>(
   knex: Knex,
@@ -89,7 +99,7 @@ export async function runWithTenant<T>(
  *
  *   async getUsersForTenant(tenantId: string) {
  *     return this.tenantKnex.run(tenantId, async (trx) => {
- *       return trx('users').select('*');
+ *       return trx('identity.users').select('*'); // el schema, no `public.users`
  *     });
  *   }
  * ```

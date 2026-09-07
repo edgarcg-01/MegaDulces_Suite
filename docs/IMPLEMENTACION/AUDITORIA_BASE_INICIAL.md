@@ -342,6 +342,301 @@ que no rompe; endurecer como defensa.
 
 ---
 
+## Addendum — Cobertura del factor de caja de Wincaja (2026-09-07)
+
+Medido en prod al preguntarse *"¿ya se traen todas las unidades por caja de Wincaja?"*. **La
+respuesta es no**, y el faltante se parte en tres casos con veredicto distinto.
+
+`analytics.v_warehouse_box_factor` (ADR-055) toma el divisor de `wincaja.articulos.factor_venta`
+**sólo donde `factor_venta > 1`**; si no, cae al `box_factor` de Kepler, que está en unidades BASE.
+Por almacén de Wincaja, de ~11,212 productos del catálogo:
+
+| origen del divisor | productos | con existencia | divisor prom | qué significa |
+|---|---|---|---|---|
+| `wincaja_factor_venta` | **8,680** (77.4%) | 3,074 | 29.48 | correcto, es Wincaja quien manda |
+| `default` (divisor 1) | **2,263** (20.2%) | 169 | 1.00 | **sin factor en ninguna fuente** |
+| `kepler_c84` | 83 | 44 | 23.96 | divisor del ERP que no manda acá |
+| `etiquetera` | 76 | 20 | 19.05 | idem |
+| `override` | 65 | 28 | 16.15 | idem |
+| `factor_sale` | 45 | 18 | 18.98 | idem |
+
+(cifras de MD-30; suman 11,212 productos y 3,353 con existencia.)
+
+**⚠️ Corrección de una primera lectura de este mismo día.** El primer conteo llevaba un filtro
+`box_factor > 1` y reportó "243 heredan de Kepler", presentando el sub-caso de 15 productos (W1.1)
+como si fuera el problema. **No lo es.** Con el corte abierto la exposición son **2,532 productos**
+—los 2,263 sin factor más los 269 con divisor de Kepler—, de los cuales **279 tienen existencia
+hoy**. De esos 2,532, **1,385 sí están en `wincaja.articulos` con `factor_venta = 1`** (1,176 PZA,
+120 KGS, 84 CJA) y los otros **1,147 no existen en `articulos`**: son productos del catálogo de
+Kepler parados en un almacén de Wincaja, y para ellos el divisor de Kepler es defendible.
+
+**W1.0 — 2,263 productos (20% del almacén) con divisor 1 sin fuente que lo respalde** 🟠 *DECLARADO
+en pantalla 2026-09-07; la cifra NO se cambió, y el motivo está medido abajo*
+Es el hallazgo grande, y no el que se nombró primero. `default` significa que ninguna fuente declaró
+un factor, así que la pantalla divide por 1 = "se muestra en unidad nativa". Eso es correcto **sólo
+si** el producto de verdad va uno por caja, y **no está verificado para ninguno de los 2,263** (169
+con existencia). Es el patrón que ADR-056 nombra: lo que no se pudo medir se declara, y el divisor 1
+se publicaba como si fuera un hecho.
+
+**Resuelto como DECLARACIÓN, no como corrección de la cifra — y el motivo está medido.** Ocultar
+esas celdas del total (la regla estricta *"convertir sólo con factor con fuente y unidad que no sea
+peso"*) borraría entre **24% y 58% del total de cajas de CADA almacén**, y **no sólo de Wincaja**:
+
+| almacén | cajas hoy | con la regla estricta | |
+|---|---|---|---|
+| `00` CEDIS | 25,699.6 | 11,788.5 | −54.1% |
+| `01` (Kepler) | 29,774.4 | 18,854.3 | −36.7% |
+| `05` (Kepler) | 6,320.3 | 2,630.3 | −58.4% |
+| `MD-30` | 32,450.9 | 24,695.8 | −23.9% |
+| `MD-32` | 8,988.6 | 4,646.4 | −48.3% |
+
+Son 1,692 celdas, y **11 de ellas no tienen ni rótulo nativo** que mostrar en su lugar. Eso es una
+decisión de negocio, no una corrección técnica, así que la cifra se dejó intacta y lo que se agregó
+es que **se vea**: KPI "Sin factor de caja", banner que declara la causa, y un grado `°` por celda
+con su explicación en el `title` (y en texto para lector de pantalla, porque el símbolo no puede ser
+el único portador). Vive en `existencia.service.ts` como el predicado `sinFactor()`, hermano de
+`MEDIBLE`, y en la respuesta como `celdas_sin_factor` / `skus_sin_factor` / `cells[].nf`.
+
+**Lo que falta decidir (de Edgar):** si el total de cajas debe excluir lo que no tiene factor. Hasta
+entonces el número es el mismo de siempre, pero ya no se lee como si todas sus celdas tuvieran
+respaldo.
+
+**W1.1 — `unidad_venta = 'CJA'` + `factor_venta = 1`: el divisor de Kepler pisa la declaración de
+Wincaja** 🟡 *(chico, pero es el único caso con prueba positiva)*
+**15 productos por almacén** (7 con existencia en MD-30, 1 en MD-32, 0 en el 00). Rastreo completo de
+los 193 `CJA + fv=1` de la rama 30: **109 no están en `catalog.products`** (no salen en pantalla),
+**65 ya reciben divisor 1** por `default` (correcto), **19 heredan de Kepler** y de esos **15 con
+divisor > 1**. Por eso da 15 y no más: la mayoría ya cae bien o no está en el catálogo. Verificado
+además que **`CJA` es el único rótulo de caja que existe** — los valores son PZA 15,154 / CJA 197 /
+KGS 165 / SER 11 / N/A 1, sin `PAQ`, `CAJ` ni `PQT` escondidos subcontando. Wincaja declara que
+su unidad de venta **ya es la caja** — `CJA` con factor 1 es coherente y sin ambigüedad — y la vista
+divide por **21.07** de todos modos, porque el `> 1` descarta la declaración. Es el espejo del bug
+que ADR-055 cerró: aquel dividía entre 140 en vez de 14; éste divide entre 21 en vez de 1. Arreglo =
+una condición en la vista (tomar `factor_venta` cuando el SKU existe en `articulos`, no cuando es
+`> 1`), pero **cambia una cantidad en pantalla para 8 SKUs**, así que va con su antes/después.
+
+**W1.2 — `unidad_venta = 'PZA'` + `factor_venta = 1`: supuesto no declarado** 🟡
+**1,176 productos por almacén, 223 con existencia** en MD-30 (de los cuales 215 / 84 llevan además
+un divisor > 1 heredado de Kepler; el resto cae en `default`). Acá `fv = 1` **no** es declaración: "1
+pieza = 1 caja" no se sostiene en dulcería, es ausencia de captura. Reparto que lo prueba (rama 30,
+`actual`): con `fv = 1` hay 1,872 PZA / 193 CJA / 152 KGS, y con `fv > 1` hay 13,282 PZA — o sea el
+campo está poblado para unos PZA y no para otros. El fallback a Kepler es lo menos malo, pero hoy
+**no se declara**: la pantalla muestra el divisor sin decir que vino del ERP que no manda en ese
+almacén. `factor_source` ya lo sabe (`kepler_c84`, `etiquetera`, `factor_sale`, `override`); falta
+que llegue al usuario.
+
+**W1.3 — `unidad_venta = 'KGS'` con divisor de caja** 🟡
+**120 productos por almacén, 38 con existencia** en MD-30 (13 / 7 de ellos con divisor > 1 de
+Kepler, el mayor promediando **41.54**). Dividir kilos por
+un factor de caja no significa nada. La vista **ya expone `is_weight`** y `existencia.service.ts` la
+selecciona (línea 360), pero pasa la bandera hacia el frontend sin cortar la división — hay que
+verificar si la pantalla la respeta. Nota lateral: `v_product_box_factor` marca `is_weight` en **44**
+de los 215 que Wincaja llama `PZA`; las dos fuentes no coinciden en qué es peso.
+
+**Cómo se midió:** cruce de `analytics.v_warehouse_box_factor` contra `wincaja.articulos`
+(`source_dataset = 'actual'`, por `source_branch` del almacén) y contra `commercial.stock` para
+separar lo que se ve en pantalla hoy de lo que sólo está en el catálogo. Ejemplos vivos: MD-30 sku
+`59038` con 465 PZA se ve como **19.38** (divide por 24); el 00 con 1,646 PZA se ve como **68.58**.
+
+---
+
+## Addendum — El sync de Wincaja entrega la MITAD y reporta `ok` (2026-09-07)
+
+> ⚠️ **CORREGIDO el mismo día, después de leer el log y la fuente.** La primera versión de W2.1
+> (abajo) concluyó que *"la carga entrega la mitad"* y que el churn quedaba descartado porque
+> `detalles_mov_almacen` tuvo todas sus filas tocadas mientras su maestro tuvo cero. **Ese argumento
+> era malo:** maestro y detalle simplemente usan estrategias de escritura distintas (uno reescribe
+> incondicionalmente, el otro es UPSERT-sin-churn), así que la diferencia no prueba nada. El log de
+> hoy muestra que BRONZE **leyó todas las tablas** y reportó conteos reales
+> (`Existencias -> existencias 15529 OK` en la rama 00). El defecto es **aguas arriba** y está en
+> W2.2. Se deja el texto original porque el modo de falla del latido sigue siendo cierto.
+
+**W2.2 — el sync lee el `.mdb` ANTES de que se copie: siempre carga el archivo de ayer** 🔴
+
+Los tiempos de modificación de `Z:\Salidas\Bases\Actuales` contra el horario del job:
+
+| archivo | modificado | |
+|---|---|---|
+| `30 MORELIA ABASTOS.MDB` | 2026-09-07 **08:45** | se copia DESPUÉS del sync |
+| `32 MORELIA MADERO.MDB` | 2026-09-07 **08:46** | idem |
+| `0 BPIRAPUATO MOV.MDB` | 2026-09-07 **08:43** | idem |
+| `0 BPIRAPUATO.mdb` | 2026-09-**05** 12:33 | **dos días**, y es el grande (636 MB) |
+
+**`sync-wincaja-actual.ps1` arranca 05:00:02 y termina BRONZE 06:16.** Las copias llegan ~2.5 h
+después. O sea cada corrida consume el archivo del día anterior — y por eso las tablas
+UPSERT-sin-churn no mueven `imported_at`: **de verdad no cambió nada, porque leyó el mismo archivo**.
+Las que reescriben incondicionalmente (`detalles_mov_almacen`, `cotizacion_lineas`,
+`faltantes_cotizacion`, `autorizaciones`) sí quedan con fecha de hoy, pero con **contenido de ayer**
+— que es peor que estar viejo: es dato viejo con etiqueta fresca.
+
+Arreglo obvio y barato: **correr el sync después de la copia**, no antes. Las dos mitades ya existen;
+lo único mal puesto es el orden.
+
+Aparte, `0 BPIRAPUATO.mdb` con dos días es un problema propio: su hermano `MOV` sí se copió hoy, así
+que la copia del grande falla o se salta. El hueco del **05-sep** (no hay
+`sync_actual_20260905_*.log` y el salto de `imported_at` fue de 47.9 h) es consistente con eso.
+
+**Lo que NO es un problema:** que `10 PHIDALGO.MDB` (26-ago), `40 8ESQUINAS.MDB` (26-ago),
+`44 YURECUARO.MDB` (23-jul), `42 PIEDAD ABASTOS.MDB` (**2024-01-09**) y las rutas 21-28 / 321 / 322
+estén viejos. Esas sucursales ya operan en Kepler; sus `.mdb` son histórico. Los tres que importan
+—CEDIS `00`, MD-30 y MD-32— son exactamente los tres que sí se copian a diario.
+
+---
+
+**W2.1 — el latido dice `ok` sin medir entrega** 🟠 *(mecanismo corregido por W2.2; el defecto del
+latido queda)*
+
+Salió del smoke de Existencia, que reportó `frescura: kepler=0.4min · wincaja=1955.6min` (**32.6 h**).
+Antes de dar la alarma se descartaron las dos explicaciones inocentes:
+
+1. **¿Cadencia normal?** No. La carga es **diaria ~05:00 MX** (`sync-wincaja-actual.ps1`, latido
+   `wincaja_sync` "Wincaja sync (BRONZE+GOLD)"). El historial de `imported_at` da saltos de 23.9 h /
+   24.0 h — y luego uno de **47.9 h** entre el 04-sep y el 06-sep. O sea ya se había saltado un día.
+2. **¿UPSERT sin churn?** Tampoco, y esto es lo que lo cierra: `detalles_mov_almacen` tuvo
+   **1,159,050 de 1,159,050 filas tocadas hoy** mientras su propio maestro `maestro_mov_almacen`
+   tuvo **0**. Un detalle no puede ganar los renglones de hoy si su maestro no gana ninguno.
+
+**Reparto medido (dataset `actual`), tras una corrida que reportó `ok` hace 6.7 h:**
+
+| refrescadas hoy (7.6–7.9 h) | clavadas en 32.6–32.7 h, **0 filas tocadas** |
+|---|---|
+| `detalles_mov_almacen` 1,159,050 | `precios` 1,882,733 · `existencias` **321,977** · `articulos` 322,019 |
+| `cotizacion_lineas` 118,948 | `movimiento_clientes` 253,306 · `pagos_dia` 249,215 |
+| `faltantes_cotizacion` 15,236 | `maestro_mov_almacen` 186,413 · `clientes` 30,480 |
+| `autorizaciones` 10,827 | `arqueos` 15,598 · `retiros` 15,472 · `ofertas` 14,246 |
+| | `cotizaciones` 12,246 · `cortes` 3,261 · `movimiento_proveedores` 4,460 |
+
+`pagos_dia` con 249 k filas y **cero** tocadas en un día que las tiendas vendieron no se sostiene;
+`cortes` tampoco (una tienda que vende genera cortes diarios).
+
+**Consecuencia concreta:** `wincaja.existencias` es del **06-sep 05:11 MX**, así que la pantalla de
+Existencia muestra el inventario de CEDIS, MD-30 y MD-32 con **día y medio** de atraso mientras la
+mitad Kepler va en 0.4 min. Y el sensor no lo dice: `wincaja_sync` está en **`ok`**.
+
+Es exactamente el modo de falla de **ADR-053 / Fase OBS**: *latido de proceso, no de entrega*. El
+incidente del carril de catálogos (6 días parado mientras la app publicaba precios) fue esta misma
+forma. Lo que falta es lo que OBS.1 ya hizo para el ODS: que el latido mida **filas entregadas por
+tabla**, no "el script terminó sin lanzar" — un paso que sale con código 0 sin escribir nada hoy
+pasa la compuerta.
+
+**No diagnosticado todavía:** POR QUÉ divergen los dominios. `import-wincaja.js` corre con
+`--domain all --source replica` (las ramas 30/32/00 leen de `:5433/wincaja`, las demás caen a Jet);
+hay que ver el log de la corrida de hoy para saber si un dominio falló silenciosamente o si el
+`--source replica` sólo cubre parte de las tablas.
+
+---
+
+## Addendum — Cierre de los filtros de tenant fail-open (2026-09-07)
+
+El análisis del 03-sep listaba **58 filtros condicionales** (`if (tenantId) q.where(...)`), 8 queries
+sin filtro y 2 escrituras por `id` pelado. Revisado sitio por sitio contra el código de hoy: **la
+mayor parte ya estaba cerrada por otra sesión**, dos seguían abiertas y dos eran falsos positivos.
+
+**Ya cerrado antes de esta pasada:** existe `libs/platform-core/src/lib/tenant/require-tenant.ts`
+con `requireTenantOf(user, ctx)` que **lanza** en vez de devolver vacío; **17 archivos** lo usan y los
+**15** helpers locales de `libs/trade` ya declaran `: string`, no `: string | undefined`. Todas las
+escrituras de `supervisor-actions.service.ts` llevan `{ id, tenant_id }`.
+
+**W3.1 — `reports.service.ts` › `deleteReport`: fail-open en un camino DESTRUCTIVO** 🔴 *(arreglado)*
+El comentario `[AUTHZ-HARD.1]` decía que se había acotado el tenant… y lo aplicaba con un `if`:
+
+```ts
+const tenantId = user?.tenant_id || this.tenantContext?.get()?.tenantId;
+const baseWhere = { id };
+if (tenantId) baseWhere['tenant_id'] = tenantId;   // ← con tenant vacío queda sólo { id }
+```
+
+Ese `baseWhere` se usa para el `SELECT` **y para el `DELETE`**, sobre `this.knex` = pool
+`postgres` (superuser), donde `FORCE ROW LEVEL SECURITY` **no aplica**. Con el tenant vacío,
+`REPORTES_GESTIONAR` borraba la captura de cualquier tenant por UUID. Ahora usa `requireTenantOf` y
+el filtro es incondicional; de paso desapareció la rama de escape del `emitCaptureDeleted`.
+
+**W3.2 — `permissions-cache.service.ts`: el lookup de rol era no-determinista entre tenants** 🔴
+*(arreglado)*
+El comentario decía *"tenant_id **OBLIGATORIO** para aislar"* y el código lo hacía opcional. El
+camino existe de verdad: **`roles.guard.ts:61` pasa `user.tenant_id` CRUDO del JWT**, sin fallback ni
+throw — un token sin tenant llegaba con `undefined` y la query corría sin filtro. Y no es teórico:
+medido en prod, **`recursos_humanos` existe en 2 tenants**, así que para ese rol el `.first()` sin
+filtro devuelve el mapa de permisos de cualquiera de los dos.
+
+**No se resolvió con un throw**, a propósito: reventaría el login de un token legacy en cada request
+y esta ruta no se puede probar de punta a punta desde acá. Se hizo **determinista y fail-CLOSED**:
+sin tenant se exige `tenant_id IS NULL`, que en `identity.role_permissions` —columna **NOT NULL**, 0
+filas en NULL— no puede casar con nada. Resultado: **cero permisos** en vez de los de un tenant
+ajeno, y el camino sano queda byte por byte igual.
+
+**W3.3 — `scoring-engine.service.ts`: `UPDATE … WHERE id` sin tenant** 🟠 *(arreglado, era
+defensa-en-profundidad)*
+Los ids venían de un `SELECT` que **sí** scopea, así que no había fuga activa. Pero es una escritura
+sobre el pool superusuario: el día que alguien cambie de dónde salen esos ids, el alcance se pierde
+en silencio. Ahora el WHERE lleva `{ id, tenant_id }` y un UPDATE fuera de alcance simplemente no
+encuentra fila.
+
+**Dos falsos positivos del análisis del 03-sep** (quedan declarados para que nadie los vuelva a
+"arreglar"):
+
+- `route-promo.service.ts:470` — `SELECT unit_base FROM analytics.v_product_unit_ladder WHERE sku = ?`.
+  **La vista NO tiene `tenant_id`** y su `sku` es único (0 SKUs con más de una fila): no hay nada que
+  filtrar.
+- `commercial-replenishment.service.ts:1099` — apuntaba a `analytics.purchase_in_transit`, que **se
+  retiró junto con su importer**. El servicio sólo la menciona en un comentario; el tránsito hoy sale
+  de `analytics.replenishment_plan` (ver GOTCHAS §25).
+
+**Lo que sigue abierto de este frente:** `analytics` mantiene **59 de 60 tablas sin RLS** y **1 de 53
+FKs** con `tenant_id`, así que en ese schema el filtro manual sigue siendo la única defensa. Habilitar
+RLS de golpe es peligroso —cualquier query que hoy no setee contexto pasaría a devolver 0 filas en
+silencio—; el camino es el smoke de cobertura primero, tabla por tabla después.
+
+---
+
+## Addendum — Los sensores de `db-health` subreportan la edad del dato en 6 h (2026-09-07)
+
+**W4.1 — `max(col)::timestamp` + edad calculada en JS = 6.00 h de sesgo sistemático** 🔴
+
+Salió al construir el sensor de entrega de Wincaja: el mismo dato daba **33.38 h** medido en SQL y
+**27.38 h** por el camino que usa el servicio. La diferencia es exacta, y reproducible:
+
+| | |
+|---|---|
+| `TimeZone` de la sesión de pg en prod | **`Etc/UTC`** |
+| TZ del proceso de la API | **`America/Mexico_City`** (−6 h) |
+| Cómo calcula la edad `db-health.service.ts` | `new Date(rows[0].last_update)` → `ageOf()`, **en JS** |
+| Qué devuelven casi todos los sensores | `max(col)::timestamp` — **naive** |
+
+`imported_at` es `timestamptz`. Castearlo a `timestamp` tira la zona y deja el reloj de pared de la
+**sesión** (UTC); node-postgres lo interpreta como hora **local del proceso** (MX). Resultado: la
+edad sale 6 h más joven y **un `warnH: 30` dispara en realidad a las 36 h**.
+
+Es el mismo patrón que VP.0 encontró en el frontend —21 de 24 píldoras midiendo el reloj del
+navegador—, pero del lado del servidor y sobre el tablero que existe para avisar.
+
+**Arreglado sólo en el sensor nuevo** (`wincaja_existencias_entrega`, sin el cast: la edad de JS
+cuadra al centésimo con la de SQL). **NO se barrió el resto, y el motivo importa:** el sesgo aplica
+únicamente a los sensores cuya columna subyacente es `timestamptz`. Donde el dato ya es `timestamp`
+naive en hora MX, el cast es inocuo y "arreglarlo" metería el error de 6 h **en el otro sentido**. La
+barrida necesita verificar el TIPO de la columna de cada sensor uno por uno — queda declarado como
+deuda con nombre, no dibujado como hecho.
+
+**W4.2 — el sensor que faltaba: entrega vs fecha de negocio** 🟠 *(construido)*
+`wincaja_cedis_stale` mide `max(fecha)` —la fecha de NEGOCIO del movimiento— con `warnH: 60` porque
+los huecos de 2 días son normales en el CEDIS. Eso **no puede distinguir** *"la sucursal no movió
+mercancía"* de *"no cargamos"*. El sensor nuevo mide `imported_at` (cuándo escribimos nosotros), con
+umbrales espejo de `wincaja_sync` (30/50 h) porque es su misma cadencia vista del otro lado.
+
+Detalles de diseño que se corrigieron sobre la marcha, los dos por medir antes de publicar:
+
+- **MAX por rama, alarmando por la peor** — no el `max()` global, que enmascara una rama congelada
+  mientras las otras avanzan (misma lección que `stock_cedis_00`). Hoy: 00 → 33.6 h, 30 → 33.5 h,
+  32 → 33.4 h; las tres parejas, o sea el problema es del carril, no de una rama.
+- **`min(imported_at)` NO es "la rama rezagada"** — es la fila más vieja de la tabla (939 h medidas),
+  que con UPSERT-sin-churn es el SKU cuyo valor nunca cambia. La primera versión del sensor lo
+  publicaba como *"la rama más rezagada, 30/07"*: un número inventado, del tipo que ADR-056 prohíbe.
+
+Verificado contra prod: **5/5** — edad JS == edad SQL, veredicto **WARN** hoy (o sea caza el
+incidente que ningún otro sensor veía), la nota declara cuántas ramas ve, y **208 ms** de costo.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

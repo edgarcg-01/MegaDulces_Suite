@@ -30,6 +30,8 @@ const PORT = process.env.COBRANZA_TEST_PORT || 3334;
 const BASE = `http://localhost:${PORT}/api`;
 const WS_BASE = `http://localhost:${PORT}`;
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `finance.collection_deposits`.
+require('./_lib/assert-safe-target').assertSafeTarget('http-cobranza-ws-test', { url: DST });
 const MARKER = 'smoke COMM-P1 cobranza WS';
 
 async function http(method, path, body, token) {

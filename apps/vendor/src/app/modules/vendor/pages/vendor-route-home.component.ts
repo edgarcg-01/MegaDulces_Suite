@@ -589,7 +589,9 @@ export class VendorRouteHomeComponent implements OnInit, OnDestroy {
     const routes = [...new Set(this.customers().map((c) => c.sales_route).filter(Boolean))];
     return routes.length === 1 ? routes[0] : routes.length > 1 ? `${routes.length} rutas` : '';
   });
-  readonly pedidosHoy = computed(() => this.ordersToday().length);
+  // Un draft (p.ej. el que se crea al abrir take-order y se abandona sin líneas)
+  // NO es un pedido tomado. Contar solo pedidos reales, para no inflar el KPI.
+  readonly pedidosHoy = computed(() => this.ordersToday().filter((o) => o.status !== 'draft').length);
   readonly vendidoHoy = computed(() =>
     this.ordersToday()
       .filter((o) => o.status === 'fulfilled' || o.status === 'confirmed')

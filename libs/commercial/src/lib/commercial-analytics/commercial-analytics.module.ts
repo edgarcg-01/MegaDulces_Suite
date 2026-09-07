@@ -3,16 +3,19 @@ import { AnthropicService } from '@megadulces/platform-core';
 import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { CommercialAnalyticsController } from './commercial-analytics.controller';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
+import { PeriodCloseCheckService } from './period-close-check.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { WeeklyAnalyticsService } from './weekly-analytics.service';
 import { RoutePromoService } from './route-promo.service';
 import { StoreAnalyticsController } from './store-analytics.controller';
 import { WincajaController } from './wincaja.controller';
 import { WincajaService } from './wincaja.service';
+import { SelloutChatService } from './sellout-chat.service';
+import { SelloutChatToolsService } from './sellout-chat-tools.service';
 
 @Module({
   controllers: [CommercialAnalyticsController, StoreAnalyticsController, WincajaController],
-  providers: [CommercialAnalyticsService, AnalyticsRefreshService, SellOutExportService, WeeklyAnalyticsService, RoutePromoService, AnthropicService, WincajaService],
-  exports: [CommercialAnalyticsService, AnalyticsRefreshService],
+  providers: [CommercialAnalyticsService, AnalyticsRefreshService, PeriodCloseCheckService, SellOutExportService, WeeklyAnalyticsService, RoutePromoService, AnthropicService, WincajaService, SelloutChatService, SelloutChatToolsService],
+  exports: [CommercialAnalyticsService, AnalyticsRefreshService, PeriodCloseCheckService],
 })
 export class CommercialAnalyticsModule {}

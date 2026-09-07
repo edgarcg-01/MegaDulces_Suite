@@ -1606,3 +1606,120 @@ Son **~355 SKUs** (sucursal 30) los multipack de verdad, no el catálogo entero.
 Candado: `database/tests/test-newdb-warehouse-box-factor.js` (29 aserciones, en la regresión), con candados explícitos contra los dos errores previos: convertir el dato base, y el `LEFT JOIN` a `wincaja.articulos` sin `source_dataset='actual'` (duplicaba la existencia — razón 2.000).
 
 Ver [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8ter · hereda **ADR-051** (la unidad se declara, no se dibuja).
+
+---
+
+## ADR-056
+
+**Verdad y procedencia** (Fase VP): un número publicado carga con qué se calculó, y **lo que no se pudo medir se declara** · *aceptado 2026-09-05*
+
+### Contexto
+
+Edgar reporta que "a menudo me dicen que existen cambios en los números de la empresa" y que la plataforma no maneja procedencia, ni log de cambios, ni una verdad absoluta. La auditoría lo midió contra el repo y encontró algo distinto de lo esperado: **no falta arquitectura. Cada primitivo necesario ya estaba construido, aplicado a exactamente un dominio, y nunca generalizado.**
+
+| Primitivo | Dónde ya existía, bien hecho | Alcance real |
+|---|---|---|
+| Frescura declarada | `libs/commercial/src/lib/shared/freshness.ts` (fase OBS, 2026-09-02) | **4 de 171** endpoints analíticos |
+| Cobertura medida | `commercial-profitability.service.ts` (`coverage_pct`, `source_empty`) | **1** pantalla |
+| Unidad que viaja con el número | 5 vistas canónicas + la puerta `unitMargin()` | **9 de 264** servicios |
+| Versión de la regla amarrada al hecho | `daily_captures.config_version_id → scoring_config_versions` | **1** dominio |
+| Valor anterior | `route_rebalance_log.previous_state` | **3 de 13** tablas de historia |
+| Cuadre contra árbitro externo | `test-newdb-fact-vs-kepler.js` (mediana por SKU + candado anti-`bf`) | **1** superficie |
+| Latido de importer | `database/importers/lib/cron-heartbeat.js` | **13 de 109** — **0** de los de datos maestros |
+| Bloqueo duro al no cuadrar | `purchase-book.service.ts:962` | **1 en todo el repo** |
+
+La causa es de proceso: el proyecto crece por **fases**. Cada una entrega una rebanada vertical, inventa el primitivo que necesita, lo documenta en su `.md` y cierra. Nada en el flujo dice *"y ahora subí el primitivo a `libs/` compartido"*. El tracker rastrea **fases**, no **invariantes**.
+
+Y el número llegaba desnudo: **6 menciones de `as_of` en 874 interfaces de respuesta** del frontend. **1 de 187 rutas** consumía `db-health`. El costo histórico está en los mensajes de commit — **570** arreglan corrección numérica, con líneas como *"recupera $8.07M/mes que la copia tiraba"*. **Todos los encontró un humano.**
+
+Tres mentiras concretas, medidas y ya corregidas por esta fase:
+
+- `FRESHNESS_UNKNOWN` salía con `stale: false`, y los consumidores preguntan `@if (f.stale)` → **cuando fallaba la medición la etiquetera no mostraba nada**, en la misma pantalla que imprimió seis días de precios viejos (uno **54% bajo costo**). El primitivo escrito para evitar eso lo reproducía, a tres días de nacer. Y su test decía *"FRESHNESS_UNKNOWN no afirma frescura"* verificando `data_as_of: null` — cierto **también con el bug**: estuvo verde todo el tiempo que la mentira estuvo viva.
+- **21 de 24** píldoras de frescura decían *"actualizado hace 2 min"* midiendo el reloj del navegador.
+- `db-health` clasificaba con `cfg ? classify(...) : 'ok'` → las **3** matvistas del refresh nocturno que arman el sell-out latían sin umbral registrado y salían **verdes por siempre**; la única registrada tenía los umbrales del otro cron y gritaba `critical` todos los días.
+
+### Decisión
+
+1. **El número viaja con su procedencia, y la forma la define un contrato — no cada consumidor.** `libs/contracts/src/http/provenance.contract.ts` (`Freshness`, `FreshnessInput`, `FreshnessStatus`, `Coverage`), siguiendo el precedente de `command-center.contract.ts` (ADR-052). Un cambio de forma es error de compilación en los dos lados. El dominio conserva la **lógica** (medir, componer, tolerancias); el contrato define la **forma**.
+
+2. **El veredicto es ternario: `fresh | stale | unknown`.** Un booleano no puede decir "no sé", y el default permisivo es exactamente cómo un feed muerto se disfraza de sano. `stale` sobrevive pero **derivado** (`status !== 'fresh'`), así un consumidor viejo empieza a avisar en `unknown` sin tocarlo. Corolario aplicado al monitor: **un job sin umbral no es sano, es no medido.**
+
+3. **Lo que no se pudo medir se declara — nunca se dibuja como cero ni como verde.** Vale para el dato (`status: 'unknown'`), para la cobertura (`measured: false` distingue *"medí y no falta nada"* de *"nadie contó"*, que sin él se serializan igual) y **para los tests**: un bloque que no tuvo con qué comprobarse reporta **NO MEDIDO**, no ✔. Con una pierna vacía, "cero traslapes" es cierto y no prueba nada.
+
+4. **Poblado no es fresco.** `relispopulated` queda en `true` para siempre tras el primer populate: toda lectura de matvista declara además su **edad**, tomada del latido del job que la refresca. Y **ordenar no es depender**: una matvista no se refresca si aquella de la que deriva falló — mejor el rollup de ayer, viejo pero coherente y declarado, que uno de hoy mezclando piernas.
+
+5. **Un primitivo inventado en una fase no cierra la fase.** Si al resolver un item construiste un mecanismo genérico —declarar frescura, medir cobertura, versionar una definición, guardar el valor anterior, cuadrar contra un árbitro— el item no está cerrado hasta que el mecanismo vive en `libs/` compartido **o** queda declarado como deuda con nombre en el tracker.
+
+6. **Un gate sin prueba negativa es una intención.** Al agregar una compuerta hay que romperla a propósito una vez y ver el rojo. (`measures` requerido se verificó así: quitarlo de un call-site tumbó el build de producción con exit 255.)
+
+### Consecuencias
+
+- **La verdad absoluta se construye congelando el mes** (VP.4, pendiente): no existe hoy ninguna cifra oficial — grep de `period_close`/`cierre_mes`/`frozen` en 578 migraciones da **cero**. Todo se recalcula desde fuentes que se mueven hacia atrás, así que cuando el número de enero cambia nadie puede decir cuánto valía ni por qué. `analytics.period_close` guardará cifra + hash de la definición + watermarks; un recálculo que difiera **abre hallazgo**, no cambia el número en silencio. Es materialización legítima por [`GOTCHAS.md`](../GOTCHAS.md) §32 (snapshot histórico), no una copia.
+- **El log de cambios de datos maestros no existe** (VP.3, pendiente): cero historial para precio, costo, punto de reorden, precio de etiqueta y factor de caja; **0 de los ~11 importers** que los escriben setean `updated_by` o tienen latido. La columna `updated_by` **miente** en esas tablas.
+- **La compuerta de `main` no puede ver un número** (VP.5, pendiente): CI corre build + lint + `nx affected -t test` sobre **9** `.spec.ts` con `--passWithNoTests`. Las 128 suites de `run-all-tests.js` son gate local y manual, y hay **21 pruebas escritas que ni siquiera están en el runner** — incluida la del sync de cortes de caja que ya falló en prod con $300k+.
+- Al agregar un endpoint analítico, el envelope de procedencia es parte del contrato (VP.2.3 lo hará compuerta de CI, calcando `scripts/check-authz-tree.js`).
+
+### Alternativas rechazadas
+
+- **Reordenar en capas (repositorio/ORM, hexagonal estricta)** — no protege la verdad de un número. Evidencia propia: MR.5 tenía capas limpias y publicaba 14.62% de margen contra 11.32% real. Las capas resuelven acoplamiento, no verdad; además un ORM esconde justo el SQL que hay que auditar, cuando la regla del proyecto es que la verdad viva en vistas `derive-no-copy` sobre `kepler_ods`.
+- **Golden master / snapshot dorado como defensa principal** — no atrapa los tres modos de falla reales de este proyecto (unidad, frescura, cobertura), porque el snapshot nace de la misma consulta con el mismo defecto. Sirve como complemento, no como cimiento.
+- **Precalcular más (matvistas, rutinas nocturnas) para estabilizar los números** — es el incidente OBS: batch es una mentira que envejece en silencio. Se admite por costo (§19) *con la edad declarada*, que es lo que agrega esta fase.
+- **Tomar el Excel de contabilidad como verdad absoluta** — medido y falso acá: el workbook del libro de compras traía un typo de **$183M** y 41% de descuadre; el de bancos, códigos sobrecargados que no empatan Kepler. Es *una* fuente, no *el* árbitro.
+- **Tomar el CFDI/PAC como árbitro del sell-out** — CP.0 midió que la contabilidad casi no segmenta por sucursal (~2%), así que no puede arbitrar un reporte de venta por sucursal.
+
+Hereda **ADR-053** (la ingesta no se cae en silencio) y **ADR-052** (contratos del boundary). Plan en [`FASE_VP_VERDAD_Y_PROCEDENCIA.md`](FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md).
+
+---
+
+## ADR-057
+
+**La unidad se resuelve UNA vez, con testigo y con método** (Fase U): el resolvedor no elige entre fuentes, las **ordena**, y declara dónde no llega ninguna · *aceptado 2026-09-07*
+
+### Contexto
+
+Edgar: *"lleguemos a una verdad absoluta en unidades de venta; las capas lógicas están fallando demasiado"*. Medido, el desorden tiene tamaño exacto: **27 archivos** leen `catalog.products.factor_sale` — la única fuente que [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §4 probó que **no tiene unidad** (la mitad cuenta piezas, un tercio paquetes) —, **17** leen `commercial.product_label_prices.box_size`, y **UNO** lee la escalera anclada al ERP. Cuatro vistas resuelven la precedencia y cada capa la vuelve a resolver por su cuenta.
+
+Dos hallazgos dieron vuelta la premisa del propio doc:
+
+1. **La etiquetera SÍ tiene testigo.** §1 la marcaba con ❌ y §5 concluía que el 40% de la venta *"no tiene contra qué verificarse… no hay forma de saberlo"*. El testigo existe y es independiente: `analytics.v_supplier_cost_ladder.units_per_box` = `box_cost / u1_cost` sobre `kepler_ods.kdpv_prov_prod` — **lo que se le pagó al proveedor**. Coincide con la etiquetera en **5,569 de 5,578 SKUs (99.84%), razón mediana 1.00**. La cobertura verificable de la venta pasa de 44.8% a **93.1%**.
+2. **La fuente peor es la corrección MANUAL.** Los `override` contradicen lo pagado en **62 de 277 (22%), $6,174,488** de venta — `70006`, `70043`, `20555`, `70140` traen `override = 1` contra 18, 12, 18 y 18 pagados. Son los de granel, y `20555 CAR SURTIDO 18KG` es el SKU que destapó la auditoría de peldaño (U.1).
+
+Y el árbitro de dinero (`cajas = revenue ÷ cja_price`, que no depende de ningún divisor) refutó la solución obvia: sobre los 570 SKUs donde las fórmulas privadas y el resolvedor discrepan, `factor_sale` sobra **3.286×**, el resolvedor falta **0.369×**, y en **296 SKUs ($78.3M) no acierta NINGUNO**. Porque ahí el numerador no tiene unidad: `42029` en el almacén `01` promedia $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25. **Un mismo almacén mezcla los dos peldaños.**
+
+### Decisión
+
+1. **`analytics.v_unit_truth` es EL resolvedor** (vista `derive-no-copy`, grano tenant × almacén × producto). **No reimplementa la precedencia**: la lee de `v_warehouse_box_factor` (ADR-055) y `v_product_box_factor` (UM.1). Su `box_factor` es **idéntico** al que ya se publica — 100,908 filas, 0 discrepancias — y eso es lo que autoriza a migrarle consumidores sin revalidar cada pantalla. Lo que agrega es el **testigo** y el **veredicto**.
+
+2. **Dos ejes, porque son dos preguntas.** `veredicto` juzga `base_per_box` (propiedad del EMPAQUE: la caja trae lo que trae en las 9 bodegas). `veredicto_nativo` audita ADR-055 (el divisor de PRESENTACIÓN de cada almacén). ⛔ Cruzarlos marca los 355 multipack legítimos de Wincaja como falsos positivos — la primera versión del chequeo lo hizo y daba 16,897 celdas "mal".
+
+3. **No se elige entre testigos: se ORDENAN, y donde no llega ninguno se declara.** `metodo_cajas`: `dinero` (ingreso ÷ precio de caja, **inmune a la unidad del numerador**, 87.8% de la venta) › `peso` (granel: ya está en kilos) › `divisor` (÷ `box_factor`, **sólo verificado**) › `unidad_es_caja` (no hay paquete ni caja en la escalera y ningún testigo dice que la haya) › `sin_metodo` (**NULL con motivo, nunca 0**). **91.7% de la venta con cifra defendible**, 8.4% declarado.
+
+4. **El peldaño cobrado se PERSISTE.** `import-sales-fact.js` ya lo identificaba por precio y lo tiraba a un `console.log`. `analytics.sales_daily` gana `rung_factor`, `rung_mixed`, `units_unresolved`. ⛔ **No se normaliza `units`**: es el numerador de todo `/compras/pedido` y de la rentabilidad, y convertirlo es el movimiento que ya se revirtió una vez (mig `20260902200000`).
+
+5. **Lo que el resolvedor NO cubre tiene su propia vista.** `v_unit_truth_coverage` enumera los almacenes sin divisor y el motivo, porque **una fila ausente se lee peor que una fila mala**: en un LEFT JOIN llega NULL y un `COALESCE(medible, true)` la cuenta como sana. El candado de U.4 reportaba 98.2% de cobertura mientras 13 almacenes con el 9.4% de la venta no tenían fila.
+
+6. **Un almacén que cambió de ERP no recibe divisor estático.** Las 6 rutas de La Piedad fueron Wincaja hasta 2026-06-26 y Kepler desde 2026-06-29: su divisor **depende de la fecha**. Se declaran (`erp_mixto_por_fecha`), no se les elige uno.
+
+### Consecuencias
+
+- **El sell-out publicaba 716,742 PIEZAS rotuladas como "cajas"** (710 SKUs, $14,279,457 = 2.2% de la venta 365d), porque las tres cascadas terminaban en `factor_sale ?? box_size ?? 1`. Corregido: −1.65% en el total de 90 días, con $8,540,925 declarados.
+- **Los 44 consumidores se parten por lo que necesitan**, no se migran todos al divisor: los que muestran cajas van al método; los que valúan o rotulan empaque, al veredicto. Pendiente el resto (`commercial-replenishment`, `/compras`, 6 importers, `ods-derived.js`).
+- **45 SKUs de Wincaja tienen `factor_venta = f2` en vez de `f3/f2`** → divisor 4–40× chico. Es el defecto vivo de ADR-055, ahora con nombre.
+- **`unit-normalization.js:60-61` sigue con `factor_sale` como fallback de los DOS peldaños**, declarado y NO corregido: cambiarlo mueve `sales_daily.units` en silencio para miles de SKUs.
+- ⚠️ **Correccion registrada:** al mapear las 7 rutas afirme que aparecian **+$233,726** de inventario y era **falso** -- `v_erp_stock_on_hand` excluye las rutas a proposito (`NOT LIKE 'RUTA-%'`) y el mapeo no agrego nada; le habia atribuido la deriva del importer a mi cambio midiendo dos instantes distintos. El efecto real no previsto fue otro: el CTE `win` del **dictamen de existencia** une por la misma columna sin ese filtro, asi que paso de 52,421 a **122,117 celdas** y rompio su promesa de "explicar, no reemplazar" a la canonica (mig `20260907200000` lo corrige y se auto-verifica). Su candado paso en verde con 69,564 filas de mas porque comparaba el conteo del **JOIN**: probaba `canonica ⊆ dictamen` y se leia como igualdad. **Una comparacion que solo mira la interseccion no ve lo que sobra.**
+
+### Alternativas rechazadas
+
+- **Migrar los 44 consumidores al resolvedor, sin más** (era la opción elegida al arrancar) — el árbitro de dinero lo refutó antes de tocar código: movería ~$80M de cifras publicadas **sin volverlas correctas**, porque en 296 SKUs ningún divisor acierta.
+- **Normalizar `units` en el fact** — ya se intentó y rompió el pedido sugerido (cobertura de 534–900 días, el motor dejó de pedir).
+- **Corregir los 62 override contra lo pagado** — en granel el `1` puede ser deliberado; corregir parejo propuso $2.59M de compra contra $132k/mes de venta en `57009`.
+- **Dar a las 6 rutas de La Piedad el divisor de Wincaja** — es el error de peldaño que la fase cierra: hoy sus datos vienen en unidad base de Kepler.
+
+### Reglas de operación que salieron
+
+- **Después de CADA `CREATE OR REPLACE VIEW` sobre una vista con RLS, re-aplicar `security_invoker` y el `GRANT` — no se heredan.** Una migración de esta fase lo perdió y la vista dejó de filtrar por tenant. Lo vio **sólo** la aserción de metadata del candado: la vista seguía devolviendo datos correctos y ninguna prueba funcional lo notaba.
+- **`CREATE INDEX CONCURRENTLY` es una trampa en esta base**: espera a TODAS las transacciones más viejas, incluso ajenas. Había una consulta de analítica de **1h54m** corriendo → el build se sentó 575 s en `Lock/virtualxid` y encoló detrás dos `ANALYZE` del propio importer. Sin `CONCURRENTLY` entró al instante.
+- **⭐ Cuando un `CASE` mezcla dos preguntas, la precedencia le miente a una de las dos** — y le miente al caso más común o más caro. Apareció **tres veces** en esta fase: el factor 1 archivaba $5.1M como "nada que verificar"; tratar `no_aplica` como ignorancia tiraba el sell-out **−33.6%**; el `motivo` de cobertura etiquetaba $300.6M de sucursales sanas como "ERP mixto".
+- **⭐ "No se puede verificar" casi nunca es una propiedad del problema: es una conclusión sobre las fuentes que ya estabas mirando.** Antes de declarar algo inverificable, preguntá qué OTRA cosa dejó rastro.
+
+Hereda **ADR-055** (el divisor es del ERP dueño del almacén), **ADR-051** (el dinero arbitra la unidad) y **ADR-056** (lo que no se pudo medir se declara). Detalle en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8sexies. Candado: `database/tests/test-newdb-unit-truth.js` (40 aserciones).

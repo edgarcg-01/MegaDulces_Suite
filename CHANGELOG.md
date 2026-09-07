@@ -17,6 +17,293 @@
 - **El resto del trabajo no se descarta** — sigue vivo, sin tocar, en 3 repos standalone nuevos bajo `github.com/0SistemasMD`: `catalogo-kp`, `verificador-precios` (ya verificado end-to-end contra `KP_CONCENTRADA` real) y `Ecommerce-Mayorista` (tienda completa, backend+frontend).
 - Build verificado: `main.js` pasa de 341 KB a 42 KB; boot con exactamente las 4 rutas esperadas.
 
+### Changed — La etiqueta de anaquel baja a 82×35 mm: de 8 a 15 por hoja (2026-09-07)
+
+Salió de *"necesito reducir el tamaño de la etiqueta"*. Edgar fijó el alto en 35 mm y eligió el ancho tras ver el cálculo.
+
+**Los saltos son umbrales, no una curva.** En Carta horizontal con margen de 8 mm quedan 263 × 200 mm útiles. Bajar de 115 a 100 mm de ancho **no habría cambiado nada** (siguen 2 columnas, 8 por hoja): el umbral de la 3ª columna está en ~82.6 mm y el de la 5ª fila en 35 mm de alto. A **82 × 35** entran **3 × 5 = 15 por hoja**, casi la mitad de papel por etiqueta.
+
+**Y la pantalla mentía sobre el tamaño:** el encabezado del componente, el texto de la página y el comentario de la impresión decían *"tamaño físico 100×40 mm"* mientras el CSS imprimía **115** — 15 mm más ancho que el material que declaraba. Corregido junto con el resto.
+
+Se re-proporcionó todo respetando el reparto original (54:55 → **38 / 39.4** con 1.6 de gap y 1.5 de padding = 82 exactos), y los tres auto-encogidos (`fitHead`/`fitPrice`/`fitAmts`) arrancan y pisan proporcionalmente. **El código de barras es lo único con mínimo físico** —un EAN-13 pide ~29.83 mm al 80% de magnificación— así que pasa de 85% a **100%** de su columna (39.4 mm) y conserva 5 mm de alto.
+
+⚠️ **El margen de recorte baja de 2.5 a 2 mm por tolerancia, no por estética.** A 2.5 la huella mide 87 × 40 y cinco filas dan 200 mm contra 200 disponibles: cero holgura, y cualquier redondeo de subpíxel manda la 5ª fila a la hoja siguiente — 12 aquí y 3 allá, **gastando más papel que antes**.
+
+**Verificado** renderizando una hoja completa en puppeteer con el CSS **extraído del propio fuente**: etiqueta 82.0 × 34.9 mm, 3 por fila × 5 filas, sin desbordes. ⚠️ La primera pasada del chequeo **dio verde estando mal**: medía el `scrollWidth` del texto del precio, pero el recorte lo hace el `overflow:hidden` de la caja amarilla, así que el texto siempre "cabe" — un precio de 4 cifras salía cortado y el chequeo lo aprobaba. Se corrigió midiendo la caja.
+
+**Candado nuevo** `apps/view/src/app/modules/tienda/etiqueta-hoja.spec.ts` (**9/9**): el tamaño vive en el CSS, cuántas caben en una constante y la medida rotulada en el texto de la pantalla — los tres podían desincronizarse sin que nada falle, y lo estaban. Comprueba la aritmética completa (medida → huella → columnas × filas → `PER_SHEET`), que el rótulo diga la verdad, que el margen sea el mismo en la simulación y en las dos rutas de impresión, y que sobren ≥3 mm en cada eje. Prueba negativa verificada bajando `PER_SHEET` a 12: 2 rojos.
+
+Pendiente: una impresión de prueba para confirmar el corte, y redeploy de `view`.
+
+### Fixed — La cabecera de Existencia decía "Cedis Oficinas" y ordenaba por código, no por red (2026-09-07)
+
+Pedido de Edgar. Dos cosas que se leían mal en `/almacen/existencia`:
+
+- **El nombre mentía; la fuente no.** El almacén `code='00'` se llamaba **"Cedis Oficinas"**, que junta
+  las dos cosas que [`ERP_KEPLER §2.3`](docs/ERP_KEPLER.md) ya había separado: la sucursal Kepler `00`
+  es **OFICINAS** y el **CEDIS real es BPIRAPUATO, que vive en Wincaja**. Medido antes de tocar: esa
+  fila tiene `kepler_code = NULL` y `wincaja_source_branch = '00'`, y `wincaja.branches` dice de esa
+  rama `branch_name = 'BPIRAPUATO'` / *"CEDIS/bodegón Irapuato"* — o sea que desde la mig
+  `20260902170000` la existencia **ya salía del CEDIS de verdad** (201 SKUs, 183,213 unidades base,
+  **$6,481,431**, última venta 2026-09-04). Lo único incorrecto era el rótulo, que es justo lo que se
+  lee. Ahora se llama **`CEDIS BPIRAPUATO`**. La fuente **no** se tocó.
+- **El orden era alfabético por código**, lo que ponía el CEDIS **primero** y separaba las dos Morelia
+  del resto sólo por traer prefijo `MD-` — un artefacto de cómo se codificó la fuente, no de cómo se
+  opera. Ahora sale en el orden de la red: **PH · MA · MM · 8ES · LPA · YU · CAN · DAMASO · CEDIS**
+  (`DAMASO` = Zamora Centro `05`, confirmado por Edgar).
+
+`commercial.warehouses` gana `display_order` smallint y `short_label` text (mig `20260907210000`,
+batch 308, auto-verificada contra órdenes repetidos): el orden y el apodo son **atributos del almacén
+en la tabla principal**, no una lista dentro de un servicio, así que los ve igual cualquier consumidor.
+Los 13 `RUTA-*` quedan en NULL → al final por `NULLS LAST` y entre ellos por código; un almacén nuevo
+aparece solo, sin tocar código. La cabecera muestra el apodo y el **código pasa al tooltip** (es la
+llave contra el ERP y hace falta para reclamar sobre una celda).
+
+`test-newdb-existencia` **23/23** contra prod, con 3 candados nuevos: la **secuencia completa** de
+columnas (un orden a medias se lee igual que ninguno), que el `00` no vuelva a llamarse "oficinas", y
+que su existencia venga de `wincaja`. También se corrigió un candado que era una **carrera**: comparaba
+al centavo el total de dos lecturas de una vista viva sobre `kepler_ods` (deriva medida: $17.28 sobre
+$65.5M); ahora tolera la deriva del feed y prueba lo que de verdad importa — que el total no sea el de
+la página, contra la suma de la página misma.
+
+### Fixed — La plaza del CEDIS era OFICINAS, y las dos de Morelia no tenían ninguna (ID.23, 2026-09-07)
+
+Autorizado por Edgar tras el rename de arriba. Medido antes de tocar: `commercial.warehouses.zone_id`
+**no filtra nada por sí sola** — es el default que propone el alta de usuarios, y su único consumidor
+(`UsersService.derivarZona()`) devuelve `undefined` cuando no encuentra zona, que ahí significa
+*"no toques lo que ya tiene"*. Más: **0 usuarios** tienen como almacén el `00`, `MD-30` o `MD-32`, así
+que esa derivación nunca se disparó. **Ningún usuario existente cambia de alcance.**
+
+- **El CEDIS pasa a NULL, no a otra zona.** El almacén `00` apuntaba a **OFICINAS**, que es correcta
+  como lugar de trabajo (sus 22 usuarios son corporativos: compras, contabilidad, finanzas,
+  prevención, superadmin) pero es plaza de **La Piedad**, y el CEDIS es el bodegón de **Irapuato**.
+  No existe zona de Irapuato y crearle una con cero usuarios sería inventar estructura, así que queda
+  en NULL — el mismo precedente que `20260829130000` fijó para `04 Yurécuaro` (*"elegirle una sería
+  inventarla"*), que se resolvió solo cuando alguien creó la zona desde `/comercial/almacenes`.
+- ⭐ **Morelia: el seed de `[ID.23]` se saltó las dos.** Su mapa `PLAZA` sólo tenía códigos de DOS
+  dígitos, y las de Morelia son `MD-30` / `MD-32` → quedaron en NULL, mientras las zonas
+  `MORELIA ABASTOS` (**10 usuarios**) y `MORELIA MADERO` (**4**) existían **sin ningún almacén
+  apuntándolas**. Es el hueco exacto que `[ID.23]` existe para cerrar, y el header de esa migración
+  **ya lo decía** (*"las dos de Morelia son los almacenes sin código Kepler (MD-30 / MD-32)"*): lo
+  declaró y no lo hizo. Ahora las 8 sucursales de la red tienen plaza y sólo el CEDIS queda sin ella.
+
+Mig `20260907220000`, batch 311, auto-verificada (el `00` sin plaza · Morelia en la suya · y que siga
+existiendo al menos una zona sin sucursal, porque de eso depende que la zona sea un eje editable y no
+un derivado). `test-newdb-user-permissions` **28/28** · `test-newdb-scope-axis` sin cambio ·
+`test-newdb-existencia` **23/23**, todos contra prod.
+
+⚠️ Colateral aceptado: OFICINAS queda sin almacén, así que el reporte de `[ID.23]` la lista entre las
+*"zonas sin sucursal (territorio de ruta)"* — el rótulo no le queda bien, pero el hecho es cierto, y
+es preferible a que el alta proponga La Piedad para quien trabaja en Irapuato.
+
+### Fixed — El anexo imprimía el RFC equivocado, el nombre roto, y gastaba 41% más papel (AX.10, 2026-09-07)
+
+Salió de *"el rfc esta mal y como se imprimi el nombre… que la hoja optimice todo el uso en columnas para que use todo el espacio disponible, y optimice el consumo de hojas verticalmente"*.
+
+**Los dos datos equivocados** (verificados contra árbitros independientes antes de tocar nada):
+
+- **El RFC del emisor estaba hardcodeado y mal.** Imprimía `LOGL8810144QS` y *"Lugar de expedición: C.P. 59701, Michoacán"*; es **`LOGL851014AQ5`** y **C.P. 36910**, según `fiscal.issuer_config`, los **167,503 CFDIs recibidos** de `fiscal.cfdis` —todos con `receptor_rfc = 'LOGL851014AQ5'` desde 2018, y el receptor de una factura recibida somos nosotros— y 11 fichas internas de `kepler_ods.kdud`. Iba en el membrete, en el beneficiario del pago y **en el pagaré**; el CP viejo además se contradecía con el propio pagaré del mismo documento, que dice C.P. 36910. **El resto del repo ya tenía el correcto** (importer de ContPAQi, placeholder del formulario de facturación, matcher de OCR): era un typo en una constante que nadie cruzó nunca contra nada. Ahora sale de `issuer_config` y **sin fila configurada el anexo se niega a imprimir**: un RFC inventado en un pagaré es peor que no emitirlo.
+- **El nombre se imprimía roto.** El beneficiario se capitalizaba con `/\b\w+/g`, y en JS `\w` no matchea letras acentuadas: `LUIS FRANCISCO LÓPEZ GUTIÉRREZ` salía como **"Luis Francisco LÓPez GutiÉRrez"** en todos los anexos. Va verbatim, que además es lo correcto para un beneficiario de pago.
+- **El RFC genérico del SAT se pasaba por RFC del cliente.** 1,298 de 1,640 facturas imprimibles (**79.1%**) traen `XAXX010101000`. Ahora se rotula (`· público en general`) y en el **pagaré se omite**: en un título de crédito un RFC que no es del deudor es peor que ninguno.
+
+**El papel, medido A/B sobre 15 facturas reales** (3 por tramo de renglones, la misma muestra con el anexo de `HEAD` y con el nuevo): **41 → 24 hojas (−41%)**, 14 de 15 bajan, promedio **2.73 → 1.60 por factura**. Una factura de hasta ~8 renglones ahora entra **completa con su pagaré en una hoja** (antes: 2). Una de 31 renglones pasa de 4 hojas a 2.
+
+De dónde salió, por rendimiento: la **unidad pegada al precio** (iba en renglón aparte, así que un producto de 3 niveles gastaba 6 líneas por columna — y hay dos columnas de precio); **dos filas del pie fundidas en una** (252 px apilados con la mitad en blanco, y su renglón central repetía al peso el bloque de totales de arriba); **anchos dimensionados con el dato** (14,872 renglones de 90 días: la peor cifra es `$49,750.20` ≈ 90 px y el nombre tiene p95 = 41 caracteres → el nombre pasa de 22% a **38.5%**, `CANTIDAD` de 14.5% a 8%); membrete y título en una fila; tira de datos en tres columnas; márgenes 12 → 9 mm; y el rótulo de grupo sólo desde 10 productos.
+
+**Candado nuevo** `libs/commercial/src/lib/commercial-sales-documents/anexo-venta.spec.ts` (**19/19**, `nx test commercial`) — la primera prueba automática de este documento, que antes sólo existía al imprimirlo. Los tres arreglos van con su prueba negativa, porque los tres pasaban en verde con el bug puesto: ningún literal con forma de RFC puede volver al archivo (el gate lee su propio fuente), el test **ejecuta la capitalización vieja** para afirmar que producía exactamente la basura contra la que asegura, `emisorFiscal()` truena sin fila en `issuer_config`, y **los anchos de columna suman 100%** en los dos modos (verificado en rojo a propósito). Smoke `test-newdb-sales-docs-cobranza.js` 13/13 contra prod: el dinero no cambió.
+
+Sin migraciones y sin permisos nuevos → **sin re-login**. Pendiente: redeploy de api.
+
+### Added — La unidad de venta deja de ser una suposición heredada: un resolvedor con testigo y método (U.4–U.7, ADR-057, 2026-09-07)
+
+Arranca de *"las capas lógicas están fallando demasiado; necesito una verdad absoluta en unidades
+de venta"*. Medido: **27 archivos** leen `catalog.products.factor_sale` (la única fuente probada
+**sin** unidad), **17** leen `product_label_prices.box_size`, y **UNO** lee la escalera anclada al
+ERP. La unidad no se resolvía una vez: se re-derivaba en cada piso.
+
+- **⭐ El testigo que nadie había buscado.** `docs/UNIDADES_DE_MEDIDA.md` marcaba la etiquetera con
+  ❌ y concluía que el 40% de la venta *"no tiene contra qué verificarse"*. Existe un segundo
+  testigo independiente: `analytics.v_supplier_cost_ladder.units_per_box` = `box_cost / u1_cost`
+  sobre `kepler_ods.kdpv_prov_prod` — **lo que se le pagó al proveedor**. Coincide con la
+  etiquetera en **5,569 de 5,578 SKUs (99.84%), razón mediana 1.00**. Cobertura verificable de la
+  venta: 44.8% → **93.1%**.
+- **⚠️ Y se da vuelta la sospecha:** la fuente peor es la corrección **manual**. Los `override`
+  contradicen lo pagado en **62 de 277 (22%), $6,174,488** — casi todos granel con `override = 1`
+  contra 12–18 pagados, incluido `20555 CAR SURTIDO 18KG`, el SKU que destapó U.1. Van a bandeja,
+  no se corrigen parejo.
+- **`analytics.v_unit_truth`** (vista `derive-no-copy`, tenant × almacén × producto). No
+  reimplementa la precedencia: la lee de `v_warehouse_box_factor` y `v_product_box_factor`. Su
+  `box_factor` es **idéntico** al que ya se publica (100,908 filas, 0 discrepancias) — eso es lo
+  que autoriza a migrarle consumidores sin revalidar cada pantalla.
+- **`metodo_cajas` ordena los testigos en vez de elegir uno**: `dinero` (87.8% de la venta,
+  inmune a la unidad del numerador) › `peso` › `divisor` verificado › `unidad_es_caja` ›
+  `sin_metodo` (**NULL con motivo, nunca 0**). **91.7% de la venta con cifra defendible.** El
+  árbitro de dinero había refutado la solución obvia: en **296 SKUs ($78.3M) ningún divisor
+  acierta**, porque `sales_daily.units` mezcla peldaños incluso dentro de un mismo almacén
+  (`42029` en `01` promedia $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25).
+- **ADR-055 queda auditado, no sólo afirmado**: 24,795 celdas de Wincaja dan razón 1 y 1,085 dan
+  `f2` exacto = **99.5%**. Las 128 restantes (**45 SKUs**) traen `factor_venta = f2` en vez de
+  `f3/f2` → divisor 4–40× chico. Es su defecto vivo y ahora tiene nombre.
+
+### Fixed — El sell-out publicaba 716,742 piezas rotuladas como "cajas" (U.7, 2026-09-07)
+
+Las tres cascadas del sell-out terminaban en `factor_sale ?? box_size ?? 1`, y ese `1` publicaba
+piezas con la etiqueta "cajas": **710 SKUs, $14,279,457 = 2.2% de la venta 365d**. El pivote por
+vendedor era el peor — convertía **sólo** con `factor_sale`. Efecto del arreglo sobre 90 días:
+602,049 → 592,102 cajas (**−1.65%**), con $8,540,925 declarados en `sin_metodo`.
+
+De paso, el pivote por vendedor **nunca seleccionaba `monto_neto`**, así que publicaba siempre
+$0 en esa columna.
+
+### Added — El hecho de venta persiste el peldaño que se cobró (U.5, 2026-09-07)
+
+`import-sales-fact.js:150` ya lo identificaba por precio y lo tiraba: `if (!conv.ok) unconv++`
+mandaba el veredicto a un `console.log`. Tres columnas aditivas en `analytics.sales_daily`:
+`rung_factor`, `rung_mixed`, `units_unresolved`. ⚠️ La mezcla vive **entre celdas** (311 SKUs /
+$17.4M = 12.8% de la venta 90d), no dentro de una fila — el dry-run sobre 695,127 filas dio cero
+mezcladas, así que `rung_mixed` nace como candado. A grano SKU sin almacén el no-base baja de
+7.2% a 0.7%: **el grano grueso lo escondía 8×**.
+
+### Fixed — La cobertura del resolvedor se declara, y 7 rutas dejan de ser un hueco silencioso (U.6, 2026-09-07)
+
+13 almacenes `RUTA-*` no tenían **ninguna fila**: **$60,148,173 (9.4%)** sin divisor. Y una fila
+ausente se lee peor que una mala — en un LEFT JOIN llega NULL y un `COALESCE(medible, true)` la
+cuenta como sana; el candado reportaba 98.2% por eso. No faltaba el dato, faltaba el **mapeo**:
+`wincaja.articulos` tiene las 13 sucursales de ruta. Se mapearon **7**; las 6 de La Piedad **no**,
+porque cambiaron de ERP (Wincaja hasta 2026-06-26, Kepler desde 2026-06-29) y **su divisor depende
+de la fecha**. Cobertura final **94.8%**, el 5.2% declarado en `analytics.v_unit_truth_coverage`.
+
+⚠️ **CORRECCION (medida despues de aplicar):** afirme que aparecian **+$233,726** de inventario y
+**era falso**. `analytics.v_erp_stock_on_hand` excluye las rutas a proposito -- su pierna de
+Wincaja termina en `AND v.warehouse_code NOT LIKE 'RUTA-%'` (el stock de una camioneta no es stock
+de bodega para reabasto) -- asi que el mapeo no agrego **ni un peso**: la vista sigue en 9
+almacenes. Medi el valor de la red tres veces en una hora ($68.63M -> $68.86M -> $68.95M) y le
+atribui la deriva del importer a mi cambio, sin controlarla. **La leccion: para atribuir un delta
+hay que medir el mismo instante con y sin el cambio, no dos instantes distintos.**
+
+El efecto real y no previsto estaba en otra parte: el CTE `win` de `analytics.v_existencia_dictamen`
+une por la MISMA columna y **no** tenia ese filtro, asi que los 7 almacenes de camioneta entraron
+al dictamen -- de 52,421 a **122,117 celdas**. Eso rompia su promesa central (*"la EXPLICA, no la
+reemplaza"*): dos universos del inventario publicados a la vez. Corregido con el mismo filtro
+(mig `20260907200000`, auto-verificada: 52,553 = 52,553).
+
+⭐ **Y su candado paso en VERDE con 69,564 filas de mas.** Comparaba `count(*)` del **JOIN** contra
+la canonica, y el JOIN solo empareja lo que esta en LAS DOS: probaba `canonica ⊆ dictamen` y se
+leia como igualdad. **Una comparacion que solo mira la interseccion no puede ver lo que sobra.**
+Ahora cuenta los dos lados y afirma que ningun ALMACEN aparece de un lado y no del otro.
+
+### Internal — Tres errores propios que la medición atrapó antes de publicarse (2026-09-07)
+
+1. **El factor 1 archivado como "nada que verificar"**: `base_per_box <= 1 → no_aplica` cortaba
+   antes de mirar al testigo, así que **13 SKUs / $5,135,134** que declaran "no hay caja" contra
+   dos testigos coincidiendo en 18/12/5/10/20/24/25/27/40 quedaban invisibles.
+2. **`no_aplica` tratado como ignorancia**: tiraba el total del sell-out **−33.6%**. Verificado
+   contra la escalera de precio, 240 de 278 SKUs cobran dentro de banda de `p1` y **no tienen `f2`
+   ni `f3`** — su unidad de venta ES la más grande (`57009 CUBETA 20K`, `87234` con
+   `unit_base = CJA`). **"No hay factor de caja" y "no sé convertir a cajas" son cosas distintas.**
+3. **El `motivo` de cobertura mezclaba dos preguntas** y etiquetaba $300.6M de sucursales Kepler
+   sanas como "ERP mixto".
+
+⭐ **El patrón, tres veces en una fase: cuando un `CASE` mezcla dos preguntas, la precedencia le
+miente a una de las dos** — y le miente al caso más común o más caro.
+
+⚠️ Y el candado atrapó una **regresión de RLS**: un `CREATE OR REPLACE VIEW` se llevó
+`security_invoker` y `v_unit_truth` dejó de filtrar por tenant. Lo vio **sólo** la aserción de
+metadata — la vista seguía devolviendo datos correctos y ninguna prueba funcional lo notaba.
+**Regla: después de cada `CREATE OR REPLACE VIEW` sobre una vista con RLS, re-aplicar
+`security_invoker` y el `GRANT`.**
+
+⚠️ `CREATE INDEX CONCURRENTLY` es una trampa en esta base: espera a TODAS las transacciones más
+viejas, incluso ajenas. Con una consulta de analítica de **1h54m** corriendo, el build se sentó
+575 s en `Lock/virtualxid` y encoló detrás dos `ANALYZE` del propio importer.
+
+Migraciones en prod: batches 283, 285, 286, 290, 293, 294, 295, 296, 300, 301, 303. Candado
+`database/tests/test-newdb-unit-truth.js` **40/40** contra prod. Detalle en
+[`UNIDADES_DE_MEDIDA.md`](docs/UNIDADES_DE_MEDIDA.md) §8sexies y **ADR-057**.
+
+
+### Changed — Telemarketing: el tablero ve la facturación de su canal, y el módulo (y su ruta) se llaman como el canal (E.9 + E.9.1, 2026-09-07)
+
+Salió de *"hay que cambiar /televenta/dashboard para que ahí también se vean las facturas, y ordenemos este módulo para telemarketing"*, y después de *"cambiemos la ruta a telemarketing"*.
+
+**Lo que la auditoría encontró antes de tocar nada** (medido en prod):
+
+- **`commercial.call_logs` está VACÍA: 0 llamadas.** Todo el tablero —llamadas, minutos, conversión, top operadores, outcomes 7d— publicaba **ceros**. El módulo nunca se usó.
+- **La cola apunta al universo equivocado:** trabaja 412 clientes `V-…` captados en campo y **0 de 412** son clientes de telemarketing. Los reales son 206 códigos del ERP.
+- **La operación real sólo vive en el ERP:** 4 operadores, **732 facturas y $8,243,050 en 30 días**, con **$2,340,863 vencidos por cobrar**.
+- **No hay puente operador↔usuario** (`identity.users` no tiene `vendedor_code`), así que la factura se atribuye por el vendedor del ERP y no se puede cruzar con quien registre la llamada.
+
+**Lo que cambió:**
+
+- **`billing` en `GET /commercial/televenta/dashboard`**: hoy / mes / 30 días, cobrado, **vencido por cobrar**, desglose por operador del ERP y las últimas 8 facturas con su estado de cobro. Sale de `analytics.erp_sales_invoices` — la misma vista en vivo que consume Facturación de Telemarketing— y el smoke **exige que cuadren al peso**: si divergen, una de las dos pantallas miente. Va **primero** en la pantalla; es lo que existe todos los días.
+- **La actividad se declara** (ADR-056): sin captura el tablero dice *"no hay llamadas capturadas en este módulo"* en vez de pintar 0% de conversión como si fuera desempeño.
+- **Nombre unificado a Telemarketing** en todo lo visible (encabezado, marca del shell, nav "Dashboard"→"Resumen" + "Facturación", los 2 labels de permiso y su categoría, `authz-tree`, preset de rol, selector de proyectos). El rol en prod **ya se llamaba `telemarketing`**: el código era el que iba desfasado.
+- **La ruta canónica es `/telemarketing/*`** y `/televenta/*` queda como **redirect sin componente** (dos componentes montados en dos URLs serían dos copias de la misma pantalla, no un redirect). El `**` reconstruye los segmentos: un marcador de `/televenta/lead/123/take-order` aterriza completo.
+- **NO se tocaron** las claves de permiso ni la clave de área —viven en `role_permissions` / `area_role_presets` de la DB y renombrarlas silencia accesos— ni el endpoint `/api/commercial/televenta/*`: nadie lo ve y renombrarlo abre una ventana de 404 entre el deploy de api y el de view (si se quiere, con alias `@Controller([...])` y sin prisa).
+- ⚠️ Cada consulta del bloque va con su selección **materializada antes de ordenar/recortar**: sobre esta vista un `ORDER BY … LIMIT` directo dispara el nested loop de AX.9 (23,856 ms vs 970 ms). El bloque responde en **1,096 ms**.
+
+**Candados:** `database/tests/test-newdb-telemarketing-billing.js` **9/9 contra prod** (incluye la prueba negativa del puente inexistente: si algún día aparece `vendedor_code`, avisa) y `apps/view/src/app/telemarketing-route.spec.ts` **11/11** con el Router real, con su prueba negativa (sin el bloque legacy la URL vieja no resuelve).
+
+**Dos cosas que el gate de rutas encontró y que no se veían a ojo:**
+
+- **Un `redirectTo` funcional que devuelve string TIRA los query params**, mientras el estático sí los conserva. Asimetría no documentada; el redirect devuelve `UrlTree` armado con `createUrlTree({ queryParams, fragment })`.
+- **El entorno de jest de `apps/view` nunca se inicializaba.** `test-setup.ts` hacía `import 'jest-preset-angular/setup-env/zone'`, pero ese módulo **exporta** `setupZoneTestEnv` en vez de ejecutarlo: cualquier spec con TestBed moría en *"Need to call TestBed.initTestEnvironment() first"*. Nadie lo notó porque ningún spec de la app usaba TestBed — el único con esa forma son 3 `it.todo` que declaran la deuda. Arreglado en 2 líneas; la suite de view queda **6 suites / 66 tests verde**.
+
+**Abierto:** ⬜ **E.10** re-apuntar la cola a los 206 clientes reales del ERP (es lo que hace que el módulo sirva para operar y no sólo para mirar) · ⬜ **E.11** puente operador↔usuario. **Pendiente prod: redeploy api+view** (sin permisos nuevos → sin re-login).
+
+### Fixed — Identidad: el padrón dejó de tener un `hacker` dentro, y las FK volvieron a existir (IDG.1-8, 2026-09-07)
+
+Salió de rastrear **un usuario llamado `hacker`** en el padrón de producción. La cadena completa:
+
+- **El suite de tests se corrió contra PROD** el 2026-08-29, 16:47–17:13 UTC. `database/tests/` está pensado para local (Docker autocontenido con seeds propios), toma la conexión del `.env` global sin validar nada, y **37 de sus archivos escriben destructivamente**; 4 crean y borran tenants con el rol `postgres`, que además bypassa RLS. `run-all-tests.js` los invocaba heredando `process.env` sin inspeccionarlo.
+- **El assert falló y nadie se enteró.** Test 7 de `test-newdb-rls-isolation` afirma que la FK compuesta rechaza un `role_name` de otro tenant; el INSERT pasó, imprimió `✗ FAIL`, sumó 1 al contador y siguió. Su cleanup sólo barre el tenant ajeno y `hacker` nació en el real, así que quedó. **Cinco días después ya estaba citado en este mismo CHANGELOG** (AUTHZ.6.4) como un dato legítimo del padrón: nadie preguntó qué era.
+- **Por qué la FK no frenó:** `identity.users` tenía **144 de sus 195 triggers deshabilitados**, la única tabla de la base así. Muertas las 4 auto-referencias (`created_by`/`updated_by`/`deleted_by`/`supervisor_id`) y el lado hijo de `fk_users_tenant_role` y `users_tenant_id_foreign`; además los triggers de acción de buena parte de las ~96 FK que apuntan ahí, o sea que borrar un usuario dejaba referencias colgadas en vez de `SET NULL`. ⚠️ **`pg_constraint.convalidated` decía `true` todo el tiempo** — un chequeo de metadata daba verde. Origen probable: `database/scripts/local-import-from-railway.sql:25` es el único `DISABLE TRIGGER ALL` sobre esa tabla en el repo, y el estado apunta a una corrida parcial contra prod a pesar del `local-` en el nombre.
+- **Y por debajo, las 23 vistas de `public.*` apagaban el RLS.** Son shims del cutover, pertenecen a `postgres` y no llevaban `security_invoker`, así que el RLS de la tabla base se evaluaba como el dueño —exento— y devolvían todos los tenants. Medido: como `app_runtime` sin tenant en sesión, `identity.users` daba **0** filas y `public.users` daba **125 de 3 tenants con los 123 hashes bcrypt**. El código las nombra en **180 lugares**, entre ellos dos `.where({ username }).first()` cuya unicidad es POR TENANT, y tres escrituras (una de `password_hash`).
+
+**Lo aplicado a prod:**
+
+- **`security_invoker` en 22 de 23 vistas** (batch 282). Se eligió sobre migrar los 180 call sites: 23 sentencias cierran el agujero para todos, presentes y futuros. El riesgo se midió antes, no se supuso — de los 30 reads sin tenant en contexto, 28 son `public.tenants` (base sin RLS, no-op) y 2 van por `KNEX_CONNECTION` (postgres, exento). `products_active` queda **excluida con motivo**: encadena a la tabla foránea `erp.productos_activos` (FDW `mega_dulces_srv`), `app_runtime` no puede conectar (`08001`) y tiene cero consumidores. Verificado en prod: `public.users` sin tenant pasó de 125 a **0**; con tenant, 120; y escribir a otro tenant lo rechaza RLS con **42501**.
+- **Residuo barrido** (`cleanup-test-identity-residue.js`, dry-run por default): 5 cuentas, 2 roles de smoke, 2 `user_scopes` —uno con sucursales inexistentes `['ZA','ZB']`— y los tenants `tenant_isolation_test` / `ws_iso_test` con sus 270 filas. **120 usuarios activos, 0 violaciones de FK.**
+- **144 triggers re-encendidos** (batch 284), con gate que aborta si quedan referencias colgadas: `ENABLE TRIGGER` no valida lo ya escrito.
+- **643 concesiones retiradas de los 14 roles `retirado_*`** (batch 287), todos sin usuarios. `retirado_sistemas` otorgaba **145 de 167 claves**; bastaba escribir ese `role_name` en una ficha para heredarlas. Las filas se conservan como etiqueta histórica (la FK `ON DELETE RESTRICT` impide borrarlas de todos modos).
+- **Rol `recursos_humanos`** (batch 291) con las 4 claves `USUARIOS_*` + `ROLES_VER` y sus 6 dimensiones de alcance explícitas. `USUARIOS_GESTIONAR`/`_PASSWORDS` los concedía **sólo `superadmin`** — 9 cuentas, todas de `sistemas`— y no había rol de RH, que es por lo que **41 de 123 cuentas nunca entraron** y **cero** están en `suspended`/`terminated`: quien conoce las bajas no podía aplicarlas. Es seguro fuera de Sistemas por el **techo** de `[AUTHZ-HARD.0]`: no se puede otorgar un rol con claves que uno no tiene. Nadie asignado — eso va por `/admin/usuarios`.
+
+**Los candados, para que no se repita:**
+
+- **Guarda de destino** `database/tests/_lib/assert-safe-target.js`, **allowlist y fail-closed**: prod → `exit(2)`, host no declarado → `exit(2)`, la `.245` compartida avisa y sigue. Cableada en el runner (cubre las ~170 suites de una) y en **los 33 tests destructivos**. No se calcó el regex de `_smoke-sink-mirror.js` porque sólo reconoce Railway y **no** la `.245` a la que el `.env` apunta hoy.
+- **Smoke `test-newdb-fk-triggers-enabled.js`**: cero `tgenabled='D'` en los 7 schemas de negocio, cero referencias colgadas, y la prueba de **comportamiento** (un `role_name` inexistente debe dar `23503` dentro de un `ROLLBACK`). No consulta `convalidated` a propósito. Pasaba **7/3** en prod; ahora **10/0**.
+- El cleanup de `test-newdb-rls-isolation` barre el tenant real incondicionalmente y también en el `catch` — el `finally` no corre después de un `process.exit()`.
+- El JSDoc de `TenantKnexService` usaba `trx('users')` con el comentario "RLS filtra automáticamente": cierto por el `search_path` del rol, falso escrito como `public.users`.
+
+**Pendiente:** las ~167 referencias restantes a `public.*` (higiene, sin urgencia de seguridad) · el eje ruta (`route_id` lo tienen 6 de 120, y quitar los 38 overrides `warehouse=all` sin poblarlo antes deja **32 personas ciegas**) · las 10 claves que sólo tiene el god-mode · `finance_expense_area_ids` (0 usuarios, y `expense-proofs` la sigue leyendo) y `warehouse_id` (duplica a `warehouse_code`).
+
+**Hallazgos colaterales, no resueltos:** `app_runtime` en `.245` falla con `28P01` y eso impide correr la regresión completa · hay **dos** `knex_migrations` (`public` con 577 filas es el real; `identity` con 2 es espurio, y `npm run migrate:new` escribe al equivocado) · `public.products_active` se cuelga consultando el FDW · sigue vivo un tercer tenant de prueba, `test_tenant_b`.
+
+### Fixed — `/comercial/documentos`: "vencida" ya no ignora si te pagaron (AX.9, 2026-09-05)
+- **Qué es esa pantalla, medido:** facturas de **telemarketing y sólo eso** (`U/D/8`, canal `TELEMARK` en el 100%, sucursales 01 y 06). $8.36M / 738 documentos en 30 días = **31%** de la venta al cliente final y **7%** de todo `U/D`. Cadena Pedido `U/D/40` → Embarque `U/D/41/1` → Factura `U/D/8`, con padre en 1,355 de 1,355. Sin fugas a otros doctypes ($112k en 90d = 0.8%).
+- **El vencido contaba fechas, no deuda.** Marcaba 355 documentos por $3,320,754; **91 ya estaban cobrados ($567,504)**. El vencido real: 264 documentos y **$2,028,423** de saldo. Ahora `vencida` = venció **y** debe, y el KPI publica el saldo. La cobranza sale de `kdue`, **no** de `kdm1.c42/c43` —que van rezagados: 563 de 1,346 facturas siguen marcadas "sin abonos" con el cobro ya registrado con folio y fecha.
+- **El vencimiento era una reconstrucción con el maestro de HOY** y contradecía al ERP en **329 de 729 (45%)**, hasta 25 días. Y el del ERP tampoco está limpio (57 vencen antes de su propia factura). Veredicto ternario que viaja con el dato: `vencimiento_source` = `erp` / `derivado_erp_invalido` / `derivado`, declarado en pantalla (ADR-056).
+- **El subtotal no cuadraba con los renglones que se imprimen.** El IEPS **ya viene dentro del renglón** (744/744 sin descuento: Σrenglones == total exacto, nunca `total − ieps`) y `total = Σrenglones × (1 − d%)` en 1,268/1,268. El nuevo `importe_bruto` cuadra con el detalle en **3,264 de 3,264** (el `subtotal` viejo: 1,039). El anexo dejó de **afirmar** el desglose del CFDI: `fiscal.cfdis` son 167,503 filas y **todas** `rol='recibidas'`, no hay árbitro.
+- **`kdm1.c43` decodificado** con 2,745 documentos y separación perfecta: `N` sin abonos · `R` abono parcial · `F` liquidada · `C` cancelada. Y **`U/D/12` deja de llamarse "Venta a crédito"**: `kdmm` dice "Factura Cont No Fiscal".
+- **Una sola definición del saldo:** en vez de copiar la fórmula de la cartera, su CTE `base` sale a `analytics.erp_receivable_documents` y `customer_receivables` se apoya en él — con candado de paridad contra prod (29 columnas, diferencia simétrica 0 en ambos sentidos).
+- **Changed:** `commercial-profitability` leía `subtotal`/`descuento`; su tasa de descuento al cliente pasa de 0.744% a **0.765%** (180d).
+- **Pendiente prod:** 2 migraciones + redeploy api/view (sin permisos nuevos → sin re-login). Detalle en [`FASE_AX`](docs/IMPLEMENTACION/FASES/FASE_AX_ANEXO_VENTA.md).
+
+### Added — El log de cambios y la cifra oficial del mes, que no existían (VP.3 + VP.4, 2026-09-07)
+- **`analytics.master_data_history` — el cambio de un dato maestro deja rastro.** Hasta hoy había **cero** historial para precio, costo, punto de reorden, precio de etiqueta y factor de caja: los ~11 importers que escriben esas tablas hacen UPSERT ciego, **ninguno** setea `updated_by` (existe en 3 de 4 y **miente**) y **ninguno** conserva el valor anterior. `import-computed-reorder` e `import-network-reorder` pisan **nueve columnas de política de golpe**: si un punto de reorden pasaba de 40 a 12 y disparaba una requisición equivocada, no había forma de saber que era 40. Los primeros dos cambios capturados en prod fueron una corrección de código de barras (`750043007916` → `7500443007916`, le faltaba un dígito) propagada a catálogo y a etiquetas.
+- **Los 9 importers declaran quién escribe.** El `current_user` ya distinguía la app del feed, pero no **un importer de otro** — y `commercial.reorder_policy` la pisan **tres**, dos de ellos escribiendo la misma columna `service_level` con políticas de forma distinta.
+- **`analytics.cron_run_log` — la bitácora de corridas.** `cron_runs` guardaba **sólo la última** (PK `(tenant, job_key)` + UPSERT): servía para *"¿está sano ahora?"* y no podía contestar *"¿cuántas filas tocó el importer de precios el martes?"* ni *"¿cuántas veces falló este mes?"*, que es lo primero que se mira cuando un tablero amaneció distinto.
+- **`analytics.period_close` — la cifra oficial de un mes, congelada.** No existía **ninguna**: todo se recalculaba desde fuentes que se mueven hacia atrás. Ahora se guardan tres cosas, y son tres por una razón — la cifra **con desglose por sucursal** (un total puede cuadrar compensando errores opuestos), el **hash de la definición** (que separa *"se movió la fuente"* de *"alguien editó la vista"*, dos causas que se ven idénticas en el número y piden acciones **opuestas**), y los **watermarks** (cuál fuente avanzó). Un comparador recalcula y **declara** la diferencia; nunca cambia el número en silencio.
+- ⚠️ **Hallazgo al cerrar: 780 filas del sell-out con fecha imposible**, todas de Wincaja — **360 en `1999-12-31` exacto por $249,726.81**, más 366 en `2024-12-31`, y una sucursal `505` desconocida. Un *31 de diciembre* es la firma de una **fecha centinela**. Pesa 0.031% del importe, pero es dinero en el periodo equivocado y crea **8 meses fantasma** en cualquier selector sin acotar. Lo destapó el propio ejercicio de cerrar: enumerar los meses obliga a mirarlos.
+
+### Fixed — Los números ahora declaran con qué se calcularon (VP, 2026-09-05)
+- **Tres mentiras vivas, medidas y apagadas.** (1) `FRESHNESS_UNKNOWN` salía con `stale: false` y los consumidores preguntan `@if (f.stale)` → **cuando fallaba la medición la etiquetera no mostraba nada**, en la misma pantalla que imprimió seis días de precios viejos, uno **54% bajo costo**. (2) **21 de 24** píldoras decían *"actualizado hace 2 min"* midiendo el reloj del navegador — la peor con `label="Kepler"` sobre un `new Date()` local. (3) `db-health` daba **verde incondicional** a todo job que latiera sin umbral registrado: las 3 matvistas del refresh nocturno que arman el sell-out.
+- **El veredicto pasa a ternario** `fresh | stale | unknown`: un booleano no puede decir "no sé", y el default permisivo es exactamente cómo un feed muerto se disfraza de sano. `stale` queda **derivado** (`status !== 'fresh'`) para que un consumidor viejo avise en `unknown` sin tocarlo.
+- **El sell-out tenía tres capas ciegas apiladas** y las tres miraban al mismo punto: el candado de paridad que la migración **afirmaba que existía** (no existía — grep daba 6 hits, ninguno un test), el refresh que materializaba el rollup mensual aunque fallara la pierna Kepler (*ordenar no es depender*), y el monitor en verde. `test-newdb-sellout-parity.js` mide ahora doble conteo, **hueco** (el traslape se ve, el hueco no) y rollup-vs-vista al peso — Δ 0.00 en 3 meses cerrados.
+- **Lo que no se puede medir se declara, también en los tests**: un bloque sin datos reporta `NO MEDIDO`, no ✔. Con una pierna vacía, "cero traslapes" es cierto y no prueba nada — era el patrón por el que varias suites pasaban en verde justo en el entorno donde alguien las correría.
+- **`coverage.measured`** distingue *"medí y no falta nada"* de *"nadie contó"*, que sin él se serializan igual (el sell-out por vendedor devolvía dos arreglos vacíos con una nota fija).
+- Ver **ADR-056** y [`FASE_VP`](docs/IMPLEMENTACION/FASES/FASE_VP_VERDAD_Y_PROCEDENCIA.md). **Pendiente:** historia de datos maestros (hoy **cero** para precio/costo/reorden), `period_close` (no existe ninguna cifra oficial congelada) y meter la suite a CI.
+
 ### Added — Existencia: una sola pantalla del censo físico, en Almacén y en Compras (E, 2026-09-04)
 - **La razón de fondo no era que faltara una pantalla: era que la que había leía la fuente equivocada.** Almacén tenía una tab llamada literalmente «Existencias» (`/almacen/inventory`) que lee `commercial.stock` — y contra el POS en vivo esa tabla **acierta 91%** (15,324 unidades de error) frente al **100%** de `analytics.v_erp_stock_on_hand`. Caso: SKU `88009` en almacén `01` → POS **2,485** · ODS **2,487** · tabla **3,547**.
 - **Un componente, dos rutas** (`/almacen/inventory/existencia` + `/compras/existencia`), **un permiso** — precedente vivo: Caducidades en `/almacen` + `/tienda`. En Compras va **antes de Pedido**: primero ves qué hay, después decidís qué comprar.
@@ -337,7 +624,7 @@
 ### Added — migración del catálogo/verificador/tienda mayorista externo (CV.0, 2026-09-01)
 - **Nuevo app `apps/catalogo-kp`**: primer paso de la migración física de `megadulces-api-ready` (NestJS 10 standalone, en producción real en `.163`, catálogo público + verificador de precios de mostrador + tienda mayorista) a este monorepo. Módulo `kp` completo portado a NestJS 11 sobre una conexión Knex propia a `KP_CONCENTRADA` — mismas queries SQL, mismas rutas `/api/kp/*`.
 - **Hallazgo de seguridad durante la migración:** el proyecto origen reusaba el rol `app_runtime`, que resultó ser **el mismo rol de cluster** que usa `postgres_platform` en `.245` (`docs/GOTCHAS.md` §24 ya advertía sobre esto) — sospechoso de una caída de producción de 6h ajena a esta Suite. Se preparó un rol dedicado (`catalogo_kp_runtime`, `apps/catalogo-kp/sql/007_rol_dedicado.sql`), aditivo, pendiente de aplicar contra el cluster real.
-- Deployment on-prem (no Railway), consistente con el principio ya aceptado para `kepler-consolidado`/Fase KV. Roadmap completo en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), ADR-056.
+- Deployment on-prem (no Railway), consistente con el principio ya aceptado para `kepler-consolidado`/Fase KV. Roadmap completo en [`FASE_CV`](docs/IMPLEMENTACION/FASES/FASE_CV_CATALOGO_TIENDA_MAYOREO.md), ADR-058.
 
 ### Fixed — el CDC perdía 2-7% de las filas todos los días (CDC.7, 2026-08-31)
 - **Lo encontró Edgar abriendo una factura, no un sensor.** `/comercial/documentos` mostraba `06 UD0801-0000265` como *"su único renglón es de servicio"*; el documento tiene **3 renglones reales por $4,518.00** —el total exacto de su cabecera— que estaban en Kepler y nunca llegaron. Al barrer llave por llave contra las réplicas: **~4,200 filas ausentes en 12 días**, en las 7 sucursales y 5 tablas (`kdm2` renglones de venta, `kdij`, `kdue` saldos de clientes, `kdm1`, `kdpord`). Cuadraba al 25 de agosto y desde el 26 perdía **entre 2% y 7% diario**.

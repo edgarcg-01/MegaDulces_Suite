@@ -303,6 +303,37 @@ export class CommercialOrdersService {
     });
   }
 
+  /**
+   * Reagenda la fecha de entrega de un pedido ya `confirmed`/`pending_approval`.
+   * `updateDraft` solo acepta drafts; esto permite corregir un pedido mal fechado
+   * (p.ej. el default viejo del vendedor que caía en domingo) sin retomarlo. Solo
+   * toca `requested_delivery_date` — preventa no reserva stock, así que no hay
+   * implicación de inventario. No aplica a fulfilled/cancelled.
+   */
+  async reschedule(orderId: string, requestedDeliveryDate: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+    const d = requestedDeliveryDate || null;
+    if (!d || !DATE_REGEX.test(d)) {
+      throw new BadRequestException('requested_delivery_date debe ser YYYY-MM-DD');
+    }
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+      if (!['confirmed', 'pending_approval'].includes(order.status)) {
+        throw new ConflictException(
+          `Solo se puede reagendar un pedido confirmado o por aprobar. Estado actual: '${order.status}'.`,
+        );
+      }
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({ requested_delivery_date: d, updated_at: trx.fn.now() })
+        .returning('*');
+      return updated;
+    });
+  }
+
   // ─────────────────────────────────────────────────────────────────
   // Líneas (solo en draft)
   // ─────────────────────────────────────────────────────────────────

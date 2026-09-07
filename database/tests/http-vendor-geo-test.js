@@ -17,6 +17,8 @@
  * Correr: node database/tests/http-vendor-geo-test.js
  */
 require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Este test BORRA `commercial.customers`. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('http-vendor-geo-test');
 const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW });
 const BASE = 'http://localhost:3334/api';
 const T = '00000000-0000-0000-0000-00000000d01c';

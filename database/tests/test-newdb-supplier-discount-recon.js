@@ -33,7 +33,7 @@ const near = (a, b, tol = 1) => Math.abs(Number(a) - Number(b)) <= tol;
 
     if (Number(pcol.sum_desc) <= 0) {
       console.log('\n  ⚠️  SKIP — sin descuento c84 en la data local (feed no cargado / columna sin backfill). Wiring cubierto por el build.');
-      await c.end(); process.exit(0);
+      await c.end(); process.exit(2);
     }
     ok(Number(pcol.n_desc) > 0, 'columna descuento poblada (c84 leído por el importer)');
 

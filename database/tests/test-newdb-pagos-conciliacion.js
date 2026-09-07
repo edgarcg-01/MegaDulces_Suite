@@ -28,7 +28,7 @@ const ok = (c, m) => { console.log(`${c ? '  ✅' : '  ❌'} ${m}`); if (!c) fai
          FROM finance.bank_movements bm JOIN finance.movement_categories mc ON mc.id=bm.category_id
         WHERE bm.tenant_id=$1 AND mc.group_key IN ('compra','factoraje') AND bm.amount_out>0 GROUP BY 1`, [TENANT])).rows;
 
-    if (kep.length === 0 && ban.length === 0) { console.log('\n  ⚠️  SKIP — sin pagos ni movimientos de banco. Wiring cubierto por el build.'); await c.end(); process.exit(0); }
+    if (kep.length === 0 && ban.length === 0) { console.log('\n  ⚠️  SKIP — sin pagos ni movimientos de banco. Wiring cubierto por el build.'); await c.end(); process.exit(2); }
 
     const map = new Map();
     const get = (mes) => { let e = map.get(mes); if (!e) { e = { mes, kepler: 0, banco: 0 }; map.set(mes, e); } return e; };

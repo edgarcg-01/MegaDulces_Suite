@@ -22,6 +22,17 @@ $logDir = Join-Path $here 'logs'
 New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $log   = Join-Path $logDir "wincaja_live_$stamp.log"
+
+# RETENCION (2026-09-05). Un archivo NUEVO por corrida y la tarea corre cada 10 min = ~144/dia.
+# Medido antes de poner esto: 4,409 archivos acumulados desde el 13-jul. No es el espacio (23 MB)
+# sino que el directorio deja de ser legible justo cuando hace falta leerlo: buscar la corrida que
+# fallo entre 4 mil archivos es lo mismo que no tener log. Se conservan 7 dias, que es la ventana
+# en la que efectivamente se diagnostica. Barato y best-effort: si falla, el feed sigue igual.
+try {
+  Get-ChildItem -Path $logDir -Filter 'wincaja_live_*.log' -File -ErrorAction Stop |
+    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-7) } |
+    Remove-Item -Force -ErrorAction SilentlyContinue
+} catch { }
 function Log($m) { $l = "$(Get-Date -Format o)  $m"; Write-Host $l; Add-Content -Path $log -Value $l }
 
 # --- Cargar sync.local.env (gitignored) para las vars que falten ---

@@ -80,10 +80,10 @@ El título y valor del precio grande **"Precio por ___"** siguen la unidad base:
 - **Backend:** `libs/commercial/commercial-labels` — `GET /store/labels/search`, `POST /store/labels/resolve` (batch, dedup por producto). `TenantKnexService.run()` (RLS). Permiso **dedicado `STORE_LABELS_VER`** (proyecto Tienda, separado de `STORE_LIVE_VER`). Ruta bajo `/store/*` para cohesión con Tienda aunque el código viva en libs/commercial. Wireado en `AppModule` (toggle `ENABLE_MULTITENANT`).
 - **Permiso/roles:** `STORE_LABELS_VER` (enum back+front, `permission-meta`, `authz-tree`, seed). Rol acotado **`etiquetas_tienda`** = SOLO ese permiso (ej. usuario `rodrigo_ortiz`). Los 7 roles de tienda que tenían etiquetas vía `STORE_LIVE_VER` reciben `STORE_LABELS_VER` (mig `20260709120000_grant_store_labels_perm`, `migrate:up` sin arrastrar RA). `/tienda` redirige a `live` o `etiquetas` según permiso (`storeLiveMatch` CanMatchFn); card en `/projects` con ambos permisos. **Prod: requiere re-login.**
 - **Frontend:** `apps/view/.../tienda/`
-  - `pages/tienda-etiquetas.component.ts` — cola, búsqueda debounced, carga masiva, multiselect (PrimeNG), simulación de hoja Carta, impresión por iframe aislado (landscape 2-up, `@page letter landscape`, color forzado).
-  - `components/label.component.ts` — la etiqueta 115×40 mm (`ViewEncapsulation.None`, clases `etq-*`), barcode con JsBarcode (dep npm `jsbarcode`, en `allowedCommonJsDependencies`), auto-ajuste del nombre al header, precio grande dinámico (`bigUnit`).
+  - `pages/tienda-etiquetas.component.ts` — cola, búsqueda debounced, carga masiva, multiselect (PrimeNG), simulación de hoja Carta, impresión por iframe aislado (landscape 3-up, `@page letter landscape`, color forzado).
+  - `components/label.component.ts` — la etiqueta **82×35 mm** (`ViewEncapsulation.None`, clases `etq-*`), barcode con JsBarcode (dep npm `jsbarcode`, en `allowedCommonJsDependencies`), auto-ajuste del nombre al header, precio grande dinámico (`bigUnit`).
   - Ruta `/tienda/etiquetas` + nav "Etiquetas" (`permissionGuard(STORE_LIVE_VER)`).
-- **Diseño:** 115×40 mm, sin iconos, letra grande, verde `hsl(141,76%,16%)` + amarillo `#f6c400`, **naranja de marca `#F05A28` (`--brand-700` sunset)** en SKU y números de piezas, brote de 2 hojas. Prototipo desechable en la raíz: `etiqueta-preview.html`.
+- **Diseño:** 82×35 mm (era 115×40 hasta 2026-09-07, ver §8), sin iconos, letra grande, verde `hsl(141,76%,16%)` + amarillo `#f6c400`, **naranja de marca `#F05A28` (`--brand-700` sunset)** en SKU y números de piezas, brote de 2 hojas. Prototipo desechable en la raíz: `etiqueta-preview.html`.
 
 ---
 
@@ -92,6 +92,30 @@ El título y valor del precio grande **"Precio por ___"** siguen la unidad base:
 - ✅ Tablas creadas (`migrate:up` — solo las de etiquetas, Batch 95 + 97; **las migraciones RA quedaron pendientes a propósito**).
 - ✅ **8,013 filas cargadas** desde el mirror `md_03` (verificado SKU 20186: 50 g, UPC, pieza $8.66, mayoreo $7.68, paquete 8/$66.06, caja 112/$860.60).
 - ⏳ **Pendiente:** redeploy del `view` (cambios de diseño están en `origin/main`) + re-correr el importer on-prem contra Kepler vivo para refrescar precios (agendar).
+
+---
+
+## 8. La etiqueta baja a 82×35 mm — 15 por hoja (2026-09-07)
+
+Disparador: *"necesito reducir el tamaño de la etiqueta"*. Edgar fijó el alto en **35 mm** y eligió el ancho tras ver el cálculo.
+
+**Medida anterior, medida:** 115 × 40 mm. Adentro, banda del nombre 7.8 mm · cuerpo 32.2 (30 útiles) · columna izquierda 54 · gap 2 · derecha 55 · precio 16 mm de letra · franja "por pieza" 5.2 · celda de precio de tier 20 · código de barras 5.4 mm de alto × 85% de su columna.
+
+**Por qué 82 y no 100.** En Carta horizontal con margen de 8 mm quedan **263 × 200 mm útiles**, y cada etiqueta lleva su margen de recorte. Los saltos son **umbrales, no una curva**: bajar de 115 a 100 mm no cambia nada (siguen 2 columnas y 8 por hoja). El umbral de la 3ª columna está en ~82.6 mm de ancho y el de la 5ª fila en 35 mm de alto. A **82 × 35** entran **3 × 5 = 15 por hoja**, contra 8: casi la mitad de papel por etiqueta.
+
+**Y la pantalla mentía sobre el tamaño.** El encabezado del componente, el texto de la página y el comentario de la función de impresión decían *"tamaño físico 100×40 mm"* mientras el CSS imprimía **115** — 15 mm más ancho que el material que declaraba usar. Se corrigieron las dos cosas a la vez.
+
+**Lo que se re-proporcionó** (respetando el reparto original 54:55): izquierda **38** · gap 1.6 · derecha **39.4** · padding 1.5 → 82 exactos. Banda 6.8 mm, precio 11.5 mm de arranque, franja 4.4, celda de tier 16, y los tres auto-encogidos (`fitHead`/`fitPrice`/`fitAmts`) arrancan y pisan proporcionalmente.
+
+**El código de barras es lo único con mínimo físico**: un EAN-13 pide ~29.83 mm de ancho al 80% de magnificación. Pasa de 85% a **100%** de su columna (39.4 mm) y conserva 5 mm de alto.
+
+⚠️ **El margen de recorte baja de 2.5 a 2 mm por TOLERANCIA, no por estética.** A 2.5 la huella mide 87 × 40 y cinco filas dan **200 mm contra 200 disponibles**: cero holgura, y cualquier redondeo de subpíxel manda la 5ª fila a la hoja siguiente — 12 aquí y 3 allá, **gastando más papel que antes** y sin que nadie entienda por qué. A 2 mm sobran 5 mm en cada eje.
+
+**Verificado** renderizando una hoja completa con el CSS **extraído del propio fuente** (no copiado) en puppeteer: etiqueta **82.0 × 34.9 mm**, **3 por fila × 5 filas = 15**, sin desbordes. ⚠️ **La primera pasada del chequeo dio verde y estaba mal**: medía `scrollWidth` del texto del precio, pero el recorte lo hace el `overflow:hidden` de la caja amarilla, así que el texto siempre "cabe" — un precio de 4 cifras salía cortado y el chequeo lo aprobaba. Corregido midiendo la CAJA. (Con el auto-encogido del componente, `$1,333.60` baja de 11.5 a 8.5 mm y entra completo.)
+
+**Candado `apps/view/src/app/modules/tienda/etiqueta-hoja.spec.ts` (9/9).** El tamaño de la etiqueta vive en el CSS, cuántas caben en una constante, y la medida rotulada en el texto de la pantalla: los tres podían desincronizarse sin que nada falle, y de hecho lo estaban. El gate comprueba la aritmética completa (medida → huella → columnas × filas → `PER_SHEET`), que **el rótulo diga la verdad**, que el margen de recorte sea el mismo en la simulación y en las dos rutas de impresión, que sobren ≥3 mm en cada eje, que las columnas más el padding sumen el ancho exacto, y que el barcode conserve su mínimo. Prueba negativa verificada bajando `PER_SHEET` a 12: **2 rojos**.
+
+**Pendiente:** validación visual en pantalla + una impresión de prueba para confirmar el corte, y redeploy de `view`.
 
 ---
 

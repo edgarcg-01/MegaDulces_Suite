@@ -6,6 +6,7 @@ import { CommercialAnalyticsService } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { RoutePromoService, PromoQuery } from './route-promo.service';
+import { SelloutChatService } from './sellout-chat.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
@@ -21,6 +22,7 @@ export class CommercialAnalyticsController {
     private readonly refresh: AnalyticsRefreshService,
     private readonly exporter: SellOutExportService,
     private readonly routePromoSvc: RoutePromoService,
+    private readonly selloutChat: SelloutChatService,
   ) {}
 
   @Get('overview')
@@ -652,6 +654,78 @@ export class CommercialAnalyticsController {
     return this.service.sellOutByVendor(
       this.parseSellOutQuery(brandId, from, to, undefined, undefined, undefined, undefined, search, undefined, cells, promo),
     );
+  }
+
+  // ─────────── BI.3 — Sub-modulo Analisis: "Explica el cambio" ───────────
+  @Get('sell-out/explain')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({
+    summary:
+      'BI.3 — Explica el cambio: descompone el delta del sell-out por dimension (dim=brand|branch|channel) vs periodo anterior o YoY (compare=prev|yoy). Suma exacta al delta total. Params: from, to, dim, compare, brand_id, measure=monto|neto, promo, search, warehouses=csv.',
+  })
+  sellOutExplain(
+    @Query('from') from: string,
+    @Query('to') to: string,
+    @Query('dim') dim?: string,
+    @Query('compare') compare?: string,
+    @Query('brand_id') brandId?: string,
+    @Query('measure') measure?: string,
+    @Query('promo') promo?: string,
+    @Query('search') search?: string,
+    @Query('warehouses') warehouses?: string,
+    @Query('channel') channel?: string,
+  ) {
+    return this.service.explainChange({
+      from, to, dim, compare, brand_id: brandId, measure, promo, search, channel,
+      warehouses: warehouses ? warehouses.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
+    });
+  }
+
+  // ─────────── BI.9 — objetivos / metas ───────────
+  @Get('sell-out/targets')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.9 — Metas del mes vs lo real (total/sucursal/canal). Param: month=YYYY-MM.' })
+  sellOutTargets(@Query('month') month?: string) {
+    return this.service.selloutTargets({ month });
+  }
+
+  @Post('sell-out/targets')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR)
+  @ApiOperation({ summary: 'BI.9 — Captura/edita una meta. Body: { scope: total|branch|channel, scope_key?, year_month, target_monto }.' })
+  sellOutTargetUpsert(@Body() body: { scope?: string; scope_key?: string; year_month?: string; target_monto?: number }) {
+    return this.service.upsertSelloutTarget(body || {});
+  }
+
+  // ─────────── BI.4 — graficas de soporte (tendencia + Pareto) ───────────
+  @Get('sell-out/series')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.4 — Serie mensual de monto (tendencia). Params: to_month=YYYY-MM, months, brand_id, channel.' })
+  sellOutSeries(@Query('to_month') toMonth?: string, @Query('months') months?: string, @Query('brand_id') brandId?: string, @Query('channel') channel?: string) {
+    return this.service.selloutSeries({ to_month: toMonth, months: months ? Number(months) : undefined, brand_id: brandId, channel });
+  }
+
+  @Get('sell-out/pareto')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.4 — Pareto/ABC: miembros por contribucion con share acumulado y clase. Params: month=YYYY-MM, dim, n, channel.' })
+  sellOutPareto(@Query('month') month?: string, @Query('dim') dim?: string, @Query('n') n?: string, @Query('channel') channel?: string) {
+    return this.service.selloutPareto({ month, dim, n: n ? Number(n) : undefined, channel });
+  }
+
+  // ─────────── BI.6 — "Radar": anomalias proactivas ───────────
+  @Get('sell-out/anomalies')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @ApiOperation({ summary: 'BI.6 — Radar: anomalias del sell-out (cada miembro vs su propio promedio). Params: month=YYYY-MM, dim=brand|branch|channel, lookback.' })
+  sellOutAnomalies(@Query('month') month?: string, @Query('dim') dim?: string, @Query('lookback') lookback?: string) {
+    return this.service.selloutAnomalies({ month, dim, lookback: lookback ? Number(lookback) : undefined });
+  }
+
+  // ─────────── BI.5 — "Preguntale al Sell-Out" (chat tool-use, cero numeros del LLM) ───────────
+  @Post('sell-out/ask')
+  @RequirePermissions(Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER)
+  @Throttle({ default: { limit: 15, ttl: 60_000 } })
+  @ApiOperation({ summary: 'BI.5 — Pregunta en lenguaje natural sobre el sell-out. El LLM elige tools deterministas; los numeros salen de la DB. Body: { message, history?, think? }.' })
+  sellOutAsk(@Body() body: { message?: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
+    return this.selloutChat.ask({ message: body?.message || '', history: body?.history, think: !!body?.think });
   }
 
   @Get('sell-out.xlsx')

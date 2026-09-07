@@ -17,6 +17,8 @@
  */
 
 require('dotenv').config({ path: require('path').resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Este test BORRA `commercial.inventory_counts` filtrando sólo por warehouse_id. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-inventory-count');
 const knex = require('knex')({
   client: 'pg',
   connection: process.env.DATABASE_URL_NEW_RUNTIME,

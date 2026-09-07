@@ -24,7 +24,8 @@ const BATCH = Math.max(200, Number(process.env.ODS_CDC_BATCH) || 2000);
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
-const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
+// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

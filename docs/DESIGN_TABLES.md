@@ -1,7 +1,7 @@
 # Tablas profesionales — guía del DS "Mercado" (Operations)
 
 > Compañero de [`DESIGN.md`](../DESIGN.md). La tabla densa es el **organismo primario** de la superficie Operations
-> (`/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta`). Este documento define cómo se
+> (`/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/telemarketing`). Este documento define cómo se
 > construye una tabla bien hecha en este proyecto: investigado contra las design systems de referencia y aterrizado
 > a nuestros tokens y clases reales (`surf-table`, `comm-num`, `comm-pill`, `p-table`).
 >

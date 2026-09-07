@@ -2,6 +2,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+// [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
+import type { Freshness } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -1332,6 +1334,63 @@ export class ComercialService {
     return this.http.get<SellOutReport>(`${this.base}/analytics/sell-out/by-vendor`, { params });
   }
 
+  /** BI.3 — Explica el cambio: descomposición del delta por dimensión (marca/sucursal/canal). */
+  sellOutExplain(opts: SellOutExplainParams) {
+    let params = new HttpParams().set('from', opts.from).set('to', opts.to).set('dim', opts.dim).set('compare', opts.compare);
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.measure) params = params.set('measure', opts.measure);
+    if (opts.promo && opts.promo !== 'sin') params = params.set('promo', opts.promo);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
+    if (opts.channel) params = params.set('channel', opts.channel);
+    return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
+  }
+
+  /** BI.9 — Metas del mes vs lo real. */
+  sellOutTargets(month?: string) {
+    let params = new HttpParams();
+    if (month) params = params.set('month', month);
+    return this.http.get<SelloutTargetsReport>(`${this.base}/analytics/sell-out/targets`, { params });
+  }
+  /** BI.9 — Captura/edita una meta. */
+  sellOutTargetUpsert(body: { scope: string; scope_key?: string; year_month: string; target_monto: number }) {
+    return this.http.post<{ ok: true }>(`${this.base}/analytics/sell-out/targets`, body);
+  }
+
+  /** BI.4 — Serie mensual (tendencia). */
+  sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
+    let params = new HttpParams();
+    if (opts.to_month) params = params.set('to_month', opts.to_month);
+    if (opts.months) params = params.set('months', String(opts.months));
+    if (opts.brand_id) params = params.set('brand_id', opts.brand_id);
+    if (opts.channel) params = params.set('channel', opts.channel);
+    return this.http.get<SelloutSeriesReport>(`${this.base}/analytics/sell-out/series`, { params });
+  }
+
+  /** BI.4 — Pareto/ABC por contribución. */
+  sellOutPareto(opts: { month?: string; dim?: string; n?: number; channel?: string }) {
+    let params = new HttpParams();
+    if (opts.month) params = params.set('month', opts.month);
+    if (opts.dim) params = params.set('dim', opts.dim);
+    if (opts.n) params = params.set('n', String(opts.n));
+    if (opts.channel) params = params.set('channel', opts.channel);
+    return this.http.get<SelloutParetoReport>(`${this.base}/analytics/sell-out/pareto`, { params });
+  }
+
+  /** BI.6 — Radar: anomalías del sell-out (cada miembro vs su propio promedio). */
+  sellOutAnomalies(opts: { month?: string; dim?: string; lookback?: number }) {
+    let params = new HttpParams();
+    if (opts.month) params = params.set('month', opts.month);
+    if (opts.dim) params = params.set('dim', opts.dim);
+    if (opts.lookback) params = params.set('lookback', String(opts.lookback));
+    return this.http.get<SelloutAnomaliesReport>(`${this.base}/analytics/sell-out/anomalies`, { params });
+  }
+
+  /** BI.5 — Pregúntale al Sell-Out: pregunta en lenguaje natural, respuesta con números de la DB. */
+  sellOutAsk(body: { message: string; history?: { role: 'user' | 'assistant'; content: string }[]; think?: boolean }) {
+    return this.http.post<SelloutChatResult>(`${this.base}/analytics/sell-out/ask`, body);
+  }
+
   sellOutCanales(from?: string, to?: string) {
     let params = new HttpParams();
     if (from) params = params.set('from', from);
@@ -1909,8 +1968,97 @@ export interface SellOutReport {
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  /** [VP.0.6] `measured: false` = este eje no se midió (no que no falte nada). Ver el backend. */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del DATO (las matviews que arman el reporte), no de la consulta. `generated_at`
+   * dice cuándo respondió el servidor — sobre matviews de hace seis días responde igual de rápido.
+   */
+  freshness: Freshness;
   generated_at: string;
+}
+
+// ─── BI.3 "Explica el cambio" ───
+export type SellOutExplainDim = 'brand' | 'branch' | 'channel';
+export type SellOutExplainCompare = 'prev' | 'yoy';
+export interface SellOutExplainParams {
+  from: string;
+  to: string;
+  dim: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  brand_id?: string;
+  measure?: 'monto' | 'neto';
+  promo?: 'sin' | 'solo' | 'todo';
+  search?: string;
+  warehouses?: string[];
+  channel?: string;
+}
+export interface SellOutMover {
+  key: string;
+  label: string;
+  code: string | null;
+  prev: number;
+  curr: number;
+  delta: number;
+  delta_pct: number | null;
+  kind: 'nuevo' | 'perdido' | 'crecio' | 'cayo' | 'igual';
+}
+export interface SellOutExplainReport {
+  dimension: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  measure: 'monto' | 'monto_neto';
+  period: { from: string; to: string };
+  mirror: { from: string; to: string };
+  total: { curr: number; prev: number; delta: number; delta_pct: number | null };
+  movers: SellOutMover[];
+  otros: { count: number; delta: number };
+  narrative: string;
+  freshness: Freshness;
+  generated_at: string;
+}
+
+// ─── BI.9 objetivos ───
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; }
+
+// ─── BI.4 gráficas ───
+export interface SelloutSeriesPoint { month: string; monto: number; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; }
+export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
+
+// ─── BI.6 "Radar" ───
+export interface SelloutAnomaly {
+  key: string;
+  label: string;
+  current: number;
+  baseline: number;
+  deviation: number;
+  deviation_pct: number | null;
+  kind: 'caida' | 'pico' | 'perdido' | 'nuevo';
+  reason: string;
+}
+export interface SelloutAnomaliesReport {
+  month: string;
+  baseline_months: string[];
+  dim: SellOutExplainDim;
+  anomalies: SelloutAnomaly[];
+  generated_at: string;
+}
+
+// ─── BI.5 "Pregúntale al Sell-Out" ───
+export interface SelloutChatBlock {
+  tool: string;
+  input: any;
+  result: any;
+}
+export interface SelloutChatResult {
+  narrative: string;
+  blocks: SelloutChatBlock[];
+  suggestions: string[];
+  source: 'llm' | 'no_api_key' | 'error';
+  model?: string;
+  tokens?: { in: number; out: number };
 }
 
 export interface InventoryHealthRow {

@@ -13,6 +13,8 @@
 const { Client } = require('pg');
 
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `finance.proposed_actions` y `finance.findings`.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-action-proposer', { url: DST });
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const MARK = '__SMOKE__PROPOSER';
 let failed = 0;

@@ -6,6 +6,7 @@ import { GoodsReceiptProofsController } from './goods-receipt-proofs.controller'
 import { GoodsReceiptsGateway } from './goods-receipts.gateway';
 import { GoodsReceiptsWatcherService } from './goods-receipts-watcher.service';
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
+import { ReceiptSlaService } from './receipt-sla.service';
 
 /**
  * Fase CC (extensión) — Comprobantes de Orden de Entrada. Adjunta la remisión/
@@ -26,7 +27,13 @@ import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
     }),
   ],
   controllers: [GoodsReceiptProofsController],
-  providers: [GoodsReceiptProofsService, GoodsReceiptsGateway, GoodsReceiptsWatcherService, GoodsReceiptTwinsService],
-  exports: [GoodsReceiptProofsService],
+  providers: [
+    GoodsReceiptProofsService, GoodsReceiptsGateway, GoodsReceiptsWatcherService,
+    GoodsReceiptTwinsService,
+    // `[RE.27.C]` El reloj de la cola. Los dos plazos ya vivían en
+    // `finance.receipt_settings` y ninguno disparaba nada.
+    ReceiptSlaService,
+  ],
+  exports: [GoodsReceiptProofsService, ReceiptSlaService],
 })
 export class FinanceGoodsReceiptProofsModule {}

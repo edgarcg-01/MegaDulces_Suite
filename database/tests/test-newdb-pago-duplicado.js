@@ -10,6 +10,8 @@
 const { Client } = require('pg');
 
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `finance.findings`.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-pago-duplicado', { url: DST });
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const WIN = 30, MIN = 10000, CRIT = 100000, RULE = 'pago_duplicado';
 const money = (n) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
@@ -41,7 +43,7 @@ async function pushFindings(client, findings) {
   console.log('Maat — detector pago_duplicado (doble pago)\n');
   try {
     const nPay = Number((await c.query(`SELECT count(*)::int n FROM analytics.erp_supplier_payments WHERE tenant_id=$1`, [TENANT])).rows[0].n);
-    if (nPay === 0) { console.log('\n  ⚠️  SKIP — sin pagos (feed no cargado). Wiring cubierto por el build.'); await c.end(); process.exit(0); }
+    if (nPay === 0) { console.log('\n  ⚠️  SKIP — sin pagos (feed no cargado). Wiring cubierto por el build.'); await c.end(); process.exit(2); }
 
     // réplica EXACTA de detPagoDuplicado
     const groups = (await c.query(

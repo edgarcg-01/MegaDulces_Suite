@@ -21,6 +21,7 @@
  *   node database/importers/kepler/repoint-catalog-prices.js --apply
  */
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_lists BASE-MXN (is_default)
@@ -42,6 +43,9 @@ const SYNC = !process.argv.includes('--gap-fill-only');
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await dst.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(dst, 'repoint-catalog-prices');
   const useOds = SOURCE === 'ods';                    // ods → lee kepler_ods en la misma conexión de prod
   const src = useOds ? null : new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
   const readSrc = useOds ? dst : src;

@@ -13,6 +13,7 @@
 
 const { Client } = require('pg');
 
+const { declararActor } = require('../lib/declare-actor');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const { branchUrl } = require('../lib/kepler-branches');
 const SRC = process.env.MARGIN_BRANCH_URL || branchUrl('03'); // md_03 (8 Esquinas, markup ref)
@@ -25,6 +26,9 @@ const BATCH = 2000;
   const db = new Client({ connectionString: DST });
   await src.connect();
   await db.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(db, 'import-margin');
   try {
     console.log(`\n=== Markup % → catalog.products.markup_pct (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 

@@ -24,6 +24,16 @@ export interface FinanceNotice {
   message: string;
   route?: string;                 // deep-link (p.ej. '/finanzas/bancos')
   data?: Record<string, any>;
+  /**
+   * `[RE.27.C]` Tipo de alerta, que es **por dónde la campana decide a quién le llega**.
+   * Omitirlo deja el default `finance_feed`, que la campana filtra a quien tiene Bancos.
+   *
+   * Existe porque un aviso puede salir de `libs/finance` y no ser para Finanzas: la cola
+   * de órdenes de entrada la atiende Compras. Sin esto habría que esconder la excepción
+   * adentro de `finance_feed` mirando el `key` — un caso especial disfrazado de tipo
+   * genérico, que es como se pudre un filtro.
+   */
+  type?: string;
 }
 
 export interface FinanceNotifierPort {

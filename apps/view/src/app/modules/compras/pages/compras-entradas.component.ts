@@ -106,7 +106,7 @@ interface AttachFile {
         </div>
         <div class="cb-head-actions">
           <app-table-density />
-          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="600" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAt()" [staleAfterSec]="600" />
           <app-context-help topic="compras-entradas" />
         </div>
       </header>

@@ -140,4 +140,35 @@ export interface TeleventaDashboard {
   top_operators: Array<{ user_id: string; username: string | null; calls: number; orders: number; minutes: number }>;
   outcomes_7d: Array<{ outcome: string; count: number }>;
   queue_preview: Array<{ id: string; code: string; name: string; phone: string | null; last_order_at: string | null }>;
+  /**
+   * E.9 — la facturación REAL del canal, del ERP (`U/D/8`, canal TELEMARK).
+   * Es independiente de la captura de llamadas: existe aunque nadie registre una llamada aquí.
+   */
+  billing: TelemarketingBilling;
+  /** `registrada:false` ⇒ nadie ha capturado llamadas: los ceros de arriba son ausencia, no desempeño. */
+  actividad: { registrada: boolean; nota: string };
+}
+
+export interface TelemarketingBilling {
+  hoy: { facturas: number; importe: number };
+  mes: { facturas: number; importe: number };
+  d30: {
+    facturas: number; importe: number; clientes: number;
+    saldo: number; saldo_vencido: number; facturas_vencidas: number;
+  };
+  /** Fecha de NEGOCIO del documento más reciente (no el reloj del navegador). */
+  ultima_factura: string | null;
+  /** El operador viene del ERP (`vendedor_code`): no hay con qué cruzarlo a un usuario. */
+  por_operador: Array<{
+    vendedor_code: string | null; vendedor_nombre: string | null;
+    facturas: number; importe: string; saldo: string; clientes: number;
+  }>;
+  ultimas: Array<{
+    folio_digital: string; sucursal: string; doc_prefix: string; folio: string; fecha: string;
+    cliente_code: string; cliente_nombre: string; vendedor_nombre: string | null;
+    total: string; saldo: string | null;
+    estatus_cobro: 'pagada' | 'parcial' | 'pendiente' | 'sin_cartera' | 'cancelada';
+    vencida: boolean;
+  }>;
+  atribucion: 'erp_vendedor_code';
 }

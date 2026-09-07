@@ -59,6 +59,13 @@ function buildNewDbConfig(): Knex.Config {
       migrations: {
         directory: path.resolve(__dirname, '../../../../../database/migrations-newdb'),
         tableName: 'knex_migrations',
+        // `schemaName` NO es opcional aunque la API no corra migraciones: sin él knex usa el
+        // search_path, y en esta base `identity` va PRIMERO → el ledger se escribiría en
+        // `identity.knex_migrations`, que el knexfile real (schemaName: 'public') no lee. Eso deja
+        // migraciones aplicadas que el próximo `migrate.latest()` re-aplica. Ya pasó en prod: 4
+        // filas, una de ellas con `DROP MATERIALIZED VIEW … CASCADE` (GOTCHAS §29). Esta config es
+        // la que un script ad-hoc copia, así que lleva el candado puesto.
+        schemaName: 'public',
       },
     };
   }
@@ -81,6 +88,7 @@ function buildNewDbConfig(): Knex.Config {
     migrations: {
       directory: path.resolve(__dirname, '../../../../../database/migrations-newdb'),
       tableName: 'knex_migrations',
+      schemaName: 'public', // ver la nota de la rama de arriba: sin esto el ledger cae en `identity`
     },
   };
 }

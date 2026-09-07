@@ -17,6 +17,8 @@
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
+// `[IDG.1]` Este test BORRA filas. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-goods-receipt-discards');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const T = '00000000-0000-0000-0000-00000000d01c';
 let fail = 0;
@@ -37,7 +39,7 @@ const entradasDe = async (trx, suc, arranque) => Number((await trx.raw(`
     // ── 1. El esquema ────────────────────────────────────────────────────────
     const t = (await knex.raw(`
       SELECT to_regclass('finance.goods_receipt_discards') IS NOT NULL AS existe`)).rows[0];
-    if (!t.existe) { console.log('  ⚠️  falta la migración 20260829180000 — SKIP'); process.exit(0); }
+    if (!t.existe) { console.log('  ⚠️  falta la migración 20260829180000 — SKIP'); process.exit(2); }
     ok(true, 'finance.goods_receipt_discards existe');
 
     const rls = (await knex.raw(`

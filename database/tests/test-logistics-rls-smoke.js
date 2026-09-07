@@ -19,6 +19,8 @@
 
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Crea un tenant y borra embarques/vehículos. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-logistics-rls-smoke');
 
 const { Client } = require('pg');
 

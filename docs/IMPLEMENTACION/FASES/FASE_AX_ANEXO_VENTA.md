@@ -114,6 +114,68 @@ Leyenda: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 - 🧪 **AX.4.2** Pagaré como **anexo del mismo documento** (mismo membrete y jerarquía de sección), no hoja suelta. 6 requisitos de LGTOC 170 + moratorio 3% mensual pactado.
 - 🧪 **AX.4.3** Logo de impresión 400px (36 KB vs 477 KB): el PDF baja **70%** y queda a 600 DPI. Tipografías del sistema, sin webfonts.
 
+### AX.9 — cobranza, procedencia y el dinero que sí cuadra 🧪 (2026-09-05)
+
+Salió de auditar la pantalla contra prod. **La respuesta corta a "¿son ventas o facturas de telemarketing?": son telemarketing y nada más** — `U/D/8`, canal `TELEMARK` en el **100%**, 2 sucursales (01 y 06), **$8.36M / 738 docs en 30 días = 31%** de la venta al cliente final (doctypes 8+10+12) y **7%** de todo lo que se mueve en `U/D`. Cadena verificada: Pedido `U/D/40` → Embarque `U/D/41/1` → Factura `U/D/8` (1,355 de 1,355 con padre). Sin fugas: los clientes TM facturados en su misma sucursal bajo otro doctype suman **$112k en 90d (0.8%)**.
+
+Lo que estaba mal, y se arregló:
+
+- 🧪 **AX.9.1 — "vencida" no sabía si ya te pagaron.** Marcaba 355 documentos por $3,320,754 (30d); **91 ya estaban liquidados ($567,504)**. El vencido real: 264 docs y **$2,028,423** de saldo. Ahora `vencida` = venció **y** debe, y el KPI publica **saldo**, no importe facturado. Fuente: `kdue` vía el núcleo compartido — **no** `kdm1.c42/c43`, que van rezagados (563 de 1,346 facturas siguen diciendo "sin abonos" con el cobro ya registrado con folio y fecha).
+- 🧪 **AX.9.2 — el vencimiento era una reconstrucción y contradecía al ERP.** Se calculaba `fecha + días de crédito de HOY`; el ERP guarda el pactado al facturar y **difieren en 329 de 729 (45%)**, hasta 25 días. Pero `kdue` tampoco está limpio: **57 de 729 vencen antes de su propia factura**. Veredicto ternario que viaja con el dato (ADR-056): `vencimiento_source` = `erp` (747) · `derivado_erp_invalido` (60) · `derivado` (9), y la pantalla lo declara.
+- 🧪 **AX.9.3 — el subtotal no cuadraba con los renglones impresos.** Medido sin excepción: **el IEPS ya viene dentro del renglón** (744/744 sin descuento: Σrenglones == total EXACTO, nunca `total − ieps`) y **`total = Σrenglones × (1 − d%)`** en 1,268/1,268. De ahí `importe_bruto = total/(1−d)`, validado contra la suma real en **3,264 de 3,264** (peor delta $0.93) contra 1,039 del `subtotal` viejo. El anexo dejó de **afirmar** el desglose del CFDI: no hay con qué contrastarlo — `fiscal.cfdis` tiene 167,503 filas y **todas** son `rol='recibidas'`. `commercial-profitability` leía esos dos números; su tasa de descuento pasa de 0.744% a **0.765%**.
+- 🧪 **AX.9.4 — etiqueta equivocada.** `U/D/12` decía "Venta a crédito"; `kdmm` dice **"Factura Cont No Fiscal"** (y `U/D/13` es la de crédito). `doc_tipo`: `credito` → `contado_nf`.
+- 🧪 **AX.9.5 — `kdm1.c43` decodificado** sobre 2,745 documentos, separación perfecta: `N` sin abonos (`c42 == total`) · `R` abono parcial (`0 < c42 < total`) · `F` liquidada (`c42 == 0`) · `C` cancelada. Confirmado en mostrador: 62,646 tickets de contado son `F`. Viaja como `doc_estatus_label`, **no** como estado de cobro.
+- 🧪 **AX.9.6 — una sola definición del saldo.** En vez de copiar la fórmula de la cartera (GOTCHAS §32), su CTE `base` se extrajo a `analytics.erp_receivable_documents` y `customer_receivables` pasa a apoyarse en él. Candado de paridad contra prod: 29 columnas, diferencia simétrica en ambos sentidos = **0**, Σ saldo y Σ signed idénticas. Índice de expresión en `kdue`: scan 162 → **28 ms**, consulta 2,119 → **931 ms** (requiere el `ANALYZE`, sin él el planner lo ignora).
+
+### AX.10 — el papel: identidad fiscal de verdad, y la hoja usada 🧪 (2026-09-07)
+
+Disparador: *"necesito que mejoremos el apartado de las facturas… que la hoja optimice todo el uso en columnas para que use todo el espacio disponible, y optimice el consumo de hojas verticalmente. el rfc esta mal y como se imprimi el nombre"*.
+
+**Los dos datos equivocados, verificados antes de tocar (no se adivinó ninguno):**
+
+- 🧪 **AX.10.1 — el RFC del emisor estaba HARDCODEADO y MAL.** Imprimía `LOGL8810144QS` y *"Lugar de expedición: C.P. 59701, Michoacán"*. Lo correcto es **`LOGL851014AQ5`** y **C.P. 36910**, confirmado por **tres fuentes independientes**: `fiscal.issuer_config` (la config del emisor de la Fase FE: RFC, razón social, régimen 612, CP 36910), los **167,503 CFDIs recibidos** de `fiscal.cfdis` —todos con `receptor_rfc = 'LOGL851014AQ5'` desde 2018-01, y el receptor de una factura recibida somos nosotros— y **11 fichas internas** de `kepler_ods.kdud`. Iba impreso en el membrete, en el beneficiario del pago y **en el pagaré**. El CP viejo además **se contradecía con el propio pagaré del mismo documento**, que dice Santa Ana Pacueco, C.P. 36910. ⚠️ **El resto del repo ya tenía el correcto** (el importer de ContPAQi, el placeholder del formulario de facturación, el matcher de OCR): era un typo en una constante que nadie cruzó nunca contra nada. Ahora sale de `issuer_config` vía `emisorFiscal()`, con cache en proceso, y **si no hay fila configurada el anexo se niega a imprimir** — un RFC inventado en un pagaré es peor que no emitirlo.
+- 🧪 **AX.10.2 — el nombre se imprimía roto.** El beneficiario del pago se capitalizaba con `/\b\w+/g`, y en JS `\w` **no matchea letras acentuadas**: `LUIS FRANCISCO LÓPEZ GUTIÉRREZ` salía como **"Luis Francisco LÓPez GutiÉRrez"** en todos los anexos. Se imprime **verbatim**, que además es lo correcto para un beneficiario de pago: la razón social tal como consta en el RFC, no una versión bonita.
+- 🧪 **AX.10.3 — el RFC genérico del SAT se pasaba por RFC del cliente.** **1,298 de 1,640 facturas imprimibles (79.1%)** traen `XAXX010101000` en `kdm1.c22`, y el anexo lo ponía bajo la etiqueta "RFC" al lado de un nombre propio. Ahora se **rotula** (`XAXX010101000 · público en general`) y en el **pagaré se OMITE**: en un título de crédito un RFC que no es del deudor es peor que ninguno (el art. 170 LGTOC no lo pide; el deudor queda identificado por nombre, domicilio y número de cliente).
+
+**El papel — medido, no estimado.** Banco A/B sobre **15 facturas reales** de 14 días (3 por tramo de renglones), renderizando la misma muestra con el anexo de `HEAD` y con el nuevo:
+
+| renglones | antes | después |
+|---|---|---|
+| 1 (×3) | 2 hojas | **1** |
+| 4 (×3) | 2 hojas | **1** |
+| 9 (×3) | 2-3 hojas | **2** |
+| 17 (×3) | 3 hojas | **2** |
+| 31 (×3) | 4 hojas | **2** |
+| **TOTAL** | **41 hojas** | **24 (−41%)** |
+
+14 de 15 facturas bajan de hojas; promedio 2.73 → **1.60 por factura**. Y una factura de hasta ~8 renglones ahora entra **completa con su pagaré en UNA hoja**.
+
+De dónde salió, en orden de rendimiento:
+
+1. **La unidad pegada al precio.** Iba en su propio renglón (`$495.00` / `por CJA`), así que un producto de 3 niveles gastaba **6 líneas por columna** — y hay dos columnas de precio. Pegada (`$495.00 /CJA`) son 3. Es la mitad del alto de la tabla en facturas largas.
+2. **Dos filas del pie fundidas en una.** "Importe con letra + totales" y "cómo leer + bancos" eran dos filas apiladas de **252 px** con la mitad de cada una en blanco; encima el `align-items:stretch` estiraba la caja de texto hasta el alto de la tabla de bancos. Y su renglón central (`Importe − Descuento = Total`) **repetía al peso** el bloque de totales de arriba. Ahora: bancos a la izquierda, totales a la derecha con el importe con letra como pie (donde se lee, como en un cheque), y las dos notas como prosa al pie.
+3. **Anchos dimensionados con el dato.** Medido sobre los **14,872 renglones de 90 días**: la cifra más larga es `$49,750.20` de precio por caja (≈90 px con la unidad) y `$36,810.00` de importe (≈65 px); el nombre de producto llega a 70 caracteres con p95 = 41. El nombre tenía **22%** y se partía en dos renglones constantemente —una línea de alto pagada en TODAS las facturas— mientras `CANTIDAD` gastaba 14.5% para decir "1 CJA". Ahora el nombre toma **38.5%** (60% en el modo sin descuento) y el dinero se queda con su peor caso más un margen.
+4. **Membrete y título en una fila** (eran dos bloques apilados con una regla en medio: 82 px para cuatro datos), **tira de datos en tres columnas** en vez de dos (el alto lo fijaba la columna más larga: 7 renglones contra 4, tres de alto pagados en blanco), márgenes **12 → 9 mm** de lado (+3% de ancho útil, dentro del área imprimible de cualquier láser) y el rótulo de grupo sólo **desde 10 productos** (con 6 costaba 40 px para decir algo que la columna Cantidad ya dice en cada línea).
+5. Régimen por **código** en el membrete: su descripción de 62 caracteres envolvía dos renglones para repetir un dato del catálogo público del SAT que el CFDI ya trae.
+
+**Candado `libs/commercial/.../anexo-venta.spec.ts` (19/19, `nx test commercial`).** Es la primera prueba automática que tiene este documento: antes sólo existía al imprimirlo. Cubre las tres correcciones **con su prueba negativa** —las tres pasaban en verde con el bug puesto—:
+
+- ningún literal con forma de RFC puede volver al archivo (el gate lee su propio fuente), y el RFC viejo no aparece ni en la salida ni en el código;
+- el nombre acentuado sale intacto, y el test **ejecuta la capitalización vieja** y afirma que producía exactamente `Luis Francisco LÓPez GutiÉRrez`: si esa línea deja de producir basura, el que lea el test se entera;
+- `emisorFiscal()` **truena** sin fila en `issuer_config`;
+- el genérico se rotula y el pagaré lo omite; con RFC real, lo pone;
+- **los anchos de columna suman 100%** en los dos modos (nada de papel sin repartir) — verificado en rojo a propósito subiendo `neto` de 10% a 14%;
+- no vuelve ningún bloque del layout viejo (`foot-grid`, `admin`, `titleband`) ni la unidad en renglón aparte.
+
+Smoke `test-newdb-sales-docs-cobranza.js` **13/13 contra prod** (el dinero no cambió). Builds api y view verdes. **Sin migraciones y sin permisos nuevos → sin re-login.**
+
+**AX.10.4 — revisión visual (2026-09-07).** Al ver las hojas impresas salieron dos cosas:
+
+- 🧪 **Al compactar el membrete encogí el logo de 64 a 44 px** y quedó irreconocible al lado del título. Vuelve a **62 px**, y **no cuesta alto**: el bloque del emisor (razón social + RFC/régimen/plaza + folio) ya hace esa fila de ~72 px, así que el logo cabe dentro sin empujar nada. El gate mide el alto declarado y falla bajo 56 px.
+- 🧪 **Faltaba el apartado ACEPTAMOS del pagaré.** Va en **plural** porque el título admite dos firmantes: el **suscriptor (deudor)** y, si lo hay, el **aval u obligado solidario** (LGTOC 109-116: el aval responde igual que el avalado). La línea del aval va **en blanco** a propósito — se llena a mano cuando hay uno, y vacía no obliga a nadie.
+
+El apartado costaba ~21 px, que en una factura al filo son una hoja entera. Se recuperaron **sin tocar información**: el aviso *"no es comprobante fiscal"* estaba **dos veces en la misma hoja** (la banda con borde de arriba y otra vez en la prosa del pie) → queda sólo arriba, donde es prominente; el espacio de firma pasa de 11 a **7 mm** (sigue siendo espacio real para firmar); y una decena de paddings de 1-2 px. La caja del cliente además toma **1.45×** el ancho de las otras dos: es la única que carga un texto largo (el domicilio), y con las tres iguales se partía en 3 renglones y fijaba el alto de la fila mientras las otras desperdiciaban su ancho. **El A/B se mantiene en 41 → 24 hojas** con el logo grande y el apartado nuevo dentro. Gate **22/22**.
+
 ### Diferidos
 - ⬜ **AX.5** Agente de impresión por WebSocket (`/print`, room por sucursal) para sucursal desatendida. Hoy **no existe** ESC/POS ni agente local en el repo; el navegador cubre oficina.
 - ⬜ **AX.6** IA: búsqueda en lenguaje natural → **filtros estructurados** (el LLM nunca calcula importes, ADR-016); aviso de riesgo por motor determinista; OCR del pagaré firmado (`extractDepositSlip` ya recibe PDF nativo).
@@ -137,6 +199,62 @@ Leyenda: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 STAGING · ✅ PROD
 1. `npm run migrate:new` — aplica lo que falte de: `20260822140000` (vistas) ✅, `20260822140100` (índices) ✅, `20260824120000` (unidades) ✅, **`20260824140000` (estatus + empaque canónico) ⬜**.
 2. `node database/tests/test-newdb-erp-sales-invoices.js` (avisa si quedó lento = faltó la de índices).
 3. Redeploy api + view.
+
+### AX.9 (2026-09-05) — pendiente en prod
+
+Aplicadas y verdes en el `.245`; en prod **no** (al 2026-09-05 hay 9 migraciones pendientes ahí, de otros trabajos: el orden lo decide quien despliegue).
+
+1. **`20260905150000_erp_receivable_documents_core.js`** — índice + núcleo + `CREATE OR REPLACE` de la cartera.
+   ⚠️ Corre **fuera de transacción** (`CONCURRENTLY`) y puede quedarse en *"waiting for old snapshots"* detrás de un `REFRESH MATERIALIZED VIEW`. En el `.245` esperó ~15 min. No bloquea a nadie; si urge, lanzarla sin refresh en vuelo.
+   ⚠️ Comparte timestamp con `20260905150000_blank_retired_role_permissions.js` (de otro trabajo). Knex ordena por nombre completo, así que `blank_…` va primero — determinista, pero conviene saberlo. **No se renombra**: ya está aplicada en el `.245` y borrar/renombrar una migración aplicada deja el directorio "corrupt".
+2. **`20260905150100_erp_sales_invoices_cobranza.js`** — recrea sólo la cabecera (`_lines` no se toca; nada depende de la cabecera, verificado en `pg_depend`).
+3. `node database/tests/test-newdb-receivable-core-parity.js` → debe decir **REGRESION** y 0 FAIL (antes de aplicar dice PRE-APLICACION, y también sirve).
+4. `node database/tests/test-newdb-sales-docs-cobranza.js` → 13 OK.
+5. Redeploy api + view. **Sin permisos nuevos → no hace falta re-login.**
+
+**Orden obligatorio: migración ANTES del redeploy** — el service pide `estatus_cobro`, `saldo`, `importe_bruto`, `vencimiento_source`. Al revés (código nuevo, vista vieja) el listado tira 500.
+Aplicar sólo las migraciones, sin redeploy, es **seguro**: la vista conserva todas las columnas viejas y el código en prod sigue leyendo `subtotal`/`descuento`.
+
+**Medido en prod (2026-09-07):** ver la tabla de la sección siguiente. Falta sólo el **redeploy de api + view** (el código con el CTE materializado) y la validación visual.
+
+### AX.9 en PROD (2026-09-07) — aplicada, medida y con una trampa del planner de por medio
+
+**Las 2 migraciones están en prod**: batch **288** (núcleo + índice + cartera, 6 s) y batch **289**
+(cabecera, 3 s). Cada una aplicada por nombre, sin arrastrar ninguna de las 9 pendientes ajenas.
+Smokes contra prod: paridad **6/6** (modo REGRESION) y cobranza **13/13**. El `CONCURRENTLY` esta
+vez no esperó: no había refresh en vuelo.
+
+**Lo que el KPI estaba contando mal, medido en prod a 90 días: 366 facturas por $2,819,231.67**
+que decía vencidas y ya estaban cobradas (928 → 553). En la ventana de 30 días: 371 documentos con
+la fecha pasada → **292 realmente vencidos con $2,340,863 de saldo**, 80 pagados y 9 sin cartera.
+
+⚠️ **Y una trampa que sólo aparece en prod: la pantalla tardaba 24 segundos.** El `LEFT JOIN` a la
+cartera es inocuo hasta que aparece un `LIMIT`: ahí el planner cambia a nested loop y
+**re-escanea el CTE `src` de la cartera (14,623 filas, en disco) una vez por fila devuelta**
+(`loops=50` en el EXPLAIN). Medido en prod, tres consultas y tres veces el mismo patrón:
+
+| consulta | antes de AX.9 | AX.9 sin arreglo | AX.9 arreglada |
+|---|---|---|---|
+| `list()` página 1 | 387 ms | **23,856 ms** | **970 ms** |
+| `filtros()` sucursales | ~470 ms | **10,853 ms** | **418 ms** (los dos catálogos juntos) |
+| `kpis()` | 1,056 ms | 791 ms | 791 ms |
+| `detail()` cabecera | 182 ms | 405 ms | 405 ms |
+
+El arreglo es el mismo en los dos casos: **materializar la selección ANTES de ordenar/recortar**
+(`WITH sel AS MATERIALIZED`). Con eso el planner elige hash join —lo que `kpis()` hacía desde el
+principio por ser agregado, y por eso nunca se vio afectado— y la última página cuesta lo mismo
+que la primera (959 ms con OFFSET 500).
+
+**Lección:** el costo de un join a una vista con CTE **no es un porcentaje, es un salto**, y sólo
+se dispara con un LIMIT. Medirlo en el .245 (donde `list()` daba ~880 ms) no lo destapó: hizo
+falta la consulta REAL del service —con su `ORDER BY` y su `LIMIT`— contra prod. Una medición de
+"la misma consulta pero sin paginar" habría dado verde y publicado una pantalla inusable.
+
+### Lo que AX.9 cuesta, y lo que encontró de paso
+
+**El precio del cruce con la cartera: ~750-880 ms fijos**, cobrados igual para 738 documentos que para uno solo (medido en el `.245`, misma sesión: lookup 6→764 ms, lista 30d 25→735 ms). El costo es el `DISTINCT ON` sobre `kdue` (528 ms) y **no se puede filtrar**: el WHERE del consumidor cae sobre columnas derivadas que el planner no puede invertir. `NOT MATERIALIZED` no ayuda (774 vs 755 ms). Se acepta —es el precio de que el vencido deje de contar $567,504 ya cobrados, y esto es un reporte, no un camino caliente— y queda la salida escrita en la migración por si estorba: retirar el LEFT JOIN de la cabecera y resolver la cobranza en el service, sólo en `list()`/`kpis()`.
+
+⚠️ **Hallazgo preexistente, NO tocado: el smoke `test-newdb-erp-sales-invoices.js` (AX.0) no termina.** Su bloque del `box_factor` canónico —el que cruza `erp_sales_invoice_lines` × `erp_sales_invoices` × `v_product_box_factor` a 90 días— **se pasa del `statement_timeout` también en prod, con la vista vieja**, así que el candado que debía cazar a quien vuelva a derivar el factor por su cuenta está muerto. Nadie lo había visto porque el test apunta por default a `localhost:5433/postgres_platform` (el contenedor de réplicas), donde **no existen las vistas** y sale por el `SKIP` sin ejecutar una sola aserción. Se verificó que **no es regresión de AX.9**: la misma consulta ya se colgaba en prod, donde este cambio no está aplicado. Arreglarlo es otro sprint: acotar la ventana cambiaría lo que el candado mide, y hay que decidirlo con la intención original a la vista.
 
 **Orden obligatorio: migración ANTES del redeploy.** El service pide `cancelada`, `box_factor`, `box_factor_dudoso`; con la vista vieja el detalle tira 500.
 

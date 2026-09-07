@@ -18,6 +18,9 @@ interface RouteRow {
   zona: string;
   visitas: number;
   score: number;
+  /** Pedidos reales levantados por el vendedor en la app (commercial.orders). */
+  pedidos?: number;
+  pedidos_monto?: number;
 }
 interface RouteStore {
   id: string;
@@ -129,6 +132,7 @@ interface RouteTrack {
       background: var(--surface-ground); color: var(--text-muted);
       border-radius: 999px; padding: 0.1rem 0.45rem; flex-shrink: 0; line-height: 1.4;
     }
+    .ru-route-badge.ped { background: var(--action-soft-bg, rgba(240,90,40,.12)); color: var(--action); }
     .ru-route-item.is-selected .ru-route-badge { background: rgba(255,255,255,.22); color: #fff; }
     .ru-route-zona { font-size: 0.6875rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .ru-route-item.is-selected .ru-route-zona { color: inherit; }
@@ -537,6 +541,9 @@ interface RouteTrack {
                             <div class="ru-route-item-main">
                               <span class="ru-route-name">{{ r.name }}</span>
                               <span class="ru-route-badge">{{ r.visitas }} vis</span>
+                              @if (r.pedidos) {
+                                <span class="ru-route-badge ped" [attr.title]="'Pedidos: $' + (r.pedidos_monto || 0)">{{ r.pedidos }} ped</span>
+                              }
                             </div>
                             <span class="ru-route-zona">{{ r.zona || '—' }}</span>
                           </button>

@@ -82,6 +82,31 @@ function branchUrl(code) {
 }
 
 /**
+ * Nombre de la RÉPLICA LÓGICA LOCAL de una sucursal, en el contenedor `pgvector-md` (:5433).
+ *
+ * Las 7 réplicas siguen UNA sola convención — `kepler_md_00` … `kepler_md_06`. Antes no: la '03'
+ * se llamaba `kepler_pilot` y ocho scripts cargaban a mano el caso especial
+ * `code === '03' ? 'kepler_pilot' : …`; la colisión se resolvió el 2026-09-07 renombrando la
+ * réplica. Este helper existe para que la convención tenga UN dueño: si mañana entra una rama que
+ * no la sigue, se arregla acá y no en ocho archivos (ADR-056 — un primitivo copiado a mano no
+ * cierra nada).
+ *
+ * OJO: NO es lo mismo que `urlOf`. `urlOf` da el POS (el ERP remoto, o la réplica sólo para
+ * Canindo); esto da SIEMPRE la réplica local, que es contra lo que trabajan los carriles del ODS
+ * (`replicate-ods-live`, los `ods-cdc-*`, los `reconcile-ods-*`).
+ */
+const replicaDbName = (code) => `kepler_md_${code}`;
+
+/** URL de la réplica local de una sucursal. `base` = la URL del contenedor de réplicas, que cada
+ *  carril resuelve con SU propia env var (`ODS_SOURCE_BASE` / `SUB_BASE`): no se elige acá porque
+ *  el reparto de env vars entre origen y prod es justo la trampa de GOTCHAS §17/§18. */
+const replicaUrl = (code, base) => {
+  const u = new URL(base);
+  u.pathname = `/${replicaDbName(code)}`;
+  return u.toString();
+};
+
+/**
  * Cross-check contra la dim canónica: compara los kepler_code de commercial.warehouses
  * con los codes 01-06 de este módulo. Devuelve {ok, missingInDb, missingInModule}.
  * No lanza — para usar como alerta (dead-man) desde un feed o el scanner de salud.
@@ -97,4 +122,7 @@ async function verifyAgainstDb(pgClient, tenantId = '00000000-0000-0000-0000-000
   return { ok: !missingInDb.length && !missingInModule.length, missingInDb, missingInModule };
 }
 
-module.exports = { BRANCHES, salesMap, stockMap, branchUrl, urlOf, clientConfig, verifyAgainstDb, USER, PASS };
+module.exports = {
+  BRANCHES, salesMap, stockMap, branchUrl, urlOf, clientConfig, verifyAgainstDb,
+  replicaDbName, replicaUrl, USER, PASS,
+};

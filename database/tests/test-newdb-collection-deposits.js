@@ -12,6 +12,8 @@
  *      listCobros ve 1 comprobante + cuadre → validar → rechazar → CHECK de estado.
  */
 const knex = require('knex')(require('../knexfile-newdb.js').development);
+// `[IDG.1]` Este test BORRA filas. El `require` del knexfile ya cargó el .env.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-collection-deposits');
 const T = '00000000-0000-0000-0000-00000000d01c';
 
 let pass = 0, fail = 0;

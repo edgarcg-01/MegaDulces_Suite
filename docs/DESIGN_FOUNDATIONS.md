@@ -18,7 +18,7 @@ Cada afirmación lleva un **nivel de confianza** explícito. No todo lo que pedi
 | 🔴 **Refutado** | Claim que sonaba plausible pero murió en verificación. Listado para que **no** se use. |
 | ⚪ **Hueco** | Tema que pediste y la investigación **no** cerró con fuente. Pendiente de una segunda pasada. |
 
-Recordatorio de los 2 surfaces (ver `DESIGN.md`): **Storefront** (`/portal/*`, editorial, comfortable, Fraunces) y **Operations** (`/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/televenta`, tool-mode, compact++, sin serif). Cada recomendación abajo distingue surface cuando importa.
+Recordatorio de los 2 surfaces (ver `DESIGN.md`): **Storefront** (`/portal/*`, editorial, comfortable, Fraunces) y **Operations** (`/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/telemarketing`, tool-mode, compact++, sin serif). Cada recomendación abajo distingue surface cuando importa.
 
 ---
 

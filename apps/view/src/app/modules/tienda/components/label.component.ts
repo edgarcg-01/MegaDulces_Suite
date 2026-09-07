@@ -40,7 +40,19 @@ export interface LabelModel {
 }
 
 /**
- * Etiqueta de anaquel Mega Dulces (115×40 mm) — diseño congelado (ver etiqueta-preview.html).
+ * Etiqueta de anaquel Mega Dulces — **82×35 mm**.
+ *
+ * Mismo diseño de `etiqueta-preview.html` (que quedó al tamaño original, 115×40) re-proporcionado.
+ * El cambio de tamaño no fue cosmético: 115 mm de ancho daban **2 columnas × 4 filas = 8 por hoja**
+ * Carta horizontal, y el umbral de la 3ª columna está en 82.6 mm de ancho (263 mm útiles ÷ 3, menos
+ * los 5 mm de margen de recorte). A 82×35 entran **3 × 5 = 15 por hoja**: casi la mitad de papel.
+ * Bajar sólo a 100 mm no habría cambiado nada — los saltos son umbrales, no una curva.
+ * Además la pantalla ya AFIRMABA "100×40 mm" mientras el CSS imprimía 115: 15 mm más ancho que
+ * el material que decía usar.
+ *
+ * Al angostar, lo único con mínimo físico es el código de barras (un EAN-13 pide ~29.8 mm al 80%
+ * de magnificación): toma el ancho completo de su columna, 39.4 mm. El resto del texto se
+ * auto-encoge (`fitHead`/`fitPrice`/`fitAmts`), así que ninguna cadena larga desborda.
  * Sin iconos, letra grande, naranja de marca (--brand-700 #F05A28) en lo importante (SKU + número de piezas).
  * ViewEncapsulation.None + clases `etq-*` para que el layout en mm y las fuentes apliquen
  * limpio al imprimir. El barcode se genera con JsBarcode (mismo formato que Kepler).
@@ -64,48 +76,53 @@ export interface LabelModel {
          queda de respaldo por si el equipo está sin internet y ya la tiene instalada. */
       --font-num:'Anton','Impact','Haettenschweiler','Arial Narrow',sans-serif;
       --font-cond:'Bebas Neue','Impact','Arial Narrow',sans-serif;
-      width:115mm; height:40mm; background:var(--cream); border-radius:3mm; overflow:hidden;
+      width:82mm; height:35mm; background:var(--cream); border-radius:2.5mm; overflow:hidden;
       font-family:var(--font); color:var(--green); display:flex; flex-direction:column;
       text-align:left; /* reset: el sheet-sim y el body de impresión usan text-align:center y se heredaba adentro (centraba los rótulos) */
       -webkit-print-color-adjust:exact; print-color-adjust:exact;
     }
     .etq-label *{ box-sizing:border-box; margin:0; padding:0; }
-    .etq-head{ background:var(--green); color:#fff; height:7.8mm; min-height:7.8mm; display:flex; align-items:center;
-      padding:0 3mm; font-weight:800; font-size:4.4mm; letter-spacing:.2px; text-transform:uppercase; overflow:hidden; }
+    .etq-head{ background:var(--green); color:#fff; height:6.8mm; min-height:6.8mm; display:flex; align-items:center;
+      padding:0 2mm; font-weight:800; font-size:3.9mm; letter-spacing:.2px; text-transform:uppercase; overflow:hidden; }
     .etq-head-txt{ display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etq-red{ color:var(--red); font-weight:800; }
-    .etq-body{ flex:1; min-height:0; display:flex; padding:1mm 2mm 1.2mm 2mm; gap:2mm; }
-    .etq-left{ width:54mm; display:flex; flex-direction:column; }
-    .etq-meta{ display:flex; align-items:baseline; gap:1.6mm; font-weight:800; font-size:4mm; margin-bottom:1mm; }
+    .etq-body{ flex:1; min-height:0; display:flex; padding:.8mm 1.5mm 1mm 1.5mm; gap:1.6mm; }
+    /* 38 + 1.6 de gap + 39.4 + 3 de padding = 82 exactos. El reparto respeta la proporción
+       original (54:55): la izquierda lleva el precio grande, la derecha los tiers y el código. */
+    .etq-left{ width:38mm; display:flex; flex-direction:column; }
+    .etq-meta{ display:flex; align-items:baseline; gap:1.2mm; font-weight:800; font-size:3.2mm; margin-bottom:.8mm; }
     .etq-meta .sep{ color:var(--green); opacity:.5; }
-    .etq-pricebox{ flex:1; position:relative; background:var(--yellow); border-radius:2.4mm; display:flex;
-      align-items:center; justify-content:center; padding:1.5mm 1.5mm 6mm; overflow:hidden; }
-    .etq-pricebox::before{ content:""; position:absolute; inset:1mm 1mm 6mm 1mm; border:.28mm dashed var(--green);
-      border-bottom:0; border-radius:1.8mm 1.8mm 0 0; pointer-events:none; }
-    .etq-sprout{ position:absolute; top:1mm; left:2mm; width:5.4mm; height:5.4mm; }
-    .etq-price{ font-family:var(--font-num); font-weight:400; font-size:16mm; line-height:.82; letter-spacing:0;
+    .etq-pricebox{ flex:1; position:relative; background:var(--yellow); border-radius:2mm; display:flex;
+      align-items:center; justify-content:center; padding:1.2mm 1.2mm 5mm; overflow:hidden; }
+    .etq-pricebox::before{ content:""; position:absolute; inset:.8mm .8mm 5mm .8mm; border:.28mm dashed var(--green);
+      border-bottom:0; border-radius:1.5mm 1.5mm 0 0; pointer-events:none; }
+    .etq-sprout{ position:absolute; top:.8mm; left:1.4mm; width:4.4mm; height:4.4mm; }
+    .etq-price{ font-family:var(--font-num); font-weight:400; font-size:11.5mm; line-height:.82; letter-spacing:0;
       transform:scaleX(1.1); transform-origin:center; }
     .etq-price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
     .etq-price .dot{ font-size:.78em; }
-    .etq-pieza{ position:absolute; left:0; right:0; bottom:0; background:var(--green); color:#fff; height:5.2mm;
-      display:flex; align-items:center; justify-content:center; gap:1.6mm; font-weight:800; font-size:3.2mm; white-space:nowrap; border-radius:0 0 2mm 2mm; }
-    .etq-pieza::before,.etq-pieza::after{ content:""; width:7mm; height:.9mm; flex:none;
-      background:repeating-linear-gradient(90deg, var(--yellow) 0 2.8mm, transparent 2.8mm 4.6mm); }
-    .etq-right{ width:55mm; min-height:0; display:flex; flex-direction:column; }
+    .etq-pieza{ position:absolute; left:0; right:0; bottom:0; background:var(--green); color:#fff; height:4.4mm;
+      display:flex; align-items:center; justify-content:center; gap:1.2mm; font-weight:800; font-size:2.7mm; white-space:nowrap; border-radius:0 0 1.6mm 1.6mm; }
+    .etq-pieza::before,.etq-pieza::after{ content:""; width:4.6mm; height:.8mm; flex:none;
+      background:repeating-linear-gradient(90deg, var(--yellow) 0 2mm, transparent 2mm 3.2mm); }
+    .etq-right{ width:39.4mm; min-height:0; display:flex; flex-direction:column; }
     /* Los tiers se centran como grupo → 1 o 4 renglones siempre lucen balanceados (no flotan arriba). */
-    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:1.2mm; }
+    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:.9mm; }
     .etq-tier{ position:relative; display:grid; grid-template-columns:1fr auto; align-items:center;
-      column-gap:2mm; padding:.6mm 0; min-height:0; }
+      column-gap:1.4mm; padding:.4mm 0; min-height:0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
-    .etq-tier .txt{ font-family:var(--font-cond); font-size:3mm; font-weight:400; line-height:1; letter-spacing:.3px; }
+    .etq-tier .txt{ font-family:var(--font-cond); font-size:2.6mm; font-weight:400; line-height:1; letter-spacing:.3px; }
     /* Celda de precio de ancho fijo → todos los precios arrancan en el mismo x (orden a la izquierda). */
-    .etq-tier .pricecell{ width:20mm; display:flex; align-items:baseline; gap:1mm; }
-    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5mm; white-space:nowrap; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
-    .etq-tier .unit{ font-family:var(--font); font-size:1.9mm; font-weight:600; }
+    .etq-tier .pricecell{ width:16mm; display:flex; align-items:baseline; gap:.8mm; }
+    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:4.2mm; white-space:nowrap; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
+    .etq-tier .unit{ font-family:var(--font); font-size:1.7mm; font-weight:600; }
+    /* El código toma el ANCHO COMPLETO de la columna (antes 85%): al angostar la etiqueta es lo
+       único con un mínimo físico —un EAN-13 necesita ~29.8 mm al 80% de magnificación— y 39.4 mm
+       lo deja con holgura. La altura no baja de 5 mm: es lo que el lector necesita para engancharlo. */
     .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; }
-    .etq-barcode svg{ display:block; width:85%; height:5.4mm; }
+    .etq-barcode svg{ display:block; width:100%; height:5mm; }
   `],
   template: `
     <div class="etq-label">
@@ -344,11 +361,11 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     const head = this.head?.nativeElement;
     const txt = this.headtxt?.nativeElement;
     if (!head || !txt) return;
-    let size = 4.4;
+    let size = 3.9;
     head.style.fontSize = size + 'mm';
     let guard = 0;
-    while (txt.scrollWidth > txt.clientWidth && size > 2.6 && guard++ < 40) {
-      size -= 0.14;
+    while (txt.scrollWidth > txt.clientWidth && size > 2.3 && guard++ < 40) {
+      size -= 0.12;
       head.style.fontSize = size + 'mm';
     }
   }
@@ -364,21 +381,21 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     if (!el || !box) return;
     const cs = getComputedStyle(box);
     const avail = box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
-    let size = 16;
+    let size = 11.5;
     el.style.fontSize = size + 'mm';
     let guard = 0;
-    while (el.offsetWidth * 1.12 > avail && size > 6 && guard++ < 120) {
-      size -= 0.3;
+    while (el.offsetWidth * 1.12 > avail && size > 4.5 && guard++ < 120) {
+      size -= 0.25;
       el.style.fontSize = size + 'mm';
     }
   }
 
-  /** F3: cada monto de tier se encoge hasta caber en su celda (20mm), preservando el c/u. */
+  /** F3: cada monto de tier se encoge hasta caber en su celda (16mm), preservando el c/u. */
   private fitAmts(): void {
     this.amtEls?.forEach((ref) => {
       const amt = ref.nativeElement;
       const cell = amt.parentElement; // .pricecell
-      if (cell) this.shrinkToFit(amt, cell, 5, 3, 0.2);
+      if (cell) this.shrinkToFit(amt, cell, 4.2, 2.4, 0.15);
     });
   }
 

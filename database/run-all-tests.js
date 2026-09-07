@@ -12,6 +12,12 @@
 const { spawnSync } = require('child_process');
 const path = require('path');
 
+// `[IDG.1]` El runner carga el `.env` para poder MIRAR el destino antes de
+// lanzar nada. Los tests hijos lo cargan igual por su cuenta, así que esto no
+// les cambia el entorno — sólo le da al runner con qué clasificar la base.
+require('dotenv').config({ path: path.resolve(__dirname, '..', '.env') });
+const { assertSafeTarget } = require('./tests/_lib/assert-safe-target');
+
 const TESTS = [
   // DB direct (no requieren API)
   { file: 'test-newdb-tenant-context.js', label: 'A.0mt.1 tenant context', needsApi: false },
@@ -20,6 +26,7 @@ const TESTS = [
   { file: 'test-newdb-identity-scopes.js', label: 'ID.1-3 alcance de datos (catálogo 6 dims + CHECK listed/cardinality + RLS forzado + user override gana sobre rol + cobertura: nadie sin sucursal queda sin all explícito + public.users.warehouse_id + own coherente)', needsApi: false },
   { file: 'test-newdb-scope-params.js', label: 'ID.5 contrato canónico de params (16 alias medidos → warehouse_codes/zone_ids/route_ids vía ts-node del .ts real + CSV/array/repetido equivalentes + trim/dedupe sin Set-spread + null≠[] + aviso de deprecación 1 vez por alias + premisa uuid↔code no ambigua)', needsApi: false },
   { file: 'test-newdb-receipt-match.js', label: 'RE.25 motor de cuadre del DOCUMENTO (total + proveedor, carga el .ts real vía ts-node): el nombre es la señal fuerte (76% medido) y el RFC sólo CORROBORA (49%: Kepler lo trae en 48% de las entradas, sucio de ambos lados, y en 5 docs el OCR leyó NUESTRO RFC) + una palabra en común no es identidad (ALTOS DE LA LUZ vs BOLSAS DE LOS ALTOS daba 0.5 exacto → Jaccard con evidencia flaca) + RFC malformado de Kepler se descarta en vez de comparar + cuadra por subtotal (IVA 0% en granel) y contra la copia de oficinas + bucket sin_datos aparte (27% no dio nada legible: se re-escanea, no se revisa) + la hoja interna INFORMA y no decide (7 de 161: exigirla mandaría el 96% a manual) + invariante: ningún cuadra sin importe confirmado', needsApi: false },
+  { file: 'test-newdb-receipt-sla.js', label: 'RE.27 el reloj de la cola de entradas (los dos plazos vivían en receipt_settings desde RE.16.3 y NINGUNO disparaba nada: 177 comprobantes esperando revisor, 153 fuera de plazo, 14 días de promedio y $7.3M, con 26 personas que pueden validar y 3 que lo hicieron alguna vez). El SQL se LEE del servicio de producción y no se copia —una copia se desincroniza y el test se pone verde midiendo una consulta que ya nadie corre— y se contrasta contra un conteo escrito distinto: si el aviso dice 12 y la pantalla muestra 30, el aviso deja de creerse a la segunda vez', needsApi: false },
   { file: 'test-newdb-branch-key-scope.js', label: 'RE.23 la llave canónica de sucursal (código de 2 dígitos vía branchKeySql, no `warehouses.code`: las de Morelia corren Wincaja y lo guardan prefijado `MD-30` → la regla vieja las dejaba FUERA del alcance, sin poder asignarlas ni filtrarlas + una llave = una sucursal + los RUTA-* quedan fuera + la prueba de fondo: la llave casa con lo que emiten los feeds y filtrar por el code prefijado da 0)', needsApi: false },
   { file: 'test-newdb-scope-axis.js', label: 'ID.24 el eje que divide poblaciones (scope_axis en departments+positions con CHECK de vocabulario + ruta→zona es FUNCIÓN: ninguna ruta cruza de zona + sucursal→zona sí pero al revés no + cobertura del eje <10% sin resolver + la evidencia: eje ruta 31/31 con zona y 0 con sucursal + users.route_id FK compuesta y sólo a catalog rutas + nadie de eje red queda ciego con own-sin-valor + gate: no activar route=own mientras haya gente de ruta sin ruta)', needsApi: false },
   { file: 'test-newdb-user-permissions.js', label: 'ID.21+23 permisos por persona + zona derivada de la sucursal (user_permissions RLS forzado + CHECK de forma de la clave + índice de auditoría + FK compuesta ON DELETE CASCADE + aritmética unión-de-roles ± overrides replicada en SQL + mismo puesto/distinto acceso sin clonar el rol + allow=false quita de verdad + el override no se filtra al compañero + PK impide concedido-y-revocado + warehouses.zone_id con FK compuesta + plazas con varias sucursales + zonas que son territorio de ruta y no plaza)', needsApi: false },
@@ -35,6 +42,8 @@ const TESTS = [
   { file: 'test-newdb-inventory-monitoring.js', label: 'PREV.2 monitoreo intensivo (schema+RLS+1 activo por SKU+conteo expected/físico+ventana desde conteo previo+pérdida acotada+cerrar/reabrir)', needsApi: false },
   { file: 'test-authz-route-coverage.js', label: 'AUTHZ.5 cobertura de autorización (toda escritura con permiso o motivo escrito + los 8 controllers de Logística + catálogo 164=164 sin invisibles + CASL retirado)', needsApi: false },
   { file: 'test-authz-boot.js', label: 'AUTHZ-HARD.0 arranque fail-closed (requireJwtSecret lanza sin secreto/con el default en prod + assertAuthWiring aborta sin ENABLE_MULTITENANT + cero default hardcodeado en el código vivo)', needsApi: false },
+  { file: 'test-authz-tenant-failclosed.js', label: 'W3 alcance por tenant fail-CLOSED: requireTenantOf LANZA y ningún helper declara `string | undefined` (eran 15) + PRUEBA NEGATIVA del lookup de permisos — con el rol que de verdad está duplicado entre tenants, el camino sin tenant devuelve CERO en vez de los permisos del otro (y si ningún rol estuviera duplicado, el bloque reporta NO MEDIDO en vez de pasar en vacío) + las tres escrituras ya arregladas (permissions-cache, reports.deleteReport, scoring-engine) siguen llevando tenant_id en el WHERE, con anti-regresión del `if (tenantId)` condicional', needsApi: false },
+  { file: 'test-newdb-fk-triggers-enabled.js', label: 'IDG.4 las FK están ENCENDIDAS, no sólo declaradas (cero triggers en tgenabled=D en los 7 schemas de negocio + cero referencias colgadas en identity.users + la prueba de COMPORTAMIENTO: un role_name inexistente es rechazado con 23503 dentro de un ROLLBACK). NO mira `convalidated`: decía true mientras la FK no validaba nada, y un chequeo de metadata habría dado verde el día que el INSERT de `hacker` pasó en prod', needsApi: false },
   { file: 'test-newdb-inventory-risk.js', label: 'PREV.3 índice de riesgo (schema+RLS+computeScore niveles+agregación expedientes/monitoreo+reincidencia→crítico+CHECK nivel+único por SKU)', needsApi: false },
   { file: 'test-newdb-replenishment.js', label: 'RA Compras (schema+sugerido−tránsito+requisición state machine+traspaso guard+min cajas+scanner idempotente)', needsApi: false },
   { file: 'test-newdb-ra-service-level.js', label: 'RA-PRO.1/2 safety stock por nivel de servicio + segmentación XYZ (σ/CV población 90d + Z×σ×√LT + piso + CHECK)', needsApi: false },
@@ -44,8 +53,10 @@ const TESTS = [
   { file: 'test-newdb-route-ticket-detail.js', label: 'RR2 desglose por ticket de ruta (contrato de 30 cols + security_invoker + v_sales_lines sin regresión + candados: la unidad NO es el flag 0/1, valor_costo es extendido, sin duplicar renglones, cajas sólo en su unidad; skip-graceful sin data)', needsApi: false },
   { file: 'test-newdb-cost-ladder.js', label: 'RA-PRO.46 el costo de caja se LEE de Kepler (Costo Uni Mayor), no se reconstruye con costo×bf', needsApi: false },
   { file: 'test-newdb-warehouse-box-factor.js', label: 'ADR-055 la cantidad se muestra en la unidad MÁS GRANDE y el divisor es el del ERP dueño del almacén (v_warehouse_box_factor = vista; Kepler por su base, Wincaja por factor_venta de su propia tabla; el fact lleva display_bf alineado; candados: sin duplicar por dataset actual/concentrada, Kepler intacto, el dato BASE sigue crudo, y ninguna cobertura absurda por convertir al revés)', needsApi: false },
+  { file: 'test-newdb-unit-truth.js', label: 'U.4 LA verdad de unidad (v_unit_truth): el resolvedor único, con testigo y veredicto. El testigo que nadie había buscado es lo PAGADO al proveedor (v_supplier_cost_ladder.units_per_box, derivado de kepler_ods.kdpv_prov_prod) — independiente de la etiquetera, que la doc daba por imposible de verificar y coincide en 5,569 de 5,578 SKUs (99.84%, razón mediana 1.00). Candados: que box_factor sea fila-por-fila el que ya publica v_warehouse_box_factor (esta vista lo EXPLICA, no lo cambia — es lo que autoriza a migrarle los consumidores); que NO pase en vacío; anti-regresión del agujero del factor 1 (13 SKUs / $5.1M de granel declaraban "no hay caja" contra DOS testigos que decían 18/12/5/10, y caían en no_aplica — entre ellos 20555, el SKU que destapó U.1); que `medible` se DERIVE del veredicto y no lo duplique; que los dos ejes no se mezclen (el testigo juzga base_per_box, nunca el divisor nativo — confundirlos marcaba los 1,085 multipack legítimos de ADR-055); y que el testigo sea INDEPENDIENTE (juzgar la etiquetera con la etiquetera sería circular)', needsApi: false },
   { file: 'test-newdb-unit-rung-audit.js', label: 'U.1 detector de PELDAÑO CRUZADO (v_unit_rung_audit: display_bf == caja_cost/pagado, con DOS árbitros — la compra real en Kepler y el costo propio de Wincaja; el grano es producto × ALMACÉN porque el mismo SKU está en kilos en Kepler y en bultos en Wincaja; candados: la razón mediana del 94% sano no se corre, los dos valuados cuadran al 4.5% de ruido, x1/x2 siguen acotados, y 5 testigos por (SKU,almacén) para que el detector no se rompa devolviendo todo-ok)', needsApi: false },
   { file: 'test-newdb-existencia.js', label: 'E Existencia (matriz producto × almacén): la fuente es analytics.v_erp_stock_on_hand y NO commercial.stock — se exige que DISCREPEN, porque la tabla acierta 91% contra el POS y la vista 100%; ninguna celda con peldaño contradicho publica cajas ni dinero (y se afirma que la población no está vacía, para que el candado no pase en vacío); los totales son del DATASET y no de la página; total_cajas no suma unidades crudas de almacenes con unidades distintas; frescura POR RAMA sin umbral propio; y el candado que ya mordió una vez: que el permiso esté REPARTIDO en prod y que customer_b2b NO lo tenga', needsApi: false },
+  { file: 'test-newdb-existencia-dictamen.js', label: 'D Dictamen de existencia (v_existencia_dictamen): DOS ejes — en qué se apoya el número (apoyo) y qué lo contradice (objecion). Candados: que NO pase en vacío (las poblaciones medidas existen); que qty_publicada sea fila-por-fila lo que publica v_erp_stock_on_hand (el dictamen la EXPLICA, no la reemplaza); que el negativo se MUESTRE pero nunca se sume; anti-regresión del bug del 2026-09-05 (nunca_entro marcaba 1,913 celdas SANAS de Wincaja, donde vender el inventario inicial sin recibir nada es normal porque allá SÍ hay baseline); que el dinero vaya NULL con el peldaño en disputa; y que la vista NO lea stock_movements — cuadrar kdil contra los movimientos es circular, kdil YA es entradas menos salidas', needsApi: false },
   { file: 'test-newdb-seller-incentive.js', label: 'RR-PROMO.2 incentivo multi-canal por vendedor (v_seller_sales_lines: RD+vecinal+mayoreo con el vendedor resuelto; SIN doble conteo del vecinal histórico VEC-PH-H, medido con ventana dirigida para que el candado no pase en vacío; el push NO se pierde porque en RD la ruta ES el vendedor; umbral en dinero inmune a la unidad; público 0001 nunca cobra)', needsApi: false },
   { file: 'test-newdb-route-promo-units.js', label: 'RR-PROMO.1 la cantidad del incentivo se normaliza al peldaño REAL del ERP (v_product_unit_ladder = vista sólo sobre kepler_ods; el peldaño sale del PRECIO, no del rótulo; basura de unidad nunca se publica; lo no resuelto se declara, no se suma; granel marcado; skip-graceful sin venta de ruta)', needsApi: false },
   { file: 'test-newdb-db-health-engine.js', label: 'DBH salud del MOTOR + correo + ruido (SQL de pg_stat_activity/user_tables/settings vive; last_notified_at para el recordatorio 24h; único parcial de alerta abierta; sin alertas de tenants ajenos ni fuentes duplicadas)', needsApi: false },
@@ -157,9 +168,55 @@ const TESTS = [
   // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
   { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
   { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },
+  { file: 'test-newdb-receivable-core-parity.js', label: 'AX.9 paridad de la cartera al partirla en dos — customer_receivables pasa a apoyarse en el núcleo por documento (erp_receivable_documents) y NO puede mover un peso: 29 columnas, diferencia simétrica en ambos sentidos y Σ saldo/Σ signed idénticas. Lee el SQL DE LA MIGRACIÓN, no una copia', needsApi: false },
+  { file: 'test-newdb-sales-docs-cobranza.js', label: 'AX.9 cobranza y procedencia en /comercial/documentos — "vencida" = venció Y DEBE (prueba negativa: el gate tiene que excluir las pagadas; medido en prod, 91 de 355 ya estaban liquidadas) + saldo == customer_receivables + importe_bruto cuadra con Σrenglones donde el subtotal viejo no (el IEPS va DENTRO del renglón, con contraejemplo) + vencimiento_source ternario erp/derivado/derivado_erp_invalido + U/D/12 rotulado según kdmm', needsApi: false },
+  { file: 'test-newdb-telemarketing-billing.js', label: 'E.9 el tablero de Telemarketing ve la facturación de SU canal — medía sólo actividad sobre commercial.call_logs, que en prod está VACÍA (0 llamadas), mientras el ERP facturaba $8.2M/30d por el mismo canal: publicaba ceros en todo. Candados: la facturación cuadra al peso con /comercial/documentos (misma vista, mismo filtro), la actividad se DECLARA cuando no hay captura (un cero sin registro no es desempeño), y prueba NEGATIVA de que sigue sin existir columna que ligue usuario ↔ vendedor del ERP (si aparece, el aviso de la pantalla queda obsoleto)', needsApi: false },
   // OBS — la ingesta no se cae en silencio (ADR-053). Candados sobre los cuatro "verdes falsos"
   // que dejaron el ODS congelado 6 días sin que nadie lo supiera.
+  { file: 'test-newdb-knex-ledger-unico.js', label: 'VP.5.4 UN SOLO ledger de migraciones (GOTCHAS §29). El search_path arranca en `identity`, asi que un knex sin schemaName escribe su ledger en identity.knex_migrations — que el knexfile real no lee: el DDL queda aplicado y el CLI lista esas migraciones como PENDIENTES, listas para re-correrse. Medido en prod 2026-09-07: 5 migraciones vivieron semanas ahi, y una hace DROP MATERIALIZED VIEW mv_kepler_sales_daily CASCADE + recrea WITH NO DATA (re-correrla dejaba el sell-out sin rollup hasta las 06:20; lo evito su guard por columna, no el proceso). Candados: un solo knex_migrations y en public + si aparece otro, NOMBRA cuales de sus filas NO estan en el bueno (esas son las que se re-corren, la unica parte urgente) + toda config del repo declara schemaName (lo estatico, que si se puede prevenir)', needsApi: false },
+  { file: 'test-newdb-period-close.js', label: 'VP.4.1 la cifra OFICIAL de un mes, congelada (analytics.period_close + cerrar_periodo/verificar_periodo). Candados: solo meses CUMPLIDOS (congelar el mes en curso guarda una foto a medias que cambia a diario = el problema que se vino a resolver) + cerrar y verificar en seguida da coincide + DISTINGUE LAS DOS CAUSAS por el hash de pg_get_viewdef (difiere_definicion = alguien edito la vista, revisar el cambio · difiere_fuente = llego dato, re-cerrar) que piden acciones OPUESTAS y sin el hash se ven identicas + el desglose por sucursal es CARGA: dos sucursales moviendose al reves dejan el total identico y el desglose IGUAL lo detecta + last_check_status NULL no es coincide + re-cerrar limpia el veredicto viejo + una definicion y dos consumidores (si el cierre y el comparador calcularan distinto, el comparador reportaria diferencias inventadas) + app_runtime no puede BORRAR un cierre', needsApi: false },
+  { file: 'test-newdb-cron-run-log.js', label: 'VP.3.3 la BITÁCORA de corridas de feeds (analytics.cron_runs guarda sólo la última: PK (tenant,job_key) + UPSERT. El trigger appendea a cron_run_log para poder contestar "cuántas filas tocó el importer de precios el martes" y "cuántas veces falló este mes"). Candados: RUNNING no deja fila (es un estado, no un hecho consumado) + re-UPSERT del MISMO cierre no duplica (si contara, las fallas saldrían infladas) + con la bitácora ROTA a propósito el feed IGUAL late — asimetría deliberada contra VP.3.1: acá el hecho primario sobrevive en cron_runs, así que tumbar un latido por no poder escribir su bitácora sería cambiar un problema chico por uno grande', needsApi: false },
+  { file: 'test-newdb-master-data-history.js', label: 'VP.3.1 el cambio de un dato maestro deja RASTRO (analytics.master_data_history + trigger genérico sobre precio/etiqueta/reorden/catálogo: el diff trae antes y despues de verdad + los 4 triggers vigilan EXACTAMENTE las columnas declaradas — una que se cae de la lista es un hueco mudo + el UPDATE no-op y las columnas no vigiladas NO ensucian + el tenant sale de la FILA y no de la sesión, porque los importers corren sin app.tenant_id + app_runtime tiene INSERT/SELECT y NADA más: una historia que se puede editar no es una historia)', needsApi: false },
+  { file: 'test-newdb-sellout-parity.js', label: 'VP.1 paridad del SELL-OUT — el candado que la migración de v_sellout_daily afirmaba que existía y no existía (literales de corte idénticos entre las copias vivas + complemento EXACTO Kepler>=/Wincaja< + cero doble conteo por sucursal-día + cero HUECO a los dos lados del corte + rollup mensual == vista diaria al peso). Lo que no se puede medir se reporta NO MEDIDO, no verde: con una pierna vacía "cero traslapes" es cierto y no prueba nada', needsApi: false },
+  // [VP.5.1] Las 14 huérfanas deterministas. Estaban escritas y NADIE las corría — ni el runner las
+  // nombraba, así que su ausencia no se veía. La primera es la más cara: `test-newdb-cash-cuts-sync`
+  // valida un sync que YA FALLÓ en prod (20 cortes de la sucursal 02 con $300k+ existían en el ODS y
+  // no en la tabla) y su propio header dice que "una divergencia se ve como hueco, no como silencio"
+  // — pero el smoke que lo garantizaba nunca corría.
+  { file: 'test-newdb-cash-cuts-sync.js', label: 'SM.20 el corte de Kepler llega solo (ODS kdpv_folio_caja → analytics.cash_cuts: el conteo del ODS contra el de la tabla, así una divergencia se ve como HUECO y no como silencio — el incidente 2026-09-02 fueron 20 cortes de la suc. 02 con $300k+ que estaban en el ODS y no en la tabla)', needsApi: false },
+  { file: 'verify-no-transfer-leak.js', label: 'T.1 los TRASPASOS no se filtran a los reportes de VENTA (mover mercancía entre sucursales no es vender: si se cuela, la venta se infla sin que nada falle)', needsApi: false },
+  { file: 'test-newdb-logistics-tracking.js', label: 'LT.0/LT.1 rastreo de flota (MagniTracking → logistics.trackers/vehicle_positions)', needsApi: false },
+  { file: 'test-newdb-lt-routes-sync.js', label: 'LT.7 sync autoritativo ruta↔operador↔camión (API oficial travels/operators)', needsApi: false },
+  { file: 'test-newdb-ltv-trips.js', label: 'LTV.0 reconstrucción de viajes/paradas', needsApi: false },
+  { file: 'test-newdb-ltv-pod-audit.js', label: 'LTV.3 auditoría georreferenciada de POD', needsApi: false },
+  { file: 'test-newdb-ltv-productivity.js', label: 'LTV.5 productividad / tiempos muertos', needsApi: false },
+  { file: 'test-newdb-ltv-business-alerts.js', label: 'LTV.7 alerta de negocio stopped_with_pending', needsApi: false },
+  { file: 'test-newdb-ltv-adherence.js', label: 'LTV.1/13 cumplimiento de RUTA contra tiendas de trade (doble testigo)', needsApi: false },
+  { file: 'test-newdb-ltv-witness.js', label: 'LTV.13 Horus doble testigo (vehicle-witness-audit)', needsApi: false },
+  { file: 'http-televenta-test.js', label: 'E.1 Remote Manager / Televenta (cola priorizada + reserva de lead + log de llamada)', needsApi: true },
+  { file: 'http-denue-prospects-test.js', label: 'DENUE prospección (candidatos del padrón INEGI)', needsApi: true },
+  { file: 'http-thot-findings-test.js', label: 'Thot T.R0 motor de findings comerciales (determinista: el LLM está fuera del camino)', needsApi: true },
+  { file: 'http-horus-test.js', label: 'Horus.0/.1 supervisor de ejecución (motor de findings/acciones/diagnósticos + efectividad; endpoints deterministas, sin visión)', needsApi: true },
   { file: 'test-newdb-feed-observability.js', label: 'OBS observabilidad de ingesta (v_feed_freshness une cron_runs+_sync_status SIN umbrales + clase NULL en ods_table = candado contra el falso positivo de k95doc/RH + los 7 carriles registrados en CRON_JOBS o salen verde incondicional + latido por canal propio ODS_HB_URL + preflight aborta si apunta a la fuente + healthcheck de ENTREGA que reporta enfermo si no puede leer + el hueco del slot se DECLARA + sin señal NO es ok)', needsApi: false },
+];
+
+/**
+ * [VP.5.1] Suites que existen y NO entran a la regresión, **con su motivo**.
+ *
+ * Antes eran simplemente huérfanas: 19 archivos escritos que nadie corría y que nada nombraba. Una
+ * suite invisible es peor que una que no existe — da la sensación de cobertura que no hay. El
+ * runner las imprime al final, así "todo verde" dice exactamente lo que cubre.
+ *
+ * El criterio para quedar afuera es **uno solo**: que la suite dependa de un LLM. Cuestan dinero por
+ * corrida y no son deterministas, así que meterlas en un gate las convierte en ruido intermitente —
+ * y una alarma que falla sola enseña a ignorar el tablero (OBS.8). Todo lo demás entra.
+ */
+const EXCLUIDAS = [
+  { file: 'http-thot-chat-test.js', motivo: 'evals LLM (golden-questions): no determinista + costo por corrida' },
+  { file: 'http-thot-chat-eval-50.js', motivo: 'banco de 50 preguntas al LLM: minutos y costo; se corre al tocar el prompt' },
+  { file: 'http-thot-chat-scoped-test.js', motivo: 'requiere ANTHROPIC_API_KEY; sin ella se degrada a no_api_key' },
+  { file: 'http-maat-chat-test.js', motivo: 'chat LLM de finanzas: no determinista + costo' },
+  { file: 'smoke-ai-order.js', motivo: 'sugerencia de pedido por LLM: no determinista + costo' },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -174,6 +231,15 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
 
 (async () => {
   const root = path.resolve(__dirname);
+
+  // `[IDG.1]` UNA sola vez, antes de spawnear nada: 37 de estas suites hacen
+  // DELETE / TRUNCATE / DROP y cuatro crean y borran tenants. El 2026-08-29
+  // corrieron contra prod y dejaron residuo en el padrón real. El chequeo va
+  // acá arriba porque `spawnSync` hereda `process.env` sin inspeccionarlo: si
+  // el destino está mal, está mal para las ~170 suites.
+  const destino = assertSafeTarget('run-all-tests');
+  console.log(`Destino de la regresión: ${destino.kind} (${destino.host}/${destino.db})`);
+
   const results = [];
   const useThrottleBypass = process.env.THROTTLE_DISABLED === 'true';
   if (useThrottleBypass) {
@@ -202,6 +268,11 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
       file: t.file,
       exit: r.status,
       ok: r.status === 0,
+      // [VP.5.1] exit 2 = NO MEDIDO (ver database/tests/_lib/no-medido.js). No es éxito y no es
+      // regresión: es que en este destino no había con qué comprobarlo. Antes caía en ❌ y quedaba
+      // indistinguible de un defecto real — y un rojo que nadie va a atender enseña a ignorar el
+      // tablero (OBS.8).
+      noMedido: r.status === 2,
       ms,
     });
   }
@@ -211,13 +282,34 @@ const NEEDS_THROTTLE_COOLDOWN = new Set([
   console.log('╚══════════════════════════════════════════════════════════╝');
   let okCount = 0;
   let failCount = 0;
+  let nmCount = 0;
   for (const r of results) {
-    const status = r.ok ? '✅' : '❌';
+    const status = r.ok ? '✅' : r.noMedido ? 'ⓘ ' : '❌';
     console.log(`${status} ${r.label.padEnd(40)} ${r.ms}ms`);
     if (r.ok) okCount++;
+    else if (r.noMedido) nmCount++;
     else failCount++;
   }
-  console.log(`\nTotal: ${okCount}/${results.length} suites verde, ${failCount} fallaron.`);
+  const medidas = okCount + failCount;
+  console.log(`\nTotal: ${okCount}/${medidas} suites verde, ${failCount} fallaron`
+    + (nmCount ? `, ${nmCount} NO MEDIDAS.` : '.'));
+
+  // [VP.5.1] Las NO MEDIDAS se nombran. El denominador de arriba cuenta sólo lo que SÍ se midió: decir
+  // "131/131 verde" cuando 8 suites ni pudieron conectarse es la misma mentira por omisión que esta
+  // fase persigue en los números.
+  if (nmCount) {
+    console.log('\n┌── NO MEDIDAS (no es "pasaron": no había con qué comprobarlas) ──────────');
+    for (const r of results.filter((x) => x.noMedido)) console.log(`│  ${r.file}`);
+    console.log('└── Revisá el entorno (credenciales, feeds, datos sembrados), no el código.');
+  }
+
+  // [VP.5.1] Y las que ni se intentan, con su motivo. Omitirlas en silencio hace que "todo verde"
+  // signifique menos de lo que parece.
+  if (EXCLUIDAS.length) {
+    console.log('\n┌── FUERA DE LA REGRESIÓN, a propósito ───────────────────────────────────');
+    for (const e of EXCLUIDAS) console.log(`│  ${e.file.padEnd(34)} ${e.motivo}`);
+    console.log('└── Se corren a mano cuando se toca esa superficie.');
+  }
 
   if (failCount > 0) {
     console.log('\n┌── HINTS MEMORIALES (si viste alguno de estos patterns arriba) ──────────');

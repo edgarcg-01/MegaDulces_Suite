@@ -121,6 +121,14 @@ jobs:
       - name: Boundary type gate (nuevo/cambiado)
         run: node scripts/lint-boundary-gate.js
 
+      # VP.2.3 (ADR-056): una respuesta de reporte que declara `generated_at` tiene que declarar
+      # también `freshness`. `generated_at` dice cuándo corrió la consulta; un servidor que contesta
+      # en 200 ms sobre matvistas de hace seis días lo reporta igual de fresco — publicar la mitad
+      # conveniente es cómo la plataforma sirvió precio, costo y margen muertos durante seis días.
+      # Ratchet, como TS.0: la deuda medida se declara y SÓLO PUEDE BAJAR. Rojo si sube.
+      - name: Provenance gate (generated_at sin freshness)
+        run: node scripts/check-provenance.js
+
       - name: Test (affected)
         run: npx nx affected -t test --parallel=3 --passWithNoTests
         env:

@@ -107,8 +107,11 @@ que Edgar (dueño del repo) rechazó.
 - **PR #62** (`feat/cv-port-fisico-catalogo-kp` → `main`): el port físico
   original CV.0–CV.17, limpio, sin conflicto, más dos fixes encontrados al
   reconciliar (CVE de `xlsx` → migrado a `exceljs`; colisión de numeración
-  `ADR-052` → renumerado a `ADR-056`, ya que el 052 real lo tiene *Contratos de
-  tipos del boundary REST*).
+  `ADR-052` → renumerado a `ADR-056` — y esa colisionó DE NUEVO dos días
+  después con el ADR-056 real de Fase VP, renumerada otra vez a **ADR-058**
+  el 2026-09-07 al reconciliar un merge posterior. Numeración de ADR en un
+  repo activo: verificar el número libre en el momento de mergear, no solo
+  al escribir el código).
 - **PR #63** (`feat/cv18-20-usuarios-wix-variantes` → base PR #62, encadenado):
   CV.18–20 (panel de usuarios, filtro de sucursal en reporte Wix, "agregar
   variantes donde falten").

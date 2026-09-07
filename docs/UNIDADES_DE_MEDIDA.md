@@ -18,13 +18,18 @@ saber en cuántas piezas viene una caja del mismo producto:
 | Fuente | Productos | ¿Se puede verificar contra Kepler? |
 |---|---|---|
 | `catalog.products.factor_sale` | 8,519 | — |
-| `commercial.product_label_prices.box_size` (etiquetera) | 7,846 | ❌ |
-| `commercial.product_unit_overrides.box_factor` (manual) | 295 | ✅ parcial |
+| `commercial.product_label_prices.box_size` (etiquetera) | 7,846 | ~~❌~~ → **✅ SÍ** (§8sexies) |
+| `commercial.product_unit_overrides.box_factor` (manual) | 295 | ✅ parcial — **y es la que más falla** (§8sexies) |
 | `analytics.wincaja_product_box_factor.factor_venta` | 185 | — |
 | `commercial.supplier_item_aliases.box_factor` | 0 | — |
 | `kepler_ods.kdii.c84` | 2,419 | ✅ (es el ancla) |
 | `catalog.product_barcodes.factor` | — | — |
-| `analytics.v_product_box_factor` (**resolvedor canónico**) | 8,903 | resuelve entre las anteriores |
+| `analytics.v_product_box_factor` (resolvedor de factor) | 8,903 | resuelve entre las anteriores |
+| **`analytics.v_unit_truth`** (**el resolvedor, con veredicto y método**) | 100,908 celdas | **declara si se puede o no** (§8sexies) |
+
+> ⚠️ **La columna de la derecha estaba mal en dos filas y se corrigió el 2026-09-07.** La
+> etiquetera **sí** tiene un testigo independiente (lo que se le pagó al proveedor) y coincide con
+> él en **99.84%**; el override manual es la peor de todas, con 22% de contradicción. Ver §8sexies.
 
 ---
 
@@ -135,11 +140,23 @@ contaba en otra unidad y lo corrigió a mano.** El resolvedor los apila en una s
 | `override` | 262 | 213 | $61,444,471 |
 
 La precedencia cae a etiquetera o `factor_sale` **precisamente cuando Kepler no declara caja**
-(`c84` existe sólo en 2,419 de ~9,500 SKUs = 25%). Por construcción, esos casos **no tienen
-contra qué verificarse**: son $255.8M de venta (40%) donde el factor de caja es una afirmación
-sin testigo.
+(`c84` existe sólo en 2,419 de ~9,500 SKUs = 25%).
 
-No es que esté mal — es que **no hay forma de saberlo**, y el resolvedor no lo distingue.
+> ⛔ **ESTE PÁRRAFO ESTABA MAL Y SE CORRIGIÓ EL 2026-09-07.** Decía: *"esos casos **no tienen
+> contra qué verificarse**: son $255.8M de venta (40%) donde el factor de caja es una afirmación
+> sin testigo. No es que esté mal — es que **no hay forma de saberlo**"*.
+>
+> **Sí había forma, y nadie la había buscado.** El segundo testigo es
+> `analytics.v_supplier_cost_ladder.units_per_box` = `box_cost / u1_cost`, derivado de
+> `kepler_ods.kdpv_prov_prod` — **lo que se le pagó al proveedor**. No toca la etiquetera ni el
+> catálogo, así que no es circular. Contrastadas, **la etiquetera coincide con lo pagado en 5,569
+> de 5,578 SKUs (99.84%, razón mediana 1.00)**. La cobertura verificable de la venta pasa de 44.8%
+> a **93.1%**. Ver §8sexies.
+>
+> La lección de método, que es más valiosa que el dato: **"no se puede verificar" era una
+> conclusión sobre las fuentes que ya estábamos mirando, escrita como si fuera una propiedad del
+> problema.** Antes de declarar algo inverificable hay que preguntarse qué OTRA cosa dejó rastro —
+> acá, el dinero que salió por esa mercancía.
 
 Dato bueno: `c84` es **estable entre sucursales** — de 2,419 SKUs, sólo **3 (0.12%)** tienen
 valores distintos entre ramas. Cuando existe, se le puede creer.
@@ -184,6 +201,11 @@ equivocada. **No usar esta prueba para "corregir" unidades.**
 11. **Una cantidad con precio se puede convertir; una cantidad pelona, no.** La venta se normaliza sola porque el ingreso delata la unidad ($371.86 no puede ser un paquete de $45.42); la existencia es un conteo sin nada que la delate. Para auditar una cantidad hay que **prestarle un precio**. Corolario incómodo: **la venta no está verificada, está sin árbitro** — no tiene con qué probarse, y por eso nunca se marca. Ver §8quinquies.
 12. **Retener el número que se ve no basta: el mismo error también BORRA renglones.** Con el divisor inflado la sucursal se lee abastecida, el déficit da 0 y la fila nunca entra al plan — no hay cifra que marcar. Hay que contar las ausencias aparte (window ANTES del filtro) y declararlas. Medido: 19 traspasos invisibles contra 156 marcados.
 13. **Si un dato derivado alimenta pantallas, la copia al fact necesita candado propio.** El veredicto vive en una vista auditable de 8-25 s y se copia al fact para que los lectores no paguen. Si el importer deja de copiarla, **todo pasa a "medible" y la mentira vuelve en silencio**: un no-op se lee igual que "no hay nada marcado". El test exige que el fact tenga veredictos y coincida con la vista.
+14. **⭐ "No se puede verificar" casi nunca es una propiedad del problema: es una conclusión sobre las fuentes que ya estabas mirando.** Antes de declarar algo inverificable, preguntá qué OTRA cosa dejó rastro. La etiquetera estuvo cuatro meses marcada con ❌ y su testigo era el dinero que salió por esa mercancía (`v_supplier_cost_ladder.units_per_box`): coincide en 99.84%. Ver §8sexies.
+15. **⭐ No elijas entre dos testigos: ORDENALOS, y declará dónde no llega ninguno.** El precio de caja es inmune a la unidad del numerador y cubre 87.8% de la venta; el divisor verificado cubre otra parte; el resto **se declara NULL con motivo**. Un solo divisor no puede ganar: en 296 SKUs ($78.3M) ninguno acierta contra el árbitro de dinero, porque el numerador mismo mezcla peldaños. Ver `analytics.v_unit_truth.metodo_cajas`.
+16. **⭐ "No hay factor de caja" y "no sé convertir a cajas" son cosas distintas.** Confundirlas cambia una cifra buena por un hueco: tratar `no_aplica` como ignorancia tiraba el total del sell-out **−33.6%**, y el 95% de esa caída eran productos cuya unidad de venta ES la más grande (una cubeta de 20 kg, una caja de botanas). El error simétrico es igual de caro que el original.
+17. **⭐ Cuando un `CASE` mezcla dos preguntas, la precedencia le miente a una de las dos** — y le miente al caso más común o más caro. Pasó **tres veces** en una sola fase: `nunca_entro` marcaba 1,913 celdas sanas, el factor 1 archivaba $5.1M como "nada que verificar", y el `motivo` de cobertura etiquetaba $300.6M de sucursales sanas como "ERP mixto". Si un `WHEN` parece una tautología inofensiva, medilo antes de creerle.
+18. **Una fila AUSENTE se lee peor que una fila mala.** En un LEFT JOIN llega NULL y un `COALESCE(medible, true)` la cuenta como sana. Por eso la cobertura necesita su propia vista que enumere lo que NO está (`v_unit_truth_coverage`): 13 almacenes con el 9.4% de la venta no tenían fila y el candado reportaba 98.2% de cobertura.
 
 ---
 
@@ -420,6 +442,162 @@ pega el **costo que se pagó** por esa unidad. `display_bf == caja_cost / pagado
 
 Un tercio es mecánico. El resto **no**, y por eso U.3 es bandeja y no script: en `57009` el divisor
 1 era el correcto y "corregir parejo" proponía **$2.59 M** de compra contra $132 k/mes de venta.
+
+---
+
+## 8sexies. El resolvedor con VEREDICTO y MÉTODO (U.4–U.7, 2026-09-07 · ADR-057)
+
+Nace de *"las capas lógicas están fallando demasiado; necesito una verdad absoluta en unidades de
+venta"*. Lo primero que salió al medir fue el tamaño del desorden: **27 archivos** leen
+`catalog.products.factor_sale` (la única fuente probada **sin** unidad), **17** leen
+`product_label_prices.box_size`, y **UNO** lee la escalera anclada al ERP. La unidad no se resolvía
+una vez: se re-derivaba en cada piso, con una precedencia propia.
+
+### El testigo que faltaba: lo que se PAGÓ
+
+`analytics.v_supplier_cost_ladder.units_per_box` = `box_cost / u1_cost`, sobre
+`kepler_ods.kdpv_prov_prod`. Es independiente de la etiquetera y del catálogo — es dinero contra
+etiqueta. Contrastando cada fuente contra él:
+
+| fuente | SKUs | con testigo | coincide | **contradice** | venta que contradice |
+|---|---|---|---|---|---|
+| **etiquetera** | 5,679 | 5,578 | **5,569 (99.84%)** | 9 | $104,507 |
+| `kepler_c84` | 2,084 | 2,083 | 2,082 | 1 | $49,870 |
+| `default` | 2,266 | 846 | 846 | 0 | — |
+| `factor_sale` | 905 | 148 | 118 | 30 | $614,807 |
+| **`override` (manual)** | 278 | 277 | 215 | **62 (22%)** | **$6,174,488** |
+
+⚠️ **Se da vuelta la sospecha: la fuente peor es la corrección MANUAL.** Y la forma delata el
+patrón — `70006`, `70043`, `20555` y `70140` traen `override = 1` contra 18, 12, 18 y 18 pagados.
+Son los de granel, y `20555 CAR SURTIDO 18KG` es el SKU que destapó la auditoría de peldaño (U.1).
+Van a bandeja (`disputa_granel`), **no se corrigen parejo**: en granel el 1 puede ser deliberado
+(el stock va en kilos) y corregir parejo es lo que propuso $2.59M de compra en `57009`.
+
+### `analytics.v_unit_truth` — grano (tenant, almacén, producto)
+
+No reimplementa la precedencia: la **lee** de `v_warehouse_box_factor` (ADR-055) y
+`v_product_box_factor` (UM.1). `box_factor` es idéntico al que ya se publica — **100,908 filas,
+0 discrepancias** — y eso es lo que autoriza a migrarle consumidores sin revalidar cada pantalla.
+
+**Eje 1 · `veredicto`** sobre `base_per_box` (propiedad del EMPAQUE, no del almacén):
+`verificado` (93.1% de la venta) › `no_aplica` › `sin_testigo` › `en_disputa` › `disputa_granel`.
+
+**Eje 2 · `veredicto_nativo`** audita ADR-055: `base_per_box / box_factor` debe dar 1 (el almacén
+vende la base) o `f2` (vende paquete). **24,795 celdas dan 1 y 1,085 dan `f2` exacto (mediana
+10.000) = 99.5%.** Las 128 restantes (**45 SKUs**) traen `factor_venta = f2` en vez de `f3/f2` → el
+divisor les queda **4–40× chico**. Ése es el defecto vivo de ADR-055 y ahora tiene nombre
+(`no_explicado`).
+
+⛔ **No confundir los ejes.** Comparar el divisor NATIVO de Wincaja contra `units_per_box` (que
+cuenta base) marca los 355 multipack legítimos como falsos positivos: la primera versión del
+chequeo hizo eso y daba 16,897 celdas "mal".
+
+### `metodo_cajas` — ordenar los testigos, no elegir uno
+
+Migrar los consumidores al divisor **no los dejaba bien**, y se probó con dinero antes de tocarlos.
+`cajas = revenue ÷ cja_price` no depende de ningún divisor, así que sirve de árbitro. Sobre los 570
+SKUs donde las fórmulas privadas y el resolvedor discrepan: `factor_sale` sobra **3.286×**, el
+resolvedor falta **0.369×**, y en **296 SKUs ($78.3M) no acierta NINGUNO**.
+
+La razón: ahí el numerador **no tiene unidad**. `42029` en el almacén `01` promedia $71.07/unidad —
+ni la pieza de $12.46 (almacenes `02`/`03`) ni el paquete de $115.25 (MD-30). El mismo almacén
+mezcla los dos peldaños.
+
+⭐ **Pero medido sobre toda la población y no el subconjunto adversarial, el resolvedor es bueno
+donde dice serlo:** con `medible = true` el divisor verificado y el dinero coinciden con razón
+mediana **0.997**, 38,713 de 40,853 celdas dentro de ±25%, **$547,152,677**. La bandera separa
+bien, así que no hay que elegir entre los testigos — hay que **ordenarlos**:
+
+| método | qué hace | venta |
+|---|---|---|
+| `dinero` | ingreso ÷ precio de caja — **inmune a la unidad del numerador** | 87.8% |
+| `peso` | granel: la cantidad ya está en kilos | 2.8% |
+| `divisor` | ÷ `box_factor`, **sólo con el factor verificado** | 1.1% |
+| `unidad_es_caja` | no hay paquete ni caja en la escalera y ningún testigo dice que la haya → cajas = unidades | — |
+| `sin_metodo` | **NULL con motivo. No se dibuja.** | 3.1% |
+
+**91.7% de la venta con cifra de cajas defendible**; el 8.4% restante declarado.
+
+### Los dos errores propios que la medición atrapó, y valen como patrón
+
+1. **El factor 1 archivado como "nada que verificar".** `base_per_box <= 1 → no_aplica` cortaba
+   ANTES de mirar al testigo, así que **13 SKUs / $5,135,134** que declaran "no hay caja" contra
+   DOS testigos coincidiendo en 18/12/5/10/20/24/25/27/40 quedaban invisibles.
+2. **`no_aplica` tratado como ignorancia.** Mandarlo a `sin_metodo` tiraba el total del sell-out de
+   **602,049 a 399,494 cajas (−33.6%)**. Verificado contra la escalera: 240 de 278 SKUs cobran
+   dentro de banda de `p1` y **no tienen `f2` ni `f3`** — `57009 COBERTURA 20K LUSSEL CUBETA` a
+   $1,453.25 contra $1,500.08; `87234 BOT SABRISURTIDO / 35` con **`unit_base = CJA`**. Para esos,
+   `cajas = unidades` es la respuesta CORRECTA.
+
+> ⭐ **El patrón, que apareció TRES veces en esta fase** (`nunca_entro` en el dictamen de
+> existencia, el factor 1, y el `motivo` de la vista de cobertura): **cuando un CASE mezcla dos
+> preguntas, la precedencia siempre le miente a una de las dos** — y le miente justo al caso más
+> común o más caro. La condición que "parece una tautología inofensiva" es la que hay que medir.
+>
+> ⭐ Y el corolario del punto 2: **"no hay factor de caja" y "no sé convertir a cajas" son cosas
+> distintas.** Confundirlas es el error simétrico del que persigue esta fase: cambia una cifra
+> buena por un hueco.
+
+### Cobertura: lo que falta se declara
+
+`v_unit_truth` sólo arma filas para almacenes con `kepler_code` o `wincaja_source_branch`. Los 13
+`RUTA-*` no traían ninguno → **$60,148,173 (9.4%) sin fila**. Y una fila ausente se lee **peor** que
+una mala: en un LEFT JOIN llega NULL y un `COALESCE(medible, true)` la cuenta como medible — el
+candado de U.4 reportaba 98.2% por eso, agrupando sólo por producto.
+
+No faltaba el dato, faltaba el **mapeo**: `wincaja.articulos` tiene las 13 sucursales de ruta con
+~15,330 artículos cada una. Se mapearon **7**; las 6 de La Piedad **no**, porque cambiaron de ERP
+(Wincaja hasta 2026-06-26, Kepler desde 2026-06-29) y **su divisor depende de la fecha**. El precio
+realizado lo confirma: las 6 son 87–95% peldaño BASE, las 7 de Wincaja traen 19–31% en PAQUETE.
+Cobertura final **94.8%**, y el 5.2% declarado en `analytics.v_unit_truth_coverage`.
+
+⚠️ **CORRECCION (medida despues de aplicar):** afirme que aparecian **+$233,726** de inventario y
+**era falso**. `analytics.v_erp_stock_on_hand` excluye las rutas a proposito -- su pierna de
+Wincaja termina en `AND v.warehouse_code NOT LIKE 'RUTA-%'` (el stock de una camioneta no es stock
+de bodega para reabasto) -- asi que el mapeo no agrego **ni un peso**: la vista sigue en 9
+almacenes. Medi el valor de la red tres veces en una hora ($68.63M -> $68.86M -> $68.95M) y le
+atribui la deriva del importer a mi cambio, sin controlarla. **La leccion: para atribuir un delta
+hay que medir el mismo instante con y sin el cambio, no dos instantes distintos.**
+
+El efecto real y no previsto estaba en otra parte: el CTE `win` de `analytics.v_existencia_dictamen`
+une por la MISMA columna y **no** tenia ese filtro, asi que los 7 almacenes de camioneta entraron
+al dictamen -- de 52,421 a **122,117 celdas**. Eso rompia su promesa central (*"la EXPLICA, no la
+reemplaza"*): dos universos del inventario publicados a la vez. Corregido con el mismo filtro
+(mig `20260907200000`, auto-verificada: 52,553 = 52,553).
+
+⭐ **Y su candado paso en VERDE con 69,564 filas de mas.** Comparaba `count(*)` del **JOIN** contra
+la canonica, y el JOIN solo empareja lo que esta en LAS DOS: probaba `canonica ⊆ dictamen` y se
+leia como igualdad. **Una comparacion que solo mira la interseccion no puede ver lo que sobra.**
+Ahora cuenta los dos lados y afirma que ningun ALMACEN aparece de un lado y no del otro.
+
+### El peldaño cobrado, persistido (U.5)
+
+`import-sales-fact.js:150` ya identificaba el peldaño por precio y lo **tiraba**:
+`if (!conv.ok) unconv++` mandaba el veredicto a un `console.log`. Tres columnas aditivas en
+`analytics.sales_daily`: `rung_factor`, `rung_mixed`, `units_unresolved`.
+
+⚠️ Precisión medida: la mezcla de peldaños vive **ENTRE CELDAS** (mismo SKU en dos almacenes: 311
+SKUs / $17.4M = 12.8% de la venta 90d), **no dentro de una fila** — el dry-run sobre 695,127 filas
+de origen dio cero mezcladas. `rung_mixed` nace como **candado**, no como hallazgo. Y a grano SKU
+sin almacén el no-base baja de 7.2% a 0.7%: **el grano grueso lo escondía 8×**.
+
+⚠️ **`unit-normalization.js:60-61` sigue con el defecto declarado y NO corregido**: `packF` y `boxF`
+caen los DOS a `factor_sale`. Cuando colapsan al mismo número, `pickPriceTier` elige entre dos
+factores idénticos. Cambiarlo mueve `sales_daily.units` en silencio para miles de SKUs, así que va
+aparte, con baseline propio.
+
+### Reglas de operación que salieron
+
+- **Después de CADA `CREATE OR REPLACE VIEW` sobre una vista con RLS, re-aplicar
+  `security_invoker` y el `GRANT` — no se heredan.** Una migración de U.7 lo perdió y la vista dejó
+  de filtrar por tenant; lo vio **sólo** la aserción de metadata del candado, porque la vista
+  seguía devolviendo datos correctos y ninguna prueba funcional lo notaba.
+- **`CREATE INDEX CONCURRENTLY` es una trampa en esta base.** Espera a TODAS las transacciones más
+  viejas, incluso ajenas: había una consulta de analítica de **1h54m** corriendo, el build se sentó
+  575 s en `Lock/virtualxid` y encoló detrás dos `ANALYZE` del propio importer. El remedio de no
+  bloquear al importer terminó bloqueándolo. Sin `CONCURRENTLY` entró al instante.
+
+**Candado:** `database/tests/test-newdb-unit-truth.js` (40 aserciones, en la regresión).
 
 ---
 

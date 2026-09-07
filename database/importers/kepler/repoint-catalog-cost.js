@@ -13,6 +13,7 @@
  *   node database/importers/kepler/repoint-catalog-cost.js --apply
  */
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
 const { normalizeCost } = require('../../../services/feeds-ingest/ods-derived');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
@@ -22,6 +23,9 @@ const APPLY = process.argv.includes('--apply');
 (async () => {
   const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await db.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(db, 'repoint-catalog-cost');
   try {
     console.log(`\n=== REPOINT costo kepler_ods → catalog.products (${APPLY ? 'APPLY' : 'DRY-RUN'}) — vía ods-derived (al-momento share) ===`);
     const ok = (await db.query(`SELECT to_regclass('kepler_ods.kdik') a, to_regclass('kepler_ods.kdii') b`)).rows[0];

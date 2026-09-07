@@ -7,38 +7,21 @@ import { LabelModel } from './components/label.component';
 export interface SearchHit { product_id: string; sku: string | null; name: string; barcode: string | null; }
 
 /**
- * [VP.0.1] El veredicto, espejo de `libs/commercial/src/lib/shared/freshness.ts`.
- * `unknown` = no se pudo medir, que NO es lo mismo que estar al día.
- */
-export type FreshnessStatus = 'fresh' | 'stale' | 'unknown';
-
-/** [OBS.6.2] Un eslabón de la cadena que produce el precio, con su edad y su veredicto. */
-export interface FreshnessInput {
-  key: string;
-  label: string;
-  at: string | null;
-  age_human: string | null;
-  status: FreshnessStatus;
-  stale: boolean;
-}
-
-/**
  * [OBS.6.2] Qué tan viejo es el precio que se está por imprimir.
  *
  * El 2026-09-02 el carril del ODS llevaba 6 días parado y esta pantalla imprimió precios de hace
  * una semana sin decir nada — uno de ellos 54% bajo costo. No bloquea: declara.
  *
- * [VP.0.1] `inputs` vacío = no se pudo medir, y eso llega como `status: 'unknown'` + `stale: true`.
- * Antes llegaba como `stale: false` y la pantalla callaba: el mismo silencio que la fase vino a
- * matar. La vista tiene que distinguir los dos casos — "viejo" tiene edad, "desconocido" no.
+ * [VP.2.1] El tipo estaba re-declarado a mano acá (copia del de `libs/commercial/.../freshness.ts`,
+ * a tres días de que naciera). Ahora los dos lados importan la MISMA forma de
+ * `@megadulces/contracts` → un cambio de shape es error de compilación en ambos, en vez de dos
+ * definiciones que se separan en silencio.
+ *
+ * `status: 'unknown'` = no se pudo medir. Llega con `stale: true` a propósito: antes llegaba con
+ * `stale: false` y la pantalla callaba, que es el silencio que la fase vino a matar.
  */
-export interface Freshness {
-  data_as_of: string | null;
-  status: FreshnessStatus;
-  stale: boolean;
-  age_human: string | null;
-  inputs: FreshnessInput[];
-}
+export type { Freshness, FreshnessInput, FreshnessStatus } from '@megadulces/contracts';
+import type { Freshness } from '@megadulces/contracts';
 
 export interface ResolveResult { labels: LabelModel[]; not_found: string[]; freshness?: Freshness; }
 
