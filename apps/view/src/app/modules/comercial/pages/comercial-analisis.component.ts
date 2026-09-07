@@ -13,6 +13,8 @@ import {
   SellOutExplainReport,
   SellOutExplainDim,
   SellOutExplainCompare,
+  SellOutMover,
+  SellOutExplainParams,
   SelloutChatBlock,
 } from '../comercial.service';
 
@@ -87,12 +89,19 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
         <app-metric-strip [items]="kpiItems()" />
       }
 
-      @if (explain(); as e) {
+      @if (activeExplain(); as e) {
         <section class="an-explain card-premium">
+          @if (drill(); as dr) {
+            <nav class="an-crumbs">
+              <button type="button" (click)="backToRoot()"><i class="pi pi-arrow-left"></i> {{ dimLabel() }}</button>
+              <i class="pi pi-angle-right"></i>
+              <span>{{ dr.parentLabel }} · por {{ activeDimLabel() }}</span>
+            </nav>
+          }
           <header class="an-explain-head">
             <div>
               <h2>Explica el cambio</h2>
-              <span class="an-sub">{{ dimLabel() }} · vs {{ e.compare === 'yoy' ? 'año anterior' : 'periodo anterior' }} ({{ e.mirror.from }} → {{ e.mirror.to }})</span>
+              <span class="an-sub">{{ activeDimLabel() }} · vs {{ e.compare === 'yoy' ? 'año anterior' : 'periodo anterior' }} ({{ e.mirror.from }} → {{ e.mirror.to }})</span>
             </div>
             <div class="an-total" [class.up]="e.total.delta > 0" [class.down]="e.total.delta < 0">
               <i [class]="e.total.delta > 0 ? 'pi pi-arrow-up' : e.total.delta < 0 ? 'pi pi-arrow-down' : 'pi pi-minus'"></i>
@@ -102,11 +111,13 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
           </header>
 
           <p class="an-narrative">{{ e.narrative }}</p>
+          @if (drillLoading()) { <p class="an-sub"><i class="pi pi-spin pi-spinner"></i> Profundizando...</p> }
 
           <ul class="an-movers">
             @for (m of e.movers; track m.key) {
-              <li>
+              <li [class.clickable]="drillable(m)" (click)="drillInto(m)">
                 <span class="an-m-label">
+                  @if (drillable(m)) { <i class="pi pi-angle-right an-drill-i"></i> }
                   {{ m.label }}
                   @if (m.kind === 'perdido') { <span class="an-tag bad">dejó de vender</span> }
                   @else if (m.kind === 'nuevo') { <span class="an-tag ok">nuevo</span> }
@@ -131,7 +142,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
               </li>
             }
           </ul>
-          <p class="an-foot"><i class="pi pi-verified"></i> Reparto exacto: la suma de los movimientos es el cambio total, al centavo. Misma venta verificada del Sell-Out.</p>
+          <p class="an-foot"><i class="pi pi-verified"></i> Reparto exacto: la suma de los movimientos es el cambio total, al centavo.@if (!drill()) {  Toca un renglón para ver qué lo explica.}</p>
         </section>
       } @else {
         <section class="an-empty">
@@ -221,7 +232,12 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-total.up, .an-m-delta.up, .an-m-pct.up { color: var(--success-fg, #2e7d32); }
     .an-total.down, .an-m-delta.down, .an-m-pct.down { color: var(--danger-fg, #c0392b); }
     .an-narrative { margin: 1rem 0 1.25rem; font-size: 1rem; line-height: 1.5; color: var(--text-color); }
+    .an-crumbs { display: flex; align-items: center; gap: .5rem; margin-bottom: .75rem; font-size: .85rem; color: var(--text-muted); }
+    .an-crumbs button { border: 0; background: transparent; color: var(--action, #d9772e); cursor: pointer; font-size: .85rem; display: inline-flex; align-items: center; gap: .3rem; padding: 0; }
     .an-movers { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
+    .an-movers li.clickable { cursor: pointer; border-radius: 8px; margin: 0 -.5rem; padding: .15rem .5rem; }
+    .an-movers li.clickable:hover { background: var(--surface-hover, #f0ede8); }
+    .an-drill-i { font-size: .75rem; color: var(--text-muted); margin-right: .1rem; }
     .an-movers li { display: grid; grid-template-columns: minmax(140px, 1.4fr) minmax(80px, 2fr) minmax(90px, auto) 62px; align-items: center; gap: .75rem; font-variant-numeric: tabular-nums; }
     .an-m-label { font-size: .9rem; display: flex; align-items: center; gap: .45rem; }
     .an-tag { font-size: .66rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; padding: .1rem .4rem; border-radius: 6px; }
@@ -294,7 +310,13 @@ export class ComercialAnalisisComponent {
     ];
   });
 
-  private maxAbs = 1;
+  // BI.2 — drill navegable: clic en un mover -> descompone ESE cambio por la
+  // siguiente dimensión, acotado al miembro. Breadcrumb para regresar.
+  readonly drill = signal<{ parentLabel: string; report: SellOutExplainReport } | null>(null);
+  readonly drillLoading = signal(false);
+  readonly activeExplain = computed(() => this.drill()?.report ?? this.explain());
+  readonly activeDimLabel = computed(() => this.dimOpts.find((o) => o.key === this.activeExplain()?.dimension)?.label ?? '');
+  private readonly maxAbsSig = computed(() => Math.max(1, ...((this.activeExplain()?.movers ?? []).map((m) => Math.abs(m.delta)))));
 
   generate() {
     const d = this.monthDate;
@@ -310,7 +332,7 @@ export class ComercialAnalisisComponent {
       .subscribe({
         next: ({ report, explain }) => {
           this.report.set(report);
-          this.maxAbs = Math.max(1, ...explain.movers.map((m) => Math.abs(m.delta)));
+          this.drill.set(null);
           this.explain.set(explain);
           this.loading.set(false);
         },
@@ -318,8 +340,40 @@ export class ComercialAnalisisComponent {
       });
   }
 
+  private nextDimFor(dim?: SellOutExplainDim): SellOutExplainDim | null {
+    if (dim === 'brand') return 'branch';
+    if (dim === 'branch') return 'brand';
+    if (dim === 'channel') return 'brand';
+    return null;
+  }
+
+  drillable(m: SellOutMover): boolean {
+    return !this.drill() && m.key !== '__none__' && m.delta !== 0 && this.nextDimFor(this.explain()?.dimension) !== null;
+  }
+
+  drillInto(m: SellOutMover) {
+    if (!this.drillable(m)) return;
+    const e = this.explain();
+    const next = this.nextDimFor(e?.dimension);
+    if (!e || !next) return;
+    const scope: Partial<SellOutExplainParams> = {};
+    if (e.dimension === 'brand') scope.brand_id = m.key;
+    else if (e.dimension === 'branch') scope.warehouses = [m.key];
+    else if (e.dimension === 'channel') scope.channel = m.key;
+    this.drillLoading.set(true);
+    this.svc
+      .sellOutExplain({ from: e.period.from, to: e.period.to, dim: next, compare: e.compare, ...scope })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => { this.drill.set({ parentLabel: m.label, report: r }); this.drillLoading.set(false); },
+        error: () => { this.drillLoading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo profundizar' }); },
+      });
+  }
+
+  backToRoot() { this.drill.set(null); }
+
   barPct(delta: number): number {
-    return Math.max(2, Math.round((Math.abs(delta) / this.maxAbs) * 100));
+    return Math.max(2, Math.round((Math.abs(delta) / this.maxAbsSig()) * 100));
   }
 
   // ── BI.5 chat ──
