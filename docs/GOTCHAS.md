@@ -329,10 +329,15 @@ node database/importers/kepler/run-prod-feeds.js <modo> | head -3
 - **`psql.exe` escribe CRLF.** Un `psql -tAc "select relname …" > lista.txt` deja `\r` pegado a cada
   nombre; después `pg_dump -t` "no encuentra tablas" y el `TRUNCATE` dice "no existe la relación".
   Pasar siempre por `tr -d '\r'`.
-- **El réplica lógico de la sucursal 03 se llama `kepler_pilot`** (nombre del piloto, rename
-  diferido), no `kepler_md_03`. Existe además un `md_03` que es un **sobrante congelado en junio**:
-  usarlo da data vieja sin ningún error. La resolución canónica está en `localDbName()` de
-  `replicate-ods-live.js`.
+- **RESUELTO 2026-09-07 — las 7 réplicas lógicas siguen la MISMA convención `kepler_md_XX`.**
+  Hasta esa fecha la rama 03 vivía en `kepler_pilot` (nombre del piloto original) y coexistía con un
+  `md_03` **congelado el 15-jun** que nadie escribía ni leía: **dos bases con nombre de la 03, una
+  viva y una muerta**, y usar la equivocada daba data de tres meses atrás **sin ningún error**. Se
+  renombró `kepler_pilot` → `kepler_md_03` y se soltó el sobrante (2,472 MB).
+  Lección que deja: la excepción de nombre estaba copiada a mano en **nueve** archivos
+  (`localDbName()` duplicado), así que "cosmético" costó nueve ediciones más un rebuild de imagen.
+  Si vuelve a hacer falta un nombre fuera de convención, que viva en **un solo** resolvedor
+  compartido — mismo criterio que `v_warehouse_box_factor` para el factor de caja.
 - **`sslmode=no-verify` no existe en libpq.** Es cosa de node-postgres. Para `psql`/`pg_dump` contra
   el proxy de Railway va `sslmode=require`.
 - **Editar un `.cmd` que está corriendo** corre el offset de lectura de `cmd.exe` y puede hacerle
@@ -1229,7 +1234,7 @@ la de telemetría** — la que menos importa es la que te deja el proceso vivo y
 POS Kepler (LAN privada, 6 hosts)          publicación `ods_pub`
         │  replicación lógica (pull)
         ▼
-:5433  kepler_md_00,01,02,04,05,06  +  kepler_pilot   ← schema `md`, contenedor `pgvector-md`
+:5433  kepler_md_00,01,02,03,04,05,06                ← schema `md`, contenedor `pgvector-md`
         │  shipper HTTP (feeds-ingest) — ops/ingest/docker-compose.yml
         ▼
 Railway  kepler_ods.<tabla>  (una tabla por tabla de Kepler, con columna `sucursal`)
@@ -1248,11 +1253,14 @@ Railway  kepler_ods.<tabla>  (una tabla por tabla de Kepler, con columna `sucurs
 Lo que **sí** hizo falta eliminar fue el `.cmd`: era una segunda copia del mismo shipper que ya vivía
 en Docker. Ver §35.
 
-**Convención de nombres de los réplicas (verificada 2026-09-04):** `kepler_md_XX`, schema `md`.
-**La excepción: la rama 03 vive en `kepler_pilot`** (nombre del piloto original, rename diferido). El
-mapeo está en [`replicate-ods-live.js`](../database/importers/kepler/replicate-ods-live.js) y en
-[`kepler-branches.js`](../database/importers/lib/kepler-branches.js) — buscar `kepler_md_03` a mano da
-`database "kepler_md_03" does not exist` y manda a investigar un fantasma.
+**Convención de nombres de los réplicas (uniformada 2026-09-07):** `kepler_md_XX`, schema `md`, las
+**siete sin excepción**. Antes la rama 03 vivía en `kepler_pilot` y buscar `kepler_md_03` a mano daba
+`database "kepler_md_03" does not exist`, mandando a investigar un fantasma — eso ya no pasa. El
+resolvedor sigue siendo `localDbName()` en
+[`replicate-ods-live.js`](../database/importers/kepler/replicate-ods-live.js), hoy sin casos
+especiales. **La suscripción conserva su nombre histórico `sub_pilot`** (renombrar una suscripción no
+aporta nada y sí toca el slot del publicador): si ves `sub_pilot` alimentando `kepler_md_03`, está
+bien.
 
 **Bases huérfanas en `:5433` que NO se tocan y no alimentan nada** (declaradas para que nadie las
 confunda con la fuente): `md_03` (2.4 GB, 329 tablas en `md`, **0 subscriptions**, congelada) y
