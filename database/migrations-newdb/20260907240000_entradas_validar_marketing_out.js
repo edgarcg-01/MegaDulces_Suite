@@ -36,7 +36,14 @@
  * tenía) y deja dicho que es un rol de lectura, que es lo que `role_scopes` ya declara con su
  * `mode_write: 'none'`.
  *
- * Idempotente. **Cambia el JWT → `fer_zambrano` necesita re-login** para que surta efecto.
+ * Idempotente.
+ *
+ * ⚠️ **No hace falta re-login** — acá decía lo contrario y estaba mal. `RolesGuard` resuelve los
+ * permisos contra `identity.role_permissions` **en cada request** (`PermissionsCacheService`, TTL
+ * 30 s con invalidación al guardar), no contra el snapshot del JWT; su propio comentario lo dice:
+ * *"así un cambio en /admin/roles aplica al instante sin re-login"*. El front arranca con lo que
+ * trae el token pero pide `GET /users/me/access` en el boot de la app, así que para que la UI se
+ * entere **basta recargar la página**. El backend lo enforza en ≤30 s pase lo que pase.
  *
  * @param { import("knex").Knex } knex
  */

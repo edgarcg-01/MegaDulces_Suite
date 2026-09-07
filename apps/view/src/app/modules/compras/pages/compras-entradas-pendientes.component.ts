@@ -18,8 +18,9 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import {
   EntradasService, EntradaRow, EntradasReport, EntradasQuery, EntradaDetail, ProofFile, RemisionOcr, AttachReceipt,
-  type OrdenEntradas,
+  type OrdenEntradas, type DocPresence,
 } from '../entradas.service';
+import { receptionSource, roleOptsFor, checklist, missingGroups } from '../receipt-roles';
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
@@ -55,6 +56,16 @@ interface Hoja {
   fecha?: string | null;
   rfc?: string | null;
   ocr?: Partial<RemisionOcr>;
+  /**
+   * `[RE.28]` **Qué ES esta hoja.** Antes iba clavado en `'factura'`, y por eso desde el 27-ago
+   * ninguna evidencia subida desde acá pudo declarar la hoja interna: `paquete_ok` y
+   * `folio_interno` —los dos controles de RE.25/RE.26— quedaron muertos en origen. El default
+   * sigue siendo `factura` porque es el caso mayoritario y no debe costar un clic.
+   */
+  role: string;
+  /** `[RE.28]` Tipos que el OCR reconoció en esta hoja (un PDF combinado trae varios). */
+  ocrDocs?: string[] | null;
+  ocrDocsDetail?: DocPresence[] | null;
   /** A qué orden de entrada va. Se preselecciona si el PDF se soltó sobre una fila. */
   entrada?: EntradaRow | null;
   /** Se enlazó por importe y no por folio: vale decirlo, es un enlace más débil. */
@@ -602,6 +613,21 @@ interface Hoja {
                   </p>
                 }
 
+                <!-- RE.28 — QUÉ ES esta hoja. Iba clavado en "factura", y por eso desde el 27-ago
+                     ninguna evidencia subida desde acá pudo traer la hoja interna: los controles
+                     de paquete y de folio quedaron sin materia prima. Las opciones dependen de la
+                     fuente de la entrada enlazada (Kepler pide otras hojas que Wincaja). -->
+                <div class="ep-an-rol">
+                  <label [attr.for]="'rol-' + h.id">Qué es esta hoja</label>
+                  <p-select [inputId]="'rol-' + h.id" [options]="rolesDe(h)"
+                            [ngModel]="h.role" (ngModelChange)="setRol(h, $event)"
+                            [ngModelOptions]="{ standalone: true }"
+                            optionLabel="label" optionValue="value" appendTo="body"></p-select>
+                  @if (h.role === 'orden_entrada') {
+                    <small class="ep-hint">Con nuestra hoja adentro se puede verificar que la evidencia es de esta orden.</small>
+                  }
+                </div>
+
                 <!-- RE.17.6 — la hoja, antes de mandarla. Acá se confirma una factura de seis
                      cifras y lo único que se veía era lo que leyó el OCR: si leyó mal el total,
                      o el escáner cortó la hoja, no había forma de notarlo hasta el revisor. -->
@@ -647,6 +673,41 @@ interface Hoja {
               }
             }
           </article>
+        }
+
+        <!-- RE.28 — qué le falta a cada expediente, por EXPEDIENTE y no por hoja: dos hojas de
+             una misma factura son un paquete. INFORMA, no bloquea: acá el capturista sube lo que
+             tiene cuando lo tiene, y frenarlo sería cambiar adopción por completitud con el 87%
+             de las entradas sin ninguna evidencia. El "cómo se cumplió" distingue lo que declaró
+             el capturista de lo que reconoció el OCR — una palomita sin origen es caja negra. -->
+        @if (expedientes().length && sinHojaInterna()) {
+          <div class="ep-falta">
+            <p>
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              @if (sinHojaInterna() === expedientes().length) {
+                Ninguno lleva <b>nuestra hoja de entrada</b>. Se puede enviar igual — con ella,
+                el sistema puede verificar que la evidencia es de esta orden y no de otra.
+              } @else {
+                {{ sinHojaInterna() }} de {{ expedientes().length }} van sin <b>nuestra hoja de entrada</b>.
+                Se pueden enviar igual.
+              }
+            </p>
+            @for (x of expedientes(); track x.clave) {
+              <ul class="ep-falta-l">
+                <li class="ep-falta-h"><b class="mono">{{ x.entrada.sucursal }}/{{ ultimos4(x.entrada.folio) }}</b></li>
+                @for (c of x.checklist; track c.label) {
+                  <li [class.ok]="c.ok">
+                    <i class="pi" [ngClass]="c.ok ? 'pi-check' : 'pi-minus'" aria-hidden="true"></i>
+                    {{ c.label }}
+                    @if (c.ok && c.via === 'auto') {
+                      <em>lo reconoció el lector{{ c.page ? ' (pág. ' + c.page + ')' : '' }}</em>
+                    } @else if (c.ok) { <em>lo declaraste vos</em> }
+                    @else if (c.optional) { <em>opcional</em> }
+                  </li>
+                }
+              </ul>
+            }
+          </div>
         }
 
         @if (capError()) { <p class="ep-err">{{ capError() }}</p> }
@@ -898,6 +959,26 @@ interface Hoja {
 
     .ep-dlg-n { margin-right: auto; font-size: var(--fs-xs); color: var(--text-muted); }
     .ep-err { margin: 0; font-size: var(--fs-xs); color: var(--bad-fg); }
+    /* RE.28 — el rol de la hoja. En línea con las otras acciones de la tarjeta: es una
+       decisión de la hoja, no un formulario aparte. */
+    .ep-an-rol { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+    .ep-an-rol label { font-size: var(--fs-micro); color: var(--text-muted); }
+    .ep-hint { font-size: var(--fs-micro); color: var(--text-faint); }
+    /* Lo que le falta al expediente. Va en gris y con ícono neutro a propósito: no es un error
+       —se puede enviar igual— y pintarlo de ámbar lo metería en la misma cola visual que un
+       descuadre real, que sí bloquea trabajo de otra persona. */
+    .ep-falta {
+      display: flex; flex-direction: column; gap: var(--sp-2);
+      padding: var(--sp-3); border: 1px dashed var(--border-color);
+      border-radius: var(--r-md, .5rem); background: var(--surface-2);
+    }
+    .ep-falta > p { margin: 0; font-size: var(--fs-xs); color: var(--text-muted);
+      display: flex; gap: var(--sp-2); align-items: flex-start; }
+    .ep-falta-l { list-style: none; margin: 0; padding: 0; font-size: var(--fs-micro); }
+    .ep-falta-h { color: var(--text-muted); margin-bottom: 2px; }
+    .ep-falta-l li { display: flex; align-items: center; gap: var(--sp-2); color: var(--text-faint); }
+    .ep-falta-l li.ok { color: var(--text-main); }
+    .ep-falta-l li em { font-style: normal; color: var(--text-faint); }
 
     .ep-link {
       justify-self: start; font: inherit; font-size: var(--fs-micro); color: var(--text-faint);
@@ -1261,6 +1342,51 @@ export class ComprasEntradasPendientesComponent {
   /** El OCR todavía corre: el botón de enviar espera, o se manda sin saber si cuadra. */
   readonly leyendo = computed(() => this.hojas().some((h) => h.estado === 'leyendo'));
 
+  // ── `[RE.28]` El rol de cada hoja y qué le falta al expediente ────────────
+  //
+  // Las reglas viven en `../receipt-roles`, compartidas con el otro wizard. Que
+  // estuvieran adentro de ESE componente fue la causa de que esta pantalla
+  // clavara `role: 'factura'` durante 11 días.
+
+  /** Las opciones dependen de la FUENTE de la entrada enlazada, no de la pantalla. */
+  rolesDe(h: Hoja): { label: string; value: string }[] {
+    return roleOptsFor(receptionSource(h.entrada?.source_branch));
+  }
+
+  setRol(h: Hoja, role: string): void {
+    this.parchar(h.id, { role });
+  }
+
+  /**
+   * El checklist va por EXPEDIENTE, no por hoja: la bandeja agrupa N hojas en M entradas, y lo
+   * que se cumple o falta es del paquete completo. Devuelve una entrada por expediente listo.
+   */
+  readonly expedientes = computed(() => {
+    const porEntrada = new Map<string, Hoja[]>();
+    for (const h of this.listas()) {
+      const k = `${h.entrada!.sucursal}|${h.entrada!.folio}`;
+      porEntrada.set(k, [...(porEntrada.get(k) || []), h]);
+    }
+    return [...porEntrada.entries()].map(([clave, hojas]) => {
+      const fuente = receptionSource(hojas[0].entrada?.source_branch);
+      return {
+        clave,
+        entrada: hojas[0].entrada!,
+        hojas,
+        checklist: checklist(hojas, fuente),
+        faltan: missingGroups(hojas, fuente),
+      };
+    });
+  });
+
+  /**
+   * Cuántos expedientes van sin nuestra hoja interna. Es **informativo y no bloquea**: acá el
+   * capturista sube lo que tiene cuando lo tiene, y frenarlo cambiaría adopción por completitud
+   * — con el 87% de las entradas sin ninguna evidencia, la adopción es el problema.
+   */
+  readonly sinHojaInterna = computed(() =>
+    this.expedientes().filter((e) => !e.hojas.some((h) => h.role === 'orden_entrada' || h.role === 'vale')).length);
+
   /** Título de la ventana: dice de qué entrada se trata, no "Adjuntar archivo". */
   tituloDialogo(): string {
     const l = this.hojas();
@@ -1393,6 +1519,9 @@ export class ComprasEntradasPendientesComponent {
         blobUrl: URL.createObjectURL(f),
         bytes: Math.round((dataUri.length - (dataUri.indexOf(',') + 1)) * 0.75),
         estado: 'leyendo',
+        // `[RE.28]` Arranca en `factura` porque es lo que se sube el 90% de las veces; el OCR lo
+        // corrige solo si reconoce otra cosa (ver `leerYEnlazar`), y el capturista puede cambiarlo.
+        role: 'factura',
         entrada: destino,
         busqueda: '',
       });
@@ -1420,10 +1549,17 @@ export class ComprasEntradasPendientesComponent {
 
   private async leerYEnlazar(h: Hoja): Promise<void> {
     try {
-      const o = await firstValueFrom(this.svc.ocr(h.dataUri, 'factura'));
+      const o = await firstValueFrom(this.svc.ocr(h.dataUri, h.role));
       this.parchar(h.id, {
         sha256: o.sha256, folioOcr: o.folio, total: o.total, subtotal: o.subtotal,
         fecha: o.fecha, rfc: o.rfc, ocr: o,
+        // `[RE.28]` Lo que el OCR reconoció dentro de la hoja alimenta el checklist como `auto`.
+        // **No se usa para cambiarle el rol**: el rol lo DECLARA el capturista, y RE.25 ya midió
+        // por qué (el rol encuentra la hoja interna en 93 de 161 y el OCR en 7). Construir el
+        // control sobre la adivinanza reprobaba al capturista por un error del modelo; dejarlo
+        // que además pise lo declarado sería la misma trampa al revés.
+        ocrDocs: (o.documents_present ?? []).map((d) => d.type),
+        ocrDocsDetail: o.documents_present ?? [],
       });
       if (o.duplicate) {
         this.parchar(h.id, { estado: 'duplicada', dupDe: `${o.duplicate.sucursal}/${o.duplicate.folio}` });
@@ -1594,11 +1730,15 @@ export class ComprasEntradasPendientesComponent {
       const subidas: { h: Hoja; file: ProofFile }[] = [];
       for (const h of listas) {
         try {
-          const up = await firstValueFrom(this.svc.uploadFile(h.dataUri, 'factura'));
+          // `[RE.28]` El rol viaja desde la hoja. Estaba clavado en `'factura'` acá y en la línea
+          // de abajo, y eso era la regresión: desde el 27-ago ninguna evidencia subida desde esta
+          // pantalla pudo declarar la hoja interna, así que `paquete_ok` y `folio_interno` —los
+          // controles de RE.25 y RE.26— quedaron en cero durante 11 días.
+          const up = await firstValueFrom(this.svc.uploadFile(h.dataUri, h.role));
           subidas.push({
             h,
             file: {
-              ...up, role: 'factura', name: h.name, sha256: h.sha256,
+              ...up, role: h.role, name: h.name, sha256: h.sha256,
               ocr_folio: h.folioOcr ?? null, ocr_total: h.total ?? null,
               ocr_fecha: h.fecha ?? null, ocr_rfc: h.rfc ?? null,
             },
