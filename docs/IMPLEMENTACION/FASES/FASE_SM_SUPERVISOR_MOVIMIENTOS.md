@@ -446,6 +446,64 @@ lo explica en vez de pintar guiones.
 
 **Pendiente prod:** redeploy view. No requiere migración ni re-login.
 
+## SM.26 — El arqueo es UNA sección, no dos entradas del menú (✅ local 2026-09-07)
+
+`Arqueo de caja` y `Arqueos por cajera` colgaban sueltas del sidebar, una debajo de
+la otra. Son la misma pregunta desde dos lados — `/tienda/arqueo` es **el acto**
+(contar el cajón, sellar el conteo, validarlo) y `/tienda/arqueos` es **la persona**
+(cómo viene cada cajera, qué cortes le quedaron sin contar) — pero en el menú
+parecían módulos distintos y había que adivinar en cuál mirar.
+
+Ahora es **una entrada** (`Arqueo de caja`) con las dos vistas en pestañas
+(`ARQUEO_TABS` + `<app-page-tabs>`, el patrón de Clientes/Finanzas/Contabilidad).
+Saltar de una a otra es un clic y el contexto no se pierde. Misma tesis que WMS.1
+con el Almacén: un tema, un lugar.
+
+**Detalle de permisos:** el tab de captura va **sin `permission`** a propósito. Esa
+ruta la guarda un `anyPermissionGuard(STORE_ARQUEO_VER, STORE_ARQUEO_CAPTURAR)` y
+`PageTab` acepta un solo permiso — exigirle `VER` le escondería su propia pantalla a
+la cajera que solo captura. Si le falta `VER`, el tab "Por cajera" se filtra y la
+barra se oculta sola (`PageTabs` se esconde con un único tab visible).
+
+**Pendiente prod:** redeploy view. Sin migración, sin re-login.
+
+## SM.27 — El formato de piso: billetes | monedas | medios (✅ local 2026-09-07)
+
+Edgar pasó el formato con el que se arquea hoy (la hoja de "REGISTRO DE ARQUEO DE
+CAJA") y pidió una cosa explícita: **los medios de pago van AL LADO de las monedas**,
+no debajo. La captura ahora son tres bloques a lo ancho:
+
+| Billetes | Monedas | Medios de pago y movimientos |
+|---|---|---|
+| $1000 … $20 | $10 … 50¢ | Tarjeta, Transferencia, Retiros, Créditos, Cheques + Incidencia |
+| Total + pzas | Total + pzas | — |
+
+**Por qué el billete y la moneda se separan:** son **dos fajos distintos** y cada
+total se verifica aparte — un billetes/monedas desbalanceado es la primera pista de
+un conteo mal capturado. El corte en $20 es **el mismo** que usa
+`blind-count.service` para partir nuestro conteo contra el desglose de Kepler
+(`nuestro_billetes` / `nuestro_monedas`): si uno se mueve, el otro también.
+
+**Por qué los medios al lado y no abajo:** la columna de monedas es corta (5
+renglones contra 6) y ese hueco a la derecha era el lugar natural del voucher de la
+terminal y el fajo de cheques. Abajo obligaba a bajar la vista después de contar.
+
+Grid intrínseco (§9): las tres columnas se apilan solas en pantalla angosta, sin
+breakpoints. La navegación ↑/↓/Enter sigue recorriendo las 11 denominaciones en
+orden aunque ahora vivan en dos loops (el índice de monedas va corrido por
+`billetes.length`).
+
+### ⚠️ Lo que el formato pide y todavía NO existe
+
+| Del formato | Estado |
+|---|---|
+| **Zona** en datos generales | No existe en `blind_counts`. Se podría derivar de la sucursal (`zones`), pero no se guarda. |
+| **Detalles de aprobación** (Gerente de Zona / Gerente de Sucursal) + botón "Guardar y Enviar para Aprobación" | No existe **nada**. Hoy el modelo es UNA firma presencial (`validado_por` / `validado_at`, SM.12), no un flujo de aprobación de dos niveles. Necesita migración + endpoints + permisos: es backend, no front. |
+| Zona / Sucursal / Caja **editables** en el encabezado | **Choca con la regla vigente**: el encabezado sale del turno de Kepler y es read-only a propósito (sin turno no hay arqueo — evita arquear la caja de otra o un turno que no existió). Decide Edgar. |
+| FECHA elegible | Hoy el arqueo es **siempre de HOY**, también a propósito (SM.21): elegir una fecha pasada permitiría sellar dinero de un día ya cerrado. |
+
+**Pendiente prod:** redeploy view. Sin migración, sin re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
