@@ -513,6 +513,10 @@ const CRON_JOBS: CronCfg[] = [
   // Umbrales de job diario, mismo criterio que `sales_daily`: warn al saltarse una corrida, crítico
   // al saltarse dos.
   { key: 'analytics_refresh_wincaja',         label: 'Refresh MV Wincaja (nightly)',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [VP.4.3] El comparador de cierres (07:10 MX, después del refresh). Se registra acá porque el
+  // candado de VP.0.5 lo exige —todo `job_key` que late tiene umbral— y porque un comparador que
+  // deja de correr en silencio devuelve la deriva a ser invisible, que es lo que la fase cerró.
+  { key: 'period_close_check',                label: 'Verificación de cierres de mes',    cadence: 'nightly 07:10 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
