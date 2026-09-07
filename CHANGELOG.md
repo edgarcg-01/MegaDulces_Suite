@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### Changed — La etiqueta de anaquel baja a 82×35 mm: de 8 a 15 por hoja (2026-09-07)
+
+Salió de *"necesito reducir el tamaño de la etiqueta"*. Edgar fijó el alto en 35 mm y eligió el ancho tras ver el cálculo.
+
+**Los saltos son umbrales, no una curva.** En Carta horizontal con margen de 8 mm quedan 263 × 200 mm útiles. Bajar de 115 a 100 mm de ancho **no habría cambiado nada** (siguen 2 columnas, 8 por hoja): el umbral de la 3ª columna está en ~82.6 mm y el de la 5ª fila en 35 mm de alto. A **82 × 35** entran **3 × 5 = 15 por hoja**, casi la mitad de papel por etiqueta.
+
+**Y la pantalla mentía sobre el tamaño:** el encabezado del componente, el texto de la página y el comentario de la impresión decían *"tamaño físico 100×40 mm"* mientras el CSS imprimía **115** — 15 mm más ancho que el material que declaraba. Corregido junto con el resto.
+
+Se re-proporcionó todo respetando el reparto original (54:55 → **38 / 39.4** con 1.6 de gap y 1.5 de padding = 82 exactos), y los tres auto-encogidos (`fitHead`/`fitPrice`/`fitAmts`) arrancan y pisan proporcionalmente. **El código de barras es lo único con mínimo físico** —un EAN-13 pide ~29.83 mm al 80% de magnificación— así que pasa de 85% a **100%** de su columna (39.4 mm) y conserva 5 mm de alto.
+
+⚠️ **El margen de recorte baja de 2.5 a 2 mm por tolerancia, no por estética.** A 2.5 la huella mide 87 × 40 y cinco filas dan 200 mm contra 200 disponibles: cero holgura, y cualquier redondeo de subpíxel manda la 5ª fila a la hoja siguiente — 12 aquí y 3 allá, **gastando más papel que antes**.
+
+**Verificado** renderizando una hoja completa en puppeteer con el CSS **extraído del propio fuente**: etiqueta 82.0 × 34.9 mm, 3 por fila × 5 filas, sin desbordes. ⚠️ La primera pasada del chequeo **dio verde estando mal**: medía el `scrollWidth` del texto del precio, pero el recorte lo hace el `overflow:hidden` de la caja amarilla, así que el texto siempre "cabe" — un precio de 4 cifras salía cortado y el chequeo lo aprobaba. Se corrigió midiendo la caja.
+
+**Candado nuevo** `apps/view/src/app/modules/tienda/etiqueta-hoja.spec.ts` (**9/9**): el tamaño vive en el CSS, cuántas caben en una constante y la medida rotulada en el texto de la pantalla — los tres podían desincronizarse sin que nada falle, y lo estaban. Comprueba la aritmética completa (medida → huella → columnas × filas → `PER_SHEET`), que el rótulo diga la verdad, que el margen sea el mismo en la simulación y en las dos rutas de impresión, y que sobren ≥3 mm en cada eje. Prueba negativa verificada bajando `PER_SHEET` a 12: 2 rojos.
+
+Pendiente: una impresión de prueba para confirmar el corte, y redeploy de `view`.
+
 ### Fixed — La cabecera de Existencia decía "Cedis Oficinas" y ordenaba por código, no por red (2026-09-07)
 
 Pedido de Edgar. Dos cosas que se leían mal en `/almacen/existencia`:

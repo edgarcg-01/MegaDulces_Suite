@@ -18,11 +18,16 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 
 /**
  * Etiquetera (proyecto Tienda). Arma una cola de etiquetas (buscar en catálogo o pegar lista
- * de códigos) e imprime en la térmica a color, tamaño físico 100×40 mm.
+ * de códigos) e imprime en hoja Carta horizontal; etiqueta de **82×35 mm**, 15 por hoja.
+ *
+ * ⚠️ Este encabezado y el texto de la pantalla decían "tamaño físico 100×40 mm" mientras el CSS
+ * de `label.component` imprimía **115×40** — 15 mm más ancho que el material que declaraba. Al
+ * reducir a 82×35 se corrigieron las dos cosas a la vez, y el número de la hoja pasó de 8 a 15.
  *
  * Impresión: se renderiza la hoja fuera de pantalla (para que auto-ajuste el nombre y dibuje
- * los barcodes), luego se clona a un IFRAME aislado con su propio `@page` de 100×40mm y color
- * forzado. Chrome no respeta `@page` de estilos inyectados por Angular en runtime; el iframe sí.
+ * los barcodes), luego se clona a un IFRAME aislado con su propio `@page` (Carta horizontal,
+ * margen 8 mm) y color forzado. Chrome no respeta `@page` de estilos inyectados por Angular en
+ * runtime; el iframe sí.
  *
  * UI sobre el design system "Mercado" (surface Operations): PrimeNG + tokens, quiet-luxury.
  * `ViewEncapsulation.None` es intencional — el clon de estilos al iframe necesita los estilos
@@ -130,7 +135,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       border-radius: var(--r-sm); background:#fff; /* papel */ }
     .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff; /* papel */
       transform:scale(0.474); transform-origin:top left; text-align:center; font-size:0; }
-    .etqp-sheet app-label{ display:inline-block; vertical-align:top; margin:2.5mm; }
+    .etqp-sheet app-label{ display:inline-block; vertical-align:top; margin:2mm; }
     .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; /* recorte impreso */ }
 
     /* ── Empty state (Operations) ──────────────────────────── */
@@ -142,7 +147,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
 
     /* Hoja fuente: fuera de pantalla PERO con layout (para auto-fit del nombre + barcodes).
        No se imprime desde aquí; se clona a un iframe aislado. */
-    .etqp-print{ position:fixed; left:-100000px; top:0; width:115mm; }
+    .etqp-print{ position:fixed; left:-100000px; top:0; width:82mm; }
 
     /* HOTFIX tablets — varios navegadores (Safari/iPadOS, WebViews de Android) ignoran
        iframe.contentWindow.print() y mandan a imprimir el DOCUMENTO PRINCIPAL: salía toda
@@ -157,7 +162,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       body.etqp-printing > *:not(.etqp-print-fallback){ display:none !important; }
       body.etqp-printing .etqp-print-fallback{ display:block !important; text-align:center; font-size:0; }
       body.etqp-printing .etqp-print-fallback app-label{ display:inline-block; vertical-align:top;
-        break-inside:avoid; page-break-inside:avoid; margin:2.5mm; }
+        break-inside:avoid; page-break-inside:avoid; margin:2mm; }
       body.etqp-printing .etqp-print-fallback .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
       body.etqp-printing *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
     }
@@ -171,7 +176,7 @@ type Msg = { text: string; kind: 'info' | 'ok' | 'error' | 'warn' };
       <div class="etqp-head">
         <div class="etqp-title">
           <h1>Etiquetas de anaquel</h1>
-          <p>Arma la cola e imprime en hoja Carta · etiqueta 100×40&nbsp;mm
+          <p>Arma la cola e imprime en hoja Carta · etiqueta 82×35&nbsp;mm · 15 por hoja
             <!-- Diagnóstico visible: dice si ESTE equipo tiene cargada la protección de
                  impresión. Sin esto, "no imprime bien" y "está corriendo el bundle viejo"
                  se ven idénticos, y el service worker puede dejar una tablet meses atrás.
@@ -443,8 +448,14 @@ export class TiendaEtiquetasComponent {
     };
   });
 
-  // Carta horizontal (263×200mm útil): 2 columnas × 4 filas ≈ 8 etiquetas por hoja.
-  private readonly PER_SHEET = 8;
+  // Carta horizontal (263×200mm útil) con etiquetas de 82×35 + 2mm de margen de recorte
+  // (huella 86×39): 3 columnas × 5 filas = 15 por hoja. Con las de 115×40 eran 8.
+  //
+  // El margen es 2 y no 2.5mm por TOLERANCIA: a 2.5 la huella mide 87×40 y cinco filas dan
+  // 200mm contra 200mm disponibles — cero holgura, y cualquier redondeo de subpíxel manda la
+  // 5ª fila a la hoja siguiente (12 aquí + 3 allá, gastando MÁS papel que antes y sin que
+  // nadie entienda por qué). A 2mm sobran 5mm de alto y 5mm de ancho.
+  private readonly PER_SHEET = 15;
   totalSheets = computed(() => Math.max(1, Math.ceil(this.totalLabels() / this.PER_SHEET)));
   sheetLabels = computed<SheetLabel[]>(() => {
     const out: SheetLabel[] = [];
@@ -658,7 +669,7 @@ export class TiendaEtiquetasComponent {
     return out;
   }
 
-  /** Renderiza la hoja fuera de pantalla, luego imprime en un iframe aislado (100×40 mm). */
+  /** Renderiza la hoja fuera de pantalla, luego imprime en un iframe aislado (Carta horizontal). */
   print(): void {
     const all = this.expanded();
     if (!all.length || this.printing()) return;
@@ -727,7 +738,7 @@ export class TiendaEtiquetasComponent {
         *{ -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
         /* Carta horizontal: 2 etiquetas por fila (aprovecha el ancho); se paginan solas y no se parten. */
         body{ text-align:center; font-size:0; }
-        app-label{ display:inline-block; vertical-align:top; break-inside:avoid; page-break-inside:avoid; margin:2.5mm; }
+        app-label{ display:inline-block; vertical-align:top; break-inside:avoid; page-break-inside:avoid; margin:2mm; }
         /* Esquinas rectas + línea de recorte punteada por etiqueta. */
         app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; }
       </style></head><body>${sheet.innerHTML}</body></html>`);
