@@ -41,9 +41,35 @@ al centavo el total de dos lecturas de una vista viva sobre `kepler_ods` (deriva
 $65.5M); ahora tolera la deriva del feed y prueba lo que de verdad importa — que el total no sea el de
 la página, contra la suma de la página misma.
 
-⚠️ **Queda abierto y declarado:** el `zone_id` de ese almacén sigue apuntando a la zona **OFICINAS**
-(mig `20260829130000`). No se movió porque `zone_id` alimenta el **alcance por zona** (Fase ID) —
-cambiarlo es decisión de permisos, no de rótulo.
+### Fixed — La plaza del CEDIS era OFICINAS, y las dos de Morelia no tenían ninguna (ID.23, 2026-09-07)
+
+Autorizado por Edgar tras el rename de arriba. Medido antes de tocar: `commercial.warehouses.zone_id`
+**no filtra nada por sí sola** — es el default que propone el alta de usuarios, y su único consumidor
+(`UsersService.derivarZona()`) devuelve `undefined` cuando no encuentra zona, que ahí significa
+*"no toques lo que ya tiene"*. Más: **0 usuarios** tienen como almacén el `00`, `MD-30` o `MD-32`, así
+que esa derivación nunca se disparó. **Ningún usuario existente cambia de alcance.**
+
+- **El CEDIS pasa a NULL, no a otra zona.** El almacén `00` apuntaba a **OFICINAS**, que es correcta
+  como lugar de trabajo (sus 22 usuarios son corporativos: compras, contabilidad, finanzas,
+  prevención, superadmin) pero es plaza de **La Piedad**, y el CEDIS es el bodegón de **Irapuato**.
+  No existe zona de Irapuato y crearle una con cero usuarios sería inventar estructura, así que queda
+  en NULL — el mismo precedente que `20260829130000` fijó para `04 Yurécuaro` (*"elegirle una sería
+  inventarla"*), que se resolvió solo cuando alguien creó la zona desde `/comercial/almacenes`.
+- ⭐ **Morelia: el seed de `[ID.23]` se saltó las dos.** Su mapa `PLAZA` sólo tenía códigos de DOS
+  dígitos, y las de Morelia son `MD-30` / `MD-32` → quedaron en NULL, mientras las zonas
+  `MORELIA ABASTOS` (**10 usuarios**) y `MORELIA MADERO` (**4**) existían **sin ningún almacén
+  apuntándolas**. Es el hueco exacto que `[ID.23]` existe para cerrar, y el header de esa migración
+  **ya lo decía** (*"las dos de Morelia son los almacenes sin código Kepler (MD-30 / MD-32)"*): lo
+  declaró y no lo hizo. Ahora las 8 sucursales de la red tienen plaza y sólo el CEDIS queda sin ella.
+
+Mig `20260907220000`, batch 311, auto-verificada (el `00` sin plaza · Morelia en la suya · y que siga
+existiendo al menos una zona sin sucursal, porque de eso depende que la zona sea un eje editable y no
+un derivado). `test-newdb-user-permissions` **28/28** · `test-newdb-scope-axis` sin cambio ·
+`test-newdb-existencia` **23/23**, todos contra prod.
+
+⚠️ Colateral aceptado: OFICINAS queda sin almacén, así que el reporte de `[ID.23]` la lista entre las
+*"zonas sin sucursal (territorio de ruta)"* — el rótulo no le queda bien, pero el hecho es cierto, y
+es preferible a que el alta proponga La Piedad para quien trabaja en Irapuato.
 
 ### Fixed — El anexo imprimía el RFC equivocado, el nombre roto, y gastaba 41% más papel (AX.10, 2026-09-07)
 
