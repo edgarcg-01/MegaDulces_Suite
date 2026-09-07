@@ -329,6 +329,25 @@ node database/importers/kepler/run-prod-feeds.js <modo> | head -3
 - **`psql.exe` escribe CRLF.** Un `psql -tAc "select relname …" > lista.txt` deja `\r` pegado a cada
   nombre; después `pg_dump -t` "no encuentra tablas" y el `TRUNCATE` dice "no existe la relación".
   Pasar siempre por `tr -d '\r'`.
+- **⛔ `_row_hash` NO es identidad: no sobrevive una re-lectura.** En el espejo crudo de Wincaja las
+  tablas SIN PK natural escriben con `ON CONFLICT (_row_hash) DO NOTHING`, y es tentador leer eso
+  como "re-leer es idempotente". **No lo es.** Medido el 2026-09-07: al agregar una ventana de
+  solape al carril incremental, 5,401 filas ya presentes se INSERTARON de nuevo — y las 10,802 filas
+  de los grupos duplicados tenían **10,802 hashes DISTINTOS**. O sea el hash de la misma fila cambia
+  entre pasadas, así que el `DO NOTHING` nunca dispara. Ese conflict target sólo funciona bajo el
+  supuesto de que el movimiento es **inmutable y se lee UNA vez** (append-only estricto).
+  **Consecuencia:** el remedio para una fuga del carril incremental **no** es un solape de lectura.
+  Wincaja sí edita: el documento `C960007665` (w32, 28-ago) recibió 2 líneas por **$3,748.16**
+  después de que el watermark pasó su `Consecutivo` → invisibles para siempre. El remedio correcto
+  es la **recarga por corte** del carril histórico (`import-wincaja-hist.js`, `DELETE` por
+  `_dataset` + reinsert = idempotente **por construcción**, no por suerte), agendada como
+  reconciliador. `DetallesMovAlmacen` no tiene columna de número de línea, así que `(Consecutivo,
+  Articulo)` puede repetirse legítimamente dentro de un ticket → no hay clave natural que permita
+  convertirlo en `DO UPDATE`.
+  Para auditar duplicados de este tipo: agrupar por `(Consecutivo, Articulo, CantidadRegular,
+  ValorVenta)` y contar `> 1`; el piso legítimo medido en toda la historia previa de `w32` es **4
+  grupos**. Y ⚠️ **no comparar contra `hNN` sin mirar la fecha del corte**: `hNN/Actuales` es un
+  SNAPSHOT, así que los tickets posteriores aparecen sólo en el vivo y simulan duplicados.
 - **RESUELTO 2026-09-07 — las 7 réplicas lógicas siguen la MISMA convención `kepler_md_XX`.**
   Hasta esa fecha la rama 03 vivía en `kepler_pilot` (nombre del piloto original) y coexistía con un
   `md_03` **congelado el 15-jun** que nadie escribía ni leía: **dos bases con nombre de la 03, una
