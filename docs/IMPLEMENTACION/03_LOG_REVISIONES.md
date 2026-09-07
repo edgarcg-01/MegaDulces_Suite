@@ -309,6 +309,47 @@ Sólo cayeron los de carriles sin tarea.
 - **`trade-mkt-prov` (3.72 GB) y `scriptsmd-admin-bd` (851 MB) no se tocan**: esta box es compartida
   y no consta que sean de este proyecto.
 
+### 5ª pasada — 2026-09-07 · el linaje `blended` quedó retirado a medias (⚠️ ABIERTO) + el guardián late
+
+**⚠️ LO MÁS IMPORTANTE ABIERTO, y no es de esta sesión.** `analytics.v_sales_blended` y
+`analytics.mv_sales_blended` **ya no existen en prod** (el 05-sep la matview medía **1,456 MB**). El
+linaje se reemplazó por `analytics.v_sellout_daily` + `analytics.mv_sellout_monthly` (796,503 filas,
+sano) — la migración `20260904100000` lo declara: `v_sellout_daily` es la "DEFINICIÓN ÚNICA del
+universo del reporte Sell-Out". Pero quedaron **dos cabos sueltos**:
+
+1. **`commercial-analytics.service.ts` sigue leyendo `analytics.mv_sales_blended` en 8 lugares**
+   (canales, mix por marca, totales, series con `dayFilter`) → líneas 1169, 1272, 1628, 1744, 1776,
+   1811, 1857. Es **rotura latente, no caída activa**: la API desplegada corre una imagen anterior y
+   el log no registra **ni una** ocurrencia en 24 h. Se rompe en el próximo deploy, o cuando alguien
+   abra esos paneles.
+2. **`analytics_refresh_blended` falla en CADA corrida** con
+   `relation "analytics.mv_sales_blended" does not exist` — es el único síntoma visible, y estaba
+   perdido entre los verdes.
+
+**No se tocó**, y el motivo es que los dos arreglos posibles son OPUESTOS y la elección no es mía:
+o se recrea `mv_sales_blended` (si el drop fue colateral de un `CASCADE`), o se retira el linaje y
+se repuntan los 8 sitios. Y repuntar exige decidir, **sitio por sitio**, si el sucesor es
+`v_sellout_daily` (grano DÍA, vista viva) o `mv_sellout_monthly` (rollup MENSUAL): mandar lecturas
+con filtro de día a un rollup mensual cambia números del Command Center **en silencio**. Es juicio
+de quien hizo la Fase RS.
+
+**Patrón que esto repite** (3ª vez en la sesión): se reemplaza la fuente y no se cierra atrás — igual
+que los 11 importers zombie y los 2 handlers muertos del sink.
+
+**Lección de método, propia:** buscar dependencias con **grep sobre `pg_get_viewdef`** falló en las
+DOS direcciones el mismo día — falso NEGATIVO con `catalog.products_active` (colgaba del FDW por vía
+transitiva y el grep no la vio) y falso POSITIVO con 9 vistas que resultaron sanas. La fuente de
+verdad para dependencias es **`pg_depend`/`pg_rewrite`**, no el texto de la definición.
+
+**Arreglado: el guardián de feeds estaba MUDO desde que se escribió.** `run-feed-guardian.ps1`
+verificaba que `sync.local.env` EXISTIERA pero nunca lo **cargaba** al entorno, y
+`cron-heartbeat.js` no usa dotenv → imprimía
+`[cron-heartbeat] begin feed_guardian: sin DATABASE_URL_NEW/DATABASE_URL` y seguía de largo.
+Resultado: `feed_guardian` **no aparecía nunca** en `analytics.cron_runs`, o sea el proceso que
+re-dispara los 14 feeds era el único que nadie vigilaba. Su umbral **ya estaba declarado** en
+`CRON_JOBS` (warn 0.5 h / crit 2 h), así que figuraba como `unknown` y no alarmaba: faltaba la mitad
+del par. Verificado en vivo tras el fix: `feed_guardian · ok · 16:25:01→16:25:03 · host SISTEMAS`.
+
 ### 4ª pasada — 2026-09-07 · el FDW fuera de prod y la 03 ordenada
 
 **El hallazgo que justificó todo: `catalog.products_active` NO se colgaba "en teoría".** Medido
