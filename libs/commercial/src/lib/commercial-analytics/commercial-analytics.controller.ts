@@ -673,9 +673,10 @@ export class CommercialAnalyticsController {
     @Query('promo') promo?: string,
     @Query('search') search?: string,
     @Query('warehouses') warehouses?: string,
+    @Query('channel') channel?: string,
   ) {
     return this.service.explainChange({
-      from, to, dim, compare, brand_id: brandId, measure, promo, search,
+      from, to, dim, compare, brand_id: brandId, measure, promo, search, channel,
       warehouses: warehouses ? warehouses.split(',').map((s) => s.trim()).filter(Boolean) : undefined,
     });
   }

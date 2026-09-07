@@ -1342,6 +1342,7 @@ export class ComercialService {
     if (opts.promo && opts.promo !== 'sin') params = params.set('promo', opts.promo);
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     if (opts.warehouses?.length) params = params.set('warehouses', opts.warehouses.join(','));
+    if (opts.channel) params = params.set('channel', opts.channel);
     return this.http.get<SellOutExplainReport>(`${this.base}/analytics/sell-out/explain`, { params });
   }
 
@@ -1950,6 +1951,7 @@ export interface SellOutExplainParams {
   promo?: 'sin' | 'solo' | 'todo';
   search?: string;
   warehouses?: string[];
+  channel?: string;
 }
 export interface SellOutMover {
   key: string;

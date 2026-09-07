@@ -456,6 +456,8 @@ export interface SellOutExplainQuery {
   promo?: string;
   search?: string;
   warehouses?: string[];
+  /** BI.2 — acota el drill a un canal (mostrador|ruta|credito|preventa). */
+  channel?: string;
 }
 export interface SellOutMover {
   key: string;
@@ -3589,6 +3591,7 @@ export class CommercialAnalyticsService {
         if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
         else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
         if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.channel) b.andWhere('s.channel', o.channel);
         if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
         if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
       })
@@ -3681,12 +3684,13 @@ export class CommercialAnalyticsService {
     const to = q.to.slice(0, 10);
     if (from > to) throw new BadRequestException('from posterior a to');
     const warehouseFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
     const mirror = this.selloutMirrorRange(from, to, compare);
     const tenantId = this.tenantCtx.requireTenantId();
 
     return this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
-      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter };
+      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter, channel };
       const cur = await this.fetchExplainDims(trx, { ...base, from, to });
       const prev = await this.fetchExplainDims(trx, { ...base, from: mirror.from, to: mirror.to });
       const usaRollup = await this.selloutUsesRollup(trx, this.planSellOutSources(from, to));
