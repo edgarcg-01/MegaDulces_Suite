@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### Fixed — El anexo imprimía el RFC equivocado, el nombre roto, y gastaba 41% más papel (AX.10, 2026-09-07)
+
+Salió de *"el rfc esta mal y como se imprimi el nombre… que la hoja optimice todo el uso en columnas para que use todo el espacio disponible, y optimice el consumo de hojas verticalmente"*.
+
+**Los dos datos equivocados** (verificados contra árbitros independientes antes de tocar nada):
+
+- **El RFC del emisor estaba hardcodeado y mal.** Imprimía `LOGL8810144QS` y *"Lugar de expedición: C.P. 59701, Michoacán"*; es **`LOGL851014AQ5`** y **C.P. 36910**, según `fiscal.issuer_config`, los **167,503 CFDIs recibidos** de `fiscal.cfdis` —todos con `receptor_rfc = 'LOGL851014AQ5'` desde 2018, y el receptor de una factura recibida somos nosotros— y 11 fichas internas de `kepler_ods.kdud`. Iba en el membrete, en el beneficiario del pago y **en el pagaré**; el CP viejo además se contradecía con el propio pagaré del mismo documento, que dice C.P. 36910. **El resto del repo ya tenía el correcto** (importer de ContPAQi, placeholder del formulario de facturación, matcher de OCR): era un typo en una constante que nadie cruzó nunca contra nada. Ahora sale de `issuer_config` y **sin fila configurada el anexo se niega a imprimir**: un RFC inventado en un pagaré es peor que no emitirlo.
+- **El nombre se imprimía roto.** El beneficiario se capitalizaba con `/\b\w+/g`, y en JS `\w` no matchea letras acentuadas: `LUIS FRANCISCO LÓPEZ GUTIÉRREZ` salía como **"Luis Francisco LÓPez GutiÉRrez"** en todos los anexos. Va verbatim, que además es lo correcto para un beneficiario de pago.
+- **El RFC genérico del SAT se pasaba por RFC del cliente.** 1,298 de 1,640 facturas imprimibles (**79.1%**) traen `XAXX010101000`. Ahora se rotula (`· público en general`) y en el **pagaré se omite**: en un título de crédito un RFC que no es del deudor es peor que ninguno.
+
+**El papel, medido A/B sobre 15 facturas reales** (3 por tramo de renglones, la misma muestra con el anexo de `HEAD` y con el nuevo): **41 → 24 hojas (−41%)**, 14 de 15 bajan, promedio **2.73 → 1.60 por factura**. Una factura de hasta ~8 renglones ahora entra **completa con su pagaré en una hoja** (antes: 2). Una de 31 renglones pasa de 4 hojas a 2.
+
+De dónde salió, por rendimiento: la **unidad pegada al precio** (iba en renglón aparte, así que un producto de 3 niveles gastaba 6 líneas por columna — y hay dos columnas de precio); **dos filas del pie fundidas en una** (252 px apilados con la mitad en blanco, y su renglón central repetía al peso el bloque de totales de arriba); **anchos dimensionados con el dato** (14,872 renglones de 90 días: la peor cifra es `$49,750.20` ≈ 90 px y el nombre tiene p95 = 41 caracteres → el nombre pasa de 22% a **38.5%**, `CANTIDAD` de 14.5% a 8%); membrete y título en una fila; tira de datos en tres columnas; márgenes 12 → 9 mm; y el rótulo de grupo sólo desde 10 productos.
+
+**Candado nuevo** `libs/commercial/src/lib/commercial-sales-documents/anexo-venta.spec.ts` (**19/19**, `nx test commercial`) — la primera prueba automática de este documento, que antes sólo existía al imprimirlo. Los tres arreglos van con su prueba negativa, porque los tres pasaban en verde con el bug puesto: ningún literal con forma de RFC puede volver al archivo (el gate lee su propio fuente), el test **ejecuta la capitalización vieja** para afirmar que producía exactamente la basura contra la que asegura, `emisorFiscal()` truena sin fila en `issuer_config`, y **los anchos de columna suman 100%** en los dos modos (verificado en rojo a propósito). Smoke `test-newdb-sales-docs-cobranza.js` 13/13 contra prod: el dinero no cambió.
+
+Sin migraciones y sin permisos nuevos → **sin re-login**. Pendiente: redeploy de api.
+
 ### Added — La unidad de venta deja de ser una suposición heredada: un resolvedor con testigo y método (U.4–U.7, ADR-057, 2026-09-07)
 
 Arranca de *"las capas lógicas están fallando demasiado; necesito una verdad absoluta en unidades
