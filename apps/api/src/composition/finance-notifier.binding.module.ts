@@ -38,11 +38,14 @@ class FinanceNotifierAdapter implements FinanceNotifierPort {
    */
   async notify(tenantId: string, notice: FinanceNotice): Promise<void> {
     this.alerts.emit(tenantId, {
-      type: 'finance_feed' as never,
+      // `[RE.27.C]` El emisor puede pedir su propio tipo: no todo lo que sale de
+      // `libs/finance` es para Finanzas — la cola de órdenes de entrada la atiende
+      // Compras, y el tipo es por donde la campana decide a quién le llega.
+      type: (notice.type || 'finance_feed') as never,
       severity: notice.severity,
       title: notice.title,
       message: notice.message,
-      data: { source: 'finance_feed', key: notice.key, route: notice.route ?? null, ...(notice.data || {}) },
+      data: { source: notice.type || 'finance_feed', key: notice.key, route: notice.route ?? null, ...(notice.data || {}) },
     });
   }
 }
