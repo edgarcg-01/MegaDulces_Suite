@@ -442,7 +442,49 @@ separar lo que se ve en pantalla hoy de lo que sólo está en el catálogo. Ejem
 
 ## Addendum — El sync de Wincaja entrega la MITAD y reporta `ok` (2026-09-07)
 
-**W2.1 — la carga de las 05:00 refresca unas tablas bronze y otras no, y el latido dice `ok`** 🔴
+> ⚠️ **CORREGIDO el mismo día, después de leer el log y la fuente.** La primera versión de W2.1
+> (abajo) concluyó que *"la carga entrega la mitad"* y que el churn quedaba descartado porque
+> `detalles_mov_almacen` tuvo todas sus filas tocadas mientras su maestro tuvo cero. **Ese argumento
+> era malo:** maestro y detalle simplemente usan estrategias de escritura distintas (uno reescribe
+> incondicionalmente, el otro es UPSERT-sin-churn), así que la diferencia no prueba nada. El log de
+> hoy muestra que BRONZE **leyó todas las tablas** y reportó conteos reales
+> (`Existencias -> existencias 15529 OK` en la rama 00). El defecto es **aguas arriba** y está en
+> W2.2. Se deja el texto original porque el modo de falla del latido sigue siendo cierto.
+
+**W2.2 — el sync lee el `.mdb` ANTES de que se copie: siempre carga el archivo de ayer** 🔴
+
+Los tiempos de modificación de `Z:\Salidas\Bases\Actuales` contra el horario del job:
+
+| archivo | modificado | |
+|---|---|---|
+| `30 MORELIA ABASTOS.MDB` | 2026-09-07 **08:45** | se copia DESPUÉS del sync |
+| `32 MORELIA MADERO.MDB` | 2026-09-07 **08:46** | idem |
+| `0 BPIRAPUATO MOV.MDB` | 2026-09-07 **08:43** | idem |
+| `0 BPIRAPUATO.mdb` | 2026-09-**05** 12:33 | **dos días**, y es el grande (636 MB) |
+
+**`sync-wincaja-actual.ps1` arranca 05:00:02 y termina BRONZE 06:16.** Las copias llegan ~2.5 h
+después. O sea cada corrida consume el archivo del día anterior — y por eso las tablas
+UPSERT-sin-churn no mueven `imported_at`: **de verdad no cambió nada, porque leyó el mismo archivo**.
+Las que reescriben incondicionalmente (`detalles_mov_almacen`, `cotizacion_lineas`,
+`faltantes_cotizacion`, `autorizaciones`) sí quedan con fecha de hoy, pero con **contenido de ayer**
+— que es peor que estar viejo: es dato viejo con etiqueta fresca.
+
+Arreglo obvio y barato: **correr el sync después de la copia**, no antes. Las dos mitades ya existen;
+lo único mal puesto es el orden.
+
+Aparte, `0 BPIRAPUATO.mdb` con dos días es un problema propio: su hermano `MOV` sí se copió hoy, así
+que la copia del grande falla o se salta. El hueco del **05-sep** (no hay
+`sync_actual_20260905_*.log` y el salto de `imported_at` fue de 47.9 h) es consistente con eso.
+
+**Lo que NO es un problema:** que `10 PHIDALGO.MDB` (26-ago), `40 8ESQUINAS.MDB` (26-ago),
+`44 YURECUARO.MDB` (23-jul), `42 PIEDAD ABASTOS.MDB` (**2024-01-09**) y las rutas 21-28 / 321 / 322
+estén viejos. Esas sucursales ya operan en Kepler; sus `.mdb` son histórico. Los tres que importan
+—CEDIS `00`, MD-30 y MD-32— son exactamente los tres que sí se copian a diario.
+
+---
+
+**W2.1 — el latido dice `ok` sin medir entrega** 🟠 *(mecanismo corregido por W2.2; el defecto del
+latido queda)*
 
 Salió del smoke de Existencia, que reportó `frescura: kepler=0.4min · wincaja=1955.6min` (**32.6 h**).
 Antes de dar la alarma se descartaron las dos explicaciones inocentes:
