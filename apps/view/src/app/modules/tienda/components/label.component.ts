@@ -17,6 +17,60 @@ export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, ma
 /** Qué precio va en GRANDE (hero). Intercambiable por ticket. 'kg' = granel por kilo. */
 export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
 
+/**
+ * ⭐ EL BUG DEL "número que a veces se ve más chico".
+ *
+ * `fitPrice()`/`fitAmts()` encogen el texto midiendo su ancho. Si miden ANTES de que la
+ * tipografía definitiva esté usable, miden con la **fallback**, que tiene otro ancho, y el
+ * tamaño que dejan queda mal en la dirección de esa fallback. Medido (mismo precio, misma
+ * caja, cambiando sólo la fuente con la que se mide):
+ *
+ *   midiendo con        ancho vs Anton    un precio de 4 cifras queda en
+ *   Anton (la buena)    —                 9.00 mm
+ *   Impact (Windows)    +5…8%             8.50 mm
+ *   Helvetica (iPad)    +13…21%           7.50 mm  ← 17% más chico
+ *   Arial Narrow        −1…7%             9.25 mm  (y al llegar Anton se RECORTA)
+ *
+ * `document.fonts.ready` NO alcanzaba, y de ahí lo intermitente: las familias llegan por un
+ * `@import` a fonts.googleapis.com DENTRO del CSS de este componente, así que mientras esa
+ * hoja no baja **no existe ningún `@font-face`** — no hay carga pendiente, `fonts.ready`
+ * resuelve al instante y `layout()` mide con la fallback. Encima el re-layout vivía sólo en
+ * `ngAfterViewInit`: toda etiqueta creada por un cambio de input (que es como las crea la
+ * etiquetera al armar la cola) se quedaba con la medida equivocada para siempre.
+ *
+ * Esto espera a que las familias estén **realmente usables** (`fonts.load` + `fonts.check`,
+ * con tope de 3 s), una sola vez para toda la app. Si no llegan —equipo sin internet— se
+ * sigue midiendo con la fallback, que ahí es lo CORRECTO: es la que va a imprimir.
+ *
+ * (Ver `FUENTES_USABLES` abajo, que es la pieza que lo implementa.)
+ */
+
+/**
+ * Tamaños de ARRANQUE de los dos números que se auto-ajustan. Están también en el CSS (los
+ * necesita el primer render y el clon de impresión, antes de que corra el TS), y el spec
+ * `etiqueta-hoja.spec.ts` exige que coincidan: si se cambia uno solo, el número arranca de un
+ * tamaño y se mide contra otro.
+ */
+const PRECIO_MM = 10;
+const MONTO_MM = 5.4;
+
+/** Resuelve cuando Anton/Bebas/Baloo están REALMENTE usables (o a los 3 s). Ver el bloque de arriba. */
+const FUENTES_USABLES: Promise<void> = (() => {
+  const f: any = (globalThis as any).document?.fonts;
+  const specs = ['11mm Anton', "5mm 'Bebas Neue'", "4mm 'Baloo 2'"];
+  if (!f?.load || !f?.check) return Promise.resolve();
+  const listas = () => specs.every((s) => { try { return f.check(s); } catch { return true; } });
+  return new Promise<void>((resolve) => {
+    Promise.all(specs.map((s) => f.load(s).catch(() => undefined))).catch(() => undefined);
+    const t0 = Date.now();
+    const tick = () => {
+      if (listas() || Date.now() - t0 > 3000) { resolve(); return; }
+      setTimeout(tick, 60);
+    };
+    tick();
+  });
+})();
+
 export interface LabelModel {
   code?: string;
   product_id: string;
@@ -51,8 +105,8 @@ export interface LabelModel {
  * el material que decía usar.
  *
  * Al angostar, lo único con mínimo físico es el código de barras (un EAN-13 pide ~29.8 mm al 80%
- * de magnificación): toma el ancho completo de su columna, 39.4 mm. El resto del texto se
- * auto-encoge (`fitHead`/`fitPrice`/`fitAmts`), así que ninguna cadena larga desborda.
+ * de magnificación): toma el ancho completo de su columna, **43.4 mm**. El resto del texto se
+ * auto-encoge (`fitHead`/`fitPrice`/`fitTiers`/`fitAmts`), así que ninguna cadena larga desborda.
  * Sin iconos, letra grande, naranja de marca (--brand-700 #F05A28) en lo importante (SKU + número de piezas).
  * ViewEncapsulation.None + clases `etq-*` para que el layout en mm y las fuentes apliquen
  * limpio al imprimir. El barcode se genera con JsBarcode (mismo formato que Kepler).
@@ -87,9 +141,12 @@ export interface LabelModel {
     .etq-head-txt{ display:block; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .etq-red{ color:var(--red); font-weight:800; }
     .etq-body{ flex:1; min-height:0; display:flex; padding:.8mm 1.5mm 1mm 1.5mm; gap:1.6mm; }
-    /* 38 + 1.6 de gap + 39.4 + 3 de padding = 82 exactos. El reparto respeta la proporción
-       original (54:55): la izquierda lleva el precio grande, la derecha los tiers y el código. */
-    .etq-left{ width:38mm; display:flex; flex-direction:column; }
+    /* 34 + 1.6 de gap + 43.4 + 3 de padding = 82 exactos.
+       El reparto YA NO es el original (54:55): al reducir la etiqueta, el mayoreo quedó
+       ilegible porque su monto se auto-encogía hasta ~3.7 mm. Se le pasan 4.4 mm del precio
+       unitario —que arranca un poco más chico— a la columna del mayoreo, que es donde el
+       cliente compara. */
+    .etq-left{ width:34mm; display:flex; flex-direction:column; }
     .etq-meta{ display:flex; align-items:baseline; gap:1.2mm; font-weight:800; font-size:3.2mm; margin-bottom:.8mm; }
     .etq-meta .sep{ color:var(--green); opacity:.5; }
     .etq-pricebox{ flex:1; position:relative; background:var(--yellow); border-radius:2mm; display:flex;
@@ -97,7 +154,10 @@ export interface LabelModel {
     .etq-pricebox::before{ content:""; position:absolute; inset:.8mm .8mm 5mm .8mm; border:.28mm dashed var(--green);
       border-bottom:0; border-radius:1.5mm 1.5mm 0 0; pointer-events:none; }
     .etq-sprout{ position:absolute; top:.8mm; left:1.4mm; width:4.4mm; height:4.4mm; }
-    .etq-price{ font-family:var(--font-num); font-weight:400; font-size:11.5mm; line-height:.82; letter-spacing:0;
+    /* 10mm de arranque (era 11.5): el precio unitario cede tamaño para que el mayoreo se lea.
+       ⚠️ Este valor está duplicado en PRECIO_MM (lo necesita el TS para arrancar el
+       auto-ajuste) y el spec exige que coincidan. */
+    .etq-price{ font-family:var(--font-num); font-weight:400; font-size:10mm; line-height:.82; letter-spacing:0;
       transform:scaleX(1.1); transform-origin:center; }
     .etq-price .cur{ font-size:.5em; vertical-align:.6em; margin-right:.3mm; }
     .etq-price .dot{ font-size:.78em; }
@@ -105,19 +165,35 @@ export interface LabelModel {
       display:flex; align-items:center; justify-content:center; gap:1.2mm; font-weight:800; font-size:2.7mm; white-space:nowrap; border-radius:0 0 1.6mm 1.6mm; }
     .etq-pieza::before,.etq-pieza::after{ content:""; width:4.6mm; height:.8mm; flex:none;
       background:repeating-linear-gradient(90deg, var(--yellow) 0 2mm, transparent 2mm 3.2mm); }
-    .etq-right{ width:39.4mm; min-height:0; display:flex; flex-direction:column; }
+    .etq-right{ width:43.4mm; min-height:0; display:flex; flex-direction:column; }
     /* Los tiers se centran como grupo → 1 o 4 renglones siempre lucen balanceados (no flotan arriba). */
-    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:.9mm; }
+    /* Gap y padding apretados a propósito: el alto que ahorran acá se lo queda el MONTO, que es
+       lo que se lee de lejos. Medido sobre los 9,013 productos con precios de etiqueta, el
+       **76.1% tiene 2 renglones** y sólo el **2.0% tiene 4**, así que el caso común se imprime
+       al tamaño grande y los de 4 bajan lo que haga falta (fitTiers). */
+    .etq-tiers{ flex:1; min-height:0; display:flex; flex-direction:column; justify-content:center; gap:.5mm; }
     .etq-tier{ position:relative; display:grid; grid-template-columns:1fr auto; align-items:center;
-      column-gap:1.4mm; padding:.4mm 0; min-height:0; }
+      column-gap:1.2mm; padding:.2mm 0; min-height:0; }
     .etq-tier::before{ content:""; position:absolute; top:0; left:0; right:0; height:.28mm;
       background:repeating-linear-gradient(90deg, var(--green) 0 .32mm, transparent .32mm .6mm); }
     .etq-tier:first-child::before{ display:none; }
     .etq-tier .txt{ font-family:var(--font-cond); font-size:2.6mm; font-weight:400; line-height:1; letter-spacing:.3px; }
     /* Celda de precio de ancho fijo → todos los precios arrancan en el mismo x (orden a la izquierda). */
-    .etq-tier .pricecell{ width:16mm; display:flex; align-items:baseline; gap:.8mm; }
-    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:4.2mm; white-space:nowrap; letter-spacing:.3px; font-variant-numeric:tabular-nums; }
+    .etq-tier .pricecell{ width:22mm; display:flex; align-items:baseline; gap:.7mm; }
+    /* ⚠️ 5.4mm duplicado en MONTO_MM (el TS arranca de ahí el ajuste); el spec lo verifica.
+       El PESO va por trazo, no por font-weight: Bebas Neue no tiene bold real y el navegador
+       no la sintetiza — medido, font-weight:700 daba el MISMO ancho al píxel, o sea nada. */
+    .etq-tier .amt{ font-family:var(--font-cond); font-weight:400; font-size:5.4mm; white-space:nowrap;
+      letter-spacing:.3px; font-variant-numeric:tabular-nums; -webkit-text-stroke:.09mm currentColor; }
     .etq-tier .unit{ font-family:var(--font); font-size:1.7mm; font-weight:600; }
+    /* MAYOREO: es el renglón por el que el cliente decide comprar más, así que se realza —
+       chip amarillo de marca + trazo más grueso en el número. Es el mismo amarillo de la caja
+       del precio grande, para que se lean como pareja. */
+    .etq-tier.is-mayoreo{ background:rgba(246,196,0,.32); border-radius:1mm; padding:.3mm 1mm; margin:0 -1mm; }
+    .etq-tier.is-mayoreo::before{ display:none; }
+    .etq-tier.is-mayoreo + .etq-tier::before{ display:none; }
+    .etq-tier.is-mayoreo .txt{ font-weight:400; letter-spacing:.4px; }
+    .etq-tier.is-mayoreo .amt{ -webkit-text-stroke:.16mm currentColor; }
     /* El código toma el ANCHO COMPLETO de la columna (antes 85%): al angostar la etiqueta es lo
        único con un mínimo físico —un EAN-13 necesita ~29.8 mm al 80% de magnificación— y 39.4 mm
        lo deja con holgura. La altura no baja de 5 mm: es lo que el lector necesita para engancharlo. */
@@ -140,31 +216,34 @@ export interface LabelModel {
           </div>
         </div>
         <div class="etq-right">
-          <div class="etq-tiers">
+          <!-- Rótulos CORTOS ("Mayoreo 3+ cajas" en vez de "Mayoreo desde 3 cajas:"): el
+               rótulo era lo que se comía el ancho de la columna y obligaba a encoger el monto
+               hasta dejarlo ilegible. Acortarlo es lo que permite el monto grande. -->
+          <div class="etq-tiers" #tiers>
             @if (granelAltTier; as g) {
               <div class="etq-tier">
-                <div class="txt">Precio por {{ g.label }}:</div>
+                <div class="txt">Por {{ g.label }}</div>
                 <div class="pricecell"><span class="amt" #amtEl>\${{ g.value | number:'1.2-2' }}</span></div>
               </div>
             }
             @if (hasMayoreoPza) {
-              <div class="etq-tier">
-                <div class="txt">Mayoreo desde <span class="etq-red">{{ mayoreoMin }}</span> {{ mayoreoBaseWord }}:</div>
+              <div class="etq-tier is-mayoreo">
+                <div class="txt">Mayoreo <span class="etq-red">{{ mayoreoMin }}+</span> {{ mayoreoBaseWord }}</div>
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_piece_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
               </div>
             }
             @if (hasPaquete) {
               <div class="etq-tier">
-                <div class="txt">Paquete con <span class="etq-red">{{ model.pack_size }}</span> pzas:</div>
+                <div class="txt">Paquete <span class="etq-red">{{ model.pack_size }}</span> pzas</div>
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.pack_price | number:'1.2-2' }}</span></div>
               </div>
             }
             @if (hasMayoreoPaq) {
-              <div class="etq-tier">
+              <div class="etq-tier is-mayoreo">
                 @if (mayoreoPaqMin; as mn) {
-                  <div class="txt">Mayoreo desde <span class="etq-red">{{ mn }}</span> {{ mayoreoGroupWord }}:</div>
+                  <div class="txt">Mayoreo <span class="etq-red">{{ mn }}+</span> {{ mayoreoGroupWord }}</div>
                 } @else {
-                  <div class="txt">Precio de mayoreo:</div>
+                  <div class="txt">Mayoreo</div>
                 }
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.wholesale_pack_price | number:'1.2-2' }}</span><span class="unit">c/u</span></div>
               </div>
@@ -172,9 +251,9 @@ export interface LabelModel {
             @if (hasCaja) {
               <div class="etq-tier">
                 @if (isGranel) {
-                  <div class="txt">Caja <span class="etq-red">{{ cajaWeight }}</span>:</div>
+                  <div class="txt">Caja <span class="etq-red">{{ cajaWeight }}</span></div>
                 } @else {
-                  <div class="txt">Caja con <span class="etq-red">{{ model.box_size }}</span> {{ boxContentWord }}:</div>
+                  <div class="txt">Caja <span class="etq-red">{{ model.box_size }}</span> {{ boxContentWord }}</div>
                 }
                 <div class="pricecell"><span class="amt" #amtEl>\${{ model.box_price | number:'1.2-2' }}</span></div>
               </div>
@@ -197,6 +276,7 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   @ViewChild('head') head?: ElementRef<HTMLElement>;
   @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
   @ViewChild('priceEl') priceEl?: ElementRef<HTMLElement>;
+  @ViewChild('tiers') tiers?: ElementRef<HTMLElement>;
   @ViewChildren('amtEl') amtEls?: QueryList<ElementRef<HTMLElement>>;
 
   private num(v: number | null | undefined): number { return typeof v === 'number' && isFinite(v) ? v : 0; }
@@ -337,13 +417,17 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get bigInt(): string { return this.bigStr.split('.')[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
 
-  ngAfterViewInit(): void { this.render(); (document as any).fonts?.ready?.then(() => this.layout()); }
-  ngOnChanges(): void { queueMicrotask(() => this.render()); }
+  ngAfterViewInit(): void { this.render(); FUENTES_USABLES.then(() => this.layout()); }
+  ngOnChanges(): void { queueMicrotask(() => { this.render(); FUENTES_USABLES.then(() => this.layout()); }); }
 
   private render(): void { this.renderBarcode(); this.layout(); }
 
-  /** Corre todos los auto-ajustes (nombre + precio grande + montos de tier). */
-  private layout(): void { this.fitHead(); this.fitPrice(); this.fitAmts(); }
+  /**
+   * Corre todos los auto-ajustes. `fitTiers` va ANTES de `fitAmts`: el primero baja el tamaño
+   * de TODOS los montos por igual hasta que el bloque quepa a lo alto (para que sigan
+   * alineados), el segundo encoge cada monto suelto si su celda no lo aguanta a lo ancho.
+   */
+  private layout(): void { this.fitHead(); this.fitPrice(); this.fitTiers(); this.fitAmts(); }
 
   /** Reduce la fuente hasta que `el` (contenido) quepa en su contenedor, con piso mínimo. */
   private shrinkToFit(el: HTMLElement, container: HTMLElement, startMm: number, minMm: number, stepMm = 0.2): void {
@@ -381,8 +465,14 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     if (!el || !box) return;
     const cs = getComputedStyle(box);
     const avail = box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
-    let size = 11.5;
+    let size = PRECIO_MM;
     el.style.fontSize = size + 'mm';
+    // La OTRA mitad del bug del número chico: si la caja todavía no tiene ancho (etiqueta
+    // recién creada, oculta o sin estilos aplicados), `clientWidth` da 0 → `avail` sale
+    // NEGATIVO → el bucle corre hasta el piso y el precio queda en 4.5 mm, la versión
+    // dramática de "se ve más chico". Sin medida no se encoge: se deja el tamaño de arranque
+    // y el siguiente pase (fuentes usables) lo corrige con una medida de verdad.
+    if (!(avail > 0)) return;
     let guard = 0;
     while (el.offsetWidth * 1.12 > avail && size > 4.5 && guard++ < 120) {
       size -= 0.25;
@@ -390,12 +480,42 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     }
   }
 
-  /** F3: cada monto de tier se encoge hasta caber en su celda (16mm), preservando el c/u. */
+  /**
+   * Ajuste VERTICAL del bloque de tiers: baja el tamaño de todos los montos por igual hasta
+   * que los renglones quepan a lo alto de su columna.
+   *
+   * Antes no existía y el bloque se RECORTABA en silencio (lo tapa el `overflow:hidden` de la
+   * etiqueta): con 4 renglones el contenido medía 100 px contra 92 de caja **ya en la etiqueta
+   * de 115×40**, o sea que el último tier salía cortado desde antes de reducir el tamaño. Con
+   * esto, 1-3 tiers —el caso común— se imprimen al tamaño grande, y 4 bajan lo necesario en vez
+   * de perder un renglón.
+   */
+  private fitTiers(): void {
+    const box = this.tiers?.nativeElement;
+    const amts = this.amtEls;
+    if (!box || !amts?.length) return;
+    if (!(box.clientHeight > 0)) return; // sin medida no se toca (ver fitPrice)
+    let size = MONTO_MM;
+    const set = (mm: number) => amts.forEach((r) => { r.nativeElement.style.fontSize = mm + 'mm'; });
+    set(size);
+    let guard = 0;
+    while (box.scrollHeight > box.clientHeight + 1 && size > 2.6 && guard++ < 60) {
+      size -= 0.2;
+      set(size);
+    }
+  }
+
+  /**
+   * Cada monto se encoge hasta caber en su celda, preservando el "c/u". Arranca del tamaño que
+   * dejó `fitTiers` (no de la constante) para no deshacer el ajuste vertical.
+   */
   private fitAmts(): void {
     this.amtEls?.forEach((ref) => {
       const amt = ref.nativeElement;
       const cell = amt.parentElement; // .pricecell
-      if (cell) this.shrinkToFit(amt, cell, 4.2, 2.4, 0.15);
+      if (!cell || !(cell.clientWidth > 0)) return;
+      const desde = parseFloat(amt.style.fontSize) || MONTO_MM;
+      this.shrinkToFit(amt, cell, desde, 2.4, 0.15);
     });
   }
 

@@ -30,6 +30,10 @@ import { EntityInspectorComponent } from '../../../shared/components/entity-insp
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
 import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
+import {
+  FuenteRecepcion, REQUIRED_BY_SOURCE, receptionSource, roleOptsFor,
+  coveredTypes, checklist, missingGroups, detectedDocs,
+} from '../receipt-roles';
 import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ENTRADAS_CONTROL_TABS } from '../entradas-control-tabs';
@@ -1723,106 +1727,24 @@ export class ComprasEntradasComponent {
   // La ★ del paso 1 (la que se lee y enlaza). Habilita "Continuar".
   readonly ordenFile = computed(() => this.attachFiles().find((f) => f.role === 'orden_entrada') || null);
   // Set obligatorio de la recepción: Aplica Orden Entrada + Remisión/Factura + Vale (Ticket opcional).
-  // RE (#4) — completitud CONSCIENTE DE FUENTE + packet-aware. La fuente (Kepler CEDIS /
-  // Wincaja sucursal) define qué documentos exige la recepción; los tipos se detectan por OCR
-  // (documents_present) ∪ el rol asignado → si subís TODO en un solo PDF también cumple.
-  // El ENFOQUE es la FACTURA del proveedor: es lo único obligatorio (se compara contra
-  // lo que ya trae Kepler). La orden de entrada queda OPCIONAL (solo para identificar).
-  readonly REQUIRED_BY_SOURCE: Record<'kepler' | 'wincaja', { keys: string[]; label: string; optional?: boolean }[]> = {
-    kepler: [
-      { keys: ['factura', 'remision'], label: 'Factura' },
-      { keys: ['aplica_orden_entrada'], label: 'Orden de entrada', optional: true },
-    ],
-    wincaja: [
-      { keys: ['factura', 'remision'], label: 'Factura' },
-      { keys: ['aplica_orden_entrada'], label: 'Orden de entrada', optional: true },
-      { keys: ['ticket'], label: 'Ticket', optional: true },
-    ],
-  };
-  private readonly ROLE_TO_TYPE: Record<string, string> = {
-    orden_entrada: 'aplica_orden_entrada', remision: 'remision', factura: 'factura',
-    vale: 'vale', ticket: 'ticket', orden_recepcion: 'orden_recepcion',
-  };
-  /** El origen (source_branch) define el set de docs. CEDIS (md_00) y las plazas `wincaja_*`
-   *  reciben por WINCAJA (ticket + orden recepción + aplica OE); las sucursales Kepler
-   *  (md_01–05) por KEPLER (aplica OE + factura). */
-  receptionSource(e: EntradaRow | null): 'kepler' | 'wincaja' {
-    const sb = (e?.source_branch || '').toLowerCase();
-    return (sb.startsWith('wincaja') || sb === 'md_00') ? 'wincaja' : 'kepler';
-  }
-  readonly srcKind = computed<'kepler' | 'wincaja'>(() => this.receptionSource(this.attachTarget()));
-  /** Tipos de documento cubiertos: rol asignado + lo que el OCR detectó en cada hoja (packet-aware). */
-  readonly coveredTypes = computed(() => {
-    const s = new Set<string>();
-    for (const f of this.attachFiles()) {
-      const t = this.ROLE_TO_TYPE[f.role]; if (t) s.add(t);
-      for (const d of (f.ocrDocs || [])) s.add(d);
-    }
-    return s;
-  });
-  readonly requiredGroups = computed(() => this.REQUIRED_BY_SOURCE[this.srcKind()]);
-  // Etiqueta legible por tipo de documento (para el resumen "Detectado en el PDF" y el checklist).
-  private readonly DOC_LABEL: Record<string, string> = {
-    aplica_orden_entrada: 'Aplica Orden Entrada', factura: 'Factura', remision: 'Remisión',
-    ticket: 'Ticket', orden_recepcion: 'Orden de recepción', vale: 'Vale', otro: 'Otra hoja',
-  };
-  /** RE.pkt.1 — checklist auditable: cada requerido dice CÓMO se cumplió (auto=OCR con página+
-   *  evidencia, o manual=rol asignado) para que no sea caja negra. */
-  readonly checklist = computed(() => {
-    const cov = this.coveredTypes();
-    const files = this.attachFiles();
-    const ocrByType = new Map<string, DocPresence>();
-    for (const f of files) for (const d of (f.ocrDocsDetail || [])) if (!ocrByType.has(d.type)) ocrByType.set(d.type, d);
-    const manualTypes = new Set<string>();
-    for (const f of files) { const t = this.ROLE_TO_TYPE[f.role]; if (t) manualTypes.add(t); }
-    return this.requiredGroups().map((g) => {
-      const auto = g.keys.map((k) => ocrByType.get(k)).find((d): d is DocPresence => !!d) || null;
-      const manual = g.keys.some((k) => manualTypes.has(k));
-      return {
-        label: g.label,
-        ok: g.keys.some((k) => cov.has(k)),
-        optional: !!g.optional,
-        via: (auto ? 'auto' : manual ? 'manual' : null) as 'auto' | 'manual' | null,
-        page: auto?.page ?? null,
-        evidence: auto?.evidence ?? null,
-      };
-    });
-  });
-  // Solo los REQUERIDOS faltantes bloquean Guardar; los opcionales (ej. ticket de compra) no.
-  readonly missingGroups = computed(() => this.checklist().filter((c) => !c.ok && !c.optional));
-  /** RE.pkt.1 — todos los documentos que el OCR detectó en el/los archivo(s), con página+prueba;
-   *  dedup por (tipo,página). Es el "recibo" de que un PDF combinado trae todo lo requerido. */
-  readonly detectedDocs = computed(() => {
-    const seen = new Set<string>();
-    const out: { type: string; label: string; page: number | null; evidence: string | null }[] = [];
-    for (const f of this.attachFiles()) for (const d of (f.ocrDocsDetail || [])) {
-      const key = `${d.type}|${d.page}`;
-      if (seen.has(key)) continue; seen.add(key);
-      out.push({ type: d.type, label: this.DOC_LABEL[d.type] || d.type, page: d.page, evidence: d.evidence });
-    }
-    return out.sort((a, b) => (a.page ?? 99) - (b.page ?? 99));
-  });
+  // `[RE.28]` Las reglas de completitud viven en `../receipt-roles`, no acá.
+  //
+  // Estaban declaradas dentro de esta clase, y ésa fue la CAUSA de la regresión: la otra pantalla
+  // de captura (`/compras/entradas`) no las tenía y por eso clavaba `role: 'factura'` — desde el
+  // 27-ago, cero evidencia pudo declarar la hoja interna y los controles de RE.25/RE.26 quedaron
+  // muertos en origen. Estos computeds ahora son envoltorios de una línea sobre funciones puras.
+  readonly srcKind = computed<FuenteRecepcion>(() => receptionSource(this.attachTarget()?.source_branch));
+  readonly requiredGroups = computed(() => REQUIRED_BY_SOURCE[this.srcKind()]);
+  readonly coveredTypes = computed(() => coveredTypes(this.attachFiles()));
+  readonly checklist = computed(() => checklist(this.attachFiles(), this.srcKind()));
+  readonly missingGroups = computed(() => missingGroups(this.attachFiles(), this.srcKind()));
+  readonly detectedDocs = computed(() => detectedDocs(this.attachFiles()));
   // Hojas duplicadas (misma imagen/PDF, o folio de remisión ya subido) → bloquean Guardar.
   readonly dupFiles = computed(() => this.attachFiles().filter((f) => f.dup));
   readonly ocrBusy = computed(() => this.attachFiles().some((f) => f.ocrLoading));
   private fileSeq = 0;
   ocrForm: Partial<RemisionOcr> = {};
-  // Opciones del <select> de rol POR FUENTE — deben cubrir TODO tipo del checklist
-  // (si no, un requerido queda imposible de marcar a mano y Guardar se traba).
-  // Wincaja pide ticket + orden_recepcion + aplica_orden_entrada; Kepler, aplica_orden_entrada + factura/remisión.
-  private readonly ROLE_OPTS_KEPLER = [
-    { label: 'Aplica orden entrada', value: 'orden_entrada' },
-    { label: 'Factura', value: 'factura' },
-    { label: 'Otra evidencia', value: 'evidencia' },
-  ];
-  private readonly ROLE_OPTS_WINCAJA = [
-    { label: 'Ticket de compra', value: 'ticket' },
-    { label: 'Orden de recepción', value: 'orden_recepcion' },
-    { label: 'Aplica orden entrada', value: 'orden_entrada' },
-    { label: 'Remisión/Factura', value: 'remision' },
-    { label: 'Otra evidencia', value: 'evidencia' },
-  ];
-  readonly roleOpts = computed(() => this.srcKind() === 'wincaja' ? this.ROLE_OPTS_WINCAJA : this.ROLE_OPTS_KEPLER);
+  readonly roleOpts = computed(() => roleOptsFor(this.srcKind()));
 
   // reject dialog
   readonly showReject = signal(false);
