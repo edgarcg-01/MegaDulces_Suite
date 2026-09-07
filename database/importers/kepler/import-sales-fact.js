@@ -154,13 +154,27 @@ async function runCycle(src, db) {
     let a = acc.get(key);
     if (!a) {
       a = { pid: p.id, wid, channel: r.channel, fecha, sku: r.sku, almacen: alm,
-            markup: p.markup_pct, units: 0, revenue: 0, kind: p.kind };
+            markup: p.markup_pct, units: 0, revenue: 0, kind: p.kind,
+            rungF: null, rungMixed: false, unitsUnres: 0 };
       acc.set(key, a);
     }
     a.units += conv.qty;
     a.revenue += Number(r.revenue);
+    // U.5 — el peldaño se DECLARA. Esta fila agrega varios buckets de `unidad` del mismo día, así
+    // que en principio podría absorber piezas y paquetes a la vez. Medido sobre 695,127 filas de
+    // origen: NUNCA pasa (0 mezcladas). Queda como candado — si `rungMixed` deja de ser cero,
+    // `units` está sumando dos unidades distintas. Cuando pasa NO se elige una: `rung_factor` va
+    // NULL, porque repartir la cantidad entre peldaños sería inventar el reparto.
+    // La mezcla real vive ENTRE almacenes (311 SKUs / $17.4M), y se ve comparando `rung_factor`
+    // entre filas — no acá.
+    if (conv.ok) {
+      if (a.rungF == null) a.rungF = conv.f;
+      else if (Math.abs(a.rungF - conv.f) > 1e-9) a.rungMixed = true;
+    } else {
+      a.unitsUnres += conv.qty;
+    }
   }
-  const rows = []; let noMarkup = 0;
+  const rows = []; let noMarkup = 0; let mixed = 0;
   const byChannel = {};
   for (const a of acc.values()) {
     const m = a.markup != null ? Number(a.markup) : null;
@@ -168,11 +182,15 @@ async function runCycle(src, db) {
     if (cost == null) noMarkup++;
     const tickets = tkMap.get(`${a.almacen}|${a.sku}|${a.channel}|${a.fecha}`) || 0;
     rows.push([a.pid, a.wid, a.channel, a.fecha,
-      Math.round(a.units * 1000) / 1000, Math.round(a.revenue * 100) / 100, cost, tickets, a.kind]);
+      Math.round(a.units * 1000) / 1000, Math.round(a.revenue * 100) / 100, cost, tickets, a.kind,
+      // U.5 — con peldaños mezclados el factor va NULL: no hay UN factor que describa la fila.
+      a.rungMixed ? null : a.rungF, a.rungMixed, Math.round(a.unitsUnres * 1000) / 1000]);
     const c = (byChannel[a.channel] ||= { filas: 0, revenue: 0 });
     c.filas++; c.revenue += a.revenue;
+    if (a.rungMixed) mixed++;
   }
-  console.log(`  (sin markup → cost NULL: ${noMarkup} · líneas sin conversión limpia: ${unconv})`);
+  console.log(`  (sin markup → cost NULL: ${noMarkup} · líneas sin conversión limpia: ${unconv}`
+    + ` · filas con peldaño MEZCLADO: ${mixed})`);
   console.log(`  a cargar: ${rows.length} (sin sku en catálogo: ${noSku}, sin warehouse: ${noWh})`);
   console.table(Object.fromEntries(Object.entries(byChannel).map(([k, v]) => [k, { filas: v.filas, revenue: Math.round(v.revenue) }])));
 
@@ -180,13 +198,14 @@ async function runCycle(src, db) {
 
   await db.query('BEGIN');
   await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-  await db.query(`CREATE TEMP TABLE stg_sf (product_id uuid, warehouse_id uuid, channel text, sale_date date, units numeric, revenue numeric, cost numeric, tickets int, unit_kind text) ON COMMIT DROP`);
+  await db.query(`CREATE TEMP TABLE stg_sf (product_id uuid, warehouse_id uuid, channel text, sale_date date, units numeric, revenue numeric, cost numeric, tickets int, unit_kind text, rung_factor numeric, rung_mixed boolean, units_unresolved numeric) ON COMMIT DROP`);
+  const NCOL = 12;
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
     const vals = [], params = [];
     chunk.forEach((row, ri) => {
-      const b = ri * 9;
-      vals.push(`($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},$${b+9})`);
+      const b = ri * NCOL;
+      vals.push(`(${Array.from({ length: NCOL }, (_, k) => `$${b + k + 1}`).join(',')})`);
       params.push(...row);
     });
     await db.query(`INSERT INTO stg_sf VALUES ${vals.join(',')}`, params);
@@ -194,17 +213,31 @@ async function runCycle(src, db) {
   // Refresco por UPSERT (sin DELETE → cero churn/bloat). Los canales wincaja_* NO se tocan.
   const up = await db.query(
     `INSERT INTO analytics.sales_daily AS sd
-       (id, tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
+       (id, tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind,
+        rung_factor, rung_mixed, units_unresolved, updated_at)
      SELECT gen_random_uuid(), $1, product_id, warehouse_id, channel, sale_date,
-            sum(units), sum(revenue), sum(cost), sum(tickets), max(unit_kind), now()
+            sum(units), sum(revenue), sum(cost), sum(tickets), max(unit_kind),
+            -- U.5 — el GROUP BY replica la clave del acumulador, así que normalmente hay 1 fila
+            -- por grupo. El CASE es la red: si alguna vez llegaran dos factores distintos al mismo
+            -- grupo, max() elegiría uno y escondería la mezcla. Acá se declara, no se elige.
+            CASE WHEN count(DISTINCT rung_factor) > 1 THEN NULL ELSE max(rung_factor) END,
+            bool_or(rung_mixed) OR count(DISTINCT rung_factor) > 1,
+            sum(units_unresolved), now()
        FROM stg_sf
       GROUP BY product_id, warehouse_id, channel, sale_date
      ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date)
      DO UPDATE SET units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost,
-                   tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()
-     WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind)
+                   tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind,
+                   rung_factor=EXCLUDED.rung_factor, rung_mixed=EXCLUDED.rung_mixed,
+                   units_unresolved=EXCLUDED.units_unresolved, updated_at=now()
+     -- Las tres columnas nuevas ENTRAN al guard: sin esto, una fila cuyo único cambio es el
+     -- peldaño no se actualizaría y el backfill nunca aterrizaría (la primera pasada trae todas
+     -- las filas con rung_factor NULL en destino y con valor en origen).
+     WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind,
+            sd.rung_factor, sd.rung_mixed, sd.units_unresolved)
            IS DISTINCT FROM
-           (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind)`, [M]);
+           (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind,
+            EXCLUDED.rung_factor, EXCLUDED.rung_mixed, EXCLUDED.units_unresolved)`, [M]);
   await db.query('COMMIT');
   await db.query(`ANALYZE analytics.sales_daily`); // RS.12c — stats frescas → plan bueno en sell-out
   console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
