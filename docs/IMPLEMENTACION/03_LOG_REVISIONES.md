@@ -309,6 +309,76 @@ Sólo cayeron los de carriles sin tarea.
 - **`trade-mkt-prov` (3.72 GB) y `scriptsmd-admin-bd` (851 MB) no se tocan**: esta box es compartida
   y no consta que sean de este proyecto.
 
+### 4ª pasada — 2026-09-07 · el FDW fuera de prod y la 03 ordenada
+
+**El hallazgo que justificó todo: `catalog.products_active` NO se colgaba "en teoría".** Medido
+antes de tocar: `select count(*)` daba `statement timeout`. La cadena era
+`public.products_active` → `catalog.products_active` → `JOIN erp.productos_activos` → FDW →
+`192.168.0.245`, que Railway no rutea. Un chequeo que busca `erp.*` en la definición de la vista de
+arriba **no lo encuentra**: hay que seguir la dependencia transitiva (`pg_depend`/`pg_rewrite`).
+Y el `search_path` pone **`catalog` antes que `public`**, así que un `products_active` sin calificar
+resolvía a la que se colgaba.
+
+**Aplicado en PROD** (`mig 20260905140000`, batch 292, ledger `public` ✓):
+
+| | antes | después |
+|---|---|---|
+| `server mega_dulces_srv` | 1 | **0** |
+| foreign tables | 3 | **0** |
+| vistas `analytics_external.*_legacy` | 3 | **0** |
+| `catalog.products_active` | **timeout** | **8,704 filas · 235 ms** (caliente) |
+
+La vista se **repuntó** al ODS en vez de borrarse: conserva el nombre al que resuelve un
+`products_active` sin calificar, y es fiel a la definición anterior (mismas 39 columnas, mismo
+`LEFT JOIN brands`, mismo `WHERE is_commercial`). Sólo cambió el filtro de "activo en el ERP":
+`JOIN erp.productos_activos` → `EXISTS` sobre `kepler_ods.kdii`. **EXISTS y no JOIN** porque `kdii`
+tiene una fila por (sucursal, sku) y un JOIN multiplicaría por sucursal — el fan-out de la Fase FKJ.
+
+⚠️ **Se aplicó con `migrate.up({name})`, NO con `migrate.latest()`**: contra `public.knex_migrations`
+figuran 4 pendientes y dos ya están aplicadas (ver la mina del ledger doble más abajo); un `latest()`
+las re-aplicaría. Verificado además que el registro cayó en `public` y no en `identity`.
+⚠️ Y se verificó el destino **conectando explícitamente a prod**, porque `dotenv` inyecta el `.env`
+del repo — cuyo `DATABASE_URL_NEW` apunta a `platform_test`. Es la trampa que ya produjo una
+auditoría falsa de $375M.
+
+**La sucursal 03, ordenada.** Había **DOS bases con su nombre**: la viva era `kepler_pilot` y
+convivía con un `md_03` congelado el 15-jun que nadie escribía ni leía — leer la equivocada daba tres
+meses de atraso **sin ningún error**. Con un freno que midió la frescura de las dos justo antes de
+soltar (176,284 docs al 07-sep contra 117,479 al 15-jun):
+
+```
+ALTER SUBSCRIPTION sub_pilot DISABLE          -- el slot vive en el publicador .40.40: no se pierde WAL
+DROP DATABASE md_03                           -- 2,472 MB
+ALTER DATABASE kepler_pilot RENAME TO kepler_md_03
+ALTER SUBSCRIPTION sub_pilot ENABLE
+```
+
+La suscripción **conserva su nombre histórico `sub_pilot`** a propósito: renombrarla no aporta y sí
+toca el slot del publicador. Anotado en GOTCHAS para que no se lea como inconsistencia.
+
+**Lo "cosmético" costó 9 ediciones y un rebuild.** El caso especial
+`code === '03' ? 'kepler_pilot' : …` estaba copiado **a mano en nueve archivos**; los nueve pasan a
+`kepler_md_${code}`. Y los contenedores traen el código **horneado en la imagen**, así que hizo falta
+`up -d --build` (un `restart` no alcanza). Regla que queda en GOTCHAS: si vuelve a hacer falta un
+nombre fuera de convención, que viva en **un solo** resolvedor compartido.
+
+**Verificado después del rebuild:** shipper leyendo `kepler_md_03` (21 tablas, pasada hace 4 s),
+**0** errores `does not exist`, prod con la 03 al día (222,878 docs, último 07-sep). El reconciliador
+reportó **231 huecos y repuso los 231** (`errores 0`) — alto porque los carriles estuvieron ~15 min
+parados en la ventana, y se auto-curó. Su `status='error'` es el umbral de 50, no una regresión.
+
+**Bloqueado por el clasificador (no se rodeó):** `DROP DATABASE KP_CONCENTRADA` (7,653 MB) y
+`Mega_Dulces` (440 MB) en .245. El script queda escrito con un freno que **exige que el FDW de prod
+ya no exista** antes de soltar la fuente — si el orden se invirtiera, `catalog.products_active`
+pasaría de colgarse a fallar duro, y eso sí lo verían los consumidores. Ese freno ya pasa.
+Evidencia extra acumulada en estos dos días: **KP_CONCENTRADA lleva 47 h congelada** desde que se
+deshabilitó su tarea el 05-sep y **nada se quejó**. Y `Mega_Dulces.public.ventas` tiene su última
+venta fechada **2026-12-05** — el bug de parseo DD/MM en carne viva.
+
+⚠️ **Deuda que abre esto:** los sensores `kp_concentrada`/`mega_dulces` ya salieron del código pero
+el contenedor `api` corre la imagen anterior, así que hasta el próximo deploy el tablero los seguirá
+sondeando.
+
 ### 3ª pasada — demolición de lo que el ODS dejó sin función (Edgar: "todo lo que queda sin función … se elimina")
 
 **Lo que se probó muerto, midiendo y no asumiendo:**
