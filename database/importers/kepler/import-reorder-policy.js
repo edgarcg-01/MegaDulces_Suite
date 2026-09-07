@@ -13,6 +13,7 @@
  *   node database/importers/kepler/import-reorder-policy.js --apply
  */
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
 const { normalizeReorder } = require('../../../services/feeds-ingest/ods-derived');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
@@ -22,6 +23,9 @@ const APPLY = process.argv.includes('--apply');
 (async () => {
   const db = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await db.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(db, 'import-reorder-policy');
   try {
     console.log(`\n=== Reorden kepler_ods.kdii → commercial.reorder_policy (${APPLY ? 'APPLY' : 'DRY-RUN'}) — vía ods-derived (al-momento share) ===`);
     if (!APPLY) { console.log('DRY-RUN: delega el full-catálogo en normalizeReorder(null). Corré --apply.'); return; }

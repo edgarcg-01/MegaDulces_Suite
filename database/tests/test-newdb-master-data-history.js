@@ -132,6 +132,37 @@ const ck = (l, c, d = '') => {
   const after = (await q(`SELECT count(*)::int n FROM analytics.master_data_history`))[0].n;
   ck('la historia participa de la transacción (ROLLBACK la revierte)', after === before, `${before} → ${after}`);
 
+  // ── 2b. [VP.3.2] El helper que usan los importers, ejercitado de verdad ───────────────
+  // No basta con que el trigger sepa leer `app.actor`: hay que probar que lo que los 9 importers
+  // llaman efectivamente lo escribe. Si `declararActor` fallara en silencio, la columna quedaría
+  // NULL para siempre y el trigger seguiría "funcionando" — el hueco mudo otra vez.
+  console.log('\n2b · EL HELPER DE LOS IMPORTERS (VP.3.2)');
+  const { declararActor } = require('../importers/lib/declare-actor');
+  const puesto = await declararActor(c, 'prueba-candado');
+  ck('declararActor() reporta que lo dejó puesto', puesto === true);
+  const leido = (await q(`SELECT current_setting('app.actor', true) AS a`))[0].a;
+  ck('el valor queda en la sesión, con prefijo importer:', leido === 'importer:prueba-candado', `leyó "${leido}"`);
+  // Cliente sin `query` ni `raw`: no debe lanzar. Un feed no se cae por no poder firmar.
+  let tiro = false;
+  try { await declararActor({}, 'x'); } catch { tiro = true; }
+  ck('nunca lanza, aunque el cliente no sirva (el actor es metadata)', tiro === false);
+  await c.query(`SELECT set_config('app.actor', '', false)`);
+
+  // Y que los 9 importers de datos maestros lo llamen. Uno que se quede sin la línea escribe
+  // historia anónima sin que nada falle — y `reorder_policy` la pisan TRES importers distintos.
+  const fs = require('fs'); const path = require('path');
+  const IMPORTERS = ['import-kepler-prices', 'import-reorder-policy', 'import-computed-reorder',
+    'import-network-reorder', 'import-label-data', 'repoint-catalog-cost',
+    'repoint-catalog-names', 'repoint-catalog-prices', 'import-margin'];
+  const sinFirma = IMPORTERS.filter((n) => {
+    try {
+      const s = fs.readFileSync(path.join(__dirname, '..', 'importers', 'kepler', `${n}.js`), 'utf8');
+      return !/await declararActor\(/.test(s);
+    } catch { return true; }
+  });
+  ck(`los ${IMPORTERS.length} importers de datos maestros declaran quién escriben`, sinFirma.length === 0,
+    sinFirma.length ? `sin firmar: ${sinFirma.join(', ')}` : '');
+
   // ── 3. No se puede reescribir ─────────────────────────────────────────────────────────
   console.log('\n3 · INMUTABILIDAD');
   const g = (await q(`
