@@ -526,6 +526,69 @@ hay que ver el log de la corrida de hoy para saber si un dominio falló silencio
 
 ---
 
+## Addendum — Cierre de los filtros de tenant fail-open (2026-09-07)
+
+El análisis del 03-sep listaba **58 filtros condicionales** (`if (tenantId) q.where(...)`), 8 queries
+sin filtro y 2 escrituras por `id` pelado. Revisado sitio por sitio contra el código de hoy: **la
+mayor parte ya estaba cerrada por otra sesión**, dos seguían abiertas y dos eran falsos positivos.
+
+**Ya cerrado antes de esta pasada:** existe `libs/platform-core/src/lib/tenant/require-tenant.ts`
+con `requireTenantOf(user, ctx)` que **lanza** en vez de devolver vacío; **17 archivos** lo usan y los
+**15** helpers locales de `libs/trade` ya declaran `: string`, no `: string | undefined`. Todas las
+escrituras de `supervisor-actions.service.ts` llevan `{ id, tenant_id }`.
+
+**W3.1 — `reports.service.ts` › `deleteReport`: fail-open en un camino DESTRUCTIVO** 🔴 *(arreglado)*
+El comentario `[AUTHZ-HARD.1]` decía que se había acotado el tenant… y lo aplicaba con un `if`:
+
+```ts
+const tenantId = user?.tenant_id || this.tenantContext?.get()?.tenantId;
+const baseWhere = { id };
+if (tenantId) baseWhere['tenant_id'] = tenantId;   // ← con tenant vacío queda sólo { id }
+```
+
+Ese `baseWhere` se usa para el `SELECT` **y para el `DELETE`**, sobre `this.knex` = pool
+`postgres` (superuser), donde `FORCE ROW LEVEL SECURITY` **no aplica**. Con el tenant vacío,
+`REPORTES_GESTIONAR` borraba la captura de cualquier tenant por UUID. Ahora usa `requireTenantOf` y
+el filtro es incondicional; de paso desapareció la rama de escape del `emitCaptureDeleted`.
+
+**W3.2 — `permissions-cache.service.ts`: el lookup de rol era no-determinista entre tenants** 🔴
+*(arreglado)*
+El comentario decía *"tenant_id **OBLIGATORIO** para aislar"* y el código lo hacía opcional. El
+camino existe de verdad: **`roles.guard.ts:61` pasa `user.tenant_id` CRUDO del JWT**, sin fallback ni
+throw — un token sin tenant llegaba con `undefined` y la query corría sin filtro. Y no es teórico:
+medido en prod, **`recursos_humanos` existe en 2 tenants**, así que para ese rol el `.first()` sin
+filtro devuelve el mapa de permisos de cualquiera de los dos.
+
+**No se resolvió con un throw**, a propósito: reventaría el login de un token legacy en cada request
+y esta ruta no se puede probar de punta a punta desde acá. Se hizo **determinista y fail-CLOSED**:
+sin tenant se exige `tenant_id IS NULL`, que en `identity.role_permissions` —columna **NOT NULL**, 0
+filas en NULL— no puede casar con nada. Resultado: **cero permisos** en vez de los de un tenant
+ajeno, y el camino sano queda byte por byte igual.
+
+**W3.3 — `scoring-engine.service.ts`: `UPDATE … WHERE id` sin tenant** 🟠 *(arreglado, era
+defensa-en-profundidad)*
+Los ids venían de un `SELECT` que **sí** scopea, así que no había fuga activa. Pero es una escritura
+sobre el pool superusuario: el día que alguien cambie de dónde salen esos ids, el alcance se pierde
+en silencio. Ahora el WHERE lleva `{ id, tenant_id }` y un UPDATE fuera de alcance simplemente no
+encuentra fila.
+
+**Dos falsos positivos del análisis del 03-sep** (quedan declarados para que nadie los vuelva a
+"arreglar"):
+
+- `route-promo.service.ts:470` — `SELECT unit_base FROM analytics.v_product_unit_ladder WHERE sku = ?`.
+  **La vista NO tiene `tenant_id`** y su `sku` es único (0 SKUs con más de una fila): no hay nada que
+  filtrar.
+- `commercial-replenishment.service.ts:1099` — apuntaba a `analytics.purchase_in_transit`, que **se
+  retiró junto con su importer**. El servicio sólo la menciona en un comentario; el tránsito hoy sale
+  de `analytics.replenishment_plan` (ver GOTCHAS §25).
+
+**Lo que sigue abierto de este frente:** `analytics` mantiene **59 de 60 tablas sin RLS** y **1 de 53
+FKs** con `tenant_id`, así que en ese schema el filtro manual sigue siendo la única defensa. Habilitar
+RLS de golpe es peligroso —cualquier query que hoy no setee contexto pasaría a devolver 0 filas en
+silencio—; el camino es el smoke de cobertura primero, tabla por tabla después.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.

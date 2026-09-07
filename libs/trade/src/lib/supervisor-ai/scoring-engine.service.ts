@@ -136,8 +136,13 @@ export class ScoringEngineService {
         chunk.map((u) => {
           if (u.exec_score == null) skipped++;
           else scored++;
+          // `[W3.3]` El `tenant_id` va en el WHERE aunque los ids ya vengan del SELECT scopeado de
+          // arriba: `this.knex` es el pool superusuario, donde `FORCE ROW LEVEL SECURITY` es
+          // inerte, así que una escritura por `id` pelado no tiene red debajo. El día que alguien
+          // cambie de dónde salen estos ids, el alcance se perdería en silencio — acá el UPDATE
+          // simplemente no encontraría fila.
           return this.knex('commercial.execution_360')
-            .where('id', u.id)
+            .where({ id: u.id, tenant_id: tenantId })
             .update({ exec_score: u.exec_score, exec_score_breakdown: u.breakdown, updated_at: this.knex.fn.now() });
         }),
       );
