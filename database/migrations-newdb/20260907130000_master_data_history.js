@@ -66,6 +66,12 @@ const VIGILADAS = {
 };
 
 exports.up = async function (knex) {
+  // `CREATE TRIGGER` toma ACCESS EXCLUSIVE sobre la tabla. Es un cambio de catálogo (milisegundos,
+  // no reescribe filas), pero si alguna transacción larga la tiene tomada, esta migración se
+  // encolaría — y TODO escritor posterior se encola detrás. Con `lock_timeout` falla rápido y se
+  // reintenta, en vez de congelar los feeds. Lección de la aplicación de las migs de la Fase LC.
+  await knex.raw(`SET LOCAL lock_timeout = '5s'`);
+
   // ── 1. La tabla ────────────────────────────────────────────────────────────────────────
   if (!(await knex.schema.withSchema('analytics').hasTable('master_data_history'))) {
     await knex.raw(`
