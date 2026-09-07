@@ -363,6 +363,24 @@ export interface SellOutColumn {
   month?: string;
 }
 
+/** [U.7] Cómo se puede convertir a cajas ESTA celda (producto × almacén), leído de
+ *  `analytics.v_unit_truth.metodo_cajas`. El orden lo fija la vista, no el consumidor:
+ *  `dinero` (ingreso ÷ precio de caja, inmune a la unidad del numerador) › `peso` (granel: son
+ *  kilos) › `divisor` (÷ box_factor, SÓLO con el factor verificado) › `sin_metodo` (se declara). */
+export interface BoxMethod {
+  metodo: 'dinero' | 'peso' | 'divisor' | 'unidad_es_caja' | 'sin_metodo';
+  boxFactor: number;
+  cjaPrice: number;
+  isWeight: boolean;
+}
+
+/** [U.7] Lo que NO se pudo convertir a cajas, para declararlo en vez de dibujarlo. */
+export interface SellOutSinMetodo {
+  skus: number;
+  unidades: number;
+  monto: number;
+}
+
 export interface SellOutCell {
   cajas: number;
   monto: number;
@@ -410,6 +428,14 @@ export interface SellOutReport {
    * igual de fresco. Son las dos preguntas que la fase OBS separó.
    */
   freshness: Freshness;
+  /**
+   * [U.7] Venta que NO se pudo expresar en cajas, declarada en vez de dibujada. Hasta hoy esas
+   * celdas caían a `units / 1` y se publicaban como "cajas" siendo PIEZAS: medido, 716,742
+   * unidades en 710 SKUs ($14,279,457 = 2.2% de la venta 365d). Cero no es la respuesta —
+   * "no hay con qué convertirlo" sí. Pasa cuando no hay precio de caja, ni el factor tiene
+   * testigo, o el almacén no está cubierto por el resolvedor (las 6 rutas de La Piedad).
+   */
+  sin_metodo: SellOutSinMetodo;
   generated_at: string;
 }
 
@@ -495,6 +521,47 @@ function sellOutMonthLabel(ym: string): string {
   const [y, m] = (ym || '').split('-');
   const idx = Number(m) - 1;
   return idx >= 0 && idx < 12 ? `${MONTH_ABBR_ES[idx]} ${y}` : ym;
+}
+
+/**
+ * [U.7] Convierte una celda de venta a CAJAS con el método que declara
+ * `analytics.v_unit_truth.metodo_cajas`. El orden lo fija la vista y este archivo lo obedece:
+ *
+ *   · `dinero`  — ingreso ÷ precio de caja. Va primero porque es **inmune a la unidad del
+ *                 numerador**, que es exactamente lo que falla: medido, `sales_daily.units` mezcla
+ *                 peldaños incluso dentro de un mismo almacén (`42029` en el almacén `01` promedia
+ *                 $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25).
+ *   · `peso`    — granel: la cantidad YA está en kilos, no se divide.
+ *   · `divisor` — cantidad ÷ box_factor, sólo cuando el factor tiene testigo.
+ *   · `unidad_es_caja` — no hay paquete ni caja en la escalera y ningún testigo dice que la haya:
+ *                 la unidad de venta ES la más grande, así que cajas = unidades. Verificado contra
+ *                 el precio realizado en 240 de 278 SKUs (`57009 CUBETA 20K` a $1,453 contra p1
+ *                 $1,500; `87234` con `unit_base = CJA`). No es un default: tratarlo como
+ *                 ignorancia bajaba el total del sell-out un **33.6%**.
+ *   · resto     — **no se convierte**. `ok = false` y quien llama lo declara.
+ *
+ * Devuelve `cajas: 0` con `ok: false` a propósito: sumar cero no inventa volumen. Lo que estaba
+ * mal antes era dividir por 1 y publicar piezas con la etiqueta "cajas".
+ */
+function cajasDe(
+  m: BoxMethod | undefined,
+  units: number,
+  monto: number,
+  isWeightRow: boolean,
+): { cajas: number; ok: boolean } {
+  // El fact manda sobre el catálogo para decidir si la fila es de peso: `unit_kind` se calculó
+  // sobre la venta real, y ahí la cantidad ya viene en kilos.
+  if (isWeightRow) return { cajas: units, ok: true };
+  if (!m) return { cajas: 0, ok: false }; // almacén sin fila en el resolvedor (ver v_unit_truth_coverage)
+  if (m.metodo === 'dinero') {
+    return m.cjaPrice > 0 ? { cajas: monto / m.cjaPrice, ok: true } : { cajas: 0, ok: false };
+  }
+  if (m.metodo === 'peso') return { cajas: units, ok: true };
+  if (m.metodo === 'divisor') {
+    return m.boxFactor > 1 ? { cajas: units / m.boxFactor, ok: true } : { cajas: 0, ok: false };
+  }
+  if (m.metodo === 'unidad_es_caja') return { cajas: units, ok: true };
+  return { cajas: 0, ok: false }; // sin_metodo
 }
 
 const REVENUE_STATUSES = ['fulfilled'];
@@ -2711,7 +2778,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxFactors, boxPrices, identMap, freshness } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, identMap, freshness } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -2762,18 +2829,18 @@ export class CommercialAnalyticsService {
       const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const pidsAll = rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
       const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
-      const boxFactors = pids.length
-        ? await trx('analytics.v_product_box_factor')
+      // [U.7] Una sola lectura al resolvedor: trae el divisor NATIVO del almacén (ADR-055), el
+      // precio de caja y — lo que faltaba — el MÉTODO con el que se puede convertir. Reemplaza
+      // las dos consultas separadas a `v_product_box_factor` + `product_box_price`, cuya cascada
+      // terminaba en `factor_sale ?? box_size ?? 1`: medido, ese último recurso publicaba
+      // **716,742 PIEZAS rotuladas como cajas** en 710 SKUs ($14,279,457 = 2.2% de la venta).
+      // El grano es (producto × almacén) porque el divisor lo es; se indexa por las dos claves.
+      const boxMethods = pids.length
+        ? await trx('analytics.v_unit_truth')
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [pids])
-            .select('product_id', 'box_factor')
-        : [];
-      const boxPrices = pids.length
-        ? await trx('analytics.product_box_price')
-            .where('tenant_id', tenantId)
-            .whereRaw('product_id = ANY(?::uuid[])', [pids])
-            .andWhere('cja_price', '>', 0)
-            .select('product_id', 'cja_price')
+            .select('product_id', 'warehouse_code', 'box_factor', 'cja_price',
+              'metodo_cajas', 'is_weight')
         : [];
 
       // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
@@ -2782,20 +2849,32 @@ export class CommercialAnalyticsService {
         (qb) => { if (warehouseFilter) qb.whereIn('s.warehouse_code', warehouseFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxFactors, boxPrices, identMap, freshness };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, identMap, freshness };
     });
-    // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
-    const boxFactorMap = new Map<string, number>(
-      boxFactors.map((b: any) => [b.product_id, Number(b.box_factor) || 1]),
-    );
-    // RA-PRO.39 — mapa product_id → precio de CJA (conversión money-anchored a cajas).
-    const boxPriceMap = new Map<string, number>(
-      boxPrices.map((b: any) => [b.product_id, Number(b.cja_price) || 0]),
-    );
+    // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
+    // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
+    // (las 6 rutas de La Piedad, que cambiaron de ERP; ver `v_unit_truth_coverage`). Sin fila en
+    // ninguno de los dos, la celda NO se convierte: se declara.
+    const methodByCell = new Map<string, BoxMethod>();
+    const methodByProduct = new Map<string, BoxMethod>();
+    for (const m of boxMethods as any[]) {
+      const v: BoxMethod = {
+        metodo: m.metodo_cajas,
+        boxFactor: Number(m.box_factor) || 1,
+        cjaPrice: Number(m.cja_price) || 0,
+        isWeight: !!m.is_weight,
+      };
+      methodByCell.set(`${m.product_id}|${m.warehouse_code}`, v);
+      if (!methodByProduct.has(m.product_id)) methodByProduct.set(m.product_id, v);
+    }
+    const methodFor = (pid: string, whCode: unknown): BoxMethod | undefined =>
+      methodByCell.get(`${pid}|${String(whCode)}`) ?? methodByProduct.get(pid);
+    // Lo que no se pudo convertir se CUENTA, no se dibuja como cero ni se cuela como piezas.
+    const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
 
     // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
     // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
-    const base: Omit<SellOutReport, 'coverage' | 'freshness'> = {
+    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
@@ -2849,11 +2928,12 @@ export class CommercialAnalyticsService {
         const pmonto = Number(r.monto) || 0;
         const pmontoNeto = Number(r.monto_neto) || 0;
         const pIsWeight = r.unit_kind === 'weight';
-        const pfs = Number(r.factor_sale);
-        const pbox = Number(r.box_size);
-        const pdiv = boxFactorMap.get(r.product_id) ?? (pfs > 1 ? pfs : (pbox > 1 ? pbox : 1));
-        const pcjaPrice = boxPriceMap.get(r.product_id) || 0;
-        const pcajas = pIsWeight ? punits : pcjaPrice > 0 ? pmonto / pcjaPrice : punits / pdiv;
+        // [U.7] El método sale del resolvedor. Antes caía a `factor_sale ?? box_size ?? 1`.
+        const pconv = cajasDe(methodFor(r.product_id, r.branch_code), punits, pmonto, pIsWeight);
+        if (!pconv.ok) {
+          sinMetodo.skus.add(r.sku); sinMetodo.unidades += punits; sinMetodo.monto += pmonto;
+        }
+        const pcajas = pconv.cajas;
         branchesWithData.add(r.branch_name);
         let prow = rowMap.get(r.sku);
         if (!prow) {
@@ -2897,21 +2977,30 @@ export class CommercialAnalyticsService {
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
       // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
       const isWeight = r.unit_kind === 'weight';
-      // RA-PRO.39 — CAJAS money-anchored: cajas = revenue / precio_CJA (de Kepler). Es la
-      // conversión ROBUSTA — inmune a que la venta llegue en PZA/PAQ/CJA y a que factor_sale/
-      // box_size signifiquen distinto por producto. Peso → kg (no cajas). Fallback (sin precio
-      // CJA): divisor del resolvedor canónico (v_product_box_factor).
-      const fs = Number(r.factor_sale);
-      const box = Number(r.box_size);
-      const divisor = boxFactorMap.get(r.product_id) ?? (fs > 1 ? fs : (box > 1 ? box : 1));
-      const cjaPrice = boxPriceMap.get(r.product_id) || 0;
-      const cajas = r.cajas != null
-        ? Number(r.cajas)                          // fast-path byBrand: cajas money-anchored ya sumadas en SQL
-        : isWeight
-          ? units                                  // granel → kg
-          : cjaPrice > 0
-            ? monto / cjaPrice                      // money-anchored (robusto)
-            : units / divisor;                      // fallback: factor del resolvedor
+      // [U.7] El método de conversión lo decide `analytics.v_unit_truth.metodo_cajas`, no este
+      // archivo: dinero › peso › divisor VERIFICADO › declarar. La cascada anterior terminaba en
+      // `factor_sale ?? box_size ?? 1`, y ese `1` publicaba PIEZAS con la etiqueta "cajas" —
+      // medido, 716,742 unidades en 710 SKUs ($14,279,457 = 2.2% de la venta).
+      let cajas: number;
+      if (r.units_sin_metodo != null) {
+        // Pierna a grano MARCA (`selloutBrandLeg`): las cajas ya vienen sumadas en SQL con el
+        // mismo orden de métodos, y lo no convertible viene declarado aparte. `cajas` puede ser
+        // NULL cuando NINGUNA fila del grupo tenía método — ahí es 0 y todo se declara.
+        cajas = Number(r.cajas) || 0;
+        const un = Number(r.units_sin_metodo) || 0;
+        if (un > 0) {
+          // A grano marca no hay SKU: se cuenta la marca. Lo que importa acá es el volumen.
+          sinMetodo.skus.add(String(r.brand_id ?? r.sku ?? '·'));
+          sinMetodo.unidades += un;
+          sinMetodo.monto += Number(r.monto_sin_metodo) || 0;
+        }
+      } else {
+        const conv = cajasDe(methodFor(r.product_id, r.branch_code), units, monto, isWeight);
+        if (!conv.ok) {
+          sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto;
+        }
+        cajas = conv.cajas;
+      }
       branchesWithData.add(r.branch_name);
 
       // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
@@ -3062,6 +3151,13 @@ export class CommercialAnalyticsService {
       grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
       freshness,
+      // [U.7] La venta que no se pudo expresar en cajas va DECLARADA, no sumada al total con un
+      // divisor inventado. El total baja respecto de ayer y eso es el arreglo, no el defecto.
+      sin_metodo: {
+        skus: sinMetodo.skus.size,
+        unidades: round(sinMetodo.unidades, 3),
+        monto: round(sinMetodo.monto, 2),
+      },
     };
   }
 
@@ -3266,12 +3362,36 @@ export class CommercialAnalyticsService {
    * units/box_factor`; la fórmula es sumable porque cja_price y box_factor son constantes por producto).
    */
   private selloutBrandLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
-    // MISMA fórmula que el pivote por-producto (divisor = box_factor ?? factor_sale>1 ?? box_size>1 ?? 1),
-    // sumable a grano marca porque cja_price/box_factor/factor_sale/box_size son constantes por producto.
-    const cajas = `sum(CASE WHEN s.unit_kind='weight' THEN s.units WHEN bp.cja_price>0 THEN s.monto/bp.cja_price ELSE s.units/GREATEST(COALESCE(bf.box_factor, CASE WHEN s.factor_sale>1 THEN s.factor_sale WHEN s.box_size>1 THEN s.box_size ELSE 1 END), 1) END)`;
+    // [U.7] MISMA cascada que el pivote por-producto, pero leída del resolvedor: el método lo
+    // declara `analytics.v_unit_truth.metodo_cajas` (dinero › peso › divisor VERIFICADO › nada).
+    // Sigue siendo sumable a grano marca porque `cja_price` y `box_factor` son constantes por
+    // (producto, almacén) y el GROUP BY incluye `warehouse_code`.
+    // ⚠️ El `ELSE NULL` es deliberado: antes cerraba en `/1` y publicaba PIEZAS como cajas —
+    // medido, 716,742 unidades en 710 SKUs ($14,279,457). `sum()` ignora los NULL, así que el
+    // total deja de inflarse; lo omitido se declara en `sin_metodo` del reporte.
+    const cajas = `sum(CASE
+        WHEN s.unit_kind = 'weight'                     THEN s.units
+        WHEN ut.metodo_cajas = 'dinero'
+         AND ut.cja_price > 0                           THEN s.monto / ut.cja_price
+        WHEN ut.metodo_cajas = 'peso'                   THEN s.units
+        WHEN ut.metodo_cajas = 'divisor'
+         AND ut.box_factor > 1                          THEN s.units / ut.box_factor
+        WHEN ut.metodo_cajas = 'unidad_es_caja'         THEN s.units
+        ELSE NULL END)`;
+    // Lo que no se pudo convertir, para declararlo en vez de que desaparezca en silencio. Es el
+    // complemento EXACTO del CASE de arriba: la rama que ahí da NULL, acá suma.
+    const noConvertible = `(s.unit_kind <> 'weight'
+        AND NOT (ut.metodo_cajas = 'dinero'  AND ut.cja_price  > 0)
+        AND NOT (ut.metodo_cajas = 'peso')
+        AND NOT (ut.metodo_cajas = 'divisor' AND ut.box_factor > 1)
+        AND NOT (ut.metodo_cajas = 'unidad_es_caja'))`;
+    const sinMetodoUn = `sum(CASE WHEN ${noConvertible} THEN s.units ELSE 0 END)`;
+    const sinMetodoMonto = `sum(CASE WHEN ${noConvertible} THEN s.monto ELSE 0 END)`;
     const qb = trx(`${table} as s`)
-      .leftJoin('analytics.v_product_box_factor as bf', function (this: any) { this.on('bf.tenant_id', 's.tenant_id').andOn('bf.product_id', 's.product_id'); })
-      .leftJoin('analytics.product_box_price as bp', function (this: any) { this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id'); })
+      .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+        this.on('ut.tenant_id', 's.tenant_id').andOn('ut.product_id', 's.product_id')
+          .andOn('ut.warehouse_code', 's.warehouse_code');
+      })
       .where('s.tenant_id', o.tenantId)
       .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
       .modify((b: any) => {
@@ -3283,7 +3403,9 @@ export class CommercialAnalyticsService {
         's.brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
         trx.raw('s.warehouse_code as branch_code'), trx.raw('max(s.branch_name) as branch_name'),
         's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
-        trx.raw(`${cajas} as cajas`), trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
+        trx.raw(`${cajas} as cajas`), trx.raw(`${sinMetodoUn} as units_sin_metodo`),
+        trx.raw(`${sinMetodoMonto} as monto_sin_metodo`),
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
       )
       .groupByRaw('s.brand_id, s.warehouse_code, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
     if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
@@ -3345,6 +3467,28 @@ export class CommercialAnalyticsService {
    *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
   private selloutVendorLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
     return trx(`${table} as s`)
+      // [U.7] El precio de CAJA, a su grano natural (producto). Este pivote agrupa por VENDEDOR y
+      // nunca trae almacén, así que el divisor nativo de ADR-055 no está disponible acá — pero el
+      // método de dinero no lo necesita, y cubre el 92.9% de la venta. Lo que quede sin precio se
+      // declara; antes esta pierna convertía SÓLO con `factor_sale`, la única fuente probada sin
+      // unidad (mitad piezas, un tercio paquetes).
+      .leftJoin('analytics.product_box_price as bp', function (this: any) {
+        this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id');
+      })
+      // El método a grano PRODUCTO. ⚠️ Es una aproximación declarada: `metodo_cajas` se resuelve
+      // por (producto × almacén) y acá no hay almacén, así que se toma el método del producto con
+      // `bool_or`. Sólo se usa para la rama `unidad_es_caja`, que NO depende del almacén (es una
+      // propiedad del empaque: no hay paquete ni caja en la escalera del ERP).
+      .leftJoin(
+        trx('analytics.v_unit_truth')
+          .select('tenant_id', 'product_id')
+          .select(trx.raw(`bool_or(metodo_cajas = 'unidad_es_caja') AS unidad_es_caja`))
+          .groupBy('tenant_id', 'product_id')
+          .as('utp'),
+        function (this: any) {
+          this.on('utp.tenant_id', 's.tenant_id').andOn('utp.product_id', 's.product_id');
+        },
+      )
       .where('s.tenant_id', o.tenantId)
       .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
       .andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`)
@@ -3364,6 +3508,13 @@ export class CommercialAnalyticsService {
         trx.raw(`CASE WHEN s.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
         trx.raw('1 as fac_win'),
         trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'),
+        // El neto NO se seleccionaba, así que `monto_neto` llegaba undefined y el pivote por
+        // vendedor publicaba SIEMPRE $0 en esa columna. Una columna que existe y vale cero se lee
+        // como "no hubo descuento", no como "nadie la trajo".
+        trx.raw('sum(s.monto_neto) as monto_neto'),
+        // [U.7] Cajas ancladas al dinero + lo que no se pudo convertir, declarado aparte.
+        trx.raw(`max(bp.cja_price) as cja_price`),
+        trx.raw(`bool_or(COALESCE(utp.unidad_es_caja, false)) as unidad_es_caja`),
       )
       .groupByRaw('s.vendor_code, s.vendor_name, s.channel, s.product_id, s.brand_id, s.unit_kind');
   }
@@ -3455,6 +3606,8 @@ export class CommercialAnalyticsService {
     const rowMap = new Map<string, SellOutRow>();
     const colTotals = new Map<string, SellOutCell>();
     let grandCajas = 0, grandMonto = 0, grandMontoNeto = 0;
+    // [U.7] Lo que no se pudo expresar en cajas, para declararlo en vez de dibujarlo.
+    const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
       // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
@@ -3468,11 +3621,17 @@ export class CommercialAnalyticsService {
       const qty = Number(r.qty) || 0;
       const facWin = Number(r.fac_win) || 1;
       const units = isWeight ? qty : (uv === 'CJA' ? qty * (facWin > 1 ? facWin : 1) : qty);
-      const fs = Number(r.factor_sale); const box = Number(r.box_size);
-      const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
-      const cajas = isWeight ? units : units / divisor;
       const monto = Number(r.monto) || 0;
       const montoNeto = Number(r.monto_neto) || 0;
+      // [U.7] Cajas por DINERO (ingreso ÷ precio de caja), no por `factor_sale`. Peso → kilos.
+      // Sin precio de caja NO se convierte: se declara. Antes dividía por
+      // `factor_sale ?? box_size ?? 1`, y ese `1` publicaba piezas rotuladas como cajas.
+      const cjaPrice = Number(r.cja_price) || 0;
+      let cajas = 0;
+      if (isWeight) cajas = units;
+      else if (cjaPrice > 0) cajas = monto / cjaPrice;
+      else if (r.unidad_es_caja) cajas = units; // la unidad de venta ES la más grande
+      else { sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto; }
       if (!columns.has(colKey)) {
         columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
         colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
@@ -3510,6 +3669,11 @@ export class CommercialAnalyticsService {
           + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
       },
       freshness,
+      sin_metodo: {
+        skus: sinMetodo.skus.size,
+        unidades: round(sinMetodo.unidades, 3),
+        monto: round(sinMetodo.monto, 2),
+      },
       generated_at: new Date().toISOString(),
     };
   }

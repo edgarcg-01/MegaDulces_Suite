@@ -37,6 +37,7 @@ const check = (label, cond, detail = '') => {
 
 const VEREDICTOS = ['verificado', 'no_aplica', 'sin_testigo', 'en_disputa', 'disputa_granel'];
 const NATIVOS = ['nativo_es_base', 'vende_la_base', 'vende_paquete', 'no_explicado', 'sin_razon'];
+const METODOS = ['dinero', 'peso', 'divisor', 'unidad_es_caja', 'sin_metodo'];
 
 (async () => {
   console.log('\n=== VERDAD DE UNIDAD (v_unit_truth) ===\n');
@@ -261,6 +262,45 @@ const NATIVOS = ['nativo_es_base', 'vende_la_base', 'vende_paquete', 'no_explica
   check('el método `dinero` NUNCA se elige sin precio de caja', met.dinero_sin_precio === 0);
   check('queda venta SIN método, declarada (si diera 0, se estaría dibujando lo que no se sabe)',
     Number(met.venta_sin_metodo) > 0);
+
+  // ⭐ ANTI-REGRESIÓN de `unidad_es_caja`. Tratar "no hay factor de caja" como "no sé convertir"
+  // bajaba el total del sell-out de 602,049 a 399,494 cajas (−33.6%) sobre 90 días, y el 95% de
+  // esa caída eran productos cuya unidad de venta ES la más grande — verificado contra el precio
+  // realizado en 240 de 278 SKUs (`57009 CUBETA 20K` a $1,453 vs p1 $1,500; `87234` unit_base CJA).
+  const uec = (await c.query(
+    `SELECT array_agg(DISTINCT metodo_cajas) metodos,
+            count(*) FILTER (WHERE metodo_cajas = 'unidad_es_caja')::int uec,
+            count(*) FILTER (WHERE metodo_cajas = 'unidad_es_caja' AND box_factor > 1)::int uec_con_divisor,
+            count(*) FILTER (WHERE metodo_cajas = 'unidad_es_caja'
+                               AND veredicto <> 'no_aplica')::int uec_sin_veredicto,
+            -- Solo cuenta como PERDIDA si ademas no hay divisor nativo. Con box_factor > 1 la
+            -- celda es una contradiccion de verdad: Wincaja declara "12 de mis unidades hacen una
+            -- caja" mientras la escalera del producto dice que NO hay caja (79035, 97225 con
+            -- veredicto_nativo = no_explicado). Ahi sin_metodo es la respuesta honesta.
+            -- SIN BACKTICKS: este comentario vive dentro de un template literal de JS.
+            count(*) FILTER (WHERE metodo_cajas = 'sin_metodo'
+                               AND veredicto = 'no_aplica'
+                               AND box_factor <= 1)::int no_aplica_perdido,
+            count(*) FILTER (WHERE metodo_cajas = 'sin_metodo'
+                               AND veredicto = 'no_aplica'
+                               AND box_factor > 1)::int contradiccion_nativo
+       FROM analytics.v_unit_truth WHERE tenant_id = $1`, [T],
+  )).rows[0];
+  check('todo `metodo_cajas` está en la taxonomía declarada',
+    (uec.metodos || []).every((m) => METODOS.includes(m)), (uec.metodos || []).join(','));
+  check('`unidad_es_caja` existe y no pasa en vacío', uec.uec > 0);
+  check('`unidad_es_caja` NUNCA se usa cuando el almacén declara un divisor nativo > 1',
+    uec.uec_con_divisor === 0, `${uec.uec_con_divisor} celdas con divisor pisado`);
+  check('`unidad_es_caja` sólo aplica sobre veredicto `no_aplica`', uec.uec_sin_veredicto === 0);
+  check('ninguna celda `no_aplica` SIN divisor nativo cae en `sin_metodo` (bug del −33.6%)',
+    uec.no_aplica_perdido === 0,
+    `${uec.no_aplica_perdido} celdas volvieron a tratarse como ignorancia`);
+  // Éstas SÍ tienen que caer en sin_metodo, y tienen que seguir contándose: son las celdas donde
+  // Wincaja declara una caja que la escalera del producto niega (79035 factor_venta 12 contra
+  // base_per_box 1). No se resuelven con software — alguien tiene que decidir cuál miente.
+  check('las contradicciones nativo-vs-escalera siguen VISIBLES como sin_metodo',
+    uec.contradiccion_nativo > 0,
+    'si dieran 0, o se resolvieron en la fuente o se están escondiendo');
 
   // ── 9. Perf. Se mide, no se estima.
   check('la agregación completa cuesta < 8,000 ms', ms < 8000, `${ms} ms`);
