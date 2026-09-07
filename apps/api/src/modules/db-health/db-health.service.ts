@@ -329,6 +329,63 @@ const APP_SOURCES: SourceCfg[] = [
            WHERE source_branch = '00'`,
     warnH: 60, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
   },
+  // `[W2.1]` ENTREGA, no proceso. El sensor de arriba mide `max(fecha)` — la fecha de NEGOCIO del
+  // movimiento — con warn a 60 h porque los huecos de 2 días son normales en el CEDIS. Eso no puede
+  // distinguir dos cosas distintas: *"la sucursal no movió mercancía"* y *"no cargamos"*. La que
+  // separa las preguntas es `imported_at`: cuándo escribimos NOSOTROS.
+  //
+  // Vivido el 2026-09-07: `wincaja_sync` reportó **ok** hace 6.7 h y `wincaja.existencias` estaba en
+  // **32.6 h** — la pantalla de Existencia servía el inventario de CEDIS/MD-30/MD-32 con día y medio
+  // de atraso y ningún sensor lo decía. Causa (W2.2): el sync corre 05:00 y las copias del `.mdb`
+  // llegan 08:45, así que cada corrida consume el archivo del día anterior; encima faltó la del
+  // 05-sep. Es la misma forma que el incidente del carril de catálogos del ODS: latido de proceso,
+  // no de entrega (ADR-053).
+  //
+  // Umbrales espejo de `wincaja_sync` (30/50 h) a propósito: es su MISMA cadencia diaria vista del
+  // otro lado. Un pico sano llega a ~24 h justo antes de la corrida de las 05:00, así que 30 no
+  // flapea. Si los dos divergen —el job verde y esto en rojo— el rojo es el que dice la verdad.
+  //
+  // Se mide el **MAX por rama y se alarma por la PEOR**, no el `max()` global: es la misma lección
+  // de `stock_cedis_00` unas líneas arriba — un global enmascara la rama que se congeló mientras las
+  // otras avanzan. Medido hoy: 00 → 33.6 h, 30 → 33.5 h, 32 → 33.4 h (las tres parejas, o sea el
+  // problema es del carril y no de una rama).
+  //
+  // ⚠️ Y NO se usa `min(imported_at)` como "la rama rezagada": eso da la FILA más vieja de toda la
+  // tabla (939 h medidas), que con UPSERT-sin-churn es simplemente el SKU cuyo valor no cambia
+  // nunca. La primera versión de este sensor lo publicaba como "la rama más rezagada, 30/07" — un
+  // número inventado, del tipo que ADR-056 prohíbe.
+  //
+  // ⚠️ **SIN `::timestamp`**, y no es estilo. Este servicio calcula la edad en JS
+  // (`new Date(rows[0].last_update)` → `ageOf`). `imported_at` es `timestamptz`; castearlo a
+  // `timestamp` tira la zona y deja el reloj de pared de la SESIÓN de pg, que en prod es `Etc/UTC`
+  // (medido) — y node-postgres lo interpreta como hora LOCAL del proceso, que corre en
+  // `America/Mexico_City`. Resultado medido: la edad sale **exactamente 6.00 h más joven** (33.38 h
+  // reales contra 27.38 h reportadas), así que un `warnH: 30` dispararía a las 36. Sin el cast,
+  // el driver recibe el timestamptz y la edad cuadra al centésimo con la de SQL.
+  // ⚠️ El sesgo NO es exclusivo de este sensor: **cualquier** sensor cuyo SQL devuelva
+  // `max(col)::timestamp` sobre una columna `timestamptz` lo tiene. Ver el addendum de
+  // `AUDITORIA_BASE_INICIAL.md` — no se barrió acá porque cada sensor necesita que se verifique el
+  // TIPO de su columna: donde el dato ya es `timestamp` naive en hora MX, el cast es inocuo y
+  // "arreglarlo" metería el error de 6 h en el otro sentido.
+  {
+    key: 'wincaja_existencias_entrega',
+    label: 'Wincaja — existencia ENTREGADA (imported_at, no fecha de negocio)',
+    table: 'wincaja.existencias', tsCandidates: [],
+    sql: `WITH r AS (
+            SELECT source_branch, max(imported_at) AS ult
+              FROM wincaja.existencias
+             WHERE source_dataset = 'actual' AND source_branch IN ('00','30','32')
+             GROUP BY source_branch
+          )
+          SELECT min(ult) AS last_update,
+                 'la rama más atrasada es ' ||
+                 COALESCE((SELECT source_branch FROM r ORDER BY ult LIMIT 1), '—') ||
+                 ', cargada ' ||
+                 COALESCE(to_char(min(ult) AT TIME ZONE 'America/Mexico_City', 'DD/MM HH24:MI'), '—') ||
+                 ' · ' || count(*)::text || ' de 3 ramas presentes' AS note_extra
+            FROM r`,
+    warnH: 30, critH: 50, cadence: 'diario 05:00 (mismo carril que wincaja_sync)',
+  },
   // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
   // (proceso vivo pero mudo, visto 2026-08-04: se colgó 3h y nadie se enteró). Umbral
   // CONSCIENTE DEL HORARIO: fuera de 10:00–21:30 MX la tienda está cerrada → last_update=now()

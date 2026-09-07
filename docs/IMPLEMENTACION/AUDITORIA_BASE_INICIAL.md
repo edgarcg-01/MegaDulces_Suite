@@ -589,6 +589,54 @@ silencio—; el camino es el smoke de cobertura primero, tabla por tabla despué
 
 ---
 
+## Addendum — Los sensores de `db-health` subreportan la edad del dato en 6 h (2026-09-07)
+
+**W4.1 — `max(col)::timestamp` + edad calculada en JS = 6.00 h de sesgo sistemático** 🔴
+
+Salió al construir el sensor de entrega de Wincaja: el mismo dato daba **33.38 h** medido en SQL y
+**27.38 h** por el camino que usa el servicio. La diferencia es exacta, y reproducible:
+
+| | |
+|---|---|
+| `TimeZone` de la sesión de pg en prod | **`Etc/UTC`** |
+| TZ del proceso de la API | **`America/Mexico_City`** (−6 h) |
+| Cómo calcula la edad `db-health.service.ts` | `new Date(rows[0].last_update)` → `ageOf()`, **en JS** |
+| Qué devuelven casi todos los sensores | `max(col)::timestamp` — **naive** |
+
+`imported_at` es `timestamptz`. Castearlo a `timestamp` tira la zona y deja el reloj de pared de la
+**sesión** (UTC); node-postgres lo interpreta como hora **local del proceso** (MX). Resultado: la
+edad sale 6 h más joven y **un `warnH: 30` dispara en realidad a las 36 h**.
+
+Es el mismo patrón que VP.0 encontró en el frontend —21 de 24 píldoras midiendo el reloj del
+navegador—, pero del lado del servidor y sobre el tablero que existe para avisar.
+
+**Arreglado sólo en el sensor nuevo** (`wincaja_existencias_entrega`, sin el cast: la edad de JS
+cuadra al centésimo con la de SQL). **NO se barrió el resto, y el motivo importa:** el sesgo aplica
+únicamente a los sensores cuya columna subyacente es `timestamptz`. Donde el dato ya es `timestamp`
+naive en hora MX, el cast es inocuo y "arreglarlo" metería el error de 6 h **en el otro sentido**. La
+barrida necesita verificar el TIPO de la columna de cada sensor uno por uno — queda declarado como
+deuda con nombre, no dibujado como hecho.
+
+**W4.2 — el sensor que faltaba: entrega vs fecha de negocio** 🟠 *(construido)*
+`wincaja_cedis_stale` mide `max(fecha)` —la fecha de NEGOCIO del movimiento— con `warnH: 60` porque
+los huecos de 2 días son normales en el CEDIS. Eso **no puede distinguir** *"la sucursal no movió
+mercancía"* de *"no cargamos"*. El sensor nuevo mide `imported_at` (cuándo escribimos nosotros), con
+umbrales espejo de `wincaja_sync` (30/50 h) porque es su misma cadencia vista del otro lado.
+
+Detalles de diseño que se corrigieron sobre la marcha, los dos por medir antes de publicar:
+
+- **MAX por rama, alarmando por la peor** — no el `max()` global, que enmascara una rama congelada
+  mientras las otras avanzan (misma lección que `stock_cedis_00`). Hoy: 00 → 33.6 h, 30 → 33.5 h,
+  32 → 33.4 h; las tres parejas, o sea el problema es del carril, no de una rama.
+- **`min(imported_at)` NO es "la rama rezagada"** — es la fila más vieja de la tabla (939 h medidas),
+  que con UPSERT-sin-churn es el SKU cuyo valor nunca cambia. La primera versión del sensor lo
+  publicaba como *"la rama más rezagada, 30/07"*: un número inventado, del tipo que ADR-056 prohíbe.
+
+Verificado contra prod: **5/5** — edad JS == edad SQL, veredicto **WARN** hoy (o sea caza el
+incidente que ningún otro sensor veía), la nota declara cuántas ramas ve, y **208 ms** de costo.
+
+---
+
 ## Cómo usar este documento
 
 1. Cada finding tiene un código (`1.1`, `2.3`, etc.). Cuando se arregla, agregar fecha en `03_LOG_REVISIONES.md` con referencia al código.
