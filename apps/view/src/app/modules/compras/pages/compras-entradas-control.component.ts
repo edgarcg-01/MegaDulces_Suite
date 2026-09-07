@@ -152,14 +152,21 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                       Validadas <i [class]="sortIcon(sort(), 'validadas')" aria-hidden="true"></i>
                     </button>
                   </th>
-                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'por_validar')">
-                    <button type="button" class="surf-sort" (click)="ordenarPor('por_validar')" aria-label="Ordenar por pendientes de revisar">
-                      Por revisar <i [class]="sortIcon(sort(), 'por_validar')" aria-hidden="true"></i>
+                  <!-- RE.28.2 — el conteo Y su parte vencida en la misma celda, como
+                       "Antigüedad p50/p90". El total sin plazo escondía la cola: 27 días se
+                       veía igual que ayer. Ordena por lo VENCIDO, que es lo accionable. -->
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'por_validar_vencidas')"
+                      [pTooltip]="'Evidencia subida esperando decisión. En rojo, la que pasó los ' + slaRevision() + ' días.'" tooltipPosition="top">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('por_validar_vencidas')" aria-label="Ordenar por evidencia vencida sin revisar">
+                      Por revisar <i [class]="sortIcon(sort(), 'por_validar_vencidas')" aria-hidden="true"></i>
                     </button>
                   </th>
-                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'atrasadas')">
-                    <button type="button" class="surf-sort" (click)="ordenarPor('atrasadas')" aria-label="Ordenar por vencidas">
-                      Vencidas <i [class]="sortIcon(sort(), 'atrasadas')" aria-hidden="true"></i>
+                  <!-- RE.28.2 — se llamaba "Vencidas" a secas y ahora hay DOS plazos: éste es el
+                       de captura (nadie subió el papel), el de al lado es el del revisor. -->
+                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'atrasadas')"
+                      [pTooltip]="'Entradas que pasaron los ' + slaCaptura() + ' días sin que nadie suba la factura.'" tooltipPosition="top">
+                    <button type="button" class="surf-sort" (click)="ordenarPor('atrasadas')" aria-label="Ordenar por entradas sin subir vencidas">
+                      Sin subir <i [class]="sortIcon(sort(), 'atrasadas')" aria-hidden="true"></i>
                     </button>
                   </th>
                   <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'dias_p90')"
@@ -216,7 +223,14 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                       <em class="mono">{{ c.pct_evidencia }}%</em>
                     </td>
                     <td class="comm-num">{{ c.validadas }}</td>
-                    <td class="comm-num">{{ c.por_validar || '—' }}</td>
+                    <td class="comm-num">
+                      {{ c.por_validar || '—' }}
+                      @if (c.por_validar_vencidas > 0) {
+                        <em class="cec-venc" [pTooltip]="'La más vieja lleva ' + c.dias_peor_revision + ' días · ' + money(c.monto_revision)" tooltipPosition="left">
+                          {{ c.por_validar_vencidas }} vencidas
+                        </em>
+                      }
+                    </td>
                     <td class="comm-num" [class.is-bad]="c.atrasadas > 0">{{ c.atrasadas || '—' }}</td>
                     <td class="comm-num" [class.is-warn]="c.dias_p50 > slaCaptura()">
                       {{ c.dias_p50 }} / {{ c.dias_p90 }}
@@ -265,7 +279,12 @@ type Periodo = 'arranque' | 'mes' | 'semana';
                     <em class="mono">{{ pctRed() }}%</em>
                   </td>
                   <td class="comm-num">{{ tot().validadas }}</td>
-                  <td class="comm-num">{{ tot().por_validar || '—' }}</td>
+                  <td class="comm-num">
+                    {{ tot().por_validar || '—' }}
+                    @if (tot().por_validar_vencidas > 0) {
+                      <em class="cec-venc">{{ tot().por_validar_vencidas }} vencidas</em>
+                    }
+                  </td>
                   <td class="comm-num" [class.is-bad]="tot().atrasadas > 0">{{ tot().atrasadas || '—' }}</td>
                   <td></td>
                   <td class="comm-num">{{ moneyShort(tot().monto_pendiente) }}</td>
@@ -324,6 +343,12 @@ type Periodo = 'arranque' | 'mes' | 'semana';
 
     /* Semántica, no marca: el descuadre nunca usa --action (que es el color de ACTUAR). */
     td.is-bad { color: var(--bad-fg); font-weight: 600; }
+    /* RE.28.2 — la parte vencida de la cola, dentro de la misma celda que el total. Va en línea
+       aparte y en rojo porque es lo accionable; el total de al lado es el contexto. */
+    .cec-venc {
+      display: block; font-style: normal; font-size: var(--fs-micro);
+      color: var(--bad-fg); font-weight: 600; white-space: nowrap;
+    }
     td.is-warn { color: var(--warn-fg); }
     tr.is-cero .ec-suc b { color: var(--bad-fg); }
 
@@ -388,16 +413,26 @@ export class ComprasEntradasControlComponent {
     return (r as unknown as Record<string, unknown>)[f];
   }));
   readonly slaCaptura = computed(() => this.report()?.settings.sla_capture_days ?? 3);
+  /** `[RE.28.2]` El otro plazo, el del revisor. Vivía en la DB y no lo miraba ninguna pantalla. */
+  readonly slaRevision = computed(() => this.report()?.settings.sla_review_days ?? 3);
 
   /** Totales de la red: se suman acá, no en otra llamada — la tabla ya trae todo. */
   readonly tot = computed(() => {
     const r = this.rows();
-    const acc = { entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0, monto_pendiente: 0, descartadas: 0 };
+    const acc = {
+      entradas: 0, con_evidencia: 0, validadas: 0, por_validar: 0, atrasadas: 0,
+      monto_pendiente: 0, descartadas: 0,
+      por_validar_vencidas: 0, monto_revision: 0, dias_peor_revision: 0,
+    };
     for (const c of r) {
       acc.entradas += c.entradas; acc.con_evidencia += c.con_evidencia;
       acc.validadas += c.validadas; acc.por_validar += c.por_validar;
       acc.atrasadas += c.atrasadas; acc.monto_pendiente += c.monto_pendiente;
       acc.descartadas += c.descartadas ?? 0;
+      acc.por_validar_vencidas += c.por_validar_vencidas ?? 0;
+      acc.monto_revision += c.monto_revision ?? 0;
+      // El peor caso de la red es el peor de las sucursales, no la suma.
+      acc.dias_peor_revision = Math.max(acc.dias_peor_revision, c.dias_peor_revision ?? 0);
     }
     return acc;
   });
@@ -426,7 +461,15 @@ export class ComprasEntradasControlComponent {
     const falta = t.entradas - t.con_evidencia;
     const huerfanas = this.sinResponsable().length;
     const partes = [`La red lleva ${this.pctRed()}% comprobado: faltan ${falta} facturas por ${money(t.monto_pendiente)}`];
-    if (t.atrasadas) partes.push(`${t.atrasadas} ya pasaron los ${this.slaCaptura()} días`);
+    if (t.atrasadas) partes.push(`${t.atrasadas} ya pasaron los ${this.slaCaptura()} días sin subirse`);
+    // `[RE.28.2]` La otra mitad del atraso, la que no estaba en ninguna pantalla: papel que SÍ
+    // se subió y nadie dictaminó. Es trabajo de otra persona y por eso se dice aparte.
+    if (t.por_validar_vencidas) {
+      partes.push(
+        `${t.por_validar_vencidas} esperan decisión hace más de ${this.slaRevision()} días`
+        + ` (la peor, ${t.dias_peor_revision}; ${money(t.monto_revision)})`,
+      );
+    }
     if (huerfanas) partes.push(`${huerfanas} sucursal${huerfanas > 1 ? 'es' : ''} sin nadie que pueda subir`);
     return partes.join(' · ') + '.';
   });
@@ -440,8 +483,17 @@ export class ComprasEntradasControlComponent {
     return [
       { label: 'Comprobado', value: this.pctRed(), format: 'percent', tone: this.tono(this.pctRed()) },
       { label: 'Sin factura', value: t.monto_pendiente, format: 'currency-short', tone: 'default', sub: `${t.entradas - t.con_evidencia} órdenes` },
-      { label: 'Vencidas', value: t.atrasadas, format: 'number', tone: t.atrasadas ? 'bad' : 'ok', sub: `más de ${this.slaCaptura()} días` },
-      { label: 'Esperando revisión', value: t.por_validar, format: 'number', tone: t.por_validar ? 'warn' : 'default' },
+      { label: 'Sin subir', value: t.atrasadas, format: 'number', tone: t.atrasadas ? 'bad' : 'ok', sub: `más de ${this.slaCaptura()} días` },
+      // `[RE.28.2]` El KPI decía el TOTAL esperando revisión, sin plazo — 3 comprobantes de ayer
+      // se veían igual que 144 de tres semanas. Ahora el número es el vencido y el total va de
+      // contexto: lo accionable es lo que ya pasó el plazo.
+      {
+        label: 'Sin revisar', value: t.por_validar_vencidas, format: 'number',
+        tone: t.por_validar_vencidas ? 'bad' : 'ok',
+        sub: t.por_validar_vencidas
+          ? `de ${t.por_validar} · la peor, ${t.dias_peor_revision} días`
+          : `${t.por_validar} en cola, dentro de los ${this.slaRevision()} días`,
+      },
       // Se muestra siempre, también en cero: la ausencia del problema es información.
       { label: 'Sucursales sin responsable', value: huerfanas, format: 'number', tone: huerfanas ? 'bad' : 'ok' },
     ];

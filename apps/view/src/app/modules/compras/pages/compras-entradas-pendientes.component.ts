@@ -21,6 +21,7 @@ import {
   type OrdenEntradas, type DocPresence,
 } from '../entradas.service';
 import { receptionSource, roleOptsFor, checklist, missingGroups } from '../receipt-roles';
+import { GoodsReceiptsSocketService } from '../goods-receipts-socket.service';
 import { DocViewerComponent, DocViewerFile } from '../../../shared/components/doc-viewer/doc-viewer.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
@@ -174,6 +175,17 @@ interface Hoja {
               <em>{{ avance(r) }}% subido</em>
             }
           </p>
+
+          <!-- RE.28.3 — llegó mercancía mientras trabajabas. Es un contador y no una recarga
+               sola: acá hay una bandeja de PDFs a medio leer, y refrescar la tabla debajo movería
+               las filas sobre las que estás soltando. Vos decidís cuándo. -->
+          @if (nuevas() > 0) {
+            <button type="button" class="ep-nuevas" (click)="verNuevas()"
+                    [attr.aria-label]="nuevas() + ' órdenes de entrada nuevas — actualizar la lista'">
+              <i class="pi pi-arrow-down" aria-hidden="true"></i>
+              {{ nuevas() }} orden{{ nuevas() > 1 ? 'es' : '' }} nueva{{ nuevas() > 1 ? 's' : '' }} — actualizar
+            </button>
+          }
 
           @if (r.kpis.rechazados > 0 && estado() !== 'rechazado') {
             <!-- Una factura devuelta se quedaba muerta: el que la subió nunca se enteraba. -->
@@ -959,6 +971,14 @@ interface Hoja {
 
     .ep-dlg-n { margin-right: auto; font-size: var(--fs-xs); color: var(--text-muted); }
     .ep-err { margin: 0; font-size: var(--fs-xs); color: var(--bad-fg); }
+    /* RE.28.3 — llegaron órdenes nuevas. Discreto: es una oportunidad, no un problema. */
+    .ep-nuevas {
+      align-self: flex-start; display: inline-flex; align-items: center; gap: var(--sp-2);
+      padding: .3rem .7rem; border: 1px solid var(--action); border-radius: 999px;
+      background: transparent; color: var(--action); font-size: var(--fs-micro);
+      font-weight: 600; cursor: pointer;
+    }
+    .ep-nuevas:hover { background: var(--action); color: var(--action-contrast, #fff); }
     /* RE.28 — el rol de la hoja. En línea con las otras acciones de la tarjeta: es una
        decisión de la hoja, no un formulario aparte. */
     .ep-an-rol { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
@@ -1019,6 +1039,7 @@ interface Hoja {
 })
 export class ComprasEntradasPendientesComponent {
   private readonly svc = inject(EntradasService);
+  private readonly grSocket = inject(GoodsReceiptsSocketService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly toast = inject(MessageService);
@@ -1182,9 +1203,34 @@ export class ComprasEntradasPendientesComponent {
     }
     this.escucharTeclas();
     this.reload();
+
+    // `[RE.28.3]` El aviso en vivo, en la pantalla que lo necesita.
+    //
+    // El WS existía desde RE.10 y lo consumía **sólo la lista del auditor** — el docstring del
+    // servicio incluso decía que lo usaba `/compras/entradas`, que dejó de ser cierto cuando
+    // RE.13 partió las pantallas. Pero al auditor una orden nueva no le cambia nada: no tiene
+    // papel que subir. Al capturista sí, y es el que está con la pantalla abierta mientras
+    // llega la mercancía.
+    //
+    // No se le quita a la lista: ahí también sirve y sacarlo sería una regresión para quien la usa.
+    this.grSocket.connect();
+    this.grSocket.newReceipts$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      this.nuevas.update((c) => c + e.count);
+    });
+    this.destroyRef.onDestroy(() => this.grSocket.disconnect());
   }
 
   reload(): void { this.pedir.next(); }
+
+  /**
+   * `[RE.28.3]` Órdenes nuevas que llegaron al ERP mientras la pantalla estaba abierta.
+   *
+   * Es un contador y no una recarga automática **a propósito**: acá se está trabajando con una
+   * bandeja de PDFs a medio leer, y refrescar la tabla debajo movería las filas sobre las que se
+   * está soltando. El capturista decide cuándo.
+   */
+  readonly nuevas = signal(0);
+  verNuevas(): void { this.nuevas.set(0); this.volverAlInicio(); this.reload(); }
   private volverAlInicio(): void { this.page.set(1); this.diasMin.set(undefined); }
   private syncUrl(): void {
     this.router.navigate([], {

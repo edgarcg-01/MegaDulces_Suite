@@ -11,10 +11,21 @@ export interface NewReceiptsEvent {
 }
 
 /**
- * RE.10 — Cliente WS del namespace `/goods-receipts`. La página `/compras/entradas`
- * llama `connect()` en su init y `disconnect()` al destruir; cuando el watcher del
- * backend detecta órdenes nuevas emite `new_receipts` → pill "N nuevas — actualizar".
- * Path `/reports/socket.io` (mismo adapter que las alertas).
+ * RE.10 — Cliente WS del namespace `/goods-receipts`. Cuando el watcher del backend detecta
+ * órdenes nuevas emite `new_receipts` → píldora "N nuevas — actualizar". Path
+ * `/reports/socket.io` (mismo adapter que las alertas).
+ *
+ * `[RE.28.3]` Lo consumen **dos** pantallas, y el docstring decía sólo `/compras/entradas`
+ * cuando en realidad ahí no estaba: RE.13 partió las pantallas y el aviso se quedó del lado del
+ * auditor, que es a quien menos le sirve —no tiene papel que subir—. Ahora también lo escucha la
+ * worklist del capturista, que es quien está frente a la pantalla mientras llega la mercancía.
+ *
+ * ⚠️ El servicio es `providedIn: 'root'` y `disconnect()` **destruye el socket y todos sus
+ * listeners**, así que sirve a una pantalla a la vez. Hoy alcanza porque las dos viven en rutas
+ * distintas y el router destruye la vieja antes de crear la nueva (`deactivate` → `activate`):
+ * la secuencia es disconnect → connect. Si alguna vez las dos conviven —un split, un modal sobre
+ * la otra— la que se cierre le corta el aviso a la que queda, y entonces esto necesita un
+ * contador de suscriptores.
  */
 @Injectable({ providedIn: 'root' })
 export class GoodsReceiptsSocketService {

@@ -115,6 +115,42 @@ function sqlDelServicio() {
       console.log('  ⚠️  ninguna sucursal Wincaja vencida en este momento — el nombre queda SIN VERIFICAR');
     }
 
+    // ── 3-bis. `[RE.28.2]` El espejo: coverage cuenta lo mismo que el barrido ─
+    //
+    // El plazo de revisión se calcula en DOS lugares: acá (el cron, que avisa) y en
+    // `coverage()` (la pantalla, que muestra). Es el riesgo que nombra ADR-056 — dos
+    // implementaciones de una misma regla se desincronizan solas — y se cierra igual
+    // que el cuadre: comparándolas. Si el aviso dice 12 y la pantalla muestra 30, el
+    // aviso deja de creerse a la segunda vez.
+    console.log('\n═══ 3-bis. El aviso y el tablero cuentan lo mismo ═══');
+    const cov = await knex.raw(`
+      WITH d AS (
+        SELECT sucursal, folio,
+               (array_agg(status     ORDER BY created_at DESC))[1] AS last_status,
+               (array_agg(created_at ORDER BY created_at DESC))[1] AS last_at
+          FROM finance.goods_receipt_proofs WHERE tenant_id = ? GROUP BY sucursal, folio
+      )
+      SELECT c.sucursal,
+             COUNT(*) FILTER (
+               WHERE d.last_status = 'recibido'
+                 AND (current_date - (d.last_at AT TIME ZONE 'America/Mexico_City')::date) > ?
+             )::int AS n
+        FROM analytics.erp_goods_receipts c
+        LEFT JOIN d ON d.sucursal = c.sucursal AND d.folio = c.folio
+       WHERE c.tenant_id = ? AND c.dup_of_folio IS NULL AND c.receipt_date >= ?
+         AND NOT EXISTS (SELECT 1 FROM finance.goods_receipt_discards x
+             WHERE x.tenant_id = c.tenant_id AND x.sucursal = c.sucursal AND x.folio = c.folio)
+       GROUP BY c.sucursal`, [T, slaRev, T, arranque]);
+    const porSucCov = new Map(cov.rows.map((r) => [String(r.sucursal), Number(r.n)]));
+    const porSucSla = new Map(rows.map((r) => [String(r.sucursal), Number(r.esperando)]));
+    const sucursales = [...new Set([...porSucCov.keys(), ...porSucSla.keys()])].sort();
+    const difieren = sucursales.filter((s) => (porSucCov.get(s) ?? 0) !== (porSucSla.get(s) ?? 0));
+    assert(
+      difieren.length === 0,
+      `las dos consultas coinciden sucursal por sucursal (${sucursales.length} revisadas; difieren: `
+      + `${difieren.map((s) => `${s}: tablero ${porSucCov.get(s) ?? 0} vs aviso ${porSucSla.get(s) ?? 0}`).join(' · ') || 'ninguna'})`,
+    );
+
     // ── 4. La foto, para poder discutirla ────────────────────────────────────
     if (rows.length) {
       console.log('\n═══ 4. Lo que hoy está fuera de plazo ═══');
