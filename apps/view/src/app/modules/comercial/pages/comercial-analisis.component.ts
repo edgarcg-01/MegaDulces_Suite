@@ -6,7 +6,9 @@ import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DatePickerModule } from 'primeng/datepicker';
 import { ToastModule } from 'primeng/toast';
+import { ChartModule } from 'primeng/chart';
 import { MessageService } from 'primeng/api';
+import { getChartTokens } from '../../../shared/theme/chart-theme';
 import {
   ComercialService,
   SellOutReport,
@@ -17,6 +19,8 @@ import {
   SellOutExplainParams,
   SelloutChatBlock,
   SelloutAnomaliesReport,
+  SelloutSeriesReport,
+  SelloutParetoReport,
 } from '../comercial.service';
 
 interface ChatMsg {
@@ -47,7 +51,7 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
 @Component({
   selector: 'app-comercial-analisis',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, ToastModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, DatePickerModule, ToastModule, ChartModule, PageTabsComponent, MetricStripComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -149,6 +153,26 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
         <section class="an-empty">
           <i class="pi pi-chart-bar"></i>
           <p>Elige un mes y una dimensión, y genera para ver qué explica el cambio de la venta.</p>
+        </section>
+      }
+
+      @if (series() || pareto()) {
+        <section class="an-charts">
+          @defer (on viewport) {
+            @if (trendData(); as td) {
+              <div class="an-chart card-premium">
+                <header class="an-chart-head"><h3><i class="pi pi-chart-line"></i> Tendencia · últimos 12 meses</h3></header>
+                <div class="an-chart-box"><p-chart type="line" [data]="td" [options]="trendOpts()" height="240px"></p-chart></div>
+              </div>
+            }
+            @if (paretoData(); as pd) {
+              <div class="an-chart card-premium">
+                <header class="an-chart-head"><h3><i class="pi pi-chart-bar"></i> Pareto — quién hace el 80% ({{ pareto()?.month }})</h3></header>
+                <div class="an-chart-box"><p-chart type="bar" [data]="pd" [options]="paretoOpts()" height="240px"></p-chart></div>
+                <p class="an-foot"><span class="an-abc a">A</span> hasta 80% · <span class="an-abc b">B</span> 80–95% · <span class="an-abc c">C</span> el resto</p>
+              </div>
+            }
+          } @placeholder { <div class="an-chart-ph">Cargando gráficas…</div> }
         </section>
       }
 
@@ -275,6 +299,15 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-card h3 { margin: 0; font-size: 1rem; }
     .an-card p { margin: 0; font-size: .85rem; color: var(--text-muted); line-height: 1.45; }
     .an-soon { margin-top: auto; font-size: .72rem; font-weight: 600; letter-spacing: .03em; text-transform: uppercase; color: var(--text-muted); opacity: .8; }
+    .an-charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+    .an-chart { padding: 1rem 1.25rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
+    .an-chart-head h3 { margin: 0 0 .75rem; font-size: .95rem; display: flex; align-items: center; gap: .5rem; }
+    .an-chart-box { height: 240px; }
+    .an-chart-ph { padding: 2rem; color: var(--text-muted); text-align: center; }
+    .an-abc { font-weight: 700; padding: 0 .25rem; border-radius: 4px; }
+    .an-abc.a { color: var(--success-fg, #2e7d32); }
+    .an-abc.b { color: var(--action, #d9772e); }
+    .an-abc.c { color: var(--text-muted); }
     .an-radar { padding: 1.25rem 1.5rem; margin-top: 1.5rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
     .an-radar-head h2 { margin: 0; font-size: 1.1rem; display: flex; align-items: center; gap: .5rem; }
     .an-radar-list { list-style: none; margin: 1rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .5rem; }
@@ -323,7 +356,37 @@ export class ComercialAnalisisComponent {
   readonly report = signal<SellOutReport | null>(null);
   readonly explain = signal<SellOutExplainReport | null>(null);
   readonly radar = signal<SelloutAnomaliesReport | null>(null);
+  readonly series = signal<SelloutSeriesReport | null>(null);
+  readonly pareto = signal<SelloutParetoReport | null>(null);
   readonly loading = signal(false);
+
+  // BI.4 — configs de gráficas (theme-aware: getChartTokens lee los tokens vigentes).
+  readonly trendData = computed<any>(() => {
+    const s = this.series(); if (!s) return null;
+    const t = getChartTokens();
+    return { labels: s.months.map((m) => m.month), datasets: [{ label: 'Monto', data: s.months.map((m) => m.monto), borderColor: t.chart1, backgroundColor: t.chart1 + '22', fill: true, tension: 0.3, pointRadius: 2, borderWidth: 2 }] };
+  });
+  readonly trendOpts = computed<any>(() => {
+    const t = getChartTokens();
+    return { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: t.chartGrid }, ticks: { color: t.chartAxis, font: { size: 10 } } }, y: { grid: { color: t.chartGrid }, ticks: { color: t.chartAxis, callback: (v: any) => '$' + (Number(v) / 1e6).toFixed(1) + 'M' } } } };
+  });
+  readonly paretoData = computed<any>(() => {
+    const p = this.pareto(); if (!p) return null;
+    const t = getChartTokens();
+    const colors = p.rows.map((r) => (r.abc === 'A' ? t.okFg : r.abc === 'B' ? t.chart1 : t.chart8));
+    return { labels: p.rows.map((r) => r.label), datasets: [
+      { type: 'bar', label: 'Monto', data: p.rows.map((r) => r.monto), backgroundColor: colors, order: 2, yAxisID: 'y' },
+      { type: 'line', label: '% acumulado', data: p.rows.map((r) => r.cum_share), borderColor: t.chartMetaLine, borderWidth: 2, pointRadius: 0, yAxisID: 'y1', order: 1, tension: 0.2 },
+    ] };
+  });
+  readonly paretoOpts = computed<any>(() => {
+    const t = getChartTokens();
+    return { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: {
+      x: { grid: { display: false }, ticks: { color: t.chartAxis, font: { size: 9 }, maxRotation: 60, minRotation: 45 } },
+      y: { grid: { color: t.chartGrid }, ticks: { color: t.chartAxis, callback: (v: any) => '$' + (Number(v) / 1e6).toFixed(1) + 'M' } },
+      y1: { position: 'right', min: 0, max: 100, grid: { display: false }, ticks: { color: t.chartAxis, callback: (v: any) => v + '%' } },
+    } };
+  });
 
   radarIcon(kind: string): string {
     return kind === 'perdido' ? 'pi pi-times-circle' : kind === 'nuevo' ? 'pi pi-star' : kind === 'pico' ? 'pi pi-arrow-up-right' : 'pi pi-arrow-down-right';
@@ -358,18 +421,23 @@ export class ComercialAnalisisComponent {
     const from = this.iso(new Date(d.getFullYear(), d.getMonth(), 1));
     const to = this.iso(new Date(d.getFullYear(), d.getMonth() + 1, 0));
     this.loading.set(true);
+    const month = from.slice(0, 7);
     forkJoin({
       report: this.svc.sellOut({ from, to }),
       explain: this.svc.sellOutExplain({ from, to, dim: this.dim(), compare: this.compare() }),
-      radar: this.svc.sellOutAnomalies({ month: from.slice(0, 7), dim: 'brand' }),
+      radar: this.svc.sellOutAnomalies({ month, dim: 'brand' }),
+      series: this.svc.sellOutSeries({ to_month: month, months: 12 }),
+      pareto: this.svc.sellOutPareto({ month, dim: 'brand', n: 20 }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: ({ report, explain, radar }) => {
+        next: ({ report, explain, radar, series, pareto }) => {
           this.report.set(report);
           this.drill.set(null);
           this.explain.set(explain);
           this.radar.set(radar);
+          this.series.set(series);
+          this.pareto.set(pareto);
           this.loading.set(false);
         },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo generar el análisis' }); },
