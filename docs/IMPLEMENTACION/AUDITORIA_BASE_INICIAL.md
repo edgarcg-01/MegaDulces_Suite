@@ -351,15 +351,41 @@ respuesta es no**, y el faltante se parte en tres casos con veredicto distinto.
 **sólo donde `factor_venta > 1`**; si no, cae al `box_factor` de Kepler, que está en unidades BASE.
 Por almacén de Wincaja, de ~11,212 productos del catálogo:
 
-| origen del divisor | productos | qué significa |
-|---|---|---|
-| `wincaja_factor_venta` | **8,672–8,681** (77%) | correcto, es Wincaja quien manda |
-| `default` (divisor 1) | **2,263** | sin factor en ninguna fuente |
-| heredado de Kepler | **243** | ver desglose |
+| origen del divisor | productos | con existencia | divisor prom | qué significa |
+|---|---|---|---|---|
+| `wincaja_factor_venta` | **8,680** (77.4%) | 3,074 | 29.48 | correcto, es Wincaja quien manda |
+| `default` (divisor 1) | **2,263** (20.2%) | 169 | 1.00 | **sin factor en ninguna fuente** |
+| `kepler_c84` | 83 | 44 | 23.96 | divisor del ERP que no manda acá |
+| `etiquetera` | 76 | 20 | 19.05 | idem |
+| `override` | 65 | 28 | 16.15 | idem |
+| `factor_sale` | 45 | 18 | 18.98 | idem |
+
+(cifras de MD-30; suman 11,212 productos y 3,353 con existencia.)
+
+**⚠️ Corrección de una primera lectura de este mismo día.** El primer conteo llevaba un filtro
+`box_factor > 1` y reportó "243 heredan de Kepler", presentando el sub-caso de 15 productos (W1.1)
+como si fuera el problema. **No lo es.** Con el corte abierto la exposición son **2,532 productos**
+—los 2,263 sin factor más los 269 con divisor de Kepler—, de los cuales **279 tienen existencia
+hoy**. De esos 2,532, **1,385 sí están en `wincaja.articulos` con `factor_venta = 1`** (1,176 PZA,
+120 KGS, 84 CJA) y los otros **1,147 no existen en `articulos`**: son productos del catálogo de
+Kepler parados en un almacén de Wincaja, y para ellos el divisor de Kepler es defendible.
+
+**W1.0 — 2,263 productos (20% del almacén) con divisor 1 sin fuente que lo respalde** 🔴
+Es el hallazgo grande, y no el que se nombró primero. `default` significa que ninguna fuente declaró
+un factor, así que la pantalla divide por 1 = "se muestra en unidad nativa". Eso es correcto **sólo
+si** el producto de verdad va uno por caja, y **no está verificado para ninguno de los 2,263** (169
+con existencia). Es el patrón que ADR-056 nombra: lo que no se pudo medir se declara, y hoy el
+divisor 1 se publica como si fuera un hecho. Mínimo: que `factor_source = 'default'` llegue a la
+pantalla como "sin factor", no como una caja de 1.
 
 **W1.1 — `unidad_venta = 'CJA'` + `factor_venta = 1`: el divisor de Kepler pisa la declaración de
-Wincaja** 🔴
-**15 productos por almacén** (7 con existencia en MD-30, 1 en MD-32, 0 en el 00). Wincaja declara que
+Wincaja** 🟡 *(chico, pero es el único caso con prueba positiva)*
+**15 productos por almacén** (7 con existencia en MD-30, 1 en MD-32, 0 en el 00). Rastreo completo de
+los 193 `CJA + fv=1` de la rama 30: **109 no están en `catalog.products`** (no salen en pantalla),
+**65 ya reciben divisor 1** por `default` (correcto), **19 heredan de Kepler** y de esos **15 con
+divisor > 1**. Por eso da 15 y no más: la mayoría ya cae bien o no está en el catálogo. Verificado
+además que **`CJA` es el único rótulo de caja que existe** — los valores son PZA 15,154 / CJA 197 /
+KGS 165 / SER 11 / N/A 1, sin `PAQ`, `CAJ` ni `PQT` escondidos subcontando. Wincaja declara que
 su unidad de venta **ya es la caja** — `CJA` con factor 1 es coherente y sin ambigüedad — y la vista
 divide por **21.07** de todos modos, porque el `> 1` descarta la declaración. Es el espejo del bug
 que ADR-055 cerró: aquel dividía entre 140 en vez de 14; éste divide entre 21 en vez de 1. Arreglo =
@@ -367,7 +393,8 @@ una condición en la vista (tomar `factor_venta` cuando el SKU existe en `articu
 `> 1`), pero **cambia una cantidad en pantalla para 8 SKUs**, así que va con su antes/después.
 
 **W1.2 — `unidad_venta = 'PZA'` + `factor_venta = 1`: supuesto no declarado** 🟡
-**215 productos por almacén** (84 con existencia en MD-30). Acá `fv = 1` **no** es declaración: "1
+**1,176 productos por almacén, 223 con existencia** en MD-30 (de los cuales 215 / 84 llevan además
+un divisor > 1 heredado de Kepler; el resto cae en `default`). Acá `fv = 1` **no** es declaración: "1
 pieza = 1 caja" no se sostiene en dulcería, es ausencia de captura. Reparto que lo prueba (rama 30,
 `actual`): con `fv = 1` hay 1,872 PZA / 193 CJA / 152 KGS, y con `fv > 1` hay 13,282 PZA — o sea el
 campo está poblado para unos PZA y no para otros. El fallback a Kepler es lo menos malo, pero hoy
@@ -376,7 +403,8 @@ almacén. `factor_source` ya lo sabe (`kepler_c84`, `etiquetera`, `factor_sale`,
 que llegue al usuario.
 
 **W1.3 — `unidad_venta = 'KGS'` con divisor de caja** 🟡
-**13 productos por almacén** (7 con existencia en MD-30), divididos por **41.54**. Dividir kilos por
+**120 productos por almacén, 38 con existencia** en MD-30 (13 / 7 de ellos con divisor > 1 de
+Kepler, el mayor promediando **41.54**). Dividir kilos por
 un factor de caja no significa nada. La vista **ya expone `is_weight`** y `existencia.service.ts` la
 selecciona (línea 360), pero pasa la bandera hacia el frontend sin cortar la división — hay que
 verificar si la pantalla la respeta. Nota lateral: `v_product_box_factor` marca `is_weight` en **44**
