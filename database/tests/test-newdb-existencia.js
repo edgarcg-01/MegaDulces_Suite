@@ -140,6 +140,30 @@ Module._load = function (req, parent, isMain) {
     check('las columnas NO están hardcodeadas (salen del catálogo)', r.columns.every((x) => x.code && x.name));
     check('publica un valor de inventario > 0', Number(r.totals.valor) > 0, money(r.totals.valor));
 
+    // ── 2b. EL ORDEN de la red y el nombre del CEDIS (mig 20260907210000).
+    //
+    // El orden lo pidió Edgar y es el de la red real, no el alfabético del código: ordenar por
+    // `code` ponía el CEDIS PRIMERO y separaba las dos Morelia del resto por traer prefijo MD-.
+    // Se afirma la SECUENCIA completa, no que exista la columna: un orden a medias se lee igual
+    // que ninguno.
+    const ORDEN_ESPERADO = ['PH', 'MA', 'MM', '8ES', 'LPA', 'YU', 'CAN', 'DAMASO', 'CEDIS'];
+    const visto = r.columns.map((x) => x.label);
+    console.log(`  orden publicado: ${visto.join(' | ')}`);
+    check('⭐ las columnas salen en el orden de la red (PH → CEDIS), no alfabético por código',
+      visto.join('|') === ORDEN_ESPERADO.join('|'),
+      `esperado=${ORDEN_ESPERADO.join('|')} · visto=${visto.join('|')}`);
+
+    // El almacén 00 lee de Wincaja rama '00' = BPIRAPUATO (el CEDIS de verdad), NO de la sucursal
+    // Kepler '00' que es OFICINAS. El nombre decía "Cedis Oficinas" y mezclaba las dos cosas.
+    const cedis = r.columns.find((x) => x.code === '00');
+    check('⛔ el almacén 00 NO se llama más "Cedis Oficinas" (Kepler 00 es OFICINAS; el CEDIS es BPIRAPUATO)',
+      !!cedis && !/oficina/i.test(cedis.name), `name=${cedis ? cedis.name : '(sin columna 00)'}`);
+    const src00 = (await c.query(
+      `SELECT DISTINCT source FROM analytics.v_erp_stock_on_hand WHERE tenant_id=$1 AND warehouse_code='00'`,
+      [T])).rows.map((x) => x.source);
+    check('⭐ la existencia del CEDIS viene de WINCAJA (BPIRAPUATO), no de Kepler',
+      src00.length === 1 && src00[0] === 'wincaja', `source=${src00.join(',') || '(sin filas)'}`);
+
     // ── 3. LA REGLA DEL DINERO. Y se afirma que la población NO está vacía: un candado que
     // pasa en vacío no es candado.
     const marked = await svc.list({ only_unverified: '1', pageSize: 100 });
@@ -158,11 +182,23 @@ Module._load = function (req, parent, isMain) {
     check('toda celda marcada trae la cantidad NATIVA (no queda en blanco)', sinNat === 0, `sin nat=${sinNat}`);
 
     // ── 4. Los totales son del DATASET, no de la página.
+    //
+    // ⚠️ Las dos llamadas son DOS lecturas de una vista VIVA sobre `kepler_ods` (el carril hash del
+    // CDC escribe cada minuto), así que exigir igualdad al centavo entre ellas es una carrera y no
+    // una propiedad. Medido: $17.28 de deriva sobre $65.5M en dos llamadas seguidas.
+    //
+    // Lo que este candado sí tiene que probar es que el total NO es el de la página. Si lo fuera,
+    // la pág.1 (top 10 por valor) y la pág.2 diferirían por ÓRDENES DE MAGNITUD, no por centavos —
+    // así que se mide contra la suma de la propia página, que es la falla que se busca.
     const p1 = await svc.list({ pageSize: 10, page: 1 });
     const p2 = await svc.list({ pageSize: 10, page: 2 });
-    check('los totales de la pág.1 == los de la pág.2',
-      p1.totals.skus === p2.totals.skus && String(p1.totals.valor) === String(p2.totals.valor),
-      `${p1.totals.skus}/${p1.totals.valor} vs ${p2.totals.skus}/${p2.totals.valor}`);
+    const sumaPag = p1.rows.reduce((s, r) => s + Number(r.valor || 0), 0);
+    const deriva = Math.abs(Number(p1.totals.valor) - Number(p2.totals.valor));
+    check('los totales son del DATASET, no de la página (deriva ≤ 0.001% = el feed vivo)',
+      p1.totals.skus === p2.totals.skus
+        && deriva <= Math.abs(Number(p1.totals.valor)) * 0.00001
+        && Number(p1.totals.valor) > sumaPag * 5,
+      `${p1.totals.skus}/${p1.totals.valor} vs ${p2.totals.skus}/${p2.totals.valor} · deriva=$${deriva.toFixed(2)} · suma de la pág.1=$${sumaPag.toFixed(2)}`);
 
     // ── 5. El filtro por almacén recorta el ANCHO del pivot, no sólo las filas.
     const uno = await svc.list({ warehouse_ids: '01', pageSize: 5 });

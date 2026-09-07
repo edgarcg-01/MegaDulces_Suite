@@ -10,6 +10,41 @@
 
 ## [Unreleased]
 
+### Fixed — La cabecera de Existencia decía "Cedis Oficinas" y ordenaba por código, no por red (2026-09-07)
+
+Pedido de Edgar. Dos cosas que se leían mal en `/almacen/existencia`:
+
+- **El nombre mentía; la fuente no.** El almacén `code='00'` se llamaba **"Cedis Oficinas"**, que junta
+  las dos cosas que [`ERP_KEPLER §2.3`](docs/ERP_KEPLER.md) ya había separado: la sucursal Kepler `00`
+  es **OFICINAS** y el **CEDIS real es BPIRAPUATO, que vive en Wincaja**. Medido antes de tocar: esa
+  fila tiene `kepler_code = NULL` y `wincaja_source_branch = '00'`, y `wincaja.branches` dice de esa
+  rama `branch_name = 'BPIRAPUATO'` / *"CEDIS/bodegón Irapuato"* — o sea que desde la mig
+  `20260902170000` la existencia **ya salía del CEDIS de verdad** (201 SKUs, 183,213 unidades base,
+  **$6,481,431**, última venta 2026-09-04). Lo único incorrecto era el rótulo, que es justo lo que se
+  lee. Ahora se llama **`CEDIS BPIRAPUATO`**. La fuente **no** se tocó.
+- **El orden era alfabético por código**, lo que ponía el CEDIS **primero** y separaba las dos Morelia
+  del resto sólo por traer prefijo `MD-` — un artefacto de cómo se codificó la fuente, no de cómo se
+  opera. Ahora sale en el orden de la red: **PH · MA · MM · 8ES · LPA · YU · CAN · DAMASO · CEDIS**
+  (`DAMASO` = Zamora Centro `05`, confirmado por Edgar).
+
+`commercial.warehouses` gana `display_order` smallint y `short_label` text (mig `20260907210000`,
+batch 308, auto-verificada contra órdenes repetidos): el orden y el apodo son **atributos del almacén
+en la tabla principal**, no una lista dentro de un servicio, así que los ve igual cualquier consumidor.
+Los 13 `RUTA-*` quedan en NULL → al final por `NULLS LAST` y entre ellos por código; un almacén nuevo
+aparece solo, sin tocar código. La cabecera muestra el apodo y el **código pasa al tooltip** (es la
+llave contra el ERP y hace falta para reclamar sobre una celda).
+
+`test-newdb-existencia` **23/23** contra prod, con 3 candados nuevos: la **secuencia completa** de
+columnas (un orden a medias se lee igual que ninguno), que el `00` no vuelva a llamarse "oficinas", y
+que su existencia venga de `wincaja`. También se corrigió un candado que era una **carrera**: comparaba
+al centavo el total de dos lecturas de una vista viva sobre `kepler_ods` (deriva medida: $17.28 sobre
+$65.5M); ahora tolera la deriva del feed y prueba lo que de verdad importa — que el total no sea el de
+la página, contra la suma de la página misma.
+
+⚠️ **Queda abierto y declarado:** el `zone_id` de ese almacén sigue apuntando a la zona **OFICINAS**
+(mig `20260829130000`). No se movió porque `zone_id` alimenta el **alcance por zona** (Fase ID) —
+cambiarlo es decisión de permisos, no de rótulo.
+
 ### Fixed — El anexo imprimía el RFC equivocado, el nombre roto, y gastaba 41% más papel (AX.10, 2026-09-07)
 
 Salió de *"el rfc esta mal y como se imprimi el nombre… que la hoja optimice todo el uso en columnas para que use todo el espacio disponible, y optimice el consumo de hojas verticalmente"*.
