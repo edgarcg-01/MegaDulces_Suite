@@ -20,6 +20,7 @@
  */
 
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
 const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('../../../services/feeds-ingest/label-compute');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
@@ -32,6 +33,9 @@ const APPLY = process.argv.includes('--apply');
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(db, 'import-label-data');
   const useOds = SOURCE === 'ods';
   const src = useOds ? null : new Client({ connectionString: SRC });
   if (!useOds) {

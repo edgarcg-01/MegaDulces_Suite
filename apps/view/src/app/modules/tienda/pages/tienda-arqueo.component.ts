@@ -19,6 +19,8 @@ import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, Turno, TurnoCorte }
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ARQUEO_TABS } from '../arqueo-tabs';
 import { imprimirTicket } from '../ticket-arqueo';
 
 /** Los cortes de una persona, tal como los pide la fila desplegada. */
@@ -56,13 +58,14 @@ interface CortesPersona {
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
     SelectModule, SegmentedComponent, InputTextModule, TagModule,
-    ContextHelpComponent, FreshnessPillComponent,
+    ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in arq-page">
       <p-toast></p-toast>
+      <app-page-tabs [tabs]="arqueoTabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Arqueo de caja</h1>
@@ -73,7 +76,9 @@ interface CortesPersona {
           </p>
         </div>
         <div class="arq-head-right">
-          <app-freshness-pill [since]="turnosAl()" label="Kepler" [staleAfterSec]="180" />
+          <!-- [VP.0.2] Decía label="Kepler" sobre un new Date() del navegador: se leía como "los datos
+               de Kepler tienen 3 minutos" y era la hora en que cargó esta pantalla. -->
+          <app-freshness-pill measures="fetch" [since]="turnosAl()" [staleAfterSec]="180" />
           <app-context-help topic="arqueo" />
         </div>
       </header>
@@ -190,54 +195,87 @@ interface CortesPersona {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
             }
 
-            <!-- Dos columnas, no once renglones: la tabla vertical obligaba a
-                 scrollear para llegar al botón, y contando efectivo la pantalla se
-                 mira de reojo. En una sola vista entra todo. El grid es intrínseco
-                 (§9): en una pantalla angosta vuelve a una columna sola. -->
-            <div class="arq-denoms" role="group" aria-label="Conteo por denominación">
-              @for (d of denoms; track d; let i = $index) {
-                <label class="arq-den">
-                  <span class="arq-den-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</span>
-                  <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
-                       casilla en vez de sumar/restar. Con el spinner puesto, una flecha
-                       de más cambia el conteo del billete sin que la cajera lo note. -->
-                  <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                         [attr.aria-label]="'Cantidad de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
-                         [value]="denomCount[d] ?? ''" placeholder="0"
-                         (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, i)" (focus)="selectAll($event)">
-                  <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
-                </label>
-              }
-            </div>
-            <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usa <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
-
-            <!-- SM.24 — El corte no es solo efectivo: Kepler arquea seis renglones.
-                 Acá se declara el total de cada uno (el voucher de la terminal, el
-                 fajo de cheques, los vales). El efectivo NO se repite: sale del
-                 conteo de arriba. -->
-            @if (aTipo() !== 'relevo') {
-              <div class="arq-medios">
-                <span class="arq-medios-t">Otros medios del turno</span>
-                <div class="arq-medios-g">
-                  @for (m of mediosCampos; track m.key) {
-                    <label class="arq-medio">
-                      <span class="arq-medio-lbl">{{ m.label }}</span>
-                      <input pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
-                             [attr.aria-label]="m.label"
-                             [value]="medios[m.key] ?? ''" placeholder="0.00"
-                             (input)="onMedioInput(m.key, $event)" (focus)="selectAll($event)">
+            <!-- SM.27 — Tres bloques a lo ancho, el formato de la hoja que ya se usa
+                 en piso: BILLETES | MONEDAS | MEDIOS. El billete y la moneda se
+                 cuentan por separado (dos fajos distintos, dos totales que se
+                 verifican aparte) y los medios quedan **al lado** de las monedas,
+                 no debajo: la columna de monedas es corta y ese hueco era el lugar
+                 natural del voucher y los cheques. Grid intrínseco (§9): en una
+                 pantalla angosta las tres columnas se apilan solas. -->
+            <div class="arq-cols">
+              <section class="arq-col" role="group" aria-label="Registro detallado de billetes">
+                <h4 class="arq-col-t">Registro detallado de billetes</h4>
+                <div class="arq-col-rows">
+                  @for (d of billetes; track d; let i = $index) {
+                    <label class="arq-den">
+                      <span class="arq-den-lbl">{{ '$' + d }}</span>
+                      <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
+                           casilla en vez de sumar/restar. Con el spinner puesto, una flecha
+                           de más cambia el conteo del billete sin que la cajera lo note. -->
+                      <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
+                             [attr.aria-label]="'Cantidad de billetes de $' + d"
+                             [value]="denomCount[d] ?? ''" placeholder="0"
+                             (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, i)" (focus)="selectAll($event)">
+                      <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
                     </label>
                   }
                 </div>
-              </div>
-            }
+                <div class="arq-col-tot">
+                  <span>Total</span>
+                  <span class="arq-col-pz">{{ pzasBilletes() }} pzas</span>
+                  <span class="arq-col-mn">{{ money(totBilletes()) }}</span>
+                </div>
+              </section>
 
-            @if (aTipo() === 'cierre') {
-              <label class="arq-lbl arq-block">Incidencia
-                <p-select [options]="incidenciaOptions" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)"
-                          optionLabel="label" optionValue="value" styleClass="arq-fld" appendTo="body" placeholder="Ninguna" />
-              </label>
-            }
+              <section class="arq-col" role="group" aria-label="Registro detallado de monedas">
+                <h4 class="arq-col-t">Registro detallado de monedas</h4>
+                <div class="arq-col-rows">
+                  @for (d of monedas; track d; let i = $index) {
+                    <label class="arq-den">
+                      <span class="arq-den-lbl">{{ d >= 1 ? '$' + d : (d*100) + '¢' }}</span>
+                      <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
+                             [attr.aria-label]="'Cantidad de monedas de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
+                             [value]="denomCount[d] ?? ''" placeholder="0"
+                             (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, billetes.length + i)" (focus)="selectAll($event)">
+                      <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
+                    </label>
+                  }
+                </div>
+                <div class="arq-col-tot">
+                  <span>Total</span>
+                  <span class="arq-col-pz">{{ pzasMonedas() }} pzas</span>
+                  <span class="arq-col-mn">{{ money(totMonedas()) }}</span>
+                </div>
+              </section>
+
+              <!-- SM.24 — El corte no es solo efectivo: Kepler arquea seis renglones.
+                   Acá se declara el total de cada uno (el voucher de la terminal, el
+                   fajo de cheques, los vales). El efectivo NO se repite: sale del
+                   conteo de las dos columnas de la izquierda. -->
+              @if (aTipo() !== 'relevo') {
+                <section class="arq-col arq-col--medios" role="group" aria-label="Medios de pago y movimientos">
+                  <h4 class="arq-col-t">Medios de pago y movimientos</h4>
+                  <div class="arq-col-rows">
+                    @for (m of mediosCampos; track m.key) {
+                      <label class="arq-den arq-medio">
+                        <span class="arq-medio-lbl">{{ m.label }}</span>
+                        <input pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
+                               [attr.aria-label]="m.label"
+                               [value]="medios[m.key] ?? ''" placeholder="0.00"
+                               (input)="onMedioInput(m.key, $event)" (focus)="selectAll($event)">
+                      </label>
+                    }
+                  </div>
+                  @if (aTipo() === 'cierre') {
+                    <label class="arq-lbl arq-inc">Incidencia
+                      <p-select [options]="incidenciaOptions" [(ngModel)]="aIncidencia" (ngModelChange)="dirty.set(true)"
+                                optionLabel="label" optionValue="value" styleClass="arq-fld" appendTo="body" placeholder="Ninguna" />
+                    </label>
+                  }
+                </section>
+              }
+            </div>
+            <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usa <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
             <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
 
             <!-- Barra pegada al fondo: contando billetes se scrollea todo el rato, y
@@ -571,6 +609,22 @@ interface CortesPersona {
     :host ::ng-deep .arq-block .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-print { margin-top: .35rem; }
     /* Grid intrínseco (§9): dos columnas donde caben, una donde no. Sin breakpoints. */
+    /* Tres bloques del formato de piso: billetes | monedas | medios. Grid
+       intrinseco, sin breakpoints: se apilan solos cuando no entran (DESIGN §9). */
+    .arq-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: .8rem 1.4rem; margin: .2rem 0 .4rem; }
+    .arq-col { min-width: 0; display: flex; flex-direction: column; }
+    .arq-col-t { margin: 0 0 .4rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border-color);
+                 font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .arq-col-rows { display: flex; flex-direction: column; gap: .1rem; }
+    /* El total de cada fajo se verifica aparte: el de billetes contra el de
+       monedas es la primera pista de un conteo mal capturado. */
+    .arq-col-tot { display: flex; align-items: baseline; gap: .5rem; margin-top: auto; padding-top: .35rem;
+                   border-top: 1px solid var(--border-color); font-size: .76rem; font-weight: 700; }
+    .arq-col-pz { margin-left: auto; font-size: .68rem; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .arq-col-mn { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+    .arq-col--medios .arq-den { grid-template-columns: 1fr 6.5rem; }
+    .arq-inc { display: block; margin-top: .55rem; }
+    :host ::ng-deep .arq-inc .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     .arq-denoms { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
                   gap: .25rem 1.4rem; margin: .5rem 0 .4rem; }
     .arq-den { display: grid; grid-template-columns: 3.2rem 1fr 5.5rem; align-items: center; gap: .5rem;
@@ -652,6 +706,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * Espeja la regla del backend — acá es cosmético (el backend ya no manda los
    * campos), pero evita renderizar columnas que siempre saldrían vacías.
    */
+  /** El arqueo es UNA seccion con dos vistas (el acto / la persona). */
+  readonly arqueoTabs = ARQUEO_TABS;
+
   readonly revela = this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
 
@@ -726,11 +783,25 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   ];
   medios: Record<string, number> = {};
 
-  readonly denoms = [1000, 500, 200, 100, 50, 20, 10, 5, 2, 1, 0.5];
+  /**
+   * Billete y moneda van separados porque se cuentan separados: son dos fajos
+   * distintos y cada total se verifica aparte. El corte en $20 es el mismo que usa
+   * `blind-count.service` para partir nuestro conteo contra el de Kepler — si uno
+   * se mueve, el otro tambien.
+   */
+  readonly billetes = [1000, 500, 200, 100, 50, 20];
+  readonly monedas = [10, 5, 2, 1, 0.5];
+  /** El orden importa: es el de los inputs en pantalla (navegacion ↑/↓). */
+  readonly denoms = [...this.billetes, ...this.monedas];
   denomCount: Record<number, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
   aSuc = ''; aCaja = ''; aDate: Date = new Date(); aCajero = ''; aEntrante = ''; aNota = ''; aIncidencia = '';
   readonly arqTotal = signal(0);
+  /** Totales por fajo — los pide el formato y delatan un conteo mal capturado. */
+  readonly totBilletes = signal(0);
+  readonly totMonedas = signal(0);
+  readonly pzasBilletes = signal(0);
+  readonly pzasMonedas = signal(0);
   readonly saving = signal(false);
   readonly loading = signal(false);
   readonly validando = signal<string | null>(null);
@@ -937,7 +1008,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   selectAll(ev: Event) { (ev.target as HTMLInputElement).select(); }
 
   recalc() {
-    this.arqTotal.set(this.denoms.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0));
+    const monto = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0);
+    const pzas = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0), 0);
+    const b = monto(this.billetes), m = monto(this.monedas);
+    this.totBilletes.set(b); this.totMonedas.set(m);
+    this.pzasBilletes.set(pzas(this.billetes)); this.pzasMonedas.set(pzas(this.monedas));
+    this.arqTotal.set(Math.round((b + m) * 100) / 100);
     this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
   }
 

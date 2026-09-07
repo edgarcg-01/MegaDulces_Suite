@@ -329,7 +329,7 @@ function check(name, cond, detail) {
   console.log(`\n${'='.repeat(58)}`);
   if (skipped && fail === 0) {
     console.log('SKIP — entorno sin espejo del ERP o sin catálogo mapeado');
-    process.exit(0);
+    process.exit(2);
   }
   console.log(`${pass}/${pass + fail} OK`);
   if (fail) {

@@ -9,6 +9,14 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_SELLOUT_VER,
   },
   {
+    // BI — sub-modulo Analisis (Sell-Out BI). Misma venta que Sell-Out, forma de
+    // interrogarla: explica el cambio, preguntale, radar. Permiso propio.
+    label: 'Análisis',
+    route: '/comercial/analisis',
+    icon: 'pi pi-chart-bar',
+    permission: Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER,
+  },
+  {
     label: 'Salidas por producto',
     route: '/comercial/salidas',
     icon: 'pi pi-box',
@@ -22,7 +30,10 @@ export const REPORTS_TABS: PageTab[] = [
   },
   {
     // AX.2 — el documento que se le entrega al cliente (anexo imprimible + pagaré).
-    label: 'Documentos',
+    // AX.9: se llamaba "Documentos", más ancho de lo que muestra — la pantalla trae SÓLO
+    // facturas de telemarketing (U/D/8, canal TELEMARK en el 100%). El tab va corto por el
+    // ancho de la tira; el nombre completo vive en el encabezado de la página.
+    label: 'Facturación TM',
     route: '/comercial/documentos',
     icon: 'pi pi-file',
     permission: Permission.COMMERCIAL_SALES_DOCS_VER,

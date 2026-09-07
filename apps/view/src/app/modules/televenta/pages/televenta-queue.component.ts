@@ -241,7 +241,7 @@ export class TeleventaQueueComponent implements OnInit {
           summary: 'Lead reservado',
           detail: `${item.code} ${item.name} reservado 30 min.`,
         });
-        this.router.navigate(['/televenta/lead', item.customer_id]);
+        this.router.navigate(['/telemarketing/lead', item.customer_id]);
       },
       error: (err) => {
         this.reserving.set(null);
@@ -269,7 +269,7 @@ export class TeleventaQueueComponent implements OnInit {
   }
 
   open(customerId: string): void {
-    this.router.navigate(['/televenta/lead', customerId]);
+    this.router.navigate(['/telemarketing/lead', customerId]);
   }
 
   reasonLabel(r: QueueItem['reason']): string {

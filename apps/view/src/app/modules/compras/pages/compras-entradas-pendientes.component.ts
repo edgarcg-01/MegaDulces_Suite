@@ -122,7 +122,7 @@ interface Hoja {
             </span>
           }
           <app-table-density />
-          <app-freshness-pill [since]="cargadoAt()" [staleAfterSec]="600" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAt()" [staleAfterSec]="600" />
           <app-context-help topic="compras-entradas" />
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()" (click)="reload()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>

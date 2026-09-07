@@ -195,12 +195,17 @@ En `localhost:5433` conviven dos bases que parecen la sucursal 03. **Sólo una e
 
 | base | `md.kdm1` | último movimiento | qué es |
 |---|---|---|---|
-| **`kepler_pilot`** | 213,765 | **hoy** | **la sucursal 03 VIVA** (réplica lógica) |
-| `md_03` | 162,782 | 2026-06-15 | restore de `BACKUP.sql`, congelado — se usó para descifrar el esquema |
+| **`kepler_md_03`** | 176,284 | **hoy** | **la sucursal 03 VIVA** (réplica lógica) |
+| ~~`md_03`~~ | ~~117,479~~ | ~~2026-06-15~~ | restore de `BACKUP.sql` para descifrar el esquema — **soltado el 2026-09-07** |
 
-El CDC lo tiene bien: [`ods-cdc-wal.js:40`](../../database/importers/kepler/ods-cdc-wal.js) mapea
-`'03' → kepler_pilot`. **`kepler_ods` está fiel al origen en las 7 sucursales.** Comparar contra
-`md_03` produce 2,444 "diferencias" que son dos meses de cambios que el dump nunca vio.
+**Resuelto 2026-09-07:** la réplica viva se llamaba `kepler_pilot` y convivía con el `md_03`
+congelado. Eran **dos bases con nombre de la sucursal 03, una viva y una muerta**, y leer la
+equivocada devolvía tres meses de atraso **sin ningún error**. Se renombró
+`kepler_pilot` → `kepler_md_03`, se soltó el sobrante (2,472 MB) y las 7 ramas siguen la misma
+convención — se fue el caso especial que estaba copiado a mano en nueve archivos.
+**`kepler_ods` está fiel al origen en las 7 sucursales.** La comparación contra el viejo `md_03`
+producía 2,444 "diferencias" que eran, en realidad, los meses de cambios que el dump nunca vio: es
+el ejemplo canónico de por qué el espejo congelado tenía que irse y no quedarse "por si acaso".
 
 ---
 

@@ -24,7 +24,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
         </div>
         <div class="actions">
           @if (report(); as r) {
-            <app-freshness-pill [since]="r.checked_at" label="verificado" [staleAfterSec]="300" />
+            <app-freshness-pill measures="data" [since]="r.checked_at" label="verificado" [staleAfterSec]="300" />
             <p-tag [severity]="sev(r.overall)" [value]="'Global: ' + statusLabel(r.overall)" [rounded]="true" />
           }
           <button pButton type="button" [loading]="scanning()" (click)="scan()" size="small" class="p-button-outlined"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Escanear ahora</span></button>

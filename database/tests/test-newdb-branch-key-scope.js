@@ -64,7 +64,7 @@ const knex = require('knex')({
       console.log('  ⚠️  `commercial.warehouses.wincaja_source_branch` no existe en este ambiente');
       console.log('      (mig 20260815130000) — la llave de sucursal queda SIN VERIFICAR. SKIP.');
       await knex.destroy();
-      process.exit(0);
+      process.exit(2);
     }
 
     // ── 1. La llave resuelve para todas las sucursales ──────────────────────
@@ -161,6 +161,92 @@ const knex = require('knex')({
         WHERE t.tenant_id = ? AND t.code LIKE 'RUTA-%' LIMIT 1`, [T]);
     if (rutaTrad.rows.length) {
       assert(rutaTrad.rows[0].canon === null, 'un `RUTA-*` traduce a NULL (no tiene llave de sucursal)');
+    }
+
+    // ── 7. `[RE.27]` El alta acepta lo que el alta ofrece ───────────────────
+    //
+    // El picker del formulario (`users.getBranches()`) ya devuelve la llave canónica
+    // gracias a RE.23: ofrece `30`. Pero el validador (`users.assertOrgCodes()`)
+    // comprobaba la existencia contra `commercial.warehouses.code` CRUDO, que para
+    // Morelia es `MD-30`. O sea: el formulario ofrecía una sucursal que él mismo
+    // rebotaba con 400 «La sucursal "30" no existe en el catálogo de almacenes».
+    //
+    // Y el modo de fallar en silencio era peor: escribiendo `MD-30` a mano sí
+    // guardaba, y entonces el alcance `own` resolvía a `['MD-30']`, el
+    // `WHERE c.sucursal IN ('MD-30')` daba cero filas, y la persona veía la
+    // pantalla en blanco. Es el defecto de RE.23 una capa más arriba.
+    console.log('\n═══ 5. El alta acepta lo que el alta ofrece (RE.27) ═══');
+    // Primero se documenta que la trampa EXISTE: si ninguna sucursal tuviera la
+    // llave distinta de su `code`, el guard de abajo no probaría nada. Éstas son
+    // exactamente las que un validador por `code` pelado rebotaría.
+    const crudos = (await knex.raw(
+      `SELECT w.code FROM commercial.warehouses w
+        WHERE w.tenant_id = ? AND w.deleted_at IS NULL`, [T])).rows.map((r) => r.code);
+    const trampa = llaves.filter((v) => !crudos.includes(v));
+    assert(
+      trampa.length > 0,
+      `hay sucursales cuya llave NO es su \`code\` — validar por \`code\` las rebotaría`
+      + ` (${trampa.join(',') || 'ninguna'})`,
+    );
+
+    // Y el invariante que importa: TODA sucursal que el picker ofrece, el alta la
+    // acepta. Se modela la consulta del validador tal como quedó.
+    const rebotadas = [];
+    for (const v of llaves) {
+      const n = (await knex.raw(
+        `SELECT count(*)::int n FROM commercial.warehouses w
+          WHERE w.tenant_id = ? AND w.deleted_at IS NULL
+            AND ${FILTER('w')} AND (${KEY('w')}) = ?`, [T, v])).rows[0].n;
+      if (n !== 1) rebotadas.push(v);
+    }
+    assert(
+      rebotadas.length === 0,
+      `el alta acepta las ${llaves.length} sucursales que ofrece`
+      + ` (rebotarían: ${rebotadas.join(',') || 'ninguna'})`,
+    );
+
+    // El guard de regresión: que el validador use la MISMA llave que el picker.
+    // Se lee la fuente porque el smoke no puede levantar el DI de Nest, y el
+    // invariante que importa es estructural, no de datos.
+    const fuente = require('fs').readFileSync(
+      path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'), 'utf8');
+    // El recorte se ancla en dos marcas que existen; si alguna se mueve, el bloque
+    // sale vacío y el assert falla — que es lo correcto. Un `indexOf` que devuelve
+    // -1 y termina rebanando hasta el fin del archivo atrapa el `branchKeySql` de
+    // `getBranches()` y el test se pone verde midiendo al vecino.
+    const ini = fuente.indexOf('private async assertOrgCodes');
+    const fin = fuente.indexOf('async create(createUserDto', ini);
+    assert(ini > 0 && fin > ini, 'se localizó el cuerpo de `assertOrgCodes` para inspeccionarlo');
+    const bloque = ini > 0 && fin > ini ? fuente.slice(ini, fin) : '';
+    assert(
+      /branchKeySql|branchKeyFilterSql/.test(bloque),
+      '`assertOrgCodes` resuelve la sucursal por la llave canónica, no por `code` pelado',
+    );
+
+    // Prueba negativa: el `code` prefijado NO puede ser un `warehouse_code` válido.
+    // Sin esto el gate es una intención (ADR-056): aceptarlo deja al usuario con la
+    // pantalla vacía, que se lee igual que "no hay entradas".
+    if (wincaja.length) {
+      const prefijado = wincaja[0].code; // p.ej. `MD-30`
+      const aceptaPrefijo = await knex.raw(
+        `SELECT count(*)::int n FROM commercial.warehouses w
+          WHERE w.tenant_id = ? AND w.deleted_at IS NULL
+            AND ${FILTER('w')} AND (${KEY('w')}) = ?`, [T, prefijado]);
+      assert(
+        aceptaPrefijo.rows[0].n === 0,
+        `\`${prefijado}\` NO es un \`warehouse_code\` asignable (la llave es \`${wincaja[0].v}\`)`,
+      );
+    }
+
+    // Y que el alcance `own` sobre una sucursal Wincaja vea sus propias filas: es
+    // el punto del arreglo. Con `MD-30` esto da 0 y nadie se entera.
+    if (wincaja.length && hayVista.rows[0].t) {
+      for (const r of wincaja) {
+        const n = (await knex.raw(
+          `SELECT count(*)::int n FROM analytics.erp_goods_receipts
+            WHERE tenant_id = ? AND sucursal = ?`, [T, r.v])).rows[0].n;
+        assert(n > 0, `alcance \`own\` = \`${r.v}\` (${r.label}) ve sus recepciones (${n})`);
+      }
     }
 
     console.log(`\n${fail === 0 ? '✅ TODO VERDE' : `❌ ${fail} fallo(s)`} — ${pass} aserción(es)`);

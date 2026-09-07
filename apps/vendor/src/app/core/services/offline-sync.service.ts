@@ -1445,6 +1445,19 @@ export class OfflineSyncService {
     return this.db.getVisitasMuertas(this.MAX_RETRY_ATTEMPTS);
   }
 
+  /** Cuántas transacciones (visitas + pedidos) quedaron muertas (cap de reintentos). */
+  async getDeadCount(): Promise<number> {
+    const e = await this.db.getEstadisticasOffline();
+    return (e.visitasMuertas || 0) + (e.pedidosMuertos || 0);
+  }
+
+  /** Revive TODO lo muerto y dispara sync — para el botón "Reintentar" del banner. */
+  async retryAllDead(): Promise<number> {
+    const n = await this.db.revivirTodosMuertos(this.MAX_RETRY_ATTEMPTS);
+    if (n > 0) await this.forzarSincronizacion();
+    return n;
+  }
+
   /** Resetea el contador de intentos de una visita y dispara sync inmediato. */
   async reintentarVisitaMuerta(visitaId: string): Promise<void> {
     await this.db.reintentarVisitaMuerta(visitaId);

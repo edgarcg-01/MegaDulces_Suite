@@ -80,8 +80,24 @@ dbWork con SAVEPOINT.
     columnas **puede llegar en otro despliegue, se prueba solo** — un probe compartido convierte un
     "falta una columna" en una pantalla caída. El guard existía justo para eso y no sirvió porque
     preguntaba por la columna equivocada.
-  - Antes de dar por aplicada una migración, mirá **las columnas**, no el registro:
-    `SELECT column_name FROM information_schema.columns WHERE table_schema=… AND table_name=…`.
+  - Antes de dar por aplicada una migración, mirá **las columnas**, no el registro. Pero preguntale a
+    `pg_attribute`, **no** a `information_schema.columns`: el `information_schema` **no lista
+    MATVISTAS** (sólo tablas y vistas), así que sobre una matview devuelve cero filas y eso se lee
+    igual que *"la columna no está"*. Vivido el 2026-09-07: el chequeo dijo que `mv_sellout_monthly` y
+    `mv_kepler_sales_daily` no tenían `monto_neto` —su hermana `v_sellout_daily`, vista normal, sí
+    aparecía— y la conclusión era re-aplicar una migración que arranca con
+    `DROP MATERIALIZED VIEW … CASCADE` **en prod**. Con `pg_attribute`: 12/12 OK, ya estaba aplicada.
+
+    ```sql
+    SELECT a.attname FROM pg_attribute a
+      JOIN pg_class k ON k.oid = a.attrelid
+      JOIN pg_namespace n ON n.oid = k.relnamespace
+     WHERE n.nspname = 'analytics' AND k.relname = 'mv_sellout_monthly'
+       AND a.attnum > 0 AND NOT a.attisdropped;
+    ```
+
+    Y el chequeo no termina en que la columna exista: **medí una invariante del dato**
+    (acá `monto_neto <= monto`). Que la columna esté no dice que se haya poblado bien.
 
 ---
 
@@ -329,10 +345,34 @@ node database/importers/kepler/run-prod-feeds.js <modo> | head -3
 - **`psql.exe` escribe CRLF.** Un `psql -tAc "select relname …" > lista.txt` deja `\r` pegado a cada
   nombre; después `pg_dump -t` "no encuentra tablas" y el `TRUNCATE` dice "no existe la relación".
   Pasar siempre por `tr -d '\r'`.
-- **El réplica lógico de la sucursal 03 se llama `kepler_pilot`** (nombre del piloto, rename
-  diferido), no `kepler_md_03`. Existe además un `md_03` que es un **sobrante congelado en junio**:
-  usarlo da data vieja sin ningún error. La resolución canónica está en `localDbName()` de
-  `replicate-ods-live.js`.
+- **⛔ `_row_hash` NO es identidad: no sobrevive una re-lectura.** En el espejo crudo de Wincaja las
+  tablas SIN PK natural escriben con `ON CONFLICT (_row_hash) DO NOTHING`, y es tentador leer eso
+  como "re-leer es idempotente". **No lo es.** Medido el 2026-09-07: al agregar una ventana de
+  solape al carril incremental, 5,401 filas ya presentes se INSERTARON de nuevo — y las 10,802 filas
+  de los grupos duplicados tenían **10,802 hashes DISTINTOS**. O sea el hash de la misma fila cambia
+  entre pasadas, así que el `DO NOTHING` nunca dispara. Ese conflict target sólo funciona bajo el
+  supuesto de que el movimiento es **inmutable y se lee UNA vez** (append-only estricto).
+  **Consecuencia:** el remedio para una fuga del carril incremental **no** es un solape de lectura.
+  Wincaja sí edita: el documento `C960007665` (w32, 28-ago) recibió 2 líneas por **$3,748.16**
+  después de que el watermark pasó su `Consecutivo` → invisibles para siempre. El remedio correcto
+  es la **recarga por corte** del carril histórico (`import-wincaja-hist.js`, `DELETE` por
+  `_dataset` + reinsert = idempotente **por construcción**, no por suerte), agendada como
+  reconciliador. `DetallesMovAlmacen` no tiene columna de número de línea, así que `(Consecutivo,
+  Articulo)` puede repetirse legítimamente dentro de un ticket → no hay clave natural que permita
+  convertirlo en `DO UPDATE`.
+  Para auditar duplicados de este tipo: agrupar por `(Consecutivo, Articulo, CantidadRegular,
+  ValorVenta)` y contar `> 1`; el piso legítimo medido en toda la historia previa de `w32` es **4
+  grupos**. Y ⚠️ **no comparar contra `hNN` sin mirar la fecha del corte**: `hNN/Actuales` es un
+  SNAPSHOT, así que los tickets posteriores aparecen sólo en el vivo y simulan duplicados.
+- **RESUELTO 2026-09-07 — las 7 réplicas lógicas siguen la MISMA convención `kepler_md_XX`.**
+  Hasta esa fecha la rama 03 vivía en `kepler_pilot` (nombre del piloto original) y coexistía con un
+  `md_03` **congelado el 15-jun** que nadie escribía ni leía: **dos bases con nombre de la 03, una
+  viva y una muerta**, y usar la equivocada daba data de tres meses atrás **sin ningún error**. Se
+  renombró `kepler_pilot` → `kepler_md_03` y se soltó el sobrante (2,472 MB).
+  Lección que deja: la excepción de nombre estaba copiada a mano en **nueve** archivos
+  (`localDbName()` duplicado), así que "cosmético" costó nueve ediciones más un rebuild de imagen.
+  Si vuelve a hacer falta un nombre fuera de convención, que viva en **un solo** resolvedor
+  compartido — mismo criterio que `v_warehouse_box_factor` para el factor de caja.
 - **`sslmode=no-verify` no existe en libpq.** Es cosa de node-postgres. Para `psql`/`pg_dump` contra
   el proxy de Railway va `sslmode=require`.
 - **Editar un `.cmd` que está corriendo** corre el offset de lectura de `cmd.exe` y puede hacerle
@@ -895,7 +935,7 @@ Reglas al normalizar sobre el ODS:
 ## 29. Hay DOS `knex_migrations` y el `search_path` te da la equivocada
 
 En la DB nueva conviven `public.knex_migrations` (**la real**, la que configura
-`knexfile-newdb.js` con `schemaName: 'public'`) e `identity.knex_migrations` (**vacía**). Y el
+`knexfile-newdb.js` con `schemaName: 'public'`) e `identity.knex_migrations`. Y el
 `search_path` de la base es:
 
 ```
@@ -908,6 +948,30 @@ había ninguna migración registrada, cuando había 517 y sólo faltaban 3.
 
 **Siempre `public.knex_migrations` explícito.** Y desconfiá de cualquier nombre de tabla sin
 calificar que pueda existir también en `identity` / `catalog` / `commercial`.
+
+### La otra mitad del problema: el ledger equivocado también se ESCRIBE
+
+`identity.knex_migrations` ya no está vacía y no es un adorno: **cualquier runner ad-hoc que arme su
+knex sin `migrations.schemaName` registra ahí**, porque el default de knex es el `search_path`. Y una
+migración registrada en `identity` está, para el knex bien configurado, **pendiente** → el próximo
+`migrate.latest()` la vuelve a correr.
+
+Medido en prod el 2026-09-07: 4 filas en `identity` (eran 2 cinco días antes — la tabla estaba
+creciendo), las 4 con su DDL ya aplicado y **ninguna** en `public`. Entre ellas
+`20260905120000_sellout_monto_neto_descuento.js`, cuyo `up()` arranca con
+`DROP MATERIALIZED VIEW analytics.mv_kepler_sales_daily CASCADE` — re-aplicarla dropeaba la cadena
+del sell-out en prod. Se re-registraron en `public` (batch 304) preservando su `migration_time`, sin
+borrar nada, y la tabla quedó con un `COMMENT` que dice que si vuelve a crecer hay un runner mal
+configurado. **La tabla es el sensor de su propia causa.**
+
+Para aplicar UNA a prod, usá `database/scripts/apply-one-migration-prod.js` (declara
+`schemaName: 'public'` y lee `FLEET_DB_URL`, que es prod — `DATABASE_URL_NEW` del `.env` no lo es).
+Detector, corre en segundos:
+
+```sql
+SELECT i.name FROM identity.knex_migrations i
+ WHERE NOT EXISTS (SELECT 1 FROM public.knex_migrations p WHERE p.name = i.name);
+```
 
 ### Registrar migraciones ya aplicadas a mano
 
@@ -1305,7 +1369,7 @@ la de telemetría** — la que menos importa es la que te deja el proceso vivo y
 POS Kepler (LAN privada, 6 hosts)          publicación `ods_pub`
         │  replicación lógica (pull)
         ▼
-:5433  kepler_md_00,01,02,04,05,06  +  kepler_pilot   ← schema `md`, contenedor `pgvector-md`
+:5433  kepler_md_00,01,02,03,04,05,06                ← schema `md`, contenedor `pgvector-md`
         │  shipper HTTP (feeds-ingest) — ops/ingest/docker-compose.yml
         ▼
 Railway  kepler_ods.<tabla>  (una tabla por tabla de Kepler, con columna `sucursal`)
@@ -1324,12 +1388,69 @@ Railway  kepler_ods.<tabla>  (una tabla por tabla de Kepler, con columna `sucurs
 Lo que **sí** hizo falta eliminar fue el `.cmd`: era una segunda copia del mismo shipper que ya vivía
 en Docker. Ver §35.
 
-**Convención de nombres de los réplicas (verificada 2026-09-04):** `kepler_md_XX`, schema `md`.
-**La excepción: la rama 03 vive en `kepler_pilot`** (nombre del piloto original, rename diferido). El
-mapeo está en [`replicate-ods-live.js`](../database/importers/kepler/replicate-ods-live.js) y en
-[`kepler-branches.js`](../database/importers/lib/kepler-branches.js) — buscar `kepler_md_03` a mano da
-`database "kepler_md_03" does not exist` y manda a investigar un fantasma.
+**Convención de nombres de los réplicas (uniformada 2026-09-07):** `kepler_md_XX`, schema `md`, las
+**siete sin excepción**. Antes la rama 03 vivía en `kepler_pilot` y buscar `kepler_md_03` a mano daba
+`database "kepler_md_03" does not exist`, mandando a investigar un fantasma — eso ya no pasa. El
+resolvedor sigue siendo `localDbName()` en
+[`replicate-ods-live.js`](../database/importers/kepler/replicate-ods-live.js), hoy sin casos
+especiales. **La suscripción conserva su nombre histórico `sub_pilot`** (renombrar una suscripción no
+aporta nada y sí toca el slot del publicador): si ves `sub_pilot` alimentando `kepler_md_03`, está
+bien.
 
 **Bases huérfanas en `:5433` que NO se tocan y no alimentan nada** (declaradas para que nadie las
-confunda con la fuente): `md_03` (2.4 GB, 329 tablas en `md`, **0 subscriptions**, congelada) y
-`kepler_consolidado` (516 MB, 0 tablas en `md`).
+confunda con la fuente). Inventario re-medido el 2026-09-07: `kepler_consolidado` (516 MB),
+`railway_backup_check` (35 MB), `lpa_r42` (15 MB) y `r10` (12 MB) — las cuatro con **0 conexiones**.
+La `md_03` que este párrafo declaraba (2.4 GB, 329 tablas, 0 subscriptions) **ya no existe**: se
+dropeó el 2026-09-07 junto con el rename `kepler_pilot` → `kepler_md_03`, justo porque tener dos
+bases con nombre de la 03 —una viva y una congelada— era la trampa perfecta para leer la equivocada.
+Las que sí alimentan: `kepler_md_00..06` (875 MB a 2,928 MB, todas con conexión activa) y `wincaja`
+(38 GB, la réplica cruda de Access).
+
+---
+
+## 37. Un hueco en un contador NO es una fila perdida (y el centinela que estira el calendario)
+
+Auditando el carril incremental de Wincaja —que avanza por watermark sobre `Consecutivo`— los huecos
+en la secuencia parecían la prueba de que se perdían filas: **w32 con el 80% del rango ausente y un
+tramo de 21,602 consecutivos seguidos, w30 45%, w00 57%.**
+
+No lo eran. `w30` cubre `2026-08-01 → 2026-09-06` con **CERO días sin documento** (31/31 de agosto) y
+al mismo tiempo le "faltan" 19,290 consecutivos. **Un contador con huecos y una cobertura sin huecos
+no pueden ser la misma falla:** el `Consecutivo` de Wincaja es global a la base y
+`MaestroMovAlmacen` trae una sola familia de documentos (`Tipo` V=25,156 de 25,815), repartida
+además entre 8 cajas. El contador **no es denso** y nunca lo fue.
+
+**Regla:** antes de tratar una discontinuidad como pérdida, probá que el contador es denso. Basta un
+contraejemplo para tumbar la hipótesis. Y medí la cobertura donde el negocio la tiene —**en el
+tiempo** (días con cero documentos dentro del rango), no en el número.
+
+### El centinela de Access estira el calendario
+
+**7 filas de `w32."MaestroMovAlmacen"` están fechadas `2000-01-01`** (con consecutivos normales,
+13,539..37,160): es la fecha centinela de Access, no dato. Con ellas dentro, el conteo de "días sin
+documento dentro del rango" pasó de 0 a **9,677** — 26 años de hueco inexistente, porque el rango se
+calcula `min..max` y un centinela en la punta convierte todo lo de en medio en falta. Cualquier
+métrica de cobertura que derive su rango de los datos necesita recortar los extremos centinela.
+
+### Y los dos instrumentos que mintieron en el camino
+
+- **El formato de fecha en Wincaja es POR TABLA, no por base.** `MaestroMovAlmacen."Fecha"` es TEXT
+  en **ISO** (`2026-08-25T00:00:00`); otras tablas usan `MM/DD/YY` (con `01/00/00` que revienta el
+  `::date`). La guarda de formato copiada de la otra auditoría **rechazó el 100%** de las filas y
+  reportó "fecha no parseable" en las tres sucursales. Mirá valores antes de parsear.
+- **`Consecutivo` es `numeric`, no texto** — `WHERE "Consecutivo" ~ '^[0-9]+$'` tira
+  `operator does not exist: numeric ~ unknown`.
+- **Un script de medición en background NO se canaliza por `sed`/`grep`:** buffean, así que el error
+  de arriba no salió nunca y el proceso se veía "corriendo" con salida vacía. Dos veces seguidas.
+  Escribí directo al archivo de salida y filtrá al leerlo.
+
+### Lo que sí queda pendiente
+
+El modo de falla real del watermark —un documento escrito al `.mdb` con `Consecutivo` **por debajo**
+del último visto— sigue siendo posible, pero **no se detecta desde la réplica**: hay que comparar
+contra el `.mdb`. Lo que lo cazaría es un **sensor de cobertura diaria** por sucursal. Propuesto, no
+construido: hoy no hay evidencia medida de que haga falta.
+
+**Y no confundir dos coberturas:** la réplica CDC sólo tiene lo que trae el `.mdb` **vivo** — `w30`
+arranca el 1-ago-2026 y `w32` el 1-jul-2026. La historia 2025→2026 vive en la carga histórica, que
+es otro camino y otros archivos.

@@ -13,6 +13,8 @@
  * Correr: node database/tests/http-thot-findings-test.js
  */
 const knex = require('knex')(require('../knexfile-newdb.js').development);
+// `[IDG.1]` Este test BORRA hallazgos y diagnósticos. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('http-thot-findings-test');
 const T = '00000000-0000-0000-0000-00000000d01c'; // mega_dulces
 const BASE = 'http://localhost:3334/api';
 

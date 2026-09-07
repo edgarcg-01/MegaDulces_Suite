@@ -93,9 +93,9 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_PROMOTIONS_VER]: { label: 'Ver Promociones', description: 'Consultar campañas y promociones vigentes.', category: 'Comercial · Promociones' },
   [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR]: { label: 'Gestionar Promociones', description: 'Crear y editar promociones y campañas.', category: 'Comercial · Promociones' },
 
-  // Televenta
-  [Permission.COMMERCIAL_TELEVENTA_VER]: { label: 'Ver Televenta', description: 'Acceso de lectura al módulo de televenta / call center.', category: 'Televenta' },
-  [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Televenta', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Televenta' },
+  // Telemarketing (el ERP y el rol de prod lo llaman asi)
+  [Permission.COMMERCIAL_TELEVENTA_VER]: { label: 'Ver Telemarketing', description: 'Acceso de lectura al módulo de telemarketing / call center: resumen del canal (facturación del ERP + actividad), cola de leads y reservas.', category: 'Telemarketing' },
+  [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Telemarketing', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Telemarketing' },
 
   // Logística
   [Permission.LOGISTICS_FLEET_VER]: { label: 'Ver Flotilla', description: 'Consultar unidades, choferes y personal de logística.', category: 'Logística' },
@@ -116,9 +116,11 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.ROLES_VER]: { label: 'Ver Roles', description: 'Consultar roles y sus permisos (solo lectura).', category: 'Configuración' },
   [Permission.COMMERCIAL_ANALYTICS_VER]: { label: 'Ver Analítica Comercial', description: 'Command center, salidas, ventas por ruta, dead-stock, salud de inventario, cliente 360 e histórico de venta. (Sell-Out tiene su propio permiso.)', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_SELLOUT_VER]: { label: 'Ver Sell-Out por empresa', description: 'Solo el reporte Sell-Out por empresa (RS): matriz producto × sucursal con cajas y monto, + XLSX/PDF. No abre el resto de la analítica.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER]: { label: 'Ver Análisis (Sell-Out BI)', description: 'El sub-módulo Análisis sobre la venta de Sell-Out: explica el cambio (causa raíz), pregúntale en español y radar de anomalías. Misma verdad que el reporte, otra forma de interrogarla.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR]: { label: 'Gestionar metas de venta', description: 'Capturar y editar los objetivos de venta por mes (total/sucursal/canal) que el sub-módulo Análisis compara contra lo real. Leer las metas va con el permiso de ver Análisis.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_SALIDAS_VER]: { label: 'Ver Salidas por producto', description: 'Solo el reporte Salidas por producto (ventas/existencia/costos por sucursal × producto) + XLSX.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_ROUTE_SALES_VER]: { label: 'Ver Ventas por ruta', description: 'Solo el reporte Ventas por ruta (mensual sucursal × ruta) + XLSX.', category: 'Comercial · Analítica' },
-  [Permission.COMMERCIAL_SALES_DOCS_VER]: { label: 'Ver Documentos de venta', description: 'Facturas de venta del ERP y su anexo imprimible con pagaré. No incluye Pedidos.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SALES_DOCS_VER]: { label: 'Ver Facturación de Telemarketing', description: 'Facturas de telemarketing del ERP (U/D/8) y su anexo imprimible con pagaré. No incluye Pedidos.', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_CUSTOMERS360_VER]: { label: 'Ver Clientes 360', description: 'Solo la ficha analítica Clientes 360 (compra agregada del ERP por cliente y sus productos).', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_HISTORICAL_VER]: { label: 'Ver Histórico de venta', description: 'Solo el histórico de venta del ERP (diario, top productos, por zona, ranking, margen por categoría).', category: 'Comercial · Analítica' },
   [Permission.COMMERCIAL_DEADSTOCK_VER]: { label: 'Ver Stock muerto', description: 'Solo el reporte de stock muerto (productos sin rotación).', category: 'Comercial · Analítica' },
@@ -243,7 +245,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Promociones',
   'Comercial · Thot',
   'Comercial · Inventario físico',
-  'Televenta',
+  'Telemarketing',
   'Logística',
   'Reparto',
   'Finanzas',

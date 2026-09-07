@@ -31,6 +31,8 @@
 
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
+// `[IDG.1]` Este test BORRA `identity.user_scopes`. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-identity-scopes');
 
 const DST = process.env.DATABASE_URL_NEW;
 if (!DST) { console.error('Falta DATABASE_URL_NEW'); process.exit(1); }

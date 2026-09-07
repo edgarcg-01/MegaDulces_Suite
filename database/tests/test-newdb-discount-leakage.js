@@ -14,6 +14,8 @@
 const { Client } = require('pg');
 
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `finance.findings`.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-discount-leakage', { url: DST });
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const MIN_LOST = 1000;
 const RULE = 'descuento_no_capturado';
@@ -49,7 +51,7 @@ async function pushFindings(client, findings) {
   try {
     const nPol = Number((await c.query(`SELECT count(*)::int n FROM commercial.supplier_discount_policy WHERE tenant_id=$1 AND active AND expected_discount_rate>0`, [TENANT])).rows[0].n);
     console.log(`  · políticas activas: ${nPol}`);
-    if (nPol === 0) { console.log('\n  ⚠️  SKIP — sin política de descuento (corré import-supplier-discount-policy.js). Wiring cubierto por el build.'); await c.end(); process.exit(0); }
+    if (nPol === 0) { console.log('\n  ⚠️  SKIP — sin política de descuento (corré import-supplier-discount-policy.js). Wiring cubierto por el build.'); await c.end(); process.exit(2); }
     ok(nPol > 0, 'commercial.supplier_discount_policy poblada');
 
     // leakageGroups (réplica exacta del service)

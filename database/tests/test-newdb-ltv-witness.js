@@ -8,6 +8,7 @@
  */
 require('dotenv').config();
 const { Client } = require('pg');
+const { esFaltaDeAcceso, noMedido } = require('./_lib/no-medido');
 const TENANT = process.env.MEGADULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DAY = new Date(Date.now() - 6 * 3600 * 1000).toISOString().slice(0, 10);
 const HAV = `2 * 6371000 * asin(sqrt(power(sin(radians(dc.latitud::float8 - st.lat::float8)/2),2) + cos(radians(st.lat::float8))*cos(radians(dc.latitud::float8))*power(sin(radians(dc.longitud::float8 - st.lng::float8)/2),2)))`;
@@ -17,7 +18,13 @@ let n = 0; const assert = (c, m) => { n++; if (!c) throw new Error('FAIL: ' + m)
 (async () => {
   console.log('\n=== LTV.13 smoke: Horus doble testigo ===');
   const client = new Client({ connectionString: process.env.DATABASE_URL_NEW_RUNTIME || process.env.DATABASE_URL_NEW });
-  await client.connect();
+  // [VP.5.1] No poder LLEGAR a la base no es una falla del codigo bajo prueba: es que no se
+  // pudo medir. Sale con exit 2 (NO MEDIDO) para no dejar un rojo permanente que ensena a
+  // ignorar el tablero. Cualquier otro error sigue siendo falla de verdad.
+  await client.connect().catch((e) => {
+    if (esFaltaDeAcceso(e)) noMedido(`no se pudo conectar a la base — ${e.message}`);
+    throw e;
+  });
   const q = async (s, p) => (await client.query(s, p)).rows;
   await client.query('BEGIN'); await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
   try {

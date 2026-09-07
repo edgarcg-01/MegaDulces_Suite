@@ -8,6 +8,7 @@ import { ActionsService } from '../../finanzas/actions.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -136,6 +137,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
+  private readonly dataScope = inject(DataScopeService);
 
   readonly open = signal(false);
   readonly criticos = signal(0);
@@ -157,6 +159,30 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
    */
   readonly canSeeFinanceFeed = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.FINANCE_BANK_VER] === true);
+
+  // ── `[RE.27.C]` La cola de órdenes de entrada ────────────────────────────
+  //
+  // Estos avisos se filtran por DOS ejes, no uno. El permiso dice si le
+  // corresponde el oficio; el alcance dice si le corresponde ESA sucursal.
+  //
+  // El segundo no es adorno: `COMPRAS_ENTRADAS_VALIDAR` lo tienen 25 personas y
+  // casi todas ven la red entera, así que sin el filtro de alcance el aviso de
+  // Padre Hidalgo le llega a los 25. Una alerta que le llega a todos no la
+  // atiende nadie — que es, textualmente, el estado del que sale esta fase
+  // (26 pueden validar, 3 lo hicieron alguna vez).
+  private readonly canValidarEntradas = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_VALIDAR] === true);
+  private readonly canCapturarEntradas = computed(() =>
+    this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.COMPRAS_ENTRADAS_GESTIONAR] === true);
+
+  /**
+   * Sucursales del alcance del usuario. `null` mientras no se resuelva y para
+   * quien las ve todas — en los dos casos NO se filtra, por motivos opuestos:
+   * el de alcance total tiene que verlas, y esconder un aviso porque el alcance
+   * todavía no cargó sería perderlo sin dejar rastro. Un aviso de más se ignora;
+   * uno de menos no existe.
+   */
+  private readonly misSucursales = signal<Set<string> | null>(null);
   readonly attentionCount = computed(() => this.criticos() + this.accionesPend());
   readonly hasNew = computed(() => this.newSince());
 
@@ -169,6 +195,17 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     if (this.canSeeFinance()) {
       this.refresh();
       this.timer = setInterval(() => this.refresh(), 60_000);
+    }
+    // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
+    // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
+    // responde, `null` deja pasar todo en vez de silenciar la campana.
+    if (this.canValidarEntradas() || this.canCapturarEntradas()) {
+      this.dataScope.dim('warehouse').subscribe({
+        next: (d) => this.misSucursales.set(
+          !d || d.mode === 'all' ? null : new Set((d.options || []).map((o) => String(o.value))),
+        ),
+        error: () => this.misSucursales.set(null),
+      });
     }
   }
 
@@ -183,11 +220,32 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     if (!FINANCE_NOTIF_ENABLED && a.type === ('finance_finding' as any)) return;
     // Aviso de FEED nuevo (Kepler/ContPAQi): solo a quien tiene el módulo de Finanzas.
     if (a.type === ('finance_feed' as any) && !this.canSeeFinanceFeed()) return;
+    // `[RE.27.C]` Cola de órdenes de entrada: permiso del oficio + alcance de la sucursal.
+    if (a.type === ('entradas_sla' as any) && !this.aplicaEntradas(a)) return;
     const at = Date.parse(a.emitted_at) || Date.now();
     this.feed.update((f) => [{ type: a.type, severity: a.severity, title: a.title, message: a.message, at, route: a.data?.route }, ...f].slice(0, 20));
     this.newSince.set(true);
     // Una alerta financiera implica hallazgos nuevos → refresca el conteo.
     if (a.type === ('finance_finding' as any) && this.canSeeFinance()) this.refresh();
+  }
+
+  /**
+   * `[RE.27.C]` ¿Este aviso de entradas es para mí?
+   *
+   * Dos preguntas, en orden: el oficio (revisar pide `_VALIDAR`, capturar pide
+   * `_GESTIONAR` — son trabajos distintos y muchas veces de personas distintas)
+   * y la sucursal.
+   */
+  private aplicaEntradas(a: CommercialAlert): boolean {
+    const tipo = a.data?.tipo;
+    const puede = tipo === 'captura' ? this.canCapturarEntradas() : this.canValidarEntradas();
+    if (!puede) return false;
+    const mias = this.misSucursales();
+    const suc = a.data?.sucursal ? String(a.data.sucursal) : null;
+    // Sin alcance resuelto (o alcance total) no se filtra; un aviso sin sucursal
+    // tampoco se esconde: no poder decidir no es motivo para callarlo.
+    if (!mias || !suc) return true;
+    return mias.has(suc);
   }
 
   private refresh(): void {
@@ -228,6 +286,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'vip_inactive': return 'pi-user';
       case 'db_health': return 'pi-database';
       case 'finance_feed': return 'pi-sync';
+      // `[RE.27.C]` La cola de entradas: es trabajo esperando, no un dato nuevo.
+      case 'entradas_sla': return 'pi-clock';
       default: return 'pi-bell';
     }
   }

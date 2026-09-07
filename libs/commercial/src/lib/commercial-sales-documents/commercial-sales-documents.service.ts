@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 
 /**
- * AX.1 — Documentos de venta al cliente (factura telemarketing / venta a crédito).
+ * AX.1 — Facturación de Telemarketing (`U/D/8`; la ruta y el módulo conservan el nombre
+ * genérico "sales-documents" porque renombrarlos movería la URL y el permiso).
  *
  * Lee las VISTAS EN VIVO `analytics.erp_sales_invoices` / `_lines` (mig 20260822140000),
  * derivadas de `kepler_ods` por el CDC → frescura de segundos, sin feed ni tabla copiada.
@@ -12,6 +13,16 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  */
 
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Identidad fiscal del emisor, leída de `fiscal.issuer_config` (ver `emisorFiscal()`). */
+export interface EmisorFiscal {
+  rfc: string;
+  nombre: string;
+  regimen_code: string;
+  cp: string;
+}
+const EMISOR_CACHE = new Map<string, EmisorFiscal>();
+
 // AX 2026-08-25: /comercial/documentos = SOLO telemarketing (se sacó la venta a crédito, U/D/12).
 const DOC_TIPOS = ['telemarketing'] as const;
 const MAX_PAGE = 200;
@@ -24,8 +35,9 @@ export interface SalesDocsQuery {
   cliente_code?: string;
   vendedor_code?: string;
   search?: string;         // cliente / RFC / folio / monto
-  vencidas?: string;       // 'true' → sólo las que ya vencieron
+  vencidas?: string;       // 'true' → sólo las vencidas QUE AÚN DEBEN (ver base())
   canceladas?: string;     // 'true' → incluir las canceladas en Kepler (por defecto NO)
+  cobro?: string;          // pagada | parcial | pendiente | sin_cartera
   min?: string;            // importe mínimo
   page?: number;
   pageSize?: number;
@@ -75,7 +87,14 @@ export class CommercialSalesDocumentsService {
     if (q.cliente_code) b.andWhere('i.cliente_code', q.cliente_code.trim());
     if (q.vendedor_code) b.andWhere('i.vendedor_code', q.vendedor_code.trim());
     if (q.min && Number.isFinite(Number(q.min))) b.andWhere('i.total', '>=', Number(q.min));
-    if (q.vencidas === 'true') b.andWhere('i.vencimiento', '<', trx.raw('current_date'));
+    // "Vencida" = pasó la fecha **y sigue debiendo**. Antes era sólo lo primero, y de las 355
+    // que marcaba en 30d, 91 ($567,504) ya estaban liquidadas en la cartera. El saldo lo manda
+    // `kdue` (vía `estatus_cobro` de la vista), no la cabecera de Kepler — ver mig 20260905150100.
+    if (q.vencidas === 'true') {
+      b.andWhere('i.vencimiento', '<', trx.raw('current_date'))
+        .whereIn('i.estatus_cobro', ['pendiente', 'parcial']);
+    }
+    if (q.cobro) b.andWhere('i.estatus_cobro', q.cobro.trim());
 
     applySmartSearch(b, q.search, {
       columns: ['i.cliente_nombre', 'i.cliente_code', 'i.cliente_rfc', 'i.folio', 'i.folio_digital', 'i.vendedor_nombre'],
@@ -84,38 +103,105 @@ export class CommercialSalesDocumentsService {
     return b;
   }
 
-  /** Listado paginado + KPIs de la MISMA selección. */
+  /**
+   * Listado paginado + KPIs de la MISMA selección.
+   *
+   * ⚠️ La página va envuelta en un CTE **MATERIALIZED** y se ordena y recorta AFUERA. No es
+   * cosmético: medido en prod, `ORDER BY … LIMIT 50` directo sobre la vista costaba **23,856 ms**
+   * y así cuesta **970 ms** — 24× — y se mantiene en 959 ms en la última página.
+   * El motivo es el `LIMIT`: invita al planner a un nested loop que **re-escanea el CTE `src` de
+   * la cartera (14,623 filas, en disco) una vez por fila devuelta** (`loops=50` en el EXPLAIN).
+   * Con la selección materializada primero, elige hash join —igual que en `kpis()`, que por ser
+   * agregado nunca tuvo el problema (791 ms)— y luego ordena 738 filas ya resueltas.
+   * Si alguien "simplifica" esto quitando el CTE, la pantalla vuelve a tardar 24 segundos.
+   */
   async list(q: SalesDocsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const pageSize = Math.min(MAX_PAGE, Math.max(1, Number(q.pageSize) || 50));
 
     return this.tk.run(async (trx) => {
+      const seleccion = this.base(trx, tenantId, q)
+        .select(
+          'i.folio_digital', 'i.sucursal', 'i.warehouse_id', 'i.doc_prefix', 'i.doc_tipo', 'i.doc_label',
+          'i.folio', 'i.fecha', 'i.vencimiento', 'i.dias_credito', 'i.limite_credito',
+          'i.cliente_code', 'i.cliente_nombre', 'i.cliente_rfc',
+          'i.vendedor_code', 'i.vendedor_nombre', 'i.canal', 'i.referencia',
+          'i.total', 'i.ieps', 'i.descuento', 'i.descuento_pct', 'i.subtotal',
+          'i.doc_estatus', 'i.doc_estatus_label', 'i.cancelada',
+          'i.importe_bruto', 'i.descuento_efectivo',
+          'i.saldo', 'i.cobrado', 'i.estatus_cobro', 'i.dias_pago',
+          'i.vencimiento_erp', 'i.vencimiento_source',
+          // Vencida = venció Y debe. Sin saldo, la fecha ya no significa nada.
+          trx.raw(`(i.vencimiento < current_date
+                    AND i.estatus_cobro IN ('pendiente','parcial')) AS vencida`),
+          trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
+        );
+
       const [rows, kpis] = await Promise.all([
-        this.base(trx, tenantId, q)
-          .select(
-            'i.folio_digital', 'i.sucursal', 'i.warehouse_id', 'i.doc_prefix', 'i.doc_tipo', 'i.doc_label',
-            'i.folio', 'i.fecha', 'i.vencimiento', 'i.dias_credito', 'i.limite_credito',
-            'i.cliente_code', 'i.cliente_nombre', 'i.cliente_rfc',
-            'i.vendedor_code', 'i.vendedor_nombre', 'i.canal', 'i.referencia',
-            'i.total', 'i.ieps', 'i.descuento', 'i.descuento_pct', 'i.subtotal',
-            'i.doc_estatus', 'i.cancelada',
-            trx.raw('(i.vencimiento < current_date) AS vencida'),
-            trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
-          )
-          .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.folio', order: 'desc' }])
+        trx.withMaterialized('sel', seleccion)
+          .select('*').from('sel')
+          .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
           .limit(pageSize).offset((page - 1) * pageSize),
         this.base(trx, tenantId, q)
           .select(
             trx.raw('count(*)::int AS documentos'),
             trx.raw('count(DISTINCT i.cliente_code)::int AS clientes'),
             trx.raw('coalesce(sum(i.total),0)::numeric AS importe'),
-            trx.raw('coalesce(sum(i.descuento),0)::numeric AS descuento'),
-            trx.raw('count(*) FILTER (WHERE i.vencimiento < current_date)::int AS vencidas'),
+            // `descuento` (c13) NO es lo que se descontó: Σrenglones − c13 == total sólo en
+            // 985 de 1,268. El efectivo se despeja del % y cuadra 3,264/3,264.
+            trx.raw('coalesce(sum(i.descuento_efectivo),0)::numeric AS descuento'),
+            // Cobranza: vencido = venció Y debe. El resto se declara en vez de esconderse.
+            trx.raw(`count(*) FILTER (WHERE i.vencimiento < current_date
+                     AND i.estatus_cobro IN ('pendiente','parcial'))::int AS vencidas`),
+            trx.raw(`coalesce(sum(i.saldo) FILTER (WHERE i.vencimiento < current_date
+                     AND i.estatus_cobro IN ('pendiente','parcial')),0)::numeric AS saldo_vencido`),
+            trx.raw('coalesce(sum(i.saldo),0)::numeric AS saldo'),
+            trx.raw(`count(*) FILTER (WHERE i.estatus_cobro='pagada')::int AS pagadas`),
+            trx.raw(`count(*) FILTER (WHERE i.estatus_cobro='sin_cartera')::int AS sin_cartera`),
+            // Cuántas fechas de vencimiento son el hecho del ERP y cuántas una reconstrucción.
+            trx.raw(`count(*) FILTER (WHERE i.vencimiento_source='erp')::int AS venc_erp`),
           ).first(),
       ]);
       return { rows, kpis, page, pageSize, range: this.range(q) };
     });
+  }
+
+  /**
+   * Identidad fiscal del EMISOR, de `fiscal.issuer_config` — la fuente que ya existe (Fase FE).
+   *
+   * AX.10: el anexo la traía **hardcodeada y equivocada**. Imprimía `LOGL8810144QS` y
+   * `C.P. 59701, Michoacán`; lo correcto es **`LOGL851014AQ5`** y **C.P. 36910**, confirmado
+   * por tres fuentes independientes: esta tabla, los **167,503 CFDIs recibidos** de
+   * `fiscal.cfdis` (todos con `receptor_rfc = 'LOGL851014AQ5'` desde 2018 — el receptor de una
+   * factura recibida somos nosotros) y 11 fichas internas de `kepler_ods.kdud`. El CP viejo
+   * además se contradecía con el propio pagaré del mismo documento, que dice C.P. 36910.
+   *
+   * Si no hay fila configurada **se niega a imprimir**: un RFC inventado en un pagaré es peor
+   * que no emitirlo. Cache en proceso (una fila que cambia cada varios años).
+   */
+  async emisorFiscal(): Promise<EmisorFiscal> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hit = EMISOR_CACHE.get(tenantId);
+    if (hit) return hit;
+    const row = await this.tk.run(async (trx) =>
+      trx('fiscal.issuer_config')
+        .where({ tenant_id: tenantId, active: true })
+        .orderBy('is_default', 'desc')
+        .first('rfc', 'tax_name', 'regimen_fiscal', 'cp'));
+    if (!row?.rfc || !row?.tax_name) {
+      throw new NotFoundException(
+        'No hay identidad fiscal configurada (fiscal.issuer_config): el anexo y el pagaré no se '
+        + 'emiten sin RFC y razón social verificados.');
+    }
+    const emisor: EmisorFiscal = {
+      rfc: String(row.rfc).trim().toUpperCase(),
+      nombre: String(row.tax_name).trim(),
+      regimen_code: String(row.regimen_fiscal ?? '').trim(),
+      cp: String(row.cp ?? '').trim(),
+    };
+    EMISOR_CACHE.set(tenantId, emisor);
+    return emisor;
   }
 
   /**
@@ -283,24 +369,42 @@ export class CommercialSalesDocumentsService {
     };
   }
 
-  /** Catálogos para poblar los filtros de la pantalla (de la misma ventana consultada). */
+  /**
+   * Catálogos para poblar los filtros de la pantalla (de la misma ventana consultada).
+   *
+   * ⚠️ Un solo query, con la ventana materializada primero — por la misma razón que `list()`.
+   * Medido en prod: el `DISTINCT warehouse_id, sucursal` directo sobre la vista costaba
+   * **10,853 ms** (el planner recorría el CTE de la cartera por cada fila del join a
+   * `commercial.warehouses`) y así cuesta **430 ms**, los dos catálogos juntos.
+   * Se piden en UNA pasada porque el trabajo caro —resolver la ventana— es el mismo para ambos.
+   */
   async filtros(q: SalesDocsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const { from, to } = this.range(q);
     return this.tk.run(async (trx) => {
-      const [vendedores, sucursales] = await Promise.all([
-        trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
-          .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
-          .andWhere('doc_tipo', 'telemarketing')
-          .whereNotNull('vendedor_code')
-          .distinct('vendedor_code', 'vendedor_nombre').orderBy('vendedor_nombre'),
-        trx('analytics.erp_sales_invoices').where('tenant_id', tenantId)
-          .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
-          .andWhere('doc_tipo', 'telemarketing')
-          .whereNotNull('warehouse_id')
-          .distinct('warehouse_id', 'sucursal').orderBy('sucursal'),
-      ]);
-      return { vendedores, sucursales, doc_tipos: DOC_TIPOS };
+      const ventana = trx('analytics.erp_sales_invoices')
+        .where('tenant_id', tenantId)
+        .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
+        .andWhere('doc_tipo', 'telemarketing')
+        .select('warehouse_id', 'sucursal', 'vendedor_code', 'vendedor_nombre');
+
+      const r = await trx.withMaterialized('sel', ventana)
+        .select(
+          trx.raw(`(SELECT coalesce(jsonb_agg(x ORDER BY x->>'vendedor_nombre'), '[]'::jsonb) FROM (
+                      SELECT DISTINCT jsonb_build_object(
+                        'vendedor_code', vendedor_code, 'vendedor_nombre', vendedor_nombre) AS x
+                      FROM sel WHERE vendedor_code IS NOT NULL) v) AS vendedores`),
+          trx.raw(`(SELECT coalesce(jsonb_agg(x ORDER BY x->>'sucursal'), '[]'::jsonb) FROM (
+                      SELECT DISTINCT jsonb_build_object(
+                        'warehouse_id', warehouse_id, 'sucursal', sucursal) AS x
+                      FROM sel WHERE warehouse_id IS NOT NULL) s) AS sucursales`),
+        ).first();
+
+      return {
+        vendedores: r?.vendedores || [],
+        sucursales: r?.sucursales || [],
+        doc_tipos: DOC_TIPOS,
+      };
     });
   }
 }

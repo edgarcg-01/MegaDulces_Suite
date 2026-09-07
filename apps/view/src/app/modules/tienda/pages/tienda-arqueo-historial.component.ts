@@ -13,6 +13,8 @@ import { ArqueoService, CajeraCard, CumplimientoResp, TurnoCorte } from '../arqu
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { imprimirTicket } from '../ticket-arqueo';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ARQUEO_TABS } from '../arqueo-tabs';
 
 /**
  * Tienda — Arqueos por cajera (/tienda/arqueos).
@@ -30,12 +32,13 @@ import { imprimirTicket } from '../ticket-arqueo';
 @Component({
   selector: 'app-tienda-arqueo-historial',
   standalone: true,
-  imports: [CommonModule, ButtonModule, ToastModule, TagModule, SegmentedComponent, FreshnessPillComponent],
+  imports: [CommonModule, ButtonModule, ToastModule, TagModule, SegmentedComponent, FreshnessPillComponent, PageTabsComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in ah-page">
       <p-toast></p-toast>
+      <app-page-tabs [tabs]="arqueoTabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Arqueos por cajera</h1>
@@ -46,7 +49,7 @@ import { imprimirTicket } from '../ticket-arqueo';
         </div>
         <div class="ah-head-right">
           <app-segmented [options]="ventanas" [value]="ventana()" (valueChange)="cambiarVentana($event)" ariaLabel="Ventana" />
-          <app-freshness-pill [since]="cargadoAl()" [staleAfterSec]="180" />
+          <app-freshness-pill measures="fetch" [since]="cargadoAl()" [staleAfterSec]="180" />
           <button pButton type="button" class="p-button-sm p-button-text" [class.ah-on]="soloPendientes()" (click)="togglePendientes()">
             <span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span>
             <span class="p-button-label">Solo sin conteo físico</span>
@@ -327,6 +330,9 @@ export class TiendaArqueoHistorialComponent implements OnInit {
   private readonly zone = inject(NgZone);
 
   /** Espeja la regla del backend: solo quien valida ve el cuadre. */
+  /** Misma seccion que /tienda/arqueo: el acto y la persona, en pestanas. */
+  readonly arqueoTabs = ARQUEO_TABS;
+
   readonly revela = this.perms.isAdmin()
     || this.auth.user()?.permissions?.[Permission.RECONCILIATION_VER] === true;
 

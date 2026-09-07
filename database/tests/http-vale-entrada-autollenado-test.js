@@ -178,7 +178,7 @@ function check(name, cond, detail) {
   }
 
   console.log(`\n${'─'.repeat(60)}`);
-  if (skipped) { console.log('RESULTADO: SKIP (sin datos del ERP en este entorno)'); process.exit(0); }
+  if (skipped) { console.log('RESULTADO: SKIP (sin datos del ERP en este entorno)'); process.exit(2); }
   console.log(`RESULTADO: ${pass} OK · ${fail} FAIL`);
   if (failures.length) console.log(`Fallaron: ${failures.join(' · ')}`);
   process.exit(fail === 0 ? 0 : 1);

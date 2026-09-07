@@ -100,25 +100,40 @@ export class AnalyticsRefreshService {
     // ~05:00) + kepler (mv_kepler desde kepler_ods, live CDC) + el BLEND consolidado (mv_sales_blended,
     // deriva de los dos anteriores → va AL FINAL para tomarlos ya frescos). Nightly basta: el sell-out
     // no es tiempo-real y antes ya era diario vía el importer. Heartbeat propio por MV.
-    for (const [mv, jobKey, label] of [
-      ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)'],
-      ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)'],
+    // [VP.1.3] `deps` = de qué MV deriva ésta. El orden ya estaba bien pensado, pero el `try/catch`
+    // por MV lo dejaba sin efecto: si fallaba `mv_kepler_sales_daily`, el rollup se materializaba
+    // IGUAL sobre `v_sellout_daily`, que hace UNION de la pierna Kepler (ahora rancia) con la de
+    // Wincaja (fresca). Quedaba un rollup construido a medias, indistinguible de uno sano — y
+    // después `REFRESH CONCURRENTLY` sobre el siguiente lo consolida. Ordenar no es depender.
+    const fallidas = new Set<string>();
+    for (const [mv, jobKey, label, deps] of [
+      ['analytics.mv_wincaja_sales_daily', 'analytics_refresh_wincaja', 'Refresh MV wincaja (nightly)', []],
+      ['analytics.mv_kepler_sales_daily', 'analytics_refresh_kepler', 'Refresh MV kepler (nightly)', []],
       // Rollup mensual del sell-out (deriva de v_sellout_daily → de los dos anteriores) → va DESPUÉS de ellos.
-      ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)'],
-      ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)'],
+      ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)',
+        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+      ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)',
+        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
     ] as const) {
       const start = Date.now();
       let ok = false;
       let errMsg: string | null = null;
       try {
+        const rotas = deps.filter((d) => fallidas.has(d));
+        if (rotas.length) {
+          // NO se refresca: mejor servir el rollup de ayer —viejo pero COHERENTE, y su latido lo
+          // declara— que uno de hoy mezclando una pierna de ayer con otra de hoy. La frescura se
+          // declara (VP.0.3); la incoherencia no se ve.
+          throw new Error(`dependencia sin refrescar: ${rotas.join(', ')} — se omite para no mezclar piernas`);
+        }
         const found = (
           await admin.raw(`SELECT relkind, relispopulated FROM pg_class WHERE oid = ?::regclass`, [mv])
         ).rows;
         if (!found.length || found[0].relkind !== 'm') {
-          this.logger.debug(
-            `Skip ${mv}: no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'}).`,
-          );
-          continue;
+          // [VP.1.3] Antes acá había un `continue` que saltaba ANTES del latido: una MV borrada o
+          // renombrada no dejaba fila en `cron_runs` y sólo rastro en nivel `debug`. Ni error ni
+          // latido: silencio, que en el tablero se lee igual que "nunca corrió". Se trata como falla.
+          throw new Error(`no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'})`);
         }
         const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
         await admin.raw(`REFRESH MATERIALIZED VIEW ${concurrently}${mv}`);
@@ -129,6 +144,7 @@ export class AnalyticsRefreshService {
         );
       } catch (e: any) {
         errMsg = e.message || String(e);
+        fallidas.add(mv); // lo que dependa de ésta no se refresca sobre datos a medias
         this.logger.error(`Refresh ${mv} (nightly) failed: ${errMsg}`);
       }
       // Heartbeat → Salud BD (grupo Crons), job propio para no pisar el del cron de 15 min.

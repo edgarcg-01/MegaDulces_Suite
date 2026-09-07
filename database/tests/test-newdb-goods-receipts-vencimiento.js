@@ -40,7 +40,7 @@ const ok = (c, m) => { console.log(`${c ? '  ✅' : '  ❌'} ${m}`); if (!c) fai
         FROM analytics.erp_goods_receipts
        WHERE tenant_id = ? AND source_branch LIKE 'md_%'`, [T]);
     const k = kep.rows[0];
-    if (!k.filas) { console.log('  ⚠️  sin recepciones Kepler en este entorno — SKIP'); process.exit(0); }
+    if (!k.filas) { console.log('  ⚠️  sin recepciones Kepler en este entorno — SKIP'); process.exit(2); }
     ok(k.con_vence === k.filas, `el vencimiento viene SIEMPRE en Kepler (${k.con_vence}/${k.filas})`);
     ok(k.con_condicion >= k.filas - 5, `la condición de pago viene casi siempre (${k.con_condicion}/${k.filas})`);
 

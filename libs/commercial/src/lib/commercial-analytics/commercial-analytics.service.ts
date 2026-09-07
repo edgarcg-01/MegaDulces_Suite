@@ -1,4 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
@@ -362,9 +363,30 @@ export interface SellOutColumn {
   month?: string;
 }
 
+/** [U.7] Cómo se puede convertir a cajas ESTA celda (producto × almacén), leído de
+ *  `analytics.v_unit_truth.metodo_cajas`. El orden lo fija la vista, no el consumidor:
+ *  `dinero` (ingreso ÷ precio de caja, inmune a la unidad del numerador) › `peso` (granel: son
+ *  kilos) › `divisor` (÷ box_factor, SÓLO con el factor verificado) › `sin_metodo` (se declara). */
+export interface BoxMethod {
+  metodo: 'dinero' | 'peso' | 'divisor' | 'unidad_es_caja' | 'sin_metodo';
+  boxFactor: number;
+  cjaPrice: number;
+  isWeight: boolean;
+}
+
+/** [U.7] Lo que NO se pudo convertir a cajas, para declararlo en vez de dibujarlo. */
+export interface SellOutSinMetodo {
+  skus: number;
+  unidades: number;
+  monto: number;
+}
+
 export interface SellOutCell {
   cajas: number;
   monto: number;
+  /** NETO DE DESCUENTO (con IVA) = total de la factura (Kepler: c16 prorrateado; Wincaja/rutas: ya neto).
+   *  `monto` es el BRUTO de línea (antes del descuento de cabecera). Las cajas NO cambian (son volumen). */
+  monto_neto: number;
 }
 
 export interface SellOutRow {
@@ -392,9 +414,114 @@ export interface SellOutReport {
   rows: SellOutRow[];
   column_totals: Record<string, SellOutCell>;
   grand_total: SellOutCell;
-  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string };
+  /**
+   * [VP.0.6] `measured` distingue "medí y no falta ninguna sucursal" de "no medí" — que con arreglos
+   * vacíos se leen IGUAL y son cosas opuestas. El camino por vendedor agrupa por vendedor, no por
+   * sucursal: ahí este eje no existe y devolvía `[]` + una nota estática de ALCANCE presentada como
+   * si fuera una medición. Una nota fija en el campo de la cobertura es la falla de fondo de la fase
+   * en miniatura: el consumidor no tiene cómo saber que nadie contó nada.
+   */
+  coverage: { branches_with_data: string[]; branches_missing: string[]; note: string; measured: boolean };
+  /**
+   * [VP.0.3] Edad del dato con el que se calculó. NO es `generated_at`: ése es cuándo corrió la
+   * consulta, y un servidor que responde en 200 ms sobre matviews de hace seis días lo reporta
+   * igual de fresco. Son las dos preguntas que la fase OBS separó.
+   */
+  freshness: Freshness;
+  /**
+   * [U.7] Venta que NO se pudo expresar en cajas, declarada en vez de dibujada. Hasta hoy esas
+   * celdas caían a `units / 1` y se publicaban como "cajas" siendo PIEZAS: medido, 716,742
+   * unidades en 710 SKUs ($14,279,457 = 2.2% de la venta 365d). Cero no es la respuesta —
+   * "no hay con qué convertirlo" sí. Pasa cuando no hay precio de caja, ni el factor tiene
+   * testigo, o el almacén no está cubierto por el resolvedor (las 6 rutas de La Piedad).
+   */
+  sin_metodo: SellOutSinMetodo;
   generated_at: string;
 }
+
+// ─── BI.3 "Explica el cambio" (delta_bridge) ─────────────────────────────────
+// Descompone el delta del sell-out entre dos periodos por UNA dimension. La venta
+// es una SUMA sobre la dimension, asi que el reparto es EXACTO: Σ contrib = Δ total,
+// al centavo (a diferencia de la heuristica de PowerBI). Mismo universo que el
+// reporte (v_sellout_daily/mv_sellout_monthly) -> cuadra por construccion.
+export type SellOutExplainDim = 'brand' | 'branch' | 'channel';
+export type SellOutExplainCompare = 'prev' | 'yoy';
+export interface SellOutExplainQuery {
+  from: string;
+  to: string;
+  dim?: string;
+  compare?: string;
+  brand_id?: string;
+  measure?: string;
+  promo?: string;
+  search?: string;
+  warehouses?: string[];
+  /** BI.2 — acota el drill a un canal (mostrador|ruta|credito|preventa). */
+  channel?: string;
+}
+export interface SellOutMover {
+  key: string;
+  label: string;
+  code: string | null;
+  prev: number;
+  curr: number;
+  delta: number;
+  /** null = no habia base en el periodo espejo (delta% indefinido, es un 'nuevo'). */
+  delta_pct: number | null;
+  kind: 'nuevo' | 'perdido' | 'crecio' | 'cayo' | 'igual';
+}
+export interface SellOutExplainReport {
+  dimension: SellOutExplainDim;
+  compare: SellOutExplainCompare;
+  measure: 'monto' | 'monto_neto';
+  period: { from: string; to: string };
+  mirror: { from: string; to: string };
+  total: { curr: number; prev: number; delta: number; delta_pct: number | null };
+  /** Los movimientos que explican ~80% del |Δ| (min 3, max 15), ordenados por |Δ| desc. */
+  movers: SellOutMover[];
+  /** El resto agrupado (lo que no entro al top), para que Σ siga cuadrando. */
+  otros: { count: number; delta: number };
+  narrative: string;
+  freshness: Freshness;
+  generated_at: string;
+}
+
+// ─── BI.6 "Radar" (anomalías proactivas) ─────────────────────────────────────
+// Cada miembro contra SU PROPIO promedio de los meses previos (baseline), no solo
+// vs el mes pasado. Surface lo raro sin que el usuario pregunte. Solo meses cerrados.
+export interface SelloutAnomaliesQuery {
+  month?: string;   // 'YYYY-MM' (default: último mes cerrado)
+  dim?: string;     // brand | branch | channel (default brand)
+  lookback?: number; // meses de baseline (default 3)
+}
+export interface SelloutAnomaly {
+  key: string;
+  label: string;
+  current: number;
+  baseline: number;
+  deviation: number;
+  deviation_pct: number | null;
+  kind: 'caida' | 'pico' | 'perdido' | 'nuevo';
+  reason: string;
+}
+export interface SelloutAnomaliesReport {
+  month: string;
+  baseline_months: string[];
+  dim: SellOutExplainDim;
+  anomalies: SelloutAnomaly[];
+  generated_at: string;
+}
+
+// ─── BI.4 gráficas de soporte (tendencia + Pareto/ABC) ───────────────────────
+export interface SelloutSeriesPoint { month: string; monto: number; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; }
+export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
+
+// ─── BI.9 objetivos / metas ───────────────────────────────────────────────────
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; }
+export interface SelloutTargetUpsert { scope?: string; scope_key?: string; year_month?: string; target_monto?: number; }
 
 export interface SellOutBrandRow {
   id: string;
@@ -478,6 +605,47 @@ function sellOutMonthLabel(ym: string): string {
   const [y, m] = (ym || '').split('-');
   const idx = Number(m) - 1;
   return idx >= 0 && idx < 12 ? `${MONTH_ABBR_ES[idx]} ${y}` : ym;
+}
+
+/**
+ * [U.7] Convierte una celda de venta a CAJAS con el método que declara
+ * `analytics.v_unit_truth.metodo_cajas`. El orden lo fija la vista y este archivo lo obedece:
+ *
+ *   · `dinero`  — ingreso ÷ precio de caja. Va primero porque es **inmune a la unidad del
+ *                 numerador**, que es exactamente lo que falla: medido, `sales_daily.units` mezcla
+ *                 peldaños incluso dentro de un mismo almacén (`42029` en el almacén `01` promedia
+ *                 $71.07/unidad — ni la pieza de $12.46 ni el paquete de $115.25).
+ *   · `peso`    — granel: la cantidad YA está en kilos, no se divide.
+ *   · `divisor` — cantidad ÷ box_factor, sólo cuando el factor tiene testigo.
+ *   · `unidad_es_caja` — no hay paquete ni caja en la escalera y ningún testigo dice que la haya:
+ *                 la unidad de venta ES la más grande, así que cajas = unidades. Verificado contra
+ *                 el precio realizado en 240 de 278 SKUs (`57009 CUBETA 20K` a $1,453 contra p1
+ *                 $1,500; `87234` con `unit_base = CJA`). No es un default: tratarlo como
+ *                 ignorancia bajaba el total del sell-out un **33.6%**.
+ *   · resto     — **no se convierte**. `ok = false` y quien llama lo declara.
+ *
+ * Devuelve `cajas: 0` con `ok: false` a propósito: sumar cero no inventa volumen. Lo que estaba
+ * mal antes era dividir por 1 y publicar piezas con la etiqueta "cajas".
+ */
+function cajasDe(
+  m: BoxMethod | undefined,
+  units: number,
+  monto: number,
+  isWeightRow: boolean,
+): { cajas: number; ok: boolean } {
+  // El fact manda sobre el catálogo para decidir si la fila es de peso: `unit_kind` se calculó
+  // sobre la venta real, y ahí la cantidad ya viene en kilos.
+  if (isWeightRow) return { cajas: units, ok: true };
+  if (!m) return { cajas: 0, ok: false }; // almacén sin fila en el resolvedor (ver v_unit_truth_coverage)
+  if (m.metodo === 'dinero') {
+    return m.cjaPrice > 0 ? { cajas: monto / m.cjaPrice, ok: true } : { cajas: 0, ok: false };
+  }
+  if (m.metodo === 'peso') return { cajas: units, ok: true };
+  if (m.metodo === 'divisor') {
+    return m.boxFactor > 1 ? { cajas: units / m.boxFactor, ok: true } : { cajas: 0, ok: false };
+  }
+  if (m.metodo === 'unidad_es_caja') return { cajas: units, ok: true };
+  return { cajas: 0, ok: false }; // sin_metodo
 }
 
 const REVENUE_STATUSES = ['fulfilled'];
@@ -2694,7 +2862,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxFactors, boxPrices, identMap } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, identMap, freshness } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -2732,6 +2900,9 @@ export class CommercialAnalyticsService {
       // vocabulario de canal horneados en `v_sellout_daily`, y rutea meses cerrados → rollup / borde → vista.
       const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter, needMonth, byBrand });
 
+      // [VP.0.3] Poblado ≠ fresco. Los guards de arriba sólo saben lo primero.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+
 
       // RA-PRO.38/39 — factor de caja (resolvedor) + precio de CJA (money-anchored) por producto.
       // = ANY(?::uuid[]) en vez de whereIn: maneja el array VACÍO sin crashear (whereIn([]) bindeaba
@@ -2742,18 +2913,18 @@ export class CommercialAnalyticsService {
       const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const pidsAll = rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
       const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
-      const boxFactors = pids.length
-        ? await trx('analytics.v_product_box_factor')
+      // [U.7] Una sola lectura al resolvedor: trae el divisor NATIVO del almacén (ADR-055), el
+      // precio de caja y — lo que faltaba — el MÉTODO con el que se puede convertir. Reemplaza
+      // las dos consultas separadas a `v_product_box_factor` + `product_box_price`, cuya cascada
+      // terminaba en `factor_sale ?? box_size ?? 1`: medido, ese último recurso publicaba
+      // **716,742 PIEZAS rotuladas como cajas** en 710 SKUs ($14,279,457 = 2.2% de la venta).
+      // El grano es (producto × almacén) porque el divisor lo es; se indexa por las dos claves.
+      const boxMethods = pids.length
+        ? await trx('analytics.v_unit_truth')
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [pids])
-            .select('product_id', 'box_factor')
-        : [];
-      const boxPrices = pids.length
-        ? await trx('analytics.product_box_price')
-            .where('tenant_id', tenantId)
-            .whereRaw('product_id = ANY(?::uuid[])', [pids])
-            .andWhere('cja_price', '>', 0)
-            .select('product_id', 'cja_price')
+            .select('product_id', 'warehouse_code', 'box_factor', 'cja_price',
+              'metodo_cajas', 'is_weight')
         : [];
 
       // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
@@ -2762,18 +2933,32 @@ export class CommercialAnalyticsService {
         (qb) => { if (warehouseFilter) qb.whereIn('s.warehouse_code', warehouseFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxFactors, boxPrices, identMap };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, identMap, freshness };
     });
-    // RA-PRO.38 — mapa product_id → factor de caja canónico (resolvedor único, fallback).
-    const boxFactorMap = new Map<string, number>(
-      boxFactors.map((b: any) => [b.product_id, Number(b.box_factor) || 1]),
-    );
-    // RA-PRO.39 — mapa product_id → precio de CJA (conversión money-anchored a cajas).
-    const boxPriceMap = new Map<string, number>(
-      boxPrices.map((b: any) => [b.product_id, Number(b.cja_price) || 0]),
-    );
+    // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
+    // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
+    // (las 6 rutas de La Piedad, que cambiaron de ERP; ver `v_unit_truth_coverage`). Sin fila en
+    // ninguno de los dos, la celda NO se convierte: se declara.
+    const methodByCell = new Map<string, BoxMethod>();
+    const methodByProduct = new Map<string, BoxMethod>();
+    for (const m of boxMethods as any[]) {
+      const v: BoxMethod = {
+        metodo: m.metodo_cajas,
+        boxFactor: Number(m.box_factor) || 1,
+        cjaPrice: Number(m.cja_price) || 0,
+        isWeight: !!m.is_weight,
+      };
+      methodByCell.set(`${m.product_id}|${m.warehouse_code}`, v);
+      if (!methodByProduct.has(m.product_id)) methodByProduct.set(m.product_id, v);
+    }
+    const methodFor = (pid: string, whCode: unknown): BoxMethod | undefined =>
+      methodByCell.get(`${pid}|${String(whCode)}`) ?? methodByProduct.get(pid);
+    // Lo que no se pudo convertir se CUENTA, no se dibuja como cero ni se cuela como piezas.
+    const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
 
-    const base: Omit<SellOutReport, 'coverage'> = {
+    // `coverage` y `freshness` se resuelven al final, junto con las filas: una necesita saber qué
+    // sucursales trajeron dato, la otra se midió con el trx. Se agregan en el return.
+    const base: Omit<SellOutReport, 'coverage' | 'freshness' | 'sin_metodo'> = {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to },
       group_by: groupBy,
@@ -2783,17 +2968,18 @@ export class CommercialAnalyticsService {
       columns: [],
       rows: [],
       column_totals: {},
-      grand_total: { cajas: 0, monto: 0 },
+      grand_total: { cajas: 0, monto: 0, monto_neto: 0 },
       generated_at: new Date().toISOString(),
     };
 
     // Paso 3 — pivote en Node
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
-    const colTotals = new Map<string, { cajas: number; monto: number }>();
+    const colTotals = new Map<string, SellOutCell>();
     const branchesWithData = new Set<string>();
     let grandCajas = 0;
     let grandMonto = 0;
+    let grandMontoNeto = 0;
     let excludedTransfers = 0;
 
     // RS.13 — plaza: pre-crear TODAS las columnas del template (en orden), aun vacías, para que
@@ -2802,7 +2988,7 @@ export class CommercialAnalyticsService {
     if (plaza) {
       for (const col of SELLOUT_PLAZA_COLUMNS) {
         columns.set(col.key, { key: col.key, branch_code: col.key, branch_name: col.label });
-        colTotals.set(col.key, { cajas: 0, monto: 0 });
+        colTotals.set(col.key, { cajas: 0, monto: 0, monto_neto: 0 });
       }
     }
 
@@ -2820,31 +3006,33 @@ export class CommercialAnalyticsService {
         const colKey = plazaColKey(r.branch_code, channel) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
-          colTotals.set(colKey, { cajas: 0, monto: 0 });
+          colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
         }
         const punits = Number(r.units) || 0;
         const pmonto = Number(r.monto) || 0;
+        const pmontoNeto = Number(r.monto_neto) || 0;
         const pIsWeight = r.unit_kind === 'weight';
-        const pfs = Number(r.factor_sale);
-        const pbox = Number(r.box_size);
-        const pdiv = boxFactorMap.get(r.product_id) ?? (pfs > 1 ? pfs : (pbox > 1 ? pbox : 1));
-        const pcjaPrice = boxPriceMap.get(r.product_id) || 0;
-        const pcajas = pIsWeight ? punits : pcjaPrice > 0 ? pmonto / pcjaPrice : punits / pdiv;
+        // [U.7] El método sale del resolvedor. Antes caía a `factor_sale ?? box_size ?? 1`.
+        const pconv = cajasDe(methodFor(r.product_id, r.branch_code), punits, pmonto, pIsWeight);
+        if (!pconv.ok) {
+          sinMetodo.skus.add(r.sku); sinMetodo.unidades += punits; sinMetodo.monto += pmonto;
+        }
+        const pcajas = pconv.cajas;
         branchesWithData.add(r.branch_name);
         let prow = rowMap.get(r.sku);
         if (!prow) {
           prow = {
             product_id: r.product_id, sku: r.sku, nombre: r.nombre,
             uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
-            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 },
+            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 },
           };
           rowMap.set(r.sku, prow);
         }
-        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0 });
-        pcell.cajas += pcajas; pcell.monto += pmonto;
-        prow.total.cajas += pcajas; prow.total.monto += pmonto;
-        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto;
-        grandCajas += pcajas; grandMonto += pmonto;
+        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
+        pcell.cajas += pcajas; pcell.monto += pmonto; pcell.monto_neto += pmontoNeto;
+        prow.total.cajas += pcajas; prow.total.monto += pmonto; prow.total.monto_neto += pmontoNeto;
+        const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto; pct.monto_neto += pmontoNeto;
+        grandCajas += pcajas; grandMonto += pmonto; grandMontoNeto += pmontoNeto;
         continue;
       }
 
@@ -2873,21 +3061,30 @@ export class CommercialAnalyticsService {
       // RS.3 — producto de PESO: units ya está en kg → NO se divide (mostrar kg). Producto
       // de PIEZA: units son piezas → cajas = piezas / (factor_sale, o box_size si factor=1).
       const isWeight = r.unit_kind === 'weight';
-      // RA-PRO.39 — CAJAS money-anchored: cajas = revenue / precio_CJA (de Kepler). Es la
-      // conversión ROBUSTA — inmune a que la venta llegue en PZA/PAQ/CJA y a que factor_sale/
-      // box_size signifiquen distinto por producto. Peso → kg (no cajas). Fallback (sin precio
-      // CJA): divisor del resolvedor canónico (v_product_box_factor).
-      const fs = Number(r.factor_sale);
-      const box = Number(r.box_size);
-      const divisor = boxFactorMap.get(r.product_id) ?? (fs > 1 ? fs : (box > 1 ? box : 1));
-      const cjaPrice = boxPriceMap.get(r.product_id) || 0;
-      const cajas = r.cajas != null
-        ? Number(r.cajas)                          // fast-path byBrand: cajas money-anchored ya sumadas en SQL
-        : isWeight
-          ? units                                  // granel → kg
-          : cjaPrice > 0
-            ? monto / cjaPrice                      // money-anchored (robusto)
-            : units / divisor;                      // fallback: factor del resolvedor
+      // [U.7] El método de conversión lo decide `analytics.v_unit_truth.metodo_cajas`, no este
+      // archivo: dinero › peso › divisor VERIFICADO › declarar. La cascada anterior terminaba en
+      // `factor_sale ?? box_size ?? 1`, y ese `1` publicaba PIEZAS con la etiqueta "cajas" —
+      // medido, 716,742 unidades en 710 SKUs ($14,279,457 = 2.2% de la venta).
+      let cajas: number;
+      if (r.units_sin_metodo != null) {
+        // Pierna a grano MARCA (`selloutBrandLeg`): las cajas ya vienen sumadas en SQL con el
+        // mismo orden de métodos, y lo no convertible viene declarado aparte. `cajas` puede ser
+        // NULL cuando NINGUNA fila del grupo tenía método — ahí es 0 y todo se declara.
+        cajas = Number(r.cajas) || 0;
+        const un = Number(r.units_sin_metodo) || 0;
+        if (un > 0) {
+          // A grano marca no hay SKU: se cuenta la marca. Lo que importa acá es el volumen.
+          sinMetodo.skus.add(String(r.brand_id ?? r.sku ?? '·'));
+          sinMetodo.unidades += un;
+          sinMetodo.monto += Number(r.monto_sin_metodo) || 0;
+        }
+      } else {
+        const conv = cajasDe(methodFor(r.product_id, r.branch_code), units, monto, isWeight);
+        if (!conv.ok) {
+          sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto;
+        }
+        cajas = conv.cajas;
+      }
       branchesWithData.add(r.branch_name);
 
       // Columnas: por MES (month_columns) o por sucursal[×canal]×FUENTE (RS.5). RS.6 — la
@@ -2932,7 +3129,7 @@ export class CommercialAnalyticsService {
               source: src,
               source_label: srcLabel,
             });
-        colTotals.set(colKey, { cajas: 0, monto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
 
       // Filas: por MES (month_summary), por EMPRESA (byBrand → product_id lleva el
@@ -2947,7 +3144,7 @@ export class CommercialAnalyticsService {
               nombre: sellOutMonthLabel(r.sale_month), // el exporter usa nombre como etiqueta de fila
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             }
           : byBrand
           ? {
@@ -2956,7 +3153,7 @@ export class CommercialAnalyticsService {
               nombre: r.brand_nombre || 'Sin empresa',
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             }
           : {
               product_id: r.product_id,
@@ -2965,11 +3162,11 @@ export class CommercialAnalyticsService {
               uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
               unit_kind: isWeight ? 'weight' : 'piece',
               cells: {},
-              total: { cajas: 0, monto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0 },
             };
         rowMap.set(rowKey, row);
       }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
       cell.cajas += cajas;
       cell.monto += monto;
       row.total.cajas += cajas;
@@ -2992,7 +3189,7 @@ export class CommercialAnalyticsService {
             nombre: p.nombre,
             uxc: p.factor_sale != null ? Number(p.factor_sale) : null,
             cells: {},
-            total: { cajas: 0, monto: 0 },
+            total: { cajas: 0, monto: 0, monto_neto: 0 },
           });
         }
       }
@@ -3023,20 +3220,28 @@ export class CommercialAnalyticsService {
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     for (const row of rows) {
       for (const k of Object.keys(row.cells)) {
-        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
+        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
       }
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
     }
-    const columnTotalsObj: Record<string, { cajas: number; monto: number }> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    const columnTotalsObj: Record<string, SellOutCell> = {};
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
 
     return {
       ...base,
       columns: orderedCols,
       rows,
       column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
+      freshness,
+      // [U.7] La venta que no se pudo expresar en cajas va DECLARADA, no sumada al total con un
+      // divisor inventado. El total baja respecto de ayer y eso es el arreglo, no el defecto.
+      sin_metodo: {
+        skus: sinMetodo.skus.size,
+        unidades: round(sinMetodo.unidades, 3),
+        monto: round(sinMetodo.monto, 2),
+      },
     };
   }
 
@@ -3070,16 +3275,19 @@ export class CommercialAnalyticsService {
     return code === '' || code === '00' || code === '99';
   }
 
-  /**
-   * PARIDAD Kepler↔Wincaja — dedup de la pierna Kepler del sell-out = COMPLEMENTO EXACTO del blend
-   * Wincaja (PH ≥jul / La Piedad ≥oct / Canindo ≥ago15; 03/04/05 Kepler-native). Mismo predicado que
-   * sellOutByVendor L3504. Centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
-   * literales de cutover. (`k` = alias de analytics.mv_kepler_sales_daily.)
-   */
-  private readonly KEPLER_SELLOUT_DEDUP = `((k.source_branch='01' AND k.business_date >= DATE '2026-07-01')
-      OR (k.source_branch='02' AND k.business_date >= DATE '2025-10-01')
-      OR (k.source_branch='06' AND k.business_date >= DATE '2026-08-15')
-      OR k.source_branch IN ('03','04','05'))`;
+  // [VP.1.1] Acá vivía `KEPLER_SELLOUT_DEDUP`, el predicado de cutover Kepler↔Wincaja, con un
+  // docstring que decía "centralizado acá para que vendedores/canales lo reusen sin re-duplicar los
+  // literales". Al mover el dedup adentro de `analytics.v_sellout_daily` (RS) la constante quedó con
+  // UNA sola referencia: su propia declaración. Nadie la leía.
+  //
+  // Se retira en vez de dejarla "por si acaso". Una copia muerta que sigue PARECIENDO canónica es
+  // peor que no tenerla: el próximo que necesite mover una fecha de corte la encuentra primero, la
+  // edita, y no pasa absolutamente nada — o peor, edita la buena y deja ésta contradiciéndola para
+  // el que lea después. Es la misma regla que GOTCHAS §32 aplicada a un literal: no hay copias, hay
+  // una fuente.
+  //
+  // Hoy la fuente es la vista. `database/tests/test-newdb-sellout-parity.js` vigila que las copias
+  // que QUEDAN vivas (las dos migraciones + el proyector del feed) no se separen entre sí.
 
   /** ¿mv_kepler_sales_daily existe, poblado y enriquecido (columna branch_name)? — mismo guard que sellOut. */
   private async keplerMvReady(trx: any): Promise<boolean> {
@@ -3097,6 +3305,15 @@ export class CommercialAnalyticsService {
   // parcial/actual, de la vista (fresco a la última corrida nocturna). Mismo dedup, mismo vocabulario
   // de canal, misma identidad de vendedor en ambos → adiós a las 9 divergencias A–I.
 
+  /**
+   * [VP.0.3] ¿este rango pasa por el rollup mensual? UNA definición, dos consumidores: el que trae
+   * las filas y el que declara la frescura. Recalcularla aparte en cada uno es cómo un par de
+   * literales se separa en silencio — la lección del dedup escrito a mano en 11 archivos.
+   */
+  private async selloutUsesRollup(trx: any, plan: ReturnType<CommercialAnalyticsService['planSellOutSources']>): Promise<boolean> {
+    return !!plan.monthly && (await this.selloutMonthlyReady(trx));
+  }
+
   /** ¿`mv_sellout_monthly` poblado? (fast-path de meses cerrados). */
   private async selloutMonthlyReady(trx: any): Promise<boolean> {
     return !!(await trx.raw(
@@ -3112,6 +3329,45 @@ export class CommercialAnalyticsService {
       `SELECT bool_and(c.relispopulated) AS ok FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE n.nspname='analytics' AND c.relname IN ('mv_kepler_sales_daily','mv_wincaja_sales_daily')`,
     )).rows?.[0]?.ok === true;
+  }
+
+  /**
+   * [VP.0.3] La EDAD de las matviews que arman el sell-out, declarada en la respuesta.
+   *
+   * Los tres guards de acá arriba preguntan `relispopulated`, que es `true` **para siempre** después
+   * del primer populate. Un `mv_kepler_sales_daily` que falló el refresh cinco noches seguidas los
+   * pasa los tres y se sirve sin una palabra: el reporte queda armado sobre una pierna vieja y otra
+   * fresca, que es la forma exacta de "los números cambiaron sin que nadie tocara nada". Poblado no
+   * es fresco — son dos preguntas distintas y sólo se estaba haciendo la primera.
+   *
+   * La señal ya existía y no llegaba al consumidor: `AnalyticsRefreshService` escribe un latido por
+   * MV en `analytics.cron_runs` (con `status:'error'` cuando falla), y ningún endpoint que sirve esas
+   * MV leía esa fila. `laneAt()` la lee por el mismo camino que el resto de la plataforma
+   * (`analytics.v_feed_freshness`).
+   *
+   * Tolerancia 26 h = el mismo `warnH` con el que `CRON_JOBS` juzga estos jobs: el cron es nocturno
+   * (06:20 MX), así que 24 h de edad son sanas y 26 h significan que se saltó una corrida. Un solo
+   * número para las dos audiencias, tomado de la que ya lo tenía.
+   *
+   * NO bloquea — informa. El 503 sigue siendo sólo para "no hay fuente".
+   */
+  private async selloutFreshness(trx: any, usaRollup: boolean): Promise<Freshness> {
+    try {
+      const carriles: [string, string][] = [
+        ['analytics_refresh_kepler', 'Venta Kepler (mv_kepler_sales_daily)'],
+        ['analytics_refresh_wincaja', 'Venta Wincaja (mv_wincaja_sales_daily)'],
+      ];
+      // El rollup mensual sólo es un eslabón cuando el rango efectivamente lo usa; sumarlo siempre
+      // marcaría viejo un reporte del borde que no lo tocó.
+      if (usaRollup) carriles.push(['analytics_refresh_sellout_monthly', 'Rollup mensual (mv_sellout_monthly)']);
+      const inputs = await Promise.all(
+        carriles.map(async ([key, label]) => evalInput(key, label, await laneAt(trx, key), 26)),
+      );
+      return composeFreshness(inputs);
+    } catch {
+      // Que falle el medidor no autoriza a afirmar lo que no se midió (regla 2 de shared/freshness).
+      return FRESHNESS_UNKNOWN;
+    }
   }
 
   private selloutMonthStart(d: string): string { return d.slice(0, 8) + '01'; }
@@ -3174,7 +3430,7 @@ export class CommercialAnalyticsService {
       .select(
         trx.raw('s.warehouse_code as branch_code'),
         's.product_id', 's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
-        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'),
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
       )
       .groupByRaw('s.warehouse_code, s.product_id, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
     if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
@@ -3190,12 +3446,36 @@ export class CommercialAnalyticsService {
    * units/box_factor`; la fórmula es sumable porque cja_price y box_factor son constantes por producto).
    */
   private selloutBrandLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any, monthExpr: string) {
-    // MISMA fórmula que el pivote por-producto (divisor = box_factor ?? factor_sale>1 ?? box_size>1 ?? 1),
-    // sumable a grano marca porque cja_price/box_factor/factor_sale/box_size son constantes por producto.
-    const cajas = `sum(CASE WHEN s.unit_kind='weight' THEN s.units WHEN bp.cja_price>0 THEN s.monto/bp.cja_price ELSE s.units/GREATEST(COALESCE(bf.box_factor, CASE WHEN s.factor_sale>1 THEN s.factor_sale WHEN s.box_size>1 THEN s.box_size ELSE 1 END), 1) END)`;
+    // [U.7] MISMA cascada que el pivote por-producto, pero leída del resolvedor: el método lo
+    // declara `analytics.v_unit_truth.metodo_cajas` (dinero › peso › divisor VERIFICADO › nada).
+    // Sigue siendo sumable a grano marca porque `cja_price` y `box_factor` son constantes por
+    // (producto, almacén) y el GROUP BY incluye `warehouse_code`.
+    // ⚠️ El `ELSE NULL` es deliberado: antes cerraba en `/1` y publicaba PIEZAS como cajas —
+    // medido, 716,742 unidades en 710 SKUs ($14,279,457). `sum()` ignora los NULL, así que el
+    // total deja de inflarse; lo omitido se declara en `sin_metodo` del reporte.
+    const cajas = `sum(CASE
+        WHEN s.unit_kind = 'weight'                     THEN s.units
+        WHEN ut.metodo_cajas = 'dinero'
+         AND ut.cja_price > 0                           THEN s.monto / ut.cja_price
+        WHEN ut.metodo_cajas = 'peso'                   THEN s.units
+        WHEN ut.metodo_cajas = 'divisor'
+         AND ut.box_factor > 1                          THEN s.units / ut.box_factor
+        WHEN ut.metodo_cajas = 'unidad_es_caja'         THEN s.units
+        ELSE NULL END)`;
+    // Lo que no se pudo convertir, para declararlo en vez de que desaparezca en silencio. Es el
+    // complemento EXACTO del CASE de arriba: la rama que ahí da NULL, acá suma.
+    const noConvertible = `(s.unit_kind <> 'weight'
+        AND NOT (ut.metodo_cajas = 'dinero'  AND ut.cja_price  > 0)
+        AND NOT (ut.metodo_cajas = 'peso')
+        AND NOT (ut.metodo_cajas = 'divisor' AND ut.box_factor > 1)
+        AND NOT (ut.metodo_cajas = 'unidad_es_caja'))`;
+    const sinMetodoUn = `sum(CASE WHEN ${noConvertible} THEN s.units ELSE 0 END)`;
+    const sinMetodoMonto = `sum(CASE WHEN ${noConvertible} THEN s.monto ELSE 0 END)`;
     const qb = trx(`${table} as s`)
-      .leftJoin('analytics.v_product_box_factor as bf', function (this: any) { this.on('bf.tenant_id', 's.tenant_id').andOn('bf.product_id', 's.product_id'); })
-      .leftJoin('analytics.product_box_price as bp', function (this: any) { this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id'); })
+      .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+        this.on('ut.tenant_id', 's.tenant_id').andOn('ut.product_id', 's.product_id')
+          .andOn('ut.warehouse_code', 's.warehouse_code');
+      })
       .where('s.tenant_id', o.tenantId)
       .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
       .modify((b: any) => {
@@ -3207,7 +3487,9 @@ export class CommercialAnalyticsService {
         's.brand_id', trx.raw('max(s.brand_nombre) as brand_nombre'), trx.raw('max(s.brand_code) as brand_code'),
         trx.raw('s.warehouse_code as branch_code'), trx.raw('max(s.branch_name) as branch_name'),
         's.channel', 's.source', 's.vendor_code', 's.vendor_name', 's.unit_kind',
-        trx.raw(`${cajas} as cajas`), trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'),
+        trx.raw(`${cajas} as cajas`), trx.raw(`${sinMetodoUn} as units_sin_metodo`),
+        trx.raw(`${sinMetodoMonto} as monto_sin_metodo`),
+        trx.raw('SUM(s.units) as units'), trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'),
       )
       .groupByRaw('s.brand_id, s.warehouse_code, s.channel, s.source, s.vendor_code, s.vendor_name, s.unit_kind' + (o.needMonth ? `, ${monthExpr}` : ''));
     if (o.needMonth) qb.select(trx.raw(`${monthExpr} as sale_month`));
@@ -3217,7 +3499,7 @@ export class CommercialAnalyticsService {
   /** Overview por empresa: filas a grano MARCA (cajas pre-calculadas) — rollup cerrados + vista borde. */
   private async fetchSelloutBrandRows(trx: any, o: any): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
     if (useRollup) out.push(...await this.selloutBrandLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
@@ -3231,7 +3513,7 @@ export class CommercialAnalyticsService {
   private async fetchSelloutRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; warehouseFilter: string[] | null; needMonth: boolean; byBrand?: boolean }): Promise<any[]> {
     if (o.byBrand) return this.fetchSelloutBrandRows(trx, o);
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
     if (useRollup) out.push(...await this.selloutPivotLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o, 's.year_month'));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
@@ -3269,6 +3551,28 @@ export class CommercialAnalyticsService {
    *  (ambas fuentes) + ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida). */
   private selloutVendorLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
     return trx(`${table} as s`)
+      // [U.7] El precio de CAJA, a su grano natural (producto). Este pivote agrupa por VENDEDOR y
+      // nunca trae almacén, así que el divisor nativo de ADR-055 no está disponible acá — pero el
+      // método de dinero no lo necesita, y cubre el 92.9% de la venta. Lo que quede sin precio se
+      // declara; antes esta pierna convertía SÓLO con `factor_sale`, la única fuente probada sin
+      // unidad (mitad piezas, un tercio paquetes).
+      .leftJoin('analytics.product_box_price as bp', function (this: any) {
+        this.on('bp.tenant_id', 's.tenant_id').andOn('bp.product_id', 's.product_id');
+      })
+      // El método a grano PRODUCTO. ⚠️ Es una aproximación declarada: `metodo_cajas` se resuelve
+      // por (producto × almacén) y acá no hay almacén, así que se toma el método del producto con
+      // `bool_or`. Sólo se usa para la rama `unidad_es_caja`, que NO depende del almacén (es una
+      // propiedad del empaque: no hay paquete ni caja en la escalera del ERP).
+      .leftJoin(
+        trx('analytics.v_unit_truth')
+          .select('tenant_id', 'product_id')
+          .select(trx.raw(`bool_or(metodo_cajas = 'unidad_es_caja') AS unidad_es_caja`))
+          .groupBy('tenant_id', 'product_id')
+          .as('utp'),
+        function (this: any) {
+          this.on('utp.tenant_id', 's.tenant_id').andOn('utp.product_id', 's.product_id');
+        },
+      )
       .where('s.tenant_id', o.tenantId)
       .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
       .andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`)
@@ -3288,6 +3592,13 @@ export class CommercialAnalyticsService {
         trx.raw(`CASE WHEN s.unit_kind='weight' THEN 'KGS' ELSE 'PZA' END as uv_win`),
         trx.raw('1 as fac_win'),
         trx.raw('sum(s.units) as qty'), trx.raw('sum(s.monto) as monto'),
+        // El neto NO se seleccionaba, así que `monto_neto` llegaba undefined y el pivote por
+        // vendedor publicaba SIEMPRE $0 en esa columna. Una columna que existe y vale cero se lee
+        // como "no hubo descuento", no como "nadie la trajo".
+        trx.raw('sum(s.monto_neto) as monto_neto'),
+        // [U.7] Cajas ancladas al dinero + lo que no se pudo convertir, declarado aparte.
+        trx.raw(`max(bp.cja_price) as cja_price`),
+        trx.raw(`bool_or(COALESCE(utp.unidad_es_caja, false)) as unidad_es_caja`),
       )
       .groupByRaw('s.vendor_code, s.vendor_name, s.channel, s.product_id, s.brand_id, s.unit_kind');
   }
@@ -3295,12 +3606,362 @@ export class CommercialAnalyticsService {
   /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
   private async fetchSelloutVendorRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo }): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const out: any[] = [];
     if (useRollup) out.push(...await this.selloutVendorLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
     const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
     for (const r of dailyRanges) out.push(...await this.selloutVendorLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
     return out;
+  }
+
+  // ─── BI.3 "Explica el cambio" (delta_bridge) ───────────────────────────────
+  // Un tramo agregado a grano de UNA dimension (marca/sucursal/canal). Mismo universo
+  // y mismos filtros que el pivote; excluye 'traspaso' igual que sellOut(). La venta
+  // es sumable sobre la dimension -> la contribucion por miembro es EXACTA.
+  private selloutExplainLeg(trx: any, table: string, dateCol: string, lo: string, hi: string, o: any) {
+    const keyExpr = o.dim === 'branch' ? 's.warehouse_code' : o.dim === 'channel' ? 's.channel' : 's.brand_id';
+    const qb = trx(`${table} as s`)
+      .where('s.tenant_id', o.tenantId)
+      .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
+      .andWhereRaw(`s.channel <> 'traspaso'`)
+      .modify((b: any) => {
+        if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
+        else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
+        if (o.brandId) b.andWhere('s.brand_id', o.brandId);
+        if (o.channel) b.andWhere('s.channel', o.channel);
+        if (o.search) b.andWhereRaw('(s.sku ILIKE ? OR s.nombre ILIKE ?)', [`%${o.search}%`, `%${o.search}%`]);
+        if (o.warehouseFilter && o.warehouseFilter.length) b.whereIn('s.warehouse_code', o.warehouseFilter);
+      })
+      .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`))
+      .select(trx.raw('SUM(s.monto) as monto'), trx.raw('SUM(s.monto_neto) as monto_neto'), trx.raw('SUM(s.units) as units'))
+      .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`);
+    if (o.dim === 'brand') qb.select(trx.raw('max(s.brand_nombre) as label'), trx.raw('max(s.brand_code) as code'));
+    else if (o.dim === 'branch') qb.select(trx.raw('max(s.branch_name) as label'));
+    return qb;
+  }
+
+  /** Suma por miembro de la dimension en [from,to] (rollup cerrados + vista borde), unificado en Node. */
+  private async fetchExplainDims(trx: any, o: any): Promise<Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>> {
+    const plan = this.planSellOutSources(o.from, o.to);
+    const useRollup = await this.selloutUsesRollup(trx, plan);
+    const rows: any[] = [];
+    if (useRollup) rows.push(...await this.selloutExplainLeg(trx, 'analytics.mv_sellout_monthly', 's.year_month', plan.monthly!.fromMonth, plan.monthly!.toMonth, o));
+    const dailyRanges = useRollup ? plan.daily : [{ from: o.from, to: o.to }];
+    for (const r of dailyRanges) rows.push(...await this.selloutExplainLeg(trx, 'analytics.v_sellout_daily', 's.business_date', r.from, r.to, o));
+    const m = new Map<string, { label: string | null; code: string | null; monto: number; monto_neto: number; units: number }>();
+    for (const r of rows) {
+      const cur = m.get(r.k) || { label: null, code: null, monto: 0, monto_neto: 0, units: 0 };
+      cur.monto += Number(r.monto) || 0;
+      cur.monto_neto += Number(r.monto_neto) || 0;
+      cur.units += Number(r.units) || 0;
+      if (!cur.label && r.label) cur.label = r.label;
+      if (!cur.code && r.code) cur.code = r.code;
+      m.set(r.k, cur);
+    }
+    return m;
+  }
+
+  /** Rango espejo del mismo largo: 'prev' = inmediatamente antes; 'yoy' = -1 año. */
+  private selloutMirrorRange(from: string, to: string, compare: SellOutExplainCompare): { from: string; to: string } {
+    if (compare === 'yoy') {
+      const shift = (d: string) => { const x = new Date(`${d}T00:00:00Z`); x.setUTCFullYear(x.getUTCFullYear() - 1); return x.toISOString().slice(0, 10); };
+      return { from: shift(from), to: shift(to) };
+    }
+    const lenDays = Math.round((new Date(`${to}T00:00:00Z`).getTime() - new Date(`${from}T00:00:00Z`).getTime()) / 86400000) + 1;
+    return { from: this.selloutShiftDay(from, -lenDays), to: this.selloutShiftDay(from, -1) };
+  }
+
+  private explainDimLabel(dim: SellOutExplainDim, k: string, raw: string | null): string {
+    if (dim === 'channel') {
+      const map: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa', otro: 'Otro' };
+      return map[k] || k;
+    }
+    if (dim === 'brand' && k === '__none__') return 'Sin marca';
+    if (dim === 'branch' && k === '__none__') return 'Sin sucursal';
+    return raw || k;
+  }
+
+  private explainNarrative(dim: SellOutExplainDim, compare: SellOutExplainCompare, total: SellOutExplainReport['total'], top: SellOutMover[]): string {
+    const fmt = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+    const signed = (n: number) => (n >= 0 ? '+' : '-') + fmt.format(Math.abs(n)).replace('MX$', '$');
+    const vs = compare === 'yoy' ? 'el mismo periodo del año pasado' : 'el periodo anterior';
+    if (total.delta === 0 || total.prev === 0) {
+      return `La venta ${total.prev === 0 ? 'no tiene base comparable en' : 'quedó igual vs'} ${vs}.`;
+    }
+    const dir = total.delta > 0 ? 'subió' : 'cayó';
+    const pct = total.delta_pct == null ? '' : ` ${total.delta_pct > 0 ? '+' : ''}${total.delta_pct.toFixed(1)}%`;
+    const drops = top.filter((m) => m.delta < 0).slice(0, 2);
+    const gains = top.filter((m) => m.delta > 0).slice(0, 1);
+    const lost = top.find((m) => m.kind === 'perdido');
+    const drivers = (total.delta < 0 ? drops : gains.concat(top.filter((m) => m.delta > 0).slice(1, 2)))
+      .map((m) => `${m.label} (${signed(m.delta)})`);
+    let s = `La venta ${dir}${pct} (${signed(total.delta)}) vs ${vs}.`;
+    if (drivers.length) s += ` Lo explican sobre todo ${drivers.join(' y ')}.`;
+    if (lost && lost.delta < 0 && (!drops.length || lost.key !== drops[0].key)) s += ` Ojo con ${lost.label}, que dejó de vender (${signed(lost.delta)}).`;
+    const comp = total.delta < 0 ? gains[0] : drops[0];
+    if (comp) s += ` Parcialmente compensado por ${comp.label} (${signed(comp.delta)}).`;
+    return s;
+  }
+
+  /**
+   * BI.3 — descompone el cambio del sell-out entre [from,to] y su periodo espejo, por dimension.
+   * Σ de las contribuciones = Δ total EXACTO (la venta es sumable). Mismo universo que el reporte.
+   */
+  async explainChange(q: SellOutExplainQuery): Promise<SellOutExplainReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const compare: SellOutExplainCompare = q.compare === 'yoy' ? 'yoy' : 'prev';
+    const measure: 'monto' | 'monto_neto' = q.measure === 'neto' || q.measure === 'monto_neto' ? 'monto_neto' : 'monto';
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const promoMode: SellOutPromo = q.promo === 'solo' || q.promo === 'todo' ? q.promo : 'sin';
+    const search = (q.search || '').trim();
+    if (!q.from || !q.to || !this.isIsoDate(q.from) || !this.isIsoDate(q.to))
+      throw new BadRequestException('from/to requeridos (ISO 8601)');
+    const from = q.from.slice(0, 10);
+    const to = q.to.slice(0, 10);
+    if (from > to) throw new BadRequestException('from posterior a to');
+    const warehouseFilter = (q.warehouses && q.warehouses.length) ? q.warehouses.map((w) => w.trim()).filter(Boolean) : null;
+    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const mirror = this.selloutMirrorRange(from, to, compare);
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    return this.tk.run(async (trx) => {
+      await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
+      const base = { tenantId, dim, brandId, promoMode, search, warehouseFilter, channel };
+      const cur = await this.fetchExplainDims(trx, { ...base, from, to });
+      const prev = await this.fetchExplainDims(trx, { ...base, from: mirror.from, to: mirror.to });
+      const usaRollup = await this.selloutUsesRollup(trx, this.planSellOutSources(from, to));
+      const freshness = await this.selloutFreshness(trx, usaRollup);
+
+      const pick = (x: any) => (x ? (measure === 'monto_neto' ? x.monto_neto : x.monto) : 0);
+      const keys = new Set<string>([...cur.keys(), ...prev.keys()]);
+      const all: SellOutMover[] = [];
+      let totalCur = 0, totalPrev = 0;
+      for (const k of keys) {
+        const c = cur.get(k), p = prev.get(k);
+        const cv = pick(c), pv = pick(p);
+        totalCur += cv; totalPrev += pv;
+        const delta = cv - pv;
+        const kind: SellOutMover['kind'] = pv === 0 && cv > 0 ? 'nuevo' : cv === 0 && pv > 0 ? 'perdido' : delta > 0 ? 'crecio' : delta < 0 ? 'cayo' : 'igual';
+        all.push({
+          key: k,
+          label: this.explainDimLabel(dim, k, (c?.label ?? p?.label) ?? null),
+          code: (c?.code ?? p?.code) ?? null,
+          prev: pv, curr: cv, delta,
+          delta_pct: pv > 0 ? (delta / pv) * 100 : null,
+          kind,
+        });
+      }
+      all.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+      const totalAbs = all.reduce((s, m) => s + Math.abs(m.delta), 0);
+      const top: SellOutMover[] = [];
+      let acc = 0;
+      for (const m of all) {
+        top.push(m); acc += Math.abs(m.delta);
+        if ((top.length >= 3 && acc >= 0.8 * totalAbs) || top.length >= 15) break;
+      }
+      const rest = all.slice(top.length);
+      const total = { curr: totalCur, prev: totalPrev, delta: totalCur - totalPrev, delta_pct: totalPrev > 0 ? ((totalCur - totalPrev) / totalPrev) * 100 : null };
+      return {
+        dimension: dim, compare, measure,
+        period: { from, to }, mirror,
+        total,
+        movers: top,
+        otros: { count: rest.length, delta: rest.reduce((s, m) => s + m.delta, 0) },
+        narrative: this.explainNarrative(dim, compare, total, top),
+        freshness,
+        generated_at: new Date().toISOString(),
+      };
+    });
+  }
+
+  // ─── BI.6 "Radar" ───────────────────────────────────────────────────────────
+  private selloutMonthMinus(ym: string, n: number): string {
+    const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const idx = y * 12 + (m - 1) - n;
+    return `${Math.floor(idx / 12)}-${String((idx % 12) + 1).padStart(2, '0')}`;
+  }
+
+  /**
+   * Anomalías: por cada miembro (empresa/sucursal/canal), su venta del mes objetivo vs su
+   * PROPIO promedio de los `lookback` meses previos. Surface caídas/picos/perdidos/nuevos con
+   * materialidad mínima para no gritar por ruido. Solo meses cerrados (rollup). Cero heurística
+   * del LLM: umbrales fijos, deterministas.
+   */
+  async selloutAnomalies(q: SelloutAnomaliesQuery): Promise<SelloutAnomaliesReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const lookback = Math.min(6, Math.max(1, Number(q.lookback) || 3));
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    const lastClosed = this.selloutMonthMinus(openYm, 1);
+    let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : lastClosed;
+    if (month >= openYm) month = lastClosed; // el mes en curso es parcial → no se juzga
+    const baselineMonths: string[] = [];
+    for (let i = 1; i <= lookback; i++) baselineMonths.push(this.selloutMonthMinus(month, i));
+    const months = [month, ...baselineMonths];
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    return this.tk.run(async (trx) => {
+      const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
+      const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).whereIn('s.year_month', months)
+        .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), 's.year_month', trx.raw('SUM(s.monto)::numeric as monto'))
+        .groupByRaw(`COALESCE(${keyExpr}::text, '__none__'), s.year_month`);
+
+      const mem = new Map<string, { label: string | null; by: Record<string, number> }>();
+      for (const r of rows) {
+        const e = mem.get(r.k) || { label: null, by: {} };
+        e.by[r.year_month] = Number(r.monto) || 0;
+        if (!e.label && r.label) e.label = r.label;
+        mem.set(r.k, e);
+      }
+
+      const R = (n: number) => Math.round(n);
+      const fmt = (n: number) => '$' + R(n).toLocaleString('en-US');
+      const anomalies: SelloutAnomaly[] = [];
+      for (const [k, e] of mem) {
+        if (k === '__none__') continue;
+        const current = e.by[month] || 0;
+        const baseline = baselineMonths.reduce((a, m) => a + (e.by[m] || 0), 0) / baselineMonths.length;
+        const deviation = current - baseline;
+        const dpct = baseline > 0 ? deviation / baseline : null;
+        const label = this.explainDimLabel(dim, k, e.label);
+        let kind: SelloutAnomaly['kind'] | null = null;
+        let reason = '';
+        // Baseline < $5k = sin historial real: el % es ruido (un baseline de $8 da "+1166763%").
+        // Se juzga como aparición ("nuevo"), no como pico. El pico/caída exige baseline material.
+        if (baseline >= 50000 && current === 0) {
+          kind = 'perdido'; reason = `Dejó de vender (promedio ${fmt(baseline)} en ${lookback}m).`;
+        } else if (baseline < 5000 && current >= 100000) {
+          kind = 'nuevo'; reason = `Nuevo: ${fmt(current)} sin historial en ${lookback}m.`;
+        } else if (baseline >= 5000 && dpct !== null && Math.abs(dpct) >= 0.35 && Math.abs(deviation) >= 50000) {
+          kind = deviation < 0 ? 'caida' : 'pico';
+          reason = `${deviation < 0 ? 'Cayó' : 'Subió'} ${Math.abs(dpct * 100).toFixed(0)}% vs su promedio (${fmt(baseline)} → ${fmt(current)}).`;
+        }
+        if (kind) anomalies.push({ key: k, label, current: R(current), baseline: R(baseline), deviation: R(deviation), deviation_pct: dpct == null ? null : Number((dpct * 100).toFixed(1)), kind, reason });
+      }
+      anomalies.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
+      return { month, baseline_months: baselineMonths, dim, anomalies: anomalies.slice(0, 12), generated_at: new Date().toISOString() };
+    });
+  }
+
+  // ─── BI.4 gráficas ───────────────────────────────────────────────────────────
+  /** Serie mensual de monto (tendencia) terminando en `to_month`, N meses hacia atrás. Meses cerrados. */
+  async selloutSeries(q: { to_month?: string; months?: number; brand_id?: string; channel?: string }): Promise<SelloutSeriesReport> {
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    let toM = /^\d{4}-\d{2}$/.test(q.to_month || '') ? (q.to_month as string) : this.selloutMonthMinus(openYm, 1);
+    if (toM >= openYm) toM = this.selloutMonthMinus(openYm, 1);
+    const n = Math.min(24, Math.max(2, Number(q.months) || 12));
+    const monthsArr: string[] = [];
+    for (let i = n - 1; i >= 0; i--) monthsArr.push(this.selloutMonthMinus(toM, i));
+    const brandId = (q.brand_id || '').trim();
+    if (brandId && !RS_UUID.test(brandId)) throw new BadRequestException('brand_id inválido');
+    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).whereIn('s.year_month', monthsArr).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .modify((b: any) => { if (brandId) b.andWhere('s.brand_id', brandId); if (channel) b.andWhere('s.channel', channel); })
+        .select('s.year_month', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.year_month');
+      const map = new Map<string, number>(rows.map((r: any) => [r.year_month, Number(r.monto) || 0]));
+      return { months: monthsArr.map((m) => ({ month: m, monto: Math.round(map.get(m) || 0) })), brand_id: brandId || null, generated_at: new Date().toISOString() };
+    });
+  }
+
+  /** Pareto/ABC: miembros ordenados por monto con share acumulado y clase A(<=80%)/B(<=95%)/C. */
+  async selloutPareto(q: { month?: string; dim?: string; n?: number; channel?: string }): Promise<SelloutParetoReport> {
+    const dim: SellOutExplainDim = q.dim === 'branch' || q.dim === 'channel' ? q.dim : 'brand';
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    let month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : this.selloutMonthMinus(openYm, 1);
+    if (month >= openYm) month = this.selloutMonthMinus(openYm, 1);
+    const topN = Math.min(50, Math.max(5, Number(q.n) || 20));
+    const channel = ['mostrador', 'ruta', 'credito', 'preventa'].includes((q.channel || '').trim()) ? (q.channel || '').trim() : null;
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const keyExpr = dim === 'branch' ? 's.warehouse_code' : dim === 'channel' ? 's.channel' : 's.brand_id';
+      const labelExpr = dim === 'branch' ? 'max(s.branch_name)' : dim === 'channel' ? 'max(s.channel)' : 'max(s.brand_nombre)';
+      const rows = await trx('analytics.mv_sellout_monthly as s')
+        .where('s.tenant_id', tenantId).andWhere('s.year_month', month).andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`)
+        .modify((b: any) => { if (channel) b.andWhere('s.channel', channel); })
+        .select(trx.raw(`COALESCE(${keyExpr}::text, '__none__') as k`), trx.raw(`${labelExpr} as label`), trx.raw('SUM(s.monto)::numeric as monto'))
+        .groupByRaw(`COALESCE(${keyExpr}::text, '__none__')`)
+        .havingRaw('SUM(s.monto) > 0')
+        .orderByRaw('SUM(s.monto) desc');
+      const total = rows.reduce((a: number, r: any) => a + (Number(r.monto) || 0), 0) || 1;
+      let cum = 0;
+      const out: SelloutParetoRow[] = rows.slice(0, topN).map((r: any) => {
+        const monto = Number(r.monto) || 0;
+        cum += monto;
+        const cumShare = cum / total;
+        return {
+          key: r.k, label: this.explainDimLabel(dim, r.k, r.label),
+          monto: Math.round(monto), share: Number(((monto / total) * 100).toFixed(1)), cum_share: Number((cumShare * 100).toFixed(1)),
+          abc: (cumShare <= 0.8 ? 'A' : cumShare <= 0.95 ? 'B' : 'C') as 'A' | 'B' | 'C',
+        };
+      });
+      return { month, dim, total: Math.round(total), rows: out, generated_at: new Date().toISOString() };
+    });
+  }
+
+  // ─── BI.9 objetivos ───────────────────────────────────────────────────────────
+  private selloutMonthRange(ym: string): { from: string; to: string } {
+    const y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    return { from: `${ym}-01`, to: `${ym}-${String(lastDay).padStart(2, '0')}` };
+  }
+
+  /** Metas del mes vs lo real (total + por sucursal + por canal). El real sale de v_sellout_daily
+   *  (sirve mes cerrado o en curso hasta hoy). Sin metas capturadas -> target 0 (se declara, no se inventa). */
+  async selloutTargets(q: { month?: string }): Promise<SelloutTargetsReport> {
+    const openYm = this.currentMonthStartMx().slice(0, 7);
+    const month = /^\d{4}-\d{2}$/.test(q.month || '') ? (q.month as string) : openYm;
+    const { from, to } = this.selloutMonthRange(month);
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const baseActual = () => trx('analytics.v_sellout_daily as s')
+        .where('s.tenant_id', tenantId).andWhere('s.business_date', '>=', from).andWhere('s.business_date', '<=', to)
+        .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`);
+      const [totRow, branchRows, channelRows, targets] = await Promise.all([
+        baseActual().select(trx.raw('COALESCE(SUM(s.monto),0)::numeric as monto')).first(),
+        baseActual().select('s.warehouse_code as k', trx.raw('max(s.branch_name) as label'), trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.warehouse_code'),
+        baseActual().select('s.channel as k', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.channel'),
+        trx('commercial.sales_targets').where('tenant_id', tenantId).andWhere('year_month', month).select('scope', 'scope_key', 'target_monto'),
+      ]);
+      const tgt = new Map<string, number>(targets.map((r: any) => [`${r.scope}|${r.scope_key}`, Number(r.target_monto) || 0]));
+      const mk = (scope: 'total' | 'branch' | 'channel', key: string, label: string, actual: number): SelloutTargetRow => {
+        const target = tgt.get(`${scope}|${key}`) || 0;
+        return { scope, scope_key: key, label, target: Math.round(target), actual: Math.round(actual), pct: target > 0 ? Number(((actual / target) * 100).toFixed(1)) : null };
+      };
+      const total = mk('total', '', 'Total', Number(totRow?.monto || 0));
+      const branches = branchRows.map((r: any) => mk('branch', r.k, r.label || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      const chLabels: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa' };
+      const channels = channelRows.map((r: any) => mk('channel', r.k, chLabels[r.k] || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      return { month, total, branches, channels, generated_at: new Date().toISOString() };
+    });
+  }
+
+  /** Upsert de una meta (captura HITL). scope total|branch|channel; total -> scope_key=''. */
+  async upsertSelloutTarget(b: SelloutTargetUpsert): Promise<{ ok: true }> {
+    const scope = ['total', 'branch', 'channel'].includes(b.scope || '') ? (b.scope as string) : null;
+    if (!scope) throw new BadRequestException('scope inválido');
+    const year_month = String(b.year_month || '');
+    if (!/^\d{4}-\d{2}$/.test(year_month)) throw new BadRequestException('year_month inválido (YYYY-MM)');
+    const scope_key = scope === 'total' ? '' : String(b.scope_key || '').trim();
+    if (scope !== 'total' && !scope_key) throw new BadRequestException('scope_key requerido');
+    const target = Number(b.target_monto);
+    if (!Number.isFinite(target) || target < 0) throw new BadRequestException('target_monto inválido');
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      await trx.raw(
+        `INSERT INTO commercial.sales_targets (tenant_id, scope, scope_key, year_month, target_monto)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT (tenant_id, scope, scope_key, year_month)
+         DO UPDATE SET target_monto = EXCLUDED.target_monto, updated_at = now()`,
+        [tenantId, scope, scope_key, year_month, target],
+      );
+      return { ok: true };
+    });
   }
 
   /**
@@ -3311,7 +3972,7 @@ export class CommercialAnalyticsService {
    */
   private async selloutLeaves(trx: any, o: { tenantId: string; from: string; to: string }, dims: string, extra?: (b: any) => void): Promise<any[]> {
     const plan = this.planSellOutSources(o.from, o.to);
-    const useRollup = !!plan.monthly && (await this.selloutMonthlyReady(trx));
+    const useRollup = await this.selloutUsesRollup(trx, plan);
     const acc = new Map<string, any>();
     const run = async (table: string, dateCol: string, lo: string, hi: string) => {
       const rows = await trx(`${table} as s`)
@@ -3356,7 +4017,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, identMap } = await this.tk.run(async (trx) => {
+    const { brand, raw, identMap, freshness } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
@@ -3370,13 +4031,17 @@ export class CommercialAnalyticsService {
       // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
       const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode });
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, raw, identMap };
+      // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
+      const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
+      return { brand: b, raw, identMap, freshness };
     });
 
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
-    const colTotals = new Map<string, { cajas: number; monto: number }>();
-    let grandCajas = 0, grandMonto = 0;
+    const colTotals = new Map<string, SellOutCell>();
+    let grandCajas = 0, grandMonto = 0, grandMontoNeto = 0;
+    // [U.7] Lo que no se pudo expresar en cajas, para declararlo en vez de dibujarlo.
+    const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
       // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
@@ -3390,38 +4055,59 @@ export class CommercialAnalyticsService {
       const qty = Number(r.qty) || 0;
       const facWin = Number(r.fac_win) || 1;
       const units = isWeight ? qty : (uv === 'CJA' ? qty * (facWin > 1 ? facWin : 1) : qty);
-      const fs = Number(r.factor_sale); const box = Number(r.box_size);
-      const divisor = fs > 1 ? fs : (box > 1 ? box : 1);
-      const cajas = isWeight ? units : units / divisor;
       const monto = Number(r.monto) || 0;
+      const montoNeto = Number(r.monto_neto) || 0;
+      // [U.7] Cajas por DINERO (ingreso ÷ precio de caja), no por `factor_sale`. Peso → kilos.
+      // Sin precio de caja NO se convierte: se declara. Antes dividía por
+      // `factor_sale ?? box_size ?? 1`, y ese `1` publicaba piezas rotuladas como cajas.
+      const cjaPrice = Number(r.cja_price) || 0;
+      let cajas = 0;
+      if (isWeight) cajas = units;
+      else if (cjaPrice > 0) cajas = monto / cjaPrice;
+      else if (r.unidad_es_caja) cajas = units; // la unidad de venta ES la más grande
+      else { sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto; }
       if (!columns.has(colKey)) {
         columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
-        colTotals.set(colKey, { cajas: 0, monto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
       let row = rowMap.get(r.sku);
-      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0 } }; rowMap.set(r.sku, row); }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0 });
-      cell.cajas += cajas; cell.monto += monto;
-      row.total.cajas += cajas; row.total.monto += monto;
-      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto;
-      grandCajas += cajas; grandMonto += monto;
+      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
+      cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto;
+      row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto;
+      const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto; ct.monto_neto += montoNeto;
+      grandCajas += cajas; grandMonto += monto; grandMontoNeto += montoNeto;
     }
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     const rows = Array.from(rowMap.values()).sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
     for (const row of rows) {
-      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2) };
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2) };
+      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
     }
     const orderedCols = Array.from(columns.values()).sort((a, b) =>
       (GROUP_ORD[a.channel ?? ''] ?? 9) - (GROUP_ORD[b.channel ?? ''] ?? 9) || a.branch_name.localeCompare(b.branch_name, 'es'));
     const columnTotalsObj: Record<string, SellOutCell> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2) };
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
     return {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
       columns: orderedCols, rows, column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2) },
-      coverage: { branches_with_data: [], branches_missing: [], note: 'Por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja).' },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
+      // [VP.0.6] La nota de alcance es CIERTA y útil, pero no es una cobertura: este pivote agrupa
+      // por vendedor y nunca trae sucursal (`selloutVendorLeg` no la selecciona), así que el eje no
+      // se puede medir acá. `measured: false` lo dice; antes los dos arreglos vacíos se leían como
+      // "no falta ninguna sucursal", que es una afirmación que nadie hizo.
+      coverage: {
+        branches_with_data: [], branches_missing: [], measured: false,
+        note: 'Alcance por vendedor: Mayoreo (Kepler telemarketing + Wincaja) · RD/RV (Wincaja). '
+          + 'La cobertura por sucursal no aplica en esta vista (el pivote agrupa por vendedor).',
+      },
+      freshness,
+      sin_metodo: {
+        skus: sinMetodo.skus.size,
+        unidades: round(sinMetodo.unidades, 3),
+        monto: round(sinMetodo.monto, 2),
+      },
       generated_at: new Date().toISOString(),
     };
   }
@@ -4711,7 +5397,7 @@ export class CommercialAnalyticsService {
     }
     if (missing.length)
       parts.push(`Sin venta de esta empresa en el periodo: ${missing.join(', ')}.`);
-    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' ') };
+    return { branches_with_data: withData, branches_missing: missing, note: parts.join(' '), measured: true };
   }
 
   // ─────────── helpers ───────────

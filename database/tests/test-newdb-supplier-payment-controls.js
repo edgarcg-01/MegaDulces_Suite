@@ -8,6 +8,8 @@
  *   5. Three-way: bankMatch por cargo (amount_out) + confirm/unlink en bank_recon_matches.
  */
 const knex = require('knex')(require('../knexfile-newdb.js').development);
+// `[IDG.1]` Este test BORRA filas. El `require` del knexfile ya cargó el .env.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-supplier-payment-controls');
 const T = '00000000-0000-0000-0000-00000000d01c';
 let pass = 0, fail = 0;
 const ok = (c, m) => { if (c) { pass++; console.log('  ✓', m); } else { fail++; console.log('  ✗', m); } };

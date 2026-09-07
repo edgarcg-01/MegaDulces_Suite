@@ -197,6 +197,16 @@ export class CommercialOrdersController {
     return this.service.updateDraft(id, body);
   }
 
+  @Patch(':id/delivery-date')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
+  @ApiOperation({
+    summary:
+      'Reagenda la fecha de entrega de un pedido confirmado / por aprobar (requested_delivery_date). Corrige pedidos mal fechados sin retomarlos.',
+  })
+  reschedule(@Param('id') id: string, @Body() body: { requested_delivery_date: string }) {
+    return this.service.reschedule(id, body?.requested_delivery_date);
+  }
+
   @Post(':id/lines')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_CREAR)
   @ApiOperation({ summary: 'Agregar línea (solo si draft)' })

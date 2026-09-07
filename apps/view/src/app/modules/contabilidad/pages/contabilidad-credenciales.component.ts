@@ -41,7 +41,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
           <p class="surf-page-sub">e.firma del contribuyente para la descarga masiva. Se cifra en reposo (AES-256-GCM); el material privado nunca se devuelve.</p>
         </div>
         <div class="cr-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage) { <button pButton type="button" class="p-button-sm" (click)="showNew=true"><span class="p-button-icon p-button-icon-left pi pi-upload" aria-hidden="true"></span><span class="p-button-label">Cargar e.firma</span></button> }
         </div>

@@ -19,6 +19,16 @@ import { CommercialSalesDocumentsService } from './commercial-sales-documents.se
  * El documento NO es fiscal: el comprobante es el CFDI timbrado. Eso va dicho en el banner,
  * en el aviso final y en el pie de cada página.
  *
+ * AX.9 — el anexo dejó de AFIRMAR el desglose del CFDI. Imprimía "Tu CFDI presenta:
+ * Subtotal + IEPS − Descuento = Total" con `subtotal` (un despeje: `total − ieps + descuento`)
+ * y `descuento` (`kdm1.c13`). Era cierto por álgebra —el despeje se construye del total— pero
+ * nadie lo contrastó nunca contra un CFDI emitido, y no se puede: `fiscal.cfdis` tiene 167,503
+ * filas y **todas son `rol='recibidas'`**, cero emitidos. Encima ninguno de los dos cuadra con
+ * los renglones impresos: el subtotal coincide con Σrenglones en 238 de 1,268, y `c13` no es
+ * lo que se descontó (985 de 1,268). Ahora el bloque dice sólo lo medido —los precios son
+ * finales, el IEPS ya va dentro (744/744 sin descuento: Σrenglones == total EXACTO, nunca
+ * total − ieps)— y sobre el CFDI se limita a que ampara el mismo total.
+ *
  * Tipografías del SISTEMA (Segoe UI / Georgia): un PDF que se imprime en cualquier equipo no
  * debe depender de webfonts.
  */
@@ -32,15 +42,37 @@ const CUENTAS = [
   { banco: 'Banorte', cuenta: '1326933041', clabe: '072 496 01326933041 2' },
   { banco: 'Banamex', cuenta: '8301463', clabe: '002 496 70078301463 6' },
 ];
-const EMISOR = {
-  nombre: 'LUIS FRANCISCO LÓPEZ GUTIÉRREZ',
-  rfc: 'LOGL8810144QS',
-  regimen: '612 · Personas Físicas con Actividades Empresariales y Profesionales',
-  cp: '59701, Michoacán',
-  plaza: 'Santa Ana Pacueco, Pénjamo, Guanajuato, C.P. 36910', // validado vs catálogo SAT (GUA/023)
-  plazaCorta: 'Santa Ana Pacueco, Pénjamo, Gto.',
+/**
+ * Etiquetas que el CP fiscal NO trae: la plaza de pago del pagaré. Sólo la del CP configurado
+ * está validada contra el catálogo del SAT (36910 = GUA/023); para cualquier otro CP se imprime
+ * el CP a secas en vez de inventarle un municipio.
+ */
+const PLAZA_POR_CP: Record<string, { larga: string; corta: string }> = {
+  '36910': {
+    larga: 'Santa Ana Pacueco, Pénjamo, Guanajuato, C.P. 36910',
+    corta: 'Santa Ana Pacueco, Pénjamo, Gto.',
+  },
 };
+/** Catálogo c_RegimenFiscal del SAT — sólo los que aplican a este emisor. */
+const REGIMEN_LABEL: Record<string, string> = {
+  '601': 'General de Ley Personas Morales',
+  '612': 'Personas Físicas con Actividades Empresariales y Profesionales',
+  '626': 'Régimen Simplificado de Confianza',
+};
+/** RFCs genéricos del SAT: NO son el RFC del cliente y no deben imprimirse como si lo fueran. */
+const RFC_GENERICOS = new Set(['XAXX010101000', 'XEXX010101000']);
 const MORATORIO_PCT = 3; // mensual, pactado expresamente (LGTOC 174: sin pacto no se cobra)
+
+/** El emisor tal como se IMPRIME, derivado de `fiscal.issuer_config`. */
+interface EmisorImpreso {
+  nombre: string;
+  rfc: string;
+  regimen_code: string;
+  regimen: string;
+  cp: string;
+  plaza: string;
+  plazaCorta: string;
+}
 
 export interface AnexoOpts { pagare?: boolean }
 
@@ -71,8 +103,33 @@ export class AnexoVentaService {
         `El detalle de ${folioDigital} no suma el total del CFDI (renglones $${doc.importe_bruto} vs total $${doc.total}): `
         + 'el documento está incompleto en Kepler y no se emite anexo.');
     }
+    // La identidad fiscal sale de `fiscal.issuer_config` (AX.10) — nunca de una constante.
+    const emisor = this.emisorImpreso(await this.docs.emisorFiscal());
     // El pagaré va SIEMPRE (decisión Edgar 2026-08-22); `pagare:false` lo omite explícitamente.
-    return this.renderPdf(this.html(doc, { pagare: opts.pagare !== false }), this.pie(doc));
+    return this.renderPdf(this.html(doc, emisor, { pagare: opts.pagare !== false }), this.pie(doc));
+  }
+
+  /**
+   * Rellena las etiquetas que el catálogo fiscal no trae (plaza, texto del régimen).
+   *
+   * El nombre se imprime **verbatim**. Antes se capitalizaba con `/\b\w+/g`, que en JS no
+   * matchea letras acentuadas: `LUIS FRANCISCO LÓPEZ GUTIÉRREZ` salía impreso como
+   * **"Luis Francisco LÓPez GutiÉRrez"** en el beneficiario de TODOS los anexos. Y para un
+   * beneficiario de pago lo correcto es la razón social tal como consta en el RFC, no una
+   * versión bonita.
+   */
+  private emisorImpreso(e: { rfc: string; nombre: string; regimen_code: string; cp: string }): EmisorImpreso {
+    const plaza = PLAZA_POR_CP[e.cp];
+    const label = REGIMEN_LABEL[e.regimen_code];
+    return {
+      nombre: e.nombre,
+      rfc: e.rfc,
+      regimen_code: e.regimen_code,
+      regimen: e.regimen_code + (label ? ` · ${label}` : ''),
+      cp: e.cp,
+      plaza: plaza?.larga || `C.P. ${e.cp}`,
+      plazaCorta: plaza?.corta || `C.P. ${e.cp}`,
+    };
   }
 
   // ── navegador COMPARTIDO ────────────────────────────────────────────────
@@ -126,7 +183,10 @@ export class AnexoVentaService {
         displayHeaderFooter: true,
         headerTemplate: '<span></span>',
         footerTemplate: footer,
-        margin: { top: '13mm', bottom: '14mm', left: '12mm', right: '12mm' },
+        // AX.10: 12mm de lado eran 24mm de papel sin usar en una hoja de 215.9mm. A 9mm el
+        // ancho útil pasa de 191.9 a 197.9mm (+3%) y sigue dentro del área imprimible de
+        // cualquier láser/inyección (los que menos dan son ~6.4mm).
+        margin: { top: '10mm', bottom: '12mm', left: '9mm', right: '9mm' },
       });
       return Buffer.from(pdf);
     } finally {
@@ -207,12 +267,23 @@ export class AnexoVentaService {
   private pie(doc: any): string {
     const t = this.esc(`Folio ${doc.sucursal} ${doc.doc_prefix}-${doc.folio} · ${doc.cliente_nombre || ''} (${doc.cliente_code || ''}) · Mega Dulces`);
     return `<div style="width:100%;font-family:'Segoe UI',sans-serif;font-size:7.5pt;color:#8a8078;
-      padding:0 12mm;display:flex;justify-content:space-between;align-items:center;">
+      padding:0 9mm;display:flex;justify-content:space-between;align-items:center;">
       <span>${t}</span><span>Página <span class="pageNumber"></span> de <span class="totalPages"></span></span></div>`;
   }
 
+  /**
+   * RFC del cliente para IMPRIMIR. 79.1% de las facturas imprimibles traen `XAXX010101000`
+   * (el genérico del SAT para "público en general"): mostrarlo junto a un nombre propio hace
+   * creer que ése es su RFC. Se rotula en vez de disfrazarse (ADR-056).
+   */
+  private rfcCliente(doc: any): { valor: string; generico: boolean } {
+    const r = String(doc.cliente_rfc || '').trim().toUpperCase();
+    if (!r) return { valor: '—', generico: false };
+    return { valor: r, generico: RFC_GENERICOS.has(r) };
+  }
+
   // ── documento ──────────────────────────────────────────────────────────
-  private html(doc: any, opts: AnexoOpts): string {
+  private html(doc: any, EMISOR: EmisorImpreso, opts: AnexoOpts): string {
     const L = [...(doc.lineas || [])].sort((a: any, b: any) =>
       String(a.descripcion || '').localeCompare(String(b.descripcion || ''), 'es'));
     // Tasa EFECTIVA del documento, no la del catálogo: 802 facturas traen 0% en `kdud.c17` y
@@ -278,22 +349,26 @@ export class AnexoVentaService {
       const primaU = String(compra[0]?.u ?? '').trim().toUpperCase();
       tier = /^(CJA|CJ|CAJA|CJS)$/.test(primaU) ? 0 : /^(PAQ|PQ|PAQUETE)$/.test(primaU) ? 1 : 2;
 
-      // Cantidad: el mayor en grande, cada remanente debajo con "+" (se lee como suma).
+      // Cantidad: el mayor primero, cada remanente debajo con "+" (se lee como suma).
       const qCell = compra.map((r, i) =>
         `<span class="${i === 0 ? 'q-main' : 'q-eq2'}">${i === 0 ? '' : '+ '}${this.cantidadConUnidad(r.n, r.u)}</span>`).join('');
-      // Precio POR cada unidad disponible (caja > paquete > pieza), alineado a su unidad.
+      // Precio POR cada unidad disponible (caja > paquete > pieza), UNA LÍNEA POR UNIDAD.
+      // AX.10: la unidad iba en su propio renglón ("$495.00" / "por CJA"), así que un producto
+      // con 3 niveles gastaba 6 líneas por columna y las dos columnas de precio se pagaban
+      // dobles. Pegada al importe son 3 — la mitad del alto de la tabla en facturas largas.
       const priceLadder = (withDesc: boolean) => unitLevels.map((lvl, i) => {
         const p = precioPza * lvl.factor;
-        return `<span class="${i === 0 ? 'pu' : 'pu2'}${withDesc ? ' pd' : ''}">${this.m(withDesc ? p * (1 - tasa) : p)}</span>`
-          + `<span class="pl">por ${this.unidad(lvl.u) || 'unidad'}</span>`;
+        return `<span class="pu${i === 0 ? '' : ' pu2'}${withDesc ? ' pd' : ''}">`
+          + `${this.m(withDesc ? p * (1 - tasa) : p)}<i class="pl">/${this.unidad(lvl.u) || 'ud'}</i></span>`;
       }).join('');
 
-      // Apartado pequeño: cuánto equivale cada unidad (1 caja = N paquetes · 1 paquete = M piezas).
+      // Cuánto equivale cada unidad (1 caja = N paquetes · 1 paquete = M piezas). Va PEGADO al
+      // SKU en el mismo renglón: eran dos líneas para dos datos cortos.
       const equiv: string[] = [];
       if (cajaOK && paqOK && cjaF % paqF === 0) equiv.push(`1 ${bultoU} = ${cjaF / paqF} ${paqUu}`);
       if (paqOK) equiv.push(`1 ${paqUu} = ${paqF} ${baseU}`);
       else if (cajaOK) equiv.push(`1 ${bultoU} = ${cjaF} ${baseU}`);
-      const equivHtml = equiv.length ? `<div class="p-equiv">${equiv.join(' · ')}</div>` : '';
+      const equivHtml = equiv.length ? `<i class="p-equiv">${equiv.join(' · ')}</i>` : '';
 
       const colsDesc = conDesc ? `
         <td class="u-price c-hl">${priceLadder(true)}</td>
@@ -302,7 +377,7 @@ export class AnexoVentaService {
         <td class="neto">${this.m(l.neto)}</td>`
         : `<td class="neto">${this.m(l.importe)}</td>`;
       return { tier, html: `<tr>
-        <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">SKU ${this.esc(l.sku)}</div>${equivHtml}</td>
+        <td><div class="p-name">${this.esc(l.descripcion)}</div><div class="p-sku">${this.esc(l.sku)}${equivHtml}</div></td>
         <td class="qcell">${qCell}</td>
         <td class="u-price">${priceLadder(false)}</td>
         ${colsDesc}
@@ -317,7 +392,10 @@ export class AnexoVentaService {
       { t: 1, label: 'Comprado por paquete' },
       { t: 2, label: 'Comprado por pieza / unidad suelta' },
     ];
-    const mezcla = new Set(filasArr.map((f) => f.tier)).size > 1;
+    // Los rótulos de grupo existen para ORGANIZAR una lista larga. En una factura corta cuestan
+    // ~20 px cada uno —hasta 40 px, media docena de renglones— para decir algo que la columna
+    // Cantidad ya dice en cada línea ("3 CJA", "48 KG"). Se rotula desde 10 productos.
+    const mezcla = new Set(filasArr.map((f) => f.tier)).size > 1 && filasArr.length >= 10;
     const filas = mezcla
       ? GRUPOS.map((g) => {
           const rows = filasArr.filter((f) => f.tier === g.t);
@@ -328,160 +406,181 @@ export class AnexoVentaService {
       : filasArr.map((f) => f.html).join('\n');
 
     const ctas = CUENTAS.map((c) => `<tr><td class="bco">${c.banco}</td><td>${c.cuenta}</td><td class="clabe">${c.clabe}</td></tr>`).join('');
+    const rfc = this.rfcCliente(doc);
 
     return `<meta charset="utf-8"><title>Detalle de Pedido</title>
 <style>
 :root{--ink:#1b1b1b;--ink-2:#454545;--muted:#5f5f5f;--line:#c9c9c9;--line-2:#e2e2e2;--soft:#f5f5f3;
   --accent:#8a3c06;--accent-soft:#fbf1e6;--save:#155e35}
 *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
-body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.3}
-.head{display:flex;justify-content:space-between;align-items:flex-start;gap:18px}
-.logo{height:64px;width:auto}
-.emisor{text-align:right;font-size:8pt;color:var(--ink-2);line-height:1.4;max-width:78mm}
-.emisor b{display:block;color:var(--ink);font-size:9.5pt;font-weight:700;margin-bottom:2px}
-.rule{height:2px;background:var(--accent);margin:9px 0 12px}
-.titleband{display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
-.titleband .sub{font-size:8.5pt;letter-spacing:.14em;text-transform:uppercase;color:var(--accent);font-weight:700}
-.titleband h1{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:19pt;margin:3px 0 0;line-height:1.1}
-.folio{text-align:right;white-space:nowrap}
-.folio .fl{font-size:8pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:600}
-.folio .fv{font-size:13pt;font-weight:700}
-.nofiscal{display:flex;align-items:center;gap:9px;margin-top:11px;padding:7px 12px;background:var(--accent-soft);
-  border:1.5px solid var(--accent);border-radius:4px;color:#6d2f04;font-size:9pt;font-weight:600;line-height:1.3;break-inside:avoid}
-.nofiscal .badge{flex:0 0 auto;font-size:8pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
-  background:var(--accent);color:#fff;padding:3px 8px;border-radius:3px}
-.info{display:flex;gap:10px;margin-top:11px}
-.box{flex:1 1 0;background:var(--soft);border:1px solid var(--line-2);border-radius:4px;padding:9px 12px;break-inside:avoid}
-.box h4{margin:0 0 6px;font-size:7.5pt;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);font-weight:700}
-.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:8.5pt;margin:0;line-height:1.25}
+body{margin:0;padding:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helvetica,sans-serif;font-size:10.5pt;line-height:1.25}
+/* El logo manda en el membrete: es la marca del documento que se le entrega al cliente. 62 px
+   es GRATIS en alto — el bloque del emisor (razón social + RFC/régimen/plaza + folio) ya hace
+   esta fila de ~72 px, así que el logo cabe dentro sin empujar nada. */
+.head{display:flex;justify-content:space-between;align-items:center;gap:16px}
+.logo{height:62px;width:auto;flex:0 0 auto}
+.hd-title{flex:1 1 auto}
+.hd-title .sub{font-size:7pt;letter-spacing:.13em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.hd-title h1{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:15pt;margin:0;line-height:1.05}
+.emisor{text-align:right;font-size:7.5pt;color:var(--ink-2);line-height:1.3;flex:0 0 auto;max-width:104mm}
+.emisor b{display:block;color:var(--ink);font-size:9pt;font-weight:700;margin-bottom:0}
+.emisor .fl{font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.emisor .fv{font-size:10.5pt;font-weight:700;color:var(--ink)}
+.rule{height:2px;background:var(--accent);margin:4px 0 0}
+.nofiscal{display:flex;align-items:center;gap:8px;margin-top:5px;padding:2px 9px;background:var(--accent-soft);
+  border:1.5px solid var(--accent);border-radius:4px;color:#6d2f04;font-size:7.5pt;font-weight:600;line-height:1.25;break-inside:avoid}
+.nofiscal .badge{flex:0 0 auto;font-size:7pt;font-weight:800;letter-spacing:.1em;text-transform:uppercase;
+  background:var(--accent);color:#fff;padding:2px 7px;border-radius:3px}
+.info{display:flex;gap:8px;margin-top:7px}
+.box{flex:1 1 0;background:var(--soft);border:1px solid var(--line-2);border-radius:4px;padding:4px 8px;break-inside:avoid}
+/* La caja del cliente carga el domicilio, que es el único texto largo de la tira: con las tres
+   cajas iguales se partía en 3 renglones y fijaba el alto de la fila entera, mientras las otras
+   dos (fechas, tipo de documento) desperdiciaban su ancho. */
+.info>.box:first-child{flex:1.45 1 0}
+.box h4{margin:0 0 2px;font-size:7pt;letter-spacing:.11em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:0 9px;font-size:8pt;margin:0;line-height:1.18}
 .kv dt{color:var(--muted);font-weight:600;white-space:nowrap}
 .kv dd{margin:0;text-align:right;font-weight:600}
-.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:13px 0 4px;break-after:avoid}
-.sec-h h2{font-size:12.5pt;font-weight:700;margin:0}
-.sec-h span{font-size:9pt;color:var(--muted)}
-table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:9pt}
-col.c-prod{width:22%}col.c-cant{width:14.5%}col.c-pu{width:13%}col.c-pd{width:14%}
-col.c-imp{width:12%}col.c-desc{width:11.5%}col.c-neto{width:13%}
-/* sin descuento son 4 columnas: el producto se queda con el espacio que sobra */
-table.det.sin-desc col.c-prod{width:42%}table.det.sin-desc col.c-cant{width:21%}
-table.det.sin-desc col.c-pu{width:19%}table.det.sin-desc col.c-neto{width:18%}
+.kv dd i{font-style:normal;font-weight:600;color:var(--muted);font-size:7pt}
+.sec-h{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:6px 0 3px;break-after:avoid}
+.sec-h h2{font-size:11pt;font-weight:700;margin:0}
+.sec-h span{font-size:8pt;color:var(--muted)}
+/* Anchos DIMENSIONADOS CON EL DATO, no a ojo: medidos sobre los 14,872 renglones de 90 días,
+   la cifra más larga es $49,750.20 en precio por caja (15 caracteres con la unidad pegada ≈ 90px
+   a 8.5pt) y $36,810.00 en importe (≈ 65px); el nombre de producto llega a 70 caracteres y su
+   p95 es 41. Así que el dinero se queda con lo que mide su peor caso más un margen, y todo el
+   resto va al nombre — que con el 22% original se partía en dos renglones constantemente, y cada
+   partición era una línea de alto pagada en TODAS las facturas. */
+table.det{border-collapse:collapse;width:100%;table-layout:fixed;font-size:8.5pt}
+col.c-prod{width:38.5%}col.c-cant{width:8%}col.c-pu{width:12.5%}col.c-pd{width:12.5%}
+col.c-imp{width:9.5%}col.c-desc{width:9%}col.c-neto{width:10%}
+/* sin descuento son 4 columnas: todo el sobrante va al nombre del producto */
+table.det.sin-desc col.c-prod{width:60%}table.det.sin-desc col.c-cant{width:11%}
+table.det.sin-desc col.c-pu{width:14.5%}table.det.sin-desc col.c-neto{width:14.5%}
 table.det thead{display:table-header-group}
-table.det thead th{font-size:7.5pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
-  text-align:right;padding:4px 6px;border-bottom:1.5px solid var(--ink)}
+table.det thead th{font-size:7pt;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:700;
+  text-align:right;padding:3px 5px;border-bottom:1.5px solid var(--ink)}
 table.det thead th.l{text-align:left}
 table.det tbody tr{break-inside:avoid}
-table.det tbody td{padding:3px 6px;border-bottom:1px solid var(--line-2);vertical-align:top}
-table.det tbody tr.grp td{padding:7px 8px 4px;font-size:7.5pt;font-weight:800;letter-spacing:.09em;
+table.det tbody td{padding:2px 5px;border-bottom:1px solid var(--line-2);vertical-align:top}
+table.det tbody tr.grp td{padding:4px 7px 3px;font-size:7pt;font-weight:800;letter-spacing:.09em;
   text-transform:uppercase;color:var(--accent);background:var(--accent-soft);border-bottom:1.5px solid var(--accent);break-after:avoid}
-.p-name{font-weight:700;font-size:9pt;line-height:1.2}
-.p-sku{font-size:8pt;color:var(--muted);font-weight:600;margin-top:2px}
-.p-equiv{font-size:7pt;color:var(--muted);font-style:italic;margin-top:2px;line-height:1.25}
+.p-name{font-weight:700;font-size:8.5pt;line-height:1.18}
+.p-sku{font-size:7pt;color:var(--muted);font-weight:600;margin-top:1px;line-height:1.2}
+.p-sku:before{content:'SKU '}
+.p-equiv{font-style:italic;margin-left:6px}
 .qcell{text-align:left}
-.q-main{font-weight:700;display:block}
-.q-eq{display:block;font-size:9pt;color:var(--accent);font-weight:700;margin-top:2px}
-.q-eq2{display:block;font-size:8.5pt;color:var(--muted);margin-top:1px;line-height:1.3}
-.u-price{text-align:right;line-height:1.18}
-.pu{display:block;font-weight:700;font-size:9pt}
-.pu2{display:block;font-weight:600;font-size:8pt;margin-top:1px}
-.pl{display:block;font-size:7.5pt;color:var(--muted)}
+.q-main{font-weight:700;display:block;white-space:nowrap}
+.q-eq2{display:block;font-size:7.5pt;color:var(--muted);margin-top:0;line-height:1.2;white-space:nowrap}
+.u-price{text-align:right;line-height:1.2}
+.pu{display:block;font-weight:700;font-size:8.5pt;white-space:nowrap}
+.pu2{font-weight:600;font-size:7.5pt}
+.pl{font-style:normal;font-size:6.5pt;color:var(--muted);margin-left:2px}
 .c-hl{background:#f2f7f3}.pd{color:var(--save)}th.hl{color:var(--save)}
 td.imp,td.desc,td.neto{text-align:right;white-space:nowrap}
 td.imp{font-weight:600}td.desc{color:var(--save);font-weight:700}td.neto{font-weight:700}
-.foot-grid{display:flex;gap:12px;margin-top:10px;align-items:flex-start;break-inside:avoid}
-.letra{flex:1.15 1 0;background:var(--soft);border:1px solid var(--line-2);border-radius:4px;padding:10px 13px}
-.letra .cl{font-size:7pt;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.letra .cv{font-size:9pt;font-weight:700;margin-top:3px;line-height:1.3}
-.letra .save-line{margin-top:8px;padding-top:8px;border-top:1px solid var(--line-2);color:var(--save);font-weight:700;font-size:9.5pt}
-.letra .save-note{margin-top:5px;font-size:8pt;color:var(--ink-2);line-height:1.35}
-.tot{flex:.85 1 0;border:1px solid var(--line);border-radius:4px;overflow:hidden}
-.tot .r{display:flex;justify-content:space-between;gap:12px;padding:9px 15px;font-size:10.5pt;border-bottom:1px solid var(--line-2)}
-.tot .r .l{color:var(--ink-2)}.tot .r .v{font-weight:700;text-align:right}
+.cierre{display:flex;gap:9px;margin-top:7px;align-items:flex-start;break-inside:avoid}
+.cierre>.pago{flex:1.25 1 0}.cierre>.tot{flex:1 1 0}
+.tot{border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.letra-in{padding:4px 11px;font-size:8pt;font-weight:700;line-height:1.25;border-top:1px solid var(--line-2)}
+.save-in{padding:3px 11px 4px;font-size:7.5pt;font-weight:700;color:var(--save);line-height:1.25;background:var(--soft)}
+.tot .r{display:flex;justify-content:space-between;gap:10px;padding:4px 11px;font-size:9pt;border-bottom:1px solid var(--line-2)}
+.tot .r .l{color:var(--ink-2)}.tot .r .v{font-weight:700;text-align:right;white-space:nowrap}
 .tot .r.saved .l,.tot .r.saved .v{color:var(--save);font-weight:700}
-.tot .r.memo{background:var(--soft)}.tot .r.memo .l,.tot .r.memo .v{color:var(--muted);font-size:9.5pt;font-weight:600}
-.tot .grand{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:13px 15px;background:var(--accent-soft)}
-.tot .grand .l{font-weight:800;color:#6d2f04;font-size:11pt}
-.tot .grand .v{font-weight:800;color:#6d2f04;font-size:16pt}
-.admin{display:flex;gap:11px;margin-top:9px;align-items:stretch}
-.admin>.fiscal{flex:.9 1 0;margin-top:0}.admin>.pago{flex:1.1 1 0;margin-top:0}
-.fiscal{padding:9px 12px;background:var(--soft);border:1px solid var(--line-2);border-radius:4px;break-inside:avoid}
-.fiscal h4{margin:0 0 5px;font-size:7pt;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.fiscal .cfdi-eq{font-size:8.5pt;color:var(--ink-2);line-height:1.4}
-.fiscal .cfdi-eq b{color:var(--ink)}
-.fiscal .small{font-size:7.5pt;color:var(--muted);margin-top:4px;line-height:1.35}
+.tot .r.memo{background:var(--soft)}.tot .r.memo .l,.tot .r.memo .v{color:var(--muted);font-size:8.5pt;font-weight:600}
+.tot .grand{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 11px;background:var(--accent-soft)}
+.tot .grand .l{font-weight:800;color:#6d2f04;font-size:10pt}
+.tot .grand .v{font-weight:800;color:#6d2f04;font-size:14pt;white-space:nowrap}
+/* flex-start, no stretch: con stretch la caja de texto crecía hasta el alto de la tabla de
+   bancos y dejaba un tercio de hoja en blanco. */
 .pago{border:1.5px solid var(--accent);border-radius:4px;overflow:hidden;break-inside:avoid}
-.pago h4{margin:0;padding:7px 12px;background:var(--accent);color:#fff;font-size:8pt;letter-spacing:.11em;text-transform:uppercase;font-weight:700}
-.pago .benef{padding:7px 12px;background:var(--accent-soft);font-size:8.5pt;color:#6d2f04;border-bottom:1px solid var(--line-2)}
-table.ctas{border-collapse:collapse;width:100%;font-size:9.5pt}
-table.ctas th{font-size:7pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
-  text-align:left;padding:6px 12px;border-bottom:1px solid var(--line-2);background:var(--soft)}
-table.ctas td{padding:7px 12px;border-bottom:1px solid var(--line-2)}
+.pago h4{margin:0;padding:4px 10px;background:var(--accent);color:#fff;font-size:7.5pt;letter-spacing:.11em;text-transform:uppercase;font-weight:700}
+.pago .benef{padding:4px 10px;background:var(--accent-soft);font-size:8pt;color:#6d2f04;border-bottom:1px solid var(--line-2);line-height:1.3}
+table.ctas{border-collapse:collapse;width:100%;font-size:8.5pt}
+table.ctas th{font-size:6.5pt;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;
+  text-align:left;padding:3px 10px;border-bottom:1px solid var(--line-2);background:var(--soft)}
+table.ctas td{padding:3px 10px;border-bottom:1px solid var(--line-2);white-space:nowrap}
 table.ctas tr:last-child td{border-bottom:0}
-table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing:.04em}
-.pago .nota{padding:6px 12px;font-size:7.5pt;color:var(--muted);background:var(--soft);border-top:1px solid var(--line-2)}
-.disclaimer{margin-top:8px;font-size:8pt;color:var(--ink-2);line-height:1.5;break-inside:avoid}
+table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing:.03em}
+.pago .nota{padding:3px 10px;font-size:7pt;color:var(--muted);background:var(--soft);border-top:1px solid var(--line-2);line-height:1.3}
+.disclaimer{margin-top:4px;font-size:6.5pt;color:var(--ink-2);line-height:1.3;break-inside:avoid;text-align:justify}
 .disclaimer b{color:var(--ink)}
 /* El pagaré es UNA SECCIÓN MÁS del anexo (misma jerarquía que "¿Qué compraste?"), compacta.
    Sin membrete repetido y sin salto de página forzado: fluye tras los totales, y solo se
    mantiene ENTERA (break-inside) porque lleva firma. */
-.hoja-pagare{margin-top:12px;break-inside:avoid;page-break-inside:avoid}
-.pg-sec{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 5px;break-after:avoid}
-.pg-sec h2{font-size:12.5pt;font-weight:700;margin:0}
-.pg-sec .ref{font-size:9pt;color:var(--muted)}
+.hoja-pagare{margin-top:7px;break-inside:avoid;page-break-inside:avoid}
+.pg-sec{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin:0 0 3px;break-after:avoid}
+.pg-sec h2{font-size:11pt;font-weight:700;margin:0}
+.pg-sec .ref{font-size:8pt;color:var(--muted)}
 .pg-sec .ref b{color:var(--ink);font-weight:700}
-.pg-doc{border:1px solid var(--line);border-radius:4px;padding:10px 12px}
-.pg-band{display:flex;gap:12px;margin:0 0 8px;align-items:stretch}
-.pg-bueno{border:1.5px solid var(--ink);border-radius:3px;padding:5px 12px;min-width:44mm}
-.pg-bueno span{display:block;font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.pg-bueno b{font-size:14pt;font-weight:800}
+.pg-doc{border:1px solid var(--line);border-radius:4px;padding:6px 10px}
+.pg-band{display:flex;gap:12px;margin:0 0 4px;align-items:stretch}
+.pg-bueno{border:1.5px solid var(--ink);border-radius:3px;padding:3px 10px;min-width:42mm}
+.pg-bueno span{display:block;font-size:6.5pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.pg-bueno b{font-size:12.5pt;font-weight:800}
 .pg-lugar{flex:1;display:flex;flex-direction:column;justify-content:center}
-.pg-lugar span{font-size:7pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
-.pg-lugar b{font-size:9pt;margin-top:1px}
-.pg-cuerpo{font-size:9pt;line-height:1.45;text-align:justify;margin:7px 0}
-.pg-grid{display:flex;gap:14px;margin-top:8px;padding-top:7px;border-top:1px solid var(--line)}
+.pg-lugar span{font-size:6.5pt;letter-spacing:.09em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.pg-lugar b{font-size:8.5pt;margin-top:1px}
+.pg-cuerpo{font-size:8.5pt;line-height:1.32;text-align:justify;margin:3px 0}
+.pg-grid{display:flex;gap:14px;margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
 .pg-col{flex:1 1 0}
-.pg-col h5{margin:0 0 4px;font-size:7pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
-.pg-kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:8pt;margin:0;line-height:1.25}
+.pg-col h5{margin:0 0 2px;font-size:6.5pt;letter-spacing:.1em;text-transform:uppercase;color:var(--accent);font-weight:700}
+.pg-kv{display:grid;grid-template-columns:auto 1fr;gap:0 9px;font-size:7.5pt;margin:0;line-height:1.18}
 .pg-kv dt{color:var(--muted);font-weight:600;white-space:nowrap}.pg-kv dd{margin:0;font-weight:600}
-.pg-firma{margin:16px auto 2px;width:64mm;text-align:center}
+.pg-acepto{margin-top:4px;padding-top:4px;border-top:1px solid var(--line)}
+.pg-acepto h5{margin:0;font-size:7pt;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);font-weight:800}
+/* 8 mm de aire sobre la raya: espacio real para firmar a mano sin gastar media hoja. */
+.pg-firmas{display:flex;gap:16px;justify-content:space-around;margin-top:7mm}
+.pg-firma{flex:0 1 66mm;text-align:center}
 .pg-firma .linea{border-bottom:1px solid var(--ink);height:1px}
 .pg-firma .rot{font-size:7pt;color:var(--muted);letter-spacing:.08em;text-transform:uppercase;font-weight:700;margin-top:4px}
 .pg-firma .rot2{font-size:8.5pt;font-weight:700;margin-top:1px}
+.pg-firma .rot2.vacio{color:var(--muted);font-weight:600}
 </style>
 
+<!-- Membrete y título en UNA fila. Eran dos bloques apilados (logo+emisor, luego título+folio)
+     con una regla en medio: 82 px para cuatro datos que caben en 50. -->
 <div class="head">
-  ${this.logo() ? `<img class="logo" src="${this.logo()}" alt="Mega Dulces">` : '<div></div>'}
-  <div class="emisor"><b>${EMISOR.nombre}</b>RFC: ${EMISOR.rfc}<br>Régimen ${EMISOR.regimen}<br>Lugar de expedición: C.P. ${EMISOR.cp}</div>
+  ${this.logo() ? `<img class="logo" src="${this.logo()}" alt="Mega Dulces">` : ''}
+  <div class="hd-title"><div class="sub">Anexo informativo al CFDI</div><h1>Detalle de tu pedido</h1></div>
+  <!-- El régimen va por CÓDIGO (612), no con su descripción de 62 caracteres: envolvía dos
+       renglones del membrete para repetir un dato del catálogo público del SAT que el propio
+       CFDI ya trae desglosado. Este anexo es informativo. -->
+  <div class="emisor"><b>${this.esc(EMISOR.nombre)}</b>RFC ${this.esc(EMISOR.rfc)} · Régimen ${this.esc(EMISOR.regimen_code)}
+    · expedido en C.P. ${this.esc(EMISOR.cp)}, ${this.esc(EMISOR.plazaCorta)}
+    <br><span class="fl">Folio</span> <b class="fv">${this.esc(doc.sucursal)} ${this.esc(doc.doc_prefix)} · ${this.esc(doc.folio)}</b></div>
 </div>
 <div class="rule"></div>
-
-<div class="titleband">
-  <div><div class="sub">Anexo informativo al CFDI</div><h1>Detalle de tu pedido</h1></div>
-  <div class="folio"><div class="fl">Folio</div><div class="fv">${this.esc(doc.sucursal)} ${this.esc(doc.doc_prefix)} · ${this.esc(doc.folio)}</div></div>
-</div>
 
 <div class="nofiscal"><span class="badge">Anexo</span>
   <span>Documento <b>informativo, sin validez fiscal</b>. Tu comprobante es el CFDI timbrado que se entrega junto a este detalle.</span></div>
 
+<!-- Tres columnas, no dos: el alto de esta tira lo fijaba la columna MÁS LARGA, y "Datos del
+     pedido" tenía 7 renglones contra 4 del cliente — 3 renglones de alto pagados en blanco al
+     lado. Repartido en tres, la más larga tiene 4. -->
 <div class="info">
   <div class="box"><h4>Cliente</h4><dl class="kv">
     <dt>Nombre</dt><dd>${this.esc(doc.cliente_nombre)}</dd>
-    <dt>RFC</dt><dd>${this.esc(doc.cliente_rfc || '—')}</dd>
+    <dt>RFC</dt><dd>${this.esc(rfc.valor)}${rfc.generico ? ' <i>· público en general</i>' : ''}</dd>
     <dt>Domicilio</dt><dd>${this.esc([doc.cliente_domicilio, doc.cliente_colonia, doc.cliente_estado].filter(Boolean).join(', '))}</dd>
     <dt>Clave</dt><dd>${this.esc(doc.cliente_code)}</dd>
   </dl></div>
-  <div class="box"><h4>Datos del pedido</h4><dl class="kv">
-    <dt>Fecha</dt><dd>${this.fechaLarga(doc.fecha)}</dd>
+  <div class="box"><h4>Documento</h4><dl class="kv">
+    <dt>Tipo</dt><dd>${this.esc(doc.doc_label)}</dd>
     <dt>Sucursal</dt><dd>${this.esc(doc.sucursal)}</dd>
-    <dt>Documento</dt><dd>${this.esc(doc.doc_label)}</dd>
     ${doc.vendedor_nombre ? `<dt>Vendedor</dt><dd>${this.esc(doc.vendedor_nombre)}</dd>` : ''}
-    ${doc.referencia ? `<dt>Referencia</dt><dd>${this.esc(doc.referencia)}</dd>` : ''}
     ${doc.doc_origen ? `<dt>Pedido origen</dt><dd>${this.esc(doc.doc_origen)}</dd>` : ''}
-    <dt>Vencimiento</dt><dd>${this.fechaLarga(doc.vencimiento)}${doc.dias_credito ? ` (${doc.dias_credito} días)` : ''}</dd>
+    ${doc.referencia ? `<dt>Referencia</dt><dd>${this.esc(doc.referencia)}</dd>` : ''}
+  </dl></div>
+  <div class="box"><h4>Fechas</h4><dl class="kv">
+    <dt>Emisión</dt><dd>${this.fechaLarga(doc.fecha)}</dd>
+    <dt>Vencimiento</dt><dd>${this.fechaLarga(doc.vencimiento)}</dd>
+    ${doc.dias_credito ? `<dt>Crédito</dt><dd>${doc.dias_credito} días</dd>` : ''}
   </dl></div>
 </div>
 
 <div class="sec-h"><h2>¿Qué compraste?</h2>
-  <span>${L.length} producto${L.length === 1 ? '' : 's'}, en orden alfabético · precios finales (IEPS incluido · IVA 0%)</span></div>
+  <span>${L.length} producto${L.length === 1 ? '' : 's, en orden alfabético'} · precios finales (IEPS incluido · IVA 0%)</span></div>
 <table class="det${conDesc ? '' : ' sin-desc'}">
   <colgroup><col class="c-prod"><col class="c-cant"><col class="c-pu">${conDesc
     ? '<col class="c-pd"><col class="c-imp"><col class="c-desc"><col class="c-neto">'
@@ -493,12 +592,16 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
   <tbody>${filas}</tbody>
 </table>
 
-<div class="foot-grid">
-  <div class="letra">
-    <div class="cl">Importe con letra</div>
-    <div class="cv">${this.conLetra(Number(doc.total))}</div>
-    ${ahorro > 0 ? `<div class="save-line">Ahorraste ${this.m(ahorro)} en este pedido (${pctTxt}% sobre el importe de lista).</div>
-    ${Number(doc.descuento) > 0 ? `<div class="save-note">En tu CFDI ese descuento se registra como ${this.m(doc.descuento)}, porque el SAT lo calcula sobre el precio sin IEPS. Pagas exactamente el mismo total.</div>` : ''}` : ''}
+<!-- Un solo cierre en UNA fila: los totales a la derecha y las cuentas de pago a la izquierda.
+     Antes eran dos filas apiladas (importe-con-letra + totales, y luego cómo-leer + bancos) que
+     juntas medían 252 px, con la mitad de cada una en blanco. El importe con letra baja como
+     pie del total, que es donde se lee (como en un cheque). -->
+<div class="cierre">
+  <div class="pago"><h4>¿Dónde pagar?</h4>
+    <div class="benef">Beneficiario: <b>${this.esc(EMISOR.nombre)}</b> · RFC ${this.esc(EMISOR.rfc)}<br>
+      Referencia: <b>${this.esc(doc.cliente_code)}</b> (tu número de cliente) — anótala y envía tu comprobante</div>
+    <table class="ctas"><thead><tr><th>Banco</th><th>Cuenta</th><th>CLABE interbancaria</th></tr></thead>
+      <tbody>${ctas}</tbody></table>
   </div>
   <div class="tot">
     ${conDesc ? `<div class="r"><span class="l">Importe (${L.length} productos)</span><span class="v">${this.m(doc.importe_bruto)}</span></div>` : ''}
@@ -506,26 +609,18 @@ table.ctas .bco{font-weight:700}table.ctas .clabe{font-weight:700;letter-spacing
     ${ahorro < 0 ? `<div class="r"><span class="l">Ajuste a tu favor</span><span class="v">+${this.m(Math.abs(ahorro))}</span></div>` : ''}
     <div class="r memo"><span class="l">Incluye IEPS</span><span class="v">${this.m(doc.ieps)}</span></div>
     <div class="grand"><span class="l">Total a pagar</span><span class="v">${this.m(doc.total)}</span></div>
+    <div class="letra-in">${this.conLetra(Number(doc.total))}</div>
+    ${ahorro > 0 ? `<div class="save-in">Ahorraste ${this.m(ahorro)} en este pedido (${pctTxt}% sobre el importe de lista)</div>` : ''}
   </div>
 </div>
 
-<div class="admin">
-  <div class="fiscal"><h4>Referencia fiscal</h4>
-    <div class="cfdi-eq">Tu CFDI presenta el mismo total con el desglose que pide el SAT:<br>
-      <b>Subtotal ${this.m(doc.subtotal)}</b> + <b>IEPS ${this.m(doc.ieps)}</b> − <b>Descuento ${this.m(doc.descuento)}</b> = <b>Total ${this.m(doc.total)}</b></div>
-    <div class="small">Aquí los precios se muestran como los pagas (impuesto ya incluido); el CFDI los separa. El total es idéntico en ambos.</div>
-  </div>
-  <div class="pago"><h4>¿Dónde pagar?</h4>
-    <div class="benef">Beneficiario: <b>${EMISOR.nombre.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase())}</b> · RFC ${EMISOR.rfc} · Referencia de pago: <b>${this.esc(doc.cliente_code)}</b> (tu número de cliente)</div>
-    <table class="ctas"><thead><tr><th style="width:22%">Banco</th><th style="width:26%">Cuenta</th><th>CLABE interbancaria</th></tr></thead>
-      <tbody>${ctas}</tbody></table>
-    <div class="nota">Al pagar, anota tu número de cliente como referencia y envía tu comprobante. Las transferencias entre bancos distintos se hacen con la CLABE.</div>
-  </div>
-</div>
-
-<p class="disclaimer"><b>Este es un anexo informativo, no un comprobante fiscal.</b> El documento con validez fiscal es el CFDI timbrado por el SAT.
-  Cantidades, unidades y precios provienen del sistema; las unidades y la equivalencia de bulto son las registradas en el catálogo del sistema.</p>
-${opts.pagare ? this.pagare(doc) : ''}`;
+<!-- El aviso de "no es comprobante fiscal" ya va ARRIBA, en la banda con borde: repetirlo acá
+     era decir dos veces lo mismo en la misma hoja. Queda sólo lo que no está en otro lado. -->
+<p class="disclaimer"><b>Cómo leer estos importes.</b> Todos son <b>finales</b>: ya incluyen el IEPS
+  (${this.m(doc.ieps)} en este documento) y llevan IVA 0%. Tu CFDI ampara el mismo total, con el desglose que
+  pide el SAT (base, traslados y descuento por separado). Las unidades y la equivalencia de bulto son las
+  registradas en el catálogo del sistema.</p>
+${opts.pagare ? this.pagare(doc, EMISOR) : ''}`;
   }
 
   /**
@@ -535,8 +630,9 @@ ${opts.pagare ? this.pagare(doc) : ''}`;
    * suscripción, y espacio de firma. Sin firma autógrafa es sólo un formato: el título de
    * crédito es el PAPEL firmado.
    */
-  private pagare(doc: any): string {
+  private pagare(doc: any, EMISOR: EmisorImpreso): string {
     const total = Number(doc.total);
+    const rfc = this.rfcCliente(doc);
     return `
 <section class="hoja-pagare">
   <div class="pg-sec">
@@ -548,15 +644,18 @@ ${opts.pagare ? this.pagare(doc) : ''}`;
       <div class="pg-bueno"><span>Bueno por</span><b>${this.m(total)}</b></div>
       <div class="pg-lugar"><span>Lugar y fecha de suscripción</span><b>${EMISOR.plazaCorta}, a ${this.fechaLarga(doc.fecha)}</b></div>
     </div>
-    <p class="pg-cuerpo">Debo y pagaré incondicionalmente a la orden de <b>${EMISOR.nombre}</b>, en <b>${EMISOR.plaza}</b>,
+    <p class="pg-cuerpo">Debo y pagaré incondicionalmente a la orden de <b>${this.esc(EMISOR.nombre)}</b>, en <b>${this.esc(EMISOR.plaza)}</b>,
       el día <b>${this.fechaLarga(doc.vencimiento)}</b>, la cantidad de <b>${this.m(total)}</b>
-      <b>(${this.conLetra(total).toUpperCase()})</b>, valor recibido a mi entera satisfacción.</p>
-    <p class="pg-cuerpo">Este pagaré causará <b>intereses moratorios a razón del ${MORATORIO_PCT}% mensual</b> a partir de la fecha de su
+      <b>(${this.conLetra(total).toUpperCase()})</b>, valor recibido a mi entera satisfacción.
+      Este pagaré causará <b>intereses moratorios a razón del ${MORATORIO_PCT}% mensual</b> a partir de la fecha de su
       vencimiento y hasta el día de su total liquidación, pagaderos en esta misma plaza junto con la suerte principal.</p>
     <div class="pg-grid">
       <div class="pg-col"><h5>Suscriptor (deudor)</h5><dl class="pg-kv">
         <dt>Nombre</dt><dd>${this.esc(doc.cliente_nombre)}</dd>
-        <dt>RFC</dt><dd>${this.esc(doc.cliente_rfc || '—')}</dd>
+        <!-- Sin RFC cuando el documento trae el GENÉRICO del SAT: en un título de crédito, un
+             RFC que no es del deudor es peor que no ponerlo (no es requisito del art. 170).
+             El deudor queda identificado por nombre, domicilio y número de cliente. -->
+        ${rfc.generico ? '' : `<dt>RFC</dt><dd>${this.esc(rfc.valor)}</dd>`}
         <dt>Domicilio</dt><dd>${this.esc([doc.cliente_domicilio, doc.cliente_colonia, doc.cliente_estado].filter(Boolean).join(', '))}</dd>
         <dt>Cliente</dt><dd>${this.esc(doc.cliente_code)}</dd>
       </dl></div>
@@ -568,8 +667,21 @@ ${opts.pagare ? this.pagare(doc) : ''}`;
         <dt>Importe</dt><dd>${this.m(total)}</dd>
       </dl></div>
     </div>
-    <div class="pg-firma"><div class="linea"></div>
-      <div class="rot">Firma del suscriptor</div><div class="rot2">${this.esc(doc.cliente_nombre)}</div></div>
+    <!-- Apartado ACEPTAMOS: es el bloque de aceptación del título. Va en plural porque el
+         pagaré admite DOS firmantes — el suscriptor (deudor) y, si lo hay, el aval u obligado
+         solidario (LGTOC 109-116: el aval responde igual que el avalado). La línea del aval va
+         en blanco a propósito: se llena a mano cuando hay uno, y vacía no obliga a nadie. -->
+    <div class="pg-acepto">
+      <h5>Aceptamos</h5>
+      <div class="pg-firmas">
+        <div class="pg-firma"><div class="linea"></div>
+          <div class="rot">Firma del suscriptor (deudor)</div>
+          <div class="rot2">${this.esc(doc.cliente_nombre)}</div></div>
+        <div class="pg-firma"><div class="linea"></div>
+          <div class="rot">Aval u obligado solidario</div>
+          <div class="rot2 vacio">Nombre y firma</div></div>
+      </div>
+    </div>
   </div>
 </section>`;
   }

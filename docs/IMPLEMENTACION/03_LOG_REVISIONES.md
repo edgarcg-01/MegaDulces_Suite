@@ -6,6 +6,840 @@
 
 ---
 
+## 2026-09-07 — El factor de caja de Wincaja: uno se arregló, dos se declararon (y por qué no los tres)
+
+**Disparador:** *"mencionaste que ahora sí se trae todas las unidades × caja de wincaja, ¿verdad?"* —
+no lo había dicho, y al medirlo salió que **no se traen todas**. Después *"no es posible que sólo
+sea 15 productos"*, que era una duda correcta y me hizo encontrar que mi propio corte había
+estrechado el número. Y por último *"arreglemos wincaja"*.
+
+### La cobertura real, con el corte abierto
+
+`analytics.v_warehouse_box_factor` (ADR-055) saca el divisor de `wincaja.articulos.factor_venta`
+**sólo donde `factor_venta > 1`**; si no, cae al `box_factor` de Kepler, que está en unidades BASE.
+Por almacén de Wincaja, de 11,212 productos del catálogo (cifras de MD-30, antes del arreglo):
+
+| origen | productos | con existencia | divisor prom |
+|---|---|---|---|
+| `wincaja_factor_venta` | 8,680 (77.4%) | 3,074 | 29.48 |
+| `default` — **sin factor en ninguna fuente** | 2,263 (20.2%) | 169 | 1.00 |
+| `kepler_c84` / `etiquetera` / `override` / `factor_sale` | 269 | 110 | 16–24 |
+
+**Mi primer conteo estaba estrechado y lo dije como si fuera el problema.** Llevaba un filtro
+`box_factor > 1` que escondía todo lo que caía en divisor 1, y reporté "243 heredan de Kepler"
+presentando el sub-caso de 15 como el hallazgo. La exposición son **2,532 productos, 279 con
+existencia**. De ésos, 1,385 sí están en `articulos` con `factor_venta = 1` y **1,147 no existen en
+`articulos`** — productos del catálogo de Kepler parados en un almacén de Wincaja, donde el divisor
+de Kepler sí se defiende.
+
+### W1.1 ✅ — `CJA` + `factor_venta = 1` significa divisor 1 (mig 20260907230000, batch 312)
+
+`CJA` con factor 1 es una **declaración** auto-consistente ("mi unidad de venta ya es la caja"); en
+`PZA` el mismo 1 es **ausencia** de captura, porque "1 pieza = 1 caja" no se sostiene en dulcería.
+Lo prueba el reparto: con `fv = 1` hay 1,872 PZA / 193 CJA / 152 KGS, y con `fv > 1` hay 13,282 PZA
+— el campo está poblado para unos PZA y no para otros. Así que la condición nueva se acota a `CJA`.
+
+Medido antes y después: **840 filas** pasan a origen Wincaja (84 CJA × 10 almacenes), de las cuales
+**150 cambian de divisor** (exactamente lo predicho) y **650 sólo sinceran la procedencia** — ya
+tenían divisor 1 vía `default`, ahora dicen quién lo declaró. MD-30: `default` 2,263 → 2,198. Los
+**6 almacenes Kepler: idénticos, ni una fila.** Abanico: **0** (11,212 filas == 11,212 productos en
+los 16 almacenes, y la migración lo mide y lanza si no cuadra).
+
+**El delta sobre los totales publicados fue CERO, por una razón que conviene registrar:** las 8
+filas con existencia ya traían `rung_veredicto = 'x2_deflactada'` — el árbitro que ya existe **había
+detectado este defecto** y la pantalla mostraba la cantidad nativa en vez de inventar cajas. El
+beneficio real es que esas 8 celdas pueden volver a ser MEDIBLES en la próxima corrida del nocturno.
+
+### W1.0 y W1.3 🟠 — se DECLARAN, no se corrigen, y el motivo está medido
+
+Los dos son defectos vivos: **345 celdas** con divisor 1 sin fuente se muestran como cajas (24,853
+unidades nativas, y **ninguna** tiene veredicto) y **98 celdas de peso** se dividen por un factor de
+hasta 25 sin que nada lo declare (el árbitro sólo atrapó 38 de 229).
+
+Pero la regla estricta —*convertir sólo con factor con fuente y unidad que no sea peso*— **borraría
+entre 24% y 58% del total de cajas de CADA almacén, y no sólo de los de Wincaja**: `01` pasaría de
+29,774 a 18,854; el CEDIS de 25,700 a 11,789; la 05 −58.4%. Son 1,692 celdas y **11 no tienen ni
+rótulo nativo** que poner en su lugar. Eso es una decisión de negocio, no una corrección técnica.
+
+Así que la cifra queda intacta y lo que se agregó es que **se vea**: predicado `sinFactor()` hermano
+de `MEDIBLE`, KPI "Sin factor de caja", banner que declara la causa, y un grado `°` por celda con su
+explicación en el `title` más texto para lector de pantalla (el símbolo no puede ser el único
+portador). Nuevo en la respuesta: `celdas_sin_factor`, `skus_sin_factor`, `cells[].nf`
+(`'sin_factor'` | `'peso'`) y `per_warehouse[].sin_factor`.
+
+**Falta la decisión:** si el total de cajas debe excluir lo que no tiene factor.
+
+### Frenos que se pusieron antes de tocar la vista
+
+- **Abanico (Fase FKJ):** `wcf` se une por (warehouse_id, sku), así que agregar filas al CTE podía
+  duplicar el producto. Verificado que no: PK única en `wincaja.articulos`, **0** grupos con más de
+  una fila y **0** SKUs con una fila `fv > 1` y otra `CJA + fv = 1` a la vez. Y la migración **mide
+  el abanico y lanza** en vez de confiar en que el análisis siga siendo cierto cuando corra.
+- **`CJA` tiene una sola escritura** (4,128 filas, largo 3): no hay `PAQ`, `CAJ` ni `PQT`
+  subcontando. Los rótulos son PZA 15,154 / CJA 197 / KGS 165 / SER 11 / N/A 1.
+- **`CREATE OR REPLACE`, nunca `DROP`** (vista viva → `0A000`), 12 columnas en el mismo orden,
+  `security_invoker` re-declarado.
+- La definición se sacó **VIVA de prod** con `pg_get_viewdef`, no del archivo de migración — había
+  migraciones posteriores que la referenciaban y hacía falta confirmar que ninguna la había
+  reemplazado. ⚠️ Y `pg_get_viewdef` devuelve `FROM warehouses` **sin calificar** (lo resolvió el
+  `search_path` al crearla): la migración nueva usa `commercial.warehouses` / `catalog.products`
+  explícitos, porque copiar el viewdef habría dejado la vista colgada del `search_path`.
+
+---
+
+## 2026-09-07 — El reconciliador de Wincaja que NO hace falta (y los dos instrumentos que mintieron al medirlo)
+
+**Disparador:** quedaba pendiente *"agendar `import-wincaja-hist.js` como reconciliador per-corte"*,
+apuntado como remedio a la fuga del carril incremental. Antes de escribirlo, medirlo.
+
+### Veredicto: no hay fuga medible, y el item se cierra sin código
+
+El carril avanza por watermark sobre `Consecutivo`. La hipótesis era que se saltaba filas y quedaban
+huecos en la secuencia. Los huecos existen y son enormes — **w32: 80% del rango ausente, el mayor
+tramo de 21,602 consecutivos; w30: 45%; w00: 57%**. Parecía la prueba.
+
+**No lo es.** `w30` cubre **2026-08-01 → 2026-09-06 con CERO días sin documento** (31/31 de agosto),
+y sin embargo le "faltan" 19,290 consecutivos. Un contador con huecos y una cobertura sin huecos no
+pueden ser la misma falla: **los huecos son del ERP, no del carril**. El `Consecutivo` de Wincaja no
+es denso — es global a la base y `MaestroMovAlmacen` trae una familia (`Tipo` V=25,156 de 25,815 en
+w32; C/D/S/E/X/P el resto), repartida además entre 8 cajas.
+
+La medición que sí decide es la **cobertura en el tiempo**, no en el número. Y sale limpia:
+
+| esquema | rango | docs | días sin ningún documento |
+|---|---|---|---|
+| `w00` | 2026-01-02 → 2026-09-05 | 3,604 | 42, de los cuales **7 no son domingo** |
+| `w30` | 2026-08-01 → 2026-09-06 | 23,134 | **0** |
+| `w32` | 2026-07-01 → 2026-09-06 | 25,815 | 0 (los 9,677 que reportó el script son artefacto, ver abajo) |
+
+Consistencia maestro↔detalle en w32: 25,815 vs 25,747, **68 sólo en maestro y 0 huérfanos en
+detalle** — la dirección sana (un maestro sin líneas es un documento vacío del ERP; una línea sin
+maestro sería corrupción).
+
+Así que el reconciliador quedaría resolviendo un problema que no está medido. El mecanismo que temía
+—un documento escrito al `.mdb` con `Consecutivo` POR DEBAJO del watermark— sigue siendo posible en
+teoría, pero **no se puede detectar desde la réplica**: hay que comparar contra el `.mdb`. Lo que sí
+detectaría una fuga real, y es barato, es un **sensor de cobertura diaria** (días con cero documentos
+dentro del rango). Queda propuesto, no construido.
+
+### Dos hallazgos que la medición dejó de paso
+
+- **La réplica CDC sólo tiene lo que trae el `.mdb` vivo**, y eso es un período corto, no la
+  historia: `w30` arranca el 1-ago-2026 y `w32` el 1-jul-2026. Lo de "2025→2026 completo" vive en la
+  carga histórica, que es otro camino y otros archivos. No confundir las dos coberturas.
+- **7 filas en `w32."MaestroMovAlmacen"` fechadas `2000-01-01`** con consecutivos repartidos
+  (13,539..37,160). Es la fecha centinela de Access, no dato. Son las que inflaron el conteo de
+  "9,677 días sin documento" a 8 meses de hueco inexistente: **un centinela en el extremo del rango
+  estira el calendario y todo lo de en medio aparece como falta.**
+
+### Los dos instrumentos que mintieron, y los dos avisos que quedan
+
+1. **`Fecha` es TEXT pero en ISO** (`2026-08-25T00:00:00`) en esta tabla — no el `MM/DD/YY` que ya
+   documentamos para otras tablas de Wincaja. Mi guarda de formato, copiada de esa auditoría,
+   **rechazó el 100% de las filas** y reportó "fecha no parseable" en las tres sucursales. El formato
+   de fecha en Wincaja es **por tabla**, no por base: hay que mirar valores antes de parsear.
+2. **`Consecutivo` es `numeric`, no texto.** El `WHERE "Consecutivo" ~ '^[0-9]+$'` que puse de guarda
+   tiró `operator does not exist: numeric ~ unknown` — y como había canalizado la salida por `sed`,
+   que buffea, el error **no apareció**: el script se veía "corriendo" con salida vacía. Dos veces.
+   Para medir en background, sin pipe.
+
+**La lección de fondo:** *un hueco en un contador no es una fila perdida.* Antes de tratar una
+discontinuidad como pérdida, hay que probar que el contador es denso — y acá basta un contraejemplo
+(w30: 45% del rango ausente, 0 días ausentes) para tumbar la hipótesis.
+
+---
+
+## 2026-09-07 — El ledger doble de knex: 4 migraciones aplicadas que el próximo deploy iba a re-aplicar
+
+**Disparador:** *"sigue con los bloques del 1 y autorizo que corras las migraciones"*. Va antes del
+redeploy pendiente, no después: si el deploy corre `migrate.latest()`, estas 4 se re-aplican.
+
+### Lo que estaba mal
+
+Prod tiene **DOS** tablas `knex_migrations`. La real es `public` — la que declara
+`database/knexfile-newdb.js` con `schemaName: 'public'`. La otra vive en `identity` y se llena porque
+el `search_path` del rol pone `identity` **primero**
+(`identity, catalog, trade, commercial, logistics, public, "$user"`): cualquier runner ad-hoc que
+arme su knex **sin** `migrations.schemaName` escribe ahí y no se da cuenta.
+
+Medido: `public` 599 filas / batch 303 · `identity` **4** filas — eran **2** la semana pasada, o sea
+la tabla sigue creciendo. Las 4: `20260904100000_v_sellout_daily.js`,
+`20260904100100_mv_sellout_monthly.js`, `20260905120000_sellout_monto_neto_descuento.js`,
+`20260907120000_vendor_identity_tlmk_ph.js`. Ninguna estaba en `public`.
+
+Y no son inocuas al re-correr: la tercera arranca con
+`DROP MATERIALIZED VIEW analytics.mv_kepler_sales_daily CASCADE` —que se lleva `v_sellout_daily` y el
+rollup mensual— más un `REFRESH` completo; su `down()` lanza a propósito.
+
+### El falso negativo que casi me hace re-aplicar una de ellas
+
+Verifiqué el DDL contra prod antes de registrar nada, porque *"aplicada"* en un ledger no prueba que
+el objeto exista. El primer chequeo dijo que `mv_sellout_monthly` y `mv_kepler_sales_daily` **no**
+tenían `monto_neto` → lectura: la migración se registró sin correr, hay que aplicarla de verdad.
+
+**Falso.** `information_schema.columns` **no lista MATVISTAS** — sólo tablas y vistas. Por eso
+`v_sellout_daily` (vista normal) sí aparecía y sus dos hermanas materializadas no. Repetido contra
+`pg_attribute`: **12/12 OK**, incluida la invariante `monto_neto <= monto`.
+
+Creerle al primer resultado significaba dropear con CASCADE la cadena del sell-out **en prod** para
+arreglar algo que ya estaba bien.
+
+### Lo que se hizo
+
+- Las 4 registradas en `public.knex_migrations` (batch **304**) preservando su `migration_time`
+  original, en una transacción con freno (`si no son exactamente 4 → rollback`). **599 → 603**.
+- `identity.knex_migrations` **no se borró** — no se borra nada en prod. Queda con un `COMMENT` que
+  dice que no es el ledger y que **si vuelve a crecer, hay un runner mal configurado corriendo contra
+  prod**. Ese comentario es el detector: la tabla es el sensor de su propia causa.
+- Las 2 genuinamente pendientes, una por una con `database/scripts/apply-one-migration-prod.js` —que
+  **sí** declara `schemaName: 'public'`, no fue el culpable—:
+  `20260904120000_promotor_ruta_orders_perms.js` (batch 305) y
+  `20260907130000_commercial_sellout_analysis_perm_backfill.js` (batch 306).
+- Cierre: **605 aplicadas / 0 pendientes**, 605 archivos == 605 filas, **0** filas en el ledger sin
+  archivo (o sea cero riesgo de *"directory corrupt"*).
+
+### Las 2 pendientes ya eran no-ops, y el baseline lo predijo
+
+Capturado **antes** de aplicar: `promotor_ruta` ya tenía `COMMERCIAL_ORDERS_CREAR`,
+`COMMERCIAL_ORDERS_VER` y `COMMERCIAL_WAREHOUSES_VER` en `true`; y de los 50 roles, **0** estaban sin
+la clave `COMMERCIAL_SELLOUT_ANALYSIS_VER` (13 en `true`, exactamente los 13 que tienen el ancla
+`COMMERCIAL_SELLOUT_VER`). El backfill reportó `filas = 0`, lo previsto al dedo. Alguien ya había
+aplicado el efecto a mano por `/admin/roles`.
+
+O sea: aplicarlas **no movió un dato** — sinceró el ledger. Post-estado idéntico al baseline.
+
+**Lección:** el `WHERE permissions -> 'KEY' IS NULL` del backfill respeta a propósito lo manual, así
+que medir el baseline no es ceremonia: es lo único que distingue *"el backfill no hizo falta"* de
+*"el backfill no llegó"* — que es como se veía LC.6.2 desde afuera.
+
+### Tres cosas que no venía a buscar
+
+- **`role_permissions` existe en `identity` Y en `public`.** El de `public` es **vista** con
+  `security_invoker=true`, 50 filas contra 50 — correcto, no hay segunda fuente de verdad. La tabla
+  real tiene RLS activo y **forzado**.
+- **`recursos_humanos` aparece dos veces**: una fila por tenant. Legítimo.
+- **Los tenants de prueba en prod bajaron de 3 a 1.** Quedan `mega_dulces` (120 usuarios activos) y
+  `test_tenant_b` (**0** usuarios). `tenant_isolation_test` y `ws_iso_test` ya no están.
+
+### Higiene que le toca a Edgar
+
+El área de staging trae **31 archivos `.tmpq/`** (PDFs y benches de scratch) marcados `A`, más WIP
+real de `anexo-venta`. **`.tmpq` no está en `.gitignore`** — por eso se cuela en cada `git add`. No lo
+toqué; el commit de esta pasada nombra sus archivos por ruta.
+
+---
+
+## 2026-09-05 — AX.9: auditoría de `/comercial/documentos` y los tres números que mentían
+
+**Disparador:** Edgar preguntó *"analiza /comercial/documentos, ¿son ventas o facturas de telemarketing?"*
+y, con el análisis en la mano, *"arreglemos lo que está mal"*.
+
+### La respuesta a la pregunta
+
+**Son facturas de telemarketing, no "las ventas".** La pantalla filtra a un solo doctype:
+`U/D/8` "Factura Telemarketing", con `canal='TELEMARK'` en el **100%** de los documentos —sin una
+excepción— y sólo en las sucursales **01 y 06** (la 02 y la 05 facturaron TM hasta marzo-2026 y
+pararon). Cadena verificada: **Pedido `U/D/40` → Embarque `U/D/41/1` → Factura `U/D/8`**, con padre
+en 1,355 de 1,355 documentos de 90 días.
+
+Peso real (30d): **$8,359,923 / 738 documentos / 188 clientes** = **31%** de la venta al cliente final
+(los doctypes 8+10+12 que define el sell-out) y **7%** de todo lo que se mueve en `U/D` ($117M,
+incluidos traspasos, embarques y factura global). No hay fuga: los clientes TM facturados **en su
+misma sucursal** bajo otro doctype suman $112k en 90 días (0.8%). El $12.3M que a primera vista
+aparecía en `U/D/13` era **colisión de códigos de cliente entre sucursales**, no otro canal.
+
+### Los cuatro defectos, y cómo se midieron
+
+1. **"Vencida" no sabía si ya te habían pagado.** El KPI marcaba **355 documentos por $3,320,754**;
+   cruzados contra la cartera (`kdue`), **91 ya estaban liquidados ($567,504)**. El vencido real eran
+   264 documentos y **$2,028,423** de saldo. `vencida` sólo significaba "pasó la fecha".
+2. **El vencimiento era una reconstrucción y contradecía al ERP.** Se calculaba `fecha + días de
+   crédito del maestro DE HOY`; el ERP guarda el pactado al facturar y **difieren en 329 de 729 (45%)**,
+   hasta 25 días. Pero `kdue` tampoco está limpio: **57 de 729 vencen ANTES de su propia factura** —la
+   misma enfermedad por la que AX ya había descartado `kdm1.c18`.
+3. **El subtotal no cuadraba con los renglones que se imprimen.** Medido sin excepción: **el IEPS ya
+   viene dentro del importe del renglón** (744/744 facturas sin descuento: Σrenglones == `total`
+   EXACTO, y **nunca** `total − ieps`), y la identidad que se cumple siempre es
+   **`total = Σrenglones × (1 − descuento_pct/100)`** en 1,268/1,268. El `subtotal` de la vista
+   (`total − ieps + descuento`) coincidía con el detalle en **238 de 1,268 (19%)**, y `descuento`
+   (`c13`) no es lo que se descontó (`Σrenglones − c13 == total` sólo en 985 de 1,268).
+4. **Etiqueta equivocada:** `U/D/12` se rotulaba "Venta a crédito"; `kdmm` dice **"Factura Cont No
+   Fiscal"** (la de crédito es `U/D/13`).
+
+### Decisiones técnicas
+
+- **El saldo lo manda `kdue`, no la cabecera.** Se decodificó `kdm1.c43` sobre 2,745 documentos con
+  separación perfecta —`N` sin abonos (`c42 == total`), `R` abono parcial, `F` liquidada (`c42 == 0`),
+  `C` cancelada, y en mostrador 62,646 tickets de contado son `F`— pero **va rezagada**: en 563 de
+  1,346 facturas `c42` sigue diciendo que deben todo mientras la cartera ya tiene el cobro con folio
+  y fecha. `c43` se expone decodificado como `doc_estatus_label` (es información real sobre la
+  cabecera), no como estado de cobro.
+- **Una sola definición del saldo.** La tentación era copiar la fórmula de `customer_receivables` a
+  una vista propia; eso es GOTCHAS §32. En vez de eso su CTE `base` se extrajo a
+  `analytics.erp_receivable_documents` y la cartera pasa a apoyarse en él, con un **candado de paridad
+  que corre contra prod y lee el SQL DE LA MIGRACIÓN**, no una copia: 29 columnas, diferencia
+  simétrica **0 en ambos sentidos**, Σ saldo_ajustado y Σ signed_amount idénticas.
+- **Procedencia ternaria (ADR-056).** `vencimiento_source` = `erp` (747) · `derivado_erp_invalido` (60)
+  · `derivado` (9), y la pantalla lo dice: fecha en cursiva con `~` y una línea que declara cuántas
+  no vienen del ERP. Igual con `sin_cartera`: **9 documentos en prod** cuyo cobro **no se puede saber**
+  ocupan su propio KPI ("Cobro desconocido") en vez de contarse como pagados o como vencidos.
+- **El anexo dejó de afirmar sobre el CFDI.** Imprimía *"Tu CFDI presenta: Subtotal + IEPS − Descuento
+  = Total"*. Era cierto por álgebra (el subtotal se despeja del total) pero **nadie lo contrastó nunca
+  contra un CFDI emitido, y no se puede**: `fiscal.cfdis` tiene 167,503 filas y **todas** son
+  `rol='recibidas'`. Ahora dice sólo lo medido: los precios son finales, el IEPS va dentro.
+- **Índice en `kdue`:** scan 162 → **28 ms**, consulta 2,119 → **931 ms**. ⚠️ **Sin el `ANALYZE` el
+  planner lo ignora** y repite el `Parallel Seq Scan` — verificado con el índice ya creado.
+
+### Lecciones
+
+- **Un número correcto en su fuente puede publicarse mal por preguntarle a la columna vecina.** El
+  estado de cobro estaba en la MISMA FILA que la pantalla ya leía (`c42`/`c43`) y parecía gratis;
+  usarlo habría dado un resultado plausible y equivocado en el 42% de los casos.
+- **Un test puede fallar por su propio denominador.** El bloque del IEPS reportó "214 no cumplen"
+  porque el numerador no llevaba las mismas dos condiciones que el denominador; el dato estaba bien
+  (699/699). Se le agregó el **contraejemplo** —si el IEPS estuviera fuera, Σrenglones sería
+  `total − ieps`— para que la aserción no dependa de un solo lado.
+- **`CREATE INDEX CONCURRENTLY` espera transacciones viejas, no locks.** En el `.245` se quedó ~15 min
+  en *"waiting for old snapshots"* detrás de un `REFRESH MATERIALIZED VIEW` ajeno, con el índice ya
+  construido al 100%. No bloquea a nadie; hay que saber que se ve igual que un cuelgue.
+- **Al renombrar la fase, no la migración.** Este trabajo nació como "AX.6", que ya estaba tomado por
+  el sprint de IA; se renombró a **AX.9** en el código, pero los **archivos de migración se quedaron
+  con su timestamp** —ya aplicados en el `.245`— porque renombrar una migración aplicada deja el
+  directorio "corrupt". Comparte timestamp con `20260905150000_blank_retired_role_permissions.js`,
+  de otro trabajo: knex ordena por nombre completo, así que es determinista.
+
+### Lo que cuesta, y un candado muerto que apareció de paso
+
+**El cruce con la cartera cobra ~750-880 ms fijos**, y los cobra igual para 738 documentos que
+para uno solo (medido en el `.245`, misma sesión y dos pasadas: lookup 6→764 ms, lista 30d
+25→735 ms). El costo es el `DISTINCT ON` sobre `kdue` (528 ms) y **no se puede filtrar**: el
+WHERE del consumidor cae sobre columnas derivadas (`btrim(c1)`, `'U'||CASE…`) que el planner no
+sabe invertir. Se probó `WITH src AS NOT MATERIALIZED`: no mejora (774 vs 755 ms). Se acepta a
+sabiendas —es el precio de que el vencido deje de contar $567,504 ya cobrados, y esto es un
+reporte— con la salida escrita en la migración: si estorba, retirar el LEFT JOIN de la cabecera
+y resolver la cobranza en el service sólo en `list()`/`kpis()`.
+
+⚠️ **Hallazgo preexistente, no tocado:** el smoke `test-newdb-erp-sales-invoices.js` (AX.0)
+**no termina**. Su bloque del `box_factor` canónico —el que cruza líneas × cabeceras ×
+`v_product_box_factor` a 90 días— se pasa del `statement_timeout` **también en prod, con la
+vista vieja**. O sea el candado que debía cazar a quien vuelva a derivar el factor por su cuenta
+está muerto. Nadie lo había notado porque el test apunta por default a
+`localhost:5433/postgres_platform` (el contenedor de réplicas), donde no existen las vistas y
+sale por el `SKIP` sin ejecutar una sola aserción: **un test que se salta solo se lee igual que
+un test que pasa**. Verificado que no es regresión de AX.9 (se cuelga donde este cambio no está
+aplicado). Arreglarlo es otro sprint: acotar la ventana cambiaría lo que el candado mide.
+
+### En prod (2026-09-07): aplicada, y la trampa que sólo se vio ahí
+
+Las 2 migraciones aplicadas por nombre (batch 288 y 289, 6 s y 3 s), sin arrastrar ninguna de las
+9 pendientes ajenas. Paridad 6/6 en modo REGRESION, cobranza 13/13. **A 90 días, el KPIviejo
+contaba 366 facturas por $2,819,231.67 como vencidas estando ya cobradas** (928 → 553).
+
+⚠️ **La pantalla tardaba 24 segundos, y en el `.245` no se veía.** El `LEFT JOIN` a la cartera es
+inocuo hasta que aparece un `LIMIT`: ahí el planner elige nested loop y **re-escanea el CTE de la
+cartera —14,623 filas, en disco— una vez por fila devuelta** (`loops=50`). `list()` 23,856 ms y
+`filtros()` 10,853 ms. Arreglado materializando la selección antes de ordenar y recortar:
+**970 ms** y **418 ms**, y la última página cuesta igual que la primera.
+
+**La lección es sobre cómo medí, no sobre el planner:** yo había medido "la lista de 30 días" con
+un `count(*)` y con un `SELECT … LIMIT 50` sin `ORDER BY`, y daba ~880 ms. La consulta REAL del
+service —con su `ORDER BY fecha DESC, folio DESC` y su `LIMIT`— es la que se iba a 24 s. Una
+medición "parecida" a la de producción es una medición que se pone verde y publica una pantalla
+inusable: hay que ejecutar **la consulta que el service arma**, contra la DB donde va a correr.
+
+**Estado:** 2 migraciones **aplicadas en prod** (batch 288/289) + 2 smokes (6/6 y 13/13 contra prod) + builds api y view verdes.
+**Pendiente prod:** aplicar las 2 migraciones, redeploy api+view (sin permisos nuevos → **sin
+re-login**) y **medir ahí el tiempo de la pantalla**. Detalle en
+[`FASE_AX`](FASES/FASE_AX_ANEXO_VENTA.md).
+
+---
+
+## 2026-09-05 — Fase VP: auditoría de procedencia, y por qué "los números cambian" (ADR-056)
+
+**Disparador:** Edgar pidió analizar una plática con Gemini sobre integridad de datos, y después
+—descartado ese encuadre— pidió mirar el proyecto entero: *"siento que hay cosas que se están
+haciendo mal… no manejamos procedencia, logs de cambios, una verdad absoluta"*.
+
+### Lo que Gemini recomendaba y por qué no aplicaba
+
+La respuesta externa proponía reordenar en **capas** (repositorio/ORM), **golden master** como defensa
+principal, **precalcular más** (matvistas/rutinas nocturnas), y tomar el **Excel de contabilidad** o el
+**CFDI** como verdad absoluta. Las cuatro cosas están medidas y no aplican acá:
+
+- Las capas no protegen un número: **MR.5 tenía capas limpias y publicaba 14.62% de margen contra
+  11.32% real**. Un ORM además esconde el SQL que hay que auditar, cuando la regla del proyecto es que
+  la verdad viva en vistas `derive-no-copy`.
+- El snapshot dorado nace de la misma consulta con el mismo defecto: no atrapa los tres modos de falla
+  reales (unidad, frescura, cobertura).
+- Precalcular más **es el incidente OBS**: batch es una mentira que envejece en silencio.
+- El Excel de contabilidad **es medible y falso** acá: el del libro de compras traía un typo de $183M
+  y 41% de descuadre. Y el CFDI no puede arbitrar un reporte por sucursal (CP.0: la contabilidad casi
+  no segmenta, ~2%).
+
+### El hallazgo de la auditoría (3 exploraciones en paralelo, medido contra el repo)
+
+**No falta arquitectura. Cada primitivo necesario ya estaba construido, bien hecho, aplicado a
+exactamente un dominio, y nunca generalizado.** Frescura **4 de 171** endpoints · cobertura **1**
+pantalla · unidad **9 de 264** servicios · versión de la regla **1** dominio · valor anterior **3 de
+13** tablas de historia · cuadre contra árbitro **1** superficie · latido **13 de 109** importers y
+**0** de los de datos maestros · **1** bloqueo duro en todo el repo.
+
+Y el número llegaba desnudo: **6 menciones de `as_of` en 874** interfaces de respuesta del frontend;
+**1 de 187** rutas consumía `db-health`. **570 commits** en la historia arreglan corrección numérica
+(*"recupera $8.07M/mes que la copia tiraba"*) y **todos los encontró un humano**.
+
+**La causa es de proceso, no de diseño:** el proyecto crece por fases; cada una inventa el primitivo
+que necesita, lo documenta en su `.md` y cierra. El tracker rastrea **fases**, no **invariantes**.
+
+### Las tres mentiras que estaban vivas (VP.0 ✅)
+
+1. **El primitivo anti-mentira mentía.** `FRESHNESS_UNKNOWN` salía con `stale: false` y los consumidores
+   preguntan `@if (f.stale)` → **cuando fallaba la medición la etiquetera no mostraba nada**. Afirmaba
+   frescura por silencio, en la misma pantalla que el 27-ago imprimió seis días de precios viejos, uno
+   **54% bajo costo**. Escrito tres días antes para evitar exactamente eso.
+   Y su test lo declaraba cubierto: *"FRESHNESS_UNKNOWN no afirma frescura"* verificaba
+   `data_as_of: null` — cierto **también con el bug**. Verde todo el tiempo que la mentira estuvo viva.
+2. **21 de 24 píldoras** decían *"actualizado hace 2 min"* midiendo el reloj del navegador. La peor,
+   `tienda-arqueo` con `label="Kepler"` sobre un `new Date()` local.
+3. **`db-health` daba verde incondicional** (`cfg ? classify(...) : 'ok'`) a las 3 matvistas del refresh
+   nocturno que arman el sell-out, y a la única registrada le sobraba alarma (umbrales del otro cron).
+
+### El sell-out tenía tres capas ciegas apiladas (VP.1 ✅)
+
+El reporte más consultado del negocio iba de la migración a la pantalla **sin tocar un archivo de
+prueba**. (a) El dedup Kepler↔Wincaja es un predicado de fechas a mano y la migración prometía en un
+comentario que *"un test de paridad lo verifica"* — no existía. (b) El refresh materializaba el rollup
+aunque fallara la pierna Kepler: **ordenar no es depender**. (c) El monitor los daba verdes. Los tres
+mecanismos de detección estaban ciegos **en el mismo punto**.
+
+### Decisiones (ADR-056)
+
+El número viaja con su procedencia y **la forma la define un contrato**; el veredicto es **ternario**
+(`fresh|stale|unknown` — un booleano no puede decir "no sé"); **lo que no se pudo medir se declara**,
+también en los tests (`NO MEDIDO` ≠ ✔); **poblado no es fresco** y **ordenar no es depender**; un
+primitivo inventado en una fase **no cierra la fase** hasta que vive en `libs/`; y **un gate sin prueba
+negativa es una intención**.
+
+### Lecciones
+
+- **Un test puede estar verde mirando el campo vecino.** La aserción decía "no afirma frescura" y medía
+  `data_as_of`. Al agregar un candado, pintarlo contra **el campo que decide**, no contra uno cercano.
+- **Enumerar a mano sólo protege lo que alguien recordó.** La lista de carriles en `CRON_JOBS` no
+  nombraba las 3 huérfanas; el invariante real (*todo lo que late tiene umbral*) se mide contra la
+  tabla y falla en los dos sentidos.
+- **Una copia muerta que sigue pareciendo canónica es peor que no tenerla** (`KEPLER_SELLOUT_DEDUP`
+  tenía una sola referencia: su propia declaración).
+- **Verificar que la compuerta muerde.** Se quitó `measures` de un call-site a propósito → build en
+  rojo (exit 255). Sin esa prueba, un gate es una intención.
+- ⚠️ **Con dos manos sobre el mismo archivo, revisar `git diff` antes de stagear.** El commit
+  `0cf06cd4` se llevó trabajo en vuelo ajeno (`monto_neto`) al stagear el service completo.
+- ⚠️ **Quinta vez** que un acento grave dentro de un `template` literal tumba el build (NG5002).
+
+**Commits:** `4877bdb1` (VP.0.1/0.4/0.5) · `8644f1e9` (VP.0.3/0.6/2.1) · `0cf06cd4` (VP.1.1/1.2) ·
+`282ea311` (VP.1.3) · `7ecc20f6` (VP.0.2).
+**Verificado:** `test-newdb-feed-observability` 80/0 · `test-newdb-sellout-parity` 16 OK/0 fallas/2 NO
+MEDIDOS (rollup Δ 0.00 en 3 meses cerrados) · `typecheck:fast` limpio · `check:templates` 285/285 ·
+build de prod api+view verde.
+**Pendiente:** correr el candado de paridad **contra prod** (el traslape y el hueco siguen sin medir),
+VP.2.2/2.3, VP.3, VP.4, VP.5.
+
+---
+
+## 2026-09-05 — Réplica cruda Wincaja 2025–2026 + purga de higiene (21.8 GB) y lo que NO se purgó
+
+**Disparador:** dos pedidos de Edgar en la misma sesión — *"necesito una réplica cruda de todo lo
+que exista en Wincaja de 2025 a 2026"* y después *"realiza lo que sea mejor para la higiene, para
+las capas y la integridad de la información"*. Todo medido contra prod y contra la box, no contra la doc.
+
+### El inventario que disparó todo: ¿por qué prod tiene sólo 29 tablas de Wincaja?
+
+Porque a prod no la alimenta una réplica sino **un importer con lista blanca escrita a mano**. El
+mapa `DOMAINS` de `import-wincaja.js` declara **27 tablas** en 8 dominios; **27 mapeadas + 2
+propias** (`branches`, `caja_channels`) = 29. Access tiene **71 por sucursal** → **44 afuera**, de
+las cuales 27 están vacías y **17 tienen dato**: `ArticulosRelacion` 13,309 · `Operaciones` 1,943 ·
+`FacturaLibre` 1,850 · **`Eliminacion` 489** (ventas eliminadas: `cortes.eliminadas` trae el conteo,
+no el detalle) · **`Unidades` 49** (el catálogo de unidades, con una fase entera abierta sobre el
+tema) · `IVA`/`IEPS`/`ISuntuoso`/`Monedas`/`Credito`.
+Y un segundo recorte que el conteo de tablas esconde: **288 de las 514 columnas** de Access;
+`articulos` trae **18 de 52**.
+Es el patrón **inverso** al de Kepler (`kepler_ods` = 226 tablas, todo `md.*` crudo, semántica en
+vistas): pedir un campo nuevo en Wincaja obliga a editar el importer y redesplegar. La solución ya
+estaba construida y sin conectar — **WR.6**, "re-apuntar bronze `import-wincaja` a la réplica".
+
+### 2025 ya estaba; 2026 no tenía corte propio
+
+La Fase WR-hist ya tenía cargado 2017–2025 + `Actuales` + `Concentradas`: **14,425 cargas de tabla,
+todas `ok`, ~180 M filas**, schemas `hNN` en `:5433/wincaja`.
+**2025 completo:** 22 ramas × 70 tablas, **1,351,197 cabeceras**, todas al 31-dic (salvo dos cierres
+reales: `42` el 09-oct-2025 y `505` el 28-abr-2025).
+**2026 (474,925 cabeceras) vive dentro de `Actuales` + `Concentradas`.** El `Z:\Salidas\Bases\2026 C`
+que parece ser su carpeta son **11 archivos de 2,142,208 bytes exactos = Access en blanco**, un
+placeholder de marzo que nunca se llenó.
+
+Casi toda la fecha máxima por rama es **cuándo esa rama dejó de escribir en Wincaja**, no una falla
+de carga — coincide al día con prod. Tres sí eran hueco real, y por eso se corrió
+`--years=Actuales,Concentradas --include-live --force`:
+
+- **`00` CEDIS**: su `Concentradas` es uno de los stubs vacíos → su 2026 vivía **sólo** en `w00`, el
+  carril vivo que lee el `.mdb` rodante. Cero respaldo histórico.
+- **`30` Morelia Abastos**: el vivo `w30` arranca el **01-ago-2026** (un mes); ene–jul venía sólo de
+  `Concentradas`.
+- Las tres ramas vivas (`00/30/32`) el histórico **las saltaba por diseño** (`LIVE_MIRRORED`).
+
+### Dos trampas de la réplica cruda, para quien la consulte
+
+1. **`Fecha` es TEXT en los dos carriles, con formatos distintos**: `MM/DD/YY HH:MM:SS` en `h*`
+   (mdbtools) e ISO `YYYY-MM-DDTHH:MM:SS` en `w*` (Jet). Un `min()`/`max()` lexicográfico sobre `h*`
+   **miente** — la primera medición de esta sesión salió mal por eso.
+2. **50,455 filas con `Fecha` no parseable** (`01/00/00`, más años 2000 de relleno). Un `::date`
+   pelado revienta con `date/time field value out of range` en `h10`, `h30`, `h42` y `h50` — cuatro
+   ramas grandes que la consulta ingenua deja fuera **en silencio**. Guarda:
+   `"Fecha" ~ '^(0[1-9]|1[0-2])/(0[1-9]|[12][0-9]|3[01])/[0-9]{2}'`.
+
+Re-verificado contra el archivo de hoy (no contra la nota de agosto): **`Actuales/0 BPIRAPUATO.mdb`
+(417 MB) tiene `MaestroMovAlmacen`=0 y `DetallesMovAlmacen`=0** — es puro catálogo. Leer el `MOV`
+(34 MB, 3,586 cabeceras, 02-ene→04-sep-2026) sigue siendo correcto. Detalle abierto: el no-MOV trae
+**28,405 `Existencias` contra 15,529 del MOV** — puede tener almacenes que el MOV no; sin verificar.
+
+### La purga: 21.8 GB, y el criterio fue medir antes de borrar
+
+| qué | recuperado |
+|---|---|
+| Build cache de Docker (136 → 70 capas) | **20.55 GB** |
+| Imágenes superadas (`neo4j`, `pgvector:pg17`, `postgres:15`/`latest`, 3× `nginx`, `watchtower`, `ghcr…/api`) — 12.38 → 8.01 GB | 4.2 GB |
+| Volumen huérfano de **Neo4j** (layout `databases`/`dbms`/`transactions`, creado el 07-jul, el día que Neo4j se difirió) + imagen dangling + 7 volúmenes vacíos | 1.03 GB |
+| 7 logs de los carriles ODS retirados el 04-sep — `C:\KeplerRunner\logs` 436 → **171 MB** | 265 MB |
+| 3,310 logs de Wincaja de más de 7 días (4,409 → 1,099 archivos) | 16 MB |
+
+Antes de borrar un solo log se mapeó el grafo **tarea → `.vbs` → `.cmd`**: `run-feeds.cmd <modo>`
+escribe `logs/<modo>.log`, así que `stock.log`, `receipts.log`, `catalog.log` etc. están **vivos**.
+Sólo cayeron los de carriles sin tarea.
+
+### Lo que se decidió NO purgar, y por qué pesa más que lo que se purgó
+
+- **Los tres `*_snapshot_bak` (54 MB) se quedan.** La auditoría del 03-sep los listaba como
+  candidatos; medido, es al revés: son el **`down()` de tres migraciones aplicadas hace 2 y 9 días**
+  (`bank_postings` y `kepler_bank_movements` el 03-sep, `kepler_accounts` el 26-ago) y el `down()`
+  hace `ALTER TABLE … RENAME TO <tabla>`. Borrarlos deja sin rollback a las vistas de banco que
+  acaban de entrar — y justo `kdb1`, el feed que alimenta la primera, lleva **71 h** atrasado.
+  **Criterio nuevo: retención, no purga** — se van cuando la vista lleve semanas limpia.
+- **`railway_backup_check` (35 MB) · `lpa_r42` (15 MB) · `r10` (12 MB) se quedan.** `n_live_tup`
+  decía 0 filas y **mentía** (nunca se analizaron): tienen 3,040 / 18,463 / 11,669 filas reales. Y no
+  son copias de prod sino **snapshots viejos**: `railway_backup_check` trae 1,199 productos contra
+  14,805 hoy; `lpa_r42`/`r10` traen `kdii` 9,256/9,276 contra 9,544–9,556. No se pudo probar que sean
+  reproducibles → borrar dato no reproducible es exactamente lo que contradice el pedido. Quedan
+  documentadas acá para que nadie tenga que volver a investigarlas.
+- **`trade-mkt-prov` (3.72 GB) y `scriptsmd-admin-bd` (851 MB) no se tocan**: esta box es compartida
+  y no consta que sean de este proyecto.
+
+### 5ª pasada — 2026-09-07 · el linaje `blended` quedó retirado a medias (⚠️ ABIERTO) + el guardián late
+
+**⚠️ LO MÁS IMPORTANTE ABIERTO, y no es de esta sesión.** `analytics.v_sales_blended` y
+`analytics.mv_sales_blended` **ya no existen en prod** (el 05-sep la matview medía **1,456 MB**). El
+linaje se reemplazó por `analytics.v_sellout_daily` + `analytics.mv_sellout_monthly` (796,503 filas,
+sano) — la migración `20260904100000` lo declara: `v_sellout_daily` es la "DEFINICIÓN ÚNICA del
+universo del reporte Sell-Out". Pero quedaron **dos cabos sueltos**:
+
+1. **`commercial-analytics.service.ts` sigue leyendo `analytics.mv_sales_blended` en 8 lugares**
+   (canales, mix por marca, totales, series con `dayFilter`) → líneas 1169, 1272, 1628, 1744, 1776,
+   1811, 1857. Es **rotura latente, no caída activa**: la API desplegada corre una imagen anterior y
+   el log no registra **ni una** ocurrencia en 24 h. Se rompe en el próximo deploy, o cuando alguien
+   abra esos paneles.
+2. **`analytics_refresh_blended` falla en CADA corrida** con
+   `relation "analytics.mv_sales_blended" does not exist` — es el único síntoma visible, y estaba
+   perdido entre los verdes.
+
+**El repunte NO es drop-in — medido columna por columna:**
+
+| lo que usan los 8 sitios | `mv_sales_blended` (retirada) | `v_sellout_daily` (sucesora) |
+|---|---|---|
+| fecha | `sale_date` | **`business_date`** (renombrada) |
+| almacén | `warehouse_id` (uuid) | **`warehouse_code`** / `source_branch` (otra llave) |
+| dinero | una sola columna | **`monto` Y `monto_neto`** (bruto y neto de descuento) |
+| grano | día | día ✔ (pero `mv_sellout_monthly` es MENSUAL) |
+
+Las tres primeras filas son trabajo mecánico; **la tercera es una decisión de plata**: elegir
+`monto` o `monto_neto` cambia el ingreso reportado. Y el historial muestra que ya se fue y se volvió
+sobre exactamente eso — `feat([RS]): monto_neto` → `Revert` → `fix([RS]): monto_neto por factor de
+cabecera c16/(c16+desc)`. Nadie de afuera de la Fase RS debería elegir por ellos.
+
+⚠️ **Y NO silenciar el sensor.** El primer impulso fue sacar `analytics_refresh_blended` de la lista
+de refresh para que el tablero dejara de estar en rojo. **Sería lo peor:** ese rojo es hoy la
+ÚNICA señal de que el linaje quedó a medias — los 8 lectores no fallan porque nadie los llama.
+Apagarlo convierte una rotura visible en una rotura invisible, que es la definición del problema que
+ADR-053 existe para evitar. Se deja encendido a propósito hasta que los 8 sitios se repunten.
+
+**No se tocó**, y el motivo es que los dos arreglos posibles son OPUESTOS y la elección no es mía:
+o se recrea `mv_sales_blended` (si el drop fue colateral de un `CASCADE`), o se retira el linaje y
+se repuntan los 8 sitios. Y repuntar exige decidir, **sitio por sitio**, si el sucesor es
+`v_sellout_daily` (grano DÍA, vista viva) o `mv_sellout_monthly` (rollup MENSUAL): mandar lecturas
+con filtro de día a un rollup mensual cambia números del Command Center **en silencio**. Es juicio
+de quien hizo la Fase RS.
+
+**Patrón que esto repite** (3ª vez en la sesión): se reemplaza la fuente y no se cierra atrás — igual
+que los 11 importers zombie y los 2 handlers muertos del sink.
+
+**Lección de método, propia:** buscar dependencias con **grep sobre `pg_get_viewdef`** falló en las
+DOS direcciones el mismo día — falso NEGATIVO con `catalog.products_active` (colgaba del FDW por vía
+transitiva y el grep no la vio) y falso POSITIVO con 9 vistas que resultaron sanas. La fuente de
+verdad para dependencias es **`pg_depend`/`pg_rewrite`**, no el texto de la definición.
+
+**Arreglado: el guardián de feeds estaba MUDO desde que se escribió.** `run-feed-guardian.ps1`
+verificaba que `sync.local.env` EXISTIERA pero nunca lo **cargaba** al entorno, y
+`cron-heartbeat.js` no usa dotenv → imprimía
+`[cron-heartbeat] begin feed_guardian: sin DATABASE_URL_NEW/DATABASE_URL` y seguía de largo.
+Resultado: `feed_guardian` **no aparecía nunca** en `analytics.cron_runs`, o sea el proceso que
+re-dispara los 14 feeds era el único que nadie vigilaba. Su umbral **ya estaba declarado** en
+`CRON_JOBS` (warn 0.5 h / crit 2 h), así que figuraba como `unknown` y no alarmaba: faltaba la mitad
+del par. Verificado en vivo tras el fix: `feed_guardian · ok · 16:25:01→16:25:03 · host SISTEMAS`.
+
+### 4ª pasada — 2026-09-07 · el FDW fuera de prod y la 03 ordenada
+
+**El hallazgo que justificó todo: `catalog.products_active` NO se colgaba "en teoría".** Medido
+antes de tocar: `select count(*)` daba `statement timeout`. La cadena era
+`public.products_active` → `catalog.products_active` → `JOIN erp.productos_activos` → FDW →
+`192.168.0.245`, que Railway no rutea. Un chequeo que busca `erp.*` en la definición de la vista de
+arriba **no lo encuentra**: hay que seguir la dependencia transitiva (`pg_depend`/`pg_rewrite`).
+Y el `search_path` pone **`catalog` antes que `public`**, así que un `products_active` sin calificar
+resolvía a la que se colgaba.
+
+**Aplicado en PROD** (`mig 20260905140000`, batch 292, ledger `public` ✓):
+
+| | antes | después |
+|---|---|---|
+| `server mega_dulces_srv` | 1 | **0** |
+| foreign tables | 3 | **0** |
+| vistas `analytics_external.*_legacy` | 3 | **0** |
+| `catalog.products_active` | **timeout** | **8,704 filas · 235 ms** (caliente) |
+
+La vista se **repuntó** al ODS en vez de borrarse: conserva el nombre al que resuelve un
+`products_active` sin calificar, y es fiel a la definición anterior (mismas 39 columnas, mismo
+`LEFT JOIN brands`, mismo `WHERE is_commercial`). Sólo cambió el filtro de "activo en el ERP":
+`JOIN erp.productos_activos` → `EXISTS` sobre `kepler_ods.kdii`. **EXISTS y no JOIN** porque `kdii`
+tiene una fila por (sucursal, sku) y un JOIN multiplicaría por sucursal — el fan-out de la Fase FKJ.
+
+⚠️ **Se aplicó con `migrate.up({name})`, NO con `migrate.latest()`**: contra `public.knex_migrations`
+figuran 4 pendientes y dos ya están aplicadas (ver la mina del ledger doble más abajo); un `latest()`
+las re-aplicaría. Verificado además que el registro cayó en `public` y no en `identity`.
+⚠️ Y se verificó el destino **conectando explícitamente a prod**, porque `dotenv` inyecta el `.env`
+del repo — cuyo `DATABASE_URL_NEW` apunta a `platform_test`. Es la trampa que ya produjo una
+auditoría falsa de $375M.
+
+**La sucursal 03, ordenada.** Había **DOS bases con su nombre**: la viva era `kepler_pilot` y
+convivía con un `md_03` congelado el 15-jun que nadie escribía ni leía — leer la equivocada daba tres
+meses de atraso **sin ningún error**. Con un freno que midió la frescura de las dos justo antes de
+soltar (176,284 docs al 07-sep contra 117,479 al 15-jun):
+
+```
+ALTER SUBSCRIPTION sub_pilot DISABLE          -- el slot vive en el publicador .40.40: no se pierde WAL
+DROP DATABASE md_03                           -- 2,472 MB
+ALTER DATABASE kepler_pilot RENAME TO kepler_md_03
+ALTER SUBSCRIPTION sub_pilot ENABLE
+```
+
+La suscripción **conserva su nombre histórico `sub_pilot`** a propósito: renombrarla no aporta y sí
+toca el slot del publicador. Anotado en GOTCHAS para que no se lea como inconsistencia.
+
+**Lo "cosmético" costó 9 ediciones y un rebuild.** El caso especial
+`code === '03' ? 'kepler_pilot' : …` estaba copiado **a mano en nueve archivos**; los nueve pasan a
+`kepler_md_${code}`. Y los contenedores traen el código **horneado en la imagen**, así que hizo falta
+`up -d --build` (un `restart` no alcanza). Regla que queda en GOTCHAS: si vuelve a hacer falta un
+nombre fuera de convención, que viva en **un solo** resolvedor compartido.
+
+**Verificado después del rebuild:** shipper leyendo `kepler_md_03` (21 tablas, pasada hace 4 s),
+**0** errores `does not exist`, prod con la 03 al día (222,878 docs, último 07-sep). El reconciliador
+reportó **231 huecos y repuso los 231** (`errores 0`) — alto porque los carriles estuvieron ~15 min
+parados en la ventana, y se auto-curó. Su `status='error'` es el umbral de 50, no una regresión.
+
+**COMPLETADO 2026-09-07:** `DROP DATABASE KP_CONCENTRADA` (7,653 MB) + `Mega_Dulces` (440 MB) →
+**7.90 GB liberados en .245**. El freno pasó (prod ya sin FDW) y se verificó después: ningún job en
+error, todos los feeds recientes en `ok`, **cero** errores en la API por las bases ausentes. En el
+cluster quedan `platform_test` (9,437 MB), `postgres_platform` (123 MB), `hr` (114 MB).
+
+**DEFERIDO con motivo — compactación del `docker_data.vhdx`.** El disco virtual pesa **105.6 GB**
+contra ~**71.8 GB** de contenido real (imágenes 8.0 + volúmenes 55.3 + cache 8.3), o sea ~34 GB de
+hueco que WSL2 no devuelve solo. **No se hizo, y la recomendación es no hacerlo ahora:** `C:` tiene
+**117 GB libres** (sin presión), y compactar exige `wsl --shutdown` → cae Docker ENTERO: los 4
+carriles del ODS, `pgvector-md`, `redis-md` y **`api` + `view`**, o sea la app se cae para los
+usuarios. Encima los dos carriles de Wincaja en PM2 siguen vivos pero escriben a
+`:5433/wincaja` dentro de `pgvector-md` → darían error mientras dure. Beneficio: disco que no hace
+falta. Costo: caída visible. **Conviene juntarlo con el redeploy de `api`**, que ya se necesita por
+otras dos razones (sacar los sensores `kp_concentrada`/`mega_dulces` y, cuando llegue, el repunte de
+los 8 lectores de `mv_sales_blended`).
+
+**Nota histórica:** originalmente El script queda escrito con un freno que **exige que el FDW de prod
+ya no exista** antes de soltar la fuente — si el orden se invirtiera, `catalog.products_active`
+pasaría de colgarse a fallar duro, y eso sí lo verían los consumidores. Ese freno ya pasa.
+Evidencia extra acumulada en estos dos días: **KP_CONCENTRADA lleva 47 h congelada** desde que se
+deshabilitó su tarea el 05-sep y **nada se quejó**. Y `Mega_Dulces.public.ventas` tiene su última
+venta fechada **2026-12-05** — el bug de parseo DD/MM en carne viva.
+
+⚠️ **Deuda que abre esto:** los sensores `kp_concentrada`/`mega_dulces` ya salieron del código pero
+el contenedor `api` corre la imagen anterior, así que hasta el próximo deploy el tablero los seguirá
+sondeando.
+
+### 3ª pasada — demolición de lo que el ODS dejó sin función (Edgar: "todo lo que queda sin función … se elimina")
+
+**Lo que se probó muerto, midiendo y no asumiendo:**
+
+- **`KP_CONCENTRADA`** (.245, `kp.*`, 368 tablas / **7.7 GB**, refrescada cada 4 h). Sus cinco
+  consumidores que de verdad corren (`import-cash-sessions` en `live`/`livefast`; los tres
+  `repoint-catalog-{presence,names,prices}` e `import-label-data` en `nightly`) tienen
+  **`SOURCE='ods'` por default** (CANON.1.1/1.3) y `run-prod-feeds.js` **no pasa `--source` a
+  ninguno**. Cerrado con los logs en vivo, que imprimen la fuente:
+  `Fuente: kepler_ods (same-DB prod, @min)` · `=== REPOINT presencia de catálogo (kepler_ods → prod) ===`.
+  **Cero lectores productivos.** ⚠️ El comentario de `run-prod-feeds.js:61` dice
+  "kp.kdpv_folio_caja, source=kp por default" y **está desactualizado** — igual que el de
+  `run-prices.cmd`, que dice que lee `.245`.
+- **`Mega_Dulces`** (.245, 432 MB) + su FDW en prod (`mega_dulces_srv`, 3 foreign tables `erp.*`,
+  3 vistas `analytics_external.*_legacy`). El ETL por archivos murió el **2026-05-20** (con el bug
+  DD/MM↔MM/DD); el FDW apunta a `192.168.0.245`, que **Railway no rutea** → cualquier `SELECT`
+  sobre esas vistas **se cuelga** hasta el statement_timeout (comprobado: se colgó una consulta de
+  esta sesión). El código ya fue repuntado y de las tres vistas sólo quedan menciones en
+  **comentarios** ("inalcanzable desde Railway", "muerto en Railway", "el FDW Railway→.245
+  colgaba"); `productos_activos_legacy` no tiene ni una mención.
+
+**Lo que NO se toca, y es la razón de medir antes de tirar:**
+
+- **`kepler_consolidado` / `mart.ventas` está MUY vivo** — lo leen **9 scripts** del `nightly`/`live`
+  (`import-sales-fact`, `import-rotation-from-consolidado`, `import-top-sellers-from-consolidado`,
+  `import-customer-sales`, `import-product-sales-monthly`, `import-sales-by-route-monthly`,
+  `import-route-push-{monthly,lines}`, `import-kepler-vecinal-routes`). Era el candidato obvio de la
+  lista y la medición lo salvó.
+- **`public.products_active` NO cuelga del FDW** (refactorizada en la mig `20260603110000`). Tiene
+  **9 lectores**: matcher de IA, búsqueda de catálogo, pricing, extractor de tickets, portal. Asumir
+  que "todo lo legacy cuelga del FDW" se llevaba puesto el matcher.
+
+**Hecho:** tarea `\KP-Concentrate` **detenida y deshabilitada** (reversible, sin procesos huérfanos)
+· los sensores `kp_concentrada` y `mega_dulces` **fuera de `db-health`** — se quitan JUNTO con las
+bases y no después, porque un sensor apuntando a algo inexistente se pinta rojo para siempre y
+entrena al equipo a ignorar el tablero (la falla que ADR-053 existe para evitar) · migración
+`20260905140000_retire_mega_dulces_fdw.js` **escrita** (baja vistas → foreign tables → server, con
+`down()` que exige las credenciales por env y declara que no devuelve el dato).
+
+**Bloqueado por el clasificador (no se rodeó):** `DROP DATABASE KP_CONCENTRADA` y `Mega_Dulces`
+(**8.1 GB**), que es el 99 % del peso de esta demolición.
+
+### ⚠️ Mina encontrada de paso: DOS `knex_migrations` y dos migraciones fantasma
+
+Al chequear pendientes antes de aplicar la migración nueva:
+
+| ledger | filas | batch | última |
+|---|---|---|---|
+| `public.knex_migrations` | **581** | 285 | `20260905170000_unit_truth_fix_factor_uno.js` |
+| `identity.knex_migrations` | **2** | 2 | `20260904100100_mv_sellout_monthly.js` |
+
+`search_path` = `identity, catalog, trade, commercial, logistics, public` → **`identity` va antes que
+`public`**. Las migraciones `20260904100000_v_sellout_daily.js` y `20260904100100_mv_sellout_monthly.js`
+**ya están aplicadas en la DB pero quedaron registradas en el ledger equivocado**, así que contra
+`public` figuran como PENDIENTES: **el próximo `migrate.latest()` las re-aplica.**
+
+**No es la config:** los dos bloques de `knexfile-newdb.js` traen `schemaName: 'public'`. El culpable
+es un runner ad-hoc que armó su propio knex sin `schemaName`. No se tocó el ledger porque es trabajo
+de otra sesión en vuelo (junto con `20260904120000_promotor_ruta_orders_perms.js`, genuinamente
+pendiente). **Decisión de Edgar pendiente.**
+
+### APLICADO en la 2ª pasada (Edgar: "apliquemoslo en orden")
+
+**Bloque 1 — los 2 schemas locales, soltados.** `zbench` (150 MB) y `wincaja_ods` (29 MB) en
+`:5433/wincaja`. La redundancia se **re-verificó dentro de la misma transacción justo antes del
+DROP**, no se confió en la medición de una hora antes: `zbench.DetallesMovAlmacen_vmax` = 152,714
+filas / $7,629,584.75 == `h44/_dataset='2025'` al centavo, y `wincaja_ods.MaestroMovAlmacen` = 48,560
+== `h44/2025`. El script aborta si dejan de coincidir. `:5433/wincaja` queda con 34 schemas, todos
+con significado (29 `hNN` histórico + 3 `wNN` vivo + `ods` + `public`).
+
+**Bloque 2 — los 11 launchers huérfanos, retirados.** `C:\KeplerRunner` pasa de **24 a 13**
+archivos, y los 13 tienen mapeo 1:1 con una tarea. **Se MOVIERON** a
+`C:\KeplerRunner\_retirados_20260905\` en vez de borrarse (reversible), pero **mover no resuelve una
+credencial**: se redactaron los **29 secretos** de las copias archivadas (`postgres:REDACTADO@`,
+`FEEDS_INGEST_KEY=REDACTADO`) → los scripts siguen legibles como documentación, sin secreto vivo.
+Verificado después: las **21 tareas resuelven su archivo** y nada referencia a los retirados.
+
+⚠️ **Esto NO cierra el tema de credenciales.** Quedan **13 líneas con secreto en archivos VIVOS**
+que no se tocan (`run-feeds.cmd` 5 · `ingest.env` 4 · `run-livefast-loop.cmd` 2 · `run-prices.cmd` 1
+· `run-refresh-consolidado.cmd` 1). Y borrar un archivo **no invalida el password**: la rotación
+sigue pendiente aparte.
+
+**Bloque 3 — prod, APLICADO** (Edgar autorizó explícitamente tras el primer bloqueo del clasificador).
+`hacker`, `isouser`, `wsisouser` y `supervisor_arqueo_smoke` quedan con
+`activo=false, status='terminated', deleted_at=now()`. **125 → 121 usuarios activos, 125 filas
+totales: ninguna se borró.** Reversible con un UPDATE.
+
+Corte verificado en las DOS compuertas, no asumido:
+- simulando `permissions-cache.isUserActive()` (`activo = true AND deleted_at IS NULL`) → las 4 dan
+  **BLOQUEADO (401)**; `cliente_demo`, `prueba` y `rep_prueba` siguen dando **PASA**;
+- simulando el login (`auth-mt` filtra `activo: true`) → **0 de las 4** podrían entrar.
+
+Esta es la **primera baja de la historia de la tabla en prod**, así que fija el patrón: soft-delete
+con los tres campos, nunca `DELETE`.
+
+Lo que se verificó ANTES de escribir:
+- `identity.users.activo` **es una columna real, no `GENERATED`** (distinto del patrón de otras
+  tablas del proyecto).
+- El corte funciona por los dos lados: `auth-mt.service.ts:94` filtra `activo: true` en el login, y
+  `JwtAuthGuard` reevalúa por request vía `permissions-cache.isUserActive()`, que exige
+  `activo === true && deleted_at == null` → un token ya emitido recibe 401.
+- `status` admite `invited|active|suspended|terminated` (CHECK `users_status_valido`) →
+  `terminated` es el valor correcto.
+- **No hay ni una baja previa en prod**: los 125 usuarios están `active`/`activo=true`/`deleted_at`
+  null. Esta sería la primera, o sea establece el patrón.
+- Las 4 cuentas objetivo (`hacker` rol **`admin_b` en `mega_dulces`**, `isouser` y `wsisouser`
+  **`superadmin`** en los tenants de prueba, `supervisor_arqueo_smoke`) **nunca iniciaron sesión**.
+  `prueba`, `rep_prueba` y `cliente_demo` SÍ se usan (`cliente_demo` entró el 14-jul) → no se tocan.
+
+El UPDATE quedó escrito y probado en seco, con `BEGIN`/`ROLLBACK`, verificación de que afecta
+exactamente 4 filas y chequeo de daño colateral. Falta el permiso.
+
+**Verificado después de los bloques 1 y 2:** los 17 feeds laten, `cdc_reconcile` volvió a `ok`.
+
+### Redundancia PROBADA (aplicada en la 2ª pasada, ver arriba)
+
+- Schema **`zbench`** (150 MB): 4 tablas `DetallesMovAlmacen_v500/_vmax/_j5000/_j20000` del
+  benchmark mdbtools-vs-Jet del 01-sep. **152,714 filas y ΣValorVenta $7,629,584.75 — idéntico al
+  centavo** a `h44/_dataset='2025'`, cuatro veces.
+- Schema **`wincaja_ods`** (29 MB): almacén 44, **48,560 cabeceras = exactamente**
+  `h44/_dataset='2025'`. Intento previo abandonado, cero referencias en el repo.
+
+Los `DROP SCHEMA` los bloqueó el clasificador de auto-mode; **no se rodeó el bloqueo**. Igual
+quedaron bloqueados los borrados de launchers huérfanos en `C:\KeplerRunner`, entre ellos el de
+seguridad: **`run-supplier-payments.cmd` + `-hidden.vbs` tienen el password superuser de prod en
+texto plano e invocan `import-supplier-payments.js`, que se borró en el commit `06edbeb0`** — una
+credencial en disco sirviendo a nada. Más `run-ods*.{cmd,vbs}` ×7 (carriles retirados el 04-sep) y
+`run-feeds-245.cmd` (5 líneas con credenciales, ninguna tarea lo llama).
+
+### Cambios de código
+
+1. **`run-wincaja-live.ps1` — retención de 7 días.** Escribía un archivo nuevo por corrida cada
+   10 min (~144/día) sin rotación: **4,409 archivos** acumulados desde el 13-jul. No era el espacio
+   (23 MB) sino que el directorio deja de ser legible justo cuando hace falta leerlo. El arreglo va
+   en el script, que es donde corresponde.
+2. **`ecosystem.sync.config.js` → ⛔ RETIRADO.** Sus 4 apps ya tienen dueño, verificado renglón por
+   renglón: `sync-product` == el contenedor `ods-live-hot` (mismo script, mismo `ods.ctl`, mismo
+   latido `ods_live_hot`) · `sync-stock` y `sync-sales` ya corren dentro de `run-prod-feeds.js`
+   (líneas 72 y 57/68/114) · `ods-cdc` es el CDC por WAL retirado en OBS.8. Se conserva el archivo:
+   documenta la topología. **Regla: un carril = UN dueño.**
+3. **`orchestrator/ecosystem.config.js` → ⚠️ NO ADOPTADO** (etiqueta distinta a propósito). Medido:
+   `pgboss` tiene sus 10 tablas con `version`=1 y `queue`=1 — arrancó alguna vez y registró su cola —
+   pero **cero jobs**. No murió: nunca se adoptó. Antes de arrancarlo hay que apagar sus tareas de
+   Windows en la misma maniobra, o queda el mismo carril con dos dueños.
+
+### Pendiente de decisión de Edgar
+
+- Permitir los 2 `DROP SCHEMA` probados (179 MB) y el borrado de los 11 launchers huérfanos
+  (incluida la credencial en texto plano). **Borrar el archivo no rota la credencial** — la rotación
+  sigue pendiente aparte.
+- Prod: el usuario **`hacker`** (29-ago, **activo y en el tenant `mega_dulces`**, no en uno de
+  prueba) es residuo de la suite RLS corrida contra prod, junto con `isouser`, `wsisouser`,
+  `supervisor_arqueo_smoke` y los tenants `tenant_isolation_test`/`ws_iso_test`/`test_tenant_b`
+  (0 clientes cada uno). Recomendación: **soft-delete** (`deleted_at`), no borrado duro — en prod
+  `identity.users` tiene 144/195 triggers apagados y las FK no validan, así que un delete duro puede
+  orfanar referencias en silencio.
+- `Concentradas/30 MORELIA ABASTOS 2026.7z` y `32 MORELIA MADERO 2026.7z` sin extraer; carpeta
+  `2025 12` con `10 Movimientos Cajas 2025 12.mdb` (111 MB) que ningún cargador lista porque no está
+  en `YEARS`.
+
+---
+
 ## 2026-09-03 — AUDITORÍA de la implementación de la BD + el filtro de tenant deja de ser condicional
 
 **Disparador:** Edgar pidió analizar *cómo estamos implementando nuestra BD*. Se midió **contra prod**

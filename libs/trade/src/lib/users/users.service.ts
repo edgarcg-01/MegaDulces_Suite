@@ -288,10 +288,23 @@ export class UsersService {
       }
     }
     if (warehouseCode) {
-      const wh = await this.knex('commercial.warehouses')
-        .where({ tenant_id: this.tenantId, code: warehouseCode })
-        .whereNull('deleted_at')
-        .select('code')
+      // `[RE.27]` Se valida contra la MISMA llave canónica que ofrece `getBranches()`,
+      // no contra `code` pelado. Antes el formulario ofrecía `30` (Morelia, RE.23) y
+      // este chequeo lo rebotaba con 400, porque en el catálogo esa fila se llama
+      // `MD-30`: el alta ofrecía una sucursal que ella misma no aceptaba, y las 319
+      // recepciones mensuales de Morelia se quedaron sin nadie que pudiera subirlas.
+      //
+      // El modo silencioso era peor. Escribiendo `MD-30` a mano sí pasaba —y sigue
+      // sin pasar, a propósito: `branchKeyFilterSql` sólo admite llaves de 2 dígitos—
+      // porque entonces el alcance `own` resolvía a `['MD-30']`, el
+      // `WHERE c.sucursal IN ('MD-30')` daba cero filas, y la persona veía la pantalla
+      // vacía, que se lee igual que "no hay entradas".
+      const wh = await this.knex('commercial.warehouses as w')
+        .where({ 'w.tenant_id': this.tenantId })
+        .whereNull('w.deleted_at')
+        .whereRaw(branchKeyFilterSql('w'))
+        .whereRaw(`(${branchKeySql('w')}) = ?`, [warehouseCode])
+        .select('w.code')
         .first();
       if (!wh) {
         throw new BadRequestException(

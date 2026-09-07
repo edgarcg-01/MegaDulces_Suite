@@ -30,6 +30,9 @@ const fs = require('fs');
 
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
   || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `analytics.ods_branch_checks`. Se le pasa la URL
+// resuelta (acepta DST_URL además de la canónica), no la del entorno a secas.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-feed-observability', { url: URL });
 
 let ok = 0; let fail = 0;
 const check = (label, cond, detail = '') => {

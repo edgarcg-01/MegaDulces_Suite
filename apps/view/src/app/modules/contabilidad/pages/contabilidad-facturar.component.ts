@@ -49,7 +49,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
           <p class="surf-page-sub">Emisión y timbrado de CFDI 4.0 (factura global de mostrador o nominativa). El PAC sella y timbra ante el SAT.</p>
         </div>
         <div class="fa-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           <button pButton type="button" class="p-button-sm p-button-text" pTooltip="Pedidos entregados sin factura (contingencia)" (click)="openContingencia()"><span class="p-button-icon p-button-icon-left pi pi-inbox" aria-hidden="true"></span><span class="p-button-label">Pendientes</span></button>
           @if (canManage) {

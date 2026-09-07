@@ -22,6 +22,7 @@
 
 const { Client } = require('pg');
 
+const { declararActor } = require('../lib/declare-actor');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const SRC = 'postgresql://postgres:superoot@localhost:5433/md_03';
@@ -35,6 +36,9 @@ const TAX_RATE = 0.16;
   const db = new Client({ connectionString: DST });
   const src = new Client({ connectionString: SRC });
   await db.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(db, 'import-kepler-prices');
   await src.connect();
 
   try {

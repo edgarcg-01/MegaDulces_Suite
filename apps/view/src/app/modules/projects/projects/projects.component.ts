@@ -130,10 +130,10 @@ export class ProjectsComponent implements OnInit {
     },
     {
       id: 'televenta',
-      name: 'Televenta',
+      name: 'Telemarketing',
       description: 'Call center B2B: cola priorizada de clientes, perfil + recomendaciones, pedidos a su nombre y registro de llamadas.',
       icon: 'pi pi-headphones',
-      route: '/televenta',
+      route: '/telemarketing',
       status: 'Activo',
       anyOf: [
         Permission.COMMERCIAL_TELEVENTA_OPERATE,
@@ -158,11 +158,24 @@ export class ProjectsComponent implements OnInit {
     {
       id: 'tienda',
       name: 'Tienda',
-      description: 'Monitor en vivo: tickets de venta de cada sucursal al instante, KPIs del día, ritmo por hora y alertas.',
+      description: 'Monitor en vivo: tickets de venta de cada sucursal al instante, KPIs del día, ritmo por hora, control de caducidades y alertas.',
       icon: 'pi pi-bolt',
       route: '/tienda',
       status: 'Activo',
-      anyOf: [Permission.STORE_LIVE_VER, Permission.STORE_LABELS_VER, Permission.STORE_ARQUEO_VER, Permission.STORE_ARQUEO_CAPTURAR],
+      // `[IDG.9.6]` Las dos claves de caducidad van acá o el permiso no sirve de
+      // nada: `/tienda/caducidades` ya estaba gateada con `COMMERCIAL_EXPIRY_*`
+      // en `app.routes.ts` y en el sidebar, pero esta tarjeta —el ÚNICO camino
+      // para llegar al proyecto— pedía un `STORE_*`. Una promotora con permiso
+      // de capturar caducidades y nada más veía el lanzador sin Tienda: acceso
+      // concedido en el backend y sin puerta en la UI.
+      anyOf: [
+        Permission.STORE_LIVE_VER,
+        Permission.STORE_LABELS_VER,
+        Permission.STORE_ARQUEO_VER,
+        Permission.STORE_ARQUEO_CAPTURAR,
+        Permission.COMMERCIAL_EXPIRY_VER,
+        Permission.COMMERCIAL_EXPIRY_CAPTURAR,
+      ],
     },
     {
       id: 'reparto',

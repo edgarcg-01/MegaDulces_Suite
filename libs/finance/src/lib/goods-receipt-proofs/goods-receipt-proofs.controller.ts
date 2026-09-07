@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, parseScopeParam } from '@megadulces/platform-core';
 import { GoodsReceiptProofsService, ListReceiptsQuery, AttachReceiptDto, ReceiptSettings } from './goods-receipt-proofs.service';
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
+import { ReceiptSlaService } from './receipt-sla.service';
 import { RemisionLine } from '@megadulces/platform-core';
 
 interface AuthedRequest { user?: { username?: string; full_name?: string }; }
@@ -22,6 +23,7 @@ export class GoodsReceiptProofsController {
   constructor(
     private readonly svc: GoodsReceiptProofsService,
     private readonly twins: GoodsReceiptTwinsService,
+    private readonly slaSvc: ReceiptSlaService,
   ) {}
 
   @Get()
@@ -89,6 +91,24 @@ export class GoodsReceiptProofsController {
       from: query['from'] as string,
       to: query['to'] as string,
     });
+  }
+
+  /**
+   * `[RE.27.C]` El estado de los dos plazos, por sucursal — y de paso dispara los
+   * avisos que el cron manda cada hora.
+   *
+   * Es `GET` y no `POST` porque **no cambia nada del trámite**: sólo lee y, si
+   * corresponde, toca la campana. Existe para poder mirar el número sin esperar al
+   * cron, y para que el aviso se pueda pedir a mano cuando alguien quiere despertar
+   * la cola de su sucursal.
+   */
+  @Get('sla')
+  @RequirePermissions(Permission.COMPRAS_ENTRADAS_VER)
+  @ApiOperation({
+    summary: 'RE.27 — quién está fuera de plazo, por sucursal: comprobantes esperando revisor (sla_review_days) y entradas sin evidencia (sla_capture_days). Ambos plazos salen de finance.receipt_settings. Manda los avisos pendientes a la campana (best-effort, con silencio de 12 h por sucursal).',
+  })
+  sla() {
+    return this.slaSvc.scanCurrentTenant();
   }
 
   @Get('settings')

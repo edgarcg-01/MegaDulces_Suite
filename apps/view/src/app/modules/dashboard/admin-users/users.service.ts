@@ -183,6 +183,40 @@ export interface UserPermissionsResponse {
   de_menos: string[];
 }
 
+/**
+ * `[RE.27.B1]` El alcance de una dimensión, tal como lo describe `ScopeService.describe()`.
+ *
+ * Los cuatro modos, que no son grados de lo mismo:
+ *   · `none`   — no ve nada. Es el **default cuando no hay regla** (fail-closed).
+ *   · `own`    — lo que dice su propia ficha (su sucursal, su ruta, su zona).
+ *   · `listed` — exactamente los valores de `values`.
+ *   · `all`    — la dimensión completa. Tiene que ser explícito.
+ */
+export interface ScopeDimensionState {
+  mode: 'none' | 'own' | 'listed' | 'all';
+  /** El alcance de ESCRITURA. Puede ser más chico que el de lectura. */
+  modeWrite: 'none' | 'own' | 'listed' | 'all';
+  /** De dónde sale la regla vigente. */
+  source: 'user' | 'role' | 'default' | 'platform_admin';
+  nota?: string | null;
+  /** La selección cruda guardada (sólo significa algo con `listed`). */
+  values: string[];
+  valuesWrite: string[];
+  /**
+   * Si esta dimensión admite el modo `own`. Sale de `identity.scope_dimensions`, la misma
+   * tabla contra la que valida el endpoint — el selector no ofrece lo que el guardado rebota.
+   */
+  supportsOwn: boolean;
+  /** Lo que la persona alcanza a ver, ya etiquetado — para MOSTRAR, no para editar. */
+  options: { value: string; label: string }[];
+}
+
+export interface UserScopeResponse {
+  user_id: string;
+  role_name: string;
+  dimensions: Record<string, ScopeDimensionState>;
+}
+
 @Injectable({ providedIn: 'root' })
 export class UsersService {
   private http = inject(HttpClient);
@@ -277,6 +311,41 @@ export class UsersService {
   /** `[ID.24.1]` Rutas con su zona derivada. El eje de la gente de ruta. */
   getRoutes(): Observable<RouteOption[]> {
     return this.http.get<RouteOption[]>(`${this.apiUrl}/routes`);
+  }
+
+  /**
+   * `[RE.27.B1]` Alcance vigente de una persona, dimensión por dimensión, y **de dónde sale**
+   * cada una (`user` = override propio · `role` = herencia · `default` = sin regla, o sea
+   * `none` · `platform_admin` = god-mode). Sin el origen, el admin no sabe si está mirando una
+   * decisión sobre esta persona o el default de su rol, y termina "arreglando" lo que no está roto.
+   */
+  getUserScope(id: string): Observable<UserScopeResponse> {
+    return this.http.get<UserScopeResponse>(`${this.apiUrl}/${id}/scope`);
+  }
+
+  /**
+   * `[RE.27.B1]` Fija el alcance de una dimensión. El endpoint existía desde `[ID.9]` con sus
+   * frenos anti-escalada y **el front nunca lo llamó**: acotar a alguien por sucursal se hacía
+   * por script contra prod.
+   *
+   * `mode: null` **borra el override** y devuelve a la herencia del rol — que no es lo mismo que
+   * `mode: 'none'`, que es "explícitamente no ve nada". Es la diferencia entre soltar el volante
+   * y frenar.
+   *
+   * `mode_write` viaja aparte: `null` significa "hereda de `mode`", y es lo que permite *"ve las
+   * tres sucursales de su zona, captura sólo en la suya"*.
+   *
+   * Surte efecto **sin re-login** (el alcance se relee de DB con TTL de 30 s).
+   */
+  setUserScope(
+    id: string,
+    dimension: string,
+    body: { mode?: string | null; values?: string[] | null; mode_write?: string | null; nota?: string | null },
+  ): Observable<{ user_id: string; dimension: string }> {
+    return this.http.put<{ user_id: string; dimension: string }>(
+      `${this.apiUrl}/${id}/scope/${dimension}`,
+      body,
+    );
   }
 
   /** `[ID.21]` Permisos de la persona en tres capas (puesto / propios / efectivos). */

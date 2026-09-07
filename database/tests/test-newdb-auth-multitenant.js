@@ -18,6 +18,9 @@
 
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
+// `[IDG.1]` Crea un tenant y borra `users`/`role_permissions`/`tenants` como
+// `postgres`, o sea sin la red de RLS. No puede correr contra prod.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-auth-multitenant');
 
 const { Client } = require('pg');
 const bcrypt = require('bcryptjs');

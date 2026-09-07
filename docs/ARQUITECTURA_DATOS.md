@@ -43,7 +43,7 @@ flowchart TB
 
     subgraph UI["🖥️ INTERFACES"]
         direction LR
-        VIEW["apps/view (Operations)<br/>comercial/compras/almacen/finanzas/<br/>contabilidad/logistica/televenta/tienda"]
+        VIEW["apps/view (Operations)<br/>comercial/compras/almacen/finanzas/<br/>contabilidad/logistica/telemarketing/tienda"]
         PORTAL["apps/portal (B2B)"]
         VENDOR["apps/vendor (ruta)"]
         WA["WhatsApp bot"]
@@ -251,7 +251,7 @@ Backend en **libs de dominio** (NestJS); el `apps/api` solo tiene módulos delga
 | **/finanzas** (bancos, Maat, pagos, cobranza) | `libs/finance` (`bank`, `maat`, `pagos`, `collection-deposits`, `payment-program`) | `finance.*`, `analytics.caja_depositos/erp_*/contpaqi_*` |
 | **/contabilidad** (pólizas, CFDI, SAT, materialidad) | `libs/fiscal`, `finance/polizas` | `fiscal.*`, `analytics.gl_poliza*`, `finance.kepler_accounts` |
 | **/logistica** (embarques, flota, rastreo, nómina) | `libs/logistics` (13 submódulos) | `logistics.*`, `public.route_location_pings` |
-| **/televenta** (cola de leads, llamadas) | `commercial-televenta` | `commercial.call_logs/lead_reservations/customers` |
+| **/telemarketing** (cola de leads, llamadas) | `commercial-televenta` | `commercial.call_logs/lead_reservations/customers` |
 | **/reparto** (última milla, liquidación rider) | `commercial-home-delivery`, `-rider-liquidation` | `commercial.home_deliveries/payments`, `logistics.*` |
 | **/tienda** (POS en vivo) | `apps/api/modules/store` | `analytics.store_live_tickets`, `wincaja.*` |
 | **/projects** (auditoría de ejecución) | `libs/trade` (`shared-scoring`) | `trade.stores/visits/exhibitions/daily_captures/scoring_*` |

@@ -64,7 +64,9 @@ const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c
 
 const SUB_BASE = process.env.ODS_SOURCE_BASE
   || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
+// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`). Las 7 ramas
+// siguen la misma convención; ver la nota en `replicate-ods-live.js`.
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 const BRANCH_CODES = (ONLY_BRANCH ? [ONLY_BRANCH] : (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(','))
   .map((s) => s.trim()).filter(Boolean);

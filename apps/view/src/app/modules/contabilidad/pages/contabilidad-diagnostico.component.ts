@@ -43,7 +43,7 @@ import { FacturasService } from '../facturas.service';
           <p class="surf-page-sub">Errores de timbrado, cancelación y complementos de pago — con la causa y la solución que propone el SAT/PAC.</p>
         </div>
         <div class="di-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" /> }
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage && stats() && stats()!.open_total > 0) {
             <button pButton type="button" class="p-button-sm" [loading]="retrying()" (click)="retryOrders()"><span class="p-button-icon p-button-icon-left pi pi-replay" aria-hidden="true"></span><span class="p-button-label">Reintentar timbrado de pedidos</span></button>

@@ -55,7 +55,8 @@ const ONLY = (argOf('tables', '') || '').split(',').map((s) => s.trim()).filter(
 const MAX_PCT = Number(argOf('max-pct', 20));
 const CHUNK = 5000;
 
-const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
+// 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const branchUrl = (code) => SRC_BASE.replace(/\/[^/]*$/, '/' + localDbName(code));
 const TYPE_MAP = {
   text: 'text', 'character varying': 'text', character: 'text', uuid: 'text',

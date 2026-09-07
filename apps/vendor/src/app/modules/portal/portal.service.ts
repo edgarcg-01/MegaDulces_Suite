@@ -276,7 +276,7 @@ export class PortalService {
   listPricesForList(
     priceListId: string,
     warehouseId?: string,
-    opts: { pricedOnly?: boolean } = {},
+    opts: { pricedOnly?: boolean; sort?: string } = {},
   ): Observable<PriceRow[]> {
     // priced_only: trae SOLO los productos pedibles (con precio) del price list,
     // completos en un fetch (sube el techo del backend a 10k). Sin él, el backend
@@ -285,6 +285,8 @@ export class PortalService {
       .set('pageSize', opts.pricedOnly ? 8000 : 5000)
       .set('commercial_only', 'true');
     if (opts.pricedOnly) params = params.set('priced_only', 'true');
+    // sort=sales → ordenado de más vendido a menos vendido (ranking real).
+    if (opts.sort) params = params.set('sort', opts.sort);
     if (warehouseId) params = params.set('warehouse_id', warehouseId);
     return this.http.get<{ data: PriceRow[] } | PriceRow[]>(
       `${this.base}/price-lists/${priceListId}/prices`,
@@ -293,6 +295,15 @@ export class PortalService {
       // Tolerar ambos shapes durante deploy en progreso (array legacy o
       // wrapped). Después del cutover de la API se puede simplificar.
       map((r: any) => Array.isArray(r) ? r : (r?.data || [])),
+    );
+  }
+
+  /** Cobertura de precio de una lista: { total, priced, unpriced } (para "N sin precio"). */
+  priceListCoverage(
+    priceListId: string,
+  ): Observable<{ total: number; priced: number; unpriced: number }> {
+    return this.http.get<{ total: number; priced: number; unpriced: number }>(
+      `${this.base}/price-lists/${priceListId}/coverage`,
     );
   }
 

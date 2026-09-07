@@ -3,7 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
-/** AX.2 — Documentos de venta al cliente. Lee las vistas en vivo de kepler_ods (frescura de segundos). */
+/** AX.2 — Facturación de Telemarketing. Lee las vistas en vivo de kepler_ods (frescura de segundos). */
 
 export interface SalesDocRow {
   folio_digital: string; sucursal: string; warehouse_id: string | null;
@@ -12,10 +12,28 @@ export interface SalesDocRow {
   cliente_code: string; cliente_nombre: string; cliente_rfc: string | null;
   vendedor_code: string | null; vendedor_nombre: string | null;
   canal: string | null; referencia: string | null;
-  total: string; ieps: string; descuento: string; descuento_pct: string; subtotal: string;
+  total: string; ieps: string; descuento: string; descuento_pct: string;
+  /** DESPEJE fiscal (`total − ieps + descuento`), sin CFDI emitido con qué contrastarlo.
+   *  Para cuadrar contra los renglones impresos: `importe_bruto`. */
+  subtotal: string;
+  /** Σ renglones despejado del %: cuadra con el detalle en 3,264 de 3,264 documentos. */
+  importe_bruto: string; descuento_efectivo: string;
+  /** `vencida` = venció Y sigue debiendo (antes era sólo la fecha). */
   vencida: boolean; dias_vencida: number;
-  /** estatus verbatim de Kepler (`kdm1.c43`): N vigente · C cancelada · R · F */
-  doc_estatus: string | null; cancelada: boolean;
+  /** Cobranza — la manda `kdue`, no la cabecera de Kepler (que va rezagada). */
+  saldo: string | null; cobrado: string | null; dias_pago: number | null;
+  estatus_cobro: 'pagada' | 'parcial' | 'pendiente' | 'sin_cartera' | 'cancelada';
+  /** Procedencia de la fecha de vencimiento (ADR-056): el ERP, o una reconstrucción. */
+  vencimiento_erp: string | null;
+  vencimiento_source: 'erp' | 'derivado' | 'derivado_erp_invalido';
+  /** estatus verbatim de Kepler (`kdm1.c43`) + su decode: N sin abonos · R parcial · F liquidada · C cancelada */
+  doc_estatus: string | null; doc_estatus_label: string | null; cancelada: boolean;
+  /** cobros / notas de crédito que explican el saldo (viene de `kdue` ⋈ `kdm5`) */
+  aplicaciones: SalesDocAplicacion[] | null;
+}
+export interface SalesDocAplicacion {
+  tipo: 'cobro' | 'nota_credito' | 'devolucion' | 'anticipo' | 'ajuste';
+  label: string; folio: string; fecha: string | null; monto: number;
 }
 export interface SalesDocLine {
   linea: number; sku: string; descripcion: string; unidad: string;
@@ -28,7 +46,13 @@ export interface SalesDocLine {
   precio_con_descuento: number; precio_caja: number | null;
   precio_caja_con_descuento: number | null; cajas_equivalentes: number | null;
 }
-export interface SalesDocDetail extends SalesDocRow {
+/**
+ * En el DETALLE `importe_bruto` es la suma REAL de los renglones (la calcula el backend al
+ * armar el anexo); en la lista es el mismo número despejado del % del documento, y llega como
+ * `numeric` de Postgres. Coinciden —validado en 3,264 de 3,264 documentos, peor delta $0.93—
+ * pero el tipo no, así que se redeclara en vez de fingir que es el mismo campo.
+ */
+export interface SalesDocDetail extends Omit<SalesDocRow, 'importe_bruto'> {
   cliente_domicilio: string | null; cliente_colonia: string | null;
   cliente_estado: string | null; cliente_cp: string | null; doc_origen: string | null;
   importe_bruto: number; lineas: SalesDocLine[];
@@ -41,7 +65,12 @@ export interface SalesDocDetail extends SalesDocRow {
   detalle_explica_total: boolean;
 }
 export interface SalesDocsKpis {
-  documentos: number; clientes: number; importe: string; descuento: string; vencidas: number;
+  documentos: number; clientes: number; importe: string; descuento: string;
+  /** vencidas = vencieron Y deben; `saldo_vencido` es el dinero real por cobrar de esas. */
+  vencidas: number; saldo_vencido: string; saldo: string;
+  pagadas: number; sin_cartera: number;
+  /** cuántos de los `documentos` traen la fecha de vencimiento del ERP y no una reconstrucción */
+  venc_erp: number;
 }
 export interface SalesDocsReport {
   rows: SalesDocRow[]; kpis: SalesDocsKpis;
@@ -55,7 +84,8 @@ export interface SalesDocsFiltros {
 export interface SalesDocsQuery {
   from?: string; to?: string; warehouse_ids?: string; doc_tipo?: string;
   cliente_code?: string; vendedor_code?: string; search?: string;
-  vencidas?: string; min?: string; canceladas?: string; page?: number; pageSize?: number;
+  vencidas?: string; cobro?: string; min?: string; canceladas?: string;
+  page?: number; pageSize?: number;
 }
 
 @Injectable({ providedIn: 'root' })

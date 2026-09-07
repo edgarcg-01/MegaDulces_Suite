@@ -43,7 +43,7 @@ import { CredencialesService } from '../credenciales.service';
           <p class="surf-page-sub">Solicitudes de descarga ante el SAT. El pipeline (solicitud → verificación → paquete) corre en segundo plano firmando con la e.firma.</p>
         </div>
         <div class="dz-head-actions">
-          @if (loadedAt()) { <app-freshness-pill [since]="loadedAt()" [staleAfterSec]="120" /> }
+          @if (loadedAt()) { <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="120" /> }
           @if (polling()) { <span class="dz-poll" title="Actualizando automáticamente mientras hay descargas en proceso"><i class="pi pi-sync pi-spin"></i> auto</span> }
           <button pButton type="button" class="p-button-sm p-button-text" [loading]="loading()" (click)="reload()"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span><span class="p-button-label">Refrescar</span></button>
           @if (canManage) {

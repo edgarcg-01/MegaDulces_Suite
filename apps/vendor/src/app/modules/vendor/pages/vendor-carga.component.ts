@@ -14,6 +14,7 @@ import { forkJoin, of } from 'rxjs';
 import { map, catchError } from 'rxjs/operators';
 import { VendorService, VendorOrder, SetCargaLoadStatus } from '../vendor.service';
 import { OrderLine } from '../../portal/portal.service';
+import { nextBusinessDayIso, todayIso, toLocalIso } from '../../../core/date/biz-days';
 
 interface CargaOrder extends VendorOrder {
   lines: OrderLine[];
@@ -52,8 +53,8 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
     <div class="page-head">
       <div>
         <h1 class="page-title">Carga</h1>
-        @if (!loading()) {
-          <p class="subtitle">Para entregar {{ deliveryLabel }}</p>
+        @if (!loading() && orders().length > 0) {
+          <p class="subtitle">Para entregar {{ selectedLabel() }}</p>
         }
       </div>
       @if (!loading()) {
@@ -86,11 +87,28 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       @if (!loadError() && orders().length === 0) {
         <div class="empty">
           <i class="pi pi-truck"></i>
-          <p>Nada para cargar {{ deliveryLabel }}.</p>
-          <span class="hint">Aparecen acá los pedidos confirmados de tu cartera.</span>
+          <p>No tienes pedidos confirmados para cargar.</p>
+          <span class="hint">Aparecen acá los pedidos que tomás y confirmás en la ruta.</span>
         </div>
       }
       @if (orders().length > 0) {
+        <!-- Chips por día de entrega: el vendedor navega "qué lleva" por fecha -->
+        @if (dayGroups().length > 1) {
+          <div class="days" role="tablist" aria-label="Día de entrega">
+            @for (g of dayGroups(); track g.iso) {
+              <button type="button" role="tab" [attr.aria-selected]="selectedIso() === g.iso" class="daychip" [class.on]="selectedIso() === g.iso" (click)="selectDay(g.iso)">
+                {{ g.label }} <span class="cnt">{{ g.count }}</span>
+              </button>
+            }
+          </div>
+        }
+        <!-- Aviso honesto: el día visto no es el próximo día hábil (pedido mal fechado) -->
+        @if (viewingMisdatedDay()) {
+          <div class="misdate">
+            <i class="pi pi-exclamation-triangle"></i>
+            <span>Estos pedidos están agendados para otro día. Usá <b>Mover</b> para pasarlos al próximo día hábil.</span>
+          </div>
+        }
         <!-- Banner: resumen de la carga -->
         <div class="cbanner" [class.done]="allResolved()">
           <span class="cic"><i class="pi" [ngClass]="allResolved() ? 'pi-check-circle' : 'pi-box'"></i></span>
@@ -129,9 +147,15 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
                     <span class="nm">{{ o.customer_name || '—' }}</span>
                     <span class="sub">{{ o.folio || o.code }} · {{ orderLoaded(o) }}✓ / {{ orderNotLoaded(o) }}✗ de {{ o.lines.length }}</span>
                   </span>
-                  <button type="button" class="loadall" (click)="markOrderAllLoaded(o)">
-                    {{ orderAllLoaded(o) ? 'Quitar todo' : 'Cargar todo' }}
-                  </button>
+                  @if (isMisdated(o)) {
+                    <button type="button" class="mover" [disabled]="rescheduling().has(o.id)" (click)="reschedule(o)">
+                      <i class="pi" [ngClass]="rescheduling().has(o.id) ? 'pi-spin pi-spinner' : 'pi-calendar-plus'"></i> Mover
+                    </button>
+                  } @else {
+                    <button type="button" class="loadall" (click)="markOrderAllLoaded(o)">
+                      {{ orderAllLoaded(o) ? 'Quitar todo' : 'Cargar todo' }}
+                    </button>
+                  }
                 </div>
                 <ul class="olines">
                   @for (l of o.lines; track l) {
@@ -214,6 +238,22 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       .seg button i { font-size: 0.8rem; }
       .seg button.on { background: var(--card-bg); color: var(--text-main); box-shadow: 0 1px 3px rgba(16,13,9,0.1); }
 
+      /* Chips por día de entrega */
+      .days { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.2rem; margin-bottom: 0.75rem; -webkit-overflow-scrolling: touch; }
+      .daychip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill, 999px); padding: 0.4rem 0.8rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; text-transform: capitalize; }
+      .daychip.on { border-color: var(--action, #d9822b); background: var(--action-soft-bg, var(--card-bg)); color: var(--text-main); }
+      .daychip .cnt { font-family: var(--font-mono); font-variant-numeric: tabular-nums; background: var(--stone-100, #f0ece6); color: var(--text-muted); border-radius: 999px; padding: 0 0.4rem; font-size: 0.72rem; }
+      .daychip.on .cnt { background: var(--action, #d9822b); color: #fff; }
+
+      /* Aviso: día distinto al próximo hábil */
+      .misdate { display: flex; align-items: center; gap: 0.55rem; padding: 0.65rem 0.8rem; margin-bottom: 0.75rem; border-radius: var(--r-lg, 16px); background: var(--warn-soft-bg); color: var(--warn-soft-fg); font-size: 0.82rem; }
+      .misdate i { flex-shrink: 0; }
+
+      /* Botón "Mover" (reagendar) */
+      .mover { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.4rem; border: 1px solid var(--action, #d9822b); background: transparent; color: var(--action, #d9822b); border-radius: var(--r-pill, 999px); padding: 0.4rem 0.8rem; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
+      .mover:disabled { opacity: 0.6; }
+      .mover:active { transform: scale(0.96); }
+
       .list { display: flex; flex-direction: column; gap: 0.5rem; }
 
       /* Por pedido */
@@ -272,7 +312,13 @@ export class VendorCargaComponent implements OnInit {
   readonly loading = signal(true);
   readonly loadError = signal(false);
   readonly refreshing = signal(false);
-  readonly orders = signal<CargaOrder[]>([]);
+  /** TODOS los pedidos confirmados que tomó el vendedor (con líneas), sin filtrar por día. */
+  readonly allOrders = signal<CargaOrder[]>([]);
+  readonly rescheduling = signal<Set<string>>(new Set());
+  /** Pedidos del día seleccionado — lo que el resto de la pantalla (banner, checklist, consolidado) usa. */
+  readonly orders = computed<CargaOrder[]>(() =>
+    this.allOrders().filter((o) => this.bucketIso(o) === this.selectedIso()),
+  );
   readonly view = signal<'orders' | 'products'>('orders');
   /** lineKey → decisión. Ausencia = pendiente. */
   readonly statuses = signal<Map<string, LineStatus>>(new Map());
@@ -280,10 +326,32 @@ export class VendorCargaComponent implements OnInit {
 
   private readonly money = new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' });
 
-  private readonly deliveryDate = this.computeNextBusinessDay();
-  private readonly deliveryIso = this.toIso(this.deliveryDate);
-  readonly deliveryLabel = this.computeLabel(this.deliveryDate);
-  private readonly storeKey = `vendor_carga2_${this.deliveryIso}`;
+  /** Próximo día hábil (el objetivo de reparto por default). Fuente única con take-order. */
+  readonly nextBizIso = nextBusinessDayIso();
+  /** Día de entrega que se está viendo. Default: el próximo día hábil. */
+  readonly selectedIso = signal<string>(this.nextBizIso);
+  // lineKey lleva orderId (único por pedido, y cada pedido tiene UNA fecha) → un
+  // solo store sirve para todos los días sin colisión.
+  private readonly storeKey = 'vendor_carga3';
+
+  /** Etiqueta legible del día seleccionado ("mañana · lun 7 sep" / "el lun 7 sep"). */
+  readonly selectedLabel = computed(() => this.formatDay(this.selectedIso()));
+  /** El día visto no es ni hoy ni el próximo hábil → pedidos mal fechados. */
+  readonly viewingMisdatedDay = computed(
+    () => this.selectedIso() !== this.nextBizIso && this.selectedIso() !== todayIso(),
+  );
+
+  /** Días de entrega con pedidos (chips). Orden ascendente por fecha. */
+  readonly dayGroups = computed<{ iso: string; label: string; count: number }[]>(() => {
+    const counts = new Map<string, number>();
+    for (const o of this.allOrders()) {
+      const iso = this.bucketIso(o);
+      counts.set(iso, (counts.get(iso) || 0) + 1);
+    }
+    return [...counts.entries()]
+      .sort((a, b) => (a[0] < b[0] ? -1 : 1))
+      .map(([iso, count]) => ({ iso, count, label: this.formatDay(iso, true) }));
+  });
 
   readonly productTotals = computed<ProductAgg[]>(() => {
     const agg = new Map<string, ProductAgg>();
@@ -339,15 +407,14 @@ export class VendorCargaComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (all) => {
-          const due = all.filter((o) => this.isForDelivery(o));
-          if (!due.length) {
-            this.orders.set([]);
+          if (!all.length) {
+            this.allOrders.set([]);
             this.loading.set(false);
             this.refreshing.set(false);
             return;
           }
           forkJoin(
-            due.map((o) =>
+            all.map((o) =>
               this.api.orderById(o.id).pipe(
                 map((full) => ({ ...o, lines: (full?.lines || []) as OrderLine[] }) as CargaOrder),
                 catchError(() => of({ ...o, lines: [] as OrderLine[] } as CargaOrder)),
@@ -357,8 +424,14 @@ export class VendorCargaComponent implements OnInit {
             .pipe(takeUntilDestroyed(this.destroyRef))
             .subscribe({
               next: (withLines) => {
+                // Descartar drafts vacíos que se colaran (0 líneas).
                 const orders = withLines.filter((o) => o.lines.length > 0);
-                this.orders.set(orders);
+                this.allOrders.set(orders);
+                // Si el día por default no tiene pedidos pero hay en otro día, saltar al primero.
+                if (!orders.some((o) => this.bucketIso(o) === this.selectedIso())) {
+                  const first = this.dayGroups()[0];
+                  if (first) this.selectedIso.set(first.iso);
+                }
                 this.loading.set(false);
                 this.refreshing.set(false);
                 this.syncStatuses(orders.map((o) => o.id));
@@ -381,10 +454,44 @@ export class VendorCargaComponent implements OnInit {
     this.load(true);
   }
 
-  private isForDelivery(o: VendorOrder): boolean {
+  /** Día de entrega de un pedido; sin fecha → cae en el próximo día hábil. */
+  bucketIso(o: VendorOrder): string {
     const d = o.requested_delivery_date;
-    if (!d) return true;
-    return d.slice(0, 10) === this.deliveryIso;
+    return d ? d.slice(0, 10) : this.nextBizIso;
+  }
+  /** El pedido está agendado en un día que no es ni hoy ni el próximo hábil (mal fechado). */
+  isMisdated(o: VendorOrder): boolean {
+    const b = this.bucketIso(o);
+    return b !== this.nextBizIso && b !== todayIso();
+  }
+  selectDay(iso: string): void {
+    this.selectedIso.set(iso);
+  }
+
+  /** Reagenda un pedido mal fechado al próximo día hábil (corrige el default viejo). */
+  reschedule(o: CargaOrder): void {
+    if (this.rescheduling().has(o.id)) return;
+    const next = new Set(this.rescheduling());
+    next.add(o.id);
+    this.rescheduling.set(next);
+    this.api
+      .rescheduleOrder(o.id, this.nextBizIso)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.allOrders.update((list) =>
+            list.map((x) => (x.id === o.id ? { ...x, requested_delivery_date: this.nextBizIso } : x)),
+          );
+          this.selectedIso.set(this.nextBizIso); // saltar a donde aterrizó
+          this.clearRescheduling(o.id);
+        },
+        error: () => this.clearRescheduling(o.id),
+      });
+  }
+  private clearRescheduling(id: string): void {
+    const next = new Set(this.rescheduling());
+    next.delete(id);
+    this.rescheduling.set(next);
   }
 
   // ─── tri-estado por línea ───
@@ -519,7 +626,7 @@ export class VendorCargaComponent implements OnInit {
       reason,
       quantity: this.num(l.quantity),
       product_name: l.product_name || null,
-      delivery_date: this.deliveryIso,
+      delivery_date: this.bucketIso(o),
     };
   }
   private pushOne(o: CargaOrder, l: OrderLine, state: 'loaded' | 'not_loaded' | 'pending', reason: string | null): void {
@@ -559,7 +666,7 @@ export class VendorCargaComponent implements OnInit {
             if (!server.has(k)) {
               merged.set(k, v);
               const [orderId, productId] = k.split('::');
-              const o = this.orders().find((x) => x.id === orderId);
+              const o = this.allOrders().find((x) => x.id === orderId);
               const l = o?.lines.find((x) => x.product_id === productId);
               catchUp.push({
                 order_id: orderId,
@@ -568,7 +675,7 @@ export class VendorCargaComponent implements OnInit {
                 reason: v.reason ?? null,
                 quantity: l ? this.num(l.quantity) : null,
                 product_name: l?.product_name || null,
-                delivery_date: this.deliveryIso,
+                delivery_date: o ? this.bucketIso(o) : this.nextBizIso,
               });
             }
           }
@@ -608,25 +715,16 @@ export class VendorCargaComponent implements OnInit {
     }
   }
 
-  // ─── fechas: próximo día hábil (domingo no hay reparto → sáb pasa a lun) ───
-  private computeNextBusinessDay(): Date {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    d.setDate(d.getDate() + 1);
-    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
-    return d;
-  }
-  private toIso(d: Date): string {
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${d.getFullYear()}-${m}-${day}`;
-  }
-  private computeLabel(d: Date): string {
+  // ─── fechas ───
+  /** Etiqueta de un día de entrega. `short` para los chips ("lun 7"); largo para el subtítulo. */
+  private formatDay(iso: string, short = false): string {
+    const d = new Date(`${iso}T00:00:00`);
+    if (short) return d.toLocaleDateString('es-MX', { weekday: 'short', day: 'numeric' });
     const tomorrow = new Date();
     tomorrow.setHours(0, 0, 0, 0);
     tomorrow.setDate(tomorrow.getDate() + 1);
     const fmt = d.toLocaleDateString('es-MX', { weekday: 'long', day: 'numeric', month: 'short' });
-    return this.toIso(d) === this.toIso(tomorrow) ? `mañana · ${fmt}` : `el ${fmt}`;
+    return toLocalIso(d) === toLocalIso(tomorrow) ? `mañana · ${fmt}` : `el ${fmt}`;
   }
 
   fmtMoney(v: number | string | null | undefined): string {

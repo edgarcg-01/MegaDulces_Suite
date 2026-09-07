@@ -19,6 +19,7 @@
  *   node database/importers/kepler/repoint-catalog-names.js --apply
  */
 const { Client } = require('pg');
+const { declararActor } = require('../lib/declare-actor');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
@@ -34,6 +35,9 @@ const clean = (v) => { const s = (v == null ? '' : String(v)).trim(); return s =
 (async () => {
   const dst = new Client({ connectionString: DST, ssl: /rlwy|railway|proxy/i.test(DST) ? { rejectUnauthorized: false } : false });
   await dst.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(dst, 'repoint-catalog-names');
   const useOds = SOURCE === 'ods';
   const src = useOds ? null : new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
   const readSrc = useOds ? dst : src;

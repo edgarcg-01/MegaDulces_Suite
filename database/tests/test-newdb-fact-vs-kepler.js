@@ -41,7 +41,7 @@ const check = (label, cond, detail = '') => {
   const ods = (await c.query(`SELECT to_regclass('kepler_ods.kdil') a, to_regclass('kepler_ods.kdm2') b`)).rows[0];
   if (!ods.a || !ods.b) {
     console.log('  ⓘ sin kepler_ods en este destino — se omite todo (entorno local sin feeds)\n');
-    await c.end(); process.exit(0);
+    await c.end(); process.exit(2);
   }
 
   // ── EXISTENCIA ────────────────────────────────────────────────────────────────────────────

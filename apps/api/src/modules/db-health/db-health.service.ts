@@ -329,6 +329,63 @@ const APP_SOURCES: SourceCfg[] = [
            WHERE source_branch = '00'`,
     warnH: 60, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
   },
+  // `[W2.1]` ENTREGA, no proceso. El sensor de arriba mide `max(fecha)` — la fecha de NEGOCIO del
+  // movimiento — con warn a 60 h porque los huecos de 2 días son normales en el CEDIS. Eso no puede
+  // distinguir dos cosas distintas: *"la sucursal no movió mercancía"* y *"no cargamos"*. La que
+  // separa las preguntas es `imported_at`: cuándo escribimos NOSOTROS.
+  //
+  // Vivido el 2026-09-07: `wincaja_sync` reportó **ok** hace 6.7 h y `wincaja.existencias` estaba en
+  // **32.6 h** — la pantalla de Existencia servía el inventario de CEDIS/MD-30/MD-32 con día y medio
+  // de atraso y ningún sensor lo decía. Causa (W2.2): el sync corre 05:00 y las copias del `.mdb`
+  // llegan 08:45, así que cada corrida consume el archivo del día anterior; encima faltó la del
+  // 05-sep. Es la misma forma que el incidente del carril de catálogos del ODS: latido de proceso,
+  // no de entrega (ADR-053).
+  //
+  // Umbrales espejo de `wincaja_sync` (30/50 h) a propósito: es su MISMA cadencia diaria vista del
+  // otro lado. Un pico sano llega a ~24 h justo antes de la corrida de las 05:00, así que 30 no
+  // flapea. Si los dos divergen —el job verde y esto en rojo— el rojo es el que dice la verdad.
+  //
+  // Se mide el **MAX por rama y se alarma por la PEOR**, no el `max()` global: es la misma lección
+  // de `stock_cedis_00` unas líneas arriba — un global enmascara la rama que se congeló mientras las
+  // otras avanzan. Medido hoy: 00 → 33.6 h, 30 → 33.5 h, 32 → 33.4 h (las tres parejas, o sea el
+  // problema es del carril y no de una rama).
+  //
+  // ⚠️ Y NO se usa `min(imported_at)` como "la rama rezagada": eso da la FILA más vieja de toda la
+  // tabla (939 h medidas), que con UPSERT-sin-churn es simplemente el SKU cuyo valor no cambia
+  // nunca. La primera versión de este sensor lo publicaba como "la rama más rezagada, 30/07" — un
+  // número inventado, del tipo que ADR-056 prohíbe.
+  //
+  // ⚠️ **SIN `::timestamp`**, y no es estilo. Este servicio calcula la edad en JS
+  // (`new Date(rows[0].last_update)` → `ageOf`). `imported_at` es `timestamptz`; castearlo a
+  // `timestamp` tira la zona y deja el reloj de pared de la SESIÓN de pg, que en prod es `Etc/UTC`
+  // (medido) — y node-postgres lo interpreta como hora LOCAL del proceso, que corre en
+  // `America/Mexico_City`. Resultado medido: la edad sale **exactamente 6.00 h más joven** (33.38 h
+  // reales contra 27.38 h reportadas), así que un `warnH: 30` dispararía a las 36. Sin el cast,
+  // el driver recibe el timestamptz y la edad cuadra al centésimo con la de SQL.
+  // ⚠️ El sesgo NO es exclusivo de este sensor: **cualquier** sensor cuyo SQL devuelva
+  // `max(col)::timestamp` sobre una columna `timestamptz` lo tiene. Ver el addendum de
+  // `AUDITORIA_BASE_INICIAL.md` — no se barrió acá porque cada sensor necesita que se verifique el
+  // TIPO de su columna: donde el dato ya es `timestamp` naive en hora MX, el cast es inocuo y
+  // "arreglarlo" metería el error de 6 h en el otro sentido.
+  {
+    key: 'wincaja_existencias_entrega',
+    label: 'Wincaja — existencia ENTREGADA (imported_at, no fecha de negocio)',
+    table: 'wincaja.existencias', tsCandidates: [],
+    sql: `WITH r AS (
+            SELECT source_branch, max(imported_at) AS ult
+              FROM wincaja.existencias
+             WHERE source_dataset = 'actual' AND source_branch IN ('00','30','32')
+             GROUP BY source_branch
+          )
+          SELECT min(ult) AS last_update,
+                 'la rama más atrasada es ' ||
+                 COALESCE((SELECT source_branch FROM r ORDER BY ult LIMIT 1), '—') ||
+                 ', cargada ' ||
+                 COALESCE(to_char(min(ult) AT TIME ZONE 'America/Mexico_City', 'DD/MM HH24:MI'), '—') ||
+                 ' · ' || count(*)::text || ' de 3 ramas presentes' AS note_extra
+            FROM r`,
+    warnH: 30, critH: 50, cadence: 'diario 05:00 (mismo carril que wincaja_sync)',
+  },
   // Tienda EN VIVO (poller POS on-prem → prod cada 25s). Detecta el poller CONGELADO
   // (proceso vivo pero mudo, visto 2026-08-04: se colgó 3h y nadie se enteró). Umbral
   // CONSCIENTE DEL HORARIO: fuera de 10:00–21:30 MX la tienda está cerrada → last_update=now()
@@ -383,21 +440,30 @@ const EXT_SOURCES: ExtCfg[] = [
           FROM mart.refresh_state`,
     warnH: 0.25, critH: 1, cadence: 'cada 2 min (tarea RefreshConsolidado)',
   },
-  {
-    key: 'kp_concentrada', label: 'KP_CONCENTRADA (ODS crudo)',
-    envVars: ['KP_DEST_URL'], db: '.245 / KP_CONCENTRADA',
-    sql: `SELECT max(last_run_at) AS last_update,
-                 count(DISTINCT sucursal)::int || '/6 sucursales · más viejo ' ||
-                 coalesce(to_char(min(last_run_at),'DD/MM HH24:MI'),'—') AS note_extra
-          FROM kp.sync_control`,
-    warnH: 8, critH: 48, cadence: 'cada 4h (tarea KP-Concentrate)',
-  },
-  {
-    key: 'mega_dulces', label: 'Mega_Dulces (catálogo/precios FDW)',
-    envVars: ['MEGA_DULCES_URL'], db: '.245 / Mega_Dulces',
-    sql: `SELECT now() AS last_update, count(*)::text || ' productos' AS note_extra FROM public.productos_activos`,
-    warnH: 0, critH: 0, cadence: 'consolidación FDW', reachabilityOnly: true,
-  },
+  // ⛔ RETIRADOS 2026-09-05: los sensores `kp_concentrada` y `mega_dulces` vigilaban dos
+  // concentrados que el ODS dejó sin función. Se quitan JUNTO con las bases, no después: un sensor
+  // que apunta a una DB que ya no existe se pinta rojo para siempre y entrena al equipo a ignorar
+  // el tablero — que es exactamente la falla que ADR-053 (Fase OBS) existe para evitar.
+  //
+  // Por qué quedaron sin función, medido el 2026-09-05 (no asumido):
+  //   · KP_CONCENTRADA (.245, `kp.*`, 368 tablas / 7.7 GB): sus CINCO consumidores que de verdad
+  //     corren — import-cash-sessions y los tres repoint-catalog-{presence,names,prices}, más
+  //     import-label-data — tienen `SOURCE='ods'` por default (CANON.1.1/1.3) y `run-prod-feeds.js`
+  //     no pasa `--source` a ninguno. Verificado en los logs en vivo: imprimen
+  //     `Fuente: kepler_ods (same-DB prod, @min)`. Cero lectores productivos.
+  //   · Mega_Dulces (.245): su ETL por archivos murió el 2026-05-20 (con el bug de fechas DD/MM).
+  //     Las tres vistas `analytics_external.*_legacy` que colgaban de su FDW ya no las lee nadie:
+  //     el código fue repuntado y sólo quedan los comentarios que explican por qué
+  //     ("inalcanzable desde Railway", "el FDW Railway→.245 colgaba").
+  //     ⚠️ CORRECCIÓN medida: `catalog.products_active` (y `public.products_active`, que la
+  //     envuelve) SÍ cuelgan del FDW y SÍ se cuelgan — un `count(*)` dio statement timeout. La
+  //     dependencia es transitiva, así que buscar `erp.*` en la definición de la vista de arriba no
+  //     la encuentra. Y el search_path pone `catalog` ANTES que `public`: un `products_active` sin
+  //     calificar resuelve a la que tiene el FDW. La mig 20260905140000 la repunta a
+  //     `kepler_ods.kdii` en vez de borrarla.
+  //     Los 9 consumidores reales NO se ven afectados, pero por otro motivo: leen la TABLA
+  //     `inventory.products_active` (todos la califican), que llena `refresh-products-active.js`
+  //     desde `catalog.products` + `kepler_ods.kdii`, explícitamente NO desde el FDW.
 ];
 
 const RANK: Record<Status, number> = { ok: 0, warn: 1, unknown: 2, critical: 3 };
@@ -484,7 +550,11 @@ const CRON_JOBS: CronCfg[] = [
   // cero con los dos carriles "online" — esto es lo que lo habría gritado.)
   { key: 'wincaja_replica_inc', label: 'Wincaja réplica (incremental)', cadence: 'continuo ~2 min', warnH: 0.5, critH: 2 },
   { key: 'wincaja_replica_hash', label: 'Wincaja réplica (hash)',       cadence: 'continuo ~1 h',   warnH: 3,   critH: 8 },
-  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD)',          cadence: 'cada 5 min',      warnH: 2,   critH: 8 },
+  { key: 'contpaqi_add_cfdis',  label: 'ContPAQi CFDIs (ADD, incremental)', cadence: 'cada 5 min',   warnH: 2,   critH: 8 },
+  // El carril `full` es el RECONCILIADOR (recorrido por año, 1×día): si un cambio del ADD no tocara
+  // el sello, esta pasada lo levanta igual. Latido propio (`CONTPAQI_HB_KEY`) para que no le preste
+  // el pulso al incremental — ver la nota en `import-contpaqi-cfdis.js`.
+  { key: 'contpaqi_add_cfdis_full', label: 'ContPAQi CFDIs (ADD, reconciliador)', cadence: '1×día', warnH: 26, critH: 50 },
   { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
   // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
   // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
@@ -500,6 +570,10 @@ const CRON_JOBS: CronCfg[] = [
   // Umbrales de job diario, mismo criterio que `sales_daily`: warn al saltarse una corrida, crítico
   // al saltarse dos.
   { key: 'analytics_refresh_wincaja',         label: 'Refresh MV Wincaja (nightly)',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [VP.4.3] El comparador de cierres (07:10 MX, después del refresh). Se registra acá porque el
+  // candado de VP.0.5 lo exige —todo `job_key` que late tiene umbral— y porque un comparador que
+  // deja de correr en silencio devuelve la deriva a ser invisible, que es lo que la fase cerró.
+  { key: 'period_close_check',                label: 'Verificación de cierres de mes',    cadence: 'nightly 07:10 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },

@@ -105,11 +105,28 @@ Corrección de Edgar, 2026-08-31. Es la confusión más cara del modelo porque e
 
 **Consecuencias medidas:**
 
-- Nuestro almacén `code='00'` se llama **"Cedis Oficinas"** (`kepler_code` NULL) y es el **hub raíz de
-  la red de abasto** — 4 hijos (01, 06, MD-30, 03) — pero tiene **149 SKUs** de existencia contra
-  2,364–3,264 de las sucursales reales. El DRP planea contra un nodo administrativo.
-- `wincaja.branches` apunta el CEDIS a `warehouse_code='MD-00'`, **que no existe en
-  `commercial.warehouses`**: la existencia del CEDIS real no está modelada.
+- ✅ **CORREGIDO 2026-09-07 (mig `20260907210000`).** Nuestro almacén `code='00'` se llamaba
+  **"Cedis Oficinas"**, un nombre que juntaba las dos cosas justo en la cabecera que lee el
+  operador. Hoy se llama **`CEDIS BPIRAPUATO`** y el nombre coincide con la fuente: `kepler_code`
+  es NULL y `wincaja_source_branch = '00'`, o sea que desde la mig `20260902170000` su existencia
+  sale del **CEDIS de verdad**, no de oficinas. Medido el 2026-09-07: **201 SKUs con existencia,
+  183,213 unidades base, $6,481,431** a costo promedio, última venta 2026-09-04 (los 149 SKUs que
+  esta tabla citaba eran de la ruta anterior por `commercial.stock`).
+  ✅ Y su **plaza también se corrigió** (mig `20260907220000`, autorizada por Edgar el mismo día):
+  apuntaba a la zona **OFICINAS**, que es plaza de La Piedad, cuando el CEDIS está en **Irapuato**.
+  Queda en **NULL** — no hay zona de Irapuato y crearle una con cero usuarios sería inventar
+  estructura; es el precedente que `20260829130000` fijó para `04`. Medido antes de tocar:
+  `warehouses.zone_id` **no filtra nada por sí sola** (es el default que propone el alta de usuarios;
+  `UsersService.derivarZona()` devuelve `undefined` = *"no toques lo que ya tiene"*) y **0 usuarios**
+  tienen el `00` como almacén, así que ningún alcance cambió. En la misma migración se cerró el hueco
+  de `[ID.23]` que dejaba `MD-30`/`MD-32` sin plaza (su seed filtraba a códigos de 2 dígitos) mientras
+  las zonas `MORELIA ABASTOS` y `MORELIA MADERO` tenían 10 y 4 usuarios y ningún almacén.
+- ⚠️ **Desactualizado, se conserva por trazabilidad:** *"`wincaja.branches` apunta el CEDIS a
+  `warehouse_code='MD-00'`, que no existe en `commercial.warehouses`: la existencia del CEDIS real
+  no está modelada."* Ese crosswalk sigue diciendo `MD-00`, pero la vista canónica **no une por el
+  código** sino por `wincaja_source_branch` (justamente para no perder el CEDIS en silencio — ver
+  el comentario en `20260902170000_erp_stock_on_hand_view.js`), así que la existencia del CEDIS
+  **sí está modelada** desde el 2026-09-02.
 - Hay **~11 importers** con comentarios del tipo *"CEDIS '00'"* que en realidad hablan de oficinas.
   Funcionan bien (la lógica de incluir/excluir `00` es correcta para lo suyo); lo que engaña es el
   nombre. Uno ya lo había notado: `import-stock-movements.js` escribe `CEDIS '00'='Cedis Oficinas'`.

@@ -14,6 +14,7 @@ import { ThemeService } from '../../core/services/theme.service';
 import { RoutePingService } from '../../core/services/route-ping.service';
 import { PushService } from '../../core/services/push.service';
 import { OfflineOrderService } from '../../core/services/offline-order.service';
+import { OfflineSyncService } from '../../core/services/offline-sync.service';
 
 interface DiagProbe {
   build: { commit: string; ts: string };
@@ -59,7 +60,17 @@ interface DiagProbe {
           ><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span></a>
           <a
             pButton
-           
+
+            severity="secondary"
+            size="small"
+            text
+            routerLink="assistant"
+            routerLinkActive="header-active"
+            aria-label="Thot"
+          ><span class="p-button-icon p-button-icon-left pi pi-sparkles" aria-hidden="true"></span></a>
+          <a
+            pButton
+
             severity="secondary"
             size="small"
             text
@@ -67,21 +78,6 @@ interface DiagProbe {
             routerLinkActive="header-active"
             aria-label="Notificaciones"
           ><span class="p-button-icon p-button-icon-left pi pi-bell" aria-hidden="true"></span></a>
-          <span class="hdr-badge-wrap">
-            <a
-              pButton
-             
-              severity="secondary"
-              size="small"
-              text
-              routerLink="today"
-              routerLinkActive="header-active"
-              [attr.aria-label]="pendingOrders() > 0 ? 'Mi día — ' + pendingOrders() + ' pedidos sin enviar' : 'Mi día'"
-            ><span class="p-button-icon p-button-icon-left pi pi-chart-bar" aria-hidden="true"></span></a>
-            @if (pendingOrders() > 0) {
-              <span class="hdr-dot">{{ pendingOrders() }}</span>
-            }
-          </span>
           <button
             pButton
            
@@ -114,6 +110,17 @@ interface DiagProbe {
         </button>
       }
     
+      <!-- Transacciones muertas: dinero/visita real que NO se sincronizó (invisible sin esto) -->
+      @if (deadCount() > 0) {
+        <div class="dead-banner">
+          <i class="pi pi-exclamation-circle"></i>
+          <span>{{ deadCount() }} {{ deadCount() === 1 ? 'transacción quedó' : 'transacciones quedaron' }} sin enviar.</span>
+          <button type="button" [disabled]="retryingDead()" (click)="retryDead()">
+            <i class="pi" [ngClass]="retryingDead() ? 'pi-spin pi-spinner' : 'pi-refresh'"></i> Reintentar
+          </button>
+        </div>
+      }
+
       <!-- Panel de configuración (modo oscuro + cerrar sesión) -->
       @if (settingsOpen()) {
         <div class="settings-backdrop" (click)="settingsOpen.set(false)"></div>
@@ -156,22 +163,25 @@ interface DiagProbe {
           <i class="pi pi-map"></i>
           <span>Mi ruta</span>
         </a>
-        @if (canCierre) {
-          <a routerLink="close-route" routerLinkActive="active">
-            <i class="pi pi-receipt"></i>
-            <span>Cierre</span>
-          </a>
-        }
+        <a routerLink="today" routerLinkActive="active" class="has-badge">
+          <i class="pi pi-chart-bar"></i>
+          @if (pendingOrders() > 0) {
+            <span class="nav-badge">{{ pendingOrders() }}</span>
+          }
+          <span>Mi día</span>
+        </a>
         @if (canCarga) {
           <a routerLink="carga" routerLinkActive="active">
             <i class="pi pi-truck"></i>
             <span>Carga</span>
           </a>
         }
-        <a routerLink="assistant" routerLinkActive="active">
-          <i class="pi pi-sparkles"></i>
-          <span>Thot</span>
-        </a>
+        @if (canCierre) {
+          <a routerLink="close-route" routerLinkActive="active">
+            <i class="pi pi-receipt"></i>
+            <span>Cierre</span>
+          </a>
+        }
         @if (canAssignRoutes) {
           <a routerLink="supervisor/routes" routerLinkActive="active">
             <i class="pi pi-directions"></i>
@@ -271,8 +281,6 @@ interface DiagProbe {
       .vendor-brand i { font-size: 1.25rem; }
       .vendor-user { display: flex; align-items: center; gap: 0.25rem; }
       .vendor-user a.header-active { color: var(--brand-700); }
-      .hdr-badge-wrap { position: relative; display: inline-flex; }
-      .hdr-dot { position: absolute; top: -1px; right: -1px; min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px; background: var(--warn-fg, #d97706); color: #fff; font-size: 0.62rem; font-weight: 800; display: grid; place-items: center; pointer-events: none; font-variant-numeric: tabular-nums; box-sizing: border-box; }
       .vendor-main {
         flex: 1;
         /* El scroll lo lleva el DOCUMENTO (no main) → sin overflow propio. main
@@ -330,6 +338,14 @@ interface DiagProbe {
         color: var(--brand-700);
         font-weight: 600;
       }
+      /* Badge de pedidos offline sin enviar, sobre el ícono de "Mi día". */
+      .vendor-bottom-nav a.has-badge { position: relative; }
+      .vendor-bottom-nav .nav-badge {
+        position: absolute; top: 0.35rem; left: 50%; margin-left: 0.35rem;
+        min-width: 1.05rem; height: 1.05rem; padding: 0 0.25rem; border-radius: 999px;
+        background: var(--warn-fg, #d97706); color: #fff; font-size: 0.62rem; font-weight: 800;
+        display: grid; place-items: center; pointer-events: none; font-variant-numeric: tabular-nums; box-sizing: border-box;
+      }
 
       /* Panel de configuración */
       .settings-backdrop { position: fixed; inset: 0; z-index: 40; }
@@ -378,6 +394,22 @@ interface DiagProbe {
       .bg-banner > .pi { font-size: 1rem; flex-shrink: 0; }
       .bg-banner u { text-underline-offset: 2px; font-weight: 700; }
 
+      /* Banner de transacciones muertas (sin sincronizar) */
+      .dead-banner {
+        display: flex; align-items: center; gap: 0.55rem;
+        padding: 0.55rem max(0.9rem, env(safe-area-inset-left)) 0.55rem max(0.9rem, env(safe-area-inset-right));
+        background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b);
+        border-bottom: 1px solid var(--bad-border, #fecaca); font-size: 0.8rem; line-height: 1.3;
+      }
+      .dead-banner > .pi { font-size: 1rem; flex-shrink: 0; }
+      .dead-banner span { flex: 1; min-width: 0; }
+      .dead-banner button {
+        flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.35rem;
+        border: 1px solid var(--bad-fg, #dc2626); background: transparent; color: var(--bad-fg, #dc2626);
+        border-radius: var(--r-pill, 999px); padding: 0.35rem 0.7rem; font-weight: 700; font-size: 0.75rem; cursor: pointer;
+      }
+      .dead-banner button:disabled { opacity: 0.6; }
+
       /* Guía de ubicación en segundo plano */
       .bg-help .bg-intro { font-size: 0.85rem; color: var(--text-main); margin: 0 0 0.7rem; line-height: 1.4; }
       .bg-steps { margin: 0 0 0.9rem; padding-left: 1.1rem; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -407,6 +439,7 @@ export class VendorShellComponent {
   readonly push = inject(PushService);
   private readonly toast = inject(MessageService);
   private readonly offlineApi = inject(OfflineOrderService);
+  private readonly sync = inject(OfflineSyncService);
   private readonly destroyRef = inject(DestroyRef);
 
   private static readonly BG_ONBOARD_KEY = 'vendorBgGeoOnboarded';
@@ -419,6 +452,9 @@ export class VendorShellComponent {
   readonly bgHelpOpen = signal(false);
   /** Pedidos confirmados offline sin sincronizar (badge en "Mi día"). */
   readonly pendingOrders = signal(0);
+  /** Transacciones muertas (visitas+pedidos al tope de reintentos) — dinero/visita real invisible. */
+  readonly deadCount = signal(0);
+  readonly retryingDead = signal(false);
 
   constructor() {
     // Tracking de jornada: arranca al entrar al modo vendedor.
@@ -437,9 +473,30 @@ export class VendorShellComponent {
     }
   }
 
-  /** Refresca el contador de pedidos offline sin sincronizar (badge "Mi día"). */
+  /** Refresca el contador de pedidos offline sin sincronizar (badge "Mi día") + muertos. */
   private refreshPendingBadge(): void {
     void this.offlineApi.count().then((n) => this.pendingOrders.set(n)).catch(() => void 0);
+    void this.sync.getDeadCount().then((n) => this.deadCount.set(n)).catch(() => void 0);
+  }
+
+  /** "Reintentar": revive lo muerto y fuerza sync. Lo invisible vuelve a intentarse. */
+  retryDead(): void {
+    if (this.retryingDead()) return;
+    this.retryingDead.set(true);
+    void this.sync
+      .retryAllDead()
+      .then((n) => {
+        this.toast.add(
+          n > 0
+            ? { severity: 'success', summary: 'Reintentando', detail: `${n} transacción${n === 1 ? '' : 'es'} en cola de envío.` }
+            : { severity: 'info', summary: 'Nada pendiente' },
+        );
+      })
+      .catch(() => this.toast.add({ severity: 'error', summary: 'No se pudo reintentar' }))
+      .finally(() => {
+        this.retryingDead.set(false);
+        this.refreshPendingBadge();
+      });
   }
 
   /** Pide permiso + suscribe a push (recordatorio de cierre de ruta). */

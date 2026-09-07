@@ -8,6 +8,9 @@ const { Client } = require('pg');
 const { applyRawUpsert } = require('../../services/feeds-ingest/apply-handlers');
 
 const URL = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test hace DROP TABLE con el nombre interpolado. Se le pasa la URL
+// que de verdad va a abrir (tiene default a localhost), no la del entorno.
+require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-raw-upsert', { url: URL });
 const M = '00000000-0000-0000-0000-00000000d01c';
 const T = '_ods_smoke';
 

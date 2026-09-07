@@ -104,7 +104,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
     const userId = this.tenantCtx.get()?.userId;
     if (!userId) return null;
     return this.tk.run(async (trx) => {
-      const userRow = await trx('public.users')
+      const userRow = await trx('identity.users')
         .where({ id: userId })
         .select('customer_id')
         .first();
@@ -176,7 +176,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       const ctx = this.tenantCtx.get();
       let forceCustomerId: string | null = null;
       if (ctx?.roleName === 'customer_b2b') {
-        const userRow = await trx('public.users')
+        const userRow = await trx('identity.users')
           .where({ id: ctx.userId })
           .select('customer_id')
           .first();
@@ -225,9 +225,9 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
           'c.*',
           'r.name as route_name',
           // Username del Portal B2B enlazado (o null si no tiene acceso). El
-          // índice (tenant_id, customer_id) en public.users lo hace barato.
+          // índice (tenant_id, customer_id) en identity.users lo hace barato.
           trx.raw(
-            `(select u.username from public.users u
+            `(select u.username from identity.users u
                 where u.customer_id = c.id and u.role_name = 'customer_b2b'
                 limit 1) as portal_username`,
           ),
@@ -267,7 +267,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       // Ownership: customer_b2b solo puede leer SU propio customer.
       const ctx = this.tenantCtx.get();
       if (ctx?.roleName === 'customer_b2b') {
-        const userRow = await trx('public.users')
+        const userRow = await trx('identity.users')
           .where({ id: ctx.userId })
           .select('customer_id')
           .first();
@@ -375,7 +375,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       // podía loguear pero /customers/me devolvía null (filtra deleted_at) →
       // login huérfano en estado roto. La FK es ON DELETE SET NULL, pero el soft-
       // delete no dispara el FK, así que lo desactivamos explícitamente acá.
-      const disabled = await trx('public.users')
+      const disabled = await trx('identity.users')
         .where({ customer_id: id, activo: true })
         .update({ activo: false });
 
@@ -503,7 +503,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       }
 
       // 2. Verificar que el rol customer_b2b existe en este tenant
-      const role = await trx('public.role_permissions')
+      const role = await trx('identity.role_permissions')
         .where({ role_name: 'customer_b2b' })
         .first();
       if (!role) {
@@ -513,7 +513,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       }
 
       // 3. Validar idempotencia: hay ya user con customer_id = X?
-      const dup = await trx('public.users').where({ customer_id: customerId }).first();
+      const dup = await trx('identity.users').where({ customer_id: customerId }).first();
       if (dup) {
         throw new ConflictException(
           `Ya existe acceso Portal B2B para este customer (username: ${dup.username}). Si olvidó el password, resetearlo desde /admin/users.`,
@@ -533,7 +533,15 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
             `username inválido: "${username}". Debe matchear [a-z0-9_-]{3,50}.`,
           );
         }
-        const usernameDup = await trx('public.users').where({ username }).first();
+        // `[IDG.3]` La tabla, NO `public.users`. El UNIQUE de username es
+        // `(tenant_id, username)`, así que esta unicidad es POR TENANT y depende
+        // enteramente de que RLS recorte la consulta. Las 23 vistas de
+        // `public.*` pertenecían a `postgres` y no llevaban `security_invoker`,
+        // o sea que el RLS se evaluaba como el dueño —exento— y este `.first()`
+        // miraba TODOS los tenants: rechazaba un username libre por estar
+        // tomado en otra empresa, y de paso lo delataba. Es el mismo incidente
+        // de junio con `role_permissions`, en otro lugar.
+        const usernameDup = await trx('identity.users').where({ username }).first();
         if (usernameDup) {
           throw new ConflictException(`Username "${username}" ya está en uso. Especificar otro.`);
         }
@@ -553,7 +561,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
         const base = slugify(customer.name) || slugify(customer.code) || 'usuario';
         username = base;
         for (let n = 2; n <= 999; n++) {
-          const taken = await trx('public.users').where({ username }).first();
+          const taken = await trx('identity.users').where({ username }).first();
           if (!taken) break;
           username = `${base}_${n}`;
         }
@@ -564,7 +572,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
       const passwordHash = await bcrypt.hash(temporaryPassword, 10);
 
       // 5. Insertar user
-      const [user] = await trx('public.users')
+      const [user] = await trx('identity.users')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
           username,
@@ -596,7 +604,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
     }
 
     return this.tk.run(async (trx) => {
-      const user = await trx('public.users')
+      const user = await trx('identity.users')
         .where({ customer_id: customerId, role_name: 'customer_b2b' })
         .first();
       if (!user) {
@@ -614,7 +622,7 @@ export class CommercialCustomersService implements CustomerProvisioningPort {
 
       // Reactivamos por si el usuario había quedado desactivado (ej. el cliente
       // estuvo soft-deleted y luego se reactivó).
-      await trx('public.users')
+      await trx('identity.users')
         .where({ id: user.id })
         .update({ password_hash: passwordHash, activo: true });
 

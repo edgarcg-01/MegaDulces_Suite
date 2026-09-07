@@ -3,7 +3,7 @@
  * BACKFILL del ODS hacia una réplica de pruebas — **local → local, cero egress**.
  *
  * Llena `kepler_ods.*` de la réplica (`.245/platform_test`) leyendo los **réplicas lógicos
- * locales** del contenedor (`:5433/kepler_md_XX`, la 03 es `kepler_pilot`). NO toca prod:
+ * locales** del contenedor (`:5433/kepler_md_XX`, las 7 con la misma convención). NO toca prod:
  * bajar los ~5 GB por el proxy de Railway es egress pago y ~50× más lento (medido: 4 s por
  * LAN para las 49 k filas de `kdm1` de una rama, contra ~30 min de proxy para una fracción).
  *
@@ -30,11 +30,11 @@ const DST_URL = process.env.MIRROR_URL || process.env.FEEDS_MIRROR_URL;
 const SRC_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres';
 const PSQL = process.env.PSQL_BIN || 'C:\\Program Files\\PostgreSQL\\18\\bin\\psql.exe';
 
-// La 03 quedó con el nombre del piloto (rename diferido); md_03 es un sobrante de junio.
-const BRANCHES = [
-  ['00', 'kepler_md_00'], ['01', 'kepler_md_01'], ['02', 'kepler_md_02'],
-  ['03', 'kepler_pilot'], ['04', 'kepler_md_04'], ['05', 'kepler_md_05'], ['06', 'kepler_md_06'],
-];
+// 2026-09-07: las 7 ramas siguen la MISMA convención. Antes la 03 era `kepler_pilot` y convivía
+// con una `md_03` sobrante de junio — dos bases con nombre de la 03, una viva y una muerta.
+// El nombre lo resuelve `lib/kepler-branches` (dueño único de la convención); acá sólo la lista.
+const { replicaDbName } = require('../lib/kepler-branches');
+const BRANCHES = ['00', '01', '02', '03', '04', '05', '06'].map((c) => [c, replicaDbName(c)]);
 // Meta del CDC: se replica sola, no tiene sentido copiarla.
 const SKIP = new Set(['_sync_status']);
 

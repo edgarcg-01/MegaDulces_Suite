@@ -31,6 +31,7 @@
 
 const { Client } = require('pg');
 
+const { declararActor } = require('../lib/declare-actor');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const APPLY = process.argv.includes('--apply');
@@ -61,6 +62,9 @@ const Z = { A: invNorm(SERVICE.A), B: invNorm(SERVICE.B), C: invNorm(SERVICE.C) 
 (async () => {
   const db = new Client({ connectionString: DST });
   await db.connect();
+  // [VP.3.2] Quien escribe, declarado: el trigger de analytics.master_data_history lo lee
+  // solo. Nunca lanza — el actor es metadata, un feed no se cae por no poder firmar.
+  await declararActor(db, 'import-computed-reorder');
   try {
     console.log(`\n=== Reorden por NIVEL DE SERVICIO → commercial.reorder_policy (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===`);
     console.log(`  service A=${SERVICE.A}(Z=${Z.A.toFixed(3)}) B=${SERVICE.B}(Z=${Z.B.toFixed(3)}) C=${SERVICE.C}(Z=${Z.C.toFixed(3)}) · lead=${LEAD_DEFAULT}d cycle=${CYCLE_DAYS}d floor=${SAFETY_FLOOR_DAYS}d\n`);

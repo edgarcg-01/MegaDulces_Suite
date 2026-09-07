@@ -985,6 +985,30 @@ export class OfflineDatabaseService extends Dexie {
   }
 
   /**
+   * Revive TODOS los ítems muertos (visitas + pedidos que llegaron al cap de
+   * reintentos) → vuelven a la cola activa. Para el botón "Reintentar" del banner:
+   * lo que estaba invisible (5 fallos, dinero/visita real) vuelve a intentarse.
+   * Devuelve cuántos revivió.
+   */
+  async revivirTodosMuertos(maxRetries = 5): Promise<number> {
+    const [visitas, pedidos] = await Promise.all([
+      this.visitas.toArray(),
+      this.pedidosPendientes.toArray(),
+    ]);
+    const visitasMuertas = visitas.filter(
+      (v) => v.sincronizado === false && (v.intentos_fallidos || 0) >= maxRetries,
+    );
+    const pedidosMuertos = pedidos.filter(
+      (p) => !p.sincronizado && p.status === 'ready' && (p.intentos_fallidos || 0) >= maxRetries,
+    );
+    await Promise.all([
+      ...visitasMuertas.map((v) => this.visitas.update(v.id, { intentos_fallidos: 0 })),
+      ...pedidosMuertos.map((p) => this.pedidosPendientes.update(p.id, { intentos_fallidos: 0 })),
+    ]);
+    return visitasMuertas.length + pedidosMuertos.length;
+  }
+
+  /**
    * Limpieza de fotos cuyas visitas ya no existen (defensa contra leaks
    * por crashes mid-flow). Se corre como parte de limpiarDatosAntiguos.
    */

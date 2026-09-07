@@ -48,6 +48,9 @@ async function poll(fn, tries = 15, delay = 700) {
 let db = null;
 function getDb() {
   if (!db) { try { require('dotenv').config(); } catch (e) { /* opcional */ }
+    // `[IDG.1]` La guarda va acá dentro, donde se adquiere la conexión: este test
+    // BORRA `finance.bank_movements`, `bank_statements` y `bank_capture_inbox`.
+    require('./_lib/assert-safe-target').assertSafeTarget('http-cbw-bank-capture-test');
     db = require('knex')({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW } }); }
   return db;
 }

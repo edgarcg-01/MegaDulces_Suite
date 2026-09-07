@@ -18,6 +18,8 @@
 const BASE = `http://localhost:${process.env.RECON_TEST_PORT || 3334}/api`;
 const { Client } = require('pg');
 const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// `[IDG.1]` Este test BORRA de `analytics.stock_ledger` y `analytics.cash_cuts`.
+require('./_lib/assert-safe-target').assertSafeTarget('http-reconciliation-test', { url: DST });
 const M = '00000000-0000-0000-0000-00000000d01c';
 const WH = 'ZZ';          // sucursal sintética (aislada)
 const FECHA = '2026-07-01';

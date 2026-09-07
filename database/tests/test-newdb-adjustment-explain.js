@@ -30,7 +30,7 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
   try {
     const ods = Number((await knex.raw(
       `SELECT count(*)::int n FROM information_schema.tables WHERE table_schema = 'kepler_ods'`)).rows[0].n);
-    if (!ods) { console.log('  ⚠️  sin kepler_ods en esta base — SKIP'); process.exit(0); }
+    if (!ods) { console.log('  ⚠️  sin kepler_ods en esta base — SKIP'); process.exit(2); }
 
     const AJ = `FROM kepler_ods.kdm1 WHERE c2='X' AND c3='D' AND trim(c4::text) IN ('40','55')`;
     const [t] = (await knex.raw(`
@@ -42,7 +42,7 @@ const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
              count(*) FILTER (WHERE btrim(c11) = btrim(c10))::int c11_es_proveedor,
              count(*) FILTER (WHERE btrim(c11) ~ '^[0-9]+$')::int c11_digitos
         ${AJ}`)).rows;
-    if (!t.total) { console.log('  ⚠️  sin ajustes X-D-40/55 en el ODS — SKIP'); process.exit(0); }
+    if (!t.total) { console.log('  ⚠️  sin ajustes X-D-40/55 en el ODS — SKIP'); process.exit(2); }
     console.log(`\n  ${t.total} ajustes en el ODS (X-D-40 + X-D-55)\n`);
 
     // 1. La liga por folio de entrada NO alcanza — es la premisa que obliga al match por monto.

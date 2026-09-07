@@ -23,6 +23,9 @@ let db = null;
 function getDb() {
   if (!db) {
     try { require('dotenv').config(); } catch (e) { /* dotenv opcional */ }
+    // `[IDG.1]` La guarda va acá dentro, no arriba: este test sólo toca la DB si
+    // el endpoint de ingest está cerrado. Escribe y borra `rider_liquidations`.
+    require('./_lib/assert-safe-target').assertSafeTarget('http-home-delivery-test');
     db = require('knex')({ client: 'pg', connection: { connectionString: process.env.DATABASE_URL_NEW } });
   }
   return db;

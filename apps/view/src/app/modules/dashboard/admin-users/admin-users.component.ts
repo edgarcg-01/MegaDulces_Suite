@@ -52,6 +52,7 @@ import {
   ScopeAxis,
   PermissionOverride,
   UserPermissionsResponse,
+  UserScopeResponse,
 } from './users.service';
 import { PERMISSION_META } from '../../../core/constants/permission-meta';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
@@ -561,6 +562,146 @@ export class AdminUsersComponent implements OnInit {
     this.permisosOverrides.set([]);
   }
 
+  // ── `[RE.27.B1]` Alcance de datos: sobre QUÉ FILAS ────────────────────────
+  //
+  // El permiso dice qué acción; el alcance dice sobre qué filas. Son ejes
+  // distintos y hasta acá sólo uno se administraba desde la UI: `user_scopes`
+  // se tocaba por script contra prod, así que en los hechos nadie lo acotaba —
+  // medido el 2026-09-07, **ningún usuario tiene `listed` en `warehouse`**.
+  //
+  // Es el bisturí que hace innecesario el martillo: en vez de quitarle el
+  // permiso de validar a un rol entero, se le dice a la persona sobre qué
+  // sucursales decide. Y **surte efecto sin re-login** (el alcance se relee de
+  // DB con TTL de 30 s), a diferencia del permiso, que viaja en el JWT.
+
+  /** Alcance vigente del usuario abierto. `null` = no cargado o sin permiso de verlo. */
+  readonly alcanceDetalle = signal<UserScopeResponse | null>(null);
+  /** Cambios EN EDICIÓN, por dimensión. Se escriben al guardar, no antes. */
+  readonly alcanceEdit = signal<Record<string, { mode: string | null; mode_write: string | null; values: string[] }>>({});
+  private readonly alcancePrevio = signal<string>('');
+  /** Arranca colapsado: la mayoría de las altas hereda el alcance de su rol. */
+  readonly alcanceAbierto = signal(false);
+
+  /**
+   * Las dimensiones que este panel edita. Son las tres que ya tienen catálogo
+   * cargado en la pantalla; las otras (`brand`, `expense_area`, `customer`) se
+   * muestran pero no se editan — ofrecer un selector sin universo sería pedirle
+   * al admin que escriba ids a ciegas.
+   */
+  private readonly DIMS_EDITABLES = [
+    { code: 'warehouse', label: 'Sucursales', ayuda: 'De qué sucursales ve —y decide— las entradas, ventas y existencias.' },
+    { code: 'zone', label: 'Zonas', ayuda: 'Qué plazas alcanza en los tableros de territorio.' },
+    { code: 'route', label: 'Rutas', ayuda: 'Qué rutas ve en venta, cartera y visitas.' },
+  ] as const;
+
+  readonly MODOS_ALCANCE = [
+    { value: 'none', label: 'Nada', hint: 'No ve ninguna fila de esta dimensión.' },
+    { value: 'own', label: 'La suya', hint: 'La que dice su propia ficha.' },
+    { value: 'listed', label: 'Las que elija', hint: 'Exactamente las marcadas abajo.' },
+    { value: 'all', label: 'Todas', hint: 'La red completa.' },
+  ];
+
+  /** El universo de cada dimensión, del catálogo que la pantalla ya carga. */
+  private universoDe(dim: string): { value: string; label: string }[] {
+    if (dim === 'warehouse') return this.branches().map((b) => ({ value: b.code, label: `${b.code} · ${b.name}` }));
+    if (dim === 'zone') return this.zones().map((z) => ({ value: String(z.id), label: z.value }));
+    if (dim === 'route') return this.routes().map((r) => ({ value: String(r.id), label: r.name }));
+    return [];
+  }
+
+  /** Estado a dibujar: lo guardado, pisado por lo que se esté editando. */
+  readonly alcanceFilas = computed(() => {
+    const det = this.alcanceDetalle();
+    if (!det) return [];
+    const edits = this.alcanceEdit();
+    return this.DIMS_EDITABLES.map((d) => {
+      const base = det.dimensions?.[d.code];
+      const e = edits[d.code];
+      const mode = (e?.mode ?? base?.mode ?? 'none') as string;
+      // `mode_write` en null NO es "no escribe": es "hereda de mode". Por eso se
+      // muestra el heredado en vez de un vacío que se leería como restricción.
+      const modeWriteRaw = e ? e.mode_write : (base?.modeWrite ?? null);
+      return {
+        ...d,
+        mode,
+        modeWrite: (modeWriteRaw ?? mode) as string,
+        heredaEscritura: modeWriteRaw === null || modeWriteRaw === mode,
+        values: e?.values ?? base?.values ?? [],
+        // `source` describe lo GUARDADO. Si hay edición pendiente se dice aparte.
+        source: base?.source ?? 'default',
+        sucio: !!e,
+        puedeOwn: base?.supportsOwn ?? false,
+        universo: this.universoDe(d.code),
+      };
+    });
+  });
+
+  /** Resumen para el encabezado colapsado: se lee sin abrir. */
+  readonly alcanceResumen = computed(() => {
+    const filas = this.alcanceFilas();
+    const w = filas.find((f) => f.code === 'warehouse');
+    if (!w) return '';
+    if (w.mode === 'all') return 'toda la red';
+    if (w.mode === 'none') return 'sin sucursales';
+    if (w.mode === 'own') return 'su sucursal';
+    return w.values.length === 1 ? w.values[0] : `${w.values.length} sucursales`;
+  });
+
+  readonly alcanceEsAdminPlataforma = computed(
+    () => Object.values(this.alcanceDetalle()?.dimensions ?? {}).some((d) => d.source === 'platform_admin'),
+  );
+
+  private editarAlcance(dim: string, patch: Partial<{ mode: string | null; mode_write: string | null; values: string[] }>): void {
+    const filas = this.alcanceFilas();
+    const actual = filas.find((f) => f.code === dim);
+    const edits = { ...this.alcanceEdit() };
+    const previo = edits[dim] ?? {
+      mode: actual?.mode ?? 'none',
+      mode_write: actual?.heredaEscritura ? null : (actual?.modeWrite ?? null),
+      values: actual?.values ?? [],
+    };
+    edits[dim] = { ...previo, ...patch };
+    this.alcanceEdit.set(edits);
+  }
+
+  setAlcanceModo(dim: string, mode: string): void {
+    // Cambiar de modo limpia la selección si ya no aplica: dejar valores viejos
+    // colgados en un `all` los reviviría al volver a `listed` sin que nadie los
+    // haya vuelto a elegir.
+    this.editarAlcance(dim, { mode, ...(mode === 'listed' ? {} : { values: [] }) });
+  }
+
+  setAlcanceValores(dim: string, values: string[]): void {
+    this.editarAlcance(dim, { values, mode: 'listed' });
+  }
+
+  /** `null` = la escritura hereda de la lectura (el caso normal). */
+  setAlcanceEscritura(dim: string, modeWrite: string | null): void {
+    this.editarAlcance(dim, { mode_write: modeWrite });
+  }
+
+  /**
+   * Devuelve la dimensión a la HERENCIA DEL ROL. No es lo mismo que ponerla en
+   * `none`: `null` borra el override y la persona vuelve al default de su rol,
+   * mientras que `none` es "explícitamente no ve nada". Soltar el volante no es
+   * frenar, y la pantalla tiene que dejar decir las dos cosas.
+   */
+  heredarAlcance(dim: string): void {
+    this.alcanceEdit.set({ ...this.alcanceEdit(), [dim]: { mode: null, mode_write: null, values: [] } });
+  }
+
+  descartarAlcance(dim: string): void {
+    const edits = { ...this.alcanceEdit() };
+    delete edits[dim];
+    this.alcanceEdit.set(edits);
+  }
+
+  private firmaAlcance(edits: Record<string, { mode: string | null; mode_write: string | null; values: string[] }>): string {
+    return Object.keys(edits).sort()
+      .map((k) => `${k}:${edits[k].mode ?? 'HEREDA'}:${edits[k].mode_write ?? 'HEREDA'}:${[...edits[k].values].sort().join(',')}`)
+      .join('|');
+  }
+
   /** `[ID.15]` El puesto elegido no propone perfil: hay que elegirlo a mano. */
   readonly puestoSinPerfil = computed(() => {
     const code = this.positionPick();
@@ -631,7 +772,7 @@ export class AdminUsersComponent implements OnInit {
       case 'zona': return 'Supervisa una plaza completa: se le asigna la zona, no una ruta.';
       case 'sucursal': return 'Está en una tienda o almacén: se le asigna la sucursal y la zona sale de ella.';
       case 'red': return 'Es de oficinas: su alcance es la red, no un lugar. No se le pide zona ni sucursal.';
-      case 'cartera': return 'Televenta: su universo son los clientes que atiende, no un lugar.';
+      case 'cartera': return 'Telemarketing: su universo son los clientes que atiende, no un lugar.';
       case 'cliente': return 'Externo: su acceso es a su propio cliente.';
       default: return '';
     }
@@ -1059,6 +1200,20 @@ export class AdminUsersComponent implements OnInit {
         error: () => this.permisosDetalle.set(null),
       });
 
+    // `[RE.27.B1]` El alcance vive en `identity.user_scopes`/`role_scopes`, no en
+    // `users`: se carga aparte, igual que los permisos y los complementos.
+    this.alcanceDetalle.set(null);
+    this.alcanceEdit.set({});
+    this.alcancePrevio.set('');
+    this.alcanceAbierto.set(false);
+    this.usersService
+      .getUserScope(user.id)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => this.alcanceDetalle.set(res),
+        error: () => this.alcanceDetalle.set(null),
+      });
+
     this.refreshLookups();
     this.displayDialog.set(true);
   }
@@ -1139,6 +1294,72 @@ export class AdminUsersComponent implements OnInit {
       });
   }
 
+  /**
+   * `[RE.27.B1]` Escribe el alcance que se haya tocado, una dimensión por llamada
+   * (es la forma del endpoint: `PUT /users/:id/scope/:dimension`).
+   *
+   * Van **en serie** y no en paralelo a propósito: cada escritura invalida el
+   * cache de alcance del usuario en el server, y si una falla —el backend frena
+   * la escalada de privilegios: no podés otorgar un modo más amplio que el
+   * tuyo— hay que poder decir CUÁL falló. Un `forkJoin` diría "algo salió mal".
+   */
+  private persistAlcance(userId: string): void {
+    const edits = this.alcanceEdit();
+    const dims = Object.keys(edits);
+    if (!dims.length) return;
+    if (this.firmaAlcance(edits) === this.alcancePrevio()) return;
+
+    const hechas: string[] = [];
+    const siguiente = (i: number): void => {
+      if (i >= dims.length) {
+        this.alcancePrevio.set(this.firmaAlcance(edits));
+        if (hechas.length) {
+          this.messageService.add({
+            severity: 'success',
+            summary: 'Alcance actualizado',
+            detail: `${hechas.join(' · ')}. Aplica en menos de un minuto, sin volver a iniciar sesión.`,
+          });
+        }
+        return;
+      }
+      const dim = dims[i];
+      const e = edits[dim];
+      const etiqueta = this.DIMS_EDITABLES.find((d) => d.code === dim)?.label ?? dim;
+      this.usersService
+        .setUserScope(userId, dim, {
+          mode: e.mode,
+          // `values` sólo viaja con `listed`; en los otros modos el server lo ignora
+          // y mandarlo sembraría una selección fantasma para el próximo que edite.
+          values: e.mode === 'listed' ? e.values : null,
+          mode_write: e.mode_write,
+        })
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({
+          next: () => {
+            hechas.push(e.mode === null ? `${etiqueta}: vuelve a su rol` : `${etiqueta}: ${e.mode}`);
+            siguiente(i + 1);
+          },
+          error: (err) => {
+            this.messageService.add({
+              severity: 'error',
+              summary: `No se pudo guardar el alcance de ${etiqueta}`,
+              detail: this.apiError(err, 'Revisá el detalle e intentá de nuevo.'),
+            });
+            // Se corta la cadena: lo ya escrito queda, y el toast dice hasta dónde
+            // llegó. Seguir con las demás dejaría un estado a medias sin avisar.
+            if (hechas.length) {
+              this.messageService.add({
+                severity: 'warn',
+                summary: 'Se guardó parcialmente',
+                detail: `Sí quedó: ${hechas.join(' · ')}.`,
+              });
+            }
+          },
+        });
+    };
+    siguiente(0);
+  }
+
   private persistComplementos(userId: string): void {
     const ahora = [...this.complementos()].sort();
     const antes = [...this.complementosPrevios()].sort();
@@ -1208,6 +1429,7 @@ export class AdminUsersComponent implements OnInit {
             this.displayDialog.set(false);
             this.persistComplementos(this.currentUserId()!);
             this.persistPermisos(this.currentUserId()!);
+            this.persistAlcance(this.currentUserId()!);
             this.loadUsers();
             this.refreshLookups();
             this.messageService.add({

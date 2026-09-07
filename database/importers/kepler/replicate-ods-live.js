@@ -250,8 +250,12 @@ const DEST_URL = process.env.KP_DEST_URL || null;
 let DEST = null; // Client de pg cuando el sink es 'pg'; null en http.
 const ship = (rows, meta) => sink.ship('raw-upsert', { rows, tenantId: TENANT, meta, client: DEST });
 
-// Base de conexión al contenedor de replicas (localhost:5433). El replica de md_03 quedó con el
-// nombre del piloto (kepler_pilot); el resto es kepler_md_XX. Rename diferido (cosmético).
+// Base de conexión al contenedor de replicas (localhost:5433). Las 7 ramas siguen la MISMA
+// convención `kepler_md_XX` desde el 2026-09-07: la 03 se llamaba `kepler_pilot` (nombre del piloto
+// original) y se renombró, junto con el drop de la `md_03` huérfana que llevaba congelada desde el
+// 15-jun y a la que nadie escribía ni leía. Había DOS bases con nombre de la 03, una viva y una
+// muerta — la trampa perfecta para leer la equivocada; y la excepción estaba copiada a mano en
+// NUEVE archivos. Si vuelve a aparecer un nombre fuera de convención, que viva en un solo lugar.
 //
 // ODS_SOURCE_BASE existe para DESACOPLAR esta base de `DATABASE_URL_NEW`. Esa var la mueve dev
 // para apuntar la app a otra base (p. ej. la réplica de pruebas en .245); si el CDC la usa para
@@ -261,7 +265,7 @@ const ship = (rows, meta) => sink.ship('raw-upsert', { rows, tenantId: TENANT, m
 // Se deja `DATABASE_URL_NEW` como fallback por compatibilidad con los runners que aún no la setean.
 const SUB_BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW
   || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
-const localDbName = (code) => (code === '03' ? 'kepler_pilot' : `kepler_md_${code}`);
+const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // 00 incluido (oficinas/CEDIS-finanzas @9.95): first-class en el ODS. Sin su réplica local
 // kepler_md_00 todavía → cycleAll la salta ("no conecta — skip"); al crearla se activa sola.
