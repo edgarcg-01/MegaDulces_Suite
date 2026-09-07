@@ -3,7 +3,16 @@
 > Propuesta 2026-09-07 · hereda [`FASE_RS`](../01_TRACKER_PROGRESO.md) (sell-out), [`FASE_AX`](FASE_AX_ANEXO_VENTA.md)
 > (drill a factura) y [`FASE_VP`](FASE_VP_VERDAD_Y_PROCEDENCIA.md) (ADR-056: el número declara con qué se calculó).
 >
-> **Estado: BI.0 ✅ (prod+.245, `17b7e07a`) · BI.3 (`961c95db`) · BI.5 (`7475fc7a`) · BI.2 (`1185f573`) · BI.6 (`b75d411d`) · BI.4 (`75606743`) · BI.1 🔨 EN CÓDIGO (Δ MoM + sparkline en KPI) — todo 🔨 sin desplegar. BI.9 🔨 EN CÓDIGO (objetivos: `commercial.sales_targets` + captura HITL + vs-real) — migs aplicadas a .245, PENDIENTE prod. BI.7 (drill a doc, cobertura parcial) / BI.8 (pivote) ⬜.**
+> **Estado: BI.0 ✅ (prod+.245, `17b7e07a`) · BI.3 (`961c95db`) · BI.5 (`7475fc7a`) · BI.2 (`1185f573`) · BI.6 (`b75d411d`) · BI.4 (`75606743`) · BI.1 🔨 EN CÓDIGO (Δ MoM + sparkline en KPI) — todo 🔨 sin desplegar. BI.9 (`42da8333`, objetivos: migs en .245, PENDIENTE prod) · BI.7 🔨 EN CÓDIGO (enlace a Facturación TM — el drill in-page completo es fase diferida, ver abajo) · BI.8 (pivote) ⬜.**
+>
+> **BI.7 — hallazgo de perf (medido en prod, read-only):** un drill in-page a factura sobre las vistas
+> vivas `analytics.erp_sales_invoices`/`_lines` es **inviable interactivo** — 20 s sin marca y **>120 s con
+> filtro de marca** (el filtro de fecha no empuja a índice sobre `kepler_ods.kdm1` → seq-scan del histórico;
+> el `statement_timeout` de 45 s lo abortaría → 500). Extender la vista a mostrador (U/D/10, 160k docs) además
+> **arriesga degradar la pantalla Facturación TM en producción** (el filtro `doc_tipo` no empuja al `DISTINCT ON`).
+> Por eso BI.7 v1 = **enlace** a la pantalla ya optimizada (Facturación TM, ~1 s, materialized-CTE), gateado por
+> `COMMERCIAL_SALES_DOCS_VER`. **Diferido a fase propia:** materializar un índice de documentos por fecha/marca +
+> expandir cobertura a mostrador/Wincaja con su decode de IVA. No se hizo el hack de la vista lenta.
 > Pendiente prod: redeploy view/api (Edgar) + re-login + `ANTHROPIC_API_KEY` en Railway (BI.5 degrada limpio sin ella).
 > BI.3 verificado (read-only): invariante Σcontrib==Δtotal exacto (ago vs jul 2026, −$1,058,992). BI.5 tools verificadas
 > (total agosto $53,838,718 == universo del reporte; cero números del LLM). Builds view+api verdes.
