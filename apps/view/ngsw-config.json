@@ -80,6 +80,31 @@
         "maxAge": "1d",
         "timeout": "5s"
       }
+    },
+    {
+      "name": "verificador-precios",
+      "urls": [
+        "/api/kp/precio?**",
+        "/api/sucursales"
+      ],
+      "cacheConfig": {
+        "strategy": "freshness",
+        "maxSize": 400,
+        "maxAge": "12h",
+        "timeout": "2s"
+      }
+    },
+    {
+      "name": "verificador-catalogo",
+      "urls": [
+        "/api/kp/precios-todos?**"
+      ],
+      "cacheConfig": {
+        "strategy": "performance",
+        "maxSize": 8,
+        "maxAge": "12h",
+        "timeout": "20s"
+      }
     }
   ],
   "navigationUrls": [

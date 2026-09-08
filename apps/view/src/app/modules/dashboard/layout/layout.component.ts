@@ -453,6 +453,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Operación',
       items: [
+        { label: 'Verificador de precios', icon: 'pi pi-barcode', route: '/tienda/verificador', permission: Permission.STORE_PRICE_CHECK_VER },
         { label: 'Monitor en vivo', icon: 'pi pi-bolt',       route: '/tienda/live',     permission: Permission.STORE_LIVE_VER },
         { label: 'Sucursales',      icon: 'pi pi-building',    route: '/tienda/branches', permission: Permission.STORE_LIVE_VER },
         { label: 'Ritmo del día',   icon: 'pi pi-chart-line', route: '/tienda/pace',     permission: Permission.STORE_LIVE_VER },

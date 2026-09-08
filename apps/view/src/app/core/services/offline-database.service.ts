@@ -81,7 +81,7 @@ export interface PendingVendorSale {
 
 export interface CatalogoOffline {
   id: string;
-  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today' | 'frecuentes';
+  tipo: 'ubicaciones' | 'conceptos' | 'niveles' | 'scoring' | 'planograma' | 'stores' | 'daily-captures-today' | 'daily-assignment-today' | 'frecuentes' | 'verificador-precios';
   datos: any;
   version: string;
   ultima_sincronizacion: string;
@@ -433,6 +433,35 @@ export class OfflineDatabaseService extends Dexie {
 
   async getCatalogos(): Promise<CatalogoOffline[]> {
     return await this.catalogos.toArray();
+  }
+
+  // --- Verificador de precios de mostrador (CV.24) ---
+  //
+  // El respaldo del verificador se guarda POR SUCURSAL, no por `tipo`: el mismo código
+  // tiene precio distinto entre plazas (385 códigos, medido en `KpService.getPreciosTodos`),
+  // así que un único registro "precios" serviría el precio de otra tienda. De ahí que la
+  // llave sea `verificador-precios:NN` y la lectura vaya por `get(id)` y no por índice de
+  // `tipo` — `where('tipo').first()` devolvería una sucursal arbitraria.
+
+  /** Llave del snapshot de una sucursal. */
+  private static snapshotPreciosId(sucursal: string): string {
+    return `verificador-precios:${sucursal}`;
+  }
+
+  /** Guarda (reemplaza) el catálogo de precios de UNA sucursal para uso sin red. */
+  async guardarSnapshotPrecios(sucursal: string, datos: unknown, version: string): Promise<void> {
+    await this.catalogos.put({
+      id: OfflineDatabaseService.snapshotPreciosId(sucursal),
+      tipo: 'verificador-precios',
+      datos,
+      version,
+      ultima_sincronizacion: new Date().toISOString(),
+    });
+  }
+
+  /** El snapshot de esa sucursal, o `undefined` si nunca se descargó. */
+  async getSnapshotPrecios(sucursal: string): Promise<CatalogoOffline | undefined> {
+    return await this.catalogos.get(OfflineDatabaseService.snapshotPreciosId(sucursal));
   }
 
   // --- Sync Logs ---
