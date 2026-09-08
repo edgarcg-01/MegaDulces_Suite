@@ -335,16 +335,42 @@ tenencia/verificación · `analytics.delivery_cost_daily`.
 | **RD.1** | Arreglar la fecha de negocio de Wincaja + candado | ✅ `20260907280000` (local; prod pendiente) |
 | **RD.2** | `analytics.v_rd_route_daily` — venta por ruta×día con procedencia | ✅ `20260907290000` (local; prod pendiente) |
 | **RD.0** | Este documento + `GLOSSARY` + ADR + tracker | 🔨 |
+| **RD.6** | Motor de comisiones: escalas versionadas en DB + corrida persistida (borrador→aprobado→pagado) | ✅ `20260908120000/120100/120200` (local; prod pendiente) |
 | **RD.3** | Snapshot del costo del día (cierra §2.3) — tabla real, caso *histórico* de la regla #1 | ⬜ |
-| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **bloqueado en decode con Edgar** | ⚠️ BLOCKED |
-| **RD.4** | Gasto de flota: `logistics.route_expenses` + catálogo de 6 tipos + importer del workbook + captura web + permisos repartidos | ⬜ |
+| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **bloqueado: es captura en el POS, no decode** | ⚠️ BLOCKED |
+| **RD.4** | Gasto de flota: `logistics.route_expenses` + catálogo de 6 tipos + importer del workbook + captura web + permisos repartidos | 🔨 |
 | **RD.5** | Odómetro → `vehicle_usage_logs`, costo fijo → `config_finance`, `analytics.v_route_cost_daily` (vista) → cierra LTV.2 | ⬜ |
-| **RD.6** | Motor de comisiones: escalas versionadas en DB + corrida persistida (borrador→aprobado→pagado) + recibo | ⬜ |
 | **RD.7** | Objetivo por ruta: `'route'` al CHECK de `commercial.sales_targets` | ⬜ |
 | **RD.8** | Pestañas en `/comercial/ventas-por-ruta` (Gasto · Comisiones · Costo/km · Objetivo) | ⬜ |
 
-**Orden**: la capa de datos primero (RD.1 ✅, RD.2 ✅, RD.3, RD.2b), después backend (RD.4–RD.7),
-el frontend al final (RD.8).
+**Orden** (jerarquía de importancia, decidida con Edgar): capa de datos primero (RD.1 ✅, RD.2 ✅),
+después **RD.6** ✅ porque es el que reemplaza trabajo que se paga y **no depende de ningún hueco**,
+luego RD.4 y RD.3, y el frontend al final (RD.8).
+
+### RD.6 — lo medido
+
+Alimentado con el SUBTOTAL/VENTA del **propio Excel**, el motor reproduce **163 de 163** celdas
+periodo×ruta **al centavo**, en las cinco columnas: % del tabulador, comisión del chofer, parte del
+supervisor, nómina de banco y `A PAGAR`. La aritmética no está en duda.
+
+End-to-end contra la venta derivada del ERP baja a **72%**, y esa diferencia es del **dato**, no del
+motor — tramo push con subtotal derivado (±1%), las 40 celdas que el Excel parchea a mano y las 160
+sin fuente diaria (§2.2 y §2.4). Se separaron a propósito las dos mediciones para poder afirmar cuál
+de las dos cosas falla.
+
+Confirmó además la elección de nómina de banco de §4.7: **3,484.96** en PH/Morelia y **5,000** en
+Canindo son los valores de la hoja `COMISIONES`, la que produce `A PAGAR`. Los otros cuatro valores
+del libro no reproducen el pago.
+
+Candado `test-newdb-rd-commissions.js`: **34 OK / 0 fallas / 0 NO MEDIDOS**. Cada corrección de §4
+tiene ahí su prueba negativa (una venta de $400,000 paga 5% y no cero; $175,000 no paga; la 505
+queda sin chofer declarado y no inventado; el permiso llegó a un rol y a pocos).
+
+⚠️ **Pendiente de modelar**: la deducción del supervisor es **por persona y agregada** sobre sus
+rutas (`COMISIONES!K95 = 4,260`, otro de los seis valores de nómina), no por ruta. La línea de
+supervisor trae hoy la *contribución* de cada ruta con `nomina_banco = 0`; el neto por persona lo
+arma quien consuma. No se reparte la deducción entre rutas para no inventar una regla que el Excel
+no tiene.
 
 ### Verificación
 
