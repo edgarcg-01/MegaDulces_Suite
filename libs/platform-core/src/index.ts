@@ -36,6 +36,7 @@ export * from './lib/ability/permissions-cache.service';
 export * from './lib/auth/jwt-auth.guard';
 export * from './lib/auth/public.decorator';
 export * from './lib/auth/jwt-secret';
+export * from './lib/auth/token-ttl';
 
 // ── guards ──
 export * from './lib/guards/require-auth.guard';
