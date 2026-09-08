@@ -1,0 +1,374 @@
+# Fase RD — Indicadores de Ruta Directa
+
+> **Estado**: 🔨 EN CURSO. Capa de datos: RD.1 ✅ · RD.2 ✅ (local `.245`, prod pendiente de deploy) ·
+> RD.3 y el hueco de Canindo ⚠️ DECLARADOS, no resueltos. Backend y frontend sin empezar.
+> **Orden de trabajo fijado por Edgar**: primero verdad absoluta del dato, después backend, el
+> frontend al final. Capa por capa.
+
+Automatiza `INDICADORES RD 2026.xlsx`, el tablero manual con el que se opera y **se paga** la Ruta
+Directa (RD) de Padre Hidalgo, Canindo y Morelia.
+
+`RD` = **Ruta Directa**. La cita literal está en el seed de puestos
+(`database/migrations-newdb/20260820200000_identity_departments_positions.js:43`,
+`['ruta_directa', 'Ruta Directa (RD)', 40]`) y en `KEPLER_CONTABILIDAD_MODELO.md:114-116`, donde
+`R.D.` y `R.V.` (Ruta Vecinal) son los dos canales de ruta, clasificados por `kdm1.c6`.
+`docs/GLOSSARY.md` no los definía.
+
+---
+
+## 1. El workbook
+
+13 rutas, que son **exactamente** el universo Wincaja de `WINCAJA_MODELO_OPERATIVO.md` §1:
+
+| Sucursal madre | Rutas |
+|---|---|
+| `10` Padre Hidalgo (Kepler `01`) | 21, 22, 23, 26, 27, 28 |
+| `32` Morelia Madero | 321, 322 |
+| `50` Canindo (Kepler `06`) | 501, 502, 503, 504, 505 |
+
+11 hojas. `CONCENTRADO DE INFORMACIÓN` es la raíz (captura 100% manual: fecha × ruta × COSTO /
+SUBTOTAL / VENTA / %); de ahí cuelga todo el resto por `SUMIFS` e `INDEX/MATCH`. El libro carga
+**5,838 `#DIV/0!`**, 1 `#VALUE!` y 1 `#N/A`.
+
+| Hoja | Grano | Rol | Qué se captura a mano |
+|---|---|---|---|
+| `CONCENTRADO DE INFORMACIÓN` | fecha × ruta | raíz de todo el libro | **todo** |
+| `CONTROL DE GASTOS RD` | 1 fila / factura | gasto de flota (1,647 filas) | PERIODO, FECHA, RUTA, FACTURA/VALE, TIPO(1-6), PROVEEDOR, DESCRIPCION, **LITROS**, TOTAL, REMOTO |
+| `COMISIONES` | quincena × ruta | tabulador → comisión → **A PAGAR** | fecha + periodo |
+| `FORMATO DE PAGO` | recibo | comprobante del chofer | 2 celdas (ruta, periodo) |
+| `OPERACION DE LAS RUTAS` | periodo × ruta | costo/km, $/litro, km/l, % rentabilidad | **KM INICIAL / KM FINAL** |
+| `RESUMEN DE OPERACION DE RUTAS` | periodo × ruta | tablero de rentabilidad | periodo + ruta |
+| `FORMATO DE SUPERVISOR` | recibo | bono del supervisor | 2 celdas |
+| `COSTO RD PH` / `COSTO RD CANINDO` | ruta (5 bloques, stride 38/37) | ficha de costo fijo anual → **$/km** | importes anuales |
+| `HOJA DE LLENADO OBJETIVO MENSUA` / `OBJETIVO MENSUAL RD` | periodo × ruta | objetivos y bono por cumplimiento | semanal |
+
+---
+
+## 2. Verdad del dato — lo medido
+
+Reconciliación celda por celda del `CONCENTRADO` contra prod: **2,446 celdas ruta×día**, 13 rutas,
+2026-01-02 → 2026-09-01. Scripts en el scratchpad de la sesión; los números están en los commits
+`RD.1` y `RD.2`.
+
+| | tramo Wincaja (ene→jun/ago) · 1,974 celdas | tramo push (jul→hoy) · 312 celdas |
+|---|---|---|
+| **SUBTOTAL** | ✅ **98.0% exacto** · Δ −0.230% | ⚠️ 73.4% dentro de ±1% · Δ +0.251% (derivado) |
+| **VENTA** | ✅ **97.2% exacto** · Δ −0.233% | ✅ **94.9% exacto** · Δ +0.009% |
+| **COSTO** | ❌ 14.1% exacto · Δ +1.213% | ❌ no existe en la fuente |
+
+**La comisión reproduce el pago al centavo**, y no depende del costo: se calcula sobre SUBTEOTAL.
+Verificado en `COMISIONES` quincena 1 ruta PH 21 — SUBTOTAL Excel `228,380.02` vs plataforma
+`228,380.03`; `× 5% × 80% = 9,135.20` (`L5`), `× 20% = 2,283.80` (`K5`),
+`A PAGAR = 9,135.20 − 3,484.96 = 5,650.24` (`N5`).
+
+### 2.1 ✅ RD.1 — la fecha estaba corrida un día · `20260907280000`
+
+`wincaja.maestro_mov_almacen.fecha` es `timestamptz` con la fecha *naive* del `.mdb` (Access guarda
+la fecha sin hora; la hora vive aparte en `m.hora`, texto serial). RS.12b
+(`20260805240000_wincaja_maestro_fecha_date_idx.js`, una migración de **performance**) introdujo
+`fecha_mx_date(ts) = (ts AT TIME ZONE 'America/Mexico_City')::date` para poder indexar por expresión,
+y declaró en su propio comentario:
+
+> *"El contenedor ya corre en TZ MX, así que `fecha::date` (sesión) == `fecha_mx_date(fecha)` fila por
+> fila ⇒ business_date NO cambia."*
+
+Falso: el `TimeZone` del Postgres de prod es `Etc/UTC` y la vista se evalúa en la DB, no en el
+contenedor de la app. **Medido: 100% de las filas — 21 sucursales, 542,684 documentos de 2026.**
+En la frontera de mes, **$793,080** de venta de ruta caían en el mes equivocado (abr $201,525 · may
+$202,652 · jun $227,032 · jul $83,173 · ago $79,698).
+
+Tres árbitros independientes, los tres a favor de la fecha cruda:
+1. El workbook (tecleado del reporte Wincaja): SUBTOTAL casa **98.0%** contra la fecha cruda y
+   **0.0%** contra `fecha_mx_date`.
+2. Día de la semana (rutas, ene–jun 2026): con `fecha_mx_date` las rutas **trabajaban domingo**
+   (60,439 líneas) y **descansaban sábado** (105). Un reparto no descansa en sábado.
+3. La mecánica de Access descrita arriba.
+
+Arreglo: función nueva `wincaja.fecha_dia(ts) = (ts AT TIME ZONE 'UTC')::date`. **No** se reescribió
+`fecha_mx_date` en su lugar — `CREATE OR REPLACE` de una función usada en un índice por expresión
+deja el índice calculado con la definición vieja, y Postgres lo permite en silencio. Índices nuevos
+`CONCURRENTLY` **antes** de repuntar la vista, viejos dropeados después: sin ventana sin índice, o
+volvía el Seq Scan de 1.44 M filas que RS.12b existía para matar. `fecha_mx_date` queda con un
+`COMMENT` que dice que corre el día; no se dropea.
+
+Candado: `database/tests/test-newdb-wincaja-business-date.js`, en `run-all-tests.js`. Prueba negativa
+corrida: **prod (sin arreglo) 3 fallas sustantivas · `.245` (con arreglo) 6 OK / 0 fallas / 2 NO
+MEDIDOS**. Dos cosas salieron de correr el propio candado:
+- La premisa **no** es "medianoche UTC": el offset de ingesta difiere por destino (prod medianoche
+  UTC, `.245` medianoche MX). El arreglo funciona en los dos, pero la afirmación fuerte era falsa.
+  Lo que se afirma ahora es lo que el arreglo necesita: campo date-only con offset fijo que no cruce
+  el día UTC.
+- Comparar `business_date` contra `(fecha AT TIME ZONE 'UTC')::date` es **circular** después del
+  arreglo — es la misma expresión y no podría fallar nunca. Se reemplazó por la propiedad de fondo:
+  que la expresión **no dependa del huso de la sesión**, que es de donde salió el defecto.
+- El bloque de la matvista no puede comparar **montos** contra la vista: `mv_wincaja_sales_daily`
+  lleva `JOIN products`/`JOIN warehouses` internos y es un universo más chico **por construcción**,
+  así que daba rojo siempre sin medir nada. Usa el mismo árbitro de negocio.
+
+⚠️ **Al aplicar a prod**: `REFRESH MATERIALIZED VIEW CONCURRENTLY` de `mv_wincaja_sales_daily` y
+`mv_sellout_monthly`, re-correr `import-wincaja-routes-monthly.js` e
+`import-canindo-routes-monthly.js`, y **re-medir `test-newdb-sellout-parity.js`**: VP.1 comparaba las
+piernas Kepler y Wincaja en los cutovers de PH (`2026-06-26/29`) y Canindo (`2026-08-15`) con un día
+de desfase artificial → medía un hueco/traslape que no existe, o tapaba uno que sí.
+
+### 2.2 ✅ RD.2 — `importe` mezclaba neto y bruto · `20260907290000`
+
+`analytics.v_route_sales_lines.importe` trae **cosas distintas según el tramo**:
+- tramos Wincaja → `detalles_mov_almacen.valor_venta`, venta **SIN** impuestos;
+- tramo push (`analytics.route_push_lines`: camionetas de PH desde 2026-06-29 + vecinales Kepler) →
+  `mart.ventas.importe`, venta **CON** impuestos.
+
+Probado: 312 celdas del tramo push, razón **1.0001** contra la columna VENTA del Excel. Cualquier
+suma que cruce el cutover suma peras con manzanas, ~+9.9%.
+
+**Ya afecta dinero**: `libs/commercial/.../route-promo.service.ts` usa `importe` para el umbral
+`min_importe` del motor de incentivos **y** para resolver la unidad por precio (`importe/qty` contra
+el precio de catálogo); `libs/logistics/.../route-adherence.service.ts:400` lo suma directo.
+
+Por eso **`importe` no se tocó**: moverla cambiaría pagos y pantallas sin medirlo, que es
+exactamente el pecado de RS.12b. En su lugar, `analytics.v_rd_route_daily` (vista, derive-no-copy)
+deriva las dos formas y **rotula cuál es cuál**: `subtotal` + `subtotal_origen`, `venta` +
+`venta_origen`, `costo` + `costo_status`.
+
+**Las tasas.** En el tramo Wincaja el bruto se arma con la tasa de la **línea** (`d.iva`, `d.ieps`),
+que son **PORCENTAJES** (16, 8, 0) y no montos — sumarlas no significa nada (los `896.00` que
+aparecen al sumarlas son `16 × 56 líneas`). En el tramo push no hay tasa por línea y el neto se
+**deriva**; se probaron las dos fuentes contra el Excel como árbitro (312 celdas):
+
+| fuente de la tasa | escala | Δ vs Excel |
+|---|---|---|
+| `wincaja.articulos.iva_venta` / `ieps_venta` | porcentaje (16) | **+0.251%** ← se usa ésta |
+| `catalog.products.iva_rate` / `ieps_rate` | fracción (0.16) | −2.011% |
+
+⚠️ La escala difiere entre las dos fuentes. La primera pasada de esta medición dio −9.35% justamente
+por no probar la unidad de los dos lados antes de dividir.
+
+### 2.3 ⚠️ DECLARADO — el costo histórico de Wincaja no es estable (→ RD.3)
+
+`COSTO` casa sólo **14.1%**. **No es un problema de fórmula**: en la **ruta 27 las tres columnas casan
+al centavo** (141/150), así que el Excel copia las mismas tres expresiones que calculamos. La
+diferencia está en el **valor** de `valor_costo`, y la causa está medida: el importer **reescribe
+todas las líneas en cada corrida** — las 357k líneas de ruta, enero incluido, tienen `imported_at`
+de hoy, un solo día distinto. Wincaja re-expresa el costo de ventas pasadas cuando se mueve su costo
+promedio, y la réplica carga la re-expresión de hoy, no la que la persona vio en enero.
+
+Descartado en el camino (todo medido contra la ruta 21, 2026-01-02, Excel `18,827.57`):
+`valor_costo` `19,374.43` · `qty × costo_promedio` y `qty × ultimo_costo` `20,435.99` ·
+`qty × costo_existencia` `57,201.75` · `costo/(1+ieps)` `18,391.54` · `costo/(1+iva)` `18,765.29` ·
+`costo/(1+ambos)` `17,782.40` · el costo de otro día (0 de 150 con ±2 días) · un factor constante
+(la razón varía 0.945–1.001 según el mix) · un segundo `source_dataset` (sólo existe `actual`).
+
+**Consecuencia: hoy no existe un costo histórico reproducible de la venta en ruta. El margen de un
+mes cerrado cambia solo, cada noche, sin que nadie toque nada.** El markup del Excel es
+sospechosamente uniforme (18.1–19.3% en las 13 rutas) mientras el transaccional varía 14.9–19.2% —
+las dos rutas donde coinciden (27 y 322) son justo las que casan.
+
+**RD.3** es guardar el costo del día cuando se lee: el caso de *histórico/snapshot* que la regla #1
+admite como tabla real. Hasta entonces `costo_status` lo rotula
+(`erp_reexpresado_cada_corrida` / `sin_dato_en_la_fuente`) y **no se publica margen como si fuera
+estable**.
+
+### 2.4 ⚠️ DECLARADO — $2.78M del Excel sin ninguna fuente diaria
+
+**160 celdas** del `CONCENTRADO` ($2,782,696 de subtotal) no tienen fuente a nivel día en la
+plataforma. Dos causas, ninguna resuelta:
+
+**(a) Canindo 501-505 desde el cutover del 2026-08-15 — 81 celdas, ~$1.77M.**
+`import-canindo-routes-monthly.js` lleva esa pierna a `sales_by_route_monthly` leyendo la **réplica**
+`kepler_md_06`, pero sólo al grano **mensual**: no hay línea diaria. Y derivarla del ODS no alcanza
+hoy. Medido en `kepler_ods` (`sucursal='06'`, `c2='U' c3='D' c4=10`, join por la llave **completa**
+`c1..c6` + `sucursal`, excluyendo `c8 IN ('00001','00002')`):
+
+| ruta | días en el Excel | días en el ODS | Excel | ODS | cobertura |
+|---|---|---|---|---|---|
+| 501 | 27 | 3 | $468,954 | $105,457 | 22.5% |
+| 502 | 25 | 12 | $489,637 | $256,922 | 52.5% |
+| 503 | 27 | 2 | $612,460 | $46,294 | 7.6% |
+| 504 | 27 | **0** | $462,694 | $0 | **0%** |
+| 505 | 27 | **0** | $386,648 | $0 | **0%** |
+| | | | **$2,420,393** | **$408,673** | **16.9%** |
+
+El decode vigente (`c67 ~ '^500[1-9]$'`, *"confirmado con Edgar 2026-08-18"*) ya no explica el dato:
+504 y 505 no aparecen en absoluto. La venta total de la sucursal 06 en agosto (`U/D/10`, todos los
+`c67`) es **$2,780,204** en 4,397 docs, de los cuales `50C01`+`50C02` —que el decode llama *caja de
+piso*— concentran **4,093 docs**, y `5050` —que el decode excluye como *mayoreo/transfer, a
+reconciliar*— tiene 1,174 docs con `c12='30001'` en 976 de ellos. Es decir: el dinero está en la
+sucursal, pero **bajo un `c67` que el decode no reconoce como ruta**.
+
+⚠️ Se para acá y se declara, como manda la regla de fuentes: *si la fuente no alcanza para decidir,
+declararlo — no improvisar*. **Necesita a Edgar**: ¿el encoding `c67` cambió después del 18-ago, o
+las rutas de Canindo facturan por caja (`50C0N`)?
+
+**(b) Ruta 321 en jun/jul — 34 celdas, $573,693.** Se congeló en Wincaja el 2026-06-02 y el Excel
+siguió capturando hasta julio.
+
+⚠️ Sin (a) resuelto, cualquier cifra de agosto en adelante para Canindo sale incompleta. Lo que no se
+puede medir se **declara**, no se dibuja como cero.
+
+---
+
+## 3. Reglas de negocio extraídas del libro (lo que el motor tiene que replicar)
+
+### 3.1 Tabulador de comisión — **idéntico en las 13 rutas**
+
+| Total Venta del periodo | % |
+|---|---|
+| < 189,999.99 | `N/A` (no se paga) |
+| 189,999.99 – 194,999.98 | **3.750%** |
+| 194,999.99 – 199,999.98 | **4.250%** |
+| 199,999.99 – 215,999.98 | **4.562%** |
+| 215,999.99 – 399,999.99 | **5.000%** |
+| ≥ 400,000 | *(el Excel no tiene rama → devuelve `FALSE` → comisión 0)* |
+
+Base = **SUBTOTAL**. Reparto **supervisor 20% · chofer 80%**. `A PAGAR = comisión − NOMINA BANCO`.
+Compuerta por **TOTAL VENTA**. Periodo = quincena de 14 días (`B96 = B95+14`, arranca `2026-01-14`,
+27 periodos).
+
+### 3.2 Bonos del chofer (por TOTAL VENTA del periodo)
+Lavadas **$200** si ≥ 215,999.99 · Lonche **$800** si ≥ 239,999.99 · Chalán **$1,000** si ≥ 259,999.99.
+
+### 3.3 Bono del supervisor — por **margen** alcanzado
+`21–28: > 25% → $500` · `501: > 16.499% → $600` · `502: > 15.299%` · `503: > 14.499%` ·
+`504/505: > 16.499%`. Compuerta adicional `TOTAL VENTA > 189,999`. Factor supervisor **20%**.
+
+⚠️ Este bono depende del **margen**, y el margen depende del costo de §2.3. Con el costo del Excel el
+margen lee 17–19% y las 5 rutas de Canindo pasan (`B32 = SUM(G19:G23) = 2,400`); con el
+transaccional (~14%) ninguna pasaría. `[por medir: el gap se verificó en la ruta 21 (PH); falta
+medirlo en 501-505]`. El bono de PH (`>25%`) es **inalcanzable** con márgenes de 17–19%.
+
+### 3.4 Costo fijo anual por ruta → el insumo del $/km
+
+| | 21 | 22 | 23 | 26 | 27 | 501 | 502 | 503 | 504 | 505 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| TOTAL GF | 133,271 | 126,938 | 134,762 | 133,271 | 133,271 | 206,047 | 206,047 | 204,746 | 148,444 | 148,444 |
+| TOTAL GV | 26,000 | 26,000 | 26,000 | 26,000 | 26,000 | 26,000 | 26,000 | 26,000 | 26,000 | 26,000 |
+| TOTAL GA | 4,500 | 4,500 | 4,500 | 4,500 | 4,500 | 41,755 | 41,755 | 41,755 | 41,755 | 41,755 |
+| **TOTAL** | **163,771** | 157,438 | 165,262 | 163,771 | 163,771 | **273,802** | 273,802 | 272,501 | 216,199 | 216,199 |
+| KM base | 24,000 | 21,000 | 27,000 | 21,500 | 21,500 | 30,000 | 30,000 | 30,000 | 30,000 | 30,000 |
+| **$/km** | **6.82** | 7.50 | 6.12 | 7.62 | 7.62 | **9.13** | 9.13 | 9.08 | 7.21 | 7.21 |
+
+Prorrateos: `/52` semana · `×2` quincena · `/12` mes · `/2` semestre · `/KM base` → $/km.
+Conceptos GF: placas+refrendo+verificación (2,267 en todas) · arrendamiento · pensión · GPS Telcel ·
+GPS Salvador (3,500) · seguro de mercancía · seguro del vehículo · **salarios** (80,080 PH /
+112,580 Canindo). **Faltan fichas de 28, 321 y 322.**
+
+### 3.5 Catálogo de tipo de gasto (`CONTROL DE GASTOS RD`)
+`1` PLACAS/ARRENDAMIENTOS/VERIFICACION · `2` ARRENDAMIENTOS/OTROS · `3` NEUMATICOS/LUBRICANTES/
+BATERIAS · `4` COMBUSTIBLES · `5` SEGUROS/GPS · `6` REPARACIONES Y SERVICIOS.
+
+---
+
+## 4. Errores del Excel que **no** se migran
+
+Patrón CB: **rediseñar, no migrar**. Los que mueven dinero:
+
+| # | Hoja | Defecto | Efecto |
+|---|---|---|---|
+| 4.1 | `FORMATO DE SUPERVISOR` | `T25:T29` leen la col **G (Bono)** en vez de **E (Comisión)**, y `Q37=(Q34−Q35)+Q36` vuelve a sumar el bono | **doble conteo: paga 4,800 cuando el bono es 2,400** |
+| 4.2 | `COMISIONES` | Ruta **322**: `T154/T155` vacías → factor supervisor vacío | el chofer cobra **100%**, el supervisor **0** |
+| 4.3 | `COMISIONES` | Bloque **MORELIA corrido +1 fila** (`E153` suma la fila de rótulos) | 321/322 con el periodo equivocado |
+| 4.4 | `COMISIONES` | Umbral de `A PAGAR`: `>189,999.99` en 11 rutas, **`>169,999.99` en 22 y 23** | 22 y 23 cobran en un tramo donde el resto no |
+| 4.5 | `COMISIONES` | Factor del supervisor anclado a **fila fija** (`I97`,`I98`,`I126`,`I154/155`), no a la del periodo | hoy inocuo (todos 0.20); rompe en silencio al cambiar |
+| 4.6 | `COMISIONES` | Tabulador **sin rama `else`** ≥ 400,000 | comisión 0 en la venta más alta. Latente (máx. observado ~$260k) |
+| 4.7 | varias | `NOMINA BANCO` con **6 valores** para el mismo concepto: `3,484.96` · `5,000` · `4,413.08` · `4,260` · `4,260.80` · `3,632`/`3,200.58` | el neto depende de qué hoja se imprima |
+| 4.8 | `FORMATO DE SUPERVISOR` | `B31 = SUM(G13:G17)` **excluye la ruta 28** | bono del supervisor PH subvaluado |
+| 4.9 | `OBJETIVO MENSUAL RD` | VECINAL 1 y 2 **hardcodeadas** (`AL5="CUMPLIDO"` literal, `AK5=40`) → `% Bono = 0.5` fijo | **$500/ruta pagados sobre dato inventado** |
+| 4.10 | `HOJA DE LLENADO` | La ruta **23** lee `BW142`/`BW11`, mitad derecha de un par fusionado, **siempre vacía** | la ruta 23 nunca puede cumplir |
+
+Y los que rompen el tablero: `OPERACION!K5` (COSTO FIJO X KM) hace `SUMIF(E5,"21",$B$8)` leyendo la
+**columna PERIODO de su propia hoja** → **$/km = 1** en vez de 6.82–9.13 · las fichas
+`COSTO RD PH/CANINDO` **no alimentan nada** (su col `O` de $/km no se referencia desde ninguna
+parte) · `RESUMEN` tiene la matriz `% DE UTILIDAD` con el mapeo ruta→columna **barajado desde la
+fila 132** (503 y 504 apuntan a la misma columna: periodo 2 devuelve `0.1850188151` para ambas) →
+utilidad bruta mal en **6 rutas × 25 de 26 periodos** · el bloque `W:AA` de `RESUMEN` está
+**desplazado 2 columnas** → `COSTO DE LA OPERACION = 0` en toda la hoja (periodo 1:
+`W293 = Y293 = 315,629.69`, `X293 = 0`) · SUMIFS que cubren `$3:$235` cuando la tabla llega a 287 →
+periodos 22-26 truncados · `J157 = SUMIFS(#REF!,…)`.
+
+**Tres maestros de choferes y ninguno concuerda** (ruta 27: `Mariano Martinez Patlan` en `FORMATO DE
+PAGO` vs `ANGEL ALBERTO VAZQUEZ MEJIA` —el supervisor— en `COSTO RD PH`); RFC/CURP/NSS de la **322
+idénticos a la 321**; **VINs duplicados** (PH 26=PH 27, CAN 504=505, CAN 503=**PH 22**). Las hojas
+10-11 son de **2021**, con calendario de 28 días y supervisores que ya no existen → no se migran.
+
+---
+
+## 5. Lo que ya existe (reusar, no rehacer)
+
+| Pieza | Objeto / archivo | Filas en prod |
+|---|---|---|
+| Venta por ruta a nivel línea | `analytics.v_route_sales_lines` (`20260831120000`) | ✅ |
+| Venta por ruta mensual | `analytics.sales_by_route_monthly` | 23 rutas, ene→sep 2026 |
+| **Feeds de ruta INTRADÍA (~1h)** | `run-prod-feeds.js:101-108` — `import-route-push-monthly`, `import-route-push-lines`, `import-kepler-vecinal-routes` | ✅ fresco a ~1h |
+| **Dead-man de frescura propio** | `db-health.service.ts:444-456` — key `route_sales`, warn 3h / crit 8h, filtra `WIN-%` | ✅ |
+| Reporte y endpoints RR | `salesByRoute()`, `salesByRouteDetail()`, `routeClosureReconciliation()` en `commercial-analytics.service.ts` | ✅ |
+| Tool de LLM | `thot_sales_by_route` en `thot-tools.service.ts:500-536` | ✅ |
+| Pantalla | `comercial-ventas-por-ruta.component.ts` + tab en `reports-tabs.ts` | ✅ |
+| **Cockpit ruta×día con km/L y $/km** | `fleet-productivity.service.ts::cockpitForDay(date, fleet='route')` | ✅ (LTV.19) |
+| Km por vehículo×día (GPS) | `logistics.vehicle_day_summary` | 1,281 · **sólo desde 2026-07-27** |
+| Catálogo de las 13 rutas | `wincaja.branches (is_route)` + `commercial.warehouses (kind='truck')` | ✅ |
+| Choferes | `logistics.drivers` + `/logistica/staff` | 56 |
+| Parámetros financieros | `logistics.config_finance` + CRUD en `logistics-config.service.ts:122-190` | 26 |
+| Odómetro check-in/out | `logistics.vehicle_usage_logs` | **0** 🔴 |
+| Combustible por vehículo | `logistics.fuel_transactions` | **0** 🔴 |
+| Captura por ruta con OCR | `commercial.route_tickets` | **5** 🔴 |
+| Metas de venta (BI.9) | `commercial.sales_targets`, `scope ∈ {total,branch,channel}` | **no está en prod** |
+
+**El dato del workbook no está duplicado en ningún lado: las tablas diseñadas para alojarlo están
+vacías.** Carga limpia, sin conflicto de migración. El GPS sólo da km **desde 2026-07-27**; el Excel
+trae odómetro desde enero → se complementan.
+
+**Esto cierra LTV.2.** `FASE_LTV_VALOR_FLOTA.md:137-173` diseñó *"Costo real y ROI por
+entrega/ruta/cliente"* —`$/entrega`, costo-por-km, margen por ruta— y su bloqueo declarado
+(`:171-173`) es *"hoy `fuel_transactions` puede estar vacía"*. **Está vacía (0 filas, medido).** El
+workbook es ese dato faltante.
+
+**No existe** (verificado con grep): nivel `'route'` en el Motor de Rentabilidad · `scope='route'` en
+`sales_targets` · tabulador de comisiones **de venta** · gastos con categorías neumáticos/seguros/
+tenencia/verificación · `analytics.delivery_cost_daily`.
+
+---
+
+## 6. Plan
+
+| Sprint | Qué | Estado |
+|---|---|---|
+| **RD.1** | Arreglar la fecha de negocio de Wincaja + candado | ✅ `20260907280000` (local; prod pendiente) |
+| **RD.2** | `analytics.v_rd_route_daily` — venta por ruta×día con procedencia | ✅ `20260907290000` (local; prod pendiente) |
+| **RD.0** | Este documento + `GLOSSARY` + ADR + tracker | 🔨 |
+| **RD.3** | Snapshot del costo del día (cierra §2.3) — tabla real, caso *histórico* de la regla #1 | ⬜ |
+| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **bloqueado en decode con Edgar** | ⚠️ BLOCKED |
+| **RD.4** | Gasto de flota: `logistics.route_expenses` + catálogo de 6 tipos + importer del workbook + captura web + permisos repartidos | ⬜ |
+| **RD.5** | Odómetro → `vehicle_usage_logs`, costo fijo → `config_finance`, `analytics.v_route_cost_daily` (vista) → cierra LTV.2 | ⬜ |
+| **RD.6** | Motor de comisiones: escalas versionadas en DB + corrida persistida (borrador→aprobado→pagado) + recibo | ⬜ |
+| **RD.7** | Objetivo por ruta: `'route'` al CHECK de `commercial.sales_targets` | ⬜ |
+| **RD.8** | Pestañas en `/comercial/ventas-por-ruta` (Gasto · Comisiones · Costo/km · Objetivo) | ⬜ |
+
+**Orden**: la capa de datos primero (RD.1 ✅, RD.2 ✅, RD.3, RD.2b), después backend (RD.4–RD.7),
+el frontend al final (RD.8).
+
+### Verificación
+
+| Sprint | Cómo se comprueba |
+|---|---|
+| RD.1 | Revenue por mes×ruta antes/después; el delta es sólo el día. Prueba negativa del día de la semana. `test-newdb-sellout-parity.js` con traslape y hueco **medidos** |
+| RD.2 | La tabla de §2 — SUBTOTAL 98.0% / VENTA 97.2% exactos contra 1,974 celdas del workbook |
+| RD.4 | `Σ TOTAL` y `Σ LITROS` del importer == los `SUMIFS` del Excel por ruta y por tipo (`Z7 = 507,341.34` para COMBUSTIBLES es el ancla). Re-run idempotente = 0 filas nuevas |
+| RD.5 | `cost_per_km` vs los `$/km` de §3.4 (6.82–9.13). Cobertura de `km_source` **en pantalla** |
+| RD.6 | `A PAGAR` del motor vs el Excel, ruta por ruta y periodo por periodo; cada diferencia apuntando a un ítem de §4 |
+
+**Un gate sin prueba negativa es una intención**: cada compuerta (umbral de comisión, RLS, permiso)
+se rompe a propósito una vez y se verifica el rojo.
+
+---
+
+## 7. Preguntas abiertas
+
+1. **§2.4a — Canindo.** ¿El encoding `c67` cambió después del 2026-08-18, o las rutas de Canindo
+   facturan por caja (`50C0N`)? Sin esto, agosto en adelante sale incompleto (~$1.77M).
+2. **§2.3 — costo.** ¿Se acepta que el costo histórico se congele con RD.3 desde hoy en adelante, y
+   que lo anterior a RD.3 quede declarado como no reproducible?
+3. **§4 — comisiones.** ¿Se corrigen los defectos al migrar, o se replica el comportamiento actual
+   para que el primer periodo cuadre al centavo? (en CB se decidió **rediseñar, no migrar** → es la
+   recomendación).
+4. **§3.4** — ¿fichas de costo fijo para 28, 321 y 322?
+5. ¿Se retiran las hojas 10-11, o se rehace el objetivo mensual con el calendario quincenal?
