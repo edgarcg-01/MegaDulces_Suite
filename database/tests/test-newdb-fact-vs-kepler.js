@@ -14,7 +14,8 @@
  *
  * Trampas de Kepler que este test ya trae resueltas (ver §2.2):
  *   · existencia = kdil.c4 + c8 − c9   (c9 son SALIDAS, no la existencia);
- *   · venta = doctype U-D-10 (naturaleza D); U-A-10 es "Entrada por Devolución";
+ *   · venta = doctypes U-D-8/10/12 (naturaleza D; K.3 — antes sólo U-D-10);
+ *     U-A-10 es "Entrada por Devolución";
  *   · el SKU de kdm2 es c8, no c3;
  *   · los folios se RECICLAN → se usa la fecha propia de la línea (c32), nunca sólo la del header.
  *
@@ -76,13 +77,26 @@ const check = (label, cond, detail = '') => {
   }
 
   // ── VENTAS ────────────────────────────────────────────────────────────────────────────────
-  console.log('\nVENTAS (kdm2 U-D-10 · SKU=c8 · fecha propia c32)');
+  // ⭐ K.3 (2026-09-08): el universo pasó de `c4='10'` a 8/10/12, porque el fact cambió.
+  // `mart.ventas` dejó de filtrar sólo el ticket, así que comparar nuestro lado (que ya trae
+  // los tres doctypes) contra un Kepler recortado a U-D-10 mide DOS POBLACIONES. El síntoma
+  // fue nítido y vale como registro: las MEDIANAS por SKU siguieron en 1.0000 exactas — o sea
+  // ningún SKU se distorsionó — y lo único que se movió fue el TOTAL, y sólo donde hay
+  // telemarketing. Medido en prod, 90 d, (U-D-8 + U-D-12) / U-D-10 por sucursal:
+  //     01  1.7970   ($10,134,707 de U-D-8)      04  1.0074
+  //     06  2.1292   ($4,445,475 de U-D-8)       05  1.0145
+  //     02  1.0021 · 03  1.0020                  (U-D-8 = 0 en 02/03/04/05)
+  // Es decir: U-D-8 sólo existe en PH (01) y Canindo (06). El total de la 01 saltó a 1.86 y el
+  // candado se puso rojo — hizo exactamente su trabajo.
+  // ⚠️ SUCS no incluye la 06, que es la de mayor salto relativo (2.13×). Queda anotado.
+  console.log('\nVENTAS (kdm2 U-D-8/10/12 · SKU=c8 · fecha propia c32)');
   for (const suc of SUCS) {
     const r = (await c.query(`
       WITH k AS (
         SELECT btrim(c8::text) sku, sum(c9::numeric) u, sum(c13::numeric) i
           FROM kepler_ods.kdm2
-         WHERE sucursal=$2 AND c1::text=$2 AND c2::text='U' AND c3::text='D' AND c4::text='10'
+         WHERE sucursal=$2 AND c1::text=$2 AND c2::text='U' AND c3::text='D'
+           AND btrim(c4::text) IN ('8','10','12')
            AND c32::date >= current_date - 30 AND c9::numeric > 0
          GROUP BY 1),
       n AS (

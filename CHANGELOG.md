@@ -10,6 +10,31 @@
 
 ## [Unreleased]
 
+### Changed — ⭐ la venta publicada sube $15.8M / 90 d: el fact contaba sólo el ticket (K.3, 2026-09-08)
+
+**Esta entrada cambia la cifra que ve dirección.** `mart.ventas` — la fuente de `analytics.sales_daily`, y por lo tanto del Command Center, el ABC, la demanda y el margen — filtraba `h.c4=10`: **sólo el ticket de mostrador**. Dos doctypes de VENTA que Kepler sí entrega quedaban afuera. Medido contra prod (90 d, `kepler_ods.kdm2`, anti-réplica `btrim(c1)=sucursal`):
+
+| doctype | renglones | importe |
+|---|---|---|
+| `U-D-10` Ticket Contado | 672,071 | $44,880,536 ← lo único que entraba |
+| **`U-D-8` Factura Telemarketing** (= mayoreo) | 15,266 | **$14,580,181** |
+| **`U-D-12` Factura Cont No Fiscal** | 6,305 | **$1,491,784** |
+
+Ahora el corte es `IN (8,10,12)` — **el mismo que `analytics.mv_kepler_sales_daily`**, con lo que el fact y el sell-out dejan de contradecirse. `U-D-6` (Factura global) queda fuera a propósito: re-factura los tickets de `U-D-10` en 93.1% de los pares (SKU, día), sumarla duplicaría. `U-D-13` (traspaso CEDIS) tampoco entra.
+
+**Antes → después** (`sales_daily`, canales Kepler, 90 d, prod): **$51,789,599 → $67,617,584** · +$15,827,985 · **+30.6%** · units 2,094,670 → 2,626,423.
+
+**Y la mitad que no era el total: el CANAL.** `mart.ventas` no llevaba el tipo de documento y `mart.ventas_enriched` derivaba el canal sólo de `forma_pago`. Medido: el **100%** de `U-D-8` caía en `credito`, porque la rama `TI%`→mayoreo **nunca se dispara** con esta data. Arreglar el total así habría inflado el crédito publicado de $6.5M a $20.8M (**3.2×**) — un número correcto pagado con otro falso. La tabla gana `doctype smallint` (aditiva, **al final** y **nullable**: hay un escritor fuera del repo, el push de camionetas `ruta_NN` de .249, y un INSERT posicional corto sigue siendo válido en Postgres → esas filas llegan con NULL y el CASE cae en la rama de siempre, cero cambio). Con eso `U-D-8` va a `mayoreo`, como en el matview.
+
+- **Verificado contra prod, no contra local.** ⚠️ El `.env` del repo apunta a `platform_test`; prod es Railway (`FLEET_DB_URL`).
+  - `test-newdb-kepler-parity` **8/8**: cobertura del dinero **98.20%** · universo completo cantidad 98.01% / importe 99.74% · mostrador 99.75% · **`mayoreo` nuestro $14,462,264 vs `U-D-8` de Kepler $14,580,181 = 99.19%**.
+  - `test-newdb-fact-vs-kepler` **21/21**: la 01 (PH) pasó de **1.8621 → 1.0006**.
+  - **Prueba negativa:** con la regla vieja de canal, `mayoreo` da **$0** y el crédito se infla $14,359,503.
+  - Sin regresión: `sellout-parity` · `unit-truth` 40/40 · `warehouse-box-factor` 29/29.
+- **El candado tuvo que cambiar de universo, no de piso.** Seguir comparando nuestro lado (que ya trae 8/10/12) contra un Kepler recortado a `'10'` mide **dos poblaciones**: el síntoma habría sido miles de celdas "que publicamos y Kepler no tiene", que Kepler sí tiene en otro doctype. Se agregó la sonda del mostrador con **las dos partes al mismo recorte**, y la afirmación que exigía que la brecha *existiera* (P.2 pendiente) se dio vuelta.
+- ⚠️ **Knock-on de esta noche, no de este commit:** `import-demand-clean.js` (nightly) deriva `analytics.product_demand` de `sales_daily` → la demanda de los SKUs de telemarketing sube y con ella el **sugerido de compra** en `/compras`. Es consecuencia esperada de contar la venta completa; queda avisado antes de que las sugerencias se muevan solas.
+- Lección nueva en [`docs/GOTCHAS.md` §38](docs/GOTCHAS.md): correr un importer **a mano** mientras existe su tarea programada = te lo matan a los 13 min (`kill-stale-feeds.ps1`), y el síntoma es un `FATAL 57P01` de Postgres que parece de Railway. El backfill se hizo en **escalera** (30 → 90 → 180 → 260 d) para que ninguna corrida cruce ese techo.
+
 ### Changed — el verificador de precios se absorbe a `apps/api`; se elimina el app standalone (CV, 2026-09-08)
 - `apps/catalogo-kp` era un **segundo backend NestJS** (con su propio `main.ts`, bootstrap, puerto, CORS `*` y `Pool` de conexión) que reimplementaba lo que `apps/api` ya provee. Se convierte en **`KpModule` dentro de `apps/api`** (`src/modules/kp/`): mismas queries (`KpService`/`SucursalesService`, portadas verbatim — git las tomó como *rename*), rutas públicas vía `@Public()`, conexión inyectando `KNEX_NEW_DB`. Hereda Helmet + Throttler + CORS → cierra de un tirón los hallazgos de rate-limit / CORS abierto / rol de conexión amplio. Endpoints iguales: `GET /api/kp/precio`, `/api/kp/precios-todos`, `/api/sucursales`.
 - **Removed:** el app `apps/catalogo-kp` completo (incluido su `salud` propio — `apps/api` ya tiene `db-health`) y el `.ps1` regenerador del verificador offline. La plantilla del kiosco se preserva en `tools/verificador-precios/`.
