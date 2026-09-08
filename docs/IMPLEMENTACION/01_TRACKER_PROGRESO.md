@@ -1853,7 +1853,18 @@ más) — PR aparte para no volver ilegible el diff.
   `apps/vendor` para el WebView nativo, sin nginx de por medio). **Modelo elegido: centralizado, con
   opción local por sucursal** — `$destinos` (sucursal → ruta de red) copia el archivo al PC de mostrador
   cuando está configurado; sin entrada ahí, esa sucursal corre el script localmente. Queda vacío por
-  ahora (no se inventaron rutas reales). **Pendiente:** llenar `$destinos`, portar `/api/salud`.
+  ahora (no se inventaron rutas reales). **`/api/salud` recuperado** de git history (se perdió al
+  absorber `catalogo-kp` pese a que `apps/api` "ya tiene `db-health`" — son cosas distintas: `db-health`
+  es un reporte de frescura gateado por permiso para un humano; `/api/health` es el healthcheck de
+  DEPLOY de Railway, sin tocar la base a propósito. Ninguno sirve de vigilante público sin sesión que
+  distinga "credenciales rechazadas" de "base sin responder" — la distinción que evitó 47 reinicios
+  inútiles en 9h cuando faltaba). Portado a `apps/api/src/modules/salud/`, wireado en `app.module.ts`
+  fuera del toggle multitenant (igual que `KpModule`). Build verde aislando un error preexistente y ajeno
+  en `main` (`CommercialCommissionsModule` no exportado de `@megadulces/commercial` — confirmado con y
+  sin mis cambios, mismo error, no lo causa ni lo agrava). Boot completo no verificable en esta sesión
+  (la app requiere Postgres/Redis/Neo4j reales, sin `.env` local disponible). **Pendiente:** llenar
+  `$destinos` sucursal por sucursal; el error preexistente de `main` bloqueará CI de cualquier PR hasta
+  que alguien más lo resuelva (ajeno a esta fase).
 
 ---
 

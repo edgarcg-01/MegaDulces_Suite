@@ -146,6 +146,7 @@ import { CustomerProvisioningBindingModule } from './composition/customer-provis
 import { KeplerConsolidadoModule } from './modules/kepler-consolidado/kepler-consolidado.module';
 import { StoreModule } from './modules/store/store.module';
 import { KpModule } from './modules/kp/kp.module';
+import { SaludModule } from './modules/salud/salud.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -401,6 +402,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // Verificador de precios de mostrador (KP) — rutas públicas read-only sobre
     // kepler_ods. Absorbido del app standalone apps/catalogo-kp (que se eliminó).
     KpModule,
+    // /api/salud — vigilante público (sin sesión) de si DATABASE_URL_NEW responde.
+    // Se perdió al absorber apps/catalogo-kp y se recuperó de git history.
+    SaludModule,
     // NO hay bus de eventos in-process (se retiró EventEmitterModule: 0 emisores /
     // 0 @OnEvent en ~2 años). La comunicación cross-dominio va por PUERTOS tipados
     // (libs/contracts/src/ports/*: FinanceNotifierPort, ReconNotifierPort…) —
