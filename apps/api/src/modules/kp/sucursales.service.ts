@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
-import { pgRaw } from '../platform-db/pg-raw.util';
+import { KNEX_NEW_DB } from '@megadulces/platform-core';
+import { pgRaw } from './pg-raw.util';
 
 export interface Sucursal {
   codigo:    string;
@@ -12,16 +12,9 @@ export interface Sucursal {
   datos_al:  string | null;
 }
 
-/**
- * Extraído de `CatalogoService.getSucursales()` (retirado junto con el
- * catálogo interno al recortar este app al verificador de precios) — es lo
- * único que ese servicio aportaba que sigue haciendo falta:
- * `herramientas/Actualizar_Verificador.ps1` la consulta para saber para qué
- * sucursales generar `verificador-NN.html`, sin código quemado.
- */
 @Injectable()
 export class SucursalesService {
-  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_NEW_DB) private readonly db: Knex) {}
 
   private static iso(v: any): string | null {
     return v ? new Date(v).toISOString() : null;

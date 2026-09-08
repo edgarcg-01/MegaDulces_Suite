@@ -53,6 +53,7 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialProfitabilityModule } from '@megadulces/commercial';
+import { CommercialCommissionsModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
@@ -144,6 +145,7 @@ import { OrderFulfillmentBindingModule } from './composition/order-fulfillment.b
 import { CustomerProvisioningBindingModule } from './composition/customer-provisioning.binding.module';
 import { KeplerConsolidadoModule } from './modules/kepler-consolidado/kepler-consolidado.module';
 import { StoreModule } from './modules/store/store.module';
+import { KpModule } from './modules/kp/kp.module';
 
 // Toggle para incluir los módulos multi-tenant sin romper la app legacy.
 // Setear ENABLE_MULTITENANT=true en .env para activarlos.
@@ -158,6 +160,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialWarehousesModule,
       CommercialPricingModule,
       CommercialProfitabilityModule,
+      CommercialCommissionsModule,
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
@@ -389,6 +392,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     KeplerConsolidadoModule,
     // Proyecto Tienda (TDA) — monitor de tickets de venta en vivo (WS /store).
     StoreModule,
+    // Verificador de precios de mostrador (KP) — rutas públicas read-only sobre
+    // kepler_ods. Absorbido del app standalone apps/catalogo-kp (que se eliminó).
+    KpModule,
     // NO hay bus de eventos in-process (se retiró EventEmitterModule: 0 emisores /
     // 0 @OnEvent en ~2 años). La comunicación cross-dominio va por PUERTOS tipados
     // (libs/contracts/src/ports/*: FinanceNotifierPort, ReconNotifierPort…) —
