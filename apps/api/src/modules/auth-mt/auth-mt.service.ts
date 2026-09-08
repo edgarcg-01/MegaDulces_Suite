@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { KNEX_NEW_DB } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, tokenSignOptions } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 
@@ -220,6 +220,30 @@ export class AuthMtService {
       permissions[k] = allow;
     }
 
+    // ── `[CH.1.3]` La vida del token la decide la CUENTA ──────────────────────────
+    // Un kiosco (checador de asistencia, verificador de precios) es una pantalla que se
+    // prende una vez: con el TTL global de 12h alguien tiene que ir a teclear la
+    // contraseña cada mañana, y el día que nadie va, el kiosco muestra el login en vez
+    // de su trabajo. `identity.users.token_ttl_days` declara la excepción en la fila de
+    // esa cuenta — el default global (`JWT_EXPIRES_IN`) no se toca, porque subirlo le
+    // alargaría el token a todos, incluidos los admin.
+    //
+    // Que esto sea defendible depende de dos cosas que YA existen y no hay que aflojar:
+    //   · `[AUTHZ-HARD.2]` (jwt-auth.guard) relee `identity.users` en cada request
+    //     (cache 30s) → `activo = false` mata el token en ≤30s, sin esperar su `exp`.
+    //   · `PermissionsCacheService` relee los permisos de DB por request → un token
+    //     viejo NO conserva privilegios viejos del lado del servidor.
+    // Por eso va UNA cuenta por dispositivo: revocar es por cuenta, y apagar un kiosco
+    // comprometido no puede implicar apagar los otros ocho.
+    //
+    // Lo que NO cubre, dicho de frente: un token filtrado sirve hasta que alguien
+    // desactiva esa cuenta. No hay revocación por token ni rotación.
+    // El cómo vive en `libs/platform-core/.../token-ttl.ts`, no acá: el primitivo lo va
+    // a querer cualquier superficie de kiosco, y un helper copiado a mano en dos
+    // servicios se desincroniza (ADR-056). Ahí está también por qué devuelve `{}` y no
+    // `{ expiresIn: undefined }`, que emitiría un token sin expiración para todos.
+    const opcionesFirma = tokenSignOptions(user.token_ttl_days);
+
     // 5. Generar JWT con tenant_id + snapshot de permisos.
     const payload: JwtPayloadMt = {
       sub: user.id,
@@ -233,7 +257,7 @@ export class AuthMtService {
     };
 
     return {
-      access_token: await this.jwtService.signAsync(payload),
+      access_token: await this.jwtService.signAsync(payload, opcionesFirma),
       user: {
         id: user.id,
         tenant_id: tenant.id,
