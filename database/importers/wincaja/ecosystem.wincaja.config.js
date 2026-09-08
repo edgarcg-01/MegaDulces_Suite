@@ -28,6 +28,7 @@
 const path = require('path');
 const REPO = path.resolve(__dirname, '..', '..', '..'); // .../Trade_marketing
 const WINCAJA = 'database/importers/wincaja/replicate-wincaja-live.js';
+const TICKETS = 'database/importers/wincaja/live-tickets-poller-wincaja.js';
 
 // Escribe directo a :5433/wincaja (NO usa feeds-ingest) → sin FEEDS_SINK.
 //
@@ -51,5 +52,14 @@ module.exports = {
     { name: 'wincaja-inc', script: WINCAJA, args: '--carril=inc --watch=2', ...base },
     // CATÁLOGOS + existencias (hash-delta, full-scan) → más pesado, cadencia baja.
     { name: 'wincaja-hash', script: WINCAJA, args: '--carril=hash --watch=60', ...base },
+    // `[TDA.Wincaja]` TICKETS EN VIVO → `/tienda/live`. Lee la réplica cruda local (:5433/wincaja)
+    // y empuja los tickets de venta de las tiendas Wincaja (30/32) al monitor de prod, igual que el
+    // poller de Kepler hace con 00-06. A diferencia de los dos carriles de arriba, éste SÍ escribe a
+    // prod (POST /store/live/ingest), así que necesita STORE_INGEST_URL/KEY — las lee del .env del
+    // repo (el propio script hace dotenv). El WINDOW ancho (20 min) absorbe la latencia del carril
+    // `wincaja-inc` (~2 min): un ticket recién replicado entra en el siguiente poll, el upsert
+    // idempotente descarta el solape. NO emite heartbeat propio (como el de Kepler): su salud se ve
+    // en el propio /tienda/live y en el sensor `store_live`.
+    { name: 'wincaja-live-tickets', script: TICKETS, ...base },
   ],
 };

@@ -1,7 +1,7 @@
 import { Injectable, computed, inject, signal } from '@angular/core';
 import { StoreSocketService, LiveTicket, StoreAlert, StoreBranchKpi } from './store-socket.service';
 import { AuthService } from '../../core/services/auth.service';
-import { STORE_BRANCHES, branchName } from '../../core/constants/store-branches';
+import { LIVE_MONITOR_BRANCHES, branchName } from '../../core/constants/store-branches';
 
 /**
  * Estado compartido del apartado Tienda (Monitor / Sucursales / Ritmo).
@@ -15,7 +15,7 @@ export class TiendaStateService {
   private readonly auth = inject(AuthService);
 
   readonly connected = this.svc.connected;
-  readonly branchList = STORE_BRANCHES;
+  readonly branchList = LIVE_MONITOR_BRANCHES;
   readonly branchName = branchName;
 
   readonly ventaHoy = signal(0);
