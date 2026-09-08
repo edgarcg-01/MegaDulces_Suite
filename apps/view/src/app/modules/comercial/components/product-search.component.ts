@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, EventEmitter, Input, Output, computed, inject, signal } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
+import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 
 import { FormsModule } from '@angular/forms';
@@ -66,6 +67,14 @@ export class ProductSearchComponent {
   /** Incluir productos inactivos (activo=false) en el resultado. Default false (solo activos).
    *  Sell-Out lo pone true: es histórico → un SKU descontinuado sigue teniendo ventas pasadas. */
   @Input() set includeInactive(v: boolean | null | undefined) { this._includeInactive.set(!!v); }
+  /**
+   * Fuente alterna de datos. Por default el typeahead pega a
+   * `GET /commercial/products`, que exige `COMMERCIAL_PRODUCTS_VER`; una pantalla
+   * cuyo operador no tiene ese permiso (el colaborador que captura caducidades)
+   * pasa acá el buscador de SU módulo y el componente se reusa tal cual, sin
+   * repartir un permiso de catálogo entero para poder escribir un nombre.
+   */
+  @Input() fetch?: (q: string) => Observable<ProductHit[]>;
   @Output() productSelected = new EventEmitter<ProductHit | null>();
 
   private readonly svc = inject(ComercialService);
@@ -82,11 +91,13 @@ export class ProductSearchComponent {
       return { q, brandIds: this._brandIds(), includeInactive: this._includeInactive() };
     },
     stream: ({ params }) =>
-      this.svc.listProducts({ search: params.q, brand_ids: params.brandIds ?? undefined, pageSize: 12, active: params.includeInactive ? undefined : true }).pipe(
-        map((r) => (r.data || []).map((p): ProductHit => ({
-          id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null,
-        }))),
-      ),
+      this.fetch
+        ? this.fetch(params.q)
+        : this.svc.listProducts({ search: params.q, brand_ids: params.brandIds ?? undefined, pageSize: 12, active: params.includeInactive ? undefined : true }).pipe(
+            map((r) => (r.data || []).map((p): ProductHit => ({
+              id: p.id, label: p.nombre, sku: p.sku, brand: p.brand_name ?? null,
+            }))),
+          ),
     defaultValue: [] as ProductHit[],
   });
 

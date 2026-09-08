@@ -49,6 +49,7 @@ export * from './lib/decorators/skip-tenant-tx.decorator';
 
 // ── ai ──
 export * from './lib/ai/anthropic.service';
+export * from './lib/ai/speech-to-text.service';
 export * from './lib/ai/embeddings.service';
 export * from './lib/ai/llm-extractor.service';
 export * from './lib/ai/ocr-readings.service';

@@ -150,12 +150,28 @@ export class ReceivingSessionService {
           .where({ source_ref: `${erpHeader.sucursal}/${erpHeader.folio}` })
           .whereNot('status', 'cancelled')
           .orderBy('created_at', 'desc')
-          .first('folio', 'status', 'created_at');
+          .first('id', 'folio', 'status', 'created_at');
         if (previo)
-          throw new ConflictException(
-            `El folio ${erpHeader.sucursal}/${erpHeader.folio} ya se recibió en el vale ${previo.folio} (${previo.status}). ` +
-              'Revisalo antes de volver a recibirlo; si de verdad hay que rehacerlo, cancelá el anterior.',
-          );
+          // Payload estructurado, no sólo texto: la pantalla necesita saber CUÁL es el
+          // vale previo para abrirlo, y si está cerrado ya no se puede cancelar —
+          // decirle al usuario "cancelá el anterior" ahí lo dejaba sin salida.
+          throw new ConflictException({
+            statusCode: 409,
+            error: 'folio_ya_recibido',
+            message:
+              `El folio ${erpHeader.sucursal}/${erpHeader.folio} ya se recibió en el vale ${previo.folio} (${previo.status}). ` +
+              (previo.status === 'closed'
+                ? 'Revisalo antes de volver a recibirlo; si de verdad llegó otra vez, recibilo de nuevo a propósito.'
+                : 'Revisalo antes de volver a recibirlo; si de verdad hay que rehacerlo, cancelá el anterior.'),
+            previous: {
+              id: previo.id,
+              folio: previo.folio,
+              status: previo.status,
+              created_at: previo.created_at,
+              /** Una sesión cerrada ya escribió inventario: no se cancela, se rehace con `force`. */
+              can_cancel: previo.status !== 'closed',
+            },
+          });
       }
 
       const warehouseId = dto.warehouse_id || (erpHeader ? await this.resolveWarehouse(trx, erpHeader) : null);
@@ -421,14 +437,32 @@ export class ReceivingSessionService {
       }
 
       // Buscar línea existente del producto en la sesión.
-      const line = await trx('commercial.receiving_lines')
+      let line = await trx('commercial.receiving_lines')
         .where({ session_id: sessionId, product_id: productId })
         .forUpdate()
         .first();
 
+      // Adopción por SKU. El renglón del vale llega del espejo del ERP con product_id
+      // NULL cuando su SKU no casó con el catálogo al abrir la sesión — hoy la mayoría
+      // de los renglones están así. Sin este paso, escanear algo que SÍ viene en el
+      // vale no encontraba línea y se registraba como SOBRANTE: el operador ve
+      // rechazada mercancía legítima y el conteo del vale queda mal.
+      if (!line && prod?.sku) {
+        line = await trx('commercial.receiving_lines')
+          .where({ session_id: sessionId })
+          .whereNull('product_id')
+          .whereRaw('UPPER(TRIM(expected_sku)) = UPPER(TRIM(?))', [String(prod.sku)])
+          .orderBy('expected_qty', 'desc')
+          .forUpdate()
+          .first();
+      }
+
       if (line) {
         const received = Number(line.received_qty) + qty;
         await trx('commercial.receiving_lines').where({ id: line.id }).update({
+          // Si la línea se adoptó por SKU queda ligada al catálogo desde ahora: sin
+          // esto la mercancía no entraría a inventario al cerrar el vale.
+          product_id: productId,
           received_qty: received,
           barcode_scanned: dto.barcode || line.barcode_scanned || null,
           discrepancy_kind: ReceivingSessionService.discrepancyFor(Number(line.expected_qty), received, line.discrepancy_kind),
@@ -646,6 +680,11 @@ export class ReceivingSessionService {
           this.on('w.tenant_id', '=', 's.tenant_id').andOn('w.id', '=', 's.warehouse_id');
         })
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
+        // El vale guarda el código del proveedor, no su nombre. La bandeja se lee
+        // por llegada ("llegó lo de Bimbo"), así que el nombre viaja con el renglón.
+        .leftJoin('catalog.suppliers as sup', function () {
+          this.on('sup.tenant_id', '=', 's.tenant_id').andOn('sup.code', '=', 's.supplier_code');
+        })
         .where('s.status', 'closed')
         .whereNotNull('l.product_id')
         .where('l.received_qty', '>', 0);
@@ -658,10 +697,23 @@ export class ReceivingSessionService {
           'p.sku',
           'p.nombre as product_name',
           'l.received_qty',
+          // El lector de códigos emite el código de barras, no el SKU: sin esto la
+          // bandeja no puede resolver lo que se escanea contra lo que está esperando fecha.
+          'p.barcode',
+          // La cantidad se cuenta en la unidad del vale (CAJA/PAQ/PZA), así que el
+          // campo tiene que decir en qué se está contando en vez de dar por hecho piezas.
+          trx.raw(`(SELECT CASE WHEN COUNT(DISTINCT TRIM(el.unidad)) > 1 THEN 'ambigua'
+                                ELSE MIN(TRIM(el.unidad)) END
+                      FROM analytics.erp_goods_receipt_lines el
+                     WHERE el.tenant_id = l.tenant_id
+                       AND el.sucursal  = split_part(s.source_ref, '/', 1)
+                       AND el.folio     = split_part(s.source_ref, '/', 2)
+                       AND el.sku       = l.expected_sku) AS expected_unit`),
           's.id as session_id',
           's.folio as vale_folio',
           's.source_ref',
           's.supplier_code',
+          'sup.name as supplier_name',
           's.warehouse_id',
           'w.code as warehouse_code',
           'w.name as warehouse_name',
@@ -687,7 +739,7 @@ export class ReceivingSessionService {
 
       // El filtro "le falta fecha" se aplica sobre el derivado (no se puede en WHERE
       // sin repetir la subconsulta) y se calcula el faltante real por renglón.
-      return rows
+      const pendientes = rows
         .map((r: any) => {
           const recibido = Number(r.received_qty) || 0;
           const declarado = Number(r.declared_qty) || 0;
@@ -703,6 +755,47 @@ export class ReceivingSessionService {
         // Un renglón sale de la bandeja cuando ya no le falta fecha a nadie, pero
         // sigue apareciendo si tiene retenidos: eso es trabajo abierto de otra persona.
         .filter((r: any) => r.pending_qty > 0 || r.held_qty > 0);
+
+      if (!pendientes.length) return pendientes;
+
+      // Avance por llegada, sobre TODOS los renglones del vale — no sólo los que
+      // siguen pendientes. Sin esto el avance se leería "0 de 300" en un vale que
+      // ya va a la mitad, porque los renglones terminados salen del listado (y el
+      // `limit` puede además cortar renglones del mismo vale).
+      // `Array.from`, NO `[...new Set()]`: el build del API downlevela el spread a
+      // `[].concat(set)` y eso deja un array de UN elemento que es el Set entero.
+      // Postgres lo recibe como '{}' y revienta con 22P02. Ver docs/GOTCHAS.md.
+      const sessionIds = Array.from(new Set(pendientes.map((r: any) => r.session_id)));
+      const totales = await trx('commercial.receiving_lines as l')
+        .whereIn('l.session_id', sessionIds)
+        .whereNotNull('l.product_id')
+        .where('l.received_qty', '>', 0)
+        .groupBy('l.session_id')
+        .select(
+          'l.session_id',
+          trx.raw(`COUNT(*)::int AS session_line_count`),
+          trx.raw(`COALESCE(SUM(l.received_qty), 0)::numeric AS session_received_qty`),
+          trx.raw(`COALESCE(SUM((
+            SELECT COALESCE(SUM(c.quantity), 0) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'accepted'
+          )), 0)::numeric AS session_declared_qty`),
+          trx.raw(`COALESCE(SUM((
+            SELECT COALESCE(SUM(c.quantity), 0) FROM commercial.receiving_lot_captures c
+             WHERE c.receiving_line_id = l.id AND c.status = 'pending_authorization'
+          )), 0)::numeric AS session_held_qty`),
+        );
+
+      const porSesion = new Map<string, any>(totales.map((t: any) => [t.session_id, t]));
+      return pendientes.map((r: any) => {
+        const t = porSesion.get(r.session_id);
+        return {
+          ...r,
+          session_line_count: Number(t?.session_line_count) || 0,
+          session_received_qty: Number(t?.session_received_qty) || 0,
+          session_declared_qty: Number(t?.session_declared_qty) || 0,
+          session_held_qty: Number(t?.session_held_qty) || 0,
+        };
+      });
     });
   }
 

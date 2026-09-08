@@ -97,6 +97,17 @@ export interface OpenSessionDto {
   erp_sucursal?: string;
   erp_folio?: string;
   notes?: string;
+  /** Recibir a propósito un folio que ya tiene vale: salta el guard de folio repetido. */
+  force?: boolean;
+}
+
+/** Payload del 409 `folio_ya_recibido`: con qué vale choca y si se puede cancelar. */
+export interface FolioYaRecibido {
+  id: string;
+  folio: string;
+  status: string;
+  created_at: string;
+  can_cancel: boolean;
 }
 
 export interface ErpOrderLookup {
@@ -121,7 +132,11 @@ export interface PendingExpiryLine {
   line_id: string;
   product_id: string;
   sku: string | null;
+  /** Código de barras del catálogo: lo que emite el lector. */
+  barcode: string | null;
   product_name: string | null;
+  /** Unidad del vale (CAJA/PAQ/PZA…) en la que está expresada la cantidad. */
+  expected_unit: string | null;
   received_qty: number;
   declared_qty: number;
   /** Capturado con fecha pero 🔴: espera autorización de un supervisor. */
@@ -131,11 +146,17 @@ export interface PendingExpiryLine {
   vale_folio: string;
   source_ref: string | null;
   supplier_code: string | null;
+  supplier_name: string | null;
   warehouse_id: string;
   warehouse_code: string | null;
   warehouse_name: string | null;
   closed_at: string;
   dias_esperando: number;
+  /** Totales del vale completo (incluye renglones ya terminados): avance real de la llegada. */
+  session_line_count: number;
+  session_received_qty: number;
+  session_declared_qty: number;
+  session_held_qty: number;
 }
 
 export interface SucursalMapEntry {
