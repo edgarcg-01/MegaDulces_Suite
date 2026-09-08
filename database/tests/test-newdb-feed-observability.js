@@ -358,6 +358,35 @@ const leer = (rel) => {
       'el computed_at de la FILA se mueve sólo si ESE producto cambió → semanas de falsa edad');
   }
 
+  // ── 6bis. [VP.2.2] La pantalla que RECIBE la frescura tiene que PINTARLA ─────────────────
+  // El hueco que faltaba vigilar. Todo lo de arriba comprueba que el número llegue declarando su
+  // edad; nada comprobaba que alguien la muestre. Y ya pasó: `SellOutExplainReport` carga
+  // `freshness` desde VP.0.3 y la pantalla de Análisis la ignoró — el primitivo llegaba correcto al
+  // navegador y moría ahí. Es la falla de VP.0.1 (declarar sin mostrar) una capa más arriba, y
+  // exactamente igual de invisible: la respuesta trae el campo, el test del primitivo pasa, y el
+  // usuario ve un número sin edad.
+  //
+  // Se exigen las DOS ramas del ternario, no sólo que la palabra aparezca: una pantalla que avisa
+  // en `stale` y calla en `unknown` es la etiquetera muda otra vez. Ahí "no se pudo medir" se lee
+  // como "está al día", que es la regla 2 de shared/freshness al revés.
+  for (const [rel, quien] of [
+    ['apps/view/src/app/modules/comercial/pages/comercial-sell-out.component.ts', 'el Sell-Out'],
+    ['apps/view/src/app/modules/comercial/pages/comercial-analisis.component.ts', 'Análisis'],
+  ]) {
+    const src = leer(rel);
+    check(`${quien}: la pantalla se puede leer`, !!src);
+    if (!src) continue;
+    check(`${quien} avisa cuando el dato está VIEJO`,
+      /status\s*===\s*'stale'/.test(src),
+      'recibe la edad del dato y no la muestra: el número sale sin edad');
+    check(`${quien} avisa también cuando NO SE PUDO MEDIR`,
+      /status\s*===\s*'unknown'/.test(src),
+      'callar en unknown hace que "no se midió" se lea como "está al día"');
+    check(`${quien} nombra el eslabón que falla, no sólo "hay rezago"`,
+      /staleLanes/.test(src),
+      'un aviso sin eslabón no dice a quién despertar');
+  }
+
   // [VP.0.1] El candado del lado de la VISTA. Todo lo de arriba puede estar bien y la pantalla
   // seguir callada: el silencio se materializaba acá, en un `@if (freshness()?.stale)` único que
   // con `unknown` (antes `stale: false`) no pintaba nada. El backend puede declarar perfecto; si la

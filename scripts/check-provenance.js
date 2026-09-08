@@ -70,7 +70,42 @@ function archivos(dir, acc = []) {
   return acc;
 }
 
-const bloque = /export interface\s+(\w+)\s*\{([\s\S]*?)\n\}/g;
+/**
+ * Encabezado de interfaz exportada. `[^{]*` cubre el `extends Foo` que el regex viejo (`(\w+)\s*\{`)
+ * no contemplaba: con un `extends` en medio el encabezado **nunca calzaba**, así que la interfaz no
+ * se examinaba por sí misma y su cuerpo sólo se veía si el match codicioso del vecino lo absorbía —
+ * y entonces la deuda se le atribuía al vecino. Verificado: `export interface Base { … }` seguida de
+ * `export interface Reporte extends Base { … generated_at … }` reportaba a **`Base`** como la
+ * culpable, que no declara nada del tiempo.
+ */
+const ENCABEZADO = /export\s+interface\s+(\w+)[^{]*\{/g;
+
+/**
+ * Devuelve el cuerpo de la interfaz **balanceando llaves**, no buscando un `}` a principio de línea.
+ *
+ * ⚠️ El regex original (`\{([\s\S]*?)\n\}`) sólo cerraba con un `}` pegado a un salto de línea, así que
+ * una interfaz de UNA SOLA LÍNEA (`export interface Punto { mes: string; }`) nunca cerraba ahí: su
+ * "cuerpo" seguía tragando líneas hasta el próximo bloque multilínea. Eso hacía dos daños, y el
+ * segundo es el que importa:
+ *   1. culpaba al inocente — el `generated_at` del vecino se le atribuía a la interfaz de una línea;
+ *   2. **escondía deudas reales** — `matchAll` reanuda DESPUÉS del match, así que todo lo tragado
+ *      (en este repo: `SelloutSeriesReport`, `SelloutParetoReport`, `SelloutTargetsReport`) no se
+ *      examinaba nunca. Una interfaz de una línea puesta arriba volvía invisible a la de abajo.
+ * Una compuerta que puede ocultar justo lo que vigila es peor que no tenerla: da confianza sin
+ * fundamento, que es la falla que esta fase entera existe para cerrar.
+ */
+function cuerpoDe(src, aperturaIdx) {
+  let d = 1;
+  let i = aperturaIdx + 1;
+  while (i < src.length && d > 0) {
+    const c = src[i];
+    if (c === '{') d++;
+    else if (c === '}') d--;
+    i++;
+  }
+  return d === 0 ? src.slice(aperturaIdx + 1, i - 1) : null;
+}
+
 const conformes = [];
 const deudas = [];
 
@@ -79,9 +114,10 @@ for (const raiz of RAICES) {
     let src;
     try { src = fs.readFileSync(p, 'utf8'); } catch { continue; }
     if (!AFIRMA_TIEMPO.test(src)) continue;           // atajo barato: el 99% de los archivos no aplica
-    for (const m of src.matchAll(bloque)) {
-      const [, nombre, cuerpo] = m;
-      if (!AFIRMA_TIEMPO.test(cuerpo)) continue;
+    for (const m of src.matchAll(ENCABEZADO)) {
+      const nombre = m[1];
+      const cuerpo = cuerpoDe(src, m.index + m[0].length - 1);
+      if (cuerpo === null || !AFIRMA_TIEMPO.test(cuerpo)) continue;
       const rel = path.relative(RAIZ, p).replace(/\\/g, '/');
       (DECLARA_PROCEDENCIA.test(cuerpo) ? conformes : deudas).push({ nombre, rel });
     }

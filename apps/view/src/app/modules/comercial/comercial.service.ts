@@ -2019,13 +2019,13 @@ export interface SellOutExplainReport {
 
 // ─── BI.9 objetivos ───
 export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
-export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
 
 // ─── BI.4 gráficas ───
 export interface SelloutSeriesPoint { month: string; monto: number; }
-export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; freshness: Freshness; }
 export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
-export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; freshness: Freshness; }
 
 // ─── BI.6 "Radar" ───
 export interface SelloutAnomaly {
@@ -2044,6 +2044,7 @@ export interface SelloutAnomaliesReport {
   dim: SellOutExplainDim;
   anomalies: SelloutAnomaly[];
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ─── BI.5 "Pregúntale al Sell-Out" ───
