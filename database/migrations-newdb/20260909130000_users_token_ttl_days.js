@@ -35,6 +35,28 @@
  * Aditiva e idempotente. Nadie recibe un TTL distinto por esta migración: sólo
  * habilita que se le pueda dar (el rol y las cuentas van en las siguientes).
  *
+ * ── ⚠️ POR QUÉ EMPIEZA CON `lock_timeout` (incidente del 2026-09-09) ─────────
+ * `identity.users` es la tabla que TODO request lee: `[AUTHZ-HARD.2]` consulta
+ * `select activo, deleted_at ... where id = $1` en cada llamada. Un `ALTER TABLE`
+ * pide **ACCESS EXCLUSIVE**, y en Postgres una petición de lock que espera **encola
+ * detrás de sí a todo el que venga después**. Así que un ALTER que se queda esperando
+ * no es lento: es una caída del login.
+ *
+ * Pasó, en prod, con esta misma migración: quedó encolada detrás de una transacción
+ * larga del feed del ODS (un `COPY kepler_ods.kdmx_25 TO stdout` cuya sesión ya había
+ * tocado `identity.users`), y detrás del ALTER se apilaron el `isUserActive` del guard
+ * y una consulta comercial. Se canceló la migración (`pg_cancel_backend` sobre el
+ * propio pid, sin tocar ninguna otra sesión) y la cola drenó sola.
+ *
+ * El tamaño de la tabla NUNCA fue el riesgo — son ~150 filas y `ADD COLUMN` nullable
+ * es metadata-only. El riesgo es **quién más tiene la tabla tomada**. Con
+ * `lock_timeout` la migración falla en 3 s, limpia y sin encolar a nadie; se reintenta
+ * cuando el feed no esté en medio de una transacción larga. Es la diferencia entre un
+ * reintento y un incidente.
+ *
+ * `SET LOCAL` porque knex corre cada migración dentro de su transacción: muere con
+ * ella y no le cambia el `lock_timeout` a la sesión de nadie más.
+ *
  * @param { import("knex").Knex } knex
  */
 
@@ -42,6 +64,10 @@ const TABLA = 'identity.users';
 const COL = 'token_ttl_days';
 
 exports.up = async function up(knex) {
+  // Ver el encabezado: sin esto, un ALTER que espera encola detrás de sí a todo el que
+  // lea `identity.users` — o sea, al login entero. Falla en 3s y se reintenta.
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
+
   const existe = await knex.schema.withSchema('identity').hasColumn('users', COL);
   if (!existe) {
     await knex.raw(`ALTER TABLE ${TABLA} ADD COLUMN ${COL} integer`);

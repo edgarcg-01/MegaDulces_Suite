@@ -45,6 +45,11 @@ const ALCANCE = {
 };
 
 exports.up = async function up(knex) {
+  // Misma guarda que su hermana `20260909130000`. Acá sólo hay INSERTs (locks de fila,
+  // no ACCESS EXCLUSIVE), pero el seguro es gratis y evita que una transacción larga de
+  // otro proceso deje esta migración colgada esperando.
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
+
   const { rows: tenants } = await knex.raw(
     `SELECT id, slug FROM identity.tenants WHERE deleted_at IS NULL ORDER BY slug`,
   );
