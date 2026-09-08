@@ -504,6 +504,77 @@ orden aunque ahora vivan en dos loops (el índice de monedas va corrido por
 
 **Pendiente prod:** redeploy view. Sin migración, sin re-login.
 
+## SM.28 — Los saltos llegan a los medios, el total es uno, y el corte se confirma antes de sellarse (✅ local 2026-09-08)
+
+Tres pedidos de Edgar sobre el formato de piso ya en producción.
+
+### 1. La cadena de saltos es una sola
+
+↑/↓/Enter recorrían las 11 denominaciones y **se cortaban ahí**: los 5 medios se
+teclaban tocando la pantalla. Ahora el índice es global (los medios arrancan en
+`denoms.length`) sobre las dos listas de `@ViewChildren` concatenadas en orden de
+DOM — `↓` en 50¢ cae en **Tarjeta** y `↑` en Tarjeta vuelve a 50¢. `onDenomKey` pasó
+a `onCellKey` porque ya no navega solo denominaciones.
+
+### 2. El total del turno es uno — pero el que se compara sigue siendo el efectivo
+
+Los medios no sumaban a "Total contado". Ahora la barra muestra **el total del
+turno** (efectivo + medios) y, cuando hay medios declarados, la línea de
+composición debajo: `Efectivo $X · Otros medios $Y`. La columna de medios cierra
+con su propio Total, como las otras dos.
+
+⚠️ **Lo que NO se cambió, a propósito:** el `total_contado` que viaja al backend
+sigue siendo **solo el efectivo**. El backend lo compara contra
+`cc.efectivo_esperado` — el efectivo esperado del corte — así que sumarle
+tarjeta/transferencia produciría un **sobrante falso del tamaño de la venta con
+tarjeta**. Es exactamente el bug que SM.23 sacó del código (mezclar el esperado del
+turno completo con el conteo del cajón **acusaba a una cajera honesta de $18,587**).
+Cada medio se cuadra contra **su** columna de Kepler, que es lo que SM.24
+construyó. Si el número que se compara tiene que pasar a ser el total de los seis
+renglones, eso es un cambio de la comparación en el backend, no de la pantalla.
+
+**Queda abierto:** `canSubmit()` sigue exigiendo **efectivo > 0**. Un turno con
+solo tarjeta no se puede guardar (y si se pudiera, el backend calcularía un
+faltante igual al esperado completo). No se tocó porque cambia la semántica de lo
+que se puede sellar.
+
+### 3. Confirmar antes de sellar
+
+"Guardar y revelar diferencia" guardaba **de un clic** y el ticket salía solo. Sellar
+un corte es irreversible: queda con hora y se imprime el respaldo que se firma.
+Ahora el botón abre un `p-dialog` con **el resumen de lo que se va a sellar** —
+sucursal/caja/cajero/fecha, billetes y monedas con sus piezas, el efectivo, cada
+medio declarado (solo los que tienen monto) y el total del turno, más incidencia y
+nota si hay. No es un "¿estás seguro?" vacío: es la hoja contra la que se comparan
+los fajos que la persona tiene en la mano (§13 poka-yoke).
+
+Dos botones: **Revisar de nuevo** y **Sí, guardar y sellar** (el título y el CTA
+cambian por tipo: corte / retiro / relevo). El ticket sale **después del sí**, no
+antes. El botón de confirmar se auto-deshabilita síncrono al primer clic.
+
+**El ticket también cambió:** imprimía los medios **de Kepler** pero no los que
+declara la cajera, así que el papel no traía el total que la pantalla acababa de
+confirmar. Se agregó el bloque `DECLARADO EN CAJA` + `TOTAL DEL TURNO`
+(`medios_declarados` en `TicketArqueo`).
+
+### Dos bugs propios, encontrados al revisar
+
+- Teclear un medio **no recalculaba** el total del turno: `onMedioInput` nunca
+  llamaba al cómputo. El total se hubiera quedado clavado en el efectivo.
+- `recalc()` marca el formulario sucio, y usarlo para limpiar después de guardar
+  dejaba el arqueo **recén sellado** marcado como "sin guardar" — el guard de
+  navegación habría bloqueado la salida con el formulario vacío. Se partió en
+  `recalcTotales()` (solo números) + `recalc()` (números + `dirty`).
+
+### Hallazgo NO arreglado (pre-existente)
+
+El botón **"Imprimir ticket"** del panel de resultado reimprime **sin
+denominaciones**: `imprimir()` arma el desglose desde `denomCount`, que `submit()`
+limpia justo después de la primera impresión. Ya pasaba antes de este cambio. Se
+arregla con un snapshot del payload al imprimir; no se tocó para no mezclar scope.
+
+**Pendiente prod:** redeploy view. Sin migración, sin re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
