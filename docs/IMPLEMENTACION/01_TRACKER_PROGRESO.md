@@ -78,7 +78,34 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
-_(vacío — iniciar con Fase A)_
+### Fase RD — Indicadores de Ruta Directa · plan en [`FASE_RD`](FASES/FASE_RD_INDICADORES_RUTA.md)
+
+Automatiza `INDICADORES RD 2026.xlsx`, el tablero manual con el que se opera y **se paga** la Ruta
+Directa (13 rutas: PH 21-28, Morelia 321/322, Canindo 501-505). Orden acordado con Edgar: verdad del
+dato → backend → frontend.
+
+| Item | Estado | Nota |
+|---|---|---|
+| RD.0 documentación y decode | ✅ 2026-09-07 | `FASE_RD_INDICADORES_RUTA.md` + `GLOSSARY` (RD/RV/PH/Canindo no estaban definidos) |
+| RD.1 la fecha de Wincaja estaba corrida un día | ✅ 2026-09-07 | mig `20260907280000`. **542,684 docs de 2026, el 100%.** RS.12b, una migración de *performance*, afirmó "business_date NO cambia" sin medirlo. $793,080 de venta de ruta caían en el mes equivocado. Candado + prueba negativa |
+| RD.2 `analytics.v_rd_route_daily` con procedencia | ✅ 2026-09-07 | mig `20260907290000`. `importe` mezclaba neto (Wincaja) y bruto (push) en la misma columna |
+| **RD.6 motor de comisiones** | ✅ 2026-09-08 | migs `20260908120000/120100/120200`. **163/163 celdas al centavo** con el input del Excel. Reglas como filas, no `if`s. 10 defectos del Excel corregidos, cada uno con prueba negativa. Candado 34/34 |
+| RD.4 gasto de flota | 🔨 | `logistics.route_expenses` + catálogo + importer de las 1,647 filas + captura web |
+| RD.3 snapshot del costo | ⬜ | el costo histórico de Wincaja se re-expresa cada corrida |
+| RD.2b hueco de Canindo | ⚠️ BLOCKED | **no es decode: es captura en el POS.** `kduv` tiene los 5 vendedores de ruta y **1 de 6,194** documentos los usa; el dinero está en `50C01`/`50C02` con `c12='30001'` = SUCURSAL CANINDO PISO. Kepler ya no distingue ruta de mostrador en Canindo. Arreglo operativo |
+| RD.5 odómetro y $/km (cierra LTV.2) | ⬜ | `logistics.fuel_transactions` está en **0 filas**: el workbook es el dato que LTV.2 declaraba faltante |
+| RD.7 objetivo por ruta · RD.8 pantalla | ⬜ | |
+
+⚠️ **Prod sin tocar**: las 5 migraciones están sólo en `.245`. Al aplicarlas hay que refrescar
+`mv_wincaja_sales_daily` y `mv_sellout_monthly`, re-correr los dos importers de ruta, **re-medir
+`test-newdb-sellout-parity`** (VP.1 comparaba las piernas Kepler/Wincaja en los cutovers con un día
+de desfase artificial) y **re-login** (el permiso nuevo va en el JWT).
+
+⚠️ **Hallazgo operativo abierto, fuera de código**: los 13 `.mdb` de ruta en `Z:\Salidas\Bases\Actuales`
+están congelados — 321/322 el **02-jul** (exactamente donde se corta el dato), 21-28 el 09-jul,
+501-505 el 15-17 ago, y `42 PIEDAD ABASTOS` desde **ene-2024**. Para PH y Canindo el congelamiento es
+correcto (migraron); **321/322 no migraron a nada** y siguen vendiendo: la persona teclea de la
+máquina viva de la ruta mientras la plataforma lee una copia parada.
 
 ---
 
