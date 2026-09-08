@@ -720,6 +720,76 @@ Plan: [`FASES/FASE_SM_SUPERVISOR_MOVIMIENTOS.md`](FASES/FASE_SM_SUPERVISOR_MOVIM
 - [ ] **[CH.0.9]** ⬜ Agendar el poller (Task Scheduler `.249`, patrón `run-prod-feeds`) + aplicar mig a Railway.
 - [ ] **[CH.0.10]** ⬜ Módulo/UI de asistencia + permisos dedicados (recipe 6 touch-points).
 
+### Sprint CH.1 — Una cuenta por checador, con token que no expira cada mañana 🧪 (2026-09-09, local)
+
+**El pedido:** «hagamos un usuario para cada checador, me gustaría que su JWT fuera permanente».
+Se dieron 5 opciones y Edgar eligió **A — cuenta por sitio + `expiresIn` largo por cuenta**, con
+el token en poder de **una pantalla/kiosco por sitio**.
+
+**Lo que hizo viable la vida larga (medido antes de escribir código):** el token acá ya es
+revocable. `[AUTHZ-HARD.2]` (`jwt-auth.guard.ts:86`) relee `identity.users` en **cada** request
+con cache de 30 s → `activo = false` lo mata en ≤30 s; y `PermissionsCacheService` relee los
+permisos de DB por request, así que el mapa del JWT es sólo el snapshot que gatea la UI y un
+token viejo **no** conserva privilegios viejos del lado del servidor. Eso es también la razón de
+que vaya **una cuenta por dispositivo**: revocar es por cuenta, y apagar un kiosco comprometido
+no puede implicar apagar los otros. Lo que NO se resolvió, dicho de frente: un token filtrado
+sirve hasta que alguien desactiva esa cuenta — no hay revocación por token ni rotación.
+
+- [x] **[CH.1.1]** ✅ `identity.users.token_ttl_days` (mig `20260909130000`, Batch 277 local):
+  la vida del token se declara **por cuenta**. `NULL` = default global. **No se subió
+  `JWT_EXPIRES_IN`** a propósito: eso le alargaría el token a todos, incluidos los admin. CHECK
+  1..3650 con **prueba negativa dentro de la migración** (un TTL de 0 daría un login que
+  "funciona" y entrega un token ya expirado; si la tabla está vacía reporta `NO MEDIDO`, no ✔).
+- [x] **[CH.1.2]** ✅ Rol `checador_kiosco` (mig `20260909131000`, Batch 278 local): UNA clave
+  (`HR_ATTENDANCE_CHECAR`) + alcance recortado a 6 dimensiones calcando `etiquetas_anaquel`
+  (`brand/customer/expense_area/route = none`, `warehouse/zone = own`). Permiso **restrictivo**:
+  no entra a `role-presets` ni se reparte a ningún rol existente. Gates: el rol no concede
+  claves de más, ninguna dimensión en `all`, y se declara si la clave se derramó a otro rol.
+- [x] **[CH.1.3]** ✅ `tokenSignOptions()` en `libs/platform-core/src/lib/auth/token-ttl.ts` +
+  `auth-mt.service` firmando con ella. Vive en `libs/` y no inline (ADR-056): lo va a querer
+  cualquier superficie de kiosco. **La trampa que documenta:** devuelve `{}` y NO
+  `{ expiresIn: undefined }` — Nest mergea `{...signOptions, ...options}`, así que la clave
+  presente en `undefined` **borra** la expiración del merge y emitiría un token eterno **para
+  todo el mundo**. En segundos, no `'365d'`: el string exige un literal de tipo `ms`.
+- [x] **[CH.1.4]** ✅ `database/scripts/provision-checadores.js` — calca
+  `provision-etiqueteras.js`: cuentas `checador.NN` derivadas de `commercial.warehouses` con
+  zona (**no** una lista a mano), `--sucursal NN` repetible, `--ttl-dias` (default 365), dry-run
+  con ROLLBACK, `--apply` sólo contra prod, contraseñas sin caracteres ambiguos a un archivo
+  **fuera del repo**, `must_change_password = false` (si la primera persona la cambia, el kiosco
+  queda afuera), `kind = 'interno'` (`servicio` bloquea el login interactivo, `[ID.17]`).
+  4 gates: la columna existe, el rol está recortado, **las cuentas quedaron con el TTL pedido**
+  (lo que el script existe para hacer: si el INSERT lo perdiera, reportaría éxito igual) y el
+  hash verifica **y rechaza** otra contraseña.
+- [x] **[CH.1.5]** ✅ `database/tests/test-newdb-device-token-ttl.js` — **19/19 verde, sin API**:
+  carga los `.ts` REALES vía ts-node (`token-ttl.ts` + `permissions-cache.service.ts`) y firma con
+  `jsonwebtoken` reproduciendo el merge de `JwtModule`. Las negativas son el punto: (1) la cuenta
+  normal **sigue en 12 h** — si alguien "arreglara" esto subiendo el TTL global, el caso positivo
+  pasaría igual; (2) ningún TTL inválido (`0/-5/'abc'/NaN/''/undefined`) emite un token **sin
+  `exp`**; (3) la DB rechaza el 0; (4) **desactivar la cuenta la rebota igual con token de 365 d**
+  (`isUserActive` real, el que consulta el guard) y apagar un kiosco **no** toca al vecino.
+  Registrado en `run-all-tests.js` (`needsApi: false`).
+
+**⚠️ Lo que falta para que estas cuentas sirvan de algo — y es CH.0.10, no CH.1:** la pantalla
+del checador no existe. Una cuenta `checador.NN` **puede entrar y no tiene a dónde ir**. Por eso
+`HR_ATTENDANCE_CHECAR` entra al `AUTHZ_TREE` **sin `route`**: se ve y se puede quitar desde
+`/admin/roles` (un permiso fuera del árbol no tiene casilla — nadie lo ve ni lo revoca) pero
+`AccessibleRoutesService` no lo ofrece como salida navegable en un 403/404.
+
+**⚠️ Hallazgo de inventario:** los checadores **no están en la DB de la app**. Viven en una base
+dedicada **`hr` en `.245`** (`DATABASE_URL_HR`): **11 equipos, 159,041 checadas**. En
+`platform_test` y en **prod** el schema `hr.*` existe y está **vacío** (0 y 0) — el cargue de
+CH.0 nunca llegó a prod y la base local donde vivía (`postgres_platform`) ya no existe en `.245`.
+Además `label`/`site_code` siguen NULL en 10 de 11 (`[CH.0.7]`), así que **la correspondencia
+kiosco ↔ reloj no se puede establecer sin adivinar**: el script provisiona por SITIO, que es el
+único inventario con nombre, y lo declara en pantalla.
+
+**Pendiente de prod:** aplicar las 2 migraciones a Railway · correr el script con
+`--sucursal NN --apply` (una por una, arrancando por la piloto) · redeploy del api (el cambio de
+`auth-mt` es de código) · y recién ahí el login del kiosco. Las migraciones se simularon con
+ROLLBACK y se aplicaron **una por una** (`knex migrate:up <archivo>`), NO con `migrate:latest`:
+hay 1 migración pendiente de otra sesión en el árbol.
+
+
 > **Deriva de reloj detectada** (para alertar): hasta **−145 s** en `40.12`, −99 s en `.0.81`, +34 s en `50.12`. Se guarda en `clock_drift_seconds` por corrida.
 
 ---
