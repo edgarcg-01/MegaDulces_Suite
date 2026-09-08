@@ -44,6 +44,30 @@ export const WINCAJA_BRANCHES: StoreBranch[] = [
 /** Las 9 sucursales de la red, sin importar qué punto de venta corran. */
 export const NETWORK_BRANCHES: StoreBranch[] = [...STORE_BRANCHES, ...WINCAJA_BRANCHES];
 
+/**
+ * `[TDA.Wincaja]` Sucursales con **monitor de ventas EN VIVO** en `/tienda/live`.
+ *
+ * Hasta 2026-09-08 eran sólo las Kepler (`STORE_BRANCHES`), porque el monitor se alimentaba de un
+ * único poller (el de `md.kdm1`). Desde que existe la réplica cruda continua de Wincaja
+ * (`:5433/wincaja`, ~2 min) hay un segundo poller (`live-tickets-poller-wincaja.js`) que trae las
+ * tiendas Wincaja que venden al público: Morelia Abastos (`30`) y Morelia Madero (`32`).
+ *
+ * NO están todas las de `WINCAJA_BRANCHES`: el CEDIS `00` es bodegón (no vende), y las rutas no
+ * tienen POS de mostrador. Sólo las dos que el poller cubre.
+ *
+ * ⚠️ Transición en curso: Madero (`32`) está migrando su POS a Kepler (`md_07` → sucursal `07`).
+ * Cuando el cutover complete, su venta llegará por el poller de Kepler como `07` y hay que SACAR
+ * `32` de acá y del poller Wincaja — si no, el mismo ticket entraría por las dos fuentes con dos
+ * códigos distintos. Mientras `32` siga vendiendo en Wincaja, va acá.
+ */
+export const LIVE_MONITOR_WINCAJA: StoreBranch[] = [
+  { code: '30', name: 'Morelia Abastos' },
+  { code: '32', name: 'Morelia Madero' },
+];
+
+/** Lo que el dropdown de `/tienda/live` ofrece: las Kepler + las Wincaja con poller en vivo. */
+export const LIVE_MONITOR_BRANCHES: StoreBranch[] = [...STORE_BRANCHES, ...LIVE_MONITOR_WINCAJA];
+
 /** Nombre de sucursal por código (fallback = el propio código). */
 export function branchName(code?: string | null): string {
   if (!code) return '';
