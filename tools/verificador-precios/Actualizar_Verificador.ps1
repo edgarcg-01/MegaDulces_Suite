@@ -40,6 +40,15 @@
 #  Railway"): la misma que ya usa `apps/vendor` para llegar al backend desde
 #  un WebView nativo sin nginx de por medio (ver
 #  apps/vendor/src/environments/environment.ts, NATIVE_API_URL).
+#
+#  MODELO ELEGIDO (2026-09-08): centralizado, con opcion local por sucursal.
+#  Este script corre UNA vez al dia en un solo equipo y, para las sucursales
+#  que tengan un destino configurado en $destinos, copia el archivo generado
+#  ahi mismo (recurso de red \\PC\ruta). Una sucursal SIN entrada en
+#  $destinos no se queda sin nada -- solo significa que nadie le distribuye
+#  el archivo por red, y la opcion es que ese PC de mostrador corra este
+#  mismo script en modo local (misma URL, sin cambiar nada mas), guardando en
+#  su propia carpeta `generados` local.
 # ============================================================================
 
 $ErrorActionPreference = 'Stop'
@@ -50,6 +59,13 @@ $log       = Join-Path $repo 'actualizar_verificador.log'
 
 $base      = 'https://trademarketing-production-5084.up.railway.app/api/kp/precios-todos'
 $urlSucs   = 'https://trademarketing-production-5084.up.railway.app/api/sucursales'
+
+# Distribucion centralizada (opcional, por sucursal). Sucursal SIN entrada
+# aqui = esa tienda usa la opcion local (correr este script directo en su PC
+# de mostrador) en vez de recibir el archivo por red desde este equipo.
+# Ejemplo de formato -- llenar con las rutas reales cuando se definan:
+#   $destinos = @{ '01' = '\\PC-MOSTRADOR-01\verificador\entrante'; '02' = '\\PC-MOSTRADOR-02\verificador\entrante' }
+$destinos  = @{}
 
 $plantilla = Join-Path $repo 'Verificador_Precios_OFFLINE.html'
 
@@ -177,7 +193,21 @@ $total = 0
 foreach ($s in $sucursales) {
     $total++
     $destino = Join-Path $salida ('verificador-' + $s.codigo + '.html')
-    if (Generar $s.codigo $destino $s.nombre) { $okey++ }
+    if (Generar $s.codigo $destino $s.nombre) {
+        $okey++
+        # Distribucion centralizada: solo si esta sucursal tiene ruta configurada.
+        # Un fallo aqui (recurso de red caido) NO cuenta como fallo de la
+        # generacion -- el archivo bueno ya quedo en $salida.
+        if ($destinos.ContainsKey($s.codigo)) {
+            $rutaDestino = $destinos[$s.codigo]
+            try {
+                Copy-Item -LiteralPath $destino -Destination $rutaDestino -Force
+                Anotar ("  COPIADO {0} -> {1}" -f $s.codigo, $rutaDestino)
+            } catch {
+                Anotar ("  ERROR copiando {0} a {1}: {2}" -f $s.codigo, $rutaDestino, $_.Exception.Message)
+            }
+        }
+    }
 }
 
 Anotar "--- fin: $okey de $total generados ---"

@@ -57,27 +57,29 @@ cd tools\verificador-precios
 .\Actualizar_Verificador.ps1
 ```
 
-## Dos formas de llevarlo a cada sucursal
+## Modelo elegido: centralizado, con opción local por sucursal
 
-Como el backend vive en Railway (público, no LAN), las dos formas sólo
-necesitan internet normal — ninguna depende de una red interna entre
-sucursales:
+Decisión del equipo (2026-09-08): **por default, centralizado** — un solo
+equipo con internet corre el script una vez al día y distribuye el archivo;
+**cada sucursal puede optar por lo local** cuando la distribución centralizada
+no le llegue (sin recurso de red configurado, PC aislado, etc.). Como el
+backend vive en Railway (público, no LAN), ambas formas solo necesitan
+internet normal — ninguna depende de una red interna entre sucursales.
 
-**A. Generación centralizada + distribución del archivo**: correr el script
-UNA vez al día en un solo equipo con internet, y copiar/sincronizar
-`generados/verificador-NN.html` al PC de mostrador de la sucursal `NN`
-correspondiente (recurso compartido de red, script de copia, o USB si esa
-sucursal no tiene ni siquiera internet para copiar). Ventaja: un solo lugar
-que puede fallar y avisar; el kiosco de la tienda no necesita saber nada de
-la API salvo para el modo en vivo.
+**Centralizado (default):** correr el script una vez al día en un solo
+equipo con internet. `$destinos` (al inicio del script) mapea sucursal → ruta
+de red del PC de mostrador (`\\PC-MOSTRADOR-NN\...`); para las sucursales ahí
+configuradas, el script copia automáticamente `verificador-NN.html` recién
+generado a esa ruta después de generarlo. Un fallo de copia (recurso de red
+caído) no cuenta como fallo de la generación — el archivo bueno queda de
+todas formas en `generados/`. **Hoy `$destinos` está vacío** (no se inventaron
+rutas de red reales) — llenarlo sucursal por sucursal según se vayan
+definiendo los recursos compartidos.
 
-**B. Generación local en cada sucursal**: correr el mismo script directamente
-en el PC de mostrador, con salida a una carpeta local que el propio HTML
-abre. Requiere que esa PC alcance Railway al menos una vez al día (para
-refrescar el respaldo) — el modo híbrido de la plantilla ya cubre las horas
-en que el internet de esa sucursal falla *entre* corridas, y como es la misma
-URL pública que usa el modo en vivo, no hace falta ninguna configuración de
-red adicional a la que ya necesita el verificador para funcionar en vivo.
+**Local (opción por sucursal):** correr el mismo script directamente en el PC
+de mostrador, sin tocar nada más — misma URL pública, salida a su propia
+carpeta `generados/` local que el HTML abre. Es la opción natural para
+cualquier sucursal sin entrada en `$destinos`.
 
 En ambos casos, agregar una tarea programada de Windows (Task Scheduler) que
 corra `Actualizar_Verificador.ps1` a diario — mismo patrón ya documentado
@@ -92,7 +94,7 @@ reinstala el navegador o se usa modo incógnito.
 
 ## Pendiente
 
-- Decidir modelo A o B por sucursal según su conectividad real.
+- Llenar `$destinos` con las rutas de red reales, sucursal por sucursal.
 - `/api/salud` no existe todavía en `apps/api` (se perdió al absorber
   `catalogo-kp`) — sin eso, la frescura del CDC sólo se puede ver vía
   `GET /api/sucursales` (`datos_al` por plaza), no un endpoint de salud

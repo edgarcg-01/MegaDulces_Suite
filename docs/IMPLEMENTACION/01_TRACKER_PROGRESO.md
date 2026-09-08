@@ -1850,8 +1850,10 @@ más) — PR aparte para no volver ilegible el diff.
   sucursal) y Task Scheduler. Verificado: balance de `<script>` + parseo JS de los dos bloques (`node -e`
   con `new Function()`) sin errores. Confirmado con el equipo (2026-09-08): "todo es por Railway" — el
   script apunta a `https://trademarketing-production-5084.up.railway.app` (misma URL que ya usa
-  `apps/vendor` para el WebView nativo, sin nginx de por medio). **Pendiente:** decidir modelo A/B por
-  sucursal, portar `/api/salud`.
+  `apps/vendor` para el WebView nativo, sin nginx de por medio). **Modelo elegido: centralizado, con
+  opción local por sucursal** — `$destinos` (sucursal → ruta de red) copia el archivo al PC de mostrador
+  cuando está configurado; sin entrada ahí, esa sucursal corre el script localmente. Queda vacío por
+  ahora (no se inventaron rutas reales). **Pendiente:** llenar `$destinos`, portar `/api/salud`.
 
 ---
 
