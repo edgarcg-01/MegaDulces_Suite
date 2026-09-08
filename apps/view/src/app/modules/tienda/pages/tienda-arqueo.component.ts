@@ -9,6 +9,7 @@ import { SelectModule } from 'primeng/select';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
+import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -57,7 +58,7 @@ interface CortesPersona {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    SelectModule, SegmentedComponent, InputTextModule, TagModule,
+    SelectModule, SegmentedComponent, InputTextModule, TagModule, DialogModule,
     ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -215,7 +216,7 @@ interface CortesPersona {
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
                              [attr.aria-label]="'Cantidad de billetes de $' + d"
                              [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, i)" (focus)="selectAll($event)">
+                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, i)" (focus)="selectAll($event)">
                       <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
                     </label>
                   }
@@ -236,7 +237,7 @@ interface CortesPersona {
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
                              [attr.aria-label]="'Cantidad de monedas de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
                              [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onDenomKey($event, billetes.length + i)" (focus)="selectAll($event)">
+                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, billetes.length + i)" (focus)="selectAll($event)">
                       <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
                     </label>
                   }
@@ -256,15 +257,23 @@ interface CortesPersona {
                 <section class="arq-col arq-col--medios" role="group" aria-label="Medios de pago y movimientos">
                   <h4 class="arq-col-t">Medios de pago y movimientos</h4>
                   <div class="arq-col-rows">
-                    @for (m of mediosCampos; track m.key) {
+                    @for (m of mediosCampos; track m.key; let i = $index) {
                       <label class="arq-den arq-medio">
                         <span class="arq-medio-lbl">{{ m.label }}</span>
-                        <input pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
+                        <!-- Mismo #medioInput y mismo handler que las denominaciones: la
+                             cadena de saltos es UNA sola de punta a punta (↓ en 50¢ cae en
+                             Tarjeta). Si los medios quedan fuera, el operario teclea seis
+                             casillas con el pulgar y toca la pantalla con guantes. -->
+                        <input #medioInput pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
                                [attr.aria-label]="m.label"
                                [value]="medios[m.key] ?? ''" placeholder="0.00"
-                               (input)="onMedioInput(m.key, $event)" (focus)="selectAll($event)">
+                               (input)="onMedioInput(m.key, $event)" (keydown)="onCellKey($event, denoms.length + i)" (focus)="selectAll($event)">
                       </label>
                     }
+                  </div>
+                  <div class="arq-col-tot">
+                    <span>Total</span>
+                    <span class="arq-col-mn">{{ money(totMedios()) }}</span>
                   </div>
                   @if (aTipo() === 'cierre') {
                     <label class="arq-lbl arq-inc">Incidencia
@@ -284,10 +293,18 @@ interface CortesPersona {
             <div class="arq-bar">
               <div class="arq-bar-total">
                 <span class="arq-bar-l">Total contado</span>
-                <span class="arq-bar-v">{{ money(arqTotal()) }}</span>
+                <span class="arq-bar-v">{{ money(totalTurno()) }}</span>
+                <!-- El total del turno es uno, pero se dice de qué está hecho: el
+                     efectivo es lo único que se cuenta a ciegas y lo único que se
+                     compara contra el efectivo esperado del corte. Sin esta línea,
+                     un total que incluye tarjeta se lee como "esto es lo que hay en
+                     el cajón" y no lo es. -->
+                @if (totMedios() > 0) {
+                  <span class="arq-bar-desg">Efectivo {{ money(arqTotal()) }} · Otros medios {{ money(totMedios()) }}</span>
+                }
               </div>
               <p-button type="button" [label]="submitLabel()" icon="pi pi-lock"
-                      [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="submit()"></p-button>
+                      [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="confirmar()"></p-button>
             </div>
           }
 
@@ -540,6 +557,72 @@ interface CortesPersona {
         </div>
         }
       </div>
+
+    <!-- §13 poka-yoke del dinero: sellar un corte es irreversible (queda con hora y
+         se imprime el respaldo), así que antes se muestra QUÉ se va a sellar. No es
+         un "¿estás seguro?" vacío: es el resumen que la persona compara contra los
+         fajos que tiene en la mano. El ticket sale después del sí, no antes. -->
+    <p-dialog [(visible)]="confirmando" [modal]="true" [draggable]="false" [resizable]="false"
+              [dismissableMask]="true" [style]="{ width: '30rem', maxWidth: '95vw' }"
+              styleClass="arq-cfm-dlg" [header]="confirmTitulo()">
+      <div class="arq-cfm">
+        <div class="arq-cfm-hd">
+          @if (turnoSel(); as t) {
+            <span>{{ branchLabel(t.warehouse_code) }} · Caja {{ t.caja }}</span>
+            <span class="muted">{{ t.cajero_code || '—' }} · {{ t.business_date | date:'dd/MM/yy' }}</span>
+          } @else {
+            <span>{{ branchLabel(aSuc) || '—' }} · Caja {{ aCaja || '—' }}</span>
+            <span class="muted">{{ aCajero || '—' }} · {{ hoyTxt() }}</span>
+          }
+        </div>
+
+        <table class="arq-cfm-t">
+          <tbody>
+            <tr>
+              <td>Billetes</td>
+              <td class="ta-r muted">{{ pzasBilletes() }} pzas</td>
+              <td class="ta-r">{{ money(totBilletes()) }}</td>
+            </tr>
+            <tr>
+              <td>Monedas</td>
+              <td class="ta-r muted">{{ pzasMonedas() }} pzas</td>
+              <td class="ta-r">{{ money(totMonedas()) }}</td>
+            </tr>
+            <tr class="arq-cfm-sub">
+              <td>Efectivo contado</td>
+              <td class="ta-r muted">{{ pzasBilletes() + pzasMonedas() }} pzas</td>
+              <td class="ta-r strong">{{ money(arqTotal()) }}</td>
+            </tr>
+            <!-- Solo los medios declarados: cinco ceros no son información. -->
+            @for (m of mediosDeclarados(); track m.key) {
+              <tr><td>{{ m.label }}</td><td></td><td class="ta-r">{{ money(m.monto) }}</td></tr>
+            }
+          </tbody>
+          <tfoot>
+            <tr><td>Total del turno</td><td></td><td class="ta-r strong">{{ money(totalTurno()) }}</td></tr>
+          </tfoot>
+        </table>
+
+        @if (aTipo() === 'relevo' && aEntrante.trim()) {
+          <p class="arq-cfm-n">Se entrega a <strong>{{ aEntrante }}</strong>.</p>
+        }
+        @if (aIncidencia) { <p class="arq-cfm-n">Incidencia: <strong>{{ incidenciaLabel(aIncidencia) }}</strong></p> }
+        @if (aNota.trim()) { <p class="arq-cfm-n">Nota: {{ aNota }}</p> }
+
+        <p class="arq-cfm-w">
+          <i class="pi pi-lock" aria-hidden="true"></i>
+          Queda sellado con la hora y se imprime el respaldo.
+          @if (revela) { Al guardar se te muestra la diferencia. } @else { Tu encargada lo valida después. }
+        </p>
+      </div>
+
+      <ng-template #footer>
+        <p-button type="button" label="Revisar de nuevo" [text]="true" severity="secondary"
+                  [disabled]="saving()" (click)="confirmando.set(false)"></p-button>
+        <p-button type="button" [label]="confirmCta()" icon="pi pi-check"
+                  [disabled]="saving()" [loading]="saving()" (click)="submit()"></p-button>
+      </ng-template>
+    </p-dialog>
     </div>
   `,
   styles: [`
@@ -553,6 +636,16 @@ interface CortesPersona {
                border-radius: 0 0 var(--r-md) var(--r-md); }
     .arq-bar-total { display: flex; flex-direction: column; line-height: 1.1; }
     .arq-bar-l { font-size: .66rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .arq-bar-desg { font-size: .68rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .arq-cfm-hd { display: flex; flex-direction: column; gap: .1rem; font-size: .82rem; font-weight: 600; margin-bottom: .7rem; }
+    .arq-cfm-hd .muted { font-weight: 400; font-size: .74rem; }
+    .arq-cfm-t { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
+    .arq-cfm-t td { padding: .22rem .1rem; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent); }
+    .arq-cfm-sub td { border-bottom: 1px solid var(--border-color); }
+    .arq-cfm-t tfoot td { padding-top: .35rem; border-bottom: 0; font-size: .95rem; font-weight: 800; }
+    .arq-cfm-n { margin: .5rem 0 0; font-size: .78rem; }
+    .arq-cfm-w { display: flex; align-items: baseline; gap: .4rem; margin: .8rem 0 0; padding-top: .6rem;
+                 border-top: 1px solid var(--border-color); font-size: .76rem; color: var(--text-muted); }
     .arq-bar-v { font-size: 1.5rem; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
     .arq-bar :host ::ng-deep .p-button, .arq-bar ::ng-deep .p-button { margin-left: auto; }
     .arq-turno-n { display: inline-block; margin-right: .3rem; padding: 0 .3rem; border-radius: var(--r-sm);
@@ -700,6 +793,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private readonly zone = inject(NgZone);
 
   @ViewChildren('denomInput') private denomInputs?: QueryList<ElementRef<HTMLInputElement>>;
+  @ViewChildren('medioInput') private medioInputs?: QueryList<ElementRef<HTMLInputElement>>;
 
   /**
    * ¿Se le revela el cuadre? Solo el supervisor del motor (`RECONCILIATION_VER`).
@@ -799,6 +893,17 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly arqTotal = signal(0);
   /** Totales por fajo — los pide el formato y delatan un conteo mal capturado. */
   readonly totBilletes = signal(0);
+  /**
+   * Lo declarado en los otros medios. Entra al TOTAL DEL TURNO que se ve en
+   * pantalla — el turno es una sola cantidad — pero **no** al `total_contado` que
+   * viaja al backend: ese se compara contra el **efectivo** esperado del corte, y
+   * sumarle tarjeta/transferencia inventaría un sobrante del tamaño de la venta
+   * con tarjeta. Es el mismo error que SM.23 sacó del código (acusaba a una cajera
+   * honesta de $18,587). Cada medio se cuadra contra SU columna de Kepler (SM.24).
+   */
+  readonly totMedios = signal(0);
+  /** Efectivo + medios: el número grande de la barra y del diálogo. */
+  readonly totalTurno = computed(() => Math.round((this.arqTotal() + this.totMedios()) * 100) / 100);
   readonly totMonedas = signal(0);
   readonly pzasBilletes = signal(0);
   readonly pzasMonedas = signal(0);
@@ -819,6 +924,28 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   });
   /** +1 por la columna del expander. */
   readonly colspan = computed(() => 6 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
+
+  /** §13 — el diálogo de confirmación: sellar un corte no se hace de un clic. */
+  readonly confirmando = signal(false);
+
+  readonly confirmTitulo = computed(() => {
+    const t = this.aTipo();
+    if (t === 'relevo') return '¿Confirmas el relevo?';
+    if (t === 'retiro') return '¿Confirmas el retiro?';
+    return '¿Confirmas el corte?';
+  });
+  readonly confirmCta = computed(() => {
+    const t = this.aTipo();
+    if (t === 'relevo') return 'Sí, sellar relevo';
+    if (t === 'retiro') return 'Sí, guardar retiro';
+    return 'Sí, guardar y sellar';
+  });
+
+  /** El botón de la barra ya no guarda: pide confirmación con el resumen. */
+  confirmar() {
+    if (!this.canSubmit() || this.saving()) return;
+    this.confirmando.set(true);
+  }
 
   /** §13 estado sucio — hay conteo capturado sin guardar. */
   hasUnsavedChanges(): boolean { return this.dirty(); }
@@ -913,6 +1040,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   onMedioInput(key: string, ev: Event) {
     const v = Number(String((ev.target as HTMLInputElement).value).replace(/[^0-9.]/g, ''));
     if (Number.isFinite(v) && v > 0) this.medios[key] = v; else delete this.medios[key];
+    this.recalcMedios();
     this.dirty.set(true);
   }
 
@@ -947,6 +1075,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       esperado: r.esperado, diff_real: r.diff_real,
       kepler_contado: r.kepler_contado, kepler_billetes: r.kepler_billetes,
       kepler_monedas: r.kepler_monedas, kepler_retirado: r.kepler_retirado,
+      // Lo mismo que confirmo en el dialogo, para que el papel diga el mismo total.
+      medios_declarados: this.mediosDeclarados().map((m) => ({ label: m.label, monto: m.monto })),
       // Lo que la persona acaba de declarar: sale del formulario, no del server.
       tipo: r.tipo, cajero_entrante: this.aEntrante || null,
       turno: t?.turno ?? null,
@@ -989,39 +1119,60 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * por eso este input no es un `p-inputnumber`. Contar efectivo es teclear un
    * número y bajar; una flecha que suma un billete sin aviso es un descuadre.
    */
-  onDenomKey(ev: KeyboardEvent, i: number) {
+  /**
+   * ↑/↓/Enter recorren TODAS las casillas del arqueo en una sola cadena: las 11
+   * denominaciones y los 5 medios. El índice es global (los medios arrancan en
+   * `denoms.length`) y el orden es el de la pantalla, así que ↓ en 50¢ cae en
+   * Tarjeta y ↑ en Tarjeta vuelve a 50¢.
+   */
+  onCellKey(ev: KeyboardEvent, i: number) {
     const salto = ev.key === 'ArrowUp' ? -1 : (ev.key === 'ArrowDown' || ev.key === 'Enter') ? 1 : 0;
     if (!salto) return;
     ev.preventDefault();
-    this.focusDenom(i + salto);
+    this.focusCell(i + salto);
   }
 
-  private focusDenom(i: number) {
-    const inputs = this.denomInputs?.toArray() ?? [];
+  /** Las dos listas concatenadas en el orden del DOM — una sola cadena de foco. */
+  private celdas(): HTMLInputElement[] {
+    return [
+      ...(this.denomInputs?.toArray() ?? []),
+      ...(this.medioInputs?.toArray() ?? []),
+    ].map((r) => r.nativeElement);
+  }
+
+  private focusCell(i: number) {
+    const inputs = this.celdas();
     if (i < 0 || i >= inputs.length) return;
-    const el = inputs[i].nativeElement;
-    el.focus();
-    el.select();
+    inputs[i].focus();
+    inputs[i].select();
   }
 
   /** Al entrar a una casilla se selecciona lo que hay: retecleás encima, no atrás. */
   selectAll(ev: Event) { (ev.target as HTMLInputElement).select(); }
 
   recalc() {
+    this.recalcTotales();
+    this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
+  }
+
+  /** Solo los números — sin tocar `dirty`, para poder limpiar tras guardar. */
+  private recalcTotales() {
     const monto = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0) * d, 0);
     const pzas = (l: number[]) => l.reduce((s, d) => s + (Number(this.denomCount[d]) || 0), 0);
     const b = monto(this.billetes), m = monto(this.monedas);
     this.totBilletes.set(b); this.totMonedas.set(m);
+    this.recalcMedios();
     this.pzasBilletes.set(pzas(this.billetes)); this.pzasMonedas.set(pzas(this.monedas));
     this.arqTotal.set(Math.round((b + m) * 100) / 100);
-    this.dirty.set(true); // §13: cualquier edición ensucia; se limpia solo al guardar OK
   }
 
   // ─────────────────────────── guardar ───────────────────────────
 
   submit() {
     if (this.saving()) return; // §13 idempotencia visual: ignora re-clicks
+    if (!this.canSubmit()) return;
     this.saving.set(true);
+    this.confirmando.set(false);
     const denominations: Record<string, number> = {};
     for (const d of this.denoms) { const n = Number(this.denomCount[d]) || 0; if (n > 0) denominations[String(d)] = n; }
     const medios = Object.keys(this.medios).length ? { ...this.medios } : undefined;
@@ -1053,7 +1204,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         // además se acuerde de darle a un botón es perder el papel la mitad de las
         // veces — y el papel es la prueba física del conteo.
         this.imprimir(r);
-        this.denomCount = {}; this.arqTotal.set(0); this.medios = {};
+        this.denomCount = {}; this.medios = {}; this.recalcTotales();
         this.cargarTurnos();  // el turno arqueado sale de la lista
         this.load();
       },
@@ -1120,6 +1271,19 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         },
         error: () => this.setCortes(key, { loading: false, error: true, turnos: [], arqueados: 0, pct: 0 }),
       });
+  }
+
+  /** Suma de los medios declarados. Se llama también al teclear un medio. */
+  private recalcMedios() {
+    const t = this.mediosCampos.reduce((s, m) => s + (Number(this.medios[m.key]) || 0), 0);
+    this.totMedios.set(Math.round(t * 100) / 100);
+  }
+
+  /** Solo los medios con monto: cinco ceros en el resumen no son información. */
+  mediosDeclarados(): { key: string; label: string; monto: number }[] {
+    return this.mediosCampos
+      .map((m) => ({ key: m.key, label: m.label, monto: Number(this.medios[m.key]) || 0 }))
+      .filter((m) => m.monto > 0);
   }
 
   private setCortes(key: string, v: CortesPersona) { this.cortesCache.update((m) => ({ ...m, [key]: v })); }
