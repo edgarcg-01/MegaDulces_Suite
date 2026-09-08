@@ -39,9 +39,11 @@ hay códigos que cuestan distinto según la plaza — un archivo único mostrar�
 el precio de una sucursal cualquiera (ver comentario de `getPreciosTodos` en
 `apps/api/src/modules/kp/kp.service.ts`).
 
-**Antes de usarlo**: editar `$base`/`$urlSucs` al inicio del script con la
-URL real donde vive `apps/api` (no se dejó una URL de producción adivinada —
-confirmarla con el equipo: Railway público o la IP LAN si corre on-prem).
+Ya apunta a la URL real de producción (confirmado por el equipo, 2026-09-08:
+"todo es por Railway") — la misma que usa `apps/vendor` para llegar al
+backend desde un WebView nativo sin nginx de por medio
+(`https://trademarketing-production-5084.up.railway.app`, ver
+`apps/vendor/src/environments/environment.ts`).
 
 Si algo falla (API caída, JSON corto, sucursal sin datos), el script **no
 toca el archivo bueno anterior** — un respaldo con los precios de ayer sirve
@@ -57,21 +59,25 @@ cd tools\verificador-precios
 
 ## Dos formas de llevarlo a cada sucursal
 
-**A. Generación centralizada + distribución del archivo** (el modelo que ya
-corría en producción, vía Task Scheduler en `.163`): correr el script UNA vez
-al día en un servidor con acceso a `apps/api`, y copiar/sincronizar
+Como el backend vive en Railway (público, no LAN), las dos formas sólo
+necesitan internet normal — ninguna depende de una red interna entre
+sucursales:
+
+**A. Generación centralizada + distribución del archivo**: correr el script
+UNA vez al día en un solo equipo con internet, y copiar/sincronizar
 `generados/verificador-NN.html` al PC de mostrador de la sucursal `NN`
-correspondiente (recurso compartido de red, script de copia, o USB si la
-sucursal no tiene red confiable ni siquiera para eso). Ventaja: un solo lugar
+correspondiente (recurso compartido de red, script de copia, o USB si esa
+sucursal no tiene ni siquiera internet para copiar). Ventaja: un solo lugar
 que puede fallar y avisar; el kiosco de la tienda no necesita saber nada de
-la API.
+la API salvo para el modo en vivo.
 
 **B. Generación local en cada sucursal**: correr el mismo script directamente
-en el PC de mostrador, apuntado al `apps/api` central, con salida a una
-carpeta local que el propio HTML abre. Requiere que esa PC alcance `apps/api`
-al menos una vez al día (para refrescar el respaldo) — el modo híbrido de la
-plantilla ya cubre las horas en que el wifi de esa sucursal falla *entre*
-corridas.
+en el PC de mostrador, con salida a una carpeta local que el propio HTML
+abre. Requiere que esa PC alcance Railway al menos una vez al día (para
+refrescar el respaldo) — el modo híbrido de la plantilla ya cubre las horas
+en que el internet de esa sucursal falla *entre* corridas, y como es la misma
+URL pública que usa el modo en vivo, no hace falta ninguna configuración de
+red adicional a la que ya necesita el verificador para funcionar en vivo.
 
 En ambos casos, agregar una tarea programada de Windows (Task Scheduler) que
 corra `Actualizar_Verificador.ps1` a diario — mismo patrón ya documentado
@@ -86,8 +92,6 @@ reinstala el navegador o se usa modo incógnito.
 
 ## Pendiente
 
-- Confirmar la URL real de `apps/api` en producción y fijarla en el script
-  (hoy es un placeholder `localhost:3334` a propósito).
 - Decidir modelo A o B por sucursal según su conectividad real.
 - `/api/salud` no existe todavía en `apps/api` (se perdió al absorber
   `catalogo-kp`) — sin eso, la frescura del CDC sólo se puede ver vía

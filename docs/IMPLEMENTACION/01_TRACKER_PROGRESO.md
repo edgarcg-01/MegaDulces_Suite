@@ -1848,8 +1848,10 @@ más) — PR aparte para no volver ilegible el diff.
   el servidor sí responde "no encontrado" esa respuesta es autoritativa, no se reintenta con datos
   viejos. README con las dos formas de distribuir (centralizado + copia vs. generación local por
   sucursal) y Task Scheduler. Verificado: balance de `<script>` + parseo JS de los dos bloques (`node -e`
-  con `new Function()`) sin errores. **Pendiente:** fijar la URL real de `apps/api` en el script (hoy
-  placeholder a propósito, no se adivinó), decidir modelo A/B por sucursal, portar `/api/salud`.
+  con `new Function()`) sin errores. Confirmado con el equipo (2026-09-08): "todo es por Railway" — el
+  script apunta a `https://trademarketing-production-5084.up.railway.app` (misma URL que ya usa
+  `apps/vendor` para el WebView nativo, sin nginx de por medio). **Pendiente:** decidir modelo A/B por
+  sucursal, portar `/api/salud`.
 
 ---
 

@@ -135,7 +135,7 @@
   function apiBase(){ try { return localStorage.getItem('mdVerifApi') || _apiMem || ''; } catch(e){ return _apiMem || ''; } }
   function setApiBase(){
     var inp = document.getElementById('cfgInput');
-    inp.value = apiBase() || 'http://192.168.0.245:3000';
+    inp.value = apiBase() || 'https://trademarketing-production-5084.up.railway.app';
     document.getElementById('cfgPanel').style.display = 'flex';
     setTimeout(function(){ inp.focus(); inp.select(); }, 50);
   }

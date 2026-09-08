@@ -36,9 +36,10 @@
 #     Solo se reemplazan lineas que YA sean un <script> suelto del sello.
 #  ----------------------------------------------------------------------------
 #
-#  CONFIGURACION OBLIGATORIA ANTES DE USAR: cambiar $base/$urlSucs abajo por la
-#  URL real donde vive `apps/api` (Railway u on-prem). No se dejo una URL de
-#  produccion adivinada aqui a proposito -- confirmarla con el equipo.
+#  URL de produccion confirmada por el equipo (2026-09-08, "todo es por
+#  Railway"): la misma que ya usa `apps/vendor` para llegar al backend desde
+#  un WebView nativo sin nginx de por medio (ver
+#  apps/vendor/src/environments/environment.ts, NATIVE_API_URL).
 # ============================================================================
 
 $ErrorActionPreference = 'Stop'
@@ -47,12 +48,8 @@ $repo      = $PSScriptRoot
 $salida    = Join-Path $repo 'generados'
 $log       = Join-Path $repo 'actualizar_verificador.log'
 
-# TODO: reemplazar por la URL real de apps/api en produccion (Railway u
-# on-prem). Ejemplos de forma, NO usar tal cual:
-#   https://<servicio>.up.railway.app/api/kp/precios-todos
-#   http://192.168.0.245:3334/api/kp/precios-todos   (LAN, si corre on-prem)
-$base      = 'http://localhost:3334/api/kp/precios-todos'
-$urlSucs   = 'http://localhost:3334/api/sucursales'
+$base      = 'https://trademarketing-production-5084.up.railway.app/api/kp/precios-todos'
+$urlSucs   = 'https://trademarketing-production-5084.up.railway.app/api/sucursales'
 
 $plantilla = Join-Path $repo 'Verificador_Precios_OFFLINE.html'
 
