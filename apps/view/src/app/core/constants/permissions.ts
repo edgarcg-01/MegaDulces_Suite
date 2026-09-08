@@ -54,6 +54,8 @@ export enum Permission {
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
   // Proyecto Tienda — análisis semanal de venta por sucursal
   STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
+  // Proyecto Tienda — verificador de precios de mostrador (kiosco, lector de barras)
+  STORE_PRICE_CHECK_VER = 'STORE_PRICE_CHECK_VER',
 
   // Comercial (Fase B+C)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',

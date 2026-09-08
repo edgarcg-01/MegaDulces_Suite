@@ -44,6 +44,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.STORE_ARQUEO_CAPTURAR]: { label: 'Capturar Arqueo Ciego', description: 'La cajera cuenta el efectivo por denominación sin ver el esperado y sella el corte/relevo (Proyecto Tienda).', category: 'Tienda' },
   [Permission.STORE_ARQUEO_VER]: { label: 'Ver Arqueos Ciegos', description: 'Consultar los arqueos ciegos capturados en la sucursal (Proyecto Tienda).', category: 'Tienda' },
   [Permission.STORE_ANALYTICS_VER]: { label: 'Análisis de ventas', description: 'Ver el análisis de venta de la sucursal (rango personalizado o semana): venta, tickets, ticket promedio, productos por ticket, margen, unidades, tendencia y top productos.', category: 'Tienda' },
+  [Permission.STORE_PRICE_CHECK_VER]: { label: 'Verificador de precios', description: 'Consultar en mostrador el precio de venta de un producto por clave o código de barras, con respaldo offline (Proyecto Tienda). Sólo precio de venta: no expone costo ni margen.', category: 'Tienda' },
   [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: edita este panel de permisos para cualquier rol.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
   [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },
