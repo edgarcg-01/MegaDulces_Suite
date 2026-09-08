@@ -1051,6 +1051,15 @@ export class CommercialExpiryReviewsService {
 
       qb = this.scope.applyTo(qb, sc, 'warehouse', 'w.code');
 
+      // El expediente es POR SUCURSAL, así que sólo entran renglones de una
+      // sucursal (código de 2 dígitos) — mismo criterio que la portada y que
+      // `resolveWriteWarehouse`. Sin esto, a quien tiene alcance `all` la tabla
+      // le mezclaba renglones de almacenes-ruta y de almacenes de prueba, con
+      // folio "—" porque nunca les tocó uno: se veía como un expediente roto
+      // cuando en realidad esas filas no son expediente. Cazado mirando la
+      // pantalla, no por el smoke.
+      qb = qb.whereRaw(`w.code ~ '^[0-9]{2}$'`);
+
       if (q.warehouse_id) qb = qb.where('r.warehouse_id', q.warehouse_id);
       if (q.from) qb = qb.where('r.review_date', '>=', q.from);
       if (q.to) qb = qb.where('r.review_date', '<=', q.to);

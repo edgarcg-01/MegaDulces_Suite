@@ -28,7 +28,7 @@ import { ProductSearchComponent, ProductHit } from '../../comercial/components/p
 import { ProductScanFieldComponent } from '../../comercial/components/product-scan-field.component';
 import { ExpiryVoicePanelComponent } from '../../comercial/components/expiry-voice-panel.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { clasificarPlazo, plazoSeverity, plazoIcon, Plazo } from '../../comercial/expiry-plazo';
+import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad, Plazo } from '../../comercial/expiry-plazo';
 // Teclear dígitos pelados (`0327` → 31/03/2027) en vez de pelear con un
 // datepicker: quien captura está de pie frente al anaquel, con el teléfono en
 // una mano. La función es pura y ya estaba probada en la estación de recepción.
@@ -357,7 +357,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
                     <strong class="cad-item-name">{{ e.product_name || e.product_name_raw || e.product_code_raw || 'Sin producto' }}</strong>
                     <span class="cad-item-meta">
                       @if (e.folio) { <code class="cad-folio">{{ e.folio }}</code> · }
-                      <span class="cad-num">{{ e.quantity }}</span> {{ e.unit || 'pz' }}
+                      <span class="cad-num">{{ cant(e.quantity) }}</span> {{ uni(e.quantity, e.unit) }}
                       @if (e.sku) { · <code>{{ e.sku }}</code> }
                       @if (e.location) { · <i class="pi pi-map-marker" aria-hidden="true"></i> {{ e.location }} }
                     </span>
@@ -423,7 +423,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
               <tr class="cad-hrow" (click)="verHoja(h)" tabindex="0" (keydown.enter)="verHoja(h)">
                 <td><span class="cad-num cad-folio">{{ h.folio || '—' }}</span></td>
                 <td>{{ h.product_name || h.product_name_raw || h.product_code_raw || '—' }}</td>
-                <td class="num"><span class="cad-num">{{ h.quantity }}</span> {{ h.unit || 'pz' }}</td>
+                <td class="num"><span class="cad-num">{{ cant(h.quantity) }}</span> {{ uni(h.quantity, h.unit) }}</td>
                 <td><span class="cad-num">{{ echo(ymd(h.expiry_date)) || '—' }}</span></td>
                 <td>
                   @if (plazoDe(h); as pz) { <p-tag [value]="pz.title" [severity]="sev(pz.level)"></p-tag> }
@@ -945,6 +945,8 @@ export class TiendaCaducidadesComponent {
   echo(iso: string | null): string { return formatExpiryEcho(iso); }
   icono(l: Plazo['level']): string { return plazoIcon(l); }
   sev(l: Plazo['level']) { return plazoSeverity(l); }
+  cant(v: number | string | null | undefined): string { return formatCantidad(v); }
+  uni(v: number | string | null | undefined, u: string | null | undefined): string { return formatUnidad(v, u); }
 
   // ── paso 3: cantidad ──
 

@@ -6,7 +6,7 @@ import { ButtonModule } from 'primeng/button';
 import { TagModule } from 'primeng/tag';
 
 import { ComercialService, ExpiryHoja } from '../../comercial/comercial.service';
-import { clasificarPlazo, plazoSeverity, Plazo } from '../../comercial/expiry-plazo';
+import { clasificarPlazo, plazoSeverity, formatCantidad, formatUnidad, Plazo } from '../../comercial/expiry-plazo';
 import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
 
 /**
@@ -110,7 +110,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
                 </tr>
                 <tr>
                   <th scope="row">Cantidad</th>
-                  <td><span class="hoja-mono hoja-strong">{{ h.quantity }}</span> {{ h.unit || 'pz' }}</td>
+                  <td><span class="hoja-mono hoja-strong">{{ cant(h.quantity) }}</span> {{ uni(h.quantity, h.unit) }}</td>
                 </tr>
                 <tr>
                   <th scope="row">Fecha de caducidad</th>
@@ -148,7 +148,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
                   <th scope="row">Reflejado en inventario</th>
                   <td>
                     @if (h.fed_to_fefo) {
-                      Sí — <span class="hoja-mono">{{ h.fefo_qty }}</span> {{ h.unit || 'pz' }} quedaron fechados en el control de caducidad (FEFO)
+                      Sí — se fecharon <span class="hoja-mono">{{ cant(h.fefo_qty) }}</span> {{ uni(h.fefo_qty, h.unit) }} en el control de caducidad (FEFO)
                     } @else {
                       No — la hoja queda como registro; no movió inventario
                     }
@@ -321,6 +321,8 @@ export class TiendaCaducidadHojaComponent {
   }
   fecha(v: string | null | undefined): string { return formatExpiryEcho(this.ymd(v)) || '—'; }
   sev(l: Plazo['level']) { return plazoSeverity(l); }
+  cant(v: number | string | null | undefined): string { return formatCantidad(v); }
+  uni(v: number | string | null | undefined, u: string | null | undefined): string { return formatUnidad(v, u); }
 
   condicion(c: string | null | undefined): string {
     if (c === 'bueno') return 'Bueno';
