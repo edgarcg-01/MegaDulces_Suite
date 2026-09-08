@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### Added — Fase RD: se automatiza el tablero con el que se paga la Ruta Directa (RD.0–RD.8, 2026-09-08)
+
+ (11 hojas) era el tablero manual con el que se opera **y se paga** la Ruta Directa: 13 rutas, 13 choferes y 3 supervisores, cada quincena. Entenderlo encontró cosas en los dos lados.
+
+**En la plataforma** — :  corría **todas** las fechas Wincaja un día hacia atrás. 100% de las filas, 21 sucursales, **542,684 documentos de 2026**. Lo causó RS.12b, una migración de *performance* que declaró en su propio comentario "business_date NO cambia" sin medirlo: el  del Postgres de prod es  y la vista se evalúa en la DB, no en el contenedor. En la frontera de mes, **$793,080** de venta de ruta caían en el mes equivocado. Tres árbitros independientes coincidieron con la fecha cruda: el workbook (SUBTOTAL casa 98.0% contra ella y **0.0%** contra la corrida), el día de la semana (con el bug las rutas trabajaban **domingo** —60,439 líneas— y descansaban **sábado** —105—) y la mecánica de Access.
+
+**En el Excel** — diez defectos que movían dinero, corregidos al migrar y cada uno con su prueba negativa: el tabulador cerraba con  sin rama , así que una venta de $400,000 pagaba **comisión cero**; las rutas 22 y 23 usaban un umbral de  que el resto no; la 322 se quedaba sin factor de supervisor y su chofer cobraba el **100%**;  tenía **seis valores** para el mismo concepto repartidos entre hojas;  daba **$/km = 1** porque su  apuntaba a la columna PERIODO de su propia hoja; y el total de gasto () sumaba bloques rotulados con rutas **24, 25, 300 y 301** que no existen, subdeclarando el combustible **$332,000**.
+
+**Lo entregado**:  (venta por ruta×día declarando su procedencia —  mezclaba neto de Wincaja con bruto del push en la misma columna) · motor de comisiones con las reglas **como filas y no como s**, que reproduce **163 de 163** celdas al centavo con el input del Excel ·  con las **782 filas / $848,610.04 / 34,718.24 lts** del gasto de flota, cuadradas contra la columna cruda · , porque el costo de Wincaja **se re-expresa cada corrida** y el margen de un mes cerrado cambia solo cada noche ·  +  con el **$/km real de 6.12–9.13** ·  en  · y la pantalla .
+
+**Lo que se declara en vez de dibujarse**: $2.78M del Excel sin fuente diaria (Canindo desde el cutover del 15-ago — y no es decode, es que **1 de 6,194 documentos** usa el vendedor de ruta; más Morelia 321/322, cuyos  dejaron de copiarse el **02-jul**, exactamente donde se corta el dato). Las 15 lecturas de odómetro con dígitos mal tecleados se rotulan y **no** se corrigen. Las 5 filas de gasto sin tipo entran como  en vez de adivinarse por su descripción. **10 dudas abiertas** en §9 de [](docs/IMPLEMENTACION/FASES/FASE_RD_INDICADORES_RUTA.md).
+
+8 migraciones (sólo en ; prod pendiente), 3 candados nuevos en la suite con 56 aserciones, builds api + view verdes.
+
+
 ### Changed — ⭐ la venta publicada sube $15.8M / 90 d: el fact contaba sólo el ticket (K.3, 2026-09-08)
 
 **Esta entrada cambia la cifra que ve dirección.** `mart.ventas` — la fuente de `analytics.sales_daily`, y por lo tanto del Command Center, el ABC, la demanda y el margen — filtraba `h.c4=10`: **sólo el ticket de mostrador**. Dos doctypes de VENTA que Kepler sí entrega quedaban afuera. Medido contra prod (90 d, `kepler_ods.kdm2`, anti-réplica `btrim(c1)=sucursal`):
