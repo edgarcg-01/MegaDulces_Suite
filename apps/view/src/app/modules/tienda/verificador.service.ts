@@ -230,13 +230,14 @@ export class VerificadorService {
   private async cargarIndice(sucursal: string): Promise<boolean> {
     if (this.indiceDe === sucursal && this.indice.size) return true;
     const guardado = await this.offline.getSnapshotPrecios(sucursal);
-    const payload = guardado?.datos as SnapshotPayload | undefined;
+    if (!guardado) return false;
+    const payload = guardado.datos as SnapshotPayload | undefined;
     if (!payload?.productos?.length) return false;
     this.snapshot.set({
       sucursal,
       total: payload.total ?? payload.productos.length,
       generado: payload.generado,
-      descargadoAl: guardado!.ultima_sincronizacion,
+      descargadoAl: guardado.ultima_sincronizacion,
     });
     this.armarIndice(sucursal, payload);
     return true;

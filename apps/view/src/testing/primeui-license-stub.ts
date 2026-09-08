@@ -10,6 +10,6 @@
  * (`providePrimeNG({ license })`). Se apunta a este doble por `moduleNameMapper` en
  * `jest.config.ts`, y sólo en tests: el bundle de producción usa el paquete real.
  */
-export function registerLicense(_key?: string): void { /* no-op en tests */ }
+export function registerLicense(): void { /* no-op en tests */ }
 
 export function verifyLicense(): boolean { return true; }
