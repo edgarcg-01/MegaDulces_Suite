@@ -53,6 +53,11 @@ export enum Permission {
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
   // Módulo: Tienda — análisis semanal de venta por sucursal (ISO week, WoW + tendencia)
   STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
+  // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
+  // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume
+  // (`/api/kp/*`, `/api/sucursales`) son `@Public()` porque también los lee el kiosco sin
+  // sesión; esta clave gatea la PANTALLA, que es lo que se le da a una persona.
+  STORE_PRICE_CHECK_VER = 'STORE_PRICE_CHECK_VER',
 
   // Módulo: Comercial — Clientes B2B (Fase B)
   COMMERCIAL_CUSTOMERS_VER = 'COMMERCIAL_CUSTOMERS_VER',
