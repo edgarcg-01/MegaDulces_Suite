@@ -194,6 +194,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'store-caducidades', label: 'Control de Caducidades', route: '/tienda/caducidades', view: [Permission.COMMERCIAL_EXPIRY_VER], manage: [Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
           { id: 'store-analytics', label: 'Análisis de ventas', route: '/tienda/analisis-semanal', view: [Permission.STORE_ANALYTICS_VER], manage: [] },
           { id: 'store-price-check', label: 'Verificador de precios', route: '/tienda/verificador', view: [Permission.STORE_PRICE_CHECK_VER], manage: [] },
+          // `[CH.1.2]` SIN `route` a propósito: la pantalla del checador es `[CH.0.10]` y
+          // todavía no existe. Estar acá lo hace visible y quitable desde /admin/roles (un
+          // permiso fuera del árbol no tiene casilla: nadie lo ve ni lo puede revocar);
+          // sin `route`, los 404/403 no lo ofrecen como salida navegable
+          // (`AccessibleRoutesService` filtra por `!!m.route`).
+          { id: 'hr-attendance-kiosk', label: 'Checador de asistencia (kiosco)', view: [], manage: [Permission.HR_ATTENDANCE_CHECAR] },
         ],
       },
       {

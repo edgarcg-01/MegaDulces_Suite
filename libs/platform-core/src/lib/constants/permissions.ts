@@ -53,6 +53,12 @@ export enum Permission {
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
   // Módulo: Tienda — análisis semanal de venta por sucursal (ISO week, WoW + tendencia)
   STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
+  // Módulo: RH / Asistencia — el acto de checar en el kiosco de una sucursal (Fase CH).
+  // Cuenta de DISPOSITIVO (`checador_kiosco`, una por sitio), no de persona: el empleado
+  // se identifica en la pantalla, no con esta credencial. Restrictivo: no se reparte a
+  // ningún rol existente. ⚠️ La pantalla que gatea es `[CH.0.10]` y todavía no existe.
+  HR_ATTENDANCE_CHECAR = 'HR_ATTENDANCE_CHECAR',
+
   // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
   // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume
   // (`/api/kp/*`, `/api/sucursales`) son `@Public()` porque también los lee el kiosco sin

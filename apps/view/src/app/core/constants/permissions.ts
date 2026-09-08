@@ -54,6 +54,8 @@ export enum Permission {
   STORE_ARQUEO_VER = 'STORE_ARQUEO_VER',
   // Proyecto Tienda — análisis semanal de venta por sucursal
   STORE_ANALYTICS_VER = 'STORE_ANALYTICS_VER',
+  // RH / Asistencia — checar en el kiosco de la sucursal (cuenta de dispositivo, Fase CH)
+  HR_ATTENDANCE_CHECAR = 'HR_ATTENDANCE_CHECAR',
   // Proyecto Tienda — verificador de precios de mostrador (kiosco, lector de barras)
   STORE_PRICE_CHECK_VER = 'STORE_PRICE_CHECK_VER',
 
