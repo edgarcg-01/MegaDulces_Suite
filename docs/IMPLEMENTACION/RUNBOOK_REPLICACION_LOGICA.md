@@ -338,24 +338,25 @@ preparó. Va junto con `wal_level` en la misma edición.
 5432 ni en 1977 se reduce a dos: el **firewall de Windows** del POS, o que la máquina no esté en esa
 IP. Se resuelve con un `ipconfig` en el POS — no con más suposiciones sobre el patrón de IP.
 
-⚠️ Sigue sin confirmarse el **nombre de la base** y el **código de sucursal**. La consulta que los
-trae, en el mismo Query Tool del POS:
+**La base es `md_07`** (confirmado 2026-09-08). Eso hace muy probable que el código de sucursal
+sea `07` —Canindo es `md_06` → sucursal `06`— pero **el nombre de la base no es el código**: el
+valor real es lo que traiga `SELECT DISTINCT sucursal FROM md.kdm1`, y el verificador lo imprime
+en cuanto haya acceso. De ese código cuelgan el sell-out y el corte con Wincaja, así que se
+confirma antes de registrar la rama, no después.
 
-```sql
-SELECT current_database() AS base_actual,
-       (SELECT string_agg(datname, ', ' ORDER BY datname)
-          FROM pg_database WHERE datname LIKE 'md%') AS bases_md,
-       inet_server_addr() AS ip_del_servidor,
-       (SELECT count(*) FROM pg_publication) AS publicaciones,
-       (SELECT count(*) FROM pg_roles WHERE rolname IN ('ods_repl','platform_ro')) AS roles_ya_creados;
-```
+⚠️ **Lo único que falta para poder llegar: la IP del POS.** `192.168.32.32` no responde ni en 5432
+ni en 1977, y `listen_addresses` ya es `*`, así que es el firewall de Windows del POS o una IP
+distinta. No está en el repo: las IPs de los POS viven en la conninfo de cada suscripción
+(`SELECT subconninfo FROM pg_subscription;` en `:5433`), y la de Canindo tampoco figura en el
+código. Se resuelve con un `ipconfig` en el POS.
+
 ### 9.2 En el POS de Madero (lo corre quien tenga superusuario allá)
 
 Todo el alta de base está en un script idempotente que **calca lo que ya corre en los POS `02` y
 `03`** (leído de sus catálogos, no inventado):
 
 ```
-psql -U postgres -d md_NN -f database/scripts/kepler-pos-alta-ods.sql
+psql -U postgres -d md_07 -f database/scripts/kepler-pos-alta-ods.sql
 ```
 
 Crea `platform_ro` (SELECT) y `ods_repl` (REPLICATION), los grants, los *default privileges* para las
@@ -378,8 +379,8 @@ max_slot_wal_keep_size = '20GB'         # tope: si el slot lo excede se invalida
 ```conf
 # pg_hba.conf — DOS renglones, y el segundo se olvida siempre.
 # La replicación lógica conecta a la DB REAL, no al pseudo-db 'replication'.
-host    md_NN    ods_repl       192.168.0.249/32    scram-sha-256
-host    md_NN    platform_ro    192.168.0.249/32    scram-sha-256
+host    md_07    ods_repl       192.168.0.249/32    scram-sha-256
+host    md_07    platform_ro    192.168.0.249/32    scram-sha-256
 ```
 `SELECT pg_reload_conf();` alcanza para `pg_hba` (no requiere reinicio).
 
@@ -393,7 +394,7 @@ hoy `192.168.32.32` no responda ni en 5432 ni en 1977.
 ### 9.3 Comprobar desde acá, antes de seguir
 
 ```
-node database/scripts/verificar-pos-kepler.js --host=<IP_DEL_POS> --port=1977 --db=md_NN
+node database/scripts/verificar-pos-kepler.js --host=<IP_DEL_POS> --port=1977 --db=md_07
 ```
 
 Ocho comprobaciones en el orden en que fallan de verdad: puerto → autenticación de `platform_ro` →
@@ -407,10 +408,10 @@ lanzado en el propio POS da `listen_addresses`, firewall y `pg_hba` por buenos y
 ### 9.4 De este lado, una vez que el verificador esté verde
 
 1. **Réplica + suscripción** — §3.2 de este runbook, o `setup-branch-subscriber.js`. El nombre de la
-   base sigue la convención `kepler_md_NN` y el slot `sub_md_NN`.
+   base sigue la convención `kepler_md_07` y el slot `sub_md_07`.
 2. **Registrar la rama** en `database/importers/lib/kepler-branches.js` (`BRANCHES`), que es la fuente
    única: agregarla ahí la habilita en ~40 importers de una vez. Si no expone `platform_ro` remoto
-   —el caso de Canindo— se marca con `replica: 'kepler_md_NN'` y se lee del espejo local.
+   —el caso de Canindo— se marca con `replica: 'kepler_md_07'` y se lee del espejo local.
 3. **Carril del ODS**: sumarla a `replicate-ods-live.js` para que `ods_live_hot`/`ods_live_mirror` la
    shipeen, y confirmar que aparece en `kepler_ods._sync_status`.
 4. **`wincaja.branches`**: para `32`, poner `kepler_code`, `status`, y `last_movement_date` = el
@@ -455,7 +456,7 @@ en los POS `02` y `03`, medidos el 2026-09-08 (`password_encryption = scram-sha-
    SELECT subname, subconninfo FROM pg_subscription;
    ```
    Sale como `... user=ods_repl password=XXXX`. **No la pegues en un chat ni en un ticket.**
-3. El **nombre de la base** del Kepler de Madero (`md_07`, `md_32`, o lo que le hayan puesto).
+3. El **nombre de la base**: para Madero es `md_07` (confirmado 2026-09-08).
    Si no se sabe: en pgAdmin, al conectarse al POS, el árbol *Databases* la muestra.
 
 ---
@@ -508,7 +509,7 @@ Por línea de comandos es lo mismo:
 
 ```bat
 cd /d C:\ruta\donde\copiaste\el\script
-"C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -d md_NN -f kepler-pos-alta-ods.sql
+"C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -d md_07 -f kepler-pos-alta-ods.sql
 ```
 
 Va a pedir las dos contraseñas por prompt. Al terminar imprime el estado; si algo sale en `0` o en
@@ -516,7 +517,7 @@ Va a pedir las dos contraseñas por prompt. Al terminar imprime el estado; si al
 
 **Opción B — desde pgAdmin.** ⚠️ El *Query Tool* de pgAdmin **no entiende** `\gset`, `\if` ni
 `\prompt` (son de `psql`), así que el script tal cual **no corre ahí**. Pegá este equivalente,
-reemplazando las dos contraseñas y `md_NN`:
+reemplazando las dos contraseñas y `md_07`:
 
 ```sql
 -- 1) Los dos roles. Propósitos distintos, a propósito:
@@ -526,7 +527,7 @@ CREATE ROLE ods_repl    LOGIN REPLICATION PASSWORD 'PONER_LA_DE_REPLICACION';
 
 -- 2) Lectura del schema de Kepler. ods_repl también la necesita: la sincronización inicial
 --    de la replicación lógica LEE las tablas, no sólo el WAL.
-GRANT CONNECT ON DATABASE md_NN TO platform_ro, ods_repl;
+GRANT CONNECT ON DATABASE md_07 TO platform_ro, ods_repl;
 GRANT USAGE ON SCHEMA md TO platform_ro, ods_repl;
 GRANT SELECT ON ALL TABLES    IN SCHEMA md TO platform_ro, ods_repl;
 GRANT SELECT ON ALL SEQUENCES IN SCHEMA md TO platform_ro, ods_repl;
@@ -590,8 +591,8 @@ nunca aunque todo lo demás esté bien:
 
 ```conf
 # ODS de la plataforma (servidor 192.168.0.249)
-host    md_NN    ods_repl       192.168.0.249/32    scram-sha-256
-host    md_NN    platform_ro    192.168.0.249/32    scram-sha-256
+host    md_07    ods_repl       192.168.0.249/32    scram-sha-256
+host    md_07    platform_ro    192.168.0.249/32    scram-sha-256
 ```
 
 Tres detalles que hacen fallar esto:
@@ -599,7 +600,7 @@ Tres detalles que hacen fallar esto:
 - **El orden importa.** `pg_hba` se lee de arriba hacia abajo y gana **la primera línea que
   coincide**. Si más arriba hay un `reject` o una regla que abarque estas IPs, poné estos dos
   renglones **antes**.
-- **La replicación lógica conecta a la base REAL** (`md_NN`), no al pseudo-`replication` — ése es
+- **La replicación lógica conecta a la base REAL** (`md_07`), no al pseudo-`replication` — ése es
   para la replicación física. No pongas `database = replication`.
 - **`scram-sha-256`**, porque el POS `02` corre con `password_encryption = scram-sha-256` (medido).
   Si en este POS ese parámetro dijera `md5`, la contraseña queda guardada en md5 y una línea
@@ -658,7 +659,7 @@ sólo se prueban conectándose de verdad desde el origen. Un `psql` corrido en e
 por buenos y no prueba nada.
 
 ```
-node database/scripts/verificar-pos-kepler.js --host=<IP_DEL_POS> --port=1977 --db=md_NN
+node database/scripts/verificar-pos-kepler.js --host=<IP_DEL_POS> --port=1977 --db=md_07
 ```
 
 Tiene que dar **8 OK / 0 FALTA**. Si no, cada falla dice qué archivo tocar. De control, una que ya
