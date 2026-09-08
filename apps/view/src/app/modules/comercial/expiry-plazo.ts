@@ -58,6 +58,27 @@ export function diasHasta(ymd: string | null | undefined): number | null {
   return Math.round((objetivo - hoy) / 86_400_000);
 }
 
+/**
+ * Cantidad legible. Postgres devuelve `numeric` como string con todos sus
+ * decimales (`"4.000"`), y eso llegaba crudo a la pantalla y **a la hoja que se
+ * imprime y se archiva**: "4.000 caja" se lee como cuatro mil. Se recortan los
+ * ceros de relleno pero se conservan los decimales reales (granel: `2.5` kg).
+ */
+export function formatCantidad(v: number | string | null | undefined): string {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  // `toFixed(3)` antes de limpiar para no arrastrar basura de punto flotante;
+  // después se van los ceros finales y el punto que quede huérfano.
+  return n.toFixed(3).replace(/\.?0+$/, '') || '0';
+}
+
+/** Unidad en plural cuando toca: "1 caja" · "4 cajas" · "2.5 kg" · "10 pz". */
+export function formatUnidad(v: number | string | null | undefined, unit: string | null | undefined): string {
+  const u = String(unit || 'pz');
+  if (u === 'kg' || u === 'pz') return u; // no se pluralizan
+  return Number(v) === 1 ? u : `${u}s`;
+}
+
 /** Clasifica una caducidad. `null` si la fecha no es interpretable todavía. */
 export function clasificarPlazo(ymd: string | null | undefined): Plazo | null {
   const dias = diasHasta(ymd);

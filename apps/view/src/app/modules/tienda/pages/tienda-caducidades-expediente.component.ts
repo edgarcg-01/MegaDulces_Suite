@@ -14,7 +14,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 
 import { ComercialService, ExpiryHoja, ExpedienteBranch } from '../../comercial/comercial.service';
-import { clasificarPlazo, plazoSeverity, Plazo } from '../../comercial/expiry-plazo';
+import { clasificarPlazo, plazoSeverity, formatCantidad, formatUnidad, Plazo } from '../../comercial/expiry-plazo';
 import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
 
 /**
@@ -166,7 +166,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
                 <span class="exp-prod-name">{{ h.product_name || h.product_name_raw || h.product_code_raw || '—' }}</span>
                 @if (h.sku) { <code class="exp-mono exp-sku">{{ h.sku }}</code> }
               </td>
-              <td class="num"><span class="exp-mono">{{ h.quantity }}</span> {{ h.unit || 'pz' }}</td>
+              <td class="num"><span class="exp-mono">{{ cant(h.quantity) }}</span> {{ uni(h.quantity, h.unit) }}</td>
               <td><span class="exp-mono">{{ fecha(h.expiry_date) }}</span></td>
               <td>
                 @if (plazoDe(h); as pz) { <p-tag [value]="pz.title" [severity]="sev(pz.level)"></p-tag> }
@@ -374,4 +374,6 @@ export class TiendaCaducidadesExpedienteComponent {
   fecha(v: string | null | undefined): string { return formatExpiryEcho(this.ymd(v)) || '—'; }
   plazoDe(h: ExpiryHoja): Plazo | null { return clasificarPlazo(this.ymd(h.expiry_date)); }
   sev(l: Plazo['level']) { return plazoSeverity(l); }
+  cant(v: number | string | null | undefined): string { return formatCantidad(v); }
+  uni(v: number | string | null | undefined, u: string | null | undefined): string { return formatUnidad(v, u); }
 }
