@@ -10,6 +10,41 @@
 
 ## [Unreleased]
 
+### Changed — La etiqueta de anaquel usa el espacio que tiene, y la unidad del precio gana jerarquía (ETQ.4, 2026-09-08)
+
+Salió de *"verifica si podemos maximizar el uso de la etiqueta, realiza un análisis BI y si falta darle más jerarquía algún apartado"*.
+
+**El desperdicio, medido.** `fitPrice` sólo *encogía* y **nunca crecía**: el número usaba **57% del alto** de su caja y **46% del área**, siempre. Y el bloque de renglones dejaba **5.9 mm de aire en el 78.4% de las etiquetas**, 13.7 en el 14.6% y **21.2 mm (32% de la etiqueta) en el 5%** que no tiene ningún renglón — o sea **98% dejaba ≥5.9 mm**. ⚠️ `scrollHeight` **no puede medir ese aire**: con `justify-content:center` nunca baja de `clientHeight` y reporta 0 donde hay 5.9 mm; se mide por extensión de los hijos.
+
+**El BI que fija la jerarquía.** De `analytics.v_erp_sales_line_units` (creada el 2026-09-07 y sin ningún consumidor hasta ahora), mostrador `U-D-10` sin rutas, 30 días, 266,495 renglones / $18.75M: el cliente compra la **unidad base en 92.8% de los renglones** (79.9% del importe) y en **cantidad 1-2 en el 86.6%** (71.4% del importe) — o sea el precio base es el número que importa. Por los umbrales de mayoreo pasa el **28% del dinero** con sólo 13% de los renglones, así que también merece presencia.
+
+⭐ **El apartado al que le faltaba jerarquía es la UNIDAD del precio.** `unit_base` es **PAQ en 73.5%**: el número grande es el precio de un **paquete** en 3 de cada 4 etiquetas, y el cliente compra exactamente esa unidad en el 92.8% de los renglones. Estaba rotulada con letra de **2.7 mm**, la más chica del bloque. Leer el número sin su unidad es el error más caro de este repo (ADR-055).
+
+| | antes | después |
+|---|---|---|
+| precio (ponderado por catálogo) | 9.87 mm | **12.06 mm (+22.2%)** |
+| llenado de la caja del precio | área **46%** | área **78%** |
+| · 1 dígito (9.1%) / 2 dígitos (78.2%) | 10.00 / 9.86 | **14.85 / 12.02** |
+| palabra de la unidad | 2.70 mm | **4.20 mm (+56%)** |
+| monto de renglón | 5.12 mm | **6.28 mm (+22.7%)** |
+| aire en la columna derecha | 7.73 mm | **4.32 mm** |
+| alto del código de barras | 5.00 mm | **8.05 mm (+61%)** |
+| precio solapando el brote | 140 de 177 filas | **0** |
+
+**El brote decorativo era el techo.** El límite del precio lo pone el ancho en el 90% de los casos, pero el alto muerde cuando la franja de la unidad crece: medido, con la franja a 6.2 mm el brote **fuera** de la caja da +17.4% y **dentro** da **−0.1%**. Se mudó a la banda del nombre, en amarillo. La guarda no está cableada — `fitPrice` **mide** si hay un obstáculo absoluto en la caja, así que hoy sale 0 sola y mañana protege al número si alguien mete una insignia ahí.
+
+**Dos correcciones de verdad, no de layout:** `mayoreoMin` ya no inventa el umbral (era `wholesale_piece_min_qty || 3` — la etiqueta **afirmaba** "Mayoreo 3+" sin dato; medido, hoy 0 productos lo disparan, así que es el candado), el mayoreo **sin umbral real no se imprime** (17 productos decían "Mayoreo" pelado), y **el realce exige descuento**: 265 productos imprimían chip de oferta sobre un precio con <1% de diferencia — pierden el realce, no el renglón. ⚠️ Los "522 con mayoreo más caro" que aparecen a primera vista son **artefacto de unidad** (413 comparan pieza contra paquete); los reales son 105 y ya estaban ocultos.
+
+**Verificación:** arnés permanente `scripts/etiqueta-geometria.js` sobre un **corpus congelado** de 177 filas (`scripts/fixtures/`), para que el antes y el después se midan sobre las mismas filas; extrae el CSS y las constantes del fuente y deriva su comportamiento de cuáles existen, así que la misma herramienta produce las dos columnas. **Casos límite declarados, no pintados de verde:** `01001` (base $18,345 y caja **$342,299.99**: 6 cifras no caben en 22 mm ni al piso) y tres promos de 79-83 caracteres de nombre; el arnés los lista y se pone rojo si aparece un sku nuevo. **Candado 16 → 27 aserciones**, con tres negativas verificadas en rojo.
+
+⚠️ El arnés reimplementa los bucles del componente, así que puede dar verde estando mal — falta la pata que no puedo correr: **contrastar en el navegador** y **una hoja impresa** con el barcode leído a 5 y a 12 mm. ⚠️ **Séptima vez con el acento grave**, esta vez en un comentario del template: `npm run check:templates` la atrapó al instante.
+
+**No se hizo, con motivo:** ⛔ fabricar un "$ por pieza" para llenar el hueco. Con base=PAQ el paquete **no** está en `pack_size`, y dividir por un factor que no se confía e imprimirlo en un papel es la clase de error de ADR-055.
+
+### Fixed — El build de `view` estaba roto en main (ajeno a este trabajo)
+
+`compras-entradas.component.ts` llamaba `branchName()` desde el template, y una plantilla de Angular sólo puede invocar miembros de la clase: `TS2339` tumbaba el build entero desde el commit `a912bf95 [RE.28.2-4]`. Se expone la función importada como campo `readonly`.
+
 ### Fixed — El precio "a veces se veía más chico": lo decidía una medición hecha antes de que cargara la tipografía (2026-09-07)
 
 Salió de *"últimamente existe un bug que en ocasiones el número se ve más chico, ¿dónde está el error?"*.

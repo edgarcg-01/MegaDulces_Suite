@@ -158,6 +158,78 @@ El bloque de tiers no tenía ajuste **vertical**: con 4 renglones el contenido m
 
 ---
 
+## 10. Maximizar la etiqueta y la jerarquía de la unidad (2026-09-08)
+
+Disparador: *"verifica si podemos maximizar el uso de la etiqueta. realiza un análisis BI y si falta darle más jerarquía algún apartado"*.
+
+### El desperdicio, medido
+
+**La caja del precio nunca se llenaba.** `fitPrice` sólo *encogía* desde 10 mm y **nunca crecía**: el número usaba **57% del alto** de su caja (31.7 × 14.4 mm) siempre, y **46% del área**. Con **78.2%** del catálogo en precios de 2 dígitos y 9.1% de 1 dígito, ~87% podía crecer 17-47%.
+
+**El bloque de renglones quedaba vacío.** Renglones que se imprimen **de verdad** (replicando los getters contra los 9,013 productos — contar columnas de la tabla sobreestima: da 73.7% donde lo real es 78.4%): **0 renglones 5.0% · 1 renglón 14.6% · 2 renglones 78.4% · 3 renglones 1.9%**. Aire: **21.2 mm** (32% de la etiqueta) sin renglones, 13.7 con uno, **5.9 con dos**. → **98% de las etiquetas dejaba ≥5.9 mm de aire.**
+
+⚠️ **`scrollHeight` no puede medir ese aire.** Con `justify-content:center` nunca baja de `clientHeight`: reporta 0 donde hay 5.9 mm, y tampoco ve el desborde por el borde de arriba. Se mide por **extensión de los hijos** (`altoTiers`). Para encoger era un defecto tolerado; para crecer y repartir el sobrante sería un recorte.
+
+### El análisis BI: qué merece la jerarquía
+
+De **`analytics.v_erp_sales_line_units`** (creada el 2026-09-07 y **sin ningún consumidor hasta ahora**), mostrador `U-D-10` sin rutas, 30 días = **266,495 renglones / $18.75M**:
+
+| qué unidad compra el cliente | renglones | importe | | cantidad por renglón | renglones | importe |
+|---|---|---|---|---|---|---|
+| **unidad BASE** | **92.8%** | **79.9%** | | **1-2 (precio firme)** | **86.6%** | **71.4%** |
+| peldaño PAQ | 5.3% | 9.1% | | 3-9 (umbral "3+") | 11.6% | **22.7%** |
+| peldaño CJA | 1.5% | 7.6% | | 10+ (umbral "10+") | 1.3% | **5.3%** |
+
+1. **El precio base es el número que importa**: lo paga el 86.6% de los renglones. Merece ser el más grande — y usaba 57% de su caja.
+2. **El mayoreo mueve el 28% del dinero** con 13% de los renglones. Merece presencia real.
+3. ⭐ **Al apartado que le faltaba jerarquía es la UNIDAD del precio.** `unit_base` es **PAQ en 73.5%** del catálogo de etiquetas: el número grande es **el precio de un PAQUETE en 3 de cada 4 etiquetas**, y el cliente compra exactamente esa unidad en el 92.8% de los renglones. Estaba rotulada con letra de **2.7 mm**, la más chica del bloque. Leer el número sin su unidad es el error más caro de este repo (ADR-055).
+4. El mayoreo dominante es **por paquete** (83.7% de los productos) — el realce ya iba al renglón correcto. `pack_price` sólo existe en 4.4%.
+5. ⚠️ Los **"522 productos con mayoreo más caro"** que aparecen a primera vista son **artefacto de unidad**: 413 son base=PZA comparada contra un mayoreo de paquete. Con la comparación limpia (base=PAQ, 6,441 productos) son **105**, y los getters ya los ocultaban. El descuento real: **mediana 7.9%, p90 9.8%**.
+
+### Lo que cambió
+
+| | antes | después | Δ |
+|---|---|---|---|
+| precio (ponderado por catálogo) | 9.87 mm | **12.06 mm** | **+22.2%** |
+| llenado de la caja del precio | ancho 81% · alto 57% · **área 46%** | ancho 98% · alto 79% · **área 78%** | **+32 pp** |
+| · 1 dígito (9.1%) | 10.00 | **14.85** | +48.5% |
+| · 2 dígitos (78.2%) | 9.86 | **12.02** | +21.9% |
+| · 3 dígitos (12.3%) | 9.87 | 10.36 | +5.0% |
+| palabra de la unidad | 2.70 mm | **4.20 mm** | **+56%** |
+| monto de renglón | 5.12 mm | **6.28 mm** | **+22.7%** |
+| aire en la columna derecha | 7.73 mm | **4.32 mm** | −44% |
+| alto del código de barras | 5.00 mm | **8.05 mm** | **+61%** |
+| precio solapando el brote | 140 de 177 filas | **0** | resuelto |
+| realces de mayoreo sin descuento | 87 realces | **69** (−18) | |
+| jerarquía violada (monto > 70% del precio) | 5 | **1** | |
+
+**Decisiones de Edgar:** el aire va al precio **y** al mayoreo · la unidad gana jerarquía por **franja más grande** (no pegada al número, para no robarle ancho) · el **brote sale a la banda del nombre**, en amarillo · el sobrante va al **código de barras**, hasta 12 mm.
+
+**Por qué el brote tenía que moverse** — el techo del precio lo pone el **ancho** en el 90% de los casos, pero el alto muerde cuando la franja crece. Medido, ponderado por catálogo: con la franja a 6.2 mm, el brote **fuera** de la caja da **+17.4%** y **dentro** da **−0.1%**. Con la franja elegida, dejarlo adentro anulaba el trabajo completo. La guarda no está cableada: `fitPrice` **mide** si hay un obstáculo absoluto en la caja, así que hoy sale 0 sola y mañana protege al número si alguien mete una insignia ahí.
+
+**Y dos correcciones de verdad, no de layout:**
+
+- **`mayoreoMin` ya no inventa el umbral.** Era `wholesale_piece_min_qty || 3`: la etiqueta **afirmaba** "Mayoreo 3+" sin dato (y convertía un 0 o un 1 en 3). Medido: hoy **0 productos** disparan ese default, así que no cambia ninguna etiqueta — es el candado. Y el mayoreo **sin umbral real no se imprime** (17 productos imprimían "Mayoreo" pelado, sin decir desde cuántos): la etiqueta declara un precio que la caja va a cobrar, y un mayoreo sin condición de cantidad fabrica una discusión en el mostrador.
+- **El realce exige descuento.** 265 productos imprimían chip amarillo + trazo grueso —la señal visual de oferta— sobre un precio materialmente igual (<1%). El renglón **no se oculta** (el precio sí es más bajo, y esconderlo sorprendería a quien compare contra la pantalla): pierde el realce.
+
+### Verificación
+
+**Arnés permanente `scripts/etiqueta-geometria.js` + corpus congelado `scripts/fixtures/etiqueta-corpus.json`** (177 filas estratificadas por dígitos × renglones × `unit_base`, con los extremos con nombre). Congelado a propósito: el antes y el después se miden sobre las **mismas filas** — si se re-consulta, un cambio de precio entre corridas se lee como efecto del rediseño. El CSS y las constantes se **extraen del fuente**, y el arnés deriva su comportamiento de qué constantes existen, así que la misma herramienta produce las dos columnas.
+
+**Casos límite DECLARADOS**, no pintados de verde (ADR-056): `01001` GLOBO PARA 120KG (base $18,345, caja **$342,299.99** — 6 cifras no caben en la celda de 22 mm ni al piso de 2.4 mm) y tres promos con **79-83 caracteres** de nombre (`00422`, `59325`, `62253`) que no entran en 78 mm ni al piso de 2.3. Los cuatro estaban igual antes; el arnés los lista y se pone **rojo si aparece un sku nuevo** en cualquiera de esas banderas.
+
+**Candado de 16 → 27 aserciones.** Negativas verificadas: `MONTO_MAX_MM` a 8 (rompe la jerarquía del 70%) · techo fijo sin `FUENTES_OK` · mover sólo el `padding` sin el `inset` — **rojo las tres**. Las nuevas cubren el anti-trinquete, que el aire no se mida con `scrollHeight`, que la guarda del precio se **mida**, el orden de los seis ajustes, el lockstep de la reserva, la jerarquía de la unidad (≥1.5× el rótulo de renglón y sin `text-transform`, porque `bigUnit.word` puede ser "500 g"), que ningún umbral se invente y que el realce exija descuento.
+
+⚠️ **El arnés reimplementa los bucles del componente**, así que puede dar verde estando mal — es el mismo modo de falla que ya se pagó en ETQ.3. Falta la pata que no puedo correr yo: **contrastar contra la app en el navegador** (los dev servers son de Edgar) y **una hoja impresa en papel** con el barcode leído a 5 y a 12 mm.
+
+⚠️ **Séptima vez con el acento grave**: esta vez fue en un comentario del *template*, y `npm run check:templates` la atrapó al instante — por eso el plan exige correrlo tras cada edición, no al final.
+
+**Fuera de alcance, con motivo:** ⛔ **no se fabricó un "$ por pieza"** para llenar el hueco, que era lo más tentador (73.5% de los heros son precio de paquete). Con base=PAQ el paquete **no** está en `pack_size`: dividir por un factor que no se confía e imprimirlo en una etiqueta física es exactamente la clase de error de ADR-055. Para el 5% sin renglones la respuesta honesta es código de barras más grande y blanco centrado (`is-solo`).
+
+**Pendiente:** validación visual en el navegador, una impresión de prueba, y redeploy de `view`.
+
+---
+
 ## 7. Diferido / futuro
 
 - ZPL/térmica nativa (hoy impresión a color por navegador).
