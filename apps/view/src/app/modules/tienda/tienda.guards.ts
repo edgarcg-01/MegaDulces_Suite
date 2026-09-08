@@ -22,5 +22,11 @@ export const storeEntryRedirect = (): string => {
   const god = perms.isAdmin();
   if (god || legacy?.[Permission.STORE_LIVE_VER] === true) return 'live';
   if (legacy?.[Permission.STORE_ARQUEO_VER] === true || legacy?.[Permission.STORE_ARQUEO_CAPTURAR] === true) return 'arqueo';
+  // Etiquetas primero para no cambiarle el destino a nadie que ya lo tenía.
+  if (legacy?.[Permission.STORE_LABELS_VER] === true) return 'etiquetas';
+  // Colaborador de caducidades (2026-09-08): su único permiso de tienda es
+  // CAPTURAR, así que caía en `etiquetas` y el guard de esa ruta lo rebotaba a
+  // `/dashboard/captures` — el mismo síntoma que ya había tenido la cajera.
+  if (legacy?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR] === true || legacy?.[Permission.COMMERCIAL_EXPIRY_VER] === true) return 'caducidades';
   return 'etiquetas';
 };

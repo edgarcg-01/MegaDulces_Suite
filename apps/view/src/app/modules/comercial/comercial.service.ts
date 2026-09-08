@@ -403,6 +403,62 @@ export interface ReviewFile { role: string; url: string; public_id?: string; kin
   /** Firma efímera que devuelve /upload solo para la vista previa; no se persiste. */
   preview_url?: string; }
 
+/** Un producto candidato para un código escaneado/tecleado (GET /expiry-reviews/resolve). */
+export interface ResolveHit {
+  id: string;
+  sku: string | null;
+  nombre: string | null;
+  brand_id: string | null;
+  brand_name: string | null;
+  barcode: string | null;
+  /** Presentacion de venta del catalogo (`unit_sale` x `factor_sale`). */
+  unit_sale: string | null;
+  factor_sale: number | null;
+  /** Ubicacion de anaquel que el catalogo ya conoce (`products.location`). */
+  location: string | null;
+  /** Unidad a la que apunta el código leído (PZA | CJA | PAQ…). */
+  scanned_unit: string | null;
+  factor: number | null;
+  /** Unidad de la hoja sugerida por el código: el EAN de caja pide "caja". */
+  unit_hint: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
+}
+
+export interface ResolveResult {
+  code: string;
+  match: ResolveHit | null;
+  candidates: ResolveHit[];
+  source: 'barcode' | 'sku' | 'legacy_barcode' | 'none';
+  out_of_scope: boolean;
+}
+
+/** P2.7 — campos que el asistente de voz fue entendiendo. */
+export interface VoiceSlots {
+  product_query?: string | null;
+  presentation?: string | null;
+  product_id?: string | null;
+  product_name?: string | null;
+  sku?: string | null;
+  quantity?: number | null;
+  unit?: 'caja' | 'pieza' | 'bulto' | 'kg' | null;
+  expiry_date?: string | null;
+  condition?: 'bueno' | 'regular' | 'malo' | null;
+  location?: string | null;
+  observations?: string | null;
+  action?: string | null;
+}
+
+export interface VoiceTurn { role: 'user' | 'assistant'; content: string; }
+
+export interface VoiceIntakeResult {
+  reply: string;
+  slots: VoiceSlots;
+  candidates: ResolveHit[];
+  /** Esenciales que faltan: 'producto' | 'cantidad' | 'caducidad'. */
+  missing: string[];
+  ready: boolean;
+  degraded?: boolean;
+}
+
 export interface ExpiryReview {
   id: string;
   warehouse_id: string;
@@ -440,6 +496,71 @@ export interface ExpiryReviewLine {
 
 export interface ExpiryReviewDetail extends ExpiryReview {
   lines: ExpiryReviewLine[];
+}
+
+/**
+ * Una caducidad dada de alta desde tienda (captura directa, 2026-09-08).
+ *
+ * Es **el mismo objeto** que una hoja del expediente (`ExpiryHoja`), visto desde
+ * la pantalla que lo acaba de crear: al guardar, el renglón ya recibe su folio y
+ * queda archivado. Alias y no una interfaz aparte justamente para que no puedan
+ * divergir — si el expediente gana un campo, la captura lo tiene.
+ */
+export type ExpiryEntry = ExpiryHoja;
+
+export interface ExpiryWarehouseOption { id: string; code: string; name: string }
+
+/**
+ * Una hoja del expediente = un producto dado de alta, con su folio citable
+ * (`CAD-03-2026-00001`) y quién la levantó. Archivada bajo su sucursal.
+ */
+export interface ExpiryHoja extends ExpiryReviewLine {
+  folio?: string | null;
+  review_id?: string;
+  review_date?: string;
+  warehouse_id?: string;
+  warehouse_code?: string | null;
+  warehouse_name?: string | null;
+  brand_name?: string | null;
+  responsible_name?: string | null;
+  /** Quién levantó ESTA hoja (el `created_by` del renglón, no el del encabezado). */
+  levantada_por?: string | null;
+  /** Días entre hoy y la caducidad, calculados en la base. Negativo = vencido. */
+  dias_a_vencer?: number | null;
+  created_at?: string;
+}
+
+/** Portada del expediente: una fila por sucursal. */
+export interface ExpedienteBranch {
+  id: string;
+  code: string;
+  name: string;
+  hojas: number;
+  vencidos: number;
+  riesgosos: number;
+  ultima_captura: string | null;
+}
+
+/**
+ * Contexto de captura de caducidades.
+ *  `own`  → una sola sucursal (la de su ficha): se muestra como dato, sin picker.
+ *  `many` → su alcance incluye varias: elige de `options`.
+ *  `all`  → admin: elige de todas las sucursales.
+ *  `none` → su usuario no tiene sucursal asignada: no hay dónde capturar.
+ */
+export interface ExpiryCaptureContext {
+  mode: 'own' | 'many' | 'all' | 'none';
+  warehouse: ExpiryWarehouseOption | null;
+  options: ExpiryWarehouseOption[];
+}
+
+/** Producto del buscador propio de caducidades (no exige permiso de catálogo). */
+export interface ExpiryProductHit {
+  id: string;
+  sku: string | null;
+  nombre: string | null;
+  brand_id: string | null;
+  brand_name: string | null;
 }
 
 export interface ExpiryLineInput {
@@ -788,6 +909,35 @@ export class ComercialService {
     if (opts.pageSize != null) params = params.set('pageSize', String(opts.pageSize));
     return this.http.get<Paged<ExpiryReview>>(this.expiryBase, { params });
   }
+  /**
+   * Código → producto. Un solo endpoint para los tres caminos de captura: la
+   * pistola de la cajera (teclea + Enter), la cámara del teléfono, y el código
+   * tecleado a mano. Nunca 404 por "no existe": devuelve match null y la hoja
+   * guarda el renglón raw.
+   */
+  resolveExpiryCode(code: string) {
+    return this.http.get<ResolveResult>(`${this.expiryBase}/resolve`, { params: new HttpParams().set('code', code) });
+  }
+  /**
+   * P2.7 — dictado del asistente de caducidades. Endpoint propio del dominio y
+   * no el de Thot: ese exige `COMMERCIAL_ORDERS_VER`, que el colaborador que
+   * captura caducidades no tiene (403 al primer intento de hablar).
+   */
+  transcribeExpiry(audio: string, mime: string) {
+    return this.http.post<{ text: string; error?: string }>(`${this.expiryBase}/voice/transcribe`, { audio, mime });
+  }
+
+  /**
+   * P2.7 — asistente de voz: manda lo transcrito y devuelve los campos
+   * entendidos + la siguiente pregunta. NO guarda el renglón (co-piloto).
+   */
+  voiceIntake(body: { transcript: string; slots?: VoiceSlots; history?: VoiceTurn[] }) {
+    return this.http.post<VoiceIntakeResult>(`${this.expiryBase}/voice/intake`, body);
+  }
+  /** Fija el producto que el operador eligió entre los candidatos del asistente. */
+  voicePick(slots: VoiceSlots, product_id: string) {
+    return this.http.post<VoiceIntakeResult>(`${this.expiryBase}/voice/pick`, { slots, product_id });
+  }
   getExpiryReview(id: string) {
     return this.http.get<ExpiryReviewDetail>(`${this.expiryBase}/${id}`);
   }
@@ -808,6 +958,67 @@ export class ComercialService {
   }
   submitExpiryReview(id: string) {
     return this.http.post<{ status: string; fed_lines: number; total_lines: number }>(`${this.expiryBase}/${id}/submit`, {});
+  }
+
+  // ── Captura de tienda: una caducidad a la vez ──────────────────────
+  // El colaborador no crea "hojas" ni elige sucursal: da de alta un producto y
+  // se guarda solo, en la sucursal de su ficha. `warehouse_id` va solo cuando
+  // quien captura tiene alcance de todas las sucursales (admin) y la eligió.
+
+  /**
+   * Dónde captura esta persona, resuelto por el server. Se pide al abrir la
+   * pantalla: el JWT solo trae el código de 2 dígitos, y con eso no se puede
+   * mostrar el nombre de la sucursal ni saber si hay que ofrecer un picker.
+   */
+  expiryCaptureContext() {
+    return this.http.get<ExpiryCaptureContext>(`${this.expiryBase}/entries/context`);
+  }
+  createExpiryEntry(body: ExpiryLineInput & { warehouse_id?: string }) {
+    return this.http.post<ExpiryEntry>(`${this.expiryBase}/entries`, body);
+  }
+  /** Lo que YO capturé hoy — el eco del turno, para revisar y corregir. */
+  myExpiryEntries(limit?: number) {
+    let params = new HttpParams();
+    if (limit != null) params = params.set('limit', String(limit));
+    return this.http.get<{ data: ExpiryEntry[] }>(`${this.expiryBase}/entries/mine`, { params });
+  }
+  updateExpiryEntry(lineId: string, body: ExpiryLineInput) {
+    return this.http.patch<ExpiryEntry>(`${this.expiryBase}/entries/${lineId}`, body);
+  }
+  deleteExpiryEntry(lineId: string) {
+    return this.http.delete<{ deleted: boolean }>(`${this.expiryBase}/entries/${lineId}`);
+  }
+  /**
+   * Buscador de producto DEL módulo de caducidades. Existe porque
+   * `GET /commercial/products` exige `COMMERCIAL_PRODUCTS_VER`, y el colaborador
+   * de tienda solo tiene `COMMERCIAL_EXPIRY_CAPTURAR`: con el buscador general
+   * no podía escribir el nombre de lo que estaba mirando en el anaquel.
+   */
+  // ── Expediente: una hoja por producto, archivada por sucursal ──
+
+  /** Portada: una fila por sucursal con lo que tiene archivado. */
+  expedienteBranches() {
+    return this.http.get<{ data: ExpedienteBranch[] }>(`${this.expiryBase}/expediente/sucursales`);
+  }
+  listExpediente(opts: { warehouse_id?: string; from?: string; to?: string; plazo?: string; search?: string; page?: number; pageSize?: number } = {}) {
+    let params = new HttpParams();
+    if (opts.warehouse_id) params = params.set('warehouse_id', opts.warehouse_id);
+    if (opts.from) params = params.set('from', opts.from);
+    if (opts.to) params = params.set('to', opts.to);
+    if (opts.plazo) params = params.set('plazo', opts.plazo);
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.page != null) params = params.set('page', String(opts.page));
+    if (opts.pageSize != null) params = params.set('pageSize', String(opts.pageSize));
+    return this.http.get<Paged<ExpiryHoja>>(`${this.expiryBase}/expediente`, { params });
+  }
+  /** Una hoja por folio (`CAD-03-2026-00001`) o por id de renglón. */
+  getExpiryHoja(folioOrId: string) {
+    return this.http.get<ExpiryHoja>(`${this.expiryBase}/hoja/${encodeURIComponent(folioOrId)}`);
+  }
+
+  searchExpiryProducts(q: string, limit = 12) {
+    const params = new HttpParams().set('q', q).set('limit', String(limit));
+    return this.http.get<{ data: ExpiryProductHit[] }>(`${this.expiryBase}/products`, { params });
   }
 
   // ── P2.6 — Promotores de marca propia ──────────────────────────────

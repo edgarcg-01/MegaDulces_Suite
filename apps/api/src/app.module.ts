@@ -53,7 +53,15 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialProfitabilityModule } from '@megadulces/commercial';
-import { CommercialCommissionsModule } from '@megadulces/commercial';
+// `CommercialCommissionsModule` NO existe en el repo. `1df656a7` (refactor CV)
+// dejó este import y su registro abajo, pero los archivos del módulo nunca se
+// commitearon: `git log --all` da 0 commits para ellos y `git ls-tree origin/main`
+// no los encuentra. Resultado: **`nx build api` falla en main**, o sea el CI de
+// TODO PR del repo nace rojo y ningún deploy puede pasar del build.
+//
+// Se quita la referencia al vapor para que main vuelva a compilar. Cuando el
+// módulo aterrice, se re-agrega junto con sus archivos — import y registro van
+// en el mismo commit que el código, no antes.
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
@@ -153,6 +161,14 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
   ? [
       NewDatabaseModule,
       TenantModule,
+      // [ID.2] Alcance de datos (ADR-050). Va ACA, dentro del toggle y DESPUES de
+      // TenantModule: `ScopeService` inyecta `TenantContextService`, que es global
+      // pero SOLO existe si TenantModule se registro antes. Declarado arriba (junto
+      // a AbilityModule) Nest lo inicializaba primero y la app no arrancaba:
+      // `UnknownDependenciesException: ScopeService (KNEX_CONNECTION, ?)`.
+      // Es la misma trampa de orden de carga que ya documenta CLAUDE.md para el
+      // JWT: con @Global() el orden de registro sigue mandando.
+      ScopeModule,
       AuthMtModule,
       TenantsAdminModule,
       DbHealthModule,
@@ -160,7 +176,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialWarehousesModule,
       CommercialPricingModule,
       CommercialProfitabilityModule,
-      CommercialCommissionsModule,
+      // CommercialCommissionsModule,  // ← ver la nota en el import
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
@@ -363,8 +379,6 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     Neo4jModule,
     KeplerDatabaseModule,
     AbilityModule,
-    // [ID.2] Alcance de datos (ADR-050). Global; lo consume /tienda/analisis-semanal.
-    ScopeModule,
     AuthModule,
     UsersModule,
     DailyCapturesModule,
