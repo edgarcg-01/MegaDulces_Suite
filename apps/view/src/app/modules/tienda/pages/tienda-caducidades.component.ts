@@ -34,7 +34,6 @@ import { clasificarPlazo, plazoSeverity, plazoIcon, Plazo } from '../../comercia
 // una mano. La función es pura y ya estaba probada en la estación de recepción.
 import { parseExpiryShort, formatExpiryEcho } from '../../almacen/shared/expiry-short';
 import { Permission } from '../../../core/constants/permissions';
-import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 
 type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
@@ -683,15 +682,15 @@ export class TiendaCaducidadesComponent {
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
   private readonly router = inject(Router);
-  private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
 
   // ── permisos: los dos oficios de la pantalla ──
-  readonly puedeCapturar = computed(() =>
-    this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR]);
-  readonly puedeVer = computed(() =>
-    this.perms.can('manage', 'all') || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_VER]);
+  // `has()` ya deja pasar a los roles de plataforma, así que no hace falta el
+  // `isAdmin() || ...` a mano — y al leer del signal de permisos, la pantalla
+  // reacciona si el permiso cambia sin recargar (`[ID.21]`).
+  readonly puedeCapturar = computed(() => this.perms.has(Permission.COMMERCIAL_EXPIRY_CAPTURAR));
+  readonly puedeVer = computed(() => this.perms.has(Permission.COMMERCIAL_EXPIRY_VER));
 
   // ── contexto (dónde escribo) ──
   readonly ctx = signal<ExpiryCaptureContext | null>(null);
