@@ -114,8 +114,52 @@ function assertAuthWiring(): void {
   }
 }
 
+/**
+ * `[REP.0.5]` Postura de fallo del lado del dev: **no arrancar contra PRODUCCIÓN
+ * en modo desarrollo**.
+ *
+ * El caso que esto frena no es hipotético. El `.env` del repo tiene el handle de
+ * prod (`FLEET_DB_URL`), tres variables distintas llamadas `DATABASE_URL*` que
+ * apuntan a tres bases distintas (GOTCHAS §17), y en agosto la suite de tests
+ * corrió con ese `.env` contra prod y dejó 5 cuentas y 2 tenants de prueba en el
+ * padrón real. Con 51 `@Cron` que hasta REP.0.3 corrían incondicionalmente, una
+ * API de dev apuntada a prod no es "una sesión rara": es una segunda instancia
+ * borrando fotos de Cloudinary y consumiendo la cola fiscal.
+ *
+ * La clasificación la hace la MISMA guarda que usan la suite y el espejo
+ * (`libs/platform-core/.../target-guard.js`) — no una copia de los patrones.
+ *
+ * Sólo aplica fuera de producción: en prod, apuntar a prod es lo correcto.
+ */
+function assertNoEsProdEnDev(): void {
+  if (process.env['NODE_ENV'] === 'production') return;
+
+  // La guarda es CJS a propósito (ver su encabezado: es lo primero que corre
+  // cada script que escribe, y ts-node cuesta ~1.4 s por proceso). Se pide por
+  // ruta relativa y no por el alias `@megadulces/platform-core`, porque el alias
+  // apunta al `index.ts` de la lib y arrastraría medio NestJS a esta función,
+  // que corre ANTES de crear la app.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { classify } = require('../../../libs/platform-core/src/lib/provenance/target-guard.js');
+
+  const candidatas = ['DATABASE_URL_NEW_RUNTIME', 'DATABASE_URL_NEW', 'DATABASE_URL'];
+  for (const nombre of candidatas) {
+    const url = process.env[nombre];
+    if (!url) continue;
+    const r = classify(url);
+    if (r.kind === 'prod') {
+      throw new Error(
+        `[REP.0.5] ${nombre} apunta a PRODUCCIÓN (${r.host}/${r.db}) y NODE_ENV no es "production". ` +
+          'Abortando el arranque: una API de dev contra prod duplica los cron y escribe en el padrón real. ' +
+          'Si de verdad querés correr contra prod, poné NODE_ENV=production.',
+      );
+    }
+  }
+}
+
 async function bootstrap() {
   assertAuthWiring();
+  assertNoEsProdEnDev();
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bodyParser: false,
     // Con LOG_JSON=true, bufferLogs deja que nestjs-pino tome el control (los logs
@@ -268,6 +312,14 @@ async function bootstrap() {
   await app.listen(port, '127.0.0.1');
   console.log(`Application running on 127.0.0.1:${port}`);
   console.log(`WebSocket gateway available at /reports namespace`);
+  // `[REP.0.3]` — se DICE en voz alta. Un interruptor que apaga 51 cron y no
+  // deja rastro en el log es una trampa en las dos direcciones: nadie se entera
+  // de que los apagó, y nadie se entera de que se olvidó de apagarlos.
+  console.log(
+    process.env.DISABLE_CRONS === 'true'
+      ? 'DISABLE_CRONS=true → ScheduleModule NO registrado: los 51 @Cron están inertes en este proceso.'
+      : 'Cron in-process ACTIVOS (51 @Cron). Para apagarlos en dev: DISABLE_CRONS=true.',
+  );
 }
 
 /**
