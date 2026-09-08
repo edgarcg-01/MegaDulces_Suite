@@ -335,13 +335,13 @@ tenencia/verificación · `analytics.delivery_cost_daily`.
 | **RD.1** | Arreglar la fecha de negocio de Wincaja + candado | ✅ `20260907280000` (local; prod pendiente) |
 | **RD.2** | `analytics.v_rd_route_daily` — venta por ruta×día con procedencia | ✅ `20260907290000` (local; prod pendiente) |
 | **RD.0** | Este documento + `GLOSSARY` + ADR + tracker | 🔨 |
-| **RD.6** | Motor de comisiones: escalas versionadas en DB + corrida persistida (borrador→aprobado→pagado) | ✅ `20260908120000/120100/120200` (local; prod pendiente) |
-| **RD.3** | Snapshot del costo del día (cierra §2.3) — tabla real, caso *histórico* de la regla #1 | ⬜ |
+| **RD.6** | Motor de comisiones: escalas versionadas en DB + corrida persistida (borrador→aprobado→pagado) | ✅ `20260908120000/120100/120200` |
+| **RD.4** | Gasto de flota: `logistics.route_expenses` + catálogo + importer + captura web + permisos | ✅ `20260908130000/130100` |
+| **RD.3** | Snapshot del costo (cierra §2.3) — `analytics.route_cost_snapshot` + `v_route_cost_resolved` | ✅ `20260908140000` |
+| **RD.5** | Odómetro + costo fijo + `analytics.v_route_operation_period` | ✅ `20260908160000` |
+| **RD.7** | Objetivo por ruta: `'route'` en `commercial.sales_targets` | ✅ `20260908170000` |
+| **RD.8** | Pantalla `/comercial/comisiones` (tab "Comisiones RD") | ✅ |
 | **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **bloqueado: es captura en el POS, no decode** | ⚠️ BLOCKED |
-| **RD.4** | Gasto de flota: `logistics.route_expenses` + catálogo de 6 tipos + importer del workbook + captura web + permisos repartidos | 🔨 |
-| **RD.5** | Odómetro → `vehicle_usage_logs`, costo fijo → `config_finance`, `analytics.v_route_cost_daily` (vista) → cierra LTV.2 | ⬜ |
-| **RD.7** | Objetivo por ruta: `'route'` al CHECK de `commercial.sales_targets` | ⬜ |
-| **RD.8** | Pestañas en `/comercial/ventas-por-ruta` (Gasto · Comisiones · Costo/km · Objetivo) | ⬜ |
 
 **Orden** (jerarquía de importancia, decidida con Edgar): capa de datos primero (RD.1 ✅, RD.2 ✅),
 después **RD.6** ✅ porque es el que reemplaza trabajo que se paga y **no depende de ningún hueco**,
@@ -387,14 +387,148 @@ se rompe a propósito una vez y se verifica el rojo.
 
 ---
 
-## 7. Preguntas abiertas
+## 7. Lo entregado, con su medición
 
-1. **§2.4a — Canindo.** ¿El encoding `c67` cambió después del 2026-08-18, o las rutas de Canindo
-   facturan por caja (`50C0N`)? Sin esto, agosto en adelante sale incompleto (~$1.77M).
-2. **§2.3 — costo.** ¿Se acepta que el costo histórico se congele con RD.3 desde hoy en adelante, y
-   que lo anterior a RD.3 quede declarado como no reproducible?
-3. **§4 — comisiones.** ¿Se corrigen los defectos al migrar, o se replica el comportamiento actual
-   para que el primer periodo cuadre al centavo? (en CB se decidió **rediseñar, no migrar** → es la
-   recomendación).
-4. **§3.4** — ¿fichas de costo fijo para 28, 321 y 322?
-5. ¿Se retiran las hojas 10-11, o se rehace el objetivo mensual con el calendario quincenal?
+| Sprint | Qué quedó | Cómo se comprobó |
+|---|---|---|
+| **RD.1** | `wincaja.fecha_dia()` + índices nuevos + candado | 542,684 docs corridos un día. Prod (sin arreglo) 3 fallas · `.245` (con) 6 OK / 2 NO MEDIDOS |
+| **RD.2** | `analytics.v_rd_route_daily` con `subtotal_origen` / `venta_origen` / `costo_status` | SUBTOTAL **98.0%** exacto · VENTA **97.2%** · 2,286 celdas |
+| **RD.6** | 7 tablas de comisión + motor + `/comercial/comisiones` | **163/163 al centavo** con el input del Excel · candado **34/34** |
+| **RD.4** | `logistics.route_expenses` + catálogo + importer + captura web | **782 filas, $848,610.04, 34,718.24 lts** al centavo contra la columna cruda · idempotente 782→782 · candado **16/16** |
+| **RD.3** | `analytics.route_cost_snapshot` + `v_route_cost_resolved` | 2,446 observaciones del Excel cargadas ($35,212,581) · el resolvedor declara `solo_captura` en las 2,446 |
+| **RD.5** | `logistics.route_odometer` + `v_route_operation_period` + costo fijo en `config_finance` | `$/km` **6.12–9.13** exacto contra la columna que el libro no consumía (el Excel da **1**) · 160/175 lecturas en banda · `costo_status` declara 16 sin ficha |
+| **RD.7** | `scope='route'` en `commercial.sales_targets` | migración idempotente; el `down()` se niega si hay metas de ruta |
+| **RD.8** | `/comercial/comisiones`, tab "Comisiones RD" | `nx build view` OK |
+
+**Migraciones**: 8, todas aplicadas en `.245`. **Builds** api + view verdes. **Candados** en la
+suite: 3 archivos nuevos, 56 aserciones.
+
+### Lo que se corrigió del Excel, y lo que costaba
+
+| Defecto del libro | Efecto que tenía | Estado |
+|---|---|---|
+| Tabulador sin rama `else` sobre $400,000 | comisión **cero** en la venta más alta | corregido + prueba negativa |
+| Umbral `169,999.99` sólo en rutas 22 y 23 | esas dos cobraban en un tramo donde el resto no | un solo umbral |
+| Factor del supervisor anclado a fila fija | todos los periodos usaban el factor de uno | vive en la escala |
+| Ruta 322 sin factor de supervisor | el chofer cobraba el **100%** | config por ruta |
+| `NOMINA BANCO` con **6 valores** | el neto dependía de qué hoja se imprimiera | uno por zona, y los 163/163 lo confirman |
+| Ruta 28 fuera del rango del bono | bono del supervisor PH subvaluado | alcance por config |
+| `OPERACION!K5` → `$/km = 1` | `COSTO POR KM` y `% RENTABILIDAD` mal en todo el tablero | derivado de la ficha |
+| `Z7` suma rutas 24/25/300/301 inexistentes | subdeclaraba el combustible **$332,000** | el árbitro es la columna cruda |
+| `RESUMEN`: matriz `%` barajada desde la fila 132 | utilidad bruta mal en 6 rutas × 25 de 26 periodos | la hoja no se migró |
+| `RESUMEN`: bloque `W:AA` desplazado 2 columnas | `COSTO DE LA OPERACION = 0` en toda la hoja | la hoja no se migró |
+| `OBJETIVO MENSUAL`: `"CUMPLIDO"` hardcodeado | **$500/ruta pagados sobre dato inventado** | no se migró |
+
+---
+
+## 8. Pendiente operativo (prod)
+
+Las 8 migraciones están **sólo en `.245`**. Para llevarlo a prod:
+
+1. **Push** de los commits de RD (van locales).
+2. **Aplicar las 8 migraciones** una por una (`apply-one-migration-prod.js`), no `migrate:latest`:
+   hay migraciones de otros devs pendientes allá.
+3. **Después de RD.1, obligatorio**: `REFRESH MATERIALIZED VIEW CONCURRENTLY` de
+   `analytics.mv_wincaja_sales_daily` y `analytics.mv_sellout_monthly`; re-correr
+   `import-wincaja-routes-monthly.js` e `import-canindo-routes-monthly.js`; y **re-medir**
+   `test-newdb-sellout-parity.js` — VP.1 comparaba las piernas Kepler/Wincaja en los cutovers con un
+   día de desfase artificial, así que medía un hueco que no existe o tapaba uno que sí.
+4. **Correr los cargadores** (leen el workbook, así que van desde una máquina que lo tenga):
+   `import-route-expenses.js --apply` · `snapshot-route-cost.js --excel --apply` · el del odómetro.
+5. **Agendar** `snapshot-route-cost.js --erp --apply` (diario). Es lo que empieza a medir la deriva
+   del costo; sin eso RD.3 queda con una sola fuente.
+6. **Redeploy** api + view y **re-login**: los 4 permisos nuevos viajan en el JWT.
+
+---
+
+## 9. Dudas abiertas
+
+Ordenadas por lo que bloquean. Ninguna detuvo la construcción — todo lo que dependía de ellas quedó
+**declarado** en el dato, no dibujado como cero.
+
+### 9.1 ⛔ Canindo: ¿por qué el ERP dejó de distinguir la ruta del mostrador?
+
+**Bloquea** ~$1.77M de agosto en adelante, y con eso la comisión de 501-505 de esos periodos.
+
+El catálogo `kduv` de la sucursal 06 **sí tiene** los cinco vendedores de ruta (`00501` Victor Zalapa
+… `00505` Francico Martinez). Pero de los **6,194 documentos** de venta (`U/D/10`) desde el 13-ago,
+**uno solo** los usa: 4,911 dicen `c12='30001'` = *SUCURSAL CANINDO PISO* y 1,282 vienen en blanco. El
+dinero está en `c67 = 50C01` ($1.26M) y `50C02` ($1.29M), las cajas de piso.
+
+O el POS de Canindo dejó de pedir el vendedor al facturar en ruta, o el encoding `c67` cambió después
+del 2026-08-18 (cuando se confirmó `c67 ~ '^500[1-9]$'`). **No es un problema de decodificación: el
+detalle por ruta no existe en la fuente.** El arreglo es operativo, no técnico.
+
+### 9.2 ⛔ Morelia 321/322: ¿de dónde teclea la persona lo que nosotros no tenemos?
+
+**Bloquea** $573,693 de jun–jul, y la serie de esas dos rutas hacia adelante.
+
+Los 13 `.mdb` de ruta en `Z:\Salidas\Bases\Actuales` están congelados, y la fecha de 321/322
+—**02-jul-2026**— es exactamente donde se corta nuestro dato. Para PH (09-jul) y Canindo (15-17 ago)
+el congelamiento es correcto porque migraron al push y a Kepler. **321/322 no migraron a nada y siguen
+vendiendo**: la persona teclea de la máquina viva de la ruta mientras la plataforma lee una copia
+parada. Necesitan fuente viva — el patrón agente-POS que ya está documentado como superior al copiado
+por SMB.
+
+*(Colateral del mismo listado: `42 PIEDAD ABASTOS.MDB` no se toca desde **enero de 2024**.)*
+
+### 9.3 El costo: ¿cuál de las dos cifras es la oficial, y desde cuándo?
+
+`analytics.route_cost_snapshot` ya guarda las 2,446 observaciones del workbook como `excel_captura` —
+el único registro **contemporáneo** que existe para ene–ago 2026. Lo que la réplica tiene hoy ya está
+re-expresado y no hay forma de recuperar lo que decía en enero.
+
+La vista devuelve **las dos cifras y su brecha, sin elegir**, porque sin árbitro externo elegir sería
+inventar. La duda es de negocio: ¿el margen publicado usa la captura (lo que el negocio creyó) o el
+transaccional (lo que el ERP dice hoy)? ¿Y desde qué fecha el snapshot pasa a ser la cifra oficial?
+
+### 9.4 Comisiones: ¿se acepta la corrección o se replica el comportamiento viejo?
+
+El motor corrige diez defectos, así que **la primera corrida va a diferir del Excel** en los periodos
+afectados: las rutas 22 y 23 en el tramo 169,999.99–189,999.99, la 322 (su supervisor ahora cobra), la
+28 en el bono, y cualquier periodo sobre $400,000. En la Fase CB se decidió **rediseñar, no migrar** —
+es la recomendación, pero es plata de gente y la decisión no es técnica.
+
+### 9.5 La deducción del supervisor no está modelada
+
+Es por **persona** y agregada sobre sus rutas (`COMISIONES!K95 = 4,260`, un séptimo valor de nómina),
+no por ruta. Hoy la línea de supervisor trae la *contribución* de cada ruta con `nomina_banco = 0` y el
+neto se suma en el pie de la tabla. No se repartió entre rutas para no inventar una regla que el Excel
+no tiene. Falta decidir la forma: ¿una línea por supervisor con su deducción, o el neto se calcula
+fuera del motor?
+
+### 9.6 Fichas de costo fijo para 28, 321 y 322
+
+No existen en el libro. `costo_status` sale `sin_ficha_de_costo` en 16 periodo×ruta y el `$/km` queda
+`NULL`, no cero. Hacen falta el TOTAL GASTO anual y el KM base de esas tres rutas.
+
+### 9.7 El odómetro tiene dígitos mal tecleados
+
+15 de 175 lecturas, **en pares que se cancelan**: `205095 → 23174`, o sea `223174` con el 2 comido; lo
+mismo en r23, r501 y r504. Se rotulan con `km_status` y no se corrigen — poner el dígito que falta
+sería inventar la lectura. ¿Se corrigen a mano desde la UI, o se recapturan del odómetro real?
+
+### 9.8 Cinco gastos sin tipo y uno incoherente
+
+5 filas entraron como `0 · SIN CLASIFICAR`: cuatro *parecen* gasolina y una "CAMBIOS DE MUELLES"
+*parece* reparación, y parecer no alcanza. Y una fila tipada `1 · PLACAS/ARRENDAMIENTOS` trae 16.74
+litros. Se reclasifican desde la captura web.
+
+### 9.9 El objetivo mensual: ¿se rehace o se retira?
+
+Las hojas 10-11 son de **2021**, con calendario de 13 periodos de 28 días (incompatible con las 27
+quincenas del resto del libro), supervisores que ya no existen, y bloques donde el cumplimiento está
+**hardcodeado** (`AL5="CUMPLIDO"` literal) pagando $500 por ruta sobre un dato inventado. No se
+migraron. `scope='route'` habilita un objetivo de **monto** por ruta y mes, que es cosa distinta: falta
+decidir si los tres KPIs de trade (visitas / desarrollo de marcas / volumen de compra) se rehacen sobre
+el calendario quincenal o se retiran.
+
+### 9.10 Tres maestros de choferes y ninguno concuerda
+
+Ruta 27: `Mariano Martinez Patlan` en `FORMATO DE PAGO` vs `ANGEL ALBERTO VAZQUEZ MEJIA` —el
+supervisor— en `COSTO RD PH`. Las 501-505 son cinco nombres distintos en cada hoja. Se sembró el de
+`FORMATO DE PAGO` (el recibo de pago) y la 505 quedó en `NULL` porque su celda está vacía. Falta el
+maestro bueno, e idealmente el `user_id` de `identity.users` para no terminar con un cuarto.
+
+*(Y RFC/CURP/NSS de la ruta **322 son idénticos a los de la 321**; los VINs se repiten entre PH 26/27,
+CAN 504/505, y CAN 503 = PH 22.)*

@@ -91,13 +91,14 @@ dato → backend → frontend.
 | RD.1 la fecha de Wincaja estaba corrida un día | ✅ 2026-09-07 | mig `20260907280000`. **542,684 docs de 2026, el 100%.** RS.12b, una migración de *performance*, afirmó "business_date NO cambia" sin medirlo. $793,080 de venta de ruta caían en el mes equivocado. Candado + prueba negativa |
 | RD.2 `analytics.v_rd_route_daily` con procedencia | ✅ 2026-09-07 | mig `20260907290000`. `importe` mezclaba neto (Wincaja) y bruto (push) en la misma columna |
 | **RD.6 motor de comisiones** | ✅ 2026-09-08 | migs `20260908120000/120100/120200`. **163/163 celdas al centavo** con el input del Excel. Reglas como filas, no `if`s. 10 defectos del Excel corregidos, cada uno con prueba negativa. Candado 34/34 |
-| RD.4 gasto de flota | 🔨 | `logistics.route_expenses` + catálogo + importer de las 1,647 filas + captura web |
-| RD.3 snapshot del costo | ⬜ | el costo histórico de Wincaja se re-expresa cada corrida |
+| **RD.4 gasto de flota** | ✅ 2026-09-08 | migs `20260908130000/130100`. **782 filas, $848,610.04, 34,718.24 lts** al centavo contra la columna cruda; el total del propio Excel está roto (suma rutas 24/25/300/301 inexistentes, subdeclara $332k). Idempotente. Candado 16/16 |
+| **RD.3 snapshot del costo** | ✅ 2026-09-08 | mig `20260908140000`. 2,446 observaciones del workbook ($35.2M) como registro contemporáneo + observador del ERP sólo-cuando-cambia. La vista devuelve las **dos** cifras y su brecha, y NO elige |
+| **RD.5 odómetro y $/km** | ✅ 2026-09-08 | mig `20260908160000`. $/km **6.12–9.13** exacto (el Excel da **1**: su SUMIF apunta a la columna PERIODO de su propia hoja). 160/175 lecturas en banda; los 15 fuera son dígitos mal tecleados en pares que se cancelan, se rotulan y NO se corrigen |
+| **RD.7 objetivo por ruta** | ✅ 2026-09-08 | mig `20260908170000`. `scope=route` en `sales_targets`; el real sale de `v_rd_route_daily` |
+| **RD.8 pantalla** | ✅ 2026-09-08 | `/comercial/comisiones` + tab. Vista previa sin persistir para cuadrar antes de crear el borrador |
 | RD.2b hueco de Canindo | ⚠️ BLOCKED | **no es decode: es captura en el POS.** `kduv` tiene los 5 vendedores de ruta y **1 de 6,194** documentos los usa; el dinero está en `50C01`/`50C02` con `c12='30001'` = SUCURSAL CANINDO PISO. Kepler ya no distingue ruta de mostrador en Canindo. Arreglo operativo |
-| RD.5 odómetro y $/km (cierra LTV.2) | ⬜ | `logistics.fuel_transactions` está en **0 filas**: el workbook es el dato que LTV.2 declaraba faltante |
-| RD.7 objetivo por ruta · RD.8 pantalla | ⬜ | |
 
-⚠️ **Prod sin tocar**: las 5 migraciones están sólo en `.245`. Al aplicarlas hay que refrescar
+⚠️ **Prod sin tocar**: las **8** migraciones están sólo en `.245`. **10 dudas abiertas** documentadas en §9 de [`FASE_RD`](FASES/FASE_RD_INDICADORES_RUTA.md); ninguna detuvo la construcción — lo que dependía de ellas quedó declarado en el dato. Al aplicarlas hay que refrescar
 `mv_wincaja_sales_daily` y `mv_sellout_monthly`, re-correr los dos importers de ruta, **re-medir
 `test-newdb-sellout-parity`** (VP.1 comparaba las piernas Kepler/Wincaja en los cutovers con un día
 de desfase artificial) y **re-login** (el permiso nuevo va en el JWT).
