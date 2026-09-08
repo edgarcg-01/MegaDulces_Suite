@@ -20,6 +20,21 @@ const { branchUrl, BRANCHES } = require('../lib/kepler-branches');
 
 const CODE = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || '00';
 const APPLY = process.argv.includes('--apply');
+/**
+ * `[SYNC.9]` Override de conexión para una rama que TODAVÍA NO está en `BRANCHES`.
+ *
+ * Por qué hace falta: `kepler-branches.js` es la fuente única de ~40 importers y del carril del ODS,
+ * y el runner corre este working tree **sin** `STOCK_BRANCH_MAP`/`SALES_BRANCH_MAP`/`ODS_LIVE_BRANCHES`
+ * en el env (verificado 2026-09-08). O sea que **agregar la rama ahí ES el cutover**: en la siguiente
+ * pasada su venta entra a los agregados de prod. Y el pre-stage del suscriptor —crear la base local y
+ * clonar el DDL— no tiene nada de eso: es local y reversible.
+ *
+ * Sin este override había que elegir entre registrar la rama antes de tiempo o clonar el DDL a mano.
+ *
+ *   node setup-branch-subscriber.js --branch=07 --host=192.168.32.32 --port=1977 --db=md_07 --apply
+ */
+const val = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').split('=')[1];
+const OVR = val('host') ? { host: val('host'), port: Number(val('port')) || 5432, db: val('db') || `md_${CODE}` } : null;
 const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
 const { replicaDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const DBNAME = replicaDbName(CODE);
@@ -29,7 +44,13 @@ const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
   console.log(`\n=== §8-B subscriber pre-stage: rama ${CODE} → ${DBNAME} (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
   // 1) Leer DDL del publisher (remoto, read-only)
-  const pub = new Client({ connectionString: branchUrl(CODE), connectionTimeoutMillis: 10000, statement_timeout: 120000 });
+  const USER = process.env.KEPLER_RO_USER || 'platform_ro';
+  const PASS = process.env.KEPLER_RO_PASS || 'kepler123';
+  const pubUrl = OVR
+    ? `postgresql://${USER}:${PASS}@${OVR.host}:${OVR.port}/${OVR.db}`
+    : branchUrl(CODE);
+  if (OVR) console.log(`  (rama aun no registrada en BRANCHES: se usa el override ${OVR.host}:${OVR.port}/${OVR.db})`);
+  const pub = new Client({ connectionString: pubUrl, connectionTimeoutMillis: 10000, statement_timeout: 120000 });
   await pub.connect();
   let tables;
   try {
@@ -86,7 +107,7 @@ const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
   printEdgarSteps();
 
   function printEdgarSteps() {
-    const b = BRANCHES.find((x) => x.code === CODE) || {};
+    const b = OVR || BRANCHES.find((x) => x.code === CODE) || {};
     const host = b.host || '192.168.9.95', port = b.port || 5432, db = b.db || `md_${CODE}`;
     console.log(`
   ── En el POS ${host} (Edgar, superuser + OS):

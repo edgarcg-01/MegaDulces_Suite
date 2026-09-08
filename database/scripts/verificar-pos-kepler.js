@@ -7,7 +7,7 @@
  * el firewall y `pg_hba.conf` sólo se prueban conectándose. Un `psql` corrido en el propio POS los
  * da por buenos y no prueba nada.
  *
- * Ocho comprobaciones, en el orden en que fallan de verdad:
+ * NUEVE comprobaciones, en el orden en que fallan de verdad:
  *   1. el puerto responde                        → si no: servicio caído, firewall, o listen_addresses
  *   2. `platform_ro` autentica                   → si no: falta el rol, la password, o el pg_hba
  *   3. `ods_repl` existe y tiene REPLICATION     → sin eso la suscripción no conecta nunca
@@ -15,7 +15,11 @@
  *   5. hay slots y wal_senders libres            → 10/10 en los POS medidos
  *   6. la publicación existe y cubre el schema md
  *   7. se puede LEER de verdad (md.kdm1) y cuál es su última venta
- *   8. ninguna tabla de md sin identidad de fila  → propagarían INSERT pero no UPDATE/DELETE
+ *   8. ninguna tabla de md sin identidad de fila  → propagarian INSERT pero no UPDATE/DELETE
+ *   9. **ods_repl abre una conexion de REPLICACION** → la unica que responde la pregunta real.
+ *      Las de arriba miran pg_roles con los ojos de platform_ro: dicen que el rol existe y tiene
+ *      el atributo, las dos ciertas y las dos insuficientes. El 2026-09-08 este verificador dio
+ *      8 OK / 0 FALTA sobre un POS donde CREATE SUBSCRIPTION era imposible (password distinta).
  *
  * Sólo LEE. No crea nada, no escribe.
  *
@@ -54,6 +58,61 @@ function tcp(host, port, ms = 4000) {
     s.once('error', () => { if (!listo) res(false); });
     s.connect(port, host);
   });
+}
+
+/**
+ * `[SYNC.9]` ¿Puede `ods_repl` abrir una conexión de REPLICACIÓN contra este POS?
+ *
+ * Es la única prueba que responde la pregunta real ("¿va a funcionar `CREATE SUBSCRIPTION`?"), y la
+ * que faltaba. La password sale de la conninfo de una suscripción que ya funciona —así se comprueba
+ * de paso que sea **la misma** que usan las otras ramas— y no se imprime nunca.
+ *
+ * Si no hay `:5433` a mano (se corre desde otra máquina) se declara NO MEDIDO, no verde: sin la
+ * credencial no se puede afirmar nada.
+ */
+async function pruebaDeReplicacion(host, port, db) {
+  const BASE = process.env.KEPLER_REPLICA_BASE
+    || 'postgresql://postgres:superoot@localhost:5433/postgres';
+  let pw = process.env.ODS_REPL_PASS || null;
+  if (!pw) {
+    const a = new Client({ connectionString: BASE, connectionTimeoutMillis: 6000 });
+    try {
+      await a.connect();
+      const { rows } = await a.query(
+        "SELECT subconninfo FROM pg_subscription WHERE subconninfo LIKE '%user=ods_repl%' LIMIT 1");
+      await a.end();
+      const m = rows.length ? /password=([^\s]+)/.exec(rows[0].subconninfo) : null;
+      if (m) pw = m[1];
+    } catch { try { await a.end(); } catch { /* noop */ } }
+  }
+  if (!pw) {
+    ojo('no pude obtener la credencial de `ods_repl` (ni de una suscripción existente ni de '
+      + 'ODS_REPL_PASS) → la prueba de replicación queda NO MEDIDA, que no es lo mismo que OK');
+    return;
+  }
+  const cl = new Client({
+    host, port, database: db, user: 'ods_repl', password: pw,
+    replication: 'database', connectionTimeoutMillis: 12000,
+  });
+  try {
+    await cl.connect();
+    const r = await cl.query('IDENTIFY_SYSTEM');
+    bien(`\`ods_repl\` abre conexión de REPLICACIÓN (timeline ${r.rows[0].timeline}) → `
+      + 'CREATE SUBSCRIPTION va a funcionar');
+    await cl.end();
+  } catch (e) {
+    const m = String(e.message || '');
+    try { await cl.end(); } catch { /* noop */ }
+    mal(`\`ods_repl\` NO puede abrir conexión de replicación: ${m.slice(0, 80)}`,
+      /password|autentif|authentication/i.test(m)
+        ? 'la password de `ods_repl` en este POS NO es la que usan las otras ramas. En el POS:\n'
+          + '        ALTER ROLE ods_repl PASSWORD \'<la misma que las demás>\';\n'
+          + '        (se saca con SELECT subconninfo FROM pg_subscription; en :5433)\n'
+          + '        ⚠️ CREATE SUBSCRIPTION con la password mal REINTENTA en vez de fallar: se ve colgado.'
+        : /pg_hba|no entry/i.test(m)
+          ? 'falta el renglón de `ods_repl` en pg_hba.conf (el de platform_ro no alcanza) + pg_reload_conf()'
+          : 'revisar wal_level=logical y max_wal_senders en el POS');
+  }
 }
 
 (async () => {
@@ -177,6 +236,15 @@ function tcp(host, port, ms = 4000) {
   else ojo(`${sinPk[0].n} tablas de \`md\` sin PK ni REPLICA IDENTITY: propagarían INSERT pero NO update/delete`);
 
   await c.end();
+
+  // 9 ── `[SYNC.9]` LA COMPROBACIÓN QUE DE VERDAD DECIDE: que `ods_repl` pueda ABRIR una conexión
+  //      de REPLICACIÓN. Las de arriba miran `pg_roles` con los ojos de `platform_ro` y dicen que el
+  //      rol existe y tiene el atributo — las dos cosas ciertas y las dos insuficientes.
+  //      Vivido el 2026-09-08 con Madero: este verificador dio **8 OK / 0 FALTA** sobre un POS donde
+  //      `CREATE SUBSCRIPTION` era imposible, porque la password de `ods_repl` no era la que usan las
+  //      otras ramas. Una compuerta que aprueba lo que no funciona es peor que no tenerla.
+  await pruebaDeReplicacion(host, port, db);
+
   console.log(`\n=== ${ok} OK · ${fail} FALTA · ${warn} OJO ===`);
   if (fail) {
     console.log('\nEl POS todavía NO está listo. Qué correr allá: database/scripts/kepler-pos-alta-ods.sql');
