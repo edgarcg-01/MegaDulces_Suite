@@ -18,7 +18,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   ComercialService,
   ExpiryEntry,
-  ExpiryReview,
+  ExpiryHoja,
   ExpiryCaptureContext,
   ExpiryWarehouseOption,
   ReviewFile,
