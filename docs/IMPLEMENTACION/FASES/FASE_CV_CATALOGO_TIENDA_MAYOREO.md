@@ -1209,3 +1209,110 @@ colgantes a los módulos/paths eliminados.
 - Actualizar el rol de DB para que el verificador tenga sólo los grants que
   necesita (`kepler_ods.*` de lectura) — hoy hereda lo que ya tenía
   `app_runtime`, más amplio de lo necesario para este alcance recortado.
+
+---
+
+## CV.24 — El verificador vuelve a ser una PANTALLA de la app (2026-09-08)
+
+### Por qué se rehizo
+
+PR #68 entregaba el verificador como lo que venía siendo en `.163`: un `.ps1` en el
+Task Scheduler que regeneraba a diario un HTML autocontenido de ~2 MB, guardado en
+`tools/verificador-precios/`. El lead lo rechazó, y el motivo es estructural, no de
+gusto: **una superficie que se entrega fuera de la app no tiene ruta, ni permiso, ni
+diseño, ni tests, ni deploy** — tiene una tarea programada que nadie mira hasta que
+falla. Es exactamente el patrón que la Fase CV vino a retirar (un segundo backend con
+su propio bootstrap) repetido en el frontend.
+
+Se rehízo dentro de `apps/view`, con las tres piezas que la app ya tenía y el
+artefacto suelto no podía usar: el **service worker** (offline sin generar archivos),
+**IndexedDB** (snapshot por sucursal) y el **sistema de permisos** (quién puede abrirlo).
+
+### Qué se entregó
+
+| Pieza | Dónde |
+|---|---|
+| Pantalla | `apps/view/.../modules/tienda/pages/tienda-verificador.component.ts` |
+| Datos + offline | `apps/view/.../modules/tienda/verificador.service.ts` |
+| Ruta | `/tienda/verificador` (`app.routes.ts`, gate `STORE_PRICE_CHECK_VER`) |
+| Nav | primer item del proyecto Tienda (`layout.component.ts`) |
+| Caché HTTP | 2 `dataGroups` en `apps/view/ngsw-config.json` |
+| Respaldo local | `OfflineDatabaseService.guardarSnapshotPrecios()` / `getSnapshotPrecios()` |
+| Permiso | enum back + front, `permission-meta`, `authz-tree`, migración `20260909120000` |
+| Ayuda | `context-help.dictionary.ts` → topic `verificador` |
+| Pruebas | `verificador.service.spec.ts` (6) + `tienda-verificador.component.spec.ts` (8) |
+| Retirado | `tools/verificador-precios/` (y con él, el directorio `tools/`) |
+
+**Backend: cero líneas nuevas.** Consume los `@Public()` que el consolidado del 08-sep
+dejó en `apps/api/src/modules/kp/`: `GET /api/kp/precio`, `/api/kp/precios-todos`,
+`GET /api/sucursales`. Los tres derivan de `kepler_ods.*`.
+
+### Las tres decisiones que no son obvias
+
+**1. El snapshot va por SUCURSAL, no por tipo de catálogo.** `KpService.getPreciosTodos`
+ya lo advierte en su propio comentario: sin `sucursal`, `kdii` trae una fila por plaza y
+el código se queda con la que Postgres devuelva primero — **385 códigos tienen precio
+distinto entre sucursales**. Guardar "el catálogo" en un solo registro serviría el precio
+de otra tienda, en silencio y de forma no determinista. De ahí la llave
+`verificador-precios:NN` y la lectura por `get(id)` en vez del índice de `tipo`
+(`where('tipo').first()` habría devuelto una sucursal arbitraria).
+
+**2. Un "no encontrado" del servidor NO cae al respaldo.** La asimetría es el punto: el
+respaldo es más viejo que el ODS, así que re-preguntarle podría resucitar un producto
+dado de baja o un precio ya cambiado. Sólo la falla de **red** (o el timeout de 2.5 s)
+activa el respaldo. Y hay tres estados distintos, no dos: `encontrado`, `no_encontrado`
+(el catálogo contestó y no lo tiene) y `sin_datos` (no hubo con qué contestar). Mostrar
+el vacío ante un fallo de red le afirma al mostrador que el producto no tiene precio, y
+es falso — hay una prueba negativa por cada uno.
+
+**3. La frescura que no se puede medir se declara.** Medido el 2026-09-08 contra `.245`:
+`datos_al` llega **null para las 7 sucursales**, porque `SucursalesService` lo deriva de
+`analytics.cron_runs` con `job_key = 'cdc_wal_' || sucursal` y **esa fila no existe** (el
+CDC por sucursal está muerto; ver Fase OBS). La `FreshnessPill` se oculta sola cuando
+`since` es null, y una píldora ausente se lee igual que "todo bien" — el silencio que
+VP.0 vino a matar. La pantalla ahora dice **"Frescura del ERP sin medir"** con su
+explicación al hover.
+
+### Verificado
+
+- `npx nx build view --skip-nx-cache` → **verde** (sin pipe, la salida se leyó completa).
+- `node_modules/.bin/tsc --noEmit -p apps/api/tsconfig.app.json` → **verde** (se tocó el
+  enum de `platform-core`).
+- `npx nx test view --skip-nx-cache` → **9 suites / 108 tests verdes** (14 nuevos).
+- Los 3 endpoints con `curl` contra el API local, con **datos reales**: `17083` →
+  `ALTOS CAM CHICA COLOR 1KG CLASICA`, KG $62.99 / BTO $1,159.91 (factor 20), IVA 16%.
+- La migración del permiso, **simulada con ROLLBACK** contra `.245`: deriva 5 roles
+  (`auxiliar_tienda`, `direccion`, `encargado_tienda`, `superadmin`, `supervisor`), 0 en
+  `false`, nada quedó escrito.
+- ⚠️ **Un acento grave en un comentario dentro del `template:` rompió el build** (quinta
+  vez en el repo). Los comentarios del template van sin backticks.
+
+### NO verificado
+
+**La validación visual en el navegador.** La sesión del Chrome de la máquina está
+expirada y no hay forma de entrar sin credenciales (no se pidieron ni se fabricaron: se
+intentó una sesión de fixture y el interceptor de 401 la tira, que es el comportamiento
+correcto). El `permissionGuard` manda a `/sin-acceso`, así que la pantalla no se pudo ver
+renderizada con el layout real. Lo que sí se probó del render es en jsdom, con el spec de
+componente (8 aserciones sobre el DOM: la cifra, el rótulo de respaldo, los tres estados,
+la declaración de frescura, el tope del feed).
+
+**Para cerrarlo (3 pasos, ~2 min):**
+
+1. `node database/migrate-newdb.js` (o aplicar sólo `20260909120000_grant_store_price_check_perm.js`).
+2. Re-loguear — el mapa de permisos viaja en el JWT.
+3. Abrir `/tienda/verificador` y mirar: light + dark + móvil, escanear un código real,
+   probar **Modo kiosco**, y con DevTools en *Offline* verificar que aparece
+   "Precio de respaldo" (bajando antes el respaldo con el botón).
+
+### Pendiente / abierto
+
+- **Decidir de dónde sale la frescura por sucursal.** `SucursalesService` lee un `job_key`
+  que hoy nadie escribe. No se cambió por la regla #0: no se adivina una fuente de datos.
+  Candidatos a verificar contra prod: `ods_live_hot` / `ods_live_mirror` (OBS.1) o el
+  `_synced_at` de `kepler_ods.kdii` de esa sucursal.
+- El grant de DB del rol de runtime sigue más amplio de lo que este alcance necesita
+  (pendiente heredado de CV.23).
+- Los dos hallazgos de lógica de CV.23 siguen abiertos y son del backend, no de esta
+  pantalla: factor de caja crudo de `c84` (debería usar `v_product_box_factor`) y el
+  resolve ambiguo por `sku OR barcode`.

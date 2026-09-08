@@ -1464,8 +1464,22 @@ Se midió antes de tocar nada, y el resultado **invalida la premisa** de "poblar
   - **No hay caso general aparte:** medido en todo el padrón activo, las únicas con sucursal y sin zona eran esas 3. Gate permanente en la migración.
   - **Riesgo nulo al quitar el override:** igual que con `warehouse`, **nadie consume la dimensión `zone`** del `ScopeService`. Lo que sí arregla es el otro uso de `zona_id`, que no es alcance: el JWT lo lleva denormalizado y varias pantallas (daily-assignments, captures, seguimiento) lo leen — sin él esas 3 salían como «sin zona asignada». Su `warehouse` no se tocó: el rol trae `own` y las 25 tienen sucursal, así que su arqueo —que **sí** consume esa dimensión— ya resolvía bien.
   - Quedan **2 `zone = all`** (las de telemarketing): sin `warehouse_code` la zona no se les puede derivar. En `all` con el motivo escrito.
-  - ⚠️ **Dos contradicciones encontradas y NO tocadas:** `etiquetas.lpa` (suc `02`) y `rodrigo_ortiz` (suc `01`), ambos `piso_tienda`, tienen `zona = OFICINAS` cuando su sucursal implica LA PIEDAD RD. `OFICINAS` huele a cajón por defecto (22 usuarios, y es zona sin ninguna sucursal), pero pisar un dato existente por una inferencia no se hace: se reporta en cada corrida.
+  - ⚠️ **Dos contradicciones encontradas y NO tocadas:** `etiquetas.lpa` (suc `02`) y `rodrigo_ortiz` (suc `01`), ambos `piso_tienda`, tienen `zona = OFICINAS` cuando su sucursal implica LA PIEDAD RD. `OFICINAS` huele a cajón por defecto (22 usuarios, y es zona sin ninguna sucursal), pero pisar un dato existente por una inferencia no se hace: se reporta en cada corrida. → **la de `etiquetas.lpa` la resolvió `IDG.9.12`** (el lead confirmó que es un perfil de etiquetas de la tienda `02`, no una cuenta de oficina); queda sólo la de `rodrigo_ortiz`.
   - Estado: `warehouse` **30 listed / 7 all** · `route` **4 listed** · `zone` **2 all** · cajeras **25/25 con sucursal y zona**.
+- [x] ✅ **IDG.9.12 Las etiqueteras: una por tienda, y sólo etiquetas** (prod batch **336** + **338**, más `provision-etiqueteras.js`). El lead confirmó que las cuentas `etiquetas.*` existen **exclusivamente para sacar etiquetas** y que hace falta **una por tienda**.
+  - **La etiquetera es CIEGA a la sucursal, medido:** `commercial-labels.controller` no consume ninguna dimensión del `ScopeService`, y `commercial.product_label_prices` **no tiene columna de almacén** — el precio de la etiqueta es el mismo para las 8 tiendas. Así que una cuenta por tienda **no cambia lo que nadie ve**: sirve para tener credencial propia por tienda en vez de una compartida, para saber por `last_login_at` cuál la usa, y para poder revocar una sin tocar las otras. Se dice explícito para que nadie lea «alcance» donde hay «trazabilidad».
+  - **Las 8 tiendas se DERIVAN, no están escritas a mano:** `commercial.warehouses` con zona asignada da exactamente las 8 con caja viva hoy (`01` Padre Hidalgo · `02` La Piedad Abastos · `03` 8ESQ · `04` Yurécuaro · `05` Zamora Centro · `06` Canindo · `30` Morelia Abastos · `32` Morelia Madero) y deja fuera el CEDIS `00` y las 15 filas que son rutas, que no tienen zona. Contrastado contra un hecho independiente: `analytics.store_live_tickets` tiene tickets de HOY en esas 8 y sólo en esas 8. **Morelia `30`/`32` van por Wincaja**, por eso no aparecen en el feed Kepler ni tienen personal en el padrón.
+  - **El sobre-otorgue era real:** las 2 que existían corrían en **`piso_tienda` = 7 permisos**, entre ellos `STORE_ARQUEO_CAPTURAR` —contar el efectivo de la caja, y el backend **sí** lo enforza en `POST /store/arqueo`— y `COMMERCIAL_EXPIRY_CAPTURAR`. Medido en `reconciliation.blind_counts`: **ninguna capturó jamás un arqueo** (sólo cajeras `10c01/02/04` y admins). Permiso de más, no en uso.
+  - ⚠️ **El rol correcto ya existía y no servía de nada:** `etiquetas_anaquel` (creado 2026-07-09) figuraba con **0 usuarios**, pero las 2 etiqueteras —y `rodrigo_ortiz`— ya lo cargaban como **complemento** en `user_roles` (`is_primary = false`), con `piso_tienda` de perfil base. **El JWT lleva la UNIÓN** de los dos (`auth-mt.service`, `[ID.13]`), así que agregar el rol de etiquetas nunca quitó nada: sólo sumó. Tampoco era «sólo etiquetas» (traía `FINANCE_EXPENSES_CAPTURAR`, y alcance `brand`/`customer`/`route` en `all`) → recortado a la **sola clave `STORE_LABELS_VER`** y esas 3 dimensiones a `none`. Sin costo medible: nadie capturó nunca una comprobación de gasto salvo superadmins (`finance.expense_proofs`, `expense_comprobaciones`).
+  - ⚠️ **Cambiar `users.role_name` NO alcanza:** el trigger `sync_primary_role_from_user` **degrada** el rol anterior a complemento en vez de borrarlo, y lo dice a propósito («quitarle un permiso a alguien tiene que ser una decisión explícita»). Pero **degradado sigue sumando al JWT**. Hay que **borrar** la fila de `piso_tienda` en `user_roles`, que es justo lo que el trigger pide que se haga explícito.
+  - ⚠️ **`kind = 'servicio'` habría creado 6 cuentas que nadie puede usar:** `[ID.17]` bloquea el login interactivo para ese `kind` (`auth-mt.service`). Van como `interno`, que es lo correcto: las teclea una persona en el piso.
+  - **Convención `etiquetas.NN`** con la llave canónica de 2 dígitos de `[RE.23]` — inequívoca, porque hay dos «Abastos» (La Piedad `02` y Morelia `30`) y un mnemónico se presta a confusión. Renombrar no huérfana historia: se verificaron las **16 columnas de texto** del padrón que guardan un username y ninguna contiene a las dos viejas.
+  - **`must_change_password = false` a propósito** (batch 338, migración aparte porque la 336 ya estaba aplicada): `etiquetas.04` lo traía en `true`, que es el modo de falla de una credencial de puesto — la primera persona la cambia y **el resto del turno queda afuera**. Excepción acotada y con motivo, no política general.
+  - **Contraseñas:** una distinta por tienda, aleatoria, sin caracteres ambiguos (`0/O`, `1/l/I`) porque se teclean en un kiosco. **No se imprimen ni entran a git**: van a un archivo fuera del repo. El script las verifica con una **prueba negativa** (el hash acepta la contraseña generada y **rechaza** otra distinta).
+  - **Cadena de acceso verificada de punta a punta para una cuenta con UN solo permiso:** login → `/projects` → la tarjeta de Tienda aparece (el `anyOf` que `IDG.9.6` le agregó incluye `STORE_LABELS_VER`) → `/tienda` → `storeEntryRedirect` cae en `etiquetas` → la ruta y el ítem del sidebar están gateados con `STORE_LABELS_VER`. Sin eso, el recorte del rol la habría dejado sin puerta.
+  - Estado en prod: **8 de 8 tiendas con etiquetera**, las 8 con un único rol (`is_primary = true`), sucursal y zona coherentes; `piso_tienda` queda con **1** usuario (`rodrigo_ortiz`, persona real). Padrón: **126** activos.
+  - ⚠️ Cosmético, no tocado: el `nombre` de las de Morelia sale «Etiquetas - Almacén Morelia Abastos (30)» porque se **deriva** del catálogo. Si el nombre molesta, el arreglo es el catálogo, no un string a mano.
+  - ⚠️ Hallazgo colateral: `analytics.store_live_tickets` guarda `warehouse_code = 'MD-30'/'MD-32'` (el `code`) mientras el padrón usa la llave de 2 dígitos, y `store.service.ts:197` compara con un `whereIn` de strings. Inerte para etiquetas, pero si a alguien de Morelia se le da `STORE_LIVE_VER` no vería nada. Sin abrir item: es de la fase de normalización de ALMACÉN.
 - [ ] ⬜ ~~**IDG.9.10** Los **5 overrides `zone = all`** que quedan sin revisar~~ (`44c02`, `44jaec`, `44mdbt` de rol `cajero`, más las 2 de telemarketing) — mismo patrón de `[ID.3]`, misma nota «candidato a recortar», y aún sin medir quién consume la dimensión `zone`.
 - [ ] ⬜ ~~**IDG.9.9** Lo que sigue abierto:~~ el giro de `route: own` (el gate propio reporta pendientes) · los **35** overrides `warehouse = all` restantes, que siguen bloqueados por lo mismo que antes (ninguno tiene `warehouse_code`) · y la fila de `daily_assignments` de `rvph01` en `RUTA 21`, que es la que está mal y conviene corregir desde `/admin/*`.
 - [ ] ⬜ ~~**IDG.9.6** Tres decisiones que faltan:~~ (a) la contradicción de `rvph01` —su ficha dice la ruta cuyo nombre coincide con su username (`RVPH01`) y su asignación dice `RUTA 21`; el repo ya documenta la dualidad `ruta_NN` vs `01NN` en PH, así que pisar el dato sería adivinar—; (b) si los **8 `promotor_ruta` con `last_login_at IS NULL`** son baja real (no tienen asignaciones porque nunca trabajaron: es triage de cuentas fantasma, no alcance); (c) qué eje le toca a **telemarketing** (hoy `warehouse=all`, sin ruta y **sin zona**).
@@ -1846,6 +1860,55 @@ más) — PR aparte para no volver ilegible el diff.
   `verificador-precios` (ya verificado end-to-end contra `KP_CONCENTRADA` real), `Ecommerce-Mayorista`.
   **Pendiente:** actualizar descripción de PR #62, cerrar PR #63 (huérfano), verificación end-to-end
   contra `postgres_platform` si hay acceso.
+
+- [x] **[CV.24]** 🧪 **El verificador de precios se REHACE como pantalla de la app** (2026-09-08)
+  — PR #68 fue **rechazado por el lead** con razón: el verificador vivía *fuera* de la app (un `.ps1`
+  en el Task Scheduler regenerando un HTML autocontenido de 2 MB en `tools/verificador-precios/`).
+  Eso no es una superficie del monorepo, es un artefacto. Rehecho como **página del módulo Tienda**:
+  `/tienda/verificador`, componente standalone `tienda-verificador.component.ts`, superficie
+  **Operations §O.3 Mostrador/POS** (foco permanente en la captura, el precio domina, feed al tope,
+  modo kiosco con overlay + Fullscreen API + Escape, dark de primera clase, PrimeIcons).
+  - **Cero backend nuevo**: consume los `@Public()` que ya existen desde el consolidado del 08-sep
+    (`KpModule` en `apps/api`): `GET /api/kp/precio`, `/api/kp/precios-todos`, `/api/sucursales`.
+    Los tres derivan de `kepler_ods.*` — derive-no-copy, la regla #1.
+  - **Offline con la infra que la app YA tiene**, sin scripts ni archivos generados: `dataGroups` del
+    service worker (`freshness` 2s para la consulta puntual, `performance` 12h para el catálogo) +
+    snapshot **por sucursal** en IndexedDB vía `OfflineDatabaseService` (`guardarSnapshotPrecios`).
+    Por sucursal y no por `tipo` porque **385 códigos tienen precio distinto entre plazas**: un único
+    registro serviría el precio de otra tienda. Auto-descarga si falta o pasó su TTL de 12 h (decisión
+    de Edgar) + botón manual.
+  - **Híbrido con el orden que importa:** ODS primero, respaldo sólo ante fallo de red o >2.5 s, y el
+    origen viaja *con* el precio ("Precio de respaldo" + "Confirma en caja antes de cobrar"). Un
+    **"no encontrado" del servidor es autoritativo y NO cae al respaldo** — el snapshot es más viejo
+    y resucitaría un precio que ya cambió. `sin_datos` (red caída sin respaldo) es una pantalla
+    **distinta** de `no_encontrado`: mostrar el vacío ante un fallo de red le afirma al mostrador que
+    el producto no tiene precio, y es falso.
+  - **Permiso propio `STORE_PRICE_CHECK_VER`** (decisión de Edgar sobre reusar `STORE_LABELS_VER`):
+    enum back + front, `permission-meta`, `authz-tree`, guard de ruta, sidebar. Y **repartido**, no
+    sólo declarado: migración `20260909120000` que **deriva** el alcance del estado vivo (quien tiene
+    `STORE_LIVE_VER` o `STORE_LABELS_VER`), calcando la lección de LC.6.2 — un módulo no está
+    entregado hasta que su permiso está repartido. Simulada con ROLLBACK contra `.245`: **5 roles**
+    (`auxiliar_tienda`, `direccion`, `encargado_tienda`, `superadmin`, `supervisor`).
+    `etiquetas_anaquel` queda **excluido a propósito**: `20260908140000` lo recortó a una sola clave.
+  - **Hallazgo medido, no supuesto:** `datos_al` de `/api/sucursales` llega **null para las 7
+    sucursales** — `analytics.cron_runs` no tiene ninguna fila `cdc_wal_NN` en `.245` (el CDC por
+    sucursal está muerto, ver Fase OBS). La píldora de frescura se **ocultaba sola**, y una píldora
+    ausente se lee igual que "todo bien". La pantalla ahora **declara** "Frescura del ERP sin medir"
+    (ADR-056). ⚠️ **Queda abierto:** decidir de dónde sale la frescura por sucursal —
+    `SucursalesService` lee un `job_key` que hoy nadie escribe.
+  - **Removed:** `tools/verificador-precios/` completo (el directorio `tools/` queda vacío y se va).
+  - **Internal:** `apps/view/jest.config.ts` gana un `moduleNameMapper` para
+    `@primeui/license-manager` — un spec que importara **cualquier** módulo de PrimeNG reventaba
+    antes de arrancar (`@noble/ed25519`/`hashes` son ESM en archivos `.js`), y por eso este app no
+    tenía **ni un** spec de componente. Con el doble no-op ahora sí se puede probar una pantalla.
+  - **Verificado:** `nx build view --skip-nx-cache` verde · `tsc --noEmit` de api verde ·
+    `nx test view` **9/9 suites, 108 tests** (14 nuevos: 6 del servicio + 8 de la pantalla, incluida
+    la prueba negativa de que un `no encontrado` del servidor NO consulta el respaldo) · los 3
+    endpoints ejercidos con `curl` contra el API local y **datos reales**
+    (`17083` → ALTOS CAM CHICA COLOR 1KG, $62.99 KG / $1,159.91 BTO ×20).
+  - ⚠️ **NO verificado: la validación visual en el browser.** La sesión del navegador está expirada
+    y no hay cuenta con la que entrar sin credenciales; el `permissionGuard` (correctamente) manda a
+    `/sin-acceso`. Falta que Edgar abra `/tienda/verificador` logueado. Pasos en `FASE_CV`.
 
 ---
 
