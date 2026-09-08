@@ -873,6 +873,39 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
     ],
   },
 
+  // [CV.24] El verificador de mostrador: la clienta ve el precio, así que las dos reglas
+  // que importan son de dónde salió la cifra y qué unidad está cotizando.
+  verificador: {
+    title: 'Verificador de precios — guía',
+    intro: 'Consulta el precio de venta de un producto por su clave o su código de barras. El precio sale del ERP en el momento; si no hay red, sale del respaldo descargado en esta máquina y la pantalla lo advierte.',
+    groups: [
+      {
+        heading: 'De dónde sale el precio',
+        entries: [
+          { term: 'Precio en línea', def: 'Se consultó al ERP en ese instante. Es el precio vigente.' },
+          { term: 'Precio de respaldo', def: 'No hubo red (o tardó más de 2.5 segundos) y el precio salió del catálogo descargado en esta máquina. Puede haber cambiado desde entonces: antes de cobrar, confirma en caja.' },
+          { term: 'Sin conexión y sin respaldo', def: 'No hay red y esta máquina nunca descargó el catálogo, así que no hay con qué contestar. No significa que el producto no exista.' },
+          { term: 'Respaldo local', def: 'Copia del catálogo de precios de ESTA sucursal guardada en el navegador. Se actualiza sola al entrar si tiene más de 12 horas, y con el botón Actualizar respaldo cuando haga falta.' },
+        ],
+      },
+      {
+        heading: 'Qué precio se muestra',
+        entries: [
+          { term: 'IVA incluido', def: 'La cifra grande es lo que paga el público. El IVA y el IEPS que le aplican se anotan debajo.' },
+          { term: 'Unidad', def: 'El precio va por unidad de venta (pieza, paquete, caja). Si el producto se vende en varias, las demás aparecen listadas debajo con su equivalencia.' },
+          { term: 'Sin precio cargado', def: 'El producto existe pero el ERP no tiene precio de venta para él: no se puede verificar y hay que preguntar en caja.' },
+        ],
+      },
+      {
+        heading: 'La sucursal importa',
+        entries: [
+          { term: 'Por qué se elige sucursal', def: 'El mismo código puede tener precio distinto entre plazas. La pantalla usa la sucursal de tu cuenta; si la máquina del mostrador no tiene cuenta propia, se le pasa la sucursal en la dirección (?sucursal=NN).' },
+          { term: 'Datos hace N', def: 'Qué tan reciente es el dato del ERP para esa sucursal. Si dice horas, el precio pudo cambiar y aún no llegar.' },
+          { term: 'Frescura del ERP sin medir', def: 'El sistema no sabe de cuándo es el dato de esa sucursal porque no le llega el latido del ERP. No significa que el precio esté mal: significa que nadie puede afirmar que esté al día. Es dato para Sistemas.' },
+        ],
+      },
+    ],
+  },
   arqueo: {
     title: 'Arqueo de caja — guía',
     intro: 'Conteo del efectivo físico en la caja. Es CIEGO: cuentas por denominación sin ver el monto esperado; al guardar, el sistema revela tu diferencia real. Solo ves tu sucursal.',

@@ -940,6 +940,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]
       },
       {
+        // [CV.24] Verificador de precios de mostrador (kiosco con lector de barras).
+        // Los endpoints que consume son `@Public()` (`/api/kp/*`, `/api/sucursales`) porque
+        // también los lee un kiosco sin sesión; el permiso gatea la PANTALLA. Acepta
+        // `?sucursal=NN` para la máquina del mostrador que no tiene cuenta de esa tienda.
+        path: 'verificador',
+        loadComponent: () => import('./modules/tienda/pages/tienda-verificador.component').then(m => m.TiendaVerificadorComponent),
+        canActivate: [permissionGuard(Permission.STORE_PRICE_CHECK_VER)]
+      },
+      {
         // Caducidades de tienda (2026-09-08): captura directa, un producto a la
         // vez, en la sucursal del usuario. Reemplaza el alta por "hoja" que
         // vivía acá; `/almacen/inventory/caducidades` sigue con la lista de hojas.
