@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_PLATFORM } from '../platform-db/platform-db.constants';
-import { pgRaw } from '../platform-db/pg-raw.util';
+import { KNEX_NEW_DB } from '@megadulces/platform-core';
+import { pgRaw } from './pg-raw.util';
 
 /** Una unidad de venta con su precio, para el verificador. */
 export interface UnidadPrecio {
@@ -18,7 +18,7 @@ export interface UnidadPrecio {
 // Se usa la clase POSIX [[:space:]] en vez de \s porque el regex viaja dentro
 // de una cadena de JS y el escape se pierde. {0,1} en vez de `?`: equivalente
 // en POSIX/Postgres, pero un `?` literal aquí colisiona con el escaneo de
-// placeholders de knex.raw() — ver platform-db/pg-raw.util.ts.
+// placeholders de knex.raw() — ver pg-raw.util.ts.
 // ─────────────────────────────────────────────────────────────────────────────
 const RE_NUM = "'^[[:space:]]*-{0,1}[0-9]+([.][0-9]*){0,1}[[:space:]]*$'";
 
@@ -33,7 +33,7 @@ const redondea = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
 export class KpService {
   private readonly logger = new Logger(KpService.name);
 
-  constructor(@Inject(KNEX_PLATFORM) private readonly db: Knex) {}
+  constructor(@Inject(KNEX_NEW_DB) private readonly db: Knex) {}
 
   /**
    * Arma la lista de unidades con precio, de la base a la mayor, sin repetir.
@@ -167,17 +167,8 @@ export class KpService {
 
         // Códigos de barras. Kepler no tiene una columna de código de barras:
         // tiene cinco casillas y el capturista usa la que encuentra libre, así
-        // que hay que leerlas todas.
-        //   c7, c82  códigos internos, a veces con el EAN encima
-        //   c93      EAN principal del fabricante (LA ROSA MAZAPAN /30)
-        //   c95      EAN de varias líneas de Mondelez (Trident, Tang)
-        //   c96      segundo EAN de presentaciones multipieza (NESTLE
-        //            FRESKAS 9P: su 7501059281172 sólo vive aquí, salvo en
-        //            Zamora, donde quedó en c82 — el mismo producto tiene las
-        //            casillas en distinto orden según la sucursal)
-        //
-        // Se descartan los que sólo repiten la clave del producto: no aportan
-        // nada como llave de búsqueda y ensucian el archivo del verificador.
+        // que hay que leerlas todas. Se descartan los que sólo repiten la clave
+        // del producto: no aportan como llave de búsqueda.
         const bcs = [...new Set(
           [r.bc1, r.bc2, r.bc3, r.bc4, r.bc5]
             .map(b => String(b || '').trim())
