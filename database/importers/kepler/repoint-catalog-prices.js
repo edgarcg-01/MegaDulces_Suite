@@ -26,7 +26,7 @@ const { declararActor } = require('../lib/declare-actor');
 const M = '00000000-0000-0000-0000-00000000d01c';
 const BASE_LIST = '00000000-0000-0000-0000-0000c0ffee02'; // commercial.price_lists BASE-MXN (is_default)
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
-const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // CANON.1.3 — fuente por default `ods`: kepler_ods.kdii en el MISMO Postgres de prod (same-DB, @min).
 // Reconciliación decidida (Edgar 2026-08-20): EXCLUIR CEDIS (sucursal 00, cotiza mayoreo más alto) +
 // MODA retail (01-06); fallback a CEDIS solo si el SKU no tiene retail. Verificado: 99% de los BASE-MXN
@@ -61,12 +61,12 @@ const SYNC = !process.argv.includes('--gap-fill-only');
     // Piso c90 > 0.05: los $0.01/$0.05 son marcadores de PROMO (solo rutas) → nunca entran al base.
     const rows = (await readSrc.query(`
       WITH retail AS (
-        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS precio
+        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS precio
           FROM ${KSCHEMA}.kdii
          WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0.05 AND btrim(sucursal) <> '00'
          GROUP BY btrim(c1)),
       cedis AS (
-        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS precio
+        SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS precio
           FROM ${KSCHEMA}.kdii
          WHERE btrim(coalesce(c1,'')) <> '' AND c90::numeric > 0.05 AND btrim(sucursal) = '00'
          GROUP BY btrim(c1))

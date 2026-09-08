@@ -64,12 +64,12 @@ function kdiiSql(schema, hasSkus) {
   const ff = hasSkus ? 'AND btrim(k.c1) = ANY($1)' : '';
   return `
     WITH moda_retail AS (
-      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS m
+      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS m
         FROM ${schema}.kdii
        WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) <> '00' ${f}
        GROUP BY btrim(c1)),
     moda_cedis AS (
-      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS m
+      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS m
         FROM ${schema}.kdii
        WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) = '00' ${f}
        GROUP BY btrim(c1)),

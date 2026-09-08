@@ -40,7 +40,7 @@ async function normalizeCost(client, tenantId, skus) {
          GROUP BY btrim(c2)),
       anchor AS (
         SELECT sku, (precio / ${HOUSE})::numeric AS net FROM (
-          SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric) AS precio
+          SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS precio
             FROM kepler_ods.kdii
            WHERE c90::numeric > 0.05 AND btrim(sucursal) <> '00' AND btrim(coalesce(c1,'')) <> '' ${f1}
            GROUP BY btrim(c1)) r),
@@ -252,7 +252,7 @@ function salePriceCtes(scoped) {
          WHERE btrim(coalesce(c1,'')) <> '' AND btrim(coalesce(c11::text,'')) <> '' ${f1}
       ), pos AS (
         SELECT btrim(m2.c8::text) AS sku,
-               mode() WITHIN GROUP (ORDER BY round(m2.c12::numeric,2)) AS precio,
+               mode() WITHIN GROUP (ORDER BY round(m2.c12::numeric,2) DESC) AS precio,
                count(*)::int AS lineas
           FROM kepler_ods.kdm2 m2
           -- La llave del documento son las 7 columnas de la PK (sucursal,c1..c6), no (sucursal,c5,c6):
