@@ -12,7 +12,7 @@ import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComercialService, Warehouse } from '../../comercial/comercial.service';
-import { ErpOrderMatch, ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup, SucursalMapEntry } from '../receiving-session.service';
+import { ErpOrderMatch, ReceivingSessionService, ReceivingSessionListItem, ErpOrderLookup, SucursalMapEntry, FolioYaRecibido } from '../receiving-session.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -120,6 +120,38 @@ import { Permission } from '../../../core/constants/permissions';
             <label class="rs-field"><span>Proveedor (opcional)</span><input pInputText [(ngModel)]="newSupplier" placeholder="ej. C001" /></label>
           }
 
+          @if (folioChoque(); as prev) {
+            <!-- El guard de folio repetido tenía un callejón sin salida: si el vale
+                 previo está cerrado no se puede cancelar, y no había forma de seguir.
+                 Acá se ve contra qué choca y se puede rehacer a propósito. -->
+            <div class="rs-choque" role="alert">
+              <div class="rs-choque-head">
+                <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                <strong>Este folio ya tiene vale</strong>
+              </div>
+              <p class="rs-choque-body">
+                <span class="rs-mono">{{ prev.folio }}</span> · {{ estadoVale(prev.status) }}
+                @if (prev.created_at) { · abierto el {{ fmtDate(prev.created_at) }} }
+              </p>
+              <p class="rs-choque-hint">
+                @if (prev.can_cancel) {
+                  Si fue un error, abrí ese vale y cancelalo. Si la mercancía llegó otra vez, recibila de nuevo.
+                } @else {
+                  Ese vale ya está cerrado: la mercancía entró a inventario y no se puede cancelar.
+                  Recibir de nuevo abre un <strong>segundo</strong> vale para el mismo folio — sólo si de verdad volvió a llegar.
+                }
+              </p>
+              <div class="rs-choque-actions">
+                <button pButton [text]="true" size="small" severity="secondary" (click)="verVale(prev)">
+                  <span class="p-button-icon p-button-icon-left pi pi-external-link" aria-hidden="true"></span> Ver ese vale
+                </button>
+                <button pButton size="small" severity="warn" [loading]="creating()" (click)="create(true)">
+                  <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span> Recibir de nuevo
+                </button>
+              </div>
+            </div>
+          }
+
           <button pButton (click)="create()" [disabled]="!canOpen()" [loading]="creating()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span> Abrir vale</button>
 
           <!-- El caso normal es el vale del ERP; la entrada sin papel es la excepción,
@@ -157,6 +189,12 @@ import { Permission } from '../../../core/constants/permissions';
     .rs-warn { color: var(--warn-fg, #b45309); }
     .rs-serv { color: var(--text-color-secondary); font-style: italic; }
     .rs-nores { font-size: .8rem; color: var(--text-color-secondary); }
+    .rs-choque { border: 1px solid var(--warn-fg, #b45309); border-radius: 10px;
+      background: var(--warn-soft-bg, #fffbeb); padding: .75rem; margin: .25rem 0 .75rem; }
+    .rs-choque-head { display: flex; align-items: center; gap: .4rem; color: var(--warn-fg, #b45309); font-size: .85rem; }
+    .rs-choque-body { margin: .35rem 0 0; font-size: .8rem; }
+    .rs-choque-hint { margin: .35rem 0 .6rem; font-size: .74rem; color: var(--text-color-secondary); line-height: 1.35; }
+    .rs-choque-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
     .rs-origen { margin-top: .9rem; padding-top: .7rem; border-top: 1px solid var(--surface-border); }
     .rs-origen > span { font-size: .72rem; color: var(--text-color-secondary); }
     @media (pointer: coarse) { .rs-match { min-height: 44px; } }
@@ -205,6 +243,8 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   readonly warehouseOptions = computed(() => this.warehouses().map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id })));
   readonly newOpen = signal(false);
   readonly creating = signal(false);
+  /** Vale previo con el que choca el folio; null = sin choque. */
+  readonly folioChoque = signal<FolioYaRecibido | null>(null);
   newWarehouse = '';
   newSupplier = '';
   /**
@@ -257,10 +297,10 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
   }
 
   openNew(): void {
-    this.matches.set([]); this.picked.set(null); this.searched.set(false);
+    this.matches.set([]); this.picked.set(null); this.searched.set(false); this.folioChoque.set(null);
     this.newErpFolio = ''; this.newOpen.set(true);
   }
-  onSourceChange(): void { this.matches.set([]); this.picked.set(null); this.searched.set(false); }
+  onSourceChange(): void { this.matches.set([]); this.picked.set(null); this.searched.set(false); this.folioChoque.set(null); }
 
   /**
    * Busca SOLO por folio, en todas las sucursales. El folio de Kepler es por
@@ -285,7 +325,7 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     });
   }
 
-  pick(o: ErpOrderMatch): void { this.picked.set(o); }
+  pick(o: ErpOrderMatch): void { this.picked.set(o); this.folioChoque.set(null); }
   isPicked(o: ErpOrderMatch): boolean {
     const p = this.picked();
     return !!p && p.sucursal === o.sucursal && p.folio === o.folio;
@@ -304,11 +344,30 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
     return !!this.picked();
   }
 
-  create(): void {
+  /** Etiqueta legible del estado de un vale previo. */
+  estadoVale(status: string): string {
+    switch (status) {
+      case 'open': return 'todavía abierto';
+      case 'closed': return 'cerrado';
+      case 'cancelled': return 'cancelado';
+      default: return status;
+    }
+  }
+
+  /** Abre el vale con el que choca el folio, para revisarlo o cancelarlo. */
+  verVale(prev: FolioYaRecibido): void {
+    this.newOpen.set(false);
+    this.folioChoque.set(null);
+    this.router.navigate(['/almacen/inventory/recepcion-sesiones', prev.id]);
+  }
+
+  create(force = false): void {
     if (!this.canOpen()) return;
     const o = this.picked();
+    if (!force) this.folioChoque.set(null);
     this.creating.set(true);
     this.svc.open({
+      force: force || undefined,
       // Desde el ERP el almacén lo deriva el backend de la orden elegida: acá no se manda.
       warehouse_id: this.newSource === 'manual' ? this.newWarehouse : undefined,
       supplier_code: this.newSource === 'manual' ? (this.newSupplier?.trim() || undefined) : undefined,
@@ -316,8 +375,15 @@ export class AlmacenRecepcionSesionesComponent implements OnInit {
       erp_sucursal: this.newSource === 'erp_receipt' ? o?.sucursal : undefined,
       erp_folio: this.newSource === 'erp_receipt' ? o?.folio : undefined,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => { this.creating.set(false); this.newOpen.set(false); this.router.navigate(['/almacen/inventory/recepcion-sesiones', s.id]); },
-      error: (e) => { this.creating.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo abrir' }); },
+      next: (s) => { this.creating.set(false); this.newOpen.set(false); this.folioChoque.set(null); this.router.navigate(['/almacen/inventory/recepcion-sesiones', s.id]); },
+      error: (e) => {
+        this.creating.set(false);
+        // El folio repetido no es un error a secas: se resuelve dentro del diálogo,
+        // así que se muestra ahí con sus acciones en vez de un toast que se va solo.
+        const prev = e?.error?.error === 'folio_ya_recibido' ? e?.error?.previous : null;
+        if (prev) { this.folioChoque.set(prev); return; }
+        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo abrir' });
+      },
     });
   }
 

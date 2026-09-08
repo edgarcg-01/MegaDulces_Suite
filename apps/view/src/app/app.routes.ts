@@ -700,6 +700,16 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
+        // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
+        // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
+        // Pantalla de foco: el operario entra escaneando el folio del papel, no
+        // eligiendo de una lista, así que no lleva barra de tabs.
+        path: 'anden',
+        loadComponent: () => import('./modules/almacen/anden/anden.component').then(m => m.AndenComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
+      },
+      {
         // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
         // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
         //
@@ -923,10 +933,33 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.STORE_ANALYTICS_VER)]
       },
       {
-        // P2.6 — Control de Caducidades desde el módulo de tienda (mismo componente que /almacen)
+        // Caducidades de tienda (2026-09-08): captura directa, un producto a la
+        // vez, en la sucursal del usuario. Reemplaza el alta por "hoja" que
+        // vivía acá; `/almacen/inventory/caducidades` sigue con la lista de hojas.
+        //
+        // Gate de CUALQUIERA de los dos permisos, no solo VER: el colaborador de
+        // sucursal tiene únicamente CAPTURAR y con `permissionGuard(VER)` no
+        // podía ni entrar a la pantalla donde trabaja. La pantalla adentro decide
+        // qué le muestra a cada uno (captura / historial).
         path: 'caducidades',
-        loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidades.component').then(m => m.TiendaCaducidadesComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
+      },
+      {
+        // Expediente: las hojas (una por producto) archivadas por sucursal.
+        // Va ANTES de `caducidades/:id` — Angular matchea en orden y `:id` se
+        // tragaría `expediente` como si fuera el id de una hoja.
+        path: 'caducidades/expediente',
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidades-expediente.component').then(m => m.TiendaCaducidadesExpedienteComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_VER)]
+      },
+      {
+        // El formato imprimible de UNA hoja. Acepta folio (`CAD-03-2026-00001`) o
+        // el id del renglón. Gate de cualquiera de los dos permisos: quien
+        // capturó tiene que poder imprimir su hoja para firmarla y archivarla.
+        path: 'caducidades/hoja/:folioOrId',
+        loadComponent: () => import('./modules/tienda/pages/tienda-caducidad-hoja.component').then(m => m.TiendaCaducidadHojaComponent),
+        canActivate: [anyPermissionGuard(Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
       },
       {
         path: 'caducidades/:id',
