@@ -84,6 +84,18 @@ Probado primero en la partición más chica con pérdida (`h505/Actuales/Detalle
 de 13,061): **read = wrote = 13,061**, y en la tabla quedaron **589 filas con `_ocurrencia > 1`** —
 exactamente las que faltaban, con grupos de hasta 4 filas idénticas.
 
+**Recarga completa: hecha.** 110 unidades (sucursal, corte) releídas en 644 s de reloj de la última,
+**0 con falla**. Quedaron 5 cargas con pérdida que la primera pasada no tocó, y el motivo vale
+anotarse: eran el corte `Actuales` de las tres ramas del carril VIVO (00/30/32), que el loader
+**salta por diseño** —para no dejar en la misma DB una segunda copia más vieja que la del CDC— salvo
+`--include-live`. Se recargaron con esa bandera.
+
+**Estado final, medido:** las **14,635 cargas** del ledger escribieron **146,309,175 filas leídas ==
+146,309,175 escritas**. La réplica ocupa 40 GB. Sólo en `h30.DetallesMovAlmacen` quedaron **1,269
+filas byte-idénticas ahora presentes** que antes colapsaban. El candado da **17 OK · 0 FALLA**.
+De las 2,104 identidades surrogate, 48 llevan ya `_ocurrencia`: las demás **no tienen pérdida
+medida**, y el día que se recarguen `ensureTable` las migra sin que nadie se acuerde.
+
 ### El candado
 
 `database/tests/test-wincaja-replica-fidelidad.js`, en la suite. Cinco bloques: read == written en las
