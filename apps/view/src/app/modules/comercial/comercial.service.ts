@@ -1357,6 +1357,29 @@ export class ComercialService {
     return this.http.post<{ ok: true }>(`${this.base}/analytics/sell-out/targets`, body);
   }
 
+  // ── RD.6 · comisiones de Ruta Directa ────────────────────────────────────────
+  /** Quincenas del año, cada una con su corrida viva si la tiene. */
+  commissionPeriods(anio?: number) {
+    let params = new HttpParams();
+    if (anio) params = params.set('anio', String(anio));
+    return this.http.get<CommissionPeriod[]>(`${this.base}/commissions/periods`, { params });
+  }
+  /** Calcula el periodo SIN persistir, para cuadrarlo antes de crear la corrida. */
+  commissionPreview(periodId: string) {
+    return this.http.post<CommissionRunPayload>(`${this.base}/commissions/preview`, { period_id: periodId });
+  }
+  /** Crea la corrida en estado borrador. `replace` sólo funciona si ya hay una en borrador. */
+  commissionCompute(periodId: string, replace = false) {
+    return this.http.post<CommissionRunPayload>(`${this.base}/commissions/compute`, { period_id: periodId, replace });
+  }
+  commissionRun(runId: string) {
+    return this.http.get<CommissionRunDetail>(`${this.base}/commissions/runs/${runId}`);
+  }
+  /** borrador → aprobado → pagado. El motor calcula; aprobar es humano. */
+  commissionSetStatus(runId: string, accion: 'approve' | 'pay' | 'void') {
+    return this.http.post<CommissionRunDetail>(`${this.base}/commissions/runs/${runId}/${accion}`, {});
+  }
+
   /** BI.4 — Serie mensual (tendencia). */
   sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
     let params = new HttpParams();
@@ -2023,8 +2046,8 @@ export interface SellOutExplainReport {
 }
 
 // ─── BI.9 objetivos ───
-export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
-export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel' | 'route'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; routes: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
 
 // ─── BI.4 gráficas ───
 export interface SelloutSeriesPoint { month: string; monto: number; }
@@ -2586,4 +2609,34 @@ export interface ExpenseProviderProduct {
 export interface ExpenseProvider360 {
   summary: ExpenseProviderSummary | null;
   top_products: ExpenseProviderProduct[];
+}
+
+// ── RD.6 · comisiones de Ruta Directa ──────────────────────────────────────────
+export interface CommissionPeriod {
+  id: string; anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null;
+  run: { run_id: string; status: string; total_a_pagar: string | number; rutas_sin_dato: number } | null;
+}
+export interface CommissionLine {
+  route_code: string; beneficiario: 'chofer' | 'supervisor';
+  chofer_nombre?: string | null; supervisor_nombre?: string | null;
+  subtotal: number | null; venta: number | null; costo: number | null; margen_pct: number | null;
+  subtotal_origen: string | null; costo_status: string | null;
+  pct_aplicado: number | null; comision: number; bonos: number;
+  bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
+  nomina_banco: number; a_pagar: number; motivo_no_pago: string | null;
+}
+export interface CommissionRunPayload {
+  run_id: string | null; status: string;
+  period: { id: string; anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };
+  scale: { id: string; code: string; base_field: string; gate_field: string; share_supervisor_pct: number };
+  total_subtotal: number; total_venta: number; total_comision: number; total_a_pagar: number;
+  rutas_con_dato: number; rutas_sin_dato: number;
+  lines: CommissionLine[];
+}
+export interface CommissionRunDetail {
+  id: string; status: string; total_subtotal: string | number; total_venta: string | number;
+  total_comision: string | number; total_a_pagar: string | number;
+  rutas_con_dato: number; rutas_sin_dato: number; notes: string | null;
+  period?: { anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };
+  lines: (CommissionLine & { id: string })[];
 }

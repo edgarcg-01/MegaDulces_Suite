@@ -524,8 +524,11 @@ export interface SelloutParetoRow { key: string; label: string; monto: number; s
 export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; freshness: Freshness; }
 
 // ─── BI.9 objetivos / metas ───────────────────────────────────────────────────
-export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
-export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
+export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel' | 'route'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
+// [RD.7] `routes` = meta por ruta de RD. Sale de `analytics.v_rd_route_daily`, no de
+// `v_sellout_daily`, que mete la venta de ruta como warehouse_code LIKE 'RUTA-%' sin
+// distinguir las 13. Llega vacío si esa vista no existe en el destino.
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; routes: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
 export interface SelloutTargetUpsert { scope?: string; scope_key?: string; year_month?: string; target_monto?: number; }
 
 export interface SellOutBrandRow {
@@ -3966,14 +3969,29 @@ export class CommercialAnalyticsService {
       const baseActual = () => trx('analytics.v_sellout_daily as s')
         .where('s.tenant_id', tenantId).andWhere('s.business_date', '>=', from).andWhere('s.business_date', '<=', to)
         .andWhere('s.is_promo', false).andWhereRaw(`s.channel <> 'traspaso'`);
-      const [totRow, branchRows, channelRows, targets] = await Promise.all([
+      // [RD.7] El real por RUTA no puede salir de `v_sellout_daily`: esa vista mete la venta
+      // de ruta como `warehouse_code LIKE 'RUTA-%'` y no distingue las 13. Sale de
+      // `analytics.v_rd_route_daily` (RD.2), que además declara su procedencia. Si la vista
+      // todavía no existe en el destino, el bloque sale vacío en lugar de tumbar el reporte.
+      const routeActual = async (): Promise<any[]> => {
+        const { rows: existe } = await trx.raw(`SELECT to_regclass('analytics.v_rd_route_daily') AS t`);
+        if (!existe[0]?.t) return [];
+        const { rows } = await trx.raw(
+          `SELECT route_code AS k, SUM(venta)::numeric AS monto
+             FROM analytics.v_rd_route_daily
+            WHERE tenant_id = ? AND business_date >= ? AND business_date <= ?
+            GROUP BY 1`, [tenantId, from, to]);
+        return rows;
+      };
+      const [totRow, branchRows, channelRows, routeRows, targets] = await Promise.all([
         baseActual().select(trx.raw('COALESCE(SUM(s.monto),0)::numeric as monto')).first(),
         baseActual().select('s.warehouse_code as k', trx.raw('max(s.branch_name) as label'), trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.warehouse_code'),
         baseActual().select('s.channel as k', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.channel'),
+        routeActual(),
         trx('commercial.sales_targets').where('tenant_id', tenantId).andWhere('year_month', month).select('scope', 'scope_key', 'target_monto'),
       ]);
       const tgt = new Map<string, number>(targets.map((r: any) => [`${r.scope}|${r.scope_key}`, Number(r.target_monto) || 0]));
-      const mk = (scope: 'total' | 'branch' | 'channel', key: string, label: string, actual: number): SelloutTargetRow => {
+      const mk = (scope: 'total' | 'branch' | 'channel' | 'route', key: string, label: string, actual: number): SelloutTargetRow => {
         const target = tgt.get(`${scope}|${key}`) || 0;
         return { scope, scope_key: key, label, target: Math.round(target), actual: Math.round(actual), pct: target > 0 ? Number(((actual / target) * 100).toFixed(1)) : null };
       };
@@ -3981,17 +3999,26 @@ export class CommercialAnalyticsService {
       const branches = branchRows.map((r: any) => mk('branch', r.k, r.label || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
       const chLabels: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa' };
       const channels = channelRows.map((r: any) => mk('channel', r.k, chLabels[r.k] || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
+      // [RD.7] Metas por ruta. Se listan también las rutas con meta capturada y SIN venta en
+      // el mes: una ruta que no vendió nada es justo lo que hay que ver, y si sólo saliera
+      // lo que tiene venta el cumplimiento en cero quedaría invisible.
+      const conVenta = new Map<string, number>(routeRows.map((r: any) => [String(r.k), Number(r.monto || 0)]));
+      for (const t of targets) if (t.scope === 'route' && !conVenta.has(t.scope_key)) conVenta.set(t.scope_key, 0);
+      const routes = [...conVenta.entries()]
+        .map(([k, monto]) => mk('route', k, `Ruta ${k}`, monto))
+        .sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
       // [VP.2.2] Lee `v_sellout_daily`, que se arma de las DOS matvistas diarias y NO del rollup
       // mensual ⇒ `usaRollup: false`. Sumar el carril mensual marcaría viejo un avance del mes en
       // curso que nunca lo tocó — declarar de más también es declarar mal.
       const freshness = await this.selloutFreshness(trx, false);
-      return { month, total, branches, channels, generated_at: new Date().toISOString(), freshness };
+      return { month, total, branches, channels, routes, generated_at: new Date().toISOString(), freshness };
     });
   }
 
   /** Upsert de una meta (captura HITL). scope total|branch|channel; total -> scope_key=''. */
   async upsertSelloutTarget(b: SelloutTargetUpsert): Promise<{ ok: true }> {
-    const scope = ['total', 'branch', 'channel'].includes(b.scope || '') ? (b.scope as string) : null;
+    // [RD.7] 'route' → scope_key es el route_code de RD ('21'…'505').
+    const scope = ['total', 'branch', 'channel', 'route'].includes(b.scope || '') ? (b.scope as string) : null;
     if (!scope) throw new BadRequestException('scope inválido');
     const year_month = String(b.year_month || '');
     if (!/^\d{4}-\d{2}$/.test(year_month)) throw new BadRequestException('year_month inválido (YYYY-MM)');
