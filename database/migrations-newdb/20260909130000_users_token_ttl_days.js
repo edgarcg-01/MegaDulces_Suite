@@ -42,11 +42,15 @@
  * detrás de sí a todo el que venga después**. Así que un ALTER que se queda esperando
  * no es lento: es una caída del login.
  *
- * Pasó, en prod, con esta misma migración: quedó encolada detrás de una transacción
- * larga del feed del ODS (un `COPY kepler_ods.kdmx_25 TO stdout` cuya sesión ya había
- * tocado `identity.users`), y detrás del ALTER se apilaron el `isUserActive` del guard
- * y una consulta comercial. Se canceló la migración (`pg_cancel_backend` sobre el
- * propio pid, sin tocar ninguna otra sesión) y la cola drenó sola.
+ * Pasó, en prod, con esta misma migración: quedó encolada detrás del **respaldo diario**
+ * (`pg_dump`, que abre una transacción y toma `AccessShareLock` sobre TODAS las tablas
+ * hasta terminar — la query visible era un `COPY` de una tabla del ODS, pero el dueño
+ * del lock era el dump), y detrás del ALTER se apilaron el `isUserActive` del guard y
+ * una consulta comercial. Se canceló la migración (`pg_cancel_backend` sobre el propio
+ * pid, sin tocar ninguna otra sesión) y la cola drenó sola.
+ *
+ * Corolario práctico: **mientras corre el respaldo no se aplica DDL en prod.** Acá es
+ * diario a las 17:00 y dumpea 15.9 GB. Ver `docs/GOTCHAS.md` §38.
  *
  * El tamaño de la tabla NUNCA fue el riesgo — son ~150 filas y `ADD COLUMN` nullable
  * es metadata-only. El riesgo es **quién más tiene la tabla tomada**. Con

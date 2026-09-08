@@ -1468,11 +1468,30 @@ milisegundos. Se aplicó sin `lock_timeout` justamente por eso: "la tabla es chi
 **El tamaño de la tabla nunca fue el riesgo.** El riesgo es *quién más la tiene tomada*:
 
 ```
-pid 526561  COPY kepler_ods.kdmx_25 TO stdout        ← transacción larga del feed del ODS
+pid 526561  COPY kepler_ods.kdmx_25 TO stdout        ← application_name = pg_dump
 pid 531213  ALTER TABLE identity.users ADD COLUMN…   ← bloqueada por 526561
 pid 529973  select activo, deleted_at from identity.users where id=$1   ← bloqueada por 531213
 pid 530630  select … from commercial…                                   ← bloqueada por 531213
 ```
+
+**Y el bloqueador no era el feed, aunque su query lo pareciera: era `pg_dump`.** El `COPY … TO
+stdout` de una tabla del ODS es lo que el dump estaba copiando *en ese instante*; su sesión
+sostenía `AccessShareLock` sobre **todo** — las 15 tablas de `identity` incluidas — porque eso es
+exactamente lo que hace un respaldo consistente: abre una transacción, toma todo y no suelta hasta
+terminar. Se confirma con `application_name` y con `pg_locks`, no con la query visible:
+
+```sql
+select pid, application_name, extract(epoch from now()-xact_start)::int
+  from pg_stat_activity where pid = <bloqueador>;      -- pg_dump, 2289s
+select c.relname, l.mode from pg_locks l join pg_class c on c.oid = l.relation
+ where l.pid = <bloqueador> and c.relname = 'users';   -- AccessShareLock, granted
+```
+
+**Consecuencia operativa: mientras corre el respaldo, prod es una ventana SIN DDL.** Acá el
+respaldo es `TradeMarketing-DailyBackup` (Task Scheduler, **17:00 local, diario**) y desde que el
+2026-09-08 se corrigió para apuntar de verdad a prod, dumpea **15.9 GB** — así que la ventana dura
+lo que dure eso, no unos minutos. Antes nadie lo había visto porque el respaldo venía copiando la
+base equivocada.
 
 El `ALTER` pide **ACCESS EXCLUSIVE**. En Postgres, **una petición de lock que espera encola detrás
 de sí a todo el que llegue después**, aunque ese lock sería compatible con el que ya está tomado.
