@@ -1,0 +1,56 @@
+{
+  "name": "catalogo-kp",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/catalogo-kp/src",
+  "projectType": "application",
+  "tags": ["scope:catalogo-kp", "type:app"],
+  "targets": {
+    "build": {
+      "executor": "@nx/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "options": {
+        "target": "node",
+        "compiler": "swc",
+        "outputPath": "dist/apps/catalogo-kp",
+        "main": "apps/catalogo-kp/src/main.ts",
+        "tsConfig": "apps/catalogo-kp/tsconfig.app.json",
+        "webpackConfig": "apps/catalogo-kp/webpack.config.js",
+        "assets": [
+          {
+            "glob": "**/*",
+            "input": "apps/catalogo-kp/public",
+            "output": "public"
+          }
+        ]
+      },
+      "configurations": {
+        "production": {
+          "optimization": true,
+          "extractLicenses": true,
+          "inspect": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nx/js:node",
+      "options": {
+        "buildTarget": "catalogo-kp:build"
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/catalogo-kp/**/*.ts"]
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": ["{workspaceRoot}/coverage/apps/catalogo-kp"],
+      "options": {
+        "jestConfig": "apps/catalogo-kp/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  }
+}
