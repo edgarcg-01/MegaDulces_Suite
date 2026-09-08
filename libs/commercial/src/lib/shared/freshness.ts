@@ -116,6 +116,87 @@ export const FRESHNESS_UNKNOWN: Freshness = {
  *
  * Devuelve `null` cuando el carril no reporta — y quien llame debe tratarlo como rezago, no como ok.
  */
+/**
+ * [VP.2.2] Edad de un dato medida **en la tabla que lo guarda**, no en el latido de quien la llena.
+ *
+ * ── POR QUÉ EXISTE, SI YA HAY `laneAt` ───────────────────────────────────────────────────
+ * `laneAt` lee `analytics.cron_runs`: responde *"¿corrió el proceso?"*. Esto responde *"¿se movió
+ * el dato?"* — y son distintas justo cuando importa. Un importer puede latir `ok` y no haber
+ * escrito una fila (pasó: el carril de hash del ODS reportaba éxito mientras perdía filas, porque
+ * `rowCount` no confirma el ship). La tesis de esta fase es **latido de ENTREGA**, y ésta es su
+ * versión para el consumidor.
+ *
+ * ── Y POR QUÉ NO ERA OPCIONAL ACÁ ────────────────────────────────────────────────────────
+ * Los reportes de venta por ruta, salidas y traspasos leen TABLAS (`sales_by_route_monthly`,
+ * `sales_boxes_monthly`, `transfers_monthly`), no las matvistas del sell-out. Se verificó que
+ * **ninguno** de sus tres importers llama a `cron-heartbeat` (VP.3.4 sigue abierto), así que no hay
+ * carril que leer: con `laneAt` estas pantallas sólo podrían declarar "no medido" para siempre.
+ * `max(updated_at)` sí es medible hoy, y de hecho es la mejor señal de las dos.
+ *
+ * ⚠️ Es `max(...)` sobre la tabla, **nunca** el `updated_at` de la fila que se está mostrando: el de
+ * la fila se mueve sólo si ESE renglón cambió, y un producto que no se vendió en meses reportaría
+ * una edad falsa de meses. Es el mismo error que ya se corrigió en la etiquetera.
+ *
+ * `tabla` y `col` son constantes del código —nunca entrada del usuario— y de todos modos se validan
+ * como identificadores: interpolar un nombre de tabla es la única forma de escribir esta consulta,
+ * y una validación que se da por obvia es la que no está.
+ *
+ * Devuelve `null` cuando la tabla no existe todavía (deploy antes de la migración) o está vacía — y
+ * quien llame debe tratarlo como NO MEDIDO, no como ok.
+ */
+const TABLE_AT_TTL_MS = 60_000;
+const tableAtCache = new Map<string, { at: string | null; hasta: number }>();
+
+export async function tableAt(trx: any, tabla: string, col = 'updated_at'): Promise<string | null> {
+  if (!/^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/.test(tabla) || !/^[a-z_][a-z0-9_]*$/.test(col)) {
+    throw new Error(`tableAt: identificador inválido (${tabla}.${col})`);
+  }
+  // La medición NO tiene que ser por request. Medido en prod: `max(updated_at)` sin índice cuesta
+  // **9.2 s** en `analytics.sales_boxes_monthly` (683 MB) y **7.2 s** en
+  // `wincaja.maestro_mov_almacen` (449 MB) — seq scan completo. Cobrarle eso a cada reporte sería
+  // cambiar un número honesto por una pantalla inusable, y la primera versión de esta función lo
+  // hacía. Con tolerancias de 26 h, leer una frescura de hasta un minuto atrás no cambia ningún
+  // veredicto. (El índice sigue haciendo falta para que la PRIMERA lectura no pague el scan: ver
+  // la migración `..._freshness_max_idx`.)
+  const clave = `${tabla}.${col}`;
+  const hit = tableAtCache.get(clave);
+  if (hit && hit.hasta > Date.now()) return hit.at;
+
+  const existe = (await trx.raw(
+    `SELECT to_regclass(?) IS NOT NULL AS ok`, [tabla],
+  ))?.rows?.[0]?.ok;
+
+  // ── LA MEDICIÓN NO PUEDE EMPEORAR LO QUE MIDE ──────────────────────────────────────────
+  // Dos peligros, y el segundo es el grave:
+  //   1. costo — mientras el índice de `..._freshness_max_idx` no esté aplicado, este `max()` es un
+  //      seq scan de 9 s. Con tope de 2 s el reporte pierde la frescura (→ NO MEDIDO, que es la
+  //      respuesta honesta) en vez de tardar 9 s;
+  //   2. **contagio** — `trx` es la transacción DEL REPORTE. Un `statement_timeout` que expira
+  //      aborta la transacción entera, así que una consulta accesoria de procedencia podría tumbar
+  //      el reporte que venía a describir. El SAVEPOINT lo contiene: se revierte el error y el
+  //      reporte sigue.
+  // Y `SET LOCAL` es transaccional: `ROLLBACK TO SAVEPOINT` lo revierte solo, pero `RELEASE` NO —
+  // por eso en el camino feliz se restaura a mano, o el tope de 2 s se quedaría aplicado al resto
+  // de las consultas del reporte.
+  let at: string | null = null;
+  if (existe) {
+    await trx.raw('SAVEPOINT vp_freshness');
+    try {
+      await trx.raw(`SET LOCAL statement_timeout = '2s'`);
+      at = (await trx.raw(`SELECT max(${col}) AS dato_al FROM ${tabla}`))?.rows?.[0]?.dato_al ?? null;
+      await trx.raw(`SET LOCAL statement_timeout = DEFAULT`);
+      await trx.raw('RELEASE SAVEPOINT vp_freshness');
+    } catch {
+      await trx.raw('ROLLBACK TO SAVEPOINT vp_freshness').catch(() => undefined);
+      at = null; // no se pudo medir — nunca se reporta como fresco (regla 2)
+    }
+  }
+  // Se cachea también el `null`: si la tabla no existe o está vacía, repetir la pregunta cada
+  // request tampoco la va a llenar.
+  tableAtCache.set(clave, { at: at ?? null, hasta: Date.now() + TABLE_AT_TTL_MS });
+  return at ?? null;
+}
+
 export async function laneAt(trx: any, jobKey: string): Promise<string | null> {
   const hasView = (await trx.raw(
     `SELECT to_regclass('analytics.v_feed_freshness') IS NOT NULL AS ok`,
