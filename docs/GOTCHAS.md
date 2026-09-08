@@ -1454,3 +1454,71 @@ construido: hoy no hay evidencia medida de que haga falta.
 **Y no confundir dos coberturas:** la réplica CDC sólo tiene lo que trae el `.mdb` **vivo** — `w30`
 arranca el 1-ago-2026 y `w32` el 1-jul-2026. La historia 2025→2026 vive en la carga histórica, que
 es otro camino y otros archivos.
+
+---
+
+## 38. Un `ALTER TABLE` que ESPERA no es lento: encola a todos detrás de sí (y tumba el login)
+
+**Vivido el 2026-09-09, en prod, con una migración de una sola columna.**
+
+`ALTER TABLE identity.users ADD COLUMN token_ttl_days integer` — aditiva, nullable, sobre una
+tabla de ~150 filas. En Postgres 11+ eso es **metadata-only**: no reescribe nada, tarda
+milisegundos. Se aplicó sin `lock_timeout` justamente por eso: "la tabla es chica".
+
+**El tamaño de la tabla nunca fue el riesgo.** El riesgo es *quién más la tiene tomada*:
+
+```
+pid 526561  COPY kepler_ods.kdmx_25 TO stdout        ← transacción larga del feed del ODS
+pid 531213  ALTER TABLE identity.users ADD COLUMN…   ← bloqueada por 526561
+pid 529973  select activo, deleted_at from identity.users where id=$1   ← bloqueada por 531213
+pid 530630  select … from commercial…                                   ← bloqueada por 531213
+```
+
+El `ALTER` pide **ACCESS EXCLUSIVE**. En Postgres, **una petición de lock que espera encola detrás
+de sí a todo el que llegue después**, aunque ese lock sería compatible con el que ya está tomado.
+O sea: mientras el ALTER esperaba, *cada request* de la app se apilaba detrás, porque
+`[AUTHZ-HARD.2]` (`jwt-auth.guard`) lee `identity.users` en **todas**. Un ALTER de milisegundos se
+convirtió en una caída del login que duró lo que duró la transacción del feed.
+
+### La regla
+
+**Toda migración que tome ACCESS EXCLUSIVE sobre una tabla que la app lee en caliente empieza con
+`SET LOCAL lock_timeout`.** `SET LOCAL` porque knex corre cada migración en su transacción: muere
+con ella y no le cambia el timeout a la sesión de nadie más.
+
+```js
+exports.up = async function up(knex) {
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);
+  await knex.raw(`ALTER TABLE identity.users ADD COLUMN …`);
+};
+```
+
+Con eso el peor caso es un **reintento** (falla en 3 s con `55P03`, sin encolar a nadie) en vez de
+un **incidente**. Se reintenta cuando el feed no esté en medio de una transacción larga.
+
+Verificado a propósito, no asumido: con una sesión sosteniendo `SELECT … FROM identity.users`
+dentro de una transacción abierta, el ALTER se rindió a los **3025 ms** con `code 55P03`. Un gate
+sin prueba negativa es una intención (ADR-056).
+
+### Cómo se sale del incidente
+
+1. Mirá la cadena, no el síntoma: `pg_blocking_pids(pid)` sobre `pg_stat_activity` dice **quién
+   bloquea a quién**. Sin eso, "la app está lenta" no lleva a ninguna parte.
+2. **Cancelá tu propia sentencia**, no la del otro: `pg_cancel_backend(<pid del ALTER>)`.
+   `pg_cancel_backend` (no `terminate`) y sólo sobre el pid que vos lanzaste. La cola drena sola.
+3. Verificá que no quedó estado a medias: la columna, la fila en `knex_migrations`, un constraint
+   huérfano, y **`knex_migrations_lock.is_locked`** — si el proceso muere en mal momento, el lock
+   de migraciones queda tomado y ninguna migración posterior corre. Acá quedó en `0`, limpio.
+
+### Dos trampas de alrededor
+
+- **`node script.js | grep …` reporta el exit code del `grep`.** El runbook dijo "exit code 0" de
+  una migración que **falló** (`canceling statement due to user request`). Ya está documentado para
+  `nx build`; vale igual para cualquier script. Leé el archivo de salida, no el código del pipe.
+- **`options=-c lock_timeout=5000` en la cadena de conexión no sirve contra Railway**: el proxy
+  rechaza ese parámetro de arranque y la conexión ni se abre. El `SET LOCAL` dentro de la migración
+  sí funciona, y además viaja versionado con ella.
+
+Para aplicar UNA migración a prod (no `migrate:latest`, que arrastra las pendientes de otros):
+`node database/scripts/apply-one-migration-prod.js <archivo>` — ya existe, apunta a `FLEET_DB_URL`
+y tiene un `--list`.
