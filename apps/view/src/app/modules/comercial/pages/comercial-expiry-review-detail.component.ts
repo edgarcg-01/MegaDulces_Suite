@@ -11,11 +11,13 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { ComercialService, ExpiryReviewDetail, ExpiryReviewLine, ReviewFile, ExpiryLineInput } from '../comercial.service';
+import { ComercialService, ExpiryReviewDetail, ExpiryReviewLine, ReviewFile, ExpiryLineInput, ResolveHit, VoiceSlots } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
+import { ProductScanFieldComponent } from '../components/product-scan-field.component';
+import { ExpiryVoicePanelComponent } from '../components/expiry-voice-panel.component';
 
 type Condition = 'bueno' | 'regular' | 'malo';
 type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
@@ -41,7 +43,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
 @Component({
   selector: 'app-comercial-expiry-review-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, InputNumberModule, DatePickerModule, ToastModule, ConfirmDialogModule, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, InputNumberModule, DatePickerModule, ToastModule, ConfirmDialogModule, ProductSearchComponent, ProductScanFieldComponent, ExpiryVoicePanelComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -65,98 +67,155 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       <!-- Alta de renglón -->
       @if (editable()) {
         <section class="erd-form surf-card">
-          <h2 class="erd-form-title">Agregar producto</h2>
-          <div class="erd-grid">
-            <label class="erd-field erd-col-2">
-              <span class="erd-lbl">Producto</span>
+          <!-- P2.7 — el asistente: se le habla y llena el renglón. No lo guarda. -->
+          <app-expiry-voice-panel
+            [defaultLocation]="review()?.default_location || ''"
+            (slotsChange)="onVoiceSlots($event)"></app-expiry-voice-panel>
+
+          @if (!identified()) {
+            <!-- PASO 1 — identificar. Antes de saber QUÉ producto es no hay nada que
+                 preguntar: pedir cantidad y fecha de la nada dejaba media pantalla
+                 en blanco esperando. -->
+            <h2 class="erd-form-title">¿Qué producto es?</h2>
+            <app-product-scan-field
+              [valor]="codeRaw()"
+              [ocupado]="resolving()"
+              [refocoTick]="refocusTick()"
+              (valorChange)="onCodeChange($event)"
+              (buscar)="onScan($event)"
+              (sinCamara)="onScanError($event)"></app-product-scan-field>
+
+            @if (scanCandidates().length) {
+              <div class="erd-scan-pick">
+                <span class="erd-scan-pick-lbl">Ese código coincide con {{ scanCandidates().length }} productos — elegí:</span>
+                @for (c of scanCandidates(); track c.id) {
+                  <button type="button" class="erd-scan-cand" (click)="pickCandidate(c)">
+                    <strong>{{ c.nombre }}</strong>
+                    @if (c.sku) { <code>{{ c.sku }}</code> }
+                    @if (c.brand_name) { <span>{{ c.brand_name }}</span> }
+                  </button>
+                }
+              </div>
+            }
+
+            <div class="erd-alt">
+              <span class="erd-alt-lbl">o buscalo por nombre</span>
               <app-product-search [brandIds]="promoterBrandIds()" (productSelected)="onProduct($event)"></app-product-search>
               @if (promoterBrands().length) {
                 <small class="erd-scoped"><i class="pi pi-filter" aria-hidden="true"></i> Solo tus marcas: {{ promoterBrandNames() }}</small>
               }
-            </label>
-            <label class="erd-field">
-              <span class="erd-lbl">Código (si no aparece)</span>
-              <input pInputText [(ngModel)]="codeRaw" (ngModelChange)="onCodeChange()" placeholder="Código de anaquel" class="erd-full" />
-            </label>
-            <div class="erd-field">
-              <span class="erd-lbl">Cantidad</span>
-              <div class="erd-qtyrow">
-                <p-inputnumber [(ngModel)]="qty" [min]="0" [showButtons]="true" buttonLayout="horizontal" styleClass="erd-full"
-                  incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"></p-inputnumber>
-                <div class="erd-units" role="radiogroup" aria-label="Unidad de medida">
-                  @for (u of units; track u.value) {
-                    <button type="button" class="erd-unit" role="radio" [attr.aria-checked]="unit() === u.value"
-                      [class.on]="unit() === u.value" (click)="pickUnit(u.value)" [title]="u.hint">{{ u.label }}</button>
-                  }
-                </div>
-              </div>
-              @if (unitSuggested()) {
-                <small class="erd-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ unitSuggested() }}</small>
-              }
             </div>
-            <label class="erd-field">
-              <span class="erd-lbl">Fecha de caducidad</span>
-              <p-datepicker [(ngModel)]="expiry" dateFormat="yy-mm-dd" [showButtonBar]="true" appendTo="body" styleClass="erd-full"></p-datepicker>
-              @if (plazo(); as pz) {
-                <div class="erd-plazo" [attr.data-p]="pz.level">
-                  <i class="pi" [class.pi-check-circle]="pz.level === 'bueno'" [class.pi-eye]="pz.level === 'intermedio'"
-                     [class.pi-exclamation-triangle]="pz.level === 'riesgoso'" [class.pi-times-circle]="pz.level === 'vencido'" aria-hidden="true"></i>
-                  <strong>{{ pz.title }}</strong>
-                  <span>{{ pz.detail }}</span>
+          } @else {
+            <!-- PASO 2 — el producto ya está identificado y su ficha llenó lo que el
+                 catálogo sabe (presentación, unidad del código, ubicación). Lo ÚNICO
+                 que agrega el anaquel es CUÁNTO hay y QUÉ FECHA marca el empaque. -->
+            <div class="erd-prod">
+              <i class="pi pi-check-circle" aria-hidden="true"></i>
+              <div class="erd-prod-txt">
+                <strong>{{ nameRaw() || codeRaw() }}</strong>
+                <span>
+                  @if (pickedSku()) { <code>{{ pickedSku() }}</code> }
+                  @if (pickedBrand()) { · {{ pickedBrand() }} }
+                  @if (presentation()) { · {{ presentation() }} }
+                  @if (!productId()) { · <em class="erd-prod-raw">sin catálogo — no alimenta FEFO</em> }
+                </span>
+              </div>
+              <button type="button" class="erd-prod-x" (click)="clearScan()">Cambiar</button>
+            </div>
+
+            <div class="erd-two">
+              <div class="erd-field erd-big">
+                <span class="erd-lbl">Cantidad</span>
+                <div class="erd-qtyrow">
+                  <p-inputnumber [(ngModel)]="qty" [min]="0" [showButtons]="true" buttonLayout="horizontal" styleClass="erd-full"
+                    incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"></p-inputnumber>
+                  <div class="erd-units" role="radiogroup" aria-label="Unidad de medida">
+                    @for (u of units; track u.value) {
+                      <button type="button" class="erd-unit" role="radio" [attr.aria-checked]="unit() === u.value"
+                        [class.on]="unit() === u.value" (click)="pickUnit(u.value)" [title]="u.hint">{{ u.label }}</button>
+                    }
+                  </div>
                 </div>
-              }
-            </label>
-            <label class="erd-field">
-              <span class="erd-lbl">Ubicación</span>
-              <input pInputText [(ngModel)]="location" placeholder="Anaquel / bodega / exhibidor" class="erd-full" />
-            </label>
-            <div class="erd-field">
-              <span class="erd-lbl">Estado físico <em class="erd-lbl-em">(cómo llegó, no la fecha)</em></span>
-              <div class="erd-chips">
-                @for (c of conditions; track c.value) {
-                  <button type="button" class="erd-chip" [class.on]="condition() === c.value" [attr.data-c]="c.value" (click)="condition.set(c.value)">{{ c.label }}</button>
+                @if (unitSuggested()) {
+                  <small class="erd-hint"><i class="pi pi-info-circle" aria-hidden="true"></i> {{ unitSuggested() }}</small>
                 }
               </div>
-            </div>
-            <label class="erd-field erd-col-2">
-              <span class="erd-lbl">Observaciones</span>
-              <input pInputText [(ngModel)]="observations" placeholder="Ej. la goma se ve dura / bolsas grasosas" class="erd-full" />
-            </label>
-            <label class="erd-field erd-col-2">
-              <span class="erd-lbl">Acción / seguimiento</span>
-              <input pInputText [(ngModel)]="action" placeholder="Ej. retirar / promocionar / firma" class="erd-full" />
-            </label>
-            <div class="erd-field">
-              <span class="erd-lbl">Foto de evidencia</span>
-              @if (pendingPhoto()) {
-                <div class="erd-photo">
-                  <img [src]="pendingPhoto()!.preview_url || pendingPhoto()!.url" alt="Evidencia por adjuntar" (error)="onPhotoError($event)" />
-                  @if (previewBroken()) {
-                    <span class="erd-photo-noprev"><i class="pi pi-check-circle" aria-hidden="true"></i> Foto adjunta (sin vista previa)</span>
-                  }
-                  <button pButton [text]="true" severity="danger" size="small" (click)="clearPhoto()" pTooltip="Quitar la foto"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
-                </div>
-              } @else {
-                @if (photoFailed()) {
-                  <div class="erd-photo-failed" role="alert">
-                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                    La foto no se subió. Si guardás así, el renglón queda <strong>sin evidencia</strong>.
+              <label class="erd-field erd-big">
+                <span class="erd-lbl">Fecha de caducidad</span>
+                <p-datepicker [(ngModel)]="expiry" dateFormat="yy-mm-dd" [showButtonBar]="true" appendTo="body" styleClass="erd-full"></p-datepicker>
+                @if (plazo(); as pz) {
+                  <div class="erd-plazo" [attr.data-p]="pz.level">
+                    <i class="pi" [class.pi-check-circle]="pz.level === 'bueno'" [class.pi-eye]="pz.level === 'intermedio'"
+                       [class.pi-exclamation-triangle]="pz.level === 'riesgoso'" [class.pi-times-circle]="pz.level === 'vencido'" aria-hidden="true"></i>
+                    <strong>{{ pz.title }}</strong>
+                    <span>{{ pz.detail }}</span>
                   </div>
                 }
-                <label class="erd-pickbtn" [class.busy]="uploading()">
-                  <i class="pi" [class.pi-camera]="!uploading()" [class.pi-spin]="uploading()" [class.pi-spinner]="uploading()" aria-hidden="true"></i>
-                  {{ uploading() ? 'Subiendo…' : 'Tomar / elegir foto' }}
-                  <input type="file" accept="image/*" capture="environment" (change)="onPhoto($event)" hidden [disabled]="uploading()" />
-                </label>
-              }
+              </label>
             </div>
-          </div>
-          <div class="erd-form-actions">
-            <button pButton [disabled]="!canAddLine() || addingLine()" [loading]="addingLine()" (click)="addLine()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Agregar renglón</button>
-          </div>
+
+            <!-- Lo demás viene prellenado o es opcional: se pliega para que no compita
+                 con los dos campos que sí hay que capturar. -->
+            <details class="erd-more">
+              <summary>
+                Más detalles
+                <span class="erd-more-sub">estado físico · ubicación · observaciones · foto</span>
+              </summary>
+              <div class="erd-grid">
+                <label class="erd-field">
+                  <span class="erd-lbl">Ubicación</span>
+                  <input pInputText [(ngModel)]="location" placeholder="Anaquel / bodega / exhibidor" class="erd-full" />
+                </label>
+                <div class="erd-field">
+                  <span class="erd-lbl">Estado físico <em class="erd-lbl-em">(cómo llegó, no la fecha)</em></span>
+                  <div class="erd-chips">
+                    @for (c of conditions; track c.value) {
+                      <button type="button" class="erd-chip" [class.on]="condition() === c.value" [attr.data-c]="c.value" (click)="condition.set(c.value)">{{ c.label }}</button>
+                    }
+                  </div>
+                </div>
+                <label class="erd-field erd-col-2">
+                  <span class="erd-lbl">Observaciones</span>
+                  <input pInputText [(ngModel)]="observations" placeholder="Ej. la goma se ve dura / bolsas grasosas" class="erd-full" />
+                </label>
+                <label class="erd-field erd-col-2">
+                  <span class="erd-lbl">Acción / seguimiento</span>
+                  <input pInputText [(ngModel)]="action" placeholder="Ej. retirar / promocionar / firma" class="erd-full" />
+                </label>
+                <div class="erd-field">
+                  <span class="erd-lbl">Foto de evidencia</span>
+                  @if (pendingPhoto()) {
+                    <div class="erd-photo">
+                      <img [src]="pendingPhoto()!.preview_url || pendingPhoto()!.url" alt="Evidencia por adjuntar" (error)="onPhotoError($event)" />
+                      @if (previewBroken()) {
+                        <span class="erd-photo-noprev"><i class="pi pi-check-circle" aria-hidden="true"></i> Foto adjunta (sin vista previa)</span>
+                      }
+                      <button pButton [text]="true" severity="danger" size="small" (click)="clearPhoto()" pTooltip="Quitar la foto"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
+                    </div>
+                  } @else {
+                    @if (photoFailed()) {
+                      <div class="erd-photo-failed" role="alert">
+                        <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                        La foto no se subió. Si guardás así, el renglón queda <strong>sin evidencia</strong>.
+                      </div>
+                    }
+                    <label class="erd-pickbtn" [class.busy]="uploading()">
+                      <i class="pi" [class.pi-camera]="!uploading()" [class.pi-spin]="uploading()" [class.pi-spinner]="uploading()" aria-hidden="true"></i>
+                      {{ uploading() ? 'Subiendo…' : 'Tomar / elegir foto' }}
+                      <input type="file" accept="image/*" capture="environment" (change)="onPhoto($event)" hidden [disabled]="uploading()" />
+                    </label>
+                  }
+                </div>
+              </div>
+            </details>
+
+            <div class="erd-form-actions">
+              <button pButton [text]="true" severity="secondary" (click)="clearScan()">Cancelar</button>
+              <button pButton [disabled]="!canAddLine() || addingLine()" [loading]="addingLine()" (click)="addLine()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Agregar renglón</button>
+            </div>
+          }
         </section>
       }
-
       <!-- Renglones capturados -->
       <section class="erd-lines">
         <div class="erd-lines-head">
@@ -229,6 +288,44 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-chip.on[data-c="bueno"] { background: var(--good-soft-bg, #e6f4ea); border-color: var(--good-fg, #1a7f37); color: var(--good-fg, #1a7f37); }
     .erd-chip.on[data-c="regular"] { background: var(--warn-soft-bg, #fff4e5); border-color: var(--warn-fg, #b25e00); color: var(--warn-fg, #b25e00); }
     .erd-chip.on[data-c="malo"] { background: var(--bad-soft-bg, #fdeaea); border-color: var(--bad-fg, #b42318); color: var(--bad-fg, #b42318); }
+    /* Paso 1 — identificar: el escaneo manda, el buscador es la salida. */
+    .erd-alt { display: flex; flex-direction: column; gap: .3rem; margin-top: .9rem;
+      padding-top: .8rem; border-top: 1px dashed var(--border-color); }
+    .erd-alt-lbl { font-size: var(--fs-xs, .72rem); color: var(--text-muted); }
+    /* Paso 2 — ficha del producto ya identificado. */
+    .erd-prod { display: flex; align-items: center; gap: .6rem; margin-bottom: 1rem;
+      padding: .6rem .7rem; border-radius: var(--radius-md, 8px);
+      border: 1px solid var(--ok-border, #bbf7d0); background: var(--ok-soft-bg, #dcfce7);
+      color: var(--ok-soft-fg, #166534); }
+    .erd-prod > .pi { font-size: 1.1rem; }
+    .erd-prod-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .1rem; }
+    .erd-prod-txt strong { font-size: .92rem; }
+    .erd-prod-txt span { font-size: .74rem; opacity: .9; }
+    .erd-prod-txt code { font-family: var(--font-mono, monospace); }
+    .erd-prod-raw { font-style: normal; font-weight: 700; }
+    .erd-prod-x { background: transparent; border: 0; color: inherit; text-decoration: underline;
+      cursor: pointer; font: inherit; font-size: .74rem; min-height: 36px; padding: 0 .25rem; }
+    /* Los dos campos que SÍ se capturan en el anaquel: grandes y solos. */
+    .erd-two { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .erd-big :host ::ng-deep .p-inputnumber-input, .erd-big :host ::ng-deep input { font-size: 1.05rem; }
+    .erd-more { margin-top: 1rem; border-top: 1px solid var(--border-color); padding-top: .6rem; }
+    .erd-more > summary { cursor: pointer; font-size: .82rem; font-weight: 600; color: var(--text-main);
+      min-height: 40px; display: flex; align-items: center; gap: .5rem; }
+    .erd-more > summary::marker { color: var(--text-muted); }
+    .erd-more-sub { font-weight: 400; font-size: .72rem; color: var(--text-muted); }
+    .erd-more > .erd-grid { margin-top: .8rem; }
+    .erd-scan-pick { display: flex; flex-direction: column; gap: .3rem; margin-top: .5rem; }
+    .erd-scan-pick-lbl { font-size: .74rem; color: var(--warn-soft-fg, #92400e); }
+    .erd-scan-cand { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; text-align: left;
+      padding: .5rem .6rem; min-height: 44px; cursor: pointer; font: inherit; font-size: .8rem;
+      border: 1px solid var(--border-color); border-radius: var(--radius-md, 8px);
+      background: var(--card-bg); color: var(--text-main); }
+    .erd-scan-cand:hover { border-color: var(--action); }
+    .erd-scan-cand code { font-family: var(--font-mono, monospace); font-size: .72rem; color: var(--text-muted); }
+    .erd-scan-cand span { font-size: .72rem; color: var(--text-muted); }
+    .erd-scan-miss { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; padding: .45rem .6rem;
+      border: 1px solid var(--warn-border, #fde68a); background: var(--warn-soft-bg, #fef3c7);
+      border-radius: var(--radius-md, 8px); color: var(--warn-soft-fg, #92400e); font-size: .76rem; }
     .erd-pickbtn { display: inline-flex; align-items: center; gap: .5rem; padding: .6rem .9rem; border: 1px dashed var(--border-soft, var(--c-border)); border-radius: var(--radius-md, 8px); cursor: pointer; color: var(--c-text-1); font-size: var(--fs-sm, .85rem); min-height: 44px; }
     .erd-pickbtn.busy { opacity: .6; cursor: default; }
     .erd-photo { position: relative; display: inline-block; }
@@ -284,7 +381,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
     .erd-line-photo { width: 56px; height: 56px; object-fit: cover; border-radius: var(--radius-md, 8px); }
     .erd-submitbar { position: sticky; bottom: 0; margin-top: 1rem; padding: .75rem 0; display: flex; justify-content: flex-end; background: linear-gradient(to top, var(--c-bg-0, var(--surface-ground)) 60%, transparent); }
     @media (max-width: 640px) {
-      .erd-grid { grid-template-columns: 1fr; }
+      .erd-grid, .erd-two { grid-template-columns: 1fr; }
       .erd-submitbar button { width: 100%; }
     }
   `],
@@ -326,7 +423,38 @@ export class ComercialExpiryReviewDetailComponent {
   // form state
   productId = signal<string | null>(null);
   nameRaw = signal<string>('');
-  codeRaw = '';
+  /** Signal (no propiedad suelta): lo escribe el escaneo, que llega por evento. */
+  codeRaw = signal<string>('');
+
+  // ── Escaneo (pistola · cámara · tecleado) ────────────────────────────────
+  /** Resolviendo el código contra la API. */
+  readonly resolving = signal(false);
+  /** Producto que dejó el último disparo. */
+  readonly scanHit = signal<ResolveHit | null>(null);
+  /** Código ambiguo: el operador elige de esta lista. */
+  readonly scanCandidates = signal<ResolveHit[]>([]);
+  /** Por qué el disparo no dejó producto (texto listo para mostrar). */
+  readonly scanMiss = signal<string | null>(null);
+  /** Se incrementa para devolver el foco al campo: sin esto no hay ráfaga. */
+  readonly refocusTick = signal(0);
+  /** Unidad que declara el código leído (EAN de caja vs de pieza). */
+  private unitFromScan: LineUnit | null = null;
+
+  // ── Producto identificado (por escaneo, buscador o voz) ───────────────────
+  /** Metadatos de la ficha: los pinta el paso 2 sin importar por dónde entró. */
+  readonly pickedSku = signal<string | null>(null);
+  readonly pickedBrand = signal<string | null>(null);
+  readonly pickedPresentation = signal<string | null>(null);
+
+  /**
+   * Hay algo que fechar y contar. Un código sin match TAMBIÉN cuenta: la hoja
+   * acepta el renglón raw (regla P2.6), así que el operador tiene que poder
+   * seguir a cantidad y fecha aunque el catálogo no lo conozca.
+   */
+  readonly identified = computed(() => !!this.productId() || (!!this.codeRaw().trim() && !!this.scanMiss()));
+
+  /** "PAQ x 24" — presentación de venta del catálogo, si la trae. */
+  readonly presentation = computed(() => this.pickedPresentation());
   qty: number | null = null;
   expiry: Date | null = null;
   condition = signal<Condition | null>(null);
@@ -350,7 +478,7 @@ export class ComercialExpiryReviewDetailComponent {
     this.perms.isAdmin() || !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_EXPIRY_CAPTURAR];
 
   editable = computed(() => this.canCapture && this.review()?.status === 'draft');
-  canAddLine = () => (!!this.productId() || !!this.codeRaw.trim()) && this.qty != null && this.qty >= 0;
+  canAddLine = () => (!!this.productId() || !!this.codeRaw().trim()) && this.qty != null && this.qty >= 0;
 
   constructor() {
     this.load();
@@ -376,12 +504,151 @@ export class ComercialExpiryReviewDetailComponent {
   onProduct(p: ProductHit | null) {
     this.productId.set(p?.id || null);
     this.nameRaw.set(p?.label || '');
-    if (p?.sku) this.codeRaw = p.sku;
+    this.pickedSku.set(p?.sku || null);
+    this.pickedBrand.set(p?.brand || null);
+    this.pickedPresentation.set(null); // el typeahead no trae presentación
+    if (p?.sku) this.codeRaw.set(p.sku);
+    // Elegir por nombre no dice en qué unidad viene: se descarta lo que dijo el
+    // código anterior para no arrastrar la unidad de otro producto.
+    this.unitFromScan = null;
+    this.scanHit.set(null);
+    this.scanCandidates.set([]);
+    this.scanMiss.set(null);
     this.suggestUnit();
   }
 
   /** El código de anaquel manda sobre la sugerencia: al teclearlo se re-evalúa. */
-  onCodeChange(): void { this.suggestUnit(); }
+  onCodeChange(v: string): void {
+    this.codeRaw.set(v);
+    // Editar el código invalida el match anterior: lo que se ve tiene que ser
+    // lo que está en el campo, no el producto de hace dos disparos.
+    if (this.scanHit()) { this.scanHit.set(null); this.productId.set(null); this.nameRaw.set(''); this.unitFromScan = null; }
+    this.scanCandidates.set([]);
+    this.scanMiss.set(null);
+    this.suggestUnit();
+  }
+
+  /**
+   * Un disparo: pistola (Enter), cámara o lupa. Resuelve el código contra el
+   * catálogo de barcodes y deja el renglón listo para cantidad + fecha.
+   */
+  onScan(code: string): void {
+    const c = (code || '').trim();
+    if (!c) return;
+    this.resolving.set(true);
+    this.scanMiss.set(null);
+    this.scanCandidates.set([]);
+    this.svc.resolveExpiryCode(c)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          this.resolving.set(false);
+          if (r.match) { this.applyHit(r.match); return; }
+          if (r.candidates.length) { this.scanCandidates.set(r.candidates); return; }
+          // Sin match NO es un error: la hoja acepta el renglón con el código crudo
+          // (solo que ese no alimenta FEFO). Se dice, y se sigue capturando.
+          this.productId.set(null);
+          this.nameRaw.set('');
+          this.scanMiss.set(r.out_of_scope
+            ? 'Ese código es de una marca que no llevás. Se guardará como código libre.'
+            : 'Sin coincidencia en el catálogo. Se guarda como código libre (no alimenta FEFO).');
+          this.refocusTick.update((n) => n + 1);
+        },
+        error: (e) => {
+          this.resolving.set(false);
+          this.toast.add({ severity: 'error', summary: 'No se pudo buscar el código', detail: e?.error?.message });
+        },
+      });
+  }
+
+  /** La cámara no abrió (sin HTTPS o sin permiso): se dice el motivo real. */
+  onScanError(msg: string): void {
+    this.toast.add({ severity: 'warn', summary: 'Cámara no disponible', detail: msg, life: 8000 });
+  }
+
+  /** El operador desempata un código ambiguo. */
+  pickCandidate(h: ResolveHit): void {
+    this.scanCandidates.set([]);
+    this.applyHit(h);
+  }
+
+  /** Suelta el producto resuelto para volver a escanear sin borrar a mano. */
+  clearScan(): void {
+    this.scanHit.set(null);
+    this.productId.set(null);
+    this.nameRaw.set('');
+    this.codeRaw.set('');
+    this.pickedSku.set(null);
+    this.pickedBrand.set(null);
+    this.pickedPresentation.set(null);
+    this.scanMiss.set(null);
+    this.scanCandidates.set([]);
+    this.unitFromScan = null;
+    this.refocusTick.update((n) => n + 1);
+  }
+
+  /**
+   * El asistente de voz entendió algo: se refleja en el formulario **en vivo**.
+   * Nunca guarda el renglón — el operador ve lo entendido, corrige lo que haga
+   * falta y toca "Agregar renglón" (co-piloto, ADR-020).
+   *
+   * Solo escribe lo que la voz trajo: si el operador ya tecleó una cantidad y el
+   * asistente no dijo cantidad, no se la borra.
+   */
+  onVoiceSlots(sl: VoiceSlots): void {
+    if (sl.product_id) {
+      this.productId.set(sl.product_id);
+      this.nameRaw.set(sl.product_name || sl.product_query || '');
+      this.pickedSku.set(sl.sku || null);
+      this.pickedBrand.set(null);
+      this.pickedPresentation.set(sl.presentation || null);
+      if (sl.sku) this.codeRaw.set(sl.sku);
+    }
+    if (sl.quantity != null) this.qty = sl.quantity;
+    if (sl.unit) {
+      // Lo dicho a viva voz ES la decisión del operador: la sugerencia del
+      // código no debe pisarla después.
+      this.unitTouched = true;
+      this.unit.set(sl.unit);
+    }
+    if (sl.expiry_date) this.expiry = this.fromYmd(sl.expiry_date);
+    if (sl.condition) this.condition.set(sl.condition);
+    if (sl.location) this.location = sl.location;
+    if (sl.observations) this.observations = sl.observations;
+    if (sl.action) this.action = sl.action;
+  }
+
+  /** 'YYYY-MM-DD' → Date local a mediodía (el horario de verano no corre el día). */
+  private fromYmd(ymd: string): Date | null {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd).slice(0, 10));
+    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0) : null;
+  }
+
+  private applyHit(h: ResolveHit): void {
+    this.scanHit.set(h);
+    this.productId.set(h.id);
+    this.nameRaw.set(h.nombre || '');
+    this.pickedSku.set(h.sku);
+    this.pickedBrand.set(h.brand_name);
+    this.pickedPresentation.set(
+      h.factor_sale && h.factor_sale > 1 ? `${h.unit_sale || 'unidad'} x ${h.factor_sale}` : (h.unit_sale || null),
+    );
+    // La ubicación que el catálogo ya conoce; si la hoja trae default, ése ganó
+    // al cargar y no se pisa (lo específico del anaquel vale más que la ficha).
+    if (!this.location.trim() && h.location) this.location = h.location;
+    // Se conserva el código TAL COMO se leyó (no el SKU): es la evidencia de qué
+    // etiqueta se escaneó, y con multi-barcode el de caja y el de pieza difieren.
+    this.unitFromScan = h.unit_hint;
+    this.scanMiss.set(null);
+    this.suggestUnit();
+    this.refocusTick.update((n) => n + 1);
+  }
+
+  /** "código de caja (x24)" — lo que declara el barcode leído. */
+  scannedUnitLabel(h: ResolveHit): string {
+    const base = h.unit_hint === 'caja' ? 'caja' : h.unit_hint === 'pieza' ? 'pieza' : String(h.scanned_unit || '').toLowerCase();
+    return h.factor && h.factor > 1 ? `${base} (x${h.factor})` : base;
+  }
   /** A partir del primer toque manual, el sistema deja de sugerir. */
   pickUnit(u: LineUnit): void { this.unitTouched = true; this.unit.set(u); }
 
@@ -425,7 +692,7 @@ export class ComercialExpiryReviewDetailComponent {
     if (!this.canAddLine()) return;
     const body: ExpiryLineInput = {
       product_id: this.productId(),
-      product_code_raw: this.codeRaw.trim() || undefined,
+      product_code_raw: this.codeRaw().trim() || undefined,
       product_name_raw: this.nameRaw() || undefined,
       quantity: this.qty ?? 0,
       expiry_date: this.toYmd(this.expiry),
@@ -449,7 +716,11 @@ export class ComercialExpiryReviewDetailComponent {
   clearPhoto(): void { this.pendingPhoto.set(null); this.previewBroken.set(false); }
 
   private resetForm() {
-    this.productId.set(null); this.nameRaw.set(''); this.codeRaw = '';
+    this.productId.set(null); this.nameRaw.set(''); this.codeRaw.set('');
+    this.scanHit.set(null); this.scanCandidates.set([]); this.scanMiss.set(null); this.unitFromScan = null;
+    this.pickedSku.set(null); this.pickedBrand.set(null); this.pickedPresentation.set(null);
+    // El foco vuelve al campo de escaneo: el renglón siguiente se dispara sin tocar la pantalla.
+    this.refocusTick.update((n) => n + 1);
     this.qty = null; this.expiry = null; this.condition.set(null);
     this.observations = ''; this.action = ''; this.pendingPhoto.set(null);
     this.photoFailed.set(false); this.previewBroken.set(false);
@@ -546,15 +817,25 @@ export class ComercialExpiryReviewDetailComponent {
    */
   private suggestUnit(): void {
     if (this.unitTouched) return;
-    const code = (this.codeRaw || '').trim();
+    // 1) Lo que DICE el código leído (catalog.product_barcodes: unidad + factor).
+    //    Manda sobre todo lo demás porque no es una corazonada: es el dato del
+    //    catálogo sobre esa etiqueta en particular.
+    if (this.unitFromScan) { this.unit.set(this.unitFromScan); return; }
+    // 2) Heurística histórica, ahora solo para códigos que el catálogo no conoce.
+    const code = (this.codeRaw() || '').trim();
     if (code && /^\d+$/.test(code)) this.unit.set('caja');
     else if (this.productId()) this.unit.set('pieza');
   }
   unitSuggested(): string | null {
     if (this.unitTouched) return null;
-    const code = (this.codeRaw || '').trim();
+    if (this.unitFromScan) {
+      const h = this.scanHit();
+      const x = h?.factor && h.factor > 1 ? ` de ${h.factor} pz` : '';
+      return `Se escaneó el código de ${this.unitFromScan}${x}: se asume ${this.unitFromScan}.`;
+    }
+    const code = (this.codeRaw() || '').trim();
     if (code && /^\d+$/.test(code)) return 'Código de anaquel numérico: se asume caja. Cambialo si llegó suelto.';
-    if (this.productId()) return 'Producto escaneado: se asume pieza.';
+    if (this.productId()) return 'Producto elegido del buscador: se asume pieza.';
     return null;
   }
 

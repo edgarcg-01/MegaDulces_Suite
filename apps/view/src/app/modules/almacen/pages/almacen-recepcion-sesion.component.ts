@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -109,18 +109,37 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 
       @if (isOpen()) {
         <div class="rsd-scan surf-card">
-          <label class="rsd-scan-field">
-            <span>Escanear código de barras / SKU</span>
-            <div class="rsd-scan-row">
-              <input pInputText [(ngModel)]="scanCode" (keyup.enter)="onScan()" placeholder="Escaneá o tecleá y Enter" autofocus [disabled]="scanning()" />
-              <input pInputText type="number" min="1" [(ngModel)]="scanQty" class="rsd-qty" title="Cantidad" />
-              <button pButton (click)="onScan()" [loading]="scanning()"><span class="p-button-icon pi pi-barcode" aria-hidden="true"></span></button>
-            </div>
-          </label>
-          <div class="rsd-add">
-            <app-product-search (productSelected)="addProduct = $event"></app-product-search>
-            <input pInputText type="number" min="0" [(ngModel)]="addExpected" class="rsd-qty" placeholder="Esperado" title="Cantidad esperada" />
-            <button pButton [text]="true" severity="secondary" size="small" (click)="onAddLine()" [disabled]="!addProduct"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Agregar línea</button>
+          <!-- Dos filas sobre la MISMA rejilla: el código no se estira a todo el ancho
+               (es de 5-13 caracteres, no un párrafo) y la cantidad tiene lugar para
+               sus dígitos más las flechas del spinner. -->
+          <div class="rsd-scan-grid">
+            <label class="rsd-f">
+              <span>Escanear código de barras / SKU</span>
+              <input pInputText [(ngModel)]="scanCode" (keyup.enter)="onScan()" placeholder="Escaneá o tecleá y Enter" autofocus [disabled]="scanning()" class="rsd-code" />
+            </label>
+            <label class="rsd-f">
+              <span>Cantidad</span>
+              <input pInputText type="number" min="1" [(ngModel)]="scanQty" class="rsd-qty" />
+            </label>
+            <button pButton (click)="onScan()" [loading]="scanning()">
+              <span class="p-button-icon p-button-icon-left pi pi-barcode" aria-hidden="true"></span> Escanear
+            </button>
+          </div>
+
+          <div class="rsd-add-sep"><span>¿Llegó algo que no está en el vale?</span></div>
+
+          <div class="rsd-scan-grid">
+            <label class="rsd-f">
+              <span>Buscar producto por nombre</span>
+              <app-product-search (productSelected)="addProduct = $event"></app-product-search>
+            </label>
+            <label class="rsd-f">
+              <span>Esperado</span>
+              <input pInputText type="number" min="0" [(ngModel)]="addExpected" class="rsd-qty" />
+            </label>
+            <button pButton [text]="true" severity="secondary" (click)="onAddLine()" [disabled]="!addProduct">
+              <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Agregar línea
+            </button>
           </div>
         </div>
       }
@@ -134,8 +153,9 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <th scope="col">Estado</th><th scope="col"></th>
           </tr>
         </ng-template>
-        <ng-template #body let-l>
-          <tr [class.rsd-row-disc]="isDiscrepancy(l.discrepancy_kind)">
+        <ng-template #body let-l let-i="rowIndex">
+          <tr [class.rsd-row-disc]="isDiscrepancy(l.discrepancy_kind)"
+              [class.rsd-row-pend]="isOpen() && l.discrepancy_kind === 'pending'">
             <td class="rsd-mono">{{ l.sku || l.expected_sku || '—' }}</td>
             <td class="rsd-name">{{ l.product_name || l.expected_name || l.product_id || '—' }}</td>
             <td class="num">{{ l.expected_qty | number }}</td>
@@ -144,7 +164,16 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
                 <span title="El vale trae este producto con más de una unidad: confirmá cuál corresponde">⚠ ambigua</span>
               } @else { {{ l.expected_unit || '—' }} }
             </td>
-            <td class="num rsd-rec">{{ l.received_qty | number }}</td>
+            <td class="num rsd-rec">
+              @if (isOpen()) {
+                <!-- Se teclea la cantidad del renglón. Enter guarda y salta al siguiente,
+                     que es como se recorre un vale: renglón por renglón, sin soltar el teclado. -->
+                <input pInputText type="number" min="0" class="rsd-inp" [value]="recNum(l)"
+                  (keyup.enter)="commitRec(l, $any($event.target).value, i)"
+                  (blur)="commitRec(l, $any($event.target).value, null)"
+                  [attr.aria-label]="'Recibido de ' + (l.product_name || l.sku || 'la línea')" />
+              } @else { {{ l.received_qty | number }} }
+            </td>
             <td class="num rsd-decl" [class.rsd-decl-gap]="undeclared(l) > 0">
               {{ declared(l) | number }}
               @if (undeclared(l) > 0) { <span class="rsd-gap">faltan {{ undeclared(l) | number }}</span> }
@@ -158,8 +187,14 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
                 </button>
               }
               @if (isOpen()) {
-                <button pButton size="small" [text]="true" severity="secondary" (click)="adjust(l, -1)" title="-1"><span class="pi pi-minus" aria-hidden="true"></span></button>
-                <button pButton size="small" [text]="true" severity="secondary" (click)="adjust(l, 1)" title="+1"><span class="pi pi-plus" aria-hidden="true"></span></button>
+                <!-- El caso de lejos más común: llegó exactamente lo del papel. Un clic
+                     por renglón en vez de teclear la cifra o pulsar +1 ochenta veces. -->
+                @if (l.expected_qty > 0 && +l.received_qty !== +l.expected_qty) {
+                  <button pButton size="small" [text]="true" severity="success" (click)="matchExpected(l, i)"
+                    [title]="'Coincide con el vale: recibir ' + l.expected_qty">
+                    <span class="pi pi-check" aria-hidden="true"></span>
+                  </button>
+                }
                 <p-select [options]="markOptions" [ngModel]="null" (onChange)="mark(l, $event.value)" placeholder="⚑" styleClass="rsd-mark" [showClear]="false"></p-select>
               }
             </td>
@@ -275,15 +310,39 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
     .rsd-kpi-l { font-size: .74rem; color: var(--text-color-secondary); text-transform: uppercase; letter-spacing: .04em; }
     .rsd-kpi.rsd-warn .rsd-kpi-n { color: var(--warn-fg, #b45309); }
     .rsd-kpi.rsd-bad .rsd-kpi-n { color: var(--bad-fg, #b91c1c); }
-    .rsd-scan-field { display: flex; flex-direction: column; gap: .25rem; }
-    .rsd-scan-field > span { font-size: .8rem; color: var(--text-color-secondary); font-weight: 600; }
-    .rsd-scan-row { display: flex; gap: .5rem; }
-    .rsd-scan-row > input[pInputText]:first-child { flex: 1; font-size: 1.05rem; }
-    .rsd-qty { max-width: 90px; }
-    .rsd-add { display: flex; gap: .5rem; align-items: center; margin-top: .75rem; flex-wrap: wrap; }
+    /* Rejilla compartida por la fila de escaneo y la de alta manual, para que
+       campos y botones queden alineados en columna y no cada uno a su ancho. */
+    /* La 4ª columna vacía se come el espacio sobrante. Sin ella el botón se estiraba
+       a todo el ancho de la tarjeta: un "Escanear" de 800px que gritaba más que el
+       campo donde de verdad se trabaja. */
+    .rsd-scan-grid { display: grid; grid-template-columns: minmax(14rem, 26rem) 7.5rem max-content 1fr;
+      gap: .5rem .75rem; align-items: end; }
+    .rsd-scan-grid > button { justify-self: start; }
+    .rsd-f { display: flex; flex-direction: column; gap: .25rem; min-width: 0; }
+    .rsd-f > span { font-size: .75rem; color: var(--text-color-secondary); font-weight: 600; }
+    .rsd-code { font-size: 1.05rem; }
+    .rsd-qty { width: 100%; }
+    /* El autocomplete trae min-width propio: acá lo dejamos ceder a la columna. */
+    .rsd-f > app-product-search { display: block; width: 100%; }
+    :host ::ng-deep .rsd-f .ps-ac,
+    :host ::ng-deep .rsd-f .ps-ac .p-autocomplete-input { min-width: 0; width: 100%; }
+    .rsd-add-sep { display: flex; align-items: center; gap: .5rem; margin: .875rem 0 .625rem;
+      font-size: .75rem; color: var(--text-color-secondary); }
+    .rsd-add-sep::after { content: ''; flex: 1; height: 1px; background: var(--surface-border); }
+    @media (max-width: 640px) {
+      .rsd-scan-grid { grid-template-columns: 1fr 7.5rem; }
+      .rsd-scan-grid > button { grid-column: 1 / -1; }
+    }
     .rsd-mono { font-family: var(--font-mono, monospace); }
     .rsd-name { max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .rsd-rec { font-weight: 700; }
+    /* Campo de cantidad dentro de la tabla: angosto, alineado a la derecha y sin
+       romper la densidad del renglón. */
+    .rsd-inp { width: 5.5rem; text-align: right; padding: .25rem .4rem; font-weight: 700;
+      font-variant-numeric: tabular-nums; }
+    /* Lo que todavía no tocaste se ve distinto de lo ya validado: la barra izquierda
+       es el "acá vas" cuando se recorre el vale de arriba a abajo. */
+    .rsd-row-pend > td:first-child { box-shadow: inset 3px 0 0 var(--warn-fg, #b45309); }
     .rsd-actions { display: flex; gap: .25rem; align-items: center; }
     :host ::ng-deep .rsd-mark { min-width: 64px; }
     .rsd-row-disc { background: var(--warn-soft-bg, #fffbeb); }
@@ -342,6 +401,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
   `],
 })
 export class AlmacenRecepcionSesionComponent implements OnInit {
+  private readonly host: ElementRef<HTMLElement> = inject(ElementRef);
   private readonly svc = inject(ReceivingSessionService);
   private readonly auditor = inject(ReceivingAuditorService);
   private readonly route = inject(ActivatedRoute);
@@ -423,11 +483,55 @@ export class AlmacenRecepcionSesionComponent implements OnInit {
       });
   }
 
-  adjust(line: ReceivingLine, delta: number): void {
-    const received = Math.max(0, Number(line.received_qty) + delta);
+  /**
+   * Guarda la cantidad tecleada en un renglón.
+   *
+   * `advanceFrom` = índice de la fila cuando el guardado vino de Enter: al volver la
+   * respuesta se pasa el foco al renglón siguiente. Recorrer el vale es la tarea
+   * real, y hacerla sin soltar el teclado es la diferencia entre validar 40 renglones
+   * en un minuto o en diez.
+   */
+  commitRec(line: ReceivingLine, raw: string | number, advanceFrom: number | null): void {
+    const v = Math.floor(Number(raw));
+    if (!Number.isFinite(v) || v < 0) return;
+    if (v === Number(line.received_qty)) {
+      // Sin cambio no se llama al backend, pero Enter igual avanza: el operador está
+      // recorriendo la lista y un renglón que ya estaba bien no debería frenarlo.
+      if (advanceFrom !== null) this.focusRow(advanceFrom + 1);
+      return;
+    }
+    this.setRec(line, v, advanceFrom);
+  }
+
+  /**
+   * Cantidad recibida como número. Postgres devuelve `numeric` en texto ("100.000")
+   * y pintarlo crudo en el campo se leía como precio, no como piezas.
+   */
+  recNum(line: ReceivingLine): number {
+    return Number(line.received_qty) || 0;
+  }
+
+  /** Un clic: recibido = esperado. */
+  matchExpected(line: ReceivingLine, index: number): void {
+    this.setRec(line, Number(line.expected_qty) || 0, index);
+  }
+
+  private setRec(line: ReceivingLine, received: number, advanceFrom: number | null): void {
     this.svc.setLine(this.sessionId, line.id, { received_qty: received }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => this.session.set(s),
+      next: (s) => {
+        this.session.set(s);
+        if (advanceFrom !== null) this.focusRow(advanceFrom + 1);
+      },
       error: (e) => this.toast.add({ severity: 'warn', summary: 'Ajuste', detail: e?.error?.message || 'No se pudo ajustar' }),
+    });
+  }
+
+  /** Foco en el campo de cantidad de la fila `index`, ya repintada la tabla. */
+  private focusRow(index: number): void {
+    setTimeout(() => {
+      const inputs = this.host.nativeElement.querySelectorAll('.rsd-inp');
+      const next = inputs[index] as HTMLInputElement | undefined;
+      if (next) { next.focus(); next.select(); }
     });
   }
 
