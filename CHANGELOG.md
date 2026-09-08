@@ -10,6 +10,25 @@
 
 ## [Unreleased]
 
+### Added — El faltante de recepción tiene responsable, seguimiento y consecuencia (WMS-REC.8, 2026-09-08)
+- **El chip de origen del Andén era decorativo: ahí terminaba.** `discrepancyFor()` marcaba el renglón `faltante`, la pantalla lo pintaba, y al cerrar el vale **no quedaba registro de que se reclamó, ni a quién, ni si se resolvió**. El toast llegaba a decir *"El proveedor lo va a ver en su scorecard"* con **cero** registro detrás.
+- **Se levanta al CERRAR el vale, en su misma transacción**, justo después de que `pending → faltante` queda firme — y **nunca en la Puerta 1**: el cotejo corre contra el chofer, así que esto no agrega **un solo toque** al camión esperando. **No bloquea el cierre**: bloquearlo dejaría existencia física invisible (la mercancía fantasma de WMS-REC.7.2).
+- **Grano = renglón, no vale** (`commercial.receiving_claims`): se reclama por SKU, idempotente por `dedup_key` → el cierre es reintentable sin duplicar. `dañado` y `producto_incorrecto` **también** generan reclamo, porque el override manual REEMPLAZA a `faltante` y marcar "dañado" borraba el reclamo justo en el caso más caro; la cantidad que el andén no tiene se teclea en la bandeja.
+- **Le pega al fill rate que YA existía** (RA.14/RA-PRO.27) en vez de crear un scorecard paralelo: OCs app-nativas **+** vales cerrados con reclamo se suman al mismo grano. Sin reclamos el número no se mueve un dígito, y `fill_evidence` (`po`/`recv`/`po+recv`) declara la procedencia. **El denominador viejo eran sólo las OCs de la app — la compra mayoritaria nace en Kepler, así que el 1.0 significaba "no sé", no "surtió completo".**
+- **`discarded` (error de conteo nuestro) no penaliza y exige motivo; `open` sí penaliza** — si sólo contaran los confirmados, desatender la bandeja protegería al proveedor.
+- ⛔ **El traspaso no se traduce a una sucursal.** `TI###` no mapea limpio en el ERP (`TI005` sale como "ZAMORA CANINDO" y como "ABASTOS LP"), así que el reclamo guarda **código + nombre del documento** y el dueño sale de un crosswalk **capturado a mano**; vacío, el traspaso se mide sin dueño y la bandeja lo dice.
+- **No ajusta stock ni dinero:** el faltante nunca entró al inventario y la nota de crédito vive en Kepler (read-only). El monto es estimación = `importe ÷ cantidad` del renglón del ERP **en la unidad del documento** (cero factor de caja, que falta en 97 de cada 100 SKU); sin costo en el documento va **NULL**, nunca `$0`.
+- **Bandeja `/compras/reclamos`** (Operations: MetricStrip + tabla densa + side-peek + filtros en URL) y 3 columnas nuevas en `/compras/proveedores`. **Sin permiso nuevo** (`COMPRAS_HALLAZGOS_*`, el mismo comprador) → **sin backfill y sin re-login**.
+- Verificado: smoke HTTP **74/74** (2 corridas) + Jest 30 tests + vecinos verdes + builds api/view + validación visual en claro, oscuro y móvil.
+- **Pendiente prod:** 2 migraciones a Railway + redeploy api+view. ADR-053.
+
+### Fixed — Dark mode: los alias de token estaban congelados en su valor claro (2026-09-08)
+- Medido en runtime: `--border`/`--divider` → `#E8E2D7`, `--surface-card` → `#FFFFFF` y `--c-text-1` → `#100D09` **en modo oscuro**, porque la capa de alias vive en `:root` y el tema oscuro en `body.theme-monochrome` (una custom property se sustituye donde se **declara**). `--surface` y `--text-body` ni existen. Corregidos los 3 usos en la pantalla nueva (una columna sticky salía **blanca**) y documentado como [`GOTCHAS §37`](docs/GOTCHAS.md) con la lista de tokens seguros.
+- ⚠️ **Reportado, no arreglado:** `.surf-page-head h1` usa `--c-text-1` → **el título de toda pantalla Operations es ilegible en oscuro** (reproducido en `/compras/hallazgos`, sin tocar nada). El fix toca ~30 pantallas: va como item propio.
+
+### Fixed — Una FK compuesta con `ON DELETE SET NULL` pelado intenta anular `tenant_id` (2026-09-08)
+- En `commercial.receiving_claims`, borrar un proveedor con reclamos reventaba con *"null value in column tenant_id violates not-null constraint"*: en una FK **compuesta** el `SET NULL` sin columnas anula **las dos**. Se usa `ON DELETE SET NULL (columna)` (Postgres 15+). Encontrado al limpiar el fixture del smoke — o sea, por probar el camino completo.
+
 ### Added — Existencia: una sola pantalla del censo físico, en Almacén y en Compras (E, 2026-09-04)
 - **La razón de fondo no era que faltara una pantalla: era que la que había leía la fuente equivocada.** Almacén tenía una tab llamada literalmente «Existencias» (`/almacen/inventory`) que lee `commercial.stock` — y contra el POS en vivo esa tabla **acierta 91%** (15,324 unidades de error) frente al **100%** de `analytics.v_erp_stock_on_hand`. Caso: SKU `88009` en almacén `01` → POS **2,485** · ODS **2,487** · tabla **3,547**.
 - **Un componente, dos rutas** (`/almacen/inventory/existencia` + `/compras/existencia`), **un permiso** — precedente vivo: Caducidades en `/almacen` + `/tienda`. En Compras va **antes de Pedido**: primero ves qué hay, después decidís qué comprar.
