@@ -29,6 +29,15 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
   },
   {
+    // RD.6 — la comision quincenal de Ruta Directa. Al lado de Ventas por ruta porque es la
+    // misma venta, pero con permiso PROPIO: ver cuanto vendio una ruta y ver cuanto cobra su
+    // chofer son cosas distintas, y lo segundo es nomina.
+    label: 'Comisiones RD',
+    route: '/comercial/comisiones',
+    icon: 'pi pi-percentage',
+    permission: Permission.COMMERCIAL_COMMISSIONS_VER,
+  },
+  {
     // AX.2 — el documento que se le entrega al cliente (anexo imprimible + pagaré).
     // AX.9: se llamaba "Documentos", más ancho de lo que muestra — la pantalla trae SÓLO
     // facturas de telemarketing (U/D/8, canal TELEMARK en el 100%). El tab va corto por el

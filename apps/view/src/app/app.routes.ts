@@ -196,6 +196,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
       },
       {
+        // RD.6 — comisiones quincenales de Ruta Directa. Permiso PROPIO: es nomina, no el
+        // reporte de ventas por ruta.
+        path: 'comisiones',
+        loadComponent: () => import('./modules/comercial/pages/comercial-comisiones.component').then(m => m.ComercialComisionesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
+      },
+      {
         // AX.2 — facturas de venta (vistas en vivo sobre kepler_ods) + anexo imprimible
         path: 'documentos',
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
