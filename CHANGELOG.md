@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Fixed — Etiquetera (`/tienda/etiquetas`): nueve hallazgos de la revisión del diseño, el noveno medido en Chrome (2026-09-08)
+
+Una revisión del diseño y funcionamiento de la etiqueta de anaquel (82×35 mm) encontró ocho huecos que los 28 candados existentes no cubrían; al escribir el candado del noveno —el primero que mira la etiqueta **renderizada**, no el código— apareció un defecto real en el papel.
+
+**En el papel:** el código de barras **nunca se escalaba a su columna**. JsBarcode escribe `width="226px"` y el componente copiaba ese texto al `viewBox` → `"0 0 226px 98px"`, que Chrome ignora (medido en Chrome 152: `viewBox.baseVal` = 0,0,0,0). El símbolo se dibujaba a 2 px/módulo (50.3 mm) dentro de 43.4 mm y `overflow:hidden` se llevaba ~13 módulos del lado derecho, guarda final incluida; en pantalla se veía "un código de barras" igual. Además la **zona muda** dependía del layout (la franja verde quedaba a 1.6 mm de la primera barra, donde un EAN-13 pide ~5 mm) → ahora viaja dentro del SVG por simbología (EAN13 11/7, UPC 9/9, EAN8 7/7, CODE128 10/10; módulo resultante 0.384 mm = 116% de magnificación). El **EAN/UPC lleva sus dígitos legibles** debajo de las barras (si el lector falla, es lo que la cajera teclea); el CODE128 de respaldo no los repite porque codifica el SKU que ya está impreso arriba. El naranja del texto chico pasa de brand-700 a **brand-800** (3.1:1 → 4.75:1 sobre la crema; el candado calcula el ratio desde los hex). Y `fitTiers` encoge también por **ancho**: un monto de 4 cifras que no cabía en su celda bajaba solo y se leía como error de dato.
+
+**En la impresión:** `print()` esperaba **500 ms fijos** mientras la tipografía puede tardar hasta 3 s en quedar usable → en un equipo frío el iframe se llevaba los tamaños medidos con la fallback (el "número chico", por la única puerta que faltaba). Ahora cada etiqueta marca `data-etq-settled` cuando se midió con la fuente definitiva y la impresión espera esa marca (tope 8 s; si gana el tope, se **declara**). La hoja oculta se arma **por hojas cediendo el hilo** y el botón cuenta el avance.
+
+**En la cola:** tope de **300 etiquetas (20 hojas)** por impresión —decisión de lote de papel, no límite medido—, aplicado al agregar y a las copias; lo que no entra **vuelve al textarea**. El banner de rezago muestra la **peor** frescura de la cola (stale > unknown > fresh), no la del último escaneo — antes un lote viejo seguía en la cola después de que un escaneo fresco apagaba el aviso; y al re-escanear un producto la cola toma el modelo del resolve más reciente. La vista previa **pagina** (antes sólo se veía la hoja 1). El renglón alterno del granel obedece al multiselect como los otros cuatro.
+
+Candados: +9 en `etiqueta-hoja.spec.ts` y **dos specs nuevos de componente en jsdom** (`label.component.spec.ts`, `tienda-etiquetas.component.spec.ts`); los 20 nuevos se vieron en rojo antes del fix. 49/49 verde, `tsc` limpio. **Pendiente: validación visual con impresión real + redeploy view** (sin migraciones ni permisos → sin re-login).
+
 ### Added — Fase RD: se automatiza el tablero con el que se paga la Ruta Directa (RD.0–RD.8, 2026-09-08)
 
 `INDICADORES RD 2026.xlsx` (11 hojas) era el tablero manual con el que se opera **y se paga** la Ruta Directa: 13 rutas, 13 choferes y 3 supervisores, cada quincena. Entenderlo encontró cosas en los dos lados.

@@ -6,6 +6,48 @@
 
 ---
 
+## 2026-09-08 — `[ETQ.1]` La etiqueta de anaquel: ocho hallazgos de diseño y el noveno que sólo se ve renderizado
+
+**Disparador:** *"analiza el diseño o funcionamiento en específico del diseño de las etiquetas en /tienda/etiquetas"* → *"arreglemos esos hallazgos"*.
+
+### Lo que la revisión encontró leyendo el código (8)
+
+| # | Hallazgo | Dónde dolía |
+|---|---|---|
+| 1 | El EAN impreso **no llevaba su número** (`displayValue:false`) y `margin:0` dejaba la **zona muda** a merced del layout: la franja verde a 1.6 mm de la primera barra, donde un EAN-13 pide ~5 mm | en el papel: lector que no engancha, y sin dígitos que teclear |
+| 2 | `fitTiers` sólo medía **alto**; el ancho lo revisaba `fitAmts` renglón por renglón → un monto de 4 cifras bajaba SOLO y se leía como error de dato | en el papel |
+| 3 | `print()` esperaba **500 ms fijos**; `FUENTES_USABLES` tarda hasta 3 s y el clon al iframe viaja con tamaños inline → en equipo frío se imprimía el número medido con la **fallback** | el mismo bug del "número chico" que ya se había cerrado en pantalla, abierto en el papel |
+| 4 | La cola no tenía techo: `resolve` acepta 1,000 códigos y la hoja oculta renderizaba TODO de golpe | pantalla congelada |
+| 5 | `granelAltTier` era el único renglón que el multiselect no podía apagar | inconsistencia |
+| 6 | `freshness.set()` se pisaba en cada resolve: un lote con rezago seguía en la cola con el banner ya apagado | el aviso mentía por omisión |
+| 7 | La vista previa sólo mostraba la hoja 1 | no se podía revisar la última antes de imprimir |
+| 8 | `.etq-red` (brand-700) a 3.2 / 2.6 mm sobre crema: **3.1:1** | legibilidad en impresora gastada |
+
+### Cómo se trabajó: candado primero, rojo una vez, después el fix
+
+20 candados nuevos: 9 de código fuente en `etiqueta-hoja.spec.ts` y **dos specs de componente en jsdom** —los primeros del módulo que miran la etiqueta **renderizada**— `components/label.component.spec.ts` y `pages/tienda-etiquetas.component.spec.ts` (servicio sustituido, PrimeNG con el stub de licencia de CV.24 + polyfill de `ResizeObserver` para `p-table`). Corrida ANTES del fix: **20 rojos / 29 verdes**, los 28 viejos intactos.
+
+### El noveno, que ningún candado de código podía ver
+
+Al escribir `expect(viewBox).toMatch(/^0 0 226 /)` la aserción recibió `"0 0 226px 98px"`. JsBarcode escribe `width="226px"` y `renderBarcode` copiaba el **texto** al `viewBox`. Antes de llamarlo bug se midió en Chrome 152 (chrome-devtools, página `data:` con dos SVG idénticos salvo el viewBox):
+
+| viewBox | `viewBox.baseVal` | x del último módulo (SVG de 164 px) |
+|---|---|---|
+| `0 0 226px 98px` (producción) | **0, 0, 0, 0 — ignorado** | **225.8 px → fuera del SVG, recortado** |
+| `0 0 226 98` | 0, 0, 226, 98 | 164.07 px → escala |
+
+O sea: el símbolo **nunca se escaló a la columna**. Se dibujaba a 2 px/módulo (190 px = 50.3 mm) en 43.4 mm y `overflow:hidden` se llevaba ~13 módulos del lado derecho, **guarda final incluida**. En pantalla se veía "un código de barras" igual que siempre. Fix: `parseFloat`. **Lección:** 28 candados de regex sobre el fuente pasaban; una sola prueba de lo renderizado lo destapó. Un candado que lee el código verifica la intención; uno que lee el DOM verifica el resultado.
+
+### Lo entregado
+
+- **Papel:** `ZONA_MUDA` por simbología dentro del SVG (EAN13 11/7 · UPC 9/9 · EAN8 7/7 · CODE128 10/10; módulo 0.384 mm = 116% de magnificación, el candado exige ≥ 0.264) · `barcodeDigits` bajo el EAN/UPC agrupado como el empaque, no para el CODE128 del SKU (ya está en "Código:") · `.etq-red` → brand-800 `#C53E15` (4.75:1; el candado calcula el ratio desde los dos hex y exige que el tono exista en `tokens.css`) · `fitTiers` encoge por alto **y** ancho.
+- **Impresión:** `settle()` marca `data-etq-settled` tras medir con la fuente definitiva; `print()` (ahora `async`) arma la hoja oculta **por hojas cediendo el hilo**, espera la marca de todas (tope 8 s; si gana el tope se **declara** con warn) y el botón cuenta el avance.
+- **Cola:** `MAX_SHEETS = 20` → 300 etiquetas — decisión de lote de papel, **no** un límite medido; lo que no entra **vuelve al textarea** · `worstFreshness` (stale 2 > unknown 1 > fresh 0) sobre cada ítem + última consulta; al re-escanear se toma el modelo del resolve más reciente · `sheetPage` con clamp · sección `granel` en el multiselect.
+
+**Verificación:** 49/49 (`npx jest -c apps/view/jest.config.ts apps/view/src/app/modules/tienda/`), `tsc --noEmit` view limpio. Sin migraciones ni permisos → sin re-login. **Pendiente:** validación visual con impresión real (Edgar) + redeploy view. No se buildeó a propósito: el dev server de Edgar estaba arriba (HMR).
+
+---
+
 ## 2026-09-07 — `[WR.7][WR.8]` La réplica cruda de Wincaja perdía filas por dos mecanismos, ninguno visible
 
 **Disparador:** *"la réplica cruda de wincaja solo tiene 69 tablas?"* → no, son **70 por rama y son

@@ -300,3 +300,148 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(cell).toBeGreaterThan(izq / 2);
   });
 });
+
+/**
+ * Revisión del 2026-09-08 — ocho hallazgos leídos en el código, ninguno cubierto por los
+ * candados de arriba. Cada uno se escribió ANTES del fix y se vio en rojo una vez: un gate sin
+ * prueba negativa es una intención (ADR-056). Lo que se RENDERIZA se prueba aparte, en
+ * `components/label.component.spec.ts` y `pages/tienda-etiquetas.component.spec.ts`.
+ */
+describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
+  /** Cuerpo de un método de la página: desde su FIRMA (para no chocar con el template) hasta el cierre con sangría de clase. */
+  const metodo = (src: string, firma: string): string => {
+    const ini = src.indexOf(firma);
+    expect(ini).toBeGreaterThan(-1);
+    return src.slice(ini, src.indexOf('\n  }', ini));
+  };
+  /** Luminancia relativa (WCAG) de un #rrggbb. */
+  const lum = (hex: string): number => {
+    const c = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map((v) => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  const contraste = (a: string, b: string): number => {
+    const [hi, lo] = [lum(a), lum(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it('⭐ el texto CHICO en naranja contrasta al menos 4.5:1 contra la crema', () => {
+    // `.etq-red` va en el SKU (3.2 mm) y en las cantidades de los renglones (2.6 mm): el texto
+    // más chico de la etiqueta. El brand-700 (#F05A28) daba 3.1:1 sobre la crema — pasa en un
+    // titular, no en letra de 3 mm en una impresora gastada. Es papel, así que WCAG no aplica
+    // literal, pero es la única vara medible que hay y 4.5 es la del texto pequeño.
+    const cream = /--cream:(#[0-9a-fA-F]{6})/.exec(LABEL)![1];
+    const red = /--red:(#[0-9a-fA-F]{6})/.exec(LABEL)![1];
+    expect(contraste(red, cream)).toBeGreaterThanOrEqual(4.5);
+    // …y sigue siendo un tono de la escala de marca, no uno inventado.
+    const TOKENS = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'design-tokens', 'tokens.css'), 'utf8');
+    expect(TOKENS.toLowerCase()).toContain(red.toLowerCase());
+  });
+
+  it('el bloque de renglones encoge también por ANCHO, no sólo por alto', () => {
+    // `fitTiers` sólo miraba el alto; el ancho lo revisaba después `fitAmts`, renglón por
+    // renglón. Un monto de 4 cifras que ya no cabía en su celda al arranque bajaba SOLO, y un
+    // monto más chico que su vecino se lee como error de dato, no como diseño.
+    const fit = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    const anchoOk = fit.indexOf('const anchoOk');
+    expect(anchoOk).toBeGreaterThan(-1);
+    expect(anchoOk).toBeLessThan(fit.indexOf('if (noCabe()'));
+    expect(fit).toMatch(/while \(\(noCabe\(\) \|\| !anchoOk\(\)\)/);
+  });
+
+  it('el símbolo lleva su zona muda ADENTRO y conserva la magnificación mínima', () => {
+    // Con `margin: 0` la zona muda quedaba a merced del layout: la franja verde de la unidad
+    // estaba a 1.6 mm de la primera barra, donde un EAN-13 pide 11 módulos (~5 mm). Ahora la
+    // lleva el propio SVG, así que se estira con las barras y nadie la puede pisar.
+    expect(LABEL).not.toMatch(/JsBarcode\([^)]*margin: 0/);
+    const tabla = /const ZONA_MUDA[^=]*=\s*\{([\s\S]*?)\};/.exec(LABEL)![1];
+    const mod = (f: string): [number, number] => {
+      const m = new RegExp(`${f}:\\s*\\[(\\d+),\\s*(\\d+)\\]`).exec(tabla)!;
+      return [Number(m[1]), Number(m[2])];
+    };
+    expect(mod('EAN13')).toEqual([11, 7]);
+    expect(mod('UPC')).toEqual([9, 9]);
+    expect(mod('EAN8')).toEqual([7, 7]);
+    expect(mod('CODE128')).toEqual([10, 10]);
+    // El ancho de la columna se reparte entre 95 módulos + la zona muda: el módulo resultante
+    // no baja del 80% de magnificación (0.264 mm), que es el mínimo que el candado de arriba
+    // ya defendía para el símbolo pelado.
+    const anchoCol = Number(/\.etq-right\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
+    const [l, r] = mod('EAN13');
+    expect(anchoCol / (95 + l + r)).toBeGreaterThanOrEqual(0.264);
+  });
+
+  it('el número del EAN se imprime debajo de las barras, legible, y sin duplicar el SKU', () => {
+    // `displayValue:false` dejaba el símbolo sin dígitos: si el lector falla, no hay qué
+    // teclear. Los dibuja el componente (no JsBarcode: con preserveAspectRatio:none el texto se
+    // estiraría con las barras) y sólo para EAN/UPC — el CODE128 de respaldo codifica el SKU,
+    // que ya está impreso arriba en "Código:".
+    expect(LABEL).toMatch(/get barcodeDigits\(\): string \| null/);
+    expect(LABEL).toMatch(/class="etq-bc-digits"/);
+    expect(LABEL).toMatch(/displayValue: false/);
+    const digitos = Number(/\.etq-bc-digits\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    const masChico = Number(/\.etq-tier \.unit\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(digitos).toBeGreaterThanOrEqual(masChico);
+    expect(LABEL).toMatch(/\.etq-bc-digits\{[^}]*tabular-nums/);
+  });
+
+  it('la impresión espera a que cada etiqueta se haya AJUSTADO, no 500 ms fijos', () => {
+    // `FUENTES_USABLES` tarda hasta 3 s en resolver; el `setTimeout(..., 500)` clonaba al
+    // iframe los tamaños medidos con la fallback: el número chico, por la única puerta que los
+    // candados de arriba no cerraban.
+    expect(PAGE).not.toMatch(/setTimeout\(\(\) => this\.printIsolated\(\), \d+\)/);
+    expect(LABEL).toMatch(/^export const FUENTES_USABLES/m);
+    expect(PAGE).toContain('await FUENTES_USABLES');
+    // La etiqueta MARCA cuándo terminó y la impresión espera esa marca — con tope, y si el tope
+    // gana se DECLARA, no se calla.
+    expect(LABEL).toContain("'data-etq-settled'");
+    expect(PAGE).toContain('[data-etq-settled]');
+    expect(PAGE).toMatch(/no terminaron de ajustarse/);
+  });
+
+  it('la cola tiene tope, es un número entero de hojas y se muestra antes de chocar con él', () => {
+    // `resolve` acepta 1,000 códigos y `printLabels` renderizaba TODAS las etiquetas de golpe en
+    // el DOM oculto; `PER_SHEET` sólo acotaba la vista previa. El tope es una decisión de lote
+    // de papel (N hojas), no un límite medido de rendimiento — lo que mantiene viva la pantalla
+    // es que el render de impresión se hace por hojas, cediendo el hilo entre una y otra.
+    const hojas = Number(/readonly MAX_SHEETS = (\d+);/.exec(PAGE)![1]);
+    expect(hojas).toBeGreaterThanOrEqual(5);
+    expect(PAGE).toContain('readonly MAX_LABELS = this.MAX_SHEETS * this.PER_SHEET;');
+    // Se aplica donde entran etiquetas y donde se multiplican…
+    expect(metodo(PAGE, 'private pushLabels(')).toContain('MAX_LABELS');
+    expect(metodo(PAGE, 'maxCopies(i: number): number')).toContain('MAX_LABELS');
+    expect(metodo(PAGE, 'setCopies(i: number, val: number)')).toContain('this.maxCopies(');
+    // …el operador lo ve en el contador de la cola…
+    const caption = /<div class="etqp-tcap">([\s\S]*?)<\/div>/.exec(PAGE)![1];
+    expect(caption).toContain('MAX_LABELS');
+    // …y lo que no entró vuelve al textarea, no se pierde.
+    expect(metodo(PAGE, 'addBulk(): void')).toContain('leftover');
+    // …y la hoja oculta se arma por hojas, cediendo el hilo entre una y otra.
+    expect(metodo(PAGE, 'async print(): Promise<void>')).toContain('this.PER_SHEET');
+  });
+
+  it('el renglón alterno del granel obedece al multiselect como los otros cuatro', () => {
+    const g = /get granelAltTier\(\)[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(g).toContain('this.show.granel');
+    expect(LABEL).toMatch(/granel: boolean;/);
+    expect(LABEL).toMatch(/ALL_SECTIONS: LabelSections = \{[^}]*granel: true/);
+    expect(PAGE).toMatch(/value: 'granel'/);
+  });
+
+  it('la frescura que se pinta es la PEOR de la cola, no la del último escaneo', () => {
+    // `freshness.set(r.freshness)` en cada resolve: un lote agregado con rezago seguía en la
+    // cola después de que un escaneo fresco apagaba el banner. La edad viaja con cada ítem y el
+    // banner muestra la peor; stale > unknown > fresh.
+    expect(PAGE).not.toMatch(/this\.freshness\.set\(/);
+    expect(PAGE).toMatch(/readonly freshness = computed\(/);
+    expect(PAGE).toMatch(/interface QueueItem \{[^}]*freshness: Freshness \| null/);
+    expect(PAGE).toMatch(/const RANGO_FRESCURA[^=]*=\s*\{\s*stale: 2,\s*unknown: 1,\s*fresh: 0\s*\}/);
+  });
+
+  it('la vista de hoja se puede pasar de página, y la página se clampea si la cola se achica', () => {
+    expect(PAGE).toMatch(/sheetPage = signal\(1\)/);
+    expect(PAGE).toContain('pi-chevron-left');
+    expect(PAGE).toContain('pi-chevron-right');
+    expect(PAGE).toMatch(/Math\.min\(this\.sheetPage\(\), this\.totalSheets\(\)\)/);
+  });
+});
