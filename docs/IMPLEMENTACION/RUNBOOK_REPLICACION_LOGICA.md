@@ -449,13 +449,32 @@ en los POS `02` y `03`, medidos el 2026-09-08 (`password_encryption = scram-sha-
 #### Antes de empezar — tres datos
 
 1. La contraseña del **superusuario** del Kepler de ese POS (`postgres` o `sa`).
-2. La contraseña de **`ods_repl`**, que tiene que ser **la misma que las otras sucursales**. Se saca
-   desde este servidor:
+2. La contraseña de **`ods_repl`**, que tiene que ser **la misma que las otras sucursales**.
+
+   **No está documentada en ningún archivo, y está bien así** (medido el 2026-09-08: 0 valores
+   reales en el repo ni en el runner; los 8 sitios que la mencionan usan placeholders). Su único
+   lugar de residencia es `pg_subscription.subconninfo` en el contenedor `:5433` — o sea que **no
+   hay que recordarla**: se reconstruye. Las 7 suscripciones comparten una sola.
+
+   La forma de recuperarla **sin que pase por un chat, un ticket ni un archivo**: que la propia
+   consulta te devuelva la sentencia ya armada, y copiás esa celda al POS.
+
    ```sql
    -- en pgAdmin, conectado a localhost:5433 / base "postgres", como postgres
-   SELECT subname, subconninfo FROM pg_subscription;
+   SELECT 'ALTER ROLE ods_repl PASSWORD ' || quote_literal(
+            (regexp_match(subconninfo, 'password=([^ ]+)'))[1]) || ';' AS correr_en_el_pos
+     FROM pg_subscription WHERE subname = 'sub_md_02';
    ```
-   Sale como `... user=ods_repl password=XXXX`. **No la pegues en un chat ni en un ticket.**
+
+   Devuelve una celda tipo `ALTER ROLE ods_repl PASSWORD '…';` que se pega tal cual en el Query
+   Tool del POS. Después **cerrá la pestaña en los dos lados**: pgAdmin guarda el historial de
+   consultas y ahí quedaría en claro.
+
+   ⚠️ **Por qué importa que sea la misma y no una nueva:** si el POS queda con otra, el
+   `CREATE SUBSCRIPTION` **no falla — REINTENTA**, así que se ve como un cuelgue y no como un
+   error de autenticación. Vivido con Madero el 2026-09-08: el verificador daba 8 OK, el rol
+   existía con `REPLICATION`, el `pg_hba` estaba bien, y la suscripción nunca se creó. Lo que lo
+   destapó fue abrir una conexión de replicación de verdad (comprobación 9 del verificador).
 3. El **nombre de la base**: para Madero es `md_07` (confirmado 2026-09-08).
    Si no se sabe: en pgAdmin, al conectarse al POS, el árbol *Databases* la muestra.
 
