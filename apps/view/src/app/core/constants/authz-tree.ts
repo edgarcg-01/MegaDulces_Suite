@@ -228,6 +228,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-costo-neto', label: 'Costo por proveedor', route: '/compras/costo-neto', view: [Permission.COMPRAS_COSTO_NETO_VER], manage: [] },
           { id: 'compras-descuentos', label: 'Descuentos y apoyos', route: '/compras/descuentos', view: [Permission.COMPRAS_DESCUENTOS_VER], manage: [Permission.COMPRAS_DESCUENTOS_GESTIONAR] },
           { id: 'compras-hallazgos', label: 'Hallazgos', route: '/compras/hallazgos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
+          // WMS-REC.8 — misma pareja de permisos que Hallazgos (la bandeja es del comprador),
+          // así que otorgar Hallazgos habilita las dos vistas a propósito.
+          { id: 'compras-reclamos', label: 'Reclamos de recepción', route: '/compras/reclamos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },
           { id: 'compras-categorias', label: 'Categorías', route: '/compras/categorias', view: [Permission.COMPRAS_CATEGORIAS_VER], manage: [Permission.COMPRAS_CATEGORIAS_GESTIONAR] },
         ],
