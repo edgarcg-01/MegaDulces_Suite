@@ -427,12 +427,34 @@ en los POS `02` y `03`, medidos el 2026-09-08 (`password_encryption = scram-sha-
 
 En **pgAdmin**, conectado al POS **como superusuario**: botón derecho en la base → *Query Tool* →
 
+⚠️ **No pongas varios `SHOW` seguidos**: el Query Tool de pgAdmin muestra sólo el resultado
+del ÚLTIMO statement, así que cuatro `SHOW` devuelven nada más `version()`. Va en una sola
+consulta, y de paso trae todo lo que hace falta más adelante:
+
 ```sql
-SHOW config_file;      -- p. ej. C:\Program Files\PostgreSQL\16\data\postgresql.conf
-SHOW hba_file;         -- p. ej. C:\Program Files\PostgreSQL\16\data\pg_hba.conf
-SHOW data_directory;
-SELECT version();
+SELECT name AS parametro, setting AS valor, context AS "para_cambiarlo"
+  FROM pg_settings
+ WHERE name IN ('config_file','hba_file','data_directory','port','listen_addresses',
+                'wal_level','password_encryption','max_replication_slots',
+                'max_wal_senders','max_slot_wal_keep_size','ssl')
+UNION ALL
+SELECT 'version', split_part(version(), ' on ', 1), ''
+ ORDER BY 1;
 ```
+
+Cómo leerlo:
+
+| parámetro | qué esperás | si no |
+|---|---|---|
+| `config_file` · `hba_file` | las rutas reales a editar | vacío = no estás como superusuario |
+| `wal_level` | `logical` | `context = postmaster` → reinicio |
+| `listen_addresses` | `*` | `context = postmaster` → reinicio |
+| `password_encryption` | `scram-sha-256` | si dice `md5`, en `pg_hba` va `md5` |
+| `max_slot_wal_keep_size` | `20480` (= 20 GB) | `context = sighup` → alcanza reload |
+| `max_replication_slots` / `max_wal_senders` | `10` / `10` | `postmaster` → reinicio |
+
+La columna `para_cambiarlo` (`context`) dice si hace falta **reiniciar** el servicio o basta
+`SELECT pg_reload_conf();` — no se adivina, la dice Postgres.
 
 Por línea de comandos es lo mismo:
 ```bat
