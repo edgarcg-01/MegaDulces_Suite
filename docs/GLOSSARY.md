@@ -20,6 +20,10 @@
 | **Exhibición** | Montaje/display del producto en el PdV. Núcleo del negocio original de *trade marketing*. |
 | **Planograma** | El layout ideal de cómo deben acomodarse los productos en el anaquel. |
 | **Ruta** | Recorrido de venta/entrega que hace un vendedor o camión (ej. "RUTA 21"). |
+| **RD · Ruta Directa** | El canal de reparto en camioneta con venta a bordo. 13 rutas: PH `21,22,23,26,27,28` · Morelia `321,322` · Canindo `501–505`. En Kepler el canal se clasifica por `kdm1.c6` (`R.D.`), nunca por el nombre de subcuenta. Puestos `supervisor_rd` / `chofer_rd`. Ver [`FASE_RD`](IMPLEMENTACION/FASES/FASE_RD_INDICADORES_RUTA.md). |
+| **RV · Ruta Vecinal** | El otro canal de ruta (`R.V.` en `kdm1.c6`). Códigos Kepler `1V001…1V004`, `3V001`; catálogo en `md.kduv`. ⚠️ No confundir con la **preventa vecinal** de Wincaja (caja 15), que es venta de la *sucursal* a la puerta del cliente, no de una ruta. |
+| **PH · Padre Hidalgo** | Sucursal/plaza. Kepler `01` (`md_01`) · Wincaja `10` · almacén `01` en prod (`MD-10` en dev) · zona `LA PIEDAD RD`. Dejó de escribir en Wincaja el 2026-06-26. |
+| **Canindo** | Sucursal/plaza (Zamora). Wincaja `50` → Kepler `06` (`md_06`) desde el **2026-08-15**. ⚠️ Arrastra `wincaja_source_branch='50'` residual: el gate correcto es `wincaja_source_branch IS NOT NULL AND kepler_code IS NULL`. |
 | **Vendedor** | Persona que toma pedidos / audita en campo. App `apps/vendor`. |
 | **Cliente (customer)** | El comercio que compra (tiendita, mayorista…). `commercial.customers`. |
 | **Traspaso** | Movimiento de inventario entre almacenes (sin venta). Kepler: documentos género `N`. |
