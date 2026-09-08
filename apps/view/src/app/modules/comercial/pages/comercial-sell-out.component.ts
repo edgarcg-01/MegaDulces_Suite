@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
@@ -21,6 +22,8 @@ import {
   SellOutView,
   SellOutWarehouseRow,
   SellOutTreeGroup,
+  SelloutTargetsReport,
+  SelloutTargetRow,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -30,6 +33,8 @@ import { REPORTS_TABS } from '../reports-tabs';
 
 type PeriodMode = 'month' | 'quarter' | 'year' | 'range';
 type Measure = 'cajas' | 'monto' | 'ambas';
+/** Entrada por pregunta (B): cada trabajo fija reportMode + agrupado por default. */
+type SellOutJob = 'sucursales' | 'canales' | 'vendedores' | 'objetivo';
 
 const CHANNEL_OPTS = [
   { label: 'Mostrador', value: 'mostrador' },
@@ -39,12 +44,21 @@ const CHANNEL_OPTS = [
   { label: 'Otro', value: 'otro' },
 ];
 
+/** Canales seleccionables en el filtro Canal (vocabulario real de venta, sin `otro`).
+ *  Vecinal = `preventa`, Mayoreo = `credito` (etiquetas de negocio). */
+const CHANNEL_SEL_OPTS = [
+  { label: 'Mostrador', value: 'mostrador' },
+  { label: 'Ruta', value: 'ruta' },
+  { label: 'Vecinal', value: 'preventa' },
+  { label: 'Mayoreo', value: 'credito' },
+];
+
 /** RS — Generador de reportes Sell-Out por empresa (marca/proveedor). */
 @Component({
   selector: 'app-comercial-sell-out',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule, CheckboxModule,
+    CommonModule, RouterLink, FormsModule, ButtonModule, SelectModule, MultiSelectModule, CheckboxModule,
     DatePickerModule, ToggleSwitchModule, InputTextModule, ToastModule, PaginatorModule,
     PageTabsComponent, SegmentedComponent, ProductSearchComponent, MetricStripComponent,
   ],
@@ -75,49 +89,34 @@ const CHANNEL_OPTS = [
             en la matriz (sin doble conteo entre Kepler y Wincaja).
           </p>
           <dl class="so-about-list">
-            <div><dt>Empresa</dt><dd>Marca / proveedor. Deja las filas de sus productos. Vacío = todas las empresas.</dd></div>
-            <div><dt>Agrupar</dt><dd><b>Englobado · sucursal</b> = una columna por sucursal y canal (Mostrador, RD, RV/Vecinal, Mayoreo). <b>Desglosado · vendedor</b> = abre Mayoreo y RV/Vecinal en cada vendedor por nombre (p.ej. la vecinal de PH en Candy y Rafael).</dd></div>
-            <div><dt>Formato</dt><dd>Solo «Por canal». <b>Detalle</b> = columnas dinámicas; <b>Por plaza</b> = formato estándar plaza × tipo, en cajas, con todos los SKUs.</dd></div>
+            <div><dt>¿Qué quieres ver?</dt><dd>El punto de partida. <b>Sucursales</b> = una columna por plaza para compararlas; <b>Canales</b> = abre las columnas por canal (Mostrador, Ruta, Vecinal, Mayoreo); <b>Vendedores</b> = por persona y ruta (p.ej. la vecinal de PH en Candy y Rafael); <b>vs Objetivo</b> = avance contra la meta del mes. No esconde filtros: sólo reencuadra.</dd></div>
             <div><dt>Periodo</dt><dd>El rango de fechas (mes, trimestre, año o rango libre). Meses cerrados salen del consolidado nocturno; el mes en curso, en vivo.</dd></div>
-            <div><dt>Canal · Sucursal / Vendedor</dt><dd>Elige qué canales y sucursales (o vendedores) suman. Solo aparecen los que tienen venta en el periodo. Vacío = todos.</dd></div>
+            <div><dt>Empresa</dt><dd>Marca / proveedor. Deja las filas de sus productos. Vacío = todas las empresas.</dd></div>
+            <div><dt>Sucursal · Canal</dt><dd>Acota a una o varias plazas y canales. Vacío = todos. También podés hacer <b>clic en el encabezado de una columna</b> del cuadro para acotar a esa sucursal.</dd></div>
+            <div><dt>Vendedor</dt><dd>En «Vendedores»: acota a uno o varios vendedores por nombre.</dd></div>
             <div><dt>Buscar SKU</dt><dd>Acota a un producto por SKU o descripción, en todas las empresas a la vez.</dd></div>
-            <div><dt>Vista</dt><dd>Solo «Por canal». <b>Por producto</b>, <b>Mes en columnas</b> o <b>Resumen mensual</b> — cambia cómo se despliegan filas y columnas.</dd></div>
-            <div><dt>Medida</dt><dd>Qué números se muestran: <b>Cajas</b>, <b>Monto</b> o <b>Ambas</b>. Solo afecta la vista; el total no cambia.</dd></div>
-            <div><dt>Promos</dt><dd><b>Sin promos</b> (excluye marcadores de $0.01), <b>Solo promos</b> o <b>Todo</b>.</dd></div>
-            <div><dt>Concentrar por</dt><dd>Colapsa el detalle en <b>un</b> total consolidado por canal, sucursal, empresa o ruta.</dd></div>
-            <div><dt>Desglosar canal · Incluir sin venta</dt><dd>Abre columnas por canal / muestra también los productos que no vendieron en el periodo.</dd></div>
-            <div><dt>Limpiar filtros</dt><dd>Restablece todos los controles a sus valores por defecto.</dd></div>
+            <div><dt>Avanzado</dt><dd>Cruce fino canal × almacén (o vendedor) en árbol. Al usarlo, gana sobre los filtros Sucursal/Canal.</dd></div>
+            <div><dt>Filtros activos</dt><dd>Cada filtro vigente aparece como una etiqueta removible — venga del dropdown, del trabajo o de un clic. Clic en la etiqueta lo quita.</dd></div>
+            <div><dt>Opciones de vista</dt><dd>Cómo se ve, no qué datos: <b>Medida</b> (cajas/monto), <b>Formato</b>, <b>Vista</b>, <b>Promos</b>, <b>Concentrar</b>, <b>Incluir sin venta</b>. No cambian el total.</dd></div>
+            <div><dt>Limpiar</dt><dd>Restablece todos los controles a sus valores por defecto.</dd></div>
           </dl>
         </div>
       }
 
-      <!-- Controles -->
-      <div class="so-filters card-premium card-flat">
-        <div class="so-field so-empresa">
-          <label>Empresa</label>
-          <p-select [options]="brands()" [ngModel]="brandId()" (ngModelChange)="brandId.set($event)" optionLabel="nombre" optionValue="id"
-                    [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Todas las empresas"
-                    [loading]="loadingBrands()" appendTo="body" styleClass="w-full"
-                    (onChange)="generate()" (onClear)="generate()">
-            <ng-template let-b #item>
-              <span>{{ b.nombre }}</span>
-              <span class="so-badge">{{ b.products }}</span>
-            </ng-template>
-          </p-select>
-        </div>
-
-        <div class="so-field">
-          <label>Agrupar</label>
-          <app-segmented [options]="reportModeOpts" [value]="reportMode()" (valueChange)="setReportMode($event)" ariaLabel="Cómo agrupar el reporte" />
-        </div>
-
-        @if (reportMode() === 'canal') {
-          <div class="so-field">
-            <label>Formato</label>
-            <app-segmented [options]="layoutOpts" [value]="layout()" (valueChange)="setLayout($event)" ariaLabel="Formato del reporte" />
-          </div>
+      <!-- B — Entrada por pregunta: qué quieres ver (fija el encuadre, no esconde filtros) -->
+      <div class="so-jobs card-premium card-flat" role="tablist" aria-label="¿Qué quieres ver?">
+        <span class="so-jobs-lead">¿Qué quieres ver?</span>
+        @for (j of jobOpts; track j.value) {
+          <button type="button" class="so-job" [class.is-active]="job() === j.value"
+                  role="tab" [attr.aria-selected]="job() === j.value" (click)="setJob(j.value)">
+            <span class="so-job-t">{{ j.label }}</span>
+            <span class="so-job-d">{{ j.desc }}</span>
+          </button>
         }
+      </div>
 
+      <!-- A — Filtros: qué datos ves -->
+      <div class="so-filters card-premium card-flat">
         <div class="so-field">
           <label>Periodo</label>
           <app-segmented [options]="modeOpts" [value]="periodMode()" (valueChange)="setMode($event)" ariaLabel="Periodo" />
@@ -157,63 +156,133 @@ const CHANNEL_OPTS = [
           }
         }
 
-        <div class="so-field">
-          <label>{{ reportMode() === 'vendedor' ? 'Vendedor' : 'Canal · Sucursal' }}</label>
-          <button type="button" class="so-slicer-btn" [class.is-open]="slicerOpen()" [class.has-val]="selectedCount() > 0"
-                  [attr.aria-expanded]="slicerOpen()"
-                  [attr.aria-label]="(reportMode() === 'vendedor' ? 'Vendedor' : 'Canal y sucursal') + ': ' + (selectedCount() ? selectedCount() + ' seleccionados' : 'Todos')"
-                  (click)="slicerOpen.set(!slicerOpen())">
-            <i class="pi pi-sitemap so-slicer-lead"></i>
-            <span class="so-slicer-val">{{ selectedCount() ? (selectedCount() + ' seleccionados') : 'Todos' }}</span>
-            <i class="pi so-slicer-caret" [class.pi-chevron-down]="!slicerOpen()" [class.pi-chevron-up]="slicerOpen()"></i>
-          </button>
-        </div>
-
-        <div class="so-field so-search-field">
-          <label>Buscar SKU</label>
-          <app-product-search [includeInactive]="true" placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
-        </div>
-
-        @if (reportMode() === 'canal' && layout() !== 'plaza') {
-          <div class="so-field">
-            <label>Vista</label>
-            <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista del reporte" />
+        @if (job() !== 'objetivo') {
+          <div class="so-field so-empresa">
+            <label>Empresa</label>
+            <p-select [options]="brands()" [ngModel]="brandId()" (ngModelChange)="brandId.set($event)" optionLabel="nombre" optionValue="id"
+                      [filter]="true" filterBy="nombre,code" [showClear]="true" placeholder="Todas las empresas"
+                      [loading]="loadingBrands()" appendTo="body" styleClass="w-full"
+                      (onChange)="generate()" (onClear)="generate()">
+              <ng-template let-b #item>
+                <span>{{ b.nombre }}</span>
+                <span class="so-badge">{{ b.products }}</span>
+              </ng-template>
+            </p-select>
           </div>
-        }
 
-        <div class="so-field">
-          <label>Medida</label>
-          <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
-        </div>
+          @if (reportMode() === 'canal') {
+            <div class="so-field so-ms">
+              <label>Sucursal</label>
+              <p-multiselect [options]="warehouseOpts()" [ngModel]="warehouses()" (ngModelChange)="warehouses.set($event)"
+                             optionLabel="name" optionValue="code" [filter]="true" filterBy="name,code"
+                             placeholder="Todas" appendTo="body" styleClass="w-full" [maxSelectedLabels]="2"
+                             selectedItemsLabel="{0} sucursales" (onPanelHide)="onFilterMultiChange()" />
+            </div>
+            <div class="so-field so-ms">
+              <label>Canal</label>
+              <p-multiselect [options]="channelSelOpts" [ngModel]="channels()" (ngModelChange)="channels.set($event)"
+                             optionLabel="label" optionValue="value" placeholder="Todos" appendTo="body"
+                             styleClass="w-full" [maxSelectedLabels]="2" selectedItemsLabel="{0} canales"
+                             (onPanelHide)="onFilterMultiChange()" />
+            </div>
+          } @else {
+            <div class="so-field so-ms so-ms-wide">
+              <label>Vendedor</label>
+              <p-multiselect [options]="vendorOptions()" [ngModel]="vendorSelArray()" (ngModelChange)="onVendorSel($event)"
+                             optionLabel="label" optionValue="value" [filter]="true" filterBy="label"
+                             placeholder="Todos" appendTo="body" styleClass="w-full" [maxSelectedLabels]="1"
+                             selectedItemsLabel="{0} vendedores" (onPanelHide)="generate()" />
+            </div>
+          }
 
-        <div class="so-field">
-          <label>Promos</label>
-          <app-segmented [options]="promoOpts" [value]="promo()" (valueChange)="setPromo($event)" ariaLabel="Filtro de promociones" />
-        </div>
-
-        <div class="so-field">
-          <label>Concentrar por</label>
-          <app-segmented [options]="concentrarOpts" [value]="concentrar()" (valueChange)="setConcentrar($event)" ariaLabel="Concentrado por dimensión" />
-        </div>
-
-        @if (reportMode() === 'canal' && layout() !== 'plaza') {
-          <div class="so-field so-toggles">
-            @if (view() !== 'month_columns') {
-              <label class="so-toggle"><p-toggleswitch [(ngModel)]="byChannel" /> <span>Desglosar canal</span></label>
-            }
-            @if (view() !== 'month_summary') {
-              <label class="so-toggle"><p-toggleswitch [(ngModel)]="includeZeros" /> <span>Incluir sin venta</span></label>
-            }
+          <div class="so-field so-search-field">
+            <label>Buscar SKU</label>
+            <app-product-search [includeInactive]="true" placeholder="SKU (5 díg.) o descripción…" (productSelected)="onProductPick($event)" />
           </div>
+
+          <div class="so-field so-adv-field">
+            <label>&nbsp;</label>
+            <button type="button" class="so-adv" [class.is-open]="slicerOpen()" [class.has-val]="selectedCount() > 0"
+                    [attr.aria-expanded]="slicerOpen()"
+                    [attr.aria-label]="'Filtro avanzado por canal, sucursal o vendedor'"
+                    (click)="slicerOpen.set(!slicerOpen())">
+              <i class="pi pi-sitemap"></i><span>Avanzado{{ selectedCount() ? ' · ' + selectedCount() : '' }}</span>
+            </button>
+          </div>
+        } @else {
+          <p class="so-obj-hint"><i class="pi pi-info-circle"></i> Las metas son por <b>mes</b> y se capturan en <a routerLink="/comercial/analisis">Análisis</a>.</p>
         }
 
         <div class="so-field so-reset-field">
           <label>&nbsp;</label>
           <button type="button" class="so-reset" (click)="resetFilters()" title="Restablecer todos los filtros a sus valores por defecto">
-            <i class="pi pi-filter-slash"></i><span>Limpiar filtros</span>
+            <i class="pi pi-filter-slash"></i><span>Limpiar</span>
           </button>
         </div>
       </div>
+
+      <!-- C — Chips de filtros activos (removibles; sea del dropdown, del preset o de un clic) -->
+      @if (job() !== 'objetivo' && activeChips().length) {
+        <div class="so-chips">
+          <span class="so-chips-lead">Activos</span>
+          @for (c of activeChips(); track c.kind + c.key) {
+            <button type="button" class="so-chip" (click)="removeChip(c)"
+                    [attr.aria-label]="'Quitar ' + c.type + ': ' + c.label">
+              <span class="so-chip-t">{{ c.type }}:</span> {{ c.label }} <i class="pi pi-times"></i>
+            </button>
+          }
+        </div>
+      }
+
+      <!-- Opciones de vista (plegable) — separa "cómo se ve" de "qué se ve" -->
+      @if (job() !== 'objetivo') {
+        <div class="so-viewopts">
+          <button type="button" class="so-viewopts-btn" [class.is-open]="viewOpen()"
+                  [attr.aria-expanded]="viewOpen()" (click)="viewOpen.set(!viewOpen())">
+            <i class="pi" [class.pi-chevron-right]="!viewOpen()" [class.pi-chevron-down]="viewOpen()"></i>
+            <span>Opciones de vista</span>
+            <span class="so-viewopts-sum">Medida · Formato · Promos · Concentrar</span>
+          </button>
+          @if (viewOpen()) {
+            <div class="so-viewopts-body">
+              <div class="so-field">
+                <label>Medida</label>
+                <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
+              </div>
+              @if (reportMode() === 'canal') {
+                <div class="so-field">
+                  <label>Formato</label>
+                  <app-segmented [options]="layoutOpts" [value]="layout()" (valueChange)="setLayout($event)" ariaLabel="Formato del reporte" />
+                </div>
+                @if (layout() !== 'plaza') {
+                  <div class="so-field">
+                    <label>Vista</label>
+                    <app-segmented [options]="viewOpts" [value]="view()" (valueChange)="setView($event)" ariaLabel="Vista del reporte" />
+                  </div>
+                }
+              }
+              <div class="so-field">
+                <label>Promos</label>
+                <app-segmented [options]="promoOpts" [value]="promo()" (valueChange)="setPromo($event)" ariaLabel="Filtro de promociones" />
+              </div>
+              @if (reportMode() === 'canal') {
+                <div class="so-field">
+                  <label>Concentrar por</label>
+                  <app-segmented [options]="concentrarOpts" [value]="concentrar()" (valueChange)="setConcentrar($event)" ariaLabel="Concentrado por dimensión" />
+                </div>
+                @if (layout() !== 'plaza' && view() !== 'month_summary') {
+                  <div class="so-field so-toggles">
+                    <label class="so-toggle"><p-toggleswitch [(ngModel)]="includeZeros" (ngModelChange)="generate()" /> <span>Incluir sin venta</span></label>
+                  </div>
+                }
+                @if (layout() === 'plaza') {
+                  <p class="so-viewopts-note"><i class="pi pi-info-circle"></i> «Por plaza» fija la medida en <b>cajas</b> y muestra <b>todos los SKUs</b>.</p>
+                }
+              }
+            </div>
+          }
+        </div>
+      }
 
       <!-- RS.4 — Slicer jerárquico Canal→Sucursal / Grupo→Vendedor -->
       @if (slicerOpen()) {
@@ -246,6 +315,52 @@ const CHANNEL_OPTS = [
         </div>
       }
 
+      @if (job() === 'objetivo') {
+        <!-- vs Objetivo (BI.9): avance Meta/Real por sucursal, reusa sell-out/targets -->
+        <div class="card-premium card-flat so-matrix-card so-obj-card">
+          <div class="so-matrix-head">
+            <h3 class="text-sm font-bold text-content-main">Avance vs objetivo · {{ targetMonthLabel() }}</h3>
+            @if (targetsReport(); as t) { <span class="so-matrix-count">{{ t.branches.length }} sucursales</span> }
+          </div>
+          @if (loadingTargets()) {
+            <div class="so-skel-table">@for (i of skelRows; track i) { <div class="so-skel-row shim"></div> }</div>
+          } @else if (targetsReport(); as t) {
+            @if (t.branches.length) {
+              <div class="so-matrix-wrap">
+                <table class="so-obj-table">
+                  <thead><tr><th class="l">Sucursal</th><th class="n">Meta</th><th class="n">Real</th><th class="bar">Avance</th><th class="n">%</th></tr></thead>
+                  <tbody>
+                    @for (b of t.branches; track b.scope_key) {
+                      <tr>
+                        <td class="l">{{ b.label }}</td>
+                        <td class="n">{{ b.target | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="n b">{{ b.actual | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                        <td class="bar"><span class="so-obj-track"><span class="so-obj-fill" [class]="targetTone(b)" [style.width.%]="barPct(b)"></span></span></td>
+                        <td class="n pct" [class]="targetTone(b)">{{ b.pct != null ? (b.pct | percent:'1.0-0') : '—' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                  <tfoot>
+                    <tr class="tot-row">
+                      <td class="l">TOTAL</td>
+                      <td class="n">{{ t.total.target | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="n b">{{ t.total.actual | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="bar"><span class="so-obj-track"><span class="so-obj-fill" [class]="targetTone(t.total)" [style.width.%]="barPct(t.total)"></span></span></td>
+                      <td class="n pct" [class]="targetTone(t.total)">{{ t.total.pct != null ? (t.total.pct | percent:'1.0-0') : '—' }}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            } @else {
+              <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-flag"></i></div>
+                <h3>Sin metas capturadas</h3><p>No hay objetivos para {{ targetMonthLabel() }}. Capturá metas en <a routerLink="/comercial/analisis">Análisis</a>.</p></div>
+            }
+          } @else {
+            <div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-flag"></i></div>
+              <h3>Sin metas</h3><p>Elegí un mes para ver el avance vs objetivo.</p></div>
+          }
+        </div>
+      } @else {
       <div class="so-actions">
         <button pButton size="small" [loading]="loading()" (click)="generate()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Generar</span></button>
       </div>
@@ -347,7 +462,12 @@ const CHANNEL_OPTS = [
                     <th class="frz c1" rowspan="2">{{ r.row_dim === 'brand' ? 'Empresa' : 'Descripción' }}</th>
                     <th class="frz c2" rowspan="2">UXC</th>
                   }
-                  @for (c of r.columns; track c.key) { <th [attr.colspan]="grpColspan()" class="grp">{{ colLabel(c) }}</th> }
+                  @for (c of r.columns; track c.key) {
+                    <th [attr.colspan]="grpColspan()" class="grp"
+                        [class.so-col-click]="canCrossFilter(c)" [class.is-picked]="isBranchPicked(c)"
+                        [attr.title]="canCrossFilter(c) ? (isBranchPicked(c) ? 'Quitar filtro de ' + c.branch_name : 'Filtrar a ' + c.branch_name) : null"
+                        (click)="canCrossFilter(c) && toggleColBranch(c)">{{ colLabel(c) }}@if (isBranchPicked(c)) { <i class="pi pi-filter so-col-flag"></i> }</th>
+                  }
                   <th [attr.colspan]="grpColspan()" class="grp tot">TOTAL</th>
                 </tr>
                 <tr>
@@ -412,6 +532,7 @@ const CHANNEL_OPTS = [
             <h3>Generá un reporte</h3><p>Elegí empresa y periodo, luego «Generar».</p></div>
         }
       }
+      }
     </div>
   `,
   styles: [`
@@ -443,6 +564,74 @@ const CHANNEL_OPTS = [
     :host ::ng-deep .so-search-field .ps-ac .p-autocomplete-input { width:100%; min-width:0; }
     .so-year { max-width:110px; }
     .so-badge { margin-left:.5rem; font-size:.7rem; color:var(--text-muted); }
+    /* B — Entrada por pregunta: fila de trabajos (define el encuadre). */
+    .so-jobs { display:flex; flex-wrap:wrap; align-items:stretch; gap:.5rem; padding:.6rem .75rem; margin-bottom:.75rem; }
+    .so-jobs-lead { align-self:center; font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em;
+      color:var(--text-muted); margin-right:.35rem; }
+    .so-job { flex:1 1 auto; min-width:9.5rem; display:flex; flex-direction:column; gap:.1rem; text-align:left;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px); cursor:pointer;
+      padding:.5rem .7rem; transition:border-color .15s ease, background-color .15s ease, box-shadow .15s ease; }
+    .so-job:hover { border-color:var(--action); }
+    .so-job.is-active { border-color:var(--action); background:var(--action-soft,var(--surface-selected-bg)); box-shadow:0 0 0 1px var(--action); }
+    .so-job-t { font-size:.85rem; font-weight:700; color:var(--text-main); }
+    .so-job-d { font-size:.7rem; color:var(--text-muted); line-height:1.25; }
+    .so-job.is-active .so-job-d { color:var(--text-main); }
+    /* A — filtros: multiselect visibles + link "Avanzado" + hint objetivo. */
+    .so-ms { flex:0 1 200px; min-width:160px; }
+    .so-ms-wide { flex:0 1 300px; min-width:220px; }
+    .so-ms :where(p-multiselect) { display:block; width:100%; }
+    .so-adv-field { justify-content:flex-end; }
+    .so-adv { display:inline-flex; align-items:center; gap:.4rem; min-height:2.5rem; padding:.4rem .75rem;
+      background:var(--card-bg); border:1px solid var(--border-color); border-radius:var(--r-md); cursor:pointer;
+      font-size:.8rem; color:var(--text-main); white-space:nowrap;
+      transition:border-color .15s ease, box-shadow .15s ease; }
+    .so-adv:hover { border-color:var(--action); }
+    .so-adv.is-open, .so-adv.has-val { border-color:var(--action); }
+    .so-adv.has-val { color:var(--action); font-weight:600; }
+    .so-adv i { font-size:.85rem; color:var(--text-muted); }
+    .so-adv.has-val i { color:var(--action); }
+    .so-obj-hint { align-self:center; margin:0; font-size:.8rem; color:var(--text-muted); display:inline-flex; align-items:center; gap:.4rem; }
+    .so-obj-hint a { color:var(--action); font-weight:600; }
+    /* C — chips de filtros activos (removibles). */
+    .so-chips { display:flex; flex-wrap:wrap; align-items:center; gap:.4rem; margin:-.25rem 0 1rem; }
+    .so-chips-lead { font-size:.7rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
+    .so-chip { display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .3rem .2rem .55rem; cursor:pointer;
+      background:var(--action-soft,var(--surface-selected-bg)); border:1px solid var(--action); color:var(--text-main);
+      border-radius:999px; font-size:.76rem; font-weight:600; transition:background-color .12s ease; }
+    .so-chip:hover { background:var(--surface-hover-bg); }
+    .so-chip-t { color:var(--action); font-weight:700; }
+    .so-chip i { font-size:.6rem; width:16px; height:16px; display:grid; place-items:center; border-radius:50%;
+      background:var(--action); color:#fff; }
+    /* Opciones de vista (plegable). */
+    .so-viewopts { margin-bottom:1rem; }
+    .so-viewopts-btn { display:inline-flex; align-items:center; gap:.5rem; background:none; border:none; cursor:pointer;
+      color:var(--text-muted); font-size:.8rem; font-weight:600; padding:.3rem 0; }
+    .so-viewopts-btn:hover { color:var(--text-main); }
+    .so-viewopts-btn i { font-size:.72rem; }
+    .so-viewopts-sum { color:var(--text-faint); font-weight:400; font-size:.74rem; }
+    .so-viewopts-body { display:flex; flex-wrap:wrap; gap:.75rem 1.25rem; align-items:flex-end; margin-top:.6rem;
+      padding:.85rem 1rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--layout-bg); }
+    .so-viewopts-note { flex-basis:100%; margin:0; font-size:.74rem; color:var(--text-muted); display:inline-flex; align-items:center; gap:.4rem; }
+    /* vs Objetivo: tabla Meta/Real/Avance con barra. */
+    .so-obj-card { padding:1.25rem; margin-top:0; }
+    .so-obj-table { width:100%; border-collapse:separate; border-spacing:0; font-size:.82rem; }
+    .so-obj-table th, .so-obj-table td { border-bottom:1px solid var(--border-color); padding:.5rem .7rem; }
+    .so-obj-table thead th { background:var(--layout-bg); font-weight:700; text-align:right; color:var(--text-muted);
+      font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; }
+    .so-obj-table th.l, .so-obj-table td.l { text-align:left; }
+    .so-obj-table td.n { text-align:right; font-variant-numeric:tabular-nums; }
+    .so-obj-table td.b { font-weight:700; color:var(--text-main); }
+    .so-obj-table td.pct { font-weight:700; }
+    .so-obj-table td.pct.ok { color:var(--good-fg,#3f7d3f); }
+    .so-obj-table td.pct.warn { color:var(--warn-fg); }
+    .so-obj-table td.pct.bad { color:var(--bad-fg); }
+    .so-obj-table th.bar, .so-obj-table td.bar { width:32%; }
+    .so-obj-track { display:block; height:8px; border-radius:5px; background:var(--border-color); overflow:hidden; }
+    .so-obj-fill { display:block; height:100%; border-radius:5px; }
+    .so-obj-fill.ok { background:var(--good-fg,#3f7d3f); }
+    .so-obj-fill.warn { background:var(--warn-fg); }
+    .so-obj-fill.bad { background:var(--bad-fg); }
+    .so-obj-table tfoot .tot-row td { background:var(--surface-selected-bg); font-weight:700; border-top:1px solid var(--border-color); }
     /* segmented → app-segmented (átomo compartido) */
     .so-toggles { flex-direction:row; gap:1rem; align-items:center; }
     /* RS.4 — slicer jerárquico Canal/Vendedor */
@@ -537,6 +726,11 @@ const CHANNEL_OPTS = [
     .so-matrix thead th.c2 { text-align:right; }
     .so-matrix thead th.grp { text-align:center; font-size:.72rem; border-right:1px solid var(--border-color); }
     .so-matrix thead th.grp.tot { background:var(--surface-selected-bg); }
+    /* Cross-filter (C): el encabezado de columna acota a esa sucursal al hacer clic. */
+    .so-matrix thead th.grp.so-col-click { cursor:pointer; }
+    .so-matrix thead th.grp.so-col-click:hover { color:var(--action); background:var(--surface-hover-bg); }
+    .so-matrix thead th.grp.is-picked { color:var(--action); background:var(--action-soft,var(--surface-selected-bg)); }
+    .so-col-flag { font-size:.62rem; margin-left:.3rem; }
     /* Sub-headers Cajas/Monto: micro-label alineado a su número. */
     .so-matrix .sub { font-size:.66rem; font-weight:700; color:var(--text-muted); text-transform:uppercase; letter-spacing:.04em; text-align:right; }
     /* Separador continuo en cada frontera de grupo-sucursal (fin de cada Monto). */
@@ -722,20 +916,79 @@ export class ComercialSellOutComponent {
   rangeDates: Date[] | null = null;
   quarter = 1;
   year = new Date().getFullYear();
-  channels: string[] = [];
-  warehouses: string[] = [];
-  byChannel = true;
+  // Signals (no campos planos) para que los chips de "filtros activos" reaccionen.
+  channels = signal<string[]>([]);
+  warehouses = signal<string[]>([]);
+  byChannel = false; // default = trabajo "Sucursales" (una columna por plaza, sin abrir canal)
   includeZeros = false;
+  readonly channelSelOpts = CHANNEL_SEL_OPTS;
 
   warehouseOpts = signal<SellOutWarehouseRow[]>([]);
   loadingWarehouses = signal(false);
 
-  // RS.4 — modo del reporte + slicer jerárquico (CANAL o VENDEDOR).
-  reportMode = signal<'canal' | 'vendedor'>('canal');
-  readonly reportModeOpts = [
-    { label: 'Englobado · sucursal', value: 'canal' },
-    { label: 'Desglosado · vendedor', value: 'vendedor' },
+  // ── Entrada por pregunta (B): el trabajo elegido fija reportMode + agrupado ──
+  job = signal<SellOutJob>('sucursales');
+  readonly jobOpts: { value: SellOutJob; label: string; desc: string }[] = [
+    { value: 'sucursales', label: 'Sucursales', desc: 'Comparar plazas entre sí' },
+    { value: 'canales',    label: 'Canales',    desc: 'Mostrador · Ruta · Vecinal · Mayoreo' },
+    { value: 'vendedores', label: 'Vendedores', desc: 'Por persona y ruta' },
+    { value: 'objetivo',   label: 'vs Objetivo', desc: 'Avance contra la meta del mes' },
   ];
+  // "Opciones de vista" plegable (medida/formato/vista/promos/concentrar/sin-venta).
+  viewOpen = signal(false);
+
+  // vs Objetivo (BI.9) — reusa el endpoint de metas; tabla Meta/Real/Avance por sucursal.
+  targetsReport = signal<SelloutTargetsReport | null>(null);
+  loadingTargets = signal(false);
+  readonly targetMonthLabel = computed(() => {
+    const m = (this.curTo || this.curFrom).slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(m)) return '';
+    const [y, mo] = m.split('-');
+    const names = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+    return `${names[+mo - 1]} ${y}`;
+  });
+  barPct(b: SelloutTargetRow): number { return Math.min(100, Math.max(0, (b.pct ?? 0) * 100)); }
+  targetTone(b: SelloutTargetRow): 'ok' | 'warn' | 'bad' {
+    const p = b.pct ?? 0;
+    return p >= 0.95 ? 'ok' : p >= 0.8 ? 'warn' : 'bad';
+  }
+
+  // Vendedores como opciones planas del multiselect (aplana el árbol de vendedores).
+  readonly vendorOptions = computed(() =>
+    this.vendorTree().flatMap((g) => g.leaves.map((l) => ({ label: `${l.name} · ${g.group_label}`, value: this.leafToken(g, l) }))));
+  readonly vendorSelArray = computed(() => Array.from(this.selectedCells()));
+
+  /**
+   * Chips de "filtros activos" (C): un filtro es un filtro venga del dropdown, del preset del
+   * trabajo o de un clic en el cuadro. Removibles → limpian ese filtro y regeneran.
+   */
+  readonly activeChips = computed<{ kind: string; type: string; label: string; key: string }[]>(() => {
+    const out: { kind: string; type: string; label: string; key: string }[] = [];
+    const bid = this.brandId();
+    if (bid) out.push({ kind: 'brand', type: 'Empresa', label: this.brands().find((b) => b.id === bid)?.nombre ?? '—', key: bid });
+    for (const w of this.warehouses()) out.push({ kind: 'wh', type: 'Sucursal', label: this.warehouseOpts().find((o) => o.code === w)?.name ?? w, key: w });
+    for (const c of this.channels()) out.push({ kind: 'ch', type: 'Canal', label: this.channelSelOpts.find((o) => o.value === c)?.label ?? c, key: c });
+    for (const t of this.selectedCells()) {
+      const isVen = this.reportMode() === 'vendedor';
+      const label = isVen ? (this.vendorOptions().find((o) => o.value === t)?.label ?? t) : t;
+      out.push({ kind: 'cell', type: isVen ? 'Vendedor' : 'Avanzado', label, key: t });
+    }
+    if (this.search()) out.push({ kind: 'search', type: 'SKU', label: this.search(), key: this.search() });
+    return out;
+  });
+  removeChip(c: { kind: string; key: string }): void {
+    switch (c.kind) {
+      case 'brand': this.brandId.set(null); break;
+      case 'wh': this.warehouses.set(this.warehouses().filter((x) => x !== c.key)); break;
+      case 'ch': this.channels.set(this.channels().filter((x) => x !== c.key)); break;
+      case 'cell': { const s = new Set(this.selectedCells()); s.delete(c.key); this.selectedCells.set(s); break; }
+      case 'search': this.search.set(''); break;
+    }
+    this.generate();
+  }
+
+  // RS.4 — modo del reporte + slicer jerárquico (CANAL o VENDEDOR). Lo fija el trabajo (setJob).
+  reportMode = signal<'canal' | 'vendedor'>('canal');
   // RS.13 — formato de columnas: 'detalle' (dinámico) o 'plaza' (formato estándar plaza×tipo).
   layout = signal<'detalle' | 'plaza'>('detalle');
   readonly layoutOpts = [
@@ -783,8 +1036,8 @@ export class ComercialSellOutComponent {
     this.loadBrands();
     this.loadWarehouses();
     this.loadTrees();
-    // Al entrar: reporte general de TODAS las empresas (empresa opcional).
-    this.generate();
+    // Al entrar: despacha según el trabajo restaurado (matriz general, o metas si era 'objetivo').
+    if (this.job() === 'objetivo') this.loadTargets(); else this.generate();
   }
 
   // Los árboles se piden ACOTADOS AL RANGO (from/to) → sus hojas reflejan exactamente lo que el reporte
@@ -812,10 +1065,65 @@ export class ComercialSellOutComponent {
     if (next.size !== cur.size) { this.selectedCells.set(next); this.generate(); }
   }
 
-  setReportMode(m: string) {
-    this.reportMode.set(m as 'canal' | 'vendedor');
-    this.selectedCells.set(new Set());   // el token de canal no aplica al de vendedor
+  /**
+   * Entrada por pregunta (B): cada trabajo fija reportMode + agrupado por default, SIN esconder
+   * controles (los filtros limpios quedan disponibles). No borra empresa/periodo/SKU — sólo
+   * reencuadra. 'objetivo' pide las metas del mes en curso.
+   */
+  setJob(j: SellOutJob) {
+    if (this.job() === j) return;
+    this.job.set(j);
+    switch (j) {
+      case 'sucursales': // comparación limpia entre plazas: una columna por sucursal
+        this.reportMode.set('canal'); this.byChannel = false; this.concentrar.set(''); this.layout.set('detalle');
+        this.selectedCells.set(new Set());
+        break;
+      case 'canales': // abre las columnas por canal
+        this.reportMode.set('canal'); this.byChannel = true; this.concentrar.set(''); this.layout.set('detalle');
+        this.selectedCells.set(new Set());
+        break;
+      case 'vendedores':
+        this.reportMode.set('vendedor'); this.selectedCells.set(new Set());
+        break;
+      case 'objetivo':
+        this.loadTargets(); return; // no dispara el reporte matriz
+    }
     this.generate();
+  }
+
+  /** vs Objetivo — reusa `sell-out/targets` (mes del periodo en curso). */
+  private loadTargets() {
+    this.syncPeriod();
+    const month = (this.curTo || this.curFrom).slice(0, 7);
+    if (!/^\d{4}-\d{2}$/.test(month)) return;
+    this.loadingTargets.set(true);
+    this.svc.sellOutTargets(month).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (t) => { this.targetsReport.set(t); this.loadingTargets.set(false); },
+      error: () => { this.loadingTargets.set(false); this.targetsReport.set(null); },
+    });
+  }
+
+  /** Cambio en un multiselect visible (Sucursal/Canal): usar la vía visible limpia el árbol
+   *  avanzado (`cells`) para no mezclar dos filtros que se pisan, y regenera. */
+  onFilterMultiChange() {
+    if (this.selectedCells().size) this.selectedCells.set(new Set());
+    this.generate();
+  }
+  /** Selección del multiselect de Vendedor → escribe los tokens `grupo|code` en selectedCells.
+   *  Regenera al cerrar el panel (onPanelHide), no en cada toggle. */
+  onVendorSel(vals: string[]) { this.selectedCells.set(new Set(vals ?? [])); }
+
+  // ── Cross-filter (C): clic en el encabezado de columna acota a esa sucursal ──
+  /** La columna es clicable sólo cuando su `branch_code` es un almacén real (modo canal, no plaza). */
+  canCrossFilter(c: { branch_code: string }): boolean {
+    return this.reportMode() === 'canal' && this.layout() !== 'plaza'
+      && !!c.branch_code && this.warehouseOpts().some((o) => o.code === c.branch_code);
+  }
+  isBranchPicked(c: { branch_code: string }): boolean { return this.warehouses().includes(c.branch_code); }
+  toggleColBranch(c: { branch_code: string }) {
+    const cur = this.warehouses();
+    this.warehouses.set(cur.includes(c.branch_code) ? cur.filter((x) => x !== c.branch_code) : [...cur, c.branch_code]);
+    this.onFilterMultiChange();
   }
 
   // Token de una hoja: canal usa leaf.channel; vendedor usa el grupo.
@@ -855,11 +1163,12 @@ export class ComercialSellOutComponent {
     this.measure.set('ambas');
     this.periodMode.set('month');
     this.selectedCells.set(new Set());
-    this.channels = [];
-    this.warehouses = [];
-    this.byChannel = true;
+    this.channels.set([]);
+    this.warehouses.set([]);
+    this.byChannel = false; // default = trabajo "Sucursales" (una columna por plaza)
     this.includeZeros = false;
     this.rangeDates = null;
+    this.job.set('sucursales');
     // Periodo default = mes anterior cerrado (igual que el constructor).
     const now = new Date();
     this.monthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -917,7 +1226,7 @@ export class ComercialSellOutComponent {
       // Filtros y datos van juntos: al mover el rango, re-pedí los árboles/almacenes acotados y re-generá.
       this.loadWarehouses();
       this.loadTrees();
-      this.generate();
+      if (this.job() === 'objetivo') this.loadTargets(); else this.generate();
     }
   }
 
@@ -959,8 +1268,8 @@ export class ComercialSellOutComponent {
     const period = this.curFrom === this.curTo
       ? this.fmtDMY(this.curFrom)
       : `${this.fmtDMY(this.curFrom)} – ${this.fmtDMY(this.curTo)}`;
-    const channels = this.channels.length
-      ? this.channels.map((c) => this.channelOpts.find((o) => o.value === c)?.label ?? c).join(', ')
+    const channels = this.channels().length
+      ? this.channels().map((c) => this.channelOpts.find((o) => o.value === c)?.label ?? c).join(', ')
       : 'Todos los canales';
     const productLabel = this.search() ? ` · SKU «${this.search()}»` : '';
     return { brand, period, channels: channels + productLabel };
@@ -973,8 +1282,8 @@ export class ComercialSellOutComponent {
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
       view: this.view(),
-      channels: this.concentrar() === 'ruta' ? ['ruta'] : (this.channels.length ? this.channels : undefined),
-      warehouses: this.warehouses.length ? this.warehouses : undefined,
+      channels: this.concentrar() === 'ruta' ? ['ruta'] : (this.channels().length ? this.channels() : undefined),
+      warehouses: this.warehouses().length ? this.warehouses() : undefined,
       cells: this.selectedCells().size ? Array.from(this.selectedCells()) : undefined,
       mode: this.reportMode(),
       include_zeros: this.includeZeros,
@@ -998,8 +1307,8 @@ export class ComercialSellOutComponent {
         monthDate: this.iso(this.monthDate),
         rangeDates: this.rangeDates?.map((d) => this.iso(d)) ?? null,
         quarter: this.quarter, year: this.year,
-        channels: this.channels, warehouses: this.warehouses,
-        byChannel: this.byChannel, includeZeros: this.includeZeros,
+        channels: this.channels(), warehouses: this.warehouses(),
+        byChannel: this.byChannel, includeZeros: this.includeZeros, job: this.job(),
       }));
     } catch { /* localStorage no disponible */ }
   }
@@ -1030,10 +1339,11 @@ export class ComercialSellOutComponent {
       }
       if (typeof s.quarter === 'number') this.quarter = s.quarter;
       if (typeof s.year === 'number') this.year = s.year;
-      if (Array.isArray(s.channels)) this.channels = s.channels;
-      if (Array.isArray(s.warehouses)) this.warehouses = s.warehouses;
+      if (Array.isArray(s.channels)) this.channels.set(s.channels);
+      if (Array.isArray(s.warehouses)) this.warehouses.set(s.warehouses);
       if (typeof s.byChannel === 'boolean') this.byChannel = s.byChannel;
       if (typeof s.includeZeros === 'boolean') this.includeZeros = s.includeZeros;
+      if (['sucursales', 'canales', 'vendedores', 'objetivo'].includes(s.job)) this.job.set(s.job);
     } catch { /* JSON inválido */ }
   }
 
