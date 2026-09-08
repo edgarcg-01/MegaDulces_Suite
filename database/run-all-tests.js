@@ -20,6 +20,7 @@ const { assertSafeTarget } = require('./tests/_lib/assert-safe-target');
 
 const TESTS = [
   // DB direct (no requieren API)
+  { file: 'test-target-guard-negative.js', label: 'REP.0.2 la guarda de destino/origen, rota a propósito (ADR-056: un gate sin prueba negativa es una intención). Cada caso corre en un SUBPROCESO porque la guarda llama process.exit(2) — probarla en el mismo proceso mata al test, que es justo por qué las pruebas de guardas suelen estar verdes sin haber ejecutado nunca la guarda. Mide el código de salida Y el mensaje, porque "es prod" y "no lo reconozco" son los dos exit 2 y una guarda con los patrones vaciados seguiría abortando por la otra razón. Cierra con la prueba de MUTACIÓN: se corre contra dos copias desarmadas del clasificador (PROD_PATTERNS vacío / classify() siempre local) y exige que las dos la pongan en ROJO — si con la guarda desarmada sigue verde, la suite es decorativa. El corpus mutado vive en el temporal, nunca como sonda dentro de libs/', needsApi: false },
   { file: 'test-newdb-tenant-context.js', label: 'A.0mt.1 tenant context', needsApi: false },
   { file: 'test-newdb-rls-isolation.js', label: 'A.0mt.2 RLS isolation', needsApi: false },
   { file: 'test-newdb-auth-multitenant.js', label: 'A.0mt.3 auth multi-tenant', needsApi: false },
