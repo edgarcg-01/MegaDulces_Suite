@@ -783,11 +783,49 @@ Además `label`/`site_code` siguen NULL en 10 de 11 (`[CH.0.7]`), así que **la 
 kiosco ↔ reloj no se puede establecer sin adivinar**: el script provisiona por SITIO, que es el
 único inventario con nombre, y lo declara en pantalla.
 
-**Pendiente de prod:** aplicar las 2 migraciones a Railway · correr el script con
-`--sucursal NN --apply` (una por una, arrancando por la piloto) · redeploy del api (el cambio de
-`auth-mt` es de código) · y recién ahí el login del kiosco. Las migraciones se simularon con
-ROLLBACK y se aplicaron **una por una** (`knex migrate:up <archivo>`), NO con `migrate:latest`:
-hay 1 migración pendiente de otra sesión en el árbol.
+**⚠️ Incidente 2026-09-09 al aplicar a prod — `[CH.1.6]`, y la lección vale más que el sprint.**
+`20260909130000` se aplicó **sin `lock_timeout`**, descartado porque `identity.users` tiene ~150
+filas y `ADD COLUMN` nullable es metadata-only. **El tamaño de la tabla nunca fue el riesgo.** El
+`ALTER` pide ACCESS EXCLUSIVE, quedó esperando, y en Postgres **una petición de lock que espera
+encola detrás de sí a todo el que llegue después**: como `[AUTHZ-HARD.2]` lee `identity.users` en
+cada request, **el login entero se apiló detrás** por ~7 minutos. Se salió cancelando la propia
+sentencia (`pg_cancel_backend` sobre el pid del ALTER, sin tocar otra sesión) y la cola drenó sola.
+Prod quedó intacta: columna 0, sin fila en `knex_migrations`, sin constraint huérfano,
+`knex_migrations_lock.is_locked = 0`.
+
+**El bloqueador no era el feed, aunque su query lo pareciera: era `pg_dump`** — el respaldo diario
+(`TradeMarketing-DailyBackup`, 17:00, Task Scheduler), que abre una transacción y toma
+`AccessShareLock` sobre **todas** las tablas hasta terminar; el `COPY kepler_ods.kdmx_25 TO stdout`
+visible era sólo la tabla que copiaba en ese instante. Confirmado con `application_name` +
+`pg_locks`, no con la query. **Hallazgo operativo nuevo:** desde que el 2026-09-08 se corrigió ese
+script para apuntar de verdad a prod, dumpea **15.9 GB** → **mientras corre el respaldo, prod es
+una ventana SIN DDL**, y dura lo que dure el dump. Antes nadie lo había visto porque el respaldo
+venía copiando la base equivocada.
+
+- [x] **[CH.1.6]** ✅ Fix: `SET LOCAL lock_timeout = '3s'` como primera sentencia de las dos
+  migraciones (`SET LOCAL` porque knex corre cada una en su transacción: muere con ella y no le
+  cambia el timeout a nadie más). **Prueba negativa medida**: con una sesión sosteniendo un SELECT
+  sobre `identity.users` dentro de una transacción abierta, el ALTER se rindió a los **3025 ms**
+  con `55P03`. Peor caso ahora = un reintento, no un incidente. Lección completa en
+  [`GOTCHAS.md` §38](../../GOTCHAS.md), con la cadena de `pg_blocking_pids`, cómo salir, y dos
+  trampas de alrededor: `node script.js | grep` reporta el exit code del **grep** (el runbook dijo
+  "exit 0" de una migración que falló) y `options=-c lock_timeout=…` en la cadena de conexión **no
+  pasa** por el proxy de Railway.
+
+**Estado de prod (2026-09-09):**
+- ✅ `20260909131000_rol_checador_kiosco.js` **aplicada** (batch 341), en los **2 tenants**
+  (`mega_dulces` + `test_tenant_b`) — sólo hace INSERTs, y `RowExclusive` no choca con el
+  `AccessShare` del respaldo, por eso ésta sí pasó con el dump corriendo.
+- ⏳ `20260909130000_users_token_ttl_days.js` **pendiente**: se rindió a los 3 s por el respaldo,
+  limpiamente. Se reaplica cuando termine el dump (o mañana antes de las 17:00) con
+  `node database/scripts/apply-one-migration-prod.js 20260909130000_users_token_ttl_days.js`.
+- ⏳ Después: `provision-checadores.js --sucursal NN --apply` (su Gate 0 aborta hasta que la
+  columna exista) · **redeploy del api** (el cambio de `auth-mt` es código) · y recién ahí el login
+  del kiosco. Si el kiosco entra antes del redeploy recibe un token de 12 h y hay que re-loguear.
+
+Las migraciones se simularon con ROLLBACK y se aplican **una por una**
+(`apply-one-migration-prod.js`, que apunta a `FLEET_DB_URL`), NO con `migrate:latest`: hay otras
+pendientes en el árbol que no son de este sprint.
 
 
 > **Deriva de reloj detectada** (para alertar): hasta **−145 s** en `40.12`, −99 s en `.0.81`, +34 s en `50.12`. Se guarda en `clock_drift_seconds` por corrida.
