@@ -174,6 +174,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'shipments', label: 'Embarques', route: '/logistica/shipments', view: [Permission.LOGISTICS_SHIPMENTS_VER], manage: [Permission.LOGISTICS_SHIPMENTS_GESTIONAR] },
           { id: 'guides', label: 'Guías', route: '/logistica/guides', view: [Permission.LOGISTICS_GUIDES_VER], manage: [Permission.LOGISTICS_GUIDES_GESTIONAR] },
           { id: 'fleet', label: 'Flotilla y personal', route: '/logistica/fleet', view: [Permission.LOGISTICS_FLEET_VER], manage: [Permission.LOGISTICS_FLEET_GESTIONAR] },
+          { id: 'route-expenses', label: 'Gasto de flota (RD)', route: '/logistica/gasto-ruta', view: [Permission.LOGISTICS_ROUTE_EXPENSES_VER], manage: [Permission.LOGISTICS_ROUTE_EXPENSES_GESTIONAR] },
           { id: 'expenses', label: 'Costos', route: '/logistica/costs', view: [Permission.LOGISTICS_EXPENSES_VER], manage: [Permission.LOGISTICS_EXPENSES_GESTIONAR] },
           { id: 'payroll', label: 'Liquidaciones / nómina', route: '/logistica/payroll', view: [Permission.LOGISTICS_PAYROLL_VER], manage: [Permission.LOGISTICS_PAYROLL_GESTIONAR] },
           { id: 'cartaporte', label: 'Carta Porte', route: '/logistica/shipments', view: [Permission.LOGISTICS_CARTAPORTE_VER], manage: [Permission.LOGISTICS_CARTAPORTE_GESTIONAR] },

@@ -98,6 +98,8 @@ import { LogisticsShipmentsModule } from '@megadulces/logistics';
 import { LogisticsGuidesModule } from '@megadulces/logistics';
 import { LogisticsExpensesModule } from '@megadulces/logistics';
 import { LogisticsPayrollModule } from '@megadulces/logistics';
+// RD.4 — gasto de flota de Ruta Directa
+import { LogisticsRouteExpensesModule } from '@megadulces/logistics';
 import { LogisticsAnalyticsModule } from '@megadulces/logistics';
 // Fase J.8 — Migración desde repo origen: checklists, photos (Cloudinary), reports (jspdf)
 import { LogisticsChecklistsModule } from '@megadulces/logistics';
@@ -201,6 +203,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsGuidesModule,
       LogisticsExpensesModule,
       LogisticsPayrollModule,
+      LogisticsRouteExpensesModule,
       LogisticsAnalyticsModule,
       LogisticsChecklistsModule,
       LogisticsPhotosModule,

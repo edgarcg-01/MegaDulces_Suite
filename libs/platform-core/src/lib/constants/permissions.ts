@@ -115,6 +115,12 @@ export enum Permission {
   LOGISTICS_FLEET_VER = 'LOGISTICS_FLEET_VER',
   LOGISTICS_FLEET_GESTIONAR = 'LOGISTICS_FLEET_GESTIONAR',
 
+  // RD.4 — gasto de flota de Ruta Directa (logistics.route_expenses). Permiso propio:
+  // el gasto se captura contra la RUTA y lo lleva quien administra la flota, no quien
+  // consulta unidades. GESTIONAR = capturar, corregir y reclasificar.
+  LOGISTICS_ROUTE_EXPENSES_VER = 'LOGISTICS_ROUTE_EXPENSES_VER',
+  LOGISTICS_ROUTE_EXPENSES_GESTIONAR = 'LOGISTICS_ROUTE_EXPENSES_GESTIONAR',
+
   // Módulo: Logística — Embarques (state machine)
   LOGISTICS_SHIPMENTS_VER = 'LOGISTICS_SHIPMENTS_VER',
   LOGISTICS_SHIPMENTS_GESTIONAR = 'LOGISTICS_SHIPMENTS_GESTIONAR',
