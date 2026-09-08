@@ -510,17 +510,18 @@ export interface SelloutAnomaliesReport {
   dim: SellOutExplainDim;
   anomalies: SelloutAnomaly[];
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ─── BI.4 gráficas de soporte (tendencia + Pareto/ABC) ───────────────────────
 export interface SelloutSeriesPoint { month: string; monto: number; }
-export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; }
+export interface SelloutSeriesReport { months: SelloutSeriesPoint[]; brand_id: string | null; generated_at: string; freshness: Freshness; }
 export interface SelloutParetoRow { key: string; label: string; monto: number; share: number; cum_share: number; abc: 'A' | 'B' | 'C'; }
-export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; }
+export interface SelloutParetoReport { month: string; dim: SellOutExplainDim; total: number; rows: SelloutParetoRow[]; generated_at: string; freshness: Freshness; }
 
 // ─── BI.9 objetivos / metas ───────────────────────────────────────────────────
 export interface SelloutTargetRow { scope: 'total' | 'branch' | 'channel'; scope_key: string; label: string; target: number; actual: number; pct: number | null; }
-export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; }
+export interface SelloutTargetsReport { month: string; total: SelloutTargetRow; branches: SelloutTargetRow[]; channels: SelloutTargetRow[]; generated_at: string; freshness: Freshness; }
 export interface SelloutTargetUpsert { scope?: string; scope_key?: string; year_month?: string; target_monto?: number; }
 
 export interface SellOutBrandRow {
@@ -3575,7 +3576,8 @@ export class CommercialAnalyticsService {
       )
       .where('s.tenant_id', o.tenantId)
       .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
-      .andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`)
+      // RV (preventa) = vecinal de AMBAS fuentes (kepler 1V0NN/3V001 + wincaja). RD (ruta) sigue wincaja-only.
+      .andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR (s.channel='ruta' AND s.source='wincaja'))`)
       .modify((b: any) => {
         if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
         else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
@@ -3842,7 +3844,12 @@ export class CommercialAnalyticsService {
         if (kind) anomalies.push({ key: k, label, current: R(current), baseline: R(baseline), deviation: R(deviation), deviation_pct: dpct == null ? null : Number((dpct * 100).toFixed(1)), kind, reason });
       }
       anomalies.sort((a, b) => Math.abs(b.deviation) - Math.abs(a.deviation));
-      return { month, baseline_months: baselineMonths, dim, anomalies: anomalies.slice(0, 12), generated_at: new Date().toISOString() };
+      // [VP.2.2] Lee `mv_sellout_monthly` ⇒ declara la edad del rollup. Y acá pesa más que en otros
+      // reportes: una anomalía se calcula contra el promedio de los meses previos, así que un rollup
+      // que se saltó corridas no produce una cifra "un poco vieja" — produce una CAÍDA INVENTADA en
+      // el mes objetivo, que es exactamente la alarma que la pantalla existe para disparar.
+      const freshness = await this.selloutFreshness(trx, true);
+      return { month, baseline_months: baselineMonths, dim, anomalies: anomalies.slice(0, 12), generated_at: new Date().toISOString(), freshness };
     });
   }
 
@@ -3865,7 +3872,8 @@ export class CommercialAnalyticsService {
         .modify((b: any) => { if (brandId) b.andWhere('s.brand_id', brandId); if (channel) b.andWhere('s.channel', channel); })
         .select('s.year_month', trx.raw('SUM(s.monto)::numeric as monto')).groupBy('s.year_month');
       const map = new Map<string, number>(rows.map((r: any) => [r.year_month, Number(r.monto) || 0]));
-      return { months: monthsArr.map((m) => ({ month: m, monto: Math.round(map.get(m) || 0) })), brand_id: brandId || null, generated_at: new Date().toISOString() };
+      const freshness = await this.selloutFreshness(trx, true); // [VP.2.2] lee el rollup mensual
+      return { months: monthsArr.map((m) => ({ month: m, monto: Math.round(map.get(m) || 0) })), brand_id: brandId || null, generated_at: new Date().toISOString(), freshness };
     });
   }
 
@@ -3900,7 +3908,8 @@ export class CommercialAnalyticsService {
           abc: (cumShare <= 0.8 ? 'A' : cumShare <= 0.95 ? 'B' : 'C') as 'A' | 'B' | 'C',
         };
       });
-      return { month, dim, total: Math.round(total), rows: out, generated_at: new Date().toISOString() };
+      const freshness = await this.selloutFreshness(trx, true); // [VP.2.2] lee el rollup mensual
+      return { month, dim, total: Math.round(total), rows: out, generated_at: new Date().toISOString(), freshness };
     });
   }
 
@@ -3937,7 +3946,11 @@ export class CommercialAnalyticsService {
       const branches = branchRows.map((r: any) => mk('branch', r.k, r.label || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
       const chLabels: Record<string, string> = { mostrador: 'Mostrador', ruta: 'Ruta', credito: 'Mayoreo', preventa: 'Preventa' };
       const channels = channelRows.map((r: any) => mk('channel', r.k, chLabels[r.k] || r.k, Number(r.monto || 0))).sort((a: SelloutTargetRow, b: SelloutTargetRow) => b.actual - a.actual);
-      return { month, total, branches, channels, generated_at: new Date().toISOString() };
+      // [VP.2.2] Lee `v_sellout_daily`, que se arma de las DOS matvistas diarias y NO del rollup
+      // mensual ⇒ `usaRollup: false`. Sumar el carril mensual marcaría viejo un avance del mes en
+      // curso que nunca lo tocó — declarar de más también es declarar mal.
+      const freshness = await this.selloutFreshness(trx, false);
+      return { month, total, branches, channels, generated_at: new Date().toISOString(), freshness };
     });
   }
 
@@ -4177,7 +4190,9 @@ export class CommercialAnalyticsService {
       // ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida).
       const rows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
         's.channel, s.vendor_code, s.vendor_name',
-        (qb) => qb.andWhereRaw(`(s.channel='credito' OR (s.channel IN ('ruta','preventa') AND s.source='wincaja'))`));
+        // RV (preventa) = vecinal de AMBAS fuentes (kepler 1V0NN/3V001 + wincaja). RD (ruta) sigue
+        // wincaja-only (las camionetas kepler no traen vendedor). Crédito ambas fuentes.
+        (qb) => qb.andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR (s.channel='ruta' AND s.source='wincaja'))`));
       return { rows, identMap };
     });
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
