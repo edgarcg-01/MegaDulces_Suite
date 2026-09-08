@@ -70,12 +70,18 @@ describe('etiquetera · la etiqueta, la hoja y el rótulo dicen lo mismo', () =>
   });
 
   it('el código de barras conserva su mínimo físico', () => {
-    // Un EAN-13 necesita ~29.83 mm de ancho al 80% de magnificación, y altura para engancharlo.
+    // Un EAN-13 necesita ~29.83 mm de ancho al 80% de magnificación. El ANCHO es el mínimo
+    // duro; el ALTO pasó a ser dinámico (`fitBarcode` le pasa el aire que sobra), así que acá
+    // se verifica su piso y que el techo sea mayor.
     const anchoCol = Number(/\.etq-right\{\s*width:([\d.]+)mm/.exec(LABEL)![1]);
     const pctBarcode = Number(/\.etq-barcode svg\{[^}]*width:([\d.]+)%/.exec(LABEL)![1]);
-    const altoBarcode = Number(/\.etq-barcode svg\{[^}]*height:([\d.]+)mm/.exec(LABEL)![1]);
+    const arranque = Number(/\.etq-barcode svg\{[^}]*height:([\d.]+)mm/.exec(LABEL)![1]);
+    const min = Number(/const BARCODE_MIN_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const max = Number(/const BARCODE_MAX_MM = ([\d.]+)/.exec(LABEL)![1]);
     expect(anchoCol * pctBarcode / 100).toBeGreaterThanOrEqual(29.83);
-    expect(altoBarcode).toBeGreaterThanOrEqual(5);
+    expect(arranque).toBe(min);
+    expect(min).toBeGreaterThanOrEqual(5);
+    expect(max).toBeGreaterThan(min);
   });
 
   it('las dos columnas más el padding suman el ancho de la etiqueta', () => {
@@ -147,8 +153,135 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // daba el mismo ancho al píxel, o sea ningún cambio visible.
     expect(trazoMayoreo).toBeGreaterThan(trazoNormal);
     expect(LABEL).toMatch(/\.etq-tier\.is-mayoreo\{[^}]*background:/);
-    // y los dos renglones de mayoreo del template tienen que llevar la clase
-    expect((LABEL.match(/class="etq-tier is-mayoreo"/g) || []).length).toBe(2);
+    // El realce es CONDICIONAL: dos bindings, y ninguna clase estática que se lo salte.
+    expect((LABEL.match(/\[class\.is-mayoreo\]/g) || []).length).toBe(2);
+    expect((LABEL.match(/class="etq-tier is-mayoreo"/g) || []).length).toBe(0);
+  });
+
+  it('los ajustes son BIDIRECCIONALES y con techo acotado', () => {
+    const P = Number(/const PRECIO_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const PMAX = Number(/const PRECIO_MAX_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const M = Number(/const MONTO_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const MMAX = Number(/const MONTO_MAX_MM = ([\d.]+)/.exec(LABEL)![1]);
+    expect(PMAX).toBeGreaterThan(P);
+    expect(MMAX).toBeGreaterThan(M);
+    // ⭐ JERARQUÍA: el monto de un renglón no puede acercarse al precio grande. 7.5 mm sería el
+    // llenado perfecto de 2 renglones, pero contra un hero de 10.25 da 1.37:1 y no lee como dos
+    // niveles distintos.
+    expect(MMAX).toBeLessThanOrEqual(P * 0.7);
+  });
+
+  it('el techo del monto se clampea contra el precio MEDIDO, no sólo contra la constante', () => {
+    // Con un precio de 4 cifras el hero baja de 10 mm y un monto de 7 sería más grande que el
+    // precio grande. Sin este clamp, "el precio grande es el número más grande" deja de ser cierto.
+    const fit = /private fitTiers\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(fit).toContain('Math.min(MONTO_MAX_MM');
+    expect(fit).toContain('* 0.7');
+  });
+
+  it('ANTI-TRINQUETE: los dos ajustes arrancan de su constante, no del tamaño actual', () => {
+    // `layout()` corre 2-4 veces por etiqueta (dos hooks + render + el pase de fuentes). Crecer
+    // desde el tamaño ACTUAL subiría en cada pasada. El defecto no existía cuando todo encogía.
+    expect(/private fitPrice\(\): void \{[\s\S]*?let size = PRECIO_MM;/.test(LABEL)).toBe(true);
+    expect(/private fitTiers\(\): void \{[\s\S]*?let size = MONTO_MM;/.test(LABEL)).toBe(true);
+  });
+
+  it('sólo se CRECE con las fuentes usables', () => {
+    // Encoger midiendo la fuente equivocada era seguro (quedaba chico pero cabía). Crecer con
+    // una fallback más ANGOSTA deja el número más grande de lo que Anton aguanta → se recorta.
+    expect(LABEL).toContain('let FUENTES_OK = false;');
+    expect(LABEL).toMatch(/FUENTES_USABLES\.then\(\(\) => \{ FUENTES_OK = true; \}\)/);
+    for (const m of ['fitPrice', 'fitTiers']) {
+      const fn = new RegExp(`private ${m}\\(\\): void \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
+      expect(fn).toContain('FUENTES_OK ?');
+    }
+  });
+
+  it('la guarda del precio se MIDE, no se escribe', () => {
+    // Hoy no hay obstáculo en la caja (el brote se mudó a la banda del nombre) y la guarda sale
+    // 0 sola. Si mañana alguien mete una insignia ahí, el número tiene que protegerse solo.
+    const fit = /private fitPrice\(\): void \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(fit).toContain("querySelector<HTMLElement>('.etq-sprout')");
+    expect(fit).not.toMatch(/const guarda = [\d.]+/);
+  });
+
+  it('el aire NO se mide con scrollHeight', () => {
+    // Con `justify-content:center`, scrollHeight nunca baja de clientHeight: reporta 0 de aire
+    // donde hay 6 mm, y no ve el desborde por arriba. Para encoger era tolerable; para crecer
+    // y para repartirle el sobrante al código de barras es un recorte.
+    expect(LABEL).toContain('private altoTiers(');
+    for (const m of ['fitTiers', 'fitBarcode']) {
+      const fn = new RegExp(`private ${m}\\(\\): void \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
+      expect(fn).not.toContain('scrollHeight');
+      expect(fn).toContain('this.altoTiers(');
+    }
+  });
+
+  it('el orden de los ajustes es el que las dependencias exigen', () => {
+    const orden = /private layout\(\): void \{([^}]*)\}/.exec(LABEL)![1];
+    const i = (m: string) => orden.indexOf(m);
+    expect(i('fitUnit')).toBeGreaterThan(-1);
+    expect(i('fitUnit')).toBeLessThan(i('fitPrice'));   // la franja define el alto disponible
+    expect(i('fitPrice')).toBeLessThan(i('fitTiers'));  // el techo del monto lee el hero
+    expect(i('fitTiers')).toBeLessThan(i('fitAmts'));   // uniforme antes que individual
+    expect(i('fitAmts')).toBeLessThan(i('fitBarcode')); // el aire se mide al final
+  });
+
+  it('la reserva de la franja está en lockstep con el punteado interior', () => {
+    // Son dos declaraciones del MISMO número; si se mueve una sola, el borde punteado se mete
+    // debajo de la franja verde y nadie lo nota hasta imprimir.
+    const pad = Number(/\.etq-pricebox\{[^}]*padding:[\d.]+mm [\d.]+mm ([\d.]+)mm/.exec(LABEL)![1]);
+    const inset = Number(/\.etq-pricebox::before\{[^}]*inset:[\d.]+mm [\d.]+mm ([\d.]+)mm/.exec(LABEL)![1]);
+    const franja = Number(/\.etq-pieza\{[^}]*height:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(pad).toBe(inset);
+    expect(pad).toBeGreaterThanOrEqual(franja);
+  });
+
+  it('⭐ la UNIDAD del precio tiene jerarquía propia', () => {
+    // 73.5% de las etiquetas muestran un precio de PAQUETE y el cliente compra esa unidad en el
+    // 92.8% de los renglones: leer el número sin su unidad es el error más caro del proyecto.
+    const unidad = Number(/const UNIDAD_MM = ([\d.]+)/.exec(LABEL)![1]);
+    const rotulo = Number(/\.etq-tier \.txt\{[^}]*font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(unidad).toBeGreaterThan(2.7);              // era 2.7 mm, lo más chico del bloque
+    expect(unidad).toBeGreaterThanOrEqual(rotulo * 1.5);
+    // Y sin mayúsculas forzadas: `bigUnit.word` puede ser "500 g" y saldría "500 G".
+    expect(/\.etq-pieza\{[^}]*text-transform/.test(LABEL)).toBe(false);
+  });
+
+  it('⭐ ningún umbral de mayoreo se inventa', () => {
+    // Era `wholesale_piece_min_qty || 3`: la etiqueta AFIRMABA "Mayoreo 3+" sin dato. Es el
+    // linaje directo de ADR-055 — no imprimir como hecho lo que es un hueco.
+    // Se mira el CUERPO del getter, no el archivo: el docstring cita el código viejo a
+    // propósito, para que quien lea entienda qué se corrigió.
+    const min = /get mayoreoMin\(\)[^\n]*\n?[^\n]*/.exec(LABEL)![0];
+    expect(min).not.toContain('|| 3');
+    expect(min).toContain('m > 1 ? m : null');
+    expect(LABEL).toMatch(/get mayoreoMin\(\): number \| null/);
+    // y sin umbral el renglón no se imprime, en las DOS variantes
+    const pza = /get hasMayoreoPza\(\): boolean \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    const paq = /get hasMayoreoPaq\(\): boolean \{[\s\S]*?\n  \}/.exec(LABEL)![0];
+    expect(pza).toContain('this.mayoreoMin === null');
+    expect(paq).toContain('this.mayoreoPaqMin === null');
+  });
+
+  it('⭐ el realce de oferta exige que haya descuento', () => {
+    // 265 productos imprimían chip amarillo + trazo grueso sobre un precio materialmente igual.
+    const min = Number(/const MAYOREO_MIN_DESC = ([\d.]+)/.exec(LABEL)![1]);
+    expect(min).toBeGreaterThan(0);
+    expect(min).toBeLessThanOrEqual(0.05);
+    expect(LABEL).toMatch(/get realceMayoreoPza\(\): boolean/);
+    expect(LABEL).toMatch(/get realceMayoreoPaq\(\): boolean/);
+    for (const g of ['realceMayoreoPza', 'realceMayoreoPaq']) {
+      const fn = new RegExp(`get ${g}\\(\\): boolean \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
+      expect(fn).toContain('MAYOREO_MIN_DESC');
+    }
+  });
+
+  it('el brote salió de la caja del precio', () => {
+    // Era el techo del crecimiento: medido, con la franja de unidad más alta, dejarlo adentro
+    // anulaba el trabajo (−0.1% contra +17.4%).
+    expect(LABEL).toMatch(/\.etq-head \.etq-sprout\{/);
+    expect(/\.etq-sprout\{\s*position:absolute/.test(LABEL)).toBe(false);
   });
 
   it('el bloque de estilos no tiene acentos graves (parten el template literal)', () => {

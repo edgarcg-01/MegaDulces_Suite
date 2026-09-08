@@ -1605,6 +1605,12 @@ interface AttachFile {
   `],
 })
 export class ComprasEntradasComponent {
+  /**
+   * El template la llama en dos lugares y una plantilla de Angular sólo puede invocar miembros
+   * de la clase, no funciones importadas: sin esto el build entero falla con
+   * `TS2339: Property 'branchName' does not exist on type 'ComprasEntradasComponent'`.
+   */
+  readonly branchName = branchName;
   private readonly svc = inject(EntradasService);
   private readonly compras = inject(ComprasService);
   private readonly auth = inject(AuthService);
