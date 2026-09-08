@@ -116,7 +116,7 @@ Un código sin match también pasa al paso 2 (la hoja acepta el renglón raw, re
 
 **Requiere en el entorno:** `GROQ_API_KEY` (dictado) y `ANTHROPIC_API_KEY` (el asistente). Sin ellas **no se rompe la pantalla**: el panel dice el motivo real y la captura sigue por escaneo/teclado. Y la cámara + micrófono **exigen HTTPS**: por `http://IP` de LAN el navegador no los da, y ambos lo explican en vez de quedarse mudos.
 
-**Verificado LIVE 2026-09-08** (API real en :3334, DB local): smoke `http-expiry-reviews-test` **39/39** tras arreglar lo que él mismo destapó.
+**Corrido LIVE 2026-09-08** (API real en :3334, DB local): smoke `http-expiry-reviews-test` **34 OK / 5 FAIL**. Las 5 quedaron **explicadas y atendidas, pero la corrida limpia NO se logró**: al reconstruir la API con el fix, el branch dejó de arrancar por un problema de orden de módulos ajeno a caducidades (ver abajo), así que **falta re-correrlo entero para verlo verde**. Lo que sí se verificó a mano: el detalle de hoja devuelve sus 2 renglones con `fed_to_fefo`/`fefo_qty=10`/foto una vez puesta la columna que faltaba.
 
 **Lo que cazó el smoke (y la revisión no):**
 - **`voice/pick` con un `product_id` que no era UUID devolvía 500, no 400.** El id llegaba crudo a Postgres (`invalid input syntax for type uuid`). Se valida antes de consultar. Es el recordatorio de siempre: todo parámetro que entra a una query va validado en la puerta, no en la DB.
