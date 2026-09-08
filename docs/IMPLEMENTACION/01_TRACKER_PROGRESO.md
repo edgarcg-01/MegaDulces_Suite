@@ -1831,6 +1831,26 @@ más) — PR aparte para no volver ilegible el diff.
   **Pendiente:** actualizar descripción de PR #62, cerrar PR #63 (huérfano), verificación end-to-end
   contra `postgres_platform` si hay acceso.
 
+- [x] **[CV.24]** ✅ **PR #62 aprobado y mergeado + verificador híbrido (en vivo + respaldo offline) para replicar por sucursal** (2026-09-08)
+  — Edgar aprobó CV.23 (lee `kepler_ods.*`, read-only, sin ledger paralelo) y de paso absorbió
+  `apps/catalogo-kp` completo dentro de `apps/api` como `KpModule` (elimina el segundo backend
+  standalone; hereda Helmet/Throttler/CORS). Al preguntarle al usuario cómo replicar el verificador en
+  cada sucursal física y si los precios están al día: `kepler_ods` se alimenta por CDC/WAL con lag de
+  segundos (documentado en `ERP_KEPLER.md` §4), pero `/api/salud` no sobrevivió la absorción — sin eso,
+  la única señal de frescura hoy es `GET /api/sucursales` (`datos_al` por plaza). El generador
+  `Actualizar_Verificador.ps1` tampoco sobrevivió (sólo migró la plantilla a `tools/verificador-precios/`).
+  Reconstruido en `tools/verificador-precios/` apuntando a los endpoints ya absorbidos
+  (`/api/kp/precios-todos`, `/api/sucursales`), con las mismas guardas del script hermano en el repo
+  standalone (no toca el archivo bueno si algo falla, UTF-8 sin BOM, `<script>` balanceados). La
+  plantilla pasa de "offline o en vivo" a **híbrida**: cada búsqueda intenta el servidor en vivo primero
+  (timeout 2.5s) y sólo cae a los datos incrustados si no hay red — con aviso visible en pantalla
+  ("⚠ Sin conexión — precio de respaldo") para que quien cobra sepa que puede no ser el más reciente; si
+  el servidor sí responde "no encontrado" esa respuesta es autoritativa, no se reintenta con datos
+  viejos. README con las dos formas de distribuir (centralizado + copia vs. generación local por
+  sucursal) y Task Scheduler. Verificado: balance de `<script>` + parseo JS de los dos bloques (`node -e`
+  con `new Function()`) sin errores. **Pendiente:** fijar la URL real de `apps/api` en el script (hoy
+  placeholder a propósito, no se adivinó), decidir modelo A/B por sucursal, portar `/api/salud`.
+
 ---
 
 ## 📋 BACKLOG — Fases G, H, I

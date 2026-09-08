@@ -54,6 +54,8 @@
     color:var(--verde); letter-spacing:.5px; }
   .err{ font-size:34px; font-weight:800; color:#b91c1c; padding:40px 0; }
   .err small{ display:block; font-size:18px; color:#888; font-weight:500; margin-top:10px; }
+  .p-offline{ margin-top:14px; font-size:14px; color:#92400e; background:#fef3c7; border-radius:8px;
+    padding:8px 14px; display:inline-block; }
   .cfg{ position:fixed; bottom:12px; right:16px; color:#555; font-size:22px; cursor:pointer; }
   .cfg:hover{ color:#aaa; }
   .footer{ position:fixed; bottom:12px; left:16px; color:#b0b8c4; font-size:12px; letter-spacing:.3px; }
@@ -162,7 +164,9 @@
   }
   function showLoading(){ card.className='card show'; card.innerHTML='<div class="loading">Consultando…</div>'; }
   function showErr(msg, sub){ card.className='card show'; card.innerHTML='<div class="err">'+msg+(sub?'<small>'+sub+'</small>':'')+'</div>'; }
-  function showProd(d){
+  // offline=true cuando el precio vino de los datos incrustados (no del servidor
+  // en vivo) — puede estar hasta un día desatrasado, así que se avisa en pantalla.
+  function showProd(d, offline){
     var us = (d.unidades && d.unidades.length) ? d.unidades
            : [{ u:d.unidad, precio_con_iva:d.precio_con_iva }];
     var base = us[0];
@@ -176,7 +180,8 @@
       '<div class="p-nom">'+ (d.nombre||'') +'</div>'+
       '<div class="p-unidad">POR '+ unidadLabel(base.u).toUpperCase() +'</div>'+
       '<div class="p-precio">'+ money(base.precio_con_iva) +'</div>'+
-      (restoHtml ? '<div class="p-otras">'+restoHtml+'</div>' : '');
+      (restoHtml ? '<div class="p-otras">'+restoHtml+'</div>' : '') +
+      (offline ? '<div class="p-offline">⚠ Sin conexión — precio de respaldo, puede no ser el más reciente</div>' : '');
     bumpCount();
   }
   function armarClear(){
@@ -212,27 +217,57 @@
     };
   }
 
+  // Híbrido: si hay servidor configurado se intenta EN VIVO primero (fresco al
+  // segundo); si no hay red o el servidor no responde a tiempo, cae a los datos
+  // incrustados (si el archivo los trae) para que un wifi caído no deje sin
+  // precios al mostrador. Si el servidor SÍ responde y dice "no encontrado", esa
+  // respuesta es autoritativa — no se reintenta con datos locales viejos.
+  var TIMEOUT_MS = 2500;
+
+  async function consultarServidor(code){
+    var ctrl = ('AbortController' in window) ? new AbortController() : null;
+    var to = ctrl ? setTimeout(function(){ ctrl.abort(); }, TIMEOUT_MS) : null;
+    try{
+      var r = await fetch(apiBase() + '/api/kp/precio?q=' + encodeURIComponent(code),
+        { cache:'no-store', signal: ctrl ? ctrl.signal : undefined });
+      return await r.json();
+    } finally {
+      if (to) clearTimeout(to);
+    }
+  }
+
   async function buscar(code){
     code = String(code||'').trim();
     if (!code) return;
-    // OFFLINE: datos incrustados en el propio archivo
-    if (offlineActivo()){
-      var loc = lookupLocal(code);
-      if (loc){ showProd(loc); } else { showErr('DISCULPE LAS MOLESTIAS', 'PRODUCTO NO ENCONTRADO · Código: ' + code); }
+    var localOk = offlineActivo();
+    var servidor = apiBase();
+
+    if (servidor){
+      showLoading();
+      try{
+        var d = await consultarServidor(code);
+        if (d && d.ok){ showProd(d, false); }
+        else { showErr('DISCULPE LAS MOLESTIAS', 'PRODUCTO NO ENCONTRADO · Código: ' + code); }
+      }catch(e){
+        // Sin red / servidor caído / tardó más de 2.5s: usa el respaldo incrustado.
+        if (localOk){
+          var loc = lookupLocal(code);
+          if (loc){ showProd(loc, true); } else { showErr('DISCULPE LAS MOLESTIAS', 'PRODUCTO NO ENCONTRADO · Código: ' + code); }
+        } else {
+          showErr('Sin conexión al servidor', 'Verifica la red o la dirección (⚙)');
+        }
+      }
       armarClear(); scan.value=''; return;
     }
-    // ONLINE: consulta a la API central
-    if (!apiBase()){ showErr('Falta configurar el servidor', 'Toca el engrane ⚙ abajo a la derecha'); return; }
-    showLoading();
-    try{
-      var r = await fetch(apiBase() + '/api/kp/precio?q=' + encodeURIComponent(code), { cache:'no-store' });
-      var d = await r.json();
-      if (d && d.ok){ showProd(d); } else { showErr('DISCULPE LAS MOLESTIAS', 'PRODUCTO NO ENCONTRADO · Código: ' + code); }
-    }catch(e){
-      showErr('Sin conexión al servidor', 'Verifica la red o la dirección (⚙)');
+
+    // Sin servidor configurado: solo los datos incrustados, si el archivo los trae.
+    if (localOk){
+      var locOnly = lookupLocal(code);
+      if (locOnly){ showProd(locOnly, true); } else { showErr('DISCULPE LAS MOLESTIAS', 'PRODUCTO NO ENCONTRADO · Código: ' + code); }
+    } else {
+      showErr('Falta configurar el servidor', 'Toca el engrane ⚙ abajo a la derecha');
     }
-    armarClear();
-    scan.value='';
+    armarClear(); scan.value='';
   }
 
   // El lector de código de barras teclea el código y termina con Enter
@@ -250,14 +285,12 @@
   document.body.addEventListener('click', function(e){ if(e.target.id!=='cfg') keepFocus(); });
   window.addEventListener('load', function(){
     buildIdx();
-    if (offlineActivo()){
-      // Modo offline: no se necesita servidor ni configuración
-      var g = document.getElementById('cfg'); if (g) g.style.display = 'none';
-      keepFocus();
-    } else {
-      keepFocus();
-      if (!apiBase()){ setApiBase(); }   // online: primera vez pide el servidor
-    }
+    keepFocus();
+    // El engrane siempre queda visible: aunque el archivo traiga datos
+    // incrustados, configurar el servidor activa el modo híbrido (en vivo con
+    // respaldo). Sólo se fuerza la configuración si NO hay ni servidor ni datos
+    // incrustados — ahí sin eso no hay forma de mostrar ningún precio.
+    if (!apiBase() && !offlineActivo()){ setApiBase(); }
   });
 
   // ==== Pie: versión + última actualización ====

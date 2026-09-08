@@ -10,6 +10,13 @@
 
 ## [Unreleased]
 
+### Added — verificador de precios híbrido (en vivo + respaldo offline) para replicar por sucursal (CV, 2026-09-08)
+- Tras la absorción del verificador a `apps/api` (`KpModule`), se preguntó cómo replicarlo en cada sucursal física y si los precios están al día hoy: `kepler_ods` se alimenta por CDC/WAL con lag de segundos (`ERP_KEPLER.md` §4), pero **`/api/salud` no sobrevivió la absorción** — sin eso, la única señal de frescura es `GET /api/sucursales` (`datos_al` por plaza). El `.ps1` regenerador tampoco sobrevivió (sólo migró la plantilla).
+- **Reconstruido** `tools/verificador-precios/Actualizar_Verificador.ps1`, apuntando a los endpoints ya absorbidos (`/api/kp/precios-todos`, `/api/sucursales`) — genera un `verificador-NN.html` por sucursal, con las mismas guardas del script hermano en el repo standalone (no toca el archivo bueno si algo falla, UTF-8 sin BOM, `<script>` balanceados).
+- **La plantilla pasa de "offline o en vivo" a híbrida**: cada búsqueda intenta el servidor en vivo primero (timeout 2.5s) y sólo cae a los datos incrustados si no hay red, con aviso visible ("⚠ Sin conexión — precio de respaldo"). Si el servidor responde "no encontrado", esa respuesta es autoritativa — no se reintenta con datos locales viejos.
+- `tools/verificador-precios/README.md` documenta las dos formas de distribuir por sucursal (generación centralizada + copia, o generación local apuntada a `apps/api`) y el Task Scheduler.
+- **Pendiente:** fijar la URL real de `apps/api` en el script (placeholder a propósito, no se adivinó), decidir modelo por sucursal, portar `/api/salud`.
+
 ### Changed — el verificador de precios se absorbe a `apps/api`; se elimina el app standalone (CV, 2026-09-08)
 - `apps/catalogo-kp` era un **segundo backend NestJS** (con su propio `main.ts`, bootstrap, puerto, CORS `*` y `Pool` de conexión) que reimplementaba lo que `apps/api` ya provee. Se convierte en **`KpModule` dentro de `apps/api`** (`src/modules/kp/`): mismas queries (`KpService`/`SucursalesService`, portadas verbatim — git las tomó como *rename*), rutas públicas vía `@Public()`, conexión inyectando `KNEX_NEW_DB`. Hereda Helmet + Throttler + CORS → cierra de un tirón los hallazgos de rate-limit / CORS abierto / rol de conexión amplio. Endpoints iguales: `GET /api/kp/precio`, `/api/kp/precios-todos`, `/api/sucursales`.
 - **Removed:** el app `apps/catalogo-kp` completo (incluido su `salud` propio — `apps/api` ya tiene `db-health`) y el `.ps1` regenerador del verificador offline. La plantilla del kiosco se preserva en `tools/verificador-precios/`.

@@ -143,3 +143,8 @@ apps/catalogo-kp/public/verificador*.html
 
 # Scratch de sondas y mediciones (PDFs, harnesses) — nunca se commitea
 .tmpq/
+
+# Verificadores por sucursal generados por tools/verificador-precios/Actualizar_Verificador.ps1
+# (~2MB c/u, se regeneran a diario con datos frescos de kepler_ods — no versionar el contenido).
+tools/verificador-precios/generados/
+tools/verificador-precios/actualizar_verificador.log
