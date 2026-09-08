@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### Fixed — La compuerta de procedencia daba verde falso, y Análisis no pintaba la edad que ya recibía (VP.2.2, 2026-09-08)
+
+La 4ª compuerta se prendió **en rojo sola**: la deuda pasó de 13 a 17 porque las cuatro respuestas de la fase BI (Radar, tendencia, Pareto, metas) nacieron declarando `generated_at` y callando la edad del dato. El ratchet hizo su trabajo.
+
+**Al ir a arreglarlas apareció algo peor: la compuerta podía esconder deudas.** El parser cerraba el cuerpo de una interfaz sólo con un `}` a principio de línea, así que una interfaz de **una sola línea** nunca cerraba ahí y seguía tragando líneas; como `matchAll` reanuda después del match, **lo tragado no se examinaba nunca**. Probado con un corpus de una deuda real precedida por una interfaz de una línea: el parser viejo reportó **0 deudas** y le atribuyó el `freshness` del vecino de abajo. Con llaves balanceadas la deuda real era **21**, no 17 — y 21 − 8 nuevas de BI = **13 exacto**, o sea la línea original sí estaba bien medida. También se cubre el `extends`, que antes no calzaba como encabezado e imputaba la deuda al vecino de arriba.
+
+**Y lo que no estaba en el plan:** la pantalla de Análisis **recibía `freshness` en `SellOutExplainReport` desde VP.0.3 y no la pintaba** — el primitivo llegaba correcto al navegador y moría ahí. Es la falla de VP.0.1 (declarar sin mostrar) una capa más arriba, e igual de invisible: la respuesta trae el campo, el test del primitivo pasa, y el usuario ve un número sin edad. Acá pesa más que en el reporte: el Radar juzga un mes contra el promedio de los previos, así que un rollup que se saltó corridas no da una cifra "un poco vieja" — da una **caída inventada**.
+
+- Las 8 nuevas cerradas (4 back + 4 espejos del front). Los tres reportes que leen `mv_sellout_monthly` declaran el carril mensual; metas lee `v_sellout_daily` ⇒ declara las dos matvistas diarias y **no** el rollup (declarar de más también es declarar mal).
+- Banner de frescura en Análisis, **arriba** de los números: distingue viejo de no-medido y nombra el eslabón. La precedencia se **toma** de `composeFreshness()`, no se reinventa.
+- **Candado nuevo:** nada vigilaba que una PANTALLA pinte la frescura que recibe. Ahora se exigen las **dos ramas** del ternario en las dos pantallas — una que avisa en `stale` y calla en `unknown` es la etiquetera muda otra vez.
+- Verificado: compuerta 13/13 · prueba negativa en ambas direcciones · builds api+view verdes · `feed-observability` **88/0** · carriles reales en prod a 2.1 h contra tolerancia de 26 h ⇒ el banner correctamente no se pinta hoy.
+
+⚠️ **La deuda original de 13 no bajó**: esto cierra las 8 nuevas y arregla la compuerta. `BASELINE` queda en 13 a propósito.
+
 ### Changed — La etiqueta de anaquel usa el espacio que tiene, y la unidad del precio gana jerarquía (ETQ.4, 2026-09-08)
 
 Salió de *"verifica si podemos maximizar el uso de la etiqueta, realiza un análisis BI y si falta darle más jerarquía algún apartado"*.
