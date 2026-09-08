@@ -37,6 +37,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { SelloutTargetsReport, SelloutTargetRow } from '../comercial.service';
+import type { Freshness, FreshnessInput } from '@megadulces/contracts';
 
 const DIM_OPTS: { key: SellOutExplainDim; label: string; icon: string }[] = [
   { key: 'brand', label: 'Marca', icon: 'pi pi-tag' },
@@ -94,6 +95,33 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
         </label>
         <button pButton type="button" label="Generar" icon="pi pi-play" (click)="generate()" [loading]="loading()"></button>
       </section>
+
+      <!--
+        [VP.2.2] La edad del dato, ARRIBA de los números y no debajo.
+        Esta pantalla ya recibía la frescura en SellOutExplainReport desde VP.0.3 y no la pintaba:
+        el primitivo llegaba correcto al navegador y moría ahí. Es la misma falla de VP.0.1 —
+        declarar sin mostrar— una capa más arriba, y acá pesa más que en el reporte: el Radar juzga
+        un mes CONTRA el promedio de los previos, así que un rollup que se saltó corridas no da una
+        cifra "un poco vieja", da una caída inventada. Un aviso debajo de la gráfica llega después
+        de que alguien ya la leyó.
+      -->
+      @if (dataFreshness(); as f) {
+        <p class="an-note an-note-stale" role="status">
+          <i class="pi" [class.pi-clock]="f.status === 'stale'" [class.pi-question-circle]="f.status === 'unknown'"></i>
+          @if (f.status === 'stale') {
+            <strong>Datos de hace {{ f.age_human }}</strong> — el consolidado nocturno no corrió. Las comparaciones contra meses previos pueden mostrar caídas que no ocurrieron.
+          } @else {
+            <strong>No se pudo verificar qué tan actual es este análisis.</strong> No es lo mismo que estar al día.
+          }
+          @if (staleLanes().length) {
+            <span class="an-note-lanes">
+              @for (i of staleLanes(); track i.key) {
+                {{ i.label }}: {{ i.age_human || 'sin señal' }}{{ $last ? '' : ' · ' }}
+              }
+            </span>
+          }
+        </p>
+      }
 
       @if (report(); as r) {
         <app-metric-strip [items]="kpiItems()" mode="spark" />
@@ -311,6 +339,13 @@ const CMP_OPTS: { key: SellOutExplainCompare; label: string }[] = [
     .an-seg button { border: 0; background: transparent; padding: .5rem .85rem; font-size: .85rem; cursor: pointer; color: var(--text-muted); display: inline-flex; align-items: center; gap: .4rem; }
     .an-seg button + button { border-left: 1px solid var(--border-color); }
     .an-seg button.on { background: var(--action, #d9772e); color: #fff; }
+    /* [VP.2.2] Condición del DATO, no de una acción: tono warn y sin botón de cerrar. Calca
+       .so-note del Sell-Out — es el mismo aviso sobre la misma cadena de matvistas. */
+    .an-note { font-size:.78rem; color:var(--text-muted); background:var(--layout-bg); border:1px solid var(--border-color);
+      border-radius:var(--r-sm); padding:.5rem .7rem; margin:0 0 1rem; display:flex; gap:.4rem; align-items:baseline; flex-wrap:wrap; }
+    .an-note-stale { color:var(--warn-fg); border-color:color-mix(in srgb, var(--warn-fg) 35%, var(--border-color)); }
+    .an-note-stale strong { font-weight:700; }
+    .an-note-lanes { flex-basis:100%; opacity:.85; font-size:var(--fs-xs,.72rem); padding-left:1.2rem; }
     .an-explain { padding: 1.25rem 1.5rem; margin-top: .5rem; border: 1px solid var(--border-color); border-radius: var(--radius-lg, 14px); background: var(--surface-card, #fff); }
     .an-explain-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; flex-wrap: wrap; }
     .an-explain-head h2 { margin: 0; font-size: 1.15rem; }
@@ -457,6 +492,42 @@ export class ComercialAnalisisComponent {
   readonly series = signal<SelloutSeriesReport | null>(null);
   readonly pareto = signal<SelloutParetoReport | null>(null);
   readonly loading = signal(false);
+
+  /**
+   * [VP.2.2] La frescura de TODO lo que esta pantalla tiene cargado, en un solo aviso.
+   *
+   * Son cinco respuestas (explicación, metas, radar, tendencia, Pareto) sobre la MISMA cadena de
+   * matvistas, así que cinco banners serían cinco copias del mismo hecho. Se toma la peor.
+   *
+   * La precedencia NO se inventa acá: es la de composeFreshness() en
+   * libs/commercial/src/lib/shared/freshness.ts — **un eslabón medido y viejo gana el titular sobre
+   * uno no medido**, porque tiene una edad concreta que mostrar; el no-medido queda de titular
+   * cuando nada está medidamente viejo pero algo no se pudo medir. Reimplementarla con otro criterio
+   * es cómo el dedup del sell-out terminó en 11 archivos que se separaron en silencio.
+   *
+   * Devuelve null cuando todo está fresco o nada está cargado, y entonces no se pinta nada: el aviso
+   * aparece sólo cuando hay algo que declarar.
+   */
+  readonly dataFreshness = computed<Freshness | null>(() => {
+    const fs = [this.explain()?.freshness, this.targets()?.freshness, this.radar()?.freshness,
+      this.series()?.freshness, this.pareto()?.freshness].filter((f): f is Freshness => !!f);
+    if (!fs.length) return null;
+    const peor = fs.find((f) => f.status === 'stale') || fs.find((f) => f.status === 'unknown');
+    return peor ?? null;
+  });
+
+  /** Los eslabones que fallan, deduplicados por clave: el aviso nombra algo accionable, no "hay rezago". */
+  readonly staleLanes = computed(() => {
+    const vistos = new Set<string>();
+    const out: FreshnessInput[] = [];
+    for (const f of [this.explain()?.freshness, this.targets()?.freshness, this.radar()?.freshness,
+      this.series()?.freshness, this.pareto()?.freshness]) {
+      for (const i of f?.inputs || []) {
+        if (i.status !== 'fresh' && !vistos.has(i.key)) { vistos.add(i.key); out.push(i); }
+      }
+    }
+    return out;
+  });
 
   // BI.4 — configs de gráficas (theme-aware: getChartTokens lee los tokens vigentes).
   readonly trendData = computed<any>(() => {
