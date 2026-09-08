@@ -176,6 +176,11 @@ export enum Permission {
   COMMERCIAL_SELLOUT_TARGETS_GESTIONAR = 'COMMERCIAL_SELLOUT_TARGETS_GESTIONAR',
   COMMERCIAL_SALIDAS_VER = 'COMMERCIAL_SALIDAS_VER',
   COMMERCIAL_ROUTE_SALES_VER = 'COMMERCIAL_ROUTE_SALES_VER',
+  // RD.6 — comisiones de Ruta Directa. Permiso PROPIO y no colgado de ROUTE_SALES_VER:
+  // ver cuánto vendió una ruta y ver cuánto cobra su chofer son dos cosas distintas, y
+  // esto último es nómina. GESTIONAR = calcular, aprobar y marcar pagada la corrida.
+  COMMERCIAL_COMMISSIONS_VER = 'COMMERCIAL_COMMISSIONS_VER',
+  COMMERCIAL_COMMISSIONS_GESTIONAR = 'COMMERCIAL_COMMISSIONS_GESTIONAR',
   // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació
   // reusando COMMERCIAL_ORDERS_VER, así que no se podía asignar sin dar Pedidos
   // ni quitar sin quitarlos. Backfill ← ORDERS_VER en 20260825120000.

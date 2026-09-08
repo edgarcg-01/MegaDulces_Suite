@@ -119,6 +119,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'sellout-analysis', label: 'Análisis (Sell-Out BI)', route: '/comercial/analisis', view: [Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER], manage: [Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR] },
           { id: 'salidas', label: 'Salidas por producto', route: '/comercial/salidas', view: [Permission.COMMERCIAL_SALIDAS_VER], manage: [] },
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
+          { id: 'route-commissions', label: 'Comisiones de ruta', route: '/comercial/comisiones', view: [Permission.COMMERCIAL_COMMISSIONS_VER], manage: [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR] },
           { id: 'sales-docs', label: 'Facturación de Telemarketing', route: '/comercial/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
           { id: 'customers360', label: 'Clientes 360', route: '/comercial/customers-360', view: [Permission.COMMERCIAL_CUSTOMERS360_VER], manage: [] },
           { id: 'historical', label: 'Histórico de venta', route: '/comercial/historical', view: [Permission.COMMERCIAL_HISTORICAL_VER], manage: [] },
