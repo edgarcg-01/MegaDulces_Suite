@@ -281,3 +281,124 @@ SELECT slot_name, active, wal_status, pg_size_pretty(pg_wal_lsn_diff(pg_current_
 SELECT subname, received_lsn, latest_end_lsn FROM pg_stat_subscription WHERE subname='sub_md_00';
 ```
 **Prueba de negocio:** en `kepler_ods.kdm1 WHERE sucursal='00'` el máx folio `X-D-26` debe pasar de `0017736` → aparecer `0017742` (el movimiento que la conciliación marcaba faltante). Rollback = `DROP SUBSCRIPTION sub_md_00` + limpiar slot en 9.95 (§5); el código soporta 00 ausente (skip).
+
+---
+
+## 9. Morelia Madero (Wincaja `32`) — alta pendiente, medida el 2026-09-08
+
+Madero **ya cambió su punto de venta a Kepler**. Nada de nuestro lado está cableado todavía, y esto
+es el estado exacto, medido, no supuesto:
+
+| | |
+|---|---|
+| `wincaja.branches` para `32` | `kepler_code = NULL`, `status = live_on_wincaja` |
+| Sucursales en `kepler_ods.kdm1` | `00, 01, 02, 03, 04, 05, 06` — **no hay una nueva** |
+| Réplica local | **no existe** `kepler_md_07` (sólo `00`–`06` en `:5433`) |
+| Suscripción | **no existe** (hay 7: `sub_md_00,01,02,04,05,06` + `sub_pilot`→`md_03`) |
+| `192.168.32.32` puertos 5432 y 1977 | **sin respuesta TCP** |
+| `commercial.warehouses` | sigue como `MD-32` "Almacén Morelia Madero (32)" |
+| Réplica cruda Wincaja `w32` | **todavía con movimiento** — último 06/09/2026 |
+
+### 9.1 Lo que NO se puede derivar y hay que confirmar antes de tocar
+
+Dos datos, y de los dos cuelga el sell-out:
+
+1. **El código de sucursal con el que Kepler va a emitir su venta** (el valor de `md.kdm1.sucursal`).
+   Canindo tomó `06`; lo natural sería `07`, pero **eso es una suposición** y si sale mal el sell-out
+   suma la venta a la sucursal equivocada. El verificador lo imprime en cuanto haya acceso:
+   `SELECT DISTINCT sucursal FROM md.kdm1`.
+2. **Host y puerto del POS.** El patrón de infra se cumple en 6 de 6 ramas —
+   `192.168.<código Wincaja>.<código Wincaja>` (10→.10.10 · 40→.40.40 · 42→.42.42 · 44→.44.44 ·
+   50→.50.50 · 54→.54.54)— así que Madero debería ser **`192.168.32.32`**. El puerto NO es uniforme:
+   `01` y `06` escuchan en **1977**, el resto en 5432. Hoy no responde ninguno de los dos.
+
+### 9.2 En el POS de Madero (lo corre quien tenga superusuario allá)
+
+Todo el alta de base está en un script idempotente que **calca lo que ya corre en los POS `02` y
+`03`** (leído de sus catálogos, no inventado):
+
+```
+psql -U postgres -d md_NN -f database/scripts/kepler-pos-alta-ods.sql
+```
+
+Crea `platform_ro` (SELECT) y `ods_repl` (REPLICATION), los grants, los *default privileges* para las
+tablas que Kepler cree mañana, y la publicación. Pide las contraseñas por prompt para no dejarlas en
+el archivo; la de `ods_repl` **tiene que ser la misma que las otras ramas** —
+`SELECT subconninfo FROM pg_subscription;` en `:5433` la muestra.
+
+Lo que el script **no puede hacer** porque son archivos del sistema operativo:
+
+```conf
+# postgresql.conf  — los dos primeros EXIGEN REINICIAR el servicio
+wal_level = logical
+listen_addresses = '*'                 # los 7 POS ya cableados usan '*'
+max_slot_wal_keep_size = '20GB'         # tope: si el slot lo excede se invalida en vez de
+                                        # llenar el disco y tumbar la caja
+# max_replication_slots = 10            # ya viene así en Kepler 16.4
+# max_wal_senders       = 10
+```
+
+```conf
+# pg_hba.conf — DOS renglones, y el segundo se olvida siempre.
+# La replicación lógica conecta a la DB REAL, no al pseudo-db 'replication'.
+host    md_NN    ods_repl       192.168.0.249/32    scram-sha-256
+host    md_NN    platform_ro    192.168.0.249/32    scram-sha-256
+```
+`SELECT pg_reload_conf();` alcanza para `pg_hba` (no requiere reinicio).
+
+`192.168.0.249` es este servidor, el que hospeda las réplicas. Si tras recargar el verificador sigue
+diciendo *"no pg_hba entry"*, el log del POS nombra la IP de origen real (el contenedor puede salir
+con NAT distinto): usar ésa, no ampliar a `/24` a ciegas.
+
+Y el firewall de Windows del POS tiene que dejar entrar ese puerto — es la causa más probable de que
+hoy `192.168.32.32` no responda ni en 5432 ni en 1977.
+
+### 9.3 Comprobar desde acá, antes de seguir
+
+```
+node database/scripts/verificar-pos-kepler.js --host=192.168.32.32 --port=5432 --db=md_NN
+```
+
+Ocho comprobaciones en el orden en que fallan de verdad: puerto → autenticación de `platform_ro` →
+`ods_repl` con REPLICATION → `wal_level` → capacidad de slots → publicación → una lectura real de
+`md.kdm1` → identidad de fila. Cada falla dice qué archivo tocar.
+
+**Se probó contra las dos puntas:** `--branch=02` da **8 OK / 0 FALTA** (o sea mide algo de verdad) y
+Madero da **0 OK / 1 FALTA** en el primer paso. Corre desde este servidor a propósito: un `psql`
+lanzado en el propio POS da `listen_addresses`, firewall y `pg_hba` por buenos y no prueba nada.
+
+### 9.4 De este lado, una vez que el verificador esté verde
+
+1. **Réplica + suscripción** — §3.2 de este runbook, o `setup-branch-subscriber.js`. El nombre de la
+   base sigue la convención `kepler_md_NN` y el slot `sub_md_NN`.
+2. **Registrar la rama** en `database/importers/lib/kepler-branches.js` (`BRANCHES`), que es la fuente
+   única: agregarla ahí la habilita en ~40 importers de una vez. Si no expone `platform_ro` remoto
+   —el caso de Canindo— se marca con `replica: 'kepler_md_NN'` y se lee del espejo local.
+3. **Carril del ODS**: sumarla a `replicate-ods-live.js` para que `ods_live_hot`/`ods_live_mirror` la
+   shipeen, y confirmar que aparece en `kepler_ods._sync_status`.
+4. **`wincaja.branches`**: para `32`, poner `kepler_code`, `status`, y `last_movement_date` = el
+   último día que de verdad vendió en Wincaja. Esa columna no es decorativa: los sensores de
+   `db-health` derivan las sucursales a vigilar de `kepler_code IS NULL`, así que en cuanto se llene,
+   Madero deja de alarmar por un `.mdb` que ya no se mueve. Es la lección de Canindo: una alerta que
+   nunca se puede apagar entrena al equipo a ignorar el tablero.
+5. **`commercial.warehouses`**: Canindo pasó de `MD-50` a código `06`. Antes de repetirlo hay que ver
+   qué le pasó al histórico que apuntaba a `MD-50` (stock, ventas, políticas de reorden) — renombrar
+   el `code` de un almacén con historia no es gratis.
+6. **Sacar `32` del carril vivo de Wincaja** (`wincaja-replica-config.js`), como se hizo con Canindo:
+   su `.mdb` deja de moverse y el carril quedaría girando en vacío. El histórico `h32` se queda: es
+   la única copia de lo que Madero vendió en Wincaja.
+7. **El corte del sell-out — la parte peligrosa.** `v_sellout_daily` combina Kepler y Wincaja con un
+   literal de corte por sucursal; Madero necesita el suyo, con la fecha real del cambio. Un corte mal
+   puesto **duplica** la venta del día (los dos lados la traen) o le abre un **hueco** (ninguno). El
+   candado `test-newdb-sellout-parity.js` mide exactamente esas dos cosas: correrlo **antes y después**
+   del cambio, y comparar el mes contra su total ya conocido.
+
+### 9.5 Corrección a §2.3 de este runbook
+
+§2.3 documenta `CREATE PUBLICATION ods_pub FOR TABLE <lista de 11 tablas>`. **Los POS reales no están
+así.** Medido el 2026-09-08 en `02` y `03`: la publicación se llama **`ods_pub_pilot`** y está
+declarada **`FOR TABLES IN SCHEMA md`** — cubre **336 de 336** tablas, y una tabla nueva de Kepler
+(las `kdc2YYMM` rotan cada mes) entra al pipeline sola. La única excepción es `md_00`, que quedó con
+el nombre viejo `ods_pub`. Seguir §2.3 al pie crearía una publicación con 11 tablas y un nombre que el
+suscriptor no espera. La forma vigente es la que aplica `kepler-pos-alta-ods.sql`.
+
