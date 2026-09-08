@@ -10,13 +10,15 @@ import { Pool } from 'pg';
  *   sin_respuesta no se llego al servidor: apagado, red caida, puerto cerrado.
  *   revisando     todavia no hay una primera lectura.
  *
- * Portado literal de megadulces-api-ready/src/salud/salud.service.ts (Fase
- * CV, CV.15), y de ahi a apps/catalogo-kp (CV.23). Se perdio al absorber ese
- * app a apps/api (commit 1df656a7, "el verificador de precios se absorbe a
- * apps/api") — recuperado de git history y portado una tercera vez, sin
- * tocar la logica: sigue usando DATABASE_URL_NEW (la misma base que
- * KNEX_NEW_DB), pero con un Pool propio y minimo, deliberadamente aislado del
- * pool compartido de la app (ver comentario en onModuleInit).
+ * Portado de megadulces-api-ready/src/salud/salud.service.ts (Fase CV,
+ * CV.15), y de ahi a apps/catalogo-kp (CV.23). Se perdio al absorber ese app
+ * a apps/api (commit 1df656a7) — recuperado de git history y portado una
+ * tercera vez, con un ajuste real: el port anterior usaba DATABASE_URL_NEW
+ * (rol postgres, solo migraciones) porque en el app standalone esa SI era la
+ * connection string de runtime; en apps/api la conexion de runtime real es
+ * DATABASE_URL_NEW_RUNTIME (rol app_runtime, la que usa KNEX_NEW_DB de
+ * verdad) — ver detalle en onModuleInit. Pool propio y minimo, deliberadamente
+ * aislado del pool compartido de la app.
  */
 export type EstadoBase = 'ok' | 'sin_acceso' | 'sin_respuesta' | 'revisando';
 
@@ -49,13 +51,32 @@ export class SaludService implements OnModuleInit {
     // por delante al pool compartido de KNEX_NEW_DB que usa el resto de la
     // app. Y con tiempos de espera cortos, porque esto tiene que contestar
     // rapido aunque nada funcione.
-    this.pool = new Pool({
-      connectionString: process.env.DATABASE_URL_NEW,
-      max:      1,
-      connectionTimeoutMillis: 4000,
-      statement_timeout: 4000,
-      idleTimeoutMillis: 30_000,
-    });
+    //
+    // OJO: usa DATABASE_URL_NEW_RUNTIME (rol app_runtime), NO DATABASE_URL_NEW
+    // (rol postgres, superuser, solo para migraciones/KNEX_NEW_DB_ADMIN) — es
+    // la MISMA resolucion de conexion que KNEX_NEW_DB (ver buildNewDbConfig en
+    // new-database.module.ts), que es de la que depende KpService de verdad.
+    // Un port anterior de este archivo (heredado de apps/catalogo-kp, donde
+    // DATABASE_URL_NEW SI era la connection string de runtime) uso la variable
+    // equivocada aqui: habria reportado "ok" con el rol de migraciones vivo
+    // aunque app_runtime estuviera caido — exactamente el falso positivo que
+    // esta ruta existe para evitar.
+    const connStrRuntime = process.env.DATABASE_URL_NEW_RUNTIME;
+    this.pool = new Pool(
+      connStrRuntime
+        ? { connectionString: connStrRuntime, max: 1, connectionTimeoutMillis: 4000, statement_timeout: 4000, idleTimeoutMillis: 30_000 }
+        : {
+            host: process.env.NEW_DB_HOST || '192.168.0.245',
+            port: Number(process.env.NEW_DB_PORT) || 5432,
+            database: process.env.NEW_DB_NAME || 'postgres_platform',
+            user: 'app_runtime',
+            password: process.env.APP_RUNTIME_PASSWORD || 'app_runtime',
+            max: 1,
+            connectionTimeoutMillis: 4000,
+            statement_timeout: 4000,
+            idleTimeoutMillis: 30_000,
+          },
+    );
     // Un Pool emite 'error' cuando una conexion ociosa se cae. Sin este
     // manejador, Node tumba el proceso entero.
     this.pool.on('error', () => {});

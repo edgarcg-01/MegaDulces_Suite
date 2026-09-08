@@ -1861,10 +1861,22 @@ más) — PR aparte para no volver ilegible el diff.
   inútiles en 9h cuando faltaba). Portado a `apps/api/src/modules/salud/`, wireado en `app.module.ts`
   fuera del toggle multitenant (igual que `KpModule`). Build verde aislando un error preexistente y ajeno
   en `main` (`CommercialCommissionsModule` no exportado de `@megadulces/commercial` — confirmado con y
-  sin mis cambios, mismo error, no lo causa ni lo agrava). Boot completo no verificable en esta sesión
-  (la app requiere Postgres/Redis/Neo4j reales, sin `.env` local disponible). **Pendiente:** llenar
-  `$destinos` sucursal por sucursal; el error preexistente de `main` bloqueará CI de cualquier PR hasta
-  que alguien más lo resuelva (ajeno a esta fase).
+  sin mis cambios, mismo error, no lo causa ni lo agrava).
+  **Bug real encontrado antes de mergear:** el port inicial de `salud.service.ts` copió `DATABASE_URL_NEW`
+  (rol `postgres`, solo migraciones) del app standalone, donde esa SÍ era la connection string de runtime.
+  En `apps/api` la conexión real es `DATABASE_URL_NEW_RUNTIME` (rol `app_runtime`, la que usa
+  `KNEX_NEW_DB`/`KpService` de verdad) — con la variable equivocada, `/api/salud` habría reportado "ok"
+  con el rol de migraciones vivo aunque `app_runtime` estuviera caído. Corregido antes de que llegara a
+  producción.
+  **Validado end-to-end contra datos reales** (`192.168.0.245/platform_test`, rol `dev_sistemas` —
+  0Sistemas dio la credencial): API completa arrancada localmente (`node dist/apps/api/main.js`), las 4
+  rutas responden real (`/api/salud`→`ok`, `/api/sucursales`→7 plazas, `/api/kp/precio`,
+  `/api/kp/precios-todos`→9,485 productos), y el generador corrió de punta a punta contra ese servidor:
+  **7 de 7 sucursales generadas** (~9,485 productos c/u, ~2.2MB), sello `MD_ACTUALIZADO` y las 3 guardas
+  (UTF-8, `<script>` balanceado, tamaño mínimo) verificadas en el archivo real. **Pendiente:** llenar
+  `$destinos` sucursal por sucursal; validar específicamente con el rol `app_runtime` (se probó con
+  `dev_sistemas` por no tener esa password a mano); el error preexistente de `main` bloqueará CI de
+  cualquier PR hasta que alguien más lo resuelva (ajeno a esta fase).
 
 ---
 
