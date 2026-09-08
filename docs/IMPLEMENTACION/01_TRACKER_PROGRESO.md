@@ -1989,6 +1989,120 @@ más) — PR aparte para no volver ilegible el diff.
 
 ---
 
+## Fase REP — Réplica viva de prod para desarrollo (2026-09-08)
+
+Plan y runbook: [`RUNBOOKS/REPLICA_DEV.md`](RUNBOOKS/REPLICA_DEV.md).
+
+**La tesis:** el dato fresco no viene de prod — **prod lo recibe de `.249`**. La réplica de dev se
+cuelga del **mismo origen** (las réplicas lógicas de los 7 Kepler y de Wincaja que viven en esa PC) y
+prod sólo aporta lo que nadie más tiene, **por lectura**.
+
+**Por qué existe:** el camino documentado (`dev:up` + `seed:new`) da una base vacía con 5 filas demo
+—MR, sell-out, RA, Maat, CB y Compras no se pueden ni abrir—, y `.245/platform_test`, que es lo que
+usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que prod no tiene**.
+
+### F0 — los frenos, antes de copiar un byte
+
+- [x] **[REP.0.0]** ✅ 2026-09-08 — **el respaldo "de producción" respaldaba la base local vieja.**
+  `backup-db.ps1:52` leía `DATABASE_URL`, que en `.249` apunta a `localhost:5433/postgres_platform`;
+  el único puntero a prod en el `.env` es `FLEET_DB_URL`. Y por §25 `DATABASE_URL` **tiene** que ser
+  la misma base física que `DATABASE_URL_NEW` — o sea la de desarrollo: nunca iba a ser prod.
+  Medido sobre el dump del 6-sep: **`kepler_ods` 1 tabla contra las 226 de prod**, `identity` 8 vs
+  15, y **236.1 MB idénticos cinco días seguidos** cuando el heap de prod son 15.9 GB.
+  `TradeMarketing-DailyBackup` estuvo **en verde todo ese tiempo**.
+  No alcanzaba con leer la variable correcta —el modo de falla fue *correr en verde contra la base
+  equivocada*—, así que van tres frenos: clasificar el destino y abortar si no es prod (`-CheckOnly`
+  lo hace probable, 4/4), piso de espacio libre, y **piso de tablas en el dump** (*"abre bien" no es
+  "trajo lo que hay"*: el del 6-sep abría perfecto). Retención a GFS: 30 días planos con dumps de
+  prod habrían sido ~90 GB sobre los 104 libres.
+  **Primer respaldo real de prod de esta máquina: 2,003 MB, 601 tablas, `kepler_ods` 226, 68 min.**
+- [x] **[REP.0.1]** ✅ — la guarda de destino sube a
+  `libs/platform-core/src/lib/provenance/target-guard.js` (ADR-056) y aprende a mirar el **ORIGEN**:
+  un pull que lee de la base equivocada **termina bien y no copia nada**, y ese éxito silencioso es
+  lo que dejó el ODS congelado 6 días. Más `assertDistinct`, que compara `host:port/db` y no la URL:
+  distinta credencial no es distinta base. En **CommonJS** a propósito — medido, `ts-node` cuesta
+  ~1.4 s por proceso, y es lo primero que corre cada script que escribe. Los 34 llamadores no se
+  tocaron (re-export).
+- [x] **[REP.0.2]** ✅ — **prueba negativa, 19/19.** Cada caso en un **subproceso** (la guarda llama
+  `process.exit(2)`; probarla in-process mata al test, que es justo por qué las pruebas de guardas
+  suelen estar verdes sin haber ejecutado nunca la guarda), y mide **el mensaje**, no sólo el código
+  (*"es prod"* y *"no lo reconozco"* son los dos `exit 2`). Cierra con **prueba de mutación** contra
+  dos copias desarmadas del clasificador: las dos tienen que ponerla en **rojo**.
+- [x] **[REP.0.3]** ✅ — **`DISABLE_CRONS` apaga los 51 `@Cron` de 46 archivos en una línea.**
+  `shouldRunInProcessCron()` parecía el interruptor pero **sólo 1 de los 51 lo llama**. Apaga el
+  borrado de fotos en Cloudinary contra la cuenta real, el runner fiscal (SAT/PAC cada 30 s), la
+  liberación de reservas y `REFRESH MATERIALIZED VIEW` ×8. Se dice en el log al arrancar.
+- [x] **[REP.0.4]** ✅ — `.env.replica.example`, escrito alrededor de cuatro trampas.
+  ⚠️ **Corrige un consejo falso del diseño:** apuntar a la misma Redis con otro índice de base **no
+  aísla nada** — el Pub/Sub de Redis es global a la instancia y `@socket.io/redis-adapter` se
+  instancia **sin prefijo de canal** (`main.ts:93`). Va vacía; el código ya cae a in-memory.
+- [x] **[REP.0.5]** ✅ — la API **no arranca en dev contra prod**. Calca `[AUTHZ-HARD]` y clasifica
+  con la **misma** guarda, no con una copia de los patrones. Verificado contra el bundle: aborta
+  antes de `NestFactory.create` y el camino feliz sigue intacto.
+
+### F1 — el espejo
+
+- [x] **[REP.1]** ✅ — `database/scripts/pull-prod-to-local.js`, subcomando `doctor`: **11/11 contra
+  prod**. Cinco capas de solo-lectura (A `options` — la única que también cubre `pg_dump`/`psql` vía
+  `PGOPTIONS` · B allowlist de forma de sentencia · C sonda viva · D `SET SESSION CHARACTERISTICS` ·
+  G ausencia de credencial).
+  ⚠️ **La sonda que traía el diseño no servía.** Medido contra prod (PG 18.6): `pg_current_xact_id()`
+  **PASA** y devuelve un XID (`10612378`) → habría dado verde siempre; y `CREATE TEMP TABLE` **sí**
+  se rechaza, al revés de lo que el diseño afirmaba. Van las dos que sirven, y el `UPDATE` de 0 filas
+  porque §33: *un `SELECT` que funciona no prueba que un `UPDATE` funcione*.
+  ⚠️ **Corrección a la capa G:** el diseño pedía que el env no tuviera `FLEET_DB_URL`, que es
+  imposible — esa var **es** el handle de prod, o sea el origen a leer. Lo que se prohíbe son las
+  credenciales de escritura **hacia afuera**.
+- [x] **[REP.1.2]** ✅ 7/7 — prueba negativa del read-only contra prod, cargando las funciones
+  **reales** y no una copia. `exit 2` = NO MEDIDO si no se llega a prod.
+- [ ] **[REP.2]** ⚠️ **BLOQUEADO — falta `pgvector` en `.245`.** Prod usa el tipo `vector` en **7
+  columnas** y una es `catalog.products.embedding` (14,807 productos): sin la extensión el
+  `pg_restore` falla al crear esa tabla, y `--use-list` puede omitir una tabla entera pero no una
+  columna. `.245` es PostgreSQL **18.4 x86_64-windows/MSVC** y de las 7 extensiones de prod le falta
+  exactamente ésa; su `C$` responde *Permission denied*, así que **no se puede instalar por red**:
+  va con RDP, 3 archivos, **versión 0.8.2** (la de prod), sin reiniciar Postgres. Pasos exactos en el
+  runbook §"Paso 1".
+  ⚠️ Al crearlo: `CREATE TABLESPACE … LOCATION 'D:\pgdata_replica'` da **42P17**; con `'D:/…'`
+  funciona. El tablespace y la base vacía que se crearon el 2026-09-08 se **borraron** — `.245` quedó
+  como estaba (`hr`, `platform_test`, `postgres`; tablespaces `pg_default`, `pg_global`,
+  `ts_platform_test`).
+- [ ] **[REP.3]** ⬜ siembra (`seed --core` / `--bulk`) + fixups (`app_runtime` sobre los ~20 schemas,
+  RLS, ledger fantasma, `disableMigrationsListValidation`, scrub `--safe`).
+- [ ] **[REP.4]** ⬜ la cascada `:5433 → .245` — ⚠️ `FOR TABLES IN SCHEMA md`, **jamás**
+  `FOR ALL TABLES` (replicaría `ods.ctl` y `.245` heredaría el watermark de prod).
+- [ ] **[REP.5]** ⬜ delta (carril `snapshot` por default, no watermark — ver abajo).
+- [ ] **[REP.7]** ⬜ frescura declarada (`mirror.pull_ctl` ternario + `mirrorAt()` en `freshness.ts`).
+
+### Mediciones que cambiaron el diseño
+
+- **`updated_at` NO lo mantiene ningún trigger.** En las 636 migraciones el único `BEFORE UPDATE` es
+  el de staleness de embeddings, y no existe ninguna función `set_updated_at`/`moddatetime`: se
+  escribe **a mano** desde 129 archivos de `libs/` y 72 de 177 importers. *Que la columna exista no
+  hace viable el watermark* — por eso el carril por default del delta es **`snapshot`
+  (TRUNCATE+COPY)**, que además es correcto ante DELETEs gratis.
+- **`-j1` vs `-j4` = 1.49×, no 4×** (`pg_dump -j` paraleliza *entre* tablas; el piso lo pone la más
+  grande). Y el costo dominante son **~1 s de latencia por tabla**, no los bytes: 40 tablas chicas
+  tardaron 38 s y pesaron 197 KB.
+- **Los 25 GB no viajan:** heap 15.5 + toast 0.4 + **índices 9.7 que se reconstruyen local**, y
+  `pg_dump` **nunca** manda el contenido de una matview (emite un `REFRESH`).
+- **`analytics.cron_runs` tiene `host` pero FUERA de la PK** `(tenant_id, job_key)`: un segundo
+  escritor no crea otra fila, **pisa la del primero** — el carril muerto pasa por sano reportando la
+  máquina equivocada como dueña (§35). Por eso el carril dev lleva `ODS_HB_KEY` propio.
+
+### Hallazgos colaterales (no son de esta fase)
+
+- ⚠️ **`.245/postgres_platform` (123 MB) desapareció** entre las 13:05 y las 14:45 del 2026-09-08.
+  **No fue este trabajo**: los únicos `DROP` emitidos nombran `platform_replica` y
+  `ts_platform_replica`, y la única mención de `postgres_platform` en lo que se corrió fue un
+  `SELECT` de tamaño. **Rompe `npm run embeddings:sync`** (`sync-from-remote.js` lee
+  `DATABASE_URL_REMOTE_SNAPSHOT`, que apunta ahí). `.245` lo comparten tres devs: preguntar antes de
+  recrearla.
+- ⚠️ **El `.env` de `.249` está en el estado roto de §25** (`DATABASE_URL` ≠ `DATABASE_URL_NEW`,
+  `VECTOR_DATABASE_URL` sin setear). El log de arranque lo dice en cada boot —*"el matcher usará la
+  fuente legacy"*— y nadie lo lee.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
