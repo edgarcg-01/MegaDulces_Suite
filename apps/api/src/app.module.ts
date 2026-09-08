@@ -392,7 +392,30 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     CronModule,
     DataModule,
     WebSocketModule,
-    ScheduleModule.forRoot(),
+    // `[REP.0.3]` — el interruptor general de los cron.
+    //
+    // Sin `ScheduleModule` registrado, el `SchedulerOrchestrator` de
+    // @nestjs/schedule no engancha NINGÚN `@Cron`: los 51 decoradores repartidos
+    // en 46 archivos quedan inertes de una. Es una línea porque el registro es
+    // uno solo; el equivalente cableando servicio por servicio serían 46 diffs.
+    //
+    // Por qué hacía falta: `shouldRunInProcessCron()` existe desde INFRA.3 y
+    // parece el interruptor, pero **sólo 1 de los 51 lo llama**
+    // (`embedding-sync.service.ts`). Todos los demás corren incondicionalmente
+    // en cualquier proceso de API. Dos APIs contra la misma base = todo
+    // duplicado, y cada cron tiene su `isRunning` en memoria, que no sirve
+    // entre procesos: no hay leader election en ningún lado.
+    //
+    // Lo que esto apaga cuando un dev levanta la API contra un espejo (o, peor,
+    // contra prod sin querer): el borrado de fotos en Cloudinary
+    // (`tasks.service.ts` → `uploader.destroy` + DELETE, irreversible contra la
+    // cuenta REAL), el runner de la cola fiscal cada 30 s (llamadas de verdad al
+    // SAT y al PAC), la liberación de reservas de stock y de leads, y
+    // `REFRESH MATERIALIZED VIEW` × 8 contra un pool admin de 2 conexiones.
+    //
+    // Se apaga sólo con el valor exacto `'true'`: una variable mal escrita deja
+    // los cron PRENDIDOS, que es el lado seguro para prod.
+    ...(process.env.DISABLE_CRONS === 'true' ? [] : [ScheduleModule.forRoot()]),
     // INFRA.3 (ADR-043): cola de jobs pg-boss (worker-tier). Inerte sin
     // ENABLE_WORKER_QUEUE=true → app corre legacy (crons in-process).
     QueueModule,
