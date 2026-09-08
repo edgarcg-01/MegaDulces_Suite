@@ -34,10 +34,18 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Deuda medida el 2026-09-07. **Sólo puede bajar.** Al arreglar una superficie, bajá este número en
- * el mismo commit — si no, la compuerta deja de proteger lo que acabás de ganar.
+ * Deuda medida el 2026-09-07 (13) y bajada el 2026-09-08 a **5**. **Sólo puede bajar.** Al arreglar
+ * una superficie, bajá este número en el mismo commit — si no, la compuerta deja de proteger lo que
+ * acabás de ganar.
+ *
+ * Las 5 que quedan y por qué no entraron en la tanda de VP.2.2:
+ *   · `PromoResult` / `RoutePromoResult` — promociones por ruta; fuente sin verificar todavía.
+ *   · `BriefingResponse` — el briefing de Horus compone MUCHAS fuentes; su procedencia es un
+ *     compuesto, no un carril, y merece su propio item.
+ *   · `OpenCajasResponse` / `StoreSnapshot` — llegan por WebSocket, no por HTTP: la frescura de un
+ *     push es "cuándo se emitió", que es otro problema que el de un reporte que se consulta.
  */
-const BASELINE = 13;
+const BASELINE = 5;
 
 const RAIZ = path.join(__dirname, '..');
 

@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException, NotFoundException, ServiceUnavailableException, Logger, Inject } from '@nestjs/common';
-import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, tableAt } from '../shared/freshness';
 import { TenantKnexService, KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
@@ -136,6 +136,7 @@ export interface SalidasReport {
   months: string[];
   rows: SalidasRow[];
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ── Fase RR — Ventas por Ruta ──
@@ -235,6 +236,7 @@ export interface SalesByRouteTicketsPage {
   offset: number;
   totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
   generated_at: string;
+  freshness: Freshness;
 }
 
 export interface SalesByRouteTicketLine {
@@ -286,6 +288,7 @@ export interface SalesByRouteReport {
   totals: SalesByRouteCell;
   monthly_totals: Record<string, SalesByRouteCell>;
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ── RR — Conciliación de cierre de ruta (corte vendedor vs venta real) ──
@@ -348,6 +351,7 @@ export interface TransfersReport {
   monthly_totals: Record<string, TransfersCell>;
   by_kind: { kind: TransferKind; kind_label: string; value: number; share_pct: number }[];
   generated_at: string;
+  freshness: Freshness;
 }
 
 export interface SellOutColumn {
@@ -3371,6 +3375,37 @@ export class CommercialAnalyticsService {
     }
   }
 
+  /**
+   * [VP.2.2] Frescura de un reporte que lee TABLAS de feed, no las matvistas del sell-out.
+   *
+   * Venta por ruta, salidas y traspasos no salen de `mv_sellout_monthly` sino de
+   * `analytics.sales_by_route_monthly` / `sales_boxes_monthly` / `transfers_monthly` /
+   * `route_push_lines`, que son tablas que llena un importer. Se verificó que **ninguno** de esos
+   * importers llama a `cron-heartbeat` (VP.3.4 abierto), así que `laneAt()` no tiene nada que leer y
+   * con él estas pantallas sólo podrían declarar "no medido" para siempre. `tableAt()` mide la
+   * ENTREGA en la tabla misma, que además es la mejor de las dos señales: un importer puede latir
+   * `ok` sin haber escrito una fila.
+   *
+   * Tolerancia 26 h: los tres feeds mensuales corren de noche (medido en prod: 03:xx), igual que el
+   * refresh del sell-out — 24 h de edad son sanas y 26 h significan que se saltó una corrida. Se
+   * reusa el número que `CRON_JOBS` ya usa para juzgar jobs nocturnos en vez de inventar otro.
+   *
+   * NO bloquea: declara. Y si el medidor falla, `unknown` — que falle la medición no autoriza a
+   * afirmar lo que no se midió (regla 2 de shared/freshness).
+   */
+  private async feedFreshness(
+    trx: any, fuentes: Array<[string, string, string]>, maxHours = 26,
+  ): Promise<Freshness> {
+    try {
+      const inputs = await Promise.all(
+        fuentes.map(async ([tabla, col, label]) => evalInput(tabla, label, await tableAt(trx, tabla, col), maxHours)),
+      );
+      return composeFreshness(inputs);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
   private selloutMonthStart(d: string): string { return d.slice(0, 8) + '01'; }
   private selloutShiftDay(d: string, days: number): string {
     return new Date(new Date(`${d}T00:00:00Z`).getTime() + days * 86400000).toISOString().slice(0, 10);
@@ -4329,7 +4364,15 @@ export class CommercialAnalyticsService {
       diasPeriodo = Math.max(1, Math.round((end.getTime() - yStart.getTime()) / DAY) + 1);
     }
 
+    // [VP.2.2] La fuente CAMBIA con el modo, y la frescura tiene que cambiar con ella: modo AÑO lee
+    // el mensual nocturno, modo RANGO lee `sales_daily` (continuo). Declarar el mensual en un
+    // reporte por rango marcaria viejo un dato que nunca lo tocó — declarar de más también es
+    // declarar mal, y es el mismo cuidado que `usaRollup` en el sell-out.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
     const { salesRows, prodRows, prevRows, stkRows, scopeWh } = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, isRange
+        ? [['analytics.sales_daily', 'updated_at', 'Venta diaria']]
+        : [['analytics.sales_boxes_monthly', 'updated_at', 'Venta en cajas (mensual)']]);
       const applyFilters = (qb: any) => {
         if (whFilter) qb.whereIn('w.code', whFilter);
         if (brandId) qb.andWhere('p.brand_id', brandId);
@@ -4574,8 +4617,8 @@ export class CommercialAnalyticsService {
 
     const months = Array.from(monthsSet).sort();
     return isRange
-      ? { mode: 'range', from, to: toIncl, dias_periodo: diasPeriodo, has_trend: true, months: [], rows, generated_at: new Date().toISOString() }
-      : { mode: 'year', year, dias_periodo: diasPeriodo, has_trend: false, months, rows, generated_at: new Date().toISOString() };
+      ? { mode: 'range', from, to: toIncl, dias_periodo: diasPeriodo, has_trend: true, months: [], rows, generated_at: new Date().toISOString(), freshness }
+      : { mode: 'year', year, dias_periodo: diasPeriodo, has_trend: false, months, rows, generated_at: new Date().toISOString(), freshness };
   }
 
   /**
@@ -4658,7 +4701,22 @@ export class CommercialAnalyticsService {
     // (branches is_route → parent_branch → warehouse) y emite el MISMO shape/identidad
     // (route_code = 'WIN-'+source_branch) para que el drill-down siga funcionando.
     const factFilter = !!(q.sku || q.client);
+    // [VP.2.2] Dos ramas, dos fuentes, dos frescuras. Con `factFilter` el reporte se arma EN VIVO
+    // sobre `v_route_sales_lines` (que lee la replica de Wincaja); sin él, del mensual
+    // `sales_by_route_monthly`. Declarar la del mensual en el camino en vivo sería hablar de una
+    // tabla que esa consulta no tocó.
+    //
+    // ⚠️ La pierna Wincaja se mide por `maestro_mov_almacen.imported_at` — cuándo la CARGAMOS, no
+    // el `fecha` del ticket. La fecha del movimiento es un dato de negocio: un ticket de ayer
+    // cargado hoy es fresco, y uno de hoy que nunca se cargó no existe para el reporte.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
     const rawRows: any[] = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, factFilter
+        ? [
+          ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
+          ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
+        ]
+        : [['analytics.sales_by_route_monthly', 'updated_at', 'Venta por ruta (mensual)']]);
       if (factFilter) {
         const params: any[] = [tenantId, from, to];
         let extra = '';
@@ -4757,7 +4815,7 @@ export class CommercialAnalyticsService {
     );
 
     const months = Array.from(monthsSet).sort();
-    return { year, months, rows, totals, monthly_totals: monthlyTotals, generated_at: new Date().toISOString() };
+    return { year, months, rows, totals, monthly_totals: monthlyTotals, generated_at: new Date().toISOString(), freshness };
   }
 
   /**
@@ -4981,7 +5039,16 @@ export class CommercialAnalyticsService {
       tickP.push(like, like, like);
     }
 
-    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+    // [VP.2.2] Este reporte va SIEMPRE en vivo sobre `v_route_sales_lines`, que lee la replica de
+    // Wincaja + el empuje a ruta. Se declaran las dos piernas: la más vieja gana el titular, que es
+    // lo correcto — una cadena es tan fresca como su peor tramo.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
+    const rows: any[] = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, [
+        ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
+        ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
+      ]);
+      return (await trx.raw(
       `WITH sel AS (
          SELECT DISTINCT sl.source, sl.source_branch, sl.business_date, sl.consecutivo
          FROM analytics.v_route_sales_lines sl
@@ -5018,7 +5085,8 @@ export class CommercialAnalyticsService {
        ORDER BY ${sortCol} ${dir} NULLS LAST, folio ${dir}
        LIMIT ? OFFSET ?`,
       [...scopeP, ...lineP, ...scopeP, tenantId, src, ...tickP, limit, offset],
-    )).rows);
+      )).rows;
+    });
 
     const total = rows.length ? num(rows[0].total_rows) : 0;
     const grandRevenue = rows.length ? num(rows[0].grand_revenue) : 0;
@@ -5062,6 +5130,7 @@ export class CommercialAnalyticsService {
         avg_ticket: total > 0 ? Math.round((grandRevenue / total) * 100) / 100 : 0,
       },
       generated_at: new Date().toISOString(),
+      freshness,
     };
   }
 
@@ -5302,7 +5371,13 @@ export class CommercialAnalyticsService {
       traspaso_entrada: 'Entrada por traspaso',
     };
 
+    // [VP.2.2] La frescura se mide DENTRO del mismo tk.run: fuera no hay trx, y abrir otro sólo
+    // para preguntar la edad sería una segunda conexión por request.
+    let freshness: Freshness = FRESHNESS_UNKNOWN;
     const rawRows: any[] = await this.tk.run(async (trx) => {
+      freshness = await this.feedFreshness(trx, [
+        ['analytics.transfers_monthly', 'updated_at', 'Traspasos (mensual)'],
+      ]);
       const qb = trx('analytics.transfers_monthly as t')
         .join('commercial.warehouses as w', 'w.id', 't.warehouse_id')
         .where('t.tenant_id', tenantId)
@@ -5393,7 +5468,7 @@ export class CommercialAnalyticsService {
       .sort((a, b) => b.value - a.value);
 
     const months = Array.from(monthsSet).sort();
-    return { year, months, rows, totals, monthly_totals: monthlyTotals, by_kind, generated_at: new Date().toISOString() };
+    return { year, months, rows, totals, monthly_totals: monthlyTotals, by_kind, generated_at: new Date().toISOString(), freshness };
   }
 
   private sellOutCoverage(

@@ -1660,6 +1660,7 @@ export interface SalidasReport {
   months: string[];
   rows: SalidasRow[];
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ── Fase RR — Ventas por Ruta ──
@@ -1748,6 +1749,7 @@ export interface SalesByRouteTicketsPage {
   offset: number;
   totals: { revenue: number; units: number; tickets: number; avg_ticket: number };
   generated_at: string;
+  freshness: Freshness;
 }
 
 export interface SalesByRouteTicketLine {
@@ -1797,6 +1799,7 @@ export interface SalesByRouteReport {
   totals: SalesByRouteCell;
   monthly_totals: Record<string, SalesByRouteCell>;
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ── RR-PROMO — Evaluador de mecánicas de incentivo por enunciado (agente AI) ──
@@ -1928,6 +1931,7 @@ export interface TransfersReport {
   monthly_totals: Record<string, TransfersCell>;
   by_kind: { kind: string; kind_label: string; value: number; share_pct: number }[];
   generated_at: string;
+  freshness: Freshness;
 }
 
 export interface SellOutColumn {
