@@ -85,3 +85,21 @@ FROM kp.sync_control WHERE table_name = 'kdm1' ORDER BY sucursal;
   reconcilia los watermarks viejos ya guardados.
 - Es un **ODS crudo** (raw `kp.*`). La capa semántica (mart.ventas, etc.) y los
   importers KV pueden apuntar acá para leer **una** DB en vez de seis (paso futuro).
+
+## Consumidores
+
+Además del propio `concentrate-kepler.js` (dueño de `kp.*`), esta base aloja
+otros schemas que **no** son de este script:
+
+- **`admin.*` / `tienda.*` / `monitor.*`** — el app Nx `apps/catalogo-kp`
+  (Fase CV, catálogo público + verificador de precios de mostrador + tienda
+  mayorista). Lee `kp.*` de sólo lectura y es dueño de esos tres schemas
+  (usuarios del tablero, pedidos/carrito/cola de trabajos, captura de errores
+  del navegador). Corre on-prem, igual que este script — ninguna de las dos
+  cosas es alcanzable desde Railway.
+- Usa un rol **dedicado**, `catalogo_kp_runtime` (no `app_runtime`) — ver
+  `docs/GOTCHAS.md` §24: `app_runtime` es un rol **del cluster** `.245`,
+  compartido con `postgres_platform`, y reusarlo aquí habría acoplado el
+  blast radius de una rotación de credencial de la Suite con el de esta base
+  Kepler. Detalle del rol y sus GRANTs en
+  `apps/catalogo-kp/sql/007_rol_dedicado.sql`.
