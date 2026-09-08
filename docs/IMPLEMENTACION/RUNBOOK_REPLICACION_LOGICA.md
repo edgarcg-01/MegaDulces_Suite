@@ -312,6 +312,43 @@ Dos datos, y de los dos cuelga el sell-out:
    50→.50.50 · 54→.54.54)— así que Madero debería ser **`192.168.32.32`**. El puerto NO es uniforme:
    `01` y `06` escuchan en **1977**, el resto en 5432. Hoy no responde ninguno de los dos.
 
+### 9.1-bis Lo que se midió EN el POS (pgAdmin, 2026-09-08)
+
+Corriendo la consulta del Paso 1 en el propio POS. Cambia el trabajo: **casi todo está ya puesto**
+y sólo faltan dos parámetros, los dos en `postgresql.conf`.
+
+| parámetro | valor en el POS | veredicto |
+|---|---|---|
+| `version` | PostgreSQL **16.4** | igual que los POS `02`/`03` |
+| `config_file` / `hba_file` | `C:/Program Files/PostgreSQL/16/data/` | instalación estándar |
+| `listen_addresses` | `*` | **ya expone la LAN** — no tocar |
+| `max_replication_slots` / `max_wal_senders` | `10` / `10` | ya OK |
+| `password_encryption` | `scram-sha-256` | → en `pg_hba` va `scram-sha-256` |
+| `port` | **1977** | como la `01` y la `06`, **no** 5432 |
+| `ssl` | `off` | sin `sslmode` en la conninfo |
+| `wal_level` | **`replica`** | ⚠️ falta `logical` — **exige reiniciar** |
+| `max_slot_wal_keep_size` | **`-1`** | ⚠️ falta el tope (ver abajo) |
+
+**El `-1` es el hallazgo que importa.** Es el default de Postgres y significa retención de WAL
+**ilimitada**: si el suscriptor se cae un fin de semana, el POS acumula WAL hasta **llenar el disco
+y tumbar la caja**. Los POS `02` y `03` tienen `20480` (20 GB) puesto a mano — este nunca se
+preparó. Va junto con `wal_level` en la misma edición.
+
+**Y `listen_addresses` ya está en `*`**, así que el motivo de que `192.168.32.32` no responda ni en
+5432 ni en 1977 se reduce a dos: el **firewall de Windows** del POS, o que la máquina no esté en esa
+IP. Se resuelve con un `ipconfig` en el POS — no con más suposiciones sobre el patrón de IP.
+
+⚠️ Sigue sin confirmarse el **nombre de la base** y el **código de sucursal**. La consulta que los
+trae, en el mismo Query Tool del POS:
+
+```sql
+SELECT current_database() AS base_actual,
+       (SELECT string_agg(datname, ', ' ORDER BY datname)
+          FROM pg_database WHERE datname LIKE 'md%') AS bases_md,
+       inet_server_addr() AS ip_del_servidor,
+       (SELECT count(*) FROM pg_publication) AS publicaciones,
+       (SELECT count(*) FROM pg_roles WHERE rolname IN ('ods_repl','platform_ro')) AS roles_ya_creados;
+```
 ### 9.2 En el POS de Madero (lo corre quien tenga superusuario allá)
 
 Todo el alta de base está en un script idempotente que **calca lo que ya corre en los POS `02` y
@@ -356,7 +393,7 @@ hoy `192.168.32.32` no responda ni en 5432 ni en 1977.
 ### 9.3 Comprobar desde acá, antes de seguir
 
 ```
-node database/scripts/verificar-pos-kepler.js --host=192.168.32.32 --port=5432 --db=md_NN
+node database/scripts/verificar-pos-kepler.js --host=<IP_DEL_POS> --port=1977 --db=md_NN
 ```
 
 Ocho comprobaciones en el orden en que fallan de verdad: puerto → autenticación de `platform_ro` →
@@ -606,7 +643,7 @@ Es la causa más probable de que hoy `192.168.32.32` no responda ni en 5432 ni e
 Administrador, ajustando el puerto al que de verdad use ese POS:
 
 ```bat
-netsh advfirewall firewall add rule name="PostgreSQL ODS" dir=in action=allow protocol=TCP localport=5432 remoteip=192.168.0.249
+netsh advfirewall firewall add rule name="PostgreSQL ODS" dir=in action=allow protocol=TCP localport=1977 remoteip=192.168.0.249
 ```
 
 `remoteip` deja entrar **sólo** a este servidor, que es lo que hace falta. Para ver si ya había una
@@ -621,7 +658,7 @@ sólo se prueban conectándose de verdad desde el origen. Un `psql` corrido en e
 por buenos y no prueba nada.
 
 ```
-node database/scripts/verificar-pos-kepler.js --host=192.168.32.32 --port=5432 --db=md_NN
+node database/scripts/verificar-pos-kepler.js --host=<IP_DEL_POS> --port=1977 --db=md_NN
 ```
 
 Tiene que dar **8 OK / 0 FALTA**. Si no, cada falla dice qué archivo tocar. De control, una que ya
