@@ -86,6 +86,8 @@ export interface VoiceIntakeResult {
   degraded?: boolean;
 }
 
+/** El del service hermano no se exporta; se repite acá a propósito (una línea). */
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const UNITS: LineUnit[] = ['caja', 'pieza', 'bulto', 'kg'];
 const CONDITIONS = ['bueno', 'regular', 'malo'];
 
@@ -168,6 +170,11 @@ export class ExpiryVoiceService {
    * mismo (presentación, ubicación, unidad del código).
    */
   async pickProduct(slots: VoiceSlots, productId: string): Promise<VoiceIntakeResult> {
+    // Validar ANTES de consultar. Un id que no es UUID llegaba crudo a Postgres
+    // (`invalid input syntax for type uuid`) y salía como **500** en vez del 400
+    // que es. Lo cazó el smoke corriendo contra la API real, no la revisión.
+    if (!UUID_REGEX.test(String(productId || '')))
+      throw new BadRequestException('product_id inválido (UUID)');
     const out: VoiceSlots = { ...slots };
     const hit = await this.productById(productId);
     if (!hit) throw new BadRequestException('product_id no encontrado');

@@ -153,6 +153,14 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
   ? [
       NewDatabaseModule,
       TenantModule,
+      // [ID.2] Alcance de datos (ADR-050). Va ACA, dentro del toggle y DESPUES de
+      // TenantModule: `ScopeService` inyecta `TenantContextService`, que es global
+      // pero SOLO existe si TenantModule se registro antes. Declarado arriba (junto
+      // a AbilityModule) Nest lo inicializaba primero y la app no arrancaba:
+      // `UnknownDependenciesException: ScopeService (KNEX_CONNECTION, ?)`.
+      // Es la misma trampa de orden de carga que ya documenta CLAUDE.md para el
+      // JWT: con @Global() el orden de registro sigue mandando.
+      ScopeModule,
       AuthMtModule,
       TenantsAdminModule,
       DbHealthModule,
@@ -363,8 +371,6 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     Neo4jModule,
     KeplerDatabaseModule,
     AbilityModule,
-    // [ID.2] Alcance de datos (ADR-050). Global; lo consume /tienda/analisis-semanal.
-    ScopeModule,
     AuthModule,
     UsersModule,
     DailyCapturesModule,

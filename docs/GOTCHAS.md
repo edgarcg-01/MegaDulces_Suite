@@ -1454,3 +1454,17 @@ construido: hoy no hay evidencia medida de que haga falta.
 **Y no confundir dos coberturas:** la réplica CDC sólo tiene lo que trae el `.mdb` **vivo** — `w30`
 arranca el 1-ago-2026 y `w32` el 1-jul-2026. La historia 2025→2026 vive en la carga histórica, que
 es otro camino y otros archivos.
+
+---
+## 38. Correr un smoke HTTP en una máquina nueva (3 trampas, 2026-09-08)
+
+Verificar la Fase P2.7 costó más levantar el entorno que escribir la feature. Las tres cosas que hay que saber:
+
+1. **La DB legacy vacía hace 500 TODO endpoint gateado.** El `RolesGuard` resuelve permisos leyendo `role_permissions` por la conexión **legacy** (`DATABASE_URL` → `megadulces_logistica`), no por la multi-tenant. Si esa DB no está restaurada en la máquina, cada request gateado muere con `relation "role_permissions" does not exist` y el 500 no dice nada del permiso. Workaround local sin tocar el `.env`: arrancar la API con la variable apuntada a la DB nueva —
+   `DATABASE_URL=postgresql://postgres:***@127.0.0.1:5432/postgres_platform node dist/apps/api/main.js`.
+2. **`localhost` no sirve: usar `127.0.0.1`.** En Windows resuelve a IPv6 `::1`, donde ni Postgres en Docker ni la API contestan (`ECONNREFUSED`/`ECONNRESET`). Vale para las URLs de DB del `.env` y para el `BASE` de los smokes.
+3. **Un smoke que no carga `.env` miente en el login.** Varias suites traen `password: 'superoot'` hardcodeado; si la máquina tiene otra `SUPEROOT_INITIAL_PASSWORD`, el test muere en el primer check y parece que el feature está roto. El patrón correcto es el de `http-luz-verde-caducidades-test.js`: `require('dotenv').config(...)` + `process.env.SUPEROOT_INITIAL_PASSWORD || 'superoot'`.
+
+**Una quinta, que tira la app entera:** `@Global()` **no** te salva del **orden de registro**. `ScopeModule` (global) inyecta `TenantContextService` (global, pero provisto por `TenantModule`, que vive dentro del toggle `ENABLE_MULTITENANT`). Declarado arriba en `AppModule`, Nest lo inicializa ANTES y la app no arranca: `UnknownDependenciesException: ScopeService (KNEX_CONNECTION, ?)`. Un módulo global se vuelve inyectable para los que se registran **después** — así que un módulo que depende de otro global va **después** de él (y si su dependencia está bajo un toggle, va **dentro** del toggle). Misma familia que la trampa del JWT documentada en CLAUDE.md.
+
+**Y una cuarta, más caras:** la DB local puede estar **cientos de migraciones atrás** (`npx knex migrate:list --knexfile database/knexfile-newdb.js` lo dice). Un 500 con *"column X does not exist"* en una pantalla que compila bien casi siempre es eso, no un bug. Correr las 146 pendientes en una DB de data mínima no siempre vale la pena; para desbloquear una sola, su migración es idempotente (`hasColumn`) y se puede aplicar aislada — `migrate:latest` la volverá a correr sin daño.
