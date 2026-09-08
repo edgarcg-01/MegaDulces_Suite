@@ -695,3 +695,50 @@ Con el verificador en verde, sigue §9.4: réplica + suscripción, registrar la 
 `kepler-branches.js`, sumarla al carril del ODS, llenar `wincaja.branches`, y el corte del sell-out
 —que es la parte que hay que hacer con el candado de paridad, no a ojo.
 
+### 9.7 La réplica de Madero, cableada — y el techo del contenedor (2026-09-08)
+
+Con el POS en 9/9, el resto se hizo de este lado. Quedó **replicando en vivo**, pero el camino tuvo
+dos tropiezos que valen para la próxima rama (la #9 va a chocar con lo mismo).
+
+**Lo que quedó:** `kepler_md_07` en `:5433` con las **328 tablas** del schema `md`, suscripción
+`sub_md_07 → ods_pub_pilot`, sync inicial completo (328/328 en estado `r`), `apply_error_count = 0`.
+Filas replicadas: kdm1 161 · kdii 9,523 · kdil 2,542 · kdud 1,205 · kdm2 8,803.
+
+**Tropiezo 1 — 12 tablas sin `GRANT` para `ods_repl`.** El sync arrancó y falló con
+`permiso denegado a la tabla kdc22609`. Medido: `ods_repl` leía **316 de 328**; faltaban las
+`kdc2YYMM` de póliza creadas DESPUÉS del alta (no heredaron el default privilege) más unas de RH/CFDI
+(`kdc20012, kdc226, kdc22601/605/609/612, kdfecfdnm, kdfecfdnm12, kdhaca1, kdhlab1, kdrhaspent,
+kdrhrut`). Se resolvió con el `GRANT` explícito + `ALTER DEFAULT PRIVILEGES` para las dos dueñas
+(`sa` y `postgres`) + `GRANT SELECT ON ALL TABLES` como red. **Lección: el default privilege sólo
+cubre tablas creadas por el rol declarado; si Kepler crea tablas como otro rol, se cuelan.** El
+verificador debería crecer para contar `has_table_privilege('ods_repl', …)` sobre las 328, no sólo
+probar que lee `kdm1`.
+
+**Tropiezo 2 — el contenedor `:5433` estaba tope contra tope.** `max_replication_slots = 10` y
+`max_active_replication_origins = 10`, pero **ya había 7 suscripciones** (cada una consume un origin
+PERMANENTE), y el sync inicial de 328 tablas necesita varios slots + origins TEMPORALES a la vez. El
+log lo gritaba: `todos los slots de replicación están en uso` y
+`could not find free replication state slot for replication origin`. Con eso, la suscripción octava
+ni podía copiar — y `CREATE SUBSCRIPTION` no falla, REINTENTA (481 sync-errors en bucle).
+
+Se subieron a **20** los tres (`max_replication_slots`, `max_wal_senders`,
+`max_active_replication_origins`) por `ALTER SYSTEM` — persisten en `postgresql.auto.conf`, que vive
+en el volumen `pgvector-md-data`. Los tres son de contexto `postmaster` → **hubo que reiniciar el
+contenedor** (`docker restart pgvector-md`, ~30 s de arranque). Las 6 ramas viejas se recuperaron
+solas; verificado después: las 8 suscripciones `enabled` y 0 tablas fuera de `r`.
+
+⚠️ **Rareza de PG18 anotada:** tras el `ALTER SYSTEM`, `pg_settings.pending_restart` seguía en
+`false` para los tres, aun después de `pg_reload_conf()`. No creerle: la verdad es el
+`postgresql.auto.conf` (que sí tenía los `= '20'`) y el valor activo tras el restart (que quedó en
+20). No usar `pending_restart` como señal de "ya tomó" en este contenedor.
+
+**Regla para la próxima rama:** antes de `CREATE SUBSCRIPTION`, contar
+`(SELECT count(*) FROM pg_subscription)` contra `max_active_replication_origins` y
+`max_replication_slots`. Si el margen es menor a ~4, subir el techo y reiniciar ANTES, no durante el
+sync fallido.
+
+**Todavía pendiente para que Madero llegue a la app** (es el cutover, necesita tu fecha de corte):
+registrar `07` en `kepler-branches.js`, sumarla al carril `replicate-ods-live`, llenar
+`wincaja.branches`, sacar `32` del carril vivo de Wincaja, y el corte del sell-out con el candado de
+paridad. Ver §9.4.
+
