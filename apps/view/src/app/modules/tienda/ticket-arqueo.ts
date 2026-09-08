@@ -32,6 +32,14 @@ export interface TicketArqueo {
   hora_cierre?: string | null;
   denominaciones: TicketDenominacion[];
   total_contado: number;
+  /**
+   * Lo que la persona DECLARÓ en los otros medios (tarjeta, transferencia,
+   * retiros, créditos, cheques) — no lo que dice Kepler, que va en su propio
+   * bloque. Va en el papel porque el papel es lo que se firma: si la pantalla
+   * confirmó un total del turno y el ticket solo trae el efectivo, el respaldo
+   * no prueba lo que se aceptó.
+   */
+  medios_declarados?: { label: string; monto: number }[] | null;
   /** `cierre` (corte del día) o `relevo` (cambio de turno). Cambia qué es el papel. */
   tipo?: string | null;
   /** Relevo: a quién se le entregó la caja. */
@@ -182,6 +190,20 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
     L.push(fila('  billetes', money(bil)));
     L.push(fila('  monedas', money(mon)));
     L.push(fila('TOTAL CONTADO', money(a.total_contado)));
+
+    // Los medios declarados y el total del turno: el mismo par de números que la
+    // pantalla mostró en el diálogo de confirmación. El efectivo queda arriba y
+    // aparte porque es el único que se cuenta a ciegas.
+    const med = (a.medios_declarados || []).filter((m) => Number(m.monto) > 0);
+    if (med.length) {
+      L.push('');
+      L.push('DECLARADO EN CAJA');
+      L.push(linea());
+      for (const m of med) L.push(fila('  ' + m.label, money(m.monto)));
+      const totMed = med.reduce((t, m) => t + Number(m.monto), 0);
+      L.push(linea());
+      L.push(fila('TOTAL DEL TURNO', money(a.total_contado + totMed)));
+    }
   }
 
   if (opts.revela && a.denominaciones.length) {
