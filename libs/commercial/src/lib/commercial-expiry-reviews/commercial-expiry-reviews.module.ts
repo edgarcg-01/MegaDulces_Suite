@@ -1,9 +1,10 @@
 import { Module } from '@nestjs/common';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { CloudinaryModule, AnthropicService, SpeechToTextService } from '@megadulces/platform-core';
 import { CommercialExpiryReviewsService } from './commercial-expiry-reviews.service';
 import { CommercialExpiryReviewsController } from './commercial-expiry-reviews.controller';
 import { PromoterBrandsService } from './promoter-brands.service';
 import { PromoterBrandsController } from './promoter-brands.controller';
+import { ExpiryVoiceService } from './expiry-voice.service';
 
 /**
  * Fase P2.6 — Control de Caducidades digital (ADR-022). Reusa CloudinaryModule
@@ -14,7 +15,9 @@ import { PromoterBrandsController } from './promoter-brands.controller';
 @Module({
   imports: [CloudinaryModule],
   controllers: [CommercialExpiryReviewsController, PromoterBrandsController],
-  providers: [CommercialExpiryReviewsService, PromoterBrandsService],
-  exports: [CommercialExpiryReviewsService, PromoterBrandsService],
+  // AnthropicService es infra leaf (cero deps de dominio): cada módulo que la
+  // necesita la agrega a sus providers — mismo patrón que EmbeddingsService.
+  providers: [CommercialExpiryReviewsService, PromoterBrandsService, ExpiryVoiceService, AnthropicService, SpeechToTextService],
+  exports: [CommercialExpiryReviewsService, PromoterBrandsService, ExpiryVoiceService],
 })
 export class CommercialExpiryReviewsModule {}
