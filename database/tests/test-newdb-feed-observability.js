@@ -315,8 +315,23 @@ const leer = (rel) => {
   }
 
   // ── 6. El dato declara su rezago, y "sin señal" NO es ok ─────────────────────────────────
-  const fr = leer('libs/commercial/src/lib/shared/freshness.ts');
-  check('libs/commercial/.../shared/freshness.ts existe', !!fr);
+  // [VP.2.2] El primitivo MUDÓ a `platform-core`. Vivía en `libs/commercial/src/lib/shared/`, que es
+  // un DOMINIO: el briefing de Horus (`libs/trade`, desacoplado del motor comercial a propósito) no
+  // podía declarar su frescura sin acoplar dos libs o copiar la lógica por tercera vez.
+  //
+  // Este bloque estaba clavado a la ruta vieja y las 7 aserciones se pusieron ROJAS con la mudanza
+  // — o sea el candado funcionó como detector, que es lo que se le pide. Ahora apunta a la ruta
+  // canónica, y de paso verifica la invariante de la mudanza: la ruta vieja tiene que seguir
+  // sirviendo a quien ya la importaba.
+  const fr = leer('libs/platform-core/src/lib/provenance/freshness.ts');
+  check('libs/platform-core/.../provenance/freshness.ts existe (el primitivo, fuera del dominio)', !!fr);
+  const shim = leer('libs/commercial/src/lib/shared/freshness.ts');
+  check('la ruta vieja sigue re-exportando (no se rompe a quien ya la importaba)',
+    !!shim && /from '@megadulces\/platform-core'/.test(shim),
+    'mover un primitivo compartido sin dejar el re-export rompe a sus consumidores en silencio');
+  check('el re-export NO arrastra todo platform-core (nombres explícitos, no `export *`)',
+    !!shim && !/export\s+\*\s+from\s+'@megadulces\/platform-core'/.test(shim),
+    'un export * del paquete entero le mete todo platform-core a cualquiera que importe esta ruta');
   if (fr) {
     // Las dos reglas de la fase, verificadas en el código y no sólo en el comentario.
     //

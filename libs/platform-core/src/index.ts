@@ -79,3 +79,9 @@ export * from './lib/search/smart-search';
 
 // ── pipes (validacion Zod del boundary — ADR-052) ──
 export * from './lib/pipes/zod-validation.pipe';
+
+// ── provenance (VP.2.2 — el primitivo de procedencia, ADR-056) ──
+// Vivía en `libs/commercial/src/lib/shared/`, que es un DOMINIO y no algo compartido: el briefing de
+// Horus (`libs/trade`, deliberadamente desacoplado del motor comercial) no podía declarar su
+// frescura sin acoplar dos dominios o copiar la lógica. `platform-core` ya es dependencia de los dos.
+export * from './lib/provenance/freshness';

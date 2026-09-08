@@ -3,6 +3,7 @@ import { Subject } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { io, Socket } from 'socket.io-client';
 import { environment } from '../../../environments/environment';
+import type { Freshness } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 
 export interface LiveTicketItem { sku: string; nombre: string; cant: number; importe: number; }
@@ -34,6 +35,12 @@ export interface OpenCaja {
   desde_dia?: string; dias_abierta?: number; arrastrada?: boolean;
 }
 export interface OpenCajasResponse {
+  /**
+   * [VP.2.2] Procedencia en el vocabulario común (`@megadulces/contracts`). El campo `feed` de más
+   * abajo dice lo MISMO con más detalle de dominio y sigue siendo el que pinta la pantalla; los dos
+   * salen del mismo cálculo en el emisor, así que no pueden discrepar.
+   */
+  freshness: Freshness;
   generated_at: string; cajas_abiertas: number; cobrando_ahora: number; arrastradas?: number;
   open_cajas: OpenCaja[];
   cajeros_sin_sesion: { warehouse_code: string; cajero: string; tickets: number; venta: number; last_ticket: string }[];
@@ -47,6 +54,8 @@ export interface OpenCajasResponse {
 }
 export interface StoreSnapshot {
   generated_at: string;
+  /** [VP.2.2] Cuándo llegó el último ticket — "cero tickets" no distingue tienda tranquila de feed muerto. */
+  freshness: Freshness;
   totals: { tickets: number; venta: number; avg_ticket: number };
   by_branch: StoreBranchKpi[];
   hourly: { hora: number; tickets: number; venta: number }[];

@@ -1,5 +1,6 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, AnthropicService } from '@megadulces/platform-core';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt, tableAt } from '../shared/freshness';
 
 /**
  * RR-PROMO — Evaluador de mecánicas de incentivo de RUTA (RD) a partir de un ENUNCIADO en
@@ -147,6 +148,7 @@ export interface PromoResult {
   total_importe: number;
   note: string;
   generated_at: string;
+  freshness: Freshness;
 }
 
 export interface PromoQuery {
@@ -378,9 +380,46 @@ export class RoutePromoService {
       rows: [], clientes_detalle: [], total_base: 0, total_payout: 0,
       total_clientes: 0, total_clientes_indeterminados: 0, total_unidades: 0, total_importe: 0,
       note: '', generated_at: new Date().toISOString(),
+      // [VP.2.2] Salida temprana: no se consultó NINGUNA fuente, así que no hay medición que
+      // reportar. `unknown` es literalmente cierto — y `fresh` sería afirmar algo que nadie midió.
+      freshness: FRESHNESS_UNKNOWN,
     };
   }
   private nextDay(iso: string) { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + 1); return this.iso(d); }
+  /**
+   * [VP.2.2] Procedencia del pago de una promo. TRES piernas, y cada una con SU tolerancia.
+   *
+   * `freshness.ts` lo dice explícito: los umbrales de OPERACION son de `CRON_JOBS` y responden
+   * "hay que despertar a alguien?"; los de acá responden "puedo confiar en este numero para tomar
+   * ESTA decision?". Misma medicion, audiencias distintas, y cada consumidor declara la suya.
+   *
+   *   · Venta Wincaja (26 h) — se carga ~05:00 MX, o sea una vez al dia: 24 h de edad son sanas.
+   *   · Empuje a ruta (26 h) — nocturno, mismo razonamiento.
+   *   · Escalera de unidades del ODS (6 h) — el carril es CONTINUO (~15 s), asi que 26 h seria no
+   *     vigilarlo; pero su `warnH` operativo de 30 min daria ruido, porque lo que se lee de ahi es
+   *     CATALOGO (el factor de caja), que cambia en dias. 6 h queda muy lejos de cualquier hipo del
+   *     carril y muy cerca de "algo se rompio anoche".
+   *
+   * La escalera NO es decorativa acá: normaliza `qty` a la unidad base, o sea **manda en la cantidad
+   * que se paga**. Una escalera vieja no da un pago "un poco viejo" — da un pago equivocado, y el
+   * error entra multiplicado por el factor de caja (ADR-057).
+   */
+  private async promoFreshness(trx: any): Promise<Freshness> {
+    try {
+      const inputs = [
+        evalInput('wincaja_carga', 'Venta Wincaja (carga)',
+          await tableAt(trx, 'wincaja.maestro_mov_almacen', 'imported_at'), 26),
+        evalInput('route_push', 'Empuje a ruta',
+          await tableAt(trx, 'analytics.route_push_lines', 'imported_at'), 26),
+        evalInput('ods_live_hot', 'Escalera de unidades (ODS)',
+          await laneAt(trx, 'ods_live_hot'), 6),
+      ];
+      return composeFreshness(inputs);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
   private monthLabel(d: Date) {
     const M = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
     return `${M[d.getMonth()]} ${d.getFullYear()}`;
@@ -559,6 +598,10 @@ export class RoutePromoService {
       // Una promo de marca × 3 canales × 3 meses es cara (medido en prod: ~8 s el desglose
       // con 185 clientes). Con tope explícito falla claro en vez de dejar la pantalla colgada.
       await trx.raw(`SET LOCAL statement_timeout = '60s'`);
+      // [VP.2.2] Se mide ANTES del cómputo caro: así el rezago se declara aunque el cálculo se
+      // coma casi todo el presupuesto de 60 s. (`tableAt` restaura este tope de 60 s al salir —
+      // no lo pisa con el default; verificado contra prod en los dos caminos.)
+      const freshness = await this.promoFreshness(trx);
 
       // 1) Resolver el ALCANCE → conjunto de SKUs que cuentan.
       //    Puede ser un producto suelto o toda una marca/proveedor ("Proveedor: vidis").
@@ -627,6 +670,7 @@ export class RoutePromoService {
               ? `No se encontró la marca/proveedor "${rule.marca_texto || ''}" en el catálogo. Verificá el nombre.`
               : 'No se encontró el producto del enunciado (SKU o nombre). Verificá el código.',
           generated_at: new Date().toISOString(),
+          freshness: FRESHNESS_UNKNOWN, // [VP.2.2] sin producto resuelto no se consultó ninguna fuente
         };
       }
 
@@ -925,6 +969,7 @@ export class RoutePromoService {
           ? `${out.length} ruta(s) con actividad · $${rule.rate.toFixed(2)} × ${(rule.metric === 'piezas' ? `unidades (${uLbl})` : METRIC_LABEL[rule.metric].toLowerCase())}.`
           : 'Sin ventas del producto en ruta para el periodo.',
         generated_at: new Date().toISOString(),
+        freshness,
       };
     });
   }

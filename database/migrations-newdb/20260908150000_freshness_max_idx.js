@@ -9,20 +9,31 @@
  * `import-transfers-monthly`, `import-route-push-monthly`) **no llaman a `cron-heartbeat`**, así
  * que no hay carril en `analytics.cron_runs` que leer. VP.3.4 sigue abierto.
  *
- * El problema es el costo. Medido contra PROD el 2026-09-08, sin índice:
+ * El problema es el costo. Sin índice, `max()` es un **Seq Scan completo**. Medido contra PROD el
+ * 2026-09-08 con `EXPLAIN (ANALYZE)` — tiempo de EJECUCIÓN, ya sin la latencia de red:
  *
- *   analytics.sales_boxes_monthly   (683 MB, 644,620 filas)   max(updated_at)  →  9,220 ms
- *   wincaja.maestro_mov_almacen     (449 MB, 1,497,018 filas)  max(imported_at) →  7,185 ms
+ *   analytics.sales_boxes_monthly     (683 MB)   max(updated_at)   →  6,625 ms   ← índice
+ *   wincaja.maestro_mov_almacen       (449 MB)   max(imported_at)  →  5,899 ms   ← índice
+ *   analytics.sales_daily                        max(updated_at)   →  2,554 ms   ← índice
+ *   analytics.route_push_lines                   max(imported_at)  →  1,829 ms   ← índice
+ *   analytics.store_live_tickets      (224 MB)   max(created_at)   →     59 ms
+ *   analytics.transfers_monthly       (792 filas) max(updated_at)  →      2.9 ms
+ *   analytics.sales_by_route_monthly  (297 filas) max(updated_at)  →      1.8 ms
  *
- * Sin índice, `max()` es un **Seq Scan completo**. Cobrarle 9 s a cada request de reporte para
- * poder declarar su frescura sería cambiar un número honesto por una pantalla inusable — el
- * remedio peor que la enfermedad. Con un btree DESC, Postgres lo resuelve leyendo **una sola
- * entrada** del extremo del índice (index-only scan, ~1 ms).
+ * ⚠️ **La primera medición de esta lista estuvo mal, y por poco se va así.** Se había medido con
+ * reloj de pared desde una conexión remota, donde todo daba 250–1,400 ms y era fácil atribuirlo a
+ * la red; con eso sólo entraban las dos tablas grandes. `EXPLAIN ANALYZE` separa las dos cosas y
+ * deja ver que `sales_daily` ejecuta **2,554 ms** — o sea que **excede el tope de 2 s** que
+ * `tableAt()` se pone para no colgar el reporte, y `salidasReport` en modo RANGO habría declarado
+ * "no medido" **para siempre**, sin que nada fallara. Un cronómetro que incluye la red no puede
+ * decidir un índice: hay que medir la ejecución.
  *
- * Las otras cuatro tablas (`transfers_monthly`, `sales_by_route_monthly`, `route_push_lines`,
- * `sales_daily`) NO llevan índice acá a propósito: sus tiempos medidos (250–1,395 ms desde una
- * conexión remota) son latencia de red, no cómputo — `transfers_monthly` tiene 792 filas. Un índice
- * que no se puede justificar con una medición es peso muerto que hay que mantener.
+ * `store_live_tickets` (224 MB) sí es Seq Scan y NO lleva índice: 59 ms. `transfers_monthly` y
+ * `sales_by_route_monthly` son de cientos de filas. Un índice que no se justifica con una medición
+ * es peso muerto que hay que mantener.
+ *
+ * Con un btree DESC, Postgres resuelve `max()` leyendo **una sola entrada** del extremo del índice
+ * (index-only scan, ~1 ms).
  *
  * ── POR QUÉ `DESC NULLS LAST` ────────────────────────────────────────────────────────────
  * `max()` quiere el extremo mayor. Con `DESC NULLS LAST` los NULL quedan al final y el valor más
@@ -44,10 +55,15 @@
  */
 exports.config = { transaction: false };
 
-/** [tabla, columna de tiempo, nombre del índice] — sólo las que una medición justifica. */
+/** [tabla, columna de tiempo, nombre del índice] — sólo las que una medición de EJECUCIÓN justifica. */
 const IDX = [
   ['analytics.sales_boxes_monthly', 'updated_at', 'ix_sales_boxes_monthly_updated_at_desc'],
   ['wincaja.maestro_mov_almacen', 'imported_at', 'ix_wcj_maestro_imported_at_desc'],
+  // Estas dos entraron en la segunda medición: 2,554 ms y 1,829 ms de ejecución. La primera
+  // **excede el tope de 2 s** de `tableAt()`, así que sin este índice el reporte de salidas por
+  // rango nunca podría declarar su frescura.
+  ['analytics.sales_daily', 'updated_at', 'ix_sales_daily_updated_at_desc'],
+  ['analytics.route_push_lines', 'imported_at', 'ix_route_push_lines_imported_at_desc'],
 ];
 
 exports.up = async function (knex) {
