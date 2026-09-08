@@ -11,8 +11,10 @@ export interface LabelSections {
   mayoreoPaq: boolean;
   caja: boolean;
   barcode: boolean;
+  /** Renglón alterno del granel (kg ↔ porción). Era el único que el multiselect no podía apagar. */
+  granel: boolean;
 }
-export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, mayoreoPaq: true, caja: true, barcode: true };
+export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, mayoreoPaq: true, caja: true, barcode: true, granel: true };
 
 /** Qué precio va en GRANDE (hero). Intercambiable por ticket. 'kg' = granel por kilo. */
 export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
@@ -81,11 +83,26 @@ const MONTO_MAX_MM = 7.0;
 const BARCODE_MIN_MM = 5;
 const BARCODE_MAX_MM = 12;
 
+/**
+ * Zona muda (quiet zone) por simbología, en MÓDULOS [izquierda, derecha]. Va DENTRO del SVG
+ * (JsBarcode `marginLeft/Right`, a `BARCODE_MODULE_PX` por módulo) para que se estire con las
+ * barras y nadie la pueda pisar desde el layout: con `margin: 0` la franja verde de la unidad
+ * quedaba a 1.6 mm de la primera barra, donde un EAN-13 pide 11 módulos (~5 mm). Cuesta módulo:
+ * los 43.4 mm de la columna se reparten entre 95 + 18 módulos → 0.384 mm = 116% de
+ * magnificación (el mínimo es 80% = 0.264 mm; el candado lo verifica).
+ */
+const ZONA_MUDA: Record<string, [number, number]> = { EAN13: [11, 7], UPC: [9, 9], EAN8: [7, 7], CODE128: [10, 10] };
+/** Píxeles por módulo con que JsBarcode dibuja; la zona muda se expresa en múltiplos de esto. */
+const BARCODE_MODULE_PX = 2;
+
 /** Descuento mínimo para que un mayoreo se REALCE como oferta. Ver `realceMayoreo*`. */
 const MAYOREO_MIN_DESC = 0.01;
 
-/** Resuelve cuando Anton/Bebas/Baloo están REALMENTE usables (o a los 3 s). Ver el bloque de arriba. */
-const FUENTES_USABLES: Promise<void> = (() => {
+/**
+ * Resuelve cuando Anton/Bebas/Baloo están REALMENTE usables (o a los 3 s). Ver el bloque de arriba.
+ * Exportada porque la impresión la espera antes de clonar la hoja (ver `print()` en la etiquetera).
+ */
+export const FUENTES_USABLES: Promise<void> = (() => {
   const f: any = (globalThis as any).document?.fonts;
   const specs = ['11mm Anton', "5mm 'Bebas Neue'", "4mm 'Baloo 2'"];
   if (!f?.load || !f?.check) return Promise.resolve();
@@ -162,7 +179,12 @@ export interface LabelModel {
   styles: [`
     @import url('https://fonts.googleapis.com/css2?family=Anton&family=Baloo+2:wght@500;600;700;800&family=Bebas+Neue&display=swap');
     .etq-label{
-      --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea; --red:#F05A28;
+      --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea;
+      /* El naranja del texto CHICO (SKU 3.2 mm, cantidades 2.6 mm) es brand-800, no brand-700
+         (#F05A28): sobre la crema el 700 daba 3.1:1 de contraste — bien para un titular, corto
+         para letra de 3 mm en una impresora gastada. El 800 da 4.75:1 y sigue siendo el mismo
+         naranja de marca, un paso más oscuro. El candado mide el ratio desde estos dos hex. */
+      --red:#C53E15;
       --font:'Baloo 2',system-ui,sans-serif;
       /* El precio grande va con Anton, que SE DESCARGA. Antes encabezaba 'Impact', que no es
          webfont: existe instalada en Windows y macOS pero no en iPad ni en Android, y ahí toda
@@ -253,15 +275,22 @@ export interface LabelModel {
        lo deja con holgura. La altura no baja de 5 mm: es lo que el lector necesita para engancharlo. */
     /* 5mm es el ARRANQUE (lo necesita el primer render y el clon de impresión, igual que
        PRECIO_MM); fitBarcode lo sube inline con el aire que los renglones no usaron. */
-    .etq-barcode{ margin-top:.3mm; display:flex; justify-content:flex-end; align-items:stretch; }
+    .etq-barcode{ margin-top:.3mm; display:flex; flex-direction:column; align-items:stretch; }
     .etq-barcode svg{ display:block; width:100%; height:5mm; }
+    /* Los dígitos legibles del EAN/UPC, debajo de las barras: si el lector falla, es lo que la
+       cajera teclea. Los pinta el componente (barcodeDigits), no JsBarcode — con
+       preserveAspectRatio:none el texto del SVG se estiraría con las barras. 2 mm: no más chico
+       que el "c/u" (1.7), que ya es lo más chico que se imprime. Cuestan ~2.2 mm de alto que
+       antes se llevaba el símbolo; el caso común (2 renglones) no cambia de tamaño de monto. */
+    .etq-bc-digits{ font-family:var(--font); font-weight:700; font-size:2mm; line-height:1; letter-spacing:.25mm;
+      font-variant-numeric:tabular-nums; text-align:center; white-space:nowrap; margin-top:.2mm; }
     /* Sin ningún renglón (5.0% del catálogo) la columna sólo lleva el código: centrado, para
        que el blanco lea como margen y no como una falla. NO se rellena con un dato inventado. */
     .etq-right.is-solo{ justify-content:center; }
     .etq-right.is-solo .etq-tiers{ flex:0 0 auto; }
   `],
   template: `
-    <div class="etq-label">
+    <div class="etq-label" #root>
       <!-- El brote vive ACÁ y no en la caja del precio: era el techo del número. Medido, con la
            franja de la unidad más alta, dejarlo adentro anulaba el crecimiento (−0.1%); afuera
            el precio gana +17.4%. Va en amarillo porque el verde medio desaparece sobre esta
@@ -329,7 +358,10 @@ export interface LabelModel {
             }
           </div>
           @if (hasBarcode) {
-            <div class="etq-barcode"><svg #bc></svg></div>
+            <div class="etq-barcode">
+              <svg #bc></svg>
+              @if (barcodeDigits; as d) { <div class="etq-bc-digits">{{ d }}</div> }
+            </div>
           }
         </div>
       </div>
@@ -341,6 +373,7 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   @Input() show: LabelSections = ALL_SECTIONS;
   /** Precio que va en grande. Null = default (pieza con fallback). Intercambiable por ticket. */
   @Input() hero: HeroKey | null = null;
+  @ViewChild('root') root?: ElementRef<HTMLElement>;
   @ViewChild('bc') bc?: ElementRef<SVGElement>;
   @ViewChild('head') head?: ElementRef<HTMLElement>;
   @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
@@ -462,6 +495,21 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get hasBarcode(): boolean { return !!this.show.barcode && (!!(this.model?.barcode && this.model?.barcode_format) || !!(this.model?.sku && this.model.sku.trim())); }
 
   /**
+   * Los dígitos legibles del símbolo, agrupados como en el empaque (EAN-13 "7 501234 567893",
+   * UPC-A "0 12345 67890 5", EAN-8 "9638 5074"). `null` para el CODE128 de respaldo: codifica el
+   * SKU, que ya está impreso arriba en "Código:", y repetirlo costaría 2 mm de barras.
+   */
+  get barcodeDigits(): string | null {
+    const d = (this.model?.barcode || '').trim();
+    switch (this.model?.barcode_format) {
+      case 'EAN13': return d.length === 13 ? `${d[0]} ${d.slice(1, 7)} ${d.slice(7)}` : null;
+      case 'UPC': return d.length === 12 ? `${d[0]} ${d.slice(1, 6)} ${d.slice(6, 11)} ${d[11]}` : null;
+      case 'EAN8': return d.length === 8 ? `${d.slice(0, 4)} ${d.slice(4)}` : null;
+      default: return null;
+    }
+  }
+
+  /**
    * ¿Producto a GRANEL (se vende por KILO)? `unit_base` = tamaño de la porción base: "KG" (1 kg)
    * o gramos ("500"/"250"/"400"). SOLO es granel si `sold_by_kg` (Kepler: base KG o tier KG) →
    * evita fabricar "$/kg" para bolsas/palitos con unit_base numérico que NO se venden por kilo
@@ -517,6 +565,8 @@ export class LabelComponent implements AfterViewInit, OnChanges {
    * AMBOS — si el hero es por kg, el tier es la porción; si el hero es la porción, el tier es kg.
    */
   get granelAltTier(): { label: string; value: number } | null {
+    // Obedece al multiselect como los otros cuatro renglones: era el único que no se podía apagar.
+    if (!this.show.granel) return null;
     const grams = this.granelGrams;
     if (grams <= 0 || grams >= 1000) return null;
     const piece = this.num(this.model?.piece_price);
@@ -530,10 +580,24 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get bigInt(): string { return this.bigStr.split('.')[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
 
-  ngAfterViewInit(): void { this.render(); FUENTES_USABLES.then(() => this.layout()); }
-  ngOnChanges(): void { queueMicrotask(() => { this.render(); FUENTES_USABLES.then(() => this.layout()); }); }
+  ngAfterViewInit(): void { this.render(); FUENTES_USABLES.then(() => this.settle()); }
+  ngOnChanges(): void { queueMicrotask(() => { this.unsettle(); this.render(); FUENTES_USABLES.then(() => this.settle()); }); }
 
   private render(): void { this.renderBarcode(); this.layout(); }
+
+  /**
+   * El pase DEFINITIVO: corre después de `FUENTES_USABLES`, o sea medido con la tipografía que va
+   * a imprimir (Anton, o la fallback si a los 3 s no llegó — que ahí es la correcta). Deja una
+   * marca en el DOM para quien tenga que esperarlo: la impresión clona la hoja oculta por
+   * `innerHTML` con los tamaños ya inline, y antes esperaba 500 ms fijos — en un equipo frío se
+   * llevaba los tamaños medidos con la fallback: el número chico, por la única puerta que faltaba.
+   */
+  private settle(): void {
+    this.layout();
+    this.root?.nativeElement.setAttribute('data-etq-settled', FUENTES_OK ? 'fonts' : 'fallback');
+  }
+  /** Un cambio de modelo invalida la marca hasta que se vuelva a medir. */
+  private unsettle(): void { this.root?.nativeElement.removeAttribute('data-etq-settled'); }
 
   /**
    * Corre todos los auto-ajustes. El ORDEN es obligatorio y está candado en el spec:
@@ -678,9 +742,18 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     const set = (mm: number) => amts.forEach((r) => { r.nativeElement.style.fontSize = mm + 'mm'; });
     set(size);
     const noCabe = () => this.altoTiers(box) > box.clientHeight + 1;
+    // El ANCHO entra en los DOS sentidos. En el crecimiento, para no crecer y que después
+    // `fitAmts` encoja individualmente los montos de 3-4 cifras. Y en el encogimiento, porque
+    // antes sólo se miraba el alto: un monto que ya al arranque no cabía en su celda bajaba SOLO
+    // en `fitAmts`, y un monto más chico que su vecino se lee como error de dato, no como
+    // diseño. La uniformidad es toda la razón de ser de este ajuste; `fitAmts` queda de red.
+    const anchoOk = () => amts.toArray().every((r: ElementRef<HTMLElement>) => {
+      const c = r.nativeElement.parentElement;
+      return !c || c.scrollWidth <= c.clientWidth;
+    });
     let guard = 0;
-    if (noCabe()) {
-      while (noCabe() && size > 2.6 && guard++ < 60) {
+    if (noCabe() || !anchoOk()) {
+      while ((noCabe() || !anchoOk()) && size > 2.6 && guard++ < 60) {
         size -= 0.2;
         set(size);
       }
@@ -692,14 +765,6 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     // "el precio grande es siempre el número más grande de la etiqueta" queda como invariante.
     const heroMm = parseFloat(this.priceEl?.nativeElement.style.fontSize || '') || PRECIO_MM;
     const techo = FUENTES_OK ? Math.min(MONTO_MAX_MM, heroMm * 0.7) : MONTO_MM;
-    // El predicado de crecimiento suma el ANCHO: sin eso `fitTiers` crecería y después
-    // `fitAmts` encogería individualmente los montos de 3-4 cifras, rompiendo la uniformidad
-    // que es toda la razón de ser de este ajuste — y un monto más chico que su vecino se lee
-    // como error de dato, no como diseño.
-    const anchoOk = () => amts.toArray().every((r: ElementRef<HTMLElement>) => {
-      const c = r.nativeElement.parentElement;
-      return !c || c.scrollWidth <= c.clientWidth;
-    });
     while (size + 0.2 <= techo && guard++ < 60) {
       set(size + 0.2);
       if (noCabe() || !anchoOk()) { set(size); return; }
@@ -758,10 +823,19 @@ export class LabelComponent implements AfterViewInit, OnChanges {
       fmt = 'CODE128';
     }
     try {
-      JsBarcode(el, code, { format: fmt as any, displayValue: false, margin: 0, width: 2, height: 66 });
-      const w = el.getAttribute('width');
-      const h = el.getAttribute('height');
-      if (w && h) {
+      // La zona muda va ADENTRO del SVG (ver ZONA_MUDA). `displayValue:false` a propósito: los
+      // dígitos los pinta `barcodeDigits` en HTML — el texto del SVG se estiraría con las barras.
+      const [zl, zr] = ZONA_MUDA[String(fmt)] ?? ZONA_MUDA['CODE128'];
+      JsBarcode(el, code, {
+        format: fmt as any, displayValue: false, width: BARCODE_MODULE_PX, height: 66,
+        marginTop: 0, marginBottom: 0, marginLeft: zl * BARCODE_MODULE_PX, marginRight: zr * BARCODE_MODULE_PX,
+      });
+      // JsBarcode escribe `width="226px"` (con unidad); un viewBox lleva NÚMEROS. Se copiaba el
+      // texto tal cual y salía `viewBox="0 0 226px 98px"`, inválido. Lo destapó el spec del
+      // componente al leer el atributo.
+      const w = parseFloat(el.getAttribute('width') || '');
+      const h = parseFloat(el.getAttribute('height') || '');
+      if (w > 0 && h > 0) {
         el.setAttribute('viewBox', `0 0 ${w} ${h}`);
         el.setAttribute('preserveAspectRatio', 'none');
         el.removeAttribute('width');
