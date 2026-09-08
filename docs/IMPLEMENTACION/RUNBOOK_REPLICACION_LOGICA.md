@@ -402,3 +402,217 @@ declarada **`FOR TABLES IN SCHEMA md`** — cubre **336 de 336** tablas, y una t
 el nombre viejo `ods_pub`. Seguir §2.3 al pie crearía una publicación con 11 tablas y un nombre que el
 suscriptor no espera. La forma vigente es la que aplica `kepler-pos-alta-ods.sql`.
 
+### 9.6 Paso a paso, para quien se sienta en el POS
+
+Pensado para hacerse una sola vez, en orden. Los valores no son sugerencias: son los que corren hoy
+en los POS `02` y `03`, medidos el 2026-09-08 (`password_encryption = scram-sha-256` · `ssl = off` ·
+`wal_level = logical` · `listen_addresses = *` · `max_slot_wal_keep_size = 20480`).
+
+#### Antes de empezar — tres datos
+
+1. La contraseña del **superusuario** del Kepler de ese POS (`postgres` o `sa`).
+2. La contraseña de **`ods_repl`**, que tiene que ser **la misma que las otras sucursales**. Se saca
+   desde este servidor:
+   ```sql
+   -- en pgAdmin, conectado a localhost:5433 / base "postgres", como postgres
+   SELECT subname, subconninfo FROM pg_subscription;
+   ```
+   Sale como `... user=ods_repl password=XXXX`. **No la pegues en un chat ni en un ticket.**
+3. El **nombre de la base** del Kepler de Madero (`md_07`, `md_32`, o lo que le hayan puesto).
+   Si no se sabe: en pgAdmin, al conectarse al POS, el árbol *Databases* la muestra.
+
+---
+
+#### Paso 1 — Ubicar los archivos de configuración (no adivinar la ruta)
+
+En **pgAdmin**, conectado al POS **como superusuario**: botón derecho en la base → *Query Tool* →
+
+```sql
+SHOW config_file;      -- p. ej. C:\Program Files\PostgreSQL\16\data\postgresql.conf
+SHOW hba_file;         -- p. ej. C:\Program Files\PostgreSQL\16\data\pg_hba.conf
+SHOW data_directory;
+SELECT version();
+```
+
+Por línea de comandos es lo mismo:
+```bat
+"C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -c "SHOW config_file;"
+```
+
+> Estas tres sólo las ve un superusuario. Si salen vacías, no estás conectado como `postgres`/`sa`.
+
+---
+
+#### Paso 2 — Crear los roles y la publicación
+
+**Opción A (recomendada) — con `psql`,** que es como está escrito el script:
+
+```bat
+cd /d C:\ruta\donde\copiaste\el\script
+"C:\Program Files\PostgreSQL\16\bin\psql.exe" -U postgres -d md_NN -f kepler-pos-alta-ods.sql
+```
+
+Va a pedir las dos contraseñas por prompt. Al terminar imprime el estado; si algo sale en `0` o en
+`false`, la rama **no** está lista aunque no haya habido error.
+
+**Opción B — desde pgAdmin.** ⚠️ El *Query Tool* de pgAdmin **no entiende** `\gset`, `\if` ni
+`\prompt` (son de `psql`), así que el script tal cual **no corre ahí**. Pegá este equivalente,
+reemplazando las dos contraseñas y `md_NN`:
+
+```sql
+-- 1) Los dos roles. Propósitos distintos, a propósito:
+--    platform_ro = SELECT para los importers · ods_repl = replicación para la suscripción.
+CREATE ROLE platform_ro LOGIN PASSWORD 'PONER_LA_DE_LECTURA';
+CREATE ROLE ods_repl    LOGIN REPLICATION PASSWORD 'PONER_LA_DE_REPLICACION';
+
+-- 2) Lectura del schema de Kepler. ods_repl también la necesita: la sincronización inicial
+--    de la replicación lógica LEE las tablas, no sólo el WAL.
+GRANT CONNECT ON DATABASE md_NN TO platform_ro, ods_repl;
+GRANT USAGE ON SCHEMA md TO platform_ro, ods_repl;
+GRANT SELECT ON ALL TABLES    IN SCHEMA md TO platform_ro, ods_repl;
+GRANT SELECT ON ALL SEQUENCES IN SCHEMA md TO platform_ro, ods_repl;
+
+-- 3) Y para las tablas que Kepler cree MAÑANA (las pólizas kdc2YYMM rotan cada mes).
+--    Sin esto, la tabla nueva entra a la publicación pero no se puede leer → la rama se rompe
+--    con "permission denied" y el slot se queda atrás acumulando WAL.
+ALTER DEFAULT PRIVILEGES FOR ROLE sa       IN SCHEMA md GRANT SELECT ON TABLES TO platform_ro, ods_repl;
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA md GRANT SELECT ON TABLES TO platform_ro, ods_repl;
+
+-- 4) La publicación. FOR TABLES IN SCHEMA (no lista de tablas, no FOR ALL TABLES).
+CREATE PUBLICATION ods_pub_pilot FOR TABLES IN SCHEMA md;
+```
+
+Y comprobá en el mismo Query Tool:
+```sql
+SELECT rolname, rolcanlogin, rolreplication FROM pg_roles
+ WHERE rolname IN ('platform_ro','ods_repl');
+SELECT pubname, (SELECT count(*) FROM pg_publication_tables t WHERE t.pubname=p.pubname) tablas
+  FROM pg_publication p;
+```
+`ods_repl` **tiene que salir con `rolreplication = true`** y la publicación con **cientos** de tablas
+(336 en el POS `02`). Si `ods_repl` sale en `false`: `ALTER ROLE ods_repl REPLICATION;`.
+
+> Si usás pgAdmin, después **borrá la pestaña del Query Tool**: pgAdmin guarda el historial de
+> consultas y ahí quedarían las dos contraseñas en texto plano.
+
+---
+
+#### Paso 3 — `postgresql.conf`
+
+Abrilo con un editor de texto **como Administrador** (la ruta salió en el Paso 1). Buscá cada
+parámetro; si está comentado con `#`, descomentalo; si no existe, agregalo al final:
+
+```conf
+listen_addresses = '*'                  # sin esto sólo escucha en localhost
+wal_level = logical                     # sin esto no hay replicación lógica posible
+max_replication_slots = 10
+max_wal_senders = 10
+max_slot_wal_keep_size = '20GB'         # TOPE: si el slot lo excede, se invalida y el
+                                        # suscriptor re-sincroniza — en vez de llenar el
+                                        # disco del POS y tumbar la caja
+```
+
+Para ver en qué están ahora, sin abrir el archivo:
+```sql
+SELECT name, setting, context FROM pg_settings
+ WHERE name IN ('listen_addresses','wal_level','max_replication_slots',
+                'max_wal_senders','max_slot_wal_keep_size');
+```
+La columna `context` dice qué hace falta para que el cambio tome efecto:
+**`postmaster` = reiniciar el servicio** (es el caso de `listen_addresses` y `wal_level`),
+`sighup` = alcanza un reload.
+
+---
+
+#### Paso 4 — `pg_hba.conf`
+
+Dos renglones. **El de `ods_repl` es el que siempre se olvida**, y sin él la suscripción no conecta
+nunca aunque todo lo demás esté bien:
+
+```conf
+# ODS de la plataforma (servidor 192.168.0.249)
+host    md_NN    ods_repl       192.168.0.249/32    scram-sha-256
+host    md_NN    platform_ro    192.168.0.249/32    scram-sha-256
+```
+
+Tres detalles que hacen fallar esto:
+
+- **El orden importa.** `pg_hba` se lee de arriba hacia abajo y gana **la primera línea que
+  coincide**. Si más arriba hay un `reject` o una regla que abarque estas IPs, poné estos dos
+  renglones **antes**.
+- **La replicación lógica conecta a la base REAL** (`md_NN`), no al pseudo-`replication` — ése es
+  para la replicación física. No pongas `database = replication`.
+- **`scram-sha-256`**, porque el POS `02` corre con `password_encryption = scram-sha-256` (medido).
+  Si en este POS ese parámetro dijera `md5`, la contraseña queda guardada en md5 y una línea
+  `scram-sha-256` **rechaza el login**. Comprobalo con `SHOW password_encryption;` antes.
+
+Aplicar (esto **no** requiere reinicio):
+```sql
+SELECT pg_reload_conf();
+SELECT line_number, type, database, user_name, address, auth_method
+  FROM pg_hba_file_rules ORDER BY line_number;   -- superusuario: verifica que quedaron cargados
+```
+
+---
+
+#### Paso 5 — Reiniciar el servicio (sólo si tocaste `wal_level` o `listen_addresses`)
+
+Es una ventana de caja cerrada: **coordinala con la sucursal.**
+
+Por interfaz: *Servicios* de Windows (`services.msc`) → buscá `postgresql-x64-16` (el nombre exacto
+puede variar) → *Reiniciar*.
+
+Por consola, como Administrador:
+```bat
+net stop postgresql-x64-16 && net start postgresql-x64-16
+```
+Para ver el nombre real del servicio:
+```bat
+sc query type= service state= all | findstr /i postgres
+```
+
+Y confirmá que tomó:
+```sql
+SELECT name, setting FROM pg_settings WHERE name IN ('wal_level','listen_addresses');
+```
+
+---
+
+#### Paso 6 — Firewall de Windows del POS
+
+Es la causa más probable de que hoy `192.168.32.32` no responda ni en 5432 ni en 1977. Como
+Administrador, ajustando el puerto al que de verdad use ese POS:
+
+```bat
+netsh advfirewall firewall add rule name="PostgreSQL ODS" dir=in action=allow protocol=TCP localport=5432 remoteip=192.168.0.249
+```
+
+`remoteip` deja entrar **sólo** a este servidor, que es lo que hace falta. Para ver si ya había una
+regla: `netsh advfirewall firewall show rule name=all | findstr /i 5432`.
+
+---
+
+#### Paso 7 — Comprobar desde el servidor de la plataforma
+
+Este paso **no se puede saltar ni hacer desde el POS**: `listen_addresses`, el firewall y `pg_hba`
+sólo se prueban conectándose de verdad desde el origen. Un `psql` corrido en el propio POS los da
+por buenos y no prueba nada.
+
+```
+node database/scripts/verificar-pos-kepler.js --host=192.168.32.32 --port=5432 --db=md_NN
+```
+
+Tiene que dar **8 OK / 0 FALTA**. Si no, cada falla dice qué archivo tocar. De control, una que ya
+funciona: `node database/scripts/verificar-pos-kepler.js --branch=02` → 8 OK.
+
+Además imprime `SELECT DISTINCT sucursal FROM md.kdm1`: **ése es el código con el que la venta de
+Madero va a entrar al ODS**, y es el dato que faltaba confirmar (§9.1).
+
+---
+
+#### Paso 8 — Recién ahí, el cableado de este lado
+
+Con el verificador en verde, sigue §9.4: réplica + suscripción, registrar la rama en
+`kepler-branches.js`, sumarla al carril del ODS, llenar `wincaja.branches`, y el corte del sell-out
+—que es la parte que hay que hacer con el candado de paridad, no a ojo.
+
