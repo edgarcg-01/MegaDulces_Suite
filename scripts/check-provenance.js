@@ -19,12 +19,14 @@
  * Un endpoint que ni siquiera pone `generated_at` no entra acá: no está afirmando nada sobre el
  * tiempo. El pecado es afirmar la mitad conveniente.
  *
- * ── POR QUÉ RATCHET Y NO "TODO O NADA" ───────────────────────────────────────────────────
- * Prender la regla en rojo sobre las 13 deudas existentes la haría inservible el primer día: nadie
- * puede arreglar 13 superficies para mergear un fix de otra cosa, así que la compuerta se desactiva
- * "temporalmente" y no vuelve. Mismo criterio que el ratchet de lint de TS.0: **la deuda existente
- * se declara y el número SÓLO PUEDE BAJAR**. Un endpoint nuevo sin procedencia sube el conteo y pone
- * el CI en rojo; arreglar uno viejo lo baja y el script te dice que muevas la línea.
+ * ── EL RATCHET LLEGÓ A CERO (2026-09-08) ─────────────────────────────────────────────────
+ * Nació como ratchet porque prender la regla en rojo sobre 13 deudas la haría inservible el primer
+ * día: nadie arregla 13 superficies para mergear un fix de otra cosa, así que la compuerta se
+ * desactiva "temporalmente" y no vuelve. Mismo criterio que el ratchet de lint de TS.0.
+ *
+ * La deuda se cerró en dos tandas (13 → 5 → 0), así que hoy es una **regla dura**: cualquier
+ * respuesta nueva que declare `generated_at` sin procedencia pone el CI en rojo. Un ratchet que se
+ * queda en su número inicial para siempre es una deuda con buena prensa; éste llegó a cero.
  *
  * ── UN GATE SIN PRUEBA NEGATIVA ES UNA INTENCIÓN ─────────────────────────────────────────
  * (regla 6 de ADR-056). Se verificó rompiéndolo a propósito: agregar una interfaz con `generated_at`
@@ -34,18 +36,14 @@ const fs = require('fs');
 const path = require('path');
 
 /**
- * Deuda medida el 2026-09-07 (13) y bajada el 2026-09-08 a **5**. **Sólo puede bajar.** Al arreglar
- * una superficie, bajá este número en el mismo commit — si no, la compuerta deja de proteger lo que
- * acabás de ganar.
+ * Deuda: **0**. Medida en 13 el 2026-09-07 y cerrada el 2026-09-08 (13 → 5 → 0), con la regla
+ * ampliada además a `type` y a las formas sin `export`.
  *
- * Las 5 que quedan y por qué no entraron en la tanda de VP.2.2:
- *   · `PromoResult` / `RoutePromoResult` — promociones por ruta; fuente sin verificar todavía.
- *   · `BriefingResponse` — el briefing de Horus compone MUCHAS fuentes; su procedencia es un
- *     compuesto, no un carril, y merece su propio item.
- *   · `OpenCajasResponse` / `StoreSnapshot` — llegan por WebSocket, no por HTTP: la frescura de un
- *     push es "cuándo se emitió", que es otro problema que el de un reporte que se consulta.
+ * **Sólo puede bajar**, y a partir de acá eso significa que la compuerta pasó de ratchet a regla
+ * dura: cualquier respuesta nueva que declare `generated_at` sin procedencia pone el CI en rojo.
+ * Ése era el objetivo del ratchet — no vivir en 13 para siempre, sino llegar a 0 y quedarse.
  */
-const BASELINE = 5;
+const BASELINE = 0;
 
 const RAIZ = path.join(__dirname, '..');
 
@@ -79,14 +77,26 @@ function archivos(dir, acc = []) {
 }
 
 /**
- * Encabezado de interfaz exportada. `[^{]*` cubre el `extends Foo` que el regex viejo (`(\w+)\s*\{`)
+ * Encabezado de una forma de respuesta: `interface X {` o `type X = {`, exportada **o no**.
+ *
+ * ── POR QUÉ TAMBIÉN `type`, Y POR QUÉ TAMBIÉN SIN `export` ───────────────────────────────
+ * La versión anterior sólo miraba `export interface`, así que la regla se esquivaba escribiendo
+ * `type` — sin mala intención: el briefing de Horus (`supervisor-agent.service.ts`) declara su
+ * respuesta como `type Briefing = { … generated_at … }` y la compuerta **nunca lo vio**. Una regla
+ * que depende de qué palabra clave eligió el autor no es una regla.
+ *
+ * Sin `export` tampoco: una forma local al archivo igual cruza el cable si es lo que devuelve el
+ * endpoint. Medido antes de cambiarlo: en todo el repo había **1** caso (`Briefing`), o sea el
+ * agujero era chico pero real, y cerrarlo cuesta un regex.
+ *
+ * `[^{]*` cubre además el `extends Foo` que el regex viejo (`(\w+)\s*\{`)
  * no contemplaba: con un `extends` en medio el encabezado **nunca calzaba**, así que la interfaz no
  * se examinaba por sí misma y su cuerpo sólo se veía si el match codicioso del vecino lo absorbía —
  * y entonces la deuda se le atribuía al vecino. Verificado: `export interface Base { … }` seguida de
  * `export interface Reporte extends Base { … generated_at … }` reportaba a **`Base`** como la
  * culpable, que no declara nada del tiempo.
  */
-const ENCABEZADO = /export\s+interface\s+(\w+)[^{]*\{/g;
+const ENCABEZADO = /(?:export\s+)?(?:interface\s+(\w+)[^{]*|type\s+(\w+)\s*=\s*)\{/g;
 
 /**
  * Devuelve el cuerpo de la interfaz **balanceando llaves**, no buscando un `}` a principio de línea.
@@ -123,7 +133,7 @@ for (const raiz of RAICES) {
     try { src = fs.readFileSync(p, 'utf8'); } catch { continue; }
     if (!AFIRMA_TIEMPO.test(src)) continue;           // atajo barato: el 99% de los archivos no aplica
     for (const m of src.matchAll(ENCABEZADO)) {
-      const nombre = m[1];
+      const nombre = m[1] || m[2]; // grupo 1 = interface · grupo 2 = type
       const cuerpo = cuerpoDe(src, m.index + m[0].length - 1);
       if (cuerpo === null || !AFIRMA_TIEMPO.test(cuerpo)) continue;
       const rel = path.relative(RAIZ, p).replace(/\\/g, '/');

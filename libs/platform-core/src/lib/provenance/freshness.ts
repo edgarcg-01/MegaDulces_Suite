@@ -180,13 +180,22 @@ export async function tableAt(trx: any, tabla: string, col = 'updated_at'): Prom
   // de las consultas del reporte.
   let at: string | null = null;
   if (existe) {
+    // ⚠️ Se restaura el valor QUE HABÍA, no `DEFAULT`. `DEFAULT` vuelve al valor de sesión y
+    // **pisaría un `SET LOCAL` que el llamador ya puso**: `route-promo.service.ts` abre su
+    // transacción con `statement_timeout = '60s'` justo para que una promo de marca × 3 canales
+    // falle claro en vez de colgar la pantalla, y `commercial-analytics` usa 45 s. Restaurar a
+    // `DEFAULT` les borraba ese tope en silencio — una medición de procedencia desarmando un guard
+    // de otro, que es exactamente la clase de daño invisible que esta fase persigue.
+    const previo = (await trx.raw('SHOW statement_timeout'))?.rows?.[0]?.statement_timeout ?? '0';
     await trx.raw('SAVEPOINT vp_freshness');
     try {
       await trx.raw(`SET LOCAL statement_timeout = '2s'`);
       at = (await trx.raw(`SELECT max(${col}) AS dato_al FROM ${tabla}`))?.rows?.[0]?.dato_al ?? null;
-      await trx.raw(`SET LOCAL statement_timeout = DEFAULT`);
+      await trx.raw(`SET LOCAL statement_timeout = ?`, [previo]);
       await trx.raw('RELEASE SAVEPOINT vp_freshness');
     } catch {
+      // El rollback revierte el `SET LOCAL` de los 2 s por sí solo (es transaccional), así que acá
+      // no hay que reponer nada: vuelve al valor que tenía el llamador.
       await trx.raw('ROLLBACK TO SAVEPOINT vp_freshness').catch(() => undefined);
       at = null; // no se pudo medir — nunca se reporta como fresco (regla 2)
     }

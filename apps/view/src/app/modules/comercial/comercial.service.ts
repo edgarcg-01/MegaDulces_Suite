@@ -1871,6 +1871,7 @@ export interface RoutePromoResult {
   total_importe: number;
   note: string;
   generated_at: string;
+  freshness: Freshness;
 }
 
 // ── RR — Conciliación de cierre de ruta ──

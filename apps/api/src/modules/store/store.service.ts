@@ -9,6 +9,7 @@ import {
 import { Knex } from 'knex';
 import { StoreGateway } from './store.gateway';
 import { LiveTicket } from './store.types';
+import { composeFreshness, evalInput, tableAt } from '@megadulces/platform-core';
 
 const TENANT = process.env.MEGA_DULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const TZ = 'America/Mexico_City';
@@ -251,8 +252,26 @@ export class StoreService {
       { tickets: 0, venta: 0 },
     );
 
+    /**
+     * [VP.2.2] Frescura del tablero en vivo. La señal es **cuándo llegó el último ticket**
+     * (`max(created_at)` = cuándo lo recibimos, no la hora de la venta), y sufre la misma
+     * ambigüedad que las cajas: "cero tickets" puede ser una tienda tranquila o un feed muerto.
+     *
+     * Tolerancia 45 min, el mismo número con el que este dominio ya juzga su feed en `feed.sospechoso`
+     * — un solo umbral para las dos superficies en vez de dos criterios que se separan.
+     *
+     * Barato a propósito: medido con EXPLAIN ANALYZE en prod, `max(created_at)` sobre
+     * `store_live_tickets` (224 MB) ejecuta en **59 ms** aun siendo Seq Scan, así que no necesita
+     * índice ni se le pone uno (ver `20260908150000_freshness_max_idx`).
+     */
+    const freshness = composeFreshness([
+      evalInput('store_live_tickets', 'Último ticket recibido',
+        await tableAt(this.knex, 'analytics.store_live_tickets', 'created_at'), 0.75),
+    ]);
+
     return {
       generated_at: new Date().toISOString(),
+      freshness,
       totals: { ...totals, avg_ticket: totals.tickets ? +(totals.venta / totals.tickets).toFixed(2) : 0 },
       by_branch: byBranch.map((b: any) => ({
         warehouse_code: b.warehouse_code, warehouse_name: b.warehouse_name,
@@ -430,8 +449,38 @@ export class StoreService {
     const minutos = alMs != null ? Math.round((NOW - alMs) / 60000) : null;
     const atrasado = !!(f.ultimo_dia && f.hoy && f.ultimo_dia < f.hoy);
 
+    /**
+     * [VP.2.2] El MISMO hecho, en el vocabulario común. `feed` (arriba) es la vista de dominio y es
+     * MEJOR que la genérica: distingue "la tienda está cerrada" de "dejamos de recibir datos", y la
+     * pantalla la usa para cambiar hasta el texto del empty-state. No se toca.
+     *
+     * Lo que faltaba es que ese hecho se pudiera leer sin conocer este dominio: `freshness` es el
+     * contrato que cualquier consumidor ya entiende (ADR-056). Se compone de los **mismos dos
+     * valores** que alimentan `feed` (`f.al` y `atrasado`), así que no pueden discrepar — si algún
+     * día lo hacen, es un bug, no una diferencia de criterio. Es la lección de las 11 copias del
+     * dedup: dos campos que dicen lo mismo se separan salvo que salgan del mismo cálculo.
+     *
+     * Los dos relojes son los dos eslabones, y el peor gana el titular:
+     *   · carga (45 min) — el mismo umbral con el que `sospechoso` ya juzga este feed.
+     *   · día de los datos — su veredicto NO sale de una tolerancia horaria sino de `atrasado`
+     *     (comparación de CALENDARIO): a la 01:00, "ayer" tiene 25 h y una tolerancia de 26 h lo
+     *     daría por fresco cuando el dato ya no es de hoy.
+     */
+    const freshness = composeFreshness([
+      evalInput('store_cash_sessions', 'Cajas (carga del importer)', f.al || null, 0.75),
+      {
+        key: 'store_business_day',
+        label: 'Día de los datos',
+        at: f.ultimo_dia ? `${f.ultimo_dia}T00:00:00Z` : null,
+        age_human: f.ultimo_dia || null,
+        status: !f.ultimo_dia ? 'unknown' : atrasado ? 'stale' : 'fresh',
+        stale: !f.ultimo_dia || atrasado,
+      },
+    ]);
+
     return {
       generated_at: new Date().toISOString(),
+      freshness,
       cajas_abiertas: open_cajas.length,
       cobrando_ahora: open_cajas.filter((c: any) => c.cobrando).length,
       // Cajas que nadie cerró al terminar el día. Se cuentan aparte: no son

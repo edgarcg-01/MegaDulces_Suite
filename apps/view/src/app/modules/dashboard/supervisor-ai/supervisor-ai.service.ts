@@ -1,4 +1,5 @@
 import { Injectable, inject } from '@angular/core';
+import type { Freshness } from '@megadulces/contracts';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
@@ -27,6 +28,8 @@ export interface BriefingResponse {
   };
   comparison?: BriefingComparison;
   source: 'agent' | 'engine';
+  /** [VP.2.2] Con qué corrida del motor se armó — un briefing vacío no distingue "nada que atender" de "el motor no corrió". */
+  freshness: Freshness;
   generated_at: string;
 }
 

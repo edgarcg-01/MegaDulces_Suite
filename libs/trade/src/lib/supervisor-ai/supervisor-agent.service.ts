@@ -12,6 +12,11 @@ import {
   TenantContextService,
   AnthropicService,
   requireTenantOf,
+  FRESHNESS_UNKNOWN,
+  Freshness,
+  composeFreshness,
+  evalInput,
+  tableAt,
 } from '@megadulces/platform-core';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -55,6 +60,7 @@ type Briefing = {
   comparison: Comparison;
   source: 'agent' | 'engine';
   generated_at: string;
+  freshness: Freshness;
 };
 
 /**
@@ -191,6 +197,35 @@ export class SupervisorAgentService {
   }
 
   /** HIQ.1 — persiste el parte del día (memoria narrativa). Best-effort. */
+  /**
+   * [VP.2.2] Con qué corrida del motor se armó el briefing. Dos eslabones, los dos de Horus: los
+   * HALLAZGOS (`supervisor_findings`) y el feature store (`execution_360`).
+   *
+   * Acá la procedencia pesa distinto que en un reporte. El briefing dice *"esto es lo que hay que
+   * atender hoy"*: si el motor no corrió anoche, la lista sigue saliendo —con los hallazgos de
+   * anteayer— y se lee como si fuera de hoy. Y el caso vacío es peor todavía, porque "Sin novedades"
+   * y "el motor está muerto" son el mismo texto.
+   *
+   * Tolerancia 26 h: el motor es nocturno, así que 24 h de edad son sanas y 26 h significan que se
+   * saltó una corrida. Es el mismo número que `CRON_JOBS` usa para los jobs nocturnos.
+   *
+   * ⚠️ El primitivo se importa de `@megadulces/platform-core`, **no** de `@megadulces/commercial`:
+   * Horus está desacoplado del motor comercial a propósito, y ese desacople fue justamente lo que
+   * obligó a mudar la lógica de frescura fuera del dominio (VP.2.2) en vez de acoplar dos libs.
+   */
+  private async briefingFreshness(): Promise<Freshness> {
+    try {
+      return composeFreshness([
+        evalInput('horus_findings', 'Hallazgos de Horus',
+          await tableAt(this.knex, 'commercial.supervisor_findings', 'created_at'), 26),
+        evalInput('horus_execution_360', 'Feature store (execution_360)',
+          await tableAt(this.knex, 'commercial.execution_360', 'computed_at'), 26),
+      ]);
+    } catch {
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
   private async persistBriefing(tenantId: string, b: Briefing): Promise<void> {
     try {
       await this.knex('commercial.briefing_history')
@@ -255,6 +290,12 @@ export class SupervisorAgentService {
           outcomes_7d: [],
         };
 
+    const freshness = await this.briefingFreshness();
+
+    // ⭐ El vacío es EL caso que necesitaba procedencia, no un caso más. "Sin novedades" tiene dos
+    // causas opuestas —no hay nada que atender, o el motor no corrió— y hasta ahora se veían igual;
+    // el propio texto lo insinuaba a mano ("Corré el cómputo si esperabas datos") sin poder decir si
+    // había que correrlo. Con la frescura, la pantalla puede distinguirlas en vez de sugerirlo.
     if (findings.length === 0 && stats.collaborators === 0) {
       return {
         headline: 'Sin novedades',
@@ -264,6 +305,7 @@ export class SupervisorAgentService {
         comparison,
         source: 'engine',
         generated_at: nowIso,
+        freshness,
       };
     }
 
@@ -282,6 +324,7 @@ export class SupervisorAgentService {
       comparison,
       source: drafted ? 'agent' : 'engine',
       generated_at: nowIso,
+      freshness,
     };
     await this.persistBriefing(tenantId, briefing);
     return briefing;
