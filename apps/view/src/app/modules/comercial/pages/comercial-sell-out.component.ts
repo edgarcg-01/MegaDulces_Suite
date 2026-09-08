@@ -76,7 +76,7 @@ const CHANNEL_OPTS = [
           </p>
           <dl class="so-about-list">
             <div><dt>Empresa</dt><dd>Marca / proveedor. Deja las filas de sus productos. Vacío = todas las empresas.</dd></div>
-            <div><dt>Ver</dt><dd><b>Por canal</b> desglosa por canal · sucursal; <b>Por vendedor</b> por vendedor (mayoreo Kepler + Wincaja, y RD/RV de Wincaja).</dd></div>
+            <div><dt>Agrupar</dt><dd><b>Englobado · sucursal</b> = una columna por sucursal y canal (Mostrador, RD, RV/Vecinal, Mayoreo). <b>Desglosado · vendedor</b> = abre Mayoreo y RV/Vecinal en cada vendedor por nombre (p.ej. la vecinal de PH en Candy y Rafael).</dd></div>
             <div><dt>Formato</dt><dd>Solo «Por canal». <b>Detalle</b> = columnas dinámicas; <b>Por plaza</b> = formato estándar plaza × tipo, en cajas, con todos los SKUs.</dd></div>
             <div><dt>Periodo</dt><dd>El rango de fechas (mes, trimestre, año o rango libre). Meses cerrados salen del consolidado nocturno; el mes en curso, en vivo.</dd></div>
             <div><dt>Canal · Sucursal / Vendedor</dt><dd>Elige qué canales y sucursales (o vendedores) suman. Solo aparecen los que tienen venta en el periodo. Vacío = todos.</dd></div>
@@ -107,8 +107,8 @@ const CHANNEL_OPTS = [
         </div>
 
         <div class="so-field">
-          <label>Ver</label>
-          <app-segmented [options]="reportModeOpts" [value]="reportMode()" (valueChange)="setReportMode($event)" ariaLabel="Modo del reporte" />
+          <label>Agrupar</label>
+          <app-segmented [options]="reportModeOpts" [value]="reportMode()" (valueChange)="setReportMode($event)" ariaLabel="Cómo agrupar el reporte" />
         </div>
 
         @if (reportMode() === 'canal') {
@@ -733,8 +733,8 @@ export class ComercialSellOutComponent {
   // RS.4 — modo del reporte + slicer jerárquico (CANAL o VENDEDOR).
   reportMode = signal<'canal' | 'vendedor'>('canal');
   readonly reportModeOpts = [
-    { label: 'Por canal', value: 'canal' },
-    { label: 'Por vendedor', value: 'vendedor' },
+    { label: 'Englobado · sucursal', value: 'canal' },
+    { label: 'Desglosado · vendedor', value: 'vendedor' },
   ];
   // RS.13 — formato de columnas: 'detalle' (dinámico) o 'plaza' (formato estándar plaza×tipo).
   layout = signal<'detalle' | 'plaza'>('detalle');
