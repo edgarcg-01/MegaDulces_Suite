@@ -6,6 +6,82 @@
 
 ---
 
+## 2026-09-08 — `[RD]` Automatizar el tablero con el que se paga la Ruta Directa, y el bug que apareció al entenderlo
+
+**Disparador:** *"analiza `INDICADORES RD 2026.xlsx`"* → *"necesito que automaticemos este proceso"* → *"iniciemos por tener una verdad absoluta con los datos… ir capa por capa"* → *"terminemos y dejemos dudas al final"* → *"aplica las migraciones"*.
+
+Un workbook de 11 hojas con el que se opera **y se paga** la Ruta Directa: 13 rutas (PH 21-28, Morelia 321/322, Canindo 501-505), 13 choferes y 3 supervisores, cada quincena.
+
+### El hallazgo que no era del Excel
+
+`wincaja.fecha_mx_date()` corría **todas** las fechas Wincaja un día hacia atrás. **100% de las filas: 21 sucursales, 542,684 documentos de 2026.**
+
+Lo causó **RS.12b** (`20260805240000`), una migración de *performance* que cambió `fecha::date` por una función IMMUTABLE para poder indexarla, y declaró en su propio comentario:
+
+> *"El contenedor ya corre en TZ MX, así que `fecha::date` (sesión) == `fecha_mx_date(fecha)` fila por fila ⇒ business_date NO cambia."*
+
+El `TimeZone` del Postgres de prod es `Etc/UTC`, y la vista se evalúa en la DB y no en el contenedor de la app. **La premisa era falsa y nadie la midió.** En la frontera de mes, $793,080 de venta de ruta caían en el mes equivocado.
+
+Tres árbitros independientes coincidieron con la fecha cruda: el workbook (el SUBTOTAL casa **98.0%** contra ella y **0.0%** contra la corrida), el día de la semana (con el bug las rutas trabajaban **domingo** —60,439 líneas— y descansaban **sábado** —105—, y un reparto no descansa en sábado) y la mecánica de Access, que guarda la fecha sin hora.
+
+### Antes / después, medido en prod tras el `REFRESH`
+
+`mv_wincaja_sales_daily`, venta por mes:
+
+| mes | antes | después | Δ |
+|---|---|---|---|
+| 2026-01 | 47,404,917.16 | 46,824,012.14 | −580,905.02 |
+| 2026-02 | 40,899,494.12 | 40,970,688.53 | +71,194.41 |
+| 2026-03 | 44,425,327.11 | 43,184,762.39 | **−1,240,564.72** |
+| 2026-04 | 43,918,028.90 | 44,387,094.84 | +469,065.94 |
+| 2026-05 | 41,961,521.15 | 41,704,137.14 | −257,384.01 |
+| 2026-06 | 41,124,679.93 | 41,779,401.82 | +654,721.89 |
+| 2026-07 | 31,630,909.52 | 31,384,781.03 | −246,128.49 |
+| 2026-08 | 24,718,596.76 | 25,127,498.44 | +408,901.68 |
+| 2026-09 | 3,393,537.48 | 4,156,976.55 | +763,439.07 |
+| **TOTAL** | **319,477,012.13** | **319,519,352.88** | **+42,340.75 (0.013%)** |
+
+**El total del año casi no se mueve: el dinero se reacomoda entre meses.** Es la firma de un corrimiento de fecha, no de una pérdida ni de un doble conteo — y es lo que hace defendible el cambio. El árbitro de negocio en la matvista pasó de `domingo 36,699 / sábado 81` a `domingo 81 / sábado 28,972`.
+
+**VP.1 se pudo re-medir por fin.** Comparaba las piernas Kepler y Wincaja en los tres cutovers con un día de desfase artificial, así que su "traslape" y su "hueco" medían el bug. Ahora: **20 OK / 0 fallas**, cero doble conteo, venta de los dos lados en los tres cortes, y rollup == vista al peso (Δ 0.00) en tres meses cerrados.
+
+### Los otros tres defectos del dato
+
+| # | Qué | Cómo quedó |
+|---|---|---|
+| 2 | `v_route_sales_lines.importe` **mezclaba neto y bruto**: Wincaja pone `valor_venta` (sin impuestos), el push pone `mart.ventas.importe` (con). Probado con 312 celdas, razón 1.0001 contra la columna VENTA del Excel. Ya afectaba dinero — `route-promo.service.ts` usa `importe` para el umbral del motor de incentivos **y** para resolver la unidad por precio | `v_rd_route_daily` deriva las dos formas y **rotula** cuál es cuál. `importe` NO se tocó: moverla cambiaría pagos sin medirlo, el mismo pecado de RS.12b |
+| 3 | **El costo histórico no es estable.** El importer reescribe las 357k líneas de ruta en cada corrida (enero incluido tiene `imported_at` de hoy) y Wincaja re-expresa el costo de ventas pasadas: el margen de un mes cerrado cambia solo cada noche | `route_cost_snapshot` append-only, sólo cuando cambia. Dos orígenes y **no se elige entre ellos** |
+| 4 | **$2.78M del Excel sin fuente diaria** | declarado, no dibujado en cero |
+
+**No era la fórmula, era el valor**: en la **ruta 27 las tres columnas casan al centavo** (141/150), o sea el Excel copia nuestras mismas expresiones. Descartados con su número: `valor_costo`, `costo_promedio`, `ultimo_costo`, `costo_existencia`, los tres despejes por impuesto, el costo de otro día (0 de 150 con ±2), un factor constante (la razón varía 0.945–1.001 con el mix) y un segundo `source_dataset`.
+
+### Once defectos del Excel, corregidos con prueba negativa cada uno
+
+El tabulador cerraba con `IF(venta<400000,"5%")` **sin rama `else`**: una venta de $400,000 pagaba **comisión cero** · las rutas 22 y 23 usaban un umbral de `169,999.99` que el resto no · la 322 se quedaba sin factor de supervisor y su chofer cobraba el **100%** · `NOMINA BANCO` tenía **seis valores** para el mismo concepto repartidos entre hojas · la ruta 28 se caía del rango del bono · `OPERACION!K5` daba **$/km = 1** porque su `SUMIF` apuntaba a la columna PERIODO de su propia hoja · `Z7` sumaba bloques rotulados con rutas **24, 25, 300 y 301** que no existen, subdeclarando el combustible **$332,000** · la matriz `%` de `RESUMEN` está barajada desde la fila 132 · su bloque `W:AA` desplazado 2 columnas deja `COSTO DE LA OPERACION = 0` en toda la hoja · y `OBJETIVO MENSUAL` pagaba **$500/ruta sobre un `"CUMPLIDO"` hardcodeado**.
+
+### Lecciones
+
+1. **Una migración de performance que afirma no cambiar un número, lo cambió.** RS.12b escribió "business_date NO cambia" y no lo midió. La regla del proyecto ya lo dice; ahora tiene su caso: *un commit que cambia un número no se cierra sin la medición del antes/después*.
+2. **Un candado puede ser circular sin que se note.** Mi primer bloque comparaba `business_date` contra `(fecha AT TIME ZONE 'UTC')::date` — que después del arreglo es la MISMA expresión, así que no podía fallar nunca. Se reemplazó por la propiedad de fondo: que la expresión **no dependa del huso de la sesión**.
+3. **Una premisa puede ser más fuerte de lo necesario y romperse sola.** El candado afirmaba "medianoche UTC" y falló en `.245`, donde la ingesta usa medianoche MX. El arreglo sirve en los dos; lo que había que afirmar era lo débil: campo date-only con offset fijo que no cruce el día UTC.
+4. **Comparar dos universos distintos da rojo sin medir nada.** El bloque de la matvista comparaba montos contra la vista, y la matvista lleva `JOIN products`/`JOIN warehouses` internos: es más chica **por construcción**. Se cambió por el mismo árbitro de negocio.
+5. **Separar la aritmética del insumo.** El motor de comisiones daba 72% end-to-end. Alimentado con el input del propio Excel da **163/163 al centavo**. Sin separar las dos mediciones, el 72% habría parecido un motor roto en vez de un dato incompleto.
+6. **Medir el reparto de un permiso antes de dejarlo.** Anclar las comisiones a `COMMERCIAL_ANALYTICS_VER` —como hizo BI.9— daba acceso a **22 roles**, entre ellos `repartidor`, `telemarketing` y once `retirado_*`. Es nómina: quedó en lista explícita de cuatro.
+7. **El árbitro no siempre es el que parece.** El total de gasto del propio Excel (`Z7`) estaba roto; el árbitro bueno era la columna cruda.
+8. **Backticks dentro de comillas dobles en shell.** Escribí la entry del CHANGELOG con `node -e "…"` y bash trató cada backtick como sustitución de comando: se comió todos los identificadores técnicos y quedaron frases sin sujeto. El script imprimió "ok". Contenido con backticks va a un archivo, nunca inline en un comando.
+
+### Estado
+
+**10 migraciones aplicadas en prod** (9 llegaron con el merge del PR #69; la última, `sales_targets_scope_route`, se aplicó acá). **REFRESH CONCURRENTLY** de `mv_wincaja_sales_daily` (62 min) y `mv_sellout_monthly` (7 min). Cargados en prod: **782 filas / $848,610.04 / 34,718.24 lts** de gasto de flota, **2,446 observaciones** de costo histórico ($35.2M) y **187 lecturas** de odómetro. `import-wincaja-routes-monthly` re-corrido.
+
+**Candados**: RD.1 8/0/0 · RD.6 34/0/0 · RD.4 16/0/0 · VP.1 20/0.
+
+⚠️ **`import-canindo-routes-monthly` no se pudo re-correr**: su fuente es la réplica local por sucursal, **purgada el 2026-09-08**. No hace falta — lee `kdm1.c9` de Kepler, que RD.1 no toca.
+
+**10 dudas abiertas** en §9 de [`FASE_RD`](FASES/FASE_RD_INDICADORES_RUTA.md). Las dos que bloquean plata cambiaron de diagnóstico al medirlas: Canindo no es un problema de decode sino de **captura en el POS** (de 6,194 documentos, **uno** usa el vendedor de ruta), y Morelia 321/322 es un `.mdb` que **dejó de copiarse el 02-jul**, exactamente donde se corta el dato.
+
+---
+
 ## 2026-09-08 — `[ETQ.1]` La etiqueta de anaquel: ocho hallazgos de diseño y el noveno que sólo se ve renderizado
 
 **Disparador:** *"analiza el diseño o funcionamiento en específico del diseño de las etiquetas en /tienda/etiquetas"* → *"arreglemos esos hallazgos"*.
