@@ -53,6 +53,24 @@ exports.up = async function (knex) {
     );
   }
 
+  // El CHECK va FUERA del `if (!hasSeq)` para que también alcance a una tabla ya
+  // creada por una corrida anterior. Encierra en la DB la regla que el service ya
+  // aplica: el folio es por SUCURSAL, y una sucursal es un código de 2 dígitos —
+  // el mismo dominio que `identity.users.warehouse_code` y que el universo de la
+  // dimensión `warehouse` en ScopeService. Sin esto un código largo entraba y
+  // Postgres contestaba `22001` (*string data right truncated*), que le llega al
+  // operador como un 500 sin explicación en vez de "esa no es una sucursal".
+  await knex.raw(`
+    DO $$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'commercial_expiry_folio_seq_wh_chk') THEN
+        ALTER TABLE commercial.expiry_folio_sequences
+          ADD CONSTRAINT commercial_expiry_folio_seq_wh_chk
+          CHECK (warehouse_code ~ '^[0-9]{2}$');
+      END IF;
+    END $$;
+  `);
+
   // ── 2. Columna folio en el renglón (= la hoja del expediente) ──
   const hasFolio = await knex.schema.withSchema('commercial').hasColumn('expiry_review_lines', 'folio');
   if (!hasFolio) {

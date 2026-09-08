@@ -670,9 +670,14 @@ export class CommercialExpiryReviewsService {
       [warehouseId, line.product_id, fedQty, userId || null],
     );
 
+    // `fefo_qty` es NOT NULL DEFAULT 0 (mig 20260810120000): "no alimentó" se
+    // escribe **0**, no `null`. Con null la reversión moría en `23502` y la
+    // corrección de una alta devolvía un 500 — cazado por el smoke, no por el
+    // build ni por el tipo (Knex acepta null contra una columna NOT NULL y la
+    // negativa la pone Postgres en runtime).
     await trx('commercial.expiry_review_lines')
       .where({ id: line.id })
-      .update({ fed_to_fefo: false, fefo_qty: null, updated_at: trx.fn.now() });
+      .update({ fed_to_fefo: false, fefo_qty: 0, updated_at: trx.fn.now() });
   }
 
   // ───── alta directa de UNA caducidad (captura de tienda) ─────
@@ -691,6 +696,22 @@ export class CommercialExpiryReviewsService {
         throw new BadRequestException('Elegí la sucursal (warehouse_id) — tu usuario no está asignado a una sola.');
       const w = await trx('commercial.warehouses').where({ id: wanted }).whereNull('deleted_at').first();
       if (!w) throw new NotFoundException('Almacén no encontrado');
+      // Sólo SUCURSALES. `commercial.warehouses` también tiene almacenes-ruta
+      // (`RUTA-*`, camiones), los de Morelia sin código Kepler (`MD-30`/`MD-32`)
+      // y basura de tests: nada de eso es un anaquel que alguien recorra, ni cabe
+      // en un expediente "por sucursal", ni puede ser la ficha de un usuario
+      // (`users.warehouse_code` valida `^[0-9]{2}$`, igual que el universo de la
+      // dimensión `warehouse` en ScopeService y que el picker de `captureContext`).
+      //
+      // Sin esta guarda, un alcance amplio podía escribir en cualquier almacén: el
+      // folio salía `CAD-EXPREV-80590231-2026-00001` y ese código de 15 caracteres
+      // se insertaba en la columna de 10 de la serie de folios → Postgres `22001`
+      // (*string data right truncated*) → **500 pelado** en la cara del operador.
+      // Cazado por el smoke, no por el build.
+      if (!/^[0-9]{2}$/.test(String(w.code || '')))
+        throw new BadRequestException(
+          `"${w.name || w.code}" no es una sucursal (código ${w.code}), y las caducidades se archivan por sucursal. Elegí una de las sucursales.`,
+        );
       return { id: w.id, code: w.code, name: w.name };
     }
 
