@@ -99,6 +99,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
 
   // Logística
   [Permission.LOGISTICS_FLEET_VER]: { label: 'Ver Flotilla', description: 'Consultar unidades, choferes y personal de logística.', category: 'Logística' },
+  [Permission.LOGISTICS_ROUTE_EXPENSES_VER]: { label: 'Ver gasto de flota', description: 'El gasto de las rutas factura por factura, con litros y $/litro. Reemplaza la hoja CONTROL DE GASTOS RD.', category: 'Logística' },
+  [Permission.LOGISTICS_ROUTE_EXPENSES_GESTIONAR]: { label: 'Capturar gasto de flota', description: 'Capturar, corregir y reclasificar el gasto de ruta (incluye los que llegaron SIN CLASIFICAR).', category: 'Logística' },
   [Permission.LOGISTICS_FLEET_GESTIONAR]: { label: 'Gestionar Flotilla', description: 'Alta y edición de unidades y personal de logística.', category: 'Logística' },
   [Permission.LOGISTICS_SHIPMENTS_VER]: { label: 'Ver Embarques', description: 'Consultar embarques y su estado.', category: 'Logística' },
   [Permission.LOGISTICS_SHIPMENTS_GESTIONAR]: { label: 'Gestionar Embarques', description: 'Crear y avanzar embarques en su máquina de estados.', category: 'Logística' },
