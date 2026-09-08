@@ -10,6 +10,11 @@
 
 ## [Unreleased]
 
+### Changed — el verificador de precios se absorbe a `apps/api`; se elimina el app standalone (CV, 2026-09-08)
+- `apps/catalogo-kp` era un **segundo backend NestJS** (con su propio `main.ts`, bootstrap, puerto, CORS `*` y `Pool` de conexión) que reimplementaba lo que `apps/api` ya provee. Se convierte en **`KpModule` dentro de `apps/api`** (`src/modules/kp/`): mismas queries (`KpService`/`SucursalesService`, portadas verbatim — git las tomó como *rename*), rutas públicas vía `@Public()`, conexión inyectando `KNEX_NEW_DB`. Hereda Helmet + Throttler + CORS → cierra de un tirón los hallazgos de rate-limit / CORS abierto / rol de conexión amplio. Endpoints iguales: `GET /api/kp/precio`, `/api/kp/precios-todos`, `/api/sucursales`.
+- **Removed:** el app `apps/catalogo-kp` completo (incluido su `salud` propio — `apps/api` ya tiene `db-health`) y el `.ps1` regenerador del verificador offline. La plantilla del kiosco se preserva en `tools/verificador-precios/`.
+- **Estándar reforzado a 0Sistemas** (comentario en PR #62): una superficie de backend nueva es un **módulo en `apps/api`**, nunca una app nueva con entrypoint propio. `tsc` verde. Quedan abiertos dos hallazgos de lógica (no de ubicación): factor de caja crudo de `c84` y resolve `sku OR barcode` ambiguo.
+
 ### Fixed — La compuerta de procedencia daba verde falso, y Análisis no pintaba la edad que ya recibía (VP.2.2, 2026-09-08)
 
 La 4ª compuerta se prendió **en rojo sola**: la deuda pasó de 13 a 17 porque las cuatro respuestas de la fase BI (Radar, tendencia, Pareto, metas) nacieron declarando `generated_at` y callando la edad del dato. El ratchet hizo su trabajo.
