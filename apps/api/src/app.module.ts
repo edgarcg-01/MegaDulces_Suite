@@ -53,15 +53,7 @@ import { CommercialCustomersModule } from '@megadulces/commercial';
 import { CommercialWarehousesModule } from '@megadulces/commercial';
 import { CommercialPricingModule } from '@megadulces/commercial';
 import { CommercialProfitabilityModule } from '@megadulces/commercial';
-// `CommercialCommissionsModule` NO existe en el repo. `1df656a7` (refactor CV)
-// dejó este import y su registro abajo, pero los archivos del módulo nunca se
-// commitearon: `git log --all` da 0 commits para ellos y `git ls-tree origin/main`
-// no los encuentra. Resultado: **`nx build api` falla en main**, o sea el CI de
-// TODO PR del repo nace rojo y ningún deploy puede pasar del build.
-//
-// Se quita la referencia al vapor para que main vuelva a compilar. Cuando el
-// módulo aterrice, se re-agrega junto con sus archivos — import y registro van
-// en el mismo commit que el código, no antes.
+import { CommercialCommissionsModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
@@ -176,7 +168,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialWarehousesModule,
       CommercialPricingModule,
       CommercialProfitabilityModule,
-      // CommercialCommissionsModule,  // ← ver la nota en el import
+      CommercialCommissionsModule,
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
