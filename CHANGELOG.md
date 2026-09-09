@@ -10,6 +10,58 @@
 
 ## [Unreleased]
 
+### Fixed — el push de las camionetas subía verde y $1.27M no llegaban a la plataforma (RD.2c, 2026-09-09)
+
+Disparador: seguir [`RUNBOOK_ALTA_CAMIONETA.md`](database/importers/kepler/route-push/RUNBOOK_ALTA_CAMIONETA.md) para el alta de las vans de Canindo. `ruta_501` acababa de dar su primer push (18:58 MX, 4,001 filas, $384,428) y las tres vans con agente —`501`, `503`, `504`— **latían verde en el runner**: `mart.ventas` con venta fresca, `ingest.route_push_heartbeat.last_ok` de hace minutos, `schtasks` en 0. Las señales de éxito del runbook estaban todas cumplidas.
+
+Y su venta **no estaba en la plataforma**: **$1,266,037** parados entre `mart.ventas` y `analytics.route_push_lines`, sin ningún error, sin ninguna alarma.
+
+**La causa: el puente calculaba su ventana incremental con un watermark GLOBAL.** `import-route-push-lines.js` arrancaba en `max(business_date)` de **todas** las rutas juntas, así que el máximo de las rutas viejas de Padre Hidalgo (`2026-09-08`) tapaba a la van nueva. Las de Canindo empezaron a pushear el **12-ago** y la ventana arrancaba el **07-sep**: sus primeros 26 días quedaban **inalcanzables para siempre**. No es un retraso que se pone al día solo — el watermark nunca vuelve atrás.
+
+**Arreglado con dos reglas, no una.** (1) Watermark **por ruta**: cada una reanuda en *su* último día cargado −1. (2) Detección de **hueco frontal**: si el runner tiene días anteriores al primero ya cargado, la ventana arranca en el piso del runner. La segunda no es teórica — `504` ya tenía historia parcial (sólo 07-sep), así que con watermark por ruta *reanudaba* y su hueco de $334k seguía afuera: **un watermark por ruta solo no alcanza**. El piso se mide con **el mismo filtro que inserta el loader** (`sku` no vacío), así que converge por construcción: se cura una vez y vuelve a incremental.
+
+**Medido después**: el hueco runner-vs-plataforma da **$0** (quedan deltas de 1–5 líneas con importe $0 = líneas de SKU vacío que el loader descarta a propósito). `analytics.sales_by_route_monthly` tomó `WIN-501/503/504`, y ago-2026 de `WIN-501` pasó de **$152,353** a **$260,874**: el branch venía subdeclarando porque el POS central había perdido esas vans.
+
+**El doble-conteo que el runbook advertía NO ocurrió** — lo verifiqué antes de cargar. La pierna Wincaja de Canindo se cortó sola el 11/12-ago (el POS migró a Kepler), así que el traslape real es **un día, una ruta**: `503` el 12-ago, push **$6** contra wincaja **$155**. Esa fila de $6 es la firma del arranque del Kepler local (idéntica en 501 el 13-ago y en 504 el 12-ago) → se deja cargada y **declarada**, no se recorta con una constante mágica. Tampoco hizo falta *retirar 50N del `c67`* del branch: los dos importers escriben la **misma llave** con `GREATEST`, no suman. ⚠️ Pero eso significa que el rollup **elige el máximo entre dos universos sin declararlo** — deuda con nombre, procedencia en `sales_by_route_monthly` (ADR-056).
+
+**Lo que esto destraba en RD**: §2.4a de la fase declaraba $1.77M de Canindo *"sin ninguna fuente diaria"* y culpaba al decode de `c67`. La pregunta del `c67` sigue **sin contestar y ya no bloquea**: el push trae la venta a nivel línea y día sin pasar por la réplica del branch. Cobertura de agosto contra las mismas celdas del Excel: **16.9% → 66.0%**, y la ruta 504 pasó de **0%** a 82.7%. Lo que **no** cierra y queda declarado: el residuo de monto del 14–17% en las tres rutas (mismo árbitro faltante que §2.3) y las rutas **502 y 505**, que llevan **29 días sin fuente diaria** porque les falta el agente — y sus laptops (`192.168.50.x`) **no son alcanzables** desde la PC de analítica (probado: ping y TCP 5432 fallan), el firewall se abrió del lado del runner.
+
+**Lecciones**, las tres en los `.md` de la carpeta del push:
+
+1. **Subir al runner no es llegar a la plataforma.** Las señales de éxito del runbook medían **un solo lado** y daban verde con la venta detenida. Ahora exige los dos, con el comando.
+2. **Editar un importer despliega a prod al instante.** El nightly levantó esta edición a las 19:22 MX y sanó él mismo las 12,210 líneas antes de que yo corriera el `--apply` — que ya sólo hizo el incremental. El antes/después hay que capturarlo **antes** de guardar el archivo.
+3. **`rowCount` de un `ON CONFLICT DO UPDATE` cuenta insertadas + actualizadas**, así que la línea `"N nuevas (M ya existían)"` imprimía **siempre** "0 ya existían". Corregida: un log que no puede decir la verdad es peor que no tenerlo.
+
+Candados contra prod: `test-newdb-rd-commissions` **34 OK / 0 fallas / 0 NO MEDIDOS** · `test-newdb-sellout-parity` **20 OK / 0 fallas**, incluido *"Canindo (50→06): hay venta de los DOS lados del corte 2026-08-15"*.
+
+### Changed — ⭐ el inventario se valúa con el costo del MISMO ERP y almacén: baja $4.47M (KE.1+KE.2, 2026-09-08)
+
+**Segunda cifra que cambia hoy.** Pedido de Edgar: *"necesitamos verdad absoluta de existencia, ventas y unidades"* · *"solo hay que enfocarnos en kepler"*.
+
+**Lo que ya era verdad y no había que tocar.** La **cantidad** de la existencia de Kepler cierra sola: la identidad `entradas − salidas = qty` cuadra en 20,681 de 22,426 (92.22%) y las 1,748 restantes son **exactamente** los saldos negativos que la vista recorta a cero por diseño — **cero sin explicar** en las seis sucursales. Dos sospechas que levanté resultaron **infundadas al medirlas**: `kdil.c4` es 0 en el 100% de las filas (el `baseline = 0` del dictamen era correcto, no un bug) y la sucursal `00`, que deriva **122,096,465** unidades fantasma, **ya estaba excluida**.
+
+**Lo que no era verdad: el valor.** Se valuaba con `catalog.products` — un costo por PRODUCTO, global, en la unidad que el catálogo tenga — cuando Kepler trae **su** costo unitario por **sucursal × SKU** (`kdik.c16`), al mismo grano que la cantidad, y nadie lo usaba para esto. Contrastados sobre 16,391 filas: `cost_base / c16` da mediana **1.0000** (pega ±2% en 72.46%) y `cost_with_tax / c16` da **1.0800** — o sea `cost_base` **es** el costo de Kepler, y la pantalla publicaba **con impuesto**.
+
+Con la mediana en 1.0000 exacto el agregado difería 13.2%: la discrepancia está **concentrada**, y el veredicto la parte en dos causas separables.
+
+| veredicto | filas | publicado | arbitrado | brecha |
+|---|---|---|---|---|
+| **confirmado** | 11,917 | $31,180,433 | $28,391,895 | **$2,788,539** ← el impuesto (×1.0982) |
+| precio_movido | 4,236 | $8,821,420 | $8,012,902 | $808,518 |
+| **contradicho_por_factor** | 273 | $2,674,960 | $649,558 | **$2,025,402** ← el factor de caja |
+| `sin_testigo` | 26 | $16,316 | **NULL** | — |
+
+Las razones de esas 273 son **16.2 · 21.6 · 20.0 · 14.0 · 32.0 · 31.4 · 10.8 · 3.3** — factores, no precios. Y los nombres cierran el caso: `ROLLO GUAYABA CHICO GRANEL` · `CHOC HERSHEY BARRA GRANEL 14KG` · `TURIN CONF SEMIAMARGO 16KG` · `ALTEÑO CAR SURTIDO GRANEL / 5KG`. `cost_base` viene por **bulto**; `c16` por pieza o kilo. Es **ADR-051** y **ADR-055** medidos por primera vez sobre la valuación del inventario, con el propio costo de Kepler como árbitro.
+
+**Antes → después** (consulta real del service, prod): `kepler_ods` **$39,980,353 → $35,510,326** (−$4,470,027, −11.2%) · `wincaja` sin cambio · **TOTAL $66,625,522 → $62,155,495 (−6.71%)**. 1.0 s: el join extra no rompió el presupuesto de la consulta.
+
+- **`analytics.v_erp_stock_truth`** (mig `20260908180000`, batch 344) — el veredicto por fila. **No elige** el costo bueno: devuelve los dos, la razón y el veredicto. `valor_arbitrado` es NULL sin testigo, nunca un relleno, y las **dos ausencias** son etiquetas distintas (`sin_testigo` ≠ `sin_costo_catalogo`).
+- **`analytics.v_kepler_unit_cost`** (mig `20260908190000`, batch 345) — el primitivo en **un solo lugar**: 21,801 filas, con el **anti-réplica** que `kdik` exige (3,667 de 31,084 filas traen el costo de OTRA sucursal; sin el filtro el valor arbitrado se mueve $864,270 y 592 filas se caen de `confirmado`). Lo leen la vista del veredicto **y** la pantalla — un primitivo con dos implementaciones es uno que va a divergir (ADR-056).
+- **Wincaja no cambia**, por decisión explícita. Sus 6,380 celdas siguen con el costo del catálogo y eso **no se calla**: `celdas_sin_costo_erp` en los totales declara cuántas se valuaron con el catálogo en vez del ERP. ⚠️ **Pendiente**: la pantalla todavía no lo **muestra** — declararlo en el response no es declararlo al usuario (la falla de VP.0.1, una capa arriba).
+- **`U-D-8` no tiene árbitro posible, y el límite es de la fuente — con la hipótesis obvia REFUTADA.** Medido: `c62` **y** `c63` están vacíos en el **98.81%** de sus renglones, contra 99.99% poblados en el ticket. Kepler no escribe costo en telemarketing. La sustitución obvia era prestarle otro precio a la cantidad (`c12` contra `kdik.c16`), y sobre U-D-8 se veía perfecta: 99.85% con testigo, mediana **1.1945**, **98.90%** en banda de margen y **cero** renglones con la firma del peldano equivocado. **No vale nada:** calibrada contra el conjunto que el costo ya juzgó, en los 94 renglones `contradicho` de U-D-10 el test dice "todo bien" igual de fuerte (mediana 1.2114, 98% en banda, cero firmas) que en los 60,107 `confirmado` (1.3001, 99%). **No discrimina — es un espejo, no un testigo**, y por eso NO se agregó. `U-D-8` sigue en `sin_costo`: ahí la unidad queda *declarada* por el renglón, no *arbitrada*, y eso se dice.
+- **Cuatro errores propios, todos cazados por un candado y ninguno por una pantalla:** (1) un `?` en un `raw` de knex corrompió un regex **en silencio** → la vista decía `sin_testigo` en 16,453 filas, que se lee igual que *"Kepler no tiene costo"* (el repo ya tenía anotado que un `?` da 42P18; esta variante es peor porque **no falla**); (2) la columna del ERP es `source='kepler_ods'`, no `'kepler'` — eso es `unit_source`; (3) una aserción mía fijaba una cifra **viva** al entero (11,917) y falló con 11,918 — no era la extracción, con las dos definiciones lado a lado hay **cero filas con veredicto distinto**: era el shipper del ODS, y ahora es una banda del 1%; (4) el candado afirmaba sobre el **texto** del SQL y se puso rojo solo al extraer el primitivo — ahora pregunta al **grafo de dependencias** de Postgres, que sobrevive a que alguien meta otra vista en medio. Más la **quinta** vez con los backticks en un comentario SQL rompiendo el build de api.
+- Verificado: `test-newdb-stock-truth` **21/21** (materializa una vez: 22,426 filas en 0.8 s; seis derivaciones lo mandaban a `statement timeout`) · `test-newdb-existencia` **23/23 sin regresión** · `nx build api` verde.
+
 ### Fixed — Etiquetera (`/tienda/etiquetas`): nueve hallazgos de la revisión del diseño, el noveno medido en Chrome (2026-09-08)
 
 Una revisión del diseño y funcionamiento de la etiqueta de anaquel (82×35 mm) encontró ocho huecos que los 28 candados existentes no cubrían; al escribir el candado del noveno —el primero que mira la etiqueta **renderizada**, no el código— apareció un defecto real en el papel.

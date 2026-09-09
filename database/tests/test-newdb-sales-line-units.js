@@ -22,11 +22,40 @@
  *
  *   DATABASE_URL_NEW=… node database/tests/test-newdb-sales-line-units.js
  */
+/* ── ⛔ `U-D-8` NO SE PUEDE ARBITRAR, y la hipótesis obvia quedó REFUTADA (2026-09-08) ────────
+ *
+ * `U-D-8` (Factura Telemarketing) pesa $14.3M / 90 d y cae en `certeza = 'sin_costo'` en el
+ * **98.8%** de sus renglones. Medido: Kepler **no escribe el costo ahí** — `c62` *y* `c63` están
+ * vacíos en el **98.81%** de sus renglones, contra **99.99%** poblados en `U-D-10` y 99.62% en
+ * `U-D-12`. No es nuestro hueco: los 1,965 SKUs de U-D-8 **sí** tienen escalera pagada. La fuente
+ * simplemente no trae con qué arbitrar.
+ *
+ * La sustitución obvia era prestarle otro precio a la cantidad: comparar el precio base del
+ * renglón (`c12`) contra el costo unitario propio de Kepler (`analytics.v_kepler_unit_cost`, o sea
+ * `kdik.c16`). Sobre U-D-8 se veía **perfecto**: 15,591 renglones con testigo (99.85%), mediana
+ * `c12/c16` = **1.1945**, **98.90%** dentro de una banda de margen 1.0–3.0 y **CERO** renglones con
+ * la firma del peldaño equivocado.
+ *
+ * ⛔ Y no vale nada. Calibrado contra el conjunto que el COSTO ya juzgó (7 d, prod):
+ *
+ *     U-D-10  confirmado    n=60,107   mediana 1.3001   en banda 99.32%   razon=factor 0 (0.00%)
+ *     U-D-10  contradicho   n=    94   mediana 1.2114   en banda 97.87%   razon=factor 0 (0.00%)
+ *
+ * En los 94 renglones donde el costo dice que el factor **está contradicho**, este test dice "todo
+ * bien" con la misma fuerza que en los 60,107 confirmados. **No discrimina.** Es un espejo, no un
+ * testigo — y un testigo que nunca contradice es exactamente lo que ADR-056 prohíbe publicar como
+ * confirmación. Por eso NO se agregó a la vista y `U-D-8` sigue en `sin_costo`: la unidad ahí queda
+ * **declarada** por el renglón, no **arbitrada**, y eso se dice en vez de disimularse.
+ *
+ * ⚠️ Si alguien vuelve a proponerlo: la prueba que hay que correr NO es sobre U-D-8 (donde no hay
+ * con qué comparar) sino sobre el `contradicho` de U-D-10, que es el único conjunto con veredicto
+ * independiente. Y tiene que salir DISTINTO del `confirmado`, o el testigo no sirve.
+ */
 const { Client } = require('pg');
 
 const T = '00000000-0000-0000-0000-00000000d01c';
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 
 let ok = 0; let fail = 0; let skip = 0;
 const check = (label, cond, detail = '') => {
