@@ -1,4 +1,4 @@
-import { formatExpiryEcho, parseExpiryShort } from './expiry-short';
+import { formatExpiryEcho, parseExpiryShort, maskExpiryMx, digitsOf } from './expiry-short';
 
 describe('parseExpiryShort', () => {
   it('4 dígitos MMAA → último día de ese mes', () => {
@@ -85,5 +85,49 @@ describe('parseExpiryShort — año completo (8 dígitos)', () => {
   it('no confunde largos: 5 o 7 dígitos siguen siendo incompletos', () => {
     expect(parseExpiryShort('1503202')).toBeNull();
     expect(parseExpiryShort('15032')).toBeNull();
+  });
+
+  describe('maskExpiryMx — la diagonal la pone el campo (formato MX)', () => {
+    it('pone la diagonal en el 3er dígito, que es donde arranca el mes', () => {
+      expect(maskExpiryMx('1')).toBe('1');
+      expect(maskExpiryMx('15')).toBe('15');
+      expect(maskExpiryMx('150')).toBe('15/0');
+      expect(maskExpiryMx('1503')).toBe('15/03');
+    });
+
+    it('completa DD/MM/AAAA', () => {
+      expect(maskExpiryMx('150320')).toBe('15/03/20');
+      expect(maskExpiryMx('15032027')).toBe('15/03/2027');
+    });
+
+    it('NO deja diagonal colgando: borrar un dígito borra un dígito', () => {
+      // Con "15/" al final, Backspace se come el separador y la máscara lo
+      // repone: el operador borra dos veces para corregir el día.
+      expect(maskExpiryMx('15')).not.toContain('/');
+      expect(maskExpiryMx('1503')).not.toMatch(/\/$/);
+    });
+
+    it('ignora lo que el operador teclee de más (diagonales, letras, 9 dígitos)', () => {
+      expect(maskExpiryMx('15/03/2027')).toBe('15/03/2027');
+      expect(maskExpiryMx('15a03b2027')).toBe('15/03/2027');
+      expect(maskExpiryMx('150320271')).toBe('15/03/2027');
+    });
+
+    it('tolera vacío y null (viene de un campo de captura)', () => {
+      expect(maskExpiryMx('')).toBe('');
+      expect(maskExpiryMx(null)).toBe('');
+      expect(maskExpiryMx(undefined)).toBe('');
+    });
+
+    it('dibuja pero NO valida: el 31 de febrero se ve y el parser lo rechaza', () => {
+      expect(maskExpiryMx('31022027')).toBe('31/02/2027');
+      expect(parseExpiryShort(digitsOf('31/02/2027'))).toBeNull();
+    });
+
+    it('lo enmascarado y lo parseado leen los MISMOS dígitos', () => {
+      expect(parseExpiryShort(digitsOf(maskExpiryMx('15032027')))).toBe('2027-03-15');
+      // Y el atajo del empaque sin día sigue vivo: 4 dígitos = mes y año.
+      expect(parseExpiryShort(digitsOf(maskExpiryMx('0327')))).toBe('2027-03-31');
+    });
   });
 });
