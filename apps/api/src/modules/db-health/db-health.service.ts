@@ -259,6 +259,26 @@ const APP_SOURCES: SourceCfg[] = [
           FROM wincaja.v_sales_lines WHERE business_date BETWEEN CURRENT_DATE - 30 AND CURRENT_DATE`,
     warnH: 48, critH: 96, cadence: 'diario (feed on-prem Wincaja → prod)',
   },
+  // (VP/ADR-056, deuda D) Procedencia de venta-ruta: el gold `sales_by_route_monthly` lo escriben
+  // DOS universos en la MISMA llave (`WIN-50N`: push del runner .249 + branch de la réplica md_06)
+  // con un `GREATEST` por métrica e independiente. Hoy push gana siempre (branch es subconjunto
+  // degradado), pero si el push de una van se atora branch puede ganar UNA métrica y DEGRADAR la
+  // fila en silencio — el máximo tapa el swap. `reconcile-route-provenance.js` (nightly, on-prem)
+  // declara ambos universos en `route_monthly_provenance`; acá disparamos si `stall` (branch>push en
+  // alguna métrica = push atorado) forzando la edad, o si el reconciler dejó de correr (frescura).
+  {
+    key: 'route_provenance', label: 'Procedencia venta-ruta (push vs branch)', table: 'analytics.route_monthly_provenance', tsCandidates: [],
+    sql: `SELECT CASE WHEN bool_or(stall) THEN now() - interval '999 hours' ELSE max(reconciled_at) END AS last_update,
+                 CASE WHEN bool_or(stall)
+                        THEN 'PUSH ATORADO: branch gana una métrica en ' || count(*) FILTER (WHERE stall)::text ||
+                             ' llave(s) — la venta-ruta publicada pudo degradarse'
+                        ELSE 'sin swap · ' || count(*)::text || ' llaves · máx descartado por GREATEST $' ||
+                             coalesce(to_char(max(discarded_revenue),'FM999,999,990'),'0') || ' · reconciliado ' ||
+                             coalesce(to_char(max(reconciled_at) AT TIME ZONE 'America/Mexico_City','DD/MM HH24:MI'),'—') END AS note_extra
+            FROM analytics.route_monthly_provenance
+           WHERE month >= (now() AT TIME ZONE 'America/Mexico_City')::date - 92`,
+    warnH: 30, critH: 50, cadence: 'nightly (reconcile-route-provenance on-prem)',
+  },
   // Venta consolidada (Kepler + Wincaja) por FECHA de venta — que el dato avance día a día.
   {
     key: 'sales_daily_date', label: 'Ventas — último día con dato', table: 'analytics.sales_daily', tsCandidates: [],

@@ -141,6 +141,7 @@ const STEPS = {
     path.join(K, 'import-route-push-lines.js'), // RR — line-level del push (.249) → route_push_lines (drill-down del reporte; incremental)
     path.join(K, 'import-kepler-vecinal-routes.js'), // RR — rutas VECINALES de Kepler (md_01, kdm1.c12=1V0NN) separadas de mostrador → WIN-<code> + route_push_lines
     path.join(K, 'import-canindo-routes-monthly.js'), // RR — rutas de Canindo desde Kepler '06' (c67=500N → WIN-50N); reemplaza el feed Wincaja de '50', mismo namespace → serie continua
+    [path.join(K, 'reconcile-route-provenance.js'), '--apply'], // VP/ADR-056 (deuda D) — DECLARA push vs branch en la llave que ambos escriben (GREATEST ciego); tras push+canindo. Sólo metadata → route_monthly_provenance; el sensor route_provenance dispara si branch gana (push atorado)
     path.join(K, 'repoint-catalog-presence.js'), // catálogo — INSERTA productos nuevos + REACTIVA borrados-vivos desde KP_CONCENTRADA (el snapshot Mega_Dulces se atrasa). ANTES de names/prices para que existan al repuntarlos.
     path.join(K, 'repoint-catalog-names.js'), // catálogo — repoint UPDATE-only de nombres de claves REUSADAS desde KP_CONCENTRADA (catalogo_completo externo se atrasa)
     // catálogo — RELLENO de precio base + recálculo de is_promo. Degradado a --gap-fill-only 2026-08-24:
