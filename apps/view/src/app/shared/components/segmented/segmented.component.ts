@@ -41,10 +41,25 @@ export interface SegOption { label: string; value: string; }
     </div>
   `,
   styles: [`
-    .seg { display:inline-flex; align-items:stretch; background:var(--layout-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px); padding:2px; gap:2px; }
+    /* flex-wrap + max-width:100%: las etiquetas no se cortan, asi que en un
+       telefono tres opciones se salian del contenedor. Envolviendo, el track se
+       parte en dos renglones y el control nunca es mas ancho que su padre. */
+    .seg { display:inline-flex; align-items:stretch; flex-wrap:wrap; max-width:100%; background:var(--layout-bg); border:1px solid var(--border-color); border-radius:var(--r-sm,8px); padding:2px; gap:2px; }
     .seg-btn { border:0; background:transparent; padding:.4rem .7rem; font-size:var(--fs-xs,.8rem); font-weight:600; color:var(--text-muted); cursor:pointer; border-radius:6px; white-space:nowrap; transition:color 120ms var(--ease-standard), background 120ms var(--ease-standard); }
     .seg-btn:hover { color:var(--text-main); }
     .seg-btn.on { background:var(--card-bg); color:var(--text-main); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+
+    /* Touch: 31px de alto es la mitad del minimo de Fitts (DESIGN §11). En el
+       arqueo estas pestanas eligen si el corte es cierre o relevo — errarle con
+       el pulgar cambia QUE se esta sellando.
+
+       Solo el ALTO. Estirarlas a lo ancho tambien se veia bien en el arqueo,
+       pero este control lo usan 14 pantallas mas y, en un contenedor de flujo,
+       pasar de inline-flex a flex les da renglon propio: eso lo decide cada
+       pagina desde su contenedor, no el control. */
+    @media (pointer: coarse) {
+      .seg-btn { min-height:var(--tap-min, 44px); padding:.55rem .8rem; }
+    }
   `],
 })
 export class SegmentedComponent {
