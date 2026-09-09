@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Knex } from 'knex';
 import * as fs from 'fs';
 import * as path from 'path';
-import { KNEX_CONNECTION, TenantContextService, toMxDateKey } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, TenantContextService, toMxDateKey, requireTenantOf } from '@megadulces/platform-core';
 import { PdfService } from './pdf.service';
 import { ReportsService } from './reports.service';
 import { GeneralReportFilterDto, KpiRangeDto, FurnitureTargetDto } from './dto/reports-filter.dto';
@@ -110,7 +110,10 @@ export class GeneralReportService {
   }
 
   private async buildReportData(filters: GeneralReportFilterDto, user: any): Promise<GeneralReportData> {
-    const tenantId: string | undefined = user?.tenant_id || this.tenantContext?.get()?.tenantId;
+    // Fail-CLOSED (VP/ADR-056, último straggler del refactor requireTenantOf): el dato del reporte
+    // ya se scopea en reportsService.getFilteredData (que lanza si falta tenant); acá lo hacemos
+    // explícito para que la resolución de tenant sea uniformemente fail-closed y greppable.
+    const tenantId = requireTenantOf(user, this.tenantContext);
     const tenant = await this.loadTenant(tenantId);
 
     const sectionsList = filters.sections && filters.sections.length > 0
