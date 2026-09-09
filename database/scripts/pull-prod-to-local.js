@@ -44,6 +44,9 @@
  */
 
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
+const { spawnSync, execFileSync } = require('child_process');
 const { Client } = require('pg');
 
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
@@ -301,6 +304,493 @@ function salir(pass, fail) {
   process.exit(fail ? 1 : 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// seed — la siembra
+//
+// ⚠️ NO dumpea prod. Restaura el RESPALDO NOCTURNO que ya existe.
+//
+// El plan original decía "pg_dump de prod partido en dos pases, core y bulk".
+// Dos mediciones lo tiraron abajo:
+//
+//  1. **El grafo de dependencias es circular entre los dos pases.** Medido sobre
+//     prod: `md` (225 vistas) y `catalog.products_active` dependen de
+//     `kepler_ods`; pero `analytics` (43 vistas) depende de `commercial`,
+//     `catalog`, `finance` y `logistics`, y `wincaja` (4 vistas) de `catalog`.
+//     Cualquier split por schema con `--exit-on-error` revienta en las dos
+//     direcciones. Un solo dump resuelve el orden solo, porque pg_dump ordena.
+//
+//  2. **El respaldo nocturno ya dumpea prod entero, todos los días.** Desde
+//     REP.0.0 produce un `-Fc` completo (601 tablas, ~2 GB, 68 min). Volver a
+//     dumpear prod para el espejo sería pagar dos veces el mismo snapshot largo
+//     sobre la misma base — y el snapshot es justo lo que hay que cuidar,
+//     porque fija el horizonte de xid y le frena el vacuum a prod.
+//
+// Así que el espejo se cuelga del respaldo: **prod se lee una vez por día, para
+// respaldar, y el espejo reusa esa misma foto.** Carga adicional sobre prod:
+// cero. Y de yapa, el respaldo pasa a tener un consumidor que lo ejercita todos
+// los días — un respaldo que nadie restaura nunca es una hipótesis.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BACKUP_DIR = path.join(process.env.USERPROFILE || process.env.HOME || '.', 'backups', 'trade_marketing');
+
+/** El `.dump` más reciente del directorio de respaldos. */
+function dumpMasReciente(dir) {
+  if (!fs.existsSync(dir)) return null;
+  const f = fs.readdirSync(dir)
+    .filter((n) => n.endsWith('.dump'))
+    .map((n) => ({ n, p: path.join(dir, n), t: fs.statSync(path.join(dir, n)).mtimeMs }))
+    .sort((a, b) => b.t - a.t)[0];
+  return f || null;
+}
+
+function binPg(nombre) {
+  const cands = [
+    `C:\\Program Files\\PostgreSQL\\18\\bin\\${nombre}.exe`,
+    `C:\\Program Files\\PostgreSQL\\17\\bin\\${nombre}.exe`,
+  ];
+  const hit = cands.find((p) => fs.existsSync(p));
+  if (!hit) throw new Error(`No encuentro ${nombre}. Instalá las client tools de PostgreSQL 18.`);
+  return hit;
+}
+
+/** Parte la URL en args sueltos: la credencial va por PGPASSWORD, no en la línea de comandos. */
+function partirUrl(url) {
+  const u = new URL(url);
+  return {
+    args: ['--host', u.hostname, '--port', u.port || '5432',
+      '--username', decodeURIComponent(u.username), '--dbname', decodeURIComponent(u.pathname).replace(/^\//, '')],
+    env: { PGPASSWORD: decodeURIComponent(u.password || '') },
+    donde: `${u.hostname}/${decodeURIComponent(u.pathname).replace(/^\//, '')}`,
+  };
+}
+
+async function seed(opts) {
+  const { target } = resolverUrls();
+  if (!target) { console.error('\nFalta MIRROR_TARGET_URL.\n'); process.exit(2); }
+  guard.assertSafeTarget('seed[destino]', { url: target });
+
+  const dump = opts.fromDump
+    ? { p: path.resolve(opts.fromDump), n: path.basename(opts.fromDump) }
+    : dumpMasReciente(BACKUP_DIR);
+  if (!dump || !fs.existsSync(dump.p)) {
+    console.error(`\nNo hay respaldo que restaurar en ${BACKUP_DIR}.`);
+    console.error('Corré primero: powershell -File scripts\\backup-db.ps1\n');
+    process.exit(2);
+  }
+  const st = fs.statSync(dump.p);
+  const horas = ((Date.now() - st.mtimeMs) / 3600000).toFixed(1);
+  console.log(`\nSiembra desde respaldo\n  archivo : ${dump.n}`);
+  console.log(`  tamaño  : ${(st.size / 1048576).toFixed(0)} MB`);
+  console.log(`  edad    : ${horas} h`);
+
+  const pgRestore = binPg('pg_restore');
+
+  // 1. El TOC, filtrado. Se sacan las 10 `MATERIALIZED VIEW DATA`: si el REFRESH
+  //    corre DENTRO de pg_restore va serializado y, si uno falla, `--exit-on-error`
+  //    tira abajo una restauración de una hora. Refrescándolas aparte se reporta
+  //    una por una y un fallo no cuesta el trabajo entero.
+  const toc = execFileSync(pgRestore, ['-l', dump.p], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  const lineas = toc.split(/\r?\n/);
+  const fuera = lineas.filter((l) => /MATERIALIZED VIEW DATA/.test(l));
+  const lista = lineas.filter((l) => !/MATERIALIZED VIEW DATA/.test(l)).join('\n');
+  const listFile = path.join(os.tmpdir(), `mirror-toc-${Date.now()}.list`);
+  fs.writeFileSync(listFile, lista);
+  console.log(`  TOC     : ${lineas.filter((l) => /^\d+;/.test(l)).length} entradas, ${fuera.length} matviews apartadas para refrescar aparte`);
+
+  // 2. Restaurar. `--exit-on-error` a propósito: reemplaza el `|| true` de
+  //    sync-from-remote.js, que se traga el resultado entero del restore.
+  const t = partirUrl(target);
+  console.log(`  destino : ${t.donde}\n\nrestaurando (esto tarda; --jobs=${opts.jobs})…`);
+  const t0 = Date.now();
+  const r = spawnSync(pgRestore, [
+    ...t.args, '--jobs', String(opts.jobs), '--exit-on-error',
+    '--no-owner', '--no-privileges', '--use-list', listFile, dump.p,
+  ], { encoding: 'utf8', env: { ...process.env, ...t.env }, maxBuffer: 256 * 1024 * 1024 });
+
+  const mins = ((Date.now() - t0) / 60000).toFixed(1);
+  try { fs.unlinkSync(listFile); } catch { /* nada */ }
+
+  if (r.status !== 0) {
+    console.error(`\nFALLÓ el restore (exit ${r.status}) después de ${mins} min.`);
+    console.error((r.stderr || '').split(/\r?\n/).slice(0, 25).join('\n'));
+    process.exit(1);
+  }
+  console.log(`\nrestore OK en ${mins} min.`);
+  if (r.stderr && r.stderr.trim()) {
+    const w = r.stderr.split(/\r?\n/).filter(Boolean);
+    console.log(`  (${w.length} líneas en stderr; las primeras 5)`);
+    w.slice(0, 5).forEach((l) => console.log('   ', l.slice(0, 150)));
+  }
+
+  // 3. ANALYZE. `pg_restore` NO lo corre, y sin estadísticas el planner improvisa.
+  //    Medido tras la primera siembra: **281 tablas sin una sola fila en pg_stats**.
+  //    No es sólo lentitud — una réplica sin estadísticas da planes distintos a los
+  //    de prod, así que cualquier trabajo de performance hecho encima mide otra cosa.
+  console.log('\nANALYZE (pg_restore no lo corre; sin esto el planner improvisa)…');
+  const ta = Date.now();
+  const an = new Client({ connectionString: target, connectionTimeoutMillis: 20000, statement_timeout: 0 });
+  await an.connect();
+  await an.query('ANALYZE');
+  const sin = Number((await an.query(`select count(*)::int n from pg_class c
+     join pg_namespace n on n.oid=c.relnamespace
+     left join pg_stats s on s.schemaname=n.nspname and s.tablename=c.relname
+    where c.relkind='r' and n.nspname not in ('pg_catalog','information_schema') and s.tablename is null`)).rows[0].n);
+  await an.end();
+  console.log(`  ANALYZE en ${((Date.now() - ta) / 60000).toFixed(1)} min · tablas sin estadísticas: ${sin} (las vacías no tienen, y está bien)`);
+
+  // 4. Las matviews, ACÁ y no después.
+  //
+  //    Primera corrida: se dejaron para "más tarde" y la migración
+  //    `20260909170000_sellout_dedup_madero_07.js` falló con
+  //    «la vista materializada mv_kepler_sales_daily no ha sido poblada».
+  //    Las migraciones LEEN matviews, así que refrescarlas es parte de la siembra,
+  //    no un paso opcional que uno se acuerda de correr.
+  await refreshMatviews(target);
+
+  console.log('\nSigue: `migrate` (drift + ledger fantasma) y después `grants`.');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// refresh-mv — las matviews que `seed` apartó del TOC
+//
+// `pg_dump` NUNCA copia el contenido de una matview: emite el CREATE y una
+// entrada `MATERIALIZED VIEW DATA` que corre un REFRESH al restaurar. `seed` la
+// saca del TOC porque dentro de `pg_restore` va serializada y, si una falla,
+// `--exit-on-error` tira abajo una restauración de una hora.
+//
+// Acá se refrescan una por una, con su tiempo, y **una que falla se declara**
+// en vez de dejar la matview VÁLIDA Y VACÍA — que es el peor resultado posible,
+// porque vacío se lee igual que "no hay datos" (GOTCHAS §32).
+//
+// El orden se resuelve solo: se reintenta mientras haya progreso. Una matview
+// que depende de otra falla en la primera vuelta y sale en la segunda; si dos
+// vueltas seguidas no arreglan nada, lo que queda se reporta.
+// ─────────────────────────────────────────────────────────────────────────────
+async function refreshMatviews(target) {
+  const c = new Client({ connectionString: target, connectionTimeoutMillis: 20000, statement_timeout: 0 });
+  await c.connect();
+  let pend = (await c.query(`select n.nspname||'.'||c.relname mv, c.relispopulated pob
+     from pg_class c join pg_namespace n on n.oid=c.relnamespace where c.relkind='m' order by 1`)).rows;
+  console.log(`\nmatviews: ${pend.length} (${pend.filter((r) => r.pob).length} ya pobladas)`);
+  pend = pend.filter((r) => !r.pob).map((r) => r.mv);
+
+  const hechas = []; const fallidas = [];
+  let vuelta = 0;
+  while (pend.length && vuelta < 4) {
+    vuelta++;
+    const quedan = [];
+    for (const mv of pend) {
+      const t0 = Date.now();
+      try {
+        await c.query(`REFRESH MATERIALIZED VIEW ${mv}`);
+        const s = ((Date.now() - t0) / 1000).toFixed(1);
+        const n = Number((await c.query(`select count(*)::bigint n from ${mv}`)).rows[0].n);
+        console.log(`  ✓ ${mv.padEnd(42)} ${s}s  ${n.toLocaleString('es-MX')} filas`);
+        hechas.push(mv);
+      } catch (e) {
+        quedan.push(mv);
+        if (vuelta >= 2) fallidas.push({ mv, err: `${e.code} ${e.message.slice(0, 90)}` });
+      }
+    }
+    if (quedan.length === pend.length) break;   // sin progreso: no es un tema de orden
+    pend = quedan;
+  }
+  for (const f of [...new Map(fallidas.map((x) => [x.mv, x])).values()]) {
+    if (!hechas.includes(f.mv)) console.log(`  ✗ ${f.mv} — ${f.err}`);
+  }
+  const rotas = pend.filter((mv) => !hechas.includes(mv));
+  console.log(`\n  refrescadas: ${hechas.length} · sin poblar: ${rotas.length}`);
+  if (rotas.length) {
+    console.log('  ⚠ Estas quedan VÁLIDAS Y VACÍAS. Vacío se lee igual que "no hay datos":');
+    rotas.forEach((mv) => console.log(`     · ${mv}`));
+  }
+  await c.end();
+  return { hechas: hechas.length, rotas };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// migrate — el drift, el ledger fantasma, y recién después knex
+//
+// El dump trae el ledger de PROD (619 filas al medirlo), y el disco tiene 636
+// archivos. Correr `migrate:latest` a ciegas contra eso tiene tres formas de
+// salir mal, y las tres ya pasaron en este repo:
+//
+//   §29  Hay DOS ledgers. `identity.knex_migrations` existe además de
+//        `public.knex_migrations`, e `identity` va ANTES que `public` en el
+//        search_path — así que un runner sin `schemaName` lee y ESCRIBE el
+//        equivocado. En prod llegó a tener 4 filas, una de ellas una migración
+//        cuyo `up()` arranca con DROP MATERIALIZED VIEW ... CASCADE.
+//   §3   Una fila del ledger cuyo archivo no está en tu rama hace que knex
+//        aborte entero con "the migration directory is corrupt".
+//        `disableMigrationsListValidation` lo destraba, pero entonces las
+//        huérfanas se vuelven invisibles: se listan por nombre.
+//   VP.1 "La migración corrió" no es "el objeto existe".
+//
+// Y un cuarto, gratis: con el ledger de prod acá, el espejo es el detector de
+// fantasmas más barato que hay — lee los dos ledgers de prod todas las noches
+// sin costo. Si el fantasma CRECIÓ, hay un runner mal configurado en prod ahora
+// mismo, y eso se reporta como HALLAZGO, no como un arreglo local.
+// ─────────────────────────────────────────────────────────────────────────────
+const DIR_MIG = path.resolve(__dirname, '../migrations-newdb');
+
+async function migrate(opts) {
+  const { target } = resolverUrls();
+  if (!target) { console.error('\nFalta MIRROR_TARGET_URL.\n'); process.exit(2); }
+  guard.assertSafeTarget('migrate[destino]', { url: target });
+
+  const c = new Client({ connectionString: target, connectionTimeoutMillis: 20000 });
+  await c.connect();
+
+  const enDisco = fs.readdirSync(DIR_MIG).filter((f) => f.endsWith('.js'));
+  const aplicadas = (await c.query('select name from public.knex_migrations order by name')).rows.map((r) => r.name);
+  const setDisco = new Set(enDisco);
+  const setApl = new Set(aplicadas);
+  const pendientes = enDisco.filter((f) => !setApl.has(f)).sort();
+  const huerfanas = aplicadas.filter((n) => !setDisco.has(n));
+
+  // El fantasma. Se DETECTA siempre, se repara sólo local.
+  //
+  // Se distinguen DOS estados que no son lo mismo, y colapsarlos sería el mismo
+  // error que esta fase persigue en otros lados: "la tabla no existe" (el
+  // detector no aplica) vs "existe y no tiene filas huérfanas" (el detector
+  // aplicó y salió limpio). Un "0" a secas se lee como lo segundo cuando puede
+  // ser lo primero.
+  let fantasma = [];
+  let fantasmaTabla = null;   // null = no existe · number = filas totales
+  try {
+    fantasmaTabla = Number((await c.query('select count(*)::int n from identity.knex_migrations')).rows[0].n);
+    fantasma = (await c.query(`select i.name, i.batch, i.migration_time from identity.knex_migrations i
+       where not exists (select 1 from public.knex_migrations p where p.name = i.name)
+       order by i.migration_time`)).rows;
+  } catch (e) {
+    if (e.code !== '42P01') throw e;   // 42P01 = no existe la tabla
+  }
+
+  console.log('\nDrift de migraciones');
+  console.log(`  ledger restaurado de prod : ${aplicadas.length}`);
+  console.log(`  archivos en disco         : ${enDisco.length}`);
+  console.log(`  pendientes                : ${pendientes.length}`);
+  console.log(`  huérfanas (ledger sin archivo en esta rama): ${huerfanas.length}`);
+  huerfanas.forEach((n) => console.log(`     · ${n}`));
+  console.log(fantasmaTabla === null
+    ? '  fantasma identity.knex_migrations: la tabla NO EXISTE (§29 cerrado por 20260907160000)'
+    : `  fantasma identity.knex_migrations: la tabla existe con ${fantasmaTabla} filas, ${fantasma.length} sin correlato en public`);
+  fantasma.forEach((f) => console.log(`     · ${f.name} (batch ${f.batch})`));
+  if (fantasma.length > 4) {
+    console.log('  ⚠ HALLAZGO EN PROD: el fantasma creció por encima de las 4 filas medidas el 2026-09-07.');
+    console.log('    Hay un runner sin `migrations.schemaName` escribiendo en prod AHORA.');
+  }
+
+  if (opts.expectPending !== null && pendientes.length !== opts.expectPending) {
+    console.error(`\nABORT: esperaba ${opts.expectPending} pendientes y hay ${pendientes.length}.`);
+    console.error('  `migrate:latest` corre las pendientes de TODOS. Que el número salte significa');
+    console.error('  que hay una rama ajena en tu working tree, y querés verlo ANTES de que corra.');
+    pendientes.forEach((n) => console.error(`     · ${n}`));
+    await c.end();
+    process.exit(2);
+  }
+
+  if (!opts.apply) {
+    console.log('\n(dry-run) Las que correrían:');
+    pendientes.forEach((n) => console.log(`   · ${n}`));
+    console.log('\nPara aplicarlas: --apply');
+    await c.end();
+    return;
+  }
+
+  // Reparar el fantasma SÓLO acá. Nunca `DELETE FROM identity.knex_migrations`:
+  // la tabla es el sensor de su propia causa y borrarla es apagar el detector.
+  if (fantasma.length) {
+    await c.query(`insert into public.knex_migrations (name, batch, migration_time)
+      select i.name, (select coalesce(max(batch),0)+1 from public.knex_migrations), i.migration_time
+        from identity.knex_migrations i
+       where not exists (select 1 from public.knex_migrations p where p.name = i.name)`);
+    console.log(`\n  ${fantasma.length} del fantasma re-registradas en public (local; el fantasma NO se borra)`);
+  }
+  await c.end();
+
+  const knex = require('knex')({
+    client: 'pg',
+    connection: { connectionString: target },
+    pool: { min: 1, max: 4 },
+    migrations: {
+      directory: DIR_MIG,
+      tableName: 'knex_migrations',
+      // Sin esto el ledger cae en `identity` (§29).
+      schemaName: 'public',
+      // El ledger de prod registra migraciones que esta rama no tiene en disco;
+      // sin esta bandera knex aborta entero. Las huérfanas ya se listaron arriba.
+      disableMigrationsListValidation: true,
+    },
+  });
+  try {
+    console.log('\ncorriendo migrate:latest…');
+    const [lote, corridas] = await knex.migrate.latest();
+    console.log(`  batch ${lote}: ${corridas.length} migraciones`);
+    corridas.forEach((n) => console.log(`   · ${path.basename(n)}`));
+    const quedan = (await knex.migrate.list())[1];
+    console.log(`  pendientes después: ${quedan.length}`);
+    if (quedan.length) { console.log('  ⚠ quedaron pendientes:'); quedan.forEach((n) => console.log('     ·', n.file || n)); }
+  } finally {
+    await knex.destroy();
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// grants — replicar la MATRIZ DE PERMISOS de prod, no otorgar parejo
+//
+// `pg_dump --no-privileges` no trae ningún GRANT, así que después del restore
+// `app_runtime` no puede leer nada. La tentación es un GRANT ALL sobre todo,
+// que es lo que hace `sync-from-remote.js` (y encima sólo sobre 4 schemas).
+//
+// **Otorgar parejo rompe el motivo de usar `app_runtime`.** Medido en prod, la
+// matriz NO es uniforme:
+//
+//     kepler_ods   226 SELECT,   0 INSERT,   0 DELETE   ← lo alimenta el shipper
+//     md           225 SELECT,   0 INSERT,   0 DELETE   ← vistas sobre el ODS
+//     analytics    117 SELECT,  24 INSERT,  13 DELETE
+//     commercial   115 SELECT, 115 INSERT, 115 DELETE
+//     pgboss         0 SELECT — ni USAGE en el schema (la cola corre como postgres)
+//     identity      13 relaciones y sólo 11 legibles
+//
+// Con un GRANT ALL, un dev escribe un INSERT a `kepler_ods`, le funciona en la
+// réplica y le explota en prod. La réplica tiene que MENTIR lo menos posible, y
+// los permisos son parte de lo que replica.
+//
+// Se lee la matriz de prod (solo lectura) y se aplica igual acá.
+// ─────────────────────────────────────────────────────────────────────────────
+const PRIVS = ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER'];
+const ROL = 'app_runtime';
+
+async function grants() {
+  const { source, target } = resolverUrls();
+  if (!source || !target) { console.error('\nFaltan MIRROR_SOURCE_URL/MIRROR_TARGET_URL.\n'); process.exit(2); }
+  guard.assertTarget('grants[origen]', { url: source, intent: 'read', expect: 'prod' });
+  guard.assertSafeTarget('grants[destino]', { url: target });
+
+  const prod = await openProdReadOnly(source);
+  const rep = new Client({ connectionString: target, connectionTimeoutMillis: 20000 });
+  await rep.connect();
+
+  let aplicados = 0;
+  const q = async (sql) => { await rep.query(sql); aplicados++; };
+
+  // 1. USAGE de schema, tal cual prod (pgboss NO lo tiene, y así queda).
+  const sch = await prod.query(`select n.nspname s, has_schema_privilege($1, n.nspname,'USAGE') u
+     from pg_namespace n where n.nspname not in ('pg_catalog','information_schema','pg_toast')
+       and n.nspname not like 'pg\\_temp%' and n.nspname not like 'pg\\_toast%' order by 1`, [ROL]);
+  const conUsage = sch.rows.filter((r) => r.u).map((r) => r.s);
+  for (const s of conUsage) {
+    try { await q(`GRANT USAGE ON SCHEMA "${s}" TO ${ROL}`); } catch { /* el schema puede no existir acá */ }
+  }
+  console.log(`  USAGE de schema: ${conUsage.length} otorgados · sin USAGE en prod (y tampoco acá): ${sch.rows.filter((r) => !r.u).map((r) => r.s).join(', ') || 'ninguno'}`);
+
+  // 2. Privilegios por relación, agrupados por conjunto idéntico para no emitir
+  //    una sentencia por tabla (serían ~900).
+  const rel = await prod.query(`
+    select n.nspname s, c.relname t,
+           ${PRIVS.map((p) => `has_table_privilege($1, c.oid, '${p}') as "${p.toLowerCase()}"`).join(', ')}
+      from pg_class c join pg_namespace n on n.oid=c.relnamespace
+     where c.relkind in ('r','p','v','m')
+       and n.nspname not in ('pg_catalog','information_schema','pg_toast')
+       and n.nspname not like 'pg\\_temp%' and n.nspname not like 'pg\\_toast%'`, [ROL]);
+
+  const grupos = new Map();
+  for (const r of rel.rows) {
+    const set = PRIVS.filter((p) => r[p.toLowerCase()]);
+    if (!set.length) continue;
+    const k = `${r.s}|${set.join(',')}`;
+    if (!grupos.has(k)) grupos.set(k, { s: r.s, set, tablas: [] });
+    grupos.get(k).tablas.push(r.t);
+  }
+  let conPriv = 0;
+  for (const g of grupos.values()) {
+    // En lotes: una sentencia con 226 nombres es válida pero ilegible en un error.
+    for (let i = 0; i < g.tablas.length; i += 50) {
+      const lote = g.tablas.slice(i, i + 50).map((t) => `"${g.s}"."${t}"`).join(', ');
+      try { await q(`GRANT ${g.set.join(', ')} ON ${lote} TO ${ROL}`); conPriv += Math.min(50, g.tablas.length - i); }
+      catch (e) { console.log(`  ! ${g.s} [${g.set.join(',')}]: ${e.code} ${e.message.slice(0, 80)}`); }
+    }
+  }
+  console.log(`  privilegios de tabla: ${conPriv} relaciones en ${grupos.size} combinaciones distintas`);
+  for (const g of [...grupos.values()].sort((a, b) => b.tablas.length - a.tablas.length).slice(0, 6)) {
+    console.log(`     ${String(g.s).padEnd(14)} ${String(g.tablas.length).padStart(4)} rels  ${g.set.join(',')}`);
+  }
+
+  // 3. Secuencias y funciones.
+  for (const s of conUsage) {
+    try { await q(`GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA "${s}" TO ${ROL}`); } catch { /* nada */ }
+    try { await q(`GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA "${s}" TO ${ROL}`); } catch { /* nada */ }
+  }
+
+  // 4. Los default ACL, para que lo que se cree DESPUÉS herede igual que en prod.
+  const dacl = await prod.query(`select n.nspname s, da.defaclobjtype tipo, array_to_string(da.defaclacl,',') acl
+     from pg_default_acl da join pg_namespace n on n.oid=da.defaclnamespace`);
+  const MAPA = { r: 'TABLES', S: 'SEQUENCES', f: 'FUNCTIONS', T: 'TYPES' };
+  const LETRA = { a: 'INSERT', r: 'SELECT', w: 'UPDATE', d: 'DELETE', D: 'TRUNCATE', x: 'REFERENCES', t: 'TRIGGER', X: 'EXECUTE', U: 'USAGE' };
+  for (const d of dacl.rows) {
+    const m = (d.acl || '').match(new RegExp(`${ROL}=([^/]*)/`));
+    if (!m || !MAPA[d.tipo]) continue;
+    const privs = [...new Set(m[1].split('').map((ch) => LETRA[ch]).filter(Boolean))];
+    if (!privs.length) continue;
+    try { await q(`ALTER DEFAULT PRIVILEGES IN SCHEMA "${d.s}" GRANT ${privs.join(', ')} ON ${MAPA[d.tipo]} TO ${ROL}`); }
+    catch (e) { console.log(`  ! default acl ${d.s}/${MAPA[d.tipo]}: ${e.code}`); }
+  }
+  console.log(`  default privileges: ${dacl.rows.length} entradas replicadas`);
+  console.log(`  ${aplicados} sentencias aplicadas`);
+
+  await prod.end();
+  await rep.end();
+
+  // 5. Verificar. Y no con un SELECT: GOTCHAS §33 existe porque un rol "de solo
+  //    lectura" pasó todos los SELECT y tumbó prod en el primer UPDATE real.
+  await verificarComoRuntime(target);
+}
+
+/** Se conecta COMO app_runtime y comprueba lo que puede y —sobre todo— lo que NO. */
+async function verificarComoRuntime(target) {
+  const u = new URL(target);
+  u.username = ROL;
+  u.password = process.env.APP_RUNTIME_PASSWORD || ROL;
+  let c;
+  try {
+    c = new Client({ connectionString: u.toString(), connectionTimeoutMillis: 15000 });
+    await c.connect();
+  } catch (e) {
+    console.log(`\n  ⓘ NO MEDIDO: no pude conectarme como ${ROL} (${e.code}). Pasá APP_RUNTIME_PASSWORD para verificar.`);
+    return;
+  }
+  console.log(`\n  verificación conectado COMO ${ROL}:`);
+  const ok = (b, m) => console.log(b ? '   ✓ ' + m : '   ✗ ' + m);
+
+  // La trampa #1 del proyecto: sin tenant en la sesión, RLS devuelve 0 filas SIN error.
+  const n = Number((await c.query('select count(*)::int n from identity.users')).rows[0].n);
+  ok(n === 0, `sin tenant, identity.users devuelve 0 filas (dio ${n}) — RLS está filtrando`);
+
+  // Y el shim de public: si no tiene security_invoker, evalúa RLS como su DUEÑO
+  // y entrega el padrón entero con los hashes bcrypt.
+  try {
+    const p = Number((await c.query('select count(*)::int n from public.users')).rows[0].n);
+    ok(p === 0, `sin tenant, public.users devuelve 0 (dio ${p}) — security_invoker vivo`);
+  } catch (e) { console.log(`   ⓘ public.users: ${e.code} ${e.message.slice(0, 60)}`); }
+
+  // Escritura donde SÍ corresponde (§33: un SELECT no prueba un UPDATE).
+  try {
+    await c.query('update commercial.customers set updated_at = updated_at where false');
+    ok(true, 'puede ESCRIBIR en commercial.customers (0 filas, pero el permiso se ejerció)');
+  } catch (e) { ok(false, `no puede escribir en commercial.customers: ${e.code}`); }
+
+  // Y la prueba NEGATIVA, que es la que hace que esto valga: kepler_ods lo
+  // alimenta el shipper y en prod app_runtime NO puede escribirlo. Si acá
+  // pudiera, la réplica estaría mintiendo en la dirección peligrosa.
+  let rechazado = false;
+  try { await c.query('update kepler_ods.kdm1 set sucursal = sucursal where false'); }
+  catch (e) { rechazado = e.code === '42501'; }
+  ok(rechazado, 'NO puede escribir en kepler_ods (igual que en prod)');
+
+  await c.end();
+}
+
 // Se exportan para que `database/tests/test-mirror-readonly-negative.js` ejercite
 // EXACTAMENTE estas funciones y no una copia: una copia se desincroniza y el test
 // se queda verde midiendo un código que ya nadie corre.
@@ -311,9 +801,7 @@ if (require.main !== module) return;
 
 // ─────────────────────────────────────────────────────────────────────────────
 const PENDIENTES = {
-  plan: 'REP.2 — deriva mirror.plan del catálogo de prod',
-  seed: 'REP.3 — siembra por pg_dump/pg_restore',
-  migrate: 'REP.3 — knex + detector del ledger fantasma',
+  plan: 'REP.5 — deriva mirror.plan del catálogo de prod',
   delta: 'REP.5 — los cuatro carriles',
   reconcile: 'REP.5 — anti-join de PKs con --max-pct',
   status: 'REP.7 — lee mirror.pull_ctl',
@@ -321,8 +809,30 @@ const PENDIENTES = {
 
 const cmd = process.argv[2];
 
+const arg = (n, d) => {
+  const hit = process.argv.find((a) => a.startsWith(`--${n}=`));
+  return hit ? hit.split('=').slice(1).join('=') : d;
+};
+
 if (cmd === 'doctor') {
   doctor().catch((e) => { console.error('\nERROR:', e.message, '\n'); process.exit(1); });
+} else if (cmd === 'seed') {
+  seed({ fromDump: arg('from-dump', null), jobs: Number(arg('jobs', 4)) })
+    .catch((e) => { console.error('\nERROR:', e.message, '\n'); process.exit(1); });
+} else if (cmd === 'grants') {
+  grants().catch((e) => { console.error('\nERROR:', e.message, '\n'); process.exit(1); });
+} else if (cmd === 'refresh-mv') {
+  (async () => {
+    const { target } = resolverUrls();
+    if (!target) { console.error('\nFalta MIRROR_TARGET_URL.\n'); process.exit(2); }
+    guard.assertSafeTarget('refresh-mv[destino]', { url: target });
+    const r = await refreshMatviews(target);
+    process.exit(r.rotas.length ? 1 : 0);
+  })().catch((e) => { console.error('\nERROR:', e.message, '\n'); process.exit(1); });
+} else if (cmd === 'migrate') {
+  const ep = arg('expect-pending', null);
+  migrate({ apply: process.argv.includes('--apply'), expectPending: ep === null ? null : Number(ep) })
+    .catch((e) => { console.error('\nERROR:', e.message, '\n'); process.exit(1); });
 } else if (PENDIENTES[cmd]) {
   // No un no-op silencioso: un subcomando que no hace nada y sale 0 se lee
   // igual que uno que funcionó.
@@ -332,12 +842,18 @@ if (cmd === 'doctor') {
   console.error(`
 Espejo PROD → LOCAL. Un archivo, un proceso, subcomandos.
 
-  node database/scripts/pull-prod-to-local.js doctor
+  doctor                       corre los frenos, no toca nada
+  seed [--from-dump=<f>]       restaura el RESPALDO NOCTURNO (no dumpea prod)
+       [--jobs=N]              default: el .dump más nuevo de
+                               %USERPROFILE%\\backups\\trade_marketing
+  migrate [--apply]            drift + ledger fantasma + knex. Dry-run por default.
+          [--expect-pending=N] aborta si el número de pendientes no es el esperado
+  grants                       replica la MATRIZ de permisos de prod (no un GRANT ALL)
 
-Subcomandos: doctor${Object.keys(PENDIENTES).map((k) => ` · ${k} (pendiente)`).join('')}
+  pendientes: ${Object.keys(PENDIENTES).join(' · ')}
 
 Variables:
-  MIRROR_SOURCE_URL   origen (si falta, cae a FLEET_DB_URL)
+  MIRROR_SOURCE_URL   origen, sólo lectura (si falta, cae a FLEET_DB_URL)
   MIRROR_TARGET_URL   destino (sin default)
 `);
   process.exit(2);
