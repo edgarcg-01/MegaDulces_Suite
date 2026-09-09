@@ -481,6 +481,22 @@ Las 8 migraciones están **sólo en `.245`**. Para llevarlo a prod:
 Ordenadas por lo que bloquean. Ninguna detuvo la construcción — todo lo que dependía de ellas quedó
 **declarado** en el dato, no dibujado como cero.
 
+### 9.0 Respuestas del negocio — 2026-09-09
+
+| # | Respuesta | Qué implica |
+|---|---|---|
+| **9.4** comisiones | ✅ **Aceptar la corrección** | El motor publica su cifra; la primera corrida **va a diferir del Excel** en 22/23, 322, 28 y en cualquier periodo sobre $400,000. Es lo que ya hace: **nada que construir**, queda autorizado a correr |
+| **9.9** objetivo mensual | ✅ **Se rehace** | Los tres KPIs de trade se reconstruyen sobre el **calendario quincenal** (27 periodos), no sobre los 13 de 28 días de 2021. **Sprint nuevo** |
+| **9.7** odómetro · **9.8** gastos sin tipo | ✅ **Se corrige desde la UI y se captura manual** | ⚠️ **Esa UI no existe todavía**: hay `logistics-route-expenses.service.ts` pero **ningún componente** en `apps/view`. Es el trabajo que esta respuesta desbloquea, no algo ya disponible |
+| **9.10** maestros de choferes | ✅ **Hacer que concuerden** | El maestro sembrado ya es coherente (el "conflicto" de la 27 eran chofer y **supervisor**, dos roles). Falta **una sola celda**: el chofer de la **505** |
+| **9.3** costo oficial | 🟡 **"Puede ser variable y cambia"** | Confirma el diseño: la vista devuelve **las dos cifras y su brecha, sin elegir**. Sigue abierto **qué usa el margen publicado** — y de eso cuelga el bono del supervisor de Canindo (§3.3) |
+| **9.5** deducción del supervisor | ⏸️ **No inventar; queda como duda** | Se mantiene como está: contribución por ruta con `nomina_banco = 0` y el neto sumado en el pie |
+| **9.1** POS de Canindo | ⏸️ **"No lo sé"** | Sigue abierta. Ya no bloquea la venta de ruta (el push la rodeó); sí impide separar la venta de **piso** |
+| **9.2** Morelia · **9.6** fichas 321/322 | ⏸️ **FUERA DE ALCANCE por decisión** | *"Por el momento no hablemos nada relacionado a 321 y 322."* Los $573,693 de jun–jul y la serie de esas dos rutas quedan **congelados a propósito**, no olvidados. §9.6 se reduce a la **ruta 28** |
+
+> 📌 Leí *"322 y 231"* como **322 y 321** (no existe una ruta 231; 321/322 son el par de Morelia).
+> Si la intención era otra, corregir acá.
+
 ### 9.1 ⛔ Canindo: ¿por qué el ERP dejó de distinguir la ruta del mostrador?
 
 **Bloquea** ~$1.77M de agosto en adelante, y con eso la comisión de 501-505 de esos periodos.
@@ -575,3 +591,29 @@ maestro bueno, e idealmente el `user_id` de `identity.users` para no terminar co
 
 *(Y RFC/CURP/NSS de la ruta **322 son idénticos a los de la 321**; los VINs se repiten entre PH 26/27,
 CAN 504/505, y CAN 503 = PH 22.)*
+
+#### ✅ 2026-09-09 — decisión: *"hagamos que concuerden"*. Medido contra prod, son 3 piezas
+
+Lo primero: **el conflicto que este item describía no era un conflicto.** En la ruta 27,
+`Mariano Martinez Patlan` es el **chofer** y `ANGEL ALBERTO VAZQUEZ MEJIA` el **supervisor** — dos
+roles, no dos versiones del mismo nombre. El maestro sembrado ya los tiene bien separados. Lo que sí
+hay, medido contra `logistics.drivers`:
+
+| pieza | estado | qué falta |
+|---|---|---|
+| **Choferes** | **10 de 12** casan **exacto** por nombre | Los 2 que no son **321 y 322** → fuera de alcance por decisión. Dentro del alcance vigente falta **una sola celda: el chofer de la 505** |
+| **Supervisores** | **1 de 3** existe en `logistics.drivers` | ⚠️ **`ANGEL ALBERTO VAZQUEZ MEJIA` y `EDUARDO LOPEZ SAINZ` NO están en el maestro de personal.** El doc nunca lo había medido. Hay que darlos de alta o averiguar por qué faltan |
+| **Liga a `identity.users`** | **0 de 56** drivers tienen `user_id` | `commission_route_config` ya trae `chofer_user_id`/`supervisor_user_id` **vacías**, pero la cadena está rota **un eslabón antes**: aunque las llenáramos, `logistics.drivers.user_id` es NULL en todos. Llegar a `identity.users` es trabajo aparte |
+
+⚠️ **El chofer de la 505 no se rellena por inferencia.** El candidato es
+`FRANCISCO DE JESUS MARTINEZ RAZO`: está en `logistics.drivers` con rol **`chofer`**, `kduv` de la
+sucursal 06 lo lista como `00505 Francico Martinez`, y el inventario del push anota el vendedor de esa
+van como *"Francisco"*. **Pero es también el supervisor de las cinco rutas de Canindo en el maestro.**
+O trae ruta además de supervisar, o son dos personas con el mismo nombre de pila. Es **una pregunta de
+una línea**, no una deducción — y el push no ayuda: `mart.ventas_enriched` **no trae columna de
+vendedor**.
+
+📌 **Que concuerden por construcción, no por copia**: el arreglo de fondo es que
+`commission_route_config` apunte por **`driver_id`** a `logistics.drivers` en vez de cargar el nombre
+como texto. Mientras sea texto copiado, vuelven a divergir en la siguiente captura — es la regla del
+proyecto de derivar y no copiar, aplicada al maestro de personas.
