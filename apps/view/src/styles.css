@@ -1192,7 +1192,10 @@ input:focus, textarea:focus, select:focus {
 }
 
 .animate-fade-in-up {
-  animation: fadeInUp 0.4s ease-out forwards;
+  /* [TDA.0] Era 0.4s, sobre el TECHO DURO de 350ms que tokens.css declara BINDING. Se baja al
+     TOKEN, no a un numero suelto: la adopcion de --dur-* es del 9% (31 de 338) y por eso dos
+     animaciones se salieron del techo sin que nadie lo viera. */
+  animation: fadeInUp var(--dur-standard, 250ms) var(--ease-out, ease-out) forwards;
 }
 
 /* Pulse sutil para indicadores activos */
@@ -1404,7 +1407,8 @@ input:focus, textarea:focus, select:focus {
 }
 
 .text-reveal > * {
-  animation: textReveal 0.5s ease forwards;
+  /* [TDA.0] Era 0.5s -- la mas lenta del repo, 143% del techo. Mismo criterio. */
+  animation: textReveal var(--dur-standard, 250ms) var(--ease-out, ease) forwards;
   opacity: 0;
 }
 
