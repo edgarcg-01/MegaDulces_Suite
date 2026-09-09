@@ -11,7 +11,7 @@
  */
 const { Client } = require('pg');
 
-const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const TENANT = process.env.TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const NOTA_CATS = ['pronto_pago', 'descuento_comercial', 'apoyo_marca'];
 const money = (n) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });

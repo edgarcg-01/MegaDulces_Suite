@@ -1,5 +1,5 @@
 const knex = require('knex');
-const db = knex({ client: 'pg', connection: process.env.DATABASE_URL || 'postgresql://postgres:superoot@localhost:5433/postgres_platform', pool: { min: 1, max: 2 } });
+const db = knex({ client: 'pg', connection: process.env.DATABASE_URL || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })(), pool: { min: 1, max: 2 } });
 (async () => {
   try {
     const PRICE_LIST_ID = '00000000-0000-0000-0000-0000c0ffee02';

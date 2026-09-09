@@ -35,7 +35,7 @@ const APPLY = process.argv.includes('--apply');
  */
 const val = (n) => (process.argv.find((a) => a.startsWith(`--${n}=`)) || '').split('=')[1];
 const OVR = val('host') ? { host: val('host'), port: Number(val('port')) || 5432, db: val('db') || `md_${CODE}` } : null;
-const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres';
 const { replicaDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const DBNAME = replicaDbName(CODE);
 const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';

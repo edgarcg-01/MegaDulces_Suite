@@ -34,7 +34,7 @@ const path = require('path');
 const { esFaltaDeAcceso, noMedido } = require('./_lib/no-medido');
 
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 
 let ok = 0; let fail = 0;
 const ck = (l, c, d = '') => {

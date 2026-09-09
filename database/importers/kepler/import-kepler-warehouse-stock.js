@@ -10,7 +10,7 @@
  * Destino parametrizable (no hardcodea credenciales de prod):
  *   node database/importers/kepler/import-kepler-warehouse-stock.js \
  *     --branch 03 --warehouse KEPLER-03 [--dst-url <postgres-url>] [--apply]
- *   (sin --dst-url usa el local localhost:5433/postgres_platform)
+ *   (sin --dst-url usa DATABASE_URL_NEW; si tampoco está, FALLA — la copia local :5433/postgres_platform fue purgada 2026-09-08)
  *
  * Idempotente: upsert por (tenant, warehouse, sku).
  */
@@ -18,7 +18,8 @@
 const { Client } = require('pg');
 
 const SRC = 'postgresql://postgres:superoot@localhost:5433/md_03';
-const LOCAL_DST = 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// :5433/postgres_platform fue PURGADA 2026-09-08; centinela inerte solo para el flag IS_PROD (ya no es un destino real).
+const LOCAL_DST = '__sin_dst_local_purgado__';
 
 function arg(name, def) {
   const i = process.argv.indexOf(`--${name}`);
@@ -26,7 +27,7 @@ function arg(name, def) {
 }
 const BRANCH = arg('branch', '03');
 const WAREHOUSE = arg('warehouse', `KEPLER-${BRANCH}`);
-const DST_URL = arg('dst-url', LOCAL_DST);
+const DST_URL = arg('dst-url', process.env.DATABASE_URL_NEW) || (() => { throw new Error('falta destino: pasa --dst-url o exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08'); })();
 const APPLY = process.argv.includes('--apply');
 const IS_PROD = DST_URL !== LOCAL_DST;
 

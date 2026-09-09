@@ -63,7 +63,7 @@ const SHIP_BATCH = Math.max(200, Number(process.env.ODS_SHIP_BATCH) || 2000);
 const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
 
 const SUB_BASE = process.env.ODS_SOURCE_BASE
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`). Las 7 ramas
 // siguen la misma convención; ver la nota en `replicate-ods-live.js`.
 const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica

@@ -264,7 +264,7 @@ const ship = (rows, meta) => sink.ship('raw-upsert', { rows, tenantId: TENANT, m
 // Exactamente la clase de falla silenciosa que nos costó 2 días de kepler_ods viejo en prod.
 // Se deja `DATABASE_URL_NEW` como fallback por compatibilidad con los runners que aún no la setean.
 const SUB_BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // 00 incluido (oficinas/CEDIS-finanzas @9.95): first-class en el ODS. Sin su réplica local

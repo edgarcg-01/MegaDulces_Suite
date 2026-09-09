@@ -20,7 +20,7 @@ const arg = (f, d) => { const i = process.argv.indexOf(f); return i > -1 ? Numbe
 const LIMIT = arg('--limit', 50);
 const MIN_REL = arg('--min', 0.5);
 const TOKEN = process.env.MAPBOX_TOKEN;
-const CONN = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const CONN = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const TENANT = process.env.CP_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 // Sesgo geográfico (centro de operación) para mejorar la relevancia.
 const PROXIMITY = process.env.GEO_PROXIMITY || '-101.1949,19.7033'; // Morelia

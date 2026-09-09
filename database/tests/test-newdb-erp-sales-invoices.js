@@ -10,7 +10,7 @@
  */
 const { Client } = require('pg');
 
-const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const FOLIO = '06UD0801-0000087';
 // Verdad verificada a mano contra el CFDI timbrado (UUID 88bbd441-aa1e-41e8-95c5-5492a5b56d44).
 const ESPERADO = {

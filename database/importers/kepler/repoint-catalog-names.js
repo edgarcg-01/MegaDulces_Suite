@@ -23,7 +23,7 @@ const { declararActor } = require('../lib/declare-actor');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const SRC = process.env.SRC_URL || process.env.KP_CONCENTRADA_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';
-const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // CANON.1.3 — fuente por default `ods`: kepler_ods.kdii en el MISMO Postgres de prod. Reconciliación
 // retail-first (excluir CEDIS '00' + fallback a CEDIS si el SKU no tiene retail) → identidad de tienda,
 // no de mayoreo (evita traer barcode/línea del CEDIS). El nombre es idéntico entre sucursales (0 diffs).

@@ -42,7 +42,7 @@ const fs = require('fs');
 const { Client } = require('pg');
 
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const DB_URL = process.env.WINCAJA_LIVE_DB_URL || process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const DB_URL = process.env.WINCAJA_LIVE_DB_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const INGEST_URL = process.env.STORE_INGEST_URL || 'http://localhost:3000/api/store/live/ingest';
 const INGEST_KEY = process.env.STORE_INGEST_KEY || 'dev_store_ingest_key';
 const POLL_MS = (Number(process.env.POLL_SECONDS) || 60) * 1000;
