@@ -2066,8 +2066,9 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
   suelen estar verdes sin haber ejecutado nunca la guarda), y mide **el mensaje**, no sólo el código
   (*"es prod"* y *"no lo reconozco"* son los dos `exit 2`). Cierra con **prueba de mutación** contra
   dos copias desarmadas del clasificador: las dos tienen que ponerla en **rojo**.
-- [x] **[REP.0.3]** ✅ — **`DISABLE_CRONS` apaga los 51 `@Cron` de 46 archivos en una línea.**
-  `shouldRunInProcessCron()` parecía el interruptor pero **sólo 1 de los 51 lo llama**. Apaga el
+- [x] **[REP.0.3]** ✅ — **`DISABLE_CRONS` apaga los 48 `@Cron` de 46 archivos en una línea.**
+  (Contados sin los 3 comentados: `grep -c "@Cron("` da 51 y tres de esas líneas son comentarios.)
+  `shouldRunInProcessCron()` parecía el interruptor pero **sólo 1 de los 48 lo llama**. Apaga el
   borrado de fotos en Cloudinary contra la cuenta real, el runner fiscal (SAT/PAC cada 30 s), la
   liberación de reservas y `REFRESH MATERIALIZED VIEW` ×8. Se dice en el log al arrancar.
 - [x] **[REP.0.4]** ✅ — `.env.replica.example`, escrito alrededor de cuatro trampas.

@@ -317,8 +317,8 @@ async function bootstrap() {
   // de que los apagó, y nadie se entera de que se olvidó de apagarlos.
   console.log(
     process.env.DISABLE_CRONS === 'true'
-      ? 'DISABLE_CRONS=true → ScheduleModule NO registrado: los 51 @Cron están inertes en este proceso.'
-      : 'Cron in-process ACTIVOS (51 @Cron). Para apagarlos en dev: DISABLE_CRONS=true.',
+      ? 'DISABLE_CRONS=true → ScheduleModule NO registrado: los 48 @Cron están inertes en este proceso.'
+      : 'Cron in-process ACTIVOS (48 @Cron). Para apagarlos en dev: DISABLE_CRONS=true.',
   );
 }
 
