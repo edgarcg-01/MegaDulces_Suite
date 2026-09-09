@@ -175,6 +175,27 @@ Carga inicial / reseteo de Railway. Destructivos. Usar con cuidado.
 
 ---
 
+## Familia `provision-*` / `*-users` — cuentas (identidad)
+
+Credenciales. Existen porque cada cuenta nace con una contraseña **aleatoria y distinta**, y
+esas contraseñas no pueden quedar en un archivo versionado — o sea, argumentan contra una
+**migración**, no contra la UI.
+
+⚠️ **El alta de UNA cuenta, incluida la de un kiosco, se hace en `/admin/users`** (desde
+`[CH.1.11]`: el formulario acepta `token_ttl_days`, genera la contraseña sin caracteres
+ambiguos, y la pantalla muestra y revoca la sesión larga). Lo que queda acá es el alta
+**masiva derivada de un catálogo**, que la pantalla no hace y no debería.
+
+| Script | Estado | Qué hace |
+|---|---|---|
+| `provision-etiqueteras.js` | 🔵 | 8 cuentas `etiquetas.NN` derivadas de `commercial.warehouses` con zona. Ya ejecutado; `20260908150000` les corrigió `must_change_password`. **Nunca les puso `token_ttl_days`** — su script es anterior a la columna, así que re-loguean cada 12 h en una pantalla de turno. Darles duración es una decisión operativa; se hace desde la UI. |
+| `set-user-password.js` | 🟡 | Desbloquea un login cuando no hay superadmin a mano (o se perdió su contraseña). Es el caso legítimo de "script y no UI": la UI necesita que alguien pueda entrar. |
+| `create-expense-capture-users.js` | 🔵 | Rol `captura_gastos`. Deja `department_code` NULL a propósito para que se asigne desde `/admin/usuarios`. |
+| `setup-finance-roles-users.js` · `seed-cajera-users.js` · `seed-test-users-entradas.js` · `normalize-user-population.js` | 🔵 | Altas y normalizaciones one-off ya ejecutadas. |
+| `snapshot-user-permissions.js` · `snapshot-user-privileges.js` · `snapshot-user-scope.js` | 🟢 | Read-only. El gate de no-regresión de privilegios: comparan el set efectivo por usuario antes/después y deben salir vacíos. |
+| `cleanup-test-identity-residue.js` | 🔵 | Barre residuo de tests que se corrieron contra prod. Es el patrón de referencia para borrar un usuario: hijos a mano en orden de FK y después la fila. |
+| ~~`provision-checadores.js`~~ | ⚫ retirado 2026-09-09 | Daba de alta `checador.NN`. Se retiró en `[CH.1]` porque era **el único escritor de `token_ttl_days` en todo el repo**, lo que volvía invisible e inauditable un atributo de autorización. `git show` lo recupera si hace falta el alta masiva. |
+
 ## Setup / one-offs operacionales
 
 | Script | Estado | Qué hace |
@@ -205,3 +226,5 @@ Snapshots de columnas/constraints/objetos generados por comandos `psql -c "\d" >
 3. **Scripts nuevos:** seguir convención de prefijo de familia. Si es operativo recurrente, considerar moverlo a `database/importers/` (con README y argv parsing serio).
 4. **Antes de borrar un ⚫ artifact:** verificar que no se referencie desde un runbook en `docs/IMPLEMENTACION/RUNBOOKS/`.
 5. **TenantKnexService obligatorio para queries con RLS:** scripts nuevos que conecten como `app_runtime` deben envolver queries en `SET LOCAL app.tenant_id`. Ver memoria `feedback_tenant_knex_rls`.
+6. **Si la app ya sabe hacerlo, el script pasa a 🔵 y su encabezado lo dice.** El estado no describe al script: describe si la capacidad ya vive en el producto. Un script que sigue siendo *el único* camino para escribir un atributo lo vuelve invisible desde la aplicación — y si el atributo es de autorización, invisible significa que nadie lo puede revisar ni quitar. *Medido en `[CH.1]`: `token_ttl_days` (un JWT de 365 días) existía en 9 archivos del repo y en **cero** líneas de la capa que administra usuarios; su único escritor era un script de `provision-*`. Había una cuenta en prod con un token de un año y ninguna forma de verla desde la app.*
+7. **Un script que crea datos en prod necesita guarda invertida.** `--apply` exige que el destino **sea** prod si el dato vive en prod (crear cuentas en la base compartida entre devs le ensucia el padrón a otro), y exige que **no** sea prod si el script trae una contraseña conocida en el repo. Los dos casos existen acá; el que falta es el que muerde.

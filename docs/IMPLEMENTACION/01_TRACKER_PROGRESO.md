@@ -749,16 +749,16 @@ sirve hasta que alguien desactiva esa cuenta — no hay revocación por token ni
   `{ expiresIn: undefined }` — Nest mergea `{...signOptions, ...options}`, así que la clave
   presente en `undefined` **borra** la expiración del merge y emitiría un token eterno **para
   todo el mundo**. En segundos, no `'365d'`: el string exige un literal de tipo `ms`.
-- [x] **[CH.1.4]** ✅ `database/scripts/provision-checadores.js` — calca
-  `provision-etiqueteras.js`: cuentas `checador.NN` derivadas de `commercial.warehouses` con
-  zona (**no** una lista a mano), `--sucursal NN` repetible, `--ttl-dias` (default 365), dry-run
-  con ROLLBACK, `--apply` sólo contra prod, contraseñas sin caracteres ambiguos a un archivo
-  **fuera del repo**, `must_change_password = false` (si la primera persona la cambia, el kiosco
-  queda afuera), `kind = 'interno'` (`servicio` bloquea el login interactivo, `[ID.17]`).
-  4 gates: la columna existe, el rol está recortado, **las cuentas quedaron con el TTL pedido**
-  (lo que el script existe para hacer: si el INSERT lo perdiera, reportaría éxito igual) y el
-  hash verifica **y rechaza** otra contraseña.
-- [x] **[CH.1.5]** ✅ `database/tests/test-newdb-device-token-ttl.js` — **19/19 verde, sin API**:
+- [~] **[CH.1.4]** ❌ **RETIRADO 2026-09-09** — `database/scripts/provision-checadores.js` daba
+  de alta las cuentas `checador.NN` derivadas de `commercial.warehouses` con zona, con dry-run,
+  guarda invertida, contraseñas sin caracteres ambiguos fuera del repo y 4 gates. Estaba bien
+  hecho **y estaba en el lugar equivocado**: era el único escritor de `token_ttl_days` en todo el
+  repo, lo que volvía el atributo invisible desde la aplicación. Su justificación —«un hash de
+  contraseña no va en un archivo versionado»— argumenta contra una **migración**, no contra la
+  UI, que ya le pide la contraseña al admin. Reemplazado por `[CH.1.11]`. `git show` lo recupera
+  si hace falta el alta masiva.
+- [x] **[CH.1.5]** ✅ `database/tests/test-newdb-device-token-ttl.js` — **19/19 verde, sin API**
+  (hoy **35/35**, ver `[CH.1.12]`):
   carga los `.ts` REALES vía ts-node (`token-ttl.ts` + `permissions-cache.service.ts`) y firma con
   `jsonwebtoken` reproduciendo el merge de `JwtModule`. Las negativas son el punto: (1) la cuenta
   normal **sigue en 12 h** — si alguien "arreglara" esto subiendo el TTL global, el caso positivo
@@ -810,25 +810,140 @@ venía copiando la base equivocada.
   "exit 0" de una migración que falló) y `options=-c lock_timeout=…` en la cadena de conexión **no
   pasa** por el proxy de Railway.
 
-**Estado de prod (2026-09-09) — DB completa, falta el redeploy:**
+**Estado de prod (2026-09-09):**
 - ✅ `20260909131000_rol_checador_kiosco.js` (batch **341**), en los **2 tenants**
   (`mega_dulces` + `test_tenant_b`) — sólo hace INSERTs, y `RowExclusive` no choca con el
   `AccessShare` del respaldo: por eso ésta sí pasó con el dump corriendo, y la otra no.
+  El rol se conserva, ahora con **0 cuentas**.
 - ✅ `20260909130000_users_token_ttl_days.js` (batch **346**), aplicada al cerrar la ventana del
   respaldo (~65 min de dump). Verificado allá: `integer` nullable con su `COMMENT`, el CHECK
   `IS NULL OR (>=1 AND <=3650)`, la prueba negativa del 0 corriendo contra la tabla real, y
   **126 usuarios con 0 TTL propio** — nadie cambió de vida por la migración.
-- ✅ **Primera cuenta en prod: `checador.03`** («Checador - 8ESQ»), `token_ttl_days = 365`,
-  `warehouse_code = 03`, zona LA PIEDAD RD derivada de la sucursal, `kind = interno`,
-  `must_change_password = false`, **un solo rol** en `user_roles` (`is_primary`, sin complementos
-  — el JWT lleva la unión) y su rol concede **exactamente 1 clave**. Credencial fuera del repo.
-  El dry-run contra prod deriva **8 sitios** (uno más que dev: `04 Yurécuaro`).
-- ⏳ **Falta el redeploy del api**: el cambio de `auth-mt` es código. Hasta que suba, el login de
-  `checador.03` recibe un token de **12 h**, no de 365 días — la cuenta está bien, pero hay que
-  volver a entrar una vez con la API nueva arriba. `last_login_at` sigue en `null`: todavía no
-  entró nadie.
-- ⏳ Y sigue en pie que **la pantalla no existe** (`[CH.0.10]`): la cuenta entra y cae en
-  `/sin-acceso`. Las otras 7 sucursales se dan de alta con el mismo script cuando se decida.
+- ❌ **`checador.03` se borró** el 2026-09-09 (ver `[CH.1.7]`–`[CH.1.12]` abajo). Prod quedó con
+  **0 cuentas con TTL propio**. Se creó antes que su pantalla: un token de un año para una cuenta
+  que sólo podía caer en `/sin-acceso` no se sostiene.
+
+---
+
+### Sprint CH.1.7–CH.1.12 — Revisión: el TTL entra a la app, y lo de afuera se retira 🧪 (2026-09-09, local)
+
+Revisión de la propia entrega de CH.1 contra los lineamientos (pedido: *"que vaya de acuerdo a
+los protocolos, tenga coherencia y respete las capas"*). El hallazgo **no fue un bug**: fue dónde
+había quedado parado cada pedazo.
+
+**Medido antes de opinar:** `token_ttl_days` aparecía en **9 archivos** —el primitivo, la firma
+del login, la migración, el script de alta, el smoke y tres documentos— y en **cero** líneas de
+`libs/trade/` (la capa que administra usuarios) y **cero** de `apps/view/`. El hueco no era
+parcial, era **total**: la columna existía y la aplicación no sabía nombrarla. Por eso
+`ValidationPipe({ whitelist: true })` no tenía nada que descartar — nadie había mandado nunca el
+campo. Consecuencia concreta: había una cuenta en prod con un token de 365 días y **ninguna forma
+de verla ni de quitarle el TTL desde la aplicación**.
+
+- [x] **[CH.1.7]** ✅ `GET /users` y `GET /users/:id` devuelven `token_ttl_days` y `kind`, y los
+  dos `.returning()` también. Sin esto no existe "la lista de quién tiene token largo", y el
+  cliente que manda un TTL no puede distinguir "se guardó" de "se descartó en silencio".
+- [x] **[CH.1.10]** ✅ El DTO acepta los tres campos, con su compuerta.
+  `libs/contracts/src/http/identity.contract.ts` (`USER_KINDS`, `UserKind`,
+  `DeviceSessionFields`) — sube al vocabulario común por el mismo patrón que cortó
+  `provenance.contract.ts`. **No re-declara `MAX_TOKEN_TTL_DAYS`**: ya hay tres copias del 3650 y
+  una cuarta a mano sería la que divergiría. `must_change_password` se mudó a `UserWriteDto` y el
+  `insert` pasó de la CONSTANTE `true` a `?? true` — **ese hardcode era la causa raíz** de que el
+  alta viviera en un script suelto.
+- [x] **[CH.1.11]** ✅ `/admin/users` da de alta, ve, audita y revoca la sesión larga. El
+  principio: **el control no existe en el formulario de una persona.** Interruptor
+  Persona/Dispositivo sólo en el alta (editar a una persona no ofrece convertirla: la invariante
+  es una cuenta por dispositivo), presets en vez de campo numérico libre, contraseña generable sin
+  caracteres ambiguos (cliente-side: en el backend quedaría en claro en los logs), chip **info y
+  no warn** en el resumen. `device-session.ts` con 9 aserciones propias.
+- [x] **[CH.1.12]** ✅ Pruebas: **35/0** en `test-newdb-device-token-ttl.js` (eran 19) y **33/0**
+  en `test-newdb-user-dto.js`. La compuerta es **pura**, así que se la llama sobre el prototipo
+  del servicio REAL — mide el código que corre en prod, sin Nest ni API. Se agregó el **techo**
+  del CHECK (antes sólo el piso 0) y un **censo declarado**, no un check.
+- [x] **[CH.1.8]** ✅ Retirado `database/scripts/provision-checadores.js` y borrada la cuenta.
+  El script se justificaba con *"un hash de contraseña no va en un archivo versionado"* — eso
+  argumenta contra una **migración**, no contra la UI, que ya le pide la contraseña al admin.
+  `README.md` de scripts: familia `provision-*` documentada (no existía, con ~11 scripts de
+  identidad) + reglas 6 y 7.
+
+**⚠️ El número que decidió el diseño de la compuerta: 125 de las 126 cuentas de prod.**
+La regla (`must_change_password: false` exige declarar `token_ttl_days`) se evalúa sobre el
+**CAMBIO**, no sobre la fila resultante. Parecía un detalle de implementación. Medido:
+
+| | |
+|---|---|
+| padrón vivo en prod | 126 |
+| sin forzar cambio **y** sin TTL | **125** ← la regla no los dejaría crear |
+| con TTL propio | 0 |
+
+`must_change_password` nació con default `false` (la columna es anterior a `[ID.8]`), así que casi
+todo el padrón está en la combinación que ahora se prohíbe — incluidas las **8 etiqueteras**. Si
+la compuerta mirara la fila resultante, **editarle el nombre a cualquiera de 125 cuentas daría
+400** y la administración de usuarios quedaba rota para el 99.2% del padrón. Hay dos aserciones
+dedicadas a eso y son las que valen.
+
+**⚠️ Y el mismo problema del otro lado, en el front:** `saveUser()` manda `getRawValue()`, o sea
+todos los controles en cada PUT. Un control de duración de sesión, sin más, le borraba el token al
+kiosco que se vino a editar por otra cosa —se ve recién a la mañana siguiente— y les daba 400 a
+las etiqueteras. El campo viaja **sólo si cambió**, comparado contra el valor que vino del
+servidor. De ahí el orden inviolable: **el GET primero, el DTO después, el control al final.**
+
+**Dos heurísticas que el TTL volvía falsas:** `hasAccessAlert()` y `activityDotColor()` marcaban
+como cuenta dormida todo lo que no entra en 90 días. Un kiosco entra **una** vez, el día que se
+instala: sin excluirlo, la pantalla que funciona perfecto contamina para siempre el contador que
+se mira para encontrar cuentas abandonadas.
+
+**Por qué DELETE duro y no el soft-delete de la app:** `users_tenant_username_unique` es unique
+**plano** sobre `(tenant_id, username)` (`20260526000002:98`, nunca modificado) y el `create` no
+filtra por `deleted_at` (`users.service.ts:362`) → un soft-delete **quema el username** y
+`/admin/users` nunca podría volver a crear `checador.03`. Antes de borrar se **midió**: `last_login_at`
+null, **195/195 triggers encendidos** (`pg_trigger.tgenabled`, NO `pg_constraint.convalidated`,
+que miente), las 5 FKs `RESTRICT` en 0, un solo hijo en `user_roles` (lo puso
+`trg_sync_primary_role`), y nadie apuntándola. `COMMIT` condicionado a `rowCount == 1`, con
+`SET LOCAL lock_timeout` (GOTCHAS §38) y `app.tenant_id` seteado.
+
+**Decisión: emitir una sesión larga la hace un superadmin**, reusando el mecanismo anti-escalada
+que ya estaba en el archivo (`assertCanAssignRole`) en vez de estrenar `USUARIOS_TOKEN_DISPOSITIVO`.
+`USUARIOS_GESTIONAR` está diseñado para que **RH** dé de alta personas (`role-presets`, grupo
+`usuarios` primario de `rh`), y emitir una credencial de un año es otra cosa. Un permiso declarado
+pero **no repartido** es exactamente la deuda de LC.6.2 → el permiso dedicado queda como estado
+final deseable, no implementado a medias.
+
+**⬜ Deuda con nombre, abierta a propósito:**
+- **`USUARIOS_TOKEN_DISPOSITIVO`** — el permiso dedicado, para el día que RH tenga que emitir un
+  kiosco sin un superadmin a mano. Hoy lo cubre el candado de rol.
+- **`identity.users.shared_credential boolean`** — el campo que de verdad describe el mundo (hoy
+  se infiere de `token_ttl_days IS NOT NULL`). No se hizo porque es un `ALTER TABLE` sobre
+  `identity.users`, **la tabla del incidente de `[CH.1.6]`**: no se paga una ventana de DDL en
+  prod por un campo derivable.
+- **El toggle "Estado activo" del alta no hace nada** — `CreateUserDto` no acepta `activo`/`status`
+  y `whitelist: true` los tira. Medido por el candado nuevo: exactamente **1 control**. Arreglarlo
+  es subir `status` a `UserWriteDto`.
+- **El soft-delete de la app inutiliza usernames** (unique plano + `create` sin filtro de
+  `deleted_at`). Arreglo: índice unique parcial + filtrar por `deleted_at`.
+- **⚠️ `/auth/login` (legacy) ignora el TTL y tres compuertas más.**
+  `apps/api/src/modules/auth/auth.service.ts:81` firma sin opciones → `'12h'` hardcodeado en su
+  módulo (ni lee `JWT_EXPIRES_IN`); se saltea `kind='servicio'` (`[ID.17]`), `expires_at`
+  (`[ID.13]`), la unión de roles y los overrides; no escribe `last_login_at`; y lee
+  `role_permissions` **sin filtro de tenant**. Verificado que `apps/view` **no** lo usa
+  (`login.component.ts:85` llama `loginMt`), pero mientras el endpoint esté montado
+  (`app.module.ts:377`) la afirmación *"el token de esta cuenta vive lo que dice su fila"* es
+  falsa por ahí. **Preexistente, ajena a CH.1.**
+
+**⬜ NO MEDIDO — la vía HTTP.** No hay API local arriba (el 4200 es el dev server de Angular, y
+los dev servers no se relanzan). Faltan, y se enumeran en vez de escribirse como aserciones que
+nunca corrieron: el POST **persistiendo** el TTL (verificado en la fila, no en la respuesta);
+400 del DTO por `0` y por `3651`; 400 por `must_change_password: false` sin TTL, y su gemelo en
+PUT sobre una persona; 200 al editar sólo el nombre de una cuenta vieja (el grandfathering);
+`kind: 'kiosco'` → 400 y **`kind: null` → 400, no 500** (la trampa de `@IsOptional` con una
+columna `NOT NULL`); el **par completo** del candado de superadmin (403 sin el rol, 201 con él,
+y 201 sin él para el request que no toca el campo — sin la tercera, un gate de ruta pasaría
+igual); un `token_ttl_dayz` con typo → 201 con la fila en NULL, que documenta el descarte
+silencioso; y el aislamiento entre tenants.
+
+**⬜ NO MEDIDO — validación visual en el browser.** Es la misma deuda que quedó abierta en CV.24.
+
+**⏳ Falta el redeploy de api+view.** Sin él nada de esto está en prod. La DB no necesita
+migraciones nuevas: `token_ttl_days` y `kind` ya existen con sus CHECK.
 
 Las migraciones se simularon con ROLLBACK y se aplican **una por una**
 (`apply-one-migration-prod.js`, que apunta a `FLEET_DB_URL`), NO con `migrate:latest`: hay otras
