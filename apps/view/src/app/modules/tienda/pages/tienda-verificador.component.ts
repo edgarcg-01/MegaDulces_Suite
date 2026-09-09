@@ -141,6 +141,15 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   @if (p.iva_pct != null) { IVA {{ p.iva_pct }}%. }
                   @if (p.ieps_pct) { IEPS {{ p.ieps_pct }}%. }
                   @if (origen() === 'respaldo') { Tomado del respaldo del {{ snapshotAl() | date:'dd/MM/yy HH:mm' }}. }
+                  <!--
+                    [TDA.2] Procedencia. Se DECLARA en vez de esconderse: hasta este cambio esta
+                    pantalla publicaba un numero sin decir de que plaza salia, y sin sucursal el ERP
+                    devolvia una fila arbitraria (podia ser la de CEDIS, la que la etiquetera
+                    excluye a proposito).
+                  -->
+                  @if (origenPrecio() === 'override_manual') { Precio corregido a mano: es el mismo que sale en la etiqueta del anaquel. }
+                  @if (precioAmbiguo()) { Este producto tiene {{ plazasDistintas() }} precios distintos entre plazas y no se pudo acotar a la tuya: confirmalo en caja. }
+                  @if (plazaSinDato()) { Tu sucursal no tiene este producto cargado; el precio es de otra plaza. }
                 </p>
 
                 @if (p.unidades.length > 1) {
@@ -358,6 +367,19 @@ export class TiendaVerificadorComponent implements OnInit {
   readonly producto = signal<ProductoPrecio | null>(null);
   readonly origen = signal<OrigenPrecio>('live');
   readonly snapshotAl = signal<string | null>(null);
+
+  // ── `[TDA.2]` Procedencia del precio ───────────────────────────────────────
+  // `origen` ya decía de DÓNDE viene el dato (vivo o respaldo). Esto dice lo que faltaba: si el
+  // número es el de ESTA plaza o uno que varía entre plazas, y si lo corrigió una persona.
+  //
+  // Antes `/api/kp/precio` ni tomaba sucursal: devolvía la primera fila de `kdii` en orden
+  // arbitrario, y con 385 códigos que difieren entre plazas eso significaba que el mostrador podía
+  // mostrar el precio de CEDIS — la fila que la etiquetera excluye a propósito. Anaquel y mostrador
+  // podían decir números distintos del mismo producto, sin que la pantalla lo insinuara.
+  readonly origenPrecio = signal<'kepler' | 'override_manual'>('kepler');
+  readonly precioAmbiguo = signal(false);
+  readonly plazasDistintas = signal(1);
+  readonly plazaSinDato = signal(false);
   readonly ultimoCodigo = signal('');
   readonly feed = signal<Consulta[]>([]);
 
@@ -478,6 +500,12 @@ export class TiendaVerificadorComponent implements OnInit {
       this.producto.set(r.producto);
       this.origen.set(r.origen);
       this.snapshotAl.set(r.snapshotAl);
+      // `[TDA.2]` Procedencia del número. Se resetea en CADA resultado: si quedara pegada del
+      // producto anterior, la pantalla diría "corregido a mano" sobre uno que no lo está.
+      this.origenPrecio.set(r.origenPrecio ?? 'kepler');
+      this.precioAmbiguo.set(r.precioAmbiguo === true);
+      this.plazasDistintas.set(r.plazasDistintas ?? 1);
+      this.plazaSinDato.set(r.plazaSinDato === true);
       if (r.origen === 'respaldo') {
         this.banner.set({
           texto: 'Sin conexión: se está mostrando el precio de respaldo.',

@@ -24,9 +24,16 @@ export class KpController {
    * Precio de UN producto por clave interna o código de barras.
    * GET /api/kp/precio?q=17083
    */
+  /**
+   * `[TDA.2]` `sucursal` es opcional pero **conviene mandarla siempre**: `kdii` trae una fila por
+   * plaza y 385 códigos tienen precio distinto entre ellas. Sin sucursal la respuesta es
+   * determinista (retail antes que CEDIS) y viene con `precio_ambiguo` declarado.
+   */
   @Public()
   @Get('precio')
-  getPrecio(@Query('q') q: string) { return this.kpService.getPrecio(q); }
+  getPrecio(@Query('q') q: string, @Query('sucursal') sucursal?: string) {
+    return this.kpService.getPrecio(q, sucursal);
+  }
 
   /**
    * Todo el catálogo con precios por unidad (fuente del verificador offline).

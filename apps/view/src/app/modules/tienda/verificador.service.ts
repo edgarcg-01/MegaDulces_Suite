@@ -32,8 +32,28 @@ export interface ProductoPrecio {
  */
 export type OrigenPrecio = 'live' | 'respaldo';
 
+/**
+ * `[TDA.2]` Con qué se calculó el precio que se está mostrando (ADR-056).
+ *
+ * `origen` ya decía de DÓNDE viene el dato (vivo o respaldo). Esto dice algo distinto y que faltaba:
+ * si el número es el de la plaza o uno que varía entre plazas, y si lo corrigió una persona.
+ *
+ * Todos opcionales: el camino del respaldo (snapshot en IndexedDB) no los trae, y ausencia se lee
+ * como "no aplica", nunca como "todo bien".
+ */
+export interface ProcedenciaPrecio {
+  /** El precio varía entre plazas y no se pudo acotar a una. */
+  precioAmbiguo?: boolean;
+  /** Cuántos precios distintos hay entre plazas para este código. */
+  plazasDistintas?: number;
+  /** Se pidió una plaza y esa plaza no tiene el producto (existe en otras). */
+  plazaSinDato?: boolean;
+  /** `override_manual` = alguien lo corrigió a mano; es el que se imprime en el anaquel. */
+  origenPrecio?: 'kepler' | 'override_manual';
+}
+
 export type ResultadoBusqueda =
-  | { estado: 'encontrado'; origen: OrigenPrecio; producto: ProductoPrecio; snapshotAl: string | null }
+  | ({ estado: 'encontrado'; origen: OrigenPrecio; producto: ProductoPrecio; snapshotAl: string | null } & ProcedenciaPrecio)
   | { estado: 'no_encontrado'; origen: OrigenPrecio; codigo: string; snapshotAl: string | null }
   | { estado: 'sin_datos'; codigo: string };
 
@@ -115,15 +135,26 @@ export class VerificadorService {
   /**
    * Precio de un producto: ODS primero, respaldo después.
    *
-   * `sucursal` sólo se usa para elegir el snapshot: `/api/kp/precio` no toma sucursal
-   * (busca el código en el ODS y devuelve la primera fila), así que el respaldo puede
-   * traer un precio de plaza más preciso que el live. Eso está declarado en la pantalla.
+   * `[TDA.2]` La sucursal ahora VIAJA al live, no sólo elige el snapshot.
+   *
+   * Antes `/api/kp/precio` no la tomaba: buscaba el código en el ODS y devolvía la primera fila,
+   * en orden arbitrario. Como `kdii` trae una fila por plaza y **712 de 9,348 códigos (7.6 %,
+   * medido en prod el 2026-09-09) tienen precio distinto entre plazas**, el precio del mostrador
+   * podía cambiar solo cada vez que una sucursal se re-sincronizaba, y podía ser el de CEDIS — la
+   * fila que la etiquetera excluye a propósito. O sea: el respaldo local, que sí elegía plaza, era
+   * MÁS preciso que la consulta en vivo.
+   *
+   * Ahora el live contesta la plaza pedida, y cuando no se puede acotar lo **declara**
+   * (`precio_ambiguo`) en vez de publicar un número inestable como si fuera el único.
    */
   buscar(codigo: string, sucursal: string | null): Observable<ResultadoBusqueda> {
     const q = (codigo || '').trim();
     if (!q) return of({ estado: 'sin_datos' as const, codigo: q });
 
-    return this.http.get<any>(`${this.base}/kp/precio`, { params: { q } }).pipe(
+    const params: Record<string, string> = { q };
+    if (sucursal) params['sucursal'] = sucursal;
+
+    return this.http.get<any>(`${this.base}/kp/precio`, { params }).pipe(
       timeout(TIMEOUT_LIVE_MS),
       map((r): ResultadoBusqueda => {
         // El backend contesta 200 con `ok:false` cuando no lo encuentra — no es un error
@@ -142,6 +173,13 @@ export class VerificadorService {
             iva_pct: r.iva_pct ?? null,
             ieps_pct: r.ieps_pct ?? null,
           },
+          // `[TDA.2]` Procedencia del número: de qué plaza salió, si varía entre plazas, y si lo
+          // corrigió una persona (ese override es el que se imprime en el anaquel, y el mostrador
+          // lo tenía invisible porque leía el ERP crudo).
+          precioAmbiguo: r.precio_ambiguo === true,
+          plazasDistintas: Number(r.plazas_con_precio_distinto) || 1,
+          plazaSinDato: r.plaza_pedida_sin_dato === true,
+          origenPrecio: r.origen_precio === 'override_manual' ? 'override_manual' : 'kepler',
         };
       }),
       // Sin red / timeout / 5xx → respaldo. Si tampoco hay respaldo, se dice.
