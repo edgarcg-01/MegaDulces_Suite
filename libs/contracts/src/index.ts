@@ -19,3 +19,5 @@ export * from './ports/mailer.port';
 export * from './http/command-center.contract';
 // [VP.2.1] Procedencia (ADR-056): con qué se calculó el número que se publica.
 export * from './http/provenance.contract';
+// [CH.1.10] Identidad: el tipo de cuenta y la duración de sesión de un dispositivo.
+export * from './http/identity.contract';

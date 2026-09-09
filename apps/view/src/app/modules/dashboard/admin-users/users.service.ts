@@ -2,8 +2,12 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../../environments/environment';
+// `[CH.1.10]` El tipo de cuenta y la duración de sesión salen del vocabulario común
+// (`@megadulces/contracts`): un cambio de forma es error de compilación en los dos lados, en vez
+// de dos definiciones que se separan en silencio.
+import type { DeviceSessionFields } from '@megadulces/contracts';
 
-export interface User {
+export interface User extends DeviceSessionFields {
   id: string;
   username: string;
   nombre?: string;
@@ -40,7 +44,7 @@ export interface FinanceAreaOption {
   sucursal?: string | null;
 }
 
-export interface UserCreatePayload {
+export interface UserCreatePayload extends DeviceSessionFields {
   username: string;
   password: string;
   nombre?: string;
@@ -52,9 +56,15 @@ export interface UserCreatePayload {
   route_id?: string | null;
   department_code?: string | null;
   position_code?: string | null;
+  /**
+   * `[CH.1.10]` Sólo se manda `false` para una cuenta de dispositivo, y el backend lo exige:
+   * `false` sin `token_ttl_days` es 400. Omitirlo deja el default de `[ID.8]` (`true`), que es
+   * lo correcto para una persona — la contraseña la eligió el admin, la cambia el dueño.
+   */
+  must_change_password?: boolean;
 }
 
-export interface UserUpdatePayload {
+export interface UserUpdatePayload extends DeviceSessionFields {
   username?: string;
   password?: string;
   nombre?: string;
@@ -68,6 +78,8 @@ export interface UserUpdatePayload {
   department_code?: string | null;
   position_code?: string | null;
   finance_expense_area_ids?: string[] | null;
+  /** `[CH.1.10]` Ver `UserCreatePayload`. Quitar el TTL exige devolverlo a `true`. */
+  must_change_password?: boolean;
 }
 
 export interface SupervisorOption {

@@ -215,6 +215,95 @@ export class UsersService {
   }
 
   /**
+   * `[CH.1.10]` — Quién puede emitir una SESIÓN LARGA (cuenta de dispositivo).
+   *
+   * `USUARIOS_GESTIONAR` está diseñado para que RH dé de alta personas: en
+   * `role-presets.ts` el grupo `usuarios` es primario de `rh`. Emitir una
+   * credencial que vive un año es otra cosa, así que se restringe con el MISMO
+   * mecanismo anti-escalada que ya usa este archivo para los roles elevados
+   * (`assertCanAssignRole`): lo hace un superadmin.
+   *
+   * Se eligió reusar el mecanismo existente en vez de estrenar un permiso
+   * `USUARIOS_TOKEN_DISPOSITIVO`. Un permiso nuevo son 4 touch-points + su
+   * reparto en prod, y uno declarado pero NO repartido es exactamente la deuda
+   * de la lección LC.6.2 (un módulo entero en prod que nadie podía abrir). El
+   * permiso dedicado es el estado final deseable — el día que RH tenga que
+   * hacerlo sin un superadmin a mano — y queda anotado en el tracker, no
+   * implementado a medias.
+   *
+   * Sólo mira lo que el request PIDE: quitar el TTL (mandar `null`) no requiere
+   * ser superadmin. Bajar privilegio nunca se gatea igual que subirlo.
+   */
+  private async assertCanSetDeviceSession(
+    ttlPedido: number | null | undefined,
+    requester: RequesterContext,
+  ): Promise<void> {
+    if (ttlPedido == null) return;
+
+    const requesterRow = await this.knex('users')
+      .where({ id: requester.sub, tenant_id: this.tenantId })
+      .select('role_name')
+      .first();
+    if ((requesterRow?.role_name ?? '').toLowerCase() !== 'superadmin') {
+      throw new ForbiddenException(
+        'Sólo un superadmin puede emitir una sesión de dispositivo (un token que vive más de las 12 h del default).',
+      );
+    }
+  }
+
+  /**
+   * `[CH.1.10]` — Una contraseña que nadie está obligado a cambiar sólo se
+   * justifica en una pantalla desatendida.
+   *
+   * `[ID.8]` puso `must_change_password` en `true` para toda alta, y por una
+   * razón: la contraseña la eligió OTRO (el admin), así que el dueño tiene que
+   * cambiarla. Un kiosco es la excepción real — si se forzara el cambio, la
+   * primera persona que pasa la cambia y la pantalla queda afuera (ya pasó:
+   * `20260908150000_etiqueteras_no_forzar_cambio.js`).
+   *
+   * La regla, entonces: `false` se acepta **sólo si la cuenta declara su
+   * duración de sesión**, o sea sólo si es un dispositivo.
+   *
+   * ── Se evalúa el CAMBIO, no la fila resultante ─────────────────────────────
+   * Es la diferencia entre una compuerta y un bloqueo de trabajo ajeno. Las 7
+   * cuentas `etiquetas.NN` que ya existen son `must_change_password = false` con
+   * `token_ttl_days = null` — no porque alguien lo decidiera, sino porque su
+   * script es anterior a la columna. Si esto mirara la fila resultante,
+   * editarle el NOMBRE a una etiquetera se rechazaría, sin que el request haya
+   * mencionado ninguno de los dos campos. Así que sólo se rechaza el movimiento
+   * HACIA la combinación prohibida; lo que ya estaba queda editable.
+   *
+   * Y rechaza, no voltea en silencio: este repo ya pagó el precio de un default
+   * silencioso (`{}` vs `{ expiresIn: undefined }` en `token-ttl.ts`).
+   */
+  private assertDeviceCredential(
+    body: { must_change_password?: boolean; token_ttl_days?: number | null },
+    actual?: { must_change_password?: boolean; token_ttl_days?: number | null },
+  ): void {
+    const pideForzarNo = body.must_change_password === false;
+    const pideQuitarTtl = 'token_ttl_days' in body && body.token_ttl_days == null;
+    if (!pideForzarNo && !pideQuitarTtl) return;
+
+    const ttlResultante =
+      'token_ttl_days' in body ? body.token_ttl_days : (actual?.token_ttl_days ?? null);
+    const forzarResultante =
+      body.must_change_password !== undefined
+        ? body.must_change_password
+        : (actual?.must_change_password ?? true);
+
+    if (pideForzarNo && ttlResultante == null) {
+      throw new BadRequestException(
+        'Una cuenta que no fuerza el cambio de contraseña es una credencial de dispositivo: declará su duración de sesión (token_ttl_days). Si es una persona, la contraseña la eligió el admin y el dueño tiene que cambiarla.',
+      );
+    }
+    if (pideQuitarTtl && forzarResultante === false) {
+      throw new BadRequestException(
+        'No se puede quitar la sesión larga sin devolver el cambio de contraseña forzado: quedaría una contraseña que nadie eligió y que nadie está obligado a cambiar. Mandá must_change_password: true en el mismo request.',
+      );
+    }
+  }
+
+  /**
    * Bloquea el caso de dejar al sistema sin ningún superadmin activo.
    * Se invoca antes de degradar de rol o desactivar.
    */
@@ -350,6 +439,9 @@ export class UsersService {
     } = createUserDto;
 
     await this.assertCanAssignRole(role_name, requester);
+    // `[CH.1.10]` Sin fila previa: en un alta el "resultante" es lo que trae el body.
+    this.assertDeviceCredential(createUserDto);
+    await this.assertCanSetDeviceSession(createUserDto.token_ttl_days, requester);
     await this.assertOrgCodes(
       createUserDto.department_code,
       createUserDto.position_code,
@@ -394,7 +486,13 @@ export class UsersService {
         // que el dueño tiene que cambiarla. `created_by` además deja de estar
         // vacío: en prod estaba en NULL para los 117 usuarios.
         password_changed_at: this.knex.fn.now(),
-        must_change_password: true,
+        // `[CH.1.10]` Sigue siendo `true` por default — deja de ser una CONSTANTE
+        // y pasa a ser un default. `[ID.8]` no se debilita: el único camino a
+        // `false` lo abre `assertDeviceCredential()`, que lo exige acompañado de
+        // una duración de sesión. Mientras estuvo hardcodeado, dar de alta un
+        // kiosco por el endpoint era imposible y por eso el alta terminó en un
+        // script suelto haciendo INSERT directo.
+        must_change_password: rest.must_change_password ?? true,
       })
       .returning([
         'id',
@@ -405,7 +503,31 @@ export class UsersService {
         'activo',
         'supervisor_id',
         'created_at',
+        // `[CH.1.7]` La respuesta tiene que describir lo que quedó guardado. Sin
+        // estos dos, el cliente manda un TTL, recibe 200 y no puede distinguir
+        // "se guardó" de "se descartó en silencio" — que es exactamente lo que
+        // hace `ValidationPipe({ whitelist: true })` con un campo no declarado.
+        'token_ttl_days',
+        'kind',
       ]);
+
+    // `[CH.1.10]` Emitir una credencial de un año queda asentado. Es la mitad
+    // que faltaba de "auditable": la otra es poder verlo en la pantalla, y sin
+    // este renglón la única huella de quién la emitió sería el `created_by`.
+    if (user?.token_ttl_days != null) {
+      await this.recordEvent(
+        this.knex,
+        user.id,
+        'device_session_granted',
+        {
+          token_ttl_days: user.token_ttl_days,
+          must_change_password: rest.must_change_password ?? true,
+          kind: user.kind ?? null,
+          nota: 'credencial de pantalla desatendida: se revoca desactivando la cuenta, no esperando su vencimiento',
+        },
+        requester,
+      );
+    }
 
     // El nombre de la zona se resuelve del uuid que quedó guardado: ya no hay
     // una variable `zona` en scope (los tres alias colapsaron en `[ID.7]`) y
@@ -463,6 +585,14 @@ export class UsersService {
         'u.created_at',
         'u.last_login_at',
         'u.last_login_ip',
+        // `[CH.1.7]` Cuánto vive el token de esta cuenta y de qué tipo es.
+        // Se devuelven para que exista la lista auditable de "quién tiene token
+        // largo": el TTL nació en `[CH.1.1]` y la capa que administra usuarios
+        // no lo conocía, así que la única forma de verlo era un SELECT a mano.
+        // Un permiso de un año que no se puede ver desde la pantalla tampoco se
+        // puede revisar ni quitar.
+        'u.token_ttl_days',
+        'u.kind',
         knex.raw(
           'CASE WHEN da.id IS NOT NULL THEN true ELSE false END as has_route_today',
         ),
@@ -520,6 +650,10 @@ export class UsersService {
         'ps.name as position_name',
         'u.finance_expense_area_ids',
         'u.created_at',
+        // `[CH.1.7]` Ver el detalle de una cuenta tiene que incluir cuánto vive
+        // su token: es el atributo que decide si la credencial dura 12 h o un año.
+        'u.token_ttl_days',
+        'u.kind',
       )
       .first();
 
@@ -579,6 +713,25 @@ export class UsersService {
     if (role_name !== undefined) {
       await this.assertCanAssignRole(role_name, requester);
     }
+
+    // `[CH.1.10]` La compuerta de la credencial de dispositivo, también en la
+    // edición. Sin esto la regla sería la mitad de una regla: hoy un PUT puede
+    // poner `must_change_password: false` a cualquier persona y nadie lo mira.
+    // Se lee la fila actual porque la regla se evalúa sobre el CAMBIO — un PUT
+    // que no menciona ninguno de los dos campos no se toca (ver el método).
+    if (
+      updateUserDto.must_change_password !== undefined ||
+      'token_ttl_days' in updateUserDto
+    ) {
+      const actual = await this.knex('users')
+        .where({ id, tenant_id: this.tenantId })
+        .select('must_change_password', 'token_ttl_days')
+        .first();
+      if (!actual) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+      this.assertDeviceCredential(updateUserDto, actual);
+      await this.assertCanSetDeviceSession(updateUserDto.token_ttl_days, requester);
+    }
+
     await this.assertOrgCodes(
       updateUserDto.department_code,
       updateUserDto.position_code,
@@ -656,10 +809,36 @@ export class UsersService {
         'activo',
         'supervisor_id',
         'created_at',
+        // `[CH.1.7]` La respuesta tiene que describir lo que quedó guardado. Sin
+        // estos dos, el cliente manda un TTL, recibe 200 y no puede distinguir
+        // "se guardó" de "se descartó en silencio" — que es exactamente lo que
+        // hace `ValidationPipe({ whitelist: true })` con un campo no declarado.
+        'token_ttl_days',
+        'kind',
       ]);
 
     if (!user) {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+    }
+
+    // `[CH.1.10]` Otorgar Y revocar una sesión larga quedan asentados. Revocar
+    // importa igual que otorgar: es la operación que alguien va a querer
+    // reconstruir el día que un kiosco "dejó de funcionar solo".
+    if ('token_ttl_days' in updateUserDto) {
+      await this.recordEvent(
+        this.knex,
+        id,
+        user.token_ttl_days != null ? 'device_session_granted' : 'device_session_revoked',
+        {
+          token_ttl_days: user.token_ttl_days ?? null,
+          must_change_password: updateUserDto.must_change_password,
+          nota:
+            user.token_ttl_days != null
+              ? 'la nueva duración aplica al PRÓXIMO ingreso; no acorta el token ya emitido'
+              : 'vuelve al default global (12 h) en su próximo ingreso; el token vigente sigue vivo hasta su exp',
+        },
+        requester,
+      );
     }
 
     return { ...user, zona: await this.zoneNameOf(user.zona_id) };
