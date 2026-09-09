@@ -1,7 +1,7 @@
 # Runbook — Réplica viva de prod para desarrollo (Fase REP)
 
-> Estado: **F0 y F1.2 cerrados. F1 BLOQUEADO** esperando pgvector en `.245` (paso 1 de acá abajo,
-> lo hace una persona con acceso a esa máquina). Todo lo demás está listo para arrancar detrás.
+> Estado: **F0, F1 y F1.2 cerrados.** `pgvector 0.8.2` instalado en `.245` y `platform_replica`
+> creada con paridad de extensiones 8/8 contra prod. Sigue **F2 (siembra)**.
 
 ---
 
@@ -51,56 +51,140 @@ propio `ods.ctl` y el carril dev nunca ve el de prod.
 
 ---
 
-## ⛔ Paso 1 — instalar pgvector en `.245` (BLOQUEANTE, y no se puede hacer por red)
+## ✅ Paso 1 — pgvector en `.245` (RESUELTO 2026-09-09, sin admin y sin reiniciar Postgres)
 
-**Por qué bloquea.** Prod usa el tipo `vector` en **7 columnas**, y una es
-`catalog.products.embedding` — el catálogo central de 14,807 productos. Sin la extensión, el
-`pg_restore` falla al crear esa tabla y no hay forma de "saltearla": un `--use-list` puede omitir una
-tabla entera, no una columna.
+> **Lo que efectivamente se hizo.** El procedimiento de más abajo (copiar a `C:\Program Files\…` con
+> RDP) sigue siendo el **canónico** y es al que conviene migrar cuando alguien tenga sesión en `.245`.
+> Pero no hacía falta esperarlo: PostgreSQL 18 agregó **`extension_control_path`**, y con eso la
+> extensión se instaló **entera por SQL más el share de `D:`**, sin tocar `C:` y sin reinicio.
 
-**Medido el 2026-09-08:**
+### Cómo quedó
 
-| | |
-|---|---|
-| `.245` | PostgreSQL **18.4 x86_64-windows, compilado con MSVC 19.44** · `data_directory = C:/Program Files/PostgreSQL/18/data` |
-| extensiones de prod disponibles en `.245` | `cube`, `earthdistance`, `pg_trgm`, `pgcrypto`, `postgres_fdw`, `unaccent` |
-| **falta** | **`vector`** |
-| versión que usa prod | **0.8.2**, tipo `vector(1024)` en las 7 columnas |
-| la misma versión, ya funcionando | contenedor `pgvector-md` de `.249` (`pgvector/pgvector:pg18`) → **0.8.2** |
+```
+D:\pgvector\lib\vector.dll                     ← compilado en .249, ver abajo
+D:\pgvector\share\extension\vector.control     ← con module_pathname = 'vector'
+D:\pgvector\share\extension\vector--*.sql      ← 38 archivos
+```
 
-**Por qué no lo puede hacer un script desde `.249`:** el recurso `C$` de `.245` responde
-`Permission denied`. La instalación toca `C:\Program Files\PostgreSQL\18\`, así que va **con RDP o
-sesión local en `.245`**.
+```sql
+-- Las dos son ADITIVAS: conservan el default y suman una ruta. Contexto `superuser`,
+-- así que las aplica un ALTER SYSTEM + SIGHUP: sin downtime, sin cortar conexiones.
+ALTER SYSTEM SET dynamic_library_path   = '$libdir;D:/pgvector/lib';
+ALTER SYSTEM SET extension_control_path = '$system;D:/pgvector/share';
+SELECT pg_reload_conf();
+```
 
-### Los pasos
+Para revertir: `ALTER SYSTEM RESET` de las dos + `pg_reload_conf()`. (Primero hay que quitar la
+extensión de las bases que la usen, o queda una extensión cuyo `.dll` ya no se resuelve.)
 
-1. Conseguir pgvector **0.8.2** para **PostgreSQL 18, x64, MSVC**. Dos rutas:
-   - binario ya compilado que empate exactamente esa combinación, o
-   - compilarlo con las *Build Tools* de Visual Studio siguiendo el `README` de pgvector
-     (`nmake /F Makefile.win`), con `PGROOT=C:\Program Files\PostgreSQL\18`.
+### Las cuatro cosas que hubo que descubrir midiendo
 
-   ⚠️ **La versión importa.** Si instalás una anterior a 0.8.2, el restore de prod puede fallar sobre
-   objetos que esa versión no conoce. Igualá 0.8.2 o subí.
+1. **El layout NO es plano.** Con `extension_control_path = '…;D:/pgvector'` y el `.control` suelto
+   ahí, `pg_available_extensions` **no lo ve**. Postgres le agrega `extension` al final de cada
+   entrada del path. Por eso el directorio espeja el layout real de una instalación
+   (`lib\` + `share\extension\`) y las GUCs apuntan a `…/lib` y `…/share`.
+2. **`module_pathname` hay que cambiarlo.** Upstream trae `'$libdir/vector'`, y un nombre **con
+   barra** hace que Postgres salte `dynamic_library_path` y resuelva `$libdir` directo a `pkglibdir`.
+   Con nombre pelado (`'vector'`) sí usa el path. Es un cambio de una línea en el `.control`.
+   Si algún día se hace la instalación canónica, el `.control` de `$system` gana (se busca primero) y
+   este staging queda inerte.
+3. **El servicio de `.245` puede leer una carpeta creada por SMB.** Verificado *antes* de mover nada,
+   con `pg_read_file('D:/pgvector/probe.txt')` — que lo ejecuta el servicio, no el cliente.
+4. **`.249` y `.245` son el MISMO build**, byte por byte:
+   `PostgreSQL 18.4 on x86_64-windows, compiled by msvc-19.44.35226, 64-bit`. Por eso se pudo
+   compilar en `.249` (que es la caja de dev) en vez de meter un compilador en el servidor
+   compartido.
 
-2. Copiar los tres archivos (hace falta ser administrador):
+### El ensayo, que es lo que hizo que esto no fuera a ciegas
 
-   ```
-   vector.dll            →  C:\Program Files\PostgreSQL\18\lib\
-   vector.control        →  C:\Program Files\PostgreSQL\18\share\extension\
-   vector--*.sql         →  C:\Program Files\PostgreSQL\18\share\extension\
-   ```
+Todo el procedimiento se ejecutó **primero contra el PostgreSQL 18.4 nativo de `.249`** —mismo build,
+máquina propia— y ahí fue donde apareció lo del layout plano. Recién con la receta funcionando se
+tocó `.245`. El ensayo se revirtió después (`ALTER SYSTEM RESET` ×2, `DROP EXTENSION`, borrado del
+staging): `.249` quedó como estaba.
 
-3. **No hace falta reiniciar Postgres.** `pg_available_extensions` lee el directorio en cada
-   consulta; `CREATE EXTENSION` carga la `.dll` en la sesión.
+### Verificación (no alcanza con que `CREATE EXTENSION` no falle)
 
-4. Verificar, desde donde sea:
+```sql
+SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';  -- vector | 0.8.2
+CREATE EXTENSION vector;
+SELECT '[1,2,3]'::vector <-> '[4,5,6]'::vector;                    -- 5.1962 (= raíz de 27)
+CREATE TABLE v(e vector(1024));
+CREATE INDEX ON v USING hnsw (e vector_l2_ops);                    -- lo que usa prod
+```
 
-   ```sql
-   SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';
-   -- tiene que devolver: vector | 0.8.2
-   ```
+Las cuatro pasaron en `.245`, en una base desechable `_pgvector_smoke` que se borró después.
 
-   Y avisar. El paso 2 arranca solo con eso.
+### Cómo se compiló (en `.249`)
+
+```powershell
+winget install --id Microsoft.VisualStudio.2022.BuildTools --accept-package-agreements `
+  --accept-source-agreements --disable-interactivity `
+  --override "--wait --quiet --norestart --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+
+$env:PGROOT = "C:\Program Files\PostgreSQL\18"
+git clone --branch v0.8.2 --depth 1 https://github.com/pgvector/pgvector.git
+cd pgvector
+$vswhere = "C:\Program Files (x86)\Microsoft Visual Studio\Installer\vswhere.exe"
+$vsPath  = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+cmd /c "`"$vsPath\VC\Auxiliary\Build\vcvars64.bat`" >nul && nmake /F Makefile.win"
+```
+
+Produce `vector.dll` (268 KB, sha256 `730BCB10…E60B`) y `sql\vector--0.8.2.sql`. Se compila **desde
+la fuente a propósito**: bajar un `.dll` de terceros a un servidor que toca datos financieros es peor
+que gastar 4 GB en un compilador.
+
+---
+
+## Paso 1-bis — la instalación CANÓNICA, para cuando haya RDP en `.245`
+
+Nada urge, pero conviene migrar a esto en algún momento: sobrevive a un `pg_upgrade` y no depende de
+dos GUCs que alguien puede resetear sin saber.
+
+**Por qué importa la extensión, para quien llegue sin contexto.** Prod usa el tipo `vector` en
+**7 columnas**, y una es `catalog.products.embedding` — el catálogo central de 14,807 productos. Sin
+la extensión, el `pg_restore` falla al crear esa tabla y no hay forma de "saltearla": un `--use-list`
+puede omitir una tabla entera, no una columna.
+
+**Por qué hizo falta el rodeo:** el recurso `C$` de `.245` responde `Permission denied` desde `.249`
+(y `admin$` y `D$` también). La instalación canónica toca `C:\Program Files\PostgreSQL\18\`, así que
+va **con RDP o sesión local en `.245`**.
+
+### Los pasos, cuando haya sesión
+
+Los artefactos **ya están compilados y verificados**, en `D:\pgvector\` de la propia `.245`. No hay
+que volver a compilar nada:
+
+```powershell
+# 1. Copiar a las rutas canónicas (requiere admin en .245)
+Copy-Item "D:\pgvector\lib\vector.dll"          "C:\Program Files\PostgreSQL\18\lib\"            -Force
+Copy-Item "D:\pgvector\share\extension\*"       "C:\Program Files\PostgreSQL\18\share\extension\" -Force
+```
+
+```powershell
+# 2. Restaurar el module_pathname de upstream en la copia canónica.
+#    El de D:\ está con nombre pelado a propósito (ver "las cuatro cosas" arriba);
+#    en $system conviene el valor original.
+$c = "C:\Program Files\PostgreSQL\18\share\extension\vector.control"
+(Get-Content $c -Raw).Replace("module_pathname = 'vector'", "module_pathname = '`$libdir/vector'") |
+  Set-Content $c -NoNewline -Encoding ascii
+```
+
+```sql
+-- 3. Recién ahí, soltar las dos GUCs y volver al default.
+ALTER SYSTEM RESET dynamic_library_path;
+ALTER SYSTEM RESET extension_control_path;
+SELECT pg_reload_conf();
+
+-- 4. Y comprobar que sigue viva DESPUÉS de soltarlas (si no, se vuelve a poner):
+SELECT name, default_version FROM pg_available_extensions WHERE name = 'vector';  -- vector | 0.8.2
+SELECT '[1,2,3]'::vector <-> '[4,5,6]'::vector;                                   -- 5.1962
+```
+
+⚠️ El orden importa: si se resetean las GUCs **antes** de copiar, `platform_replica` queda con una
+extensión cuyo `.dll` no se resuelve. Copiar primero, resetear después, comprobar al final.
+
+⚠️ **No hace falta reiniciar Postgres** en ningún momento. `pg_available_extensions` relee el
+directorio en cada consulta y `CREATE EXTENSION` carga la `.dll` en la sesión.
 
 ---
 
@@ -259,8 +343,16 @@ El carril dev es una copia de `ops/ingest/docker-compose.yml` con **cuatro cambi
 | **REP.0.5** freno de arranque | ✅ verificado contra el bundle |
 | **REP.1** capas A–D+G + `doctor` | ✅ 11/11 contra prod |
 | **REP.1.2** prueba negativa del read-only | ✅ 7/7 |
-| **F1** base destino | ⛔ **bloqueada por pgvector en `.245`** |
+| **REP.2** pgvector 0.8.2 en `.245` | ✅ **sin admin y sin reiniciar** (vía `extension_control_path` de PG18) |
+| **F1** base destino | ✅ `platform_replica` en `ts_platform_replica` (`D:`), **paridad de extensiones 8/8** con prod |
 | F2 siembra · F3 fixups · F4 cascada · F5 delta · F7 frescura | ⬜ |
+
+**El `doctor` contra el destino real: 11/11**, con el aviso de base compartida. Y en su primera
+corrida encontró un error de diseño propio: el destino estaba pedido como `expect:'local'`, y la
+réplica vive en `.245`, que clasifica como `compartida` — correctamente, porque esa caja la ven los
+tres devs. La política de destino de un espejo no es *"tiene que ser mi localhost"* sino **"no puede
+ser prod y tengo que reconocerlo"**, que es exactamente `assertSafeTarget`. Se reusa esa en vez de
+duplicar una segunda política que después se desincroniza.
 
 ### Cosas que aparecieron midiendo, y no son de esta fase
 

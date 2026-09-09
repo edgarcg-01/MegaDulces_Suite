@@ -2216,17 +2216,34 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
   credenciales de escritura **hacia afuera**.
 - [x] **[REP.1.2]** ✅ 7/7 — prueba negativa del read-only contra prod, cargando las funciones
   **reales** y no una copia. `exit 2` = NO MEDIDO si no se llega a prod.
-- [ ] **[REP.2]** ⚠️ **BLOQUEADO — falta `pgvector` en `.245`.** Prod usa el tipo `vector` en **7
-  columnas** y una es `catalog.products.embedding` (14,807 productos): sin la extensión el
-  `pg_restore` falla al crear esa tabla, y `--use-list` puede omitir una tabla entera pero no una
-  columna. `.245` es PostgreSQL **18.4 x86_64-windows/MSVC** y de las 7 extensiones de prod le falta
-  exactamente ésa; su `C$` responde *Permission denied*, así que **no se puede instalar por red**:
-  va con RDP, 3 archivos, **versión 0.8.2** (la de prod), sin reiniciar Postgres. Pasos exactos en el
-  runbook §"Paso 1".
-  ⚠️ Al crearlo: `CREATE TABLESPACE … LOCATION 'D:\pgdata_replica'` da **42P17**; con `'D:/…'`
-  funciona. El tablespace y la base vacía que se crearon el 2026-09-08 se **borraron** — `.245` quedó
-  como estaba (`hr`, `platform_test`, `postgres`; tablespaces `pg_default`, `pg_global`,
-  `ts_platform_test`).
+- [x] **[REP.2]** ✅ 2026-09-09 — **pgvector 0.8.2 en `.245`, sin admin y sin reiniciar Postgres.**
+  Prod usa el tipo `vector` en **7 columnas** y una es `catalog.products.embedding` (14,807
+  productos): sin la extensión el `pg_restore` falla al crear esa tabla, y `--use-list` puede omitir
+  una tabla entera pero no una columna. `.245` es PG **18.4 x86_64-windows/MSVC** y era la única de
+  las 7 extensiones de prod que le faltaba; su `C$`/`admin$`/`D$` responden *Permission denied*.
+  **La salida fue `extension_control_path`, que PG18 estrenó**: se compiló en `.249` —que es
+  **el mismo build byte por byte**, `msvc-19.44.35226`—, se dejó el árbol en `D:\pgvector\`
+  (que sí se alcanza por el share) y se sumaron dos rutas con `ALTER SYSTEM` + SIGHUP. Ambas GUCs son
+  de contexto `superuser` y **aditivas** (conservan `$libdir`/`$system`), así que no hubo downtime ni
+  se cortó una conexión. Reversible con `ALTER SYSTEM RESET`.
+  **Cuatro cosas que sólo aparecieron midiendo:** (1) el layout **no es plano** — Postgres le agrega
+  `extension` a cada entrada del path, así que el árbol espeja `lib\` + `share\extension\`;
+  (2) `module_pathname` hay que pasarlo de `'$libdir/vector'` a `'vector'`, porque un nombre **con
+  barra** hace que Postgres salte `dynamic_library_path`; (3) el servicio de `.245` **sí lee** una
+  carpeta creada por SMB (verificado con `pg_read_file` *antes* de mover nada); (4) `.249` y `.245`
+  son el mismo build, que es lo que permitió no meter un compilador en el servidor compartido.
+  **Todo se ensayó primero contra el PG 18.4 nativo de `.249`** —y ahí fue donde salió lo del layout
+  plano—; el ensayo se revirtió entero. Verificación en `.245` sobre una base desechable: distancia
+  L2 = 5.1962 (=√27) e **índice HNSW sobre `vector(1024)`**, que es lo que usa prod.
+- [x] **[REP.2.1 / F1]** ✅ 2026-09-09 — `platform_replica` creada en `.245` sobre tablespace propio
+  `ts_platform_replica` → `D:/pgdata_replica` (839 GB libres; `C:` de `.245` no se midió, por eso la
+  base va explícita al tablespace y no al default). **Paridad de extensiones 8/8 con prod.**
+  ⚠️ `CREATE TABLESPACE … LOCATION 'D:\pgdata_replica'` da **42P17**; con `'D:/…'` funciona.
+  **`doctor` contra el destino real: 11/11.** Y en su primera corrida encontró un error de diseño
+  propio: el destino estaba pedido con `expect:'local'` y `.245` clasifica como `compartida` —
+  correctamente. La política de destino de un espejo no es *"tiene que ser mi localhost"* sino **"no
+  puede ser prod y tengo que reconocerlo"**, o sea `assertSafeTarget`; se reusa esa en vez de
+  duplicar una segunda política que después se desincroniza.
 - [ ] **[REP.3]** ⬜ siembra (`seed --core` / `--bulk`) + fixups (`app_runtime` sobre los ~20 schemas,
   RLS, ledger fantasma, `disableMigrationsListValidation`, scrub `--safe`).
 - [ ] **[REP.4]** ⬜ la cascada `:5433 → .245` — ⚠️ `FOR TABLES IN SCHEMA md`, **jamás**

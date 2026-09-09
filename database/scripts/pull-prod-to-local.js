@@ -229,8 +229,21 @@ async function doctor() {
   // La guarda aborta el proceso si algo no cuadra, así que llegar vivo ES el ✓.
   guard.assertTarget('pull-prod-to-local[origen]', { url: source, intent: 'read', expect: 'prod' });
   ok(true, 'origen clasifica como PROD');
-  guard.assertTarget('pull-prod-to-local[destino]', { url: target, intent: 'write', expect: 'local' });
-  ok(true, 'destino clasifica como LOCAL y no es prod');
+
+  // El destino se valida con `assertSafeTarget`, NO con `assertTarget(expect:'local')`.
+  //
+  // Lo primero que se escribió acá fue `expect:'local'`, y la primera corrida contra
+  // el destino real lo rechazó: la réplica vive en `.245`, que la guarda clasifica
+  // como `compartida` — correctamente, porque esa caja la ven los tres devs.
+  //
+  // La política del destino de un espejo no es "tiene que ser mi localhost", es
+  // **"no puede ser prod, y tengo que reconocerlo"**. `assertSafeTarget` ya expresa
+  // exactamente eso: aborta en `prod` y en `desconocido` (fail-closed), y deja pasar
+  // la compartida AVISANDO en cada corrida. Reusarla es preferible a duplicar acá una
+  // segunda política de destino que después se desincroniza de la del suite.
+  const destino = guard.assertSafeTarget('pull-prod-to-local[destino]', { url: target });
+  ok(true, `destino reconocido y no es prod (${destino.kind})`);
+
   guard.assertDistinct('pull-prod-to-local', source, target);
   ok(true, 'origen y destino son bases distintas (host:port/db)');
 
