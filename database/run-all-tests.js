@@ -133,6 +133,8 @@ const TESTS = [
   { file: 'http-cobranza-ws-test.js', label: 'COMM-P1 WS de cobranza (handshake JWT + auth_error con token inválido · attach/validate/reject emiten collection_deposit_changed con sucursal/folio/monto/actor · aislamiento entre tenants · limpia su evidencia)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
+  // FC Flotilla — derecho de uso + acta de asignación vehicular (formato en papel digitalizado)
+  { file: 'test-newdb-fleet-assignment.js', label: 'FC.1 asignación vehicular (candados: un solo derecho vigente por persona+unidad+carácter, el histórico convive, una unidad NO entregada a dos personas a la vez, folio único, vigencias coherentes, RLS forzado y la calificación M/R/B no acepta booleanos)', needsApi: false },
   // LT Rastreo de flota — el smoke existía desde la Fase LT y NUNCA estuvo
   // registrado acá: adapter, trackers, posiciones y alertas corrían sin red.
   { file: 'test-newdb-logistics-tracking.js', label: 'LT rastreo de flota (contrato en DB: RLS forzado + único parcial sólo sobre open → una alerta ack NO frena el duplicado, y el scanner debe buscar open|ack; el bloque contra MagniTracking es skip-graceful sin MAGNI_USER/PASS porque hace login real y escribe)', needsApi: false },
