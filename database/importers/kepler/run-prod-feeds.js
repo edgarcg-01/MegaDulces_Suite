@@ -334,13 +334,15 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
   const LOCAL = process.argv.includes('--local');
   const dst = process.env.DATABASE_URL_NEW || '';
-  const isRailway = /proxy\.rlwy\.net|railway/i.test(dst);
   const isLocal = dst === '' || /localhost|127\.0\.0\.1|192\.168\.|::1/i.test(dst);
-  // Por default solo-prod (evita pegarle a local sin querer). Pasá --local para poblar
-  // la DB de desarrollo (localhost/LAN); en ese caso EXIGE que el target NO sea Railway.
-  if (APPLY && !LOCAL && !isRailway) {
-    console.error('ABORT: --apply requiere DATABASE_URL_NEW=prod (Railway), o pasá --local para poblar dev. Actual: ' + (dst || '(vacío/default local)'));
-    process.exit(3);
+  // Por default solo-prod (evita pegarle a local sin querer). El chequeo del destino de PROD
+  // usa el guard canónico `assertProdTarget` (target-guard.js, ADR-056) en vez del `/railway/`
+  // inline de antes: `classify()` distingue prod de local/compartida/desconocido, así el
+  // incidente MR (escribir a `platform_test` creyendo que era prod) no se repite en NINGÚN
+  // prod-writer. Pasá --local para poblar dev; ahí EXIGE que el target NO sea Railway.
+  if (APPLY && !LOCAL) {
+    const { assertProdTarget } = require(path.join(__dirname, '../../../libs/platform-core/src/lib/provenance/target-guard.js'));
+    assertProdTarget('run-prod-feeds', { url: dst }); // aborta (exit 2) si el destino no clasifica como prod
   }
   if (APPLY && LOCAL && !isLocal) {
     console.error('ABORT: --local pero DATABASE_URL_NEW no es local/LAN (parece prod). Quitá --local o corregí el target. Actual: ' + dst);
