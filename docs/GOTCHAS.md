@@ -101,20 +101,38 @@ dbWork con SAVEPOINT.
 
 ---
 
-## 4. Permisos / authz — agregar un permiso son 6 touch-points
+## 4. Permisos / authz — agregar un permiso son 5 touch-points
 
-Al agregar un valor al enum `Permission`, si no lo mapeás en todos lados el endpoint tira
+Al agregar un valor al enum `Permission`, si no lo cableás en todos lados el endpoint tira
 `403 "No tienes los permisos dinámicos necesarios"` para todo rol sin `manage:all` (superadmin pasa siempre).
 
 1. **Backend enum** `libs/platform-core/.../constants/permissions.ts`.
-2. **Backend `ability.factory.ts`** — AMBOS mapas: `permissionToSubject` + `permissionToAction`. (Y el union
-   `AppSubject` en `ability.types.ts` si es un subject nuevo.)
-3. **Gate del endpoint** con `@RequirePermissions(Permission.X)`.
-4. **Frontend enum** `apps/view/.../core/constants/permissions.ts` (copia separada, mantener en sync).
-5. **Frontend** `permission-meta.ts` (label/description/category) + `authz-tree.ts` (para que aparezca como
+2. **Gate del endpoint** con `@RequirePermissions(Permission.X)`.
+3. **Frontend enum** `apps/view/.../core/constants/permissions.ts` (copia separada, mantener en sync).
+4. **Frontend** `permission-meta.ts` (label/description/category) + `authz-tree.ts` (para que aparezca como
    checkbox en `/admin/roles`).
-6. **Frontend gating del botón:** `perms.can('manage','all') || auth.user()?.permissions?.[Permission.X] === true`
+5. **Frontend gating del botón:** `perms.can('manage','all') || auth.user()?.permissions?.[Permission.X] === true`
    — el `manage:all` es **obligatorio** o los admin pierden el botón (su JSONB no enumera la clave nueva).
+
+> **Eran 6 hasta ADR-054 (2026-09-02), que retiró CASL.** El paso que decía *"Backend `ability.factory.ts` —
+> AMBOS mapas `permissionToSubject` + `permissionToAction`"* ya no existe: **el archivo fue borrado.** Si venís
+> leyendo esta receta y no lo encontrás, no está mal tu checkout. El gate es lookup por **clave exacta**.
+> Verificado el 2026-09-09: `ability.factory.ts` y `ability.types.ts` no existen en el repo, y la receta seguía
+> mandando a los dos desde acá, desde `ONBOARDING.md`, desde `CLAUDE_ONBOARDING.md` y desde
+> `TEAM_WORKING_MODEL.md`.
+
+**Hay 5 copias del enum, no 2.** `libs/platform-core` y `apps/view` tienen que estar a la par —lo exige
+`database/tests/test-newdb-authz-route-coverage.js`— y `apps/portal`, `apps/vendor` y `libs/shared-auth` son
+**subconjuntos a propósito** (no todo permiso del admin tiene sentido en el portal del cliente). Una clave
+admin-only toca 2 copias, no 5.
+
+**El 5º paso no siempre es un botón: a veces el gate va a nivel CAMPO.** Cuando el endpoint es compartido con
+otra operación legítima (el mismo `POST /users` da de alta personas y kioscos), un `@RequirePermissions` en la
+ruta cierra las dos. Ahí el gate vive en el service y mira lo que el request PIDE — el precedente es
+`assertCanAssignRole` / `assertCanSetDeviceSession` en `libs/trade/.../users.service.ts`, y
+`checkCatalogManageAccess()` en `catalogs.controller.ts`. Un gate así necesita **tres** aserciones, no dos: el
+403 sin la clave, el 201 con la clave, **y el 201 sin la clave para el request que no toca el campo gateado**.
+Sin la tercera, un gate de ruta pasaría el test igual.
 
 **El `RolesGuard` es EXACT-KEY** (`permissions[perm] === true`): un sub-permiso restrictivo (`COMPRAS_VALIDAR`)
 NO lo hereda quien tiene el hermano amplio (`COMPRAS_GESTIONAR`). Eso permite separar "validar" de "gestionar".
@@ -1541,3 +1559,28 @@ sin prueba negativa es una intención (ADR-056).
 Para aplicar UNA migración a prod (no `migrate:latest`, que arrastra las pendientes de otros):
 `node database/scripts/apply-one-migration-prod.js <archivo>` — ya existe, apunta a `FLEET_DB_URL`
 y tiene un `--list`.
+
+---
+
+## 39. Correr un importer A MANO mientras existe su tarea programada: te lo matan a los 13 min
+
+Lección de **CV.24**, escrita acá el 2026-09-09. Estaba citada en el CHANGELOG como
+"`GOTCHAS.md` §38" y **nunca se había escrito**: el §38 lo ocupó el incidente del lock de
+CH.1, así que la referencia apuntaba al vacío. Vivía sólo en la memoria personal de una
+sesión, que no se comparte entre máquinas — o sea, no existía para el equipo.
+
+**El síntoma engaña:** un `FATAL 57P01` (`terminating connection due to administrator
+command`) a los ~13 minutos de arrancar el backfill. Parece que Railway te cortó la
+conexión, y se pierde tiempo buscando límites del proveedor.
+
+**No es Railway: es nuestro propio barredor.** `scripts/kill-stale-feeds.ps1` corre
+programado y mata los procesos de feed que llevan mucho tiempo vivos, porque existe para
+levantar los que se cuelgan (§ del patrón de feeds on-prem). Un importer lanzado a mano se
+ve exactamente igual que un feed colgado.
+
+**Cómo se sale:** subir en **escalera** en vez de una corrida larga. El backfill de CV.24 se
+hizo en 30 → 90 → 180 → 260 días, para que ninguna pasada cruce el techo de los ~13 min.
+
+**Corolario:** antes de correr un importer a mano contra prod, mirá si tiene tarea programada.
+Y no confundas "el proceso murió" con "el proceso falló": el `57P01` no dice nada sobre si las
+filas que ya shipeó quedaron bien.
