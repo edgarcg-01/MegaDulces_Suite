@@ -3270,6 +3270,63 @@ export class CommercialAnalyticsService {
     const hit = map.get(String(vendorCode));
     return hit ?? { key: String(vendorCode ?? '·'), name: String(vendorName ?? vendorCode ?? 'Wincaja'), exclude: false };
   }
+
+  /**
+   * RV — índice de identidad por CÓDIGO DE RUTA vecinal (1V0NN/3V001), no por 'sucursal:código'.
+   * Los códigos vecinales de Kepler son GLOBALES (1V004=Yurécuaro en cualquier sucursal), pero el
+   * catálogo `kduv` está replicado y la venta se rocía entre varias sucursales → el mismo código
+   * salía como 4 columnas. Este índice (sólo entradas NO excluidas, p.ej. Candy 1V001/Rafael 1V002)
+   * deja resolver el nombre por ruta y fundir la fuga entre sucursales.
+   */
+  private buildRouteIdent(identMap: Map<string, { key: string; name: string; exclude: boolean }>): Map<string, { key: string; name: string; exclude: boolean }> {
+    const m = new Map<string, { key: string; name: string; exclude: boolean }>();
+    for (const [k, v] of identMap) {
+      if (v.exclude) continue; // una entrada excluida (purga) NO define la ruta
+      const parts = k.split(':');
+      if (parts.length === 2 && /^\d+V\d/i.test(parts[1])) m.set(parts[1].toUpperCase(), v);
+    }
+    return m;
+  }
+  private cleanVecinalName(name: any): string {
+    return String(name ?? 'Vecinal').replace(/\s+/g, ' ').replace(/\.+\s*$/, '').trim() || 'Vecinal';
+  }
+
+  /**
+   * Identidad de una fila del pivote por-vendedor. Tres reglas:
+   *   · RD (ruta): la identidad es la RUTA (almacén RUTA-2N) — Kepler no trae vendedor y se funde
+   *     con su yo Wincaja por warehouse_code.
+   *   · RV (preventa) Kepler (código 1V0NN/3V001, GLOBAL): la identidad es el CÓDIGO DE RUTA →
+   *     funde la fuga del mismo código entre sucursales (Yurécuaro 1V004 salía 4 veces).
+   *   · resto (mostrador/crédito, o RV Wincaja con código numérico por-sucursal): por PERSONA.
+   * `chan` acepta el sale_channel del pivote ('ruta_venta'/'preventa_vecinal') o el channel crudo
+   * del árbol ('ruta'/'preventa'). Devuelve null si es ruido o está excluido (se salta la fila).
+   */
+  private resolveByVendorId(
+    chan: string, vendorCode: any, vendorName: any, warehouseCode: any, branchName: any,
+    identMap: Map<string, { key: string; name: string; exclude: boolean }>,
+    routeIdent: Map<string, { key: string; name: string; exclude: boolean }>,
+  ): { key: string; name: string; exclude: boolean } | null {
+    if (chan === 'ruta_venta' || chan === 'ruta') {
+      const wc = warehouseCode || vendorCode;
+      if (this.isNoiseVendor(wc)) return null;
+      const v = this.canonVendor(identMap, wc, branchName || wc || 'Ruta');
+      return v.exclude ? null : v;
+    }
+    if (chan === 'preventa_vecinal' || chan === 'preventa') {
+      const raw = String(vendorCode ?? '');
+      const routeCode = raw.includes(':') ? raw.split(':')[1] : raw;
+      if (/^\d+V\d/i.test(routeCode)) {
+        const rc = routeCode.toUpperCase();
+        const ov = routeIdent.get(rc);
+        if (ov) return ov.exclude ? null : ov;
+        return { key: 'rv-' + rc.toLowerCase(), name: this.cleanVecinalName(vendorName), exclude: false };
+      }
+      // RV Wincaja (código numérico por-sucursal) → cae al camino por-persona de abajo.
+    }
+    if (this.isNoiseVendor(vendorCode)) return null;
+    const v = this.canonVendor(identMap, vendorCode, vendorName);
+    return v.exclude ? null : v;
+  }
   /**
    * RS.11b — ¿el vendedor NO aporta información (no es persona)? Regla objetiva: nulo/vacío,
    * o el código dentro de la sucursal es '00' (piso/mostrador) o '99' (traspaso). El
@@ -4122,19 +4179,13 @@ export class CommercialAnalyticsService {
     let grandCajas = 0, grandMonto = 0, grandMontoNeto = 0;
     // [U.7] Lo que no se pudo expresar en cajas, para declararlo en vez de dibujarlo.
     const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
+    const routeIdent = this.buildRouteIdent(identMap);
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
-      // RD (ruta): la identidad es la RUTA (almacén), no la persona. Kepler no trae vendedor en ruta
-      // (vendor_code vacío) y comparte warehouse_code con su predecesora Wincaja (RUTA-2N) → se
-      // funden en una camioneta continua (Wincaja hasta jun-2026 + Kepler jul+). Mostrador/crédito/
-      // preventa siguen keyeando por persona (vendor_code).
-      const isRoute = r.sale_channel === 'ruta_venta';
-      const idCode = isRoute ? (r.warehouse_code || r.vendor_code) : r.vendor_code;
-      const idName = isRoute ? (r.branch_name || r.warehouse_code || 'Ruta') : r.vendor_name;
-      // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
-      const vId = this.canonVendor(identMap, idCode, idName);
-      // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
-      if (vId.exclude || this.isNoiseVendor(idCode)) continue;
+      // Identidad por regla de canal: RD→ruta(almacén), RV Kepler→código de ruta (funde fuga entre
+      // sucursales), resto→persona. Devuelve null para ruido/excluido.
+      const vId = this.resolveByVendorId(r.sale_channel, r.vendor_code, r.vendor_name, r.warehouse_code, r.branch_name, identMap, routeIdent);
+      if (!vId) continue;
       const colKey = `${group}|${vId.key}`;
       if (cellFilter && !cellFilter.has(colKey.toLowerCase()) && !cellFilter.has(`${group}|*`)) continue;
       const uv = String(r.uv_win ?? '').trim().toUpperCase();
@@ -4275,17 +4326,19 @@ export class CommercialAnalyticsService {
       const bucket = map.get(g)!;
       if (!bucket.leaves.some((l) => l.code === id.key)) bucket.leaves.push({ code: id.key, name: id.name });
     };
+    const routeIdent = this.buildRouteIdent(identMap);
     let sinVend = 0;
     for (const r of rows as any[]) {
       const meta = GROUP[r.channel]; if (!meta) continue;
-      // RD (ruta): la identidad es la RUTA (almacén), no la persona (Kepler no trae vendedor).
-      const isRoute = r.channel === 'ruta';
-      const idCode = isRoute ? (r.warehouse_code || r.vendor_code) : r.vendor_code;
-      const idName = isRoute ? (r.branch_name || r.warehouse_code || 'Ruta') : r.vendor_name;
-      // RS.11b — fuera los que no son vendedor real; sólo Mayoreo expone el bucket 'sin-vendedor' (fix D).
-      if (this.isNoiseVendor(idCode)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
-      // RS.11 — identidad canónica: fragmentos del mismo vendedor (y su yo Wincaja/Kepler) colapsan a una hoja.
-      const id = this.canonVendor(identMap, idCode, idName);
+      // RD (ruta→almacén) y RV (vecinal Kepler→código de ruta): misma regla que el pivote.
+      if (r.channel === 'ruta' || r.channel === 'preventa') {
+        const id = this.resolveByVendorId(r.channel, r.vendor_code, r.vendor_name, r.warehouse_code, r.branch_name, identMap, routeIdent);
+        if (id) addLeaf(meta.g, meta.label, meta.ord, id);
+        continue;
+      }
+      // Mayoreo (crédito): ruido → bucket ÚNICO 'sin-vendedor' (fix D); si no, por persona.
+      if (this.isNoiseVendor(r.vendor_code)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
+      const id = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
       if (id.exclude) continue;
       addLeaf(meta.g, meta.label, meta.ord, id);
     }
