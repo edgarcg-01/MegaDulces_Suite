@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   IsArray,
   IsBoolean,
@@ -94,6 +94,17 @@ export class UserWriteDto {
 
   @ApiProperty({ description: 'Nombre completo', required: false })
   @IsOptional()
+  // `[ID.27]` Recorta bordes y colapsa espacios internos. No es cosmético: el
+  // nombre es la ÚNICA llave con la que hoy se cruza una credencial contra una
+  // persona (`analytics.vendor_identity` liga por nombre, sin `user_id`), así
+  // que un espacio de sobra parte a alguien en dos identidades. Medido en prod:
+  // 2 de 125 cuentas traían espacio al final —`diana_cortes` y
+  // `veronica_magana`— y **las dos** son justamente casos de persona con dos
+  // cuentas, o sea las filas que el backfill de la Etapa 3 tiene que aparear.
+  // Va en el DTO y no en el service porque hay 3 caminos de escritura.
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value,
+  )
   @IsString()
   @MaxLength(255)
   nombre?: string;
