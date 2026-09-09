@@ -269,7 +269,7 @@ const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // con
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
 // 00 incluido (oficinas/CEDIS-finanzas @9.95): first-class en el ODS. Sin su réplica local
 // kepler_md_00 todavía → cycleAll la salta ("no conecta — skip"); al crearla se activa sola.
-const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
+const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06,07').split(',').map((s) => s.trim()).filter(Boolean);
 const BRANCHES = BRANCH_CODES.map((code) => ({ code, url: localUrl(code) }));
 
 function mapType(dt) {
