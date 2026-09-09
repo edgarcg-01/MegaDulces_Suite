@@ -21,3 +21,5 @@ export * from './http/command-center.contract';
 export * from './http/provenance.contract';
 // [CH.1.10] Identidad: el tipo de cuenta y la duración de sesión de un dispositivo.
 export * from './http/identity.contract';
+// [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
+export * from './http/store.contract';

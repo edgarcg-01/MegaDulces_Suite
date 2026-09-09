@@ -30,3 +30,16 @@ export interface StoreAlert {
   data: Record<string, unknown>;
   emitted_at: string;
 }
+
+/**
+ * `[TDA.1]` — El aviso de cambio de precio de etiqueta vive en el vocabulario común
+ * (`@megadulces/contracts`), no acá: lo entienden el backend que lo emite y el frontend que lo
+ * consume, así que un cambio de forma tiene que ser error de compilación en los dos lados.
+ *
+ * Se re-exporta para que el módulo lo siga importando de `./store.types` como el resto.
+ *
+ * ⚠️ Deuda con nombre: `LiveTicket` y `StoreAlert` (arriba) siguen escritos DOS veces a mano —una
+ * acá y otra en `apps/view/.../tienda/store-socket.service.ts`. Retrofitearlos es otro pase; no se
+ * mezcla con esta feature para que el diff siga siendo legible.
+ */
+export type { LabelPricesChanged } from '@megadulces/contracts';

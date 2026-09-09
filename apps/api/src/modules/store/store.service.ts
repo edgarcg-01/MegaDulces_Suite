@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { StoreGateway } from './store.gateway';
-import { LiveTicket } from './store.types';
+import { LabelPricesChanged, LiveTicket } from './store.types';
 import { composeFreshness, evalInput, tableAt } from '@megadulces/platform-core';
 
 const TENANT = process.env.MEGA_DULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
@@ -118,6 +118,48 @@ export class StoreService {
       }
     }
     return { received: tickets.length, inserted };
+  }
+
+  /**
+   * `[TDA.1]` — Reemite por WS el aviso de que cambiaron precios de etiqueta.
+   *
+   * No escribe nada: el precio ya lo escribió `feeds-ingest` antes de avisar. Acá sólo se valida la
+   * forma y se empuja al room del tenant.
+   *
+   * El `tenant_id` se acepta del body pero se **ignora si no es el nuestro**: el endpoint es
+   * `@Public()` con llave de máquina, así que quien tenga la llave no debería poder emitirle a otro
+   * tenant. Con un solo tenant real esto es una guarda barata, no una restricción.
+   */
+  notifyLabelPricesChanged(body: {
+    tenant_id?: string;
+    product_ids?: string[];
+    total?: number;
+    truncated?: boolean;
+    at?: string;
+  }): { emitted: boolean; product_ids: number; total: number; truncated: boolean } {
+    const ids = Array.from(
+      new Set((Array.isArray(body?.product_ids) ? body.product_ids : []).filter((x) => typeof x === 'string' && x.length > 0)),
+    );
+    const tenant = body?.tenant_id && body.tenant_id !== TENANT ? null : TENANT;
+    if (!tenant) {
+      this.logger.warn(`label-prices-changed para un tenant ajeno (${body?.tenant_id}): se ignora.`);
+      return { emitted: false, product_ids: 0, total: 0, truncated: false };
+    }
+    // Un aviso sin ids no dice nada útil: la pantalla no sabría qué refrescar y un banner sin
+    // motivo se aprende a ignorar. Se descarta explícito en vez de emitir ruido.
+    if (!ids.length) return { emitted: false, product_ids: 0, total: Number(body?.total) || 0, truncated: false };
+
+    const total = Number.isFinite(Number(body?.total)) && Number(body?.total) > 0 ? Number(body?.total) : ids.length;
+    const truncated = body?.truncated === true || total > ids.length;
+    const payload: LabelPricesChanged = {
+      product_ids: ids,
+      total,
+      truncated,
+      at: typeof body?.at === 'string' ? body.at : new Date().toISOString(),
+    };
+    this.gateway.emitLabelPricesChanged(tenant, payload);
+    this.logger.log(`label_prices_changed → ${ids.length} producto(s)${truncated ? ` (de ${total}, recortado)` : ''}`);
+    return { emitted: true, product_ids: ids.length, total, truncated };
   }
 
   /**

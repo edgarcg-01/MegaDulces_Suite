@@ -24,6 +24,23 @@ export class StoreController {
     return this.service.ingest(body?.tickets || [], body?.emit !== false);
   }
 
+  /**
+   * `[TDA.1]` — El hop-2 de `feeds-ingest` avisa que cambiaron precios de etiqueta.
+   *
+   * Máquina-a-máquina con el MISMO header que la ingesta de tickets: no se estrena un secreto ni un
+   * mecanismo. Sólo reemite por WS — no escribe nada, porque el precio ya lo escribió quien avisa.
+   *
+   * Por qué existe: la cadena Kepler → base tarda segundos, pero la pantalla era 100 % pull y sólo
+   * consultaba al escanear. Una etiqueta ya en cola conservaba el precio viejo y se imprimía así.
+   */
+  @Public()
+  @UseGuards(StoreIngestGuard)
+  @Post('label-prices-changed')
+  @ApiOperation({ summary: 'TDA — aviso del hop-2: estos productos cambiaron de precio de etiqueta (reemite por WS /store).' })
+  labelPricesChanged(@Body() body: { tenant_id?: string; product_ids?: string[]; total?: number; truncated?: boolean; at?: string }) {
+    return this.service.notifyLabelPricesChanged(body);
+  }
+
   /** Snapshot inicial para el navegador al conectar (KPIs día + horas + últimos). */
   @Get('snapshot')
   @RequirePermissions(Permission.STORE_LIVE_VER)

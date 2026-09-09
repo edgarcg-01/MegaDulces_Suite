@@ -3,8 +3,12 @@ import { Subject } from 'rxjs';
 import { HttpClient } from '@angular/common/http';
 import { io, Socket } from 'socket.io-client';
 import { environment } from '../../../environments/environment';
-import type { Freshness } from '@megadulces/contracts';
+import type { Freshness, LabelPricesChanged } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
+
+// `[TDA.1]` Se reexporta para que la pantalla lo importe de acá (junto al servicio que lo emite) en
+// vez de tener que conocer el paquete de contratos.
+export type { LabelPricesChanged } from '@megadulces/contracts';
 
 export interface LiveTicketItem { sku: string; nombre: string; cant: number; importe: number; }
 export interface LiveTicket {
@@ -81,6 +85,13 @@ export class StoreSocketService {
    * este evento entra es porque le toca a ELLA. No trae montos a propósito.
    */
   readonly arqueoDue$ = new Subject<ArqueoDue>();
+  /**
+   * `[TDA.1]` — Cambió el precio de etiqueta de estos productos en Kepler.
+   *
+   * Va al room de TODO el tenant, no al de una sucursal: el precio de etiqueta es una fila por
+   * producto para toda la red. Es un AVISO — el precio nuevo se sigue pidiendo por HTTP.
+   */
+  readonly labelPricesChanged$ = new Subject<LabelPricesChanged>();
 
   snapshot(warehouse?: string) {
     const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
@@ -114,6 +125,7 @@ export class StoreSocketService {
     this.socket.on('ticket', (t: LiveTicket) => this.ticket$.next(t));
     this.socket.on('alert', (a: StoreAlert) => this.alert$.next(a));
     this.socket.on('arqueo_due', (a: ArqueoDue) => this.arqueoDue$.next(a));
+    this.socket.on('label_prices_changed', (p: LabelPricesChanged) => this.labelPricesChanged$.next(p));
   }
 
   disconnect(): void {
