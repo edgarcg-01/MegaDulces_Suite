@@ -6,6 +6,7 @@ import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ComercialService, ResolveHit, VoiceSlots, VoiceTurn } from '../comercial.service';
 import { VoiceDictationService } from '../voice-dictation.service';
+import { elegirVozLatina } from '../voz-latina';
 
 /**
  * **El asistente de caducidades: se le habla y llena el renglón.**
@@ -113,6 +114,23 @@ import { VoiceDictationService } from '../voice-dictation.service';
             }
           </div>
 
+          <!-- Sin esto el modo de falla es MUDO: si el equipo no tiene voz en
+               español, el navegador lee el texto español con una voz en inglés y
+               nadie entiende por qué suena así. No se arregla desde el código —
+               hay que instalar la voz en Windows — así que se dice. -->
+          @if (speaks() && vozUsada() && !vozEsEspanol()) {
+            <p class="evp-voz-warn" role="status">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              Este equipo no tiene voz en español: está leyendo con
+              <strong>{{ vozUsada() }}</strong>. Instalá la voz de
+              <strong>Español (México)</strong> en Windows y suena como debe.
+            </p>
+          } @else if (speaks() && vozUsada()) {
+            <p class="evp-voz-ok">
+              <i class="pi pi-volume-up" aria-hidden="true"></i> Voz: {{ vozUsada() }}
+            </p>
+          }
+
           @if (!dict.supported) {
             <p class="evp-hint evp-hint-warn">
               Este equipo no da acceso al micrófono (requiere HTTPS). Podés seguir capturando por escaneo o a mano.
@@ -171,6 +189,10 @@ import { VoiceDictationService } from '../voice-dictation.service';
       border: 1px solid var(--border-color); border-radius: var(--r-md, 8px);
       background: var(--card-bg); color: var(--text-muted); }
     .evp-mini:hover { border-color: var(--action); color: var(--action); }
+    .evp-voz-ok, .evp-voz-warn { margin: .35rem 0 0; display: flex; align-items: flex-start; gap: .4rem;
+      font-size: var(--fs-xs, .72rem); line-height: 1.35; }
+    .evp-voz-ok { color: var(--c-text-3, var(--text-muted)); }
+    .evp-voz-warn { color: var(--tone-warn, var(--text-muted)); max-width: 60ch; }
     @keyframes evp-pulse { 0%, 100% { box-shadow: 0 0 0 0 var(--action-ring); } 50% { box-shadow: 0 0 0 6px var(--action-ring); } }
     @media (prefers-reduced-motion: reduce) { .evp-mic.rec { animation: none; } }
   `],
@@ -195,6 +217,17 @@ export class ExpiryVoicePanelComponent implements OnDestroy {
   /** El asistente contesta en voz alta (se puede silenciar; queda por sesión). */
   readonly speaks = signal(true);
 
+  /**
+   * Qué voz quedó elegida, para mostrarla. Existe porque el modo de falla de
+   * `speechSynthesis` es MUDO y engañoso: si el equipo no tiene ninguna voz en
+   * español, pedir `lang='es-MX'` no falla — Windows lee el texto español con
+   * una voz en INGLÉS (y la default suele ser masculina). Se oye mal y nadie
+   * sabe por qué. Mejor decirlo.
+   */
+  readonly vozUsada = signal<string | null>(null);
+  readonly vozEsEspanol = signal(true);
+  private vozElegida: SpeechSynthesisVoice | null = null;
+
   readonly micLabel = computed(() => {
     if (this.dict.recording()) return `Escuchando… ${this.dict.seconds()}s`;
     if (this.dict.transcribing()) return 'Transcribiendo…';
@@ -211,6 +244,17 @@ export class ExpiryVoicePanelComponent implements OnDestroy {
   toggleOpen(): void {
     this.open.update((v) => !v);
     if (!this.open()) this.dict.cancel();
+    // Al ABRIR se resuelve la voz, no al hablar. Si se dejaba para el primer
+    // `say()`, el aviso de "este equipo no tiene voz en español" aparecía
+    // DESPUÉS de que ya se escuchó la voz equivocada — enterarse tarde de algo
+    // que se podía avisar antes.
+    else this.prepararVoz();
+  }
+
+  /** Resuelve la voz sin hablar, sólo para poder mostrar cuál va a usar. */
+  private prepararVoz(): void {
+    const synth = (window as any).speechSynthesis as SpeechSynthesis | undefined;
+    if (synth) this.resolverVoz(synth);
   }
 
   /** Manda al asistente lo transcrito y aplica lo que entendió. */
@@ -270,15 +314,58 @@ export class ExpiryVoicePanelComponent implements OnDestroy {
    */
   private say(text: string): void {
     if (!this.speaks() || !text) return;
-    const synth = (window as any).speechSynthesis;
+    const synth = (window as any).speechSynthesis as SpeechSynthesis | undefined;
     if (!synth) return;
     try {
       synth.cancel(); // que no se encimen dos respuestas
       const u = new SpeechSynthesisUtterance(text);
       u.lang = 'es-MX';
-      u.rate = 1.05;
+      // Voz EXPLÍCITA. Con solo `lang` el navegador elige, y elige mal: agarra
+      // la default del sistema (masculina en inglés en un Windows sin español).
+      const v = this.resolverVoz(synth);
+      if (v) u.voice = v;
+      u.rate = 1.03;
+      u.pitch = 1.05; // apenas arriba: se entiende mejor en un pasillo con ruido
       synth.speak(u);
     } catch { /* sin voz instalada: el texto ya está en pantalla */ }
+  }
+
+  /**
+   * Elige la voz **femenina latina** disponible, o la menos mala.
+   *
+   * `getVoices()` depende del SISTEMA y del navegador, no de nosotros: no hay
+   * una lista fija que se pueda hardcodear. Así que se puntúa lo que haya:
+   *
+   *   1. **Región**: `es-MX` primero; después el resto de Latinoamérica
+   *      (`es-US`, `es-419`, `es-CO`…). `es-ES` PIERDE puntos — es español, pero
+   *      el acento peninsular no es lo que se pidió.
+   *   2. **Sexo de la voz**: el API no lo expone (no hay `v.gender`), así que se
+   *      infiere del nombre. Las femeninas de es-MX son *Sabina* (Windows) y
+   *      *Dalia* (Azure/Edge); las masculinas *Raúl* y *Jorge* restan.
+   *   3. **Proveedor**: las de Google/Microsoft en la nube suenan bastante mejor
+   *      que las locales viejas, así que suman un poco.
+   *
+   * Si no hay NINGUNA voz española, devuelve null y marca `vozEsEspanol=false`
+   * para que la pantalla lo diga: no hay forma de arreglar eso desde el código.
+   */
+  private resolverVoz(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+    if (this.vozElegida) return this.vozElegida;
+
+    const todas = synth.getVoices();
+    // Las voces cargan ASÍNCRONAS: la primera llamada suele devolver []. Se
+    // reintenta cuando el navegador avisa, en vez de resignarse a la default.
+    if (!todas.length) {
+      synth.addEventListener?.('voiceschanged', () => this.resolverVoz(synth), { once: true });
+      return null;
+    }
+
+    // La decisión (qué acento, qué voz es de mujer) vive en `voz-latina.ts`,
+    // pura y con tests. Acá sólo queda lo que es del navegador.
+    const r = elegirVozLatina(todas);
+    this.vozEsEspanol.set(r.esEspanol);
+    this.vozUsada.set(r.etiqueta);
+    this.vozElegida = (r.voz as SpeechSynthesisVoice) || null;
+    return this.vozElegida;
   }
 
   /** "3 cajas" o el placeholder. Fuera del template: concatenar un `number|null`
