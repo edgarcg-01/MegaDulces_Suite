@@ -22,6 +22,9 @@ export const KEPLER_BRANCH_NAMES: Readonly<Record<string, string>> = Object.free
   // Canindo pasó a tener sucursal Kepler propia (`md_06`) desde el 2026-08-15; antes sólo
   // existía del lado Wincaja ('50', que se conserva abajo para los registros previos).
   '06': 'Canindo',
+  // Morelia Madero pasó a tener sucursal Kepler propia (`md_07`) desde el 2026-09-08; antes sólo
+  // existía del lado Wincaja ('32', que se conserva abajo para los registros previos al cutover).
+  '07': 'Morelia Madero',
   // Wincaja (mostrador)
   '30': 'Morelia Abastos',
   '32': 'Morelia Madero',
