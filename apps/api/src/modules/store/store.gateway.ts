@@ -7,7 +7,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
-import { LiveTicket, StoreAlert } from './store.types';
+import { LabelPricesChanged, LiveTicket, StoreAlert } from './store.types';
 
 /**
  * Gateway WS del proyecto Tienda (monitor de tickets en vivo).
@@ -51,6 +51,12 @@ export class StoreGateway implements OnGatewayConnection, OnGatewayDisconnect {
     // todas y en dos días nadie lo miraría. El username ES el código de cajera de
     // Kepler, así que la llave del aviso y la del turno son la misma.
     if (payload?.username) client.join(`tenant:${tenantId}:user:${String(payload.username).toUpperCase()}`);
+    // `[TDA.1]` Room de TODO el tenant, además del de sucursal. Hace falta porque los dos de arriba
+    // son EXCLUYENTES: quien tiene `warehouse_code` entra sólo al room de su sucursal y NO al del
+    // tenant. Para un ticket eso está bien (es de una sucursal), pero el precio de etiqueta es UNA
+    // fila por producto para toda la red — emitirlo a `tenant:<id>` se saltearía exactamente al
+    // personal de tienda, que es quien imprime.
+    client.join(`tenant:${tenantId}:all`);
     client.data = { tenantId, userId: payload.sub, username: payload.username, warehouse };
     if (!this.tenantSockets.has(tenantId)) this.tenantSockets.set(tenantId, new Set());
     this.tenantSockets.get(tenantId)!.add(client.id);
@@ -77,6 +83,21 @@ export class StoreGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.server.to(`tenant:${tenantId}`).emit('alert', alert);
     const wh = alert?.data?.warehouse_code;
     if (wh) this.server.to(`tenant:${tenantId}:wh:${wh}`).emit('alert', alert);
+  }
+
+  /**
+   * `[TDA.1]` — El precio de etiqueta de estos productos cambió en Kepler.
+   *
+   * Va al room de TODO el tenant porque el precio de etiqueta es una fila por producto para toda la
+   * red (`commercial.product_label_prices` tiene UNIQUE por `(tenant_id, product_id)`, no por
+   * sucursal), así que el cambio le importa a cualquier pantalla que tenga ese producto en cola.
+   *
+   * Lo dispara el hop-2 de `feeds-ingest` vía `POST /store/live/label-prices-changed`: es el mismo
+   * camino máquina-a-máquina del poller de tickets, con el mismo `x-store-ingest-key`.
+   */
+  emitLabelPricesChanged(tenantId: string, payload: LabelPricesChanged): void {
+    if (!this.server) return;
+    this.server.to(`tenant:${tenantId}:all`).emit('label_prices_changed', payload);
   }
 
   /**

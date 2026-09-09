@@ -23,6 +23,15 @@ Feeds soportados hoy: `stock-delta` (piloto). Agregar más = registrar un handle
 | `FEEDS_INGEST_KEY` | Secreto del header `X-Ingest-Key`. Generar aleatorio; NUNCA hardcodear. |
 | `PORT` | Lo inyecta Railway. Default 8080. |
 | `MAX_BODY_MB` | Tope de body gzip. Default 32. |
+| `STORE_NOTIFY_URL` | **`[TDA.1]`** Base del API al que se le avisa que cambió un precio de etiqueta (`POST /store/live/label-prices-changed`). Usar la URL **interna** del API (`*.railway.internal`) — es el mismo criterio que `DATABASE_URL_NEW`: interno = gratis. **Sin esto el aviso es un no-op** y la etiquetera vuelve a enterarse sólo al siguiente escaneo (lo declara en el log, una vez). |
+| `STORE_INGEST_KEY` | **`[TDA.1]`** El **mismo** secreto que ya usa el API para el `StoreIngestGuard` (header `x-store-ingest-key`). No se genera uno nuevo: es la misma puerta máquina-a-máquina del poller de tickets. |
+| `STORE_NOTIFY_TIMEOUT_MS` | Tope de espera del aviso. Default 3000. El aviso corre dentro del POST del carril @15 s, así que un API que no contesta **no puede** quedarse colgado ahí. |
+| `STORE_NOTIFY_MAX_IDS` | Cuántos `product_id` van por aviso. Default 500. Pasado el tope se manda `truncated: true` y la pantalla refresca toda su cola en vez de creerle a una lista parcial. |
+
+> **El aviso es fail-OPEN a propósito.** Si el API no contesta, el precio ya quedó guardado —lo
+> escribió el hop-2 antes de avisar— y la pantalla lo verá en el próximo escaneo, que es el
+> comportamiento de siempre. Un aviso caído nunca puede tumbar el carril que alimenta precio,
+> costo, margen y reorden. Medido en `database/tests/test-newdb-label-price-notify.js` (22/22).
 
 ## Deploy en Railway (mismo proyecto que el API/Postgres)
 

@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, ElementRef, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, signal } from '@angular/core';
-import { rxResource } from '@angular/core/rxjs-interop';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { MultiSelectModule } from 'primeng/multiselect';
@@ -11,6 +11,8 @@ import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
+// `[TDA.1]` El aviso en vivo de que un precio cambió en Kepler.
+import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
 
 /** `freshness` = la edad del precio en el momento en que ESTE ítem se resolvió. Viaja con él. */
 interface QueueItem { model: LabelModel; copies: number; hero: HeroKey; freshness: Freshness | null; }
@@ -96,6 +98,21 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-stale > div{ display:flex; flex-direction:column; gap:.15rem; }
     .etqp-stale strong{ font-weight:600; }
     .etqp-stale span{ opacity:.85; font-size: var(--fs-xs,.72rem); }
+
+    /* [TDA.1] El precio de algo en la cola cambio en Kepler, en vivo.
+       Deliberadamente INFO y no warn: no es que el precio este mal, es que hay uno mas nuevo y
+       aca esta el boton. El aviso de rezago (warn, arriba) dice otra cosa -- "no se sabe si esto
+       es vigente" -- y mezclar los dos colores borraria la diferencia. */
+    .etqp-changed{ display:flex; align-items:center; gap:.6rem; padding:.6rem .75rem;
+      border-radius: var(--r-sm); font-size: var(--fs-sm,.85rem);
+      border:1px solid var(--info-soft-bg, var(--action-ring)); background: var(--info-soft-bg, var(--action-ring));
+      color: var(--info-soft-fg, var(--text-main)); }
+    .etqp-changed > i{ font-size:1.05rem; }
+    .etqp-changed > div{ display:flex; flex-direction:column; gap:.15rem; flex:1; min-width:0; }
+    .etqp-changed strong{ font-weight:600; }
+    .etqp-changed span{ opacity:.85; font-size: var(--fs-xs,.72rem); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    /* La fila que cambio, marcada en la tabla: el banner dice cuantas, esto dice cuales. */
+    .etqp-row-changed{ box-shadow: inset 3px 0 0 var(--action); }
 
     /* ── Escaneo rápido (pistola): auto-agrega al Enter ──────
        §14 Mostrador/POS: campo de captura keyboard-first, sin borde propio (el borde/foco
@@ -278,6 +295,39 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
         }
       }
 
+      <!--
+        [TDA.1] El precio de algo que ya esta en la cola cambio en Kepler, en vivo.
+
+        Es un aviso ACCIONABLE y no un reemplazo automatico: si la fila se actualizara sola,
+        alguien parado frente a la impresora veria cambiar el numero bajo los pies y no sabria si
+        imprimio el viejo o el nuevo. El operador decide, igual que con el aviso de rezago.
+
+        Cuando el aviso viene recortado (cambio masivo de catalogo) NO se puede decir cuales
+        cambiaron: se dice eso, y el boton refresca toda la cola. Una lista parcial presentada como
+        completa daria por buenas las filas que no aparecen.
+      -->
+      @if (cambiadosEnCola().length || avisoTruncado()) {
+        <div class="etqp-changed" role="status">
+          <i class="pi pi-sync"></i>
+          <div>
+            @if (avisoTruncado()) {
+              <strong>Cambiaron precios en Kepler (cambio masivo).</strong>
+              <span>No se puede decir cuales de tu cola: conviene actualizar todo antes de imprimir.</span>
+            } @else {
+              <strong>
+                {{ cambiadosEnCola().length }}
+                {{ cambiadosEnCola().length === 1 ? 'etiqueta de tu cola cambio' : 'etiquetas de tu cola cambiaron' }}
+                de precio en Kepler.
+              </strong>
+              <span>{{ nombresCambiados() }}</span>
+            }
+          </div>
+          <p-button size="small" [text]="true" icon="pi pi-refresh"
+            [label]="refrescando() ? 'Actualizando...' : 'Actualizar'"
+            [disabled]="refrescando()" (onClick)="refrescarPrecios()" />
+        </div>
+      }
+
       <div class="etqp-scanbar">
         <i class="pi pi-qrcode"></i>
         <input #scanInput type="text" inputmode="numeric" autocomplete="off" autofocus
@@ -333,7 +383,8 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
                 </tr>
               </ng-template>
               <ng-template #body let-it let-i="rowIndex">
-                <tr>
+                <!-- [TDA.1] El banner dice CUANTAS cambiaron; esta marca dice CUALES. -->
+                <tr [class.etqp-row-changed]="filaCambiada(it)">
                   <td>
                     <div class="etqp-qname">
                       <span class="nm" [title]="it.model.name">{{ it.model.name }}</span>
@@ -401,6 +452,106 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
 })
 export class TiendaEtiquetasComponent {
   private readonly svc = inject(EtiquetasService);
+  private readonly socket = inject(StoreSocketService);
+  private readonly destroyRef = inject(DestroyRef);
+
+  // ── `[TDA.1]` El precio cambió mientras la pantalla estaba abierta ──────────
+  //
+  // Hasta acá esta pantalla era 100% pull: consultaba el precio SÓLO cuando el operador escaneaba,
+  // y la frescura viajaba congelada pegada a cada ítem. Si se corregía un precio en Kepler con
+  // etiquetas ya en cola, esas filas conservaban el precio viejo **y se imprimían así**. Es el
+  // incidente del SKU 88222 visto desde la pantalla.
+  //
+  // La cadena hasta la base ya era rápida (carril hash @15 s + hop-2 sincrónico); lo que faltaba
+  // era el último tramo. Ahora el hop-2 avisa y esto escucha.
+
+  /** `product_id` de la cola cuyo precio cambió y todavía no se refrescó. */
+  private readonly precioCambiado = signal<ReadonlySet<string>>(new Set());
+  /**
+   * El aviso vino recortado: no se puede decir CUÁLES de la cola cambiaron.
+   *
+   * Se guarda aparte del set a propósito. Tratar "no sé cuáles" como "ninguno" sería el mismo
+   * error que esta pantalla ya cometió una vez con la frescura (`unknown` llegando como
+   * `stale: false` y el aviso callado).
+   */
+  readonly avisoTruncado = signal(false);
+  readonly refrescando = signal(false);
+
+  private marcarCambiados(p: LabelPricesChanged): void {
+    if (p?.truncated) { this.avisoTruncado.set(true); return; }
+    const ids = new Set(Array.isArray(p?.product_ids) ? p.product_ids : []);
+    if (!ids.size) return;
+    // Sólo interesa lo que está EN LA COLA: avisar por un producto que nadie va a imprimir es
+    // ruido, y un banner que suena sin motivo se aprende a ignorar.
+    const enCola = new Set(this.queue().map((it) => it.model.product_id).filter((id) => ids.has(id)));
+    if (!enCola.size) return;
+    this.precioCambiado.update((prev) => new Set([...prev, ...enCola]));
+  }
+
+  /** Las filas de la cola cuyo precio cambió. Con aviso recortado, son todas. */
+  readonly cambiadosEnCola = computed<QueueItem[]>(() => {
+    const q = this.queue();
+    if (this.avisoTruncado()) return q;
+    const ids = this.precioCambiado();
+    return q.filter((it) => ids.has(it.model.product_id));
+  });
+
+  /** ¿ESTA fila cambió? Se usa para marcarla en la tabla, no sólo en el banner. */
+  filaCambiada(it: QueueItem): boolean {
+    return this.avisoTruncado() || this.precioCambiado().has(it.model.product_id);
+  }
+
+  readonly nombresCambiados = computed(() => {
+    const n = this.cambiadosEnCola().map((it) => it.model.name);
+    return n.length <= 3 ? n.join(' · ') : `${n.slice(0, 3).join(' · ')} y ${n.length - 3} más`;
+  });
+
+  /**
+   * Re-resuelve los productos afectados y reemplaza su modelo en la cola, conservando las copias y
+   * el hero que el operador ya eligió — perder eso lo obligaría a rearmar el lote.
+   *
+   * Se re-resuelve por el MISMO camino que el escaneo (`resolve`), no por un endpoint nuevo: así el
+   * precio refrescado pasa por la misma reconciliación y trae su propia frescura medida.
+   */
+  refrescarPrecios(): void {
+    const objetivo = this.cambiadosEnCola();
+    if (!objetivo.length || this.refrescando()) return;
+    // El código con el que se resolvió cada ítem; si no viaja, el sku sirve igual.
+    const codes = Array.from(new Set(objetivo.map((it) => it.model.code || it.model.sku).filter((c): c is string => !!c)));
+    if (!codes.length) {
+      this.msg.set({ text: 'No se puede refrescar: estas filas no traen con qué volver a buscarlas.', kind: 'warn' });
+      return;
+    }
+    this.refrescando.set(true);
+    this.svc.resolve(codes).subscribe({
+      next: (r) => {
+        this.lastFreshness.set(r.freshness ?? null);
+        const porId = new Map((r.labels || []).map((l) => [l.product_id, l]));
+        this.queue.update((q) => q.map((it) => {
+          const fresco = porId.get(it.model.product_id);
+          if (!fresco || !this.usable(fresco)) return it;
+          // Se conserva `scanned_unit` del original: define el hero y no viene de este resolve.
+          return { ...it, model: { ...fresco, scanned_unit: it.model.scanned_unit }, freshness: r.freshness ?? null };
+        }));
+        const refrescados = (r.labels || []).filter((l) => porId.has(l.product_id) && this.usable(l)).length;
+        // Sólo se limpian los que de verdad volvieron: si uno no vino, su marca se queda puesta.
+        this.precioCambiado.update((prev) => {
+          const next = new Set(prev);
+          for (const l of r.labels || []) if (this.usable(l)) next.delete(l.product_id);
+          return next;
+        });
+        if (this.avisoTruncado() && codes.length === objetivo.length) this.avisoTruncado.set(false);
+        this.msg.set({ text: `Precios actualizados: ${refrescados} de ${objetivo.length}.`, kind: refrescados === objetivo.length ? 'ok' : 'warn' });
+        this.refrescando.set(false);
+      },
+      error: (e) => {
+        // Falla el refresco: la marca NO se limpia. Que quede el aviso puesto es lo correcto —
+        // seguimos sin saber si el precio de la cola es el vigente.
+        this.msg.set({ text: this.httpMsg('Actualizar precios', e), kind: 'error' });
+        this.refrescando.set(false);
+      },
+    });
+  }
 
   @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
   @ViewChild('printSheet') printSheet?: ElementRef<HTMLElement>;
@@ -465,6 +616,16 @@ export class TiendaEtiquetasComponent {
     });
     // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
     afterNextRender(() => this.checkPrintGuard());
+
+    // `[TDA.1]` El aviso en vivo de que un precio de la cola cambió en Kepler.
+    //
+    // Conecta y NO desconecta, igual que el aviso de arqueo (`arqueo-due.service.ts`). El socket es
+    // singleton de root y `tienda-state` lo administra con un refcount que llama `disconnect()` al
+    // llegar a cero: un `disconnect()` desde acá le cortaría el socket a los otros consumidores.
+    this.socket.connect();
+    this.socket.labelPricesChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((p) => this.marcarCambiados(p));
   }
 
   totalLabels = computed(() => this.queue().reduce((s, it) => s + (it.copies || 0), 0));

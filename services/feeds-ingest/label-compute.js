@@ -178,8 +178,20 @@ const DATA_COLS = LABEL_STAGE_COLS.slice(1);
  * UPSERT churn-free a commercial.product_label_prices. El caller ya hizo BEGIN + SET LOCAL app.tenant_id.
  * NUNCA pisa source='manual'. Solo reescribe si algún dato cambió (IS DISTINCT FROM) → sin churn aunque
  * kdii tickee seguido. Devuelve filas cambiadas.
+ *
+ * `changedOut` (opcional) — array donde se empujan los `product_id` que REALMENTE cambiaron, para que
+ * el caller pueda avisarle a las pantallas cuáles refrescar (`[TDA.1]`).
+ *
+ * Es un parámetro de salida y no un cambio del retorno a propósito: los dos llamadores
+ * (`apply-handlers.normalizeLabelsFromOds` y `database/importers/kepler/import-label-data.js`) usan el
+ * retorno como NÚMERO, y el segundo es un importer que corre on-prem desde el working tree — o sea que
+ * cambiarle el tipo de retorno es un cambio en producción en el momento de guardar el archivo. Un
+ * cuarto argumento que nadie pasa no le mueve nada a los llamadores viejos.
+ *
+ * `RETURNING product_id` es gratis acá: el UPSERT ya tiene el `WHERE ... IS DISTINCT FROM`, así que
+ * devuelve exactamente las filas que se escribieron, no las que se intentaron.
  */
-async function upsertLabels(client, tenantId, tuples, BATCH = 1000) {
+async function upsertLabels(client, tenantId, tuples, BATCH = 1000, changedOut = null) {
   if (!tuples.length) return 0;
   await client.query(`CREATE TEMP TABLE stg_label (
     product_id uuid, content text, barcode text, barcode_format text,
@@ -208,7 +220,9 @@ async function upsertLabels(client, tenantId, tuples, BATCH = 1000) {
     ON CONFLICT (tenant_id, product_id) DO UPDATE SET
       ${setList}, source='kepler', computed_at=now(), updated_at=now()
     WHERE commercial.product_label_prices.source <> 'manual'
-      AND (${tTuple}) IS DISTINCT FROM (${eTuple})`, [tenantId]);
+      AND (${tTuple}) IS DISTINCT FROM (${eTuple})
+    RETURNING product_id`, [tenantId]);
+  if (Array.isArray(changedOut)) for (const r of up.rows) changedOut.push(r.product_id);
   return up.rowCount;
 }
 

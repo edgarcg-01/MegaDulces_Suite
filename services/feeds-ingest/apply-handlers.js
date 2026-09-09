@@ -17,6 +17,8 @@
 const { buildSalesDailySrc } = require('./sales-daily-projection');
 const { buildMovementsSelect, SM_COLS } = require('./movements-projection');
 const { computeLabels, toStageTuple, upsertLabels } = require('./label-compute');
+// `[TDA.1]` Aviso a las pantallas de que un precio de etiqueta cambió. Fail-open por diseño.
+const { notifyLabelPricesChanged } = require('./notify-store');
 const { computeBarcodes } = require('./barcode-compute');
 const { normalizeCost, normalizeReorder, normalizeBoxFactor, normalizeBoxPrice, normalizeSalePrice } = require('./ods-derived');
 
@@ -597,8 +599,18 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
       seen.add(pid);
       tuples.push(toStageTuple(lab, pid));
     }
-    const changed = await upsertLabels(client, tenantId, tuples);
+    // `[TDA.1]` Se capturan los product_id que REALMENTE cambiaron (el UPSERT es churn-free, así que
+    // esto no son "los que se intentaron" sino "los que se escribieron").
+    const cambiados = [];
+    const changed = await upsertLabels(client, tenantId, tuples, 1000, cambiados);
     await client.query('COMMIT');
+    // El aviso va DESPUÉS del COMMIT y a propósito sin `await`: es un aviso, no el dato. Si el API
+    // no contesta, el precio ya quedó guardado y la pantalla lo verá al siguiente escaneo — el
+    // comportamiento de siempre. Bloquear el hop-2 por un aviso le sumaría latencia a un carril que
+    // corre cada 15 s, y hacerlo fallar cambiaría un problema chico por uno grande.
+    if (cambiados.length) {
+      notifyLabelPricesChanged(tenantId, cambiados).catch(() => { /* fail-open, ya loguea adentro */ });
+    }
     return changed;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
