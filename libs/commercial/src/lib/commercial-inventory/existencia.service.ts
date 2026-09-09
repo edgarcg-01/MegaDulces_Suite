@@ -22,6 +22,36 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * 53,223 con 15 unidades apartadas** (almacén 02). Traer la tabla que miente para eso sería un
  * mal trato. La ausencia del apartado se DECLARA en la pantalla, no se disimula.
  *
+ * ⭐ EL COSTO — KE.2 (2026-09-08): sale del MISMO ERP y del MISMO ALMACÉN que la cantidad.
+ *
+ * Hasta acá la existencia se valuaba con `COALESCE(p.cost_with_tax, p.cost_base, 0)`: un costo por
+ * PRODUCTO, global, en la unidad en que el catálogo lo tenga. Kepler trae SU costo unitario por
+ * **sucursal × SKU** (`kdik.c16`) — al mismo grano que la cantidad — y nadie lo usaba para esto.
+ * Contrastados en prod sobre 16,391 filas comparables:
+ *
+ *     mediana cost_base     / kdik.c16 = 1.0000   pega ±2% en 11,877 (72.46%)
+ *     mediana cost_with_tax / kdik.c16 = 1.0800   pega ±2% en  3,230 (19.71%)
+ *
+ * O sea `cost_base` ES el costo de Kepler, y esta pantalla publicaba **con impuesto**. Con la
+ * mediana en 1.0000 exacto el agregado difería 13.2%, porque la discrepancia está CONCENTRADA:
+ *
+ *     el IMPUESTO, en las filas donde el costo YA coincide  $2,795,095   (razón 1.0983)
+ *     el FACTOR DE CAJA, en 273 filas de granel            $2,025,427
+ *     brecha total sobre $42.7M publicados                 $5,642,385   (13.21%)
+ *
+ * Las razones de esas 273 son 16.2 · 21.6 · 20.0 · 14.0 · 32.0 · 31.4 — factores, no precios. Y los
+ * nombres cierran el caso: ROLLO GUAYABA CHICO GRANEL · CHOC HERSHEY BARRA GRANEL 14KG · TURIN
+ * CONF SEMIAMARGO 16KG. `cost_base` viene por BULTO; `c16` por pieza o kilo (ADR-051, ADR-055).
+ *
+ * El costo se LEE de `analytics.v_kepler_unit_cost`, no se re-deriva acá: un primitivo con dos
+ * implementaciones es un primitivo que va a divergir. Esa vista aplica el ANTI-RÉPLICA que `kdik`
+ * exige (3,667 de 31,084 filas traen el costo de OTRA sucursal; sin el filtro el valor se mueve
+ * $864,270). El veredicto por fila vive en `analytics.v_erp_stock_truth`.
+ *
+ * ⚠️ WINCAJA NO CAMBIA — decisión explícita de Edgar ("solo hay que enfocarnos en kepler"). Sus
+ * celdas siguen con `COALESCE(cost_with_tax, cost_base)`. Por eso las dos mitades del inventario
+ * se valúan con criterios distintos HOY, y `celdas_sin_costo_erp` lo declara en vez de callarlo.
+ *
  * ⚠️ EL COSTO DE ESTA CONSULTA YA SE PAGÓ UNA VEZ. El primer prototipo dio 4,435 ms; los joins
  * no eran el problema (332 ms los cuatro) sino el pivot `jsonb` sobre los 9,860 productos. La
  * receta que la baja a ~800 ms, y hay que respetarla:
@@ -180,7 +210,14 @@ export class ExistenciaService {
                  rp.rung_veredicto, rp.rung_bf_esperado, rp.rung_arbitrado,
                  ${BUCKET} AS bucket,
                  p.sku, p.nombre,
-                 COALESCE(p.cost_with_tax, p.cost_base, 0) AS cu
+                 -- KE.2 — el costo sale del MISMO ERP y del MISMO almacen que la cantidad.
+                 -- Ver la nota EL COSTO en el encabezado del archivo.
+                 COALESCE(kc.costo_unitario,
+                          CASE WHEN s.source = 'kepler_ods' THEN p.cost_base
+                               ELSE COALESCE(p.cost_with_tax, p.cost_base) END, 0) AS cu,
+                 CASE WHEN kc.costo_unitario IS NOT NULL      THEN 'erp'
+                      WHEN s.source = 'kepler_ods'            THEN 'catalogo_neto'
+                      ELSE                                         'catalogo' END AS cu_source
             FROM analytics.v_erp_stock_on_hand s
             JOIN catalog.products p
                  ON p.tenant_id = s.tenant_id AND p.id = s.product_id
@@ -198,6 +235,13 @@ export class ExistenciaService {
             LEFT JOIN commercial.reorder_policy pol
                  ON pol.tenant_id = s.tenant_id AND pol.warehouse_id = s.warehouse_id
                 AND pol.product_id = s.product_id
+            -- KE.2 — el costo propio de Kepler por almacen x producto. Se LEE de la vista, no se
+            -- re-deriva: un primitivo con dos implementaciones es un primitivo que va a divergir.
+            -- Y ojo: se une por s.product_id (el CRUDO), NO por el canonico del alias — kdik
+            -- mapea por el SKU real de la sucursal.
+            LEFT JOIN analytics.v_kepler_unit_cost kc
+                 ON kc.tenant_id = s.tenant_id AND kc.warehouse_id = s.warehouse_id
+                AND kc.product_id = s.product_id
            WHERE ${filters.join(' AND ')}
         )`;
 
@@ -232,6 +276,10 @@ export class ExistenciaService {
                  -- fuente. No se descuentan: se cuentan, para que el total no se lea como si
                  -- todas sus celdas tuvieran un factor verificado.
                  count(*) FILTER (WHERE ${SIN_FACTOR})::int               AS sin_factor,
+                 -- KE.2 — celdas valuadas con el catalogo porque el ERP no dio su costo. NO se
+                 -- descuentan del valor (un costo del catalogo es mejor que ninguno): se CUENTAN,
+                 -- para que el total no se lea como si todo estuviera valuado con el costo del ERP.
+                 count(*) FILTER (WHERE cu_source <> 'erp' AND nat > 0)::int AS sin_costo_erp,
                  sum(rung_arbitrado) FILTER (WHERE NOT (${MEDIBLE}))      AS arbitrado,
                  jsonb_agg(DISTINCT bucket) FILTER (WHERE bucket IS NOT NULL) AS buckets
             FROM src GROUP BY product_id
@@ -242,6 +290,7 @@ export class ExistenciaService {
                  sum(valor) OVER()                           AS _valor,
                  sum(sin_valuar) OVER()::int                 AS _celdas_sin_valuar,
                  sum(sin_factor) OVER()::int                 AS _celdas_sin_factor,
+                 sum(sin_costo_erp) OVER()::int              AS _celdas_sin_costo_erp,
                  count(*) FILTER (WHERE sin_factor > 0) OVER()::int AS _skus_sin_factor,
                  sum(arbitrado) OVER()                       AS _arbitrado,
                  count(*) FILTER (WHERE sin_valuar > 0) OVER()::int AS _skus_sin_valuar
@@ -299,7 +348,8 @@ export class ExistenciaService {
          GROUP BY pg.product_id, pg.sku, pg.nombre, pg.valor, pg.total_cajas, pg.n_almacenes,
                   pg.sin_valuar, pg.sin_factor, pg.arbitrado, pg.buckets, pg._skus, pg._valor,
                   pg._celdas_sin_valuar, pg._arbitrado, pg._skus_sin_valuar,
-                  pg._celdas_sin_factor, pg._skus_sin_factor, tw.per_warehouse
+                  pg._celdas_sin_factor, pg._skus_sin_factor, pg._celdas_sin_costo_erp,
+                  pg.sin_costo_erp, tw.per_warehouse
          ORDER BY ${this.sortExpr(q.sort_by)} ${dir} NULLS LAST, pg.sku`;
 
       const rows = (await trx.raw(sql, binds)).rows;
@@ -321,6 +371,10 @@ export class ExistenciaService {
           // publican para que el total no se lea como si todo tuviera factor verificado.
           celdas_sin_factor: Number(agg._celdas_sin_factor || 0),
           skus_sin_factor: Number(agg._skus_sin_factor || 0),
+          // KE.2 — celdas cuyo costo salio del CATALOGO y no del ERP. La procedencia del valor
+          // se declara: sin esto, el total se lee como si todo estuviera valuado con el costo
+          // del almacen (ADR-056).
+          celdas_sin_costo_erp: Number(agg._celdas_sin_costo_erp || 0),
           // Lo que el árbitro (el costo pagado) SÍ puede afirmar de lo retenido. Es REFERENCIA
           // para revisar, no una cifra publicable — el front tiene que rotularla así.
           arbitrado: agg._arbitrado == null ? null : Number(agg._arbitrado),
