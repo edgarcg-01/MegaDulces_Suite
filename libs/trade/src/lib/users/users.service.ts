@@ -29,7 +29,7 @@ interface RequesterContext {
   username?: string;
   /**
    * Mapa de permisos que el guard relee del cache en cada request. Es la fuente de
-   * `getDataScope()`, que acota el padrón a own / team / all.
+   * `alcanceDelPadron()`, que acota el padrón a own / team / all.
    *
    * Antes acá decía `rules?: unknown[]` (las reglas de CASL serializadas en el JWT). Cuando CASL se
    * retiró, `getDataScope` pasó a leer `permissions` y este tipo quedó declarando un campo muerto y
@@ -68,6 +68,52 @@ export class UsersService {
    */
   private get tenantId(): string {
     return this.tenantCtx.requireTenantId();
+  }
+
+  /**
+   * `[ID.27]` Alcance del PADRÓN. No es `getDataScope()` a secas, y la diferencia
+   * es un bug medido en prod, no una preferencia de estilo.
+   *
+   * `getDataScope()` resuelve el eje jerárquico de **REPORTES**: mira
+   * `REPORTES_VER_GLOBAL` / `REPORTES_VER_EQUIPO`. El padrón de usuarios lo venía
+   * usando tal cual, así que **quién ve la lista de personas dependía de sus
+   * permisos de reporte**, no de sus permisos de usuarios. Consecuencia con
+   * nombre y apellido:
+   *
+   *   · `recursos_humanos` (el rol de `[IDG.8]`) tiene `USUARIOS_GESTIONAR` y
+   *     **ningún** permiso de reporte → caía en `own` → quien lo tuviera abriría
+   *     `/admin/usuarios` y vería **una sola fila: la suya**. Un rol creado para
+   *     administrar 126 cuentas que no podía ver ninguna.
+   *   · `encargado_tienda` (**6 personas reales**, todas con sesión iniciada)
+   *     tiene `USUARIOS_VER` sin permisos de reporte → mismo `own` → misma fila
+   *     única. Esto es anterior al rol de RH: el patrón ya estaba ahí.
+   *
+   * La regla acá agrega **una** cláusula y no quita ninguna: quien administra
+   * personal ve el padrón. Radio de impacto medido antes de escribirla:
+   * `USUARIOS_GESTIONAR` lo conceden hoy exactamente 2 roles — `superadmin` (que
+   * ya sale por god-mode) y `recursos_humanos` (0 personas asignadas). O sea que
+   * **hoy no le cambia el alcance a ningún usuario vivo**; lo que hace es que el
+   * rol de RH sirva cuando alguien lo reciba.
+   *
+   * ⚠️ Lo que esto NO arregla, y queda declarado en vez de resuelto a escondidas:
+   * los 6 `encargado_tienda` siguen viendo 1 fila. Lo correcto para ellos es ver
+   * **el personal de su sucursal** — o sea acotar el padrón por la dimensión
+   * `warehouse` de `ScopeService` (viva, 26 call sites), no por este eje de
+   * tres estados. Eso ensancha acceso a 6 personas reales, así que es decisión
+   * del lead y no un efecto colateral de una limpieza. Va como `[ID.43]`.
+   */
+  private alcanceDelPadron(requester: RequesterContext): {
+    type: 'own' | 'team' | 'all';
+    userId: string;
+  } {
+    // Administrar personal exige verlo. Se evalúa ANTES de delegar en el eje de
+    // reportes para que un rol de RH no dependa de tener permisos de reporte.
+    if (requester.permissions?.[Permission.USUARIOS_GESTIONAR] === true) {
+      return { type: 'all', userId: requester.sub };
+    }
+    // Todo lo demás conserva exactamente el comportamiento vigente, god-mode
+    // incluido: `getDataScope` ya resuelve `isPlatformAdminRole` primero.
+    return getDataScope(requester);
   }
 
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
@@ -599,9 +645,11 @@ export class UsersService {
         'cr.value as route_name_today',
       );
 
-    // Scope enforcement: solo reports_global ve todo el padrón; team-scope ve
-    // su equipo + sí mismo; own-scope solo a sí mismo.
-    const scope = getDataScope(requester);
+    // Scope enforcement: quien administra personal (`USUARIOS_GESTIONAR`) o ve
+    // reportes globales ve todo el padrón; team-scope ve su equipo + sí mismo;
+    // own-scope solo a sí mismo. Ver `alcanceDelPadron` para por qué el eje de
+    // reportes no alcanzaba — `[ID.27]`.
+    const scope = this.alcanceDelPadron(requester);
     if (scope.type === 'team') {
       query.where((qb) => {
         qb.where('u.supervisor_id', requester.sub).orWhere(
@@ -661,7 +709,9 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
     }
 
-    const scope = getDataScope(requester);
+    // Mismo eje que `findAll`: si la lista te muestra a alguien, el detalle no
+    // puede negártelo — y al revés. `[ID.27]`
+    const scope = this.alcanceDelPadron(requester);
     if (scope.type === 'team') {
       const isSelf = user.id === requester.sub;
       const isDirectReport = user.parent_supervisor === requester.sub;
