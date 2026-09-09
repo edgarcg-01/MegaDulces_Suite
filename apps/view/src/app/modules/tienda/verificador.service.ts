@@ -42,6 +42,19 @@ export type OrigenPrecio = 'live' | 'respaldo';
  * como "no aplica", nunca como "todo bien".
  */
 export interface ProcedenciaPrecio {
+  /**
+   * `[TDA.3]` La UNIDAD del código que se escaneó (`PZA`/`PAQ`/`CJA`/`KG`…), o `null` si el código
+   * no dice de qué unidad es (el SKU mismo, o un código interno de Kepler).
+   *
+   * Es lo que hace que el precio grande responda a lo que se escaneó. Antes el número grande era
+   * SIEMPRE el de la unidad base: escanear la caja mostraba el precio de la pieza.
+   *
+   * ⚠️ Su techo está medido: **10,771 de 11,506 SKUs (93.6 %) tienen UNA sola unidad registrada**,
+   * así que en 9 de cada 10 escaneos esto devuelve la única que hay y no expresa ninguna elección.
+   */
+  unidadEscaneada?: string | null;
+  /** La unidad de factor 1 — a ella se refieren los `factor` de las demás. */
+  unidadBase?: string | null;
   /** El precio varía entre plazas y no se pudo acotar a una. */
   precioAmbiguo?: boolean;
   /** Cuántos precios distintos hay entre plazas para este código. */
@@ -71,6 +84,15 @@ export interface SucursalVerificador {
 interface SnapshotItem {
   c: string;
   b: string[];
+  /**
+   * `[TDA.3]` La UNIDAD de cada barcode, en el mismo índice que `b`. `null` = ese código no dice
+   * de qué unidad es (el SKU mismo, o `c96`, que trae códigos internos de Kepler).
+   *
+   * Opcional porque un respaldo descargado ANTES de este cambio no lo trae. Ausente se lee como
+   * "no sé de qué unidad es", que degrada al comportamiento viejo (precio de la unidad base) —
+   * nunca como "es la base". Los kioscos lo ganan solos al vencer el TTL de 12 h.
+   */
+  bu?: (string | null)[];
   n: string;
   u: Array<{ u: string; p: number; s: number }>;
 }
@@ -122,6 +144,8 @@ export class VerificadorService {
 
   /** Índice en memoria del snapshot cargado (clave interna y códigos de barras → producto). */
   private indice = new Map<string, SnapshotItem>();
+  /** `[TDA.3]` código de barras → UNIDAD a la que pertenece. Ver `armarIndice`. */
+  private indiceUnidad = new Map<string, string>();
   private indiceDe: string | null = null;
 
   /** Estado del respaldo de la sucursal activa. `null` = no hay respaldo descargado. */
@@ -180,6 +204,10 @@ export class VerificadorService {
           plazasDistintas: Number(r.plazas_con_precio_distinto) || 1,
           plazaSinDato: r.plaza_pedida_sin_dato === true,
           origenPrecio: r.origen_precio === 'override_manual' ? 'override_manual' : 'kepler',
+          // `[TDA.3]` De qué unidad es el código escaneado. Lo resuelve el backend contra la misma
+          // fila de la que sale el precio, así que unidad y precio no pueden discrepar.
+          unidadEscaneada: r.unidad_escaneada ?? null,
+          unidadBase: r.unidad_base ?? null,
         };
       }),
       // Sin red / timeout / 5xx → respaldo. Si tampoco hay respaldo, se dice.
@@ -199,6 +227,16 @@ export class VerificadorService {
     const item = this.indice.get(codigo) ?? this.indice.get(codigo.replace(/^0+/, '')) ?? this.indice.get(codigo.padStart(5, '0'));
     if (!item) return { estado: 'no_encontrado', origen: 'respaldo', codigo, snapshotAl: snapAl };
 
+    const unidades = (item.u || []).map((x) => ({ u: x.u, precio_con_iva: x.p, precio_sin_iva: x.s, factor: 1 }));
+    // `[TDA.3]` La unidad del código escaneado, del segundo índice del snapshot. Se busca con las
+    // mismas tres formas del código que el índice principal, o un pad distinto perdería la unidad
+    // aunque el producto sí se haya encontrado.
+    const uEsc =
+      this.indiceUnidad.get(codigo) ??
+      this.indiceUnidad.get(codigo.replace(/^0+/, '')) ??
+      this.indiceUnidad.get(codigo.padStart(5, '0')) ??
+      null;
+
     return {
       estado: 'encontrado',
       origen: 'respaldo',
@@ -206,11 +244,15 @@ export class VerificadorService {
       producto: {
         codigo: item.c,
         nombre: item.n,
-        unidades: (item.u || []).map((x) => ({ u: x.u, precio_con_iva: x.p, precio_sin_iva: x.s, factor: 1 })),
+        unidades,
         // El snapshot no lleva las tasas: el respaldo declara lo que tiene, no inventa un 0.
         iva_pct: null,
         ieps_pct: null,
       },
+      // Sólo se afirma la unidad si además tiene precio en este respaldo: decir "escaneaste CJA"
+      // y no poder mostrar el precio de CJA sería peor que no decir nada.
+      unidadEscaneada: uEsc && unidades.some((x) => x.u === uEsc) ? uEsc : null,
+      unidadBase: unidades[0]?.u ?? null,
     };
   }
 
@@ -288,6 +330,7 @@ export class VerificadorService {
    */
   private armarIndice(sucursal: string, payload: SnapshotPayload): void {
     const m = new Map<string, SnapshotItem>();
+    const u = new Map<string, string>();
     for (const it of payload.productos) {
       if (it.c) {
         m.set(it.c, it);
@@ -296,9 +339,20 @@ export class VerificadorService {
         const corta = it.c.replace(/^0+/, '');
         if (corta && !m.has(corta)) m.set(corta, it);
       }
-      for (const b of it.b || []) if (b && !m.has(b)) m.set(b, it);
+      const bcs = it.b || [];
+      for (let i = 0; i < bcs.length; i++) {
+        const b = bcs[i];
+        if (!b) continue;
+        if (!m.has(b)) m.set(b, it);
+        // `[TDA.3]` Segundo índice: código → UNIDAD. Es lo que le faltaba al modo offline para
+        // contestar lo mismo que el modo en línea; sin esto el kiosco sin red mostraba siempre el
+        // precio de la unidad base, aunque se hubiera escaneado la caja.
+        const unidad = it.bu?.[i];
+        if (unidad && !u.has(b)) u.set(b, unidad);
+      }
     }
     this.indice = m;
+    this.indiceUnidad = u;
     this.indiceDe = sucursal;
   }
 }

@@ -136,6 +136,17 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   <span class="vp-precio">{{ money(precioPrincipal()) }}</span>
                   <span class="vp-precio-u">por {{ unidadPrincipal() }}</span>
                 </div>
+                <!--
+                  [TDA.3] Solo cuando el producto tiene MAS de una unidad con precio. Medido: el
+                  93.6% de los SKUs tiene una sola unidad registrada, asi que un aviso
+                  incondicional saldria en 9 de cada 10 escaneos y se aprenderia a ignorar.
+                -->
+                @if (vaAclararUnidad()) {
+                  <p class="vp-u-aclara">
+                    <i class="pi pi-barcode" aria-hidden="true"></i>
+                    El codigo que escaneaste es de <strong>{{ unidadEscaneada() }}</strong>: este es su precio.
+                  </p>
+                }
                 <p class="vp-precio-nota">
                   Precio al público, IVA incluido.
                   @if (p.iva_pct != null) { IVA {{ p.iva_pct }}%. }
@@ -152,13 +163,20 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   @if (plazaSinDato()) { Tu sucursal no tiene este producto cargado; el precio es de otra plaza. }
                 </p>
 
-                @if (p.unidades.length > 1) {
+                <!--
+                  [TDA.3] Las OTRAS unidades: todas menos la que va en grande. Antes era
+                  slice(1) --siempre "todas menos la base"--, lo que ahora repetiria el precio
+                  grande abajo y esconderia el de la base.
+                  El factor se refiere a la unidad BASE, no a la que se muestra en grande: decir
+                  "12 CJA" cuando el hero es la caja seria falso.
+                -->
+                @if (otrasUnidades().length) {
                   <ul class="vp-unidades">
-                    @for (u of p.unidades.slice(1); track u.u) {
+                    @for (u of otrasUnidades(); track u.u) {
                       <li>
                         <span class="vp-u-nom">{{ u.u }}</span>
                         <span class="vp-u-p">{{ money(u.precio_con_iva) }}</span>
-                        @if (u.factor > 1) { <span class="vp-u-f">{{ u.factor }} {{ unidadPrincipal() }}</span> }
+                        @if (u.factor > 1 && unidadBase()) { <span class="vp-u-f">{{ u.factor }} {{ unidadBase() }}</span> }
                       </li>
                     }
                   </ul>
@@ -302,6 +320,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       letter-spacing: -0.02em; color: var(--text-main); }
     .vp-precio-u { font-size: var(--fs-body, .875rem); color: var(--text-muted); text-transform: lowercase; }
     .vp-precio-nota { margin: .2rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
+    /* [TDA.3] "El codigo que escaneaste es de CJA". Va pegada al precio grande porque lo CALIFICA:
+       separada, el operador leeria el numero antes de saber de que unidad es. */
+    .vp-u-aclara { display: flex; align-items: center; gap: .4rem; margin: .35rem 0 0;
+      font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
+    .vp-u-aclara strong { color: var(--text-main); font-weight: 600; }
 
     .vp-unidades { list-style: none; margin: var(--sp-3) 0 0; padding: var(--sp-3) 0 0;
       border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .3rem; }
@@ -403,8 +426,60 @@ export class TiendaVerificadorComponent implements OnInit {
   /** Frescura del ODS de ESA sucursal (viene del servidor, no del navegador). */
   readonly datosAl = computed(() => this.sucursales().find((s) => s.codigo === this.sucursal())?.datos_al ?? null);
 
-  readonly precioPrincipal = computed(() => this.producto()?.unidades?.[0]?.precio_con_iva ?? null);
-  readonly unidadPrincipal = computed(() => this.producto()?.unidades?.[0]?.u || 'unidad');
+  /**
+   * `[TDA.3]` El número GRANDE es el de la unidad que se escaneó.
+   *
+   * Antes era siempre `unidades[0]`, o sea la unidad base: **escanear el código de la caja mostraba
+   * el precio de la pieza.** Si el producto tenía base PZA y se escaneaba la pieza, acertaba por
+   * coincidencia, no porque lo resolviera.
+   *
+   * `unidades` sigue en orden base-primero a propósito: sus `factor` significan "cuántas unidades
+   * base entran acá", así que reordenar el arreglo volvería falsa la leyenda de las demás ("1 CJA"
+   * para una pieza). Lo que cambia es a cuál se le da el número grande, no el orden.
+   */
+  readonly unidadEscaneada = signal<string | null>(null);
+
+  /**
+   * La unidad de factor 1 — a ella se refieren los `factor` de las demás.
+   *
+   * Se **deriva** de `unidades[0]` en vez de leerse de la respuesta, aunque el backend ahora manda
+   * `unidad_base`: el arreglo es base-primero por contrato y el respaldo local también lo cumple.
+   * Depender del campo nuevo hacía que la equivalencia ("20 KG") **desapareciera** con un respaldo
+   * viejo o un backend sin redeployar — lo cazó el spec que ya existía, y tenía razón.
+   */
+  readonly unidadBase = computed(() => this.producto()?.unidades?.[0]?.u ?? null);
+
+  /** La unidad que se muestra en grande: la escaneada si se pudo resolver, la base si no. */
+  private readonly unidadHero = computed(() => {
+    const us = this.producto()?.unidades ?? [];
+    const esc = this.unidadEscaneada();
+    return (esc && us.find((x) => x.u === esc)) || us[0] || null;
+  });
+
+  readonly precioPrincipal = computed(() => this.unidadHero()?.precio_con_iva ?? null);
+  readonly unidadPrincipal = computed(() => this.unidadHero()?.u || 'unidad');
+
+  /**
+   * Las OTRAS unidades: todas menos la que va en grande.
+   *
+   * Antes era `unidades.slice(1)` —siempre "todas menos la base"—, lo que con el hero móvil dejaría
+   * al precio grande repetido abajo y escondería el de la base.
+   */
+  readonly otrasUnidades = computed(() => {
+    const hero = this.unidadHero();
+    return (this.producto()?.unidades ?? []).filter((x) => x !== hero);
+  });
+
+  /**
+   * ¿Vale la pena decir de qué unidad es el precio?
+   *
+   * Sólo cuando el producto tiene más de una unidad con precio. Está medido que **93.6 % de los
+   * SKUs tienen UNA sola unidad registrada**, así que un aviso incondicional saldría en 9 de cada
+   * 10 escaneos — y un aviso que sale siempre se aprende a ignorar.
+   */
+  readonly vaAclararUnidad = computed(
+    () => (this.producto()?.unidades?.length ?? 0) > 1 && !!this.unidadEscaneada(),
+  );
 
   ngOnInit(): void {
     // La sucursal sale de la ficha del usuario; el query param la sobreescribe para la
@@ -506,6 +581,9 @@ export class TiendaVerificadorComponent implements OnInit {
       this.precioAmbiguo.set(r.precioAmbiguo === true);
       this.plazasDistintas.set(r.plazasDistintas ?? 1);
       this.plazaSinDato.set(r.plazaSinDato === true);
+      // `[TDA.3]` Mismo criterio: se resetea en CADA resultado. Pegada del escaneo anterior, la
+      // pantalla mostraría en grande el precio de una unidad que este código no representa.
+      this.unidadEscaneada.set(r.unidadEscaneada ?? null);
       if (r.origen === 'respaldo') {
         this.banner.set({
           texto: 'Sin conexión: se está mostrando el precio de respaldo.',
