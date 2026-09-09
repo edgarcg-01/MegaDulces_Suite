@@ -8,7 +8,7 @@
  *   - jefe_marketing → similar a supervisor pero más limitado
  *   - colaborador  → registrar visitas, ver propios reportes
  *
- * Los permisos vienen del enum `Permission` en libs/platform-core/src/lib/constants/permissions.ts.
+ * Los permisos vienen del enum `Permission` en libs/contracts/src/authz/permissions.ts.
  *
  * Idempotente: usa onConflict para no duplicar.
  *
@@ -18,7 +18,7 @@
 exports.seed = async function (knex) {
   const MEGA_DULCES_TENANT_ID = '00000000-0000-0000-0000-00000000d01c';
 
-  // Set completo de permisos (mantener en sync con libs/platform-core/src/lib/constants/permissions.ts)
+  // Set completo de permisos (mantener en sync con libs/contracts/src/authz/permissions.ts)
   const ALL_PERMS = {
     USUARIOS_VER: true,
     USUARIOS_GESTIONAR: true,

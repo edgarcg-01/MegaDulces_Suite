@@ -4,7 +4,15 @@
     "outDir": "../../dist/out-tsc",
     "types": [],
     "moduleResolution": "bundler",
-    "rootDir": "src"
+    // [ID.28] `../..` y no `src`: con `rootDir: "src"` TypeScript no admite
+    // archivos fuera de la app, así que **`apps/portal` era la única app que no
+    // podía importar una lib del monorepo** — y por eso tenía su propia copia
+    // del enum de permisos, la más drifteada de las cinco (54 claves de 175).
+    // El síntoma no era un error de tipos sino
+    // «Cannot destructure property 'pos' of file.referencedFiles» del plugin de
+    // Angular, que no dice nada de rootDir. `apps/vendor` y `apps/view` ya
+    // tenían `../..`: esto los empareja, no inventa nada.
+    "rootDir": "../.."
   },
   "files": ["src/main.ts"],
   "include": ["src/**/*.d.ts"],

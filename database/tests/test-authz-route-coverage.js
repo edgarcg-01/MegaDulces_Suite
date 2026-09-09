@@ -14,9 +14,16 @@
  *
  * Verifica tres cosas:
  *   1. Toda ruta de ESCRITURA declara permiso, o está en la lista blanca CON MOTIVO escrito.
- *   2. El catálogo de permisos cuadra: enum back == enum front == permission-meta, y **ninguna
- *      clave queda fuera de `authz-tree`** (una clave invisible ahí no se puede otorgar desde
+ *   2. El catálogo de permisos cuadra contra la definición ÚNICA de
+ *      `libs/contracts/src/authz/` (enum == permission-meta == authz-tree), y **ninguna clave
+ *      queda fuera de `authz-tree`** (una clave invisible ahí no se puede otorgar desde
  *      `/admin/roles`, aunque el guard la exija — pasó con 4).
+ *      ⚠️ `[ID.28]` Este bloque comparaba back ↔ `apps/view`, y cuando los dos pasaron a ser
+ *      re-exports **se puso VERDE sobre el vacío**: «enum back (0) == enum front (0)». Por eso
+ *      ahora lo primero que afirma es el PISO — un Set vacío es defecto, nunca coincidencia.
+ *   2b. `[ID.28]` G1: **una sola definición** de `export enum Permission` en todo el repo. Eran
+ *      cinco, con hasta 121 claves de deriva, y la paridad vieja miraba justo las dos que ya
+ *      coincidían.
  *   3. CASL sigue retirado (ADR-054): cero `@casl` en el código.
  */
 const fs = require('fs');
@@ -109,20 +116,86 @@ ok(/PLATFORM_ADMIN_KEY/.test(guard) && /if \(!expected\)/.test(guard),
 ok(/isPlatformAdminRole/.test(guard), 'PlatformAdminGuard exige además sesión de plataforma-admin');
 
 // ── 2. Coherencia del catálogo ───────────────────────────────────────────────
-const claves = (file, re) => new Set([...fs.readFileSync(path.join(REPO, file), 'utf8').matchAll(re)].map((m) => m[1]));
-const back = claves('libs/platform-core/src/lib/constants/permissions.ts', /^  [A-Z0-9_]+ = '([A-Z0-9_]+)'/gm);
-const front = claves('apps/view/src/app/core/constants/permissions.ts', /^  [A-Z0-9_]+ = '([A-Z0-9_]+)'/gm);
-const tree = claves('apps/view/src/app/core/constants/authz-tree.ts', /Permission\.([A-Z0-9_]+)/g);
-const meta = claves('apps/view/src/app/core/constants/permission-meta.ts', /\[Permission\.([A-Z0-9_]+)\]/g);
+//
+// ⚠️ `[ID.28]` — ESTE BLOQUE SE PUSO VERDE SOBRE EL VACÍO Y HAY QUE CONTARLO.
+// Al centralizar el enum en `libs/contracts`, las dos rutas que este bloque leía
+// (`platform-core` y `apps/view`) pasaron a ser re-exports de una línea. El
+// regex dejó de casar, los dos Sets quedaron vacíos, y las CUATRO aserciones
+// reportaron `✓` — la primera diciendo literalmente «enum back (0) == enum
+// front (0)». Un candado que compara dos nadas siempre concuerda.
+//
+// El arreglo NO es sólo apuntar al archivo nuevo: es el PISO. Un conjunto vacío
+// se declara defecto, nunca coincidencia. Si mañana alguien vuelve a mover el
+// archivo, este bloque se pone rojo en vez de mentir.
+const leer = (file) => fs.readFileSync(path.join(REPO, file), 'utf8');
+const claves = (file, re) => new Set([...leer(file).matchAll(re)].map((m) => m[1]));
+const CANON = 'libs/contracts/src/authz/permissions.ts';
+const back = claves(CANON, /^  [A-Z0-9_]+ = '([A-Z0-9_]+)'/gm);
+const tree = claves('libs/contracts/src/authz/authz-tree.ts', /Permission\.([A-Z0-9_]+)/g);
+const meta = claves('libs/contracts/src/authz/permission-meta.ts', /\[Permission\.([A-Z0-9_]+)\]/g);
 const falta = (a, b) => [...a].filter((k) => !b.has(k));
 
 console.log('\n[2] Coherencia del catálogo de permisos');
-ok(back.size === front.size && falta(back, front).length === 0 && falta(front, back).length === 0,
-  `enum back (${back.size}) == enum front (${front.size})`);
+// El piso primero: sin esto, todo lo de abajo puede pasar en vacío.
+ok(back.size > 100, `el catálogo canónico se pudo leer y tiene ${back.size} claves (piso: >100 — un Set vacío NO es coincidencia)`);
+ok(tree.size > 100 && meta.size > 100, `árbol (${tree.size}) y etiquetas (${meta.size}) también se leyeron`);
 ok(falta(back, meta).length === 0, `todos con label en permission-meta (sin label: ${falta(back, meta).join(', ') || '0'})`);
 ok(falta(back, tree).length === 0,
   `ninguno INVISIBLE en /admin/roles — si el guard lo exige, tiene que poder otorgarse (invisibles: ${falta(back, tree).join(', ') || '0'})`);
 ok(falta(tree, back).length === 0, `sin casillas muertas en authz-tree (huérfanas: ${falta(tree, back).join(', ') || '0'})`);
+
+// ── 2b. G1 `[ID.28]`: UNA sola definición del enum en todo el repo ───────────
+// Antes había CINCO copias: platform-core 175, apps/view 175, apps/vendor 63,
+// apps/portal 54 y libs/shared-auth 36 (18 de ellas inexistentes en el
+// canónico). Y la paridad de arriba sólo comparaba back ↔ apps/view, o sea las
+// dos que ya coincidían: **las tres drifteadas no las miraba nadie**. Este gate
+// es lo que impide que vuelvan a aparecer.
+const definiciones = [];
+const buscarEnum = (dir) => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const f = path.join(dir, e.name);
+    if (e.isDirectory()) { if (!['node_modules', 'dist', '.angular'].includes(e.name)) buscarEnum(f); continue; }
+    if (!/\.ts$/.test(e.name) || /\.spec\.ts$/.test(e.name)) continue;
+    if (/^export enum Permission\b/m.test(fs.readFileSync(f, 'utf8'))) definiciones.push(path.relative(REPO, f).replace(/\\/g, '/'));
+  }
+};
+for (const d of ['libs', 'apps']) buscarEnum(path.join(REPO, d));
+
+// La única excepción admitida, y no es un perdón: es una deuda con nombre.
+// `libs/shared-auth` es una librería de autenticación COMPLETA y MUERTA — su
+// propio enum de 36 claves (18 de ellas inexistentes en el canónico), sus
+// guards, su login component — y **cero archivos la importan**. Retirarla es
+// borrar una librería entera, o sea autorización explícita del lead. Mientras
+// tanto se la deja fuera del conteo pero se prueba que sigue inerte: el día que
+// alguien la importe, la aserción de abajo se pone roja y deja de ser inocua.
+const MUERTA = 'libs/shared-auth/core/constants/permissions.ts';
+const vivas = definiciones.filter((f) => f !== MUERTA);
+ok(vivas.length === 1 && vivas[0] === CANON,
+  `una sola definición VIVA de \`export enum Permission\`, y es la canónica (encontradas: ${vivas.join(', ') || 'NINGUNA'})`);
+
+const importadores = [];
+const buscarImports = (dir) => {
+  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    const f = path.join(dir, e.name);
+    if (e.isDirectory()) { if (!['node_modules', 'dist', '.angular', 'shared-auth'].includes(e.name)) buscarImports(f); continue; }
+    if (!/\.ts$/.test(e.name)) continue;
+    if (/from ['"][^'"]*shared-auth/.test(fs.readFileSync(f, 'utf8'))) importadores.push(path.relative(REPO, f).replace(/\\/g, '/'));
+  }
+};
+for (const d of ['libs', 'apps']) buscarImports(path.join(REPO, d));
+ok(importadores.length === 0,
+  `\`libs/shared-auth\` sigue sin un solo importador → su enum de 36 claves es inerte (importadores: ${importadores.join(', ') || '0'})`);
+
+// Y que los puentes sigan siendo puentes: si alguien "arregla" un re-export
+// pegando el enum de vuelta, lo de arriba lo atrapa; esto dice cuál se soltó.
+const PUENTES = [
+  'libs/platform-core/src/lib/constants/permissions.ts',
+  'apps/view/src/app/core/constants/permissions.ts',
+  'apps/vendor/src/app/core/constants/permissions.ts',
+  'apps/portal/src/app/core/constants/permissions.ts',
+];
+const rotos = PUENTES.filter((p) => !/@megadulces\/contracts\/authz\/permissions/.test(leer(p)));
+ok(rotos.length === 0, `los ${PUENTES.length} puentes re-exportan del contrato (sueltos: ${rotos.join(', ') || '0'})`);
 
 // ── 3. CASL sigue retirado (ADR-054) ─────────────────────────────────────────
 console.log('\n[3] ADR-054: CASL retirado');

@@ -23,3 +23,17 @@ export * from './http/provenance.contract';
 export * from './http/identity.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
+
+// ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
+// El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:
+//   · `@megadulces/contracts/permissions` → el enum `Permission` (caliente)
+//   · `@megadulces/contracts/authz`       → enum + árbol + etiquetas + presets
+//
+// Colgarlo de este barrel fue el primer intento y **rompió el presupuesto de
+// bundle de `apps/view`**: este archivo lo importan cosas del chunk inicial de
+// las 3 apps Angular, así que los ~80 kB de dato del catálogo —que sólo
+// necesita una pantalla lazy— se iban al arranque. +225 kB medidos.
+//
+// La regla que queda: un barrel compartido por backend y frontend no puede
+// llevar dato frío. Si agregás algo grande y sólo lo usa una pantalla, dale su
+// subruta.
