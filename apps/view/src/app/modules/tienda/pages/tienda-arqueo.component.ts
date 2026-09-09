@@ -175,15 +175,16 @@ interface CortesPersona {
             <!-- Escape hatch del supervisor: relevo, contingencia, caja sin Kepler. -->
             <div class="arq-head">
               <label class="arq-lbl">Sucursal
-                <p-select [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
                           optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
-                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label" />
+                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
+                          (keydown)="onHeadKey($event, 0)" />
               </label>
-              <label class="arq-lbl">Caja <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2"></label>
+              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, 1)" (focus)="selectAll($event)"></label>
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
-              <label class="arq-lbl">Cajero <input pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código"></label>
+              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, 2)" (focus)="selectAll($event)"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
@@ -191,7 +192,8 @@ interface CortesPersona {
           }
 
           @if (puedeContar()) {
-            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)" ariaLabel="Tipo de arqueo" />
+            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)"
+                           (saltarAbajo)="focusHead(0)" ariaLabel="Tipo de arqueo" />
             @if (aTipo() === 'relevo') {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
             }
@@ -790,6 +792,8 @@ interface CortesPersona {
   `],
 })
 export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
+  /** Para llegar al `app-segmented`, que es un componente hijo sin ref propia. */
+  private readonly host = inject(ElementRef) as ElementRef<HTMLElement>;
   private readonly svc = inject(ArqueoService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
@@ -801,6 +805,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   @ViewChildren('denomInput') private denomInputs?: QueryList<ElementRef<HTMLInputElement>>;
   @ViewChildren('medioInput') private medioInputs?: QueryList<ElementRef<HTMLInputElement>>;
   @ViewChild('btnGuardar', { read: ElementRef }) private btnGuardar?: ElementRef<HTMLElement>;
+  /** Campos del encabezado (Sucursal · Caja · Cajero) en orden de DOM. `Fecha` no
+   *  entra: es texto fijo, no un campo — un arqueo es de HOY (ver el template). */
+  @ViewChildren('hcell', { read: ElementRef }) private headCells?: QueryList<ElementRef<HTMLElement>>;
 
   /**
    * ¿Se le revela el cuadre? Solo el supervisor del motor (`RECONCILIATION_VER`).
@@ -1160,7 +1167,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     }
 
     if (k === 'ArrowUp') {
-      if (row > 0) this.enfocar(g[col][row - 1]);
+      if (row > 0) { this.enfocar(g[col][row - 1]); return; }
+      // Primera fila: ↑ sale de la grilla hacia el encabezado (SM.30). Antes no
+      // hacía nada y la cadena era de ida nomás.
+      this.focusHead(this.headCells?.length ? this.headCells.length - 1 : 0);
       return;
     }
 
@@ -1169,6 +1179,83 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (siguiente) { this.enfocar(siguiente); return; }
     this.ultimaCelda = { col, row };
     this.focusGuardar();
+  }
+
+  /**
+   * **El encabezado también se recorre con flechas (SM.30).**
+   *
+   * Faltaba el primer tramo de la cadena: la sucursal, la caja y el cajero sólo
+   * se alcanzaban con Tab, así que el arqueo empezaba con la mano en el mouse y
+   * seguía con el teclado. Ahora la cadena completa es
+   * **pestañas → encabezado → grilla → botón de guardar**, y `↑` la desanda.
+   *
+   *   ← →   entre los campos del encabezado
+   *   ↓ / Enter   baja a la grilla (a `$1000`, que es donde empieza a contarse)
+   *   ↑     sube a las pestañas
+   *
+   * **El `p-select` de Sucursal es el caso delicado.** Sus propias flechas abren
+   * y recorren el desplegable, así que sólo se interceptan **con el desplegable
+   * CERRADO**; abierto, las flechas son suyas. Abrirlo sigue siendo `Enter` o
+   * espacio, que es su activación nativa. Mismo criterio que dejó a Incidencia
+   * fuera de la cadena en SM.29: una flecha que despliega opciones cuando el
+   * operario quería bajar de campo es peor que no tener la flecha.
+   */
+  onHeadKey(ev: KeyboardEvent, idx: number) {
+    const k = ev.key;
+    if (k !== 'ArrowUp' && k !== 'ArrowDown' && k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'Enter') return;
+
+    // Desplegable abierto → las flechas son del select, no de la cadena.
+    if (this.selectAbierto(ev.target as HTMLElement)) return;
+
+    const cells = this.headCells?.toArray() ?? [];
+    if (!cells.length) return;
+
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      const destino = idx + (k === 'ArrowLeft' ? -1 : 1);
+      if (destino < 0 || destino >= cells.length) return;
+      ev.preventDefault();
+      this.focusHead(destino);
+      return;
+    }
+
+    if (k === 'ArrowUp') {
+      ev.preventDefault();
+      this.focusSegmented();
+      return;
+    }
+
+    // ↓ o Enter → a contar
+    const g = this.grilla();
+    const primera = g[0]?.[0];
+    if (!primera) return;
+    ev.preventDefault();
+    this.enfocar(primera);
+  }
+
+  /** Enfoca un campo del encabezado. El `p-select` no es un input: su foco vive
+   *  en el elemento con `role="combobox"` que PrimeNG pinta adentro. */
+  focusHead(idx: number): void {
+    const el = this.headCells?.toArray()[idx]?.nativeElement;
+    if (!el) return;
+    const foco = el.matches('input, button')
+      ? el
+      : el.querySelector<HTMLElement>('[role="combobox"], input, button, [tabindex]');
+    (foco ?? el).focus?.();
+  }
+
+  /** Sube a las pestañas (Cierre de día / Retiro / Relevo): la activa es el
+   *  único stop de tabulador del grupo, así que es la que recibe el foco. */
+  private focusSegmented(): void {
+    this.host?.nativeElement
+      ?.querySelector<HTMLElement>('app-segmented .seg-btn.on, app-segmented .seg-btn')
+      ?.focus();
+  }
+
+  /** ¿El desplegable del select está abierto? PrimeNG lo marca en el disparador. */
+  private selectAbierto(target: HTMLElement | null): boolean {
+    if (!target) return false;
+    const trigger = target.closest('[role="combobox"], .p-select');
+    return trigger?.getAttribute('aria-expanded') === 'true';
   }
 
   /**
