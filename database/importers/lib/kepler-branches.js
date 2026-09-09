@@ -39,7 +39,7 @@ const PASS = process.env.KEPLER_RO_PASS || 'kepler123';
 // por `kepler_md_0X`, así que sólo importan host/puerto/credencial → el default al contenedor local sirve.
 const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres';
 
-// Sucursales Kepler. host/port/db = infra (tercer octeto de IP = plaza). Orden 00..06.
+// Sucursales Kepler. host/port/db = infra (tercer octeto de IP = plaza). Orden 00..07.
 // '06' Canindo NO tiene host remoto con platform_ro → `replica` marca que se lee del
 // replica lógico local kepler_md_06 (ver urlOf).
 const BRANCHES = Object.freeze([
@@ -50,6 +50,10 @@ const BRANCHES = Object.freeze([
   { code: '04', host: '192.168.44.44', port: 5432, db: 'md_04', name: 'Yurécuaro' },
   { code: '05', host: '192.168.54.54', port: 5432, db: 'md_05', name: 'Zamora Centro' },
   { code: '06', replica: 'kepler_md_06', name: 'Canindo' },
+  // '07' Morelia Madero: su POS migró de Wincaja ('32') a Kepler propio (`md_07`) el 2026-09-08
+  // (handoff limpio — Wincaja 32 cerró caja el 09-07, Kepler arrancó el 09-08, cero traslape).
+  // Replica-only como Canindo (sin platform_ro remoto) → se lee del replica lógico local kepler_md_07.
+  { code: '07', replica: 'kepler_md_07', name: 'Morelia Madero' },
 ]);
 
 // URL de conexión por rama: remoto (platform_ro) para 00-05; réplica local para las que
@@ -121,7 +125,7 @@ async function verifyAgainstDb(pgClient, tenantId = '00000000-0000-0000-0000-000
     `SELECT kepler_code FROM commercial.warehouses
       WHERE tenant_id=$1 AND kepler_code IS NOT NULL AND deleted_at IS NULL`, [tenantId]);
   const dbCodes = new Set(rows.map((r) => r.kepler_code));
-  const modelCodes = new Set(BRANCHES.filter((b) => b.code !== '00').map((b) => b.code)); // 01-06 (00 no es Kepler)
+  const modelCodes = new Set(BRANCHES.filter((b) => b.code !== '00').map((b) => b.code)); // 01-07 (00 no es Kepler)
   const missingInDb = [...modelCodes].filter((c) => !dbCodes.has(c));
   const missingInModule = [...dbCodes].filter((c) => !modelCodes.has(c));
   return { ok: !missingInDb.length && !missingInModule.length, missingInDb, missingInModule };
