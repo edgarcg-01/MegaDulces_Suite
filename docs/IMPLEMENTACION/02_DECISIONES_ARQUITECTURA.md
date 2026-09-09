@@ -1723,3 +1723,43 @@ Y el árbitro de dinero (`cajas = revenue ÷ cja_price`, que no depende de ning�
 - **⭐ "No se puede verificar" casi nunca es una propiedad del problema: es una conclusión sobre las fuentes que ya estabas mirando.** Antes de declarar algo inverificable, preguntá qué OTRA cosa dejó rastro.
 
 Hereda **ADR-055** (el divisor es del ERP dueño del almacén), **ADR-051** (el dinero arbitra la unidad) y **ADR-056** (lo que no se pudo medir se declara). Detalle en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8sexies. Candado: `database/tests/test-newdb-unit-truth.js` (40 aserciones).
+
+---
+
+## ADR-059
+
+**La verdad absoluta se ARBITRA, y lo que no se puede arbitrar se DECLARA** (Fases K + KE). El dato canónico ya no alcanza: cada número publicado necesita un **árbitro del mismo ERP y del mismo grano**, un **veredicto por fila** y un **hueco declarado con nombre y monto**. Documento canónico: [`docs/VERDAD_ABSOLUTA.md`](../VERDAD_ABSOLUTA.md).
+
+### Contexto
+
+Edgar: *"necesitamos verdad absoluta de existencia, ventas y unidades"* · *"solo hay que enfocarnos en kepler"* · *"documentemos la verdad absoluta hasta ahora, será nuestra fuente principal de razón en este sistema"*.
+
+El repo ya tenía [`REGISTRO_CANONICO_COMPLETO.md`](../REGISTRO_CANONICO_COMPLETO.md), que contesta *"¿de dónde sale este dato?"*. Faltaba la otra pregunta, que no estaba escrita en ningún lado: **"¿con qué se comprueba que está bien, y cuánto de él aguanta la comprobación?"**. Una fuente única que nadie contrasta sigue siendo una fuente única equivocada.
+
+Medido, había tres cosas mal y una que ya estaba bien:
+
+1. **La venta publicada contaba sólo el ticket.** `mart.ventas` filtraba `h.c4=10` y dejaba fuera `U-D-8` Factura Telemarketing (**$14,580,181**) y `U-D-12` no fiscal ($1,491,784) — **$16,071,965 / 90 d**, mientras el sell-out (`mv_kepler_sales_daily`) sí las contaba: las dos superficies se contradecían entre sí.
+2. **El inventario se valuaba con el catálogo.** `COALESCE(cost_with_tax, cost_base)` es un costo por PRODUCTO, global, en la unidad que el catálogo tenga; Kepler trae SU costo por **sucursal × SKU** (`kdik.c16`). Medido: `cost_base/c16` = mediana **1.0000** contra `cost_with_tax/c16` = **1.0800** → se publicaba **con impuesto**, y encima **273 filas de granel** cargaban $2.02M de factor de caja. Brecha total **$5.59M = 13.25%**.
+3. **El precio no sirve de árbitro.** Un diseño con los tres testigos votando fabricó **$19.5M de conflicto falso**: el precio contradice **9× más** renglones que el costo (59,612 contra 9,102), porque tiene niveles y descuentos.
+4. **La cantidad de la existencia ya era verdad** y dos "bugs" que se le atribuyeron eran falsos: `kdil.c4` es 0 en el 100% de las filas (el `baseline = 0` era correcto) y la sucursal `00`, con 122,096,465 unidades fantasma, ya estaba excluida.
+
+Y la observación de la que sale todo: **Kepler no *resuelve* la unidad, nunca la *pierde*.** Cada renglón de `kdm2` carga su escalera (`c11/c9/c12` base + `c55/c56/c57/c58` vendida + factor) y cuadra consigo mismo en **99.99%**. Estábamos leyendo la mitad del renglón — y el repo **ya había decodificado** esas columnas para COMPRAS (RA-PRO.43) sin llevarlo nunca a ventas.
+
+### Decisión
+
+1. **Cada ERP se juzga con SU propia evidencia.** Kepler contra Kepler, Wincaja contra Wincaja. Juzgar el costo de Wincaja contra `v_supplier_cost_ladder` (que deriva de `kepler_ods`) produjo una medición que hubo que descartar entera.
+2. **El DINERO arbitra la CANTIDAD, y el COSTO arbitra mejor que el precio** — por razón estructural, no empírica: el precio tiene niveles, descuentos y promociones; el costo no. El precio **se conserva pero no vota**, y eso se verifica **por comportamiento** (las filas donde el precio contradice y el costo confirma siguen `confirmado`), no parseando el SQL.
+3. **El costo tiene que venir del MISMO ERP y del MISMO ALMACÉN que la cantidad.** Un costo por producto no puede valuar una cantidad por almacén sin declarar su unidad.
+4. **Lo que no se puede medir se DECLARA.** `valor_arbitrado` es NULL sin testigo, nunca `0` (un `0` se lee "no cuesta nada"), y **las ausencias distintas llevan etiquetas distintas** (`sin_testigo` ≠ `sin_costo_catalogo`).
+5. **Un árbitro que nunca contradice es un espejo**, y hay que **probarlo** contra un conjunto que otro testigo ya juzgó mal. Esta regla mató un testigo propio antes de shipearlo: `c12` contra `kdik.c16` se veía perfecto en `U-D-8` (98.90% en banda, cero firmas) y en los 94 renglones `contradicho` de `U-D-10` decía "todo bien" igual de fuerte que en los 60,107 `confirmado`.
+6. **Los resolvedores son únicos y se LEEN.** `analytics.v_kepler_unit_cost` (el costo), `v_erp_stock_truth` (el veredicto del inventario), `v_erp_sales_line_units` (el peldaño del renglón). Un primitivo con dos implementaciones es un primitivo que va a divergir.
+
+### Consecuencias
+
+- **Dos cifras publicadas se movieron, cada una en su commit y avisada:** la venta **+$15,827,985 / 90 d (+30.6%)** y el inventario **−$4,470,027 (−6.71%)**.
+- **Estado alcanzado** (prod, 2026-09-09): existencia cantidad **cero sin explicar** · existencia valor 72.4% confirmado · ventas cobertura **98.20%** del dinero de Kepler · unidades **95.75%** confirmado por el costo.
+- ⛔ **`U-D-8` no es arbitrable y el límite es de la fuente**: `c62` y `c63` vacíos en el **98.81%** de sus renglones (99.99% poblados en el ticket). Ahí la unidad queda **declarada** por el renglón, no arbitrada — $15.3M / 90 d en `sin_costo`.
+- ⚠️ **Wincaja queda fuera** por decisión explícita, con su árbitro ya medido y sin cablear (identidad de existencia 100.00% en 21 sucursales; `valor_costo` por renglón en 99.98%; **no** declara peldaño por renglón — `cantidad_auxiliar` sirve en 3 filas de 9,962,920).
+- ⚠️ **Un candado no puede afirmar sobre el TEXTO del SQL** (se pone rojo solo al refactorizar) ni **fijar una cifra viva al entero** (el shipper del ODS la mueve). Grafo de dependencias y bandas.
+- Siete candados sostienen esto (**stock-truth 21/21 · sales-line-units 38/38 · kepler-parity 8/8 · fact-vs-kepler 21/21 · existencia 23/23 · unit-truth 40/40 · transfer-leak**), y **se corren contra `FLEET_DB_URL`**: el `DATABASE_URL_NEW` del `.env` es `platform_test`, no prod.
+- ⚠️ **Colisión evitada:** ADR-058 ya estaba tomado por Fase CV, y el plan de la Fase K también lo reclamaba. Esta línea es **059**.

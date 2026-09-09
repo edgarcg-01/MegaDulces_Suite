@@ -18,7 +18,8 @@ Abrí y leé cada uno (no asumas su contenido, leelos):
 4. [`GLOSSARY.md`](GLOSSARY.md) — términos de dominio + nombres internos (Thot/Horus/Maat, Kepler, CEDIS, folio, fases…).
 5. [`ERP_KEPLER.md`](ERP_KEPLER.md) — el ERP Kepler (schema ofuscado) + el pipeline `kepler_ods`. **Imprescindible si vas a tocar feeds, finanzas, compras o analytics.**
 6. [`GOTCHAS.md`](GOTCHAS.md) — trampas técnicas ya vividas (varias tumbaron prod). **Leelo entero antes de tocar DB o permisos.**
-7. [`../DESIGN.md`](../DESIGN.md) — sistema de diseño. **Obligatorio antes de tocar UI.**
+7. [`VERDAD_ABSOLUTA.md`](VERDAD_ABSOLUTA.md) — ⭐⭐ **la fuente principal de razón** (ADR-059). Qué **arbitra** cada número, cuánto aguanta y qué se **declara**. `REGISTRO_CANONICO_COMPLETO.md` dice *de dónde sale* el dato; éste dice *con qué se comprueba*. **Obligatorio antes de publicar una cifra o multiplicar dos columnas** — trae los resolvedores únicos, las trampas que ya cobraron y las **hipótesis refutadas**, para que no vuelvas a pagar un camino que ya se pagó.
+8. [`../DESIGN.md`](../DESIGN.md) — sistema de diseño. **Obligatorio antes de tocar UI.**
 
 ## Paso 2 — Explorá la estructura real (no te fíes solo de los docs)
 
