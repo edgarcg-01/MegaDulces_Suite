@@ -3614,8 +3614,11 @@ export class CommercialAnalyticsService {
       )
       .where('s.tenant_id', o.tenantId)
       .andWhere(dateCol, '>=', lo).andWhere(dateCol, '<=', hi)
-      // RV (preventa) = vecinal de AMBAS fuentes (kepler 1V0NN/3V001 + wincaja). RD (ruta) sigue wincaja-only.
-      .andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR (s.channel='ruta' AND s.source='wincaja'))`)
+      // RV (preventa) = vecinal de AMBAS fuentes (kepler 1V0NN/3V001 + wincaja). RD (ruta) = AMBAS
+      // fuentes también: las camionetas 21-28 de PH pasaron de Wincaja (hasta jun-2026) a Kepler
+      // (jul+) en el cutover, comparten warehouse_code RUTA-2N y NO se traslapan → se funden por
+      // almacén (abajo, en el pivote). Kepler ruta = camionetas puras (la vecinal ya es preventa).
+      .andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR s.channel='ruta')`)
       .modify((b: any) => {
         if (o.promoMode === 'solo') b.andWhere('s.is_promo', true);
         else if (o.promoMode !== 'todo') b.andWhere('s.is_promo', false);
@@ -3624,6 +3627,8 @@ export class CommercialAnalyticsService {
       })
       .select(
         's.vendor_code as vendor_code', 's.vendor_name as vendor_name',
+        // Almacén: para RD (ruta) la identidad es la RUTA, no la persona (Kepler no trae vendedor).
+        's.warehouse_code as warehouse_code', trx.raw('max(s.branch_name) as branch_name'),
         trx.raw(`CASE s.channel WHEN 'credito' THEN 'mayoreo_credito' WHEN 'ruta' THEN 'ruta_venta' WHEN 'preventa' THEN 'preventa_vecinal' END as sale_channel`),
         's.product_id as product_id',
         trx.raw('max(s.sku) as sku'), trx.raw('max(s.nombre) as nombre'), trx.raw('max(s.factor_sale) as factor_sale'),
@@ -3640,7 +3645,7 @@ export class CommercialAnalyticsService {
         trx.raw(`max(bp.cja_price) as cja_price`),
         trx.raw(`bool_or(COALESCE(utp.unidad_es_caja, false)) as unidad_es_caja`),
       )
-      .groupByRaw('s.vendor_code, s.vendor_name, s.channel, s.product_id, s.brand_id, s.unit_kind');
+      .groupByRaw('s.vendor_code, s.vendor_name, s.warehouse_code, s.channel, s.product_id, s.brand_id, s.unit_kind');
   }
 
   /** Filas de `sellOutByVendor()` unificadas (rollup meses cerrados + vista borde). */
@@ -4119,10 +4124,17 @@ export class CommercialAnalyticsService {
     const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
     for (const r of raw) {
       const group = GROUP[r.sale_channel]; if (!group) continue;
+      // RD (ruta): la identidad es la RUTA (almacén), no la persona. Kepler no trae vendedor en ruta
+      // (vendor_code vacío) y comparte warehouse_code con su predecesora Wincaja (RUTA-2N) → se
+      // funden en una camioneta continua (Wincaja hasta jun-2026 + Kepler jul+). Mostrador/crédito/
+      // preventa siguen keyeando por persona (vendor_code).
+      const isRoute = r.sale_channel === 'ruta_venta';
+      const idCode = isRoute ? (r.warehouse_code || r.vendor_code) : r.vendor_code;
+      const idName = isRoute ? (r.branch_name || r.warehouse_code || 'Ruta') : r.vendor_name;
       // RS.11 — identidad canónica: une fragmentos del mismo vendedor + nombre limpio.
-      const vId = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      const vId = this.canonVendor(identMap, idCode, idName);
       // RS.11b — fuera los que no son vendedor real (buckets 00/99, nulos, genéricos marcados).
-      if (vId.exclude || this.isNoiseVendor(r.vendor_code)) continue;
+      if (vId.exclude || this.isNoiseVendor(idCode)) continue;
       const colKey = `${group}|${vId.key}`;
       if (cellFilter && !cellFilter.has(colKey.toLowerCase()) && !cellFilter.has(`${group}|*`)) continue;
       const uv = String(r.uv_win ?? '').trim().toUpperCase();
@@ -4251,10 +4263,10 @@ export class CommercialAnalyticsService {
       // Vendedores del universo unificado, scoped como el reporte by-vendor: crédito (ambas fuentes) +
       // ruta/preventa SÓLO de Wincaja (kepler ruta = decisión RD-vs-RV, diferida).
       const rows = await this.selloutLeaves(trx, { tenantId, from: f, to: t },
-        's.channel, s.vendor_code, s.vendor_name',
-        // RV (preventa) = vecinal de AMBAS fuentes (kepler 1V0NN/3V001 + wincaja). RD (ruta) sigue
-        // wincaja-only (las camionetas kepler no traen vendedor). Crédito ambas fuentes.
-        (qb) => qb.andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR (s.channel='ruta' AND s.source='wincaja'))`));
+        's.channel, s.vendor_code, s.vendor_name, s.warehouse_code, s.branch_name',
+        // RV (preventa) y RD (ruta) = AMBAS fuentes. Las camionetas kepler no traen vendedor → la
+        // RUTA (almacén) es la identidad, y se funde con su yo Wincaja por warehouse_code. Crédito ambas.
+        (qb) => qb.andWhereRaw(`(s.channel='credito' OR s.channel='preventa' OR s.channel='ruta')`));
       return { rows, identMap };
     });
     const map = new Map<string, { group: string; group_label: string; ord: number; leaves: any[] }>();
@@ -4266,10 +4278,14 @@ export class CommercialAnalyticsService {
     let sinVend = 0;
     for (const r of rows as any[]) {
       const meta = GROUP[r.channel]; if (!meta) continue;
+      // RD (ruta): la identidad es la RUTA (almacén), no la persona (Kepler no trae vendedor).
+      const isRoute = r.channel === 'ruta';
+      const idCode = isRoute ? (r.warehouse_code || r.vendor_code) : r.vendor_code;
+      const idName = isRoute ? (r.branch_name || r.warehouse_code || 'Ruta') : r.vendor_name;
       // RS.11b — fuera los que no son vendedor real; sólo Mayoreo expone el bucket 'sin-vendedor' (fix D).
-      if (this.isNoiseVendor(r.vendor_code)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
+      if (this.isNoiseVendor(idCode)) { if (meta.g === 'mayoreo') sinVend += Number(r._m) || 0; continue; }
       // RS.11 — identidad canónica: fragmentos del mismo vendedor (y su yo Wincaja/Kepler) colapsan a una hoja.
-      const id = this.canonVendor(identMap, r.vendor_code, r.vendor_name);
+      const id = this.canonVendor(identMap, idCode, idName);
       if (id.exclude) continue;
       addLeaf(meta.g, meta.label, meta.ord, id);
     }
