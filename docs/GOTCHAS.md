@@ -1541,3 +1541,119 @@ sin prueba negativa es una intención (ADR-056).
 Para aplicar UNA migración a prod (no `migrate:latest`, que arrastra las pendientes de otros):
 `node database/scripts/apply-one-migration-prod.js <archivo>` — ya existe, apunta a `FLEET_DB_URL`
 y tiene un `--list`.
+## 39. `1fr` no baja de `min-content`: la pantalla que se sale del teléfono y **no** scrollea
+
+Vivido dos veces el mismo día en `/tienda/arqueo` (SM.31) y `/tienda/caducidades` (SM.32, y ya
+estaba en producción). El síntoma engaña: la pantalla se ve cortada del lado derecho **y no se
+puede correr en horizontal**. Medido, era esto:
+
+```js
+document.documentElement.scrollWidth   // 390  ← el navegador dice que no hay desborde
+document.querySelector('.surf-page').getBoundingClientRect().width  // 390
+getComputedStyle(document.querySelector('.surf-page')).gridTemplateColumns  // "512px" ← acá está
+```
+
+El track medía 512px dentro de un contenedor de 390. **`1fr` es `minmax(auto, 1fr)`**, y ese `auto`
+es el **min-content del contenido**: el track no baja de ahí aunque el contenedor sea más chico.
+El contenido desborda hacia afuera, la página **recorta** (nadie tiene `overflow: auto`) y
+`scrollWidth` no lo reporta porque el desborde está dentro de un hijo, no en el documento. Resultado:
+122px de UI que **no existen** para el usuario. No hay error en consola, no hay barra de scroll.
+
+**Quién pone el piso** (los cuatro casos que aparecieron, en orden de frecuencia):
+
+1. **Un flex sin `flex-wrap`.** Es el más traicionero porque no se ve venir: `.arq-hint` tenía ~10
+   hijos flex (cada `<kbd>` cuenta uno) y su min-content era la **suma** de todos → ~400px.
+   Un `<p>` con texto suelto wrappea; un `display: flex` con hijos elemento, no.
+2. **`white-space: nowrap` + `text-overflow: ellipsis`.** El ellipsis hace creer que el texto ya
+   está "resuelto", pero el min-content sigue siendo la frase COMPLETA (`.evp-sub`: 399px).
+3. **Una tabla ancha.** `overflow-x: auto` en su contenedor **no alcanza**: el item del grid sigue
+   aportando su min-content. Hace falta **`min-width: 0` en el item** para que el track se rinda —
+   recién entonces la tabla tiene de dónde scrollear.
+4. **Un `<input>` con `width` fijo** (o sin nada: su ancho intrínseco son ~20 caracteres, ~200px).
+   En un flex, `flex: 1 1 0` + `min-width: 0` no siempre basta; hay que mirar el número.
+
+**El arreglo, en este orden:**
+
+- `minmax(0, 1fr)` en vez de `1fr` en el grid que apila. Vale también para el **track `auto`
+  implícito**: un `display: grid` sin `grid-template-columns` se dimensiona al min-content del hijo
+  y lo deja desbordar **aunque el padre tenga `min-width: 0`**.
+- `minmax(min(15.5rem, 100%), 1fr)` en los grids intrínsecos: con el mínimo pelado, en un teléfono
+  la única columna mide 248px dentro de un contenedor de 230.
+- `min(Xrem, 100%)` en todo `width`/`min-width` fijo.
+- `flex-wrap` donde haya más de dos hijos flex.
+- `container-type: inline-size` en el panel: **además de habilitar las `@container`, corta la fuga
+  de min-content hacia el grid padre** (el elemento deja de aportar el min-content de su contenido).
+
+**Cómo medirlo** (a ojo no se ve; el número es el que manda):
+
+```js
+// 1) ¿qué se sale, y tiene scroller propio?
+const vw = document.documentElement.clientWidth;
+[...document.querySelectorAll('.surf-page *')].filter(el => {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.right <= vw + 1) return false;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowX;
+    if (o === 'auto' || o === 'scroll') return false;   // scrollea: está bien
+  }
+  return true;
+}).map(el => el.tagName + '.' + el.className);
+
+// 2) quién pone el piso: min-content REAL de cada candidato
+const mc = el => { const p = el.style.width; el.style.width = 'min-content';
+  const w = el.getBoundingClientRect().width; el.style.width = p; return Math.round(w); };
+```
+
+**Trampa dentro de la trampa:** `flex-direction: column` **+ `flex-wrap: wrap` es multilínea**, y en
+un multilínea el ancho de la línea lo fija el **contenido**, no el contenedor — `align-items: stretch`
+estiraba los hijos a 275px dentro de un padre de 218. Si se apila para que quepa, va `flex-wrap: nowrap`.
+
+**Y la que DESIGN §R ya avisaba:** `container-type` implica contención de **layout**, así que el
+elemento pasa a ser bloque contenedor de sus descendientes `position: fixed`. Ponerlo en un
+componente que ancla un overlay a pantalla completa (`.psf-cam-ov { position: fixed; inset: 0 }`)
+lo encoge al tamaño del componente. El contenedor va en el **wrapper de layout**, nunca en el nodo
+que ancla el overlay.
+
+---
+
+## 40. PrimeNG v22 **ignora `styleClass`** en `p-select` y `p-inputnumber` (108 usos sospechosos)
+
+La clase no llega al elemento. No hay warning, no hay error: el CSS simplemente **nunca aplica** y
+la regla queda de adorno en el bloque `styles`.
+
+```html
+<p-select styleClass="arq-fld arq-fld-suc" ... />
+```
+```js
+document.querySelector('p-select').className
+// "p-component p-inputwrapper p-select ng-untouched ..."   ← ni arq-fld ni arq-fld-suc
+```
+
+Encontrado dos veces el mismo día, en dos componentes sin relación:
+- `.arq-fld` (tipografía + alto de campo) nunca llegó a los `p-select` del arqueo → se quedaban en
+  35px con la tipografía por defecto mientras los `input` hermanos medían 44.
+- `.cad-qty-w { max-width: 12rem }` nunca aplicó a un `p-inputnumber` → el campo venía **sin tope
+  desde el día uno** (275px, y a 320px se salía de la tarjeta).
+- `.cad-suc-pick { min-width: 14rem }` idem: el selector de sucursal jamás midió los 14rem que pedía.
+
+**`inputStyleClass` SÍ se propaga** (llega al `<input>` de adentro) — por eso `.cad-qty-in` funcionaba
+y confundía el diagnóstico: parte del estilo aplicaba y parte no.
+
+**Arreglo:** apuntar al **elemento**, no a la clase.
+
+```css
+:host ::ng-deep .arq-panel p-select { min-height: 44px; align-items: center; }
+:host ::ng-deep .cad-qty p-inputnumber { max-width: min(12rem, 100%); }
+```
+
+**Alcance sin auditar:** el barrido del repo da **108 `styleClass` sobre `p-select` en 41 archivos**
+y **6 sobre `p-inputnumber`**. Todos son sospechosos de ser letra muerta. Antes de "arreglarlos" en
+masa hay que mirar caso por caso: varios están compensados por otra regla o por el layout, y hacerlos
+efectivos **cambia el aspecto** de pantallas que hoy nadie reporta como rotas.
+
+```bash
+grep -rho "<p-select[^>]*styleClass=\"[^\"]*\"" apps/view/src/app --include=*.ts | wc -l   # 108
+```
+
+**Cómo verificarlo en 5 segundos** antes de perder media hora: abrir la pantalla y leer
+`element.className`. Si la clase no está, el CSS no aplica — no importa cuán correcto sea el selector.
