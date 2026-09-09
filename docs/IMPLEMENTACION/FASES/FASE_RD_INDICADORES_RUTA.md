@@ -1,7 +1,10 @@
 # Fase RD — Indicadores de Ruta Directa
 
-> **Estado**: 🔨 EN CURSO. Capa de datos: RD.1 ✅ · RD.2 ✅ (local `.245`, prod pendiente de deploy) ·
-> RD.3 y el hueco de Canindo ⚠️ DECLARADOS, no resueltos. Backend y frontend sin empezar.
+> **Estado**: 🚀 EN PROD. Las 10 migraciones aplicadas a Railway el 2026-09-08 (RD.1–RD.8), con el
+> `REFRESH CONCURRENTLY` de `mv_wincaja_sales_daily` y `mv_sellout_monthly` y los datos cargados.
+> Falta **redeploy de api + view y re-login** (los 4 permisos nuevos viajan en el JWT).
+> Sigue ⚠️ DECLARADO: el costo del Excel (§2.3) · el residuo de monto de Canindo y las rutas
+> **502/505 sin agente** (§2.4a, 🟡 parcial desde el 2026-09-09) · la ruta 321 (§2.4b).
 > **Orden de trabajo fijado por Edgar**: primero verdad absoluta del dato, después backend, el
 > frontend al final. Capa por capa.
 
@@ -199,11 +202,42 @@ sucursal, pero **bajo un `c67` que el decode no reconoce como ruta**.
 declararlo — no improvisar*. **Necesita a Edgar**: ¿el encoding `c67` cambió después del 18-ago, o
 las rutas de Canindo facturan por caja (`50C0N`)?
 
-**(b) Ruta 321 en jun/jul — 34 celdas, $573,693.** Se congeló en Wincaja el 2026-06-02 y el Excel
-siguió capturando hasta julio.
+#### 🟡 2026-09-09 — (a) se destrabó por otro lado: el PUSH de las vans, no el decode del branch
 
-⚠️ Sin (a) resuelto, cualquier cifra de agosto en adelante para Canindo sale incompleta. Lo que no se
-puede medir se **declara**, no se dibuja como cero.
+La pregunta del `c67` quedó **sin contestar y ya no bloquea**. Tres de las cinco vans de Canindo
+(`501`, `503`, `504`) recibieron el **agente de push** —cada camioneta corre su propio Kepler local y
+sube su venta al runner `.249` cada 15 min— así que la venta llega a nivel **línea y día** sin pasar
+por la réplica del branch ni por el decode de `c67`. Detalle operativo en
+[`RUNBOOK_ALTA_CAMIONETA.md`](../../../database/importers/kepler/route-push/RUNBOOK_ALTA_CAMIONETA.md)
+y [`INVENTARIO_Y_PLAN_RUTAS.md`](../../../database/importers/kepler/route-push/INVENTARIO_Y_PLAN_RUTAS.md) §1.5–1.6.
+
+Agosto 2026, `analytics.v_rd_route_daily` contra las mismas celdas del Excel de la tabla de arriba:
+
+| ruta | agente | días (Excel 27) | SUBTOTAL Excel | plataforma | cobertura | antes (ODS) |
+|---|---|---:|---:|---:|---:|---:|
+| 501 | ✅ 08-sep | 26 (16 push + 10 wincaja) | $468,954 | $401,951 | **85.7%** | 22.5% |
+| 502 | ⬜ falta | 9 (sólo wincaja) | $489,637 | $164,901 | 33.7% | 52.5% |
+| 503 | ✅ 08-sep | 27 (17 + 10) | $612,460 | $524,330 | **85.6%** | 7.6% |
+| 504 | ✅ 08-sep | 26 (17 + 9) | $462,694 | $382,428 | **82.7%** | **0%** |
+| 505 | ⬜ falta | 9 (sólo wincaja) | $386,648 | $124,373 | 32.2% | **0%** |
+| | | | **$2,420,393** | **$1,597,983** | **66.0%** | **16.9%** |
+
+Lo que esto cierra y lo que **no**:
+
+- ✅ Los **días** ya están: 26–27 de 27 en las tres rutas con agente (antes 0–3).
+- ⚠️ El **monto** llega al 83–86%, no al 100%. **Ese residuo no lo explica este cambio** y queda
+  abierto: es el mismo árbitro que falta en §2.3 (¿qué reporte de Wincaja se teclea en el
+  `CONCENTRADO`?). No se dibuja como cerrado.
+- ⬜ **502 y 505 siguen sin fuente diaria desde el 2026-08-11** — 29 días. No es decode: les falta el
+  agente, y sus laptops (`192.168.50.x`) **no son alcanzables** desde la PC de analítica (probado:
+  ping y TCP 5432 fallan). El descubrimiento hay que correrlo desde el runner `.249`.
+
+**(b) Ruta 321 en jun/jul — 34 celdas, $573,693.** Se congeló en Wincaja el 2026-06-02 y el Excel
+siguió capturando hasta julio. **Sigue abierto** — es un `.mdb` que dejó de copiarse.
+
+⚠️ Mientras 502/505 no tengan agente, cualquier cifra de Canindo de agosto en adelante sale
+incompleta **para esas dos rutas**. Lo que no se puede medir se **declara**, no se dibuja como cero:
+`v_rd_route_daily` las devuelve con `costo_status='sin_dato_en_la_fuente'`.
 
 ---
 
@@ -341,7 +375,8 @@ tenencia/verificación · `analytics.delivery_cost_daily`.
 | **RD.5** | Odómetro + costo fijo + `analytics.v_route_operation_period` | ✅ `20260908160000` |
 | **RD.7** | Objetivo por ruta: `'route'` en `commercial.sales_targets` | ✅ `20260908170000` |
 | **RD.8** | Pantalla `/comercial/comisiones` (tab "Comisiones RD") | ✅ |
-| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **bloqueado: es captura en el POS, no decode** | ⚠️ BLOCKED |
+| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **destrabado por el push de las vans, no por el decode**: 501/503/504 ✅ con línea diaria (cobertura de agosto 16.9% → 66.0%); faltan **502 y 505** (sin agente) y el residuo de monto del 14–17% | 🟡 PARCIAL |
+| **RD.2c** | El puente runner→plataforma perdía a toda van nueva (watermark **global** en `import-route-push-lines.js`): **$1,266,037** parados sin ningún error. Watermark **por ruta** + detección de **hueco frontal** que converge | ✅ 2026-09-09 |
 
 **Orden** (jerarquía de importancia, decidida con Edgar): capa de datos primero (RD.1 ✅, RD.2 ✅),
 después **RD.6** ✅ porque es el que reemplaza trabajo que se paga y **no depende de ningún hueco**,

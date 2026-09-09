@@ -6,6 +6,58 @@
 
 ---
 
+## 2026-09-09 — `[RD.2c]` El latido estaba verde y la venta no llegaba: $1.27M parados entre el runner y la plataforma
+
+**Disparador:** `RUNBOOK_ALTA_CAMIONETA.md`. Se estaban dando de alta las camionetas de Canindo; `ruta_501` acababa de dar su primer push (18:58 MX, 4,001 filas, $384,428, almacén `06-001`).
+
+### El alta funcionó — y no servía de nada todavía
+
+Las tres vans con agente (`501`, `503`, `504`) cumplían **todas** las señales de éxito del runbook: `mart.ventas` con venta fresca, `ingest.route_push_heartbeat.last_ok` de hace minutos, `schtasks` en 0. Y su venta no estaba en la plataforma.
+
+| | runner `.249` | plataforma |
+|---|---:|---:|
+| `ruta_501` | $384,428 (13-ago → 08-sep) | — |
+| `ruta_503` | $512,218 (12-ago → 08-sep) | — |
+| `ruta_504` | $369,391 (12-ago → 08-sep) | $35,394 (sólo 07/08-sep) |
+| | | **hueco: $1,266,037** |
+
+**La causa: un watermark GLOBAL en el puente.** `import-route-push-lines.js` arrancaba su ventana incremental en `max(business_date)` de **todas** las rutas juntas, así que el máximo de las rutas viejas de Padre Hidalgo (`2026-09-08`) tapaba a la van nueva. Las de Canindo empezaron a pushear el **12-ago** y la ventana arrancaba el **07-sep**: sus primeros 26 días quedaban **inalcanzables para siempre**. No es un retraso que se pone al día solo — el watermark nunca vuelve atrás.
+
+### Dos reglas, no una
+
+1. **Watermark por ruta** — cada una reanuda en *su* último día cargado −1.
+2. **Detección de hueco frontal** — si el runner tiene días **anteriores** al primero ya cargado, la ventana arranca en el piso del runner.
+
+La segunda no es teórica y por poco no la escribo: con sólo la primera, el dry-run mostró `504>=2026-09-07` — la ruta **ya tenía historia parcial**, así que "reanudaba" y su hueco frontal de $334k seguía afuera. **Un watermark por ruta solo no alcanza.** El piso se mide con **el mismo filtro que inserta el loader** (`sku` no vacío), así que converge por construcción: sana una vez y vuelve a incremental, sin re-leer el histórico cada noche.
+
+### El doble-conteo que el runbook advertía: medido antes de cargar, no ocurrió
+
+El `§R5` del runbook decía *"retirar la ruta del `c67` del branch o se cuenta doble"*. Lo verifiqué **antes** de tocar nada, y la realidad lo había resuelto sola: la pierna Wincaja de Canindo **se cortó el 11/12-ago** cuando el POS migró a Kepler. El traslape real en `analytics.v_route_sales_lines` es **un día, una ruta**: `503` el **2026-08-12**, push **$6** contra wincaja **$155**. Esa fila de $6 es la firma del arranque del Kepler local — idéntica en `501` el 13-ago y en `504` el 12-ago — así que se deja cargada y **declarada**, no se recorta con una constante mágica.
+
+Tampoco hizo falta retirar `50N` del `c67`: `import-canindo-routes-monthly` y `import-route-push-monthly` escriben la **misma llave** `(tenant, warehouse 06, WIN-50N, mes)` con `GREATEST` → no suman. ⚠️ Pero eso significa que el rollup **elige el máximo entre dos universos sin declararlo**: ago-2026 de `WIN-501` pasó de **$152,353** (branch, ya cortado del POS) a **$260,874** (push, completo) y la pantalla no dice cuál ganó. Deuda con nombre: **procedencia en `sales_by_route_monthly`** (ADR-056).
+
+### Lo que destraba en RD, y lo que no
+
+§2.4a declaraba $1.77M de Canindo *"sin ninguna fuente diaria"* y culpaba al decode de `c67`. **La pregunta del `c67` sigue sin contestar y ya no bloquea** — el push trae la venta a nivel línea y día sin pasar por la réplica del branch. Cobertura de agosto contra las mismas celdas del Excel: **16.9% → 66.0%**; la ruta 504 de **0% → 82.7%**.
+
+Lo que **no** cierra, y se deja declarado en vez de dibujado:
+
+- El **monto** llega al 83–86% en las tres rutas con agente, no al 100%. Los **días** sí están (26–27 de 27). Ese residuo es el mismo árbitro faltante de §2.3: *¿qué reporte de Wincaja se teclea en el `CONCENTRADO`?*
+- **502 y 505**: 29 días sin fuente diaria (último 2026-08-11). No es decode, les falta el agente — y sus laptops (`192.168.50.x`) **no son alcanzables** desde la PC de analítica (probado: ping y TCP 5432 fallan). El firewall se abrió del lado del **runner**, así que el descubrimiento del CASO 3 hay que correrlo en `.249`.
+
+### Lecciones
+
+1. **Subir al runner no es llegar a la plataforma.** Las señales de éxito del runbook medían **un solo lado** y daban verde con la venta detenida. El runbook ahora exige los dos, con el comando del segundo.
+2. **Editar un importer despliega a prod al instante.** El nightly levantó esta edición a las 19:22 MX y sanó él mismo las 12,210 líneas antes de que yo corriera el `--apply`, que ya sólo hizo el incremental. El antes/después hay que capturarlo **antes** de guardar el archivo. (Lo tenía capturado; si no, habría perdido la medición del hueco.)
+3. **Un log que no puede decir la verdad es peor que no tenerlo.** `rowCount` de un `ON CONFLICT DO UPDATE` cuenta insertadas + actualizadas, así que la línea `"N nuevas (M ya existían)"` imprimía **siempre** "0 ya existían" — por construcción, en cada corrida desde que existe.
+4. **Un timeout no es un verde.** `test-newdb-wincaja-business-date` se cortó en el bloque 3 por `statement_timeout` mientras prod estaba cargado; corriéndolo solo dio **8 OK / 0 fallas / 0 NO MEDIDOS**. Reportarlo como NO MEDIDO y volver a medir, no asumir.
+
+### Candados contra prod
+
+`test-newdb-wincaja-business-date` **8 OK / 0 fallas / 0 NO MEDIDOS** · `test-newdb-rd-commissions` **34 / 0 / 0** · `test-newdb-sellout-parity` **20 OK / 0 fallas** (incluye *"Canindo (50→06): hay venta de los DOS lados del corte 2026-08-15"*).
+
+---
+
 ## 2026-09-08 — `[RD]` Automatizar el tablero con el que se paga la Ruta Directa, y el bug que apareció al entenderlo
 
 **Disparador:** *"analiza `INDICADORES RD 2026.xlsx`"* → *"necesito que automaticemos este proceso"* → *"iniciemos por tener una verdad absoluta con los datos… ir capa por capa"* → *"terminemos y dejemos dudas al final"* → *"aplica las migraciones"*.

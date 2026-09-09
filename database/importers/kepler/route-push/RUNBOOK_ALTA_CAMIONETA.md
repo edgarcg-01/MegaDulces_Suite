@@ -118,7 +118,45 @@ schtasks /Query /TN RutaNN /V /FO LIST | findstr /I "resultado ejecución"
 
 ---
 
-## Mi lado (lo corro yo tras cada push)
+## CASO 3 — Camioneta en OTRA subred (ej. CANINDO `192.168.50.x`)
+
+Las vans de PH están en la misma LAN que el runner (`.10.x` → `.0.249`). Las de **Canindo** están en `192.168.50.x` (Wi-Fi) → el push da `OFFLINE` hasta abrir la red por **dos lados**. Además el Postgres de la van no acepta a `.249` por `pg_hba`, y el psql local tiene el gotcha del `-c`.
+
+**R1 — abrir la VAN** (PowerShell **elevado** en la laptop; idempotente):
+```powershell
+netsh advfirewall firewall add rule name="ICMP-In" protocol=icmpv4:8,any dir=in action=allow | Out-Null
+netsh advfirewall firewall add rule name="PG-In-LAN" dir=in action=allow protocol=TCP localport=5432 remoteip=192.168.0.0/16 | Out-Null
+$env:PGPASSWORD='kepler123'
+$psql = "C:\Program Files\PostgreSQL\16\bin\psql.exe"
+$hba = & $psql -U postgres -tAc "show hba_file"
+if (-not (Select-String -Path $hba -Pattern '192.168.0.0/16' -Quiet)) { Add-Content -Path $hba -Value "host    all    all    192.168.0.0/16    scram-sha-256" }
+& $psql -U postgres -c "select pg_reload_conf()"   # → t
+```
+(Su Postgres ya escucha en la LAN — NO hace falta `listen_addresses` ni reiniciar. Clave local Canindo = `kepler123`.)
+
+**R2 — abrir el RUNNER `.249`** para esa subred (**una sola vez por plaza**, en `.249`):
+```powershell
+Set-NetFirewallRule -DisplayName "Kepler ingest 5433" -RemoteAddress @('192.168.0.0/24','192.168.10.0/24','192.168.50.0/24')
+```
+> ✅ **Canindo `.50.0/24` YA está agregada** → las próximas vans de Canindo saltan R2.
+
+**R3 — descubrir DESDE `.249`** (más rápido que en la van; ya alcanzable tras R1):
+```
+docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U postgres -d postgres -tAc "select datname from pg_database where datname like 'md%'"
+docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U postgres -d <DB> -tAc "select rtrim(btrim(c63),'-') serie, btrim(c67) ruta, count(*) from md.kdm1 where c2='U' and c3='D' and c4=10 group by 1,2"
+```
+
+**R4 — agente + tarea** = igual que CASO 2 (Bloques B–D), con **dos diferencias obligatorias**:
+- ⚠️ **`-d` en TODAS las llamadas psql** del `.cmd`: en este psql `psql "<uri>" -c "SQL"` ignora el `-c` y **se cuelga** en interactivo. Usar `psql -d "<uri>" -c "SQL"` + `<nul` en las que no tienen pipe. (Ver plantilla ya corregida usada en `ruta_503`/`ruta_504`.)
+- ⚠️ **crear `C:\KeplerPush` primero** (`New-Item -ItemType Directory -Force C:\KeplerPush`) — cada van es una máquina distinta.
+
+**R5 — ⚠️ retirar la ruta del `c67` del branch** (server-side, para no doble-contar): las vans de Canindo también sincronizan al POS, así que su venta ya entra por `import-canindo-routes-monthly` (`WIN-50N`). Al ponerla en push, retirar esa `50N` del path `c67` (patrón Wincaja '50'). Mientras `ruta_50N` no tenga mapeo a warehouse, no llega a sell-out → seguro. Ver [`INVENTARIO_Y_PLAN_RUTAS.md`](INVENTARIO_Y_PLAN_RUTAS.md) §1.5.
+
+---
+
+## Mi lado (lo corro yo tras cada push) — **son DOS lados, no uno**
+
+### Lado 1 — llegó al runner
 ```sql
 -- venta reciente de la ruta
 SELECT sucursal, max(fecha), count(*) FROM mart.ventas WHERE sucursal='ruta_NN' GROUP BY 1;
@@ -126,8 +164,30 @@ SELECT sucursal, max(fecha), count(*) FROM mart.ventas WHERE sucursal='ruta_NN' 
 SELECT * FROM ingest.route_push_heartbeat WHERE truck='ruta_NN';
 ```
 
+### Lado 2 — llegó a la PLATAFORMA (⛔ no se puede omitir)
+El runner verde **no** significa que la venta esté en la app. El 2026-09-09 las 3 vans de Canindo
+latían verde y tenían **$1,266,037** parados en el runner porque el puente
+(`import-route-push-lines.js`) usaba un watermark **global**: el máximo de las rutas viejas tapaba a
+la van nueva y sus primeros días quedaban inalcanzables **sin ningún error** (ver
+[`INVENTARIO_Y_PLAN_RUTAS.md`](INVENTARIO_Y_PLAN_RUTAS.md) §1.6).
+
+```bash
+node -e "require('dotenv').config();process.env.DST_URL=process.env.FLEET_DB_URL;require('./database/importers/kepler/import-route-push-lines.js')"
+```
+Leer la línea **`ventana por ruta`**: la ruta nueva debe aparecer con `*` y su motivo (`ruta nueva`
+o `hueco frontal`). Correr con `--apply` para cargarla; el nightly también lo hace solo.
+
+Después, el hueco tiene que dar **cero** (runner vs plataforma, ruta×mes):
+```bash
+# quedan deltas de 1-5 líneas con importe $0 = líneas de SKU vacío que el loader descarta a propósito
+```
+
 ## Señales de éxito
 - Log dice `ONLINE` + `OK`.
 - `mart.ventas` tiene venta fresca de `ruta_NN`.
 - `route_push_heartbeat.last_ok` = ahora.
 - `schtasks ... Último resultado: 0` y dispara al reconectar la red.
+- **`analytics.route_push_lines` tiene la MISMA venta que el runner** para esa ruta, mes por mes.
+- **`analytics.sales_by_route_monthly` trae `WIN-NN`** con el warehouse correcto (se deriva del
+  prefijo del almacén: `06-003` → `06`; si el almacén viene vacío el importer lo manda a `01` por
+  default — revisarlo en una plaza nueva).
