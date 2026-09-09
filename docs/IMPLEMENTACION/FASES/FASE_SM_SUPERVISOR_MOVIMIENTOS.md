@@ -575,6 +575,47 @@ arregla con un snapshot del payload al imprimir; no se tocó para no mezclar sco
 
 **Pendiente prod:** redeploy view. Sin migración, sin re-login.
 
+## SM.29 — La captura se mueve en dos dimensiones, y termina en el botón (✅ local 2026-09-08)
+
+SM.28 dejó una cadena **lineal** de 16 casillas. Pero la pantalla son **tres
+columnas**, no una lista: bajar de `$1000` a `Tarjeta` costaba **11 pulsaciones**, y
+al llegar al final de todo había que soltar el teclado y buscar el botón con el
+mouse.
+
+Ahora la navegación es la que la forma de la pantalla ya promete:
+
+| Tecla | Qué hace |
+|---|---|
+| `↑` `↓` | Dentro de la columna |
+| `←` `→` | A la columna de al lado, **mismo renglón** |
+| `Enter` | Igual que `↓` (no rompe el hábito de quien ya lo usa) |
+| `↓` / `Enter` en la **última** casilla de una columna | **El botón de guardar** |
+| `↑` / `←` en el botón | Vuelve a la casilla exacta de donde se bajó |
+
+**Clamp entre columnas de distinto largo:** billetes tiene 6 renglones y monedas 5,
+así que `→` desde `$20` (renglón 6) cae en `50¢` (el último de monedas) en vez de
+irse al vacío.
+
+**El botón es el último eslabón a propósito:** es a donde iba a ir la mano de todos
+modos, y así el arqueo entero — contar, declarar los medios, sellar — se hace sin
+soltar el teclado. Si el botón está deshabilitado (no hay nada que guardar) el
+`focus()` no hace nada y el foco se queda donde estaba, que es lo correcto: no hay
+a dónde bajar todavía. `Enter` y espacio **no** se interceptan en el botón: son su
+activación nativa, y con eso `Enter` en la última casilla → `Enter` de nuevo abre el
+diálogo de confirmación.
+
+**Implementación:** las coordenadas (`col`, `row`) las manda el template y la grilla
+se arma de los `@ViewChildren` en orden de DOM — los 11 inputs de denominación son
+UNA `QueryList` que se parte por `billetes.length`, y los medios son su propia lista
+que **se omite si no se renderizó** (el relevo no declara medios). O sea que una
+columna que no existe no necesita código especial.
+
+**Lo que NO entra en la cadena:** el `p-select` de Incidencia. Sus flechas son las
+que abren y recorren el dropdown — meterlo en la navegación haría que `↓` en Cheques
+despliegue opciones en vez de bajar. Se llega con `Tab`.
+
+**Pendiente prod:** redeploy view. Sin migración, sin re-login.
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
