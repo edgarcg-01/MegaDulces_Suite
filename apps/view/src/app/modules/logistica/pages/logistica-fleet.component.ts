@@ -17,7 +17,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   Driver, DriverRole, LogisticaService, Vehicle, VehicleStatus,
-  VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency, FuelTransaction,
+  VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency, FuelEfficiencyReport, FuelTransaction,
 } from '../logistica.service';
 
 const VEHICLE_STATUS_OPTIONS: { label: string; value: VehicleStatus }[] = [
@@ -215,16 +215,36 @@ function severityForDriverStatus(s: string): Severity {
           @if (fuelEff().length) {
             <p-card class="fuel-card">
               <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
+              @if (fuelCoverage(); as cov) {
+                <p class="fuel-cov">
+                  Medible en <strong>{{ cov.vehicles_medibles }}</strong> de {{ cov.vehicles_total }} unidades activas.
+                  @if (fuelOrphan(); as orf) {
+                    @if (orf.liters > 0) {
+                      <span class="fuel-orphan">
+                        · <strong>{{ orf.liters | number:'1.0-0' }} L</strong>
+                        ({{ orf.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}, {{ orf.rows }} cargas)
+                        <strong>sin unidad asignada</strong> — fuera de todo km/L.
+                      </span>
+                    }
+                  }
+                </p>
+              }
               <p-table [value]="fuelEff()" styleClass="p-datatable-sm surf-table surf-table--sticky">
                 <ng-template #header>
-                  <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
+                  <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col">Fuente</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
                 </ng-template>
                 <ng-template #body let-f>
                   <tr [class.fuel-flag]="f.flag">
                     <td><code>{{ f.plate }}</code></td>
                     <td class="num">{{ f.km | number:'1.0-0' }}</td>
                     <td class="num">{{ f.liters | number:'1.0-1' }}</td>
-                    <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : '—' }}</td>
+                    <td class="fuel-src">
+                      @if (f.liters_by_source?.usage_log) { <span>check-out {{ f.liters_by_source.usage_log | number:'1.0-0' }}</span> }
+                      @if (f.liters_by_source?.fuel_transaction) { <span>cargas {{ f.liters_by_source.fuel_transaction | number:'1.0-0' }}</span> }
+                      @if (f.liters_by_source?.route_expense) { <span>ruta {{ f.liters_by_source.route_expense | number:'1.0-0' }}</span> }
+                      @if (!f.liters) { <span class="muted">—</span> }
+                    </td>
+                    <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : (f.no_medible || '—') }}</td>
                     <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
                     <td class="num">
                       @if (f.deviation_pct != null) {
@@ -552,6 +572,10 @@ function severityForDriverStatus(s: string): Severity {
     .maint-due li { font-size:.9rem; }
     .maint-due-reason { color: var(--c-text-2); margin-left:.4rem; }
     .fuel-card { display:block; margin-bottom:1rem; }
+    .fuel-cov { margin:0 0 .6rem; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fuel-orphan { color:var(--warn-fg, var(--action)); }
+    .fuel-src { font-size:var(--fs-xs); color:var(--c-text-2); }
+    .fuel-src span + span::before { content:' · '; }
     .fuel-title { margin:0 0 .5rem; font-size:1rem; }
     .fuel-flag { background: var(--bad-soft-bg); }
     .fuel-bad { color: var(--bad-fg); font-weight: var(--fw-medium); }
@@ -583,6 +607,8 @@ export class LogisticaFleetComponent {
   readonly maintenance = signal<VehicleMaintenance[]>([]);
   readonly maintDue = signal<MaintenanceDue[]>([]);
   readonly fuelEff = signal<FuelEfficiency[]>([]);
+  readonly fuelCoverage = signal<FuelEfficiencyReport['coverage'] | null>(null);
+  readonly fuelOrphan = signal<FuelEfficiencyReport['unattributed'] | null>(null);
   readonly fuelTx = signal<FuelTransaction[]>([]);
   readonly savingFuel = signal(false);
   fuelForm: FormGroup = this.fb.group({
@@ -754,7 +780,14 @@ export class LogisticaFleetComponent {
       error: () => { this.loadingMaint.set(false); /* silent */ },
     });
     this.api.maintenanceDue().subscribe({ next: (r) => this.maintDue.set(r || []), error: () => {} });
-    this.api.fuelEfficiency().subscribe({ next: (r) => this.fuelEff.set(r || []), error: () => {} });
+    this.api.fuelEfficiency().subscribe({
+      next: (r) => {
+        this.fuelEff.set(r?.items || []);
+        this.fuelCoverage.set(r?.coverage || null);
+        this.fuelOrphan.set(r?.unattributed || null);
+      },
+      error: () => {},
+    });
     this.api.listFuel({ limit: 50 }).subscribe({ next: (r) => this.fuelTx.set(r || []), error: () => {} });
   }
 

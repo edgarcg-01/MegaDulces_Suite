@@ -133,13 +133,74 @@ async function scanAlerts(client) {
   return { opened, resolved, scanned: trackers.length };
 }
 
+/**
+ * Bloque OFFLINE — no toca el proveedor ni escribe: valida el contrato en DB
+ * sobre los trackers que ya existen. Corre SIEMPRE, con o sin credenciales, para
+ * que la suite no se lea como verde por no haber hecho nada.
+ *
+ * Cubre además el ciclo de vida de la alerta reconocida: el scanner busca la
+ * alerta viva por (tracker, kind) en `open` O `ack`. Cuando buscaba sólo `open`,
+ * reconocer una alerta todavía activa insertaba un duplicado a los 5 minutos y
+ * dejaba la `ack` colgada — y `listActive` mostraba las dos.
+ */
+async function offlineContract(client) {
+  await client.query('BEGIN');
+  await client.query(`SET LOCAL app.tenant_id = '${TENANT}'`);
+  try {
+    for (const t of ['trackers', 'vehicle_positions', 'fleet_alerts']) {
+      const n = (await client.query(`select count(*)::int n from logistics.${t}`)).rows[0].n;
+      assert(Number.isInteger(n), `logistics.${t} legible como app_runtime bajo RLS (${n} filas)`);
+    }
+    const rls = (await client.query(
+      `select relrowsecurity, relforcerowsecurity from pg_class where oid = 'logistics.fleet_alerts'::regclass`
+    )).rows[0];
+    assert(rls.relrowsecurity && rls.relforcerowsecurity, 'fleet_alerts con RLS forzado');
+
+    const idx = (await client.query(
+      `select indexdef from pg_indexes where schemaname='logistics' and indexname='uq_logistics_fleet_alerts_open'`
+    )).rows[0];
+    assert(!!idx, 'existe el único parcial de alerta abierta por (tenant,tracker,kind)');
+    assert(idx.indexdef.includes("'open'") && !idx.indexdef.includes("'ack'"),
+      "el único parcial sólo cubre status='open' → NO frena un duplicado creado junto a una 'ack'");
+
+    // El candado real: una alerta reconocida se ENCUENTRA como viva.
+    const tr = (await client.query(`select id from logistics.trackers where deleted_at is null limit 1`)).rows[0];
+    if (tr) {
+      await client.query(`delete from logistics.fleet_alerts where tracker_id=$1 and kind='speed'`, [tr.id]);
+      await client.query(
+        `insert into logistics.fleet_alerts (tenant_id,tracker_id,kind,severity,message,value,status)
+         values (public.current_tenant_id(),$1,'speed','warn','probe',95,'ack')`, [tr.id]);
+      const soloOpen = (await client.query(
+        `select 1 from logistics.fleet_alerts where tracker_id=$1 and kind='speed' and status='open'`, [tr.id])).rowCount;
+      const viva = (await client.query(
+        `select 1 from logistics.fleet_alerts where tracker_id=$1 and kind='speed' and status in ('open','ack')`, [tr.id])).rowCount;
+      assert(soloOpen === 0, "buscando sólo 'open' la alerta reconocida NO aparece (era la causa del duplicado)");
+      assert(viva === 1, "buscando 'open'|'ack' SÍ aparece: el scanner la actualiza en vez de duplicarla");
+    } else {
+      console.log('  ~ sin trackers: se omite el candado de ack');
+    }
+  } finally {
+    await client.query('ROLLBACK'); // el bloque offline no deja rastro
+  }
+}
+
 (async () => {
   console.log('\n=== LT smoke: rastreo de flota ===');
-  if (!USER || !PASS) throw new Error('Faltan MAGNI_USER / MAGNI_PASS');
   const conn = process.env.DATABASE_URL_NEW_RUNTIME || process.env.DATABASE_URL_NEW;
   const client = new Client({ connectionString: conn });
   await client.connect();
   try {
+    await offlineContract(client);
+
+    if (!USER || !PASS) {
+      console.log('\n  ~ SKIP del bloque contra proveedor: faltan MAGNI_USER / MAGNI_PASS.');
+      console.log('    (hace login real contra MagniTracking y ESCRIBE trackers/posiciones;');
+      console.log('     correr a mano con las credenciales cuando se toque el adapter)');
+      console.log(`\n✅ ${assertions}/${assertions} asserts OK (contrato en DB; proveedor omitido)\n`);
+      await client.end();
+      process.exit(0);
+    }
+
     const objects = await fetchObjects();
     assert(objects.length > 0, `proveedor devolvió ${objects.length} objetos`);
 

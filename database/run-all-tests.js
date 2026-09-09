@@ -133,6 +133,9 @@ const TESTS = [
   { file: 'http-cobranza-ws-test.js', label: 'COMM-P1 WS de cobranza (handshake JWT + auth_error con token inválido · attach/validate/reject emiten collection_deposit_changed con sucursal/folio/monto/actor · aislamiento entre tenants · limpia su evidencia)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
+  // LT Rastreo de flota — el smoke existía desde la Fase LT y NUNCA estuvo
+  // registrado acá: adapter, trackers, posiciones y alertas corrían sin red.
+  { file: 'test-newdb-logistics-tracking.js', label: 'LT rastreo de flota (contrato en DB: RLS forzado + único parcial sólo sobre open → una alerta ack NO frena el duplicado, y el scanner debe buscar open|ack; el bloque contra MagniTracking es skip-graceful sin MAGNI_USER/PASS porque hace login real y escribe)', needsApi: false },
   // LTV Auditoría en Ruta — detalle geográfico (traza GPS + tickets ubicados por hora)
   { file: 'test-newdb-ltv-audit-detail.js', label: 'LTV.16 detalle auditoría (traza por tracker aunque vehicle_id NULL + tickets ligados por route_code↔route_number + ubicación por hora GPS + sin-hora no ubica)', needsApi: false },
   // Cierre de ruta (port Automation_RD)
