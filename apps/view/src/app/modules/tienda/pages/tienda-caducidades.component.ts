@@ -32,7 +32,7 @@ import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad
 // Teclear dígitos pelados (`0327` → 31/03/2027) en vez de pelear con un
 // datepicker: quien captura está de pie frente al anaquel, con el teléfono en
 // una mano. La función es pura y ya estaba probada en la estación de recepción.
-import { parseExpiryShort, formatExpiryEcho } from '../../almacen/shared/expiry-short';
+import { parseExpiryShort, formatExpiryEcho, maskExpiryMx, digitsOf } from '../../almacen/shared/expiry-short';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 
@@ -223,10 +223,10 @@ type Condition = 'bueno' | 'regular' | 'malo';
                    el eco de abajo confirma la fecha entendida en cuanto se puede leer. -->
               <input pInputText id="cad-vence" class="cad-fecha" inputmode="numeric" autocomplete="off"
                 [ngModel]="fechaRaw()" (ngModelChange)="onFecha($event)"
-                placeholder="MM/AA" aria-describedby="cad-vence-help" />
+                placeholder="DD/MM/AAAA" maxlength="10" aria-describedby="cad-vence-help" />
               <small class="cad-hint" id="cad-vence-help">
-                Sólo dígitos, como viene impreso: <strong>0327</strong> = marzo 2027.
-                Si el empaque trae día, <strong>150327</strong> = 15/03/2027.
+                Tecleá sólo números y la diagonal se pone sola: <strong>15032027</strong> → 15/03/2027.
+                Si el empaque no trae día, <strong>0327</strong> = marzo 2027 (último día del mes).
               </small>
 
               @if (fechaIso(); as iso) {
@@ -1005,9 +1005,16 @@ export class TiendaCaducidadesComponent {
   // ── paso 2: fecha ──
 
   /** Dígitos pelados → ISO. `null` mientras esté incompleta: "seguí escribiendo". */
+  /**
+   * La diagonal la pone la máscara; el parser sigue leyendo los MISMOS dígitos.
+   *
+   * `fechaRaw` guarda el texto con formato (lo que se ve) y `parseExpiryShort`
+   * recibe los dígitos pelados: una sola fuente de verdad para la fecha, y el
+   * campo dejó de pedirle al operador que teclee un separador.
+   */
   onFecha(v: string): void {
-    this.fechaRaw.set(v);
-    this.fechaIso.set(parseExpiryShort(v));
+    this.fechaRaw.set(maskExpiryMx(v));
+    this.fechaIso.set(parseExpiryShort(digitsOf(v)));
   }
 
   echo(iso: string | null): string { return formatExpiryEcho(iso); }
