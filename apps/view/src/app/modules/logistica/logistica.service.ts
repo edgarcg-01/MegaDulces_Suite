@@ -1342,8 +1342,8 @@ export class LogisticaService {
   maintenanceDue(): Observable<MaintenanceDue[]> {
     return this.http.get<MaintenanceDue[]>(`${this.base}/fleet/maintenance/due`);
   }
-  fuelEfficiency(): Observable<FuelEfficiency[]> {
-    return this.http.get<FuelEfficiency[]>(`${this.base}/fleet/fuel-efficiency`);
+  fuelEfficiency(): Observable<FuelEfficiencyReport> {
+    return this.http.get<FuelEfficiencyReport>(`${this.base}/fleet/fuel-efficiency`);
   }
   vehicleOdometer(vehicleId: string): Observable<{ vehicle_id: string; odometer: number | null }> {
     return this.http.get<{ vehicle_id: string; odometer: number | null }>(`${this.base}/fleet/vehicles/${vehicleId}/odometer`);
@@ -1456,11 +1456,25 @@ export interface FuelEfficiency {
   model?: string | null;
   km: number;
   liters: number;
+  /** Litros desagregados por escritor: las tres fuentes que conviven. */
+  liters_by_source: { usage_log: number; fuel_transaction: number; route_expense: number };
   trips: number;
   real_km_l: number | null;
   spec_km_l: number | null;
   deviation_pct: number | null;
+  /** Por qué no hay rendimiento, cuando `real_km_l` es null. */
+  no_medible: string | null;
   flag: boolean;
+}
+
+/**
+ * El endpoint dejó de devolver un array pelado: ahora declara cobertura y el
+ * combustible que NO se puede atribuir a ninguna unidad, en vez de omitirlo.
+ */
+export interface FuelEfficiencyReport {
+  items: FuelEfficiency[];
+  coverage: { vehicles_total: number; vehicles_medibles: number };
+  unattributed: { liters: number; amount: number; rows: number; detail: string };
 }
 
 export interface EtaStop {
