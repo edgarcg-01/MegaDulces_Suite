@@ -24,7 +24,7 @@ const { declararActor } = require('../lib/declare-actor');
 const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('../../../services/feeds-ingest/label-compute');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
-const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const SOURCE = (process.argv.find((a) => a.startsWith('--source=')) || '').split('=')[1] || 'ods';
 const KSCHEMA = SOURCE === 'ods' ? 'kepler_ods' : 'kp';
 const SRC = process.env.KEPLER_URL || 'postgresql://postgres:superoot@192.168.0.245:5432/KP_CONCENTRADA';

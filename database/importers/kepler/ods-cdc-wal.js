@@ -31,7 +31,7 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
 // `kepler_md_XX` el consumidor WAL se queda buscando los replicas en el server equivocado
 // (y calla). Fallback a DATABASE_URL_NEW por compatibilidad. Ver replicate-ods-live.js.
 const SUB_BASE = process.env.ODS_SOURCE_BASE || process.env.DATABASE_URL_NEW
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const PUB = 'ods_cdc_pub';
 // OJO: los nombres de replication slot son ÚNICOS POR CLUSTER (no por DB). Las 7 ramas viven en el
 // MISMO postmaster :5433 → hay que usar un slot por rama (ods_cdc_<code>); si todas usaran 'ods_cdc'

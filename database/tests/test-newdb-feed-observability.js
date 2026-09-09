@@ -29,7 +29,7 @@ const path = require('path');
 const fs = require('fs');
 
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // `[IDG.1]` Este test BORRA de `analytics.ods_branch_checks`. Se le pasa la URL
 // resuelta (acepta DST_URL además de la canónica), no la del entorno a secas.
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-feed-observability', { url: URL });

@@ -24,7 +24,7 @@ const APPLY = process.argv.includes('--apply');
 // de escritura). Idempotente; `--teardown --apply` limpia; el setup normal lo re-crea si hiciera falta.
 const TEARDOWN = process.argv.includes('--teardown');
 const ONLY_BRANCH = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || null;
-const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const SUB_BASE = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
 const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica

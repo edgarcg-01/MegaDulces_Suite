@@ -127,7 +127,7 @@ async function cycle(pgClient) {
   let pgClient = null;
   if (!DRY && sink.sinkMode() === 'pg') {
     const { Client } = require('pg');
-    const cs = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+    const cs = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
     const ssl = /@(localhost|127\.0\.0\.1|192\.168\.)/.test(cs) ? false : { rejectUnauthorized: false };
     pgClient = new Client({ connectionString: cs, ssl });
     await pgClient.connect();

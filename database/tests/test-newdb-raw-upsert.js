@@ -7,7 +7,7 @@
 const { Client } = require('pg');
 const { applyRawUpsert } = require('../../services/feeds-ingest/apply-handlers');
 
-const URL = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const URL = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // `[IDG.1]` Este test hace DROP TABLE con el nombre interpolado. Se le pasa la URL
 // que de verdad va a abrir (tiene default a localhost), no la del entorno.
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-raw-upsert', { url: URL });

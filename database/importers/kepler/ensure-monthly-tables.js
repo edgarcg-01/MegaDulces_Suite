@@ -41,7 +41,7 @@
 const { Client } = require('pg');
 
 const SUB_BASE = process.env.ODS_SOURCE_BASE
-  || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
 const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };

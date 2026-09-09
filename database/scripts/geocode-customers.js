@@ -20,7 +20,7 @@ const knexLib = require('knex');
 const APPLY = process.argv.includes('--apply');
 const limitArg = process.argv.indexOf('--limit');
 const LIMIT = limitArg > -1 ? Number(process.argv[limitArg + 1]) : 25;
-const CONN = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const CONN = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const TENANT = process.env.CP_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const UA = 'MegaDulces-Logistics-Geocoder/1.0';
 

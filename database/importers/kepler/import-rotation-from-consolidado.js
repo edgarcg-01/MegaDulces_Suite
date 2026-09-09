@@ -26,7 +26,7 @@ const SRC =
   'postgresql://postgres:superoot@localhost:5433/kepler_consolidado';
 const DST =
   process.env.DATABASE_URL_NEW ||
-  'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+  (() => { throw new Error('falta DATABASE_URL_NEW: la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
 
 function percentile(sorted, p) {

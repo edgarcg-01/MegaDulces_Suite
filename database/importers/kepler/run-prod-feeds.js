@@ -345,7 +345,7 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     console.error('ABORT: --local pero DATABASE_URL_NEW no es local/LAN (parece prod). Quitá --local o corregí el target. Actual: ' + dst);
     process.exit(3);
   }
-  if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'default localhost:5433/postgres_platform') + ')');
+  if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'DATABASE_URL_NEW — sin ella los importers fallan; la copia local :5433/postgres_platform fue purgada 2026-09-08') + ')');
 
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
 

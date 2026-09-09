@@ -22,7 +22,7 @@ const WATCH_ARG = process.argv.find((a) => a.startsWith('--watch'));
 const WATCH_SEC = WATCH_ARG ? Math.max(2, Number(WATCH_ARG.split('=')[1] || 5)) : 0;
 const BATCH = Math.max(200, Number(process.env.ODS_CDC_BATCH) || 2000);
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
-const SUB_BASE = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+const SUB_BASE = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
 const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica

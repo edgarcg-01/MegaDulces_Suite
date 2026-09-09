@@ -32,7 +32,12 @@ const USER = process.env.KEPLER_RO_USER || 'platform_ro';
 const PASS = process.env.KEPLER_RO_PASS || 'kepler123';
 // Base del contenedor de réplicas lógicas locales (para ramas sin platform_ro remoto, ej.
 // Canindo). Mismo default que replicate-ods-live.js (SUB_BASE). Env-overridable.
-const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres_platform';
+// ⚠️ NO poner un throw acá: es un const de NIVEL DE MÓDULO → tumbaría el `require` de kepler-branches
+// para TODOS los procesos que lo importan (poller de tickets Kepler, setup-branch-subscriber, ods-cdc…),
+// aunque no toquen una réplica. Pasó 2026-09-09: el refactor de fallbacks metió un throw y mató el poller
+// Kepler → /tienda/live solo mostraba Morelia Abastos. El dbname es TEMPLATE: `urlOf` (abajo) lo reemplaza
+// por `kepler_md_0X`, así que sólo importan host/puerto/credencial → el default al contenedor local sirve.
+const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres';
 
 // Sucursales Kepler. host/port/db = infra (tercer octeto de IP = plaza). Orden 00..06.
 // '06' Canindo NO tiene host remoto con platform_ro → `replica` marca que se lee del
