@@ -241,4 +241,37 @@ function assertDistinct(nombre, urlA, urlB) {
   return { a: claveA, b: claveB };
 }
 
-module.exports = { assertSafeTarget, assertTarget, assertDistinct, classify };
+/**
+ * Aborta si el destino NO es PRODUCCIÓN. El INVERSO de `assertSafeTarget`/`assertTarget`.
+ *
+ * Para los que LEGÍTIMAMENTE escriben a prod: el orquestador `run-prod-feeds` y los
+ * importers on-prem del runner. Éstos NO pueden usar `assertTarget({intent:'write'})`,
+ * que prohíbe escribir a prod "por ninguna vía" (pensado para tests) — su trabajo ES
+ * escribir a prod. Lo que hay que evitar es pegarle SIN QUERER a la DB local o compartida:
+ * el incidente MR (auditoría con `$375M` de inventario fantasma que en realidad era
+ * `platform_test`) fue exactamente eso — un prod-writer resolviendo mal su destino.
+ *
+ * Antes cada prod-writer traía su propio `/railway/.test(url)` (run-prod-feeds lo tenía
+ * inline). Esto lleva la decisión al mismo `classify()` que ya distingue prod de
+ * local/compartida/desconocido (ADR-056: un primitivo, un dueño).
+ *
+ * @param {string} nombre quién pide (sale en el mensaje).
+ * @param {{url?:string}} [opts] `url` explícita; si falta, `resolveUrl()` (DATABASE_URL_NEW).
+ * @returns {{kind:string, host:string|null, db:string|null}} la clasificación (kind==='prod').
+ */
+function assertProdTarget(nombre, opts = {}) {
+  const url = opts.url || resolveUrl();
+  const res = classify(url);
+  const donde = `${res.host || '(host desconocido)'}/${res.db || '(base desconocida)'}`;
+  if (res.kind !== 'prod') {
+    abortar([
+      `ABORT (${nombre}): el DESTINO no es PRODUCCIÓN → ${donde} (clasifica como '${res.kind}').`,
+      'Este proceso ESCRIBE a prod (feeds del runner). Un destino equivocado escribe la copia',
+      'sin fallar y nadie lo mira — como el incidente MR ($375M fantasma = platform_test).',
+      'Exportá DATABASE_URL_NEW al proxy Railway de prod, o pasá --local para poblar dev.',
+    ]);
+  }
+  return res;
+}
+
+module.exports = { assertSafeTarget, assertTarget, assertProdTarget, assertDistinct, classify };
