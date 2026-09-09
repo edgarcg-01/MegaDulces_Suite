@@ -245,6 +245,23 @@ const APP_SOURCES: SourceCfg[] = [
   { key: 'abc_classification',     label: 'Clasificación ABC',              table: 'commercial.abc_classification',     tsCandidates: ['computed_at'],                             warnH: 50, critH: 96, cadence: 'nightly' },
   { key: 'replenishment_findings', label: 'Hallazgos de reabasto',          table: 'commercial.replenishment_findings', tsCandidates: ['last_seen_at', 'updated_at', 'created_at'], warnH: 50, critH: 96, cadence: 'nightly' },
   { key: 'maat_findings',          label: 'Hallazgos Maat (finanzas)',      table: 'finance.findings',                  tsCandidates: ['updated_at', 'created_at'],                warnH: 30, critH: 50, cadence: 'nightly 3AM (MaatScanner)' },
+  // (ítem 3 del plan de la capa) CxC snapshots: `customer-receivables-scanner` @Cron 08:30 MX
+  // los escribe, y `customer-ledger` los LEE para la historia de cartera. En prod está VACÍA — que
+  // es la clase de falla `customer_receivables` (populador agendado que quizá no corre). Pero no
+  // podemos distinguir desde acá "feature apagada (ENABLE_CXC_SCAN=false)" de "cron muerto": una
+  // tabla vacía no trae fecha. Sensor NOISE-FREE: si está vacía se DECLARA (no alarma — puede ser
+  // off), y sólo alarma por REGRESIÓN (tuvo snapshots y se congelaron). Es lo contrario de un sensor
+  // genérico de "tabla vacía": ese daría 131 falsos positivos (reltuples miente; casi todas tienen dato).
+  {
+    key: 'cxc_snapshots', label: 'CxC snapshots (historia de cartera)', table: 'analytics.customer_receivable_snapshots', tsCandidates: [],
+    sql: `SELECT CASE WHEN count(*) = 0 THEN now() ELSE max(computed_at) END AS last_update,
+                 CASE WHEN count(*) = 0
+                        THEN 'sin snapshots — ¿ENABLE_CXC_SCAN=false o el cron 08:30 no corre? (no medible desde aquí)'
+                        ELSE count(*)::text || ' snapshots · último ' ||
+                             coalesce(to_char(max(snapshot_date),'DD/MM'),'—') END AS note_extra
+            FROM analytics.customer_receivable_snapshots`,
+    warnH: 30, critH: 50, cadence: 'diario 08:30 MX (customer-receivables-scanner)',
+  },
   // ── Frescura por FECHA DEL DATO (detecta feed que corre pero no avanza) ──
   // Wincaja: el feed on-prem escribe a prod y a veces se congela por ECONNRESET (rollback) →
   // corre a diario pero la última venta se queda pegada. Medimos max(business_date), no updated_at.
