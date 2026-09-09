@@ -49,6 +49,12 @@ const APP_SOURCES: SourceCfg[] = [
   // que además se refresca cada 15-30 min, no nightly.
   { key: 'in_transit',      label: 'Pedido (demanda/stock/OC)', table: 'analytics.replenishment_plan', tsCandidates: ['computed_at', 'updated_at'], warnH: 6,   critH: 14,  cadence: 'cada 15-30 min' },
   { key: 'sales_stats',     label: 'Sell-out ABC',            table: 'analytics.product_sales_stats',  tsCandidates: ['computed_at', 'updated_at'], warnH: 50,  critH: 96,  cadence: 'nightly' },
+  // Blend consolidado (Kepler+Wincaja+rutas del ODS) = fuente de los KPIs `network*` del Command Center.
+  // ⚠️ CUELGA de `mv_kepler_sales_daily`: un `DROP … CASCADE` de ese matview la mata en silencio — pasó
+  // el 2026-09-08 (una migración de canal la dropeó de colateral y no la recreó) y el Command Center leyó
+  // una relación inexistente hasta el 09-09. Este sensor la vigila: si el matview FALTA, db-health la
+  // atrapa en el try/catch como 'unknown' (visible); si está pero el nightly no la refrescó, warn/crit por edad.
+  { key: 'sales_blended',   label: 'Blend consolidado (Command Center)', table: 'analytics.mv_sales_blended', tsCandidates: ['updated_at'], warnH: 30, critH: 50, cadence: 'nightly (tras kepler+wincaja)' },
   { key: 'reorder_policy',  label: 'Política de reorden',     table: 'commercial.reorder_policy',      tsCandidates: ['updated_at', 'computed_at'], warnH: 200, critH: 400, cadence: 'nightly / semanal' },
   { key: 'products',        label: 'Catálogo de productos',   table: 'catalog.products',               tsCandidates: ['updated_at', 'created_at'],  warnH: 360, critH: 720, cadence: 'semanal' },
   // Etiquetas de anaquel (precios pieza/paq/caja desde Kepler c90/91/92). CARA AL CLIENTE:
