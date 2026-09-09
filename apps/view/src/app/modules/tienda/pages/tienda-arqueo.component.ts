@@ -175,15 +175,16 @@ interface CortesPersona {
             <!-- Escape hatch del supervisor: relevo, contingencia, caja sin Kepler. -->
             <div class="arq-head">
               <label class="arq-lbl">Sucursal
-                <p-select [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
+                <p-select #hcell [options]="sucursalOptions()" [(ngModel)]="aSuc" (ngModelChange)="dirty.set(true)"
                           optionLabel="label" optionValue="value" styleClass="arq-fld arq-fld-suc"
-                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label" />
+                          appendTo="body" placeholder="Elige…" [filter]="sucursales().length > 8" filterBy="label"
+                          (keydown)="onHeadKey($event, 0)" />
               </label>
-              <label class="arq-lbl">Caja <input pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2"></label>
+              <label class="arq-lbl">Caja <input #hcell pInputText class="arq-fld arq-fld-sm" [(ngModel)]="aCaja" (ngModelChange)="dirty.set(true)" placeholder="2" (keydown)="onHeadKey($event, 1)" (focus)="selectAll($event)"></label>
               <!-- Sin selector de fecha: un arqueo es de HOY. Elegir una fecha
                    pasada permitiría sellar dinero de un día que ya cerró. -->
               <label class="arq-lbl">Fecha <span class="arq-fijo">{{ hoyTxt() }}</span></label>
-              <label class="arq-lbl">Cajero <input pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código"></label>
+              <label class="arq-lbl">Cajero <input #hcell pInputText class="arq-fld arq-fld-cajero" [(ngModel)]="aCajero" (ngModelChange)="dirty.set(true)" placeholder="código" (keydown)="onHeadKey($event, 2)" (focus)="selectAll($event)"></label>
               @if (turnos().length) {
                 <p-button type="button" label="Volver a mis turnos" icon="pi pi-arrow-left" styleClass="p-button-sm p-button-text" (click)="manual.set(false)"></p-button>
               }
@@ -191,7 +192,8 @@ interface CortesPersona {
           }
 
           @if (puedeContar()) {
-            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)" ariaLabel="Tipo de arqueo" />
+            <app-segmented [options]="tipoOptions" [value]="aTipo()" (valueChange)="elegirTipo($event)"
+                           (saltarAbajo)="focusHead(0)" ariaLabel="Tipo de arqueo" />
             @if (aTipo() === 'relevo') {
               <label class="arq-lbl arq-block">Cajero entrante <input pInputText class="arq-fld" [(ngModel)]="aEntrante" (ngModelChange)="dirty.set(true)" placeholder="quién recibe la caja"></label>
             }
@@ -634,10 +636,26 @@ interface CortesPersona {
   styles: [`
     :host { display: block; }
     .arq-head-right { display: inline-flex; align-items: center; gap: .4rem; margin-left: auto; }
-    .arq-stack { display: grid; grid-template-columns: 1fr; gap: 1rem; }
-    .arq-panel { padding: 1rem; }
-    .arq-bar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center; gap: 1rem;
-               margin: .8rem -1rem -1rem; padding: .7rem 1rem;
+    /* minmax(0,1fr), no 1fr: 1fr es minmax(auto,1fr) y no baja del
+       min-content de la tarjeta. Con auto el historial (tabla de 10 columnas)
+       estiraba la columna mas alla del ancho de la pantalla. */
+    .arq-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+    /* SM.31 - El panel es el contenedor de consulta (DESIGN §9: @container para
+       componente, @media solo para chrome y densidad por puntero). Ademas de
+       habilitar las queries de abajo, container-type: inline-size CORTA la
+       contribucion de min-content del contenido al track del grid padre: era lo
+       que hacia que la tarjeta midiera 434px dentro de 333 y se saliera de la
+       pantalla en un telefono (el .arq-hint, un flex sin wrap con 10 hijos,
+       ponia el piso). Los overlays de PrimeNG salen por appendTo, asi que la
+       contencion no los recorta (§R, la trampa de container-type). */
+    .arq-panel { --arq-pad: 1rem; padding: var(--arq-pad);
+                 container-type: inline-size; container-name: arqpanel; }
+    /* Los margenes negativos se derivan del padding del panel: si el panel se
+       aprieta en un telefono, la barra sigue pegada a los bordes sin recalcular. */
+    .arq-bar { position: sticky; bottom: 0; z-index: 3; display: flex; align-items: center;
+               flex-wrap: wrap; gap: .6rem 1rem;
+               margin: .8rem calc(-1 * var(--arq-pad)) calc(-1 * var(--arq-pad));
+               padding: .7rem var(--arq-pad);
                background: var(--card-bg); border-top: 1px solid var(--border-color);
                border-radius: 0 0 var(--r-md) var(--r-md); }
     .arq-bar-total { display: flex; flex-direction: column; line-height: 1.1; }
@@ -688,19 +706,23 @@ interface CortesPersona {
     .arq-pide-box i { color: var(--action); margin-top: .15rem; }
     .arq-pide-box p { margin: .15rem 0 0; font-size: .78rem; }
     .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
-    .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
+    .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(6rem, 100%), 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
                  padding: .7rem .8rem; border-radius: var(--r-md); background: var(--surface-hover-bg); border: 1px solid var(--border-color); }
     :host ::ng-deep .arq-seg { margin-bottom: .7rem; }
     .arq-head { display: flex; gap: .8rem; flex-wrap: wrap; margin: .8rem 0; align-items: flex-end; }
     .arq-lbl { display: inline-flex; flex-direction: column; gap: .2rem; font-size: .76rem; color: var(--text-muted); }
     :host ::ng-deep .arq-fld { font-size: .82rem; padding: .35rem .6rem; }
-    :host ::ng-deep .arq-fld-sm { width: 5.5rem; }
+    :host ::ng-deep .arq-fld-sm { width: min(5.5rem, 100%); }
     /* El codigo de cajera no es un numero corto como la caja: va de 10C02 a
        DAVID_CISNEROS. Con el ancho de "Caja" se cortaba el nombre de quien firma
        el conteo, que es justo el dato que no puede quedar a medias. */
-    :host ::ng-deep .arq-fld-cajero { width: 12rem; }
-    .arq-fld-suc { width: 11rem; }
-    :host ::ng-deep .arq-num { width: 5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .25rem .4rem; }
+    :host ::ng-deep .arq-fld-cajero { width: min(12rem, 100%); }
+    .arq-fld-suc { width: min(11rem, 100%); }
+    /* width:100% + tope: llena el track que le toque (en touch el tope se
+       levanta, abajo) pero puede encogerse - con width:5rem fijo el input era
+       un piso de 80px que no cedia en una pantalla angosta. */
+    :host ::ng-deep .arq-num { width: 100%; min-width: 0; max-width: 5rem;
+                               text-align: right; font-variant-numeric: tabular-nums; padding: .25rem .4rem; }
     :host ::ng-deep .arq-date .p-datepicker-input { width: 8.5rem; }
     .arq-block { display: block; margin: .8rem 0; }
     .arq-sel { font-size: .82rem; padding: .35rem .6rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
@@ -710,7 +732,11 @@ interface CortesPersona {
     /* Grid intrínseco (§9): dos columnas donde caben, una donde no. Sin breakpoints. */
     /* Tres bloques del formato de piso: billetes | monedas | medios. Grid
        intrinseco, sin breakpoints: se apilan solos cuando no entran (DESIGN §9). */
-    .arq-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(15.5rem, 1fr)); gap: .8rem 1.4rem; margin: .2rem 0 .4rem; }
+    /* min(15.5rem, 100%) en vez de 15.5rem pelado: con el minimo fijo, en un
+       telefono la unica columna medía 248px dentro de un contenedor de 230 y se
+       desbordaba. Con el min() el track se rinde al ancho disponible. */
+    .arq-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15.5rem, 100%), 1fr));
+                gap: .8rem 1.4rem; margin: .2rem 0 .4rem; }
     .arq-col { min-width: 0; display: flex; flex-direction: column; }
     .arq-col-t { margin: 0 0 .4rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border-color);
                  font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -721,36 +747,36 @@ interface CortesPersona {
                    border-top: 1px solid var(--border-color); font-size: .76rem; font-weight: 700; }
     .arq-col-pz { margin-left: auto; font-size: .68rem; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .arq-col-mn { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
-    .arq-col--medios .arq-den { grid-template-columns: 1fr 6.5rem; }
+    .arq-col--medios .arq-den { grid-template-columns: minmax(0, 1fr) 6.5rem; }
     .arq-inc { display: block; margin-top: .55rem; }
     :host ::ng-deep .arq-inc .arq-fld { display: block; width: 100%; margin-top: .2rem; }
-    .arq-denoms { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
-                  gap: .25rem 1.4rem; margin: .5rem 0 .4rem; }
-    .arq-den { display: grid; grid-template-columns: 3.2rem 1fr 5.5rem; align-items: center; gap: .5rem;
+    /* El track del medio es minmax(0,1fr): con 1fr no bajaba del ancho fijo
+       del input y la fila entera empujaba la tarjeta fuera de la pantalla. */
+    .arq-den { display: grid; grid-template-columns: 3.2rem minmax(0, 1fr) 5.5rem; align-items: center; gap: .5rem;
                padding: .12rem 0; font-variant-numeric: tabular-nums; }
     .arq-den-lbl { font-size: .82rem; font-weight: 600; text-align: right; }
     .arq-den-sub { font-size: .74rem; color: var(--text-muted); text-align: right; }
-    .arq-medios { margin: .5rem 0 .2rem; padding-top: .5rem; border-top: 1px solid var(--border-color); }
-    .arq-medios-t { display: block; font-size: .66rem; text-transform: uppercase; letter-spacing: .04em;
-                    color: var(--text-muted); margin-bottom: .35rem; }
-    .arq-medios-g { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .25rem 1.4rem; }
-    .arq-medio { display: grid; grid-template-columns: 1fr 6.5rem; align-items: center; gap: .5rem; padding: .12rem 0; }
+    .arq-medio { display: grid; grid-template-columns: minmax(0, 1fr) 6.5rem; align-items: center; gap: .5rem; padding: .12rem 0; }
     .arq-medio-lbl { font-size: .82rem; }
     :host ::ng-deep .arq-medio-num { text-align: right; }
-    :host ::ng-deep .arq-denoms-tbl { font-variant-numeric: tabular-nums; margin-bottom: .4rem; }
-    :host ::ng-deep .arq-denoms-tbl .p-datatable-tbody > tr > td { padding: .2rem .5rem; }
-    .arq-denom-lbl { font-variant-numeric: tabular-nums; }
-    .arq-hint { margin: 0 0 .8rem; font-size: .72rem; color: var(--text-muted); display: flex; align-items: center; gap: .35rem; }
+    /* flex-wrap obligatorio: son ~10 hijos flex (los <kbd> cuentan uno cada
+       uno) y sin envolver su min-content era ~400px - el piso real que sacaba la
+       tarjeta de la pantalla en un telefono. */
+    .arq-hint { margin: 0 0 .8rem; font-size: .72rem; color: var(--text-muted);
+                display: flex; align-items: center; flex-wrap: wrap; gap: .2rem .35rem; }
     .arq-hint kbd { font-family: var(--font-mono, monospace); font-size: .68rem; padding: .05rem .3rem; border: 1px solid var(--border-color); border-radius: 4px; background: var(--surface-hover-bg); }
-    :host ::ng-deep .arq-total-row td { border-top: 2px solid var(--border-color); font-weight: 700; }
     .arq-result { margin-top: 1rem; padding: .9rem; border-radius: var(--r-md); border: 1px solid var(--border-color); background: var(--surface-hover-bg); }
     .arq-result.bad { border-color: color-mix(in srgb, var(--bad-fg) 40%, transparent); background: color-mix(in srgb, var(--bad-fg) 6%, transparent); }
     .arq-result.ok { border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); background: color-mix(in srgb, var(--ok-fg) 6%, transparent); }
-    .arq-cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: .6rem 1rem; }
+    .arq-cmp { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(7rem, 100%), 1fr)); gap: .6rem 1rem; }
     .arq-ev-k { font-size: .66rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); display: block; }
     .arq-ev-v { font-size: .95rem; font-variant-numeric: tabular-nums; }
     .arq-mt { margin: .6rem 0 0; font-size: .78rem; }
     .arq-table { font-variant-numeric: tabular-nums; }
+    /* El historial tiene hasta 10 columnas: en un telefono no cabe de ninguna
+       forma. Scrollea DENTRO de su contenedor - que la pagina entera se corra en
+       horizontal mueve tambien el encabezado y la barra de guardar. */
+    :host ::ng-deep .arq-table .p-datatable-table-container { overflow-x: auto; }
     .arq-mask { display: inline-block; margin-left: .35rem; font-size: .62rem; text-transform: uppercase; letter-spacing: .04em;
                 font-weight: 700; padding: .05rem .3rem; border-radius: 4px; color: var(--bad-fg);
                 background: color-mix(in srgb, var(--bad-fg) 12%, transparent); }
@@ -787,9 +813,89 @@ interface CortesPersona {
     .arq-empty { padding: 2rem; text-align: center; color: var(--text-muted); }
     .ta-r { text-align: right; } .strong { font-weight: 700; } .muted { color: var(--text-muted); }
     .bad { color: var(--bad-fg); } .ok { color: var(--ok-fg); }
+
+    /* ====================================================================
+       SM.31 - RESPONSIVO. Dos capas, cada una con su trabajo (DESIGN §9):
+
+       @container arqpanel = COMO se reordena el panel segun el ancho que le
+       dio la pagina. No @media: el mismo panel vive con y sin sidebar, y en
+       la tablet en horizontal el viewport dice "grande" mientras el panel es
+       angosto - el viewport es la medida equivocada.
+
+       @media (pointer: coarse) = DENSIDAD por metodo de entrada. Es lo unico
+       que decide el dispositivo y no el ancho: un dedo mide igual en un
+       telefono que en una tablet de 12".
+       ==================================================================== */
+
+    /* Panel angosto (telefono, o tablet en vertical con el sidebar abierto):
+       una sola columna de verdad - los campos del encabezado a lo ancho, las
+       tarjetas de turno a lo ancho, y el boton de guardar en su propio renglon
+       en vez de pelearse con el total. */
+    @container arqpanel (max-width: 30rem) {
+      .arq-head { gap: .55rem; }
+      .arq-head .arq-lbl { width: 100%; }
+      :host ::ng-deep .arq-head .arq-fld { width: 100%; }
+      .arq-turnos .arq-turno { flex: 1 1 100%; }
+      /* Las pestanas de tipo de arqueo, a lo ancho: es ESTA pagina la que lo
+         pide (el control lo comparten 14 pantallas y no decide por ellas). */
+      :host ::ng-deep app-segmented .seg { display: flex; }
+      :host ::ng-deep app-segmented .seg-btn { flex: 1 1 auto; }
+      /* Apiladas, las tres columnas del formato necesitan mas aire entre si:
+         con .8rem se leian como una sola lista de 20 renglones. */
+      .arq-cols { gap: 1.3rem; }
+      /* El total en una linea (rotulo + monto al lado) en vez de dos: en un
+         telefono la barra pegada se comia 112px de los 844 de alto. */
+      .arq-bar-total { flex-flow: row wrap; align-items: baseline; column-gap: .45rem; }
+      .arq-bar-desg { flex: 1 0 100%; }
+      .arq-bar-v { font-size: 1.35rem; }
+      /* El hijo flex de la barra es el elemento <p-button>, NO el .p-button que
+         renderiza adentro: estirar el de adentro no mueve nada en el layout del
+         padre. Medido en el navegador — el boton envolvia a su renglon pero se
+         quedaba en 221px. Se estiran los dos. */
+      :host ::ng-deep .arq-bar p-button { flex: 1 0 100%; }
+      :host ::ng-deep .arq-bar p-button .p-button { width: 100%; margin-left: 0; }
+    }
+
+    /* Panel muy angosto (telefono chico, 320px): los rotulos de denominacion y
+       el subtotal ceden ancho para que la casilla siga siendo tecleable. */
+    @container arqpanel (max-width: 20rem) {
+      .arq-den { grid-template-columns: 2.6rem minmax(0, 1fr) 4.5rem; gap: .35rem; }
+      .arq-den-sub { font-size: .68rem; }
+      .arq-col--medios .arq-den { grid-template-columns: minmax(0, 1fr) 5.5rem; }
+      .arq-medio { grid-template-columns: minmax(0, 1fr) 5.5rem; }
+    }
+
+    /* TOUCH. Objetivos >=44px (DESIGN §11, Ley de Fitts). El minimo global de
+       styles.css solo cubre .comm-actions e icon-btn, asi que los campos
+       de esta pantalla -donde se teclea DINERO con el cajon abierto- se suben
+       aca. 1rem de letra en las casillas no es estetica: por debajo de 16px
+       Safari en iOS hace zoom al enfocar y descuadra la pantalla a media
+       captura. */
+    @media (pointer: coarse) {
+      :host ::ng-deep .arq-fld { min-height: var(--tap-min, 44px); font-size: 1rem; }
+      /* PrimeNG v22 NO propaga styleClass en p-select: la clase arq-fld nunca
+         llega al elemento, asi que la regla de arriba no lo toca y los dos
+         selectores (Sucursal e Incidencia) se quedaban en 35px. Se apunta al
+         elemento. Ya es display:flex, asi que align-items centra el rotulo. */
+      :host ::ng-deep .arq-panel p-select { min-height: var(--tap-min, 44px); align-items: center; }
+      :host ::ng-deep .arq-panel p-select .p-select-label { font-size: 1rem; }
+      :host ::ng-deep .arq-num { max-width: none; min-height: var(--tap-min, 44px);
+                                 font-size: 1rem; padding: .4rem .55rem; }
+      .arq-den { gap: .5rem; padding: .18rem 0; }
+      .arq-turno { min-height: var(--tap-min, 44px); padding: .6rem .8rem; }
+      :host ::ng-deep .arq-panel .p-button { min-height: var(--tap-min, 44px); }
+      /* El dialogo de confirmacion cuelga de .surf-page, no del panel: sus dos
+         botones (y la X de cerrar) median 35px. Son los que SELLAN el conteo. */
+      :host ::ng-deep .arq-cfm-dlg .p-button { min-height: var(--tap-min, 44px); }
+      /* La pista habla de las flechas del teclado y de Enter: con el dedo no
+         aplica, y son cinco renglones de texto encima de lo que se cuenta. */
+      .arq-hint { display: none; }
+    }
   `],
 })
 export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
+  /** Para llegar al `app-segmented`, que es un componente hijo sin ref propia. */
+  private readonly host = inject(ElementRef) as ElementRef<HTMLElement>;
   private readonly svc = inject(ArqueoService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
@@ -801,6 +907,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   @ViewChildren('denomInput') private denomInputs?: QueryList<ElementRef<HTMLInputElement>>;
   @ViewChildren('medioInput') private medioInputs?: QueryList<ElementRef<HTMLInputElement>>;
   @ViewChild('btnGuardar', { read: ElementRef }) private btnGuardar?: ElementRef<HTMLElement>;
+  /** Campos del encabezado (Sucursal · Caja · Cajero) en orden de DOM. `Fecha` no
+   *  entra: es texto fijo, no un campo — un arqueo es de HOY (ver el template). */
+  @ViewChildren('hcell', { read: ElementRef }) private headCells?: QueryList<ElementRef<HTMLElement>>;
 
   /**
    * ¿Se le revela el cuadre? Solo el supervisor del motor (`RECONCILIATION_VER`).
@@ -1160,7 +1269,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     }
 
     if (k === 'ArrowUp') {
-      if (row > 0) this.enfocar(g[col][row - 1]);
+      if (row > 0) { this.enfocar(g[col][row - 1]); return; }
+      // Primera fila: ↑ sale de la grilla hacia el encabezado (SM.30). Antes no
+      // hacía nada y la cadena era de ida nomás.
+      this.focusHead(this.headCells?.length ? this.headCells.length - 1 : 0);
       return;
     }
 
@@ -1169,6 +1281,83 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (siguiente) { this.enfocar(siguiente); return; }
     this.ultimaCelda = { col, row };
     this.focusGuardar();
+  }
+
+  /**
+   * **El encabezado también se recorre con flechas (SM.30).**
+   *
+   * Faltaba el primer tramo de la cadena: la sucursal, la caja y el cajero sólo
+   * se alcanzaban con Tab, así que el arqueo empezaba con la mano en el mouse y
+   * seguía con el teclado. Ahora la cadena completa es
+   * **pestañas → encabezado → grilla → botón de guardar**, y `↑` la desanda.
+   *
+   *   ← →   entre los campos del encabezado
+   *   ↓ / Enter   baja a la grilla (a `$1000`, que es donde empieza a contarse)
+   *   ↑     sube a las pestañas
+   *
+   * **El `p-select` de Sucursal es el caso delicado.** Sus propias flechas abren
+   * y recorren el desplegable, así que sólo se interceptan **con el desplegable
+   * CERRADO**; abierto, las flechas son suyas. Abrirlo sigue siendo `Enter` o
+   * espacio, que es su activación nativa. Mismo criterio que dejó a Incidencia
+   * fuera de la cadena en SM.29: una flecha que despliega opciones cuando el
+   * operario quería bajar de campo es peor que no tener la flecha.
+   */
+  onHeadKey(ev: KeyboardEvent, idx: number) {
+    const k = ev.key;
+    if (k !== 'ArrowUp' && k !== 'ArrowDown' && k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'Enter') return;
+
+    // Desplegable abierto → las flechas son del select, no de la cadena.
+    if (this.selectAbierto(ev.target as HTMLElement)) return;
+
+    const cells = this.headCells?.toArray() ?? [];
+    if (!cells.length) return;
+
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      const destino = idx + (k === 'ArrowLeft' ? -1 : 1);
+      if (destino < 0 || destino >= cells.length) return;
+      ev.preventDefault();
+      this.focusHead(destino);
+      return;
+    }
+
+    if (k === 'ArrowUp') {
+      ev.preventDefault();
+      this.focusSegmented();
+      return;
+    }
+
+    // ↓ o Enter → a contar
+    const g = this.grilla();
+    const primera = g[0]?.[0];
+    if (!primera) return;
+    ev.preventDefault();
+    this.enfocar(primera);
+  }
+
+  /** Enfoca un campo del encabezado. El `p-select` no es un input: su foco vive
+   *  en el elemento con `role="combobox"` que PrimeNG pinta adentro. */
+  focusHead(idx: number): void {
+    const el = this.headCells?.toArray()[idx]?.nativeElement;
+    if (!el) return;
+    const foco = el.matches('input, button')
+      ? el
+      : el.querySelector<HTMLElement>('[role="combobox"], input, button, [tabindex]');
+    (foco ?? el).focus?.();
+  }
+
+  /** Sube a las pestañas (Cierre de día / Retiro / Relevo): la activa es el
+   *  único stop de tabulador del grupo, así que es la que recibe el foco. */
+  private focusSegmented(): void {
+    this.host?.nativeElement
+      ?.querySelector<HTMLElement>('app-segmented .seg-btn.on, app-segmented .seg-btn')
+      ?.focus();
+  }
+
+  /** ¿El desplegable del select está abierto? PrimeNG lo marca en el disparador. */
+  private selectAbierto(target: HTMLElement | null): boolean {
+    if (!target) return false;
+    const trigger = target.closest('[role="combobox"], .p-select');
+    return trigger?.getAttribute('aria-expanded') === 'true';
   }
 
   /**
