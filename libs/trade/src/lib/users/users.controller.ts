@@ -152,6 +152,37 @@ export class UsersController {
   }
 
   /**
+   * `[ID.26]` — El estado del padrón, medido, con su cobertura declarada.
+   *
+   * Existe porque las mediciones que sostienen el rediseño de identidad vivían
+   * en mensajes de chat y en consultas que alguien corría a mano. Un número que
+   * no se puede volver a sacar no es una medición, es una anécdota.
+   *
+   * Lo que responde, y por qué cada cosa:
+   *   · **ceguera de alcance** — cuántas personas tienen `own` sobre una
+   *     dimensión cuya columna en su ficha está vacía. Es el hallazgo que hizo
+   *     falta declarar: `applyTo()` emite el MISMO `WHERE false` para eso que
+   *     para `none`, así que hoy «no ve nada» y «no sabemos qué ve» son
+   *     indistinguibles en pantalla. Se reporta ANTES de cerrar nada.
+   *   · **ficha incompleta** — puesto / sucursal / zona / supervisor.
+   *   · **clases de cuenta** — persona vs credencial de puesto vs servicio, que
+   *     hoy conviven en la misma tabla y se distinguen adivinando.
+   *   · **roles inertes** — los que conceden cero y tienen gente activa.
+   *
+   * Declarado antes de `:id` a propósito, como `me/scope`.
+   *
+   * ⚠️ ADR-056: cada bloque viaja con su `measured`. Un padrón sin usuarios
+   * reporta `measured: false`, **no** «0 problemas» — que es exactamente cómo
+   * un diagnóstico roto se disfraza de sano.
+   */
+  @Get('padron/diagnostico')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Estado medido del padrón: ceguera de alcance, ficha incompleta, clases de cuenta y roles inertes — con su cobertura declarada' })
+  diagnosticoPadron() {
+    return this.usersService.diagnosticoPadron();
+  }
+
+  /**
    * `[ID.15]` — Qué propone el sistema para un puesto: departamento, perfil base
    * y el alcance que trae ese perfil. Declarado antes de `:id` a propósito.
    */
