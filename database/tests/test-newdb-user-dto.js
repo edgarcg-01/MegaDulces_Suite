@@ -37,14 +37,38 @@ const unicos = (a) => a.filter((x, i, arr) => arr.indexOf(x) === i);
 
 /**
  * Campos que existen SÓLO en el update, y está bien que sea así: son el ciclo de
- * vida (`[ID.8]`). Una cuenta nueva nace activa y sin flags — elegir "suspendido"
- * o "debe cambiar contraseña" en el alta no tiene sentido operativo.
+ * vida (`[ID.8]`). Una cuenta nueva nace activa.
+ *
+ * ⚠️ `[CH.1.10]` — `must_change_password` YA NO está en esta lista. El comentario
+ * que estaba acá decía que "elegir 'debe cambiar contraseña' en el alta no tiene
+ * sentido operativo", y era razonable hasta que apareció el caso que lo desmiente:
+ * una pantalla de kiosco NO puede exigir cambio de contraseña, porque la primera
+ * persona que pasa la cambia y la pantalla queda afuera. Así que el campo subió a
+ * `UserWriteDto` y el alta lo puede declarar (gateado: `false` exige
+ * `token_ttl_days`). Es un conjunto PERMITIDO, no una igualdad, así que sacarlo
+ * de acá no afloja ninguna aserción.
  */
-const SOLO_UPDATE = ['activo', 'status', 'must_change_password'];
+const SOLO_UPDATE = ['activo', 'status'];
 
 require('ts-node').register({
   transpileOnly: true, skipProject: true,
   compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', experimentalDecorators: true, emitDecoratorMetadata: true, ignoreDeprecations: '6.0' },
+});
+
+// `[CH.1.10]` Los alias `@megadulces/*` de `tsconfig.base.json`.
+//
+// `skipProject: true` (necesario: sin él ts-node toma el tsconfig del monorepo y
+// falla con TS5011) también descarta los `paths`, así que un DTO que importa del
+// barrel de una lib reventaba con MODULE_NOT_FOUND. Y no es hipotético: pasó al
+// traer `MAX_TOKEN_TTL_DAYS` de `platform-core` y `USER_KINDS` de `contracts`.
+//
+// Se registra el resolvedor en vez de evitar el import: la alternativa sería un
+// deep-import entre libs, que es justo lo que el lint de tags prohíbe. El test
+// tiene que poder cargar el código real, no una versión del código que se deja
+// cargar por el test.
+require('tsconfig-paths').register({
+  baseUrl: path.resolve(__dirname, '..', '..'),
+  paths: require(path.resolve(__dirname, '..', '..', 'tsconfig.base.json')).compilerOptions.paths,
 });
 
 const DTO_DIR = path.resolve(__dirname, '../../libs/trade/src/lib/users/dto');
@@ -153,6 +177,29 @@ function obligatorios(cls) {
     ok(claves.includes('zone_id'), "el form usa el canónico 'zone_id'");
     const faltan = ['username', 'role_name', 'department_code'].filter((k) => !claves.includes(k));
     ok(faltan.length === 0, `el form cubre los obligatorios${faltan.length ? ` — faltan ${faltan.join(', ')}` : ''}`);
+
+    // `[CH.1.10]` El punto ciego que este bloque tenía: comparaba el form SÓLO
+    // contra el DTO de UPDATE. Un control que el CREATE no acepta se descarta en
+    // silencio (`whitelist: true`) y el test seguía verde — que es exactamente
+    // cómo el toggle "Estado activo" del alta no hace nada desde siempre.
+    //
+    // Se mide y se DECLARA. No se convierte en `fail` porque arreglarlo es subir
+    // `status` a `UserWriteDto`, decisión de otro ticket: lo que no se puede
+    // arreglar acá se nombra, no se esconde (ADR-056).
+    const soloEnUpdate = claves.filter((k) => !create.includes(k) && k !== 'password');
+    ok(
+      claves.includes('token_ttl_days') && create.includes('token_ttl_days'),
+      'el control de duración de sesión existe en el form Y el CREATE lo acepta',
+    );
+    if (soloEnUpdate.length) {
+      console.log(
+        `  ! DECLARADO: ${soloEnUpdate.length} control(es) del form que el CREATE descarta en silencio: ` +
+        `${soloEnUpdate.join(', ')}. El alta los manda y \`whitelist: true\` los tira. ` +
+        `Arreglo = subirlos a UserWriteDto (ticket aparte).`,
+      );
+    } else {
+      ok(true, 'ningún control del form se descarta en silencio en el alta');
+    }
 
     console.log('\n═══ 7. El catálogo que valida el service existe ═══');
     const DST = process.env.DATABASE_URL_NEW;

@@ -32,6 +32,7 @@
  * Self-contained: siembra rol + 2 usuarios y limpia al final.
  */
 
+const fs = require('fs');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
 const { Client } = require('pg');
@@ -43,7 +44,20 @@ require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-device-token-t
 // y falla con TS5011 antes de compilar.
 require('ts-node').register({
   transpileOnly: true, skipProject: true,
-  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', ignoreDeprecations: '6.0' },
+  compilerOptions: {
+    module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node',
+    // `[CH.1.10]` El servicio que se carga en el bloque 5 usa decoradores de Nest.
+    experimentalDecorators: true, emitDecoratorMetadata: true,
+    ignoreDeprecations: '6.0',
+  },
+});
+// `[CH.1.10]` `skipProject: true` también descarta los `paths` de
+// `tsconfig.base.json`, y el servicio importa del barrel `@megadulces/platform-core`.
+// Se registra el resolvedor en vez de esquivar el import: el test tiene que poder
+// cargar el código real, no una versión del código que se deja cargar por el test.
+require('tsconfig-paths').register({
+  baseUrl: path.resolve(__dirname, '..', '..'),
+  paths: require(path.resolve(__dirname, '..', '..', 'tsconfig.base.json')).compilerOptions.paths,
 });
 const { tokenSignOptions, MAX_TOKEN_TTL_DAYS } =
   require(path.resolve(__dirname, '../../libs/platform-core/src/lib/auth/token-ttl.ts'));
@@ -182,6 +196,117 @@ async function cleanup(pg) {
     } finally {
       await kx.destroy();
     }
+  }
+
+  console.log('\n── 5. La compuerta de la credencial de dispositivo ────────────────────');
+  // `assertDeviceCredential` es PURA (no toca `this`), así que se la llama sobre
+  // el prototipo del servicio REAL con un `this` vacío. Es la forma de medir la
+  // regla sin levantar Nest ni el API — y sobre el código que corre en prod, no
+  // sobre una copia que se desincroniza.
+  let gate = null;
+  try {
+    const { UsersService } = require(path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'));
+    gate = (body, actual) => UsersService.prototype['assertDeviceCredential'].call({}, body, actual);
+  } catch (e) {
+    nomedido('la compuerta assertDeviceCredential', `no se pudo cargar el servicio: ${e.message.split('\n')[0]}`);
+  }
+
+  if (gate) {
+    const rechaza = (body, actual) => {
+      try { gate(body, actual); return null; } catch (e) { return e.message; }
+    };
+
+    // Lo que la regla PERMITE.
+    check('un dispositivo puede no forzar el cambio de contraseña',
+      rechaza({ must_change_password: false, token_ttl_days: 365 }) === null);
+    check('una persona con el default (sin mencionar nada) pasa',
+      rechaza({ nombre: 'Juan' }) === null);
+    check('quitar el TTL devolviendo el cambio forzado en el mismo request pasa',
+      rechaza({ token_ttl_days: null, must_change_password: true }, { must_change_password: false, token_ttl_days: 365 }) === null);
+
+    // Las negativas: sin esto la regla es una intención (ADR-056).
+    const m1 = rechaza({ must_change_password: false });
+    check('NO forzar el cambio sin declarar duración de sesión es rechazado',
+      m1 !== null && /duración de sesión|token_ttl_days/i.test(m1), m1 ?? 'lo aceptó');
+
+    const m2 = rechaza({ must_change_password: false }, { token_ttl_days: null });
+    check('tampoco si la fila que se edita no tiene TTL', m2 !== null, m2 ?? 'lo aceptó');
+
+    const m3 = rechaza({ token_ttl_days: null }, { must_change_password: false, token_ttl_days: 365 });
+    check('quitar el TTL dejando la cuenta sin cambio forzado es rechazado',
+      m3 !== null && /must_change_password/i.test(m3), m3 ?? 'lo aceptó');
+
+    // La negativa MÁS importante, y la que casi se me pasa: la regla se evalúa
+    // sobre el CAMBIO, no sobre la fila resultante. Las 7 cuentas `etiquetas.NN`
+    // de hoy son `false` + TTL nulo (su script es anterior a la columna). Si esto
+    // mirara la fila, editarles el NOMBRE se rechazaría — una compuerta que
+    // bloquea trabajo no relacionado.
+    check('editar OTRA cosa de una cuenta vieja (false + TTL nulo) NO se bloquea',
+      rechaza({ nombre: 'Etiquetera 04' }, { must_change_password: false, token_ttl_days: null }) === null);
+    check('y tampoco al cambiarle la contraseña',
+      rechaza({ password: 'x' }, { must_change_password: false, token_ttl_days: null }) === null);
+  }
+
+  console.log('\n── 6. El TECHO del CHECK, no sólo el piso ────────────────────────────');
+  // El test original sólo probaba que un 0 se rechaza. El techo nunca se había
+  // ejercido: un dedazo de 36500 tiene que rebotar en la DB, no emitir un token
+  // de 100 años.
+  const { rows: hayCol } = await pg.query(
+    `SELECT count(*)::int n FROM information_schema.columns
+      WHERE table_schema='identity' AND table_name='users' AND column_name='token_ttl_days'`);
+  if (!hayCol[0].n) {
+    nomedido('el techo del CHECK', 'la columna no está en este destino');
+  } else {
+    const probar = async (valor) => {
+      try {
+        await pg.query('BEGIN');
+        await pg.query(
+          `INSERT INTO identity.users (tenant_id, username, password_hash, nombre, role_name, activo, kind, token_ttl_days)
+           VALUES ($1,$2,'x',$2,(SELECT role_name FROM identity.role_permissions WHERE tenant_id=$1 LIMIT 1),true,'interno',$3)`,
+          [M, `techo.smoke.${valor}`, valor]);
+        await pg.query('ROLLBACK');
+        return 'aceptado';
+      } catch (e) {
+        await pg.query('ROLLBACK').catch(() => {});
+        return /token_ttl_days_rango|check constraint/i.test(e.message) ? 'rechazado' : `otro error: ${e.message.split('\n')[0]}`;
+      }
+    };
+    check(`la DB acepta ${MAX_TOKEN_TTL_DAYS} (el techo exacto)`, (await probar(MAX_TOKEN_TTL_DAYS)) === 'aceptado');
+    check(`la DB rechaza ${MAX_TOKEN_TTL_DAYS + 1}`, (await probar(MAX_TOKEN_TTL_DAYS + 1)) === 'rechazado');
+    check('la DB rechaza un TTL negativo', (await probar(-1)) === 'rechazado');
+  }
+
+  console.log('\n── 7. El hardcode que mandaba el alta fuera de la app ────────────────');
+  // `must_change_password: true` estaba CLAVADO en el insert, y por eso dar de
+  // alta un kiosco por el endpoint era imposible. Que haya dejado de ser una
+  // constante es la razón por la que el script de alta pudo retirarse.
+  const svc = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'), 'utf8');
+  check('el insert ya NO clava must_change_password en true',
+    !/must_change_password:\s*true,/.test(svc));
+  check('ahora es un default (?? true), o sea el alta lo puede declarar',
+    /must_change_password:\s*rest\.must_change_password\s*\?\?\s*true/.test(svc));
+  // Un gate declarado y no llamado es peor que ninguno: parece cubierto.
+  const llamadas = (svc.match(/this\.assertDeviceCredential\(/g) || []).length;
+  check('la compuerta se llama desde el alta Y desde la edición (2 llamadas)',
+    llamadas === 2, `se encontraron ${llamadas}`);
+  check('y emitir una sesión larga tiene su propia compuerta',
+    /assertCanSetDeviceSession/.test(svc));
+  check('el script de alta por fuera de la app ya no existe',
+    !fs.existsSync(path.resolve(__dirname, '../scripts/provision-checadores.js')));
+
+  console.log('\n── 8. Censo: quién quedó sin forzar cambio y sin declarar sesión ──────');
+  // No es un check: es un número que se DECLARA. Son las cuentas que la regla
+  // nueva no habría permitido crear, y existen porque su script es anterior a la
+  // columna. No se las toca acá — darles un TTL es una decisión operativa sobre
+  // esas pantallas, y ahora se hace desde /admin/users.
+  const { rows: censo } = await pg.query(
+    `SELECT username, role_name FROM identity.users
+      WHERE NOT must_change_password AND token_ttl_days IS NULL AND deleted_at IS NULL
+      ORDER BY username`);
+  console.log(`  DECLARADO: ${censo.length} cuenta(s) sin cambio forzado y sin duración declarada.`);
+  if (censo.length) {
+    console.log(`             ${censo.map((r) => r.username).join(', ')}`);
+    console.log('             Quedan editables a propósito (la regla mira el CAMBIO, no la fila).');
   }
 
   await cleanup(pg);
