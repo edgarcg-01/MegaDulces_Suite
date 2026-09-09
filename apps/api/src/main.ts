@@ -122,7 +122,7 @@ function assertAuthWiring(): void {
  * prod (`FLEET_DB_URL`), tres variables distintas llamadas `DATABASE_URL*` que
  * apuntan a tres bases distintas (GOTCHAS §17), y en agosto la suite de tests
  * corrió con ese `.env` contra prod y dejó 5 cuentas y 2 tenants de prueba en el
- * padrón real. Con 51 `@Cron` que hasta REP.0.3 corrían incondicionalmente, una
+ * padrón real. Con 48 `@Cron` que hasta REP.0.3 corrían incondicionalmente, una
  * API de dev apuntada a prod no es "una sesión rara": es una segunda instancia
  * borrando fotos de Cloudinary y consumiendo la cola fiscal.
  *
