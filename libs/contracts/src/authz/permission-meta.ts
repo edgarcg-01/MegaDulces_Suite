@@ -1,0 +1,265 @@
+import { Permission } from './permissions';
+
+export interface PermissionMetaEntry {
+  label: string;
+  description: string;
+  category: string;
+}
+
+/**
+ * Metadata de presentación de cada permiso (label legible, descripción y
+ * categoría). Fuente única compartida por el editor de permisos
+ * (`admin-roles-permissions`) y la vista de roles (`admin-roles-grid`).
+ *
+ * Debe cubrir TODAS las claves del enum `Permission`; si se agrega un permiso
+ * al enum, agregar su entrada aquí o saldrá con la key cruda en "Otros".
+ */
+export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
+  // Usuarios
+  [Permission.USUARIOS_VER]: { label: 'Consultar Usuarios', description: 'Permite listar y ver el perfil de otros usuarios.', category: 'Usuarios' },
+  [Permission.USUARIOS_GESTIONAR]: { label: 'Gestionar Usuarios', description: 'Alta, baja y edición de usuarios.', category: 'Usuarios' },
+  [Permission.USUARIOS_PASSWORDS]: { label: 'Resetear Contraseñas', description: 'Permite cambiar contraseñas de cualquier usuario.', category: 'Usuarios' },
+  [Permission.USUARIOS_ASIGNAR_RUTA]: { label: 'Asignar Rutas', description: 'Permite definir la agenda semanal de rutas para el equipo.', category: 'Usuarios' },
+
+  // Reportes
+  [Permission.REPORTES_VER_PROPIO]: { label: 'Ver Reportes Propios', description: 'Acceso básico a sus propios indicadores.', category: 'Reportes' },
+  [Permission.REPORTES_VER_EQUIPO]: { label: 'Ver Reportes de Equipo', description: 'Acceso a indicadores de subordinados directos.', category: 'Reportes' },
+  [Permission.REPORTES_VER_GLOBAL]: { label: 'Ver Reporte Global', description: 'Acceso total a la data de la compañía. Concede manage:all.', category: 'Reportes' },
+  [Permission.REPORTES_EXPORTAR]: { label: 'Exportar Data (Excel/CSV)', description: 'Permite descargar crudos de información.', category: 'Reportes' },
+  [Permission.REPORTES_GESTIONAR]: { label: 'Gestionar Reportes', description: 'Permite eliminar reportes almacenados en el sistema.', category: 'Reportes' },
+
+  // Operación en campo
+  [Permission.VISITAS_REGISTRAR]: { label: 'Registrar Visitas', description: 'Habilita el formulario de check-in/visto bueno.', category: 'Operación' },
+  [Permission.VISITAS_VER]: { label: 'Ver Visitas', description: 'Acceso al listado y detalle de visitas registradas.', category: 'Operación' },
+  [Permission.VISITAS_AUDITAR]: { label: 'Auditar Visitas', description: 'Permite validar y cerrar visitas de otros.', category: 'Operación' },
+  [Permission.CAPTURE_TICKET_USE]: { label: 'Captura con Ticket (OCR)', description: 'Autollenar productos del exhibidor con foto del ticket vía IA.', category: 'Operación' },
+
+  // Configuración
+  [Permission.CATALOGO_GESTIONAR]: { label: 'Gestionar Catálogos', description: 'Control de conceptos, zonas y ubicaciones.', category: 'Configuración' },
+  [Permission.PLANOGRAMAS_GESTIONAR]: { label: 'Gestionar Planogramas', description: 'Creación de marcas y jerarquías de productos.', category: 'Configuración' },
+  [Permission.TIENDAS_VER]: { label: 'Ver Tiendas', description: 'Acceso al módulo de tiendas y sus detalles.', category: 'Configuración' },
+  [Permission.TIENDAS_CREAR]: { label: 'Crear Tiendas', description: 'Permite registrar nuevas tiendas desde la captura de visitas.', category: 'Configuración' },
+  [Permission.STORE_LIVE_VER]: { label: 'Monitor Tienda en Vivo', description: 'Acceder al monitor de tickets y cajas en tiempo real (Proyecto TDA).', category: 'Tienda' },
+  [Permission.STORE_LABELS_VER]: { label: 'Etiquetas de anaquel', description: 'Generar e imprimir etiquetas de precio de anaquel (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_ARQUEO_CAPTURAR]: { label: 'Capturar Arqueo Ciego', description: 'La cajera cuenta el efectivo por denominación sin ver el esperado y sella el corte/relevo (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_ARQUEO_VER]: { label: 'Ver Arqueos Ciegos', description: 'Consultar los arqueos ciegos capturados en la sucursal (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_ANALYTICS_VER]: { label: 'Análisis de ventas', description: 'Ver el análisis de venta de la sucursal (rango personalizado o semana): venta, tickets, ticket promedio, productos por ticket, margen, unidades, tendencia y top productos.', category: 'Tienda' },
+  [Permission.HR_ATTENDANCE_CHECAR]: { label: 'Checador de asistencia (kiosco)', description: 'Registrar entradas y salidas en la pantalla de asistencia de una sucursal. Es la clave de una cuenta de DISPOSITIVO (checador_kiosco), no de una persona: el empleado se identifica en la pantalla. La pantalla se construye en CH.0.10.', category: 'Tienda' },
+  [Permission.STORE_PRICE_CHECK_VER]: { label: 'Verificador de precios', description: 'Consultar en mostrador el precio de venta de un producto por clave o código de barras, con respaldo offline (Proyecto Tienda). Sólo precio de venta: no expone costo ni margen.', category: 'Tienda' },
+  [Permission.ROLES_CONFIGURAR]: { label: 'Configurar Roles y Funciones', description: 'ACCESO CRÍTICO: edita este panel de permisos para cualquier rol.', category: 'Configuración' },
+  [Permission.SCORING_CONFIG_VER]: { label: 'Ver Config. Puntuación', description: 'Visualizar la configuración y parámetros de scoring.', category: 'Configuración' },
+  [Permission.SCORING_CONFIG_GESTIONAR]: { label: 'Gestionar Config. Puntuación', description: 'Editar parámetros, versiones y puntuaciones del scoring.', category: 'Configuración' },
+
+  // Seguimiento
+  [Permission.VER_SEGUIMIENTO]: { label: 'Ver Seguimiento', description: 'Acceso al módulo de seguimiento de visitas y rutas en campo.', category: 'Seguimiento' },
+  [Permission.RUTAS_VER]: { label: 'Ver Rutas', description: 'Apartado de análisis de rutas: tiendas por ruta, tiempos de visita y trazabilidad del recorrido.', category: 'Seguimiento' },
+  [Permission.COMMERCIAL_MAP_VER]: { label: 'Ver Mapa Comercial', description: 'Mapa de tiendas con exhibidores Mega Dulces vs competencia + historial de exhibiciones por tienda.', category: 'Seguimiento' },
+  [Permission.COMMERCIAL_MAP_PROSPECTS_VER]: { label: 'Ver Tiendas de Oportunidad', description: 'Capa de prospección: PdV reales (INEGI DENUE) que aún no son clientes, en el mapa comercial.', category: 'Seguimiento' },
+  [Permission.COMMERCIAL_MAP_PROSPECTS_GESTIONAR]: { label: 'Gestionar Prospección', description: 'Cosechar de DENUE, deduplicar, descartar y convertir tiendas de oportunidad + configurar SCIAN/área.', category: 'Seguimiento' },
+
+  // Comercial — clientes, almacenes, pricing, inventario
+  [Permission.COMMERCIAL_CUSTOMERS_VER]: { label: 'Ver Clientes', description: 'Consultar la cartera de clientes B2B.', category: 'Comercial' },
+  [Permission.COMMERCIAL_CUSTOMERS_GESTIONAR]: { label: 'Gestionar Clientes', description: 'Alta, edición y baja de clientes B2B.', category: 'Comercial' },
+  [Permission.COMMERCIAL_WAREHOUSES_VER]: { label: 'Ver Almacenes', description: 'Consultar almacenes y centros de distribución.', category: 'Comercial' },
+  [Permission.COMMERCIAL_WAREHOUSES_GESTIONAR]: { label: 'Gestionar Almacenes', description: 'Alta y edición de almacenes (incluye almacén default).', category: 'Comercial' },
+  [Permission.COMMERCIAL_PRICING_VER]: { label: 'Ver Precios', description: 'Consultar listas de precios y precios por cliente.', category: 'Comercial' },
+  [Permission.COMMERCIAL_PRICING_GESTIONAR]: { label: 'Gestionar Precios', description: 'Crear listas y cargar/editar precios de productos.', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_VER]: { label: 'Ver Ajustes de stock', description: 'Consola de ajuste sobre el libro transaccional (commercial.stock) y el apartado. Para el censo físico es EXISTENCIA_VER.', category: 'Comercial' },
+  // La descripción dice la FUENTE a propósito: es lo que distingue esta pantalla de la de ajustes.
+  [Permission.EXISTENCIA_VER]: { label: 'Ver Existencia', description: 'Matriz de existencia producto × almacén, derivada del ERP (ODS). Vive en Almacén y en Compras.', category: 'Comercial' },
+  [Permission.EXISTENCIA_GESTIONAR]: { label: 'Exportar Existencia', description: 'Descargar el dataset completo de existencia valuado a costo (toda la red).', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_AJUSTAR]: { label: 'Ajustar Inventario', description: 'Registrar movimientos y ajustes de stock.', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_CONTAR]: { label: 'Contar (inventario físico)', description: 'Registrar conteos ciegos en un folio de inventario físico (rol contador).', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_INVENTORY_SUPERVISAR]: { label: 'Supervisar inventario físico', description: 'Abrir folios, ver avance/discrepancias y resolver. No reconcilia (rol supervisor).', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_INVENTORY_RECONCILIAR]: { label: 'Reconciliar inventario físico', description: 'Autorizar el ajuste del saldo al físico contado y cerrar el folio (rol jefe).', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_EXPIRY_VER]: { label: 'Ver Caducidades', description: 'Consultar las hojas de Control de Caducidades (inspección de anaquel).', category: 'Comercial' },
+  [Permission.COMMERCIAL_EXPIRY_CAPTURAR]: { label: 'Capturar Caducidades', description: 'Crear/editar hojas de Control de Caducidades y enviarlas (alimenta FEFO).', category: 'Comercial' },
+  [Permission.COMMERCIAL_INVENTORY_ASIGNAR]: { label: 'Asignar personas al folio', description: 'Asignar contadores y supervisores a un folio de inventario específico.', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_INVENTORY_RECIBIR]: { label: 'Auditar recepción (caducidad)', description: 'Capturar lote/caducidad con foto+OCR en la recepción y recibir el semáforo 🟢🟡🔴. La autorización de un rojo requiere Supervisar.', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_PREVENTION_VER]: { label: 'Ver Prevención de inventarios', description: 'Consultar expedientes de investigación de diferencias y la línea de tiempo del SKU.', category: 'Comercial · Inventario físico' },
+  [Permission.COMMERCIAL_PREVENTION_GESTIONAR]: { label: 'Gestionar Prevención de inventarios', description: 'Abrir expedientes, clasificar la causa raíz y resolver (segregado de contar/reconciliar).', category: 'Comercial · Inventario físico' },
+
+  // Comercial — pedidos y cobros
+  [Permission.COMMERCIAL_ORDERS_VER]: { label: 'Ver Pedidos', description: 'Consultar pedidos y su detalle.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_ORDERS_CREAR]: { label: 'Crear Pedidos', description: 'Levantar pedidos en borrador.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_ORDERS_CONFIRMAR]: { label: 'Confirmar Pedidos', description: 'Pasar pedidos de borrador a confirmado (reserva stock).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_ORDERS_CANCELAR]: { label: 'Cancelar Pedidos', description: 'Cancelar pedidos y liberar el stock reservado.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_ORDERS_FULFILL]: { label: 'Surtir Pedidos', description: 'Marcar pedidos como surtidos (consume stock).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_PAYMENTS_REGISTRAR]: { label: 'Registrar Cobros', description: 'Registrar pagos de pedidos (cash en beta).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_PAYMENTS_VERIFICAR]: { label: 'Verificar Cobros', description: 'Verificar cobros de última milla contra el corte del repartidor.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_PAYMENTS_REVERSAR]: { label: 'Reversar Cobros', description: 'Reversar/anular un cobro registrado por error.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR]: { label: 'Liquidar Repartidor', description: 'Gestionar el corte de caja y liquidación del repartidor de última milla.', category: 'Comercial · Pedidos' },
+  [Permission.VENDOR_APP_ACCESS]: { label: 'Acceso a App Vendedor', description: 'Permite entrar a la app de vendedor standalone (cartera, levantar pedidos, visitas y captura).', category: 'Comercial · Pedidos' },
+
+  // Comercial — promociones
+  [Permission.COMMERCIAL_PROMOTIONS_VER]: { label: 'Ver Promociones', description: 'Consultar campañas y promociones vigentes.', category: 'Comercial · Promociones' },
+  [Permission.COMMERCIAL_PROMOTIONS_GESTIONAR]: { label: 'Gestionar Promociones', description: 'Crear y editar promociones y campañas.', category: 'Comercial · Promociones' },
+
+  // Telemarketing (el ERP y el rol de prod lo llaman asi)
+  [Permission.COMMERCIAL_TELEVENTA_VER]: { label: 'Ver Telemarketing', description: 'Acceso de lectura al módulo de telemarketing / call center: resumen del canal (facturación del ERP + actividad), cola de leads y reservas.', category: 'Telemarketing' },
+  [Permission.COMMERCIAL_TELEVENTA_OPERATE]: { label: 'Operar Telemarketing', description: 'Trabajar el pool: tomar cliente, registrar llamada, levantar pedido.', category: 'Telemarketing' },
+
+  // Logística
+  [Permission.LOGISTICS_FLEET_VER]: { label: 'Ver Flotilla', description: 'Consultar unidades, choferes y personal de logística.', category: 'Logística' },
+  [Permission.LOGISTICS_ROUTE_EXPENSES_VER]: { label: 'Ver gasto de flota', description: 'El gasto de las rutas factura por factura, con litros y $/litro. Reemplaza la hoja CONTROL DE GASTOS RD.', category: 'Logística' },
+  [Permission.LOGISTICS_ROUTE_EXPENSES_GESTIONAR]: { label: 'Capturar gasto de flota', description: 'Capturar, corregir y reclasificar el gasto de ruta (incluye los que llegaron SIN CLASIFICAR).', category: 'Logística' },
+  [Permission.LOGISTICS_FLEET_GESTIONAR]: { label: 'Gestionar Flotilla', description: 'Alta y edición de unidades y personal de logística.', category: 'Logística' },
+  [Permission.LOGISTICS_SHIPMENTS_VER]: { label: 'Ver Embarques', description: 'Consultar embarques y su estado.', category: 'Logística' },
+  [Permission.LOGISTICS_SHIPMENTS_GESTIONAR]: { label: 'Gestionar Embarques', description: 'Crear y avanzar embarques en su máquina de estados.', category: 'Logística' },
+  [Permission.LOGISTICS_GUIDES_VER]: { label: 'Ver Guías', description: 'Consultar guías de entrega y destinatarios.', category: 'Logística' },
+  [Permission.LOGISTICS_GUIDES_GESTIONAR]: { label: 'Gestionar Guías', description: 'Crear y editar guías y sus destinatarios.', category: 'Logística' },
+  [Permission.LOGISTICS_EXPENSES_VER]: { label: 'Ver Costos', description: 'Consultar costos y gastos del viaje.', category: 'Logística' },
+  [Permission.LOGISTICS_EXPENSES_GESTIONAR]: { label: 'Gestionar Costos', description: 'Registrar y editar costos del viaje.', category: 'Logística' },
+  [Permission.LOGISTICS_PAYROLL_VER]: { label: 'Ver Liquidaciones', description: 'Consultar liquidaciones y períodos de pago.', category: 'Logística' },
+  [Permission.LOGISTICS_PAYROLL_GESTIONAR]: { label: 'Gestionar Liquidaciones', description: 'Calcular y cerrar liquidaciones por período.', category: 'Logística' },
+  [Permission.LOGISTICS_CONFIG_GESTIONAR]: { label: 'Configurar Logística', description: 'Parámetros financieros (factores, costo por km).', category: 'Logística' },
+  [Permission.LOGISTICS_CARTAPORTE_VER]: { label: 'Ver Carta Porte', description: 'Consultar documentos Carta Porte timbrados.', category: 'Logística' },
+  [Permission.LOGISTICS_CARTAPORTE_GESTIONAR]: { label: 'Timbrar Carta Porte', description: 'Validar y timbrar Carta Porte (CFDI Traslado) ante el SAT.', category: 'Logística' },
+
+  // ── Fase AZ — permisos jerárquicos nuevos ─────────────────────────────
+  [Permission.ROLES_VER]: { label: 'Ver Roles', description: 'Consultar roles y sus permisos (solo lectura).', category: 'Configuración' },
+  [Permission.COMMERCIAL_ANALYTICS_VER]: { label: 'Ver Analítica Comercial', description: 'Command center, salidas, ventas por ruta, dead-stock, salud de inventario, cliente 360 e histórico de venta. (Sell-Out tiene su propio permiso.)', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SELLOUT_VER]: { label: 'Ver Sell-Out por empresa', description: 'Solo el reporte Sell-Out por empresa (RS): matriz producto × sucursal con cajas y monto, + XLSX/PDF. No abre el resto de la analítica.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER]: { label: 'Ver Análisis (Sell-Out BI)', description: 'El sub-módulo Análisis sobre la venta de Sell-Out: explica el cambio (causa raíz), pregúntale en español y radar de anomalías. Misma verdad que el reporte, otra forma de interrogarla.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR]: { label: 'Gestionar metas de venta', description: 'Capturar y editar los objetivos de venta por mes (total/sucursal/canal) que el sub-módulo Análisis compara contra lo real. Leer las metas va con el permiso de ver Análisis.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SALIDAS_VER]: { label: 'Ver Salidas por producto', description: 'Solo el reporte Salidas por producto (ventas/existencia/costos por sucursal × producto) + XLSX.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_ROUTE_SALES_VER]: { label: 'Ver Ventas por ruta', description: 'Solo el reporte Ventas por ruta (mensual sucursal × ruta) + XLSX.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_COMMISSIONS_VER]: { label: 'Ver comisiones de ruta', description: 'Las corridas de comisión quincenal de Ruta Directa y su detalle por chofer y supervisor. Es nómina: separado de Ventas por ruta a propósito.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR]: { label: 'Gestionar comisiones de ruta', description: 'Calcular la corrida del periodo, aprobarla y marcarla pagada. El motor calcula; aprobar es humano.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_SALES_DOCS_VER]: { label: 'Ver Facturación de Telemarketing', description: 'Facturas de telemarketing del ERP (U/D/8) y su anexo imprimible con pagaré. No incluye Pedidos.', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_CUSTOMERS360_VER]: { label: 'Ver Clientes 360', description: 'Solo la ficha analítica Clientes 360 (compra agregada del ERP por cliente y sus productos).', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_HISTORICAL_VER]: { label: 'Ver Histórico de venta', description: 'Solo el histórico de venta del ERP (diario, top productos, por zona, ranking, margen por categoría).', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_DEADSTOCK_VER]: { label: 'Ver Stock muerto', description: 'Solo el reporte de stock muerto (productos sin rotación).', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_INVHEALTH_VER]: { label: 'Ver Salud de inventario', description: 'Solo el reporte de salud de inventario (días de cobertura + status por producto × almacén).', category: 'Comercial · Analítica' },
+  [Permission.COMMERCIAL_ERP_PROMOS_VER]: { label: 'Ver Promos del ERP', description: 'Solo la vista de promociones vigentes del ERP (Kepler). Distinto de gestionar promociones propias.', category: 'Comercial · Promociones' },
+  [Permission.COMMERCIAL_VENDOR_SALES_VER]: { label: 'Ver Ventas de vendedor', description: 'Solo el reporte de ventas de vendedor (parte comercial del ticket OCR: por tienda/captura/ruta).', category: 'Comercial' },
+  [Permission.COMMERCIAL_CARTERA_VER]: { label: 'Ver Cartera', description: 'Consultar la cartera de ventas y la asignación de rutas a vendedores.', category: 'Comercial · Cartera' },
+  [Permission.COMMERCIAL_CARTERA_GESTIONAR]: { label: 'Gestionar Cartera', description: 'Asignar rutas y orden de visita a los vendedores.', category: 'Comercial · Cartera' },
+  [Permission.COMMERCIAL_PRODUCTS_VER]: { label: 'Ver Productos', description: 'Consultar el catálogo comercial de productos.', category: 'Comercial' },
+  [Permission.COMMERCIAL_PRODUCTS_GESTIONAR]: { label: 'Gestionar Productos', description: 'Alta y edición del catálogo comercial de productos.', category: 'Comercial' },
+  [Permission.COMMERCIAL_THOT_VER]: { label: 'Ver Thot / IA', description: 'Chat comercial e inteligencia de recomendación (Thot).', category: 'Comercial · Thot' },
+  [Permission.COMMERCIAL_THOT_GESTIONAR]: { label: 'Gestionar Thot / IA', description: 'Curar contenido y recomendaciones del motor Thot.', category: 'Comercial · Thot' },
+  [Permission.COMMERCIAL_INTELLIGENCE_VER]: { label: 'Ver inteligencia interna', description: 'Tableros internos: hallazgos, diagnósticos, acciones, autonomía y señales agregadas. NO para clientes B2B.', category: 'Comercial · Thot' },
+  [Permission.TRADE_ROUTE_PLAN_VER]: { label: 'Ver Agenda de Rutas', description: 'Consultar la agenda diaria de rutas del equipo de campo.', category: 'Seguimiento' },
+  [Permission.TRADE_ROUTE_PLAN_GESTIONAR]: { label: 'Gestionar Agenda de Rutas', description: 'Definir y editar la asignación diaria de rutas al equipo.', category: 'Seguimiento' },
+  [Permission.LOGISTICS_TRANSFERS_VER]: { label: 'Ver Traspasos', description: 'Consultar traspasos y movimientos que no son venta (consolidación/recepción).', category: 'Logística' },
+  [Permission.PORTAL_B2B_ACCESS]: { label: 'Acceso a Portal B2B', description: 'Permite entrar al portal de autoservicio para clientes B2B.', category: 'Portal B2B' },
+
+  // ── Proyecto Finanzas ──────────────────────────────────────────────────
+  [Permission.FINANCE_EXPENSES_VER]: { label: 'Ver Egresos Contables', description: 'Proyecto Finanzas: egresos contables (pólizas de gastos 6xx y compras 5xx), desglose por cuenta/beneficiario y drill a documentos.', category: 'Finanzas' },
+  [Permission.FINANCE_AI_CHAT]: { label: 'Chat AI de Finanzas (Maat)', description: 'Conversar con Maat: consultas sobre balanza, egresos, proveedores y hallazgos. Solo lectura de datos.', category: 'Finanzas' },
+  [Permission.FINANCE_FINDINGS_GESTIONAR]: { label: 'Gestionar Hallazgos y Conocimiento', description: 'Confirmar/descartar hallazgos del motor de patrones y curar la base de conocimiento de Maat.', category: 'Finanzas' },
+  [Permission.FINANCE_BANK_VER]: { label: 'Ver Bancos (conciliación)', description: 'Módulo Bancos: estados de cuenta clasificados, tablero Concentrado, ¿Cuadra?, conciliación banco↔Kepler y cuadre de saldos.', category: 'Finanzas' },
+  [Permission.FINANCE_BANK_GESTIONAR]: { label: 'Gestionar Bancos', description: 'Subir estados de cuenta, reclasificar movimientos, editar catálogo/reglas de clasificación, correr matching y enviar diferencias a hallazgos.', category: 'Finanzas' },
+  [Permission.FINANCE_COLLECTIONS_VER]: { label: 'Ver Cobranza (comprobantes)', description: 'Módulo Cobranza: lista de cobros de Kepler (UA0501), adjuntar la ficha de depósito (imagen/PDF), correr OCR y ver el cuadre de monto.', category: 'Finanzas' },
+  [Permission.FINANCE_RECEIVABLES_VER]: { label: 'Ver Cartera de clientes', description: 'Módulo Cartera / Partidas vivas: estado de cuenta CxC read-only de Kepler (kdue) — saldo, vencido y aging por cliente, con drill al auxiliar por documento.', category: 'Finanzas' },
+  [Permission.FINANCE_COLLECTIONS_GESTIONAR]: { label: 'Gestionar Cobranza', description: 'Validar o rechazar los comprobantes de depósito adjuntados a los cobros.', category: 'Finanzas' },
+  [Permission.FINANCE_PAYMENTS_VER]: { label: 'Ver Pagos a Proveedor (comprobantes)', description: 'Módulo Pagos: lista de pagos a proveedor de Kepler (XD2501), adjuntar el comprobante de transferencia (imagen/PDF), correr OCR y ver el cuadre de monto.', category: 'Finanzas' },
+  [Permission.FINANCE_PAYMENTS_GESTIONAR]: { label: 'Gestionar Pagos a Proveedor', description: 'Validar o rechazar los comprobantes de transferencia adjuntados a los pagos.', category: 'Finanzas' },
+  [Permission.FINANCE_RECON_ASIGNAR]: { label: 'Asignar tareas de conciliación', description: 'Repartir y reasignar a Finanzas los movimientos sin conciliar en Kepler (reparto automático + asignación manual). Ver/resolver la propia tarea usa los permisos de Bancos.', category: 'Finanzas' },
+  [Permission.FINANCE_RECON_RECIBIR]: { label: 'Recibe tareas de conciliación (área Finanzas)', description: 'Marca al rol como parte del equipo de Finanzas al que el motor reparte tareas de conciliación. Quítalo y ese rol deja de recibir tareas.', category: 'Finanzas' },
+  [Permission.FINANCE_EXPENSES_VER_ALL]: { label: 'Ver gastos de TODOS los departamentos', description: 'Comprobación de gastos: ve los gastos de todas las áreas. Sin este permiso, el usuario solo ve los gastos de las áreas que se le asignaron.', category: 'Finanzas' },
+  [Permission.FINANCE_EXPENSES_COMPROBAR]: { label: 'Comprobar gastos (validar/rechazar)', description: 'Comprobación de gastos: validar o rechazar la comprobación adjunta a un gasto. Capturar/subir el comprobante NO requiere este permiso.', category: 'Finanzas' },
+  [Permission.FINANCE_EXPENSES_CAPTURAR]: { label: 'Capturar comprobante de gasto', description: 'Comprobación de gastos: subir el folio del gasto (Kepler) y su comprobante, y ver sus propias capturas. NO da acceso a la bandeja de revisión ni a validar/rechazar.', category: 'Finanzas' },
+  [Permission.FISCAL_LISTAS_VER]: { label: 'Ver Listas SAT (EFOS 69-B / Art. 69)', description: 'Proyecto Finanzas: bandeja de proveedores del tenant que aparecen en las listas negras del SAT (EFOS 69-B, Art. 69) y RFCs con problema estructural, con drill a documentos.', category: 'Finanzas' },
+  [Permission.FISCAL_LISTAS_GESTIONAR]: { label: 'Gestionar Listas SAT', description: 'Triage de coincidencias EFOS/Art.69, disparar el cruce/validación y refrescar las listas del SAT.', category: 'Finanzas' },
+  [Permission.FISCAL_CFDI_VER]: { label: 'Ver CFDI', description: 'Almacén de CFDI 4.0 descargados del SAT: cabecera, impuestos, método de pago, estatus.', category: 'Finanzas' },
+  [Permission.FISCAL_CONCILIACION_VER]: { label: 'Ver Conciliación fiscal', description: 'Conciliación PUE/PPD ↔ REP (saldo insoluto, PPD sin complemento de pago) y CFDI ↔ póliza contable.', category: 'Finanzas' },
+  [Permission.FISCAL_DIOT_VER]: { label: 'Ver DIOT / IVA', description: 'DIOT (operaciones con terceros) y conciliación de IVA con flujo efectivo (PUE/PPD).', category: 'Finanzas' },
+  [Permission.FISCAL_CONTAB_VER]: { label: 'Ver Contabilidad electrónica', description: 'Generar los XML que exige el SAT: catálogo de cuentas y balanza de comprobación.', category: 'Finanzas' },
+  [Permission.FISCAL_PURCHASE_BOOK_VER]: { label: 'Ver Libro de Compras', description: 'Las facturas del mes con su cuadre, el estado del trámite y la póliza que se le entrega a ContPAQi.', category: 'Finanzas' },
+  [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR]: { label: 'Gestionar Libro de Compras', description: 'Incluir o excluir facturas del mes, generar el TXT de la póliza y mover el trámite (entregado / aplicado).', category: 'Finanzas' },
+  [Permission.FISCAL_CONTAB_GESTIONAR]: { label: 'Gestionar código agrupador SAT', description: 'Editar el mapeo cuenta mayor → código agrupador del SAT (catálogo de cuentas 100% válido).', category: 'Finanzas' },
+  [Permission.FISCAL_DESCARGA_VER]: { label: 'Ver Descarga masiva CFDI', description: 'Bandeja de solicitudes de descarga masiva de CFDI ante el SAT (estado + paquetes).', category: 'Finanzas' },
+  [Permission.FISCAL_DESCARGA_GESTIONAR]: { label: 'Gestionar Descarga masiva CFDI', description: 'Crear solicitudes de descarga masiva de CFDI (dispara el pipeline con la e.firma).', category: 'Finanzas' },
+  [Permission.FISCAL_CREDENCIALES_GESTIONAR]: { label: 'Gestionar credenciales SAT (e.firma)', description: 'Alta/baja de la e.firma del contribuyente en la bóveda cifrada (muy sensible).', category: 'Finanzas' },
+  [Permission.FISCAL_FACTURAR_VER]: { label: 'Ver Facturación', description: 'Bandeja de facturas emitidas (CFDI 4.0) y descarga de su XML.', category: 'Finanzas' },
+  [Permission.FISCAL_FACTURAR_GESTIONAR]: { label: 'Emitir / cancelar facturas', description: 'Timbrar CFDI 4.0 (global o nominativa) vía PAC, cancelar ante el SAT y configurar el emisor.', category: 'Finanzas' },
+  [Permission.FISCAL_IMPUESTOS_VER]: { label: 'Ver Impuestos provisionales', description: 'Cálculo de pagos provisionales (ISR/IVA) del período. Solo lectura.', category: 'Finanzas' },
+  [Permission.FISCAL_MATERIALIDAD_VER]: { label: 'Ver Expediente de materialidad', description: 'Dossier de materialidad por RFC de proveedor (soporte ante EFOS/Art. 69). Solo lectura.', category: 'Finanzas' },
+  [Permission.FISCAL_MATERIALIDAD_GESTIONAR]: { label: 'Gestionar materialidad', description: 'Confirmar o descartar la asignación CFDI↔operación (el enlace que respalda la deducción).', category: 'Finanzas' },
+
+  // ── Supervisor de Movimientos (cuadre) — ADR-029 ──────────────────────
+  [Permission.RECONCILIATION_VER]: { label: 'Ver Cuadre de Movimientos', description: 'Bandeja de descuadres del supervisor: caja (arqueos), inventario y cruces. Solo lectura.', category: 'Almacén' },
+  [Permission.RECONCILIATION_GESTIONAR]: { label: 'Gestionar Descuadres', description: 'Confirmar/descartar descuadres, asignar causa (merma/robo/error) y correr el escaneo de cuadre.', category: 'Almacén' },
+
+  // ── Compras / Reabastecimiento (Fase RA — ADR-030) ────────────────────
+  [Permission.COMPRAS_PEDIDO_VER]: { label: 'Ver Pedido', description: 'Existencia crítica, sugerido de compra y workbook del comprador. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_PEDIDO_GESTIONAR]: { label: 'Gestionar Pedido', description: 'Exportar/armar el pedido, ajustar parámetros globales y unidad, y usar el asistente Thot de compras.', category: 'Compras' },
+  [Permission.COMPRAS_RED_VER]: { label: 'Ver Red de abasto', description: 'Topología de red (CEDIS→sucursal, DRP). Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_RED_GESTIONAR]: { label: 'Gestionar Red de abasto', description: 'Fijar el CEDIS que surte a cada sucursal.', category: 'Compras' },
+  [Permission.COMPRAS_REQUISICIONES_VER]: { label: 'Ver Requisiciones', description: 'Lista y detalle de requisiciones de compra. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_REQUISICIONES_GESTIONAR]: { label: 'Gestionar Requisiciones', description: 'Crear, aprobar, rechazar, ordenar y recibir requisiciones.', category: 'Compras' },
+  [Permission.COMPRAS_ORDENES_VER]: { label: 'Ver Órdenes de compra', description: 'Lista y detalle de órdenes de compra (OC) y recepciones. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_ORDENES_GESTIONAR]: { label: 'Gestionar Órdenes de compra', description: 'Generar OC, cancelar y registrar recepciones (mueve stock).', category: 'Compras' },
+  [Permission.COMPRAS_ENTRADAS_VER]: { label: 'Ver Órdenes de entrada', description: 'Recepción de mercancía + evidencia/comprobantes. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_ENTRADAS_GESTIONAR]: { label: 'Gestionar Órdenes de entrada', description: 'Subir evidencia, correr OCR y adjuntar la remisión/factura a la entrada.', category: 'Compras' },
+  [Permission.COMPRAS_ENTRADAS_VALIDAR]: { label: 'Validar Órdenes de entrada', description: 'Validar o rechazar la evidencia (remisión). Permiso especial restringido — no lo tiene "Gestionar".', category: 'Compras' },
+  // RE.20.5 — la CLAVE del permiso no se toca (vive en identity.role_permissions); cambia la
+  // etiqueta, que es lo que lee quien reparte permisos.
+  // RE.20.1 — la pantalla que gateaba se fusionó con el Listado de entradas y ahora la protege
+  // `COMPRAS_ENTRADAS_VER`. Este permiso queda SIN uso: se deja en el catálogo (retirarlo obliga
+  // a tocar `identity.role_permissions` en prod) y se dice que no abre nada, para que nadie lo
+  // reparta creyendo que sí.
+  [Permission.COMPRAS_360_VER]: { label: 'Ver Costo por compra (retirado)', description: 'Sin uso desde RE.20.1: la pantalla se fusionó con el Listado de entradas y hoy la gatea "Ver Entradas". Dar este permiso no abre nada.', category: 'Compras' },
+  [Permission.COMPRAS_COSTO_NETO_VER]: { label: 'Ver Costo por proveedor', description: 'La misma cifra agregada por proveedor (landed cost): compras − descuento efectivo. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_DESCUENTOS_VER]: { label: 'Ver Descuentos y apoyos', description: 'Ajustes de compra (X-D-40/55), descuentos/apoyos y facturas duplicadas. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_DESCUENTOS_GESTIONAR]: { label: 'Gestionar Descuentos', description: 'Empujar facturas duplicadas a la bandeja de hallazgos.', category: 'Compras' },
+  [Permission.COMPRAS_HALLAZGOS_VER]: { label: 'Ver Hallazgos', description: 'Bandeja de hallazgos de reabastecimiento (agotados/bajo reorden). Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_HALLAZGOS_GESTIONAR]: { label: 'Gestionar Hallazgos', description: 'Correr el scanner de reabastecimiento a demanda.', category: 'Compras' },
+  [Permission.COMPRAS_PROVEEDORES_VER]: { label: 'Ver Proveedores', description: 'Proveedores con lead time, mínimo en cajas y parámetros de pedido. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_PROVEEDORES_GESTIONAR]: { label: 'Gestionar Proveedores', description: 'Editar lead time, mínimo en cajas y parámetros de pedido del proveedor.', category: 'Compras' },
+  [Permission.COMPRAS_CATEGORIAS_VER]: { label: 'Ver Categorías', description: 'Categorías de compra con conteos y duplicados. Solo lectura.', category: 'Compras' },
+  [Permission.COMPRAS_CATEGORIAS_GESTIONAR]: { label: 'Gestionar Categorías', description: 'Fusionar, renombrar y auto-deduplicar categorías de compra.', category: 'Compras' },
+
+  // ── Permisos que faltaban en el editor de permisos ────────────────────
+  [Permission.SUPERVISOR_AI_VER]: { label: 'Ver Supervisor AI', description: 'Consultar el supervisor de ejecución AI (parte diario, auditoría de fotos, hallazgos de ruta).', category: 'Seguimiento' },
+  [Permission.SUPERVISOR_AI_APROBAR]: { label: 'Aprobar acciones del Supervisor AI', description: 'Aprobar o rechazar las acciones propuestas por el supervisor AI (nivel co-piloto).', category: 'Seguimiento' },
+  [Permission.ROUTE_CONTROL_VER]: { label: 'Ver Control de ruta', description: 'Consultar los tickets de venta/carga/combustible del cierre de ruta de vendedores.', category: 'Comercial' },
+  [Permission.ROUTE_TICKET_CAPTURE]: { label: 'Capturar tickets de ruta', description: 'Registrar tickets del cierre de ruta (venta/carga/combustible).', category: 'Comercial' },
+  [Permission.LOGISTICS_HOME_DISPATCH]: { label: 'Reparto a domicilio (legacy)', description: 'Permiso viejo de reparto — reemplazado por Despachar/Entregar. Se conserva para compatibilidad hasta la limpieza.', category: 'Reparto' },
+
+  // ── Reparto / Última Milla (proyecto propio — ADR-027) ────────────────
+  [Permission.REPARTO_DESPACHAR]: { label: 'Despachar reparto', description: 'Persona de tienda: captura el folio, asigna repartidor + moto, ve el tracking y los KPIs de entrega a domicilio.', category: 'Reparto' },
+  [Permission.REPARTO_ENTREGAR]: { label: 'Entregar (repartidor)', description: 'Repartidor: ve su ruta y paradas, cierra la entrega con evidencia + cobro, y hace su arqueo ciego de fin de día.', category: 'Reparto' },
+
+  // WhatsApp (Fase F). Sin entrada acá, estos dos permisos salían con la clave
+  // cruda en "Otros" y `[ID.21]` no los podía encontrar por nombre.
+  [Permission.WHATSAPP_BOT_VER]: { label: 'Ver conversaciones de WhatsApp', description: 'Acceso de lectura al bot conversacional: chats, pedidos iniciados por WhatsApp y estado de la sesión.', category: 'Comunicación' },
+  [Permission.WHATSAPP_BOT_GESTIONAR]: { label: 'Operar el bot de WhatsApp', description: 'Responder, tomar el control de una conversación y configurar plantillas y flujos del bot.', category: 'Comunicación' },
+
+  // ── Comercial — Carga / Movimientos (features propias) ────────────────
+  [Permission.COMMERCIAL_CARGA_VER]: { label: 'Ver Carga', description: 'Consultar el estado de carga al camión de las líneas de pedido. Solo lectura.', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_CARGA_GESTIONAR]: { label: 'Gestionar Carga', description: 'Marcar líneas como cargadas / no cargadas al camión (individual o en lote).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_MOVEMENTS_VER]: { label: 'Ver Movimientos', description: 'Diario de movimientos de stock (entradas/salidas/traspasos) con drill a documento. Solo lectura.', category: 'Comercial' },
+  [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR]: { label: 'Auditar Movimientos', description: 'Marcar/desmarcar un documento de movimiento como auditado.', category: 'Comercial' },
+};
+
+/**
+ * Orden canónico de las categorías para mostrarlas agrupadas de forma estable.
+ */
+export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
+  'Usuarios',
+  'Reportes',
+  'Operación',
+  'Configuración',
+  'Seguimiento',
+  'Comercial',
+  'Comercial · Analítica',
+  'Comercial · Cartera',
+  'Comercial · Pedidos',
+  'Comercial · Promociones',
+  'Comercial · Thot',
+  'Comercial · Inventario físico',
+  'Telemarketing',
+  'Logística',
+  'Reparto',
+  'Finanzas',
+  'Tienda',
+  'Portal B2B',
+  'Comunicación',
+  'Otros',
+];
+
+/** Total de permisos definidos en el enum (denominador de cobertura). */
+export const TOTAL_PERMISSIONS = Object.values(Permission).length;

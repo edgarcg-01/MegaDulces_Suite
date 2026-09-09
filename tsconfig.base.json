@@ -17,6 +17,28 @@
     "paths": {
       "@megadulces/commercial": ["libs/commercial/src/index.ts"],
       "@megadulces/contracts": ["libs/contracts/src/index.ts"],
+      // [ID.28] El catálogo de autorización entra MÓDULO POR MÓDULO, nunca por
+      // un barrel. Dos intentos previos lo demostraron, los dos medidos:
+      //   1. colgarlo del barrel raíz `@megadulces/contracts` → +225 kB en el
+      //      chunk inicial de `view` y el presupuesto de 1.40 MB **roto**: ese
+      //      barrel lo importan cosas del arranque de las 3 apps Angular.
+      //   2. un barrel propio `contracts/authz` → compilaba y, MEDIDO, pesaba
+      //      exactamente lo mismo (1.23 MB en los dos casos): esbuild sacude
+      //      los re-exports que nadie usa. O sea que la sospecha de que
+      //      acoplaba las 4 piezas era MÍA y la medición la desmintió.
+      //   3. un COMODÍN `contracts/authz/*` → `view`, `vendor` y `api` verdes,
+      //      y `apps/portal` **rompió** el compilador de Angular con
+      //      «Cannot destructure property 'pos' of file.referencedFiles». No es
+      //      un error de tipos: es el tracking de archivos del plugin, que con
+      //      esta versión no digiere un `paths` comodín apuntando a `.ts`.
+      //      Verificado que era regresión mía: portal compila en HEAD.
+      // Quedan mapeos EXPLÍCITOS, uno por módulo. Cada import es tan angosto
+      // como antes de centralizar (sin depender de que el sacudido funcione) y
+      // además se pueden grepear. Un permiso nuevo no toca esta lista.
+      "@megadulces/contracts/authz/permissions": ["libs/contracts/src/authz/permissions.ts"],
+      "@megadulces/contracts/authz/authz-tree": ["libs/contracts/src/authz/authz-tree.ts"],
+      "@megadulces/contracts/authz/permission-meta": ["libs/contracts/src/authz/permission-meta.ts"],
+      "@megadulces/contracts/authz/role-presets": ["libs/contracts/src/authz/role-presets.ts"],
       "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/fiscal": ["libs/fiscal/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],

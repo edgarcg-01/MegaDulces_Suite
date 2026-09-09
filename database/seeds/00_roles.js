@@ -7,7 +7,7 @@
  * ALL_PERMS puede estar desfasado — no depender de él para prod.
  *
  * Fuente de verdad de las claves: enum `Permission` en
- * libs/platform-core/src/lib/constants/permissions.ts. Mantener en sync.
+ * libs/contracts/src/authz/permissions.ts. Mantener en sync.
  *
  * Reglas:
  *   - NUNCA claves legacy `LOG_*` (fueron reemplazadas por `LOGISTICS_*` en
