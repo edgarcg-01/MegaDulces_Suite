@@ -395,12 +395,12 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     // `[REP.0.3]` — el interruptor general de los cron.
     //
     // Sin `ScheduleModule` registrado, el `SchedulerOrchestrator` de
-    // @nestjs/schedule no engancha NINGÚN `@Cron`: los 51 decoradores repartidos
+    // @nestjs/schedule no engancha NINGÚN `@Cron`: los 48 decoradores repartidos
     // en 46 archivos quedan inertes de una. Es una línea porque el registro es
     // uno solo; el equivalente cableando servicio por servicio serían 46 diffs.
     //
     // Por qué hacía falta: `shouldRunInProcessCron()` existe desde INFRA.3 y
-    // parece el interruptor, pero **sólo 1 de los 51 lo llama**
+    // parece el interruptor, pero **sólo 1 de los 48 lo llama**
     // (`embedding-sync.service.ts`). Todos los demás corren incondicionalmente
     // en cualquier proceso de API. Dos APIs contra la misma base = todo
     // duplicado, y cada cron tiene su `isRunning` en memoria, que no sirve
