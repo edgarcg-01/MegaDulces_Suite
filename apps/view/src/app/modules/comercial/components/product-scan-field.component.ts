@@ -89,8 +89,18 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
     </div>
   `,
   styles: [`
+    /* NO lleva container-type, a proposito: .psf-cam-ov es un overlay de camara
+       con position: fixed; inset: 0, y container-type implica contencion de
+       layout - el host pasaria a ser su bloque contenedor y el overlay, en vez
+       de cubrir la pantalla, se encogeria al tamano del campo. Es la trampa que
+       DESIGN §R marca explicitamente. Aca no hace falta: el desborde se arregla
+       con flex-wrap, no con queries de contenedor. */
     :host { display: block; }
-    .psf-row { display: flex; gap: .4rem; align-items: stretch; }
+    /* Envuelve: el renglon es icono + campo + hasta 3 botones de 48px. Sin
+       wrap su min-content era 365px y no cabia en el paso de captura de un
+       telefono (326px utiles). El campo cede hasta 8rem y despues bajan los
+       botones al renglon siguiente, que es mejor que un campo de 2 caracteres. */
+    .psf-row { display: flex; gap: .4rem; align-items: stretch; flex-wrap: wrap; }
     .psf-ico {
       display: flex; align-items: center; justify-content: center; width: 2.5rem;
       border: 1px solid var(--border-color); border-right: 0;
@@ -99,7 +109,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
     }
     .psf-row > .psf-ico + .psf-in { border-radius: 0 var(--r-md, 8px) var(--r-md, 8px) 0; margin-left: -.4rem; }
     .psf-in {
-      flex: 1; min-width: 0; min-height: 48px; padding: .5rem .75rem;
+      flex: 1 1 8rem; min-width: 0; min-height: 48px; padding: .5rem .75rem;
       background: var(--card-bg); color: var(--text-main);
       border: 1px solid var(--border-color); border-radius: var(--r-md, 8px);
       font: inherit; font-size: 1rem; font-weight: 500;
@@ -122,7 +132,7 @@ import { BarcodeFormat, DecodeHintType } from '@zxing/library';
     .psf-go:hover:not(:disabled) { color: var(--action-fg, #fff); filter: brightness(1.05); }
     .psf-pie {
       display: flex; align-items: center; justify-content: space-between; gap: .5rem;
-      margin-top: .3rem; font-size: var(--fs-micro, .69rem);
+      flex-wrap: wrap; margin-top: .3rem; font-size: var(--fs-micro, .69rem);
     }
     .psf-est { display: inline-flex; align-items: center; gap: 6px; color: var(--text-faint); }
     .psf-est.on { color: var(--ok-soft-fg); }

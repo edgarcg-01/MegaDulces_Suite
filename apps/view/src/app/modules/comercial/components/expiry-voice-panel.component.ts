@@ -141,17 +141,36 @@ import { elegirVozLatina } from '../voz-latina';
     </section>
   `,
   styles: [`
-    :host { display: block; }
+    /* SM.32 - El panel es su propio contenedor de consulta. Dos razones, y la
+       segunda es la que arreglaba el bug: (1) decide su layout por el ancho que
+       le dio el padre y no por el viewport, que es lo que manda DESIGN §9 para
+       un componente que vive en dos pantallas; (2) container-type: inline-size
+       CORTA la fuga de min-content hacia arriba. Medido: el min-content de este
+       panel era 400px y arrastraba la tarjeta de captura a 432 y la pagina a
+       512, dentro de un telefono de 390 - y el excedente quedaba RECORTADO, no
+       scrolleable. El culpable era .evp-sub (white-space: nowrap sobre una
+       frase de 47 caracteres). */
+    :host { display: block; container-type: inline-size; }
     .evp { border: 1px solid var(--border-color); border-radius: var(--r-md, 8px);
       background: var(--surface-ground); overflow: hidden; }
     .evp.open { background: var(--card-bg); }
     .evp-toggle { display: flex; align-items: center; gap: .6rem; width: 100%; padding: .7rem .8rem;
       background: transparent; border: 0; cursor: pointer; font: inherit; color: var(--text-main); text-align: left; }
     .evp-toggle:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+    /* 43px: un pixel por debajo del minimo tactil. Es el boton que abre el
+       asistente con el telefono en la mano. */
+    @media (pointer: coarse) {
+      .evp-toggle { min-height: var(--tap-min, 44px); }
+    }
     .evp-toggle > .pi-microphone { color: var(--action); }
     .evp-title { font-weight: 700; font-size: .85rem; }
     .evp-sub { flex: 1; min-width: 0; color: var(--text-muted); font-size: .75rem;
       overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* En un panel angosto la frase no cabe ni recortada: son tres puntos que no
+       dicen nada y le roban el renglon al titulo. Se va del todo. */
+    @container (max-width: 26rem) {
+      .evp-sub { display: none; }
+    }
     .evp-body { padding: 0 .8rem .8rem; display: flex; flex-direction: column; gap: .6rem; }
     .evp-slots { display: flex; flex-wrap: wrap; gap: .4rem; }
     .evp-slot { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .55rem;

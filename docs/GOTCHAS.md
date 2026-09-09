@@ -1559,28 +1559,3 @@ sin prueba negativa es una intención (ADR-056).
 Para aplicar UNA migración a prod (no `migrate:latest`, que arrastra las pendientes de otros):
 `node database/scripts/apply-one-migration-prod.js <archivo>` — ya existe, apunta a `FLEET_DB_URL`
 y tiene un `--list`.
-
----
-
-## 39. Correr un importer A MANO mientras existe su tarea programada: te lo matan a los 13 min
-
-Lección de **CV.24**, escrita acá el 2026-09-09. Estaba citada en el CHANGELOG como
-"`GOTCHAS.md` §38" y **nunca se había escrito**: el §38 lo ocupó el incidente del lock de
-CH.1, así que la referencia apuntaba al vacío. Vivía sólo en la memoria personal de una
-sesión, que no se comparte entre máquinas — o sea, no existía para el equipo.
-
-**El síntoma engaña:** un `FATAL 57P01` (`terminating connection due to administrator
-command`) a los ~13 minutos de arrancar el backfill. Parece que Railway te cortó la
-conexión, y se pierde tiempo buscando límites del proveedor.
-
-**No es Railway: es nuestro propio barredor.** `scripts/kill-stale-feeds.ps1` corre
-programado y mata los procesos de feed que llevan mucho tiempo vivos, porque existe para
-levantar los que se cuelgan (§ del patrón de feeds on-prem). Un importer lanzado a mano se
-ve exactamente igual que un feed colgado.
-
-**Cómo se sale:** subir en **escalera** en vez de una corrida larga. El backfill de CV.24 se
-hizo en 30 → 90 → 180 → 260 días, para que ninguna pasada cruce el techo de los ~13 min.
-
-**Corolario:** antes de correr un importer a mano contra prod, mirá si tiene tarea programada.
-Y no confundas "el proceso murió" con "el proceso falló": el `57P01` no dice nada sobre si las
-filas que ya shipeó quedaron bien.

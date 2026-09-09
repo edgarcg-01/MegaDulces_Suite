@@ -456,7 +456,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
     /* Operations: denso, sin decoración. Elevación = borde 1px, nunca + sombra. */
     .cad { display: grid; gap: 1rem; container-type: inline-size; }
 
-    .cad-head-right { display: flex; align-items: center; gap: .5rem; }
+    .cad-head-right { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
     .cad-suc {
       display: inline-flex; align-items: center; gap: .5rem;
       padding: .4rem .7rem; border: 1px solid var(--border-color);
@@ -464,7 +464,10 @@ type Condition = 'bueno' | 'regular' | 'malo';
       font-size: var(--fs-sm, .85rem);
     }
     .cad-suc code { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--c-text-3, var(--text-muted)); }
-    :host ::ng-deep .cad-suc-pick { min-width: 14rem; }
+    /* min-width fijo = piso que no cede: en un telefono el selector medía 224px
+       dentro de 358 y, con el resto del encabezado al lado, lo sacaba de la
+       pantalla. El min() lo hace rendirse al ancho disponible. */
+    :host ::ng-deep .cad-suc-pick { min-width: min(14rem, 100%); max-width: 100%; }
 
     .cad-blocked { display: flex; gap: .9rem; align-items: flex-start; padding: 1rem; }
     .cad-blocked > i { font-size: 1.4rem; color: var(--tone-warn, var(--text-muted)); flex: none; }
@@ -483,7 +486,10 @@ type Condition = 'bueno' | 'regular' | 'malo';
       border-radius: 50%; background: color-mix(in oklab, var(--ink, #000) 8%, transparent);
       font-size: var(--fs-xs, .72rem); font-weight: 700; color: var(--c-text-2, var(--text-muted));
     }
-    .cad-step-body { display: grid; gap: .4rem; min-width: 0; }
+    /* minmax(0,1fr) y no el track auto por defecto: un track auto se dimensiona
+       al min-content del hijo y lo deja desbordar al padre aunque el padre
+       tenga min-width: 0. Es la misma trampa de SM.31, un nivel mas abajo. */
+    .cad-step-body { display: grid; grid-template-columns: minmax(0, 1fr); gap: .4rem; min-width: 0; }
     .cad-lbl { font-size: var(--fs-sm, .85rem); font-weight: 600; color: var(--c-text-2, var(--text-muted)); }
     .cad-lbl em { font-weight: 400; font-style: normal; color: var(--c-text-3, var(--text-muted)); }
     .cad-hint { font-size: var(--fs-xs, .72rem); color: var(--c-text-3, var(--text-muted)); }
@@ -547,7 +553,19 @@ type Condition = 'bueno' | 'regular' | 'malo';
 
     /* Cantidad + unidad */
     .cad-qty { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+    /* OJO: styleClass="cad-qty-w" NO llega al elemento - PrimeNG v22 no lo
+       propaga en p-inputnumber (igual que en p-select). O sea que este
+       max-width nunca aplico y el campo venia sin tope: 275px de min-content
+       que en un telefono de 320 se salian de la tarjeta. Se apunta al elemento.
+       inputStyleClass SI se propaga (por eso .cad-qty-in funciona). */
     :host ::ng-deep .cad-qty-w { max-width: 12rem; }
+    :host ::ng-deep .cad-qty p-inputnumber { max-width: min(12rem, 100%); }
+    /* Y el input de adentro tiene que poder encogerse: su ancho intrinseco
+       (~20 caracteres) mas los dos botones del stepper daban 275px de piso, y
+       en un flex el minimo automatico de un item ES su min-content. Con
+       flex: 1 1 0 + min-width: 0 el piso pasa a ser el de los botones. */
+    :host ::ng-deep .cad-qty p-inputnumber { min-width: 0; }
+    :host ::ng-deep .cad-qty p-inputnumber .cad-qty-in { flex: 1 1 0; min-width: 0; }
     :host ::ng-deep .cad-qty-in { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; text-align: center; min-height: 2.75rem; }
     .cad-units, .cad-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
     .cad-unit, .cad-chip {
@@ -570,8 +588,8 @@ type Condition = 'bueno' | 'regular' | 'malo';
       cursor: pointer; font-size: var(--fs-sm, .85rem); font-weight: 600;
     }
     .cad-more-hint { font-weight: 400; color: var(--c-text-3, var(--text-muted)); font-size: var(--fs-xs, .72rem); }
-    .cad-more-grid { display: grid; gap: .9rem; padding-top: .75rem; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); }
-    .cad-field { display: grid; gap: .35rem; min-width: 0; }
+    .cad-more-grid { display: grid; gap: .9rem; padding-top: .75rem; grid-template-columns: repeat(auto-fit, minmax(min(14rem, 100%), 1fr)); }
+    .cad-field { display: grid; grid-template-columns: minmax(0, 1fr); gap: .35rem; min-width: 0; }
     .cad-field--wide { grid-column: 1 / -1; }
 
     .cad-foto { display: flex; align-items: center; gap: .6rem; }
@@ -646,8 +664,35 @@ type Condition = 'bueno' | 'regular' | 'malo';
     }
     @keyframes cad-shimmer { to { background-position: -200% 0; } }
 
+    /* El expediente tiene 7 columnas: en un telefono no cabe de ninguna forma, y
+       sin esto su min-content (512px) arrastraba la PAGINA entera a 512 dentro
+       de un viewport de 390 - con el excedente RECORTADO, no scrolleable. Ahora
+       scrollea dentro de su caja y deja quieto el resto de la pantalla. */
+    :host ::ng-deep .cad-hist .p-datatable-table-container { overflow-x: auto; }
+    /* Y el min-width: 0 es lo que DEJA que scrollee. El overflow solo no basta:
+       .cad-hist es item de un grid con 1fr (= minmax(auto,1fr)) y el minimo
+       automatico de un item es el min-content de su contenido, que la tabla
+       ponia en 512. Con min-width: 0 el minimo automatico es 0, el track se
+       rinde al ancho real y recien entonces la tabla tiene de donde scrollear.
+       Es la misma trampa de SM.31 vista desde el lado del item. */
+    .cad-hist { min-width: 0; }
+
     .cad-hrow { cursor: pointer; }
     .cad-chev { color: var(--text-muted); }
+
+    /* Telefono chico (320px). Cantidad y unidad en renglones separados: juntos
+       piden 275px y ahi solo hay 218. Chrome mide el min-content de un flex con
+       wrap mas ancho que el item mas grande, asi que envolver no alcanza - hay
+       que apilar. */
+    @container (max-width: 22rem) {
+      /* nowrap es obligatorio junto con column: un flex column CON wrap es
+         multilinea, y en un multilinea el ancho de la linea lo fija el
+         contenido, no el contenedor - align-items: stretch estiraba a 275
+         (el max-content de las 4 unidades) dentro de un padre de 218. Con
+         nowrap hay una sola linea y ahi si manda el contenedor. */
+      .cad-qty { flex-direction: column; flex-wrap: nowrap; align-items: stretch; }
+      :host ::ng-deep .cad-qty p-inputnumber { max-width: none; }
+    }
 
     /* Contenedor angosto (teléfono en el anaquel): todo a una columna. */
     @container (max-width: 40rem) {
@@ -661,6 +706,24 @@ type Condition = 'bueno' | 'regular' | 'malo';
        así que la container query envuelve la regla completa. */
     @container (max-width: 40rem) {
       :host ::ng-deep .cad-actions .p-button { width: 100%; }
+    }
+
+    /* TOUCH: objetivos >=44px (DESIGN §11, Ley de Fitts). El minimo global de
+       styles.css solo cubre .comm-actions e icon-btn, y esta pantalla se usa
+       CON EL TELEFONO EN LA MANO frente al anaquel. Medido antes: los campos a
+       38px, el boton de guardar a 42 y el de ver expediente a 28.
+       1rem de letra en los campos no es estetica: por debajo de 16px iOS hace
+       zoom al enfocar y descuadra la pantalla a media captura. */
+    @media (pointer: coarse) {
+      :host ::ng-deep .cad input.p-inputtext,
+      :host ::ng-deep .cad .p-inputnumber-input,
+      :host ::ng-deep .cad textarea.p-inputtext { min-height: var(--tap-min, 44px); font-size: 1rem; }
+      /* PrimeNG v22 no propaga styleClass en p-select: hay que apuntar al
+         elemento (mismo hallazgo que en el arqueo). */
+      :host ::ng-deep .cad p-select { min-height: var(--tap-min, 44px); align-items: center; }
+      :host ::ng-deep .cad p-select .p-select-label { font-size: 1rem; }
+      :host ::ng-deep .cad .p-button { min-height: var(--tap-min, 44px); }
+      .cad-unit, .cad-chip { min-height: var(--tap-min, 44px); }
     }
 
     @media (prefers-reduced-motion: reduce) {
