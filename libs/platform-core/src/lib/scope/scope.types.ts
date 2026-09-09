@@ -50,6 +50,26 @@ export interface ResolvedDimension {
   source: ScopeSource;
   /** Texto de por qué se le dio de más, capturado al otorgar el override. */
   nota?: string | null;
+  /**
+   * `[ID.26]` — **¿El alcance se pudo RESOLVER?** Es el tercer estado que
+   * faltaba, y sin él dos cosas distintas se veían iguales.
+   *
+   * `mode = 'own'` toma el valor de la ficha (`users.warehouse_code`,
+   * `zona_id`, …). Si esa columna está vacía, `valoresDe()` devuelve `[]` y
+   * `applyTo()` emite **el mismo `WHERE false`** que emite para `none`. O sea
+   * que «no ve nada porque así se configuró» y «no sabemos qué ve porque le
+   * falta el dato» producían SQL idéntico y pantalla idéntica.
+   *
+   * No es teórico: hoy hay **78 de 122** personas sin `warehouse_code` y **13
+   * sin zona**. Están a una fila de `identity.role_scopes` de quedar ciegas sin
+   * que nada lo declare.
+   *
+   * `false` significa **`unknown`**, no `none` (ADR-056: el veredicto es
+   * ternario y lo que no se pudo medir se DECLARA, nunca se dibuja como cero).
+   * `[ID.26]` sólo lo **publica**; cerrar el filtro es `[ID.43]`, y va después
+   * de poblar la ficha — cerrarlo antes es justo la ceguera que esto denuncia.
+   */
+  resolvable: boolean;
 }
 
 export interface ResolvedScope {

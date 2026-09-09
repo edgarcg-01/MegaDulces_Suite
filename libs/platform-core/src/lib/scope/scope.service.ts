@@ -190,7 +190,7 @@ export class ScopeService {
     // God-mode: espeja `manage:all`. Sale temprano — ni siquiera consulta reglas.
     if (isPlatformAdminRole(roleName)) {
       for (const dim of SCOPE_DIMENSIONS) {
-        dims[dim] = { mode: 'all', values: [], modeWrite: 'all', valuesWrite: [], source: 'platform_admin' };
+        dims[dim] = { mode: 'all', values: [], modeWrite: 'all', valuesWrite: [], source: 'platform_admin', resolvable: true };
       }
       return { tenantId, userId, roleName, dims };
     }
@@ -221,7 +221,8 @@ export class ScopeService {
       const source: ScopeSource = porUsuario.has(dim) ? 'user' : porRol.has(dim) ? 'role' : 'default';
       if (!regla) {
         // Fail-closed: sin regla, no ve nada.
-        dims[dim] = { mode: 'none', values: [], modeWrite: 'none', valuesWrite: [], source: 'default' };
+        // `none` explícito SÍ es resoluble: se sabe que no ve nada.
+        dims[dim] = { mode: 'none', values: [], modeWrite: 'none', valuesWrite: [], source: 'default', resolvable: true };
         continue;
       }
       const modeWrite = (regla.mode_write ?? regla.mode) as ScopeMode;
@@ -232,10 +233,38 @@ export class ScopeService {
         valuesWrite: this.valoresDe(modeWrite, regla.values, dim, user),
         source,
         nota: regla.nota ?? null,
+        // `[ID.26]` El ÚNICO caso no resoluble: `own` con la columna de la ficha
+        // vacía. Sin esto es indistinguible de `none` — mismo `WHERE false`.
+        resolvable: this.esResoluble(regla.mode, modeWrite, dim, user),
       };
     }
 
     return { tenantId, userId, roleName, dims };
+  }
+
+  /**
+   * `[ID.26]` — ¿La regla se puede resolver a valores concretos?
+   *
+   * No resoluble = `own` (de lectura o de escritura) sobre una dimensión cuya
+   * columna en la ficha está vacía. `all` y `none` siempre son resolubles;
+   * `listed` con lista vacía lo rechaza el CHECK de la tabla, así que no llega.
+   *
+   * Se mide sobre los DOS modos porque un rol puede leer `all` y escribir
+   * `own`: ahí la lectura funciona y la escritura queda muda, que es el caso
+   * más difícil de ver desde la pantalla.
+   */
+  private esResoluble(
+    mode: ScopeMode,
+    modeWrite: ScopeMode,
+    dim: ScopeDimension,
+    user: any,
+  ): boolean {
+    const necesitaFicha = mode === 'own' || modeWrite === 'own';
+    if (!necesitaFicha) return true;
+    const col = COLUMNA_PROPIA[dim];
+    // Sin columna declarada, `own` no es resoluble por construcción.
+    if (!col) return false;
+    return !!user?.[col];
   }
 
   private valoresDe(
@@ -448,6 +477,8 @@ export class ScopeService {
       {
         mode: ScopeMode; modeWrite: ScopeMode; source: string; nota?: string | null;
         values: string[]; valuesWrite: string[]; supportsOwn: boolean;
+        /** `[ID.26]` `false` = `unknown`, no `none`. Ver `ResolvedDimension.resolvable`. */
+        resolvable: boolean;
         options: { value: string; label: string }[];
       }
     >
@@ -473,6 +504,10 @@ export class ScopeService {
         values: d.values ?? [],
         valuesWrite: d.valuesWrite ?? [],
         supportsOwn: ownOk.get(dim) ?? false,
+        // `?? true` a propósito: un scope armado por un caller viejo que no
+        // conoce el campo NO se reporta como no-resoluble. Declarar de menos es
+        // ruido; declarar de más sería una alarma falsa en 6 dimensiones.
+        resolvable: d.resolvable ?? true,
         options: await this.optionsFor(scope, dim),
       };
     }

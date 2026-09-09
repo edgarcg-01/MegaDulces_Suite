@@ -970,6 +970,162 @@ export class UsersService {
       );
   }
 
+  /**
+   * `[ID.26]` — El estado del padrón, medido y con su cobertura declarada.
+   *
+   * ── Por qué existe ──────────────────────────────────────────────────────────
+   * Las cifras que sostienen el rediseño de identidad se sacaron a mano contra
+   * prod y vivían en un mensaje. Un número que no se puede volver a sacar no es
+   * una medición. Esto las pone en una consulta versionada.
+   *
+   * ── El bloque que importa: la ceguera de alcance ────────────────────────────
+   * `ScopeService.applyTo()` emite `WHERE false` cuando el modo es `none` **o**
+   * cuando la lista de valores viene vacía. Y `valoresDe()` devuelve lista vacía
+   * para `own` con la columna de la ficha en NULL. Consecuencia: **«no ve nada
+   * porque así se configuró» y «no sabemos qué ve porque le falta el dato»
+   * producen el mismo SQL y la misma pantalla en blanco.**
+   *
+   * Se mide contra `identity.user_scopes` → `role_scopes` con la misma
+   * precedencia que el resolver (override de persona gana; sin fila, `none`), y
+   * se reporta ANTES de cerrar nada — cerrar primero es la ceguera que esto
+   * viene a denunciar.
+   *
+   * ── ADR-056 ─────────────────────────────────────────────────────────────────
+   * Cada bloque viaja con `measured`. Sin universo que medir se reporta
+   * `measured: false`, **nunca** «0 problemas»: un diagnóstico que se pone verde
+   * en vacío es peor que no tenerlo, porque además da confianza.
+   */
+  async diagnosticoPadron() {
+    const tenantId = this.tenantId;
+
+    // Universo: las cuentas vivas del tenant. Si es 0, no se mide nada.
+    const { rows: universo } = await this.knex.raw(
+      `SELECT count(*)::int AS cuentas,
+              count(*) FILTER (WHERE kind = 'interno')::int AS internas
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL`,
+      [tenantId],
+    );
+    const cuentas = universo[0]?.cuentas ?? 0;
+    if (!cuentas) {
+      return {
+        tenant_id: tenantId,
+        medido_at: new Date().toISOString(),
+        universo: { cuentas: 0, internas: 0 },
+        ceguera_alcance: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+        ficha: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+        clases: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+        roles_inertes: { measured: false, motivo: 'El tenant no tiene cuentas activas.' },
+      };
+    }
+
+    // ── Ceguera de alcance ────────────────────────────────────────────────────
+    // La columna de la ficha por dimensión es la misma tabla que usa
+    // `ScopeService.COLUMNA_PROPIA`. Las dimensiones sin columna (`brand`,
+    // `expense_area`) no pueden resolver `own` por construccion: tambien cuentan.
+    const { rows: ciegos } = await this.knex.raw(
+      `WITH efectivo AS (
+         SELECT u.id, u.username, u.role_name, d.code AS dimension,
+                COALESCE(us.mode, rs.mode) AS mode,
+                CASE d.code
+                  WHEN 'warehouse' THEN u.warehouse_code
+                  WHEN 'zone'      THEN u.zona_id::text
+                  WHEN 'route'     THEN u.route_id::text
+                  WHEN 'customer'  THEN u.customer_id::text
+                  ELSE NULL
+                END AS valor_ficha
+           FROM identity.users u
+           CROSS JOIN identity.scope_dimensions d
+           LEFT JOIN identity.user_scopes us
+             ON us.tenant_id = u.tenant_id AND us.user_id = u.id AND us.dimension = d.code
+           LEFT JOIN identity.role_scopes rs
+             ON rs.tenant_id = u.tenant_id AND rs.role_name = u.role_name AND rs.dimension = d.code
+          WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL)
+       SELECT dimension, count(*)::int AS personas,
+              string_agg(username, ', ' ORDER BY username) AS quienes
+         FROM efectivo
+        WHERE mode = 'own' AND valor_ficha IS NULL
+        GROUP BY dimension ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    // ── Ficha incompleta ──────────────────────────────────────────────────────
+    const { rows: ficha } = await this.knex.raw(
+      `SELECT count(*)::int AS internas,
+              count(*) FILTER (WHERE position_code   IS NULL)::int AS sin_puesto,
+              count(*) FILTER (WHERE department_code IS NULL)::int AS sin_departamento,
+              count(*) FILTER (WHERE warehouse_code  IS NULL)::int AS sin_sucursal,
+              count(*) FILTER (WHERE zona_id         IS NULL)::int AS sin_zona,
+              count(*) FILTER (WHERE supervisor_id   IS NULL)::int AS sin_supervisor,
+              count(*) FILTER (WHERE last_login_at   IS NULL)::int AS nunca_entraron
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL AND kind = 'interno'`,
+      [tenantId],
+    );
+
+    // ── Clases de cuenta ──────────────────────────────────────────────────────
+    // Heurística DECLARADA, no verdad: un `nombre` de una sola palabra o igual
+    // al username es una credencial de puesto, no una persona. Lo correcto es
+    // que la cuenta lo declare (`[ID.28]`); hasta entonces esto se etiqueta como
+    // estimado y por eso el campo se llama `estimado`.
+    const { rows: clases } = await this.knex.raw(
+      `SELECT CASE
+                WHEN kind = 'servicio' THEN 'cuenta_de_servicio'
+                WHEN role_name = 'customer_b2b' THEN 'no_empleado'
+                WHEN upper(COALESCE(nombre, '')) = upper(username)
+                  OR COALESCE(nombre, '') NOT LIKE '% %' THEN 'credencial_de_puesto'
+                ELSE 'persona' END AS clase,
+              count(*)::int AS cuentas
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL
+        GROUP BY 1 ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    // ── Personas con más de una cuenta ────────────────────────────────────────
+    const { rows: dobles } = await this.knex.raw(
+      `SELECT lower(nombre) AS persona, count(*)::int AS cuentas,
+              string_agg(username || ' [' || role_name || ']', ' + ' ORDER BY username) AS detalle
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL
+          AND COALESCE(nombre, '') LIKE '% %'
+        GROUP BY 1 HAVING count(*) > 1 ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    // ── Roles que conceden CERO y tienen gente activa ─────────────────────────
+    const { rows: inertes } = await this.knex.raw(
+      `SELECT rp.role_name, count(u.id)::int AS usuarios_activos,
+              string_agg(u.username, ', ' ORDER BY u.username) AS quienes
+         FROM identity.role_permissions rp
+         JOIN identity.users u
+           ON u.tenant_id = rp.tenant_id AND lower(u.role_name) = lower(rp.role_name)
+          AND u.activo AND u.deleted_at IS NULL
+        WHERE rp.tenant_id = ? AND rp.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM jsonb_each(rp.permissions) e(k, v) WHERE v = 'true'::jsonb)
+        GROUP BY rp.role_name ORDER BY 2 DESC`,
+      [tenantId],
+    );
+
+    return {
+      tenant_id: tenantId,
+      medido_at: new Date().toISOString(),
+      universo: universo[0],
+      ceguera_alcance: {
+        measured: true,
+        personas: ciegos.reduce((a: number, r: any) => a + r.personas, 0),
+        por_dimension: ciegos,
+        nota:
+          'mode = own con la columna de la ficha en NULL. Hoy produce el MISMO WHERE false que none, ' +
+          'asi que en pantalla es indistinguible de "no ve nada". Cerrar el filtro es [ID.43], y va ' +
+          'DESPUES de poblar la ficha.',
+      },
+      ficha: { measured: true, ...ficha[0] },
+      clases: { measured: true, estimado: clases, personas_con_varias_cuentas: dobles },
+      roles_inertes: { measured: true, roles: inertes },
+    };
+  }
+
   async getDepartments() {
     return this.knex('identity.departments')
       .where({ tenant_id: this.tenantId })
