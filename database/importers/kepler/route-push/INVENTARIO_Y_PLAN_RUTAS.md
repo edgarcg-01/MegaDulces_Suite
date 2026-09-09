@@ -161,9 +161,12 @@ Arreglado en el importer (commit de esta fecha), con dos reglas:
 El caso 2 no es hipotético: `504` ya tenía historia parcial (sólo 07-sep) → con watermark por ruta
 "reanudaba" y su hueco frontal de $334k seguía afuera. **Un watermark por ruta solo no alcanza.**
 
-> ⚠️ **Editar un importer despliega a prod al instante**: el nightly levantó esta edición a las
-> 19:22 MX y sanó él mismo las 12,210 líneas antes de que yo corriera el `--apply` (que ya sólo hizo
-> el incremental). Capturar el antes/después **antes** de guardar el archivo.
+> ⚠️ **Editar un importer despliega a prod DENTRO DE LA HORA, no de un día para otro.** Este feed
+> está en **los dos** grupos de `run-prod-feeds.js`: `intraday` (línea 107) y `nightly` (línea 141),
+> y la tarea `\Kepler\Intraday` corre **cada hora** a los :15. La corrida de las **19:15 MX** levantó
+> esta edición y sanó ella misma las 12,210 líneas (estampadas 19:22 MX) antes de que yo corriera el
+> `--apply`, que ya sólo hizo el incremental. Capturar el antes/después **antes** de guardar el
+> archivo — la ventana es de minutos.
 
 **Después de CADA alta hay que verificar los dos lados.** El runner verde es la mitad del trabajo:
 
