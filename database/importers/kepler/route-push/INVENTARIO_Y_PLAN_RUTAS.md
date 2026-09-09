@@ -110,20 +110,22 @@ Canindo (sucursal `06`) migró su POS a Kepler y tiene **5 rutas de reparto en c
 | TRUCK | Vendedor | Base local | Serie | Host laptop | Tarea | Estado |
 |---|---|---|---|---|---|---|
 | `ruta_501` | Victor Zalapa | `md_06-001` | UD1001 | *(por documentar)* | `Ruta501` | ✅ v2 reactiva (alta 2026-09-08 18:58) |
-| `ruta_502` | Daniel Padilla | `md_06-002` | UD1001 | `192.168.50.28` | — | ⬜ pendiente (van alcanzada, falta agente) |
+| `ruta_502` | Daniel Padilla | `md_06-002` | UD1001 | `192.168.50.28` | `Ruta502` | ✅ v2 reactiva (alta 2026-09-09) |
 | `ruta_503` | Jose Zavala | `md_06-003` | UD1001 | `192.168.50.27` | `Ruta503` | ✅ v2 reactiva (alta 2026-09-08) |
 | `ruta_504` | Jose Luis Muñoz | `md_06-004` | UD1001 | `192.168.50.32` | `Ruta504` | ✅ v2 reactiva (alta 2026-09-08) |
-| `ruta_505` | Francisco | `md_06-005` | UD1001 | *(por documentar)* | — | ⬜ pendiente |
+| `ruta_505` | Francisco | `md_06-005` | UD1001 | *(por documentar)* | `Ruta505` | ✅ v2 reactiva (alta 2026-09-09) |
 
-**Verificado en el runner 2026-09-09** (`mart.ventas` + `ingest.route_push_heartbeat`, las 3 latiendo):
+✅ **FLOTA COMPLETA 2026-09-09: las 11 camionetas con Kepler local (6 de PH + 5 de Canindo) están onboarded**, con tarea reactiva y latido. Verificado en el runner (`mart.ventas` + `ingest.route_push_heartbeat`):
 
 | TRUCK | almacén | filas | rango | venta |
 |---|---|---:|---|---:|
 | `ruta_501` | `06-001` | 4,001 | 2026-08-13 → 2026-09-08 | $384,428 |
+| `ruta_502` | `06-002` | 4,157 | 2026-08-11 → 2026-09-08 | $391,336 |
 | `ruta_503` | `06-003` | 5,433 | 2026-08-12 → 2026-09-08 | $512,218 |
 | `ruta_504` | `06-004` | 4,348 | 2026-08-12 → 2026-09-08 | $369,391 |
+| `ruta_505` | `06-005` | 2,922 | 2026-08-11 → 2026-09-08 | $300,672 |
 
-> ⛔ **Las vans de `192.168.50.x` NO son alcanzables desde la PC de analítica** (probado: ping y TCP 5432 a `.27`/`.28`/`.32` fallan). El firewall se abrió del lado del **runner** (`.249` → `.50.0/24`), no de esta subred → el descubrimiento del CASO 3 **R3 hay que correrlo desde `.249`**, no desde acá. Es lo que bloquea 502 y 505 sin presencia física.
+> 📍 **El descubrimiento de una van de Canindo se corre desde `.249`, no desde la PC de analítica**: las laptops `192.168.50.x` no son alcanzables desde acá (probado: ping y TCP 5432 a `.27`/`.28`/`.32` fallan). El firewall se abrió del lado del **runner** (`.249` → `.50.0/24`). 502 y 505 se dieron de alta con presencia en sitio.
 
 > El nombre de vendedor cambia (504 hoy es **Jose Luis Muñoz**, era "Jose Mota" en la doc vieja). El `c67` de la van confirma la ruta (`50N...`); NO deducir del nombre.
 
@@ -133,14 +135,14 @@ Canindo (sucursal `06`) migró su POS a Kepler y tiene **5 rutas de reparto en c
    - En la VAN: 2 reglas de firewall (`ICMP` + `TCP 5432` desde `192.168.0.0/16`) + 1 línea en `pg_hba.conf` (`host all all 192.168.0.0/16 scram-sha-256` + reload). Su Postgres YA escucha en la LAN (no hace falta `listen_addresses` ni reinicio).
    - En el RUNNER `.249`: agregar `192.168.50.0/24` a la regla de firewall inbound **"Kepler ingest 5433"** (`Set-NetFirewallRule -DisplayName "Kepler ingest 5433" -RemoteAddress @('192.168.0.0/24','192.168.10.0/24','192.168.50.0/24')`). **Esto ya está hecho** → las próximas vans de Canindo (501/502/505) NO requieren tocar el runner, solo la receta en su laptop.
 
-2. **DOBLE-CONTEO — MEDIDO 2026-09-09: no ocurrió.** La advertencia era correcta en teoría pero la realidad la resolvió sola: la pierna Wincaja de Canindo **se cortó el 11/12-ago** (el POS migró a Kepler), así que no hay dos fuentes vivas para el mismo día. El traslape real en `analytics.v_route_sales_lines` es **un día, una ruta**: `503` el **2026-08-12**, push **$6** + wincaja **$155**. Esa fila de $6 es la firma del arranque del Kepler local (idéntica en 501 el 13-ago y en 504 el 12-ago) → se deja cargada y **declarada**, no se recorta con una constante mágica.
+2. **DOBLE-CONTEO — MEDIDO 2026-09-09: no ocurrió.** La advertencia era correcta en teoría pero la realidad la resolvió sola: la pierna Wincaja de Canindo **se cortó el 11/12-ago** (el POS migró a Kepler), así que no hay dos fuentes vivas para el mismo día. Con las 5 vans cargadas, el traslape total en `analytics.v_route_sales_lines` es de **3 días-ruta y $18**: `502` y `505` el **11-ago** y `503` el **12-ago**, siempre **una sola línea de $6** contra la venta real de Wincaja de ese día ($5,070 · $684 · $155). Ese $6 es la **firma del primer disparo del Kepler local** — aparece en las 5 vans, el primer día de cada una → se deja cargado y **declarado**, no se recorta con una constante mágica.
    - Tampoco hace falta *retirar 50N del `c67`* del branch: `import-canindo-routes-monthly` y `import-route-push-monthly` escriben **la misma llave** `(tenant, warehouse 06, WIN-50N, mes)` con `GREATEST` → no suma, elige el máximo. ⚠️ Pero **elegir el máximo entre dos universos no está declarado en ninguna parte**: ago-2026 de `WIN-501` pasó de **$152,353** (branch, ya cortado) a **$260,874** (push, completo) sin que la pantalla diga cuál ganó. Deuda con nombre: **procedencia en `sales_by_route_monthly`** (ADR-056).
    - El mapeo `ruta_50N`→warehouse **ya funciona sin tocar nada**: `import-route-push-monthly` lo deriva del prefijo del almacén (`06-003` → `06`), y el warehouse `06` Canindo existe. Verificado.
    - Hallazgo motivador confirmado: 501/504/505 se cortaron del POS central → el push recuperó lo que el branch había perdido.
 
 3. **GOTCHA psql (`-d`):** en este psql (16.4), `psql "<uri>" -c "SQL"` **ignora el `-c` y abre sesión interactiva** ("se ignoró argumento extra") → con stdin sin redirigir SE CUELGA y el `.cmd` nunca escribe log. Fix: **`psql -d "<uri>" -c "SQL"`** + `<nul` en las llamadas sin pipe. El `.cmd` de Canindo usa `-d` en las 4 llamadas.
 
-> Verificado: `ruta_501` 4,001 / $384k · `ruta_503` 5,433 / $512k · `ruta_504` 4,348 / $369k. Runner: **502 y 505 aún sin push** (último día en la plataforma **2026-08-11**, 29 días sin dato).
+> ✅ **Las 5 vans de Canindo en la plataforma, hueco $0.** `502` y `505` entraron **solas** en la corrida de `\Kepler\Intraday` de las **10:15 del 09-sep**: la regla de "ruta nueva" de §1.6 las detectó y trajo su historia completa desde el 11-ago (4,157 y 2,922 líneas) sin intervención. Es la prueba de que el arreglo hace lo que debe — antes de él, esas dos vans habrían quedado con la ventana arrancando el día de la corrida y su mes de agosto perdido en silencio.
 
 ### 1.6 🔴 Subir al runner NO es llegar a la plataforma (medido 2026-09-09)
 

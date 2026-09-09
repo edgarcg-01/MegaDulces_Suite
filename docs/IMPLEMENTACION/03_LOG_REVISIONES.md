@@ -40,10 +40,16 @@ Tampoco hizo falta retirar `50N` del `c67`: `import-canindo-routes-monthly` y `i
 
 §2.4a declaraba $1.77M de Canindo *"sin ninguna fuente diaria"* y culpaba al decode de `c67`. **La pregunta del `c67` sigue sin contestar y ya no bloquea** — el push trae la venta a nivel línea y día sin pasar por la réplica del branch. Cobertura de agosto contra las mismas celdas del Excel: **16.9% → 66.0%**; la ruta 504 de **0% → 82.7%**.
 
+### Cierre el mismo día: la flota completa, y la prueba negativa del arreglo
+
+Horas después se dieron de alta las dos vans que faltaban. **11 camionetas onboarded** (6 PH + 5 Canindo) y —lo que importa acá— **`502` y `505` entraron solas**: la corrida de `\Kepler\Intraday` de las **10:15** las detectó como *ruta nueva* y trajo su historia completa desde el 11-ago (4,157 y 2,922 líneas) sin que nadie corriera nada. **Es la prueba negativa del arreglo:** con el watermark global, esas dos vans habrían arrancado su ventana el día de la corrida y su mes de agosto se habría perdido en silencio, igual que las tres primeras. El hueco runner-vs-plataforma quedó en **$0** en las 11 rutas.
+
+El traslape total, con las cinco cargadas: **3 días-ruta y $18** — `502` y `505` el 11-ago, `503` el 12-ago, siempre **una sola línea de $6** contra la venta real de Wincaja de ese día ($5,070 · $684 · $155). Ese $6 aparece en las cinco vans, el primer día de cada una: es la firma del primer disparo del Kepler local, no un error de carga.
+
 Lo que **no** cierra, y se deja declarado en vez de dibujado:
 
-- El **monto** llega al 83–86% en las tres rutas con agente, no al 100%. Los **días** sí están (26–27 de 27). Ese residuo es el mismo árbitro faltante de §2.3: *¿qué reporte de Wincaja se teclea en el `CONCENTRADO`?*
-- **502 y 505**: 29 días sin fuente diaria (último 2026-08-11). No es decode, les falta el agente — y sus laptops (`192.168.50.x`) **no son alcanzables** desde la PC de analítica (probado: ping y TCP 5432 fallan). El firewall se abrió del lado del **runner**, así que el descubrimiento del CASO 3 hay que correrlo en `.249`.
+- **El residuo del ~15% es SISTEMÁTICO, no un hueco por ruta.** Con tres rutas podía ser coincidencia; con las cinco cayendo en una banda de tres puntos —**82.7% · 84.5% · 85.6% · 82.7% · 84.6%**— es estructural: el `CONCENTRADO` captura consistentemente más que nuestro SUBTOTAL. Los **días** sí están (25–27 de 27). Refuerza, no resuelve, el árbitro faltante de §2.3: *¿qué reporte de Wincaja se teclea?* — y ahora con cinco observaciones concordantes en vez de una.
+- La pregunta de **por qué el POS de Canindo dejó de distinguir ruta de mostrador** sigue abierta. Ya no bloquea la venta de ruta, pero mientras no se conteste tampoco se puede separar la venta de **piso** de esa sucursal.
 
 ### Lecciones
 
