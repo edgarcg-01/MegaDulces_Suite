@@ -494,6 +494,13 @@ O el POS de Canindo dejó de pedir el vendedor al facturar en ruta, o el encodin
 del 2026-08-18 (cuando se confirmó `c67 ~ '^500[1-9]$'`). **No es un problema de decodificación: el
 detalle por ruta no existe en la fuente.** El arreglo es operativo, no técnico.
 
+> 🟡 **2026-09-09 — el arreglo operativo llegó, y la pregunta sigue sin contestar.** Se instaló el
+> **agente de push** en tres de las cinco vans (`501`, `503`, `504`): cada camioneta sube la venta de
+> **su propio Kepler local** al runner, así que el detalle por ruta ya no depende de que el POS central
+> capture el vendedor. Cobertura de agosto **16.9% → 66.0%** (§2.4a). **Sigue bloqueado sólo lo de
+> `502` y `505`** —29 días sin fuente diaria, último 2026-08-11— y sus laptops no son alcanzables desde
+> la red de analítica: el descubrimiento hay que correrlo desde el runner `.249`.
+
 ### 9.2 ⛔ Morelia 321/322: ¿de dónde teclea la persona lo que nosotros no tenemos?
 
 **Bloquea** $573,693 de jun–jul, y la serie de esas dos rutas hacia adelante.
