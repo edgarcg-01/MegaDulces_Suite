@@ -2,7 +2,7 @@
 
 > Mapa completo de toda la documentación del proyecto Trade Marketing. Vivido en `docs/`. Trabajo se hace via Claude desde chat — los `.md` son la memoria entre sesiones.
 >
-> **Última actualización:** 2026-05-26
+> **Última actualización:** 2026-09-09 (agregada `docs/VERDAD_ABSOLUTA.md` — ADR-059)
 
 ---
 
@@ -12,6 +12,7 @@
 | Archivo | Función | Frecuencia update |
 |---|---|---|
 | [`/CLAUDE.md`](../../CLAUDE.md) | Contexto + reglas + estado actual. Auto-cargado por Claude. | Al cambiar sprint/decisión |
+| [`/docs/VERDAD_ABSOLUTA.md`](../VERDAD_ABSOLUTA.md) | ⭐⭐ **FUENTE PRINCIPAL DE RAZÓN** (ADR-059). Qué **arbitra** cada número, cuánto aguanta y qué se **declara**. Resolvedores únicos + trampas + huecos con monto + **hipótesis refutadas**. El registro canónico dice *de dónde sale*; éste dice *con qué se comprueba*. | Al mover una cifra publicada |
 
 ### Sistema de tracking (núcleo del proyecto)
 | Archivo | Función | Frecuencia update |
