@@ -54,6 +54,13 @@ import {
   UserPermissionsResponse,
   UserScopeResponse,
 } from './users.service';
+// `[CH.1.11]` La cuenta de dispositivo (kiosco). Funciones puras, probadas aparte.
+import {
+  SESSION_PRESETS,
+  generateDevicePassword,
+  isDeviceAccount,
+  sessionLabel,
+} from './device-session';
 import { PERMISSION_META } from '../../../core/constants/permission-meta';
 import { AdminCatalogsService } from '../admin-catalogs/admin-catalogs.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -284,6 +291,25 @@ export class AdminUsersComponent implements OnInit {
   toggleNoPosition(): void { this.onlyNoPosition.update((v) => !v); }
 
   /**
+   * `[CH.1.11]` Cuántas cuentas tienen una sesión más larga que el default.
+   *
+   * Es la superficie de auditoría que faltaba: el TTL existía en la base desde
+   * `[CH.1.1]` y no había NINGÚN lugar de la aplicación donde ver quién lo
+   * tenía. Un permiso de un año que no se puede ver tampoco se puede revisar.
+   */
+  readonly deviceTotal = computed(() => this.users().filter((u) => isDeviceAccount(u)).length);
+
+  /** Filtro "sólo cuentas de dispositivo": el contador es accionable. */
+  readonly onlyDevices = signal(false);
+  toggleDevices(): void { this.onlyDevices.update((v) => !v); }
+
+  /** ¿Es una pantalla desatendida? Se usa desde el template. */
+  esDispositivoRow(u: User): boolean { return isDeviceAccount(u); }
+
+  /** Cómo se lee su duración de sesión en la tabla. */
+  sessionLabelFor(u: User): string { return sessionLabel(u.token_ttl_days); }
+
+  /**
    * Salida del vacío: limpia TODOS los filtros. Con dos toggles + buscador +
    * departamento, un botón que solo limpiara uno dejaba la tabla vacía y sin
    * explicación de por qué.
@@ -292,12 +318,22 @@ export class AdminUsersComponent implements OnInit {
     this.onSearchChange('');
     this.onlyAlerts.set(false);
     this.onlyNoPosition.set(false);
+    this.onlyDevices.set(false);
     this.selectDept('');
   }
 
-  /** ¿Esta cuenta activa nunca entró o lleva +90 días sin entrar? */
+  /**
+   * ¿Esta cuenta activa nunca entró o lleva +90 días sin entrar?
+   *
+   * `[CH.1.11]` Las cuentas de DISPOSITIVO están excluidas, y no es cosmética:
+   * un kiosco con token de un año entra UNA vez —el día que se instala— y no
+   * vuelve a loguearse. Sin esta excepción, la pantalla que funciona perfecto se
+   * cuenta como "cuenta dormida" para siempre y contamina el contador de
+   * alertas, que es justo el que se mira para encontrar cuentas abandonadas.
+   */
   hasAccessAlert(u: User): boolean {
     if (!u.activo) return false;
+    if (isDeviceAccount(u)) return false;
     const d = this.daysSinceLogin(u);
     return d === null || d > 90;
   }
@@ -309,6 +345,7 @@ export class AdminUsersComponent implements OnInit {
     if (slug) list = list.filter((u) => (u.department_code || SIN_DEPT) === slug);
     if (this.onlyAlerts()) list = list.filter((u) => this.hasAccessAlert(u));
     if (this.onlyNoPosition()) list = list.filter((u) => this.needsPosition(u));
+    if (this.onlyDevices()) list = list.filter((u) => isDeviceAccount(u));
     return list;
   });
 
@@ -359,6 +396,10 @@ export class AdminUsersComponent implements OnInit {
   /** Color del dot de actividad. Inactivo > stale > recent > nunca. */
   activityDotColor(user: User): string {
     if (!user.activo) return 'var(--bad-fg)';
+    // `[CH.1.11]` Un dispositivo no tiene actividad que medir en días: se prende
+    // una vez y se queda prendido. Pintarlo en ámbar diría "esto está mal"
+    // sobre el comportamiento esperado.
+    if (isDeviceAccount(user)) return 'var(--text-faint)';
     if (!user.last_login_at) return 'var(--text-faint)';
     const days = (Date.now() - new Date(user.last_login_at).getTime()) / 864e5;
     if (days < 7) return 'var(--ok-fg)';
@@ -366,6 +407,97 @@ export class AdminUsersComponent implements OnInit {
   }
 
   userForm: FormGroup;
+
+  // ── `[CH.1.11]` Modo DISPOSITIVO ───────────────────────────────────────────
+  // El principio: el control de la sesión larga NO EXISTE en el formulario de
+  // una persona. No se le puede poner un año por accidente porque el campo no
+  // está ahí. La compuerta del servidor (`assertDeviceCredential`) es la
+  // segunda llave, no la primera.
+
+  /** ¿El formulario está dando de alta / editando una pantalla desatendida? */
+  readonly esDispositivo = signal(false);
+
+  /**
+   * El TTL que vino del servidor para la cuenta que se está editando.
+   *
+   * Existe para una sola cosa, y es importante: `saveUser()` manda
+   * `getRawValue()` completo, así que sin esto un PUT que sólo cambia el NOMBRE
+   * de una cuenta le mandaría `token_ttl_days` igual. Eso rompía dos cosas a la
+   * vez — le borraba el token a un kiosco, y le daba 400 a las 7 cuentas
+   * `etiquetas.NN` que hoy son `must_change_password = false` con TTL nulo (la
+   * compuerta del backend rechaza quitar un TTL dejando el flag en false).
+   * Comparando contra este valor, el campo viaja sólo cuando de verdad cambió.
+   */
+  private readonly ttlCargado = signal<number | null>(null);
+
+  /**
+   * Los presets de duración, para el select.
+   *
+   * Copia mutable: `SESSION_PRESETS` es `ReadonlyArray` (que es lo correcto para
+   * una constante) y el input `options` de `p-select` está tipado `any[]`, así
+   * que pasarla directo es TS4104. `Array.from` y no spread por la trampa de
+   * webpack con el downlevel del spread que ya pagamos en este repo.
+   */
+  readonly sessionPresets = Array.from(SESSION_PRESETS);
+
+  /**
+   * Sólo un superadmin puede emitir una sesión larga (lo enforcea
+   * `assertCanSetDeviceSession` en el backend). Acá se refleja para que el
+   * límite se vea ANTES de chocarlo, en vez de como un 403 al guardar.
+   */
+  readonly puedeEmitirSesionLarga = computed(
+    () => (this.authService.user()?.role_name ?? '').toLowerCase() === 'superadmin',
+  );
+
+  /** La contraseña generada se muestra en claro: hay que poder copiarla. */
+  readonly passwordVisible = signal(false);
+
+  /**
+   * Cambia entre "persona" y "dispositivo".
+   *
+   * Al encender, propone 1 año y deja de exigir el puesto: los 43 puestos del
+   * organigrama describen empleados, y un checador no es un empleado. Al
+   * apagar, devuelve el TTL a nulo y vuelve a exigir puesto si es un alta.
+   */
+  setModoDispositivo(on: boolean): void {
+    if (on && !this.puedeEmitirSesionLarga()) return;
+    this.esDispositivo.set(on);
+    const ttl = this.userForm.get('token_ttl_days');
+    const puesto = this.userForm.get('position_code');
+    if (on) {
+      if (ttl?.value == null) ttl?.setValue(365);
+      puesto?.clearValidators();
+      puesto?.setValue(null);
+    } else {
+      ttl?.setValue(null);
+      if (!this.isEditing()) puesto?.setValidators([Validators.required]);
+    }
+    puesto?.updateValueAndValidity();
+  }
+
+  /** Llena la contraseña con una generada, y la muestra para poder anotarla. */
+  generarPassword(): void {
+    this.userForm.get('password')?.setValue(generateDevicePassword());
+    this.passwordVisible.set(true);
+  }
+
+  async copiarPassword(): Promise<void> {
+    const v = this.userForm.get('password')?.value;
+    if (!v) return;
+    try {
+      await navigator.clipboard.writeText(v);
+      this.messageService.add({
+        severity: 'success', summary: 'Copiada',
+        detail: 'La contraseña quedó en el portapapeles. Anotala antes de cerrar: no se vuelve a mostrar.',
+      });
+    } catch {
+      // Sin permiso de portapapeles (o http). El campo está visible: se copia a mano.
+      this.messageService.add({
+        severity: 'warn', summary: 'No se pudo copiar',
+        detail: 'Copiala del campo a mano.',
+      });
+    }
+  }
 
   roles = signal<RoleOption[]>([]);
   supervisors = signal<SupervisorOption[]>([]);
@@ -813,6 +945,14 @@ export class AdminUsersComponent implements OnInit {
       position_code: [null],
       finance_expense_area_ids: [[] as string[]],
       activo: [true],
+      // `[CH.1.11]` Duración de sesión de una cuenta de DISPOSITIVO. Se llena
+      // desde presets (`SESSION_PRESETS`), nunca a mano.
+      //
+      // ⚠️ Este control es la razón por la que el GET tuvo que ir primero: el
+      // guardado manda `getRawValue()` completo, así que un control que exista
+      // sin que `openEditDialog` le cargue su valor le mandaría `null` a un
+      // kiosco y le borraría el token. Ver `ttlCargado` y `saveUser()`.
+      token_ttl_days: [null as number | null],
     });
 
     // Toast en error de la carga del padrón (equivale al catch del subscribe viejo).
@@ -1087,12 +1227,18 @@ export class AdminUsersComponent implements OnInit {
     this.zonaManual.set(false);
     this.departamentoManual.set(false);
     this.perfilManual.set(false);
+    // `[CH.1.11]` Un alta nace como PERSONA. El modo dispositivo se elige a
+    // propósito, nunca es el default.
+    this.esDispositivo.set(false);
+    this.ttlCargado.set(null);
+    this.passwordVisible.set(false);
     this.userForm.reset({
       activo: true,
       role_name: '',
       department_code: this.selectedDept() && this.selectedDept() !== SIN_DEPT ? this.selectedDept() : null,
       position_code: null,
       finance_expense_area_ids: [],
+      token_ttl_days: null,
     });
     this.userForm.get('username')?.enable();
     this.userForm
@@ -1145,7 +1291,14 @@ export class AdminUsersComponent implements OnInit {
       position_code: user.position_code ?? null,
       finance_expense_area_ids: user.finance_expense_area_ids ?? [],
       activo: user.activo,
+      // `[CH.1.11]` El valor REAL de la cuenta, cargado en el control. Es la
+      // mitad que hace inofensivo al control: sin esto el guardado mandaría
+      // `null` y le borraría el token al kiosco que se vino a editar.
+      token_ttl_days: user.token_ttl_days ?? null,
     });
+    this.esDispositivo.set(isDeviceAccount(user));
+    this.ttlCargado.set(user.token_ttl_days ?? null);
+    this.passwordVisible.set(false);
 
     // `[ID.13]` Complementos del usuario. Se cargan aparte del form porque no
     // son un campo de `users` sino filas de `identity.user_roles`.
@@ -1420,6 +1573,24 @@ export class AdminUsersComponent implements OnInit {
       if (!updateData.password || updateData.password.trim() === '') {
         delete updateData.password;
       }
+      // ── `[CH.1.11]` La duración de sesión viaja SÓLO si cambió ─────────────
+      // `getRawValue()` manda todos los controles, y este campo no se puede
+      // mandar de gratis: (1) un `null` de más le borra el token al kiosco que
+      // se vino a editar por otra cosa, y (2) la compuerta del backend rechaza
+      // quitar un TTL si la cuenta queda sin cambio de contraseña forzado — que
+      // es el estado de las 7 cuentas `etiquetas.NN` de hoy, así que editarles
+      // el nombre daría 400. Comparar contra lo cargado deja el campo fuera del
+      // request cuando nadie lo tocó.
+      const ttlNuevo = (formData.token_ttl_days ?? null) as number | null;
+      if (ttlNuevo === this.ttlCargado()) {
+        delete updateData.token_ttl_days;
+      } else {
+        updateData.token_ttl_days = ttlNuevo;
+        // Los dos campos se mueven juntos, y el backend lo exige: una cuenta sin
+        // cambio forzado tiene que declarar su duración, y quitarle la duración
+        // tiene que devolverle el cambio forzado.
+        updateData.must_change_password = ttlNuevo == null;
+      }
       this.usersService
         .update(this.currentUserId()!, updateData)
         .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1449,6 +1620,17 @@ export class AdminUsersComponent implements OnInit {
         });
     } else {
       const createData: UserCreatePayload = { ...formData };
+      // `[CH.1.11]` En un alta de PERSONA el campo no viaja: dejar que el
+      // backend aplique su default (`[ID.8]`: `must_change_password = true`) es
+      // más honesto que mandarle un `null` explícito. En un alta de DISPOSITIVO
+      // los dos van juntos — una pantalla compartida no puede exigir cambio de
+      // contraseña, porque la primera persona que pasa la cambia y el kiosco
+      // queda afuera.
+      if (createData.token_ttl_days == null) {
+        delete createData.token_ttl_days;
+      } else {
+        createData.must_change_password = false;
+      }
       this.usersService
         .create(createData)
         .pipe(takeUntilDestroyed(this.destroyRef))

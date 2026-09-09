@@ -49,6 +49,22 @@
         @if (onlyAlerts()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
       </button>
     }
+    <!--
+      [CH.1.11] Cuántas cuentas tienen sesión más larga que el default. Es la
+      superficie de auditoría que faltaba: el TTL existía en la base desde
+      [CH.1.1] y no había NINGÚN lugar de la app donde ver quién lo tenía.
+      Deliberadamente NO usa `au-sum-warn`: una sesión larga es una decisión
+      declarada, no un defecto, y pintarla en ámbar la leería como una alarma.
+    -->
+    @if (deviceTotal() > 0) {
+      <button type="button" class="au-sum-item au-sum-info" [class.au-sum-on]="onlyDevices()"
+              [attr.aria-pressed]="onlyDevices()" (click)="toggleDevices()"
+              title="Filtrar a las cuentas de dispositivo: pantallas desatendidas cuyo token vive más de las 12 h del default">
+        <i class="pi pi-desktop" aria-hidden="true"></i>
+        <b class="mono">{{ deviceTotal() }}</b> con sesión larga
+        @if (onlyDevices()) { <i class="pi pi-times au-sum-x" aria-hidden="true"></i> }
+      </button>
+    }
   </div>
 
   <div class="au-grid">
@@ -151,9 +167,20 @@
                     <span class="au-dot" [style.background-color]="activityDotColor(user)" aria-hidden="true"></span>
                     {{ user.activo ? formatLastLogin(user.last_login_at) : 'Inactivo' }}
                   </span>
-                  <span class="au-ruta" [class.au-ruta-none]="!user.has_route_today">
-                    {{ user.has_route_today ? user.route_name_today : 'Sin ruta' }}
-                  </span>
+                  <!--
+                    [CH.1.11] La duración de sesión va en la celda de Actividad y NO en una
+                    columna nueva: la tabla ya tiene 4 y DESIGN.md pide primera columna
+                    congelada en grids anchas. Va acá además porque es lo que EXPLICA la
+                    celda: un kiosco entra una vez y no vuelve, así que "hace 4 meses" no
+                    es abandono.
+                  -->
+                  @if (esDispositivoRow(user)) {
+                    <p-tag severity="info" [value]="sessionLabelFor(user)" styleClass="au-tag-sesion" />
+                  } @else {
+                    <span class="au-ruta" [class.au-ruta-none]="!user.has_route_today">
+                      {{ user.has_route_today ? user.route_name_today : 'Sin ruta' }}
+                    </span>
+                  }
                 </td>
 
                 <td class="au-col-act">
@@ -214,16 +241,71 @@
 
   <form [formGroup]="userForm" (ngSubmit)="saveUser()" class="au-form">
 
+    <!-- ── [CH.1.11] Persona o dispositivo ──────────────────────────────────
+         El principio de esta pantalla: el control de la sesión larga NO EXISTE
+         en el formulario de una persona. No se le puede poner un año por
+         accidente porque el campo no está ahí; la compuerta del servidor es la
+         segunda llave, no la primera.
+
+         Sólo aparece en el ALTA, y en la edición únicamente si la cuenta YA es
+         un dispositivo. Editar a una persona no ofrece convertirla: se crea
+         otra cuenta, porque la invariante es UNA cuenta por dispositivo
+         (revocar es por cuenta, y apagar un kiosco comprometido no puede
+         implicar apagar los otros ocho). ─────────────────────────────────── -->
+    @if (!isEditing() || esDispositivo()) {
+      <div class="au-field">
+        <label>Tipo de cuenta</label>
+        <div class="au-scope-modes" role="group" aria-label="Tipo de cuenta">
+          <button type="button" class="au-scope-m" [class.au-scope-m-on]="!esDispositivo()"
+                  [attr.aria-pressed]="!esDispositivo()" (click)="setModoDispositivo(false)"
+                  [disabled]="isEditing()">
+            <i class="pi pi-user" aria-hidden="true"></i> Persona
+          </button>
+          <button type="button" class="au-scope-m" [class.au-scope-m-on]="esDispositivo()"
+                  [attr.aria-pressed]="esDispositivo()" (click)="setModoDispositivo(true)"
+                  [disabled]="isEditing() || !puedeEmitirSesionLarga()"
+                  [title]="puedeEmitirSesionLarga()
+                    ? 'Una pantalla que se queda prendida'
+                    : 'Sólo un superadmin puede emitir una sesión de dispositivo. Pedilo a Sistemas.'">
+            <i class="pi pi-desktop" aria-hidden="true"></i> Dispositivo
+          </button>
+        </div>
+        <small class="au-hint">
+          @if (esDispositivo()) {
+            Una pantalla que se queda prendida: checador, etiquetera, verificador de precios.
+            Su sesión dura lo que digas abajo y nadie la teclea cada mañana.
+          } @else {
+            Una persona con su propia contraseña. Entra, trabaja, y su sesión caduca a las 12 h.
+          }
+        </small>
+      </div>
+    }
+
     <div class="au-field">
-      <label for="nombre">Nombre del empleado</label>
-      <input pInputText id="nombre" formControlName="nombre" placeholder="Ej: Juan Pérez" />
+      <label for="nombre">{{ esDispositivo() ? 'Nombre de la pantalla' : 'Nombre del empleado' }}</label>
+      <input pInputText id="nombre" formControlName="nombre"
+             [placeholder]="esDispositivo() ? 'Ej: Checador - 8 Esquinas' : 'Ej: Juan Pérez'" />
     </div>
 
     <div class="au-field">
       <label for="username">Nombre de usuario (login)</label>
-      <input pInputText id="username" formControlName="username" placeholder="jperez" />
+      <input pInputText id="username" formControlName="username"
+             [placeholder]="esDispositivo() ? 'checador.03' : 'jperez'" />
       @if (userForm.get('username')?.invalid && userForm.get('username')?.touched) {
         <small class="au-err">El usuario es obligatorio (3+ caracteres, sin espacios).</small>
+      }
+      @if (esDispositivo()) {
+        <!--
+          No es cosmética. La convención es `<que>.NN` con el código de 2 dígitos
+          de la sucursal, y si alguien escribe `checador03` (sin punto) queda una
+          SEGUNDA cuenta para el mismo sitio: dos credenciales de un año para una
+          pantalla, y revocar una no revoca la otra.
+        -->
+        <small class="au-hint">
+          Convención: <code>checador.NN</code> o <code>etiquetas.NN</code>, con el código de
+          2 dígitos de la sucursal. Una cuenta por pantalla — si el sitio ya tiene la suya,
+          no se crea otra.
+        </small>
       }
     </div>
 
@@ -232,7 +314,14 @@
          el nivel de acceso. Antes se preguntaban las tres por separado, así que
          quien daba de alta tenía que saber qué rol le toca a un "ENC. DE
          SUCURSAL" entre 25 opciones. Ahora se elige el puesto y el sistema
-         propone; sólo se ajusta si de verdad hace falta. ────────────────────── -->
+         propone; sólo se ajusta si de verdad hace falta.
+
+         [CH.1.11] En modo dispositivo NO se pregunta: los 43 puestos del
+         organigrama describen empleados, y un checador no es un empleado. El
+         comentario original decía que "una cuenta sin puesto es un cliente del
+         portal o una cuenta de servicio, que no se dan de alta acá" — con este
+         ticket eso dejó de ser cierto. ──────────────────────────────────────── -->
+    @if (!esDispositivo()) {
     <div class="au-field">
       <label for="position_code">Puesto @if (!isEditing()) {<span class="au-req" aria-hidden="true">*</span>}</label>
       <p-select id="position_code" [options]="positionChoices()" formControlName="position_code"
@@ -246,6 +335,7 @@
         <small class="au-hint">Puesto del ORGANIGRAMA 2026. Se puede buscar como está escrito en el PDF (ej. «ENC. DE SUCURSAL»).</small>
       }
     </div>
+    }
 
     <!-- Departamento: viene con el puesto. El select sólo aparece si el puesto
          no lo trae o si alguien pide ajustarlo. -->
@@ -295,6 +385,11 @@
       </div>
     }
 
+    <!-- [CH.1.11] Un dispositivo no lleva complementos: el JWT lleva la UNIÓN de
+         roles, así que un complemento le sumaría permisos a una pantalla que se
+         queda prendida un año. El script de alta que esta pantalla reemplaza
+         tenía una compuerta que reventaba justo contra roles de más. -->
+    @if (!esDispositivo()) {
     <div class="au-field">
       <label for="complementos">Complementos</label>
       <!-- [ID.13] Tareas que se SUMAN al perfil base. Es lo que evita la segunda
@@ -309,6 +404,7 @@
                      appendTo="body" styleClass="w-full"></p-multiselect>
       <small class="au-hint">Tareas que se suman al perfil base (capturar gasto, etiquetas, arqueo). Sólo agregan permisos, nunca quitan.</small>
     </div>
+    }
 
     @if (isSupervisedRole($safeNavigationMigration(userForm.get('role_name')?.value))) {
       <div class="au-field">
@@ -553,19 +649,85 @@
       </div>
     }
 
+    <!-- ── [CH.1.11] Duración de la sesión ──────────────────────────────────
+         Presets y NO un campo numérico libre: la única razón para tipear un
+         número es tipear el equivocado. Como efecto secundario, el techo de
+         3650 días no es alcanzable desde acá y no hace falta duplicarlo en el
+         front. ─────────────────────────────────────────────────────────────── -->
+    @if (esDispositivo()) {
+      <div class="au-field au-boxed">
+        <label for="token_ttl_days">Duración de la sesión</label>
+        <p-select id="token_ttl_days" [options]="sessionPresets" formControlName="token_ttl_days"
+                  optionLabel="label" optionValue="value" appendTo="body" styleClass="w-full"></p-select>
+        <small class="au-hint">
+          Cuánto vive su token antes de volver a pedir contraseña. Un año significa que se
+          teclea UNA vez, el día que se instala.
+        </small>
+        <!--
+          Esta segunda línea no es negociable: es la única parte del modelo que
+          esta pantalla puede contar mal. Bajar la duración NO corta un acceso ya
+          emitido, sólo aplica al próximo ingreso.
+        -->
+        <small class="au-err">
+          Bajar esta duración <b>no le corta el acceso</b>: sólo aplica a su próximo ingreso.
+          Lo que lo corta en menos de un minuto es apagar «Estado activo».
+        </small>
+      </div>
+
+      <!-- Derivado, no un control: que sea una fila de sólo lectura con su
+           MOTIVO evita que alguien lo apague sin entender qué implica. -->
+      <div class="au-field">
+        <label>Cambio de contraseña</label>
+        <div class="au-derived">
+          <span class="au-derived-v">No se fuerza</span>
+          <span class="au-derived-de">porque es un dispositivo</span>
+        </div>
+        <small class="au-hint">
+          Si se forzara, la primera persona que pasa la cambia y el kiosco queda afuera.
+        </small>
+      </div>
+    }
+
     <div class="au-field au-boxed">
       <label for="password">{{ isEditing() ? 'Actualizar contraseña (opcional)' : 'Contraseña segura' }}</label>
-      <input pInputText id="password" type="password" formControlName="password"
-             [placeholder]="isEditing() ? 'Dejar en blanco para no cambiar' : 'Mín. 6 caracteres'" />
+      <div class="au-pass-row">
+        <input pInputText id="password" [type]="passwordVisible() ? 'text' : 'password'"
+               formControlName="password"
+               [placeholder]="isEditing() ? 'Dejar en blanco para no cambiar' : 'Mín. 6 caracteres'" />
+        @if (esDispositivo()) {
+          <button type="button" class="icon-btn-ghost" (click)="generarPassword()"
+                  title="Generar una contraseña sin caracteres ambiguos" aria-label="Generar contraseña">
+            <i class="pi pi-refresh" aria-hidden="true"></i>
+          </button>
+          <button type="button" class="icon-btn-ghost" (click)="copiarPassword()"
+                  title="Copiar al portapapeles" aria-label="Copiar contraseña">
+            <i class="pi pi-copy" aria-hidden="true"></i>
+          </button>
+        }
+      </div>
       @if (userForm.get('password')?.hasError('minlength')) {
         <small class="au-err">Requiere al menos 6 caracteres.</small>
+      }
+      @if (esDispositivo()) {
+        <small class="au-hint">
+          Se teclea una sola vez, en el kiosco, a veces leyéndola de un papel escrito a mano:
+          la generada no trae caracteres ambiguos (no hay 0/O ni 1/l/I). <b>Anotala antes de
+          guardar</b> — después queda hasheada y no se puede volver a ver.
+        </small>
       }
     </div>
 
     <div class="au-toggle">
       <div>
         <div class="au-toggle-t">Estado activo</div>
-        <div class="au-toggle-s">Al desactivar, se revoca el acceso al sistema.</div>
+        <div class="au-toggle-s">
+          @if (esDispositivo()) {
+            Es el corte de verdad: apagarlo revoca el token en menos de un minuto, aunque le
+            queden 300 días de vida. Apagar este kiosco no toca a los demás.
+          } @else {
+            Al desactivar, se revoca el acceso al sistema.
+          }
+        </div>
       </div>
       <p-toggleswitch formControlName="activo"></p-toggleswitch>
     </div>
