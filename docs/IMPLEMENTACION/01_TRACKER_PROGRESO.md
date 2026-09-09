@@ -812,16 +812,25 @@ venía copiando la base equivocada.
   "exit 0" de una migración que falló) y `options=-c lock_timeout=…` en la cadena de conexión **no
   pasa** por el proxy de Railway.
 
-**Estado de prod (2026-09-09):**
-- ✅ `20260909131000_rol_checador_kiosco.js` **aplicada** (batch 341), en los **2 tenants**
+**Estado de prod (2026-09-09) — DB completa, falta el redeploy:**
+- ✅ `20260909131000_rol_checador_kiosco.js` (batch **341**), en los **2 tenants**
   (`mega_dulces` + `test_tenant_b`) — sólo hace INSERTs, y `RowExclusive` no choca con el
-  `AccessShare` del respaldo, por eso ésta sí pasó con el dump corriendo.
-- ⏳ `20260909130000_users_token_ttl_days.js` **pendiente**: se rindió a los 3 s por el respaldo,
-  limpiamente. Se reaplica cuando termine el dump (o mañana antes de las 17:00) con
-  `node database/scripts/apply-one-migration-prod.js 20260909130000_users_token_ttl_days.js`.
-- ⏳ Después: `provision-checadores.js --sucursal NN --apply` (su Gate 0 aborta hasta que la
-  columna exista) · **redeploy del api** (el cambio de `auth-mt` es código) · y recién ahí el login
-  del kiosco. Si el kiosco entra antes del redeploy recibe un token de 12 h y hay que re-loguear.
+  `AccessShare` del respaldo: por eso ésta sí pasó con el dump corriendo, y la otra no.
+- ✅ `20260909130000_users_token_ttl_days.js` (batch **346**), aplicada al cerrar la ventana del
+  respaldo (~65 min de dump). Verificado allá: `integer` nullable con su `COMMENT`, el CHECK
+  `IS NULL OR (>=1 AND <=3650)`, la prueba negativa del 0 corriendo contra la tabla real, y
+  **126 usuarios con 0 TTL propio** — nadie cambió de vida por la migración.
+- ✅ **Primera cuenta en prod: `checador.03`** («Checador - 8ESQ»), `token_ttl_days = 365`,
+  `warehouse_code = 03`, zona LA PIEDAD RD derivada de la sucursal, `kind = interno`,
+  `must_change_password = false`, **un solo rol** en `user_roles` (`is_primary`, sin complementos
+  — el JWT lleva la unión) y su rol concede **exactamente 1 clave**. Credencial fuera del repo.
+  El dry-run contra prod deriva **8 sitios** (uno más que dev: `04 Yurécuaro`).
+- ⏳ **Falta el redeploy del api**: el cambio de `auth-mt` es código. Hasta que suba, el login de
+  `checador.03` recibe un token de **12 h**, no de 365 días — la cuenta está bien, pero hay que
+  volver a entrar una vez con la API nueva arriba. `last_login_at` sigue en `null`: todavía no
+  entró nadie.
+- ⏳ Y sigue en pie que **la pantalla no existe** (`[CH.0.10]`): la cuenta entra y cae en
+  `/sin-acceso`. Las otras 7 sucursales se dan de alta con el mismo script cuando se decida.
 
 Las migraciones se simularon con ROLLBACK y se aplican **una por una**
 (`apply-one-migration-prod.js`, que apunta a `FLEET_DB_URL`), NO con `migrate:latest`: hay otras
