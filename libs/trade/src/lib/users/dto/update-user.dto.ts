@@ -40,9 +40,9 @@ export class UpdateUserDto extends PartialType(UserWriteDto) {
   @IsBoolean()
   activo?: boolean;
 
-  /** `[ID.8]` — Fuerza cambio de contraseña en el próximo login. */
-  @ApiProperty({ description: 'Fuerza al usuario a cambiar su contraseña en el próximo login', required: false })
-  @IsOptional()
-  @IsBoolean()
-  must_change_password?: boolean;
+  // `[CH.1.10]` `must_change_password` se mudó a `UserWriteDto`: el ALTA también
+  // necesita declararlo (una pantalla de kiosco no puede exigir cambio de
+  // contraseña), y estando sólo acá el create lo tenía hardcodeado en `true` —
+  // que es el motivo real por el que dar de alta un kiosco no se podía hacer por
+  // el endpoint. `PartialType` lo sigue dejando opcional en la edición.
 }

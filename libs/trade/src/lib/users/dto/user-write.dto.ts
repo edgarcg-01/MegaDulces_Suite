@@ -1,14 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
   IsArray,
+  IsBoolean,
+  IsIn,
+  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   IsUUID,
   Matches,
+  Max,
   MaxLength,
+  Min,
   MinLength,
+  ValidateIf,
 } from 'class-validator';
+// `[CH.1.10]` El techo del TTL vive UNA vez, en el primitivo que firma el token.
+import { MAX_TOKEN_TTL_DAYS } from '@megadulces/platform-core';
+// `[CH.1.10]` El vocabulario del wire, compartido con el frontend.
+import { USER_KINDS, type UserKind } from '@megadulces/contracts';
 
 /**
  * `[ID.7]` — DTO ÚNICO de escritura de usuario (Fase ID / ADR-050).
@@ -160,4 +171,79 @@ export class UserWriteDto {
   @IsArray()
   @IsUUID('all', { each: true })
   finance_expense_area_ids?: string[];
+
+  // ── `[CH.1.10]` La cuenta de DISPOSITIVO ───────────────────────────────────
+  // Estos tres campos existían en la base y NO en este DTO, así que
+  // `ValidationPipe({ whitelist: true })` (`users.controller.ts:53`) los tiraba
+  // sin error: el cliente mandaba un TTL, recibía 200 y el valor se perdía. Por
+  // eso la única forma de poner un token largo era un INSERT por fuera de la app.
+
+  /**
+   * Vida del JWT de ESTA cuenta, en días. `null`/ausente = el default global
+   * (`JWT_EXPIRES_IN`, hoy 12 h).
+   *
+   * Es para pantallas desatendidas (checador de asistencia, etiquetera,
+   * verificador de precios de mostrador): se prenden una vez y se quedan
+   * prendidas, y con 12 h alguien tiene que ir a teclear la contraseña cada
+   * mañana. Lo que hace defendible la vida larga es que **no la hace
+   * irrevocable**: `activo = false` mata el token en ≤30 s (`[AUTHZ-HARD.2]`) y
+   * los permisos se releen de DB por request.
+   *
+   * El techo se **importa** de `platform-core`, no se re-declara: ya hay tres
+   * copias del 3650 (el CHECK `users_token_ttl_days_rango`, el helper y esto), y
+   * una cuarta escrita a mano sería la que divergiría, porque nada las compara.
+   *
+   * `@Type` es obligatorio: `transform: true` está pero `enableImplicitConversion`
+   * no, así que sin esto un `"365"` de un cliente reventaría `@IsInt`.
+   */
+  @ApiProperty({
+    description: `Vida del JWT de esta cuenta en días (1..${MAX_TOKEN_TTL_DAYS}). Omitir o null = default global (12h). Sólo para cuentas de dispositivo/kiosco.`,
+    required: false,
+    minimum: 1,
+    maximum: MAX_TOKEN_TTL_DAYS,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(MAX_TOKEN_TTL_DAYS)
+  token_ttl_days?: number | null;
+
+  /**
+   * Tipo de cuenta. Espejo del CHECK `users_kind_valido`; el vocabulario vive en
+   * `@megadulces/contracts` para que el front y el back no lo escriban dos veces.
+   *
+   * `@ValidateIf` y NO `@IsOptional()` pelado: class-validator ignora todos los
+   * validadores cuando el valor es `null`, y la columna es `NOT NULL` — un
+   * `kind: null` pasaría el DTO y reventaría en la DB con un 23502, o sea un 500
+   * en vez de un 400 legible.
+   */
+  @ApiProperty({
+    description: `Tipo de cuenta: ${USER_KINDS.join(' | ')}. Los kioscos son 'interno' (servicio no tiene acceso interactivo).`,
+    required: false,
+    enum: USER_KINDS as unknown as string[],
+  })
+  @ValidateIf((o) => o.kind !== undefined)
+  @IsIn(USER_KINDS as unknown as string[])
+  kind?: UserKind;
+
+  /**
+   * `[ID.8]` — Fuerza cambio de contraseña en el próximo login.
+   *
+   * Vivía sólo en `UpdateUserDto`, y el alta lo tenía **hardcodeado en `true`**
+   * (`users.service.ts`). Ése era el motivo real por el que dar de alta un kiosco
+   * no se podía hacer por el endpoint: una pantalla compartida no puede exigir
+   * cambio de contraseña — la primera persona la cambia y el kiosco queda afuera
+   * (pasó: `20260908150000_etiqueteras_no_forzar_cambio.js`).
+   *
+   * Sube acá para que el alta lo pueda declarar, y el default sigue siendo `true`.
+   * `false` está gateado por `assertDeviceCredential()`: sin `token_ttl_days` es 400.
+   */
+  @ApiProperty({
+    description: 'Fuerza al usuario a cambiar su contraseña en el próximo login. Default true. Sólo se acepta false en cuentas de dispositivo (con token_ttl_days).',
+    required: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  must_change_password?: boolean;
 }
