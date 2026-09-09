@@ -2875,6 +2875,10 @@ export class CommercialAnalyticsService {
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`);
+      // RS — al elegir una SUCURSAL, incluir también sus CAMIONETAS de ruta (canal `ruta` vive en
+      // almacenes propios `RUTA-NN`, no en el código de la sucursal → sin esto la columna Ruta
+      // desaparecía al filtrar por sucursal). Vínculo autoritativo = wincaja.branches.parent_branch.
+      const whFilter = await this.expandRouteWarehouses(trx, warehouseFilter);
       const b = brandId
         ? await trx('catalog.brands as b')
             .where('b.id', brandId)
@@ -2906,7 +2910,7 @@ export class CommercialAnalyticsService {
 
       // El resolvedor unifica las 3 piernas (kepler dedup + wincaja blend + rutas) con el dedup y el
       // vocabulario de canal horneados en `v_sellout_daily`, y rutea meses cerrados → rollup / borde → vista.
-      const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter, needMonth, byBrand });
+      const rawRows = await this.fetchSelloutRows(trx, { tenantId, from, to, brandId, search, promoMode, warehouseFilter: whFilter, needMonth, byBrand });
 
       // [VP.0.3] Poblado ≠ fresco. Los guards de arriba sólo saben lo primero.
       const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
@@ -2938,7 +2942,7 @@ export class CommercialAnalyticsService {
       // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
       // el pivote (antes escaneaba sales_daily aparte → su universo podía no coincidir con lo mostrado).
       const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.warehouse_code, s.branch_name',
-        (qb) => { if (warehouseFilter) qb.whereIn('s.warehouse_code', warehouseFilter); });
+        (qb) => { if (whFilter) qb.whereIn('s.warehouse_code', whFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
       return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, identMap, freshness };
@@ -3606,6 +3610,32 @@ export class CommercialAnalyticsService {
   /** Filas del pivote unificadas (rollup meses cerrados + vista borde), LEAN + enriquecidas en Node con
    *  los nombres por producto/almacén → el pivote recibe el MISMO shape de siempre (sin cambios abajo).
    *  `byBrand` (overview sin empresa/búsqueda) toma el fast-path a grano marca (cajas en SQL). */
+  /**
+   * RS — expande un filtro de SUCURSAL para incluir sus CAMIONETAS de ruta. El canal `ruta` no vive
+   * en el almacén de la sucursal (01/06/MD-30…) sino en almacenes propios `RUTA-NN` (kind='truck'),
+   * que NO tienen vínculo a la sucursal en commercial.warehouses. El vínculo autoritativo está en
+   * `wincaja.branches.parent_branch` (RUTA-21..28→10=PH·01, RUTA-321/322→32=MD-32, RUTA-501..505→
+   * 50=Canindo·06). Sin esta expansión, filtrar por una sucursal tiraba TODO el canal ruta.
+   * Sólo agrega camionetas numéricas (excluye vecinales 1V0NN, que son preventa y ya cuelgan de la
+   * sucursal). Devuelve el filtro tal cual si es null/vacío o si no hay rutas que sumar.
+   */
+  private async expandRouteWarehouses(trx: any, warehouseFilter: string[] | null): Promise<string[] | null> {
+    if (!warehouseFilter || !warehouseFilter.length) return warehouseFilter;
+    const picked = new Set(warehouseFilter);
+    const PARENT_TO_BRANCH: Record<string, string> = { '10': '01', '42': '02', '44': '04', '54': '05', '30': 'MD-30', '32': 'MD-32', '50': '06' };
+    const routes = await trx('wincaja.branches')
+      .where('is_route', true)
+      .whereRaw("btrim(source_branch) ~ '^[0-9]+$'")
+      .select('source_branch', 'parent_branch')
+      .catch(() => [] as any[]);
+    const extra: string[] = [];
+    for (const r of routes) {
+      const branch = PARENT_TO_BRANCH[String(r.parent_branch ?? '').trim()];
+      if (branch && picked.has(branch)) extra.push('RUTA-' + String(r.source_branch ?? '').trim());
+    }
+    return extra.length ? [...warehouseFilter, ...extra] : warehouseFilter;
+  }
+
   private async fetchSelloutRows(trx: any, o: { tenantId: string; from: string; to: string; brandId: string; search: string; promoMode: SellOutPromo; warehouseFilter: string[] | null; needMonth: boolean; byBrand?: boolean }): Promise<any[]> {
     if (o.byBrand) return this.fetchSelloutBrandRows(trx, o);
     const plan = this.planSellOutSources(o.from, o.to);
