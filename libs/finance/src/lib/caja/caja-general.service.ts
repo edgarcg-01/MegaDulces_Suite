@@ -1,5 +1,5 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -68,6 +68,39 @@ export class CajaGeneralService {
   }
 
   private inst(q: CajaQuery) { return (q.instance || 'SI').toUpperCase(); }
+
+  /**
+   * Nombre legible de la sucursal del lado WORKBOOK / Control. Ese lado usa el espacio de
+   * códigos de Finanzas ('10' Padre Hidalgo, '20' Comisionistas, '42' La Piedad, …), que NO
+   * es el de Kepler (ver platform-core/constants/branches.ts). Se resuelve contra
+   * `analytics.caja_sucursales_catalog` (el catálogo de almacenes de Finanzas ya en la DB).
+   * Devuelve "Nombre (código)" para no perder la traza; código desconocido o basura de captura
+   * ('OTROS', '-', '´30') se devuelve tal cual. La pantalla mostraba sólo el número.
+   */
+  private async finanzasSucursalNamer(trx: any, tenantId: string, inst: string): Promise<(code: unknown) => string | null> {
+    const rows = await trx('analytics.caja_sucursales_catalog')
+      .where({ tenant_id: tenantId, source_instance: inst }).select('almacen', 'nombre_corto', 'nombre');
+    const map = new Map<string, string>();
+    for (const r of rows as any[]) { const nm = r.nombre_corto || r.nombre; if (nm) map.set(String(r.almacen).trim(), nm); }
+    return (code) => {
+      const c = String(code ?? '').trim();
+      if (!c) return null;
+      const nm = map.get(c);
+      return nm ? `${nm} (${c})` : c;
+    };
+  }
+
+  /**
+   * Nombre legible de la sucursal del lado KEPLER (`kdm1.c1`, '00'–'07'). Kepler '00' es
+   * OFICINAS (docs/ERP_KEPLER.md §2.3): ahí se captura la tesorería central; el catálogo
+   * compartido todavía la nombra CEDIS, así que se corrige acá para esta pantalla.
+   */
+  private keplerSucursal(code: unknown): string | null {
+    const c = String(code ?? '').trim();
+    if (!c) return null;
+    const nm = c === '00' ? 'Oficinas' : branchName(c);
+    return nm === c ? c : `${nm} (${c})`;
+  }
 
   /**
    * CG.2 — CAJA GENERAL VIVA (analytics.caja_general_movimientos, ex-`Doctos`): el hub de
@@ -321,9 +354,10 @@ export class CajaGeneralService {
         .limit(500)
         .select('bm.id', 'bm.movement_date as fecha', 'bm.concept', 'bm.sucursal', 'bm.raw_code',
           'bm.amount_in', 'bm.amount_out');
+      const suc = await this.finanzasSucursalNamer(trx, tenantId, this.inst(q));
       return {
         movimientos: (rows as any[]).map((r) => ({
-          id: r.id, fecha: r.fecha, concepto: r.concept, sucursal: r.sucursal, codigo: r.raw_code,
+          id: r.id, fecha: r.fecha, concepto: r.concept, sucursal: suc(r.sucursal), codigo: r.raw_code,
           ingreso: n(r.amount_in), gasto: n(r.amount_out),
         })),
       };
@@ -351,8 +385,10 @@ export class CajaGeneralService {
         .select('sucursal', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
       return {
         // id compuesto por sucursal+folio: con el concentrador el folio se repite entre sucursales.
+        // `sucursal` es la sucursal Kepler con nombre (antes viajaba el beneficiario en ese campo);
+        // el beneficiario se conserva como concepto cuando el pago no trae concepto (X-D-26 casi nunca).
         movimientos: (rows as any[]).map((r) => ({
-          id: `${r.sucursal}-${r.folio}`, fecha: r.fecha, concepto: r.concepto, sucursal: r.beneficiario, codigo: r.doc_tipo,
+          id: `${r.sucursal}-${r.folio}`, fecha: r.fecha, concepto: r.concepto || r.beneficiario || null, sucursal: this.keplerSucursal(r.sucursal), codigo: r.doc_tipo,
           ingreso: n(r.signo) > 0 ? n(r.importe) : 0, gasto: n(r.signo) < 0 ? n(r.importe) : 0,
         })),
       };
@@ -431,12 +467,14 @@ export class CajaGeneralService {
         .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
 
       const key = (f: any) => String(f).slice(0, 10);
+      // Sucursal con nombre en la referencia de cada lado (el drill imprimía el número crudo: "42 · 510").
+      const suc = await this.finanzasSucursalNamer(trx, tenantId, this.inst(q));
       const mdbSide = (dir: 'ingreso' | 'gasto') => (mdb as any[]).filter((r) => n(r[dir]) > 0).map((r) => ({
         amt: n(r[dir]), lbl: { id: String(r.mov_id), source: 'control' as const, key: `${r.tipo_dto}|${r.mov_id}`, fecha: key(r.fecha), importe: r2(n(r[dir])), concepto: r.concepto || null, extra: r.cuenta_nombre || r.nombre_cliente || null } }));
       const manSide = (col: 'amount_in' | 'amount_out') => (man as any[]).filter((r) => n(r[col]) > 0).map((r) => ({
-        amt: n(r[col]), lbl: { id: String(r.id), source: 'workbook' as const, key: String(r.id), fecha: key(r.fecha), importe: r2(n(r[col])), concepto: r.concepto || null, extra: [r.sucursal, r.raw_code].filter(Boolean).join(' · ') || null } }));
+        amt: n(r[col]), lbl: { id: String(r.id), source: 'workbook' as const, key: String(r.id), fecha: key(r.fecha), importe: r2(n(r[col])), concepto: r.concepto || null, extra: [suc(r.sucursal), r.raw_code].filter(Boolean).join(' · ') || null } }));
       const kepSide = (sign: 1 | -1) => (kep as any[]).filter((r) => (n(r.signo) > 0 ? 1 : -1) === sign).map((r) => ({
-        amt: n(r.importe), lbl: { id: String(r.folio), source: 'kepler' as const, key: `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`, fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
+        amt: n(r.importe), lbl: { id: String(r.folio), source: 'kepler' as const, key: `${r.sucursal}|${r.doc_tipo}|${r.folio}|${r.clave_banco}`, fecha: key(r.fecha), importe: r2(n(r.importe)), concepto: r.concepto || null, extra: [this.keplerSucursal(r.sucursal), r.doc_tipo, r.beneficiario].filter(Boolean).join(' · ') || null } }));
 
       const mdbIn = mdbSide('ingreso'), mdbGas = mdbSide('gasto');
       const vs_manual = { ingresos: matchDir(mdbIn, manSide('amount_in')), gastos: matchDir(mdbGas, manSide('amount_out')) };
@@ -511,10 +549,11 @@ export class CajaGeneralService {
           .where('bm.id', key).andWhere('bm.tenant_id', tenantId)
           .first('bm.*', trx.raw('ba.alias as cuenta_alias'), trx.raw('mc.name as categoria'));
         if (!r) throw new BadRequestException('movimiento no encontrado');
+        const suc = await this.finanzasSucursalNamer(trx, tenantId, 'SI');
         return { source, title: `Workbook · ${r.cuenta_alias || ''} ${ymd(r.movement_date)}`, fields: [
           { label: 'Fecha', value: ymd(r.movement_date) }, { label: 'Cuenta', value: r.cuenta_alias },
           { label: 'Tipo (M)', value: r.raw_type }, { label: 'Código (C)', value: r.raw_code },
-          { label: 'Sucursal', value: r.sucursal }, { label: 'Concepto', value: r.concept },
+          { label: 'Sucursal', value: suc(r.sucursal) }, { label: 'Concepto', value: r.concept },
           { label: 'Categoría', value: r.categoria }, { label: 'Clasificado por', value: r.classified_by },
           { label: 'Ingreso', value: money(r.amount_in) }, { label: 'Gasto', value: money(r.amount_out) },
           { label: 'Saldo', value: money(r.running_balance) }, { label: 'Origen sync', value: r.sync_source },
@@ -527,7 +566,7 @@ export class CajaGeneralService {
         if (!r) throw new BadRequestException('movimiento no encontrado');
         return { source, title: `Kepler · ${r.doc_tipo} ${r.folio}`, fields: [
           { label: 'Fecha valor', value: ymd(r.fecha_valor) }, { label: 'Fecha captura', value: ymd(r.fecha_captura) },
-          { label: 'Documento', value: `${r.doc_tipo} ${r.folio}` }, { label: 'Sucursal', value: r.sucursal },
+          { label: 'Documento', value: `${r.doc_tipo} ${r.folio}` }, { label: 'Sucursal', value: this.keplerSucursal(r.sucursal) },
           { label: 'Clave banco', value: r.clave_banco }, { label: 'Banco', value: r.banco_nombre },
           { label: 'Cuenta contable', value: r.cuenta_contable }, { label: 'Cuenta (label)', value: r.account_label },
           { label: 'Flujo', value: r.flujo }, { label: 'Importe', value: money(r.importe) }, { label: 'Signo', value: r.signo },
