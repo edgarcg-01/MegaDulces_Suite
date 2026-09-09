@@ -492,7 +492,9 @@ export class CajaGeneralService {
         ...mdbGas.map((m) => ({ m, dir: 'out' as const })),
       ].map(({ m, dir }) => {
         const side = (v: typeof vs_manual) => (dir === 'in' ? v.ingresos : v.gastos);
-        const hit = (v: typeof vs_manual) => side(v).pairs.find((p) => p.caja.id === m.lbl.id) ?? null;
+        // Enlazar por `key` (tipo_dto|mov_id), NO por `id`: mov_id es el IdDocto y sólo es único
+        // POR tipo_dto. Dos movimientos del día con el mismo mov_id compartían el mismo par.
+        const hit = (v: typeof vs_manual) => side(v).pairs.find((p) => p.caja.key === m.lbl.key) ?? null;
         const man = hit(vs_manual), kep2 = hit(vs_kepler);
         return {
           id: m.lbl.id, key: m.lbl.key, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,

@@ -575,7 +575,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               }
             </tr></thead>
             <tbody>
-              @for (e of dayRows(cd); track e.id + e.dir) {
+              @for (e of dayRows(cd); track e.key + e.dir) {
                 <tr>
                   <td class="cg-mono muted">{{ dmy(e.fecha) }}</td>
                   <td class="ta-c"><i [class]="e.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="e.dir === 'in' ? 'Ingreso' : 'Gasto'"></i></td>
