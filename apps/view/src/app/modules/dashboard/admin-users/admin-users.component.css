@@ -29,6 +29,11 @@ button.au-sum-item {
   cursor: pointer;
 }
 .au-sum-warn, .au-sum-warn b, .au-sum-warn i { color: var(--warn-fg); }
+/* [CH.1.11] Cuentas de dispositivo. Informativo y NO `au-sum-warn`: una sesión
+   larga es una decisión declarada, no un pendiente. Pintarla en ámbar junto a
+   "sin puesto" y "con alerta de acceso" la leería como algo que hay que
+   arreglar, y lo que hay que poder hacer es verla. */
+.au-sum-info, .au-sum-info b, .au-sum-info i { color: var(--info-fg, var(--action)); }
 button.au-sum-item:hover { background: var(--hover-bg); border-color: var(--border-color); }
 button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 1px; }
 /* Filtro activo: el chip se queda encendido y ofrece cómo quitarlo. */
@@ -202,6 +207,19 @@ button.au-sum-item:focus-visible { outline: 2px solid var(--action-ring); outlin
 :host ::ng-deep .au-field .p-select,
 :host ::ng-deep .au-field .p-multiselect { width: 100%; font-size: var(--fs-sm); }
 .au-hint { font-size: var(--fs-micro); color: var(--text-faint); line-height: 1.35; }
+
+/* [CH.1.11] La contraseña de un dispositivo se genera y se copia: el input y sus
+   dos botones van en una fila, y el input se queda con todo el ancho sobrante. */
+.au-pass-row { display: flex; align-items: center; gap: var(--sp-1); }
+.au-pass-row input { flex: 1 1 auto; min-width: 0; }
+
+/* La duración de sesión en la celda de Actividad. Compacta porque comparte la
+   celda con el dot y la fecha del último ingreso. */
+:host ::ng-deep .au-tag-sesion .p-tag {
+  font-size: var(--fs-micro);
+  padding: 0 var(--sp-1);
+  line-height: 1.5;
+}
 .au-err { font-size: var(--fs-micro); color: var(--bad-fg); }
 /* Marca de campo obligatorio. Decorativa: el label ya nombra el campo y el
    mensaje de error dice el motivo, por eso va aria-hidden en el template. */
