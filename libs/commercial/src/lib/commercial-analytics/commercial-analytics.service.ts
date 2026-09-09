@@ -2854,7 +2854,12 @@ export class CommercialAnalyticsService {
     const from = q.from.slice(0, 10);
     const to = q.to.slice(0, 10);
     if (from > to) throw new BadRequestException('from posterior a to');
-    const groupBy: SellOutGroupBy = q.group_by === 'branch' ? 'branch' : 'branch_channel';
+    // RS — al filtrar SUCURSAL(es), abrir SIEMPRE por canal (Mostrador/Mayoreo/Vecinal/Ruta) aunque
+    // el trabajo sea "Sucursales": una plaza filtrada como columna ÚNICA fundida no deja ver sus
+    // canales ("tiene todo pero no muestra todos"). No aplica a la vista por mes (columnas=mes) ni al
+    // layout plaza (que ya trae su propio desglose SUCURSAL/MAYOREO/RUTAS).
+    const forceChannel = !!(q.warehouses && q.warehouses.length) && !plaza && !monthCols;
+    const groupBy: SellOutGroupBy = forceChannel ? 'branch_channel' : (q.group_by === 'branch' ? 'branch' : 'branch_channel');
     const channelFilter = (q.channels && q.channels.length)
       ? new Set(q.channels.map((c) => c.trim().toLowerCase()).filter(Boolean))
       : null;
