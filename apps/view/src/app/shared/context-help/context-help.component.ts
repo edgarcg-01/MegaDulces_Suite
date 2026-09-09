@@ -58,6 +58,11 @@ import { CONTEXT_HELP } from './context-help.dictionary';
   styles: [`
     :host { display: inline-flex; }
     .ch-btn { color: var(--text-muted); }
+    /* Medía 22x30: la mitad del minimo tactil (DESIGN §11, Ley de Fitts). Es un
+       icon-button sin texto, asi que el area de toque es todo lo que tiene. */
+    @media (pointer: coarse) {
+      .ch-btn { min-width: var(--tap-min, 44px); min-height: var(--tap-min, 44px); }
+    }
     .ch-intro { font-size: .82rem; color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
     .ch-group { margin-bottom: 1.1rem; }
     .ch-h { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint); font-weight: 700; margin: 0 0 .5rem; }
