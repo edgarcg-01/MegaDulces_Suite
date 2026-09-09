@@ -253,7 +253,102 @@ escribía, y todos los chequeos de lectura habían pasado.
 
 ---
 
-## Paso 4 — la siembra (F2, pendiente de implementar)
+## Paso 4 — la siembra (F2)
+
+> ⚠️ **El plan decía "pg_dump de prod partido en core y bulk". Se cayó por dos mediciones.**
+>
+> **1. El grafo de dependencias es circular entre los dos pases.** Medido sobre prod:
+>
+> | vistas en | dependen de |
+> |---|---|
+> | `md` (225) | `kepler_ods` ← bulk |
+> | `catalog.products_active` | `kepler_ods` ← bulk |
+> | `finance.kepler_accounts` | `analytics` ← bulk |
+> | `analytics` (43) | `catalog`, `commercial`, `finance`, `logistics` ← **core** |
+> | `public` (23) | `catalog`, `erp`, `identity`, `trade` ← **core** |
+> | `wincaja` (4) | `catalog` ← **core** |
+>
+> Core necesita bulk y bulk necesita core. Cualquier split por schema con `--exit-on-error`
+> revienta en las dos direcciones. Un solo dump ordena solo, porque `pg_dump` ordena.
+>
+> **2. El respaldo nocturno ya dumpea prod entero, todos los días.** Desde REP.0.0 produce un `-Fc`
+> completo. Volver a dumpear prod para el espejo sería pagar **dos veces el mismo snapshot largo**
+> sobre la misma base — y el snapshot es justo lo que hay que cuidar, porque fija el horizonte de xid
+> y le frena el vacuum a prod.
+
+**Cómo quedó: el espejo se cuelga del respaldo.** Prod se lee **una vez por día, para respaldar**, y
+el espejo reusa esa misma foto. Carga adicional sobre prod: **cero**. Y de yapa, el respaldo pasa a
+tener un consumidor que lo ejercita todos los días — *un respaldo que nadie restaura nunca es una
+hipótesis*.
+
+```bash
+MIRROR_TARGET_URL="postgresql://postgres:…@192.168.0.245:5432/platform_replica" \
+  node database/scripts/pull-prod-to-local.js seed --jobs=4
+# toma el .dump más nuevo de %USERPROFILE%\backups\trade_marketing
+# o uno concreto con --from-dump=<ruta>
+```
+
+Del TOC se apartan las **10 `MATERIALIZED VIEW DATA`**: dentro de `pg_restore` van serializadas y, si
+una falla, `--exit-on-error` tira abajo una restauración de una hora. Se refrescan aparte, una por
+una y con su tiempo — y **la que falle se declara**, en vez de quedar VÁLIDA Y VACÍA, que es el peor
+resultado porque vacío se lee igual que "no hay datos" (§32).
+
+**Medido: la siembra tardó 27.7 min, sin una sola línea de error.**
+
+### Dos cosas que `pg_restore` no hace, y que `seed` sí
+
+**1. `ANALYZE`.** Medido tras la primera siembra: **281 tablas sin una sola fila en `pg_stats`**. No
+es sólo lentitud — una réplica sin estadísticas le da al planner planes distintos a los de prod, así
+que cualquier trabajo de performance hecho encima **mide otra cosa**.
+
+**2. Refrescar las matviews ANTES de migrar.** La primera corrida las dejó "para después" y la
+migración `20260909170000_sellout_dedup_madero_07.js` falló con *«la vista materializada
+mv_kepler_sales_daily no ha sido poblada»*. **Las migraciones leen matviews**, así que refrescarlas
+es parte de la siembra, no un paso que uno se acuerda de correr. Las dos quedaron dentro de `seed`.
+
+### El orden, que importa
+
+```bash
+node database/scripts/pull-prod-to-local.js seed        # restore + ANALYZE + refresh de matviews
+node database/scripts/pull-prod-to-local.js migrate     # dry-run: drift + fantasma
+node database/scripts/pull-prod-to-local.js migrate --apply --expect-pending=N
+node database/scripts/pull-prod-to-local.js grants      # la MATRIZ, no un GRANT ALL
+```
+
+`--expect-pending` no es decorativo: `migrate:latest` corre las pendientes de **todos**, así que si
+el número salta hay una rama ajena en el working tree y conviene verlo antes. Probado: con un número
+equivocado aborta con `exit 2`.
+
+---
+
+## Paso 4-bis — por qué `grants` copia la matriz en vez de otorgar parejo
+
+`pg_dump --no-privileges` no trae ningún GRANT, así que tras el restore `app_runtime` no puede leer
+nada. La tentación es un `GRANT ALL` sobre todo — que es lo que hace `sync-from-remote.js`, y encima
+sólo sobre 4 de los ~20 schemas.
+
+**Otorgar parejo rompe el motivo de usar `app_runtime`.** La matriz de prod, medida, NO es uniforme:
+
+| schema | SELECT | INSERT | DELETE | |
+|---|---|---|---|---|
+| `kepler_ods` | 226 | **0** | **0** | lo alimenta el shipper |
+| `md` | 225 | **0** | **0** | vistas sobre el ODS |
+| `analytics` | 117 | 24 | 13 | mayormente lectura |
+| `commercial` | 115 | 115 | 115 | CRUD completo |
+| `identity` | 11 de 13 | 10 | 9 | dos relaciones ni se leen |
+| `pgboss` | **0** | 0 | 0 | **ni USAGE**: la cola corre como `postgres` |
+
+Con un `GRANT ALL`, un dev escribe un `INSERT` a `kepler_ods`, le funciona en la réplica y le explota
+en prod. La réplica tiene que mentir lo menos posible, y **los permisos son parte de lo que replica**.
+
+La verificación se hace **conectado COMO `app_runtime`**, y con escrituras — §33 existe porque un rol
+"de solo lectura" pasó todos los `SELECT` y tumbó prod en el primer `UPDATE`. Incluye la prueba
+**negativa**: `app_runtime` **no** debe poder escribir en `kepler_ods`. Si pudiera, la réplica estaría
+mintiendo en la dirección peligrosa.
+
+---
+
+## Paso 4-ter — la siembra vieja del plan (referencia, ya no se usa)
 
 **Los 25 GB no viajan.** Desglose medido de prod: **heap 15.5 GB + toast 0.4 GB + índices 9.7 GB**, y
 los índices se **reconstruyen localmente**. Y `pg_dump` **nunca** hace COPY del contenido de una
