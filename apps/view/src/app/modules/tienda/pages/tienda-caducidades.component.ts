@@ -217,11 +217,16 @@ type Condition = 'bueno' | 'regular' | 'malo';
             <span class="cad-step-n" aria-hidden="true">2</span>
             <div class="cad-step-body">
               <label class="cad-lbl" for="cad-vence">Fecha de caducidad</label>
+              <!-- Placeholder corto a propósito. Antes decía los tres formatos juntos
+                   ("0327 · 150327 · 15032027") y el campo PARECÍA tener un valor ya
+                   escrito en vez de estar vacío. La pista completa vive en el hint, y
+                   el eco de abajo confirma la fecha entendida en cuanto se puede leer. -->
               <input pInputText id="cad-vence" class="cad-fecha" inputmode="numeric" autocomplete="off"
                 [ngModel]="fechaRaw()" (ngModelChange)="onFecha($event)"
-                placeholder="0327 · 150327 · 15032027" aria-describedby="cad-vence-help" />
+                placeholder="MM/AA" aria-describedby="cad-vence-help" />
               <small class="cad-hint" id="cad-vence-help">
-                Solo dígitos: <strong>0327</strong> = marzo 2027 (fin de mes) · <strong>150327</strong> = 15/03/2027
+                Sólo dígitos, como viene impreso: <strong>0327</strong> = marzo 2027.
+                Si el empaque trae día, <strong>150327</strong> = 15/03/2027.
               </small>
 
               @if (fechaIso(); as iso) {
