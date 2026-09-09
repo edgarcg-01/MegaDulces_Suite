@@ -78,6 +78,20 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
     await c.end(); process.exit(0);
   }
 
+  // ⚠️ UNA SOLA PASADA. Cada aserción que lee `v_erp_stock_truth` re-deriva `v_erp_stock_on_hand`
+  // (que agrega `kdil`) y `v_kepler_unit_cost` (que agrega `kdik`). Con seis bloques eso son seis
+  // derivaciones y el archivo se iba a `statement timeout` — exactamente la misma lección que el
+  // candado de renglones de venta. Se materializa una vez y todos los bloques leen la temporal.
+  const t0 = Date.now();
+  await c.query(`CREATE TEMP TABLE st AS
+    SELECT tenant_id, warehouse_id, kepler_code, product_id, sku, qty,
+           costo_kepler, costo_catalogo, costo_publicado_hoy, razon, veredicto,
+           factor_aparente, valor_arbitrado, valor_publicado_hoy
+      FROM analytics.v_erp_stock_truth`);
+  const nSt = (await c.query('SELECT count(*)::int n FROM st')).rows[0].n;
+  console.log(`(materializada una vez: ${N(nSt)} filas en ${((Date.now() - t0) / 1000).toFixed(1)}s)
+`);
+
   // ── 1. La forma ────────────────────────────────────────────────────────────────────────────
   console.log('── 1. La forma ──');
   const meta = (await c.query(
@@ -93,15 +107,81 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   check('app_runtime puede leerla (el GRANT tampoco se hereda)', gr === 1);
 
   // ── 2. El testigo es de Kepler, y sólo de Kepler ───────────────────────────────────────────
+  // ⚠️ NO se verifica leyendo el TEXTO del SQL. La primera versión de este bloque exigía que la
+  // definición mencionara `kepler_ods.kdik`, y se puso ROJA sola en KE.2 — cuando el costo se
+  // extrajo a `analytics.v_kepler_unit_cost` la vista dejó de nombrar la tabla y empezó a nombrar
+  // a quien la lee. La afirmación era sobre la forma del SQL, no sobre de dónde sale el dato.
+  // Ahora se pregunta al GRAFO DE DEPENDENCIAS de Postgres, que es la verdad y sobrevive a que
+  // alguien meta otra vista en medio.
   console.log('\n── 2. El testigo es de Kepler, y sólo de Kepler ──');
-  const def = (await c.query(`SELECT pg_get_viewdef('analytics.v_erp_stock_truth'::regclass, true) d`)).rows[0].d;
-  check('⭐ lee kepler_ods.kdik (el costo propio de Kepler, grano sucursal × SKU)', /kepler_ods\.kdik/i.test(def));
-  check('⛔ NO lee wincaja — Edgar: "solo hay que enfocarnos en kepler"', !/wincaja/i.test(def));
-  const erps = (await c.query(
-    `SELECT DISTINCT s.source FROM analytics.v_erp_stock_on_hand s
-       JOIN analytics.v_erp_stock_truth t ON t.warehouse_id=s.warehouse_id AND t.product_id=s.product_id`)).rows;
-  check('⛔ y en los datos tampoco entra Wincaja (sólo source=kepler_ods)',
-    erps.length === 1 && erps[0].source === 'kepler_ods', erps.map((e) => e.source).join(','));
+  const deps = (await c.query(
+    `WITH RECURSIVE d(oid) AS (
+       SELECT 'analytics.v_erp_stock_truth'::regclass::oid
+       UNION
+       SELECT DISTINCT rd.refobjid
+         FROM d
+         JOIN pg_rewrite rw ON rw.ev_class = d.oid
+         JOIN pg_depend  rd ON rd.objid = rw.oid AND rd.classid = 'pg_rewrite'::regclass
+        WHERE rd.refobjid <> d.oid AND rd.refclassid = 'pg_class'::regclass)
+     SELECT DISTINCT n.nspname || '.' || cl.relname AS rel
+       FROM d JOIN pg_class cl ON cl.oid = d.oid
+       JOIN pg_namespace n ON n.oid = cl.relnamespace
+      ORDER BY 1`)).rows.map((r) => r.rel);
+  console.log(`     depende de: ${deps.join(' · ')}`);
+  check('⭐ el costo TRAZA hasta kepler_ods.kdik (por el grafo, no por el texto)',
+    deps.includes('kepler_ods.kdik'), deps.join(','));
+  check('⭐ y lo lee del primitivo único analytics.v_kepler_unit_cost',
+    deps.includes('analytics.v_kepler_unit_cost'));
+  // ⚠️ Y acá va una aserción que ya estuvo MAL una vez: exigía que el grafo entero no tocara
+  // `wincaja.*`. Imposible y además irrelevante — la vista lee `v_erp_stock_on_hand`, que es un
+  // UNION de los dos ERPs, así que Wincaja aparece por construcción; lo que separa los dos mundos
+  // es el `WHERE source = 'kepler_ods'` sobre los DATOS (que el bloque de abajo comprueba
+  // contando). La afirmación que sí importa es sobre EL TESTIGO: el costo tiene que salir de
+  // Kepler y de nada más. Eso se pregunta al grafo de `v_kepler_unit_cost`, no al de la vista.
+  const depCost = (await c.query(
+    `WITH RECURSIVE d(oid) AS (
+       SELECT 'analytics.v_kepler_unit_cost'::regclass::oid
+       UNION
+       SELECT DISTINCT rd.refobjid
+         FROM d
+         JOIN pg_rewrite rw ON rw.ev_class = d.oid
+         JOIN pg_depend  rd ON rd.objid = rw.oid AND rd.classid = 'pg_rewrite'::regclass
+        WHERE rd.refobjid <> d.oid AND rd.refclassid = 'pg_class'::regclass)
+     SELECT DISTINCT n.nspname || '.' || cl.relname AS rel
+       FROM d JOIN pg_class cl ON cl.oid = d.oid
+       JOIN pg_namespace n ON n.oid = cl.relnamespace
+      ORDER BY 1`)).rows.map((r) => r.rel);
+  console.log(`     el TESTIGO depende de: ${depCost.join(' · ')}`);
+  const wincDeps = depCost.filter((d) => /^wincaja\./.test(d));
+  check('⛔ el TESTIGO no toca wincaja — Edgar: "solo hay que enfocarnos en kepler"',
+    wincDeps.length === 0, wincDeps.join(','));
+  check('⛔ ni la etiquetera ni el factor de caja entran al testigo (seria circular)',
+    !depCost.some((d) => /product_label_prices|box_factor|factor_sale|product_unit_overrides/.test(d)),
+    depCost.filter((d) => /label|box_factor|factor_sale|overrides/.test(d)).join(','));
+  // Y el dato: la vista no puede traer ni una fila que no sea de Kepler. Se pregunta CONTANDO
+  // sus almacenes, no re-derivando la vista de existencia (eso la hacia timeoutear).
+  const noKep = (await c.query(
+    `SELECT count(*)::int n FROM st t
+       JOIN commercial.warehouses w ON w.tenant_id=t.tenant_id AND w.id=t.warehouse_id
+      WHERE w.kepler_code IS NULL`)).rows[0].n;
+  check('⛔ y en los datos tampoco entra Wincaja (cero filas de almacén sin kepler_code)',
+    noKep === 0, `${N(noKep)} filas`);
+
+  // ⭐ El costo que la vista publica tiene que ser el que Kepler tiene escrito. Se compara contra
+  // `kdik` CRUDO — el testigo del testigo — sobre una muestra acotada.
+  const trace = (await c.query(
+    `WITH m AS (
+       SELECT t.kepler_code, t.sku, t.costo_kepler
+         FROM st t
+        WHERE t.costo_kepler IS NOT NULL AND t.qty > 0
+        LIMIT 400)
+     SELECT count(*)::int n,
+            count(*) FILTER (WHERE abs(m.costo_kepler - k.c16::numeric) <= 0.01)::int iguales
+       FROM m JOIN kepler_ods.kdik k
+         ON k.sucursal = m.kepler_code AND btrim(k.c2::text) = m.sku
+        AND k.sucursal = btrim(k.c1::text)`)).rows[0];
+  check('⭐ el costo publicado es, al centavo, el que kdik.c16 tiene escrito',
+    trace.n > 0 && trace.iguales === trace.n, `${N(trace.iguales)} de ${N(trace.n)}`);
 
   // ── 3. ⭐ El anti-réplica de kdik, medido por comportamiento ────────────────────────────────
   // `kdik` arrastra 3,667 de 31,084 filas con c1 <> sucursal: el costo de OTRA sucursal. Si el
@@ -114,7 +194,7 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   check('⛔ la réplica existe y por eso el filtro hace falta', rep.replica > 0, `${N(rep.replica)}`);
   const dup = (await c.query(
     `SELECT count(*)::int n FROM (
-       SELECT warehouse_id, product_id FROM analytics.v_erp_stock_truth
+       SELECT warehouse_id, product_id FROM st
         GROUP BY 1,2 HAVING count(*) > 1) t`)).rows[0].n;
   check('⛔ el testigo NO duplica filas (un almacén×producto, una fila)', dup === 0, `${N(dup)} duplicadas`);
 
@@ -124,7 +204,7 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
     `SELECT veredicto, count(*)::int filas,
             sum(valor_publicado_hoy)::numeric pub,
             sum(valor_arbitrado)::numeric arb
-       FROM analytics.v_erp_stock_truth WHERE qty > 0
+       FROM st WHERE qty > 0
       GROUP BY 1 ORDER BY 2 DESC`)).rows;
   const by = Object.fromEntries(v.map((x) => [x.veredicto, x]));
   const tot = v.reduce((a, x) => a + x.filas, 0);
@@ -145,7 +225,7 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   const st = (await c.query(
     `SELECT count(*)::int filas,
             count(*) FILTER (WHERE valor_arbitrado IS NOT NULL)::int con_valor
-       FROM analytics.v_erp_stock_truth WHERE veredicto='sin_testigo'`)).rows[0];
+       FROM st WHERE veredicto='sin_testigo'`)).rows[0];
   console.log(`     sin_testigo: ${N(st.filas)} filas`);
   check('⛔ `sin_testigo` viaja con valor_arbitrado NULL, jamás con 0 de relleno',
     st.con_valor === 0, `${N(st.con_valor)} traen número`);
@@ -154,7 +234,7 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   // Las DOS ausencias tienen que ser distinguibles: no es lo mismo que falte el testigo de
   // Kepler a que falte el costo del catálogo.
   const dos = (await c.query(
-    `SELECT count(DISTINCT veredicto)::int n FROM analytics.v_erp_stock_truth
+    `SELECT count(DISTINCT veredicto)::int n FROM st
       WHERE veredicto IN ('sin_testigo','sin_costo_catalogo')`)).rows[0].n;
   check('⭐ las dos ausencias son etiquetas distintas (o al menos una está poblada)', dos >= 1, `${dos}`);
 
@@ -169,7 +249,7 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
        sum(valor_arbitrado)     FILTER (WHERE veredicto='contradicho_por_factor')::numeric arb_fac,
        sum(valor_publicado_hoy)::numeric pub_tot,
        sum(valor_arbitrado)::numeric arb_tot
-     FROM analytics.v_erp_stock_truth WHERE qty > 0`)).rows[0];
+     FROM st WHERE qty > 0`)).rows[0];
   const gapTax = Number(b.pub_conf) - Number(b.arb_conf);
   const gapFac = Number(b.pub_fac) - Number(b.arb_fac);
   const gapTot = Number(b.pub_tot) - Number(b.arb_tot);
@@ -194,7 +274,7 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   check('⭐ la identidad entradas − salidas = qty NO deja nada sin explicar',
     q.sin_explicar === 0, `${N(q.sin_explicar)} filas sin explicar`);
   const cero = (await c.query(
-    `SELECT count(*)::int n FROM analytics.v_erp_stock_truth t
+    `SELECT count(*)::int n FROM st t
        JOIN commercial.warehouses w ON w.tenant_id=t.tenant_id AND w.id=t.warehouse_id
       WHERE w.kepler_code = '00'`)).rows[0].n;
   check('⛔ la sucursal 00 de Kepler (122M unidades fantasma) NO entra', cero === 0, `${N(cero)} filas`);
