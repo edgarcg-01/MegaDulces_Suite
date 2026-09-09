@@ -202,35 +202,35 @@ sucursal, pero **bajo un `c67` que el decode no reconoce como ruta**.
 declararlo — no improvisar*. **Necesita a Edgar**: ¿el encoding `c67` cambió después del 18-ago, o
 las rutas de Canindo facturan por caja (`50C0N`)?
 
-#### 🟡 2026-09-09 — (a) se destrabó por otro lado: el PUSH de las vans, no el decode del branch
+#### ✅ 2026-09-09 — (a) se destrabó por otro lado: el PUSH de las vans, no el decode del branch
 
-La pregunta del `c67` quedó **sin contestar y ya no bloquea**. Tres de las cinco vans de Canindo
-(`501`, `503`, `504`) recibieron el **agente de push** —cada camioneta corre su propio Kepler local y
-sube su venta al runner `.249` cada 15 min— así que la venta llega a nivel **línea y día** sin pasar
-por la réplica del branch ni por el decode de `c67`. Detalle operativo en
+La pregunta del `c67` quedó **sin contestar y ya no bloquea**. Las **cinco** vans de Canindo recibieron
+el **agente de push** —cada camioneta corre su propio Kepler local y sube su venta al runner `.249`
+cada 15 min— así que la venta llega a nivel **línea y día** sin pasar por la réplica del branch ni por
+el decode de `c67`. Detalle operativo en
 [`RUNBOOK_ALTA_CAMIONETA.md`](../../../database/importers/kepler/route-push/RUNBOOK_ALTA_CAMIONETA.md)
 y [`INVENTARIO_Y_PLAN_RUTAS.md`](../../../database/importers/kepler/route-push/INVENTARIO_Y_PLAN_RUTAS.md) §1.5–1.6.
 
 Agosto 2026, `analytics.v_rd_route_daily` contra las mismas celdas del Excel de la tabla de arriba:
 
-| ruta | agente | días (Excel 27) | SUBTOTAL Excel | plataforma | cobertura | antes (ODS) |
-|---|---|---:|---:|---:|---:|---:|
-| 501 | ✅ 08-sep | 26 (16 push + 10 wincaja) | $468,954 | $401,951 | **85.7%** | 22.5% |
-| 502 | ⬜ falta | 9 (sólo wincaja) | $489,637 | $164,901 | 33.7% | 52.5% |
-| 503 | ✅ 08-sep | 27 (17 + 10) | $612,460 | $524,330 | **85.6%** | 7.6% |
-| 504 | ✅ 08-sep | 26 (17 + 9) | $462,694 | $382,428 | **82.7%** | **0%** |
-| 505 | ⬜ falta | 9 (sólo wincaja) | $386,648 | $124,373 | 32.2% | **0%** |
-| | | | **$2,420,393** | **$1,597,983** | **66.0%** | **16.9%** |
+| ruta | días (Excel 27) | SUBTOTAL Excel | plataforma | cobertura | antes (ODS) |
+|---|---:|---:|---:|---:|---:|
+| 501 | 26 (16 push + 10 wincaja) | $468,954 | $401,951 | **85.7%** | 22.5% |
+| 502 | 25 (16 + 9) | $489,637 | $413,726 | **84.5%** | 52.5% |
+| 503 | 27 (17 + 10) | $612,460 | $524,330 | **85.6%** | 7.6% |
+| 504 | 26 (17 + 9) | $462,694 | $382,428 | **82.7%** | **0%** |
+| 505 | 27 (18 + 9) | $386,648 | $327,110 | **84.6%** | **0%** |
+| | | **$2,420,393** | **$2,049,545** | **84.7%** | **16.9%** |
 
 Lo que esto cierra y lo que **no**:
 
-- ✅ Los **días** ya están: 26–27 de 27 en las tres rutas con agente (antes 0–3).
-- ⚠️ El **monto** llega al 83–86%, no al 100%. **Ese residuo no lo explica este cambio** y queda
-  abierto: es el mismo árbitro que falta en §2.3 (¿qué reporte de Wincaja se teclea en el
-  `CONCENTRADO`?). No se dibuja como cerrado.
-- ⬜ **502 y 505 siguen sin fuente diaria desde el 2026-08-11** — 29 días. No es decode: les falta el
-  agente, y sus laptops (`192.168.50.x`) **no son alcanzables** desde la PC de analítica (probado:
-  ping y TCP 5432 fallan). El descubrimiento hay que correrlo desde el runner `.249`.
+- ✅ **Cerrado el hueco de cobertura**: los días están (25–27 de 27 en las cinco rutas, antes 0–12) y
+  el monto pasó de **16.9% a 84.7%**. Ninguna ruta de Canindo queda ya sin fuente diaria.
+- ⚠️ **El residuo del ~15% es SISTEMÁTICO, no un hueco por ruta.** Con tres rutas podía ser
+  coincidencia; con las cinco cayendo en una banda de tres puntos (**82.7% – 85.7%**) es estructural:
+  el `CONCENTRADO` captura consistentemente más que nuestro SUBTOTAL. **Ese residuo no lo explica este
+  cambio** y refuerza —no resuelve— la duda de §2.3: *¿qué reporte de Wincaja se teclea?* No se dibuja
+  como cerrado.
 
 **(b) Ruta 321 en jun/jul — 34 celdas, $573,693.** Se congeló en Wincaja el 2026-06-02 y el Excel
 siguió capturando hasta julio. **Sigue abierto** — es un `.mdb` que dejó de copiarse.
@@ -375,7 +375,7 @@ tenencia/verificación · `analytics.delivery_cost_daily`.
 | **RD.5** | Odómetro + costo fijo + `analytics.v_route_operation_period` | ✅ `20260908160000` |
 | **RD.7** | Objetivo por ruta: `'route'` en `commercial.sales_targets` | ✅ `20260908170000` |
 | **RD.8** | Pantalla `/comercial/comisiones` (tab "Comisiones RD") | ✅ |
-| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **destrabado por el push de las vans, no por el decode**: 501/503/504 ✅ con línea diaria (cobertura de agosto 16.9% → 66.0%); faltan **502 y 505** (sin agente) y el residuo de monto del 14–17% | 🟡 PARCIAL |
+| **RD.2b** | Cerrar el hueco de Canindo (§2.4a) — **destrabado por el push de las vans, no por el decode**: las **5** con línea diaria, cobertura de agosto **16.9% → 84.7%**, hueco runner-vs-plataforma **$0**. Queda el residuo **sistemático** del ~15% (las 5 rutas en banda 82.7–85.7%), que es §2.3, no un hueco de fuente | ✅ 2026-09-09 |
 | **RD.2c** | El puente runner→plataforma perdía a toda van nueva (watermark **global** en `import-route-push-lines.js`): **$1,266,037** parados sin ningún error. Watermark **por ruta** + detección de **hueco frontal** que converge | ✅ 2026-09-09 |
 
 **Orden** (jerarquía de importancia, decidida con Edgar): capa de datos primero (RD.1 ✅, RD.2 ✅),
@@ -494,12 +494,13 @@ O el POS de Canindo dejó de pedir el vendedor al facturar en ruta, o el encodin
 del 2026-08-18 (cuando se confirmó `c67 ~ '^500[1-9]$'`). **No es un problema de decodificación: el
 detalle por ruta no existe en la fuente.** El arreglo es operativo, no técnico.
 
-> 🟡 **2026-09-09 — el arreglo operativo llegó, y la pregunta sigue sin contestar.** Se instaló el
-> **agente de push** en tres de las cinco vans (`501`, `503`, `504`): cada camioneta sube la venta de
-> **su propio Kepler local** al runner, así que el detalle por ruta ya no depende de que el POS central
-> capture el vendedor. Cobertura de agosto **16.9% → 66.0%** (§2.4a). **Sigue bloqueado sólo lo de
-> `502` y `505`** —29 días sin fuente diaria, último 2026-08-11— y sus laptops no son alcanzables desde
-> la red de analítica: el descubrimiento hay que correrlo desde el runner `.249`.
+> ✅ **2026-09-09 — el arreglo operativo llegó, y la pregunta sigue sin contestar (ya sin bloquear).**
+> Se instaló el **agente de push** en las **cinco** vans: cada camioneta sube la venta de **su propio
+> Kepler local** al runner, así que el detalle por ruta ya no depende de que el POS central capture el
+> vendedor. Cobertura de agosto **16.9% → 84.7%** (§2.4a), hueco runner-vs-plataforma **$0**.
+> Lo que queda no es este hueco sino el **residuo sistemático del ~15%**, que pertenece a §9.3/§2.3.
+> La pregunta de por qué el POS dejó de distinguir ruta de mostrador **sigue abierta** y vale la pena
+> contestarla: mientras no se conteste, la venta de piso de Canindo tampoco se puede separar.
 
 ### 9.2 ⛔ Morelia 321/322: ¿de dónde teclea la persona lo que nosotros no tenemos?
 
