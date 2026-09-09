@@ -26,9 +26,9 @@ candado divergen, **gana el candado** y este documento está viejo.
 
 ---
 
-## 1. Las cinco reglas
+## 1. Las seis reglas
 
-Estas cinco salieron de errores que ya se pagaron. No son estilo.
+Todas salieron de errores que ya se pagaron. No son estilo.
 
 ### R1 — Cada ERP se juzga con SU propia evidencia
 
@@ -61,14 +61,30 @@ costo del catálogo. Una fila ausente en un `LEFT JOIN` llega NULL y se lee como
 Todo veredicto tiene que poder salir en contra, y hay que **probarlo** contra un conjunto que otro
 testigo ya juzgó mal. Es la regla que mató un testigo propio antes de shipearlo (§6.1).
 
+### R6 — El patrón se busca en lo INCORRECTO, nunca en lo correcto ⭐
+
+Pedido de Edgar el 2026-09-09, y la regla que produjo §3.3, §3.4 y §9.6–9.8. Medir lo que aguanta
+sólo confirma lo que ya se creía; **la estructura del error es la que nombra la causa**. Tres
+corolarios, cada uno pagado:
+
+- **Un residuo definido de modo que excluya el error no es un residuo.** «SIN EXPLICAR = 0» era
+  cierto porque la consulta filtraba `entradas − salidas >= 0`, o sea sacaba de la cuenta a los
+  1,818 negativos, el único residuo que había (§3.1b).
+- **Contar filas ordena distinto que contar pesos.** La sucursal con **peor** tasa de error (36.02%)
+  aporta $114,670; la de **mejor** tasa (20.47%) aporta $2,981,753. Y **100 filas de 18,967 cargan
+  el 47%** de la brecha: un promedio sobre esa población no significa nada.
+- **La causa se busca donde el error está concentrado, y se prueba contra un resolvedor, no contra
+  los nombres.** «Es granel» y «es el factor de caja» venían de leer los nombres de las filas más
+  caras; contra `v_unit_truth` las dos se cayeron (§9.6, §9.7) y la causa real apareció en otro lado.
+
 ---
 
 ## 2. El estado, en una tabla
 
 | dimensión | qué la arbitra | resultado | ¿verdad absoluta? |
 |---|---|---|---|
-| **Existencia · cantidad** | identidad `entradas − salidas = qty`, del propio `kdil` | **cero sin explicar** en las 6 sucursales | ✅ **sí** |
-| **Existencia · valor** | `kdik.c16` — costo de Kepler por sucursal × SKU | 72.4% confirmado · brecha enumerada | ✅ **sí, con residuo enumerado** |
+| **Existencia · cantidad** | identidad `entradas − salidas = qty`, del propio `kdil` | 92.84% directo · **1,818 negativos (−68,504 u) recortados, no explicados** · 90,630 u descartadas por el filtro de almacén | ⚠️ **casi — con dos huecos declarados** (§3.1b, §7) |
+| **Existencia · valor** | `kdik.c16` — costo **promedio ponderado histórico** de Kepler por sucursal × SKU | 74.5% confirmado · brecha enumerada por causa (§3.3) | ✅ **sí, con residuo enumerado** |
 | **Ventas · dinero** | `c62 = u1_cost × c58` + paridad contra el renglón crudo | cobertura **98.20%** del dinero de Kepler | ✅ **sí** |
 | **Unidades · ticket** | el renglón declara y el costo confirma | **95.75%** confirmado | ✅ **sí** |
 | **Unidades · `U-D-8`** | — | **no arbitrable** (límite de la fuente) | ⛔ **declarada, no arbitrada** |
@@ -85,23 +101,40 @@ SKUs, mientras la tabla `commercial.stock` acierta 91.0% (15,324 unidades de err
 migración `20260902170000`, no en esta sesión*. Por eso **la vista manda y el fact sólo enriquece**;
 `commercial.stock` no se joinea ni para el apartado.
 
-La identidad interna cierra **sin residuo**:
+La identidad interna cierra:
 
 ```
-22,426 filas · identidad directa 92.22% · negativos recortados 1,748 · SIN EXPLICAR 0
+25,084 filas · identidad directa 92.84% · negativos recortados 1,798 · SIN EXPLICAR 0
 ```
 
-El 7.78% que no cuadra directo son **exactamente** los saldos negativos que la vista recorta a cero
-por diseño (`GREATEST(..., 0)`), y el dictamen ya los objeta como `negativo_menor`.
+⚠️ **Corregido el 2026-09-09 (revisión KX).** Este bloque decía *"cierra **sin residuo**"* y ese
+`SIN EXPLICAR 0` **no era un hallazgo: era la definición.** La consulta calcula `sin_explicar` con
+`AND entradas − salidas >= 0`, o sea **excluye por construcción** los negativos, que son el único
+residuo que existe. Buscamos el patrón en lo correcto y encontramos, previsiblemente, que lo
+correcto estaba correcto.
 
-Dos cosas que parecían bugs y **no lo eran** (verificadas antes de "arreglarlas"):
+- **La sucursal `00` de Kepler sí está excluida** (deriva 122,096,465 unidades fantasma; el filtro
+  `w.kepler_code <> '00'` la deja fuera). Es **OFICINAS**; el CEDIS real es `BPIRAPUATO`, de Wincaja.
+- ⛔ **Pero `kdil.c4 = 0 en el 100%` NO significa que el baseline sea cero.** Significa que **esa
+  columna no se usa**. La prueba: **748 SKUs venden sin tener UNA sola entrada** (−14,640 u). Un
+  saldo inicial que no existe no es un saldo inicial de cero, y la diferencia se paga en el residuo.
 
-- **`baseline = 0` para Kepler es correcto.** `kdil.c4` (el inicial) es **0 en el 100%** de las
-  22,473 filas. No falta el inicial: no existe.
-- **La sucursal `00` de Kepler ya está excluida.** Deriva **122,096,465** unidades fantasma —dos
-  órdenes de magnitud sobre cualquier otra— y el filtro `w.kepler_code <> '00'` de la vista la deja
-  fuera desde antes. Ojo: la Kepler `00` es **OFICINAS**; el CEDIS real es `BPIRAPUATO` y viene de
-  Wincaja.
+### 3.1b ⭐ Los negativos: recortar no es explicar
+
+Se recortan a cero con `GREATEST(..., 0)` para no publicar existencia imposible —eso está bien—
+pero se **contaban al costado y nadie los asertaba**: podían triplicarse en silencio. Medidos:
+
+```
+1,818 de 25,132 filas (7.23%) = −68,504 unidades que Kepler dice que salieron sin haber entrado
+   sin NINGUNA entrada ....... 748 SKUs   (−14,640 u)
+   entradas insuficientes .... 1,070 SKUs (−53,890 u)
+```
+
+Y su **firma quedó medida, no supuesta**: ⛔ **no es error de unidad.** Sólo 2 de 1,796 tienen la
+firma de caja (`salidas/bf == entradas`), ninguna coincide con `units_per_box`, y la mediana de
+`salidas/entradas` es **1.090** — no 12 ni 24. Vendieron ~9% más de lo que registraron entrar. Eso
+apunta a captura/faltante, no a un peldaño mal leído. El candado vigila esa mediana: **si algún día
+se pega a ~12 o ~24, entonces sí es unidad**, y se pone rojo para forzar la re-investigación.
 
 ### 3.2 El valor NO era verdad: $5.59M de sobrevaluación, en dos causas separables ⭐
 
@@ -131,6 +164,63 @@ GRANEL` · `CHOC HERSHEY BARRA GRANEL 14KG` · `TURIN CONF SEMIAMARGO 16KG` · `
 GRANEL / 5KG`. **`cost_base` viene por bulto; `c16` por pieza o kilo.** Es ADR-051 y ADR-055
 medidos, por primera vez, sobre la valuación del inventario y con el propio costo de Kepler como
 árbitro.
+
+### 3.3 ⭐⭐ El mapa del error, por causa nombrada (revisión KX, 2026-09-09)
+
+Edgar: *"no busquemos patrones en lo correcto, busquemos patrones en lo incorrecto."* Al mirar sólo
+las filas que **no** aguantan, el relato de §3.2 se afinó y en parte se cayó.
+
+| causa | filas | \|brecha\| |
+|---|---:|---:|
+| 1. impuesto en el costo publicado | 15,090 | **$4,024,239** |
+| 2. sin impuesto: diferencia real de costo | 3,555 | $87,361 |
+| 3. contradicho por factor (resto) | 234 | **$2,314,520** |
+| 4. catálogo con las DOS columnas en unidades distintas | 101 | $354,067 |
+| 5. sin testigo de Kepler | 28 | $0 |
+
+**Dos cosas que sólo se ven mirando el error:**
+
+- ⭐ **La tasa de error no predice el dinero.** La suc **04** tiene la peor tasa de filas objetadas
+  (**36.02%**) y sólo **$114,670** de brecha; la suc **06** tiene la mejor (**20.47%**) y
+  **$2,981,753**. Contar filas malas ordena al revés que contar pesos.
+- ⭐ **Está concentrado, no repartido.** **10 filas de 18,967 cargan el 24%** de la brecha, **100
+  cargan el 47%**, 1,000 cargan el 75%. Un promedio sobre esta población no dice nada.
+
+**Lo que resultó ser la causa, con su prueba:**
+
+1. **El recargo no es UNO: `cost_with_tax / cost_base` toma cuatro valores discretos** — ×1.000
+   (2,223 SKUs) · **×1.080** (4,428) · ×1.160 (2,129) · **×1.240** (283, que es **IVA 16% + IEPS
+   8%**: `NESTLE CARLOS V`, `KINDER`, `TAKIS`, `CANELS`). Como concepto fiscal es coherente; el
+   error es **valuar inventario con el costo con impuestos**, que es lo que KE.2 corrigió.
+2. ⭐⭐ **En 62 SKUs las dos columnas del catálogo están en unidades distintas — y al revés de lo
+   que dicen sus nombres.** `cost_with_tax < cost_base`, que ningún impuesto puede producir. En las
+   101 filas con existencia, contra Kepler: **`cost_with_tax / c16` pega en 60 con mediana 1.000**
+   y `cost_base / c16` pega en 21 con mediana **10.872**. O sea **`cost_with_tax` es el costo
+   unitario y `cost_base` es el bulto.** Ejemplos: `TURIN CONF BLANCO 16KG` $5,002.56 vs $152.11
+   (1/32.9) · `ROLLO GUAYABA CHICO GRANEL` $891.00 vs $55.00 (1/16.2).
+   Son **los mismos nombres** que §3.2 atribuía al "factor de caja" — y la causa no era el factor:
+   era que las dos columnas del mismo producto miden cosas distintas.
+   ⚠️ **Bomba latente, no daño de hoy**: las 101 filas tienen costo de Kepler, así que ninguna cae
+   al fallback `cost_base` del service. Si Kepler dejara de traer `c16` para una, se valuaría
+   **~10.9× arriba**. El candado lo vigila (`al_fallback === 0`).
+
+### 3.4 ⭐⭐ Qué es realmente el árbitro: un promedio histórico, no el costo de hoy
+
+`kdik.c16 = c8/c5`, y **`c5` resultó ser las ENTRADAS ACUMULADAS**: idéntico a `SUM(kdil.c8)` en
+**25,143 de 25,143 pares = 100.00%**. O sea el árbitro divide el **valor acumulado de toda la
+historia de compras** entre las **unidades acumuladas** de esa historia.
+
+Es un **costo promedio ponderado**, y valuar inventario así es contablemente legítimo. Pero hay que
+declararlo, porque cambia lo que la cifra significa:
+
+```
+mediana c16 / c18 (último costo) = 0.9805      -> el árbitro valúa ~2% BARATO, sistemáticamente
+c18 falta en el 56.06% de los pares            -> el último costo ni siquiera está casi siempre
+```
+
+⛔ **Publicar un promedio ponderado histórico como si fuera costo de reposición no es lo mismo.** El
+inventario arbitrado está a costo promedio; la diferencia contra el último costo conocido es −1.95%
+mediano y en 1,578 pares supera el 10%.
 
 **Efecto en la cifra publicada** (consulta real del service, prod):
 `kepler_ods` **$39,980,353 → $35,510,326** (−11.2%) · `wincaja` sin cambio ·
@@ -214,7 +304,7 @@ divergir.
 | necesitás | leé | nunca |
 |---|---|---|
 | existencia por almacén × producto | `analytics.v_erp_stock_on_hand` | `commercial.stock` (acierta 91%) |
-| **costo unitario de Kepler** | `analytics.v_kepler_unit_cost` | `kdik` a mano (arrastra réplica) |
+| **costo unitario de Kepler** | `analytics.v_kepler_unit_cost` | `kdik` a mano (se pierde el filtro de almacén). ⚠️ Es **promedio ponderado histórico**, no costo de reposición (§3.4) |
 | veredicto del valor del inventario | `analytics.v_erp_stock_truth` | — |
 | unidad/peldaño del renglón de venta | `analytics.v_erp_sales_line_units` | inferirlo del rótulo |
 | factor de caja por producto | `analytics.v_product_box_factor` | `kdii.c84` crudo |
@@ -274,6 +364,10 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | celdas que Kepler tiene y el fact no | 5,178 celdas / **$1,225,253** | el SKU **sí** existe en el catálogo; la fila no llega (**K.4**) |
 | `units` que todavía transformamos | 5,835 celdas / **$1,851,531** | 3,948 ÷2 (500 g→kg) · 1,135 ×12 · 747 ×2 (**K.5**) |
 | `sin_testigo` en existencia | 26 filas / $16,316 | Kepler no da costo; `valor_arbitrado` va **NULL** |
+| ⭐ **existencia negativa recortada** | **1,818 filas / −68,504 u** | Kepler dice que salió sin haber entrado. Se recorta a 0 para no publicar lo imposible, pero **recortar no es explicar**. 748 SKUs sin NINGUNA entrada. Firma medida: **no es unidad** (mediana `salidas/entradas` = 1.090) — §3.1b |
+| ⭐ **el almacén `02` de la sucursal 03** | **3,667 filas / 90,630 u** | el filtro `sucursal = c1` las descarta como "réplica de otra sucursal", **y esa etiqueta está refutada**: sólo 3.66% tiene entradas idénticas a suc02/alm02, **1,049 SKUs van por DELANTE** (una réplica no adelanta al original) y 645 sólo existen en la 03. Naturaleza **sin establecer**: falta preguntarle a operaciones si 8ESQ opera bodega en Abastos |
+| ⚠️ **el árbitro es promedio histórico** | −1.95% mediano vs `c18` | `c16 = c8/c5` con `c5` = entradas acumuladas. Valuamos a **costo promedio ponderado**, no de reposición (§3.4) |
+| ⚠️ **62 SKUs con las columnas al revés** | 101 filas / $354,067 | `cost_with_tax < cost_base`; el fallback `cost_base` los valuaría ~10.9× arriba **si** Kepler dejara de dar `c16` (hoy ninguna cae ahí) |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
 
 ---
@@ -333,10 +427,47 @@ Es un **porcentaje sobre costo** (el primer test comparó una fracción contra u
 mismo error de unidad que la fase persigue) y **no discrimina**: 41.8% en los sanos contra 51.9% en
 los defectuosos, invertido.
 
-### 9.4 ⛔ `kdik.c5` como existencia de Kepler
+### 9.4 ⛔ `kdik.c5` como existencia de Kepler — **y qué ES** (cerrado 2026-09-09)
 
-`c8/c5 = c16` cuadra aritméticamente, pero `c5` **no es el stock actual**: la mediana de nuestra
-cantidad sobre `c5` va de 0.06 a 0.67 según sucursal, con 6–16% idénticas.
+`c8/c5 = c16` cuadra aritméticamente, pero `c5` **no es el stock actual**. Dos pruebas
+independientes: si lo fuera, el inventario valdría **$160,507,138** contra los $40.1M arbitrados; y
+la relación de orden es perfecta (`c5 ≥` nuestra existencia en **22,094 casos y 0 al revés**), lo
+que ninguna medición ruidosa produce.
+
+⭐ **La respuesta:** `c5` son las **ENTRADAS ACUMULADAS** — idéntico a `SUM(kdil.c8)` en **25,143 de
+25,143 pares (100.00%)**. Por eso `c16 = c8/c5` es un **costo promedio ponderado histórico** y no el
+costo de hoy (§3.4). Dejar una refutación sin la respuesta es lo que hizo que el árbitro se leyera
+mal durante una fase entera.
+
+### 9.6 ⛔ "lo contradicho es granel / producto por peso"
+
+NO. **279 de las 306 filas contradichas son `is_weight = false`** y cargan $2,289,685 de los
+$2,680,453. El granel son **27 filas / $390,768**. Los nombres con `GRANEL` que aparecen arriba en
+la lista por dinero hicieron parecer que el peso era la causa; por conteo no lo es.
+
+### 9.7 ⛔ "la razón del error es el factor de caja declarado"
+
+NO, y se probó contra el resolvedor canónico (`analytics.v_unit_truth`, ADR-057):
+
+```
+razón == box_factor (±5%) .......  28 de 306      mediana razón  4.18  vs  box_factor 40.0
+razón == 1/box_factor ...........   1
+razón == units_per_box PAGADO ...   0   <- el testigo de dinero tampoco
+razón == f3 de la escalera ......   0
+razón == f2 de la escalera ......  15
+```
+
+Y sólo el **15.03%** de las razones contradichas es casi-entera (`|razón − round(razón)| ≤ 0.02`).
+Si fuera un factor de unidad, casi todas lo serían. **El catálogo está multiplicado por algo, pero
+no por el factor de caja que el sistema declara** — y la parte que sí se explicó resultó ser otra
+cosa (§3.3.2: las dos columnas en unidades distintas).
+
+### 9.8 ⛔ "un `cost_base` compartido entre varios SKUs es la causa"
+
+Va **al revés**: los costos **únicos** se contradicen más (2.25%) que los compartidos por >20 SKUs
+(0.37%). Sí existe un caso puntual y caro —`cost_base = 60.1962` en 5 SKUs de GAMESA, **26 de 26
+filas contradichas, $516,819**— pero es un caso, no una regla, y usarlo como regla habría marcado
+9,656 filas sanas.
 
 ### 9.5 ⛔ "`kdik.c16` viene sucio"
 

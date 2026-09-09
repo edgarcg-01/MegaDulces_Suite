@@ -9,11 +9,27 @@
  *
  * La CANTIDAD de la existencia de Kepler cierra sola. Medido contra prod el 2026-09-08:
  *   · la identidad `entradas - salidas = qty` cuadra en 20,681 de 22,426 (92.22%), y las 1,748
- *     restantes son EXACTAMENTE los saldos negativos que la vista recorta a cero por diseño:
- *     **SIN EXPLICAR = 0** en las seis sucursales;
- *   · `kdil.c4` (el inicial) es 0 en el 100% de las filas, así que el `baseline = 0` del
- *     dictamen es correcto — no era un bug, aunque lo parecía;
+ *     restantes son EXACTAMENTE los saldos negativos que la vista recorta a cero por diseño;
+ *   · `kdil.c4` (el inicial) es 0 en el 100% de las filas;
  *   · la sucursal `00` de Kepler deriva **122,096,465** unidades fantasma y ya está excluida.
+ *
+ * ⚠️ **Y ACÁ ESTABA EL AGUJERO DE ESTE PROPIO ARCHIVO** (revisión KX, 2026-09-09, pedido de
+ * Edgar: *"no busquemos patrones en lo correcto, busquemos patrones en lo incorrecto"*). Las dos
+ * frases de arriba se escribieron como si fueran el final de la historia, y **dos de los checks
+ * de este archivo no podían fallar**:
+ *
+ *   1. `SIN EXPLICAR = 0` NO era un hallazgo: la consulta define `sin_explicar` con
+ *      `AND entradas - salidas >= 0`, o sea **excluye por construcción** los negativos, que son
+ *      el único residuo que existe. El cero era la definición, no la medición. Los negativos se
+ *      imprimían al costado y **nadie los asertaba**: podían triplicarse en silencio. Medidos
+ *      hoy: **1,817 filas y −68,513 unidades** en las siete sucursales.
+ *   2. `kdil.c4 = 0 en el 100%` no dice "el baseline es cero"; dice **"esa columna no se usa"**.
+ *      La prueba: **747 SKUs venden sin tener UNA sola entrada** (−14,640 u). Un saldo inicial
+ *      que no existe no es lo mismo que un saldo inicial de cero.
+ *
+ * Y la firma de los negativos también quedó medida, para no volver a suponerla: **NO es error de
+ * unidad**. Sólo 2 de 1,796 tienen la firma de caja (`salidas/bf == entradas`), la mediana de
+ * `salidas/entradas` es **1.090** — no 12 ni 24 — y 729 no tienen entradas en absoluto.
  *
  * ── Lo que NO era verdad: el VALOR ⭐ ───────────────────────────────────────────────────────
  *
@@ -34,6 +50,58 @@
  * Las razones de las 273 contradichas son 16.2 · 21.6 · 20.0 · 14.0 · 32.0 · 31.4 · 10.8 · 3.3
  * — factores de caja. Y los nombres cierran el caso: ROLLO GUAYABA CHICO GRANEL · CHOC HERSHEY
  * BARRA GRANEL 14KG · TURIN CONF SEMIAMARGO 16KG. `cost_base` viene por bulto; `c16` por pieza.
+ *
+ * ── ⭐ EL MAPA DEL ERROR, por causa nombrada (revisión KX, prod 2026-09-09, qty > 0) ─────────
+ *
+ *     causa                                                    filas      |brecha|
+ *     1. impuesto en el costo publicado                       15,090    $4,024,239
+ *     2. sin impuesto: diferencia real de costo                3,555       $87,361
+ *     3. contradicho por factor (resto)                          234    $2,314,520
+ *     4. catálogo con las DOS columnas en unidades distintas      101      $354,067
+ *     5. sin testigo de Kepler                                    28            $0
+ *
+ * **La tasa de error no predice el dinero, y por eso contar filas engaña.** La suc 04 tiene la
+ * peor tasa (36.02% de filas objetadas) y sólo $114,670 de brecha; la suc 06 tiene la mejor
+ * (20.47%) y **$2,981,753**. Y está concentrado: **100 filas de 18,967 cargan el 47%** de la
+ * brecha, 10 filas cargan el 24%.
+ *
+ * ── ⭐ Tres hipótesis que sonaban bien y la medición REFUTÓ (revisión KX) ────────────────────
+ *
+ *  a. **"lo contradicho es granel/peso"** — NO: 279 de 306 filas contradichas son
+ *     `is_weight = false` y cargan $2,289,685 de los $2,680,453. El granel son 27 filas.
+ *  b. **"la razón del error es el factor de caja declarado"** — NO: contra el resolvedor
+ *     canónico (`v_unit_truth`), sólo **28 de 306** tienen `razon == box_factor`; en 264 la razón
+ *     no coincide (mediana razón **4.18** contra un `box_factor` mediano de **40.0**). Tampoco es
+ *     el `units_per_box` pagado (**0** aciertos), ni `f3` (0), ni casi `f2` (15). Y sólo el
+ *     **15.03%** de las razones contradichas es casi-entera: si fuera un factor de unidad, casi
+ *     todas lo serían.
+ *  c. **"un `cost_base` compartido entre SKUs es la causa"** — NO, va al revés: los costos
+ *     ÚNICOS se contradicen más (2.25%) que los compartidos por >20 SKUs (0.37%).
+ *
+ * ── ⭐⭐ Lo que sí resultó ser la causa, con la prueba ────────────────────────────────────────
+ *
+ *  1. **`cost_with_tax / cost_base` toma CUATRO valores discretos** — ×1.000 (1,142 SKUs),
+ *     ×1.080 (2,725), ×1.160 (1,091) y **×1.240 (278)**, que es IVA 16% + IEPS 8%. O sea el
+ *     recargo es coherente como concepto fiscal; el error es **valuar inventario con el costo
+ *     con impuestos**, y por eso KE.2 lo cambió. Pero no es UN recargo: son cuatro.
+ *  2. **En 62 SKUs las dos columnas del catálogo están en UNIDADES DISTINTAS** — y ahí
+ *     `cost_with_tax` es el costo unitario correcto y `cost_base` es el bulto, o sea **al revés
+ *     de lo que dicen sus nombres**. La prueba contra Kepler, en las 101 filas con existencia:
+ *     `cost_with_tax / c16` pega en 60 con mediana **1.000**, y `cost_base / c16` pega en 21 con
+ *     mediana **10.872**. Ejemplos: `TURIN CONF BLANCO 16KG` $5,002.56 vs $152.11 (1/32.9) ·
+ *     `ROLLO GUAYABA CHICO GRANEL` $891.00 vs $55.00 (1/16.2). Son **los mismos nombres** que la
+ *     doc citaba como "factor de caja" — la causa no era el factor: era que las dos columnas del
+ *     mismo producto miden cosas distintas.
+ *     ⚠️ Hoy no llega ninguna de esas filas al fallback del service (las 101 tienen costo de
+ *     Kepler), así que la pantalla no las publica mal. Es una **bomba latente**: si Kepler dejara
+ *     de traer `c16` para una, el fallback `cost_base` la valuaría **10.9× arriba**.
+ *  3. **`kdik.c16` NO es "el costo de Kepler hoy": es el costo PROMEDIO PONDERADO HISTÓRICO.**
+ *     Probado sin ambigüedad: `kdik.c5 == kdil.c8` (entradas acumuladas) en **25,142 de 25,142
+ *     pares = 100.00%**, y `c16 = c8/c5`. O sea el árbitro divide valor acumulado entre unidades
+ *     acumuladas de TODA la historia de compras. Consecuencia medida: contra `c18` (último
+ *     costo) la mediana de `c16/c18` es **0.9805** — el árbitro valúa **~2% barato de forma
+ *     sistemática**, y `c18` falta en el 56% de los pares. Valuar a promedio ponderado es
+ *     legítimo; **publicarlo como si fuera costo de reposición no lo es**.
  *
  * ── Dos errores silenciosos que este archivo existe para que no vuelvan ─────────────────────
  *
@@ -183,15 +251,39 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   check('⭐ el costo publicado es, al centavo, el que kdik.c16 tiene escrito',
     trace.n > 0 && trace.iguales === trace.n, `${N(trace.iguales)} de ${N(trace.n)}`);
 
-  // ── 3. ⭐ El anti-réplica de kdik, medido por comportamiento ────────────────────────────────
-  // `kdik` arrastra 3,667 de 31,084 filas con c1 <> sucursal: el costo de OTRA sucursal. Si el
-  // filtro se cae, el testigo mezcla almacenes. No se verifica leyendo el SQL — se cuenta.
-  console.log('\n── 3. ⭐ El anti-réplica de kdik ──');
+  // ── 3. ⭐ El filtro `sucursal = c1`: lo que descarta, y lo que NO está probado ──────────────
+  // Este bloque decía «⛔ la réplica existe y por eso el filtro hace falta» con la condición
+  // `replica > 0`. Eso no era una prueba: era la etiqueta. Un check que sólo puede pasar mientras
+  // la columna exista no protege nada, y la etiqueta resultó FALSA al medirla.
+  //
+  // Lo medido (prod 2026-09-09): las filas con `c1 <> sucursal` no vienen de varias sucursales —
+  // son TODAS de la sucursal 03, y casi todas del almacén '02' (3,664 filas en `kdil` con
+  // **90,240 unidades netas**; 3,664 en `kdik`). Y la etiqueta "es el costo de OTRA sucursal" no
+  // se sostiene contra suc02/alm02:
+  //     entradas acumuladas idénticas . 134 de 3,664 (3.66%)
+  //     con MÁS entradas en la 03 ..... 1,049       <- una réplica no va por DELANTE del original
+  //     con más entradas en la 02 ..... 1,836
+  //     SKUs que sólo existen en la 03 ... 645
+  // Así que el filtro descarta 90,240 unidades cuya naturaleza NO está establecida. Se declara
+  // como hueco con monto (ADR-056) en vez de afirmarse como réplica, y lo que se asertan son los
+  // hechos: que el descarte existe, que está acotado a la 03, y su tamaño.
+  console.log('\n── 3. ⭐ Lo que descarta el filtro `sucursal = c1` (hueco DECLARADO) ──');
   const rep = (await c.query(
-    `SELECT count(*)::int propias, count(*) FILTER (WHERE sucursal <> btrim(c1::text))::int replica
+    `SELECT count(*) FILTER (WHERE sucursal = btrim(c1::text))::int propias,
+            count(*) FILTER (WHERE sucursal <> btrim(c1::text))::int fuera,
+            count(DISTINCT sucursal) FILTER (WHERE sucursal <> btrim(c1::text))::int sucs_fuera
        FROM kepler_ods.kdik`)).rows[0];
-  console.log(`     kdik: ${N(rep.propias)} filas · de otra sucursal: ${N(rep.replica)}`);
-  check('⛔ la réplica existe y por eso el filtro hace falta', rep.replica > 0, `${N(rep.replica)}`);
+  const kdil = (await c.query(
+    `SELECT count(*) FILTER (WHERE sucursal <> btrim(c1))::int fuera,
+            coalesce(sum(c4+c8-c9) FILTER (WHERE sucursal <> btrim(c1)), 0)::numeric u_fuera
+       FROM kepler_ods.kdil WHERE sucursal <> '00'`)).rows[0];
+  console.log(`     kdik: ${N(rep.propias)} propias · ${N(rep.fuera)} descartadas, de ${rep.sucs_fuera} sucursal(es)`);
+  console.log(`     kdil: ${N(kdil.fuera)} descartadas = ${N(kdil.u_fuera)} unidades que NO publicamos`);
+  check('⛔ el descarte existe y por eso el filtro cambia el resultado', rep.fuera > 0, `${N(rep.fuera)}`);
+  check('⛔ el descarte está ACOTADO a una sucursal (si se abre, hay que re-investigarlo)',
+    rep.sucs_fuera === 1, `${rep.sucs_fuera} sucursales — ya no es el caso único de la 03`);
+  check('⚠️ el hueco declarado no CRECIÓ (90,240 u medidas; techo 150,000)',
+    Math.abs(Number(kdil.u_fuera)) <= 150000, `${N(kdil.u_fuera)} u`);
   const dup = (await c.query(
     `SELECT count(*)::int n FROM (
        SELECT warehouse_id, product_id FROM st
@@ -271,13 +363,130 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
                              AND coalesce(entradas,0)-coalesce(salidas,0) >= 0)::int sin_explicar
        FROM analytics.v_existencia_dictamen WHERE erp='kepler'`)).rows[0];
   console.log(`     ${N(q.filas)} filas · identidad directa ${pct(q.cuadran, q.filas).toFixed(2)}% · negativos recortados ${N(q.negativos)}`);
-  check('⭐ la identidad entradas − salidas = qty NO deja nada sin explicar',
+  // ⚠️ Este check dice MENOS de lo que su nombre viejo prometía, y a propósito. `sin_explicar` se
+  // define con `AND entradas - salidas >= 0`, así que **excluye por construcción** los negativos,
+  // que son el único residuo que existe. Cerrar en 0 era la definición, no un hallazgo.
+  check('la identidad cuadra donde el neto es ≥ 0 (los negativos NO entran en esta cuenta)',
     q.sin_explicar === 0, `${N(q.sin_explicar)} filas sin explicar`);
+
+  // ── 7b. ⭐ LOS NEGATIVOS, que se contaban y no se asertaban ────────────────────────────────
+  // Un saldo negativo no es una fila sana: es mercancía que Kepler dice que salió sin haber
+  // entrado. Se recortan a cero (`GREATEST(...,0)`) para no publicar existencia imposible — eso
+  // está bien — pero **recortar no es explicar**, y sin techo podían triplicarse en silencio.
+  console.log('\n── 7b. ⭐ Los NEGATIVOS: recortar no es explicar ──');
+  const neg = (await c.query(
+    `WITH raw AS (
+       SELECT k.sucursal suc, btrim(k.c3) sku,
+              SUM(k.c8) ent, SUM(k.c9) sal, SUM(k.c4+k.c8-k.c9) neto
+         FROM kepler_ods.kdil k
+        WHERE k.sucursal = k.c1 AND k.sucursal <> '00'
+          AND btrim(k.c3) <> ALL (ARRAY['00001','00002','00022'])
+        GROUP BY 1,2)
+     SELECT count(*) FILTER (WHERE neto < 0)::int negativos,
+            count(*)::int filas,
+            coalesce(sum(neto) FILTER (WHERE neto < 0), 0)::numeric unidades,
+            count(*) FILTER (WHERE neto < 0 AND ent = 0)::int sin_entradas,
+            count(*) FILTER (WHERE neto < 0 AND ent > 0)::int con_entradas_insuf,
+            round(percentile_cont(0.5) WITHIN GROUP (ORDER BY sal/nullif(ent,0))
+                  FILTER (WHERE neto < 0)::numeric, 3) med_sal_ent
+        FROM raw`)).rows[0];
+  console.log(`     ${N(neg.negativos)} de ${N(neg.filas)} filas (${pct(neg.negativos, neg.filas).toFixed(2)}%)`
+    + ` = ${N(neg.unidades)} unidades imposibles`);
+  console.log(`     sin NINGUNA entrada: ${N(neg.sin_entradas)} · con entradas insuficientes: ${N(neg.con_entradas_insuf)}`
+    + ` · mediana salidas/entradas ${neg.med_sal_ent}`);
+  check('⛔ los negativos EXISTEN y se cuentan (si dan 0, el recorte se movió y ya no se ven)',
+    neg.negativos > 0, `${N(neg.negativos)}`);
+  check('⚠️ los negativos no CRECIERON (1,817 filas medidas; techo 2,500)',
+    neg.negativos <= 2500, `${N(neg.negativos)} filas — investigar antes de subir el techo`);
+  check('⚠️ las unidades imposibles no CRECIERON (−68,513 medidas; techo −120,000)',
+    Number(neg.unidades) >= -120000, `${N(neg.unidades)} u`);
+  // La firma: NO es error de unidad. Si algún día la mediana se pega a un factor de caja (12, 24),
+  // entonces sí lo es, y este check se pone rojo para forzar la re-investigación.
+  check('⭐ la causa NO es error de unidad (mediana salidas/entradas cerca de 1, no de 12 ni 24)',
+    Number(neg.med_sal_ent) > 0.5 && Number(neg.med_sal_ent) < 2,
+    `mediana ${neg.med_sal_ent} — si se fue a ~12 o ~24, ahora SÍ es un peldaño mal capturado`);
+  check('⛔ el "baseline = 0" NO significa que el inicial sea cero: hay SKUs que venden sin entrar',
+    neg.sin_entradas > 0, `${N(neg.sin_entradas)} SKUs con salidas y cero entradas`);
   const cero = (await c.query(
     `SELECT count(*)::int n FROM st t
        JOIN commercial.warehouses w ON w.tenant_id=t.tenant_id AND w.id=t.warehouse_id
       WHERE w.kepler_code = '00'`)).rows[0].n;
   check('⛔ la sucursal 00 de Kepler (122M unidades fantasma) NO entra', cero === 0, `${N(cero)} filas`);
+
+  // ── 7c. ⭐⭐ QUÉ ES EL ÁRBITRO: `c16` es un PROMEDIO HISTÓRICO, no el costo de hoy ──────────
+  // `c16 = c8/c5`, y `c5` resultó ser **las entradas acumuladas** — idéntico a `kdil.c8` en el
+  // 100.00% de 25,142 pares. O sea el árbitro divide el valor acumulado de TODA la historia de
+  // compras entre las unidades acumuladas. Es un costo promedio ponderado, legítimo para valuar
+  // inventario, pero **rezagado por construcción**. Este bloque lo deja probado y acotado, porque
+  // §9.4 de la doc sólo decía qué NO era `c5`, no qué ES — y sin eso el árbitro parecía "el costo
+  // de Kepler hoy", que no lo es.
+  console.log('\n── 7c. ⭐⭐ El árbitro es un promedio histórico (prueba de qué es kdik.c5) ──');
+  const c5 = (await c.query(
+    `WITH l AS (SELECT k.sucursal suc, btrim(k.c3) sku, SUM(k.c8) ent
+                  FROM kepler_ods.kdil k
+                 WHERE k.sucursal = k.c1 AND k.sucursal <> '00' GROUP BY 1,2),
+          kk AS (SELECT k.sucursal suc, btrim(k.c2::text) sku, max(k.c5::numeric) c5
+                   FROM kepler_ods.kdik k
+                  WHERE k.sucursal = btrim(k.c1::text) AND k.sucursal <> '00' GROUP BY 1,2)
+     SELECT count(*)::int pares,
+            count(*) FILTER (WHERE abs(kk.c5 - l.ent) <= 0.01)::int c5_es_entradas
+       FROM l JOIN kk ON kk.suc = l.suc AND kk.sku = l.sku`)).rows[0];
+  console.log(`     kdik.c5 == kdil.c8 (entradas acumuladas) en ${N(c5.c5_es_entradas)} de ${N(c5.pares)}`
+    + ` (${pct(c5.c5_es_entradas, c5.pares).toFixed(2)}%)`);
+  check('⭐⭐ `c5` son las ENTRADAS ACUMULADAS, así que `c16 = c8/c5` es costo promedio histórico',
+    pct(c5.c5_es_entradas, c5.pares) >= 99, `${pct(c5.c5_es_entradas, c5.pares).toFixed(2)}%`);
+
+  const c18 = (await c.query(
+    `WITH kk AS (SELECT sucursal suc, btrim(c2::text) sku,
+                        max(c16::numeric) c16, max(NULLIF(c18,0)::numeric) c18
+                   FROM kepler_ods.kdik
+                  WHERE sucursal = btrim(c1::text) AND sucursal <> '00' GROUP BY 1,2)
+     SELECT count(*)::int pares, count(c18)::int con_c18,
+            round(percentile_cont(0.5) WITHIN GROUP (ORDER BY c16/nullif(c18,0))::numeric,4) med
+       FROM kk WHERE c16 > 0`)).rows[0];
+  console.log(`     contra c18 (último costo): mediana c16/c18 = ${c18.med}`
+    + ` · c18 falta en ${pct(c18.pares - c18.con_c18, c18.pares).toFixed(2)}% de los pares`);
+  check('⚠️ el árbitro valúa ~2% BARATO por ser promedio, y eso se declara (banda 0.90–1.05)',
+    Number(c18.med) >= 0.90 && Number(c18.med) <= 1.05,
+    `${c18.med} — si se aleja, el promedio dejó de seguir al costo real`);
+
+  // ── 7d. ⭐ El catálogo: cuatro recargos, y 62 SKUs con las columnas al revés ────────────────
+  // Publicar con impuesto no era UN error uniforme: `cost_with_tax/cost_base` toma cuatro valores
+  // (1.000 / 1.080 / 1.160 / 1.240 = IVA 16 + IEPS 8). Y hay 62 SKUs donde la razón es MENOR a 1,
+  // que ningún impuesto puede producir: ahí las dos columnas están en unidades distintas y la que
+  // se llama "con impuesto" es la que trae la unidad chica.
+  console.log('\n── 7d. ⭐ El catálogo: cuatro recargos + 62 SKUs con las columnas al revés ──');
+  const tasas = (await c.query(
+    `SELECT round(cost_with_tax/nullif(cost_base,0), 3)::numeric ratio, count(*)::int skus
+       FROM catalog.products
+      WHERE tenant_id = '${T}' AND deleted_at IS NULL
+        AND cost_base > 0 AND cost_with_tax > 0
+        AND cost_with_tax >= cost_base * 0.95
+      GROUP BY 1 HAVING count(*) >= 50 ORDER BY 2 DESC`)).rows;
+  console.log('     ' + tasas.map((x) => `×${x.ratio} (${N(x.skus)})`).join(' · '));
+  check('⭐ el recargo NO es uno solo: hay ≥ 3 tasas distintas conviviendo', tasas.length >= 3,
+    `${tasas.length} tasas con ≥50 SKUs`);
+
+  const inv = (await c.query(
+    `WITH bad AS (
+       SELECT id FROM catalog.products
+        WHERE tenant_id = '${T}' AND deleted_at IS NULL
+          AND cost_base > 0 AND cost_with_tax > 0 AND cost_with_tax < cost_base * 0.95)
+     SELECT (SELECT count(*) FROM bad)::int skus,
+            count(*)::int filas,
+            count(*) FILTER (WHERE abs(s.costo_publicado_hoy/s.costo_kepler - 1) <= 0.05)::int contax_pega,
+            count(*) FILTER (WHERE abs(s.costo_catalogo/s.costo_kepler - 1) <= 0.05)::int base_pega,
+            count(*) FILTER (WHERE coalesce(s.costo_kepler,0) <= 0)::int al_fallback
+       FROM st s JOIN bad ON bad.id = s.product_id
+      WHERE s.qty > 0 AND s.costo_kepler > 0`)).rows[0];
+  console.log(`     ${N(inv.skus)} SKUs con cost_with_tax < cost_base · ${N(inv.filas)} filas con existencia`);
+  console.log(`     contra Kepler: cost_with_tax pega en ${N(inv.contax_pega)} · cost_base sólo en ${N(inv.base_pega)}`);
+  check('⛔ existen SKUs donde cost_with_tax < cost_base (imposible para un impuesto)',
+    inv.skus > 0, `${N(inv.skus)}`);
+  check('⭐⭐ y ahí gana `cost_with_tax`: es la unidad chica, al revés de lo que dice su nombre',
+    inv.contax_pega > inv.base_pega, `${N(inv.contax_pega)} vs ${N(inv.base_pega)}`);
+  check('⚠️ NINGUNA de esas filas cae al fallback del service (si cae, se valúa ~11× arriba)',
+    inv.al_fallback === 0, `${N(inv.al_fallback)} filas sin costo de Kepler — la bomba se armó`);
 
   // ── 8. Lo que este candado NO mide, declarado ──────────────────────────────────────────────
   console.log('\n── 8. Lo que este candado no mide ──');

@@ -9,9 +9,16 @@
  * Así que se extrae acá y las dos lo LEEN.
  *
  * Lo que aporta sobre `kepler_ods.kdik`:
- *   · el ANTI-RÉPLICA, que es obligatorio: **3,667 de 31,084 filas traen `c1 <> sucursal`**, o sea
- *     el costo de OTRA sucursal. Probado en negativo: sin el filtro el valor arbitrado del
- *     inventario se mueve **$864,270** y 592 filas se caen de `confirmado`.
+ *   · el filtro `sucursal = c1`, que cambia el resultado: **3,667 de 31,084 filas** quedan fuera.
+ *     Probado en negativo: sin el filtro el valor arbitrado del inventario se mueve **$864,270** y
+ *     592 filas se caen de `confirmado`.
+ *     ⚠️ **La etiqueta "es el costo de OTRA sucursal" está REFUTADA** (revisión KX, 2026-09-09).
+ *     Las 3,667 filas son TODAS de la sucursal 03, casi todas del almacén `02`, y contra
+ *     suc02/alm02 sólo el **3.66%** tiene entradas acumuladas idénticas: **1,049 SKUs van por
+ *     DELANTE** —una réplica no adelanta al original— y **645 sólo existen en la 03**. En `kdil`
+ *     son **90,630 unidades de existencia que no publicamos**. Qué es ese almacén sigue **sin
+ *     establecerse**: hace falta preguntarle a operaciones si 8ESQ opera bodega en Abastos. Se
+ *     declara como hueco con monto en `docs/VERDAD_ABSOLUTA.md` §7, no se afirma como réplica.
  *   · el grano traducido a nuestras llaves (`warehouse_id`, `product_id`), para que nadie tenga
  *     que volver a acordarse de que en `kdik` el SKU es **`c2`** y el almacén es `c1`.
  *   · el guard de valor de `c16`.
@@ -40,8 +47,10 @@ const C16 = `CASE WHEN k.c16 = k.c16
 const COST = `
 CREATE OR REPLACE VIEW analytics.v_kepler_unit_cost AS
 WITH kk AS (
-  -- kdik: c1 = almacen, c2 = SKU, c16 = costo unitario promedio (verificado: c8/c5 = c16).
-  -- ANTI-REPLICA obligatorio: 3,667 de 31,084 filas traen c1 distinto de sucursal.
+  -- kdik: c1 = almacen, c2 = SKU, c16 = costo unitario PROMEDIO PONDERADO HISTORICO.
+  -- Probado: c8/c5 = c16, y c5 == entradas acumuladas de kdil.c8 en 25,143 de 25,143 (100.00%).
+  -- El filtro deja fuera 3,667 filas (todas de la suc 03, almacen 02). NO esta probado que sean
+  -- replica: ver la nota de arriba y VERDAD_ABSOLUTA.md 7.
   SELECT k.sucursal        AS kepler_code,
          btrim(k.c2::text) AS sku,
          max(${C16})       AS costo_unitario
