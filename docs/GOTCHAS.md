@@ -1559,3 +1559,196 @@ sin prueba negativa es una intención (ADR-056).
 Para aplicar UNA migración a prod (no `migrate:latest`, que arrastra las pendientes de otros):
 `node database/scripts/apply-one-migration-prod.js <archivo>` — ya existe, apunta a `FLEET_DB_URL`
 y tiene un `--list`.
+---
+
+## 39. Correr un importer A MANO mientras existe su tarea programada: te lo matan a los 13 min
+
+Lección de **CV.24**, escrita acá el 2026-09-09. Estaba citada en el CHANGELOG como
+"`GOTCHAS.md` §38" y **nunca se había escrito**: el §38 lo ocupó el incidente del lock de
+CH.1, así que la referencia apuntaba al vacío. Vivía sólo en la memoria personal de una
+sesión, que no se comparte entre máquinas — o sea, no existía para el equipo.
+
+**El síntoma engaña:** un `FATAL 57P01` (`terminating connection due to administrator
+command`) a los ~13 minutos de arrancar el backfill. Parece que Railway te cortó la
+conexión, y se pierde tiempo buscando límites del proveedor.
+
+**No es Railway: es nuestro propio barredor.** `scripts/kill-stale-feeds.ps1` corre
+programado y mata los procesos de feed que llevan mucho tiempo vivos, porque existe para
+levantar los que se cuelgan (§ del patrón de feeds on-prem). Un importer lanzado a mano se
+ve exactamente igual que un feed colgado.
+
+**Cómo se sale:** subir en **escalera** en vez de una corrida larga. El backfill de CV.24 se
+hizo en 30 → 90 → 180 → 260 días, para que ninguna pasada cruce el techo de los ~13 min.
+
+**Corolario:** antes de correr un importer a mano contra prod, mirá si tiene tarea programada.
+Y no confundas "el proceso murió" con "el proceso falló": el `57P01` no dice nada sobre si las
+filas que ya shipeó quedaron bien.
+
+---
+
+## 40. `1fr` no baja de `min-content`: la pantalla que se sale del teléfono y **no** scrollea
+
+Vivido dos veces el mismo día en `/tienda/arqueo` (SM.31) y `/tienda/caducidades` (SM.32, y ya
+estaba en producción). El síntoma engaña: la pantalla se ve cortada del lado derecho **y no se
+puede correr en horizontal**. Medido, era esto:
+
+```js
+document.documentElement.scrollWidth   // 390  ← el navegador dice que no hay desborde
+document.querySelector('.surf-page').getBoundingClientRect().width  // 390
+getComputedStyle(document.querySelector('.surf-page')).gridTemplateColumns  // "512px" ← acá está
+```
+
+El track medía 512px dentro de un contenedor de 390. **`1fr` es `minmax(auto, 1fr)`**, y ese `auto`
+es el **min-content del contenido**: el track no baja de ahí aunque el contenedor sea más chico.
+El contenido desborda hacia afuera, la página **recorta** (nadie tiene `overflow: auto`) y
+`scrollWidth` no lo reporta porque el desborde está dentro de un hijo, no en el documento. Resultado:
+122px de UI que **no existen** para el usuario. No hay error en consola, no hay barra de scroll.
+
+**Quién pone el piso** (los cuatro casos que aparecieron, en orden de frecuencia):
+
+1. **Un flex sin `flex-wrap`.** Es el más traicionero porque no se ve venir: `.arq-hint` tenía ~10
+   hijos flex (cada `<kbd>` cuenta uno) y su min-content era la **suma** de todos → ~400px.
+   Un `<p>` con texto suelto wrappea; un `display: flex` con hijos elemento, no.
+2. **`white-space: nowrap` + `text-overflow: ellipsis`.** El ellipsis hace creer que el texto ya
+   está "resuelto", pero el min-content sigue siendo la frase COMPLETA (`.evp-sub`: 399px).
+3. **Una tabla ancha.** `overflow-x: auto` en su contenedor **no alcanza**: el item del grid sigue
+   aportando su min-content. Hace falta **`min-width: 0` en el item** para que el track se rinda —
+   recién entonces la tabla tiene de dónde scrollear.
+4. **Un `<input>` con `width` fijo** (o sin nada: su ancho intrínseco son ~20 caracteres, ~200px).
+   En un flex, `flex: 1 1 0` + `min-width: 0` no siempre basta; hay que mirar el número.
+
+**El arreglo, en este orden:**
+
+- `minmax(0, 1fr)` en vez de `1fr` en el grid que apila. Vale también para el **track `auto`
+  implícito**: un `display: grid` sin `grid-template-columns` se dimensiona al min-content del hijo
+  y lo deja desbordar **aunque el padre tenga `min-width: 0`**.
+- `minmax(min(15.5rem, 100%), 1fr)` en los grids intrínsecos: con el mínimo pelado, en un teléfono
+  la única columna mide 248px dentro de un contenedor de 230.
+- `min(Xrem, 100%)` en todo `width`/`min-width` fijo.
+- `flex-wrap` donde haya más de dos hijos flex.
+- `container-type: inline-size` en el panel: **además de habilitar las `@container`, corta la fuga
+  de min-content hacia el grid padre** (el elemento deja de aportar el min-content de su contenido).
+
+**Cómo medirlo** (a ojo no se ve; el número es el que manda):
+
+```js
+// 1) ¿qué se sale, y tiene scroller propio?
+const vw = document.documentElement.clientWidth;
+[...document.querySelectorAll('.surf-page *')].filter(el => {
+  const r = el.getBoundingClientRect();
+  if (r.width === 0 || r.right <= vw + 1) return false;
+  for (let p = el.parentElement; p; p = p.parentElement) {
+    const o = getComputedStyle(p).overflowX;
+    if (o === 'auto' || o === 'scroll') return false;   // scrollea: está bien
+  }
+  return true;
+}).map(el => el.tagName + '.' + el.className);
+
+// 2) quién pone el piso: min-content REAL de cada candidato
+const mc = el => { const p = el.style.width; el.style.width = 'min-content';
+  const w = el.getBoundingClientRect().width; el.style.width = p; return Math.round(w); };
+```
+
+**Trampa dentro de la trampa:** `flex-direction: column` **+ `flex-wrap: wrap` es multilínea**, y en
+un multilínea el ancho de la línea lo fija el **contenido**, no el contenedor — `align-items: stretch`
+estiraba los hijos a 275px dentro de un padre de 218. Si se apila para que quepa, va `flex-wrap: nowrap`.
+
+**Y la que DESIGN §R ya avisaba:** `container-type` implica contención de **layout**, así que el
+elemento pasa a ser bloque contenedor de sus descendientes `position: fixed`. Ponerlo en un
+componente que ancla un overlay a pantalla completa (`.psf-cam-ov { position: fixed; inset: 0 }`)
+lo encoge al tamaño del componente. El contenedor va en el **wrapper de layout**, nunca en el nodo
+que ancla el overlay.
+---
+
+## 41. PrimeNG v22 **ignora `styleClass`** en `p-select` y `p-inputnumber` (108 usos sospechosos)
+
+La clase no llega al elemento. No hay warning, no hay error: el CSS simplemente **nunca aplica** y
+la regla queda de adorno en el bloque `styles`.
+
+```html
+<p-select styleClass="arq-fld arq-fld-suc" ... />
+```
+```js
+document.querySelector('p-select').className
+// "p-component p-inputwrapper p-select ng-untouched ..."   ← ni arq-fld ni arq-fld-suc
+```
+
+Encontrado dos veces el mismo día, en dos componentes sin relación:
+- `.arq-fld` (tipografía + alto de campo) nunca llegó a los `p-select` del arqueo → se quedaban en
+  35px con la tipografía por defecto mientras los `input` hermanos medían 44.
+- `.cad-qty-w { max-width: 12rem }` nunca aplicó a un `p-inputnumber` → el campo venía **sin tope
+  desde el día uno** (275px, y a 320px se salía de la tarjeta).
+- `.cad-suc-pick { min-width: 14rem }` idem: el selector de sucursal jamás midió los 14rem que pedía.
+
+**`inputStyleClass` SÍ se propaga** (llega al `<input>` de adentro) — por eso `.cad-qty-in` funcionaba
+y confundía el diagnóstico: parte del estilo aplicaba y parte no.
+
+**Arreglo:** apuntar al **elemento**, no a la clase.
+
+```css
+:host ::ng-deep .arq-panel p-select { min-height: 44px; align-items: center; }
+:host ::ng-deep .cad-qty p-inputnumber { max-width: min(12rem, 100%); }
+```
+
+**Alcance sin auditar:** el barrido del repo da **108 `styleClass` sobre `p-select` en 41 archivos**
+y **6 sobre `p-inputnumber`**. Todos son sospechosos de ser letra muerta. Antes de "arreglarlos" en
+masa hay que mirar caso por caso: varios están compensados por otra regla o por el layout, y hacerlos
+efectivos **cambia el aspecto** de pantallas que hoy nadie reporta como rotas.
+
+```bash
+grep -rho "<p-select[^>]*styleClass=\"[^\"]*\"" apps/view/src/app --include=*.ts | wc -l   # 108
+```
+
+**Cómo verificarlo en 5 segundos** antes de perder media hora: abrir la pantalla y leer
+`element.className`. Si la clase no está, el CSS no aplica — no importa cuán correcto sea el selector.
+---
+
+## 42. Un header de seguridad puede matar una feature entera, y sólo se ve en producción
+
+El asistente por voz de `/tienda/caducidades` **nunca funcionó en producción**. En local funcionaba perfecto, así que se probó, se aprobó y se desplegó tres veces sin que nadie lo notara.
+
+La consola del navegador lo decía, pero enterrado entre 15 avisos de preload:
+
+```
+[Violation] Permissions policy violation: microphone is not allowed in this document.
+```
+
+Causa: `nginx.conf` mandaba, desde `A.0bis.19` (2026-05-26, **anterior a la feature**):
+
+```nginx
+add_header Permissions-Policy "geolocation=(self), camera=(self), microphone=()" always;
+```
+
+**`microphone=()` es una lista vacía, y una lista vacía niega a TODOS — incluido el propio sitio.** No es "sin restricción": es la forma más restrictiva que existe. `camera=(self)` y `geolocation=(self)` sí permitían, así que la cámara del escáner andaba y el micrófono no, lo cual mandaba a buscar el bug al componente.
+
+**Por qué no se ve en local:** el dev server de Angular **no manda esta cabecera**. Cualquier cosa que dependa de `Permissions-Policy`, `CSP`, `HSTS` o `X-Frame-Options` se comporta distinto detrás de nginx, y eso sólo pasa en la imagen de Docker. Probar la feature en `ng serve` **no prueba nada** sobre estos headers.
+
+**Diagnóstico en 2 llamadas, sin adivinar:**
+
+```bash
+curl -sI https://<host>/ | grep -i permissions-policy
+```
+```js
+// en la consola de la página real (funciona sin estar logueado):
+document.featurePolicy.allowsFeature('microphone')  // false = lo mata la cabecera
+document.featurePolicy.allowsFeature('camera')      // true  = comparación de control
+await navigator.mediaDevices.getUserMedia({audio:true})  // NotAllowedError instantáneo
+```
+
+Si con la cabecera arreglada `getUserMedia` **se queda esperando** en vez de rechazar al instante, está bien: eso es el prompt de permiso del navegador.
+
+**Segunda trampa, dentro de la misma:** en nginx `add_header` **NO se hereda** en un `location` que declara sus propios `add_header`. Los headers están **duplicados a propósito** en el bloque global y en `location /`. Cambiar sólo el global **no arregla nada**, porque el `index.html` lo sirve el `location`. Hay que cambiar las dos copias — y son 3 archivos (`nginx.conf`, `apps/vendor/nginx.conf`, `apps/portal/nginx.conf`), o sea 6 lugares.
+
+**Cómo verificarlo antes de desplegar** (nginx en Docker con la config de verdad, sin esperar el deploy):
+
+```bash
+sed 's/\$PORT/8080/g' nginx.conf > /tmp/default.conf   # $PORT lo inyecta Railway
+docker run -d --name ngxtest -p 18080:8080 \
+  -v /tmp/default.conf:/etc/nginx/conf.d/default.conf:ro \
+  -v /tmp/html:/usr/share/nginx/html:ro nginx:alpine
+curl -sI http://127.0.0.1:18080/ | grep -i permissions-policy
+```
+
+Eso valida **la sintaxis y el valor servido** de una sola pasada. Un `nginx -t` con el archivo crudo falla por el `$PORT` sin expandir y hace creer que la config está mal.
+
+**Regla:** al agregar una capacidad del navegador (micrófono, cámara, GPS, portapapeles, pantalla), revisar `Permissions-Policy` en los 3 `nginx.conf` **en el mismo PR que la feature**, y abrir sólo `(self)` y sólo donde esa capacidad se usa de verdad. El portal del cliente sigue con `microphone=()` porque no dicta: la lista vacía es correcta **cuando la feature no existe**.
