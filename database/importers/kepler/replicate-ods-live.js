@@ -125,7 +125,10 @@ const SAFETY_INTERVAL_MS = Number(process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 
 // BUG PREVIO (c9 en todas): la red hacía `c9 >= current_date-N` → "operator does not exist:
 // double precision/numeric/varchar >= date" (150k veces en el log) → kdm2/kdij/kdue quedaban SIN
 // red de seguridad, expuestas al skip silencioso del ctid (líneas de venta faltantes).
-const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
+// 2026-09-09: la ventana vive en ../lib/ods-recent-window.js (compartida con reconcile-ods-window.js).
+// Para kdm1 es `c9 OR c68` (fecha de CAPTURA): con sólo c9, un pago capturado hoy con fecha valor
+// atrasada >3 días que el ctid saltó NO se recuperaba jamás (17 X-D-26 de Oficinas ausentes en prod).
+const { recentWindowSql } = require('../lib/ods-recent-window');
 const _lastSafety = new Map();
 
 // RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
@@ -371,18 +374,18 @@ async function syncCtid(p, code, table, meta, { apply, full }) {
 
   // RED DE SEGURIDAD: re-envía la ventana reciente por fecha (recupera filas que el ctid saltó).
   // Idempotente (raw-upsert) → re-enviar filas ya presentes es inofensivo. Throttle a SAFETY_INTERVAL.
-  const rcol = RECENT_COL[table];
-  const rcolMeta = rcol && meta.cols.find((c) => c.column_name === rcol);
-  // Type-guard: solo si la columna es fecha/timestamp. Si RECENT_COL apunta mal, la tabla se queda
-  // SIN red de seguridad (degradación limpia) en vez de spamear "operator does not exist: X >= date".
-  if (rcolMeta && /date|timestamp/.test(rcolMeta.data_type)) {
+  // Type-guard adentro del helper: sólo columnas que existen y son fecha/timestamp. Si ninguna
+  // califica devuelve null y la tabla se queda SIN red de seguridad (degradación limpia) en vez de
+  // spamear "operator does not exist: X >= date".
+  const ventana = recentWindowSql(table, meta.cols, SAFETY_DAYS);
+  if (ventana) {
     const key = `${code}/${table}`;
     const nowMs = Date.now();
     if (full || (nowMs - (_lastSafety.get(key) || 0)) >= SAFETY_INTERVAL_MS) {
       _lastSafety.set(key, nowMs);
       let sbuf = [], sSeen = 0, sChanged = 0;
       const rows = (await p.query(
-        `SELECT ${selList} FROM md.${qid(table)} WHERE ${qid(rcol)} >= current_date - ${SAFETY_DAYS}`)).rows;
+        `SELECT ${selList} FROM md.${qid(table)} WHERE ${ventana}`)).rows;
       for (const row of rows) {
         const o = { sucursal: code };
         for (const c of meta.cols) o[c.column_name] = row[c.column_name];

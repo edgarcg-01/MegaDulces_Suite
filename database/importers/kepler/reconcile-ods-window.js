@@ -58,9 +58,12 @@ const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--wa
 const WATCH_SEC = WATCH_ARG ? Math.max(60, Number(WATCH_ARG.split('=')[1] || 900)) : 0;
 const SHIP_BATCH = Math.max(200, Number(process.env.ODS_SHIP_BATCH) || 2000);
 
-// Fecha de NEGOCIO por tabla. Una tabla sin entrada acá no se puede acotar → se salta (reconciliar
-// una tabla entera por PK sería carísimo y no es el objetivo de una red de seguridad).
-const RECENT_COL = { kdm1: 'c9', kdm2: 'c32', kdpord: 'c6', kdue: 'c7', kdij: 'c10' };
+// Ventana por tabla: fecha de NEGOCIO, y en kdm1 también la de CAPTURA (`c68`). Vive en
+// ../lib/ods-recent-window.js, compartida con la red de seguridad de replicate-ods-live.js.
+// 2026-09-09: con sólo `c9` este reconciliador NO veía los pagos capturados con fecha valor atrasada
+// >3 días que el ctid saltó — en prod faltaban 17 X-D-26 de Oficinas y acá daba `faltan: 0`.
+// Una tabla sin ventana se salta (reconciliar una tabla entera por PK sería carísimo).
+const { RECENT_COL, recentWindowSql } = require('../lib/ods-recent-window');
 
 const SUB_BASE = process.env.ODS_SOURCE_BASE
   || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -95,14 +98,15 @@ async function tableMeta(src, table) {
 const keyOf = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
 
 async function reconcile(local, prod, code, table) {
-  const rcol = RECENT_COL[table];
-  if (!rcol) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
+  if (!RECENT_COL[table]) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
   const meta = await tableMeta(local, table);
   if (!meta) return { suc: code, tabla: table, skip: 'no existe en el replica' };
   if (!meta.pk.length) return { suc: code, tabla: table, skip: 'sin PK' };
 
   const pkList = meta.pk.map(qid).join(', ');
-  const ventana = `${qid(rcol)} >= (current_date - ${DAYS})`;
+  // Misma ventana en los DOS lados (replica y ODS comparten columnas): kdm1 = c9 OR c68.
+  const ventana = recentWindowSql(table, meta.cols, DAYS);
+  if (!ventana) return { suc: code, tabla: table, skip: 'columna de fecha no es date/timestamp en el replica' };
 
   const loc = (await local.query(`SELECT ${pkList} FROM md.${qid(table)} WHERE ${ventana}`)).rows;
   if (!loc.length) return { suc: code, tabla: table, local: 0, faltan: 0 };
