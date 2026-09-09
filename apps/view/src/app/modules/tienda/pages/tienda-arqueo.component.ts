@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, NgZone, OnInit, QueryList, ViewChildren, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -216,7 +216,7 @@ interface CortesPersona {
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
                              [attr.aria-label]="'Cantidad de billetes de $' + d"
                              [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, i)" (focus)="selectAll($event)">
+                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, 0, i)" (focus)="selectAll($event)">
                       <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
                     </label>
                   }
@@ -237,7 +237,7 @@ interface CortesPersona {
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
                              [attr.aria-label]="'Cantidad de monedas de ' + (d >= 1 ? '$' + d : (d*100) + ' centavos')"
                              [value]="denomCount[d] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, billetes.length + i)" (focus)="selectAll($event)">
+                             (input)="onDenomInput(d, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
                       <span class="arq-den-sub">{{ (denomCount[d] || 0) ? money((denomCount[d] || 0) * d) : '' }}</span>
                     </label>
                   }
@@ -267,7 +267,7 @@ interface CortesPersona {
                         <input #medioInput pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
                                [attr.aria-label]="m.label"
                                [value]="medios[m.key] ?? ''" placeholder="0.00"
-                               (input)="onMedioInput(m.key, $event)" (keydown)="onCellKey($event, denoms.length + i)" (focus)="selectAll($event)">
+                               (input)="onMedioInput(m.key, $event)" (keydown)="onCellKey($event, 2, i)" (focus)="selectAll($event)">
                       </label>
                     }
                   </div>
@@ -284,7 +284,9 @@ interface CortesPersona {
                 </section>
               }
             </div>
-            <p class="arq-hint"><i class="pi pi-arrows-v"></i> Usa <kbd>↑</kbd> <kbd>↓</kbd> o <kbd>Enter</kbd> para moverte entre denominaciones.</p>
+            <p class="arq-hint"><i class="pi pi-arrows-alt" aria-hidden="true"></i>
+              Usa <kbd>↑</kbd> <kbd>↓</kbd> dentro de la columna, <kbd>←</kbd> <kbd>→</kbd> para cambiar de columna,
+              y <kbd>Enter</kbd> para avanzar. Abajo de la última casilla está el botón de guardar.</p>
             <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
 
             <!-- Barra pegada al fondo: contando billetes se scrollea todo el rato, y
@@ -303,8 +305,12 @@ interface CortesPersona {
                   <span class="arq-bar-desg">Efectivo {{ money(arqTotal()) }} · Otros medios {{ money(totMedios()) }}</span>
                 }
               </div>
-              <p-button type="button" [label]="submitLabel()" icon="pi pi-lock"
-                      [disabled]="!canSubmit() || saving()" [loading]="saving()" (click)="confirmar()"></p-button>
+              <!-- El botón es el último eslabón de la cadena: ↓ en la última casilla de
+                   cualquier columna cae acá, y ↑ vuelve a esa misma casilla. Así el
+                   arqueo entero se captura y se sella sin soltar el teclado. -->
+              <p-button #btnGuardar type="button" [label]="submitLabel()" icon="pi pi-lock"
+                      [disabled]="!canSubmit() || saving()" [loading]="saving()"
+                      (keydown)="onBotonKey($event)" (click)="confirmar()"></p-button>
             </div>
           }
 
@@ -794,6 +800,7 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   @ViewChildren('denomInput') private denomInputs?: QueryList<ElementRef<HTMLInputElement>>;
   @ViewChildren('medioInput') private medioInputs?: QueryList<ElementRef<HTMLInputElement>>;
+  @ViewChild('btnGuardar', { read: ElementRef }) private btnGuardar?: ElementRef<HTMLElement>;
 
   /**
    * ¿Se le revela el cuadre? Solo el supervisor del motor (`RECONCILIATION_VER`).
@@ -1120,31 +1127,94 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * número y bajar; una flecha que suma un billete sin aviso es un descuadre.
    */
   /**
-   * ↑/↓/Enter recorren TODAS las casillas del arqueo en una sola cadena: las 11
-   * denominaciones y los 5 medios. El índice es global (los medios arrancan en
-   * `denoms.length`) y el orden es el de la pantalla, así que ↓ en 50¢ cae en
-   * Tarjeta y ↑ en Tarjeta vuelve a 50¢.
+   * **La captura se mueve como se ve: en dos dimensiones.**
+   *
+   * La pantalla son tres columnas (billetes | monedas | medios), no una lista, y
+   * con una cadena lineal bajar de `$1000` a `Tarjeta` costaba 11 pulsaciones.
+   * Ahora:
+   *
+   *  - `↑` / `↓` → dentro de la columna;
+   *  - `←` / `→` → a la columna de al lado, **mismo renglón** (si la vecina es más
+   *    corta — monedas tiene 5 y billetes 6 — cae en su último renglón, no al vacío);
+   *  - `Enter` → igual que `↓`, para no romper el hábito de quien ya lo usa;
+   *  - `↓` (o `Enter`) en la **última** casilla de una columna → **el botón de
+   *    guardar**, que es a dónde iba a ir la mano de todos modos.
+   *
+   * Las coordenadas las manda el template (`col`, `row`) y la grilla se arma de
+   * los `@ViewChildren` en orden de DOM, así que si una columna no se renderiza
+   * (el relevo no declara medios) no hay que tocar nada acá.
    */
-  onCellKey(ev: KeyboardEvent, i: number) {
-    const salto = ev.key === 'ArrowUp' ? -1 : (ev.key === 'ArrowDown' || ev.key === 'Enter') ? 1 : 0;
-    if (!salto) return;
+  onCellKey(ev: KeyboardEvent, col: number, row: number) {
+    const k = ev.key;
+    if (k !== 'ArrowUp' && k !== 'ArrowDown' && k !== 'ArrowLeft' && k !== 'ArrowRight' && k !== 'Enter') return;
     ev.preventDefault();
-    this.focusCell(i + salto);
+    const g = this.grilla();
+    if (!g[col]) return;
+
+    if (k === 'ArrowLeft' || k === 'ArrowRight') {
+      const destino = g[col + (k === 'ArrowLeft' ? -1 : 1)];
+      if (!destino?.length) return;
+      // Clamp al último renglón de la vecina: columnas de distinto largo.
+      this.enfocar(destino[Math.min(row, destino.length - 1)]);
+      return;
+    }
+
+    if (k === 'ArrowUp') {
+      if (row > 0) this.enfocar(g[col][row - 1]);
+      return;
+    }
+
+    // ↓ o Enter
+    const siguiente = g[col][row + 1];
+    if (siguiente) { this.enfocar(siguiente); return; }
+    this.ultimaCelda = { col, row };
+    this.focusGuardar();
   }
 
-  /** Las dos listas concatenadas en el orden del DOM — una sola cadena de foco. */
-  private celdas(): HTMLInputElement[] {
-    return [
-      ...(this.denomInputs?.toArray() ?? []),
-      ...(this.medioInputs?.toArray() ?? []),
-    ].map((r) => r.nativeElement);
+  /**
+   * `↑` (o `←`) desde el botón devuelve el foco a la casilla exacta de donde se
+   * bajó — si volviera siempre a la misma, corregir el último número después de
+   * mirar el botón obligaría a navegar de nuevo toda la columna. `Enter` y espacio
+   * NO se interceptan: son la activación nativa del botón.
+   */
+  onBotonKey(ev: KeyboardEvent) {
+    if (ev.key !== 'ArrowUp' && ev.key !== 'ArrowLeft') return;
+    const { col, row } = this.ultimaCelda;
+    const g = this.grilla();
+    const celda = g[col]?.[row] ?? g[g.length - 1]?.slice(-1)[0];
+    if (!celda) return;
+    ev.preventDefault();
+    this.enfocar(celda);
   }
 
-  private focusCell(i: number) {
-    const inputs = this.celdas();
-    if (i < 0 || i >= inputs.length) return;
-    inputs[i].focus();
-    inputs[i].select();
+  /** De dónde se bajó al botón, para que `↑` vuelva ahí. */
+  private ultimaCelda = { col: 0, row: 0 };
+
+  /**
+   * La grilla real: `[billetes, monedas, medios]`. Los 11 inputs de denominación
+   * son UNA sola `QueryList` en orden de DOM, así que se parte por la cantidad de
+   * billetes; los medios son su propia lista y **se omiten si no se renderizaron**.
+   */
+  private grilla(): HTMLInputElement[][] {
+    const den = (this.denomInputs?.toArray() ?? []).map((r) => r.nativeElement);
+    const med = (this.medioInputs?.toArray() ?? []).map((r) => r.nativeElement);
+    const cols = [den.slice(0, this.billetes.length), den.slice(this.billetes.length)];
+    if (med.length) cols.push(med);
+    return cols;
+  }
+
+  private enfocar(el: HTMLInputElement) {
+    el.focus();
+    el.select();
+  }
+
+  /**
+   * El botón de guardar, dentro del `p-button`. Si está deshabilitado (no hay nada
+   * que guardar) el `focus()` no hace nada y el foco se queda donde estaba, que es
+   * lo correcto: no hay a dónde bajar todavía.
+   */
+  private focusGuardar() {
+    this.btnGuardar?.nativeElement.querySelector('button')?.focus();
   }
 
   /** Al entrar a una casilla se selecciona lo que hay: retecleás encima, no atrás. */
