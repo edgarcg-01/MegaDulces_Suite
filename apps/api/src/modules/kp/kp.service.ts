@@ -79,14 +79,66 @@ export class KpService {
     return unidades;
   }
 
+  /**
+   * `[TDA.3]` — ¿De qué UNIDAD es el código que se escaneó?
+   *
+   * ── El decode, que este módulo no tenía ─────────────────────────────────────
+   * Kepler no tiene "una columna de código de barras": tiene casillas, y **cada UNIDAD tiene la
+   * suya**. El decode verificado (2026-08-25, contra la pantalla del POS; vive en
+   * `services/feeds-ingest/barcode-compute.js`) es:
+   *
+   *   · unidad BASE (`c11`) → `c7`  + `c93`
+   *   · unidad DOS  (`c80`) → `c82` + `c95`   (factor `c81`)
+   *   · unidad TRES (`c83`) → `c85`            (factor `c84`)
+   *
+   * Este módulo se portó de un proyecto externo con la lista `c7, c82, c93, c95, c96`, o sea:
+   *  · **le falta `c85`** — el código de la tercera unidad. Medido en prod: sólo **2 SKUs** son
+   *    alcanzables únicamente por ahí, así que el hueco es real y chico. Se agrega igual.
+   *  · **`c96` no es un barcode**: trae códigos internos (`CB2383139`…). Se **conserva** en la
+   *    búsqueda porque 15 SKUs tienen ahí algo de 8-14 dígitos y quitarlo los volvería
+   *    inencontrables, pero NO se usa para deducir unidad: no la sabe.
+   *
+   * Es el mismo off-by-one que `barcode-compute.js` documenta como corregido para el importer
+   * («el importer viejo mapeaba c82→c83 … e ignoraba c93/c95/c85») y que a esta ruta nunca se le
+   * aplicó.
+   *
+   * ── Su techo, medido y dicho ────────────────────────────────────────────────
+   * **10,771 de 11,506 SKUs (93.6 %) tienen UNA sola unidad registrada**, así que en 9 de cada 10
+   * escaneos esto no puede expresar una elección: devuelve la única que hay. No es un defecto de
+   * este código — es el catálogo. Por eso la pantalla **no dice nada** cuando hay una sola unidad:
+   * un aviso que sale siempre se aprende a ignorar.
+   *
+   * Devuelve el NOMBRE de la unidad (`PZA`/`PAQ`/`CJA`/`KG`…) o `null` si el código no cayó en
+   * ningún slot con unidad conocida — y `null` se lee como "no sé", nunca como "es la base".
+   */
+  private unidadDelCodigo(r: any, code: string): string | null {
+    const norm = (v: any) => String(v == null ? '' : v).trim();
+    const igual = (v: any) => {
+      const s = norm(v);
+      if (!s) return false;
+      // Se comparan sin ceros a la izquierda: el escáner y Kepler no siempre coinciden en el pad.
+      return s === code || s.replace(/^0+/, '') === code.replace(/^0+/, '');
+    };
+    // El orden es la precedencia cuando el MISMO código está en dos slots: base > U2 > U3,
+    // igual que el `SRC_RANK` de `barcode-compute.js` — una sola fuente de verdad para la regla.
+    if (igual(r.bc1) || igual(r.bc3)) return norm(r.u1).toUpperCase() || null;  // c7  / c93 → c11
+    if (igual(r.bc2) || igual(r.bc4)) return norm(r.u2).toUpperCase() || null;  // c82 / c95 → c80
+    if (igual(r.bc6)) return norm(r.u3).toUpperCase() || null;                  // c85       → c83
+    return null; // el SKU mismo, o `c96` (código interno): no dice unidad
+  }
+
   /** Columnas que necesita el verificador, iguales para uno o para todos. */
   private static readonly COLS_PRECIO = `
     LPAD(TRIM(c1::text), 5, '0') AS codigo,
+    -- [TDA.3] Los slots, con su unidad. El orden importa: unidadDelCodigo() lo usa para saber a
+    -- que unidad pertenece cada casilla (base = bc1/bc3, U2 = bc2/bc4, U3 = bc6).
+    -- SIN ACENTOS GRAVES aca: esto vive dentro de un template literal y lo cierran.
     TRIM(c7::text)  AS bc1,
     TRIM(c82::text) AS bc2,
     TRIM(c93::text) AS bc3,
     TRIM(c95::text) AS bc4,
     TRIM(c96::text) AS bc5,
+    TRIM(c85::text) AS bc6,
     TRIM(c2::text)  AS nombre,
     TRIM(c11::text) AS u1, ${NUMC_NULL('c90')} AS pv1,
     TRIM(c80::text) AS u2, ${NUMC_NULL('c91')} AS pv2, ${NUMC_NULL('c81')} AS f2,
@@ -184,6 +236,7 @@ export class KpService {
            OR TRIM(c93::text) = $1
            OR TRIM(c95::text) = $1
            OR TRIM(c96::text) = $1
+           OR TRIM(c85::text) = $1
         ORDER BY (TRIM(sucursal::text) = '00'), TRIM(sucursal::text), c1
       `, [code]);
 
@@ -197,6 +250,15 @@ export class KpService {
 
       const unidades = this.armarUnidades(r);
       const base = unidades[0] || null;
+
+      // `[TDA.3]` De qué unidad es el código que se escaneó. Se resuelve contra ESTA fila —la misma
+      // de la que sale el precio— y no contra `catalog.product_barcodes`: así la unidad y el precio
+      // no pueden quedar en desacuerdo. La tabla canónica es otra copia y puede ir un tick atrás.
+      //
+      // `unidades` NO se reordena: sus `factor` significan "cuántas unidades base entran acá", así
+      // que poner otra primero volvería falsa la leyenda de las demás ("1 CJA" para una pieza). La
+      // pantalla decide a cuál le da el número grande; el arreglo sigue siendo base-primero.
+      const uEscaneada = this.unidadDelCodigo(r, code);
 
       // ¿Las plazas discrepan en el precio base? Sólo importa cuando NO se pidió una: con plaza
       // la respuesta es la de esa plaza y no hay ambigüedad que declarar.
@@ -226,6 +288,11 @@ export class KpService {
         precio_con_iva: base ? base.precio_con_iva : null,
         precio_sin_iva: base ? base.precio_sin_iva : null,
         unidades,
+        // `[TDA.3]` La unidad del código escaneado, y la base (que es a la que se refieren los
+        // `factor`). `null` = el código no cayó en un slot con unidad conocida (el SKU mismo, o
+        // `c96`, que trae códigos internos) — se lee "no sé", nunca "es la base".
+        unidad_escaneada: uEscaneada && unidades.some((x) => x.u === uEscaneada) ? uEscaneada : null,
+        unidad_base: base ? base.u : null,
         iva_pct:  Math.round(Math.abs(Number(r.iva_raw))),
         ieps_pct: Math.round(Math.abs(Number(r.ieps_raw))),
         // `[TDA.2]` Procedencia: de qué plaza salió, si el número varía entre plazas, y si lo
@@ -274,19 +341,29 @@ export class KpService {
         const unidades = this.armarUnidades(r);
         if (!unidades.length) continue;  // sin precio no sirve para el verificador
 
-        // Códigos de barras. Kepler no tiene una columna de código de barras:
-        // tiene cinco casillas y el capturista usa la que encuentra libre, así
-        // que hay que leerlas todas. Se descartan los que sólo repiten la clave
-        // del producto: no aportan como llave de búsqueda.
-        const bcs = [...new Set(
-          [r.bc1, r.bc2, r.bc3, r.bc4, r.bc5]
-            .map(b => String(b || '').trim())
-            .filter(b => b && b !== r.codigo)
-        )];
+        // Códigos de barras. Kepler no tiene una columna de código de barras: tiene casillas, y
+        // **cada UNIDAD tiene la suya** (ver `unidadDelCodigo`). Hay que leerlas todas. Se
+        // descartan los que sólo repiten la clave del producto: no aportan como llave de búsqueda.
+        //
+        // `[TDA.3]` Ahora se agrega `c85` (la tercera unidad, que faltaba) y —lo importante— el
+        // snapshot lleva **la unidad de cada barcode** en `bu`, en el mismo índice que `b`. Sin eso
+        // el kiosco sin red no podía saber qué unidad se escaneó y mostraba siempre la base, o sea
+        // el modo offline contestaba distinto que el modo en línea. `bu` se agrega EN PARALELO en
+        // vez de cambiar `b` a objetos: un lector viejo del snapshot sigue funcionando igual.
+        const bcs: string[] = [];
+        const bus: (string | null)[] = [];
+        for (const raw of [r.bc1, r.bc2, r.bc3, r.bc4, r.bc5, r.bc6]) {
+          const b = String(raw || '').trim();
+          if (!b || b === r.codigo || bcs.includes(b)) continue;
+          bcs.push(b);
+          const u = this.unidadDelCodigo(r, b);
+          bus.push(u && unidades.some((x) => x.u === u) ? u : null);
+        }
 
         items.push({
           c: r.codigo,
           b: bcs,
+          bu: bus,
           n: r.nombre || '',
           u: unidades.map(x => ({ u: x.u, p: x.precio_con_iva, s: x.precio_sin_iva })),
         });

@@ -92,3 +92,87 @@ describe('verificador · de qué plaza salió el precio', () => {
     expect(PAGE).toMatch(/plazaSinDato\(\)/);
   });
 });
+
+/**
+ * `[TDA.3]` — El precio grande responde al código que se escaneó.
+ *
+ * Antes el número grande era **siempre `unidades[0]`**, o sea la unidad base: escanear el código
+ * de la CAJA mostraba el precio de la PIEZA. Si el producto tenía base PZA y se escaneaba la pieza,
+ * acertaba por coincidencia.
+ *
+ * El decode verificado (`services/feeds-ingest/barcode-compute.js`, contrastado contra la pantalla
+ * del POS) dice que cada unidad tiene su casilla: base `c7`+`c93`, U2 `c82`+`c95`, U3 **`c85`**.
+ * Este módulo se portó con `c7, c82, c93, c95, c96` — sin `c85` y con `c96`, que trae códigos
+ * internos (`CB2383139`…), no EANs.
+ *
+ * Techo medido y dicho: **10,771 de 11,506 SKUs (93.6 %) tienen UNA sola unidad registrada**, así
+ * que en 9 de cada 10 escaneos esto devuelve la única que hay. Por eso la pantalla calla ahí.
+ */
+describe('verificador · el precio grande sigue al barcode escaneado', () => {
+  it('busca en el slot de la tercera unidad, que faltaba', () => {
+    const fn = /async getPrecio\([\s\S]*?\n  \}/.exec(SVC)![0];
+    expect(fn).toMatch(/TRIM\(c85::text\) = \$1/);
+  });
+
+  it('resuelve la unidad con el mapeo slot→unidad del decode verificado', () => {
+    const fn = /private unidadDelCodigo\([\s\S]*?\n  \}/.exec(SVC)![0];
+    expect(fn).toMatch(/igual\(r\.bc1\) \|\| igual\(r\.bc3\)/); // c7 / c93  → base (c11)
+    expect(fn).toMatch(/igual\(r\.bc2\) \|\| igual\(r\.bc4\)/); // c82 / c95 → U2   (c80)
+    expect(fn).toMatch(/igual\(r\.bc6\)/);                      // c85       → U3   (c83)
+  });
+
+  // `c96` trae códigos internos de Kepler, no barcodes: sirve para ENCONTRAR el producto (15 SKUs
+  // tienen ahí algo de 8-14 dígitos) pero no puede decir una unidad. Si alguien lo cablea como
+  // fuente de unidad, el mostrador afirmaría una unidad inventada.
+  it('c96 NO se usa para deducir unidad', () => {
+    const fn = /private unidadDelCodigo\([\s\S]*?\n  \}/.exec(SVC)![0];
+    expect(fn).not.toMatch(/bc5/);
+  });
+
+  it('sólo afirma la unidad si además tiene precio', () => {
+    // Decir "escaneaste CJA" sin poder mostrar el precio de CJA es peor que no decir nada.
+    expect(SVC).toMatch(/unidad_escaneada: uEscaneada && unidades\.some\(\(x\) => x\.u === uEscaneada\)/);
+    expect(FRONT).toMatch(/unidadEscaneada: uEsc && unidades\.some\(\(x\) => x\.u === uEsc\)/);
+  });
+
+  it('el snapshot offline lleva la unidad de cada barcode', () => {
+    // Sin esto el kiosco SIN RED contestaba distinto que el kiosco con red: siempre la base.
+    expect(SVC).toMatch(/bu: bus/);
+    expect(FRONT).toMatch(/indiceUnidad/);
+    // Y un respaldo viejo (sin `bu`) degrada al comportamiento anterior, no a una unidad inventada.
+    expect(FRONT).toMatch(/bu\?: \(string \| null\)\[\]/);
+  });
+
+  // LA NEGATIVA CENTRAL: si el hero volviera a ser `unidades[0]` fijo, volvería el defecto.
+  it('el precio grande NO es unidades[0] fijo', () => {
+    expect(PAGE).not.toMatch(/precioPrincipal = computed\(\(\) => this\.producto\(\)\?\.unidades\?\.\[0\]/);
+    expect(PAGE).toMatch(/unidadHero = computed/);
+    expect(PAGE).toMatch(/esc && us\.find\(\(x\) => x\.u === esc\)\) \|\| us\[0\]/);
+  });
+
+  // El arreglo NO se reordena: los `factor` significan "cuántas unidades base entran acá", así que
+  // poner otra unidad primero volveria falsa la leyenda de las demas ("1 CJA" para una pieza).
+  it('la lista de abajo excluye la del hero y el factor se refiere a la BASE', () => {
+    expect(PAGE).not.toMatch(/p\.unidades\.slice\(1\)/);
+    expect(PAGE).toMatch(/otrasUnidades = computed/);
+    expect(PAGE).toMatch(/u\.factor > 1 && unidadBase\(\)/);
+    expect(PAGE).toMatch(/\{\{ u\.factor \}\} \{\{ unidadBase\(\) \}\}/);
+  });
+
+  it('calla cuando el producto tiene una sola unidad (el 93.6%)', () => {
+    expect(PAGE).toMatch(/vaAclararUnidad = computed\(\s*\n?\s*\(\) => \(this\.producto\(\)\?\.unidades\?\.length \?\? 0\) > 1 && !!this\.unidadEscaneada\(\)/);
+  });
+
+  it('la unidad escaneada se resetea en cada resultado', () => {
+    const fn = /private aplicar\(r: ResultadoBusqueda\): void \{[\s\S]*?\n  \}/.exec(PAGE)![0];
+    expect(fn).toMatch(/unidadEscaneada\.set\(r\.unidadEscaneada \?\? null\)/);
+  });
+
+  // La equivalencia ("20 KG") se DERIVA de unidades[0], no del campo nuevo de la respuesta.
+  // Depender del campo la hacía desaparecer con un respaldo viejo o un backend sin redeployar —
+  // lo cazó `tienda-verificador.component.spec.ts`, que ya exigía ver el factor.
+  it('la unidad base se deriva del arreglo, no del campo de la respuesta', () => {
+    expect(PAGE).toMatch(/unidadBase = computed\(\(\) => this\.producto\(\)\?\.unidades\?\.\[0\]\?\.u \?\? null\)/);
+    expect(PAGE).not.toMatch(/unidadBase\.set\(/);
+  });
+});
