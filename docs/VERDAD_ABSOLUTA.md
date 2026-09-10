@@ -394,6 +394,8 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ~~el almacén `02` de la sucursal 03~~ | **CERRADO — no era hueco** | ✅ Es **réplica**, probado por identidad documental: **37,020 de 37,020** folios (`folio` + `doctype`) de suc03/alm02 existen idénticos en la sucursal 02, y está **congelada el 2026-01-07** (la 02 real llega a hoy). Publicarla sería **doble conteo de 78,633 u** en 1,771 de 2,594 celdas. El filtro está correcto — ver §9.9 |
 | ⚠️ **el árbitro es promedio histórico** | −1.95% mediano vs `c18` | `c16 = c8/c5` con `c5` = entradas acumuladas. Valuamos a **costo promedio ponderado**, no de reposición (§3.4) |
 | ⚠️ **62 SKUs con las columnas al revés** | 101 filas / $354,067 | `cost_with_tax < cost_base`; el fallback `cost_base` los valuaría ~10.9× arriba **si** Kepler dejara de dar `c16` (hoy ninguna cae ahí) |
+| ⭐ **factor de caja contradicho por el ERP** | **41 pares / $1,395,458** | el ERP vendió una unidad MAYOR que la caja declarada — imposible. **36 de 41 con `box_factor = 1`** y **35 de 41 de `override`** (razon mediana 12.00×): granel por kilo con el factor puesto a mano en 1. Lista con el `bf_sugerido` en `kx-factor-caja-contradicho-por-el-erp.csv`; se corrige **desde la UI**. Detalle en [`UNIDADES_DE_MEDIDA.md` §8septies](UNIDADES_DE_MEDIDA.md) |
+| ⚠️ **el peldano de Wincaja es un NULL mudo** | **353,595 celdas / $86,189,728** | `sales_daily.rung_factor` NULL en el 100% de Wincaja (legitimo: no declara peldano) pero `units_unresolved` marca **64**. El 55% del ingreso de 90 d sin nada que diga "aca no se midio" |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
 
 ---

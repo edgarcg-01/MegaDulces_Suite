@@ -35,6 +35,10 @@ const check = (label, cond, detail = '') => {
   else { fail++; console.log(`  ✖ ${label}${detail ? ` — ${detail}` : ''}`); }
 };
 
+const NUM = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+const MONEY = (n) => '$' + NUM(n);
+const PCT = (a, b) => (b ? (100 * Number(a) / Number(b)).toFixed(2) : '0.00') + '%';
+
 const VEREDICTOS = ['verificado', 'no_aplica', 'sin_testigo', 'en_disputa', 'disputa_granel'];
 const NATIVOS = ['nativo_es_base', 'vende_la_base', 'vende_paquete', 'no_explicado', 'sin_razon'];
 const METODOS = ['dinero', 'peso', 'divisor', 'unidad_es_caja', 'sin_metodo'];
@@ -152,6 +156,114 @@ const METODOS = ['dinero', 'peso', 'divisor', 'unidad_es_caja', 'sin_metodo'];
     JSON.stringify(byN));
   check('quedan celdas `no_explicado` a la vista (el defecto vivo de ADR-055, 45 SKUs)',
     (byN.no_explicado || 0) > 0);
+
+  // ── 5bis. ⭐⭐ EL PELDAÑO COBRADO CONTRA EL FACTOR DE CAJA — SÓLO EN UNA DIRECCIÓN.
+  //
+  // ⛔ PRIMERO EL ERROR QUE ESTE BLOQUE NO COMETE, porque casi se comete (revisión KX,
+  // 2026-09-09): `kdm2.c58` (en qué unidad se vendió ESE renglón) **no es testigo de
+  // `box_factor`** (cuántas bases hay en una caja). Son los DOS EJES del bloque 5. Medido: la
+  // mediana de c58_max / box_factor es **0.0667 = 1/15**, y en 15,587 de 19,787 pares el peldaño
+  // es menor — no porque el factor esté mal, sino porque **el mostrador vende piezas**. Usar eso
+  // como veredicto marcaría 15,587 pares sanos, que es exactamente el falso positivo de ADR-055.
+  //
+  // ⭐ PERO UNA DIRECCIÓN SÍ ES IMPOSIBLE: que el ERP venda una unidad MAYOR que la caja que
+  // declaramos. Si box_factor dice 1 (o sea "este producto no viene en caja") y el ticket vendió
+  // peldaños de 12, 18, 20 o 24, el factor está mal por debajo y no hay lectura benigna.
+  //
+  // Medido en prod (90 d, U-D 8/10/12): **41 pares / $1,395,458**, con un patrón nítido:
+  //   · **36 de 41 tienen box_factor = 1**, el valor que significa "no hay caja";
+  //   · **35 de 41 vienen de override**, el factor MANUAL, con razón mediana **12.00x**;
+  //   · y los nombres traen el número: GOMA A GRANEL LA ROSA 12KG con c58 12 · LA ROSA
+  //     CONFICHOCKY GRANEL 9KG con 18 · CAR SURTIDO 18KG COLOMBINA con 18 · ALMENDRA CONFITADA
+  //     10 KG con 24 · PASTA B. GUSTINOS 20KG con 20. Es granel por kilo y alguien puso 1.
+  //
+  // ⭐⭐ Y el override vuelve a ser la PEOR fuente, por dos órdenes de magnitud. ADR-057 ya lo
+  // decía contra el testigo de PAGO; acá lo confirma, independiente, el peldaño COBRADO:
+  //     override .... 1,199 pares · $13,526,866 · contradicho en 2.92%
+  //     default ..... 1,161 pares ·  $6,853,643 · contradicho en 0.17%
+  //     kepler_c84 .. 7,246 pares · $64,907,048 · contradicho en 0.03%
+  //     etiquetera .. 9,964 pares · $43,284,758 · contradicho en 0.02%
+  //     factor_sale ..  217 pares ·  $2,707,930 · contradicho en 0.00%
+  console.log('\n── 5bis. ⭐⭐ El peldaño cobrado contra el factor de caja (una sola dirección) ──');
+  const t58 = Date.now();
+  await c.query(`CREATE TEMP TABLE _c58 AS
+    SELECT d.sucursal, btrim(d.c8) sku,
+           max(NULLIF(btrim(d.c58::text), '')::numeric) c58_max,
+           sum(d.c13::numeric) importe
+      FROM kepler_ods.kdm2 d
+      JOIN kepler_ods.kdm1 h ON h.sucursal = d.sucursal AND h.c2 = d.c2 AND h.c3 = d.c3
+                            AND h.c4 = d.c4 AND h.c6 = d.c6
+     WHERE d.c2 = 'U' AND d.c3 = 'D' AND btrim(d.c4::text) IN ('8','10','12')
+       AND h.c9 >= current_date - 90
+       AND d.sucursal = btrim(d.c1)
+       AND NULLIF(btrim(d.c58::text), '')::numeric > 0
+     GROUP BY 1, 2`);
+  const imp = (await c.query(
+    `WITH j AS (
+       SELECT x.c58_max, x.importe, u.box_factor, u.factor_source
+         FROM _c58 x
+         JOIN commercial.warehouses w ON w.kepler_code = x.sucursal AND w.deleted_at IS NULL
+         JOIN catalog.products p ON p.tenant_id = w.tenant_id AND p.sku::text = x.sku
+                                AND p.deleted_at IS NULL
+         JOIN analytics.v_unit_truth u ON u.tenant_id = w.tenant_id
+                                      AND u.warehouse_id = w.id AND u.product_id = p.id
+        WHERE u.box_factor > 0)
+     SELECT count(*)::int pares,
+            count(*) FILTER (WHERE c58_max > box_factor * 1.02)::int imposibles,
+            coalesce(sum(importe) FILTER (WHERE c58_max > box_factor * 1.02), 0)::numeric imp,
+            count(*) FILTER (WHERE c58_max > box_factor * 1.02 AND box_factor = 1)::int bf1,
+            count(*) FILTER (WHERE c58_max > box_factor * 1.02
+                             AND factor_source = 'override')::int ovr,
+            count(*) FILTER (WHERE factor_source = 'override')::int ovr_tot,
+            count(*) FILTER (WHERE factor_source = 'etiquetera')::int etq_tot,
+            count(*) FILTER (WHERE c58_max > box_factor * 1.02
+                             AND factor_source = 'etiquetera')::int etq_mal
+       FROM j`)).rows[0];
+  console.log(`     ${NUM(imp.pares)} pares comparables · ${NUM(imp.imposibles)} imposibles = ${MONEY(imp.imp)}`
+    + ` · con box_factor=1: ${NUM(imp.bf1)} · de override: ${NUM(imp.ovr)}`);
+  check('⛔ la contradicción imposible EXISTE y se cuenta (c58 > box_factor)',
+    imp.imposibles > 0,
+    `${NUM(imp.imposibles)} — si da 0, o se corrigió el dato maestro o dejó de medirse`);
+  check('⚠️ no CRECIÓ (41 pares medidos; techo 80)', imp.imposibles <= 80,
+    `${NUM(imp.imposibles)} pares / ${MONEY(imp.imp)}`);
+  check('⭐ y sigue concentrada en el factor MANUAL, no en la etiquetera',
+    imp.ovr_tot > 0 && imp.etq_tot > 0
+      && (imp.ovr / imp.ovr_tot) > (imp.etq_mal / imp.etq_tot) * 10,
+    `override ${PCT(imp.ovr, imp.ovr_tot)} vs etiquetera ${PCT(imp.etq_mal, imp.etq_tot)}`);
+  console.log(`     (${((Date.now() - t58) / 1000).toFixed(1)}s)`);
+
+  // ── 5ter. ⚠️ EL NULL MUDO DE WINCAJA en el peldaño. `sales_daily.rung_factor` va NULL en el
+  // 100% de las celdas de Wincaja — legítimo, porque Wincaja no declara peldaño — pero
+  // `units_unresolved`, la columna que existe para DECLARARLO, está en cero. Son 353,595 celdas
+  // y $86,189,728: el 55% del ingreso de 90 días sin nada que diga "acá no se midió" (ADR-056).
+  //
+  // ⚠️ Y una mala atribución propia que este bloque existe para no repetir: partir el fact por
+  // `w.kepler_code IS NOT NULL` da "Kepler sin peldaño en el 73% de la suc 06". **Es falso** —
+  // las sucursales 01 y 06 tienen los DOS ERPs sobre el mismo almacén, así que el ERP se
+  // distingue por CANAL, no por el código del almacén. Kepler puro: 533 de 361,051 (0.15%).
+  console.log('\n── 5ter. ⚠️ El NULL mudo de Wincaja en el peldaño ──');
+  const mudo = (await c.query(
+    `SELECT count(*) FILTER (WHERE ch = 'KEPLER')::int kep,
+            count(*) FILTER (WHERE ch = 'KEPLER' AND rf IS NULL)::int kep_null,
+            count(*) FILTER (WHERE ch = 'WINCAJA')::int win,
+            count(*) FILTER (WHERE ch = 'WINCAJA' AND rf IS NULL)::int win_null,
+            coalesce(sum(rev) FILTER (WHERE ch = 'WINCAJA' AND rf IS NULL), 0)::numeric win_rev,
+            count(*) FILTER (WHERE rf IS NULL AND COALESCE(unres, 0) > 0)::int declaradas
+       FROM (SELECT CASE WHEN channel IN ('tienda','mostrador','credito','ruta','mayoreo')
+                         THEN 'KEPLER' ELSE 'WINCAJA' END ch,
+                    rung_factor rf, revenue rev, units_unresolved unres
+               FROM analytics.sales_daily
+              WHERE tenant_id = $1 AND sale_date >= current_date - 90) t`, [T],
+  )).rows[0];
+  console.log(`     KEPLER : ${NUM(mudo.kep_null)} de ${NUM(mudo.kep)} sin peldaño (${PCT(mudo.kep_null, mudo.kep)})`);
+  console.log(`     WINCAJA: ${NUM(mudo.win_null)} de ${NUM(mudo.win)} (${PCT(mudo.win_null, mudo.win)}) = ${MONEY(mudo.win_rev)}`
+    + ` · declaradas en units_unresolved: ${NUM(mudo.declaradas)}`);
+  check('⭐ KEPLER sí resuelve el peldaño (≥ 99% de sus celdas)',
+    (100 * mudo.kep_null / (mudo.kep || 1)) <= 1,
+    `${PCT(mudo.kep_null, mudo.kep)} sin peldaño`);
+  check('⚠️ el peldaño de WINCAJA es un NULL sin declarar — hueco ABIERTO, medido para que no se olvide',
+    mudo.win_null > 0 && mudo.declaradas < mudo.win_null,
+    `${NUM(mudo.win_null)} celdas NULL, ${NUM(mudo.declaradas)} declaradas`);
 
   // ── 6. ⭐ EL TESTIGO ES INDEPENDIENTE, verificado sobre la DEFINICIÓN.
   // Si la vista leyera la etiquetera para juzgar a la etiquetera, la concordancia sería circular.
