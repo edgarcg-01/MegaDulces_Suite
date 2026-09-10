@@ -174,8 +174,15 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                 -->
                 @if (mayoreo().length) {
                   <div class="vp-mayoreo">
-                    @for (t of mayoreo(); track t.etiqueta) {
-                      <div class="vp-may-row" [class.is-realza]="t.realza">
+                    @for (x of mayoreoConFoco(); track x.t.etiqueta) {
+                      @let t = x.t;
+                      <!--
+                        [TDA.7] is-foco = el escalon de la unidad que se ESCANEO. Es el que va
+                        grande; el otro se atenua. Sin esto los dos salian del mismo tamano y uno
+                        podia estar en pesos por paquete y el otro en pesos por pieza.
+                      -->
+                      <div class="vp-may-row" [class.is-realza]="t.realza"
+                           [class.is-foco]="x.destacado">
                         <!--
                           La CONDICION va arriba y grande, no de subtitulo. Es el punto critico
                           de esta pantalla: si el monto de mayoreo crece y la condicion se
@@ -190,7 +197,14 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                         </div>
                         <div class="vp-may-precio">
                           <span class="vp-may-monto">{{ money(t.precio_con_iva) }}</span>
-                          <span class="vp-may-cu">c/u</span>
+                          <!--
+                            [TDA.7] La unidad del monto VIENE con el escalon; estaba cableada a
+                            "c/u" y eso erraba la cifra por 7x. Medido en prod: en 380 productos
+                            de base pieza con paquete registrado, wholesale_pack_price es el
+                            precio de un PAQUETE (mediana 0.93 contra pack_price). Decirle "c/u"
+                            a $65.11 cuando la pieza cuesta $9.37 es otro numero, no otro estilo.
+                          -->
+                          <span class="vp-may-cu">{{ t.unidad_monto }}</span>
                         </div>
                       </div>
                       <!--
@@ -199,7 +213,13 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                         perceptible (>=1%): abajo de eso el numero es cierto pero pintarlo de
                         verde seria mentir con el color. Medido: 366 tiers caen ahi.
                       -->
-                      @if (t.realza) {
+                      <!--
+                        [TDA.7] La pastilla del ahorro va SOLO en el escalon de la unidad leida.
+                        Dos ahorros grandes, uno por pieza y otro por paquete, compiten entre si
+                        y ninguno queda claro; y el del escalon que no aplica invita a una compra
+                        que no es la que se esta cotizando.
+                      -->
+                      @if (t.realza && x.destacado) {
                         <p class="vp-may-ahorro">
                           <i class="pi pi-arrow-down" aria-hidden="true"></i>
                           Te ahorras
@@ -416,10 +436,19 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
        el centro de atencion y se vuelve una esquina. Se centra el BLOQUE DE RESPUESTA
        (nombre, cifra, mayoreo, unidades); lo que no se centra es la letra chica larga, que
        se acota con max-width para no leerse en zig-zag.
-       §O.3 pide que el total DOMINE la jerarquia; no dice donde, y la izquierda era una
-       herencia del layout de formulario, no una decision. */
-    .vp-card { text-align: center; }
+
+       [TDA.7] CORRIJO LA JUSTIFICACION QUE ESCRIBI ACA. Decia que "§O.3 no dice donde" y me
+       autoricé desde el silencio. DESIGN.md no está callado: "todo centrado" está en la lista
+       anti-slop, "Centered everything" es antipatrón de Operations, y §Ing.UI 1 manda patrón F
+       con las palabras "no centrado por estética". Centrar el NUCLEO de la respuesta se queda
+       porque lo pidió 0Sistemas de forma explícita para esta pantalla —y en un mostrador que se
+       lee de frente el patrón F no es el que aplica—, pero deja de ser un text-align que se
+       hereda a todo: la nota legal y la lista de unidades vuelven a alinearse, porque ahí
+       centrar rompía cosas que sí importan (ver .vp-unidades).
+       (Sin acentos graves acá: rompen el template literal. Van 8 veces en este repo y esta la
+       cometí yo, en el mismo archivo que ya lo advierte arriba.) */
     .vp-card-top { justify-content: center; }
+    .vp-nombre, .vp-precio-principal, .vp-u-aclara, .vp-mayoreo { text-align: center; }
     .vp-precio-principal { display: flex; align-items: baseline; gap: var(--sp-3);
       flex-wrap: wrap; justify-content: center; margin-top: var(--sp-2); }
     /* La cifra es el objeto de la pantalla: se lee a un metro y medio, del otro lado del
@@ -495,6 +524,18 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vp-mayoreo:not(:has(.is-realza)) { border-color: var(--border-color); }
     .vp-mayoreo:not(:has(.is-realza))::before { background: var(--border-color); }
 
+    /* ── [TDA.7] El escalon que NO es de la unidad leida ───────────────────
+       Mismo tratamiento apagado que el sin-realce, y por un motivo mas fuerte: su monto puede
+       estar en otra unidad que el hero (pesos por paquete contra pesos por pieza). Se muestra
+       porque la cifra es cierta y viene rotulada con su unidad, pero no compite por el ojo con
+       la que corresponde a lo que se escaneo.
+       El :has() de arriba mira .is-realza, no .is-foco, a proposito: la franja de marca depende
+       de que HAYA una oferta real en el bloque, no de cual esta destacada. */
+    .vp-may-row:not(.is-foco) .vp-may-monto { font-weight: 600; color: var(--text-muted);
+      font-size: clamp(1.4rem, 3vw, 2rem); }
+    .vp-may-row:not(.is-foco) .vp-may-cond { opacity: .8; }
+    .vp-may-row:not(.is-foco) .vp-may-n { color: var(--text-muted); }
+
     /* El gramaje califica al nombre: mismo renglon, peso menor. */
     .vp-gramaje { font-size: .55em; font-weight: 500; color: var(--text-faint);
       margin-left: .5rem; white-space: nowrap; }
@@ -514,17 +555,22 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
        reinicie la animacion. La clase is-pase-b alterna en cada consulta (ver la plantilla).
        Sin esto, la entrada corria UNA vez por turno.
 
-       Se usa --ease-spring, que ya existe en tokens.css (cubic-bezier(0.34, 1.4, 0.5, 1)):
-       sobrepasa un poco y asienta, que es lo que da la sensacion de resorte. NO se agrega
-       libreria -- §U lo prohibe por nombre (anime.js/framer no entran) y motion@12 ya esta
-       instalada con cero imports desde abril. Una segunda dep muerta no arregla un easing.
+       [TDA.7] ACA USABA --ease-spring Y LO DEFENDI CON "ya existe en tokens.css". Existir no es
+       estar permitido: DESIGN.md §Motion acota esa curva a "solo gestos drag-to-dismiss", y una
+       entrada de tarjeta no es un gesto. Pasa a --ease-decelerate, que es la curva que §Motion
+       nombra para ENTRADAS. Se pierde el sobrepaso; el escalonado sigue dando el ritmo.
+       NO se agrega libreria -- §U lo prohibe por nombre (anime.js/framer no entran) y motion@12
+       ya esta instalada con cero imports desde abril. Una segunda dep muerta no arregla un easing.
 
        ESCALONADO, y suma bajo el techo duro de 350ms contando el retardo:
          nombre    0ms + 150 = 150      mayoreo    90ms + 150 = 240
          precio   40ms + 150 = 190      pastilla  140ms + 150 = 290
-       La CIFRA no se anima por dentro y no hay count-up: en un mostrador el precio tiene que
-       ser legible de inmediato, no al final de una transicion. Se mueve el bloque, nunca el
-       digito. Solo transform + opacity, jamas medidas.
+       Los PRECIOS no se animan por dentro: en un mostrador la cifra que se le lee en voz alta a
+       una clienta tiene que ser legible en el primer fotograma, no al final de una transicion.
+       Se mueve el bloque, nunca el digito. Solo transform + opacity, jamas medidas.
+       [TDA.7] Este comentario decia "y no hay count-up" y quedo desactualizado en el commit
+       065b4667: SI hay count-up, en el AHORRO (no en un precio). Excepcion documentada en
+       DESIGN.md §Motion KPI.
 
        prefers-reduced-motion lo neutraliza el bloque global de styles.css (regla con * e
        !important), asi que no se repite aca. */
@@ -539,23 +585,35 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       animation: var(--vp-fade) var(--dur-short, 150ms) var(--ease-out, ease-out) both; }
     .vp-card.is-pase-b { --vp-in: vpEntraB; --vp-pop: vpPopB; --vp-fade: vpFadeB; }
 
-    .vp-card .vp-nombre { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-spring, ease-out) both; }
-    .vp-card .vp-precio-principal { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-spring, ease-out) 40ms both; }
-    .vp-card .vp-mayoreo { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-spring, ease-out) 90ms both; }
-    .vp-card .vp-may-ahorro { animation: var(--vp-pop) var(--dur-short, 150ms) var(--ease-spring, ease-out) 140ms both; }
+    .vp-card .vp-nombre { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) both; }
+    .vp-card .vp-precio-principal { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) 40ms both; }
+    .vp-card .vp-mayoreo { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) 90ms both; }
+    .vp-card .vp-may-ahorro { animation: var(--vp-pop) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) 140ms both; }
     /* [TDA.3] "El codigo que escaneaste es de CJA". Va pegada al precio grande porque lo CALIFICA:
        separada, el operador leeria el numero antes de saber de que unidad es. */
     .vp-u-aclara { display: flex; align-items: center; justify-content: center; gap: .4rem;
       margin: .35rem 0 0; font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
     .vp-u-aclara strong { color: var(--text-main); font-weight: 600; }
 
-    /* [TDA.6] Centrado tambien: el min-width de 7rem en la etiqueta separaba "CJA" de su
-       propio precio, y en pantalla ancha el par se leia como dos datos sin relacion. */
+    /* [TDA.6] El min-width de 7rem en la etiqueta separaba "CJA" de su propio precio, y en
+       pantalla ancha el par se leia como dos datos sin relacion. Eso se queda arreglado.
+
+       [TDA.7] Lo que se DESHACE es haber centrado los renglones. Este bloque conserva
+       font-variant-numeric: tabular-nums en .vp-u-p, que existe para una sola cosa: que las
+       cifras formen columna y los decimales alineen (DESIGN.md Q.5 lo llama innegociable). Con
+       justify-content: center cada renglon se acomodaba a su propio ancho y la columna
+       desaparecia -- la propiedad quedaba inerte. Y esta lista 0Sistemas nunca la menciono: se
+       centro de arrastre por un text-align en la tarjeta.
+       El BLOQUE sigue centrado (margin auto); lo que vuelve es la alineacion interna: etiqueta a
+       la izquierda, cifra a la derecha, como pide DESIGN.md para listas de numeros. */
     .vp-unidades { list-style: none; margin: var(--sp-3) auto 0; padding: var(--sp-3) 0 0;
       border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .3rem;
-      width: fit-content; min-width: min(100%, 22rem); }
-    .vp-unidades li { display: flex; align-items: baseline; justify-content: center;
+      width: fit-content; min-width: min(100%, 22rem); text-align: left; }
+    .vp-unidades li { display: flex; align-items: baseline; justify-content: flex-start;
       gap: var(--sp-3); font-size: var(--fs-sm, .8125rem); }
+    /* El auto empuja cifra y equivalencia al borde derecho, JUNTAS: la equivalencia califica a
+       la cifra, no es una tercera columna. */
+    .vp-unidades li > .vp-u-p { margin-left: auto; }
     .vp-u-nom { color: var(--text-muted); text-transform: uppercase;
       font-size: var(--fs-xs, .75rem); letter-spacing: .06em; }
     .vp-u-p { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
@@ -697,6 +755,36 @@ export class TiendaVerificadorComponent implements OnInit {
    * sería tener la condición del mayoreo en dos lugares.
    */
   readonly mayoreo = computed(() => this.producto()?.mayoreo ?? []);
+
+  /**
+   * `[TDA.7]` El escalón que va en GRANDE es el de la unidad que se escaneó.
+   *
+   * Es la regla que dictó 0Sistemas y que la etiquetera ya tenía escrita —textual en
+   * `label.component.ts`: *"el mayoreo debe ser el de la UNIDAD LEÍDA"*, que es por qué
+   * `hasMayoreoPza` empieza con `if (!this.bigIsBase) return false`. El mostrador no la tenía:
+   * pintaba los dos escalones al mismo tamaño sin relación con lo que se leyó, y el monto de uno
+   * puede estar en pesos por PAQUETE mientras el otro está en pesos por pieza.
+   *
+   * No agrega una segunda regla de negocio: `aplica_a` lo decide el backend (que es quien sabe
+   * contra qué base se calculó cada escalón) y acá sólo se compara contra la unidad del hero,
+   * reusando `unidadHero()` de `[TDA.3]`. Funciona igual sin red: el respaldo trae `aplica_a` por
+   * escalón, así que el kiosco offline destaca el mismo que el modo en línea.
+   *
+   * El que NO corresponde a la unidad leída se atenúa, no se esconde: su cifra es cierta y viene
+   * rotulada con su propia unidad (`unidad_monto` + `palabra`), y esta pantalla existe para
+   * contestar "cuánto cuesta", incluido "y si llevo piezas". La etiquetera sí lo oculta porque
+   * imprime en papel sin contexto; la diferencia es de ÉNFASIS, no de cifra — las cifras ahora
+   * salen del mismo cálculo en las dos.
+   */
+  readonly mayoreoConFoco = computed(() => {
+    const ts = this.mayoreo();
+    if (!ts.length) return [];
+    const quiere: 'base' | 'paquete' =
+      this.unidadHero()?.u === this.unidadBase() ? 'base' : 'paquete';
+    return ts
+      .map((t) => ({ t, destacado: (t.aplica_a ?? 'base') === quiere }))
+      .sort((a, b) => Number(b.destacado) - Number(a.destacado));
+  });
 
   readonly precioPrincipal = computed(() => this.unidadHero()?.precio_con_iva ?? null);
   readonly unidadPrincipal = computed(() => this.unidadHero()?.u || 'unidad');

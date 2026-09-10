@@ -7,6 +7,9 @@ import { signal } from '@angular/core';
 import { AuthService } from '../../../core/services/auth.service';
 import { EstadoSnapshot, ResultadoBusqueda, VerificadorService } from '../verificador.service';
 import { TiendaVerificadorComponent } from './tienda-verificador.component';
+// `[TDA.7]` El mock de IntersectionObserver vive en el setup (jsdom no lo trae) y expone el
+// interrogador: poder AFIRMAR que nadie intersectó es lo que hace válida la prueba del $0.00.
+import { nadieIntersecto } from '../../../../test-setup';
 
 /**
  * `[CV.24]` — Lo que la PANTALLA dice, no lo que el servicio devuelve.
@@ -33,6 +36,49 @@ const PRODUCTO = {
   iva_pct: 16,
   ieps_pct: 0,
 };
+
+/**
+ * `[TDA.7]` Un producto CON mayoreo — la fixture que faltaba.
+ *
+ * Sin ella `@if (mayoreo().length)` era falso en todos los tests, así que la tarjeta de mayoreo,
+ * la pastilla del ahorro, el count-up y el reinicio de la animación **no se renderizaban en
+ * ninguna prueba**. Todo lo de TDA.6 se "verificó" con regex sobre el archivo fuente.
+ *
+ * Los números son los del caso real medido en prod: base PZA a $9.37, paquete de 8 a $70.12, y
+ * un mayoreo de paquete de $65.11 que es el precio de UN PAQUETE — el que comparado contra la
+ * pieza daba un "descuento" de −798 %.
+ */
+const TIER_BASE = {
+  etiqueta: 'pieza', desde: 10, palabra: 'piezas',
+  precio_con_iva: 8.71, ahorro_por_unidad: 0.66, ahorro_en_el_minimo: 6.6,
+  descuento_pct: 7.1, realza: true, aplica_a: 'base' as const, unidad_monto: 'c/u',
+};
+const TIER_PAQUETE = {
+  etiqueta: 'paquete', desde: 3, palabra: 'paquetes',
+  precio_con_iva: 65.11, ahorro_por_unidad: 5.01, ahorro_en_el_minimo: 15.03,
+  descuento_pct: 7.1, realza: true, aplica_a: 'paquete' as const, unidad_monto: 'por paquete',
+};
+const CON_MAYOREO = {
+  codigo: '70001',
+  nombre: 'PALETA PAYASO 8 PZAS',
+  unidades: [
+    { u: 'PZA', precio_con_iva: 9.37, precio_sin_iva: 8.08, factor: 1 },
+    { u: 'PAQ', precio_con_iva: 70.12, precio_sin_iva: 60.45, factor: 8 },
+  ],
+  iva_pct: 16, ieps_pct: 0,
+  mayoreo: [TIER_BASE, TIER_PAQUETE],
+};
+
+/** Declara `prefers-reduced-motion: reduce` (jsdom no trae `matchMedia`). */
+function conMovimientoReducido(): void {
+  (window as unknown as { matchMedia: unknown }).matchMedia = (q: string) => ({
+    matches: /prefers-reduced-motion/.test(q),
+    media: q, onchange: null,
+    addEventListener: () => undefined, removeEventListener: () => undefined,
+    addListener: () => undefined, removeListener: () => undefined,
+    dispatchEvent: () => false,
+  });
+}
 
 class VerificadorStub {
   readonly snapshot = signal<EstadoSnapshot | null>(null);
@@ -141,6 +187,118 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     fix.componentInstance.snapshot.set(svc.snapshot());
     fix.detectChanges();
     expect(html()).toContain('9479');
+  });
+
+  // ── `[TDA.7]` El mayoreo, ejecutándose de verdad ──────────────────────────────────────────
+  // Todo lo de abajo renderiza el bloque que hasta ahora ningún test tocaba.
+
+  /**
+   * LA REGRESIÓN DEL `$0.00`.
+   *
+   * `CountUpDirective` escribía `0` en `ngOnInit` y no arrancaba hasta que el
+   * `IntersectionObserver` reportara intersección. El mock NO dispara —que es el caso real de
+   * una pastilla abajo del pliegue— y con movimiento reducido tampoco había rescate, porque la
+   * compuerta de visibilidad corre antes que la del movimiento.
+   *
+   * Antes del arreglo esta prueba lee `$0.00` sobre un ahorro de $6.60.
+   */
+  it('el ahorro publica su importe aunque el observador nunca vea la pastilla', () => {
+    conMovimientoReducido();
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: CON_MAYOREO, unidadEscaneada: 'PZA',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    const cifra = fix.nativeElement.querySelector('.vp-may-ahorro strong') as HTMLElement | null;
+    expect(cifra).toBeTruthy();
+    expect(cifra!.textContent).toContain('6.60');
+    expect(cifra!.textContent?.trim()).not.toBe('$0.00');
+    // Y se afirma la premisa: nadie intersectó. Sin esto la prueba podría pasar por el camino
+    // fácil y dejar el defecto vivo.
+    expect(nadieIntersecto()).toBe(true);
+  });
+
+  /**
+   * La regla que dictó 0Sistemas: manda la unidad del código de barras que se leyó.
+   *
+   * Se escanea la PIEZA -> el escalón de pieza va en foco y el de paquete atenuado.
+   */
+  it('escaneando la PIEZA, el escalón grande es el de pieza', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: CON_MAYOREO, unidadEscaneada: 'PZA',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    const foco = fix.nativeElement.querySelectorAll('.vp-may-row.is-foco');
+    expect(foco.length).toBe(1);
+    expect(foco[0].textContent).toContain('8.71');   // el de pieza
+    expect(foco[0].textContent).toContain('10');     // desde 10 piezas
+    // El de paquete existe pero NO está en foco: su monto está en otra unidad.
+    const sinFoco = fix.nativeElement.querySelectorAll('.vp-may-row:not(.is-foco)');
+    expect(sinFoco.length).toBe(1);
+    expect(sinFoco[0].textContent).toContain('65.11');
+  });
+
+  /** El espejo, y es el caso que 0Sistemas nombró: se lee el CB del paquete. */
+  it('escaneando el PAQUETE, el escalón grande es el de paquete y su monto NO dice c/u', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: CON_MAYOREO, unidadEscaneada: 'PAQ',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    const foco = fix.nativeElement.querySelector('.vp-may-row.is-foco') as HTMLElement;
+    expect(foco).toBeTruthy();
+    expect(foco.textContent).toContain('65.11');
+    // La unidad del monto viene con el escalón. Cableada a "c/u", $65.11 se leía como el precio
+    // de UNA pieza de un producto que cuesta $9.37: la cifra errada por 7x.
+    expect(foco.querySelector('.vp-may-cu')?.textContent?.trim()).toBe('por paquete');
+    // El primero del DOM es el destacado: el orden lo decide la unidad leída, no el backend.
+    const filas = fix.nativeElement.querySelectorAll('.vp-may-row');
+    expect(filas[0].classList.contains('is-foco')).toBe(true);
+  });
+
+  /** La pastilla del ahorro no se duplica: una sola, la del escalón que aplica. */
+  it('sólo el escalón en foco lleva la pastilla del ahorro', () => {
+    conMovimientoReducido();
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: CON_MAYOREO, unidadEscaneada: 'PAQ',
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    const pastillas = fix.nativeElement.querySelectorAll('.vp-may-ahorro');
+    expect(pastillas.length).toBe(1);
+    expect(pastillas[0].textContent).toContain('15.03');   // el ahorro del paquete
+    expect(pastillas[0].textContent).not.toContain('6.60'); // no el de pieza
+  });
+
+  /**
+   * `[TDA.6]` La animación de entrada se reinicia en CADA escaneo.
+   *
+   * La tarjeta es el mismo nodo del DOM entre consultas, así que sin alternar el
+   * `animation-name` la entrada corría una sola vez por turno. Acá se mide el mecanismo
+   * ejecutándose, no el string en el archivo.
+   */
+  it('la tarjeta alterna la clase de reinicio en cada consulta', () => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    const card = fix.nativeElement.querySelector('.vp-card') as HTMLElement;
+    const primero = card.classList.contains('is-pase-b');
+
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+    // MISMO nodo (si se recreara, el reinicio no haría falta) y clase distinta.
+    expect(fix.nativeElement.querySelector('.vp-card')).toBe(card);
+    expect(card.classList.contains('is-pase-b')).toBe(!primero);
   });
 
   it('el feed pone lo último arriba y no crece sin límite (es mostrador, no bandeja)', () => {

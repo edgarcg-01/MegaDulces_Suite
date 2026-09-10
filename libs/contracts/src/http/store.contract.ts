@@ -62,6 +62,28 @@ export interface LabelPricesChanged {
  *   10 te ahorrás $14.10".
  * · `palabra` sale de la unidad BASE del producto, no del tier: si la base es KG, "desde 20 piezas"
  *   sería falso — son 20 kilos.
+ *
+ * ── `[TDA.7]` `aplica_a` y `unidad_monto`: la unidad del tier no se puede adivinar ────────
+ * `wholesale_pack_price` **trae dos unidades distintas en la misma columna**, y cuál es depende de
+ * si el producto tiene paquete registrado. Medido en prod el 2026-09-10, prestándole un precio
+ * conocido a cada conjunto (la técnica del árbitro de ADR-059):
+ *
+ * | Conjunto | Productos | Mediana del ratio | Unidad real |
+ * |---|---|---|---|
+ * | base `PAQ`/`CJA` | 6,462 | `w / piece_price` = **0.92** | la BASE (el paquete/caja ES la base) |
+ * | base pieza **con** `pack_price` y `pack_size` | 380 | `w / pack_price` = **0.93** | el **PAQUETE** |
+ * | base pieza **sin** paquete registrado | 704 | `w / piece_price` = **0.91** | pieza (83 contradicen) |
+ *
+ * El `0.92`–`0.93` es un descuento de mayoreo creíble; leer el mismo número contra la base
+ * equivocada daba `w / piece_price` = **8.99** ≈ `pack_size`, o sea un "descuento" de **−798 %**.
+ * Por eso estos dos campos VIAJAN con el tier en vez de derivarse en la pantalla:
+ *
+ * · **`aplica_a`** dice de qué escalera es el escalón, y es lo que permite mostrar en grande el
+ *   mayoreo de la unidad que se ESCANEÓ (si se leyó el código del paquete, manda el de paquete).
+ *   Es la regla que la etiquetera ya tenía —*"el mayoreo debe ser el de la unidad leída"*,
+ *   `label.component.ts` `hasMayoreoPza`— y que el mostrador no tenía.
+ * · **`unidad_monto`** rotula el importe. No es cosmético: en los 380 el monto es el precio de un
+ *   PAQUETE, y decirle "c/u" a $65.11 cuando la pieza cuesta $9.37 es errar la cifra por 7×.
  */
 export interface MayoreoTier {
   /** `pieza` | `paquete` — de qué escalera es este tier. */
@@ -76,6 +98,14 @@ export interface MayoreoTier {
   descuento_pct: number;
   /** `true` = el descuento es perceptible (≥ 1 %) y merece señal visual. */
   realza: boolean;
+  /**
+   * `[TDA.7]` A qué unidad de venta pertenece este escalón: `base` = la unidad de factor 1 del
+   * producto (pieza, o el paquete/caja cuando ESA es la base) · `paquete` = el paquete de piezas.
+   * La pantalla destaca el que coincide con la unidad escaneada.
+   */
+  aplica_a: 'base' | 'paquete';
+  /** `[TDA.7]` Cómo se rotula `precio_con_iva`: `c/u` o `por paquete`. Nunca se asume. */
+  unidad_monto: string;
 }
 
 /**
@@ -95,6 +125,10 @@ export interface MayoreoTierCompacto {
   am: number;
   pc: number;
   r: 0 | 1;
+  /** `[TDA.7]` `aplica_a`: `0` = base, `1` = paquete. Ausente en respaldos previos a TDA.7. */
+  a?: 0 | 1;
+  /** `[TDA.7]` `unidad_monto`. Ausente en respaldos previos a TDA.7. */
+  um?: string;
 }
 
 /**
@@ -111,10 +145,21 @@ export function compactarTier(t: MayoreoTier): MayoreoTierCompacto {
     am: t.ahorro_en_el_minimo,
     pc: t.descuento_pct,
     r: t.realza ? 1 : 0,
+    a: t.aplica_a === 'paquete' ? 1 : 0,
+    um: t.unidad_monto,
   };
 }
 
-/** Expande la forma de cable. Es la inversa exacta de `compactarTier`. */
+/**
+ * Expande la forma de cable. Es la inversa exacta de `compactarTier`.
+ *
+ * `[TDA.7]` Los defaults de `a`/`um` NO son un relleno cosmético: un kiosco puede tener un
+ * respaldo bajado antes de TDA.7, y esos tiers se calcularon con la regla vieja. El default
+ * reproduce EXACTAMENTE el comportamiento con el que se generaron (`base` + `c/u`) en vez de
+ * afirmar una unidad que ese dato nunca tuvo — el respaldo viejo se sigue leyendo como se leía, y
+ * "Actualizar respaldo" lo corrige. Inventar acá la unidad nueva sobre cifras viejas sería
+ * publicar una etiqueta que el número no respalda.
+ */
 export function expandirTier(t: MayoreoTierCompacto): MayoreoTier {
   return {
     etiqueta: t.e,
@@ -125,5 +170,7 @@ export function expandirTier(t: MayoreoTierCompacto): MayoreoTier {
     ahorro_en_el_minimo: t.am,
     descuento_pct: t.pc,
     realza: t.r === 1,
+    aplica_a: t.a === 1 ? 'paquete' : 'base',
+    unidad_monto: t.um || 'c/u',
   };
 }

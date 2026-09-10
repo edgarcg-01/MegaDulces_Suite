@@ -179,33 +179,37 @@ export class KpService {
    * productos** tienen precio de mayoreo de paquete sin umbral; a esos no se les muestra mayoreo.
    */
   private tiersDeFila(r: any): { mayoreo: MayoreoTier[]; contenido: string | null } {
-    const base = r.piece_price != null ? Number(r.piece_price) : null;
-
-    const tier = (
-      etiqueta: string,
-      precio: unknown,
-      desde: unknown,
-      palabra: string,
-    ): MayoreoTier | null => {
-      const p = precio != null ? Number(precio) : NaN;
-      const n = desde != null ? Number(desde) : NaN;
+    const tier = (o: {
+      etiqueta: string;
+      precio: unknown;
+      desde: unknown;
+      palabra: string;
+      /** El precio contra el que se compara. Es lo que decide si el descuento significa algo. */
+      base: number;
+      aplica_a: 'base' | 'paquete';
+      unidad_monto: string;
+    }): MayoreoTier | null => {
+      const p = o.precio != null ? Number(o.precio) : NaN;
+      const n = o.desde != null ? Number(o.desde) : NaN;
       if (!Number.isFinite(p) || p <= 0) return null;
-      if (!Number.isFinite(n) || n <= 1) return null;      // "desde 1" no es mayoreo
-      if (!base || base <= 0 || p >= base) return null;     // tiene que ser MÁS barato
-      const desc = (base - p) / base;
+      if (!Number.isFinite(n) || n <= 1) return null;            // "desde 1" no es mayoreo
+      if (!(o.base > 0) || p >= o.base) return null;              // tiene que ser MÁS barato
+      const desc = (o.base - p) / o.base;
       const nn = Math.trunc(n);
       return {
-        etiqueta,
+        etiqueta: o.etiqueta,
         desde: nn,
-        palabra,
+        palabra: o.palabra,
         precio_con_iva: redondea(p),
-        ahorro_por_unidad: redondea(base - p),
+        ahorro_por_unidad: redondea(o.base - p),
         // Lo que de verdad cierra la venta: cuánto se ahorra llevando el mínimo.
-        ahorro_en_el_minimo: redondea((base - p) * nn),
+        ahorro_en_el_minimo: redondea((o.base - p) * nn),
         descuento_pct: Math.round(desc * 1000) / 10,
         // Debajo del 1 % el descuento es cierto pero no perceptible: se muestra el DATO y no la
         // señal de oferta. Medido: 98 productos caen acá.
         realza: desc >= MAYOREO_MIN_DESC,
+        aplica_a: o.aplica_a,
+        unidad_monto: o.unidad_monto,
       };
     };
 
@@ -214,9 +218,54 @@ export class KpService {
     const ub = String(r.unit_base || '').trim().toUpperCase();
     const palabraBase = ub === 'KG' ? 'kg' : ub === 'PAQ' ? 'paquetes' : ub === 'CJA' ? 'cajas' : 'piezas';
 
+    // `[TDA.7]` La unidad BASE agrupada es SOLO PAQ/CJA, igual que `baseUnit` de la etiquetera:
+    // todo lo demás —KG, gramajes numéricos (500/250/400), BTO, CUB— cae en "pieza". Alinear esto
+    // importa porque de acá salen las dos bases de comparación.
+    const baseAgrupada = ub === 'PAQ' || ub === 'CJA';
+    const precioBase = Number(r.piece_price) || 0;   // Kepler c90: el precio de la unidad BASE
+    const packPrice = Number(r.pack_price) || 0;
+    const packSize = Number(r.pack_size) || 0;
+    const paqueteReal = !baseAgrupada && packPrice > 0 && packSize > 0;
+
     const mayoreo = [
-      tier('pieza', r.wholesale_piece_price, r.wholesale_piece_min_qty, palabraBase),
-      tier('paquete', r.wholesale_pack_price, r.wholesale_pack_min_qty, 'paquetes'),
+      // ── Mayoreo de la unidad BASE ──────────────────────────────────────────────────────────
+      // Se omite cuando la base es agrupada: un producto que se vende por paquete no tiene
+      // "pieza suelta" que mayorear. Textual de la etiquetera. Medido en prod: 0 productos con
+      // base PAQ/CJA traen dato ahí, así que hoy la guarda no quita nada — es el candado para
+      // que un hueco de datos no se publique como un hecho.
+      baseAgrupada ? null : tier({
+        etiqueta: 'pieza',
+        precio: r.wholesale_piece_price,
+        desde: r.wholesale_piece_min_qty,
+        palabra: palabraBase,
+        base: precioBase,
+        aplica_a: 'base',
+        unidad_monto: 'c/u',
+      }),
+      // ── Mayoreo de PAQUETE — y acá estaba el defecto de unidad ─────────────────────────────
+      // `wholesale_pack_price` trae DOS unidades en la misma columna (ver `MayoreoTier` en
+      // `store.contract.ts` para la medición que lo prueba con un árbitro de precio):
+      //  · base PAQ/CJA  -> el paquete/caja ES la base, así que `piece_price` (c90) es su precio
+      //                     y el escalón pertenece a la escalera BASE. Medido: mediana 0.92.
+      //  · base pieza CON `pack_price` y `pack_size` -> el monto es el precio de un PAQUETE y hay
+      //                     que compararlo contra `pack_price`. Medido: mediana 0.93 contra
+      //                     `pack_price`, y 8.99 (= `pack_size`) contra `piece_price`. Comparar
+      //                     contra la pieza daba un "descuento" de -798 %: 376 de 380 escalones
+      //                     se caían por la guarda de "más barato" y los 4 que pasaban
+      //                     publicaban un ahorro que mezclaba paquete con pieza.
+      //  · base pieza SIN paquete registrado -> queda `piece_price`, que es lo que había. La
+      //                     mediana (0.91) lo respalda pero 83 de 704 la contradicen y NO hay
+      //                     árbitro por fila; se deja como estaba y la duda queda DECLARADA en
+      //                     el tracker, no resuelta a ojo.
+      tier({
+        etiqueta: 'paquete',
+        precio: r.wholesale_pack_price,
+        desde: r.wholesale_pack_min_qty,
+        palabra: baseAgrupada ? palabraBase : 'paquetes',
+        base: paqueteReal ? packPrice : precioBase,
+        aplica_a: paqueteReal ? 'paquete' : 'base',
+        unidad_monto: paqueteReal ? 'por paquete' : 'c/u',
+      }),
     ].filter((x): x is MayoreoTier => x !== null);
 
     return { mayoreo, contenido: r.content ? String(r.content) : null };
@@ -241,9 +290,13 @@ export class KpService {
       await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
         const { rows } = await trx.raw(
+          // `[TDA.7]` `pack_price`/`pack_size` NO son adorno: son la base contra la que se compara
+          // el mayoreo de paquete cuando la base es pieza. Sin ellas `tiersDeFila` recibe
+          // `undefined`, cae al camino viejo y el arreglo de unidad queda en no-op silencioso.
           `SELECT btrim(p.sku) AS sku, l.piece_price, l.content, l.unit_base,
                   l.wholesale_piece_price, l.wholesale_piece_min_qty,
-                  l.wholesale_pack_price,  l.wholesale_pack_min_qty
+                  l.wholesale_pack_price,  l.wholesale_pack_min_qty,
+                  l.pack_price,            l.pack_size
              FROM catalog.products p
              JOIN commercial.product_label_prices l
                ON l.product_id = p.id AND l.tenant_id = p.tenant_id
@@ -306,9 +359,13 @@ export class KpService {
       return await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
         const { rows } = await trx.raw(
+          // `[TDA.7]` Mismas dos columnas que el lote del snapshot, por el mismo motivo: son la
+          // base del mayoreo de paquete. Los dos caminos tienen que ver lo mismo o el modo sin
+          // red contesta distinto que el modo en línea.
           `SELECT l.piece_price, l.source, l.content, l.unit_base,
                   l.wholesale_piece_price, l.wholesale_piece_min_qty,
-                  l.wholesale_pack_price,  l.wholesale_pack_min_qty
+                  l.wholesale_pack_price,  l.wholesale_pack_min_qty,
+                  l.pack_price,            l.pack_size
              FROM catalog.products p
              JOIN commercial.product_label_prices l
                ON l.product_id = p.id AND l.tenant_id = p.tenant_id
