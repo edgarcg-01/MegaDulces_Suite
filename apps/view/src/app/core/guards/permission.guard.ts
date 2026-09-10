@@ -31,11 +31,14 @@ export const permissionGuard = (requiredPermission: Permission): CanActivateFn =
     // Gate por CLAVE EXACTA del permiso (espeja al backend, que ya no colapsa
     // Permission→subject) o god-mode de plataforma. Antes aceptaba
     // `can('read', subject)`, lo que mostraba nav que el API ahora 403ea.
-    const legacyPerms = authService.user()?.permissions;
-    const hasFallback = legacyPerms ? legacyPerms[requiredPermission] === true : false;
-    const hasAccess = perms.isAdmin();
-
-    if (!hasAccess && !hasFallback) {
+    //
+    // `[ID.30]` Lee `PermissionsService`, no `authService.user()?.permissions`.
+    // Los tres guards leían el mapa **decodificado del JWT** y usaban el
+    // servicio sólo para `isAdmin()`, así que había dos fuentes para la misma
+    // pregunta. Hoy da igual —el servicio se llena con ese mismo mapa— pero es
+    // la condición para que sacar el permiso del token sea cambiar UNA carga y
+    // no cazar tres lecturas repartidas.
+    if (!perms.has(requiredPermission)) {
       return denied(router, state.url, requiredPermission);
     }
 
@@ -59,12 +62,8 @@ export const anyPermissionGuard = (...requiredPermissions: Permission[]): CanAct
       return false;
     }
 
-    const legacyPerms = authService.user()?.permissions;
-    const ok =
-      perms.isAdmin() ||
-      requiredPermissions.some((p) => (legacyPerms ? legacyPerms[p] === true : false));
-
-    if (!ok) {
+    // `[ID.30]` Una sola fuente: `hasAny` ya resuelve god-mode + clave exacta.
+    if (!perms.hasAny(...requiredPermissions)) {
       // Se nombra el primero: con varios permisos alternativos, cualquiera
       // alcanza, y pedir uno concreto es más accionable que listarlos todos.
       return denied(router, state.url, requiredPermissions[0]);
@@ -91,10 +90,9 @@ export const landingRedirectGuard = (
 
   if (!authService.isAuthenticated) return router.parseUrl('/login');
 
-  const p = authService.user()?.permissions || {};
-  const god = perms.isAdmin();
+  // `[ID.30]` Misma fuente única que los otros dos guards.
   for (const c of candidates) {
-    if (god || p[c.perm] === true) return router.parseUrl(c.url);
+    if (perms.has(c.perm)) return router.parseUrl(c.url);
   }
 
   /**
@@ -201,11 +199,9 @@ export const colaboradorGuard: CanActivateFn = (route, state) => {
     return false;
   }
 
-  const canAccessFullDashboard = perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL);
-  const legacyPerms = authService.user()?.permissions;
-  const hasFallback = legacyPerms ? (legacyPerms[Permission.REPORTES_VER_EQUIPO] === true || legacyPerms[Permission.REPORTES_VER_GLOBAL] === true) : false;
-
-  if (!canAccessFullDashboard && !hasFallback) {
+  // `[ID.30]` Una sola fuente: `hasAny` ya cubre lo que hacía el fallback al
+  // mapa del JWT — el servicio se carga con ese mismo mapa.
+  if (!perms.hasAny(Permission.REPORTES_VER_EQUIPO, Permission.REPORTES_VER_GLOBAL)) {
     // Colaborador restringido (sin reportes de equipo/global): su única vista es
     // la captura diaria. El vendedor usa su app dedicada (apps/vendor), no Trade.
     if (state.url.startsWith('/dashboard/captures')) {
