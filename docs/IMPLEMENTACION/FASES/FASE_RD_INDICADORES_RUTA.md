@@ -178,7 +178,8 @@ plataforma. Dos causas, ninguna resuelta:
 
 **(a) Canindo 501-505 desde el cutover del 2026-08-15 — 81 celdas, ~$1.77M.**
 `import-canindo-routes-monthly.js` lleva esa pierna a `sales_by_route_monthly` leyendo la **réplica**
-`kepler_md_06`, pero sólo al grano **mensual**: no hay línea diaria. Y derivarla del ODS no alcanza
+`kepler_md_06` *(así era hasta el 2026-09-10; hoy compone push + Wincaja — ver el cierre de abajo)*,
+pero sólo al grano **mensual**: no hay línea diaria. Y derivarla del ODS no alcanza
 hoy. Medido en `kepler_ods` (`sucursal='06'`, `c2='U' c3='D' c4=10`, join por la llave **completa**
 `c1..c6` + `sucursal`, excluyendo `c8 IN ('00001','00002')`):
 
@@ -231,6 +232,28 @@ Lo que esto cierra y lo que **no**:
   el `CONCENTRADO` captura consistentemente más que nuestro SUBTOTAL. **Ese residuo no lo explica este
   cambio** y refuerza —no resuelve— la duda de §2.3: *¿qué reporte de Wincaja se teclea?* No se dibuja
   como cerrado.
+
+#### ✅ 2026-09-10 — el MENSUAL también: la serie se compone, la réplica sale del camino
+
+El arreglo de arriba dejó la pierna **diaria** bien (`v_rd_route_daily` une push + Wincaja con su
+columna `source`), pero el **mensual** —`analytics.sales_by_route_monthly`, que es lo que publica
+`/comercial/ventas-por-ruta`— seguía resolviendo la misma llave con un `GREATEST` entre tres
+universos. Dos superficies del mismo negocio contándose distinto. Medido y corregido:
+
+- La **réplica `kepler_md_06` no arbitra nada** y sale del camino de escritura (queda de testigo en
+  `reconcile-route-provenance.js`): ve 3 de 5 rutas en ventanas sueltas — es la misma tabla de
+  cobertura 22.5/52.5/7.6/0/0% de §2.4a, ahora leída como veredicto sobre la **fuente**, no sobre el
+  dato.
+- El `GREATEST` publicaba, en el mes del cutover, **el máximo de dos mitades disjuntas en vez de su
+  suma**: faltaban **$808,409** de agosto. La pantalla mostraba $1.36M contra $2.20M de julio.
+- Enero–julio estaba congelado **pre RD.1** (la fecha de negocio corrida un día): Canindo fue la
+  única ruta Wincaja que no se re-escribió tras aquel arreglo, porque `import-wincaja-routes-monthly`
+  la excluye. Se probó re-agregando con la atribución vieja: **31 de 31 llaves al peso**.
+- Frontera **medida** por ruta (último día de Wincaja + 1): 501/503 el 13-ago, 502/504/505 el 12-ago.
+  Gold de Canindo **$15,815,691 → $16,544,403**; agosto **$2,167,374**, plano contra julio.
+
+Detalle y regla general en [`VERDAD_ABSOLUTA.md` §4.6](../../VERDAD_ABSOLUTA.md). ⚠️ El residuo
+sistemático del ~15% contra el `CONCENTRADO` (§2.3) **no lo toca esto** y sigue abierto.
 
 **(b) Ruta 321 en jun/jul — 34 celdas, $573,693.** Se congeló en Wincaja el 2026-06-02 y el Excel
 siguió capturando hasta julio. **Sigue abierto** — es un `.mdb` que dejó de copiarse.
