@@ -219,17 +219,36 @@ const METODOS = ['dinero', 'peso', 'divisor', 'unidad_es_caja', 'sin_metodo'];
             count(*) FILTER (WHERE c58_max > box_factor * 1.02
                              AND factor_source = 'etiquetera')::int etq_mal
        FROM j`)).rows[0];
-  console.log(`     ${NUM(imp.pares)} pares comparables · ${NUM(imp.imposibles)} imposibles = ${MONEY(imp.imp)}`
+  console.log(`     ${NUM(imp.pares)} pares comparables · ${NUM(imp.imposibles)} contradichos = ${MONEY(imp.imp)}`
     + ` · con box_factor=1: ${NUM(imp.bf1)} · de override: ${NUM(imp.ovr)}`);
+
+  // ⭐⭐ KX.4 — EL GUARD YA APLICÓ, y el techo baja de 80 a 10 porque el caso grande se cerró
+  // POR CONSTRUCCIÓN, no a mano. Edgar: *"nada de corregir desde ui... un 100% de que lo que
+  // decimos es real"*. La regla nueva vive en `v_product_box_factor` (mig 20260910120000): un
+  // override de **1** no puede tapar un factor del ERP > 1, porque un `1` escrito a mano no es
+  // una afirmación — significa lo mismo que el `default` y borra evidencia.
+  //
+  //     contradicciones .... 41 -> 8      ($1,395,458 -> $370,806)
+  //     de override ........ 35 -> 2
+  //     overrides tumbados . 13, y los 13 recuperaron el factor del ERP
+  //     overrides intactos . 265 de 278 (los que valen > 1 son afirmaciones, no se tocan)
+  //
+  // ⚠️ Y ACÁ ESTÁ EL LÍMITE HONESTO DEL 100%, que no es pereza: **un peldáño vendido mayor que
+  // la caja NO prueba que la caja esté mal.** Prueba que existe una presentación mayor. Si la
+  // caja trae 6 y el ERP vendió un paquete de 12, `bf = 6` puede ser correcto. La contradicción
+  // es inequívoca **sólo cuando `box_factor = 1`** — "no viene en caja" contra "vendí bultos de
+  // 20" no admite lectura benigna. De los 8 que quedan: **2 son inequívocos** (`default`, bf=1,
+  // $190,737) y **6 son ambiguos** (bf entre 6 y 20 con un peldáño mayor). Los 2 inequívocos
+  // necesitan el peldáño PERSISTIDO para cerrarse, y hoy no existe: `sales_daily.rung_factor`
+  // dice **1.0000 en los 8** (el fact lo deduce por PRECIO y no lo ve), así que hace falta
+  // materializar `c58` — medido: 29.5 s de agregación, no va dentro de una vista caliente.
   check('⛔ la contradicción imposible EXISTE y se cuenta (c58 > box_factor)',
     imp.imposibles > 0,
     `${NUM(imp.imposibles)} — si da 0, o se corrigió el dato maestro o dejó de medirse`);
-  check('⚠️ no CRECIÓ (41 pares medidos; techo 80)', imp.imposibles <= 80,
-    `${NUM(imp.imposibles)} pares / ${MONEY(imp.imp)}`);
-  check('⭐ y sigue concentrada en el factor MANUAL, no en la etiquetera',
-    imp.ovr_tot > 0 && imp.etq_tot > 0
-      && (imp.ovr / imp.ovr_tot) > (imp.etq_mal / imp.etq_tot) * 10,
-    `override ${PCT(imp.ovr, imp.ovr_tot)} vs etiquetera ${PCT(imp.etq_mal, imp.etq_tot)}`);
+  check('⭐⭐ el guard de KX.4 mordió: quedan ≤ 10 contradicciones (eran 41)',
+    imp.imposibles <= 10, `${NUM(imp.imposibles)} pares / ${MONEY(imp.imp)}`);
+  check('⭐⭐ y el override ya NO es la fuente dominante del error (≤ 3, eran 35)',
+    imp.ovr <= 3, `${NUM(imp.ovr)} de override sobre ${NUM(imp.imposibles)} contradicciones`);
   console.log(`     (${((Date.now() - t58) / 1000).toFixed(1)}s)`);
 
   // ── 5ter. ⚠️ EL NULL MUDO DE WINCAJA en el peldaño. `sales_daily.rung_factor` va NULL en el

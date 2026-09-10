@@ -94,13 +94,34 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
   check('el fact no tiene display_bf en NULL', sync.nulos === 0, `nulos=${sync.nulos}`);
   check('el fact coincide con el resolvedor', sync.desalineados === 0, `desalineados=${sync.desalineados}/${sync.n}`);
 
-  // ── 6. Kepler NO se mueve: es la prueba de que el cambio está acotado a Wincaja ─────────────
-  const kepSame = (await c.query(`SELECT count(*)::int distintos
+  // ── 6. Kepler sólo se mueve por una razón, y hay que poder nombrarla ───────────────
+  //
+  // Esta aserción decía `display_bf == bf` con "cero impacto": era el candado de **ADR-055**,
+  // cuyo cambio estaba acotado a Wincaja a propósito. **KX.4 (2026-09-10) sí mueve Kepler**, y
+  // deliberadamente: un override de `1` dejó de poder tapar un factor del ERP > 1
+  // (mig 20260910120000). Medido: **79 filas / 12 productos**, y el **100%** viene del guard
+  // (`source = 'override_no_dato'`).
+  //
+  // Relajar esto a un techo habría tapado cualquier otro desalineamiento futuro. En vez de eso se
+  // vuelve MÁS fuerte: el desalineamiento tiene que estar **explicado por su causa**. Si aparece
+  // uno que el guard no explica, se pone rojo.
+  const kepSame = (await c.query(`SELECT
+      count(*)::int distintos,
+      count(*) FILTER (WHERE v.source = 'override_no_dato')::int del_guard,
+      count(*) FILTER (WHERE v.source <> 'override_no_dato')::int sin_explicar
     FROM analytics.replenishment_plan rp
     JOIN commercial.warehouses w ON w.id=rp.warehouse_id
+    JOIN analytics.v_product_box_factor v
+      ON v.tenant_id=rp.tenant_id AND v.product_id=rp.product_id
    WHERE rp.tenant_id=$1 AND w.kepler_code IS NOT NULL
      AND abs(rp.display_bf - GREATEST(COALESCE(rp.bf,1),1)) > 0.0001`, [T])).rows[0];
-  check('en los almacenes Kepler display_bf == bf (cero impacto)', kepSame.distintos === 0, `distintos=${kepSame.distintos}`);
+  console.log(`     Kepler: ${kepSame.distintos} filas con display_bf <> bf`
+    + ` · del guard KX.4: ${kepSame.del_guard} · sin explicar: ${kepSame.sin_explicar}`);
+  check('⭐ en Kepler, TODO desalineamiento display_bf vs bf está explicado por el guard de KX.4',
+    kepSame.sin_explicar === 0,
+    `${kepSame.sin_explicar} filas que el guard NO explica — apareció otra causa`);
+  check('⚠️ y el guard no se desbordó (79 filas medidas; techo 200)',
+    kepSame.del_guard <= 200, `${kepSame.del_guard} filas`);
 
   // ── 7. LA PRUEBA DE LA UNIDAD: factor_venta cuenta unidades de venta de Wincaja por caja ────
   // Contrastado contra la escalera del ODS (kdii): o es igual a f3 (Wincaja vende la unidad base)
