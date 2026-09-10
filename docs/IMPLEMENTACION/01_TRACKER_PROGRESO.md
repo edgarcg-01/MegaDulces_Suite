@@ -2243,9 +2243,26 @@ más) — PR aparte para no volver ilegible el diff.
     la prueba negativa de que un `no encontrado` del servidor NO consulta el respaldo) · los 3
     endpoints ejercidos con `curl` contra el API local y **datos reales**
     (`17083` → ALTOS CAM CHICA COLOR 1KG, $62.99 KG / $1,159.91 BTO ×20).
-  - ⚠️ **NO verificado: la validación visual en el browser.** La sesión del navegador está expirada
-    y no hay cuenta con la que entrar sin credenciales; el `permissionGuard` (correctamente) manda a
-    `/sin-acceso`. Falta que Edgar abra `/tienda/verificador` logueado. Pasos en `FASE_CV`.
+  - **✅ Validación visual cerrada (2026-09-10)**, con cuenta descartable (rol `superadmin`,
+    creada y borrada en `platform_test` — la cuenta real de Edgar seguía pendiente): API +
+    `apps/view` levantados en local contra `192.168.0.245/platform_test`, login real, y las
+    **3 rutas de estado** ejercidas en el browser (no simuladas): `encontrado` (`17083` → ALTOS
+    CAM CHICA COLOR 1KG, $62.99 KG / $1,159.91 BTO ×20 — coincide byte a byte con lo medido en
+    CV.24), `no_encontrado` (código inexistente → tarjeta distinta, no vacío) y **`respaldo`**
+    (API detenida a propósito → banner "Sin conexión: se está mostrando el precio de respaldo" +
+    tag "⚠ Precio de respaldo" + mismo precio + sello de fecha del snapshot — el snapshot de
+    IndexedDB se había auto-descargado solo al elegir sucursal, sin acción manual). Modo kiosco
+    (oculta sidebar/nav) verificado. **Mayoreo no se pudo ejercer**: los códigos de muestra en
+    `platform_test` no traían tiers — dato de la DB de pruebas, no del código (ya lo midió Edgar
+    en prod: 8,481/9,020 SKUs). ⚠️ **Hallazgo del entorno local, no del producto:** con
+    `ENABLE_MULTITENANT=true`, `TenantContextInterceptor` abre una transacción en la conexión
+    "legacy" (`DatabaseModule`, rol `postgres` que bypasea RLS) en **toda** request, incluida
+    `/api/sucursales` (`@Public()`) — sin `DATABASE_URL` seteado cae al default `postgres/postgres@
+    localhost`, y sin ese rol real el login y `/api/sucursales` daban 500 con
+    `authentication failed for user "postgres"`. No es un bug de CV.24 (afecta a cualquier ruta,
+    pública o no, bajo el toggle) — se documenta acá porque es lo que bloqueó la validación hasta
+    apuntarlo también a `platform_test` con `dev_sistemas` (no bypasea RLS de verdad, pero
+    destraba local). Sigue pendiente que Edgar confirme con su propia cuenta y sucursal real.
 
 - [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
   — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,
