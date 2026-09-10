@@ -235,13 +235,16 @@ const MES: Record<string, string> = {
           <div class="rr-dkpis">
             <div class="rr-dkpi"><span>Venta</span><b>{{ d.totals.revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>Tickets</span><b>{{ d.totals.tickets | number }}</b></div>
-            <div class="rr-dkpi"><span>Ticket prom.</span><b>{{ avgTicket(d) | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>Unidades</span><b>{{ d.totals.units | number:'1.0-0' }}</b></div>
             <div class="rr-dkpi"><span>SKUs</span><b>{{ d.totals.skus | number }}</b></div>
-            <div class="rr-dkpi"><span>Clientes</span><b>{{ d.totals.clients | number }}</b></div>
-            <!-- Los dos promedios son preguntas distintas: profundidad vs surtido. -->
+            <!-- RR4 — Los promedios van POR CLIENTE (la tiendita), no por ticket. El público
+                 no tiene identidad de cliente: queda fuera del promedio y se declara su peso. -->
+            <div class="rr-dkpi"><span>Clientes</span><b>{{ d.per_client.clients | number }}</b>
+              @if (d.per_client.public_pct > 0) { <em>+ público sin identificar: {{ d.per_client.public_pct | number:'1.0-1' }}% de la venta</em> }</div>
+            <div class="rr-dkpi"><span>Venta/cliente</span><b>{{ d.per_client.avg_revenue | currency:'MXN':'symbol-narrow':'1.0-0' }}</b><em>promedio por cliente identificado</em></div>
+            <div class="rr-dkpi"><span>SKUs/cliente</span><b>{{ d.per_client.avg_skus | number:'1.0-1' }}</b><em>productos distintos por cliente</em></div>
+            <div class="rr-dkpi"><span>Tickets/cliente</span><b>{{ d.per_client.avg_tickets | number:'1.0-1' }}</b><em>visitas por cliente</em></div>
             <div class="rr-dkpi"><span>Unid./renglón</span><b>{{ unitsPerLine(d) | number:'1.0-2' }}</b><em>de cada producto</em></div>
-            <div class="rr-dkpi"><span>Renglones/ticket</span><b>{{ linesPerTicket(d) | number:'1.0-2' }}</b><em>productos distintos por visita</em></div>
             <!-- Margen: siempre acompañado de su cobertura. El push de camionetas no trae
                  costo, así que un margen "a secas" mezclaría peras con manzanas. -->
             <div class="rr-dkpi rr-dkpi-wide">
@@ -851,21 +854,16 @@ export class ComercialVentasPorRutaComponent {
     this.dClient.set(code); this.dClientName.set(name || null); this.applyFacet();
   }
 
-  // ── RR3 — Promedios. Dos preguntas distintas, no una. ───────────────────────
+  // ── RR3/RR4 — Promedios. Los de venta/SKUs/tickets vienen POR CLIENTE desde el server
+  // (d.per_client = promedio de los agregados de cada cliente); acá sólo queda la profundidad,
+  // que es por renglón y no depende de ticket ni de cliente. OJO: sin acentos graves en este
+  // archivo fuera de los literales: el compilador de Angular deja de resolver styles (error 1010).
   /** Profundidad: cuánto se llevan DE CADA producto. */
   unitsPerLine(d: SalesByRouteDetail): number {
     return d.totals.lines > 0 ? d.totals.units / d.totals.lines : 0;
   }
-  /** Surtido: cuántos productos distintos entra la visita. */
-  linesPerTicket(d: SalesByRouteDetail): number {
-    return d.totals.tickets > 0 ? d.totals.lines / d.totals.tickets : 0;
-  }
   ticketUnitsPerLine(t: SalesByRouteTicket): number {
     return t.lines > 0 ? t.units / t.lines : 0;
-  }
-
-  avgTicket(d: SalesByRouteDetail): number {
-    return d.totals.tickets > 0 ? d.totals.revenue / d.totals.tickets : 0;
   }
 
   /** La carga de tickets la dispara el (onLazyLoad) de la tabla al montarse — no acá,

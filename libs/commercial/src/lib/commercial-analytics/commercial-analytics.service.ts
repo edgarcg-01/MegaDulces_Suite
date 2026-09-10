@@ -166,10 +166,20 @@ export interface SalesByRouteDetail {
   route_code: string;
   warehouse_name: string;
   year: number;
-  /** `lines` = renglones del periodo. Con él salen los dos promedios que pidió negocio:
-   *  `units/lines` = profundidad (cuánto se llevan de cada producto) y
-   *  `lines/tickets` = surtido (cuántos productos distintos entra la visita). */
+  /** `lines` = renglones del periodo. `units/lines` = profundidad (cuánto se llevan de
+   *  cada producto). Los promedios de venta/SKUs/tickets van POR CLIENTE (`per_client`),
+   *  no por ticket: en ruta la unidad de negocio es la tiendita, no el documento. */
   totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  /** RR4 — Promedios POR CLIENTE IDENTIFICADO, calculados en SQL como promedio de los
+   *  agregados de cada cliente (un cliente = una observación), NO como total/clientes:
+   *  `skus / clients` subestimaría el surtido porque los SKUs distintos del periodo se
+   *  reparten entre tienditas. El público (cliente NULL/''/'0001' = "Mostrador a bordo")
+   *  NO tiene identidad de cliente → queda fuera del promedio y se DECLARA cuánta venta
+   *  representa (`public_revenue`, `public_pct`). `clients` = 0 → promedios en 0. */
+  per_client: {
+    clients: number; revenue: number; public_revenue: number; public_pct: number;
+    avg_revenue: number; avg_skus: number; avg_tickets: number; avg_lines: number; avg_units: number;
+  };
   products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
@@ -5006,6 +5016,34 @@ export class CommercialAnalyticsService {
       const revWithCost = num(totals.revenue_with_cost);
       const cost = num(totals.cost);
 
+      // RR4 — promedios POR CLIENTE (pedido de negocio 2026-09-09: "el promedio se debe hacer
+      // vs cliente, no vs ticket"). Un cliente = una observación: se agrega por cliente y
+      // luego se promedia. Misma definición de "identificado" que `clients` arriba.
+      const IDENT = `sl.cliente IS NOT NULL AND btrim(sl.cliente)<>'' AND sl.cliente<>'0001'`;
+      const pc = (await trx.raw(
+        `WITH c AS (
+           SELECT sl.cliente, sum(sl.importe) revenue, sum(sl.qty) units,
+                  count(distinct sl.sku) skus, count(distinct sl.consecutivo) tickets, count(*) lines
+           FROM analytics.v_route_sales_lines sl WHERE ${W} AND ${IDENT}
+           GROUP BY sl.cliente)
+         SELECT count(*) clients, sum(revenue) revenue,
+                avg(revenue) avg_revenue, avg(units) avg_units, avg(skus) avg_skus,
+                avg(tickets) avg_tickets, avg(lines) avg_lines
+         FROM c`, P)).rows[0];
+      const pcClients = num(pc?.clients);
+      const pcRevenue = num(pc?.revenue);
+      const r2 = (v: any) => Math.round(num(v) * 100) / 100;
+      const perClient = {
+        clients: pcClients, revenue: r2(pcRevenue),
+        public_revenue: r2(totRev - pcRevenue),
+        public_pct: totRev > 0 ? Math.round(((totRev - pcRevenue) / totRev) * 1000) / 10 : 0,
+        avg_revenue: pcClients > 0 ? r2(pc.avg_revenue) : 0,
+        avg_units: pcClients > 0 ? r2(pc.avg_units) : 0,
+        avg_skus: pcClients > 0 ? r2(pc.avg_skus) : 0,
+        avg_tickets: pcClients > 0 ? r2(pc.avg_tickets) : 0,
+        avg_lines: pcClients > 0 ? r2(pc.avg_lines) : 0,
+      };
+
       // `lines` por SKU sale del mismo barrido; `units/lines` dice si el producto se
       // vende de a uno o de a bulto — la señal directa para el tamaño de empaque.
       const products = (await trx.raw(
@@ -5057,6 +5095,7 @@ export class CommercialAnalyticsService {
           revenue: totRev, units: num(totals.units), tickets: num(totals.tickets),
           skus: num(totals.skus), clients: num(totals.clients), lines: num(totals.lines),
         },
+        per_client: perClient,
         products: products.map((r: any) => {
           const lines = num(r.lines);
           return {
