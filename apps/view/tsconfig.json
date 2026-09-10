@@ -30,6 +30,7 @@
       "@megadulces/contracts/authz/authz-tree": ["../../libs/contracts/src/authz/authz-tree.ts"],
       "@megadulces/contracts/authz/permission-meta": ["../../libs/contracts/src/authz/permission-meta.ts"],
       "@megadulces/contracts/authz/role-presets": ["../../libs/contracts/src/authz/role-presets.ts"],
+      "@megadulces/contracts/authz/suite-map": ["../../libs/contracts/src/authz/suite-map.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
       "@shared-auth/core": ["../../libs/shared-auth/core"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],

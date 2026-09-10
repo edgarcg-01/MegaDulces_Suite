@@ -15,9 +15,14 @@ import { Permission } from './permissions';
  *  - Apps Vendedor y Portal = acceso general (un solo permiso, entras/no entras).
  *
  * Al agregar un permiso al enum hay que ubicarlo aquí (o marcarlo LEGACY) o el
- * test de completitud (`authz-tree.spec.ts`) fallará.
+ * gate de coherencia (`database/tests/test-authz-route-coverage.js`, bloque [2]) fallará.
+ * (Acá decía `authz-tree.spec.ts`: ese archivo nunca existió — `[SN.1]`.)
  *
- * Ver docs/IMPLEMENTACION/FASES/FASE_AZ_AUTHZ_JERARQUICO.md.
+ * Al agregar un PROYECTO hay que darle casa en `suite-map.ts` (el mapa de espacios de la
+ * landing) o `suite-map.spec.ts` falla: cada proyecto de `view` tiene exactamente una entrada
+ * primaria.
+ *
+ * Ver docs/IMPLEMENTACION/FASES/FASE_AZ_AUTHZ_JERARQUICO.md y FASE_SN_SUITE_NAVEGACION.md.
  */
 
 export type AuthzAppId = 'view' | 'vendor' | 'portal';
@@ -80,7 +85,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
     projects: [
       {
         id: 'admin',
-        label: 'Administración',
+        // `[SN.1]` §22 de la especificación de Dirección: "Administración" se renombra
+        // "Configuración de la suite" cuando se refiere a usuarios y permisos, para separarlo
+        // de la gestión financiera. Sólo cambia la etiqueta; ruta y claves siguen iguales.
+        label: 'Configuración de la suite',
         icon: 'pi pi-cog',
         route: '/admin',
         modules: [
