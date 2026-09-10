@@ -257,7 +257,17 @@ export class StoreArqueoController {
       // La encargada supervisa la tienda entera (todas las cajas); la cajera ve
       // SOLO lo suyo. Filtrar solo por sucursal le mostraría el conteo de sus
       // compañeras — y con eso, cuánto entregó cada una.
-      cajero_code: revela ? undefined : (user?.username || ' '),
+      // El fallback era un byte NUL literal (typo: los otros dos usan ' ').
+      // Postgres NO admite NUL en text: `upper(cajero_code) = <NUL>` tira
+      // 22021 y el endpoint devolvia 500 en vez de una lista vacia. El
+      // espacio es el centinela que no casa con nada — falla cerrado.
+      cajero_code: revela ? undefined : (user?.username || ' '),
+      // SM.33 — Y solo los de HOY. La encargada necesita el historial para
+      // perseguir descuadres viejos; la cajera no tiene nada que hacer con
+      // el suyo, y tenerlo a la vista invita a "ajustar" el conteo para que
+      // se parezca al de ayer. Va aca y no en la pantalla: los query params
+      // se editan y la URL se teclea.
+      solo_hoy: !revela,
       limit: limit ? Number(limit) : undefined,
     });
     return rows.map((r) => this.proyectar(r, revela));
@@ -288,6 +298,8 @@ export class StoreArqueoController {
       warehouse_codes,
       // A la cajera se le fuerza el suyo; la encargada puede filtrar por una.
       cajero_code: revela ? ((query['cajero'] as string) || undefined) : (user?.username || ' '),
+      // SM.33 — mismo recorte que el listado: sin supervision, solo el dia.
+      solo_hoy: !revela,
       solo_sin_validar: String(query['sin_validar'] ?? '') === 'true',
       limit: limit ? Number(limit) : undefined,
     });
@@ -368,7 +380,13 @@ export class StoreArqueoController {
   @ApiQuery({ name: 'to', required: false })
   @ApiOperation({ summary: 'Tienda — tarjetas por cajera: sus cortes de Kepler con horarios, y el arqueo nuestro cuando existe.' })
   async porCajera(@ReqUser() user: AuthUser, @Query() query: Record<string, unknown>) {
-    const revela = this.revela(user);
+    // SM.33 — Esta vista ES un historial: el acumulado de cortes por cajera.
+    // No se le recorta al dia, se le NIEGA — a quien no supervisa no le sirve
+    // ni su propia fila. Misma linea que `cumplimiento`, y del lado del
+    // server porque esconder la pestaña no impide teclear la URL.
+    if (!this.revela(user)) {
+      throw new ForbiddenException('El historial por cajera es del supervisor. Tus cortes del día están en /tienda/arqueo.');
+    }
     const warehouse_codes = await this.scope.readParam(query, 'warehouse', 'store/arqueo/por-cajera');
     // Kepler genera el corte solo: antes de pintar, lo jalamos. Es un UPSERT de
     // una sentencia sobre 3 días (~60 filas) en la misma base, así que cuesta
@@ -380,28 +398,13 @@ export class StoreArqueoController {
       from: query['from'] as string | undefined,
       to: query['to'] as string | undefined,
       warehouse_codes,
-      cajero_code: revela ? ((query['cajero'] as string) || undefined) : (user?.username || ' '),
+      cajero_code: (query['cajero'] as string) || undefined,
       limit: query['limit'] ? Number(query['limit']) : undefined,
     });
-    if (revela) return res;
-    return {
-      cajeras: res.cajeras.map((g: any) => ({
-        cajero_code: g.cajero_code, cajero_nombre: g.cajero_nombre,
-        warehouse_code: g.warehouse_code, warehouse_name: g.warehouse_name,
-        cortes: g.cortes, dias: g.dias, sin_arqueo: g.sin_arqueo, ultimo: g.ultimo,
-        turnos: g.turnos.map((t: any) => ({
-          arqueo_id: t.arqueo_id, business_date: t.business_date, caja: t.caja, folio: t.folio,
-          hora_apertura: t.hora_apertura, hora_cierre: t.hora_cierre, duracion_horas: t.duracion_horas,
-          nuestro_contado: t.nuestro_contado, denominaciones: t.denominaciones,
-          capturado_por: t.capturado_por, capturado_at: t.capturado_at,
-          validado_por: t.validado_por, validado_at: t.validado_at,
-          // Su propio arqueo sí lo puede ver entero: turno, motivo y notas son
-          // datos de lo que ELLA hizo. Los montos de Kepler siguen fuera.
-          turno: t.turno, nota: t.nota, incidencia_tipo: t.incidencia_tipo, validado_nota: t.validado_nota,
-        })),
-      })),
-      totales: { cajeras: res.totales.cajeras, cortes: res.totales.cortes, sin_arqueo: res.totales.sin_arqueo },
-    };
+    // Con el 403 de arriba, aca `revela` es siempre true: la proyeccion
+    // recortada que habia (sin montos de Kepler, para la cajera) quedo
+    // inalcanzable y se fue con ella.
+    return res;
   }
 
   /**
