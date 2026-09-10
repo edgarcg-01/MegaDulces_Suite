@@ -1287,23 +1287,22 @@ explicación al hover.
 - ⚠️ **Un acento grave en un comentario dentro del `template:` rompió el build** (quinta
   vez en el repo). Los comentarios del template van sin backticks.
 
-### NO verificado
+### Verificado (2026-09-10) — validación visual
 
-**La validación visual en el navegador.** La sesión del Chrome de la máquina está
-expirada y no hay forma de entrar sin credenciales (no se pidieron ni se fabricaron: se
-intentó una sesión de fixture y el interceptor de 401 la tira, que es el comportamiento
-correcto). El `permissionGuard` manda a `/sin-acceso`, así que la pantalla no se pudo ver
-renderizada con el layout real. Lo que sí se probó del render es en jsdom, con el spec de
-componente (8 aserciones sobre el DOM: la cifra, el rótulo de respaldo, los tres estados,
-la declaración de frescura, el tope del feed).
+Cerrado con una cuenta descartable (`platform_test`, rol `superadmin`, creada y
+borrada en la misma sesión — la cuenta real de Edgar seguía sin llegar). Las 3
+rutas de estado ejercidas de verdad en el browser: `encontrado` (`17083` → ALTOS
+CAM CHICA COLOR 1KG, $62.99 KG — coincide exacto con el `curl` de más arriba),
+`no_encontrado` (tarjeta distinta, no un vacío), y **`respaldo`** (se detuvo la
+API a propósito: la pantalla cayó sola al snapshot de IndexedDB — auto-descargado
+al elegir sucursal, sin acción manual — con el banner y el tag correctos). Modo
+kiosco verificado. Mayoreo NO se pudo ejercer: los códigos de muestra en
+`platform_test` no traían tiers (limitación de esa DB, no del código). Detalle
+completo, hallazgo de entorno local incluido, en
+[`FASE_CV24_VERIFICADOR_CHECKPOINT.md`](FASE_CV24_VERIFICADOR_CHECKPOINT.md).
 
-**Para cerrarlo (3 pasos, ~2 min):**
-
-1. `node database/migrate-newdb.js` (o aplicar sólo `20260909120000_grant_store_price_check_perm.js`).
-2. Re-loguear — el mapa de permisos viaja en el JWT.
-3. Abrir `/tienda/verificador` y mirar: light + dark + móvil, escanear un código real,
-   probar **Modo kiosco**, y con DevTools en *Offline* verificar que aparece
-   "Precio de respaldo" (bajando antes el respaldo con el botón).
+**Sigue pendiente:** que Edgar confirme con su propia cuenta, y probar el
+mayoreo contra una DB con `commercial.product_label_prices` real.
 
 ### Pendiente / abierto
 
