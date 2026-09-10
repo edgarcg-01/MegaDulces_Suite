@@ -13,6 +13,14 @@ export interface CreateVehicleDto {
   model?: string;
   brand?: string;
   year?: number;
+  // FC.1 — datos que pide el formato de asignación vehicular. Las columnas
+  // existían en DB desde la migración pero NO estaban en el DTO, así que el
+  // alta los descartaba en silencio: la primera hoja cargada guardó el color y
+  // el número de serie como NULL.
+  economic_number?: string;
+  vin?: string;
+  engine_number?: string;
+  color?: string;
   fuel_efficiency_km_l?: number;
   capacity_boxes?: number;
   capacity_kg?: number;
@@ -86,6 +94,10 @@ export class LogisticsFleetService {
           model: dto.model || null,
           brand: dto.brand || null,
           year: dto.year || null,
+          economic_number: dto.economic_number || null,
+          vin: dto.vin || null,
+          engine_number: dto.engine_number || null,
+          color: dto.color || null,
           fuel_efficiency_km_l: dto.fuel_efficiency_km_l || null,
           capacity_boxes: dto.capacity_boxes || null,
           capacity_kg: dto.capacity_kg || null,
@@ -142,7 +154,7 @@ export class LogisticsFleetService {
       }
 
       const patch: Record<string, any> = { updated_at: trx.fn.now() };
-      for (const k of ['plate', 'model', 'brand', 'year', 'fuel_efficiency_km_l', 'capacity_boxes', 'capacity_kg', 'status', 'notes', 'active'] as const) {
+      for (const k of ['plate', 'model', 'brand', 'year', 'economic_number', 'vin', 'engine_number', 'color', 'fuel_efficiency_km_l', 'capacity_boxes', 'capacity_kg', 'status', 'notes', 'active'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
 

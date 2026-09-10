@@ -26,6 +26,11 @@ export type LiquidationStatus = 'calculado' | 'revisado' | 'pagado' | 'anulado';
 export type ConfigCategory = 'factor' | 'costo_km' | 'tarifa_maniobra' | 'viatico' | 'otro';
 
 export interface Vehicle {
+  economic_number?: string | null;
+  vin?: string | null;
+  engine_number?: string | null;
+  color?: string | null;
+  current_odometer?: number | null;
   id: string;
   plate: string;
   model?: string | null;
