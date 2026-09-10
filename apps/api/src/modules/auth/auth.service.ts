@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { KNEX_CONNECTION } from '@megadulces/platform-core';
+import { KNEX_CONNECTION, soloConcedidos } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 import { LoginDto } from './dto/login.dto';
@@ -21,6 +21,12 @@ import { LoginDto } from './dto/login.dto';
  * `permissions` en el JWT, la UI se quedaría sin menú hasta hacer una request
  * adicional a /auth/me. Mantenerlas en el JWT es un hint de UI cómodo,
  * no una source-of-truth de seguridad.
+ *
+ * `[ID.29]` — pero viajan **sólo las claves concedidas**. El mapa que guarda
+ * `/admin/roles` trae las 175 del enum, la mayoría en `false`, y eso iba en el
+ * header `Authorization` de cada request: `almacenista`, con DOS permisos,
+ * cargaba 7,746 B de los 8,192 que nginx acepta por default. Los `false` no
+ * los mira ningún consumidor (`soloConcedidos` lo documenta con la medición).
  */
 interface JwtPayload {
   sub: string;
@@ -64,8 +70,11 @@ export class AuthService {
         .whereRaw('LOWER(role_name) = ?', [String(user.role_name ?? '').toLowerCase()])
         .first();
 
-    const permissions = rolePermissions ? rolePermissions.permissions : {};
-
+    // `[ID.29]` Sólo las claves CONCEDIDAS. `/admin/roles` guarda el JSONB
+    // completo (175 claves, la mayoría en `false`) y ese mapa viaja en el
+    // header de cada request. El helper vive en `libs/` y no copiado acá
+    // porque hay DOS caminos de login que arman el payload.
+    const permissions = soloConcedidos(rolePermissions ? rolePermissions.permissions : {});
 
     const payload: JwtPayload = {
       sub: user.id,
