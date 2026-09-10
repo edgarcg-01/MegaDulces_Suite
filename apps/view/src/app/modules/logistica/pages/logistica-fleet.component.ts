@@ -77,6 +77,7 @@ function severityForDriverStatus(s: string): Severity {
           <p-tab value="assignments"><i class="pi pi-file-edit"></i> Asignaciones ({{ assignments().length }})</p-tab>
           <p-tab value="usage"><i class="pi pi-clock"></i> Uso ({{ usageLogs().length }})</p-tab>
           <p-tab value="maintenance"><i class="pi pi-wrench"></i> Mantenimiento ({{ maintenance().length }})</p-tab>
+          <p-tab value="fuel"><i class="pi pi-bolt"></i> Combustible ({{ fuelTx().length }})</p-tab>
         </p-tablist>
         <p-tabpanels>
           <p-tabpanel value="vehicles">
@@ -149,188 +150,6 @@ function severityForDriverStatus(s: string): Severity {
               </p-table>
             </p-card>
           </p-tabpanel>
-    
-          <!-- ──── J.9.9 Tab Uso (check-in/check-out) ──── -->
-          <p-tabpanel value="usage">
-            <div class="tab-actions">
-              <button pButton (click)="openCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-sign-out" aria-hidden="true"></span><span class="p-button-label">Nuevo check-in</span></button>
-            </div>
-            <p-card>
-              <p-table [value]="usageLogs()" [loading]="loadingUsage()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-                <ng-template #header>
-                  <tr>
-                    <th scope="col">Vehículo</th>
-                    <th scope="col">Chofer</th>
-                    <th scope="col">Salida</th>
-                    <th scope="col" class="num">Km inicial</th>
-                    <th scope="col">Regreso</th>
-                    <th scope="col" class="num">Km final</th>
-                    <th scope="col" class="num">Combustible (L)</th>
-                    <th scope="col">Estado</th>
-                    <th scope="col"><span class="sr-only">Acciones</span></th>
-                  </tr>
-                </ng-template>
-                <ng-template #body let-u>
-                  <tr>
-                    <td><code>{{ u.vehicle_plate }}</code></td>
-                    <td>{{ u.driver_name || '—' }}</td>
-                    <td>{{ u.check_in_at | date:'short' }}</td>
-                    <td class="num">{{ u.check_in_km | number:'1.0-0' }}</td>
-                    <td>{{ u.check_out_at ? (u.check_out_at | date:'short') : '—' }}</td>
-                    <td class="num">{{ u.check_out_km !== null ? (u.check_out_km | number:'1.0-0') : '—' }}</td>
-                    <td class="num">{{ u.fuel_loaded_liters !== null ? (u.fuel_loaded_liters | number:'1.2-2') : '—' }}</td>
-                    <td>
-                      <p-tag [severity]="u.status === 'en_uso' ? 'warn' : 'success'" [value]="u.status === 'en_uso' ? 'En uso' : 'Cerrado'"></p-tag>
-                    </td>
-                    <td class="actions">
-                      @if (u.status === 'en_uso') {
-                        <button pButton size="small" (click)="openCheckOut(u)"><span class="p-button-icon p-button-icon-left pi pi-sign-in" aria-hidden="true"></span><span class="p-button-label">Check-out</span></button>
-                      }
-                    </td>
-                  </tr>
-                </ng-template>
-                <ng-template #emptymessage>
-                  <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-clock" aria-hidden="true"></i></div><h3>Sin historial de uso</h3><p>Aún no hay check-ins registrados.</p></div></td></tr>
-                </ng-template>
-              </p-table>
-            </p-card>
-          </p-tabpanel>
-    
-          <!-- ──── J.9.9 Tab Mantenimiento ──── -->
-          <p-tabpanel value="maintenance">
-            <div class="tab-actions">
-              <button pButton (click)="openMaintenance()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo mantenimiento</span></button>
-            </div>
-            @if (maintDue().length) {
-              <div class="maint-due">
-                <div class="maint-due-head"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-              {{ maintDue().length }} unidad{{ maintDue().length === 1 ? '' : 'es' }} con servicio vencido</div>
-              <ul>
-                @for (d of maintDue(); track d) {
-                  <li>
-                    <code>{{ d.plate }}</code> {{ d.model || '' }}
-                    <span class="maint-due-reason">{{ d.reasons.join(' · ') }}</span>
-                  </li>
-                }
-              </ul>
-            </div>
-          }
-    
-          @if (fuelEff().length) {
-            <p-card class="fuel-card">
-              <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
-              @if (fuelCoverage(); as cov) {
-                <p class="fuel-cov">
-                  Medible en <strong>{{ cov.vehicles_medibles }}</strong> de {{ cov.vehicles_total }} unidades activas.
-                  @if (fuelOrphan(); as orf) {
-                    @if (orf.liters > 0) {
-                      <span class="fuel-orphan">
-                        · <strong>{{ orf.liters | number:'1.0-0' }} L</strong>
-                        ({{ orf.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}, {{ orf.rows }} cargas)
-                        <strong>sin unidad asignada</strong> — fuera de todo km/L.
-                      </span>
-                    }
-                  }
-                </p>
-              }
-              <p-table [value]="fuelEff()" styleClass="p-datatable-sm surf-table surf-table--sticky">
-                <ng-template #header>
-                  <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col">Fuente</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
-                </ng-template>
-                <ng-template #body let-f>
-                  <tr [class.fuel-flag]="f.flag">
-                    <td><code>{{ f.plate }}</code></td>
-                    <td class="num">{{ f.km | number:'1.0-0' }}</td>
-                    <td class="num">{{ f.liters | number:'1.0-1' }}</td>
-                    <td class="fuel-src">
-                      @if (f.liters_by_source?.usage_log) { <span>check-out {{ f.liters_by_source.usage_log | number:'1.0-0' }}</span> }
-                      @if (f.liters_by_source?.fuel_transaction) { <span>cargas {{ f.liters_by_source.fuel_transaction | number:'1.0-0' }}</span> }
-                      @if (f.liters_by_source?.route_expense) { <span>ruta {{ f.liters_by_source.route_expense | number:'1.0-0' }}</span> }
-                      @if (!f.liters) { <span class="muted">—</span> }
-                    </td>
-                    <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : (f.no_medible || '—') }}</td>
-                    <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
-                    <td class="num">
-                      @if (f.deviation_pct != null) {
-                        <span [class.fuel-bad]="f.flag">{{ f.deviation_pct > 0 ? '+' : '' }}{{ f.deviation_pct }}%</span>
-                      }
-                      @if (f.deviation_pct == null) {
-                        <span>—</span>
-                      }
-                    </td>
-                  </tr>
-                </ng-template>
-              </p-table>
-            </p-card>
-          }
-    
-          <p-card class="fuel-card">
-            <h3 class="fuel-title">Combustible — registrar carga</h3>
-            <form [formGroup]="fuelForm" class="fuel-form">
-              <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true" placeholder="Unidad *" appendTo="body"></p-select>
-              <p-inputnumber formControlName="liters" placeholder="Litros *" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputnumber>
-              <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputnumber>
-              <p-inputnumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputnumber>
-              <input pInputText formControlName="station" placeholder="Estación" />
-              <button pButton size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
-            </form>
-            <p-table [value]="fuelTx()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
-              <ng-template #header>
-                <tr><th scope="col">Fecha</th><th scope="col">Unidad</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Monto</th><th scope="col" class="num">Odómetro</th><th scope="col">Estación</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
-              </ng-template>
-              <ng-template #body let-f>
-                <tr>
-                  <td>{{ f.loaded_at | date:'shortDate' }}</td>
-                  <td><code>{{ f.vehicle_plate }}</code></td>
-                  <td class="num">{{ f.liters | number:'1.0-2' }}</td>
-                  <td class="num">\${{ f.amount | number:'1.2-2' }}</td>
-                  <td class="num">{{ f.odometer_km ? (f.odometer_km | number:'1.0-0') : '—' }}</td>
-                  <td class="small">{{ f.station || '—' }}</td>
-                  <td class="actions"><button pButton size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button></td>
-                </tr>
-              </ng-template>
-              <ng-template #emptymessage><tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-bolt" aria-hidden="true"></i></div><h3>Sin cargas registradas</h3><p>Aún no hay cargas de combustible.</p></div></td></tr></ng-template>
-            </p-table>
-          </p-card>
-    
-          <p-card>
-            <p-table [value]="maintenance()" [loading]="loadingMaint()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
-              <ng-template #header>
-                <tr>
-                  <th scope="col">Vehículo</th>
-                  <th scope="col">Fecha</th>
-                  <th scope="col">Tipo</th>
-                  <th scope="col">Descripción</th>
-                  <th scope="col">Proveedor</th>
-                  <th scope="col" class="num">Km</th>
-                  <th scope="col" class="num">Costo</th>
-                  <th scope="col">Próximo</th>
-                  <th scope="col"><span class="sr-only">Acciones</span></th>
-                </tr>
-              </ng-template>
-              <ng-template #body let-m>
-                <tr>
-                  <td><code>{{ m.vehicle_plate }}</code></td>
-                  <td>{{ m.service_date | date:'shortDate' }}</td>
-                  <td>
-                    <p-tag [severity]="m.type === 'correctivo' ? 'danger' : (m.type === 'preventivo' ? 'info' : 'secondary')" [value]="m.type"></p-tag>
-                  </td>
-                  <td class="small">{{ m.description }}</td>
-                  <td>{{ m.vendor || '—' }}</td>
-                  <td class="num">{{ m.km_at_service ? (m.km_at_service | number:'1.0-0') : '—' }}</td>
-                  <td class="num">\${{ m.cost | number:'1.2-2' }}</td>
-                  <td class="small">{{ m.next_service_date ? (m.next_service_date | date:'shortDate') : (m.next_service_km ? (m.next_service_km + ' km') : '—') }}</td>
-                  <td class="actions">
-                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteMaint(m)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template #emptymessage>
-                <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-wrench" aria-hidden="true"></i></div><h3>Sin mantenimientos</h3><p>Aún no hay registros de mantenimiento.</p></div></td></tr>
-              </ng-template>
-            </p-table>
-          </p-card>
-        </p-tabpanel>
 
         <p-tabpanel value="entitlements">
           <p class="fc-help">
@@ -425,6 +244,197 @@ function severityForDriverStatus(s: string): Severity {
             <ng-template #emptymessage><tr><td colspan="10" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div><h3>Sin actas</h3><p>Registra la primera asignación vehicular.</p></div></td></tr></ng-template>
           </p-table>
         </p-tabpanel>
+    
+          <!-- ──── J.9.9 Tab Uso (check-in/check-out) ──── -->
+          <p-tabpanel value="usage">
+            <div class="tab-actions">
+              <button pButton (click)="openCheckIn()"><span class="p-button-icon p-button-icon-left pi pi-sign-out" aria-hidden="true"></span><span class="p-button-label">Nuevo check-in</span></button>
+            </div>
+            <p-card>
+              <p-table [value]="usageLogs()" [loading]="loadingUsage()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Vehículo</th>
+                    <th scope="col">Chofer</th>
+                    <th scope="col">Salida</th>
+                    <th scope="col" class="num">Km inicial</th>
+                    <th scope="col">Regreso</th>
+                    <th scope="col" class="num">Km final</th>
+                    <th scope="col" class="num">Combustible (L)</th>
+                    <th scope="col">Estado</th>
+                    <th scope="col"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-u>
+                  <tr>
+                    <td><code>{{ u.vehicle_plate }}</code></td>
+                    <td>{{ u.driver_name || '—' }}</td>
+                    <td>{{ u.check_in_at | date:'short' }}</td>
+                    <td class="num">{{ u.check_in_km | number:'1.0-0' }}</td>
+                    <td>{{ u.check_out_at ? (u.check_out_at | date:'short') : '—' }}</td>
+                    <td class="num">{{ u.check_out_km !== null ? (u.check_out_km | number:'1.0-0') : '—' }}</td>
+                    <td class="num">{{ u.fuel_loaded_liters !== null ? (u.fuel_loaded_liters | number:'1.2-2') : '—' }}</td>
+                    <td>
+                      <p-tag [severity]="u.status === 'en_uso' ? 'warn' : 'success'" [value]="u.status === 'en_uso' ? 'En uso' : 'Cerrado'"></p-tag>
+                    </td>
+                    <td class="actions">
+                      @if (u.status === 'en_uso') {
+                        <button pButton size="small" (click)="openCheckOut(u)"><span class="p-button-icon p-button-icon-left pi pi-sign-in" aria-hidden="true"></span><span class="p-button-label">Check-out</span></button>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage>
+                  <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-clock" aria-hidden="true"></i></div><h3>Sin historial de uso</h3><p>Aún no hay check-ins registrados.</p></div></td></tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          </p-tabpanel>
+    
+          <!-- ──── J.9.9 Tab Mantenimiento ──── -->
+          <p-tabpanel value="maintenance">
+            <div class="tab-actions">
+              <button pButton (click)="openMaintenance()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo mantenimiento</span></button>
+            </div>
+            @if (maintDue().length) {
+              <div class="maint-due">
+                <div class="maint-due-head"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              {{ maintDue().length }} unidad{{ maintDue().length === 1 ? '' : 'es' }} con servicio vencido</div>
+              <ul>
+                @for (d of maintDue(); track d) {
+                  <li>
+                    <code>{{ d.plate }}</code> {{ d.model || '' }}
+                    <span class="maint-due-reason">{{ d.reasons.join(' · ') }}</span>
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+    
+    
+          <p-card>
+            <p-table [value]="maintenance()" [loading]="loadingMaint()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+              <ng-template #header>
+                <tr>
+                  <th scope="col">Vehículo</th>
+                  <th scope="col">Fecha</th>
+                  <th scope="col">Tipo</th>
+                  <th scope="col">Descripción</th>
+                  <th scope="col">Proveedor</th>
+                  <th scope="col" class="num">Km</th>
+                  <th scope="col" class="num">Costo</th>
+                  <th scope="col">Próximo</th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-m>
+                <tr>
+                  <td><code>{{ m.vehicle_plate }}</code></td>
+                  <td>{{ m.service_date | date:'shortDate' }}</td>
+                  <td>
+                    <p-tag [severity]="m.type === 'correctivo' ? 'danger' : (m.type === 'preventivo' ? 'info' : 'secondary')" [value]="m.type"></p-tag>
+                  </td>
+                  <td class="small">{{ m.description }}</td>
+                  <td>{{ m.vendor || '—' }}</td>
+                  <td class="num">{{ m.km_at_service ? (m.km_at_service | number:'1.0-0') : '—' }}</td>
+                  <td class="num">\${{ m.cost | number:'1.2-2' }}</td>
+                  <td class="small">{{ m.next_service_date ? (m.next_service_date | date:'shortDate') : (m.next_service_km ? (m.next_service_km + ' km') : '—') }}</td>
+                  <td class="actions">
+                    <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteMaint(m)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                  </td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="9" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-wrench" aria-hidden="true"></i></div><h3>Sin mantenimientos</h3><p>Aún no hay registros de mantenimiento.</p></div></td></tr>
+              </ng-template>
+            </p-table>
+          </p-card>
+        </p-tabpanel>
+
+        <p-tabpanel value="fuel">
+          <p class="fc-help">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Rendimiento y cargas. Estaba enterrado dentro de Mantenimiento: el combustible es
+            el evento más frecuente de la unidad, no un anexo del taller.
+          </p>
+          @if (fuelEff().length) {
+            <p-card class="fuel-card">
+              <h3 class="fuel-title">Rendimiento de combustible (real vs spec)</h3>
+              @if (fuelCoverage(); as cov) {
+                <p class="fuel-cov">
+                  Medible en <strong>{{ cov.vehicles_medibles }}</strong> de {{ cov.vehicles_total }} unidades activas.
+                  @if (fuelOrphan(); as orf) {
+                    @if (orf.liters > 0) {
+                      <span class="fuel-orphan">
+                        · <strong>{{ orf.liters | number:'1.0-0' }} L</strong>
+                        ({{ orf.amount | currency:'MXN':'symbol-narrow':'1.0-0' }}, {{ orf.rows }} cargas)
+                        <strong>sin unidad asignada</strong> — fuera de todo km/L.
+                      </span>
+                    }
+                  }
+                </p>
+              }
+              <p-table [value]="fuelEff()" styleClass="p-datatable-sm surf-table surf-table--sticky">
+                <ng-template #header>
+                  <tr><th scope="col">Vehículo</th><th scope="col" class="num">Km</th><th scope="col" class="num">Litros</th><th scope="col">Fuente</th><th scope="col" class="num">Real km/l</th><th scope="col" class="num">Spec</th><th scope="col" class="num">Desv.</th></tr>
+                </ng-template>
+                <ng-template #body let-f>
+                  <tr [class.fuel-flag]="f.flag">
+                    <td><code>{{ f.plate }}</code></td>
+                    <td class="num">{{ f.km | number:'1.0-0' }}</td>
+                    <td class="num">{{ f.liters | number:'1.0-1' }}</td>
+                    <td class="fuel-src">
+                      @if (f.liters_by_source?.usage_log) { <span>check-out {{ f.liters_by_source.usage_log | number:'1.0-0' }}</span> }
+                      @if (f.liters_by_source?.fuel_transaction) { <span>cargas {{ f.liters_by_source.fuel_transaction | number:'1.0-0' }}</span> }
+                      @if (f.liters_by_source?.route_expense) { <span>ruta {{ f.liters_by_source.route_expense | number:'1.0-0' }}</span> }
+                      @if (!f.liters) { <span class="muted">—</span> }
+                    </td>
+                    <td class="num">{{ f.real_km_l != null ? (f.real_km_l | number:'1.1-2') : (f.no_medible || '—') }}</td>
+                    <td class="num">{{ f.spec_km_l != null ? (f.spec_km_l | number:'1.1-2') : '—' }}</td>
+                    <td class="num">
+                      @if (f.deviation_pct != null) {
+                        <span [class.fuel-bad]="f.flag">{{ f.deviation_pct > 0 ? '+' : '' }}{{ f.deviation_pct }}%</span>
+                      }
+                      @if (f.deviation_pct == null) {
+                        <span>—</span>
+                      }
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </p-card>
+          }
+    
+          <p-card class="fuel-card">
+            <h3 class="fuel-title">Combustible — registrar carga</h3>
+            <form [formGroup]="fuelForm" class="fuel-form">
+              <p-select formControlName="vehicle_id" [options]="vehicleOptions()" optionLabel="label" optionValue="value" [filter]="true" placeholder="Unidad *" appendTo="body"></p-select>
+              <p-inputnumber formControlName="liters" placeholder="Litros *" [minFractionDigits]="0" [maxFractionDigits]="2"></p-inputnumber>
+              <p-inputnumber formControlName="amount" mode="currency" currency="MXN" locale="es-MX" placeholder="Monto"></p-inputnumber>
+              <p-inputnumber formControlName="odometer_km" placeholder="Odómetro km"></p-inputnumber>
+              <input pInputText formControlName="station" placeholder="Estación" />
+              <button pButton size="small" [loading]="savingFuel()" [disabled]="fuelForm.invalid" (click)="registerFuel()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Registrar</span></button>
+            </form>
+            <p-table [value]="fuelTx()" styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra" [paginator]="fuelTx().length > 25" [rows]="25" [rowsPerPageOptions]="[25, 50, 100, 200]">
+              <ng-template #header>
+                <tr><th scope="col">Fecha</th><th scope="col">Unidad</th><th scope="col" class="num">Litros</th><th scope="col" class="num">Monto</th><th scope="col" class="num">Odómetro</th><th scope="col">Estación</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
+              </ng-template>
+              <ng-template #body let-f>
+                <tr>
+                  <td>{{ f.loaded_at | date:'shortDate' }}</td>
+                  <td><code>{{ f.vehicle_plate }}</code></td>
+                  <td class="num">{{ f.liters | number:'1.0-2' }}</td>
+                  <td class="num">\${{ f.amount | number:'1.2-2' }}</td>
+                  <td class="num">{{ f.odometer_km ? (f.odometer_km | number:'1.0-0') : '—' }}</td>
+                  <td class="small">{{ f.station || '—' }}</td>
+                  <td class="actions"><button pButton size="small" severity="secondary" [text]="true" (click)="deleteFuel(f)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button></td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="7" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-bolt" aria-hidden="true"></i></div><h3>Sin cargas registradas</h3><p>Aún no hay cargas de combustible.</p></div></td></tr></ng-template>
+            </p-table>
+          </p-card>
+        </p-tabpanel>
+
       </p-tabpanels>
     </p-tabs>
     </div>
