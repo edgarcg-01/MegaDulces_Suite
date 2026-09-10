@@ -6,7 +6,7 @@
 
 **Decisiones tomadas (Edgar, 2026-09-10):**
 
-1. **El fierro existe, sin SO**, con **16 GB RAM** (ampliable a 32) y **NVMe 256 GB WD PC SN740** → VL.0 instala Ubuntu 24.04 LTS. **Alcanza con holgura para VL.0–VL.8; no alcanza para VL.9** (§6.1). Faltan núcleos y velocidad de NIC (§8.2 A1).
+1. **El fierro existe, sin SO**, con **16 GB RAM** (ampliable a 32) y **NVMe 256 GB WD PC SN740** → VL.0 instala **Ubuntu Server 26.04.1 LTS** (`resolute`, §6.0). **Alcanza con holgura para VL.0–VL.8; no alcanza para VL.9** (§6.1). Faltan núcleos y velocidad de NIC (§8.2 A1).
 2. **Alcance: ingesta ahora, prod después** → VL.9 (bajar Railway) pasa a ser fase real con su propio ADR, no un "condicional". **Y con el fierro real medido, prod exige compra: segundo disco de 1–2 TB + los 32 GB de RAM** (§6.1).
 3. **Wincaja/Access se decide en VL.5** → mientras tanto **se queda en `.249`**, declarado como pendiente con dueño y fecha. `.249` no se apaga del todo hasta cerrarlo (afecta VL.7).
 4. **Corte con ventana nocturna o de fin de semana** → copia física del volumen, camino sin hueco. Falta la fecha concreta y el chequeo previo de disco en los 8 publicadores.
@@ -98,7 +98,7 @@ Mover sólo los contenedores **sí** es válido como **paso intermedio de des-ri
 Hereda:
 - **ADR-053 / Fase OBS** — el latido mide **entrega**, no que el proceso exista; y el veredicto necesita un brazo (`autoheal`). Una migración que rompa el latido reconstruye exactamente el congelamiento de 6 días.
 - **ADR-056 / Fase VP** — lo que no se pueda medir se declara. Aplica a la migración misma: un carril se declara migrado sólo con su **latido verde en prod**, no con "el contenedor arrancó".
-- **`project_vps_onprem_coolify`** — mini-PC dedicado, Ubuntu 24.04, Coolify para la capa PaaS, Cloudflare Tunnel para exposición, **DB nunca por el túnel**. Proxmox → VM completa, no LXC.
+- **`project_vps_onprem_coolify`** — mini-PC dedicado, Coolify para la capa PaaS, Cloudflare Tunnel para exposición, **DB nunca por el túnel**. Proxmox → VM completa, no LXC.
 
 Se **rechaza** explícitamente:
 - **Mover primero prod (Railway) y después la ingesta.** La ingesta es la que hoy vive en una máquina de trabajo sin UPS; prod está en un hosting con respaldo. El riesgo está de este lado.
@@ -116,7 +116,7 @@ Se **rechaza** explícitamente:
         |  replicación lógica                        | CIFS (solo lectura)
         v                                            v
   +--------------------------------------------------------------+
-  |  VPS LOCAL (Ubuntu 24.04, Docker Compose)                    |
+  |  VPS LOCAL (Ubuntu Server 26.04.1 LTS, Docker Compose)        |
   |                                                              |
   |   pg-ods (pgvector pg18)  <- kepler_md_00..07, wincaja,      |
   |      volumen 55 GB+          kepler_consolidado              |
@@ -139,7 +139,7 @@ Se **rechaza** explícitamente:
 
 | Item | Estado | Descripción | Bloquea a |
 |---|---|---|---|
-| **VL.0** | ⬜ | **Instalar y preparar el servidor.** El fierro existe sin SO: instalar **Ubuntu Server 24.04 LTS amd64** (pila de versiones completa y sus trampas en **§6.0**), Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
+| **VL.0** | ⬜ | **Instalar y preparar el servidor.** El fierro existe sin SO: instalar **Ubuntu Server 26.04.1 LTS amd64** (`resolute`; pila de versiones completa y sus trampas en **§6.0**), Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
 | **VL.1** | ⬜ | **Secretos en un solo lugar.** Hoy las credenciales de prod viven **en texto plano en al menos 4 lanzadores** (`run-feeds.cmd`, `store-poller.cmd`, `ingest.env`, `sync.local.env`). En el servidor nuevo: un `.env` por stack, fuera del repo, permisos `600`, un dueño. **La credencial de prod expuesta sigue pendiente de rotar** (`project_security_incident_db_creds`) — la mudanza es el momento natural. | VL.2 |
 | **VL.2a** | ⬜ | **Des-riesgo: sólo los 4 contenedores del ODS**, leyendo la fuente por LAN (`ODS_SOURCE_BASE` → `192.168.0.249:5433`). Apagar los de `.249` **antes** de levantar los nuevos (nunca dos shippers a la vez: pelean `ods.ctl`/`ods.shadow`). Verde = los 3 latidos (`ods_live_hot`, `ods_live_mirror`, `cdc_reconcile`) frescos **en prod** y `db-health` sin sensor crítico. | VL.3 |
 | **VL.2b** | ⬜ | **Mudar la fuente — en la ventana nocturna/fin de semana.** **Copia física del volumen**: `docker stop` → copiar `pgvector-md-data` (55 GB **en tránsito**) → levantar en el servidor nuevo con **la misma major (PG 18)** → **`DROP DATABASE wincaja` allá** (queda residente **~15 GB**; sus 40 GB los sigue usando el carril Wincaja **en `.249`** hasta VL.5 — §6.1). La copia física es lo que preserva `pg_replication_origin`, y por eso las 8 suscripciones **retoman desde su slot sin hueco**; `pg_dump` por base **no** lo preserva. ⚠️ `wincaja` **no** tiene orígenes que preservar (no la alimenta replicación lógica, la escribe el replicador Jet) → dropearla no pierde nada. ⚠️ Mientras la réplica está abajo **los publicadores retienen WAL** → **medir el disco libre de las 8 sucursales el día antes**, no suponerlo (si una está justa, se acorta la ventana o se hace esa rama por separado). Plan B (por rama, si alguna no retoma): `DROP`/`CREATE SUBSCRIPTION` con `copy_data=true` sólo de esa rama. | VL.2c |
@@ -156,16 +156,23 @@ Se **rechaza** explícitamente:
 
 ### 6.0 La pila de versiones de VL.0 (lo que se instala, exacto)
 
-**SO: Ubuntu Server 24.04 LTS, amd64** — la imagen **"Server install image"** (no Desktop, no Cloud image), instalación **minimized**. Soporte estándar hasta **abril 2029**, que sobrevive con margen al horizonte de esta fase.
+**SO: Ubuntu Server 26.04.1 LTS, amd64** (codename **`resolute`**) — imagen **"Server install image"** (no Desktop, no Cloud image), instalación **minimized**. Soporte estándar hasta **abril 2031**.
 
-*Por qué 24.04 y no la LTS siguiente:* para septiembre de 2026 la 24.04 lleva ~2.4 años de rodaje y todo lo que esta pila necesita ya está probado sobre `noble` (Docker CE, PGDG, `mdbtools`). La LTS siguiente tendría ~5 meses. En la caja que alimenta los números de la empresa no conviene ser el primero en encontrar el bug. ⚠️ **No fijo aquí el número de point-release ni afirmo el estado de los repos de la LTS siguiente** — eso se verifica en la página de descarga al momento de bajar el ISO, no de memoria.
+*Cómo se decidió, y la corrección:* el plan arrancó recomendando **24.04 LTS** por madurez (~2.4 años de rodaje contra ~5 meses). El argumento técnico concreto era que Docker CE y PGDG podían no publicar todavía para el codename nuevo. **Se verificó contra los repos, no de memoria** (2026-09-10):
+
+- `download.docker.com/linux/ubuntu/dists/` → `… noble oracular plucky questing `**`resolute`** ✅
+- `apt.postgresql.org/pub/repos/apt/dists/` → `jammy-pgdg noble-pgdg `**`resolute-pgdg`** ✅
+
+Con los dos repos presentes el argumento se cae, y la 26.04.1 gana: es el **point release** (no el ISO del día uno) y estira el soporte **dos años más**. **Decidido: 26.04.1.**
+
+⚠️ **El ISO se verifica por SHA256 antes de flashear**, contra `releases.ubuntu.com/26.04.1/SHA256SUMS`. Un ISO corrupto **no falla al escribir**: falla en medio de la instalación y parece un problema de hardware. *Hecho el 2026-09-10:* `ubuntu-26.04.1-live-server-amd64.iso`, 2,927,861,760 bytes, `cc8a95cd…f1d927` — **coincide**.
 
 | Pieza | Versión / origen | Por qué así |
 |---|---|---|
 | **Kernel** | GA (`linux-generic`) | Sólo pasar a **HWE** si el instalador **no ve la NIC o el NVMe** — depende del hardware, que es la pregunta abierta A1 |
-| **Postgres en el host** | **ninguno** — sólo `postgresql-client-18` de **PGDG** (`apt.postgresql.org`, `noble-pgdg`) | El replica corre en el contenedor `pgvector/pgvector:pg18`. ⛔ **Los repos de Ubuntu 24.04 traen PG 16**, y `pg_dump` 16 **se niega** a volcar un servidor 18 — te enterás justo cuando necesitás el respaldo |
+| **Postgres en el host** | **ninguno** — sólo `postgresql-client-18` de **PGDG** (`apt.postgresql.org`, `resolute-pgdg` — verificado presente) | El replica corre en el contenedor `pgvector/pgvector:pg18`. ⛔ **Los repos de Ubuntu no traen PG 18**, y `pg_dump` 16 **se niega** a volcar un servidor 18 — te enterás justo cuando necesitás el respaldo |
 | **Major de Postgres** | **18**, obligatorio | El volumen es **18.4** y prod **18.6**. La copia física de VL.2b **exige la misma major** |
-| **Docker** | **Docker CE del repo oficial** (`download.docker.com`, canal `stable`, `noble`) + `docker-compose-plugin` | ⛔ **No `docker.io` de Ubuntu**: es más viejo y trae `docker-compose` **v1**; los compose de este repo son **v2** (`docker compose`) |
+| **Docker** | **Docker CE del repo oficial** (`download.docker.com`, canal `stable`, `resolute` — verificado presente) + `docker-compose-plugin` | ⛔ **No `docker.io` de Ubuntu**: es más viejo y trae `docker-compose` **v1**; los compose de este repo son **v2** (`docker compose`) |
 | **Node en el host** | **ninguno** | Todo va en contenedores `node:20`. Y de paso se corrige una deriva real: el repo declara `engines: node >=20 <21` y `.node-version 20.18.0`, pero hoy los carriles corren con el **Node 24 del host** (`C:\Program Files\nodejs\node.exe`) |
 | **Zona horaria** | `America/Mexico_City` en el host **y** en las imágenes | ⚠️ **No es cosmético**: los `@Cron` del proyecto están escritos asumiendo que el proceso corre en hora MX (`ENV TZ` en los Dockerfile de prod). Un host en UTC corre los nocturnos 6 h desfasados |
 | **Reloj** | `systemd-timesyncd` (o `chrony`) encendido | La frescura se juzga **comparando timestamps contra prod**. Un reloj corrido hace que `db-health` mienta en verde o en rojo, y este proyecto ya pagó por alarmas que decían lo que no era |
@@ -183,7 +190,7 @@ Todo lo de abajo está **medido**, no estimado.
 
 | Rubro | En el servidor nuevo | Nota |
 |---|---|---|
-| Ubuntu 24.04 Server | ~15 GB | sin escritorio |
+| Ubuntu Server 26.04.1 | ~15 GB | sin escritorio, instalación minimized |
 | Sustrato de ingesta **útil** | **~15 GB** | `kepler_md_00..07` 10.6 + `kepler_consolidado` 0.5 + overhead |
 | Imágenes Docker (con caché podado) | ~9 GB | hoy 8.6 GB imágenes + 8.3 GB de caché de build, reclamable |
 | WAL + temp + margen de autovacuum | ~15 GB | ver la nota de WAL abajo |
@@ -222,7 +229,7 @@ Todo lo de abajo está **medido**, no estimado.
 
 | # | Pregunta | Respuesta | Consecuencia en el plan |
 |---|---|---|---|
-| D1 | Estado del servidor | **Existe el fierro, sin SO**: **16 GB RAM** (ampliable a 32) + **NVMe 256 GB WD PC SN740** | VL.0 instala Ubuntu 24.04 Server. **Alcanza con holgura para VL.0–VL.8** (§6.1: el stack usa 718 MB y el sustrato útil son ~15 GB). ⛔ **No alcanza para VL.9** → segundo disco + los 32 GB, juntos, antes de traer prod |
+| D1 | Estado del servidor | **Existe el fierro, sin SO**: **16 GB RAM** (ampliable a 32) + **NVMe 256 GB WD PC SN740** | VL.0 instala **Ubuntu Server 26.04.1 LTS** (`resolute` — Docker CE y PGDG verificados presentes, §6.0). **Alcanza con holgura para VL.0–VL.8** (§6.1: el stack usa 718 MB y el sustrato útil son ~15 GB). ⛔ **No alcanza para VL.9** → segundo disco + los 32 GB, juntos, antes de traer prod |
 | D2 | Alcance | **Ingesta ahora, prod después** | Dimensionar para los dos desde el día 1 (§6.1: 32 GB / 1 TB). VL.9 pasa a fase real; **VL.8 (UPS/respaldo) deja de ser opcional** |
 | D3 | Wincaja / Access | **Se decide en VL.5** | Las 3 tareas Wincaja **siguen en `.249`** hasta entonces, declaradas con dueño y fecha. VL.7 no las apaga |
 | D4 | Corte de la fuente | **Ventana nocturna / fin de semana** | Copia física (camino sin hueco). **Falta la fecha** → A2. Chequeo de disco en los 8 publicadores el día antes |
@@ -241,7 +248,7 @@ Todo lo de abajo está **medido**, no estimado.
 
 ### 8.3 Abiertas — no bloquean el arranque
 
-**A4 — Sustrato.** Ubuntu 24.04 **bare-metal + Docker Compose** (mi recomendación: menos capas, y el stack ya es Compose) o **Proxmox + VM** (más flexible para hospedar otros proyectos, al costo de una capa). *Nota vigente de la memoria: si Proxmox, **VM completa, no LXC**.* Se puede decidir al momento de instalar.
+**A4 — Sustrato.** **Bare-metal + Docker Compose** (mi recomendación: menos capas, y el stack ya es Compose) o **Proxmox + VM** (más flexible para hospedar otros proyectos, al costo de una capa). *Nota vigente de la memoria: si Proxmox, **VM completa, no LXC**.* Se puede decidir al momento de instalar.
 
 **A5 — Quién lo opera.** Hoy la capa de ingesta se diagnostica leyendo `C:\KeplerRunner\logs\*` desde la sesión de Sistemas. En Linux pasa a `docker compose logs`. ¿Runbook para los 4 devs, o dueño único? *Se resuelve en VL.7, con el `ops/README`.*
 
