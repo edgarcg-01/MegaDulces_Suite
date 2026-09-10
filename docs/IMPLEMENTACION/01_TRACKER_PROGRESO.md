@@ -81,6 +81,25 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase SN — Suite: navegación por espacios ("Mi trabajo" en `/projects`) · plan en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md) · ADR-061
+
+Etapa 2 de la especificación de Dirección (2026-09-10): la landing deja de ser un catálogo de 11
+tarjetas y pasa a agrupar por los 10 espacios de §5.1, **sin pérdida de permisos**. Un solo mapa
+(`libs/contracts/src/authz/suite-map.ts`) sobre `AUTHZ_TREE`; visibilidad derivada, nunca una
+segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
+
+| Item | Estado | Nota |
+|---|---|---|
+| **[SN.0]** diagnóstico + docs | ✅ 2026-09-10 | Tres listas de proyectos discrepantes; **build de `view` roto en `main` desde f3fe9dfe** (arnés jest en el programa de la app) — lo arregló en paralelo la sesión TDA.7 (`9cd6d107`, misma línea). Base: Initial 1.23 MB |
+| **[SN.1]** mapa + gates | 🧪 2026-09-10 | `suite-map.ts` + jest en `libs/contracts` (**nuevo target**) + specs 35/35 con negativas + `authz-tree.ts` (label admin, header que citaba un spec inexistente) + `suite-map-visibility-report.js` contra prod: **36 roles, 0 puertas perdidas, 17 ganan (83 usuarios)**. Hallazgo: `/finanzas`, `/contabilidad`, `/admin` tienen redirect fijo → las puertas ganadas rebotarían sin home guards (→ SN.4) |
+| **[SN.2]** `GET /users/me/context` | ⬜ | persona / puesto / departamento / alcance, self-scoped, antes de `:id` |
+| **[SN.3]** landing "Mi trabajo" | ⬜ | lista seccionada, sin card grid; línea secundaria derivada; N=1 auto-entra salvo `stay`; 0 → estado declarado |
+| **[SN.4]** layout + guards | ⬜ | migaja Espacio › Proyecto › Página; "Configuración de la suite"; `adminHomeGuard`; link en Telemarketing |
+| **[SN.5]** limpieza | ⬜ | borrar `scripts/check-authz-tree.js` (vacuo); corregir FASE_AZ L161, GOTCHAS §4, CLAUDE_ONBOARDING L48 |
+| **[SN.6]** cierre | ⬜ | log, CHANGELOG, fila en `CLAUDE.md`, INDEX, medición de bundle después |
+
+⚠️ **P-14 abierta para Dirección:** §23 y §10 de la spec se contradicen sobre dónde vive "Auditoría en Ruta" (Rutas de detalle vs Mercadotecnia). Default §23; una línea del mapa lo cambia.
+
 ### Fase RD — Indicadores de Ruta Directa · plan en [`FASE_RD`](FASES/FASE_RD_INDICADORES_RUTA.md)
 
 Automatiza `INDICADORES RD 2026.xlsx`, el tablero manual con el que se opera y **se paga** la Ruta
