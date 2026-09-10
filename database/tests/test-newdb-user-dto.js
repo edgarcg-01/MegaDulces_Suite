@@ -66,9 +66,27 @@ require('ts-node').register({
 // deep-import entre libs, que es justo lo que el lint de tags prohíbe. El test
 // tiene que poder cargar el código real, no una versión del código que se deja
 // cargar por el test.
+// `[ID.30]` ⚠️ Se lee con el parser de TypeScript, NO con `require()`.
+// `tsconfig.base.json` es JSONC: TypeScript acepta comentarios ahí y `JSON.parse`
+// no. Estuvo con `require()` hasta que `[ID.28]` documentó adentro por qué el
+// catálogo de authz entra por subruta y no por barrel — 22 líneas de `//` que
+// dejaron este archivo sin poder ni CARGAR («Expected double-quoted property
+// name»). El commit que lo rompió reporta "user-dto 33/0" en su propio mensaje,
+// porque midió antes de escribir el comentario.
+//
+// El arreglo no es pedir que nadie comente el tsconfig: es leerlo con quien lo
+// lee de verdad. `ts.parseConfigFileTextToJson` es la misma función que usa el
+// compilador, así que este test no puede volver a discrepar del formato real.
+const ts = require('typescript');
+const TSCONFIG = path.resolve(__dirname, '..', '..', 'tsconfig.base.json');
+const parsed = ts.parseConfigFileTextToJson(TSCONFIG, fs.readFileSync(TSCONFIG, 'utf8'));
+if (parsed.error) {
+  throw new Error(`tsconfig.base.json no se pudo leer ni con el parser de TS: ${
+    ts.flattenDiagnosticMessageText(parsed.error.messageText, ' ')}`);
+}
 require('tsconfig-paths').register({
   baseUrl: path.resolve(__dirname, '..', '..'),
-  paths: require(path.resolve(__dirname, '..', '..', 'tsconfig.base.json')).compilerOptions.paths,
+  paths: parsed.config.compilerOptions.paths,
 });
 
 const DTO_DIR = path.resolve(__dirname, '../../libs/trade/src/lib/users/dto');
@@ -127,7 +145,13 @@ function obligatorios(cls) {
     ok(soloCreate.length === 0, `nada del create ausente en el update${soloCreate.length ? ` — ${soloCreate.join(', ')}` : ''}`);
     ok(create.includes('finance_expense_area_ids'), 'finance_expense_area_ids ya se puede setear al CREAR (era sólo update)');
     ok(update.includes('activo'), "`activo` existe en update");
-    ok(!create.includes('activo') || true, '`activo` no se exige al crear (un alta nace activa)');
+    // `[ID.30]` Esto decía `ok(!create.includes('activo') || true, …)`. El `|| true`
+    // la volvía una aserción que NO PUEDE FALLAR: hubiera dado verde con `activo`
+    // en el create, con el create vacío y con el archivo borrado. Es la misma
+    // familia que el «verde sobre el vacío» de ID.28, y afirmaba justo el campo
+    // alrededor del cual gira este bloque.
+    ok(!create.includes('activo'), '`activo` NO se acepta al crear (`[ID.7]`: un alta nace activa)');
+    ok(!create.includes('status'), '`status` tampoco: el ciclo de vida es cosa de la edición');
 
     console.log('\n═══ 3. Obligatorios ═══');
     const req = obligatorios(CreateUserDto);
@@ -181,25 +205,48 @@ function obligatorios(cls) {
     // `[CH.1.10]` El punto ciego que este bloque tenía: comparaba el form SÓLO
     // contra el DTO de UPDATE. Un control que el CREATE no acepta se descarta en
     // silencio (`whitelist: true`) y el test seguía verde — que es exactamente
-    // cómo el toggle "Estado activo" del alta no hace nada desde siempre.
+    // cómo el toggle "Estado activo" del alta no hizo nada durante meses.
     //
-    // Se mide y se DECLARA. No se convierte en `fail` porque arreglarlo es subir
-    // `status` a `UserWriteDto`, decisión de otro ticket: lo que no se puede
-    // arreglar acá se nombra, no se esconde (ADR-056).
-    const soloEnUpdate = claves.filter((k) => !create.includes(k) && k !== 'password');
+    // `[ID.30]` dejó de ser una DECLARACIÓN y pasó a ser aserción. Lo que se
+    // afirma NO es "el form no tiene controles que el create rechace" —el form es
+    // uno solo para alta y edición, y `activo` tiene que existir para editar—
+    // sino lo que de verdad importa: **nada de lo que el alta ENVÍA se descarta**.
+    // Es la diferencia entre el control y el payload.
     ok(
       claves.includes('token_ttl_days') && create.includes('token_ttl_days'),
       'el control de duración de sesión existe en el form Y el CREATE lo acepta',
     );
-    if (soloEnUpdate.length) {
-      console.log(
-        `  ! DECLARADO: ${soloEnUpdate.length} control(es) del form que el CREATE descarta en silencio: ` +
-        `${soloEnUpdate.join(', ')}. El alta los manda y \`whitelist: true\` los tira. ` +
-        `Arreglo = subirlos a UserWriteDto (ticket aparte).`,
-      );
-    } else {
-      ok(true, 'ningún control del form se descarta en silencio en el alta');
-    }
+
+    // Lo que el alta saca del payload a propósito, leído del código real.
+    const ramaAlta = comp.slice(comp.indexOf('const createData: UserCreatePayload'));
+    const quitadas = unicos(
+      [...ramaAlta.slice(0, ramaAlta.indexOf('.create(createData)'))
+        .matchAll(/delete\s+(?:\(\s*createData[^)]*\)|createData)\s*\.\s*([a-z_]+)/g)].map((m) => m[1]),
+    );
+    ok(quitadas.includes('activo'), 'el alta saca `activo` del payload en vez de mandarlo a la basura del whitelist');
+
+    const enviadasEnAlta = claves.filter((k) => !quitadas.includes(k) && k !== 'password');
+    const tiradas = enviadasEnAlta.filter((k) => !create.includes(k));
+    ok(
+      tiradas.length === 0,
+      tiradas.length === 0
+        ? `nada de lo que el alta envía se descarta en silencio (${enviadasEnAlta.length} campos, todos aceptados)`
+        : `el alta envía ${tiradas.length} campo(s) que el CREATE tira sin avisar: ${tiradas.join(', ')}`,
+    );
+
+    // La otra mitad del mismo arreglo: si el payload ya no lo lleva pero la
+    // pantalla sigue pintando el interruptor en el alta, la mentira vuelve —
+    // ahora peor, porque el control no haría NADA en absoluto.
+    const html = fs.readFileSync(
+      path.resolve(__dirname, '../../apps/view/src/app/modules/dashboard/admin-users/admin-users.component.html'),
+      'utf8',
+    );
+    const iToggle = html.indexOf('formControlName="activo"');
+    ok(iToggle > 0, 'el interruptor de estado sigue existiendo (hace falta para EDITAR)');
+    ok(
+      /@if\s*\(isEditing\(\)\)\s*\{/.test(html.slice(Math.max(0, iToggle - 900), iToggle)),
+      'y sólo se pinta al editar: en el alta no se ofrece un interruptor que no hace nada',
+    );
 
     console.log('\n═══ 7. El catálogo que valida el service existe ═══');
     const DST = process.env.DATABASE_URL_NEW;

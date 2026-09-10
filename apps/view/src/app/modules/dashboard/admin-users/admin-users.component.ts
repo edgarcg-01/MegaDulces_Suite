@@ -1620,6 +1620,14 @@ export class AdminUsersComponent implements OnInit {
         });
     } else {
       const createData: UserCreatePayload = { ...formData };
+      // `[ID.30]` El estado NO viaja en un alta. `[ID.7]` decidió que el ciclo de
+      // vida es cosa de la edición («un alta nace activa»), así que el DTO del
+      // create no lo declara y `whitelist: true` lo tira SIN error. Mandarlo era
+      // pedirle al backend algo que iba a descartar en silencio: el 200 volvía
+      // igual y la cuenta quedaba activa. El interruptor ya no se pinta en el
+      // alta; esto es el otro extremo del mismo arreglo, para que el request no
+      // lleve un campo que nadie va a leer.
+      delete (createData as { activo?: boolean }).activo;
       // `[CH.1.11]` En un alta de PERSONA el campo no viaja: dejar que el
       // backend aplique su default (`[ID.8]`: `must_change_password = true`) es
       // más honesto que mandarle un `null` explícito. En un alta de DISPOSITIVO
