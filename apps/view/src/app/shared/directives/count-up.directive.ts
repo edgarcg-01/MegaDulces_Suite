@@ -49,7 +49,30 @@ export class CountUpDirective implements OnInit, OnDestroy {
 
   @Input() countUpFormat: CountUpFormat = 'int';
 
+  /**
+   * `[TDA.7]` La compuerta on-view NO puede decidir si el número es correcto.
+   *
+   * Como estaba: `ngOnInit` escribía `0` y `maybeStart()` no arrancaba hasta que el
+   * `IntersectionObserver` reportara la intersección. Si el elemento no llegaba a estar ≥20 % en
+   * viewport, **la cifra se quedaba en cero** — y `prefers-reduced-motion` tampoco rescataba,
+   * porque la compuerta de visibilidad corre antes que la del movimiento. Se curaba con scroll,
+   * que es justo lo que nadie hace en un mostrador.
+   *
+   * En el verificador eso significaba publicar "Te ahorras $0.00" cuando la pastilla caía abajo
+   * del pliegue. Lo que reemplazó era interpolación directa: siempre correcta. ADR-056 lo dice
+   * por nombre — lo que no se pudo medir se declara, nunca se dibuja como cero.
+   *
+   * Ahora: en modo `live` la cifra es DATO y el count-up es una mejora, así que se anima de una
+   * sin esperar intersección (el motivo del gate —cards abajo del pliegue en un tablero largo—
+   * no aplica a una tarjeta de captura que está en pantalla por construcción). Y si el navegador
+   * no trae `IntersectionObserver`, se anima igual en vez de quedarse mudo.
+   */
   ngOnInit(): void {
+    if (this.appCountUpLive || typeof IntersectionObserver === 'undefined') {
+      this.visible = true;
+      this.maybeStart();
+      return;
+    }
     this.render(0);
     this.io = new IntersectionObserver(
       (entries) => {
@@ -69,9 +92,11 @@ export class CountUpDirective implements OnInit, OnDestroy {
   }
 
   private maybeStart(): void {
-    if (this.done || !this.visible || !this.io) return;
+    // `[TDA.7]` Ya no exige `this.io`: en modo live y sin IntersectionObserver no hay observador
+    // que esperar, y pedirlo dejaba la cifra congelada en el valor inicial.
+    if (this.done || !this.visible) return;
     this.done = true;
-    this.io.disconnect();
+    this.io?.disconnect();
 
     if (this.reduce() || this.target === 0) {
       this.render(this.target);
