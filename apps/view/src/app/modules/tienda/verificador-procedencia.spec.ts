@@ -215,7 +215,45 @@ describe('verificador · el mayoreo', () => {
     // 1. precio > 0 · 2. umbral > 1 · 3. más barato que el unitario · 4. tiene que haber unitario
     expect(fn).toMatch(/!Number\.isFinite\(p\) \|\| p <= 0/);
     expect(fn).toMatch(/!Number\.isFinite\(n\) \|\| n <= 1/);
-    expect(fn).toMatch(/!base \|\| base <= 0 \|\| p >= base/);
+    expect(fn).toMatch(/o\.base > 0\) \|\| p >= o\.base/);
+  });
+
+  /**
+   * `[TDA.7]` LA BASE DE CADA ESCALÓN. Es una compuerta de dinero, no de estilo.
+   *
+   * `wholesale_pack_price` trae DOS unidades en la misma columna. Medido en prod el 2026-09-10
+   * prestándole un precio conocido a cada conjunto:
+   *  · base PAQ/CJA (6,462) -> `w / piece_price` mediana **0.92**: el paquete ES la base.
+   *  · base pieza CON paquete registrado (380) -> `w / pack_price` mediana **0.93**, y
+   *    `w / piece_price` = **8.99** (≈ `pack_size`). Comparar contra la pieza daba un
+   *    "descuento" de **−798 %**: 376 de 380 escalones se caían por la guarda de "más barato" y
+   *    los 4 que pasaban publicaban un ahorro que mezclaba paquete con pieza.
+   *
+   * Si alguien vuelve a usar una sola base para los dos escalones, esto se pone rojo.
+   */
+  it('el mayoreo de paquete se compara contra el precio del PAQUETE, no contra la pieza', () => {
+    const fn = /private tiersDeFila\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
+    // La base agrupada se decide igual que en la etiquetera: sólo PAQ/CJA.
+    expect(fn).toMatch(/baseAgrupada = ub === 'PAQ' \|\| ub === 'CJA'/);
+    // Y hay un "paquete real" que exige las DOS columnas, no una.
+    expect(fn).toMatch(/paqueteReal = !baseAgrupada && packPrice > 0 && packSize > 0/);
+    // El escalón de paquete elige base según eso. Una sola base para ambos = rojo.
+    expect(fn).toMatch(/base: paqueteReal \? packPrice : precioBase/);
+    // Un producto que se vende por paquete no tiene "pieza suelta" que mayorear.
+    expect(fn).toMatch(/baseAgrupada \? null : tier\(\{/);
+    // Y las columnas TIENEN que venir en las dos consultas: sin ellas el arreglo es un no-op
+    // silencioso (`undefined` -> paqueteReal false -> camino viejo). Es el defecto del freno que
+    // pregunta por un campo que nadie trajo.
+    const selects = SVC.match(/l\.pack_price,\s+l\.pack_size/g) || [];
+    expect(selects.length).toBe(2);
+  });
+
+  /** `[TDA.7]` La unidad del monto viaja con el escalón; estaba cableada a `c/u`. */
+  it('la unidad del monto la declara el escalón, no la plantilla', () => {
+    expect(PAGE).toMatch(/class="vp-may-cu">\{\{ t\.unidad_monto \}\}/);
+    expect(PAGE).not.toMatch(/class="vp-may-cu">c\/u</);
+    const fn = /private tiersDeFila\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
+    expect(fn).toMatch(/unidad_monto: paqueteReal \? 'por paquete' : 'c\/u'/);
   });
 
   // LA NEGATIVA QUE MÁS DUELE: un umbral inventado. La etiquetera ponía "desde 3" por default y
@@ -233,8 +271,10 @@ describe('verificador · el mayoreo', () => {
   it('el realce es umbral aparte, no el mismo que mostrar', () => {
     expect(SVC).toMatch(/const MAYOREO_MIN_DESC = 0\.01/);
     expect(SVC).toMatch(/realza: desc >= MAYOREO_MIN_DESC/);
-    // Y la pantalla lo respeta: el ahorro en verde SÓLO si realza.
-    expect(PAGE).toMatch(/@if \(t\.realza\) \{/);
+    // Y la pantalla lo respeta: el ahorro en verde SÓLO si realza. `[TDA.7]` suma la segunda
+    // condición — y sólo en el escalón de la unidad leída, para no poner dos ahorros grandes
+    // compitiendo, uno de ellos en otra unidad.
+    expect(PAGE).toMatch(/@if \(t\.realza && x\.destacado\) \{/);
   });
 
   it('una definición para los dos modos: en vivo y sin red', () => {
@@ -260,7 +300,7 @@ describe('verificador · el mayoreo', () => {
   });
 
   it('el ahorro se muestra, que es lo que cierra la venta', () => {
-    expect(SVC).toMatch(/ahorro_en_el_minimo: redondea\(\(base - p\) \* nn\)/);
+    expect(SVC).toMatch(/ahorro_en_el_minimo: redondea\(\(o\.base - p\) \* nn\)/);
     expect(PAGE).toMatch(/Te ahorras/);
   });
 
@@ -359,30 +399,84 @@ describe('verificador · el mayoreo', () => {
   });
 
   /**
-   * `[TDA.6]` El punto crítico del rediseño, y es de COBRO. Al agrandar el mayoreo, si su cifra
-   * llega a igualar o pasar al precio unitario, alguien que lleva UNA pieza lee el precio de
-   * tres. §O.3 dice que el total domina sobre cualquier otra métrica: acá se mide.
+   * `[TDA.7]` RETIRO LA MITAD DE ESTA COMPUERTA QUE ERA MI OPINIÓN.
+   *
+   * Afirmaba `hero.max > may.max` y `hero.min > may.min`: el precio unitario tenía que ser
+   * SIEMPRE la cifra más grande. Se apoyaba en §O.3 —*"el TOTAL y las acciones de cobro dominan
+   * sobre cualquier otra métrica"*— y esa cita **no aplica acá**: esta pantalla no tiene TOTAL,
+   * es una consulta de precio, no un carrito. O sea que la regla no contestaba la pregunta y el
+   * test la estaba contestando por su cuenta.
+   *
+   * El costo era real: 0Sistemas pidió énfasis en el mayoreo, y este candado hacía **fallar el
+   * build** si alguien se lo daba. Un test que vuelve rojo lo que pide el negocio, con una cita
+   * que no viene al caso, no es una compuerta: es una opinión con disfraz.
+   *
+   * Lo que SÍ protege del cobro mal se queda, y es lo de abajo: la condición ("llevando 3 o
+   * más") nunca en letra chica, y la cifra grande es la de la unidad que se ESCANEÓ — que es la
+   * regla que dictó 0Sistemas y la que de verdad cierra el hueco, porque quien lleva una pieza
+   * ve en grande el precio de la pieza.
    */
-  it('el precio unitario sigue dominando al de mayoreo, y la condición no se susurra', () => {
-    const maxDe = (clase: string) => {
+  it('la condición no se susurra, y los clamp respetan el techo de zoom', () => {
+    const clampDe = (clase: string) => {
       const bloque = PAGE.slice(PAGE.indexOf(`.${clase} {`));
       const m = bloque.match(/font-size:\s*clamp\(([^)]+)\)/);
       expect(m).not.toBeNull();
       const partes = m![1].split(',').map((s) => s.trim());
       return { min: parseFloat(partes[0]), max: parseFloat(partes[2]) };
     };
-    const hero = maxDe('vp-precio');
-    const may = maxDe('vp-may-monto');
+    // Regla de clamp de DESIGN.md 9: el máximo no puede pasar 2.5x el mínimo (revienta el zoom
+    // al 200 %, WCAG 1.4.4). Esta sí es una regla del sistema, no un criterio mío.
+    for (const clase of ['vp-precio', 'vp-may-monto']) {
+      const c = clampDe(clase);
+      expect(c.max / c.min).toBeLessThanOrEqual(2.5);
+    }
 
-    expect(hero.max).toBeGreaterThan(may.max);
-    expect(hero.min).toBeGreaterThan(may.min);
-    // Regla de clamp de DESIGN.md 9: el máximo no puede pasar 2.5x el mínimo (revienta el zoom).
-    expect(may.max / may.min).toBeLessThanOrEqual(2.5);
-    expect(hero.max / hero.min).toBeLessThanOrEqual(2.5);
-
-    // La condición viaja al tamaño del cuerpo, no en letra chica: es lo que evita el cobro mal.
+    // La condición viaja al tamaño del cuerpo, no en letra chica: si el monto de mayoreo crece y
+    // la condición se susurra, alguien que lleva UNA pieza lee el precio de tres.
     const cond = PAGE.slice(PAGE.indexOf('.vp-may-cond {'), PAGE.indexOf('.vp-may-cond > i'));
     expect(cond).toMatch(/font-size:\s*var\(--fs-body/);
     expect(cond).not.toMatch(/font-size:\s*var\(--fs-(xs|micro)/);
+  });
+
+  /**
+   * `[TDA.7]` La jerarquía la decide el CÓDIGO DE BARRAS que se leyó.
+   *
+   * El comportamiento se prueba renderizando, en `tienda-verificador.component.spec.ts`. Acá se
+   * afirma lo que un test de render no ve: que la decisión reusa el mecanismo de `[TDA.3]`
+   * (`unidadHero`) en vez de inventar una segunda resolución de unidad, y que el escalón que no
+   * corresponde se ATENÚA en vez de competir.
+   */
+  it('el escalón destacado sale de la unidad escaneada, reusando unidadHero', () => {
+    expect(PAGE).toMatch(/mayoreoConFoco = computed/);
+    expect(PAGE).toMatch(/this\.unidadHero\(\)\?\.u === this\.unidadBase\(\)/);
+    // El backend dice a qué unidad pertenece cada escalón; la pantalla sólo compara.
+    expect(PAGE).toMatch(/\(t\.aplica_a \?\? 'base'\) === quiere/);
+    // Y el que no está en foco pierde tamaño: su monto puede estar en otra unidad que el hero.
+    expect(PAGE).toMatch(/\.vp-may-row:not\(\.is-foco\) \.vp-may-monto/);
+  });
+
+  /**
+   * `[TDA.7]` La compuerta on-view no puede decidir si el número es correcto.
+   *
+   * La directiva compartida escribía `0` y esperaba al `IntersectionObserver`: si la pastilla no
+   * llegaba a estar en viewport, el ahorro se quedaba en **`$0.00`** — y `prefers-reduced-motion`
+   * no rescataba, porque la compuerta de visibilidad corre antes que la del movimiento. Es
+   * dibujar un cero por no haber podido medir, lo que ADR-056 prohíbe por nombre.
+   */
+  it('el count-up no gatea la CORRECTEZA del importe en la intersección', () => {
+    // En modo live (dato autoritativo) no se espera intersección.
+    expect(DIRECTIVA).toMatch(/if \(this\.appCountUpLive \|\| typeof IntersectionObserver === 'undefined'\)/);
+    // Y `maybeStart` ya no exige el observador, que era lo que congelaba el valor inicial.
+    expect(DIRECTIVA).not.toMatch(/if \(this\.done \|\| !this\.visible \|\| !this\.io\) return;/);
+    expect(DIRECTIVA).toMatch(/if \(this\.done \|\| !this\.visible\) return;/);
+  });
+
+  /**
+   * `[TDA.7]` La curva: `--ease-spring` está acotada por DESIGN.md §Motion a "sólo gestos
+   * drag-to-dismiss". La defendí con "ya existe en tokens.css" — existir no es estar permitido.
+   */
+  it('las entradas usan la curva de ENTRADA, no la de gesto', () => {
+    expect(PAGE).not.toMatch(/animation:[^;]*--ease-spring/);
+    expect(PAGE).toMatch(/animation: var\(--vp-in\) var\(--dur-short, 150ms\) var\(--ease-decelerate/);
   });
 });
