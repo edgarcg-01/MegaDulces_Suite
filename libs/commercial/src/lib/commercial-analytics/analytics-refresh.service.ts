@@ -114,6 +114,13 @@ export class AnalyticsRefreshService {
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
       ['analytics.mv_sales_blended', 'analytics_refresh_blended', 'Refresh MV blend consolidado (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+      // [KX.5] El PELDAÑO COBRADO por sucursal × SKU (max `kdm2.c58`, ventana 365 d). No deriva de
+      // ninguna otra MV: sale directo del ODS, así que `deps` va vacío. Se materializa por COSTO
+      // (~38 s de agregación sobre 4M renglones) porque no puede vivir dentro de
+      // `v_warehouse_box_factor`, que la leen la existencia, compras y el sell-out.
+      // ⚠️ Su umbral está registrado en `CRON_JOBS` (`analytics_refresh_sold_rung`): sin eso el
+      // sensor cae en `cfg ? classify : 'ok'` y una MV parada se vería VERDE (lección OBS.1).
+      ['analytics.mv_kepler_sold_rung', 'analytics_refresh_sold_rung', 'Refresh MV peldaño cobrado (nightly)', []],
     ] as const) {
       const start = Date.now();
       let ok = false;

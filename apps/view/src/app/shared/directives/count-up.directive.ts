@@ -7,7 +7,7 @@ import {
   inject,
 } from '@angular/core';
 
-type CountUpFormat = 'int' | 'decimal1' | 'percent1' | 'money' | 'money-short';
+type CountUpFormat = 'int' | 'decimal1' | 'percent1' | 'money' | 'money-short' | 'money2';
 
 /**
  * Count-up del valor de una KPI card (DESIGN.md "Motion de KPI cards" #3).
@@ -119,6 +119,22 @@ export class CountUpDirective implements OnInit, OnDestroy {
           style: 'currency',
           currency: 'MXN',
           maximumFractionDigits: 0,
+        }).format(v);
+      /**
+       * `[TDA.6]` Dinero CON centavos. Faltaba, y la ausencia no era neutral: los tres
+       * formatos de dinero de acá redondean (`money` a peso entero, `money-short` a K/M),
+       * así que un importe al centavo se publicaba distinto del que dice la fuente —
+       * $25.77 salía **$26**. En un KPI de tablero eso es una decisión de densidad; en el
+       * mostrador es otro número.
+       * Replica exacto el `money()` del verificador (`minimum` y `maximum` en 2), para que
+       * la cifra que termina de contar sea idéntica a la que ya se pinta al lado.
+       */
+      case 'money2':
+        return new Intl.NumberFormat('es-MX', {
+          style: 'currency',
+          currency: 'MXN',
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
         }).format(v);
       case 'percent1':
         return (

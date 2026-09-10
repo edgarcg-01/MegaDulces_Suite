@@ -156,43 +156,56 @@ const declarar = (msg) => {
     );
     check(sup[0].n === 0, `superoot sin asignaciones de ruta vigentes (hay ${sup[0].n})`);
 
-    console.log('\n[7] El fixture está declarado y sigue vacío');
+    console.log('\n[7] ⚠️ `test_tenant_b` es EFÍMERO, no un fixture persistente');
+    // ⚠️ CORRECCIÓN a lo que afirmé en `[ID.27]`. Lo declaré «fixture que no se
+    // borra» y escribí esa declaración en su `metadata`. Está mal: el tenant lo
+    // **crea y lo BORRA** `test-newdb-rls-isolation.js` — línea 261
+    // (`DELETE FROM tenants WHERE id = TENANT_B`) más el barrido de todas las
+    // tablas con su `tenant_id` en la 252. Existe sólo mientras ese test corre,
+    // así que mi `metadata.es_fixture` se fue con la fila.
+    //
+    // La conclusión de `[ID.27]` sigue en pie —no hay que borrarlo a mano— pero
+    // por otro motivo: no es que sea permanente, es que **no es nuestro**.
     const { rows: fx } = await k.raw(
-      `SELECT t.metadata->>'es_fixture' AS declarado,
-              (SELECT count(*)::int FROM identity.users u WHERE u.tenant_id = t.id) AS usuarios
+      `SELECT (SELECT count(*)::int FROM identity.users u WHERE u.tenant_id = t.id) AS usuarios
          FROM identity.tenants t WHERE t.id = ?`,
       [FIXTURE],
     );
     if (!fx.length) {
-      declarar('el tenant fixture ya no existe: si alguien lo borró, revisar test-authz-tenant-failclosed');
+      declarar(
+        'el tenant efímero no está, que es lo normal fuera de una corrida de ' +
+          'test-newdb-rls-isolation: su ausencia NO es un defecto del padrón',
+      );
     } else {
-      check(fx[0].declarado === 'true', 'test_tenant_b está declarado como fixture en metadata');
-      check(fx[0].usuarios === 0, `el fixture sigue en 0 usuarios (tiene ${fx[0].usuarios})`);
+      check(fx[0].usuarios === 0, `mientras existe, sigue en 0 usuarios (tiene ${fx[0].usuarios})`);
     }
 
-    console.log('\n[8] PRUEBA NEGATIVA — borrar los roles del fixture apagaría un candado');
-    // `test-authz-tenant-failclosed` busca un role_name duplicado entre tenants
-    // y sin sujeto reporta NO MEDIDO. Este bloque afirma que el sujeto existe, y
-    // la prueba negativa es contar cuántos quedarían si se limpiara el fixture:
-    // si es 0, la "limpieza" habría cambiado un dato sucio por una compuerta muerta.
+    console.log('\n[8] ⚠️ El candado del failclosed depende del ORDEN de corrida');
+    // `test-authz-tenant-failclosed` busca un `role_name` duplicado entre
+    // tenants para su prueba negativa, y sin sujeto reporta NO MEDIDO. Pero el
+    // único sujeto que existía lo aportaba un tenant EFÍMERO: o sea que ese
+    // candado queda verde sólo si `test-newdb-rls-isolation` corrió antes y dejó
+    // el tenant a medio limpiar, y `NO MEDIDO` si corre solo. **Un gate cuyo
+    // veredicto depende del orden de ejecución no es un gate.**
+    //
+    // No se arregla acá —es el diseño de otro test, que tendría que sembrar su
+    // propio sujeto— y no se dibuja verde: se DECLARA con el número, que es lo
+    // que permite decidirlo en vez de volver a descubrirlo.
     const { rows: dup } = await k.raw(
       `WITH d AS (
          SELECT role_name, count(DISTINCT tenant_id)::int tenants
            FROM identity.role_permissions WHERE deleted_at IS NULL
           GROUP BY 1)
-       SELECT count(*) FILTER (WHERE tenants > 1)::int duplicados,
-              (SELECT count(DISTINCT rp.role_name)::int
-                 FROM identity.role_permissions rp
-                WHERE rp.deleted_at IS NULL AND rp.tenant_id = ?
-                  AND rp.role_name IN (SELECT role_name FROM d WHERE tenants > 1)) aportados_por_fixture
-         FROM d`,
-      [FIXTURE],
+       SELECT count(*) FILTER (WHERE tenants > 1)::int duplicados FROM d`,
     );
-    check(dup[0].duplicados >= 1, `hay ${dup[0].duplicados} role_name duplicado(s) entre tenants: el failclosed tiene sujeto`);
-    check(
-      dup[0].aportados_por_fixture >= 1,
-      `${dup[0].aportados_por_fixture} de ellos los aporta el fixture → vaciarlo dejaría el candado en NO MEDIDO`,
-    );
+    if (dup[0].duplicados === 0) {
+      declarar(
+        '0 role_name duplicados entre tenants → test-authz-tenant-failclosed va a reportar NO MEDIDO. ' +
+          'Su prueba negativa necesita sembrar su propio sujeto en vez de heredar el que deja otro test.',
+      );
+    } else {
+      check(true, `hay ${dup[0].duplicados} role_name duplicado(s): el failclosed tiene sujeto en ESTA corrida`);
+    }
 
     console.log('\n[9] Ningún rol administra personal sin poder verlo');
     // El bug de `[IDG.8]`: `USUARIOS_GESTIONAR` sin permiso de reporte caía en
