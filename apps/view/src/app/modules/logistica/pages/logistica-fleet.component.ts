@@ -65,7 +65,7 @@ function severityForDriverStatus(s: string): Severity {
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Flotilla y personal</h1>
-          <p class="surf-page-sub">Unidades, colaboradores, uso (check-in/out) y mantenimiento.</p>
+          <p class="surf-page-sub">Unidades, colaboradores, derechos de uso, actas de asignación, uso, mantenimiento y combustible.</p>
         </div>
       </header>
     
@@ -73,7 +73,7 @@ function severityForDriverStatus(s: string): Severity {
         <p-tablist>
           <p-tab value="vehicles"><i class="pi pi-truck"></i> Unidades ({{ vehicles().length }})</p-tab>
           <p-tab value="drivers"><i class="pi pi-id-card"></i> Personal ({{ drivers().length }})</p-tab>
-          <p-tab value="entitlements"><i class="pi pi-key"></i> Derechos</p-tab>
+          <p-tab value="entitlements"><i class="pi pi-key"></i> Derechos ({{ conDerecho() }})</p-tab>
           <p-tab value="assignments"><i class="pi pi-file-edit"></i> Asignaciones ({{ assignments().length }})</p-tab>
           <p-tab value="usage"><i class="pi pi-clock"></i> Uso ({{ usageLogs().length }})</p-tab>
           <p-tab value="maintenance"><i class="pi pi-wrench"></i> Mantenimiento ({{ maintenance().length }})</p-tab>
@@ -157,9 +157,9 @@ function severityForDriverStatus(s: string): Severity {
             Qué unidades puede usar cada colaborador. Es el <strong>permiso permanente</strong>, distinto
             del acta de entrega: revocar aquí no borra el histórico, lo vence.
           </p>
-          <div class="tab-actions">
-            <button pButton (click)="openGrant()" [disabled]="!drivers().length || !vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otorgar derecho</span></button>
+          <div class="tab-actions tab-actions--split">
             <span class="fc-count">{{ conDerecho() }} de {{ entitlements().length }} colaboradores con al menos una unidad</span>
+            <button pButton (click)="openGrant()" [disabled]="!drivers().length || !vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otorgar derecho</span></button>
           </div>
           <p-table [value]="entitlements()" [loading]="loadingEnt()" dataKey="driver_id"
             styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
@@ -823,6 +823,7 @@ function severityForDriverStatus(s: string): Severity {
     .fc-user-opt { display:flex; gap:.5rem; align-items:baseline; }
     :host { display:block; }
     .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }
+    .tab-actions--split { justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
     .strong { font-weight: var(--fw-medium); }
     .small { font-size: var(--fs-xs); }
