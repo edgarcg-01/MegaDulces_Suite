@@ -261,6 +261,75 @@ async function seedUser(pg, bcrypt, { role, perms, username, password, warehouse
   check('historial SIN `kepler_diff` / `kepler_enmascaro`', rows.every((r) => !tiene(r, 'kepler_diff') && !tiene(r, 'kepler_enmascaro')));
   check('pero SÍ trae su total contado', rows.length > 0 && rows.every((r) => tiene(r, 'total_contado')));
 
+  console.log('\n── 4b. Cajera: SOLO los cortes del día (SM.33) ──');
+  // Dos filas sembradas a mano, porque el POST siempre ancla al turno de HOY:
+  //
+  //   VIEJA → fecha de negocio Y captura de hace 40 días. NO debe verla: es su
+  //           historial, y tenerlo a la vista invita a "ajustar" el conteo de
+  //           hoy para que se parezca al de ayer.
+  //   NOCHE → fecha de negocio de AYER pero capturada AHORA. SÍ debe verla, y
+  //           es la mitad del filtro que es fácil olvidar: el turno que cierra
+  //           pasada la medianoche conserva el `business_date` del día que
+  //           abrió, así que con `business_date = hoy` a secas la cajera
+  //           guardaba su arqueo a las 00:30 y lo veía DESAPARECER.
+  //
+  // Las fechas se calculan en JS desde `FECHA` (ya en hora de México) y viajan
+  // explícitas: así el escenario no depende del TZ del server de Postgres.
+  const diaMenos = (n) => {
+    const d = new Date(`${FECHA}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  const sembrarArqueo = async (suc, dias, capturadoAhora, total) => {
+    const r = await pg.query(
+      `INSERT INTO reconciliation.blind_counts
+         (tenant_id, warehouse_code, caja, business_date, cajero_code,
+          denominations, total_contado, captured_by, captured_at)
+       VALUES ($1, $2, $3, $4::date, $5, '{"500":1}'::jsonb, $6, $5,
+               CASE WHEN $7 THEN now() ELSE ($4::date + time '13:00') AT TIME ZONE 'America/Mexico_City' END)
+       RETURNING id`,
+      [M, suc, CAJA_DE[suc], diaMenos(dias), CAJERO, total, capturadoAhora],
+    );
+    return r.rows[0].id;
+  };
+  const idVieja = await sembrarArqueo(MIAS[0], 40, false, 111);
+  const idNoche = await sembrarArqueo(MIAS[1], 1, true, 222);
+
+  const hoy = await req('GET', '/store/arqueo?limit=200', cajera);
+  const idsHoy = (Array.isArray(hoy.body) ? hoy.body : []).map((r) => r.id);
+  check('GET /store/arqueo 200 (cajera)', hoy.status === 200, `status=${hoy.status}`);
+  check('NO ve su arqueo de hace 40 días', !idsHoy.includes(idVieja), `n=${idsHoy.length}`);
+  check('SÍ ve el turno que cerró pasada la medianoche (business_date de ayer, capturado hoy)',
+    idsHoy.includes(idNoche), `ids=${idsHoy.length} · buscado=${idNoche}`);
+  check('y sigue viendo lo que capturó hoy', idsHoy.length > 0);
+
+  // El recorte NO es un filtro de pantalla: pedir la ventana entera no lo abre.
+  const forzado = await req('GET', '/store/arqueo?from=2020-01-01&to=2099-12-31&limit=200', cajera);
+  const idsForzado = (Array.isArray(forzado.body) ? forzado.body : []).map((r) => r.id);
+  check('from/to explícitos NO burlan el recorte', !idsForzado.includes(idVieja),
+    `status=${forzado.status} n=${idsForzado.length}`);
+
+  // Y el historial (que delega en el mismo listado) tampoco.
+  const histCaj = await req('GET', '/store/arqueo/historial?from=2020-01-01&limit=200', cajera);
+  const idsHist = ((histCaj.body && histCaj.body.arqueos) || []).map((r) => r.id);
+  check('/historial tampoco trae el arqueo viejo', !idsHist.includes(idVieja),
+    `status=${histCaj.status} n=${idsHist.length}`);
+
+  // La encargada SÍ lo necesita: es con lo que persigue un descuadre viejo.
+  const supViejo = await req('GET', '/store/arqueo?from=2020-01-01&limit=200', admin);
+  check('la encargada SÍ ve el arqueo de hace 40 días',
+    (Array.isArray(supViejo.body) ? supViejo.body : []).some((r) => r.id === idVieja),
+    `status=${supViejo.status} n=${(supViejo.body || []).length}`);
+
+  // `por-cajera` es vista de supervisión: se NIEGA, no se recorta. Y del lado
+  // del server, porque esconder la pestaña no impide teclear la URL.
+  const pcCaj = await req('GET', '/store/arqueo/por-cajera', cajera);
+  check('/por-cajera → 403 para la cajera', pcCaj.status === 403, `status=${pcCaj.status}`);
+  const pcSup = await req('GET', '/store/arqueo/por-cajera', admin);
+  check('/por-cajera → 200 para quien supervisa', pcSup.status === 200, `status=${pcSup.status}`);
+
+  // Las dos filas sembradas se van con el cleanup (borra por sucursal ZA/ZB/ZC).
+
   console.log('\n── 5. Cajera: captura dentro y fuera del alcance ──');
   // Se manda un `cajero_code` FALSEADO a propósito: el arqueo tiene que quedar a
   // nombre de quien lo captura, no de quien diga el body. Si el backend lo

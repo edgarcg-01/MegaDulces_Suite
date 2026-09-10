@@ -1922,3 +1922,73 @@ un `h1`.
 ilegible en oscuro** — reproducido en `/compras/hallazgos`, que nadie tocó. El arreglo es mover la
 capa de alias a `body` (o duplicarla dentro de `body.theme-monochrome`), pero toca las ~30 pantallas
 a la vez, así que va como item propio y no colgado de una feature.
+
+---
+
+## 43. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde)
+
+> Numeración: las §39–§42 llegan en el PR #76 (micrófono). El salto es a propósito, se cierra cuando ese PR entre.
+
+Pasó dos veces el mismo día, y es de las peores porque **el build reporta éxito**:
+
+```bash
+cd /c/Users/Administrator/tm-arqueo-desglose   # worktree, rama con mis cambios
+npx nx build api --skip-nx-cache               # exit 0, "Successfully ran target build"
+grep -c solo_hoy dist/apps/api/main.js         # 0  ← mi cambio NO está
+```
+
+El bundle salió en `C:/Users/Administrator/Trade_marketing/dist/apps/api` (el checkout **principal**, que estaba en otra rama), compilando *sus* fuentes. Un `git worktree` no tiene `node_modules` propios: apuntan por junction a los del repo principal, `npx` resuelve el `nx` de allá y nx toma **ese** directorio como workspace root, sin importar el `cwd`. `NX_DAEMON=false` **no** alcanza.
+
+**Consecuencia:** todo el ciclo de verificación miente. El smoke corre contra una API construida de otra rama y falla sólo en las aserciones nuevas — que se lee exactamente igual que "mi feature está mal". Se pierde media hora buscando el bug en el lugar equivocado.
+
+**Arreglo:**
+
+```bash
+NX_WORKSPACE_ROOT_PATH="$PWD" npx nx build api --skip-nx-cache
+```
+
+**Y la regla que importa: nunca confiar en el exit code — verificar el ARTEFACTO.** Basta un marcador del cambio:
+
+```bash
+grep -c "<algo que sólo existe en mi cambio>" dist/apps/api/main.js   # tiene que dar > 0
+ls -la dist/apps/<app>/main.js                                        # y la fecha, de HOY
+```
+
+Vale para los tres proyectos (`api`, `view`, `vendor`) y para `nx test`. Si el `dist` del worktree tiene fecha vieja mientras el build dijo OK, es esto.
+
+**Emparentado:** el mismo junction hace que la línea de comandos de un `nx serve` muestre siempre `Trade_marketing\node_modules`, así que **la ruta del proceso no dice qué rama está sirviendo** — hay que mirar el artefacto igual.
+
+---
+
+## 44. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario
+
+`libs/reconciliation/src/lib/store-arqueo.controller.ts` tenía, commiteado:
+
+```ts
+cajero_code: revela ? undefined : (user?.username || '\x00'),   // ← NUL real, no la secuencia
+```
+
+Los otros dos usos del mismo patrón en ese archivo usan `' '` (un espacio) — un centinela que no casa con nada y **falla cerrado**: sin username, la cajera no ve nada. Con el NUL falla distinto: **Postgres no admite NUL en `text`**, así que `upper(cajero_code) = <NUL>` levanta `22021 invalid byte sequence for encoding "UTF8": 0x00` y el endpoint devuelve **500** en vez de una lista vacía.
+
+Cómo se delata, y es fácil pasarlo por alto: `grep` deja de tratar el archivo como texto.
+
+```
+Binary file libs/reconciliation/src/lib/store-arqueo.controller.ts matches
+```
+
+Ese aviso es la pista. Para encontrarlos en todo el repo:
+
+```bash
+python -c "
+import os, io
+for base in ('libs','apps','database'):
+    for root, ds, fs in os.walk(base):
+        if 'node_modules' in root: continue
+        for f in fs:
+            if f.endswith(('.ts','.js','.json','.css','.html','.md')):
+                p = os.path.join(root, f)
+                if b'\x00' in io.open(p,'rb').read(): print(p)
+"
+```
+
+**Un falso positivo legítimo:** `libs/fiscal/src/lib/cfdi/cfdi.service.ts` tiene caracteres de control **a propósito** dentro del regex que limpia nombres de archivo, y lo declara con un `eslint-disable-next-line no-control-regex` justo arriba. Ese se queda: si el `eslint-disable` está, es intencional; si no está, es corrupción.

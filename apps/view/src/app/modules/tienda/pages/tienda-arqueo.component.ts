@@ -356,7 +356,12 @@ interface CortesPersona {
              está contando billetes de pie frente a la caja. -->
         @if (revela || rows().length) {
         <div class="card-premium card-flat arq-panel">
-          <h3 class="arq-card-title">Arqueos recientes</h3>
+          <!-- SM.33 - El rotulo cambia porque el CONTENIDO cambia: sin
+               supervision el backend devuelve solo el dia (no es un filtro
+               de pantalla). Decir "recientes" sobre una lista de hoy es
+               mentir sobre lo que hay, y la cajera creeria que perdio
+               arqueos viejos. -->
+          <h3 class="arq-card-title">{{ revela ? 'Arqueos recientes' : 'Tus cortes de hoy' }}</h3>
           <p-table [value]="rows()" dataKey="id" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
             <ng-template #header>
               <tr>
@@ -560,7 +565,7 @@ interface CortesPersona {
                 </td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="arq-empty">Sin arqueos aún.</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="arq-empty">{{ revela ? 'Sin arqueos aún.' : 'Todavía no capturaste ningún corte hoy.' }}</td></tr></ng-template>
           </p-table>
         </div>
         }
