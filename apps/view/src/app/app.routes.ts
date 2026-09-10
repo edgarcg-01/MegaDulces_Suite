@@ -932,7 +932,11 @@ export const routes: Routes = [
       {
         path: 'arqueos',
         loadComponent: () => import('./modules/tienda/pages/tienda-arqueo-historial.component').then(m => m.TiendaArqueoHistorialComponent),
-        canActivate: [permissionGuard(Permission.STORE_ARQUEO_VER)]
+        // SM.33 — Supervision: el historial por cajera no es de la cajera.
+        // Antes pedia STORE_ARQUEO_VER, que ella tiene. El backend ademas
+        // devuelve 403 en /store/arqueo/por-cajera: el guard es comodidad,
+        // la negativa real esta del otro lado.
+        canActivate: [permissionGuard(Permission.RECONCILIATION_VER)]
       },
       {
         path: 'analisis-semanal',

@@ -17,5 +17,10 @@ export const ARQUEO_TABS: PageTab[] = [
   // le esconderia su propia pantalla a la cajera que solo captura. Si le falta VER,
   // el otro tab se filtra y la barra se oculta sola (queda 1 tab visible).
   { label: 'Arqueo de caja', route: '/tienda/arqueo', icon: 'pi pi-eye-slash' },
-  { label: 'Por cajera', route: '/tienda/arqueos', icon: 'pi pi-users', permission: Permission.STORE_ARQUEO_VER },
+  // SM.33 — Pide RECONCILIATION_VER, no STORE_ARQUEO_VER: la cajera TIENE
+  // STORE_ARQUEO_VER (es lo que le abre su propia pantalla), asi que con ese
+  // permiso la pestaña se le mostraba. Y esta vista es el acumulado de cortes
+  // por cajera, o sea un historial — justo lo que no debe tener. Con un solo
+  // tab visible la barra se oculta sola (ver comentario de arriba).
+  { label: 'Por cajera', route: '/tienda/arqueos', icon: 'pi pi-users', permission: Permission.RECONCILIATION_VER },
 ];
