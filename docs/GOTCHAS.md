@@ -1877,3 +1877,21 @@ Medido: **77 → 7 líneas/min y 129% → 0.19% de CPU**, con la replicación in
 3. **Validar la inserción**, no el estado del worker: `pg_subscription_rel.srsubstate` debe llegar a
    `r`, y los conteos de las dos puntas tienen que coincidir. Un worker `VIVO` con `lag=0s` convive
    perfectamente con 7 tablas en `d` (copiando) que no avanzan nunca.
+
+## Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10)
+
+Reportado como *"a pesar de que elijo la sucursal no me libera el guardar"* en `/tienda/caducidades`. No era el permiso ni el alcance: el botón se gateaba con
+
+```ts
+readonly falta = computed(() => { ...
+  if (this.puedeElegirSucursal() && !this.warehouseId) pend.push('la sucursal');  // ← campo plano
+});
+warehouseId = '';        // NO es signal
+cantidad: number | null = 1;   // tampoco
+```
+
+Un `computed` **sólo se re-evalúa cuando cambia un signal que leyó**. `[(ngModel)]` escribía el campo plano, ningún signal cambiaba, y el `computed` servía su valor cacheado: *"falta la sucursal"* con la sucursal ya elegida. Lo desconcertante es que **se arreglaba solo** al tocar producto o fecha — ésos sí son signals y despertaban el cálculo.
+
+**La regla:** todo lo que un `computed` lea tiene que ser signal. Si viene de `ngModel`, va como `[ngModel]="sig()" (ngModelChange)="sig.set($event)"` — el banana-in-box no existe para signals.
+
+**Y el contraste que lo explica:** en `/tienda/arqueo` el mismo tipo de compuerta es `canSubmit(): boolean`, un **método**, y ahí nunca falló: los métodos se re-evalúan en cada ciclo de change-detection. Migrar un método a `computed` es un cambio de semántica, no una optimización — si sus dependencias no son signals, lo rompe en silencio.

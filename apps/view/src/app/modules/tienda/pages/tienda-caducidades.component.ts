@@ -108,7 +108,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
             </span>
           } @else if (puedeElegirSucursal()) {
             <p-select
-              [options]="ctx()?.options || []" [(ngModel)]="warehouseId"
+              [options]="ctx()?.options || []" [ngModel]="warehouseId()" (ngModelChange)="warehouseId.set($event)"
               optionLabel="name" optionValue="id" placeholder="Elegí la sucursal"
               [filter]="(ctx()?.options?.length || 0) > 8" filterBy="name,code"
               styleClass="cad-suc-pick" appendTo="body"
@@ -252,7 +252,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
             <div class="cad-step-body">
               <span class="cad-lbl">Cantidad</span>
               <div class="cad-qty">
-                <p-inputnumber [(ngModel)]="cantidad" [min]="0" [showButtons]="true" buttonLayout="horizontal"
+                <p-inputnumber [ngModel]="cantidad()" (ngModelChange)="cantidad.set($event)" [min]="0" [showButtons]="true" buttonLayout="horizontal"
                   incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus"
                   inputStyleClass="cad-qty-in" styleClass="cad-qty-w"
                   [ariaLabel]="'Cantidad'"></p-inputnumber>
@@ -762,7 +762,15 @@ export class TiendaCaducidadesComponent {
 
   // ── contexto (dónde escribo) ──
   readonly ctx = signal<ExpiryCaptureContext | null>(null);
-  warehouseId = '';
+  /**
+   * Signal y no propiedad plana **porque `falta()` es un `computed()`**.
+   *
+   * Un `computed` sólo se re-evalúa cuando cambia un SIGNAL que leyó. Con
+   * `warehouseId` como campo suelto, elegir la sucursal no despertaba a `falta()`
+   * y el botón se quedaba apagado con todo lleno; recién se soltaba al tocar
+   * otra cosa (producto o fecha), que sí son signals. Ver [P2.6.11].
+   */
+  readonly warehouseId = signal('');
   readonly sucursalFija = computed<ExpiryWarehouseOption | null>(() => {
     const c = this.ctx();
     return c?.mode === 'own' ? c.warehouse : null;
@@ -783,7 +791,8 @@ export class TiendaCaducidadesComponent {
   readonly fechaRaw = signal('');
   readonly fechaIso = signal<string | null>(null);
 
-  cantidad: number | null = 1;
+  /** Signal por lo mismo que `warehouseId`: lo lee `falta()`, que es un computed. */
+  readonly cantidad = signal<number | null>(1);
   readonly unidad = signal<LineUnit | null>(null);
   readonly unidadSugerida = signal('');
   private unidadTocada = false;
@@ -848,8 +857,8 @@ export class TiendaCaducidadesComponent {
       .subscribe({
         next: (c) => {
           this.ctx.set(c);
-          if (c.mode === 'own') this.warehouseId = c.warehouse?.id || '';
-          else if (c.mode === 'many') this.warehouseId = c.options[0]?.id || '';
+          if (c.mode === 'own') this.warehouseId.set(c.warehouse?.id || '');
+          else if (c.mode === 'many') this.warehouseId.set(c.options[0]?.id || '');
         },
         error: () => this.toast.add({ severity: 'error', summary: 'No se pudo resolver tu sucursal', detail: 'Recargá la página; si sigue, avisá a sistemas.' }),
       });
@@ -980,7 +989,7 @@ export class TiendaCaducidadesComponent {
         raw: null,
       });
     }
-    if (sl.quantity != null) this.cantidad = sl.quantity;
+    if (sl.quantity != null) this.cantidad.set(sl.quantity);
     if (sl.unit) {
       // Dicho a viva voz ES la decisión del operador: la sugerencia del código
       // no debe pisarla después.
@@ -1067,8 +1076,9 @@ export class TiendaCaducidadesComponent {
     const pend: string[] = [];
     if (!this.producto()) pend.push('el producto');
     if (!this.fechaIso()) pend.push('la fecha de caducidad');
-    if (!this.cantidad || this.cantidad <= 0) pend.push('la cantidad');
-    if (this.puedeElegirSucursal() && !this.warehouseId) pend.push('la sucursal');
+    const cant = this.cantidad();
+    if (!cant || cant <= 0) pend.push('la cantidad');
+    if (this.puedeElegirSucursal() && !this.warehouseId()) pend.push('la sucursal');
     return pend.join(' · ');
   });
 
@@ -1079,7 +1089,7 @@ export class TiendaCaducidadesComponent {
       product_id: p.id,
       product_code_raw: p.raw || undefined,
       product_name_raw: p.id ? undefined : p.nombre,
-      quantity: Number(this.cantidad),
+      quantity: Number(this.cantidad()),
       expiry_date: this.fechaIso(),
       unit: this.unidad() || undefined,
       condition: this.condicion() || undefined,
@@ -1092,7 +1102,7 @@ export class TiendaCaducidadesComponent {
     const editId = this.editandoId();
     const req$ = editId
       ? this.svc.updateExpiryEntry(editId, body)
-      : this.svc.createExpiryEntry(this.puedeElegirSucursal() ? { ...body, warehouse_id: this.warehouseId } : body);
+      : this.svc.createExpiryEntry(this.puedeElegirSucursal() ? { ...body, warehouse_id: this.warehouseId() } : body);
 
     req$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (e) => {
@@ -1132,7 +1142,7 @@ export class TiendaCaducidadesComponent {
     this.avisoCodigo.set('');
     this.fechaRaw.set('');
     this.fechaIso.set(null);
-    this.cantidad = 1;
+    this.cantidad.set(1);
     this.condicion.set(null);
     this.nota = '';
     this.foto.set(null);
@@ -1157,7 +1167,7 @@ export class TiendaCaducidadesComponent {
     // (DDMMAAAA, la forma de 8 dígitos que entiende `parseExpiryShort`). Escribir
     // acá `AAMMDD` haría que el campo se re-interprete como otra fecha al tocarlo.
     this.fechaRaw.set(iso ? `${iso.slice(8, 10)}${iso.slice(5, 7)}${iso.slice(0, 4)}` : '');
-    this.cantidad = Number(e.quantity) || 0;
+    this.cantidad.set(Number(e.quantity) || 0);
     this.unidad.set((e.unit as LineUnit) || null);
     this.condicion.set((e.condition as Condition) || null);
     this.ubicacion = e.location || '';
