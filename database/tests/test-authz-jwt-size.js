@@ -193,7 +193,58 @@ const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url').length;
     check(conParche.length > 0,
       `el parche sigue puesto: retirarlo exige que caduque el último token viejo (TTL hasta 3,650 días en kioscos)`);
 
-    console.log(`\n${fail === 0 ? '✅' : '❌'} [ID.29] tamaño del JWT: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
+    console.log('\n[5] `[ID.30]` La UI resuelve el permiso por UNA sola puerta');
+    // Precondición para poder sacar el mapa del token. Los tres guards de
+    // `apps/view` leían `authService.user()?.permissions` —el mapa decodificado
+    // del JWT— y usaban `PermissionsService` sólo para `isAdmin()`. Con dos
+    // fuentes para la misma pregunta, quitar el mapa es cazar lecturas sueltas;
+    // con una, es cambiar de qué se llena esa fuente.
+    const guardSrc = fs.readFileSync(path.join(REPO, 'apps/view/src/app/core/guards/permission.guard.ts'), 'utf8');
+    const lecturasCrudas = [...guardSrc.matchAll(/user\(\)\??\.permissions/g)].filter(
+      // Las menciones dentro de comentarios explican por qué ya NO se hace.
+      (m) => !/^\s*(\*|\/\/)/.test(guardSrc.slice(guardSrc.lastIndexOf('\n', m.index) + 1, m.index)),
+    );
+    check(lecturasCrudas.length === 0,
+      `ningún guard de view lee el mapa del JWT directo (quedan ${lecturasCrudas.length})`);
+
+    const permsSrc = fs.readFileSync(path.join(REPO, 'apps/view/src/app/core/services/permissions.service.ts'), 'utf8');
+    // Ternario, no booleano (ADR-056): `{}` porque no cargó y `{}` porque no
+    // tenés permisos son cosas distintas, y un booleano no puede decir "no sé".
+    check(/'sin_cargar'/.test(permsSrc) && /'servidor'/.test(permsSrc) && /'jwt'/.test(permsSrc),
+      'PermissionsService declara de dónde salió el mapa, y es TERNARIO (sin_cargar | jwt | servidor)');
+
+    const cfgSrc = fs.readFileSync(path.join(REPO, 'apps/view/src/app/app.config.ts'), 'utf8');
+    check(/provideAppInitializer\(.*resolverAccesoInicial/s.test(cfgSrc),
+      'el acceso se resuelve ANTES de la primera navegación (provideAppInitializer)');
+    const authSrc = fs.readFileSync(path.join(REPO, 'apps/view/src/app/core/services/auth.service.ts'), 'utf8');
+    // Un initializer que puede colgar es peor que el problema que resuelve.
+    check(/timeout\(TIMEOUT_ACCESO_MS\)/.test(authSrc) && /async resolverAccesoInicial/.test(authSrc),
+      'el initializer tiene timeout duro y no rechaza: si el API tarda, la app arranca igual');
+
+    console.log('\n[6] ⚠️ Lo que BLOQUEA sacar el mapa del token, medido');
+    // `apps/vendor` es offline-first POR DISEÑO: service worker + Dexie + cola
+    // de sincronización. Un vendedor que abre la app sin señal sólo carga lo
+    // que trae en el token. Si el mapa deja de viajar ahí, arranca con CERO
+    // permisos — y cachearlo localmente reintroduce el snapshot viejo, que es
+    // exactamente lo que el token ya era. O sea: el paso final NO es uniforme.
+    const vendorGuard = fs.readFileSync(path.join(REPO, 'apps/vendor/src/app/core/guards/permission.guard.ts'), 'utf8');
+    const vendorAuth = fs.readFileSync(path.join(REPO, 'apps/vendor/src/app/core/services/auth.service.ts'), 'utf8');
+    const vendorLeeToken = /user\(\)\??\.permissions/.test(vendorGuard);
+    const vendorSinRefresco = !/me\/access/.test(vendorAuth);
+    const vendorOffline = fs.existsSync(path.join(REPO, 'apps/vendor/src/app/core/services/offline-database.service.ts'));
+    if (vendorLeeToken && vendorSinRefresco && vendorOffline) {
+      declarar(
+        'apps/vendor lee el mapa del token, NO tiene camino a `me/access` y es offline-first ' +
+          '(Dexie + service worker + cola de sync) → sacar el permiso del JWT lo dejaría sin permisos ' +
+          'al arrancar sin señal. El paso final necesita una respuesta propia para el campo, no la misma que para view.',
+      );
+    } else {
+      check(!vendorLeeToken || !vendorSinRefresco,
+        'apps/vendor ya no depende en exclusiva del mapa del token: el paso final se puede aplicar parejo',
+      );
+    }
+
+    console.log(`\n${fail === 0 ? '✅' : '❌'} [ID.29/ID.30] permiso y token: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {
     console.error(`\n❌ ERROR: ${e.message}`);

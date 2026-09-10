@@ -1,4 +1,4 @@
-import { ApplicationConfig, ErrorHandler, LOCALE_ID, isDevMode, provideZonelessChangeDetection } from '@angular/core';
+import { ApplicationConfig, ErrorHandler, LOCALE_ID, inject, isDevMode, provideAppInitializer, provideZonelessChangeDetection } from '@angular/core';
 import { registerLocaleData } from '@angular/common';
 import localeEsMx from '@angular/common/locales/es-MX';
 
@@ -16,6 +16,7 @@ import { provideServiceWorker } from '@angular/service-worker';
 import { routes } from './app.routes';
 import { GlobalErrorHandler } from './core/errors/global-error-handler';
 import { authInterceptor } from './core/http/auth.interceptor';
+import { AuthService } from './core/services/auth.service';
 import { diagnosticsInterceptor } from './core/http/diagnostics.interceptor';
 import { SelectivePreloadStrategy } from './core/strategies/selective-preload.strategy';
 
@@ -31,6 +32,14 @@ export const appConfig: ApplicationConfig = {
     // polyfills (~13 kB menos + arranque más rápido); NgZone queda como NoopNgZone.
     provideZonelessChangeDetection(),
     { provide: LOCALE_ID, useValue: 'es-MX' },
+    // `[ID.30]` Los permisos se resuelven ANTES de la primera navegación.
+    // Hasta acá el único refresco era fire-and-forget desde el `ngOnInit` del
+    // componente raíz, que corre DESPUÉS de que el router ya resolvió la ruta:
+    // los guards decidían con lo que trajera el token. Mientras el mapa viaje
+    // en el JWT da igual, pero es la ventana que hace imposible sacarlo.
+    // Siempre resuelve y nunca cuelga el arranque (timeout duro + fallback al
+    // snapshot del token) — ver `resolverAccesoInicial`.
+    provideAppInitializer(() => inject(AuthService).resolverAccesoInicial()),
     // Sin esto una excepción no capturada dejaba la pantalla en blanco: nada
     // que ver, nada que reportar, nada registrado.
     { provide: ErrorHandler, useClass: GlobalErrorHandler },
