@@ -344,23 +344,7 @@ export class StoreArqueoController {
     return {
       sucursales: filas,
       totales: { ...t, pct: t.cortes ? Math.round((t.arqueados / t.cortes) * 1000) / 10 : 0 },
-      sla_min: CashCountSlaService.SLA_MIN,
-      critico_min: CashCountSlaService.CRITICO_MIN,
     };
-  }
-
-  /**
-   * SM.21 — Dispara el barrido de plazos a mano. El cron corre cada 15 min; esto
-   * existe para no esperarlo al operar (y para el smoke). Idempotente: el hallazgo
-   * se hace UPSERT por `dedup_key`.
-   */
-  @Post('scan-sla')
-  @RequirePermissions(Permission.STORE_ARQUEO_VER)
-  @ApiOperation({ summary: 'Tienda — barre ahora los cortes sin conteo fuera de plazo y los manda a la bandeja.' })
-  async scanSla(@ReqUser() user: AuthUser) {
-    if (!this.revela(user)) throw new ForbiddenException('El barrido de plazos es del supervisor.');
-    await this.sync.syncCurrentTenant();
-    return this.sla.scanCurrentTenant();
   }
 
   /**
