@@ -5,6 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
+import { compareWarehouseCodes } from '@megadulces/contracts';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -869,12 +870,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (s.has(r.product_id)) s.delete(r.product_id); else s.add(r.product_id);
     this.wbOpen.set(s);
   }
-  /** Filas por-sucursal (comprar/traspaso/sobre) del producto, ordenadas acción→sucursal. */
+  /** Filas por-sucursal (comprar/traspaso/sobre) del producto, ordenadas acción→sucursal
+   *  (sucursal en el orden canónico PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS). */
   detailRows(pid: string): URow[] {
     this.tickN();
     return this.urows()
       .filter((u) => u.product_id === pid)
-      .sort((a, b) => this.typeOrder[a.type] - this.typeOrder[b.type] || a.warehouse_code.localeCompare(b.warehouse_code));
+      .sort((a, b) => this.typeOrder[a.type] - this.typeOrder[b.type] || compareWarehouseCodes(a.warehouse_code, b.warehouse_code));
   }
   prodBuy(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'comprar').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
   prodTr(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'traspaso').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
@@ -1238,12 +1240,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   private readonly typeOrder: Record<UType, number> = { comprar: 0, traspaso: 1, sobre: 2 };
-  /** Lista plana filtrada por chips y ORDENADA por sucursal (para el rowGroup subheader). */
+  /** Lista plana filtrada por chips y ORDENADA por sucursal (para el rowGroup subheader), en el
+   *  orden canónico de tiendas compartido con el backend (@megadulces/contracts). */
   flatRows = computed<URow[]>(() => {
     const show = { comprar: this.cBuy(), traspaso: this.cTr(), sobre: this.cOver() } as Record<UType, boolean>;
     return this.urows()
       .filter((r) => show[r.type])
-      .sort((a, b) => a.warehouse_code.localeCompare(b.warehouse_code) || this.typeOrder[a.type] - this.typeOrder[b.type] || (b.qty * b.unit_cost) - (a.qty * a.unit_cost));
+      .sort((a, b) => compareWarehouseCodes(a.warehouse_code, b.warehouse_code) || this.typeOrder[a.type] - this.typeOrder[b.type] || (b.qty * b.unit_cost) - (a.qty * a.unit_cost));
   });
 
   /** Subtotales por sucursal (código → $ comprar/traspaso/sobre + cajas). */

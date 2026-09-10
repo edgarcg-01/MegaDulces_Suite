@@ -23,6 +23,9 @@ export * from './http/provenance.contract';
 export * from './http/identity.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
+// Orden canónico de presentación de tiendas (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS).
+// Dato chico: no pega al bundle inicial.
+export * from './http/warehouse-order.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:
