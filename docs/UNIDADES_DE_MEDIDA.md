@@ -601,6 +601,89 @@ aparte, con baseline propio.
 
 ---
 
+## 8septies. El peldaño COBRADO como testigo del factor — en una sola dirección (KX, 2026-09-09)
+
+Edgar: *"omitamos precios y vayamos con cajas"*, aplicando R6 de
+[`VERDAD_ABSOLUTA.md`](VERDAD_ABSOLUTA.md): **buscar el patrón en lo incorrecto**.
+
+### ⛔ Primero, el error que casi se comete otra vez: los DOS EJES
+
+`kdm2.c58` dice **en qué unidad se vendió ese renglón**; `box_factor` dice **cuántas bases hay en
+una caja**. No son lo mismo, y compararlos de frente da una masacre de falsos positivos:
+
+```text
+mediana c58_max / box_factor .......... 0.0667  = 1/15
+pares donde el peldaño es MENOR ....... 15,587 de 19,787  (78.8%)
+```
+
+Eso **no** significa que el factor esté mal: significa que **el mostrador vende piezas**. Es
+exactamente el falso positivo de §8quater (comparar el divisor nativo de Wincaja contra
+`units_per_box` marcaba 355 multipack legítimos). El bloque 5 del candado existe para eso y hubo
+que releerlo antes de escribir el 5bis.
+
+### ⭐ Pero una dirección SÍ es imposible
+
+Que el ERP venda una unidad **MAYOR** que la caja declarada no tiene lectura benigna. Si
+`box_factor = 1` —el valor que significa *"este producto no viene en caja"*— y el ticket vendió
+peldaños de 12, 18, 20 o 24, el factor está mal **por debajo**.
+
+Medido en prod (90 d, `U-D` 8/10/12): **41 pares / $1,395,458**, y el patrón es nítido:
+
+- **36 de 41 tienen `box_factor = 1`**;
+- **35 de 41 vienen de `override`** — el factor **manual** — con razón mediana **12.00×**;
+- y **el nombre del producto trae el número**: `GOMA A GRANEL LA ROSA 12KG` con `c58` 12 ·
+  `LA ROSA CONFICHOCKY GRANEL 9KG` con 18 · `CAR SURTIDO 18KG COLOMBINA` con 18 ·
+  `ALMENDRA CONFITADA 10 KG` con 24 · `PASTA B. 11X11 GUSTINOS / 20KG` con 20. Es **granel por
+  kilo** y alguien puso `1` a mano.
+
+### ⭐⭐ Y el override es la peor fuente, por dos órdenes de magnitud
+
+ADR-057 ya lo decía contra el testigo de **pago**. Acá lo confirma, de forma independiente, el
+peldaño **cobrado**:
+
+| fuente del factor | pares | venta 90 d | el ERP la contradice |
+|---|---:|---:|---:|
+| **`override`** (manual) | 1,199 | $13,526,866 | **2.92%** |
+| `default` | 1,161 | $6,853,643 | 0.17% |
+| `kepler_c84` | 7,246 | $64,907,048 | 0.03% |
+| `etiquetera` | 9,964 | $43,284,758 | 0.02% |
+| `factor_sale` | 217 | $2,707,930 | 0.00% |
+
+**El factor manual se equivoca 146× más seguido que la etiquetera** — la fuente que la doc marcaba
+como "no verificable". Dos testigos distintos, la misma conclusión.
+
+⚠️ **Los 41 casos son dato maestro, no código.** La lista completa está en
+[`kx-factor-caja-contradicho-por-el-erp.csv`](kx-factor-caja-contradicho-por-el-erp.csv) con el
+`bf_sugerido` que el propio ERP vendió. Se corrigen **desde la UI**, no con un script.
+
+### ⚠️ El NULL mudo de Wincaja en el peldaño
+
+`analytics.sales_daily.rung_factor` va **NULL en el 100%** de las celdas de Wincaja. Es legítimo
+—Wincaja no declara peldaño— pero `units_unresolved`, **la columna que existe para declararlo**,
+está en cero:
+
+```text
+KEPLER  :     533 de 361,058 sin peldaño (0.15%)   <- resuelto
+WINCAJA : 353,595 de 353,595        (100.00%) = $86,189,728
+          declaradas en units_unresolved: 64
+```
+
+Son el **55% del ingreso de 90 días sin nada que diga "acá no se midió"** (ADR-056). Queda como
+hueco abierto, medido por el candado para que no se olvide.
+
+### ⚠️ Y una mala atribución propia, que el candado documenta para no repetirla
+
+Partir el fact por `w.kepler_code IS NOT NULL` da *"Kepler sin peldaño en el 73% de la sucursal
+06"* y **es falso**: las sucursales **01 y 06 tienen los DOS ERPs sobre el mismo almacén**, así que
+el ERP se distingue por **CANAL**, no por el código del almacén. Con la atribución correcta, Kepler
+resuelve el peldaño en el **99.85%**. Alarmé con $26.3M que no existían; la corrección es parte del
+hallazgo.
+
+**Candado:** `test-newdb-unit-truth.js` bloques **5bis** y **5ter** — 40 → **45** aserciones, con
+**5 pruebas negativas** verificadas en rojo.
+
+---
+
 ## 9. Lo que NO se investigó
 
 - **Unidad de los SKUs sólo-Wincaja**: 4,925 artículos de la sucursal 30 no existen en la escalera del ODS, así que su `factor_venta` no tiene contra qué contrastarse (mismo problema del §5: factor sin ancla).

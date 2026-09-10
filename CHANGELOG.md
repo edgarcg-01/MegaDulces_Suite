@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Fixed — cajas: el peldano COBRADO arbitra el factor, y el override es la peor fuente (KX, 2026-09-09)
+
+Edgar: *"omitamos precios y vayamos con cajas"*, con R6 (buscar el patron en lo incorrecto). Sin cambio de codigo de aplicacion.
+
+- ⛔ **Primero, el error que casi se comete otra vez: los DOS EJES.** `kdm2.c58` dice en que unidad se vendio ESE renglon; `box_factor` dice cuantas bases hay en una caja. Compararlos de frente da mediana **0.0667 = 1/15** y **15,587 de 19,787 pares** con el peldano menor — no porque el factor este mal, sino porque **el mostrador vende piezas**. Usarlo como veredicto marcaria 15,587 pares sanos: es el falso positivo de ADR-055 otra vez.
+- ⭐ **Pero una direccion SI es imposible:** que el ERP venda una unidad MAYOR que la caja declarada. **41 pares / $1,395,458**, con patron nitido: **36 de 41 tienen `box_factor = 1`** (el valor que significa "no viene en caja") y **35 de 41 vienen de `override`**, el factor MANUAL, con razon mediana **12.00x**. Y el nombre del producto trae el numero: `GOMA A GRANEL LA ROSA 12KG` con c58 12 · `LA ROSA CONFICHOCKY GRANEL 9KG` con 18 · `CAR SURTIDO 18KG COLOMBINA` con 18 · `ALMENDRA CONFITADA 10 KG` con 24. Es granel por kilo y alguien puso 1 a mano.
+- ⭐⭐ **El override es la peor fuente por dos ordenes de magnitud**, y lo dice un testigo INDEPENDIENTE del de ADR-057 (ese era el pago; este es el cobro): override **2.92%** contradicho (1,199 pares / $13.5M) · default 0.17% · kepler_c84 0.03% · etiquetera **0.02%** · factor_sale 0.00%. **El factor manual se equivoca 146x mas seguido que la etiquetera**, la fuente que la doc marcaba como "no verificable".
+- ⚠️ **El NULL mudo de Wincaja:** `sales_daily.rung_factor` va NULL en el **100%** de sus 353,595 celdas (**$86,189,728**, el 55% del ingreso de 90 d) y `units_unresolved` — la columna que existe para declararlo — marca **64**. Legitimo (Wincaja no declara peldano) pero mudo. Hueco abierto, ahora medido.
+- ⚠️ **Y una mala atribucion propia, corregida en el mismo pase:** partir el fact por `w.kepler_code IS NOT NULL` daba "Kepler sin peldano en el 73% de la suc 06" y es **falso** — las sucursales **01 y 06 tienen los DOS ERPs sobre el mismo almacen**, asi que el ERP se distingue por **CANAL**, no por el codigo del almacen. Con la atribucion correcta Kepler resuelve el peldano en el **99.85%** (533 de 361,058). Alarme con $26.3M que no existian.
+- Internal: `test-newdb-unit-truth.js` **40 → 45** con bloques 5bis/5ter y **5 pruebas negativas** verificadas en rojo. Los 41 casos son **dato maestro**, no codigo: lista con el `bf_sugerido` que el ERP vendio en `docs/kx-factor-caja-contradicho-por-el-erp.csv`, para corregir **desde la UI**. ⚠️ El check de perf del candado dio 12,660 ms en una corrida y 1,392–1,559 ms en las dos siguientes: es contencion de prod, se mide antes del bloque nuevo.
+
 ### Added — la pantalla donde se corrige el gasto y el odómetro de Ruta Directa (RD.9, 2026-09-09)
 
 El negocio contestó §9.7 y §9.8 de la fase con *"se corrige desde la UI y se captura manual"*. Al ir a habilitarlo apareció que **esa UI no existía** — y algo peor: el dato estaba en prod desde el 08-sep (782 gastos, 187 lecturas de odómetro) y **no había dónde tocarlo**.
