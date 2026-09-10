@@ -57,6 +57,23 @@ export class StoreController {
   }
 
   /**
+   * TDA.R — ritmo de referencia (7 y 30 días) para comparar contra el día en curso.
+   *
+   * Endpoint propio y NO parte de `snapshot` a propósito: sale del ODS y la ventana de
+   * 30 días tarda ~6 s. Colgar el monitor en vivo detrás de eso sería cambiar una
+   * pantalla que responde al instante por una que arranca lenta todos los días. El
+   * frontend pinta los KPIs con el snapshot y encima le llegan los deltas.
+   */
+  @Get('rhythm')
+  @RequirePermissions(Permission.STORE_LIVE_VER)
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV. Se recorta a tu alcance.' })
+  @ApiOperation({ summary: 'TDA — ritmo semanal y mensual (partidas/ticket, valor/partida, unidades/ticket…) desde el ODS, para comparar contra hoy. Declara cuántos días de la ventana pudo usar.' })
+  async rhythm(@Query() query: Record<string, unknown>) {
+    const codes = await this.scope.readParam(query, 'warehouse', 'store/rhythm');
+    return this.service.rhythm(codes);
+  }
+
+  /**
    * SM.10 — cajas abiertas ahora + quién está cobrando (sesión × tickets por caja).
    *
    * `[ID.4]` — El alcance sale de `ScopeService`, no del viejo

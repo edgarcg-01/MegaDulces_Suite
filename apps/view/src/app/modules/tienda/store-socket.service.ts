@@ -29,7 +29,79 @@ export interface ArqueoDue {
   /** `retiro` = sangría con el turno abierto · `cierre` = corte del cajón. */
   motivo?: 'cierre' | 'retiro';
 }
-export interface StoreBranchKpi { warehouse_code: string; warehouse_name: string; tickets: number; venta: number; last_ts: string; }
+/**
+ * TDA.P — palancas de la política comercial, calculadas en el servidor sobre TODOS
+ * los renglones del día (no sobre el ticker del navegador, que va topado).
+ *
+ *   Venta = Tickets × (Partidas/ticket) × (Valor/partida)   ← exacto
+ *   Venta = Tickets × (Unidades/ticket) × (Valor/unidad)    ← peldaño resuelto por precio
+ *
+ * `units`/`amount_per_unit` llegan **`null`** cuando el peldaño no se pudo resolver —
+ * nunca 0. Un cero se lee como "no vendió"; el null se lee como "no lo sé", que es lo
+ * que de verdad pasa (ADR-056).
+ */
+export interface StoreLineLevers {
+  lines: number;
+  amount: number;
+  amount_per_line: number;
+  units: number | null;
+  amount_per_unit: number | null;
+  unresolved_lines: number;
+  coverage_pct: number;
+  method: 'peldano_por_precio' | 'no_medido' | 'sin_datos' | 'sin_alcance' | 'escalera_no_disponible';
+}
+export interface StoreBranchKpi {
+  warehouse_code: string; warehouse_name: string; tickets: number; venta: number; last_ts: string;
+  lines?: StoreLineLevers | null;
+}
+
+/**
+ * TDA.R — ritmo de referencia (7 y 30 días) contra el que se compara el día en curso.
+ * Sale del ODS, no del buffer del monitor (que se limpia a los 3 días).
+ *
+ * Todas las razones son `null` si la ventana no juntó días suficientes: `days_used`
+ * dice cuántos se pudieron usar y `method` por qué. Un promedio de 1 día NO es "el
+ * ritmo de la semana", y publicarlo como tal es peor que no tenerlo.
+ */
+export interface StoreRhythmWindow {
+  window_days: number;
+  days_used: number;
+  days_missing: number;
+  days_partial: number;
+  median_tickets: number;
+  tickets_per_day: number | null;
+  lines_per_ticket: number | null;
+  amount_per_line: number | null;
+  amount_per_ticket: number | null;
+  units_per_ticket: number | null;
+  amount_per_unit: number | null;
+  coverage_pct: number;
+  method: 'ods_u_d_10' | 'ventana_incompleta' | 'sin_datos' | 'sin_alcance' | 'ods_no_disponible';
+}
+/**
+ * Ritmo del MISMO día de la semana (los últimos 4 miércoles si hoy es miércoles).
+ * En retail el calendario pesa: un sábado no se parece a un martes, así que el
+ * promedio de 30 días mezcla los dos y mueve el "vs." por razones que no son la
+ * operación. `dow` es 0=domingo (calculado en hora MX, no la del navegador).
+ */
+export interface StoreRhythmDow extends StoreRhythmWindow {
+  dow: number;
+  occurrences: number;
+}
+/** Punto de la curva horaria de referencia (promedio de los días utilizables). */
+export interface RhythmHourPoint { hora: number; venta: number; tickets: number; }
+export interface StoreRhythm {
+  week: StoreRhythmWindow;
+  month: StoreRhythmWindow;
+  dow: StoreRhythmDow;
+  /**
+   * Curva de venta por hora de cada ritmo, para superponer sobre la de hoy. `null`
+   * cuando ese ritmo no tiene días suficientes. Ojo: a diferencia de las razones, va
+   * SIN recorte a la hora actual — se quiere ver también lo que falta del día.
+   */
+  hourly?: { dow: RhythmHourPoint[] | null; week: RhythmHourPoint[] | null; month: RhythmHourPoint[] | null };
+  generated_at: string;
+}
 export interface OpenCaja {
   rank: number;
   warehouse_code: string; warehouse_name?: string; caja: string;
@@ -64,6 +136,8 @@ export interface StoreSnapshot {
   by_branch: StoreBranchKpi[];
   hourly: { hora: number; tickets: number; venta: number }[];
   recent: LiveTicket[];
+  /** TDA.P — partidas/unidades de la red. Ausente si el backend es viejo. */
+  lines?: StoreLineLevers;
   sockets: any;
 }
 
@@ -96,6 +170,16 @@ export class StoreSocketService {
   snapshot(warehouse?: string) {
     const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
     return this.http.get<StoreSnapshot>(`${environment.apiUrl}/store/live/snapshot${q}`);
+  }
+
+  /**
+   * TDA.R — ritmo semanal/mensual. Llamada aparte del snapshot: sale del ODS y la
+   * ventana de 30 días tarda segundos, así que los KPIs pintan primero y el delta
+   * aparece encima cuando llega.
+   */
+  rhythm(warehouse?: string) {
+    const q = warehouse ? `?warehouse=${encodeURIComponent(warehouse)}` : '';
+    return this.http.get<StoreRhythm>(`${environment.apiUrl}/store/live/rhythm${q}`);
   }
 
   /** SM.10 — cajas abiertas ahora + quién está cobrando. */
