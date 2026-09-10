@@ -4,6 +4,12 @@ import { Observable, from, of, switchMap } from 'rxjs';
 import { catchError, map, timeout } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import { OfflineDatabaseService } from '../../core/services/offline-database.service';
+// `[TDA.4]` El escalón de mayoreo y su forma de cable salen del vocabulario común: el backend
+// los emite y esta pantalla los consume —en vivo y desde el respaldo— con UNA definición.
+import { type MayoreoTier, type MayoreoTierCompacto, expandirTier } from '@megadulces/contracts';
+
+/** Se reexporta para que la pantalla lo importe de acá, junto al servicio que lo entrega. */
+export type { MayoreoTier } from '@megadulces/contracts';
 
 /** Una unidad de venta con su precio (PZA, PAQUETE, CAJA...). Espejo de KpService.UnidadPrecio. */
 export interface UnidadPrecio {
@@ -20,6 +26,13 @@ export interface ProductoPrecio {
   unidades: UnidadPrecio[];
   iva_pct: number | null;
   ieps_pct: number | null;
+  /**
+   * `[TDA.4]` Los escalones de mayoreo. **Vacío = no hay mayoreo que se pueda afirmar**, no
+   * "no se consultó": el backend descarta el tier sin umbral real en vez de inventar uno.
+   */
+  mayoreo: MayoreoTier[];
+  /** Gramaje de la etiqueta ("50 g"), o `null` si el catálogo no lo tiene. */
+  contenido: string | null;
 }
 
 /**
@@ -95,6 +108,14 @@ interface SnapshotItem {
   bu?: (string | null)[];
   n: string;
   u: Array<{ u: string; p: number; s: number }>;
+  /**
+   * `[TDA.4]` Mayoreo, con las claves cortas del cable. Opcional: un respaldo descargado antes
+   * de este cambio no lo trae, y ausente se lee como "este respaldo no sabe de mayoreo" —
+   * degrada al comportamiento anterior, nunca a un tier inventado.
+   */
+  m?: MayoreoTierCompacto[];
+  /** Gramaje. */
+  g?: string;
 }
 
 interface SnapshotPayload {
@@ -196,6 +217,9 @@ export class VerificadorService {
             unidades: Array.isArray(r.unidades) ? r.unidades : [],
             iva_pct: r.iva_pct ?? null,
             ieps_pct: r.ieps_pct ?? null,
+            // `[TDA.4]` Vienen computados y filtrados por el backend: la pantalla pinta, no decide.
+            mayoreo: Array.isArray(r.mayoreo) ? r.mayoreo : [],
+            contenido: r.contenido ?? null,
           },
           // `[TDA.2]` Procedencia del número: de qué plaza salió, si varía entre plazas, y si lo
           // corrigió una persona (ese override es el que se imprime en el anaquel, y el mostrador
@@ -248,6 +272,9 @@ export class VerificadorService {
         // El snapshot no lleva las tasas: el respaldo declara lo que tiene, no inventa un 0.
         iva_pct: null,
         ieps_pct: null,
+        // `[TDA.4]` Se expande con la inversa que vive junto a su compresora, en el contrato.
+        mayoreo: (item.m || []).map(expandirTier),
+        contenido: item.g ?? null,
       },
       // Sólo se afirma la unidad si además tiene precio en este respaldo: decir "escaneaste CJA"
       // y no poder mostrar el precio de CJA sería peor que no decir nada.

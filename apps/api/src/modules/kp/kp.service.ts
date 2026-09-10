@@ -2,6 +2,9 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { pgRaw } from './pg-raw.util';
+// `[TDA.4]` El tier y su codificación de cable viven en el vocabulario común: los entienden el
+// backend que los emite y la pantalla que los consume, en vivo y en el respaldo offline.
+import { type MayoreoTier, compactarTier } from '@megadulces/contracts';
 
 /** Una unidad de venta con su precio, para el verificador. */
 export interface UnidadPrecio {
@@ -29,55 +32,6 @@ const NUMC_NULL = (col: string) =>
 /** Redondeo a 2 decimales, para que no se filtren artefactos de punto flotante. */
 const redondea = (n: number) => parseFloat((Number(n) || 0).toFixed(2));
 
-
-/**
- * `[TDA.4]` Un escalón de mayoreo, listo para pintar en el mostrador.
- *
- * `ahorro_en_el_minimo` es el campo que cierra la venta: no es lo mismo decir «$8.90 c/u» que
- * «llevando 12 te ahorrás $22.80». El mostrador existe para cerrar, no sólo para informar.
- *
- * `realza` separa el DATO de la SEÑAL: por debajo del 1 % de descuento el número es cierto pero
- * pintarlo como oferta sería mentir con el color. Medido en prod: 98 productos están en ese caso.
- */
-export interface MayoreoTier {
-  /** `pieza` | `paquete` — de qué escalera es este tier. */
-  etiqueta:            string;
-  /** El umbral REAL de Kepler (`kdpv_prod_util.c4`). Nunca un default. */
-  desde:               number;
-  /** Cómo se nombra lo que se lleva: piezas / paquetes / cajas / kg. */
-  palabra:             string;
-  precio_con_iva:      number;
-  ahorro_por_unidad:   number;
-  ahorro_en_el_minimo: number;
-  descuento_pct:       number;
-  realza:              boolean;
-}
-
-/**
- * `[TDA.4]` El mismo tier, con las claves cortas que ya usa el snapshot (`c`/`b`/`bu`/`n`/`u`).
- *
- * NO es una segunda definición: el cómputo y las reglas siguen viviendo UNA vez en
- * `tiersDeFila()`; esto es sólo la codificación del cable. Medido: con las claves largas el
- * snapshot crecía **1,386 KB crudos** — los nombres eran el 51 % de los bytes, repetidos 8,383
- * veces. El kiosco lo baja por LAN cada 12 h y lo guarda en IndexedDB, así que medio mega de
- * nombres de campo es peso real por cero información.
- */
-export interface MayoreoTierCompacto {
-  e: string;   // etiqueta
-  d: number;   // desde
-  w: string;   // palabra
-  p: number;   // precio_con_iva
-  au: number;  // ahorro_por_unidad
-  am: number;  // ahorro_en_el_minimo
-  pc: number;  // descuento_pct
-  r: 0 | 1;    // realza
-}
-
-/** Un tier a su forma de cable. La inversa vive en `verificador.service.ts`. */
-export const compactarTier = (t: MayoreoTier): MayoreoTierCompacto => ({
-  e: t.etiqueta, d: t.desde, w: t.palabra, p: t.precio_con_iva,
-  au: t.ahorro_por_unidad, am: t.ahorro_en_el_minimo, pc: t.descuento_pct, r: t.realza ? 1 : 0,
-});
 
 /**
  * Descuento mínimo para PINTAR el mayoreo como oferta. Mismo valor y mismo motivo que
@@ -368,7 +322,7 @@ export class KpService {
         if (!r) return vacio;
 
         const base = r.piece_price != null ? Number(r.piece_price) : null;
-        const override = r.source === "manual" && base && base > 0 ? base : null;
+        const override = r.source === 'manual' && base && base > 0 ? base : null;
         // El cómputo vive en `tiersDeFila` porque el snapshot offline usa el MISMO: la regla del
         // descuento mínimo no puede existir dos veces.
         const { mayoreo, contenido } = this.tiersDeFila(r);
