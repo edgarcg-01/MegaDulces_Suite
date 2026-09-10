@@ -182,16 +182,69 @@ const nuestro = (extra = '') => `
   check('el IMPORTE del mostrador sigue casi idéntico (≥ 99.5%)', mi >= 99.5, `${mi.toFixed(2)}%`);
 
   // ── 2. Los dos lados: lo que falta y lo que sobra ⭐ ───────────────────────────────────────
-  console.log('\n── 2. Los DOS lados (una comparación que sólo mira la intersección no ve lo que falta) ──');
-  console.log(`     sólo en Kepler:  ${N(t.solo_kep)} celdas ${money(t.imp_solo_kep)}`);
+  //
+  // ⚠️ ESTE BLOQUE COMPARABA DOS POBLACIONES DISTINTAS, y por eso publicaba un hueco inflado.
+  // Diagnóstico de K.4 (2026-09-10): de las 6,834 celdas que decía que faltaban, **el 70.62%
+  // (4,826 celdas / $917,065) es el cutover de PH** — el almacén `01` antes del 2026-07-01, que
+  // `import-sales-fact.js` excluye A PROPÓSITO porque esa venta la entrega Wincaja (publicar las
+  // dos sería doble conteo) — y **4 celdas / $248,317 son la sucursal `00`**, que nunca se
+  // publica (es OFICINAS). O sea: el candado le cobraba al importer dos reglas que el importer
+  // aplica bien. Es el mismo error que K.3 corrigió en el bloque 1: **medir una diferencia entre
+  // universos distintos no es medir una diferencia.**
+  //
+  // Ahora el lado de Kepler aplica LAS MISMAS exclusiones, y lo que queda es hueco de verdad.
+  const soloKep = (await c.query(`
+    WITH kep AS (${kepler(VENTA)}), nos AS (${nuestro()}),
+    falta AS (
+      SELECT k.* FROM kep k
+       WHERE NOT EXISTS (SELECT 1 FROM nos n WHERE n.sku=k.sku AND n.suc=k.suc AND n.d=k.d)
+         -- las MISMAS reglas del importer, para comparar el mismo universo:
+         AND k.suc <> '00'                                        -- OFICINAS: nunca se publica
+         AND NOT (k.suc = '01' AND k.d < DATE '2026-07-01')        -- cutover PH: la trae Wincaja
+    )
+    SELECT count(*)::int celdas, coalesce(sum(imp),0)::numeric imp,
+           count(*) FILTER (WHERE suc = '07')::int c07,
+           coalesce(sum(imp) FILTER (WHERE suc = '07'), 0)::numeric imp07,
+           count(*) FILTER (WHERE suc <> '07')::int resto,
+           coalesce(sum(imp) FILTER (WHERE suc <> '07'), 0)::numeric imp_resto
+      FROM falta`)).rows[0];
+  console.log('\n── 2. Los DOS lados (mismo universo: sin suc 00 y sin el pre-cutover de PH) ──');
+  console.log(`     sólo en Kepler:  ${N(soloKep.celdas)} celdas ${money(soloKep.imp)}`);
+  console.log(`       de la suc 07 (no cableada al mart): ${N(soloKep.c07)} celdas ${money(soloKep.imp07)}`);
+  console.log(`       del resto:                          ${N(soloKep.resto)} celdas ${money(soloKep.imp_resto)}`);
   console.log(`     sólo nuestras:   ${N(t.solo_nos)} celdas ${money(t.imp_solo_nos)}`);
   check('⭐ no publicamos venta que Kepler NO tiene (≤ 500 celdas)', t.solo_nos <= 500,
     `${N(t.solo_nos)} celdas ${money(t.imp_solo_nos)}`);
-  // Hoy 5,178 celdas / $1,225,253 (medido tras K.3). Es el objetivo de K.4: el SKU SÍ existe en
-  // el catálogo y la fila simplemente no llega al fact. Creció en dinero, no en celdas, porque
-  // ahora entre las que faltan hay renglones de U-D-8/12.
-  check('la venta que Kepler tiene y nosotros no, no crece (≤ 6,000 celdas — hoy 5,178)',
-    t.solo_kep <= 6000, `${N(t.solo_kep)} celdas ${money(t.imp_solo_kep)}`);
+
+  // ⭐⭐ LA SUCURSAL 07 SE DECLARA APARTE, porque no es una pérdida del importer: es una
+  // sucursal que NUNCA se cableó. `commercial.warehouses` tiene `07` = Morelia Madero (creada
+  // el 2026-09-09) y `analytics.sales_daily` tiene CERO celdas suyas. La causa está medida en el
+  // cluster on-prem: `dim.sucursales`, que es lo que `mart.refresh_ventas` itera por dblink,
+  // llega hasta **md_06** — no existe `md_07`. El ODS SÍ la trae, así que la venta existe y es
+  // invisible para la app.
+  //
+  // ⭐ Y es el caso que ilustra la REGLA PRINCIPAL del proyecto: el fact se alimenta de
+  // `mart.ventas` (un importer sobre 7 dblinks) en vez de derivarse del ODS. Una sucursal nueva
+  // aparece sola en `kepler_ods` y hay que ir a registrarla a mano en el mart para que exista.
+  const wh07 = (await c.query(
+    `SELECT w.kepler_code,
+            (SELECT count(*) FROM analytics.sales_daily s
+              WHERE s.tenant_id = w.tenant_id AND s.warehouse_id = w.id
+                AND s.channel NOT LIKE 'wincaja_%')::int celdas
+       FROM commercial.warehouses w
+      WHERE w.tenant_id = '${T}'::uuid AND w.deleted_at IS NULL
+        AND w.kepler_code IS NOT NULL AND w.kepler_code <> '00'
+      ORDER BY w.kepler_code`)).rows;
+  const mudas = wh07.filter((r) => r.celdas === 0);
+  console.log(`     almacenes Kepler en warehouses: ${wh07.length} · SIN una sola celda en el fact: `
+    + (mudas.length ? mudas.map((r) => r.kepler_code).join(', ') : 'ninguno'));
+  check('⛔ toda sucursal Kepler registrada TIENE venta en el fact (si no, no está cableada al mart)',
+    mudas.length === 0,
+    `${mudas.map((r) => r.kepler_code).join(', ')} sin venta — falta registrarla en dim.sucursales del consolidado`);
+
+  // El hueco REAL de K.4, ya sin las dos exclusiones y sin la sucursal no cableada.
+  check('la venta que Kepler tiene y nosotros no, no crece (≤ 900 celdas, sin suc 07)',
+    soloKep.resto <= 900, `${N(soloKep.resto)} celdas ${money(soloKep.imp_resto)}`);
 
   // ── 3. La brecha por CAUSA — es lo que convierte esto en instrumento ──────────────────────
   console.log('\n── 3. La CANTIDAD que difiere, partida por causa ──');

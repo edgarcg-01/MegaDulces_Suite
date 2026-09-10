@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Fixed — K.4 diagnosticado: el "hueco de $1.56M" era 71% exclusion deliberada, y hay una sucursal sin cablear (KX.3, 2026-09-10)
+
+El candado de paridad se puso **rojo solo** cuando el hueco paso de 5,178 a 6,834 celdas. Hizo su trabajo; lo que estaba mal era el hueco.
+
+- ⚠️ **El candado comparaba DOS POBLACIONES DISTINTAS.** De las 6,834 celdas que reportaba, **4,826 (70.62%) / $917,065 son el cutover de PH** — el almacen `01` antes del 2026-07-01, que `import-sales-fact.js` excluye A PROPOSITO porque esa venta la entrega Wincaja (publicar las dos seria doble conteo) — y **4 celdas / $248,317 son la sucursal `00`**, que nunca se publica porque es OFICINAS. El candado le cobraba al importer dos reglas que el importer aplica bien. Es el mismo error que K.3 corrigio en el bloque 1: **medir una diferencia entre universos distintos no es medir una diferencia.**
+- ⭐⭐ **Y debajo aparecio lo real: la sucursal 07 (Morelia Madero) NO esta cableada.** Se creo en `commercial.warehouses` el 2026-09-09 y `analytics.sales_daily` tiene **CERO celdas suyas**. La causa quedo medida en el cluster on-prem: `dim.sucursales` — la tabla que `mart.refresh_ventas` itera por dblink — llega hasta **md_06**, no existe `md_07`. El ODS **si** la trae: son **1,657 celdas / $333,409** de venta real invisible para la app, creciendo cada dia.
+- ⭐ **Es el caso que ilustra la REGLA PRINCIPAL del proyecto:** el fact se alimenta de `mart.ventas` (un importer sobre 7 dblinks) en vez de derivarse del ODS. Una sucursal nueva aparece sola en `kepler_ods` y hay que ir a registrarla **a mano** en el mart para que exista en la plataforma.
+- **El hueco real de K.4, con el mismo universo en los dos lados: 358 celdas / $60,764** (de $1,558,529 reportados). Descomposicion completa: $917,065 cutover PH (correcto) + $248,317 suc 00 (correcto) + $333,409 suc 07 sin cablear (**accionable**) + $60,764 perdida real del importer.
+- Internal: `test-newdb-kepler-parity.js` bloque 2 reescrito — el lado Kepler aplica las mismas exclusiones que el importer, la suc 07 se declara aparte, y **gate nuevo**: *toda sucursal Kepler registrada tiene venta en el fact*. Ese gate esta **ROJO a proposito** y sigue rojo hasta que alguien registre la 07 en `dim.sucursales` (hace falta host/puerto/dbname de su Kepler — no se adivina). Pruebas negativas: el techo verificado en rojo, y el gate de la sucursal verificado en verde al relajarlo (o sea discrimina, no es constante).
+
 ### Fixed — cajas: el peldano COBRADO arbitra el factor, y el override es la peor fuente (KX, 2026-09-09)
 
 Edgar: *"omitamos precios y vayamos con cajas"*, con R6 (buscar el patron en lo incorrecto). Sin cambio de codigo de aplicacion.
