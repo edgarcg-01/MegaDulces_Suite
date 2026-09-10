@@ -11,6 +11,7 @@ export * from './lib/logistics-expenses/logistics-expenses.module';
 export * from './lib/logistics-payroll/logistics-payroll.module';
 export * from './lib/logistics-route-expenses/logistics-route-expenses.module';
 export * from './lib/logistics-route-expenses/logistics-route-expenses.service';
+export * from './lib/logistics-route-expenses/logistics-route-operation.service';
 export * from './lib/logistics-analytics/logistics-analytics.module';
 export * from './lib/logistics-checklists/logistics-checklists.module';
 export * from './lib/logistics-photos/logistics-photos.module';

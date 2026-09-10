@@ -136,6 +136,67 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
     rls.length === 2 && rls.every((r) => r.en && r.forced && r.pol >= 1),
     rls.filter((r) => !(r.en && r.forced && r.pol >= 1)).map((r) => r.relname).join(', '));
 
+  // ── 5b. RD.5 — la operación (odómetro y $/km) que la pantalla edita ──────────────────
+  // Añadido 2026-09-09 con la pantalla `/logistica/gasto-ruta`: hasta entonces la migración
+  // había creado la tabla y la vista y **nadie las leía**. Lo que se comprueba es lo que la
+  // pantalla promete: que declara en vez de dibujar cero, y que corregir no duplica.
+  console.log('\n5b) RD.5 — operación: el odómetro se declara, no se rellena');
+  const { rows: [op] } = await db.query(`
+    SELECT count(*)::int filas,
+           count(*) FILTER (WHERE km_recorridos IS NOT NULL)::int utilizables,
+           count(*) FILTER (WHERE km_status IN ('retroceso','salto_implausible','sin_movimiento'))::int mal_tecleadas,
+           count(*) FILTER (WHERE costo_status = 'sin_ficha_de_costo')::int sin_ficha,
+           count(*) FILTER (WHERE costo_por_km = 0)::int km_en_cero
+      FROM analytics.v_route_operation_period WHERE anio = 2026`);
+  if (!op.filas) {
+    noMedido('la vista de operación', 'no hay filas de 2026 — sin odómetro ni gasto no hay qué comprobar');
+  } else {
+    check(`la vista responde (${op.filas} ruta×quincena, ${op.utilizables} con km utilizable)`, op.utilizables > 0);
+    // El corazón de §9.7: las lecturas rotas se ROTULAN, no se corrigen solas ni se descartan.
+    check(`las ${op.mal_tecleadas} lecturas mal tecleadas siguen ahí, rotuladas`, op.mal_tecleadas > 0,
+      'si llegan a 0 sin que nadie las corrigiera, alguien las está descartando en silencio');
+    // El corazón de §9.6 y de ADR-056: sin ficha, NULL con motivo — jamás cero.
+    check('el $/km nunca vale 0: o tiene valor o es NULL con su motivo', op.km_en_cero === 0,
+      `${op.km_en_cero} filas con costo_por_km = 0`);
+    check(`las rutas sin ficha se declaran (${op.sin_ficha} periodos con sin_ficha_de_costo)`, op.sin_ficha > 0);
+  }
+
+  // Que el UPSERT de la pantalla acierte el índice único **PARCIAL** sólo se puede comprobar
+  // escribiendo, y esta suite corre en `default_transaction_read_only = on` a propósito (§43).
+  // No se levanta la guarda: se DECLARA como NO MEDIDO y se comprueba por estructura lo que sí
+  // se puede leer — que el índice existe con su `WHERE`, que es lo que el ON CONFLICT nombra.
+  // La prueba de escritura vive fuera de la suite (`--allow-writes`), con ROLLBACK.
+  const { rows: [ix] } = await db.query(`
+    SELECT count(*)::int n FROM pg_indexes
+     WHERE schemaname='logistics' AND tablename='route_odometer'
+       AND indexdef ILIKE '%UNIQUE%' AND indexdef ILIKE '%deleted_at IS NULL%'
+       AND indexdef ILIKE '%route_code%' AND indexdef ILIKE '%period_no%'`);
+  check('existe el índice único parcial que el ON CONFLICT de la pantalla nombra', ix.n === 1,
+    'sin el WHERE deleted_at IS NULL, corregir una lectura crearía una segunda en vez de actualizarla');
+  if (process.argv.includes('--allow-writes')) {
+    await db.query('SET default_transaction_read_only = off');
+    await db.query('BEGIN');
+    try {
+      const up = (ki, kf) => db.query(`
+        INSERT INTO logistics.route_odometer (tenant_id, route_code, anio, period_no, km_inicial, km_final, source)
+        VALUES ($1,'__candado__',2026,99,$2,$3,'captura_web')
+        ON CONFLICT (tenant_id, route_code, anio, period_no) WHERE deleted_at IS NULL
+        DO UPDATE SET km_inicial=EXCLUDED.km_inicial, km_final=EXCLUDED.km_final, updated_at=now()
+        RETURNING id, km_final`, [TENANT, ki, kf]);
+      const a = await up(1000, 1500);
+      const b = await up(1000, 1800);
+      check('corregir una lectura la ACTUALIZA (el ON CONFLICT acierta el índice parcial)',
+        a.rows[0].id === b.rows[0].id && Number(b.rows[0].km_final) === 1800);
+      let rompio = false;
+      await db.query('SAVEPOINT sp');
+      try { await up(-5, 100); } catch { rompio = true; await db.query('ROLLBACK TO SAVEPOINT sp'); }
+      check('PRUEBA NEGATIVA: un km negativo lo rechaza el CHECK', rompio);
+    } finally { await db.query('ROLLBACK'); await db.query('SET default_transaction_read_only = on'); }
+  } else {
+    noMedido('el UPSERT del odómetro end-to-end',
+      'la suite corre read-only; para ejercerlo: node <este archivo> --allow-writes (escribe y hace ROLLBACK)');
+  }
+
   // ── 6. El permiso repartido ──────────────────────────────────────────────────────────
   console.log('\n6) El permiso llegó a alguien (lección LC.6.2)');
   const { rows: [perm] } = await db.query(`

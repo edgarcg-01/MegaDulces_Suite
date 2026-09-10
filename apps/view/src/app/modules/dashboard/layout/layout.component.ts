@@ -359,6 +359,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Costos y reportes',
       items: [
         { label: 'Costos',        icon: 'pi pi-money-bill', route: '/logistica/costs',     permission: Permission.LOGISTICS_EXPENSES_VER },
+        { label: 'Gasto de ruta', icon: 'pi pi-car',        route: '/logistica/gasto-ruta', permission: Permission.LOGISTICS_ROUTE_EXPENSES_VER },
         { label: 'Traspasos',     icon: 'pi pi-sync',       route: '/logistica/traspasos', permission: Permission.LOGISTICS_TRANSFERS_VER },
         { label: 'Reportes',      icon: 'pi pi-chart-bar',  route: '/logistica/reports',   permission: Permission.LOGISTICS_SHIPMENTS_VER },
         { label: 'Configuración', icon: 'pi pi-cog',        route: '/logistica/config',    permission: Permission.LOGISTICS_CONFIG_GESTIONAR },
