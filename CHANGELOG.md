@@ -10,6 +10,28 @@
 
 ## [Unreleased]
 
+### Added — el mostrador vende: mayoreo, jerarquía y movimiento con techo (TDA.0–TDA.4, 2026-09-09)
+
+Pedido: revisar `DESIGN.md`, especializar el verificador en **ventas** (precio de mayoreo y cuántas unidades), microanimaciones sin peso, colorimetría y jerarquía de información.
+
+**`[TDA.0]` El contrato de motion decía una cosa y el `package.json` otra.** §U y el punto 8 de `DESIGN.md` afirmaban en **tres lugares** que *"GSAP no es dependencia"* — y es falso desde el **2026-06-25**: `gsap@^3.15.0` corre en producción en `apps/portal` con plugins de Club GreenSock. §U *se verifica en review*, así que el contrato desactualizado bloqueaba un PR nuevo contra un hecho que ya no era cierto, y a la vez dejaba pasar sin discusión el uso que ya estaba en prod. Regla nueva: **CSS/WAAPI por default, GSAP sólo por `import()` lazy, ninguna librería nueva**. Y no es preferencia: el build lo dice — *"bundle initial exceeded maximum budget… by 228.36 kB with a total of 1.23 MB"*, y la **CSP bloquea todo CDN**. Se retiró el consejo de `NgZone.runOutsideAngular` (obsoleto: `apps/view` es zoneless) y se bajaron al token las **dos animaciones sobre el techo duro de 350 ms** (400 y 500 ms) — que se salieron justamente porque la adopción de `--dur-*` es del **9 %** (31 de 338). ⚠️ Declarado sin resolver: `motion@^12.38.0` instalada desde abril con **cero imports**; retirarla toca el lockfile compartido.
+
+**`[TDA.4]` El mayoreo, que es el caso normal y no estaba.** Medido antes de escribir código, y contra mi propia predicción: **8,481 de 9,020 productos (94 %) tienen mayoreo real** (7,538 por paquete, 1,563 por pieza); con las guardas aplicadas quedan **7,978 (88.8 %)**. Descuento mediana **7.41 %**, p90 9.41 %. Umbrales dominantes: **desde 3** (1,063) y **desde 10** (480). El dato existía completo en `commercial.product_label_prices` desde julio —lo usa la etiquetera— y el verificador leía **una** columna de esa tabla, sólo para el override manual.
+
+- **Las reglas se heredan, no se reinventan.** Cada una salió de un defecto real de la etiquetera: umbral > 1, precio menor al unitario, y sobre todo **sin umbral real NO se muestra** — *"un mayoreo cuya condición de cantidad no se conoce fabrica una discusión en el mostrador"*. Medido: **17 productos** tienen precio de mayoreo de paquete sin umbral y no se les muestra nada.
+- **El realce va aparte del dato:** por debajo del **1 %** de descuento el número se muestra apagado, sin verde ni «te ahorras». Medido: **366 tiers**. Pintarlos como oferta sería mentir con el color.
+- **El ahorro es el agregado nuevo** y es lo que cierra la venta: «llevando 10+ piezas $41.10 c/u · **te ahorras $34.70**». Ninguna fuente lo tenía calculado.
+- **Jerarquía (§O.3, "el TOTAL domina"):** nombre + gramaje → precio grande → mayoreo → otras unidades → nota secundaria. El monto del mayoreo usa `clamp(1.15rem…1.6rem)`, deliberadamente menor que el hero (`clamp(2.75rem…6rem)`): compite por atención sin ganarle.
+- **Colorimetría (DESIGN.md 5):** el color de marca lo lleva **una sola cosa** —el número del umbral, que es el dato accionable—; el ahorro usa el semántico `--ok-*` con icono y texto («el color nunca es único portador»). **Cero hex inline**, con una aserción que revienta si aparece uno.
+- **Movimiento:** `@keyframes` sobre la tarjeta, `opacity` + `translateY(4px)`, con `var(--dur-short)`. **Cero librerías.** Se anima la tarjeta y **nunca la cifra**, y no hay count-up: en un mostrador el precio tiene que ser legible de inmediato, no al final de una transición.
+- **Offline con el mismo comportamiento:** el snapshot lleva los tiers; un respaldo viejo degrada al precio unitario, nunca a un tier inventado.
+
+⚠️ **Tres errores míos que los candados cazaron**, y valen más que la feature: (1) hice depender la equivalencia («20 KG») de un campo nuevo de la respuesta y con un backend sin redeployar **desaparecía** — lo cazó un spec que ya existía; (2) mandé el mayoreo al snapshot con nombres largos «para no duplicar la regla» y medí **+1,386 KB crudos, 5× mi estimación**, con los nombres siendo el **51 %** de los bytes — el snapshot ya usaba claves de una letra por esa razón exacta; (3) la aserción de «no hay count-up» **matcheaba su propio comentario** y pasaba por accidente.
+
+**Medido:** builds `view` + `api` verdes · `nx test view` **15 suites / 183 tests** · `verificador-procedencia` **26/26** · los tiers probados contra prod con copia exacta del algoritmo (**8,383 tiers**). **NO medido:** validación visual en el browser y el camino en vivo — falta el redeploy de api+view.
+
+⚠️ **Hallazgo de datos, no de código:** ordenar los productos por ahorro trae basura primero — `ALFAJOR 80GR` con precio unitario de **$2,131.35** y `box_price` en `0.0000`. El máximo de 94.33 % de descuento delata captura mala, no una oferta. Por eso la pantalla no ordena por ahorro.
+
 ### Fixed — la existencia buscada al reves: patrones en lo INCORRECTO (KX, 2026-09-09)
 
 Pedido de Edgar: *"busquemos ahora la verdad absoluta en existencias. no busquemos patrones en lo correcto, busquemos patrones en lo incorrecto"*. Sin cambio de codigo de aplicacion y **sin mover ninguna cifra publicada** — lo que cambia es que dos afirmaciones que sosteniamos como verdad no lo eran, y que los candados que las cuidaban no podian fallar.
