@@ -143,3 +143,6 @@ apps/catalogo-kp/public/verificador*.html
 
 # Scratch de sondas y mediciones (PDFs, harnesses) — nunca se commitea
 .tmpq/
+
+# cache local de nx en worktrees (no va al repo)
+.nx-cache/

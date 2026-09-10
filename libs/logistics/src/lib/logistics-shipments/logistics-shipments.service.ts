@@ -570,7 +570,7 @@ export class LogisticsShipmentsService {
 
       // Validar refs nuevas
       if (dto.vehicle_id && dto.vehicle_id !== existing.vehicle_id) {
-        await this.assertVehicleAvailable(trx, dto.vehicle_id);
+        await this.assertVehicleAvailable(trx, dto.vehicle_id, id);
       }
       if (dto.route_id && dto.route_id !== existing.route_id) {
         await this.assertRouteExists(trx, dto.route_id);
@@ -592,6 +592,22 @@ export class LogisticsShipmentsService {
         .where({ id })
         .update(patch)
         .returning('*');
+
+      // El costo del viaje depende del km: `total_cost = operating_subtotal +
+      // actual_km × fixed_cost_per_km`. Ese cálculo vivía SOLO dentro de
+      // `expenses.upsert()`, así que corregir el odómetro después de capturar
+      // los costos dejaba `total_cost` con el km viejo — y de ahí salen margen,
+      // costo/km y ROI. Se recalcula acá, en el mismo trx, sobre la fila 1:1.
+      if (patch.actual_km !== undefined && Number(patch.actual_km) !== Number(existing.actual_km)) {
+        await trx.raw(
+          `UPDATE logistics.shipment_expenses
+              SET total_cost = operating_subtotal + (? * fixed_cost_per_km),
+                  updated_at = now()
+            WHERE shipment_id = ?`,
+          [Number(patch.actual_km) || 0, id],
+        );
+      }
+
       return row;
     });
   }
@@ -670,9 +686,7 @@ export class LogisticsShipmentsService {
   async close(id: string) {
     return this.transition(id, 'cerrado', async (trx, shipment) => {
       if (shipment.vehicle_id) {
-        await trx('logistics.vehicles')
-          .where({ id: shipment.vehicle_id })
-          .update({ status: 'disponible', updated_at: trx.fn.now() });
+        await this.releaseVehicleIfIdle(trx, shipment.vehicle_id, shipment.id);
       }
       if (shipment.order_id) {
         const open = await trx('logistics.shipments')
@@ -702,9 +716,7 @@ export class LogisticsShipmentsService {
   async cancel(id: string, reason?: string) {
     return this.transition(id, 'cancelado', async (trx, shipment) => {
       if (shipment.vehicle_id) {
-        await trx('logistics.vehicles')
-          .where({ id: shipment.vehicle_id })
-          .update({ status: 'disponible', updated_at: trx.fn.now() });
+        await this.releaseVehicleIfIdle(trx, shipment.vehicle_id, shipment.id);
       }
       return {
         closed_at: trx.fn.now(),
@@ -779,7 +791,16 @@ export class LogisticsShipmentsService {
     });
   }
 
-  private async assertVehicleAvailable(trx: any, vehicleId: string): Promise<void> {
+  /** Estados de embarque en los que la unidad está comprometida. */
+  private static readonly ACTIVE_SHIPMENT_STATUSES: ShipmentStatus[] = [
+    'programado', 'checklist_salida', 'en_ruta', 'entregado', 'checklist_llegada', 'costos_pendientes',
+  ];
+
+  private async assertVehicleAvailable(
+    trx: any,
+    vehicleId: string,
+    excludeShipmentId?: string,
+  ): Promise<void> {
     if (!UUID_REGEX.test(vehicleId)) throw new BadRequestException('vehicle_id inválido');
     const v = await trx('logistics.vehicles')
       .where({ id: vehicleId })
@@ -789,6 +810,43 @@ export class LogisticsShipmentsService {
     if (!v.active) throw new ConflictException(`Vehicle ${v.plate} está inactivo`);
     if (v.status === 'baja') throw new ConflictException(`Vehicle ${v.plate} está dado de baja`);
     // Permitimos asignar uno en mantenimiento (operador puede saber lo que hace)
+
+    // La función se llamaba `assertVehicleAvailable` pero no miraba la agenda: se
+    // podía poner la misma unidad en dos embarques abiertos, y al cerrar el
+    // primero se la marcaba `disponible` mientras seguía en la calle con el
+    // segundo. El `status` de la unidad tiene tres escritores (embarques,
+    // check-in/out de uso, y el PATCH directo); esta es la reserva que faltaba.
+    const ocupada = await trx('logistics.shipments')
+      .where({ vehicle_id: vehicleId })
+      .whereNull('deleted_at')
+      .whereIn('status', LogisticsShipmentsService.ACTIVE_SHIPMENT_STATUSES)
+      .modify((qb: any) => { if (excludeShipmentId) qb.whereNot({ id: excludeShipmentId }); })
+      .first('folio', 'status');
+    if (ocupada) {
+      throw new ConflictException(
+        `Unidad ${v.plate} ya está comprometida en el embarque ${ocupada.folio} (${ocupada.status}). ` +
+          `Cerralo o cancelalo antes de reasignarla.`,
+      );
+    }
+  }
+
+  /**
+   * Libera la unidad SOLO si no le queda otro embarque abierto. Sin esto, el
+   * primer embarque que cierra deja la unidad en `disponible` aunque siga
+   * asignada a otro en ruta.
+   */
+  private async releaseVehicleIfIdle(trx: any, vehicleId: string, currentShipmentId: string) {
+    const otro = await trx('logistics.shipments')
+      .where({ vehicle_id: vehicleId })
+      .whereNull('deleted_at')
+      .whereNot({ id: currentShipmentId })
+      .whereIn('status', LogisticsShipmentsService.ACTIVE_SHIPMENT_STATUSES)
+      .first('id');
+    if (otro) return;
+    await trx('logistics.vehicles')
+      .where({ id: vehicleId })
+      .whereNot({ status: 'baja' })
+      .update({ status: 'disponible', updated_at: trx.fn.now() });
   }
 
   private async assertRouteExists(trx: any, routeId: string): Promise<void> {

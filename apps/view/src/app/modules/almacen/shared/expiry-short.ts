@@ -68,6 +68,40 @@ export function parseExpiryShort(raw: string | null | undefined): string | null 
   return iso(year, month, day);
 }
 
+/**
+ * **La diagonal la pone el campo, no el operador** — formato de México:
+ * `DD/MM/AAAA`.
+ *
+ * Se teclean puros dígitos y el separador aparece solo cuando ya hay un dígito
+ * después de él:
+ *
+ *   `1`        → `1`
+ *   `15`       → `15`          ← todavía sin diagonal: nada que separar
+ *   `150`      → `15/0`        ← al 3er dígito, la diagonal ya está puesta
+ *   `1503`     → `15/03`
+ *   `150320`   → `15/03/20`
+ *   `15032027` → `15/03/2027`
+ *
+ * **Sin diagonal al final, a propósito.** Un `15/` colgando obliga a borrar dos
+ * veces para corregir el día (el `Backspace` se come el separador y la máscara
+ * lo vuelve a poner). Con esta regla, borrar un dígito siempre borra un dígito.
+ *
+ * No valida nada: sólo dibuja. La fecha la sigue decidiendo `parseExpiryShort`
+ * sobre los MISMOS dígitos, así que hay una sola fuente de verdad — si acá se
+ * dibuja `31/02`, allá devuelve `null` y la pantalla dice "fecha incompleta".
+ */
+export function maskExpiryMx(raw: string | null | undefined): string {
+  const d = String(raw ?? '').replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 2) return d;
+  if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
+  return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
+}
+
+/** Los dígitos pelados de lo que se ve en el campo (lo que interpreta el parser). */
+export function digitsOf(raw: string | null | undefined): string {
+  return String(raw ?? '').replace(/\D/g, '').slice(0, 8);
+}
+
 /** ISO → `DD/MM/AAAA` para el eco debajo del campo (cachar el error antes de guardar). */
 export function formatExpiryEcho(isoDate: string | null | undefined): string {
   if (!isoDate) return '';

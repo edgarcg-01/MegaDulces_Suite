@@ -447,7 +447,12 @@ export interface SupplierParam {
   auto_coverage_days?: number | null;  // cadencia real de compra + lead time
   auto_safety_pct?: number | null;     // colchón por variabilidad de demanda
   fill_rate_auto?: number | null;      // fill rate por historia de recepciones (0..1)
-  fill_receptions?: number;            // # recepciones en la ventana (confianza del dato)
+  fill_receptions?: number;            // # renglones en la ventana (confianza del dato)
+  // WMS-REC.8 — de DÓNDE sale el fill rate y qué reclamos lo sostienen. Un número sin
+  // procedencia no se discute con un proveedor.
+  fill_evidence?: 'po' | 'recv' | 'po+recv' | 'none';
+  claims_open?: number;                // reclamos de recepción abiertos en la ventana
+  claims_amount_open?: number;         // monto estimado de esos reclamos
   fill_pct?: number | null; // UI-only: fill_rate_override expresado en % (0..100)
 }
 export interface SupplierOrderParamsDto {
