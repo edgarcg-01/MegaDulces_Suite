@@ -577,41 +577,46 @@ const SELLOUT_STMT_TIMEOUT = '45s';
 /**
  * RS.13 — Layout "por plaza" (formato estándar del reporte que usa el equipo comercial):
  * columnas FIJAS = plaza × tipo (SUCURSAL / MAYOREO / RUTAS), consolidando TODAS las rutas de
- * una plaza en una sola columna. `branches` matchea el código de almacén; `routeFirstDigit`
- * matchea rutas (`RUTA-NN`) por el primer dígito del número (1=La Piedad, 2/3=Morelia, 5=Canindo).
- * `channels` = canales normalizados que caen en la columna ('*' = todos, para tiendas sueltas).
+ * una plaza en una sola columna. `branches` matchea el código de almacén; `routeParents` matchea las
+ * camionetas (`RUTA-NN`) por su SUCURSAL PADRE — resuelta canónicamente en `analytics.v_route_plaza`
+ * (derivada de wincaja.branches), NO por el primer dígito (heurística frágil que atribuía mal las
+ * rutas de PH a Morelia). `channels` = canales normalizados que caen en la columna ('*' = todos).
  * Orden de columnas = orden del array. Config en código a propósito (editable + versionada).
  * Lo que no matchee cae en 'OTROS' → nada se pierde y el TOTAL de columnas cuadra con el total fila.
  */
-type PlazaCol = { key: string; label: string; branches?: string[]; routeFirstDigit?: string[]; channels: string[] | '*' };
+type PlazaCol = { key: string; label: string; branches?: string[]; routeParents?: string[]; channels: string[] | '*' };
 const SELLOUT_PLAZA_COLUMNS: PlazaCol[] = [
   { key: 'suc_padre_hidalgo',  label: 'SUCURSAL PADRE HIDALGO',    branches: ['01'],          channels: ['mostrador', 'preventa'] },
   { key: 'may_la_piedad',      label: 'MAYOREO LA PIEDAD',         branches: ['01', '02'],    channels: ['credito'] },
-  { key: 'rutas_la_piedad',    label: 'RUTAS LA PIEDAD',           routeFirstDigit: ['1'],    channels: ['ruta'] },
+  { key: 'rutas_la_piedad',    label: 'RUTAS LA PIEDAD',           routeParents: ['01', '02'], channels: ['ruta'] },
   { key: 'suc_mor_abastos',    label: 'SUCURSAL MORELIA ABASTOS',  branches: ['MD-30'],       channels: ['mostrador', 'preventa'] },
   { key: 'may_morelia',        label: 'MAYOREO MORELIA',           branches: ['MD-30', 'MD-32'], channels: ['credito'] },
-  { key: 'suc_mor_madero',     label: 'SUCURSAL MORELIA MADERO',   branches: ['MD-32'],       channels: ['mostrador', 'preventa'] },
-  { key: 'rutas_morelia',      label: 'RUTAS MORELIA',             routeFirstDigit: ['2', '3'], channels: ['ruta'] },
+  { key: 'suc_mor_madero',     label: 'SUCURSAL MORELIA MADERO',   branches: ['MD-32', '07'], channels: ['mostrador', 'preventa'] },
+  { key: 'rutas_morelia',      label: 'RUTAS MORELIA',             routeParents: ['MD-30', 'MD-32', '07'], channels: ['ruta'] },
   { key: 'suc_8esq',           label: 'SUCURSAL 8 ESQUINAS',       branches: ['03'],          channels: '*' },
   { key: 'suc_abastos_piedad', label: 'SUCURSAL ABASTOS LA PIEDAD', branches: ['02'],         channels: ['mostrador', 'preventa'] },
   { key: 'suc_yurecuaro',      label: 'SUCURSAL YURECUARO',        branches: ['04'],          channels: '*' },
   { key: 'suc_canindo',        label: 'SUCURSAL CANINDO',          branches: ['06'],          channels: ['mostrador', 'preventa'] },
   { key: 'may_canindo',        label: 'MAYOREO CANINDO',           branches: ['06'],          channels: ['credito'] },
-  { key: 'rutas_canindo',      label: 'RUTAS CANINDO',             routeFirstDigit: ['5'],    channels: ['ruta'] },
+  { key: 'rutas_canindo',      label: 'RUTAS CANINDO',             routeParents: ['06'],      channels: ['ruta'] },
   { key: 'suc_zam_centro',     label: 'SUCURSAL ZAM CENTRO',       branches: ['05'],          channels: '*' },
 ];
 const PLAZA_OTROS_KEY = '__otros__';
-/** Resuelve (almacén, canal) → columna de plaza (primera que matchea) o null (→ OTROS). */
-function plazaColKey(branchCode: string, channel: string): string | null {
+/**
+ * Resuelve (almacén, canal) → columna de plaza (primera que matchea) o null (→ OTROS).
+ * `routePlaza` = mapa RUTA-NN → almacén de la sucursal PADRE (de `analytics.v_route_plaza`). Las
+ * columnas de rutas matchean por esa plaza padre (canónica), NO por el primer dígito del número.
+ */
+function plazaColKey(branchCode: string, channel: string, routePlaza: Map<string, string>): string | null {
   const code = String(branchCode || '');
   const isRoute = /^RUTA-/i.test(code);
-  const routeNum = isRoute ? code.replace(/^RUTA-/i, '') : '';
+  const routeParent = isRoute ? routePlaza.get(code) : null; // plaza padre de la camioneta
   for (const col of SELLOUT_PLAZA_COLUMNS) {
     const chOk = col.channels === '*' || col.channels.includes(channel);
     if (!chOk) continue;
-    if (col.routeFirstDigit) {
-      if (isRoute && col.routeFirstDigit.includes(routeNum.charAt(0))) return col.key;
-      continue; // columna de rutas: solo matchea rutas
+    if (col.routeParents) {
+      if (isRoute && routeParent && col.routeParents.includes(routeParent)) return col.key;
+      continue; // columna de rutas: solo matchea camionetas
     }
     if (!isRoute && col.branches?.includes(code)) return col.key;
   }
@@ -2885,7 +2890,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxMethods, identMap, freshness } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, identMap, freshness, routePlaza } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -2960,7 +2965,16 @@ export class CommercialAnalyticsService {
         (qb) => { if (whFilter) qb.whereIn('s.warehouse_code', whFilter); });
 
       const identMap = await this.loadVendorIdentity(trx, tenantId);
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, identMap, freshness };
+      // RS.13 — layout plaza: mapa canónico RUTA-NN → almacén de la sucursal padre (v_route_plaza).
+      // Sólo se necesita en el layout plaza (agrupa camionetas por plaza); en otros modos se salta.
+      const routePlaza = new Map<string, string>();
+      if (plaza) {
+        const rp = await trx('analytics.v_route_plaza').select('route_warehouse_code', 'parent_warehouse_code').catch(() => [] as any[]);
+        for (const r of rp) {
+          if (r.route_warehouse_code && r.parent_warehouse_code) routePlaza.set(r.route_warehouse_code, r.parent_warehouse_code);
+        }
+      }
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, identMap, freshness, routePlaza };
     });
     // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
     // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
@@ -3030,7 +3044,7 @@ export class CommercialAnalyticsService {
       // filtros de canal/celda ni desglose por vendedor. Fila = producto. Nada se pierde: lo
       // que no matchea cae en OTROS y el total cuadra.
       if (plaza) {
-        const colKey = plazaColKey(r.branch_code, channel) ?? PLAZA_OTROS_KEY;
+        const colKey = plazaColKey(r.branch_code, channel, routePlaza) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
           colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
@@ -3628,26 +3642,18 @@ export class CommercialAnalyticsService {
   /**
    * RS — expande un filtro de SUCURSAL para incluir sus CAMIONETAS de ruta. El canal `ruta` no vive
    * en el almacén de la sucursal (01/06/MD-30…) sino en almacenes propios `RUTA-NN` (kind='truck'),
-   * que NO tienen vínculo a la sucursal en commercial.warehouses. El vínculo autoritativo está en
-   * `wincaja.branches.parent_branch` (RUTA-21..28→10=PH·01, RUTA-321/322→32=MD-32, RUTA-501..505→
-   * 50=Canindo·06). Sin esta expansión, filtrar por una sucursal tiraba TODO el canal ruta.
-   * Sólo agrega camionetas numéricas (excluye vecinales 1V0NN, que son preventa y ya cuelgan de la
-   * sucursal). Devuelve el filtro tal cual si es null/vacío o si no hay rutas que sumar.
+   * que NO tienen vínculo a la sucursal en commercial.warehouses. El vínculo canónico lo resuelve
+   * `analytics.v_route_plaza` (derivado de wincaja.branches, sin mapa hardcodeado): cada camioneta →
+   * su sucursal padre. Sin esta expansión, filtrar por una sucursal tiraba TODO el canal ruta.
+   * Devuelve el filtro tal cual si es null/vacío o si no hay rutas que sumar.
    */
   private async expandRouteWarehouses(trx: any, warehouseFilter: string[] | null): Promise<string[] | null> {
     if (!warehouseFilter || !warehouseFilter.length) return warehouseFilter;
-    const picked = new Set(warehouseFilter);
-    const PARENT_TO_BRANCH: Record<string, string> = { '10': '01', '42': '02', '44': '04', '54': '05', '30': 'MD-30', '32': 'MD-32', '50': '06' };
-    const routes = await trx('wincaja.branches')
-      .where('is_route', true)
-      .whereRaw("btrim(source_branch) ~ '^[0-9]+$'")
-      .select('source_branch', 'parent_branch')
+    const routes = await trx('analytics.v_route_plaza')
+      .whereIn('parent_warehouse_code', warehouseFilter)
+      .select('route_warehouse_code')
       .catch(() => [] as any[]);
-    const extra: string[] = [];
-    for (const r of routes) {
-      const branch = PARENT_TO_BRANCH[String(r.parent_branch ?? '').trim()];
-      if (branch && picked.has(branch)) extra.push('RUTA-' + String(r.source_branch ?? '').trim());
-    }
+    const extra = routes.map((r: any) => r.route_warehouse_code).filter(Boolean);
     return extra.length ? [...warehouseFilter, ...extra] : warehouseFilter;
   }
 
