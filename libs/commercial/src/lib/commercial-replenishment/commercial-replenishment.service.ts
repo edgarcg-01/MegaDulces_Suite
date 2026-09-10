@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { compareWarehouseCodes } from '@megadulces/contracts';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 
 /**
@@ -1103,7 +1104,11 @@ export class CommercialReplenishmentService {
              WHERE ${where}${whFilter} AND (rp.stock_pz > 0 OR rp.daily_pieces > 0 OR rp.transit_cajas > 0)
              GROUP BY w.code
              ORDER BY SUM(rp.revenue30) DESC NULLS LAST, SUM(rp.stock_pz) DESC`, binds)).rows
-            .map((t: { code: string; name: string }) => ({ code: t.code, name: t.name }));
+            .map((t: { code: string; name: string }) => ({ code: t.code, name: t.name }))
+            // Orden de PANTALLA canónico (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS),
+            // compartido con el frontend vía @megadulces/contracts. El ORDER BY de arriba sólo
+            // decide qué entra cuando hay tope; la secuencia de columnas la fija el negocio.
+            .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
 
       return {
         total: Number(tot?.c || 0),
@@ -1771,10 +1776,12 @@ export class CommercialReplenishmentService {
   async filters() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const warehouses = await trx('commercial.reorder_policy as rp')
+      const warehouses = (await trx('commercial.reorder_policy as rp')
         .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))
         .where('rp.tenant_id', tenantId)
-        .distinct('w.id as id', 'w.code as code', 'w.name as name').orderBy('w.code');
+        .distinct('w.id as id', 'w.code as code', 'w.name as name'))
+        // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
+        .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
       const suppliers = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
         .join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
