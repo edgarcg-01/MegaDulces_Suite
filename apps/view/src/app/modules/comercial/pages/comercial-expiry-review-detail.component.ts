@@ -11,13 +11,12 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
-import { ComercialService, ExpiryReviewDetail, ExpiryReviewLine, ReviewFile, ExpiryLineInput, ResolveHit, VoiceSlots } from '../comercial.service';
+import { ComercialService, ExpiryReviewDetail, ExpiryReviewLine, ReviewFile, ExpiryLineInput, ResolveHit } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { ProductSearchComponent, ProductHit } from '../components/product-search.component';
 import { ProductScanFieldComponent } from '../components/product-scan-field.component';
-import { ExpiryVoicePanelComponent } from '../components/expiry-voice-panel.component';
 
 type Condition = 'bueno' | 'regular' | 'malo';
 type LineUnit = 'caja' | 'pieza' | 'bulto' | 'kg';
@@ -43,7 +42,7 @@ const PLAZO_INTERMEDIO_DIAS = 90;
 @Component({
   selector: 'app-comercial-expiry-review-detail',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, InputNumberModule, DatePickerModule, ToastModule, ConfirmDialogModule, ProductSearchComponent, ProductScanFieldComponent, ExpiryVoicePanelComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TagModule, InputTextModule, InputNumberModule, DatePickerModule, ToastModule, ConfirmDialogModule, ProductSearchComponent, ProductScanFieldComponent],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -67,11 +66,6 @@ const PLAZO_INTERMEDIO_DIAS = 90;
       <!-- Alta de renglón -->
       @if (editable()) {
         <section class="erd-form surf-card">
-          <!-- P2.7 — el asistente: se le habla y llena el renglón. No lo guarda. -->
-          <app-expiry-voice-panel
-            [defaultLocation]="review()?.default_location || ''"
-            (slotsChange)="onVoiceSlots($event)"></app-expiry-voice-panel>
-
           @if (!identified()) {
             <!-- PASO 1 — identificar. Antes de saber QUÉ producto es no hay nada que
                  preguntar: pedir cantidad y fecha de la nada dejaba media pantalla
@@ -587,42 +581,7 @@ export class ComercialExpiryReviewDetailComponent {
     this.refocusTick.update((n) => n + 1);
   }
 
-  /**
-   * El asistente de voz entendió algo: se refleja en el formulario **en vivo**.
-   * Nunca guarda el renglón — el operador ve lo entendido, corrige lo que haga
-   * falta y toca "Agregar renglón" (co-piloto, ADR-020).
-   *
-   * Solo escribe lo que la voz trajo: si el operador ya tecleó una cantidad y el
-   * asistente no dijo cantidad, no se la borra.
-   */
-  onVoiceSlots(sl: VoiceSlots): void {
-    if (sl.product_id) {
-      this.productId.set(sl.product_id);
-      this.nameRaw.set(sl.product_name || sl.product_query || '');
-      this.pickedSku.set(sl.sku || null);
-      this.pickedBrand.set(null);
-      this.pickedPresentation.set(sl.presentation || null);
-      if (sl.sku) this.codeRaw.set(sl.sku);
-    }
-    if (sl.quantity != null) this.qty = sl.quantity;
-    if (sl.unit) {
-      // Lo dicho a viva voz ES la decisión del operador: la sugerencia del
-      // código no debe pisarla después.
-      this.unitTouched = true;
-      this.unit.set(sl.unit);
-    }
-    if (sl.expiry_date) this.expiry = this.fromYmd(sl.expiry_date);
-    if (sl.condition) this.condition.set(sl.condition);
-    if (sl.location) this.location = sl.location;
-    if (sl.observations) this.observations = sl.observations;
-    if (sl.action) this.action = sl.action;
-  }
 
-  /** 'YYYY-MM-DD' → Date local a mediodía (el horario de verano no corre el día). */
-  private fromYmd(ymd: string): Date | null {
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(ymd).slice(0, 10));
-    return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]), 12, 0, 0, 0) : null;
-  }
 
   private applyHit(h: ResolveHit): void {
     this.scanHit.set(h);
