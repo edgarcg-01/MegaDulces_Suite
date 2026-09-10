@@ -31,6 +31,9 @@ export * from './lib/ability/ability.module';
 export * from './lib/ability/platform-admin';
 export * from './lib/ability/data-scope';
 export * from './lib/ability/permissions-cache.service';
+// [ID.29] Al token sólo viajan las claves concedidas: los `false` no cargan
+// información en ningún nivel y son el 96% del header en el peor rol.
+export * from './lib/ability/granted-permissions';
 
 // ── auth ──
 export * from './lib/auth/jwt-auth.guard';

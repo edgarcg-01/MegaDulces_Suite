@@ -1,6 +1,6 @@
 import { Inject, Injectable, UnauthorizedException, NotFoundException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { KNEX_NEW_DB, tokenSignOptions } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, tokenSignOptions, soloConcedidos } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 import * as bcrypt from 'bcryptjs';
 
@@ -244,6 +244,16 @@ export class AuthMtService {
     // `{ expiresIn: undefined }`, que emitiría un token sin expiración para todos.
     const opcionesFirma = tokenSignOptions(user.token_ttl_days);
 
+    // `[ID.29]` Al token sólo viajan las claves CONCEDIDAS. `/admin/roles`
+    // guarda el JSONB completo —las 175 claves del enum, la mayoría en
+    // `false`— y ese mapa viaja en el header `Authorization` de cada request.
+    // Medido en prod: `almacenista` con DOS permisos cargaba 7,746 B de los
+    // 8,192 que nginx acepta por default, o sea el 94.6% del límite gastado en
+    // decir 168 veces que no. Los `false` no cargan información en ningún
+    // consumidor (ver el JSDoc de `soloConcedidos`): el front compara
+    // `=== true` y el backend ni mira el mapa del token.
+    const concedidos = soloConcedidos(permissions);
+
     // 5. Generar JWT con tenant_id + snapshot de permisos.
     const payload: JwtPayloadMt = {
       sub: user.id,
@@ -253,7 +263,7 @@ export class AuthMtService {
       zona_id: user.zona_id || undefined,
       zona: zonaName || undefined,
       warehouse_code: user.warehouse_code || undefined,
-      permissions,
+      permissions: concedidos,
     };
 
     return {
@@ -270,7 +280,10 @@ export class AuthMtService {
         zona: zonaName ?? null,
         warehouse_code: user.warehouse_code ?? null,
         meta_puntos: user.meta_puntos,
-        permissions,
+        // Mismo mapa que el token, a propósito: dos formas distintas del mismo
+        // snapshot en la misma respuesta es la clase de divergencia que después
+        // nadie sabe cuál gana.
+        permissions: concedidos,
       },
     };
   }
