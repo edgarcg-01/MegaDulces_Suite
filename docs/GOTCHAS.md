@@ -1992,3 +1992,26 @@ for base in ('libs','apps','database'):
 ```
 
 **Un falso positivo legítimo:** `libs/fiscal/src/lib/cfdi/cfdi.service.ts` tiene caracteres de control **a propósito** dentro del regex que limpia nombres de archivo, y lo declara con un `eslint-disable-next-line no-control-regex` justo arriba. Ese se queda: si el `eslint-disable` está, es intencional; si no está, es corrupción.
+
+## Un `node_modules` enlazado por junction hace que nx pruebe OTRO árbol (2026-09-10)
+
+Para no reinstalar el monorepo en un worktree nuevo, se enlaza `node_modules` con un junction al del checkout principal. Los builds salen bien — pero **`nx test` corre los specs del OTRO árbol**, y lo hace en silencio: reporta verde y ni un archivo de tu rama se ejecutó.
+
+Se ve con `--listTests`, que imprime rutas absolutas:
+
+```
+npx nx test commercial -- --listTests
+C:\\Users\\Administrator\\Trade_marketing\\libs\\commercial\\...   <-- el checkout principal, no el worktree
+```
+
+**Por qué:** Windows resuelve el junction al **destino**, así que cualquier herramienta que pase por `node_modules` y camine hacia arriba buscando la raíz del workspace aterriza en el árbol original. No es el daemon: con `NX_DAEMON=false` pasa igual.
+
+**Cómo medirlo de verdad** — jest directo, con `rootDir` absoluto al worktree:
+
+```bash
+cd <worktree>/libs/commercial
+node ../../node_modules/jest/bin/jest.js --config jest.config.ts \
+  --rootDir "<ruta absoluta del worktree>/libs/commercial"
+```
+
+La diferencia no es cosmética: en la rama de integración nx decía **2 suites / 30 tests** en `commercial` y la corrida real eran **4 / 60**; en `view`, **5 / 56** contra **15 / 184**. Un "verde" que no ejecutó tu código es peor que un rojo.
