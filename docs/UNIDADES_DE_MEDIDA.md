@@ -656,6 +656,84 @@ como "no verificable". Dos testigos distintos, la misma conclusión.
 [`kx-factor-caja-contradicho-por-el-erp.csv`](kx-factor-caja-contradicho-por-el-erp.csv) con el
 `bf_sugerido` que el propio ERP vendió. Se corrigen **desde la UI**, no con un script.
 
+### ⭐⭐ KX.4 — el arreglo NO fue corregir a mano: fue quitarle rango al override
+
+Edgar, 2026-09-10: *"nada de corregir desde ui. debemos tener una verdad absoluta. un 100% de que
+lo que decimos es real"*. Y tiene razón por una razón **medida**: el override manual es la fuente
+que el ERP contradice **146× más seguido que la etiquetera**. Corregir a mano el dato de la fuente
+que más se equivoca a mano lo reproduce en la próxima captura. Lo que había que arreglar es la
+**precedencia**.
+
+**Lo que estaba mal:** `box_factor = GREATEST(COALESCE(ovr, <cadena>), 1)`. El override gana
+siempre y **nada** lo desplaza, ni la evidencia del propio ERP.
+
+**La regla nueva** (mig `20260910120000`, prod batch 360) — un override de **`1`** no puede tapar un
+factor del ERP mayor a 1:
+
+```sql
+CASE WHEN ovr IS NOT NULL
+      AND NOT (ovr = 1 AND GREATEST(COALESCE(c84,1), COALESCE(etiq,1), COALESCE(fs,1)) > 1)
+     THEN ovr END
+```
+
+El fundamento no es estadístico, es **semántico**: `1` significa *"este producto no viene en caja"*,
+que es exactamente lo que dice el `default`. O sea **no aporta información** — un `1` escrito a mano
+casi nunca es una afirmación, es un "no sé", y al ganarle a la cadena **borra evidencia**.
+
+**Medido antes de escribirla:**
+
+```text
+overrides activos ....................... 278
+  con valor > 1 (afirmaciones reales) ... 262   <- NO se tocan
+  con valor = 1 ..........................  16
+    y el ERP (c84) dice > 1 ..............  12   <- un no-dato tapando evidencia
+```
+
+⭐ **Y el cierre que la hace suficiente: esos 12 son EXACTAMENTE los 12 que el peldaño vendido
+(`kdm2.c58`) contradice.** Se midieron por separado y coinciden uno a uno. La regla **cuesta cero**
+—no lee `kdm2`— y no habría encontrado ni un caso más metiendo el peldaño a la vista, que cuesta
+**29.5 s** de agregación sobre 4M renglones.
+
+**Resultado, contra prod:**
+
+| | antes | después |
+|---|---:|---:|
+| contradicciones (90 d) | 41 · $1,395,458 | **8 · $370,806** |
+| de ellas, de `override` | 35 | **2** |
+| overrides tumbados | — | **13**, y los 13 recuperaron el factor del ERP |
+| overrides intactos | 278 | **265** |
+| cajas mostradas en esas celdas | 18,005 | **2,089** (75 celdas / 17,965 u) |
+
+Los 13, con **el número en su propio nombre** (todos granel por kilo): `LA ROSA MAZAPAN / 40`→40 ·
+`CHOC SUPER SPORTS GRANEL PALMER 10.89K`→27 · `PAPEL ENVOLTURA NOGAL 25KG`→25 · `CUCHARA GRANDE
+6 KG`→24 · `MAIZ PALOMERO GRANEL`→20 · `PASTA B. GUSTINOS 20KG`→20 · `CAR SURTIDO 18KG`→18 ·
+`CONFICHOCKY GRANEL 9KG`→18 · `SURTIDO CARAMELO 18KG`→18 · `GOMA A GRANEL 12KG`→12 · `ALMENDRA
+CONFITADA 10 KG`→10 · `GRANILLO ECO 5K`→10 · `GALL ANIMALITOS 5KG`→5.
+
+⚠️ **El descarte NO es silencioso:** `source` pasa a **`override_no_dato`**, así que una edición
+manual tumbada se puede ver y contar. Borrarla en silencio sería cambiar una mentira por otra.
+
+### ⚠️ El límite honesto del 100%, que no es pereza
+
+**Un peldaño vendido mayor que la caja NO prueba que la caja esté mal** — prueba que existe una
+presentación mayor. Si la caja trae 6 y el ERP vendió un paquete de 12, `bf = 6` puede ser
+correcto. La contradicción es **inequívoca sólo cuando `box_factor = 1`**: *"no viene en caja"*
+contra *"vendí bultos de 20"* no admite lectura benigna.
+
+De los **8** que quedan:
+
+- **2 son inequívocos** (`default`, `bf = 1`, **$190,737**): `ALTOS ROLLO ALTA 20X30 1KG` con
+  `c58` 20 y `REYMA ROLLO ALTA 15X25 1KG` con 20. Para cerrarlos hace falta el peldaño
+  **persistido**, y hoy no existe: **`sales_daily.rung_factor` dice `1.0000` en los 8** porque el
+  fact lo deduce por PRECIO y no lo ve. O sea hay que materializar `c58` — pieza nueva, con su
+  refresh y su latido.
+- **6 son ambiguos** (bf entre 6 y 20 con un peldaño mayor, **$180,069**): se **declaran**, no se
+  corrigen. Afirmar `bf = c58` ahí sería inventar.
+
+⭐ Y eso mismo es un hallazgo aparte: **el peldaño que el fact persiste no es el peldaño cobrado.**
+`rung_factor` sale de `pickPriceTier` (deducción por precio) cuando el renglón de Kepler lo trae
+escrito en `c58` con `c9 = c56 × c58` al 99.99%.
+
 ### ⚠️ El NULL mudo de Wincaja en el peldaño
 
 `analytics.sales_daily.rung_factor` va **NULL en el 100%** de las celdas de Wincaja. Es legítimo

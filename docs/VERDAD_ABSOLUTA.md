@@ -93,6 +93,7 @@ corolarios, cada uno pagado:
 | **Ventas · dinero** | `c62 = u1_cost × c58` + paridad contra el renglón crudo | cobertura **98.20%** del dinero de Kepler | ✅ **sí** |
 | **Unidades · ticket** | el renglón declara y el costo confirma | **95.75%** confirmado | ✅ **sí** |
 | **Unidades · `U-D-8`** | — | **no arbitrable** (límite de la fuente) | ⛔ **declarada, no arbitrada** |
+| **Venta de ruta de una sucursal que cambió de ERP** | la **frontera medida** entre los dos POS (último día del viejo + 1), no el máximo entre ellos | Canindo: +$728,711 en 2026 · agosto **+$808,409** que el `GREATEST` tapaba (§4.6) | ✅ **sí, con las 3 líneas de $6 del arranque declaradas** |
 | **Wincaja (las tres)** | tiene árbitro propio, sin cablear | fuera de alcance por decisión | ⬜ **no empezado** |
 
 ---
@@ -320,6 +321,58 @@ de `U-D-8` caía en `credito` (la rama `TI%`→mayoreo **nunca se dispara**), lo
 crédito publicado de $6.5M a $20.8M — **3.2×**. Un total correcto pagado con otro número falso no es
 paridad. Por eso `mart.ventas` lleva `doctype` y el canal lo usa.
 
+### 4.6 ⭐ La venta de una ruta cuando la sucursal cambió de ERP: la serie se COMPONE, no se maximiza
+
+Canindo (almacén `06`, rutas 501-505) cobró en **Wincaja** hasta agosto; desde entonces cada
+camioneta corre **su propio Kepler local** y lo empuja al runner `.249`. Tres universos escribían la
+MISMA llave `(06, WIN-50N, mes)` de `analytics.sales_by_route_monthly`, resueltos con un `GREATEST`
+por métrica:
+
+| universo | qué ve | veredicto |
+|---|---|---|
+| **Wincaja** (`wincaja.v_sales_lines`, `branches.parent_branch='50'`) | ene-01 → 11/12-ago | ✅ **arbitra su era** |
+| **PUSH** — la base de la propia camioneta (`md_06-0NN` → `.249 mart.ventas`, `ruta_50N`) | 11/13-ago → hoy | ✅ **arbitra su era** |
+| réplica de sucursal (`kepler_md_06`, `kdm1.c67 ~ '500N'`) | 3 de 5 rutas, en ventanas sueltas | ⛔ **subconjunto degradado — no arbitra nada** |
+
+La réplica se refuta con su propia cobertura: `5001` sólo tiene **18–24 ago**, `5003` sólo **15–21
+ago**, `5004` y `5005` **nada**. La venta se captura en la laptop de la van y a la sucursal sólo
+llega lo que se sincroniza. Un universo que ve una semana de tres rutas no puede arbitrarle a uno
+que ve el mes de las cinco — y el `GREATEST` se lo permitía.
+
+**Dos cosas rotas, las dos por el máximo ciego:**
+
+1. **El mes de transición publicaba el MÁXIMO de dos mitades disjuntas en vez de su suma.** Agosto
+   de las 5 rutas: faltaban **$808,409**, la mitad Wincaja del mes (1→11/12-ago). La pantalla
+   mostraba agosto $1.36M contra julio $2.20M — una caída del **38% que no ocurrió**.
+2. **Enero–julio quedó congelado el 18-ago, o sea PRE arreglo RD.1** (`20260907280000`, la fecha de
+   negocio de Wincaja venía corrida un día). `import-wincaja-routes-monthly` excluye
+   `parent_branch='50'`, así que Canindo fue **la única ruta Wincaja que no se re-escribió** tras el
+   arreglo. Síntoma visible: la ruta **505 publicaba $10,882 en MAYO** y su primer día real fue el
+   1-jun.
+
+**La prueba de (2), porque "el número cambió" no es un diagnóstico:** re-agregando el MISMO silver de
+hoy con la atribución vieja (`business_date − 1`, que es exactamente lo que daba `fecha_mx_date`
+sobre una medianoche UTC) se reproduce el gold congelado en **31 de 31 llaves, al peso y al ticket**.
+Las 14 llaves que BAJAN son la corrección, no una degradación.
+
+**La regla que queda: la frontera se MIDE, no se hardcodea.** `cutover(ruta) = último día que cobró
+Wincaja + 1` — 501 y 503 el 13-ago, 502/504/505 el 12-ago. Wincaja aporta `< cutover` y el push
+`>= cutover`: ventanas disjuntas, ni hueco ni doble conteo. Lo único que la frontera deja fuera son
+las **3 líneas de $6** con que arrancó el Kepler local de 502/503/505 el mismo día en que Wincaja
+todavía cobraba ($18, declarados). Y `business_date <= CURRENT_DATE` en las dos partes: **una sola
+fecha corrupta a futuro correría la frontera meses adelante y taparía el push entero**.
+
+Publicado: **$15,815,691 → $16,544,403 (+$728,711)**; agosto pasa de $1,358,965 a **$2,167,374**,
+plano contra julio, que es lo que de verdad pasó. Dueño único de la llave:
+`import-canindo-routes-monthly.js`, con overwrite y una salvaguarda que **no baja el gold sin
+`--allow-lower`**. La réplica se sigue leyendo, pero **sólo como testigo**, en
+`reconcile-route-provenance.js`, que ahora declara `composite` en vez de nombrar ganador a un
+universo que no es el dueño.
+
+⚠️ **Esto se repite en CADA migración de ERP de una sucursal.** Morelia Madero (Wincaja `32` →
+Kepler `07`, 08-sep) es el caso vivo: hoy no tiene rutas, pero el día que las tenga la trampa es la
+misma — y su handoff también hay que componerlo, no maximizarlo.
+
 ---
 
 ## 5. Los resolvedores canónicos — qué leer para qué
@@ -338,6 +391,8 @@ divergir.
 | la unidad resuelta, con testigo | `analytics.v_unit_truth` (+ `_coverage`) | — |
 | sell-out Kepler a grano día | `analytics.mv_kepler_sales_daily` | `analytics.sales_daily` para sell-out |
 | costo pagado al proveedor | `analytics.v_supplier_cost_ladder` | un peldaño fijo de la escalera |
+| venta mensual por ruta | `analytics.sales_by_route_monthly` filtrando `route_code LIKE 'WIN-%'` | las series `c63` `UD100N` que hay en la misma tabla — son **cajas de mostrador**, no rutas |
+| quién escribió cada llave de venta-ruta | `analytics.v_route_monthly_provenance` | suponer que el gold es el universo más fresco |
 
 Y para **de dónde sale** cada dato: [`REGISTRO_CANONICO_COMPLETO.md`](REGISTRO_CANONICO_COMPLETO.md).
 
@@ -375,6 +430,10 @@ Todas vividas. El número entre paréntesis es lo que costaron.
    dónde. **Cinco veces** en este proyecto.
 10. ⚠️ **`.env` no apunta a prod.** `DATABASE_URL_NEW` es `platform_test`; **prod es `FLEET_DB_URL`**
     (Railway). Una medición contra el destino equivocado no es una medición.
+11. ⛔ **Un `GREATEST` entre fuentes que cubren VENTANAS DISTINTAS** publica el máximo donde iba la
+    suma: **$808,409** del mes en que Canindo cambió de ERP (§4.6). El máximo sólo sirve entre dos
+    fuentes que cubren **lo mismo**; entre eras hay que pegar por una frontera medida. Y de paso
+    tapa el swap de universo: nadie ve que la fila cambió de dueño.
 
 ---
 
@@ -395,7 +454,8 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ~~el almacén `02` de la sucursal 03~~ | **CERRADO — no era hueco** | ✅ Es **réplica**, probado por identidad documental: **37,020 de 37,020** folios (`folio` + `doctype`) de suc03/alm02 existen idénticos en la sucursal 02, y está **congelada el 2026-01-07** (la 02 real llega a hoy). Publicarla sería **doble conteo de 78,633 u** en 1,771 de 2,594 celdas. El filtro está correcto — ver §9.9 |
 | ⚠️ **el árbitro es promedio histórico** | −1.95% mediano vs `c18` | `c16 = c8/c5` con `c5` = entradas acumuladas. Valuamos a **costo promedio ponderado**, no de reposición (§3.4) |
 | ⚠️ **62 SKUs con las columnas al revés** | 101 filas / $354,067 | `cost_with_tax < cost_base`; el fallback `cost_base` los valuaría ~10.9× arriba **si** Kepler dejara de dar `c16` (hoy ninguna cae ahí) |
-| ⭐ **factor de caja contradicho por el ERP** | **41 pares / $1,395,458** | el ERP vendió una unidad MAYOR que la caja declarada — imposible. **36 de 41 con `box_factor = 1`** y **35 de 41 de `override`** (razon mediana 12.00×): granel por kilo con el factor puesto a mano en 1. Lista con el `bf_sugerido` en `kx-factor-caja-contradicho-por-el-erp.csv`; se corrige **desde la UI**. Detalle en [`UNIDADES_DE_MEDIDA.md` §8septies](UNIDADES_DE_MEDIDA.md) |
+| ✅ **factor de caja contradicho por el ERP** | **41 → 8 pares** ($1,395,458 → **$370,806**) | ⭐⭐ **CERRADO POR CONSTRUCCIÓN, no a mano** (Edgar: *"nada de corregir desde ui"*): un override de **1** ya no puede tapar un factor del ERP > 1, porque un `1` escrito a mano no es una afirmación — significa lo mismo que el `default`. **13 overrides tumbados, los 13 recuperaron el factor del ERP**; los 265 que valen > 1 no se tocan. De `override`: **35 → 2**. La presentación de cajas de esas celdas cae de 18,005 a **2,089** (8.6× de sobredeclaración). Mig 20260910120000, prod batch 360 |
+| ⚠️ **lo que queda: 8 contradicciones** | **2 inequívocas ($190,737) + 6 ambiguas ($180,069)** | ⛔ **El límite honesto del 100%:** un peldaño vendido mayor que la caja **no prueba** que la caja esté mal — prueba que existe una presentación mayor. Es inequívoco sólo con `box_factor = 1`. Los 2 inequívocos exigen el peldaño **persistido**, que hoy no existe: `sales_daily.rung_factor` dice **1.0000 en los 8** porque el fact lo deduce por PRECIO (materializar `c58` cuesta 29.5 s). Los 6 ambiguos **se declaran**: afirmar `bf = c58` ahí sería inventar |
 | ⚠️ **el peldano de Wincaja es un NULL mudo** | **353,595 celdas / $86,189,728** | `sales_daily.rung_factor` NULL en el 100% de Wincaja (legitimo: no declara peldano) pero `units_unresolved` marca **64**. El 55% del ingreso de 90 d sin nada que diga "aca no se midio" |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
 
