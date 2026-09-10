@@ -139,7 +139,7 @@ Se **rechaza** explícitamente:
 
 | Item | Estado | Descripción | Bloquea a |
 |---|---|---|---|
-| **VL.0** | 🔨 | **Instalar y preparar el servidor.** Ejecutable: [`ops/vl/vl0-bootstrap.sh`](../../../ops/vl/vl0-bootstrap.sh) (la pila de §6.0) + [`ops/vl/vl0-verify.sh`](../../../ops/vl/vl0-verify.sh) (**la compuerta**, con `--negative`). El fierro existe sin SO: instalar **Ubuntu Server 26.04.1 LTS amd64** (`resolute`; pila de versiones completa y sus trampas en **§6.0**), Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
+| **VL.0** | ✅ **2026-09-10** | **Instalar y preparar el servidor.** Ejecutable: [`ops/vl/vl0-bootstrap.sh`](../../../ops/vl/vl0-bootstrap.sh) (la pila de §6.0) + [`ops/vl/vl0-verify.sh`](../../../ops/vl/vl0-verify.sh) (**la compuerta**, con `--negative`). El fierro existe sin SO: instalar **Ubuntu Server 26.04.1 LTS amd64** (`resolute`; pila de versiones completa y sus trampas en **§6.0**), Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
 | **VL.1** | ⬜ | **Secretos en un solo lugar.** Hoy las credenciales de prod viven **en texto plano en al menos 4 lanzadores** (`run-feeds.cmd`, `store-poller.cmd`, `ingest.env`, `sync.local.env`). En el servidor nuevo: un `.env` por stack, fuera del repo, permisos `600`, un dueño. **La credencial de prod expuesta sigue pendiente de rotar** (`project_security_incident_db_creds`) — la mudanza es el momento natural. | VL.2 |
 | **VL.2a** | ⬜ | **Des-riesgo: sólo los 4 contenedores del ODS**, leyendo la fuente por LAN (`ODS_SOURCE_BASE` → `192.168.0.249:5433`). Apagar los de `.249` **antes** de levantar los nuevos (nunca dos shippers a la vez: pelean `ods.ctl`/`ods.shadow`). Verde = los 3 latidos (`ods_live_hot`, `ods_live_mirror`, `cdc_reconcile`) frescos **en prod** y `db-health` sin sensor crítico. | VL.3 |
 | **VL.2b** | ⬜ | **Mudar la fuente — en la ventana nocturna/fin de semana.** **Copia física del volumen**: `docker stop` → copiar `pgvector-md-data` (55 GB **en tránsito**) → levantar en el servidor nuevo con **la misma major (PG 18)** → **`DROP DATABASE wincaja` allá** (queda residente **~15 GB**; sus 40 GB los sigue usando el carril Wincaja **en `.249`** hasta VL.5 — §6.1). La copia física es lo que preserva `pg_replication_origin`, y por eso las 8 suscripciones **retoman desde su slot sin hueco**; `pg_dump` por base **no** lo preserva. ⚠️ `wincaja` **no** tiene orígenes que preservar (no la alimenta replicación lógica, la escribe el replicador Jet) → dropearla no pierde nada. ⚠️ Mientras la réplica está abajo **los publicadores retienen WAL** → **medir el disco libre de las 8 sucursales el día antes**, no suponerlo (si una está justa, se acorta la ventana o se hace esa rama por separado). Plan B (por rama, si alguna no retoma): `DROP`/`CREATE SUBSCRIPTION` con `copy_data=true` sólo de esa rama. | VL.2c |
@@ -153,6 +153,32 @@ Se **rechaza** explícitamente:
 | **VL.9** | ⬜ | **Prod on-prem (fase real, ADR aparte).** Coolify + Cloudflare Tunnel + Cloudflare Access; DB **nunca** por el túnel (apps↔Postgres por LAN privada). Prod mide hoy **30 GB en PG 18.6**. No arranca hasta que VL.0–VL.8 estén verdes. Se planeará con su propio doc; acá sólo condiciona el **dimensionamiento** (§6.1). | — |
 
 **Ruta crítica del pedido inmediato:** VL.0 → VL.1 → VL.2a → VL.2b → VL.2c → VL.3.
+
+### VL.0 — cerrado 2026-09-10, con la evidencia
+
+`md` · `192.168.0.222` · Ubuntu Server 26.04.1 LTS · kernel 7.0.0-31 · usuario `superoot`.
+
+**Bootstrap aplicado:** Docker **29.8.0** + Compose **v5.5.1** (repo oficial, `resolute`) · `psql` **18.6** de PGDG (`pgdg26.04+2` — **misma minor que prod**) · Docker en la lista negra de `unattended-upgrades` · `vm.swappiness=1` · `transparent_hugepage=never`.
+
+**Post-reinicio, verificado:** `THP: always madvise [never]` · `swappiness: 1` · `TZ: America/Mexico_City` · `docker 29.8.0` con `superoot` en el grupo `docker`. **La caja volvió sola en ~25 s** — que es, de paso, la primera prueba de que arranca desatendida (importa para VL.8).
+
+**La compuerta, corrida contra el server real:**
+
+| | Resultado |
+|---|---|
+| Los 8 publicadores Kepler | **OK los 8** — 64–195 ms (`md_02` 64 · `md_03` 74 · `md_01` 143 · el resto 176–195) |
+| `.245` · `.249:5433` (fuente actual) | OK — 64 ms · 37 ms |
+| prod (`trolley:39023`) · `feeds-ingest` | OK — 917 ms · HTTP 404 (responde) |
+| Reloj | OK — `America/Mexico_City`, NTP sincronizado |
+| Share CIFS de `.245` | **NO MEDIDO** — no montado, y es lo correcto hasta VL.5 |
+| **Veredicto** | **13 OK · 0 FALLA · 1 NO MEDIDO** → `exit 2`, *abierta con reservas* |
+
+**⭐ R3 queda resuelto: el servidor nuevo alcanza las 8 subredes.** Era el riesgo que bloqueaba la fase entera y no se podía suponer.
+
+**Prueba negativa hecha** (el plan la exige): con una rama inexistente agregada, la compuerta reporta `FALLA: 1` y `exit 1`. O sea sabe ponerse en rojo — no es una intención.
+
+⚠️ **Bug encontrado y corregido en el propio instrumento** (commit `cac348c0`): la primera corrida publicó `170562626 ms` de latencia — son 47 horas. `date +%s%3N` no truncó a 3 dígitos en ese sistema y la resta salía en **nanosegundos rotulada como ms**. Los valores **ordenaban bien** (prod el más alto, `.249` el más bajo), que es exactamente lo que hace que una unidad equivocada pase desapercibida. Misma clase de error que ADR-055/057 documentan para las columnas de la DB, esta vez en la herramienta de medición.
+
 
 ### 6.0 La pila de versiones de VL.0 (lo que se instala, exacto)
 

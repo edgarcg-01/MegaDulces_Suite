@@ -2462,7 +2462,7 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
 
 | Item | Estado | Descripción |
 |---|---|---|
-| VL.0 | ⬜ | Instalar Ubuntu 24.04 Server + Docker/Compose + TZ MX + datos en partición aparte. **Verificar alcanzabilidad de los 8 publicadores, `.245` y el share CIFS antes de seguir**, con prueba negativa |
+| VL.0 | ✅ 2026-09-10 | `md` · `192.168.0.222` · **Ubuntu Server 26.04.1** (`resolute`) · Ryzen 5 4600G 6c/12h · 14 GiB · **NVMe 1 TB** · NIC 1 Gb/s. Bootstrap: Docker 29.8.0 + Compose v5.5.1 + psql 18.6 PGDG + THP/swappiness + Docker fuera de unattended. **Compuerta: 13 OK · 0 FALLA · 1 NO MEDIDO** (CIFS, correcto hasta VL.5) → **R3 resuelto, alcanza las 8 subredes**. Prueba negativa OK (`exit 1`). Bug corregido en el instrumento: publicaba ns rotulados como ms |
 | VL.1 | ⬜ | Secretos en un solo lugar (hoy en texto plano en 4+ lanzadores; la credencial de prod expuesta **sigue sin rotar**) |
 | VL.2a | ⬜ | Des-riesgo sin ventana: los 4 contenedores del ODS al servidor nuevo, fuente por LAN. Apagar los viejos **antes** (nunca dos shippers) |
 | VL.2b | ⬜ | **Ventana nocturna/fin de semana**: copia física del volumen (55 GB, PG 18). Medir disco de los 8 publicadores el día antes (retienen WAL) |
