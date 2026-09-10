@@ -10,6 +10,29 @@
 
 ## [Unreleased]
 
+### Added — la pantalla donde se corrige el gasto y el odómetro de Ruta Directa (RD.9, 2026-09-09)
+
+El negocio contestó §9.7 y §9.8 de la fase con *"se corrige desde la UI y se captura manual"*. Al ir a habilitarlo apareció que **esa UI no existía** — y algo peor: el dato estaba en prod desde el 08-sep (782 gastos, 187 lecturas de odómetro) y **no había dónde tocarlo**.
+
+Estado real medido antes de escribir una línea:
+
+| pieza | migración | backend | frontend |
+|---|---|---|---|
+| RD.4 gasto de flota | ✅ | ✅ list/types/summary/create/update/delete, wireado en `app.module` | ❌ |
+| RD.5 odómetro y $/km | ✅ tabla + vista | ❌ **nada las leía** — ni service ni controller | ❌ |
+
+**Backend (RD.5, lo que faltaba).** `LogisticsRouteOperationService` + controller sobre `analytics.v_route_operation_period` y `logistics.route_odometer`: la operación por ruta × quincena con `km_status`/`costo_status` crudos y su cobertura aparte, el catálogo de quincenas, las fichas de costo, y el UPSERT de una lectura por la llave natural. El `ON CONFLICT` **nombra el `WHERE deleted_at IS NULL` del índice parcial**: sin eso, corregir una lectura crearía una segunda del mismo periodo en vez de actualizarla. Reusa el par `LOGISTICS_ROUTE_EXPENSES_VER/_GESTIONAR` — es la misma superficie operativa en dos pestañas, y un par nuevo obligaría a los 6 touch-points del enum más una migración que lo **REPARTA** (lección LC.6.2) para gatear media pantalla.
+
+**Frontend.** `/logistica/gasto-ruta` — la ruta **ya estaba declarada en `authz-tree.ts` desde RD.4 y no tenía componente**. Tres pestañas: Gasto (con reclasificación inline de los `SIN CLASIFICAR`), Operación (odómetro editable, km/L, $/km) y Fichas de costo. Surface Operations: tabla densa sin zebra, hairline 1px sin sombra, Geist Mono con `tabular-nums`, header sticky, inline-edit de un campo, optimistic UI sin spinner, dark por tokens, targets de 44px en `pointer: coarse`. **Answer-first** (DESIGN §15): arriba va *qué falta* con su atajo —los gastos sin tipo, las lecturas sin usar, los periodos sin ficha— y el grid crudo abajo; si no falta nada, lo dice.
+
+**Lo que la pantalla no hace, a propósito**: no adivina el tipo de un gasto (cuatro *parecen* gasolina y uno *parece* reparación, y parecer no basta) · no corrige el odómetro sola, y **un retroceso exige nota** porque sin motivo no se distingue de un error de captura · no dibuja `$/km` donde no hay ficha (rutas 28, 321, 322): vacío con su motivo, nunca cero.
+
+**Candado**: bloque 5b nuevo en `test-newdb-rd-route-expenses.js` — **23 OK / 0 fallas** contra prod. La parte de escritura **no levanta la guarda `read_only` de la suite**: se declara `NO MEDIDO` con la instrucción de cómo ejercerla (`--allow-writes`, que escribe y hace `ROLLBACK`), y lo que sí se comprueba en modo lectura es que el índice único parcial existe con su `WHERE` — que es lo que el `ON CONFLICT` nombra. Verificado después: prod quedó con sus 187 filas reales y **0** de prueba.
+
+Medido en prod con las consultas nuevas: **210** ruta×quincena, **160** con km utilizable, **15** lecturas mal tecleadas rotuladas (9 retroceso + 5 salto + 1 sin movimiento), **16** periodos sin ficha, y el `$/km` entre **6.12 y 9.13** — el Excel da **1** en todas porque su `SUMIF` apunta a la columna PERIODO de su propia hoja.
+
+Builds `api` + `view` verdes. **Falta validación visual y redeploy** (los dev servers son de Edgar).
+
 ### Added — el permiso declarado no es el permiso repartido (ID.29, 2026-09-09)
 
 El encabezado del propio enum ya lo decía —*"declararlo en el enum no es entregarlo"* (`[LC.6.2]`)— y **no lo medía nadie**. Una regla sin compuerta es la forma más cara de tener una regla: se cita en los reviews y no detiene nada. Ya había cobrado **dos veces**, las dos con el mismo síntoma (un módulo en producción que nadie podía abrir, encontrado por una persona días después): `FISCAL_PURCHASE_BOOK_VER/_GESTIONAR` en la Fase LC, y `STORE_PRICE_CHECK_VER` —el verificador de mostrador de CV.24— que hoy estaba en **cero roles** en prod.
