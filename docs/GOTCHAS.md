@@ -65,7 +65,11 @@ dbWork con SAVEPOINT.
   `hasTable`. Siempre.
 - Si prod ya crasheó por un registro huérfano: `DELETE FROM knex_migrations WHERE name='<archivo>.js'`
   (borra el registro, **no** la tabla ni el archivo).
-- **3 devs = timestamps que chocan.** Coordiná el nombre/timestamp de migraciones nuevas; no reordenar.
+- **4 devs = timestamps que chocan.** Coordiná el nombre/timestamp de migraciones nuevas; no reordenar.
+  Con 4 personas el riesgo sube, y no es teórico: el 2026-09-07 una migración de esta sesión nació con
+  el MISMO timestamp que una ya aplicada en prod por otro dev (`…210000`) y hubo que renombrarla. **Antes
+  de crear una migración, mirá `public.knex_migrations` en prod, no sólo el filesystem** — el archivo
+  puede no existir en tu clon y la migración estar aplicada igual.
 - ⛔ **Nunca AGREGARLE columnas a una migración ya aplicada.** Es la trampa hermana de la primera, y
   duele más porque **no avisa**: Knex no vuelve a ejecutar lo que tiene registrado, así que lo que le
   agregues después **no llega nunca** a las DBs donde ya corrió. Ser idempotente no salva — el problema

@@ -6,7 +6,7 @@
 
 ## Modo de trabajo
 
-**Equipo de 3 devs** (lead Edgar + 2). El trabajo se apoya fuerte en **Claude Code**: los `.md` del repo son la memoria compartida del proyecto entre sesiones y máquinas; mantenerlos actualizados es **mandatorio** al cerrar cualquier item.
+**Equipo de 4 devs** (lead Edgar + 3). El trabajo se apoya fuerte en **Claude Code**: los `.md` del repo son la memoria compartida del proyecto entre sesiones y máquinas; mantenerlos actualizados es **mandatorio** al cerrar cualquier item.
 
 **Flujo de trabajo:** rama por feature → PR → CI verde + 1 review (CODEOWNERS) → merge a `main`. `main` está protegida. Onboarding de máquina en [`ONBOARDING.md`](ONBOARDING.md). Reglas duras en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
 
