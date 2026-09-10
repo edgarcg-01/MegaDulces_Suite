@@ -116,7 +116,7 @@ interface CortesPersona {
             @if (turnos().length > 1) {
               <!-- En una sola línea: partido en tres, el navegador colapsaba los saltos
                    y dejaba el punto huérfano al principio del renglón siguiente. -->
-              <p class="arq-lbl arq-turno-lbl">Tienes <strong>{{ turnos().length }} cortes de hoy</strong> sin arquear. Se cierran del más viejo al más nuevo.</p>
+              <p class="arq-lbl arq-turno-lbl">Tienes <strong>{{ turnos().length }} cortes de hoy</strong> sin arquear. Se cierran del más viejo al más nuevo, y el que está abierto también se puede contar.</p>
               <div class="arq-turnos">
                 @for (t of turnosOrdenados(); track t.folio + t.warehouse_code; let i = $index) {
                   <!-- Solo el más viejo es accionable: los cortes se cierran en orden.
@@ -128,7 +128,13 @@ interface CortesPersona {
                     <span class="arq-turno-caja"><span class="arq-turno-n">{{ i + 1 }}º</span> Caja {{ t.caja }}</span>
                     <span class="arq-turno-meta">{{ branchLabel(t.warehouse_code) }} · {{ t.business_date | date:'dd/MM' }}</span>
                     <span class="arq-turno-meta">{{ t.abierto ? 'Abierta desde ' + (t.hora_apertura || '—') : 'Cerró ' + (t.hora_cierre || '—') }}</span>
-                    @if (i === 0 && !t.abierto) { <span class="arq-pide">Te toca arquear</span> }
+                    <!-- SM.34 — el turno abierto TAMBIÉN se arquea: contar antes del
+                         corte es la única ventana en que el efectivo de las sangrías
+                         todavía está en el cajón. Antes este chip sólo salía con la
+                         caja cerrada y la pantalla se leía como "esperá el cierre". -->
+                    @if (i === 0) {
+                      <span class="arq-pide">{{ t.abierto ? 'Podés arquear ahora' : 'Te toca arquear' }}</span>
+                    }
                     @if (i > 0) { <span class="arq-bloq-txt">Después de cerrar el anterior</span> }
                   </button>
                 }
@@ -148,14 +154,26 @@ interface CortesPersona {
                   </div>
                 </div>
               }
-              @if (!t.abierto) {
-                <!-- Kepler cerró la caja: a partir de acá el arqueo no es opcional.
-                     La app lo PIDE en el mismo momento en que el ERP lo pide. -->
+              @if (t.abierto) {
+                <!-- SM.34 — Tu caja sigue abierta y eso NO es un impedimento: se
+                     cuenta ahora. El backend siempre lo aceptó; lo que faltaba era
+                     que la pantalla lo dijera en vez de sugerir la espera. -->
+                <div class="arq-pide-box">
+                  <i class="pi pi-inbox"></i>
+                  <div>
+                    <strong>Tu caja sigue abierta{{ t.hora_apertura ? ' desde las ' + t.hora_apertura : '' }} — podés contar ahora.</strong>
+                    <p class="muted">No hace falta esperar el corte. Lo que cuentes queda a tu nombre.</p>
+                  </div>
+                </div>
+              } @else {
+                <!-- Kepler cerró la caja: el arqueo sigue siendo lo que toca. Se
+                     quitó el "hace N minutos" — era el cronómetro, y medía el
+                     momento equivocado: para cuando cierra, el efectivo de las
+                     sangrías ya salió del cajón. -->
                 <div class="arq-pide-box">
                   <i class="pi pi-bell"></i>
                   <div>
                     <strong>Kepler cerró tu caja{{ t.hora_cierre ? ' a las ' + t.hora_cierre : '' }}. Te toca arquear.</strong>
-                    @if (t.cerrado_hace_min != null) { <p class="muted">Hace {{ hace(t.cerrado_hace_min) }}.</p> }
                   </div>
                 </div>
               }
@@ -1140,18 +1158,6 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         };
   }
 
-  /**
-   * "Hace 689 min" obliga a dividir mentalmente. Arriba de una hora se dice en
-   * horas, y arriba de un día en días: la cajera necesita saber si es de recién
-   * o de anteayer, no el número exacto.
-   */
-  hace(min: number): string {
-    if (min < 60) return `${min} min`;
-    const h = Math.round(min / 60);
-    if (h < 24) return h === 1 ? '1 hora' : `${h} horas`;
-    const d = Math.round(h / 24);
-    return d === 1 ? '1 día' : `${d} días`;
-  }
 
   onMedioInput(key: string, ev: Event) {
     const v = Number(String((ev.target as HTMLInputElement).value).replace(/[^0-9.]/g, ''));

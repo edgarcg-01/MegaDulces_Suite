@@ -349,6 +349,29 @@ Entonces no se renombró a "arqueado" —eso habría dado por bueno un conteo qu
 
 **Pendiente prod:** redeploy api+view. No requiere migración ni re-login.
 
+## SM.34 — Fuera el cronómetro: el arqueo se hace cuando se puede contar (🔨 2026-09-10)
+
+Decisión de Edgar, y **revierte en parte a SM.21**: el arqueo deja de tener plazo y la pantalla deja de mandar a esperar el cierre.
+
+**Qué se quitó** (`cash-count-sla.service.ts`):
+- El plazo `SLA_MIN = 45` y su escalamiento `CRITICO_MIN = 720`.
+- Los hallazgos `arqueo_no_realizado` que el cron emitía por reloj a la bandeja del supervisor, y el `notifyBadCut` del corte vencido.
+- El aviso "haz tu arqueo" que salía **5 min después** de que Kepler cerraba (`avisarCajeras`).
+- En la pantalla: el "Hace N minutos/horas" bajo el aviso de cierre, y el helper `hace()` que quedó huérfano.
+
+**Qué se conservó, y por qué no es lo mismo:**
+- **`cumplimiento()`** — el tablero de qué cortes llegaron a tener conteo y cuánto tardaron. **Quitar el reloj no es dejar de mirar**: sin esto volveríamos a la ceguera que SM.21 destapó (76 de 78 cortes cerrados sin conteo). Es reporte, no cronómetro. El umbral de 12 h sobrevive ahí, renombrado a `NO_CONTABLE_MIN`, porque **no es un plazo que alguien incumple: es un hecho físico** — pasadas 12 h el efectivo ya se depositó o se mezcló y el corte no se puede contar.
+- **`avisarRetiros()`** — "contá lo que estás sacando" cuando Kepler pide el retiro, **con el turno todavía abierto**. Es exactamente la ventana que esta decisión abre: contar sólo al cierre verifica ~$9,000 de $27,000 cobrados, porque el resto ya salió en sangrías.
+
+**Lo que se descubrió al implementarlo:** el backend **siempre** aceptó arquear un turno abierto — `anclarAlTurno` toma el turno que Kepler tenga abierto y no exige `cerrado`. Lo que faltaba era que la pantalla lo dijera: el chip "Te toca arquear" sólo aparecía con la caja cerrada y el bloque grande decía *"Kepler cerró tu caja"*, así que se leía como una espera obligatoria. Ahora el turno abierto muestra **"Podés arquear ahora — no hace falta esperar el corte"**.
+
+**Lo que NO se tocó, a propósito:**
+- **La regla de orden (SM.16)**: los cortes se siguen cerrando del más viejo al más nuevo, y el backend lo sigue exigiendo. Es una regla distinta del cronómetro — evita que se cuente "el que conviene" y se deje envejecer el otro.
+- **El aviso de corte típico (SM.17)** — *"suele cortar a las 20:35 (±12 min)"*. No es un plazo: con el arqueo permitido en turno abierto pasa a ser justo la información útil para elegir cuándo contar.
+- **La regla `arqueo_no_realizado`** sigue registrada en el motor porque los hallazgos históricos la referencian; **ya nadie la emite**.
+
+⚠️ **Deuda menor:** el archivo y la clase conservan el nombre `…Sla…` y ya no hay SLA ahí. No se renombró para no arrastrar el cambio por el módulo y el controller — y porque #81, pendiente de review, toca esos mismos archivos.
+
 ## SM.21–SM.23 — Que el arqueo OCURRA, y que cubra el dinero completo (✅ local 2026-09-03)
 
 ### SM.21 — El corte sin contar deja de ser invisible
