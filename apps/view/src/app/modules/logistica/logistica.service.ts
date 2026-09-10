@@ -1347,6 +1347,12 @@ export class LogisticaService {
   assignmentTemplate(): Observable<AssignmentTemplate> {
     return this.http.get<AssignmentTemplate>(`${this.base}/fleet/assignment-template`);
   }
+  /** Lookup angosto de cuentas para vincular a una ficha (mín. 2 caracteres). */
+  linkableUsers(search: string): Observable<LinkableUser[]> {
+    return this.http.get<LinkableUser[]>(`${this.base}/fleet/linkable-users`, {
+      params: new HttpParams().set('search', search),
+    });
+  }
   entitlementsByDriver(onlyWithRights = false): Observable<DriverEntitlements[]> {
     const p = onlyWithRights ? new HttpParams().set('only_with_rights', 'true') : undefined;
     return this.http.get<DriverEntitlements[]>(`${this.base}/fleet/entitlements`, { params: p });
@@ -1578,6 +1584,8 @@ export interface BuildShipmentResult {
 // ── FC.1 Asignación vehicular ────────────────────────────────────────────────
 
 export type EntitlementCapacity = 'chofer' | 'responsable_administrativo' | 'ayudante';
+
+export interface LinkableUser { id: string; username: string; nombre: string; }
 export type ConditionGrade = 'M' | 'R' | 'B';
 
 export interface AssignmentTemplate {

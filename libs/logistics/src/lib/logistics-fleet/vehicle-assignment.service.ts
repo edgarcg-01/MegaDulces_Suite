@@ -69,6 +69,37 @@ export class VehicleAssignmentService {
     };
   }
 
+  /**
+   * Lookup ANGOSTO de cuentas del sistema, para vincular una ficha de personal
+   * a su usuario al darla de alta.
+   *
+   * No se reusa `GET /users`: exige `USUARIOS_VER`, que el encargado de flotilla
+   * no tiene — le daría 403 justo en el flujo que necesita. Acá se expone lo
+   * mínimo (id, usuario, nombre) y sólo por BÚSQUEDA: sin término no devuelve
+   * nada, así que sirve para encontrar a alguien, no para enumerar la plantilla.
+   * Se omiten las cuentas ya vinculadas a otra ficha.
+   */
+  async linkableUsers(search?: string) {
+    const q = (search || '').trim();
+    if (q.length < 2) return [];
+    return this.tk.run(async (trx) =>
+      trx('identity.users as u')
+        .whereRaw('u.tenant_id = public.current_tenant_id()')
+        .where('u.activo', true)
+        .whereNull('u.deleted_at')
+        .whereNotExists(function (this: any) {
+          this.select(trx.raw('1'))
+            .from('logistics.drivers as d')
+            .whereRaw('d.user_id = u.id')
+            .whereNull('d.deleted_at');
+        })
+        .andWhere((qb: any) => qb.whereILike('u.nombre', `%${q}%`).orWhereILike('u.username', `%${q}%`))
+        .select('u.id', 'u.username', 'u.nombre')
+        .orderBy('u.nombre')
+        .limit(20),
+    );
+  }
+
   // ── DERECHO de uso ───────────────────────────────────────────────────────
 
   /**

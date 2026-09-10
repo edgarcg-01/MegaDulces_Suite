@@ -56,6 +56,13 @@ export class LogisticsFleetController {
     return this.assignments.getTemplate();
   }
 
+  @Get('linkable-users')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Buscar cuentas del sistema para vincular a una ficha (mín. 2 caracteres)' })
+  linkableUsers(@Query('search') search?: string) {
+    return this.assignments.linkableUsers(search);
+  }
+
   @Get('entitlements')
   @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
   @ApiOperation({ summary: 'A qué unidades tiene derecho cada colaborador (agrupado)' })
