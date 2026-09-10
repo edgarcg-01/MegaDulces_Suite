@@ -1922,8 +1922,14 @@ export interface SalesByRouteDetail {
   route_code: string;
   warehouse_name: string;
   year: number;
-  /** `lines` habilita los dos promedios: units/lines = profundidad, lines/tickets = surtido. */
+  /** `lines` habilita units/lines = profundidad (cuánto se llevan de cada producto). */
   totals: { revenue: number; units: number; tickets: number; skus: number; clients: number; lines: number };
+  /** RR4 — Promedios POR CLIENTE identificado (un cliente = una observación), no por ticket.
+   *  El público ("Mostrador a bordo") no tiene identidad → fuera del promedio y declarado en `public_pct`. */
+  per_client: {
+    clients: number; revenue: number; public_revenue: number; public_pct: number;
+    avg_revenue: number; avg_skus: number; avg_tickets: number; avg_lines: number; avg_units: number;
+  };
   products: { sku: string; name: string; units: number; revenue: number; share_pct: number; lines: number; units_per_line: number }[];
   daily: { date: string; revenue: number; units: number; tickets: number }[];
   clients: { code: string; name: string; revenue: number; units: number; tickets: number; is_public: boolean }[];
