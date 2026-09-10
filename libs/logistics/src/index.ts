@@ -4,6 +4,8 @@
 // @megadulces/contracts (Port de fulfillment). NO importa commercial.
 
 export * from './lib/logistics-fleet/logistics-fleet.module';
+export * from './lib/logistics-fleet/vehicle-assignment.service';
+export * from './lib/logistics-fleet/vehicle-assignment-template';
 export * from './lib/logistics-config/logistics-config.module';
 export * from './lib/logistics-shipments/logistics-shipments.module';
 export * from './lib/logistics-guides/logistics-guides.module';
