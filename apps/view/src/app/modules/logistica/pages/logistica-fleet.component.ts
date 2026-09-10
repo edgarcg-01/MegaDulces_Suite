@@ -12,12 +12,14 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { TabsModule } from 'primeng/tabs';
+import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   Driver, DriverRole, LogisticaService, Vehicle, VehicleStatus,
   VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency, FuelEfficiencyReport, FuelTransaction,
+  DriverEntitlements, VehicleEntitlement, VehicleAssignment, EntitlementCapacity, AssignmentTemplate, ConditionGrade,
 } from '../logistica.service';
 
 const VEHICLE_STATUS_OPTIONS: { label: string; value: VehicleStatus }[] = [
@@ -52,7 +54,7 @@ function severityForDriverStatus(s: string): Severity {
     CommonModule, FormsModule, ReactiveFormsModule,
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, SelectModule, MultiSelectModule, DatePickerModule,
-    TagModule, TabsModule, ToastModule, ConfirmDialogModule,
+    TagModule, TabsModule, TooltipModule, ToastModule, ConfirmDialogModule,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -70,7 +72,9 @@ function severityForDriverStatus(s: string): Severity {
       <p-tabs value="vehicles">
         <p-tablist>
           <p-tab value="vehicles"><i class="pi pi-truck"></i> Unidades ({{ vehicles().length }})</p-tab>
-          <p-tab value="drivers"><i class="pi pi-id-card"></i> Choferes / ayudantes ({{ drivers().length }})</p-tab>
+          <p-tab value="drivers"><i class="pi pi-id-card"></i> Personal ({{ drivers().length }})</p-tab>
+          <p-tab value="entitlements"><i class="pi pi-key"></i> Derechos</p-tab>
+          <p-tab value="assignments"><i class="pi pi-file-edit"></i> Asignaciones ({{ assignments().length }})</p-tab>
           <p-tab value="usage"><i class="pi pi-clock"></i> Uso ({{ usageLogs().length }})</p-tab>
           <p-tab value="maintenance"><i class="pi pi-wrench"></i> Mantenimiento ({{ maintenance().length }})</p-tab>
         </p-tablist>
@@ -327,6 +331,100 @@ function severityForDriverStatus(s: string): Severity {
             </p-table>
           </p-card>
         </p-tabpanel>
+
+        <p-tabpanel value="entitlements">
+          <p class="fc-help">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Qué unidades puede usar cada colaborador. Es el <strong>permiso permanente</strong>, distinto
+            del acta de entrega: revocar aquí no borra el histórico, lo vence.
+          </p>
+          <div class="tab-actions">
+            <button pButton (click)="openGrant()" [disabled]="!drivers().length || !vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Otorgar derecho</span></button>
+            <span class="fc-count">{{ conDerecho() }} de {{ entitlements().length }} colaboradores con al menos una unidad</span>
+          </div>
+          <p-table [value]="entitlements()" [loading]="loadingEnt()" dataKey="driver_id"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--zebra">
+            <ng-template #header>
+              <tr><th scope="col">Colaborador</th><th scope="col">Estado</th><th scope="col">Unidades a las que tiene derecho</th></tr>
+            </ng-template>
+            <ng-template #body let-e>
+              <tr [class.fc-sin]="!e.vehicles.length">
+                <td class="strong">{{ e.full_name }}</td>
+                <td><p-tag [severity]="severityDrv(e.status)" [value]="e.status"></p-tag></td>
+                <td>
+                  @if (e.vehicles.length) {
+                    <div class="fc-chips">
+                      @for (v of e.vehicles; track v.entitlement_id) {
+                        <span class="fc-chip" [class.fc-chip--resp]="v.capacity === 'responsable_administrativo'">
+                          <code>{{ v.plate }}</code>
+                          <span class="fc-chip-cap">{{ capacityLabel(v.capacity) }}</span>
+                          <button pButton [text]="true" size="small" severity="secondary"
+                            pTooltip="Revocar" [attr.aria-label]="'Revocar ' + v.plate"
+                            (click)="revoke(v)"><span class="p-button-icon pi pi-times" aria-hidden="true"></span></button>
+                        </span>
+                      }
+                    </div>
+                  } @else {
+                    <span class="muted">Sin unidades autorizadas</span>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="3" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-id-card" aria-hidden="true"></i></div><h3>Sin personal</h3><p>Da de alta colaboradores en la pestaña Personal.</p></div></td></tr></ng-template>
+          </p-table>
+        </p-tabpanel>
+
+        <p-tabpanel value="assignments">
+          <p class="fc-help">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            El <strong>formato de asignación vehicular</strong>: folio, kilometraje, responsable, chofer
+            y el estado físico de la unidad al entregarla.
+          </p>
+          <div class="tab-actions">
+            <button pButton (click)="openAssignment()" [disabled]="!vehicles().length"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nueva asignación</span></button>
+          </div>
+          <p-table [value]="assignments()" [loading]="loadingAsg()"
+            styleClass="p-datatable-sm surf-table surf-table--sticky surf-table--frozen-first surf-table--zebra">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Folio</th><th scope="col">Unidad</th><th scope="col">Responsable</th>
+                <th scope="col">Chofer</th><th scope="col">Área</th>
+                <th scope="col" class="num">Km</th><th scope="col">Entrega</th>
+                <th scope="col">Estado físico</th><th scope="col">Estado</th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-a>
+              <tr>
+                <td class="strong">{{ a.folio }}</td>
+                <td><code>{{ a.plate }}</code> <span class="small muted">{{ a.model || '' }}</span></td>
+                <td>{{ a.responsible_name || '—' }}</td>
+                <td>{{ a.driver_name || '—' }}</td>
+                <td class="small">{{ a.area || '—' }}</td>
+                <td class="num">{{ a.odometer != null ? (a.odometer | number:'1.0-0') : '—' }}</td>
+                <td>{{ a.assigned_on | date:'shortDate' }}</td>
+                <td>
+                  @if (conditionSummary(a); as c) {
+                    <span class="fc-cond">
+                      @if (c.M) { <span class="fc-g fc-g--m" [pTooltip]="'Malo: ' + c.M">{{ c.M }}M</span> }
+                      @if (c.R) { <span class="fc-g fc-g--r" [pTooltip]="'Regular: ' + c.R">{{ c.R }}R</span> }
+                      @if (c.B) { <span class="fc-g fc-g--b" [pTooltip]="'Bueno: ' + c.B">{{ c.B }}B</span> }
+                      @if (!c.M && !c.R && !c.B) { <span class="muted">sin capturar</span> }
+                    </span>
+                  }
+                </td>
+                <td><p-tag [severity]="a.status === 'vigente' ? 'success' : 'secondary'" [value]="a.status"></p-tag></td>
+                <td class="actions">
+                  @if (a.status === 'vigente') {
+                    <button pButton size="small" severity="secondary" [text]="true" pTooltip="Registrar devolución"
+                      (click)="returnAssignment(a)"><span class="p-button-icon pi pi-reply" aria-hidden="true"></span></button>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage><tr><td colspan="10" class="comm-empty-cell"><div class="comm-empty"><div class="comm-empty-icon"><i class="pi pi-file-edit" aria-hidden="true"></i></div><h3>Sin actas</h3><p>Registra la primera asignación vehicular.</p></div></td></tr></ng-template>
+          </p-table>
+        </p-tabpanel>
       </p-tabpanels>
     </p-tabs>
     </div>
@@ -551,8 +649,139 @@ function severityForDriverStatus(s: string): Severity {
         [loading]="savingD()" [disabled]="dForm.invalid" (click)="saveDriver()"></p-button>
       </ng-template>
     </p-dialog>
+
+    <!-- FC.1 — Otorgar derecho de uso -->
+    <p-dialog [(visible)]="grantDialog" [modal]="true" [draggable]="false" [style]="{ width: '520px' }"
+      header="Otorgar derecho de uso">
+      <form [formGroup]="grantForm" class="form">
+        <label><span>Colaborador</span>
+          <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+            [filter]="true" filterBy="full_name" placeholder="Elegir" appendTo="body"></p-select>
+        </label>
+        <label><span>Unidad</span>
+          <p-select formControlName="vehicle_id" [options]="vehicles()" optionLabel="plate" optionValue="id"
+            [filter]="true" filterBy="plate,model" placeholder="Elegir" appendTo="body"></p-select>
+        </label>
+        <label><span>Carácter</span>
+          <p-select formControlName="capacity" [options]="capacityOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
+        </label>
+        <label><span>Notas</span><input pInputText formControlName="notes" /></label>
+      </form>
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="grantDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingEnt()" [disabled]="grantForm.invalid" (click)="saveGrant()"><span class="p-button-label">Otorgar</span></button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- FC.1 — Acta de asignación vehicular -->
+    <p-dialog [(visible)]="assignmentDialog" [modal]="true" [draggable]="false" [style]="{ width: '900px' }"
+      header="Formato de asignación vehicular">
+      <form [formGroup]="assignmentForm" class="fc-asg-form">
+        <label><span>Folio</span><input pInputText formControlName="folio" placeholder="p. ej. 2-4-26" /></label>
+        <label><span>Unidad</span>
+          <p-select formControlName="vehicle_id" [options]="vehicles()" optionLabel="plate" optionValue="id"
+            [filter]="true" filterBy="plate,model" placeholder="Elegir" appendTo="body"></p-select>
+        </label>
+        <label><span>Fecha de entrega</span>
+          <p-datepicker formControlName="assigned_on" dateFormat="dd/mm/yy" appendTo="body"></p-datepicker>
+        </label>
+        <label><span>Responsable</span>
+          <p-select formControlName="responsible_driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+            [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+        </label>
+        <label><span>Chofer</span>
+          <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+            [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+        </label>
+        <label><span>Área</span><input pInputText formControlName="area" /></label>
+        <label><span>Kilometraje</span><p-inputnumber formControlName="odometer" [min]="0"></p-inputnumber></label>
+      </form>
+
+      @if (template(); as tpl) {
+        <div class="fc-cond-head">
+          <h4>Estado de la unidad</h4>
+          <span class="fc-count">{{ capturados }} de {{ tpl.items.length }} conceptos calificados</span>
+        </div>
+        @for (sec of ['interiores', 'exteriores', 'accesorios']; track sec) {
+          <details class="fc-sec" open>
+            <summary>{{ sec | titlecase }}</summary>
+            <div class="fc-grid">
+              @for (it of itemsOf($any(sec)); track it.id) {
+                <div class="fc-item">
+                  <span class="fc-item-label">{{ it.label }}</span>
+                  <div class="fc-grades" role="group" [attr.aria-label]="it.label">
+                    @for (g of tpl.grades; track g.value) {
+                      <button type="button" class="fc-grade" [class.on]="gradeOf(it.id) === g.value"
+                        [attr.aria-pressed]="gradeOf(it.id) === g.value" [pTooltip]="g.label"
+                        (click)="setGrade(it.id, g.value)">{{ g.value }}</button>
+                    }
+                  </div>
+                </div>
+              }
+            </div>
+          </details>
+        }
+      }
+
+      <label class="fc-obs"><span>Observaciones</span>
+        <input pInputText [formControl]="$any(assignmentForm.get('observations'))" placeholder="Lo que va escrito al pie de la hoja" />
+      </label>
+      <label class="fc-check">
+        <input type="checkbox" [formControl]="$any(assignmentForm.get('grant_entitlements'))" />
+        <span>Otorgar el derecho de uso al chofer y al responsable (como el papel firmado)</span>
+      </label>
+
+      <ng-template #footer>
+        <button pButton severity="secondary" [outlined]="true" (click)="assignmentDialog = false"><span class="p-button-label">Cancelar</span></button>
+        <button pButton [loading]="savingAsg()" [disabled]="assignmentForm.invalid" (click)="saveAssignment()"><span class="p-button-label">Registrar acta</span></button>
+      </ng-template>
+    </p-dialog>
+
     `,
   styles: [`
+    /* ── FC.1 Derechos + actas de asignación ─────────────────────────────── */
+    .fc-help { display:flex; gap:.45rem; align-items:flex-start; margin:0 0 .75rem;
+      font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-help i { color:var(--action); margin-top:.15rem; }
+    .fc-count { font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-sin td { opacity:.62; }
+    .fc-chips { display:flex; flex-wrap:wrap; gap:.35rem; }
+    .fc-chip { display:inline-flex; align-items:center; gap:.35rem; padding:.1rem .1rem .1rem .45rem;
+      border:1px solid var(--c-divider); border-radius:var(--r-sm,6px); background:var(--c-surface-2); }
+    .fc-chip code { font-size:var(--fs-xs); }
+    .fc-chip--resp { border-color:var(--action); }
+    .fc-chip-cap { font-size:var(--fs-xs); color:var(--c-text-2); }
+    .fc-cond { display:inline-flex; gap:.25rem; }
+    .fc-g { font-size:var(--fs-xs); font-weight:var(--fw-medium); padding:.05rem .3rem;
+      border-radius:var(--r-sm,6px); border:1px solid var(--c-divider); }
+    .fc-g--m { color:var(--bad-fg); border-color:var(--bad-fg); }
+    .fc-g--r { color:var(--warn-fg, var(--action)); border-color:var(--warn-fg, var(--action)); }
+    .fc-g--b { color:var(--ok-fg); border-color:var(--ok-fg); }
+
+    .fc-asg-form { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+      gap:.75rem; margin-bottom:1rem; }
+    .fc-asg-form label { display:flex; flex-direction:column; gap:.25rem; }
+    .fc-asg-form label > span { font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-cond-head { display:flex; justify-content:space-between; align-items:baseline;
+      border-top:1px solid var(--c-divider); padding-top:.75rem; margin-bottom:.5rem; }
+    .fc-cond-head h4 { margin:0; font-size:var(--fs-md); }
+    .fc-sec { margin-bottom:.6rem; }
+    .fc-sec > summary { cursor:pointer; font-weight:var(--fw-medium); padding:.3rem 0;
+      font-size:var(--fs-sm); text-transform:capitalize; }
+    .fc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:.3rem .9rem; }
+    .fc-item { display:flex; align-items:center; justify-content:space-between; gap:.5rem;
+      padding:.15rem 0; border-bottom:1px dotted var(--c-divider); }
+    .fc-item-label { font-size:var(--fs-sm); }
+    .fc-grades { display:inline-flex; gap:.15rem; flex:0 0 auto; }
+    .fc-grade { width:1.6rem; height:1.6rem; border:1px solid var(--c-divider); background:transparent;
+      border-radius:var(--r-sm,6px); cursor:pointer; font:inherit; font-size:var(--fs-xs);
+      font-weight:var(--fw-medium); color:var(--c-text-2); }
+    .fc-grade:hover { background:var(--overlay-hover); }
+    .fc-grade:focus-visible { outline:2px solid var(--action); outline-offset:1px; }
+    .fc-grade.on { background:var(--action); border-color:var(--action); color:var(--action-ink,#fff); }
+    .fc-obs { display:flex; flex-direction:column; gap:.25rem; margin-top:.75rem; }
+    .fc-obs > span { font-size:var(--fs-sm); color:var(--c-text-2); }
+    .fc-check { display:flex; align-items:center; gap:.5rem; margin-top:.6rem; font-size:var(--fs-sm); }
     :host { display:block; }
     .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
@@ -618,6 +847,37 @@ export class LogisticaFleetComponent {
     odometer_km: [null as number | null],
     station: [''],
   });
+  // ── FC.1 Derechos + actas de asignación ──────────────────────────────────
+  readonly entitlements = signal<DriverEntitlements[]>([]);
+  readonly assignments = signal<VehicleAssignment[]>([]);
+  readonly template = signal<AssignmentTemplate | null>(null);
+  readonly loadingEnt = signal(false);
+  readonly loadingAsg = signal(false);
+  readonly savingEnt = signal(false);
+  readonly savingAsg = signal(false);
+  readonly conDerecho = computed(() => this.entitlements().filter((e) => e.vehicles.length > 0).length);
+  grantDialog = false;
+  assignmentDialog = false;
+  /** Calificación M/R/B en captura, por concepto. */
+  readonly condition = signal<Record<string, ConditionGrade>>({});
+  grantForm: FormGroup = this.fb.group({
+    driver_id: [null as string | null, Validators.required],
+    vehicle_id: [null as string | null, Validators.required],
+    capacity: ['chofer' as EntitlementCapacity, Validators.required],
+    notes: [''],
+  });
+  assignmentForm: FormGroup = this.fb.group({
+    folio: ['', Validators.required],
+    vehicle_id: [null as string | null, Validators.required],
+    responsible_driver_id: [null as string | null],
+    driver_id: [null as string | null],
+    area: [''],
+    odometer: [null as number | null],
+    assigned_on: [new Date(), Validators.required],
+    observations: [''],
+    grant_entitlements: [true],
+  });
+
   readonly loadingUsage = signal(false);
   readonly loadingMaint = signal(false);
   readonly savingUsage = signal(false);
@@ -694,6 +954,9 @@ export class LogisticaFleetComponent {
     this.loadDrivers();
     this.loadUsage();
     this.loadMaintenance();
+    this.loadEntitlements();
+    this.loadAssignments();
+    this.api.assignmentTemplate().subscribe({ next: (t) => this.template.set(t), error: () => {} });
 
     // Autollenar km del odómetro al elegir unidad (check-in + mantenimiento).
     this.checkInForm.get('vehicle_id')!.valueChanges.subscribe((id) => this.fillOdometer(id, this.checkInForm, 'check_in_km'));
@@ -859,6 +1122,139 @@ export class LogisticaFleetComponent {
       },
     });
   }
+
+
+  // ── FC.1 Derechos de uso ──────────────────────────────────────────────────
+
+  capacityLabel(c: EntitlementCapacity): string {
+    return c === 'responsable_administrativo' ? 'responsable' : c;
+  }
+
+  loadEntitlements() {
+    this.loadingEnt.set(true);
+    this.api.entitlementsByDriver().subscribe({
+      next: (r) => { this.entitlements.set(r || []); this.loadingEnt.set(false); },
+      error: () => this.loadingEnt.set(false),
+    });
+  }
+
+  openGrant() {
+    this.grantForm.reset({ driver_id: null, vehicle_id: null, capacity: 'chofer', notes: '' });
+    this.grantDialog = true;
+  }
+
+  saveGrant() {
+    if (this.grantForm.invalid) return;
+    this.savingEnt.set(true);
+    this.api.grantEntitlement(this.grantForm.value).subscribe({
+      next: () => {
+        this.savingEnt.set(false); this.grantDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Derecho otorgado' });
+        this.loadEntitlements();
+      },
+      error: (err) => {
+        this.savingEnt.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo otorgar', detail: err?.error?.message || 'Error' });
+      },
+    });
+  }
+
+  revoke(v: VehicleEntitlement) {
+    this.confirm.confirm({
+      message: `¿Revocar el derecho sobre ${v.plate}? Queda en el histórico, no se borra.`,
+      header: 'Revocar derecho',
+      acceptLabel: 'Revocar', rejectLabel: 'Cancelar',
+      accept: () => {
+        this.api.revokeEntitlement(v.entitlement_id!).subscribe({
+          next: () => { this.toast.add({ severity: 'success', summary: 'Derecho revocado' }); this.loadEntitlements(); },
+          error: (err) => this.toast.add({ severity: 'error', summary: 'No se pudo revocar', detail: err?.error?.message || 'Error' }),
+        });
+      },
+    });
+  }
+
+  // ── FC.1 Actas de asignación ──────────────────────────────────────────────
+
+  loadAssignments() {
+    this.loadingAsg.set(true);
+    this.api.listAssignments().subscribe({
+      next: (r) => { this.assignments.set(r || []); this.loadingAsg.set(false); },
+      error: () => this.loadingAsg.set(false),
+    });
+  }
+
+  /** Cuántas piezas quedaron en cada calificación. Sin capturar NO cuenta como bueno. */
+  conditionSummary(a: VehicleAssignment): { M: number; R: number; B: number } {
+    const out = { M: 0, R: 0, B: 0 };
+    for (const g of Object.values(a.condition || {})) {
+      if (g === 'M' || g === 'R' || g === 'B') out[g]++;
+    }
+    return out;
+  }
+
+  itemsOf(section: 'interiores' | 'exteriores' | 'accesorios') {
+    return (this.template()?.items || []).filter((i) => i.section === section);
+  }
+
+  setGrade(itemId: string, grade: ConditionGrade) {
+    this.condition.update((c) => ({ ...c, [itemId]: grade }));
+  }
+
+  gradeOf(itemId: string): ConditionGrade | null {
+    return this.condition()[itemId] ?? null;
+  }
+
+  get capturados(): number { return Object.keys(this.condition()).length; }
+
+  openAssignment() {
+    this.assignmentForm.reset({
+      folio: '', vehicle_id: null, responsible_driver_id: null, driver_id: null,
+      area: '', odometer: null, assigned_on: new Date(), observations: '', grant_entitlements: true,
+    });
+    this.condition.set({});
+    this.assignmentDialog = true;
+  }
+
+  saveAssignment() {
+    if (this.assignmentForm.invalid) return;
+    const v = this.assignmentForm.value;
+    const fecha: Date = v.assigned_on instanceof Date ? v.assigned_on : new Date(v.assigned_on);
+    // Fecha en local, no toISOString(): en MX (UTC−6) el ISO de una fecha
+    // elegida en el calendario cae el día anterior.
+    const iso = `${fecha.getFullYear()}-${String(fecha.getMonth() + 1).padStart(2, '0')}-${String(fecha.getDate()).padStart(2, '0')}`;
+    this.savingAsg.set(true);
+    this.api.createAssignment({ ...v, assigned_on: iso, condition: this.condition() }).subscribe({
+      next: () => {
+        this.savingAsg.set(false); this.assignmentDialog = false;
+        this.toast.add({ severity: 'success', summary: 'Acta registrada' });
+        this.loadAssignments(); this.loadEntitlements(); this.loadVehicles();
+      },
+      error: (err) => {
+        this.savingAsg.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo registrar', detail: err?.error?.message || 'Error' });
+      },
+    });
+  }
+
+  returnAssignment(a: VehicleAssignment) {
+    this.confirm.confirm({
+      message: `¿Registrar la devolución de ${a.plate} (acta ${a.folio})? La unidad queda libre para reasignarse.`,
+      header: 'Devolución de unidad',
+      acceptLabel: 'Registrar', rejectLabel: 'Cancelar',
+      accept: () => {
+        this.api.returnAssignment(a.id).subscribe({
+          next: () => { this.toast.add({ severity: 'success', summary: 'Devolución registrada' }); this.loadAssignments(); },
+          error: (err) => this.toast.add({ severity: 'error', summary: 'No se pudo', detail: err?.error?.message || 'Error' }),
+        });
+      },
+    });
+  }
+
+  readonly capacityOptions: { label: string; value: EntitlementCapacity }[] = [
+    { label: 'Chofer', value: 'chofer' },
+    { label: 'Responsable administrativo', value: 'responsable_administrativo' },
+    { label: 'Ayudante', value: 'ayudante' },
+  ];
 
   severityVeh(s: VehicleStatus): Severity { return severityForVehicleStatus(s); }
   severityDrv(s: string): Severity { return severityForDriverStatus(s); }

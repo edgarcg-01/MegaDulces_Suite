@@ -22,6 +22,11 @@ import {
   UpdateDriverDto,
   DriverRole,
 } from './logistics-fleet.service';
+import {
+  VehicleAssignmentService,
+  GrantEntitlementDto,
+  CreateAssignmentDto,
+} from './vehicle-assignment.service';
 
 /**
  * `[AUTHZ.5]` — Este controller no tenía **ningún** decorador de autorización, ni de clase ni de
@@ -35,7 +40,77 @@ import {
 @ApiTags('logistics-fleet')
 @Controller('logistics/fleet')
 export class LogisticsFleetController {
-  constructor(private readonly service: LogisticsFleetService) {}
+  constructor(
+    private readonly service: LogisticsFleetService,
+    private readonly assignments: VehicleAssignmentService,
+  ) {}
+
+  // ── FC.1 Derecho de uso + acta de asignación ─────────────────────────────
+  // Todo el expediente de la unidad vive en Flotilla: quién puede usarla, con
+  // qué carácter, y en qué estado se la entregaron.
+
+  @Get('assignment-template')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Catálogo del formato de asignación (conceptos + escala M/R/B)' })
+  assignmentTemplate() {
+    return this.assignments.getTemplate();
+  }
+
+  @Get('entitlements')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'A qué unidades tiene derecho cada colaborador (agrupado)' })
+  entitlements(@Query('only_with_rights') onlyWith?: string) {
+    return this.assignments.entitlementsByDriver({ only_with_rights: onlyWith === 'true' });
+  }
+
+  @Get('vehicles/:id/entitlements')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Quién puede usar esta unidad' })
+  entitlementsOfVehicle(@Param('id') id: string) {
+    return this.assignments.entitlementsByVehicle(id);
+  }
+
+  @Post('entitlements')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Otorgar derecho de uso de una unidad a un colaborador' })
+  grantEntitlement(@Body() body: GrantEntitlementDto) {
+    return this.assignments.grant(body);
+  }
+
+  @Delete('entitlements/:id')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Revocar (vencer) un derecho. No se borra: queda el histórico.' })
+  revokeEntitlement(@Param('id') id: string) {
+    return this.assignments.revoke(id);
+  }
+
+  @Get('assignments')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_VER)
+  @ApiOperation({ summary: 'Actas de asignación vehicular' })
+  listAssignments(
+    @Query('vehicle_id') vehicleId?: string,
+    @Query('driver_id') driverId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.assignments.listAssignments({ vehicle_id: vehicleId, driver_id: driverId, status });
+  }
+
+  @Post('assignments')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Registrar acta de asignación (formato en papel digitalizado)' })
+  createAssignment(@Body() body: CreateAssignmentDto) {
+    return this.assignments.createAssignment(body);
+  }
+
+  @Post('assignments/:id/return')
+  @RequirePermissions(Permission.LOGISTICS_FLEET_GESTIONAR)
+  @ApiOperation({ summary: 'Registrar la devolución de la unidad' })
+  returnAssignment(
+    @Param('id') id: string,
+    @Body() body: { released_on?: string; observations?: string },
+  ) {
+    return this.assignments.returnAssignment(id, body);
+  }
 
   // ── Vehicles ─────────────────────────────────────────────────────────────
 

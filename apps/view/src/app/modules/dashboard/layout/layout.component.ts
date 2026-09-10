@@ -351,7 +351,6 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Rastreo',       icon: 'pi pi-map-marker', route: '/logistica/tracking', permission: Permission.LOGISTICS_FLEET_VER },
         { label: 'Flotilla',      icon: 'pi pi-car',        route: '/logistica/fleet',    permission: Permission.LOGISTICS_FLEET_VER },
-        { label: 'Personal',      icon: 'pi pi-users',      route: '/logistica/staff',    permission: Permission.LOGISTICS_FLEET_VER },
         { label: 'Liquidaciones', icon: 'pi pi-wallet',     route: '/logistica/payroll',  permission: Permission.LOGISTICS_PAYROLL_VER },
       ],
     },
