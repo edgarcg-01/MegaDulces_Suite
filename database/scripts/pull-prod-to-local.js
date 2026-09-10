@@ -29,11 +29,13 @@
  * de llegar desnudo. Eso convierte una violación de regla en algo medido.
  *
  * ── Subcomandos ──────────────────────────────────────────────────────────────
- *   doctor       corre todos los frenos y NO TOCA NADA. Es lo único que existe hoy.
+ *   doctor       corre todos los frenos y NO TOCA NADA
+ *   seed         restaura el respaldo nocturno + ANALYZE + refresca matviews
+ *   refresh-mv   las matviews, una por una; la que falla se DECLARA
+ *   migrate      drift + ledger fantasma + knex, de a UNA (como hace prod)
+ *   grants       replica la MATRIZ de permisos de prod, no un GRANT ALL
  *   plan         (pendiente) deriva `mirror.plan` del catálogo de prod
- *   seed         (pendiente) siembra por pg_dump/pg_restore
- *   migrate      (pendiente) knex + detector del ledger fantasma
- *   delta        (pendiente) las cuatro carriles
+ *   delta        (pendiente) los cuatro carriles
  *   reconcile    (pendiente) anti-join de PKs con --max-pct
  *   status       (pendiente) lee mirror.pull_ctl, veredicto ternario
  *
@@ -623,16 +625,46 @@ async function migrate(opts) {
       disableMigrationsListValidation: true,
     },
   });
+  // UNA POR UNA con `migrate.up()`, no `migrate.latest()`.
+  //
+  // Knex envuelve **el lote entero en UNA transacción**, así que si la última de
+  // 14 falla, se revierten las 14. Pasó acá: `20260909170000_sellout_dedup_madero_07`
+  // falló por una matview sin poblar y el ledger se quedó donde estaba, después
+  // de media hora de trabajo.
+  //
+  // Y hay un precedente que lo zanja: **prod las aplica de a una**. Medido en su
+  // ledger, cada migración tiene su propio batch (338, 339, … 353), porque se
+  // corren con `apply-one-migration-prod.js`. Acá se hace igual: una lenta no
+  // arrastra a las otras, cada transacción es corta, y lo que entra queda.
+  const t0 = Date.now();
+  const hechas = []; let fallo = null;
   try {
-    console.log('\ncorriendo migrate:latest…');
-    const [lote, corridas] = await knex.migrate.latest();
-    console.log(`  batch ${lote}: ${corridas.length} migraciones`);
-    corridas.forEach((n) => console.log(`   · ${path.basename(n)}`));
-    const quedan = (await knex.migrate.list())[1];
-    console.log(`  pendientes después: ${quedan.length}`);
-    if (quedan.length) { console.log('  ⚠ quedaron pendientes:'); quedan.forEach((n) => console.log('     ·', n.file || n)); }
+    console.log(`\naplicando ${pendientes.length}, de a UNA (como hace prod)…`);
+    for (;;) {
+      const antes = Date.now();
+      let corridas;
+      try {
+        [, corridas] = await knex.migrate.up();
+      } catch (e) {
+        fallo = e;
+        break;
+      }
+      if (!corridas || !corridas.length) break;
+      const seg = ((Date.now() - antes) / 1000).toFixed(1);
+      const nombre = path.basename(corridas[0].file || corridas[0]);
+      console.log(`  ✓ ${String(seg).padStart(7)}s  ${nombre}`);
+      hechas.push(nombre);
+    }
   } finally {
+    const quedan = (await knex.migrate.list().catch(() => [[], []]))[1] || [];
+    console.log(`\n  aplicadas: ${hechas.length} en ${((Date.now() - t0) / 60000).toFixed(1)} min · pendientes: ${quedan.length}`);
+    if (fallo) {
+      console.log(`  ✗ se detuvo en la siguiente: ${String(fallo.message).slice(0, 160)}`);
+      console.log('    Las anteriores QUEDARON aplicadas (por eso de a una y no en lote).');
+    }
+    quedan.forEach((n) => console.log('     pendiente ·', path.basename(n.file || n)));
     await knex.destroy();
+    if (fallo) process.exitCode = 1;
   }
 }
 
@@ -749,18 +781,36 @@ async function grants() {
 
 /** Se conecta COMO app_runtime y comprueba lo que puede y —sobre todo— lo que NO. */
 async function verificarComoRuntime(target) {
-  const u = new URL(target);
-  u.username = ROL;
-  u.password = process.env.APP_RUNTIME_PASSWORD || ROL;
-  let c;
-  try {
-    c = new Client({ connectionString: u.toString(), connectionTimeoutMillis: 15000 });
-    await c.connect();
-  } catch (e) {
-    console.log(`\n  ⓘ NO MEDIDO: no pude conectarme como ${ROL} (${e.code}). Pasá APP_RUNTIME_PASSWORD para verificar.`);
+  // Con qué credencial verificar, en orden. Medido en `.245`: **`platform_runtime`
+  // es MIEMBRO de `app_runtime`**, así que hereda todos los grants de arriba y
+  // sirve igual para comprobarlos — y su contraseña sí está en el `.env`, mientras
+  // que la de `app_runtime` en esa caja no (el default `app_runtime` da 28P01).
+  // Los dos son NOBYPASSRLS, así que la RLS se ejercita con cualquiera de los dos.
+  const candidatos = [];
+  if (process.env.APP_RUNTIME_PASSWORD) {
+    const u = new URL(target); u.username = ROL; u.password = process.env.APP_RUNTIME_PASSWORD;
+    candidatos.push({ rol: ROL, url: u.toString() });
+  }
+  { const u = new URL(target); u.username = ROL; u.password = ROL;
+    candidatos.push({ rol: ROL + ' (contraseña por default)', url: u.toString() }); }
+  if (process.env.DATABASE_URL_NEW_RUNTIME) {
+    const r = new URL(process.env.DATABASE_URL_NEW_RUNTIME); const u = new URL(target);
+    u.username = r.username; u.password = r.password;
+    candidatos.push({ rol: decodeURIComponent(r.username) + ' (hereda de ' + ROL + ')', url: u.toString() });
+  }
+  let c = null; let usado = null; const fallos = [];
+  for (const cand of candidatos) {
+    try {
+      const t = new Client({ connectionString: cand.url, connectionTimeoutMillis: 15000 });
+      await t.connect(); c = t; usado = cand.rol; break;
+    } catch (e) { fallos.push(`${cand.rol}: ${e.code}`); }
+  }
+  if (!c) {
+    console.log(`\n  ⓘ NO MEDIDO: ninguna credencial de runtime conectó (${fallos.join(' · ')}).`);
+    console.log('     Los grants SÍ se aplicaron; lo que falta es la comprobación. Pasá APP_RUNTIME_PASSWORD.');
     return;
   }
-  console.log(`\n  verificación conectado COMO ${ROL}:`);
+  console.log(`\n  verificación conectado COMO ${usado}:`);
   const ok = (b, m) => console.log(b ? '   ✓ ' + m : '   ✗ ' + m);
 
   // La trampa #1 del proyecto: sin tenant en la sesión, RLS devuelve 0 filas SIN error.
