@@ -44,9 +44,28 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * CONF SEMIAMARGO 16KG. `cost_base` viene por BULTO; `c16` por pieza o kilo (ADR-051, ADR-055).
  *
  * El costo se LEE de `analytics.v_kepler_unit_cost`, no se re-deriva acá: un primitivo con dos
- * implementaciones es un primitivo que va a divergir. Esa vista aplica el ANTI-RÉPLICA que `kdik`
- * exige (3,667 de 31,084 filas traen el costo de OTRA sucursal; sin el filtro el valor se mueve
- * $864,270). El veredicto por fila vive en `analytics.v_erp_stock_truth`.
+ * implementaciones es un primitivo que va a divergir. Esa vista aplica el filtro que `kdik` exige
+ * (3,667 de 31,084 filas son la RÉPLICA congelada de otra sucursal — probado por identidad
+ * documental: 37,020 de 37,020 folios de suc03/almacén 02 existen idénticos en la sucursal 02, y
+ * publicarlos sería doble conteo de 78,633 unidades). El veredicto por fila vive en
+ * `analytics.v_erp_stock_truth`.
+ *
+ * ⭐⭐ KX (2026-09-09) — DOS COSAS QUE ESTA PANTALLA AHORA DECLARA, y antes daba por sentadas:
+ *
+ *  1. **El costo del ERP es un PROMEDIO PONDERADO HISTÓRICO, no el costo de hoy.** `kdik.c16` es
+ *     `c8/c5`, y `c5` resultó ser las ENTRADAS ACUMULADAS: idéntico a `SUM(kdil.c8)` en **25,143
+ *     de 25,143 pares (100.00%)**. O sea divide el valor acumulado de toda la historia de compras
+ *     entre sus unidades. Contra el último costo conocido (`c18`) la mediana de `c16/c18` es
+ *     **0.9805**: el inventario se valúa **~2% por debajo del costo de reposición**, de forma
+ *     sistemática, y `c18` falta en el 56% de los pares. Valuar a promedio ponderado es legítimo;
+ *     dejar que se lea como costo de reposición no. Por eso la respuesta trae `metodo_valuacion`.
+ *  2. **El catálogo tiene 62 SKUs con sus dos columnas de costo en unidades distintas**, y al
+ *     revés de lo que dicen sus nombres: `cost_with_tax < cost_base`, que ningún impuesto puede
+ *     producir. Contra Kepler, en las 101 filas con existencia, `cost_with_tax / c16` pega en 60
+ *     con mediana **1.000** y `cost_base / c16` en 21 con mediana **10.872** — `cost_base` trae el
+ *     BULTO (`TURIN CONF BLANCO 16KG` $5,002.56 vs $152.11). El fallback va blindado con un LEAST
+ *     y lo cuenta en `celdas_costo_invertido`. Hoy da 0 porque las 101 tienen costo del ERP: es
+ *     una compuerta para el día que Kepler deje de traer una y se valúe ~10.9× arriba.
  *
  * ⚠️ WINCAJA NO CAMBIA — decisión explícita de Edgar ("solo hay que enfocarnos en kepler"). Sus
  * celdas siguen con `COALESCE(cost_with_tax, cost_base)`. Por eso las dos mitades del inventario
@@ -212,10 +231,28 @@ export class ExistenciaService {
                  p.sku, p.nombre,
                  -- KE.2 — el costo sale del MISMO ERP y del MISMO almacen que la cantidad.
                  -- Ver la nota EL COSTO en el encabezado del archivo.
+                 --
+                 -- KX — el fallback del catalogo va BLINDADO con LEAST, y el motivo esta medido:
+                 -- en 62 SKUs las dos columnas del catalogo estan en UNIDADES DISTINTAS y al reves
+                 -- de lo que dicen sus nombres (cost_with_tax MENOR que cost_base, imposible para
+                 -- un impuesto). Contra el costo de Kepler, en esas filas cost_with_tax pega en 60
+                 -- de 101 con mediana 1.000 y cost_base solo en 21, con mediana 10.872: o sea
+                 -- cost_base trae el BULTO. Un LEAST resuelve los dos casos con una expresion:
+                 -- en el caso normal cost_with_tax >= cost_base y gana cost_base (el neto, que es
+                 -- lo que KE.2 quiere); en el invertido gana cost_with_tax (la unidad chica).
+                 -- Hoy ninguna de esas 101 filas llega hasta aca porque todas tienen costo del
+                 -- ERP; esto existe para el dia que Kepler deje de traer una y el fallback la
+                 -- valuaria ~10.9x arriba.
                  COALESCE(kc.costo_unitario,
-                          CASE WHEN s.source = 'kepler_ods' THEN p.cost_base
+                          CASE WHEN s.source = 'kepler_ods'
+                               THEN CASE WHEN COALESCE(p.cost_with_tax, 0) > 0
+                                          AND p.cost_with_tax < p.cost_base
+                                         THEN p.cost_with_tax ELSE p.cost_base END
                                ELSE COALESCE(p.cost_with_tax, p.cost_base) END, 0) AS cu,
                  CASE WHEN kc.costo_unitario IS NOT NULL      THEN 'erp'
+                      WHEN s.source = 'kepler_ods'
+                       AND COALESCE(p.cost_with_tax, 0) > 0
+                       AND p.cost_with_tax < p.cost_base      THEN 'catalogo_columnas_invertidas'
                       WHEN s.source = 'kepler_ods'            THEN 'catalogo_neto'
                       ELSE                                         'catalogo' END AS cu_source
             FROM analytics.v_erp_stock_on_hand s
@@ -280,6 +317,11 @@ export class ExistenciaService {
                  -- descuentan del valor (un costo del catalogo es mejor que ninguno): se CUENTAN,
                  -- para que el total no se lea como si todo estuviera valuado con el costo del ERP.
                  count(*) FILTER (WHERE cu_source <> 'erp' AND nat > 0)::int AS sin_costo_erp,
+                 -- KX — celdas donde el fallback tuvo que corregir las columnas del catalogo
+                 -- (cost_with_tax < cost_base). Hoy da 0 porque todas tienen costo del ERP; si
+                 -- deja de dar 0, el catalogo empezo a valuar bultos como piezas en la pantalla.
+                 count(*) FILTER (WHERE cu_source = 'catalogo_columnas_invertidas' AND nat > 0)::int
+                   AS costo_invertido,
                  sum(rung_arbitrado) FILTER (WHERE NOT (${MEDIBLE}))      AS arbitrado,
                  jsonb_agg(DISTINCT bucket) FILTER (WHERE bucket IS NOT NULL) AS buckets
             FROM src GROUP BY product_id
@@ -291,6 +333,7 @@ export class ExistenciaService {
                  sum(sin_valuar) OVER()::int                 AS _celdas_sin_valuar,
                  sum(sin_factor) OVER()::int                 AS _celdas_sin_factor,
                  sum(sin_costo_erp) OVER()::int              AS _celdas_sin_costo_erp,
+                 sum(costo_invertido) OVER()::int            AS _celdas_costo_invertido,
                  count(*) FILTER (WHERE sin_factor > 0) OVER()::int AS _skus_sin_factor,
                  sum(arbitrado) OVER()                       AS _arbitrado,
                  count(*) FILTER (WHERE sin_valuar > 0) OVER()::int AS _skus_sin_valuar
@@ -349,6 +392,7 @@ export class ExistenciaService {
                   pg.sin_valuar, pg.sin_factor, pg.arbitrado, pg.buckets, pg._skus, pg._valor,
                   pg._celdas_sin_valuar, pg._arbitrado, pg._skus_sin_valuar,
                   pg._celdas_sin_factor, pg._skus_sin_factor, pg._celdas_sin_costo_erp,
+                  pg._celdas_costo_invertido, pg.costo_invertido,
                   pg.sin_costo_erp, tw.per_warehouse
          ORDER BY ${this.sortExpr(q.sort_by)} ${dir} NULLS LAST, pg.sku`;
 
@@ -375,6 +419,16 @@ export class ExistenciaService {
           // se declara: sin esto, el total se lee como si todo estuviera valuado con el costo
           // del almacen (ADR-056).
           celdas_sin_costo_erp: Number(agg._celdas_sin_costo_erp || 0),
+          // KX — el METODO con el que se valuo, dicho en vez de supuesto. El costo del ERP
+          // (kdik.c16 = c8/c5) es un PROMEDIO PONDERADO HISTORICO: c5 son las entradas
+          // acumuladas, identico a SUM(kdil.c8) en 25,143 de 25,143 pares (100.00%). Contra el
+          // ultimo costo conocido (c18) la mediana es 0.9805, o sea el inventario se valua ~2%
+          // por debajo del costo de reposicion, de forma sistematica. Publicarlo sin decirlo
+          // seria hacerlo pasar por costo de reposicion.
+          metodo_valuacion: 'erp_promedio_ponderado_historico',
+          // KX — celdas donde el catalogo trae sus dos columnas de costo en unidades distintas
+          // y el fallback tuvo que elegir la chica. Un 0 aca es la salud esperada.
+          celdas_costo_invertido: Number(agg._celdas_costo_invertido || 0),
           // Lo que el árbitro (el costo pagado) SÍ puede afirmar de lo retenido. Es REFERENCIA
           // para revisar, no una cifra publicable — el front tiene que rotularla así.
           arbitrado: agg._arbitrado == null ? null : Number(agg._arbitrado),

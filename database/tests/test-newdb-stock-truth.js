@@ -31,6 +31,24 @@
  * unidad**. Sólo 2 de 1,796 tienen la firma de caja (`salidas/bf == entradas`), la mediana de
  * `salidas/entradas` es **1.090** — no 12 ni 24 — y 729 no tienen entradas en absoluto.
  *
+ * ⚠️⚠️ **Y UNA RETRACTACIÓN MÍA, EL MISMO DÍA.** En el primer pase de KX escribí que la etiqueta
+ * "réplica" del filtro `sucursal = c1` estaba **refutada**, porque contra suc02/alm02 sólo el
+ * 3.66% de las entradas acumuladas coincidía y **1,049 SKUs iban por delante del original**. Eso
+ * era **falso, y el error fue de TESTIGO**: `kdil` es un acumulado recalculable, así que su
+ * divergencia no dice nada sobre el origen de los datos. El testigo fuerte estaba disponible y no
+ * lo usé — la **identidad documental**:
+ *
+ *     docs de suc03 con almacén 02 ............ 37,020
+ *     el mismo (folio, doctype) en la suc 02 .. 37,020  = 100.00%   -> ES RÉPLICA
+ *     la réplica llega a 2026-01-07; la sucursal 02 real llega a hoy  -> CONGELADA
+ *
+ * Y publicarla costaría caro: de 2,594 celdas con existencia, **1,771 (78,633 u) tienen el SKU ya
+ * publicado desde la sucursal 02** — doble conteo. **El filtro está correcto y el "hueco" de
+ * 90,630 u no existe: es doble conteo evitado.** La lección se suma a R6 y la matiza: buscar el
+ * patrón en el error es lo correcto, pero **el testigo tiene que ser el más fuerte disponible**, y
+ * una identidad de folios le gana a un acumulado. El bloque 3 ahora asegura la RAZÓN, no la
+ * etiqueta.
+ *
  * ── Lo que NO era verdad: el VALOR ⭐ ───────────────────────────────────────────────────────
  *
  * La existencia se valuaba con `catalog.products` — un costo por PRODUCTO, global, en la unidad
@@ -251,23 +269,27 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
   check('⭐ el costo publicado es, al centavo, el que kdik.c16 tiene escrito',
     trace.n > 0 && trace.iguales === trace.n, `${N(trace.iguales)} de ${N(trace.n)}`);
 
-  // ── 3. ⭐ El filtro `sucursal = c1`: lo que descarta, y lo que NO está probado ──────────────
-  // Este bloque decía «⛔ la réplica existe y por eso el filtro hace falta» con la condición
-  // `replica > 0`. Eso no era una prueba: era la etiqueta. Un check que sólo puede pasar mientras
-  // la columna exista no protege nada, y la etiqueta resultó FALSA al medirla.
+  // ── 3. ⭐⭐ El filtro `sucursal = c1`: por qué hace falta, PROBADO ───────────────────────────
+  // Este bloque tuvo dos versiones malas antes de esta:
   //
-  // Lo medido (prod 2026-09-09): las filas con `c1 <> sucursal` no vienen de varias sucursales —
-  // son TODAS de la sucursal 03, y casi todas del almacén '02' (3,664 filas en `kdil` con
-  // **90,240 unidades netas**; 3,664 en `kdik`). Y la etiqueta "es el costo de OTRA sucursal" no
-  // se sostiene contra suc02/alm02:
-  //     entradas acumuladas idénticas . 134 de 3,664 (3.66%)
-  //     con MÁS entradas en la 03 ..... 1,049       <- una réplica no va por DELANTE del original
-  //     con más entradas en la 02 ..... 1,836
-  //     SKUs que sólo existen en la 03 ... 645
-  // Así que el filtro descarta 90,240 unidades cuya naturaleza NO está establecida. Se declara
-  // como hueco con monto (ADR-056) en vez de afirmarse como réplica, y lo que se asertan son los
-  // hechos: que el descarte existe, que está acotado a la 03, y su tamaño.
-  console.log('\n── 3. ⭐ Lo que descarta el filtro `sucursal = c1` (hueco DECLARADO) ──');
+  //   v1: `check('la réplica existe y por eso el filtro hace falta', replica > 0)`. No era una
+  //       prueba, era la etiqueta: pasa mientras la columna exista.
+  //   v2: al medir el descarte contra suc02/alm02 por **entradas acumuladas de `kdil`** dio
+  //       3.66% idénticas y **1,049 SKUs por DELANTE del original**, y de ahí concluí que la
+  //       etiqueta "réplica" estaba refutada. **Estaba mal, y el error fue de testigo:** `kdil`
+  //       es un ACUMULADO recalculable, así que su divergencia no prueba nada sobre el origen de
+  //       los datos. Había un testigo fuerte disponible y no lo usé.
+  //
+  // El testigo fuerte es la IDENTIDAD DOCUMENTAL, y es concluyente (prod 2026-09-09):
+  //     docs de suc03 con almacén 02 ............. 37,020
+  //     el mismo (folio, doctype) en la suc 02 ... 37,020  = 100.00%   -> ES RÉPLICA
+  //     rango de la réplica ....... 2025-01-01 -> 2026-01-07  (la 02 sigue hasta hoy: CONGELADA)
+  // Y el costo de publicarla, medido: de 2,594 celdas con existencia, **1,771 (78,633 u) tienen
+  // el SKU YA publicado desde la sucursal 02** — sería doble conteo.
+  //
+  // Así que el filtro está CORRECTO y las 90,630 u no son un hueco: son doble conteo evitado.
+  // Lo que este bloque asegura es que la razón siga siendo verdad, no que la etiqueta exista.
+  console.log('\n── 3. ⭐⭐ Por qué hace falta el filtro `sucursal = c1` (identidad documental) ──');
   const rep = (await c.query(
     `SELECT count(*) FILTER (WHERE sucursal = btrim(c1::text))::int propias,
             count(*) FILTER (WHERE sucursal <> btrim(c1::text))::int fuera,
@@ -278,17 +300,52 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
             coalesce(sum(c4+c8-c9) FILTER (WHERE sucursal <> btrim(c1)), 0)::numeric u_fuera
        FROM kepler_ods.kdil WHERE sucursal <> '00'`)).rows[0];
   console.log(`     kdik: ${N(rep.propias)} propias · ${N(rep.fuera)} descartadas, de ${rep.sucs_fuera} sucursal(es)`);
-  console.log(`     kdil: ${N(kdil.fuera)} descartadas = ${N(kdil.u_fuera)} unidades que NO publicamos`);
+  console.log(`     kdil: ${N(kdil.fuera)} descartadas = ${N(kdil.u_fuera)} unidades`);
   check('⛔ el descarte existe y por eso el filtro cambia el resultado', rep.fuera > 0, `${N(rep.fuera)}`);
   check('⛔ el descarte está ACOTADO a una sucursal (si se abre, hay que re-investigarlo)',
     rep.sucs_fuera === 1, `${rep.sucs_fuera} sucursales — ya no es el caso único de la 03`);
-  check('⚠️ el hueco declarado no CRECIÓ (90,240 u medidas; techo 150,000)',
-    Math.abs(Number(kdil.u_fuera)) <= 150000, `${N(kdil.u_fuera)} u`);
+
+  // ⭐⭐ LA PRUEBA FUERTE: el almacén descartado replica documentos de otra sucursal.
+  // `kdm1`: `c1` = almacén y `c6` = FOLIO (lo fija `mart_refresh_ventas.sql`, que selecciona
+  // `h.c1, h.c6, ...` hacia `(almacen, folio, ...)`). ⚠️ Medir `c6` como almacén devuelve 20 MB
+  // de folios sueltos y parece que la sucursal vende desde 4,000 almacenes.
   const dup = (await c.query(
+    `WITH a AS (SELECT btrim(c6) folio, c4 dt FROM kepler_ods.kdm1
+                 WHERE sucursal = '03' AND btrim(c1) = '02' AND c2 = 'U' AND c3 = 'D'),
+          b AS (SELECT btrim(c6) folio, c4 dt FROM kepler_ods.kdm1
+                 WHERE sucursal = '02' AND btrim(c1) = '02' AND c2 = 'U' AND c3 = 'D')
+     SELECT (SELECT count(*) FROM a)::int en_03,
+            (SELECT count(*) FROM a WHERE EXISTS
+               (SELECT 1 FROM b WHERE b.folio = a.folio AND b.dt = a.dt))::int tambien_en_02,
+            (SELECT max(c9)::date FROM kepler_ods.kdm1
+              WHERE sucursal='03' AND btrim(c1)='02' AND c2='U' AND c3='D')::text hasta_03,
+            (SELECT max(c9)::date FROM kepler_ods.kdm1
+              WHERE sucursal='02' AND btrim(c1)='02' AND c2='U' AND c3='D')::text hasta_02`)).rows[0];
+  console.log(`     ${N(dup.en_03)} docs de suc03/alm02 · el mismo (folio,doctype) en la suc 02:`
+    + ` ${N(dup.tambien_en_02)} (${pct(dup.tambien_en_02, dup.en_03).toFixed(2)}%)`);
+  console.log(`     la réplica llega a ${dup.hasta_03} · la sucursal 02 real llega a ${dup.hasta_02} (CONGELADA)`);
+  check('⭐⭐ el almacén descartado REPLICA documentos de otra sucursal (≥ 99% de folios idénticos)',
+    pct(dup.tambien_en_02, dup.en_03) >= 99,
+    `${pct(dup.tambien_en_02, dup.en_03).toFixed(2)}% — si baja, ya no es réplica y el filtro esconde stock real`);
+
+  const doble = (await c.query(
+    `WITH t3 AS (SELECT btrim(c3) sku, GREATEST(SUM(c4+c8-c9),0) qty FROM kepler_ods.kdil
+                  WHERE sucursal='03' AND btrim(c1)='02' GROUP BY 1),
+          t2 AS (SELECT btrim(c3) sku, GREATEST(SUM(c4+c8-c9),0) qty FROM kepler_ods.kdil
+                  WHERE sucursal='02' AND btrim(c1)='02' GROUP BY 1)
+     SELECT count(*) FILTER (WHERE t3.qty>0)::int celdas,
+            count(*) FILTER (WHERE t3.qty>0 AND t2.qty>0)::int solapadas,
+            coalesce(sum(t3.qty) FILTER (WHERE t3.qty>0 AND t2.qty>0),0)::numeric u_doble
+       FROM t3 LEFT JOIN t2 USING (sku)`)).rows[0];
+  console.log(`     publicarlo sería doble conteo en ${N(doble.solapadas)} de ${N(doble.celdas)} celdas`
+    + ` = ${N(doble.u_doble)} unidades`);
+  check('⭐ y publicarlo sería DOBLE CONTEO medido, no una hipótesis', Number(doble.u_doble) > 0,
+    `${N(doble.u_doble)} u ya publicadas desde la sucursal 02`);
+  const dupRows = (await c.query(
     `SELECT count(*)::int n FROM (
        SELECT warehouse_id, product_id FROM st
         GROUP BY 1,2 HAVING count(*) > 1) t`)).rows[0].n;
-  check('⛔ el testigo NO duplica filas (un almacén×producto, una fila)', dup === 0, `${N(dup)} duplicadas`);
+  check('⛔ el testigo NO duplica filas (un almacén×producto, una fila)', dupRows === 0, `${N(dupRows)} duplicadas`);
 
   // ── 4. ⭐ El veredicto ──────────────────────────────────────────────────────────────────────
   console.log('\n── 4. ⭐ El veredicto (los pisos son lo MEDIDO en prod 2026-09-08) ──');
@@ -487,6 +544,36 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
     inv.contax_pega > inv.base_pega, `${N(inv.contax_pega)} vs ${N(inv.base_pega)}`);
   check('⚠️ NINGUNA de esas filas cae al fallback del service (si cae, se valúa ~11× arriba)',
     inv.al_fallback === 0, `${N(inv.al_fallback)} filas sin costo de Kepler — la bomba se armó`);
+
+  // KX — y el fallback va BLINDADO, con las dos mitades del trato medidas: que arregle el caso
+  // roto y que NO toque el sano. La expresión es un LEAST entre las dos columnas del catálogo.
+  const least = (await c.query(
+    `WITH bad AS (
+       SELECT id, cost_base, cost_with_tax FROM catalog.products
+        WHERE tenant_id = '${T}' AND deleted_at IS NULL
+          AND cost_base > 0 AND cost_with_tax > 0 AND cost_with_tax < cost_base * 0.95),
+      agg AS (
+       SELECT coalesce(sum(s.qty * b.cost_base), 0)::numeric                         viejo,
+              coalesce(sum(s.qty * LEAST(b.cost_base, b.cost_with_tax)), 0)::numeric nuevo,
+              coalesce(sum(s.valor_arbitrado), 0)::numeric                           erp
+         FROM st s JOIN bad b ON b.id = s.product_id WHERE s.qty > 0),
+      sano AS (
+       SELECT count(*)::int n,
+              count(*) FILTER (WHERE cost_base = LEAST(cost_base,
+                        COALESCE(NULLIF(cost_with_tax, 0), cost_base)))::int gana_base
+         FROM catalog.products
+        WHERE tenant_id = '${T}' AND deleted_at IS NULL AND cost_base > 0
+          AND NOT (COALESCE(cost_with_tax, 0) > 0 AND cost_with_tax < cost_base))
+     SELECT agg.viejo, agg.nuevo, agg.erp, sano.n, sano.gana_base FROM agg, sano`)).rows[0];
+  console.log(`     el fallback sobre esas filas: viejo ${money(least.viejo)}`
+    + ` · blindado ${money(least.nuevo)} · el ERP dice ${money(least.erp)}`);
+  check('⭐ el blindaje ACERCA el fallback al costo del ERP (al menos 3× más cerca que cost_base)',
+    Number(least.viejo) > Number(least.nuevo) * 3,
+    `viejo ${money(least.viejo)} vs blindado ${money(least.nuevo)}`);
+  // ⚠️ Y lo que el blindaje NO hace, dicho: sigue ~2.3× arriba del ERP porque cost_with_tax trae
+  // impuesto. Es un fallback, no el árbitro — reduce el error de ~14.5× a ~2.3×, no lo elimina.
+  check('⛔ y NO toca el caso sano: en los SKUs normales el LEAST sigue eligiendo cost_base',
+    least.gana_base === least.n, `${N(least.gana_base)} de ${N(least.n)}`);
 
   // ── 8. Lo que este candado NO mide, declarado ──────────────────────────────────────────────
   console.log('\n── 8. Lo que este candado no mide ──');

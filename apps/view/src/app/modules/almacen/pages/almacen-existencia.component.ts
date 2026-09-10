@@ -88,6 +88,24 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <span>{{ sinFactorTexto(t) }}</span>
           </p>
         }
+        <!-- KX/KE.2 — CON QUE se valuo. El backend devolvia celdas_sin_costo_erp desde el
+             2026-09-08 y esta pantalla no lo mostraba: declararlo en el response no es
+             declararlo al usuario. Y el metodo importa tanto como la procedencia — el costo
+             del ERP es un promedio ponderado historico, no el costo de reposicion. -->
+        @if (valuacionTexto(t); as txt) {
+          <p class="ex-banner">
+            <i class="pi pi-dollar" aria-hidden="true"></i>
+            <span>{{ txt }}</span>
+          </p>
+        }
+        <!-- KX — el catalogo con sus dos columnas de costo en unidades distintas. Hoy da 0; si
+             aparece, la pantalla esta valuando bultos como piezas. -->
+        @if (t.celdas_costo_invertido) {
+          <p class="ex-banner">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>{{ costoInvertidoTexto(t) }}</span>
+          </p>
+        }
       }
 
       <div class="ex-filters">
@@ -443,6 +461,29 @@ export class AlmacenExistenciaComponent implements OnInit {
   sinFactorTexto(t: ExistenciaTotals): string {
     return `${t.skus_sin_factor} productos (${t.celdas_sin_factor} celdas) suman al total de cajas `
       + 'con un divisor que ninguna fuente respalda: van marcadas con ° y su cifra es la cantidad suelta, no cajas.';
+  }
+
+  /**
+   * KX — el valor lleva su procedencia Y su metodo. Son dos cosas distintas y las dos hacen
+   * falta: de donde salio el costo (ERP o catalogo) y que significa ese costo (promedio de la
+   * historia de compras, no lo que costaria reponerlo hoy: la mediana va 2% por debajo del
+   * ultimo costo conocido). Devuelve null cuando no hay nada que declarar.
+   */
+  valuacionTexto(t: ExistenciaTotals): string | null {
+    if (!t.valor) return null;
+    const base = 'El valor esta a costo PROMEDIO del ERP (lo que se pago en toda la historia de '
+      + 'compras del almacen), no a costo de reposicion: la mediana va ~2% por debajo del ultimo '
+      + 'costo conocido.';
+    if (!t.celdas_sin_costo_erp) return base;
+    return `${base} Y ${t.celdas_sin_costo_erp} celdas se valuaron con el catalogo porque el ERP `
+      + 'no dio su costo para ese almacen — Wincaja entero entra aca por ahora.';
+  }
+
+  /** KX — un 0 es la salud esperada; cualquier otra cosa es el catalogo valuando bultos. */
+  costoInvertidoTexto(t: ExistenciaTotals): string {
+    return `${t.celdas_costo_invertido} celdas usan el costo con impuesto porque en esos productos `
+      + 'el catalogo trae sus dos columnas de costo en unidades distintas (el costo base viene por '
+      + 'bulto). Se corrigio al vuelo, pero el dato maestro sigue mal.';
   }
 
   sinValuarTexto(t: ExistenciaTotals): string {

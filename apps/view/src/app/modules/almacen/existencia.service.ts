@@ -74,6 +74,20 @@ export interface ExistenciaTotals {
   /** `[W1.0/W1.3]` Celdas que SÍ suman al total de cajas con un divisor sin fuente. */
   celdas_sin_factor: number;
   skus_sin_factor: number;
+  /**
+   * `KE.2` Celdas cuyo costo salió del CATÁLOGO y no del ERP. El backend la devolvía desde el
+   * 2026-09-08 y la pantalla no la mostraba: declararlo en el response no es declararlo al
+   * usuario.
+   */
+  celdas_sin_costo_erp: number;
+  /**
+   * `KX` Con qué se valuó. `erp_promedio_ponderado_historico` = `kdik.c16` (`c8/c5`, con `c5` =
+   * entradas acumuladas): un promedio de toda la historia de compras, **no** costo de reposición
+   * — mediana 2% por debajo del último costo conocido.
+   */
+  metodo_valuacion?: string;
+  /** `KX` Celdas donde el catálogo trae sus dos columnas de costo en unidades distintas. */
+  celdas_costo_invertido: number;
   arbitrado: number | null;
   per_warehouse: { code: string; valor: number | null; cajas: number | null; sin_valuar: number; sin_factor: number; skus_con_existencia: number }[];
 }
