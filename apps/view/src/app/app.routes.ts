@@ -1022,6 +1022,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.LOGISTICS_EXPENSES_VER)]
       },
       {
+        // RD.4 + RD.5 — gasto de flota y operación (odómetro / $/km) de Ruta Directa.
+        // La ruta la declara `authz-tree.ts` desde RD.4; hasta hoy no tenía componente.
+        path: 'gasto-ruta',
+        loadComponent: () => import('./modules/logistica/pages/logistica-gasto-ruta.component').then(m => m.LogisticaGastoRutaComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_ROUTE_EXPENSES_VER)]
+      },
+      {
         // Fase T — Traspasos (movimientos que NO son venta): consolidación UD06, recepción UA50, traspasos.
         path: 'traspasos',
         loadComponent: () => import('./modules/logistica/pages/logistica-traspasos.component').then(m => m.LogisticaTraspasosComponent),
