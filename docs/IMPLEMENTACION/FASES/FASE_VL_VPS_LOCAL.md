@@ -247,7 +247,33 @@ Hacerlo nativo **bien** obliga a `REINDEX` de esos índices más `ALTER DATABASE
 #### Dos hallazgos de esta medición
 
 - **`pgvector` no se usa.** Ninguna de las réplicas tiene la extensión (`kepler_consolidado` sólo trae `postgres_fdw` y `dblink`). La imagen `pgvector/pgvector:pg18` está funcionando como un Postgres 18 común — el vector es incidental, herencia de cuando la copia local de Fase K vivía ahí. **No se cambia la imagen ahora** (cambiar de imagen durante la migración es cambiar dos variables a la vez), pero queda anotado como limpieza opcional posterior.
-- ⚠️ **`shared_buffers = 128 MB`** (16384 × 8 kB) — es el **default de fábrica, nunca se tuneó**, en un servidor que va a tener 14 GiB. Lo que sí está configurado y **viaja con la copia física** es lo que hace falta para la replicación: `wal_level=logical`, `max_replication_slots=20`, `max_logical_replication_workers=16`, `max_wal_size=1 GB`. Subir `shared_buffers` a 2–4 GB es una mejora gratuita que habilita esta mudanza, y va en VL.2b.
+- ⚠️ **Toda la memoria de Postgres está en default de fábrica.** `shared_buffers` **128 MB** · `effective_cache_size` 4 GB · `work_mem` **4 MB** · `maintenance_work_mem` **64 MB** · `max_wal_size` 1 GB · `checkpoint_timeout` 5 min. Lo único configurado —y que **viaja con la copia física**— es lo de replicación: `wal_level=logical`, `max_replication_slots=20`, `max_logical_replication_workers=16`. Tunearlo va en VL.2b (§6.0ter).
+
+#### 6.0ter Rendimiento de RAM: lo que la mudanza gana, y la trampa de Docker que sí es real
+
+**1. Docker en Linux no cuesta RAM. En Windows sí, y hoy se está pagando.** Docker Desktop corre un **VM de WSL2** y `docker info` lo declara: ve **15,665,954,816 bytes = 14.59 GiB** de los **29.9 GB físicos** de `.249`. O sea que **menos de la mitad de la RAM de esa máquina llega a los contenedores**, y lo que la VM reserva queda amurallado del lado de Windows. En Linux no hay VM: los contenedores son procesos con namespaces sobre el mismo kernel, el *page cache* es el del host y se comparte. El costo real es `dockerd` + `containerd` + un shim por contenedor ≈ **200 MB con 8 contenedores**.
+
+> Coincidencia útil: el servidor nuevo tiene **~14 GiB** utilizables y la VM de Docker en `.249` tiene **14.59 GiB**. En RAM **efectivamente disponible para los contenedores, el server nuevo empata con lo que tienen hoy** — con la mitad de RAM física.
+
+**2. ⚠️ La trampa que sí es de Docker: `/dev/shm` = 64 MB.** Medido en el contenedor actual (`ShmSize: 67108864`). Postgres usa memoria compartida POSIX para los *parallel workers* (`dynamic_shared_memory_type = posix`, `max_parallel_workers = 8`), y cuando 64 MB no alcanzan tira `could not resize shared memory segment … No space left on device`. Hoy casi no pica porque la carga del CDC es lectura simple y UPSERT, pero un `VACUUM`/`REINDEX` paralelo sobre `wincaja` (40 GB) o cualquier consulta analítica lo despierta. **Nativo no tiene el problema** (el `/dev/shm` del sistema es la mitad de la RAM). **Fix de una línea en el compose: `shm_size: 1gb`.** Va en VL.2b.
+
+**3. ⛔ No poner `mem_limit` al contenedor de Postgres.** Con límite, el cgroup **cuenta el page cache contra el tope** y el kernel lo recupera bajo presión — la base termina releyendo del disco lo que creía cacheado. Hoy está en `Memory: 0` (sin límite): **dejarlo así**. Es la única forma en que Docker sí puede perjudicar a una base, y se evita no haciéndolo.
+
+**4. El presupuesto del servidor nuevo (14 GiB), para la etapa de ingesta:**
+
+| Rubro | GB | Nota |
+|---|---|---|
+| `shared_buffers` | **4.0** | ~28 % de la RAM, la guía clásica |
+| Backends (≈25 × 10 MB + picos de `work_mem`) | ~0.8 | `work_mem` 32 MB, `max_connections` puede bajar de 100 |
+| Carriles de ingesta | ~1.0 | 4 contenedores hoy, ~17 con VL.4; medidos en 100–200 MB cada uno |
+| SO + Docker + shims | ~1.0 | |
+| **Page cache libre** | **~7.2** | |
+
+**Y acá está el número que importa:** lo que se muda son **11.1 GB** (`kepler_md_00..07` 10.6 + `kepler_consolidado` 0.5). Contra `shared_buffers` 4 GB **+** ~7 GB de page cache = **~11 GB de caché para un conjunto de trabajo de 11.1 GB**. Después del calentamiento, las lecturas del CDC salen prácticamente de RAM. **Por eso 14 GiB alcanzan de sobra para VL.0–VL.8.**
+
+**Y por eso los 32 GB sí hacen falta en VL.9:** al sumar prod (30 GB) aparece un segundo conjunto de trabajo que ya no entra junto al primero, más un segundo `shared_buffers`. El argumento no es "más RAM es mejor" — es que **el conjunto de trabajo deja de caber en caché**.
+
+**Ajustes concretos para VL.2b:** `shared_buffers=4GB` · `effective_cache_size=9GB` (sólo pista al planificador, no reserva nada) · `maintenance_work_mem=1GB` (pesa en `VACUUM` y en reconstruir índices) · `work_mem=32MB` · `max_wal_size=4GB` (con 20 GB de WAL por día, menos *checkpoints*) · `shm_size: 1gb` en el compose. `huge_pages` queda en `try`: el beneficio con 4 GB de buffers es de pocos puntos y no compensa la complejidad operativa ahora.
 
 ---
 
