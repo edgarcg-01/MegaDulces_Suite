@@ -35,6 +35,13 @@ const PRODUCTO = {
   ],
   iva_pct: 16,
   ieps_pct: 0,
+  // `[TDA.7]` `mayoreo` y `contenido` son obligatorios en `ProductoPrecio` y faltaban: el
+  // typecheck con `tsconfig.spec.json` daba TS2739 en 3 lugares. No se veía porque ts-jest corre
+  // con `isolatedModules` (transpila sin verificar tipos), así que la suite pasaba en verde sobre
+  // una fixture que no cumple el contrato que dice cumplir. Vacío es la afirmación correcta acá:
+  // este producto NO tiene mayoreo, y es lo que hace útil el contraste con `CON_MAYOREO`.
+  mayoreo: [],
+  contenido: null,
 };
 
 /**

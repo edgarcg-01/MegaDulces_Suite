@@ -12,7 +12,14 @@
   // jest (describe/it/expect) no existen acá y CUALQUIER test real rompía la
   // compilación de producción. Por eso el único spec del repo estaba vacío con
   // un TODO. Los specs los compila tsconfig.spec.json.
-  "exclude": ["src/**/*.spec.ts"],
+  //
+  // `[SN.0]` Y también el ARNÉS: `test-setup.ts` y `testing/` son del runner, no de la app.
+  // El día que `test-setup.ts` dejó de ser un `import` suelto y pasó a declarar una clase +
+  // un `beforeEach` (TDA.7, commit f3fe9dfe), el build de producción se rompió con TS2593
+  // ("Cannot find name 'beforeEach'") — el `include: src/**/*.ts` lo arrastraba y nadie
+  // había corrido `nx build view` después. Un archivo del arnés que compila junto a la app es
+  // el mismo defecto que este bloque ya había corregido para los `.spec`, con otro nombre.
+  "exclude": ["src/**/*.spec.ts", "src/test-setup.ts", "src/testing/**"],
   "angularCompilerOptions": {
     "extendedDiagnostics": {
       "checks": {
