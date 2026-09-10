@@ -121,7 +121,16 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
         @switch (estado()) {
           @case ('encontrado') {
             @if (producto(); as p) {
-              <div class="vp-card" [class.is-respaldo]="origen() === 'respaldo'">
+              <!--
+                [TDA.6] is-pase-b alterna en cada consulta. NO es decoracion: la tarjeta es el
+                MISMO nodo del DOM entre escaneo y escaneo (el @if no la recrea si el estado
+                sigue en "encontrado"), asi que una animacion de entrada corria UNA sola vez en
+                todo el turno -- justo lo contrario de lo que se pidio. Alternar la clase cambia
+                el animation-name y el navegador reinicia la animacion. Un contador y una clase,
+                sin recrear el nodo ni tocar la estructura.
+              -->
+              <div class="vp-card" [class.is-respaldo]="origen() === 'respaldo'"
+                   [class.is-pase-b]="pase() % 2 === 1">
                 <div class="vp-card-top">
                   <span class="vp-cod">{{ p.codigo }}</span>
                   @if (origen() === 'respaldo') {
@@ -166,9 +175,17 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   <div class="vp-mayoreo">
                     @for (t of mayoreo(); track t.etiqueta) {
                       <div class="vp-may-row" [class.is-realza]="t.realza">
+                        <!--
+                          La CONDICION va arriba y grande, no de subtitulo. Es el punto critico
+                          de esta pantalla: si el monto de mayoreo crece y la condicion se
+                          susurra, alguien que lleva UNA pieza lee el precio de 3 y se cobra mal.
+                          El enfasis se gana con tamano y superficie, y la condicion tiene que
+                          crecer con el monto.
+                        -->
                         <div class="vp-may-cond">
                           <i class="pi pi-tags" aria-hidden="true"></i>
-                          Llevando <strong class="vp-may-n">{{ t.desde }}+</strong> {{ t.palabra }}
+                          Llevando <strong class="vp-may-n">{{ t.desde }}</strong>
+                          o más {{ t.palabra }}
                         </div>
                         <div class="vp-may-precio">
                           <span class="vp-may-monto">{{ money(t.precio_con_iva) }}</span>
@@ -185,7 +202,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                         <p class="vp-may-ahorro">
                           <i class="pi pi-arrow-down" aria-hidden="true"></i>
                           Te ahorras <strong>{{ money(t.ahorro_en_el_minimo) }}</strong>
-                          <span class="vp-may-pct">({{ t.descuento_pct }}% menos c/u)</span>
+                          <span class="vp-may-pct">{{ t.descuento_pct }}% menos c/u</span>
                         </p>
                       }
                     }
@@ -374,15 +391,26 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vp-nombre { margin: 0; font-size: clamp(1.05rem, 2.6vw, 1.75rem); font-weight: 700;
       line-height: 1.15; text-wrap: balance; }
 
+    /* ── [TDA.6] La respuesta va CENTRADA ────────────────────────────────
+       Estaba alineada a la izquierda. En la pantalla que existe para que un numero se lea
+       desde el otro lado del mostrador, el objeto principal pegado a un borde deja de ser
+       el centro de atencion y se vuelve una esquina. Se centra el BLOQUE DE RESPUESTA
+       (nombre, cifra, mayoreo, unidades); lo que no se centra es la letra chica larga, que
+       se acota con max-width para no leerse en zig-zag.
+       §O.3 pide que el total DOMINE la jerarquia; no dice donde, y la izquierda era una
+       herencia del layout de formulario, no una decision. */
+    .vp-card { text-align: center; }
+    .vp-card-top { justify-content: center; }
     .vp-precio-principal { display: flex; align-items: baseline; gap: var(--sp-3);
-      flex-wrap: wrap; margin-top: var(--sp-2); }
+      flex-wrap: wrap; justify-content: center; margin-top: var(--sp-2); }
     /* La cifra es el objeto de la pantalla: se lee a un metro y medio, del otro lado del
        mostrador. clamp para que no reviente en el monitor chico del kiosco. */
     .vp-precio { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
       font-weight: 800; font-size: clamp(2.75rem, 9vw, 6rem); line-height: 1;
       letter-spacing: -0.02em; color: var(--text-main); }
     .vp-precio-u { font-size: var(--fs-body, .875rem); color: var(--text-muted); text-transform: lowercase; }
-    .vp-precio-nota { margin: .2rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
+    .vp-precio-nota { margin: .2rem auto 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint);
+      max-width: 68ch; text-wrap: pretty; }
 
     /* ── [TDA.4] Mayoreo ──────────────────────────────────────────────────
        Colorimetria segun DESIGN.md 5: la marca (--action, sunset) va en lo ACTIVO y en lo que
@@ -394,29 +422,59 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
        cuando el descuento es perceptible: por eso .is-realza gatea la fila entera.
 
        Sin hex inline en todo el bloque. */
-    .vp-mayoreo { margin: var(--sp-3) 0 0; padding: var(--sp-3); border-radius: var(--r-sm);
-      border: 1px solid var(--border-color); background: var(--surface-ground);
-      display: flex; flex-direction: column; gap: .15rem; }
-    .vp-may-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
-      font-size: var(--fs-body, .875rem); }
-    .vp-may-cond { display: flex; align-items: baseline; gap: .4rem; color: var(--text-muted); }
-    .vp-may-cond > i { color: var(--text-faint); font-size: .85em; }
-    /* El umbral es lo unico con color de marca: es la respuesta a "cuantas necesito". */
-    .vp-may-n { color: var(--action); font-weight: 700; font-family: var(--font-mono);
-      font-variant-numeric: tabular-nums; }
-    .vp-may-precio { display: flex; align-items: baseline; gap: .3rem; }
-    /* Grande, pero deliberadamente MENOR que el precio unitario: el hero manda (DESIGN O.3). */
+    /* ── [TDA.6] El mayoreo pasa a ser LA OFERTA, no un renglon ───────────
+       Antes era una fila de 1.6rem con el ahorro en letra chica: cierto y facil de saltear.
+       El negocio quiere lo contrario -- que la persona se enfoque en llevarse mas y ahorrar --
+       asi que gana superficie propia, franja de marca y una cifra que se lee de lejos.
+
+       ⚠️ EL PUNTO CRITICO, y es de cobro, no de estetica: si el monto de mayoreo crece y la
+       CONDICION se susurra, alguien que lleva una sola pieza lee el precio de tres. Por eso la
+       condicion sube arriba, en mayusculas, al tamano del cuerpo, con el umbral en color de
+       marca y 1.5em -- crece junto con el monto, nunca por detras.
+
+       Y el hero sigue mandando (§O.3): 6rem contra 3.25rem de tope. El enfasis se gana con
+       superficie, franja y aire; no robandole tamano al precio unitario. */
+    .vp-mayoreo { margin: var(--sp-4) 0 0; padding: var(--sp-4) var(--sp-4) var(--sp-3);
+      border-radius: var(--r-md); border: 1px solid var(--action-ring);
+      background: var(--surface-ground); position: relative; overflow: hidden;
+      display: flex; flex-direction: column; gap: var(--sp-2); }
+    /* Franja de marca: marca EL BLOQUE que hay que mirar. Es el idioma de card del
+       repertorio (DESIGN.md 7b: hairline + stripe 3px), no decoracion suelta. */
+    .vp-mayoreo::before { content: ''; position: absolute; inset-inline: 0; top: 0; height: 3px;
+      background: var(--action); }
+    .vp-may-row { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+    .vp-may-cond { display: flex; align-items: baseline; justify-content: center; gap: .4rem;
+      font-size: var(--fs-body, .875rem); font-weight: 600; text-transform: uppercase;
+      letter-spacing: .06em; color: var(--text-muted); }
+    .vp-may-cond > i { color: var(--action); font-size: .95em; }
+    /* El umbral es lo unico con color de marca dentro del texto: es la respuesta a
+       "cuantas necesito", el dato accionable. */
+    .vp-may-n { color: var(--action); font-weight: 800; font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums; font-size: 1.5em; line-height: 1; }
+    .vp-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .35rem; }
+    /* Segundo en jerarquia y a mucha distancia del hero (3.25rem vs 6rem), pero ya no es
+       letra chica. clamp con maximo 1.71x el minimo (regla: <= 2.5x, DESIGN.md 9). */
     .vp-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-weight: 700; font-size: clamp(1.15rem, 2.4vw, 1.6rem); color: var(--text-main); }
-    .vp-may-cu { font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
-    .vp-may-ahorro { margin: 0 0 .35rem; display: flex; align-items: center; gap: .35rem;
-      font-size: var(--fs-sm, .8125rem); color: var(--ok-soft-fg); }
-    .vp-may-ahorro > i { color: var(--ok-fg); font-size: .9em; }
+      font-weight: 800; font-size: clamp(1.9rem, 4.5vw, 3.25rem); line-height: 1;
+      letter-spacing: -0.015em; color: var(--text-main); }
+    .vp-may-cu { font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
+    /* El ahorro deja de ser un renglon y pasa a ser una PASTILLA: es la frase que cierra la
+       venta. Semantico --ok-* (es una ganancia), y nunca solo el color -- icono + texto
+       (DESIGN.md 5, el color no es unico portador de significado). */
+    .vp-may-ahorro { align-self: center; margin: 0; display: inline-flex; align-items: center;
+      gap: .4rem; padding: .35rem .8rem; border-radius: var(--r-pill);
+      background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
+      font-size: var(--fs-body, .875rem); color: var(--ok-soft-fg); }
+    .vp-may-ahorro > i { color: var(--ok-fg); font-size: .95em; }
     .vp-may-ahorro strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      color: var(--ok-fg); }
-    .vp-may-pct { color: var(--text-faint); }
-    /* Sin realce (descuento < 1%): el dato se muestra igual, apagado. Es cierto, no es oferta. */
-    .vp-may-row:not(.is-realza) .vp-may-monto { font-weight: 600; color: var(--text-muted); }
+      font-weight: 800; font-size: 1.15em; color: var(--ok-fg); }
+    .vp-may-pct { color: var(--ok-soft-fg); opacity: .75; font-size: .9em; }
+    /* Sin realce (descuento < 1%): el dato se muestra igual, apagado, y el bloque pierde la
+       franja. Es cierto, no es oferta -- pintarlo como oferta seria mentir con el color. */
+    .vp-may-row:not(.is-realza) .vp-may-monto { font-weight: 600; color: var(--text-muted);
+      font-size: clamp(1.4rem, 3vw, 2rem); }
+    .vp-mayoreo:not(:has(.is-realza)) { border-color: var(--border-color); }
+    .vp-mayoreo:not(:has(.is-realza))::before { background: var(--border-color); }
 
     /* El gramaje califica al nombre: mismo renglon, peso menor. */
     .vp-gramaje { font-size: .55em; font-weight: 500; color: var(--text-faint);
@@ -432,18 +490,54 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 
        prefers-reduced-motion lo neutraliza el bloque global de styles.css (regla con * e
        !important), asi que no se repite aca. */
-    @keyframes vpEntra { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-    .vp-card { animation: vpEntra var(--dur-short, 150ms) var(--ease-out, ease-out); }
+    /* Dos juegos IDENTICOS de keyframes. No es duplicacion por descuido: la tarjeta es el
+       mismo nodo entre escaneos, y cambiar el animation-name es lo que hace que el navegador
+       reinicie la animacion. La clase is-pase-b alterna en cada consulta (ver la plantilla).
+       Sin esto, la entrada corria UNA vez por turno.
+
+       Se usa --ease-spring, que ya existe en tokens.css (cubic-bezier(0.34, 1.4, 0.5, 1)):
+       sobrepasa un poco y asienta, que es lo que da la sensacion de resorte. NO se agrega
+       libreria -- §U lo prohibe por nombre (anime.js/framer no entran) y motion@12 ya esta
+       instalada con cero imports desde abril. Una segunda dep muerta no arregla un easing.
+
+       ESCALONADO, y suma bajo el techo duro de 350ms contando el retardo:
+         nombre    0ms + 150 = 150      mayoreo    90ms + 150 = 240
+         precio   40ms + 150 = 190      pastilla  140ms + 150 = 290
+       La CIFRA no se anima por dentro y no hay count-up: en un mostrador el precio tiene que
+       ser legible de inmediato, no al final de una transicion. Se mueve el bloque, nunca el
+       digito. Solo transform + opacity, jamas medidas.
+
+       prefers-reduced-motion lo neutraliza el bloque global de styles.css (regla con * e
+       !important), asi que no se repite aca. */
+    @keyframes vpEntraA { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes vpEntraB { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+    @keyframes vpPopA { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: none; } }
+    @keyframes vpPopB { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: none; } }
+    @keyframes vpFadeA { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes vpFadeB { from { opacity: 0; } to { opacity: 1; } }
+
+    .vp-card { --vp-in: vpEntraA; --vp-pop: vpPopA; --vp-fade: vpFadeA;
+      animation: var(--vp-fade) var(--dur-short, 150ms) var(--ease-out, ease-out) both; }
+    .vp-card.is-pase-b { --vp-in: vpEntraB; --vp-pop: vpPopB; --vp-fade: vpFadeB; }
+
+    .vp-card .vp-nombre { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-spring, ease-out) both; }
+    .vp-card .vp-precio-principal { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-spring, ease-out) 40ms both; }
+    .vp-card .vp-mayoreo { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-spring, ease-out) 90ms both; }
+    .vp-card .vp-may-ahorro { animation: var(--vp-pop) var(--dur-short, 150ms) var(--ease-spring, ease-out) 140ms both; }
     /* [TDA.3] "El codigo que escaneaste es de CJA". Va pegada al precio grande porque lo CALIFICA:
        separada, el operador leeria el numero antes de saber de que unidad es. */
-    .vp-u-aclara { display: flex; align-items: center; gap: .4rem; margin: .35rem 0 0;
-      font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
+    .vp-u-aclara { display: flex; align-items: center; justify-content: center; gap: .4rem;
+      margin: .35rem 0 0; font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
     .vp-u-aclara strong { color: var(--text-main); font-weight: 600; }
 
-    .vp-unidades { list-style: none; margin: var(--sp-3) 0 0; padding: var(--sp-3) 0 0;
-      border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .3rem; }
-    .vp-unidades li { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-sm, .8125rem); }
-    .vp-u-nom { min-width: 7rem; color: var(--text-muted); text-transform: uppercase;
+    /* [TDA.6] Centrado tambien: el min-width de 7rem en la etiqueta separaba "CJA" de su
+       propio precio, y en pantalla ancha el par se leia como dos datos sin relacion. */
+    .vp-unidades { list-style: none; margin: var(--sp-3) auto 0; padding: var(--sp-3) 0 0;
+      border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .3rem;
+      width: fit-content; min-width: min(100%, 22rem); }
+    .vp-unidades li { display: flex; align-items: baseline; justify-content: center;
+      gap: var(--sp-3); font-size: var(--fs-sm, .8125rem); }
+    .vp-u-nom { color: var(--text-muted); text-transform: uppercase;
       font-size: var(--fs-xs, .75rem); letter-spacing: .06em; }
     .vp-u-p { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
     .vp-u-f { color: var(--text-faint); font-size: var(--fs-xs, .75rem); }
@@ -518,6 +612,12 @@ export class TiendaVerificadorComponent implements OnInit {
   readonly plazasDistintas = signal(1);
   readonly plazaSinDato = signal(false);
   readonly ultimoCodigo = signal('');
+  /**
+   * `[TDA.6]` Cuántas consultas se contestaron. Existe SÓLO para reiniciar la animación de
+   * entrada: la tarjeta es el mismo nodo entre escaneos, así que sin esto la entrada corría
+   * una vez por turno. Ver `is-pase-b` en la plantilla.
+   */
+  readonly pase = signal(0);
   readonly feed = signal<Consulta[]>([]);
 
   readonly snapshot = signal<EstadoSnapshot | null>(null);
@@ -693,6 +793,9 @@ export class TiendaVerificadorComponent implements OnInit {
   }
 
   private aplicar(r: ResultadoBusqueda): void {
+    // `[TDA.6]` Un pase por consulta contestada, encontrada o no. Es lo que reinicia la
+    // animación de entrada sobre un nodo que no se recrea.
+    this.pase.update((n) => n + 1);
     if (r.estado === 'encontrado') {
       this.estado.set('encontrado');
       this.producto.set(r.producto);
