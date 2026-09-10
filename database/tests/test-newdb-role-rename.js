@@ -173,7 +173,70 @@ const SIN_REPARTIR_ACEPTADAS = {
     console.log(`      ${ret[0].total} roles retirado_* · ${ret[0].vigentes} sin dar de baja`);
     check(ret[0].con_usuarios === 0, `ninguna persona cuelga de un retirado_* (hay ${ret[0].con_usuarios})`);
 
-    console.log(`\n${fail === 0 ? '✅' : '❌'} [ID.32] renombre y reparto: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
+    console.log('\n[6] `[ID.33]` El god-mode: cinco copias, un solo contenido');
+    // El god-mode de plataforma es `new Set(['superadmin','admin'])` escrito a
+    // mano en CINCO lugares, y lo único que los mantiene juntos es un comentario
+    // que dice «Si cambia acá, cambia allá». Una instrucción para humanos no es
+    // un candado: el día que alguien agregue un rol de plataforma en el backend
+    // y no en los 3 frontends, la UI le esconde media app a un admin — o peor,
+    // al revés. Esto lo vuelve detectable.
+    const fs = require('fs');
+    const REPO = path.resolve(__dirname, '..', '..');
+    const COPIAS = [
+      ['libs/platform-core/src/lib/ability/platform-admin.ts', 'PLATFORM_ADMIN_ROLES'],
+      ['libs/trade/src/lib/users/users.service.ts', 'ELEVATED_ROLES'],
+      ['apps/view/src/app/core/services/permissions.service.ts', 'PLATFORM_ADMIN_ROLES'],
+      ['apps/vendor/src/app/core/services/permissions.service.ts', 'PLATFORM_ADMIN_ROLES'],
+      ['apps/portal/src/app/core/services/permissions.service.ts', 'PLATFORM_ADMIN_ROLES'],
+    ];
+    const leidas = [];
+    for (const [f, cte] of COPIAS) {
+      const src = fs.readFileSync(path.join(REPO, f), 'utf8');
+      const m = new RegExp(`${cte}\\s*=\\s*new Set\\(\\[([^\\]]*)\\]`).exec(src);
+      if (!m) {
+        declarar(`no se pudo leer ${cte} en ${f.split('/').pop()}: la copia cambió de forma`);
+        continue;
+      }
+      const roles = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]).sort();
+      leidas.push({ f, cte, roles });
+    }
+    if (leidas.length !== COPIAS.length) {
+      declarar(`sólo se pudieron leer ${leidas.length} de ${COPIAS.length} copias del god-mode`);
+    } else {
+      const ref = leidas[0].roles.join(',');
+      const distintas = leidas.filter((x) => x.roles.join(',') !== ref);
+      check(distintas.length === 0,
+        `las ${leidas.length} copias del god-mode dicen lo mismo [${ref}] ` +
+          `(divergen: ${distintas.map((x) => `${x.f.split('/').slice(-1)}=[${x.roles.join(',')}]`).join(' · ') || 'ninguna'})`);
+    }
+
+    console.log('\n[7] `[ID.33]` Y la columna coincide con el código');
+    const { rows: colExiste } = await k.raw(
+      `SELECT count(*)::int AS n FROM information_schema.columns
+        WHERE table_schema = 'identity' AND table_name = 'role_permissions'
+          AND column_name = 'is_platform_admin'`,
+    );
+    if (colExiste[0].n === 0) {
+      // ⚠️ Se DECLARA, no se pasa por alto: la migración `20260910160000` está
+      // escrita y no aplicada porque necesita una ventana sin volcado abierto
+      // (ver el comentario de `lock_timeout` en ella).
+      declarar(
+        'la columna is_platform_admin no está aplicada todavía → el god-mode sólo vive en los ' +
+          'literales. La migración 20260910160000 espera una ventana sin COPY/pg_dump abierto.',
+      );
+    } else {
+      const { rows: marcados } = await k.raw(
+        `SELECT lower(role_name) AS rol FROM identity.role_permissions
+          WHERE is_platform_admin AND tenant_id = ? ORDER BY 1`,
+        [TENANT],
+      );
+      const enDb = [...new Set(marcados.map((r) => r.rol))].sort().join(',');
+      const enCodigo = leidas.length ? leidas[0].roles.join(',') : null;
+      check(enCodigo !== null && enDb === enCodigo,
+        `la columna marca exactamente lo que dice el código (DB=[${enDb}] código=[${enCodigo}])`);
+    }
+
+    console.log(`\n${fail === 0 ? '✅' : '❌'} [ID.32/ID.33] renombre, reparto y god-mode: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {
     console.error(`\n❌ ERROR: ${e.message}`);
