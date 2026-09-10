@@ -3,7 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { AndenLinea } from '../anden.state';
-import { formatExpiryEcho, parseExpiryShort } from '../../shared/expiry-short';
+import { formatExpiryEcho, parseExpiryShort, maskExpiryMx } from '../../shared/expiry-short';
 
 export interface FechadoConfirmado {
   linea: AndenLinea;
@@ -213,14 +213,12 @@ export class AndenCaducidadComponent {
    * guardan sin formato (`fechaRaw`) y se pintan con barras, así el borrado no
    * pelea con la máscara — al borrar cae un dígito, no una barra.
    *
-   * `3` → `3` · `30` → `30/` · `3004` → `30/04/` · `300428` → `30/04/28`
+   * `3` → `3` · `30` → `30` · `3004` → `30/04` · `300428` → `30/04/28`
+   *
+   * La máscara vive en `expiry-short.ts` (`maskExpiryMx`): la misma que usa la
+   * captura de caducidades de tienda. Estaba duplicada acá adentro.
    */
-  readonly fechaVista = computed(() => {
-    const d = this.fechaRaw();
-    if (d.length <= 2) return d;
-    if (d.length <= 4) return `${d.slice(0, 2)}/${d.slice(2)}`;
-    return `${d.slice(0, 2)}/${d.slice(2, 4)}/${d.slice(4)}`;
-  });
+  readonly fechaVista = computed(() => maskExpiryMx(this.fechaRaw()));
 
   onFoto(ev: Event): void {
     const f = (ev.target as HTMLInputElement).files?.[0];

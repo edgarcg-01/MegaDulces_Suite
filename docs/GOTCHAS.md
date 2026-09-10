@@ -2015,3 +2015,21 @@ node ../../node_modules/jest/bin/jest.js --config jest.config.ts \
 ```
 
 La diferencia no es cosmética: en la rama de integración nx decía **2 suites / 30 tests** en `commercial` y la corrida real eran **4 / 60**; en `view`, **5 / 56** contra **15 / 184**. Un "verde" que no ejecutó tu código es peor que un rojo.
+
+## Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10)
+
+Reportado como *"a pesar de que elijo la sucursal no me libera el guardar"* en `/tienda/caducidades`. No era el permiso ni el alcance: el botón se gateaba con
+
+```ts
+readonly falta = computed(() => { ...
+  if (this.puedeElegirSucursal() && !this.warehouseId) pend.push('la sucursal');  // ← campo plano
+});
+warehouseId = '';        // NO es signal
+cantidad: number | null = 1;   // tampoco
+```
+
+Un `computed` **sólo se re-evalúa cuando cambia un signal que leyó**. `[(ngModel)]` escribía el campo plano, ningún signal cambiaba, y el `computed` servía su valor cacheado: *"falta la sucursal"* con la sucursal ya elegida. Lo desconcertante es que **se arreglaba solo** al tocar producto o fecha — ésos sí son signals y despertaban el cálculo.
+
+**La regla:** todo lo que un `computed` lea tiene que ser signal. Si viene de `ngModel`, va como `[ngModel]="sig()" (ngModelChange)="sig.set($event)"` — el banana-in-box no existe para signals.
+
+**Y el contraste que lo explica:** en `/tienda/arqueo` el mismo tipo de compuerta es `canSubmit(): boolean`, un **método**, y ahí nunca falló: los métodos se re-evalúan en cada ciclo de change-detection. Migrar un método a `computed` es un cambio de semántica, no una optimización — si sus dependencias no son signals, lo rompe en silencio.
