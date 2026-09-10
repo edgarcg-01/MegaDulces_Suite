@@ -19,7 +19,7 @@ import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   Driver, DriverRole, LogisticaService, Vehicle, VehicleStatus,
   VehicleUsageLog, VehicleMaintenance, MaintenanceDue, FuelEfficiency, FuelEfficiencyReport, FuelTransaction,
-  DriverEntitlements, VehicleEntitlement, VehicleAssignment, EntitlementCapacity, AssignmentTemplate, ConditionGrade,
+  DriverEntitlements, VehicleEntitlement, VehicleAssignment, EntitlementCapacity, AssignmentTemplate, ConditionGrade, LinkableUser,
 } from '../logistica.service';
 
 const VEHICLE_STATUS_OPTIONS: { label: string; value: VehicleStatus }[] = [
@@ -651,6 +651,18 @@ function severityForDriverStatus(s: string): Severity {
             <span>Notas</span>
             <input pInputText formControlName="notes" />
           </label>
+          <label>
+            <span>Cuenta del sistema <em class="fc-opt">(opcional)</em></span>
+            <p-select formControlName="user_id" [options]="linkable()" optionLabel="nombre" optionValue="id"
+              [filter]="true" [showClear]="true" [editable]="false" filterPlaceholder="Escribí 2+ letras"
+              placeholder="Sin cuenta — sólo ficha" appendTo="body"
+              (onFilter)="buscarUsuarios($event)" [emptyFilterMessage]="linkableMsg()">
+              <ng-template let-u #item>
+                <div class="fc-user-opt"><strong>{{ u.nombre }}</strong> <span class="muted">{{ u.username }}</span></div>
+              </ng-template>
+            </p-select>
+            <small class="fc-hint">Vincularla deja al colaborador entrar al sistema con su usuario. Se puede dejar en blanco y ligarla después.</small>
+          </label>
         </form>
       }
       <ng-template #footer>
@@ -665,8 +677,12 @@ function severityForDriverStatus(s: string): Severity {
       header="Otorgar derecho de uso">
       <form [formGroup]="grantForm" class="form">
         <label><span>Colaborador</span>
-          <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
-            [filter]="true" filterBy="full_name" placeholder="Elegir" appendTo="body"></p-select>
+          <div class="fc-inline">
+            <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+              [filter]="true" filterBy="full_name" placeholder="Elegir" appendTo="body"></p-select>
+            <button pButton type="button" severity="secondary" [outlined]="true" pTooltip="Agregar colaborador que no está en la lista"
+              (click)="nuevoColaborador('grant', 'driver_id')" aria-label="Agregar colaborador"><span class="p-button-icon pi pi-user-plus" aria-hidden="true"></span></button>
+          </div>
         </label>
         <label><span>Unidad</span>
           <p-select formControlName="vehicle_id" [options]="vehicles()" optionLabel="plate" optionValue="id"
@@ -696,12 +712,20 @@ function severityForDriverStatus(s: string): Severity {
           <p-datepicker formControlName="assigned_on" dateFormat="dd/mm/yy" appendTo="body"></p-datepicker>
         </label>
         <label><span>Responsable</span>
-          <p-select formControlName="responsible_driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
-            [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+          <div class="fc-inline">
+            <p-select formControlName="responsible_driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+              [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+            <button pButton type="button" severity="secondary" [outlined]="true" pTooltip="Agregar responsable que no está en la lista"
+              (click)="nuevoColaborador('assignment', 'responsible_driver_id')" aria-label="Agregar responsable"><span class="p-button-icon pi pi-user-plus" aria-hidden="true"></span></button>
+          </div>
         </label>
         <label><span>Chofer</span>
-          <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
-            [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+          <div class="fc-inline">
+            <p-select formControlName="driver_id" [options]="drivers()" optionLabel="full_name" optionValue="id"
+              [filter]="true" filterBy="full_name" placeholder="Elegir" [showClear]="true" appendTo="body"></p-select>
+            <button pButton type="button" severity="secondary" [outlined]="true" pTooltip="Agregar chofer que no está en la lista"
+              (click)="nuevoColaborador('assignment', 'driver_id')" aria-label="Agregar chofer"><span class="p-button-icon pi pi-user-plus" aria-hidden="true"></span></button>
+          </div>
         </label>
         <label><span>Área</span><input pInputText formControlName="area" /></label>
         <label><span>Kilometraje</span><p-inputnumber formControlName="odometer" [min]="0"></p-inputnumber></label>
@@ -792,6 +816,11 @@ function severityForDriverStatus(s: string): Severity {
     .fc-obs { display:flex; flex-direction:column; gap:.25rem; margin-top:.75rem; }
     .fc-obs > span { font-size:var(--fs-sm); color:var(--c-text-2); }
     .fc-check { display:flex; align-items:center; gap:.5rem; margin-top:.6rem; font-size:var(--fs-sm); }
+    .fc-inline { display:flex; gap:.35rem; align-items:center; }
+    .fc-inline p-select { flex:1 1 auto; min-width:0; }
+    .fc-opt { font-style:normal; color:var(--c-text-3,var(--c-text-2)); font-weight:400; }
+    .fc-hint { display:block; margin-top:.2rem; font-size:var(--fs-xs); color:var(--c-text-2); }
+    .fc-user-opt { display:flex; gap:.5rem; align-items:baseline; }
     :host { display:block; }
     .tab-actions { display:flex; justify-content:flex-end; margin: .5rem 0; }
     .muted { color: var(--c-text-2); font-size: var(--fs-sm); }
@@ -868,6 +897,15 @@ export class LogisticaFleetComponent {
   readonly conDerecho = computed(() => this.entitlements().filter((e) => e.vehicles.length > 0).length);
   grantDialog = false;
   assignmentDialog = false;
+  /** Cuentas encontradas para vincular a la ficha (lookup por búsqueda). */
+  readonly linkable = signal<LinkableUser[]>([]);
+  readonly linkableMsg = signal('Escribí al menos 2 letras');
+  /**
+   * Desde qué campo se abrió "agregar colaborador": al guardarlo, la ficha
+   * nueva queda SELECCIONADA ahí y el diálogo de origen se reabre. Sin esto el
+   * usuario pierde lo que llevaba capturado del acta.
+   */
+  private volverA: { dialog: 'grant' | 'assignment'; control: string } | null = null;
   /** Calificación M/R/B en captura, por concepto. */
   readonly condition = signal<Record<string, ConditionGrade>>({});
   grantForm: FormGroup = this.fb.group({
@@ -957,6 +995,8 @@ export class LogisticaFleetComponent {
     employee_type: ['interno', Validators.required],
     status: ['activo', Validators.required],
     phone: [''], nss: [''], emergency_contact: [''], notes: [''],
+    // Opcional: liga la ficha a una cuenta del sistema. Null = sólo ficha.
+    user_id: [null as string | null],
   });
 
   constructor() {
@@ -1323,8 +1363,39 @@ export class LogisticaFleetComponent {
   // ── Drivers ──────────────────────────────────────────────────────────
   openDriverCreate() {
     this.editingD.set(null);
-    this.dForm.reset({ full_name: '', roles: ['chofer'], employee_type: 'interno', status: 'activo', phone: '', nss: '', emergency_contact: '', notes: '' });
+    this.volverA = null;
+    this.linkable.set([]);
+    this.dForm.reset({ full_name: '', roles: ['chofer'], employee_type: 'interno', status: 'activo', phone: '', nss: '', emergency_contact: '', notes: '', user_id: null });
     this.dDialog = true;
+  }
+
+  /**
+   * Alta de colaborador SIN salir del flujo de asignación. El caso real: llega
+   * una hoja con alguien que no está en el padrón; antes había que abandonar la
+   * captura, ir a la pestaña Personal, darlo de alta y volver a empezar.
+   */
+  nuevoColaborador(dialog: 'grant' | 'assignment', control: string) {
+    this.volverA = { dialog, control };
+    if (dialog === 'grant') this.grantDialog = false; else this.assignmentDialog = false;
+    this.editingD.set(null);
+    this.linkable.set([]);
+    this.dForm.reset({
+      full_name: '', roles: [control === 'responsible_driver_id' ? 'chofer' : 'chofer'],
+      employee_type: 'interno', status: 'activo', phone: '', nss: '', emergency_contact: '', notes: '', user_id: null,
+    });
+    this.dDialog = true;
+  }
+
+  buscarUsuarios(ev: { filter: string }) {
+    const q = (ev?.filter || '').trim();
+    if (q.length < 2) { this.linkable.set([]); this.linkableMsg.set('Escribí al menos 2 letras'); return; }
+    this.api.linkableUsers(q).subscribe({
+      next: (r) => {
+        this.linkable.set(r || []);
+        this.linkableMsg.set(r?.length ? '' : 'Sin cuentas libres con ese nombre');
+      },
+      error: () => { this.linkable.set([]); this.linkableMsg.set('No se pudo buscar'); },
+    });
   }
   openDriverEdit(d: Driver) {
     this.editingD.set(d);
@@ -1341,10 +1412,18 @@ export class LogisticaFleetComponent {
     const editing = this.editingD();
     const obs = editing ? this.api.updateDriver(editing.id, payload) : this.api.createDriver(payload);
     obs.subscribe({
-      next: () => {
+      next: (creado: Driver) => {
         this.savingD.set(false); this.dDialog = false;
         this.toast.add({ severity:'success', summary: editing ? 'Colaborador actualizado' : 'Colaborador creado' });
         this.loadDrivers();
+        this.loadEntitlements();
+        const volver = this.volverA;
+        this.volverA = null;
+        if (volver && creado?.id) {
+          const form = volver.dialog === 'grant' ? this.grantForm : this.assignmentForm;
+          form.get(volver.control)?.setValue(creado.id);
+          if (volver.dialog === 'grant') this.grantDialog = true; else this.assignmentDialog = true;
+        }
       },
       error: (err) => {
         this.savingD.set(false);
