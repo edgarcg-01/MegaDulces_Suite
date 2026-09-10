@@ -717,20 +717,42 @@
       }
     </div>
 
-    <div class="au-toggle">
-      <div>
-        <div class="au-toggle-t">Estado activo</div>
-        <div class="au-toggle-s">
-          @if (esDispositivo()) {
-            Es el corte de verdad: apagarlo revoca el token en menos de un minuto, aunque le
-            queden 300 días de vida. Apagar este kiosco no toca a los demás.
-          } @else {
-            Al desactivar, se revoca el acceso al sistema.
-          }
+    <!--
+      `[ID.30]` El interruptor SÓLO existe al editar, porque sólo ahí hace algo.
+
+      `[ID.7]` decidió que el ciclo de vida vive únicamente en la edición —«un alta nace
+      activa»— y el DTO del alta no declara `activo` ni `status`. Con
+      `ValidationPipe({ whitelist: true })` eso significa que el campo se DESCARTA sin
+      error: el alta devolvía 200 y creaba la cuenta ACTIVA igual. O sea que un admin
+      podía apagar el interruptor, leer «Usuario creado correctamente» y quedarse con una
+      credencial viva que él creía apagada. Lo detectó `test-newdb-user-dto.js`
+      comparando el formulario contra el DTO real.
+
+      Se corrige del lado que mentía. No se agrega `status` al alta: sería dar vuelta una
+      decisión documentada de identidad para tapar un defecto de la pantalla, y además
+      abriría el alta a `terminated`/`invited`, que en un alta no significan nada.
+    -->
+    @if (isEditing()) {
+      <div class="au-toggle">
+        <div>
+          <div class="au-toggle-t">Estado activo</div>
+          <div class="au-toggle-s">
+            @if (esDispositivo()) {
+              Es el corte de verdad: apagarlo revoca el token en menos de un minuto, aunque le
+              queden 300 días de vida. Apagar este kiosco no toca a los demás.
+            } @else {
+              Al desactivar, se revoca el acceso al sistema.
+            }
+          </div>
         </div>
+        <p-toggleswitch formControlName="activo"></p-toggleswitch>
       </div>
-      <p-toggleswitch formControlName="activo"></p-toggleswitch>
-    </div>
+    } @else {
+      <small class="au-hint">
+        El alta nace <b>activa</b>. Para dejarla sin acceso hay que crearla y después
+        apagarla desde <b>Estado activo</b>, que aparece al editar.
+      </small>
+    }
 
     <div class="au-form-actions">
       <p-button label="Cancelar" severity="secondary" [text]="true"
