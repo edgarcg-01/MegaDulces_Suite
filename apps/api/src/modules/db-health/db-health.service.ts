@@ -665,6 +665,11 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [KX.5] El peldano COBRADO (max kdm2.c58 por sucursal x SKU). Sin esta entrada el sensor
+  // caeria en `cfg ? classify : 'ok'` y una MV parada se veria VERDE (leccion OBS.1). Y no es
+  // cosmetico: cuando envejece, el piso que corrige `box_factor = 1` deja de recibir peldanos
+  // nuevos y un producto que empezo a venderse por bulto sigue publicandose como pieza.
+  { key: 'analytics_refresh_sold_rung',       label: 'Refresh MV peldano cobrado',        cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },

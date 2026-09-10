@@ -249,6 +249,53 @@ const METODOS = ['dinero', 'peso', 'divisor', 'unidad_es_caja', 'sin_metodo'];
     imp.imposibles <= 10, `${NUM(imp.imposibles)} pares / ${MONEY(imp.imp)}`);
   check('⭐⭐ y el override ya NO es la fuente dominante del error (≤ 3, eran 35)',
     imp.ovr <= 3, `${NUM(imp.ovr)} de override sobre ${NUM(imp.imposibles)} contradicciones`);
+
+  // ⭐⭐⭐ KX.5 — LO INEQUÍVOCO TIENE QUE DAR **CERO**, y por construcción.
+  //
+  // De las 8 que dejó KX.4, **2 eran inequívocas**: `box_factor = 1` —o sea *"este producto no
+  // viene en caja"*— contra un ERP que vendió bultos de **20**. Eso no admite lectura benigna, y
+  // los otros 6 sí (una caja de 6 y un paquete de 12 conviven).
+  //
+  // No se podían cerrar con lo que había: la cadena entera da 1 (son `default`),
+  // `sales_daily.rung_factor` dice **1.0000 en los 8** porque el fact deduce el peldaño por
+  // PRECIO, y agregar `kdm2` dentro de una vista caliente cuesta **38 s**. Se materializó:
+  // `analytics.mv_kepler_sold_rung` (mig 20260910130000, batch 364) — 20,560 pares
+  // sucursal×SKU, 4,249 con peldaño > 1 — y `v_warehouse_box_factor` la usa como **piso sólo
+  // cuando el factor publicado es 1**. Aplicó a **2 filas**, exactamente las 2 declaradas:
+  // `ALTOS ROLLO ALTA 20X30 1KG` (alm 06) y `REYMA ROLLO ALTA 15X25 1KG` (alm 03), las dos 1 -> 20.
+  //
+  // Este check es el que hace verdadera la frase "100% de lo que decimos es real" en la parte
+  // que SÍ se puede probar: **cero contradicciones inequívocas publicadas**. Lo ambiguo sigue
+  // contado arriba y declarado, no escondido.
+  const ineq = (await c.query(
+    `SELECT count(*)::int n, coalesce(sum(x.importe), 0)::numeric imp
+       FROM _c58 x
+       JOIN commercial.warehouses w ON w.kepler_code = x.sucursal AND w.deleted_at IS NULL
+       JOIN catalog.products p ON p.tenant_id = w.tenant_id AND p.sku::text = x.sku
+                              AND p.deleted_at IS NULL
+       JOIN analytics.v_unit_truth u ON u.tenant_id = w.tenant_id
+                                    AND u.warehouse_id = w.id AND u.product_id = p.id
+      WHERE u.box_factor = 1 AND x.c58_max > 1.02`)).rows[0];
+  console.log(`     inequívocas (box_factor = 1 contra un peldaño vendido): ${NUM(ineq.n)} = ${MONEY(ineq.imp)}`);
+  check('⭐⭐⭐ CERO contradicciones INEQUÍVOCAS: ningún `box_factor = 1` sobrevive a un bulto vendido',
+    ineq.n === 0,
+    `${NUM(ineq.n)} filas dicen "no viene en caja" y el ERP vendió bultos — ${MONEY(ineq.imp)}`);
+
+  // Y el piso tiene que estar APLICÁNDOSE: si deja de aparecer, o se corrigió el dato maestro o
+  // la MV se quedó parada (su latido vive en CRON_JOBS como `analytics_refresh_sold_rung`).
+  const piso = (await c.query(
+    `SELECT count(*)::int n FROM analytics.v_warehouse_box_factor
+      WHERE factor_source = 'kepler_peldano_vendido'`)).rows[0].n;
+  const mv = (await c.query(
+    `SELECT count(*)::int n, max(ultimo_visto)::text ult,
+            count(*) FILTER (WHERE rung_max > 1)::int mayor
+       FROM analytics.mv_kepler_sold_rung`)).rows[0];
+  console.log(`     mv_kepler_sold_rung: ${NUM(mv.n)} pares (${NUM(mv.mayor)} con peldaño > 1)`
+    + ` · última venta vista ${mv.ult} · el piso aplica en ${NUM(piso)} filas`);
+  check('⛔ la MV del peldaño está poblada y trae peldaños > 1',
+    mv.n > 1000 && mv.mayor > 100, `${NUM(mv.n)} pares, ${NUM(mv.mayor)} con peldaño > 1`);
+  check('⚠️ el piso NO se desbordó (2 filas medidas; techo 400 — si crece, revisar el eje)',
+    piso <= 400, `${NUM(piso)} filas con el peldaño como factor`);
   console.log(`     (${((Date.now() - t58) / 1000).toFixed(1)}s)`);
 
   // ── 5ter. ⚠️ EL NULL MUDO DE WINCAJA en el peldaño. `sales_daily.rung_factor` va NULL en el
