@@ -1812,3 +1812,25 @@ Hereda **ADR-044** (la app es dueña de la capa que Kepler no codifica, sin writ
 **Alcance decidido (Edgar, 2026-09-10):** ingesta ahora, **prod después** (VL.9, ADR aparte) → el fierro se dimensiona para los dos desde el día 1: prod mide **30 GB en PG 18.6**, la ingesta **55 GB**, más imágenes/caché (~17 GB) y respaldos → **32 GB RAM / NVMe 1 TB** con datos en partición aparte. Con prod en el horizonte, **UPS + respaldo fuera del sitio dejan de ser opcionales**.
 
 Plan, inventario completo y riesgos en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.md).
+
+## ADR-061
+
+**La landing se deriva de UN mapa de espacios sobre `AUTHZ_TREE`; la visibilidad se deriva de los permisos del árbol, y lo que no tiene módulo se declara, no se dibuja.** (Fase SN — aceptado 2026-09-10)
+
+**Contexto medido.** La página `/projects` era un catálogo de 11 tarjetas con sus `anyOf` escritos a mano en el componente, mientras `AUTHZ_TREE` (`libs/contracts`) ya era la fuente canónica de proyecto → módulo → permisos y el `LayoutComponent` llevaba una TERCERA lista (`currentProject` union + `switch` de etiquetas + `*NavGroups`). Las tres discrepaban en etiquetas, y la copia de la landing ya había cobrado dos bugs de puerta: `[AUTHZ.6]` (3 almacenistas con permisos válidos y sin tarjeta, mandados a la captura de trade) e `[IDG.9.6]` (promotoras con permiso de caducidades sin puerta a Tienda). La especificación de Dirección (2026-09-10) pide reagrupar en **10 espacios de responsabilidad** (§5.1) *sin pérdida de permisos* (§24).
+
+**Decisión.**
+1. **Un mapa, en `libs/contracts/src/authz/suite-map.ts`**, capa de presentación sobre el árbol —igual que el árbol lo es sobre los permisos atómicos (Fase AZ)—. Ningún guard lo lee. Cada proyecto de `view` tiene **exactamente una casa primaria**; los espacios transversales **enlazan** (`crossLink`), no se apropian.
+2. **La visibilidad se DERIVA**: `view ∪ manage` de los módulos **con ruta** del proyecto. Nunca una segunda lista a mano. Un módulo sin ruta no aporta: un permiso sin pantalla (`HR_ATTENDANCE_CHECAR`) no abre un espacio.
+3. **`gate` sólo donde el guard es más estricto que el árbol, y con `reason`.** Hoy son tres (`admin`, `trade`, `reparto`) + los módulos de Trade bajo `colaboradorGuard`. Cada `gate` es deuda con nombre: alinear guard y árbol lo elimina y la paridad sigue verde.
+4. **Lo que la spec pide y la suite no tiene, se declara (`planned`) y no se pinta.** Una tarjeta "Próximamente" es lo que §22 veta, y "Activo" no significa "Actualizado".
+5. **La línea secundaria de una entrada se deriva de los módulos accesibles**, por usuario. §13 juzgó Finanzas por una descripción de tarjeta desactualizada: las descripciones a mano mienten con el tiempo.
+6. **Paridad como compuerta**: los 11 `anyOf` legacy quedan congelados como fixture; nadie que veía una tarjeta deja de ver su destino, y una persona con UNA sola clave sigue viendo la puerta. Las puertas que se abren de más se **miden** contra `role_permissions` de prod y se revisan a mano.
+
+**Se rechaza:** (a) renombrar la URL a `/mi-trabajo` ahora (7 archivos + PWA por cosmética; Etapa 3); (b) estrenar la cabecera "Esto ve Dirección General de mi gestión" sobre bloques vacíos (§6.1 la define como disponibilidad de información: sin indicador con ficha sería falsa); (c) master-detail o card grid para la landing (las entradas son enlaces; DESIGN.md veta el grid en Operations); (d) arreglar `scripts/check-authz-tree.js` — era vacuo (leía shims de una línea y pintaba verde) y su invariante "sin compartidos" ya está contradicho a propósito ≥8 veces: se borra.
+
+**Hereda:** ADR-054 (permiso = clave exacta; el mapa no inventa acciones/sujetos) · ADR-056 (lo que no se pudo medir se declara; un gate sin prueba negativa es una intención — cada invariante del mapa tiene su rojo ejercido) · ADR-050 (permiso ≠ alcance: el puesto y la zona se MUESTRAN en "Mi contexto", no gatean).
+
+**Decisión abierta que deja registrada:** **P-14** — §23 manda "Auditoría en Ruta" a *Rutas de detalle* y §10 pone *Trade Marketing* bajo *Mercadotecnia*; los capturadores son vendedores de ruta directa (sustento de §23) y el contenido es marketing (sustento de §10). Default §23; cambiarlo es una línea.
+
+Plan, diagnóstico y medición en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md).
