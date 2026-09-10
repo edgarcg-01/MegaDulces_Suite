@@ -289,6 +289,11 @@ export class StoreService {
         'total', 'forma_pago', 'items',
       );
 
+    // TDA.P — palancas de la política comercial (partidas y unidades por ticket).
+    // Se calcula en SQL sobre TODOS los renglones del día, no sobre el ticker del
+    // navegador, que está topado (5000 acá / 6000 en el cliente) y daría una muestra.
+    const lineAgg = await this.lineLevers(warehouseCodes);
+
     const totals = byBranch.reduce(
       (a: any, b: any) => ({ tickets: a.tickets + Number(b.tickets), venta: a.venta + Number(b.venta || 0) }),
       { tickets: 0, venta: 0 },
@@ -318,10 +323,500 @@ export class StoreService {
       by_branch: byBranch.map((b: any) => ({
         warehouse_code: b.warehouse_code, warehouse_name: b.warehouse_name,
         tickets: Number(b.tickets), venta: Number(b.venta || 0), last_ts: b.last_ts,
+        lines: lineAgg.by_branch[b.warehouse_code] || null,
       })),
       hourly: hourly.map((h: any) => ({ hora: Number(h.hora), tickets: Number(h.tickets), venta: Number(h.venta || 0) })),
       recent: recent.map((r: any) => ({ ...r, total: Number(r.total) })),
+      lines: lineAgg.totals,
       sockets: this.gateway.getStats(),
+    };
+  }
+
+  /**
+   * TDA.P — Partidas y unidades del día, por sucursal y en total.
+   *
+   * La política comercial se apoya en dos descomposiciones EXACTAS de la venta:
+   *   Venta = Tickets × (Partidas/ticket) × (Valor/partida)
+   *   Venta = Tickets × (Unidades/ticket) × (Valor/unidad)
+   *
+   * **Partidas y su valor son exactos**: un renglón es un renglón, y el numerador
+   * sale del `importe` de los mismos renglones que se cuentan (medido: Σ importe de
+   * renglones == Σ total de tickets).
+   *
+   * **Las unidades NO se pueden sumar crudas.** `cant` viene en el peldaño realmente
+   * vendido y un mismo SKU con el mismo rótulo se vende en pieza Y en paquete
+   * (`UNIDADES_DE_MEDIDA.md` §7: el 70031 a $6.12 la pieza y a $90.96 el paquete de 16).
+   * Sumar crudo subcuenta — medido sobre 200k renglones reales de mostrador (`U-D-10`):
+   * **1.63%** de subconteo, 99.73% de los renglones resueltos. Así que el peldaño se
+   * identifica por el **precio realmente cobrado** contra la escalera del ERP
+   * (`analytics.v_product_unit_ladder`: `p1/p2/p3` con factores `1/f2/f3`), eligiendo el
+   * más cercano en log-espacio y **sólo dentro de la banda 0.5×–2×**. Los peldaños distan
+   * ≥2×, mucho más que cualquier descuento, así que la banda no confunde uno con otro.
+   *
+   * Fuera de banda **no se adivina**: el renglón queda sin resolver, no se suma, y se
+   * reporta en `unresolved_lines` / `coverage_pct` para que la pantalla lo declare
+   * (ADR-056: lo que no se pudo medir se declara, no se dibuja como cero).
+   */
+  private async lineLevers(warehouseCodes?: string[] | null): Promise<{ totals: any; by_branch: Record<string, any> }> {
+    const scoped = warehouseCodes !== null && warehouseCodes !== undefined;
+    // Alcance vacío = no ve nada (fail-closed, misma semántica que `snapshot`).
+    if (scoped && !warehouseCodes!.length) {
+      return { totals: this.emptyLevers('sin_alcance'), by_branch: {} };
+    }
+    try {
+      const { rows } = await this.knex.raw(
+        `WITH lineas AS (
+           SELECT t.warehouse_code,
+                  (it->>'sku')              AS sku,
+                  (it->>'cant')::numeric    AS cant,
+                  (it->>'importe')::numeric AS importe
+             FROM analytics.store_live_tickets t
+             CROSS JOIN LATERAL jsonb_array_elements(t.items) it
+            WHERE t.tenant_id = ?
+              AND (t.ticket_ts AT TIME ZONE ?)::date = (now() AT TIME ZONE ?)::date
+              ${scoped ? 'AND t.warehouse_code = ANY(?)' : ''}
+         ),
+         res AS (
+           SELECT l.warehouse_code, l.cant, l.importe, rung.factor
+             FROM lineas l
+             LEFT JOIN analytics.v_product_unit_ladder pl ON pl.sku = l.sku
+             LEFT JOIN LATERAL (
+               SELECT r.factor
+                 FROM (VALUES (1::numeric, pl.p1), (pl.f2, pl.p2), (pl.f3, pl.p3)) AS r(factor, price)
+                WHERE r.price IS NOT NULL AND r.price > 0
+                  AND r.factor IS NOT NULL AND r.factor > 0
+                  AND l.cant > 0 AND l.importe > 0
+                  AND abs(ln((l.importe / l.cant) / r.price)) <= ln(2)
+                ORDER BY abs(ln((l.importe / l.cant) / r.price))
+                LIMIT 1
+             ) rung ON TRUE
+         )
+         SELECT warehouse_code,
+                count(*)::int                                              AS lines,
+                sum(importe)                                               AS amount,
+                count(*) FILTER (WHERE factor IS NOT NULL)::int            AS resolved_lines,
+                sum(cant * factor) FILTER (WHERE factor IS NOT NULL)       AS units_base,
+                sum(importe)       FILTER (WHERE factor IS NOT NULL)       AS resolved_amount
+           FROM res
+          GROUP BY warehouse_code`,
+        scoped ? [TENANT, TZ, TZ, warehouseCodes] : [TENANT, TZ, TZ],
+      );
+
+      const by_branch: Record<string, any> = {};
+      const acc = { lines: 0, amount: 0, resolved_lines: 0, units_base: 0, resolved_amount: 0 };
+      for (const r of rows as any[]) {
+        const row = {
+          lines: Number(r.lines) || 0,
+          amount: Number(r.amount) || 0,
+          resolved_lines: Number(r.resolved_lines) || 0,
+          units_base: Number(r.units_base) || 0,
+          resolved_amount: Number(r.resolved_amount) || 0,
+        };
+        by_branch[r.warehouse_code] = this.shapeLevers(row);
+        acc.lines += row.lines; acc.amount += row.amount;
+        acc.resolved_lines += row.resolved_lines;
+        acc.units_base += row.units_base; acc.resolved_amount += row.resolved_amount;
+      }
+      return { totals: this.shapeLevers(acc), by_branch };
+    } catch (e: any) {
+      // La escalera vive sobre `kepler_ods.kdii`: si el ODS no está en este entorno la
+      // pantalla NO se cae — las unidades se declaran `no_medido` y las partidas, que no
+      // dependen de la escalera, se pierden también acá a propósito (un agregado a medias
+      // que no sabe decir de dónde salió miente más que un hueco declarado).
+      this.logger.warn(`Palancas de partidas/unidades no disponibles: ${e?.message || e}`);
+      return { totals: this.emptyLevers('escalera_no_disponible'), by_branch: {} };
+    }
+  }
+
+  /** Ratios derivados + la declaración de con qué se midieron (ADR-056). */
+  private shapeLevers(r: { lines: number; amount: number; resolved_lines: number; units_base: number; resolved_amount: number }) {
+    const covered = r.lines > 0 ? (100 * r.resolved_lines) / r.lines : 0;
+    return {
+      lines: r.lines,
+      amount: +r.amount.toFixed(2),
+      // Valor por partida: exacto — dinero e importe salen de los MISMOS renglones.
+      amount_per_line: r.lines ? +(r.amount / r.lines).toFixed(2) : 0,
+      // Unidades con el peldaño resuelto. `null` = no se pudo medir, NUNCA 0.
+      units: r.resolved_lines ? +r.units_base.toFixed(2) : null,
+      // Valor unitario sobre el MISMO subconjunto que resolvió unidades (si no, miente).
+      amount_per_unit: r.resolved_lines && r.units_base > 0 ? +(r.resolved_amount / r.units_base).toFixed(2) : null,
+      unresolved_lines: r.lines - r.resolved_lines,
+      coverage_pct: +covered.toFixed(2),
+      method: r.lines === 0 ? 'sin_datos' : r.resolved_lines ? 'peldano_por_precio' : 'no_medido',
+    };
+  }
+
+  private emptyLevers(method: string) {
+    return {
+      lines: 0, amount: 0, amount_per_line: 0,
+      units: null, amount_per_unit: null,
+      unresolved_lines: 0, coverage_pct: 0, method,
+    };
+  }
+
+  // ── TDA.R — ritmo semanal/mensual (baseline para comparar el día) ─────
+  private rhythmCache = new Map<string, { at: number; data: any }>();
+  private static readonly RHYTHM_TTL_MS = 30 * 60 * 1000; // el baseline cambia una vez al día
+  private static readonly RHYTHM_WINDOW = 30;             // días que se traen del ODS
+
+  /**
+   * Ritmo de referencia: las mismas razones del día, promediadas sobre los últimos
+   * 7 y 30 días. Sirve para responder "¿hoy vamos mejor o peor de lo normal?".
+   *
+   * **De dónde sale.** NO de `analytics.store_live_tickets`: ese buffer se limpia a los
+   * 3 días, así que no puede sostener una semana ni un mes. Sale del ODS
+   * (`kepler_ods.kdm1` ⋈ `kdm2`, documentos `U-D-10`), que es la fuente canónica del
+   * dato del ERP y tiene historia desde ene-2025.
+   *
+   * **Se compara contra la misma ventana horaria.** Sólo entran los tickets emitidos
+   * hasta la hora actual, porque el día de hoy va a medias: comparar media jornada
+   * contra jornadas completas castigaría a hoy por la mañana y lo premiaría al cierre.
+   * (Medido: mueve las razones poco — partidas/ticket 3.04 → 3.08 a 7 días — pero es
+   * la comparación honesta y no cuesta nada.)
+   *
+   * **Y mide su propia base.** Un día al que el feed no llegó no es un día de venta
+   * floja: es un día que no sabemos. Si la ventana no junta suficientes días completos,
+   * el baseline se declara `no_medido` y la pantalla NO dibuja un delta. Vivido: al
+   * consultar esto, al ODS le faltaban 4 días seguidos y otros 3 venían a un cuarto de
+   * su volumen — un "vs. semana" ingenuo habría publicado un desplome inventado.
+   */
+  async rhythm(warehouseCodes?: string[] | null): Promise<any> {
+    const key = warehouseCodes === null || warehouseCodes === undefined ? 'all' : [...warehouseCodes].sort().join(',');
+    const hit = this.rhythmCache.get(key);
+    if (hit && Date.now() - hit.at < StoreService.RHYTHM_TTL_MS) return hit.data;
+
+    const data = await this.computeRhythm(warehouseCodes);
+    this.rhythmCache.set(key, { at: Date.now(), data });
+    return data;
+  }
+
+  private async computeRhythm(warehouseCodes?: string[] | null): Promise<any> {
+    const scoped = warehouseCodes !== null && warehouseCodes !== undefined;
+    if (scoped && !warehouseCodes!.length) {
+      return {
+        week: this.emptyRhythm(7, 'sin_alcance'),
+        month: this.emptyRhythm(30, 'sin_alcance'),
+        dow: { ...this.emptyRhythm(28, 'sin_alcance'), dow: this.todayDow(), occurrences: 0 },
+        hourly: { dow: null, week: null, month: null },
+        generated_at: new Date().toISOString(),
+      };
+    }
+    try {
+      const { rows } = await this.knex.raw(
+        `WITH cab AS (
+           SELECT h.sucursal, h.c9::date AS dia, h.c1,h.c2,h.c3,h.c4,h.c5,h.c6
+             FROM kepler_ods.kdm1 h
+            WHERE h.c2='U' AND h.c3='D' AND h.c4=10
+              AND h.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
+              AND h.c9::date >= (now() AT TIME ZONE ?)::date - ?::int
+              AND h.c9::date <  (now() AT TIME ZONE ?)::date
+              AND h.c62::time <= (now() AT TIME ZONE ?)::time
+              ${scoped ? 'AND h.sucursal = ANY(?)' : ''}
+         ),
+         tick AS (SELECT dia, sucursal AS suc, count(*)::int AS tickets FROM cab GROUP BY dia, sucursal),
+         lin AS (
+           SELECT cab.dia, cab.sucursal AS suc, d.c8 AS sku,
+                  coalesce(d.c9,0)::numeric AS cant, coalesce(d.c13,0)::numeric AS importe
+             FROM cab
+             JOIN kepler_ods.kdm2 d
+               ON d.sucursal=cab.sucursal AND d.c1=cab.c1 AND d.c2=cab.c2 AND d.c3=cab.c3
+              AND d.c4=cab.c4 AND d.c5=cab.c5 AND d.c6=cab.c6
+            WHERE btrim(d.c8) <> '' AND d.c8 NOT IN ('00001','00002')
+         ),
+         res AS (
+           SELECT l.dia, l.suc, l.cant, l.importe, rung.factor
+             FROM lin l
+             LEFT JOIN analytics.v_product_unit_ladder pl ON pl.sku = l.sku
+             LEFT JOIN LATERAL (
+               SELECT r.factor
+                 FROM (VALUES (1::numeric, pl.p1), (pl.f2, pl.p2), (pl.f3, pl.p3)) AS r(factor, price)
+                WHERE r.price IS NOT NULL AND r.price > 0
+                  AND r.factor IS NOT NULL AND r.factor > 0
+                  AND l.cant > 0 AND l.importe > 0
+                  AND abs(ln((l.importe / l.cant) / r.price)) <= ln(2)
+                ORDER BY abs(ln((l.importe / l.cant) / r.price))
+                LIMIT 1
+             ) rung ON TRUE
+         )
+         SELECT t.dia::text                                                  AS dia,
+                t.suc                                                        AS suc,
+                t.tickets                                                    AS tickets,
+                count(r.*)::int                                              AS lines,
+                coalesce(sum(r.importe),0)                                   AS amount,
+                count(r.*) FILTER (WHERE r.factor IS NOT NULL)::int          AS resolved_lines,
+                coalesce(sum(r.cant*r.factor) FILTER (WHERE r.factor IS NOT NULL),0) AS units_base,
+                coalesce(sum(r.importe)       FILTER (WHERE r.factor IS NOT NULL),0) AS resolved_amount
+           FROM tick t LEFT JOIN res r ON r.dia = t.dia AND r.suc = t.suc
+          GROUP BY t.dia, t.suc, t.tickets
+          ORDER BY t.dia DESC`,
+        scoped
+          ? [TZ, StoreService.RHYTHM_WINDOW, TZ, TZ, warehouseCodes]
+          : [TZ, StoreService.RHYTHM_WINDOW, TZ, TZ],
+      );
+
+      const filas = (rows as any[]).map((r) => ({
+        dia: String(r.dia).slice(0, 10),
+        suc: String(r.suc ?? '').trim(),
+        tickets: Number(r.tickets) || 0,
+        lines: Number(r.lines) || 0,
+        amount: Number(r.amount) || 0,
+        resolved_lines: Number(r.resolved_lines) || 0,
+        units_base: Number(r.units_base) || 0,
+        resolved_amount: Number(r.resolved_amount) || 0,
+      }));
+
+      // La red = la suma de las sucursales, día por día.
+      const red = [...filas.reduce((m, f) => {
+        const a = m.get(f.dia) || { dia: f.dia, tickets: 0, lines: 0, amount: 0, resolved_lines: 0, units_base: 0, resolved_amount: 0 };
+        a.tickets += f.tickets; a.lines += f.lines; a.amount += f.amount;
+        a.resolved_lines += f.resolved_lines; a.units_base += f.units_base; a.resolved_amount += f.resolved_amount;
+        m.set(f.dia, a); return m;
+      }, new Map<string, any>()).values()].sort((a, b) => (a.dia < b.dia ? 1 : -1));
+
+      const porSuc = new Map<string, any[]>();
+      for (const f of filas) {
+        if (!f.suc) continue;
+        if (!porSuc.has(f.suc)) porSuc.set(f.suc, []);
+        porSuc.get(f.suc)!.push(f);
+      }
+
+      const horas = await this.rhythmHourlyRaw(warehouseCodes);
+      const redOut = this.buildWindows(red, horas, null);
+      const by_branch: Record<string, any> = {};
+      for (const [suc, ds] of porSuc) by_branch[suc] = this.buildWindows(ds, horas, suc);
+
+      return { ...redOut, by_branch, generated_at: new Date().toISOString() };
+    } catch (e: any) {
+      this.logger.warn(`Ritmo (baseline semanal/mensual) no disponible: ${e?.message || e}`);
+      return {
+        week: this.emptyRhythm(7, 'ods_no_disponible'),
+        month: this.emptyRhythm(30, 'ods_no_disponible'),
+        dow: { ...this.emptyRhythm(28, 'ods_no_disponible'), dow: this.todayDow(), occurrences: 0 },
+        hourly: { dow: null, week: null, month: null },
+        generated_at: new Date().toISOString(),
+      };
+    }
+  }
+
+  /** Día de la semana de HOY en hora MX (0=domingo), no en la del servidor. */
+  private todayDow(): number {
+    return new Date(Date.now() - 6 * 3600e3).getUTCDay();
+  }
+
+  /**
+   * Curva de venta POR HORA de cada ritmo, para poner de referencia sobre la del día.
+   * Responde "a esta hora, ¿normalmente cuánto llevábamos?".
+   *
+   * Sale sólo de las cabeceras (`kdm1.c16` = total del ticket): no necesita los
+   * renglones, así que es una consulta barata al lado de la de las razones.
+   *
+   * ⚠️ **A diferencia de las razones, acá NO se recorta a la hora actual.** La curva
+   * de referencia tiene que mostrar el día entero: la gracia es ver lo que todavía
+   * falta, no sólo lo que ya pasó.
+   *
+   * Una hora sin ventas en un día cuenta como CERO, no se excluye — si no, las horas
+   * muertas se verían tan altas como las buenas por promediar sólo los días en que hubo
+   * movimiento.
+   */
+  private async rhythmHourlyRaw(warehouseCodes?: string[] | null): Promise<any[]> {
+    const scoped = warehouseCodes !== null && warehouseCodes !== undefined;
+    try {
+      const { rows } = await this.knex.raw(
+        `SELECT h.c9::date::text                                AS dia,
+                h.sucursal                                      AS suc,
+                substring(h.c62 from '^[0-9]{1,2}')::int        AS hora,
+                count(*)::int                                   AS tickets,
+                coalesce(sum(h.c16),0)                          AS venta
+           FROM kepler_ods.kdm1 h
+          WHERE h.c2='U' AND h.c3='D' AND h.c4=10
+            AND h.c62 ~ '^[0-9]{1,2}:[0-9]{2}'
+            AND h.c9::date >= (now() AT TIME ZONE ?)::date - ?::int
+            AND h.c9::date <  (now() AT TIME ZONE ?)::date
+            ${scoped ? 'AND h.sucursal = ANY(?)' : ''}
+          GROUP BY 1, 2, 3`,
+        scoped
+          ? [TZ, StoreService.RHYTHM_WINDOW, TZ, warehouseCodes]
+          : [TZ, StoreService.RHYTHM_WINDOW, TZ],
+      );
+      return (rows as any[]).map((r) => ({
+        dia: String(r.dia).slice(0, 10),
+        suc: String(r.suc ?? '').trim(),
+        hora: Number(r.hora),
+        tickets: Number(r.tickets) || 0,
+        venta: Number(r.venta) || 0,
+      }));
+    } catch (e: any) {
+      this.logger.warn(`Curva horaria de referencia no disponible: ${e?.message || e}`);
+      return [];
+    }
+  }
+
+  /**
+   * Arma las tres ventanas (día de la semana / 7 / 30) + sus curvas horarias para UNA
+   * serie: la red entera, o una sola sucursal.
+   *
+   * La utilidad de cada día se decide **dentro de la serie**, con su propia mediana. Una
+   * sucursal chica no es un día incompleto de la red: si se juzgara a todas con el
+   * umbral de la red, las tiendas de menor volumen quedarían descartadas siempre.
+   */
+  private buildWindows(dias: any[], horasRaw: any[], suc: string | null) {
+    const orden = dias.map((d) => d.tickets).sort((a: number, b: number) => a - b);
+    const mediana = orden.length ? orden[Math.floor(orden.length / 2)] : 0;
+    const umbral = mediana * 0.5;
+    for (const d of dias) d.usable = d.tickets > 0 && d.tickets >= umbral;
+
+    const week = this.shapeRhythm(dias, 7, mediana);
+    const month = this.shapeRhythm(dias, 30, mediana);
+    const dow = this.shapeRhythmDow(dias, mediana);
+
+    const usables = new Set(dias.filter((d) => d.usable).map((d) => d.dia));
+    const porDia = new Map<string, Map<number, { tickets: number; venta: number }>>();
+    for (const r of horasRaw) {
+      if (suc !== null && r.suc !== suc) continue;
+      if (!usables.has(r.dia)) continue;
+      if (!porDia.has(r.dia)) porDia.set(r.dia, new Map());
+      const m = porDia.get(r.dia)!;
+      const prev = m.get(r.hora);
+      // Sin filtro de sucursal las filas de todas se acumulan en la misma hora.
+      m.set(r.hora, { tickets: (prev?.tickets || 0) + r.tickets, venta: (prev?.venta || 0) + r.venta });
+    }
+
+    const hoy = new Date(Date.now() - 6 * 3600e3).toISOString().slice(0, 10);
+    const dowIdx = this.todayDow();
+    const desde = (n: number) => new Date(Date.now() - 6 * 3600e3 - n * 86400e3).toISOString().slice(0, 10);
+    const perfil = (filtro: (dia: string) => boolean, win: any) => {
+      if (!win || win.method !== 'ods_u_d_10') return null;
+      const dds = [...porDia.keys()].filter(filtro);
+      if (!dds.length) return null;
+      return Array.from({ length: 17 }, (_, i) => {
+        const hora = i + 6;
+        let venta = 0, tickets = 0;
+        for (const d of dds) {
+          const h = porDia.get(d)!.get(hora);
+          if (h) { venta += h.venta; tickets += h.tickets; }
+        }
+        return { hora, venta: +(venta / dds.length).toFixed(2), tickets: +(tickets / dds.length).toFixed(2) };
+      });
+    };
+
+    return {
+      week, month, dow,
+      hourly: {
+        dow: perfil((d) => d < hoy && new Date(d + 'T12:00:00Z').getUTCDay() === dowIdx, dow),
+        week: perfil((d) => d >= desde(7) && d < hoy, week),
+        month: perfil((d) => d >= desde(30) && d < hoy, month),
+      },
+    };
+  }
+
+  /**
+   * Ritmo del MISMO día de la semana: los últimos 4 miércoles si hoy es miércoles.
+   *
+   * En retail el día de la semana manda —un sábado no se parece a un martes—, así que
+   * comparar el día en curso contra un promedio de 30 días que mezcla ambos castiga o
+   * premia por el calendario, no por la operación. Este baseline aísla ese efecto.
+   *
+   * Sale de los MISMOS días que ya trajo la consulta de 30 (4 semanas = 28 días), así
+   * que no cuesta una query extra. Pide 3 de 4 ocurrencias utilizables: con dos, un
+   * solo día flojo mueve el promedio 50% y el "vs." deja de significar algo.
+   */
+  private shapeRhythmDow(dias: any[], mediana: number) {
+    const dow = this.todayDow();
+    const hoy = new Date(Date.now() - 6 * 3600e3).toISOString().slice(0, 10);
+    const mismos = dias
+      .filter((d) => d.dia < hoy && new Date(d.dia + 'T12:00:00Z').getUTCDay() === dow)
+      .sort((a, b) => (a.dia < b.dia ? 1 : -1))
+      .slice(0, 4);
+    const usables = mismos.filter((d) => d.usable);
+
+    const acc = usables.reduce(
+      (a, d) => ({
+        tickets: a.tickets + d.tickets, lines: a.lines + d.lines, amount: a.amount + d.amount,
+        resolved_lines: a.resolved_lines + d.resolved_lines,
+        units_base: a.units_base + d.units_base, resolved_amount: a.resolved_amount + d.resolved_amount,
+      }),
+      { tickets: 0, lines: 0, amount: 0, resolved_lines: 0, units_base: 0, resolved_amount: 0 },
+    );
+
+    if (usables.length < 3 || !acc.tickets) {
+      return {
+        ...this.emptyRhythm(28, mismos.length ? 'ventana_incompleta' : 'sin_datos'),
+        dow,
+        occurrences: mismos.length,
+        days_used: usables.length,
+        days_missing: 4 - mismos.length,
+        days_partial: mismos.length - usables.length,
+      };
+    }
+    return {
+      window_days: 28,
+      dow,
+      occurrences: mismos.length,
+      days_used: usables.length,
+      days_missing: 4 - mismos.length,
+      days_partial: mismos.length - usables.length,
+      median_tickets: mediana,
+      tickets_per_day: +(acc.tickets / usables.length).toFixed(2),
+      lines_per_ticket: +(acc.lines / acc.tickets).toFixed(4),
+      amount_per_line: acc.lines ? +(acc.amount / acc.lines).toFixed(2) : 0,
+      amount_per_ticket: +(acc.amount / acc.tickets).toFixed(2),
+      units_per_ticket: acc.resolved_lines ? +(acc.units_base / acc.tickets).toFixed(4) : null,
+      amount_per_unit: acc.units_base > 0 ? +(acc.resolved_amount / acc.units_base).toFixed(2) : null,
+      coverage_pct: acc.lines ? +((100 * acc.resolved_lines) / acc.lines).toFixed(2) : 0,
+      method: 'ods_u_d_10',
+    };
+  }
+
+  /** Promedia SOLO los días utilizables de la ventana y declara cuántos fueron. */
+  private shapeRhythm(dias: any[], ventana: number, mediana: number) {
+    const hoy = new Date(Date.now() - 6 * 3600e3).toISOString().slice(0, 10);
+    const desde = new Date(Date.now() - 6 * 3600e3 - ventana * 86400e3).toISOString().slice(0, 10);
+    const enVentana = dias.filter((d) => d.dia >= desde && d.dia < hoy);
+    const usables = enVentana.filter((d) => d.usable);
+
+    const acc = usables.reduce(
+      (a, d) => ({
+        tickets: a.tickets + d.tickets, lines: a.lines + d.lines, amount: a.amount + d.amount,
+        resolved_lines: a.resolved_lines + d.resolved_lines,
+        units_base: a.units_base + d.units_base, resolved_amount: a.resolved_amount + d.resolved_amount,
+      }),
+      { tickets: 0, lines: 0, amount: 0, resolved_lines: 0, units_base: 0, resolved_amount: 0 },
+    );
+
+    // Con menos del 70% de la ventana no se publica una comparación: un promedio de 3
+    // días no es "el ritmo de la semana", y presentarlo como tal es peor que no tenerlo.
+    const suficiente = usables.length >= Math.ceil(ventana * 0.7);
+    if (!suficiente || !acc.tickets) {
+      return {
+        ...this.emptyRhythm(ventana, enVentana.length ? 'ventana_incompleta' : 'sin_datos'),
+        days_used: usables.length,
+        days_missing: ventana - enVentana.length,
+        days_partial: enVentana.length - usables.length,
+      };
+    }
+    return {
+      window_days: ventana,
+      days_used: usables.length,
+      days_missing: ventana - enVentana.length,
+      days_partial: enVentana.length - usables.length,
+      median_tickets: mediana,
+      tickets_per_day: +(acc.tickets / usables.length).toFixed(2),
+      lines_per_ticket: +(acc.lines / acc.tickets).toFixed(4),
+      amount_per_line: acc.lines ? +(acc.amount / acc.lines).toFixed(2) : 0,
+      amount_per_ticket: +(acc.amount / acc.tickets).toFixed(2),
+      units_per_ticket: acc.resolved_lines ? +(acc.units_base / acc.tickets).toFixed(4) : null,
+      amount_per_unit: acc.units_base > 0 ? +(acc.resolved_amount / acc.units_base).toFixed(2) : null,
+      coverage_pct: acc.lines ? +((100 * acc.resolved_lines) / acc.lines).toFixed(2) : 0,
+      method: 'ods_u_d_10',
+    };
+  }
+
+  private emptyRhythm(ventana: number, method: string) {
+    return {
+      window_days: ventana, days_used: 0, days_missing: ventana, days_partial: 0,
+      median_tickets: 0, tickets_per_day: null,
+      lines_per_ticket: null, amount_per_line: null, amount_per_ticket: null,
+      units_per_ticket: null, amount_per_unit: null, coverage_pct: 0, method,
     };
   }
 

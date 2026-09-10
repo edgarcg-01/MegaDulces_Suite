@@ -61,3 +61,22 @@
   border:1px solid color-mix(in srgb, var(--bad-fg) 30%, transparent); background:color-mix(in srgb, var(--bad-fg) 8%, transparent);
   border-radius:var(--r-md); color:var(--text-main); }
 .tda-banner i { color:var(--bad-fg); }
+
+/* Selector del ritmo de referencia. Compartido por /tienda/live (la red) y
+   /tienda/branches (una sucursal): la misma comparación con la misma forma en las dos
+   pantallas. Segmentado y no un dropdown — son tres opciones y cuál está activa tiene
+   que verse sin abrir nada. */
+.tda-vs { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; margin-top:.9rem; }
+.tda-vs .vs-lbl { font-size:.68rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:.04em; }
+.tda-vs .vs-seg { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm,8px); overflow:hidden; }
+.tda-vs .vs-btn { appearance:none; border:0; background:transparent; cursor:pointer;
+  font:inherit; font-size:.72rem; font-weight:600; color:var(--text-muted);
+  padding:.22rem .6rem; min-height:1.7rem;
+  transition:background var(--dur-short,120ms) ease-out, color var(--dur-short,120ms) ease-out; }
+.tda-vs .vs-btn + .vs-btn { border-left:1px solid var(--border-color); }
+.tda-vs .vs-btn:hover { background:color-mix(in srgb, var(--text-main) 5%, transparent); color:var(--text-main); }
+.tda-vs .vs-btn.on { background:var(--action); color:var(--action-fg,#fff); }
+.tda-vs .vs-btn:focus-visible { outline:2px solid var(--action-ring,var(--action)); outline-offset:-2px; }
+.tda-vs .vs-meta { font-size:.66rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
+.tda-vs .vs-meta.warn { color:var(--warn-fg); display:inline-flex; align-items:center; gap:.3rem; }
+.tda-vs .vs-meta.warn i { font-size:.68rem; }
