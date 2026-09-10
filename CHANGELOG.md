@@ -114,6 +114,14 @@ Medido en prod con las consultas nuevas: **210** ruta×quincena, **160** con km 
 
 Builds `api` + `view` verdes. **Falta validación visual y redeploy** (los dev servers son de Edgar).
 
+### Verified — validación visual del verificador de precios, cerrando el pendiente de CV.24 (2026-09-10)
+
+CV.24 (el verificador rehecho como pantalla de `/tienda/verificador`) quedó con un solo pendiente declarado: la validación visual en browser, bloqueada porque no había cuenta con la que entrar. Se cerró con una cuenta descartable (rol `superadmin`, creada y borrada en `platform_test` — la cuenta real de Edgar seguía sin llegar) y `apps/api`+`apps/view` levantados en local contra `192.168.0.245/platform_test`.
+
+- **Las 3 rutas de estado, ejercidas de verdad en el browser** (no simuladas): `encontrado` (`17083` → ALTOS CAM CHICA COLOR 1KG, $62.99 KG / $1,159.91 BTO ×20 — coincide byte a byte con lo medido en CV.24), `no_encontrado` (tarjeta distinta, no un vacío) y **`respaldo`**: se detuvo la API a propósito y la pantalla cayó sola al snapshot de IndexedDB — banner "Sin conexión: se está mostrando el precio de respaldo" + tag + mismo precio + sello de fecha —, sin que el snapshot se hubiera pedido a mano (se auto-descargó al elegir sucursal). Modo kiosco (oculta sidebar/nav) también verificado.
+- **No se pudo ejercer el mayoreo**: los códigos de muestra en `platform_test` no traían tiers de `commercial.product_label_prices` — limitación de esa DB de pruebas, no del código (Edgar ya lo midió en prod: 8,481/9,020 SKUs).
+- **Hallazgo del entorno local, ajeno a CV.24:** con `ENABLE_MULTITENANT=true`, `TenantContextInterceptor` abre una transacción en la conexión "legacy" (`DatabaseModule`, rol `postgres`, bypasea RLS) en **toda** request — incluidas las `@Public()` como `/api/sucursales`. Sin `DATABASE_URL` seteado cae al default `postgres/postgres@localhost` y todo (login incluido) daba 500 `authentication failed for user "postgres"`. Se destrabó apuntando también esa variable a `platform_test` con el rol `dev_sistemas` (no bypasea RLS de verdad, pero alcanza para validar localmente) — no es un fix, es notas para el próximo que arranque la app contra esta DB sin el rol `postgres` real a mano.
+
 ### Added — el permiso declarado no es el permiso repartido (ID.29, 2026-09-09)
 
 El encabezado del propio enum ya lo decía —*"declararlo en el enum no es entregarlo"* (`[LC.6.2]`)— y **no lo medía nadie**. Una regla sin compuerta es la forma más cara de tener una regla: se cita en los reviews y no detiene nada. Ya había cobrado **dos veces**, las dos con el mismo síntoma (un módulo en producción que nadie podía abrir, encontrado por una persona días después): `FISCAL_PURCHASE_BOOK_VER/_GESTIONAR` en la Fase LC, y `STORE_PRICE_CHECK_VER` —el verificador de mostrador de CV.24— que hoy estaba en **cero roles** en prod.
