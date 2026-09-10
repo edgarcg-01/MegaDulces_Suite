@@ -53,11 +53,14 @@ chequear_pg() {  # nombre host puerto
   if ! tiene pg_isready; then
     linea "NO MEDIDO" "$n" "falta pg_isready → apt install postgresql-client-18"; ((nomedido++)); return
   fi
-  local t0 out
-  t0=$(date +%s%3N 2>/dev/null || echo 0)
+  local t0 t1 out ms
+  # ⚠️ `date +%%s%%3N` NO truncó a 3 dígitos acá: devolvía nanosegundos completos y la
+  # resta se publicaba rotulada "ms" — 170562626 ms son 47 horas. Se mide en ns y se
+  # convierte explícito. La unidad de un número no se hereda de su fuente: se prueba.
+  t0=$(date +%s%N)
   if out=$(pg_isready -h "$h" -p "$p" -t 5 2>&1); then
-    local t1; t1=$(date +%s%3N 2>/dev/null || echo 0)
-    linea "OK" "$n" "$h:$p acepta conexiones ($((t1 - t0)) ms)"; ((ok++))
+    t1=$(date +%s%N); ms=$(( (t1 - t0) / 1000000 ))
+    linea "OK" "$n" "$h:$p acepta conexiones (${ms} ms)"; ((ok++))
   else
     linea "FALLA" "$n" "$h:$p → ${out##*- }"; ((falla++))
   fi
