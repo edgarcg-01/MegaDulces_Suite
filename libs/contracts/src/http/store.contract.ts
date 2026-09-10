@@ -43,3 +43,87 @@ export interface LabelPricesChanged {
   /** ISO del momento en que se recomputaron. */
   at: string;
 }
+
+/**
+ * [TDA.4] Un escalón de mayoreo, tal como lo publica el mostrador.
+ *
+ * ── Por qué esto existe ──────────────────────────────────────────────────────────────────
+ * Medido en prod (2026-09-09): **8,481 de 9,020 productos (94 %) tienen mayoreo real**. No es un
+ * extra: es el caso normal, y el verificador —la pantalla donde se cierra la venta— no lo mostraba.
+ *
+ * ── Cómo leerlo sin equivocarse ──────────────────────────────────────────────────────────
+ * · **`desde` es SIEMPRE un umbral real del ERP**, nunca un default. Si Kepler no lo tiene, el tier
+ *   no viaja — la etiquetera aprendió por las malas que *"un mayoreo cuya condición de cantidad no
+ *   se conoce fabrica una discusión en el mostrador"*. Un `MayoreoTier` que llega es un tier que se
+ *   puede afirmar.
+ * · **`realza` separa el DATO de la SEÑAL.** El precio es cierto igual, pero por debajo del 1 % de
+ *   descuento pintarlo como oferta sería mentir con el color. Medido: 366 tiers caen ahí.
+ * · **`ahorro_en_el_minimo` es lo que cierra la venta**: no es lo mismo "$44.57 c/u" que "llevando
+ *   10 te ahorrás $14.10".
+ * · `palabra` sale de la unidad BASE del producto, no del tier: si la base es KG, "desde 20 piezas"
+ *   sería falso — son 20 kilos.
+ */
+export interface MayoreoTier {
+  /** `pieza` | `paquete` — de qué escalera es este tier. */
+  etiqueta: string;
+  /** El umbral REAL del ERP. Nunca un default. */
+  desde: number;
+  /** piezas / paquetes / cajas / kg. */
+  palabra: string;
+  precio_con_iva: number;
+  ahorro_por_unidad: number;
+  ahorro_en_el_minimo: number;
+  descuento_pct: number;
+  /** `true` = el descuento es perceptible (≥ 1 %) y merece señal visual. */
+  realza: boolean;
+}
+
+/**
+ * El mismo tier con las claves cortas del snapshot offline.
+ *
+ * No es una segunda definición: el cómputo y las reglas viven una sola vez, del lado del servidor.
+ * Esto es la codificación del cable, y la comparte el resto del snapshot (`c`/`b`/`bu`/`n`/`u`).
+ * Medido: con nombres largos el snapshot crecía **1,386 KB crudos** y los nombres eran el **51 %**
+ * de los bytes, repetidos 8,383 veces — medio mega de nombres de campo por cero información.
+ */
+export interface MayoreoTierCompacto {
+  e: string;
+  d: number;
+  w: string;
+  p: number;
+  au: number;
+  am: number;
+  pc: number;
+  r: 0 | 1;
+}
+
+/**
+ * Comprime un tier a la forma de cable. Vive PEGADO a su inversa a propósito: son las dos
+ * mitades de la misma codificación y separarlas es cómo se desincronizan.
+ */
+export function compactarTier(t: MayoreoTier): MayoreoTierCompacto {
+  return {
+    e: t.etiqueta,
+    d: t.desde,
+    w: t.palabra,
+    p: t.precio_con_iva,
+    au: t.ahorro_por_unidad,
+    am: t.ahorro_en_el_minimo,
+    pc: t.descuento_pct,
+    r: t.realza ? 1 : 0,
+  };
+}
+
+/** Expande la forma de cable. Es la inversa exacta de `compactarTier`. */
+export function expandirTier(t: MayoreoTierCompacto): MayoreoTier {
+  return {
+    etiqueta: t.e,
+    desde: t.d,
+    palabra: t.w,
+    precio_con_iva: t.p,
+    ahorro_por_unidad: t.au,
+    ahorro_en_el_minimo: t.am,
+    descuento_pct: t.pc,
+    realza: t.r === 1,
+  };
+}

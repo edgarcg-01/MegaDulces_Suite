@@ -130,7 +130,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                     <p-tag severity="success" icon="pi pi-bolt" value="Precio en línea"></p-tag>
                   }
                 </div>
-                <h2 class="vp-nombre">{{ p.nombre || 'Sin nombre en el catálogo' }}</h2>
+                <h2 class="vp-nombre">
+                  {{ p.nombre || 'Sin nombre en el catálogo' }}
+                  <!-- [TDA.4] El gramaje califica al nombre, no es un dato aparte. -->
+                  @if (p.contenido) { <span class="vp-gramaje">{{ p.contenido }}</span> }
+                </h2>
 
                 <div class="vp-precio-principal">
                   <span class="vp-precio">{{ money(precioPrincipal()) }}</span>
@@ -147,6 +151,47 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                     El codigo que escaneaste es de <strong>{{ unidadEscaneada() }}</strong>: este es su precio.
                   </p>
                 }
+                <!--
+                  [TDA.4] EL MAYOREO. Medido en prod: el 94% de los productos lo tiene, asi que
+                  no es un extra para un rincon -- es el caso normal, y esta es la pantalla donde
+                  se cierra la venta. Va PEGADO al precio grande porque es la continuacion de la
+                  misma pregunta ("cuanto cuesta" -> "y si llevo mas?"), antes que cualquier
+                  nota secundaria.
+
+                  Lo que NO se hace: mostrar un mayoreo sin saber desde cuantas unidades. El
+                  backend ya descarto esos (17 productos en prod) porque un mayoreo cuya
+                  condicion no se conoce fabrica una discusion en el mostrador.
+                -->
+                @if (mayoreo().length) {
+                  <div class="vp-mayoreo">
+                    @for (t of mayoreo(); track t.etiqueta) {
+                      <div class="vp-may-row" [class.is-realza]="t.realza">
+                        <div class="vp-may-cond">
+                          <i class="pi pi-tags" aria-hidden="true"></i>
+                          Llevando <strong class="vp-may-n">{{ t.desde }}+</strong> {{ t.palabra }}
+                        </div>
+                        <div class="vp-may-precio">
+                          <span class="vp-may-monto">{{ money(t.precio_con_iva) }}</span>
+                          <span class="vp-may-cu">c/u</span>
+                        </div>
+                      </div>
+                      <!--
+                        El ahorro es lo que cierra la venta: no es lo mismo "$41.10 c/u" que
+                        "te ahorras $34.70". Solo se pinta como GANANCIA cuando el descuento es
+                        perceptible (>=1%): abajo de eso el numero es cierto pero pintarlo de
+                        verde seria mentir con el color. Medido: 366 tiers caen ahi.
+                      -->
+                      @if (t.realza) {
+                        <p class="vp-may-ahorro">
+                          <i class="pi pi-arrow-down" aria-hidden="true"></i>
+                          Te ahorras <strong>{{ money(t.ahorro_en_el_minimo) }}</strong>
+                          <span class="vp-may-pct">({{ t.descuento_pct }}% menos c/u)</span>
+                        </p>
+                      }
+                    }
+                  </div>
+                }
+
                 <p class="vp-precio-nota">
                   Precio al público, IVA incluido.
                   @if (p.iva_pct != null) { IVA {{ p.iva_pct }}%. }
@@ -320,6 +365,57 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       letter-spacing: -0.02em; color: var(--text-main); }
     .vp-precio-u { font-size: var(--fs-body, .875rem); color: var(--text-muted); text-transform: lowercase; }
     .vp-precio-nota { margin: .2rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
+
+    /* ── [TDA.4] Mayoreo ──────────────────────────────────────────────────
+       Colorimetria segun DESIGN.md 5: la marca (--action, sunset) va en lo ACTIVO y en lo que
+       hay que mirar, no decorando. Aca la lleva UNA sola cosa: el numero del umbral ("10+"),
+       que es el dato accionable -- cuantas hay que llevar. El resto es neutro.
+
+       El ahorro SI es una ganancia, asi que usa el semantico --ok-*, y nunca solo: lleva icono
+       y texto (DESIGN.md 5, "color nunca es unico portador de significado"). Y solo aparece
+       cuando el descuento es perceptible: por eso .is-realza gatea la fila entera.
+
+       Sin hex inline en todo el bloque. */
+    .vp-mayoreo { margin: var(--sp-3) 0 0; padding: var(--sp-3); border-radius: var(--r-sm);
+      border: 1px solid var(--border-color); background: var(--surface-ground);
+      display: flex; flex-direction: column; gap: .15rem; }
+    .vp-may-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3);
+      font-size: var(--fs-body, .875rem); }
+    .vp-may-cond { display: flex; align-items: baseline; gap: .4rem; color: var(--text-muted); }
+    .vp-may-cond > i { color: var(--text-faint); font-size: .85em; }
+    /* El umbral es lo unico con color de marca: es la respuesta a "cuantas necesito". */
+    .vp-may-n { color: var(--action); font-weight: 700; font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums; }
+    .vp-may-precio { display: flex; align-items: baseline; gap: .3rem; }
+    /* Grande, pero deliberadamente MENOR que el precio unitario: el hero manda (DESIGN O.3). */
+    .vp-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      font-weight: 700; font-size: clamp(1.15rem, 2.4vw, 1.6rem); color: var(--text-main); }
+    .vp-may-cu { font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
+    .vp-may-ahorro { margin: 0 0 .35rem; display: flex; align-items: center; gap: .35rem;
+      font-size: var(--fs-sm, .8125rem); color: var(--ok-soft-fg); }
+    .vp-may-ahorro > i { color: var(--ok-fg); font-size: .9em; }
+    .vp-may-ahorro strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
+      color: var(--ok-fg); }
+    .vp-may-pct { color: var(--text-faint); }
+    /* Sin realce (descuento < 1%): el dato se muestra igual, apagado. Es cierto, no es oferta. */
+    .vp-may-row:not(.is-realza) .vp-may-monto { font-weight: 600; color: var(--text-muted); }
+
+    /* El gramaje califica al nombre: mismo renglon, peso menor. */
+    .vp-gramaje { font-size: .55em; font-weight: 500; color: var(--text-faint);
+      margin-left: .5rem; white-space: nowrap; }
+
+    /* ── [TDA.4] Movimiento ───────────────────────────────────────────────
+       CSS puro con los TOKENS del sistema (tokens.css declara BINDING: micro 120ms, short
+       150ms, techo duro 350ms, y solo transform+opacity). Cero librerias: lo que esta pantalla
+       pide es micro, y el bundle de view ya excede su budget por 228 kB.
+
+       Se anima la TARJETA, nunca la cifra: en un mostrador el precio tiene que ser legible de
+       inmediato, no al final de una transicion. Por eso tampoco hay count-up.
+
+       prefers-reduced-motion lo neutraliza el bloque global de styles.css (regla con * e
+       !important), asi que no se repite aca. */
+    @keyframes vpEntra { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+    .vp-card { animation: vpEntra var(--dur-short, 150ms) var(--ease-out, ease-out); }
     /* [TDA.3] "El codigo que escaneaste es de CJA". Va pegada al precio grande porque lo CALIFICA:
        separada, el operador leeria el numero antes de saber de que unidad es. */
     .vp-u-aclara { display: flex; align-items: center; gap: .4rem; margin: .35rem 0 0;
@@ -455,6 +551,15 @@ export class TiendaVerificadorComponent implements OnInit {
     const esc = this.unidadEscaneada();
     return (esc && us.find((x) => x.u === esc)) || us[0] || null;
   });
+
+  /**
+   * `[TDA.4]` Los escalones de mayoreo del producto en pantalla.
+   *
+   * Llegan ya filtrados por el backend: si un tier está acá, su umbral es real y su precio es
+   * más barato que el unitario. La pantalla **pinta, no decide** — poner acá una segunda regla
+   * sería tener la condición del mayoreo en dos lugares.
+   */
+  readonly mayoreo = computed(() => this.producto()?.mayoreo ?? []);
 
   readonly precioPrincipal = computed(() => this.unidadHero()?.precio_con_iva ?? null);
   readonly unidadPrincipal = computed(() => this.unidadHero()?.u || 'unidad');

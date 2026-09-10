@@ -57,14 +57,24 @@ describe('verificador · de qué plaza salió el precio', () => {
   });
 
   it('el override manual del anaquel gana, y se lee con el tenant puesto', () => {
-    expect(SVC).toMatch(/l\.source = 'manual'/);
+    // [TDA.4] El filtro pasó de SQL a JS: la misma lectura trae ahora los tiers de mayoreo, así
+    // que la query devuelve la fila completa y el override se decide sobre `source`. La garantía
+    // vigilada es la misma: sólo un precio corregido A MANO pisa al del ERP.
+    expect(SVC).toMatch(/l.source,/);
+    expect(SVC).toMatch(/r.source === .manual./);
     // RLS FORCE + endpoint @Public(): sin el tenant en la MISMA tx la lectura vuelve vacía EN
     // SILENCIO si el rol es app_runtime, o sea el override desaparecería sin un solo error.
-    const fn = /private async overrideManual\([\s\S]*?\n  \}/.exec(SVC)![0];
+    // [TDA.4] El metodo pasa a llamarse `datosDeEtiqueta`: la misma lectura trae ahora tambien
+    // los tiers de mayoreo, porque salen de la misma fila. La garantia vigilada es la misma.
+    // El lookahead importa: sin él el regex paraba en el `}` del tipo de retorno multilínea y
+    // el bloque examinado se quedaba en la firma, sin cuerpo — o sea el test miraba nada.
+    const fn = /private async datosDeEtiqueta\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
     expect(fn).toMatch(/SET LOCAL app\.tenant_id/);
     expect(fn).toMatch(/this\.db\.transaction/);
     // Es un refinamiento del precio, no el precio: si falla, el mostrador sigue contestando.
-    expect(fn).toMatch(/catch[\s\S]*return null/);
+    // [TDA.4] El neutro ahora es `vacio` (override null + mayoreo []), no `null` pelado: la
+    // misma lectura trae dos cosas. Lo que se vigila sigue siendo que el catch NO relance.
+    expect(fn).toMatch(/catch[\s\S]*return vacio/);
   });
 
   it('el front manda la sucursal al live, no sólo al respaldo', () => {
@@ -174,5 +184,97 @@ describe('verificador · el precio grande sigue al barcode escaneado', () => {
   it('la unidad base se deriva del arreglo, no del campo de la respuesta', () => {
     expect(PAGE).toMatch(/unidadBase = computed\(\(\) => this\.producto\(\)\?\.unidades\?\.\[0\]\?\.u \?\? null\)/);
     expect(PAGE).not.toMatch(/unidadBase\.set\(/);
+  });
+});
+
+/**
+ * `[TDA.4]` — El mayoreo: cuánto sale llevando más, y desde cuántas unidades.
+ *
+ * ── Por qué esto es el caso normal y no un extra ────────────────────────────
+ * Medido en prod (2026-09-09): **8,481 de 9,020 productos (94 %) tienen mayoreo real** — 7,538 por
+ * paquete, 1,563 por pieza. Aplicando las guardas sobre datos reales quedan **7,978 (88.8 %)** con
+ * al menos un tier. El verificador no mostraba ninguno: leía UNA columna de la tabla de etiquetas
+ * y sólo para el override manual.
+ *
+ * ── Las reglas NO se reinventan: se heredan de la etiquetera ────────────────
+ * Cada una salió de un defecto real en producción. La que más importa es que **sin umbral real no
+ * se muestra**: *"un mayoreo cuya condición de cantidad no se conoce fabrica una discusión en el
+ * mostrador"*. Medido: 17 productos tienen precio de mayoreo de paquete sin umbral.
+ */
+describe('verificador · el mayoreo', () => {
+  it('las cuatro guardas viven UNA vez, en tiersDeFila', () => {
+    const fn = /private tiersDeFila\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
+    // 1. precio > 0 · 2. umbral > 1 · 3. más barato que el unitario · 4. tiene que haber unitario
+    expect(fn).toMatch(/!Number\.isFinite\(p\) \|\| p <= 0/);
+    expect(fn).toMatch(/!Number\.isFinite\(n\) \|\| n <= 1/);
+    expect(fn).toMatch(/!base \|\| base <= 0 \|\| p >= base/);
+  });
+
+  // LA NEGATIVA QUE MÁS DUELE: un umbral inventado. La etiquetera ponía "desde 3" por default y
+  // afirmaba una condición que la caja no iba a respetar.
+  it('NUNCA inventa un umbral', () => {
+    const fn = /private tiersDeFila\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
+    expect(fn).not.toMatch(/\|\| 3/);
+    expect(fn).not.toMatch(/desde: 3/);
+    // Sin umbral el tier no se construye: devuelve null y se filtra.
+    expect(fn).toMatch(/\.filter\(\(x\): x is MayoreoTier => x !== null\)/);
+  });
+
+  // El realce separa el DATO de la SEÑAL: 366 tiers tienen menos de 1 % de descuento y pintarlos
+  // como oferta sería mentir con el color.
+  it('el realce es umbral aparte, no el mismo que mostrar', () => {
+    expect(SVC).toMatch(/const MAYOREO_MIN_DESC = 0\.01/);
+    expect(SVC).toMatch(/realza: desc >= MAYOREO_MIN_DESC/);
+    // Y la pantalla lo respeta: el ahorro en verde SÓLO si realza.
+    expect(PAGE).toMatch(/@if \(t\.realza\) \{/);
+  });
+
+  it('una definición para los dos modos: en vivo y sin red', () => {
+    // `tiersDeFila` lo usan la consulta de UN producto y el lote del snapshot. Si la regla del 1 %
+    // viviera dos veces, el kiosco sin red contestaría distinto que el kiosco con red.
+    expect(SVC).toMatch(/this\.tiersDeFila\(r\)/);
+    const lote = /private async mayoreoDeTodos\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
+    expect(lote).toMatch(/this\.tiersDeFila\(r\)/);
+  });
+
+  it('el snapshot va compacto, y su inversa vive junto a la compresora', () => {
+    // Con nombres largos el snapshot crecía 1,386 KB crudos: los nombres eran el 51 % de los bytes.
+    expect(SVC).toMatch(/et\.mayoreo\.map\(compactarTier\)/);
+    expect(FRONT).toMatch(/\(item\.m \|\| \[\]\)\.map\(expandirTier\)/);
+    const CONTRATO = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'libs', 'contracts', 'src', 'http', 'store.contract.ts'), 'utf8');
+    expect(CONTRATO).toMatch(/export function compactarTier/);
+    expect(CONTRATO).toMatch(/export function expandirTier/);
+  });
+
+  it('la pantalla pinta, no decide', () => {
+    // El computed no re-filtra: si lo hiciera, la condición del mayoreo viviría en dos lugares.
+    expect(PAGE).toMatch(/mayoreo = computed\(\(\) => this\.producto\(\)\?\.mayoreo \?\? \[\]\)/);
+  });
+
+  it('el ahorro se muestra, que es lo que cierra la venta', () => {
+    expect(SVC).toMatch(/ahorro_en_el_minimo: redondea\(\(base - p\) \* nn\)/);
+    expect(PAGE).toMatch(/Te ahorras/);
+  });
+
+  // Colorimetría (DESIGN.md 5): el color de marca va en UNA cosa —el umbral, que es el dato
+  // accionable—, el ahorro usa el semántico `--ok-*`, y nada de hex inline.
+  it('el color sigue el sistema: marca en el umbral, semántico en el ahorro', () => {
+    expect(PAGE).toMatch(/\.vp-may-n \{[\s\S]*?var\(--action\)/);
+    expect(PAGE).toMatch(/\.vp-may-ahorro[\s\S]*?var\(--ok-/);
+    const css = /\.vp-mayoreo \{[\s\S]*?\.vp-gramaje/.exec(PAGE)![0];
+    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+  });
+
+  // Movimiento (tokens.css BINDING): sólo transform+opacity, con TOKEN de duración, y nunca sobre
+  // la cifra — en un mostrador el precio tiene que ser legible de inmediato, no al final de una
+  // transición. Por eso tampoco hay count-up.
+  it('el movimiento usa los tokens y no toca el número', () => {
+    expect(PAGE).toMatch(/animation: vpEntra var\(--dur-short/);
+    expect(PAGE).toMatch(/@keyframes vpEntra \{ from \{ opacity: 0; transform: translateY\(4px\); \}/);
+    // Se busca el USO (directiva o import), no la palabra: la primera version de esta asercion
+    // matcheaba su propio comentario ("por eso tampoco hay count-up") y pasaba por accidente.
+    expect(PAGE).not.toMatch(/appCountUp|CountUpDirective/);
+    // Nada de librería de animación en esta pantalla.
+    expect(PAGE).not.toMatch(/from 'gsap'|import\('gsap'\)|animejs/);
   });
 });
