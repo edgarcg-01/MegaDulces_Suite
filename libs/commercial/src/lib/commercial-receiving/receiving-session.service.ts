@@ -8,6 +8,7 @@ import {
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
+import { ReceivingClaimsService } from './receiving-claims.service';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -60,6 +61,7 @@ export class ReceivingSessionService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly inventory: CommercialInventoryService,
+    private readonly claims: ReceivingClaimsService,
   ) {}
 
   /**
@@ -647,10 +649,28 @@ export class ReceivingSessionService {
         .where({ session_id: sessionId, discrepancy_kind: 'pending' })
         .update({ discrepancy_kind: 'ok', updated_at: trx.fn.now() });
 
+      // ── WMS-REC.8 — el reclamo del faltante (ADR-053) ─────────────────────
+      //
+      // Acá, y no antes: recién en las dos sentencias de arriba el `pending` se volvió
+      // `faltante`, así que este es el momento en que el faltante queda FIRME. Y acá, y
+      // no en la Puerta 1: el cotejo corre contra el chofer y el andén ocupado es el
+      // recurso caro — el reclamo no le agrega un solo toque al camión esperando.
+      //
+      // Va en la MISMA trx que el cierre a propósito: un vale que cierra sin dejar el
+      // reclamo es exactamente el bug que este item viene a arreglar (el faltante se
+      // detectaba, se mostraba, y se evaporaba). Si no se puede escribir, no se cierra.
+      //
+      // El faltante NO se recalcula: se lee de `discrepancy_kind`, que es la autoridad.
+      const reclamos = await this.claims.raiseForSessionInTx(trx, session);
+
       await trx('commercial.receiving_sessions').where({ id: sessionId }).update({
         status: 'closed', closed_at: trx.fn.now(), closed_by: userId, updated_at: trx.fn.now(),
       });
-      return this.detailTx(trx, sessionId);
+      const detalle = await this.detailTx(trx, sessionId);
+      // El andén decía "El proveedor lo va a ver en su scorecard" sin que existiera
+      // registro alguno. Ahora el cierre devuelve QUÉ se levantó y a quién, así que la
+      // pantalla puede decir la verdad en vez de una promesa.
+      return { ...detalle, claims: reclamos };
     });
   }
 

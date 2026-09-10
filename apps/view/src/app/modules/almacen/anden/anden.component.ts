@@ -582,7 +582,12 @@ export class AndenComponent implements OnInit {
           this.toast.add(cantidad === esp
             ? { severity: 'success', summary: 'Cotejado', detail: `${this.nombre(l)} — ${cantidad} pz, cuadra con Kepler.` }
             : { severity: 'warn', summary: cantidad < esp ? 'Faltante' : 'Sobrante',
-                detail: `Kepler mandó ${esp} y contaste ${cantidad}. El proveedor lo va a ver en su scorecard.` });
+                // WMS-REC.8 — antes decía "el proveedor lo va a ver en su scorecard" y NO
+                // era cierto: no quedaba registro de nada. Ahora se dice lo que de verdad
+                // va a pasar, y pasa al cerrar el vale (no acá).
+                detail: cantidad < esp
+                  ? `Kepler mandó ${esp} y contaste ${cantidad}. Al cerrar el vale se levanta el reclamo.`
+                  : `Kepler mandó ${esp} y contaste ${cantidad}. Un sobrante no se reclama, pero queda registrado.` });
         },
         error: (e) => {
           this.s.guardando.set(false);
@@ -601,8 +606,19 @@ export class AndenComponent implements OnInit {
         this.s.cargarDesdeVale(upd);
         this.s.acceso.set(true);
         this.guardarBorrador();
-        this.toast.add({ severity: 'success', summary: 'Acceso dado',
-          detail: 'La mercancía entró en lote NA. El camión se puede ir.' });
+        // WMS-REC.8 — el cierre devuelve qué reclamos levantó y a quién: la pantalla
+        // dice el hecho en vez de una promesa.
+        const n = upd?.claims?.raised ?? 0;
+        const aQuien = upd?.origin?.kind === 'transfer'
+          ? (upd?.origin?.name || 'la sucursal que embarcó')
+          : (upd?.origin?.name || upd?.supplier_code || 'el proveedor');
+        this.toast.add({
+          severity: 'success', summary: 'Acceso dado',
+          detail: n > 0
+            ? `La mercancía entró en lote NA. Se levantaron ${n} reclamo(s) a ${aQuien}; se siguen en Compras › Reclamos.`
+            : 'La mercancía entró en lote NA. El camión se puede ir.',
+          life: n > 0 ? 7000 : undefined,
+        });
       },
       error: (e) => {
         this.s.guardando.set(false);
