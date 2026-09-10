@@ -303,12 +303,30 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
   styles: [`
     :host { display: block; }
 
+    /* [TDA.5] La pagina se ACOTA. No lo hacia, y en el monitor ancho del mostrador
+       (medido: 5023 px) el resultado no era "amplio", era roto: la cifra quedaba pegada
+       al borde izquierdo con ~4,000 px de vacio al lado, y los pares se partian a los
+       extremos opuestos de la pantalla -- "CJA / $1,586.23" y, en el pie, el nombre del
+       producto contra su propio precio.
+       Ninguno de esos tres es un bug aparte: los tres son flex: 1 y 1fr haciendo
+       exactamente lo suyo sobre un ancho que nadie limito. Por eso sobrevivio a la
+       revision -- en un monitor normal se ve bien, y nunca lo abri en uno que no lo fuera.
+
+       Se acota con el PADDING y no con max-width, a proposito: el modo kiosco de abajo es
+       position: fixed; inset: 0 con fondo propio, y un max-width ahi le recortaria el
+       fondo y dejaria ver la app por los costados. Asi el sangrado sigue completo y lo que
+       se acota es el CONTENIDO -- una sola regla que sirve a los dos modos. */
     .vp-page { display: flex; flex-direction: column; gap: var(--sp-4);
-      padding: var(--sp-5) var(--sp-6); color: var(--text-main); }
+      padding: var(--sp-5) max(var(--sp-6), calc((100% - 78rem) / 2));
+      color: var(--text-main); }
     /* Modo kiosco: la pantalla se come el chrome de la app (sidebar incluido) para que
-       la clienta vea el precio y nada más. Es un overlay, no un layout aparte. */
+       la clienta vea el precio y nada más. Es un overlay, no un layout aparte.
+       Repite el acotado lateral: si sólo cambiara el padding vertical, el max() de arriba
+       se perdería y el kiosco —que es JUSTO el que corre en el monitor ancho de la tienda—
+       volvería a estirarse de borde a borde. */
     .vp-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow: auto;
-      background: var(--layout-bg); padding: var(--sp-4) var(--sp-5); }
+      background: var(--layout-bg);
+      padding: var(--sp-4) max(var(--sp-5), calc((100% - 78rem) / 2)); }
 
     .vp-head { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
     .vp-head-txt { margin-right: auto; }
