@@ -1559,3 +1559,124 @@ sin prueba negativa es una intención (ADR-056).
 Para aplicar UNA migración a prod (no `migrate:latest`, que arrastra las pendientes de otros):
 `node database/scripts/apply-one-migration-prod.js <archivo>` — ya existe, apunta a `FLEET_DB_URL`
 y tiene un `--list`.
+
+---
+
+## 39. §33 otra vez, pero sin calendario — y el `GRANT` que dice que sí y no hace nada
+
+**2026-09-09, 13:39 MX.** La rama `00` (Oficinas) deja de replicar. Mismo síntoma exacto de §33:
+
+```
+ERROR:  logical replication target relation "md.kdrhfpag" does not exist
+LOG:    background worker "logical replication apply worker" exited with exit code 1
+```
+
+…**3,536 veces en 5 horas**. Lo encontró un humano quejándose de que "pgvector daba errores y
+consumía", no una alarma: la subscription seguía `enabled`, el contenedor `Up`, y los otros siete
+carriles verdes. Igual que en §33, **el latido no lo ve** — porque el latido mide al shipper, y el
+shipper estaba vivo leyendo un replica congelado.
+
+Lo que este caso agrega a §33, y que la mitigación de §33 **no** cubre:
+
+### 1. No era una tabla de calendario. `ensure-monthly-tables.js` no la iba a crear
+
+Eran **7 tablas de RH** que alguien estrenó en el Kepler de Oficinas: `kdfe33nomem`, `kdrhdfes`,
+`kdrhfeba`, `kdrhfpag`, `kdrhhor`, `kdrhrut`, `kdrhtpcn`. §33 previene la familia `kdc2<YY><MM>`
+porque rota con el almanaque; esto no rota, aparece cuando el negocio estrena un módulo.
+
+**La detección que sí sirve, y es barata** — comparar el catálogo de las dos puntas, por rama:
+
+```sql
+-- en el publisher y en el subscriber, y restar
+SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+ WHERE n.nspname='md' AND c.relkind='r';
+```
+
+Medido ese día: rama 00 → publisher 355 / subscriber 351, **faltan 7**. Ramas 01-05 → **0 faltantes**.
+El arreglo del DDL ya existe y es idempotente:
+`node database/importers/kepler/setup-branch-subscriber.js --branch=00 --apply` (creó las 7, saltó
+las 348 que ya estaban).
+
+### 2. Crear la tabla no alcanza: `ALTER DEFAULT PRIVILEGES` se registra POR ROL
+
+Con las tablas creadas el apply worker revivió y las 5 tablas clave se pusieron al día al instante
+(`kdm1` 117,837 = 117,837, Δ=0 en las cinco). Pero la copia inicial de las 7 nuevas no arrancaba:
+
+```
+ERROR: could not start initial contents copy for table "md.kdrhtpcn":
+       ERROR: permiso denegado a la tabla kdrhtpcn
+```
+
+La causa está en `pg_default_acl` del publisher, y es de manual:
+
+```
+platform_ro=r/sa          ← default privs otorgados POR `sa`     → sí cubre tablas nuevas
+ods_repl=r/postgres       ← default privs otorgados POR `postgres` → NO cubre nada
+```
+
+**`ALTER DEFAULT PRIVILEGES` sólo aplica a los objetos que cree el rol que lo ejecutó.** El de
+`ods_repl` se corrió como `postgres`, pero **Kepler crea sus tablas como `sa`**. O sea que la
+concesión nunca se aplicó a una sola tabla nueva, desde siempre — y va a volver a pasar con la
+próxima. El arreglo definitivo hay que correrlo **con `sa` o superusuario en el POS**:
+
+```sql
+GRANT SELECT ON ALL TABLES IN SCHEMA md TO ods_repl;
+ALTER DEFAULT PRIVILEGES FOR ROLE sa IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;
+--                       ^^^^^^^^^^^^ esto es lo que faltaba
+```
+
+### 3. ⚠️ Un `GRANT` de quien no es dueño **no falla: avisa** — y `node-postgres` oculta el aviso
+
+Al intentarlo con `platform_ro` la sentencia **devolvió éxito**:
+
+```js
+await c.query('GRANT SELECT ON md.kdrhfpag TO ods_repl');   // sin excepción
+```
+
+…y no otorgó nada. Postgres emite un **WARNING**, no un ERROR:
+
+```
+WARNING: no se otorgaron privilegios para «kdrhfpag»
+```
+
+`pg` no expone los avisos salvo que uno se suscriba. Para verlos:
+
+```js
+c.on('notice', (n) => console.log('[WARNING]', n.message));
+```
+
+**Nunca des por hecho un `GRANT` porque no tiró excepción.** Comprobalo con el motor:
+
+```sql
+SELECT has_table_privilege('ods_repl', 'md.kdrhfpag', 'SELECT');   -- false
+```
+
+Es la misma familia de §33 de la otra numeración (*"un `SELECT` que funciona no prueba que un
+`UPDATE` funcione"*): la operación que informa éxito no es la que prueba el efecto.
+
+### 4. El tablesync que falla NO hace backoff: 129% de CPU
+
+Con las tablas creadas pero sin permiso, los workers de copia inicial reintentan cada
+`wal_retrieve_retry_interval` (**default 5 s**) **para siempre**, y con 7 tablas eso fue
+**83 intentos por minuto y 129% de CPU** en el contenedor — un core entero. Ése era el "consumía"
+del reporte original.
+
+Mitigación mientras no esté el `GRANT` (es `sighup`, no reinicia nada, y es reversible):
+
+```sql
+ALTER SYSTEM SET wal_retrieve_retry_interval = '60s';
+SELECT pg_reload_conf();
+```
+
+Medido: **77 → 7 líneas/min y 129% → 0.19% de CPU**, con la replicación intacta (`lag=1s`).
+⚠️ Es global al cluster: retrasa hasta 60 s la reconexión de *cualquier* subscription que se caiga.
+**Volverlo a 5 s cuando el `GRANT` esté puesto.**
+
+### El orden correcto, para la próxima
+
+1. Comparar catálogos de las dos puntas y **crear TODAS las tablas faltantes**, no sólo la del error
+   (el log sólo nombra la primera que estorbó; ese día había 4 distintas en el histórico).
+2. `ALTER SUBSCRIPTION sub_md_NN REFRESH PUBLICATION`.
+3. **Validar la inserción**, no el estado del worker: `pg_subscription_rel.srsubstate` debe llegar a
+   `r`, y los conteos de las dos puntas tienen que coincidir. Un worker `VIVO` con `lag=0s` convive
+   perfectamente con 7 tablas en `d` (copiando) que no avanzan nunca.
