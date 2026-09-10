@@ -722,13 +722,48 @@ contra *"vendí bultos de 20"* no admite lectura benigna.
 
 De los **8** que quedan:
 
-- **2 son inequívocos** (`default`, `bf = 1`, **$190,737**): `ALTOS ROLLO ALTA 20X30 1KG` con
-  `c58` 20 y `REYMA ROLLO ALTA 15X25 1KG` con 20. Para cerrarlos hace falta el peldaño
-  **persistido**, y hoy no existe: **`sales_daily.rung_factor` dice `1.0000` en los 8** porque el
-  fact lo deduce por PRECIO y no lo ve. O sea hay que materializar `c58` — pieza nueva, con su
-  refresh y su latido.
-- **6 son ambiguos** (bf entre 6 y 20 con un peldaño mayor, **$180,069**): se **declaran**, no se
+- **2 eran inequívocos** (`default`, `bf = 1`, **$190,737**): `ALTOS ROLLO ALTA 20X30 1KG` con
+  `c58` 20 y `REYMA ROLLO ALTA 15X25 1KG` con 20. ✅ **CERRADOS por KX.5** — ver abajo.
+- **6 son ambiguos** (bf entre 6 y 20 con un peldaño mayor, **$189,376**): se **declaran**, no se
   corrigen. Afirmar `bf = c58` ahí sería inventar.
+
+### ⭐⭐⭐ KX.5 — el peldaño cobrado, PERSISTIDO: cero contradicciones inequívocas
+
+Edgar: *"armalo"*. Lo inequívoco no se podía cerrar con lo que había — la cadena da 1 (son
+`default`), **`sales_daily.rung_factor` dice `1.0000` en los 8** porque el fact deduce el peldaño
+por PRECIO, y agregar `kdm2` a una vista caliente cuesta **38 s** sobre 4M renglones.
+
+**`analytics.mv_kepler_sold_rung`** (mig `20260910130000`, prod **batch 364**): el peldaño cobrado
+a grano **sucursal × SKU**, `max(kdm2.c58)`, ventana **365 d**. Materializar por COSTO es legítimo
+(GOTCHAS §19); lo que no lo es es materializar un valor inventado, y esto es un agregado directo
+del ODS. **20,560 pares, 4,249 con peldaño > 1.**
+
+Dos decisiones con su costo declarado:
+
+- **Grano sucursal × SKU**, no producto: la misma referencia se vende por pieza en una plaza y por
+  bulto en otra (ADR-055, y el `sin_metodo` que el grano grueso escondía 8×).
+- **Ventana 365 d**: a 90 d el divisor **cambia solo** cuando una plaza deja de vender el bulto un
+  trimestre, y un divisor inestable es peor que uno viejo. ⚠️ El costo: si dejan de venderlo **más
+  de un año**, el peldaño desaparece y el factor vuelve a 1. Por eso la MV guarda `ultimo_visto`.
+
+⭐ **Y la regla de uso es angosta a propósito: el piso se aplica SÓLO cuando el factor publicado
+es `1`.** Es la tercera vez que aparece la trampa del eje, así que quedó escrita en el archivo:
+usar el peldaño de frente marcaría **15,587 de 19,787 pares sanos**. Aplicó a **2 filas**, las 2
+declaradas: `ALTOS ROLLO ALTA 20X30 1KG` (alm 06) y `REYMA ROLLO ALTA 15X25 1KG` (alm 03), 1 → 20.
+
+**El recorrido completo de esta dimensión:**
+
+| | contradicciones | dinero | inequívocas |
+|---|---:|---:|---:|
+| antes de KX.4 | 41 | $1,395,458 | 2 |
+| tras KX.4 (precedencia) | 8 | $370,806 | 2 |
+| **tras KX.5 (peldaño persistido)** | **6** | **$189,376** | **0** |
+
+Refresco enganchado al mecanismo que ya existía (`AnalyticsRefreshService`, nightly, `CONCURRENTLY`
+con latido por MV) — no se inventó uno nuevo (ADR-056). Y su umbral quedó registrado en
+`CRON_JOBS` como `analytics_refresh_sold_rung`: **sin esa entrada el sensor cae en
+`cfg ? classify : 'ok'` y una MV parada se vería VERDE** (lección OBS.1). No es cosmético: cuando
+envejece, un producto que empezó a venderse por bulto sigue publicándose como pieza.
 
 ⭐ Y eso mismo es un hallazgo aparte: **el peldaño que el fact persiste no es el peldaño cobrado.**
 `rung_factor` sale de `pickPriceTier` (deducción por precio) cuando el renglón de Kepler lo trae
