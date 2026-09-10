@@ -165,7 +165,17 @@ export class AuthMtService {
     // sus mensajes distintos convertían el login en un oráculo de enumeración: un atacante sin la
     // contraseña distinguía "no existe" de "existe y es cuenta de servicio/vencida". Ahora el
     // estado de la cuenta sólo se revela a quien probó ser el dueño (password correcto).
-    const valid = await bcrypt.compare(dto.password, user.password_hash);
+    // `[ID.31]` Sin hash no hay con qué comparar, y `bcrypt.compare(x, null)`
+    // **LANZA** (`Illegal arguments: string, object`) → 500 en vez de 401.
+    // Verificado ejecutándolo, no supuesto. Va ANTES de `compare` porque desde
+    // esta etapa `password_hash` es nullable: una cuenta `invited` (invitada y
+    // sin contraseña puesta todavía) es un estado legítimo del padrón, y tiene
+    // que rebotar como credencial inválida, no como error del servidor.
+    //
+    // Mismo mensaje genérico que el resto: decir «esta cuenta no tiene
+    // contraseña» convertiría el login en un oráculo de qué cuentas están
+    // invitadas — el mismo agujero de enumeración que `[AUTHZ-HARD.5]` cerró.
+    const valid = !!user.password_hash && (await bcrypt.compare(dto.password, user.password_hash));
     if (!valid) {
       throw new UnauthorizedException('Credenciales inválidas');
     }

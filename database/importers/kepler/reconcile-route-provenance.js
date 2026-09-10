@@ -8,7 +8,15 @@
  * porque las dos fuentes no son alcanzables desde prod (por eso no es una vista):
  *
  *   PUSH   = runner `.249 / mart.ventas` (ruta_NN)         ← import-route-push-monthly
- *   BRANCH = réplica lógica `kepler_md_06` (c67 = 500N)    ← import-canindo-routes-monthly
+ *   BRANCH = réplica lógica `kepler_md_06` (c67 = 500N)    ← ya NO escribe el gold; queda como TESTIGO
+ *
+ * ⚠️ 2026-09-10: para Canindo el gold dejó de salir de un GREATEST entre esos dos. Medido, la
+ * réplica de sucursal es un SUBCONJUNTO DEGRADADO (ve 3 de 5 rutas, en ventanas de días sueltos)
+ * y `import-canindo-routes-monthly` pasó a COMPONER la serie —Wincaja hasta la frontera + push
+ * desde la frontera— y a escribirla con overwrite. Este reconciler sigue siendo el que declara,
+ * pero ahora también lee el GOLD: cuando el gold supera al ganador de los dos universos del
+ * runner, es porque carga una era que ninguno de los dos tiene (la de Wincaja) y se declara
+ * `composite`. El sensor `stall` no cambia de sentido: branch > push sigue siendo push atorado.
  *
  * Escribe SOLO metadata a `analytics.route_monthly_provenance` (clase observabilidad). El sensor
  * `route_provenance` de db-health la lee y dispara si `stall` (branch gana una métrica ⇒ push atorado)
@@ -88,6 +96,13 @@ const monthKey = (d) => new Date(d).toISOString().slice(0, 7); // 'YYYY-MM'
   for (const r of pushRows) if (r.route_no) put(r.wcode, `WIN-${r.route_no}`, r.month, 'push', r);
   for (const r of branchRows) put('06', r.route_code, r.month, 'branch', r); // Canindo siempre warehouse 06
 
+  // --- GOLD publicado — para no declarar como ganador a un universo que ya no es el dueño ---
+  const gold = new Map((await dst.query(
+    `SELECT w.code wcode, s.route_code, to_char(s.month,'YYYY-MM') mes, s.revenue
+       FROM analytics.sales_by_route_monthly s JOIN commercial.warehouses w ON w.id=s.warehouse_id
+      WHERE s.tenant_id=$1 AND s.route_code LIKE 'WIN-%'`, [M])).rows
+    .map((r) => [`${r.wcode}|${r.route_code}|${r.mes}`, Number(r.revenue)]));
+
   const out = [];
   for (const v of K.values()) {
     const wid = whById.get(v.wcode); if (!wid) continue; // sin warehouse resuelto → fuera
@@ -98,6 +113,10 @@ const monthKey = (d) => new Date(d).toISOString().slice(0, 7); // 'YYYY-MM'
       discarded = Math.min(p.revenue, b.revenue);
       stall = b.revenue > p.revenue || b.tickets > p.tickets || b.units > p.units; // branch degradaría/swap
     } else winner = p ? 'push_only' : 'branch_only';
+    // El gold por encima del mejor de los dos = carga una era que el runner no tiene (Wincaja,
+    // pegada por import-canindo-routes-monthly). Declararlo `push` sería nombrar mal al dueño.
+    const g = gold.get(`${v.wcode}|${v.route_code}|${v.month.slice(0, 7)}`);
+    if (g != null && g > Math.max(p?.revenue || 0, b?.revenue || 0) + 1) winner = 'composite';
     out.push({ wid, ...v, p, b, winner, discarded, stall });
   }
 

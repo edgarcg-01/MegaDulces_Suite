@@ -9,6 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { CountUpDirective } from '../../../shared/directives/count-up.directive';
 import { EstadoSnapshot, OrigenPrecio, ProductoPrecio, ResultadoBusqueda, SucursalVerificador, VerificadorService } from '../verificador.service';
 
 /** Un renglón del feed de consultas (lo último arriba, patrón POS). */
@@ -49,7 +50,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
 @Component({
   selector: 'app-tienda-verificador',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, ContextHelpComponent, FreshnessPillComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, ContextHelpComponent, FreshnessPillComponent, CountUpDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="vp-page" [class.is-kiosco]="kiosco()">
@@ -201,7 +202,25 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                       @if (t.realza) {
                         <p class="vp-may-ahorro">
                           <i class="pi pi-arrow-down" aria-hidden="true"></i>
-                          Te ahorras <strong>{{ money(t.ahorro_en_el_minimo) }}</strong>
+                          Te ahorras
+                          <!--
+                            [TDA.6] El count-up va SOLO acá, y la excepción es deliberada.
+                            El precio unitario y el de mayoreo se leen en voz alta a una
+                            clienta: tienen que ser legibles en el primer fotograma, no al
+                            final de una transición. El AHORRO es lo contrario -- es la
+                            invitación, y contar hasta la cifra es lo que hace que el ojo
+                            aterrice ahí. Es el idioma de la casa (DESIGN.md 7b + §Motion KPI
+                            3, count-up ~900ms), no un invento de esta pantalla, y usa la
+                            directiva compartida en vez de una copia.
+                            appCountUpLive: sin esto la directiva anima UNA vez en la vida del
+                            nodo y el segundo escaneo del turno no contaría. Su tween cancela
+                            el rAF anterior, así que un escaneo a los 2s no deja dos cifras
+                            peleando -- rueda del valor anterior al nuevo.
+                            El texto final queda en el DOM (la directiva escribe textContent),
+                            así que el lector de pantalla lee el importe, no un hueco.
+                          -->
+                          <strong [appCountUp]="t.ahorro_en_el_minimo" [appCountUpLive]="true"
+                                  countUpFormat="money2"></strong>
                           <span class="vp-may-pct">{{ t.descuento_pct }}% menos c/u</span>
                         </p>
                       }
