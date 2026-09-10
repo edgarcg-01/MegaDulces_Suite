@@ -176,7 +176,7 @@ El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave 
 
 ---
 
-## 8. Flujo de Git (equipo de 3)
+## 8. Flujo de Git (equipo de 4)
 
 > El repo históricamente trabajó con push directo a `main` (1 dev). **Eso ya no aplica.**
 
@@ -193,6 +193,53 @@ npx nx affected -t lint          # lint de lo que tocaste
 npx nx affected -t test          # tests de lo que tocaste
 npx nx run-many -t build -p api view portal vendor --configuration=production
 ```
+
+⚠️ **El CI verde NO está forzado por GitHub.** Medido el 2026-09-10: `main` exige 1 aprobación de
+CODEOWNERS, pero **no tiene ningún required status check** — un PR con el CI en rojo se puede
+mergear igual. O sea las cuatro compuertas del repo (secret-scan, build, TS.0 de tipado, y la de
+procedencia de ADR-056) hoy **informan, no bloquean**. Hasta que se activen como checks
+obligatorios, mirá el CI antes de aprobar: es responsabilidad del reviewer, no del servidor.
+
+---
+
+### 8.1 Si clonaste el repo ANTES de tener acceso de escritura
+
+El repo es público, así que se puede clonar sin ser colaborador — y si trabajaste así, tus commits
+probablemente quedaron en tu `main` local, que **no se puede empujar** (está protegida). Los cambios
+no se pierden; hay que moverlos a una rama.
+
+```bash
+# 1. Aceptá la invitación de colaborador que te llegó por correo (o en
+#    https://github.com/edgarcg-01/Trade_marketing/invitations). Sin eso, el push rebota con 403.
+
+# 2. Mirá qué tenés: commits propios en main local + lo que no esté commiteado.
+git log --oneline origin/main..HEAD      # tus commits que no están en el remoto
+git status --short                        # lo que aún no commiteaste
+
+# 3. Pasá TODO eso a una rama con nombre (no pierde nada: sólo mueve el puntero).
+git switch -c feat/<descripción-corta>
+
+# 4. Si te quedaron cambios sin commitear, commiteálos ahora en la rama.
+git add <archivo> [<archivo>...]          # archivo por archivo — NUNCA `git add -A`
+git commit -m "feat([CÓDIGO]): descripción"
+
+# 5. Devolvé tu main local a donde está el remoto, para no arrastrar divergencia después.
+git fetch origin
+git switch main && git reset --hard origin/main
+git switch feat/<descripción-corta>
+
+# 6. Empujá la rama y abrí el PR.
+git push -u origin feat/<descripción-corta>
+gh pr create --base main --fill
+```
+
+⚠️ **`git add -A` no**, nunca. En este repo varias personas editan el mismo working tree y los mismos
+archivos; barrer todo con `-A` se lleva trabajo ajeno al commit. Pasó **cuatro veces** en una sola
+sesión de trabajo. Verificá `git diff <archivo>` antes de agregarlo.
+
+⚠️ **Antes de crear una migración**, mirá `public.knex_migrations` en **prod**, no sólo el filesystem:
+con 4 personas los timestamps chocan, y una migración puede estar aplicada sin que el archivo exista
+en tu clon (ver `docs/GOTCHAS.md`).
 
 ---
 

@@ -70,7 +70,7 @@ Nx workspace: `nx graph` (o mirar `project.json` de cada lib) muestra las depend
 
 ## Paso 6 — Cómo trabajás en este repo (reglas de flujo, OBLIGATORIAS)
 
-Este es un repo de **equipo (3 devs)** con `main` protegida. Trabajás así, sin excepción:
+Este es un repo de **equipo (4 devs)** con `main` protegida. Trabajás así, sin excepción:
 
 1. **NUNCA commitees ni pushees a `main` directo.** `main` está protegida (require PR + review + code owners) → GitHub te va a **rechazar** el push de todos modos. No pierdas tiempo intentándolo.
 2. **Rama por feature:** `git checkout main && git pull` → `git checkout -b feat/<algo>`.
