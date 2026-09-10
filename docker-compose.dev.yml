@@ -15,7 +15,7 @@
 services:
   # Postgres 18 — hospeda DB legacy (megadulces_logistica) + DB multi-tenant (postgres_platform).
   postgres:
-    image: postgres:18-alpine
+    image: pgvector/pgvector:pg18
     container_name: tm-postgres
     restart: unless-stopped
     environment:
@@ -26,7 +26,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - tm_postgres_data:/var/lib/postgresql/data
+      - tm_postgres_data:/var/lib/postgresql
       - ./database/docker/initdb:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d megadulces_logistica"]
@@ -47,7 +47,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - tm_pgvector_data:/var/lib/postgresql/data
+      - tm_pgvector_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d vector_db"]
       interval: 5s

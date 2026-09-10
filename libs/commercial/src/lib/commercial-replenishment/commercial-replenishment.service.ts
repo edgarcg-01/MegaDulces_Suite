@@ -171,6 +171,76 @@ export class CommercialReplenishmentService {
   }
   private readonly DEFAULT_SETTINGS = { fill_window_days: 180, fill_min_lines: 3, fill_max_inflate: 1.30, default_coverage_days: 30 };
 
+  // WMS-REC.8 (ADR-053) — el fill rate suma la EVIDENCIA DE RECEPCIÓN, no sólo las OCs.
+  //
+  // Hasta acá el cumplimiento se medía únicamente con `commercial.purchase_orders`
+  // (`received_qty/ordered_qty`), o sea con las OCs app-nativas. La compra mayoritaria
+  // nace en Kepler, así que para la mayoría de los proveedores ese denominador está vacío
+  // y el fill rate salía 1.0 por falta de datos, no por buen surtido. El reclamo del vale
+  // (`commercial.receiving_claims`) es la evidencia que faltaba: expected vs lo que de
+  // verdad bajó del camión, con un humano pudiendo descartarlo si el error fue nuestro.
+  //
+  // Se UNE al mismo grano (mismos `ord`/`recv`/`n`) en vez de agregar un peldaño de
+  // precedencia: la fórmula no cambia, sólo tiene más evidencia. Sin reclamos y sin vales
+  // el número es idéntico al de antes.
+  private claimsReady: boolean | null = null;
+  private async receivingClaimsReady(trx: any): Promise<boolean> {
+    if (this.claimsReady != null) return this.claimsReady;
+    try {
+      const r = await trx.raw(`SELECT to_regclass('commercial.receiving_claims') IS NOT NULL AS t`);
+      this.claimsReady = !!r.rows[0]?.t;
+    } catch { this.claimsReady = false; }
+    if (!this.claimsReady)
+      this.logger.warn('WMS-REC.8: falta commercial.receiving_claims — el fill rate sigue midiéndose sólo con OCs (aplicá la migración 20260908150000).');
+    return this.claimsReady;
+  }
+
+  /**
+   * Subconsulta del fill rate por EVIDENCIA DE RECEPCIÓN (vales cerrados + reclamos).
+   *
+   * `ord` = lo que el documento decía traer · `recv` = eso menos lo reclamado que sigue
+   * en pie (`status <> 'discarded'`) · `n` = renglones, para el mínimo de confianza.
+   *
+   * Detalles que no son adorno:
+   *  - **Sólo origen proveedor**: los traspasos internos (`TI###`) no son cumplimiento de
+   *    un tercero, y meterlos le bajaría el fill rate a un proveedor por una merma de casa.
+   *  - **`COALESCE(qty_claimed, 0)`**: un `dañado` al que todavía nadie le capturó la
+   *    cantidad penaliza 0. No se inventa el daño; y le da al comprador una razón concreta
+   *    para teclearla.
+   *  - `deleted_at IS NULL` en el proveedor: un proveedor dado de baja no arrastra historia.
+   *
+   * @param grain `supplier` (grano proveedor) o `product` (grano SKU × proveedor).
+   */
+  private recvFillSubquery(grain: 'supplier' | 'product'): string {
+    const extraCol = grain === 'product' ? ', l.product_id' : '';
+    const extraGroup = grain === 'product' ? ', l.product_id' : '';
+    const extraWhere = grain === 'product' ? ' AND l.product_id IS NOT NULL' : '';
+    return `
+          SELECT sup2.id AS supplier_id${extraCol},
+                 SUM(l.expected_qty) AS ord,
+                 SUM(GREATEST(0, l.expected_qty - COALESCE(cl.penalizado, 0))) AS recv,
+                 COUNT(*) AS n
+            FROM commercial.receiving_lines l
+            JOIN commercial.receiving_sessions s2
+              ON s2.tenant_id = l.tenant_id AND s2.id = l.session_id
+            JOIN catalog.suppliers sup2
+              ON sup2.tenant_id = s2.tenant_id
+             AND UPPER(TRIM(sup2.code)) = UPPER(TRIM(s2.supplier_code))
+             AND sup2.deleted_at IS NULL
+            LEFT JOIN (
+                   SELECT receiving_line_id, SUM(COALESCE(qty_claimed, 0)) AS penalizado
+                     FROM commercial.receiving_claims
+                    WHERE tenant_id = :t AND status <> 'discarded'
+                    GROUP BY receiving_line_id
+                 ) cl ON cl.receiving_line_id = l.id
+           WHERE l.tenant_id = :t
+             AND s2.status = 'closed'
+             AND s2.supplier_code !~* '^TI[0-9]'
+             AND l.expected_qty > 0${extraWhere}
+             AND COALESCE(s2.closed_at, s2.created_at) >= now() - make_interval(days => :fwin::int)
+           GROUP BY sup2.id${extraGroup}`;
+  }
+
   // RA-PRO.28 — verificación de UNIDAD DE VENTA para no inflar pedidos. Un SKU se vende en
   // unidades distintas por canal (retail pieza/kg, mayoreo caja/cubeta); el ratio de precio
   // implícito (mayoreo $/u ÷ retail $/u) revela el factor real. Deriva dos factores:
@@ -619,6 +689,8 @@ export class CommercialReplenishmentService {
       // RA-PRO.27 — parámetros globales del pedido (fill rate + cobertura) configurables por tenant.
       // Degrada a defaults + sin columnas de override si la migración aún no aplicó (no 500).
       const ready = await this.personalizationReady(trx);
+      // WMS-REC.8 — evidencia de recepción para el fill rate (degrada si falta la mig).
+      const recvReady = await this.receivingClaimsReady(trx);
       const st: any = ready ? await trx('commercial.replenishment_settings').where({ tenant_id: tenantId }).first() : this.DEFAULT_SETTINGS;
       const colFill = ready ? 'sup.fill_rate_override' : 'NULL::numeric';
       const colSafety = ready ? 'sup.safety_pct' : 'NULL::numeric';
@@ -667,10 +739,30 @@ export class CommercialReplenishmentService {
       const seasonR = `COALESCE(plan.season_ratio, 1)`;
       const covEff = `COALESCE(${colCov}, ${autoCovKepler}, ${autoCov}, :cov)`;
       const safetyEff = `COALESCE(${colSafety}, plan.safety_pct_q * 100, ${autoSafety}, 0)`;
-      const frSku = `CASE WHEN COALESCE(frp.n,0) >= :fmin AND COALESCE(frp.ord,0) > 0 THEN LEAST(1.0, frp.recv::numeric / frp.ord) END`;
-      const frSup = `CASE WHEN COALESCE(frs.n,0) >= :fmin AND COALESCE(frs.ord,0) > 0 THEN LEAST(1.0, frs.recv::numeric / frs.ord) END`;
+      // WMS-REC.8 — el fill rate se mide con las DOS evidencias sumadas al mismo grano:
+      // las OCs app-nativas (frp/frs) y los vales de entrada con su reclamo (frrp/frr).
+      // La compra mayoritaria nace en Kepler, así que sin la segunda el denominador está
+      // vacío para casi todos los proveedores y el 1.0 significaba "no sé", no "surtió bien".
+      const rOrdP = recvReady ? 'COALESCE(frrp.ord,0)' : '0';
+      const rRecvP = recvReady ? 'COALESCE(frrp.recv,0)' : '0';
+      const rNP = recvReady ? 'COALESCE(frrp.n,0)' : '0';
+      const rOrdS = recvReady ? 'COALESCE(frr.ord,0)' : '0';
+      const rRecvS = recvReady ? 'COALESCE(frr.recv,0)' : '0';
+      const rNS = recvReady ? 'COALESCE(frr.n,0)' : '0';
+      const frSku = `CASE WHEN (COALESCE(frp.n,0) + ${rNP}) >= :fmin AND (COALESCE(frp.ord,0) + ${rOrdP}) > 0
+                          THEN LEAST(1.0, (COALESCE(frp.recv,0) + ${rRecvP})::numeric / (COALESCE(frp.ord,0) + ${rOrdP})) END`;
+      const frSup = `CASE WHEN (COALESCE(frs.n,0) + ${rNS}) >= :fmin AND (COALESCE(frs.ord,0) + ${rOrdS}) > 0
+                          THEN LEAST(1.0, (COALESCE(frs.recv,0) + ${rRecvS})::numeric / (COALESCE(frs.ord,0) + ${rOrdS})) END`;
       const fillRate = `COALESCE(${colFill}, ${frSku}, ${frSup}, 1.0)`;
       const fillSource = `CASE WHEN ${colFill} IS NOT NULL THEN 'override' WHEN ${frSku} IS NOT NULL THEN 'sku' WHEN ${frSup} IS NOT NULL THEN 'supplier' ELSE 'default' END`;
+      // De DÓNDE salió el número: sin esto el comprador no sabe si el fill rate viene de
+      // nuestras OCs, del andén, o de las dos — y un número sin procedencia no se discute
+      // con un proveedor.
+      const fillEvidence = `CASE
+                              WHEN (COALESCE(frp.n,0) + COALESCE(frs.n,0)) > 0 AND (${rNP} + ${rNS}) > 0 THEN 'po+recv'
+                              WHEN (COALESCE(frp.n,0) + COALESCE(frs.n,0)) > 0 THEN 'po'
+                              WHEN (${rNP} + ${rNS}) > 0 THEN 'recv'
+                              ELSE 'none' END`;
       const covSource = `CASE WHEN ${colCov} IS NOT NULL THEN 'manual' WHEN ${autoCovKepler} IS NOT NULL THEN 'kepler' WHEN ${autoCov} IS NOT NULL THEN 'auto' ELSE 'global' END`;
       const safetySource = `CASE WHEN ${colSafety} IS NOT NULL THEN 'manual' WHEN plan.safety_pct_q IS NOT NULL THEN 'quantil' WHEN ${autoSafety} > 0 THEN 'auto' ELSE 'none' END`;
       // sugerido = (necesidad ÷ fill, tope inflado) × (1 + colchón% efectivo)
@@ -764,6 +856,10 @@ export class CommercialReplenishmentService {
              AND COALESCE(po.closed_at, po.created_at) >= now() - make_interval(days => :fwin::int)
            GROUP BY po.supplier_id, pol.product_id
         ) frp ON frp.supplier_id = pr.supplier_id AND frp.product_id = pr.id
+        ${recvReady ? `LEFT JOIN (${this.recvFillSubquery('supplier')}
+        ) frr ON frr.supplier_id = pr.supplier_id
+        LEFT JOIN (${this.recvFillSubquery('product')}
+        ) frrp ON frrp.supplier_id = pr.supplier_id AND frrp.product_id = pr.id` : ''}
         LEFT JOIN (
           SELECT p.supplier_id, avg(rp.demand_cv) AS cv
             FROM catalog.products p
@@ -826,6 +922,7 @@ export class CommercialReplenishmentService {
                  round(${needBase}::numeric, 2) AS base_units,
                  round((${fillRate})::numeric, 3) AS fill_rate,
                  ${fillSource} AS fill_source,
+                 ${fillEvidence} AS fill_evidence,
                  ${covEff} AS coverage_days_eff,
                  ${covSource} AS coverage_source,
                  round((${safetyEff})::numeric, 0) AS safety_pct_eff,
@@ -2166,12 +2263,28 @@ export class CommercialReplenishmentService {
       // RA-PRO.27.2 — ANÁLISIS AUTOMÁTICO por proveedor (mismo que usa el motor): fill rate por
       // historia, cobertura por cadencia+lead, colchón por variabilidad. Se muestra como el valor
       // vigente cuando no hay override manual.
+      //
+      // WMS-REC.8 — el fill rate suma la evidencia del ANDÉN (vales cerrados + reclamos), no
+      // sólo las OCs app-nativas: es la mitad que hacía que este número dijera 100% por falta
+      // de datos. `fill_evidence` dice de dónde salió, y `claims_open`/`amount_open` cuelgan
+      // los reclamos vivos del scorecard (un reclamo que nadie mira no cambia nada).
+      const recvReady = await this.receivingClaimsReady(trx);
+      const rOrd = recvReady ? 'COALESCE(rf.ord,0)' : '0';
+      const rRecv = recvReady ? 'COALESCE(rf.recv,0)' : '0';
+      const rN = recvReady ? 'COALESCE(rf.n,0)' : '0';
       const auto: any[] = (await trx.raw(`
         SELECT s.id AS supplier_id,
                CASE WHEN cad.recs >= 2 AND cad.cadence > 0 THEN ceil(cad.cadence + COALESCE(s.lead_time_days, 7)) END AS auto_coverage_days,
                CASE WHEN cv.cv >= 1.0 THEN 20 WHEN cv.cv >= 0.5 THEN 10 ELSE 0 END AS auto_safety_pct,
-               CASE WHEN fr.n >= :fmin AND fr.ord > 0 THEN round(LEAST(1.0, fr.recv::numeric / fr.ord), 3) END AS fill_rate_auto,
-               COALESCE(fr.n, 0)::int AS fill_receptions
+               CASE WHEN (COALESCE(fr.n,0) + ${rN}) >= :fmin AND (COALESCE(fr.ord,0) + ${rOrd}) > 0
+                    THEN round(LEAST(1.0, (COALESCE(fr.recv,0) + ${rRecv})::numeric / (COALESCE(fr.ord,0) + ${rOrd})), 3) END AS fill_rate_auto,
+               (COALESCE(fr.n, 0) + ${rN})::int AS fill_receptions,
+               CASE WHEN COALESCE(fr.n,0) > 0 AND ${rN} > 0 THEN 'po+recv'
+                    WHEN COALESCE(fr.n,0) > 0 THEN 'po'
+                    WHEN ${rN} > 0 THEN 'recv'
+                    ELSE 'none' END AS fill_evidence,
+               ${recvReady ? `COALESCE(cl.claims_open, 0)::int` : '0'} AS claims_open,
+               ${recvReady ? `COALESCE(cl.amount_open, 0)::numeric` : '0::numeric'} AS claims_amount_open
           FROM catalog.suppliers s
           LEFT JOIN (SELECT p.supplier_id, avg(rp.demand_cv) cv FROM catalog.products p
                        JOIN commercial.reorder_policy rp ON rp.tenant_id = p.tenant_id AND rp.product_id = p.id
@@ -2185,9 +2298,27 @@ export class CommercialReplenishmentService {
                        FROM commercial.purchase_orders po JOIN commercial.purchase_order_lines pol ON pol.tenant_id = po.tenant_id AND pol.purchase_order_id = po.id
                       WHERE po.tenant_id = :t AND po.source_type = 'supplier' AND po.estado IN ('received','partial') AND po.supplier_id IS NOT NULL
                         AND COALESCE(po.closed_at, po.created_at) >= now() - make_interval(days => :fwin::int) GROUP BY po.supplier_id) fr ON fr.supplier_id = s.id
+          ${recvReady ? `LEFT JOIN (${this.recvFillSubquery('supplier')}) rf ON rf.supplier_id = s.id
+          LEFT JOIN (SELECT supplier_id,
+                            COUNT(*) FILTER (WHERE status IN ('open','claimed')) AS claims_open,
+                            SUM(amount) FILTER (WHERE status IN ('open','claimed')) AS amount_open
+                       FROM commercial.receiving_claims
+                      WHERE tenant_id = :t AND responsible_kind = 'supplier' AND supplier_id IS NOT NULL
+                        AND opened_at >= now() - make_interval(days => :fwin::int)
+                      GROUP BY supplier_id) cl ON cl.supplier_id = s.id` : ''}
          WHERE s.tenant_id = :t`, { t: tenantId, fmin, fwin })).rows;
       const byId = new Map(auto.map((a) => [a.supplier_id, a]));
-      return rows.map((r) => ({ ...r, ...(byId.get(r.id) || {}) }));
+      // Los numeric llegan como STRING por JSON (GOTCHAS §6).
+      return rows.map((r) => {
+        const a: any = byId.get(r.id) || {};
+        return {
+          ...r,
+          ...a,
+          fill_rate_auto: a.fill_rate_auto == null ? null : Number(a.fill_rate_auto),
+          claims_open: Number(a.claims_open) || 0,
+          claims_amount_open: Number(a.claims_amount_open) || 0,
+        };
+      });
     });
   }
 

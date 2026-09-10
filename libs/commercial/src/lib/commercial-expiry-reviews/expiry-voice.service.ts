@@ -6,6 +6,7 @@ import {
   todayMx,
 } from '@megadulces/platform-core';
 import { LineUnit, ResolveHit } from './commercial-expiry-reviews.service';
+import { palabrasDeBusqueda, normalizarFrase, nombreParaDecir } from './expiry-voice-match';
 
 /**
  * **Asistente de voz del Control de Caducidades** (P2.7).
@@ -266,9 +267,33 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
    * paleta payaso de las chicas") y un `ilike '%frase%'` no pega nunca. Cada
    * palabra de ≥3 letras tiene que aparecer en nombre o SKU.
    */
+  /**
+   * Nombre dicho → productos del catálogo, **por parecido, no por coincidencia
+   * exacta**.
+   *
+   * La primera versión exigía que TODAS las palabras aparecieran en el nombre, y
+   * eso fallaba con el habla real. Medido contra los 11,197 productos: de 8
+   * frases de prueba, **4 devolvían NADA** — *"tengo tres cajas de gansito"*
+   * (relleno del habla), *"chicle motita"* (el operador agrega la categoría que
+   * el catálogo no usa), *"bubulubu de fresa"* y *"sabritas adobadas"* (el sabor
+   * o la marca no están en el nombre). Una sola palabra ausente mataba la
+   * búsqueda entera. Con ranking, las 8 devuelven algo útil.
+   *
+   * Cómo puntúa, en este orden:
+   *  1. `hits` — cuántas palabras dichas aparecen en el nombre. Es lo que más
+   *     pesa: "coca cola 600" con 3 de 3 le gana a cualquier parecido difuso.
+   *  2. `wsim` — `word_similarity` de pg_trgm entre la frase y el nombre, que
+   *     tolera plural, diminutivo y dedazo ("motita" pega con "MOTO C/CHICLE").
+   *  3. Nombre más corto — entre "PULPARINDO 20PZ" y una promo de tres renglones,
+   *     el corto es el producto y el largo es el paquete.
+   *
+   * Umbral de entrada: al menos una palabra presente **o** `wsim > 0.5`. Sin eso
+   * la lista se llena de ruido y el operador pierde más tiempo descartando.
+   */
   private async findProducts(query: string, presentation: string | null): Promise<ResolveHit[]> {
-    const words = this.tokens(query);
-    if (!words.length) return [];
+    const words = palabrasDeBusqueda(query);
+    const frase = normalizarFrase(query);
+    if (!words.length && frase.length < 3) return [];
     const userId = this.tenantCtx.get()?.userId;
 
     return this.tk.run(async (trx) => {
@@ -277,35 +302,76 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
         ? (await trx('commercial.promoter_brands').where('user_id', userId).select('brand_id')).map((r: any) => r.brand_id)
         : [];
 
-      let q = trx('public.products as p')
-        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
-        .whereNull('p.deleted_at');
-      for (const w of words) {
-        q = q.andWhere((g: any) => g.where('p.nombre', 'ilike', `%${w}%`).orWhere('p.sku', 'ilike', `%${w}%`));
+      // `translate` y no `unaccent()`: la extensión existe pero **no siempre en el
+      // mismo schema** — en esta DB vive en `identity`, no en `public`, así que
+      // `public.unaccent(...)` tronaba. Con translate no hay dependencia de
+      // extensión ni de search_path para quitar acentos (nombres en español).
+      const SIN_ACENTOS = `translate(lower(p.nombre), 'áéíóúüñÁÉÍÓÚÜÑ', 'aeiouunAEIOUUN')`;
+      const ranked = `
+        WITH cand AS (
+          SELECT p.id, p.sku, p.nombre, p.barcode, p.brand_id, b.nombre AS brand_name,
+                 p.unit_sale, p.factor_sale, p.location,
+                 (SELECT count(*) FROM unnest(?::text[]) w
+                   WHERE ${SIN_ACENTOS} LIKE '%' || w || '%')::int AS hits,
+                 word_similarity(?, ${SIN_ACENTOS}) AS wsim
+            FROM public.products p
+            LEFT JOIN public.brands b ON b.id = p.brand_id
+           WHERE p.deleted_at IS NULL
+             AND (? = 0 OR p.brand_id = ANY(?::uuid[]))
+             AND (
+               EXISTS (SELECT 1 FROM unnest(?::text[]) w
+                        WHERE ${SIN_ACENTOS} LIKE '%' || w || '%')
+               OR word_similarity(?, ${SIN_ACENTOS}) > 0.5
+             )
+        )
+        SELECT * FROM cand
+         ORDER BY hits DESC, wsim DESC, length(nombre) ASC
+         LIMIT ?`;
+
+      // Sin `word_similarity` (pg_trgm ausente) la consulta lanza. En vez de
+      // tumbar la captura entera, se degrada a ranking por palabras: peor
+      // tolerancia al dedazo, pero el operador sigue trabajando.
+      const soloHits = `
+        WITH cand AS (
+          SELECT p.id, p.sku, p.nombre, p.barcode, p.brand_id, b.nombre AS brand_name,
+                 p.unit_sale, p.factor_sale, p.location,
+                 (SELECT count(*) FROM unnest(?::text[]) w
+                   WHERE ${SIN_ACENTOS} LIKE '%' || w || '%')::int AS hits
+            FROM public.products p
+            LEFT JOIN public.brands b ON b.id = p.brand_id
+           WHERE p.deleted_at IS NULL
+             AND (? = 0 OR p.brand_id = ANY(?::uuid[]))
+             AND EXISTS (SELECT 1 FROM unnest(?::text[]) w
+                          WHERE ${SIN_ACENTOS} LIKE '%' || w || '%')
+        )
+        SELECT * FROM cand WHERE hits > 0
+         ORDER BY hits DESC, length(nombre) ASC
+         LIMIT ?`;
+
+      const scope = brandIds.length ? 1 : 0;
+      const lim = MAX_CANDIDATES * 3;
+      let rows: any;
+      try {
+        rows = await trx.raw(ranked, [words, frase, scope, brandIds, words, frase, lim]);
+      } catch (e: any) {
+        this.logger.warn(`búsqueda difusa no disponible (${e?.message || e}); ranking por palabras.`);
+        rows = await trx.raw(soloHits, [words, scope, brandIds, words, lim]);
       }
-      if (brandIds.length) q = q.whereIn('p.brand_id', brandIds);
+
+      const cands: any[] = rows.rows || [];
+      if (!cands.length) return [];
 
       // La presentación dicha ("de 24", "granel") desempata sin excluir: se pide
       // como bonus, no como filtro — si filtrara, un sinónimo dejaría 0 resultados.
-      const presTokens = this.tokens(presentation || '');
-      const rows = await q
-        .select(
-          'p.id', 'p.sku', 'p.nombre', 'p.barcode', 'p.brand_id', 'b.nombre as brand_name',
-          'p.unit_sale', 'p.factor_sale', 'p.location',
-        )
-        .orderByRaw('length(p.nombre) asc')
-        .limit(MAX_CANDIDATES * 4);
-
-      const scored = rows.map((r: any) => {
+      const presTokens = palabrasDeBusqueda(presentation || '');
+      const scored = cands.map((r) => {
         const hay = `${r.nombre || ''} ${r.unit_sale || ''} ${r.factor_sale || ''}`.toLowerCase();
-        const bonus = presTokens.filter((t) => hay.includes(t)).length;
-        return { r, bonus };
+        return { r, bonus: presTokens.filter((t) => hay.includes(t)).length };
       });
-      // Si la presentación distingue a UNO solo, ese gana y no se pregunta de más.
-      const best = Math.max(0, ...scored.map((s) => s.bonus));
-      const pool = best > 0 ? scored.filter((s) => s.bonus === best) : scored;
+      const best = Math.max(0, ...scored.map((x) => x.bonus));
+      const pool = best > 0 ? scored.filter((x) => x.bonus === best) : scored;
 
-      return pool.slice(0, MAX_CANDIDATES).map((s) => this.toHit(s.r));
+      return pool.slice(0, MAX_CANDIDATES).map((x) => this.toHit(x.r));
     });
   }
 
@@ -348,17 +414,6 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
   }
 
   // ───── helpers ─────
-
-  private tokens(s: string): string[] {
-    return String(s || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // sin acentos: se dicta "mazapan"
-      .replace(/[^a-z0-9\s]/g, ' ')
-      .split(/\s+/)
-      .filter((w) => w.length >= 3 && !STOPWORDS.has(w))
-      .slice(0, 6);
-  }
 
   /** Los campos que el LLM puede ver: sin ids internos. */
   private publicSlots(s: VoiceSlots) {
@@ -422,10 +477,15 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
    * sólo cuando no hay nada pendiente que reclamar (ahí aporta el tono).
    */
   private composeReply(slots: VoiceSlots, candidates: ResolveHit[], missing: string[], llmReply?: string): string {
-    if (candidates.length > 1)
-      return `Encontré ${candidates.length} que se parecen a "${slots.product_query}". ¿Cuál es?`;
+    // Un bot de voz que dice "encontré 5, ¿cuál es?" obliga a mirar la pantalla.
+    // Se NOMBRAN los primeros: así el operador contesta sin dejar de contar.
+    if (candidates.length > 1) {
+      const refs = candidates.slice(0, 3).map((c) => nombreParaDecir(c.nombre || c.sku));
+      const cola = candidates.length > 3 ? `, o alguno de los otros ${candidates.length - 3}` : '';
+      return `No lo tengo exacto. ¿Es ${refs.join(', ')}${cola}?`;
+    }
     if (!slots.product_id && slots.product_query)
-      return `No encontré "${slots.product_query}" en el catálogo. ¿Me lo decís como aparece en el sistema, o lo escaneás?`;
+      return `No encontré nada parecido a "${slots.product_query}". Escaneá el código, o decímelo con otra palabra.`;
     if (missing.includes('producto')) return llmReply || '¿Qué producto es?';
     if (missing.includes('cantidad')) return `¿Cuántas ${slots.unit ? this.plural(slots.unit) : 'piezas'} de ${slots.product_name}?`;
     if (missing.includes('caducidad')) return `¿Qué fecha de caducidad marca el ${slots.product_name}?`;
@@ -442,11 +502,3 @@ Respondé SIEMPRE invocando la tool "capturar_caducidad".`;
     return `${d}/${m}/${y}`;
   }
 }
-
-/** Relleno del habla: si entra al filtro, la búsqueda pega con todo. */
-const STOPWORDS = new Set([
-  'una', 'uno', 'unos', 'unas', 'del', 'las', 'los', 'que', 'con', 'para', 'por',
-  'caja', 'cajas', 'pieza', 'piezas', 'bulto', 'bultos', 'kilo', 'kilos',
-  'producto', 'quiero', 'dar', 'alta', 'esta', 'este', 'esa', 'ese', 'hay',
-  'caduco', 'caducado', 'caducar', 'vence', 'vencido', 'vencer',
-]);

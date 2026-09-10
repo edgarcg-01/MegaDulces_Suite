@@ -689,6 +689,8 @@ export class BlindCountService {
   async historial(q: {
     from?: string; to?: string; warehouse_codes?: string[] | null;
     cajero_code?: string; solo_sin_validar?: boolean; limit?: number;
+    /** SM.33 — se reenvia a `list()`, que es quien recorta al dia. */
+    solo_hoy?: boolean;
   }) {
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 200));
     const arqueos = await this.list({ ...q, limit });
@@ -750,7 +752,7 @@ export class BlindCountService {
    * rompe la pantalla). `warehouse_code` (singular) queda para los llamadores
    * que todavía filtran a mano — la consola del supervisor.
    */
-  async list(q: { from?: string; to?: string; warehouse_code?: string; warehouse_codes?: string[] | null; cajero_code?: string; limit?: number }) {
+  async list(q: { from?: string; to?: string; warehouse_code?: string; warehouse_codes?: string[] | null; cajero_code?: string; limit?: number; solo_hoy?: boolean }) {
     const tenantId = this.tenantCtx.requireTenantId();
     const limit = Math.min(500, Math.max(1, Number(q.limit) || 100));
     return this.tk.run(async (trx) => {
@@ -789,8 +791,26 @@ export class BlindCountService {
       // La cajera ve SUS arqueos, no los de la caja de al lado. La sucursal sola no
       // alcanza: en una tienda con 5 cajas le mostraría el conteo de sus compañeras.
       if (q.cajero_code) b.whereRaw('upper(bc.cajero_code) = ?', [q.cajero_code.toUpperCase()]);
-      if (q.from) b.where('bc.business_date', '>=', q.from);
-      if (q.to) b.where('bc.business_date', '<=', q.to);
+      if (q.solo_hoy) {
+        // SM.33 — La cajera ve lo del DIA, no su historial. El `from`/`to` que
+        // haya pedido se ignora a proposito: este recorte no es un filtro de
+        // pantalla, es el limite de lo que se le devuelve.
+        //
+        // La hora la pone la DB (`now() AT TIME ZONE`), no el reloj de Node: el
+        // server puede estar en UTC y a las 19:00 de Mexico ya seria "mañana".
+        //
+        // Son DOS condiciones unidas por OR, y la segunda no es de adorno: el
+        // turno que cierra pasada la medianoche conserva el `business_date` del
+        // dia que abrio, asi que con solo la primera la cajera guardaba su
+        // arqueo a las 00:30 y lo veia DESAPARECER de la lista.
+        b.whereRaw(`(
+          bc.business_date = (now() AT TIME ZONE 'America/Mexico_City')::date
+          OR bc.captured_at >= date_trunc('day', now() AT TIME ZONE 'America/Mexico_City') AT TIME ZONE 'America/Mexico_City'
+        )`);
+      } else {
+        if (q.from) b.where('bc.business_date', '>=', q.from);
+        if (q.to) b.where('bc.business_date', '<=', q.to);
+      }
       const rows = await b;
       return rows.map((r: any) => {
         const total = Number(r.total_contado);
