@@ -76,6 +76,11 @@ corolarios, cada uno pagado:
 - **La causa se busca donde el error está concentrado, y se prueba contra un resolvedor, no contra
   los nombres.** «Es granel» y «es el factor de caja» venían de leer los nombres de las filas más
   caras; contra `v_unit_truth` las dos se cayeron (§9.6, §9.7) y la causa real apareció en otro lado.
+- ⚠️ **Y el matiz que esta regla se cobró a sí misma el mismo día: el testigo tiene que ser el MÁS
+  FUERTE disponible.** Refuté la etiqueta "réplica" con las entradas acumuladas de `kdil` — un
+  **acumulado recalculable**, que no dice nada sobre el origen de los datos. La identidad de folios
+  estaba a mano y daba **100.00%**. Buscar en el error no exime de elegir bien con qué medirlo
+  (§9.9).
 
 ---
 
@@ -83,7 +88,7 @@ corolarios, cada uno pagado:
 
 | dimensión | qué la arbitra | resultado | ¿verdad absoluta? |
 |---|---|---|---|
-| **Existencia · cantidad** | identidad `entradas − salidas = qty`, del propio `kdil` | 92.84% directo · **1,818 negativos (−68,504 u) recortados, no explicados** · 90,630 u descartadas por el filtro de almacén | ⚠️ **casi — con dos huecos declarados** (§3.1b, §7) |
+| **Existencia · cantidad** | identidad `entradas − salidas = qty`, del propio `kdil` | 92.84% directo · **1,818 negativos (−68,504 u) recortados, no explicados** · el descarte por almacén **ya no es hueco**: es réplica probada (§9.9) | ⚠️ **sí, con UN hueco declarado** (§3.1b) |
 | **Existencia · valor** | `kdik.c16` — costo **promedio ponderado histórico** de Kepler por sucursal × SKU | 74.5% confirmado · brecha enumerada por causa (§3.3) | ✅ **sí, con residuo enumerado** |
 | **Ventas · dinero** | `c62 = u1_cost × c58` + paridad contra el renglón crudo | cobertura **98.20%** del dinero de Kepler | ✅ **sí** |
 | **Unidades · ticket** | el renglón declara y el costo confirma | **95.75%** confirmado | ✅ **sí** |
@@ -228,6 +233,27 @@ mediano y en 1,578 pares supera el 10%.
 
 ---
 
+### 3.5 ⭐ Lo que se APLICÓ (KX, 2026-09-09)
+
+Edgar: *"apliquémoslo y tengamos una verdad absoluta"*. Los hallazgos de §3.3–§3.4 no se quedaron
+en el documento:
+
+| qué | dónde | efecto en la cifra publicada |
+|---|---|---|
+| **El fallback del catálogo va blindado con `LEAST`** | `existencia.service.ts` | **cero hoy** (las 101 filas tienen costo del ERP). Prueba forzada: sobre esas filas el fallback viejo da **$3,574,981** y el blindado **$563,102**, contra **$246,243** del ERP — de ×31.4 a ×1.00 en los peores. Y en los **9,070** SKUs sanos el `LEAST` sigue eligiendo `cost_base` el **100.00%** de las veces |
+| **La pantalla declara CON QUÉ se valuó** | `almacen-existencia.component.ts` | dos banners nuevos: el método (**costo promedio del ERP, no de reposición**) y `celdas_sin_costo_erp`, que el backend devolvía desde el 2026-09-08 y **nadie veía**. Cierra la falla de VP.0.1 una capa arriba |
+| **`metodo_valuacion` + `celdas_costo_invertido`** en la respuesta | `existencia.service.ts` | el consumidor deja de tener que suponer el método |
+| **Los negativos tienen techo** | `test-newdb-stock-truth.js` | se contaban y no se asertaban; ahora si crecen, rojo |
+| **El filtro de almacén asegura su RAZÓN** | idem | ≥ 99% de folios idénticos, no `replica > 0` |
+
+**Candado: 21 → 37**, con **7 pruebas negativas** verificadas en rojo antes de darlas por buenas.
+
+⚠️ **Y lo que el blindaje NO hace, dicho:** el fallback sigue **~2.3× arriba** del costo del ERP
+($563,102 contra $246,243), porque `cost_with_tax` trae impuesto. Reduce el error de ~14.5× a
+~2.3×; **no lo elimina**. Es un fallback, no un árbitro — el arreglo de fondo es el dato maestro.
+
+---
+
 ## 4. Ventas y unidades
 
 ### 4.1 Kepler nunca pierde la unidad — el renglón la declara
@@ -365,7 +391,7 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | `units` que todavía transformamos | 5,835 celdas / **$1,851,531** | 3,948 ÷2 (500 g→kg) · 1,135 ×12 · 747 ×2 (**K.5**) |
 | `sin_testigo` en existencia | 26 filas / $16,316 | Kepler no da costo; `valor_arbitrado` va **NULL** |
 | ⭐ **existencia negativa recortada** | **1,818 filas / −68,504 u** | Kepler dice que salió sin haber entrado. Se recorta a 0 para no publicar lo imposible, pero **recortar no es explicar**. 748 SKUs sin NINGUNA entrada. Firma medida: **no es unidad** (mediana `salidas/entradas` = 1.090) — §3.1b |
-| ⭐ **el almacén `02` de la sucursal 03** | **3,667 filas / 90,630 u** | el filtro `sucursal = c1` las descarta como "réplica de otra sucursal", **y esa etiqueta está refutada**: sólo 3.66% tiene entradas idénticas a suc02/alm02, **1,049 SKUs van por DELANTE** (una réplica no adelanta al original) y 645 sólo existen en la 03. Naturaleza **sin establecer**: falta preguntarle a operaciones si 8ESQ opera bodega en Abastos |
+| ~~el almacén `02` de la sucursal 03~~ | **CERRADO — no era hueco** | ✅ Es **réplica**, probado por identidad documental: **37,020 de 37,020** folios (`folio` + `doctype`) de suc03/alm02 existen idénticos en la sucursal 02, y está **congelada el 2026-01-07** (la 02 real llega a hoy). Publicarla sería **doble conteo de 78,633 u** en 1,771 de 2,594 celdas. El filtro está correcto — ver §9.9 |
 | ⚠️ **el árbitro es promedio histórico** | −1.95% mediano vs `c18` | `c16 = c8/c5` con `c5` = entradas acumuladas. Valuamos a **costo promedio ponderado**, no de reposición (§3.4) |
 | ⚠️ **62 SKUs con las columnas al revés** | 101 filas / $354,067 | `cost_with_tax < cost_base`; el fallback `cost_base` los valuaría ~10.9× arriba **si** Kepler dejara de dar `c16` (hoy ninguna cae ahí) |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
@@ -474,6 +500,31 @@ filas contradichas, $516,819**— pero es un caso, no una regla, y usarlo como r
 Está limpio: en el ODS es `double precision` y las 31,084 filas son numéricas. Lo que parecía basura
 (`4.1667e-06`) es notación científica válida — el `[^0-9.-]` con el que se midió le quitaba la `e`.
 El guard correcto es de **valor** (`c16 = c16` descarta NaN, las cotas los infinitos), no de texto.
+
+---
+
+### 9.9 ⛔⛔ "el almacén 02 de la sucursal 03 NO es réplica" — **refuté mal, y me retracto**
+
+En el primer pase de KX escribí que la etiqueta "réplica" del filtro `sucursal = c1` estaba
+refutada, porque contra suc02/alm02 sólo el **3.66%** de las entradas acumuladas coincidía y
+**1,049 SKUs iban por delante del original**. **Era falso, y el error fue de TESTIGO**: `kdil` es un
+**acumulado recalculable**, así que su divergencia no dice nada sobre el origen de los datos.
+
+El testigo fuerte estaba disponible y no lo usé — la **identidad documental**:
+
+```text
+docs de suc03 con almacén 02 ............ 37,020
+el mismo (folio, doctype) en la suc 02 .. 37,020  = 100.00%   -> ES RÉPLICA
+la réplica llega a 2026-01-07; la sucursal 02 real llega a hoy -> CONGELADA
+```
+
+Y publicarla costaría caro: de 2,594 celdas con existencia, **1,771 (78,633 u) tienen el SKU ya
+publicado desde la sucursal 02** — doble conteo. **El filtro está correcto**, el hueco de 90,630 u
+**no existe**, y el candado ahora asegura la RAZÓN (≥ 99% de folios idénticos) en vez de la etiqueta.
+
+⚠️ **La lección va a R6:** buscar el patrón en el error es correcto, pero **el testigo tiene que ser
+el más fuerte disponible**. Una identidad de folios le gana a un acumulado, y no había excusa para
+no mirarla primero.
 
 ---
 
