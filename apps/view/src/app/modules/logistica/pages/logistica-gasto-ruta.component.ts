@@ -1,7 +1,12 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { TagModule } from 'primeng/tag';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
+import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import {
   GastoRutaService, ExpenseType, RouteExpense, ExpenseList,
   OperationPayload, OperationPeriod, CostSheet,
@@ -11,25 +16,28 @@ import {
  * RD.4 + RD.5 — Gasto de flota y operación de la Ruta Directa.
  * Reemplaza las hojas `CONTROL DE GASTOS RD` y `OPERACION DE LAS RUTAS` del workbook.
  *
- * Es la pantalla que faltaba: el dato estaba cargado en prod desde el 2026-09-08 (782 gastos,
+ * Es la pantalla que faltaba: el dato estaba cargado en prod desde el 08-sep (782 gastos,
  * 187 lecturas de odómetro) y **no había dónde corregirlo**. La decisión de negocio del
  * 2026-09-09 fue *"se corrige desde la UI y se captura manual"* (§9.7 y §9.8 de FASE_RD).
  *
- * Surface Operations: tabla densa sin zebra, hairline 1px sin sombra, cifras en Geist Mono con
- * `tabular-nums`, header sticky. Answer-first (regla §15 de DESIGN.md): arriba va **qué falta**
- * —lo sin clasificar y lo que no se puede medir— y recién abajo el grid crudo.
+ * ⚠️ **Reescrita el mismo día contra el sistema, no contra la pantalla de al lado.** La
+ * primera versión reimplementó a mano seis piezas que ya existían compartidas —tabs, estados
+ * de carga, KPIs, tabla, pills, drawer— que es el antipatrón #1 del inventario de DESIGN.md.
+ * El síntoma visible era la edición del odómetro con `colspan="8"`, que partía la grilla.
+ * Ahora: `app-segmented` · `app-load-state` · `app-metric-strip` · `app-side-peek` ·
+ * `surf-table--plain` + `comm-num` · `p-tag [severity]`.
  *
  * Lo que la pantalla NO hace, a propósito:
- *  · No adivina el tipo de un gasto. Los `SIN CLASIFICAR` se listan y se reclasifican a mano;
- *    cuatro *parecen* gasolina y uno "CAMBIOS DE MUELLES" *parece* reparación, y parecer no basta.
- *  · No corrige el odómetro sola. Las lecturas con dígitos comidos (`205095 → 23174` es `223174`)
- *    se marcan con su `km_status` y se editan una por una; un retroceso exige nota.
- *  · No dibuja $/km donde no hay ficha de costo (rutas 28, 321, 322): sale vacío con su motivo.
+ *  · No adivina el tipo de un gasto. Los `SIN CLASIFICAR` se reclasifican a mano; cuatro
+ *    *parecen* gasolina y uno "CAMBIOS DE MUELLES" *parece* reparación, y parecer no basta.
+ *  · No corrige el odómetro sola. Las lecturas con dígitos comidos (`205095 → 23174` es
+ *    `223174`) se rotulan con su `km_status` y se editan una por una; un retroceso exige nota.
+ *  · No dibuja $/km donde no hay ficha (rutas 28, 321, 322): vacío con su motivo, nunca cero.
  */
 @Component({
   selector: 'app-logistica-gasto-ruta',
   standalone: true,
-  imports: [FormsModule],
+  imports: [FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, SidePeekComponent],
   template: `
     <div class="gr-page">
       <header class="gr-head">
@@ -44,7 +52,9 @@ import {
         </label>
       </header>
 
-      <!-- Answer-first: qué falta, antes del grid -->
+      <!-- Answer-first (DESIGN §15): el veredicto antes del grid -->
+      <app-metric-strip [items]="kpis()" ariaLabel="Estado del gasto y la operación de Ruta Directa" />
+
       @if (pendientes().length) {
         <div class="gr-todo" role="status">
           <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
@@ -55,23 +65,12 @@ import {
             }
           </div>
         </div>
-      } @else if (!loading()) {
+      } @else if (!loading() && !err()) {
         <p class="gr-ok"><i class="pi pi-check-circle" aria-hidden="true"></i> Nada pendiente de clasificar ni de corregir en {{ anio() }}.</p>
       }
 
-      <nav class="gr-tabs" aria-label="Secciones">
-        <button type="button" class="gr-tab" [class.sel]="tab() === 'gasto'" (click)="tab.set('gasto')">
-          Gasto <span class="gr-tab-n">{{ gasto()?.total_filas ?? '—' }}</span>
-        </button>
-        <button type="button" class="gr-tab" [class.sel]="tab() === 'operacion'" (click)="tab.set('operacion')">
-          Operación <span class="gr-tab-n">{{ oper()?.total_filas ?? '—' }}</span>
-        </button>
-        <button type="button" class="gr-tab" [class.sel]="tab() === 'fichas'" (click)="tab.set('fichas')">
-          Fichas de costo <span class="gr-tab-n">{{ fichas().length || '—' }}</span>
-        </button>
-      </nav>
-
-      @if (err()) { <p class="gr-err"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ err() }}</p> }
+      <app-segmented [options]="secciones" [value]="tab()" (valueChange)="tab.set($any($event))"
+                     ariaLabel="Sección del gasto de ruta" />
 
       <!-- ════════════ GASTO ════════════ -->
       @if (tab() === 'gasto') {
@@ -94,63 +93,64 @@ import {
           </label>
         </div>
 
-        @if (loading()) {
-          @for (i of skeleton; track i) { <div class="gr-skel"></div> }
-        } @else if (!gasto()?.rows?.length) {
-          <p class="gr-empty">
-            Ningún gasto de flota registrado para los filtros de {{ anio() }}.
-            @if (fRuta() || fTipo() || soloSin()) {
-              <button type="button" class="gr-link" (click)="limpiarFiltros()">Quitar los filtros</button>
-            }
-          </p>
-        } @else {
-          <div class="gr-table-wrap">
-            <table class="gr-table">
+        <app-load-state
+          [loading]="loading()" [error]="err()" [isEmpty]="!gasto()?.rows?.length"
+          [skeletonRows]="8"
+          emptyIcon="pi-receipt"
+          emptyTitle="Ningún gasto de flota con estos filtros"
+          [emptyHint]="'No hay facturas de flota que cumplan los filtros en ' + anio() + '.'"
+          [emptyCta]="hayFiltros() ? 'Quitar los filtros' : null"
+          emptyCtaIcon="pi pi-filter-slash"
+          (cta)="limpiarFiltros()" (retry)="loadGasto()">
+          <div class="gr-scroll">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
               <thead>
                 <tr>
                   <th>Ruta</th><th>Fecha</th><th>Tipo</th><th>Proveedor</th><th>Descripción</th>
-                  <th>Folio</th><th class="num">Litros</th><th class="num">Total</th><th></th>
+                  <th>Folio</th><th class="comm-num">Litros</th><th class="comm-num">Total</th>
+                  <th><span class="gr-sr">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>
-                @for (g of gasto()!.rows; track g.id) {
-                  <tr [class.sin]="g.expense_type === 0">
-                    <td class="mono">{{ g.route_code }}</td>
-                    <td class="mono">{{ g.expense_date }}</td>
+                @for (g of gasto()?.rows ?? []; track g.id) {
+                  <tr>
+                    <td class="comm-num">{{ g.route_code }}</td>
+                    <td class="comm-num">{{ g.expense_date }}</td>
                     <td>
                       @if (editId() === g.id) {
                         <select class="gr-inline" [ngModel]="editTipo()" (ngModelChange)="editTipo.set(+$event)"
-                                (keydown.escape)="cancelar()" [attr.aria-label]="'Tipo de gasto de ' + g.route_code">
+                                (keydown.escape)="cancelar()" [attr.aria-label]="'Tipo de gasto de la ruta ' + g.route_code">
                           @for (t of tipos(); track t.code) { <option [value]="t.code">{{ t.code }} · {{ t.nombre }}</option> }
                         </select>
                       } @else if (g.expense_type === 0) {
-                        <span class="gr-chip warn">Sin clasificar</span>
+                        <p-tag severity="warn" value="Sin clasificar" />
                       } @else {
-                        <span class="gr-tipo"><span class="mono">{{ g.expense_type }}</span> {{ g.tipo_nombre }}</span>
+                        <span class="gr-tipo"><span class="comm-num">{{ g.expense_type }}</span> {{ g.tipo_nombre }}</span>
                       }
                     </td>
-                    <td class="gr-trunc">{{ g.supplier || '—' }}</td>
-                    <td class="gr-trunc">{{ g.description || '—' }}</td>
-                    <td class="mono">{{ g.folio || '—' }}</td>
-                    <td class="num mono" [class.gr-flag]="incoherente(g)">
+                    <td class="gr-trunc" [title]="g.supplier || ''">{{ g.supplier || '—' }}</td>
+                    <td class="gr-trunc" [title]="g.description || ''">{{ g.description || '—' }}</td>
+                    <td class="comm-num">{{ g.folio || '—' }}</td>
+                    <td class="comm-num">
                       {{ num2(g.liters) }}
                       @if (incoherente(g)) {
-                        <i class="pi pi-flag" aria-hidden="true"
-                           [title]="'Tipo ' + g.expense_type + ' no debería traer litros'"></i>
+                        <i class="pi pi-flag gr-flag" [title]="'El tipo ' + g.expense_type + ' no debería traer litros'"
+                           [attr.aria-label]="'Litros en un tipo que no los lleva'"></i>
                       }
                     </td>
-                    <td class="num mono strong">{{ money(g.total) }}</td>
-                    <td class="gr-row-actions">
+                    <td class="comm-num is-strong">{{ money(g.total) }}</td>
+                    <td class="gr-actions">
                       @if (canManage()) {
                         @if (editId() === g.id) {
-                          <button type="button" class="gr-icon ok" (click)="guardarTipo(g)" [disabled]="busy()" aria-label="Guardar tipo">
+                          <button type="button" class="gr-icon gr-icon--ok" (click)="guardarTipo(g)" [disabled]="busy()" aria-label="Guardar el tipo">
                             <i class="pi pi-check" aria-hidden="true"></i>
                           </button>
-                          <button type="button" class="gr-icon" (click)="cancelar()" aria-label="Cancelar">
+                          <button type="button" class="gr-icon" (click)="cancelar()" aria-label="Cancelar la edición">
                             <i class="pi pi-times" aria-hidden="true"></i>
                           </button>
                         } @else {
-                          <button type="button" class="gr-icon" (click)="editar(g)" [attr.aria-label]="'Cambiar tipo del gasto ' + (g.folio || g.id)">
+                          <button type="button" class="gr-icon" (click)="editar(g)"
+                                  [attr.aria-label]="'Cambiar el tipo del gasto ' + (g.folio || g.route_code)">
                             <i class="pi pi-pencil" aria-hidden="true"></i>
                           </button>
                         }
@@ -159,23 +159,26 @@ import {
                   </tr>
                 }
               </tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="6">{{ int(gasto()!.total_filas) }} filas</td>
-                  <td class="num mono">{{ num2(gasto()!.total_litros) }} lts</td>
-                  <td class="num mono">{{ money(gasto()!.total_monto) }}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
+              @if (gasto(); as gl) {
+                <tfoot>
+                  <tr>
+                    <td colspan="6">{{ int(gl.total_filas) }} filas</td>
+                    <td class="comm-num">{{ num2(gl.total_litros) }} lts</td>
+                    <td class="comm-num is-strong">{{ money(gl.total_monto) }}</td>
+                    <td></td>
+                  </tr>
+                </tfoot>
+              }
             </table>
           </div>
-          @if (gasto()!.sin_clasificar > 0) {
-            <p class="gr-note">
-              <i class="pi pi-info-circle" aria-hidden="true"></i>
-              {{ gasto()!.sin_clasificar }} de estas filas no tienen tipo, así que <strong>el resumen por tipo está
-              incompleto a propósito</strong>. El tipo no se adivina desde la descripción.
-            </p>
-          }
+        </app-load-state>
+
+        @if ((gasto()?.sin_clasificar ?? 0) > 0) {
+          <p class="gr-note">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            {{ gasto()!.sin_clasificar }} de estas filas no tienen tipo, así que <strong>el resumen por tipo está
+            incompleto a propósito</strong>. El tipo no se adivina desde la descripción.
+          </p>
         }
       }
 
@@ -186,209 +189,213 @@ import {
             <input type="checkbox" [ngModel]="soloProblemas()" (ngModelChange)="soloProblemas.set($event); loadOper()" />
             Sólo lecturas que no se pueden usar
           </label>
-          @if (oper(); as o) {
-            <span class="gr-cover">
-              {{ o.con_km_utilizable }} de {{ o.total_filas }} con km utilizable
-              @if (o.sin_ficha_de_costo) { · {{ o.sin_ficha_de_costo }} sin ficha de costo }
-            </span>
-          }
         </div>
 
-        @if (loading()) {
-          @for (i of skeleton; track i) { <div class="gr-skel"></div> }
-        } @else if (!oper()?.rows?.length) {
-          <p class="gr-empty">Sin lecturas de odómetro ni gasto para {{ anio() }}.</p>
-        } @else {
-          <div class="gr-table-wrap">
-            <table class="gr-table">
+        <app-load-state
+          [loading]="loading()" [error]="err()" [isEmpty]="!oper()?.rows?.length"
+          [skeletonRows]="8"
+          emptyIcon="pi-gauge"
+          emptyTitle="Sin lecturas de odómetro ni gasto"
+          [emptyHint]="'Ninguna ruta registra odómetro ni gasto en ' + anio() + '.'"
+          (retry)="loadOper()">
+          <div class="gr-scroll">
+            <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
               <thead>
                 <tr>
-                  <th>Ruta</th><th class="num">Q</th>
-                  <th class="num">Km inicial</th><th class="num">Km final</th><th class="num">Km</th>
-                  <th>Lectura</th><th class="num">Litros</th><th class="num">Km/L</th>
-                  <th class="num">$/km fijo</th><th class="num">Gasto</th><th class="num">$/km total</th>
-                  <th></th>
+                  <th>Ruta</th><th class="comm-num">Q</th>
+                  <th class="comm-num">Km inicial</th><th class="comm-num">Km final</th><th class="comm-num">Km</th>
+                  <th>Lectura</th><th class="comm-num">Litros</th><th class="comm-num">Km/L</th>
+                  <th class="comm-num">$/km fijo</th><th class="comm-num">Gasto</th><th class="comm-num">$/km total</th>
+                  <th><span class="gr-sr">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>
-                @for (p of oper()!.rows; track p.route_code + '-' + p.period_no) {
-                  <tr [class.sin]="p.km_status !== 'ok'">
-                    <td class="mono">{{ p.route_code }}</td>
-                    <td class="num mono">{{ p.period_no }}</td>
-                    @if (odoKey() === p.route_code + '-' + p.period_no) {
-                      <td class="num"><input class="gr-inline num mono" type="number" [ngModel]="odoIni()" (ngModelChange)="odoIni.set($event)" aria-label="Km inicial" /></td>
-                      <td class="num"><input class="gr-inline num mono" type="number" [ngModel]="odoFin()" (ngModelChange)="odoFin.set($event)" aria-label="Km final" /></td>
-                      <td colspan="8">
-                        <input class="gr-inline gr-notes" type="text" [ngModel]="odoNota()" (ngModelChange)="odoNota.set($event)"
-                               placeholder="Motivo de la corrección (obligatorio si el final queda menor que el inicial)"
-                               aria-label="Motivo de la corrección" />
-                      </td>
-                      <td class="gr-row-actions">
-                        <button type="button" class="gr-icon ok" (click)="guardarOdo(p)" [disabled]="busy()" aria-label="Guardar lectura">
-                          <i class="pi pi-check" aria-hidden="true"></i>
+                @for (p of oper()?.rows ?? []; track p.route_code + '-' + p.period_no) {
+                  <tr>
+                    <td class="comm-num">{{ p.route_code }}</td>
+                    <td class="comm-num">{{ p.period_no }}</td>
+                    <td class="comm-num">{{ p.km_inicial ?? '—' }}</td>
+                    <td class="comm-num">{{ p.km_final ?? '—' }}</td>
+                    <td class="comm-num is-strong">{{ p.km_recorridos ?? '—' }}</td>
+                    <td><p-tag [severity]="sevKm(p.km_status)" [value]="etiquetaKm(p.km_status)" /></td>
+                    <td class="comm-num">{{ num2(p.litros) }}</td>
+                    <td class="comm-num">{{ num2(p.km_por_litro) }}</td>
+                    <td class="comm-num">{{ num2(p.costo_fijo_por_km) }}</td>
+                    <td class="comm-num">{{ money0(p.gasto_total) }}</td>
+                    <td class="comm-num is-strong">{{ num2(p.costo_por_km) }}</td>
+                    <td class="gr-actions">
+                      @if (canManage()) {
+                        <button type="button" class="gr-icon" (click)="editarOdo(p)"
+                                [attr.aria-label]="'Corregir el odómetro de la ruta ' + p.route_code + ', quincena ' + p.period_no">
+                          <i class="pi pi-pencil" aria-hidden="true"></i>
                         </button>
-                        <button type="button" class="gr-icon" (click)="cancelar()" aria-label="Cancelar">
-                          <i class="pi pi-times" aria-hidden="true"></i>
-                        </button>
-                      </td>
-                    } @else {
-                      <td class="num mono">{{ p.km_inicial ?? '—' }}</td>
-                      <td class="num mono">{{ p.km_final ?? '—' }}</td>
-                      <td class="num mono strong">{{ p.km_recorridos ?? '—' }}</td>
-                      <td><span class="gr-chip" [class]="chipKm(p.km_status)">{{ etiquetaKm(p.km_status) }}</span></td>
-                      <td class="num mono">{{ num2(p.litros) }}</td>
-                      <td class="num mono">{{ num2(p.km_por_litro) }}</td>
-                      <td class="num mono">{{ num2(p.costo_fijo_por_km) }}</td>
-                      <td class="num mono">{{ money0(p.gasto_total) }}</td>
-                      <td class="num mono strong">{{ num2(p.costo_por_km) }}</td>
-                      <td class="gr-row-actions">
-                        @if (canManage()) {
-                          <button type="button" class="gr-icon" (click)="editarOdo(p)" [attr.aria-label]="'Corregir odómetro de ruta ' + p.route_code + ' quincena ' + p.period_no">
-                            <i class="pi pi-pencil" aria-hidden="true"></i>
-                          </button>
-                        }
-                      </td>
-                    }
+                      }
+                    </td>
                   </tr>
                 }
               </tbody>
             </table>
           </div>
-          <p class="gr-note">
-            <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Las lecturas fuera de banda <strong>no se corrigen solas</strong>: casi todas son un dígito comido
-            (<span class="mono">205095 → 23174</span> es <span class="mono">223174</span>) y poner el dígito
-            que falta sería inventar la lectura. Donde falta la ficha de costo el <span class="mono">$/km</span>
-            sale vacío, no en cero.
-          </p>
-        }
+        </app-load-state>
+
+        <p class="gr-note">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          Las lecturas fuera de banda <strong>no se corrigen solas</strong>: casi todas son un dígito comido
+          (<span class="comm-num">205095 → 23174</span> es <span class="comm-num">223174</span>) y poner el dígito
+          que falta sería inventar la lectura. Donde falta la ficha de costo el <span class="comm-num">$/km</span>
+          sale vacío, no en cero.
+        </p>
       }
 
       <!-- ════════════ FICHAS ════════════ -->
       @if (tab() === 'fichas') {
-        @if (!fichas().length) {
-          <p class="gr-empty">No hay fichas de costo fijo cargadas.</p>
-        } @else {
-          <div class="gr-table-wrap gr-narrow">
-            <table class="gr-table">
+        <app-load-state [loading]="loading()" [error]="err()" [isEmpty]="!fichas().length"
+                        emptyIcon="pi-book" emptyTitle="Sin fichas de costo fijo"
+                        emptyHint="Ninguna ruta tiene TOTAL GASTO anual ni km base cargados.">
+          <div class="gr-scroll gr-scroll--narrow">
+            <table class="surf-table surf-table--plain surf-table--sticky">
               <thead>
-                <tr><th>Ruta</th><th class="num">Gasto anual</th><th class="num">Km base anual</th><th class="num">$/km fijo</th></tr>
+                <tr><th>Ruta</th><th class="comm-num">Gasto anual</th><th class="comm-num">Km base anual</th><th class="comm-num">$/km fijo</th></tr>
               </thead>
               <tbody>
                 @for (f of fichas(); track f.route_code) {
                   <tr>
-                    <td class="mono">{{ f.route_code }}</td>
-                    <td class="num mono">{{ money(f.costo_fijo_anual) }}</td>
-                    <td class="num mono">{{ int(f.km_base_anual) }}</td>
-                    <td class="num mono strong">{{ num2(f.costo_fijo_por_km) }}</td>
+                    <td class="comm-num">{{ f.route_code }}</td>
+                    <td class="comm-num">{{ money(f.costo_fijo_anual) }}</td>
+                    <td class="comm-num">{{ int(f.km_base_anual) }}</td>
+                    <td class="comm-num is-strong">{{ num2(f.costo_fijo_por_km) }}</td>
                   </tr>
                 }
                 @for (r of rutasSinFicha(); track r) {
-                  <tr class="sin">
-                    <td class="mono">{{ r }}</td>
+                  <tr>
+                    <td class="comm-num">{{ r }}</td>
                     <td colspan="3" class="gr-muted">Sin ficha en el workbook — el $/km de esta ruta sale vacío, no en cero</td>
                   </tr>
                 }
               </tbody>
             </table>
           </div>
-          <p class="gr-note">
-            <i class="pi pi-info-circle" aria-hidden="true"></i>
-            El <span class="mono">$/km</span> se deriva de la ficha (<span class="mono">gasto anual ÷ km base</span>).
-            En el Excel esta columna da <strong>1</strong> para todas las rutas porque su <span class="mono">SUMIF</span>
-            apunta a la columna PERIODO de su propia hoja; acá va el valor real, entre 6.12 y 9.13.
-            Las fichas se editan en <span class="mono">/logistica/config</span> (categoría <span class="mono">costo_km</span>).
-          </p>
-        }
+        </app-load-state>
+        <p class="gr-note">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          El <span class="comm-num">$/km</span> se deriva de la ficha (<span class="comm-num">gasto anual ÷ km base</span>).
+          En el Excel esta columna da <strong>1</strong> para todas las rutas porque su <span class="comm-num">SUMIF</span>
+          apunta a la columna PERIODO de su propia hoja; acá va el valor real, entre 6.12 y 9.13.
+          Las fichas se editan en <span class="comm-num">/logistica/config</span> (categoría <span class="comm-num">costo_km</span>).
+        </p>
       }
+
+      <!-- Detalle = side-peek (regla #8 de datos densos), no una fila que parte la grilla -->
+      <app-side-peek [(open)]="peek" [title]="'Odómetro · ruta ' + (odo()?.route_code ?? '')"
+                     [subtitle]="odo() ? ('Quincena ' + odo()!.period_no + ' de ' + odo()!.anio) : null">
+        @if (odo(); as p) {
+          <div class="gr-form">
+            <label class="gr-field">
+              <span>Km inicial</span>
+              <input type="number" inputmode="numeric" [ngModel]="odoIni()" (ngModelChange)="odoIni.set($event)" />
+            </label>
+            <label class="gr-field">
+              <span>Km final</span>
+              <input type="number" inputmode="numeric" [ngModel]="odoFin()" (ngModelChange)="odoFin.set($event)" />
+            </label>
+
+            <p class="gr-calc">
+              Recorrido: <strong class="comm-num">{{ recorrido() ?? '—' }}</strong>
+              @if (retrocede()) {
+                <span class="gr-calc-warn">
+                  <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                  El final queda menor que el inicial. Se puede guardar —el dato real lo hace— pero hay que decir por qué.
+                </span>
+              }
+            </p>
+
+            <label class="gr-field">
+              <span>Motivo de la corrección {{ retrocede() ? '(obligatorio)' : '(opcional)' }}</span>
+              <textarea rows="3" [ngModel]="odoNota()" (ngModelChange)="odoNota.set($event)"
+                        placeholder="Ej.: dígito comido en la captura original, se recapturó del odómetro"></textarea>
+            </label>
+
+            @if (err()) { <p class="gr-err" role="alert"><i class="pi pi-times-circle" aria-hidden="true"></i> {{ err() }}</p> }
+
+            <div class="gr-form-actions">
+              <button type="button" class="gr-btn" (click)="peek.set(false)">Cancelar</button>
+              <button type="button" class="gr-btn gr-btn--primary" (click)="guardarOdo(p)" [disabled]="busy() || !puedeGuardar()">
+                <i class="pi pi-check" aria-hidden="true"></i> Guardar lectura
+              </button>
+            </div>
+          </div>
+        }
+      </app-side-peek>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     :host { display:block; }
-    .gr-page { padding:1rem 1.1rem 2rem; }
-    .gr-head { display:flex; align-items:flex-start; gap:1rem; margin-bottom:.9rem; }
-    .gr-head h1 { margin:0; font-size:var(--fs-xl,1.25rem); font-weight:var(--fw-bold); color:var(--c-text-1); }
-    .gr-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-3); }
-    .gr-year { margin-left:auto; display:inline-flex; gap:.4rem; align-items:center; font-size:var(--fs-sm); color:var(--c-text-2); }
+    .gr-page { padding:1rem 1.1rem 2rem; display:flex; flex-direction:column; gap:.85rem; }
+    .gr-head { display:flex; align-items:flex-start; gap:1rem; }
+    .gr-head h1 { margin:0; font-size:var(--fs-xl,1.25rem); font-weight:var(--fw-bold); color:var(--text-main); }
+    .gr-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--text-muted); }
+    .gr-year { margin-left:auto; display:inline-flex; gap:.4rem; align-items:center; font-size:var(--fs-sm); color:var(--text-soft); }
     .gr-year select, .gr-filters select {
       padding:.3rem .45rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
-      background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
+      background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-sm); }
 
-    .gr-todo { display:flex; gap:.5rem; align-items:flex-start; margin-bottom:.9rem; padding:.55rem .7rem;
-      border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
-      background:color-mix(in srgb, var(--warn-fg) 8%, transparent); font-size:var(--fs-sm); color:var(--c-text-2); }
+    .gr-todo { display:flex; gap:.5rem; align-items:flex-start; padding:.55rem .7rem;
+      border:1px solid color-mix(in oklab, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
+      background:color-mix(in oklab, var(--warn-fg) 8%, transparent); font-size:var(--fs-sm); color:var(--text-soft); }
     .gr-todo i { color:var(--warn-fg); margin-top:.15rem; }
     .gr-todo-link { margin-left:.4rem; padding:0; border:0; background:none; font:inherit; font-size:var(--fs-sm);
       color:var(--action); text-decoration:underline; cursor:pointer; }
-    .gr-ok { display:flex; gap:.4rem; align-items:center; margin:0 0 .9rem; font-size:var(--fs-sm); color:var(--c-text-3); }
+    .gr-ok { display:flex; gap:.4rem; align-items:center; margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
     .gr-ok i { color:var(--ok-fg); }
 
-    .gr-tabs { display:flex; gap:.3rem; margin-bottom:.7rem; }
-    .gr-tab { display:inline-flex; gap:.35rem; align-items:center; padding:.3rem .7rem; border:1px solid var(--border-color);
-      border-radius:99px; background:var(--card-bg); color:var(--c-text-2); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
-    .gr-tab.sel { border-color:var(--action); color:var(--action); background:color-mix(in srgb, var(--action) 8%, transparent); }
-    .gr-tab-n { font-size:var(--fs-micro); color:var(--c-text-3); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
-
-    .gr-filters { display:flex; gap:.8rem; align-items:center; flex-wrap:wrap; margin-bottom:.6rem;
-      font-size:var(--fs-sm); color:var(--c-text-2); }
+    .gr-filters { display:flex; gap:.8rem; align-items:center; flex-wrap:wrap; font-size:var(--fs-sm); color:var(--text-soft); }
     .gr-filters label { display:inline-flex; gap:.4rem; align-items:center; }
     .gr-check { cursor:pointer; }
-    .gr-cover { margin-left:auto; font-size:var(--fs-micro); color:var(--c-text-3);
-      font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
 
-    .gr-table-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); }
-    .gr-narrow { max-width:640px; }
-    .gr-table { width:100%; border-collapse:collapse; font-size:var(--fs-sm); }
-    .gr-table th { position:sticky; top:0; z-index:1; background:var(--card-bg); text-align:left; padding:.4rem .6rem;
-      font-size:var(--fs-micro); text-transform:uppercase; letter-spacing:.05em; color:var(--c-text-3);
-      font-weight:var(--fw-bold); border-bottom:1px solid var(--c-divider); white-space:nowrap; }
-    .gr-table td { padding:.4rem .6rem; border-top:1px solid var(--c-divider); white-space:nowrap; }
-    .gr-table th.num, .gr-table td.num { text-align:right; }
-    .gr-table tbody tr:hover { background:var(--overlay-hover); }
-    .gr-table tbody tr.sin td { color:var(--c-text-2); }
-    .gr-table tfoot td { padding:.45rem .6rem; border-top:2px solid var(--c-divider); font-weight:var(--fw-bold);
-      background:var(--c-surface-2); white-space:nowrap; }
-    .mono { font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
-    .mono.strong { font-weight:var(--fw-bold); }
-    .gr-trunc { max-width:190px; overflow:hidden; text-overflow:ellipsis; }
+    /* La tabla la viste surf-table--plain; acá sólo va el contenedor que scrollea. */
+    .gr-scroll { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); }
+    .gr-scroll--narrow { max-width:40rem; }
+    .gr-trunc { max-width:12rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .gr-tipo { display:inline-flex; gap:.35rem; align-items:baseline; }
-    .gr-flag { color:var(--warn-fg); }
-    .gr-flag i { margin-left:.25rem; font-size:.7rem; }
+    .gr-flag { margin-left:.25rem; font-size:.7rem; color:var(--warn-fg); }
+    .gr-muted { color:var(--text-muted); }
+    .gr-sr { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
 
-    .gr-row-actions { text-align:right; }
+    .gr-actions { text-align:right; white-space:nowrap; }
     .gr-icon { display:inline-flex; align-items:center; justify-content:center; min-width:24px; min-height:24px;
       padding:.15rem .3rem; border:1px solid transparent; border-radius:var(--r-sm,6px);
-      background:none; color:var(--c-text-3); cursor:pointer; }
-    .gr-icon:hover:not(:disabled) { background:var(--overlay-hover); color:var(--c-text-1); }
-    .gr-icon.ok { color:var(--ok-fg); }
+      background:none; color:var(--text-muted); cursor:pointer; }
+    .gr-icon:hover:not(:disabled) { background:var(--overlay-hover); color:var(--text-main); }
+    .gr-icon--ok { color:var(--ok-fg); }
     .gr-icon:disabled { opacity:.5; cursor:default; }
     @media (pointer: coarse) { .gr-icon { min-width:44px; min-height:44px; } }
 
     .gr-inline { padding:.2rem .35rem; border:1px solid var(--action); border-radius:var(--r-sm,6px);
-      background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
-    .gr-inline.num { text-align:right; width:6.5rem; }
-    .gr-notes { width:100%; }
+      background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-sm); }
 
-    .gr-chip { font-size:var(--fs-micro); font-weight:var(--fw-bold); padding:.1rem .45rem; border-radius:99px;
-      text-transform:uppercase; letter-spacing:.03em; }
-    .gr-chip.ok { background:color-mix(in srgb, var(--ok-fg) 15%, transparent); color:var(--ok-fg); }
-    .gr-chip.warn { background:color-mix(in srgb, var(--warn-fg) 15%, transparent); color:var(--warn-fg); }
-    .gr-chip.bad { background:color-mix(in srgb, var(--bad-fg) 15%, transparent); color:var(--bad-fg); }
-    .gr-chip.info { background:var(--c-surface-2); color:var(--c-text-2); }
+    .gr-form { display:flex; flex-direction:column; gap:.8rem; }
+    .gr-field { display:flex; flex-direction:column; gap:.3rem; font-size:var(--fs-sm); color:var(--text-soft); }
+    .gr-field input, .gr-field textarea {
+      padding:.4rem .55rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-sm); }
+    .gr-field input { font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
+    .gr-field textarea { resize:vertical; }
+    .gr-calc { margin:0; font-size:var(--fs-sm); color:var(--text-soft); }
+    .gr-calc-warn { display:flex; gap:.4rem; align-items:flex-start; margin-top:.4rem; padding:.45rem .6rem;
+      border:1px solid color-mix(in oklab, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
+      background:color-mix(in oklab, var(--warn-fg) 8%, transparent); color:var(--text-soft); }
+    .gr-calc-warn i { color:var(--warn-fg); margin-top:.15rem; }
+    .gr-form-actions { display:flex; gap:.5rem; justify-content:flex-end; }
+    .gr-btn { display:inline-flex; gap:.35rem; align-items:center; padding:.4rem .8rem; border:1px solid var(--border-color);
+      border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
+    .gr-btn:hover:not(:disabled) { background:var(--overlay-hover); }
+    .gr-btn:disabled { opacity:.5; cursor:default; }
+    .gr-btn--primary { background:var(--action); border-color:var(--action); color:var(--on-action,#fff); }
 
-    .gr-skel { height:36px; margin-bottom:.25rem; border-radius:var(--r-md,8px); background:var(--c-surface-2);
-      animation:grPulse 1.2s ease-in-out infinite; }
-    @keyframes grPulse { 0%,100% { opacity:.55 } 50% { opacity:1 } }
-    @media (prefers-reduced-motion: reduce) { .gr-skel { animation:none } }
-
-    .gr-note { display:flex; gap:.4rem; align-items:flex-start; margin:.7rem 0 0; font-size:var(--fs-sm); color:var(--c-text-3); }
+    .gr-note { display:flex; gap:.4rem; align-items:flex-start; margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
     .gr-note i { margin-top:.15rem; }
-    .gr-err { display:flex; gap:.4rem; align-items:center; color:var(--bad-fg); font-size:var(--fs-sm); margin:.4rem 0; }
-    .gr-empty { color:var(--c-text-3); font-size:var(--fs-sm); }
-    .gr-muted { color:var(--c-text-3); }
-    .gr-link { padding:0 0 0 .35rem; border:0; background:none; font:inherit; font-size:var(--fs-sm);
-      color:var(--action); text-decoration:underline; cursor:pointer; }
+    .gr-err { display:flex; gap:.4rem; align-items:center; color:var(--bad-fg); font-size:var(--fs-sm); margin:0; }
   `],
 })
 export class LogisticaGastoRutaComponent {
@@ -397,7 +404,11 @@ export class LogisticaGastoRutaComponent {
 
   readonly anios = [2026, 2027];
   readonly rutas = ['21', '22', '23', '26', '27', '28', '321', '322', '501', '502', '503', '504', '505'];
-  readonly skeleton = Array.from({ length: 8 }, (_, i) => i);
+  readonly secciones: SegOption[] = [
+    { label: 'Gasto', value: 'gasto' },
+    { label: 'Operación', value: 'operacion' },
+    { label: 'Fichas de costo', value: 'fichas' },
+  ];
 
   readonly anio = signal(new Date().getFullYear());
   readonly tab = signal<'gasto' | 'operacion' | 'fichas'>('gasto');
@@ -409,16 +420,16 @@ export class LogisticaGastoRutaComponent {
   readonly busy = signal(false);
   readonly err = signal<string | null>(null);
 
-  // filtros
   readonly fRuta = signal('');
   readonly fTipo = signal<string>('');
   readonly soloSin = signal(false);
   readonly soloProblemas = signal(false);
 
-  // edición inline
   readonly editId = signal<string | null>(null);
   readonly editTipo = signal<number>(0);
-  readonly odoKey = signal<string | null>(null);
+
+  readonly peek = signal(false);
+  readonly odo = signal<OperationPeriod | null>(null);
   readonly odoIni = signal<number | null>(null);
   readonly odoFin = signal<number | null>(null);
   readonly odoNota = signal('');
@@ -426,7 +437,33 @@ export class LogisticaGastoRutaComponent {
   readonly canManage = computed(() =>
     !!this.auth.user()?.permissions?.[Permission.LOGISTICS_ROUTE_EXPENSES_GESTIONAR]);
 
-  /** Answer-first: lo que hay que ir a arreglar, con su atajo. Vacío = de verdad no hay nada. */
+  readonly hayFiltros = computed(() => !!this.fRuta() || this.fTipo() !== '' || this.soloSin());
+
+  /** KPI header sin caja (ADR-033). La cobertura va acá porque es el veredicto, no un adorno. */
+  readonly kpis = computed<MetricStripItem[]>(() => {
+    const g = this.gasto();
+    const o = this.oper();
+    return [
+      { label: 'Gasto del año', value: g?.total_monto ?? 0, format: 'currency' },
+      { label: 'Litros', value: g?.total_litros ?? 0, format: 'decimal1' },
+      {
+        label: 'Sin clasificar', value: g?.sin_clasificar ?? 0, format: 'number',
+        tone: (g?.sin_clasificar ?? 0) > 0 ? 'warn' : 'ok',
+        sub: (g?.sin_clasificar ?? 0) > 0 ? 'el resumen por tipo está incompleto' : 'todo tipado',
+      },
+      {
+        label: 'Km utilizable', value: o?.con_km_utilizable ?? 0, format: 'number',
+        tone: (o?.sin_km_utilizable ?? 0) > 0 ? 'warn' : 'ok',
+        sub: o ? `de ${o.total_filas} ruta×quincena` : undefined,
+      },
+      {
+        label: 'Sin ficha de costo', value: o?.sin_ficha_de_costo ?? 0, format: 'number',
+        tone: (o?.sin_ficha_de_costo ?? 0) > 0 ? 'warn' : 'ok',
+        sub: 'el $/km sale vacío, no en cero',
+      },
+    ];
+  });
+
   readonly pendientes = computed(() => {
     const out: { label: string; go: () => void }[] = [];
     const sin = this.gasto()?.sin_clasificar ?? 0;
@@ -452,6 +489,15 @@ export class LogisticaGastoRutaComponent {
     const con = new Set(this.fichas().map((f) => f.route_code));
     return this.rutas.filter((r) => !con.has(r));
   });
+
+  readonly recorrido = computed(() => {
+    const a = this.odoIni(); const b = this.odoFin();
+    if (a === null || b === null || a === undefined || b === undefined) return null;
+    return Number(b) - Number(a);
+  });
+  readonly retrocede = computed(() => (this.recorrido() ?? 0) < 0);
+  /** Poka-yoke: el retroceso se puede guardar, pero no sin motivo. */
+  readonly puedeGuardar = computed(() => !this.retrocede() || !!this.odoNota().trim());
 
   constructor() { this.reload(); }
 
@@ -488,9 +534,8 @@ export class LogisticaGastoRutaComponent {
     this.loadGasto();
   }
 
-  // ── edición del tipo de gasto ───────────────────────────────────────────
   editar(g: RouteExpense) { this.editId.set(g.id); this.editTipo.set(g.expense_type); this.err.set(null); }
-  cancelar() { this.editId.set(null); this.odoKey.set(null); this.err.set(null); }
+  cancelar() { this.editId.set(null); this.err.set(null); }
 
   guardarTipo(g: RouteExpense) {
     if (this.busy()) return;
@@ -498,7 +543,6 @@ export class LogisticaGastoRutaComponent {
     const nuevo = this.editTipo();
     this.api.updateExpense(g.id, { expense_type: nuevo }).subscribe({
       next: () => {
-        // Optimista: la fila se actualiza en memoria y el contador de pendientes baja con ella.
         const cur = this.gasto();
         if (cur) {
           const t = this.tipos().find((x) => x.code === nuevo);
@@ -514,36 +558,35 @@ export class LogisticaGastoRutaComponent {
     });
   }
 
-  // ── edición del odómetro ────────────────────────────────────────────────
   editarOdo(p: OperationPeriod) {
-    this.odoKey.set(`${p.route_code}-${p.period_no}`);
+    this.odo.set(p);
     this.odoIni.set(p.km_inicial); this.odoFin.set(p.km_final); this.odoNota.set('');
     this.err.set(null);
+    this.peek.set(true);
   }
 
   guardarOdo(p: OperationPeriod) {
-    if (this.busy()) return;
+    if (this.busy() || !this.puedeGuardar()) return;
     this.busy.set(true); this.err.set(null);
     this.api.saveOdometer({
       route_code: p.route_code, anio: p.anio, period_no: p.period_no,
       km_inicial: this.odoIni(), km_final: this.odoFin(),
       notes: this.odoNota().trim() || null,
     }).subscribe({
-      next: () => { this.odoKey.set(null); this.busy.set(false); this.loadOper(); },
+      next: () => { this.peek.set(false); this.busy.set(false); this.loadOper(); },
       error: (e) => { this.err.set(this.msg(e)); this.busy.set(false); },
     });
   }
 
-  // ── helpers de lectura ──────────────────────────────────────────────────
   /** Un tipo que no lleva litros y trae litros: se marca, no se corrige solo. */
   incoherente(g: RouteExpense): boolean {
     return g.lleva_litros === false && g.liters !== null && Number(g.liters) > 0;
   }
 
-  chipKm(s: string): string {
-    if (s === 'ok') return 'ok';
-    if (s === 'retroceso' || s === 'salto_implausible') return 'bad';
-    if (s === 'sin_lectura' || s === 'incompleto') return 'info';
+  sevKm(s: string): 'success' | 'warn' | 'danger' | 'secondary' {
+    if (s === 'ok') return 'success';
+    if (s === 'retroceso' || s === 'salto_implausible') return 'danger';
+    if (s === 'sin_lectura' || s === 'incompleto') return 'secondary';
     return 'warn';
   }
 
@@ -558,7 +601,6 @@ export class LogisticaGastoRutaComponent {
     }
   }
 
-  /** `es-MX` como la pantalla hermana de comisiones; NULL sale como guion, nunca como 0. */
   money(n: number | null | undefined): string {
     if (n === null || n === undefined) return '—';
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }).format(Number(n));
