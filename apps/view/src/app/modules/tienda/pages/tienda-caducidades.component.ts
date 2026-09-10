@@ -22,11 +22,9 @@ import {
   ExpiryCaptureContext,
   ExpiryWarehouseOption,
   ReviewFile,
-  VoiceSlots,
 } from '../../comercial/comercial.service';
 import { ProductSearchComponent, ProductHit } from '../../comercial/components/product-search.component';
 import { ProductScanFieldComponent } from '../../comercial/components/product-scan-field.component';
-import { ExpiryVoicePanelComponent } from '../../comercial/components/expiry-voice-panel.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { clasificarPlazo, plazoSeverity, plazoIcon, formatCantidad, formatUnidad, Plazo } from '../../comercial/expiry-plazo';
 // Teclear dígitos pelados (`0327` → 31/03/2027) en vez de pelear con un
@@ -75,7 +73,6 @@ type Condition = 'bueno' | 'regular' | 'malo';
     CommonModule, FormsModule, ButtonModule, TagModule, TableModule, SelectModule,
     InputTextModule, InputNumberModule, ToastModule, ConfirmDialogModule,
     ProductSearchComponent, ProductScanFieldComponent, MetricStripComponent,
-    ExpiryVoicePanelComponent,
   ],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -147,12 +144,6 @@ type Condition = 'bueno' | 'regular' | 'malo';
               </button>
             }
           </div>
-
-          <!-- Hablarle es el cuarto atajo, no otro flujo: llena estos mismos
-               tres pasos y quien guarda sigue siendo la persona. -->
-          <app-expiry-voice-panel
-            [defaultLocation]="ubicacion"
-            (slotsChange)="aplicarVoz($event)"></app-expiry-voice-panel>
 
           <!-- 1 · Qué producto -->
           <div class="cad-step">
@@ -971,45 +962,6 @@ export class TiendaCaducidadesComponent {
 
   // ── asistente por voz (P2.7) ──
 
-  /**
-   * El asistente entendió algo: se refleja en los tres pasos **en vivo**, para
-   * que el colaborador vea lo entendido y corrija ahí mismo. No guarda nada: el
-   * botón sigue siendo el de la persona.
-   *
-   * Solo escribe lo que la voz trajo — si ya había una cantidad teclada y el
-   * asistente no habló de cantidad, no se la borra.
-   */
-  aplicarVoz(sl: VoiceSlots): void {
-    if (sl.product_id) {
-      this.fijarProducto({
-        id: sl.product_id,
-        nombre: sl.product_name || sl.product_query || '(sin nombre)',
-        sku: sl.sku || null,
-        brand: null,
-        raw: null,
-      });
-    }
-    if (sl.quantity != null) this.cantidad.set(sl.quantity);
-    if (sl.unit) {
-      // Dicho a viva voz ES la decisión del operador: la sugerencia del código
-      // no debe pisarla después.
-      this.unidadTocada = true;
-      this.unidad.set(sl.unit);
-      this.unidadSugerida.set('');
-    }
-    if (sl.expiry_date) {
-      // Se pasa por `onFecha` en DDMMAAAA para que la fecha la siga
-      // interpretando `parseExpiryShort` (una sola fuente de verdad) y el campo
-      // muestre lo mismo que se va a guardar.
-      const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(sl.expiry_date);
-      if (m) this.onFecha(m[3] + m[2] + m[1]);
-    }
-    if (sl.condition) this.condicion.set(sl.condition);
-    if (sl.location) this.ubicacion = sl.location;
-    // Esta pantalla juntó observación y acción en una sola "Nota".
-    const nota = [sl.observations, sl.action].filter(Boolean).join(' · ');
-    if (nota) this.nota = nota;
-  }
 
   // ── paso 2: fecha ──
 
