@@ -10,6 +10,12 @@
 
 ## [Unreleased]
 
+### Changed — el arqueo deja de correr contra un reloj (SM.34, 2026-09-10)
+- **Se quitó el plazo.** Kepler cerraba el turno y arrancaba un cronómetro de 45 min que, vencido, mandaba el corte a la bandeja del supervisor (12 h = crítico). El plazo medía el momento equivocado: para cuando la caja cierra, el efectivo de las sangrías ya salió del cajón.
+- **El turno abierto se arquea, y ahora la pantalla lo dice.** El backend siempre lo permitió; lo que fallaba era el texto — el chip "Te toca arquear" sólo salía con la caja cerrada y el aviso grande decía *"Kepler cerró tu caja"*. Ahora: **"Tu caja sigue abierta — podés contar ahora. No hace falta esperar el corte."**
+- **Lo que se conservó a propósito:** el **tablero de cumplimiento** (qué cortes llegaron a tener conteo y cuánto tardaron — quitar el reloj no es dejar de mirar) y el aviso **"contá lo que estás sacando"** cuando Kepler pide el retiro, que es la única ventana en que ese efectivo todavía está en el cajón.
+- Sigue en pie la regla de **orden** (los cortes se cierran del más viejo al más nuevo): eso no era el cronómetro.
+
 ### Fixed — K.4 diagnosticado: el "hueco de $1.56M" era 71% exclusion deliberada, y hay una sucursal sin cablear (KX.3, 2026-09-10)
 
 El candado de paridad se puso **rojo solo** cuando el hueco paso de 5,178 a 6,834 celdas. Hizo su trabajo; lo que estaba mal era el hueco.
