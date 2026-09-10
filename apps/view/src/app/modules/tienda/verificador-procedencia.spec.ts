@@ -30,6 +30,14 @@ const SVC = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'ap
 const CTRL = readFileSync(join(__dirname, '..', '..', '..', '..', '..', '..', 'apps', 'api', 'src', 'modules', 'kp', 'kp.controller.ts'), 'utf8');
 const FRONT = readFileSync(join(__dirname, 'verificador.service.ts'), 'utf8');
 const PAGE = readFileSync(join(__dirname, 'pages', 'tienda-verificador.component.ts'), 'utf8');
+/**
+ * `[TDA.6]` La directiva COMPARTIDA de count-up. Se lee el archivo real y no una copia: el
+ * formato con centavos (`money2`) se agregó ahí porque los tres formatos de dinero que había
+ * redondean, y un ahorro de $25.77 se publicaba como $26 — otro número que el de la fuente.
+ * Si alguien lo saca, este candado se pone rojo desde el consumidor.
+ */
+const DIRECTIVA = readFileSync(
+  join(__dirname, '..', '..', 'shared', 'directives', 'count-up.directive.ts'), 'utf8');
 
 describe('verificador · de qué plaza salió el precio', () => {
   it('el endpoint acepta sucursal', () => {
@@ -312,11 +320,42 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/@keyframes vpEntraB/);
     expect(PAGE).toMatch(/\[class\.is-pase-b\]="pase\(\) % 2 === 1"/);
 
-    // Se busca el USO (directiva o import), no la palabra: la primera version de esta asercion
-    // matcheaba su propio comentario ("por eso tampoco hay count-up") y pasaba por accidente.
-    expect(PAGE).not.toMatch(/appCountUp|CountUpDirective/);
     // Nada de librería de animación en esta pantalla (§U las nombra: anime.js/framer no entran).
     expect(PAGE).not.toMatch(/from 'gsap'|import\('gsap'\)|animejs|from 'motion'/);
+  });
+
+  /**
+   * `[TDA.6]` El count-up: PERMITIDO en el ahorro, PROHIBIDO en los precios.
+   *
+   * Esta aserción decía `not.toMatch(/appCountUp|CountUpDirective/)` — prohibido en toda la
+   * pantalla. El motivo escrito era bueno («en un mostrador el precio tiene que ser legible
+   * de inmediato») pero la regla era más ancha que su motivo: aplica a las cifras que se le
+   * leen en voz alta a una clienta, no al ahorro, que es la invitación.
+   *
+   * Lo que se afirma ahora es la distinción, no la ausencia: si alguien le pone count-up al
+   * precio unitario o al de mayoreo, esto se pone rojo.
+   */
+  it('el count-up sólo toca el ahorro, nunca un precio', () => {
+    // Está, y usa la directiva COMPARTIDA (no una copia local).
+    expect(PAGE).toMatch(/\[appCountUp\]="t\.ahorro_en_el_minimo"/);
+    expect(PAGE).toMatch(/from '\.\.\/\.\.\/\.\.\/shared\/directives\/count-up\.directive'/);
+    // Con centavos: los otros formatos de dinero de la directiva redondean, y $25.77 saldría
+    // $26 — otro número que el de la fuente.
+    expect(PAGE).toMatch(/countUpFormat="money2"/);
+    expect(DIRECTIVA).toMatch(/case 'money2'/);
+    expect(DIRECTIVA).toMatch(/minimumFractionDigits:\s*2/);
+    // Live: sin esto la directiva anima UNA vez en la vida del nodo y el 2º escaneo del turno
+    // no contaría (la tarjeta no se recrea).
+    expect(PAGE).toMatch(/\[appCountUpLive\]="true"/);
+
+    // Y la línea que no se cruza: ninguna cifra de PRECIO se anima por dentro.
+    const enHero = /class="vp-precio"[^>]*appCountUp|appCountUp[^>]*class="vp-precio"/;
+    const enMayoreo = /class="vp-may-monto"[^>]*appCountUp|appCountUp[^>]*class="vp-may-monto"/;
+    expect(PAGE).not.toMatch(enHero);
+    expect(PAGE).not.toMatch(enMayoreo);
+    // Los dos precios siguen siendo interpolación directa: visibles en el primer fotograma.
+    expect(PAGE).toMatch(/class="vp-precio">\{\{ money\(precioPrincipal\(\)\) \}\}/);
+    expect(PAGE).toMatch(/class="vp-may-monto">\{\{ money\(t\.precio_con_iva\) \}\}/);
   });
 
   /**
