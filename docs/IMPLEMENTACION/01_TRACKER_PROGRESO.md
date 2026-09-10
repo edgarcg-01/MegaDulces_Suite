@@ -1781,6 +1781,14 @@ Se midió antes de tocar nada, y el resultado **invalida la premisa** de "poblar
   - **Los 14 se derivan de evidencia, no del prefijo:** el `nombre` no es de una persona — 8 `etiquetas.NN` cuyo nombre es una **tienda**, 6 códigos de ruta cuyo nombre **es** el username. ⚠️ Y lo que quedó **afuera a propósito**: las **28 cuentas con username numérico** (`03`, `42gernta`, `10c01`…) parecen códigos de caja, pero **26 de 28 tienen nombre de persona real** — son cajeras cuyo usuario es su código de caja. Llamarlas «dispositivo» sería exactamente el error que este trabajo corrige. Las 2 que el heurístico no resuelve (`10aux` «Isabella», `10c03` «FATIMA») quedan como `interno`: **una persona con el nombre incompleto no es una máquina.**
   - **`password_hash` pasa a nullable con CHECK**, y eso es lo que desbloquea la invitación: `status='invited'` está en el CHECK desde `[ID.8]` y era **inrepresentable** porque un usuario sin contraseña no cabía en la tabla. **No era una omisión de producto, era el schema.** ⚠️ **Orden obligado, verificado ejecutándolo:** `bcrypt.compare(x, null)` **LANZA**, así que sin blindar el login primero una cuenta invitada daría **500 en vez de 401**. Los dos caminos de login llevan el guard en el mismo commit, en la misma expresión que el `compare`, con mensaje genérico para no volver el login un oráculo de qué cuentas están invitadas.
   - **Smoke read-only con prueba negativa que igual muerde.** El primer intento fue insertar la fila mala en una transacción con ROLLBACK y **se descartó**: `[IDG.1]` existe porque el 2026-08-29 el suite corrió apuntando a prod y dejó 5 cuentas de prueba en el padrón real, y un rollback que *casi siempre* funciona no es una garantía. En su lugar se **saca del catálogo la definición REAL del CHECK** y se evalúa contra valores sintéticos aliaseando los nombres de columna en una subconsulta: se ejerce el predicado que de verdad está en la base —no una copia escrita en el test, que sólo comprobaría que sé escribir un `OR`— sin tocar una fila.
+- [x] ✅ **ID.32 Etapa 4a — renombrar un rol pasa a ser un `UPDATE`** (`1061d4d0`, prod batch **363**). Los **14 roles `retirado_*`** de prod **no son roles: son nombres liberados**. Existen porque las FK compuestas `(tenant_id, role_name)` estaban en `ON UPDATE NO ACTION`, así que cambiar el nombre reventaba con violación de FK y la salida fue prefijar el viejo y crear otro al lado. Es la corrección de mayor palanca por menor riesgo de la fase, y por eso va **antes** que `identity.roles` con `id` propio —que el plan pedía y queda como deuda con nombre—: se cobra el 80% del valor sin recrear las FK de 3 tablas ni migrar ~200 lectores del JSONB.
+  - ⚠️ **Son CUATRO FK, no tres.** El plan decía `users`, `user_roles`, `role_scopes`; medido en prod hay una cuarta: **`positions_default_role_fk`**, sobre el rol que un **puesto** propone por default. Dejarla afuera habría hecho que el renombre siguiera fallando **justo en los roles más usados** — y «el puesto propone el rol» es la pieza de la Etapa 5, así que no es un detalle.
+  - **El `ON DELETE` no se uniformó, a propósito**, y el smoke lo afirma: `RESTRICT` en `users` es lo que impide borrar un rol con gente adentro, y `CASCADE` en las otras dos es correcto. Uniformarlo «por consistencia» convertiría *borrar un rol* en *borrar personas*.
+  - **La cascada se EJERCIÓ, no se supuso:** la migración renombra un rol ya retirado (0 usuarios, 0 complementos, **6 filas de `role_scopes`**) dentro de su propia transacción, verifica que las 6 siguieron al nombre nuevo y lo renombra de vuelta. Efecto neto cero, FK reales, tablas reales, sin tocar un rol vivo. En prod: `retirado_tele_operator` arrastró sus 6 filas y volvió sin pérdida.
+  - **Compuerta que este proyecto ya pagó:** los triggers de las FK nuevas tienen que quedar **encendidos**, y se mira `tgenabled` y **no `convalidated`** — `[IDG.6]` encontró `identity.users` con **144 de sus 195 triggers deshabilitados** en prod mientras la metadata decía que todo validaba. 16 triggers, ninguno apagado.
+  - **G4 de la Etapa 1 (que había quedado pendiente) sale mejor de lo previsto:** **174 de 175** claves las concede al menos un rol vivo y **172** un rol que además le toca a alguien activo. Mi plan encuadraba `[LC.6.2]` como un problema extendido y **no lo es** — después del arreglo de `FISCAL_PURCHASE_BOOK_*` el reparto está prácticamente completo. El residuo, con nombre: `COMMERCIAL_PREVENTION_GESTIONAR` (nadie la concede → lista de aceptadas **con motivo escrito**) y `COMMERCIAL_PREVENTION_VER` + `HR_ATTENDANCE_CHECAR` (las concede un rol **sin una sola persona activa**: el módulo existe y nadie puede abrirlo → declarado en cada corrida).
+  - Prueba negativa ejercida: se le quitó el `CASCADE` a la FK menos riesgosa (`positions`), el gate se puso **rojo nombrando la FK exacta**, se restauró y volvió a verde. ⚠️ Y un bug propio que quedó escrito: la aserción del `ON DELETE` fallaba **por el lookup, no por el dato** — `conrelid::regclass::text` devuelve `users` **sin** el prefijo del schema porque `identity` está en el `search_path`.
+- [ ] ⬜ **ID.32.1 Lo que queda de la Etapa 4** — `identity.permission_catalog` como dato de producto (mismo patrón que `scope_dimensions`: sin `tenant_id`, sin RLS; colapsa los 6 touch-points de una clave nueva a **dos**) · `/admin/roles` guardando **deltas** (`{set, unset}`) en vez del JSONB completo — ⚠️ **en ese orden**: el catálogo tiene que existir antes, porque hoy la derivación del «catálogo vivo» usa `jsonb_each`, que funciona *porque* los mapas cargan las 175 claves · y el **god-mode como columna** (`is_platform_admin`), que hoy es un `Set` literal espejado en **CINCO** lugares (`platform-core`, `users.service` como `ELEVATED_ROLES`, y los 3 frontends), con su prueba negativa G5: un rol llamado `admin` con la bandera en `false` tiene que recibir **403**. Nota de alcance: los frontends no leen la DB, así que la bandera tiene que **viajarles** en `me/access` — eso ya es barato porque `[ID.30]` dejó una sola puerta.
 - [ ] ⬜ ⚠️ **El candado de `test-authz-tenant-failclosed` depende del ORDEN de corrida** — y de paso corrige mi propio `[ID.27]`. Declaré `test_tenant_b` «fixture que no se borra» y escribí eso en su `metadata`: **está mal**. El tenant lo **crea y lo borra** `test-newdb-rls-isolation.js` (línea 261 `DELETE FROM tenants`, más el barrido de todas las tablas con su `tenant_id` en la 252) — es **efímero**, y mi metadata se fue con la fila. La conclusión de `[ID.27]` sigue en pie (no borrarlo a mano) pero por otro motivo: no es que sea permanente, es que **no es nuestro**. Y el hallazgo que importa más: el failclosed busca un `role_name` duplicado entre tenants y el único sujeto que existía lo aportaba ese tenant efímero. **Medido en vivo: pasó de verde-con-sujeto a `NO MEDIDO` sin que cambiara una línea de código**, sólo porque el otro test corrió su limpieza. Un gate cuyo veredicto depende del orden de ejecución no es un gate. El arreglo es que **su prueba negativa siembre su propio sujeto**; hasta entonces queda declarado en cada corrida.
 - [ ] ⬜ ⚠️ **ID.30.1 El paso final NO es uniforme: `apps/vendor` es offline-first** — y esto no estaba en el plan. `apps/vendor` tiene service worker + Dexie + cola de sincronización + `connectivity.service`, lee el mapa del token en su propio guard y **no tiene ningún camino a `me/access`**. Un vendedor que abre la app **sin señal** sólo carga lo que trae en el token: si el mapa deja de viajar ahí, **arranca con cero permisos**. Y cachearlo local reintroduce el snapshot viejo, que es exactamente lo que el token ya era. O sea que «sacar el permiso del JWT» es correcto para `view` (oficina, siempre en línea) y **necesita una respuesta propia para el campo**. El smoke lo DECLARA en cada corrida para que no se vuelva a descubrir. Se suma el **riesgo de ventana de deploy**, que tampoco estaba en el plan: alguien con el frontend viejo cargado y un token nuevo sin permisos queda rebotado a `/sin-acceso` hasta recargar — ordenar eso es de quien despliega.
 - [x] ✅ **IDG.9.12 corrección — `etiquetas_anaquel` era `kind='complemento'` y es el perfil base de 8 cuentas** (prod batch **356**). Lo encontró `test-newdb-user-roles.js`, no yo leyendo. El rol nació en julio como complemento —se sumaba encima de `piso_tienda`— y `[IDG.9.12]` invirtió eso pero dejó la clasificación vieja: **cambié el uso y no la clasificación**. Sacar etiquetas *es* el trabajo completo de esas credenciales. Sin efecto sobre permisos ni alcance: `kind` sólo clasifica.
@@ -2217,6 +2225,98 @@ más) — PR aparte para no volver ilegible el diff.
   - ⚠️ **NO verificado: la validación visual en el browser.** La sesión del navegador está expirada
     y no hay cuenta con la que entrar sin credenciales; el `permissionGuard` (correctamente) manda a
     `/sin-acceso`. Falta que Edgar abra `/tienda/verificador` logueado. Pasos en `FASE_CV`.
+
+- [x] **[TDA.7]** 🧪 **El mayoreo sigue al código leído, y su base estaba equivocada** (2026-09-10)
+  — 0Sistemas: *"se critico con tu trabajo"*, sobre TDA.5/TDA.6 (mayoreo en pantalla, centrado,
+  resorte escalonado, count-up en el ahorro), que yo había cerrado reportando *"15 suites / 185
+  tests"* + *"NO medido: cómo se ve"*. La frase estaba al revés: **la verificación que reporté no
+  ejecutaba una sola línea de lo que escribí.**
+  *(⚠️ Nota de proceso: `TDA.1`–`TDA.6` nunca entraron a este tracker. La regla del proyecto es
+  actualizarlo al cerrar item, y no se cumplió; este bloque es el primero de la serie.)*
+  - ⭐⭐ **El defecto de dinero lo destapó la respuesta de 0Sistemas, no mi auditoría.** Al
+    preguntarle por la jerarquía hero-vs-mayoreo contestó una **cuarta opción que yo no había
+    ofrecido**: *"dependiendo con qué se hizo la lectura del código de barras: si el CB es de pieza
+    se muestra el mayoreo de pieza; si es el CB de paquete, se muestra más grande el mayoreo de
+    paq"*. Esa regla **ya existía en la etiquetera** (`label.component.ts` `hasMayoreoPza`, textual:
+    *"El mayoreo debe ser el de la UNIDAD LEÍDA"*) y el mostrador no la tenía — y al ir a copiarla
+    apareció que la etiquetera hacía algo más: usa una **base distinta por escalón**.
+  - ⚠️ **`wholesale_pack_price` trae DOS unidades en la misma columna.** Medido en prod
+    prestándole un precio conocido a cada conjunto (técnica del árbitro, ADR-059): base `PAQ`/`CJA`
+    (6,462) → `w/piece_price` mediana **0.92** · base pieza **con** paquete registrado (380) →
+    `w/pack_price` mediana **0.93** y `w/piece_price` = **8.99 ≈ `pack_size`** · base pieza **sin**
+    paquete (704) → `w/piece_price` mediana **0.91**, con **83 que contradicen**.
+  - **`kp.service.ts` comparaba TODO contra `piece_price`** → en los 380 un "descuento" de
+    **−798%**: **376 de 380** escalones caían por la guarda de "más barato" —**la etiqueta del
+    anaquel los imprime y el mostrador los escondía**— y los **4** que pasaban publicaban un ahorro
+    que restaba precio de paquete menos precio de pieza (Δ **$641 promedio, $11,266 máximo**). Y
+    TDA.6 le había puesto el reflector: agrandó esa cifra a 3.25rem y le montó un count-up.
+  - **Cuadre contra prod después del arreglo** (mostrador vs etiqueta, escalón de paquete):
+    base PAQ/CJA 6,467 → **6,285 vs 6,285, divergen 0** · base pieza con paquete 380 → **362 vs
+    362, divergen 0** (era **4 vs 362**) · base pieza sin paquete 705 → 660 vs 0, **declarado**.
+  - ⛔ **DECLARADO, no resuelto:** los **704** sin paquete registrado no se tocan. La mediana
+    respalda `piece_price` pero **83 contradicen** y no hay árbitro por fila; su descuento promedio
+    (**15.47%**) es el doble que el de los conjuntos verificados (7.87% y 9.58%), o sea que no todos
+    son escala de pieza. Cerrarlo pide un tercer testigo (`box_size`/`box_price`, o
+    `v_product_box_factor`).
+  - **El `c/u` estaba cableado en la plantilla** y era parte del error: en los 380 el monto es el
+    precio de un **PAQUETE**, y decirle "c/u" a $65.11 cuando la pieza cuesta $9.37 es errar la
+    cifra por **7×**. Ahora `unidad_monto` y `aplica_a` viajan con el escalón en el contrato
+    compartido (`store.contract.ts`), y la pantalla destaca el que coincide con la unidad escaneada
+    reusando `unidadHero()` de TDA.3 — sin inventar una segunda resolución de unidad.
+  - ⭐ **El `$0.00`:** `CountUpDirective` escribía `0` y no arrancaba hasta que el
+    `IntersectionObserver` reportara intersección → si la pastilla caía abajo del pliegue, **la
+    cifra se quedaba en cero**, en los dos modos (`prefers-reduced-motion` no rescata: la compuerta
+    de visibilidad corre antes que la del movimiento). Lo que reemplazó era interpolación directa,
+    **siempre correcta**. Arreglado en el primitivo compartido.
+  - ⚠️⚠️ **Mi verificación era teatro, y es el hallazgo que más pesa.** Las 6 aserciones de TDA.6
+    son `readFileSync` + regex **sobre el propio archivo fuente**. El arnés bueno ya existía
+    (`tienda-verificador.component.spec.ts`, TestBed, DOM real) y **su fixture no tenía mayoreo**:
+    la tarjeta, la pastilla, el count-up y `is-pase-b` **no se renderizaban en ninguna prueba**.
+    Peor: **no había mock de `IntersectionObserver`** en `apps/view` y jsdom no lo trae, así que el
+    día que alguien agregara la fixture `ngOnInit` tiraba `ReferenceError` — dejé el componente
+    **inejecutable en su propio arnés**. El mock va al setup compartido y **nunca dispara por
+    default** (el caso realista), con `nadieIntersecto()` para poder **afirmar la premisa**.
+  - **Retirada la compuerta que era mi opinión:** `expect(hero.max).toBeGreaterThan(may.max)` hacía
+    **fallar el build** si alguien le daba al mayoreo la cifra más grande —lo que 0Sistemas había
+    pedido— apoyada en §O.3 (*"el TOTAL domina sobre cualquier otra métrica"*), cita que **no
+    aplica**: esta pantalla no tiene TOTAL, es una consulta. Se queda la mitad que sí protege del
+    cobro mal (la condición nunca bajo `--fs-body`).
+  - **Tres citas de DESIGN.md que no daban permiso.** (1) **Count-up**: cité §Motion KPI 3, que dice
+    **"una vez"** y **"Nunca en poll/re-render"**, y su doc fuente nombra mi caso (*"nunca animar lo
+    que el usuario ve decenas de veces al día"*) — presenté el re-run como arreglo de un defecto
+    cuando **una vez por turno era la regla funcionando**; 0Sistemas decidió conservarlo y la
+    **excepción queda escrita** en DESIGN.md con sus tres condiciones. (2) **Centrar**: argumenté
+    *"§O.3 nunca dijo dónde"* **desde el silencio**, y el doc dice `todo centrado` = anti-slop,
+    `Centered everything` = antipatrón de Operations, y §Ing.UI 1 manda patrón **F** con las
+    palabras *"no centrado por estética"*. (3) **`--ease-spring`**: lo defendí con *"ya existe en
+    tokens.css"* — §Motion la acota a **"sólo gestos drag-to-dismiss"**; pasa a
+    `--ease-decelerate`, que es la curva de entrada.
+  - **Descentrado lo que nadie pidió:** `.vp-card { text-align: center }` se heredaba a la lista de
+    unidades, que conserva `font-variant-numeric: tabular-nums` — la propiedad que existe **para que
+    las cifras formen columna** (DESIGN.md Q.5 la llama innegociable) y que con las filas centradas
+    quedaba **inerte**. Vuelve etiqueta izquierda / cifra derecha; el bloque de respuesta sigue
+    centrado, que es lo que 0Sistemas pidió.
+  - **Verificado:** builds `view` y `api` verdes · `nx test view` **15 suites / 185 → 195**, con
+    **5 pruebas que renderizan** el bloque de mayoreo. **5 pruebas negativas ejercidas en rojo**:
+    revertir el fix del count-up (3 rojas, y la pantalla renderiza `" Te ahorras $0.007.1% menos
+    c/u"` — el string exacto que habría leído la persona del mostrador) · una sola base para los dos
+    escalones · quitar `pack_price` de una de las dos consultas (era un **no-op silencioso**: el
+    freno preguntaba por un campo que ningún `SELECT` traía) · recablear `c/u` · devolver
+    `--ease-spring`.
+  - ⬜ **DECLARADO — el tamaño del hero.** Está topado en **96 px** (`clamp(..., 6rem)`) y en el
+    monitor de **5023 px** que 0Sistemas fotografió eso es **<2% del ancho**: parte de "no domina"
+    era **tamaño**, no posición. La etiquetera resuelve esto **midiendo** (con una lección
+    documentada de que medir mal dejó el precio 17% chico) pero su `shrinkToFit`/`fitPrice` son
+    **`private` en un componente de 49 KB** — **deuda ADR-056 con nombre**: el primitivo existe y no
+    vive en `libs/`. Decisión de 0Sistemas: declararlo ahora, atacarlo después.
+  - ⬜ **Sigue NO MEDIDO: cómo se ve.** No tengo browser de mi lado (medido: nada escuchando en
+    4200/3334, y los dev servers son de Edgar). Lo que cambia respecto de TDA.6 es que las
+    aserciones de esta parte **ya renderizan la pantalla** en vez de leer el archivo.
+  - ⚠️ **Octava vez que un acento grave en un comentario rompe el build en este repo, y esta la
+    cometí yo** — en el mismo archivo que ya lo advierte arriba.
+  - **Pendiente prod:** redeploy `api` + `view`. Sin migraciones ni permisos nuevos → **sin
+    re-login**. ⚠️ El redeploy de `api` **cambia cifras publicadas**: 362 escalones de mayoreo de
+    paquete empiezan a mostrarse donde antes se veían 4, y los 4 que se veían corrigen su ahorro.
 
 ---
 
