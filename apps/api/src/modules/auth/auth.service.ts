@@ -58,7 +58,11 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    const isPasswordValid = await bcrypt.compare(password, user.password_hash);
+    // `[ID.31]` Sin hash no hay con qué comparar, y `bcrypt.compare(x, null)`
+    // **LANZA** → 500 en vez de 401. Desde esta etapa `password_hash` es
+    // nullable (una cuenta `invited` es un estado legítimo), así que el guard va
+    // antes. Mismo mensaje genérico: no se revela qué cuentas están invitadas.
+    const isPasswordValid = !!user.password_hash && (await bcrypt.compare(password, user.password_hash));
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciales inválidas');
     }
