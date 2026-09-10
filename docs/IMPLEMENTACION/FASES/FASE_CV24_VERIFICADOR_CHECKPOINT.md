@@ -2,10 +2,13 @@
 
 > **Qué es este documento:** checkpoint autocontenido para retomar el trabajo desde
 > cero (otra sesión de Claude Code, otro dev, otra herramienta). No depende de
-> conversación previa. Cubre UN sub-problema: el verificador de precios de mostrador
-> (`/tienda/verificador`), desde que se rechazó el primer intento hasta la validación
-> visual del reemplazo. Generado 2026-09-10. Rutas de archivo y resultados citados
-> abajo son reales, verificados contra el código y contra datos reales — no inventados.
+> conversación previa. Cubre el verificador de precios de mostrador en sus DOS
+> encarnaciones: la pantalla `/tienda/verificador` de este monorepo (§1-6, desde
+> que se rechazó el primer intento hasta la validación visual del reemplazo) y el
+> repo standalone `verificador-precios` (§7, independiente de este monorepo,
+> retomado el mismo día para llevarlo al mismo estándar). Generado 2026-09-10.
+> Rutas de archivo y resultados citados abajo son reales, verificados contra el
+> código y contra datos reales — no inventados.
 >
 > Para el contexto completo del proyecto ver `CLAUDE.md` (raíz). Para la historia
 > completa de la Fase CV (migración del catálogo/tienda externo) ver
@@ -24,8 +27,9 @@
 | 2026-09-08 | Edgar reescribe el verificador directamente en `main`, commits `a29b9318` + `3c2b5f64` | ✅ `/tienda/verificador` como página real de `apps/view`, offline vía Service Worker + IndexedDB |
 | 2026-09-08 → 09-09 | `TDA.1`–`TDA.4` (precio en vivo, alineación con etiquetera, mayoreo) + `ID.29` (permiso repartido a prod) | ✅ Extendido y corregido en prod |
 | 2026-09-10 | Esta sesión: validación visual en browser con cuenta descartable | ✅ Los 3 estados (en vivo / no encontrado / respaldo) + modo kiosco, confirmados reales |
+| 2026-09-10 (más tarde) | 0Sistemas retoma el repo **standalone** `verificador-precios` (independiente de este monorepo) para portar el híbrido + las reglas de Edgar sobre el modelo visual anterior (`verificador.html`) | ✅ Repuntado a `kepler_ods` (`KP_CONCENTRADA` ya no existe) + TDA.2/TDA.3 portados + híbrido validado — ver §7 |
 
-**Qué falta:** que Edgar (o alguien con cuenta real) confirme en su propia sesión, con su propia sucursal, y que se pruebe el mayoreo contra una DB con `commercial.product_label_prices` poblada (en `platform_test` los códigos de muestra no traían tiers).
+**Qué falta:** que Edgar (o alguien con cuenta real) confirme en su propia sesión, con su propia sucursal, y que se pruebe el mayoreo contra una DB con `commercial.product_label_prices` poblada (en `platform_test` los códigos de muestra no traían tiers). Para el repo standalone: que el equipo confirme el host/rol real de producción para `kepler_ods` (ver §7).
 
 ---
 
@@ -252,3 +256,91 @@ npx nx serve view --port 4200                     # puerto 4200, proxy.conf.json
   este verificador — si alguien más lo pisa al desarrollar localmente contra
   `platform_test`/`postgres_platform` con `ENABLE_MULTITENANT=true`, ya está
   documentado acá y en el `CHANGELOG.md` de esta fecha.
+
+## 7. El repo standalone `verificador-precios` — repuntado + híbrido (2026-09-10, más tarde)
+
+Este repo (`github.com/0SistemasMD/verificador-precios`, **fuera de este
+monorepo**, decisión anterior del usuario: "Backend NestJS propio y
+separado") tiene su propia copia de `apps/catalogo-kp` extraída antes de la
+absorción a `apps/api`. 0Sistemas pidió retomarlo y llevarlo al mismo
+estándar — visualmente igual al modelo anterior (`public/verificador.html`,
+la plantilla clásica con patrón de dulces/Sniglet/tarjeta grande), pero
+"respetando las reglas de Edgar" (las mismas de este documento: híbrido
+honesto, sucursal determinista, declarar en vez de mentir).
+
+### 7.1 Hallazgo bloqueante: `KP_CONCENTRADA` ya no existe
+
+Antes de tocar una línea de código, el boot con el `.env` real del repo
+falló: `no existe la base de datos «KP_CONCENTRADA»` (código `3D000`) contra
+el cluster `.245`. Verificado listando las DBs visibles con el mismo rol
+(`catalogo_kp_runtime`): sólo `hr`, `platform_replica`, `platform_test`,
+`postgres` — la copia fue dada de baja. Consistente con la regla #1 de este
+proyecto ("cero copias, todo del ODS") y con el mismo pivot que
+`apps/catalogo-kp` ya hizo en CV.22.
+
+Se confirmó con el usuario (no se adivinó) el camino: repuntar a
+`kepler_ods.*`, el ODS real, en vez de reparar/recrear la copia.
+
+### 7.2 Qué se cambió en el repo standalone
+
+- **Backend** (`src/kp/kp.service.ts`, `src/kp/kp.controller.ts`,
+  `src/sucursales/sucursales.service.ts`, `src/kp-concentrada/kp-concentrada.module.ts`):
+  todas las queries `FROM kp.kdii`/`kp.kdik`/`kp.kdms` → `kepler_ods.*`.
+  `kp.sync_control` (frescura, no existe en el ODS) → `analytics.cron_runs`
+  (`job_key='cdc_wal_'||sucursal`), la misma convención que ya usa `apps/api`
+  de este monorepo — puede dar `null` (igual que acá, ver §6), se declara.
+  - **Portado `[TDA.2]`**: `getPrecio(q, sucursal)` ahora acepta `sucursal`.
+    Antes hacía `ORDER BY c1 LIMIT 1` sin filtrar (mismo bug que este
+    monorepo tenía antes de CV.24/TDA.2) — precio arbitrario entre plazas,
+    podía ser CEDIS. Ahora trae TODAS las filas del código, elige la de la
+    plaza pedida, y declara `precio_ambiguo`/`plazas_con_precio_distinto`/
+    `plaza_pedida_sin_dato` cuando no se puede acotar — verbatim de la
+    lógica de `apps/api/src/modules/kp/kp.service.ts` de este monorepo, sin
+    la parte de `override_manual`/mayoreo (ver 7.3).
+  - **Portado `[TDA.3]`**: `unidadDelCodigo()` (bc1-bc6 → c11/c80/c83),
+    tanto en `getPrecio` como en `getPreciosTodos` (`bu[]` paralelo a `b[]`
+    en el snapshot offline).
+- **Plantilla** (`plantilla/Verificador_Precios_OFFLINE.html`, mismo repo):
+  pasa de offline-o-en-vivo a **híbrida**, calcando el patrón ya validado en
+  §3 de este documento — intenta el servidor (timeout 2.5s, con
+  `window.MD_SUCURSAL` inyectado por el generador para que la consulta en
+  vivo pida la MISMA plaza que ya trae el snapshot) y cae al respaldo sólo
+  si no hay red, con tag ("⚡ Precio en línea" / "⚠ Precio de respaldo") y
+  notas honestas (`plaza_pedida_sin_dato`, `precio_ambiguo`,
+  `unidad_escaneada`). Un "no encontrado" del servidor es autoritativo.
+  **El diseño visual no se tocó** — mismo CSS/HTML que `verificador.html`.
+- **`herramientas/Actualizar_Verificador.ps1`**: inyecta el nuevo sello
+  `window.MD_SUCURSAL` (string de la plaza, o `null` en el consolidado sin
+  filtro `verificador.html`), mismo patrón de guarda que `MD_ACTUALIZADO`.
+- **`sql/001_rol_dedicado.sql`** y **`.env.example`**: reescritos para
+  `kepler_ods.*` + `analytics.cron_runs`, con nota explícita de que el
+  host/DB real de producción queda pendiente de confirmar (no se adivinó).
+- **`TDA.4` (mayoreo) NO se portó**: depende de `commercial.product_label_prices`/
+  `catalog.products` con RLS por tenant — infraestructura que no existe en
+  la DB de este repo standalone (sólo tiene el espejo de Kepler). Fuera de
+  alcance sin construir un sistema de etiquetas paralelo.
+
+### 7.3 Validación
+
+Con una credencial de prueba (`dev_sistemas` sobre `platform_test`, la misma
+DB usada en §3 de este documento — la real de producción del repo
+standalone sigue pendiente de confirmar): build limpio, boot con las 4
+rutas, generador **8/8 archivos** (7 sucursales + consolidado), y en
+navegador real contra el archivo generado (`verificador-01.html`) los 4
+casos: sin servidor (offline puro) → tag respaldo; con servidor arriba →
+tag en vivo, mismo precio exacto que este monorepo ya había verificado para
+`17083` (ALTOS CAM CHICA COLOR 1KG, $62.99 KG / $1,159.91 BTO); servidor
+detenido a mitad de sesión → cae solo al respaldo; código inexistente → "no
+encontrado", no un vacío. CI (`.github/workflows/ci.yml`) verde tras el
+push. Commit `02fa348` en `github.com/0SistemasMD/verificador-precios`
+(rama `master`, pusheado directo — este repo no pasa por review de Edgar).
+
+### 7.4 Pendiente (repo standalone)
+
+- Confirmar con el equipo el host/nombre real de la DB de producción donde
+  vive `kepler_ods` (hoy sólo probado contra `platform_test`).
+- Aplicar `sql/001_rol_dedicado.sql` contra esa DB real y rotar el `.env` de
+  producción del repo standalone al rol `verificador_precios_ro`.
+- `public/*.html` (los 8 generados) quedaron con datos de `platform_test`
+  de esta validación — regenerar contra datos reales una vez resuelto lo
+  anterior (son gitignored, no afecta al repo).
