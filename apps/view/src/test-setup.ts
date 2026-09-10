@@ -27,7 +27,13 @@ setupZoneTestEnv();
  * no llega a estar en viewport (abajo del pliegue en el monitor del mostrador). Un test que
  * quiera el otro camino llama `intersectarTodos()`.
  */
-class IntersectionObserverDePrueba implements IntersectionObserver {
+// ⚠️ Sin `implements IntersectionObserver` a propósito: la interfaz del DOM crece entre
+// versiones de TS (`scrollMargin`, etc.) y un doble de pruebas no tiene por qué seguirle el
+// paso — lo único que importa es que cumpla el contrato que la directiva usa. Además este
+// archivo NO debe compilar con la app (`tsconfig.app.json` lo excluye desde TDA.7: cuando dejó
+// de ser un `import` suelto, el `include: src/**/*.ts` lo arrastró y `beforeEach` rompió el
+// build de producción). Se lo deja type-clean igual, para no depender sólo del exclude.
+class IntersectionObserverDePrueba {
   static instancias: IntersectionObserverDePrueba[] = [];
 
   readonly root = null;
@@ -51,7 +57,7 @@ class IntersectionObserverDePrueba implements IntersectionObserver {
     this.disparado = true;
     this.cb(
       this.observados.map((target) => ({ target, isIntersecting: true, intersectionRatio: 1 } as IntersectionObserverEntry)),
-      this,
+      this as unknown as IntersectionObserver,
     );
   }
 }
