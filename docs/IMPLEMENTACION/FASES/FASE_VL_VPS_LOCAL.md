@@ -206,6 +206,51 @@ Con los dos repos presentes el argumento se cae, y la 26.04.1 gana: es el **poin
 | **Kernel tuning** | `transparent_hugepage=never` · `vm.swappiness=1` | Lo estándar para Postgres; nada exótico |
 | **`unattended-upgrades`** | Sí, **con Docker en la lista negra** (`docker-ce`, `docker-ce-cli`, `containerd.io`) | Un upgrade desatendido del daemon **reinicia todos los contenedores en medio de una pasada de shipment**. Los parches de seguridad del SO sí se quieren; el reinicio del motor no |
 
+### 6.0bis Postgres: en Docker, no nativo — y la razón es medible
+
+Pregunta legítima al llegar a un servidor Linux limpio: ¿el sustrato de réplicas sigue en contenedor, o se instala Postgres nativo del sistema? Para **esta** migración no es cuestión de gusto.
+
+**El hecho.** El datadir de las réplicas **nació bajo Debian 12 / glibc 2.36** (`18.4 (Debian 18.4-1.pgdg12+1)`), y Postgres lo tiene **grabado en el catálogo**: las 11 bases declaran `datcollate = en_US.utf8`, `datlocprovider = c` (libc) y **`datcollversion = 2.36`**. El servidor nuevo corre **Ubuntu 26.04 con glibc 2.43**.
+
+**Qué pasa exactamente si se copia ese datadir a un Postgres nativo de Ubuntu 26.04.** No falla al arrancar — eso es lo peligroso. Postgres levanta, avisa una vez del *collation version mismatch*, y a partir de ahí los índices sobre texto quedan ordenados según una regla de comparación que ya no es la que el sistema aplica. **El modo de falla no es un error: es una consulta que devuelve de menos.** Justo la clase de error silencioso que la Fase VP existe para erradicar, y en el sustrato del que sale la venta publicada.
+
+**El tamaño del problema, contado:**
+
+| Base | Índices sobre texto | Tamaño |
+|---|---|---|
+| `kepler_md_00..07` | **2,695** | 10.6 GB |
+| `kepler_consolidado` | 6 | 496 MB |
+| **Subtotal — lo que se muda en VL.2b** | **2,701** | **11.1 GB** |
+| `wincaja` (se queda en `.249` hasta VL.5) | **2,250** | 40 GB |
+| **Total si algún día migra todo** | **4,951** | 51 GB |
+
+Hacerlo nativo **bien** obliga a `REINDEX` de esos índices más `ALTER DATABASE … REFRESH COLLATION VERSION`. Eso convierte una ventana de 60–90 min en varias horas, necesita disco libre para reconstruir, y agrega un paso que **si se salta o se hace a medias no avisa**.
+
+**Con Docker el problema no existe: la glibc viaja adentro de la imagen.** El datadir aterriza en el mismo entorno donde nació — mismo Debian 12, misma 2.36. Cero mismatch, cero reindex, la ventana se mantiene.
+
+**Las tres puertas, para que quede explícito:**
+
+| Camino | Costo |
+|---|---|
+| **Docker, copia física** | Copiar y arrancar. Nada más |
+| Nativo, copia física | + `REINDEX` de 2,701 índices y `REFRESH COLLATION VERSION`. Horas, y falla en silencio si se omite |
+| Nativo, suscripciones nuevas con `copy_data` | Sin mismatch (datadir nuevo), pero resincroniza 55 GB desde 8 sucursales por los enlaces que ya son el cuello de botella — es el plan B que §4 rechaza |
+
+**Lo que gana nativo, honestamente**, para no vender una sola cara: `pg_basebackup`/PITR y las herramientas de respaldo son más convencionales; `systemd` maneja el arranque sin un demonio de por medio; editar `postgresql.conf` no pide reiniciar un contenedor. Son ventajas reales pero **operativas y menores**, y ninguna compensa reconstruir 2,701 índices durante un corte.
+
+**El precio de Docker, dicho de frente:** quedás pegado a la glibc 2.36 de la imagen hasta que decidas cambiarla, y el día que quieras una base más nueva vas a enfrentar el mismo reindex. La diferencia es que lo vas a enfrentar **en tu calendario, con la ventana que elijas**, y no metido dentro de una migración que ya tiene ocho suscripciones y una ventana contada.
+
+**Lo que NO pesa, aunque suele alegarse:** el rendimiento es un empate — un volumen nombrado de Docker **no pasa por overlayfs**, escribe directo al filesystem del host, y la carga acá es lectura secuencial de CDC, no OLTP de alta concurrencia. Y el fijado de versión es parejo: la etiqueta pinea la imagen, y PGDG instala las majors lado a lado (no te sube de 18 a 19 solo).
+
+**Decisión: sigue en Docker.** Se reconsidera nativo cuando (a) haya que cambiar de base de imagen igual, y (b) exista ventana para el reindex — o sea, nunca durante un corte.
+
+#### Dos hallazgos de esta medición
+
+- **`pgvector` no se usa.** Ninguna de las réplicas tiene la extensión (`kepler_consolidado` sólo trae `postgres_fdw` y `dblink`). La imagen `pgvector/pgvector:pg18` está funcionando como un Postgres 18 común — el vector es incidental, herencia de cuando la copia local de Fase K vivía ahí. **No se cambia la imagen ahora** (cambiar de imagen durante la migración es cambiar dos variables a la vez), pero queda anotado como limpieza opcional posterior.
+- ⚠️ **`shared_buffers = 128 MB`** (16384 × 8 kB) — es el **default de fábrica, nunca se tuneó**, en un servidor que va a tener 14 GiB. Lo que sí está configurado y **viaja con la copia física** es lo que hace falta para la replicación: `wal_level=logical`, `max_replication_slots=20`, `max_logical_replication_workers=16`, `max_wal_size=1 GB`. Subir `shared_buffers` a 2–4 GB es una mejora gratuita que habilita esta mudanza, y va en VL.2b.
+
+---
+
 ### 6.1 Dimensionamiento — el fierro REAL, medido en vivo (2026-09-10, por SSH)
 
 `md` · `192.168.0.222` · Ubuntu Server 26.04.1 LTS · usuario `superoot`.
@@ -272,6 +317,7 @@ Con los dos repos presentes el argumento se cae, y la 26.04.1 gana: es el **poin
 | D2 | Alcance | **Ingesta ahora, prod después** | Dimensionar para los dos desde el día 1 (§6.1: 32 GB / 1 TB). VL.9 pasa a fase real; **VL.8 (UPS/respaldo) deja de ser opcional** |
 | D3 | Wincaja / Access | **Se decide en VL.5** | Las 3 tareas Wincaja **siguen en `.249`** hasta entonces, declaradas con dueño y fecha. VL.7 no las apaga |
 | D4 | Corte de la fuente | **Ventana nocturna / fin de semana** | Copia física (camino sin hueco). **Falta la fecha** → A2. Chequeo de disco en los 8 publicadores el día antes |
+| D5 | ¿Postgres en Docker o nativo? | **Docker** (2026-09-10) | Medido: el datadir nació bajo **glibc 2.36** y el server nuevo trae **2.43** → nativo obliga a `REINDEX` de **2,701** índices de texto (4,951 con Wincaja) durante el corte, con falla silenciosa si se omite. En contenedor la glibc viaja con la imagen. Detalle y contras en §6.0bis |
 
 **Recomendación registrada para D3, para cuando llegue VL.5:** agente en el POS para el carril **vivo** (patrón TDA, ya probado en MD-30/MD-32 — elimina el `Z:` y el Jet del servidor, y la memoria dice que el agente **le gana** en frescura a la réplica por `Z:`) + mdbtools en contenedor para el **masivo** (5.7× más rápido, cifras idénticas al centavo). Dejar una caja Windows chica sólo como red de seguridad temporal.
 
