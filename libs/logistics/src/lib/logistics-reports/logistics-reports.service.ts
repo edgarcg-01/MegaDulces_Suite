@@ -214,8 +214,21 @@ export class LogisticsReportsService {
 
   /**
    * KPIs operativos del período (entre from/to). JSON, no PDF.
-   * Devuelve: total embarques, completados (cerrados), cancelados, revenue flete,
-   * total costos, margen, costo promedio por km, comisiones pagadas.
+   *
+   * DEFINICION UNICA DE MARGEN (antes habia dos, y no cuadraban):
+   *   margen = flete cobrado − costos del viaje  ...sobre embarques REALIZADOS
+   *   (`entregado` | `cerrado`), igual que `/logistics/analytics/overview`.
+   *
+   * Dos correcciones respecto de la version anterior de este metodo:
+   *   1. Sumaba el flete de TODOS los embarques del rango, incluidos los
+   *      `cancelado` y los que todavia no salian. Un viaje cancelado no cobra.
+   *   2. Restaba las comisiones. Son costo laboral y se liquidan por
+   *      `logistics.liquidations` (nomina); restarlas aca las contaba dos veces
+   *      contra el mismo peso. Se siguen publicando como linea aparte
+   *      (`comisiones`), que es informacion util, pero fuera del margen.
+   *
+   * Los conteos de embarques (total/cerrados/cancelados/activos) siguen siendo
+   * sobre TODO el rango a proposito: son operativos, no financieros.
    */
   async kpiSummary(from?: string, to?: string) {
     return this.tk.run(async (trx) => {
@@ -230,9 +243,10 @@ export class LogisticsReportsService {
           trx.raw(`count(*) filter (where status = 'cerrado')::int as cerrados`),
           trx.raw(`count(*) filter (where status = 'cancelado')::int as cancelados`),
           trx.raw(`count(*) filter (where status not in ('cerrado','cancelado'))::int as activos`),
-          trx.raw('coalesce(sum(freight_revenue),0)::numeric as revenue'),
-          trx.raw('coalesce(sum(actual_km),0)::int as km_total'),
-          trx.raw('coalesce(sum(boxes_count),0)::int as cajas'),
+          // Realizado = entregado|cerrado. Antes sumaba tambien lo cancelado.
+          trx.raw(`coalesce(sum(freight_revenue) filter (where status in ('entregado','cerrado')),0)::numeric as revenue_realizado`),
+          trx.raw(`coalesce(sum(actual_km) filter (where status in ('entregado','cerrado')),0)::int as km_total`),
+          trx.raw(`coalesce(sum(boxes_count) filter (where status in ('entregado','cerrado')),0)::int as cajas`),
         )
         .first();
 
@@ -240,6 +254,7 @@ export class LogisticsReportsService {
         .innerJoin('logistics.shipments as s', 's.id', 'e.shipment_id')
         .whereBetween('s.shipment_date', [f, t])
         .whereNull('s.deleted_at')
+        .whereIn('s.status', ['entregado', 'cerrado'])
         .select(
           trx.raw('coalesce(sum(e.total_cost),0)::numeric as total_costos'),
           trx.raw('coalesce(sum(e.fuel),0)::numeric as combustible'),
@@ -251,16 +266,17 @@ export class LogisticsReportsService {
         .innerJoin('logistics.shipments as s', 's.id', 'g.shipment_id')
         .whereBetween('s.shipment_date', [f, t])
         .whereNull('s.deleted_at')
+        .whereIn('s.status', ['entregado', 'cerrado'])
         .select(
           trx.raw(`coalesce(sum(g.driver_commission + g.helper1_commission + g.helper2_commission),0)::numeric as comisiones`),
           trx.raw('coalesce(sum(g.per_diem_total),0)::numeric as viaticos'),
         )
         .first();
 
-      const revenue = Number(ship?.revenue || 0);
+      const revenue = Number(ship?.revenue_realizado || 0);
       const costos = Number(exp?.total_costos || 0);
       const comisiones = Number(com?.comisiones || 0);
-      const margen = revenue - costos - comisiones;
+      const margen = revenue - costos;
       const kmTotal = Number(ship?.km_total || 0);
       const costoKm = kmTotal > 0 ? costos / kmTotal : 0;
 
@@ -278,6 +294,8 @@ export class LogisticsReportsService {
         },
         financial: {
           revenue,
+          revenue_definicion: 'flete de embarques entregado|cerrado',
+          margen_definicion: 'flete realizado − costos del viaje (comisiones aparte, van por nomina)',
           total_costos: costos,
           combustible: Number(exp?.combustible || 0),
           casetas: Number(exp?.casetas || 0),

@@ -123,6 +123,7 @@ const TESTS = [
   { file: 'http-vale-entrada-autollenado-test.js', label: 'WMS-REC vale autollenado por folio (búsqueda cross-sucursal + almacén/proveedor/OC derivados + unidad del ERP verbatim + SER excluidos; skip-graceful sin feed)', needsApi: true },
   { file: 'http-luz-verde-caducidades-test.js', label: 'WMS-REC luz verde → Caducidades (el alta entra en lote NA al aprobar, bandeja por fechar, la fecha reclasifica sin mover el total; skip-graceful sin feed)', needsApi: true },
   { file: 'http-receiving-lot-line-test.js', label: 'WMS-REC ADR-044 declaración de lotes POR RENGLÓN (endpoints REALES: vale→recibir 100→3 lotes amarillo/verde/rojo→cuadre declarado-vs-recibido→cierre bloqueado 409 por retenido→autorizar claim atómico→+100 sin duplicar→invariante lotes=stock)', needsApi: true },
+  { file: 'http-receiving-claims-test.js', label: 'WMS-REC.8 reclamo diferenciado de faltantes (endpoints REALES: vale de proveedor faltante/ok/sobrante/dañado → el cierre levanta 2 reclamos y NO bloquea → cantidad del dañado se captura en la bandeja → el fill rate de /compras/proveedores se mueve → descartado no penaliza y aceptado sí → traspaso desde documento REAL del ERP con monto importe/cantidad y SIN deducir la sucursal → crosswalk TI### capturado a mano da dueño a los huérfanos → RLS forzado + UNIQUE del dedup)', needsApi: true },
   { file: 'http-inventory-count-test.js', label: 'I.5 conteo correctness (A1 freeze guard + A2 no-revierte + A4 segregación count_3)', needsApi: true },
   { file: 'http-expiry-reviews-test.js', label: 'P2.6 Control de Caducidades (hoja+renglones+submit→alimenta FEFO: lote fechado en /expiring + invariante stock sin cambios + fed_lines + 409 re-submit)', needsApi: true },
   { file: 'http-inventory-abc-test.js', label: 'I.6 clasificación ABC (refresh + shape + filtro por clase)', needsApi: true },
@@ -156,6 +157,11 @@ const TESTS = [
   { file: 'http-cobranza-ws-test.js', label: 'COMM-P1 WS de cobranza (handshake JWT + auth_error con token inválido · attach/validate/reject emiten collection_deposit_changed con sucursal/folio/monto/actor · aislamiento entre tenants · limpia su evidencia)', needsApi: true },
   // Fase K — AI product match en captures
   { file: 'http-ai-match-test.js', label: 'K.1 AI product match (Claude Haiku + Voyage + pgvector)', needsApi: true },
+  // FC Flotilla — derecho de uso + acta de asignación vehicular (formato en papel digitalizado)
+  { file: 'test-newdb-fleet-assignment.js', label: 'FC.1 asignación vehicular (candados: un solo derecho vigente por persona+unidad+carácter, el histórico convive, una unidad NO entregada a dos personas a la vez, folio único, vigencias coherentes, RLS forzado y la calificación M/R/B no acepta booleanos)', needsApi: false },
+  // LT Rastreo de flota — el smoke existía desde la Fase LT y NUNCA estuvo
+  // registrado acá: adapter, trackers, posiciones y alertas corrían sin red.
+  { file: 'test-newdb-logistics-tracking.js', label: 'LT rastreo de flota (contrato en DB: RLS forzado + único parcial sólo sobre open → una alerta ack NO frena el duplicado, y el scanner debe buscar open|ack; el bloque contra MagniTracking es skip-graceful sin MAGNI_USER/PASS porque hace login real y escribe)', needsApi: false },
   // LTV Auditoría en Ruta — detalle geográfico (traza GPS + tickets ubicados por hora)
   { file: 'test-newdb-ltv-audit-detail.js', label: 'LTV.16 detalle auditoría (traza por tracker aunque vehicle_id NULL + tickets ligados por route_code↔route_number + ubicación por hora GPS + sin-hora no ubica)', needsApi: false },
   // Cierre de ruta (port Automation_RD)

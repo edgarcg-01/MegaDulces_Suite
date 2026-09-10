@@ -19,9 +19,16 @@ export interface CreatePeriodDto {
 }
 export type UpdatePeriodDto = Partial<CreatePeriodDto> & { status?: PeriodStatus };
 
+/**
+ * `bonuses` y `deductions` NO se aceptan acá: son DERIVADAS de
+ * `logistics.payroll_adjustments` (las recalcula `calculatePeriod` y también
+ * `recomputeLiquidationTotals` en cada alta/baja de ajuste). Cuando el DTO las
+ * admitía, lo tecleado en la pantalla sobrevivía hasta el siguiente recálculo y
+ * después desaparecía sin rastro — en nómina. Para mover el neto, se da de alta
+ * un ajuste (`POST /logistics/payroll/adjustments`), que sí deja registro de
+ * tipo, monto, fecha y motivo.
+ */
 export interface UpdateLiquidationDto {
-  bonuses?: number;
-  deductions?: number;
   status?: LiquidationStatus;
   notes?: string;
 }
@@ -120,8 +127,10 @@ export class LogisticsPayrollService {
    *     justifique el ruido, lo dejamos así. (Deferred, no bug.)
    *
    * Idempotente: si ya existe liquidación para el (driver, period), UPDATEa
-   * los montos calculados pero respeta bonuses/deductions/notes manuales que
-   * el usuario haya editado. Cambia status a 'calculado' siempre.
+   * los montos calculados. `notes` se respeta; `bonuses`/`deductions` NO son
+   * manuales — se recalculan desde `payroll_adjustments` en cada corrida (el
+   * docblock decía lo contrario y era la promesa la que estaba mal, no el
+   * código). Cambia status a 'calculado' siempre. No toca pagadas ni anuladas.
    *
    * El período no se marca 'calculado' acá — eso queda como acción manual.
    */
@@ -285,6 +294,17 @@ export class LogisticsPayrollService {
 
   async updateLiquidation(id: string, dto: UpdateLiquidationDto) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+
+    // Rechazo explícito y ruidoso: mejor un 400 que un valor que se borra solo
+    // en el siguiente recálculo. Ver el docblock de UpdateLiquidationDto.
+    const intruso = ['bonuses', 'deductions'].filter((k) => (dto as any)[k] !== undefined);
+    if (intruso.length) {
+      throw new BadRequestException(
+        `${intruso.join(' y ')} no se edita(n) en la liquidación: se derivan de los ajustes de nómina. ` +
+          `Registrá un ajuste (tipo bono/multa/anticipo/prestamo/falta) y el neto se recalcula solo.`,
+      );
+    }
+
     return this.tk.run(async (trx) => {
       const existing = await trx('logistics.liquidations').where({ id }).first();
       if (!existing) throw new NotFoundException(`Liquidación ${id} no encontrada`);
@@ -293,17 +313,8 @@ export class LogisticsPayrollService {
       }
 
       const patch: Record<string, any> = { updated_at: trx.fn.now() };
-      if (dto.bonuses !== undefined) patch.bonuses = dto.bonuses;
-      if (dto.deductions !== undefined) patch.deductions = dto.deductions;
       if (dto.notes !== undefined) patch.notes = dto.notes;
       if (dto.status !== undefined) patch.status = dto.status;
-
-      // Recalcular net si cambian bonuses/deductions
-      if (dto.bonuses !== undefined || dto.deductions !== undefined) {
-        const bonuses = dto.bonuses !== undefined ? dto.bonuses : Number(existing.bonuses);
-        const deductions = dto.deductions !== undefined ? dto.deductions : Number(existing.deductions);
-        patch.net_amount = Number(existing.subtotal) + bonuses - deductions;
-      }
 
       if (dto.status === 'pagado') patch.paid_at = trx.fn.now();
 

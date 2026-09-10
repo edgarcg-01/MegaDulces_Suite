@@ -518,6 +518,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
       },
       {
+        // WMS-REC.8 — reclamos de faltantes de recepción (ADR-053). Reusa el permiso de
+        // Hallazgos: es la misma persona (el comprador) la que abre las dos bandejas, así
+        // que no se agrega un permiso nuevo (ni su backfill ni su re-login).
+        path: 'reclamos',
+        loadComponent: () => import('./modules/compras/pages/compras-reclamos.component').then(m => m.ComprasReclamosComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_HALLAZGOS_VER)]
+      },
+      {
         // RA-PRO.45 — la vista inversa del "En camino" del Pedido: las OCs de Kepler que quedaron
         // abiertas. Mismo permiso que Pedido porque es la otra cara del mismo dato.
         path: 'oc-abiertas',
@@ -1012,6 +1020,10 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.LOGISTICS_GUIDES_VER)]
       },
       {
+        // FC.1 — El padrón de personal vive como pestaña dentro de Flotilla
+        // (misma tabla `logistics.drivers`, mismo permiso). Esta ruta se
+        // conserva para no romper links guardados, pero salió del nav: dos
+        // puertas a la misma población confundían.
         path: 'staff',
         loadComponent: () => import('./modules/logistica/pages/logistica-staff.component').then(m => m.LogisticaStaffComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_FLEET_VER)]

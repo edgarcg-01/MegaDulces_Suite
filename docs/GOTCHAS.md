@@ -1877,3 +1877,48 @@ Medido: **77 → 7 líneas/min y 129% → 0.19% de CPU**, con la replicación in
 3. **Validar la inserción**, no el estado del worker: `pg_subscription_rel.srsubstate` debe llegar a
    `r`, y los conteos de las dos puntas tienen que coincidir. Un worker `VIVO` con `lag=0s` convive
    perfectamente con 7 tablas en `d` (copiando) que no avanzan nunca.
+confunda con la fuente): `md_03` (2.4 GB, 329 tablas en `md`, **0 subscriptions**, congelada) y
+`kepler_consolidado` (516 MB, 0 tablas en `md`).
+
+---
+
+## 37. Dark mode: los **alias** de token están congelados en su valor CLARO (`--border`, `--surface-card`, `--c-text-*`)
+
+**Síntoma:** escribís CSS "sin hex crudo", como manda `DESIGN.md`, y en oscuro te sale una columna
+**blanca** en medio de la tabla, o el título de la página **invisible**. En claro se ve perfecto.
+
+**Medido en runtime** (Chrome DevTools, `/compras/reclamos` y `/compras/hallazgos`, body con
+`theme-monochrome`, 2026-09-08):
+
+| Token | En oscuro | |
+|---|---|---|
+| `--text-main` `--text-muted` `--text-faint` | `#FBF4E9` `#B0A595` `#837A6C` | ✅ correcto |
+| `--border-color` `--card-bg` `--layout-bg` `--hover-bg` | `#2A2A2A` `#1A1A1A` `#111111` `#252525` | ✅ correcto |
+| `--ink-rgb` `--bad-fg` `--warn-fg` `--ok-fg` `--action` | flipean bien | ✅ correcto |
+| **`--border`** **`--divider`** **`--c-divider`** | **`#E8E2D7`** (¡hairline claro!) | ❌ congelado |
+| **`--surface-card`** **`--c-surface-1`** | **`#FFFFFF`** (¡celda blanca!) | ❌ congelado |
+| **`--c-text-1`** **`--c-text-2`** | **`#100D09`** `#5E564B` | ❌ congelado |
+| `--surface` · `--text-body` | *vacío* | ❌ **no existen** |
+
+**Causa (es CSS puro, no un bug de nadie en particular):** la capa de alias está declarada en
+**`:root`** (`libs/design-tokens/tokens.css` ~226-250 y ~188: `--border: var(--border-color)`,
+`--surface-card: var(--card-bg)`, `--c-text-1: var(--text-main)`) mientras el **tema oscuro vive en
+`body.theme-monochrome`**. Una custom property se sustituye **en el elemento donde se declara**: el
+alias resuelve `var(--card-bg)` *en `:root`*, donde todavía rige el valor claro, y ese valor ya
+resuelto se hereda hacia abajo. La override de `body` nunca lo alcanza.
+
+**Regla:** en CSS nuevo usá **sólo tokens que el bloque oscuro redefine** —
+`--text-main/-muted/-faint` · `--border-color` · `--card-bg` · `--layout-bg` · `--hover-bg` ·
+`--ink-rgb` · `--bad-fg`/`--warn-fg`/`--ok-fg` · `--action`. Y **verificá el token en el elemento**,
+no en `documentElement`: `getComputedStyle(miCelda).getPropertyValue('--surface-card')` — leerlo del
+root da el valor claro y te miente en la dirección exactamente equivocada.
+
+**No alcanza con "probé en oscuro" a ojo:** el fondo de página sí flipea (viene de `--layout-bg`),
+así que la pantalla *parece* correcta y el defecto queda en detalles — una celda sticky, un hairline,
+un `h1`.
+
+⚠️ **Pendiente de decisión (Edgar):** el `h1`/subtítulo de `.surf-page-head` usa `--c-text-1`/`--c-text-2`
+(`apps/view/src/styles.css:2631-2643`), así que **el título de TODA pantalla Operations está
+ilegible en oscuro** — reproducido en `/compras/hallazgos`, que nadie tocó. El arreglo es mover la
+capa de alias a `body` (o duplicarla dentro de `body.theme-monochrome`), pero toca las ~30 pantallas
+a la vez, así que va como item propio y no colgado de una feature.

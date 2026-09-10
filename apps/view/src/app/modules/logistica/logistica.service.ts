@@ -26,6 +26,11 @@ export type LiquidationStatus = 'calculado' | 'revisado' | 'pagado' | 'anulado';
 export type ConfigCategory = 'factor' | 'costo_km' | 'tarifa_maniobra' | 'viatico' | 'otro';
 
 export interface Vehicle {
+  economic_number?: string | null;
+  vin?: string | null;
+  engine_number?: string | null;
+  color?: string | null;
+  current_odometer?: number | null;
   id: string;
   plate: string;
   model?: string | null;
@@ -1338,12 +1343,51 @@ export class LogisticaService {
     return this.http.post<BuildShipmentResult>(`${this.base}/routing/build-shipment`, body);
   }
 
+  // ── FC.1 Derecho de uso + acta de asignación (área de Flotilla) ────────────
+  assignmentTemplate(): Observable<AssignmentTemplate> {
+    return this.http.get<AssignmentTemplate>(`${this.base}/fleet/assignment-template`);
+  }
+  /** Lookup angosto de cuentas para vincular a una ficha (mín. 2 caracteres). */
+  linkableUsers(search: string): Observable<LinkableUser[]> {
+    return this.http.get<LinkableUser[]>(`${this.base}/fleet/linkable-users`, {
+      params: new HttpParams().set('search', search),
+    });
+  }
+  entitlementsByDriver(onlyWithRights = false): Observable<DriverEntitlements[]> {
+    const p = onlyWithRights ? new HttpParams().set('only_with_rights', 'true') : undefined;
+    return this.http.get<DriverEntitlements[]>(`${this.base}/fleet/entitlements`, { params: p });
+  }
+  entitlementsOfVehicle(vehicleId: string): Observable<VehicleEntitlement[]> {
+    return this.http.get<VehicleEntitlement[]>(`${this.base}/fleet/vehicles/${vehicleId}/entitlements`);
+  }
+  grantEntitlement(body: {
+    driver_id: string; vehicle_id: string; capacity?: EntitlementCapacity; notes?: string;
+  }): Observable<VehicleEntitlement> {
+    return this.http.post<VehicleEntitlement>(`${this.base}/fleet/entitlements`, body);
+  }
+  revokeEntitlement(id: string): Observable<VehicleEntitlement> {
+    return this.http.delete<VehicleEntitlement>(`${this.base}/fleet/entitlements/${id}`);
+  }
+  listAssignments(opts: { vehicle_id?: string; driver_id?: string; status?: string } = {}): Observable<VehicleAssignment[]> {
+    let p = new HttpParams();
+    if (opts.vehicle_id) p = p.set('vehicle_id', opts.vehicle_id);
+    if (opts.driver_id) p = p.set('driver_id', opts.driver_id);
+    if (opts.status) p = p.set('status', opts.status);
+    return this.http.get<VehicleAssignment[]>(`${this.base}/fleet/assignments`, { params: p });
+  }
+  createAssignment(body: Partial<VehicleAssignment> & { folio: string; vehicle_id: string; assigned_on: string; grant_entitlements?: boolean }): Observable<VehicleAssignment> {
+    return this.http.post<VehicleAssignment>(`${this.base}/fleet/assignments`, body);
+  }
+  returnAssignment(id: string, body: { released_on?: string; observations?: string } = {}): Observable<VehicleAssignment> {
+    return this.http.post<VehicleAssignment>(`${this.base}/fleet/assignments/${id}/return`, body);
+  }
+
   // ── J12.6 Mantenimiento + combustible ──────────────────────────────────────
   maintenanceDue(): Observable<MaintenanceDue[]> {
     return this.http.get<MaintenanceDue[]>(`${this.base}/fleet/maintenance/due`);
   }
-  fuelEfficiency(): Observable<FuelEfficiency[]> {
-    return this.http.get<FuelEfficiency[]>(`${this.base}/fleet/fuel-efficiency`);
+  fuelEfficiency(): Observable<FuelEfficiencyReport> {
+    return this.http.get<FuelEfficiencyReport>(`${this.base}/fleet/fuel-efficiency`);
   }
   vehicleOdometer(vehicleId: string): Observable<{ vehicle_id: string; odometer: number | null }> {
     return this.http.get<{ vehicle_id: string; odometer: number | null }>(`${this.base}/fleet/vehicles/${vehicleId}/odometer`);
@@ -1456,11 +1500,25 @@ export interface FuelEfficiency {
   model?: string | null;
   km: number;
   liters: number;
+  /** Litros desagregados por escritor: las tres fuentes que conviven. */
+  liters_by_source: { usage_log: number; fuel_transaction: number; route_expense: number };
   trips: number;
   real_km_l: number | null;
   spec_km_l: number | null;
   deviation_pct: number | null;
+  /** Por qué no hay rendimiento, cuando `real_km_l` es null. */
+  no_medible: string | null;
   flag: boolean;
+}
+
+/**
+ * El endpoint dejó de devolver un array pelado: ahora declara cobertura y el
+ * combustible que NO se puede atribuir a ninguna unidad, en vez de omitirlo.
+ */
+export interface FuelEfficiencyReport {
+  items: FuelEfficiency[];
+  coverage: { vehicles_total: number; vehicles_medibles: number };
+  unattributed: { liters: number; amount: number; rows: number; detail: string };
 }
 
 export interface EtaStop {
@@ -1521,4 +1579,64 @@ export interface BuildShipmentResult {
   capacity_boxes: number | null;
   over_capacity: boolean;
   optimized_km: number;
+}
+
+// ── FC.1 Asignación vehicular ────────────────────────────────────────────────
+
+export type EntitlementCapacity = 'chofer' | 'responsable_administrativo' | 'ayudante';
+
+export interface LinkableUser { id: string; username: string; nombre: string; }
+export type ConditionGrade = 'M' | 'R' | 'B';
+
+export interface AssignmentTemplate {
+  version: string;
+  grades: { value: ConditionGrade; label: string }[];
+  items: { id: string; label: string; section: 'interiores' | 'exteriores' | 'accesorios' }[];
+}
+
+export interface VehicleEntitlement {
+  id?: string;
+  entitlement_id?: string;
+  driver_id?: string;
+  full_name?: string;
+  vehicle_id?: string;
+  plate?: string;
+  brand?: string | null;
+  model?: string | null;
+  economic_number?: string | null;
+  capacity: EntitlementCapacity;
+  valid_from?: string;
+}
+
+/** Agrupado por colaborador: la respuesta a "¿a qué unidades tiene derecho?". */
+export interface DriverEntitlements {
+  driver_id: string;
+  full_name: string;
+  roles: string[];
+  status: string;
+  vehicles: VehicleEntitlement[];
+}
+
+export interface VehicleAssignment {
+  id: string;
+  folio: string;
+  vehicle_id: string;
+  plate?: string;
+  brand?: string | null;
+  model?: string | null;
+  economic_number?: string | null;
+  responsible_driver_id?: string | null;
+  responsible_name?: string | null;
+  driver_id?: string | null;
+  driver_name?: string | null;
+  area?: string | null;
+  warehouse_code?: string | null;
+  odometer?: number | null;
+  assigned_on: string;
+  released_on?: string | null;
+  condition?: Record<string, ConditionGrade> | null;
+  condition_template?: string | null;
+  observations?: string | null;
+  scan_url?: string | null;
+  status: 'vigente' | 'devuelto' | 'cancelado';
 }
