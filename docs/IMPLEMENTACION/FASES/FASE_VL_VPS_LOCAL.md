@@ -139,7 +139,7 @@ Se **rechaza** explícitamente:
 
 | Item | Estado | Descripción | Bloquea a |
 |---|---|---|---|
-| **VL.0** | ⬜ | **Instalar y preparar el servidor.** El fierro existe sin SO: instalar **Ubuntu 24.04 LTS Server**, Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
+| **VL.0** | ⬜ | **Instalar y preparar el servidor.** El fierro existe sin SO: instalar **Ubuntu Server 24.04 LTS amd64** (pila de versiones completa y sus trampas en **§6.0**), Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
 | **VL.1** | ⬜ | **Secretos en un solo lugar.** Hoy las credenciales de prod viven **en texto plano en al menos 4 lanzadores** (`run-feeds.cmd`, `store-poller.cmd`, `ingest.env`, `sync.local.env`). En el servidor nuevo: un `.env` por stack, fuera del repo, permisos `600`, un dueño. **La credencial de prod expuesta sigue pendiente de rotar** (`project_security_incident_db_creds`) — la mudanza es el momento natural. | VL.2 |
 | **VL.2a** | ⬜ | **Des-riesgo: sólo los 4 contenedores del ODS**, leyendo la fuente por LAN (`ODS_SOURCE_BASE` → `192.168.0.249:5433`). Apagar los de `.249` **antes** de levantar los nuevos (nunca dos shippers a la vez: pelean `ods.ctl`/`ods.shadow`). Verde = los 3 latidos (`ods_live_hot`, `ods_live_mirror`, `cdc_reconcile`) frescos **en prod** y `db-health` sin sensor crítico. | VL.3 |
 | **VL.2b** | ⬜ | **Mudar la fuente — en la ventana nocturna/fin de semana.** **Copia física del volumen**: `docker stop` → copiar `pgvector-md-data` (55 GB **en tránsito**) → levantar en el servidor nuevo con **la misma major (PG 18)** → **`DROP DATABASE wincaja` allá** (queda residente **~15 GB**; sus 40 GB los sigue usando el carril Wincaja **en `.249`** hasta VL.5 — §6.1). La copia física es lo que preserva `pg_replication_origin`, y por eso las 8 suscripciones **retoman desde su slot sin hueco**; `pg_dump` por base **no** lo preserva. ⚠️ `wincaja` **no** tiene orígenes que preservar (no la alimenta replicación lógica, la escribe el replicador Jet) → dropearla no pierde nada. ⚠️ Mientras la réplica está abajo **los publicadores retienen WAL** → **medir el disco libre de las 8 sucursales el día antes**, no suponerlo (si una está justa, se acorta la ventana o se hace esa rama por separado). Plan B (por rama, si alguna no retoma): `DROP`/`CREATE SUBSCRIPTION` con `copy_data=true` sólo de esa rama. | VL.2c |
@@ -153,6 +153,25 @@ Se **rechaza** explícitamente:
 | **VL.9** | ⬜ | **Prod on-prem (fase real, ADR aparte).** Coolify + Cloudflare Tunnel + Cloudflare Access; DB **nunca** por el túnel (apps↔Postgres por LAN privada). Prod mide hoy **30 GB en PG 18.6**. No arranca hasta que VL.0–VL.8 estén verdes. Se planeará con su propio doc; acá sólo condiciona el **dimensionamiento** (§6.1). | — |
 
 **Ruta crítica del pedido inmediato:** VL.0 → VL.1 → VL.2a → VL.2b → VL.2c → VL.3.
+
+### 6.0 La pila de versiones de VL.0 (lo que se instala, exacto)
+
+**SO: Ubuntu Server 24.04 LTS, amd64** — la imagen **"Server install image"** (no Desktop, no Cloud image), instalación **minimized**. Soporte estándar hasta **abril 2029**, que sobrevive con margen al horizonte de esta fase.
+
+*Por qué 24.04 y no la LTS siguiente:* para septiembre de 2026 la 24.04 lleva ~2.4 años de rodaje y todo lo que esta pila necesita ya está probado sobre `noble` (Docker CE, PGDG, `mdbtools`). La LTS siguiente tendría ~5 meses. En la caja que alimenta los números de la empresa no conviene ser el primero en encontrar el bug. ⚠️ **No fijo aquí el número de point-release ni afirmo el estado de los repos de la LTS siguiente** — eso se verifica en la página de descarga al momento de bajar el ISO, no de memoria.
+
+| Pieza | Versión / origen | Por qué así |
+|---|---|---|
+| **Kernel** | GA (`linux-generic`) | Sólo pasar a **HWE** si el instalador **no ve la NIC o el NVMe** — depende del hardware, que es la pregunta abierta A1 |
+| **Postgres en el host** | **ninguno** — sólo `postgresql-client-18` de **PGDG** (`apt.postgresql.org`, `noble-pgdg`) | El replica corre en el contenedor `pgvector/pgvector:pg18`. ⛔ **Los repos de Ubuntu 24.04 traen PG 16**, y `pg_dump` 16 **se niega** a volcar un servidor 18 — te enterás justo cuando necesitás el respaldo |
+| **Major de Postgres** | **18**, obligatorio | El volumen es **18.4** y prod **18.6**. La copia física de VL.2b **exige la misma major** |
+| **Docker** | **Docker CE del repo oficial** (`download.docker.com`, canal `stable`, `noble`) + `docker-compose-plugin` | ⛔ **No `docker.io` de Ubuntu**: es más viejo y trae `docker-compose` **v1**; los compose de este repo son **v2** (`docker compose`) |
+| **Node en el host** | **ninguno** | Todo va en contenedores `node:20`. Y de paso se corrige una deriva real: el repo declara `engines: node >=20 <21` y `.node-version 20.18.0`, pero hoy los carriles corren con el **Node 24 del host** (`C:\Program Files\nodejs\node.exe`) |
+| **Zona horaria** | `America/Mexico_City` en el host **y** en las imágenes | ⚠️ **No es cosmético**: los `@Cron` del proyecto están escritos asumiendo que el proceso corre en hora MX (`ENV TZ` en los Dockerfile de prod). Un host en UTC corre los nocturnos 6 h desfasados |
+| **Reloj** | `systemd-timesyncd` (o `chrony`) encendido | La frescura se juzga **comparando timestamps contra prod**. Un reloj corrido hace que `db-health` mienta en verde o en rojo, y este proyecto ya pagó por alarmas que decían lo que no era |
+| **Filesystem de datos** | **ext4**, `noatime`, partición aparte | Sin btrfs/ZFS con CoW debajo de Postgres en un solo disco |
+| **Kernel tuning** | `transparent_hugepage=never` · `vm.swappiness=1` | Lo estándar para Postgres; nada exótico |
+| **`unattended-upgrades`** | Sí, **con Docker en la lista negra** (`docker-ce`, `docker-ce-cli`, `containerd.io`) | Un upgrade desatendido del daemon **reinicia todos los contenedores en medio de una pasada de shipment**. Los parches de seguridad del SO sí se quieren; el reinicio del motor no |
 
 ### 6.1 Dimensionamiento — contra el fierro REAL (16 GB RAM · NVMe 256 GB WD PC SN740)
 
