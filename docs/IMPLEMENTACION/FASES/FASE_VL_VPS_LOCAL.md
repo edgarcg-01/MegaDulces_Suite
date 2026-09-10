@@ -6,8 +6,8 @@
 
 **Decisiones tomadas (Edgar, 2026-09-10):**
 
-1. **El fierro existe, sin SO**, con **16 GB RAM** (ampliable a 32) y **NVMe 256 GB WD PC SN740** → VL.0 instala **Ubuntu Server 26.04.1 LTS** (`resolute`, §6.0). **Alcanza con holgura para VL.0–VL.8; no alcanza para VL.9** (§6.1). Faltan núcleos y velocidad de NIC (§8.2 A1).
-2. **Alcance: ingesta ahora, prod después** → VL.9 (bajar Railway) pasa a ser fase real con su propio ADR, no un "condicional". **Y con el fierro real medido, prod exige compra: segundo disco de 1–2 TB + los 32 GB de RAM** (§6.1).
+1. **El fierro existe, sin SO** → VL.0 instala **Ubuntu Server 26.04.1 LTS** (`resolute`, §6.0). **Ya instalado y medido en vivo el 2026-09-10** (§6.1): `md` · `192.168.0.222` · Ryzen 5 4600G **6c/12h** · **14 GiB** · **NVMe BIWIN NV3500 de 1 TB** (no el SN740 de 256) · NIC **1 Gb/s**. **Alcanza para todo, VL.9 incluido.**
+2. **Alcance: ingesta ahora, prod después** → VL.9 (bajar Railway) pasa a ser fase real con su propio ADR, no un "condicional". **El disco de 1 TB tira abajo la compra de disco que este plan daba por necesaria**; queda sólo la RAM a 32 GB, y sólo para VL.9 (§6.1).
 3. **Wincaja/Access se decide en VL.5** → mientras tanto **se queda en `.249`**, declarado como pendiente con dueño y fecha. `.249` no se apaga del todo hasta cerrarlo (afecta VL.7).
 4. **Corte con ventana nocturna o de fin de semana** → copia física del volumen, camino sin hueco. Falta la fecha concreta y el chequeo previo de disco en los 8 publicadores.
 
@@ -180,30 +180,43 @@ Con los dos repos presentes el argumento se cae, y la 26.04.1 gana: es el **poin
 | **Kernel tuning** | `transparent_hugepage=never` · `vm.swappiness=1` | Lo estándar para Postgres; nada exótico |
 | **`unattended-upgrades`** | Sí, **con Docker en la lista negra** (`docker-ce`, `docker-ce-cli`, `containerd.io`) | Un upgrade desatendido del daemon **reinicia todos los contenedores en medio de una pasada de shipment**. Los parches de seguridad del SO sí se quieren; el reinicio del motor no |
 
-### 6.1 Dimensionamiento — contra el fierro REAL (16 GB RAM · NVMe 256 GB WD PC SN740)
+### 6.1 Dimensionamiento — el fierro REAL, medido en vivo (2026-09-10, por SSH)
 
-Todo lo de abajo está **medido**, no estimado.
+`md` · `192.168.0.222` · Ubuntu Server 26.04.1 LTS · usuario `superoot`.
 
-**RAM: los 16 GB alcanzan de sobra para VL.0–VL.8.** El stack completo de ingesta consume hoy **718 MB** (`pgvector-md` 560 MB · `ods-live-hot` 95 · `ods-live-mirror` 31 · `ods-reconcile` 19 · `autoheal` 7 · `redis` 5). Sumar los ~13 carriles del Programador agrega pasadas de Node de 100–200 MB cada una: pico realista **3–4 GB**. **Los 32 GB se necesitan recién para VL.9** (prod: un segundo Postgres con `shared_buffers` de verdad + builds de Angular con heap de 4–6 GB). O sea: la ampliación de RAM **no bloquea nada de lo que se quiere hacer ahora**.
+| | Medido |
+|---|---|
+| CPU | **AMD Ryzen 5 4600G** — 6 núcleos / **12 hilos** (mejor que el 3400G de `.249`, que es 4c/8t) |
+| RAM | **14 GiB utilizables** de 16 físicos (el resto lo reserva la Radeon integrada). En reposo usa **748 MiB** |
+| Disco | ⭐ **NVMe `BIWIN NV3500 1TB` — 953,9 GiB**, NO el WD SN740 de 256 GB |
+| Partición | `p1` 1 G EFI · `p2` 2 G `/boot` · `p3` **950,8 G como PV de LVM**, con sólo **100 G asignados a `/`** → **~850 GB libres en el grupo `ubuntu-vg`** |
+| Red | `enp6s0` a **1000 Mb/s** |
+| Reloj | ⚠️ `Etc/UTC`, NTP activo y sincronizado → **la TZ hay que corregirla** (lo hace el bootstrap) |
 
-**Disco: es el que manda, y el hallazgo lo desahoga.** `wincaja` (40 GB, **73 % del sustrato**) la consumen **sólo** el carril Wincaja y sus pruebas — el replicador, los importers bronze, el poller de tickets y los tests (`database/importers/wincaja/*`, `test-wincaja-replica-fidelidad.js`, `validate-sales-sources.js`). **La API no la toca:** `WincajaService` va por `TenantKnexService` = prod. Y como el carril Wincaja **se queda en `.249` hasta VL.5** (decisión D3), sus 40 GB **no tienen por qué quedarse residentes en el servidor nuevo**.
+**⭐ El disco de 1 TB tira abajo la restricción que dominaba esta sección.** El plan estaba dimensionado contra un NVMe de 256 GB y concluía que **prod (VL.9) no entraba** y exigía comprar un segundo disco. Con 953,9 GiB y **850 GB sin asignar en el VG**, eso deja de ser cierto:
 
-| Rubro | En el servidor nuevo | Nota |
+| Rubro | GB | Nota |
 |---|---|---|
-| Ubuntu Server 26.04.1 | ~15 GB | sin escritorio, instalación minimized |
-| Sustrato de ingesta **útil** | **~15 GB** | `kepler_md_00..07` 10.6 + `kepler_consolidado` 0.5 + overhead |
-| Imágenes Docker (con caché podado) | ~9 GB | hoy 8.6 GB imágenes + 8.3 GB de caché de build, reclamable |
-| WAL + temp + margen de autovacuum | ~15 GB | ver la nota de WAL abajo |
-| Respaldos locales comprimidos | ~5–8 GB | de 15 GB de datos |
-| **Total en régimen** | **≈ 60 GB de 238 GiB (25 %)** | cómodo |
-| Pico transitorio durante VL.2b | ~70 GB | la copia física trae los 55 GB antes del `DROP` |
-| Si Wincaja también migra en VL.5 | ≈ 105 GB (44 %) | sigue holgado |
+| `/` (ya asignado) | 100 | SO + Docker + builds, con 86 GB libres hoy |
+| Sustrato de ingesta **útil** | ~15 | `kepler_md_00..07` 10.6 + `kepler_consolidado` 0.5 (§3: `wincaja` se queda en `.249`) |
+| Si Wincaja migra en VL.5 | +40 | |
+| Prod, cuando llegue VL.9 | ~30 | hoy 30 GB en PG 18.6 |
+| WAL + temp + margen de autovacuum | ~25 | |
+| Respaldos locales | ~90 | 2 completos de prod + WAL |
+| **Total con TODO adentro** | **≈ 300 de 953** | **31 %** — y quedan ~650 GB de crecimiento |
 
-**⛔ Lo que NO entra: prod (VL.9).** OS 15 + ingesta 55 (con Wincaja) + prod 30 + Docker y builds 25 + WAL/temp 25 + respaldos de prod (2 completos + WAL) 60–90 = **210–240 GB de 238**, y eso es **estático, antes de crecer**. Dos Postgres al 90 % de disco es el escenario donde un `REFRESH MATERIALIZED VIEW` o un autovacuum que no cierra llena el volumen. **VL.9 exige un segundo disco** — no reemplazar el SN740: dejarlo para SO + Docker y poner los datos en un NVMe de 1–2 TB aparte, que además es la partición separada que VL.0 ya pide. Pregunta abierta A6: **¿tiene segundo slot M.2 o puertos SATA?**
+**Consecuencias:**
 
-**Desgaste del SSD: medido, y no es alarma.** El cluster genera **20 GB de WAL por día** (`pg_stat_wal`: 42 GB en 2.09 días). Sumando la escritura de páginas en los `checkpoint` y la amplificación propia de un SSD sin DRAM, el orden real es **~30–50 GB/día**. Contra el TBW declarado para esa capacidad (**confirmar en la etiqueta**: la familia SN740 ronda 100 TBW en 256 GB) da **del orden de 4–7 años**. Es un horizonte de reemplazo normal, no un problema. ⚠️ Lo que sí conviene saber del SN740: **es sin DRAM (usa HMB)** y en 256 GB la caché SLC es chica → la escritura sostenida cae después de los primeros ~10–20 GB. Eso **no afecta el goteo de 20 GB/día**, sí puede alargar la restauración inicial de VL.2b. Es una vez.
+- **VL.9 ya no exige comprar disco.** Cae la pregunta A6 (segundo slot M.2 / SATA): deja de ser bloqueante y pasa a ser opcional.
+- **La RAM sigue siendo la única compra pendiente**, y sólo para VL.9: el stack de ingesta consume **718 MB** hoy en `.249` (`pgvector-md` 560 · `ods-live-hot` 95 · `-mirror` 31 · `reconcile` 19 · `autoheal` 7 · `redis` 5), y con los ~13 carriles sumados el pico realista es **3–4 GB**. Los 14 GiB alcanzan de sobra para VL.0–VL.8. Los 32 se necesitan cuando entre el segundo Postgres y los builds de Angular.
+- **La partición de datos aparte sigue en pie**, pero ahora como **LV dentro del VG** en vez de disco separado: crear `lv_pgdata` en el espacio libre y montarlo en `/srv/pgdata`, ext4 `noatime`. Ventaja de haber instalado con LVM: se dimensiona ahora y se extiende después sin reinstalar.
+- **La NIC a 1 Gb/s confirma la ventana de VL.2b:** ~15–25 min de transferencia para los 55 GB, más apagado/arranque y verificación → **60–90 min con el ODS detenido**, como estaba planificado.
 
-**Veredicto:** el fierro que ya existe **sirve para todo el pedido inmediato y para VL.0–VL.8 con holgura**. Lo que hay que planificar como compra es el **segundo disco** antes de VL.9, y la RAM a 32 GB junto con él.
+⚠️ **Queda una pregunta menor:** dónde está el **WD SN740 de 256 GB**. No es el disco instalado. Si sigue disponible, no hace falta para nada — con 1 TB sobra; a lo sumo sirve de repuesto.
+
+**El SSD de 512 GB del adaptador** (hoy el medio de instalación) queda libre después de VL.0. Su mejor destino es **respaldo desconectado fuera del sitio**, que es justo lo que pide VL.8 y hoy no existe.
+
+**Desgaste: medido, y con este disco importa menos.** El cluster genera **20 GB de WAL por día** (`pg_stat_wal`: 42 GB en 2.09 días); con checkpoints y amplificación, **~30–50 GB/día** reales. Un NVMe de 1 TB tiene varias veces el TBW de uno de 256 y una caché SLC mucho más grande — el horizonte pasa de "4–7 años" a "más que la vida útil del equipo", y desaparece la advertencia sobre la restauración inicial lenta.
 
 ---
 
@@ -229,7 +242,7 @@ Todo lo de abajo está **medido**, no estimado.
 
 | # | Pregunta | Respuesta | Consecuencia en el plan |
 |---|---|---|---|
-| D1 | Estado del servidor | **Existe el fierro, sin SO**: **16 GB RAM** (ampliable a 32) + **NVMe 256 GB WD PC SN740** | VL.0 instala **Ubuntu Server 26.04.1 LTS** (`resolute` — Docker CE y PGDG verificados presentes, §6.0). **Alcanza con holgura para VL.0–VL.8** (§6.1: el stack usa 718 MB y el sustrato útil son ~15 GB). ⛔ **No alcanza para VL.9** → segundo disco + los 32 GB, juntos, antes de traer prod |
+| D1 | Estado del servidor | **Instalado y medido 2026-09-10**: `md` · `192.168.0.222` · Ryzen 5 4600G 6c/12h · 14 GiB · **NVMe 1 TB** · NIC 1 Gb/s · Ubuntu 26.04.1 | Alcanza para **VL.0–VL.9**. Los 850 GB sin asignar del VG cubren ingesta + prod + respaldos con ~650 GB de sobra. Sólo la RAM a 32 GB queda como compra, y sólo para VL.9 |
 | D2 | Alcance | **Ingesta ahora, prod después** | Dimensionar para los dos desde el día 1 (§6.1: 32 GB / 1 TB). VL.9 pasa a fase real; **VL.8 (UPS/respaldo) deja de ser opcional** |
 | D3 | Wincaja / Access | **Se decide en VL.5** | Las 3 tareas Wincaja **siguen en `.249`** hasta entonces, declaradas con dueño y fecha. VL.7 no las apaga |
 | D4 | Corte de la fuente | **Ventana nocturna / fin de semana** | Copia física (camino sin hueco). **Falta la fecha** → A2. Chequeo de disco en los 8 publicadores el día antes |
@@ -238,9 +251,9 @@ Todo lo de abajo está **medido**, no estimado.
 
 ### 8.2 Abiertas — bloquean VL.0 o la ventana
 
-**A1 — Núcleos y red del fierro.** RAM y disco ya están (D1). Falta: **cuántos núcleos reales** y si la NIC es **gigabit**. *La NIC define la ventana de VL.2b: 55 GB a 1 Gb/s son ~15–25 min; a 100 Mb/s serían ~2.5 h y el plan de corte cambia.*
+**A1 — ✅ CERRADA 2026-09-10.** 6 núcleos / 12 hilos (Ryzen 5 4600G) y NIC a **1000 Mb/s** → la ventana de VL.2b queda confirmada en **60–90 min**.
 
-**A6 — ¿Hay dónde poner un segundo disco?** ¿Segundo slot **M.2** libre, o puertos **SATA**? Y de paso: el SN740 de 256 GB, ¿es **2280** o **2230**? *No bloquea el arranque — bloquea VL.9. Si no hay slot libre, la única salida para prod es reemplazar el SN740 por uno de 1–2 TB, y entonces conviene comprarlo de una vez y dejar el de 256 para el SO.* **Confirmar el TBW en la etiqueta** (§6.1 asume el orden de 100 TBW para esa capacidad).
+**A6 — ✅ YA NO APLICA.** El disco instalado es de **1 TB**, no de 256: no hace falta un segundo disco para VL.9. *(Queda la curiosidad menor de dónde quedó el WD SN740 de 256 GB — no se necesita.)*
 
 **A2 — La ventana concreta.** Fecha y hora del corte de VL.2b. *La copia de 55 GB por gigabit son ~15–25 min de transferencia; con apagado, arranque y verificación: **60–90 min con el ODS detenido**. Mientras tanto los 8 publicadores retienen WAL, así que la ventana define cuánto disco necesitan aguantar.*
 
