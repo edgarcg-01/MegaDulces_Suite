@@ -89,9 +89,18 @@ export class FleetAlertsService {
         ];
 
         for (const c of conditions) {
-          const open = await trx('logistics.fleet_alerts')
-            .where({ tracker_id: t.id, kind: c.kind, status: 'open' })
+          // VIVA = `open` **o** `ack`. Antes se buscaba sólo `open`, así que una
+          // alerta reconocida no se encontraba y el scanner INSERTABA otra a los
+          // 5 min (el índice único parcial es `WHERE status='open'`, no la frena).
+          // Resultado: "Reconocer" silenciaba 5 minutos, duplicaba la fila y
+          // dejaba la `ack` colgada para siempre — `listActive` muestra las dos.
+          // Ahora la ack se actualiza en su lugar (sigue silenciada) y se cierra
+          // como cualquier otra cuando la condición se va.
+          const viva = await trx('logistics.fleet_alerts')
+            .where({ tracker_id: t.id, kind: c.kind })
+            .whereIn('status', ['open', 'ack'])
             .first('id');
+          const open = viva;
           if (c.on) {
             if (open) {
               await trx('logistics.fleet_alerts')

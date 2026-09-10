@@ -237,10 +237,15 @@ function severityLiq(s: LiquidationStatus): Severity {
             <div><span class="label">Viáticos</span><strong class="num">\${{ l.per_diem_amount | number:'1.2-2' }}</strong></div>
             <div><span class="label">Carga/desc</span><strong class="num">\${{ l.load_unload_amount | number:'1.2-2' }}</strong></div>
           </div>
-          <div class="row">
-            <label><span>Bonos</span><p-inputnumber formControlName="bonuses" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-            <label><span>Deducciones</span><p-inputnumber formControlName="deductions" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
+          <div class="info-grid">
+            <div><span class="label">Bonos</span><strong class="num pos">+\${{ l.bonuses | number:'1.2-2' }}</strong></div>
+            <div><span class="label">Deducciones</span><strong class="num neg">-\${{ l.deductions | number:'1.2-2' }}</strong></div>
           </div>
+          <p class="derived-note">
+            <i class="pi pi-info-circle" aria-hidden="true"></i>
+            Bonos y deducciones se calculan desde los <strong>ajustes de nómina</strong>. Para moverlos,
+            registrá un ajuste en la pestaña de abajo — así queda el tipo, el monto y el motivo.
+          </p>
           <label><span>Estado</span>
           <p-select formControlName="status" [options]="liqStatusOptions" optionLabel="label" optionValue="value" appendTo="body"></p-select>
         </label>
@@ -345,8 +350,9 @@ export class LogisticaPayrollComponent {
     notes: [''],
   });
 
+  // Sin bonuses/deductions: son derivadas de los ajustes de nomina y el backend
+  // rechaza el intento (400). Ver UpdateLiquidationDto en logistics-payroll.service.
   liqForm: FormGroup = this.fb.group({
-    bonuses: [0], deductions: [0],
     status: ['calculado' as LiquidationStatus],
     notes: [''],
   });
@@ -423,10 +429,7 @@ export class LogisticaPayrollComponent {
 
   openEditLiquidation(l: Liquidation) {
     this.editingLiq.set(l);
-    this.liqForm.reset({
-      bonuses: l.bonuses, deductions: l.deductions,
-      status: l.status, notes: l.notes || '',
-    });
+    this.liqForm.reset({ status: l.status, notes: l.notes || '' });
     this.liqDialog = true;
   }
   saveLiquidation() {

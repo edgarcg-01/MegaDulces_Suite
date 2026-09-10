@@ -210,7 +210,14 @@ export class LogisticsAnalyticsService {
         trx.raw('COALESCE(e.fixed_cost_per_km, 0)::numeric AS fixed_cost_per_km'),
         'v.plate as vehicle_plate',
         'r.name as route_name',
-      ]).limit(limit);
+      ])
+        // El ORDEN va en SQL, no en JS. Antes el `.limit()` recortaba PRIMERO en el
+        // orden arbitrario del heap y recién después se ordenaba por margen en
+        // memoria: el "top N por margen" que promete el endpoint era en realidad
+        // "N embarques cualesquiera, ordenados entre sí". Con 6 filas no se nota;
+        // en cuanto el rango supera el limit, la lista miente.
+        .orderByRaw('(COALESCE(s.freight_revenue,0) - COALESCE(e.total_cost,0)) DESC')
+        .limit(limit);
 
       return rows
         .map((r) => {

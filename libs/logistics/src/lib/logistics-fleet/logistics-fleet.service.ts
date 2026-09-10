@@ -13,6 +13,14 @@ export interface CreateVehicleDto {
   model?: string;
   brand?: string;
   year?: number;
+  // FC.1 — datos que pide el formato de asignación vehicular. Las columnas
+  // existían en DB desde la migración pero NO estaban en el DTO, así que el
+  // alta los descartaba en silencio: la primera hoja cargada guardó el color y
+  // el número de serie como NULL.
+  economic_number?: string;
+  vin?: string;
+  engine_number?: string;
+  color?: string;
   fuel_efficiency_km_l?: number;
   capacity_boxes?: number;
   capacity_kg?: number;
@@ -86,6 +94,10 @@ export class LogisticsFleetService {
           model: dto.model || null,
           brand: dto.brand || null,
           year: dto.year || null,
+          economic_number: dto.economic_number || null,
+          vin: dto.vin || null,
+          engine_number: dto.engine_number || null,
+          color: dto.color || null,
           fuel_efficiency_km_l: dto.fuel_efficiency_km_l || null,
           capacity_boxes: dto.capacity_boxes || null,
           capacity_kg: dto.capacity_kg || null,
@@ -142,7 +154,7 @@ export class LogisticsFleetService {
       }
 
       const patch: Record<string, any> = { updated_at: trx.fn.now() };
-      for (const k of ['plate', 'model', 'brand', 'year', 'fuel_efficiency_km_l', 'capacity_boxes', 'capacity_kg', 'status', 'notes', 'active'] as const) {
+      for (const k of ['plate', 'model', 'brand', 'year', 'economic_number', 'vin', 'engine_number', 'color', 'fuel_efficiency_km_l', 'capacity_boxes', 'capacity_kg', 'status', 'notes', 'active'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
 
@@ -589,42 +601,111 @@ export class LogisticsFleetService {
   }
 
   /**
-   * Rendimiento real de combustible por unidad: km recorridos (de usage logs
-   * cerrados) / litros cargados, comparado con el spec `fuel_efficiency_km_l`.
-   * Detecta fugas/fraude cuando el real cae muy por debajo del spec.
+   * Rendimiento real de combustible por unidad: km recorridos / litros cargados,
+   * contra el spec `fuel_efficiency_km_l`.
+   *
+   * LITROS: hay TRES escritores y este método leía UNO solo
+   * (`vehicle_usage_logs.fuel_loaded_liters`, la casilla del check-out). Los
+   * otros dos son `logistics.fuel_transactions` — que alimenta el formulario
+   * "Combustible · Registrar carga" de la MISMA pestaña — y
+   * `logistics.route_expenses` con un tipo marcado `lleva_litros`, que hoy es la
+   * única fuente con captura real. Con un solo lector, quien capturaba por los
+   * otros dos veía `real_km_l = null`, y quien usaba dos veía el rendimiento al
+   * doble. Ahora se suman las tres y se publica `liters_by_source` para que el
+   * número sea explicable.
+   *
+   * COBERTURA: los litros de `route_expenses` no traen `vehicle_id` (se importan
+   * por `route_code`), así que NO son atribuibles a una unidad. No se reparten ni
+   * se dibujan como cero: se devuelven aparte en `unattributed`, para que la
+   * pantalla pueda decir cuánto combustible quedó fuera del cálculo.
    */
   async fuelEfficiency() {
     return this.tk.run(async (trx) => {
-      const agg = (
+      const kmRows = (
         await trx.raw(`
           SELECT vehicle_id,
                  SUM(GREATEST(check_out_km - check_in_km, 0)) AS km,
-                 SUM(COALESCE(fuel_loaded_liters, 0)) AS liters,
                  COUNT(*) AS trips
             FROM logistics.vehicle_usage_logs
            WHERE status='cerrado' AND check_out_km IS NOT NULL
            GROUP BY vehicle_id`)
       ).rows;
-      const aggByVehicle = new Map<string, any>(agg.map((r: any) => [r.vehicle_id, r]));
+      const kmByVehicle = new Map<string, any>(kmRows.map((r: any) => [r.vehicle_id, r]));
+
+      // Litros por unidad, de las tres fuentes, etiquetados por origen.
+      const litersRows = (
+        await trx.raw(`
+          SELECT vehicle_id, 'usage_log' AS src, SUM(COALESCE(fuel_loaded_liters,0)) AS liters
+            FROM logistics.vehicle_usage_logs
+           WHERE status='cerrado' AND vehicle_id IS NOT NULL
+           GROUP BY vehicle_id
+          UNION ALL
+          SELECT vehicle_id, 'fuel_transaction', SUM(COALESCE(liters,0))
+            FROM logistics.fuel_transactions
+           WHERE deleted_at IS NULL AND vehicle_id IS NOT NULL
+           GROUP BY vehicle_id
+          UNION ALL
+          SELECT e.vehicle_id, 'route_expense', SUM(COALESCE(e.liters,0))
+            FROM logistics.route_expenses e
+            JOIN logistics.route_expense_types t ON t.code = e.expense_type
+           WHERE t.lleva_litros AND e.vehicle_id IS NOT NULL
+           GROUP BY e.vehicle_id`)
+      ).rows;
+      const litersByVehicle = new Map<string, Record<string, number>>();
+      for (const r of litersRows as any[]) {
+        const cur = litersByVehicle.get(r.vehicle_id) || { usage_log: 0, fuel_transaction: 0, route_expense: 0 };
+        cur[r.src] = Number(r.liters) || 0;
+        litersByVehicle.set(r.vehicle_id, cur);
+      }
+
+      // Lo que NO se puede atribuir: combustible capturado sin unidad.
+      const [orphan] = (
+        await trx.raw(`
+          SELECT COALESCE(SUM(e.liters),0)::numeric AS liters,
+                 COALESCE(SUM(e.total),0)::numeric  AS amount,
+                 COUNT(*)::int                      AS rows
+            FROM logistics.route_expenses e
+            JOIN logistics.route_expense_types t ON t.code = e.expense_type
+           WHERE t.lleva_litros AND e.vehicle_id IS NULL`)
+      ).rows;
 
       const vehicles = await trx('logistics.vehicles')
         .whereNull('deleted_at').where({ active: true })
         .select('id', 'plate', 'model', 'brand', 'fuel_efficiency_km_l');
 
-      return vehicles.map((v: any) => {
-        const a = aggByVehicle.get(v.id);
+      const items = vehicles.map((v: any) => {
+        const a = kmByVehicle.get(v.id);
+        const bySrc = litersByVehicle.get(v.id) || { usage_log: 0, fuel_transaction: 0, route_expense: 0 };
         const km = a ? Number(a.km) : 0;
-        const liters = a ? Number(a.liters) : 0;
-        const real = liters > 0 ? Math.round((km / liters) * 100) / 100 : null;
+        const liters = bySrc.usage_log + bySrc.fuel_transaction + bySrc.route_expense;
+        const real = liters > 0 && km > 0 ? Math.round((km / liters) * 100) / 100 : null;
         const spec = v.fuel_efficiency_km_l != null ? Number(v.fuel_efficiency_km_l) : null;
         const deviation_pct = real != null && spec ? Math.round(((real - spec) / spec) * 1000) / 10 : null;
         return {
           vehicle_id: v.id, plate: v.plate, model: v.model, brand: v.brand,
-          km, liters, trips: a ? Number(a.trips) : 0,
+          km, liters, liters_by_source: bySrc, trips: a ? Number(a.trips) : 0,
           real_km_l: real, spec_km_l: spec, deviation_pct,
-          flag: deviation_pct != null && deviation_pct <= -15, // real ≥15% bajo spec
+          // Sin km o sin litros no hay rendimiento: se declara, no se inventa un 0.
+          no_medible: real == null ? (km === 0 ? 'sin km cerrados' : 'sin litros') : null,
+          flag: deviation_pct != null && deviation_pct <= -15,
         };
       });
+
+      return {
+        items,
+        coverage: {
+          vehicles_total: items.length,
+          vehicles_medibles: items.filter((i: any) => i.real_km_l != null).length,
+        },
+        unattributed: {
+          liters: Number(orphan?.liters || 0),
+          amount: Number(orphan?.amount || 0),
+          rows: Number(orphan?.rows || 0),
+          detail:
+            'Combustible capturado en logistics.route_expenses sin vehicle_id (se importa por route_code). ' +
+            'No entra en ningún km/L hasta que se le asigne unidad.',
+        },
+      };
     });
   }
 
