@@ -1877,3 +1877,159 @@ Medido: **77 → 7 líneas/min y 129% → 0.19% de CPU**, con la replicación in
 3. **Validar la inserción**, no el estado del worker: `pg_subscription_rel.srsubstate` debe llegar a
    `r`, y los conteos de las dos puntas tienen que coincidir. Un worker `VIVO` con `lag=0s` convive
    perfectamente con 7 tablas en `d` (copiando) que no avanzan nunca.
+confunda con la fuente): `md_03` (2.4 GB, 329 tablas en `md`, **0 subscriptions**, congelada) y
+`kepler_consolidado` (516 MB, 0 tablas en `md`).
+
+---
+
+## 37. Dark mode: los **alias** de token están congelados en su valor CLARO (`--border`, `--surface-card`, `--c-text-*`)
+
+**Síntoma:** escribís CSS "sin hex crudo", como manda `DESIGN.md`, y en oscuro te sale una columna
+**blanca** en medio de la tabla, o el título de la página **invisible**. En claro se ve perfecto.
+
+**Medido en runtime** (Chrome DevTools, `/compras/reclamos` y `/compras/hallazgos`, body con
+`theme-monochrome`, 2026-09-08):
+
+| Token | En oscuro | |
+|---|---|---|
+| `--text-main` `--text-muted` `--text-faint` | `#FBF4E9` `#B0A595` `#837A6C` | ✅ correcto |
+| `--border-color` `--card-bg` `--layout-bg` `--hover-bg` | `#2A2A2A` `#1A1A1A` `#111111` `#252525` | ✅ correcto |
+| `--ink-rgb` `--bad-fg` `--warn-fg` `--ok-fg` `--action` | flipean bien | ✅ correcto |
+| **`--border`** **`--divider`** **`--c-divider`** | **`#E8E2D7`** (¡hairline claro!) | ❌ congelado |
+| **`--surface-card`** **`--c-surface-1`** | **`#FFFFFF`** (¡celda blanca!) | ❌ congelado |
+| **`--c-text-1`** **`--c-text-2`** | **`#100D09`** `#5E564B` | ❌ congelado |
+| `--surface` · `--text-body` | *vacío* | ❌ **no existen** |
+
+**Causa (es CSS puro, no un bug de nadie en particular):** la capa de alias está declarada en
+**`:root`** (`libs/design-tokens/tokens.css` ~226-250 y ~188: `--border: var(--border-color)`,
+`--surface-card: var(--card-bg)`, `--c-text-1: var(--text-main)`) mientras el **tema oscuro vive en
+`body.theme-monochrome`**. Una custom property se sustituye **en el elemento donde se declara**: el
+alias resuelve `var(--card-bg)` *en `:root`*, donde todavía rige el valor claro, y ese valor ya
+resuelto se hereda hacia abajo. La override de `body` nunca lo alcanza.
+
+**Regla:** en CSS nuevo usá **sólo tokens que el bloque oscuro redefine** —
+`--text-main/-muted/-faint` · `--border-color` · `--card-bg` · `--layout-bg` · `--hover-bg` ·
+`--ink-rgb` · `--bad-fg`/`--warn-fg`/`--ok-fg` · `--action`. Y **verificá el token en el elemento**,
+no en `documentElement`: `getComputedStyle(miCelda).getPropertyValue('--surface-card')` — leerlo del
+root da el valor claro y te miente en la dirección exactamente equivocada.
+
+**No alcanza con "probé en oscuro" a ojo:** el fondo de página sí flipea (viene de `--layout-bg`),
+así que la pantalla *parece* correcta y el defecto queda en detalles — una celda sticky, un hairline,
+un `h1`.
+
+⚠️ **Pendiente de decisión (Edgar):** el `h1`/subtítulo de `.surf-page-head` usa `--c-text-1`/`--c-text-2`
+(`apps/view/src/styles.css:2631-2643`), así que **el título de TODA pantalla Operations está
+ilegible en oscuro** — reproducido en `/compras/hallazgos`, que nadie tocó. El arreglo es mover la
+capa de alias a `body` (o duplicarla dentro de `body.theme-monochrome`), pero toca las ~30 pantallas
+a la vez, así que va como item propio y no colgado de una feature.
+
+---
+
+## 43. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde)
+
+> Numeración: las §39–§42 llegan en el PR #76 (micrófono). El salto es a propósito, se cierra cuando ese PR entre.
+
+Pasó dos veces el mismo día, y es de las peores porque **el build reporta éxito**:
+
+```bash
+cd /c/Users/Administrator/tm-arqueo-desglose   # worktree, rama con mis cambios
+npx nx build api --skip-nx-cache               # exit 0, "Successfully ran target build"
+grep -c solo_hoy dist/apps/api/main.js         # 0  ← mi cambio NO está
+```
+
+El bundle salió en `C:/Users/Administrator/Trade_marketing/dist/apps/api` (el checkout **principal**, que estaba en otra rama), compilando *sus* fuentes. Un `git worktree` no tiene `node_modules` propios: apuntan por junction a los del repo principal, `npx` resuelve el `nx` de allá y nx toma **ese** directorio como workspace root, sin importar el `cwd`. `NX_DAEMON=false` **no** alcanza.
+
+**Consecuencia:** todo el ciclo de verificación miente. El smoke corre contra una API construida de otra rama y falla sólo en las aserciones nuevas — que se lee exactamente igual que "mi feature está mal". Se pierde media hora buscando el bug en el lugar equivocado.
+
+**Arreglo:**
+
+```bash
+NX_WORKSPACE_ROOT_PATH="$PWD" npx nx build api --skip-nx-cache
+```
+
+**Y la regla que importa: nunca confiar en el exit code — verificar el ARTEFACTO.** Basta un marcador del cambio:
+
+```bash
+grep -c "<algo que sólo existe en mi cambio>" dist/apps/api/main.js   # tiene que dar > 0
+ls -la dist/apps/<app>/main.js                                        # y la fecha, de HOY
+```
+
+Vale para los tres proyectos (`api`, `view`, `vendor`) y para `nx test`. Si el `dist` del worktree tiene fecha vieja mientras el build dijo OK, es esto.
+
+**Emparentado:** el mismo junction hace que la línea de comandos de un `nx serve` muestre siempre `Trade_marketing\node_modules`, así que **la ruta del proceso no dice qué rama está sirviendo** — hay que mirar el artefacto igual.
+
+---
+
+## 44. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario
+
+`libs/reconciliation/src/lib/store-arqueo.controller.ts` tenía, commiteado:
+
+```ts
+cajero_code: revela ? undefined : (user?.username || '\x00'),   // ← NUL real, no la secuencia
+```
+
+Los otros dos usos del mismo patrón en ese archivo usan `' '` (un espacio) — un centinela que no casa con nada y **falla cerrado**: sin username, la cajera no ve nada. Con el NUL falla distinto: **Postgres no admite NUL en `text`**, así que `upper(cajero_code) = <NUL>` levanta `22021 invalid byte sequence for encoding "UTF8": 0x00` y el endpoint devuelve **500** en vez de una lista vacía.
+
+Cómo se delata, y es fácil pasarlo por alto: `grep` deja de tratar el archivo como texto.
+
+```
+Binary file libs/reconciliation/src/lib/store-arqueo.controller.ts matches
+```
+
+Ese aviso es la pista. Para encontrarlos en todo el repo:
+
+```bash
+python -c "
+import os, io
+for base in ('libs','apps','database'):
+    for root, ds, fs in os.walk(base):
+        if 'node_modules' in root: continue
+        for f in fs:
+            if f.endswith(('.ts','.js','.json','.css','.html','.md')):
+                p = os.path.join(root, f)
+                if b'\x00' in io.open(p,'rb').read(): print(p)
+"
+```
+
+**Un falso positivo legítimo:** `libs/fiscal/src/lib/cfdi/cfdi.service.ts` tiene caracteres de control **a propósito** dentro del regex que limpia nombres de archivo, y lo declara con un `eslint-disable-next-line no-control-regex` justo arriba. Ese se queda: si el `eslint-disable` está, es intencional; si no está, es corrupción.
+
+## Un `node_modules` enlazado por junction hace que nx pruebe OTRO árbol (2026-09-10)
+
+Para no reinstalar el monorepo en un worktree nuevo, se enlaza `node_modules` con un junction al del checkout principal. Los builds salen bien — pero **`nx test` corre los specs del OTRO árbol**, y lo hace en silencio: reporta verde y ni un archivo de tu rama se ejecutó.
+
+Se ve con `--listTests`, que imprime rutas absolutas:
+
+```
+npx nx test commercial -- --listTests
+C:\\Users\\Administrator\\Trade_marketing\\libs\\commercial\\...   <-- el checkout principal, no el worktree
+```
+
+**Por qué:** Windows resuelve el junction al **destino**, así que cualquier herramienta que pase por `node_modules` y camine hacia arriba buscando la raíz del workspace aterriza en el árbol original. No es el daemon: con `NX_DAEMON=false` pasa igual.
+
+**Cómo medirlo de verdad** — jest directo, con `rootDir` absoluto al worktree:
+
+```bash
+cd <worktree>/libs/commercial
+node ../../node_modules/jest/bin/jest.js --config jest.config.ts \
+  --rootDir "<ruta absoluta del worktree>/libs/commercial"
+```
+
+La diferencia no es cosmética: en la rama de integración nx decía **2 suites / 30 tests** en `commercial` y la corrida real eran **4 / 60**; en `view`, **5 / 56** contra **15 / 184**. Un "verde" que no ejecutó tu código es peor que un rojo.
+
+## Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10)
+
+Reportado como *"a pesar de que elijo la sucursal no me libera el guardar"* en `/tienda/caducidades`. No era el permiso ni el alcance: el botón se gateaba con
+
+```ts
+readonly falta = computed(() => { ...
+  if (this.puedeElegirSucursal() && !this.warehouseId) pend.push('la sucursal');  // ← campo plano
+});
+warehouseId = '';        // NO es signal
+cantidad: number | null = 1;   // tampoco
+```
+
+Un `computed` **sólo se re-evalúa cuando cambia un signal que leyó**. `[(ngModel)]` escribía el campo plano, ningún signal cambiaba, y el `computed` servía su valor cacheado: *"falta la sucursal"* con la sucursal ya elegida. Lo desconcertante es que **se arreglaba solo** al tocar producto o fecha — ésos sí son signals y despertaban el cálculo.
+
+**La regla:** todo lo que un `computed` lea tiene que ser signal. Si viene de `ngModel`, va como `[ngModel]="sig()" (ngModelChange)="sig.set($event)"` — el banana-in-box no existe para signals.
+
+**Y el contraste que lo explica:** en `/tienda/arqueo` el mismo tipo de compuerta es `canSubmit(): boolean`, un **método**, y ahí nunca falló: los métodos se re-evalúan en cada ciclo de change-detection. Migrar un método a `computed` es un cambio de semántica, no una optimización — si sus dependencias no son signals, lo rompe en silencio.

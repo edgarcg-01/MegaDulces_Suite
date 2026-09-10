@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { ToastModule } from 'primeng/toast';
@@ -24,7 +25,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
 @Component({
   selector: 'app-compras-proveedores',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -73,6 +74,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <th class="cp-r cp-sep" title="RA-PRO.27 — fill rate manual (%): gana sobre el histórico. Vacío = automático por recepciones.">Fill %</th>
             <th class="cp-r" title="RA-PRO.27 — colchón adicional % sobre el sugerido de este proveedor">Colchón %</th>
             <th class="cp-r" title="RA-PRO.27 — días de cobertura propios (reemplazan el global del filtro)">Cobertura (d)</th>
+            <th class="cp-r cp-sep" title="WMS-REC.8 — faltantes reclamados en la ventana (los que no se descartaron bajan el fill rate)">Reclamos</th>
             <th class="cp-r" style="width:6rem"></th>
             <th style="width:2rem"></th>
           </tr>
@@ -87,10 +89,23 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <td class="cp-r cp-sep">
               <input pInputText type="number" min="1" max="100" [(ngModel)]="r.fill_pct" (change)="saveParam(r, { fill_rate_override: r.fill_pct == null || r.fill_pct === undefined ? null : numOrNull(r.fill_pct)! / 100 })" class="cp-num" [class.cp-unset]="r.fill_pct == null"
                      [placeholder]="r.fill_rate_auto != null ? ((r.fill_rate_auto * 100 | number:'1.0-0') + '% auto') : 'auto'"
-                     [title]="r.fill_receptions ? (r.fill_receptions + ' recepciones en la ventana') : 'sin historia — asume 100%'" />
+                     [title]="fillTip(r)" />
+              <!-- WMS-REC.8 — de dónde salió el número: OCs nuestras, el andén, o las dos. -->
+              @if (r.fill_evidence && r.fill_evidence !== 'none') {
+                <span class="cp-ev" [title]="fillTip(r)">{{ evLabel(r.fill_evidence) }}</span>
+              }
             </td>
             <td class="cp-r"><input pInputText type="number" min="0" max="100" [(ngModel)]="r.safety_pct" (change)="saveParam(r, { safety_pct: numOrNull(r.safety_pct) })" class="cp-num" [class.cp-unset]="r.safety_pct == null" [placeholder]="r.auto_safety_pct ? (r.auto_safety_pct + '% auto') : '0'" /></td>
             <td class="cp-r"><input pInputText type="number" min="1" max="120" [(ngModel)]="r.coverage_days_override" (change)="saveParam(r, { coverage_days_override: numOrNull(r.coverage_days_override) })" class="cp-num" [class.cp-unset]="r.coverage_days_override == null" [placeholder]="r.auto_coverage_days ? (r.auto_coverage_days + ' auto') : 'global'" /></td>
+            <td class="cp-r cp-sep">
+              @if (r.claims_open) {
+                <a class="cp-claims" [routerLink]="['/compras/reclamos']" [queryParams]="{ status: 'abiertos', supplier_id: r.id }"
+                   [title]="'Ver los ' + r.claims_open + ' reclamo(s) abiertos de este proveedor'">
+                  {{ r.claims_open | number }}
+                  @if (r.claims_amount_open) { <span class="cp-claims-amt">{{ money(r.claims_amount_open) }}</span> }
+                </a>
+              } @else { <span class="cp-none">—</span> }
+            </td>
             <td class="cp-r"><button pButton type="button" class="p-button-sm p-button-text" (click)="openOrder(r)"><span class="p-button-icon p-button-icon-left pi pi-list" aria-hidden="true"></span><span class="p-button-label">Ver pedido</span></button></td>
             <td class="cp-r">@if (savedId() === r.id) { <i class="pi pi-check cp-ok"></i> }</td>
           </tr>
@@ -177,6 +192,12 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
     .cp-dlg-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
     .cp-dlg-table th { text-align: left; color: var(--text-muted); font-weight: 600; font-size: .7rem; text-transform: uppercase; padding: .25rem .5rem; border-bottom: 1px solid var(--border-color); }
     .cp-dlg-table td { padding: .25rem .5rem; border-bottom: 1px solid var(--border-color); }
+    /* WMS-REC.8 — procedencia del fill rate + reclamos abiertos */
+    .cp-ev { display: block; font-size: .64rem; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-top: .1rem; }
+    .cp-claims { display: inline-flex; flex-direction: column; align-items: flex-end; gap: .05rem; color: var(--bad-fg); font-weight: 700; font-variant-numeric: tabular-nums; text-decoration: none; }
+    .cp-claims:hover, .cp-claims:focus-visible { text-decoration: underline; }
+    .cp-claims-amt { font-size: .68rem; font-weight: 500; color: var(--text-muted); }
+    .cp-none { color: var(--text-muted); }
   `],
 })
 export class ComprasProveedoresComponent implements OnInit {
@@ -248,4 +269,17 @@ export class ComprasProveedoresComponent implements OnInit {
   }
 
   money(v: number | string | null | undefined) { return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }); }
+
+  // WMS-REC.8 — procedencia del fill rate. `recv` = vales de entrada del andén con su
+  // reclamo; `po` = nuestras órdenes de compra. La compra mayoritaria nace en Kepler, así
+  // que sin el andén este número decía 100% por falta de datos, no por buen surtido.
+  evLabel(ev: string): string {
+    return ({ po: 'OC', recv: 'andén', 'po+recv': 'OC+andén' } as Record<string, string>)[ev] || '';
+  }
+  fillTip(r: SupplierParam): string {
+    if (!r.fill_receptions) return 'sin historia — asume 100%';
+    const src = ({ po: 'órdenes de compra', recv: 'vales de entrada del andén', 'po+recv': 'órdenes de compra + vales del andén' } as Record<string, string>)[r.fill_evidence || 'none'] || 'historia';
+    const cl = r.claims_open ? ` · ${r.claims_open} reclamo(s) abierto(s)` : '';
+    return `${r.fill_receptions} renglón(es) en la ventana, de ${src}${cl}`;
+  }
 }

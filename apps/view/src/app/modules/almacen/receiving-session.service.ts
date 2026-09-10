@@ -82,6 +82,28 @@ export interface ReceivingSession {
   progress?: ReceivingSessionProgress;
   /** Datos del vale del ERP (solo si source_kind='erp_receipt'). */
   erp?: ErpVale | null;
+  /**
+   * De dónde viene la mercancía (`receiving-origin.ts` en el backend). `name` es el
+   * nombre que trae el documento — nunca una sucursal deducida del código `TI###`.
+   */
+  origin?: {
+    kind: 'supplier' | 'transfer';
+    isCedis: boolean;
+    label: string;
+    name: string | null;
+  } | null;
+  /**
+   * WMS-REC.8 — lo que el CIERRE levantó como reclamo (sólo viene en la respuesta de
+   * `close`). Antes el andén prometía "el proveedor lo va a ver en su scorecard" sin que
+   * existiera registro alguno; ahora puede decir qué se levantó y a quién.
+   */
+  claims?: {
+    raised: number;
+    items: Array<{
+      id: string; kind: string; qty_claimed: number | null;
+      qty_unit: string | null; amount: number | null; sku: string | null; product_name: string | null;
+    }>;
+  };
 }
 
 export interface ReceivingSessionListItem extends ReceivingSession {
