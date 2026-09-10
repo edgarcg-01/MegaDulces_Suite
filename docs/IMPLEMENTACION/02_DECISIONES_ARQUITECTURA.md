@@ -1763,3 +1763,23 @@ Y la observación de la que sale todo: **Kepler no *resuelve* la unidad, nunca l
 - ⚠️ **Un candado no puede afirmar sobre el TEXTO del SQL** (se pone rojo solo al refactorizar) ni **fijar una cifra viva al entero** (el shipper del ODS la mueve). Grafo de dependencias y bandas.
 - Siete candados sostienen esto (**stock-truth 21/21 · sales-line-units 38/38 · kepler-parity 8/8 · fact-vs-kepler 21/21 · existencia 23/23 · unit-truth 40/40 · transfer-leak**), y **se corren contra `FLEET_DB_URL`**: el `DATABASE_URL_NEW` del `.env` es `platform_test`, no prod.
 - ⚠️ **Colisión evitada:** ADR-058 ya estaba tomado por Fase CV, y el plan de la Fase K también lo reclamaba. Esta línea es **059**.
+
+---
+
+## ADR-060
+
+**La capa de ingesta se muda a un servidor Linux dedicado, y se muda como una UNIDAD: fuente + carriles + agenda.** (Fase VL — propuesto 2026-09-10)
+
+**Contexto medido en `.249` el 2026-09-10.** La máquina de trabajo de Sistemas (Windows 11, Ryzen 5 3400G, 30 GB RAM, `C:` con 94 GB libres) sostiene hoy toda la ingesta del negocio: **6 contenedores** (los 4 del ODS + `pgvector-md` con las 8 réplicas Kepler y `wincaja`, volumen de **54.73 GB** + `redis`) y **21 tareas del Programador de Windows**, de las cuales **17 corren como usuario, no como SYSTEM** — o sea dependen de una sesión abierta.
+
+**El hallazgo que reformula el pedido.** "Mover el contenedor del ODS" tomado literalmente **no rinde**: su fuente es `ODS_SOURCE_BASE = host.docker.internal:5433`, el contenedor `pgvector-md` de la misma máquina, alimentado por **8 suscripciones de replicación lógica vivas** desde 8 subredes distintas. Si los carriles se van y la fuente se queda, `.249` sigue siendo dependencia dura de la venta publicada y sólo se agrega un salto de red a la ruta caliente. **La unidad mínima que sí rinde es el par fuente + carriles.**
+
+**Decisión.** El sustrato es **Docker Compose declarado en el repo**, no tareas del sistema operativo — el defecto que se está corrigiendo no es el lenguaje del lanzador (`.vbs`/`.cmd`), es que la agenda vive fuera del repo y **no declara entrega**. La fuente se muda por **copia física del volumen** (misma major PG 18), que preserva `pg_replication_origin` y deja que las 8 suscripciones **retomen desde su slot sin hueco**; se rechaza `copy_data=true` como plan A porque re-sincroniza 55 GB desde 8 sucursales por los enlaces que ya son el cuello de botella. **Lo que no se pueda correr en Linux se DECLARA con dueño y fecha** — hoy eso son los 3 carriles Wincaja (PS32 + Jet 4.0 sobre `Z:`), que se quedan en `.249` hasta VL.5.
+
+**Hereda:** ADR-053 (el latido mide **entrega**, y el veredicto necesita un brazo — `autoheal`; una mudanza que rompa el latido reconstruye el congelamiento de 6 días) · ADR-056 (un carril se declara migrado sólo con su **latido verde en prod**, nunca con "el contenedor arrancó").
+
+**Se rechaza:** mover prod (Railway) antes que la ingesta — el riesgo está del lado de acá, no del hosting con respaldo.
+
+**Alcance decidido (Edgar, 2026-09-10):** ingesta ahora, **prod después** (VL.9, ADR aparte) → el fierro se dimensiona para los dos desde el día 1: prod mide **30 GB en PG 18.6**, la ingesta **55 GB**, más imágenes/caché (~17 GB) y respaldos → **32 GB RAM / NVMe 1 TB** con datos en partición aparte. Con prod en el horizonte, **UPS + respaldo fuera del sitio dejan de ser opcionales**.
+
+Plan, inventario completo y riesgos en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.md).
