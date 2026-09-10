@@ -268,13 +268,82 @@ describe('verificador · el mayoreo', () => {
   // Movimiento (tokens.css BINDING): sólo transform+opacity, con TOKEN de duración, y nunca sobre
   // la cifra — en un mostrador el precio tiene que ser legible de inmediato, no al final de una
   // transición. Por eso tampoco hay count-up.
-  it('el movimiento usa los tokens y no toca el número', () => {
-    expect(PAGE).toMatch(/animation: vpEntra var\(--dur-short/);
-    expect(PAGE).toMatch(/@keyframes vpEntra \{ from \{ opacity: 0; transform: translateY\(4px\); \}/);
+  /**
+   * `[TDA.6]` Esta aserción estaba clavada al STRING de la implementación
+   * (`vpEntra` + `translateY(4px)`), así que se rompía con cualquier rediseño y **no** cazaba
+   * lo único que el contrato prohíbe: una duración sobre el techo, una propiedad que hace
+   * reflow, o una librería. Ahora afirma el INVARIANTE.
+   *
+   * Y suma el que faltaba y es de cobro, no de estilo: el techo de 350 ms **contando el
+   * retardo**. Un escalonado se sale del presupuesto sumando delays, no duraciones, y nada
+   * lo miraba.
+   */
+  it('el movimiento respeta el techo (retardo incluido), sólo transform/opacity, y cero librerías', () => {
+    // La escala BINDING de tokens.css. Si alguien inventa una duración fuera de la escala,
+    // no está acá y la aserción de abajo la marca.
+    const ESCALA: Record<string, number> = {
+      '--dur-micro': 120, '--dur-short': 150, '--dur-standard': 250, '--dur-max': 350,
+    };
+
+    const decls = [...PAGE.matchAll(/animation:\s*([^;]+);/g)].map((m) => m[1].trim());
+    expect(decls.length).toBeGreaterThan(3); // piso: si el regex deja de casar, no se pone verde en vacío
+
+    for (const d of decls) {
+      const tok = d.match(/var\((--dur-[a-z]+)/);
+      expect(tok).not.toBeNull();
+      const dur = ESCALA[tok![1]];
+      expect(dur).toBeDefined();
+      // El retardo es el 2º tiempo de la shorthand; sin él, 0.
+      const delay = Number((d.match(/\)\s+(\d+)ms\b/) || [, '0'])[1]);
+      expect(dur + delay).toBeLessThanOrEqual(ESCALA['--dur-max']);
+    }
+
+    // Los keyframes de esta pantalla sólo mueven transform/opacity: nada de width/height/
+    // margin/padding/box-shadow, que hacen reflow (DESIGN.md §Motion).
+    for (const kf of PAGE.matchAll(/@keyframes\s+vp[A-Za-z]+\s*\{([^@]*?)\}\s*\n/g)) {
+      const props = [...kf[1].matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
+      expect(props.length).toBeGreaterThan(0);
+      for (const p of props) expect(['opacity', 'transform']).toContain(p);
+    }
+
+    // El mecanismo de reinicio: dos juegos de keyframes + la clase que alterna. Sin esto la
+    // entrada corre una sola vez por turno, porque la tarjeta es el mismo nodo del DOM.
+    expect(PAGE).toMatch(/@keyframes vpEntraA/);
+    expect(PAGE).toMatch(/@keyframes vpEntraB/);
+    expect(PAGE).toMatch(/\[class\.is-pase-b\]="pase\(\) % 2 === 1"/);
+
     // Se busca el USO (directiva o import), no la palabra: la primera version de esta asercion
     // matcheaba su propio comentario ("por eso tampoco hay count-up") y pasaba por accidente.
     expect(PAGE).not.toMatch(/appCountUp|CountUpDirective/);
-    // Nada de librería de animación en esta pantalla.
-    expect(PAGE).not.toMatch(/from 'gsap'|import\('gsap'\)|animejs/);
+    // Nada de librería de animación en esta pantalla (§U las nombra: anime.js/framer no entran).
+    expect(PAGE).not.toMatch(/from 'gsap'|import\('gsap'\)|animejs|from 'motion'/);
+  });
+
+  /**
+   * `[TDA.6]` El punto crítico del rediseño, y es de COBRO. Al agrandar el mayoreo, si su cifra
+   * llega a igualar o pasar al precio unitario, alguien que lleva UNA pieza lee el precio de
+   * tres. §O.3 dice que el total domina sobre cualquier otra métrica: acá se mide.
+   */
+  it('el precio unitario sigue dominando al de mayoreo, y la condición no se susurra', () => {
+    const maxDe = (clase: string) => {
+      const bloque = PAGE.slice(PAGE.indexOf(`.${clase} {`));
+      const m = bloque.match(/font-size:\s*clamp\(([^)]+)\)/);
+      expect(m).not.toBeNull();
+      const partes = m![1].split(',').map((s) => s.trim());
+      return { min: parseFloat(partes[0]), max: parseFloat(partes[2]) };
+    };
+    const hero = maxDe('vp-precio');
+    const may = maxDe('vp-may-monto');
+
+    expect(hero.max).toBeGreaterThan(may.max);
+    expect(hero.min).toBeGreaterThan(may.min);
+    // Regla de clamp de DESIGN.md 9: el máximo no puede pasar 2.5x el mínimo (revienta el zoom).
+    expect(may.max / may.min).toBeLessThanOrEqual(2.5);
+    expect(hero.max / hero.min).toBeLessThanOrEqual(2.5);
+
+    // La condición viaja al tamaño del cuerpo, no en letra chica: es lo que evita el cobro mal.
+    const cond = PAGE.slice(PAGE.indexOf('.vp-may-cond {'), PAGE.indexOf('.vp-may-cond > i'));
+    expect(cond).toMatch(/font-size:\s*var\(--fs-body/);
+    expect(cond).not.toMatch(/font-size:\s*var\(--fs-(xs|micro)/);
   });
 });
