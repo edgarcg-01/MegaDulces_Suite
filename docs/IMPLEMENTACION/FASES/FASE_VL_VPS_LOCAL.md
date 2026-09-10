@@ -6,8 +6,8 @@
 
 **Decisiones tomadas (Edgar, 2026-09-10):**
 
-1. **El fierro existe, sin SO** → VL.0 incluye instalar Ubuntu 24.04 LTS. Faltan las specs (§8 Q1).
-2. **Alcance: ingesta ahora, prod después** → el fierro se dimensiona para **los dos usos desde el día 1**; VL.9 (bajar Railway) pasa a ser fase real con su propio ADR, no un "condicional".
+1. **El fierro existe, sin SO**, con **16 GB RAM** (ampliable a 32) y **NVMe 256 GB WD PC SN740** → VL.0 instala Ubuntu 24.04 LTS. **Alcanza con holgura para VL.0–VL.8; no alcanza para VL.9** (§6.1). Faltan núcleos y velocidad de NIC (§8.2 A1).
+2. **Alcance: ingesta ahora, prod después** → VL.9 (bajar Railway) pasa a ser fase real con su propio ADR, no un "condicional". **Y con el fierro real medido, prod exige compra: segundo disco de 1–2 TB + los 32 GB de RAM** (§6.1).
 3. **Wincaja/Access se decide en VL.5** → mientras tanto **se queda en `.249`**, declarado como pendiente con dueño y fecha. `.249` no se apaga del todo hasta cerrarlo (afecta VL.7).
 4. **Corte con ventana nocturna o de fin de semana** → copia física del volumen, camino sin hueco. Falta la fecha concreta y el chequeo previo de disco en los 8 publicadores.
 
@@ -72,7 +72,7 @@ Volumen `pgvector-md-data` = **54.73 GB**. Desglose: `wincaja` 40 GB · `kepler_
 - Los **8 servidores Kepler de sucursal** (publicadores de la replicación lógica): `192.168.9.95` (md_00) · `.10.10:1977` (md_01) · `.42.42` (md_02) · `.40.40` (md_03, `sub_pilot`) · `.44.44` (md_04) · `.54.54` (md_05) · `.50.50:1977` (md_06) · `.32.32:1977` (md_07). **Ocho subredes distintas** → el servidor nuevo necesita la misma alcanzabilidad (riesgo R3).
 - **`.245`** = caja de consolidación Kepler + `platform_test` + **el share `D:` con los `.mdb` de Wincaja** (= `Z:` en `.249`). Decisión previa (memoria `project_vps_onprem_coolify`): **no co-locar**; `.245` se queda sólo con Postgres.
 - **Los agentes de tienda** (`C:\WincajaAgent` en los POS de MD-30 y MD-32) — ya empujan solos desde la tienda, no pasan por `.249`.
-- **Railway** = prod. Fuera del alcance de esta fase salvo que se decida lo contrario (§8, Q2).
+- **Railway** = prod. Sigue sirviendo la app durante toda la mudanza; prod es VL.9 (§8.1 D2).
 
 ---
 
@@ -85,7 +85,7 @@ Su fuente es `ODS_SOURCE_BASE = host.docker.internal:5433` → **el contenedor `
 - `.249` sigue siendo **dependencia dura** de la venta publicada: apagarla, cerrar sesión, o que se le llene `C:` (94 GB libres para un volumen de 55 GB que crece) sigue congelando el ODS. El objetivo de "sacarlo de esta compu" no se cumple.
 - Se **agrega** un salto de red a la ruta caliente (`--watch=15` sobre 8 ramas) sin ganar nada.
 
-**La unidad mínima que sí rinde es el par:** `pgvector-md` (la fuente + sus 8 suscripciones) **+** los 4 contenedores de ingesta. Eso es VL.2–VL.3, y es lo que hay que hacer "ahora".
+**La unidad mínima que sí rinde es el par:** `pgvector-md` (la fuente + sus 8 suscripciones) **+** los 4 contenedores de ingesta. Eso es VL.2–VL.3, y es lo que hay que hacer "ahora". Y rinde barato: de los 55 GB del volumen, **sólo ~15 GB tienen que quedarse residentes** en el servidor nuevo (§6.1).
 
 Mover sólo los contenedores **sí** es válido como **paso intermedio de des-riesgo** (VL.2a): valida red, secretos, latido y healthchecks contra prod **antes** de tocar los 55 GB. Debe ser corto — días, no semanas.
 
@@ -142,7 +142,8 @@ Se **rechaza** explícitamente:
 | **VL.0** | ⬜ | **Instalar y preparar el servidor.** El fierro existe sin SO: instalar **Ubuntu 24.04 LTS Server**, Docker + Compose, TZ `America/Mexico_City`, IP fija, `docker` sin sudo, **datos en partición aparte** (§6.1). **Verificar antes de seguir:** alcanzar los 8 publicadores (`pg_isready` host:puerto, uno por uno), `.245:5432`, el share de `.245` por CIFS, y salida a `feeds-ingest` + prod. **Prueba negativa obligatoria:** romper una rama a propósito y ver el rojo. | todo |
 | **VL.1** | ⬜ | **Secretos en un solo lugar.** Hoy las credenciales de prod viven **en texto plano en al menos 4 lanzadores** (`run-feeds.cmd`, `store-poller.cmd`, `ingest.env`, `sync.local.env`). En el servidor nuevo: un `.env` por stack, fuera del repo, permisos `600`, un dueño. **La credencial de prod expuesta sigue pendiente de rotar** (`project_security_incident_db_creds`) — la mudanza es el momento natural. | VL.2 |
 | **VL.2a** | ⬜ | **Des-riesgo: sólo los 4 contenedores del ODS**, leyendo la fuente por LAN (`ODS_SOURCE_BASE` → `192.168.0.249:5433`). Apagar los de `.249` **antes** de levantar los nuevos (nunca dos shippers a la vez: pelean `ods.ctl`/`ods.shadow`). Verde = los 3 latidos (`ods_live_hot`, `ods_live_mirror`, `cdc_reconcile`) frescos **en prod** y `db-health` sin sensor crítico. | VL.3 |
-| **VL.2b** | ⬜ | **Mudar la fuente (los 55 GB) — en la ventana nocturna/fin de semana.** **Copia física del volumen**: `docker stop` → copiar `pgvector-md-data` → levantar en el servidor nuevo con **la misma major (PG 18)**. Preserva `pg_replication_origin` y las 8 suscripciones **retoman desde su slot** sin hueco. ⚠️ Mientras la réplica está abajo **los publicadores retienen WAL** → **medir el disco libre de las 8 sucursales el día antes**, no suponerlo (si una está justa, se acorta la ventana o se hace esa rama por separado). Plan B (por rama, si alguna no retoma): `DROP`/`CREATE SUBSCRIPTION` con `copy_data=true` sólo de esa rama. | VL.3 |
+| **VL.2b** | ⬜ | **Mudar la fuente — en la ventana nocturna/fin de semana.** **Copia física del volumen**: `docker stop` → copiar `pgvector-md-data` (55 GB **en tránsito**) → levantar en el servidor nuevo con **la misma major (PG 18)** → **`DROP DATABASE wincaja` allá** (queda residente **~15 GB**; sus 40 GB los sigue usando el carril Wincaja **en `.249`** hasta VL.5 — §6.1). La copia física es lo que preserva `pg_replication_origin`, y por eso las 8 suscripciones **retoman desde su slot sin hueco**; `pg_dump` por base **no** lo preserva. ⚠️ `wincaja` **no** tiene orígenes que preservar (no la alimenta replicación lógica, la escribe el replicador Jet) → dropearla no pierde nada. ⚠️ Mientras la réplica está abajo **los publicadores retienen WAL** → **medir el disco libre de las 8 sucursales el día antes**, no suponerlo (si una está justa, se acorta la ventana o se hace esa rama por separado). Plan B (por rama, si alguna no retoma): `DROP`/`CREATE SUBSCRIPTION` con `copy_data=true` sólo de esa rama. | VL.2c |
+| **VL.2c** | ⬜ | **Desactivar las suscripciones viejas en `.249`.** Tras la copia física **los dos clusters tienen las 8 suscripciones idénticas apuntando a los mismos slots**, y un slot admite **una sola** conexión activa → se pelean (`replication slot is already active`). En `.249`: **`ALTER SUBSCRIPTION <cada una> DISABLE`** — **no `DROP`**: se conservan como rollback y su Postgres sigue arriba sólo por `wincaja`. ⛔ **Si alguna vez se dropean en `.249`, primero `ALTER SUBSCRIPTION … SET (slot_name = NONE)`**, o el `DROP` intenta borrar el slot **del publicador** y le corta la fuente al servidor nuevo. ⚠️ **El rollback a `.249` es limpio SÓLO de inmediato**: en cuanto el servidor nuevo confirma LSNs, los slots avanzan y volver deja un **hueco** — por eso VL.3 se corre antes de soltar la ventana. | VL.3 |
 | **VL.3** | ⬜ | **Reapuntar y cerrar.** `ODS_SOURCE_BASE` → la fuente local del servidor nuevo. **Candado de completitud:** correr `reconcile-ods-window` sobre la ventana que cubre el corte y exigir **0 filas ausentes** — es la única prueba de que la mudanza no dejó hueco (la primera corrida histórica de ese script encontró 7,587). | VL.4 |
 | **VL.4** | ⬜ | **La agenda a Compose.** Los ~13 carriles portables del Programador (`live`, `livefast`, `stock`, `intraday`, `nightly`, `catalog`, `prices`, `receipts`, `contpaqi`, `contpaqi-slow`, `refresh-consolidado`, `store-poller`, `fleet-gps`) pasan a servicios con `healthcheck` de **entrega** (latido en `analytics.cron_runs`) y `autoheal`. **Regla:** ningún carril se declara migrado sin **umbral registrado en `CRON_JOBS`** — sin umbral, `db-health` da verde incondicional (medido en VP.0). Uno por uno, apagando el de `.249` primero. | VL.6 |
 | **VL.5** | ⬜ | **Wincaja / Access — decisión diferida a este sprint (Edgar, 2026-09-10).** 3 tareas (`WincajaLive` @10 min, `WincajaSyncActual` diaria, `WincajaSyncConcentrada` semanal) y 16 archivos dependen de PS32 + Jet 4.0 sobre `Z:`. **Mientras no se resuelva, esas 3 se quedan corriendo en `.249`** — es el único pedazo de la capa de ingesta que sobrevive ahí, y queda **declarado con dueño y fecha**, no como "ya migrado". Opciones y recomendación en §8 D3. Precedentes medidos que ya existen: **mdbtools en contenedor** (5.7× más rápido, cifras idénticas al centavo) y **agente en el POS** (TDA, corriendo en MD-30 y MD-32). ⚠️ Si se elige mdbtools, el `Z:` se vuelve un mount CIFS y **hereda la misma trampa**: el mount desaparece y el proceso sigue vivo (costó 4 días de rezago silencioso en WR). | VL.7 |
@@ -151,20 +152,32 @@ Se **rechaza** explícitamente:
 | **VL.8** | ⬜ | **Aguante.** UPS dimensionado + internet redundante (o degradación declarada) + respaldo fuera del sitio. La frescura del ODS es el cimiento de todo lo que publica la app; sin esto se cambia una dependencia frágil (una sesión de Windows) por otra (la luz). **Con la decisión de traer prod después, esto deja de ser opcional: pasa a ser precondición de VL.9.** | VL.9 |
 | **VL.9** | ⬜ | **Prod on-prem (fase real, ADR aparte).** Coolify + Cloudflare Tunnel + Cloudflare Access; DB **nunca** por el túnel (apps↔Postgres por LAN privada). Prod mide hoy **30 GB en PG 18.6**. No arranca hasta que VL.0–VL.8 estén verdes. Se planeará con su propio doc; acá sólo condiciona el **dimensionamiento** (§6.1). | — |
 
-**Ruta crítica del pedido inmediato:** VL.0 → VL.1 → VL.2a → VL.2b → VL.3.
+**Ruta crítica del pedido inmediato:** VL.0 → VL.1 → VL.2a → VL.2b → VL.2c → VL.3.
 
-### 6.1 Dimensionamiento (revisado con "ingesta ahora, prod después")
+### 6.1 Dimensionamiento — contra el fierro REAL (16 GB RAM · NVMe 256 GB WD PC SN740)
 
-Medido, no estimado:
+Todo lo de abajo está **medido**, no estimado.
 
-| Consumidor | Hoy | Nota |
+**RAM: los 16 GB alcanzan de sobra para VL.0–VL.8.** El stack completo de ingesta consume hoy **718 MB** (`pgvector-md` 560 MB · `ods-live-hot` 95 · `ods-live-mirror` 31 · `ods-reconcile` 19 · `autoheal` 7 · `redis` 5). Sumar los ~13 carriles del Programador agrega pasadas de Node de 100–200 MB cada una: pico realista **3–4 GB**. **Los 32 GB se necesitan recién para VL.9** (prod: un segundo Postgres con `shared_buffers` de verdad + builds de Angular con heap de 4–6 GB). O sea: la ampliación de RAM **no bloquea nada de lo que se quiere hacer ahora**.
+
+**Disco: es el que manda, y el hallazgo lo desahoga.** `wincaja` (40 GB, **73 % del sustrato**) la consumen **sólo** el carril Wincaja y sus pruebas — el replicador, los importers bronze, el poller de tickets y los tests (`database/importers/wincaja/*`, `test-wincaja-replica-fidelidad.js`, `validate-sales-sources.js`). **La API no la toca:** `WincajaService` va por `TenantKnexService` = prod. Y como el carril Wincaja **se queda en `.249` hasta VL.5** (decisión D3), sus 40 GB **no tienen por qué quedarse residentes en el servidor nuevo**.
+
+| Rubro | En el servidor nuevo | Nota |
 |---|---|---|
-| Sustrato de ingesta (`pgvector-md-data`) | **54.7 GB** | `wincaja` sola son 40 GB y crece |
-| Prod (`railway`, PG 18.6) | **30 GB** | mayores: `analytics.sales_daily` 3.5 GB · `mv_wincaja_sales_daily` 2.7 GB · `wincaja.detalles_mov_almacen` 2.2 GB · `kepler_ods.kdm2` 2.1 GB |
-| Imágenes + caché de build Docker | **~17 GB** | 8.6 GB imágenes + 8.3 GB caché |
-| Respaldos locales | — | 2 copias completas de prod + WAL ≈ 60–90 GB |
+| Ubuntu 24.04 Server | ~15 GB | sin escritorio |
+| Sustrato de ingesta **útil** | **~15 GB** | `kepler_md_00..07` 10.6 + `kepler_consolidado` 0.5 + overhead |
+| Imágenes Docker (con caché podado) | ~9 GB | hoy 8.6 GB imágenes + 8.3 GB de caché de build, reclamable |
+| WAL + temp + margen de autovacuum | ~15 GB | ver la nota de WAL abajo |
+| Respaldos locales comprimidos | ~5–8 GB | de 15 GB de datos |
+| **Total en régimen** | **≈ 60 GB de 238 GiB (25 %)** | cómodo |
+| Pico transitorio durante VL.2b | ~70 GB | la copia física trae los 55 GB antes del `DROP` |
+| Si Wincaja también migra en VL.5 | ≈ 105 GB (44 %) | sigue holgado |
 
-**Recomendación:** **32 GB RAM** y **NVMe 1 TB** con los datos en partición aparte. Razonamiento: dos Postgres (ingesta 55 GB + prod 30 GB) piden `shared_buffers` de verdad, y los builds de Angular ya piden 4–6 GB de heap; 16 GB alcanzan para ingesta sola pero se lamentan al traer prod. 500 GB **funcionan** y quedan apretados dentro del año. **Si el fierro que ya existe trae menos, se dice y se ajusta el alcance — no se mete prod ahí a la fuerza.**
+**⛔ Lo que NO entra: prod (VL.9).** OS 15 + ingesta 55 (con Wincaja) + prod 30 + Docker y builds 25 + WAL/temp 25 + respaldos de prod (2 completos + WAL) 60–90 = **210–240 GB de 238**, y eso es **estático, antes de crecer**. Dos Postgres al 90 % de disco es el escenario donde un `REFRESH MATERIALIZED VIEW` o un autovacuum que no cierra llena el volumen. **VL.9 exige un segundo disco** — no reemplazar el SN740: dejarlo para SO + Docker y poner los datos en un NVMe de 1–2 TB aparte, que además es la partición separada que VL.0 ya pide. Pregunta abierta A6: **¿tiene segundo slot M.2 o puertos SATA?**
+
+**Desgaste del SSD: medido, y no es alarma.** El cluster genera **20 GB de WAL por día** (`pg_stat_wal`: 42 GB en 2.09 días). Sumando la escritura de páginas en los `checkpoint` y la amplificación propia de un SSD sin DRAM, el orden real es **~30–50 GB/día**. Contra el TBW declarado para esa capacidad (**confirmar en la etiqueta**: la familia SN740 ronda 100 TBW en 256 GB) da **del orden de 4–7 años**. Es un horizonte de reemplazo normal, no un problema. ⚠️ Lo que sí conviene saber del SN740: **es sin DRAM (usa HMB)** y en 256 GB la caché SLC es chica → la escritura sostenida cae después de los primeros ~10–20 GB. Eso **no afecta el goteo de 20 GB/día**, sí puede alargar la restauración inicial de VL.2b. Es una vez.
+
+**Veredicto:** el fierro que ya existe **sirve para todo el pedido inmediato y para VL.0–VL.8 con holgura**. Lo que hay que planificar como compra es el **segundo disco** antes de VL.9, y la RAM a 32 GB junto con él.
 
 ---
 
@@ -190,16 +203,18 @@ Medido, no estimado:
 
 | # | Pregunta | Respuesta | Consecuencia en el plan |
 |---|---|---|---|
-| D1 | Estado del servidor | **Existe el fierro, sin SO** | VL.0 instala Ubuntu 24.04 Server. **Faltan las specs** → A1 abajo |
+| D1 | Estado del servidor | **Existe el fierro, sin SO**: **16 GB RAM** (ampliable a 32) + **NVMe 256 GB WD PC SN740** | VL.0 instala Ubuntu 24.04 Server. **Alcanza con holgura para VL.0–VL.8** (§6.1: el stack usa 718 MB y el sustrato útil son ~15 GB). ⛔ **No alcanza para VL.9** → segundo disco + los 32 GB, juntos, antes de traer prod |
 | D2 | Alcance | **Ingesta ahora, prod después** | Dimensionar para los dos desde el día 1 (§6.1: 32 GB / 1 TB). VL.9 pasa a fase real; **VL.8 (UPS/respaldo) deja de ser opcional** |
 | D3 | Wincaja / Access | **Se decide en VL.5** | Las 3 tareas Wincaja **siguen en `.249`** hasta entonces, declaradas con dueño y fecha. VL.7 no las apaga |
 | D4 | Corte de la fuente | **Ventana nocturna / fin de semana** | Copia física (camino sin hueco). **Falta la fecha** → A2. Chequeo de disco en los 8 publicadores el día antes |
 
 **Recomendación registrada para D3, para cuando llegue VL.5:** agente en el POS para el carril **vivo** (patrón TDA, ya probado en MD-30/MD-32 — elimina el `Z:` y el Jet del servidor, y la memoria dice que el agente **le gana** en frescura a la réplica por `Z:`) + mdbtools en contenedor para el **masivo** (5.7× más rápido, cifras idénticas al centavo). Dejar una caja Windows chica sólo como red de seguridad temporal.
 
-### 8.2 Abiertas — bloquean VL.0
+### 8.2 Abiertas — bloquean VL.0 o la ventana
 
-**A1 — Specs del fierro.** CPU (núcleos reales), RAM, disco(s) y tamaño, y si tiene NIC de gigabit. *Sin esto no puedo decir si prod entra ahí (§6.1) ni cómo particionar. Si trae menos de 32 GB / 1 TB, lo digo y se ajusta el alcance en vez de meter prod a la fuerza.*
+**A1 — Núcleos y red del fierro.** RAM y disco ya están (D1). Falta: **cuántos núcleos reales** y si la NIC es **gigabit**. *La NIC define la ventana de VL.2b: 55 GB a 1 Gb/s son ~15–25 min; a 100 Mb/s serían ~2.5 h y el plan de corte cambia.*
+
+**A6 — ¿Hay dónde poner un segundo disco?** ¿Segundo slot **M.2** libre, o puertos **SATA**? Y de paso: el SN740 de 256 GB, ¿es **2280** o **2230**? *No bloquea el arranque — bloquea VL.9. Si no hay slot libre, la única salida para prod es reemplazar el SN740 por uno de 1–2 TB, y entonces conviene comprarlo de una vez y dejar el de 256 para el SO.* **Confirmar el TBW en la etiqueta** (§6.1 asume el orden de 100 TBW para esa capacidad).
 
 **A2 — La ventana concreta.** Fecha y hora del corte de VL.2b. *La copia de 55 GB por gigabit son ~15–25 min de transferencia; con apagado, arranque y verificación: **60–90 min con el ODS detenido**. Mientras tanto los 8 publicadores retienen WAL, así que la ventana define cuánto disco necesitan aguantar.*
 
