@@ -2542,10 +2542,25 @@ imprime desde Kepler, y filtros que quepan en una hilera.
 | GT.6 | 🧪 2026-09-11 | **Bug encontrado al probar**: las respuestas del ERP vuelven **fuera de orden** y la vieja pisaba a la nueva — pintaba filas de otro rango y se llevaba la selección. Sello de petición en las dos páginas |
 | GT.7 | 🧪 2026-09-11 | El **vendedor** va en el encabezado de la guía (Edgar) |
 | GT.8 | 🧪 2026-09-11 | **Una guía = un vendedor** (Edgar): la selección mezclada se rechaza en el backend (identidad por `vendedor_code`, no por nombre) y la pantalla apaga los botones con el motivo antes de llegar ahí |
+| GT.9 | 🧪 2026-09-11 | **Responsive real** (teléfono 390 / tablet 820, medido): filtros por `@container` y no `@media` (§R), breakpoints en `rem`, tabla al canon de `DESIGN_TABLES` (scroll-X + 1ª columna congelada con checkbox+folio), sin alto fijo en teléfono. **Dos hallazgos de plataforma, abajo** |
 
 **Abierto:** ¿el tab Reportes debería traer sólo pendientes/parciales por default? Hoy deja
 palomear facturas ya pagadas (saldo $0), que no se cobran. Y el **Responsable** se autocompleta
 con el vendedor del filtro (Edgar 2026-09-11); lo escrito a mano no se pisa.
+
+**⚠️ Dos hallazgos que NO son de esta fase y afectan al repo entero** (salieron de hacer la
+pantalla responsive; no los toqué fuera de estas dos tablas):
+
+1. **PrimeNG 22 ignora `styleClass` en `p-table`.** El `class` del host lo calcula `cx('root')`
+   y no mezcla lo que le mandes; la densidad chica ahora sale de `size="small"`. O sea que las
+   ~145 tablas con `styleClass="p-datatable-sm surf-table surf-table--sticky …"` **no están
+   recibiendo ninguna de esas clases** desde el upgrade — ni la densidad ni el sticky ni la
+   columna congelada de `DESIGN_TABLES`. Acá se arregló pasando `size="small"` + `class=` estático.
+2. **Regla global de móvil vs. el canon.** `styles.css` tiene un patrón viejo de "columnas
+   prioritarias" (`@media (max-width:480px)`: esconde de la 4ª columna en adelante y pega la
+   última a la derecha) que pelea con `DESIGN_TABLES` §2.3 (scroll-X + 1ª congelada). Con las
+   dos activas la última columna se **encimaba** sobre Cliente. Estas dos tablas se salen con
+   un override local; la decisión de cuál gana en todo el repo es de otro sprint.
 
 ---
 

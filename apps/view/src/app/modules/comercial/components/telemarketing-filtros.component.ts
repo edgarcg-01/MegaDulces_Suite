@@ -45,8 +45,12 @@ let seq = 0;
  *
  * Va en **una sola hilera**, y el buscador es angosto a propósito: con `flex:1` se comía media
  * pantalla y empujaba el resto de los filtros a un segundo renglón — cinco controles de 2 cm
- * repartidos en dos filas se leen peor que los mismos cinco seguidos. En pantallas chicas la
- * hilera se desplaza en horizontal en vez de partirse.
+ * repartidos en dos filas se leen peor que los mismos cinco seguidos.
+ *
+ * El layout lo decide **`@container`, no `@media`** (DESIGN.md §R): esta barra vive en dos
+ * páginas y mañana puede vivir embebida en un panel angosto — lo que manda es el ancho que le
+ * da el padre, no el del viewport. En angosto se acomoda en renglones: una hilera cortada o
+ * con scroll escondido es peor que dos renglones legibles.
  */
 @Component({
   selector: 'app-telemarketing-filtros',
@@ -93,7 +97,7 @@ let seq = 0;
   styles: [`
     /* min-width:0 — sin esto el contenido de la barra fija el ancho del <main> y es la
        página entera la que se desborda a la derecha, no la barra. */
-    :host { display: block; min-width: 0; }
+    :host { display: block; min-width: 0; container-type: inline-size; }
     .tmf {
       display: flex; align-items: center; gap: .5rem;
       padding: .5rem .625rem; margin-bottom: .75rem;
@@ -110,15 +114,28 @@ let seq = 0;
       font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; white-space: nowrap;
     }
     .sp { flex: 1 1 auto; min-width: 0; }
-    :host ::ng-deep .tmf-sel { min-width: 9rem; max-width: 12rem; font-size: var(--fs-sm); }
+    /* El item flex es el <p-select>, NO el div que recibe styleClass: dimensionar por
+       .tmf-sel no movia el ancho. El host se estiliza directo (sin ::ng-deep: esta en
+       nuestro template); .tmf-sel queda solo para lo de adentro. */
+    .tmf p-select { flex: 0 1 11rem; min-width: 9rem; }
+    :host ::ng-deep .tmf-sel { width: 100%; font-size: var(--fs-sm); }
     :host ::ng-deep .tmf input { font-size: var(--fs-sm); }
 
-    /* Angosto: el buscador toma el renglón completo y el resto se acomoda debajo. Una sola
-       hilera es lo bueno en escritorio; forzarla en 900 px sería una barra cortada. */
-    @media (max-width: 900px) {
+    /* Tablet / panel angosto: el buscador toma el renglón completo y el resto se acomoda
+       debajo. Una sola hilera es lo bueno con espacio; forzarla acá sería una barra cortada. */
+    @container (max-width: 56rem) {
       .tmf .f-search { flex: 1 1 100%; }
       .f-fecha { flex: 1 1 100%; }
       .f-fecha input { flex: 1 1 0; width: auto; }
+      .tmf p-select { flex: 1 1 10rem; }
+    }
+
+    /* Teléfono: cada control en su renglón. Con 22rem de ancho, dos selects lado a lado
+       entran a 8rem cada uno y el placeholder "Estado de cobro" queda cortado a la mitad. */
+    @container (max-width: 30rem) {
+      .tmf { gap: .45rem; }
+      .tmf p-select { flex: 1 1 100%; }
+      .f-check { flex: 1 1 100%; min-height: var(--tap-min, 44px); }
     }
   `],
 })

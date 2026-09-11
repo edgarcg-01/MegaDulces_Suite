@@ -79,18 +79,23 @@ import {
         (retry)="load()">
 
         <p-table [value]="rows()" dataKey="folio_digital" [scrollable]="true" scrollHeight="calc(100vh - 25rem)"
-                 [rowHover]="true" styleClass="p-datatable-sm tabla-docs"
+                 [rowHover]="true" size="small"
+                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs"
+                 [tableStyle]="{ 'min-width': '62rem' }"
                  [selection]="sel()" selectionMode="single" (selectionChange)="abrir($event)">
           <ng-template #header>
             <tr>
-              <th style="width:9.5rem">Folio</th>
-              <th>Cliente</th>
-              <th style="width:6.5rem">Fecha</th>
-              <th style="width:8.5rem">Vence</th>
-              <th style="width:9rem" class="r">Total</th>
-              <th style="width:8.5rem" class="r">Saldo</th>
-              <th style="width:8rem">Cobro</th>
-              <th style="width:6.5rem" class="c">Anexo</th>
+              <th scope="col" style="width:9.5rem">Folio</th>
+              <!-- Piso propio: es la unica columna flexible, y con el min-width de la tabla
+                   repartido entre las fijas se quedaba con 80 px en tablet — el nombre del
+                   cliente salia partido en una palabra por renglon. -->
+              <th scope="col" style="min-width:17rem">Cliente</th>
+              <th scope="col" style="width:6.5rem">Fecha</th>
+              <th scope="col" style="width:8.5rem">Vence</th>
+              <th scope="col" style="width:9rem" class="r">Total</th>
+              <th scope="col" style="width:8.5rem" class="r">Saldo</th>
+              <th scope="col" style="width:8rem">Cobro</th>
+              <th scope="col" style="width:6.5rem" class="c">Anexo</th>
             </tr>
           </ng-template>
 
@@ -245,6 +250,32 @@ import {
     .live { color: var(--ok, var(--text-soft)); font-weight: 600; }
 
     .tabla-wrap { padding: 0; overflow: hidden; min-width: 0; }
+
+    /* Estas dos tablas se salen de la regla global vieja de styles.css (<=60rem esconde de la
+       4a columna en adelante y pega la ultima a la derecha). Ese patron de "columnas
+       prioritarias" pelea con el canon de DESIGN_TABLES -- scroll horizontal + 1a columna
+       congelada -- que es el que aplica aca: en la guia de cobranza el Saldo y el Total son
+       justo lo que no se puede esconder, y la ultima columna pegada a la derecha se encimaba
+       encima de Cliente en 390 px. */
+    @media (max-width: 60rem) {
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td { display: table-cell !important; }
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th:last-child,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td:last-child {
+        position: static !important; right: auto !important;
+        box-shadow: none !important; min-width: 0 !important;
+      }
+    }
+
+
+    /* Telefono: la tabla deja de tener scroll vertical PROPIO y crece; el que scrollea es la
+       pagina. Con un scrollHeight fijo quedaban ~4 renglones dentro de una ventanita de 6 cm
+       con la bottom-nav encima. El scroll horizontal (y la 1a columna congelada) siguen. */
+    @media (max-width: 48rem) {
+      .tabla-docs .p-datatable-table-container,
+      :host ::ng-deep .tabla-docs .p-datatable-table-container { max-height: none !important; }
+    }
+
     .tabla-docs th.r, .tabla-docs td.r { text-align: right; }
     .tabla-docs th.c, .tabla-docs td.c { text-align: center; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }

@@ -97,27 +97,33 @@ import {
         (retry)="load()">
 
         <p-table [value]="rows()" dataKey="folio_digital" [scrollable]="true" scrollHeight="calc(100vh - 27rem)"
-                 [rowHover]="true" styleClass="p-datatable-sm tabla-docs"
+                 [rowHover]="true" size="small"
+                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs"
+                 [tableStyle]="{ 'min-width': '58rem' }"
                  [selection]="sel()" (selectionChange)="sel.set($event)" selectionMode="multiple">
           <ng-template #header>
             <tr>
-              <th style="width:2.75rem"><p-tableheadercheckbox /></th>
-              <th style="width:9.5rem">Folio</th>
-              <th>Cliente</th>
-              <th style="width:6.5rem">Fecha</th>
-              <th style="width:8.5rem">Vence</th>
-              <th style="width:9rem" class="r">Total</th>
-              <th style="width:8.5rem" class="r">Saldo</th>
-              <th style="width:8rem">Cobro</th>
+              <th scope="col" style="width:12.5rem"><p-tableheadercheckbox /> <span>Folio</span></th>
+              <!-- Piso propio: es la unica columna flexible, y con el min-width de la tabla
+                   repartido entre las fijas se quedaba con 80 px en tablet — el nombre del
+                   cliente salia partido en una palabra por renglon. -->
+              <th scope="col" style="min-width:17rem">Cliente</th>
+              <th scope="col" style="width:6.5rem">Fecha</th>
+              <th scope="col" style="width:8.5rem">Vence</th>
+              <th scope="col" style="width:9rem" class="r">Total</th>
+              <th scope="col" style="width:8.5rem" class="r">Saldo</th>
+              <th scope="col" style="width:8rem">Cobro</th>
             </tr>
           </ng-template>
 
           <ng-template #body let-d>
             <tr>
-              <td><p-tablecheckbox [value]="d" /></td>
-              <td>
-                <span class="mono folio">{{ d.sucursal }} {{ d.doc_prefix }}-{{ d.folio }}</span>
-                <span class="sub">{{ d.doc_label }}</span>
+              <td class="c-folio">
+                <p-tablecheckbox [value]="d" />
+                <span>
+                  <span class="mono folio">{{ d.sucursal }} {{ d.doc_prefix }}-{{ d.folio }}</span>
+                  <span class="sub">{{ d.doc_label }}</span>
+                </span>
               </td>
               <td>
                 <span class="nom">{{ d.cliente_nombre }}</span>
@@ -168,10 +174,22 @@ import {
 
     /* Angosto: la cuenta manda su propio renglón y los botones se van juntos a la derecha.
        Sin esto los tres botones salían del ancho de la página y "Generar reporte" quedaba
-       cortado contra el borde (reporte de Edgar 2026-09-11). */
-    @media (max-width: 1000px) {
+       cortado contra el borde (reporte de Edgar 2026-09-11). Breakpoints en rem: en px se
+       rompen con zoom al 200% (DESIGN.md §R). */
+    @media (max-width: 62.5rem) {
       .barra .cuenta { flex: 1 1 100%; }
       .barra .resp { flex: 1 1 10rem; width: auto; }
+    }
+
+    /* Teléfono: el Responsable en su renglón y los botones repartidos a lo ancho, con altura
+       de toque. Tres botones apretados en 22rem se convierten en tres blancos de 5 mm. */
+    @media (max-width: 30rem) {
+      .barra { gap: .45rem; }
+      .barra .resp { flex: 1 1 100%; }
+      .barra > p-button { flex: 1 1 auto; }
+      .barra ::ng-deep .p-button { width: 100%; min-height: var(--tap-min, 44px); }
+      .alerta { align-items: flex-start; }
+      .alerta i { margin-top: .15rem; }
     }
 
     .nota {
@@ -184,6 +202,37 @@ import {
     }
 
     .tabla-wrap { padding: 0; overflow: hidden; min-width: 0; }
+
+    /* Estas dos tablas se salen de la regla global vieja de styles.css (<=60rem esconde de la
+       4a columna en adelante y pega la ultima a la derecha). Ese patron de "columnas
+       prioritarias" pelea con el canon de DESIGN_TABLES -- scroll horizontal + 1a columna
+       congelada -- que es el que aplica aca: en la guia de cobranza el Saldo y el Total son
+       justo lo que no se puede esconder, y la ultima columna pegada a la derecha se encimaba
+       encima de Cliente en 390 px. */
+    @media (max-width: 60rem) {
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td { display: table-cell !important; }
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th:last-child,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td:last-child {
+        position: static !important; right: auto !important;
+        box-shadow: none !important; min-width: 0 !important;
+      }
+    }
+
+
+    /* Telefono: la tabla deja de tener scroll vertical PROPIO y crece; el que scrollea es la
+       pagina. Con un scrollHeight fijo quedaban ~4 renglones dentro de una ventanita de 6 cm
+       con la bottom-nav encima. El scroll horizontal (y la 1a columna congelada) siguen. */
+    @media (max-width: 48rem) {
+      .tabla-docs .p-datatable-table-container,
+      :host ::ng-deep .tabla-docs .p-datatable-table-container { max-height: none !important; }
+    }
+
+    /* La 1ª columna es la congelada (DESIGN_TABLES §2.3): lleva el identificador, y acá
+       también el checkbox — al scrollear en horizontal tenés que seguir viendo QUÉ estás
+       palomeando, no una casilla suelta sin folio al lado. */
+    .c-folio { display: flex; align-items: flex-start; gap: .5rem; }
+    .tabla-docs th:first-child { white-space: nowrap; }
     .tabla-docs th.r, .tabla-docs td.r { text-align: right; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
     .folio { font-weight: 650; display: block; }
