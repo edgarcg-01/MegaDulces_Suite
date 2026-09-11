@@ -231,20 +231,45 @@ const declarar = (msg) => {
       adm.some((r) => r.gestiona),
       `al menos un rol concede USUARIOS_GESTIONAR (hay ${adm.filter((r) => r.gestiona).length})`,
     );
-    // Los que ven el padrón sólo con `USUARIOS_VER` y sin NINGÚN permiso de
-    // reporte caen en `own` y ven 1 fila. Los que tienen `REPORTES_VER_EQUIPO`
-    // NO entran acá: resuelven `team`, que es comportamiento correcto — meterlos
-    // infla el hallazgo (con `supervisor_ventas` dentro decía 9 en vez de 6).
-    // No es un fallo de este candado: es `[ID.43]`, y se DECLARA con nombres y
-    // conteo para que la decisión se tome contra un dato.
+    // `[ID.35]` Los que ven el padrón sólo con `USUARIOS_VER` y sin NINGÚN
+    // permiso de reporte ya no caen en `own`: el service los resuelve como
+    // `sucursal` y ven al personal de su tienda. Los que tienen
+    // `REPORTES_VER_EQUIPO` no entran acá (resuelven `team`, que es correcto).
     const soloVer = adm.filter(
       (r) => !r.gestiona && !r.rep_global && !r.rep_equipo && r.usuarios > 0,
     );
-    if (soloVer.length) {
-      declarar(
-        `${soloVer.reduce((s, r) => s + r.usuarios, 0)} persona(s) con USUARIOS_VER y sin reportes ven 1 sola fila ` +
-          `del padrón (${soloVer.map((r) => `${r.role_name}×${r.usuarios}`).join(', ')}) → [ID.43] acotar por warehouse`,
+    if (!soloVer.length) {
+      declarar('ningún rol con USUARIOS_VER y sin reportes: el eje `sucursal` no tiene portadores hoy');
+    } else {
+      // La premisa que hace que `sucursal` sirva: el rol tiene que resolver la
+      // dimensión `warehouse` a algo. Si resolviera `none`, `applyTo` emitiría
+      // `WHERE false` y volveríamos a una pantalla vacía — por otro camino.
+      const { rows: dims } = await k.raw(
+        `SELECT rs.role_name, rs.mode FROM identity.role_scopes rs
+          WHERE rs.tenant_id = ? AND rs.dimension = 'warehouse'
+            AND rs.role_name = ANY(?)`,
+        [TENANT, soloVer.map((r) => r.role_name)],
       );
+      const ciegos = dims.filter((d) => d.mode === 'none').map((d) => d.role_name);
+      check(ciegos.length === 0,
+        `los roles que dependen del eje \`sucursal\` resuelven warehouse a algo (en none: ${ciegos.join(', ') || 'ninguno'})`);
+
+      // Y el conteo real: cuánta gente ve cada uno. Un 0 sería el defecto que
+      // esto vino a arreglar, al revés.
+      const { rows: alcance } = await k.raw(
+        `SELECT e.username, e.warehouse_code AS suc,
+                (SELECT count(*)::int FROM identity.users o
+                  WHERE o.tenant_id = e.tenant_id AND o.warehouse_code = e.warehouse_code
+                    AND o.activo AND o.deleted_at IS NULL) AS ve
+           FROM identity.users e
+          WHERE e.tenant_id = ? AND e.role_name = ANY(?) AND e.activo AND e.deleted_at IS NULL
+          ORDER BY 1`,
+        [TENANT, soloVer.map((r) => r.role_name)],
+      );
+      const sinVer = alcance.filter((r) => r.ve === 0);
+      console.log(`      ${alcance.length} persona(s) en el eje \`sucursal\`: ${alcance.map((r) => `${r.username}(${r.suc || 'sin suc'})→${r.ve}`).join(' · ')}`);
+      check(sinVer.length === 0,
+        `ninguna ve 0 personas — el eje `.concat(`\`sucursal\` no deja a nadie con la pantalla vacía (en 0: ${sinVer.map((r) => r.username).join(', ') || 'ninguna'})`));
     }
 
     console.log(
