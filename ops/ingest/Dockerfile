@@ -57,7 +57,8 @@ RUN npm install --omit=dev --no-audit --no-fund
 # Código. Las rutas replican la estructura del repo para no romper los requires relativos.
 COPY database/importers ./database/importers
 COPY services/feeds-ingest ./services/feeds-ingest
-COPY ops/ingest/health.js ./ops/ingest/health.js
+COPY ops/ingest/health.js ops/ingest/health-lane.sh ./ops/ingest/
+RUN sed -i 's/\r$//' ./ops/ingest/health-lane.sh && chmod +x ./ops/ingest/health-lane.sh
 
 # VL.4 — `database/scripts` entra por UN archivo: `fleet-poll-onprem.js`, el carril
 # del GPS de la flota (@1 min), que no vive en `database/importers`. Y `ops/vl`
