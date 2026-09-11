@@ -196,6 +196,29 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
   check('ningún SKU de Wincaja con cobertura absurda (>30 meses) por unidad mal convertida',
     ped.n === 0 || ped.absurdos / ped.n < 0.02, `absurdos=${ped.absurdos}/${ped.n}`);
 
+  // ── R.5 — EL JOIN A kdm1 SON SIETE COLUMNAS, NO CINCO ────────────────────────────────────
+  // Defecto propio, vivido: mv_kepler_sold_rung (KX.5) unia por (sucursal,c2,c3,c4,c6) y abanicaba.
+  // El computo canonico (ods-derived.js:258) ya documentaba que unir de menos casa el documento
+  // equivocado. Medido al corregirlo: renglones 2,541,651 -> 977,328 (el abanico inflaba 2.6x) y
+  // 174 pares recuperados. El piso publicado no se movio (2 -> 2), o sea el dano estaba en las
+  // columnas de conteo, no en la cifra que se muestra -- pero rung_max SI cambio en 183 pares.
+  console.log('\n── R.5. El join a kdm1 ──');
+  const jk = (await c.query(`
+    SELECT count(DISTINCT (sucursal, c2, c3, c4, c6))::int por5,
+           count(DISTINCT (sucursal, c1, c2, c3, c4, c5, c6))::int por7
+      FROM kepler_ods.kdm1 WHERE c9 >= current_date - 90`)).rows[0];
+  console.log('     kdm1 (90 d): llaves por 5 columnas ' + jk.por5.toLocaleString('en-US')
+    + ' · por 7 ' + jk.por7.toLocaleString('en-US'));
+  // ⭐ La PRUEBA NEGATIVA de la asercion que sigue: si kdm1 fuera unica por 5, unir por 5 seria
+  // inofensivo y el candado no probaria nada.
+  check('⭐ `kdm1` NO es única por 5 columnas (si lo fuera, la aserción siguiente sería decorativa)',
+    jk.por5 < jk.por7, 'por5=' + jk.por5 + ' por7=' + jk.por7);
+  const mvdef = (await c.query(
+    `SELECT pg_get_viewdef('analytics.mv_kepler_sold_rung'::regclass, true) d`)).rows[0].d;
+  check('⭐⭐ `mv_kepler_sold_rung` une a kdm1 por las SIETE columnas de la PK',
+    mvdef.includes('h.c1 = d.c1') && mvdef.includes('h.c5 = d.c5'),
+    'volvió a unir de menos: casa el documento equivocado y abanica 2.6×');
+
   console.log(`\n=== ${ok} OK · ${fail} FAIL ===\n`);
   await c.end();
   process.exit(fail ? 1 : 0);
