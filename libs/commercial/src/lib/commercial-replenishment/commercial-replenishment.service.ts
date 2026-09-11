@@ -1131,8 +1131,12 @@ export class CommercialReplenishmentService {
                  -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
                  -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta
                  -- celda no se puede convertir a cajas" y muestra la cantidad suelta con su rótulo.
+                 -- RA-PRO.47 — 'cc' = costo de caja DE ESE ALMACEN. Viaja porque el desglose por
+                 -- sucursal valua renglon por renglon: con el costo de producto (max sobre los
+                 -- almacenes) el valor de la sucursal barata sale inflado, y la suma no cuadra
+                 -- contra pedido_valor, que el backend ya calcula celda por celda.
                  jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
-                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran,
+                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
@@ -1873,11 +1877,30 @@ export class CommercialReplenishmentService {
   async filters() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const warehouses = (await trx('commercial.reorder_policy as rp')
-        .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))
-        .where('rp.tenant_id', tenantId)
-        .distinct('w.id as id', 'w.code as code', 'w.name as name'))
+      // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
+      // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
+      // política sólo cubría 4. Los otros 5 llegaban al front sin nombre (`nameOf` devolvía '') y
+      // el desglose los mostraba con el renglón en blanco. Ahora cubre lo que la pantalla muestra:
+      // con política, o presentes en el fact, o CEDIS de consolidación.
+      // `purchase_zone` / `is_purchase_hub` (mig 20260910120000) alimentan el agrupado por zona y
+      // el selector "Consolidado ▸ ¿en qué CEDIS?". Se leen de la tabla, no se deducen de códigos.
+      const warehouses = (await trx('commercial.warehouses as w')
+        .where('w.tenant_id', tenantId)
+        .andWhere('w.active', true)
+        .whereNull('w.deleted_at')
+        .andWhere((q) => q
+          .whereExists(trx.select(trx.raw('1')).from('commercial.reorder_policy as rp')
+            .whereRaw('rp.tenant_id = w.tenant_id AND rp.warehouse_id = w.id'))
+          .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
+            .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
+          .orWhere('w.is_purchase_hub', true))
+        .select('w.id as id', 'w.code as code', 'w.name as name',
+          'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
+          'w.display_order as display_order'))
         // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
+        // ⚠️ Al fusionar con `[RA-PRO.32.2]`: este alcance ampliado traía `.orderBy('w.code')`, que
+        // es JUSTO el alfabético que ese contrato retiró ("00,01,…,MD-30 no es como el negocio
+        // piensa la red"). Se ordena acá, en JS, igual que el otro consumidor de este servicio.
         .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
       const suppliers = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))
