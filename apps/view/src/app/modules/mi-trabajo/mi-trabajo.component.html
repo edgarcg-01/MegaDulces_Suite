@@ -95,11 +95,31 @@
           tu nombre y una cola compartida es la razón de ser de esta columna, y en SN.9 se perdía al
           envolver. Medido en prod: las tres tablas de asignación nominal están en CERO filas.
         -->
+        <!--
+          [SN.13] El titular. La columna tenía 0 objetos con superficie contra 30 de la de puertas
+          y su cifra mayor era de 18 px: el dato por el que existe la pantalla pesaba como una
+          etiqueta. Es la ÚNICA headline metric de la vista (DESIGN.md permite una).
+        -->
+        @if (totalPendientes() > 0 && !buscando()) {
+          <div class="mt-titular">
+            <span class="mt-titular-n">{{ formatoTotal(totalPendientes()) }}</span>
+            <span class="mt-titular-txt">
+              <span class="mt-titular-l">pendientes en {{ bandejasConTrabajo() }} bandejas</span>
+              @if (totalMio() > 0) {
+                <span class="mt-titular-d">{{ formatoTotal(totalMio()) }} a tu nombre</span>
+              } @else {
+                <span class="mt-titular-d">ninguno a tu nombre</span>
+              }
+            </span>
+          </div>
+        }
+
         <div class="mt-grupo">
           <p class="mt-grupo-tag">A tu nombre</p>
           @if (mios().length) {
             @for (p of mios(); track p.id) {
               <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
                 <span class="mt-task-txt">
                   <span class="mt-task-l">{{ p.label }}</span>
@@ -130,6 +150,7 @@
             </p>
             @for (p of deBandeja(); track p.id) {
               <a class="mt-task" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
                 <span class="mt-task-txt">
                   <span class="mt-task-l">{{ p.label }}</span>
