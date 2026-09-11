@@ -6,6 +6,37 @@
 
 ---
 
+## 2026-09-10 — `[SN]` La landing deja de ser un catálogo de tarjetas — y la puerta que abre ya no rebota
+
+**Disparador:** `Especificacion_Reestructuracion_Suite_Mega_Dulces_v1.0.md` (Dirección, 2026-09-10) y el pedido *"reestructuremos la página principal `/projects`"*. Alcance acordado: la **Etapa 2** de la spec (navegación por 10 espacios de responsabilidad, *sin pérdida de permisos*); lo que depende de P-01..P-13 se declara, no se construye. Plan en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md), decisión en **ADR-061**.
+
+### Lo que había (medido antes de tocar)
+
+Tres listas de proyectos que ya discrepaban: `AUTHZ_TREE` (canónica, que la landing **no leía**), las 11 tarjetas con sus `anyOf` a mano (ya habían cobrado `[AUTHZ.6]` e `[IDG.9.6]`), y el `switch` del layout. `scripts/check-authz-tree.js` era **vacuo** (leía shims de una línea, contaba 0 claves, pintaba verde); `authz-tree.ts` citaba un spec que nunca existió; `libs/contracts` no tenía target de test. Y **el build de producción de `view` estaba roto en `main`** desde `f3fe9dfe` (arnés jest dentro del programa de la app) — lo arregló en paralelo la sesión TDA.7 con la misma línea.
+
+### La spec se leyó con espíritu crítico, no se obedeció
+
+§23 y §10 se contradicen sobre "Auditoría en Ruta" (los capturadores son vendedores de ruta directa; el contenido es marketing) → **P-14** abierta, default §23, una línea del mapa lo cambia. La cabecera *"Esto ve Dirección General de mi gestión"* **no se estrena** sobre bloques vacíos (§6.1 la define como disponibilidad de información: sin indicador con ficha sería falsa). Los 3 espacios sin módulo se **declaran, no se pintan** (§22 veta "Próximamente"). El puesto se **muestra y no gatea** (`identity.positions` no otorga permisos). §13 juzgó Finanzas por la **descripción vieja de la tarjeta** → la línea secundaria de cada entrada ahora se **deriva** de los módulos accesibles, por persona.
+
+### Lo que se construyó
+
+- **`libs/contracts/src/authz/suite-map.ts`**: los 10 espacios de §5.1 sobre `AUTHZ_TREE`; visibilidad = `view ∪ manage` de los módulos **con ruta**; `gate` sólo donde el guard es más estricto (3 proyectos + módulos de Trade bajo `colaboradorGuard`), con `reason`; `planned` = 0 entradas. `libs/contracts` estrena jest: **35 pruebas**, 9 mapas rotos a propósito → rojo; paridad con los 11 `anyOf` **congelados** ("nadie pierde una puerta"; quitar una clave → rojo).
+- **Medición contra prod** (read-only, `suite-map-visibility-report.js`): 36 roles, **0 puertas perdidas, 17 ganan** (83 usuarios). Y la lectura crítica: "ganada" ≠ "abre" — `/finanzas`, `/contabilidad` y `/admin` redirigían **fijo**, así que 32 cajeros con sólo `FINANCE_EXPENSES_CAPTURAR` habrían caído en `/sin-acceso`.
+- **`GET /users/me/context`** self-scoped (nombre, puesto, departamento, ficha) — un cajero no podía saber su propio puesto (`/users/positions` exige `USUARIOS_VER`).
+- **"Mi trabajo"** en `/projects` (URL conservada): lista seccionada, sin card grid; Mi contexto en celdas hairline; UNA declaración de lo pendiente; skeleton / error / vacío como tres estados distintos; N=1 auto-entra salvo `state.stay`; cero puertas = estado declarado, no el redirect ciego a captures.
+- **Home guards** para finanzas/contabilidad/admin + comercial y logística completados + `withTreeCandidates()` (cobertura por construcción) + **`landing-guards.spec.ts`**, que lee `app.routes.ts` como texto y comprueba que la ruta de cada candidato acepta su clave. **Al nacer destapó dos rebotes preexistentes**: `INVENTORY_CONTAR → sessions` (exige SUPERVISAR; la pantalla es `/inventory/count`) y `ENTRADAS_VER → /compras/entradas` (exige GESTIONAR desde RE.17). La deuda árbol-vs-guard (58 pares) quedó **enumerada con motivo**.
+- Layout: migaja Espacio › Proyecto › Página derivada del mapa; "Administración" → "Configuración de la suite"; Telemarketing gana vuelta a la landing (no tenía).
+
+### Medido
+
+`nx test view` 18 suites / **243** pruebas (+41) · `contracts` 35 · authz coverage 22 · build view verde, **1.23 → 1.25 MB** inicial (+20 kB / +4.1 kB gz). **NO MEDIDO:** la parte viva de `me/context` y `run-all-tests` (sin API local; no se levanta desde acá) y la validación visual (dev servers de Edgar).
+
+### Lecciones
+
+1. **Un gate nuevo vale por lo que destapa el día que nace**: los dos rebotes de home guards llevaban semanas en prod sin que nadie los viera.
+2. **El índice de git es UNO para las 10 sesiones**: `db6f2718` arrastró la baja de `libs/shared-auth` que otra sesión tenía stageada, y `b39e90d1` (ajeno) arrastró mi baja de `check-authz-tree.js`. Inofensivo las dos veces (lib muerta, script vacuo) — pero de ahora en adelante `git commit -- <rutas>` y `git diff --cached --stat` antes.
+3. **Octava vez del acento grave en un template inline.** El repo lo tiene escrito en tres lugares y volvió a pasar.
+
 ## 2026-09-09 — `[RD.2c]` El latido estaba verde y la venta no llegaba: $1.27M parados entre el runner y la plataforma
 
 **Disparador:** `RUNBOOK_ALTA_CAMIONETA.md`. Se estaban dando de alta las camionetas de Canindo; `ruta_501` acababa de dar su primer push (18:58 MX, 4,001 filas, $384,428, almacén `06-001`).

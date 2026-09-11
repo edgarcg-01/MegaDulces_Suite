@@ -10,6 +10,21 @@
 
 ## [Unreleased]
 
+### Added — "Mi trabajo": la landing por espacios de responsabilidad reemplaza al catálogo de tarjetas (SN, 2026-09-10)
+
+Etapa 2 de la especificación de Dirección (2026-09-10). ADR-061. Plan y medición en [`FASE_SN`](docs/IMPLEMENTACION/FASES/FASE_SN_SUITE_NAVEGACION.md).
+
+- **Un mapa, no tres listas.** `libs/contracts/src/authz/suite-map.ts`: los 10 espacios de §5.1 sobre `AUTHZ_TREE`. La visibilidad de cada puerta se **deriva** de los permisos de sus módulos con ruta; los `anyOf` a mano de las 11 tarjetas (que ya habían cobrado `[AUTHZ.6]` e `[IDG.9.6]`) desaparecen. Lo que la spec pide y no existe (Operación por zonas, RRHH, Sistemas) se **declara**, no se pinta como "Próximamente".
+- **La spec no se obedeció a ciegas**: §23 y §10 se contradicen sobre "Auditoría en Ruta" (queda **P-14** con evidencia de ambos lados); la cabecera "Esto ve Dirección General de mi gestión" no se estrena sobre bloques vacíos; el puesto se muestra y no gatea; §13 juzgó Finanzas por una descripción de tarjeta vieja → la línea secundaria de cada fila se deriva de los módulos accesibles, por persona.
+- **`/projects` (misma URL) = "Mi trabajo"**: lista seccionada sin card grid; Mi contexto (persona, puesto, alcance, periodo) en celdas hairline; skeleton / error / vacío son tres estados distintos; N=1 auto-entra salvo `state.stay`; cero puertas = estado declarado con salida, ya no el redirect ciego a `/dashboard/captures`.
+- **`GET /users/me/context`** (self-scoped): un cajero no podía saber su propio puesto (`/users/positions` exige `USUARIOS_VER`). `position: null` se declara, nunca se deriva del rol.
+- **Medido contra prod (read-only): 36 roles, 0 puertas perdidas, 17 ganan (83 usuarios).** Y "ganada" ≠ "abre": `/finanzas`, `/contabilidad` y `/admin` redirigían **fijo** → 32 cajeros con sólo `FINANCE_EXPENSES_CAPTURAR` habrían caído en `/sin-acceso`. Nuevos `finanzasHomeGuard`/`contabilidadHomeGuard`/`adminHomeGuard`; comercial (+comisiones) y logística (+guías, +gasto de flota) completados; `withTreeCandidates()` da cobertura por construcción.
+- **`landing-guards.spec.ts`** lee `app.routes.ts` como texto y comprueba que la ruta de cada candidato acepta su clave. **Al nacer destapó dos rebotes preexistentes**: `INVENTORY_CONTAR → sessions` (exige SUPERVISAR) y `ENTRADAS_VER → /compras/entradas` (exige GESTIONAR desde RE.17). La deuda árbol-vs-guard (58 pares) queda enumerada con motivo.
+- Layout: migaja **Espacio › Proyecto › Página** derivada del mapa; "Administración" → "Configuración de la suite" (§22); "Proyectos" → "Mi trabajo"; Telemarketing gana vuelta a la landing.
+- Internal: `libs/contracts` estrena jest (35 pruebas, 9 mapas rotos a propósito → rojo; paridad con los `anyOf` congelados); `nx test view` 18 suites / 243 (+41); build view 1.23 → 1.25 MB inicial (+20 kB / +4.1 kB gz). `scripts/check-authz-tree.js` **borrado** (leía shims de una línea, contaba 0 claves, pintaba verde). GOTCHAS §4 reescrito (enum único + 6º paso "proyecto nuevo → suite-map").
+- ⚠️ **Índice de git compartido por 10 sesiones**: `db6f2718` arrastró la baja de `libs/shared-auth` que otra sesión tenía stageada (lib muerta: cero importadores desde `[ID.28]`), y `b39e90d1` (ajeno) arrastró la baja de `check-authz-tree.js`. Regla nueva: `git commit -- <rutas>`.
+- **Pendiente humano:** validación visual (dev servers de Edgar), reinicio de la API para el smoke vivo de `me/context` + `run-all-tests`, redeploy api+view.
+
 ### Fixed — el mayoreo sigue al codigo leido, y su base estaba equivocada (TDA.7, 2026-09-10)
 
 0Sistemas: *"se critico con tu trabajo"*, sobre los tres commits de TDA.5/TDA.6 que yo acababa de cerrar diciendo *"nx test view 15 suites / 185 tests"* + *"NO medido: como se ve"*. La frase estaba al reves.
