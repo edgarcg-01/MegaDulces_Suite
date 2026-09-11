@@ -6,7 +6,10 @@
  * catálogo de cuentas `kdco`, y puebla analytics.expense_entries en prod.
  *
  * Modelo (verificado contra Kepler):
- *   egreso  = cargo (kdc.c4='C') a cuenta de compras/costo (5xx) o gasto (6xx)
+ *   egreso  = cargo (kdc.c4='C') a cuenta de compras/costo (511), gasto (6xx),
+ *             activo no circulante (150) o financiero/impuesto (702-764)
+ *             → familias del contrato `expense-family.contract.ts`. 701
+ *             PRODUCTOS FINANCIEROS queda FUERA: es ingreso, no egreso.
  *   cuenta  = kdc.c3  ·  nombre = kdco.c2 (join por kdco.c3)
  *   importe = kdc.c5  (c9 llega 0 a veces → NO usar)
  *   benef   = kdc.c6  ·  fecha = kdc.c2  ·  sucursal = kdc.c14  ·  linea = kdc.c10
@@ -190,7 +193,9 @@ function normArea(raw) {
                     NULLIF(btrim(c6),'') AS beneficiario, c5::numeric AS importe,
                     NULLIF(btrim(c13),'') AS dpto, NULLIF(btrim(c20),'') AS concepto_cod
                FROM md.${t.tbl}
-              WHERE c4='C' AND (c3='511' OR c3 LIKE '6%')
+              WHERE c4='C' AND (c3='511' OR c3 LIKE '6%'
+                                OR split_part(btrim(c3),'-',1) = '150'
+                                OR split_part(btrim(c3),'-',1) BETWEEN '702' AND '764')
                 AND COALESCE(c5,0) <> 0`,   /* dropea las ~609 líneas $0 'BAJA -'/canceladas (ruido). c19 folio-vacío = '' (no NULL) → se conserva la capa de diario/presupuesto; la distingue Fix#1. */
           )).rows;
 
@@ -319,7 +324,16 @@ function normArea(raw) {
     // acreditable mal capitalizado al costo, $16.45M contra 122). Como la factura
     // domina esos meses, esta regla también las borra → el IVA NO infla compras.
     // Si se sube THRESH, revalidar que el IVA siga quedando fuera.
+    //
+    // [GX.9] ACOTADO a 511/6xx — las familias que este fix modela. NO aplica a las
+    // cuentas nuevas (150 activo no circulante, 702-764 financieros e impuestos):
+    // ahí la capa folio-vacío NO es un presupuesto paralelo sino pólizas de diario
+    // (D-11/D-14, contrapartida 999/116/515), y el fix genérico las confundía.
+    // MEDIDO en el ODS (12 meses, 2025-09…2026-08) antes de acotarlo: en 150 habría
+    // borrado $240,034 (2026-03) + $5,000 (2025-12) de adquisiciones con factura
+    // real, y $182,633 de diario (2026-07). Con el acote, 511/6xx quedan idénticos.
     const THRESH = 0.5;
+    const FIX1_MAYORES = `(c.cuenta_mayor = '511' OR c.cuenta_mayor LIKE '6%')`;
     const dropLayer = await db.query(`
       WITH capas AS (
         SELECT sucursal, cuenta_mayor, to_char(fecha,'YYYY-MM') AS mes,
@@ -333,6 +347,7 @@ function normArea(raw) {
       DELETE FROM stg_exp s USING capas c
        WHERE s.sucursal = c.sucursal AND s.cuenta_mayor = c.cuenta_mayor
          AND to_char(s.fecha,'YYYY-MM') = c.mes
+         AND ${FIX1_MAYORES}
          AND (
               (c.det >= ${THRESH} * c.res AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NULL)      -- facturas ya operan → borrar presupuesto
            OR (c.det <  ${THRESH} * c.res AND NULLIF(btrim(COALESCE(s.doc_folio,'')),'') IS NOT NULL)  -- captura incompleta → borrar facturas parciales, dejar presupuesto (estimado)
@@ -393,8 +408,10 @@ function normArea(raw) {
 
     // GX v3 — documentos: `analytics.expense_documents` es VISTA derive-no-copy sobre kepler_ods.kdm1
     // (mig 20260819210000) → NO se escribe desde acá. Su importe/iva salen del AGREGADO CONTABLE
-    // `analytics.expense_doc_accounting` (mig 20260819250000): total por documento = costo (511/6xx) +
-    // IVA (122x), lado cargo, desde las pólizas `kepler_ods.kdc2YYMM`. Se refresca acá (month-agnostic:
+    // `analytics.expense_doc_accounting` (mig 20260819250000): total por documento = costo (511/6xx/150/
+    // 702-764, mismo alcance que las pólizas — [GX.9]) + IVA (122x), lado cargo, desde las pólizas
+    // `kepler_ods.kdc2YYMM`. MEDIDO: 343 documentos de 12 meses subdeclaraban su total porque su cargo
+    // a activo fijo / financiero era invisible acá (~$9.4M). Se refresca acá (month-agnostic:
     // enumera las kdc2 del ODS en runtime; el ODS ya viene fresco vía CDC). Corrige el c16 roto del
     // movimiento (ej. recepción 02/0000482: c16=$207k vs contable $414,629.68). Si no hay ODS en este
     // entorno (dev local sin kepler_ods) se omite sin romper el feed de pólizas.
@@ -410,7 +427,8 @@ function normArea(raw) {
         upDoc = await db.query(
           `INSERT INTO analytics.expense_doc_accounting AS t (tenant_id,sucursal,doc_tipo,doc_folio,importe_contable,iva_contable,computed_at)
            SELECT $1, suc, tipo, folio,
-                  round(sum(imp) FILTER (WHERE ca='C' AND (cuenta='511' OR cuenta LIKE '6%' OR cuenta LIKE '122%')),2),
+                  round(sum(imp) FILTER (WHERE ca='C' AND (cuenta='511' OR cuenta LIKE '6%' OR cuenta LIKE '122%'
+                       OR split_part(cuenta,'-',1)='150' OR split_part(cuenta,'-',1) BETWEEN '702' AND '764')),2),
                   round(sum(imp) FILTER (WHERE ca='C' AND cuenta LIKE '122%'),2),
                   now()
              FROM (${union}) p

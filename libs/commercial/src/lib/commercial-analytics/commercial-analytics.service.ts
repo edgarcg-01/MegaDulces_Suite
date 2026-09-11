@@ -17,6 +17,8 @@ import type {
   DailySeriesRow,
   ErpCustomerRow,
 } from '@megadulces/contracts';
+// [GX.9] Familias de egreso: etiqueta y clave de serie en UNA fuente (ADR-056).
+import { EXPENSE_FAMILIA_SERIES_KEY, expenseFamiliaLabel } from '@megadulces/contracts';
 
 /**
  * Sales analytics agregado sobre `commercial.*`.
@@ -2198,10 +2200,11 @@ export class CommercialAnalyticsService {
         .first();
       const total = Number(totalsRow?.total || 0);
 
+      // [GX.9] La etiqueta ya NO se arma en SQL: sale del contrato compartido con el
+      // frontend, para que una familia nueva no vuelva a salir como '1'/'7' pelado.
       const byFamilia = await base().clone()
         .groupBy('e.familia')
         .select('e.familia',
-          trx.raw("CASE e.familia WHEN '5' THEN 'Compras / Costo' WHEN '6' THEN 'Gastos' ELSE COALESCE(e.familia,'-') END AS label"),
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'))
         .orderByRaw('SUM(importe) DESC');
 
@@ -2226,22 +2229,28 @@ export class CommercialAnalyticsService {
         prevMap = new Map(prev.map((r: any) => [String(r.key), Number(r.total)]));
       }
 
-      const series = await base().clone()
+      // [GX.9] Una columna por familia del contrato (compras · gastos · financiero ·
+      // activo): antes estaban clavadas las dos de siempre y la gráfica de tendencia
+      // sumaba en `total` un dinero que ninguna barra mostraba.
+      const seriesQ = base().clone()
         .groupByRaw("to_char(e.fecha,'YYYY-MM')")
         .select(
           trx.raw("to_char(e.fecha,'YYYY-MM') AS mes"),
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'),
-          trx.raw("ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia='5'),0)::numeric,2) AS compras"),
-          trx.raw("ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia='6'),0)::numeric,2) AS gastos"),
-        )
-        .orderBy('mes');
+        );
+      for (const [fam, key] of Object.entries(EXPENSE_FAMILIA_SERIES_KEY)) {
+        seriesQ.select(trx.raw(`ROUND(COALESCE(SUM(importe) FILTER (WHERE e.familia=?),0)::numeric,2) AS ${key}`, [fam]));
+      }
+      const series = await seriesQ.orderBy('mes');
 
       return {
         from, to, prev_from, prev_to,
         group_by: dim.key,
         total: +total.toFixed(2),
         movimientos: Number(totalsRow?.movs || 0),
-        by_familia: byFamilia.map((r: any) => ({ ...r, total: Number(r.total), movs: Number(r.movs) })),
+        by_familia: byFamilia.map((r: any) => ({
+          ...r, label: expenseFamiliaLabel(r.familia), total: Number(r.total), movs: Number(r.movs),
+        })),
         rows: rows.map((r: any) => {
           const t = Number(r.total);
           const prev = prevMap.get(String(r.key));
@@ -2253,7 +2262,11 @@ export class CommercialAnalyticsService {
             delta_pct: q.compare && prev ? +(((t - prev) / prev) * 100).toFixed(1) : null,
           };
         }),
-        series: series.map((r: any) => ({ mes: r.mes, total: Number(r.total), compras: Number(r.compras) || 0, gastos: Number(r.gastos) || 0 })),
+        series: series.map((r: any) => ({
+          mes: r.mes, total: Number(r.total),
+          compras: Number(r.compras) || 0, gastos: Number(r.gastos) || 0,
+          financiero: Number(r.financiero) || 0, activo: Number(r.activo) || 0,
+        })),
       };
     });
   }
@@ -2273,7 +2286,7 @@ export class CommercialAnalyticsService {
           trx.raw('ROUND(SUM(importe)::numeric,2) AS total'), trx.raw('COUNT(*)::int AS movs'));
 
       const total = rows.reduce((a, r) => a + Number(r.total), 0);
-      const famLabel = (f: string) => (f === '5' ? 'Compras / Costo' : f === '6' ? 'Gastos' : f || '?');
+      const famLabel = (f: string) => (f === '?' ? '(sin familia)' : expenseFamiliaLabel(f));
       const fam = new Map<string, any>();
       for (const r of rows) {
         const fk = r.familia || '?';
