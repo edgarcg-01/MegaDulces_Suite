@@ -2083,3 +2083,30 @@ correcto es **caliente**, no **grande**.
 ⚠️ **Corolario operativo:** mientras corre un `pg_dump` no entra ningún DDL. Si una migración falla
 con `canceling statement due to lock timeout`, no es un bug de la migración — es que hay un volcado
 abierto. Se reintenta después, no se sube el timeout.
+
+## `docker build` sin `--progress=plain` esconde el error que rompió el deploy (2026-09-10)
+
+Un deploy de Railway falló así:
+
+```
+ NX   Running target build for 2 projects and 1 task they depend on failed
+Failed tasks:
+- api:build:production
+ERROR: failed to build: ... exit code: 1
+```
+
+Sin línea `ERROR in`, sin error de TypeScript, sin `JavaScript heap out of memory`, y con la última línea de log **cortada a la mitad**. Se lee como si el proceso hubiera muerto seco — y eso manda a buscar memoria, OOM-kill, el cache mount de Nx, el loader `--import`. Nada de eso era.
+
+**Lo que pasa:** BuildKit con el `--progress` por defecto (`auto`) muestra sólo las últimas N líneas de cada paso. El bundle de la api emite **~320 líneas de `WARNING in ...`** (exports que son sólo tipos), cada una con su traza de módulos de varios KB. Ese chorro empuja el error real fuera de la ventana y deja el corte a media línea que parece un proceso matado.
+
+**Cómo diagnosticar de verdad:**
+
+```bash
+docker build --progress=plain -f Dockerfile -t verify . > build.log 2>&1
+grep -E '✘ \[ERROR\]|ERROR in|error TS' build.log
+```
+
+Dos corolarios que costaron una tarde:
+
+- **`Failed tasks:` SÍ es confiable** — nombra el target correcto. Lo que no es confiable es lo que se ve arriba.
+- **Compilar nativo no sustituye al contenedor, pero tampoco al revés.** `npx nx run api:build:production` en la máquina puede pasar mientras el deploy falla: la máquina tiene archivos que el checkout no (borrados en un commit, sin commitear, ignorados). Y `nx run <un solo target>` no prueba lo que Railway corre — Railway corre `run-many -t build -p view,api --configuration=production`. **La única reproducción válida es `docker build` sobre un checkout limpio de `origin/main`** (`git worktree add --detach <dir> origin/main`).
