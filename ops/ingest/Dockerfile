@@ -65,7 +65,23 @@ COPY ops/ingest/health.js ./ops/ingest/health.js
 # repo y no en el Programador de Windows.
 COPY database/scripts ./database/scripts
 COPY ops/vl/run-feed.sh ops/vl/crontab.feeds ./ops/vl/
-RUN chmod +x ./ops/vl/run-feed.sh
+# ⛔ NORMALIZAR CRLF NO ES PARANOIA — es la frontera donde el texto escrito en Windows entra a
+# Linux, y ya cobró tres veces el mismo día (2026-09-11): el `feeds.env` con 25 retornos de carro
+# que volvió inválido el UUID del tenant; y después este `crontab.feeds`, que NO termina en `.sh` y
+# por eso la regla `*.sh eol=lf` de `.gitattributes` no lo cubría → con `core.autocrlf=true`,
+# `git archive` lo exportó con CRLF y el `\r` quedó pegado al final de cada comando.
+#
+# El daño no fue que fallara: fue que NO falló. `argv.includes('--apply')` es una comparación
+# EXACTA, así que `--apply\r` no matchea → los 9 carriles corrieron en SECO y salieron con código
+# 0. El log decía "✓ ok en 9s" y no se escribía una sola fila; el latido tampoco, porque también
+# cuelga de APPLY. Un fallo disfrazado de éxito, que es la peor clase (la misma que el wrapper de
+# VL.4 tuvo dos veces).
+#
+# La regla en `.gitattributes` arregla el ORIGEN; esto arregla el BORDE, y hace falta igual: el
+# contexto de build puede llegar de un checkout ajeno, un zip o un `git archive` de otra máquina.
+RUN sed -i 's/\r$//' ./ops/vl/run-feed.sh ./ops/vl/crontab.feeds \
+ && chmod +x ./ops/vl/run-feed.sh \
+ && ! grep -q "$(printf '\r')" ./ops/vl/crontab.feeds
 
 # ⛔ `target-guard.js` — el ÚNICO archivo de `libs/` que la imagen necesita, y el que
 # más cuesta descubrir. `run-prod-feeds.js:349` lo requiere **por path computado**
