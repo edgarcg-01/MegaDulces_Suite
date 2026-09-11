@@ -144,6 +144,39 @@ $stamp     = (Get-Date).ToString('yyyy-MM-dd_HHmm')
 $dumpFile  = Join-Path $BackupDir "trade_marketing_$stamp.dump"
 $logFile   = Join-Path $BackupDir "trade_marketing_$stamp.log"
 
+# ── [VL.6.3] EL LATIDO DEL RESPALDO ─────────────────────────────────────────
+# Este script era INVISIBLE para db-health: 36 job_key vigilados y ninguno era el
+# respaldo de produccion. Lo unico que reportaba era `LastTaskResult` del Programador,
+# y ese numero llevaba desde el 2026-09-08 diciendo 267014 (SCHED_S_TASK_TERMINATED)
+# sin que nadie lo notara -- porque el .dump quedaba con buen tamano y "el respaldo
+# existia". Sus compuertas (pasos 5, 5b y 6) no corrieron en tres dias.
+#
+# ⚠️ ENVUELTO EN try/catch A PROPOSITO. Arriba hay `$ErrorActionPreference = 'Stop'`:
+# si `node` no esta en el PATH o falla, un latido sin proteger ABORTARIA EL RESPALDO.
+# Un latido que rompe lo que vigila es peor que no tenerlo (mismo criterio que
+# run-feed-guardian.ps1 y que lib/cron-heartbeat.js, que por contrato nunca lanza).
+#
+# La URL se le pasa explicita: cron-heartbeat.js lee DATABASE_URL_NEW, y en ESTA
+# maquina esa variable NO es prod (GOTCHAS #17/#25 -- por diseno apunta a la base de
+# desarrollo). La que si es prod es la que este script ya resolvio en $databaseUrl.
+$hbRepo = Split-Path -Parent $PSScriptRoot
+function Hb([string]$fase, [string]$estado, [string]$detalle) {
+    try {
+        $prev = $env:DATABASE_URL_NEW
+        $env:DATABASE_URL_NEW = $databaseUrl
+        Push-Location $hbRepo
+        if ($fase -eq 'begin') {
+            & node 'database\importers\lib\cron-heartbeat.js' begin backup_prod 'Respaldo diario de prod (pg_dump)' 2>&1 | Out-Null
+        } else {
+            & node 'database\importers\lib\cron-heartbeat.js' end backup_prod $estado $detalle 2>&1 | Out-Null
+        }
+        Pop-Location
+        $env:DATABASE_URL_NEW = $prev
+    } catch { Write-Log "WARN latido ($fase): $($_.Exception.Message)" }
+}
+
+Hb 'begin' '' ''
+
 Write-Log "Iniciando dump -> $dumpFile"
 
 # 4. Ejecutar pg_dump
@@ -168,6 +201,7 @@ $proc = Start-Process -FilePath $PgDumpPath `
 if ($proc.ExitCode -ne 0) {
     Write-Log "pg_dump fallo con exit code $($proc.ExitCode). Ver log: $logFile"
     if (Test-Path $dumpFile) { Remove-Item $dumpFile -Force }
+    Hb 'end' 'error' "pg_dump exit $($proc.ExitCode)"
     exit $proc.ExitCode
 }
 
@@ -181,6 +215,7 @@ if (Test-Path $pgRestore) {
     $toc = & $pgRestore --list $dumpFile 2>$null
     if (-not $toc) {
         Write-Log "ADVERTENCIA: pg_restore --list no devolvio contenido. Dump posiblemente corrupto."
+        Hb 'end' 'error' 'pg_restore --list no devolvio contenido: dump posiblemente corrupto'
         exit 2
     }
 
@@ -195,6 +230,7 @@ if (Test-Path $pgRestore) {
         Write-Log "  El destino clasifico como prod pero el contenido no lo parece."
         Write-Log "  No se conserva un respaldo que no puedo afirmar que este completo."
         Remove-Item $dumpFile -Force
+        Hb 'end' 'error' "el dump trae $tablas tablas y el piso es $MinTables: no parece prod"
         exit 2
     }
 }
@@ -229,6 +265,11 @@ foreach ($f in $candidatos) {
 $quedan   = Get-ChildItem $BackupDir -File -Filter '*.dump' -ErrorAction SilentlyContinue
 $ocupado  = if ($quedan) { [math]::Round((($quedan | Measure-Object Length -Sum).Sum) / 1GB, 2) } else { 0 }
 Write-Log "Retencion: quedan $($quedan.Count) dumps, $ocupado GB."
+
+# El latido reporta ENTREGA, no "el script corrio": tamano real del dump, cuantas
+# tablas trajo, y cuanto ocupa la carpeta tras la retencion. Si manana esto dice
+# "0 tablas" o el tamano se desploma, se ve en el tablero sin abrir un log.
+Hb 'end' 'ok' "$sizeMb MB - $tablas tablas ($ods de kepler_ods) - quedan $($quedan.Count) dumps, $ocupado GB"
 
 Write-Log "Backup terminado."
 exit 0

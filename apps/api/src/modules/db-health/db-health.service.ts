@@ -591,6 +591,14 @@ const CRON_JOBS: CronCfg[] = [
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
   { key: 'wincaja_concentrada', label: 'Wincaja concentrada (respaldo mensual)', cadence: 'semanal domingo 03:00', warnH: 216, critH: 384, maxRunH: 3 },
+  // [VL.6.3] EL RESPALDO DE PROD. Era invisible: 36 job_key vigilados y ninguno era el
+  // respaldo. Lo unico que lo reportaba era `LastTaskResult` del Programador de Windows, que
+  // llevaba desde el 2026-09-08 diciendo 267014 (SCHED_S_TASK_TERMINATED) sin que nadie lo
+  // notara -- porque el .dump quedaba con buen tamano y 'el respaldo existia', mientras sus
+  // compuertas (validar el dump, piso de tablas, retencion) no corrian.
+  // Umbral de job diario, mismo criterio que sales_daily: warn al saltarse una corrida,
+  // critico al saltarse dos. `maxRunH: 3` porque las corridas medidas son de 69-90 min.
+  { key: 'backup_prod',         label: 'Respaldo diario de prod (pg_dump)', cadence: 'diario 17:00', warnH: 26, critH: 50, maxRunH: 3 },
   { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
   { key: 'kepler_catalog_bulk', label: 'Kepler catálogo (bulk)',     cadence: 'semanal',         warnH: 200, critH: 400, maxRunH: 3 },
   // ── Latido por MODO del runner on-prem (run-prod-feeds.js) — dead-man's switch por batch.
