@@ -2049,6 +2049,19 @@ cmd /c rmdir "C:\tmp\integ5\node_modules"          # rmdir SIN /s borra sólo el
 
 O directamente `git worktree remove <ruta> --force`, que ya deja el árbol limpio sin que nadie tenga que borrar el enlace a mano. `rm -rf` de Git Bash tampoco atraviesa el junction, pero mezclar los dos mundos en el mismo script es justo lo que produjo el incidente.
 
+**Medido en vivo el 2026-09-11**, quitando los dos junctions huérfanos que habían quedado armados, contando el destino antes y después de cada `rmdir`:
+
+```
+ANTES:                  @angular=12  @babel=113  total=1421
+rmdir C:\tmp\integ5\node_modules      -> @angular=12  @babel=113  total=1421
+rmdir C:\tmp\verify-fpr\node_modules  -> @angular=12  @babel=113  total=1421
+```
+
+Cero diferencia: `rmdir` sin `/s` quita el enlace y no toca lo que hay del otro lado. Ese contraste es el gotcha entero.
+
+⚠️ **El enlace sobrevive al worktree.** En los dos incidentes `git worktree list` ya no mostraba nada —los worktrees estaban removidos del registro— y el junction seguía vivo dentro de un directorio huérfano en `C:\tmp`. Un worktree quitado no garantiza que el enlace se haya ido: se comprueba con
+`Get-ChildItem C:\tmp -Directory -Recurse -Depth 2 -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }`.
+
 **Reponerlo:** `npm install --no-audit --no-fund` desde la raíz. Repone lo faltante sin tocar `package-lock.json` (medido: 385 paquetes, ~2 min). Avisá antes: le reescribe `node_modules` por debajo a cualquier dev server o watcher vivo de las demás sesiones.
 
 ## Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10)
