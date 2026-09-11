@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 
 /**
@@ -12,7 +13,60 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  * `analytics.*` no tiene RLS → filtro `tenant_id` EXPLÍCITO, todo dentro de `tk.run()`.
  */
 
-const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/**
+ * Fila de `analytics.erp_sales_invoices` tal como la consume la **Guía de Cobranza** — son
+ * exactamente las columnas que `paraGuia()` selecciona, ni una más. Se declara acá (y no un
+ * `any`) para que el servicio que imprime el papel no adivine qué campos existen: si mañana
+ * se quita una columna del SELECT, lo que revienta es la compilación y no la guía impresa.
+ */
+/**
+ * Lo que devuelve `detail()`: la fila completa de la vista (≈40 columnas, se consumen por
+ * nombre en el anexo) más los derivados que calcula este service. El index signature dice la
+ * verdad —la vista trae más de lo que este lib declara— sin que eso valga por `any`: los
+ * campos que el anexo y la pantalla usan están tipados.
+ */
+export interface SalesDocDetalle extends FacturaGuiaRow {
+  /** true si la factura no trae renglones de producto (sólo servicio) */
+  sin_detalle: boolean;
+  /** true si el ODS no tiene NINGÚN renglón del documento: hueco de replicación */
+  detalle_ausente: boolean;
+  lineas: Record<string, unknown>[];
+  importe_bruto: number;
+  descuento_aplicado: number;
+  descuento_pct_efectivo: number;
+  detalle_explica_total: boolean;
+  [columna: string]: unknown;
+}
+
+export interface FacturaGuiaRow {
+  folio_digital: string;
+  sucursal: string;
+  doc_prefix: string;
+  folio: string;
+  doc_label: string | null;
+  fecha: string | Date | null;
+  vencimiento: string | Date | null;
+  dias_credito: number | null;
+  vencimiento_source: string | null;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  cliente_rfc: string | null;
+  cliente_domicilio: string | null;
+  cliente_colonia: string | null;
+  cliente_estado: string | null;
+  cliente_cp: string | null;
+  vendedor_code: string | null;
+  vendedor_nombre: string | null;
+  /** `numeric` de Postgres: llega como string. No se convierte acá para no perder centavos. */
+  total: string | null;
+  descuento_efectivo: string | null;
+  saldo: string | null;
+  cobrado: string | null;
+  estatus_cobro: string | null;
+  doc_estatus: string | null;
+  doc_estatus_label: string | null;
+  cancelada: boolean;
+}
 
 /** Identidad fiscal del emisor, leída de `fiscal.issuer_config` (ver `emisorFiscal()`). */
 export interface EmisorFiscal {
@@ -30,7 +84,14 @@ const MAX_PAGE = 200;
 export interface SalesDocsQuery {
   from?: string;
   to?: string;
-  warehouse_ids?: string;  // CSV de uuid
+  /**
+   * Sucursales que este usuario puede ver, **ya recortadas** por `ScopeService.readParam()`
+   * en el controller (llave canónica = código de 2 dígitos = `erp_sales_invoices.sucursal`).
+   * `null` = sin filtro (alcance `all` y nada pedido) · `[]` = no alcanza ninguna.
+   * NO es lo que pidió el cliente: lo que pide de más se recorta antes de llegar acá.
+   */
+  warehouse_codes?: string[] | null;
+  warehouse_ids?: string;  // CSV de uuid (legacy; hoy lo resuelve readParam)
   doc_tipo?: string;       // telemarketing | credito
   cliente_code?: string;
   vendedor_code?: string;
@@ -63,10 +124,6 @@ export class CommercialSalesDocumentsService {
     return m ? { sucursal: m[1], docPrefix: m[2], folio: m[3] } : null;
   }
 
-  private whIds(q: SalesDocsQuery): string[] {
-    return (q.warehouse_ids || '').split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
-  }
-
   /** WHERE base compartido por list() y kpis() — si divergen, los KPIs mienten sobre la tabla. */
   private base(trx: any, tenantId: string, q: SalesDocsQuery) {
     const { from, to } = this.range(q);
@@ -79,8 +136,9 @@ export class CommercialSalesDocumentsService {
     // listado y de los KPIs salvo que se pidan explícitamente.
     if (q.canceladas !== 'true') b.andWhere('i.cancelada', false);
 
-    const whs = this.whIds(q);
-    if (whs.length) b.whereIn('i.warehouse_id', whs);
+    // Alcance de sucursal. `[]` ⇒ knex emite `1 = 0`: un usuario sin sucursal alcanzable ve
+    // cero filas, que es lo correcto — nunca "todas" por ausencia de filtro.
+    if (q.warehouse_codes) b.whereIn('i.sucursal', q.warehouse_codes);
     // AX 2026-08-25 (Edgar): /comercial/documentos = SOLO facturas de telemarketing.
     // Se saca la venta a crédito (U/D/12). Filtro en el service (no en la vista compartida).
     b.andWhere('i.doc_tipo', 'telemarketing');
@@ -163,8 +221,26 @@ export class CommercialSalesDocumentsService {
             trx.raw(`count(*) FILTER (WHERE i.vencimiento_source='erp')::int AS venc_erp`),
           ).first(),
       ]);
-      return { rows, kpis, page, pageSize, range: this.range(q) };
+      // Una pantalla en blanco con todo en $0 se lee como "se rompió". Cuando la ventana no
+      // trae nada, se dice CUÁNDO fue la última factura del canal para que el rango se pueda
+      // corregir sin adivinar. Sólo se paga en el camino vacío: medido, este max() cuesta
+      // ~1 s sobre la vista en vivo y no tiene por qué pagarlo la consulta que sí trajo filas.
+      const ultima = kpis?.documentos ? null : await this.ultimaFactura(trx, tenantId, q);
+      return { rows, kpis, page, pageSize, range: this.range(q), ultima_factura: ultima };
     });
+  }
+
+  /**
+   * Fecha de la última factura del canal, IGNORANDO el rango consultado (el resto de los
+   * filtros sí se respetan: si el vacío lo causó el vendedor o el estado de cobro, la fecha
+   * que se muestra tiene que ser la de ESA selección, no la del canal entero).
+   */
+  private async ultimaFactura(trx: Knex.Transaction, tenantId: string, q: SalesDocsQuery): Promise<string | null> {
+    const sinRango: SalesDocsQuery = { ...q, from: '1900-01-01', to: '2999-12-31' };
+    const row = await this.base(trx, tenantId, sinRango).max('i.fecha as ultima').first();
+    const v = row?.ultima;
+    if (!v) return null;
+    return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
   }
 
   /**
@@ -205,6 +281,62 @@ export class CommercialSalesDocumentsService {
   }
 
   /**
+   * GT.1 — las facturas SELECCIONADAS a mano en /comercial/documentos/reportes, para la Guía
+   * de Cobranza. No es un filtro más: la selección es un acto humano (el cobrador sale con
+   * ESAS y no con las que caigan en un rango), así que se piden por folio explícito.
+   *
+   * Devuelve también las `faltantes`: un folio que se pidió y no volvió no se descarta en
+   * silencio —la guía imprimiría de menos y nadie lo notaría hasta la ruta—, lo reporta el
+   * service que arma el PDF.
+   *
+   * Mismo truco de rendimiento que `detail()`: se filtra por (sucursal, doc_prefix, folio),
+   * nunca por `folio_digital`, que es una expresión compuesta de la vista y no usa índice.
+   */
+  async paraGuia(
+    folioDigitales: string[],
+    q?: Pick<SalesDocsQuery, 'warehouse_codes'>,
+  ): Promise<{ rows: FacturaGuiaRow[]; faltantes: string[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const pedidos = [...new Set((folioDigitales || []).map((f) => String(f || '').trim()).filter(Boolean))];
+    if (!pedidos.length) return { rows: [], faltantes: [] };
+
+    const tuplas: string[][] = [];
+    const invalidos: string[] = [];
+    for (const f of pedidos) {
+      const p = this.partes(f);
+      if (p) tuplas.push([p.sucursal, p.docPrefix, p.folio]);
+      else invalidos.push(f);
+    }
+    if (!tuplas.length) return { rows: [], faltantes: invalidos };
+
+    return this.tk.run(async (trx) => {
+      const q0 = trx('analytics.erp_sales_invoices')
+        .where('tenant_id', tenantId)
+        .whereIn(['sucursal', 'doc_prefix', 'folio'], tuplas);
+      // Fuera de alcance no vuelve, y por lo tanto cae en `faltantes`: la guía se niega a
+      // imprimir y dice cuáles. Mejor que imprimir de menos en silencio.
+      if (q?.warehouse_codes) q0.whereIn('sucursal', q.warehouse_codes);
+      const rows = await q0
+        .select(
+          'folio_digital', 'sucursal', 'doc_prefix', 'folio', 'doc_label',
+          'fecha', 'vencimiento', 'dias_credito', 'vencimiento_source',
+          'cliente_code', 'cliente_nombre', 'cliente_rfc',
+          'cliente_domicilio', 'cliente_colonia', 'cliente_estado', 'cliente_cp',
+          'vendedor_code', 'vendedor_nombre',
+          'total', 'descuento_efectivo', 'saldo', 'cobrado', 'estatus_cobro',
+          'doc_estatus', 'doc_estatus_label', 'cancelada',
+        )
+        .orderBy([
+          { column: 'cliente_nombre', order: 'asc' },
+          { column: 'fecha', order: 'asc' },
+          { column: 'folio', order: 'asc' },
+        ]);
+      const vistos = new Set(rows.map((r) => String(r.folio_digital)));
+      return { rows, faltantes: [...invalidos, ...pedidos.filter((f) => !vistos.has(f))] };
+    });
+  }
+
+  /**
    * Documento completo (cabecera + renglones) — lo que consume el anexo imprimible.
    *
    * OJO con el filtro: `folio_digital` es una expresión compuesta dentro de la vista
@@ -212,7 +344,7 @@ export class CommercialSalesDocumentsService {
    * medido en prod, filtrar por él costaba **3,031 ms**; por (sucursal, doc_prefix, folio),
    * **162 ms**. Se descompone acá y se filtra por las columnas simples.
    */
-  async detail(folioDigital: string) {
+  async detail(folioDigital: string, q?: Pick<SalesDocsQuery, 'warehouse_codes'>): Promise<SalesDocDetalle> {
     const tenantId = this.tenantCtx.requireTenantId();
     const p = this.partes(folioDigital);
     return this.tk.run(async (trx) => {
@@ -222,6 +354,12 @@ export class CommercialSalesDocumentsService {
 
       const doc = await trx('analytics.erp_sales_invoices').where(donde).first();
       if (!doc) throw new NotFoundException(`Documento ${folioDigital} no encontrado`);
+      // Fuera de tu alcance = no existe. Un 403 confirmaría que el folio SÍ existe en otra
+      // sucursal; y sin esta guarda el recorte de la tabla sería cosmético: bastaba un
+      // deep-link `?doc=` para leer (e imprimir) la factura de cualquier sucursal.
+      if (q?.warehouse_codes && !q.warehouse_codes.includes(String(doc.sucursal))) {
+        throw new NotFoundException(`Documento ${folioDigital} no encontrado`);
+      }
 
       const lineas = await trx('analytics.erp_sales_invoice_lines')
         .where(donde)
@@ -387,6 +525,9 @@ export class CommercialSalesDocumentsService {
         .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
         .andWhere('doc_tipo', 'telemarketing')
         .select('warehouse_id', 'sucursal', 'vendedor_code', 'vendedor_nombre');
+      // El MISMO recorte que la tabla. De acá sale el catálogo de vendedores: sin esto, quien
+      // sólo alcanza una sucursal vería en el selector al personal de todas las demás.
+      if (q.warehouse_codes) ventana.whereIn('sucursal', q.warehouse_codes);
 
       const r = await trx.withMaterialized('sel', ventana)
         .select(

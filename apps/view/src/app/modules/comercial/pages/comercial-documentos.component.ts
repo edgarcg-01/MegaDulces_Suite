@@ -2,15 +2,9 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { SelectModule } from 'primeng/select';
-import { InputTextModule } from 'primeng/inputtext';
-import { IconFieldModule } from 'primeng/iconfield';
-import { InputIconModule } from 'primeng/inputicon';
-import { CheckboxModule } from 'primeng/checkbox';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
@@ -19,9 +13,13 @@ import {
 } from '../sales-documents.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { TELEMARKETING_TABS } from '../telemarketing-tabs';
+import {
+  TelemarketingFiltrosComponent, TmFiltros, tmFiltrosIniciales,
+} from '../components/telemarketing-filtros.component';
 
 /**
  * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
@@ -38,9 +36,9 @@ import { REPORTS_TABS } from '../reports-tabs';
   selector: 'app-comercial-documentos',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectModule,
-    InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TooltipModule, ToastModule,
+    CommonModule, TableModule, TagModule, ButtonModule, TooltipModule, ToastModule,
     MetricStripComponent, LoadStateComponent, SidePeekComponent, PageTabsComponent,
+    TelemarketingFiltrosComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -65,31 +63,9 @@ import { REPORTS_TABS } from '../reports-tabs';
       <app-metric-strip [items]="kpis(r)" />
     }
 
-    <!-- Filtros -->
-    <div class="filtros card-premium card-flat">
-      <p-iconfield class="f-search">
-        <p-inputicon styleClass="pi pi-search" />
-        <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
-               placeholder="Cliente, RFC, folio o monto" aria-label="Buscar documentos" />
-      </p-iconfield>
-
-      <p-select [(ngModel)]="vendedor" (onChange)="load()" [options]="vendedorOpts()" optionLabel="label"
-                optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" ariaLabel="Vendedor" />
-
-      <div class="f-fecha">
-        <input pInputText type="date" [(ngModel)]="desde" (change)="load()" aria-label="Desde" />
-        <span class="sep">→</span>
-        <input pInputText type="date" [(ngModel)]="hasta" (change)="load()" aria-label="Hasta" />
-      </div>
-
-      <p-select [(ngModel)]="cobro" (onChange)="load()" [options]="cobroOpts" optionLabel="label"
-                optionValue="value" placeholder="Estado de cobro" [showClear]="true" ariaLabel="Estado de cobro" />
-
-      <label class="f-check">
-        <p-checkbox [(ngModel)]="soloVencidas" [binary]="true" (onChange)="load()" inputId="venc" />
-        <span pTooltip="Vencieron y siguen debiendo. Las que ya se cobraron no cuentan.">Solo vencidas</span>
-      </label>
-    </div>
+    <app-telemarketing-filtros [value]="filtros()" [vendedores]="vendedorOpts()"
+                               [sucursales]="sucursales()" [sucursalDeclarada]="alcanceLeido()"
+                               (cambio)="aplicar($event)" />
 
     <!-- Lo que no se pudo medir se declara, no se dibuja (ADR-056) -->
     @if (vencNota(); as nota) {
@@ -101,22 +77,27 @@ import { REPORTS_TABS } from '../reports-tabs';
       <app-load-state
         [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && rows().length === 0"
         emptyIcon="pi-file" emptyTitle="Sin documentos en el periodo"
-        emptyHint="Ajusta el rango de fechas o quita filtros para ver facturas."
+        [emptyHint]="pista()"
         (retry)="load()">
 
         <p-table [value]="rows()" dataKey="folio_digital" [scrollable]="true" scrollHeight="calc(100vh - 25rem)"
-                 [rowHover]="true" styleClass="p-datatable-sm tabla-docs"
+                 [rowHover]="true" size="small"
+                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs"
+                 [tableStyle]="{ 'min-width': '62rem' }"
                  [selection]="sel()" selectionMode="single" (selectionChange)="abrir($event)">
           <ng-template #header>
             <tr>
-              <th style="width:9.5rem">Folio</th>
-              <th>Cliente</th>
-              <th style="width:6.5rem">Fecha</th>
-              <th style="width:8.5rem">Vence</th>
-              <th style="width:9rem" class="r">Total</th>
-              <th style="width:8.5rem" class="r">Saldo</th>
-              <th style="width:8rem">Cobro</th>
-              <th style="width:6.5rem" class="c">Anexo</th>
+              <th scope="col" style="width:9.5rem">Folio</th>
+              <!-- Piso propio: es la unica columna flexible, y con el min-width de la tabla
+                   repartido entre las fijas se quedaba con 80 px en tablet — el nombre del
+                   cliente salia partido en una palabra por renglon. -->
+              <th scope="col" style="min-width:17rem">Cliente</th>
+              <th scope="col" style="width:6.5rem">Fecha</th>
+              <th scope="col" style="width:8.5rem">Vence</th>
+              <th scope="col" style="width:9rem" class="r">Total</th>
+              <th scope="col" style="width:8.5rem" class="r">Saldo</th>
+              <th scope="col" style="width:8rem">Cobro</th>
+              <th scope="col" style="width:6.5rem" class="c">Anexo</th>
             </tr>
           </ng-template>
 
@@ -267,17 +248,36 @@ import { REPORTS_TABS } from '../reports-tabs';
   </div>
   `,
   styles: [`
-    :host { display: block; }
+    :host { display: block; min-width: 0; }
     .live { color: var(--ok, var(--text-soft)); font-weight: 600; }
 
-    .filtros { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .625rem .75rem; margin-bottom: .75rem; }
-    .filtros .f-search { flex: 1 1 16rem; min-width: 12rem; }
-    .filtros .f-search input { width: 100%; }
-    .f-fecha { display: flex; align-items: center; gap: .375rem; }
-    .f-fecha .sep { color: var(--text-soft); font-size: var(--fs-sm); }
-    .f-check { display: flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
+    .tabla-wrap { padding: 0; overflow: hidden; min-width: 0; }
 
-    .tabla-wrap { padding: 0; overflow: hidden; }
+    /* Estas dos tablas se salen de la regla global vieja de styles.css (<=60rem esconde de la
+       4a columna en adelante y pega la ultima a la derecha). Ese patron de "columnas
+       prioritarias" pelea con el canon de DESIGN_TABLES -- scroll horizontal + 1a columna
+       congelada -- que es el que aplica aca: en la guia de cobranza el Saldo y el Total son
+       justo lo que no se puede esconder, y la ultima columna pegada a la derecha se encimaba
+       encima de Cliente en 390 px. */
+    @media (max-width: 60rem) {
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td { display: table-cell !important; }
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th:last-child,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td:last-child {
+        position: static !important; right: auto !important;
+        box-shadow: none !important; min-width: 0 !important;
+      }
+    }
+
+
+    /* Telefono: la tabla deja de tener scroll vertical PROPIO y crece; el que scrollea es la
+       pagina. Con un scrollHeight fijo quedaban ~4 renglones dentro de una ventanita de 6 cm
+       con la bottom-nav encima. El scroll horizontal (y la 1a columna congelada) siguen. */
+    @media (max-width: 48rem) {
+      .tabla-docs .p-datatable-table-container,
+      :host ::ng-deep .tabla-docs .p-datatable-table-container { max-height: none !important; }
+    }
+
     .tabla-docs th.r, .tabla-docs td.r { text-align: right; }
     .tabla-docs th.c, .tabla-docs td.c { text-align: center; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
@@ -328,28 +328,38 @@ export class ComercialDocumentosComponent {
   readonly peek = signal(false);
   readonly det = signal<SalesDocDetail | null>(null);
   readonly detLoading = signal(false);
-  private readonly filtros = signal<SalesDocsFiltros | null>(null);
+  private readonly catalogos = signal<SalesDocsFiltros | null>(null);
+  private readonly scope = inject(DataScopeService);
+  /**
+   * GT.11 — sucursales que este usuario alcanza (`/users/me/scope`). Alimenta el selector;
+   * NO es el control de acceso: el backend recorta igual (ADR-050). Si el usuario tiene una
+   * sola, se fija como filtro desde el arranque para que la primera consulta ya sea la suya.
+   */
+  readonly sucursales = signal<{ label: string; value: string }[]>([]);
+  readonly alcanceLeido = signal(false);
 
-  search = '';
-  vendedor: string | null = null;
-  cobro: string | null = null;
-  soloVencidas = false;
-  readonly cobroOpts = [
-    { label: 'Pendientes', value: 'pendiente' },
-    { label: 'Abono parcial', value: 'parcial' },
-    { label: 'Pagadas', value: 'pagada' },
-    { label: 'Sin cartera', value: 'sin_cartera' },
-  ];
-  desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-  hasta = new Date().toISOString().slice(0, 10);
+  readonly filtros = signal<TmFiltros>(tmFiltrosIniciales());
 
-  readonly tabs = REPORTS_TABS;
+  readonly tabs = TELEMARKETING_TABS;
+  /** Ver el comentario gemelo en Reportes: las respuestas del ERP vuelven fuera de orden. */
+  private peticion = 0;
   readonly vendedorOpts = computed(() =>
-    (this.filtros()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
-
-  private timer?: ReturnType<typeof setTimeout>;
+    (this.catalogos()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   constructor() {
+    this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ops) => {
+        this.sucursales.set(ops);
+        this.alcanceLeido.set(true);
+        // Una sola sucursal ⇒ va fija en el filtro. Sin esto la primera consulta sale sin
+        // sucursal y el backend igual la recorta, pero la pantalla no diría cuál está viendo.
+        if (ops.length === 1 && !this.filtros().sucursal) {
+          this.filtros.update((f) => ({ ...f, sucursal: ops[0].value }));
+          this.load();
+        }
+      },
+      error: () => this.alcanceLeido.set(true),
+    });
     this.load();
     // Deep-link `?doc=01UD0801-0000875`: se llega desde otra pantalla (p.ej. el auxiliar de
     // /finanzas/cartera) con un documento concreto en la mano. Abre el side-peek directo, sin
@@ -400,6 +410,20 @@ export class ComercialDocumentosComponent {
     return partes.length ? partes.join(' ') : null;
   });
 
+
+  /**
+   * Qué decir cuando la ventana no trajo nada. Un "ajusta el rango" a secas deja al usuario
+   * adivinando: si sabemos cuándo fue la última factura del canal, se dice. Sin eso, la
+   * pantalla de 8 dias arranca en blanco cada vez que el feed viene atrasado y se lee como
+   * que la app esta rota.
+   */
+  readonly pista = computed(() => {
+    const u = this.report()?.ultima_factura;
+    if (!u) return 'Ajusta el rango de fechas o quita filtros para ver facturas.';
+    const [a, m, d] = [u.slice(2, 4), u.slice(5, 7), u.slice(8, 10)];
+    return `La última factura de esta selección es del ${d}/${m}/${a}. Ajusta el rango de fechas.`;
+  });
+
   readonly COBRO_LABEL: Record<string, string> = {
     pagada: 'Pagada', parcial: 'Abono parcial', pendiente: 'Pendiente',
     sin_cartera: 'Sin cartera', cancelada: 'Cancelada',
@@ -409,28 +433,38 @@ export class ComercialDocumentosComponent {
     sin_cartera: 'secondary', cancelada: 'secondary',
   };
 
-  /** Debounce del texto libre: no dispara una consulta por tecla. */
-  queue(): void {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.load(), 300);
+  aplicar(f: TmFiltros): void {
+    this.filtros.set(f);
+    this.load();
   }
 
   load(): void {
     this.loading.set(true);
     this.error.set(null);
+    const mia = ++this.peticion;
+    const f = this.filtros();
     const q = {
-      from: this.desde, to: this.hasta, search: this.search || undefined,
-      vendedor_code: this.vendedor || undefined,
-      cobro: this.cobro || undefined,
-      vencidas: this.soloVencidas ? 'true' : undefined,
+      from: f.desde, to: f.hasta, search: f.search || undefined,
+      vendedor_code: f.vendedor || undefined,
+      cobro: f.cobro || undefined,
+      vencidas: f.soloVencidas ? 'true' : undefined,
+      warehouse_codes: f.sucursal || undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.report.set(r); this.loading.set(false); },
-      error: (e) => { this.error.set(e?.error?.message || 'No se pudieron cargar los documentos.'); this.loading.set(false); },
+      next: (r) => {
+        if (mia !== this.peticion) return; // llegó tarde: manda la consulta nueva
+        this.report.set(r);
+        this.loading.set(false);
+      },
+      error: (e) => {
+        if (mia !== this.peticion) return;
+        this.error.set(e?.error?.message || 'No se pudieron cargar los documentos.');
+        this.loading.set(false);
+      },
     });
     // los catálogos siguen la misma ventana; si fallan, los filtros quedan vacíos sin romper la tabla
     this.svc.filtros(q).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (f) => this.filtros.set(f), error: () => undefined });
+      .subscribe({ next: (c) => this.catalogos.set(c), error: () => undefined });
   }
 
   abrir(row: SalesDocRow | null): void {

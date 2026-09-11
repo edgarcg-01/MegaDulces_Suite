@@ -74,7 +74,11 @@ interface EmisorImpreso {
   plazaCorta: string;
 }
 
-export interface AnexoOpts { pagare?: boolean }
+export interface AnexoOpts {
+  pagare?: boolean;
+  /** Alcance de sucursal YA resuelto (ver el controller). `null`/ausente = sin recorte. */
+  warehouse_codes?: string[] | null;
+}
 
 @Injectable()
 export class AnexoVentaService {
@@ -83,7 +87,9 @@ export class AnexoVentaService {
   constructor(private readonly docs: CommercialSalesDocumentsService) {}
 
   async pdfDeFolio(folioDigital: string, opts: AnexoOpts = {}): Promise<Buffer> {
-    const doc = await this.docs.detail(folioDigital);
+    // El PDF pasa por el MISMO recorte que la pantalla: si el documento no es de una
+    // sucursal alcanzable, `detail` responde "no encontrado" y acá no se imprime nada.
+    const doc = await this.docs.detail(folioDigital, { warehouse_codes: opts.warehouse_codes });
     // Un anexo sólo tiene sentido si hay mercancía y el documento vive. Sin estas dos guardas
     // se imprimían dos documentos falsos (barrido 2026-08-24): 15 facturas CANCELADAS que
     // conservan sus renglones (mostraban $43,904 de producto con total $0) y 95 facturas cuyo
@@ -172,7 +178,12 @@ export class AnexoVentaService {
     (AnexoVentaService.idleTimer as unknown as { unref?: () => void }).unref?.();
   }
 
-  private async renderPdf(html: string, footer: string): Promise<Buffer> {
+  /**
+   * HTML → PDF con el navegador COMPARTIDO de arriba. Es `public` a propósito: la Guía de
+   * Cobranza (GT.2) imprime desde este mismo lib y lanzar su propio Chromium duplicaría los
+   * ~150 MB que el idle-timer de acá existe para no pagar.
+   */
+  async renderPdf(html: string, footer: string): Promise<Buffer> {
     const browser = await AnexoVentaService.getBrowser();
     const page = await browser.newPage();
     try {
