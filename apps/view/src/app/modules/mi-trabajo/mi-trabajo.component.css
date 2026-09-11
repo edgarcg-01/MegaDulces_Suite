@@ -19,7 +19,7 @@
 .mt-page {
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   background: var(--layout-bg);
   color: var(--text-main);
   overflow: hidden;
@@ -150,13 +150,18 @@
 }
 
 /* ── Cuerpo: dos columnas ───────────────────────────────────────────────── */
+/*
+ * 30rem y no 34: medido en vivo, la columna de trabajo no necesita más (sus 7 filas no cortan una
+ * sola línea a ningún ancho probado) y los 64 px que suelta hacen crecer cada tarjeta de 249 a 262,
+ * lo que baja de 3 a 2 las segundas líneas que piden un tercer renglón. De 30 a 28 ya no gana nada.
+ */
 .mt-body {
   display: grid;
-  grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 30rem) minmax(0, 1fr);
   gap: var(--sp-8);
   min-height: 0;
   padding: var(--sp-5) calc(var(--sp-6) + env(safe-area-inset-right))
-           var(--sp-4) calc(var(--sp-6) + env(safe-area-inset-left));
+           calc(var(--sp-4) + env(safe-area-inset-bottom)) calc(var(--sp-6) + env(safe-area-inset-left));
 }
 .mt-col { min-height: 0; display: flex; flex-direction: column; }
 /*
@@ -391,6 +396,11 @@
   letter-spacing: .05em;
   color: var(--text-faint);
   line-height: 1.2;
+  /*
+   * El renglón se reserva SIEMPRE, aunque la entrada no tenga grupo: si no, "Ventas" (sin grupo)
+   * arrancaba 14 px más arriba que sus cuatro vecinas de la misma fila. Medido en vivo.
+   */
+  min-height: 1.2em;
   margin-bottom: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -412,14 +422,23 @@
   overflow-wrap: anywhere;
 }
 .mt-card:hover .mt-card-title { text-decoration: underline; text-underline-offset: 3px; }
+/*
+ * Dos renglones, no uno. Medido en vivo con los nombres REALES: en una sola línea se cortaban
+ * 9 de 21 segundas líneas, y bajar de 4 módulos a 3 no movía la aguja (seguían 9) — para que
+ * entrara la de Finanzas la tarjeta tendría que medir 681 px contra los 249 que tiene. Los nombres
+ * de esta suite son largos por naturaleza («Listas SAT (EFOS 69-B / Art. 69)»), así que el problema
+ * no era el N: era exigirle una línea. Con dos entran ~80 caracteres y sobra alto en la columna.
+ */
 .mt-card-body {
   font-size: var(--fs-micro);
   color: var(--text-faint);
   line-height: 1.3;
   margin-top: 2px;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .mt-vacio-busqueda {
@@ -428,21 +447,19 @@
   color: var(--text-muted);
 }
 
-/* ── Pie declarado ──────────────────────────────────────────────────────── */
-.mt-foot {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  width: 100%;
-  padding: var(--sp-2) calc(var(--sp-6) + env(safe-area-inset-right))
-           calc(var(--sp-3) + env(safe-area-inset-bottom)) calc(var(--sp-6) + env(safe-area-inset-left));
+/*
+ * ── Declaraciones al pie de SU columna ──────────────────────────────────
+ * Antes iban juntas en una banda al pie de la pantalla, pero declaran cosas distintas: una habla
+ * del trabajo y la otra de los espacios. Cada una al pie de la columna que le corresponde.
+ */
+.mt-declara-pie {
+  margin: var(--sp-5) 0 0;
+  padding-top: var(--sp-3);
   border-top: 1px solid var(--border-color);
-  background: var(--card-bg);
   font-size: var(--fs-micro);
   color: var(--text-faint);
   line-height: 1.5;
 }
-.mt-foot-sep { opacity: .5; }
 
 /* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */
 @media (max-width: 80rem) {

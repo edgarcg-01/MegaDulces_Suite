@@ -111,10 +111,11 @@ const DIMENSIONES_ALCANCE: ReadonlyArray<{ dim: string; todo: string; plural: st
 
 /**
  * Cuántos módulos se nombran en la tarjeta antes de resumir con "+N".
- * `[SN.11]` Sube de 3 a 4: la columna de puertas ganó ancho al dejar de competir con el trabajo,
- * y en SN.10 quedó medido que achicar la tarjeta deja a la línea derivada sin nada que decir.
+ * `[SN.11]` Subió a 4 con el argumento de que la columna había ganado ancho, y la medición en vivo
+ * lo desmintió: la tarjeta queda en su mínimo de 249 px y 9 de 21 segundas líneas se cortaban — las
+ * mismas 9 con 3 que con 4. Vuelve a 3 y el arreglo real va en el CSS (dos renglones).
  */
-const MAX_MODULOS_VISIBLES = 4;
+const MAX_MODULOS_VISIBLES = 3;
 
 /** Sin acentos y en minúsculas — el mismo criterio que `public.f_unaccent` en el backend. */
 function normalizar(s: string): string {
