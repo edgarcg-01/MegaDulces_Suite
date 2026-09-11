@@ -170,7 +170,16 @@
  * que cortar, que es el daño que esta fase vino a arreglar.
  */
 .mt-work { overflow: auto; }
-.mt-spaces { overflow: hidden; }
+/*
+ * `[SN.12]` El delimitante. Antes las dos columnas sólo estaban separadas por un `gap`, y sin una
+ * línea no se leían como dos cosas distintas — parecía una sola superficie con un hueco. Hairline,
+ * como todo separador del sistema (DESIGN.md: la profundidad la lleva el borde de 1 px, no sombra).
+ */
+.mt-spaces {
+  overflow: hidden;
+  border-left: 1px solid var(--border-color);
+  padding-left: var(--sp-8);
+}
 
 .mt-col-head {
   display: flex;
@@ -262,6 +271,20 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/*
+ * `[SN.12]` Hace cuánto espera el más viejo de la cola. Es el dato que ORDENA la bandeja, así que
+ * se muestra: sin él, "1,865 arriba y 5 abajo" parecía un orden por tamaño y no por urgencia.
+ * Sin semáforo a propósito — un umbral de "viejo" sería inventado; el orden ya lo dice.
+ */
+.mt-task-edad {
+  flex: none;
+  min-width: 2.75rem;
+  text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
 }
 .mt-task-go { flex: none; color: var(--text-faint); font-size: var(--fs-xs); }
 .mt-task:hover .mt-task-go { color: var(--action); }
@@ -384,7 +407,22 @@
   font-size: var(--fs-sm);
   transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
 }
-.mt-card:hover .mt-card-ico { background: var(--action); color: var(--action-ink); }
+/*
+ * `[SN.12]` El chip toma el color de SU espacio al pasar el mouse. No es decoración: dice a qué
+ * espacio pertenece la puerta que estás por abrir, y sólo mientras la señalás — en reposo la
+ * tarjeta sigue siendo hairline monocromática, que es lo que DESIGN.md exige. El color sale de la
+ * rampa `--chart-*`/`--avatar-*` (la excepción declarada: el color codifica dato) vía `--tono`,
+ * que pinta cada TARJETA — el color identifica al módulo, no al espacio. Fallback: el acento.
+ */
+.mt-card:hover .mt-card-ico {
+  background: var(--tono, var(--action));
+  color: var(--action-ink);
+}
+.mt-card:hover { border-color: var(--tono, var(--text-muted)); }
+.mt-card:focus-visible .mt-card-ico {
+  background: var(--tono, var(--action));
+  color: var(--action-ink);
+}
 .mt-card-txt { display: flex; flex-direction: column; min-width: 0; }
 /*
  * [SN.11] La línea de grupo se calculaba desde SN.6 y nunca se pintaba: es lo que ubica la entrada
@@ -471,6 +509,8 @@
   .mt-page { height: auto; min-height: 100dvh; overflow: visible; }
   .mt-body { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
   .mt-work, .mt-spaces, .mt-scroll { overflow: visible; }
+  /* Apiladas, el delimitante deja de ir al costado y pasa a separar arriba. */
+  .mt-spaces { border-left: 0; border-top: 1px solid var(--border-color); padding-left: 0; padding-top: var(--sp-5); }
   .mt-top { flex-wrap: wrap; }
   .mt-search { flex: 1 1 100%; order: 3; }
 }

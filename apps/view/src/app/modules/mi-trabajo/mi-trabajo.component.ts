@@ -17,6 +17,7 @@ import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { MeContextService } from '../../core/services/me-context.service';
+import { UsoService } from '../../core/services/uso.service';
 import { DataScopeService, type MyScope, type ScopeDim } from '../../core/services/data-scope.service';
 import {
   LANDING_ROUTE,
@@ -85,6 +86,8 @@ interface EntradaVisible {
    * y para el haystack del buscador.
    */
   grupo: string;
+  /** `[SN.12]` El tono propio de este módulo, que aparece al señalarlo. Ver `COLOR_ENTRADA`. */
+  color: string;
   /**
    * `[SN.10]` La segunda línea de la tarjeta. Para una entrada de proyecto son los módulos que
    * ESTA persona puede abrir; para un módulo enlazado, de qué proyecto sale ("de Finanzas") — que
@@ -103,6 +106,53 @@ interface EspacioVisible {
   entradas: EntradaVisible[];
 }
 
+/**
+ * `[SN.12]` Un color por MÓDULO, y sólo en hover.
+ *
+ * DESIGN.md prohíbe decorar con color y lista como antipatrón el «ícono en círculo de color»; lo
+ * que prohíbe es el ornamento EN REPOSO. Acá el color no adorna: identifica la puerta que estás por
+ * abrir, y sólo aparece mientras la señalás. En reposo la tarjeta sigue siendo hairline
+ * monocromática. Sale de las rampas `--chart-*` y `--avatar-*` —la excepción ya declarada del
+ * sistema, «el color codifica dato»— y NUNCA de un hex inventado.
+ *
+ * Tres reglas al asignarlos:
+ *  · se mapea por **id de entrada**, no por posición: si cambia el orden de §5.1, Finanzas sigue
+ *    siendo del mismo verde y la memoria de quien lo usa a diario no se rompe;
+ *  · dentro de un mismo espacio **no se repite ninguno** — es donde el ojo compara. Entre espacios
+ *    distintos sí, porque están separados por su encabezado y su regla;
+ *  · **sin morado**: `--avatar-4` queda fuera a propósito. DESIGN.md lo veta como identidad de IA,
+ *    y la entrada que más lo pediría (Supervisor AI / Horus) es justamente la que no debe llevarlo.
+ */
+const COLOR_ENTRADA: Readonly<Record<string, string>> = {
+  // Dirección General
+  'dg-centro-de-control': 'var(--chart-2)',
+  // Comercial
+  'ventas-backoffice': 'var(--chart-1)',
+  'pisos-de-venta': 'var(--chart-7)',
+  'mayoreo-telemarketing': 'var(--chart-4)',
+  'rutas-auditoria': 'var(--chart-3)',
+  compras: 'var(--chart-5)',
+  'mkt-promociones': 'var(--avatar-7)',
+  'mkt-erp-promos': 'var(--avatar-2)',
+  // Almacenes y Logística
+  almacenes: 'var(--chart-6)',
+  'transporte-y-embarques': 'var(--avatar-5)',
+  'entregas-reparto': 'var(--chart-2)',
+  // Administración y Finanzas
+  finanzas: 'var(--chart-3)',
+  contabilidad: 'var(--avatar-3)',
+  // Auditoría, Prevención y Control
+  'apc-prevencion-inventarios': 'var(--avatar-6)',
+  'apc-cuadre': 'var(--chart-7)',
+  'apc-hallazgos-finanzas': 'var(--chart-5)',
+  'apc-hallazgos-compras': 'var(--avatar-1)',
+  'apc-supervisor-ai': 'var(--chart-4)',
+  // Configuración de la suite
+  'configuracion-suite': 'var(--chart-8)',
+  'mkt-planograma': 'var(--avatar-8)',
+  'mkt-scoring': 'var(--chart-1)',
+  'mkt-catalogos-captura': 'var(--avatar-2)',
+};
 const DIMENSIONES_ALCANCE: ReadonlyArray<{ dim: string; todo: string; plural: string }> = [
   { dim: 'warehouse', todo: 'toda la red', plural: 'sucursales' },
   { dim: 'zone', todo: 'todas las zonas', plural: 'zonas' },
@@ -135,6 +185,7 @@ export class MiTrabajoComponent {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly meCtx = inject(MeContextService);
+  private readonly uso = inject(UsoService);
   private readonly scope = inject(DataScopeService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -171,6 +222,7 @@ export class MiTrabajoComponent {
           route: e.route,
           groupLabel: e.groupLabel,
           grupo: e.groupLabel ? e.groupLabel.split(' › ').slice(0, 2).join(' › ') : '',
+          color: COLOR_ENTRADA[e.entry.id] ?? 'var(--action)',
           // Repetir el título en la segunda línea ("Telemarketing / Telemarketing") no informa.
           detalle: normalizar(detalle) === normalizar(e.label) ? '' : detalle,
           // El haystack incluye los módulos y el origen: "bancos" tiene que encontrar Finanzas.
@@ -390,9 +442,39 @@ export class MiTrabajoComponent {
 
   // ── Utilidades ──────────────────────────────────────────────────────────────
 
+  /**
+   * `[SN.12]` Deja constancia de lo que esta persona abre desde la landing, para poder ordenarle
+   * la pantalla por lo que de verdad usa. Es un efecto secundario del clic: no bloquea la
+   * navegación y no falla nunca hacia afuera. Se registra el DESTINO, nunca lo que escribe en el
+   * buscador.
+   */
+  abrioPuerta(e: EntradaVisible, s: EspacioVisible): void {
+    this.uso.registrarApertura('puerta', e.id, { espacio: s.id, ruta: e.route });
+  }
+
+  abrioBandeja(p: MePendiente): void {
+    this.uso.registrarApertura('bandeja', p.id, { alcance: p.alcance, ruta: p.ruta });
+  }
+
   /** `[SN.11]` 1865 → "1,865". Cifras alineadas (tabular-nums lo hace en CSS); el separador acá. */
   formatoTotal(n: number): string {
     return new Intl.NumberFormat('es-MX').format(n);
+  }
+
+  /**
+   * `[SN.12]` Hace cuánto entró el pendiente más viejo de la cola. Es lo que ordena la bandeja:
+   * el volumen mide tamaño, no urgencia. Lo que no vino fechado se DECLARA — "sin fechar" — en
+   * vez de pasar por recién llegado (ADR-056).
+   */
+  antiguedad(p: MePendiente): string {
+    if (!p.mas_viejo_at) return 'sin fechar';
+    const ms = Date.now() - Date.parse(p.mas_viejo_at);
+    if (!Number.isFinite(ms) || ms < 0) return 'sin fechar';
+    const dias = Math.floor(ms / 86_400_000);
+    if (dias >= 365) return `${Math.floor(dias / 365)} a`;
+    if (dias >= 1) return `${dias} d`;
+    const horas = Math.floor(ms / 3_600_000);
+    return horas >= 1 ? `${horas} h` : 'hoy';
   }
 
   /** "Bancos · Cobranza · Cartera · +4" — los módulos que ESTA persona puede abrir. */

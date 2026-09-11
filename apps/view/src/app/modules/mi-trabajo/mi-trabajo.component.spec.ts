@@ -60,8 +60,8 @@ const TRABAJO_MIXTO: MeWork = {
   medido_at: '2026-09-11T12:00:00.000Z',
   no_medido: [],
   pendientes: [
-    { id: 'conteos-asignados', label: 'Conteos de inventario asignados a ti', detalle: 'sesiones abiertas', ruta: '/almacen/inventory/count', icono: 'pi pi-list-check', total: 2, alcance: 'mio' },
-    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', total: 1865, alcance: 'bandeja' },
+    { id: 'conteos-asignados', label: 'Conteos de inventario asignados a ti', detalle: 'sesiones abiertas', ruta: '/almacen/inventory/count', icono: 'pi pi-list-check', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio' },
+    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865, alcance: 'bandeja' },
   ],
 };
 

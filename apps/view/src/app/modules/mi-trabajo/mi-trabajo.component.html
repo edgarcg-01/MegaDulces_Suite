@@ -99,12 +99,13 @@
           <p class="mt-grupo-tag">A tu nombre</p>
           @if (mios().length) {
             @for (p of mios(); track p.id) {
-              <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle">
+              <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
                 <span class="mt-task-txt">
                   <span class="mt-task-l">{{ p.label }}</span>
                   @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
                 </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
             }
@@ -128,12 +129,13 @@
               En tus bandejas
             </p>
             @for (p of deBandeja(); track p.id) {
-              <a class="mt-task" [routerLink]="p.ruta" [title]="p.detalle">
+              <a class="mt-task" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
                 <span class="mt-task-txt">
                   <span class="mt-task-l">{{ p.label }}</span>
                   @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
                 </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
             }
@@ -224,7 +226,8 @@
 
               <div class="mt-cards">
                 @for (e of s.entradas; track e.id) {
-                  <a class="mt-card" [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label">
+                  <a class="mt-card" [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label"
+                     [style.--tono]="e.color" (click)="abrioPuerta(e, s)">
                     <span class="mt-card-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
                     <span class="mt-card-txt">
                       <!-- Siempre presente, aunque vaya vacío: reserva el renglón y alinea la fila. -->

@@ -251,39 +251,14 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         crossLink: true,
         source: { status: 'propuesta', cite: '§10 — promociones vigentes en el ERP' },
       },
-      {
-        id: 'mkt-planograma',
-        kind: 'module',
-        icon: 'pi pi-th-large',
-        project: 'trade',
-        module: 'planograma',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
-        source: { status: 'propuesta', cite: '§10 — exhibiciones / Trade Marketing' },
-      },
-      {
-        id: 'mkt-scoring',
-        kind: 'module',
-        icon: 'pi pi-star',
-        project: 'trade',
-        module: 'scoring',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
-        source: { status: 'propuesta', cite: '§10 — medición de la ejecución' },
-      },
-      {
-        id: 'mkt-catalogos-captura',
-        kind: 'module',
-        icon: 'pi pi-book',
-        project: 'trade',
-        module: 'catalogs',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
-        source: { status: 'propuesta', cite: '§10 — materiales y catálogos de captura' },
-      },
+      /*
+       * `[SN.12]` Planogramas, Scoring y Catálogos de captura SALIERON de acá y viven ahora en
+       * "Configuración de la suite" (espacio 10). No es un juicio de valor sobre Trade Marketing:
+       * las tres son pantallas de AJUSTE —sus rutas son `/dashboard/admin/*` y dos de ellas ni
+       * siquiera declaran permiso de lectura (`view: []`, sólo `manage`)— y estaban sentadas al
+       * mismo nivel que Ventas, Compras y Finanzas. Nadie pierde acceso: cambian de lugar, no de
+       * puerta (§5.1 "ocultar ≠ autorizar"; el bug clase AUTHZ.6 fue justo esconder una).
+       */
     ],
   },
   {
@@ -436,7 +411,9 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     order: 10,
     label: 'Configuración de la suite',
     icon: 'pi pi-cog',
-    description: 'Usuarios, roles, permisos y alcances. Antes "Administración".',
+    description:
+      'Usuarios, roles, permisos y alcances, más los ajustes que alimentan la operación ' +
+      '(planogramas, scoring, catálogos de captura). Antes "Administración".',
     status: 'active',
     entries: [
       {
@@ -450,6 +427,44 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
             'USUARIOS_VER y USUARIOS_PASSWORDS, que el árbol lista, no abren ninguna pantalla.',
         },
         source: { status: 'confirmado', cite: '§22 + §23 fila Administración → Configuración de la suite' },
+      },
+      /*
+       * `[SN.12]` Los tres ajustes de Trade, mudados desde Comercial › Mercadotecnia. Siguen siendo
+       * `crossLink` (su casa primaria es el proyecto `trade`) y conservan su `gate`: el permiso no
+       * se toca, sólo el lugar donde se ofrece la puerta.
+       */
+      {
+        id: 'mkt-planograma',
+        kind: 'module',
+        icon: 'pi pi-th-large',
+        project: 'trade',
+        module: 'planograma',
+        group: ['Ajustes de Trade'],
+        crossLink: true,
+        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
+        source: { status: 'propuesta', cite: '§22 — ajuste de ejecución, no destino de trabajo' },
+      },
+      {
+        id: 'mkt-scoring',
+        kind: 'module',
+        icon: 'pi pi-star',
+        project: 'trade',
+        module: 'scoring',
+        group: ['Ajustes de Trade'],
+        crossLink: true,
+        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
+        source: { status: 'propuesta', cite: '§22 — configuración de la medición (SCORING_CONFIG_*)' },
+      },
+      {
+        id: 'mkt-catalogos-captura',
+        kind: 'module',
+        icon: 'pi pi-book',
+        project: 'trade',
+        module: 'catalogs',
+        group: ['Ajustes de Trade'],
+        crossLink: true,
+        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
+        source: { status: 'propuesta', cite: '§22 — catálogos que alimentan la captura' },
       },
     ],
   },

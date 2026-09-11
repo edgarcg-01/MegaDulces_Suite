@@ -40,6 +40,18 @@ Smoke `test-newdb-organigrama.js` **28 ok / 0 fallos / 3 declarados**. Cada cand
 
 **Pendiente y parqueado con nombre** (`DEUDA-OR-CARTA`): los 23 puestos con gente y sin jefe declarado, y el mapa puesto→responsabilidad. La propuesta está hecha y cruzada contra permisos; el cruce destapó tres cosas que **no son de organigrama**: las alertas de flota sólo las pueden abrir `jefe_finanzas` y `sistemas` (nadie de logística), el rol `marketing` está sobre-permisado, y los 30 `vendedor_ruta` pueden **aprobar** las sugerencias comerciales dirigidas a ellos mismos.
 
+### Changed — «Mi trabajo»: color por módulo, prioridad real y registro de uso (SN.12, 2026-09-11)
+
+Seis observaciones sobre la pantalla ya corriendo. **Tres no necesitaban diseño sino medición**, y la medición cambió el pedido:
+
+- **Color por módulo, sólo en hover.** `--tono` por entrada desde `--chart-*`/`--avatar-*` — la excepción que el sistema ya declara («el color codifica dato, no decora»). No rompe `DESIGN.md`: lo que veta es el ornamento **en reposo**. Medido: 22 tarjetas, 0 sin tono, **0 repeticiones dentro de un mismo espacio**. Sin morado a propósito — está vetado como identidad de IA y la entrada que más lo pediría (Horus) es justo la que no debe llevarlo.
+- **Delimitante** entre «Tu trabajo» y «Tus espacios»: antes sólo las separaba un `gap`.
+- **La bandeja se ordena por antigüedad, no por volumen.** Las ocho colas devolvían *un número y nada más*, así que «prioridad» era imposible de calcular. Ahora cada una reporta `mas_viejo_at` (`count(*)` + `min(created_at)` en una sola pasada; verificadas las seis tablas) y la fila muestra hace cuánto espera el más viejo. La que no se pueda fechar **no se asume reciente**: cae al final y dice «sin fechar».
+- **Scoring, Planogramas y Catálogos de captura no «valen poco»: son configuración.** Sus rutas son `/dashboard/admin/*` y dos declaran `view: []` — ni siquiera existe permiso de lectura. Se mudan a «Configuración de la suite»: Comercial **10 → 7**, Configuración **1 → 4**, **22 puertas sin cambio**. Nadie pierde acceso: cambian de lugar, no de puerta.
+- **El registro de clics ya estaba construido.** `commercial.portal_telemetry_events` existe desde junio y servía sólo al Portal B2B — el caso exacto que ADR-056 llama primitivo sin generalizar. Se agrega el canal de la suite (`POST /telemetry/suite`, **autenticado**, para que el `user_id` sea el real y no un decode sin verificar) y un `UsoService` que registra qué puerta y qué bandeja abre cada quien. No se registra lo que se escribe en el buscador.
+- **Se cierra la retención** que la migración original dejó declarada y nunca se implementó: `@Cron` diario, lotes de 5,000, `timeZone` explícito, y dice en el log cuánto borró.
+- `nx test view` 19 suites / 282 · `nx test contracts` 35/35 · `nx build api` y `nx build view` verdes (1.25 MB sin cambio). **Pendiente: reiniciar la API** — hasta entonces la antigüedad se ve como «sin fechar», que es lo que debe decir cuando el dato no llega.
+
 ### Changed — «Mi trabajo» deja de ser el menú: dos columnas, el trabajo primero (SN.11, 2026-09-11)
 
 Tercer intento de la landing, y el primero que cambia la **apuesta** en vez del estilo. SN.3 (filas) y SN.9/SN.10 (tarjetas apretadas) fueron rechazadas por lo mismo: hacían que **la pantalla fuera el menú**, con 22 puertas ocupando el lienzo y el trabajo exprimido en una tira de píldoras. Por eso cada ronda de "que quepa" costaba contenido.

@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { KNEX_NEW_DB } from '@megadulces/platform-core';
 import { Knex } from 'knex';
 
@@ -39,6 +40,46 @@ export class CommercialTelemetryService {
   private readonly logger = new Logger(CommercialTelemetryService.name);
 
   constructor(@Inject(KNEX_NEW_DB) private readonly knex: Knex) {}
+
+  /**
+   * `[SN.12]` Retención: 90 días y afuera.
+   *
+   * La migración que creó esta tabla (junio 2026) dejó escrito *"esta tabla crece rápido.
+   * Follow-up recomendado: job de cron que borre filas > 90 días. No se implementa aquí."* Nunca
+   * se implementó, y al sumarle el uso de la suite interna la tabla deja de crecer sólo con las
+   * visitas del portal. Se cierra acá porque es la deuda de este mismo primitivo, no otra fase.
+   *
+   * Borra en lotes para no tomar un lock largo sobre una tabla que está recibiendo inserts, y
+   * declara en el log cuántas filas se fueron. `timeZone` explícito: sin él el contenedor corre en
+   * UTC y el "3 AM" no es el que uno cree.
+   */
+  @Cron('0 15 3 * * *', { timeZone: 'America/Mexico_City' })
+  async purgarViejos(): Promise<number> {
+    const DIAS = 90;
+    const LOTE = 5000;
+    let total = 0;
+    try {
+      for (;;) {
+        const borradas = await this.knex(TABLE)
+          .whereIn(
+            'id',
+            this.knex(TABLE)
+              .select('id')
+              .where('created_at', '<', this.knex.raw(`now() - interval '${DIAS} days'`))
+              .limit(LOTE),
+          )
+          .del();
+        total += borradas;
+        if (borradas < LOTE) break;
+      }
+      if (total > 0) this.logger.log(`telemetría: purgadas ${total} filas de más de ${DIAS} días`);
+      return total;
+    } catch (err) {
+      // Que la limpieza falle no puede tumbar la ingesta; se declara y se reintenta mañana.
+      this.logger.error(`telemetría: la purga falló — ${(err as Error)?.message}`);
+      return total;
+    }
+  }
 
   // ── Ingesta ─────────────────────────────────────────────────────────────────
 
