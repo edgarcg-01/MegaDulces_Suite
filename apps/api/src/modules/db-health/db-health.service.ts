@@ -691,6 +691,12 @@ const CRON_JOBS: CronCfg[] = [
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
+  // [VL.6.2] El vigilante del vigilante. Sin umbral aca, `checkCronRuns` caia en
+  // `cfg ? classify : 'ok'` y el dead-man's switch se pintaba verde por viejo que estuviera —
+  // o sea que el unico proceso cuyo trabajo es notar que el scanner murio podia morirse primero
+  // y en silencio. Su `note` declara ademas si tiene canal externo, que hoy NO tiene.
+  { key: 'health_watchdog',     label: 'Watchdog Salud BD (on-prem)', cadence: 'cada 5 min',     warnH: 0.5, critH: 2 },
+
 ];
 
 export interface SourceHealth {

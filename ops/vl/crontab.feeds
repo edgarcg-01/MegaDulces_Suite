@@ -37,6 +37,12 @@
 # paso y agregación de fallas. ⚠️ Es EL carril del incidente que fundó la Fase OBS.
 */30 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
 
+# [VL.6.2] EL VIGILANTE. Vigila que el scanner de Salud BD del API siga vivo y, si no, toma el
+# control y abre las alertas el mismo. Se muda a `md` sin tocar una linea: ya viaja dentro de la
+# imagen y `pg` resuelve (verificado). Su env sale de /secrets/feeds.env como todos, via run-feed.sh.
+# Desde VL.6.2 late en `health_watchdog`: era el unico de su familia invisible para db-health.
+*/5 * * * * /app/ops/vl/run-feed.sh watchdog "node /app/database/importers/lib/health-watchdog.js"
+
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
 0 * * * *   /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
 0 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
