@@ -34,6 +34,42 @@ corre() {
     psql -h 192.168.0.222 -p 5433 -U "$USUARIO" -d "$db" -qtA -v ON_ERROR_STOP=1 -c "$sql" 2>&1
 }
 
+# ⭐ Igual que `corre`, pero APAGANDO PRIMERO el cinturón `default_transaction_read_only`
+# en una transacción aparte. Es la prueba que de verdad importa, porque ese ajuste
+# es un GUC de SESIÓN y cualquiera puede apagarlo: si lo único que impidiera
+# escribir fuera el cinturón, "sólo lectura" duraría hasta el primer `SET`.
+#
+# ⚠️ Y ojo con cómo se prueba, que la primera vez me dio un falso verde: con un
+# solo `-c "SET ...; DELETE ..."` psql manda TODO en una transacción implícita, y
+# el modo lectura de una transacción se fija al abrirla — o sea que el DELETE
+# fallaba por "read-only transaction" y parecía que el cinturón aguantaba, sin
+# haber probado nada. Hacen falta `-c` SEPARADOS: misma sesión, transacciones
+# distintas, y ahí sí el SET ya tuvo efecto.
+corre_sin_cinturon() {
+  db="$1"; sql="$2"
+  docker exec -i -e PGPASSWORD="$CLAVE" "$CONTENEDOR" \
+    psql -h 192.168.0.222 -p 5433 -U "$USUARIO" -d "$db" -qtA -v ON_ERROR_STOP=1 \
+      -c "SET default_transaction_read_only = off" -c "$sql" 2>&1
+}
+
+debe_fallar_sin_cinturon() {
+  etiqueta="$1"; db="$2"; sql="$3"
+  if salida=$(corre_sin_cinturon "$db" "$sql"); then
+    linea "FALLA" "$etiqueta" "⛔ ESCRIBIÓ con el cinturón apagado — el permiso no protege"
+    falla=$((falla + 1))
+  else
+    motivo=$(echo "$salida" | grep -oiE 'permission denied[^"]*' | head -1)
+    if [ -n "$motivo" ]; then
+      linea "OK" "$etiqueta" "rechazado por PERMISO: $motivo"
+      ok=$((ok + 1))
+    else
+      # Se rechazó, pero NO por permiso → el único que protege es el cinturón.
+      linea "FALLA" "$etiqueta" "rechazado, pero NO por permiso: $(echo "$salida" | grep -i error | head -1)"
+      falla=$((falla + 1))
+    fi
+  fi
+}
+
 # Debe FALLAR. Si pasa, es un agujero.
 debe_fallar() {
   etiqueta="$1"; db="$2"; sql="$3"
@@ -78,8 +114,18 @@ debe_fallar "leer la caja de una sucursal (foránea)" kepler_consolidado "SELECT
 debe_fallar "leer una vista sobre foráneas"          kepler_consolidado "SELECT count(*) FROM dic.productos"
 
 echo
+echo "⭐ CON EL CINTURÓN APAGADO (lo que separa un permiso de un ajuste de sesión)"
+debe_fallar_sin_cinturon "escribir tras SET read_only=off"  kepler_md_03       "DELETE FROM md.kdii WHERE false"
+debe_fallar_sin_cinturon "crear tabla tras SET read_only=off" kepler_md_03     "CREATE TABLE md.zz_prueba_dev_ro (i int)"
+debe_fallar_sin_cinturon "escribir el consolidado tras SET"  kepler_consolidado "DELETE FROM mart.ventas WHERE false"
+
+echo
 echo "GUARDAS DE SESIÓN"
-for par in "default_transaction_read_only|on" "statement_timeout|120s" "idle_in_transaction_session_timeout|1min" "lock_timeout|5s"; do
+# ⚠️ Los valores esperados son los NORMALIZADOS por Postgres, no los que se
+# escribieron: se configura `statement_timeout = '120s'` y `SHOW` responde
+# `2min`. Comparar contra '120s' daba FALLA sobre una configuración correcta —
+# una compuerta que grita en falso enseña a ignorarla, igual que una que calla.
+for par in "default_transaction_read_only|on" "statement_timeout|2min" "idle_in_transaction_session_timeout|1min" "lock_timeout|5s"; do
   p=${par%%|*}; esperado=${par##*|}
   if v=$(corre kepler_md_03 "SHOW $p"); then
     if [ "$v" = "$esperado" ]; then linea "OK" "$p" "$v"; ok=$((ok + 1))
