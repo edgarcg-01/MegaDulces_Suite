@@ -85,7 +85,16 @@ export class CommercialInventoryService {
       let q = trx('commercial.stock as s')
         .leftJoin('commercial.warehouses as w', 'w.id', 's.warehouse_id')
         .leftJoin('public.products as p', 'p.id', 's.product_id')
-        .leftJoin('public.brands as b', 'b.id', 'p.brand_id');
+        .leftJoin('public.brands as b', 'b.id', 'p.brand_id')
+        // [KE.3] El costo con el que se valua sale del resolvedor unico
+        // (analytics.v_erp_unit_cost): testigo del MISMO ERP y del MISMO almacen que la
+        // cantidad. `cost_base`/`cost_with_tax` siguen expuestos como dato de catalogo
+        // -- son lo que se le paga al proveedor -- pero ya no valuan.
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 's.tenant_id')
+            .andOn('uc.warehouse_id', '=', 's.warehouse_id')
+            .andOn('uc.product_id', '=', 's.product_id');
+        });
 
       if (query.warehouse_id) q = q.where('s.warehouse_id', query.warehouse_id);
       if (query.product_id) q = q.where('s.product_id', query.product_id);
@@ -117,8 +126,11 @@ export class CommercialInventoryService {
           's.reserved_quantity as reserved',
           trx.raw('(s.quantity - s.reserved_quantity) as available_quantity'),
           trx.raw('(s.quantity - s.reserved_quantity) as available'),
-          // Valor del stock disponible al costo (para totals del dashboard).
-          trx.raw('GREATEST(s.quantity - s.reserved_quantity, 0) * COALESCE(p.cost_base, 0) AS available_value'),
+          // Valor del stock disponible al costo ARBITRADO (para totals del dashboard).
+          // NULL sin costo, nunca 0: un cero se leeria como "no vale nada".
+          trx.raw('GREATEST(s.quantity - s.reserved_quantity, 0) * uc.costo_unitario AS available_value'),
+          trx.raw('uc.costo_unitario AS costo_unitario'),
+          trx.raw('uc.costo_source AS costo_source'),
           's.updated_at',
         )
         .orderBy('w.name', 'asc')
@@ -450,6 +462,12 @@ export class CommercialInventoryService {
           this.on('w.tenant_id', '=', 'l.tenant_id').andOn('w.id', '=', 'l.warehouse_id');
         })
         .leftJoin('public.products as p', 'p.id', 'l.product_id')
+        // [KE.3] mismo resolvedor unico de costo que el resto del inventario.
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 'l.tenant_id')
+            .andOn('uc.warehouse_id', '=', 'l.warehouse_id')
+            .andOn('uc.product_id', '=', 'l.product_id');
+        })
         .whereNotNull('l.expiry_date')
         .where('l.quantity', '>', 0)
         .whereRaw('l.expiry_date <= (CURRENT_DATE + ?::int)', [days]);
@@ -466,7 +484,8 @@ export class CommercialInventoryService {
           'p.sku as sku',
           'p.nombre as product_name',
           trx.raw('(l.expiry_date - CURRENT_DATE)::int as days_to_expiry'),
-          trx.raw('(l.quantity * COALESCE(p.cost_base, 0))::numeric as value_at_cost'),
+          trx.raw('(l.quantity * uc.costo_unitario)::numeric as value_at_cost'),
+          trx.raw('uc.costo_source AS costo_source'),
         )
         .orderBy('l.expiry_date', 'asc')
         .limit(500);

@@ -602,14 +602,24 @@ export class CommercialProfitabilityService {
         .join({ p: 'catalog.products' }, function (this: any) {
           this.on('p.id', '=', 'st.product_id').andOn('p.tenant_id', '=', 'st.tenant_id');
         })
+        // [KE.3] El inventario se valua con el resolvedor unico, al MISMO grano que la
+        // cantidad (almacen x producto). Antes multiplicaba por `cost_base`, que es un costo
+        // por PRODUCTO y global: medido, valuaba $5.49M por encima del testigo del ERP.
+        .leftJoin({ uc: 'analytics.v_erp_unit_cost' }, function (this: any) {
+          this.on('uc.tenant_id', '=', 'st.tenant_id')
+            .andOn('uc.warehouse_id', '=', 'st.warehouse_id')
+            .andOn('uc.product_id', '=', 'st.product_id');
+        })
         .leftJoin(this.salesAgg(trx, w.days), 's.product_id', 'p.id')
         .whereNull('p.deleted_at')
-        .where('p.cost_base', '>', 0)
+        .whereNotNull('uc.costo_unitario')
         .select(
-          trx.raw('COALESCE(SUM(st.quantity * p.cost_base), 0)::numeric AS total'),
-          trx.raw(`COALESCE(SUM(st.quantity * p.cost_base) FILTER (WHERE s.revenue > 0), 0)::numeric AS in_scope`),
-          trx.raw(`COALESCE(SUM(st.quantity * p.cost_base) FILTER (WHERE s.revenue IS NULL OR s.revenue <= 0), 0)::numeric AS no_sales`),
-          trx.raw(`COALESCE(SUM(st.quantity * p.cost_base) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT}), 0)::numeric AS unverified`),
+          trx.raw('COALESCE(SUM(st.quantity * uc.costo_unitario), 0)::numeric AS total'),
+          trx.raw(`COALESCE(SUM(st.quantity * uc.costo_unitario) FILTER (WHERE s.revenue > 0), 0)::numeric AS in_scope`),
+          trx.raw(`COALESCE(SUM(st.quantity * uc.costo_unitario) FILTER (WHERE s.revenue IS NULL OR s.revenue <= 0), 0)::numeric AS no_sales`),
+          trx.raw(`COALESCE(SUM(st.quantity * uc.costo_unitario) FILTER (WHERE ${CommercialProfitabilityService.COST_CONFLICT}), 0)::numeric AS unverified`),
+          trx.raw(`COUNT(*)::int AS filas`),
+          trx.raw(`COUNT(*) FILTER (WHERE uc.tiene_testigo)::int AS con_testigo`),
         );
 
       const inventoryValue = Number(inv?.total) || 0;
@@ -712,6 +722,13 @@ export class CommercialProfitabilityService {
           in_scope: Number(inv?.in_scope) || 0,
           no_sales: Number(inv?.no_sales) || 0,
           unverified: Number(inv?.unverified) || 0,
+          /** [KE.3] Con qué se valuó y sobre cuántas filas — sin esto, un total calculado
+           *  sobre el 60% del inventario se lee igual que uno sobre el 100% (ADR-056). */
+          costo_resolver: 'analytics.v_erp_unit_cost',
+          filas: Number(inv?.filas) || 0,
+          con_testigo_erp: Number(inv?.con_testigo) || 0,
+          cobertura_pct: Number(inv?.filas) > 0
+            ? +(((Number(inv.con_testigo) || 0) / Number(inv.filas)) * 100).toFixed(2) : null,
         },
         /** Costo de catálogo que contradice al del PdV: no se valúa a ciegas. */
         cost_quality: {
@@ -858,7 +875,10 @@ export class CommercialProfitabilityService {
     // "no hay stock" en vez de "esta pregunta no aplica acá".
     const invExpr = noInventory
       ? 'NULL::numeric AS inventory_value'
-      : 'COALESCE(SUM(stk.qty * p.cost_base), 0)::numeric AS inventory_value';
+      // [KE.3] El valor ya viene calculado DENTRO del pre-agregado, con el costo del almacen
+      // que tiene esa pieza. Multiplicar afuera obligaba a un costo unico por producto y, al
+      // grano de red, valuaba la existencia de las 17 plazas con el costo de ninguna.
+      : 'COALESCE(SUM(stk.value), 0)::numeric AS inventory_value';
 
     return this.tk.run(async (trx) => {
       const build = () => {
@@ -905,9 +925,15 @@ export class CommercialProfitabilityService {
           q = invByWarehouse
             ? q.leftJoin(
                 trx.raw(
-                  `(SELECT product_id, warehouse_id, SUM(quantity) AS qty FROM commercial.stock
-                     WHERE tenant_id = public.current_tenant_id()
-                     GROUP BY product_id, warehouse_id) AS stk`,
+                  `(SELECT st.product_id, st.warehouse_id, SUM(st.quantity) AS qty,
+                           SUM(st.quantity * uc.costo_unitario) AS value
+                      FROM commercial.stock st
+                      LEFT JOIN analytics.v_erp_unit_cost uc
+                             ON uc.tenant_id = st.tenant_id
+                            AND uc.warehouse_id = st.warehouse_id
+                            AND uc.product_id = st.product_id
+                     WHERE st.tenant_id = public.current_tenant_id()
+                     GROUP BY st.product_id, st.warehouse_id) AS stk`,
                 ),
                 function (this: any) {
                   this.on('stk.product_id', '=', 'p.id').andOn('stk.warehouse_id', '=', 's.warehouse_id');
@@ -915,8 +941,15 @@ export class CommercialProfitabilityService {
               )
             : q.leftJoin(
                 trx.raw(
-                  `(SELECT product_id, SUM(quantity) AS qty FROM commercial.stock
-                     WHERE tenant_id = public.current_tenant_id() GROUP BY product_id) AS stk`,
+                  `(SELECT st.product_id, SUM(st.quantity) AS qty,
+                           SUM(st.quantity * uc.costo_unitario) AS value
+                      FROM commercial.stock st
+                      LEFT JOIN analytics.v_erp_unit_cost uc
+                             ON uc.tenant_id = st.tenant_id
+                            AND uc.warehouse_id = st.warehouse_id
+                            AND uc.product_id = st.product_id
+                     WHERE st.tenant_id = public.current_tenant_id()
+                     GROUP BY st.product_id) AS stk`,
                 ),
                 'stk.product_id',
                 'p.id',

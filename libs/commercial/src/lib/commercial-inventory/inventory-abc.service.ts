@@ -34,7 +34,7 @@ export class InventoryAbcService {
       const inserted = await trx.raw(
         `
         INSERT INTO commercial.abc_classification
-          (tenant_id, warehouse_id, product_id, abc_class, annual_value, units_window, value_share, window_days, computed_at)
+          (tenant_id, warehouse_id, product_id, abc_class, annual_value, units_window, value_share, window_days, computed_at, costo_source)
         WITH sales AS (
           SELECT o.warehouse_id, l.product_id, SUM(l.quantity)::numeric AS units
             FROM commercial.orders o
@@ -43,15 +43,27 @@ export class InventoryAbcService {
            GROUP BY o.warehouse_id, l.product_id
         ),
         base AS (
+          -- [KE.3] El costo sale de analytics.v_erp_unit_cost (testigo del MISMO ERP que la
+          -- existencia), no de catalog.products.cost_base. Medido: el catalogo se salia +-50%
+          -- del arbitro en 111 SKUs = $6,129,130 de capital mal clasificado, y la clase fija
+          -- el nivel de servicio de RA-PRO (A=0.98 / B=0.95 / C=0.90).
+          --
+          -- El COALESCE a 0 se conserva porque annual_value es NOT NULL, pero deja de ser mudo:
+          -- costo_source viaja al lado, asi que una C por AUSENCIA de costo se distingue de una
+          -- C por bajo valor (KE.3b).
           SELECT s.warehouse_id, s.product_id,
                  COALESCE(sa.units, 0) AS units,
-                 (COALESCE(sa.units, 0) * (365.0 / ?) * COALESCE(cp.cost_base, 0))::numeric(16,2) AS annual_value
+                 (COALESCE(sa.units, 0) * (365.0 / ?) * COALESCE(uc.costo_unitario, 0))::numeric(16,2) AS annual_value,
+                 COALESCE(uc.costo_source, 'sin_costo') AS costo_source
             FROM commercial.stock s
             JOIN catalog.products cp ON cp.id = s.product_id
+            LEFT JOIN analytics.v_erp_unit_cost uc
+                   ON uc.tenant_id = s.tenant_id AND uc.warehouse_id = s.warehouse_id
+                  AND uc.product_id = s.product_id
             LEFT JOIN sales sa ON sa.warehouse_id = s.warehouse_id AND sa.product_id = s.product_id
         ),
         ranked AS (
-          SELECT warehouse_id, product_id, units, annual_value,
+          SELECT warehouse_id, product_id, units, annual_value, costo_source,
                  SUM(annual_value) OVER (PARTITION BY warehouse_id ORDER BY annual_value DESC, product_id
                                          ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_value,
                  NULLIF(SUM(annual_value) OVER (PARTITION BY warehouse_id), 0) AS total_value
@@ -69,7 +81,8 @@ export class InventoryAbcService {
                units,
                CASE WHEN total_value IS NULL THEN 1.0 ELSE round(cum_value / total_value, 4) END,
                ?::int,
-               now()
+               now(),
+               costo_source
           FROM ranked
         `,
         [windowDays, windowDays, windowDays],
@@ -84,8 +97,26 @@ export class InventoryAbcService {
       const by_class: Record<string, { count: number; value: number }> = { A: { count: 0, value: 0 }, B: { count: 0, value: 0 }, C: { count: 0, value: 0 } };
       for (const r of summary) by_class[r.abc_class] = { count: Number(r.n), value: Number(r.v) };
       const classified = (inserted.rowCount ?? 0);
+      // [KE.3] La cobertura del costo viaja con el resultado: una clasificacion hecha sobre
+      // costos ausentes manda a C por ausencia, no por bajo valor (ADR-056).
+      const [cov] = await trx('commercial.abc_classification').select(
+        trx.raw(`COUNT(*)::int AS total`),
+        trx.raw(`COUNT(*) FILTER (WHERE costo_source IN ('kepler_kdik','wincaja_costo_promedio'))::int AS con_testigo`),
+        trx.raw(`COUNT(*) FILTER (WHERE costo_source = 'sin_costo')::int AS sin_costo`),
+      );
       this.logger.log(`ABC recomputado: ${classified} (almacén,producto) clasificados (ventana ${windowDays}d).`);
-      return { classified, window_days: windowDays, by_class };
+      return {
+        classified,
+        window_days: windowDays,
+        by_class,
+        costo: {
+          resolver: 'analytics.v_erp_unit_cost',
+          con_testigo_erp: Number(cov?.con_testigo) || 0,
+          sin_costo: Number(cov?.sin_costo) || 0,
+          cobertura_pct: Number(cov?.total) > 0
+            ? +(((Number(cov.con_testigo) || 0) / Number(cov.total)) * 100).toFixed(2) : null,
+        },
+      };
     });
   }
 

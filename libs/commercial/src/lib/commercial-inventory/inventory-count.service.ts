@@ -707,7 +707,9 @@ export class InventoryCountService {
    *   - by_reason: desglose del shrinkage por causa (habilitado por reason_code).
    *   - recent_folios: IRA + merma neta por folio.
    * Tolerancia (default 0 = exacto): item exacto si |varianza| ≤ teórico·tol%/100.
-   * Costo: catalog.cost_base, fallback proxy inventory.products. (SUPERVISAR)
+   * Costo: `i.unit_cost` congelado al reconciliar; si no, [KE.3] el resolvedor unico
+   * `analytics.v_erp_unit_cost` (testigo del MISMO ERP y almacen); ultimo recurso el proxy
+   * de `inventory.products`. Antes el fallback era `cost_base` del catalogo. (SUPERVISAR)
    */
   async iraMetrics(q: { warehouse_id?: string; from?: string; to?: string; tolerance_pct?: number }) {
     if (q.warehouse_id && !UUID.test(q.warehouse_id))
@@ -720,13 +722,15 @@ export class InventoryCountService {
       if (q.warehouse_id) { filters.push(`c.warehouse_id = ?`); binds.push(q.warehouse_id); }
       if (q.from) { filters.push(`c.reconciled_at >= ?`); binds.push(q.from); }
       if (q.to) { filters.push(`c.reconciled_at < ?`); binds.push(q.to); }
-      const cost = `COALESCE(i.unit_cost, p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)`;
+      const cost = `COALESCE(i.unit_cost, uc.costo_unitario, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)`;
       const accurate = `ABS(COALESCE(i.variance, 0)) <= (i.expected_qty * ${tolPct} / 100.0)`;
       const baseFrom = `
         FROM commercial.inventory_counts c
         JOIN commercial.inventory_count_items i ON i.tenant_id = c.tenant_id AND i.count_id = c.id
         LEFT JOIN public.products p ON p.id = i.product_id
         LEFT JOIN inventory.products ip ON ip.sku = i.product_sku
+        LEFT JOIN analytics.v_erp_unit_cost uc ON uc.tenant_id = c.tenant_id
+             AND uc.warehouse_id = c.warehouse_id AND uc.product_id = i.product_id
         LEFT JOIN commercial.warehouses w ON w.tenant_id = c.tenant_id AND w.id = c.warehouse_id
         WHERE ${filters.join(' AND ')}`;
 
@@ -805,6 +809,12 @@ export class InventoryCountService {
         // anual / unidades anuales del catálogo ERP. Así value_at_variance deja
         // de salir 0 en folios inventory-source.
         .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
+        // [KE.3] mismo resolvedor de costo que iraMetrics y que el congelado al reconciliar.
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 'i.tenant_id')
+            .andOn('uc.product_id', '=', 'i.product_id')
+            .andOnVal('uc.warehouse_id', '=', count.warehouse_id);
+        })
         .where('i.count_id', countId)
         .select(
           trx.raw('COUNT(*)::int AS total'),
@@ -814,7 +824,7 @@ export class InventoryCountService {
           trx.raw(`COUNT(*) FILTER (WHERE i.status = 'discrepancy')::int AS discrepancies`),
           trx.raw(`COUNT(*) FILTER (WHERE i.status = 'resolved')::int AS resolved`),
           trx.raw(
-            `COALESCE(SUM(ABS(COALESCE(i.variance,0)) * COALESCE(p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)) FILTER (WHERE i.status='resolved'), 0)::numeric AS value_at_variance`,
+            `COALESCE(SUM(ABS(COALESCE(i.variance,0)) * COALESCE(uc.costo_unitario, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0)) FILTER (WHERE i.status='resolved'), 0)::numeric AS value_at_variance`,
           ),
         );
 
@@ -1233,8 +1243,13 @@ export class InventoryCountService {
       const skippedReserved: string[] = [];
 
       // #14 — costo congelado AL RECONCILIAR (la merma no debe derivar si cambia
-      // cost_base después). Batch del costo de los productos del folio + acumulado
+      // el costo después). Batch del costo de los productos del folio + acumulado
       // del valor de varianza por folio.
+      //
+      // [KE.3] ⭐ Este es el costo que QUEDA ESCRITO, asi que es el que mas importaba: salia de
+      // `public.products.cost_base` (la base legacy, costo por PRODUCTO y global). Ahora sale del
+      // resolvedor unico, al grano almacen x producto y con el testigo del MISMO ERP que la
+      // existencia que se esta contando.
       const costMap = new Map<string, number>();
       if (isInv) {
         const skuList = items.map((it) => it.product_sku).filter(Boolean);
@@ -1247,8 +1262,11 @@ export class InventoryCountService {
       } else {
         const idList = items.map((it) => it.product_id).filter(Boolean);
         if (idList.length) {
-          const rows = await trx('public.products').whereIn('id', idList).select('id', 'cost_base');
-          rows.forEach((r: any) => costMap.set(r.id, Number(r.cost_base) || 0));
+          const rows = await trx('analytics.v_erp_unit_cost')
+            .where('warehouse_id', count.warehouse_id)
+            .whereIn('product_id', idList)
+            .select('product_id', 'costo_unitario');
+          rows.forEach((r: any) => costMap.set(r.product_id, Number(r.costo_unitario) || 0));
         }
       }
       let netVarValue = 0;
@@ -1482,13 +1500,19 @@ export class InventoryCountService {
       const items = await trx('commercial.inventory_count_items as i')
         .leftJoin('public.products as p', 'p.id', 'i.product_id')
         .leftJoin('inventory.products as ip', 'ip.sku', 'i.product_sku')
+        // [KE.3] mismo resolvedor unico; `i.unit_cost` (congelado) sigue mandando cuando existe.
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 'i.tenant_id')
+            .andOn('uc.product_id', '=', 'i.product_id')
+            .andOnVal('uc.warehouse_id', '=', count.warehouse_id);
+        })
         .where('i.count_id', countId)
         .whereRaw('COALESCE(i.variance, 0) <> 0')
         .select(
           trx.raw('COALESCE(p.sku, i.product_sku) AS sku'),
           trx.raw('COALESCE(p.nombre, ip.nombre) AS product_name'),
           trx.raw('COALESCE(p.unit_sale, ip.unidad_venta) AS unit_sale'),
-          trx.raw('COALESCE(p.cost_base, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0) AS cost_base'),
+          trx.raw('COALESCE(i.unit_cost, uc.costo_unitario, ip.venta_valor_costo_anual / NULLIF(ip.venta_unidad_anual, 0), 0) AS cost_base'),
           'i.expected_qty', 'i.final_qty', 'i.variance',
         );
 

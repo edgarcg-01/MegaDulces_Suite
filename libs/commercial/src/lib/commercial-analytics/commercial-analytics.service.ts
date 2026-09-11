@@ -1134,7 +1134,16 @@ export class CommercialAnalyticsService {
         .whereNull('w.deleted_at')
         .whereNot('w.code', CEDIS_CODE)
         // Ventana 90d sobre el fact autoritativo. = 0 estricto (hay registro y dice 0).
-        .where('st.units_90d', 0);
+        .where('st.units_90d', 0)
+        // [KE.3] El costo sale del resolvedor unico, no de `catalog.products.cost_base`.
+        // Medido: el catalogo valuaba este mismo capital $5.49M por encima del testigo
+        // del propio ERP. LEFT JOIN a proposito: sin fila, `costo_unitario` llega NULL
+        // y el capital se declara NULL en vez de dibujarse en cero.
+        .leftJoin('analytics.v_erp_unit_cost as uc', function () {
+          this.on('uc.tenant_id', '=', 's.tenant_id')
+            .andOn('uc.warehouse_id', '=', 's.warehouse_id')
+            .andOn('uc.product_id', '=', 's.product_id');
+        });
       if (warehouseIdParam) base.where('s.warehouse_id', warehouseIdParam);
 
       const items = await base.clone()
@@ -1149,10 +1158,11 @@ export class CommercialAnalyticsService {
           'p.rotation_tier',
           'p.unit_sale',
           's.quantity',
-          'p.cost_base',
-          trx.raw('ROUND((s.quantity * COALESCE(p.cost_base,0))::numeric, 2) AS capital_parado'),
+          trx.raw('uc.costo_unitario AS costo_unitario'),
+          trx.raw('uc.costo_source AS costo_source'),
+          trx.raw('ROUND((s.quantity * uc.costo_unitario)::numeric, 2) AS capital_parado'),
         )
-        .orderByRaw('(s.quantity * COALESCE(p.cost_base,0)) DESC')
+        .orderByRaw('(s.quantity * uc.costo_unitario) DESC NULLS LAST')
         .limit(limit);
 
       const byWh = await base.clone()
@@ -1161,21 +1171,36 @@ export class CommercialAnalyticsService {
           'w.code as warehouse_code',
           'w.name as warehouse_name',
           trx.raw('COUNT(*)::int AS skus'),
-          trx.raw('ROUND(SUM(s.quantity * COALESCE(p.cost_base,0))::numeric, 2) AS capital_parado'),
+          trx.raw('COUNT(*) FILTER (WHERE uc.tiene_testigo)::int AS skus_con_testigo'),
+          trx.raw('COUNT(*) FILTER (WHERE uc.costo_unitario IS NULL)::int AS skus_sin_costo'),
+          trx.raw('ROUND(SUM(s.quantity * uc.costo_unitario)::numeric, 2) AS capital_parado'),
         )
-        .orderByRaw('SUM(s.quantity * COALESCE(p.cost_base,0)) DESC');
+        .orderByRaw('SUM(s.quantity * uc.costo_unitario) DESC NULLS LAST');
 
       const totalCapital = byWh.reduce((acc: number, r: any) => acc + Number(r.capital_parado || 0), 0);
+      // [KE.3] La cobertura viaja con la cifra (ADR-056): sin esto, un capital calculado
+      // sobre el 60% de los SKUs se lee igual que uno calculado sobre el 100%.
+      const skus = byWh.reduce((a: number, r: any) => a + Number(r.skus || 0), 0);
+      const conTestigo = byWh.reduce((a: number, r: any) => a + Number(r.skus_con_testigo || 0), 0);
+      const sinCosto = byWh.reduce((a: number, r: any) => a + Number(r.skus_sin_costo || 0), 0);
       return {
         warehouse_id: warehouseIdParam || null,
         total_skus: items.length,
         total_capital_parado: +totalCapital.toFixed(2),
+        costo: {
+          resolver: 'analytics.v_erp_unit_cost',
+          skus,
+          con_testigo_erp: conTestigo,
+          sin_costo: sinCosto,
+          cobertura_pct: skus > 0 ? +((conTestigo / skus) * 100).toFixed(2) : null,
+        },
         by_warehouse: byWh,
         items: items.map((r: any) => ({
           ...r,
           quantity: Number(r.quantity),
-          cost_base: Number(r.cost_base) || 0,
-          capital_parado: Number(r.capital_parado) || 0,
+          costo_unitario: r.costo_unitario != null ? Number(r.costo_unitario) : null,
+          costo_source: r.costo_source ?? null,
+          capital_parado: r.capital_parado != null ? Number(r.capital_parado) : null,
         })),
       };
     });
