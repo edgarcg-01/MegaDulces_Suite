@@ -345,7 +345,7 @@ export class CommercialAnalyticsController {
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
   @ApiOperation({
     summary:
-      'GX — Egresos contables agregados por dimensión dinámica (group_by=cuenta|cuenta_mayor|beneficiario|sucursal|doc_tipo|area|mes). Filtros: from,to (90d), sucursal=csv, familia=5|6, doc_tipo, cuenta, cuenta_mayor, area, beneficiario, min_importe, max_importe. compare=true → Δ% vs período previo. Incluye serie mensual.',
+      'GX — Egresos contables agregados por dimensión dinámica (group_by=cuenta|cuenta_mayor|beneficiario|sucursal|doc_tipo|area|mes). Filtros: from,to (90d), sucursal=csv, familia=1|5|6|7 (1=activo no circulante 150 · 5=compras 511 · 6=gastos 6xx · 7=financieros e impuestos 702-764), doc_tipo, cuenta, cuenta_mayor, area, beneficiario, min_importe, max_importe. compare=true → Δ% vs período previo. Incluye serie mensual por familia.',
   })
   expenses(
     @Query('from') from?: string,

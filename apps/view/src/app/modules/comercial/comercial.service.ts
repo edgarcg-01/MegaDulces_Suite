@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
-import type { Freshness } from '@megadulces/contracts';
+import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 
 // ── Tipos compartidos ────────────────────────────────────────────────
 export interface AddressJsonb {
@@ -2606,7 +2606,8 @@ export interface ExpensesParams {
   group_by?: ExpenseGroupBy;
   compare?: boolean;
   sucursal?: string[];
-  familia?: '5' | '6';
+  /** [GX.9] 1=activo no circulante · 5=compras · 6=gastos · 7=financieros e impuestos. */
+  familia?: ExpenseFamilia;
   doc_tipo?: string;
   cuenta?: string;
   cuenta_mayor?: string;
@@ -2633,7 +2634,8 @@ export interface ExpenseRow {
   prev_total: number | null;
   delta_pct: number | null;
 }
-export interface ExpenseSeriesPoint { mes: string; total: number; compras: number; gastos: number; }
+/** [GX.9] Una clave por familia contable (ver EXPENSE_FAMILIA_SERIES_KEY en contracts). */
+export interface ExpenseSeriesPoint { mes: string; total: number; compras: number; gastos: number; financiero: number; activo: number; }
 export interface ExpensesReport {
   from: string;
   to: string;
