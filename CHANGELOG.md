@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Fixed — etiquetera: los tamaños raros NO eran el navegador, era mezclar dos espacios de medida (2026-09-11)
+
+Reporte de tienda: *"muchos problemas con los tamaños de precios o paquetes; verifiquemos compatibilidad con Chrome/Edge y con todas las versiones"*. Se midió antes de opinar, y **la hipótesis del navegador queda refutada**.
+
+- **Censo real de la flota** (prod, `public.users.last_login_user_agent`, 94 usuarios con login): Chrome **149–153** y Edge **135/152** en escritorio, Safari 26/27 en los iOS. En los **perfiles de tienda el mínimo es Chrome 150**, y nadie en toda la flota baja de Chrome 122. Todo Chromium: no hay dos motores que puedan medir distinto. El target de build (`chrome 120`) queda por debajo de todos → tampoco es eso.
+- ⭐ **La causa, aritmética:** `altoTiers()` sumaba `getBoundingClientRect().height` (px **visuales**, ya multiplicados por el `transform:scale` de la vista de hoja) y lo comparaba contra `clientHeight` (px de **layout**, sin escalar). A escala 0.47 —la que había— el bloque de renglones se **sub-estimaba 53%** y los montos crecían hasta desbordar; a escala 1.42 se **sobre-estimaba 42%** y el ajuste los encogía hasta el piso. La hoja de **impresión nunca va escalada**, así que siempre midió bien: de ahí que lo de la pantalla no coincidiera con el papel. Mismo defecto en la guarda de obstáculo de `fitPrice()`.
+- ⚠️ **El ajuste de ayer lo amplificó**: al pasar la vista previa de una escala fija de 0.474 a una calculada (hasta 1.5), los monitores grandes cruzaron a la zona de sobre-estimación — que es la que **encoge**. Por eso los reportes aparecieron ahora y hablan de números chicos.
+- **Fix:** `escalaVisual(el)` = rect ÷ `offsetHeight`; las medidas visuales se dividen por ella antes de compararse con las de layout. Candado `label.component.spec.ts` con **prueba negativa verificada en rojo**: con la fórmula vieja el mismo bloque mide **28.44 en vez de 60** (−53%) a escala 0.474.
+- **Y la única variación por máquina que sí existe, ahora declarada:** la etiqueta mide con Anton, que baja de `fonts.googleapis.com`; un equipo sin salida a internet mide con la de respaldo y el precio sale **hasta 17% más chico** — con el mismo navegador que el de al lado. La pantalla ahora dice navegador+versión y **"tipografía de respaldo ⚠"** cuando pasa (tres estados: `anton` / `respaldo` / `sin verificar`, ADR-056). Un reporte de tienda se contesta con una foto de la pantalla.
+- Suite `view` **19/19 suites, 279 tests**; build verde. **Validación visual pendiente.**
+- 📋 **Abierto, con evidencia:** `apps/view/.browserslistrc` declara un solo navegador (`chrome 120`) con el comentario *"to bypass esbuild regex analysis failures"*. Probado hoy: con `chrome/edge >= 120, safari >= 17` **el build pasa verde** (Δ 536 bytes sobre 17.7 MB), o sea el workaround está vencido. NO se cambió: no es la causa de nada medido y toca el bundle de toda la app sin un navegador donde validarlo.
+
 ### Added — el usuario deja de ser una credencial y pasa a ser una persona con un puesto (OR.0 + OR.1, 2026-09-11)
 
 Reencuadre pedido por Edgar: *«los usuarios son personas que tienen puestos, actividades, jefes, permisos… necesito que todo esto se vea representado en la formación de un usuario»*. La medición le dio la razón: de las **33 columnas de `identity.users` sólo 4 hablan de la persona** (`nombre`, `department_code`, `position_code`, `supervisor_id`) y **ninguna dice de qué responde** — por eso **106,603 items de trabajo pendientes no tienen dueño**: no hay a quién asignárselos.

@@ -255,6 +255,20 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
             } @else {
               <span class="etqp-diag bad" title="Este equipo está corriendo una versión vieja de la app: al imprimir va a salir toda la pantalla. Cierra el navegador por completo y vuelve a abrir.">· versión vieja — al imprimir sale toda la pantalla ✗</span>
             }
+            <!-- Qué equipo es y con qué tipografía se está midiendo. Con esto, un reporte de
+                 "el precio salió de otro tamaño" se contesta con una foto de la pantalla en vez
+                 de adivinar. La fuente importa: medir con la de respaldo deja el precio hasta
+                 17% más chico, y depende de si ESTA máquina alcanza fonts.googleapis.com. -->
+            @if (navegador) { <span class="etqp-diag" title="Navegador de este equipo. Úsalo al reportar.">· {{ navegador }}</span> }
+            @switch (fuenteEtiqueta()) {
+              @case ('respaldo') {
+                <span class="etqp-diag bad" title="Este equipo no pudo cargar la tipografía Anton (fonts.googleapis.com). La etiqueta se mide e imprime con la de respaldo, y los tamaños salen distintos de los de un equipo con internet. Revisa la salida a internet de esta máquina.">· tipografía de respaldo — los tamaños salen distintos ⚠</span>
+              }
+              @case ('sin_medir') {
+                <span class="etqp-diag" title="Este navegador no permite verificar la tipografía; los tamaños pueden no coincidir con otros equipos.">· tipografía sin verificar</span>
+              }
+              @case ('anton') { <span class="etqp-diag ok" title="Tipografía de la etiqueta cargada: los tamaños son los definitivos.">· tipografía ✓</span> }
+            }
           </p>
         </div>
         <p-multiselect [options]="sectionOptions" [ngModel]="sections()" (ngModelChange)="sections.set($event)"
@@ -673,6 +687,34 @@ export class TiendaEtiquetasComponent {
    */
   readonly printGuard = signal<'ok' | 'missing'>('missing');
 
+  /**
+   * Navegador y versión de ESTE equipo, para que un reporte de tienda diga qué máquina es.
+   *
+   * Medido en prod (94 usuarios con login, censo 2026-09-11): la flota corre Chrome 149-153 y
+   * Edge 135/152 — todo Chromium, y en los perfiles de tienda el mínimo es Chrome 150. O sea las
+   * diferencias de tamaño que se reportan NO son de motor ni de versión; esto queda para que la
+   * próxima vez se pueda afirmar en vez de suponer, con una foto de la pantalla.
+   */
+  readonly navegador = (() => {
+    const ua = (globalThis as { navigator?: Navigator }).navigator?.userAgent || '';
+    const m = /Edg\/(\d+)/.exec(ua) || /OPR\/(\d+)/.exec(ua) || /Firefox\/(\d+)/.exec(ua) || /Chrome\/(\d+)/.exec(ua);
+    if (!m) return ua ? 'navegador sin identificar' : '';
+    const nombre = m[0].startsWith('Edg') ? 'Edge' : m[0].startsWith('OPR') ? 'Opera' : m[0].split('/')[0];
+    return `${nombre} ${m[1]}`;
+  })();
+
+  /**
+   * ¿La etiqueta se está midiendo con SU tipografía (Anton) o con la de respaldo?
+   *
+   * No es cosmético: medir con la fallback deja el precio hasta 17% más chico (la tabla del
+   * encabezado de label.component). Las familias bajan de fonts.googleapis.com, así que un
+   * equipo de tienda sin salida a internet imprime distinto que el de al lado **con el mismo
+   * navegador** — la única variación por máquina que quedó, y hasta hoy era invisible.
+   *
+   * Tres estados, no dos (ADR-056): si el navegador no deja preguntar, se dice eso.
+   */
+  readonly fuenteEtiqueta = signal<'midiendo' | 'anton' | 'respaldo' | 'sin_medir'>('midiendo');
+
   private checkPrintGuard(): void {
     let found = false;
     for (const sheet of Array.from(document.styleSheets)) {
@@ -692,6 +734,15 @@ export class TiendaEtiquetasComponent {
     });
     // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
     afterNextRender(() => this.checkPrintGuard());
+
+    // Qué tipografía quedó usable para medir. FUENTES_USABLES resuelve cuando las familias
+    // están listas O a los 3 s; recién ahí la respuesta significa algo.
+    FUENTES_USABLES.then(() => {
+      const f = (document as unknown as { fonts?: { check?: (s: string) => boolean } }).fonts;
+      if (!f?.check) { this.fuenteEtiqueta.set('sin_medir'); return; }
+      try { this.fuenteEtiqueta.set(f.check('11mm Anton') ? 'anton' : 'respaldo'); }
+      catch { this.fuenteEtiqueta.set('sin_medir'); }
+    });
 
     // La hoja se re-escala cuando cambia el ancho de su columna o el alto de la ventana. Se mide
     // la REGLA (.etqp-ruler, ancho de la columna) y no la caja: la caja mide lo que el zoom

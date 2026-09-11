@@ -89,4 +89,46 @@ describe('LabelComponent · lo que sale impreso', () => {
     await render(BASE);
     expect(el().querySelector('.etq-label')?.getAttribute('data-etq-settled')).toBeTruthy();
   });
+
+  /**
+   * ⭐ El alto medido de los renglones NO puede depender del ZOOM de la vista de hoja.
+   *
+   * La vista previa dibuja las etiquetas bajo transform:scale; `getBoundingClientRect()` viene
+   * escalado y `clientHeight` no. Mezclarlos hacía que el mismo bloque midiera 53% menos a
+   * escala 0.47 (los montos crecían hasta desbordar) y 42% más a escala 1.42 (los encogía hasta
+   * el piso) — "el precio del paquete salió de otro tamaño". La hoja de impresión nunca va
+   * escalada, así que medía distinto que la pantalla.
+   */
+  it('⭐ el alto de los renglones NO depende del zoom de la vista previa', async () => {
+    await render(BASE);
+    const cmp = fix.componentInstance as unknown as { altoTiers(b: HTMLElement): number; escalaVisual(b: HTMLElement): number };
+
+    // Caja de 70 px de layout con 3 renglones de 20 px. `k` simula el transform:scale de la hoja.
+    const caja = (k: number): HTMLElement => {
+      const box = document.createElement('div');
+      Object.defineProperty(box, 'offsetHeight', { value: 70, configurable: true });
+      box.getBoundingClientRect = () => ({ height: 70 * k, top: 0, bottom: 70 * k }) as DOMRect;
+      for (let i = 0; i < 3; i++) {
+        const hijo = document.createElement('div');
+        hijo.getBoundingClientRect = () => ({ height: 20 * k }) as DOMRect;
+        box.appendChild(hijo);
+      }
+      return box;
+    };
+
+    const sinZoom = cmp.altoTiers(caja(1));
+    expect(sinZoom).toBeCloseTo(60, 6); // 3 × 20 px de layout (jsdom no reporta rowGap)
+    // 0.474 = la escala fija vieja · 0.68 laptop · 1.054 monitor 1080 · 1.418 monitor 1440.
+    for (const k of [0.474, 0.68, 1.054, 1.418]) expect(cmp.altoTiers(caja(k))).toBeCloseTo(sinZoom, 6);
+
+    // Prueba NEGATIVA en el mismo caso: con la fórmula vieja (sumar los rects sin dividir por la
+    // escala) este mismo escenario SÍ cambia. O sea el caso no es degenerado y el candado mide algo.
+    const crudo = (k: number) =>
+      Array.from(caja(k).children).reduce((a, e) => a + (e as HTMLElement).getBoundingClientRect().height, 0);
+    expect(crudo(1.418)).toBeGreaterThan(crudo(1) * 1.4);
+    expect(crudo(0.474)).toBeLessThan(crudo(1) * 0.5);
+
+    // Sin layout (jsdom, etiqueta recién creada) la escala se declara 1: nunca se divide por 0.
+    expect(cmp.escalaVisual(document.createElement('div'))).toBe(1);
+  });
 });
