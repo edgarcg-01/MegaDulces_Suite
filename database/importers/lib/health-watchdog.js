@@ -142,6 +142,37 @@ function postWebhook(text) {
 
     console.log(`  abiertas/actualizadas: ${nowFailingKeys.size} · nuevas: ${newlyOpened.length} · resueltas: ${resolved}`);
 
+    // ── [VL.6.2] EL LATIDO DEL VIGILANTE ─────────────────────────────────────────────────
+    // Hasta hoy este proceso era el único de su familia INVISIBLE para db-health: vigilaba a
+    // seis carriles y a nadie le constaba que él estuviera vivo. Un dead-man's switch que se
+    // muere en silencio no es un dead-man's switch, es una creencia.
+    //
+    // ⭐ Y el `note` declara SIEMPRE si hay canal externo, porque ahí está la falla de fondo:
+    // `WATCHDOG_WEBHOOK_URL` nunca estuvo configurada en ningún lado que este script lea
+    // (verificado 2026-09-11: 0 ocurrencias). O sea que su único aviso efectivo es la campana
+    // del API — exactamente lo que él existe para cubrir CUANDO EL API ESTÁ CAÍDO. Eso no se
+    // puede arreglar desde acá (hace falta una URL), pero sí se puede DEJAR DE OCULTAR
+    // (ADR-056: lo que no se puede medir/hacer se declara, no se dibuja verde).
+    const canal = WEBHOOK ? 'webhook' : 'NINGUNO';
+    const fallando = JOBS.filter(isFailing).length;
+    const nota = `scanner ${scannerDown ? 'CAÍDO' : 'vivo'} · ${fallando}/${JOBS.length} con falla · canal externo: ${canal}`;
+    let err = null;
+    if (scannerDown) {
+      err = `el scanner del API está caído; sin latido: ${JOBS.filter(isFailing).map((j) => j.key).join(', ')}`;
+      if (!WEBHOOK) err += ' — y NO hay canal externo: este aviso sólo se ve desde el tablero que está caído';
+    }
+    if (!DRY) {
+      await db.query(
+        `INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, note, error, host, updated_at)
+         VALUES ($1,'health_watchdog','Watchdog de Salud BD (dead-man switch on-prem)', now(), now(), $2, $3, $4, $5, $6, now())
+         ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+           last_start=now(), last_finish=now(), status=EXCLUDED.status, rows_affected=EXCLUDED.rows_affected,
+           note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
+        [MEGA, scannerDown ? 'error' : 'ok', fallando, nota, err, require('os').hostname()],
+      );
+    }
+    console.log(`  latido: ${nota}`);
+
     // Push externo SOLO en fallas nuevas (anti-spam; el bell muestra las persistentes).
     if (newlyOpened.length && WEBHOOK && !DRY) {
       const ok = await postWebhook(`🚨 Salud BD (watchdog on-prem): el scanner del API está CAÍDO.\nSin latido: ${newlyOpened.join(' · ')}`);
