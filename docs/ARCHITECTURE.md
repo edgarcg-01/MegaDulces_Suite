@@ -121,6 +121,15 @@ feeds Kepler, y es la **fuente canónica** para todo dato del ERP. Ver [`ERP_KEP
 Ingesta de sistemas externos hacia las DBs de la plataforma. Casi todos **idempotentes** y en **dry-run por
 default** (necesitan `--apply`).
 
+> ⭐ **Dónde CORREN** (distinto de dónde viven): desde el **2026-09-11** la ingesta entera corre en el
+> servidor Linux **`md` · 192.168.0.222**, como contenedores de Docker Compose declarados en el repo
+> ([`ops/vl/docker-compose.yml`](../ops/vl/docker-compose.yml)) con la agenda versionada
+> ([`ops/vl/crontab.feeds`](../ops/vl/crontab.feeds)). Antes vivían en el Programador de Windows de la
+> máquina de escritorio `.249` — fuera del repo y atados a una sesión de usuario abierta (ADR-060).
+> Lo único que sigue en `.249`: los 3 carriles de **Wincaja** (Jet 32-bit sobre una unidad mapeada,
+> Fase VL.5) y el respaldo diario.
+> **La verdad operativa, medida: [`ops/README.md`](../ops/README.md).**
+
 | Carpeta | Qué ingesta |
 |---|---|
 | `kepler/` | Núcleo ERP Kepler → ODS (stock, precios, box-factor, cortes de caja, bancos, cobros, cartera, reorden, **CDC/WAL** `replicate-ods-live.js`/`ods-cdc-*`). |
@@ -129,7 +138,7 @@ default** (necesitan `--apply`).
 | `contpaqi/` | ContPAQi (SQL Server): movimientos bancarios, ledger, pólizas, proveedores. |
 | `finance/` | Programa de pagos, pagos a proveedores, políticas de descuento. |
 | `movimientos-caja/` | Caja general desde Access MDB. |
-| `orchestrator/` | Orquestador de feeds (PM2). |
+| `orchestrator/` | Orquestador de feeds (PM2) — ⚠️ **retirado**: PM2 salió del proyecto (OBS.4) y la agenda vive en `ops/vl/crontab.feeds`. Queda como referencia histórica. |
 | `lib/` | Utilidades compartidas (adaptadores Access, sink, warehouse-id, kepler-branches, watchdog). |
 | `testdata/`, `examples/` | JSON de prueba y de formato de feed. |
 

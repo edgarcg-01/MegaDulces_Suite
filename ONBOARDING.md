@@ -117,6 +117,12 @@ Las 4 apps deployables son: **`api`**, **`view`**, **`portal`**, **`vendor`**.
 
 ## 5. Estructura del repo
 
+> ⚠️ **La ingesta NO corre en tu máquina ni en la de nadie del equipo.** Vive en el servidor
+> Linux `md` (`192.168.0.222`) desde el 2026-09-11: los ~13 carriles que alimentan `kepler_ods`
+> son contenedores declarados en `ops/vl/`. Si venís a tocar un importer, leé primero
+> [`ops/README.md`](ops/README.md) — **editar un importer es un deploy a prod**, y el despliegue
+> tiene su propio script (`ops/vl/deploy.sh`).
+
 ```
 apps/
   api/         → backend NestJS (todos los módulos de negocio)
@@ -132,6 +138,9 @@ database/
   tests/           → smoke tests (test-newdb-*.js = DB directo · http-*.js = E2E vía API)
   run-all-tests.js → runner de la regression suite
 docs/IMPLEMENTACION/ → tracker, ADRs, log de revisiones, specs por fase
+ops/           → qué corre en el SERVIDOR de ingesta (md) — leer ops/README.md
+  vl/          → compose, agenda del cron, despliegue (deploy.sh) y runbooks de la mudanza
+  ingest/      → Dockerfile de la imagen de los carriles + healthcheck de entrega
 ```
 
 ---

@@ -13,6 +13,12 @@ La plataforma **no tiene un ERP propio**: el dato transaccional nace en **Kepler
 (6 sucursales, cada una su Postgres) y en **Wincaja** (POS), se **consolida** on-prem,
 y se **empuja** a la DB de la plataforma en Railway, que es la que sirve a las apps.
 
+> ⚠️ **Desde el 2026-09-11 la ingesta vive en el servidor Linux `md` (192.168.0.222)**, no en la
+> máquina de escritorio `.249`: contenedores de Docker Compose declarados en el repo, que arrancan
+> con la máquina sin que nadie inicie sesión. Lo único que sigue en `.249` son los 3 carriles de
+> Wincaja (Jet 32-bit sobre una unidad mapeada, ver Fase VL.5) y el respaldo diario.
+> **Qué corre dónde, exacto y medido: [`ops/README.md`](../ops/README.md).**
+
 ```mermaid
 flowchart TB
     subgraph SRC["🏪 FUENTES (on-prem, LAN)"]
@@ -29,8 +35,8 @@ flowchart TB
         MD["Mega_Dulces · .245<br/>capa semántica (legacy)"]
     end
 
-    subgraph RUN["⚙️ RUNNERS (.249 → Railway)"]
-        RPF["run-prod-feeds.js (por modo)<br/>+ heartbeat feed_* · Task Scheduler / pg-boss"]
+    subgraph RUN["⚙️ INGESTA · servidor md 192.168.0.222 (Linux) → Railway"]
+        RPF["run-prod-feeds.js (por modo)<br/>+ latido feed_* · cron en Docker Compose"]
     end
 
     subgraph PROD["🐘 PLATAFORMA · Postgres en Railway (multi-tenant + RLS)"]
