@@ -13,9 +13,9 @@ import { DataScopeService, MyScope } from '../../core/services/data-scope.servic
 import { Permission } from '../../core/constants/permissions';
 
 /**
- * `[SN.3]` `[SN.8]` — Lo que la PANTALLA hace por persona, no lo que el mapa devuelve (eso ya lo
- * prueba `suite-map.spec.ts` en `libs/contracts`). Acá se comprueba lo que se vuelve un rebote,
- * una mentira o un callejón sin salida:
+ * `[SN.3]` `[SN.8]` `[SN.9]` — Lo que la PANTALLA hace por persona, no lo que el mapa devuelve
+ * (eso ya lo prueba `suite-map.spec.ts` en `libs/contracts`). Acá se comprueba lo que se vuelve un
+ * rebote, una mentira o un callejón sin salida:
  *
  *  · el almacenista con UNA puerta entra directo (paridad con la landing vieja) — y con `stay`
  *    se queda y ve su tarjeta;
@@ -25,7 +25,9 @@ import { Permission } from '../../core/constants/permissions';
  *  · el puesto NULL se declara, no se inventa desde el rol;
  *  · las tarjetas son enlaces reales (`<a href>`): teclado, ctrl+clic, botón medio;
  *  · `[SN.8]` lo que está A TU NOMBRE no se mezcla con una cola compartida, una bandeja en cero
- *    no se pinta, y una bandeja que no se pudo contar se DECLARA en vez de bajar a cero.
+ *    no se pinta, y una bandeja que no se pudo contar se DECLARA en vez de bajar a cero;
+ *  · `[SN.9]` el buscador filtra módulos Y pendientes, ignora acentos, acepta tokens en cualquier
+ *    orden, encuentra por el nombre de un MÓDULO interior, y Enter abre el primer resultado.
  */
 
 const CTX_BASE: MeContext = {
@@ -49,7 +51,16 @@ const SCOPE_BASE: MyScope = {
   },
 };
 
-const SIN_TRABAJO: MeWork = { pendientes: [], no_medido: [], medido_at: '2026-09-10T12:00:00.000Z' };
+const SIN_TRABAJO: MeWork = { pendientes: [], no_medido: [], medido_at: '2026-09-11T12:00:00.000Z' };
+
+const TRABAJO_MIXTO: MeWork = {
+  medido_at: '2026-09-11T12:00:00.000Z',
+  no_medido: [],
+  pendientes: [
+    { id: 'conteos-asignados', label: 'Conteos de inventario asignados a ti', detalle: 'sesiones abiertas', ruta: '/almacen/inventory/count', icono: 'pi pi-list-check', total: 2, alcance: 'mio' },
+    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', total: 1865, alcance: 'bandeja' },
+  ],
+};
 
 interface Montaje {
   perms?: Permission[];
@@ -68,8 +79,16 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   let navigate: jest.SpyInstance;
   const html = () => (fix.nativeElement as HTMLElement).textContent ?? '';
   const q = <T extends Element>(sel: string) => (fix.nativeElement as HTMLElement).querySelectorAll<T>(sel);
-  /** Tarjetas de ESPACIO (las de pendiente llevan además `.mt-card-work`). */
-  const tarjetas = () => q<HTMLAnchorElement>('a.mt-card:not(.mt-card-work)');
+  const tarjetas = () => q<HTMLAnchorElement>('a.mt-card');
+  const pildoras = () => q<HTMLAnchorElement>('a.mt-pill');
+
+  /** Escribe en el buscador y refresca la vista. */
+  function buscar(texto: string) {
+    const input = (fix.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.mt-search-input')!;
+    input.value = texto;
+    input.dispatchEvent(new Event('input'));
+    fix.detectChanges();
+  }
 
   async function montar(m: Montaje = {}) {
     const permisos = con(...(m.perms ?? []));
@@ -158,19 +177,15 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('el admin de plataforma ve los 6 espacios (4 activos + 2 propuestos con su P-xx) y los planned sólo declarados', async () => {
     await montar({ perms: [], role: 'superadmin' });
     expect(navigate).not.toHaveBeenCalled();
-    // 6 espacios de la suite + el espacio propio "Mi trabajo".
-    expect(q('section.mt-space').length).toBe(7);
-    expect(q('#espacio-mi-trabajo').length).toBe(1);
-    expect(html()).toContain('Propuesta · P-03');
-    expect(html()).toContain('Propuesta · P-06');
+    expect(q('section.mt-space').length).toBe(6);
+    expect(html()).toContain('P-03');
+    expect(html()).toContain('P-06');
     expect(html()).toContain('Configuración de la suite');
     // Los planned no son sección: son una línea al pie.
     expect(q('#espacio-recursos-humanos').length).toBe(0);
-    expect(html()).toContain('Espacios del mapa sin funciones todavía');
+    expect(html()).toContain('Espacios sin funciones todavía');
     expect(html()).toContain('Operación por zonas');
     expect(html()).toContain('Recursos Humanos');
-    // Con ≥3 espacios aparecen los atajos (uno por espacio de la suite).
-    expect(q('a.mt-chip').length).toBe(6);
   });
 
   it('el vendedor no ve el back-office de Ventas aunque tenga la clave', async () => {
@@ -216,10 +231,10 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).not.toContain('sin alcance');
   });
 
-  it('error de red en el contexto → banner de error, NUNCA "Sin puesto asignado"', async () => {
+  it('error de red en el contexto → se dice el error, NUNCA "Sin puesto asignado"', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, ctx$: throwError(() => ({ status: 0 })) });
-    expect(html()).toContain('No se pudo cargar tu contexto');
-    expect(html()).toContain('Sin conexión');
+    expect(html()).toContain('Sin conexión con el servidor');
+    expect(html()).toContain('Reintentar');
     expect(html()).not.toContain('Sin puesto asignado');
     // Y la operación sigue disponible: el contexto caído no esconde las puertas.
     expect(tarjetas().length).toBe(1);
@@ -237,34 +252,25 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   // ── [SN.8] Mi trabajo: pendientes ─────────────────────────────────────────
 
   it('lo que está A TU NOMBRE no se mezcla con la cola compartida', async () => {
-    await montar({
-      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
-      work$: of({
-        medido_at: '2026-09-10T12:00:00.000Z',
-        no_medido: [],
-        pendientes: [
-          { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', total: 1865, alcance: 'bandeja' },
-          { id: 'conteos-asignados', label: 'Conteos de inventario asignados a ti', detalle: 'sesiones abiertas', ruta: '/almacen/inventory/count', icono: 'pi pi-list-check', total: 2, alcance: 'mio' },
-        ],
-      } satisfies MeWork),
-    });
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
     expect(html()).toContain('A tu nombre');
     expect(html()).toContain('En tus bandejas');
+    const ps = pildoras();
+    expect(ps.length).toBe(2);
     // El "a tu nombre" va primero y se marca distinto.
-    const work = q<HTMLAnchorElement>('a.mt-card-work');
-    expect(work.length).toBe(2);
-    expect(work[0].classList).toContain('is-mine');
-    expect(work[0].getAttribute('href')).toBe('/almacen/inventory/count');
-    expect(work[1].classList).not.toContain('is-mine');
-    expect(work[1].textContent).toContain('1865');
+    expect(ps[0].classList).toContain('is-mine');
+    expect(ps[0].getAttribute('href')).toBe('/almacen/inventory/count');
+    expect(ps[1].classList).not.toContain('is-mine');
+    expect(ps[1].textContent).toContain('1865');
     // La cola compartida se declara como tal: nadie la tiene asignada.
-    expect(html()).toContain('nadie las tiene asignadas');
+    const tag = Array.from(q<HTMLElement>('.mt-work-tag')).find((t) => t.textContent?.includes('bandejas'));
+    expect(tag?.getAttribute('title')).toContain('nadie las tiene asignadas');
   });
 
   it('sin pendientes → se dice, no se pintan cajas en cero', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
-    expect(q('a.mt-card-work').length).toBe(0);
-    expect(html()).toContain('No tienes pendientes en las bandejas a las que tienes acceso');
+    expect(pildoras().length).toBe(0);
+    expect(html()).toContain('Sin pendientes en tus bandejas');
     expect(html()).not.toContain('A tu nombre');
   });
 
@@ -272,7 +278,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     await montar({
       perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
       work$: of({
-        medido_at: '2026-09-10T12:00:00.000Z',
+        medido_at: '2026-09-11T12:00:00.000Z',
         pendientes: [],
         no_medido: [{ id: 'cuadre', label: 'Descuadres por revisar', motivo: 'relation does not exist' }],
       } satisfies MeWork),
@@ -282,9 +288,65 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).toContain('no se muestra en cero');
   });
 
-  it('error al consultar el trabajo → error, no "no tienes pendientes"', async () => {
+  it('error al consultar el trabajo → error, no "sin pendientes"', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: throwError(() => ({ status: 500 })) });
     expect(html()).toContain('No se pudo consultar tu trabajo pendiente');
-    expect(html()).not.toContain('No tienes pendientes');
+    expect(html()).not.toContain('Sin pendientes');
+  });
+
+  // ── [SN.9] Buscador ───────────────────────────────────────────────────────
+
+  it('filtra los módulos y esconde los espacios que se quedan sin nada', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const total = tarjetas().length;
+    expect(total).toBeGreaterThan(10);
+    buscar('compras');
+    expect(tarjetas().length).toBeLessThan(total);
+    expect(Array.from(tarjetas()).every((a) => (a.textContent ?? '').length > 0)).toBe(true);
+    // Espacios sin coincidencias no se pintan.
+    expect(q('section.mt-space').length).toBeLessThan(6);
+  });
+
+  it('ignora acentos y acepta los tokens en cualquier orden', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('auditoria');
+    const conAcento = tarjetas().length;
+    expect(conAcento).toBeGreaterThan(0);
+    buscar('ruta auditoria');
+    expect(tarjetas().length).toBeGreaterThan(0);
+    expect(html()).toContain('Auditoría en Ruta');
+  });
+
+  it('encuentra un proyecto por el nombre de un MÓDULO de adentro', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('bancos');
+    const hrefs = Array.from(tarjetas()).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/finanzas');
+  });
+
+  it('Enter abre el primer resultado', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('contabilidad');
+    const primera = tarjetas()[0].getAttribute('href');
+    const input = (fix.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.mt-search-input')!;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fix.detectChanges();
+    expect(navigate).toHaveBeenCalledWith([primera]);
+  });
+
+  it('el buscador también filtra los pendientes', async () => {
+    await montar({ perms: [], role: 'superadmin', work$: of(TRABAJO_MIXTO) });
+    expect(pildoras().length).toBe(2);
+    buscar('descuadres');
+    expect(pildoras().length).toBe(1);
+    expect(pildoras()[0].textContent).toContain('1865');
+  });
+
+  it('una búsqueda sin coincidencias se dice, no deja la pantalla en blanco', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('zzzz');
+    expect(tarjetas().length).toBe(0);
+    expect(html()).toContain('Nada coincide con');
+    expect(html()).toContain('Limpiar búsqueda');
   });
 });

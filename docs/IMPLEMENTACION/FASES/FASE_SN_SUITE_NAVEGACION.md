@@ -97,6 +97,20 @@ Helpers: `visibleSuiteMap(perms, isAdmin, role)` → `{ spaces, declared }` · `
 
 Lo demás se conserva de SN.3: `estado()==='sin_cargar'` → skeleton, nunca el vacío; 0 entradas → estado declarado + salir (sin redirect a captures); N=1 destinos primarios → auto-entra salvo `history.state.stay`; `planned` declarados al pie.
 
+#### 4.2.1 SN.9 — todo en una pantalla, con buscador (2026-09-11)
+
+Pedido de Edgar: *"concentrar toda la información, módulos, mi trabajo, una barra de búsqueda súper inteligente, mis pendientes, en una pantalla que no necesite scroll"*. Opciones presentadas y elegidas: **rejilla densa con buscador arriba**, búsqueda de **módulos + pendientes en el cliente**, objetivo **1920×1080**.
+
+**Cuánto tiene que caber**, medido: **22 entradas en 6 espacios** para el superadmin (Comercial 10 · Auditoría 5 · Almacenes 3 · Admin y Finanzas 2 · Dirección 1 · Configuración 1). Un usuario normal ve 1–5, así que el problema de espacio sólo existe arriba.
+
+**Lo que se sacrifica, a conciencia:** la tarjeta pierde la descripción larga y el pie "Acceder →"; queda chip de icono + nombre + una línea de módulos truncada. La rejilla es de `12.5rem` mínimo, los espacios se acomodan en columnas de `26rem`. El contexto baja a una tira en la cabecera y los pendientes pasan de tarjeta a **píldora** (número + etiqueta), en una sola fila.
+
+**"Sin scroll" no se cumple cortando contenido.** La página es `100dvh` en cinco filas de grid y sólo la de espacios es elástica (`minmax(0,1fr)` + `overflow:auto`): en 1920×1080 no aparece barra, y si no cupiera —pantalla chica, alguien con más entradas de las previstas— scrollea **esa zona**, nunca se esconde una puerta. Bajo 900 px de ancho o 620 px de alto la pantalla vuelve a ser documento normal.
+
+**El buscador es de cliente, y eso es una decisión, no una limitación:** lo que busca —módulos y bandejas— ya está en memoria (el mapa se resuelve en el navegador, los pendientes vienen de una sola llamada). Reimplementa en chico lo que `applySmartSearch` hace en Postgres: **sin acentos** (`NFD` + quitar diacríticos, equivalente a `public.f_unaccent`) y **multi-token AND en cualquier orden**. Lo que **no** hace es tolerar typos — eso necesita `pg_trgm` y por lo tanto el servidor. El haystack de cada entrada incluye **los nombres de sus módulos**, así que "bancos" encuentra Finanzas. `Ctrl/⌘+K` y `/` enfocan, `Enter` abre el primer resultado, `Esc` limpia. Una búsqueda sin coincidencias **se dice**; no deja la pantalla en blanco.
+
+**Fuera de alcance, declarado:** buscar entidades de negocio (clientes, folios, productos, pólizas) es otra capa — un endpoint nuevo que reúse `applySmartSearch`, con la decisión pendiente de qué dominios entran y respetando el permiso de cada uno. Y sobre eso, lenguaje natural (ya hay precedente con Maat/Thot/Horus). Ninguna de las dos entra en Etapa 2.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.
