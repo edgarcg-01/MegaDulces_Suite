@@ -11,3 +11,9 @@ start.sh text eol=lf
 # Un fallo disfrazado de exito, que es la peor clase.
 ops/vl/crontab.feeds text eol=lf
 *.env text eol=lf
+
+# Los .sql tambien: el driver de VL.10 arma la contrasena con `\set clave '...'`, y un
+# CRLF le pegaria un  DENTRO de la credencial. La persona veria 'password
+# authentication failed' con una clave que a la vista es correcta -- el mismo cuadro que
+# el CRON_TENANT_ID invalido del 2026-09-11.
+*.sql text eol=lf
