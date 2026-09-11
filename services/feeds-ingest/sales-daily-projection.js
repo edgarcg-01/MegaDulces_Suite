@@ -65,6 +65,29 @@ function buildSalesDailySrc({ tenantId, branches = null, days = null } = {}) {
     SUM(CASE WHEN am.uv = 'CJA' THEN s.qty * COALESCE(NULLIF(am.factor_venta, 0), 1)
              ELSE s.qty END)      AS units,
     CASE WHEN bool_or(am.uv = 'KGS') THEN 'weight' ELSE 'piece' END AS unit_kind,
+    -- [R.2] EL DIVISOR QUE ESTA PROYECCION YA APLICA, ahora escrito en vez de tirado.
+    -- Es la TERCERA vez que el mismo defecto aparece: primero unit-normalization.js lo mandaba
+    -- a un console.log, despues el fact deducia por PRECIO un peldano que Kepler traia escrito en
+    -- c58, y aca la linea de arriba lo calcula y lo descarta. Consecuencia medida: rung_factor
+    -- NULL en las 343,015 celdas de Wincaja (55% del ingreso) con units_unresolved en 0, o sea
+    -- un NULL MUDO -- justo lo que ADR-056 prohibe.
+    --
+    -- El divisor es 1 en el 99.69% y factor_venta en el 0.31% (solo uv='CJA'), y ESO ES CORRECTO:
+    -- ADR-055 dice que Wincaja guarda en SU unidad de venta, asi que un factor_venta sobre un
+    -- articulo 'PZA' es divisor de DISPLAY, no de conversion. Medido: 15,177 articulos PZA con
+    -- factor_venta mediana 16, y ninguno se multiplica.
+    CASE WHEN count(DISTINCT CASE WHEN am.uv = 'CJA'
+                                  THEN COALESCE(NULLIF(am.factor_venta, 0), 1) ELSE 1 END) > 1
+         THEN NULL
+         ELSE max(CASE WHEN am.uv = 'CJA'
+                       THEN COALESCE(NULLIF(am.factor_venta, 0), 1) ELSE 1 END)
+    END                          AS rung_factor,
+    count(DISTINCT CASE WHEN am.uv = 'CJA'
+                        THEN COALESCE(NULLIF(am.factor_venta, 0), 1) ELSE 1 END) > 1 AS rung_mixed,
+    -- Lo que NO se pudo resolver: un articulo sin ficha en wincaja.articulos cae al ELSE de arriba
+    -- y se trataria como factor 1 SIN evidencia. Hoy son 0 celdas -- y eso es una medicion, no un
+    -- supuesto: se conto. Si maniana aparece una, el numero deja de ser cero solo.
+    SUM(CASE WHEN am.articulo IS NULL THEN s.qty ELSE 0 END) AS units_unresolved,
     SUM(s.importe)               AS revenue,
     SUM(s.costo)                 AS cost,
     SUM(s.importe) - SUM(s.costo) AS margin,

@@ -76,15 +76,21 @@ const SELECT_SRC = buildSalesDailySrc({ tenantId: TENANT });
   await db.transaction(async (trx) => {
     // Merge SIN churn: staging TEMP → UPSERT solo-cambios → DELETE solo lo que ya no viene
     // (scope canales wincaja%). Antes: DELETE-all-wincaja+INSERT reescribía todo cada corrida.
+    // [R.2] rung_factor / rung_mixed / units_unresolved: el divisor que la proyeccion YA aplicaba
+    // y tiraba. Sin estas 3 columnas, rung_factor quedaba NULL en las 343,015 celdas de Wincaja
+    // (55% del ingreso) con units_unresolved en 0: un NULL MUDO, y el predicado
+    // "rung_factor IS NULL" barria Wincaja entera en cualquier auditoria.
     await trx.raw(`CREATE TEMP TABLE stg_wsd ON COMMIT DROP AS
-      SELECT product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind FROM (${SELECT_SRC}) src`);
+      SELECT product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind,
+             rung_factor, rung_mixed, units_unresolved FROM (${SELECT_SRC}) src`);
     const up = await trx.raw(
-      `INSERT INTO analytics.sales_daily AS sd (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, updated_at)
-       SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, now() FROM stg_wsd
+      `INSERT INTO analytics.sales_daily AS sd (tenant_id, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, rung_factor, rung_mixed, units_unresolved, updated_at)
+       SELECT ?, product_id, warehouse_id, channel, sale_date, units, revenue, cost, tickets, unit_kind, rung_factor, rung_mixed, units_unresolved, now() FROM stg_wsd
        ON CONFLICT (tenant_id, product_id, warehouse_id, channel, sale_date) DO UPDATE SET
-         units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost, tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind, updated_at=now()
-       WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind)
-             IS DISTINCT FROM (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind)`,
+         units=EXCLUDED.units, revenue=EXCLUDED.revenue, cost=EXCLUDED.cost, tickets=EXCLUDED.tickets, unit_kind=EXCLUDED.unit_kind,
+         rung_factor=EXCLUDED.rung_factor, rung_mixed=EXCLUDED.rung_mixed, units_unresolved=EXCLUDED.units_unresolved, updated_at=now()
+       WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind, sd.rung_factor, sd.rung_mixed, sd.units_unresolved)
+             IS DISTINCT FROM (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind, EXCLUDED.rung_factor, EXCLUDED.rung_mixed, EXCLUDED.units_unresolved)`,
       [TENANT]);
     const del = await trx.raw(
       `DELETE FROM analytics.sales_daily sd
