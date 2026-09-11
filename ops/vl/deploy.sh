@@ -40,18 +40,30 @@ estado() {
   ssh_md 'docker image inspect trade-ingest:latest --format "  creada {{.Created}}  ·  {{.Size}} bytes"'
 }
 
+# AVISA de lo que NO va a viajar, y sigue.
+#
+# ⚠️ La primera versión de esto ABORTABA si había algo sin commitear, y estaba mal por dos
+# razones que se ven juntas:
+#   1. `git archive HEAD` ya es seguro POR CONSTRUCCIÓN — los archivos sucios simplemente no
+#      entran. No hay nada que prevenir.
+#   2. Este repo lo comparten ~10 sesiones a la vez: casi siempre hay WIP ajeno en estas rutas,
+#      así que "abortar si está sucio" convertía al script en uno que nunca puede correr. Una
+#      compuerta que bloquea el camino feliz se termina salteando a mano, y ahí ya no protege
+#      nada. (Comprobado en la primera corrida: abortó por un `import-label-data.js` que estaba
+#      editando otra sesión — el archivo del carril de precios.)
+# Lo que SÍ hace falta es que el operador sepa que está desplegando HEAD y no lo que ve en su
+# editor: el modo de falla real es "edité, no commiteé, desplegué, y no entiendo por qué no
+# cambió nada".
 verificar_limpio() {
   cd "$REPO"
   sucio=$(git status --porcelain -- $RUTAS | grep -v '\.stock-live-snapshot\.json' || true)
-  if [ -n "$sucio" ]; then
-    echo "⛔ Hay cambios SIN COMMITEAR en rutas que entran a la imagen:"
-    echo "$sucio" | sed 's/^/     /'
-    echo
-    echo "   Este script archiva HEAD a propósito (el índice de git lo comparten ~10 sesiones:"
-    echo "   archivar el working tree mandaría a prod el WIP de otra persona)."
-    echo "   Commiteá con pathspec —  git commit -- <rutas>  — y volvé a correrlo."
-    exit 1
-  fi
+  [ -n "$sucio" ] || return 0
+  echo "⚠️  Estos archivos tienen cambios SIN COMMITEAR y por lo tanto NO se despliegan:"
+  echo "$sucio" | sed 's/^/     /'
+  echo "     (se archiva HEAD a propósito: el índice lo comparten ~10 sesiones y el working"
+  echo "      tree traería WIP ajeno. Si alguno de esos cambios es TUYO y lo querés desplegar,"
+  echo "      commitealo con pathspec:  git commit -- <ruta>  )"
+  echo
 }
 
 construir() {
