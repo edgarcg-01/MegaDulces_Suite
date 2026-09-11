@@ -161,30 +161,23 @@ const buscarEnum = (dir) => {
 };
 for (const d of ['libs', 'apps']) buscarEnum(path.join(REPO, d));
 
-// La única excepción admitida, y no es un perdón: es una deuda con nombre.
-// `libs/shared-auth` es una librería de autenticación COMPLETA y MUERTA — su
-// propio enum de 36 claves (18 de ellas inexistentes en el canónico), sus
-// guards, su login component — y **cero archivos la importan**. Retirarla es
-// borrar una librería entera, o sea autorización explícita del lead. Mientras
-// tanto se la deja fuera del conteo pero se prueba que sigue inerte: el día que
-// alguien la importe, la aserción de abajo se pone roja y deja de ser inocua.
-const MUERTA = 'libs/shared-auth/core/constants/permissions.ts';
-const vivas = definiciones.filter((f) => f !== MUERTA);
-ok(vivas.length === 1 && vivas[0] === CANON,
-  `una sola definición VIVA de \`export enum Permission\`, y es la canónica (encontradas: ${vivas.join(', ') || 'NINGUNA'})`);
+// `[ID.34]` Sin excepciones: la aserción es **una sola definición en el repo**.
+// Hasta el 2026-09-10 hubo una, `libs/shared-auth/core/constants/permissions.ts`
+// — una librería de autenticación COMPLETA y MUERTA (su propio enum de 36
+// claves, 18 inexistentes en el canónico, más guards, login component y un
+// secreto JWT de desarrollo hardcodeado) con **cero importadores**. Se retiró
+// entera, así que la excepción se fue con ella.
+ok(definiciones.length === 1 && definiciones[0] === CANON,
+  `una sola definición de \`export enum Permission\` en todo el repo, y es la canónica (encontradas: ${definiciones.join(', ') || 'NINGUNA'})`);
 
-const importadores = [];
-const buscarImports = (dir) => {
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const f = path.join(dir, e.name);
-    if (e.isDirectory()) { if (!['node_modules', 'dist', '.angular', 'shared-auth'].includes(e.name)) buscarImports(f); continue; }
-    if (!/\.ts$/.test(e.name)) continue;
-    if (/from ['"][^'"]*shared-auth/.test(fs.readFileSync(f, 'utf8'))) importadores.push(path.relative(REPO, f).replace(/\\/g, '/'));
-  }
-};
-for (const d of ['libs', 'apps']) buscarImports(path.join(REPO, d));
-ok(importadores.length === 0,
-  `\`libs/shared-auth\` sigue sin un solo importador → su enum de 36 claves es inerte (importadores: ${importadores.join(', ') || '0'})`);
+// Y que no vuelva por la puerta de atrás: ni el directorio, ni un alias de
+// tsconfig que apunte a él. Un `paths` huérfano es lo que hace que alguien
+// escriba el import y compile sin darse cuenta de que resucitó una copia.
+ok(!fs.existsSync(path.join(REPO, 'libs/shared-auth')), '`libs/shared-auth` no volvió al árbol');
+const tsb = fs.readFileSync(path.join(REPO, 'tsconfig.base.json'), 'utf8');
+const tsv = fs.readFileSync(path.join(REPO, 'apps/view/tsconfig.json'), 'utf8');
+ok(!/shared-auth/.test(tsb) && !/shared-auth/.test(tsv),
+  'ningún alias de tsconfig apunta a shared-auth (base ni apps/view)');
 
 // Y que los puentes sigan siendo puentes: si alguien "arregla" un re-export
 // pegando el enum de vuelta, lo de arriba lo atrapa; esto dice cuál se soltó.

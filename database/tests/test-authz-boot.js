@@ -55,14 +55,17 @@ ok(/assertAuthWiring\s*\(\s*\)/.test(mainSrc) && /await\s+NestFactory/.test(main
 ok(/ENABLE_MULTITENANT'\]\s*!==\s*'true'/.test(mainSrc) && /production/.test(mainSrc) && /throw new Error/.test(mainSrc),
   'assertAuthWiring lanza si NODE_ENV=production y ENABLE_MULTITENANT != true');
 
-console.log('\n[3] Sin default de secreto hardcodeado en el código vivo (sólo el helper y el shared-auth muerto)');
+console.log('\n[3] Sin default de secreto hardcodeado en el código vivo (sólo el helper)');
 const { execSync } = require('child_process');
 let hits = '';
 try {
   hits = execSync(`git -C "${REPO}" grep -l "super_secret_dev_key_change_in_prod" -- apps libs || true`, { encoding: 'utf8' });
 } catch { hits = ''; }
+// `[ID.34]` La excepción por `shared-auth` se retiró con la librería: era el
+// otro lugar del repo donde vivía `super_secret_dev_key_change_in_prod`, y al
+// borrarla entera esta compuerta pasa a admitir UN solo archivo — el helper.
 const files = hits.split('\n').map((s) => s.trim()).filter(Boolean)
-  .filter((f) => !f.endsWith('jwt-secret.ts') && !f.includes('shared-auth'));
+  .filter((f) => !f.endsWith('jwt-secret.ts'));
 ok(files.length === 0, `cero módulos con el secreto default (fuera del helper): ${files.join(', ') || '0'}`);
 
 setEnv(saveEnv.s, saveEnv.n);

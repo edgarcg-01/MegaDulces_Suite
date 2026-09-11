@@ -32,7 +32,6 @@
       "@megadulces/contracts/authz/role-presets": ["../../libs/contracts/src/authz/role-presets.ts"],
       "@megadulces/contracts/authz/suite-map": ["../../libs/contracts/src/authz/suite-map.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
-      "@shared-auth/core": ["../../libs/shared-auth/core"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],
       "@spartan-ng/helm/*": ["src/app/shared/components/ui/*"]
     },
