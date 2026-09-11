@@ -600,7 +600,9 @@ const CRON_JOBS: CronCfg[] = [
   // critico al saltarse dos. `maxRunH: 3` porque las corridas medidas son de 69-90 min.
   { key: 'backup_prod',         label: 'Respaldo diario de prod (pg_dump)', cadence: 'diario 17:00', warnH: 26, critH: 50, maxRunH: 3 },
   { key: 'kepler_sales_fact',   label: 'Kepler ventas (sales-fact)', cadence: 'intradía',        warnH: 6,   critH: 26 },
-  { key: 'kepler_catalog_bulk', label: 'Kepler catálogo (bulk)',     cadence: 'semanal',         warnH: 200, critH: 400, maxRunH: 3 },
+  // kepler_catalog_bulk RETIRADO (2026-09-11): el catálogo lo mantienen los repoint-catalog-* del
+  // nightly (presence/names/prices/cost, CANON.0.1) — catalog.products fresco 0 h. Su latido llevaba
+  // 26 d muerto y este sensor daba un FALSO crítico. No re-agregar. Fila zombie borrada en mig 20260911120000.
   // ── Latido por MODO del runner on-prem (run-prod-feeds.js) — dead-man's switch por batch.
   // Cada tarea de Windows corre un modo; si deja de correr (zombie/apagado/deshabilitada), su
   // último latido envejece y salta en rojo aquí, aunque el dato downstream aún se vea fresco.
