@@ -97,14 +97,11 @@ export class UsersService {
    * rol de RH sirva cuando alguien lo reciba.
    *
    * ⚠️ Lo que esto NO arregla, y queda declarado en vez de resuelto a escondidas:
-   * los 6 `encargado_tienda` siguen viendo 1 fila. Lo correcto para ellos es ver
-   * **el personal de su sucursal** — o sea acotar el padrón por la dimensión
-   * `warehouse` de `ScopeService` (viva, 26 call sites), no por este eje de
-   * tres estados. Eso ensancha acceso a 6 personas reales, así que es decisión
-   * del lead y no un efecto colateral de una limpieza. Va como `[ID.43]`.
+   * los 6 `encargado_tienda` veían 1 fila. `[ID.35]` lo resuelve con un cuarto
+   * estado, `sucursal` — ver abajo.
    */
   private alcanceDelPadron(requester: RequesterContext): {
-    type: 'own' | 'team' | 'all';
+    type: 'own' | 'team' | 'all' | 'sucursal';
     userId: string;
   } {
     // Administrar personal exige verlo. Se evalúa ANTES de delegar en el eje de
@@ -112,9 +109,60 @@ export class UsersService {
     if (requester.permissions?.[Permission.USUARIOS_GESTIONAR] === true) {
       return { type: 'all', userId: requester.sub };
     }
+
+    const porReportes = getDataScope(requester);
+
+    /**
+     * `[ID.35]` — Cuarto estado: **el personal de mi sucursal**.
+     *
+     * Quien puede VER el padrón pero no administrarlo ni ver reportes caía en
+     * `own` y abría `/admin/usuarios` para encontrar **una sola fila: la suya**.
+     * Le pasaba a los 6 `encargado_tienda`, todos con sesión iniciada. Un
+     * permiso que abre una pantalla vacía es peor que no tenerlo: parece un bug
+     * del sistema, no una decisión de acceso.
+     *
+     * El eje correcto no es este de tres estados —que mira la jerarquía de
+     * reportes— sino la dimensión `warehouse` de `ScopeService`, que es la que
+     * ya gobierna qué sucursal le toca a cada quien (viva, 26 call sites).
+     * Medido antes de escribirlo: `encargado_tienda` resuelve `warehouse: own`
+     * sin overrides, así que cada uno pasa a ver entre 6 y 13 personas — el
+     * personal de su tienda, incluida su etiquetera. Las 82 cuentas sin
+     * sucursal (oficina, rutas) siguen fuera, que es lo correcto.
+     *
+     * ⚠️ Ensancha acceso a 6 personas reales: es decisión del lead, tomada el
+     * 2026-09-10, no un efecto colateral.
+     */
+    if (porReportes.type === 'own' && requester.permissions?.[Permission.USUARIOS_VER] === true) {
+      return { type: 'sucursal', userId: requester.sub };
+    }
+
     // Todo lo demás conserva exactamente el comportamiento vigente, god-mode
     // incluido: `getDataScope` ya resuelve `isPlatformAdminRole` primero.
-    return getDataScope(requester);
+    return porReportes;
+  }
+
+  /**
+   * `[ID.35]` Acota el padrón a la sucursal del que pregunta, **sin poder
+   * dejarlo en cero**.
+   *
+   * El `OR u.id = <él mismo>` no es cortesía: `ScopeService.applyTo` emite
+   * `WHERE false` cuando el modo es `own` y la ficha no tiene sucursal, y ahí la
+   * pantalla quedaría **más vacía que antes** — ni siquiera su propia fila. Es
+   * exactamente el fail-open silencioso que `[ID.26]` vino a hacer visible, y no
+   * se reintroduce por la puerta de al lado.
+   */
+  private async acotarPorSucursal(
+    query: Knex.QueryBuilder,
+    requesterId: string,
+  ): Promise<Knex.QueryBuilder> {
+    // Sin `ScopeService` (los tests instancian el service sin él) se cae al
+    // comportamiento anterior: sólo su fila. Fail-closed, nunca "ve todo".
+    if (!this.scopeService) return query.where('u.id', requesterId);
+    const scope = await this.scopeService.forUser(this.tenantId, requesterId);
+    return query.where((qb: Knex.QueryBuilder) => {
+      this.scopeService!.applyTo(qb, scope, 'warehouse', 'u.warehouse_code');
+      qb.orWhere('u.id', requesterId);
+    });
   }
 
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
@@ -647,9 +695,10 @@ export class UsersService {
       );
 
     // Scope enforcement: quien administra personal (`USUARIOS_GESTIONAR`) o ve
-    // reportes globales ve todo el padrón; team-scope ve su equipo + sí mismo;
-    // own-scope solo a sí mismo. Ver `alcanceDelPadron` para por qué el eje de
-    // reportes no alcanzaba — `[ID.27]`.
+    // reportes globales ve todo el padrón; `sucursal` ve al personal de su
+    // tienda (`[ID.35]`); team-scope ve su equipo + sí mismo; own-scope sólo a
+    // sí mismo. Ver `alcanceDelPadron` para por qué el eje de reportes no
+    // alcanzaba — `[ID.27]`.
     const scope = this.alcanceDelPadron(requester);
     if (scope.type === 'team') {
       query.where((qb) => {
@@ -658,6 +707,8 @@ export class UsersService {
           requester.sub,
         );
       });
+    } else if (scope.type === 'sucursal') {
+      await this.acotarPorSucursal(query, requester.sub);
     } else if (scope.type === 'own') {
       query.where('u.id', requester.sub);
     }
@@ -720,6 +771,23 @@ export class UsersService {
         throw new ForbiddenException(
           'No puedes ver usuarios fuera de tu equipo.',
         );
+      }
+    } else if (scope.type === 'sucursal') {
+      // `[ID.35]` El detalle usa el MISMO criterio que la lista: la sucursal del
+      // que pregunta, más su propia ficha. Si la lista te lo mostró, el detalle
+      // no puede negártelo — y si no, tampoco puede dejarte entrar por la URL.
+      const esUnoMismo = user.id === requester.sub;
+      const puede =
+        esUnoMismo ||
+        (!!this.scopeService &&
+          !!user.warehouse_code &&
+          this.scopeService.canRead(
+            await this.scopeService.forUser(this.tenantId, requester.sub),
+            'warehouse',
+            String(user.warehouse_code),
+          ));
+      if (!puede) {
+        throw new ForbiddenException('No puedes ver usuarios de otra sucursal.');
       }
     } else if (scope.type === 'own' && user.id !== requester.sub) {
       throw new ForbiddenException('No puedes ver otros usuarios.');
