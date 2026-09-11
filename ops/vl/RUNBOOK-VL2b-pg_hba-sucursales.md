@@ -67,13 +67,24 @@ SHOW hba_file;   -- típicamente C:\Program Files\PostgreSQL\16\data\pg_hba.conf
 copy "C:\Program Files\PostgreSQL\16\data\pg_hba.conf" "C:\Program Files\PostgreSQL\16\data\pg_hba.conf.bak-20260910"
 ```
 
-**3. Agregar UNA línea, junto a la que ya existe para `.249`** (para que herede la misma
+**3. Agregar DOS líneas, junto a las que ya existen para `.249`** (para que hereden la misma
 posición relativa; el orden importa: `pg_hba` usa la **primera** regla que coincide).
 Cambiá `<db>` por la base de esa sucursal según la tabla de arriba:
 
 ```
-host    <db>    ods_repl    192.168.0.222/32    scram-sha-256
+host    <db>    ods_repl       192.168.0.222/32    scram-sha-256
+host    <db>    platform_ro    192.168.0.222/32    scram-sha-256
 ```
+
+⚠️ **Son DOS, y el segundo se olvida siempre** — lo dice el propio
+[`RUNBOOK_REPLICACION_LOGICA`](../../docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md) §8.
+Verificado el 2026-09-10: `platform_ro` está bloqueado desde `md` en **las mismas 5**. Los dos
+roles sirven a fases distintas, y por eso hay que poner los dos **de una sola pasada**:
+
+| Rol | Lo necesita | Si falta |
+|---|---|---|
+| `ods_repl` | **VL.2b** — la suscripción lógica | las réplicas no retoman de su slot |
+| `platform_ro` | **VL.4** — `kepler-branches.js` resuelve las ramas **00-05 contra el POS remoto**: `import-branch-stock-live` (tarea `Stock`, @15 min), `live-tickets-poller` (@25 s), `import-sales-by-channel`, `concentrate-kepler`, `import-catalog-bulk`, `import-kepler-vecinal-routes` | se vuelve a los mismos 5 servidores una segunda vez |
 
 ⚠️ **NO borres la línea de `.249`.** Es el suscriptor vivo y es el rollback del corte. Se
 retira después, cuando VL.2b esté probado.
