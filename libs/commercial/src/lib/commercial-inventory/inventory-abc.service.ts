@@ -4,10 +4,53 @@ import { TenantKnexService } from '@megadulces/platform-core';
 /**
  * Fase ABC.0 — clasificación ABC por (almacén, producto). Ver FASE_ABC_CYCLE_COUNT.md.
  *
- * Métrica = valor de consumo anualizado: unidades vendidas (líneas de pedidos
- * `fulfilled` en una ventana trailing → anualizadas) × costo unitario (catalog.cost_base).
- * Pareto POR ALMACÉN: A = hasta 80% del valor acumulado · B = 80–95% · C = resto
- * (y todo lo sin ventas). Tenant-local, per-almacén, no depende del sync ERP.
+ * Métrica = **valor de consumo anualizado** = demanda diaria × 365 × costo unitario.
+ * Pareto POR ALMACÉN: A = hasta 80% del valor acumulado · B = 80–95% · C = resto.
+ *
+ * ── KE.4 (2026-09-10) — ESTA CLASIFICACIÓN ERA UN OBJETO NULO ───────────────────────────────
+ *
+ * Edgar: *"no se puede comprar con una información errónea, si no la compra se hace mal y afecta
+ * todo"*. Y acá estaba el peor caso, porque **esta clase fija el nivel de servicio de TODO el
+ * reabasto** (import-computed-reorder.js: A=0.98 · B=0.95 · C/sin clase=0.90).
+ *
+ * La demanda salía de `commercial.orders` — la tabla de pedidos de la PLATAFORMA, que tiene
+ * **2 órdenes fulfilled en toda su historia** — mientras la venta real son 707,022 celdas /
+ * $154.7M en 90 días. Resultado medido en prod: **2 filas clase A y 56,002 clase C con
+ * `annual_value` = $0**, y **clase B = 0 en todo el sistema** (un Pareto siempre produce B: ése
+ * era el delator a la vista de cualquiera).
+ *
+ * Costo: **19,127 políticas de sucursal servidas a 0.90**, de las cuales el ABC real dice que
+ * 4,467 son A y 5,782 son B → **10,245 políticas mal servidas y $1,256,078 de inventario de
+ * protección que no se está comprando**.
+ *
+ * ── Lo que se corrige, y por qué ESA fuente ─────────────────────────────────────────────────
+ *
+ * La demanda pasa a salir de **`analytics.inventory_health.avg_daily_units`**, que es
+ * **exactamente la demanda que usa el punto de reorden** (import-computed-reorder.js:76). No es
+ * "una fuente mejor": es **la misma**. Si la clase y la sigma/ADU vinieran de ventanas distintas,
+ * la política sería incoherente consigo misma.
+ *
+ * Y está en **PIEZAS** (unidad canónica del motor, decidida 2026-07-27 y verificada contra
+ * movimientos de compra reales), igual que `analytics.v_erp_unit_cost` — que es `kdik.c16` por
+ * pieza en Kepler y `costo_promedio` en la unidad nativa de Wincaja. Las dos puntas del producto
+ * están en la misma unidad y en el mismo ERP: eso es lo que hace válida la multiplicación
+ * (ADR-055: la unidad no se hereda de su fuente, se prueba).
+ *
+ * Medido con la fuente nueva (prod, 2026-09-10): **A 5,178 filas / $371,867,053 · B 7,367 /
+ * $69,675,257 · C 42,756 / $23,216,311**, con Pareto sano por sucursal (A 15–19%, B 21–27%).
+ *
+ * ⚠️ Dos almacenes dan 0 A / 0 B, y los dos tienen explicación NOMBRADA:
+ *   · **`00` (CEDIS)** no vende: distribuye por traspaso. Su reorden lo planea
+ *     import-network-reorder.js con demanda dependiente y servicio 0.98 fijo.
+ *   · **`07`** está rezagada en `inventory_health` (0 demanda en sus 2,617 filas) aunque la venta
+ *     ya existe: la cadena norm→vel produce hoy 1,337 SKUs con demanda. Se corrige sola en la
+ *     próxima corrida del importer. ⚠️ Y aun así arranca con **3 días de historia sobre un
+ *     divisor de 90**, así que su ADU va a estar subdeclarada ~30× hasta que la ventana se llene.
+ *
+ * ⭐ **EL FRENO QUE FALTABA.** El recompute es DELETE + INSERT atómico. Eso está bien **salvo que
+ * la fuente se vacíe**: ahí borra lo bueno y publica "todo es C", que es exactamente cómo se
+ * fabricó el objeto nulo de arriba y por qué nadie lo vio en dos meses. Ahora se mide la fuente
+ * ANTES de borrar y se aborta si no trae demanda (ADR-056: un vacío se DECLARA, no se publica).
  *
  * Recompute full atómico (DELETE+INSERT en la misma trx) → sin ventana vacía.
  */
@@ -28,64 +71,47 @@ export class InventoryAbcService {
       ? Math.min(365, Math.max(7, Math.floor(Number(opts.window_days))))
       : DEFAULT_WINDOW_DAYS;
 
+    // La ventana NO es libre: la demanda sale de `analytics.inventory_health`, que se computa
+    // sobre 90 dias fijos. Aceptar otra y clasificar igual seria publicar una etiqueta falsa.
+    if (windowDays !== DEFAULT_WINDOW_DAYS) {
+      throw new BadRequestException(
+        `window_days=${windowDays} no es aplicable: la demanda sale de analytics.inventory_health, `
+        + `que se computa sobre una ventana fija de ${DEFAULT_WINDOW_DAYS} dias. `
+        + `Para cambiarla hay que cambiarla en import-inventory-health.js, no aca.`,
+      );
+    }
+
     return this.tk.run(async (trx) => {
+      // EL FRENO: medir la fuente ANTES de borrar. Un DELETE+INSERT desde una fuente vacia no
+      // falla -- publica "todo es C", que es indistinguible de un catalogo de bajo valor. Asi
+      // estuvo esta tabla desde que se escribio, y por eso nadie lo vio en dos meses.
+      const [src] = await trx('analytics.inventory_health').select(
+        trx.raw('COUNT(*)::int AS filas'),
+        trx.raw('COUNT(*) FILTER (WHERE avg_daily_units > 0)::int AS con_demanda'),
+      );
+      if (!src || Number(src.con_demanda) < 1) {
+        throw new Error(
+          `ABC abortado: analytics.inventory_health trae ${src?.filas ?? 0} filas y `
+          + `${src?.con_demanda ?? 0} con demanda. Recalcular sobre una fuente vacia publicaria `
+          + `"todo clase C" y bajaria el nivel de servicio de toda la red a 0.90.`,
+        );
+      }
+
       await trx.raw('DELETE FROM commercial.abc_classification'); // RLS-scoped al tenant
 
+      // [KE.4] La definicion del Pareto vive en `analytics.v_abc_class`, NO aca. La tabla es la
+      // FOTO (la consumen la cadencia de conteo ciclico y los importers de reorden que necesitan
+      // un snapshot); la vista es la definicion. Duplicar el CASE del Pareto en los dos lados es
+      // exactamente el primitivo con dos implementaciones que ADR-056 prohibe.
       const inserted = await trx.raw(
         `
         INSERT INTO commercial.abc_classification
-          (tenant_id, warehouse_id, product_id, abc_class, annual_value, units_window, value_share, window_days, computed_at, costo_source)
-        WITH sales AS (
-          SELECT o.warehouse_id, l.product_id, SUM(l.quantity)::numeric AS units
-            FROM commercial.orders o
-            JOIN commercial.order_lines l ON l.order_id = o.id
-           WHERE o.status = 'fulfilled' AND o.fulfilled_at >= now() - (? || ' days')::interval
-           GROUP BY o.warehouse_id, l.product_id
-        ),
-        base AS (
-          -- [KE.3] El costo sale de analytics.v_erp_unit_cost (testigo del MISMO ERP que la
-          -- existencia), no de catalog.products.cost_base. Medido: el catalogo se salia +-50%
-          -- del arbitro en 111 SKUs = $6,129,130 de capital mal clasificado, y la clase fija
-          -- el nivel de servicio de RA-PRO (A=0.98 / B=0.95 / C=0.90).
-          --
-          -- El COALESCE a 0 se conserva porque annual_value es NOT NULL, pero deja de ser mudo:
-          -- costo_source viaja al lado, asi que una C por AUSENCIA de costo se distingue de una
-          -- C por bajo valor (KE.3b).
-          SELECT s.warehouse_id, s.product_id,
-                 COALESCE(sa.units, 0) AS units,
-                 (COALESCE(sa.units, 0) * (365.0 / ?) * COALESCE(uc.costo_unitario, 0))::numeric(16,2) AS annual_value,
-                 COALESCE(uc.costo_source, 'sin_costo') AS costo_source
-            FROM commercial.stock s
-            JOIN catalog.products cp ON cp.id = s.product_id
-            LEFT JOIN analytics.v_erp_unit_cost uc
-                   ON uc.tenant_id = s.tenant_id AND uc.warehouse_id = s.warehouse_id
-                  AND uc.product_id = s.product_id
-            LEFT JOIN sales sa ON sa.warehouse_id = s.warehouse_id AND sa.product_id = s.product_id
-        ),
-        ranked AS (
-          SELECT warehouse_id, product_id, units, annual_value, costo_source,
-                 SUM(annual_value) OVER (PARTITION BY warehouse_id ORDER BY annual_value DESC, product_id
-                                         ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS cum_value,
-                 NULLIF(SUM(annual_value) OVER (PARTITION BY warehouse_id), 0) AS total_value
-            FROM base
-        )
-        SELECT public.current_tenant_id(), warehouse_id, product_id,
-               -- Pareto por share ACUMULADO EXCLUSIVO (el de los items anteriores): el
-               -- top siempre cae en A; el item que cruza 80% es el último A. Inclusivo
-               -- mandaría a C al único mover de un almacén (cum=100%).
-               CASE WHEN total_value IS NULL THEN 'C'
-                    WHEN (cum_value - annual_value) / total_value < 0.80 THEN 'A'
-                    WHEN (cum_value - annual_value) / total_value < 0.95 THEN 'B'
-                    ELSE 'C' END,
-               annual_value,
-               units,
-               CASE WHEN total_value IS NULL THEN 1.0 ELSE round(cum_value / total_value, 4) END,
-               ?::int,
-               now(),
-               costo_source
-          FROM ranked
-        `,
-        [windowDays, windowDays, windowDays],
+          (tenant_id, warehouse_id, product_id, abc_class, annual_value, units_window, value_share,
+           window_days, computed_at, costo_source, clase_motivo)
+        SELECT tenant_id, warehouse_id, product_id, abc_class, annual_value,
+               (avg_daily_units * ?)::numeric, value_share, ?::int, now(), costo_source, clase_motivo
+          FROM analytics.v_abc_class`,
+        [windowDays, windowDays],
       );
 
       const summary = await trx('commercial.abc_classification')
@@ -97,12 +123,23 @@ export class InventoryAbcService {
       const by_class: Record<string, { count: number; value: number }> = { A: { count: 0, value: 0 }, B: { count: 0, value: 0 }, C: { count: 0, value: 0 } };
       for (const r of summary) by_class[r.abc_class] = { count: Number(r.n), value: Number(r.v) };
       const classified = (inserted.rowCount ?? 0);
+      // EL DELATOR, convertido en compuerta. Un Pareto SIEMPRE produce clase B; que B fuera 0 en
+      // todo el sistema era la senal de que la fuente estaba vacia, y estuvo a la vista dos meses
+      // sin que nada la mirara. La trx se revierte: mejor la foto de ayer que "todo es C".
+      if ((by_class.B?.count ?? 0) < 1 || (by_class.A?.count ?? 0) < 1) {
+        throw new Error(
+          `ABC degenerado: A=${by_class.A?.count ?? 0} B=${by_class.B?.count ?? 0} sobre `
+          + `${classified} filas. Un Pareto siempre produce B — se aborta antes de bajar el nivel `
+          + `de servicio de toda la red a 0.90.`,
+        );
+      }
       // [KE.3] La cobertura del costo viaja con el resultado: una clasificacion hecha sobre
       // costos ausentes manda a C por ausencia, no por bajo valor (ADR-056).
       const [cov] = await trx('commercial.abc_classification').select(
         trx.raw(`COUNT(*)::int AS total`),
         trx.raw(`COUNT(*) FILTER (WHERE costo_source IN ('kepler_kdik','wincaja_costo_promedio'))::int AS con_testigo`),
         trx.raw(`COUNT(*) FILTER (WHERE costo_source = 'sin_costo')::int AS sin_costo`),
+        trx.raw(`COUNT(*) FILTER (WHERE clase_motivo = 'sin_demanda')::int AS sin_demanda`),
       );
       this.logger.log(`ABC recomputado: ${classified} (almacén,producto) clasificados (ventana ${windowDays}d).`);
       return {
@@ -110,9 +147,11 @@ export class InventoryAbcService {
         window_days: windowDays,
         by_class,
         costo: {
-          resolver: 'analytics.v_erp_unit_cost',
+          resolver: 'analytics.v_abc_class sobre analytics.v_erp_unit_cost',
           con_testigo_erp: Number(cov?.con_testigo) || 0,
           sin_costo: Number(cov?.sin_costo) || 0,
+          /** [KE.4b] Cuántas C son C por no haber demanda en ese almacén, no por bajo valor. */
+          sin_demanda: Number(cov?.sin_demanda) || 0,
           cobertura_pct: Number(cov?.total) > 0
             ? +(((Number(cov.con_testigo) || 0) / Number(cov.total)) * 100).toFixed(2) : null,
         },
