@@ -1,9 +1,10 @@
-import { Controller, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialSalesDocumentsService, SalesDocsQuery } from './commercial-sales-documents.service';
 import { AnexoVentaService } from './anexo-venta.service';
+import { GuiaCobranzaService } from './guia-cobranza.service';
 
 /**
  * AX.1 — Facturación de Telemarketing. Lectura sobre vistas en vivo de `kepler_ods`.
@@ -23,6 +24,7 @@ export class CommercialSalesDocumentsController {
   constructor(
     private readonly svc: CommercialSalesDocumentsService,
     private readonly anexo: AnexoVentaService,
+    private readonly guia: GuiaCobranzaService,
   ) {}
 
   private q(raw: Record<string, string | undefined>): SalesDocsQuery {
@@ -44,6 +46,27 @@ export class CommercialSalesDocumentsController {
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiOperation({ summary: 'Catálogos para los filtros (vendedores, sucursales, tipos) de la ventana consultada.' })
   filtros(@Query() raw: Record<string, string>) { return this.svc.filtros(this.q(raw)); }
+
+  /**
+   * GT.2 — Guía de Cobranza de las facturas SELECCIONADAS en pantalla.
+   *
+   * POST y no GET a propósito: la selección puede traer cientos de folios y no cabe en una
+   * URL. Devuelve el PDF inline (el front lo trae como blob para poder mandar el JWT).
+   */
+  @Post('guia-cobranza.pdf')
+  @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
+  @ApiOperation({ summary: 'Guía de Cobranza en PDF de las facturas seleccionadas (body: { folios: string[], responsable?, nota? }). Agrupa por cliente e imprime el saldo pendiente. Documento interno, NO fiscal.' })
+  async guiaCobranza(
+    @Body() body: { folios?: string[]; responsable?: string; nota?: string },
+    @Res() res: Response,
+  ) {
+    const buf = await this.guia.pdfDeFolios(body?.folios || [], {
+      responsable: body?.responsable, nota: body?.nota,
+    });
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="guia-cobranza.pdf"');
+    res.end(buf);
+  }
 
   // Antes de ':folio' — si no, la ruta genérica se traga '/:folio/anexo.pdf'.
   @Get(':folio/anexo.pdf')

@@ -205,6 +205,55 @@ export class CommercialSalesDocumentsService {
   }
 
   /**
+   * GT.1 — las facturas SELECCIONADAS a mano en /comercial/documentos/reportes, para la Guía
+   * de Cobranza. No es un filtro más: la selección es un acto humano (el cobrador sale con
+   * ESAS y no con las que caigan en un rango), así que se piden por folio explícito.
+   *
+   * Devuelve también las `faltantes`: un folio que se pidió y no volvió no se descarta en
+   * silencio —la guía imprimiría de menos y nadie lo notaría hasta la ruta—, lo reporta el
+   * service que arma el PDF.
+   *
+   * Mismo truco de rendimiento que `detail()`: se filtra por (sucursal, doc_prefix, folio),
+   * nunca por `folio_digital`, que es una expresión compuesta de la vista y no usa índice.
+   */
+  async paraGuia(folioDigitales: string[]): Promise<{ rows: any[]; faltantes: string[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const pedidos = [...new Set((folioDigitales || []).map((f) => String(f || '').trim()).filter(Boolean))];
+    if (!pedidos.length) return { rows: [], faltantes: [] };
+
+    const tuplas: string[][] = [];
+    const invalidos: string[] = [];
+    for (const f of pedidos) {
+      const p = this.partes(f);
+      if (p) tuplas.push([p.sucursal, p.docPrefix, p.folio]);
+      else invalidos.push(f);
+    }
+    if (!tuplas.length) return { rows: [], faltantes: invalidos };
+
+    return this.tk.run(async (trx) => {
+      const rows = await trx('analytics.erp_sales_invoices')
+        .where('tenant_id', tenantId)
+        .whereIn(['sucursal', 'doc_prefix', 'folio'], tuplas)
+        .select(
+          'folio_digital', 'sucursal', 'doc_prefix', 'folio', 'doc_label',
+          'fecha', 'vencimiento', 'dias_credito', 'vencimiento_source',
+          'cliente_code', 'cliente_nombre', 'cliente_rfc',
+          'cliente_domicilio', 'cliente_colonia', 'cliente_estado', 'cliente_cp',
+          'vendedor_code', 'vendedor_nombre',
+          'total', 'descuento_efectivo', 'saldo', 'cobrado', 'estatus_cobro',
+          'doc_estatus', 'doc_estatus_label', 'cancelada',
+        )
+        .orderBy([
+          { column: 'cliente_nombre', order: 'asc' },
+          { column: 'fecha', order: 'asc' },
+          { column: 'folio', order: 'asc' },
+        ]);
+      const vistos = new Set(rows.map((r: any) => String(r.folio_digital)));
+      return { rows, faltantes: [...invalidos, ...pedidos.filter((f) => !vistos.has(f))] };
+    });
+  }
+
+  /**
    * Documento completo (cabecera + renglones) — lo que consume el anexo imprimible.
    *
    * OJO con el filtro: `folio_digital` es una expresión compuesta dentro de la vista

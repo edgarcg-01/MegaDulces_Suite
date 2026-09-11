@@ -122,4 +122,14 @@ export class SalesDocumentsService {
   anexoBlob(folio: string, conPagare = true): Observable<Blob> {
     return this.http.get(this.anexoUrl(folio, conPagare), { responseType: 'blob' });
   }
+
+  /**
+   * GT.2 — Guía de Cobranza de las facturas seleccionadas, en PDF.
+   *
+   * POST: la selección puede traer cientos de folios y no cabe en una URL. Llega como blob
+   * (el interceptor le pone el JWT) para poder imprimirla o verla sin salir de la pantalla.
+   */
+  guiaCobranzaBlob(folios: string[], opts: { responsable?: string; nota?: string } = {}): Observable<Blob> {
+    return this.http.post(`${this.base}/guia-cobranza.pdf`, { folios, ...opts }, { responseType: 'blob' });
+  }
 }

@@ -172,7 +172,12 @@ export class AnexoVentaService {
     (AnexoVentaService.idleTimer as unknown as { unref?: () => void }).unref?.();
   }
 
-  private async renderPdf(html: string, footer: string): Promise<Buffer> {
+  /**
+   * HTML → PDF con el navegador COMPARTIDO de arriba. Es `public` a propósito: la Guía de
+   * Cobranza (GT.2) imprime desde este mismo lib y lanzar su propio Chromium duplicaría los
+   * ~150 MB que el idle-timer de acá existe para no pagar.
+   */
+  async renderPdf(html: string, footer: string): Promise<Buffer> {
     const browser = await AnexoVentaService.getBrowser();
     const page = await browser.newPage();
     try {

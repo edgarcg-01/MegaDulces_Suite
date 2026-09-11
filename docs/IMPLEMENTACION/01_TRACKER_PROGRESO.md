@@ -2524,6 +2524,29 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
 
 ---
 
+## Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11)
+
+**🧪 EN CÓDIGO, validado en local contra `platform_test`. Sin migraciones ni permisos nuevos.**
+
+Pedido de Edgar: `/comercial/documentos` es el área de **Telemarketing** y necesita su propio juego
+de pestañas, un lugar donde **seleccionar facturas** y sacar la **Guía de Cobranza** que hoy se
+imprime desde Kepler, y filtros que quepan en una hilera.
+
+| Item | Estado | Descripción |
+|---|---|---|
+| GT.1 | 🧪 2026-09-11 | `paraGuia()` — las facturas seleccionadas a mano, por folio explícito, con domicilio del cliente. Reporta las `faltantes` en vez de imprimir de menos |
+| GT.2 | 🧪 2026-09-11 | `GuiaCobranzaService` + `POST /commercial/sales-documents/guia-cobranza.pdf`. Agrupa por cliente, importe = **saldo** de la cartera, **sin sección de Ruta** (no existe el dato acá). Se niega a imprimir si falta una factura o si hay canceladas. Reusa el Chromium compartido del anexo |
+| GT.3 | 🧪 2026-09-11 | Tabs **propios** del área (`TELEMARKETING_TABS`: Facturación TM + Reportes). `REPORTS_TABS` no se toca: desde Sell-Out se sigue entrando |
+| GT.4 | 🧪 2026-09-11 | Página `/comercial/documentos/reportes`: selección múltiple + barra con cuántas/cuántos clientes/cuánto se cobra + Responsable + Generar/Imprimir. Declara cuando la lista viene recortada (200 de N) |
+| GT.5 | 🧪 2026-09-11 | Barra de filtros compartida en **una hilera**, buscador angosto, ventana por defecto **8 días** (lunes a lunes). Responsive: en angosto se acomoda en renglones, no se corta |
+| GT.6 | 🧪 2026-09-11 | **Bug encontrado al probar**: las respuestas del ERP vuelven **fuera de orden** y la vieja pisaba a la nueva — pintaba filas de otro rango y se llevaba la selección. Sello de petición en las dos páginas |
+
+**Abierto:** ¿el tab Reportes debería traer sólo pendientes/parciales por default? Hoy deja
+palomear facturas ya pagadas (saldo $0), que no se cobran. Y el **Responsable** se autocompleta
+con el vendedor del filtro (Edgar 2026-09-11); lo escrito a mano no se pisa.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

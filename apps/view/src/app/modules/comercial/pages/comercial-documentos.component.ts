@@ -2,15 +2,9 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
-import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { SelectModule } from 'primeng/select';
-import { InputTextModule } from 'primeng/inputtext';
-import { IconFieldModule } from 'primeng/iconfield';
-import { InputIconModule } from 'primeng/inputicon';
-import { CheckboxModule } from 'primeng/checkbox';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
@@ -21,7 +15,10 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { TELEMARKETING_TABS } from '../telemarketing-tabs';
+import {
+  TelemarketingFiltrosComponent, TmFiltros, tmFiltrosIniciales,
+} from '../components/telemarketing-filtros.component';
 
 /**
  * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
@@ -38,9 +35,9 @@ import { REPORTS_TABS } from '../reports-tabs';
   selector: 'app-comercial-documentos',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectModule,
-    InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TooltipModule, ToastModule,
+    CommonModule, TableModule, TagModule, ButtonModule, TooltipModule, ToastModule,
     MetricStripComponent, LoadStateComponent, SidePeekComponent, PageTabsComponent,
+    TelemarketingFiltrosComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -65,31 +62,8 @@ import { REPORTS_TABS } from '../reports-tabs';
       <app-metric-strip [items]="kpis(r)" />
     }
 
-    <!-- Filtros -->
-    <div class="filtros card-premium card-flat">
-      <p-iconfield class="f-search">
-        <p-inputicon styleClass="pi pi-search" />
-        <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
-               placeholder="Cliente, RFC, folio o monto" aria-label="Buscar documentos" />
-      </p-iconfield>
-
-      <p-select [(ngModel)]="vendedor" (onChange)="load()" [options]="vendedorOpts()" optionLabel="label"
-                optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" ariaLabel="Vendedor" />
-
-      <div class="f-fecha">
-        <input pInputText type="date" [(ngModel)]="desde" (change)="load()" aria-label="Desde" />
-        <span class="sep">→</span>
-        <input pInputText type="date" [(ngModel)]="hasta" (change)="load()" aria-label="Hasta" />
-      </div>
-
-      <p-select [(ngModel)]="cobro" (onChange)="load()" [options]="cobroOpts" optionLabel="label"
-                optionValue="value" placeholder="Estado de cobro" [showClear]="true" ariaLabel="Estado de cobro" />
-
-      <label class="f-check">
-        <p-checkbox [(ngModel)]="soloVencidas" [binary]="true" (onChange)="load()" inputId="venc" />
-        <span pTooltip="Vencieron y siguen debiendo. Las que ya se cobraron no cuentan.">Solo vencidas</span>
-      </label>
-    </div>
+    <app-telemarketing-filtros [value]="filtros()" [vendedores]="vendedorOpts()"
+                               (cambio)="aplicar($event)" />
 
     <!-- Lo que no se pudo medir se declara, no se dibuja (ADR-056) -->
     @if (vencNota(); as nota) {
@@ -267,17 +241,10 @@ import { REPORTS_TABS } from '../reports-tabs';
   </div>
   `,
   styles: [`
-    :host { display: block; }
+    :host { display: block; min-width: 0; }
     .live { color: var(--ok, var(--text-soft)); font-weight: 600; }
 
-    .filtros { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .625rem .75rem; margin-bottom: .75rem; }
-    .filtros .f-search { flex: 1 1 16rem; min-width: 12rem; }
-    .filtros .f-search input { width: 100%; }
-    .f-fecha { display: flex; align-items: center; gap: .375rem; }
-    .f-fecha .sep { color: var(--text-soft); font-size: var(--fs-sm); }
-    .f-check { display: flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
-
-    .tabla-wrap { padding: 0; overflow: hidden; }
+    .tabla-wrap { padding: 0; overflow: hidden; min-width: 0; }
     .tabla-docs th.r, .tabla-docs td.r { text-align: right; }
     .tabla-docs th.c, .tabla-docs td.c { text-align: center; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
@@ -328,26 +295,15 @@ export class ComercialDocumentosComponent {
   readonly peek = signal(false);
   readonly det = signal<SalesDocDetail | null>(null);
   readonly detLoading = signal(false);
-  private readonly filtros = signal<SalesDocsFiltros | null>(null);
+  private readonly catalogos = signal<SalesDocsFiltros | null>(null);
 
-  search = '';
-  vendedor: string | null = null;
-  cobro: string | null = null;
-  soloVencidas = false;
-  readonly cobroOpts = [
-    { label: 'Pendientes', value: 'pendiente' },
-    { label: 'Abono parcial', value: 'parcial' },
-    { label: 'Pagadas', value: 'pagada' },
-    { label: 'Sin cartera', value: 'sin_cartera' },
-  ];
-  desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-  hasta = new Date().toISOString().slice(0, 10);
+  readonly filtros = signal<TmFiltros>(tmFiltrosIniciales());
 
-  readonly tabs = REPORTS_TABS;
+  readonly tabs = TELEMARKETING_TABS;
+  /** Ver el comentario gemelo en Reportes: las respuestas del ERP vuelven fuera de orden. */
+  private peticion = 0;
   readonly vendedorOpts = computed(() =>
-    (this.filtros()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
-
-  private timer?: ReturnType<typeof setTimeout>;
+    (this.catalogos()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   constructor() {
     this.load();
@@ -409,28 +365,37 @@ export class ComercialDocumentosComponent {
     sin_cartera: 'secondary', cancelada: 'secondary',
   };
 
-  /** Debounce del texto libre: no dispara una consulta por tecla. */
-  queue(): void {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.load(), 300);
+  aplicar(f: TmFiltros): void {
+    this.filtros.set(f);
+    this.load();
   }
 
   load(): void {
     this.loading.set(true);
     this.error.set(null);
+    const mia = ++this.peticion;
+    const f = this.filtros();
     const q = {
-      from: this.desde, to: this.hasta, search: this.search || undefined,
-      vendedor_code: this.vendedor || undefined,
-      cobro: this.cobro || undefined,
-      vencidas: this.soloVencidas ? 'true' : undefined,
+      from: f.desde, to: f.hasta, search: f.search || undefined,
+      vendedor_code: f.vendedor || undefined,
+      cobro: f.cobro || undefined,
+      vencidas: f.soloVencidas ? 'true' : undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.report.set(r); this.loading.set(false); },
-      error: (e) => { this.error.set(e?.error?.message || 'No se pudieron cargar los documentos.'); this.loading.set(false); },
+      next: (r) => {
+        if (mia !== this.peticion) return; // llegó tarde: manda la consulta nueva
+        this.report.set(r);
+        this.loading.set(false);
+      },
+      error: (e) => {
+        if (mia !== this.peticion) return;
+        this.error.set(e?.error?.message || 'No se pudieron cargar los documentos.');
+        this.loading.set(false);
+      },
     });
     // los catálogos siguen la misma ventana; si fallan, los filtros quedan vacíos sin romper la tabla
     this.svc.filtros(q).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (f) => this.filtros.set(f), error: () => undefined });
+      .subscribe({ next: (c) => this.catalogos.set(c), error: () => undefined });
   }
 
   abrir(row: SalesDocRow | null): void {
