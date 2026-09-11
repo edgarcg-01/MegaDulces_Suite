@@ -44,15 +44,19 @@ const PUESTOS_OFICINA = [
 ];
 
 /**
- * Las personas que a propósito quedaron SIN puesto, con su motivo.
- * Si aparece una que no está acá, es deriva y el test falla — ése es el punto:
- * lo declarado se tolera, la SORPRESA no.
+ * Personas que a propósito pueden quedar SIN puesto, con su motivo.
+ *
+ * **Está vacío, y ése es el resultado**: `[OR.1c]` cerró en 97/100 dejando 3 casos declarados
+ * (claudia_mata sin departamento, brian_zavala y luis_navarro con 4 candidatos) y `[OR.1d]` los
+ * resolvió con la decisión del lead. Hoy son **100/100**.
+ *
+ * Si mañana aparece alguien sin puesto, el test FALLA con su nombre. Para aceptarlo hay que
+ * escribir acá el motivo — que es el costo deliberado: lo declarado se tolera, la SORPRESA no.
  */
-const SIN_PUESTO_ACEPTADAS = {
-  claudia_mata: 'rol `supervisor` y SIN departamento: el candidato se busca dentro del departamento, así que no hay ninguno posible hasta que se le asigne uno.',
-  brian_zavala: 'rol `almacenista` con 4 candidatos (almacenista | auxiliar_almacen | bodeguero | surtidor). Elegir por él sería adivinar.',
-  luis_navarro: 'rol `almacenista` con los mismos 4 candidatos.',
-};
+const SIN_PUESTO_ACEPTADAS = {};
+
+/** Los 2 puestos que `[OR.1d]` agregó al resolver las 3 personas. */
+const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
 
 (async () => {
   if (!URL) { console.error('Falta FLEET_DB_URL / DATABASE_URL_NEW'); process.exit(1); }
@@ -100,14 +104,33 @@ const SIN_PUESTO_ACEPTADAS = {
     sinPuesto
       .filter((u) => SIN_PUESTO_ACEPTADAS[u])
       .forEach((u) => declarar(`${u} sin puesto — ${SIN_PUESTO_ACEPTADAS[u]}`));
+    check(sinPuesto.length === 0,
+      `el padrón está COMPLETO: ${conPuesto}/${padron.rows.length} con puesto`);
 
     // El evento que la bitácora nunca había visto.
     const ev = await k('identity.user_events')
       .where({ tenant_id: TENANT, event: 'puesto_asignado' })
       .count('* as n')
       .first();
-    check(Number(ev.n) >= 38,
+    check(Number(ev.n) >= 41,
       `user_events registra ${ev.n} "puesto_asignado" (antes de [OR.1c] había 0 eventos de puesto)`);
+
+    // ⚠️ El CHECK parcial `kind='interno' AND status='active' => position_code NOT NULL` NO está
+    // puesto todavía, a propósito: el alta (`users.service.ts#create`) deja `position_code`
+    // opcional, así que hoy el candado convertiría un alta incompleta en un error crudo de
+    // Postgres en vez de una validación con mensaje. Va después de [OR.2], que es donde el
+    // servicio pasa a exigir el puesto. Mientras tanto el invariante lo sostiene ESTE bloque.
+    const chk = await k.raw(
+      `SELECT 1 FROM pg_constraint WHERE conrelid = 'identity.users'::regclass
+        AND conname = 'users_interno_con_puesto'`);
+    if (!chk.rows.length) {
+      declarar(
+        'el CHECK users_interno_con_puesto NO está aplicado: el alta todavía admite position_code ' +
+        'nulo y el candado daría un 500 en vez de una validación. Se aplica tras [OR.2].',
+      );
+    } else {
+      check(true, 'CHECK users_interno_con_puesto aplicado');
+    }
 
     // ── 3. La cadena de mando y sus candados ──────────────────────────────
     console.log('\n── 3. Cadena de mando: los candados se rompen a propósito');
@@ -118,6 +141,36 @@ const SIN_PUESTO_ACEPTADAS = {
     check(chain && chain.reports_to_position_code === 'supervisor_rd',
       `vendedor_ruta reporta a supervisor_rd (la única arista que el dato prueba: 29 personas)`);
     if (!vr) declarar('vendedor_ruta no existe en este tenant');
+
+    // La RAÍZ. Sin ella «reporta directo a Dirección» es inexpresable — y no existía:
+    // el rol `direccion` tenía 88 permisos y CERO personas, y los puestos de mando de
+    // direccion_zona estaban vacíos. Un puesto vacante sigue siendo un lugar al que reportar,
+    // que es justo lo que `supervisor_id` (persona a persona) no puede representar.
+    const raiz = await k('identity.positions')
+      .where({ tenant_id: TENANT, code: 'direccion' })
+      .whereNull('deleted_at')
+      .first('code', 'reports_to_position_code', 'default_role');
+    check(!!raiz, 'existe el puesto `direccion` — la raíz del organigrama');
+    check(raiz && raiz.reports_to_position_code === null,
+      'la raíz no reporta a nadie (reports_to_position_code NULL)');
+
+    const faltanDec = PUESTOS_DECIDIDOS.filter((c) => !codes.has(c));
+    check(faltanDec.length === 0,
+      `los puestos de [OR.1d] existen (faltan: ${faltanDec.join(', ') || 'ninguno'})`);
+
+    // La profundidad es lo que [OR.1] vino a conseguir: antes era UN nivel y ningún jefe
+    // tenía jefe.
+    const prof = await k.raw(
+      `WITH RECURSIVE ch AS (
+         SELECT code, reports_to_position_code AS jefe, 1 AS nivel
+           FROM identity.positions WHERE tenant_id = ? AND deleted_at IS NULL
+         UNION ALL
+         SELECT p.code, p.reports_to_position_code, ch.nivel + 1
+           FROM identity.positions p JOIN ch ON p.code = ch.jefe
+          WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND ch.nivel < 20)
+       SELECT max(nivel)::int niveles FROM ch`, [TENANT, TENANT]);
+    check(prof.rows[0].niveles >= 2,
+      `la cadena de mando tiene ${prof.rows[0].niveles} nivel(es) — antes era 1 y ningún jefe tenía jefe`);
 
     const trx = await k.transaction();
     try {
@@ -164,13 +217,18 @@ const SIN_PUESTO_ACEPTADAS = {
       await trx.rollback();
     }
 
-    const tocado = await k('identity.positions')
+    // Prod tiene que haber quedado igual tras romper los candados: las aristas decididas y
+    // ninguna de las que el bloque de arriba intentó meter (cajera -> encargado_sucursal).
+    const aristas = await k('identity.positions')
       .where({ tenant_id: TENANT })
       .whereNotNull('reports_to_position_code')
-      .count('* as n')
-      .first();
-    check(Number(tocado.n) === 1,
-      `prod intacto tras las pruebas: ${tocado.n} arista(s), la sembrada`);
+      .whereNull('deleted_at')
+      .select('code', 'reports_to_position_code');
+    const mapa = Object.fromEntries(aristas.map((x) => [x.code, x.reports_to_position_code]));
+    check(mapa.cajera === undefined,
+      `prod intacto: el rollback deshizo la arista de prueba (cajera -> ${mapa.cajera ?? 'nada'})`);
+    check(aristas.length === 2,
+      `${aristas.length} arista(s) decidida(s): vendedor_ruta->supervisor_rd y supervisor_inventarios->direccion`);
 
     // ── 4. El catálogo de responsabilidades ───────────────────────────────
     console.log('\n── 4. Responsabilidades');
