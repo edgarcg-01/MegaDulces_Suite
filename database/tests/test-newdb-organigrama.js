@@ -395,8 +395,140 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       `Eventos desvio_de_puesto hoy: ${eventos.length} (cubren ${conEvento.size} persona(s)).`,
     );
 
+    // ── 8. `[OR.6]` La historia de puesto ─────────────────────────────────
+    console.log('\n── 8. Historia de puesto: se alimenta sola y dice qué tan cierta es');
+    const vista = await k.raw(
+      `SELECT c.reloptions, has_table_privilege('app_runtime','identity.v_position_history','SELECT') AS lee
+         FROM pg_class c WHERE c.oid = 'identity.v_position_history'::regclass`);
+    const opts = (vista.rows[0].reloptions || []).join(',');
+    check(/security_invoker=(true|on)/i.test(opts),
+      `la vista tiene security_invoker (lee user_events, que tiene RLS forzado) — reloptions: ${opts || 'ninguna'}`);
+    check(vista.rows[0].lee === true, 'app_runtime puede leer la historia');
+
+    const cob = await k.raw(
+      `SELECT count(*)::int total,
+              count(*) FILTER (WHERE EXISTS (
+                SELECT 1 FROM identity.v_position_history h
+                 WHERE h.tenant_id = u.tenant_id AND h.user_id = u.id AND h.vigente))::int con_tramo
+         FROM identity.users u
+        WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL AND u.kind = 'interno'`, [TENANT]);
+    check(cob.rows[0].con_tramo === cob.rows[0].total,
+      `${cob.rows[0].con_tramo}/${cob.rows[0].total} personas con tramo VIGENTE`);
+
+    const origenes = await k('identity.v_position_history')
+      .where({ tenant_id: TENANT })
+      .groupBy('desde_origen')
+      .select('desde_origen')
+      .count('* as n');
+    const validos = new Set(['cambio', 'registro_sistema', 'estimado_alta']);
+    const raros = origenes.filter((o) => !validos.has(o.desde_origen)).map((o) => o.desde_origen);
+    check(raros.length === 0,
+      `desde_origen sólo toma los 3 valores declarados (raros: ${raros.join(', ') || 'ninguno'})`);
+    origenes
+      .filter((o) => o.desde_origen !== 'cambio')
+      .forEach((o) =>
+        declarar(
+          `${o.n} tramo(s) con desde_origen="${o.desde_origen}": ` +
+          (o.desde_origen === 'estimado_alta'
+            ? 'no se sabe desde cuándo ocupan el puesto; se usa la fecha de alta como PISO, no como hecho'
+            : 'es la fecha en que el sistema lo supo, NO en que la persona tomó el puesto'),
+        ));
+
+    // PRUEBA EN VIVO: el trigger tiene que ver pasar un cambio real.
+    const trx3 = await k.transaction();
+    try {
+      const victima = await trx3('identity.users')
+        .where({ tenant_id: TENANT, kind: 'interno', activo: true })
+        .whereNotNull('position_code')
+        .whereNull('deleted_at')
+        .first('id', 'position_code');
+      const otro = await trx3('identity.positions')
+        .where({ tenant_id: TENANT })
+        .whereNot({ code: victima.position_code })
+        .whereNull('deleted_at')
+        .first('code');
+
+      const antes = await trx3('identity.user_events')
+        .where({ tenant_id: TENANT, user_id: victima.id })
+        .whereIn('event', ['puesto_asignado', 'puesto_retirado'])
+        .count('* as n')
+        .first();
+
+      // 8a. CONTROL: un UPDATE que NO toca el puesto no debe escribir nada.
+      await trx3('identity.users')
+        .where({ tenant_id: TENANT, id: victima.id })
+        .update({ meta_puntos: 1 });
+      const igual = await trx3('identity.user_events')
+        .where({ tenant_id: TENANT, user_id: victima.id })
+        .whereIn('event', ['puesto_asignado', 'puesto_retirado'])
+        .count('* as n')
+        .first();
+      check(Number(igual.n) === Number(antes.n),
+        'CONTROL: un cambio que NO toca el puesto no escribe en la historia (un trigger que dispara de más la llenaría de ruido)');
+
+      // 8b. El cambio real SÍ queda.
+      await trx3('identity.users')
+        .where({ tenant_id: TENANT, id: victima.id })
+        .update({ position_code: otro.code });
+      const nuevo = await trx3('identity.user_events')
+        .where({ tenant_id: TENANT, user_id: victima.id, event: 'puesto_asignado' })
+        .orderBy('created_at', 'desc')
+        .first('detalle');
+      check(
+        nuevo && nuevo.detalle.position_code === otro.code && nuevo.detalle.desde_origen === 'cambio',
+        `un cambio de puesto REAL queda asentado por el trigger, con desde_origen="cambio" ` +
+          `(vio: ${nuevo ? `${nuevo.detalle.position_code}/${nuevo.detalle.desde_origen}` : 'nada'})`,
+      );
+      check(
+        nuevo && nuevo.detalle.position_code_anterior === victima.position_code,
+        'y guarda de qué puesto venía — sin eso el tramo anterior no se puede explicar',
+      );
+
+      // 8c. El tramo anterior se CIERRA: es lo que hace de esto una historia.
+      const tramos = await trx3('identity.v_position_history')
+        .where({ tenant_id: TENANT, user_id: victima.id })
+        .orderBy('desde')
+        .select('position_code', 'vigente');
+      check(
+        tramos.length >= 2 && tramos.filter((t) => t.vigente).length === 1,
+        `${tramos.length} tramos y exactamente 1 vigente — el anterior quedó cerrado`,
+      );
+      check(
+        tramos[tramos.length - 1].position_code === otro.code,
+        'el tramo vigente es el puesto nuevo',
+      );
+    } finally {
+      await trx3.rollback();
+    }
+
+    const postHist = await k('identity.v_position_history')
+      .where({ tenant_id: TENANT, desde_origen: 'cambio' })
+      .count('* as n')
+      .first();
+    check(Number(postHist.n) === 0,
+      `prod intacto: ${postHist.n} tramos con desde_origen="cambio" (el de la prueba se revirtió)`);
+
+    // ⚠️ La pregunta que la fase existe para contestar — «¿quién respondía de
+    // esto en marzo?» — hoy se puede FORMULAR pero devuelve vacío, y eso no es
+    // un bug: la historia no tiene fondo todavía. Lo honesto es medir hasta
+    // dónde llega y declararlo, no presentar la capacidad como si ya sirviera.
+    const cerrados = await k('identity.v_position_history')
+      .where({ tenant_id: TENANT })
+      .whereNotNull('hasta')
+      .count('* as n')
+      .first();
+    const reales = await k('identity.v_position_history')
+      .where({ tenant_id: TENANT, desde_origen: 'cambio' })
+      .count('* as n')
+      .first();
+    declarar(
+      `la historia tiene ${cerrados.n} tramo(s) CERRADO(s) y ${reales.n} con fecha de inicio real: ` +
+      `la consulta "¿quién ocupaba X en marzo?" se puede escribir y hoy devuelve vacío, porque ` +
+      `el registro arranca ahora. El mecanismo está; la profundidad se acumula a partir de este cambio.`,
+    );
+
     console.log(
-      `\n${fail === 0 ? '✅' : '❌'} [OR.0/OR.1/OR.2] el puesto es la unidad organizacional: ` +
+      `\n${fail === 0 ? '✅' : '❌'} [OR.0/OR.1/OR.2/OR.6] el puesto es la unidad organizacional: ` +
       `${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`,
     );
     process.exitCode = fail === 0 ? 0 : 1;
