@@ -102,44 +102,70 @@
 .mt-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* ── Buscador ───────────────────────────────────────────────────────────── */
-.mt-search {
-  flex: 0 1 24rem;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-2);
-  padding: var(--sp-2) var(--sp-3);
+/*
+ * `[SN.14]` UN solo elemento dibuja el foco, y es el input.
+ *
+ * Antes el anillo lo pintaba el CONTENEDOR (`:focus-within` con borde + halo) y el input traía
+ * además el suyo, porque `styles.css:753` declara
+ *     input:focus { outline: 2px solid var(--action) !important; outline-offset: 2px !important; }
+ * y ese `!important` global se come cualquier `outline: none` de componente. Resultado medido: dos
+ * anillos concéntricos de formas distintas — el de afuera con radio 12 px, el de adentro
+ * RECTANGULAR (el input no tenía radio) y además excluyendo la lupa y el `Ctrl K`, que quedaban
+ * fuera de su caja.
+ *
+ * La salida no es pelear `!important` contra `!important` —DESIGN.md lo veta como primera
+ * herramienta— sino que el input DEJE de ser un trozo del control y pase a SER el control: ocupa
+ * toda la caja, lleva el borde y el radio, y la lupa y la tecla se superponen sin quitarle área.
+ * Así el anillo global cae justo donde debe, con la forma correcta, y no hace falta anular nada.
+ * ⚠️ Medido antes de culpar al global: `focus-within` aparecía en UN solo archivo de la app — el
+ * de esta pantalla. El choque lo introdujo este componente, no el global.
+ */
+.mt-search { position: relative; flex: 0 1 24rem; min-width: 0; display: flex; }
+.mt-search-input {
+  width: 100%;
+  height: 2.25rem;
+  /* Sitio para la lupa a la izquierda y para la tecla (o la X) a la derecha. */
+  padding: 0 4rem 0 2.25rem;
   background: var(--layout-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--r-md);
-}
-.mt-search:focus-within { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
-.mt-search-ico { color: var(--text-faint); font-size: var(--fs-xs); flex: none; }
-.mt-search-input {
-  flex: 1 1 auto;
-  min-width: 0;
-  border: 0;
-  background: none;
   color: inherit;
+  font: inherit;
   font-size: var(--fs-sm);
-  outline: none;
 }
 .mt-search-input::placeholder { color: var(--text-faint); }
 /* La X nativa del `type=search` duplicaría nuestro botón de limpiar. */
 .mt-search-input::-webkit-search-cancel-button { display: none; }
+
+.mt-search-ico {
+  position: absolute;
+  left: var(--sp-3);
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-faint);
+  font-size: var(--fs-xs);
+  pointer-events: none; /* clic en la lupa = clic en el campo */
+}
 .mt-search-clear {
-  flex: none;
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
   border: 0;
   background: none;
   color: var(--text-faint);
   cursor: pointer;
-  padding: 0 var(--sp-1);
+  padding: var(--sp-1);
   font-size: var(--fs-xs);
+  line-height: 1;
 }
 .mt-search-clear:hover { color: var(--text-main); }
 .mt-search-clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mt-kbd {
-  flex: none;
+  position: absolute;
+  right: var(--sp-2);
+  top: 50%;
+  transform: translateY(-50%);
   font-family: var(--font-mono, ui-monospace, monospace);
   font-size: var(--fs-nano);
   color: var(--text-muted);
@@ -147,6 +173,7 @@
   border-radius: var(--r-sm);
   padding: 1px var(--sp-1);
   background: var(--card-bg);
+  pointer-events: none;
 }
 
 /* ── Cuerpo: dos columnas ───────────────────────────────────────────────── */

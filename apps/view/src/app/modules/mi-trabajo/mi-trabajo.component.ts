@@ -192,6 +192,18 @@ export class MiTrabajoComponent {
   private readonly cajaBusqueda = viewChild<ElementRef<HTMLInputElement>>('buscador');
 
   readonly user = this.auth.user;
+
+  /**
+   * `[SN.14]` La tecla que se anuncia tiene que ser la que de verdad funciona. El atajo acepta
+   * `metaKey` desde SN.9, así que en Mac ⌘K ya servía — pero la etiqueta decía "Ctrl K" siempre y
+   * mentía a media oficina. `navigator.platform` está deprecado; se mira el userAgent con un
+   * fallback, y ante la duda queda el rótulo de Windows, que es el parque real de esta suite.
+   */
+  readonly atajoBuscar = /Mac|iPhone|iPad|iPod/i.test(
+    (typeof navigator !== 'undefined' && (navigator.platform || navigator.userAgent)) || '',
+  )
+    ? '⌘ K'
+    : 'Ctrl K';
   readonly landingRoute = LANDING_ROUTE;
 
   /** `sin_cargar` = todavía no hay mapa con el que decidir: skeleton, no vacío. */
