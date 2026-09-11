@@ -9,6 +9,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
+import type { MeContext } from '@megadulces/contracts';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -1636,6 +1637,59 @@ export class UsersService {
       })());
     // Ya no se devuelven reglas de CASL: el front gatea por clave exacta contra `permissions`.
     return { user_id: userId, role_name: roleName ?? null, permissions: permisos };
+  }
+
+  /**
+   * `[SN.2]` — Contexto de la persona en sesión, para el bloque "Mi contexto" de la landing.
+   *
+   * Self-scoped: sólo se pregunta por el propio `userId` (el controller lo saca del JWT), por eso
+   * no pasa por `alcanceDelPadron` ni pide permiso. Mismos LEFT JOIN que `findOne` para puesto y
+   * departamento; si la persona no tiene puesto, `position` es `null` y se DECLARA así — nunca se
+   * deriva del rol (la migración que asignó puestos lo dejó NULL a propósito en dos roles).
+   */
+  async contextFor(userId: string): Promise<MeContext> {
+    const u = await this.knex('users as u')
+      .leftJoin('zones as z', 'u.zona_id', 'z.id')
+      .leftJoin('identity.departments as dp', function () {
+        this.on('dp.tenant_id', '=', 'u.tenant_id');
+        this.on('dp.code', '=', 'u.department_code');
+      })
+      .leftJoin('identity.positions as ps', function () {
+        this.on('ps.tenant_id', '=', 'u.tenant_id');
+        this.on('ps.code', '=', 'u.position_code');
+      })
+      .where('u.id', userId)
+      .where('u.tenant_id', this.tenantId)
+      .select(
+        'u.id',
+        'u.username',
+        'u.nombre',
+        'u.role_name',
+        'u.kind',
+        'u.warehouse_code',
+        'z.name as zona',
+        'u.department_code',
+        'dp.name as department_name',
+        'u.position_code',
+        'ps.name as position_name',
+      )
+      .first();
+    if (!u) throw new NotFoundException('Usuario en sesión no encontrado');
+    return {
+      user_id: u.id,
+      username: u.username,
+      nombre: u.nombre ?? null,
+      role_name: u.role_name ?? null,
+      kind: u.kind ?? null,
+      warehouse_code: u.warehouse_code ?? null,
+      zona: u.zona ?? null,
+      department: u.department_code
+        ? { code: u.department_code, name: u.department_name ?? u.department_code }
+        : null,
+      position: u.position_code
+        ? { code: u.position_code, name: u.position_name ?? u.position_code }
+        : null,
+    };
   }
 
   /**
