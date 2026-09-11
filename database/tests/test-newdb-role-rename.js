@@ -225,15 +225,34 @@ const SIN_REPARTIR_ACEPTADAS = {
           'literales. La migración 20260910160000 espera una ventana sin COPY/pg_dump abierto.',
       );
     } else {
-      const { rows: marcados } = await k.raw(
-        `SELECT lower(role_name) AS rol FROM identity.role_permissions
-          WHERE is_platform_admin AND tenant_id = ? ORDER BY 1`,
+      const { rows: filas } = await k.raw(
+        `SELECT lower(role_name) AS rol, bool_or(is_platform_admin) AS marcado
+           FROM identity.role_permissions WHERE tenant_id = ? GROUP BY 1`,
         [TENANT],
       );
-      const enDb = [...new Set(marcados.map((r) => r.rol))].sort().join(',');
-      const enCodigo = leidas.length ? leidas[0].roles.join(',') : null;
-      check(enCodigo !== null && enDb === enCodigo,
-        `la columna marca exactamente lo que dice el código (DB=[${enDb}] código=[${enCodigo}])`);
+      const existentes = new Map(filas.map((r) => [r.rol, r.marcado]));
+      const enCodigo = new Set(leidas.length ? leidas[0].roles.map((r) => r.toLowerCase()) : []);
+
+      // ⚠️ Comparar los dos conjuntos a secas estaba MAL y el gate lo denunció:
+      // el literal dice `['admin','superadmin']` y en este tenant **`admin` no
+      // existe como rol**, así que no hay fila que marcar. Un literal que nombra
+      // un rol inexistente no es deriva — es un literal listo para un rol que
+      // nadie creó. Lo que sí importa son las dos direcciones peligrosas:
+      //
+      //   1. marcado en DB y NO en el código → la base concede god-mode que los
+      //      3 frontends no reflejan: la UI le escondería media app a un admin.
+      //   2. en el código, EXISTE como rol, y sin marcar → el código concede
+      //      god-mode que la base no registra.
+      const soloDb = [...existentes.entries()].filter(([r, m]) => m && !enCodigo.has(r)).map(([r]) => r);
+      const soloCodigo = [...enCodigo].filter((r) => existentes.has(r) && !existentes.get(r));
+      check(soloDb.length === 0,
+        `ningún rol marcado en la DB que el código desconozca (sobran: ${soloDb.join(', ') || 'ninguno'})`);
+      check(soloCodigo.length === 0,
+        `ningún rol del literal que exista y esté sin marcar (faltan: ${soloCodigo.join(', ') || 'ninguno'})`);
+      const inexistentes = [...enCodigo].filter((r) => !existentes.has(r));
+      if (inexistentes.length) {
+        declarar(`el literal nombra ${inexistentes.length} rol(es) que no existen en este tenant: ${inexistentes.join(', ')} — listo para cuando se creen, no es deriva`);
+      }
     }
 
     console.log(`\n${fail === 0 ? '✅' : '❌'} [ID.32/ID.33] renombre, reparto y god-mode: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
