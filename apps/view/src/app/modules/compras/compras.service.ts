@@ -165,6 +165,9 @@ export interface OverstockQuery {
 export interface WorkbookTerritory { code: string; name: string; }
 export interface WorkbookCell {
   vta: number; exis: number; ped: number; tran?: number;
+  /** RA-PRO.47 — costo de caja DE ESE ALMACÉN (el del producto es el `max` entre almacenes y
+   *  sobrevalúa a la sucursal barata). Es el que usa el desglose para valuar cada renglón. */
+  cc?: number;
   // U.2 — sólo viaja cuando el peldaño de unidad de ESE almacén NO está verificado
   // (`analytics.v_unit_rung_audit`). Con `rung` presente, `exis` no es confiable y la celda debe
   // mostrar `nat` + `natu` (la cantidad y el rótulo de la unidad que el ERP realmente guarda).
@@ -205,7 +208,11 @@ export interface OpenOcResponse {
   curva: Array<{ edad: number; n: number; pct: number; fallback: boolean }>;
 }
 export interface WorkbookRow {
-  product_id: string; sku: string; nombre: string; supplier_name: string | null;
+  product_id: string; sku: string; nombre: string;
+  /** El backend ya lo devolvía (`prod.supplier_id`); faltaba declararlo. Lo necesita la
+   *  requisición, que agrupa por (proveedor × almacén). */
+  supplier_id: string | null;
+  supplier_name: string | null;
   uxc: number; caja_cost: number;
   unidad_base: string | null;      // RA-PRO.46 — rótulo REAL de la unidad, dicho por Kepler
                                    // (kdii.c11): PZA/PAQ, pero también 500/KG/CUB en granel.
@@ -330,7 +337,14 @@ export interface ReplenishmentSummary {
 export interface ReplenishmentCategory { id: string; code: string | null; name: string; n_suppliers: number; n_products: number; }
 export interface CategoryAdmin extends ReplenishmentCategory { is_duplicate: boolean; }
 export interface ReplenishmentFilters {
-  warehouses: { id: string; code: string; name: string }[];
+  warehouses: {
+    id: string; code: string; name: string;
+    /** RA-PRO.48 — zona de COMPRA (agrupa el desglose). NO es `zone_id`, que es territorio de venta. */
+    purchase_zone?: string | null;
+    /** RA-PRO.48 — CEDIS donde se puede consolidar una compra (00, 01, MD-30, 06). */
+    is_purchase_hub?: boolean;
+    display_order?: number | null;
+  }[];
   suppliers: { id: string; name: string; min_order_boxes: number | null }[];
   brands?: { id: string; name: string }[];
   categories?: ReplenishmentCategory[]; // RA-PRO.12 — categorías de compra (sourcing)
@@ -602,6 +616,8 @@ export interface SupplierOrderHistory {
 /** Línea de un pedido exportable. Campos opcionales: el backend incluye la columna solo si
  * alguna línea la trae (así el cockpit sale rico y la requisición/OC salen limpias). */
 export interface PedidoExportLine {
+  /** RA-PRO.48 — CEDIS donde se entrega si la compra se consolida; ausente = directo a la sucursal. */
+  deliver_to?: string | null;
   warehouse_code?: string | null;
   supplier_name?: string | null;
   sku?: string | null;

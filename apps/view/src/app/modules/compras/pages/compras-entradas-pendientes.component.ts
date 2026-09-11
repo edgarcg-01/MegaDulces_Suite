@@ -8,6 +8,8 @@ import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { InputTextModule } from 'primeng/inputtext';
 import { SelectModule } from 'primeng/select';
+// `[RE.29.1]` El filtro de periodo, igual que en el Listado y en `/compras/costo-neto`.
+import { DatePickerModule } from 'primeng/datepicker';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
@@ -27,7 +29,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
 import { TableDensityComponent } from '../../../shared/components/table-density/table-density.component';
 import { TableDensityService } from '../../../shared/components/table-density/table-density.service';
 import { branchName, NETWORK_BRANCHES } from '../../../core/constants/store-branches';
-import { money, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
+import { money, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { motivoLabel, motivoDescarteLabel, plural } from '../receipt-verdict';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -107,6 +109,7 @@ interface Hoja {
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, SelectModule,
+    DatePickerModule,
     TagModule, ToastModule, TooltipModule, SegmentedComponent, LoadStateComponent,
     FreshnessPillComponent, ContextHelpComponent, DocViewerComponent, TableDensityComponent, SidePeekComponent,
   ],
@@ -221,9 +224,12 @@ interface Hoja {
                 @if (sugLoading()) {
                   <li class="ep-ac-msg"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Buscando…</li>
                 } @else if (!sug().length) {
-                  <!-- Decir POR QUÉ no hay nada: el filtro de estado es la causa más común. -->
+                  <!-- Decir POR QUÉ no hay nada: el filtro de estado es la causa más común.
+                       [RE.29.1] — y desde que hay periodo, el periodo es la otra. Nombrar sólo
+                       el estado mandaría a mirar el filtro equivocado, y "Buscar en todas"
+                       suelta LOS DOS (si sólo soltara el estado, el botón no escaparía). -->
                   <li class="ep-ac-msg">
-                    Nada con «{{ search() }}» entre las <b>{{ etiquetaEstado() }}</b>.
+                    Nada con «{{ search() }}» entre las <b>{{ etiquetaEstado() }}</b>@if (rango()) { <b>{{ ventanaTexto() }}</b> }.
                     <button type="button" class="ep-link" (mousedown)="$event.preventDefault()" (click)="buscarEnTodas()">
                       Buscar en todas
                     </button>
@@ -243,7 +249,29 @@ interface Hoja {
               </ul>
             }
           </div>
-          @if (rezago()) {
+          <!--
+            [RE.29.1] — EL PERIODO. Mismo control que el Listado y que /compras/costo-neto: el
+            capturista también trabaja por mes ("lo que entró en agosto y sigue sin factura"), y
+            acá la única ventana era el botón de rezago. Sin labels porque esta barra no los usa
+            (es una fila plana); el placeholder y el aria-label nombran cada control.
+            minDate/maxDate cruzados: el rango invertido no se puede ni teclear.
+          -->
+          <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)"
+                    optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true"
+                    appendTo="body" styleClass="ep-sel" ariaLabel="Rango de fecha rápido" />
+          <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)"
+                        dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [maxDate]="dateTo()"
+                        appendTo="body" placeholder="Desde" styleClass="ep-dp" ariaLabel="Desde" />
+          <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)"
+                        dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [minDate]="dateFrom()"
+                        appendTo="body" placeholder="Hasta" styleClass="ep-dp" ariaLabel="Hasta" />
+          @if (rango()) {
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarPeriodo()"
+                    [pTooltip]="'Volver al periodo del proceso (' + ventanaTexto() + ' puesto a mano)'" tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span>
+              <span class="p-button-label">Limpiar periodo</span>
+            </button>
+          } @else if (rezago()) {
             <button pButton type="button" class="p-button-sm p-button-text" (click)="setRezago(false)"
                     pTooltip="Volver al periodo del proceso" tooltipPosition="bottom">
               <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span>
@@ -823,6 +851,10 @@ interface Hoja {
     .ep-filters { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; margin-bottom: var(--sp-3); }
     .ep-search { width: 100%; }
     .ep-sp { flex: 1 1 auto; }
+    /* [RE.29.1] Periodo: anchos fijos y sin crecer — el que manda el ancho de esta barra es el
+       buscador (flex 0 1 24rem), y si los pickers estiran, la fila salta de renglón. */
+    .ep-filters ::ng-deep .ep-dp input { width: 8.5rem; font-variant-numeric: tabular-nums; }
+    .ep-filters ::ng-deep .ep-sel { width: 9.5rem; }
 
     /* Buscador con sugerencias */
     .ep-ac { position: relative; flex: 0 1 24rem; min-width: 14rem; }
@@ -1058,6 +1090,85 @@ export class ComprasEntradasPendientesComponent {
   readonly estado = signal<Exclude<EntradasQuery['estado'], undefined>>('pendiente');
   readonly sucursalSel = signal<string | null>(null);
   readonly rezago = signal(false);
+
+  // ── `[RE.29.1]` El periodo ────────────────────────────────────────────────
+  //
+  // Calcado del Listado (`[RE.29]`), que a su vez lo tomó de `/compras/costo-neto`: `p-datepicker`
+  // + los presets compartidos. Tres pantallas del mismo proyecto filtrando fecha igual.
+  //
+  // ⚠️ Acá hay DOS consumidores del endpoint, no uno: la tabla y el desplegable de sugerencias.
+  // El segundo existe para ofrecer lo que la tabla muestra —su docstring lo dice— así que el
+  // periodo tiene que ir a los dos o el desplegable ofrecería entradas que la lista no tiene, y
+  // elegir una dejaría la tabla vacía sin explicación. La bandeja de PDFs NO se toca: matchea
+  // por `matchByOcr`, que es otro endpoint — un PDF de julio soltado con agosto puesto sigue
+  // encontrando su entrada.
+  readonly dateFrom = signal<Date | null>(null);
+  readonly dateTo = signal<Date | null>(null);
+  readonly preset = signal<string>('');
+  readonly presetOpts = DATE_PRESET_OPTIONS;
+  /** ¿Hay periodo puesto a mano? Si lo hay, MANDA sobre el carril. */
+  readonly rango = computed(() => !!(this.dateFrom() || this.dateTo()));
+
+  /**
+   * El carril que se le pide al server. Con periodo explícito va `todo`: `al_dia` clava un
+   * `receipt_date >= reception_start` del lado del backend, así que pedir enero sin abrirlo
+   * devuelve **cero filas y ninguna explicación** (medido: 0 filas contra 1,135 / $50.4M).
+   */
+  private carril(): 'al_dia' | 'rezago' | 'todo' {
+    if (this.rango()) return 'todo';
+    return this.rezago() ? 'rezago' : 'al_dia';
+  }
+
+  /** `Date` → `YYYY-MM-DD` local. A mano y no `toISOString()`: ése pasa por UTC y en MX resta un día. */
+  private toIso(d: Date | null): string | undefined {
+    if (!d) return undefined;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+  /** `YYYY-MM-DD` → `Date` local. `null` ante basura: un `?from=ayer` se ignora. */
+  private fromIso(s: string | null): Date | null {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  }
+
+  /** La ventana activa, en palabras. La usan el tooltip de "Limpiar periodo" y el vacío del buscador. */
+  readonly ventanaTexto = computed(() => {
+    const f = this.toIso(this.dateFrom()), t = this.toIso(this.dateTo());
+    if (f && t) return `del ${f} al ${t}`;
+    if (f) return `desde el ${f}`;
+    if (t) return `hasta el ${t}`;
+    const cfg = this.report()?.settings;
+    if (!cfg) return '';
+    return this.rezago() ? `anterior al ${cfg.reception_start}` : `desde el ${cfg.reception_start}`;
+  });
+
+  onDate(which: 'from' | 'to', v: Date | null): void {
+    (which === 'from' ? this.dateFrom : this.dateTo).set(v);
+    this.preset.set(''); // tocar una fecha a mano deja de ser un preset
+    this.volverAlInicio(); this.syncUrl(); this.reload();
+    this.teclas.next(this.search()); // el desplegable filtra por lo mismo que la tabla
+  }
+
+  /** Rango rápido: fija Desde/Hasta de una. */
+  onPreset(key: string | null): void {
+    this.preset.set(key || '');
+    const r = key ? datePresetRange(key) : null;
+    // `showClear` manda `null`: limpiar el preset limpia el periodo, o el select diría "nada"
+    // con un rango todavía puesto.
+    if (!r) { this.limpiarPeriodo(); return; }
+    this.dateFrom.set(r.from); this.dateTo.set(r.to);
+    this.volverAlInicio(); this.syncUrl(); this.reload();
+    this.teclas.next(this.search());
+  }
+
+  limpiarPeriodo(): void {
+    this.dateFrom.set(null); this.dateTo.set(null); this.preset.set('');
+    this.volverAlInicio(); this.syncUrl(); this.reload();
+    this.teclas.next(this.search());
+  }
+
   readonly diasMin = signal<number | undefined>(undefined);
   readonly page = signal(1);
   /**
@@ -1173,7 +1284,10 @@ export class ComprasEntradasPendientesComponent {
           estado: this.estado(),
           search: this.search().trim() || undefined,
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
-          carril: this.rezago() ? 'rezago' : 'al_dia',
+          // `[RE.29.1]` El periodo, con el carril que le corresponde (ver `carril()`).
+          from: this.toIso(this.dateFrom()),
+          to: this.toIso(this.dateTo()),
+          carril: this.carril(),
           dias_min: this.diasMin(),
           // RE.20.2 — la tabla está paginada del lado del servidor: ordenar las 50 filas de
           // enfrente NO es ordenar las 875, así que el orden viaja y la lista se recarga.
@@ -1201,6 +1315,10 @@ export class ComprasEntradasPendientesComponent {
     if (est && this.estadoOpts.some((o) => o.value === est)) {
       this.estado.set(est as Exclude<EntradasQuery['estado'], undefined>);
     }
+    // `[RE.29.1]` El periodo, ANTES del primer `reload()`: si se leyera después, el primer viaje
+    // sale con el carril del proceso y la tabla salta de un universo al otro.
+    this.dateFrom.set(this.fromIso(qp.get('from')));
+    this.dateTo.set(this.fromIso(qp.get('to')));
     this.escucharTeclas();
     this.reload();
 
@@ -1238,6 +1356,10 @@ export class ComprasEntradasPendientesComponent {
       queryParams: {
         suc: this.sucursalSel() || null,
         estado: this.estado() === 'pendiente' ? null : this.estado() || null,
+        // `[RE.29.1]` El periodo, en la URL — regla de DESIGN.md para Operations. Sin esto, F5
+        // pierde el mes y "mandame lo de agosto sin factura" no es un link que se pegue.
+        from: this.toIso(this.dateFrom()) || null,
+        to: this.toIso(this.dateTo()) || null,
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,
@@ -1248,7 +1370,17 @@ export class ComprasEntradasPendientesComponent {
     this.volverAlInicio(); this.syncUrl(); this.reload();
   }
   setSucursal(v: string | null): void { this.sucursalSel.set(v || null); this.volverAlInicio(); this.syncUrl(); this.reload(); }
-  setRezago(v: boolean): void { this.rezago.set(v); this.volverAlInicio(); this.reload(); }
+  /**
+   * `[RE.29.1]` — entrar al rezago SUELTA el periodo puesto a mano: son dos formas de decir qué
+   * ventana mirar, y el rezago es "antes del arranque" mientras cualquier rango del proceso vivo
+   * es posterior — intersectarlos da cero filas sin explicación. El botón ya no se ofrece con
+   * rango activo; esto cubre el resto. Y ahora sincroniza la URL, porque puede borrar `from`/`to`.
+   */
+  setRezago(v: boolean): void {
+    this.rezago.set(v);
+    if (v && this.rango()) { this.dateFrom.set(null); this.dateTo.set(null); this.preset.set(''); }
+    this.volverAlInicio(); this.syncUrl(); this.reload();
+  }
   /**
    * `[RE.20.2]` — clic en un encabezado. Vuelve a la página 1 pero NO tira el filtro de
    * antigüedad: reordenar no es re-filtrar, y perder "sólo las atrasadas" por tocar el orden se
@@ -1299,7 +1431,10 @@ export class ComprasEntradasPendientesComponent {
           estado: this.estado(),
           search: t,
           warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
-          carril: this.rezago() ? 'rezago' : 'al_dia',
+          // `[RE.29.1]` El MISMO periodo que la tabla, por la razón del docstring de arriba.
+          from: this.toIso(this.dateFrom()),
+          to: this.toIso(this.dateTo()),
+          carril: this.carril(),
           ...serverSortParams(this.sort()),
           page: 1,
           pageSize: 8,
@@ -1353,9 +1488,16 @@ export class ComprasEntradasPendientesComponent {
     this.reload();
   }
 
-  /** Salida del vacío: el filtro de estado es la causa más común de "no aparece". */
+  /**
+   * Salida del vacío: el filtro de estado es la causa más común de "no aparece".
+   *
+   * `[RE.29.1]` — **suelta también el periodo.** Si sólo soltara el estado, el botón que dice
+   * "Buscar en todas" buscaría en todas las de agosto, y el usuario lo leería como
+   * "no existe" cuando la entrada es de julio. Un escape que no escapa es peor que no tenerlo.
+   */
   buscarEnTodas(): void {
     this.estado.set('');
+    this.dateFrom.set(null); this.dateTo.set(null); this.preset.set('');
     this.syncUrl();
     this.volverAlInicio();
     this.reload();
