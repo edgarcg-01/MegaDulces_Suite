@@ -2033,3 +2033,53 @@ Un `computed` **sólo se re-evalúa cuando cambia un signal que leyó**. `[(ngMo
 **La regla:** todo lo que un `computed` lea tiene que ser signal. Si viene de `ngModel`, va como `[ngModel]="sig()" (ngModelChange)="sig.set($event)"` — el banana-in-box no existe para signals.
 
 **Y el contraste que lo explica:** en `/tienda/arqueo` el mismo tipo de compuerta es `canSubmit(): boolean`, un **método**, y ahí nunca falló: los métodos se re-evalúan en cada ciclo de change-detection. Migrar un método a `computed` es un cambio de semántica, no una optimización — si sus dependencias no son signals, lo rompe en silencio.
+
+## Un `ADD COLUMN` sobre una tabla de 50 filas encoló 11 sesiones de producción (2026-09-10)
+
+`ALTER TABLE identity.role_permissions ADD COLUMN is_platform_admin ...` — 50 filas, milisegundos de
+trabajo real. Se colgó 5 minutos y dejó **11 sesiones esperando**, entre ellas el
+`select * from role_permissions where lower(role_name) = $1`, que es **el lookup de permisos que la
+API hace en cada request**.
+
+**La mecánica.** `ADD COLUMN` pide **ACCESS EXCLUSIVE**. No lo pudo obtener porque un `pg_dump`
+llevaba **53 minutos** con una transacción abierta y un `AccessShareLock` sobre esa tabla. Y acá está
+lo que lo vuelve un incidente y no una espera: **Postgres encola los pedidos de lock en orden**, así
+que desde el instante en que el `ALTER` se puso a esperar, **toda lectura nueva de la tabla se formó
+detrás de él** — aunque el lector sólo quisiera un `SELECT` y el dump se lo hubiera concedido sin
+problema. Un lector barato queda atrapado detrás de un escritor que espera.
+
+**El tamaño de la tabla no tiene nada que ver.** Lo que importa es (a) qué tan caliente es —cuántos
+la leen por segundo— y (b) si hay una transacción larga abierta. `role_permissions` tiene 50 filas y
+se lee en cada request autenticado: es de las más calientes de la base.
+
+**La regla:** `SET LOCAL lock_timeout` antes de cualquier DDL, y **especialmente en las tablas chicas
+y calientes**. Con `'3s'`, si el lock no está libre la migración **falla rápido** y no pasa nada;
+sin él, se convierte en una caída de login. Reintentar es barato; bloquear la autenticación no.
+
+```js
+exports.up = async function up(knex) {
+  await knex.raw(`SET LOCAL lock_timeout = '3s'`);   // ← ANTES del DDL
+  await knex.schema.withSchema('identity').alterTable('role_permissions', (t) => { /* … */ });
+};
+```
+
+**Cómo se detecta.** Si un DDL trivial no termina en segundos, mirar `pg_locks` en vez de esperar:
+
+```sql
+SELECT l.pid, l.mode, l.granted, a.state,
+       EXTRACT(EPOCH FROM (now() - a.xact_start))::int AS xact_seg, a.query
+  FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+ WHERE l.relation = 'identity.role_permissions'::regclass;
+```
+
+Cancelar con `pg_cancel_backend(pid)` (no `pg_terminate_backend`): la transacción del `ALTER` revierte
+limpia y la cola se libera sola. Verificado: 0 filas tocadas, sin registro en `knex_migrations`.
+
+⚠️ **Y lo que duele:** este repo **ya conocía la trampa**. La Fase LC la documenta para
+`gl_poliza_lines` (480k filas, *"una por una con `lock_timeout`, NO `migrate.latest()`"*). La lección
+se había escrito como *"cuidado con las tablas grandes"*, y por eso no se aplicó acá. El criterio
+correcto es **caliente**, no **grande**.
+
+⚠️ **Corolario operativo:** mientras corre un `pg_dump` no entra ningún DDL. Si una migración falla
+con `canceling statement due to lock timeout`, no es un bug de la migración — es que hay un volcado
+abierto. Se reintenta después, no se sube el timeout.
