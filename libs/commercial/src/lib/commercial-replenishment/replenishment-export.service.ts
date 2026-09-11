@@ -20,6 +20,9 @@ export interface CriticalStockExport {
  * campos son opcionales: `buildPedido` incluye una columna solo si alguna línea la trae, de modo
  * que el cockpit sale rico (ranking, venta/mes, ABC/XYZ, cajas) y la requisición/OC salen limpias. */
 export interface PedidoExportLine {
+  /** RA-PRO.48 — donde se ENTREGA esta linea: el codigo del CEDIS si la compra se consolida, o
+   *  null/ausente si el proveedor entrega directo en la sucursal. Columna "Entregar en". */
+  deliver_to?: string | null;
   warehouse_code?: string | null;
   supplier_name?: string | null;  // se muestra como columna solo si el pedido abarca varios proveedores (consolidado por categoría)
   sku?: string | null;
@@ -352,6 +355,8 @@ export class ReplenishmentExportService {
     // Columna presente solo si alguna línea aporta el dato.
     const has = {
       wh: !!order.multi_warehouse || any((r) => !!r.warehouse_code),
+      // RA-PRO.48 — solo aparece si alguna linea se consolida: un pedido todo-directo no gana ruido.
+      deliver: any((r) => !!r.deliver_to),
       // Proveedor solo si el pedido abarca >1 (consolidado por categoría). Con un solo proveedor va en el encabezado.
       sup: new Set(rows.map((r) => r.supplier_name).filter(Boolean)).size > 1,
       abc: any((r) => !!r.abc_class),
@@ -383,6 +388,7 @@ export class ReplenishmentExportService {
     };
     const cols: Col[] = [{ h: '#', v: (_r, i) => i + 1, align: 'center', width: 5 }];
     if (has.wh) cols.push({ h: 'Almacén', v: (r) => r.warehouse_code ?? '', align: 'left', width: 10 });
+    if (has.deliver) cols.push({ h: 'Entregar en', v: (r) => r.deliver_to || 'directo', align: 'left', width: 12 });
     if (has.sup) cols.push({ h: 'Proveedor', v: (r) => r.supplier_name ?? '', align: 'left', width: 26 });
     cols.push({ h: 'SKU', v: (r) => r.sku ?? '', align: 'left', width: 12 });
     cols.push({ h: 'Producto', v: (r) => r.nombre ?? '', align: 'left', width: 42 });
