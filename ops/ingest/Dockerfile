@@ -34,7 +34,19 @@
 FROM node:20-alpine
 
 # tini: reaper de PID 1 para que SIGTERM llegue al proceso node y el ciclo cierre limpio.
-RUN apk add --no-cache tini
+#
+# ⚠️ tzdata NO es opcional (VL.4, 2026-09-11). Alpine NO trae la base de zonas
+# horarias, así que `TZ=America/Mexico_City` se ignora **en silencio** y el
+# contenedor queda en UTC. Medido: `date` devolvía UTC con la TZ puesta en el
+# compose. Dos consecuencias, ninguna visible:
+#   · el `nightly` del crontab (`0 3 * * *`, pensado 3 AM MX) correría 3 AM UTC =
+#     21:00 MX — 6 h corrido, la trampa que [[feedback_cron_timezone_mx_container]]
+#     ya documentó para prod;
+#   · los importers calculan ventanas de fecha con la hora local, así que después
+#     de las 18:00 MX un contenedor en UTC ya está "en mañana".
+# El Dockerfile de prod fija `ENV TZ=America/Mexico_City`: acá se hace igual.
+RUN apk add --no-cache tini tzdata
+ENV TZ=America/Mexico_City
 
 WORKDIR /app
 
@@ -46,6 +58,26 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY database/importers ./database/importers
 COPY services/feeds-ingest ./services/feeds-ingest
 COPY ops/ingest/health.js ./ops/ingest/health.js
+
+# VL.4 — `database/scripts` entra por UN archivo: `fleet-poll-onprem.js`, el carril
+# del GPS de la flota (@1 min), que no vive en `database/importers`. Y `ops/vl`
+# trae la agenda de los feeds (crontab + wrapper), que a partir de VL.4 vive en el
+# repo y no en el Programador de Windows.
+COPY database/scripts ./database/scripts
+COPY ops/vl/run-feed.sh ops/vl/crontab.feeds ./ops/vl/
+RUN chmod +x ./ops/vl/run-feed.sh
+
+# ⛔ `target-guard.js` — el ÚNICO archivo de `libs/` que la imagen necesita, y el que
+# más cuesta descubrir. `run-prod-feeds.js:349` lo requiere **por path computado**
+# (`require(path.join(__dirname, '../../../libs/...'))`) y **sólo dentro del
+# `if (APPLY)`**, así que:
+#   · un grep de `require('...')` literal NO lo encuentra — buscar requires
+#     computados también, o el grafo de dependencias sale incompleto;
+#   · una prueba en SECO no lo ejercita — el dry-run nunca entra a esa rama.
+# Medido el 2026-09-11: los carriles corrían perfecto en seco y morían con
+# MODULE_NOT_FOUND en cuanto se les puso --apply. La ruta relativa se preserva
+# porque el require sube tres niveles desde database/importers/kepler.
+COPY libs/platform-core/src/lib/provenance/target-guard.js ./libs/platform-core/src/lib/provenance/target-guard.js
 
 ENV NODE_ENV=production
 

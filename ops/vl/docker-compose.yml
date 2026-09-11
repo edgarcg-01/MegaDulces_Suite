@@ -147,6 +147,60 @@ services:
       start_period: 20m
       retries: 3
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # VL.4 — LOS CARRILES QUE SALIERON DEL PROGRAMADOR DE WINDOWS
+  #
+  # ⚠️ Env DISTINTO al de los carriles del ODS, a propósito: `feeds.env`, no
+  # `ingest.env`. En los feeds `DATABASE_URL_NEW` es **prod** (el destino); en los
+  # del ODS es la **fuente**. Mezclarlos es el modo de falla exacto que dejó el ODS
+  # congelado 6 días (GOTCHAS §17).
+  # ⚠️ `TZ` explícita: los nocturnos del crontab están en hora MX, como en el
+  # Programador. Sin esto correrían 6 h corridos.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # 11 carriles agendados en UN contenedor, con la agenda versionada en
+  # ops/vl/crontab.feeds. `crond -f -d 8` = primer plano y log a stdout, para que
+  # `docker compose logs feeds-cron` muestre lo que hizo cada carril.
+  feeds-cron:
+    image: trade-ingest:latest
+    container_name: feeds-cron
+    restart: unless-stopped
+    environment: { TZ: America/Mexico_City }
+    volumes:
+      - /home/superoot/secrets/feeds.env:/secrets/feeds.env:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["crontab /app/ops/vl/crontab.feeds && exec crond -f -d 8"]
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  # Sub-minuto: el cron no llega. Loop propio, como el `run-livefast-loop.cmd` que
+  # reemplaza (sales-fact → sales_daily + cash-sessions, ventana de 2 días).
+  feeds-livefast:
+    image: trade-ingest:latest
+    container_name: feeds-livefast
+    restart: unless-stopped
+    env_file: [/home/superoot/secrets/feeds.env]
+    environment: { TZ: America/Mexico_City, SALES_FACT_DAYS: "2" }
+    command:
+      - /bin/sh
+      - -c
+      - 'while :; do node database/importers/kepler/run-prod-feeds.js livefast --apply; echo "[$(date "+%F %T %Z")] pasada livefast lista, siguiente en 60s"; sleep 60; done'
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  # Sub-minuto: tickets en vivo de las 6 sucursales → WS /store de prod. Reemplaza
+  # `C:\KeplerPush\store-poller.cmd`, que además era uno de los 2 únicos que corrían
+  # como SYSTEM (los otros 17 dependían de una sesión de usuario abierta).
+  store-poller:
+    image: trade-ingest:latest
+    container_name: store-poller
+    restart: unless-stopped
+    env_file: [/home/superoot/secrets/feeds.env]
+    environment: { TZ: America/Mexico_City, POLL_SECONDS: "25", WINDOW_MINUTES: "5" }
+    command:
+      - /bin/sh
+      - -c
+      - 'while :; do node database/importers/kepler/live-tickets-poller.js; echo "[$(date "+%F %T %Z")] poller cayó, reintento en 10s"; sleep 10; done'
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
   # ═══ EL BRAZO DEL HEALTHCHECK ═══
   # Sin esto el HEALTHCHECK sólo PINTA un rótulo: en Docker standalone
   # `restart: unless-stopped` reacciona a que el proceso MUERA, y nada reacciona a
