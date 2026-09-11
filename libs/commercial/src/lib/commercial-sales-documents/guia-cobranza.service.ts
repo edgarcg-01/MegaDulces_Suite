@@ -9,6 +9,9 @@ import { CommercialSalesDocumentsService } from './commercial-sales-documents.se
  *  - **sin sección de Ruta** (decisión Edgar 2026-09-11): acá la selección la hace una persona
  *    en pantalla, factura por factura, y no está atada a una ruta del ERP. Inventar una columna
  *    "Ruta" a partir de la sucursal sería dibujar un dato que nadie capturó.
+ *  - la guía es de **UN SOLO VENDEDOR** (regla Edgar 2026-09-11): lleva las facturas que ESE
+ *    vendedor generó y nada más. Una selección que mezcla vendedores se rechaza; no se imprime
+ *    una guía "de varios" ni se elige uno por mayoría.
  *  - el importe es el **saldo pendiente** de la cartera (`kdue`), no el total del CFDI: lo que
  *    el cobrador va a cobrar. Cuando el documento no aparece en la cartera no se puede saber
  *    cuánto debe — se imprime el total marcado con `~` y se declara al pie, en vez de afirmar
@@ -29,8 +32,6 @@ export interface GuiaCobranzaOpts {
 interface MovImpreso { folio: string; fecha: string; descuento: number; importe: number; derivado: boolean }
 interface ClienteImpreso {
   cliente_id: string; nombre: string; direccion: string;
-  /** Vendedor del cliente; `null` si sus facturas vienen de más de uno. */
-  vendedor: string | null;
   descuento: number; total: number; derivado: boolean; movimientos: MovImpreso[];
 }
 
@@ -65,16 +66,26 @@ export class GuiaCobranzaService {
         + canceladas.map((r) => r.folio_digital).join(', '));
     }
 
+    // UN SOLO VENDEDOR por guía (Edgar 2026-09-11). La identidad es el CÓDIGO, no el nombre:
+    // dos vendedores pueden llamarse igual y el mismo puede estar escrito de dos formas. Se
+    // rechaza acá y no sólo en la pantalla, porque el endpoint recibe folios sueltos y nadie
+    // garantiza que el que llama sea nuestra pantalla.
+    const porVendedor = new Map<string, string>();
+    for (const r of rows) {
+      const code = String(r.vendedor_code ?? '').trim() || '(sin vendedor)';
+      if (!porVendedor.has(code)) porVendedor.set(code, String(r.vendedor_nombre ?? '').trim() || code);
+    }
+    if (porVendedor.size > 1) {
+      throw new BadRequestException(
+        'La guía es de un solo vendedor y la selección tiene '
+        + `${porVendedor.size}: ${[...porVendedor.values()].join(', ')}. `
+        + 'Filtrá por vendedor y generá una guía por cada uno.');
+    }
+
     const emisor = await this.docs.emisorFiscal();
     const clientes = this.agrupar(rows);
     const total = clientes.reduce((a, c) => a + c.total, 0);
-    // El vendedor va ARRIBA (decisión Edgar 2026-09-11): la guía casi siempre sale de la
-    // cartera de uno solo y es la primera pregunta al recibir el papel. Si la selección
-    // mezcla varios no se elige uno —sería mentir sobre las facturas del otro—: se dice
-    // cuántos son y el nombre baja a cada bloque de cliente.
-    const vendedores = [...new Set(rows
-      .map((r) => String(r.vendedor_nombre ?? '').trim())
-      .filter(Boolean))];
+    const [vendedorCode, vendedorNombre] = [...porVendedor.entries()][0] ?? ['', ''];
     const ahora = new Date();
     return this.pdf.renderPdf(
       this.html(clientes, {
@@ -82,8 +93,7 @@ export class GuiaCobranzaService {
         numero: this.sello(ahora, 'YMD'),
         fecha: this.sello(ahora, 'dmy'),
         total,
-        vendedor: vendedores.length === 1 ? vendedores[0] : null,
-        vendedores: vendedores.length,
+        vendedor: vendedorCode === '(sin vendedor)' ? null : vendedorNombre,
         documentos: rows.length,
         derivados: rows.filter((r) => r.estatus_cobro === 'sin_cartera' || r.saldo === null).length,
         responsable: (opts.responsable || '').trim(),
@@ -104,18 +114,14 @@ export class GuiaCobranzaService {
     for (const r of rows) {
       const code = String(r.cliente_code ?? '').trim() || '—';
       let c = mapa.get(code);
-      const vend = String(r.vendedor_nombre ?? '').trim() || null;
       if (!c) {
         c = {
           cliente_id: code,
           nombre: String(r.cliente_nombre ?? '').trim() || 'Sin nombre',
           direccion: this.direccion(r),
-          vendedor: vend,
           descuento: 0, total: 0, derivado: false, movimientos: [],
         };
         mapa.set(code, c);
-      } else if (c.vendedor !== vend) {
-        c.vendedor = null; // el mismo cliente con facturas de dos vendedores: no se elige
       }
       // Sin cartera ⇒ no hay saldo medido. Se imprime el total y queda marcado.
       const derivado = r.estatus_cobro === 'sin_cartera' || r.saldo === null;
@@ -175,7 +181,7 @@ export class GuiaCobranzaService {
   // ── documento ──────────────────────────────────────────────────────────
   private html(clientes: ClienteImpreso[], h: {
     empresa: string; numero: string; fecha: string; total: number;
-    vendedor: string | null; vendedores: number;
+    vendedor: string | null;
     documentos: number; derivados: number; responsable: string; nota: string;
   }): string {
     const bloques = clientes.map((c) => {
@@ -193,7 +199,6 @@ export class GuiaCobranzaService {
             <div class="dir">${this.esc(c.direccion)}</div>
           </div>
           <div class="cli-res">
-            ${h.vendedor || !c.vendedor ? '' : `<span><b>Vendedor</b> ${this.esc(c.vendedor)}</span>`}
             <span><b>Concepto</b> Mercancía</span>
             <span><b>Tipo</b> Cobranza</span>
             <span><b>Descuento</b> ${this.m(c.descuento)}</span>
@@ -265,9 +270,7 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
   </div>
   <div class="doc">
     <div class="tit">Guía de Cobranza</div>
-    ${h.vendedor
-      ? `<div class="kv vend"><b>Vendedor</b> ${this.esc(h.vendedor)}</div>`
-      : (h.vendedores > 1 ? `<div class="kv vend"><b>Vendedores</b> ${h.vendedores} (cada cliente indica el suyo)</div>` : '')}
+    ${h.vendedor ? `<div class="kv vend"><b>Vendedor</b> ${this.esc(h.vendedor)}</div>` : ''}
     <div class="kv"><b>Número</b> ${this.esc(h.numero)}</div>
     <div class="kv"><b>Fecha</b> ${this.esc(h.fecha)} · <b>${h.documentos}</b> documento${h.documentos === 1 ? '' : 's'} · <b>${clientes.length}</b> cliente${clientes.length === 1 ? '' : 's'}</div>
   </div>

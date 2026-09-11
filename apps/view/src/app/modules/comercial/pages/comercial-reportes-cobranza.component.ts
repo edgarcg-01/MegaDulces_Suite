@@ -73,10 +73,17 @@ import {
       <p-button label="Limpiar" [text]="true" size="small" [disabled]="!sel().length"
                 (onClick)="limpiar()" />
       <p-button icon="pi pi-print" label="Imprimir" size="small" severity="secondary" [outlined]="true"
-                [disabled]="!sel().length" [loading]="busy() === 'print'" (onClick)="generar(true)" />
+                [disabled]="!listo()" [loading]="busy() === 'print'" (onClick)="generar(true)" />
       <p-button icon="pi pi-file-pdf" label="Generar reporte" size="small"
-                [disabled]="!sel().length" [loading]="busy() === 'pdf'" (onClick)="generar(false)" />
+                [disabled]="!listo()" [loading]="busy() === 'pdf'" (onClick)="generar(false)" />
     </div>
+
+    <!-- La guía es de UN vendedor: se dice acá, no después de apretar el botón -->
+    @if (mezcla(); as m) {
+      <p class="alerta"><i class="pi pi-exclamation-triangle"></i>
+        La guía es de un solo vendedor y la selección tiene {{ m }}. Filtrá por vendedor
+        arriba y armá una guía por cada uno.</p>
+    }
 
     @if (parcial(); as p) {
       <p class="nota"><i class="pi pi-info-circle"></i> {{ p }}</p>
@@ -171,6 +178,10 @@ import {
       display: flex; align-items: center; gap: .4rem; margin: 0 0 .5rem;
       font-size: var(--fs-xs, .75rem); color: var(--text-soft);
     }
+    .alerta {
+      display: flex; align-items: center; gap: .45rem; margin: 0 0 .5rem;
+      font-size: var(--fs-sm); font-weight: 600; color: var(--danger, var(--text-main));
+    }
 
     .tabla-wrap { padding: 0; overflow: hidden; min-width: 0; }
     .tabla-docs th.r, .tabla-docs td.r { text-align: right; }
@@ -223,6 +234,15 @@ export class ComercialReportesCobranzaComponent {
     (this.catalogos()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   readonly clientesSel = computed(() => new Set(this.sel().map((d) => d.cliente_code)).size);
+  /**
+   * Cuántos vendedores distintos hay en la selección — `0` cuando no hay mezcla (nada que
+   * avisar). La identidad es el CÓDIGO: dos vendedores pueden llamarse igual.
+   */
+  readonly mezcla = computed(() => {
+    const n = new Set(this.sel().map((d) => d.vendedor_code || '(sin vendedor)')).size;
+    return n > 1 ? n : 0;
+  });
+  readonly listo = computed(() => this.sel().length > 0 && !this.mezcla());
   /** Lo que se va a cobrar: el saldo; sin cartera no hay saldo medido y se cobra el total. */
   readonly importeSel = computed(() =>
     this.sel().reduce((a, d) => a + (d.saldo === null ? Number(d.total) || 0 : Number(d.saldo) || 0), 0));
@@ -314,8 +334,8 @@ export class ComercialReportesCobranzaComponent {
 
   // ── guía de cobranza ───────────────────────────────────────────────────
   generar(imprimir: boolean): void {
+    if (!this.listo()) return;
     const folios = this.sel().map((d) => d.folio_digital);
-    if (!folios.length) return;
     this.busy.set(imprimir ? 'print' : 'pdf');
     this.svc.guiaCobranzaBlob(folios, { responsable: this.responsable || undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
