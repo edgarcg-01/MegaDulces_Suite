@@ -138,9 +138,17 @@
   max-width: 90rem;
   margin: 0 auto;
   display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-4);
+}
+/* Cada grupo envuelve DENTRO de sí: su etiqueta nunca se queda en la fila de arriba. */
+.mt-work-grupo {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: var(--sp-2);
+  min-width: 0;
 }
 .mt-work-h {
   margin: 0 var(--sp-2) 0 0;
@@ -156,11 +164,8 @@
 .mt-work-tag {
   font-size: var(--fs-micro);
   color: var(--text-faint);
-  border-left: 1px solid var(--border-color);
-  padding-left: var(--sp-2);
-  margin-left: var(--sp-1);
+  white-space: nowrap;
 }
-.mt-work-tag:first-of-type { border-left: 0; padding-left: 0; margin-left: 0; }
 
 .mt-pill {
   display: inline-flex;
@@ -215,14 +220,24 @@
   overflow: auto;
   padding: 0 calc(var(--sp-6) + env(safe-area-inset-right)) var(--sp-4) calc(var(--sp-6) + env(safe-area-inset-left));
 }
+/*
+ * Mampostería, no rejilla. Con `grid` cada espacio era una CELDA: "Dirección General" (una sola
+ * tarjeta) reservaba una fila entera de la altura del espacio más alto y dejaba medio tablero en
+ * blanco mientras "Comercial" (diez) iba apretado. Con `columns` los espacios fluyen y llenan.
+ * `break-inside: avoid` mantiene cada espacio entero en una columna.
+ */
 .mt-spaces {
   max-width: 90rem;
   margin: 0 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(26rem, 1fr));
-  gap: var(--sp-5) var(--sp-6);
-  align-content: start;
+  columns: 3;
+  column-gap: var(--sp-6);
 }
+.mt-spaces > .mt-space {
+  break-inside: avoid;
+  -webkit-column-break-inside: avoid;
+  margin-bottom: var(--sp-5);
+}
+@media (max-width: 1500px) { .mt-spaces { columns: 2; } }
 .mt-space-title {
   margin: 0 0 var(--sp-2);
   display: flex;
@@ -242,13 +257,14 @@
 
 .mt-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
   gap: var(--sp-2);
 }
 
 .mt-card {
   display: flex;
-  align-items: center;
+  /* Arriba, no al centro: con el título en dos líneas el icono quedaba flotando a media altura. */
+  align-items: flex-start;
   gap: var(--sp-3);
   padding: var(--sp-2) var(--sp-3);
   background: var(--card-bg);
@@ -278,13 +294,20 @@
 }
 .mt-card:hover .mt-card-ico { background: var(--action); color: var(--action-ink); }
 .mt-card-txt { display: flex; flex-direction: column; min-width: 0; }
+/*
+ * El NOMBRE no se corta: con `nowrap` salían «Compras / Reabastecimie…» y «Cuadre / Supervisor
+ * de m…», y el nombre es lo único imprescindible de la tarjeta. Dos líneas y recién ahí elipsis.
+ */
 .mt-card-title {
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   line-height: 1.25;
-  white-space: nowrap;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: anywhere;
 }
 .mt-card:hover .mt-card-title { text-decoration: underline; text-underline-offset: 3px; }
 .mt-card-body {
@@ -329,7 +352,7 @@
 @media (max-width: 900px), (max-height: 620px) {
   .mt-page { height: auto; min-height: 100dvh; overflow: visible; }
   .mt-main { overflow: visible; }
-  .mt-spaces { grid-template-columns: 1fr; }
+  .mt-spaces { columns: 1; }
   .mt-top-inner { flex-wrap: wrap; }
   .mt-top-user-txt { display: none; }
   .mt-search-row { padding-top: var(--sp-3); }

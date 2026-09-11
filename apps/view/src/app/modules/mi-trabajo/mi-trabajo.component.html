@@ -91,26 +91,36 @@
           </button>
         </h2>
 
+        <!--
+          Cada grupo es su propio bloque. Antes las píldoras y sus etiquetas compartían un solo
+          `flex-wrap`: al envolver, la 2ª fila (99 · 76 · 19 · 2) quedaba sin la etiqueta "En tus
+          bandejas" y se leía como trabajo personal — justo la distinción que la pantalla existe
+          para hacer.
+        -->
         @if (mios().length) {
-          <span class="mt-work-tag">A tu nombre</span>
-          @for (p of mios(); track p.id) {
-            <a class="mt-pill is-mine" [routerLink]="p.ruta" [title]="p.detalle">
-              <span class="mt-pill-n">{{ p.total }}</span>
-              <span class="mt-pill-l">{{ p.label }}</span>
-            </a>
-          }
+          <div class="mt-work-grupo">
+            <span class="mt-work-tag">A tu nombre</span>
+            @for (p of mios(); track p.id) {
+              <a class="mt-pill is-mine" [routerLink]="p.ruta" [title]="p.detalle">
+                <span class="mt-pill-n">{{ p.total }}</span>
+                <span class="mt-pill-l">{{ p.label }}</span>
+              </a>
+            }
+          </div>
         }
 
         @if (deBandeja().length) {
-          <span class="mt-work-tag" title="Colas compartidas: las abre tu permiso, nadie las tiene asignadas">
-            En tus bandejas
-          </span>
-          @for (p of deBandeja(); track p.id) {
-            <a class="mt-pill" [routerLink]="p.ruta" [title]="p.detalle">
-              <span class="mt-pill-n">{{ p.total }}</span>
-              <span class="mt-pill-l">{{ p.label }}</span>
-            </a>
-          }
+          <div class="mt-work-grupo">
+            <span class="mt-work-tag" title="Colas compartidas: las abre tu permiso, nadie las tiene asignadas">
+              En tus bandejas
+            </span>
+            @for (p of deBandeja(); track p.id) {
+              <a class="mt-pill" [routerLink]="p.ruta" [title]="p.detalle">
+                <span class="mt-pill-n">{{ p.total }}</span>
+                <span class="mt-pill-l">{{ p.label }}</span>
+              </a>
+            }
+          </div>
         }
 
         @if (sinPendientes()) {
@@ -167,14 +177,12 @@
 
             <div class="mt-cards">
               @for (e of s.entradas; track e.id) {
-                <a class="mt-card" [routerLink]="e.route" [title]="e.modulos || e.label">
+                <a class="mt-card" [routerLink]="e.route" [title]="e.detalle || e.label">
                   <span class="mt-card-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
                   <span class="mt-card-txt">
                     <span class="mt-card-title">{{ e.label }}</span>
-                    @if (e.modulos) {
-                      <span class="mt-card-body">{{ e.modulos }}</span>
-                    } @else if (e.esAtajo) {
-                      <span class="mt-card-body">Atajo · vive en su espacio de origen</span>
+                    @if (e.detalle) {
+                      <span class="mt-card-body">{{ e.detalle }}</span>
                     }
                   </span>
                 </a>
