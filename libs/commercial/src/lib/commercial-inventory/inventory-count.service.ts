@@ -1250,14 +1250,18 @@ export class InventoryCountService {
       // `public.products.cost_base` (la base legacy, costo por PRODUCTO y global). Ahora sale del
       // resolvedor unico, al grano almacen x producto y con el testigo del MISMO ERP que la
       // existencia que se esta contando.
-      const costMap = new Map<string, number>();
+      // [KE.3] `number | null` a proposito: un SKU sin costo en ningun ERP ni en el catalogo NO
+      // vale cero -- no se pudo valuar. Antes el `|| 0` congelaba un 0 en unit_cost y publicaba
+      // la merma de ese renglon como $0.00, indistinguible de "no hubo merma" (ADR-056).
+      const costMap = new Map<string, number | null>();
+      let sinCosto = 0;
       if (isInv) {
         const skuList = items.map((it) => it.product_sku).filter(Boolean);
         if (skuList.length) {
           const rows = await trx('inventory.products')
             .whereIn('sku', skuList)
             .select('sku', trx.raw('venta_valor_costo_anual / NULLIF(venta_unidad_anual, 0) AS cost'));
-          rows.forEach((r: any) => costMap.set(r.sku, Number(r.cost) || 0));
+          rows.forEach((r: any) => costMap.set(r.sku, r.cost != null ? Number(r.cost) : null));
         }
       } else {
         const idList = items.map((it) => it.product_id).filter(Boolean);
@@ -1266,7 +1270,8 @@ export class InventoryCountService {
             .where('warehouse_id', count.warehouse_id)
             .whereIn('product_id', idList)
             .select('product_id', 'costo_unitario');
-          rows.forEach((r: any) => costMap.set(r.product_id, Number(r.costo_unitario) || 0));
+          rows.forEach((r: any) => costMap.set(r.product_id,
+            r.costo_unitario != null ? Number(r.costo_unitario) : null));
         }
       }
       let netVarValue = 0;
@@ -1323,10 +1328,11 @@ export class InventoryCountService {
             notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
             created_by: uid,
           });
-          const unitCost = costMap.get(it.product_sku) || 0;
+          const unitCost = costMap.get(it.product_sku) ?? null;
+          if (unitCost === null) sinCosto++;
           await trx('commercial.inventory_count_items').where({ id: it.id }).update({ unit_cost: unitCost });
-          netVarValue += delta * unitCost;
-          absVarValue += Math.abs(delta) * unitCost;
+          netVarValue += delta * (unitCost ?? 0);
+          absVarValue += Math.abs(delta) * (unitCost ?? 0);
           adjusted++;
           totalDelta = +(totalDelta + delta).toFixed(3);
           continue;
@@ -1400,10 +1406,11 @@ export class InventoryCountService {
           notes: `Inventario físico ${count.folio}. ${it.notes || ''}`.trim(),
           created_by: uid,
         });
-        const unitCost = costMap.get(it.product_id) || 0;
+        const unitCost = costMap.get(it.product_id) ?? null;
+        if (unitCost === null) sinCosto++;
         await trx('commercial.inventory_count_items').where({ id: it.id }).update({ unit_cost: unitCost });
-        netVarValue += appliedDelta * unitCost;
-        absVarValue += Math.abs(appliedDelta) * unitCost;
+        netVarValue += appliedDelta * (unitCost ?? 0);
+        absVarValue += Math.abs(appliedDelta) * (unitCost ?? 0);
         adjusted++;
         totalDelta = +(totalDelta + appliedDelta).toFixed(3);
       }
@@ -1443,6 +1450,11 @@ export class InventoryCountService {
         items_adjusted: adjusted,
         net_delta: totalDelta,
         net_variance_value: +netVarValue.toFixed(2),
+        /** [KE.3] Renglones ajustados que NO se pudieron valuar (ningun ERP ni el catalogo dan
+         *  costo): su `unit_cost` queda NULL y NO suman a la merma. Sin este conteo, una merma
+         *  de $0 se lee como "no hubo merma" en vez de "no se pudo medir". */
+        items_sin_costo: sinCosto,
+        costo_resolver: 'analytics.v_erp_unit_cost',
       };
     });
   }

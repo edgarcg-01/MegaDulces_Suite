@@ -82,12 +82,27 @@ const Z = invNorm(CEDIS_SERVICE);
       ), calc AS (
         SELECT a.cedis_id, a.product_id, a.net_mean, a.net_sigma,
                COALESCE(s.lead_time_days, $2) AS lead,
-               COALESCE(abc.abc_class, 'A') AS abc_class,
+               -- [KE.4b] La clase sale de la VISTA analytics.v_abc_class, no de la tabla.
+               -- Dos motivos, los dos medidos en prod 2026-09-11:
+               --   1. la tabla estaba DEGENERADA (2 filas clase A, 56,060 clase C con valor 0,
+               --      porque su demanda salia de commercial.orders: 2 ordenes fulfilled en toda
+               --      su historia). Ver inventory-abc.service.ts;
+               --   2. este importer corre DESPUES de import-computed-reorder y sobrescribe a los
+               --      hubs, asi que le devolvia la clase degenerada a 4,571 politicas de 01 /
+               --      MD-30 / 06 que el otro importer acababa de corregir. Se veia por la firma:
+               --      abc_class = C con service_level = 0.980, que ninguna sucursal produce.
+               --
+               -- sin_demanda NO es clase C: es "este almacen no vende". El CEDIS distribuye por
+               -- traspaso, asi que su Pareto de venta esta vacio por construccion y la clase tiene
+               -- que salir del default del hub (A = protege a toda la red), no de un C enganoso.
+               -- Los otros tres hubs (01, MD-30, 06) SI venden y toman su clase real.
+               CASE WHEN abc.clase_motivo = 'sin_demanda' THEN 'A'
+                    ELSE COALESCE(abc.abc_class, 'A') END AS abc_class,
                CASE WHEN a.net_mean>0 THEN a.net_sigma/a.net_mean END AS cv
           FROM agg a
           JOIN catalog.products p ON p.tenant_id=$1 AND p.id=a.product_id
           LEFT JOIN catalog.suppliers s ON s.tenant_id=$1 AND s.id=p.supplier_id
-          LEFT JOIN commercial.abc_classification abc ON abc.tenant_id=$1 AND abc.warehouse_id=a.cedis_id AND abc.product_id=a.product_id
+          LEFT JOIN analytics.v_abc_class abc ON abc.tenant_id=$1 AND abc.warehouse_id=a.cedis_id AND abc.product_id=a.product_id
          WHERE a.net_mean > 0
       )
       INSERT INTO commercial.reorder_policy
