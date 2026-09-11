@@ -47,6 +47,24 @@ export interface RangeQuery {
 const MX_TZ = 'America/Mexico_City';
 const pct = (cur: number, prev: number): number | null =>
   prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
+/** Δ% tolerante a razones NO MEDIDAS: si falta cualquiera de los dos lados, no hay delta. */
+const pctN = (cur: number | null, prev: number | null): number | null =>
+  cur != null && prev != null ? pct(cur, prev) : null;
+/**
+ * Razón que se DECLARA no medida en vez de imprimir 0 (ADR-056). Sin denominador
+ * —p. ej. una sucursal/período sin cobertura de tickets— `0` se lee en pantalla
+ * como "el ticket promedio fue de cero", que es una afirmación falsa; `null` se
+ * pinta como «—». Las razones viejas (`avg_ticket`, `basket`) conservan su 0 a
+ * propósito: cambiarlas es parte del arreglo de cobertura, no de este item.
+ */
+const ratio = (num: number, den: number): number | null => (num > 0 && den > 0 ? num / den : null);
+/**
+ * Porcentaje sobre un total. A diferencia de `ratio()`, el numerador SÍ puede ser
+ * ≤ 0 y sigue siendo un hecho: un margen negativo (vender bajo costo) es justo lo
+ * que hay que ver, no algo que ocultar. Lo que no puede faltar es el total.
+ */
+const ratioPct = (num: number, total: number): number | null =>
+  total > 0 ? Math.round((num / total) * 1000) / 10 : null;
 const addDays = (iso: string, n: number): string => {
   const d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
@@ -191,8 +209,10 @@ export class WeeklyAnalyticsService {
    * Análisis por RANGO PERSONALIZADO para el encargado de sucursal (/tienda/analisis-semanal).
    *
    * A diferencia de weekly(): rango libre [from,to] + métricas de operación de tienda que la
-   * vista semanal no daba: **tickets**, **ticket promedio ($/ticket)** y **productos por ticket**
-   * (líneas/ticket). Compara contra el período INMEDIATAMENTE anterior del MISMO tamaño.
+   * vista semanal no daba: **tickets**, **ticket promedio ($/ticket)**, **partidas por ticket**
+   * (renglones/ticket), **valor por partida ($/renglón)**, **unidades por ticket** y **valor
+   * unitario promedio ($/unidad)**. Compara contra el período INMEDIATAMENTE anterior del MISMO
+   * tamaño. Los rótulos son los de `[TDA.P]` en `/tienda/live`: misma palanca, otra ventana.
    *
    * Fuentes:
    *  - `analytics.sales_daily` → venta $, margen, unidades (Kepler+Wincaja).
@@ -250,6 +270,44 @@ export class WeeklyAnalyticsService {
           WHERE psd.tenant_id = ? AND psd.sale_date >= ? AND psd.sale_date < ? ${whClause}`,
         [from, toExcl, prevFrom, prevToExcl, tenantId, prevFrom, toExcl, ...whBind],
       );
+      /**
+       * 2b) CLIENTES CON REGISTRO que compraron en el período — el mostrador es
+       * mayormente anónimo, así que ésta es la única cifra que dice *quién* compró.
+       *
+       * Fuente: `analytics.erp_sales_invoices` (vista viva sobre `kepler_ods`, Fase AX).
+       * Es un universo DISTINTO del fact: son los documentos emitidos a nombre de un
+       * cliente, no la venta agregada — no cuadra contra `revenue` y no debe cuadrar.
+       *
+       * Dos exclusiones, las dos verificadas contra la base (2026-09-10):
+       *  · `cliente_code='CONTADO'` es literalmente el mostrador anónimo (1,129 docs).
+       *    Se excluye ESE código y nada más: los códigos numéricos ('45', '103', '10448')
+       *    NO son anónimos — son clientes con nombre ("ABARROTES ROSY", "PATRICIA PEREZ")
+       *    de sucursales que usan otra numeración. Filtrar por "código que empieza con C"
+       *    habría borrado la cartera entera de la 02.
+       *  · `canal='TELEMARK'` es TELEVENTA, otro equipo con su propio módulo. Decisión de
+       *    negocio (2026-09-10): esta pantalla cuenta mostrador. Pesa: en la 01 son 220
+       *    clientes con televenta y 125 sin ella.
+       *
+       * `as_of` = último día CON documento dentro del período. La vista tiene su propia
+       * frescura, distinta de la del fact, y sin declararla un feed atrasado se lee como
+       * "no vino nadie".
+       */
+      const cliWh = whs ? `AND sucursal = ANY(?)` : ``;
+      const cli: any = await trx.raw(
+        `SELECT count(DISTINCT cliente_code) FILTER (WHERE fecha >= ? AND fecha < ?)::int AS cli_cur,
+                count(DISTINCT cliente_code) FILTER (WHERE fecha >= ? AND fecha < ?)::int AS cli_prev,
+                COALESCE(sum(total) FILTER (WHERE fecha >= ? AND fecha < ?),0)::float AS rev_cur,
+                COALESCE(sum(total) FILTER (WHERE fecha >= ? AND fecha < ?),0)::float AS rev_prev,
+                max(fecha) FILTER (WHERE fecha >= ? AND fecha < ?)::text AS as_of
+           FROM analytics.erp_sales_invoices
+          WHERE tenant_id = ? AND NOT cancelada
+            AND cliente_code <> 'CONTADO' AND COALESCE(canal,'') <> 'TELEMARK'
+            AND fecha >= ? AND fecha < ? ${cliWh}`,
+        [from, toExcl, prevFrom, prevToExcl, from, toExcl, prevFrom, prevToExcl, from, toExcl,
+         tenantId, prevFrom, toExcl, ...(whs ? [whs] : [])],
+      );
+      const cl = cli.rows[0];
+
       // 3) Tickets de TIENDA (mostrador, NO ruta) + líneas, por (sucursal, día) para [previo..to].
       //    Fuente unificada por CÓDIGO COMERCIAL, disjunta (sin doble conteo):
       //      · analytics.store_live_tickets → stores '01'–'05' (POS en vivo = lo que ve /tienda/live;
@@ -303,41 +361,108 @@ export class WeeklyAnalyticsService {
       let tkCur = 0, tkPrev = 0, lnCur = 0, lnPrev = 0;
       const tkByDay = new Map<string, number>();
       const brAgg = new Map<string, { tickets: number; lines: number }>();
+      // Días DISTINTOS con ticket, por período: es la cobertura real del POS, que no se
+      // puede deducir del total (105 tickets pueden ser 15 días o uno solo).
+      const posDaysCur = new Set<string>(), posDaysPrev = new Set<string>();
       for (const r of tkDaily.rows) {
         const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
         const tks = Number(r.tickets) || 0, lns = Number(r.lines) || 0;
         if (inCur(d)) {
           tkCur += tks; lnCur += lns;
           tkByDay.set(d, (tkByDay.get(d) || 0) + tks);
+          if (tks > 0) posDaysCur.add(d);
           const a = brAgg.get(r.warehouse_code) || { tickets: 0, lines: 0 };
           a.tickets += tks; a.lines += lns; brAgg.set(r.warehouse_code, a);
-        } else if (inPrev(d)) { tkPrev += tks; lnPrev += lns; }
+        } else if (inPrev(d)) { tkPrev += tks; lnPrev += lns; if (tks > 0) posDaysPrev.add(d); }
       }
+
+      // 4) Serie DIARIA del fact (venta + unidades). Se pide sobre [previo..to] —no sólo el
+      //    período actual— porque de acá sale también la COBERTURA del período previo, que
+      //    es la que decide si el Δ% de las razones cruzadas significa algo.
+      const dailySd: any = await trx.raw(
+        `SELECT sd.sale_date::date AS d, sum(sd.revenue)::float AS revenue, sum(sd.margin)::float AS margin, sum(sd.units)::float AS units
+           FROM analytics.sales_daily sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
+          WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
+          GROUP BY 1 ORDER BY 1`,
+        [tenantId, prevFrom, toExcl, ...whBind],
+      );
+      const factDaysCur = new Set<string>(), factDaysPrev = new Set<string>();
+      const series: { date: string; revenue: number; margin: number; units: number; tickets: number }[] = [];
+      for (const r of dailySd.rows) {
+        const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
+        const rev = +r.revenue;
+        if (inCur(d)) {
+          if (rev > 0) factDaysCur.add(d);
+          series.push({ date: d, revenue: rev, margin: +r.margin, units: +r.units, tickets: tkByDay.get(d) || 0 });
+        } else if (inPrev(d) && rev > 0) { factDaysPrev.add(d); }
+      }
+
+      /**
+       * COBERTURA MEDIDA, no supuesta. Las razones que cruzan las dos fuentes (venta del
+       * fact ÷ tickets/partidas del POS) sólo son comparables si ambas cubren los MISMOS
+       * días. Un denominador que existe pero cubre 2 de 15 días NO da cero: da un número
+       * absurdo —venta de 15 días entre tickets de 2— y eso es peor que el cero, porque
+       * parece medido. Medido en `platform_test` el 2026-09-10: el fact traía 15 días y el
+       * POS 2 → "valor por partida" salía $6,180.66. Se declara no medido.
+       */
+      const cubre = (pos: Set<string>, fact: Set<string>) => fact.size > 0 && pos.size >= fact.size;
+      const crossCur = cubre(posDaysCur, factDaysCur);
+      const crossPrev = cubre(posDaysPrev, factDaysPrev);
+      const cross = (num: number, den: number, ok: boolean) => (ok ? ratio(num, den) : null);
+
       const s = sd.rows[0], p = psd.rows[0];
       const avg = (rev: number, n: number) => (n > 0 ? rev / n : 0);
       const basket = (ln: number, n: number) => (n > 0 ? ln / n : 0);
       const kpis = {
         revenue: { cur: +s.rev_cur, prev: +s.rev_prev, delta_pct: pct(+s.rev_cur, +s.rev_prev) },
         margin: { cur: +s.mar_cur, prev: +s.mar_prev, delta_pct: pct(+s.mar_cur, +s.mar_prev) },
+        /**
+         * Margen como % de la venta — la cifra que se compara contra el objetivo del
+         * negocio (~11.5%), porque el margen en pesos sube y baja con el volumen.
+         * Fuente única (`sales_daily`), así que no pasa por la compuerta de cobertura.
+         *
+         * ⚠️ ADR-051 (enmendado): el costo del fact NO es homogéneo — en la mitad
+         * Wincaja es `ValorCosto` real y en la mitad Kepler es `revenue/(1+markup_pct)`,
+         * que es álgebra ciega al precio. O sea que en esa mitad el % tiende a
+         * reproducir el markup configurado en vez de medir el margen realizado.
+         * Medido en las 5 tiendas (30 d): 10.24% mostrador / 10.69% crédito, contra
+         * el ~11.5% que reporta el negocio. Sirve para mirar tendencia, no para cerrar.
+         */
+        margin_pct: { cur: ratioPct(+s.mar_cur, +s.rev_cur), prev: ratioPct(+s.mar_prev, +s.rev_prev), delta_pct: null },
         units: { cur: +s.uni_cur, prev: +s.uni_prev, delta_pct: pct(+s.uni_cur, +s.uni_prev) },
         units_official: { cur: +p.off_cur, prev: +p.off_prev, delta_pct: pct(+p.off_cur, +p.off_prev) },
         tickets: { cur: tkCur, prev: tkPrev, delta_pct: pct(tkCur, tkPrev) },
         avg_ticket: { cur: avg(+s.rev_cur, tkCur), prev: avg(+s.rev_prev, tkPrev), delta_pct: pct(avg(+s.rev_cur, tkCur), avg(+s.rev_prev, tkPrev)) },
+        /** Partidas por ticket = RENGLONES del ticket (no piezas). Antes se rotulaba
+         *  "productos/ticket", que se confundía con unidades; el cálculo no cambió. */
         basket: { cur: basket(lnCur, tkCur), prev: basket(lnPrev, tkPrev), delta_pct: pct(basket(lnCur, tkCur), basket(lnPrev, tkPrev)) },
+        /**
+         * Descomposición del ticket, de lo grueso a lo fino: cuánto vale el ticket →
+         * cuánto vale cada partida → cuántas unidades se lleva → cuánto vale la unidad.
+         *
+         * OJO con el universo de cada razón:
+         *  · `avg_line` y `units_per_ticket` dividen venta/unidades de TODOS los canales de
+         *    la sucursal (incluye `credito` = mayoreo, 13–22% de la venta según plaza) entre
+         *    partidas/tickets que son SOLO mostrador → quedan sobrestimadas mientras eso no
+         *    se empareje. Misma deuda que `avg_ticket`, no una nueva.
+         *  · `avg_unit` es el único limpio: numerador y denominador salen ambos de
+         *    `analytics.sales_daily`, mismo universo y misma fila.
+         */
+        avg_line: { cur: cross(+s.rev_cur, lnCur, crossCur), prev: cross(+s.rev_prev, lnPrev, crossPrev), delta_pct: pctN(cross(+s.rev_cur, lnCur, crossCur), cross(+s.rev_prev, lnPrev, crossPrev)) },
+        units_per_ticket: { cur: cross(+s.uni_cur, tkCur, crossCur), prev: cross(+s.uni_prev, tkPrev, crossPrev), delta_pct: pctN(cross(+s.uni_cur, tkCur, crossCur), cross(+s.uni_prev, tkPrev, crossPrev)) },
+        avg_unit: { cur: ratio(+s.rev_cur, +s.uni_cur), prev: ratio(+s.rev_prev, +s.uni_prev), delta_pct: pctN(ratio(+s.rev_cur, +s.uni_cur), ratio(+s.rev_prev, +s.uni_prev)) },
+        /**
+         * Clientes con registro (ver 2b) y lo que compró cada uno en promedio. El
+         * promedio se calcula con la venta DE ESOS DOCUMENTOS, no con la venta total
+         * de la tienda: dividir la venta de mostrador entre los clientes con nombre
+         * daría un número inflado y sin significado.
+         */
+        customers: { cur: +cl.cli_cur, prev: +cl.cli_prev, delta_pct: pct(+cl.cli_cur, +cl.cli_prev) },
+        revenue_per_customer: {
+          cur: ratio(+cl.rev_cur, +cl.cli_cur), prev: ratio(+cl.rev_prev, +cl.cli_prev),
+          delta_pct: pctN(ratio(+cl.rev_cur, +cl.cli_cur), ratio(+cl.rev_prev, +cl.cli_prev)),
+        },
       };
-
-      // 4) Serie DIARIA (venta + unidades de sales_daily; tickets de tienda de tkByDay).
-      const dailySd: any = await trx.raw(
-        `SELECT sd.sale_date::date AS d, sum(sd.revenue)::float AS revenue, sum(sd.margin)::float AS margin, sum(sd.units)::float AS units
-           FROM analytics.sales_daily sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
-          WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
-          GROUP BY 1 ORDER BY 1`,
-        [tenantId, from, toExcl, ...whBind],
-      );
-      const series = dailySd.rows.map((r: any) => {
-        const d = r.d instanceof Date ? r.d.toISOString().slice(0, 10) : String(r.d).slice(0, 10);
-        return { date: d, revenue: +r.revenue, margin: +r.margin, units: +r.units, tickets: tkByDay.get(d) || 0 };
-      });
 
       // 5) Por sucursal (si el user ve más de una): venta/margen/unidades + tickets.
       const branchRes: any = await trx.raw(
@@ -379,6 +504,16 @@ export class WeeklyAnalyticsService {
         period: { from, to, days },
         prev_period: { from: prevFrom, to: addDays(prevToExcl, -1) },
         scoped_warehouses: whs,
+        /**
+         * Hasta qué día alcanza cada fuente DENTRO del período. Van juntas y por
+         * separado a propósito: el fact y la facturación se atrasan distinto, y un
+         * solo "actualizado hace X" para toda la pantalla sería mentira (ADR-056).
+         * `null` = esa fuente no trajo nada en el período.
+         */
+        as_of: {
+          fact: series.length ? series[series.length - 1].date : null,
+          customers: cl.as_of || null,
+        },
         kpis, series, by_branch, by_product,
       };
     });

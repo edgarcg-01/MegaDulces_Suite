@@ -6,7 +6,8 @@ import { RingGaugeComponent } from '../charts/ring-gauge.component';
 
 export type MetricStripMode = 'strip' | 'spark' | 'ring' | 'bullet' | 'composition';
 export type MetricTone = 'default' | 'ok' | 'warn' | 'bad' | 'brand';
-export type MetricFormat = 'number' | 'decimal1' | 'currency' | 'currency-short' | 'percent' | 'text';
+/** `currency2` = moneda CON centavos, para precios unitarios ($/unidad, $/partida). */
+export type MetricFormat = 'number' | 'decimal1' | 'currency' | 'currency2' | 'currency-short' | 'percent' | 'text';
 
 export interface MetricStripItem {
   label: string;
@@ -175,9 +176,10 @@ export class MetricStripComponent implements AfterViewInit {
 
   num(it: MetricStripItem): number { return Number(it.value) || 0; }
 
-  cu(it: MetricStripItem): 'int' | 'decimal1' | 'percent1' | 'money' | 'money-short' {
+  cu(it: MetricStripItem): 'int' | 'decimal1' | 'percent1' | 'money' | 'money2' | 'money-short' {
     switch (it.format) {
       case 'currency': return 'money';
+      case 'currency2': return 'money2';
       case 'currency-short': return 'money-short';
       case 'percent': return 'percent1';
       case 'decimal1': return 'decimal1';

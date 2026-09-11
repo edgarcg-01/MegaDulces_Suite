@@ -13,6 +13,7 @@ import { ThemeService } from '../../../core/services/theme.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { WeeklyService, WeeklyReport, RangeReport } from '../weekly.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 
 type TrendMetric = 'revenue' | 'units';
 type RangeMetric = 'revenue' | 'tickets' | 'units';
@@ -22,23 +23,25 @@ type Mode = 'rango' | 'semana';
  * Proyecto Tienda — Análisis de venta (/tienda/analisis-semanal).
  *
  * Dos modos:
- *  - RANGO (default): rango de fechas libre + métricas de operación para el encargado —
- *    venta, ticket promedio, tickets, productos por ticket, margen, unidades; serie diaria
- *    y top productos, todo vs período previo del mismo tamaño.
+ *  - RANGO (default): rango de fechas libre + una matriz de palancas para el encargado.
+ *    Cada COLUMNA es volumen arriba y su precio abajo — venta/margen, tickets/ticket
+ *    promedio, partidas por ticket/valor por partida, unidades por ticket/valor unitario,
+ *    clientes/venta por cliente; más serie diaria y top productos, todo vs el período
+ *    previo del mismo tamaño.
  *  - SEMANA: la vista semanal clásica (ISO lun–dom) con tendencia N semanas.
  * Scopeado a la sucursal del usuario (backend fuerza warehouse_code). Superficie Operations.
  */
 @Component({
   selector: 'app-tienda-weekly',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, SelectButtonModule, DatePickerModule, ButtonModule, TableModule, ChartModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, SelectModule, SelectButtonModule, DatePickerModule, ButtonModule, TableModule, ChartModule, MetricStripComponent, MetricCardComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in wk-page">
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Análisis de ventas</h1>
-          <p class="surf-page-sub">Venta, tickets y productos por ticket de tu sucursal. Elige un rango o mira por semana.</p>
+          <p class="surf-page-sub">Venta, tickets y cómo se compone cada ticket en tu sucursal. Elige un rango o mira por semana.</p>
         </div>
         @if (scopedWarehouse) { <span class="wk-scope"><i class="pi pi-map-marker"></i> {{ branchLabel() }}</span> }
       </header>
@@ -71,11 +74,71 @@ type Mode = 'rango' | 'semana';
         }
 
         @if (rangeRep(); as r) {
-          <app-metric-strip [items]="rangeKpis(r)" ariaLabel="Resumen del período" />
+          <!--
+            Matriz 5 × 2: cada COLUMNA es una palanca (arriba el volumen, abajo su
+            precio), como la 3×2 de /tienda/live (TDA.P). El grid fluye por COLUMNA
+            a propósito: así el DOM va de a pares y la pareja sobrevive los tres
+            anchos (5 col → 3 col → lista), que con flujo por fila se rompía — al
+            pasar a 2 columnas «Venta» dejaba de tener «Margen» debajo.
+
+            OJO: acá adentro NO van acentos graves. El template es un template
+            literal de JS y un backtick lo corta en seco; el compilador entonces
+            reporta "Cannot find name 'tienda'" y no algo que suene a comilla.
+          -->
+          <div class="wk-kpi-matrix">
+            <app-metric-card label="Venta" [value]="r.kpis.revenue.cur" format="currency"
+              tone="brand" [delta]="r.kpis.revenue.delta_pct" sub="lo que entró en el período"></app-metric-card>
+            <app-metric-card label="Margen" [value]="r.kpis.margin.cur" format="currency"
+              [delta]="r.kpis.margin.delta_pct" [sub]="margenSub(r)"></app-metric-card>
+
+            <app-metric-card label="Tickets" [value]="r.kpis.tickets.cur" format="number"
+              [accent]="'var(--chart-1)'" [delta]="r.kpis.tickets.delta_pct" sub="cuántas veces se cobró"></app-metric-card>
+            <app-metric-card label="Ticket promedio" [value]="r.kpis.avg_ticket.cur" format="currency"
+              [accent]="'var(--chart-4)'" [delta]="r.kpis.avg_ticket.delta_pct" sub="partidas × valor por partida"></app-metric-card>
+
+            <app-metric-card label="Partidas por ticket" [value]="r.kpis.basket.cur" format="number" [decimals]="2"
+              [accent]="'var(--chart-2)'" [delta]="r.kpis.basket.delta_pct" sub="renglones distintos por venta"></app-metric-card>
+            @if (r.kpis.avg_line.cur !== null) {
+              <app-metric-card label="Valor por partida" [value]="r.kpis.avg_line.cur!" format="currency" [decimals]="2"
+                [accent]="'var(--chart-3)'" [delta]="r.kpis.avg_line.delta_pct" sub="cuánto deja cada renglón"></app-metric-card>
+            } @else {
+              <app-metric-card label="Valor por partida" format="text" valueText="—"
+                [accent]="'var(--chart-3)'" [sub]="sinCobertura"></app-metric-card>
+            }
+
+            @if (r.kpis.units_per_ticket.cur !== null) {
+              <app-metric-card label="Unidades por ticket" [value]="r.kpis.units_per_ticket.cur!" format="number" [decimals]="1"
+                [accent]="'var(--chart-5)'" [delta]="r.kpis.units_per_ticket.delta_pct" sub="piezas o kg por venta"></app-metric-card>
+            } @else {
+              <app-metric-card label="Unidades por ticket" format="text" valueText="—"
+                [accent]="'var(--chart-5)'" [sub]="sinCobertura"></app-metric-card>
+            }
+            @if (r.kpis.avg_unit.cur !== null) {
+              <app-metric-card label="Valor unitario promedio" [value]="r.kpis.avg_unit.cur!" format="currency" [decimals]="2"
+                [accent]="'var(--chart-6)'" [delta]="r.kpis.avg_unit.delta_pct" sub="cuánto vale cada pieza o kg"></app-metric-card>
+            } @else {
+              <app-metric-card label="Valor unitario promedio" format="text" valueText="—"
+                [accent]="'var(--chart-6)'" sub="no hubo venta en el período"></app-metric-card>
+            }
+
+            <app-metric-card label="Clientes" [value]="r.kpis.customers.cur" format="number"
+              [accent]="'var(--chart-7)'" [delta]="r.kpis.customers.delta_pct" [sub]="clientesSub(r)"></app-metric-card>
+            @if (r.kpis.revenue_per_customer.cur !== null) {
+              <app-metric-card label="Venta por cliente" [value]="r.kpis.revenue_per_customer.cur!" format="currency"
+                [accent]="'var(--chart-7)'" [delta]="r.kpis.revenue_per_customer.delta_pct"
+                sub="promedio de lo que compró cada uno"></app-metric-card>
+            } @else {
+              <app-metric-card label="Venta por cliente" format="text" valueText="—"
+                [accent]="'var(--chart-7)'" sub="ningún cliente con registro en el período"></app-metric-card>
+            }
+          </div>
           <p class="wk-refnote muted">
             {{ r.period.from | date:'dd/MM/yy' }}–{{ r.period.to | date:'dd/MM/yy' }} ({{ r.period.days }} {{ r.period.days === 1 ? 'día' : 'días' }})
             vs {{ r.prev_period.from | date:'dd/MM/yy' }}–{{ r.prev_period.to | date:'dd/MM/yy' }}.
-            Tickets y productos/ticket salen del POS (Wincaja); venta y margen del fact de venta.
+            Tickets y partidas salen del POS; venta, margen y unidades del fact de venta.
+            «Partida» = renglón del ticket; «unidad» = pieza o kg vendido.
+            «Valor unitario promedio» es venta ÷ unidades (misma fuente). «Valor por partida» y
+            «Unidades por ticket» cruzan las dos fuentes, así que sólo se publican donde el POS cubre el período.
           </p>
 
           <div class="card-premium card-flat wk-panel">
@@ -211,6 +274,12 @@ type Mode = 'rango' | 'semana';
     .wk-controls { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
     .wk-ctl { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-muted); }
     app-metric-strip { display:block; margin-bottom: .5rem; }
+    /* Matriz de palancas: volumen arriba, su precio abajo. Flujo por COLUMNA (ver el
+       comentario del template): 5×2 → 3×4 → lista, y la pareja queda junta en los tres. */
+    .wk-kpi-matrix { display:grid; grid-auto-flow:column; grid-template-rows:repeat(2,auto);
+                     grid-auto-columns:minmax(0,1fr); gap:.6rem; margin-bottom:.6rem; }
+    @media (max-width:72rem) { .wk-kpi-matrix { grid-template-rows:repeat(4,auto); } }
+    @media (max-width:38rem) { .wk-kpi-matrix { grid-auto-flow:row; grid-template-rows:none; grid-template-columns:1fr; } }
     .wk-refnote { font-size: .72rem; margin: 0 0 1rem; }
     .wk-panel { padding: 1rem; margin-bottom: 1rem; }
     .wk-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .7rem; }
@@ -270,16 +339,35 @@ export class TiendaWeeklyComponent implements OnInit {
     { label: 'Unidades', value: 'units' as RangeMetric },
   ];
 
-  rangeKpis(r: RangeReport): MetricStripItem[] {
-    const k = r.kpis;
-    return [
-      { label: 'Venta', value: k.revenue.cur, format: 'currency', delta: k.revenue.delta_pct },
-      { label: 'Ticket promedio', value: k.avg_ticket.cur, format: 'currency', delta: k.avg_ticket.delta_pct },
-      { label: 'Tickets', value: k.tickets.cur, format: 'number', delta: k.tickets.delta_pct },
-      { label: 'Productos / ticket', value: k.basket.cur, format: 'decimal1', delta: k.basket.delta_pct },
-      { label: 'Margen', value: k.margin.cur, format: 'currency', delta: k.margin.delta_pct },
-      { label: 'Unidades', value: k.units.cur, format: 'number', delta: k.units.delta_pct },
-    ];
+  /** Motivo único cuando una razón cruzada no se puede publicar (ver `RangeRatioKpi`). */
+  readonly sinCobertura = 'el POS no cubre todo el período';
+
+  /**
+   * El margen en pesos sube y baja con el volumen; contra lo que se compara es el
+   * **% de la venta**, así que va pegado al valor. Si no hubo venta no se inventa
+   * un 0.0%: se dice que no hay contra qué medirlo.
+   */
+  margenSub(r: RangeReport): string {
+    const p = r.kpis.margin_pct.cur;
+    return p == null ? 'sin venta en el período' : `${p.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}% de la venta`;
+  }
+
+  /**
+   * La cifra de clientes carga con QUÉ excluye y HASTA CUÁNDO alcanza su fuente.
+   * La facturación se atrasa distinto que el fact de venta, y sin decirlo un feed
+   * detenido se lee como "no vino nadie" en vez de "todavía no llegó el dato".
+   */
+  clientesSub(r: RangeReport): string {
+    const base = 'con registro, sin mostrador ni televenta';
+    const asOf = r.as_of?.customers;
+    // Sólo se avisa cuando la fuente NO llega al final del período pedido: si llega,
+    // el aviso sería ruido en todas las cargas.
+    if (!asOf) return r.kpis.customers.cur > 0 ? base : 'sin facturación a nombre en el período';
+    return asOf < r.period.to ? `${base} · hasta ${this.diaCorto(asOf)}` : base;
+  }
+  private diaCorto(iso: string): string {
+    const [y, m, d] = iso.split('-');
+    return `${d}/${m}/${y.slice(2)}`;
   }
 
   readonly rangeChartData = computed(() => {
