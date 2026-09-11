@@ -33,6 +33,15 @@ export interface ProductoPrecio {
   mayoreo: MayoreoTier[];
   /** Gramaje de la etiqueta ("50 g"), o `null` si el catálogo no lo tiene. */
   contenido: string | null;
+  /**
+   * `[TDA.8]` La llave con la que viaja el aviso `label_prices_changed`.
+   *
+   * **`null` NO significa "no cambió": significa "no se puede saber".** Llega en null desde el
+   * respaldo (el snapshot no lo lleva) y cuando el código no casó una fila de etiqueta. La
+   * pantalla trata ese caso como el `truncated` del evento — no se puede descartar que le hable
+   * a ella, así que se verifica en vez de callarse (ADR-056).
+   */
+  product_id: string | null;
 }
 
 /**
@@ -220,6 +229,9 @@ export class VerificadorService {
             // `[TDA.4]` Vienen computados y filtrados por el backend: la pantalla pinta, no decide.
             mayoreo: Array.isArray(r.mayoreo) ? r.mayoreo : [],
             contenido: r.contenido ?? null,
+            // `[TDA.8]` La llave del aviso en vivo. El backend la publica desde la misma fila de
+            // etiqueta de la que sale el mayoreo.
+            product_id: r.product_id ?? null,
           },
           // `[TDA.2]` Procedencia del número: de qué plaza salió, si varía entre plazas, y si lo
           // corrigió una persona (ese override es el que se imprime en el anaquel, y el mostrador
@@ -275,6 +287,11 @@ export class VerificadorService {
         // `[TDA.4]` Se expande con la inversa que vive junto a su compresora, en el contrato.
         mayoreo: (item.m || []).map(expandirTier),
         contenido: item.g ?? null,
+        // `[TDA.8]` El snapshot NO lleva product_id y no se inventa uno: desde el respaldo la
+        // pantalla no puede casar un aviso, y eso se DECLARA con null. En la práctica casi no
+        // pasa —si estás en respaldo es porque no hay red, y sin red no hay socket— pero el
+        // camino tiene que decir la verdad igual, no apoyarse en que la otra falla lo tape.
+        product_id: null,
       },
       // Sólo se afirma la unidad si además tiene precio en este respaldo: decir "escaneaste CJA"
       // y no poder mostrar el precio de CJA sería peor que no decir nada.

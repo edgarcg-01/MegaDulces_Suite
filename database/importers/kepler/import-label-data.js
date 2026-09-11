@@ -22,6 +22,19 @@
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
 const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('../../../services/feeds-ingest/label-compute');
+/**
+ * `[TDA.8]` El aviso de que un precio de etiqueta cambió.
+ *
+ * ── Por qué estaba faltando justo acá ────────────────────────────────────────────────────
+ * `notifyLabelPricesChanged` se escribió en `[TDA.1]` y se cableó en `apply-handlers.js` — el
+ * hop-2 del servicio `feeds-ingest`. Pero **el que publica el precio de etiqueta hoy es ESTE
+ * script**: `[VL.4b]` lo movió al carril `prices` (`*/30`) del servidor nuevo, y este camino
+ * llamaba `upsertLabels` **sin el 5º parámetro**, así que ni siquiera sabía qué había cambiado.
+ *
+ * O sea: el aviso no estaba apagado por configuración — **no estaba conectado al camino que
+ * corre**. La etiquetera tiene su banner de precio vivo desde TDA.1 y nunca se disparó.
+ */
+const { notifyLabelPricesChanged } = require('../../../services/feeds-ingest/notify-store');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
@@ -106,7 +119,11 @@ const APPLY = process.argv.includes('--apply');
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
-    const changed = await upsertLabels(db, M, staged);          // churn-free, source<>'manual'
+    // `[TDA.8]` `cambiados` recoge los product_id que REALMENTE se escribieron. El UPSERT es
+    // churn-free, así que esto no son "los que se intentaron" sino "los que cambiaron" — es la
+    // diferencia entre avisar 9,000 veces por corrida y avisar lo que pasó.
+    const cambiados = [];
+    const changed = await upsertLabels(db, M, staged, 1000, cambiados); // churn-free, source<>'manual'
     // Backfill products.barcode (casos seguros). Guard re-valida (idempotente + anti-carrera).
     let bcFixed = 0;
     for (const [pid, ean] of barcodeFixes) {
@@ -121,6 +138,24 @@ const APPLY = process.argv.includes('--apply');
     }
     await db.query('COMMIT');
     console.log(`\n[APPLY] COMMIT — ${changed} filas de etiqueta cambiadas (churn-free) · ${bcFixed} barcodes backfilled.`);
+
+    // `[TDA.8]` El aviso va DESPUÉS del COMMIT: es un aviso, no el dato. Si el API no contesta, el
+    // precio ya quedó guardado y las pantallas lo verán al siguiente escaneo — el comportamiento
+    // de siempre. `notifyLabelPricesChanged` no lanza nunca y trae su propio timeout de 3 s.
+    //
+    // ⚠️ ACÁ SÍ SE ESPERA, y es la diferencia con `apply-handlers.js`, que dispara sin `await`.
+    // Aquel corre dentro de un servidor vivo; ESTO es un CLI que termina: sin el `await` el
+    // proceso se va antes de que el POST salga del socket y el aviso se pierde en silencio —
+    // con el log diciendo que todo salió bien. Es el mismo modo de falla que la Fase OBS
+    // persigue: el sistema reportando éxito sin haber entregado nada.
+    if (cambiados.length) {
+      const salio = await notifyLabelPricesChanged(M, cambiados, console.warn);
+      console.log(
+        salio
+          ? `[APPLY] aviso enviado: ${cambiados.length} producto(s) con precio nuevo.`
+          : `[APPLY] aviso NO enviado (${cambiados.length} producto(s)): las pantallas se enterarán al siguiente escaneo.`,
+      );
+    }
   } catch (e) {
     await db.query('ROLLBACK').catch(() => {});
     console.error('\nERROR (rollback):', e.message);

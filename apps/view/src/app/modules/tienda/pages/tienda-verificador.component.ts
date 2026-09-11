@@ -1,4 +1,5 @@
-import { ChangeDetectionStrategy, Component, ElementRef, HostListener, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
@@ -10,6 +11,7 @@ import { branchName } from '../../../core/constants/store-branches';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { CountUpDirective } from '../../../shared/directives/count-up.directive';
+import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
 import { EstadoSnapshot, OrigenPrecio, ProductoPrecio, ResultadoBusqueda, SucursalVerificador, VerificadorService } from '../verificador.service';
 
 /** Un renglón del feed de consultas (lo último arriba, patrón POS). */
@@ -145,6 +147,25 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   <!-- [TDA.4] El gramaje califica al nombre, no es un dato aparte. -->
                   @if (p.contenido) { <span class="vp-gramaje">{{ p.contenido }}</span> }
                 </h2>
+
+                <!--
+                  [TDA.8] El precio cambio en el ERP mientras estaba en pantalla. Va ARRIBA de la
+                  cifra y no abajo: es una advertencia sobre el numero, y una advertencia que se
+                  lee despues del numero llega tarde. role=status para que el lector de pantalla
+                  lo anuncie sin robar el foco de la captura (O.3: el foco no se mueve nunca).
+                -->
+                @if (precioCambio()) {
+                  <p class="vp-cambio" role="status">
+                    <i class="pi pi-refresh" aria-hidden="true"></i>
+                    <span>
+                      Este precio <strong>acaba de cambiar</strong> en el ERP.
+                      @if (precioAnterior() != null) {
+                        Antes decía <span class="vp-mono">{{ money(precioAnterior()) }}</span>.
+                      }
+                      Confirma en caja antes de cobrar.
+                    </span>
+                  </p>
+                }
 
                 <div class="vp-precio-principal">
                   <span class="vp-precio">{{ money(precioPrincipal()) }}</span>
@@ -457,6 +478,17 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       font-weight: 800; font-size: clamp(2.75rem, 9vw, 6rem); line-height: 1;
       letter-spacing: -0.02em; color: var(--text-main); }
     .vp-precio-u { font-size: var(--fs-body, .875rem); color: var(--text-muted); text-transform: lowercase; }
+
+    /* [TDA.8] La advertencia de precio cambiado. Semantico --warn-*, y nunca solo el color:
+       lleva icono y texto (DESIGN.md 5, el color no es unico portador de significado).
+       No se centra el parrafo: es texto para leer, no una cifra. El bloque si va centrado. */
+    .vp-cambio { margin: var(--sp-2) auto 0; width: fit-content; max-width: 60ch;
+      display: flex; align-items: flex-start; gap: .5rem; text-align: left;
+      padding: .4rem .75rem; border-radius: var(--r-md);
+      background: var(--warn-soft-bg); border: 1px solid var(--warn-border);
+      color: var(--warn-soft-fg); font-size: var(--fs-sm, .8125rem); text-wrap: pretty; }
+    .vp-cambio > i { color: var(--warn-fg); font-size: .95em; flex: none; margin-top: .15em; }
+    .vp-cambio strong { color: var(--warn-fg); }
     .vp-precio-nota { margin: .2rem auto 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint);
       max-width: 68ch; text-wrap: pretty; }
 
@@ -658,6 +690,8 @@ export class TiendaVerificadorComponent implements OnInit {
   private readonly svc = inject(VerificadorService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
+  private readonly socket = inject(StoreSocketService);
+  private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('scan') private scanInput?: ElementRef<HTMLInputElement>;
 
@@ -696,6 +730,77 @@ export class TiendaVerificadorComponent implements OnInit {
    */
   readonly pase = signal(0);
   readonly feed = signal<Consulta[]>([]);
+
+  /**
+   * `[TDA.8]` El precio que está en pantalla cambió en el ERP mientras estaba a la vista.
+   *
+   * ── Por qué se DECLARA y no se refresca en silencio ──────────────────────────────────────
+   * En un mostrador la cifra se lee en voz alta. Si alguien está diciendo "ochenta y cinco
+   * cuarenta y nueve" y el número se transforma solo, nadie —ni quien lee ni quien escucha—
+   * sabe cuál de los dos se dijo. La etiquetera resolvió lo mismo MARCANDO las filas en vez de
+   * refrescarlas. Acá pesa más: ahí el costo es reimprimir una etiqueta, acá es cobrar mal.
+   *
+   * Se guarda el precio anterior a propósito. "Este precio cambió" sin decir desde cuánto obliga
+   * a creerle a la pantalla; con el número viejo al lado, la persona puede ver el salto y
+   * decidir. Es la misma idea que la procedencia de `[TDA.2]`: el número viaja con su historia.
+   */
+  readonly precioCambio = signal(false);
+  readonly precioAnterior = signal<number | null>(null);
+
+  /**
+   * ¿Este aviso le habla a ESTA pantalla?
+   *
+   * ⚠️ La respuesta por default es **sí**, y es deliberado. Sólo se descarta un aviso cuando se
+   * puede afirmar que NO es de este producto — o sea, cuando hay `product_id` y no está en la
+   * lista. Los dos casos de ignorancia se tratan como incumbencia:
+   *
+   *  · **`truncated`** — el aviso vino recortado: "no sé cuáles" no es "ninguno". Es la misma
+   *    trampa que la etiquetera ya documentó (y la misma que `FRESHNESS_UNKNOWN` con
+   *    `stale:false` dejó viva seis días en esa pantalla).
+   *  · **sin `product_id`** — el precio salió del respaldo (el snapshot no lleva la llave) o el
+   *    código no casó una fila de etiqueta. No se puede descartar, así que se verifica.
+   *
+   * Verificar cuesta UNA consulta de un producto. Callarse cuesta un cobro mal.
+   */
+  private meIncumbe(p: LabelPricesChanged): boolean {
+    if (p?.truncated) return true;
+    const pid = this.producto()?.product_id ?? null;
+    if (!pid) return true;
+    const ids = Array.isArray(p?.product_ids) ? p.product_ids : [];
+    return ids.includes(pid);
+  }
+
+  /**
+   * Llegó el aviso: se vuelve a preguntar el precio y se marca que cambió.
+   *
+   * Reusa `svc.buscar` + `aplicar` en vez de escribir un segundo camino de resolución — si el
+   * refresco resolviera distinto que el escaneo, la pantalla tendría dos verdades. `aplicar`
+   * limpia el banner, así que la marca se pone DESPUÉS de que el resultado aterriza.
+   */
+  private refrescarPorAviso(p: LabelPricesChanged): void {
+    if (this.estado() !== 'encontrado') return;
+    const prod = this.producto();
+    const suc = this.sucursal();
+    if (!prod || !suc || !this.meIncumbe(p)) return;
+
+    const antes = this.precioPrincipal();
+    this.svc.buscar(prod.codigo, suc).subscribe({
+      next: (r) => {
+        this.aplicar(r);
+        const ahora = this.precioPrincipal();
+        // Si la cifra no se movió, el aviso era de otra unidad o de otro campo de la etiqueta:
+        // gritar "cambió" sobre un número idéntico es la clase de alarma que se aprende a
+        // ignorar, y entonces deja de servir el día que sí importa.
+        if (antes != null && ahora != null && antes !== ahora) {
+          this.precioAnterior.set(antes);
+          this.precioCambio.set(true);
+        }
+      },
+      // Fail-open: si el refresco no sale, queda lo que ya estaba. Un aviso perdido degrada al
+      // comportamiento de siempre (se ve al siguiente escaneo), nunca a una pantalla en blanco.
+      error: () => { /* el service ya cae al respaldo; no se toca lo que está en pantalla */ },
+    });
+  }
 
   readonly snapshot = signal<EstadoSnapshot | null>(null);
 
@@ -822,6 +927,16 @@ export class TiendaVerificadorComponent implements OnInit {
       this.kiosco.set(localStorage.getItem(TiendaVerificadorComponent.LS_KIOSCO) === '1');
     } catch { /* localStorage bloqueado: el kiosco arranca apagado, no es crítico */ }
 
+    // `[TDA.8]` El aviso en vivo de que un precio de etiqueta cambió en el ERP.
+    //
+    // Conecta y NO desconecta, igual que la etiquetera: el socket es singleton de root y
+    // `tienda-state` lo administra con un refcount que llama `disconnect()` al llegar a cero.
+    // Un `disconnect()` desde acá le cortaría el socket a los otros consumidores.
+    this.socket.connect();
+    this.socket.labelPricesChanged$
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe((p) => this.refrescarPorAviso(p));
+
     this.svc.sucursales().subscribe({
       next: (list) => {
         // CEDIS (00) no vende al público: no es una plaza de mostrador.
@@ -917,6 +1032,11 @@ export class TiendaVerificadorComponent implements OnInit {
       // `[TDA.3]` Mismo criterio: se resetea en CADA resultado. Pegada del escaneo anterior, la
       // pantalla mostraría en grande el precio de una unidad que este código no representa.
       this.unidadEscaneada.set(r.unidadEscaneada ?? null);
+      // `[TDA.8]` Y la marca de "este precio cambió", por el mismo motivo: pegada del producto
+      // anterior diría que cambió uno que no cambió. `refrescarPorAviso` la vuelve a poner
+      // DESPUÉS, si de verdad se movió la cifra.
+      this.precioCambio.set(false);
+      this.precioAnterior.set(null);
       if (r.origen === 'respaldo') {
         this.banner.set({
           texto: 'Sin conexión: se está mostrando el precio de respaldo.',

@@ -353,8 +353,18 @@ export class KpService {
     override: number | null;
     mayoreo: MayoreoTier[];
     contenido: string | null;
+    /**
+     * `[TDA.8]` La llave con la que viaja el aviso `label_prices_changed`.
+     *
+     * El evento se identifica por `product_id` (el contrato lo dice: *"es la llave que la pantalla
+     * ya tiene por ítem"*) — y eso era cierto de la etiquetera, que trabaja sobre una cola de
+     * productos resueltos. El mostrador NO la tenía: resuelve por código de barras y publicaba
+     * `codigo`, `nombre`, `unidades`, `mayoreo`. Sin esto la pantalla recibe el aviso y **no puede
+     * saber si le habla a ella**.
+     */
+    product_id: string | null;
   }> {
-    const vacio = { override: null, mayoreo: [] as MayoreoTier[], contenido: null };
+    const vacio = { override: null, mayoreo: [] as MayoreoTier[], contenido: null, product_id: null };
     try {
       return await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
@@ -365,7 +375,10 @@ export class KpService {
           `SELECT l.piece_price, l.source, l.content, l.unit_base,
                   l.wholesale_piece_price, l.wholesale_piece_min_qty,
                   l.wholesale_pack_price,  l.wholesale_pack_min_qty,
-                  l.pack_price,            l.pack_size
+                  l.pack_price,            l.pack_size,
+                  -- [TDA.8] La llave del aviso en vivo. Ya estaba en el JOIN; lo unico que
+                  -- faltaba era publicarla.
+                  p.id AS product_id
              FROM catalog.products p
              JOIN commercial.product_label_prices l
                ON l.product_id = p.id AND l.tenant_id = p.tenant_id
@@ -383,7 +396,7 @@ export class KpService {
         // El cómputo vive en `tiersDeFila` porque el snapshot offline usa el MISMO: la regla del
         // descuento mínimo no puede existir dos veces.
         const { mayoreo, contenido } = this.tiersDeFila(r);
-        return { override, mayoreo, contenido };
+        return { override, mayoreo, contenido, product_id: r.product_id ?? null };
       });
     } catch (e: any) {
       this.logger.warn(`datosDeEtiqueta(${codigo}) no se pudo leer: ${e.message}`);
@@ -495,6 +508,10 @@ export class KpService {
         // Llega vacío cuando no hay tier con umbral REAL — nunca con un umbral inventado.
         mayoreo: etiqueta.mayoreo,
         contenido: etiqueta.contenido,
+        // `[TDA.8]` La llave del aviso en vivo (`label_prices_changed` viaja por product_id).
+        // Puede llegar `null`: si el código no casó una fila de etiqueta, la pantalla NO puede
+        // saber si un aviso le habla a ella — y eso se declara, no se asume que no cambió.
+        product_id: etiqueta.product_id,
         iva_pct:  Math.round(Math.abs(Number(r.iva_raw))),
         ieps_pct: Math.round(Math.abs(Number(r.ieps_raw))),
         // `[TDA.2]` Procedencia: de qué plaza salió, si el número varía entre plazas, y si lo

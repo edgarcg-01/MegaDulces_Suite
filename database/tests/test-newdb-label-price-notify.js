@@ -28,6 +28,15 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), qu
 const RUTA_NOTIFY = path.resolve(__dirname, '../../services/feeds-ingest/notify-store.js');
 const RUTA_LABEL = path.resolve(__dirname, '../../services/feeds-ingest/label-compute.js');
 const RUTA_APPLY = path.resolve(__dirname, '../../services/feeds-ingest/apply-handlers.js');
+/**
+ * `[TDA.8]` El OTRO camino — y el que de verdad corre hoy.
+ *
+ * `[VL.4b]` movió la publicación del precio de etiqueta al carril `prices` (cada 30 min) del
+ * servidor nuevo, que ejecuta ESTE importer. El hop-2 de `apply-handlers` tenía el aviso desde
+ * `[TDA.1]`; este camino **no lo tenía**, así que el evento nunca salió en producción y el banner
+ * de precio vivo de la etiquetera jamás se disparó.
+ */
+const RUTA_IMPORTER = path.resolve(__dirname, '../importers/kepler/import-label-data.js');
 
 let pass = 0, fail = 0;
 const fallas = [];
@@ -174,6 +183,30 @@ function cerrar(srv) {
       check('se le pasan los ids REALMENTE cambiados, no los que llegaron',
         /upsertLabels\(client, tenantId, tuples, 1000, cambiados\)/.test(cuerpo));
     }
+  }
+
+  console.log('\n── 5. El IMPORTER (el camino que corre hoy) también avisa, y SÍ lo espera ──');
+  {
+    // ⚠️ Aserciones sobre la FUENTE, y se dice: este camino es un CLI que corre en el servidor de
+    // feeds contra la DB de prod. No hay forma de ejercitarlo en proceso sin una base y un
+    // `--apply`. Lo que sí se puede es clavar los DOS modos de falla que lo dejaban mudo.
+    const src = fs.readFileSync(RUTA_IMPORTER, 'utf8');
+    check('el importer requiere el notificador',
+      /require\('\.\.\/\.\.\/\.\.\/services\/feeds-ingest\/notify-store'\)/.test(src));
+    // Sin el 5º parámetro `upsertLabels` no junta nada y no hay qué avisar. Era exactamente el
+    // estado anterior: `upsertLabels(db, M, staged)`.
+    check('se le pasan los ids REALMENTE cambiados (5º parámetro)',
+      /upsertLabels\(db, M, staged, 1000, cambiados\)/.test(src));
+    const iCommit = src.indexOf("db.query('COMMIT')");
+    const iAviso = src.indexOf('notifyLabelPricesChanged(M');
+    check('el aviso va DESPUÉS del COMMIT', iCommit > 0 && iAviso > iCommit, `commit@${iCommit} aviso@${iAviso}`);
+    // ⭐ Y acá la regla se INVIERTE respecto del bloque 4: el hop-2 NO espera (corre dentro de un
+    // servidor vivo y esperar le sumaría latencia al carril); ESTO es un CLI que termina, así que
+    // sin `await` el proceso se va antes de que el POST salga del socket y el aviso se pierde en
+    // silencio — con el log diciendo que todo salió bien. Es el modo de falla de la Fase OBS:
+    // el sistema reportando éxito sin haber entregado nada.
+    check('el aviso SÍ se espera con await (es un CLI, no un servidor)',
+      /await notifyLabelPricesChanged\(M, cambiados/.test(src));
   }
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} OK · ${fail} FAIL`);

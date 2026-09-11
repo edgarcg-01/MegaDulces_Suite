@@ -2,11 +2,13 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import { signal } from '@angular/core';
 import { AuthService } from '../../../core/services/auth.service';
 import { EstadoSnapshot, ResultadoBusqueda, VerificadorService } from '../verificador.service';
 import { TiendaVerificadorComponent } from './tienda-verificador.component';
+import { StoreSocketService } from '../store-socket.service';
+import type { LabelPricesChanged } from '@megadulces/contracts';
 // `[TDA.7]` El mock de IntersectionObserver vive en el setup (jsdom no lo trae) y expone el
 // interrogador: poder AFIRMAR que nadie intersectó es lo que hace válida la prueba del $0.00.
 import { nadieIntersecto } from '../../../../test-setup';
@@ -42,6 +44,8 @@ const PRODUCTO = {
   // este producto NO tiene mayoreo, y es lo que hace útil el contraste con `CON_MAYOREO`.
   mayoreo: [],
   contenido: null,
+  // `[TDA.8]` La llave del aviso en vivo.
+  product_id: 'aaaaaaaa-0000-4000-8000-000000000001',
 };
 
 /**
@@ -74,6 +78,7 @@ const CON_MAYOREO = {
   ],
   iva_pct: 16, ieps_pct: 0,
   mayoreo: [TIER_BASE, TIER_PAQUETE],
+  product_id: 'bbbbbbbb-0000-4000-8000-000000000002',
 };
 
 /** Declara `prefers-reduced-motion: reduce` (jsdom no trae `matchMedia`). */
@@ -85,6 +90,21 @@ function conMovimientoReducido(): void {
     addListener: () => undefined, removeListener: () => undefined,
     dispatchEvent: () => false,
   });
+}
+
+/**
+ * `[TDA.8]` Doble del socket de tienda.
+ *
+ * El componente sólo usa dos cosas: `connect()` y `labelPricesChanged$`. Se stubbean para que el
+ * test **maneje el reloj del evento** — sin esto no hay forma de ejercitar el camino, que es
+ * justo lo que pasó con TDA.6 (candados de regex sobre un camino que no se renderiza).
+ * Y de paso corta socket.io real en jsdom: el servicio de verdad pide `auth.token()` y abre una
+ * conexión, que en un test es latencia y ruido.
+ */
+class SocketStub {
+  readonly labelPricesChanged$ = new Subject<LabelPricesChanged>();
+  conectado = 0;
+  connect(): void { this.conectado++; }
 }
 
 class VerificadorStub {
@@ -101,11 +121,13 @@ class VerificadorStub {
 describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
   let fix: ComponentFixture<TiendaVerificadorComponent>;
   let svc: VerificadorStub;
+  let sock: SocketStub;
 
   const html = () => (fix.nativeElement as HTMLElement).textContent ?? '';
 
   beforeEach(async () => {
     svc = new VerificadorStub();
+    sock = new SocketStub();
     await TestBed.configureTestingModule({
       imports: [TiendaVerificadorComponent],
       providers: [
@@ -113,6 +135,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
         provideHttpClient(),
         provideHttpClientTesting(),
         { provide: VerificadorService, useValue: svc },
+        { provide: StoreSocketService, useValue: sock },
         // La sucursal sale de la ficha del usuario: con warehouse_code no se ofrece elegir.
         { provide: AuthService, useValue: { user: () => ({ warehouse_code: '03', username: 'qa' }) } },
       ],
@@ -306,6 +329,121 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     // MISMO nodo (si se recreara, el reinicio no haría falta) y clase distinta.
     expect(fix.nativeElement.querySelector('.vp-card')).toBe(card);
     expect(card.classList.contains('is-pase-b')).toBe(!primero);
+  });
+
+  // ── `[TDA.8]` El aviso en vivo de precio de etiqueta ──────────────────────────────────────
+  // Se ejercita el camino completo con el socket stubbeado: emitir el evento, ver el DOM.
+
+  /** Deja un producto en pantalla y devuelve el evento que le habla a ÉL. */
+  const conProductoEnPantalla = (p: typeof PRODUCTO = PRODUCTO): LabelPricesChanged => {
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: p } as ResultadoBusqueda;
+    fix.componentInstance.consultar(p.codigo);
+    fix.detectChanges();
+    return { product_ids: [p.product_id!], total: 1, truncated: false, at: new Date().toISOString() };
+  };
+
+  /** Cambia lo que va a contestar la SIGUIENTE consulta (el refresco por aviso). */
+  const yElPrecioAhoraEs = (p: typeof PRODUCTO, precio: number): void => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'live', snapshotAl: null,
+      producto: { ...p, unidades: [{ ...p.unidades[0], precio_con_iva: precio }, ...p.unidades.slice(1)] },
+    } as ResultadoBusqueda;
+  };
+
+  it('se suscribe al socket de etiquetas al arrancar', () => {
+    expect(sock.conectado).toBeGreaterThan(0);
+  });
+
+  it('el aviso de SU producto reconsulta, y declara el cambio con el precio anterior', () => {
+    const evento = conProductoEnPantalla();
+    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
+
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next(evento);
+    fix.detectChanges();
+
+    // La cifra en pantalla es la nueva: es la que va a cobrar la caja.
+    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('71.50');
+    // Y NO cambió en silencio: lo dice, y dice desde cuánto.
+    const aviso = fix.nativeElement.querySelector('.vp-cambio') as HTMLElement | null;
+    expect(aviso).toBeTruthy();
+    expect(aviso!.textContent).toContain('acaba de cambiar');
+    expect(aviso!.textContent).toContain('62.99');
+  });
+
+  it('un aviso de OTRO producto no toca la pantalla', () => {
+    conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5); // si reconsultara, la cifra se movería
+
+    sock.labelPricesChanged$.next({
+      product_ids: ['ffffffff-0000-4000-8000-00000000000f'], total: 1, truncated: false,
+      at: new Date().toISOString(),
+    });
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
+    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeNull();
+  });
+
+  /**
+   * "No sé cuáles" NO es "ninguno". Es la misma trampa que `FRESHNESS_UNKNOWN` con `stale:false`
+   * dejó viva seis días en la etiquetera, y la que su propio banner ya documenta.
+   */
+  it('un aviso RECORTADO verifica igual, aunque no diga cuáles', () => {
+    conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+
+    sock.labelPricesChanged$.next({ product_ids: [], total: 9000, truncated: true, at: new Date().toISOString() });
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('71.50');
+    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeTruthy();
+  });
+
+  /** Desde el respaldo no hay `product_id`: tampoco se puede descartar, así que se verifica. */
+  it('sin product_id (respaldo) verifica igual, en vez de asumir que no cambió', () => {
+    svc.proximo = {
+      estado: 'encontrado', origen: 'respaldo', snapshotAl: '2026-09-08T12:00:00.000Z',
+      producto: { ...PRODUCTO, product_id: null },
+    } as ResultadoBusqueda;
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next({
+      product_ids: ['ffffffff-0000-4000-8000-00000000000f'], total: 1, truncated: false,
+      at: new Date().toISOString(),
+    });
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeTruthy();
+  });
+
+  /**
+   * El aviso puede ser de otra unidad o de otro campo de la etiqueta. Gritar "cambió" sobre una
+   * cifra idéntica es la alarma que se aprende a ignorar — y entonces no sirve el día que importa.
+   */
+  it('si tras reconsultar la cifra es la misma, NO grita', () => {
+    const evento = conProductoEnPantalla();
+    sock.labelPricesChanged$.next(evento); // `svc.proximo` sigue devolviendo 62.99
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
+    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeNull();
+  });
+
+  it('la marca no se queda pegada al escanear el siguiente producto', () => {
+    const evento = conProductoEnPantalla();
+    yElPrecioAhoraEs(PRODUCTO, 71.5);
+    sock.labelPricesChanged$.next(evento);
+    fix.detectChanges();
+    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeTruthy();
+
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeNull();
   });
 
   it('el feed pone lo último arriba y no crece sin límite (es mostrador, no bandeja)', () => {
