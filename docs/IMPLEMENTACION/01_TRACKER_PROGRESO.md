@@ -2540,6 +2540,7 @@ imprime desde Kepler, y filtros que quepan en una hilera.
 | GT.4 | 🧪 2026-09-11 | Página `/comercial/documentos/reportes`: selección múltiple + barra con cuántas/cuántos clientes/cuánto se cobra + Responsable + Generar/Imprimir. Declara cuando la lista viene recortada (200 de N) |
 | GT.5 | 🧪 2026-09-11 | Barra de filtros compartida en **una hilera**, buscador angosto, ventana por defecto **8 días** (lunes a lunes). Responsive: en angosto se acomoda en renglones, no se corta |
 | GT.6 | 🧪 2026-09-11 | **Bug encontrado al probar**: las respuestas del ERP vuelven **fuera de orden** y la vieja pisaba a la nueva — pintaba filas de otro rango y se llevaba la selección. Sello de petición en las dos páginas |
+| GT.7 | 🧪 2026-09-11 | El **vendedor** va en el encabezado de la guía (Edgar). Si la selección mezcla varios no se elige uno: dice cuántos son y el nombre baja al bloque de cada cliente |
 
 **Abierto:** ¿el tab Reportes debería traer sólo pendientes/parciales por default? Hoy deja
 palomear facturas ya pagadas (saldo $0), que no se cobran. Y el **Responsable** se autocompleta

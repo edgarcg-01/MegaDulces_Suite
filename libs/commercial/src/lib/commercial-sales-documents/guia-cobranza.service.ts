@@ -29,6 +29,8 @@ export interface GuiaCobranzaOpts {
 interface MovImpreso { folio: string; fecha: string; descuento: number; importe: number; derivado: boolean }
 interface ClienteImpreso {
   cliente_id: string; nombre: string; direccion: string;
+  /** Vendedor del cliente; `null` si sus facturas vienen de más de uno. */
+  vendedor: string | null;
   descuento: number; total: number; derivado: boolean; movimientos: MovImpreso[];
 }
 
@@ -66,6 +68,13 @@ export class GuiaCobranzaService {
     const emisor = await this.docs.emisorFiscal();
     const clientes = this.agrupar(rows);
     const total = clientes.reduce((a, c) => a + c.total, 0);
+    // El vendedor va ARRIBA (decisión Edgar 2026-09-11): la guía casi siempre sale de la
+    // cartera de uno solo y es la primera pregunta al recibir el papel. Si la selección
+    // mezcla varios no se elige uno —sería mentir sobre las facturas del otro—: se dice
+    // cuántos son y el nombre baja a cada bloque de cliente.
+    const vendedores = [...new Set(rows
+      .map((r) => String(r.vendedor_nombre ?? '').trim())
+      .filter(Boolean))];
     const ahora = new Date();
     return this.pdf.renderPdf(
       this.html(clientes, {
@@ -73,6 +82,8 @@ export class GuiaCobranzaService {
         numero: this.sello(ahora, 'YMD'),
         fecha: this.sello(ahora, 'dmy'),
         total,
+        vendedor: vendedores.length === 1 ? vendedores[0] : null,
+        vendedores: vendedores.length,
         documentos: rows.length,
         derivados: rows.filter((r) => r.estatus_cobro === 'sin_cartera' || r.saldo === null).length,
         responsable: (opts.responsable || '').trim(),
@@ -93,14 +104,18 @@ export class GuiaCobranzaService {
     for (const r of rows) {
       const code = String(r.cliente_code ?? '').trim() || '—';
       let c = mapa.get(code);
+      const vend = String(r.vendedor_nombre ?? '').trim() || null;
       if (!c) {
         c = {
           cliente_id: code,
           nombre: String(r.cliente_nombre ?? '').trim() || 'Sin nombre',
           direccion: this.direccion(r),
+          vendedor: vend,
           descuento: 0, total: 0, derivado: false, movimientos: [],
         };
         mapa.set(code, c);
+      } else if (c.vendedor !== vend) {
+        c.vendedor = null; // el mismo cliente con facturas de dos vendedores: no se elige
       }
       // Sin cartera ⇒ no hay saldo medido. Se imprime el total y queda marcado.
       const derivado = r.estatus_cobro === 'sin_cartera' || r.saldo === null;
@@ -160,6 +175,7 @@ export class GuiaCobranzaService {
   // ── documento ──────────────────────────────────────────────────────────
   private html(clientes: ClienteImpreso[], h: {
     empresa: string; numero: string; fecha: string; total: number;
+    vendedor: string | null; vendedores: number;
     documentos: number; derivados: number; responsable: string; nota: string;
   }): string {
     const bloques = clientes.map((c) => {
@@ -177,6 +193,7 @@ export class GuiaCobranzaService {
             <div class="dir">${this.esc(c.direccion)}</div>
           </div>
           <div class="cli-res">
+            ${h.vendedor || !c.vendedor ? '' : `<span><b>Vendedor</b> ${this.esc(c.vendedor)}</span>`}
             <span><b>Concepto</b> Mercancía</span>
             <span><b>Tipo</b> Cobranza</span>
             <span><b>Descuento</b> ${this.m(c.descuento)}</span>
@@ -212,6 +229,8 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
 .head .doc .tit{font-size:12pt;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--accent)}
 .head .doc .kv{font-size:8.5pt;color:var(--muted);margin-top:3px}
 .head .doc .kv b{color:var(--ink);font-weight:600}
+.head .doc .kv.vend{font-size:10pt;color:var(--ink);margin-top:4px}
+.head .doc .kv.vend b{color:var(--muted);font-weight:600;font-size:8.5pt;text-transform:uppercase;letter-spacing:.05em}
 .tot-gen{display:flex;justify-content:space-between;align-items:baseline;gap:12px;
   background:var(--soft);border:1px solid var(--line-2);padding:6px 10px;margin:8px 0 10px}
 .tot-gen .lbl{font-size:8.5pt;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
@@ -246,6 +265,9 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
   </div>
   <div class="doc">
     <div class="tit">Guía de Cobranza</div>
+    ${h.vendedor
+      ? `<div class="kv vend"><b>Vendedor</b> ${this.esc(h.vendedor)}</div>`
+      : (h.vendedores > 1 ? `<div class="kv vend"><b>Vendedores</b> ${h.vendedores} (cada cliente indica el suyo)</div>` : '')}
     <div class="kv"><b>Número</b> ${this.esc(h.numero)}</div>
     <div class="kv"><b>Fecha</b> ${this.esc(h.fecha)} · <b>${h.documentos}</b> documento${h.documentos === 1 ? '' : 's'} · <b>${clientes.length}</b> cliente${clientes.length === 1 ? '' : 's'}</div>
   </div>
