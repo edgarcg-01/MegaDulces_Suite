@@ -29,11 +29,22 @@ replicación: *"a menudo ya está cubierto por una regla `host all all` previa"*
 | md_06 | `192.168.50.50:1977` | `md_06` | ✅ ya acepta |
 | md_07 | `192.168.32.32:1977` | `md_07` | ✅ ya acepta |
 
-## Por qué lo tenés que hacer vos
+## Por qué lo tenés que hacer vos, y por dónde se entra
 
 `ods_repl` **no es superusuario** — verificado: ni siquiera puede leer `pg_hba_file_rules`.
 Editar ese archivo necesita acceso al SO de cada servidor. El runbook de replicación lógica ya
 asignaba ese paso así: *"lo que toca el POS, hecho por Edgar como `postgres` + OS"*.
+
+**Vías de acceso, medidas el 2026-09-10 contra las 5:**
+
+| Puerto | Estado | |
+|---|---|---|
+| 22 (SSH) · 3389 (RDP) · 5985/6 (WinRM) | **cerrados en las 5**, desde `.249` y desde `md` | no hay camino remoto automatizable |
+| **5900 (VNC)** | **ABIERTO en las 5** | ⭐ **es la vía** — coincide con el resto del proyecto (`deploy-wincaja-agent.ps1`: *"copialo a cada servidor POS por VNC"*) |
+| 5432 | abierto | pero `postgres` con la contraseña del proyecto **falla** (`autentificación password falló`) → tampoco hay camino por SQL |
+
+⚠️ **Aparte, y no urgente:** VNC escuchando en los 5 servidores de venta de la LAN. El VNC clásico
+tiene autenticación débil o nula por default. Vale una revisión, en su propio momento.
 
 ## ⭐ Esto NO reinicia nada ni corta a Kepler
 
