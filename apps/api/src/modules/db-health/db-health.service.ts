@@ -610,6 +610,11 @@ const CRON_JOBS: CronCfg[] = [
   // más probable de que el feed_nightly muriera 2 noches (25 y 26-ago) sin que nadie lo viera.
   { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal dom 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
+  // [VL.4b] El carril de PRECIOS. Corría fuera del runner (`C:\KeplerRunner\run-prices.cmd` llamaba a
+  // los dos importers directo), así que no latía y no tenía entrada acá — o sea que el carril que
+  // publica el precio de venta era el único sin forma de avisar. Es EL carril del incidente que
+  // fundó la Fase OBS: seis días de precios viejos, uno 54 % bajo costo, encontrado por un humano.
+  { key: 'feed_prices',         label: 'Feed precios (etiqueta+venta)',     cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_contpaqi-slow',  label: 'Feed ContPAQi lento (balanza+prov)', cadence: 'cada 2 h',    warnH: 5,   critH: 12 },
   // `cdc_wal_00..06` (CDC WAL-decode, ADR-047) SACADOS 2026-09-04 (OBS.8): el carril se retiró y sus
   // slots se dropearon. Sus 7 latidos quedaron congelados en `error` desde el 02-sep y siguieron
@@ -652,6 +657,11 @@ const CRON_JOBS: CronCfg[] = [
   // una réplica deja de recibir WAL — lo segundo es una medida directa sobre `pg_stat_subscription`,
   // no "hace mucho que no vende", que dispararía en falso cada noche al cerrar las tiendas.
   { key: 'store_poller',        label: 'Poller tickets en vivo (Kepler → /tienda/live)', cadence: 'continuo ~25 s', warnH: 0.5, critH: 2 },
+  // [VL.4b] El poller GPS de la flota, el otro carril mudo. Su modo de falla NO es caerse: es que
+  // la sesión con MagniTracking expire (ADR-034: no hay API oficial, el adapter replica el login de
+  // la web). Ahí `fn_objects` devuelve vacío, el ciclo termina "bien" y no se entrega nada — por eso
+  // el carril reporta `error` con 0 objetos en vez de un ok que no significa nada.
+  { key: 'fleet_gps',           label: 'Poller GPS de flota (MagniTracking → prod)',    cadence: 'cada 1 min',    warnH: 0.5, critH: 2 },
   // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
   // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
   // otro por copia:
