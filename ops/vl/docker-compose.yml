@@ -1,0 +1,174 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Fase VL (ADR-060) — el stack de ingesta EN EL SERVIDOR `md` (192.168.0.222).
+#
+# Reemplaza a ops/ingest/docker-compose.yml, que es el de `.249` (Windows). Las
+# diferencias no son cosméticas:
+#   · el `env_file` vive en ~/secrets/ (Linux, 600), no en C:\KeplerRunner\
+#   · la fuente se alcanza por IP LAN, no por host.docker.internal
+#   · acá SÍ vive el Postgres de las réplicas (en `.249` estaba en otro compose)
+#
+#   docker compose -f ops/vl/docker-compose.yml up -d              # sólo los carriles (VL.2a)
+#   docker compose -f ops/vl/docker-compose.yml --profile db up -d # + Postgres (VL.2b)
+#
+# ⚠️ ORDEN DE LOS SPRINTS. En VL.2a los carriles leen la fuente que TODAVÍA vive en
+# `.249:5433` (así lo dice ~/secrets/ingest.env). El servicio `pg-ods` está detrás
+# del perfil `db` a propósito: si se levanta antes de VL.2b, `initdb` crea un
+# cluster VACÍO en el volumen y después no hay dónde poner la copia física.
+# En VL.2b: parar todo → copiar el volumen → `--profile db up -d` → reapuntar
+# ODS_SOURCE_BASE a `pg-ods:5432` → VL.2c (desactivar suscripciones en `.249`).
+#
+# ⛔ NUNCA dos shippers a la vez: `ods.ctl`/`ods.shadow` son estado compartido.
+#    Apagar los de `.249` ANTES de levantar éstos.
+#
+# ⛔⛔ NO EXISTE "una pasada de prueba" DE ESTE SCRIPT CON --watch.
+#     `replicate-ods-live.js` declara en su encabezado "--watch … implica apply", y el
+#     rótulo del modo lo confirma: `APPLY || WATCH_SEC ? 'APPLY' : 'DRY-RUN'`. Peor:
+#     `--watch=0` NO es "una sola pasada" — `Math.max(3, Number(0))` lo convierte en
+#     **3 segundos**, o sea el loop más agresivo posible.
+#     Vivido el 2026-09-10 probando este compose: un `docker compose run` con
+#     `--watch=0`, creído en seco, corrió 9 ciclos shipeando en paralelo con el carril
+#     de `.249` durante ~8 min. No dejó hueco (el reconciliador midió 48 vs 49 de
+#     baseline) porque las escrituras son UPSERT idempotente y el script repasa 3 días,
+#     pero fue suerte de diseño, no del comando.
+#     ✅ Prueba en seco DE VERDAD: sin `--apply` **y sin `--watch`**. Una pasada, no escribe.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-lane: &lane
+  image: trade-ingest:latest
+  restart: unless-stopped
+  env_file: [/home/superoot/secrets/ingest.env]
+  labels: { autoheal: "true" }
+  logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+services:
+  # ═══ LA FUENTE ═══ (perfil `db`: NO arranca hasta VL.2b — ver la nota de arriba)
+  pg-ods:
+    profiles: ["db"]
+    image: pgvector/pgvector:pg18
+    container_name: pgvector-md
+    restart: unless-stopped
+    volumes: ["pgvector-md-data:/var/lib/postgresql"]
+    ports: ["5433:5432"]
+
+    # ⚠️ /dev/shm de Docker son 64 MB por default, y Postgres saca de ahí la memoria
+    # de los parallel workers (`dynamic_shared_memory_type=posix`). Con 64 MB un
+    # VACUUM o REINDEX paralelo sobre una tabla grande tira "could not resize shared
+    # memory segment". Nativo no tiene el problema (su /dev/shm es media RAM).
+    shm_size: 1gb
+
+    # ⛔ SIN `mem_limit` a propósito. Con límite, el cgroup cuenta el PAGE CACHE
+    # contra el tope y el kernel lo recupera bajo presión: la base termina releyendo
+    # del disco lo que creía cacheado. Es la única forma real en que Docker perjudica
+    # a un Postgres, y se evita no poniéndolo.
+
+    # ── Memoria. Medido: el cluster de `.249` estaba TODO en default de fábrica, con
+    #    shared_buffers en 128 MB. Presupuesto sobre los 14 GiB de `md`: 4 de buffers
+    #    + ~7 de page cache ≈ 11 GB de caché para 11.1 GB de datos.
+    # ── Replicación lógica. ⚠️ Los cinco últimos DEBEN ser >= a los del cluster de
+    #    origen o el datadir copiado NO ARRANCA. Medidos en `.249` el 2026-09-10:
+    #    wal_level=logical · slots=20 · wal_senders=20 · logical_workers=16 · workers=24
+    command:
+      - postgres
+      - "-c"
+      - "shared_buffers=4GB"
+      - "-c"
+      - "effective_cache_size=9GB"
+      - "-c"
+      - "maintenance_work_mem=1GB"
+      - "-c"
+      - "work_mem=32MB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_level=logical"
+      - "-c"
+      - "max_replication_slots=20"
+      - "-c"
+      - "max_wal_senders=20"
+      - "-c"
+      - "max_logical_replication_workers=16"
+      - "-c"
+      - "max_worker_processes=24"
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      retries: 5
+    logging: { driver: json-file, options: { max-size: "20m", max-file: "3" } }
+
+  # ═══ CARRIL CALIENTE ═══ venta, movimientos y catálogos. @15 s.
+  ods-live-hot:
+    <<: *lane
+    container_name: ods-live-hot
+    environment:
+      ODS_HB_KEY: ods_live_hot
+      ODS_HB_MAX_MIN: "20"
+      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
+      KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+      ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdm_rutas,kdm_transporte,kdm_chofer,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
+
+  # ═══ ESPEJO COMPLETO ═══ todo md.* MENOS el set del hot. @300 s.
+  ods-live-mirror:
+    <<: *lane
+    container_name: ods-live-mirror
+    depends_on: [ods-live-hot]
+    environment:
+      ODS_HB_KEY: ods_live_mirror
+      ODS_HB_MAX_MIN: "45"
+      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
+      KP_ODS_TABLES: "*"
+      ODS_EXCLUDE_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdib,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*,kdpv_bitacora_precios
+    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=300"]
+
+  # ═══ RECONCILIADOR ═══ la ÚNICA alarma de COMPLETITUD. Late directo a prod.
+  # Su `status='error'` significa "el pipeline pierde filas" (alarma de DATO), no
+  # "el contenedor está roto": reiniciarlo no repone ni una fila. Por eso
+  # ODS_HB_IGNORE_ERROR=1 y el healthcheck juzga sólo la antigüedad del latido.
+  ods-reconcile:
+    <<: *lane
+    container_name: ods-reconcile
+    depends_on: [ods-live-hot]
+    environment:
+      ODS_HB_KEY: cdc_reconcile
+      ODS_HB_MAX_MIN: "45"
+      ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
+      ODS_RECONCILE_ALERT: "50"
+      ODS_HB_IGNORE_ERROR: "1"
+    command: ["node", "database/importers/kepler/reconcile-ods-window.js", "--days=3", "--apply", "--watch=900"]
+    healthcheck:
+      test: ["CMD", "node", "/app/ops/ingest/health.js"]
+      interval: 120s
+      timeout: 30s
+      start_period: 20m
+      retries: 3
+
+  # ═══ EL BRAZO DEL HEALTHCHECK ═══
+  # Sin esto el HEALTHCHECK sólo PINTA un rótulo: en Docker standalone
+  # `restart: unless-stopped` reacciona a que el proceso MUERA, y nada reacciona a
+  # `unhealthy`. El 2026-09-04 `ods-live-hot` estuvo 15 h colgado (proceso vivo,
+  # CPU 0.00 %, cero entrega) y el motor no movió un dedo.
+  #
+  # ACOTADO POR ETIQUETA a propósito: en modo `all` reiniciaría también `pg-ods`, y
+  # reiniciar la base por un healthcheck ajeno es peor que la enfermedad.
+  autoheal:
+    image: willfarrell/autoheal:latest
+    container_name: ods-autoheal
+    restart: unless-stopped
+    environment:
+      AUTOHEAL_CONTAINER_LABEL: autoheal
+      AUTOHEAL_INTERVAL: "30"
+      AUTOHEAL_START_PERIOD: "120"
+      DOCKER_SOCK: /var/run/docker.sock
+    volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro"]
+    logging: { driver: json-file, options: { max-size: "10m", max-file: "2" } }
+
+volumes:
+  # Nombre FIJO (sin prefijo de proyecto) para que el destino de la copia física de
+  # VL.2b sea inequívoco: /var/lib/docker/volumes/pgvector-md-data/_data
+  pgvector-md-data:
+    name: pgvector-md-data
