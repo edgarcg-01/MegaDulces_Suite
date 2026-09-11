@@ -55,6 +55,14 @@ services:
     # VACUUM o REINDEX paralelo sobre una tabla grande tira "could not resize shared
     # memory segment". Nativo no tiene el problema (su /dev/shm es media RAM).
     shm_size: 1gb
+    # [VL.6] ⛔ EL APAGADO TIENE QUE CABER EN LA VENTANA. Sin `stop_grace_period` Docker da
+    # 10 s y después manda SIGKILL: un Postgres al que se le corta el checkpoint de cierre
+    # arranca haciendo RECUPERACIÓN DE CAÍDA, y eso convierte un reinicio de 2 min en uno de
+    # veinte — justo cuando se está esperando que la ingesta vuelva sola.
+    # `StopSignal` de esta imagen es SIGINT = apagado RÁPIDO (correcto: termina conexiones y
+    # hace un checkpoint inmediato). En NVMe eso son fracciones de segundo para los ~60 MB de
+    # buffers sucios que se midieron acá, así que 60 s es holgura, no espera.
+    stop_grace_period: 60s
 
     # ⛔ SIN `mem_limit` a propósito. Con límite, el cgroup cuenta el PAGE CACHE
     # contra el tope y el kernel lo recupera bajo presión: la base termina releyendo
