@@ -249,6 +249,37 @@ const rd = (f) => fs.readFileSync(path.join(root, f), 'utf8');
   check('⭐ ≥ 95% de la clasificación se apoya en el costo del propio ERP (KE.3)',
     pct(cov.testigo, cov.total) >= 95, `${pct(cov.testigo, cov.total).toFixed(2)}%`);
 
+  // ── 8bis. ⭐⭐ LA FOTO NO PUEDE DIVERGIR DE LA DEFINICION ─────────────────────────────────
+  // Esta es la compuerta que caza un DEPLOY QUE NO TOMO. `commercial.abc_classification` la
+  // repuebla el nocturno de las 3:30 AM MX corriendo inventory-abc.service.ts. Si esa noche
+  // corriera codigo VIEJO —el que leia `commercial.orders`, con 2 ordenes fulfilled en toda su
+  // historia— la tabla volveria a 2 filas clase A y ~56,000 clase C con valor 0, y `clase_motivo`
+  // volveria a NULL. Sin esta asercion eso pasa en silencio y el conteo ciclico, el scanner y los
+  // pasillos vuelven a decidir sobre un objeto nulo.
+  console.log('\n── 8bis. ⭐⭐ La tabla no puede divergir de la vista ──');
+  const foto = (await q(`
+    SELECT count(*)::int filas,
+           count(*) FILTER (WHERE t.clase_motivo IS NULL)::int sin_motivo,
+           count(*) FILTER (WHERE t.abc_class = 'B')::int b,
+           max(t.computed_at)                                AS ult
+      FROM commercial.abc_classification t`))[0];
+  const cruz = (await q(`
+    SELECT count(*)::int n, count(*) FILTER (WHERE t.abc_class = v.abc_class)::int igual
+      FROM commercial.abc_classification t
+      JOIN analytics.v_abc_class v
+        ON v.tenant_id = t.tenant_id AND v.warehouse_id = t.warehouse_id
+       AND v.product_id = t.product_id`))[0];
+  console.log(`     tabla ${N(foto.filas)} filas · recalculada ${foto.ult ? new Date(foto.ult).toISOString() : '(nunca)'}`
+    + ` · coincide con la vista en ${pct(cruz.igual, cruz.n).toFixed(2)}%`);
+  check('⭐⭐ la TABLA trae clase B (si vuelve a 0, el nocturno corrió con el código viejo)',
+    foto.b > 0, 'B = 0 en la tabla: el recompute volvió a leer commercial.orders');
+  check('⭐ ninguna fila de la tabla quedó sin `clase_motivo`',
+    foto.sin_motivo === 0, `${N(foto.sin_motivo)} filas sin motivo — foto anterior a KE.4`);
+  // Banda, no igualdad exacta: la vista es VIVA (el costo del ODS se mueve) y la foto es de la
+  // ultima corrida, asi que unas filas de frontera pueden diferir. Lo que no puede es divergir.
+  check('⭐ la foto coincide con la definición en ≥ 97% (es una copia de la vista, no otra regla)',
+    pct(cruz.igual, cruz.n) >= 97, `${pct(cruz.igual, cruz.n).toFixed(2)}%`);
+
   // ── 9. Lo que este candado NO mide ───────────────────────────────────────────────────────
   console.log('\n── 9. Lo que este candado no mide ──');
   console.log('     ⚠️  El CEDIS `00` no se clasifica por venta porque no vende: lo planea');
