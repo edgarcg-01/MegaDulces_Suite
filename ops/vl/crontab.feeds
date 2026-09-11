@@ -21,6 +21,10 @@
 # ── cada minuto ──────────────────────────────────────────────────────────────
 * * * * *   /app/ops/vl/run-feed.sh receipts  "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
 * * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
+# [VL.4b] GPS de la flota. FLEET_RUN_ONCE=1 = una pasada y sale, igual que el .vbs que reemplaza
+# (el loop lo hace el cron, no el script). Ya no es mudo: late en `fleet_gps`, y reporta ERROR si el
+# proveedor devuelve 0 objetos — que es su falla real (sesión caída), no que el proceso se muera.
+* * * * *   /app/ops/vl/run-feed.sh fleet-gps "FLEET_RUN_ONCE=1 node /app/database/scripts/fleet-poll-onprem.js"
 
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
@@ -28,6 +32,10 @@
 # ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
 */15 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
 */30 * * * * /app/ops/vl/run-feed.sh live  "node /app/database/importers/kepler/run-prod-feeds.js live --apply"
+# [VL.4b] PRECIOS. Era una tarea suelta (`run-prices.cmd` llamaba a los dos importers fuera del
+# runner) y por eso no latía. Ahora es un modo del runner → hereda latido `feed_prices`, timeout por
+# paso y agregación de fallas. ⚠️ Es EL carril del incidente que fundó la Fase OBS.
+*/30 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
 0 * * * *   /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
@@ -39,19 +47,15 @@
 
 # ── NO están acá, a propósito ────────────────────────────────────────────────
 #
-# ⛔ TRES CARRILES MUDOS — NO se mudan hasta que LATAN (VL.4b).
-#    Medido el 2026-09-11: no escriben `analytics.cron_runs`, así que si fallaran
-#    después de mudarlos, nadie se enteraría — y ADR-060 no permite declarar
-#    migrado un carril sin latido verde en prod. Se quedan en el Programador de
-#    `.249` hasta que se les cablee el latido (el mecanismo YA existe: lo usan los
-#    otros 10).
-#
-#      prices      @30 min  import-label-data.js + repoint-catalog-prices.js --sync
-#                  ⚠️ ÉSTE es el carril del incidente que fundó la Fase OBS:
-#                  "seis días publicando precios viejos, uno 54 % bajo costo".
-#                  El carril que publica los precios es justamente el que no avisa.
-#      fleet-gps   @1 min   database/scripts/fleet-poll-onprem.js
-#      store-poller @25 s   live-tickets-poller.js  (alimenta /tienda/live)
+# ✅ LOS TRES CARRILES MUDOS YA NO LO SON (VL.4b, 2026-09-11). Se les cableó el latido
+#   ANTES de mudarlos, en ese orden — que es el punto: mudar un carril mudo es
+#   renunciar a saber si funciona del otro lado.
+#     · prices     → modo del runner (arriba) ⇒ latido `feed_prices`
+#     · fleet-gps  → latido propio `fleet_gps` (arriba), ERROR con 0 objetos
+#     · store-poller → latido propio `store_poller` + detector de réplica congelada;
+#       es sub-minuto (@25 s), así que va como SERVICIO del compose, no acá.
+#   Los tres con umbral registrado en `CRON_JOBS`: sin umbral, `db-health` da verde
+#   incondicional y el latido es decoración.
 #
 # · `livefast` (@60 s) SÍ late, pero es sub-minuto → servicio propio en el compose,
 #   no cron.
