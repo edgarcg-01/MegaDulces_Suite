@@ -234,6 +234,20 @@ export class UsersController {
     return res;
   }
 
+  /**
+   * `[SN.2]` — Contexto de la persona en sesión: nombre, rol, puesto, departamento, sucursal, zona.
+   *
+   * SIN `@RequirePermissions` y ANTES de `:id`, por lo mismo que `me/scope` y `me/access`:
+   * preguntar por lo tuyo no puede exigir un permiso (`GET /users/positions` sí lo exige, y por
+   * eso un cajero no podía saber su propio puesto). Alimenta el bloque "Mi contexto" de
+   * `/projects`. Si la persona no tiene puesto, `position` viene `null`: se declara, no se inventa.
+   */
+  @Get('me/context')
+  @ApiOperation({ summary: 'Contexto de la persona en sesión (nombre, rol, puesto, departamento, sucursal, zona)' })
+  myContext(@ReqUser() user: AuthUser) {
+    return this.usersService.contextFor(user.sub);
+  }
+
   /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */
   @Get(':id/scope')
   @RequirePermissions(Permission.USUARIOS_VER)
