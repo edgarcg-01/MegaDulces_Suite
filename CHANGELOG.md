@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Changed — «Mi trabajo» deja de ser el menú: dos columnas, el trabajo primero (SN.11, 2026-09-11)
+
+Tercer intento de la landing, y el primero que cambia la **apuesta** en vez del estilo. SN.3 (filas) y SN.9/SN.10 (tarjetas apretadas) fueron rechazadas por lo mismo: hacían que **la pantalla fuera el menú**, con 22 puertas ocupando el lienzo y el trabajo exprimido en una tira de píldoras. Por eso cada ronda de "que quepa" costaba contenido.
+
+- **Investigación antes de dibujar.** Los productos que resuelven esto invierten la jerarquía: **SAP Fiori «My Home»** —que llama *Spaces* a lo mismo que acá son espacios— fija el orden **To-Dos → Pages → Apps**; **Asana** y **Height** abren con lo personal; **Humand** (el ejemplo que pidió Edgar) pone a la persona arriba y la navegación en un riel; **Linear** aporta la densidad que `DESIGN.md` ya manda.
+- **Tres variantes a escala real** (consola · híbrida · portal cálido) en un artefacto con los tokens de producción y los datos reales — 22 entradas con su grupo y su origen, seis conteos de bandeja. Se eligió la **híbrida**. La tercera habría exigido excepción escrita a `DESIGN.md` (decoración nula, íconos en círculos de color).
+- **Ahora:** cabecera de identidad (inicial · nombre · puesto · alcance · periodo) + **el trabajo en columna propia** —filas de 48 px, cifra en Geist Mono tabular con separador de miles, riel sunset para lo que está a tu nombre y neutro para la cola— + las puertas a la derecha, rodando dentro de su columna. **Nada se corta para caber.**
+- **Se pinta lo que ya llegaba y se tiraba:** el grupo de cada entrada (`Ventas › Rutas de detalle`, recortado a dos niveles), el **motivo** de cada bandeja que no se pudo contar, y `medido_at` **como hora absoluta** ("contado a las 12:04"). No "hace N minutos": ese relativo se calcula restando el reloj del navegador y la Fase VP midió 21 píldoras de la app diciéndolo sin medición detrás (ADR-056). Si no vino, se declara.
+- **«A tu nombre» ya no desaparece cuando está vacío.** Su vacío *es* el hecho medido —las tres tablas de asignación nominal en cero filas— y esconderlo haría creer que sí hay reparto.
+- Se retira la mampostería `columns: 3` (era el parche al desbalance 10/5/3/2/1/1, que con dos columnas desaparece) y los breakpoints pasan a `rem`.
+- `nx test view` **19 suites / 280 (277 pasan, 3 todo)**, `nx test contracts` verde, `nx build view` verde con **1.25 MB inicial, sin cambio**. **Validación visual pendiente** (los dev servers son de Edgar).
+
+### Fixed — un `Remove-Item` sobre un junction vació el `node_modules` de todas las sesiones (2026-09-11)
+
+Dos veces el mismo día el monorepo quedó sin `@angular`, `@angular-devkit` ni `@babel`, sin log de npm ni nada en Defender. **Causa raíz:** una sesión enlaza `node_modules` con un *junction* en su worktree temporal y lo limpia con `Remove-Item`, que en Windows PowerShell 5.1 **atraviesa el enlace y borra el destino real**. Se reconoce porque falta todo lo que va alfabéticamente primero (`.bin`, `.package-lock.json`, `@angular`…) y el último scope alcanzado queda a medio borrar. Documentado con la forma correcta de quitar un junction en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
+
 ### Fixed — etiquetera: la vista de hoja se escala al espacio, y la carga masiva se pliega (2026-09-11)
 
 Reporte de tienda: *"el tamaño de la etiqueta se redujo y los usuarios no logran ver la etiqueta"*. El tamaño **físico** está bien (82×35 mm fue la decisión que llevó la hoja de 8 a 15 etiquetas); lo que quedó mal es la **vista previa**, que tenía una caja fija de 500 px heredada de cuando la etiqueta medía 115×40.

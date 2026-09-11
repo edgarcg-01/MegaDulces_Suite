@@ -2019,6 +2019,38 @@ node ../../node_modules/jest/bin/jest.js --config jest.config.ts \
 
 La diferencia no es cosmética: en la rama de integración nx decía **2 suites / 30 tests** en `commercial` y la corrida real eran **4 / 60**; en `view`, **5 / 56** contra **15 / 184**. Un "verde" que no ejecutó tu código es peor que un rojo.
 
+## …y BORRAR ese junction con `Remove-Item` vacía el `node_modules` de TODOS (2026-09-11)
+
+El hermano del anterior, y el caro: limpiar el worktree temporal con
+
+```powershell
+Remove-Item 'C:\tmp\integ5\node_modules' -Force -ErrorAction SilentlyContinue
+```
+
+**no borra el enlace: borra lo que hay del otro lado.** Windows PowerShell 5.1 atraviesa el punto de reanálisis, así que ese comando empieza a vaciar el `node_modules` del checkout principal — el de todas las sesiones.
+
+**Pasó dos veces el mismo día** (2026-09-11), y la segunda quedó cronometrada: junction creado 13:23:27, `Remove-Item` 13:25:14, `node_modules` mutilado 13:25:35.
+
+**Cómo se reconoce**, porque el síntoma engaña — parece que "faltan unos paquetes":
+
+- faltan **`.bin`**, **`.package-lock.json`**, `@angular`, `@angular-devkit`, `@babel` … es decir, **todo lo que va alfabéticamente primero**;
+- el último scope alcanzado queda **a medio borrar** (acá `@capacitor`: 5 de los 10 paquetes del lock) y su fecha de modificación es el instante exacto del corte;
+- todo lo que sigue alfabéticamente está intacto, con fechas viejas;
+- **no hay log de npm** a esa hora (npm siempre deja uno) ni nada en la cuarentena de Defender.
+
+El borrado se detiene a mitad porque algún archivo está tomado por un proceso vivo — y `-ErrorAction SilentlyContinue` se come ese error, así que el comando **reporta éxito**. Al terminar, ni el build ni jest arrancan (`Cannot find module '@babel/generator'`), y el dev server de quien lo tuviera arriba se queda sin watcher.
+
+**Qué hacer en su lugar.** Para quitar un junction sin tocar el destino:
+
+```powershell
+cmd /c rmdir "C:\tmp\integ5\node_modules"          # rmdir SIN /s borra sólo el enlace
+[System.IO.Directory]::Delete("C:\tmp\integ5\node_modules", $false)   # equivalente en .NET
+```
+
+O directamente `git worktree remove <ruta> --force`, que ya deja el árbol limpio sin que nadie tenga que borrar el enlace a mano. `rm -rf` de Git Bash tampoco atraviesa el junction, pero mezclar los dos mundos en el mismo script es justo lo que produjo el incidente.
+
+**Reponerlo:** `npm install --no-audit --no-fund` desde la raíz. Repone lo faltante sin tocar `package-lock.json` (medido: 385 paquetes, ~2 min). Avisá antes: le reescribe `node_modules` por debajo a cualquier dev server o watcher vivo de las demás sesiones.
+
 ## Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10)
 
 Reportado como *"a pesar de que elijo la sucursal no me libera el guardar"* en `/tienda/caducidades`. No era el permiso ni el alcance: el botón se gateaba con

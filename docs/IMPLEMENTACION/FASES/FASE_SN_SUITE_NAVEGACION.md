@@ -133,6 +133,38 @@ Edgar pidió observaciones sobre la captura de SN.9. El costo real de apretar fu
 
 ⚠️ **Incidente de entorno, ajeno:** a mitad de SN.10 `node_modules` apareció sin los scopes `@angular`, `@angular-devkit` y `@babel` completos (1398 paquetes presentes, esos tres ausentes desde ~1 h antes, sin `.staging` ni proceso npm vivo). Ni el build ni jest podían correr. La lógica se verificó igual **sin jest**, con un script ts-node contra el mapa real (8/8). Repuesto con `npm install` autorizado por Edgar; `package-lock.json` quedó **sin cambios**.
 
+#### 4.2.3 SN.11 — la pantalla dejó de ser el menú (2026-09-11)
+
+Edgar rechazó también SN.10: *"el diseño es horrible. hay que hacer nuevamente la interfaz. muéstrame opciones en artefactos de diseño profesionales. para esto primero realiza una investigación de ejemplos buenos, como Humand"*.
+
+**El diagnóstico que faltaba: SN.3 y SN.9 eran la MISMA apuesta.** Una puso filas, la otra tarjetas, pero las dos hacían que **la pantalla fuera el menú**: 22 puertas ocupando el lienzo y el trabajo exprimido en una tira. Por eso cada ronda de "que quepa" costaba contenido y ningún retoque de la tarjeta iba a alcanzar. La investigación lo confirma — los productos que resuelven este problema invierten la jerarquía:
+
+| Referencia | Qué hace en su *home* | Qué se tomó |
+|---|---|---|
+| **Humand** (el ejemplo que pidió Edgar) | Identidad de la persona arriba; el home es contenido, la navegación vive en un riel | Cabecera de identidad; el home deja de ser el menú |
+| **SAP Fiori «My Home»** | Canon de suite empresarial, y llama *Spaces* a lo mismo que acá son espacios. Orden fijo **To-Dos → Pages → Apps → Insights** | El trabajo va **antes** que las puertas |
+| **Asana «My Tasks»** · **Height** | El home es personal y accionable; lo organizacional va segundo | Bandejas ordenadas por lo que hay que hacer |
+| **Linear** | Densidad, hairlines, mono tabular, cero color decorativo, ⌘K | Ya es lo que manda `DESIGN.md` |
+
+**Se presentaron tres variantes** en un artefacto con maquetas a escala 1920×1080, con los tokens de `libs/design-tokens/tokens.css` y los datos reales (22 entradas con grupo y origen, seis conteos de bandeja): **A · Consola** (cero adorno, cumple `DESIGN.md` completo), **B · Híbrida**, **C · Portal cálido** (rompe «decoración nula» y el antipatrón de íconos en círculos de color → habría exigido excepción escrita). **Edgar eligió B.** Antes eligió, sobre preguntas puntuales: dos columnas mitad y mitad · el trabajo fijo y las puertas rodando.
+
+**Lo que cambia:**
+
+| | Antes (SN.9/SN.10) | Ahora (SN.11) |
+|---|---|---|
+| Estructura | 5 filas apiladas; sólo la de espacios elástica | Cabecera + **2 columnas** + pie; la izquierda fija, la derecha rueda |
+| Trabajo | Tira de píldoras bajo el buscador | **Columna propia**, filas de 48 px con el número en mono tabular y riel de pertenencia |
+| Identidad | Título "Mi trabajo" + nombre a la derecha | Inicial + nombre + contexto en una línea (la etiqueta queda para el lector de pantalla) |
+| Tarjeta | Chip + título + 1 línea | Chip + **grupo** + título + línea de módulos (3 → **4** módulos nombrados) |
+| Mampostería | `columns: 3` (parche al desbalance 10/5/3/2/1/1) | Se retira: con dos columnas el desbalance desaparece |
+| Cifras | `1865` | `1,865` con separador |
+
+**Se pinta lo que ya llegaba y se tiraba:** el `groupLabel` (se calculaba desde SN.6 y nunca se mostró), el `motivo` de cada bandeja no medida, y `medido_at`. Este último **como hora absoluta** ("contado a las 12:04"), no como "hace N minutos": el relativo se calcula restando el reloj del navegador y la Fase VP midió 21 píldoras de la app diciéndolo sin medición detrás (ADR-056). Si `medido_at` no vino, se declara. **Sigue sin pintarse `MePendiente.icono`** — en la variante elegida el número manda y un glifo a su izquierda rompería la alineación de las cifras; queda declarado como dato disponible no usado, no olvidado.
+
+**El bloque «A tu nombre» ya no desaparece cuando está vacío.** Su vacío *es* el hecho medido —las tres tablas de asignación nominal en cero filas— y esconderlo haría creer que sí hay reparto. Se declara con su P-06.
+
+⚠️ **Incidente de entorno, por segunda vez el mismo día:** a `node_modules` le faltan **exactamente** los tres scopes de SN.10 — `@angular`, `@angular-devkit` y `@babel` — con los otros 1398 paquetes presentes, sin `.staging`, sin proceso de npm vivo y con `package-lock.json` intacto. Ni el build ni jest pueden correr. Que se repita el mismo recorte el mismo día deja de ser casualidad y merece causa raíz (candidatos a descartar: antivirus en cuarentena, un `npm prune`/`dedupe` de otra de las ~10 sesiones que comparten el repo). Mientras tanto se verificó de forma estática (70/70: selectores del spec presentes, miembros del componente declarados, cero clases huérfanas, cero restos de la versión anterior, cero tokens inexistentes, breakpoints en `rem`).
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

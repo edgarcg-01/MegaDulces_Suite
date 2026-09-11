@@ -27,7 +27,10 @@ import { Permission } from '../../core/constants/permissions';
  *  · `[SN.8]` lo que está A TU NOMBRE no se mezcla con una cola compartida, una bandeja en cero
  *    no se pinta, y una bandeja que no se pudo contar se DECLARA en vez de bajar a cero;
  *  · `[SN.9]` el buscador filtra módulos Y pendientes, ignora acentos, acepta tokens en cualquier
- *    orden, encuentra por el nombre de un MÓDULO interior, y Enter abre el primer resultado.
+ *    orden, encuentra por el nombre de un MÓDULO interior, y Enter abre el primer resultado;
+ *  · `[SN.11]` el trabajo tiene columna propia y no desaparece cuando está vacío (su vacío ES el
+ *    hecho de que nadie reparte trabajo nominal), la tarjeta dice en qué rama del árbol vive, y la
+ *    frescura del conteo sale de `medido_at` del servidor — nunca de restar el reloj del navegador.
  */
 
 const CTX_BASE: MeContext = {
@@ -80,7 +83,8 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   const html = () => (fix.nativeElement as HTMLElement).textContent ?? '';
   const q = <T extends Element>(sel: string) => (fix.nativeElement as HTMLElement).querySelectorAll<T>(sel);
   const tarjetas = () => q<HTMLAnchorElement>('a.mt-card');
-  const pildoras = () => q<HTMLAnchorElement>('a.mt-pill');
+  /** `[SN.11]` La píldora pasó a fila: dos columnas, el trabajo con su propio espacio. */
+  const pendientes = () => q<HTMLAnchorElement>('a.mt-task');
 
   /** Escribe en el buscador y refresca la vista. */
   function buscar(texto: string) {
@@ -255,23 +259,26 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
     expect(html()).toContain('A tu nombre');
     expect(html()).toContain('En tus bandejas');
-    const ps = pildoras();
+    const ps = pendientes();
     expect(ps.length).toBe(2);
     // El "a tu nombre" va primero y se marca distinto.
     expect(ps[0].classList).toContain('is-mine');
     expect(ps[0].getAttribute('href')).toBe('/almacen/inventory/count');
     expect(ps[1].classList).not.toContain('is-mine');
-    expect(ps[1].textContent).toContain('1865');
+    expect(ps[1].textContent).toContain('1,865');
     // La cola compartida se declara como tal: nadie la tiene asignada.
-    const tag = Array.from(q<HTMLElement>('.mt-work-tag')).find((t) => t.textContent?.includes('bandejas'));
+    const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('bandejas'));
     expect(tag?.getAttribute('title')).toContain('nadie las tiene asignadas');
   });
 
   it('sin pendientes → se dice, no se pintan cajas en cero', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
-    expect(pildoras().length).toBe(0);
+    expect(pendientes().length).toBe(0);
     expect(html()).toContain('Sin pendientes en tus bandejas');
-    expect(html()).not.toContain('A tu nombre');
+    // `[SN.11]` El bloque "A tu nombre" no desaparece: su vacío es el HECHO de que nadie reparte
+    // trabajo nominal (tres tablas en cero filas). Esconderlo haría creer que sí y hoy no hay.
+    expect(html()).toContain('Nadie te asignó trabajo hoy');
+    expect(html()).toContain('P-06');
   });
 
   it('una bandeja que no se pudo contar se DECLARA, no baja a cero', async () => {
@@ -336,10 +343,10 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
 
   it('el buscador también filtra los pendientes', async () => {
     await montar({ perms: [], role: 'superadmin', work$: of(TRABAJO_MIXTO) });
-    expect(pildoras().length).toBe(2);
+    expect(pendientes().length).toBe(2);
     buscar('descuadres');
-    expect(pildoras().length).toBe(1);
-    expect(pildoras()[0].textContent).toContain('1865');
+    expect(pendientes().length).toBe(1);
+    expect(pendientes()[0].textContent).toContain('1,865');
   });
 
   it('una búsqueda sin coincidencias se dice, no deja la pantalla en blanco', async () => {
@@ -388,15 +395,79 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(new Set(iconos).size).toBeGreaterThan(iconos.length / 2);
   });
 
-  it('cada grupo de pendientes lleva su propia etiqueta, aunque las píldoras envuelvan', async () => {
+  it('cada grupo de pendientes lleva su propia etiqueta dentro', async () => {
     await montar({ perms: [], role: 'superadmin', work$: of(TRABAJO_MIXTO) });
-    const grupos = q<HTMLElement>('.mt-work-grupo');
+    const grupos = q<HTMLElement>('.mt-grupo');
     expect(grupos.length).toBe(2);
     // La etiqueta vive DENTRO del grupo: al envolver no se queda en la fila de arriba.
     for (const g of Array.from(grupos)) {
-      expect(g.querySelector('.mt-work-tag')).toBeTruthy();
-      expect(g.querySelector('a.mt-pill')).toBeTruthy();
+      expect(g.querySelector('.mt-grupo-tag')).toBeTruthy();
+      expect(g.querySelector('a.mt-task')).toBeTruthy();
     }
+  });
+
+  // ── [SN.11] Dos columnas: el trabajo deja de ser una tira ─────────────────
+
+  it('la columna de trabajo existe y se distingue de la de espacios, aunque no haya pendientes', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    expect(q('section.mt-work').length).toBe(1);
+    expect(q('section.mt-spaces').length).toBe(1);
+    // Cada columna encabeza lo suyo; el trabajo no cuelga de la rejilla de puertas.
+    expect(html()).toContain('Tu trabajo');
+    expect(html()).toContain('Tus espacios');
+    // Y las puertas siguen siendo enlaces reales dentro de su propia zona de scroll.
+    expect(q('.mt-scroll a.mt-card').length).toBe(tarjetas().length);
+  });
+
+  it('la tarjeta dice en qué rama del árbol vive, recortada a dos niveles', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const grupoDe = (href: string) =>
+      Array.from(tarjetas()).find((a) => a.getAttribute('href') === href)?.querySelector('.mt-card-group')?.textContent?.trim();
+    expect(grupoDe('/dashboard')).toBe('Ventas › Rutas de detalle');
+    // El grupo completo de Telemarketing tiene un tercer nivel que repite el nombre de la entrada.
+    expect(grupoDe('/telemarketing')).toBe('Ventas › Mayoreo');
+    // …pero el completo sigue disponible al pasar el mouse y para el buscador.
+    const tele = Array.from(tarjetas()).find((a) => a.getAttribute('href') === '/telemarketing');
+    expect(tele?.getAttribute('title')).toContain('Atención telefónica');
+  });
+
+  it('las cifras llevan separador de miles', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
+    const n = Array.from(q<HTMLElement>('.mt-task-n')).map((e) => e.textContent?.trim());
+    expect(n).toContain('1,865');
+    expect(n).not.toContain('1865');
+  });
+
+  it('la hora del conteo sale del servidor (medido_at); si no vino, se declara', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
+    expect(html()).toContain('contado a las');
+    // Se muestra una HORA, no un "hace N minutos" restando el reloj del navegador (ADR-056).
+    expect(html()).not.toMatch(/hace \d+ min/);
+    const meta = (fix.nativeElement as HTMLElement).querySelector('.mt-col-meta span[title]');
+    expect(meta?.getAttribute('title')).toContain('2026-09-11T12:00:00.000Z');
+  });
+
+  it('sin medido_at usable, la frescura se DECLARA en vez de inventarse', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({ ...SIN_TRABAJO, medido_at: '' }),
+    });
+    expect(html()).toContain('hora de conteo no declarada');
+    expect(html()).not.toContain('contado a las');
+  });
+
+  it('la bandeja que no se pudo contar lleva su motivo, no sólo su nombre', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({
+        medido_at: '2026-09-11T12:00:00.000Z',
+        pendientes: [],
+        no_medido: [{ id: 'cuadre', label: 'Descuadres por revisar', motivo: 'relation does not exist' }],
+      } satisfies MeWork),
+    });
+    const declarado = (fix.nativeElement as HTMLElement).querySelector('.mt-declarado');
+    expect(declarado?.textContent).toContain('Descuadres por revisar');
+    expect(declarado?.querySelector('span[title]')?.getAttribute('title')).toBe('relation does not exist');
   });
 
   it('el contexto no repite puesto y área cuando son lo mismo', async () => {
