@@ -75,6 +75,8 @@ export interface SalesDocsKpis {
 export interface SalesDocsReport {
   rows: SalesDocRow[]; kpis: SalesDocsKpis;
   page: number; pageSize: number; range: { from: string; to: string };
+  /** Sólo cuando la ventana volvió VACÍA: fecha de la última factura que sí existe (YYYY-MM-DD). */
+  ultima_factura?: string | null;
 }
 export interface SalesDocsFiltros {
   vendedores: { vendedor_code: string; vendedor_nombre: string }[];
@@ -82,7 +84,9 @@ export interface SalesDocsFiltros {
   doc_tipos: string[];
 }
 export interface SalesDocsQuery {
-  from?: string; to?: string; warehouse_ids?: string; doc_tipo?: string;
+  from?: string; to?: string; doc_tipo?: string;
+  /** Código de sucursal (2 dígitos). El backend lo recorta a tu alcance (ADR-050). */
+  warehouse_codes?: string;
   cliente_code?: string; vendedor_code?: string; search?: string;
   vencidas?: string; cobro?: string; min?: string; canceladas?: string;
   page?: number; pageSize?: number;
@@ -121,5 +125,15 @@ export class SalesDocumentsService {
   /** Descarga el PDF como blob — necesario para imprimir: el <iframe> tiene que llevar el JWT. */
   anexoBlob(folio: string, conPagare = true): Observable<Blob> {
     return this.http.get(this.anexoUrl(folio, conPagare), { responseType: 'blob' });
+  }
+
+  /**
+   * GT.2 — Guía de Cobranza de las facturas seleccionadas, en PDF.
+   *
+   * POST: la selección puede traer cientos de folios y no cabe en una URL. Llega como blob
+   * (el interceptor le pone el JWT) para poder imprimirla o verla sin salir de la pantalla.
+   */
+  guiaCobranzaBlob(folios: string[], opts: { responsable?: string; nota?: string } = {}): Observable<Blob> {
+    return this.http.post(`${this.base}/guia-cobranza.pdf`, { folios, ...opts }, { responseType: 'blob' });
   }
 }

@@ -438,7 +438,9 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
     AppService,
     // INFRA.3.5 (ADR-043): gate central del worker-tier. Detiene los crons en el
     // API cuando ENABLE_WORKER_QUEUE=true y este proceso no es el worker.
-    SchedulerOwnershipService,
+    // Sin ScheduleModule no existe SchedulerRegistry: con DISABLE_CRONS=true este
+    // provider tumbaba el arranque (el interruptor documentado para dev no booteaba).
+    ...(process.env.DISABLE_CRONS === 'true' ? [] : [SchedulerOwnershipService]),
     // ThrottlerGuard como APP_GUARD global aplica los límites a todos los
     // endpoints. Endpoints específicos pueden usar @Throttle o @SkipThrottle.
     { provide: APP_GUARD, useClass: ThrottlerGuard },

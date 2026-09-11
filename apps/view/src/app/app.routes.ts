@@ -210,6 +210,14 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
       },
+      {
+        // GT.2 — Reportes de Telemarketing: seleccionar facturas → Guía de Cobranza en PDF.
+        // Va DESPUÉS de 'documentos' y como ruta propia (no hija) porque cada tab es una
+        // página hermana; el tab activo lo resuelve routerLinkActive con exact:true.
+        path: 'documentos/reportes',
+        loadComponent: () => import('./modules/comercial/pages/comercial-reportes-cobranza.component').then(m => m.ComercialReportesCobranzaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
+      },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },
       { path: 'egresos/detalle', redirectTo: '/finanzas/egresos/detalle' },

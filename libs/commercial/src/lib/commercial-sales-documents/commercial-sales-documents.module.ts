@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CommercialSalesDocumentsService } from './commercial-sales-documents.service';
 import { CommercialSalesDocumentsController } from './commercial-sales-documents.controller';
 import { AnexoVentaService } from './anexo-venta.service';
+import { GuiaCobranzaService } from './guia-cobranza.service';
 
 /**
  * AX — Facturación de Telemarketing (anexo imprimible + pagaré).
@@ -10,7 +11,7 @@ import { AnexoVentaService } from './anexo-venta.service';
  */
 @Module({
   controllers: [CommercialSalesDocumentsController],
-  providers: [CommercialSalesDocumentsService, AnexoVentaService],
-  exports: [CommercialSalesDocumentsService, AnexoVentaService],
+  providers: [CommercialSalesDocumentsService, AnexoVentaService, GuiaCobranzaService],
+  exports: [CommercialSalesDocumentsService, AnexoVentaService, GuiaCobranzaService],
 })
 export class CommercialSalesDocumentsModule {}
