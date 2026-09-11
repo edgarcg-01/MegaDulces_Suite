@@ -23,7 +23,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  WorkbookTerritory, InTransitOc, InTransitResponse,
+  InTransitOc, InTransitResponse,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -48,6 +48,41 @@ interface URow {
 interface Grp { code: string; name: string; buy: number; tr: number; over: number; buyCj: number; trCj: number; n: number; }
 
 /**
+ * RA-PRO.47 — Renglón de COMPRA por sucursal del desglose.
+ *
+ * Sale de las celdas del workbook (`r.cells[code]`), NO de `purchase-suggestion`. Dos razones:
+ *  1. `purchase-suggestion` agrupa a grano RED (`GROUP BY product_id`) y rotula con `primary_wh`:
+ *     nunca pudo dar un renglón por sucursal, aunque la columna dijera "Sucursal".
+ *  2. La tabla de arriba y el desglose quedan con el MISMO número. Antes cada uno lo calculaba con
+ *     su fórmula (el workbook sin fill rate ni colchón; el otro con ellos y con su propia
+ *     cobertura), así que el knob de Cobertura movía la tabla y no movía lo que se pedía.
+ */
+interface BranchBuy {
+  code: string; name: string;
+  vta: number;           // venta 30 d, en cajas — es lo que ordena la lista
+  exis: number;          // existencia, en cajas
+  seed: number;          // sugerido del motor, en cajas (valor inicial del input)
+  cc: number;            // costo de caja DE ESA SUCURSAL
+  /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
+  rung: string | null;
+  nat: number;           // existencia en la unidad nativa del almacén (lo que sí es verdad)
+  natu: string;          // rótulo de esa unidad, ya legible (ver natLabel)
+  natuRaw: string;       // el rótulo CRUDO del ERP — puede ser el GRAMAJE ('500'), no un nombre
+  hub: boolean;          // ¿este almacén ES un CEDIS de consolidación?
+}
+
+/** RA-PRO.48 — una zona de compra con sus sucursales y el CEDIS donde consolida. */
+interface ZoneGroup {
+  zone: string;
+  hubCode: string | null; hubName: string;
+  order: number;
+  rows: BranchBuy[];
+}
+
+/** RA-PRO.48 — acuse de entrega: a dónde llega, en total, lo que se está pidiendo. */
+interface Entrega { code: string; name: string; direct: boolean; cajas: number; valor: number; }
+
+/**
  * RA-PRO.29 — PEDIDO consolidado POR SUCURSAL. Una sola superficie agrupa lo accionable de cada
  * sucursal: qué comprar (venta×cobertura−existencia−tránsito, costo real por caja), qué traspasar
  * desde su CEDIS, y su sobrestock. Chips Comprar/Traspasos/Sobrestock agregan o quitan renglones.
@@ -69,7 +104,7 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <span class="pr-badge">unificado</span> <app-context-help topic="pedido-compras" /></h1>
-          <p class="surf-page-sub">Una fila por producto (venta / existencia / <strong>pedido</strong> por punto de compra). Clic para desplegar su desglose <strong>por sucursal</strong>: <strong>comprar</strong> (venta × cobertura − existencia − tránsito), <strong>traspasar</strong> desde su CEDIS y su <strong>sobrestock</strong> — con cantidad editable. Exporta XLSX o arma la requisición por producto o global.</p>
+          <p class="surf-page-sub">Una fila por producto, con su <strong>total de red</strong>. Clic en la fila para abrir el desglose <strong>por sucursal</strong>, en dos cejitas: <strong>Pedir a proveedor</strong> (ordenado por la que más vende, con cantidad editable, días de inventario en vivo y su valor) y <strong>Traspasos</strong> desde el CEDIS. Lo que edites abajo mueve las columnas <strong>Σ Ped.</strong> y <strong>$ Pedido</strong> de arriba. Exporta XLSX o arma la requisición por producto o global.</p>
         </div>
         <div class="pr-mode" role="tablist" aria-label="Vista">
           <button role="tab" [attr.aria-selected]="mode()==='pedido'" class="pr-tab" [class.pr-tab-on]="mode()==='pedido'" (click)="setMode('pedido')">Pedido</button>
@@ -96,18 +131,10 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           <p-select [options]="categoryOpts()" [(ngModel)]="fCategory" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todas las categorías" [showClear]="true"
                     [filter]="true" filterBy="label" appendTo="body" styleClass="pr-sel" ariaLabel="Filtrar por categoría"></p-select>
-          <button type="button" class="pr-colbtn" [class.pr-colbtn-on]="wbGroup()==='branch'" (click)="toggleGroup()"
-                  [attr.aria-pressed]="wbGroup()==='branch'"
-                  [title]="wbGroup()==='branch' ? 'Englobar las columnas de venta en una sola (red)' : 'Desglosar las columnas de venta por sucursal'">
-            <i class="pi" [ngClass]="wbGroup()==='branch' ? 'pi-arrows-h' : 'pi-table'"></i>
-            {{ wbGroup()==='branch' ? 'Englobar columnas' : 'Desglosar por sucursal' }}
-          </button>
-          @if (wbGroup()==='branch') {
-            <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
-                           optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
-                           [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
-                           appendTo="body" styleClass="pr-sel" ariaLabel="Sucursales a mostrar como columnas"></p-multiselect>
-          }
+          <p-multiselect [options]="warehouseOpts()" [(ngModel)]="wbWarehouses" (onChange)="loadWorkbook()"
+                         optionLabel="label" optionValue="value" placeholder="Todas las sucursales" [showClear]="true"
+                         [filter]="true" filterBy="label" [maxSelectedLabels]="2" selectedItemsLabel="{0} sucursales"
+                         appendTo="body" styleClass="pr-sel" ariaLabel="Sucursales que entran al pedido y al desglose"></p-multiselect>
           <p-iconfield styleClass="pr-search">
             <p-inputicon styleClass="pi pi-search" />
             <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadWorkbook()" placeholder="SKU o producto…" aria-label="Buscar producto" />
@@ -160,37 +187,30 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
           }
           <div class="pr-wb-scroll">
             <p-table [value]="wbRows()" [loading]="loading()"
-                     styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle()">
+                     styleClass="p-datatable-sm pr-table pr-wb" [tableStyle]="wbTableStyle">
               <ng-template #header>
                 <tr>
-                  <th rowspan="2" style="min-width:15rem">Producto</th>
-                  <th rowspan="2" class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
-                  <th rowspan="2" class="pr-r">Costo/Cja</th>
-                  <th rowspan="2" class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
-                  <th rowspan="2" class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
-                  <th rowspan="2" class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
-                  <th rowspan="2" class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. El Pedido la descuenta PESADA por la probabilidad de que llegue: una orden abierta hace semanas casi no cuenta, porque en Kepler la OC se captura al recibir.">En camino</th>
-                  <th rowspan="2" class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
-                  <th rowspan="2" class="pr-r" title="Máximo de red (cajas)">Máx</th>
-                  @for (t of wbTerritories(); track t.code) {
-                    <th colspan="3" class="pr-grp-h" [title]="t.code">{{ t.name }}</th>
-                  }
-                  <th rowspan="2" class="pr-r">Σ Ped.<br/>cajas</th>
-                  <th rowspan="2" class="pr-r pr-muted-h">Σ Piezas</th>
-                  <th rowspan="2" class="pr-r pr-val">$ Pedido</th>
-                  <th rowspan="2" class="pr-r">Valor<br/>venta</th>
-                  <th rowspan="2" class="pr-r">Valor<br/>exist.</th>
-                </tr>
-                <tr class="pr-sub-row">
-                  @for (t of wbTerritories(); track t.code) {
-                    <th class="pr-r pr-sub-h" title="Venta 30 días, en CAJAS.">Vta</th><th class="pr-r pr-sub-h" title="Existencia, en CAJAS.">Exist.</th><th class="pr-r pr-sub-h pr-ped-h" title="Pedido sugerido, en CAJAS.">Pedido</th>
-                  }
+                  <th style="min-width:15rem">Producto</th>
+                  <th class="pr-r" title="Piezas por caja · y paquetes por caja si es multipack">Unidad<br/>x caja</th>
+                  <th class="pr-r">Costo/Cja</th>
+                  <th class="pr-r" title="Índice de Aceleración de Demanda (−2..+2): compara el ritmo reciente (30d vs 31-60d) + estacional año-vs-año. ▲ acelera · ═ estable · ▼ desacelera. Señal informativa; no cambia el sugerido.">Tend.</th>
+                  <th class="pr-r" title="Estacionalidad (RA-PRO.41): cuánto vende el horizonte (próximos 30 días) vs los últimos 30, según la historia del SKU/categoría/red. El Pedido YA la incluye. — = mes plano.">Est.</th>
+                  <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
+                  <th class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
+                  <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. El Pedido la descuenta PESADA por la probabilidad de que llegue: una orden abierta hace semanas casi no cuenta, porque en Kepler la OC se captura al recibir.">En camino</th>
+                  <th class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
+                  <th class="pr-r" title="Máximo de red (cajas)">Máx</th>
+                  <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
+                  <th class="pr-r pr-muted-h" title="El mismo total, en piezas (cajas × unidades por caja).">Σ Piezas</th>
+                  <th class="pr-r pr-val" title="Lo que cuesta ese pedido, valuado con el costo de caja de CADA sucursal.">$ Pedido</th>
+                  <th class="pr-r">Valor<br/>venta</th>
+                  <th class="pr-r">Valor<br/>exist.</th>
                 </tr>
               </ng-template>
               <ng-template #body let-r>
                 <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
-                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }</div></td>
+                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
                     <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
                     @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
@@ -206,6 +226,14 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                       <p-tag [value]="seasonLabel(r)" [severity]="seasonSev(r)" styleClass="pr-cov-tag" [title]="seasonTitle(r)"></p-tag>
                     } @else { <span class="pr-muted" title="Mes plano — la estacionalidad no mueve el pedido">—</span> }
                   </td>
+                  <!-- U.2 — la existencia de red suma SOLO los almacenes con el peldano verificado.
+                       Si alguno quedo fuera se declara con el triangulo y el conteo en el tooltip,
+                       porque un total mas chico se lee como "hay menos inventario". -->
+                  <td class="pr-r pr-muted" [title]="exisRedTitle(r)">
+                    @if (r.almacenes_sin_valuar) {
+                      <span class="pr-rung">{{ exisRed(r) | number:'1.0-1' }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span>
+                    } @else { {{ exisRed(r) | number:'1.0-1' }} }
+                  </td>
                   <td class="pr-r">@if (r.xyz_class) { <span class="pr-mono">{{ r.xyz_class }}</span> } @else { <span class="pr-muted">—</span> }</td>
                   <td class="pr-r">
                     @if (r.transito_cajas && r.transito_cajas > 0) {
@@ -217,36 +245,14 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                   </td>
                   <td class="pr-r pr-muted">{{ r.reorder_cajas != null ? (r.reorder_cajas | number:'1.0-1') : '—' }}</td>
                   <td class="pr-r pr-muted">{{ r.max_cajas != null ? (r.max_cajas | number:'1.0-1') : '—' }}</td>
-                  @for (t of wbTerritories(); track t.code) {
-                    <td class="pr-r pr-muted">{{ cellVal(r, t.code, 'vta') | number:'1.0-1' }}</td>
-                    <!-- U.2 — si el peldaño de este almacén no está verificado, la conversión a
-                         cajas no es confiable: se muestra la cantidad SUELTA con su rótulo (que sí
-                         es verdad) en vez de una cifra de cajas inventada. -->
-                    @if (rungOf(r, t.code); as rung) {
-                      <td class="pr-r">
-                        <span class="pr-rung" [title]="rungTitle(r, t.code)">
-                          {{ natOf(r, t.code) | number:'1.0-0' }} {{ natUnitOf(r, t.code) }}
-                          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                        </span>
-                      </td>
-                    } @else {
-                      <td class="pr-r"><p-tag [value]="(cellVal(r, t.code, 'exis') | number:'1.0-1') ?? ''" [severity]="existSev(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))" styleClass="pr-cov-tag" [title]="existTitle(cellVal(r, t.code, 'exis'), cellVal(r, t.code, 'ped'))"></p-tag></td>
-                    }
-                    <!-- U.2 — el PEDIDO es lo que se gasta, y sale de restar la existencia
-                         convertida con el mismo divisor. Con el peldaño contradicho la resta mezcla
-                         peldaños y pide de más: 99089 en MD-30 lee 1.3 cajas donde hay 12 y encarga
-                         6.9 que ya están en el piso. Se retiene, no se publica. -->
-                    @if (rungOf(r, t.code)) {
-                      <td class="pr-r pr-rung" [title]="rungTitle(r, t.code)">—</td>
-                    } @else {
-                      <td class="pr-r pr-ped" [class.pr-ped-on]="cellVal(r, t.code, 'ped') > 0">{{ cellVal(r, t.code, 'ped') | number:'1.0-1' }}</td>
-                    }
-                  }
+                  <!-- Los totales son la SUMA VIVA del desglose de abajo: al editar una sucursal
+                       se mueven acá. Arrancan en el sugerido del motor, que es lo mismo que
+                       publicaba antes la columna por sucursal. -->
                   <td class="pr-r pr-strong" [title]="pedidoTitle(r)">
-                    {{ r.suma_pedido_cajas | number:'1.0-1' }}@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
+                    {{ sumCajas(r) | number:'1.0-1' }}@if (r.almacenes_sin_pedido) { <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> }
                   </td>
-                  <td class="pr-r pr-muted-h">{{ (r.suma_pedido_cajas * r.uxc) | number:'1.0-0' }}</td>
-                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="r.suma_pedido_cajas > 0">{{ money(r.pedido_valor) }}</td>
+                  <td class="pr-r pr-muted-h">{{ sumPiezas(r) | number:'1.0-0' }}</td>
+                  <td class="pr-r pr-val pr-strong" [class.pr-ped-on]="sumCajas(r) > 0">{{ money(sumValor(r)) }}</td>
                   <td class="pr-r pr-muted">{{ money(r.valor_venta) }}</td>
                   <!-- U.2 — el valuado no se dibuja si algún almacén tiene el peldaño sin verificar:
                        un cero o un parcial silencioso se lee como "hay poco inventario", que es otra
@@ -262,16 +268,161 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                 </tr>
                 @if (isOpen(r)) {
                   <tr class="pr-wb-exp">
-                    <td [attr.colspan]="wbColCount()">
+                    <td [attr.colspan]="wbColCount">
                       <div class="pr-exp-in">
-                        @if (!detailReady()) {
-                          <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando acciones por sucursal…</div>
-                        } @else if (detailRows(r.product_id); as urows) {
-                          @if (!urows.length) {
-                            <div class="pr-peek-loading">Sin acciones por sucursal para este producto (ni compra, ni traspaso, ni sobrestock con estos filtros).</div>
+                        <div class="pr-det-head">
+                          <span class="pr-mono pr-det-sku">{{ r.sku }}</span>
+                          <strong class="pr-det-name">{{ r.nombre }}</strong>
+                          @if (r.supplier_name) { <span class="pr-supp">{{ r.supplier_name }}</span> }
+                          <span class="pr-det-uxc">1 caja = {{ r.uxc | number:'1.0-0' }} {{ unidadBase(r) }}</span>
+                        </div>
+                        <div class="pr-det-tabs" role="tablist" aria-label="Desglose por sucursal">
+                          <button role="tab" type="button" class="pr-tab" [class.pr-tab-on]="tabOf(r.product_id)==='buy'"
+                                  [attr.aria-selected]="tabOf(r.product_id)==='buy'" (click)="setTab(r.product_id, 'buy')">
+                            Pedir a proveedor @if (branchBuys(r).length) { <span class="pr-tab-n">{{ branchBuys(r).length }}</span> }
+                          </button>
+                          <button role="tab" type="button" class="pr-tab" [class.pr-tab-on]="tabOf(r.product_id)==='tr'"
+                                  [attr.aria-selected]="tabOf(r.product_id)==='tr'" (click)="setTab(r.product_id, 'tr')">
+                            Traspasos @if (trasRows(r.product_id).length) { <span class="pr-tab-n">{{ trasRows(r.product_id).length }}</span> }
+                          </button>
+                        </div>
+
+                        @if (tabOf(r.product_id) === 'buy') {
+                          @if (!branchBuys(r).length) {
+                            <div class="pr-peek-loading">Este producto no tiene existencia ni venta en ninguna sucursal del filtro.</div>
                           } @else {
-                            <div class="pr-ordu" role="group" aria-label="Unidad de pedido">
-                              <span class="pr-ordu-lbl">Pedir en:</span>
+                            <div class="pr-wb-scroll">
+                              <table class="pr-peek-tbl pr-det-tbl">
+                                <thead><tr>
+                                  <th>Sucursal</th>
+                                  <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal, en CAJAS. Ordena la lista dentro de cada zona: la que más vende, arriba.">Venta 30d</th>
+                                  <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
+                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino); editalo con las flechas o escribiendo.">Pedido ✎</th>
+                                  <th class="pr-r" title="En qué unidad estás capturando ESTE renglón. Sólo cambia cómo se escribe: el pedido, los días y el valor siempre se calculan en cajas.">Unidad</th>
+                                  <th class="pr-r" title="Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ (venta 30d ÷ 30.4). Se mueve mientras escribís.">Días inv.</th>
+                                  <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS (que después baja la mercancía por traspaso).">Entrega</th>
+                                  <th class="pr-r pr-val" title="Pedido × costo de caja DE ESA SUCURSAL.">Valor</th>
+                                </tr></thead>
+                                <tbody>
+                                  @for (z of branchZones(r); track z.zone) {
+                                  @if (showZones(r)) {
+                                  <tr class="pr-zrow">
+                                    <td colspan="8">
+                                      <span class="pr-zname">Zona {{ z.zone }}</span>
+                                      @if (z.hubCode) {
+                                        <span class="pr-zhub">consolida en <span class="pr-mono">{{ z.hubCode }}</span> {{ z.hubName }}</span>
+                                        <span class="pr-bulk-sp"></span>
+                                        <button type="button" class="pr-zlink" (click)="zoneAllDirect(r, z)">todo directo</button>
+                                        <button type="button" class="pr-zlink" (click)="zoneAllToHub(r, z)">todo a {{ z.hubCode }}</button>
+                                      } @else {
+                                        <span class="pr-zhub pr-rung">sin CEDIS asignado — configuralo en el almacén</span>
+                                      }
+                                    </td>
+                                  </tr>
+                                  }
+                                  @for (b of z.rows; track b.code) {
+                                    <tr>
+                                      <td><span class="pr-mono">{{ b.code }}</span> <span class="pr-peek-terr">{{ b.name }}</span></td>
+                                      <td class="pr-r pr-muted">{{ b.vta | number:'1.0-1' }}</td>
+                                      <!-- U.2 — con el peldano contradicho la conversion a cajas no es
+                                           confiable: se muestra la cantidad SUELTA con el rotulo que da
+                                           el ERP, que si es verdad. -->
+                                      @if (b.rung) {
+                                        <td class="pr-r"><span class="pr-rung" [title]="bRungTitle(b)">{{ b.nat | number:'1.0-0' }} {{ b.natu }} <i class="pi pi-exclamation-triangle" aria-hidden="true"></i></span></td>
+                                      } @else {
+                                        <td class="pr-r"><p-tag [value]="(b.exis | number:'1.0-1') ?? ''" [severity]="existSev(b.exis, qtyOf(r, b))" styleClass="pr-cov-tag" [title]="existTitle(b.exis, qtyOf(r, b))"></p-tag></td>
+                                      }
+                                      <!-- U.2 — no se puede restar existencia con un divisor que el costo
+                                           contradice: el sugerido saldria mal en la direccion cara. Se
+                                           bloquea la captura en vez de prellenar un numero falso. -->
+                                      @if (b.rung) {
+                                        <td class="pr-r pr-rung" [title]="bRungTitle(b)">—</td>
+                                        <td class="pr-r pr-muted">—</td>
+                                        <td class="pr-r pr-muted">—</td>
+                                        <td class="pr-muted">—</td>
+                                        <td class="pr-r pr-muted">—</td>
+                                      } @else {
+                                        <td class="pr-r">
+                                          <input type="number" min="0" step="1" class="pr-qty pr-qty-sm"
+                                                 [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
+                                                 [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
+                                        </td>
+                                        <td class="pr-r">
+                                          <div class="pr-uu" role="group" [attr.aria-label]="'Unidad de captura en ' + b.code">
+                                            <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b)==='caja'"
+                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='caja'" (click)="setUnitBranch(r, b, 'caja')" title="Capturar en cajas">cj</button>
+                                            <button type="button" class="pr-uu-b" [class.pr-uu-on]="unitOfBranch(r, b)==='pieza'"
+                                                    [attr.aria-pressed]="unitOfBranch(r, b)==='pieza'" (click)="setUnitBranch(r, b, 'pieza')" [title]="'Capturar en ' + unidadBase(r)">pz</button>
+                                          </div>
+                                        </td>
+                                        <!-- Sin venta no hay cobertura que calcular: se DECLARA, no se
+                                             dibuja como 0 (que se lee "urge") ni como infinito. -->
+                                        @if (diasInv(r, b) !== null) {
+                                          <td class="pr-r"><p-tag [value]="diasLabel(diasInv(r, b))" [severity]="coverSev(diasInv(r, b))" styleClass="pr-cov-tag" [title]="diasTitle(r, b)"></p-tag></td>
+                                        } @else {
+                                          <td class="pr-r"><span class="pr-muted" [title]="diasTitle(r, b)">—</span></td>
+                                        }
+                                        <!-- El texto al lado de la palomita es lo que la hace legible:
+                                             una casilla pelada nunca dice si marcada es "directo" o
+                                             "consolidado". Acá el renglón lo declara: "→ 01". -->
+                                        <td class="pr-ent">
+                                          <div class="pr-uu" role="group" [attr.aria-label]="'Entrega de ' + b.code">
+                                            <button type="button" class="pr-uu-b" [class.pr-uu-on]="!isConsolidated(r, b)"
+                                                    [attr.aria-pressed]="!isConsolidated(r, b)" (click)="setDirect(r, b)"
+                                                    title="El proveedor entrega en esta sucursal">Sucursal</button>
+                                            <button type="button" class="pr-uu-b" [class.pr-uu-on]="isConsolidated(r, b)"
+                                                    [attr.aria-pressed]="isConsolidated(r, b)" (click)="setConsolidated(r, b)"
+                                                    [disabled]="!cedisFor(b).length"
+                                                    title="El proveedor entrega en un CEDIS y de ahí baja por traspaso">Consolidado</button>
+                                          </div>
+                                          @if (isConsolidated(r, b)) {
+                                            <select class="pr-cedis" [ngModel]="deliverOf(r, b)" (ngModelChange)="setDeliverTo(r, b, $event)"
+                                                    [title]="deliverTitle(r, b)" [attr.aria-label]="'CEDIS donde se entrega lo de ' + b.code">
+                                              @for (cd of cedisFor(b); track cd.code) {
+                                                <option [value]="cd.code">→ {{ cd.code }} · {{ cedisLabel(cd.name) }}</option>
+                                              }
+                                            </select>
+                                          }
+                                        </td>
+                                        <td class="pr-r pr-val" [class.pr-strong]="qtyOf(r, b) > 0">{{ money(qtyOf(r, b) * b.cc) }}</td>
+                                      }
+                                    </tr>
+                                  }
+                                  }
+                                </tbody>
+                              </table>
+                            </div>
+                            <!-- ACUSE — la palomita dice qué marcaste; esto dice qué se le va a
+                                 pedir al proveedor. Y avisa de los traspasos ANTES del botón:
+                                 consolidar no es una etiqueta, son dos movimientos reales. -->
+                            @if (entregas(r).length) {
+                              <div class="pr-entregas">
+                                <span class="pr-ent-lbl">Se entrega en</span>
+                                @for (e of entregas(r); track e.code) {
+                                  <span class="pr-ent-chip" [class.pr-ent-dir]="e.direct">
+                                    @if (!e.direct) { <i class="pi pi-building" aria-hidden="true"></i> }
+                                    <span class="pr-mono">{{ e.code }}</span> {{ e.name }}
+                                    <b>{{ e.cajas | number:'1.0-1' }} cj</b> {{ money(e.valor) }}
+                                    @if (e.direct) { <em>directo</em> }
+                                  </span>
+                                }
+                                @if (traspasosGenerados(r); as n) {
+                                  <span class="pr-ent-warn" title="Consolidar significa que la mercancía llega al CEDIS y de ahí baja a la sucursal. Al armar la requisición se crean los dos documentos: la compra al CEDIS y el traspaso.">
+                                    <i class="pi pi-info-circle" aria-hidden="true"></i>
+                                    al armar se {{ n === 1 ? 'genera 1 traspaso' : 'generan ' + n + ' traspasos' }} CEDIS → sucursal
+                                  </span>
+                                }
+                              </div>
+                            }
+                          }
+                        } @else {
+                          @if (!detailReady()) {
+                            <div class="pr-peek-loading"><i class="pi pi-spin pi-spinner"></i> Cargando traspasos…</div>
+                          } @else if (!trasRows(r.product_id).length) {
+                            <div class="pr-peek-loading">Sin traspasos sugeridos para este producto con estos filtros.</div>
+                          } @else {
+                            <div class="pr-ordu" role="group" aria-label="Unidad de traspaso">
+                              <span class="pr-ordu-lbl">Traspasar en:</span>
                               <button type="button" class="pr-chip" [class.pr-chip-on]="unitOf(r.product_id)==='caja'" (click)="setUnit(r.product_id, 'caja')">Caja</button>
                               @if (packOf(r.product_id)?.packs) {
                                 <button type="button" class="pr-chip" [class.pr-chip-on]="unitOf(r.product_id)==='paquete'" (click)="setUnit(r.product_id, 'paquete')">Paquete</button>
@@ -285,64 +436,50 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                               <table class="pr-peek-tbl pr-det-tbl">
                                 <thead><tr>
                                   <th>Sucursal</th><th>Acción</th>
-                                  <th class="pr-r" title="Cobertura (compra) · déficit (traspaso) · días en mano (sobrestock)">Señal</th>
-                                  <th class="pr-r" title="Existencia de la sucursal, en CAJAS.">Exist.</th><th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th><th class="pr-r" title="Equivalente TOTAL en piezas de lo pedido (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th><th class="pr-r">Costo</th><th class="pr-r">Valor</th>
+                                  <th class="pr-r" title="Déficit de la sucursal (cajas)">Señal</th>
+                                  <th class="pr-r" title="Existencia de la sucursal, en CAJAS.">Exist.</th>
+                                  <th class="pr-r">Cant. ({{ unitLabelShort(r.product_id) }}) ✎</th>
+                                  <th class="pr-r" title="Equivalente TOTAL en piezas de lo traspasado (cajas × piezas por caja). No es la unidad de captura — esa es la columna Cant.">= Piezas</th>
+                                  <th class="pr-r">Costo</th><th class="pr-r">Valor</th>
                                 </tr></thead>
                                 <tbody>
-                                  @for (u of urows; track u.type + ':' + u.warehouse_code) {
-                                    <tr [class.pr-row-over]="u.type==='sobre'">
+                                  @for (u of trasRows(r.product_id); track u.warehouse_code) {
+                                    <tr>
                                       <td><span class="pr-mono">{{ u.warehouse_code }}</span> <span class="pr-peek-terr">{{ nameOf(u.warehouse_code) }}</span></td>
                                       <td class="pr-det-act">
                                         <p-tag [value]="typeLabel(u.type)" [severity]="typeSev(u.type)" styleClass="pr-abc"></p-tag>
-                                        @if (u.abc_class) { <p-tag [value]="u.abc_class" [severity]="abcSev(u.abc_class)" styleClass="pr-abc"></p-tag> }
-                                        @if (u.type==='traspaso' && u.from_code) { <span class="pr-mono pr-from">← {{ u.from_code }}</span> }
-                                        @if (u.type==='comprar' && u.unit_source && u.unit_source !== 'catalog') {
-                                          <button type="button" class="pr-unit-btn" (click)="openUnit(u.buy!)" title="Ajustar unidad de venta">
-                                            <p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag>
-                                          </button>
-                                        }
+                                        @if (u.from_code) { <span class="pr-mono pr-from">← {{ u.from_code }}</span> }
                                       </td>
-                                      <td class="pr-r">
-                                        @if (u.type==='comprar') {
-                                          @if (u.cover != null) { <p-tag [value]="(u.cover | number:'1.0-0') + ' d'" [severity]="coverSev(u.cover)" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
-                                        } @else if (u.type==='traspaso') {
-                                          <span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span>
-                                        } @else {
-                                          @if (u.days_on_hand != null) { <p-tag [value]="(u.days_on_hand | number:'1.0-0') + ' d'" severity="info" styleClass="pr-cov-tag"></p-tag> } @else { <span class="pr-muted">—</span> }
-                                        }
-                                      </td>
+                                      <td class="pr-r"><span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span></td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
-                                      <td class="pr-r">
-                                        @if (u.editable) { <input type="number" min="0" step="any" class="pr-qty pr-qty-sm" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Cantidad de ' + r.sku + ' en ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /> }
-                                        @else { <span class="pr-muted">{{ dispQty(u) | number:'1.0-1' }}</span> }
-                                      </td>
+                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
                                       <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
                                       <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
-                                      <td class="pr-r" [class.pr-strong]="u.type!=='sobre'" [class.pr-over-val]="u.type==='sobre'">{{ money(u.qty * u.unit_cost) }}</td>
+                                      <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost) }}</td>
                                     </tr>
                                   }
                                 </tbody>
                               </table>
                             </div>
-                            <div class="pr-exp-actions">
-                              <span class="pr-exp-sum">
-                                @if (prodBuy(r.product_id) > 0) { <span class="pr-gs-buy">comprar {{ money(prodBuy(r.product_id)) }}</span> }
-                                @if (prodTr(r.product_id) > 0) { <span class="pr-gs-tr">· traspaso {{ money(prodTr(r.product_id)) }}</span> }
-                                @if (prodOver(r.product_id) > 0) { <span class="pr-gs-over">· sobre {{ money(prodOver(r.product_id)) }}</span> }
-                              </span>
-                              <span class="pr-bulk-sp"></span>
-                              <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
-                              <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (prodBuy(r.product_id) + prodTr(r.product_id)) <= 0"></p-button>
-                            </div>
                           }
                         }
+
+                        <div class="pr-exp-actions">
+                          <span class="pr-exp-sum">
+                            @if (sumValor(r) > 0) { <span class="pr-gs-buy">comprar {{ money(sumValor(r)) }}</span> }
+                            @if (prodTr(r.product_id) > 0) { <span class="pr-gs-tr">· traspaso {{ money(prodTr(r.product_id)) }}</span> }
+                          </span>
+                          <span class="pr-bulk-sp"></span>
+                          <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
+                          <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (sumValor(r) + prodTr(r.product_id)) <= 0"></p-button>
+                        </div>
                       </div>
                     </td>
                   </tr>
                 }
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td [attr.colspan]="wbColCount()" class="pr-empty">
+                <tr><td [attr.colspan]="wbColCount" class="pr-empty">
                   <i class="pi pi-inbox"></i>
                   <p>Sin datos en los puntos de compra.</p>
                   <span>Ajusta proveedor o búsqueda. Requiere el fact del pedido cargado + la topología de abasto configurada.</span>
@@ -355,13 +492,13 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto. <strong>Vta</strong> = venta 30 días en cajas · <strong>Exist.</strong> = existencia en cajas · <strong>Pedido</strong> = venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong> (la columna <strong>Est.</strong> muestra la razón estacional aplicada; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas; se descuenta pesado por la probabilidad de que cada orden llegue, así que una OC estancada deja de tapar el pedido; la venta de las <strong>rutas</strong> cuenta en su sucursal madre). Cada bloque es un <strong>punto de compra</strong>: @for (t of wbTerritories(); track t.code) {<span class="pr-mono">{{ t.code }}</span>&nbsp;}. <em>Clic en una fila para desplegar su desglose <strong>por sucursal</strong> (comprar/traspaso/sobrestock, editable) — podés abrir varias a la vez. El botón <strong>Englobar / Desglosar</strong> junta o abre las columnas de venta por sucursal.</em></p>
+          <p class="pr-foot">Una fila por producto, en <strong>cajas</strong>. <strong>Exist. red</strong> = existencia sumada de las sucursales · <strong>Σ Ped.</strong> = lo que se va a pedir, suma viva del desglose (arranca en el sugerido: venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong>). La columna <strong>Est.</strong> muestra la razón estacional que ya lleva puesta; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas: se descuenta pesado por la probabilidad de que cada orden llegue, así que una OC estancada deja de tapar el pedido. La venta de las <strong>rutas</strong> cuenta en su sucursal madre. <em>Clic en una fila para abrir su desglose por sucursal — podés abrir varias a la vez.</em></p>
         }
 
         @if (wbRows().length) {
           <div class="pr-bulk" role="region" aria-label="Acciones globales">
             @if (totCajas() > 0) {
-              <span class="pr-bulk-n">Red (todas las sucursales) · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> }</span>
+              <span class="pr-bulk-n" title="Suma de los productos de ESTA página, con lo que hayas editado en los desgloses. Es exactamente lo que arman los botones de acá al lado. El KPI «A comprar» de arriba es el total del filtro completo.">En esta página · comprar <strong>{{ money(totBuy()) }}</strong> · traspaso <strong>{{ money(totTr()) }}</strong>@if (totOver() > 0) { · <span class="pr-gs-over">sobre {{ money(totOver()) }}</span> }</span>
             } @else {
               <span class="pr-bulk-n">{{ wbTotal() }} productos en la vista</span>
             }
@@ -637,6 +774,55 @@ interface Grp { code: string; name: string; buy: number; tr: number; over: numbe
     .pr-exp-sum { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: .35rem; flex-wrap: wrap; }
     .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: .8rem; }
     .pr-det-tbl td { vertical-align: middle; }
+    /* El desglose NO se estira. Vive dentro de un td que abarca las 15 columnas de la tabla de
+       arriba (~82rem), y con width:100% sus 8 columnas cortas quedaban repartidas en todo ese
+       ancho, con huecos enormes entre dato y dato. Con width:auto la tabla mide lo que mide su
+       contenido y queda pegada a la izquierda, que es lo que se pidió. Las cifras siguen
+       alineadas a la derecha DENTRO de su columna: es lo que deja comparar una sobre otra. */
+    .pr-det-tbl { width: auto; }
+    .pr-det-tbl th, .pr-det-tbl td { white-space: nowrap; }
+    .pr-det-tbl th:first-child, .pr-det-tbl td:first-child { padding-right: 1.2rem; }
+    /* RA-PRO.47 — encabezado y cejitas del desglose por sucursal */
+    .pr-det-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
+    .pr-det-sku { font-size: .75rem; color: var(--text-muted); }
+    .pr-det-name { font-size: .9rem; color: var(--text-main); letter-spacing: -.01em; }
+    .pr-det-uxc { font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; margin-left: auto; }
+    .pr-det-tabs { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; margin-bottom: .6rem; }
+    .pr-det-tabs .pr-tab { display: inline-flex; align-items: center; gap: .35rem; }
+    .pr-tab-n { font-family: var(--font-mono, ui-monospace, monospace); font-size: .62rem; padding: 0 .3rem; border-radius: var(--r-pill, 999px);
+      background: var(--overlay-hover, var(--hover-bg)); color: var(--text-muted); }
+    .pr-tab-on .pr-tab-n { background: var(--action); color: var(--action-fg, #fff); }
+    /* selector de unidad de captura POR RENGLÓN (cajas / piezas) */
+    .pr-uu { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); overflow: hidden; }
+    .pr-uu-b { font-family: var(--font-mono, ui-monospace, monospace); font-size: .68rem; line-height: 1; padding: .25rem .4rem; border: 0;
+      background: transparent; color: var(--text-muted); cursor: pointer; }
+    .pr-uu-b + .pr-uu-b { border-left: 1px solid var(--border-color); }
+    .pr-uu-b:hover { background: var(--overlay-hover, var(--hover-bg)); color: var(--text-main); }
+    .pr-uu-on { background: var(--action); color: var(--action-fg, #fff); font-weight: 700; }
+    .pr-uu-on:hover { background: var(--action); color: var(--action-fg, #fff); }
+    .pr-uu-b:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+    .pr-uu-b:disabled { opacity: .4; cursor: not-allowed; }
+    /* RA-PRO.48 — encabezado de ZONA dentro del desglose */
+    .pr-zrow > td { background: var(--overlay-hover, var(--hover-bg)); padding: .3rem .5rem !important; border-top: 1px solid var(--border-color); }
+    .pr-zname { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-main); }
+    .pr-zhub { font-size: .68rem; color: var(--text-muted); margin-left: .5rem; }
+    .pr-zlink { font-size: .66rem; border: 0; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm, 8px); }
+    .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
+    /* control de entrega + selector de CEDIS */
+    .pr-ent { white-space: nowrap; }
+    .pr-cedis { margin-left: .35rem; font-size: .7rem; padding: .15rem .25rem; max-width: 15rem;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
+    /* ACUSE de entregas */
+    .pr-entregas { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; padding: .4rem .55rem;
+      border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--overlay-hover, var(--hover-bg)); }
+    .pr-ent-lbl { font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+    .pr-ent-chip { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem; color: var(--text-main);
+      background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: .1rem .5rem; font-variant-numeric: tabular-nums; }
+    .pr-ent-chip i { font-size: .68rem; color: var(--action); }
+    .pr-ent-chip b { font-weight: 700; }
+    .pr-ent-chip em { font-style: normal; font-size: .64rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+    .pr-ent-dir { border-style: dashed; }
+    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: .68rem; color: var(--warn-fg, var(--text-muted)); }
     .pr-ordu { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin: .1rem 0 .6rem; }
     .pr-ordu-lbl { font-size: .72rem; color: var(--text-muted); font-weight: 600; }
     .pr-ordu-hint { font-size: .68rem; color: var(--text-faint); margin-left: .4rem; font-variant-numeric: tabular-nums; }
@@ -694,7 +880,6 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   // RA-PRO.32 — Vista Excel (réplica del workbook del comprador, una fila por SKU × punto de compra).
   wbRows = signal<WorkbookRow[]>([]);
-  wbTerritories = signal<WorkbookTerritory[]>([]);   // puntos de compra (columnas dinámicas)
   wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
   // U.2 — el hueco del valuado. null cuando no hay nada sin verificar (el banner no se pinta).
   private readonly wbRung = signal<{ skus: number; celdas: number; arbitrado: number } | null>(null);
@@ -710,40 +895,316 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly wbPageSize = signal(20);
   wbScopeNeeded = signal(false);
   wbOnlyOver = signal(false);   // RA-PRO.33 — filtrar a productos CON sobrestock (capital inmovilizado)
-  wbGroup = signal<'branch' | 'general'>('general');  // default: 1 columna agregada (red). "Por sucursal" = opt-in
   wbWarehouses: string[] = [];                          // sucursales elegidas (vacío = todas con stock)
-  // Ancho dinámico según nº de territorios (3 fijas + 3 por territorio + 4 de cierre). computed →
-  // referencia estable entre cargas (evita ExpressionChanged).
-  wbTableStyle = computed(() => ({ 'min-width': (48 + this.wbTerritories().length * 13) + 'rem' }));
-  // 7 base + Est. (RA-PRO.41) + En camino (RA-PRO.44) + 3/territorio + 5 de cierre
-  wbColCount = computed(() => 9 + this.wbTerritories().length * 3 + 5);
-  /** Valor de una celda territorio×métrica (0 si el SKU no tiene datos en ese punto de compra). */
-  cellVal(r: WorkbookRow, code: string, key: 'vta' | 'exis' | 'ped'): number { return r.cells?.[code]?.[key] ?? 0; }
+  // RA-PRO.47 — las sucursales ya NO son columnas (bajaron al desglose), así que el ancho es fijo
+  // y la tabla tiene un solo renglón de encabezado. Ref estable → evita ExpressionChanged.
+  readonly wbTableStyle = { 'min-width': '82rem' };
+  /** Producto · Ud/caja · Costo · Tend. · Est. · Exist. red · XYZ · En camino · Reorden · Máx
+   *  · Σ Ped. · Σ Piezas · $ Pedido · Valor venta · Valor exist. */
+  readonly wbColCount = 15;
 
-  // ── U.2 — DECLARAR el peldaño sin verificar en vez de dibujar una cifra de cajas inventada ──
-  // El backend marca la celda cuando el divisor de ESE almacén no cuadra con lo que se pagó
-  // (`analytics.v_unit_rung_audit`: `display_bf == caja_cost / pagado`). En esos casos la
-  // conversión a cajas no es confiable —ni la cantidad ni su valuado— pero la cantidad SUELTA sí
-  // es verdad, y el comprador la necesita: hay 2,679 KG ahí, no un blanco.
-  /** `'x1_inflada' | 'x2_deflactada' | null`. null = el peldaño de esa celda está verificado. */
-  rungOf(r: WorkbookRow, code: string): string | null { return r.cells?.[code]?.rung ?? null; }
-  /** Cantidad en la unidad NATIVA del almacén (la que el ERP realmente guarda). */
-  natOf(r: WorkbookRow, code: string): number { return r.cells?.[code]?.nat ?? 0; }
+
+  // ── RA-PRO.47 — DESGLOSE POR SUCURSAL (el acordeón) ──────────────────
+  // Las sucursales dejaron de ser columnas y bajaron acá. El dato es el MISMO que alimentaba esas
+  // columnas (`r.cells`), así que no cuesta un request extra y la tabla de arriba no puede
+  // contradecir al desglose: los totales del renglón son la suma de estos renglones.
+
+  /** Renglones de compra por sucursal, por producto. Se rearma sólo cuando cambia la página. */
+  private readonly branchBuyMap = computed(() => {
+    const names = this.whName();
+    const meta = this.whMeta();
+    const m = new Map<string, BranchBuy[]>();
+    for (const r of this.wbRows()) {
+      const out: BranchBuy[] = [];
+      for (const [code, c] of Object.entries(r.cells ?? {})) {
+        if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
+        out.push({
+          code, name: names.get(code) || '',
+          vta: Number(c.vta) || 0,
+          exis: Number(c.exis) || 0,
+          seed: Number(c.ped) || 0,
+          // Sin costo por celda (feed viejo) se cae al del producto, que es el `max` entre
+          // almacenes: sobrevalúa, pero es lo que ya publicaba la pantalla. No se inventa 0.
+          cc: Number(c.cc ?? r.caja_cost) || 0,
+          rung: c.rung ?? null,
+          nat: Number(c.nat) || 0,
+          natu: this.natLabel(c.natu),
+          natuRaw: (c.natu || '').trim(),
+          hub: !!meta.get(code)?.hub,
+        });
+      }
+      // "Por orden de mayor venta". Con el feed de ventas caído la venta es 0 en todas, así que
+      // desempata por existencia y después por código: el orden queda estable, nunca al azar.
+      out.sort((a, b) => b.vta - a.vta || b.exis - a.exis || a.code.localeCompare(b.code));
+      m.set(r.product_id, out);
+    }
+    return m;
+  });
+  branchBuys(r: WorkbookRow): BranchBuy[] { return this.branchBuyMap().get(r.product_id) ?? []; }
+
   /**
-   * Rótulo de esa unidad, tal como lo declara el ERP dueño del almacén. Sin dato → "u".
+   * Rótulo de la unidad nativa, para la celda.
    *
    * ⚠️ 65 de las 552 celdas marcadas traen un rótulo que es un NÚMERO ('500', '250'): Kepler ahí
    * no guarda el nombre de la unidad sino el GRAMAJE de la bolsa. Concatenarlo sin más daba
-   * "298 500", que no se lee como nada. En ese caso la cantidad va con "u." y el gramaje queda en
+   * "298 500", que no se lee como nada. En ese caso la cantidad va con "u" y el gramaje queda en
    * el tooltip, que es donde cabe la explicación completa.
    */
-  natUnitOf(r: WorkbookRow, code: string): string {
-    const raw = (r.cells?.[code]?.natu || '').trim();
-    if (!raw) return 'u';
-    return /^[\d.]+$/.test(raw) ? 'u' : raw.toLowerCase();
+  private natLabel(raw: string | undefined): string {
+    const v = (raw || '').trim();
+    if (!v) return 'u';
+    return /^[\d.]+$/.test(v) ? 'u' : v.toLowerCase();
   }
-  /** El rótulo CRUDO del ERP, para el tooltip: ahí sí vale la pena decir "de 500". */
-  private natUnitRaw(r: WorkbookRow, code: string): string { return (r.cells?.[code]?.natu || '').trim(); }
+  bRungTitle(b: BranchBuy): string {
+    // Acá sí entra el gramaje completo: el tooltip tiene lugar para decir "unidades de 500".
+    const u = /^[\d.]+$/.test(b.natuRaw) ? `unidades de ${b.natuRaw}` : b.natu;
+    const dir = b.rung === 'x1_inflada'
+      ? 'el divisor de cajas es más chico de lo que el costo justifica (la valuación saldría inflada)'
+      : 'el divisor de cajas es más grande de lo que el costo justifica (la valuación saldría corta)';
+    return `No se puede convertir a cajas ni pedir acá: ${dir}. Lo que sí es verdad: hay `
+      + `${b.nat.toLocaleString('es-MX')} ${u} en este almacén. Restar demanda − existencia `
+      + 'mezclaría peldaños y el sugerido saldría mal. Se compara el divisor contra lo que se pagó '
+      + 'por unidad de stock; el detalle está en la bandeja de hallazgos.';
+  }
+
+  /** Existencia de RED en cajas = Σ de las sucursales con el peldaño verificado (U.2). */
+  exisRed(r: WorkbookRow): number {
+    return this.branchBuys(r).reduce((s, b) => s + (b.rung ? 0 : b.exis), 0);
+  }
+  exisRedTitle(r: WorkbookRow): string {
+    const n = r.almacenes_sin_valuar || 0;
+    if (!n) return 'Existencia sumada de todas las sucursales, en cajas. El desglose está al abrir la fila.';
+    return `Suma sólo las sucursales con el peldaño de unidad verificado. ${n} `
+      + `${n === 1 ? 'almacén queda' : 'almacenes quedan'} fuera porque su divisor de cajas no cuadra `
+      + 'con lo que se pagó: ahí la existencia se muestra en su unidad suelta, dentro del desglose.';
+  }
+
+  // ── cantidad editable POR SUCURSAL ───────────────────────────────────
+  // Canónico = CAJAS, siempre. El selector cj/pz del renglón sólo cambia cómo se escribe: los días
+  // de inventario y el valor se calculan con las cajas, así que nunca se mezclan unidades.
+  private readonly buyQty = signal<Record<string, number>>({});                  // 'pid|code' → CAJAS
+  private readonly buyUnit = signal<Record<string, 'caja' | 'pieza'>>({});
+  private bk(pid: string, code: string): string { return pid + '|' + code; }
+
+  /** Cantidad en CAJAS: lo que el usuario escribió, o el sugerido del motor si no tocó nada. */
+  qtyOf(r: WorkbookRow, b: BranchBuy): number {
+    if (b.rung) return 0;
+    const ov = this.buyQty()[this.bk(r.product_id, b.code)];
+    return ov === undefined ? b.seed : ov;
+  }
+  unitOfBranch(r: WorkbookRow, b: BranchBuy): 'caja' | 'pieza' {
+    return this.buyUnit()[this.bk(r.product_id, b.code)] ?? 'caja';
+  }
+  setUnitBranch(r: WorkbookRow, b: BranchBuy, u: 'caja' | 'pieza'): void {
+    this.buyUnit.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: u }));
+  }
+  /** Factor cajas → unidad de captura del renglón. */
+  private bFactor(r: WorkbookRow, b: BranchBuy): number {
+    return this.unitOfBranch(r, b) === 'pieza' ? (Number(r.uxc) || 1) : 1;
+  }
+  dispOf(r: WorkbookRow, b: BranchBuy): number { return this.qtyOf(r, b) * this.bFactor(r, b); }
+  setDispOf(r: WorkbookRow, b: BranchBuy, v: number | string): void {
+    const cajas = Math.max(0, Number(v) || 0) / (this.bFactor(r, b) || 1);
+    this.buyQty.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: cajas }));
+    this.dirty.set(true);
+  }
+
+  /**
+   * Días de inventario con lo que se pida: (existencia + pedido) ÷ (venta 30 d ÷ 30.4).
+   * 30.4 es el convenio de días del mes que ya usa el comprador en su Excel.
+   * Sin venta NO hay cobertura que calcular → null, que la pantalla pinta "—". Un 0 se leería
+   * "urge" y un número enorme se leería "sobra"; las dos serían mentira.
+   */
+  diasInv(r: WorkbookRow, b: BranchBuy): number | null {
+    if (b.rung || !(b.vta > 0)) return null;
+    return (b.exis + this.qtyOf(r, b)) * 30.4 / b.vta;
+  }
+  diasLabel(d: number | null): string {
+    if (d == null) return '—';
+    return d >= 999 ? '+999 d' : `${Math.round(d)} d`;
+  }
+  diasTitle(r: WorkbookRow, b: BranchBuy): string {
+    if (b.rung) return 'No se puede calcular: el peldaño de unidad de este almacén no está verificado.';
+    if (!(b.vta > 0)) return 'Sin venta en los últimos 30 días en esta sucursal: no hay cobertura que calcular.';
+    const q = this.qtyOf(r, b);
+    return `(${b.exis.toFixed(1)} de existencia + ${q.toFixed(1)} de pedido) ÷ (${b.vta.toFixed(1)} de venta 30 d ÷ 30.4 días)`;
+  }
+
+  // ── totales del renglón de producto (los de arriba) ──────────────────
+  // Son la SUMA VIVA del desglose: es lo que hace que la columna Σ Ped. y el $ Pedido digan lo
+  // mismo que se va a ordenar. Antes venían del servidor y no se movían al editar.
+  sumCajas(r: WorkbookRow): number { return this.branchBuys(r).reduce((s, b) => s + this.qtyOf(r, b), 0); }
+  sumPiezas(r: WorkbookRow): number { return this.sumCajas(r) * (Number(r.uxc) || 1); }
+  sumValor(r: WorkbookRow): number { return this.branchBuys(r).reduce((s, b) => s + this.qtyOf(r, b) * b.cc, 0); }
+
+  // ── cejitas del desglose ─────────────────────────────────────────────
+  private readonly detTab = signal<Record<string, 'buy' | 'tr'>>({});
+  tabOf(pid: string): 'buy' | 'tr' { return this.detTab()[pid] ?? 'buy'; }
+  setTab(pid: string, t: 'buy' | 'tr'): void { this.detTab.update((m) => ({ ...m, [pid]: t })); }
+  /** Sólo los traspasos del producto (la cejita de traspasos queda como estaba). */
+  trasRows(pid: string): URow[] { return this.detailRows(pid).filter((u) => u.type === 'traspaso'); }
+
+  /** code → warehouse_id, para armar la requisición desde las celdas (que vienen por código). */
+  private readonly whIdByCode = computed(() => {
+    const m = new Map<string, string>();
+    for (const w of this.filters()?.warehouses ?? []) m.set(w.code, w.id);
+    return m;
+  });
+
+  // ── RA-PRO.48 — ZONA DE COMPRA y ENTREGA (directo a la sucursal vs consolidado en un CEDIS) ──
+  // La zona y la bandera de CEDIS salen de la TABLA (`purchase_zone` / `is_purchase_hub`, mig
+  // 20260910120000), no de un mapa de códigos acá: dar de alta un almacén o mover el CEDIS de una
+  // zona tiene que ser editar un dato, no tocar y desplegar código. Es la regla que el propio
+  // workbook declara ("Cero códigos hardcodeados").
+
+  /** Metadatos por código de almacén: nombre, zona de compra, si es CEDIS y su orden. */
+  private readonly whMeta = computed(() => {
+    const m = new Map<string, { name: string; zone: string; hub: boolean; order: number }>();
+    for (const w of this.filters()?.warehouses ?? []) {
+      m.set(w.code, {
+        name: w.name,
+        zone: (w.purchase_zone || '').trim() || 'Sin zona',
+        hub: !!w.is_purchase_hub,
+        order: w.display_order == null ? 98 : Number(w.display_order),
+      });
+    }
+    return m;
+  });
+  /** Los CEDIS donde se puede consolidar una compra, en el orden en que se muestran los almacenes. */
+  readonly cedisList = computed(() => (this.filters()?.warehouses ?? [])
+    .filter((w) => w.is_purchase_hub)
+    .map((w) => ({ code: w.code, name: w.name, order: w.display_order == null ? 98 : Number(w.display_order) }))
+    .sort((a, b) => a.order - b.order || a.code.localeCompare(b.code)));
+  /** El CEDIS de una zona (el almacén marcado como hub dentro de ella). */
+  private hubOfZone(zone: string): { code: string; name: string; order: number } | null {
+    for (const w of this.filters()?.warehouses ?? []) {
+      if (w.is_purchase_hub && ((w.purchase_zone || '').trim() || 'Sin zona') === zone) {
+        return { code: w.code, name: w.name, order: w.display_order == null ? 98 : Number(w.display_order) };
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Los renglones del producto, agrupados por ZONA. Dentro de cada zona siguen ordenados por venta
+   * (la regla del desglose); las zonas se ordenan por el `display_order` de su CEDIS — así, mover
+   * una zona de lugar es editar ese campo desde el admin, sin tocar esto.
+   */
+  private readonly branchZoneMap = computed(() => {
+    const meta = this.whMeta();
+    const m = new Map<string, ZoneGroup[]>();
+    for (const [pid, rows] of this.branchBuyMap()) {
+      const byZone = new Map<string, BranchBuy[]>();
+      for (const b of rows) {
+        const z = meta.get(b.code)?.zone || 'Sin zona';
+        const arr = byZone.get(z); if (arr) arr.push(b); else byZone.set(z, [b]);
+      }
+      const out: ZoneGroup[] = [];
+      for (const [zone, rs] of byZone) {
+        const hub = this.hubOfZone(zone);
+        out.push({ zone, hubCode: hub?.code ?? null, hubName: hub?.name ?? '', order: hub?.order ?? 99, rows: rs });
+      }
+      out.sort((a, b) => a.order - b.order || a.zone.localeCompare(b.zone));
+      m.set(pid, out);
+    }
+    return m;
+  });
+  branchZones(r: WorkbookRow): ZoneGroup[] { return this.branchZoneMap().get(r.product_id) ?? []; }
+  /**
+   * ¿Vale la pena pintar los encabezados de zona? Si la migración 20260910120000 todavía no corrió,
+   * ningún almacén trae `purchase_zone` y TODO cae en "Sin zona": un encabezado único que no agrupa
+   * nada y encima se lee como si la pantalla estuviera rota. En ese caso no se pinta y la tabla
+   * queda como estaba, ordenada por venta.
+   */
+  showZones(r: WorkbookRow): boolean {
+    const zs = this.branchZones(r);
+    return zs.length > 1 || (zs.length === 1 && zs[0].zone !== 'Sin zona');
+  }
+
+  /**
+   * Dónde se entrega cada renglón. `null` (el default) = el proveedor entrega DIRECTO en la
+   * sucursal. Un código = la compra se CONSOLIDA en ese CEDIS y después baja por traspaso.
+   */
+  private readonly buyDeliver = signal<Record<string, string | null>>({});
+  deliverOf(r: WorkbookRow, b: BranchBuy): string | null { return this.buyDeliver()[this.bk(r.product_id, b.code)] ?? null; }
+  isConsolidated(r: WorkbookRow, b: BranchBuy): boolean { return !!this.deliverOf(r, b); }
+  private setDeliver(r: WorkbookRow, b: BranchBuy, code: string | null): void {
+    this.buyDeliver.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: code }));
+    this.dirty.set(true);
+  }
+  setDirect(r: WorkbookRow, b: BranchBuy): void { this.setDeliver(r, b, null); }
+  /** Al marcar Consolidado se propone el CEDIS de SU zona; si esa sucursal ya es el CEDIS, el primero que no sea ella. */
+  setConsolidated(r: WorkbookRow, b: BranchBuy): void {
+    if (this.isConsolidated(r, b)) return;
+    const zone = this.whMeta().get(b.code)?.zone ?? 'Sin zona';
+    const hub = this.hubOfZone(zone);
+    const target = hub && hub.code !== b.code ? hub.code : (this.cedisFor(b)[0]?.code ?? null);
+    if (target) this.setDeliver(r, b, target);
+  }
+  setDeliverTo(r: WorkbookRow, b: BranchBuy, code: string): void { this.setDeliver(r, b, code || null); }
+  /** Atajos de zona: con 4 sucursales por zona, marcar una por una es trabajo de más. */
+  zoneAllDirect(r: WorkbookRow, z: ZoneGroup): void {
+    this.buyDeliver.update((m) => {
+      const n = { ...m }; for (const b of z.rows) n[this.bk(r.product_id, b.code)] = null; return n;
+    });
+    this.dirty.set(true);
+  }
+  zoneAllToHub(r: WorkbookRow, z: ZoneGroup): void {
+    if (!z.hubCode) return;
+    this.buyDeliver.update((m) => {
+      const n = { ...m };
+      // La sucursal que ES el CEDIS no se consolida en sí misma: se queda directa.
+      for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === z.hubCode ? null : z.hubCode;
+      return n;
+    });
+    this.dirty.set(true);
+  }
+  /** CEDIS elegibles para este renglón: todos menos él mismo (consolidarse en sí mismo no es nada). */
+  cedisFor(b: BranchBuy): { code: string; name: string }[] { return this.cedisList().filter((cd) => cd.code !== b.code); }
+  /**
+   * Nombre del CEDIS para la cortinilla. El almacén de Morelia se llama `Almacén Morelia Abastos
+   * (30)` en la tabla: dentro de un desplegable angosto ese prefijo y ese sufijo son ruido que
+   * empuja fuera lo único que se lee ("Morelia Abastos"). Se recortan SOLO para mostrar; el nombre
+   * real no se toca en ningún lado.
+   */
+  cedisLabel(name: string): string {
+    return (name || '').replace(/^Almac[eé]n\s+/i, '').replace(/\s*\(\d+\)\s*$/, '').trim() || name;
+  }
+  deliverTitle(r: WorkbookRow, b: BranchBuy): string {
+    const to = this.deliverOf(r, b);
+    if (!to) return 'El proveedor entrega directo en esta sucursal. No genera traspaso.';
+    return `La compra se entrega en ${to} ${this.nameOf(to)}. Al armar la requisición se genera además `
+      + `un traspaso ${to} → ${b.code} por esa misma cantidad.`;
+  }
+
+  /**
+   * ACUSE DE ENTREGA — el punto de la pantalla. La palomita dice qué marcaste; esto dice qué se le
+   * va a pedir al proveedor: cuánto llega a cada CEDIS y cuánto va directo a cada sucursal.
+   */
+  entregas(r: WorkbookRow): Entrega[] {
+    const m = new Map<string, Entrega>();
+    for (const b of this.branchBuys(r)) {
+      const q = this.qtyOf(r, b);
+      if (!(q > 0)) continue;
+      const to = this.deliverOf(r, b);
+      const code = to ?? b.code;
+      const e = m.get(code) ?? { code, name: to ? this.nameOf(to) : b.name, direct: !to, cajas: 0, valor: 0 };
+      // Un mismo CEDIS puede recibir de varias sucursales: si alguna es directa y otra consolidada
+      // sobre el mismo código, manda "consolidado" (es el caso del renglón que ES el CEDIS).
+      if (to) e.direct = false;
+      e.cajas += q; e.valor += q * b.cc;
+      m.set(code, e);
+    }
+    return [...m.values()].sort((a, b) => Number(a.direct) - Number(b.direct) || b.valor - a.valor);
+  }
+  /** Cuántos traspasos CEDIS→sucursal va a generar este producto. Se avisa ANTES de armar. */
+  traspasosGenerados(r: WorkbookRow): number {
+    return this.branchBuys(r).filter((b) => {
+      const to = this.deliverOf(r, b);
+      return !!to && to !== b.code && this.qtyOf(r, b) > 0;
+    }).length;
+  }
+
   /** U.2 — por qué el pedido de red puede venir corto: hay almacenes que no se pudieron calcular. */
   pedidoTitle(r: WorkbookRow): string {
     const n = r.almacenes_sin_pedido || 0;
@@ -751,19 +1212,6 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return `Este total NO incluye ${n} almacén${n > 1 ? 'es' : ''}: ahí el costo de compra contradice `
       + 'el divisor con el que se lee la existencia, así que restar demanda − existencia mezclaría '
       + 'peldaños y el sugerido saldría mal. Falta pedido, no es que no haga falta comprar.';
-  }
-  rungTitle(r: WorkbookRow, code: string): string {
-    const v = this.rungOf(r, code);
-    const n = this.natOf(r, code).toLocaleString('es-MX');
-    const raw = this.natUnitRaw(r, code);
-    // Si el ERP rotula la unidad con un número, es el gramaje de la bolsa: se dice completo acá.
-    const u = /^[\d.]+$/.test(raw) ? `unidades de ${raw}` : (this.natUnitOf(r, code));
-    const dir = v === 'x1_inflada'
-      ? 'el divisor de cajas es más chico de lo que el costo justifica (la valuación saldría inflada)'
-      : 'el divisor de cajas es más grande de lo que el costo justifica (la valuación saldría corta)';
-    return `No se puede convertir a cajas: ${dir}. Lo que sí es verdad: hay ${n} ${u} en este almacén. `
-      + 'Se compara el divisor contra lo que se pagó por unidad de stock; el detalle está en la '
-      + 'bandeja de hallazgos.';
   }
   valorExisTitle(r: WorkbookRow): string {
     if (!r.almacenes_sin_valuar) return 'Dinero inmovilizado en existencia: existencia × costo de caja.';
@@ -782,6 +1230,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return m;
   });
   abcOf(pid: string): string | null { return this.abcMap().get(pid) ?? null; }
+  /**
+   * RA-PRO.47 — el override de unidad (RA-PRO.28) es POR PRODUCTO, así que su botón sube al
+   * renglón del producto. Antes colgaba de los renglones de compra del desglose, que eran de grano
+   * red: al bajar el desglose a sucursales el diálogo se habría quedado sin puerta de entrada.
+   */
+  private readonly unitRefMap = computed(() => {
+    const m = new Map<string, PurchaseSuggestionRow>();
+    for (const u of this.urows()) {
+      if (u.type !== 'comprar' || !u.buy) continue;
+      const src = u.unit_source;
+      if (!src || src === 'catalog') continue;
+      if (!m.has(u.product_id)) m.set(u.product_id, u.buy);
+    }
+    return m;
+  });
+  unitRefOf(pid: string): PurchaseSuggestionRow | null { return this.unitRefMap().get(pid) ?? null; }
   // RA-PRO.33 — unidades: pz/caja (uxc) + paquete (solo multipacks). Map product_id → {uxc, pack, packs}.
   private readonly packByProduct = computed(() => {
     const m = new Map<string, { uxc: number; pack: number | null; packs: number | null }>();
@@ -878,11 +1342,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       .filter((u) => u.product_id === pid)
       .sort((a, b) => this.typeOrder[a.type] - this.typeOrder[b.type] || compareWarehouseCodes(a.warehouse_code, b.warehouse_code));
   }
-  prodBuy(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'comprar').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
   prodTr(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'traspaso').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
-  prodOver(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'sobre').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
 
-  toggleGroup(): void { this.wbGroup.set(this.wbGroup() === 'branch' ? 'general' : 'branch'); this.loadWorkbook(); }
+  // RA-PRO.47 — el toggle Englobar/Desglosar se retiró: ya no hay columnas por sucursal que abrir
+  // o cerrar. La consulta pide SIEMPRE grano sucursal, porque es lo que alimenta el desglose.
 
   // RA-PRO.36.2 — filtros SERVER-SIDE (aplican sobre TODO el dataset, no la página cargada).
   readonly fIad = signal<'all' | 'accel' | 'decel'>('all');   // RA-PRO.36 filtro de tendencia
@@ -1069,7 +1532,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       localStorage.setItem(this.FKEY, JSON.stringify({
         mode: this.mode(), fSupplier: this.fSupplier, fBrand: this.fBrand, fCategory: this.fCategory, fWarehouse: this.fWarehouse,
         search: this.search, coverage: this.coverage, cBuy: this.cBuy(), cTr: this.cTr(), cOver: this.cOver(),
-        wbGroup: this.wbGroup(), wbWarehouses: this.wbWarehouses, wbScopeNeeded: this.wbScopeNeeded(),
+        wbWarehouses: this.wbWarehouses, wbScopeNeeded: this.wbScopeNeeded(),
       }));
     } catch { /* localStorage no disponible */ }
   }
@@ -1090,7 +1553,6 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       if (typeof s.cBuy === 'boolean') this.cBuy.set(s.cBuy);
       if (typeof s.cTr === 'boolean') this.cTr.set(s.cTr);
       if (typeof s.cOver === 'boolean') this.cOver.set(s.cOver);
-      if (s.wbGroup === 'branch' || s.wbGroup === 'general') this.wbGroup.set(s.wbGroup);
       if (Array.isArray(s.wbWarehouses)) this.wbWarehouses = s.wbWarehouses;
       if (typeof s.wbScopeNeeded === 'boolean') this.wbScopeNeeded.set(s.wbScopeNeeded);
     } catch { /* JSON inválido */ }
@@ -1125,20 +1587,26 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private fetchWorkbookPage(reloadEnrichment: boolean): void {
     this.loading.set(true); this.error.set(false); this.saveFilters();
     this.wbOpen.set(new Set());   // nueva página/data → colapsa el acordeón
-    if (reloadEnrichment) this.detailReady.set(false);
+    if (reloadEnrichment) {
+      this.detailReady.set(false);
+      // Cambio de filtro = otro universo: las cantidades editadas vuelven al sugerido del motor.
+      // Al paginar NO se limpian (están indexadas por producto×sucursal), así que ir y volver de
+      // página conserva lo capturado.
+      this.buyQty.set({}); this.buyUnit.set({}); this.buyDeliver.set({}); this.dirty.set(false);
+    }
     const iad = this.fIad();
     this.api.workbook({
       supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
-      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch',
       iad: iad === 'all' ? undefined : iad,
       only_overstock: this.wbOnlyOver() || undefined,
       page: Math.floor(this.wbFirst() / this.wbPageSize()) + 1, pageSize: this.wbPageSize(),
     }).pipe(catchError(() => of(null as WorkbookResponse | null)), takeUntilDestroyed(this.destroyRef))
       .subscribe((r) => {
         this.loading.set(false);
-        if (!r) { this.error.set(true); this.wbRows.set([]); this.wbTerritories.set([]); return; }
-        this.wbRows.set(r.rows); this.wbTerritories.set(r.territories ?? []); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
+        if (!r) { this.error.set(true); this.wbRows.set([]); return; }
+        this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
         this.wbRung.set(r.unit_rung ?? null);
         this.loadedAt.set(Date.now());
         if (reloadEnrichment) {
@@ -1284,10 +1752,17 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     }
     return out;
   });
-  totBuy = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.buy)); return s; });
+  // RA-PRO.47 — la compra de la barra sale del MISMO desglose que el botón Requisición ordena, así
+  // que decir y hacer no se pueden separar. Alcance = los productos de ESTA página (que es lo que
+  // el botón global arma); el KPI "A comprar" de arriba es el total del filtro completo, server-side.
+  totBuy = computed(() => this.wbRows().reduce((s, r) => s + this.sumValor(r), 0));
+  totBuyCajas = computed(() => this.wbRows().reduce((s, r) => s + this.sumCajas(r), 0));
   totTr = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.tr)); return s; });
   totOver = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.over)); return s; });
-  totCajas = computed(() => { let s = 0; this.subs().forEach((g) => (s += g.buyCj + g.trCj)); return s; });
+  totCajas = computed(() => {
+    let tr = 0; this.subs().forEach((g) => (tr += g.trCj));
+    return this.totBuyCajas() + tr;
+  });
 
   loadDead(): void {
     this.loading.set(true); this.saveFilters();
@@ -1362,22 +1837,89 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return parts.length ? ` · unidad de pedido: ${parts.join(', ')}` : '';
   }
 
+  /**
+   * RA-PRO.47 — líneas de COMPRA a ordenar: salen del desglose por sucursal (lo que el comprador
+   * ve y editó), no del motor de grano red. Se saltan las sucursales con el peldaño sin verificar
+   * (`qtyOf` ya devuelve 0 ahí): la tabla dice que no se puede calcular y la orden tiene que decir
+   * lo mismo — antes la tabla retenía el número y la requisición lo mandaba igual.
+   */
+  private buyLines(pid?: string, code?: string) {
+    const ids = this.whIdByCode();
+    const out: Array<{
+      r: WorkbookRow; b: BranchBuy; qty: number;
+      wh: string | undefined;                       // la sucursal que NECESITA la mercancía
+      /** RA-PRO.48 — dónde la ENTREGA el proveedor. null = la misma sucursal. */
+      toCode: string | null; toWh: string | undefined;
+    }> = [];
+    for (const r of this.wbRows()) {
+      if (pid && r.product_id !== pid) continue;
+      for (const b of this.branchBuys(r)) {
+        if (code && b.code !== code) continue;
+        const qty = this.qtyOf(r, b);
+        if (!(qty > 0)) continue;
+        // Consolidar en la propia sucursal no es consolidar: cuenta como entrega directa.
+        const to = this.deliverOf(r, b);
+        const toCode = to && to !== b.code ? to : null;
+        out.push({ r, b, qty, wh: ids.get(b.code), toCode, toWh: toCode ? ids.get(toCode) : undefined });
+      }
+    }
+    return out;
+  }
+
   buildReq(code?: string, pid?: string): void {
-    const scope = (pid ? this.urows() : this.flatRows()).filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.editable && Number(r.qty) > 0);
-    const buy = scope.filter((r) => r.type === 'comprar');
-    const tr = scope.filter((r) => r.type === 'traspaso');
-    if (!buy.length && !tr.length) { this.toast.add({ severity: 'warn', summary: 'Nada que armar', detail: 'No hay cantidades > 0 en el scope.' }); return; }
+    const all = this.buyLines(pid, code);
+    // Una línea consolidada necesita DOS almacenes resueltos (el CEDIS que recibe y la sucursal
+    // que la va a recibir en el traspaso); una directa, sólo el suyo.
+    const buyL = all.filter((l) => l.wh && (!l.toCode || l.toWh));
+    const sinWh = all.length - buyL.length;
+    const tr = (pid ? this.urows() : this.flatRows())
+      .filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.type === 'traspaso' && r.editable && Number(r.qty) > 0);
+    if (!buyL.length && !tr.length) { this.toast.add({ severity: 'warn', summary: 'Nada que armar', detail: 'No hay cantidades > 0 en el scope.' }); return; }
+    // El código de almacén tiene que resolver a un id o la línea no se puede mandar. Se avisa en
+    // vez de perderla en silencio (pasaría si /filters falló y los lookups quedaron vacíos).
+    if (sinWh) {
+      this.toast.add({ severity: 'warn', life: 8000, summary: 'Sucursales sin identificar',
+        detail: `${sinWh} renglón(es) quedan fuera: no se pudo resolver su almacén. Recargá la página.` });
+    }
 
     const dtos: CreateRequisitionDto[] = [];
-    const buyGroups = new Map<string, URow[]>();
-    for (const r of buy) { const k = `${r.supplier_id || 'none'}|${r.warehouse_id || 'none'}`; (buyGroups.get(k) ?? buyGroups.set(k, []).get(k)!).push(r); }
-    for (const rs of buyGroups.values()) {
+    // RA-PRO.48 — la COMPRA se agrupa por (proveedor × dónde ENTREGA el proveedor), no por la
+    // sucursal que la necesita. Consolidar significa exactamente eso: una sola entrega en el CEDIS.
+    const buyGroups = new Map<string, typeof buyL>();
+    for (const l of buyL) {
+      const k = `${l.r.supplier_id || 'none'}|${l.toWh ?? l.wh}`;
+      (buyGroups.get(k) ?? buyGroups.set(k, []).get(k)!).push(l);
+    }
+    for (const ls of buyGroups.values()) {
+      const consol = ls.filter((l) => l.toCode);
+      const nota = consol.length
+        ? ` — consolidado: ${[...new Set(consol.map((l) => l.b.code))].join(', ')} bajan por traspaso`
+        : '';
       dtos.push({
-        warehouse_id: rs[0].warehouse_id!, supplier_id: rs[0].supplier_id || null, source_type: 'supplier',
-        notes: 'Demand-driven (venta × cobertura) — por sucursal' + this.unitNote(rs),
-        lines: rs.map<CreateRequisitionLine>((r) => ({
-          product_id: r.product_id, supplier_id: r.supplier_id || null, source_type: 'supplier',
-          on_hand: r.on_hand, suggested_qty: r.qty, final_qty: r.qty, unit_cost: r.unit_cost,
+        warehouse_id: (ls[0].toWh ?? ls[0].wh)!, supplier_id: ls[0].r.supplier_id || null, source_type: 'supplier',
+        notes: `Demand-driven (venta × cobertura ${this.coverage}d) — por sucursal${nota}`,
+        lines: ls.map<CreateRequisitionLine>((l) => ({
+          product_id: l.r.product_id, supplier_id: l.r.supplier_id || null, source_type: 'supplier',
+          on_hand: l.b.exis, suggested_qty: l.b.seed, final_qty: l.qty, unit_cost: l.b.cc,
+        })),
+      });
+    }
+    // RA-PRO.48 — y el TRASPASO que la consolidación implica. El schema ya lo expresa
+    // (`source_type='branch'` + `source_warehouse_id`), así que no hace falta columna nueva: la
+    // mercancía llega al CEDIS y baja, que es lo que físicamente pasa. Se agrupa por (destino × CEDIS).
+    const bajadas = new Map<string, typeof buyL>();
+    for (const l of buyL) {
+      if (!l.toCode) continue;
+      const k = `${l.wh}|${l.toWh}`;
+      (bajadas.get(k) ?? bajadas.set(k, []).get(k)!).push(l);
+    }
+    for (const ls of bajadas.values()) {
+      dtos.push({
+        warehouse_id: ls[0].wh!, supplier_id: null, source_type: 'branch', source_warehouse_id: ls[0].toWh!,
+        notes: `Bajada de compra consolidada ${ls[0].toCode} → ${ls[0].b.code}`,
+        lines: ls.map<CreateRequisitionLine>((l) => ({
+          product_id: l.r.product_id, source_type: 'branch', source_warehouse_id: l.toWh!,
+          suggested_qty: l.qty, final_qty: l.qty, unit_cost: l.b.cc,
         })),
       });
     }
@@ -1417,7 +1959,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     return {
       supplier_id: this.fSupplier || undefined, brand_id: this.fBrand || undefined, category_id: this.fCategory || undefined, search: this.search.trim() || undefined,
       coverage_days: this.coverage, scope: this.wbScopeNeeded() ? 'needed' : undefined,
-      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: this.wbGroup(),
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined, group: 'branch',
       iad: iad === 'all' ? undefined : iad, only_overstock: this.wbOnlyOver() || undefined,
     } as const;
   }
@@ -1442,21 +1984,34 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   /** Exporta XLSX del scope editable (compra + traspaso con qty > 0). Drill: code = una sucursal,
    *  pid = un solo producto (desde el acordeón) — mantiene las cantidades editadas. */
   exportScope(code?: string, pid?: string): void {
-    const scope = (pid ? this.urows() : this.flatRows()).filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.editable && Number(r.qty) > 0);
-    if (!scope.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
-    const lines: PedidoExportLine[] = scope.map((r) => ({
-      warehouse_code: r.warehouse_code,
-      supplier_name: r.type === 'traspaso' ? `TRASPASO ← ${r.from_code}` : r.supplier_name,
-      sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
-      sales_rank: r.buy?.sales_rank ?? undefined,
-      monthly_revenue: r.buy?.sell_month_mxn ?? undefined,
-      sell_daily: r.sell_daily, days_cover: r.cover, deficit: r.deficit || undefined,
-      on_hand: r.on_hand, in_transit: r.buy?.in_transit_units ?? undefined, suggested_qty: r.qty,
-      uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
-    }));
+    // RA-PRO.47 — la compra sale del desglose por sucursal (lo que está en pantalla y se editó);
+    // los traspasos siguen saliendo del motor de traspasos, que sí es por almacén.
+    const buyL = this.buyLines(pid, code);
+    const tr = (pid ? this.urows() : this.flatRows())
+      .filter((r) => (!code || r.warehouse_code === code) && (!pid || r.product_id === pid) && r.type === 'traspaso' && r.editable && Number(r.qty) > 0);
+    if (!buyL.length && !tr.length) { this.toast.add({ severity: 'warn', summary: 'Nada que exportar' }); return; }
+    const lines: PedidoExportLine[] = [
+      ...buyL.map<PedidoExportLine>((l) => ({
+        warehouse_code: l.b.code, supplier_name: l.r.supplier_name,
+        // RA-PRO.48 — el XLSX tiene que decir dónde entregar, que es media instrucción al proveedor.
+        deliver_to: l.toCode,
+        sku: l.r.sku, nombre: l.r.nombre, abc_class: this.abcOf(l.r.product_id),
+        sell_daily: l.b.vta / 30.4, days_cover: this.diasInv(l.r, l.b),
+        on_hand: l.b.exis, in_transit: l.r.transito_cajas ?? undefined, suggested_qty: l.b.seed,
+        uxc: l.r.uxc, cajas: l.qty, piezas: l.qty * l.r.uxc, unit_cost: l.b.cc, line_cost: l.qty * l.b.cc,
+      })),
+      ...tr.map<PedidoExportLine>((r) => ({
+        warehouse_code: r.warehouse_code, supplier_name: `TRASPASO ← ${r.from_code}`,
+        sku: r.sku, nombre: r.nombre, abc_class: r.abc_class,
+        sell_daily: r.sell_daily, days_cover: r.cover, deficit: r.deficit || undefined,
+        on_hand: r.on_hand, suggested_qty: r.qty,
+        uxc: r.uxc, cajas: r.qty, piezas: r.qty * r.uxc, unit_cost: r.unit_cost, line_cost: r.qty * r.unit_cost,
+      })),
+    ];
     this.dl.set(true);
-    const scopeName = pid ? (scope[0]?.nombre || 'producto') : code ? `${code} ${this.nameOf(code)}`.trim() : 'toda la red';
-    const fileTag = pid ? (scope[0]?.sku || 'producto') : code || 'global';
+    const first = buyL[0]?.r ?? tr[0];
+    const scopeName = pid ? (first?.nombre || 'producto') : code ? `${code} ${this.nameOf(code)}`.trim() : 'toda la red';
+    const fileTag = pid ? (first?.sku || 'producto') : code || 'global';
     this.api.exportPedidoXlsx({ title: `Pedido por sucursal — ${scopeName}`, basis: `cobertura ${this.coverage}d`, multi_warehouse: true, lines })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (resp) => { this.dl.set(false); saveXlsxResponse(resp, `pedido-${fileTag}.xlsx`); },
