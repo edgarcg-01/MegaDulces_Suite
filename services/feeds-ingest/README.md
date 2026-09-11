@@ -43,9 +43,15 @@ Feeds soportados hoy: `stock-delta` (piloto). Agregar más = registrar un handle
 4. Habilitar dominio público (para que el runner on-prem le pegue por HTTPS).
 5. Verificar: `GET https://<dominio>/health` → `{ ok: true }`.
 
-## Activar el push desde on-prem (runner .249)
+## Activar el push desde on-prem (servidor `md`)
 
-En el entorno del runner (`run-feeds.cmd` / Task Scheduler), setear:
+⚠️ **Desde el 2026-09-11 la ingesta corre en el servidor Linux `md` (192.168.0.222)**, no en la
+máquina de escritorio `.249`. Ya no hay `run-feeds.cmd` ni Programador de Windows: los carriles son
+contenedores de Docker Compose y el entorno sale de **`~/secrets/feeds.env`** en el servidor (que es
+lo que `ops/vl/run-feed.sh` carga, porque busybox `crond` no hereda el entorno del contenedor).
+Qué corre dónde: [`ops/README.md`](../../ops/README.md).
+
+En ese archivo de entorno, setear:
 
 ```
 FEEDS_SINK=http

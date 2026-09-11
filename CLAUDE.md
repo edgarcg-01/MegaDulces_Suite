@@ -244,6 +244,14 @@ Detalle de cada fase en [`docs/IMPLEMENTACION/FASES/`](docs/IMPLEMENTACION/FASES
 ## Datos del entorno
 
 - **Service ID Railway**: `69f64078-1678-40f4-a266-a18b61a20cde` (cache mounts `id=s/<service>-<target>`).
+- **⭐ Dónde corre la INGESTA**: servidor Linux **`md` · `192.168.0.222`** (Ubuntu Server 26.04.1,
+  `ssh superoot@192.168.0.222`) desde el **2026-09-11**. Contenedores de Docker Compose declarados
+  en [`ops/vl/docker-compose.yml`](ops/vl/docker-compose.yml) + agenda versionada en
+  [`ops/vl/crontab.feeds`](ops/vl/crontab.feeds); arrancan con la máquina, **sin sesión de usuario**
+  (verificado con un reinicio real). Ahí vive también **la fuente**: el Postgres `:5433` con las 8
+  réplicas lógicas de las sucursales. ⛔ En `.249` sólo quedan los **3 carriles de Wincaja** (Jet
+  32-bit sobre unidad mapeada — Fase VL.5) y el respaldo diario.
+  **Qué corre dónde, medido: [`ops/README.md`](ops/README.md).** Despliegue: `ops/vl/deploy.sh`.
 - **DB legacy (actual prod)**: Postgres en Railway (host `switchback.proxy.rlw...`, accesible via `.env` local).
 - **DB nueva multi-tenant**: ✅ Creada local en `192.168.0.245:5432/postgres_platform` con Postgres 18.4. Pendiente migrar a Railway (Sprint A.0mt.5 cutover).
 - **Primer tenant**: `mega_dulces` con UUID `00000000-0000-0000-0000-00000000d01c`.

@@ -299,6 +299,19 @@ relativos (`./libs/...`, si no `TS5090`), así que no puede extender `tsconfig.b
 ---
 
 ## 13. Feeds on-prem — "tarea Running" NO significa que el feed corra
+> ⚠️ **Actualizado 2026-09-11.** Esta sección describe el mundo de las **tareas de Windows en
+> `.249`**, que hoy sólo aplica a los **3 carriles de Wincaja** y al respaldo (Fase VL.5/VL.6). Los
+> otros 13 carriles corren en el servidor Linux `md` como contenedores — ver
+> [`ops/README.md`](../ops/README.md).
+>
+> **La lección NO caducó, cambió de disfraz.** En `md` el equivalente exacto de "tarea Running" es
+> **`docker inspect` diciendo `healthy`**, y volvió a morder el mismo día de la mudanza: el
+> `store-poller` quedó colgado 6 min en un `client.end()` contra una sucursal (socket en
+> `FIN_WAIT1`), con el proceso vivo, el log mudo y el contenedor rotulado `healthy` — porque su
+> healthcheck heredado salía por la rama "no se evalúa". Lo encontró un humano, no el sistema.
+> **El veredicto no es el rótulo del supervisor: es el latido de ENTREGA en `analytics.cron_runs`
+> de prod** (ADR-053). Y un veredicto sin brazo tampoco sirve: el brazo es el servicio `autoheal`.
+
 
 Los loops del CDC del ODS (`\Tienda\OdsLiveLoop`, `\Tienda\OdsFullMirror`) son un `.cmd` con `:loop` que
 relanza `node` cada iteración. Si el `node` se cuelga, **la tarea sigue en `Running` y el proceso sigue
@@ -418,6 +431,16 @@ Esa var significa dos cosas distintas según quién la lee:
 | API (`new-database.module.ts`) | conexión **admin** (`KNEX_NEW_DB_ADMIN`, REFRESH de MVs) |
 | `knexfile-newdb.js` | destino de las **migraciones** |
 | `replicate-ods-live.js` / `ods-cdc-wal.js` | **BASE de la FUENTE**: de ahí derivan `kepler_md_XX` (los replicas lógicos del contenedor `:5433`) |
+
+⚠️ **Dónde está ese `:5433` desde el 2026-09-11:** en el servidor Linux **`md` · 192.168.0.222**,
+no en la máquina de escritorio `.249` — la fuente se mudó con los carriles, como una unidad
+(ADR-060). En `md` los contenedores la alcanzan por la red de Docker y los devs por
+`192.168.0.222:5433`. Ver [`ops/README.md`](../ops/README.md) §6.
+
+⭐ **Y por eso el latido NO usa esta variable.** `ODS_HB_URL` (con `FLEET_DB_URL` de respaldo) es
+una var propia justamente para que el latido viaje a **prod** y no a la fuente: un latido escrito
+en el contenedor de réplicas es invisible para el tablero, que vive en prod — el modo de falla
+exacto que la Fase OBS existe para eliminar.
 
 Ese tercer uso es la trampa. Si dev mueve `DATABASE_URL_NEW` para apuntar la app a otra base
 (p. ej. la réplica de pruebas en `.245`), el CDC se va a buscar los replicas al server equivocado
