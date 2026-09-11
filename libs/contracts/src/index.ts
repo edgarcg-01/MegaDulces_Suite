@@ -23,6 +23,11 @@ export * from './http/provenance.contract';
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".
 export * from './http/identity-me.contract';
+// [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
+// (recon_tasks, supervisor_tasks, inventory_count_assignments, daily_assignments) y ninguna subió a
+// libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
+// enumera lo que cada una NO puede contestar. Sólo tipos y constantes: no pega al bundle.
+export * from './work/task.contract';
 // [TDA.1] Tienda: los eventos que el gateway /store empuja a las pantallas.
 export * from './http/store.contract';
 // Orden canónico de presentación de tiendas (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS).
