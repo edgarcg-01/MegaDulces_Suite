@@ -1930,9 +1930,7 @@ a la vez, así que va como item propio y no colgado de una feature.
 
 ---
 
-## 43. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde)
-
-> Numeración: las §39–§42 llegan en el PR #76 (micrófono). El salto es a propósito, se cierra cuando ese PR entre.
+## 44. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde)
 
 Pasó dos veces el mismo día, y es de las peores porque **el build reporta éxito**:
 
@@ -1965,7 +1963,7 @@ Vale para los tres proyectos (`api`, `view`, `vendor`) y para `nx test`. Si el `
 
 ---
 
-## 44. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario
+## 45. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario
 
 `libs/reconciliation/src/lib/store-arqueo.controller.ts` tenía, commiteado:
 
