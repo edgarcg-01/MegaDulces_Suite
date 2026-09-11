@@ -70,8 +70,12 @@ interface EntradaVisible {
   icon: string;
   route: string;
   groupLabel: string;
-  modulos: string;
-  esAtajo: boolean;
+  /**
+   * `[SN.10]` La segunda línea de la tarjeta. Para una entrada de proyecto son los módulos que
+   * ESTA persona puede abrir; para un módulo enlazado, de qué proyecto sale ("de Finanzas") — que
+   * es lo único que distingue dos «Hallazgos» pegados. Vacía si repetiría el título.
+   */
+  detalle: string;
   buscable: string;
 }
 
@@ -138,16 +142,20 @@ export class MiTrabajoComponent {
       proposal: s.space.proposal,
       entradas: s.entries.map((e) => {
         const modulos = this.lineaModulos(e.modules.map((m) => m.label));
+        // Un módulo enlazado no tiene submódulos que listar; lo útil es de dónde sale.
+        const detalle = modulos || (e.origin ? `de ${e.origin}` : '');
         return {
           id: e.entry.id,
           label: e.label,
           icon: e.icon,
           route: e.route,
           groupLabel: e.groupLabel,
-          modulos,
-          esAtajo: !!e.entry.crossLink,
-          // El haystack incluye los módulos: "bancos" tiene que encontrar Finanzas.
-          buscable: normalizar([e.label, e.groupLabel, s.space.label, e.modules.map((m) => m.label).join(' ')].join(' ')),
+          // Repetir el título en la segunda línea ("Telemarketing / Telemarketing") no informa.
+          detalle: normalizar(detalle) === normalizar(e.label) ? '' : detalle,
+          // El haystack incluye los módulos y el origen: "bancos" tiene que encontrar Finanzas.
+          buscable: normalizar(
+            [e.label, e.groupLabel, s.space.label, e.origin ?? '', e.modules.map((m) => m.label).join(' ')].join(' '),
+          ),
         };
       }),
     })),
@@ -302,12 +310,14 @@ export class MiTrabajoComponent {
     const puesto: CeldaContexto = c.position
       ? { etiqueta: 'Puesto', valor: c.position.name }
       : { etiqueta: 'Puesto', valor: 'Sin puesto asignado', ausente: true };
-    return [
-      puesto,
-      { etiqueta: 'Área', valor: c.department?.name ?? 'Sin área', ausente: !c.department },
-      this.celdaAlcance(),
-      { etiqueta: 'Periodo', valor: capitalizar(this.periodo) },
-    ];
+    const celdas = [puesto];
+    // `[SN.10]` "PUESTO Sistemas · ÁREA Sistemas" decía lo mismo dos veces y le robaba ancho al
+    // alcance, que es el dato que sí cambia entre personas.
+    const area = c.department?.name;
+    if (area && area !== c.position?.name) celdas.push({ etiqueta: 'Área', valor: area });
+    else if (!area) celdas.push({ etiqueta: 'Área', valor: 'Sin área', ausente: true });
+    celdas.push(this.celdaAlcance(), { etiqueta: 'Periodo', valor: capitalizar(this.periodo) });
+    return celdas;
   });
 
   /**

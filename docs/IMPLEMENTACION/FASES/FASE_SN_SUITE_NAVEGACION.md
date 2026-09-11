@@ -111,6 +111,28 @@ Pedido de Edgar: *"concentrar toda la información, módulos, mi trabajo, una ba
 
 **Fuera de alcance, declarado:** buscar entidades de negocio (clientes, folios, productos, pólizas) es otra capa — un endpoint nuevo que reúse `applySmartSearch`, con la decisión pendiente de qué dominios entran y respetando el permiso de cada uno. Y sobre eso, lenguaje natural (ya hay precedente con Maat/Thot/Horus). Ninguna de las dos entra en Etapa 2.
 
+#### 4.2.2 SN.10 — la densidad se comió al contenido (2026-09-11)
+
+Edgar pidió observaciones sobre la captura de SN.9. El costo real de apretar fue **mayor que el que declaré**: anuncié que se perdía "la descripción larga", y lo que se perdió fue el **nombre** de tres módulos y la **utilidad** de la línea secundaria en las 22 tarjetas. Nueve defectos, cada uno con su causa:
+
+| # | Lo que se veía | Causa | Arreglo |
+|---|---|---|---|
+| 1 | «Atajo · vive en su espacio de ori…» **×12**, truncado, con el mismo peso que la información real | `entryModules()` de una entrada `kind:'module'` devuelve `[]` y el template rellenó el hueco con jerga | la segunda línea de un módulo enlazado dice **«de {Proyecto}»** (`entryOrigin()`) |
+| 2 | **Dos «Hallazgos» idénticos y contiguos** en Auditoría (Finanzas y Compras) | `entryLabel()` no dice de qué proyecto sale el módulo | el origen los distingue: «de Finanzas» / «de Compras» |
+| 3 | Títulos cortados: «Centro de Control (vista p…», «Compras / Reabastecimie…» | `white-space: nowrap` en `12.5rem` | dos líneas (`line-clamp: 2`) y tarjeta de `14rem` |
+| 4 | **Iconos que decoraban en vez de distinguir**: el mismo carrito en 4 tarjetas, el mismo gráfico en 5 | `entryIcon()` devolvía **siempre** el del PROYECTO | `SuiteEntry.icon?` opcional; el icono es presentación y por eso vive en el mapa, **no** en `AuthzModule` (ADR-061) |
+| 5 | «Telemarketing / Telemarketing» | proyecto con un único módulo homónimo | si la segunda línea repite el título, se omite |
+| 6 | **Medio tablero vacío** bajo Dirección General (1 tarjeta) mientras Comercial (10) iba apretado | cada espacio era una **celda** de `grid`: reservaba una fila de la altura del espacio más alto | **mampostería** (`columns: 3` + `break-inside: avoid`); orden §5.1 intacto |
+| 7 | La 2ª fila de pendientes (99 · 76 · 19 · 2) **sin la etiqueta «En tus bandejas»** → se leía como trabajo personal | píldoras y etiquetas en un solo `flex-wrap` | cada grupo es su propio bloque y envuelve dentro de sí |
+| 8 | Casi toda línea secundaria cortada a media palabra | 3 módulos no caben en `12.5rem` | el ancho recuperado por la mampostería + `14rem` |
+| 9 | «PUESTO Sistemas · ÁREA Sistemas» | el contexto se pintaba completo aunque coincidieran | si puesto == área, se muestra una vez |
+
+**Los defectos 2 y 7 no eran cosméticos:** hacían que la pantalla **mintiera** sobre a quién le toca el trabajo y sobre qué bandeja se está abriendo.
+
+**Lección para la fase:** cuando la información de una tarjeta se **deriva**, achicar la tarjeta no sólo la aprieta — puede dejar a la derivación sin nada que decir, y entonces el hueco se llena con relleno. La densidad se elige mirando **qué queda legible**, no cuántas tarjetas entran.
+
+⚠️ **Incidente de entorno, ajeno:** a mitad de SN.10 `node_modules` apareció sin los scopes `@angular`, `@angular-devkit` y `@babel` completos (1398 paquetes presentes, esos tres ausentes desde ~1 h antes, sin `.staging` ni proceso npm vivo). Ni el build ni jest podían correr. La lógica se verificó igual **sin jest**, con un script ts-node contra el mapa real (8/8). Repuesto con `npm install` autorizado por Edgar; `package-lock.json` quedó **sin cambios**.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

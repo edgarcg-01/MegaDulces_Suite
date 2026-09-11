@@ -349,4 +349,63 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).toContain('Nada coincide con');
     expect(html()).toContain('Limpiar búsqueda');
   });
+
+  // ── [SN.10] Lo que la captura del 2026-09-11 destapó ──────────────────────
+
+  it('ninguna tarjeta usa la jerga de relleno «Atajo · vive en su espacio»', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    // Salía 12 veces, truncada, con el mismo peso visual que la información real.
+    expect(html()).not.toContain('vive en su espacio');
+    expect(html()).not.toContain('Atajo');
+  });
+
+  it('dos módulos homónimos en el mismo espacio se distinguen por su proyecto de origen', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const hallazgos = Array.from(tarjetas()).filter((a) => (a.textContent ?? '').includes('Hallazgos'));
+    expect(hallazgos.length).toBeGreaterThanOrEqual(2);
+    const textos = hallazgos.map((a) => a.textContent ?? '');
+    // Cada uno dice de dónde sale, y no hay dos idénticos.
+    expect(textos.some((t) => t.includes('de Finanzas'))).toBe(true);
+    expect(textos.some((t) => t.includes('Compras'))).toBe(true);
+    expect(new Set(textos).size).toBe(textos.length);
+  });
+
+  it('la segunda línea no repite el título', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    for (const a of Array.from(tarjetas())) {
+      const titulo = a.querySelector('.mt-card-title')?.textContent?.trim() ?? '';
+      const cuerpo = a.querySelector('.mt-card-body')?.textContent?.trim() ?? '';
+      if (cuerpo) expect(cuerpo.toLowerCase()).not.toBe(titulo.toLowerCase());
+    }
+  });
+
+  it('los módulos enlazados no comparten todos el icono de su proyecto', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const iconos = Array.from(tarjetas())
+      .map((a) => a.querySelector('.mt-card-ico i')?.className ?? '')
+      .filter(Boolean);
+    // Antes `entryIcon` devolvía SIEMPRE el del proyecto: cinco módulos de `trade` salían iguales.
+    expect(new Set(iconos).size).toBeGreaterThan(iconos.length / 2);
+  });
+
+  it('cada grupo de pendientes lleva su propia etiqueta, aunque las píldoras envuelvan', async () => {
+    await montar({ perms: [], role: 'superadmin', work$: of(TRABAJO_MIXTO) });
+    const grupos = q<HTMLElement>('.mt-work-grupo');
+    expect(grupos.length).toBe(2);
+    // La etiqueta vive DENTRO del grupo: al envolver no se queda en la fila de arriba.
+    for (const g of Array.from(grupos)) {
+      expect(g.querySelector('.mt-work-tag')).toBeTruthy();
+      expect(g.querySelector('a.mt-pill')).toBeTruthy();
+    }
+  });
+
+  it('el contexto no repite puesto y área cuando son lo mismo', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      ctx$: of({ ...CTX_BASE, position: { code: 'sis', name: 'Sistemas' }, department: { code: 'sis', name: 'Sistemas' } }),
+    });
+    const tira = (fix.nativeElement as HTMLElement).querySelector('.mt-ctx')?.textContent ?? '';
+    expect(tira).toContain('Sistemas');
+    expect(tira.match(/Sistemas/g)?.length).toBe(1);
+  });
 });

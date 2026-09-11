@@ -57,6 +57,19 @@ Pedido de Edgar: concentrar módulos, "Mi trabajo", pendientes y una barra de b�
 - **Diferido y declarado:** buscar entidades de negocio (clientes, folios, productos, pólizas) es un endpoint nuevo sobre `applySmartSearch`, con la decisión pendiente de qué dominios entran y respetando el permiso de cada uno; encima de eso, lenguaje natural. Ninguna de las dos es Etapa 2.
 - Internal: `nx test view` 18 suites / 256 (253 pasan, 3 todo; **+6** del buscador).
 
+### Fixed — la densidad se había comido al contenido (SN.10, 2026-09-11)
+
+Edgar pidió observaciones sobre la pantalla de SN.9. El costo de apretar resultó **mayor que el que yo había declarado**: anuncié que se perdía "la descripción larga", y lo que se perdió fue el **nombre** de tres módulos y la **utilidad** de la línea secundaria en las 22 tarjetas.
+
+- **Dos de los nueve defectos hacían MENTIR a la pantalla**, no eran cosméticos: (a) en Auditoría había **dos tarjetas «Hallazgos» idénticas y contiguas** —una de Finanzas y otra de Compras— sin forma de saber cuál se abría; (b) al envolver, la segunda fila de pendientes (99 · 76 · 19 · 2) **perdía la etiqueta «En tus bandejas»** y se leía como trabajo personal, que es justo la distinción que la pantalla existe para hacer.
+- **«Atajo · vive en su espacio de ori…» aparecía 12 veces**, truncado y con el mismo peso visual que la información real: `entryModules()` de un módulo enlazado devuelve `[]` y el hueco se había rellenado con jerga. Ahora la segunda línea dice **«de {Proyecto}»** (`entryOrigin()`), que además desambigua los dos «Hallazgos».
+- **Los iconos decoraban en vez de distinguir** — el mismo carrito en 4 tarjetas y el mismo gráfico en 5 — porque `entryIcon()` devolvía **siempre** el del proyecto. `SuiteEntry` gana `icon?` opcional: el icono es decisión de **presentación** y por eso vive en el mapa y **no** en `AuthzModule`, que es el registro de autorización (ADR-061).
+- **El nombre ya no se corta** (dos líneas, tarjeta `12.5rem → 14rem`), la segunda línea se omite si repite el título («Telemarketing / Telemarketing»), y puesto y área no se repiten cuando coinciden.
+- **Mampostería en vez de rejilla**: cada espacio era una *celda* de grid, así que Dirección General (1 tarjeta) reservaba una fila de la altura del espacio más alto y dejaba medio tablero en blanco mientras Comercial (10) iba apretado. Con `columns` los espacios fluyen; el orden §5.1 de Dirección queda intacto.
+- **Lección:** cuando la información de una tarjeta se **deriva**, achicarla puede dejar a la derivación sin nada que decir, y el hueco se llena con relleno. La densidad se elige por **qué queda legible**, no por cuántas tarjetas entran.
+- ⚠️ **Incidente de entorno, ajeno:** a mitad de la tarea `node_modules` apareció sin los scopes `@angular`, `@angular-devkit` y `@babel` completos (1398 paquetes presentes, esos tres ausentes desde ~1 h antes, sin `.staging` ni proceso npm vivo) — ni el build ni jest podían correr. La lógica se verificó igual **sin jest**, con ts-node contra el mapa real (8/8). Repuesto con `npm install` autorizado; `package-lock.json` **sin cambios**.
+- Internal: `nx test view` 18 suites / 262 (259 pasan, 3 todo; **+6**) · `nx test contracts` 35/35.
+
 ### Fixed — el mayoreo sigue al codigo leido, y su base estaba equivocada (TDA.7, 2026-09-10)
 
 0Sistemas: *"se critico con tu trabajo"*, sobre los tres commits de TDA.5/TDA.6 que yo acababa de cerrar diciendo *"nx test view 15 suites / 185 tests"* + *"NO medido: como se ve"*. La frase estaba al reves.

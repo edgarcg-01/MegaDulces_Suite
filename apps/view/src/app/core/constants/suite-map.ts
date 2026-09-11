@@ -21,6 +21,7 @@ export {
   entryIcon,
   entryLabel,
   entryModules,
+  entryOrigin,
   entryPermissions,
   entryRoute,
   findModule,
