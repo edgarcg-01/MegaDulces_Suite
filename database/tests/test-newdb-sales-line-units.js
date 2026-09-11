@@ -389,12 +389,17 @@ const pct = (a, b) => (b ? (100 * a / b) : 0);
     SELECT round(sum(revenue)::numeric,0) venta FROM analytics.sales_daily
      WHERE tenant_id='${T}'::uuid AND sale_date > current_date - 365`)).rows[0];
   console.log(`     Wincaja: ${N(wc.filas)} filas · ${money(wc.venta)} = ${pct(wc.venta, tt.venta).toFixed(1)}% de la venta`);
-  check('⛔ Wincaja NO tiene conversión por renglón, y su importer NO escribe el peldaño',
-    wc.con_peldano === 0,
-    `${N(wc.con_peldano)} filas con peldaño — si esto deja de ser 0, alguien lo empezó a escribir y hay que revisar el candado`);
-  console.log(`     ⚠️  Por eso HOY \`rung_factor IS NULL\` significa TRES cosas: peldaños mezclados,`);
-  console.log(`        fila de Wincaja (${pct(wc.venta, tt.venta).toFixed(0)}% de la venta), o "todavía no se escribió".`);
-  console.log(`        Cualquier auditoría con ese predicado barre Wincaja entera.`);
+  // ⭐⭐ R.2 (2026-09-11) — la asercion se DA VUELTA. Wincaja sigue sin tener conversion por
+  // RENGLON (cantidad_auxiliar sirve en 3 filas de 9,962,920, y eso no cambio), pero su importer
+  // ahora SI escribe el divisor que la proyeccion ya aplicaba al grano ARTICULO. Las dos cosas
+  // son distintas y la confusion entre ellas fue lo que dejo el hueco abierto un mes.
+  check('⭐⭐ el importer de Wincaja YA escribe el peldaño que su proyección aplica (R.2)',
+    wc.con_peldano > 0,
+    `${N(wc.con_peldano)} filas con peldaño — si vuelve a 0, el importer dejó de escribirlo`);
+  console.log(`     ⚠️  Wincaja sigue SIN conversión por RENGLÓN: su divisor es del ARTÍCULO.`);
+  console.log(`        Lo que se persiste es el que la proyección aplicó, no uno reconstruido.`);
+  console.log(`     ⭐  Y \`rung_factor IS NULL\` ya NO significa tres cosas: dejó de incluir`);
+  console.log(`        "fila de Wincaja" (${pct(wc.venta, tt.venta).toFixed(0)}% de la venta).`);
 
   console.log(`\n=== ${ok} OK · ${fail} FAIL · ${skip} NO MEDIDO ===\n`);
   await c.end();

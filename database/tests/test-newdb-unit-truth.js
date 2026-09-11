@@ -327,9 +327,29 @@ const METODOS = ['dinero', 'peso', 'divisor', 'unidad_es_caja', 'sin_metodo'];
   check('⭐ KEPLER sí resuelve el peldaño (≥ 99% de sus celdas)',
     (100 * mudo.kep_null / (mudo.kep || 1)) <= 1,
     `${PCT(mudo.kep_null, mudo.kep)} sin peldaño`);
-  check('⚠️ el peldaño de WINCAJA es un NULL sin declarar — hueco ABIERTO, medido para que no se olvide',
-    mudo.win_null > 0 && mudo.declaradas < mudo.win_null,
-    `${NUM(mudo.win_null)} celdas NULL, ${NUM(mudo.declaradas)} declaradas`);
+  // ⭐⭐ R.2 (2026-09-11) — EL HUECO SE CERRO, Y LA ASERCION SE DA VUELTA. Era un NULL mudo sobre
+  // 353,595 celdas / $86,189,728 y resulto que el divisor SIEMPRE se supo: la proyeccion de
+  // Wincaja (sales-daily-projection.js:65) ya multiplicaba por factor_venta cuando la unidad es
+  // CJA, y el importer no escribia esa columna. Tercera vez que el mismo defecto aparece -- el
+  // divisor se calcula y se tira.
+  //
+  // Medido: el divisor es 1 en el 99.69% de las celdas y factor_venta en el 0.31% (solo uv='CJA'),
+  // y ESO ES CORRECTO por ADR-055 -- Wincaja guarda en SU unidad de venta, asi que un factor_venta
+  // sobre un articulo 'PZA' es divisor de DISPLAY, no de conversion (15,177 articulos PZA con
+  // factor_venta mediana 16, y ninguno se multiplica).
+  check('⭐⭐ WINCAJA ya declara su peldaño — el NULL dejó de ser mudo (R.2)',
+    (100 * mudo.win_null / (mudo.win || 1)) <= 5,
+    `${NUM(mudo.win_null)} de ${NUM(mudo.win)} celdas siguen sin peldaño (${PCT(mudo.win_null, mudo.win)})`);
+  // ⛔ Y lo que queda NULL tiene que estar EXPLICADO, no simplemente ausente: o peldaños mezclados
+  // en el grupo, o unidades que no se pudieron resolver. Un NULL sin ninguna de las dos es el
+  // mismo defecto de antes con menos filas.
+  const winNullSinExplicar = (await c.query(
+    `SELECT count(*)::int n FROM analytics.sales_daily
+      WHERE tenant_id = $1 AND sale_date >= current_date - 90 AND channel LIKE 'wincaja_%'
+        AND rung_factor IS NULL AND COALESCE(rung_mixed, false) = false
+        AND COALESCE(units_unresolved, 0) = 0`, [T])).rows[0].n;
+  check('⛔ ningún NULL de Wincaja queda SIN EXPLICAR (ni mezclado ni declarado sin resolver)',
+    winNullSinExplicar === 0, `${NUM(winNullSinExplicar)} celdas NULL sin motivo`);
 
   // ── 6. ⭐ EL TESTIGO ES INDEPENDIENTE, verificado sobre la DEFINICIÓN.
   // Si la vista leyera la etiquetera para juzgar a la etiquetera, la concordancia sería circular.
