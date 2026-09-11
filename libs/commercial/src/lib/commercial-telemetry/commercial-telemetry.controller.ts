@@ -17,6 +17,7 @@ import {
   RolesGuard,
   RequirePermissions,
   Permission,
+  ReqUser,
   TenantContextService,
 } from '@megadulces/platform-core';
 import {
@@ -72,6 +73,40 @@ export class CommercialTelemetryController {
       userAgent: userAgent || null,
       tenantId,
       userId,
+    });
+  }
+
+  /**
+   * `[SN.12]` Ingesta de la SUITE interna (`apps/view`). Hermano de `portal`, con dos diferencias
+   * que importan:
+   *
+   *  1. **No es `@Public()`.** Adentro siempre hay sesión, así que la atribución no es
+   *     "best-effort decodificando un JWT sin verificar": el `user_id` y el `tenant_id` salen del
+   *     request ya autenticado. Un registro de uso que no sabe de quién es no sirve para
+   *     personalizar, que es justo para lo que se pidió.
+   *  2. **Sin `@RequirePermissions`.** Cada quien registra lo suyo, como `me/work` o `me/context`.
+   *
+   * Responde 202 siempre y traga el error: la telemetría jamás debe romper una pantalla.
+   */
+  @Post('suite')
+  @HttpCode(202)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Ingesta de uso de la suite interna (qué abre cada persona)' })
+  async ingestSuite(
+    @Body() body: IngestBody,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string,
+    @ReqUser() user: { sub?: string },
+    @Req() req: Request,
+  ): Promise<{ inserted: number }> {
+    const fwd = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+    return this.service.ingestPortal(body?.events ?? [], {
+      ip: fwd || ip || null,
+      userAgent: userAgent || null,
+      // `get()` y no `requireTenantId()`: si falta el contexto la telemetría se atribuye a nadie,
+      // pero NO revienta la pantalla que la manda.
+      tenantId: this.tenantCtx.get()?.tenantId ?? null,
+      userId: user?.sub ?? null,
     });
   }
 

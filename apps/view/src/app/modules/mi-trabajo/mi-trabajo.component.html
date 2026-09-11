@@ -1,147 +1,258 @@
 <div class="mt-page">
 
   <!--
-    Barra superior. `calc(base + env(...))` para que el safe-area SUME al padding base
-    (la clase `safe-top` sola lo REEMPLAZA y el título pegaba al borde en browser normal).
+    [SN.11] Cabecera de identidad: quién sos antes que a dónde vas. `calc(base + env(...))` para que
+    el safe-area SUME al padding base (la clase `safe-top` sola lo REEMPLAZA y el título pegaba al
+    borde en browser normal).
   -->
   <header class="mt-top">
-    <div class="mt-top-inner">
-      <div>
-        <p class="mt-eyebrow">Plataforma operativa</p>
-        <h1 class="mt-title">Mi trabajo</h1>
-      </div>
-      <div class="mt-top-user">
-        <div class="mt-top-user-txt">
-          <p class="mt-top-user-name">{{ user()?.username }}</p>
-          <p class="mt-top-user-role">{{ user()?.role_name }}</p>
-        </div>
-        <p-button
-          label="Cerrar sesión"
-          icon="pi pi-sign-out"
-          severity="secondary"
-          [outlined]="true"
-          size="small"
-          (click)="logout()">
-        </p-button>
-      </div>
+    <div class="mt-id">
+      <span class="mt-avatar" aria-hidden="true">{{ iniciales() }}</span>
+      <span class="mt-id-txt">
+        <span class="mt-name">{{ nombreVisible() }}</span>
+        <!-- Contexto en una sola línea. Las etiquetas viven para el lector de pantalla. -->
+        @if (!contextoCargando() && !contextoError()) {
+          <dl class="mt-ctx">
+            @for (c of celdas(); track c.etiqueta) {
+              <div class="mt-ctx-cell">
+                <dt class="mt-ctx-k">{{ c.etiqueta }}</dt>
+                <dd class="mt-ctx-v" [class.is-ausente]="c.ausente">{{ c.valor }}</dd>
+              </div>
+            }
+          </dl>
+        } @else if (contextoError()) {
+          <span class="mt-ctx-err">
+            {{ contextoError() }}
+            <button type="button" class="mt-linkbtn" (click)="recargarContexto()">Reintentar</button>
+          </span>
+        } @else {
+          <span class="mt-ctx-err">{{ user()?.username }} · {{ user()?.role_name }}</span>
+        }
+      </span>
     </div>
+
+    <!-- Buscador: filtra módulos y pendientes en vivo, sin ir al servidor. -->
+    <div class="mt-search">
+      <i class="pi pi-search mt-search-ico" aria-hidden="true"></i>
+      <input
+        #buscador
+        type="search"
+        class="mt-search-input"
+        placeholder="Buscar módulo o pendiente…"
+        aria-label="Buscar módulo o pendiente"
+        [value]="consulta()"
+        (input)="consulta.set($any($event.target).value)"
+        (keydown.enter)="irAlPrimero()" />
+      @if (buscando()) {
+        <button type="button" class="mt-search-clear" (click)="limpiar()" aria-label="Limpiar búsqueda">
+          <i class="pi pi-times" aria-hidden="true"></i>
+        </button>
+      } @else {
+        <kbd class="mt-kbd">Ctrl K</kbd>
+      }
+    </div>
+
+    <p-button
+      label="Cerrar sesión"
+      icon="pi pi-sign-out"
+      severity="secondary"
+      [outlined]="true"
+      size="small"
+      (click)="logout()">
+    </p-button>
   </header>
 
-  <main class="mt-main">
+  <!-- ══ Dos columnas: el trabajo manda a la izquierda, las puertas ruedan a la derecha ══════ -->
+  <div class="mt-body">
 
-    <!-- 1 · Mi contexto: persona · puesto · alcance · periodo. Celdas hairline, sin tarjetas. -->
-    <section class="mt-block" aria-labelledby="h-contexto">
-      <h2 id="h-contexto" class="mt-h2">Mi contexto</h2>
-      <app-load-state
-        [loading]="contextoCargando()"
-        [error]="contextoError()"
-        [isEmpty]="false"
-        [skeletonRows]="2"
-        errorTitle="No se pudo cargar tu contexto"
-        (retry)="recargarContexto()">
-        <dl class="mt-ctx">
-          @for (c of celdas(); track c.etiqueta) {
-            <div class="mt-ctx-cell">
-              <dt class="mt-ctx-k">{{ c.etiqueta }}</dt>
-              <dd class="mt-ctx-v" [class.is-ausente]="c.ausente">{{ c.valor }}</dd>
-              @if (c.detalle) { <dd class="mt-ctx-d">{{ c.detalle }}</dd> }
-            </div>
+    <!-- ── Tu trabajo ───────────────────────────────────────────────────────────────────── -->
+    <section class="mt-col mt-work" aria-labelledby="h-trabajo">
+      <div class="mt-col-head">
+        <h2 class="mt-col-h" id="h-trabajo">Tu trabajo</h2>
+        <span class="mt-col-meta">
+          <button type="button" class="mt-refresh" (click)="cargarTrabajo()" [disabled]="trabajoCargando()"
+                  aria-label="Volver a contar">
+            <i class="pi pi-refresh" [class.is-spin]="trabajoCargando()" aria-hidden="true"></i>
+          </button>
+          @if (horaConteo()) {
+            <span [title]="'Medición del servidor: ' + medidoAt()">contado a las {{ horaConteo() }}</span>
+          } @else if (!trabajoCargando()) {
+            <span class="is-ausente">hora de conteo no declarada</span>
           }
-        </dl>
-      </app-load-state>
-    </section>
-
-    <!-- 2 · Lo que la especificación pide y todavía no existe: UNA declaración, no cuatro cajas vacías. -->
-    <section class="mt-block mt-declarado" aria-labelledby="h-pendiente">
-      <h2 id="h-pendiente" class="mt-h2">Mis resultados, compromisos, excepciones y acciones correctivas</h2>
-      <p class="mt-declarado-txt">
-        Pendiente de definición: fórmulas y metas de los indicadores (P-06) y organigrama vigente (P-01).
-        Cuando existan indicadores acordados aparecerán aquí con su fuente y su fecha de actualización.
-        Una meta ausente no es cero; un dato no disponible no es verde.
-      </p>
-    </section>
-
-    <!-- 3 · Mi operación: los espacios de la suite a los que esta persona puede entrar. -->
-    <section class="mt-block" aria-labelledby="h-operacion">
-      <div class="mt-h2-row">
-        <h2 id="h-operacion" class="mt-h2">Mi operación</h2>
-        @if (permisosCargados() && espacios().length) {
-          <span class="mt-count">{{ espacios().length }} espacios</span>
-        }
+        </span>
       </div>
 
-      @if (!permisosCargados()) {
-        <!-- Permisos aún sin cargar: un `{}` de "todavía no sé" no es un `{}` de "no tienes". -->
-        <app-load-state [loading]="true" [skeletonRows]="4"></app-load-state>
-      } @else if (sinEspacios()) {
-        <app-load-state
-          [isEmpty]="true"
-          emptyIcon="pi-lock"
-          emptyTitle="Tu cuenta no tiene ningún espacio asignado"
-          [emptyHint]="'Pide a Sistemas que revise el puesto y los permisos de ' + (user()?.username ?? 'tu usuario') + ' (' + (user()?.role_name ?? 'sin rol') + '). Hasta entonces no hay a dónde entrar.'"
-          emptyCta="Cerrar sesión"
-          emptyCtaIcon="pi pi-sign-out"
-          (cta)="logout()">
-        </app-load-state>
-      } @else {
+      <app-load-state
+        [loading]="trabajoCargando()"
+        [error]="trabajoError()"
+        [isEmpty]="false"
+        [skeletonRows]="3"
+        errorTitle="No se pudo consultar tu trabajo pendiente"
+        (retry)="cargarTrabajo()">
 
-        @if (conAtajos()) {
-          <nav class="mt-chips" aria-label="Ir a un espacio">
-            @for (s of espacios(); track s.space.id) {
-              <a class="mt-chip" [href]="'#espacio-' + s.space.id" (click)="saltarA($event, s.space.id)">
-                <i [class]="s.space.icon" aria-hidden="true"></i>{{ s.space.label }}
+        <!--
+          Cada grupo es su propio bloque con su etiqueta adentro: la distinción entre lo que está a
+          tu nombre y una cola compartida es la razón de ser de esta columna, y en SN.9 se perdía al
+          envolver. Medido en prod: las tres tablas de asignación nominal están en CERO filas.
+        -->
+        <div class="mt-grupo">
+          <p class="mt-grupo-tag">A tu nombre</p>
+          @if (mios().length) {
+            @for (p of mios(); track p.id) {
+              <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ p.label }}</span>
+                  @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+                </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+                <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
             }
-          </nav>
-        }
-
-        @for (s of espacios(); track s.space.id) {
-          <section class="mt-space" [id]="'espacio-' + s.space.id" [attr.aria-labelledby]="'h-' + s.space.id">
-            <header class="mt-space-head">
-              <i class="mt-space-ico" [class]="s.space.icon" aria-hidden="true"></i>
-              <h3 class="mt-space-title" [id]="'h-' + s.space.id">{{ s.space.label }}</h3>
-              @if (s.space.status === 'proposed') {
-                <span hlmBadge variant="outline" class="mt-badge" [title]="'Espacio propuesto por la especificación; depende de la decisión ' + s.space.proposal">
-                  Propuesta · {{ s.space.proposal }}
+          } @else if (!buscando()) {
+            <p class="mt-sin-mio">
+              <i class="pi pi-user" aria-hidden="true"></i>
+              <span>
+                <b>Nadie te asignó trabajo hoy.</b>
+                <span class="mt-sin-mio-why">
+                  El reparto nominal de tareas está pendiente de definición (P-06). Mientras tanto,
+                  lo de abajo son colas que abre tu permiso.
                 </span>
-              }
-              <p class="mt-space-desc">{{ s.space.description }}</p>
-            </header>
+              </span>
+            </p>
+          }
+        </div>
 
-            <ul class="mt-rows" role="list">
-              @for (e of s.entries; track e.entry.id) {
-                <li>
-                  <a class="mt-row" [routerLink]="e.route" [class.is-cross]="e.entry.crossLink">
-                    <i class="mt-row-ico" [class]="e.icon" aria-hidden="true"></i>
-                    <span class="mt-row-txt">
-                      <span class="mt-row-label">{{ e.label }}</span>
-                      @if (e.groupLabel) { <span class="mt-row-group">{{ e.groupLabel }}</span> }
-                      @if (e.modules.length) {
-                        <span class="mt-row-mods">{{ lineaModulos(e.modules.map(m => m.label)) }}</span>
-                      } @else if (e.entry.crossLink) {
-                        <span class="mt-row-mods">También en su espacio de origen</span>
-                      }
-                    </span>
-                    <i class="pi pi-arrow-right mt-row-go" aria-hidden="true"></i>
-                  </a>
-                </li>
-              }
-            </ul>
-          </section>
+        @if (deBandeja().length) {
+          <div class="mt-grupo">
+            <p class="mt-grupo-tag" title="Colas compartidas: las abre tu permiso, nadie las tiene asignadas">
+              En tus bandejas
+            </p>
+            @for (p of deBandeja(); track p.id) {
+              <a class="mt-task" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ p.label }}</span>
+                  @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+                </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+                <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
+              </a>
+            }
+          </div>
         }
 
-      }
+        @if (sinPendientes()) {
+          <p class="mt-nada"><i class="pi pi-check-circle" aria-hidden="true"></i> Sin pendientes en tus bandejas</p>
+        }
 
-      @if (permisosCargados() && declarados().length) {
-        <!-- Lo que la especificación pide y la suite no tiene: se DECLARA, no se pinta como "Próximamente". -->
-        <p class="mt-declarados">
-          Espacios del mapa sin funciones todavía:
-          @for (d of declarados(); track d.id; let last = $last) {
-            <span>{{ d.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
-          }
+        @if (noMedido().length) {
+          <!-- Lo que no se pudo contar se DECLARA: un cero dibujado se lee igual que "al día". -->
+          <p class="mt-declarado">
+            <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            <span>
+              <b>Sin medir:</b>
+              @for (n of noMedido(); track n.id; let last = $last) {
+                <span [title]="n.motivo">{{ n.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+              }
+              — esa bandeja no respondió, así que no se muestra en cero.
+            </span>
+          </p>
+        }
+      </app-load-state>
+
+      <!--
+        Esta declaración es SOBRE el trabajo, así que vive en la columna del trabajo. Antes iba en
+        una banda al pie mezclada con la de los espacios, que declara otra cosa distinta.
+      -->
+      @if (!buscando()) {
+        <p class="mt-declara-pie">
+          Reparto nominal de tareas e indicadores con meta: pendiente de definición
+          (P-06 · P-01 · P-11). Lo de arriba son colas por permiso, no asignaciones personales.
         </p>
       }
     </section>
 
-  </main>
+    <!-- ── Tus espacios ─────────────────────────────────────────────────────────────────── -->
+    <section class="mt-col mt-spaces" aria-labelledby="h-espacios">
+      <div class="mt-col-head">
+        <h2 class="mt-col-h" id="h-espacios">Tus espacios</h2>
+        <span class="mt-col-meta">
+          @if (buscando()) {
+            {{ entradasVisibles() }} de {{ totalEntradas() }}
+            @if (pendientes().length) { <span>· {{ pendientes().length }} pendientes</span> }
+            <span class="is-ausente">· Enter abre el primero</span>
+          } @else {
+            {{ totalEntradas() }} accesos
+          }
+        </span>
+      </div>
+
+      <!-- Única zona que rueda. Cortar contenido para que "quepa" es esconder puertas. -->
+      <div class="mt-scroll">
+        @if (!permisosCargados()) {
+          <!-- Permisos aún sin cargar: un `{}` de "todavía no sé" no es un `{}` de "no tienes". -->
+          <app-load-state [loading]="true" [skeletonRows]="4"></app-load-state>
+        } @else if (sinEspacios()) {
+          <app-load-state
+            [isEmpty]="true"
+            emptyIcon="pi-lock"
+            emptyTitle="Tu cuenta no tiene ningún espacio asignado"
+            [emptyHint]="'Pide a Sistemas que revise el puesto y los permisos de ' + (user()?.username ?? 'tu usuario') + ' (' + (user()?.role_name ?? 'sin rol') + '). Hasta entonces no hay a dónde entrar.'"
+            emptyCta="Cerrar sesión"
+            emptyCtaIcon="pi pi-sign-out"
+            (cta)="logout()">
+          </app-load-state>
+        } @else if (sinCoincidencias()) {
+          <p class="mt-vacio-busqueda">
+            Nada coincide con <strong>{{ consulta() }}</strong>.
+            <button type="button" class="mt-linkbtn" (click)="limpiar()">Limpiar búsqueda</button>
+          </p>
+        } @else {
+          @for (s of espacios(); track s.id) {
+            <section class="mt-space" [id]="'espacio-' + s.id" [attr.aria-labelledby]="'h-' + s.id">
+              <h3 class="mt-space-title" [id]="'h-' + s.id">
+                <i class="mt-space-ico" [class]="s.icon" aria-hidden="true"></i>
+                <span>{{ s.label }}</span>
+                <span class="mt-space-n">{{ s.entradas.length }}</span>
+                @if (s.status === 'proposed') {
+                  <span hlmBadge variant="outline" class="mt-badge-prop"
+                        [title]="'Espacio propuesto por la especificación; depende de la decisión ' + s.proposal">
+                    {{ s.proposal }}
+                  </span>
+                }
+                <span class="mt-space-rule" aria-hidden="true"></span>
+              </h3>
+
+              <div class="mt-cards">
+                @for (e of s.entradas; track e.id) {
+                  <a class="mt-card" [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label"
+                     [style.--tono]="e.color" (click)="abrioPuerta(e, s)">
+                    <span class="mt-card-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
+                    <span class="mt-card-txt">
+                      <!-- Siempre presente, aunque vaya vacío: reserva el renglón y alinea la fila. -->
+                      <span class="mt-card-group">{{ e.grupo }}</span>
+                      <span class="mt-card-title">{{ e.label }}</span>
+                      @if (e.detalle) { <span class="mt-card-body">{{ e.detalle }}</span> }
+                    </span>
+                  </a>
+                }
+              </div>
+            </section>
+          }
+
+          <!-- Lo que la especificación pide y la suite todavía no tiene: se declara, no se pinta. -->
+          @if (declarados().length && !buscando()) {
+            <p class="mt-declara-pie">
+              Espacios sin funciones todavía:
+              @for (d of declarados(); track d.id; let last = $last) {
+                <span>{{ d.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+              }
+            </p>
+          }
+        }
+      </div>
+    </section>
+  </div>
+
 </div>

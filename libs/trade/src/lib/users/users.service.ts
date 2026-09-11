@@ -9,7 +9,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import type { MeContext } from '@megadulces/contracts';
+import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
+import { BANDEJAS, puedeVerBandeja } from './me-work';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -97,14 +98,11 @@ export class UsersService {
    * rol de RH sirva cuando alguien lo reciba.
    *
    * ⚠️ Lo que esto NO arregla, y queda declarado en vez de resuelto a escondidas:
-   * los 6 `encargado_tienda` siguen viendo 1 fila. Lo correcto para ellos es ver
-   * **el personal de su sucursal** — o sea acotar el padrón por la dimensión
-   * `warehouse` de `ScopeService` (viva, 26 call sites), no por este eje de
-   * tres estados. Eso ensancha acceso a 6 personas reales, así que es decisión
-   * del lead y no un efecto colateral de una limpieza. Va como `[ID.43]`.
+   * los 6 `encargado_tienda` veían 1 fila. `[ID.35]` lo resuelve con un cuarto
+   * estado, `sucursal` — ver abajo.
    */
   private alcanceDelPadron(requester: RequesterContext): {
-    type: 'own' | 'team' | 'all';
+    type: 'own' | 'team' | 'all' | 'sucursal';
     userId: string;
   } {
     // Administrar personal exige verlo. Se evalúa ANTES de delegar en el eje de
@@ -112,9 +110,60 @@ export class UsersService {
     if (requester.permissions?.[Permission.USUARIOS_GESTIONAR] === true) {
       return { type: 'all', userId: requester.sub };
     }
+
+    const porReportes = getDataScope(requester);
+
+    /**
+     * `[ID.35]` — Cuarto estado: **el personal de mi sucursal**.
+     *
+     * Quien puede VER el padrón pero no administrarlo ni ver reportes caía en
+     * `own` y abría `/admin/usuarios` para encontrar **una sola fila: la suya**.
+     * Le pasaba a los 6 `encargado_tienda`, todos con sesión iniciada. Un
+     * permiso que abre una pantalla vacía es peor que no tenerlo: parece un bug
+     * del sistema, no una decisión de acceso.
+     *
+     * El eje correcto no es este de tres estados —que mira la jerarquía de
+     * reportes— sino la dimensión `warehouse` de `ScopeService`, que es la que
+     * ya gobierna qué sucursal le toca a cada quien (viva, 26 call sites).
+     * Medido antes de escribirlo: `encargado_tienda` resuelve `warehouse: own`
+     * sin overrides, así que cada uno pasa a ver entre 6 y 13 personas — el
+     * personal de su tienda, incluida su etiquetera. Las 82 cuentas sin
+     * sucursal (oficina, rutas) siguen fuera, que es lo correcto.
+     *
+     * ⚠️ Ensancha acceso a 6 personas reales: es decisión del lead, tomada el
+     * 2026-09-10, no un efecto colateral.
+     */
+    if (porReportes.type === 'own' && requester.permissions?.[Permission.USUARIOS_VER] === true) {
+      return { type: 'sucursal', userId: requester.sub };
+    }
+
     // Todo lo demás conserva exactamente el comportamiento vigente, god-mode
     // incluido: `getDataScope` ya resuelve `isPlatformAdminRole` primero.
-    return getDataScope(requester);
+    return porReportes;
+  }
+
+  /**
+   * `[ID.35]` Acota el padrón a la sucursal del que pregunta, **sin poder
+   * dejarlo en cero**.
+   *
+   * El `OR u.id = <él mismo>` no es cortesía: `ScopeService.applyTo` emite
+   * `WHERE false` cuando el modo es `own` y la ficha no tiene sucursal, y ahí la
+   * pantalla quedaría **más vacía que antes** — ni siquiera su propia fila. Es
+   * exactamente el fail-open silencioso que `[ID.26]` vino a hacer visible, y no
+   * se reintroduce por la puerta de al lado.
+   */
+  private async acotarPorSucursal(
+    query: Knex.QueryBuilder,
+    requesterId: string,
+  ): Promise<Knex.QueryBuilder> {
+    // Sin `ScopeService` (los tests instancian el service sin él) se cae al
+    // comportamiento anterior: sólo su fila. Fail-closed, nunca "ve todo".
+    if (!this.scopeService) return query.where('u.id', requesterId);
+    const scope = await this.scopeService.forUser(this.tenantId, requesterId);
+    return query.where((qb: Knex.QueryBuilder) => {
+      this.scopeService!.applyTo(qb, scope, 'warehouse', 'u.warehouse_code');
+      qb.orWhere('u.id', requesterId);
+    });
   }
 
   private async resolveZonaId(zonaName?: string): Promise<string | null> {
@@ -472,6 +521,56 @@ export class UsersService {
     }
   }
 
+  /**
+   * `[OR.2]` — ¿El perfil elegido se aparta del que propone el puesto?
+   *
+   * El puesto propone un `default_role` desde `[ID.15]` y el formulario ya
+   * mostraba el select cuando el valor divergía — «una decisión que alguien tomó
+   * y hay que poder ver». Lo que faltaba era **el porqué**: medido en prod, 14
+   * de 100 personas llevan un rol distinto al que su puesto propone y no hay un
+   * solo renglón que diga si fue decisión o descuido. 13 de esas 14 son el mismo
+   * caso (`vendedor_ruta` con perfil `promotor_ruta`).
+   *
+   * Devuelve `null` cuando no hay divergencia, cuando el puesto no propone nada
+   * (20 puestos siguen con `default_role` NULL) o cuando no hay puesto.
+   */
+  private async detectarDesvio(
+    positionCode: string | null | undefined,
+    roleName: string | null | undefined,
+  ): Promise<{ position_code: string; propone: string; elegido: string } | null> {
+    if (!positionCode || !roleName) return null;
+    const pos = await this.knex('identity.positions')
+      .where({ tenant_id: this.tenantId, code: positionCode })
+      .whereNull('deleted_at')
+      .first('code', 'default_role');
+    if (!pos?.default_role) return null;
+    const elegido = roleName.toLowerCase();
+    if (pos.default_role.toLowerCase() === elegido) return null;
+    return { position_code: pos.code, propone: pos.default_role, elegido };
+  }
+
+  /**
+   * `[OR.2]` — Apartarse del puesto se puede; hacerlo en silencio, no.
+   *
+   * ⚠️ **La regla se evalúa sobre el CAMBIO, no sobre el estado guardado**, igual
+   * que `must_change_password`/`token_ttl_days`. Si no, el formulario —que hace
+   * `PUT` con el payload completo— pediría un motivo cada vez que alguien edita
+   * el teléfono de una de las 14 personas que ya divergen, por una decisión que
+   * tomó otro hace meses. Acá sólo pide motivo quien **crea** la divergencia:
+   * un alta divergente, o un cambio que mueve el rol o el puesto.
+   */
+  private exigirMotivo(
+    desvio: { position_code: string; propone: string; elegido: string },
+    motivo: string | null | undefined,
+  ): void {
+    if (motivo && motivo.trim()) return;
+    throw new BadRequestException(
+      `El puesto "${desvio.position_code}" propone el perfil "${desvio.propone}" y se eligió ` +
+        `"${desvio.elegido}". Apartarse está permitido, pero hay que decir por qué: enviá ` +
+        `"motivo_desvio".`,
+    );
+  }
+
   async create(createUserDto: CreateUserDto, requester: RequesterContext) {
     // `zone_id`/`zona_id`/`zona` salen del rest: los tres colapsan en una sola
     // columna y la precedencia la decide `resolveZoneRef`.
@@ -482,10 +581,17 @@ export class UsersService {
       zone_id: _zoneId,
       role_name,
       username,
+      // `[OR.2]` Fuera del `rest`: NO es una columna de `identity.users`, viaja
+      // al evento. Dejarlo pasar haría reventar el INSERT con "column does not exist".
+      motivo_desvio,
       ...rest
     } = createUserDto;
 
     await this.assertCanAssignRole(role_name, requester);
+
+    // `[OR.2]` En un alta, toda divergencia es una decisión que se toma AHORA.
+    const desvio = await this.detectarDesvio(createUserDto.position_code, role_name);
+    if (desvio) this.exigirMotivo(desvio, motivo_desvio);
     // `[CH.1.10]` Sin fila previa: en un alta el "resultante" es lo que trae el body.
     this.assertDeviceCredential(createUserDto);
     await this.assertCanSetDeviceSession(createUserDto.token_ttl_days, requester);
@@ -576,6 +682,19 @@ export class UsersService {
       );
     }
 
+    // `[OR.2]` La divergencia con el puesto queda asentada CON su motivo. Antes
+    // era visible en el formulario y no quedaba en ningún lado: las 14 personas
+    // que hoy divergen no tienen un renglón que diga si fue decisión o descuido.
+    if (desvio && user?.id) {
+      await this.recordEvent(
+        this.knex,
+        user.id,
+        'desvio_de_puesto',
+        { ...desvio, motivo: (motivo_desvio ?? '').trim(), origen: 'alta' },
+        requester,
+      );
+    }
+
     // El nombre de la zona se resuelve del uuid que quedó guardado: ya no hay
     // una variable `zona` en scope (los tres alias colapsaron en `[ID.7]`) y
     // devolver el que mandó el cliente sería devolverle su propio input.
@@ -647,9 +766,10 @@ export class UsersService {
       );
 
     // Scope enforcement: quien administra personal (`USUARIOS_GESTIONAR`) o ve
-    // reportes globales ve todo el padrón; team-scope ve su equipo + sí mismo;
-    // own-scope solo a sí mismo. Ver `alcanceDelPadron` para por qué el eje de
-    // reportes no alcanzaba — `[ID.27]`.
+    // reportes globales ve todo el padrón; `sucursal` ve al personal de su
+    // tienda (`[ID.35]`); team-scope ve su equipo + sí mismo; own-scope sólo a
+    // sí mismo. Ver `alcanceDelPadron` para por qué el eje de reportes no
+    // alcanzaba — `[ID.27]`.
     const scope = this.alcanceDelPadron(requester);
     if (scope.type === 'team') {
       query.where((qb) => {
@@ -658,6 +778,8 @@ export class UsersService {
           requester.sub,
         );
       });
+    } else if (scope.type === 'sucursal') {
+      await this.acotarPorSucursal(query, requester.sub);
     } else if (scope.type === 'own') {
       query.where('u.id', requester.sub);
     }
@@ -721,6 +843,23 @@ export class UsersService {
           'No puedes ver usuarios fuera de tu equipo.',
         );
       }
+    } else if (scope.type === 'sucursal') {
+      // `[ID.35]` El detalle usa el MISMO criterio que la lista: la sucursal del
+      // que pregunta, más su propia ficha. Si la lista te lo mostró, el detalle
+      // no puede negártelo — y si no, tampoco puede dejarte entrar por la URL.
+      const esUnoMismo = user.id === requester.sub;
+      const puede =
+        esUnoMismo ||
+        (!!this.scopeService &&
+          !!user.warehouse_code &&
+          this.scopeService.canRead(
+            await this.scopeService.forUser(this.tenantId, requester.sub),
+            'warehouse',
+            String(user.warehouse_code),
+          ));
+      if (!puede) {
+        throw new ForbiddenException('No puedes ver usuarios de otra sucursal.');
+      }
     } else if (scope.type === 'own' && user.id !== requester.sub) {
       throw new ForbiddenException('No puedes ver otros usuarios.');
     }
@@ -742,6 +881,8 @@ export class UsersService {
       role_name,
       username,
       activo,
+      // `[OR.2]` Fuera del `rest`: no es columna de `identity.users`, va al evento.
+      motivo_desvio,
       ...rest
     } = updateUserDto;
 
@@ -789,6 +930,36 @@ export class UsersService {
       updateUserDto.warehouse_code,
       updateUserDto.route_id,
     );
+
+    // `[OR.2]` Divergencia con el puesto. ⚠️ Se evalúa sobre el CAMBIO: el
+    // formulario hace `PUT` con el payload completo, así que mirar el estado
+    // guardado pediría motivo cada vez que alguien edita el teléfono de una de
+    // las 14 personas que ya divergen, por una decisión que tomó otro hace
+    // meses. Sólo se le pide a quien CREA la divergencia.
+    let desvioUpd: { position_code: string; propone: string; elegido: string } | null = null;
+    if (role_name !== undefined || 'position_code' in updateUserDto) {
+      const actual = await this.knex('users')
+        .where({ id, tenant_id: this.tenantId })
+        .select('role_name', 'position_code')
+        .first();
+      if (!actual) throw new NotFoundException(`Usuario con ID ${id} no encontrado`);
+
+      const rolFinal = role_name !== undefined ? role_name : actual.role_name;
+      const puestoFinal =
+        'position_code' in updateUserDto ? updateUserDto.position_code : actual.position_code;
+
+      const cambiaRol =
+        role_name !== undefined &&
+        (role_name ?? '').toLowerCase() !== (actual.role_name ?? '').toLowerCase();
+      const cambiaPuesto =
+        'position_code' in updateUserDto &&
+        (updateUserDto.position_code ?? null) !== (actual.position_code ?? null);
+
+      if (cambiaRol || cambiaPuesto) {
+        desvioUpd = await this.detectarDesvio(puestoFinal, rolFinal);
+        if (desvioUpd) this.exigirMotivo(desvioUpd, motivo_desvio);
+      }
+    }
 
     // Defensa contra dejar al sistema sin superadmins activos.
     if (role_name !== undefined || activo !== undefined) {
@@ -888,6 +1059,17 @@ export class UsersService {
               ? 'la nueva duración aplica al PRÓXIMO ingreso; no acorta el token ya emitido'
               : 'vuelve al default global (12 h) en su próximo ingreso; el token vigente sigue vivo hasta su exp',
         },
+        requester,
+      );
+    }
+
+    // `[OR.2]` Quien se apartó del puesto, cuándo y por qué.
+    if (desvioUpd) {
+      await this.recordEvent(
+        this.knex,
+        id,
+        'desvio_de_puesto',
+        { ...desvioUpd, motivo: (motivo_desvio ?? '').trim(), origen: 'edicion' },
         requester,
       );
     }
@@ -1251,7 +1433,15 @@ export class UsersService {
     const pos = await this.knex('identity.positions')
       .where({ tenant_id: this.tenantId, code: positionCode })
       .whereNull('deleted_at')
-      .first('code', 'name', 'department_code', 'default_role', 'scope_axis');
+      .first(
+        'code',
+        'name',
+        'department_code',
+        'default_role',
+        'scope_axis',
+        // `[OR.1a]` El jefe del PUESTO. Es la cuarta cosa que el puesto propone.
+        'reports_to_position_code',
+      );
     if (!pos) throw new NotFoundException(`El puesto "${positionCode}" no existe`);
 
     const dept = pos.department_code
@@ -1270,6 +1460,35 @@ export class UsersService {
           .select('dimension', 'mode', 'values', 'mode_write')
       : [];
 
+    // `[OR.1a]` El JEFE sale del PUESTO, no de la persona. `supervisor_id` quedó
+    // como excepción. Se devuelve también QUIÉN ocupa hoy ese puesto: un jefe
+    // declarado sobre un puesto vacante es una cadena correcta pero un
+    // escalamiento que hoy no llega a nadie, y eso hay que poder verlo.
+    const jefe = pos.reports_to_position_code
+      ? await this.knex('identity.positions')
+          .where({ tenant_id: this.tenantId, code: pos.reports_to_position_code })
+          .whereNull('deleted_at')
+          .first('code', 'name')
+      : null;
+    const jefeOcupantes = jefe
+      ? await this.knex('identity.users')
+          .where({ tenant_id: this.tenantId, position_code: jefe.code, activo: true })
+          .whereNull('deleted_at')
+          .select('id', 'username', 'nombre')
+      : [];
+
+    // `[OR.1b]` De qué responde el puesto. Hoy `position_responsibilities` está
+    // VACÍA a propósito (sembrarla desde el permiso colapsaría la distinción
+    // «puede abrirlo» vs «responde de ello»), así que esto devuelve `[]` — y el
+    // flag lo DECLARA en vez de dejar que un arreglo vacío se lea como "no
+    // responde de nada".
+    const responsabilidades = await this.knex('identity.position_responsibilities as pr')
+      .join('identity.responsibilities as r', 'r.key', 'pr.responsibility_key')
+      .where({ 'pr.tenant_id': this.tenantId, 'pr.position_code': pos.code })
+      .whereNull('pr.deleted_at')
+      .orderBy('r.orden')
+      .select('r.key', 'r.label', 'r.dimension', 'pr.es_principal');
+
     return {
       position_code: pos.code,
       position_name: pos.name,
@@ -1278,6 +1497,12 @@ export class UsersService {
       role_name: pos.default_role ?? null,
       /** Sin perfil sugerido: la pantalla tiene que pedirlo explícitamente. */
       sin_perfil: !pos.default_role,
+      /** `[OR.1a]` El jefe que propone el puesto, y si hay alguien ocupándolo. */
+      reports_to: jefe ? { code: jefe.code, name: jefe.name, ocupantes: jefeOcupantes } : null,
+      jefe_sin_ocupante: !!jefe && jefeOcupantes.length === 0,
+      /** `[OR.1b]` De qué responde. Vacío + `sin_responsabilidades` para no leerlo como cero. */
+      responsabilidades,
+      sin_responsabilidades: responsabilidades.length === 0,
       /**
        * `[ID.24]` El EJE del puesto: qué pregunta corresponde hacerle a esta
        * persona. `ruta` → su ruta · `sucursal` → su tienda · `zona` → la plaza
@@ -1406,6 +1631,8 @@ export class UsersService {
       position_code?: string | null;
       warehouse_code?: string | null;
       status?: string | null;
+      /** `[OR.2]` Motivo, UNA vez para todo el lote (ver abajo). */
+      motivo_desvio?: string | null;
     },
     requester: RequesterContext,
   ) {
@@ -1413,6 +1640,51 @@ export class UsersService {
     if (!ids.length) throw new BadRequestException('Hay que seleccionar al menos un usuario.');
 
     await this.assertOrgCodes(dto.department_code, dto.position_code, dto.warehouse_code);
+
+    // `[OR.2]` El lote NO puede cambiar el rol, pero SÍ el puesto — así que
+    // también puede crear divergencia, moviendo gente a un puesto que propone
+    // otro perfil. Sin esto la regla quedaba a medias: se pedía motivo en el
+    // alta y en la edición, y el camino masivo la esquivaba entero.
+    //
+    // El motivo se pide **una vez por lote**, no por persona: es UNA decisión
+    // ("paso a estos 12 a `cajera` aunque su perfil sea otro"), y pedir doce
+    // motivos volvería inusable justamente la herramienta que existe para
+    // normalizar 116 usuarios sin depender de un script.
+    let desviados: { id: string; username: string; propone: string; elegido: string }[] = [];
+    if (dto.position_code) {
+      const pos = await this.knex('identity.positions')
+        .where({ tenant_id: this.tenantId, code: dto.position_code })
+        .whereNull('deleted_at')
+        .first('code', 'default_role');
+      if (pos?.default_role) {
+        const filas = await this.knex('users')
+          .where({ tenant_id: this.tenantId })
+          .whereIn('id', ids)
+          .whereNull('deleted_at')
+          .select('id', 'username', 'role_name', 'position_code');
+        desviados = filas
+          .filter(
+            (u: { role_name?: string; position_code?: string }) =>
+              (u.role_name ?? '').toLowerCase() !== pos.default_role.toLowerCase() &&
+              (u.position_code ?? null) !== dto.position_code,
+          )
+          .map((u: { id: string; username: string; role_name: string }) => ({
+            id: u.id,
+            username: u.username,
+            propone: pos.default_role,
+            elegido: u.role_name,
+          }));
+      }
+    }
+    if (desviados.length && !(dto.motivo_desvio ?? '').trim()) {
+      const ejemplos = desviados.slice(0, 3).map((d) => `${d.username} (${d.elegido})`).join(', ');
+      throw new BadRequestException(
+        `${desviados.length} de los seleccionados quedarían con un perfil distinto al que propone ` +
+          `"${dto.position_code}" ("${desviados[0].propone}"): ${ejemplos}` +
+          `${desviados.length > 3 ? '…' : ''}. Apartarse está permitido, pero hay que decir por qué: ` +
+          `enviá "motivo_desvio".`,
+      );
+    }
 
     const cambios: Record<string, unknown> = {};
     for (const k of ['department_code', 'position_code', 'warehouse_code', 'status'] as const) {
@@ -1436,6 +1708,27 @@ export class UsersService {
 
       for (const u of afectados) {
         await this.recordEvent(trx, u.id, 'bulk_assigned', cambios, requester);
+      }
+      // `[OR.2]` Un asiento por persona desviada, con el motivo del lote. El
+      // evento es por persona aunque la decisión fuera una: dentro de seis meses
+      // la pregunta va a ser "¿por qué Fulano tiene este perfil?", no "¿qué pasó
+      // en aquel lote".
+      for (const d of desviados) {
+        if (!afectados.some((u: { id: string }) => u.id === d.id)) continue;
+        await this.recordEvent(
+          trx,
+          d.id,
+          'desvio_de_puesto',
+          {
+            position_code: dto.position_code,
+            propone: d.propone,
+            elegido: d.elegido,
+            motivo: (dto.motivo_desvio ?? '').trim(),
+            origen: 'asignacion masiva',
+            lote: afectados.length,
+          },
+          requester,
+        );
       }
       return { actualizados: afectados.length, campos: Object.keys(cambios), usuarios: afectados.map((u: any) => u.username) };
     });
@@ -1690,6 +1983,69 @@ export class UsersService {
         ? { code: u.position_code, name: u.position_name ?? u.position_code }
         : null,
     };
+  }
+
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona en sesión: lo que le toca HACER, no a dónde puede
+   * entrar. Alimenta el bloque "Mi trabajo" de la landing.
+   *
+   * Self-scoped y sin permiso propio, como `me/context`: cada bandeja ya trae el suyo y sólo se
+   * cuenta la que esta persona puede abrir (un conteo es información). El registro de bandejas,
+   * con la medición que lo justifica, vive en `me-work.ts`.
+   *
+   * Cada conteo va en su propio `try`: si una tabla no existe todavía en este ambiente (una fase a
+   * medio desplegar), esa bandeja se DECLARA en `no_medido` con su motivo y las demás siguen
+   * contando. Nunca baja a cero — un cero dibujado se lee igual que "estás al día" (ADR-056).
+   */
+  async workFor(
+    userId: string,
+    permisos: Record<string, boolean> | null | undefined,
+    esAdmin: boolean,
+  ): Promise<MeWork> {
+    const pendientes: MePendiente[] = [];
+    const no_medido: MeWork['no_medido'] = [];
+
+    for (const b of BANDEJAS) {
+      if (!puedeVerBandeja(b, permisos, esAdmin)) continue;
+      try {
+        const { total, mas_viejo_at } = await b.medir(this.knex, this.tenantId, userId);
+        // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
+        if (total > 0) {
+          pendientes.push({
+            id: b.id,
+            label: b.label,
+            detalle: b.detalle,
+            ruta: b.ruta,
+            icono: b.icono,
+            total,
+            mas_viejo_at,
+            alcance: b.alcance,
+          });
+        }
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: bandeja ${b.id} no se pudo contar — ${motivo}`);
+        no_medido.push({ id: b.id, label: b.label, motivo });
+      }
+    }
+
+    /*
+     * `[SN.12]` Lo propio primero, y dentro de cada grupo lo MÁS VIEJO arriba — no lo más grande.
+     * Ordenar por volumen ponía 1,865 descuadres sobre 5 alertas de flota, y el tamaño de una cola
+     * no dice nada de su urgencia: una cola grande puede llevar meses estable y una de cinco
+     * elementos puede ser un vehículo sin señal desde ayer. La bandeja sin fecha medible NO se
+     * asume reciente: cae al final de su grupo y ahí el volumen desempata (ADR-056).
+     */
+    const edad = (p: MePendiente): number =>
+      p.mas_viejo_at ? Date.parse(p.mas_viejo_at) : Number.POSITIVE_INFINITY;
+    pendientes.sort((a, b) => {
+      if (a.alcance !== b.alcance) return a.alcance === 'mio' ? -1 : 1;
+      const ea = edad(a);
+      const eb = edad(b);
+      if (ea !== eb) return ea - eb;
+      return b.total - a.total;
+    });
+    return { pendientes, no_medido, medido_at: new Date().toISOString() };
   }
 
   /**

@@ -14,6 +14,17 @@
  *      ODS_HB_MAX_MIN (tope de antigüedad en minutos; default 20)
  *      ODS_HB_IGNORE_ERROR=1 → juzga SÓLO la antigüedad, no `status='error'`
  *
+ * ⭐ `ODS_HB_KEY` acepta VARIAS claves separadas por coma, y entonces el veredicto es
+ * "sano si CUALQUIERA está al día" — semántica de CANARIO, no de auditoría. Existe para
+ * `feeds-cron`, que no tiene un carril propio sino once: preguntar por uno solo lo ataría a
+ * ese carril (si se retira o se renombra, el contenedor entraría en bucle de reinicio
+ * eterno por una clave que ya no existe), y preguntar por TODOS sería peor — reiniciaría
+ * los once porque la fuente de uno está caída, cuando reiniciar no repone nada. Lo que
+ * este contenedor tiene que probar es que el camino cron → run-feed.sh → node → prod
+ * ENTREGA; con que un carril lo demuestre, alcanza. Que un carril concreto esté mal lo
+ * grita db-health, que sí mira uno por uno y tiene el umbral de cada cual.
+ * Con una sola clave el comportamiento es idéntico al de siempre.
+ *
  * Sobre `ODS_HB_IGNORE_ERROR`: hay carriles cuyo `status='error'` es una alarma de **DATO**, no de
  * vivencia. El reconciliador marca `error` cuando encuentra huecos por encima del umbral: eso dice
  * "el pipeline está perdiendo filas", no "este contenedor está roto" — y reiniciarlo no repone una
@@ -27,12 +38,13 @@ const { Client } = require('pg');
 
 const URL_ = process.env.ODS_HB_URL;
 const KEY = process.env.ODS_HB_KEY;
+const KEYS = String(KEY || '').split(',').map((k) => k.trim()).filter(Boolean);
 const MAX_MIN = Math.max(1, Number(process.env.ODS_HB_MAX_MIN) || 20);
 const IGNORE_ERROR = /^(1|true|yes)$/i.test(String(process.env.ODS_HB_IGNORE_ERROR || ''));
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
 (async () => {
-  if (!URL_ || !KEY) { console.log('health: sin ODS_HB_URL/ODS_HB_KEY — no se evalúa'); process.exit(0); }
+  if (!URL_ || !KEYS.length) { console.log('health: sin ODS_HB_URL/ODS_HB_KEY — no se evalúa'); process.exit(0); }
   const c = new Client({
     connectionString: URL_,
     ssl: { rejectUnauthorized: false },
@@ -41,11 +53,33 @@ const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d0
   });
   try {
     await c.connect();
-    const r = (await c.query(
-      `SELECT status, host,
+    const filas = (await c.query(
+      `SELECT job_key, status, host,
               GREATEST(EXTRACT(EPOCH FROM (now() - COALESCE(last_finish, last_start)))/60, 0) AS min_age
-         FROM analytics.cron_runs WHERE tenant_id=$1 AND job_key=$2`, [TENANT, KEY])).rows[0];
+         FROM analytics.cron_runs WHERE tenant_id=$1 AND job_key = ANY($2)`, [TENANT, KEYS])).rows;
 
+    // ── Modo CANARIO (varias claves): sano si CUALQUIERA entrega. Ver el encabezado.
+    if (KEYS.length > 1) {
+      const YO = require('os').hostname();
+      const vivas = filas.filter((f) => {
+        if (f.host && f.host !== YO) return false;                 // la late otro proceso
+        if (Number(f.min_age) > MAX_MIN) return false;              // vieja
+        if (f.status === 'error' && !IGNORE_ERROR) return false;
+        return true;
+      });
+      const detalle = KEYS.map((k) => {
+        const f = filas.find((x) => x.job_key === k);
+        return f ? `${k}=${Number(f.min_age).toFixed(1)}min/${f.status}` : `${k}=sin latido`;
+      }).join(' · ');
+      if (vivas.length) {
+        console.log(`health: canario ok — ${vivas.length}/${KEYS.length} entregando (${detalle})`);
+        process.exit(0);
+      }
+      console.error(`health: NINGUNO de los ${KEYS.length} carriles canario entrega (tope ${MAX_MIN} min): ${detalle}`);
+      process.exit(1);
+    }
+
+    const r = filas[0];
     if (!r) { console.error(`health: ${KEY} sin latido en prod — el carril no está entregando`); process.exit(1); }
     const age = Number(r.min_age);
 

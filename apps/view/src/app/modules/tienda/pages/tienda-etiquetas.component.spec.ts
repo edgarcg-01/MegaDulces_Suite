@@ -130,6 +130,40 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
     expect(html()).toContain('Hoja 1 de 1');
   });
 
+  /**
+   * ⭐ La tipografía con la que se mide cambia el TAMAÑO del precio hasta 17% (ver la tabla en el
+   * encabezado de `label.component`), y depende de si ESTE equipo alcanza fonts.googleapis.com.
+   * Era la única variación por máquina que quedaba y era invisible: ahora se declara en pantalla.
+   * Tres estados, no dos — "no se pudo verificar" no se puede pintar como ✓ (ADR-056).
+   */
+  it('⭐ declara con qué tipografía se mide, y "sin verificar" no se pinta como ✓', async () => {
+    const original = Object.getOwnPropertyDescriptor(document, 'fonts');
+    const poner = (fonts: unknown) => Object.defineProperty(document, 'fonts', { value: fonts, configurable: true });
+    const crear = async () => {
+      const f = TestBed.createComponent(TiendaEtiquetasComponent);
+      f.detectChanges();
+      await new Promise((r) => setTimeout(r, 0));
+      f.detectChanges();
+      return f;
+    };
+    try {
+      // La familia NO llegó (equipo de tienda sin salida a internet).
+      poner({ check: () => false });
+      const f1 = await crear();
+      expect(f1.componentInstance.fuenteEtiqueta()).toBe('respaldo');
+      expect((f1.nativeElement as HTMLElement).textContent).toContain('tipografía de respaldo');
+
+      // El navegador no deja preguntar → se DECLARA, no se asume que está bien.
+      poner({ check: () => { throw new Error('no soportado'); } });
+      const f2 = await crear();
+      expect(f2.componentInstance.fuenteEtiqueta()).toBe('sin_medir');
+      expect((f2.nativeElement as HTMLElement).textContent).not.toContain('tipografía ✓');
+    } finally {
+      if (original) Object.defineProperty(document, 'fonts', original);
+      else delete (document as unknown as Record<string, unknown>)['fonts'];
+    }
+  });
+
   it('⭐ imprimir espera a que TODAS las etiquetas de la hoja oculta se hayan ajustado', async () => {
     await escanear('10001', FRESH);
     cmp.setCopies(0, 3);

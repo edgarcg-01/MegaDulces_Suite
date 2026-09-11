@@ -83,7 +83,114 @@ Helpers: `visibleSuiteMap(perms, isAdmin, role)` → `{ spaces, declared }` · `
 
 ### 4.2 Landing "Mi trabajo" — `apps/view/src/app/modules/mi-trabajo/`
 
-Lista **seccionada de una columna** (no master-detail: las entradas son enlaces, un panel de detalle quedaría vacío; no card grid: DESIGN L398/L486/L521). Answer-first: (1) **Mi contexto** — 4 celdas hairline: persona, puesto (`Sin puesto asignado` si NULL), alcance (`all`/`own|listed`/`none`/`resolvable:false` → "sin determinar"), periodo; (2) **una** declaración de lo pendiente (P-06, P-01); (3) **Mi operación** — `<section>` por espacio visible, fila = `<a routerLink>` 48px con icono · etiqueta · **línea secundaria derivada** (módulos abribles por ESA persona) · grupo · flecha. Espacios `proposed` con badge "Propuesta · P-xx". Pie: los `planned`, declarados. `estado()==='sin_cargar'` → skeleton, nunca el vacío. 0 entradas → estado declarado + salir (sin redirect a captures). N=1 destinos primarios → auto-entra salvo `history.state.stay`.
+> ⚠️ **Corregido el 2026-09-11 (SN.8).** La primera versión tiró la tarjeta y puso filas de texto. Edgar lo rechazó: *"hiciste una interfaz compleja y poco interactiva, los módulos son poco profesionales y el trabajo no está delegado o asignado a una persona. El diseño de los módulos ya era correcto, sólo era cambiar los nombres y las posiciones, y darle un espacio a «Mi trabajo»"*. Lo que sigue describe la versión corregida; la de filas queda documentada sólo como lo que NO había que hacer.
+
+**La tarjeta vuelve.** Es el organismo de `modules/projects/` desde siempre (chip de icono 40 px, título, línea de contenido, "Acceder →" con flecha que avanza en hover) y lo que había que cambiar eran los **nombres** y las **posiciones**: las 11 tarjetas sueltas pasan a agruparse por los espacios de §5.1, con `<h2>` por espacio. Tres diferencias con la tarjeta vieja, cada una con su motivo:
+
+1. es `<a routerLink>` y no `<div (click)>` → teclado, ctrl+clic, botón medio;
+2. la insignia deja de decir **"Activo"** (era literal siempre — §22 de la spec lo veta) y dice dónde vive la entrada (`Ventas › Mayoreo`) o `Propuesta · P-xx`;
+3. la línea de contenido se **deriva** de los módulos que ESA persona puede abrir (máx. 4 + `+N`), en vez de una descripción a mano — §13 de la spec juzgó a Finanzas por una que llevaba meses vencida.
+
+**Nota sobre DESIGN.md:** la regla "sin card grid" gobierna las superficies de **datos** de Operations (tabla densa + master-detail). Esta pantalla es el **lanzador**: no tiene registros que leer. Decisión de Edgar, 2026-09-11.
+
+**"Mi trabajo" es el primer espacio**, no una ficha de contexto: trae los pendientes de `GET /users/me/work` (§4.5) en tarjetas con el número grande, partidos en **A tu nombre** / **En tus bandejas**, más una tira compacta de contexto (puesto · área · alcance · periodo) y el botón *Actualizar*. El nombre de la persona va en la cabecera. Una bandeja en 0 **no se pinta**; sin pendientes se dice con una línea; lo que no se pudo contar se **declara**.
+
+Lo demás se conserva de SN.3: `estado()==='sin_cargar'` → skeleton, nunca el vacío; 0 entradas → estado declarado + salir (sin redirect a captures); N=1 destinos primarios → auto-entra salvo `history.state.stay`; `planned` declarados al pie.
+
+#### 4.2.1 SN.9 — todo en una pantalla, con buscador (2026-09-11)
+
+Pedido de Edgar: *"concentrar toda la información, módulos, mi trabajo, una barra de búsqueda súper inteligente, mis pendientes, en una pantalla que no necesite scroll"*. Opciones presentadas y elegidas: **rejilla densa con buscador arriba**, búsqueda de **módulos + pendientes en el cliente**, objetivo **1920×1080**.
+
+**Cuánto tiene que caber**, medido: **22 entradas en 6 espacios** para el superadmin (Comercial 10 · Auditoría 5 · Almacenes 3 · Admin y Finanzas 2 · Dirección 1 · Configuración 1). Un usuario normal ve 1–5, así que el problema de espacio sólo existe arriba.
+
+**Lo que se sacrifica, a conciencia:** la tarjeta pierde la descripción larga y el pie "Acceder →"; queda chip de icono + nombre + una línea de módulos truncada. La rejilla es de `12.5rem` mínimo, los espacios se acomodan en columnas de `26rem`. El contexto baja a una tira en la cabecera y los pendientes pasan de tarjeta a **píldora** (número + etiqueta), en una sola fila.
+
+**"Sin scroll" no se cumple cortando contenido.** La página es `100dvh` en cinco filas de grid y sólo la de espacios es elástica (`minmax(0,1fr)` + `overflow:auto`): en 1920×1080 no aparece barra, y si no cupiera —pantalla chica, alguien con más entradas de las previstas— scrollea **esa zona**, nunca se esconde una puerta. Bajo 900 px de ancho o 620 px de alto la pantalla vuelve a ser documento normal.
+
+**El buscador es de cliente, y eso es una decisión, no una limitación:** lo que busca —módulos y bandejas— ya está en memoria (el mapa se resuelve en el navegador, los pendientes vienen de una sola llamada). Reimplementa en chico lo que `applySmartSearch` hace en Postgres: **sin acentos** (`NFD` + quitar diacríticos, equivalente a `public.f_unaccent`) y **multi-token AND en cualquier orden**. Lo que **no** hace es tolerar typos — eso necesita `pg_trgm` y por lo tanto el servidor. El haystack de cada entrada incluye **los nombres de sus módulos**, así que "bancos" encuentra Finanzas. `Ctrl/⌘+K` y `/` enfocan, `Enter` abre el primer resultado, `Esc` limpia. Una búsqueda sin coincidencias **se dice**; no deja la pantalla en blanco.
+
+**Fuera de alcance, declarado:** buscar entidades de negocio (clientes, folios, productos, pólizas) es otra capa — un endpoint nuevo que reúse `applySmartSearch`, con la decisión pendiente de qué dominios entran y respetando el permiso de cada uno. Y sobre eso, lenguaje natural (ya hay precedente con Maat/Thot/Horus). Ninguna de las dos entra en Etapa 2.
+
+#### 4.2.2 SN.10 — la densidad se comió al contenido (2026-09-11)
+
+Edgar pidió observaciones sobre la captura de SN.9. El costo real de apretar fue **mayor que el que declaré**: anuncié que se perdía "la descripción larga", y lo que se perdió fue el **nombre** de tres módulos y la **utilidad** de la línea secundaria en las 22 tarjetas. Nueve defectos, cada uno con su causa:
+
+| # | Lo que se veía | Causa | Arreglo |
+|---|---|---|---|
+| 1 | «Atajo · vive en su espacio de ori…» **×12**, truncado, con el mismo peso que la información real | `entryModules()` de una entrada `kind:'module'` devuelve `[]` y el template rellenó el hueco con jerga | la segunda línea de un módulo enlazado dice **«de {Proyecto}»** (`entryOrigin()`) |
+| 2 | **Dos «Hallazgos» idénticos y contiguos** en Auditoría (Finanzas y Compras) | `entryLabel()` no dice de qué proyecto sale el módulo | el origen los distingue: «de Finanzas» / «de Compras» |
+| 3 | Títulos cortados: «Centro de Control (vista p…», «Compras / Reabastecimie…» | `white-space: nowrap` en `12.5rem` | dos líneas (`line-clamp: 2`) y tarjeta de `14rem` |
+| 4 | **Iconos que decoraban en vez de distinguir**: el mismo carrito en 4 tarjetas, el mismo gráfico en 5 | `entryIcon()` devolvía **siempre** el del PROYECTO | `SuiteEntry.icon?` opcional; el icono es presentación y por eso vive en el mapa, **no** en `AuthzModule` (ADR-061) |
+| 5 | «Telemarketing / Telemarketing» | proyecto con un único módulo homónimo | si la segunda línea repite el título, se omite |
+| 6 | **Medio tablero vacío** bajo Dirección General (1 tarjeta) mientras Comercial (10) iba apretado | cada espacio era una **celda** de `grid`: reservaba una fila de la altura del espacio más alto | **mampostería** (`columns: 3` + `break-inside: avoid`); orden §5.1 intacto |
+| 7 | La 2ª fila de pendientes (99 · 76 · 19 · 2) **sin la etiqueta «En tus bandejas»** → se leía como trabajo personal | píldoras y etiquetas en un solo `flex-wrap` | cada grupo es su propio bloque y envuelve dentro de sí |
+| 8 | Casi toda línea secundaria cortada a media palabra | 3 módulos no caben en `12.5rem` | el ancho recuperado por la mampostería + `14rem` |
+| 9 | «PUESTO Sistemas · ÁREA Sistemas» | el contexto se pintaba completo aunque coincidieran | si puesto == área, se muestra una vez |
+
+**Los defectos 2 y 7 no eran cosméticos:** hacían que la pantalla **mintiera** sobre a quién le toca el trabajo y sobre qué bandeja se está abriendo.
+
+**Lección para la fase:** cuando la información de una tarjeta se **deriva**, achicar la tarjeta no sólo la aprieta — puede dejar a la derivación sin nada que decir, y entonces el hueco se llena con relleno. La densidad se elige mirando **qué queda legible**, no cuántas tarjetas entran.
+
+⚠️ **Incidente de entorno, ajeno:** a mitad de SN.10 `node_modules` apareció sin los scopes `@angular`, `@angular-devkit` y `@babel` completos (1398 paquetes presentes, esos tres ausentes desde ~1 h antes, sin `.staging` ni proceso npm vivo). Ni el build ni jest podían correr. La lógica se verificó igual **sin jest**, con un script ts-node contra el mapa real (8/8). Repuesto con `npm install` autorizado por Edgar; `package-lock.json` quedó **sin cambios**.
+
+#### 4.2.3 SN.11 — la pantalla dejó de ser el menú (2026-09-11)
+
+Edgar rechazó también SN.10: *"el diseño es horrible. hay que hacer nuevamente la interfaz. muéstrame opciones en artefactos de diseño profesionales. para esto primero realiza una investigación de ejemplos buenos, como Humand"*.
+
+**El diagnóstico que faltaba: SN.3 y SN.9 eran la MISMA apuesta.** Una puso filas, la otra tarjetas, pero las dos hacían que **la pantalla fuera el menú**: 22 puertas ocupando el lienzo y el trabajo exprimido en una tira. Por eso cada ronda de "que quepa" costaba contenido y ningún retoque de la tarjeta iba a alcanzar. La investigación lo confirma — los productos que resuelven este problema invierten la jerarquía:
+
+| Referencia | Qué hace en su *home* | Qué se tomó |
+|---|---|---|
+| **Humand** (el ejemplo que pidió Edgar) | Identidad de la persona arriba; el home es contenido, la navegación vive en un riel | Cabecera de identidad; el home deja de ser el menú |
+| **SAP Fiori «My Home»** | Canon de suite empresarial, y llama *Spaces* a lo mismo que acá son espacios. Orden fijo **To-Dos → Pages → Apps → Insights** | El trabajo va **antes** que las puertas |
+| **Asana «My Tasks»** · **Height** | El home es personal y accionable; lo organizacional va segundo | Bandejas ordenadas por lo que hay que hacer |
+| **Linear** | Densidad, hairlines, mono tabular, cero color decorativo, ⌘K | Ya es lo que manda `DESIGN.md` |
+
+**Se presentaron tres variantes** en un artefacto con maquetas a escala 1920×1080, con los tokens de `libs/design-tokens/tokens.css` y los datos reales (22 entradas con grupo y origen, seis conteos de bandeja): **A · Consola** (cero adorno, cumple `DESIGN.md` completo), **B · Híbrida**, **C · Portal cálido** (rompe «decoración nula» y el antipatrón de íconos en círculos de color → habría exigido excepción escrita). **Edgar eligió B.** Antes eligió, sobre preguntas puntuales: dos columnas mitad y mitad · el trabajo fijo y las puertas rodando.
+
+**Lo que cambia:**
+
+| | Antes (SN.9/SN.10) | Ahora (SN.11) |
+|---|---|---|
+| Estructura | 5 filas apiladas; sólo la de espacios elástica | Cabecera + **2 columnas** + pie; la izquierda fija, la derecha rueda |
+| Trabajo | Tira de píldoras bajo el buscador | **Columna propia**, filas de 48 px con el número en mono tabular y riel de pertenencia |
+| Identidad | Título "Mi trabajo" + nombre a la derecha | Inicial + nombre + contexto en una línea (la etiqueta queda para el lector de pantalla) |
+| Tarjeta | Chip + título + 1 línea | Chip + **grupo** + título + línea de módulos (3 → **4** módulos nombrados) |
+| Mampostería | `columns: 3` (parche al desbalance 10/5/3/2/1/1) | Se retira: con dos columnas el desbalance desaparece |
+| Cifras | `1865` | `1,865` con separador |
+
+**Se pinta lo que ya llegaba y se tiraba:** el `groupLabel` (se calculaba desde SN.6 y nunca se mostró), el `motivo` de cada bandeja no medida, y `medido_at`. Este último **como hora absoluta** ("contado a las 12:04"), no como "hace N minutos": el relativo se calcula restando el reloj del navegador y la Fase VP midió 21 píldoras de la app diciéndolo sin medición detrás (ADR-056). Si `medido_at` no vino, se declara. **Sigue sin pintarse `MePendiente.icono`** — en la variante elegida el número manda y un glifo a su izquierda rompería la alineación de las cifras; queda declarado como dato disponible no usado, no olvidado.
+
+**El bloque «A tu nombre» ya no desaparece cuando está vacío.** Su vacío *es* el hecho medido —las tres tablas de asignación nominal en cero filas— y esconderlo haría creer que sí hay reparto. Se declara con su P-06.
+
+**Corrección tras ver la pantalla corriendo (mismo día).** Edgar mandó la captura del dev server y se midió en vivo a 1920×1080. Tres defectos, y el peor fue de esta misma entrega:
+
+| Qué | Medido | Arreglo |
+|---|---|---|
+| **9 de 21 segundas líneas cortadas a media palabra**, perdiendo el `+N` | La tarjeta queda en su mínimo de **249 px** y para que entrara la línea de Finanzas necesitaría **681**. Bajar de 4 módulos a 3 **no movía la aguja**: seguían las mismas 9 | La línea **envuelve a dos renglones** (`line-clamp: 2`) en vez de `nowrap`. **9 → 0**; quedan 3 que pedirían un tercer renglón y se cortan al final del segundo, no en la primera palabra |
+| Los títulos de la 1ª fila de Comercial **desalineados 14 px** | "Ventas" no tiene grupo y sus cuatro vecinas sí | El renglón del grupo se **reserva siempre**, vaya vacío o no. Filas desalineadas **1 → 0** |
+| **492 px vacíos** al pie de la columna de trabajo (de 938) | El contenido termina a los 445 | Las dos declaraciones del pie se mudan **cada una a la columna que declara** (el reparto nominal al trabajo, los espacios sin funciones a los espacios) y la columna de trabajo baja de 34 a **30 rem**. El vacío no se rellena con nada inventado: es real y se llena solo cuando la persona tiene más bandejas |
+
+**Por qué la maqueta no lo detectó, que es la lección:** dije "datos reales" y en la segunda línea usé versiones que yo mismo había acortado (`Sell-Out` por `Sell-Out por empresa`). Medí *0 cortados* sobre un texto que no era el de producción — **la maqueta se autocumplió**. Y encima subí `MAX_MODULOS_VISIBLES` de 3 a 4 *después* de medir, con el argumento de que la columna había ganado ancho; la medición en vivo lo desmintió y volvió a 3. Una maqueta sólo vale si el texto que lleva es exactamente el que va a llevar la pantalla.
+
+⚠️ **Incidente de entorno, por segunda vez el mismo día:** a `node_modules` le faltan **exactamente** los tres scopes de SN.10 — `@angular`, `@angular-devkit` y `@babel` — con los otros 1398 paquetes presentes, sin `.staging`, sin proceso de npm vivo y con `package-lock.json` intacto. Ni el build ni jest pueden correr. Que se repita el mismo recorte el mismo día deja de ser casualidad y merece causa raíz (candidatos a descartar: antivirus en cuarentena, un `npm prune`/`dedupe` de otra de las ~10 sesiones que comparten el repo). Mientras tanto se verificó de forma estática (70/70: selectores del spec presentes, miembros del componente declarados, cero clases huérfanas, cero restos de la versión anterior, cero tokens inexistentes, breakpoints en `rem`).
+
+#### 4.2.4 SN.12 — reestructuración: color, delimitante, prioridad y registro de uso (2026-09-11)
+
+Seis observaciones de Edgar sobre la pantalla ya corriendo. Tres se resolvieron con evidencia que **cambió el pedido**:
+
+| Pedido | Lo que se midió | Qué se hizo |
+|---|---|---|
+| «un color a cada módulo según se haga hover» | `DESIGN.md` prohíbe decorar con color y veta el «ícono en círculo de color» — pero lo que veta es el ornamento **en reposo** | `--tono` por **entrada** (no por espacio), tomado de `--chart-*`/`--avatar-*` (la excepción declarada: el color codifica dato) y visible **sólo al señalar**. Medido: 22 tarjetas, 0 sin tono, **0 repeticiones dentro de un mismo espacio**. Sin morado a propósito: `--avatar-4` queda fuera porque `DESIGN.md` lo veta como identidad de IA, y la entrada que más lo pediría (Horus) es justo la que no debe llevarlo. ⚠️ `--chart-2` y `--avatar-2` son **el mismo hex** (`#185FA5`): son 15 tokens pero 14 colores |
+| «no existe un delimitante entre Tu trabajo y Tus espacios» | Cierto: sólo las separaba un `gap` de 32 px | Hairline vertical + `padding-left`; apiladas en pantalla chica pasa a ser horizontal |
+| «no hay prioridad en la bandeja» | Las 8 bandejas hacían `contarFilas()` y **devolvían un número y nada más**. El orden era por **volumen**, que no es prioridad | Cada bandeja reporta también `mas_viejo_at` (`count(*)` + `min(created_at)` en **una** pasada) y el orden pasa a ser **por antigüedad**. Verificadas las 6 tablas: todas tienen `created_at`. La que no pueda fecharse **no se asume reciente**: cae al final y se dice «sin fechar» (ADR-056) |
+| «módulos que no son de mucho valor, como Scoring o Planogramas» | No es que valgan poco: **son pantallas de configuración**. Rutas `/dashboard/admin/*`, y `planograma` y `catalogs` declaran **`view: []`** — ni siquiera existe permiso de lectura, sólo `manage` | Las tres se mudan a **Configuración de la suite**. Nadie pierde acceso —cambian de lugar, no de puerta (§5.1 «ocultar ≠ autorizar»)—: Comercial **10 → 7**, Configuración **1 → 4**, total **22 sin cambio** |
+| «registro de qué clickea cada usuario» | **Ya existía**: `commercial.portal_telemetry_events` + `CommercialTelemetryService` (junio 2026), cableado sólo al Portal B2B | Se **generaliza** en vez de inventar tabla: `POST /telemetry/suite`, **autenticado** (adentro siempre hay sesión, así que el `user_id` es el real y no un decode best-effort sin verificar firma). `UsoService` registra qué puerta y qué bandeja abre cada quien. **No** se registra lo que se escribe en el buscador |
+| — | La migración original dejó escrito *«crece rápido. Follow-up: borrar > 90 días. No se implementa aquí»* y nunca se implementó | Se cierra: `@Cron` diario con `timeZone` explícito que purga en lotes de 5,000 y **declara** en el log lo que borró |
+
+**La lección de fondo:** tres de los seis puntos no necesitaban diseño sino medición. «Scoring no vale» era en realidad «Scoring es un ajuste sentado en una silla de operación», «no hay prioridad» era «el backend nunca mandó con qué priorizar», y «quiero registrar clics» era «ya está construido y sirve a un solo dominio» — el caso exacto que ADR-056 llama primitivo sin generalizar.
+
+**Pendiente:** el `mas_viejo_at` se ve como «sin fechar» hasta que se reinicie la API (el front ya lo pide, el backend ya lo manda, el proceso vivo todavía no). Y el registro de uso necesita historia antes de poder ordenar la pantalla por lo que cada quien usa — esa parte es SN.13.
 
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
@@ -92,6 +199,38 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 ### 4.4 Layout
 
 `currentProject`/`projectLabel` derivados del mapa (default `trademk` preservado → `isRestricted()` intacto); migaja Espacio › Proyecto › Página; "Administración" → "Configuración de la suite" (L448/L819; **L832 no**: es la sub-sección de catálogos de Trade); "Proyectos" → "Mi trabajo" con `state:{stay:true}`; link "Mi trabajo" en `TeleventaShellComponent`; `adminHomeGuard` (patrón `landingRedirectGuard` ×4).
+
+### 4.5 Backend — `GET /users/me/work` y la medición que lo define (SN.7)
+
+**Lo primero fue medir, no diseñar.** El pedido era que la landing mostrara *trabajo delegado o asignado a una persona*. Contra prod, read-only, 2026-09-10:
+
+| Tabla pensada para asignar a una persona | Filas |
+|---|---|
+| `finance.recon_tasks` (`assigned_to`, Fase MA) | **0** |
+| `commercial.supervisor_tasks` (`assigned_to_user`, Horus) | **0** |
+| `trade.daily_assignments` / `public.daily_assignments` | **0** |
+| `reconciliation.actions` (`responsable`) | **0** |
+| `commercial.inventory_count_assignments` (`user_id`) | 12 — las 12 apuntan a sesiones **canceladas** |
+| `commercial.expiry_reviews` (`responsible_user_id`) | 4 (1 `draft`) |
+
+**Hoy nadie reparte trabajo nominalmente.** La infraestructura existe en tres lugares y está vacía en los tres. Lo que sí tiene volumen son **colas compartidas** que ya tienen su pantalla:
+
+| Bandeja | Pendientes (prod) | Ruta | Permiso (= el guard de la ruta) |
+|---|---|---|---|
+| `reconciliation.discrepancies` `nuevo` | 1,865 | `/almacen/cuadre` | `RECONCILIATION_VER` |
+| `finance.findings` `nuevo` | 1,208 | `/finanzas/hallazgos` | `FINANCE_AI_CHAT` |
+| `commercial.commercial_actions` `pending_approval` | 99 | `/comercial/thot-curation` | `COMMERCIAL_THOT_GESTIONAR` |
+| `finance.proposed_actions` `pending_approval` | 76 | `/finanzas/pagos-control` | `FINANCE_AI_CHAT` |
+| `commercial.replenishment_findings` `open` | 19 | `/compras/hallazgos` | `COMPRAS_HALLAZGOS_VER` |
+| `logistics.fleet_alerts` `open` | 7 | `/logistica/rastreo` | `LOGISTICS_FLEET_VER` |
+
+Los 8 conteos (las 6 de arriba + las 2 nominales) corren en **≤69 ms** cada uno.
+
+De ahí sale la decisión de diseño: cada pendiente declara su `alcance` — **`'mio'`** (la fila trae tu `user_id`) o **`'bandeja'`** (cola compartida que abre tu permiso, que nadie repartió) — y la pantalla los separa con esas dos palabras. Llamarle "tu trabajo" a una cola de la que nadie es responsable sería la misma clase de mentira que el badge "Activo".
+
+Registro en `libs/trade/src/lib/users/me-work.ts` (declarativo + el `contar` de cada una), `workFor()` en `users.service.ts`, endpoint self-scoped junto a `me/context`. Reglas: sólo se cuenta la bandeja **cuyo permiso tiene la persona** (un conteo ya es información); una bandeja en 0 **no viaja**; lo que falla al contarse va a `no_medido` con motivo y **nunca baja a 0** (ADR-056). Conexión: `KNEX_CONNECTION` bypassa RLS → filtro `tenant_id` explícito, como `ReportsService`.
+
+**Lo que NO se hizo, y por qué:** construir la capa de asignación nominal (repartir tareas a personas) es una función nueva, no navegación — Etapa 3, y necesita que Dirección defina quién reparte. Lo que la pantalla hace hoy es decirlo en una línea en vez de dibujarlo.
 
 ---
 
@@ -102,7 +241,8 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 | `suite-map.spec.ts` (libs/contracts, jest **nuevo**) | 10 espacios en orden §5.1; planned sin entradas; cada proyecto con UNA casa; refs existen; `gate` con `reason` y claves del árbol/LEGACY; URL por segmento; kiosco no ve nada; almacenista sólo Almacenes; vendedor sin back-office ni siendo admin; gates de Reparto/Configuración/Trade | proyecto falso, módulo falso, doble casa, sin casa, planned con entradas, activo vacío, gate sin motivo / clave inexistente, orden roto, árbol sin whatsapp |
 | `suite-map.parity.spec.ts` | los 11 `anyOf` legacy **congelados**: cada clave sigue abriendo su destino Y una persona con UNA sola clave lo ve | quitar `USUARIOS_ASIGNAR_RUTA` al gate de Trade → rojo; `alsoAnyOf` en entrada de proyecto → 11 puertas cerradas detectadas |
 | `database/scripts/suite-map-visibility-report.js` | por rol de prod (read-only): tarjetas legacy vs entradas; **nunca menos**; las ganadas se listan para revisión | exit 1 ante una puerta perdida |
-| `test-newdb-me-context.js` | 200 con `position` objeto o **null declarado**; 401 sin token; `me/context` declarado antes de `:id` | mover la ruta después de `:id` → rojo |
+| `test-newdb-me-context.js` | 200 con `position` objeto o **null declarado**; 401 sin token; `me/context` y `me/work` declarados antes de `:id` y sin `@RequirePermissions`; `me/work` manda `no_medido` siempre y ningún pendiente en 0 | mover la ruta después de `:id` → rojo |
+| `test-newdb-me-context.js` bloque 4 (SN.7) | **cada bandeja lleva a una ruta cuyo guard acepta su permiso** — el conteo no puede invitar a un 403. 8/8 verde | cambiar el `anyOf` de `cuadre` a `USUARIOS_GESTIONAR` → `FAIL … {"guard":["RECONCILIATION_VER"],"bandeja":["USUARIOS_GESTIONAR"]}` ✅ ejercida |
 | `mi-trabajo.component.spec.ts` / `mi-trabajo-route.spec.ts` | comportamiento por persona + gate estático de `app.routes.ts` | ver SN.3 |
 
 ---
@@ -118,6 +258,7 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 | `feat([SN.3-4])` | `mi-trabajo.component.*` + `me-context.service.ts` + rutas + specs; borrar `modules/projects/`; layout + **home guards** + `landing-guards.spec.ts` + link en Telemarketing | ✅ `db6f2718` — un solo commit porque `app.routes.ts` llevaba las dos cosas. ⚠️ Arrastró la baja de `libs/shared-auth` que otra sesión tenía en el índice (§11) |
 | `chore([SN.5])` | borrar `scripts/check-authz-tree.js`; corregir `FASE_AZ` L161, `GOTCHAS` §4, `CLAUDE_ONBOARDING` L48 | ✅ — la baja del script viajó en el commit ajeno `b39e90d1` (§11); los 3 docs en el commit de SN.5 |
 | `docs([SN.6])` | tracker, log, CHANGELOG, fila en `CLAUDE.md`, INDEX, esta FASE | ✅ 2026-09-10 |
+| `feat([SN.7-8])` | **corrección de Edgar**: vuelve la tarjeta agrupada por espacio; "Mi trabajo" pasa a ser el primer espacio con pendientes reales (`me-work.ts` + `workFor()` + `GET /users/me/work` + `MeContextService.work()`), y el smoke gana el bloque 4 (bandeja → guard de su ruta) | 🔨 2026-09-11 — `nx build api` ✅ · `nx build view` ✅ (1.25 MB, sin cambio) · `nx test view` 247/250 (3 todo) · `nx test contracts` 35/35 · gates estáticos 8/8 con negativa ejercida · **parte viva NO MEDIDA** (sin API local) |
 
 ---
 
@@ -189,6 +330,10 @@ Cross-links (Dirección General, Mercadotecnia, Auditoría) aparecen para 27 rol
 - Simétrico: `b39e90d1` (VL.2b, ajeno) **arrastró mi baja de `scripts/check-authz-tree.js`**.
 
 **Regla que sale de esto:** `git commit -- <rutas>` (pathspec), que ignora lo que otros tengan en el índice, y `git diff --cached --stat` antes de cada commit. Guardada en memoria.
+
+**Volvió a pasar el 2026-09-11, y el pathspec no alcanza.** El commit ajeno `d7af977d` (TDA, etiquetera) se llevó mis ediciones de `CHANGELOG.md` y `01_TRACKER_PROGRESO.md` para SN.9 **antes** de que yo commiteara: cuando corrí `git commit -- <rutas>` esos dos archivos ya estaban limpios, así que `7875f8bc` sólo tomó los cinco restantes. Verificado que el contenido llegó **íntegro** a `main` (las entradas de SN.7, SN.8 y SN.9 están completas en HEAD); lo único mal es la procedencia. No se amenda — hay commits encima.
+
+**Lo que el pathspec NO protege:** el pathspec evita que YO me lleve lo ajeno; no evita que OTRO se lleve lo mío en la ventana entre que edito y commiteo. La mitigación real es **commitear pronto**, sobre todo los archivos calientes que todas las sesiones tocan (`CHANGELOG.md`, `01_TRACKER_PROGRESO.md`): cuanto más tiempo pase entre editarlos y commitearlos, más probable es que viajen en el commit de otro.
 
 ## 12. Etapa 3 y siguientes (fuera de esta fase)
 

@@ -1930,9 +1930,7 @@ a la vez, así que va como item propio y no colgado de una feature.
 
 ---
 
-## 43. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde)
-
-> Numeración: las §39–§42 llegan en el PR #76 (micrófono). El salto es a propósito, se cierra cuando ese PR entre.
+## 44. `nx build` desde un git worktree compila el OTRO checkout (y el build sale verde)
 
 Pasó dos veces el mismo día, y es de las peores porque **el build reporta éxito**:
 
@@ -1965,7 +1963,7 @@ Vale para los tres proyectos (`api`, `view`, `vendor`) y para `nx test`. Si el `
 
 ---
 
-## 44. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario
+## 45. Un byte NUL dentro de un literal de string: el archivo se ve normal y `grep` lo llama binario
 
 `libs/reconciliation/src/lib/store-arqueo.controller.ts` tenía, commiteado:
 
@@ -2020,6 +2018,51 @@ node ../../node_modules/jest/bin/jest.js --config jest.config.ts \
 ```
 
 La diferencia no es cosmética: en la rama de integración nx decía **2 suites / 30 tests** en `commercial` y la corrida real eran **4 / 60**; en `view`, **5 / 56** contra **15 / 184**. Un "verde" que no ejecutó tu código es peor que un rojo.
+
+## …y BORRAR ese junction con `Remove-Item` vacía el `node_modules` de TODOS (2026-09-11)
+
+El hermano del anterior, y el caro: limpiar el worktree temporal con
+
+```powershell
+Remove-Item 'C:\tmp\integ5\node_modules' -Force -ErrorAction SilentlyContinue
+```
+
+**no borra el enlace: borra lo que hay del otro lado.** Windows PowerShell 5.1 atraviesa el punto de reanálisis, así que ese comando empieza a vaciar el `node_modules` del checkout principal — el de todas las sesiones.
+
+**Pasó dos veces el mismo día** (2026-09-11), y la segunda quedó cronometrada: junction creado 13:23:27, `Remove-Item` 13:25:14, `node_modules` mutilado 13:25:35.
+
+**Cómo se reconoce**, porque el síntoma engaña — parece que "faltan unos paquetes":
+
+- faltan **`.bin`**, **`.package-lock.json`**, `@angular`, `@angular-devkit`, `@babel` … es decir, **todo lo que va alfabéticamente primero**;
+- el último scope alcanzado queda **a medio borrar** (acá `@capacitor`: 5 de los 10 paquetes del lock) y su fecha de modificación es el instante exacto del corte;
+- todo lo que sigue alfabéticamente está intacto, con fechas viejas;
+- **no hay log de npm** a esa hora (npm siempre deja uno) ni nada en la cuarentena de Defender.
+
+El borrado se detiene a mitad porque algún archivo está tomado por un proceso vivo — y `-ErrorAction SilentlyContinue` se come ese error, así que el comando **reporta éxito**. Al terminar, ni el build ni jest arrancan (`Cannot find module '@babel/generator'`), y el dev server de quien lo tuviera arriba se queda sin watcher.
+
+**Qué hacer en su lugar.** Para quitar un junction sin tocar el destino:
+
+```powershell
+cmd /c rmdir "C:\tmp\integ5\node_modules"          # rmdir SIN /s borra sólo el enlace
+[System.IO.Directory]::Delete("C:\tmp\integ5\node_modules", $false)   # equivalente en .NET
+```
+
+O directamente `git worktree remove <ruta> --force`, que ya deja el árbol limpio sin que nadie tenga que borrar el enlace a mano. `rm -rf` de Git Bash tampoco atraviesa el junction, pero mezclar los dos mundos en el mismo script es justo lo que produjo el incidente.
+
+**Medido en vivo el 2026-09-11**, quitando los dos junctions huérfanos que habían quedado armados, contando el destino antes y después de cada `rmdir`:
+
+```
+ANTES:                  @angular=12  @babel=113  total=1421
+rmdir C:\tmp\integ5\node_modules      -> @angular=12  @babel=113  total=1421
+rmdir C:\tmp\verify-fpr\node_modules  -> @angular=12  @babel=113  total=1421
+```
+
+Cero diferencia: `rmdir` sin `/s` quita el enlace y no toca lo que hay del otro lado. Ese contraste es el gotcha entero.
+
+⚠️ **El enlace sobrevive al worktree.** En los dos incidentes `git worktree list` ya no mostraba nada —los worktrees estaban removidos del registro— y el junction seguía vivo dentro de un directorio huérfano en `C:\tmp`. Un worktree quitado no garantiza que el enlace se haya ido: se comprueba con
+`Get-ChildItem C:\tmp -Directory -Recurse -Depth 2 -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint }`.
+
+**Reponerlo:** `npm install --no-audit --no-fund` desde la raíz. Repone lo faltante sin tocar `package-lock.json` (medido: 385 paquetes, ~2 min). Avisá antes: le reescribe `node_modules` por debajo a cualquier dev server o watcher vivo de las demás sesiones.
 
 ## Un `computed()` que lee una propiedad plana se queda clavado (2026-09-10)
 

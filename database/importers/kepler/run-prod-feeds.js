@@ -208,6 +208,21 @@ const STEPS = {
     // Ambos .js quedan como fallback manual histórico (y semilla de un futuro mayoreo real desde kdpv_prod_util).
     path.join(K, 'import-kepler-suppliers.js'), // RA — proveedores kdig + products.supplier_id (filtro/sugerido de compras)
   ],
+  // PRECIOS (cada 30 min) — [VL.4b] Existía como tarea suelta (`C:\KeplerRunner\run-prices.cmd`) y
+  // por eso era MUDO: los dos scripts se invocaban directo, fuera del runner, así que no escribían
+  // `analytics.cron_runs` y db-health no tenía nada que vigilar. Entra como modo para heredar la
+  // maquinaria que ya existe: latido `feed_prices`, timeout por paso y agregación de fallas.
+  //
+  // ⚠️ NO es un carril cualquiera: ÉSTE es el del incidente que fundó la Fase OBS — seis días
+  // publicando precios viejos, uno 54 % bajo costo, y lo encontró un humano corrigiendo un SKU a
+  // mano. El carril que publica el precio era justamente el único sin manera de avisar.
+  //
+  // `repoint-catalog-prices` va con `--sync` (precio de venta completo). En el `nightly` el mismo
+  // script corre con `--gap-fill-only`, que es otra cosa: ahí sólo rellena huecos.
+  prices: [
+    path.join(K, 'import-label-data.js'),                        // → commercial.product_label_prices (pieza/paq/caja)
+    [path.join(K, 'repoint-catalog-prices.js'), '--sync'],       // → commercial.product_prices BASE-MXN (precio de venta)
+  ],
   // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
   // analytics.erp_shipments es VISTA derive-no-copy sobre kepler_ods.kdpord, mig 20260820170000
   // → correrlo pegaba INSERT/DEL contra la vista y fallaba. Se derivan en vivo del ODS.)
@@ -254,6 +269,7 @@ const FEED_LABELS = {
   nightly: 'Feed nightly (batch nocturno)',
   catalog: 'Feed catálogo (semanal/diario)',
   contpaqi: 'Feed ContPAQi (pólizas+bancos @1min)',
+  prices: 'Feed precios (etiqueta+venta @30min)',
   'contpaqi-slow': 'Feed ContPAQi lento (balanza+prov @2h)',
   finance: 'Feed finanzas (manual)',
   logistics: 'Feed logística (manual)',

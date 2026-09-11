@@ -30,6 +30,12 @@ export interface WeeklyReport {
 
 /** ST.1 — Análisis por RANGO personalizado (métricas de operación de tienda). */
 export interface RangeKpi { cur: number; prev: number; delta_pct: number | null; }
+/**
+ * Razón que el backend DECLARA no medida (`cur: null`) cuando le falta el denominador
+ * —una sucursal/período sin cobertura de tickets, p. ej.— en vez de mandar 0.
+ * En pantalla se pinta «—», no «$0».
+ */
+export interface RangeRatioKpi { cur: number | null; prev: number | null; delta_pct: number | null; }
 export interface RangeSeriesPoint { date: string; revenue: number; margin: number; units: number; tickets: number; }
 export interface RangeBranchRow { code: string; name: string; revenue: number; margin: number; units: number; tickets: number; avg_ticket: number; }
 export interface RangeProductRow { product_id: string; sku: string; nombre: string; brand: string | null; revenue: number; margin: number; units: number; }
@@ -39,8 +45,21 @@ export interface RangeReport {
   scoped_warehouse: string | null;
   kpis: {
     revenue: RangeKpi; margin: RangeKpi; units: RangeKpi; units_official: RangeKpi;
+    /** Margen como % de la venta (fuente única; `null` sólo si no hubo venta). */
+    margin_pct: RangeRatioKpi;
+    /** `basket` = PARTIDAS (renglones) por ticket. El nombre viejo se conserva; la etiqueta ya no. */
     tickets: RangeKpi; avg_ticket: RangeKpi; basket: RangeKpi;
+    /** Descomposición del ticket: $/partida, unidades/ticket, $/unidad. */
+    avg_line: RangeRatioKpi; units_per_ticket: RangeRatioKpi; avg_unit: RangeRatioKpi;
+    /**
+     * Clientes CON REGISTRO (excluye el mostrador anónimo `CONTADO` y la televenta)
+     * y lo que compró cada uno en promedio. Universo distinto del resto: sale de la
+     * facturación a nombre, no del fact de venta — no cuadra contra `revenue`.
+     */
+    customers: RangeKpi; revenue_per_customer: RangeRatioKpi;
   };
+  /** Hasta qué día alcanza cada fuente dentro del período. `null` = no trajo nada. */
+  as_of: { fact: string | null; customers: string | null };
   series: RangeSeriesPoint[];
   by_branch: RangeBranchRow[];
   by_product: RangeProductRow[];

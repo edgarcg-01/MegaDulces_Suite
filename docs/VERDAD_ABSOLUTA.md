@@ -383,6 +383,7 @@ divergir.
 | necesitás | leé | nunca |
 |---|---|---|
 | existencia por almacén × producto | `analytics.v_erp_stock_on_hand` | `commercial.stock` (acierta 91%) |
+| ⭐ **clase ABC que fija el nivel de servicio** | `analytics.v_abc_class` | `commercial.abc_classification` desde el reabasto (llega tarde) · recalcular el Pareto (§12.4) |
 | ⭐ **costo unitario para VALUAR** (los dos ERPs) | `analytics.v_erp_unit_cost` | `catalog.products.cost_base` / `cost_with_tax` (§12) |
 | **costo unitario de Kepler** | `analytics.v_kepler_unit_cost` | `kdik` a mano (se pierde el filtro de almacén). ⚠️ Es **promedio ponderado histórico**, no costo de reposición (§3.4) |
 | veredicto del valor del inventario | `analytics.v_erp_stock_truth` | — |
@@ -459,7 +460,8 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **lo que queda: 6 contradicciones, TODAS ambiguas** | **$189,376 · inequívocas = 0** | ⭐⭐⭐ **KX.5 cerró lo inequívoco: cero.** Se materializó el peldaño cobrado (`analytics.mv_kepler_sold_rung`, 20,560 pares, ventana 365 d, mig 20260910130000 / batch 364) y `v_warehouse_box_factor` lo usa como **piso sólo cuando el factor publicado es 1** — aplicó a **2 filas**, las 2 declaradas. Recorrido: **41 → 8 → 6** contradicciones, $1,395,458 → **$189,376**. ⛔ Las 6 que quedan son **ambiguas por naturaleza**: un peldaño mayor que la caja no prueba que la caja esté mal (una caja de 6 y un paquete de 12 conviven), así que **se declaran** — afirmar `bf = c58` ahí sería inventar |
 | ⚠️ **el peldano de Wincaja es un NULL mudo** | **353,595 celdas / $86,189,728** | `sales_daily.rung_factor` NULL en el 100% de Wincaja (legitimo: no declara peldano) pero `units_unresolved` marca **64**. El 55% del ingreso de 90 d sin nada que diga "aca no se midio" |
 | ✅ **el costo sólo se arbitraba en UNA pantalla** | **$71.74M → $69.49M** (−$2,251,111) | ⭐⭐ **CERRADO (KE.3, 2026-09-10)**: `analytics.v_erp_unit_cost` resuelve el costo por almacén × producto con el testigo del MISMO ERP para los DOS (Kepler `kdik.c16` 98.70% · Wincaja `costo_promedio` **100.00%**). Cinco consumidores cableados, incluido el costo que se **congela** al reconciliar un conteo (salía de `public.products`, la base legacy). Compras queda fuera **a propósito**: valoriza compra, no valuación (§12.3) |
-| ⛔ **la clase ABC es un objeto nulo** | **2 clase A / 56,002 clase C @ $0** | Se calcula sobre `commercial.orders`, que tiene **2 órdenes fulfilled en la historia**, mientras la venta real son 707,022 celdas / $154.7M. Y esa clase **fija el nivel de servicio de toda la red**. Hallazgo de KE.3, **no corregido**: cambiarle la fuente mueve el safety stock de la red y es decisión de negocio (§12.4) |
+| ✅ **la clase ABC era un objeto nulo** | **2 A / 56,002 C @ $0 → 5,178 A / 7,367 B** | ⭐⭐ **CERRADO (KE.4)**: la demanda salía de `commercial.orders` (**2 órdenes fulfilled en toda su historia**) contra $154.7M de venta real, y **clase B = 0 en todo el sistema** era el delator. Ahora sale de `inventory_health`, **la misma demanda que usa el punto de reorden**, y la clase es una **vista** porque como tabla **llegaba 26 minutos tarde todos los días**. La pantalla de compra mostraba otra clase que el motor (coincidían **64.0%**); ahora lee la misma. Frenos: medir la fuente antes de borrar + abortar si A o B salen en cero (§12.4) |
+| ⏳ **el colchón que falta comprar** | **7,089 políticas / $1,197,206** | Políticas A/B todavía servidas a 0.90. No es código: se corrige cuando `import-computed-reorder` corra con la vista (nightly). El candado lo reporta `NO MEDIDO`, no verde |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
 
 ---
@@ -551,7 +553,7 @@ Efecto: el capital publicado pasa de **$71,738,838 a $69,487,727** (**−$2,251,
 de las filas valuadas por el testigo de su propio ERP. Migs `20260910170000` (batch 366) y
 `20260910180000` (batch 367). Candado `test-newdb-unit-cost-truth.js`, 24/24.
 
-### 12.4 ⛔⛔ Hallazgo aparte y SIN RESOLVER: la clase ABC es un objeto nulo
+### 12.4 ⭐⭐ La clase ABC era un objeto nulo — y llegaba tarde (KE.4, CERRADO)
 
 Al probar el recálculo del ABC contra prod (en una transacción con rollback) apareció algo que
 **no** causa este cambio y que es más grande que él:
@@ -578,8 +580,113 @@ Hay **dos** ABC en el sistema y sólo uno está vivo:
 políticas clase A, y **9,445 marcadas clase C con `service_level = 0.980`** — clase y nivel vienen
 de corridas distintas.
 
-⛔ **No se tocó**: cambiarle la fuente de venta al ABC mueve el safety stock de toda la red y es una
-decisión de negocio, no una corrección de costo. Queda declarado acá con nombre y monto.
+#### Y un segundo defecto que sólo se ve mirando los relojes
+
+```text
+inventory_health ....  09:04:09   <- la demanda
+reorder_policy ......  09:04:28   <- la CONSUME 19 segundos despues
+abc_classification ..  09:30:00   <- y la clase se recalcula 26 MINUTOS mas tarde
+```
+
+O sea, **aunque la clase hubiera estado bien, el reabasto usaba la del día anterior**. Y no se
+arregla moviendo un cron: el ABC necesita `inventory_health` (3:04) y el reorden necesita el ABC, y
+los dos importers corren con 19 segundos de diferencia dentro de la misma cadena. *Ordenar no es
+depender.*
+
+#### Y un tercero: la pantalla mostraba OTRA clase que la que usó el motor
+
+`commercial-replenishment` recalculaba el Pareto **al vuelo**, sobre la venta $ del **mes** y a
+grano **producto**, mientras el motor usaba demanda anual × costo a grano **almacén × producto**.
+Medido: coincidían en **19,053 de 29,751 = 64.0%**. El comprador veía una clase distinta a la que
+dimensionó el colchón en **10,698 filas** — incluidas **261 que la pantalla llamaba C y el motor
+trata como A**.
+
+#### Lo que se aplicó
+
+**`analytics.v_abc_class`** (mig `20260910190000` + `20260910200000`, batches 369/370) — el Pareto
+**derivado**, no materializado:
+
+- la demanda sale de **`analytics.inventory_health.avg_daily_units`**, que es **la misma que usa el
+  punto de reorden**. No es una fuente mejor: es la misma. Si la clase y la σ/ADU vinieran de
+  ventanas distintas, la política sería incoherente consigo misma;
+- el costo sale de `v_erp_unit_cost` (§12.1), y **las dos puntas están en piezas** — eso es lo que
+  hace válida la multiplicación (ADR-055);
+- **es vista, y por eso no puede llegar tarde**: se calcula cuando se lee. Y además es **más
+  rápida** que la tabla (582 ms contra 1,239);
+- `import-computed-reorder.js` y la pantalla de compra la **leen directo**;
+  `commercial.abc_classification` se puebla `SELECT * FROM` ella, así que hay **una sola
+  definición**.
+
+⭐ **`clase_motivo`** distingue las **tres** maneras de terminar en C, que antes se veían iguales:
+`pareto` (42,611) · `sin_demanda` (12,690) · `sin_costo`. Importa porque la clase también fija la
+cadencia del conteo cíclico (A=30 d · B=90 d · C=365 d): un CEDIS marcado C **por no vender** se
+contaría una vez al año, y es el almacén con más capital de la red.
+
+⭐ **Y el freno que faltaba.** El recompute es `DELETE` + `INSERT`. Eso está bien **salvo que la
+fuente se vacíe**: ahí borra lo bueno y publica "todo es C" — que es exactamente cómo se fabricó
+este objeto nulo y por qué nadie lo vio en dos meses. Ahora **se mide la fuente antes de borrar** y
+se aborta, y se aborta también si la clasificación sale degenerada (**A o B en cero**). El cero de
+B era el delator: un Pareto siempre produce B.
+
+| | antes | después |
+|---|---:|---:|
+| clase A | 2 filas / $473 | **5,178 / $371,867,053** |
+| clase B | **0** | **7,367 / $69,675,257** |
+| clase C con `annual_value` = $0 | 56,002 | 12,690, **declaradas `sin_demanda`** |
+| clase que ve el comprador vs la que usó el motor | 64.0% | **la misma** |
+
+✅ **APLICADO EN PROD (2026-09-11).** El nocturno corrió con la vista y el efecto se midió:
+
+```text
+clase B ...........  0 -> 4,726 politicas   (no existia ninguna en todo el sistema)
+clase A ....... 6,357 -> 9,561
+politicas A/B servidas a 0.90 ... 19,127 -> 8   ($1,197,206 -> $271)
+colchon publicado ............... 644,484 pz / $20,938,829
+```
+
+Las **8 que quedan ($271)** son deriva de frontera —la clase es una **vista**, así que unas pocas
+filas cruzan el 80%/95% entre que el importer escribe y que uno mira— y el candado las reporta
+`NO MEDIDO`, no verde.
+
+⛔ **Y un segundo hueco que sólo se vio midiendo prod: `import-network-reorder` deshacía la
+corrección.** Corre DESPUÉS en la misma cadena y sobrescribe los **hubs** leyendo todavía la tabla
+degenerada: **4,589 políticas de 01 / MD-30 / 06 volvían a clase C**. La firma lo delató —
+`abc_class = C` con `service_level = 0.980`, combinación que ninguna sucursal produce (el 0.98 es la
+constante del hub). Descartado que fuera deriva (share 0.0147→0.9500) o falta de demanda (4,571 de
+4,571 con demanda > 0). Ese importer también lee la vista ahora, y `sin_demanda` **no** se trata
+como C: para el CEDIS —que no vende— se conserva el default `A` documentado en vez de publicar una C
+engañosa que mandaría su conteo cíclico a una vez al año. Corrido con `--apply`: **hubs en C
+degenerada = 0**, y la coincidencia política↔vista queda en **28,290 de 28,447 = 99.45%** (excluido
+el CEDIS, que por diseño no se clasifica por venta).
+
+✅ **Y la foto al día (2026-09-11, autorizado).** `commercial.abc_classification` se repobló con el
+**mismo SQL del servicio desplegado** —extraído del archivo, no reescrito, para no crear una segunda
+implementación— replicando sus dos frenos (medir la fuente antes de borrar, abortar si A o B salen
+en cero):
+
+```text
+antes ....  2 A / 56,060 C con valor 0 y clase_motivo NULL
+despues ..  5,514 A ($379,944,386) · 7,833 B ($71,224,733) · 31,974 C pareto
+            + 10,075 C sin_demanda (el CEDIS) · tabla == vista 100.00%
+```
+
+⭐ **El argumento en contra —"rellenarla borra la prueba de que el deploy llegó"— era incompleto, y
+la corrección importa:** no la borra, la **invierte**. En vez de *"¿se corrigió mañana?"* pasa a ser
+*"¿siguió correcta?"*, y un revert es más ruidoso que una ausencia. Para que no dependa de que
+alguien mire, el bloque **8bis** del candado lo vuelve compuerta: si el nocturno volviera a correr
+código viejo, la tabla perdería la clase B y `clase_motivo`, y el candado se pone **rojo**.
+
+⚠️ **Dos almacenes dan 0 A / 0 B y los dos tienen causa nombrada**: el **CEDIS `00`** no vende
+(distribuye por traspaso; lo planea `import-network-reorder.js` con demanda dependiente y servicio
+0.98 fijo), y la sucursal **`07`** está rezagada en `inventory_health` aunque su venta ya existe —
+la cadena produce hoy 1,337 SKUs con demanda y se corrige sola. Y aun así **arranca con 3 días de
+historia sobre un divisor de 90**: su ADU va subdeclarada hasta que la ventana se llene, y eso no se
+corrige con código.
+
+⚠️ **Quedan otros dos Pareto en el repo, y son legítimos**: `product_sales_stats.abc_class` (grano
+producto, alimenta analytics/rentabilidad/Thot) y el `sabc` de `import-replenishment-plan.js` (elige
+el **percentil** del colchón, no el nivel de servicio). El candado verifica que no se los confunda
+con éste.
 
 ---
 

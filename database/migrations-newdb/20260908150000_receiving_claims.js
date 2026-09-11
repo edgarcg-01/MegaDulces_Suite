@@ -122,11 +122,11 @@ exports.up = async function (knex) {
         FOREIGN KEY (tenant_id, warehouse_id) REFERENCES commercial.warehouses (tenant_id, id) ON DELETE RESTRICT,
       CONSTRAINT fk_commercial_recv_claims_product
         FOREIGN KEY (tenant_id, product_id) REFERENCES catalog.products (tenant_id, id) ON DELETE RESTRICT,
-      -- `SET NULL (columna)` (Postgres 15+), NO `SET NULL` a secas: en una FK COMPUESTA el
-      -- SET NULL pelado intenta anular las DOS columnas, y `tenant_id` es NOT NULL → borrar
+      -- 'SET NULL (columna)' (Postgres 15+), NO 'SET NULL' a secas: en una FK COMPUESTA el
+      -- SET NULL pelado intenta anular las DOS columnas, y 'tenant_id' es NOT NULL -> borrar
       -- un proveedor con reclamos revienta con "null value in column tenant_id" en vez de
       -- soltar el vínculo. Vivido al limpiar el fixture del smoke.
-      -- El reclamo sobrevive legible igual: `responsible_code` y `responsible_label` son
+      -- El reclamo sobrevive legible igual: 'responsible_code' y 'responsible_label' son
       -- snapshots del documento, no joins.
       CONSTRAINT fk_commercial_recv_claims_supplier
         FOREIGN KEY (tenant_id, supplier_id) REFERENCES catalog.suppliers (tenant_id, id) ON DELETE SET NULL (supplier_id),

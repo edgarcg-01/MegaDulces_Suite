@@ -6,7 +6,7 @@
  * Rellena los huecos que Kepler no configura (~82% del catálogo; CEDIS = 100%).
  * Transform 100% dentro de la plataforma (no toca Kepler): lee analytics.inventory_health
  * (avg_daily_units + σ + clase XYZ, poblado por import-inventory-health.js) + lead time
- * del proveedor + clase ABC (commercial.abc_classification).
+ * del proveedor + clase ABC (analytics.v_abc_class -- VISTA, ver la nota del JOIN).
  *
  * SAFETY STOCK POR NIVEL DE SERVICIO (estándar de la industria) — reemplaza el
  * heurístico de "días de cobertura fijos":
@@ -80,7 +80,13 @@ const Z = { A: invNorm(SERVICE.A), B: invNorm(SERVICE.B), C: invNorm(SERVICE.C) 
           FROM analytics.inventory_health ih
           JOIN catalog.products p ON p.tenant_id=$1 AND p.id=ih.product_id
           LEFT JOIN catalog.suppliers s ON s.tenant_id=$1 AND s.id=p.supplier_id
-          LEFT JOIN commercial.abc_classification abc
+          -- [KE.4] La clase sale de la VISTA analytics.v_abc_class, no de la tabla, y el motivo
+          -- es de RELOJ: la tabla la recalcula un cron a las 3:30 AM MX y este importer corre a
+          -- las 3:04, o sea consumia la clase del DIA ANTERIOR, todos los dias (medido en prod:
+          -- inventory_health 09:04:09 -> reorder_policy 09:04:28 -> abc_classification 09:30:00).
+          -- Una vista no puede llegar tarde: se calcula cuando se lee. Y es la MISMA definicion
+          -- que puebla la tabla, no una segunda implementacion.
+          LEFT JOIN analytics.v_abc_class abc
                  ON abc.tenant_id=$1 AND abc.warehouse_id=ih.warehouse_id AND abc.product_id=ih.product_id
          WHERE ih.tenant_id=$1 AND ih.avg_daily_units > 0
       ), calc AS (

@@ -879,9 +879,12 @@ export class CommercialReplenishmentService {
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, plan.primary_wh)
         WHERE ${where}`;
 
-      // RA-PRO.18 — ranking (#) y ABC de RED se calculan como WINDOWS sobre TODO el universo
-      // filtrado (no la página): rank por venta $ 30d; ABC = Pareto por venta $ (A≤80% acum,
-      // B≤95%, C resto). Capa interna = todas las columnas + rev30; capa externa pagina.
+      // RA-PRO.18 — el ranking (#) se calcula como WINDOW sobre TODO el universo filtrado (no la
+      // página): rank por venta $ 30d. Capa interna = todas las columnas + rev30; capa externa
+      // pagina.
+      // ⚠️ [KE.4] La CLASE ya NO se calcula acá: se LEE de `analytics.v_abc_class`, que es la que
+      // el motor usó para fijar el nivel de servicio. Recalcularla con otra métrica hacía que el
+      // comprador viera una clase y el colchón se hubiera dimensionado con otra.
       // PERF: los totales (count/needed/valor/revenue) también salen como WINDOWS aquí en la
       // MISMA pasada — antes se ejecutaba el `from` pesado (con sus 4 subagregados) 2 veces.
       const rows = (await trx.raw(`
@@ -895,13 +898,16 @@ export class CommercialReplenishmentService {
                ROUND(COALESCE(SUM(z.rung_arbitrado) OVER(), 0)::numeric, 2) AS _sin_medir_arbitrado,
                ROUND(SUM(z.sell_month_mxn) OVER()::numeric, 2) AS _total_revenue,
                RANK() OVER (ORDER BY z.sell_month_mxn DESC NULLS LAST) AS sales_rank,
-               CASE
-                 WHEN COALESCE(SUM(z.sell_month_mxn) OVER (), 0) = 0 THEN 'C'
-                 WHEN SUM(z.sell_month_mxn) OVER (ORDER BY z.sell_month_mxn DESC ROWS UNBOUNDED PRECEDING)
-                      / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.80 THEN 'A'
-                 WHEN SUM(z.sell_month_mxn) OVER (ORDER BY z.sell_month_mxn DESC ROWS UNBOUNDED PRECEDING)
-                      / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.95 THEN 'B'
-                 ELSE 'C' END AS abc_class
+               -- [KE.4] La clase que se MUESTRA es la que USO el motor, leida de
+               -- analytics.v_abc_class. Antes se recalculaba aca al vuelo, con otra metrica
+               -- (venta $ del MES, grano producto) que la del nivel de servicio (demanda anual x
+               -- costo arbitrado, grano almacen x producto). Medido: coincidian en 19,053 de
+               -- 29,751 = 64.0%, o sea el comprador veia otra clase que la que fijo el colchon en
+               -- 10,698 filas -- incluidas 261 que la pantalla llamaba C y el motor trata como A.
+               COALESCE(vabc.abc_class, 'C') AS abc_class,
+               -- Y por que es esa clase: una C sin_demanda (el CEDIS no vende, distribuye por
+               -- traspaso) no es lo mismo que una C de bajo valor.
+               vabc.clase_motivo AS abc_motivo
         FROM (
           SELECT pr.id AS product_id, COALESCE(:selwh::uuid, plan.primary_wh) AS warehouse_id, w.code AS warehouse_code,
                  pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
@@ -942,6 +948,9 @@ export class CommercialReplenishmentService {
                  ${bucketExpr} AS bucket
           ${from}
         ) z
+        LEFT JOIN analytics.v_abc_class vabc
+               ON vabc.tenant_id = :t AND vabc.warehouse_id = z.warehouse_id
+              AND vabc.product_id = z.product_id
         ORDER BY z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
@@ -1131,8 +1140,12 @@ export class CommercialReplenishmentService {
                  -- dentro de un template literal de JS. La clave rung sólo viaja cuando NO es
                  -- confiable, para no engordar el payload del 94% sano; el front la lee como "esta
                  -- celda no se puede convertir a cajas" y muestra la cantidad suelta con su rótulo.
+                 -- RA-PRO.47 — 'cc' = costo de caja DE ESE ALMACEN. Viaja porque el desglose por
+                 -- sucursal valua renglon por renglon: con el costo de producto (max sobre los
+                 -- almacenes) el valor de la sucursal barata sale inflado, y la suma no cuadra
+                 -- contra pedido_valor, que el backend ya calcula celda por celda.
                  jsonb_object_agg(col_code, jsonb_strip_nulls(jsonb_build_object(
-                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran,
+                   'vta', vta, 'exis', exis, 'ped', ped, 'tran', tran, 'cc', caja_cost,
                    'rung', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_veredicto END,
                    'nat',  CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN exis_nativa END,
                    'natu', CASE WHEN rung_veredicto IN ('x1_inflada','x2_deflactada') THEN rung_base_label END
@@ -1873,11 +1886,30 @@ export class CommercialReplenishmentService {
   async filters() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const warehouses = (await trx('commercial.reorder_policy as rp')
-        .join('commercial.warehouses as w', (j) => j.on('w.tenant_id', 'rp.tenant_id').andOn('w.id', 'rp.warehouse_id'))
-        .where('rp.tenant_id', tenantId)
-        .distinct('w.id as id', 'w.code as code', 'w.name as name'))
+      // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
+      // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
+      // política sólo cubría 4. Los otros 5 llegaban al front sin nombre (`nameOf` devolvía '') y
+      // el desglose los mostraba con el renglón en blanco. Ahora cubre lo que la pantalla muestra:
+      // con política, o presentes en el fact, o CEDIS de consolidación.
+      // `purchase_zone` / `is_purchase_hub` (mig 20260910120000) alimentan el agrupado por zona y
+      // el selector "Consolidado ▸ ¿en qué CEDIS?". Se leen de la tabla, no se deducen de códigos.
+      const warehouses = (await trx('commercial.warehouses as w')
+        .where('w.tenant_id', tenantId)
+        .andWhere('w.active', true)
+        .whereNull('w.deleted_at')
+        .andWhere((q) => q
+          .whereExists(trx.select(trx.raw('1')).from('commercial.reorder_policy as rp')
+            .whereRaw('rp.tenant_id = w.tenant_id AND rp.warehouse_id = w.id'))
+          .orWhereExists(trx.select(trx.raw('1')).from('analytics.replenishment_plan as pl')
+            .whereRaw('pl.tenant_id = w.tenant_id AND pl.warehouse_id = w.id'))
+          .orWhere('w.is_purchase_hub', true))
+        .select('w.id as id', 'w.code as code', 'w.name as name',
+          'w.purchase_zone as purchase_zone', 'w.is_purchase_hub as is_purchase_hub',
+          'w.display_order as display_order'))
         // Orden canónico de tiendas para el multiselect (mismo que las columnas del workbook).
+        // ⚠️ Al fusionar con `[RA-PRO.32.2]`: este alcance ampliado traía `.orderBy('w.code')`, que
+        // es JUSTO el alfabético que ese contrato retiró ("00,01,…,MD-30 no es como el negocio
+        // piensa la red"). Se ordena acá, en JS, igual que el otro consumidor de este servicio.
         .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
       const suppliers = await trx('commercial.reorder_policy as rp')
         .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'))

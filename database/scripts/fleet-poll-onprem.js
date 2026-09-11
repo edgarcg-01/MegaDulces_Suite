@@ -176,15 +176,67 @@ async function syncOnce(db) {
   }
   const ms = Date.now() - started;
   console.log(`[${new Date().toISOString()}] sync: ${objects.length} objetos → ${created} nuevos, ${updated} act, ${linked} vinculados, ${positions} posiciones (${ms}ms)`);
+  return { objetos: objects.length, created, updated, linked, positions, ms };
+}
+
+// ── LATIDO (VL.4b) ────────────────────────────────────────────────────────────
+// Este carril era MUDO: no escribía `analytics.cron_runs`, así que db-health no tenía nada que
+// vigilar y su única evidencia de vida era una línea de consola. Por eso VL.4 NO lo mudó al
+// servidor: ADR-060 no permite declarar migrado un carril que, si se cae del otro lado, nadie va
+// a notar. Va sobre la MISMA conexión que ya tiene a prod (`FLEET_DB_URL`), que es también el
+// canal que vigila: acá eso es correcto, porque lo que este carril entrega SON filas en esa DB.
+const HB_KEY = 'fleet_gps';
+const HB_LABEL = 'Poller GPS de flota (MagniTracking → prod)';
+
+/** Nunca tira: un latido que rompe el carril es peor que no tenerlo. */
+async function latir(db, fase, { status, rows, note, error, ms } = {}) {
+  try {
+    if (fase === 'begin') {
+      await db.query(
+        `UPDATE analytics.cron_runs SET status='error', last_finish=now(),
+                error=COALESCE(error,'la corrida anterior no reportó cierre (proceso caído)')
+          WHERE tenant_id=$1 AND job_key=$2 AND status='running'`, [TENANT, HB_KEY]);
+      await db.query(`
+        INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
+        VALUES ($1,$2,$3, now(), 'running', $4, now())
+        ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+          label=EXCLUDED.label, last_start=now(), status='running', host=EXCLUDED.host, updated_at=now()`,
+      [TENANT, HB_KEY, HB_LABEL, require('os').hostname()]);
+    } else {
+      await db.query(`
+        UPDATE analytics.cron_runs
+           SET last_finish=now(), status=$3, rows_affected=$4, duration_ms=$5,
+               note=left($6,500), error=left($7,500), updated_at=now()
+         WHERE tenant_id=$1 AND job_key=$2`,
+      [TENANT, HB_KEY, status || 'ok', rows ?? null, ms ?? null, note || null, error || null]);
+    }
+  } catch (e) { console.error(`  latido (${fase}) falló: ${e.message.split('\n')[0].slice(0, 80)}`); }
 }
 
 // ── Loop ──────────────────────────────────────────────────────────────────────
 async function cycle() {
   const db = new Client({ connectionString: DB_URL, ssl: { rejectUnauthorized: false } });
   await db.connect();
+  const t0 = Date.now();
   try {
     await db.query(`SELECT set_config('app.current_tenant_id', $1, false)`, [TENANT]);
-    await syncOnce(db);
+    await latir(db, 'begin');
+    const r = await syncOnce(db);
+    // ⛔ CERO OBJETOS NO ES "ok". El modo de falla real de este carril no es que se caiga: es que
+    // la sesión con MagniTracking expire o cambie el login (no hay API oficial — ADR-034, el
+    // adapter replica el login de la web). Cuando eso pasa `fn_objects` devuelve vacío y el ciclo
+    // termina "bien" habiendo entregado NADA. Con ~50 devices, cero nunca es un estado normal.
+    const vacio = r.objetos === 0;
+    await latir(db, 'end', {
+      status: vacio ? 'error' : 'ok',
+      rows: r.positions,
+      ms: Date.now() - t0,
+      note: `${r.objetos} objetos · ${r.positions} posiciones · ${r.linked} vinculados`,
+      error: vacio ? 'el proveedor devolvió 0 objetos (sesión caída o login cambiado) — no se entregó nada' : null,
+    });
+  } catch (e) {
+    await latir(db, 'end', { status: 'error', ms: Date.now() - t0, error: e.message.split('\n')[0] });
+    throw e;
   } finally {
     await db.end();
   }

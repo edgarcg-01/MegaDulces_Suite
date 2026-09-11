@@ -1,0 +1,64 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# VL.4 — LA AGENDA DE LOS FEEDS, versionada en el repo.
+#
+# Esto es lo que ADR-060 pide: la agenda deja de vivir en el Programador de
+# Windows (fuera del repo, invisible, atada a una sesión de usuario) y pasa a un
+# archivo que se revisa en un diff.
+#
+# Cadencias COPIADAS de las tareas que reemplaza — no se "mejoran" en la mudanza:
+# cambiar el cuándo y el dónde en el mismo movimiento hace imposible atribuir una
+# falla. Si alguna cadencia está mal, se cambia después, en su propio commit.
+#
+# ⚠️ La TZ del contenedor es America/Mexico_City (la fija el compose). Las horas de
+# abajo son HORA MX, igual que en el Programador. Sin eso, el nocturno correría a
+# las 21:00 MX.
+#
+# ⛔ Todo pasa por run-feed.sh: carga el env del archivo (crond NO hereda el
+# entorno del contenedor) y serializa con flock (crond NO tiene el IgnoreNew del
+# Programador, y los de 1 minuto se apilarían).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── cada minuto ──────────────────────────────────────────────────────────────
+* * * * *   /app/ops/vl/run-feed.sh receipts  "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
+* * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
+# [VL.4b] GPS de la flota. FLEET_RUN_ONCE=1 = una pasada y sale, igual que el .vbs que reemplaza
+# (el loop lo hace el cron, no el script). Ya no es mudo: late en `fleet_gps`, y reporta ERROR si el
+# proveedor devuelve 0 objetos — que es su falla real (sesión caída), no que el proceso se muera.
+* * * * *   /app/ops/vl/run-feed.sh fleet-gps "FLEET_RUN_ONCE=1 node /app/database/scripts/fleet-poll-onprem.js"
+
+# ── cada 2 minutos ───────────────────────────────────────────────────────────
+*/2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
+
+# ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
+*/15 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
+*/30 * * * * /app/ops/vl/run-feed.sh live  "node /app/database/importers/kepler/run-prod-feeds.js live --apply"
+# [VL.4b] PRECIOS. Era una tarea suelta (`run-prices.cmd` llamaba a los dos importers fuera del
+# runner) y por eso no latía. Ahora es un modo del runner → hereda latido `feed_prices`, timeout por
+# paso y agregación de fallas. ⚠️ Es EL carril del incidente que fundó la Fase OBS.
+*/30 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
+
+# ── horario / cada 2 h ───────────────────────────────────────────────────────
+0 * * * *   /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
+0 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
+
+# ── nocturno y semanal (hora MX) ─────────────────────────────────────────────
+0 3 * * *   /app/ops/vl/run-feed.sh nightly "node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
+0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
+
+# ── NO están acá, a propósito ────────────────────────────────────────────────
+#
+# ✅ LOS TRES CARRILES MUDOS YA NO LO SON (VL.4b, 2026-09-11). Se les cableó el latido
+#   ANTES de mudarlos, en ese orden — que es el punto: mudar un carril mudo es
+#   renunciar a saber si funciona del otro lado.
+#     · prices     → modo del runner (arriba) ⇒ latido `feed_prices`
+#     · fleet-gps  → latido propio `fleet_gps` (arriba), ERROR con 0 objetos
+#     · store-poller → latido propio `store_poller` + detector de réplica congelada;
+#       es sub-minuto (@25 s), así que va como SERVICIO del compose, no acá.
+#   Los tres con umbral registrado en `CRON_JOBS`: sin umbral, `db-health` da verde
+#   incondicional y el latido es decoración.
+#
+# · `livefast` (@60 s) SÍ late, pero es sub-minuto → servicio propio en el compose,
+#   no cron.
+# · FeedGuardian · HealthWatchdog · TradeMarketing-DailyBackup: PowerShell/VBS, se
+#   reescriben en VL.6.
+# · Los 3 carriles Wincaja: Jet 32-bit sobre `Z:`, siguen en `.249` hasta VL.5.

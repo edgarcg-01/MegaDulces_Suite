@@ -22,7 +22,7 @@ import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions } from '@megadulces/platform-core';
 import { ReqUser } from '@megadulces/platform-core';
 import { Permission } from '@megadulces/platform-core';
-import { ScopeService, TenantContextService } from '@megadulces/platform-core';
+import { ScopeService, TenantContextService, isPlatformAdminRole } from '@megadulces/platform-core';
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -248,6 +248,22 @@ export class UsersController {
     return this.usersService.contextFor(user.sub);
   }
 
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona en sesión: sus bandejas con conteo al momento.
+   *
+   * SIN `@RequirePermissions` y ANTES de `:id`, por lo mismo que `me/scope`, `me/access` y
+   * `me/context`. El gate no se relaja: cada bandeja declara el permiso que abre SU pantalla y
+   * `workFor` sólo cuenta las que esta persona puede abrir — un conteo ya es información.
+   *
+   * `permissions` sale del `req.user` que `RolesGuard` relee del cache en cada request (fresco,
+   * no el snapshot del JWT), y el god-mode por nombre de rol, como en el resto de la suite.
+   */
+  @Get('me/work')
+  @ApiOperation({ summary: 'Trabajo pendiente de la persona en sesión (bandejas con conteo al momento)' })
+  myWork(@ReqUser() user: AuthUser) {
+    return this.usersService.workFor(user.sub, user.permissions, isPlatformAdminRole(user.role_name));
+  }
+
   /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */
   @Get(':id/scope')
   @RequirePermissions(Permission.USUARIOS_VER)
@@ -292,7 +308,7 @@ export class UsersController {
   @RequirePermissions(Permission.USUARIOS_GESTIONAR)
   @ApiOperation({ summary: 'Asigna departamento / puesto / sucursal / estado a varios usuarios de una vez. Un evento por usuario.' })
   bulkAssign(
-    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null },
+    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null; motivo_desvio?: string | null },
     @ReqUser() user: AuthUser,
   ) {
     return this.usersService.bulkAssign(body, { sub: user.sub, username: user.username });

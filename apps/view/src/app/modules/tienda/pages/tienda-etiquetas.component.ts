@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, ViewChild, ViewEncapsulation, afterNextRender, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -48,6 +48,11 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
  * ⚠️ Este encabezado y el texto de la pantalla decían "tamaño físico 100×40 mm" mientras el CSS
  * de `label.component` imprimía **115×40** — 15 mm más ancho que el material que declaraba. Al
  * reducir a 82×35 se corrigieron las dos cosas a la vez, y el número de la hoja pasó de 8 a 15.
+ *
+ * Vista de hoja: se dibuja a tamaño real y se escala al espacio disponible (fitSheet). Al bajar
+ * la etiqueta a 82×35 mm, la caja fija de 500 px que había dejaba el precio en ~10 px de alto y
+ * el operador ya no podía leer en pantalla lo que estaba por imprimir. Hoy la hoja es la columna
+ * ancha del workspace y la carga masiva se pliega: ese alto es el que la hoja necesitaba.
  *
  * Impresión: se renderiza la hoja fuera de pantalla (para que auto-ajuste el nombre y dibuje
  * los barcodes), luego se clona a un IFRAME aislado con su propio `@page` (Carta horizontal,
@@ -128,8 +133,15 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-scan-hint{ font-size: var(--fs-xs,.72rem); color: var(--text-faint); white-space:nowrap; }
     @media (max-width: 640px){ .etqp-scan-hint{ display:none; } }
 
-    /* ── Entrada (dos formas de agregar, hermanas) ─────────── */
-    .etqp-inputs{ display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: var(--sp-4); }
+    /* ── Entrada ────────────────────────────────────────────
+       Tres formas de agregar, con el peso que cada una tiene en el mostrador. La pistola manda
+       (scanbar, arriba) y el buscador la acompaña EN LA MISMA LÍNEA; la carga masiva se pliega.
+       No se retira —sirve para el cambio de precios de temporada— pero tenerla siempre abierta
+       costaba una tarjeta entera de alto, y ese alto es justo el que le faltaba a la hoja. */
+    .etqp-add{ display:flex; align-items:center; gap: var(--sp-3); flex-wrap:wrap; }
+    .etqp-add .etqp-ac{ flex:1 1 20rem; max-width:32rem; }
+    .etqp-add .etqp-addlbl{ font-size: var(--fs-xs,.72rem); font-weight:500; text-transform:uppercase;
+      letter-spacing:.06em; color: var(--text-faint); white-space:nowrap; }
     .etqp-card{ border:1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); padding: var(--sp-4); }
     .etqp-card > label{ display:block; font-size: var(--fs-xs,.72rem); font-weight:500; text-transform:uppercase; letter-spacing:.06em;
       color: var(--text-faint); margin-bottom:.5rem; }
@@ -146,9 +158,13 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
     .etqp-bulk-actions{ margin-top:.6rem; display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
     .etqp-warn{ color: var(--warn-soft-fg); font-size: var(--fs-xs,.72rem); }
 
-    /* ── Workspace: cola (tabla) + preview sticky ──────────── */
-    .etqp-work{ display:grid; grid-template-columns: minmax(0,1fr) auto; gap: var(--sp-5); align-items:start; }
-    @media (max-width: 900px){ .etqp-work{ grid-template-columns: 1fr; } }
+    /* ── Workspace: cola (tabla) + hoja ─────────────────────
+       La hoja manda: es lo que hay que PODER LEER antes de gastar papel. Antes su columna era un
+       ancho fijo de 500 px y la tabla se quedaba con todo lo demás; con la etiqueta a 82x35 mm
+       (era 115x40) eso dejaba el precio en unos 10 px de alto — ilegible en pantalla. Ahora la
+       tabla se queda con lo justo para operar y la hoja con el resto. */
+    .etqp-work{ display:grid; grid-template-columns: minmax(420px, 1fr) minmax(0, 1.5fr); gap: var(--sp-5); align-items:start; }
+    @media (max-width: 1100px){ .etqp-work{ grid-template-columns: 1fr; } }
 
     .etqp-tablewrap{ min-width:0; }
     .etqp-tcap{ display:flex; align-items:center; gap:.6rem; }
@@ -176,10 +192,18 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
        cómo revisar la última antes de imprimir. */
     .etqp-pager{ display:flex; align-items:center; gap:.1rem; }
     .etqp-cuthint{ font-size: var(--fs-xs,.72rem); color: var(--text-faint); }
-    .etqp-sheetbox{ width:500px; max-width:100%; height:387px; overflow:hidden; border:1px solid var(--border-color);
+    /* Regla de medición: ancho de la columna SIN depender del tamaño de la hoja. Medir la caja
+       misma sería un lazo (la caja mide lo que el zoom decide, y el zoom sale de lo que mide). */
+    .etqp-ruler{ width:100%; height:0; }
+    /* La hoja se dibuja a tamaño real (279x216 mm) y se ESCALA. la variable --etqp-k la calcula fitSheet()
+       contra el ancho disponible y el alto de la ventana: la hoja entera visible, y lo más grande
+       que quepa. El 0.474 fijo de antes estaba atado a una caja de 500 px — en una pantalla
+       grande tiraba a la basura la mitad del espacio. El valor del CSS es sólo el arranque. */
+    .etqp-sheetbox{ width: calc(279mm * var(--etqp-k, .474)); height: calc(216mm * var(--etqp-k, .474));
+      max-width:100%; overflow:hidden; border:1px solid var(--border-color);
       border-radius: var(--r-sm); background:#fff; /* papel */ }
     .etqp-sheet{ width:279mm; height:216mm; padding:8mm; box-sizing:border-box; background:#fff; /* papel */
-      transform:scale(0.474); transform-origin:top left; text-align:center; font-size:0; }
+      transform: scale(var(--etqp-k, .474)); transform-origin:top left; text-align:center; font-size:0; }
     .etqp-sheet app-label{ display:inline-block; vertical-align:top; margin:2mm; }
     .etqp-sheet app-label .etq-label{ border-radius:0 !important; outline:.3mm dashed #888; /* recorte impreso */ }
 
@@ -230,6 +254,20 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
               <span class="etqp-diag ok" title="Este equipo tiene cargada la protección de impresión aislada.">· impresión aislada ✓</span>
             } @else {
               <span class="etqp-diag bad" title="Este equipo está corriendo una versión vieja de la app: al imprimir va a salir toda la pantalla. Cierra el navegador por completo y vuelve a abrir.">· versión vieja — al imprimir sale toda la pantalla ✗</span>
+            }
+            <!-- Qué equipo es y con qué tipografía se está midiendo. Con esto, un reporte de
+                 "el precio salió de otro tamaño" se contesta con una foto de la pantalla en vez
+                 de adivinar. La fuente importa: medir con la de respaldo deja el precio hasta
+                 17% más chico, y depende de si ESTA máquina alcanza fonts.googleapis.com. -->
+            @if (navegador) { <span class="etqp-diag" title="Navegador de este equipo. Úsalo al reportar.">· {{ navegador }}</span> }
+            @switch (fuenteEtiqueta()) {
+              @case ('respaldo') {
+                <span class="etqp-diag bad" title="Este equipo no pudo cargar la tipografía Anton (fonts.googleapis.com). La etiqueta se mide e imprime con la de respaldo, y los tamaños salen distintos de los de un equipo con internet. Revisa la salida a internet de esta máquina.">· tipografía de respaldo — los tamaños salen distintos ⚠</span>
+              }
+              @case ('sin_medir') {
+                <span class="etqp-diag" title="Este navegador no permite verificar la tipografía; los tamaños pueden no coincidir con otros equipos.">· tipografía sin verificar</span>
+              }
+              @case ('anton') { <span class="etqp-diag ok" title="Tipografía de la etiqueta cargada: los tamaños son los definitivos.">· tipografía ✓</span> }
             }
           </p>
         </div>
@@ -337,23 +375,33 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
         <span class="etqp-scan-hint">5 díg = SKU · 8/12/13 = código de barras · se agrega solo</span>
       </div>
 
-      <div class="etqp-inputs">
-        <div class="etqp-card">
-          <label for="etqp-search">Buscar en catálogo</label>
-          <p-autocomplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
-            [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
-            optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
-            placeholder="Nombre, SKU o código de barras…">
-            <ng-template let-h #item>
-              <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
-            </ng-template>
-            <ng-template #empty><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
-          </p-autocomplete>
-        </div>
+      <!--
+        El buscador va en línea con la pistola, no en una tarjeta aparte: es el camino de todos
+        los días. La carga masiva vive detrás de un botón — se usa muy poco (cambio de precios de
+        temporada) y abierta se comía una tarjeta entera de alto que le hacía falta a la hoja.
+        Sigue completa: mismo textarea, mismo addBulk(), mismo aviso de no encontrados.
+      -->
+      <div class="etqp-add">
+        <span class="etqp-addlbl" id="etqp-searchlbl">Buscar en catálogo</span>
+        <p-autocomplete inputId="etqp-search" styleClass="etqp-ac" [(ngModel)]="acSelected"
+          [suggestions]="results()" (completeMethod)="searchAc($event)" (onSelect)="onPick($event)"
+          optionLabel="name" [delay]="250" [minQueryLength]="2" [showClear]="true" appendTo="body"
+          ariaLabelledBy="etqp-searchlbl" placeholder="Nombre, SKU o código de barras…">
+          <ng-template let-h #item>
+            <div class="etqp-hit"><span class="nm">{{ h.name }}</span><span class="sku">{{ h.sku }}</span></div>
+          </ng-template>
+          <ng-template #empty><div class="etqp-empty-hit">Sin coincidencias</div></ng-template>
+        </p-autocomplete>
+        <p-button [label]="bulkOpen() ? 'Ocultar lista' : 'Pegar lista'"
+          [icon]="bulkOpen() ? 'pi pi-chevron-up' : 'pi pi-list'" [text]="true" severity="secondary" size="small"
+          (onClick)="toggleBulk()"></p-button>
+        @if (!bulkOpen() && notFound().length) { <span class="etqp-warn">No encontrados: {{ notFound().join(', ') }}</span> }
+      </div>
 
+      @if (bulkOpen()) {
         <div class="etqp-card">
           <label for="etqp-bulk">Carga masiva — un código por línea (SKU o código de barras)</label>
-          <textarea pTextarea id="etqp-bulk" class="etqp-ta" [ngModel]="bulk()" (ngModelChange)="bulk.set($event)"
+          <textarea #bulkTa pTextarea id="etqp-bulk" class="etqp-ta" [ngModel]="bulk()" (ngModelChange)="bulk.set($event)"
             placeholder="20186&#10;20187&#10;018804701641"></textarea>
           <div class="etqp-bulk-actions">
             <p-button label="Agregar lista" icon="pi pi-plus" [text]="true" [loading]="loading()"
@@ -361,7 +409,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
             @if (notFound().length) { <span class="etqp-warn">No encontrados: {{ notFound().join(', ') }}</span> }
           </div>
         </div>
-      </div>
+      }
 
       @if (queue().length) {
         <div class="etqp-work">
@@ -411,7 +459,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
             </p-table>
           </div>
 
-          <div class="etqp-sheetpanel">
+          <div class="etqp-sheetpanel" [style.--etqp-k]="sheetScale()">
             <div class="etqp-sheethead">
               <span>Vista de hoja (Carta) · Hoja {{ sheetPageShown() }} de {{ totalSheets() }} · {{ totalLabels() }} etiqueta{{ totalLabels() === 1 ? '' : 's' }}</span>
               @if (totalSheets() > 1) {
@@ -423,6 +471,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
                 </span>
               }
             </div>
+            <div class="etqp-ruler" #sheetRuler></div>
             <div class="etqp-sheetbox">
               <div class="etqp-sheet">
                 @for (m of sheetLabels(); track $index) {
@@ -555,6 +604,47 @@ export class TiendaEtiquetasComponent {
 
   @ViewChild('scanInput') scanInput?: ElementRef<HTMLInputElement>;
   @ViewChild('printSheet') printSheet?: ElementRef<HTMLElement>;
+  @ViewChild('bulkTa') bulkTa?: ElementRef<HTMLTextAreaElement>;
+  /** Señal y no decorador: la regla nace y muere con la cola, y el effect del zoom tiene que enterarse. */
+  private readonly sheetRuler = viewChild<ElementRef<HTMLElement>>('sheetRuler');
+
+  /**
+   * Carga masiva plegada. Se usa poco (cambio de precios de temporada) y abierta se llevaba una
+   * tarjeta entera de alto — el alto que la vista de hoja necesitaba. La función queda intacta:
+   * mismo textarea, mismo addBulk(), mismo aviso de no encontrados.
+   */
+  readonly bulkOpen = signal(false);
+  toggleBulk(): void {
+    const abrir = !this.bulkOpen();
+    this.bulkOpen.set(abrir);
+    if (abrir) setTimeout(() => this.bulkTa?.nativeElement.focus(), 0);
+  }
+
+  /**
+   * Zoom de la vista de hoja: la hoja se dibuja a tamaño real y se escala con la variable --etqp-k.
+   *
+   * Se CALCULA, no se fija. El 0.474 de antes estaba atado a una caja de 500 px, y al pasar la
+   * etiqueta de 115x40 a 82x35 mm el precio quedó en unos 10 px de alto — nadie podía leer en
+   * pantalla lo que estaba por imprimir.
+   *
+   * Se toma el MENOR entre lo que da el ancho y lo que da el alto, porque es una vista de HOJA:
+   * si hay que hacer scroll para ver la última fila deja de servir para lo que sirve. Tope 1.5
+   * (por arriba del tamaño físico) y piso 0.45 — lo que había — para que en una pantalla chica
+   * nunca quede peor que antes.
+   */
+  readonly sheetScale = signal(0.474);
+  private readonly HOJA_W = (279 / 25.4) * 96; // 1054.5 px CSS (Carta horizontal)
+  private readonly HOJA_H = (216 / 25.4) * 96; //  816.4 px CSS
+  /** Alto de la ventana que NO es la hoja: encabezado, pie de recorte y aire. Medido en pantalla. */
+  private readonly ALTO_RESERVADO = 210;
+
+  private fitSheet(): void {
+    const ancho = this.sheetRuler()?.nativeElement.clientWidth ?? 0;
+    if (!ancho) return;
+    const alto = Math.max(320, window.innerHeight - this.ALTO_RESERVADO);
+    const k = Math.min(ancho / this.HOJA_W, alto / this.HOJA_H, 1.5);
+    this.sheetScale.set(Math.max(0.45, Math.round(k * 1000) / 1000));
+  }
 
   private readonly acQuery = signal<string | null>(null);
   private readonly acRes = rxResource({
@@ -597,6 +687,34 @@ export class TiendaEtiquetasComponent {
    */
   readonly printGuard = signal<'ok' | 'missing'>('missing');
 
+  /**
+   * Navegador y versión de ESTE equipo, para que un reporte de tienda diga qué máquina es.
+   *
+   * Medido en prod (94 usuarios con login, censo 2026-09-11): la flota corre Chrome 149-153 y
+   * Edge 135/152 — todo Chromium, y en los perfiles de tienda el mínimo es Chrome 150. O sea las
+   * diferencias de tamaño que se reportan NO son de motor ni de versión; esto queda para que la
+   * próxima vez se pueda afirmar en vez de suponer, con una foto de la pantalla.
+   */
+  readonly navegador = (() => {
+    const ua = (globalThis as { navigator?: Navigator }).navigator?.userAgent || '';
+    const m = /Edg\/(\d+)/.exec(ua) || /OPR\/(\d+)/.exec(ua) || /Firefox\/(\d+)/.exec(ua) || /Chrome\/(\d+)/.exec(ua);
+    if (!m) return ua ? 'navegador sin identificar' : '';
+    const nombre = m[0].startsWith('Edg') ? 'Edge' : m[0].startsWith('OPR') ? 'Opera' : m[0].split('/')[0];
+    return `${nombre} ${m[1]}`;
+  })();
+
+  /**
+   * ¿La etiqueta se está midiendo con SU tipografía (Anton) o con la de respaldo?
+   *
+   * No es cosmético: medir con la fallback deja el precio hasta 17% más chico (la tabla del
+   * encabezado de label.component). Las familias bajan de fonts.googleapis.com, así que un
+   * equipo de tienda sin salida a internet imprime distinto que el de al lado **con el mismo
+   * navegador** — la única variación por máquina que quedó, y hasta hoy era invisible.
+   *
+   * Tres estados, no dos (ADR-056): si el navegador no deja preguntar, se dice eso.
+   */
+  readonly fuenteEtiqueta = signal<'midiendo' | 'anton' | 'respaldo' | 'sin_medir'>('midiendo');
+
   private checkPrintGuard(): void {
     let found = false;
     for (const sheet of Array.from(document.styleSheets)) {
@@ -616,6 +734,30 @@ export class TiendaEtiquetasComponent {
     });
     // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
     afterNextRender(() => this.checkPrintGuard());
+
+    // Qué tipografía quedó usable para medir. FUENTES_USABLES resuelve cuando las familias
+    // están listas O a los 3 s; recién ahí la respuesta significa algo.
+    FUENTES_USABLES.then(() => {
+      const f = (document as unknown as { fonts?: { check?: (s: string) => boolean } }).fonts;
+      if (!f?.check) { this.fuenteEtiqueta.set('sin_medir'); return; }
+      try { this.fuenteEtiqueta.set(f.check('11mm Anton') ? 'anton' : 'respaldo'); }
+      catch { this.fuenteEtiqueta.set('sin_medir'); }
+    });
+
+    // La hoja se re-escala cuando cambia el ancho de su columna o el alto de la ventana. Se mide
+    // la REGLA (.etqp-ruler, ancho de la columna) y no la caja: la caja mide lo que el zoom
+    // decide, así que medirla sería un lazo. Sin ResizeObserver (jsdom en los tests) queda el
+    // resize de ventana y el valor de arranque del CSS — degradado declarado, no un crash.
+    effect((onCleanup) => {
+      const el = this.sheetRuler()?.nativeElement;
+      if (!el) return;
+      const alCambiar = () => this.fitSheet();
+      window.addEventListener('resize', alCambiar);
+      let ro: ResizeObserver | undefined;
+      if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(alCambiar); ro.observe(el); }
+      else alCambiar();
+      onCleanup(() => { ro?.disconnect(); window.removeEventListener('resize', alCambiar); });
+    });
 
     // `[TDA.1]` El aviso en vivo de que un precio de la cola cambió en Kepler.
     //

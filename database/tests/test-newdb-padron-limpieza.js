@@ -231,19 +231,108 @@ const declarar = (msg) => {
       adm.some((r) => r.gestiona),
       `al menos un rol concede USUARIOS_GESTIONAR (hay ${adm.filter((r) => r.gestiona).length})`,
     );
-    // Los que ven el padrón sólo con `USUARIOS_VER` y sin NINGÚN permiso de
-    // reporte caen en `own` y ven 1 fila. Los que tienen `REPORTES_VER_EQUIPO`
-    // NO entran acá: resuelven `team`, que es comportamiento correcto — meterlos
-    // infla el hallazgo (con `supervisor_ventas` dentro decía 9 en vez de 6).
-    // No es un fallo de este candado: es `[ID.43]`, y se DECLARA con nombres y
-    // conteo para que la decisión se tome contra un dato.
+    // `[ID.35]` Los que ven el padrón sólo con `USUARIOS_VER` y sin NINGÚN
+    // permiso de reporte ya no caen en `own`: el service los resuelve como
+    // `sucursal` y ven al personal de su tienda. Los que tienen
+    // `REPORTES_VER_EQUIPO` no entran acá (resuelven `team`, que es correcto).
     const soloVer = adm.filter(
       (r) => !r.gestiona && !r.rep_global && !r.rep_equipo && r.usuarios > 0,
     );
-    if (soloVer.length) {
+    if (!soloVer.length) {
+      declarar('ningún rol con USUARIOS_VER y sin reportes: el eje `sucursal` no tiene portadores hoy');
+    } else {
+      // La premisa que hace que `sucursal` sirva: el rol tiene que resolver la
+      // dimensión `warehouse` a algo. Si resolviera `none`, `applyTo` emitiría
+      // `WHERE false` y volveríamos a una pantalla vacía — por otro camino.
+      const { rows: dims } = await k.raw(
+        `SELECT rs.role_name, rs.mode FROM identity.role_scopes rs
+          WHERE rs.tenant_id = ? AND rs.dimension = 'warehouse'
+            AND rs.role_name = ANY(?)`,
+        [TENANT, soloVer.map((r) => r.role_name)],
+      );
+      const ciegos = dims.filter((d) => d.mode === 'none').map((d) => d.role_name);
+      check(ciegos.length === 0,
+        `los roles que dependen del eje \`sucursal\` resuelven warehouse a algo (en none: ${ciegos.join(', ') || 'ninguno'})`);
+
+      // Y el conteo real: cuánta gente ve cada uno. Un 0 sería el defecto que
+      // esto vino a arreglar, al revés.
+      const { rows: alcance } = await k.raw(
+        `SELECT e.username, e.warehouse_code AS suc,
+                (SELECT count(*)::int FROM identity.users o
+                  WHERE o.tenant_id = e.tenant_id AND o.warehouse_code = e.warehouse_code
+                    AND o.activo AND o.deleted_at IS NULL) AS ve
+           FROM identity.users e
+          WHERE e.tenant_id = ? AND e.role_name = ANY(?) AND e.activo AND e.deleted_at IS NULL
+          ORDER BY 1`,
+        [TENANT, soloVer.map((r) => r.role_name)],
+      );
+      const sinVer = alcance.filter((r) => r.ve === 0);
+      console.log(`      ${alcance.length} persona(s) en el eje \`sucursal\`: ${alcance.map((r) => `${r.username}(${r.suc || 'sin suc'})→${r.ve}`).join(' · ')}`);
+      check(sinVer.length === 0,
+        `ninguna ve 0 personas — el eje `.concat(`\`sucursal\` no deja a nadie con la pantalla vacía (en 0: ${sinVer.map((r) => r.username).join(', ') || 'ninguna'})`));
+    }
+
+    console.log('\n[10] `[ID.36]` Una persona, una cuenta');
+    // Eran 11 personas cargando 22 de las 128 cuentas: la encargada con su
+    // nombre + una segunda cuenta cuyo username es su código de caja. Nada en el
+    // schema decía que esas doce filas eran seis personas.
+    const NORM = `regexp_replace(lower(translate(btrim(nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\\s+', ' ', 'g')`;
+    const { rows: dobles } = await k.raw(
+      `SELECT ${NORM} AS clave, count(*)::int AS n,
+              string_agg(username, ', ' ORDER BY username) AS quienes
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL AND nombre IS NOT NULL
+          AND array_length(regexp_split_to_array(btrim(nombre), '\\s+'), 1) >= 2
+          AND nombre !~ '^Etiquetas'
+        GROUP BY 1 HAVING count(*) > 1`,
+      [TENANT],
+    );
+    check(dobles.length === 0,
+      `ninguna persona con dos cuentas activas (quedan: ${dobles.map((r) => r.quienes).join(' | ') || 'ninguna'})`);
+
+    // ⚠️ La que carga god-mode sin usarse era el riesgo real, no la prolijidad.
+    const { rows: gm } = await k.raw(
+      `SELECT count(*) FILTER (WHERE u.username = '01jzico' AND u.activo)::int AS pos_godmode,
+              count(*) FILTER (WHERE u.activo AND u.deleted_at IS NULL)::int AS activos_godmode
+         FROM identity.users u
+         JOIN identity.role_permissions rp
+           ON rp.tenant_id = u.tenant_id AND rp.role_name = u.role_name
+        WHERE u.tenant_id = ? AND rp.is_platform_admin`,
+      [TENANT],
+    );
+    check(gm[0].pos_godmode === 0,
+      `la cuenta de POS con god-mode (01jzico) está retirada — nunca se usó y cargaba superadmin`);
+    console.log(`      cuentas activas con god-mode: ${gm[0].activos_godmode}`);
+
+    // Y que la consolidación de Diana no haya perdido jornadas.
+    const { rows: dd } = await k.raw(
+      `SELECT count(DISTINCT da.day_of_week)::int AS dias
+         FROM trade.daily_assignments da JOIN identity.users u ON u.id = da.user_id
+        WHERE da.deleted_at IS NULL AND u.username = 'diana_molina'`,
+    );
+    check(dd[0].dias >= 4,
+      `diana_molina conserva la semana consolidada (${dd[0].dias} días de ruta)`);
+
+    // Una jornada vigente colgada de alguien inactivo es trabajo asignado a nadie.
+    const { rows: hu } = await k.raw(
+      `SELECT count(*)::int AS n FROM trade.daily_assignments da
+         JOIN identity.users u ON u.id = da.user_id
+        WHERE da.deleted_at IS NULL AND NOT u.activo`,
+    );
+    check(hu[0].n === 0, `0 jornadas vigentes colgando de cuentas inactivas (hay ${hu[0].n})`);
+
+    // El par que NO se fusionó, declarado para que no se proponga sin confirmar.
+    const { rows: bb } = await k.raw(
+      `SELECT username, nombre, warehouse_code, department_code FROM identity.users
+        WHERE tenant_id = ? AND username IN ('brian_zavala', '54bcz')
+          AND activo AND deleted_at IS NULL ORDER BY 1`,
+      [TENANT],
+    );
+    if (bb.length === 2) {
       declarar(
-        `${soloVer.reduce((s, r) => s + r.usuarios, 0)} persona(s) con USUARIOS_VER y sin reportes ven 1 sola fila ` +
-          `del padrón (${soloVer.map((r) => `${r.role_name}×${r.usuarios}`).join(', ')}) → [ID.43] acotar por warehouse`,
+        'sin fusionar a propósito: ' +
+          bb.map((r) => `${r.username} ("${r.nombre}", ${r.department_code}/${r.warehouse_code || 'sin suc'})`).join(' vs ') +
+          ' — apellidos iguales pero nombres de pila distintos, como Ivette vs Ivonne. Necesita confirmación humana.',
       );
     }
 

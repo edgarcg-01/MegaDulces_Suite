@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { Observable, of, throwError } from 'rxjs';
-import type { MeContext } from '@megadulces/contracts';
+import type { MeContext, MeWork } from '@megadulces/contracts';
 import { MiTrabajoComponent } from './mi-trabajo.component';
 import { AuthService, JwtPayload } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
@@ -13,17 +13,24 @@ import { DataScopeService, MyScope } from '../../core/services/data-scope.servic
 import { Permission } from '../../core/constants/permissions';
 
 /**
- * `[SN.3]` — Lo que la PANTALLA hace por persona, no lo que el mapa devuelve (eso ya lo prueba
- * `suite-map.spec.ts` en `libs/contracts`). Acá se comprueba lo que se vuelve un rebote, una
- * mentira o un callejón sin salida:
+ * `[SN.3]` `[SN.8]` `[SN.9]` — Lo que la PANTALLA hace por persona, no lo que el mapa devuelve
+ * (eso ya lo prueba `suite-map.spec.ts` en `libs/contracts`). Acá se comprueba lo que se vuelve un
+ * rebote, una mentira o un callejón sin salida:
  *
  *  · el almacenista con UNA puerta entra directo (paridad con la landing vieja) — y con `stay`
- *    se queda y ve su fila;
+ *    se queda y ve su tarjeta;
  *  · permisos `sin_cargar` pintan skeleton, no "no tienes nada" (ADR-056: dos `{}` distintos);
  *  · cero puertas con permisos cargados = estado DECLARADO, sin el redirect ciego a captures;
  *  · el error de red del contexto es un error, no "Sin puesto asignado";
  *  · el puesto NULL se declara, no se inventa desde el rol;
- *  · las filas son enlaces reales (`<a href>`): teclado, ctrl+clic, botón medio.
+ *  · las tarjetas son enlaces reales (`<a href>`): teclado, ctrl+clic, botón medio;
+ *  · `[SN.8]` lo que está A TU NOMBRE no se mezcla con una cola compartida, una bandeja en cero
+ *    no se pinta, y una bandeja que no se pudo contar se DECLARA en vez de bajar a cero;
+ *  · `[SN.9]` el buscador filtra módulos Y pendientes, ignora acentos, acepta tokens en cualquier
+ *    orden, encuentra por el nombre de un MÓDULO interior, y Enter abre el primer resultado;
+ *  · `[SN.11]` el trabajo tiene columna propia y no desaparece cuando está vacío (su vacío ES el
+ *    hecho de que nadie reparte trabajo nominal), la tarjeta dice en qué rama del árbol vive, y la
+ *    frescura del conteo sale de `medido_at` del servidor — nunca de restar el reloj del navegador.
  */
 
 const CTX_BASE: MeContext = {
@@ -47,12 +54,24 @@ const SCOPE_BASE: MyScope = {
   },
 };
 
+const SIN_TRABAJO: MeWork = { pendientes: [], no_medido: [], medido_at: '2026-09-11T12:00:00.000Z' };
+
+const TRABAJO_MIXTO: MeWork = {
+  medido_at: '2026-09-11T12:00:00.000Z',
+  no_medido: [],
+  pendientes: [
+    { id: 'conteos-asignados', label: 'Conteos de inventario asignados a ti', detalle: 'sesiones abiertas', ruta: '/almacen/inventory/count', icono: 'pi pi-list-check', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio' },
+    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865, alcance: 'bandeja' },
+  ],
+};
+
 interface Montaje {
   perms?: Permission[];
   role?: string;
   cargado?: boolean;
   ctx$?: Observable<MeContext>;
   scope$?: Observable<MyScope | null>;
+  work$?: Observable<MeWork>;
   stay?: boolean;
 }
 
@@ -63,6 +82,17 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   let navigate: jest.SpyInstance;
   const html = () => (fix.nativeElement as HTMLElement).textContent ?? '';
   const q = <T extends Element>(sel: string) => (fix.nativeElement as HTMLElement).querySelectorAll<T>(sel);
+  const tarjetas = () => q<HTMLAnchorElement>('a.mt-card');
+  /** `[SN.11]` La píldora pasó a fila: dos columnas, el trabajo con su propio espacio. */
+  const pendientes = () => q<HTMLAnchorElement>('a.mt-task');
+
+  /** Escribe en el buscador y refresca la vista. */
+  function buscar(texto: string) {
+    const input = (fix.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.mt-search-input')!;
+    input.value = texto;
+    input.dispatchEvent(new Event('input'));
+    fix.detectChanges();
+  }
 
   async function montar(m: Montaje = {}) {
     const permisos = con(...(m.perms ?? []));
@@ -82,7 +112,14 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
         provideHttpClientTesting(),
         { provide: AuthService, useValue: { user, logout: jest.fn() } },
         { provide: PermissionsService, useValue: perms },
-        { provide: MeContextService, useValue: { mine: () => m.ctx$ ?? of(CTX_BASE), reset: jest.fn() } },
+        {
+          provide: MeContextService,
+          useValue: {
+            mine: () => m.ctx$ ?? of(CTX_BASE),
+            work: () => m.work$ ?? of(SIN_TRABAJO),
+            reset: jest.fn(),
+          },
+        },
         { provide: DataScopeService, useValue: { mine: () => m.scope$ ?? of(SCOPE_BASE) } },
       ],
     }).compileComponents();
@@ -99,20 +136,22 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     window.history.replaceState(null, '', '/');
   });
 
+  // ── Puertas ───────────────────────────────────────────────────────────────
+
   it('el almacenista (RECIBIR + SUPERVISAR) tiene UNA puerta → entra directo a /almacen', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR] });
     expect(navigate).toHaveBeenCalledWith(['/almacen']);
   });
 
-  it('…pero si pidió QUEDARSE (state.stay) no navega, y ve su fila con los módulos que sí abre', async () => {
+  it('…pero si pidió QUEDARSE (state.stay) no navega, y ve su tarjeta con los módulos que sí abre', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR], stay: true });
     expect(navigate).not.toHaveBeenCalled();
-    const filas = q<HTMLAnchorElement>('a.mt-row');
-    expect(filas.length).toBe(1);
-    expect(filas[0].textContent).toContain('Almacén');
-    expect(filas[0].textContent).toContain('Recepción');
+    const cards = tarjetas();
+    expect(cards.length).toBe(1);
+    expect(cards[0].textContent).toContain('Almacén');
+    expect(cards[0].textContent).toContain('Recepción');
     // Es un enlace de verdad: href puesto por routerLink.
-    expect(filas[0].getAttribute('href')).toBe('/almacen');
+    expect(cards[0].getAttribute('href')).toBe('/almacen');
     // Y no ofrece lo que no puede abrir.
     expect(html()).not.toContain('Compras');
   });
@@ -136,51 +175,49 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     await montar({ perms: [Permission.HR_ATTENDANCE_CHECAR], role: 'checador_kiosco' });
     expect(navigate).not.toHaveBeenCalled();
     expect(html()).toContain('Tu cuenta no tiene ningún espacio asignado');
-    expect(q('a.mt-row').length).toBe(0);
+    expect(tarjetas().length).toBe(0);
   });
 
   it('el admin de plataforma ve los 6 espacios (4 activos + 2 propuestos con su P-xx) y los planned sólo declarados', async () => {
     await montar({ perms: [], role: 'superadmin' });
     expect(navigate).not.toHaveBeenCalled();
     expect(q('section.mt-space').length).toBe(6);
-    expect(html()).toContain('Propuesta · P-03');
-    expect(html()).toContain('Propuesta · P-06');
+    expect(html()).toContain('P-03');
+    expect(html()).toContain('P-06');
     expect(html()).toContain('Configuración de la suite');
     // Los planned no son sección: son una línea al pie.
     expect(q('#espacio-recursos-humanos').length).toBe(0);
-    expect(html()).toContain('Espacios del mapa sin funciones todavía');
+    expect(html()).toContain('Espacios sin funciones todavía');
     expect(html()).toContain('Operación por zonas');
     expect(html()).toContain('Recursos Humanos');
-    // Con ≥3 espacios aparecen los atajos.
-    expect(q('a.mt-chip').length).toBe(6);
   });
 
   it('el vendedor no ve el back-office de Ventas aunque tenga la clave', async () => {
     await montar({ perms: [Permission.COMMERCIAL_ORDERS_VER, Permission.COMMERCIAL_EXPIRY_VER], role: 'vendedor', stay: true });
-    const hrefs = Array.from(q<HTMLAnchorElement>('a.mt-row')).map((a) => a.getAttribute('href'));
+    const hrefs = Array.from(tarjetas()).map((a) => a.getAttribute('href'));
     expect(hrefs).not.toContain('/comercial');
     // …pero sí lo que sí es suyo (caducidades abre Punto de Venta y Almacén).
     expect(hrefs).toEqual(expect.arrayContaining(['/tienda', '/almacen']));
     expect(html()).toContain('Punto de Venta');
   });
 
-  it('la línea secundaria lista los módulos de ESA persona, con +N cuando hay más de 5', async () => {
+  it('la línea de contenido lista los módulos de ESA persona, con +N cuando hay más', async () => {
     await montar({ perms: [], role: 'superadmin' });
-    const finanzas = Array.from(q<HTMLAnchorElement>('a.mt-row')).find((a) => a.getAttribute('href') === '/finanzas');
+    const finanzas = Array.from(tarjetas()).find((a) => a.getAttribute('href') === '/finanzas');
     expect(finanzas).toBeTruthy();
     expect(finanzas!.textContent).toMatch(/Bancos/);
     expect(finanzas!.textContent).toMatch(/· \+\d+/);
   });
 
-  it('Mi contexto: persona, puesto, alcance (de me/scope) y periodo', async () => {
+  // ── Mi contexto ───────────────────────────────────────────────────────────
+
+  it('Mi contexto: nombre en la cabecera, puesto, área, alcance (de me/scope) y periodo', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
     expect(html()).toContain('Persona de Prueba');
     expect(html()).toContain('Almacenista');
-    expect(html()).toContain('Sucursales: 8 ESQUINAS');
-    expect(html()).toContain('Zonas: todas las zonas');
-    expect(html()).toContain('Ficha: sucursal 03');
+    expect(html()).toContain('8 ESQUINAS');
+    expect(html()).toContain('todas las zonas');
     expect(html()).toMatch(/Periodo/);
-    expect(html()).toContain('corte por definir (P-11)');
   });
 
   it('puesto NULL → "Sin puesto asignado" (declarado, nunca derivado del rol)', async () => {
@@ -198,20 +235,248 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).not.toContain('sin alcance');
   });
 
-  it('error de red en el contexto → banner de error, NUNCA "Sin puesto asignado"', async () => {
+  it('error de red en el contexto → se dice el error, NUNCA "Sin puesto asignado"', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, ctx$: throwError(() => ({ status: 0 })) });
-    expect(html()).toContain('No se pudo cargar tu contexto');
-    expect(html()).toContain('Sin conexión');
+    expect(html()).toContain('Sin conexión con el servidor');
+    expect(html()).toContain('Reintentar');
     expect(html()).not.toContain('Sin puesto asignado');
     // Y la operación sigue disponible: el contexto caído no esconde las puertas.
-    expect(q('a.mt-row').length).toBe(1);
+    expect(tarjetas().length).toBe(1);
   });
 
   it('la cabecera de Dirección NO se estrena: lo pendiente se declara con sus P-xx', async () => {
     await montar({ perms: [], role: 'superadmin' });
     expect(html()).not.toContain('Esto ve Dirección General');
-    expect(html()).toContain('Pendiente de definición');
+    expect(html()).toContain('pendiente de definición');
     expect(html()).toContain('P-06');
     expect(html()).toContain('P-01');
+    expect(html()).toContain('P-11');
+  });
+
+  // ── [SN.8] Mi trabajo: pendientes ─────────────────────────────────────────
+
+  it('lo que está A TU NOMBRE no se mezcla con la cola compartida', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
+    expect(html()).toContain('A tu nombre');
+    expect(html()).toContain('En tus bandejas');
+    const ps = pendientes();
+    expect(ps.length).toBe(2);
+    // El "a tu nombre" va primero y se marca distinto.
+    expect(ps[0].classList).toContain('is-mine');
+    expect(ps[0].getAttribute('href')).toBe('/almacen/inventory/count');
+    expect(ps[1].classList).not.toContain('is-mine');
+    expect(ps[1].textContent).toContain('1,865');
+    // La cola compartida se declara como tal: nadie la tiene asignada.
+    const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('bandejas'));
+    expect(tag?.getAttribute('title')).toContain('nadie las tiene asignadas');
+  });
+
+  it('sin pendientes → se dice, no se pintan cajas en cero', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
+    expect(pendientes().length).toBe(0);
+    expect(html()).toContain('Sin pendientes en tus bandejas');
+    // `[SN.11]` El bloque "A tu nombre" no desaparece: su vacío es el HECHO de que nadie reparte
+    // trabajo nominal (tres tablas en cero filas). Esconderlo haría creer que sí y hoy no hay.
+    expect(html()).toContain('Nadie te asignó trabajo hoy');
+    expect(html()).toContain('P-06');
+  });
+
+  it('una bandeja que no se pudo contar se DECLARA, no baja a cero', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({
+        medido_at: '2026-09-11T12:00:00.000Z',
+        pendientes: [],
+        no_medido: [{ id: 'cuadre', label: 'Descuadres por revisar', motivo: 'relation does not exist' }],
+      } satisfies MeWork),
+    });
+    expect(html()).toContain('Sin medir');
+    expect(html()).toContain('Descuadres por revisar');
+    expect(html()).toContain('no se muestra en cero');
+  });
+
+  it('error al consultar el trabajo → error, no "sin pendientes"', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: throwError(() => ({ status: 500 })) });
+    expect(html()).toContain('No se pudo consultar tu trabajo pendiente');
+    expect(html()).not.toContain('Sin pendientes');
+  });
+
+  // ── [SN.9] Buscador ───────────────────────────────────────────────────────
+
+  it('filtra los módulos y esconde los espacios que se quedan sin nada', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const total = tarjetas().length;
+    expect(total).toBeGreaterThan(10);
+    buscar('compras');
+    expect(tarjetas().length).toBeLessThan(total);
+    expect(Array.from(tarjetas()).every((a) => (a.textContent ?? '').length > 0)).toBe(true);
+    // Espacios sin coincidencias no se pintan.
+    expect(q('section.mt-space').length).toBeLessThan(6);
+  });
+
+  it('ignora acentos y acepta los tokens en cualquier orden', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('auditoria');
+    const conAcento = tarjetas().length;
+    expect(conAcento).toBeGreaterThan(0);
+    buscar('ruta auditoria');
+    expect(tarjetas().length).toBeGreaterThan(0);
+    expect(html()).toContain('Auditoría en Ruta');
+  });
+
+  it('encuentra un proyecto por el nombre de un MÓDULO de adentro', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('bancos');
+    const hrefs = Array.from(tarjetas()).map((a) => a.getAttribute('href'));
+    expect(hrefs).toContain('/finanzas');
+  });
+
+  it('Enter abre el primer resultado', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('contabilidad');
+    const primera = tarjetas()[0].getAttribute('href');
+    const input = (fix.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.mt-search-input')!;
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    fix.detectChanges();
+    expect(navigate).toHaveBeenCalledWith([primera]);
+  });
+
+  it('el buscador también filtra los pendientes', async () => {
+    await montar({ perms: [], role: 'superadmin', work$: of(TRABAJO_MIXTO) });
+    expect(pendientes().length).toBe(2);
+    buscar('descuadres');
+    expect(pendientes().length).toBe(1);
+    expect(pendientes()[0].textContent).toContain('1,865');
+  });
+
+  it('una búsqueda sin coincidencias se dice, no deja la pantalla en blanco', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('zzzz');
+    expect(tarjetas().length).toBe(0);
+    expect(html()).toContain('Nada coincide con');
+    expect(html()).toContain('Limpiar búsqueda');
+  });
+
+  // ── [SN.10] Lo que la captura del 2026-09-11 destapó ──────────────────────
+
+  it('ninguna tarjeta usa la jerga de relleno «Atajo · vive en su espacio»', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    // Salía 12 veces, truncada, con el mismo peso visual que la información real.
+    expect(html()).not.toContain('vive en su espacio');
+    expect(html()).not.toContain('Atajo');
+  });
+
+  it('dos módulos homónimos en el mismo espacio se distinguen por su proyecto de origen', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const hallazgos = Array.from(tarjetas()).filter((a) => (a.textContent ?? '').includes('Hallazgos'));
+    expect(hallazgos.length).toBeGreaterThanOrEqual(2);
+    const textos = hallazgos.map((a) => a.textContent ?? '');
+    // Cada uno dice de dónde sale, y no hay dos idénticos.
+    expect(textos.some((t) => t.includes('de Finanzas'))).toBe(true);
+    expect(textos.some((t) => t.includes('Compras'))).toBe(true);
+    expect(new Set(textos).size).toBe(textos.length);
+  });
+
+  it('la segunda línea no repite el título', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    for (const a of Array.from(tarjetas())) {
+      const titulo = a.querySelector('.mt-card-title')?.textContent?.trim() ?? '';
+      const cuerpo = a.querySelector('.mt-card-body')?.textContent?.trim() ?? '';
+      if (cuerpo) expect(cuerpo.toLowerCase()).not.toBe(titulo.toLowerCase());
+    }
+  });
+
+  it('los módulos enlazados no comparten todos el icono de su proyecto', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const iconos = Array.from(tarjetas())
+      .map((a) => a.querySelector('.mt-card-ico i')?.className ?? '')
+      .filter(Boolean);
+    // Antes `entryIcon` devolvía SIEMPRE el del proyecto: cinco módulos de `trade` salían iguales.
+    expect(new Set(iconos).size).toBeGreaterThan(iconos.length / 2);
+  });
+
+  it('cada grupo de pendientes lleva su propia etiqueta dentro', async () => {
+    await montar({ perms: [], role: 'superadmin', work$: of(TRABAJO_MIXTO) });
+    const grupos = q<HTMLElement>('.mt-grupo');
+    expect(grupos.length).toBe(2);
+    // La etiqueta vive DENTRO del grupo: al envolver no se queda en la fila de arriba.
+    for (const g of Array.from(grupos)) {
+      expect(g.querySelector('.mt-grupo-tag')).toBeTruthy();
+      expect(g.querySelector('a.mt-task')).toBeTruthy();
+    }
+  });
+
+  // ── [SN.11] Dos columnas: el trabajo deja de ser una tira ─────────────────
+
+  it('la columna de trabajo existe y se distingue de la de espacios, aunque no haya pendientes', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    expect(q('section.mt-work').length).toBe(1);
+    expect(q('section.mt-spaces').length).toBe(1);
+    // Cada columna encabeza lo suyo; el trabajo no cuelga de la rejilla de puertas.
+    expect(html()).toContain('Tu trabajo');
+    expect(html()).toContain('Tus espacios');
+    // Y las puertas siguen siendo enlaces reales dentro de su propia zona de scroll.
+    expect(q('.mt-scroll a.mt-card').length).toBe(tarjetas().length);
+  });
+
+  it('la tarjeta dice en qué rama del árbol vive, recortada a dos niveles', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const grupoDe = (href: string) =>
+      Array.from(tarjetas()).find((a) => a.getAttribute('href') === href)?.querySelector('.mt-card-group')?.textContent?.trim();
+    expect(grupoDe('/dashboard')).toBe('Ventas › Rutas de detalle');
+    // El grupo completo de Telemarketing tiene un tercer nivel que repite el nombre de la entrada.
+    expect(grupoDe('/telemarketing')).toBe('Ventas › Mayoreo');
+    // …pero el completo sigue disponible al pasar el mouse y para el buscador.
+    const tele = Array.from(tarjetas()).find((a) => a.getAttribute('href') === '/telemarketing');
+    expect(tele?.getAttribute('title')).toContain('Atención telefónica');
+  });
+
+  it('las cifras llevan separador de miles', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
+    const n = Array.from(q<HTMLElement>('.mt-task-n')).map((e) => e.textContent?.trim());
+    expect(n).toContain('1,865');
+    expect(n).not.toContain('1865');
+  });
+
+  it('la hora del conteo sale del servidor (medido_at); si no vino, se declara', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
+    expect(html()).toContain('contado a las');
+    // Se muestra una HORA, no un "hace N minutos" restando el reloj del navegador (ADR-056).
+    expect(html()).not.toMatch(/hace \d+ min/);
+    const meta = (fix.nativeElement as HTMLElement).querySelector('.mt-col-meta span[title]');
+    expect(meta?.getAttribute('title')).toContain('2026-09-11T12:00:00.000Z');
+  });
+
+  it('sin medido_at usable, la frescura se DECLARA en vez de inventarse', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({ ...SIN_TRABAJO, medido_at: '' }),
+    });
+    expect(html()).toContain('hora de conteo no declarada');
+    expect(html()).not.toContain('contado a las');
+  });
+
+  it('la bandeja que no se pudo contar lleva su motivo, no sólo su nombre', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({
+        medido_at: '2026-09-11T12:00:00.000Z',
+        pendientes: [],
+        no_medido: [{ id: 'cuadre', label: 'Descuadres por revisar', motivo: 'relation does not exist' }],
+      } satisfies MeWork),
+    });
+    const declarado = (fix.nativeElement as HTMLElement).querySelector('.mt-declarado');
+    expect(declarado?.textContent).toContain('Descuadres por revisar');
+    expect(declarado?.querySelector('span[title]')?.getAttribute('title')).toBe('relation does not exist');
+  });
+
+  it('el contexto no repite puesto y área cuando son lo mismo', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      ctx$: of({ ...CTX_BASE, position: { code: 'sis', name: 'Sistemas' }, department: { code: 'sis', name: 'Sistemas' } }),
+    });
+    const tira = (fix.nativeElement as HTMLElement).querySelector('.mt-ctx')?.textContent ?? '';
+    expect(tira).toContain('Sistemas');
+    expect(tira.match(/Sistemas/g)?.length).toBe(1);
   });
 });

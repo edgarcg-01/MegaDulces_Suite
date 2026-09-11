@@ -67,6 +67,15 @@ export interface SuiteEntry {
   readonly group?: readonly string[];
   /** Etiqueta visible. Default: la del proyecto o módulo en el árbol. */
   readonly label?: string;
+  /**
+   * `[SN.10]` Icono PrimeNG propio de la entrada. Sin esto, `entryIcon()` cae al icono del
+   * PROYECTO — y como un espacio puede traer cinco módulos del mismo proyecto (Mercadotecnia trae
+   * cinco de `trade`), las cinco tarjetas salían con el mismo icono: decoraba en vez de distinguir.
+   *
+   * Vive acá y NO en `AuthzModule` a propósito: el icono es una decisión de PRESENTACIÓN y el
+   * árbol es el registro de autorización (ADR-061). Meterle un campo visual lo volvería a mezclar.
+   */
+  readonly icon?: string;
   /** La entrada también vive (como primaria) en otro espacio. */
   readonly crossLink?: boolean;
   readonly gate?: SuiteGate;
@@ -148,6 +157,8 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'dg-centro-de-control',
         kind: 'module',
+        // No el compás del espacio: la tarjeta repetiría el icono de su propio encabezado.
+        icon: 'pi pi-chart-line',
         project: 'comercial',
         module: 'analytics',
         label: 'Centro de Control (vista parcial: Comercial)',
@@ -223,6 +234,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'mkt-promociones',
         kind: 'module',
+        icon: 'pi pi-percentage',
         project: 'comercial',
         module: 'promotions',
         group: ['Mercadotecnia'],
@@ -232,42 +244,21 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'mkt-erp-promos',
         kind: 'module',
+        icon: 'pi pi-tags',
         project: 'comercial',
         module: 'erp-promos',
         group: ['Mercadotecnia'],
         crossLink: true,
         source: { status: 'propuesta', cite: '§10 — promociones vigentes en el ERP' },
       },
-      {
-        id: 'mkt-planograma',
-        kind: 'module',
-        project: 'trade',
-        module: 'planograma',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
-        source: { status: 'propuesta', cite: '§10 — exhibiciones / Trade Marketing' },
-      },
-      {
-        id: 'mkt-scoring',
-        kind: 'module',
-        project: 'trade',
-        module: 'scoring',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
-        source: { status: 'propuesta', cite: '§10 — medición de la ejecución' },
-      },
-      {
-        id: 'mkt-catalogos-captura',
-        kind: 'module',
-        project: 'trade',
-        module: 'catalogs',
-        group: ['Mercadotecnia'],
-        crossLink: true,
-        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
-        source: { status: 'propuesta', cite: '§10 — materiales y catálogos de captura' },
-      },
+      /*
+       * `[SN.12]` Planogramas, Scoring y Catálogos de captura SALIERON de acá y viven ahora en
+       * "Configuración de la suite" (espacio 10). No es un juicio de valor sobre Trade Marketing:
+       * las tres son pantallas de AJUSTE —sus rutas son `/dashboard/admin/*` y dos de ellas ni
+       * siquiera declaran permiso de lectura (`view: []`, sólo `manage`)— y estaban sentadas al
+       * mismo nivel que Ventas, Compras y Finanzas. Nadie pierde acceso: cambian de lugar, no de
+       * puerta (§5.1 "ocultar ≠ autorizar"; el bug clase AUTHZ.6 fue justo esconder una).
+       */
     ],
   },
   {
@@ -352,6 +343,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'apc-prevencion-inventarios',
         kind: 'module',
+        icon: 'pi pi-shield',
         project: 'almacen',
         module: 'prevention',
         crossLink: true,
@@ -360,6 +352,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'apc-cuadre',
         kind: 'module',
+        icon: 'pi pi-sliders-h',
         project: 'almacen',
         module: 'cuadre',
         crossLink: true,
@@ -368,6 +361,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'apc-hallazgos-finanzas',
         kind: 'module',
+        icon: 'pi pi-flag',
         project: 'finanzas',
         module: 'hallazgos',
         crossLink: true,
@@ -376,6 +370,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'apc-hallazgos-compras',
         kind: 'module',
+        icon: 'pi pi-flag-fill',
         project: 'compras',
         module: 'compras-hallazgos',
         crossLink: true,
@@ -384,6 +379,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
       {
         id: 'apc-supervisor-ai',
         kind: 'module',
+        icon: 'pi pi-eye',
         project: 'trade',
         module: 'supervisor-ai',
         crossLink: true,
@@ -415,7 +411,9 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     order: 10,
     label: 'Configuración de la suite',
     icon: 'pi pi-cog',
-    description: 'Usuarios, roles, permisos y alcances. Antes "Administración".',
+    description:
+      'Usuarios, roles, permisos y alcances, más los ajustes que alimentan la operación ' +
+      '(planogramas, scoring, catálogos de captura). Antes "Administración".',
     status: 'active',
     entries: [
       {
@@ -429,6 +427,44 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
             'USUARIOS_VER y USUARIOS_PASSWORDS, que el árbol lista, no abren ninguna pantalla.',
         },
         source: { status: 'confirmado', cite: '§22 + §23 fila Administración → Configuración de la suite' },
+      },
+      /*
+       * `[SN.12]` Los tres ajustes de Trade, mudados desde Comercial › Mercadotecnia. Siguen siendo
+       * `crossLink` (su casa primaria es el proyecto `trade`) y conservan su `gate`: el permiso no
+       * se toca, sólo el lugar donde se ofrece la puerta.
+       */
+      {
+        id: 'mkt-planograma',
+        kind: 'module',
+        icon: 'pi pi-th-large',
+        project: 'trade',
+        module: 'planograma',
+        group: ['Ajustes de Trade'],
+        crossLink: true,
+        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
+        source: { status: 'propuesta', cite: '§22 — ajuste de ejecución, no destino de trabajo' },
+      },
+      {
+        id: 'mkt-scoring',
+        kind: 'module',
+        icon: 'pi pi-star',
+        project: 'trade',
+        module: 'scoring',
+        group: ['Ajustes de Trade'],
+        crossLink: true,
+        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
+        source: { status: 'propuesta', cite: '§22 — configuración de la medición (SCORING_CONFIG_*)' },
+      },
+      {
+        id: 'mkt-catalogos-captura',
+        kind: 'module',
+        icon: 'pi pi-book',
+        project: 'trade',
+        module: 'catalogs',
+        group: ['Ajustes de Trade'],
+        crossLink: true,
+        gate: { alsoAnyOf: TRADE_SHELL_ALSO, reason: TRADE_SHELL_REASON },
+        source: { status: 'propuesta', cite: '§22 — catálogos que alimentan la captura' },
       },
     ],
   },
@@ -492,7 +528,22 @@ export function entryLabel(e: SuiteEntry, tree: readonly AuthzApp[] = AUTHZ_TREE
 }
 
 export function entryIcon(e: SuiteEntry, tree: readonly AuthzApp[] = AUTHZ_TREE): string {
-  return findProject(e.project, tree)?.icon ?? 'pi pi-circle';
+  // `[SN.10]` El icono propio gana. Antes se devolvía SIEMPRE el del proyecto y los cinco módulos
+  // de `trade` en Mercadotecnia salían con el mismo gráfico de barras.
+  return e.icon ?? findProject(e.project, tree)?.icon ?? 'pi pi-circle';
+}
+
+/**
+ * `[SN.10]` De qué proyecto sale una entrada de MÓDULO, para decirlo en la tarjeta.
+ *
+ * Sin esto, dos módulos que se llaman igual en proyectos distintos son indistinguibles: en
+ * "Auditoría, Prevención y Control" había dos tarjetas «Hallazgos» pegadas —una de Finanzas y otra
+ * de Compras— y nada en pantalla decía cuál era cuál. Devuelve `null` para las entradas de
+ * proyecto, donde el dato sería una repetición del propio título.
+ */
+export function entryOrigin(e: SuiteEntry, tree: readonly AuthzApp[] = AUTHZ_TREE): string | null {
+  if (e.kind !== 'module') return null;
+  return findProject(e.project, tree)?.label ?? null;
 }
 
 /**
@@ -554,6 +605,11 @@ export interface VisibleEntry {
   readonly groupLabel: string;
   /** Módulos abribles por la persona; vacío cuando la entrada es un módulo suelto. */
   readonly modules: readonly AuthzModule[];
+  /**
+   * `[SN.10]` Proyecto del que sale una entrada de módulo (`'Finanzas'`), o `null` para las de
+   * proyecto. Es lo que distingue dos módulos homónimos enlazados en el mismo espacio.
+   */
+  readonly origin: string | null;
 }
 
 export interface VisibleSpace {
@@ -590,6 +646,7 @@ export function visibleSuiteMap(
         route: entryRoute(e, tree),
         groupLabel: (e.group ?? []).join(' › '),
         modules: e.kind === 'project' ? accessibleModules(e, p, isAdmin, tree) : [],
+        origin: entryOrigin(e, tree),
       });
     }
     if (entries.length) out.push({ space, entries });

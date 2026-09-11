@@ -147,6 +147,115 @@ services:
       start_period: 20m
       retries: 3
 
+  # ═══════════════════════════════════════════════════════════════════════════
+  # VL.4 — LOS CARRILES QUE SALIERON DEL PROGRAMADOR DE WINDOWS
+  #
+  # ⚠️ Env DISTINTO al de los carriles del ODS, a propósito: `feeds.env`, no
+  # `ingest.env`. En los feeds `DATABASE_URL_NEW` es **prod** (el destino); en los
+  # del ODS es la **fuente**. Mezclarlos es el modo de falla exacto que dejó el ODS
+  # congelado 6 días (GOTCHAS §17).
+  # ⚠️ `TZ` explícita: los nocturnos del crontab están en hora MX, como en el
+  # Programador. Sin esto correrían 6 h corridos.
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  # 11 carriles agendados en UN contenedor, con la agenda versionada en
+  # ops/vl/crontab.feeds. `crond -f -d 8` = primer plano y log a stdout, para que
+  # `docker compose logs feeds-cron` muestre lo que hizo cada carril.
+  feeds-cron:
+    image: trade-ingest:latest
+    container_name: feeds-cron
+    restart: unless-stopped
+    volumes:
+      - /home/superoot/secrets/feeds.env:/secrets/feeds.env:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["crontab /app/ops/vl/crontab.feeds && exec crond -f -d 8"]
+    # [VL.6.1] CANARIO, no auditoría. Este contenedor no tiene UN carril sino once, así que
+    # `ODS_HB_KEY` lleva tres de los que corren cada minuto y basta con que UNO entregue: lo
+    # que hay que probar es que el camino cron → run-feed.sh → node → prod funciona. Si un
+    # carril concreto está mal, eso lo grita db-health (que sí tiene el umbral de cada uno);
+    # reiniciar los once porque la fuente de uno se cayó no repone una sola fila.
+    # Tres claves y no una: atarlo a un solo carril lo deja en bucle de reinicio eterno el día
+    # que ese carril se retire o se renombre.
+    # ⚠️ IGNORE_ERROR=1 porque `status='error'` de estos carriles es alarma de DATO
+    # (ContPAQi caído, sesión del GPS vencida) y reiniciar no lo arregla.
+    environment:
+      TZ: America/Mexico_City
+      ODS_HB_KEY: "fleet_gps,feed_contpaqi,feed_receipts"
+      ODS_HB_MAX_MIN: "10"
+      ODS_HB_IGNORE_ERROR: "1"
+    healthcheck:
+      test: ["CMD", "/app/ops/ingest/health-lane.sh"]
+      interval: 60s
+      timeout: 20s
+      start_period: 180s
+      retries: 3
+    labels: { autoheal: "true" }
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  # Sub-minuto: el cron no llega. Loop propio, como el `run-livefast-loop.cmd` que
+  # reemplaza (sales-fact → sales_daily + cash-sessions, ventana de 2 días).
+  feeds-livefast:
+    image: trade-ingest:latest
+    container_name: feeds-livefast
+    restart: unless-stopped
+    env_file: [/home/superoot/secrets/feeds.env]
+    # [VL.6.1] Un solo carril, así que el healthcheck pregunta por ÉL. Corre cada 60 s y su
+    # pasada dura ~40 s; 10 min de tope distingue holgadamente "lento" de "colgado".
+    environment:
+      TZ: America/Mexico_City
+      SALES_FACT_DAYS: "2"
+      ODS_HB_KEY: feed_livefast
+      ODS_HB_MAX_MIN: "10"
+      ODS_HB_IGNORE_ERROR: "1"
+    command:
+      - /bin/sh
+      - -c
+      - 'while :; do node database/importers/kepler/run-prod-feeds.js livefast --apply; echo "[$(date "+%F %T %Z")] pasada livefast lista, siguiente en 60s"; sleep 60; done'
+    healthcheck:
+      test: ["CMD", "/app/ops/ingest/health-lane.sh"]
+      interval: 60s
+      timeout: 20s
+      start_period: 180s
+      retries: 3
+    labels: { autoheal: "true" }
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
+  # Sub-minuto: tickets en vivo de las 6 sucursales → WS /store de prod. Reemplaza
+  # `C:\KeplerPush\store-poller.cmd`, que además era uno de los 2 únicos que corrían
+  # como SYSTEM (los otros 17 dependían de una sesión de usuario abierta).
+  store-poller:
+    image: trade-ingest:latest
+    container_name: store-poller
+    restart: unless-stopped
+    env_file: [/home/superoot/secrets/feeds.env]
+    # [VL.6.1] ⭐ ESTE es el que probó por qué hacía falta. El 2026-09-11, 20 min después de
+    # mudarlo, quedó colgado en un `client.end()` contra Yurécuaro (socket en FIN_WAIT1): el
+    # proceso vivo, el log mudo, y `docker inspect` diciendo `healthy` — porque el healthcheck
+    # heredado salía por la rama "no se evalúa". Lo encontró un humano leyendo el latido.
+    # Ahora el latido ES el healthcheck, y `autoheal` es el brazo que lo ejecuta.
+    # IGNORE_ERROR=1: este carril se pone en `error` cuando una rama falla (un timeout de
+    # Railway, un POS que no contesta) y reiniciar no arregla ninguna de las dos; lo que sí
+    # tiene que disparar el reinicio es que el ciclo DEJE DE COMPLETARSE, que es el cuelgue.
+    environment:
+      TZ: America/Mexico_City
+      POLL_SECONDS: "25"
+      WINDOW_MINUTES: "5"
+      ODS_HB_KEY: store_poller
+      ODS_HB_MAX_MIN: "10"
+      ODS_HB_IGNORE_ERROR: "1"
+    command:
+      - /bin/sh
+      - -c
+      - 'while :; do node database/importers/kepler/live-tickets-poller.js; echo "[$(date "+%F %T %Z")] poller cayó, reintento en 10s"; sleep 10; done'
+    healthcheck:
+      test: ["CMD", "/app/ops/ingest/health-lane.sh"]
+      interval: 60s
+      timeout: 20s
+      start_period: 180s
+      retries: 3
+    labels: { autoheal: "true" }
+    logging: { driver: json-file, options: { max-size: "50m", max-file: "3" } }
+
   # ═══ EL BRAZO DEL HEALTHCHECK ═══
   # Sin esto el HEALTHCHECK sólo PINTA un rótulo: en Docker standalone
   # `restart: unless-stopped` reacciona a que el proceso MUERA, y nada reacciona a

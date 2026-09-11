@@ -6,6 +6,120 @@
 
 ---
 
+## 2026-09-11 — `[OR.0]`+`[OR.1]` El usuario era una credencial; pasa a ser una persona con un puesto
+
+**Disparador:** *«cambiá tu forma de pensar. Los usuarios son personas que tienen puestos, actividades, jefes, permisos, acciones. Necesito que todo esto se vea representado en la formación de un usuario. ¿Para qué? Poder asignar responsabilidades, asignar tareas, asignar trabajadores o jefes, auditar. Deja de ser una máquina que usa la interfaz, para poder personalizar la interfaz a su medida.»*
+
+### El encuadre anterior estaba mal, y la medición lo confirma
+
+Toda la Fase ID (ID.26–ID.36) trató al usuario como **una credencial que hay que gatear**. Es buena higiene y queda como cimiento, pero no modela la organización. La prueba está en la forma de la tabla: de las **33 columnas de `identity.users`, sólo 4 hablan de la persona** —`nombre`, `department_code`, `position_code`, `supervisor_id`— contra 9 de credencial, 9 de auditoría de fila, 5 de dónde opera, 3 de sesión, 2 de autorización y 1 de puntos. **Ninguna dice de qué responde.**
+
+De ahí sale el síntoma que el negocio ya sufría: **106,603 items de trabajo pendientes sin dueño** (`finance.findings` 82,289 · `commercial.replenishment_findings` 21,940 · `reconciliation.discrepancies` 2,371 · `logistics.fleet_alerts` 3). No es que falte una pantalla de asignación: **no hay a quién asignárselos**, porque el sistema no sabe de qué responde nadie. `reviewed_by`/`acknowledged_by` dicen quién lo cerró, no quién debía actuar.
+
+### Tres hallazgos de la medición que no se buscaban
+
+1. **`identity.user_roles` es 96% un espejo.** 134 filas, **129 repiten el `role_name` que ya está en la misma fila de `users`**; sólo 5 son complemento real. La UNIÓN que `[ID.13]` documenta en el JWT es no-op en 129 de 134 casos. Es el precedente exacto de lo que le puede pasar a cualquier tabla de override que nazca sin regla.
+2. **`identity.user_events` no registraba nada organizacional.** 97 filas: 72 de alcance, 20 de la fusión de `[ID.36]`, 3 de permisos, 2 de roles. **Cero** de alta, de puesto y de jefe. La bitácora existía y miraba para otro lado.
+3. **`created_by` vacío en 96 de 100.** No se sabía quién dio de alta a casi nadie.
+
+Y una decisión de Edgar que la medición respaldó: **el usuario ES la persona**, sin entidad aparte. `hr.employees` en `.245` son **592 filas con TODOS los campos organizacionales en NULL** —sin departamento, sin sitio, sin puesto, sin fecha de alta— con nombres «Aaron» y «Admin» cinco veces: es la lista de usuarios de los checadores. Colgar la identidad de ahí habría sido colgarla de nada.
+
+### Lo que se hizo
+
+**`[OR.0]`** — el catálogo se había construido para el campo y la tienda: `administracion` tenía **17 personas y 4 puestos**, ninguno de contabilidad, finanzas, tesorería ni cobranza (los 43 salieron del PDF del ORGANIGRAMA 2026). Las 22 personas sin candidato se agrupaban en **13 roles, y el rol ya nombra el oficio** → 11 puestos **derivados del rol que ya tenían**. ⭐ Una sola corrección resolvió cuatro personas: `auxiliar_mkt` proponía `administrativo` y debía proponer `marketing`, lo que además dejó a los 3 `administrativo` con un único candidato.
+
+**`[OR.1a]`** — la cadena de mando pasa a vivir **entre PUESTOS**; `supervisor_id` baja a excepción. Se sembró **sólo la arista que el dato prueba** (`supervisor_rd ← vendedor_ruta`, 29 personas); el resto se declara como hoja de trabajo, porque dibujarlo sería inventar el organigrama desde un editor de texto.
+
+**`[OR.1b]`** — `identity.responsibilities` (producto, sin RLS, patrón `scope_dimensions`) + `position_responsibilities` + `user_responsibilities`.
+
+**`[OR.1c]`+`[OR.1d]`** — backfill derivado en el momento y las 3 personas que quedaron declaradas, resueltas por Edgar. **Padrón 100/100 con puesto** (era 58).
+
+### Lecciones
+
+- **El padrón se edita en vivo.** «Personas con puesto» pasó de **58 a 59 entre dos consultas mías separadas por diez minutos**: hay ~10 sesiones trabajando. Consecuencia de diseño, no anécdota — **un backfill no puede llevar una lista fija de usernames**; la condición se re-evalúa dentro del `UPDATE`.
+- **El plan asumía ejes de ruteo que no existen.** Decía eje `warehouse` en `logistics.fleet_alerts` y `route` en `commercial.commercial_actions`. Al buscar la columna de verdad: **5 de las 8 colas no tienen NINGUNA columna de ruteo ni de dueño.** La mayoría del trabajo sólo se puede repartir por responsabilidad sola, y `dimension` queda NULL ahí — inventarle un eje a una cola que no lo tiene es repartir al azar con cara de precisión.
+- **El plan también decía que el eje de alcance era un hueco («sólo 5 de 43 puestos lo declaran»). Era falso:** `[ID.24.2]` lo resuelve como `coalesce(positions.scope_axis, departments.scope_axis)` y **los 13 departamentos lo declaran** — cobertura real 99 de 100. Los 5 puestos son overrides. Y `scope_axis` (`ruta`/`zona`/`sucursal`/`red`/`cartera`/`cliente`) **no es** `scope_dimensions` (`brand`/`customer`/`expense_area`/`route`/`warehouse`/`zone`): uno clasifica poblaciones, el otro filtra datos. Confundirlos habría roto el enrutamiento de `[OR.3]` antes de escribirlo.
+- **Sembrar la responsabilidad desde el permiso habría sido un desastre silencioso.** La hoja de trabajo mide que **`auxiliar_mkt` —2 personas de marketing— puede ABRIR 6 de las 8 bandejas**, incluidos los 82,289 hallazgos de finanzas. Por eso `position_responsibilities` nace vacía: **el permiso decide si podés abrirlo; la responsabilidad decide si es tuyo**, y colapsarlas habría dejado el reparto «funcionando» el día 1 sin que nadie decidiera nada.
+- **El organigrama no tenía raíz, y sólo se vio al necesitarla.** Al decidir Edgar que una persona reporta directo a Dirección, apareció que el nodo no existía: el rol `direccion` tiene **88 permisos y cero personas**. Que la cadena viva entre puestos es lo que permite crearlo vacío — **un puesto vacante sigue siendo el lugar al que se reporta**, y eso con `supervisor_id` es inexpresable.
+- **Un candado que no se puede cumplir se declara, no se fuerza.** El CHECK `kind='interno' ⇒ position_code NOT NULL` **no se aplicó**: el dato ya lo cumple (100/100), pero `users.service#create` deja el campo opcional, así que hoy convertiría un alta incompleta en un 500 crudo. Va después de `[OR.2]`.
+- **Cada prueba negativa necesita su control positivo.** Se rompieron cuatro candados a propósito con rollback; cada bloque verifica además que **lo legítimo SÍ se acepta**. Sin eso, un candado que bloquee todo se ve igual de verde — que es exactamente como `test-authz-route-coverage` estuvo verde sobre un conjunto vacío.
+
+### Estado
+
+Migraciones a prod una por una: **batches 377–381**. Smoke `test-newdb-organigrama.js` **28 ok / 0 fallos / 3 declarados**, registrado en `run-all-tests.js`. **Sin cambios de código de aplicación → no requiere redeploy ni re-login.**
+
+**Parqueado por Edgar** (`DEUDA-OR-CARTA`): los 23 puestos con gente y sin jefe, y el mapa puesto→responsabilidad. La propuesta quedó hecha y cruzada contra permisos; el cruce destapó tres cosas que no son de organigrama: las alertas de flota sólo las abren `jefe_finanzas` y `sistemas` (nadie de logística), el rol `marketing` está sobre-permisado, y los 30 `vendedor_ruta` pueden aprobar las sugerencias comerciales dirigidas a ellos mismos.
+
+---
+
+## 2026-09-11 — `[GX.9]` El desempeño de egresos no contaba dos cajones de dinero que sale
+
+**Disparador:** *"falta agregar los egresos que se van a las cuentas 150 que son activo no circulante, y las cuentas de gasto financiero o impuesto que son las de la 702 a la 764"*.
+
+### Lo que había (medido antes de tocar)
+
+`/finanzas/egresos` lee `analytics.expense_entries`, y ese feed nace de UN `WHERE` del importer: `c4='C' AND (c3='511' OR c3 LIKE '6%')`. Todo lo demás que Kepler carga —y que es plata que sale— no existía para la pantalla. El pedido es correcto y se verificó contra `kepler_ods.kdc126` (plan de cuentas) antes de escribir nada:
+
+| Mayor | Nombre en el plan de cuentas | ¿Entraba? |
+|---|---|---|
+| `150` | ACTIVO NO CIRCULANTE (mobiliario, cómputo, reparto, terrenos, edificio, licencias) | ❌ |
+| `511` | COMPRAS | ✅ |
+| `6xx` | GASTOS | ✅ |
+| `701` | **PRODUCTOS FINANCIEROS** — es **ingreso** | ❌ *(y debe seguir fuera)* |
+| `702` · `760` · `761` · `762` · `763` · `764` | GASTOS FINANCIEROS · IMPUESTOS · ISR · IMPUESTO SOBRE NÓMINAS · IMPUESTO CEDULAR · PTU | ❌ |
+
+El rango que pidió el usuario —**702 a 764**, no "7xx"— es exactamente el que deja afuera la 701. Se confirmó en el catálogo, no se asumió.
+
+### La trampa: Fix#1 iba a destruir lo que acabábamos de traer
+
+`import-expenses-polizas.js` trae tres correcciones heredadas. La segunda, **Fix#1 (factura vs presupuesto)**, agrupa por `(sucursal, cuenta_mayor, mes)` y, cuando un mes tiene las dos capas, borra la "no operativa": si las facturas con folio real ya son ≥50% del presupuesto, borra la capa de folio vacío; si no, borra las facturas.
+
+Ese fix está hecho para **una dualidad específica de compras**: Kepler 2025 registraba la 511 como presupuesto mensual contra la cuenta 999. **En la 150 la capa de folio vacío NO es un presupuesto paralelo** — son pólizas de diario (`D-11`/`D-14`, contrapartida 999/116/515). Aplicado a ciegas sobre las cuentas nuevas, **medido sobre 12 meses del ODS**:
+
+- 2025-12: borraba **$5,000** de adquisiciones con factura real (det $5,000 < 0.5 × res $31,996).
+- 2026-03: borraba **$240,034** de adquisiciones con factura real.
+- 2026-07: borraba **$182,633** de la capa de diario.
+
+Total que se habría perdido en silencio: **$427,666.83 en 28 movimientos**. Por eso Fix#1 quedó **acotado a `511`/`6xx`** —las familias que modela— y las dos nuevas pasan intactas. Con el acote, 511 y 6xx quedan **byte-idénticos**.
+
+### Lo que se hizo
+
+- **Importer** (`import-expenses-polizas.js`): el `WHERE` suma `split_part(btrim(c3),'-',1)='150'` y `BETWEEN '702' AND '764'`; Fix#1 acotado; y el **agregado contable de documentos** (`expense_doc_accounting`) suma el mismo alcance — **343 documentos subdeclaraban su propio total (~$9.4M en 12 meses)** porque su cargo a activo fijo o a impuestos era invisible ahí.
+- **Contrato compartido** `libs/contracts/src/http/expense-family.contract.ts` (ADR-056): la etiqueta de familia vivía **duplicada a mano en tres lugares** (el `CASE` SQL de `expenses()`, el `famLabel()` de `expensesTree()` y el selector del componente) — por eso una familia nueva habría salido en pantalla como `'1'` y `'7'` pelados. Ahora la etiqueta larga, la corta, el orden y la clave de serie salen de un archivo.
+- **Backend**: `by_familia` etiqueta desde el contrato; la **serie mensual** gana una columna por familia (antes tenía clavadas `compras`/`gastos`, así que la gráfica de tendencia sumaba en `total` un dinero que **ninguna barra mostraba**); el árbol y el `@ApiOperation` al día.
+- **Frontend**: selector de Tipo derivado del contrato (una familia nueva aparece sola), chip de familia por `famShort()` en vez de dos `@if` clavados, dos series más en la tendencia (pantalla y detalle), subtítulo y ayuda contextual con el alcance real.
+
+### Medido — `database/tests/test-newdb-expense-account-scope.js` (8/8, prod, read-only)
+
+Simula el pipeline completo del importer (WHERE + Fix#B + Fix#1) sobre `kepler_ods.kdc2YYMM`, viejo contra nuevo. Sobre los 12 meses cerrados 2025-09…2026-08:
+
+| Familia | Antes | Después |
+|---|---|---|
+| 5 · Compras / Costo | $633,882,040.41 / 10,154 movs | **idéntico** |
+| 6 · Gastos | $75,603,155.45 / 20,032 movs | **idéntico** |
+| 1 · Activo no circulante | — (no entraba) | **$4,835,399.12** / 258 movs |
+| 7 · Financieros e impuestos | — (no entraba) | **$6,044,532.28** / 448 movs |
+
+**Egreso total: $709,485,195.86 → $720,365,127.26 (+$10,879,931.40 · +1.53%).**
+
+Candados: (1-2) las familias viejas no se mueven ni un centavo — el cambio **suma, no reinterpreta**; (3-4) las nuevas entran completas (crudo == publicado); (5) la 701 no se cuela; (6) **prueba negativa** — si alguien le quita el acote a Fix#1, el candado se pone rojo con los $427,666.83 a la vista; (7) si el ODS llega vacío reporta `NO MEDIDO`, no verde por vacuidad.
+
+Builds `api` y `view` verdes · `nx test contracts` 35/35 · `nx test view` 243 · lint sin errores nuevos (los 4 que quedan existen en `HEAD`).
+
+### Lecciones
+
+- **Una corrección heredada tiene un dominio, y ampliar el alcance lo sale.** Fix#1 no estaba mal: estaba escrito para la 511. Traer cuentas nuevas a un pipeline con fixes es meterlas bajo reglas que nadie escribió pensando en ellas — y el daño ($427k) no habría dado error, habría dado un número más chico.
+- **El rango de cuentas se leyó del plan de cuentas, no del primer dígito.** `7%` habría metido PRODUCTOS FINANCIEROS (ingreso) dentro del egreso. El usuario dijo "702 a 764" por una razón.
+- **Un total sin su desglose es una resta pendiente.** La serie mensual traía `total` + dos familias; al sumar dos más, `total` habría quedado por encima de las barras sin que nadie pudiera decir de dónde salía la diferencia.
+
+### Pendiente
+
+- **Correr el importer contra prod** (`--apply --months 12`) para que la pantalla muestre las familias nuevas: el cambio de alcance no se ve hasta que el feed reescribe los meses. Esto escribe en prod → **falta autorización**.
+- **Validación visual** de la pantalla (gráfica con 4 series, chips, selector).
+- **Deuda declarada, no cerrada:** `analytics.expense_entries` sigue siendo tabla de importer, contra la regla ⭐ de "cero importers / derivar del ODS". No se convirtió en vista acá porque los tres fixes (traspasos internos, factura-vs-presupuesto, dedup) viven en el importer y una vista no puede enumerar las `kdc2YYMM` en runtime. Es un trabajo propio, no un renglón de éste.
+
+---
+
 ## 2026-09-10 — `[SN]` La landing deja de ser un catálogo de tarjetas — y la puerta que abre ya no rebota
 
 **Disparador:** `Especificacion_Reestructuracion_Suite_Mega_Dulces_v1.0.md` (Dirección, 2026-09-10) y el pedido *"reestructuremos la página principal `/projects`"*. Alcance acordado: la **Etapa 2** de la spec (navegación por 10 espacios de responsabilidad, *sin pérdida de permisos*); lo que depende de P-01..P-13 se declara, no se construye. Plan en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md), decisión en **ADR-061**.
