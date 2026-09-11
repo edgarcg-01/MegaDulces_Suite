@@ -644,6 +644,14 @@ const CRON_JOBS: CronCfg[] = [
   // el pulso al incremental — ver la nota en `import-contpaqi-cfdis.js`.
   { key: 'contpaqi_add_cfdis_full', label: 'ContPAQi CFDIs (ADD, reconciliador)', cadence: '1×día', warnH: 26, critH: 50 },
   { key: 'feed_guardian',       label: 'FeedGuardian (revive feeds)',   cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },
+  // [VL.4b] El poller de tickets de /tienda/live. Era MUDO y su única señal era el mtime de un .log
+  // — que se sigue moviendo aunque no llegue un solo ticket. El 2026-09-11, tras mudar la fuente a
+  // `md` y dejar las suscripciones viejas en DISABLE, las réplicas de `.249` quedaron congeladas y el
+  // poller escribió 137 min de "N vistos · 0 nuevos" SIN UN ERROR. Ahora late con entrega
+  // (`rows` = tickets efectivamente insertados en prod) y se pone en `error` si una rama falla o si
+  // una réplica deja de recibir WAL — lo segundo es una medida directa sobre `pg_stat_subscription`,
+  // no "hace mucho que no vende", que dispararía en falso cada noche al cerrar las tiendas.
+  { key: 'store_poller',        label: 'Poller tickets en vivo (Kepler → /tienda/live)', cadence: 'continuo ~25 s', warnH: 0.5, critH: 2 },
   // [VP.0.1] Las 4 MVs del cron NOCTURNO de `AnalyticsRefreshService` (`@Cron('0 20 6 * * *')`,
   // 06:20 MX), en el ORDEN de dependencia en que se refrescan. Dos bugs juntos, uno por omisión y
   // otro por copia:
