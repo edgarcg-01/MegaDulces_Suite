@@ -54,6 +54,7 @@ DECLARE
   n_schemas    int := 0;
   n_rel        int := 0;
   n_saltadas   int := 0;
+  n_omitidos   int := 0;
   excluidas    oid[];
 BEGIN
   -- Relaciones PROHIBIDAS = las foráneas + todo lo que derive de ellas.
@@ -116,8 +117,26 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  RAISE NOTICE '[%] % schema(s) · % relación(es) con SELECT · % saltada(s) por foráneas',
-    current_database(), n_schemas, n_rel, n_saltadas;
+  -- ⚠️ El contador se cuenta APARTE de lo que recorre el bucle, a propósito. La
+  -- primera versión reportaba "0 saltadas" en `kepler_consolidado` — y era
+  -- verdad para el bucle, porque las foráneas ni siquiera entran en él (sólo
+  -- itera relkind r/v/m/p) y los schemas que sólo tienen foráneas se descartan
+  -- antes. O sea: saltó 9 schemas y 33 relaciones, y el log decía que no había
+  -- saltado nada. Un número que dice "no pasó nada" cuando sí pasó es
+  -- exactamente la clase de mentira que este proyecto ya pagó varias veces.
+  SELECT count(*) INTO n_saltadas
+    FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+     AND (c.relkind = 'f' OR c.oid = ANY (excluidas));
+
+  SELECT count(*) INTO n_omitidos
+    FROM pg_namespace n
+   WHERE n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+     AND n.nspname NOT LIKE 'pg\_temp%' AND n.nspname NOT LIKE 'pg\_toast%'
+     AND NOT has_schema_privilege('dev_ro', n.oid, 'USAGE');
+
+  RAISE NOTICE '[%] expuesto: % schema(s), % relación(es) · NO expuesto: % schema(s), % relación(es) por foráneas',
+    current_database(), n_schemas, n_rel, n_omitidos, n_saltadas;
 END $$;
 
 -- ── Las tablas FUTURAS ──────────────────────────────────────────────────────
