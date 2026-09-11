@@ -383,6 +383,7 @@ divergir.
 | necesitás | leé | nunca |
 |---|---|---|
 | existencia por almacén × producto | `analytics.v_erp_stock_on_hand` | `commercial.stock` (acierta 91%) |
+| ⭐ **costo unitario para VALUAR** (los dos ERPs) | `analytics.v_erp_unit_cost` | `catalog.products.cost_base` / `cost_with_tax` (§12) |
 | **costo unitario de Kepler** | `analytics.v_kepler_unit_cost` | `kdik` a mano (se pierde el filtro de almacén). ⚠️ Es **promedio ponderado histórico**, no costo de reposición (§3.4) |
 | veredicto del valor del inventario | `analytics.v_erp_stock_truth` | — |
 | unidad/peldaño del renglón de venta | `analytics.v_erp_sales_line_units` | inferirlo del rótulo |
@@ -457,6 +458,8 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **factor de caja contradicho por el ERP** | **41 → 8 pares** ($1,395,458 → **$370,806**) | ⭐⭐ **CERRADO POR CONSTRUCCIÓN, no a mano** (Edgar: *"nada de corregir desde ui"*): un override de **1** ya no puede tapar un factor del ERP > 1, porque un `1` escrito a mano no es una afirmación — significa lo mismo que el `default`. **13 overrides tumbados, los 13 recuperaron el factor del ERP**; los 265 que valen > 1 no se tocan. De `override`: **35 → 2**. La presentación de cajas de esas celdas cae de 18,005 a **2,089** (8.6× de sobredeclaración). Mig 20260910120000, prod batch 360 |
 | ✅ **lo que queda: 6 contradicciones, TODAS ambiguas** | **$189,376 · inequívocas = 0** | ⭐⭐⭐ **KX.5 cerró lo inequívoco: cero.** Se materializó el peldaño cobrado (`analytics.mv_kepler_sold_rung`, 20,560 pares, ventana 365 d, mig 20260910130000 / batch 364) y `v_warehouse_box_factor` lo usa como **piso sólo cuando el factor publicado es 1** — aplicó a **2 filas**, las 2 declaradas. Recorrido: **41 → 8 → 6** contradicciones, $1,395,458 → **$189,376**. ⛔ Las 6 que quedan son **ambiguas por naturaleza**: un peldaño mayor que la caja no prueba que la caja esté mal (una caja de 6 y un paquete de 12 conviven), así que **se declaran** — afirmar `bf = c58` ahí sería inventar |
 | ⚠️ **el peldano de Wincaja es un NULL mudo** | **353,595 celdas / $86,189,728** | `sales_daily.rung_factor` NULL en el 100% de Wincaja (legitimo: no declara peldano) pero `units_unresolved` marca **64**. El 55% del ingreso de 90 d sin nada que diga "aca no se midio" |
+| ✅ **el costo sólo se arbitraba en UNA pantalla** | **$71.74M → $69.49M** (−$2,251,111) | ⭐⭐ **CERRADO (KE.3, 2026-09-10)**: `analytics.v_erp_unit_cost` resuelve el costo por almacén × producto con el testigo del MISMO ERP para los DOS (Kepler `kdik.c16` 98.70% · Wincaja `costo_promedio` **100.00%**). Cinco consumidores cableados, incluido el costo que se **congela** al reconciliar un conteo (salía de `public.products`, la base legacy). Compras queda fuera **a propósito**: valoriza compra, no valuación (§12.3) |
+| ⛔ **la clase ABC es un objeto nulo** | **2 clase A / 56,002 clase C @ $0** | Se calcula sobre `commercial.orders`, que tiene **2 órdenes fulfilled en la historia**, mientras la venta real son 707,022 celdas / $154.7M. Y esa clase **fija el nivel de servicio de toda la red**. Hallazgo de KE.3, **no corregido**: cambiarle la fuente mueve el safety stock de la red y es decisión de negocio (§12.4) |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
 
 ---
@@ -480,6 +483,103 @@ Fuera de alcance por decisión explícita de Edgar. Lo que **sí** quedó medido
 
 ⚠️ Y su cantidad **no cuadra con la nuestra** en 4,044 de 30,202 filas (13.4%): 736,811 unidades
 nuestras contra 895,329 suyas. Sin diagnosticar.
+
+---
+
+## 12. ⭐⭐ El segundo eje: el COSTO se había arbitrado en UNA sola pantalla (KE.3, 2026-09-10)
+
+Edgar preguntó: *"ya aplicamos esto en sell-out, pedido, existencias. ¿en todas las tablas que
+necesitan de la misma verdad?"*. La respuesta medida fue **no**, y el corte es limpio: **la verdad
+se había aplicado en el eje de la UNIDAD y no en el del COSTO.**
+
+Unidad (ADR-055/057): 12 consumidores leen `v_warehouse_box_factor` / `v_unit_truth`.
+Costo: KE.1 arbitró la existencia y **nadie más**. El mismo inventario de 18,969 filas de Kepler:
+
+```text
+árbitro del ERP ......................... $39,456,434
+cost_base    (Rentabilidad/ABC/Conteo) ... $44,943,938   +$5,487,504  (13.91%)
+cost_with_tax (Compras/scanner) .......... $45,841,085   +$6,384,651  (16.18%)
+```
+
+⭐ Y la prueba de que no era teórico: `v_erp_stock_truth.valor_publicado_hoy` da **$45,841,211**,
+o sea **coincide con `cost_with_tax` dentro de $126**. Las otras pantallas publicaban exactamente
+el número pre-KE que la existencia ya había dejado de publicar.
+
+### 12.1 El resolvedor único: `analytics.v_erp_unit_cost`
+
+Grano **almacén × producto** — los mismos **191,012 pares** que `v_unit_truth`. Enumera los pares
+COMPLETOS a propósito: una fila ausente llega NULL a un `LEFT JOIN` y **se lee como sana**.
+
+| lado | testigo | cobertura |
+|---|---|---|
+| Kepler | `kdik.c16` vía `v_kepler_unit_cost` | 18,954 de 19,203 (**98.70%**) |
+| Wincaja | `existencias.costo_promedio` vía `wincaja.v_stock` | 6,370 de 6,370 (**100.00%**) |
+| sin testigo | catálogo **CEGADO** (`cost_with_tax` si es menor que `cost_base` = columnas invertidas) | declarado en `costo_source` |
+| sin nada | **NULL**, jamás 0 | `sin_costo` |
+
+⭐ **El testigo de Wincaja nadie lo había buscado**, y se midió antes de usarlo (R1 + regla de no
+adivinar una fuente): la identidad interna `costo_existencia / existencia == costo_promedio` pega
+en **33,974 de 34,123 (99.56%)**, y la mediana `cost_base / costo_promedio` = **0.9994** — o sea
+está en la **misma unidad** que el catálogo, igual que del lado de Kepler.
+
+### 12.2 ⛔ La trampa: el COALESCE que cruza ERPs (R1, medida en negativo)
+
+**3,164 filas de Kepler empatan también contra un testigo de Wincaja** (mismo SKU, otra plaza). Por
+eso la elección es un `CASE` sobre `erp`, **no** un `COALESCE(kepler, wincaja, catálogo)`.
+
+Y el candado no se conforma con "cruces = 0": **ejecuta la versión ingenua y mide qué habría
+contaminado** — 944,173 pares, de los cuales **5,147 con existencia = $2,016,789 valuados con el
+costo del ERP equivocado**. Sin esa prueba negativa, el cero no distingue "el guard funciona" de
+"el riesgo no existe" (ADR-056).
+
+### 12.3 Lo que se cableó, y lo que NO
+
+Cableados a `v_erp_unit_cost`: **capital parado** (sell-out) · **clase ABC** · **inventario**
+(lista + caducidad) · **rentabilidad** (inventario/GMROI) · **conteo cíclico** — incluido ⭐ **el
+costo que se CONGELA al reconciliar**, que era el que más importaba porque *queda escrito*, y que
+salía de `public.products` (la base **legacy**).
+
+⛔ **Compras NO se cableó, y es correcto.** `commercial-replenishment` y `replenishment-scanner`
+valorizan **el sugerido de compra** — lo que se va a PAGAR — y ahí el costo correcto es
+`cost_with_tax`, confirmado midiendo en U.0 (`cost_with_tax = u1_cost × (1+impuesto)`, razones
+1.0000/1.0800/1.1600/1.2400 exactas sobre 6,626 SKUs). El árbitro de acá es el promedio ponderado
+**histórico y neto de impuesto**: usarlo para una orden de compra respondería otra pregunta y la
+subdeclararía 8–24%. El candado **asegura que sigan sin usarlo**, para que nadie lo "unifique" por
+prolijidad.
+
+Efecto: el capital publicado pasa de **$71,738,838 a $69,487,727** (**−$2,251,111**), con **99.03%**
+de las filas valuadas por el testigo de su propio ERP. Migs `20260910170000` (batch 366) y
+`20260910180000` (batch 367). Candado `test-newdb-unit-cost-truth.js`, 24/24.
+
+### 12.4 ⛔⛔ Hallazgo aparte y SIN RESOLVER: la clase ABC es un objeto nulo
+
+Al probar el recálculo del ABC contra prod (en una transacción con rollback) apareció algo que
+**no** causa este cambio y que es más grande que él:
+
+```text
+commercial.abc_classification .......... 2 filas clase A · 56,002 clase C con annual_value = $0
+su fuente de venta, commercial.orders .. 34 órdenes en total · 2 fulfilled EN LA HISTORIA
+la venta real, analytics.sales_daily ... 707,022 celdas / $154,674,474 en 90 días
+```
+
+O sea el ABC se calcula sobre la tabla de pedidos **de la plataforma**, que está prácticamente
+vacía, mientras la venta real vive en el fact. Y **esa clase fija el nivel de servicio de RA-PRO**
+(A=0.98 · B=0.95 · C/sin clase=0.90, `import-computed-reorder.js:88`), o sea el colchón de
+seguridad de toda la red.
+
+Hay **dos** ABC en el sistema y sólo uno está vivo:
+
+| tabla | estado | quién la consume |
+|---|---|---|
+| `commercial.abc_classification` | **degenerada** (2 A / 56,002 C @ $0) | reabasto, scanner, pasillos, **los dos importers de reorden** |
+| `analytics.product_sales_stats.abc_class` | viva y plausible (1,118 A · 1,630 B · 5,989 C) | analytics, rentabilidad, Thot |
+
+⚠️ Y `commercial.reorder_policy` carga un snapshot **viejo e internamente inconsistente**: 6,357
+políticas clase A, y **9,445 marcadas clase C con `service_level = 0.980`** — clase y nivel vienen
+de corridas distintas.
+
+⛔ **No se tocó**: cambiarle la fuente de venta al ABC mueve el safety stock de toda la red y es una
+decisión de negocio, no una corrección de costo. Queda declarado acá con nombre y monto.
 
 ---
 

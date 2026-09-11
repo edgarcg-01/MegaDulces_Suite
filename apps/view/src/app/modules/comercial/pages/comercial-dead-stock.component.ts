@@ -43,6 +43,21 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
       <!-- KPIs -->
       <app-metric-strip [items]="kpiItems()" ariaLabel="Resumen de stock muerto" />
 
+      <!-- [KE.3] La cifra declara con qué se calculó. Sin esto, un capital valuado sobre
+           el 60% de los SKUs se lee exactamente igual que uno sobre el 100%. -->
+      @if (report()?.costo; as cc) {
+        <p class="ds-proc" [class.ds-proc--warn]="cc.sin_costo > 0">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          Valuado con el costo del propio ERP (Kepler <code>kdik.c16</code> · Wincaja
+          <code>costo_promedio</code>) en <b>{{ cc.cobertura_pct }}%</b> de
+          {{ cc.skus }} SKUs.
+          @if (cc.sin_costo > 0) {
+            <b>{{ cc.sin_costo }}</b> sin costo de ningún ERP ni del catálogo: se declaran
+            sin valuar, no en cero.
+          }
+        </p>
+      }
+
 
       <!-- Resumen por almacén -->
       @if ((report()?.by_warehouse?.length ?? 0) > 1 && !isSpecific()) {
@@ -73,8 +88,16 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             <td>{{ it.brand_name || '—' }}</td>
             <td><p-tag [value]="it.rotation_tier || 'muerto'" [severity]="it.rotation_tier ? 'warn' : 'danger'"></p-tag></td>
             <td class="ds-num">{{ it.quantity }} {{ it.unit_sale }}</td>
-            <td class="ds-num">{{ it.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-            <td class="ds-num ds-cap">{{ it.capital_parado | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+            <td class="ds-num">
+              @if (it.costo_unitario != null) {
+                {{ it.costo_unitario | currency:'MXN':'symbol-narrow':'1.2-2' }}
+              } @else { <span class="ds-null" title="Ningún ERP declara costo para este almacén">sin costo</span> }
+            </td>
+            <td class="ds-num ds-cap">
+              @if (it.capital_parado != null) {
+                {{ it.capital_parado | currency:'MXN':'symbol-narrow':'1.0-0' }}
+              } @else { <span class="ds-null">—</span> }
+            </td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>
@@ -101,6 +124,11 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     .ds-name { max-width: 280px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .ds-num { text-align: right; font-variant-numeric: tabular-nums; }
     .ds-cap { font-weight: 700; color: var(--bad-fg); }
+    .ds-null { color: var(--c-text-3, #8a8a8a); font-style: italic; font-size: .8rem; }
+    .ds-proc { display:flex; gap:.45rem; align-items:baseline; flex-wrap:wrap; margin:0 0 1rem;
+               font-size:.8rem; color: var(--c-text-2, #6b6b6b); }
+    .ds-proc code { font-family: var(--font-mono,monospace); font-size:.75rem; }
+    .ds-proc--warn { color: var(--warn-fg, #9a6b00); }
   `],
 })
 export class ComercialDeadStockComponent {

@@ -2360,15 +2360,28 @@ export interface DeadStockItem {
   rotation_tier: string | null;
   unit_sale: string | null;
   quantity: number;
-  cost_base: number;
-  capital_parado: number;
+  /** [KE.3] Costo ARBITRADO (analytics.v_erp_unit_cost): testigo del MISMO ERP y almacén. */
+  costo_unitario: number | null;
+  /** De dónde salió ese costo: kepler_kdik · wincaja_costo_promedio · catalogo_* · sin_costo. */
+  costo_source: string | null;
+  /** NULL cuando no hay costo — nunca 0, que se leería como "no vale nada". */
+  capital_parado: number | null;
 }
 
 export interface DeadStockReport {
   warehouse_id: string | null;
   total_skus: number;
   total_capital_parado: number;
-  by_warehouse: { warehouse_code: string; warehouse_name: string; skus: number; capital_parado: number | string }[];
+  /** [KE.3] Con qué se valuó y sobre cuánto — un total sobre el 60% de los SKUs no se
+   *  puede leer igual que uno sobre el 100% (ADR-056). */
+  costo?: {
+    resolver: string;
+    skus: number;
+    con_testigo_erp: number;
+    sin_costo: number;
+    cobertura_pct: number | null;
+  };
+  by_warehouse: { warehouse_code: string; warehouse_name: string; skus: number; skus_con_testigo?: number; skus_sin_costo?: number; capital_parado: number | string }[];
   items: DeadStockItem[];
 }
 
