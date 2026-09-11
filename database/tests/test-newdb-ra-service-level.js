@@ -31,11 +31,16 @@ function invNorm(p) {
   q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0]*q+c[1])*q+c[2])*q+c[3])*q+c[4])*q+c[5]) / ((((d[0]*q+d[1])*q+d[2])*q+d[3])*q+1);
 }
 
+// ⚠️ `channel = 'test'` NO es cosmetico: sin el, esto suma la venta REAL del producto que
+// `limit 2` haya elegido, y el test mide algo que nunca sembro. Se puso rojo el 2026-09-11 con
+// `estable mu = 10.4222` en vez de 10.0 -- los 38 units de mas eran venta de verdad, no un bug
+// del motor. Un candado que se cae porque el negocio vendio es un candado que se va a ignorar.
 const STAT_SQL = (pid) => `
   WITH vel AS (
     SELECT sum(units) u, sum(units*units) sq
       FROM analytics.sales_daily
      WHERE tenant_id='${T}' AND sale_date >= current_date - 90 AND product_id='${pid}'
+       AND channel = 'test'
   ), stat AS (
     SELECT (u/90.0) mu, sqrt(GREATEST(0, sq/90.0 - power(u/90.0,2))) sigma FROM vel
   )
@@ -57,7 +62,9 @@ const STAT_SQL = (pid) => `
       ok(await hasCol('commercial', 'reorder_policy', 'policy_method'), 'col reorder_policy.policy_method');
 
       const wh = await trx('commercial.warehouses').where('tenant_id', T).first('id');
-      const prods = await trx('catalog.products').where('tenant_id', T).limit(2).select('id');
+      // ORDER BY para que la corrida sea REPRODUCIBLE: sin el, `limit 2` devuelve lo que el
+      // planner tenga a mano y el test cambia de sujeto entre corridas.
+      const prods = await trx('catalog.products').where('tenant_id', T).orderBy('id').limit(2).select('id');
       ok(!!wh && prods.length >= 2, 'data base local (almacén + 2 productos)');
       const pErr = prods[0].id, pStable = prods[1].id;
 
