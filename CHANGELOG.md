@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Fixed — etiquetera: la vista de hoja se escala al espacio, y la carga masiva se pliega (2026-09-11)
+
+Reporte de tienda: *"el tamaño de la etiqueta se redujo y los usuarios no logran ver la etiqueta"*. El tamaño **físico** está bien (82×35 mm fue la decisión que llevó la hoja de 8 a 15 etiquetas); lo que quedó mal es la **vista previa**, que tenía una caja fija de 500 px heredada de cuando la etiqueta medía 115×40.
+
+- **La hoja se escala, no se fija.** `--etqp-k` lo calcula `fitSheet()` con el menor entre el ancho de su columna y el alto de la ventana (tope 1.5, piso 0.45 = lo que había), vía `ResizeObserver` sobre una regla de ancho — medir la caja misma sería un lazo, porque la caja mide lo que el zoom decide. Sin `ResizeObserver` (jsdom) queda el resize de ventana: degradado declarado, no crash.
+- **La hoja pasa a ser la columna ancha** del workspace (`minmax(420px,1fr) minmax(0,1.5fr)`, antes `1fr` + 500 px fijos).
+- **La carga masiva se pliega** detrás de "Pegar lista" y el buscador sube a la línea de la pistola. Se usa poco (cambio de precios de temporada) y abierta costaba una tarjeta entera de alto — justo el alto que le faltaba a la hoja. La función queda intacta: mismo textarea, mismo `addBulk()`, mismo aviso de no encontrados (visible también con el panel cerrado).
+- **Medido** (etiqueta en pantalla, antes 147×63 px en cualquier monitor): 1366×768 → **212×90 (×1.44)** · 1920×1080 → **327×139 (×2.22)** · 2560×1440 → **439×188 (×2.99)**. En pantalla chica manda el alto, y la hoja **entera** sigue visible sin scroll — es una vista de hoja: si hay que scrollear para ver la última fila deja de servir para lo que sirve.
+- Build `view` verde; suite de etiquetas verde (6/6). ⚠️ `mi-trabajo.component.spec.ts` falla en `main`, ajeno a este cambio. **Validación visual pendiente** (los dev servers son de Edgar).
+
 ### Added — "Mi trabajo": la landing por espacios de responsabilidad reemplaza al catálogo de tarjetas (SN, 2026-09-10)
 
 Etapa 2 de la especificación de Dirección (2026-09-10). ADR-061. Plan y medición en [`FASE_SN`](docs/IMPLEMENTACION/FASES/FASE_SN_SUITE_NAVEGACION.md).
@@ -35,6 +45,17 @@ Edgar rechazó SN.3: *"hiciste una interfaz compleja y poco interactiva, los mó
 - Una bandeja en 0 **no se pinta**; la que no se pudo contar va a `no_medido` **con motivo y nunca a 0** (ADR-056: un cero dibujado se lee igual que "estás al día").
 - **Candado nuevo** en `test-newdb-me-context.js`: cada bandeja lleva a una ruta cuyo guard **acepta su permiso** — un número que invita a hacer clic no puede aterrizar en un 403 (el defecto que `landing-guards.spec.ts` ya destapó tres veces). 8/8 verde, negativa ejercida. Los dos gates estáticos pasaron a trabajar **por líneas**: `^\s*` en un regex sobre el archivo entero ancla en cualquier renglón en blanco de más arriba (`\s` se traga los saltos) y daba los 8 guards en `[]`; y `@RequirePermissions` se busca como **decorador**, porque también aparece en la prosa de los comentarios.
 - Internal: `nx build api` ✅ · `nx build view` ✅ **1.25 MB inicial, sin cambio** · `nx test view` 18 suites / 250 (247 pasan, 3 todo) · `nx test contracts` 35/35. **Parte viva NO MEDIDA** (sin API local; relanzarla no es de esta sesión).
+
+### Changed — la landing cabe en una pantalla, y estrena buscador (SN.9, 2026-09-11)
+
+Pedido de Edgar: concentrar módulos, "Mi trabajo", pendientes y una barra de búsqueda **en una pantalla que no necesite scroll**. De las cuatro disposiciones propuestas eligió **rejilla densa con el buscador arriba**, búsqueda de **módulos y pendientes** (sin backend) y objetivo **1920×1080**.
+
+- **Medido el peor caso antes de apretar nada: 22 entradas en 6 espacios** (superadmin: Comercial 10 · Auditoría 5 · Almacenes 3 · Admin y Finanzas 2 · Dirección 1 · Configuración 1). Un usuario normal ve 1–5 — el problema de espacio sólo existe arriba.
+- **El precio, elegido a conciencia:** la tarjeta pierde la descripción larga y el pie "Acceder →" (queda icono + nombre + una línea de módulos); el contexto baja a una tira en la cabecera; los pendientes pasan de tarjeta a **píldora** con el número.
+- **"Sin scroll" no se cumple cortando contenido.** `100dvh` en cinco filas de grid y sólo la de espacios es elástica: en 1920×1080 no hay barra, y si no cupiera scrollea **esa zona** — esconder una puerta sería justo el daño que esta fase vino a arreglar. Bajo 900 px de ancho o 620 px de alto vuelve a ser documento normal.
+- **Buscador de cliente, por decisión y no por límite:** lo que busca ya está en memoria. Reimplementa en chico lo que `applySmartSearch` hace en Postgres — **sin acentos** y **multi-token en cualquier orden** — y el haystack incluye **los módulos de cada proyecto**, así que "bancos" encuentra Finanzas. `Ctrl/⌘+K` y `/` enfocan, `Enter` abre el primer resultado, `Esc` limpia. Lo que **no** hace es tolerar typos: eso es `pg_trgm`, o sea servidor. Una búsqueda sin coincidencias **se dice**.
+- **Diferido y declarado:** buscar entidades de negocio (clientes, folios, productos, pólizas) es un endpoint nuevo sobre `applySmartSearch`, con la decisión pendiente de qué dominios entran y respetando el permiso de cada uno; encima de eso, lenguaje natural. Ninguna de las dos es Etapa 2.
+- Internal: `nx test view` 18 suites / 256 (253 pasan, 3 todo; **+6** del buscador).
 
 ### Fixed — el mayoreo sigue al codigo leido, y su base estaba equivocada (TDA.7, 2026-09-10)
 
