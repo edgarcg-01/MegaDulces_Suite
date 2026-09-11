@@ -16,6 +16,13 @@ build_view_err.log
 .env.cloudinary
 .env.production
 .env.staging
+# Respaldos del .env (los generan las purgas/rotaciones). El repo es PUBLICO y el indice de git
+# lo comparten ~10 sesiones: un commit sin pathspec se lleva lo que otro dejo staged, asi que un
+# respaldo sin ignorar es una fuga de credenciales a un clic de distancia. Medido 2026-09-11:
+# `.env.bak-purga-20260908-134442` llevaba 46 variables CON VALOR, sin ignorar, en el arbol.
+.env.bak*
+.env.*.bak
+*.env.bak
 # env_file de los carriles de ingesta (OBS.4): el real vive en C:\KeplerRunner\ingest.env, pero si
 # alguien lo genera dentro del repo lleva FEEDS_INGEST_KEY. Sólo se versiona el .example.
 ops/ingest/ingest.env
