@@ -659,12 +659,22 @@ engañosa que mandaría su conteo cíclico a una vez al año. Corrido con `--app
 degenerada = 0**, y la coincidencia política↔vista queda en **28,290 de 28,447 = 99.45%** (excluido
 el CEDIS, que por diseño no se clasifica por venta).
 
-⏳ **Lo único que sigue pendiente, y a propósito:** `commercial.abc_classification` (la tabla) sigue
-en 2 A / 56,060 C con `clase_motivo` NULL, porque su nocturno corrió a las 3:30 AM MX **antes** del
-deploy. **No se rellena a mano**: ese recálculo es la única **prueba observable** de que el deploy
-llegó. Si mañana a las 3:30 AM `clase_motivo` sigue NULL, el deploy no tomó. Rellenarla borraría la
-señal. Mientras tanto no afecta la compra —el reabasto lee la vista— sólo la cadencia del conteo
-cíclico, el scanner y los pasillos.
+✅ **Y la foto al día (2026-09-11, autorizado).** `commercial.abc_classification` se repobló con el
+**mismo SQL del servicio desplegado** —extraído del archivo, no reescrito, para no crear una segunda
+implementación— replicando sus dos frenos (medir la fuente antes de borrar, abortar si A o B salen
+en cero):
+
+```text
+antes ....  2 A / 56,060 C con valor 0 y clase_motivo NULL
+despues ..  5,514 A ($379,944,386) · 7,833 B ($71,224,733) · 31,974 C pareto
+            + 10,075 C sin_demanda (el CEDIS) · tabla == vista 100.00%
+```
+
+⭐ **El argumento en contra —"rellenarla borra la prueba de que el deploy llegó"— era incompleto, y
+la corrección importa:** no la borra, la **invierte**. En vez de *"¿se corrigió mañana?"* pasa a ser
+*"¿siguió correcta?"*, y un revert es más ruidoso que una ausencia. Para que no dependa de que
+alguien mire, el bloque **8bis** del candado lo vuelve compuerta: si el nocturno volviera a correr
+código viejo, la tabla perdería la clase B y `clase_motivo`, y el candado se pone **rojo**.
 
 ⚠️ **Dos almacenes dan 0 A / 0 B y los dos tienen causa nombrada**: el **CEDIS `00`** no vende
 (distribuye por traspaso; lo planea `import-network-reorder.js` con demanda dependiente y servicio
