@@ -1145,13 +1145,15 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
 
   egresos: {
     title: 'Egresos contables — guía',
-    intro: 'Todo lo que sale (pólizas de cargo 5xx/6xx del mayor de Kepler): compras a proveedor y gastos. Podés ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',
+    intro: 'Todo lo que sale (pólizas de cargo del mayor de Kepler): compras a proveedor, gastos operativos, compra de activo fijo y gastos financieros e impuestos. Podés ver el árbol por cuenta, la tendencia mensual, el ranking de proveedores y hacer drill hasta el documento y su cadena.',
     groups: [
       {
         heading: 'Familia del egreso',
         entries: [
           { term: 'Compra', def: 'Pago/registro de mercancía a proveedor (cuenta 511/510 y afines). Es el grueso del egreso.' },
           { term: 'Gasto', def: 'Egreso operativo que no es mercancía: nómina, servicios, comisiones, renta, viáticos (cuentas 6xx).' },
+          { term: 'Activo no circulante', def: 'Compra que NO se gasta: se capitaliza como activo fijo (cuenta 150 — mobiliario, equipo de cómputo y reparto, edificio, terrenos, licencias). El dinero sale igual, por eso cuenta acá; en el P&L no es gasto sino depreciación posterior.' },
+          { term: 'Financiero e impuesto', def: 'Intereses y comisiones bancarias (702) e impuestos propios: IMSS/SUA (762), ISR (761), estatales (760), cedular (763), PTU (764). NO incluye la 701 PRODUCTOS FINANCIEROS, que es ingreso.' },
         ],
       },
       {

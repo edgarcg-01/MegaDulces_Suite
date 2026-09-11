@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Added — Egresos: entran el activo no circulante (150) y los financieros e impuestos (702-764) (GX.9, 2026-09-11)
+
+`/finanzas/egresos` contaba sólo compras (511) y gastos (6xx). Detalle y medición en [`03_LOG_REVISIONES`](docs/IMPLEMENTACION/03_LOG_REVISIONES.md).
+
+- **Dos cajones de dinero que sale y no se sumaban.** Alcance nuevo verificado contra el plan de cuentas `kepler_ods.kdc126`: **150 ACTIVO NO CIRCULANTE** (mobiliario, cómputo, reparto, terrenos, edificio, licencias) y **702-764** (gastos financieros, IMSS/SUA, ISR, impuesto sobre nóminas, cedular, PTU). La **701 PRODUCTOS FINANCIEROS queda fuera a propósito: es ingreso** — por eso el rango arranca en 702 y no en 700.
+- **Medido, 12 meses cerrados (2025-09…2026-08): +$10,879,931.40 (+1.53%)** — activo $4,835,399.12 / 258 movs · financieros e impuestos $6,044,532.28 / 448 movs. **Compras ($633,882,040.41) y gastos ($75,603,155.45) no se mueven ni un centavo**: el cambio suma, no reinterpreta.
+- ⚠️ **Fixed — el fix heredado iba a destruir lo nuevo.** `Fix#1 (factura vs presupuesto)` del importer está escrito para la dualidad 511/999 de compras; en la 150 la capa de folio vacío **no es un presupuesto paralelo** sino pólizas de diario (D-11/D-14). Sin acotarlo se habrían perdido **$427,666.83 en 28 movimientos** —$245k de ellos con factura real— y sin error: sólo un número más chico. Queda acotado a `511`/`6xx`, con **prueba negativa** que se pone roja si alguien se lo quita.
+- **Fixed — 343 documentos subdeclaraban su propio total** (~$9.4M/12 meses): `analytics.expense_doc_accounting` sumaba 511/6xx/122x, así que el cargo a activo fijo o a impuestos del mismo documento era invisible en el drill.
+- **Fixed — la gráfica de tendencia escondía dinero**: la serie mensual traía `total` + dos familias clavadas; con cuatro familias, `total` habría quedado por encima de las barras. Ahora hay una columna por familia (pantalla y detalle).
+- **Internal — la etiqueta de familia vivía duplicada a mano en tres lugares** (el `CASE` SQL de `expenses()`, el `famLabel()` de `expensesTree()` y el selector del componente); por eso una familia nueva habría salido como `'1'`/`'7'` pelado. Nuevo contrato `libs/contracts/src/http/expense-family.contract.ts` (ADR-056): etiqueta larga, corta, orden y clave de serie en un archivo. El selector de Tipo se deriva del mapa — una familia nueva aparece sola.
+- Internal: `database/tests/test-newdb-expense-account-scope.js` (**8/8** contra prod, read-only) en `run-all-tests`; ayuda contextual y subtítulo con el alcance real.
+- **Pendiente: correr `import-expenses-polizas.js --apply` contra prod** (el cambio de alcance no se ve hasta que el feed reescribe los meses) + redeploy api+view + validación visual. **Deuda declarada:** `analytics.expense_entries` sigue siendo tabla de importer contra la regla ⭐ de derivar del ODS — los tres fixes viven ahí y una vista no puede enumerar las `kdc2YYMM` en runtime.
+
 ### Added — "Mi trabajo": la landing por espacios de responsabilidad reemplaza al catálogo de tarjetas (SN, 2026-09-10)
 
 Etapa 2 de la especificación de Dirección (2026-09-10). ADR-061. Plan y medición en [`FASE_SN`](docs/IMPLEMENTACION/FASES/FASE_SN_SUITE_NAVEGACION.md).
