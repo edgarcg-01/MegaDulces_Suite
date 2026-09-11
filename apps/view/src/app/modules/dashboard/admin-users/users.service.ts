@@ -62,6 +62,8 @@ export interface UserCreatePayload extends DeviceSessionFields {
    * lo correcto para una persona — la contraseña la eligió el admin, la cambia el dueño.
    */
   must_change_password?: boolean;
+  /** `[OR.2]` Motivo de apartarse del perfil que propone el puesto. Sólo viaja si el cambio CREA la divergencia. */
+  motivo_desvio?: string | null;
 }
 
 export interface UserUpdatePayload extends DeviceSessionFields {
@@ -80,6 +82,8 @@ export interface UserUpdatePayload extends DeviceSessionFields {
   finance_expense_area_ids?: string[] | null;
   /** `[CH.1.10]` Ver `UserCreatePayload`. Quitar el TTL exige devolverlo a `true`. */
   must_change_password?: boolean;
+  /** `[OR.2]` Motivo de apartarse del perfil que propone el puesto. Sólo viaja si el cambio CREA la divergencia. */
+  motivo_desvio?: string | null;
 }
 
 export interface SupervisorOption {

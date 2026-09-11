@@ -870,6 +870,32 @@ export class AdminUsersComponent implements OnInit {
     const propuesto = this.puestoPropuesta()?.default_role ?? null;
     return !valor || !propuesto || valor !== propuesto;
   });
+
+  // ── `[OR.2]` Apartarse del puesto se puede; en silencio, no ───────────────
+  /** Rol y puesto con los que se abrió la edición. `null` en un alta. */
+  private readonly origenRol = signal<string | null>(null);
+  private readonly origenPuesto = signal<string | null>(null);
+  /**
+   * ¿Este formulario ESTÁ CREANDO la divergencia con el puesto?
+   *
+   * ⚠️ Mira el CAMBIO, no el estado guardado — igual que el backend. Medido en
+   * prod: **14 de 100 personas ya llevan un rol distinto al que su puesto
+   * propone** (13 son `vendedor_ruta` con perfil `promotor_ruta`). Si esto
+   * mirara el estado, editarle el teléfono a cualquiera de ellas pediría un
+   * motivo por una decisión que tomó otro hace meses.
+   */
+  readonly desviacionNueva = computed(() => {
+    const propuesto = this.puestoPropuesta()?.default_role ?? null;
+    const rol = this.rolePick();
+    if (!propuesto || !rol || rol.toLowerCase() === propuesto.toLowerCase()) return false;
+    if (!this.isEditing()) return true;
+    return (
+      (rol ?? '').toLowerCase() !== (this.origenRol() ?? '').toLowerCase() ||
+      (this.positionPick() ?? null) !== (this.origenPuesto() ?? null)
+    );
+  });
+  /** El perfil que el puesto propone, para poder nombrarlo en la pantalla. */
+  readonly perfilPropuesto = computed(() => this.puestoPropuesta()?.default_role ?? null);
   readonly departamentoNombre = computed(() => {
     const code = this.deptPick();
     if (!code) return '—';
@@ -943,6 +969,10 @@ export class AdminUsersComponent implements OnInit {
       route_id: [null as string | null],
       department_code: [null],
       position_code: [null],
+      // `[OR.2]` Por qué esta persona no lleva el perfil que su puesto propone.
+      // Se vuelve obligatorio SÓLO cuando este formulario crea la divergencia
+      // (ver `desviacionNueva`); el backend aplica la misma regla.
+      motivo_desvio: [''],
       finance_expense_area_ids: [[] as string[]],
       activo: [true],
       // `[CH.1.11]` Duración de sesión de una cuenta de DISPOSITIVO. Se llena
@@ -992,6 +1022,21 @@ export class AdminUsersComponent implements OnInit {
           this.userForm.get('role_name')?.setValue(pos.default_role);
         }
       });
+
+    // `[OR.2]` El motivo es obligatorio SÓLO mientras este formulario esté
+    // creando la divergencia. Se ata al validador y no a un chequeo dentro de
+    // `saveUser()` porque el form ya tiene su compuerta (`userForm.invalid`) y
+    // dos compuertas para lo mismo terminan discrepando.
+    effect(() => {
+      const control = this.userForm.get('motivo_desvio');
+      if (!control) return;
+      const exigido = this.desviacionNueva();
+      const yaExigido = control.hasValidator(Validators.required);
+      if (exigido === yaExigido) return;
+      if (exigido) control.setValidators([Validators.required, Validators.maxLength(300)]);
+      else control.clearValidators();
+      control.updateValueAndValidity({ emitEvent: false });
+    });
 
     // `[ID.22]` El departamento como signal, para decidir si se pregunta o se
     // muestra derivado del puesto.
@@ -1232,11 +1277,15 @@ export class AdminUsersComponent implements OnInit {
     this.esDispositivo.set(false);
     this.ttlCargado.set(null);
     this.passwordVisible.set(false);
+    // `[OR.2]` En un alta no hay origen: toda divergencia se decide acá.
+    this.origenRol.set(null);
+    this.origenPuesto.set(null);
     this.userForm.reset({
       activo: true,
       role_name: '',
       department_code: this.selectedDept() && this.selectedDept() !== SIN_DEPT ? this.selectedDept() : null,
       position_code: null,
+      motivo_desvio: '',
       finance_expense_area_ids: [],
       token_ttl_days: null,
     });
@@ -1289,6 +1338,8 @@ export class AdminUsersComponent implements OnInit {
       route_id: user.route_id ?? null,
       department_code: user.department_code ?? null,
       position_code: user.position_code ?? null,
+      // `[OR.2]` Arranca vacío: el motivo describe ESTE cambio, no el anterior.
+      motivo_desvio: '',
       finance_expense_area_ids: user.finance_expense_area_ids ?? [],
       activo: user.activo,
       // `[CH.1.11]` El valor REAL de la cuenta, cargado en el control. Es la
@@ -1296,6 +1347,9 @@ export class AdminUsersComponent implements OnInit {
       // `null` y le borraría el token al kiosco que se vino a editar.
       token_ttl_days: user.token_ttl_days ?? null,
     });
+    // `[OR.2]` Con qué venía, para saber si la divergencia la crea ESTE cambio.
+    this.origenRol.set(user.role_name ?? null);
+    this.origenPuesto.set(user.position_code ?? null);
     this.esDispositivo.set(isDeviceAccount(user));
     this.ttlCargado.set(user.token_ttl_days ?? null);
     this.passwordVisible.set(false);
@@ -1564,6 +1618,15 @@ export class AdminUsersComponent implements OnInit {
 
     if (formData.role_name) {
       formData.role_name = formData.role_name.toLowerCase();
+    }
+
+    // `[OR.2]` El motivo viaja SÓLO cuando hay algo que justificar. Mandar una
+    // cadena vacía en cada guardado ensuciaría el request y, peor, dejaría un
+    // campo que se lee como "sin motivo" cuando en realidad no había desvío.
+    if (!this.desviacionNueva() || !(formData.motivo_desvio ?? '').trim()) {
+      delete formData.motivo_desvio;
+    } else {
+      formData.motivo_desvio = formData.motivo_desvio.trim();
     }
 
     this.saving.set(true);

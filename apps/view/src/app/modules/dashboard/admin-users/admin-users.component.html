@@ -385,6 +385,24 @@
       </div>
     }
 
+    <!-- [OR.2] Apartarse del puesto se puede; en silencio, no. Aparece SÓLO cuando
+         este formulario crea la divergencia: 14 de 100 personas ya llevan un perfil
+         distinto al que propone su puesto, y pedirles motivo al editarles el
+         teléfono sería cobrarles una decisión que tomó otro hace meses. -->
+    @if (desviacionNueva()) {
+      <div class="au-field">
+        <label for="motivo_desvio">Motivo de apartarse del puesto</label>
+        <input id="motivo_desvio" type="text" pInputText formControlName="motivo_desvio"
+               class="w-full" maxlength="300"
+               placeholder="Por qué este perfil y no el que propone el puesto" />
+        <small class="au-err">
+          El puesto propone <b class="mono">{{ perfilPropuesto() }}</b> y elegiste
+          <b class="mono">{{ userForm.get('role_name')?.value }}</b>. Escribí por qué: queda
+          en la bitácora de la persona.
+        </small>
+      </div>
+    }
+
     <!-- [CH.1.11] Un dispositivo no lleva complementos: el JWT lleva la UNIÓN de
          roles, así que un complemento le sumaría permisos a una pantalla que se
          queda prendida un año. El script de alta que esta pantalla reemplaza

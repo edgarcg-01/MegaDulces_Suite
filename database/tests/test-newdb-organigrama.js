@@ -344,8 +344,59 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       );
     }
 
+    // ── 7. `[OR.2]` El desvío del puesto ──────────────────────────────────
+    console.log('\n── 7. Apartarse del puesto queda escrito');
+    const desv = await k.raw(
+      `SELECT u.username, u.role_name AS elegido, p.code AS puesto, p.default_role AS propone
+         FROM identity.users u
+         JOIN identity.positions p ON p.tenant_id = u.tenant_id AND p.code = u.position_code
+        WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL AND u.kind = 'interno'
+          AND p.default_role IS NOT NULL AND p.default_role <> u.role_name
+        ORDER BY p.code, u.username`, [TENANT]);
+
+    const eventos = await k('identity.user_events')
+      .where({ tenant_id: TENANT, event: 'desvio_de_puesto' })
+      .select('user_id');
+    const conEvento = new Set(eventos.map((e) => e.user_id));
+
+    // El catálogo de puestos tiene que poder proponer: si nadie propusiera nada,
+    // "cero desvíos" sería verdad por vacío y no por salud.
+    const proponen = await k('identity.positions')
+      .where({ tenant_id: TENANT })
+      .whereNull('deleted_at')
+      .whereNotNull('default_role')
+      .count('* as n')
+      .first();
+    check(Number(proponen.n) > 20,
+      `${proponen.n} puestos proponen un perfil — sin esto "cero desvíos" sería verdad por vacío`);
+
+    if (desv.rows.length) {
+      const porCaso = {};
+      desv.rows.forEach((x) => {
+        const clave = `${x.puesto}: ${x.propone} -> ${x.elegido}`;
+        porCaso[clave] = (porCaso[clave] ?? 0) + 1;
+      });
+      declarar(
+        `${desv.rows.length} persona(s) con un perfil distinto al que propone su puesto, ` +
+        `SIN motivo registrado (son anteriores a [OR.2], que sólo le cobra el motivo a quien ` +
+        `CREA la divergencia): ${Object.entries(porCaso).map(([c, n]) => `${n}x ${c}`).join(' · ')}`,
+      );
+    } else {
+      check(true, 'nadie lleva un perfil distinto al que propone su puesto');
+    }
+
+    // ⚠️ La regla vive en el servicio (`detectarDesvio` + `exigirMotivo`), no en
+    // la base: un CHECK no puede expresar "sólo si el CAMBIO crea la
+    // divergencia". Acá se mide el RASTRO; que el 400 salga y que el motivo se
+    // exija se prueba contra el API arriba, y los dev servers son de Edgar.
+    declarar(
+      `el rechazo 400 sin motivo y el asiento del evento NO se ejercen acá: son del servicio ` +
+      `(users.service#create/update/bulkAssign) y necesitan el API corriendo. ` +
+      `Eventos desvio_de_puesto hoy: ${eventos.length} (cubren ${conEvento.size} persona(s)).`,
+    );
+
     console.log(
-      `\n${fail === 0 ? '✅' : '❌'} [OR.0/OR.1] el puesto es la unidad organizacional: ` +
+      `\n${fail === 0 ? '✅' : '❌'} [OR.0/OR.1/OR.2] el puesto es la unidad organizacional: ` +
       `${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`,
     );
     process.exitCode = fail === 0 ? 0 : 1;

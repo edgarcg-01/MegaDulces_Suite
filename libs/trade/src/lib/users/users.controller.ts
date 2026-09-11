@@ -308,7 +308,7 @@ export class UsersController {
   @RequirePermissions(Permission.USUARIOS_GESTIONAR)
   @ApiOperation({ summary: 'Asigna departamento / puesto / sucursal / estado a varios usuarios de una vez. Un evento por usuario.' })
   bulkAssign(
-    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null },
+    @Body() body: { user_ids: string[]; department_code?: string | null; position_code?: string | null; warehouse_code?: string | null; status?: string | null; motivo_desvio?: string | null },
     @ReqUser() user: AuthUser,
   ) {
     return this.usersService.bulkAssign(body, { sub: user.sub, username: user.username });

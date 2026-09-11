@@ -134,6 +134,31 @@ export class UserWriteDto {
   position_code?: string | null;
 
   /**
+   * `[OR.2]` — Por qué esta persona NO lleva el perfil que su puesto propone.
+   *
+   * El puesto propone un `default_role` (`[ID.15]`) y el formulario ya muestra el
+   * select cuando el valor **diverge** de la propuesta — o sea que la divergencia
+   * era visible pero **el motivo no quedaba en ningún lado**. Medido en prod: 14
+   * de 100 personas tienen un rol distinto al que su puesto propone, y 13 son el
+   * mismo caso (`vendedor_ruta` con perfil `promotor_ruta`), sin un solo renglón
+   * que diga si fue una decisión o un descuido.
+   *
+   * Es obligatorio **sólo cuando la divergencia se decide en ESTE request**: un
+   * alta que diverge, o un cambio que mueve el rol o el puesto a una combinación
+   * divergente. Editar el teléfono de alguien que ya divergía no lo pide — la
+   * regla se evalúa sobre el CAMBIO, igual que `must_change_password`.
+   */
+  @ApiProperty({
+    description:
+      'Motivo de apartarse del perfil que propone el puesto. Obligatorio sólo si el cambio CREA la divergencia.',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  motivo_desvio?: string | null;
+
+  /**
    * Sucursal base. NO se valida con regex: se valida **contra el catálogo**.
    * El `@Matches(/^[0-9]{2}$/)` de antes aceptaba `'99'` (forma correcta,
    * sucursal inexistente) y su texto decía `'00'..'05'` cuando ya hay 7.
