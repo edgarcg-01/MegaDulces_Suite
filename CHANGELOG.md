@@ -40,6 +40,17 @@ Smoke `test-newdb-organigrama.js` **28 ok / 0 fallos / 3 declarados**. Cada cand
 
 **Pendiente y parqueado con nombre** (`DEUDA-OR-CARTA`): los 23 puestos con gente y sin jefe declarado, y el mapa puesto→responsabilidad. La propuesta está hecha y cruzada contra permisos; el cruce destapó tres cosas que **no son de organigrama**: las alertas de flota sólo las pueden abrir `jefe_finanzas` y `sistemas` (nadie de logística), el rol `marketing` está sobre-permisado, y los 30 `vendedor_ruta` pueden **aprobar** las sugerencias comerciales dirigidas a ellos mismos.
 
+### Changed — «Tu trabajo» tenía 0 % de superficie contra 36 % de la otra columna (SN.13, 2026-09-11)
+
+*"Hay que darle más vida a Tu trabajo, casi no tiene presencia"*. No era gusto — la asimetría se midió: la columna protagonista tenía **0** elementos con superficie propia contra **30** de la de puertas (0 % del área contra 36.1 %), su cifra más grande era de **18 px** —5 más que el título de una tarjeta— y la pantalla no tenía **ninguna** headline metric, cuando el sistema reserva 40 px para exactamente una por vista. La columna era texto sobre el fondo; la otra era una rejilla de objetos, y el ojo va a los objetos.
+
+- **Titular**: el total de pendientes a 40 px con su desglose («pendientes en 6 bandejas · 1 a tu nombre»). Suma colas distintas a propósito y se rotula literal: es un conteo de cosas que esperan, no un indicador de negocio.
+- **La fila pasa a ser un objeto**, con el mismo cuerpo que una puerta, y su cifra sube a 20 px en negrita.
+- **Se pinta el ícono de cada bandeja**, que llegaba del backend desde SN.7 y nunca se mostró — la deuda que SN.11 dejó declarada.
+- **Medido después**: superficie **0 % → 35.2 %** (la otra tiene 36.1), objetos **0 → 8**, vacío **464 → 309 px**, la página sigue sin rodar.
+- ⚠️ **Un defecto introducido en el mismo paso**: al ganar el chip, la fila perdió ancho y 3 de 7 detalles pasaron a cortarse. Se aplicó el criterio que ya regía en las tarjetas —envolver, nunca cortar— y volvió a **0 de 7**. Tercera vez en esta fase: **al meter un elemento nuevo en una fila hay que volver a medir lo que ya estaba en ella.**
+- **El orden por antigüedad quedó verificado con datos reales** (API ya reiniciada): `1,208` con 15 días aparece antes que `1,865` con 14. Por volumen habría sido al revés.
+
 ### Changed — «Mi trabajo»: color por módulo, prioridad real y registro de uso (SN.12, 2026-09-11)
 
 Seis observaciones sobre la pantalla ya corriendo. **Tres no necesitaban diseño sino medición**, y la medición cambió el pedido:

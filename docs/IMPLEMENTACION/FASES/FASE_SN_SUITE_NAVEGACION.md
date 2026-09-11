@@ -192,6 +192,31 @@ Seis observaciones de Edgar sobre la pantalla ya corriendo. Tres se resolvieron 
 
 **Pendiente:** el `mas_viejo_at` se ve como «sin fechar» hasta que se reinicie la API (el front ya lo pide, el backend ya lo manda, el proceso vivo todavía no). Y el registro de uso necesita historia antes de poder ordenar la pantalla por lo que cada quien usa — esa parte es SN.13.
 
+#### 4.2.5 SN.13 — «Tu trabajo» no tenía presencia, y se pudo medir por qué (2026-09-11)
+
+Edgar: *"hay que darle más vida a Tu trabajo, casi no tiene presencia"*. No era gusto: la asimetría se midió.
+
+| | Tu trabajo | Tus espacios |
+|---|---|---|
+| Elementos con superficie propia | **0** | 30 |
+| Área de la columna con superficie | **0 %** | 36.1 % |
+| Cifra más grande | **18 px** (5 más que el título de una tarjeta) | — |
+| Vacío al pie | 464 px de 975 (48 %) | — |
+
+**La causa, en una línea:** la columna protagonista era *texto sobre el fondo*, y la otra era una rejilla de *objetos*. El ojo va a los objetos. Además la pantalla no tenía **ninguna** headline metric, cuando `DESIGN.md` reserva `--fs-display` (40 px) para exactamente una por vista.
+
+Tres cambios, ninguno inventado:
+
+1. **Titular.** La única headline metric de la vista: el total de pendientes a 40 px con su desglose («pendientes en 6 bandejas · 1 a tu nombre»). Suma colas distintas a propósito y se rotula literal — es un conteo de cosas que esperan, no un indicador de negocio.
+2. **La fila pasa a ser un objeto**: mismo cuerpo que una puerta (fondo de tarjeta, hairline, radio, sin sombra), y la cifra sube de 18 a 20 px en negrita.
+3. **Se pinta `MePendiente.icono`**, que llegaba del backend desde SN.7 y nunca se mostró — la deuda que SN.11 dejó declarada. El chip empareja visualmente las dos columnas; en lo que está a tu nombre va en `--action`.
+
+**Medido después:** superficie **0 % → 35.2 %** (la otra columna tiene 36.1) · objetos **0 → 8** · vacío **464 → 309 px** · la página sigue sin rodar.
+
+⚠️ **Y un defecto que introduje en el mismo paso:** al ganar el chip, la fila perdió ancho y **3 de 7** detalles pasaron a cortarse (antes 0). Se aplicó el mismo criterio que ya regía en las tarjetas —envolver a dos renglones, nunca cortar— y volvió a **0 de 7**. Es la tercera vez en esta fase que agregar algo a un renglón angosto rompe lo que ya cabía: **cuando se mete un elemento nuevo en una fila, hay que volver a medir lo que ya estaba en ella.**
+
+**El orden por antigüedad quedó verificado con datos reales** (la API ya reiniciada): `1,208` con 15 días aparece **antes** que `1,865` con 14. Con el orden por volumen habría sido al revés.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

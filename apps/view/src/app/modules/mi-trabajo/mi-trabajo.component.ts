@@ -330,6 +330,19 @@ export class MiTrabajoComponent {
   });
   readonly mios = computed(() => this.pendientes().filter((p) => p.alcance === 'mio'));
   readonly deBandeja = computed(() => this.pendientes().filter((p) => p.alcance === 'bandeja'));
+  /**
+   * `[SN.13]` El titular de la columna. Medido antes de ponerlo: la columna de trabajo tenía **0**
+   * objetos con superficie propia contra 30 de la de puertas, y su cifra más grande era de 18 px —
+   * 5 más que el título de una tarjeta. El dato por el que existe la pantalla pesaba como una
+   * etiqueta. Es la ÚNICA headline metric de la vista, que es lo que DESIGN.md permite.
+   *
+   * Suma filas de colas distintas a propósito y se rotula literal — "pendientes en N bandejas" —
+   * porque eso es lo que cuenta: cuántas cosas esperan, no un indicador de negocio.
+   */
+  readonly totalPendientes = computed(() => this.deBandeja().reduce((n, p) => n + p.total, 0));
+  readonly bandejasConTrabajo = computed(() => this.deBandeja().length);
+  readonly totalMio = computed(() => this.mios().reduce((n, p) => n + p.total, 0));
+
   readonly sinPendientes = computed(
     () => this.trabajo().status === 'ok' && !this.buscando() && this.pendientes().length === 0,
   );

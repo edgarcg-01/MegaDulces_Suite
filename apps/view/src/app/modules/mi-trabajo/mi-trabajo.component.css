@@ -208,6 +208,30 @@
 .mt-col-meta .is-ausente { font-style: italic; }
 
 /* ── Tu trabajo ─────────────────────────────────────────────────────────── */
+/*
+ * `[SN.13]` El titular: la única headline metric de la vista (DESIGN.md permite una). No lleva
+ * caja — el peso lo da la cifra, no una superficie más — y se apoya en la regla que ya separa la
+ * cabecera de la columna.
+ */
+.mt-titular {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+.mt-titular-n {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-display);
+  font-weight: var(--fw-black);
+  letter-spacing: -.04em;
+  line-height: 1;
+  color: var(--text-main);
+}
+.mt-titular-txt { display: flex; flex-direction: column; min-width: 0; }
+.mt-titular-l { font-size: var(--fs-body); font-weight: var(--fw-medium); line-height: 1.25; }
+.mt-titular-d { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.3; }
+
 .mt-grupo + .mt-grupo { margin-top: var(--sp-5); }
 .mt-grupo-tag {
   margin: 0 0 var(--sp-2);
@@ -217,20 +241,31 @@
   color: var(--text-faint);
 }
 
+/*
+ * `[SN.13]` La fila es un OBJETO, no una línea de texto.
+ *
+ * Medido antes de tocarla: la columna de trabajo tenía **0** elementos con superficie propia
+ * contra 30 de la columna de puertas — 0 % de área contra 36 %. El ojo va a donde hay objetos, así
+ * que la columna que la fase declaró protagonista era la que menos presencia tenía. Ahora comparte
+ * el mismo cuerpo que una puerta: fondo de tarjeta, hairline y radio. Sin sombra (DESIGN.md: la
+ * profundidad in-page la lleva el borde).
+ */
 .mt-task {
   position: relative;
   display: flex;
   align-items: center;
   gap: var(--sp-3);
   min-height: var(--row-h-lg);
-  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
-  border-bottom: 1px solid var(--border-color);
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-2);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
   color: inherit;
   text-decoration: none;
-  transition: background-color var(--dur-short) var(--ease-out);
+  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
 }
-.mt-task:first-of-type { border-top: 1px solid var(--border-color); }
-.mt-task:hover { background: var(--overlay-hover, transparent); }
+.mt-task:hover { border-color: var(--text-muted); transform: translateY(-1px); }
 .mt-task:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 /* Riel de pertenencia: sunset = es TUYO; neutro = es una cola que abre tu permiso. */
 .mt-task::before {
@@ -240,22 +275,42 @@
   top: var(--sp-2);
   bottom: var(--sp-2);
   width: 3px;
+  border-top-left-radius: 0;
   border-radius: var(--r-pill);
   background: var(--border-color);
 }
 .mt-task.is-mine::before { background: var(--action); }
 .mt-task-n {
   flex: none;
-  width: 4.5rem;
+  width: 4rem;
   text-align: right;
   font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: var(--fs-lg);
-  font-weight: var(--fw-medium);
+  font-size: var(--fs-h2);
+  font-weight: var(--fw-bold);
   letter-spacing: -.02em;
   line-height: 1.1;
 }
 .mt-task.is-mine .mt-task-n { color: var(--action); }
+/*
+ * `[SN.13]` `MePendiente.icono` llegaba del backend desde SN.7 y nunca se pintó — quedó declarado
+ * como deuda en SN.11. Acá gana su chip, el mismo organismo que el de una puerta: le da cuerpo a
+ * la fila y empareja las dos columnas.
+ */
+.mt-task-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--layout-bg);
+  color: var(--text-muted);
+  font-size: var(--fs-xs);
+}
+.mt-task.is-mine .mt-task-ico { background: var(--action); color: var(--action-ink); }
+
 .mt-task-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .mt-task-l {
   font-size: var(--fs-sm);
@@ -264,13 +319,20 @@
   overflow-wrap: anywhere;
 }
 .mt-task:hover .mt-task-l { text-decoration: underline; text-underline-offset: 3px; }
+/*
+ * `[SN.13]` Dos renglones, por el mismo motivo que la segunda linea de la tarjeta: al ganar el chip
+ * de icono la fila perdio ancho y 3 de 7 detalles pasaron a cortarse. Un solo criterio en toda la
+ * pantalla -- nada se corta para caber, y en esta columna sobra alto.
+ */
 .mt-task-d {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
   font-size: var(--fs-micro);
   color: var(--text-faint);
   line-height: 1.3;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /*
  * `[SN.12]` Hace cuánto espera el más viejo de la cola. Es el dato que ORDENA la bandeja, así que
