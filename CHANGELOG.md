@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Added — el filtro de periodo en Órdenes de entrada y Captura de facturas (RE.29, 2026-09-10)
+
+`from`/`to` estaban en el contrato de `listReceipts` **desde RE.13.0** y el backend ya los aplicaba a las filas y a los KPIs (`base()` y `kpiBase()`) — pero ninguna de las dos superficies del listado los mandaba. La única ventana era el botón de rezago: *"desde el arranque"* contra *"todo lo anterior"*. **Un mes cerrado no se podía pedir**, y en el lente del dinero eso **es** la pregunta (*"¿cuánto pagamos en agosto?"*). Se calca de `/compras/costo-neto`, su hermana del mismo grupo (`p-datepicker` + `DATE_PRESET_OPTIONS`/`datePresetRange`): dos pantallas del mismo proyecto no pueden filtrar fecha de dos maneras.
+
+- 🔴 **El rango solo no alcanzaba, y se probó rompiéndolo.** El carril `al_dia` clava `receipt_date >= reception_start` en el server, así que mandar `from`/`to` sin tocarlo devuelve **cero filas y ninguna explicación**. Medido en `platform_test`: enero-2026 con `al_dia` = **0 filas / $0**; el mismo rango con `carril=todo` = **1,135 entradas / $50,385,662.92**. Por eso **un periodo explícito manda sobre el carril**, y entrar al rezago suelta el rango — dos ventanas que se intersectan en silencio es la trampa de la que se sale acá.
+- **La ventana se sigue diciendo** (RE.19): la bajada pasa de la frase fija *"desde el {arranque}"* a `ventanaTexto()`. Una pantalla que declara una ventana y usa otra es peor que una que no declara nada.
+- **`from`/`to` viajan en la URL** y se rehidratan antes de la primera carga. `fromIso` devuelve `null` ante basura, así que un `?from=ayer` se **ignora** en vez de volverse un filtro vacío que se lee como *"no hay datos"*. `maxDate`/`minDate` cruzados: el rango invertido no se puede ni teclear. **Sigue pendiente lo mismo para `ajuste` y `con_oc`**, que `syncUrl` nunca mandó.
+- **[RE.29.1] La misma barra en Captura de facturas.** ⚠️ Ahí hay **dos** consumidores del endpoint, no uno: la tabla y el **desplegable de sugerencias** del buscador, que existe para ofrecer *lo que la lista muestra*. Mandarle el periodo sólo a la tabla habría dejado el desplegable ofreciendo entradas fuera del periodo, y **elegir una vacía la tabla sin explicación**. Va a los dos.
+- ✅ **La bandeja de PDFs no se toca, y se verificó por qué:** matchea con `matchByOcr`, que es **otro endpoint** — un PDF de julio soltado con agosto puesto sigue encontrando su entrada. Si el match hubiera salido por `list()`, el filtro habría roto la función principal de la pantalla.
+- **«Buscar en todas» ahora suelta también el periodo.** Sólo soltaba `estado`; con un periodo puesto habría buscado *"en todas las de agosto"* y el capturista lo leería como *"no existe"*. Y el vacío del buscador **nombra el periodo** además del estado: nombrar sólo uno manda a mirar el filtro equivocado. *Un escape que no escapa es peor que no tenerlo.* Prueba negativa propia (julio, `estado=pendiente`): carril viejo **0 filas / $0**; con `carril=todo` **1,112 entradas / $50,054,032.69**.
+- ⏳ **Pendiente declarado: QA visual de las dos pantallas.** Sin usuario de `platform_test` para entrar por el browser, el render de los pickers (y en oscuro) **no está verificado**.
+
 ### Added — "Mi trabajo": la landing por espacios de responsabilidad reemplaza al catálogo de tarjetas (SN, 2026-09-10)
 
 Etapa 2 de la especificación de Dirección (2026-09-10). ADR-061. Plan y medición en [`FASE_SN`](docs/IMPLEMENTACION/FASES/FASE_SN_SUITE_NAVEGACION.md).
