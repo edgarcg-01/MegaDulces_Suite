@@ -7,6 +7,20 @@
  * porque es como se ve bien en 203 dpi y porque así el ticket sigue siendo legible
  * si alguien lo manda a una impresora de 58 mm.
  *
+ * **El tamaño de letra tiene un techo aritmético, no estético.** El ticket no se
+ * maqueta con CSS: se maqueta contando caracteres — `ANCHO = 32` y cada renglón
+ * se rellena con espacios hasta esa medida exacta. Si la letra crece de más, los
+ * 32 caracteres dejan de entrar en los 72 mm, el renglón se parte en dos y se
+ * rompe la alineación `concepto ..... monto`. Medido en el navegador que imprime,
+ * lo que ocupa una línea de 32 caracteres sobre los 72 mm disponibles:
+ *
+ *     11px → 78%   ·   13px → 92%   ·   **14px → 99%**   ·   15px → 106% (SE PARTE)
+ *
+ * Estamos en 14px a pedido de operaciones: es el máximo que entra. **No subirlo
+ * sin volver a medir**, y si se sube, hay que bajar `ANCHO` en el mismo cambio.
+ * Courier New es la más ancha de las tres del stack, así que es el peor caso: si
+ * en alguna caja falta, el texto sale más angosto (91%), nunca más ancho.
+ *
  * No se usa `window.print()` sobre la página: se imprime desde un **iframe oculto**
  * con su propio `@page`, para no arrastrar el layout de la app ni pelear con los
  * estilos del shell — y sin la ventana emergente, que el navegador bloquea por
@@ -71,7 +85,7 @@ export interface TicketArqueo {
   validado_at?: string | null;
 }
 
-const ANCHO = 32; // caracteres por línea a 80 mm / fuente 11px monoespaciada
+const ANCHO = 32; // caracteres por línea a 80 mm / fuente 14px monoespaciada
 
 const money = (v: number | null | undefined) =>
   (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
@@ -126,10 +140,20 @@ const fechaHora = (iso: string) => {
 export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string {
   const L: string[] = [];
   const relevo = a.tipo === 'relevo';
+  // El retiro es la sangria que se saca al llegar al limite de la caja, y el
+  // papel que la encargada firma para hacerse cargo de ESE efectivo. Salia
+  // encabezado 'ARQUEO DE CAJA' —el generador solo distinguia el relevo y el
+  // retiro caia en el else— asi que en el fajo de tickets era indistinguible
+  // del corte del dia.
+  const retiro = a.tipo === 'retiro';
   L.push('MEGA DULCES');
-  L.push(relevo ? 'RELEVO DE CAJA' : 'ARQUEO DE CAJA');
+  L.push(relevo ? 'RELEVO DE CAJA' : retiro ? 'RETIRO DE CAJA' : 'ARQUEO DE CAJA');
   L.push(linea('='));
-  L.push(fila('Sucursal', a.sucursal));
+  // `etiquetado`, no `fila`: el nombre de la sucursal es texto libre y con uno
+  // largo ('Zamora Centro Comercial Norte') la linea salia de 38 caracteres,
+  // se partia en el papel y descuadraba la columna derecha de ahi para abajo.
+  // `Cajera` y `Entrega a` ya lo usaban; este era el unico que faltaba.
+  L.push(...etiquetado('Sucursal', a.sucursal));
   L.push(fila('Caja', a.caja));
   L.push(fila('Fecha', a.fecha));
   if (a.folio) L.push(fila('Turno Kepler', '#' + a.folio));
@@ -290,7 +314,7 @@ export function imprimirTicket(a: TicketArqueo, opts: { revela: boolean }): bool
   @page { size: 80mm auto; margin: 0; }
   html, body { margin: 0; padding: 0; background: #fff; }
   body { width: 72mm; padding: 3mm; color: #000;
-         font-family: "Courier New", ui-monospace, monospace; font-size: 11px; line-height: 1.35; }
+         font-family: "Courier New", ui-monospace, monospace; font-size: 14px; line-height: 1.35; }
   pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
 </style></head><body><pre>${cuerpoTicket(a, opts)}</pre></body></html>`);
   doc.close();
