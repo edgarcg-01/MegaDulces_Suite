@@ -83,7 +83,19 @@ Helpers: `visibleSuiteMap(perms, isAdmin, role)` → `{ spaces, declared }` · `
 
 ### 4.2 Landing "Mi trabajo" — `apps/view/src/app/modules/mi-trabajo/`
 
-Lista **seccionada de una columna** (no master-detail: las entradas son enlaces, un panel de detalle quedaría vacío; no card grid: DESIGN L398/L486/L521). Answer-first: (1) **Mi contexto** — 4 celdas hairline: persona, puesto (`Sin puesto asignado` si NULL), alcance (`all`/`own|listed`/`none`/`resolvable:false` → "sin determinar"), periodo; (2) **una** declaración de lo pendiente (P-06, P-01); (3) **Mi operación** — `<section>` por espacio visible, fila = `<a routerLink>` 48px con icono · etiqueta · **línea secundaria derivada** (módulos abribles por ESA persona) · grupo · flecha. Espacios `proposed` con badge "Propuesta · P-xx". Pie: los `planned`, declarados. `estado()==='sin_cargar'` → skeleton, nunca el vacío. 0 entradas → estado declarado + salir (sin redirect a captures). N=1 destinos primarios → auto-entra salvo `history.state.stay`.
+> ⚠️ **Corregido el 2026-09-11 (SN.8).** La primera versión tiró la tarjeta y puso filas de texto. Edgar lo rechazó: *"hiciste una interfaz compleja y poco interactiva, los módulos son poco profesionales y el trabajo no está delegado o asignado a una persona. El diseño de los módulos ya era correcto, sólo era cambiar los nombres y las posiciones, y darle un espacio a «Mi trabajo»"*. Lo que sigue describe la versión corregida; la de filas queda documentada sólo como lo que NO había que hacer.
+
+**La tarjeta vuelve.** Es el organismo de `modules/projects/` desde siempre (chip de icono 40 px, título, línea de contenido, "Acceder →" con flecha que avanza en hover) y lo que había que cambiar eran los **nombres** y las **posiciones**: las 11 tarjetas sueltas pasan a agruparse por los espacios de §5.1, con `<h2>` por espacio. Tres diferencias con la tarjeta vieja, cada una con su motivo:
+
+1. es `<a routerLink>` y no `<div (click)>` → teclado, ctrl+clic, botón medio;
+2. la insignia deja de decir **"Activo"** (era literal siempre — §22 de la spec lo veta) y dice dónde vive la entrada (`Ventas › Mayoreo`) o `Propuesta · P-xx`;
+3. la línea de contenido se **deriva** de los módulos que ESA persona puede abrir (máx. 4 + `+N`), en vez de una descripción a mano — §13 de la spec juzgó a Finanzas por una que llevaba meses vencida.
+
+**Nota sobre DESIGN.md:** la regla "sin card grid" gobierna las superficies de **datos** de Operations (tabla densa + master-detail). Esta pantalla es el **lanzador**: no tiene registros que leer. Decisión de Edgar, 2026-09-11.
+
+**"Mi trabajo" es el primer espacio**, no una ficha de contexto: trae los pendientes de `GET /users/me/work` (§4.5) en tarjetas con el número grande, partidos en **A tu nombre** / **En tus bandejas**, más una tira compacta de contexto (puesto · área · alcance · periodo) y el botón *Actualizar*. El nombre de la persona va en la cabecera. Una bandeja en 0 **no se pinta**; sin pendientes se dice con una línea; lo que no se pudo contar se **declara**.
+
+Lo demás se conserva de SN.3: `estado()==='sin_cargar'` → skeleton, nunca el vacío; 0 entradas → estado declarado + salir (sin redirect a captures); N=1 destinos primarios → auto-entra salvo `history.state.stay`; `planned` declarados al pie.
 
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
@@ -92,6 +104,38 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 ### 4.4 Layout
 
 `currentProject`/`projectLabel` derivados del mapa (default `trademk` preservado → `isRestricted()` intacto); migaja Espacio › Proyecto › Página; "Administración" → "Configuración de la suite" (L448/L819; **L832 no**: es la sub-sección de catálogos de Trade); "Proyectos" → "Mi trabajo" con `state:{stay:true}`; link "Mi trabajo" en `TeleventaShellComponent`; `adminHomeGuard` (patrón `landingRedirectGuard` ×4).
+
+### 4.5 Backend — `GET /users/me/work` y la medición que lo define (SN.7)
+
+**Lo primero fue medir, no diseñar.** El pedido era que la landing mostrara *trabajo delegado o asignado a una persona*. Contra prod, read-only, 2026-09-10:
+
+| Tabla pensada para asignar a una persona | Filas |
+|---|---|
+| `finance.recon_tasks` (`assigned_to`, Fase MA) | **0** |
+| `commercial.supervisor_tasks` (`assigned_to_user`, Horus) | **0** |
+| `trade.daily_assignments` / `public.daily_assignments` | **0** |
+| `reconciliation.actions` (`responsable`) | **0** |
+| `commercial.inventory_count_assignments` (`user_id`) | 12 — las 12 apuntan a sesiones **canceladas** |
+| `commercial.expiry_reviews` (`responsible_user_id`) | 4 (1 `draft`) |
+
+**Hoy nadie reparte trabajo nominalmente.** La infraestructura existe en tres lugares y está vacía en los tres. Lo que sí tiene volumen son **colas compartidas** que ya tienen su pantalla:
+
+| Bandeja | Pendientes (prod) | Ruta | Permiso (= el guard de la ruta) |
+|---|---|---|---|
+| `reconciliation.discrepancies` `nuevo` | 1,865 | `/almacen/cuadre` | `RECONCILIATION_VER` |
+| `finance.findings` `nuevo` | 1,208 | `/finanzas/hallazgos` | `FINANCE_AI_CHAT` |
+| `commercial.commercial_actions` `pending_approval` | 99 | `/comercial/thot-curation` | `COMMERCIAL_THOT_GESTIONAR` |
+| `finance.proposed_actions` `pending_approval` | 76 | `/finanzas/pagos-control` | `FINANCE_AI_CHAT` |
+| `commercial.replenishment_findings` `open` | 19 | `/compras/hallazgos` | `COMPRAS_HALLAZGOS_VER` |
+| `logistics.fleet_alerts` `open` | 7 | `/logistica/rastreo` | `LOGISTICS_FLEET_VER` |
+
+Los 8 conteos (las 6 de arriba + las 2 nominales) corren en **≤69 ms** cada uno.
+
+De ahí sale la decisión de diseño: cada pendiente declara su `alcance` — **`'mio'`** (la fila trae tu `user_id`) o **`'bandeja'`** (cola compartida que abre tu permiso, que nadie repartió) — y la pantalla los separa con esas dos palabras. Llamarle "tu trabajo" a una cola de la que nadie es responsable sería la misma clase de mentira que el badge "Activo".
+
+Registro en `libs/trade/src/lib/users/me-work.ts` (declarativo + el `contar` de cada una), `workFor()` en `users.service.ts`, endpoint self-scoped junto a `me/context`. Reglas: sólo se cuenta la bandeja **cuyo permiso tiene la persona** (un conteo ya es información); una bandeja en 0 **no viaja**; lo que falla al contarse va a `no_medido` con motivo y **nunca baja a 0** (ADR-056). Conexión: `KNEX_CONNECTION` bypassa RLS → filtro `tenant_id` explícito, como `ReportsService`.
+
+**Lo que NO se hizo, y por qué:** construir la capa de asignación nominal (repartir tareas a personas) es una función nueva, no navegación — Etapa 3, y necesita que Dirección defina quién reparte. Lo que la pantalla hace hoy es decirlo en una línea en vez de dibujarlo.
 
 ---
 
@@ -102,7 +146,8 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 | `suite-map.spec.ts` (libs/contracts, jest **nuevo**) | 10 espacios en orden §5.1; planned sin entradas; cada proyecto con UNA casa; refs existen; `gate` con `reason` y claves del árbol/LEGACY; URL por segmento; kiosco no ve nada; almacenista sólo Almacenes; vendedor sin back-office ni siendo admin; gates de Reparto/Configuración/Trade | proyecto falso, módulo falso, doble casa, sin casa, planned con entradas, activo vacío, gate sin motivo / clave inexistente, orden roto, árbol sin whatsapp |
 | `suite-map.parity.spec.ts` | los 11 `anyOf` legacy **congelados**: cada clave sigue abriendo su destino Y una persona con UNA sola clave lo ve | quitar `USUARIOS_ASIGNAR_RUTA` al gate de Trade → rojo; `alsoAnyOf` en entrada de proyecto → 11 puertas cerradas detectadas |
 | `database/scripts/suite-map-visibility-report.js` | por rol de prod (read-only): tarjetas legacy vs entradas; **nunca menos**; las ganadas se listan para revisión | exit 1 ante una puerta perdida |
-| `test-newdb-me-context.js` | 200 con `position` objeto o **null declarado**; 401 sin token; `me/context` declarado antes de `:id` | mover la ruta después de `:id` → rojo |
+| `test-newdb-me-context.js` | 200 con `position` objeto o **null declarado**; 401 sin token; `me/context` y `me/work` declarados antes de `:id` y sin `@RequirePermissions`; `me/work` manda `no_medido` siempre y ningún pendiente en 0 | mover la ruta después de `:id` → rojo |
+| `test-newdb-me-context.js` bloque 4 (SN.7) | **cada bandeja lleva a una ruta cuyo guard acepta su permiso** — el conteo no puede invitar a un 403. 8/8 verde | cambiar el `anyOf` de `cuadre` a `USUARIOS_GESTIONAR` → `FAIL … {"guard":["RECONCILIATION_VER"],"bandeja":["USUARIOS_GESTIONAR"]}` ✅ ejercida |
 | `mi-trabajo.component.spec.ts` / `mi-trabajo-route.spec.ts` | comportamiento por persona + gate estático de `app.routes.ts` | ver SN.3 |
 
 ---
@@ -118,6 +163,7 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 | `feat([SN.3-4])` | `mi-trabajo.component.*` + `me-context.service.ts` + rutas + specs; borrar `modules/projects/`; layout + **home guards** + `landing-guards.spec.ts` + link en Telemarketing | ✅ `db6f2718` — un solo commit porque `app.routes.ts` llevaba las dos cosas. ⚠️ Arrastró la baja de `libs/shared-auth` que otra sesión tenía en el índice (§11) |
 | `chore([SN.5])` | borrar `scripts/check-authz-tree.js`; corregir `FASE_AZ` L161, `GOTCHAS` §4, `CLAUDE_ONBOARDING` L48 | ✅ — la baja del script viajó en el commit ajeno `b39e90d1` (§11); los 3 docs en el commit de SN.5 |
 | `docs([SN.6])` | tracker, log, CHANGELOG, fila en `CLAUDE.md`, INDEX, esta FASE | ✅ 2026-09-10 |
+| `feat([SN.7-8])` | **corrección de Edgar**: vuelve la tarjeta agrupada por espacio; "Mi trabajo" pasa a ser el primer espacio con pendientes reales (`me-work.ts` + `workFor()` + `GET /users/me/work` + `MeContextService.work()`), y el smoke gana el bloque 4 (bandeja → guard de su ruta) | 🔨 2026-09-11 — `nx build api` ✅ · `nx build view` ✅ (1.25 MB, sin cambio) · `nx test view` 247/250 (3 todo) · `nx test contracts` 35/35 · gates estáticos 8/8 con negativa ejercida · **parte viva NO MEDIDA** (sin API local) |
 
 ---
 

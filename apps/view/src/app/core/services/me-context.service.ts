@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
-import type { MeContext } from '@megadulces/contracts';
+import type { MeContext, MeWork } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
 
@@ -34,6 +34,17 @@ export class MeContextService {
         .pipe(shareReplay({ bufferSize: 1, refCount: false }));
     }
     return this.cache$;
+  }
+
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona (`GET /users/me/work`).
+   *
+   * SIN cache, a propósito: un conteo de pendientes es un número que cambia mientras la persona
+   * trabaja, y servirlo de un `shareReplay` mostraría "12 por revisar" después de haber revisado
+   * los 12. La landing lo pide cada vez que se abre, y el botón "Actualizar" lo vuelve a pedir.
+   */
+  work(): Observable<MeWork> {
+    return this.http.get<MeWork>(`${environment.apiUrl}/users/me/work`);
   }
 
   reset(): void {

@@ -1,6 +1,15 @@
 /*
- * [SN.3] Mi trabajo — superficie Operations (DESIGN.md): sin card grid, sin ilustraciones,
- * hairline en vez de sombra, densidad compacta, tokens de libs/design-tokens/tokens.css.
+ * [SN.3] [SN.8] Mi trabajo — la landing.
+ *
+ * La TARJETA vuelve (icono en chip, título, línea de contenido, "Acceder →"): es el diseño que
+ * ya estaba bien en `modules/projects/` y lo que había que cambiar eran los nombres y las
+ * posiciones. Lo que sí cambia respecto de aquella hoja: cero utilidades Tailwind sueltas, todo
+ * con tokens de libs/design-tokens/tokens.css, y estados de foco reales (ahora son <a>).
+ *
+ * Nota de DESIGN.md: la regla "sin card grid" es para las superficies de DATOS de Operations
+ * (tabla densa + master-detail). Esta pantalla es el LANZADOR — no tiene registros que leer, y
+ * la tarjeta es su organismo desde siempre. Decisión de Edgar, 2026-09-10.
+ *
  * Dark mode sale solo de los tokens (body.theme-monochrome).
  */
 :host { display: block; }
@@ -21,7 +30,7 @@
   padding-right: calc(var(--sp-6) + env(safe-area-inset-right));
 }
 .mt-top-inner {
-  max-width: 64rem;
+  max-width: 72rem;
   margin: 0 auto;
   display: flex;
   align-items: center;
@@ -49,7 +58,7 @@
 
 /* ── Cuerpo ─────────────────────────────────────────────────────────────── */
 .mt-main {
-  max-width: 64rem;
+  max-width: 72rem;
   margin: 0 auto;
   padding-top: var(--sp-8);
   padding-bottom: calc(var(--sp-12) + env(safe-area-inset-bottom));
@@ -57,68 +66,208 @@
   padding-right: calc(var(--sp-6) + env(safe-area-inset-right));
   display: flex;
   flex-direction: column;
-  gap: var(--sp-8);
+  gap: var(--sp-10);
 }
-.mt-block { display: block; }
-.mt-h2 {
-  margin: 0 0 var(--sp-3);
+
+/* ── Cabecera de espacio ────────────────────────────────────────────────── */
+.mt-space-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+.mt-space-head-txt { min-width: 0; }
+.mt-space-title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  font-size: var(--fs-h3);
+  font-weight: var(--fw-bold);
+  line-height: 1.25;
+}
+.mt-space-ico { color: var(--text-muted); font-size: 1rem; }
+.mt-space-desc {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  max-width: 60ch;
+}
+.mt-badge-prop { font-size: var(--fs-micro); }
+
+.mt-refresh {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: none;
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-sm);
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.mt-refresh:hover:not(:disabled) { background: var(--hover-bg); color: var(--text-main); }
+.mt-refresh:disabled { opacity: .6; cursor: default; }
+.mt-refresh:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.is-spin { animation: mt-spin 1s linear infinite; }
+@keyframes mt-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .is-spin { animation: none; } }
+
+/* ── Tira de contexto ───────────────────────────────────────────────────── */
+.mt-ctx {
+  margin: 0 0 var(--sp-5);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-6);
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  background: var(--card-bg);
+}
+.mt-ctx-cell { display: flex; align-items: baseline; gap: var(--sp-2); min-width: 0; }
+.mt-ctx-k {
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-faint);
+}
+.mt-ctx-v { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
+.mt-ctx-v.is-ausente { font-weight: var(--fw-regular); color: var(--text-faint); font-style: italic; }
+
+/* ── Encabezado de grupo dentro de un espacio ───────────────────────────── */
+.mt-group-h {
+  margin: var(--sp-5) 0 var(--sp-3);
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
   font-size: var(--fs-micro);
   text-transform: uppercase;
   letter-spacing: .06em;
   font-weight: var(--fw-bold);
   color: var(--text-faint);
 }
-.mt-h2-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--sp-3); }
-.mt-count { font-size: var(--fs-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
+.mt-group-h:first-child { margin-top: 0; }
+.mt-group-hint { text-transform: none; letter-spacing: 0; font-weight: var(--fw-regular); }
 
-/* ── Mi contexto: celdas hairline ───────────────────────────────────────── */
-.mt-ctx {
-  margin: 0;
+/* ── Rejilla de tarjetas ────────────────────────────────────────────────── */
+.mt-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: var(--sp-4);
+}
+
+.mt-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-5);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-lg);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color .15s ease, transform .15s ease;
+}
+.mt-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.mt-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .mt-card { transition: none; } .mt-card:hover { transform: none; } }
+
+.mt-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-2); }
+.mt-card-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--layout-bg);
+  color: var(--text-main);
+  font-size: 1.05rem;
+  transition: background-color .15s ease, color .15s ease;
+}
+.mt-card:hover .mt-card-ico { background: var(--action); color: var(--action-ink); }
+.mt-card-tag {
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  text-align: right;
+  line-height: 1.3;
+}
+.mt-card-title {
+  font-size: var(--fs-base);
+  font-weight: var(--fw-bold);
+  line-height: 1.3;
+}
+.mt-card:hover .mt-card-title { text-decoration: underline; text-underline-offset: 4px; }
+.mt-card-body {
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+  line-height: 1.5;
+  flex: 1 1 auto;
+}
+.mt-card-go {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  color: var(--action);
+}
+.mt-card-go i { font-size: .7rem; transition: transform .15s ease; }
+.mt-card:hover .mt-card-go i { transform: translateX(3px); }
+@media (prefers-reduced-motion: reduce) { .mt-card:hover .mt-card-go i { transform: none; } }
+
+/* ── Tarjeta de pendiente: el número manda ──────────────────────────────── */
+.mt-cards-work { grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr)); }
+.mt-card-work {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: 'n txt' 'n go';
+  align-items: center;
+  column-gap: var(--sp-4);
+  row-gap: 0;
+  padding: var(--sp-4) var(--sp-5);
+}
+.mt-work-n {
+  grid-area: n;
+  font-size: var(--fs-h1);
+  font-weight: var(--fw-bold);
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+.mt-work-txt { grid-area: txt; display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.mt-card-work .mt-card-go { grid-area: go; margin-top: var(--sp-1); }
+/* Lo que está a TU nombre se distingue de una cola compartida. */
+.mt-card-work.is-mine { border-left: 3px solid var(--action); }
+.mt-card-work.is-mine .mt-work-n { color: var(--action); }
+
+.mt-nada {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: var(--sp-4);
   border: 1px solid var(--border-color);
   border-radius: var(--r-md);
   background: var(--card-bg);
-  overflow: hidden;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
 }
-.mt-ctx-cell {
-  padding: var(--sp-3) var(--sp-4);
-  border-right: 1px solid var(--border-color);
-  min-width: 0;
-}
-.mt-ctx-cell:last-child { border-right: 0; }
-.mt-ctx-k {
-  margin: 0 0 var(--sp-1);
-  font-size: var(--fs-micro);
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  color: var(--text-faint);
-}
-.mt-ctx-v {
-  margin: 0;
-  font-size: var(--fs-body);
-  font-weight: var(--fw-medium);
-  color: var(--text-main);
-  overflow-wrap: anywhere;
-}
-.mt-ctx-v.is-ausente { color: var(--text-muted); font-weight: var(--fw-regular); font-style: italic; }
-.mt-ctx-d { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.mt-nada i { color: var(--text-faint); }
 
-/* ── Declaración de lo pendiente ─────────────────────────────────────────── */
-.mt-declarado {
-  padding: var(--sp-3) var(--sp-4);
-  border-left: 2px solid var(--border-color);
-}
-.mt-declarado .mt-h2 { color: var(--text-muted); text-transform: none; letter-spacing: 0; font-size: var(--fs-sm); }
-.mt-declarado-txt { margin: 0; font-size: var(--fs-sm); line-height: 1.5; color: var(--text-muted); max-width: 60ch; text-wrap: pretty; }
-
-/* ── Atajos (móvil / muchos espacios) ───────────────────────────────────── */
+/* ── Atajos y declaraciones ─────────────────────────────────────────────── */
 .mt-chips {
   display: flex;
   gap: var(--sp-2);
   overflow-x: auto;
-  padding-bottom: var(--sp-2);
-  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-1);
   scrollbar-width: thin;
 }
 .mt-chip {
@@ -126,91 +275,37 @@
   display: inline-flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: var(--tap-min, 32px);
   padding: var(--sp-1) var(--sp-3);
   border: 1px solid var(--border-color);
-  border-radius: var(--r-pill);
-  font-size: var(--fs-xs);
+  border-radius: 999px;
+  background: var(--card-bg);
+  font-size: var(--fs-micro);
   color: var(--text-muted);
   text-decoration: none;
-  background: var(--card-bg);
   white-space: nowrap;
 }
-.mt-chip:hover { color: var(--text-main); border-color: var(--text-faint); }
+.mt-chip:hover { background: var(--hover-bg); color: var(--text-main); }
 .mt-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
-/* ── Espacios y filas ───────────────────────────────────────────────────── */
-.mt-space { margin-bottom: var(--sp-6); }
-.mt-space-head {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--sp-2);
-  margin-bottom: var(--sp-2);
-}
-.mt-space-ico { color: var(--text-faint); font-size: var(--fs-body); }
-.mt-space-title { margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); }
-.mt-badge { font-size: var(--fs-micro); font-weight: var(--fw-medium); color: var(--text-muted); border-color: var(--border-color); }
-.mt-space-desc {
-  grid-column: 2 / -1;
-  margin: 0;
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  text-wrap: pretty;
-}
-
-.mt-rows {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  border: 1px solid var(--border-color);
-  border-radius: var(--r-md);
-  background: var(--card-bg);
-  overflow: hidden;
-}
-.mt-rows li + li { border-top: 1px solid var(--border-color); }
-.mt-row {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--sp-3);
-  min-height: var(--row-h-lg);
-  padding: var(--sp-2) var(--sp-4);
-  text-decoration: none;
-  color: inherit;
-  transition: background-color var(--dur-micro) var(--ease-standard);
-}
-.mt-row:hover { background: var(--surface-hover-bg, var(--overlay-hover)); }
-.mt-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.mt-row-ico { color: var(--text-faint); font-size: var(--fs-body); }
-.mt-row-txt { display: flex; flex-direction: column; min-width: 0; }
-.mt-row-label { font-size: var(--fs-body); font-weight: var(--fw-medium); color: var(--text-main); }
-.mt-row-group { font-size: var(--fs-micro); color: var(--text-faint); }
-.mt-row-mods {
-  font-size: var(--fs-xs);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mt-row.is-cross .mt-row-label { font-weight: var(--fw-regular); }
-.mt-row-go { color: var(--text-faint); font-size: var(--fs-xs); transition: transform var(--dur-micro) var(--ease-standard); }
-.mt-row:hover .mt-row-go { color: var(--action); transform: translateX(2px); }
-
-.mt-declarados {
-  margin: var(--sp-2) 0 0;
-  font-size: var(--fs-xs);
+.mt-declarado-txt {
+  margin: var(--sp-4) 0 0;
+  font-size: var(--fs-sm);
   color: var(--text-faint);
+  line-height: 1.6;
+  max-width: 78ch;
+}
+.mt-declarados {
+  margin: 0;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.6;
 }
 
-/* ── Responsive ─────────────────────────────────────────────────────────── */
-@media (max-width: 767.98px) {
-  .mt-ctx { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .mt-ctx-cell:nth-child(2) { border-right: 0; }
-  .mt-ctx-cell:nth-child(n + 3) { border-top: 1px solid var(--border-color); }
+/* ── Móvil ──────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .mt-main { padding-top: var(--sp-6); gap: var(--sp-8); }
+  .mt-cards, .mt-cards-work { grid-template-columns: 1fr; }
   .mt-top-user-txt { display: none; }
-  .mt-row-mods { white-space: normal; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .mt-row, .mt-row-go { transition: none; }
+  .mt-space-head { flex-direction: column; align-items: stretch; }
+  .mt-ctx { gap: var(--sp-1) var(--sp-4); }
 }

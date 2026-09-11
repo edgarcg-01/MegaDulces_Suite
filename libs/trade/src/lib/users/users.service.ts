@@ -9,7 +9,8 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import type { MeContext } from '@megadulces/contracts';
+import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
+import { BANDEJAS, puedeVerBandeja } from './me-work';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -1758,6 +1759,56 @@ export class UsersService {
         ? { code: u.position_code, name: u.position_name ?? u.position_code }
         : null,
     };
+  }
+
+  /**
+   * `[SN.7]` — Trabajo pendiente de la persona en sesión: lo que le toca HACER, no a dónde puede
+   * entrar. Alimenta el bloque "Mi trabajo" de la landing.
+   *
+   * Self-scoped y sin permiso propio, como `me/context`: cada bandeja ya trae el suyo y sólo se
+   * cuenta la que esta persona puede abrir (un conteo es información). El registro de bandejas,
+   * con la medición que lo justifica, vive en `me-work.ts`.
+   *
+   * Cada conteo va en su propio `try`: si una tabla no existe todavía en este ambiente (una fase a
+   * medio desplegar), esa bandeja se DECLARA en `no_medido` con su motivo y las demás siguen
+   * contando. Nunca baja a cero — un cero dibujado se lee igual que "estás al día" (ADR-056).
+   */
+  async workFor(
+    userId: string,
+    permisos: Record<string, boolean> | null | undefined,
+    esAdmin: boolean,
+  ): Promise<MeWork> {
+    const pendientes: MePendiente[] = [];
+    const no_medido: MeWork['no_medido'] = [];
+
+    for (const b of BANDEJAS) {
+      if (!puedeVerBandeja(b, permisos, esAdmin)) continue;
+      try {
+        const total = await b.contar(this.knex, this.tenantId, userId);
+        // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
+        if (total > 0) {
+          pendientes.push({
+            id: b.id,
+            label: b.label,
+            detalle: b.detalle,
+            ruta: b.ruta,
+            icono: b.icono,
+            total,
+            alcance: b.alcance,
+          });
+        }
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: bandeja ${b.id} no se pudo contar — ${motivo}`);
+        no_medido.push({ id: b.id, label: b.label, motivo });
+      }
+    }
+
+    // Lo propio primero, y dentro de cada grupo lo más grande arriba.
+    pendientes.sort((a, b) =>
+      a.alcance === b.alcance ? b.total - a.total : a.alcance === 'mio' ? -1 : 1,
+    );
+    return { pendientes, no_medido, medido_at: new Date().toISOString() };
   }
 
   /**

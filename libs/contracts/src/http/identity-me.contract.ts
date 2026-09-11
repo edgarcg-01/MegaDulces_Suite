@@ -25,6 +25,45 @@ export interface MeContextRef {
   name: string;
 }
 
+/**
+ * `[SN.7]` — Una bandeja de trabajo pendiente que le toca a esta persona.
+ *
+ * `alcance` distingue las dos cosas que la suite tiene hoy, y NO se deben mezclar:
+ *  · `'mio'`    — la fila trae el `user_id` de esta persona (conteo asignado, revisión a su nombre).
+ *  · `'bandeja'`— cola COMPARTIDA que esta persona puede trabajar por su permiso. Nadie la repartió.
+ *
+ * Medido en prod 2026-09-10: la asignación por persona existe como tabla en tres lugares
+ * (`finance.recon_tasks`, `commercial.supervisor_tasks`, `trade.daily_assignments`) y las tres
+ * están en CERO filas. O sea: hoy nadie reparte trabajo. La pantalla lo dice con estas dos
+ * etiquetas en vez de fingir que una cola compartida es una asignación personal.
+ */
+export interface MePendiente {
+  id: string;
+  /** "Descuadres por revisar". Lo que hay que hacer, no el nombre de la tabla. */
+  label: string;
+  /** Segunda línea: de dónde sale el número. */
+  detalle: string;
+  /** Ruta que RESUELVE el pendiente. Gateada con el permiso que abrió esta bandeja. */
+  ruta: string;
+  icono: string;
+  total: number;
+  alcance: 'mio' | 'bandeja';
+}
+
+/**
+ * `[SN.7]` — Respuesta de `GET /users/me/work`.
+ *
+ * Sólo se cuentan las bandejas cuyo permiso tiene esta persona: un conteo es información, y una
+ * cola que no podés abrir no es tu trabajo. Lo que no se pudo contar va a `no_medido` con motivo
+ * — NUNCA baja a cero (ADR-056: un cero dibujado se lee igual que "estás al día").
+ */
+export interface MeWork {
+  pendientes: MePendiente[];
+  no_medido: { id: string; label: string; motivo: string }[];
+  /** ISO del momento en que se contó (el número es de ahora, no de un rollup nocturno). */
+  medido_at: string;
+}
+
 export interface MeContext {
   user_id: string;
   username: string;
