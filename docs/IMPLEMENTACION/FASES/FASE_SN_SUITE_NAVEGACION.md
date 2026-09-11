@@ -250,6 +250,10 @@ Cross-links (Dirección General, Mercadotecnia, Auditoría) aparecen para 27 rol
 
 **Regla que sale de esto:** `git commit -- <rutas>` (pathspec), que ignora lo que otros tengan en el índice, y `git diff --cached --stat` antes de cada commit. Guardada en memoria.
 
+**Volvió a pasar el 2026-09-11, y el pathspec no alcanza.** El commit ajeno `d7af977d` (TDA, etiquetera) se llevó mis ediciones de `CHANGELOG.md` y `01_TRACKER_PROGRESO.md` para SN.9 **antes** de que yo commiteara: cuando corrí `git commit -- <rutas>` esos dos archivos ya estaban limpios, así que `7875f8bc` sólo tomó los cinco restantes. Verificado que el contenido llegó **íntegro** a `main` (las entradas de SN.7, SN.8 y SN.9 están completas en HEAD); lo único mal es la procedencia. No se amenda — hay commits encima.
+
+**Lo que el pathspec NO protege:** el pathspec evita que YO me lleve lo ajeno; no evita que OTRO se lleve lo mío en la ventana entre que edito y commiteo. La mitigación real es **commitear pronto**, sobre todo los archivos calientes que todas las sesiones tocan (`CHANGELOG.md`, `01_TRACKER_PROGRESO.md`): cuanto más tiempo pase entre editarlos y commitearlos, más probable es que viajen en el commit de otro.
+
 ## 12. Etapa 3 y siguientes (fuera de esta fase)
 
 Indicadores con ficha (P-06) y "Esto ve Dirección General de mi gestión"; renombre `/projects` → `/mi-trabajo`; Operación por zonas (la zona ya es eje de alcance); decisión P-14 (dónde vive `trade`) y P-03 (Auditoría como espacio propio); alinear árbol ↔ guards para ir vaciando `DEUDA`; unificar los `*NavGroups` del layout con el árbol.
