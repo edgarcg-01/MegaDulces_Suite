@@ -1,0 +1,60 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# VL.4 — LA AGENDA DE LOS FEEDS, versionada en el repo.
+#
+# Esto es lo que ADR-060 pide: la agenda deja de vivir en el Programador de
+# Windows (fuera del repo, invisible, atada a una sesión de usuario) y pasa a un
+# archivo que se revisa en un diff.
+#
+# Cadencias COPIADAS de las tareas que reemplaza — no se "mejoran" en la mudanza:
+# cambiar el cuándo y el dónde en el mismo movimiento hace imposible atribuir una
+# falla. Si alguna cadencia está mal, se cambia después, en su propio commit.
+#
+# ⚠️ La TZ del contenedor es America/Mexico_City (la fija el compose). Las horas de
+# abajo son HORA MX, igual que en el Programador. Sin eso, el nocturno correría a
+# las 21:00 MX.
+#
+# ⛔ Todo pasa por run-feed.sh: carga el env del archivo (crond NO hereda el
+# entorno del contenedor) y serializa con flock (crond NO tiene el IgnoreNew del
+# Programador, y los de 1 minuto se apilarían).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ── cada minuto ──────────────────────────────────────────────────────────────
+* * * * *   /app/ops/vl/run-feed.sh receipts  "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
+* * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
+
+# ── cada 2 minutos ───────────────────────────────────────────────────────────
+*/2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
+
+# ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
+*/15 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
+*/30 * * * * /app/ops/vl/run-feed.sh live  "node /app/database/importers/kepler/run-prod-feeds.js live --apply"
+
+# ── horario / cada 2 h ───────────────────────────────────────────────────────
+0 * * * *   /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
+0 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
+
+# ── nocturno y semanal (hora MX) ─────────────────────────────────────────────
+0 3 * * *   /app/ops/vl/run-feed.sh nightly "node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
+0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
+
+# ── NO están acá, a propósito ────────────────────────────────────────────────
+#
+# ⛔ TRES CARRILES MUDOS — NO se mudan hasta que LATAN (VL.4b).
+#    Medido el 2026-09-11: no escriben `analytics.cron_runs`, así que si fallaran
+#    después de mudarlos, nadie se enteraría — y ADR-060 no permite declarar
+#    migrado un carril sin latido verde en prod. Se quedan en el Programador de
+#    `.249` hasta que se les cablee el latido (el mecanismo YA existe: lo usan los
+#    otros 10).
+#
+#      prices      @30 min  import-label-data.js + repoint-catalog-prices.js --sync
+#                  ⚠️ ÉSTE es el carril del incidente que fundó la Fase OBS:
+#                  "seis días publicando precios viejos, uno 54 % bajo costo".
+#                  El carril que publica los precios es justamente el que no avisa.
+#      fleet-gps   @1 min   database/scripts/fleet-poll-onprem.js
+#      store-poller @25 s   live-tickets-poller.js  (alimenta /tienda/live)
+#
+# · `livefast` (@60 s) SÍ late, pero es sub-minuto → servicio propio en el compose,
+#   no cron.
+# · FeedGuardian · HealthWatchdog · TradeMarketing-DailyBackup: PowerShell/VBS, se
+#   reescriben en VL.6.
+# · Los 3 carriles Wincaja: Jet 32-bit sobre `Z:`, siguen en `.249` hasta VL.5.
