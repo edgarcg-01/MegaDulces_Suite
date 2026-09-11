@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, applySmartSearch } from '@megadulces/platform-core';
 
 /**
@@ -11,6 +12,61 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  *
  * `analytics.*` no tiene RLS → filtro `tenant_id` EXPLÍCITO, todo dentro de `tk.run()`.
  */
+
+/**
+ * Fila de `analytics.erp_sales_invoices` tal como la consume la **Guía de Cobranza** — son
+ * exactamente las columnas que `paraGuia()` selecciona, ni una más. Se declara acá (y no un
+ * `any`) para que el servicio que imprime el papel no adivine qué campos existen: si mañana
+ * se quita una columna del SELECT, lo que revienta es la compilación y no la guía impresa.
+ */
+/**
+ * Lo que devuelve `detail()`: la fila completa de la vista (≈40 columnas, se consumen por
+ * nombre en el anexo) más los derivados que calcula este service. El index signature dice la
+ * verdad —la vista trae más de lo que este lib declara— sin que eso valga por `any`: los
+ * campos que el anexo y la pantalla usan están tipados.
+ */
+export interface SalesDocDetalle extends FacturaGuiaRow {
+  /** true si la factura no trae renglones de producto (sólo servicio) */
+  sin_detalle: boolean;
+  /** true si el ODS no tiene NINGÚN renglón del documento: hueco de replicación */
+  detalle_ausente: boolean;
+  lineas: Record<string, unknown>[];
+  importe_bruto: number;
+  descuento_aplicado: number;
+  descuento_pct_efectivo: number;
+  detalle_explica_total: boolean;
+  [columna: string]: unknown;
+}
+
+export interface FacturaGuiaRow {
+  folio_digital: string;
+  sucursal: string;
+  doc_prefix: string;
+  folio: string;
+  doc_label: string | null;
+  fecha: string | Date | null;
+  vencimiento: string | Date | null;
+  dias_credito: number | null;
+  vencimiento_source: string | null;
+  cliente_code: string | null;
+  cliente_nombre: string | null;
+  cliente_rfc: string | null;
+  cliente_domicilio: string | null;
+  cliente_colonia: string | null;
+  cliente_estado: string | null;
+  cliente_cp: string | null;
+  vendedor_code: string | null;
+  vendedor_nombre: string | null;
+  /** `numeric` de Postgres: llega como string. No se convierte acá para no perder centavos. */
+  total: string | null;
+  descuento_efectivo: string | null;
+  saldo: string | null;
+  cobrado: string | null;
+  estatus_cobro: string | null;
+  doc_estatus: string | null;
+  doc_estatus_label: string | null;
+  cancelada: boolean;
+}
 
 /** Identidad fiscal del emisor, leída de `fiscal.issuer_config` (ver `emisorFiscal()`). */
 export interface EmisorFiscal {
@@ -179,7 +235,7 @@ export class CommercialSalesDocumentsService {
    * filtros sí se respetan: si el vacío lo causó el vendedor o el estado de cobro, la fecha
    * que se muestra tiene que ser la de ESA selección, no la del canal entero).
    */
-  private async ultimaFactura(trx: any, tenantId: string, q: SalesDocsQuery): Promise<string | null> {
+  private async ultimaFactura(trx: Knex.Transaction, tenantId: string, q: SalesDocsQuery): Promise<string | null> {
     const sinRango: SalesDocsQuery = { ...q, from: '1900-01-01', to: '2999-12-31' };
     const row = await this.base(trx, tenantId, sinRango).max('i.fecha as ultima').first();
     const v = row?.ultima;
@@ -239,7 +295,7 @@ export class CommercialSalesDocumentsService {
   async paraGuia(
     folioDigitales: string[],
     q?: Pick<SalesDocsQuery, 'warehouse_codes'>,
-  ): Promise<{ rows: any[]; faltantes: string[] }> {
+  ): Promise<{ rows: FacturaGuiaRow[]; faltantes: string[] }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const pedidos = [...new Set((folioDigitales || []).map((f) => String(f || '').trim()).filter(Boolean))];
     if (!pedidos.length) return { rows: [], faltantes: [] };
@@ -275,7 +331,7 @@ export class CommercialSalesDocumentsService {
           { column: 'fecha', order: 'asc' },
           { column: 'folio', order: 'asc' },
         ]);
-      const vistos = new Set(rows.map((r: any) => String(r.folio_digital)));
+      const vistos = new Set(rows.map((r) => String(r.folio_digital)));
       return { rows, faltantes: [...invalidos, ...pedidos.filter((f) => !vistos.has(f))] };
     });
   }
@@ -288,7 +344,7 @@ export class CommercialSalesDocumentsService {
    * medido en prod, filtrar por él costaba **3,031 ms**; por (sucursal, doc_prefix, folio),
    * **162 ms**. Se descompone acá y se filtra por las columnas simples.
    */
-  async detail(folioDigital: string, q?: Pick<SalesDocsQuery, 'warehouse_codes'>) {
+  async detail(folioDigital: string, q?: Pick<SalesDocsQuery, 'warehouse_codes'>): Promise<SalesDocDetalle> {
     const tenantId = this.tenantCtx.requireTenantId();
     const p = this.partes(folioDigital);
     return this.tk.run(async (trx) => {

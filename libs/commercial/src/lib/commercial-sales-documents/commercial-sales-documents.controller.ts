@@ -37,7 +37,7 @@ export class CommercialSalesDocumentsController {
    * Va en el controller y no en la pantalla: el endpoint recibe folios y filtros de quien
    * sea, y un recorte que sólo vive en el front no es un recorte.
    */
-  private async alcance(raw: Record<string, unknown> | undefined, ruta: string) {
+  private async alcance(raw: Record<string, unknown> | undefined, ruta: string): Promise<string[] | null> {
     return this.scope.readParam(raw, 'warehouse', `commercial/sales-documents/${ruta}`);
   }
 
@@ -55,7 +55,7 @@ export class CommercialSalesDocumentsController {
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance. Acepta los nombres viejos (warehouse_id, sucursal, branch…) y valores en código o uuid.' })
   @ApiOperation({ summary: 'Facturas de telemarketing (U/D/8) con KPIs de cobranza, ACOTADAS a tu alcance de sucursales. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_codes, doc_tipo, cliente_code, vendedor_code, min, vencidas (venció Y debe), cobro (pagada|parcial|pendiente|sin_cartera), search (cliente/RFC/folio/monto).' })
-  async list(@Query() raw: Record<string, string>) {
+  async list(@Query() raw: Record<string, string>): ReturnType<CommercialSalesDocumentsService['list']> {
     return this.svc.list({ ...this.q(raw), warehouse_codes: await this.alcance(raw, 'list') });
   }
 
@@ -63,7 +63,7 @@ export class CommercialSalesDocumentsController {
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance.' })
   @ApiOperation({ summary: 'Catálogos para los filtros (vendedores, sucursales) de la ventana consultada, acotados a tu alcance: quien sólo alcanza una sucursal no ve al personal de las otras.' })
-  async filtros(@Query() raw: Record<string, string>) {
+  async filtros(@Query() raw: Record<string, string>): ReturnType<CommercialSalesDocumentsService['filtros']> {
     return this.svc.filtros({ ...this.q(raw), warehouse_codes: await this.alcance(raw, 'filtros') });
   }
 
@@ -79,7 +79,7 @@ export class CommercialSalesDocumentsController {
   async guiaCobranza(
     @Body() body: { folios?: string[]; responsable?: string; nota?: string },
     @Res() res: Response,
-  ) {
+  ): Promise<void> {
     const buf = await this.guia.pdfDeFolios(body?.folios || [], {
       responsable: body?.responsable, nota: body?.nota,
       warehouse_codes: await this.alcance(undefined, 'guia-cobranza'),
@@ -112,7 +112,7 @@ export class CommercialSalesDocumentsController {
   @Get(':folio')
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiOperation({ summary: 'Documento completo (cabecera + renglones con precio de lista, precio con descuento, equivalencia en cajas y neto). Es lo que consume el anexo imprimible.' })
-  async detail(@Param('folio') folio: string) {
+  async detail(@Param('folio') folio: string): ReturnType<CommercialSalesDocumentsService['detail']> {
     return this.svc.detail(folio, { warehouse_codes: await this.alcance(undefined, 'detail') });
   }
 }

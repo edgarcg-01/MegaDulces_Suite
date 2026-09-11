@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { AnexoVentaService } from './anexo-venta.service';
-import { CommercialSalesDocumentsService } from './commercial-sales-documents.service';
+import { CommercialSalesDocumentsService, FacturaGuiaRow } from './commercial-sales-documents.service';
 
 /**
  * GT.2 — Guía de Cobranza: el papel que sale con el cobrador.
@@ -111,7 +111,7 @@ export class GuiaCobranzaService {
    * Dentro de cada cliente los movimientos van por fecha (lo más viejo primero: es lo que más
    * urge cobrar) — el orden lo fija la consulta.
    */
-  private agrupar(rows: any[]): ClienteImpreso[] {
+  private agrupar(rows: FacturaGuiaRow[]): ClienteImpreso[] {
     const mapa = new Map<string, ClienteImpreso>();
     for (const r of rows) {
       const code = String(r.cliente_code ?? '').trim() || '—';
@@ -142,20 +142,20 @@ export class GuiaCobranzaService {
   }
 
   /** Domicilio VERBATIM del ERP. Sin número de ruta al final: la guía ya no la trae. */
-  private direccion(r: any): string {
+  private direccion(r: FacturaGuiaRow): string {
     return [r.cliente_domicilio, r.cliente_colonia, r.cliente_estado, r.cliente_cp ? `C.P. ${r.cliente_cp}` : '']
       .map((x) => String(x ?? '').trim()).filter(Boolean).join(', ') || '—';
   }
 
   // ── formato ────────────────────────────────────────────────────────────
-  private m(n: any): string {
+  private m(n: number | string | null | undefined): string {
     return Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  private esc(s: any): string {
+  private esc(s: unknown): string {
     return String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string));
   }
   /** `fecha` viene como DATE de Postgres: se lee en UTC o el día se corre uno para atrás (LC.16). */
-  private fechaCorta(d: any): string {
+  private fechaCorta(d: string | Date | null | undefined): string {
     if (!d) return '—';
     const x = new Date(d);
     if (Number.isNaN(x.getTime())) return String(d).slice(0, 10);
