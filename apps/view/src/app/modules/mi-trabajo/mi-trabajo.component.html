@@ -158,6 +158,17 @@
           </p>
         }
       </app-load-state>
+
+      <!--
+        Esta declaración es SOBRE el trabajo, así que vive en la columna del trabajo. Antes iba en
+        una banda al pie mezclada con la de los espacios, que declara otra cosa distinta.
+      -->
+      @if (!buscando()) {
+        <p class="mt-declara-pie">
+          Reparto nominal de tareas e indicadores con meta: pendiente de definición
+          (P-06 · P-01 · P-11). Lo de arriba son colas por permiso, no asignaciones personales.
+        </p>
+      }
     </section>
 
     <!-- ── Tus espacios ─────────────────────────────────────────────────────────────────── -->
@@ -216,7 +227,8 @@
                   <a class="mt-card" [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label">
                     <span class="mt-card-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
                     <span class="mt-card-txt">
-                      @if (e.grupo) { <span class="mt-card-group">{{ e.grupo }}</span> }
+                      <!-- Siempre presente, aunque vaya vacío: reserva el renglón y alinea la fila. -->
+                      <span class="mt-card-group">{{ e.grupo }}</span>
                       <span class="mt-card-title">{{ e.label }}</span>
                       @if (e.detalle) { <span class="mt-card-body">{{ e.detalle }}</span> }
                     </span>
@@ -225,28 +237,19 @@
               </div>
             </section>
           }
+
+          <!-- Lo que la especificación pide y la suite todavía no tiene: se declara, no se pinta. -->
+          @if (declarados().length && !buscando()) {
+            <p class="mt-declara-pie">
+              Espacios sin funciones todavía:
+              @for (d of declarados(); track d.id; let last = $last) {
+                <span>{{ d.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+              }
+            </p>
+          }
         }
       </div>
     </section>
   </div>
-
-  <!-- Pie: lo que la especificación pide y la suite todavía no tiene. Se declara, no se pinta. -->
-  @if (permisosCargados() && !buscando()) {
-    <footer class="mt-foot">
-      @if (declarados().length) {
-        <span>
-          Espacios sin funciones todavía:
-          @for (d of declarados(); track d.id; let last = $last) {
-            <span>{{ d.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
-          }
-        </span>
-        <span class="mt-foot-sep" aria-hidden="true">|</span>
-      }
-      <span>
-        Reparto nominal de tareas e indicadores con meta: pendiente de definición
-        (P-06 · P-01 · P-11). Lo de arriba son colas por permiso, no asignaciones personales.
-      </span>
-    </footer>
-  }
 
 </div>

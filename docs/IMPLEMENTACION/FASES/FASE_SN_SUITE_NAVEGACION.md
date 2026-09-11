@@ -163,6 +163,16 @@ Edgar rechazó también SN.10: *"el diseño es horrible. hay que hacer nuevament
 
 **El bloque «A tu nombre» ya no desaparece cuando está vacío.** Su vacío *es* el hecho medido —las tres tablas de asignación nominal en cero filas— y esconderlo haría creer que sí hay reparto. Se declara con su P-06.
 
+**Corrección tras ver la pantalla corriendo (mismo día).** Edgar mandó la captura del dev server y se midió en vivo a 1920×1080. Tres defectos, y el peor fue de esta misma entrega:
+
+| Qué | Medido | Arreglo |
+|---|---|---|
+| **9 de 21 segundas líneas cortadas a media palabra**, perdiendo el `+N` | La tarjeta queda en su mínimo de **249 px** y para que entrara la línea de Finanzas necesitaría **681**. Bajar de 4 módulos a 3 **no movía la aguja**: seguían las mismas 9 | La línea **envuelve a dos renglones** (`line-clamp: 2`) en vez de `nowrap`. **9 → 0**; quedan 3 que pedirían un tercer renglón y se cortan al final del segundo, no en la primera palabra |
+| Los títulos de la 1ª fila de Comercial **desalineados 14 px** | "Ventas" no tiene grupo y sus cuatro vecinas sí | El renglón del grupo se **reserva siempre**, vaya vacío o no. Filas desalineadas **1 → 0** |
+| **492 px vacíos** al pie de la columna de trabajo (de 938) | El contenido termina a los 445 | Las dos declaraciones del pie se mudan **cada una a la columna que declara** (el reparto nominal al trabajo, los espacios sin funciones a los espacios) y la columna de trabajo baja de 34 a **30 rem**. El vacío no se rellena con nada inventado: es real y se llena solo cuando la persona tiene más bandejas |
+
+**Por qué la maqueta no lo detectó, que es la lección:** dije "datos reales" y en la segunda línea usé versiones que yo mismo había acortado (`Sell-Out` por `Sell-Out por empresa`). Medí *0 cortados* sobre un texto que no era el de producción — **la maqueta se autocumplió**. Y encima subí `MAX_MODULOS_VISIBLES` de 3 a 4 *después* de medir, con el argumento de que la columna había ganado ancho; la medición en vivo lo desmintió y volvió a 3. Una maqueta sólo vale si el texto que lleva es exactamente el que va a llevar la pantalla.
+
 ⚠️ **Incidente de entorno, por segunda vez el mismo día:** a `node_modules` le faltan **exactamente** los tres scopes de SN.10 — `@angular`, `@angular-devkit` y `@babel` — con los otros 1398 paquetes presentes, sin `.staging`, sin proceso de npm vivo y con `package-lock.json` intacto. Ni el build ni jest pueden correr. Que se repita el mismo recorte el mismo día deja de ser casualidad y merece causa raíz (candidatos a descartar: antivirus en cuarentena, un `npm prune`/`dedupe` de otra de las ~10 sesiones que comparten el repo). Mientras tanto se verificó de forma estática (70/70: selectores del spec presentes, miembros del componente declarados, cero clases huérfanas, cero restos de la versión anterior, cero tokens inexistentes, breakpoints en `rem`).
 
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
