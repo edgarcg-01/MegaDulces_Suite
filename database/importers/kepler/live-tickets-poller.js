@@ -42,6 +42,36 @@ const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRA
 // viajar a PROD y por un canal DISTINTO del que vigila. El canal de este carril es HTTP al API;
 // el latido va por Postgres. Si fuera por el mismo camino, un API caído se llevaría las dos cosas.
 const HB_URL = process.env.STORE_HB_URL || process.env.FLEET_DB_URL || null;
+
+/**
+ * ⛔ CERRAR UNA CONEXIÓN TAMBIÉN PUEDE COLGARSE, y este archivo ya tenía la lección a medias.
+ *
+ * `client.end()` de node-postgres NO tiene timeout: manda el mensaje 'X' y espera a que el peer
+ * cierre. Si el peer se fue sin completar el handshake (un firewall/NAT en el camino que se comió
+ * la conexión, cosa habitual con 8 sucursales detrás de VPN), el socket queda en FIN_WAIT1 y el
+ * `await` no vuelve NUNCA.
+ *
+ * Medido el 2026-09-11, 20 min después de mudar el carril a `md`: un solo socket abierto,
+ * `172.18.0.9:51818 → 192.168.44.44:5432 FIN_WAIT1` con 6 bytes en Send-Q. El ciclo quedó trabado
+ * ahí, las sucursales 05/06/07 no se leyeron, el guard `running` bloqueó todos los ticks
+ * siguientes, y el contenedor siguió reportando `healthy` con el proceso vivo y el log mudo — 6
+ * minutos. El archivo ya se protegía de esto para `fetch` (`AbortSignal.timeout`, tras el incidente
+ * del 2026-08-04) pero no para el cierre de la conexión.
+ *
+ * Acá se acota: si el cierre limpio no vuelve en 5 s, se mata el socket a mano. Perder un cierre
+ * ordenado no cuesta nada; colgar el carril cuesta todo.
+ */
+async function cerrar(c) {
+  let t;
+  try {
+    await Promise.race([
+      c.end(),
+      new Promise((_, rej) => { t = setTimeout(() => rej(new Error('end() no volvió en 5s')), 5000); }),
+    ]);
+  } catch {
+    try { c.connection?.stream?.destroy(); } catch { /* ya no hay socket */ }
+  } finally { clearTimeout(t); }
+}
 const HB_KEY = 'store_poller';
 const HB_LABEL = 'Poller de tickets en vivo (Kepler → /tienda/live)';
 const HB_CONN = { ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000, statement_timeout: 30000, query_timeout: 30000 };
@@ -79,7 +109,7 @@ async function latir(fase, { status, rows, note, error, ms } = {}) {
       [TENANT, HB_KEY, status || 'ok', rows ?? null, ms ?? null, note || null, error || null]);
     }
   } catch (e) { console.log(`⚠️  latido (${fase}) falló: ${e.message.split('\n')[0].slice(0, 80)}`); }
-  finally { await c.end().catch(() => {}); }
+  finally { await cerrar(c); }
 }
 
 /**
@@ -112,7 +142,7 @@ async function revisarReplicas() {
         else if (Number(r.min) > REPLICA_MAX_MIN) malas.push(`${b.code}: ${r.subname} sin recibir hace ${Number(r.min).toFixed(0)} min`);
       }
     } catch (e) { malas.push(`${b.code}: no se pudo revisar la réplica (${e.message.split('\n')[0].slice(0, 60)})`); }
-    finally { await c.end().catch(() => {}); }
+    finally { await cerrar(c); }
   }
   return malas;
 }
@@ -164,7 +194,7 @@ async function pollBranch(b, since) {
       t.items.push({ sku: r.sku, nombre: r.nombre, cant: Number(r.cant) || 0, importe: Number(r.importe) || 0 });
     }
     return [...byTicket.values()];
-  } finally { await c.end().catch(() => {}); }
+  } finally { await cerrar(c); }
 }
 
 const CHUNK = 300; // tickets por POST (evita exceder el límite de 2mb del body)
