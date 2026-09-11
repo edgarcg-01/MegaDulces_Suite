@@ -60,7 +60,7 @@ export class StoreAnalyticsController {
   @ApiQuery({ name: 'from', required: true, description: "Inicio del rango (ISO 'YYYY-MM-DD', inclusivo)." })
   @ApiQuery({ name: 'to', required: true, description: "Fin del rango (ISO 'YYYY-MM-DD', inclusivo)." })
   @ApiQuery({ name: WH, required: false, description: DESC_WH })
-  @ApiOperation({ summary: 'Tienda — análisis por rango personalizado: venta, tickets, ticket promedio, productos por ticket, margen, unidades + serie diaria y top productos (vs período previo). Acotado por tu alcance de sucursales.' })
+  @ApiOperation({ summary: 'Tienda — análisis por rango personalizado: venta, tickets, ticket promedio, partidas por ticket, valor por partida, unidades por ticket, valor unitario promedio, margen, unidades + serie diaria y top productos (vs período previo). Las razones sin denominador medido vuelven en null (no en 0). Acotado por tu alcance de sucursales.' })
   async range(@Query() query: Record<string, unknown>) {
     return this.weeklySvc.range({
       from: query['from'] as string | undefined,

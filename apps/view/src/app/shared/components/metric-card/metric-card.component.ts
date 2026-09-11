@@ -241,8 +241,12 @@ export class MetricCardComponent {
   /** Formato del tooltip de la sparkline (deriva del formato del valor). */
   readonly sparkFormat = computed<'currency' | 'number' | 'plain'>(() => this.format() === 'currency' ? 'currency' : 'number');
   /** Mapea el formato de la card al de CountUpDirective (count-up consolidado). */
-  readonly cuFormat = computed<'int' | 'decimal1' | 'percent1' | 'money'>(() => {
+  readonly cuFormat = computed<'int' | 'decimal1' | 'percent1' | 'money' | 'money2'>(() => {
     const f = this.format();
+    // Precio UNITARIO ($/pieza, $/partida): los centavos son la señal, no ruido —
+    // $24.38 vs $24.72 es justo lo que se compara. Se pide con [decimals]="2",
+    // igual que `number` ya pedía un decimal con [decimals]="1".
+    if (f === 'currency' && this.decimals() === 2) return 'money2';
     if (f === 'currency') return 'money';
     if (f === 'percent') return 'percent1';
     if (f === 'number' && this.decimals() === 1) return 'decimal1';
