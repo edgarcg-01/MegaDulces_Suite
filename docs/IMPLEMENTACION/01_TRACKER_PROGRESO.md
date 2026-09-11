@@ -2564,6 +2564,7 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
 | VL.7 | ⬜ | Apagar `.249` como servidor (tareas deshabilitadas 2 semanas como rollback) + retirar residuo `PM2 Resurrect ODS` + `ops/README` que sea la verdad |
 | VL.8 | ⬜ | UPS + red + respaldo fuera del sitio. **Con prod en el horizonte deja de ser opcional** |
 | VL.9 | ⬜ | Prod on-prem (Coolify + Cloudflare Tunnel), ADR aparte, después de VL.8 |
+| VL.10 | ✅ 2026-09-11 | **Lectura de desarrollo sobre las réplicas de `md`** (no prod). Grupo `dev_ro` NOLOGIN + 4 roles nominales (edgar/david/francisco/sistemas), 19/19 verificado cada uno. ⛔ Las 30 tablas FORÁNEAS de `kepler_consolidado` (apuntan a los POS) y las vistas `dic.*` quedan fuera — exclusión calculada **por propiedad, no por nombre** (`WITH RECURSIVE`), así una foránea nueva se excluye sola. Guardas en el rol nominal (`ALTER ROLE … SET` NO se hereda por membresía): read-only, statement_timeout 120s, idle-in-tx 60s, lock_timeout 5s, 5 conexiones. ⭐ La compuerta prueba con el cinturón APAGADO: el rechazo pasa de "read-only transaction" a "permission denied", o sea el permiso aguanta solo. ⚠️ Abierto: `pg_hba` = `host all all all` → `postgres` alcanzable desde cualquier IP |
 
 **Decidido (Edgar, 2026-09-10):** el fierro **existe sin SO** · alcance **ingesta ahora, prod después** (dimensionar para los dos: prod mide **30 GB en PG 18.6** → **32 GB RAM / NVMe 1 TB**) · Wincaja se decide en VL.5 · corte con **ventana nocturna/fin de semana**.
 
