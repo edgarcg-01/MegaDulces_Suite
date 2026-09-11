@@ -635,9 +635,36 @@ B era el delator: un Pareto siempre produce B.
 | clase C con `annual_value` = $0 | 56,002 | 12,690, **declaradas `sin_demanda`** |
 | clase que ve el comprador vs la que usó el motor | 64.0% | **la misma** |
 
-⏳ **Pendiente por tiempo, no por código:** las **7,089 políticas A/B que siguen servidas a 0.90**
-($1,197,206 de colchón) se corrigen cuando `import-computed-reorder` corra con la vista, esta noche.
-El candado lo reporta como `NO MEDIDO` hasta entonces, no como verde.
+✅ **APLICADO EN PROD (2026-09-11).** El nocturno corrió con la vista y el efecto se midió:
+
+```text
+clase B ...........  0 -> 4,726 politicas   (no existia ninguna en todo el sistema)
+clase A ....... 6,357 -> 9,561
+politicas A/B servidas a 0.90 ... 19,127 -> 8   ($1,197,206 -> $271)
+colchon publicado ............... 644,484 pz / $20,938,829
+```
+
+Las **8 que quedan ($271)** son deriva de frontera —la clase es una **vista**, así que unas pocas
+filas cruzan el 80%/95% entre que el importer escribe y que uno mira— y el candado las reporta
+`NO MEDIDO`, no verde.
+
+⛔ **Y un segundo hueco que sólo se vio midiendo prod: `import-network-reorder` deshacía la
+corrección.** Corre DESPUÉS en la misma cadena y sobrescribe los **hubs** leyendo todavía la tabla
+degenerada: **4,589 políticas de 01 / MD-30 / 06 volvían a clase C**. La firma lo delató —
+`abc_class = C` con `service_level = 0.980`, combinación que ninguna sucursal produce (el 0.98 es la
+constante del hub). Descartado que fuera deriva (share 0.0147→0.9500) o falta de demanda (4,571 de
+4,571 con demanda > 0). Ese importer también lee la vista ahora, y `sin_demanda` **no** se trata
+como C: para el CEDIS —que no vende— se conserva el default `A` documentado en vez de publicar una C
+engañosa que mandaría su conteo cíclico a una vez al año. Corrido con `--apply`: **hubs en C
+degenerada = 0**, y la coincidencia política↔vista queda en **28,290 de 28,447 = 99.45%** (excluido
+el CEDIS, que por diseño no se clasifica por venta).
+
+⏳ **Lo único que sigue pendiente, y a propósito:** `commercial.abc_classification` (la tabla) sigue
+en 2 A / 56,060 C con `clase_motivo` NULL, porque su nocturno corrió a las 3:30 AM MX **antes** del
+deploy. **No se rellena a mano**: ese recálculo es la única **prueba observable** de que el deploy
+llegó. Si mañana a las 3:30 AM `clase_motivo` sigue NULL, el deploy no tomó. Rellenarla borraría la
+señal. Mientras tanto no afecta la compra —el reabasto lee la vista— sólo la cadencia del conteo
+cíclico, el scanner y los pasillos.
 
 ⚠️ **Dos almacenes dan 0 A / 0 B y los dos tienen causa nombrada**: el **CEDIS `00`** no vende
 (distribuye por traspaso; lo planea `import-network-reorder.js` con demanda dependiente y servicio
