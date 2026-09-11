@@ -879,9 +879,12 @@ export class CommercialReplenishmentService {
         LEFT JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = COALESCE(:selwh::uuid, plan.primary_wh)
         WHERE ${where}`;
 
-      // RA-PRO.18 — ranking (#) y ABC de RED se calculan como WINDOWS sobre TODO el universo
-      // filtrado (no la página): rank por venta $ 30d; ABC = Pareto por venta $ (A≤80% acum,
-      // B≤95%, C resto). Capa interna = todas las columnas + rev30; capa externa pagina.
+      // RA-PRO.18 — el ranking (#) se calcula como WINDOW sobre TODO el universo filtrado (no la
+      // página): rank por venta $ 30d. Capa interna = todas las columnas + rev30; capa externa
+      // pagina.
+      // ⚠️ [KE.4] La CLASE ya NO se calcula acá: se LEE de `analytics.v_abc_class`, que es la que
+      // el motor usó para fijar el nivel de servicio. Recalcularla con otra métrica hacía que el
+      // comprador viera una clase y el colchón se hubiera dimensionado con otra.
       // PERF: los totales (count/needed/valor/revenue) también salen como WINDOWS aquí en la
       // MISMA pasada — antes se ejecutaba el `from` pesado (con sus 4 subagregados) 2 veces.
       const rows = (await trx.raw(`
@@ -895,13 +898,16 @@ export class CommercialReplenishmentService {
                ROUND(COALESCE(SUM(z.rung_arbitrado) OVER(), 0)::numeric, 2) AS _sin_medir_arbitrado,
                ROUND(SUM(z.sell_month_mxn) OVER()::numeric, 2) AS _total_revenue,
                RANK() OVER (ORDER BY z.sell_month_mxn DESC NULLS LAST) AS sales_rank,
-               CASE
-                 WHEN COALESCE(SUM(z.sell_month_mxn) OVER (), 0) = 0 THEN 'C'
-                 WHEN SUM(z.sell_month_mxn) OVER (ORDER BY z.sell_month_mxn DESC ROWS UNBOUNDED PRECEDING)
-                      / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.80 THEN 'A'
-                 WHEN SUM(z.sell_month_mxn) OVER (ORDER BY z.sell_month_mxn DESC ROWS UNBOUNDED PRECEDING)
-                      / NULLIF(SUM(z.sell_month_mxn) OVER (), 0) <= 0.95 THEN 'B'
-                 ELSE 'C' END AS abc_class
+               -- [KE.4] La clase que se MUESTRA es la que USO el motor, leida de
+               -- analytics.v_abc_class. Antes se recalculaba aca al vuelo, con otra metrica
+               -- (venta $ del MES, grano producto) que la del nivel de servicio (demanda anual x
+               -- costo arbitrado, grano almacen x producto). Medido: coincidian en 19,053 de
+               -- 29,751 = 64.0%, o sea el comprador veia otra clase que la que fijo el colchon en
+               -- 10,698 filas -- incluidas 261 que la pantalla llamaba C y el motor trata como A.
+               COALESCE(vabc.abc_class, 'C') AS abc_class,
+               -- Y por que es esa clase: una C sin_demanda (el CEDIS no vende, distribuye por
+               -- traspaso) no es lo mismo que una C de bajo valor.
+               vabc.clase_motivo AS abc_motivo
         FROM (
           SELECT pr.id AS product_id, COALESCE(:selwh::uuid, plan.primary_wh) AS warehouse_id, w.code AS warehouse_code,
                  pr.sku, pr.nombre, sup.id AS supplier_id, sup.name AS supplier_name,
@@ -942,6 +948,9 @@ export class CommercialReplenishmentService {
                  ${bucketExpr} AS bucket
           ${from}
         ) z
+        LEFT JOIN analytics.v_abc_class vabc
+               ON vabc.tenant_id = :t AND vabc.warehouse_id = z.warehouse_id
+              AND vabc.product_id = z.product_id
         ORDER BY z.suggested_cost DESC NULLS LAST, z.sell_month_mxn DESC, z.on_hand_pieces DESC
         LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
