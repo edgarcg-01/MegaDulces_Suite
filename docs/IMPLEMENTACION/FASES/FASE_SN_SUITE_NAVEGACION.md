@@ -217,6 +217,24 @@ Tres cambios, ninguno inventado:
 
 **El orden por antigüedad quedó verificado con datos reales** (la API ya reiniciada): `1,208` con 15 días aparece **antes** que `1,865` con 14. Con el orden por volumen habría sido al revés.
 
+#### 4.2.6 SN.14 — el buscador dibujaba DOS anillos de foco (2026-09-11)
+
+Edgar mandó una captura del campo enfocado. Se veían dos cajas naranjas concéntricas de formas distintas; medido en vivo, la causa:
+
+```
+styles.css:753   input:focus { outline: 2px solid var(--action) !important; outline-offset: 2px !important; }
+```
+
+Ese `!important` global se come cualquier `outline: none` de componente, así que el anillo del **contenedor** (`:focus-within`, radio 12 px) convivía con el del **input** — y el del input era **rectangular**, porque el input no tenía radio, y **dejaba fuera la lupa y la tecla**: el campo iba de x 1399 a 1684, la lupa estaba en 1379 y el `Ctrl K` en 1692.
+
+⚠️ **Me corregí antes de acusar al global:** iba a escribir que ese `!important` rompe todos los inputs compuestos de la suite. La medición dijo que **`focus-within` aparecía en UN solo archivo de la app** — éste. El choque lo introdujo este componente, no `styles.css`.
+
+**Arreglo: que un solo elemento dibuje el foco, y que sea el input.** En vez de pelear `!important` contra `!important` —`DESIGN.md` lo veta como primera herramienta— el input deja de ser un trozo del control y **pasa a ser el control**: ocupa toda la caja, lleva el borde y el radio, y la lupa y la tecla se superponen sin quitarle área. El anillo global cae entonces donde debe, con la forma correcta, y no hay nada que anular.
+
+**Medido después:** anillos que dibujan foco **2 → 1** · radio del anillo **0 → 12 px** · lupa y tecla **dentro** del anillo · la página sigue sin rodar.
+
+De paso: **`Ctrl K` mentía en Mac.** El atajo acepta `metaKey` desde SN.9, así que ⌘K ya funcionaba, pero el rótulo decía Ctrl siempre. Ahora se anuncia la tecla que de verdad funciona en cada plataforma.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

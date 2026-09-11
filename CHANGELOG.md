@@ -40,6 +40,10 @@ Smoke `test-newdb-organigrama.js` **28 ok / 0 fallos / 3 declarados**. Cada cand
 
 **Pendiente y parqueado con nombre** (`DEUDA-OR-CARTA`): los 23 puestos con gente y sin jefe declarado, y el mapa puesto→responsabilidad. La propuesta está hecha y cruzada contra permisos; el cruce destapó tres cosas que **no son de organigrama**: las alertas de flota sólo las pueden abrir `jefe_finanzas` y `sistemas` (nadie de logística), el rol `marketing` está sobre-permisado, y los 30 `vendedor_ruta` pueden **aprobar** las sugerencias comerciales dirigidas a ellos mismos.
 
+### Fixed — el buscador dibujaba dos anillos de foco, uno de ellos rectangular (SN.14, 2026-09-11)
+
+`styles.css:753` declara `input:focus { outline: 2px … !important }` y ese `!important` se come cualquier `outline: none` de componente, así que el anillo del contenedor convivía con el del input — y el del input era **rectangular** (el campo no tenía radio) y **dejaba fuera la lupa y la tecla**. **Arreglo:** que un solo elemento dibuje el foco, y que sea el input, que pasa a *ser* el control en vez de un trozo de él; la lupa y la tecla se superponen. Anillos **2 → 1**, radio **0 → 12 px**, lupa y tecla dentro. Sin `!important` nuevo. ⚠️ Antes de culpar al global se midió: `focus-within` aparecía en **un solo archivo** de la app — el choque lo había introducido este componente. De paso, **`Ctrl K` mentía en Mac**: el atajo acepta ⌘ desde SN.9 pero el rótulo decía Ctrl siempre.
+
 ### Changed — «Tu trabajo» tenía 0 % de superficie contra 36 % de la otra columna (SN.13, 2026-09-11)
 
 *"Hay que darle más vida a Tu trabajo, casi no tiene presencia"*. No era gusto — la asimetría se midió: la columna protagonista tenía **0** elementos con superficie propia contra **30** de la de puertas (0 % del área contra 36.1 %), su cifra más grande era de **18 px** —5 más que el título de una tarjeta— y la pantalla no tenía **ninguna** headline metric, cuando el sistema reserva 40 px para exactamente una por vista. La columna era texto sobre el fondo; la otra era una rejilla de objetos, y el ojo va a los objetos.
