@@ -188,6 +188,7 @@ const TESTS = [
   // SM Supervisor de Movimientos — cuadre caja+inventario (self-contained: inyecta+scan+triage+cleanup)
   { file: 'http-reconciliation-test.js', label: 'SM.1/SM.2 cuadre (caja descuadre crítico + merma + bandeja + feedback L2)', needsApi: true },
   { file: 'http-store-arqueo-test.js', label: 'SM.9/ID.4 arqueo de tienda (la cajera NO recibe esperado ni diff_real — se afirma la AUSENCIA de las claves — vs supervisor que sí + alcance multi-sucursal 2 de 3 + 403 al capturar fuera + el descuadre igual llega a la bandeja)', needsApi: true },
+  { file: 'http-store-analytics-range-test.js', label: 'Tienda — composición del ticket ($/partida, unidades/ticket, $/unidad) + PRUEBA NEGATIVA de la compuerta de cobertura: con el POS cubriendo 1 de 3 días las razones cruzadas vuelven null («— sin medir») en vez del número absurdo, y avg_unit (fuente única) sigue publicando', needsApi: true },
   // SYNC.2 CDC genérico Kepler → kepler_ods (handler raw-upsert: auto-DDL + UPSERT sin churn)
   { file: 'test-newdb-raw-upsert.js', label: 'SYNC.2 raw-upsert (auto-create PK compuesta + re-run escribe 0 = sin churn + auto-alter + PK convive entre sucursales + _sync_status)', needsApi: false },
   { file: 'test-newdb-erp-sales-invoices.js', label: 'AX.0 anexo de venta (vistas en vivo sobre kepler_ods: cuadre CFDI subtotal+IEPS−desc=total + vencimiento=fecha+kdud.c16 + unidades VERBATIM vs kdm2.c11/kdii.c11/c83/c84 + U/D/13 excluido; skip-graceful sin vistas)', needsApi: false },
