@@ -25,6 +25,12 @@ export interface ScopeDim {
   source: string;
   nota?: string | null;
   options: ScopeOption[];
+  /**
+   * `[ID.26]`/`[SN.3]` `false` = el modo es `own` pero la ficha no trae con qué resolverlo
+   * (78 de 122 usuarios sin `warehouse_code`): el backend emite el mismo WHERE que `none` y lo
+   * DECLARA. El front lo muestra como "sin determinar", nunca como "sin alcance".
+   */
+  resolvable?: boolean;
 }
 
 export interface MyScope {

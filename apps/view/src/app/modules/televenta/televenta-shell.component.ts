@@ -62,6 +62,14 @@ import { Permission } from '../../core/constants/permissions';
           }
         </nav>
         <div class="user">
+          <!-- [SN.4] Este shell no monta LayoutComponent y no tenia vuelta a la landing: quien
+               entraba a Telemarketing solo podia salir cerrando sesion. state.stay evita que una
+               persona con una sola puerta rebote de vuelta aca. (Sin acentos graves: es un
+               template literal y el repo ya rompio el build 8 veces por eso.) -->
+          <a routerLink="/projects" [state]="{ stay: true }" class="home" title="Mi trabajo" aria-label="Ir a Mi trabajo">
+            <i class="pi pi-home" aria-hidden="true"></i>
+            <span>Mi trabajo</span>
+          </a>
           <span class="username">{{ username() }}</span>
           <button
             pButton
@@ -136,6 +144,20 @@ import { Permission } from '../../core/constants/permissions';
       }
       .user { display: flex; align-items: center; gap: 0.5rem; }
       .username { font-size: 0.875rem; color: var(--text-color-secondary); }
+      .home {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        min-height: 36px;
+        padding: 0.4rem 0.75rem;
+        border-radius: 9999px;
+        font-size: 0.8125rem;
+        color: var(--text-color-secondary);
+        text-decoration: none;
+      }
+      .home:hover { background: var(--neutral-100); color: var(--text-color); }
+      .home:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+      @media (max-width: 640px) { .home span { display: none; } }
       .televenta-main {
         flex: 1;
         padding: 1rem;

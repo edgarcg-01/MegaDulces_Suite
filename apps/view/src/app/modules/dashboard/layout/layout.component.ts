@@ -26,11 +26,32 @@ import { WebSocketService } from '../../../core/services/websocket.service';
 import { HapticService } from '../../../core/services/haptic.service';
 import { CountFocusService } from '../../../core/services/count-focus.service';
 import { Permission } from '../../../core/constants/permissions';
+// `[SN.4]` El proyecto y el espacio activos salen del mapa de la suite (ADR-061), no de una
+// union hardcodeada + cadena de `startsWith`. Es lo que permite la migaja Espacio › Proyecto ›
+// Página con las etiquetas de negocio de la spec ("Configuración de la suite", "Punto de Venta").
+import { LANDING_ROUTE, entryLabel, resolveProjectForUrl, resolveSpaceForUrl } from '../../../core/constants/suite-map';
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
 import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
 import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
+
+/** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras';
+
+/** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp, televenta) cae al default. */
+const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
+  trade: 'trademk',
+  pdv: 'tienda',
+  comercial: 'comercial',
+  admin: 'admin',
+  logistica: 'logistica',
+  reparto: 'reparto',
+  finanzas: 'finanzas',
+  contabilidad: 'contabilidad',
+  almacen: 'almacen',
+  compras: 'compras',
+};
 
 interface NavItem {
   label: string;
@@ -417,37 +438,45 @@ export class LayoutComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Detecta proyecto activo según prefix del URL. Default = trade marketing.
-   * /admin tiene prefix más específico que comercial/dashboard, chequearlo primero.
+   * Proyecto activo. `[SN.4]` Sale del árbol (`resolveProjectForUrl`, por SEGMENTO: `/administracion`
+   * no es `/admin`; un proyecto con `route: ''` nunca casa) y se traduce a la clave interna de este
+   * componente, que sigue siendo la misma union: los `*NavGroups` se indexan por ella. Default =
+   * trade marketing, como antes — `isRestricted()` depende de ese default para las URLs sin
+   * proyecto (`/sin-acceso`, 404). `/telemarketing` no monta este layout.
    */
-  private currentProject = computed<'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras'>(() => {
-    const url = this.currentUrl();
-    if (url.startsWith('/admin')) return 'admin';
-    if (url.startsWith('/comercial')) return 'comercial';
-    if (url.startsWith('/logistica')) return 'logistica';
-    if (url.startsWith('/tienda')) return 'tienda';
-    if (url.startsWith('/reparto')) return 'reparto';
-    if (url.startsWith('/finanzas')) return 'finanzas';
-    if (url.startsWith('/contabilidad')) return 'contabilidad';
-    if (url.startsWith('/almacen')) return 'almacen';
-    if (url.startsWith('/compras')) return 'compras';
-    return 'trademk';
+  private currentProject = computed<LayoutProject>(() => {
+    const id = resolveProjectForUrl(this.currentUrl())?.id;
+    return (id && PROJECT_KEY[id]) || 'trademk';
   });
 
+  /**
+   * Etiqueta del proyecto para la migaja. `[SN.4]` La del mapa de la suite (la que ve la persona
+   * en "Mi trabajo": "Ventas", "Punto de Venta", "Configuración de la suite") y, si la URL no cae
+   * en ningún proyecto, la de siempre.
+   */
   projectLabel = computed(() => {
-    switch (this.currentProject()) {
-      case 'comercial':  return 'Comercial';
-      case 'logistica':  return 'Logística';
-      case 'tienda':     return 'Tienda';
-      case 'reparto':    return 'Reparto';
-      case 'finanzas':   return 'Finanzas';
-      case 'contabilidad': return 'Contabilidad';
-      case 'almacen':    return 'Almacén';
-      case 'compras':    return 'Compras';
-      case 'admin':      return 'Administración';
-      default:           return 'Trade Marketing';
-    }
+    const url = this.currentUrl();
+    const enMapa = resolveSpaceForUrl(url);
+    if (enMapa) return entryLabel(enMapa.entry);
+    return resolveProjectForUrl(url)?.label ?? 'Trade Marketing';
   });
+
+  /** `[SN.4]` Espacio de responsabilidad al que pertenece el proyecto (primer eslabón de la migaja). */
+  spaceLabel = computed(() => resolveSpaceForUrl(this.currentUrl())?.space.label ?? null);
+
+  /**
+   * Migaja sin la página: Espacio › Proyecto, deduplicando cuando coinciden (Configuración de la
+   * suite es espacio y proyecto a la vez; repetirlo sería ruido).
+   */
+  crumbs = computed<string[]>(() => {
+    const out: string[] = [];
+    for (const c of [this.spaceLabel(), this.projectLabel()]) {
+      if (c && out[out.length - 1] !== c) out.push(c);
+    }
+    return out;
+  });
+
+  readonly landingRoute = LANDING_ROUTE;
 
   private tiendaNavGroups: { title: string; items: NavItem[] }[] = [
     {
@@ -818,7 +847,10 @@ export class LayoutComponent implements OnInit, OnDestroy {
       return this.mapGroups(this.logisticaNavGroups, true);
     }
     if (this.currentProject() === 'admin') {
-      return this.mapGroups([{ title: 'Administración', items: this.adminNavItems }], true);
+      // `[SN.4]` §22 de la spec: "Administración" → "Configuración de la suite" cuando se refiere
+      // a usuarios y permisos. (La sección "Administración" de Trade, más abajo, es otra cosa:
+      // catálogos y planograma, y se queda.)
+      return this.mapGroups([{ title: 'Configuración de la suite', items: this.adminNavItems }], true);
     }
     if (this.currentProject() === 'comercial') {
       return this.mapGroups(this.comercialNavGroups, true);
@@ -887,8 +919,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         command: () => this.toggleTheme(),
       },
       {
-        label: 'Proyectos',
-        icon: 'pi pi-arrow-right-arrow-left',
+        label: 'Mi trabajo',
+        icon: 'pi pi-home',
         command: () => this.goToProjects(),
       },
       { separator: true },
@@ -985,9 +1017,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
     this.router.navigate(['/login']);
   }
 
+  /**
+   * A "Mi trabajo". `state.stay` es el escape de la auto-entrada: quien tiene UNA sola puerta
+   * entra directo al abrir la landing, pero si viene desde acá es porque QUIERE verla.
+   */
   goToProjects(): void {
     this.haptic.impact('light');
-    this.router.navigate(['/projects']);
+    this.router.navigate([LANDING_ROUTE], { state: { stay: true } });
   }
 
   /** Wrapper: theme toggle + haptic. Usar este en lugar de llamar al service directo. */
