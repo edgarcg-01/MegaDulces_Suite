@@ -158,7 +158,7 @@ El controller `commercial-intelligence` (motor Thot: `suggest`, `nba`, `signals`
   - ✅ manifiesto [`AUTHZ_TREE`](../../../apps/view/src/app/core/constants/authz-tree.ts) — fuente de verdad, 3 apps, ~34 módulos, 80/80 permisos cubiertos.
   - ✅ `permissionGuard(...)` de rutas reapuntadas (analítica, promos, thot, cartera, products, agenda de rutas, traspasos, roles-ver).
   - ✅ `@RequirePermissions(...)` backend: `commercial-analytics`→ANALYTICS, `commercial-products`→PRODUCTS, `daily-assignments`→TRADE_ROUTE_PLAN, `commercial-vendor-routes`(cartera)→CARTERA, `catalogs`(GET perms)→ROLES_VER, `commercial-intelligence`(chat/curación admin)→THOT. Endpoints de vendedor/portal NO tocados.
-  - ✅ Guard de completitud: [`scripts/check-authz-tree.js`](../../../scripts/check-authz-tree.js) (apps/view no tiene runner de tests → script, no `.spec`).
+  - ~~✅ Guard de completitud: `scripts/check-authz-tree.js`~~ → **borrado en `[SN.5]` (2026-09-10)**: leía los shims re-export de `apps/view` (una línea cada uno desde `[ID.28]`), contaba **0 claves** y pintaba verde; y su invariante "sin permisos compartidos" ya estaba contradicho a propósito ≥8 veces (`EXISTENCIA_*`, `COMMERCIAL_EXPIRY_*`…). El gate real es `database/tests/test-authz-route-coverage.js` [2] (enum ⊆ árbol ⊆ enum, con piso >100) y, para la landing, `libs/contracts/src/authz/suite-map.spec.ts`.
 - **F2 — Backfill + seed** — ✅ (código listo, migración NO aplicada aún)
   - ✅ Migración idempotente [`20260702190000_az_backfill_hierarchical_perms.js`](../../../database/migrations-newdb/20260702190000_az_backfill_hierarchical_perms.js): deriva cada permiso nuevo del origen por rol (`permissions -> 'KEY' IS NULL` + `jsonb_build_object`). **Excluye `customer_b2b`** de `ANALYTICS_VER`/`TRANSFERS_VER` (rol externo con ORDERS_VER scoped, no debe ver analítica interna).
   - ✅ Seed newdb [`02_mega_dulces_initial_roles.js`](../../../database/seeds-newdb/02_mega_dulces_initial_roles.js) con helper `withDerivedAz` (seed == migración).
@@ -170,7 +170,7 @@ El controller `commercial-intelligence` (motor Thot: `suggest`, `nba`, `signals`
   - ✅ Conserva **anti-escalation** (hoja bloqueada si el editor no puede otorgarla; cascada solo otorga lo permitido), **críticos** (confirm dialog + marca visual), **dirty tracking**, y guardado que **colapsa al mismo `Record<string,boolean>`** (endpoint sin cambios).
   - Vista resumen `admin-roles-grid` NO tocada: sigue agrupando por categoría de `permission-meta` (los permisos nuevos ya tienen meta) — reagruparla por app/proyecto queda para F4.
 - **F4 — Limpieza** *(diferible)*
-  - `/projects` deriva del manifiesto.
+  - ✅ `/projects` deriva del manifiesto — hecho en **Fase SN** (2026-09-10, ADR-061): `suite-map.ts` sobre `AUTHZ_TREE`, visibilidad derivada, landing "Mi trabajo".
   - Retiro de permisos viejos ya huérfanos (con confirmación).
 
 ---

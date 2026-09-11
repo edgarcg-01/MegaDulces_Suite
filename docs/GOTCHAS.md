@@ -105,30 +105,35 @@ dbWork con SAVEPOINT.
 
 ---
 
-## 4. Permisos / authz — agregar un permiso son 5 touch-points
+## 4. Permisos / authz — agregar un permiso son 5 touch-points (y un PROYECTO nuevo, 6)
 
 Al agregar un valor al enum `Permission`, si no lo cableás en todos lados el endpoint tira
-`403 "No tienes los permisos dinámicos necesarios"` para todo rol sin `manage:all` (superadmin pasa siempre).
+`403 "No tienes los permisos dinámicos necesarios"` para todo rol que no sea admin de plataforma (superadmin pasa siempre).
 
-1. **Backend enum** `libs/platform-core/.../constants/permissions.ts`.
+1. **Enum ÚNICO** `libs/contracts/src/authz/permissions.ts` (`[ID.28]`). Los archivos `permissions.ts` de
+   `platform-core`, `apps/view`, `apps/vendor` y `apps/portal` son **re-exports de una línea**: no se editan.
 2. **Gate del endpoint** con `@RequirePermissions(Permission.X)`.
-3. **Frontend enum** `apps/view/.../core/constants/permissions.ts` (copia separada, mantener en sync).
-4. **Frontend** `permission-meta.ts` (label/description/category) + `authz-tree.ts` (para que aparezca como
-   checkbox en `/admin/roles`).
-5. **Frontend gating del botón:** `perms.can('manage','all') || auth.user()?.permissions?.[Permission.X] === true`
-   — el `manage:all` es **obligatorio** o los admin pierden el botón (su JSONB no enumera la clave nueva).
+3. **Guard de la ruta** en `app.routes.ts` con `permissionGuard(Permission.X)` — y si la ruta es el ÍNDICE de un
+   proyecto, el `*HomeGuard` correspondiente en `core/guards/permission.guard.ts` tiene que poder mandar a
+   alguien con esa clave a una pantalla que la acepte (`landing-guards.spec.ts` lo comprueba leyendo las rutas).
+4. **`permission-meta.ts`** (label/description/category) + **`authz-tree.ts`** (para que aparezca como casilla en
+   `/admin/roles`) — los dos en `libs/contracts/src/authz/`. Un permiso fuera del árbol es INVISIBLE: nadie lo
+   puede otorgar ni revocar desde la UI. Lo vigila `database/tests/test-authz-route-coverage.js` [2].
+5. **Frontend gating del botón:** `perms.has(Permission.X)` (`PermissionsService`; el god-mode va adentro).
+   Nunca leer `auth.user()?.permissions` a mano: son dos fuentes para la misma pregunta.
+6. **Sólo si es un PROYECTO nuevo** (prefijo de ruta con su propio `LayoutComponent`): darle casa en
+   `libs/contracts/src/authz/suite-map.ts` — el mapa de espacios de la landing "Mi trabajo" (ADR-061). Sin casa,
+   `suite-map.spec.ts` falla ("0 entradas primarias") y el proyecto no tiene puerta. La visibilidad de la puerta se
+   DERIVA de los permisos de sus módulos con ruta: **no hay lista `anyOf` que mantener**.
 
 > **Eran 6 hasta ADR-054 (2026-09-02), que retiró CASL.** El paso que decía *"Backend `ability.factory.ts` —
-> AMBOS mapas `permissionToSubject` + `permissionToAction`"* ya no existe: **el archivo fue borrado.** Si venís
-> leyendo esta receta y no lo encontrás, no está mal tu checkout. El gate es lookup por **clave exacta**.
-> Verificado el 2026-09-09: `ability.factory.ts` y `ability.types.ts` no existen en el repo, y la receta seguía
-> mandando a los dos desde acá, desde `ONBOARDING.md`, desde `CLAUDE_ONBOARDING.md` y desde
-> `TEAM_WORKING_MODEL.md`.
-
-**Hay 5 copias del enum, no 2.** `libs/platform-core` y `apps/view` tienen que estar a la par —lo exige
-`database/tests/test-newdb-authz-route-coverage.js`— y `apps/portal`, `apps/vendor` y `libs/shared-auth` son
-**subconjuntos a propósito** (no todo permiso del admin tiene sentido en el portal del cliente). Una clave
-admin-only toca 2 copias, no 5.
+> AMBOS mapas `permissionToSubject` + `permissionToAction`"* ya no existe: **el archivo fue borrado.** El gate es
+> lookup por **clave exacta**. Y desde `[ID.28]` **el enum es UNO**: la versión anterior de esta receta decía "hay 5
+> copias, mantener en sync" y mandaba a un test con nombre equivocado (`test-newdb-authz-route-coverage.js`; el
+> real es `test-authz-route-coverage.js`). Corregido en `[SN.5]` (2026-09-10).
+>
+> **`scripts/check-authz-tree.js` ya no existe** (borrado en `[SN.5]`): leía los shims re-export, contaba 0 claves
+> y pintaba verde. Un gate que compara dos nadas siempre concuerda.
 
 **El 5º paso no siempre es un botón: a veces el gate va a nivel CAMPO.** Cuando el endpoint es compartido con
 otra operación legítima (el mismo `POST /users` da de alta personas y kioscos), un `@RequirePermissions` en la

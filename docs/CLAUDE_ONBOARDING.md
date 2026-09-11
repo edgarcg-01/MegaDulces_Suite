@@ -45,7 +45,7 @@ Nx workspace: `nx graph` (o mirar `project.json` de cada lib) muestra las depend
 2. **Dominios aislados + composition root.** Los `libs/*` NO se importan entre sí; se comunican por **puertos** cableados en `apps/api/src/composition/*`. (ARCHITECTURE §3.)
 3. **`kepler_ods` es la fuente canónica de datos del ERP.** No leas las DBs de sucursal directo; derivá vistas sobre `kepler_ods`. Derivar-no-copiar. (ERP_KEPLER §4-5.)
 4. **El request entero va en UNA transacción.** Un `try/catch` que traga un error de DB y sigue queryeando tira `25P02` / rollback silencioso. Usá SAVEPOINT. (GOTCHAS §2.)
-5. **Agregar un permiso = 6 touch-points** (enum ×2, ability.factory, authz-tree, permission-meta, gating). Si falta uno → 403 o botón invisible. (GOTCHAS §4.)
+5. **Agregar un permiso = 5 touch-points** (enum ÚNICO en `libs/contracts`, gate del endpoint, guard de ruta + `*HomeGuard`, `permission-meta` + `authz-tree`, gating con `perms.has()`); un **proyecto** nuevo suma el 6º: su casa en `suite-map.ts` (la landing "Mi trabajo"). Si falta uno → 403, casilla invisible o puerta que rebota. (GOTCHAS §4.)
 6. **Migraciones idempotentes + nunca borrar aplicadas** (crash-loop "directory corrupt"). (GOTCHAS §3.)
 
 ## Paso 4 — Reglas duras (romperlas cuesta caro)
