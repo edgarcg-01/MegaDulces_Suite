@@ -13,6 +13,7 @@ import {
 } from '../sales-documents.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { TELEMARKETING_TABS } from '../telemarketing-tabs';
@@ -63,6 +64,7 @@ import {
     }
 
     <app-telemarketing-filtros [value]="filtros()" [vendedores]="vendedorOpts()"
+                               [sucursales]="sucursales()" [sucursalDeclarada]="alcanceLeido()"
                                (cambio)="aplicar($event)" />
 
     <!-- Lo que no se pudo medir se declara, no se dibuja (ADR-056) -->
@@ -327,6 +329,14 @@ export class ComercialDocumentosComponent {
   readonly det = signal<SalesDocDetail | null>(null);
   readonly detLoading = signal(false);
   private readonly catalogos = signal<SalesDocsFiltros | null>(null);
+  private readonly scope = inject(DataScopeService);
+  /**
+   * GT.11 — sucursales que este usuario alcanza (`/users/me/scope`). Alimenta el selector;
+   * NO es el control de acceso: el backend recorta igual (ADR-050). Si el usuario tiene una
+   * sola, se fija como filtro desde el arranque para que la primera consulta ya sea la suya.
+   */
+  readonly sucursales = signal<{ label: string; value: string }[]>([]);
+  readonly alcanceLeido = signal(false);
 
   readonly filtros = signal<TmFiltros>(tmFiltrosIniciales());
 
@@ -337,6 +347,19 @@ export class ComercialDocumentosComponent {
     (this.catalogos()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   constructor() {
+    this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ops) => {
+        this.sucursales.set(ops);
+        this.alcanceLeido.set(true);
+        // Una sola sucursal ⇒ va fija en el filtro. Sin esto la primera consulta sale sin
+        // sucursal y el backend igual la recorta, pero la pantalla no diría cuál está viendo.
+        if (ops.length === 1 && !this.filtros().sucursal) {
+          this.filtros.update((f) => ({ ...f, sucursal: ops[0].value }));
+          this.load();
+        }
+      },
+      error: () => this.alcanceLeido.set(true),
+    });
     this.load();
     // Deep-link `?doc=01UD0801-0000875`: se llega desde otra pantalla (p.ej. el auxiliar de
     // /finanzas/cartera) con un documento concreto en la mano. Abre el side-peek directo, sin
@@ -425,6 +448,7 @@ export class ComercialDocumentosComponent {
       vendedor_code: f.vendedor || undefined,
       cobro: f.cobro || undefined,
       vencidas: f.soloVencidas ? 'true' : undefined,
+      warehouse_codes: f.sucursal || undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {

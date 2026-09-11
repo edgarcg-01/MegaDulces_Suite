@@ -27,6 +27,8 @@ export interface GuiaCobranzaOpts {
   responsable?: string;
   /** Nota del emisor (una línea) — opcional. */
   nota?: string;
+  /** Alcance de sucursal YA resuelto (ver el controller). `null`/ausente = sin recorte. */
+  warehouse_codes?: string[] | null;
 }
 
 interface MovImpreso { folio: string; fecha: string; descuento: number; importe: number; derivado: boolean }
@@ -51,7 +53,7 @@ export class GuiaCobranzaService {
         `La guía admite hasta ${MAX_FOLIOS} facturas por documento (se pidieron ${folios.length}).`);
     }
 
-    const { rows, faltantes } = await this.docs.paraGuia(folios);
+    const { rows, faltantes } = await this.docs.paraGuia(folios, { warehouse_codes: opts.warehouse_codes });
     // Una guía a la que le faltan facturas se ve igual de bien que una completa: el cobrador
     // saldría de menos sin enterarse. Se niega a imprimir y dice cuáles.
     if (faltantes.length) {

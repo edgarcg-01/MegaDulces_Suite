@@ -2543,6 +2543,7 @@ imprime desde Kepler, y filtros que quepan en una hilera.
 | GT.7 | 🧪 2026-09-11 | El **vendedor** va en el encabezado de la guía (Edgar) |
 | GT.8 | 🧪 2026-09-11 | **Una guía = un vendedor** (Edgar): la selección mezclada se rechaza en el backend (identidad por `vendedor_code`, no por nombre) y la pantalla apaga los botones con el motivo antes de llegar ahí |
 | GT.9 | 🧪 2026-09-11 | **Responsive real** (teléfono 390 / tablet 820, medido): filtros por `@container` y no `@media` (§R), breakpoints en `rem`, tabla al canon de `DESIGN_TABLES` (scroll-X + 1ª columna congelada con checkbox+folio), sin alto fijo en teléfono. **Dos hallazgos de plataforma, abajo** |
+| GT.11 | 🧪 2026-09-11 | **Alcance de sucursal** (ADR-050): quien alcanza varias elige en un selector; quien tiene una designada la ve como chip fijo y trabaja sólo con el personal de esa área (el catálogo de vendedores sale del mismo recorte). Cortado en el BACKEND en las 5 puertas (tabla · catálogo · detalle · anexo · guía), no en la pantalla. Smoke `http-telemarketing-scope-test` 13/13 |
 | GT.10 | 🧪 2026-09-11 | La ventana vacía **dice cuándo fue la última factura** en vez de dejar la pantalla en $0. Reportado por Edgar como "no funciona": con el default de 8 días y el feed de staging parado el 03-sep, la pantalla abre en blanco y se lee como rota. El `max(fecha)` cuesta ~1 s sobre la vista en vivo → se paga **sólo** en el camino vacío |
 
 **Abierto:** ¿el tab Reportes debería traer sólo pendientes/parciales por default? Hoy deja
@@ -2557,6 +2558,11 @@ pantalla responsive; no los toqué fuera de estas dos tablas):
    ~145 tablas con `styleClass="p-datatable-sm surf-table surf-table--sticky …"` **no están
    recibiendo ninguna de esas clases** desde el upgrade — ni la densidad ni el sticky ni la
    columna congelada de `DESIGN_TABLES`. Acá se arregló pasando `size="small"` + `class=` estático.
+1bis. **`DataScopeService.reset()` no tenía llamador.** El servicio cachea el alcance con
+   `shareReplay` para toda la vida del SPA y su `reset()` decía "se llama tras un cambio de
+   sesión" — nadie lo llamaba. Al cambiar de usuario sin recargar, TODOS los selectores de
+   sucursal de la app seguían ofreciendo los del usuario anterior. No filtraba filas (el
+   backend recorta), pero la pantalla mentía. Cableado en `AuthService.logout()` + `setSession()`.
 2. **Regla global de móvil vs. el canon.** `styles.css` tiene un patrón viejo de "columnas
    prioritarias" (`@media (max-width:480px)`: esconde de la 4ª columna en adelante y pega la
    última a la derecha) que pelea con `DESIGN_TABLES` §2.3 (scroll-X + 1ª congelada). Con las

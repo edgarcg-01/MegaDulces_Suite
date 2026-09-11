@@ -84,7 +84,9 @@ export interface SalesDocsFiltros {
   doc_tipos: string[];
 }
 export interface SalesDocsQuery {
-  from?: string; to?: string; warehouse_ids?: string; doc_tipo?: string;
+  from?: string; to?: string; doc_tipo?: string;
+  /** Código de sucursal (2 dígitos). El backend lo recorta a tu alcance (ADR-050). */
+  warehouse_codes?: string;
   cliente_code?: string; vendedor_code?: string; search?: string;
   vencidas?: string; cobro?: string; min?: string; canceladas?: string;
   page?: number; pageSize?: number;

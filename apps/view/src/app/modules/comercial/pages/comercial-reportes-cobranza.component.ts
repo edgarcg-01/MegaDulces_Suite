@@ -11,6 +11,7 @@ import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { SalesDocumentsService, SalesDocRow, SalesDocsReport, SalesDocsFiltros } from '../sales-documents.service';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { TELEMARKETING_TABS } from '../telemarketing-tabs';
 import {
@@ -53,6 +54,7 @@ import {
     <app-page-tabs [tabs]="tabs" />
 
     <app-telemarketing-filtros [value]="filtros()" [vendedores]="vendedorOpts()"
+                               [sucursales]="sucursales()" [sucursalDeclarada]="alcanceLeido()"
                                (cambio)="aplicar($event)" />
 
     <!-- Lo seleccionado, siempre a la vista: es lo que va a salir impreso -->
@@ -259,6 +261,14 @@ export class ComercialReportesCobranzaComponent {
   readonly sel = signal<SalesDocRow[]>([]);
   readonly filtros = signal<TmFiltros>(tmFiltrosIniciales());
   private readonly catalogos = signal<SalesDocsFiltros | null>(null);
+  private readonly scope = inject(DataScopeService);
+  /**
+   * GT.11 — sucursales que este usuario alcanza (`/users/me/scope`). Alimenta el selector;
+   * NO es el control de acceso: el backend recorta igual (ADR-050). Si el usuario tiene una
+   * sola, se fija como filtro desde el arranque para que la primera consulta ya sea la suya.
+   */
+  readonly sucursales = signal<{ label: string; value: string }[]>([]);
+  readonly alcanceLeido = signal(false);
 
   responsable = '';
   /**
@@ -333,6 +343,19 @@ export class ComercialReportesCobranzaComponent {
   };
 
   constructor() {
+    this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ops) => {
+        this.sucursales.set(ops);
+        this.alcanceLeido.set(true);
+        // Una sola sucursal ⇒ va fija en el filtro. Sin esto la primera consulta sale sin
+        // sucursal y el backend igual la recorta, pero la pantalla no diría cuál está viendo.
+        if (ops.length === 1 && !this.filtros().sucursal) {
+          this.filtros.update((f) => ({ ...f, sucursal: ops[0].value }));
+          this.load();
+        }
+      },
+      error: () => this.alcanceLeido.set(true),
+    });
     this.load();
   }
 
@@ -373,6 +396,7 @@ export class ComercialReportesCobranzaComponent {
       vendedor_code: f.vendedor || undefined,
       cobro: f.cobro || undefined,
       vencidas: f.soloVencidas ? 'true' : undefined,
+      warehouse_codes: f.sucursal || undefined,
       pageSize: ComercialReportesCobranzaComponent.PAGE,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

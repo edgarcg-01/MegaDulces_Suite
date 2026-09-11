@@ -12,8 +12,6 @@ import { TenantKnexService, TenantContextService, applySmartSearch } from '@mega
  * `analytics.*` no tiene RLS → filtro `tenant_id` EXPLÍCITO, todo dentro de `tk.run()`.
  */
 
-const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /** Identidad fiscal del emisor, leída de `fiscal.issuer_config` (ver `emisorFiscal()`). */
 export interface EmisorFiscal {
   rfc: string;
@@ -30,7 +28,14 @@ const MAX_PAGE = 200;
 export interface SalesDocsQuery {
   from?: string;
   to?: string;
-  warehouse_ids?: string;  // CSV de uuid
+  /**
+   * Sucursales que este usuario puede ver, **ya recortadas** por `ScopeService.readParam()`
+   * en el controller (llave canónica = código de 2 dígitos = `erp_sales_invoices.sucursal`).
+   * `null` = sin filtro (alcance `all` y nada pedido) · `[]` = no alcanza ninguna.
+   * NO es lo que pidió el cliente: lo que pide de más se recorta antes de llegar acá.
+   */
+  warehouse_codes?: string[] | null;
+  warehouse_ids?: string;  // CSV de uuid (legacy; hoy lo resuelve readParam)
   doc_tipo?: string;       // telemarketing | credito
   cliente_code?: string;
   vendedor_code?: string;
@@ -63,10 +68,6 @@ export class CommercialSalesDocumentsService {
     return m ? { sucursal: m[1], docPrefix: m[2], folio: m[3] } : null;
   }
 
-  private whIds(q: SalesDocsQuery): string[] {
-    return (q.warehouse_ids || '').split(',').map((s) => s.trim()).filter((s) => UUID_RX.test(s));
-  }
-
   /** WHERE base compartido por list() y kpis() — si divergen, los KPIs mienten sobre la tabla. */
   private base(trx: any, tenantId: string, q: SalesDocsQuery) {
     const { from, to } = this.range(q);
@@ -79,8 +80,9 @@ export class CommercialSalesDocumentsService {
     // listado y de los KPIs salvo que se pidan explícitamente.
     if (q.canceladas !== 'true') b.andWhere('i.cancelada', false);
 
-    const whs = this.whIds(q);
-    if (whs.length) b.whereIn('i.warehouse_id', whs);
+    // Alcance de sucursal. `[]` ⇒ knex emite `1 = 0`: un usuario sin sucursal alcanzable ve
+    // cero filas, que es lo correcto — nunca "todas" por ausencia de filtro.
+    if (q.warehouse_codes) b.whereIn('i.sucursal', q.warehouse_codes);
     // AX 2026-08-25 (Edgar): /comercial/documentos = SOLO facturas de telemarketing.
     // Se saca la venta a crédito (U/D/12). Filtro en el service (no en la vista compartida).
     b.andWhere('i.doc_tipo', 'telemarketing');
@@ -234,7 +236,10 @@ export class CommercialSalesDocumentsService {
    * Mismo truco de rendimiento que `detail()`: se filtra por (sucursal, doc_prefix, folio),
    * nunca por `folio_digital`, que es una expresión compuesta de la vista y no usa índice.
    */
-  async paraGuia(folioDigitales: string[]): Promise<{ rows: any[]; faltantes: string[] }> {
+  async paraGuia(
+    folioDigitales: string[],
+    q?: Pick<SalesDocsQuery, 'warehouse_codes'>,
+  ): Promise<{ rows: any[]; faltantes: string[] }> {
     const tenantId = this.tenantCtx.requireTenantId();
     const pedidos = [...new Set((folioDigitales || []).map((f) => String(f || '').trim()).filter(Boolean))];
     if (!pedidos.length) return { rows: [], faltantes: [] };
@@ -249,9 +254,13 @@ export class CommercialSalesDocumentsService {
     if (!tuplas.length) return { rows: [], faltantes: invalidos };
 
     return this.tk.run(async (trx) => {
-      const rows = await trx('analytics.erp_sales_invoices')
+      const q0 = trx('analytics.erp_sales_invoices')
         .where('tenant_id', tenantId)
-        .whereIn(['sucursal', 'doc_prefix', 'folio'], tuplas)
+        .whereIn(['sucursal', 'doc_prefix', 'folio'], tuplas);
+      // Fuera de alcance no vuelve, y por lo tanto cae en `faltantes`: la guía se niega a
+      // imprimir y dice cuáles. Mejor que imprimir de menos en silencio.
+      if (q?.warehouse_codes) q0.whereIn('sucursal', q.warehouse_codes);
+      const rows = await q0
         .select(
           'folio_digital', 'sucursal', 'doc_prefix', 'folio', 'doc_label',
           'fecha', 'vencimiento', 'dias_credito', 'vencimiento_source',
@@ -279,7 +288,7 @@ export class CommercialSalesDocumentsService {
    * medido en prod, filtrar por él costaba **3,031 ms**; por (sucursal, doc_prefix, folio),
    * **162 ms**. Se descompone acá y se filtra por las columnas simples.
    */
-  async detail(folioDigital: string) {
+  async detail(folioDigital: string, q?: Pick<SalesDocsQuery, 'warehouse_codes'>) {
     const tenantId = this.tenantCtx.requireTenantId();
     const p = this.partes(folioDigital);
     return this.tk.run(async (trx) => {
@@ -289,6 +298,12 @@ export class CommercialSalesDocumentsService {
 
       const doc = await trx('analytics.erp_sales_invoices').where(donde).first();
       if (!doc) throw new NotFoundException(`Documento ${folioDigital} no encontrado`);
+      // Fuera de tu alcance = no existe. Un 403 confirmaría que el folio SÍ existe en otra
+      // sucursal; y sin esta guarda el recorte de la tabla sería cosmético: bastaba un
+      // deep-link `?doc=` para leer (e imprimir) la factura de cualquier sucursal.
+      if (q?.warehouse_codes && !q.warehouse_codes.includes(String(doc.sucursal))) {
+        throw new NotFoundException(`Documento ${folioDigital} no encontrado`);
+      }
 
       const lineas = await trx('analytics.erp_sales_invoice_lines')
         .where(donde)
@@ -454,6 +469,9 @@ export class CommercialSalesDocumentsService {
         .andWhere('fecha', '>=', from).andWhere('fecha', '<=', to)
         .andWhere('doc_tipo', 'telemarketing')
         .select('warehouse_id', 'sucursal', 'vendedor_code', 'vendedor_nombre');
+      // El MISMO recorte que la tabla. De acá sale el catálogo de vendedores: sin esto, quien
+      // sólo alcanza una sucursal vería en el selector al personal de todas las demás.
+      if (q.warehouse_codes) ventana.whereIn('sucursal', q.warehouse_codes);
 
       const r = await trx.withMaterialized('sel', ventana)
         .select(

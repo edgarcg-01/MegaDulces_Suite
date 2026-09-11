@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, Post, Query, Res, UseGuards } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, ScopeService, CANONICAL_PARAM } from '@megadulces/platform-core';
 import { CommercialSalesDocumentsService, SalesDocsQuery } from './commercial-sales-documents.service';
 import { AnexoVentaService } from './anexo-venta.service';
 import { GuiaCobranzaService } from './guia-cobranza.service';
@@ -25,11 +25,25 @@ export class CommercialSalesDocumentsController {
     private readonly svc: CommercialSalesDocumentsService,
     private readonly anexo: AnexoVentaService,
     private readonly guia: GuiaCobranzaService,
+    private readonly scope: ScopeService,
   ) {}
+
+  /**
+   * GT.11 — alcance de sucursal. `readParam` lee el nombre canónico y los alias viejos,
+   * acepta código o uuid, y **recorta lo pedido a lo que el usuario alcanza** (ADR-050):
+   *   - alcance `all` sin pedir nada  → `null` (sin filtro, como siempre);
+   *   - alcance `all` pidiendo `03`   → sólo esa;
+   *   - alcance de una sucursal       → la suya, y si pide otra se recorta en silencio.
+   * Va en el controller y no en la pantalla: el endpoint recibe folios y filtros de quien
+   * sea, y un recorte que sólo vive en el front no es un recorte.
+   */
+  private async alcance(raw: Record<string, unknown> | undefined, ruta: string) {
+    return this.scope.readParam(raw, 'warehouse', `commercial/sales-documents/${ruta}`);
+  }
 
   private q(raw: Record<string, string | undefined>): SalesDocsQuery {
     return {
-      from: raw.from, to: raw.to, warehouse_ids: raw.warehouse_ids, doc_tipo: raw.doc_tipo,
+      from: raw.from, to: raw.to, doc_tipo: raw.doc_tipo,
       cliente_code: raw.cliente_code, vendedor_code: raw.vendedor_code, search: raw.search,
       vencidas: raw.vencidas, cobro: raw.cobro, min: raw.min, canceladas: raw.canceladas,
       page: raw.page ? Number(raw.page) : undefined,
@@ -39,13 +53,19 @@ export class CommercialSalesDocumentsController {
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
-  @ApiOperation({ summary: 'Facturas de telemarketing (U/D/8) con KPIs de cobranza. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_ids, doc_tipo, cliente_code, vendedor_code, min, vencidas (venció Y debe), cobro (pagada|parcial|pendiente|sin_cartera), search (cliente/RFC/folio/monto).' })
-  list(@Query() raw: Record<string, string>) { return this.svc.list(this.q(raw)); }
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance. Acepta los nombres viejos (warehouse_id, sucursal, branch…) y valores en código o uuid.' })
+  @ApiOperation({ summary: 'Facturas de telemarketing (U/D/8) con KPIs de cobranza, ACOTADAS a tu alcance de sucursales. Excluye las canceladas en Kepler salvo ?canceladas=true. Filtros: from, to, warehouse_codes, doc_tipo, cliente_code, vendedor_code, min, vencidas (venció Y debe), cobro (pagada|parcial|pendiente|sin_cartera), search (cliente/RFC/folio/monto).' })
+  async list(@Query() raw: Record<string, string>) {
+    return this.svc.list({ ...this.q(raw), warehouse_codes: await this.alcance(raw, 'list') });
+  }
 
   @Get('filtros')
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
-  @ApiOperation({ summary: 'Catálogos para los filtros (vendedores, sucursales, tipos) de la ventana consultada.' })
-  filtros(@Query() raw: Record<string, string>) { return this.svc.filtros(this.q(raw)); }
+  @ApiQuery({ name: CANONICAL_PARAM.warehouse, required: false, description: 'Sucursal o CSV de sucursales. Se recorta a tu alcance.' })
+  @ApiOperation({ summary: 'Catálogos para los filtros (vendedores, sucursales) de la ventana consultada, acotados a tu alcance: quien sólo alcanza una sucursal no ve al personal de las otras.' })
+  async filtros(@Query() raw: Record<string, string>) {
+    return this.svc.filtros({ ...this.q(raw), warehouse_codes: await this.alcance(raw, 'filtros') });
+  }
 
   /**
    * GT.2 — Guía de Cobranza de las facturas SELECCIONADAS en pantalla.
@@ -62,6 +82,7 @@ export class CommercialSalesDocumentsController {
   ) {
     const buf = await this.guia.pdfDeFolios(body?.folios || [], {
       responsable: body?.responsable, nota: body?.nota,
+      warehouse_codes: await this.alcance(undefined, 'guia-cobranza'),
     });
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline; filename="guia-cobranza.pdf"');
@@ -77,7 +98,10 @@ export class CommercialSalesDocumentsController {
     @Query('pagare') pagare: string,
     @Res() res: Response,
   ) {
-    const buf = await this.anexo.pdfDeFolio(folio, { pagare: pagare !== 'false' });
+    const buf = await this.anexo.pdfDeFolio(folio, {
+      pagare: pagare !== 'false',
+      warehouse_codes: await this.alcance(undefined, 'anexo'),
+    });
     res.setHeader('Content-Type', 'application/pdf');
     // inline: el caso normal es verlo/imprimirlo, no bajarlo.
     res.setHeader('Content-Disposition', `inline; filename="anexo-${folio}.pdf"`);
@@ -88,5 +112,7 @@ export class CommercialSalesDocumentsController {
   @Get(':folio')
   @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
   @ApiOperation({ summary: 'Documento completo (cabecera + renglones con precio de lista, precio con descuento, equivalencia en cajas y neto). Es lo que consume el anexo imprimible.' })
-  detail(@Param('folio') folio: string) { return this.svc.detail(folio); }
+  async detail(@Param('folio') folio: string) {
+    return this.svc.detail(folio, { warehouse_codes: await this.alcance(undefined, 'detail') });
+  }
 }

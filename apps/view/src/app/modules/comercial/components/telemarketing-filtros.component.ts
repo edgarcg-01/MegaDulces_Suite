@@ -14,6 +14,8 @@ export interface TmFiltros {
   hasta: string;
   cobro: string | null;
   soloVencidas: boolean;
+  /** Código de sucursal (2 dígitos). `null` = todas las que el usuario alcanza. */
+  sucursal: string | null;
 }
 
 /**
@@ -32,6 +34,7 @@ export function tmFiltrosIniciales(): TmFiltros {
     hasta: hoy.toISOString().slice(0, 10),
     cobro: null,
     soloVencidas: false,
+    sucursal: null,
   };
 }
 
@@ -65,6 +68,24 @@ let seq = 0;
                (ngModelChange)="escribir($event)" (keyup.enter)="ya()"
                placeholder="Cliente, RFC, folio o monto" aria-label="Buscar facturas" />
       </p-iconfield>
+
+      @if (sucursales.length > 1) {
+        <p-select [ngModel]="value.sucursal" (ngModelChange)="emit({ sucursal: $event })"
+                  [options]="sucursales" optionLabel="label" optionValue="value"
+                  placeholder="Sucursal" [showClear]="true" [filter]="sucursales.length > 8"
+                  styleClass="tmf-sel" ariaLabel="Sucursal" />
+      } @else if (sucursales.length === 1) {
+        <!-- Una sola sucursal alcanzable: no es una opción, es un HECHO de la sesión. Un
+             select de un solo valor invita a buscar las otras; el chip dice de quién son
+             los datos que estás viendo y por qué no hay más. -->
+        <span class="f-fija" [pTooltip]="'Tu usuario trabaja sólo con esta sucursal.'">
+          <i class="pi pi-building" aria-hidden="true"></i>{{ sucursales[0].label }}
+        </span>
+      } @else if (sucursalDeclarada) {
+        <span class="f-fija f-sin" pTooltip="Tu usuario no tiene sucursal asignada: pedile a un administrador que te asigne una.">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>Sin sucursal asignada
+        </span>
+      }
 
       <p-select [ngModel]="value.vendedor" (ngModelChange)="emit({ vendedor: $event })"
                 [options]="vendedores" optionLabel="label" optionValue="value"
@@ -113,6 +134,14 @@ let seq = 0;
       display: flex; align-items: center; gap: .4rem; flex: 0 0 auto;
       font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; white-space: nowrap;
     }
+    .f-fija {
+      display: inline-flex; align-items: center; gap: .35rem; flex: 0 0 auto;
+      padding: .3rem .55rem; border-radius: var(--radius-sm, 6px);
+      background: var(--surface-soft, var(--card-bg)); border: 1px solid var(--border-color);
+      font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); white-space: nowrap;
+    }
+    .f-fija i { font-size: .8rem; color: var(--text-soft); }
+    .f-sin { color: var(--warn-fg, var(--text-main)); }
     .sp { flex: 1 1 auto; min-width: 0; }
     /* El item flex es el <p-select>, NO el div que recibe styleClass: dimensionar por
        .tmf-sel no movia el ancho. El host se estiliza directo (sin ::ng-deep: esta en
@@ -142,6 +171,14 @@ let seq = 0;
 export class TelemarketingFiltrosComponent implements OnDestroy {
   @Input({ required: true }) value!: TmFiltros;
   @Input() vendedores: { label: string; value: string }[] = [];
+  /**
+   * Sucursales que ESTE usuario alcanza (`/users/me/scope`). El componente cambia de forma
+   * según cuántas sean: varias → selector; una → chip fijo; ninguna → aviso. No decide
+   * seguridad: el backend recorta igual (ADR-050).
+   */
+  @Input() sucursales: { label: string; value: string }[] = [];
+  /** `true` cuando el alcance ya se leyó: sin esto, "ninguna" y "todavía no sé" se ven igual. */
+  @Input() sucursalDeclarada = false;
   @Output() readonly cambio = new EventEmitter<TmFiltros>();
 
   readonly id = `tmf-venc-${++seq}`;
