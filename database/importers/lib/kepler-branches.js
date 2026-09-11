@@ -69,11 +69,17 @@ const urlOf = (b) => {
  *  opciones de pg.Client. */
 const clientConfig = (b, extra = {}) => ({ connectionString: b.url || urlOf(b), ...extra });
 
-/** Shape SALES: [{code,host,port,db,name,url}]. `cedis` (default true) incluye md_00.
- *  `url` resuelto por rama (Canindo = replica local) → usar con clientConfig o connectionString. */
+/** Shape SALES: [{code,host,port,db,name,url,replica}]. `cedis` (default true) incluye md_00.
+ *  `url` resuelto por rama (Canindo = replica local) → usar con clientConfig o connectionString.
+ *  `replica` (null para las ramas con POS remoto) expone el nombre de la base réplica. Se agregó
+ *  2026-09-11: sin él, un consumidor NO PUEDE distinguir una rama que lee del POS de una que lee de
+ *  una réplica lógica, y por lo tanto no puede comprobar que esa réplica siga RECIBIENDO. Ese día
+ *  la réplica de `.249` quedó congelada (suscripciones en DISABLE por VL.2c) y el poller de tickets
+ *  leyó 137 min de nada **sin un solo error**: la consulta funciona, la base existe, sólo dejó de
+ *  avanzar. Poblado ≠ fresco (ADR-056). */
 function salesMap({ cedis = true } = {}) {
   return BRANCHES.filter((b) => cedis || b.code !== '00')
-    .map((b) => ({ code: b.code, host: b.host, port: b.port, db: b.db, name: b.name, url: urlOf(b) }));
+    .map((b) => ({ code: b.code, host: b.host, port: b.port, db: b.db, name: b.name, url: urlOf(b), replica: b.replica || null }));
 }
 
 /** Shape STOCK: [{code,url}]. `cedis` (default false) — el stock de '00' viene de Wincaja. */

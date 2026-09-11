@@ -30,6 +30,93 @@ const DRY = process.argv.includes('--dry');
 const { salesMap, clientConfig } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
+// ── LATIDO (VL.4b) ───────────────────────────────────────────────────────────────────────────
+// Este carril era MUDO: no escribía `analytics.cron_runs`, así que db-health no tenía nada que
+// vigilar y su única señal era el mtime de un .log — que sigue moviéndose aunque no llegue un solo
+// ticket. El 2026-09-11 costó 137 min: tras mudar la fuente a `md` (VL.2b) y dejar las suscripciones
+// viejas en DISABLE (VL.2c), las réplicas de `.249` quedaron CONGELADAS; el poller siguió
+// conectando, consultando y escribiendo "N tickets vistos · 0 nuevos" sin un error, y /tienda/live
+// mostró "hace 137 min" en Canindo y Morelia Madero hasta que lo vio un humano.
+//
+// ⚠️ VARIABLE PROPIA, igual que en replicate-ods-live.js (GOTCHAS §17/§18): el latido tiene que
+// viajar a PROD y por un canal DISTINTO del que vigila. El canal de este carril es HTTP al API;
+// el latido va por Postgres. Si fuera por el mismo camino, un API caído se llevaría las dos cosas.
+const HB_URL = process.env.STORE_HB_URL || process.env.FLEET_DB_URL || null;
+const HB_KEY = 'store_poller';
+const HB_LABEL = 'Poller de tickets en vivo (Kepler → /tienda/live)';
+const HB_CONN = { ssl: { rejectUnauthorized: false }, connectionTimeoutMillis: 15000, statement_timeout: 30000, query_timeout: 30000 };
+const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+// Cada cuánto se le pregunta a las réplicas si siguen recibiendo. No en cada ciclo (son 25 s):
+// una suscripción no se cae y se levanta en segundos, y son conexiones extra a la fuente.
+const CHECK_MS = Number(process.env.STORE_REPLICA_CHECK_SEC || 240) * 1000;
+// Minutos sin recibir WAL antes de declarar congelada una réplica. Holgado a propósito: una rama
+// puede pasar minutos sin vender (de noche, o simplemente sin clientes) y eso NO mueve el WAL.
+const REPLICA_MAX_MIN = Number(process.env.STORE_REPLICA_MAX_MIN || 15);
+
+/** Latido DIRECTO a prod. Nunca tira: un latido que rompe el carril es peor que no tenerlo. */
+async function latir(fase, { status, rows, note, error, ms } = {}) {
+  if (!HB_URL) return;
+  const c = new Client({ connectionString: HB_URL, ...HB_CONN });
+  try {
+    await c.connect();
+    if (fase === 'begin') {
+      await c.query(
+        `UPDATE analytics.cron_runs SET status='error', last_finish=now(),
+                error=COALESCE(error,'la corrida anterior no reportó cierre (proceso caído)')
+          WHERE tenant_id=$1 AND job_key=$2 AND status='running'`, [TENANT, HB_KEY]);
+      await c.query(`
+        INSERT INTO analytics.cron_runs (tenant_id, job_key, label, last_start, status, host, updated_at)
+        VALUES ($1,$2,$3, now(), 'running', $4, now())
+        ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+          label=EXCLUDED.label, last_start=now(), status='running', host=EXCLUDED.host, updated_at=now()`,
+      [TENANT, HB_KEY, HB_LABEL, require('os').hostname()]);
+    } else {
+      await c.query(`
+        UPDATE analytics.cron_runs
+           SET last_finish=now(), status=$3, rows_affected=$4, duration_ms=$5,
+               note=left($6,500), error=left($7,500), updated_at=now()
+         WHERE tenant_id=$1 AND job_key=$2`,
+      [TENANT, HB_KEY, status || 'ok', rows ?? null, ms ?? null, note || null, error || null]);
+    }
+  } catch (e) { console.log(`⚠️  latido (${fase}) falló: ${e.message.split('\n')[0].slice(0, 80)}`); }
+  finally { await c.end().catch(() => {}); }
+}
+
+/**
+ * ⭐ El detector que faltaba. Las ramas `replica` (06 Canindo, 07 Morelia Madero) no se leen de su
+ * POS sino de una réplica lógica — y el poller se conecta a ESE MISMO cluster, así que puede
+ * preguntarle a la suscripción si sigue recibiendo. Es una medida DIRECTA, no una heurística:
+ *   · `subenabled=false`  → alguien la deshabilitó (exactamente lo que hizo VL.2c en `.249`);
+ *   · `latest_end_time` viejo → el publicador dejó de mandar.
+ * Ninguna de las dos depende del horario de la tienda, que es lo que hace inservible el criterio
+ * obvio ("hace mucho que no llega un ticket"): a las 21:00 una sucursal cerrada lo dispararía todas
+ * las noches, y una alarma que grita en falso enseña a ignorar el tablero.
+ * Devuelve [] si todo bien, o la lista de motivos.
+ */
+async function revisarReplicas() {
+  const malas = [];
+  for (const b of BRANCHES.filter((x) => x.replica)) {
+    const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 15000 }));
+    try {
+      await c.connect();
+      const { rows } = await c.query(`
+        SELECT s.subname, s.subenabled,
+               EXTRACT(epoch FROM (now() - st.latest_end_time))/60.0 AS min
+          FROM pg_subscription s
+          LEFT JOIN pg_stat_subscription st ON st.subid = s.oid
+         WHERE s.subdbid = (SELECT oid FROM pg_database WHERE datname = current_database())`);
+      if (!rows.length) { malas.push(`${b.code}: la réplica ${b.replica} no tiene suscripción`); continue; }
+      for (const r of rows) {
+        if (!r.subenabled) malas.push(`${b.code}: ${r.subname} DESHABILITADA (réplica congelada)`);
+        else if (r.min === null) malas.push(`${b.code}: ${r.subname} sin worker activo`);
+        else if (Number(r.min) > REPLICA_MAX_MIN) malas.push(`${b.code}: ${r.subname} sin recibir hace ${Number(r.min).toFixed(0)} min`);
+      }
+    } catch (e) { malas.push(`${b.code}: no se pudo revisar la réplica (${e.message.split('\n')[0].slice(0, 60)})`); }
+    finally { await c.end().catch(() => {}); }
+  }
+  return malas;
+}
+
 const pad = (n) => String(n).padStart(2, '0');
 // "YYYY-MM-DD HH:MM" en hora local MX (offset fijo -06, Centro sin DST).
 function sinceLocalMX(minutesAgo) {
@@ -108,28 +195,59 @@ async function push(tickets, emit = true) {
 
 let running = false;
 let first = true; // primer ciclo = backfill del día completo (silencioso, sin WS)
+let ultimoCheck = 0;       // cuándo se revisaron las réplicas por última vez
+let replicasMalas = [];    // último veredicto conocido (persiste entre ciclos, ver abajo)
 async function tick() {
   if (running) return; // evita solape si un ciclo tarda más que el intervalo
   running = true;
   // finally OBLIGATORIO: garantiza que `running` se libere pase lo que pase (throw o
   // no). Sin esto, un error fuera del try por-rama dejaba el guard atascado en true y
   // el poller se congelaba. Combinado con el timeout de fetch, ya no puede colgarse.
+  const t0 = Date.now();
+  await latir('begin');
   try {
     const backfill = first;
     const since = backfill ? startOfTodayMX() : sinceLocalMX(WINDOW_MIN);
     let total = 0, ins = 0;
+    // ⛔ Los fallos por rama ya NO son mudos. Antes se imprimían y se seguía: un ciclo en el que las
+    // 8 ramas fallaran terminaba idéntico a uno perfecto (y además `b.db` es undefined en las ramas
+    // de réplica, así que el aviso decía "undefined:"). Mismo defecto que OBS.1 arregló en cycleAll.
+    const fallas = [];
     for (const b of BRANCHES) {
       try {
         const tickets = await pollBranch(b, since);
         // backfill: emit=false (el navegador lo trae vía snapshot, sin inundar el WS).
         if (tickets.length) { const r = await push(tickets, !backfill); total += tickets.length; ins += (r.inserted || 0); }
-      } catch (e) { console.log(`⚠️  ${b.db}: ${e.message.split('\n')[0]}`); }
+      } catch (e) {
+        const msg = `${b.code} ${b.name}: ${e.message.split('\n')[0].slice(0, 70)}`;
+        fallas.push(msg); console.log(`⚠️  ${msg}`);
+      }
     }
     if (total || backfill) {
       const tag = backfill ? `BACKFILL día≥${since}` : `ventana≥${since}`;
       console.log(`[${new Date().toISOString()}] ${tag} · ${total} tickets vistos · ${ins} nuevos${backfill ? ' (buffer)' : ' → WS'}`);
     }
     first = false;
+
+    // Revisión de réplicas, espaciada. Su veredicto SOBREVIVE entre ciclos (`replicasMalas`): si no
+    // se revisó en este ciclo, se reporta el último veredicto conocido — no "ok por no haber mirado".
+    if (Date.now() - ultimoCheck > CHECK_MS) {
+      replicasMalas = await revisarReplicas();
+      ultimoCheck = Date.now();
+      if (replicasMalas.length) console.log(`⚠️  réplica(s) en problemas: ${replicasMalas.join(' · ')}`);
+    }
+
+    const problemas = [...fallas, ...replicasMalas];
+    await latir('end', {
+      status: problemas.length ? 'error' : 'ok',
+      rows: ins,
+      ms: Date.now() - t0,
+      note: `${BRANCHES.length - fallas.length}/${BRANCHES.length} ramas · ${total} vistos · ${ins} entregados`,
+      error: problemas.length ? problemas.join(' · ') : null,
+    });
+  } catch (e) {
+    await latir('end', { status: 'error', ms: Date.now() - t0, error: e.message.split('\n')[0] });
+    throw e;
   } finally {
     running = false;
   }
@@ -140,6 +258,16 @@ process.on('unhandledRejection', (e) => console.log(`⚠️  unhandledRejection:
 process.on('uncaughtException', (e) => console.log(`⚠️  uncaughtException: ${(e && e.message) || e}`));
 
 console.log(`Tienda live poller — ${DRY ? 'DRY-RUN (1 ciclo, sin push)' : `cada ${POLL_MS / 1000}s, ventana ${WINDOW_MIN}min → ${INGEST_URL}`}`);
+// Preflight del latido. En modo continuo se ABORTA antes que correr a ciegas: sin destino de latido
+// este carril vuelve a ser mudo, que es exactamente cómo se perdieron 137 min el 2026-09-11. En
+// --dry sólo se avisa (es una verificación a mano, no tiene por qué latir).
+if (!DRY) {
+  if (!HB_URL) {
+    console.error('✖ falta STORE_HB_URL (destino del latido, = prod): sin ella db-health no puede vigilar este carril. Abortando.');
+    process.exit(1);
+  }
+  console.log(`   latido → ${HB_KEY} · réplicas revisadas cada ${CHECK_MS / 1000}s (tope ${REPLICA_MAX_MIN} min sin recibir)`);
+}
 if (DRY) {
   tick().then(() => process.exit(0)).catch((e) => { console.error(e.message); process.exit(1); });
 } else {
