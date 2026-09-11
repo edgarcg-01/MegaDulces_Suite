@@ -34,6 +34,18 @@ import { Permission } from '@megadulces/contracts/authz/permissions';
 
 export type AlcancePendiente = 'mio' | 'bandeja';
 
+/**
+ * `[SN.12]` Lo que una bandeja reporta. El `total` solo no alcanza para ordenar: el orden por
+ * volumen pone 1,865 descuadres arriba y 5 alertas de flota abajo, cuando un vehículo sin señal
+ * probablemente urge más. `mas_viejo_at` es el segundo dato —cuándo entró el pendiente más
+ * antiguo— y es lo que convierte una lista en una prioridad. `null` = no se pudo medir; se
+ * DECLARA, no se asume "reciente" (ADR-056).
+ */
+export interface MedidaCola {
+  total: number;
+  mas_viejo_at: string | null;
+}
+
 export interface BandejaDef {
   id: string;
   label: string;
@@ -43,15 +55,28 @@ export interface BandejaDef {
   alcance: AlcancePendiente;
   /** Cualquiera de estas claves abre la bandeja. Debe coincidir con el guard de `ruta`. */
   anyOf: readonly Permission[];
-  contar: (knex: Knex, tenantId: string, userId: string) => Promise<number>;
+  medir: (knex: Knex, tenantId: string, userId: string) => Promise<MedidaCola>;
 }
 
 /** Estados de una sesión de conteo todavía EN VUELO (mig 20260613100000 L110). */
 const CONTEO_ACTIVO = ['open', 'counting', 'review', 'ready_to_reconcile'];
 
-async function contarFilas(q: Knex.QueryBuilder): Promise<number> {
-  const row = await q.count<{ n: string }[]>({ n: '*' }).first();
-  return Number(row?.n ?? 0);
+/**
+ * Cuenta y fecha la cola en UNA sola pasada (`count(*)` + `min(<fecha>)`). Dos consultas por
+ * bandeja duplicarían el trabajo de las ocho sin comprar nada: el filtro es el mismo.
+ * `columnaFecha` se declara por bandeja porque en una cola con JOIN importa cuál de las dos
+ * fechas es la que le habla a la persona (cuándo te lo ASIGNARON, no cuándo nació el conteo).
+ */
+async function medirCola(knex: Knex, q: Knex.QueryBuilder, columnaFecha: string): Promise<MedidaCola> {
+  const row = await q
+    .clearSelect()
+    .select(knex.raw('count(*) as n'), knex.raw('min(??) as viejo', [columnaFecha]))
+    .first<{ n: string | number; viejo: Date | string | null }>();
+  const viejo = row?.viejo ?? null;
+  return {
+    total: Number(row?.n ?? 0),
+    mas_viejo_at: viejo ? new Date(viejo).toISOString() : null,
+  };
 }
 
 export const BANDEJAS: readonly BandejaDef[] = [
@@ -64,8 +89,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-list-check',
     alcance: 'mio',
     anyOf: [Permission.COMMERCIAL_INVENTORY_CONTAR],
-    contar: (knex, tenantId, userId) =>
-      contarFilas(
+    medir: (knex, tenantId, userId) =>
+      medirCola(knex,
         knex('commercial.inventory_count_assignments as a')
           .join('commercial.inventory_counts as ic', function () {
             this.on('ic.id', '=', 'a.count_id').andOn('ic.tenant_id', '=', 'a.tenant_id');
@@ -73,7 +98,7 @@ export const BANDEJAS: readonly BandejaDef[] = [
           .where('a.tenant_id', tenantId)
           .where('a.user_id', userId)
           .whereIn('ic.status', CONTEO_ACTIVO),
-      ),
+        'a.created_at'),
   },
   {
     id: 'caducidades-mias',
@@ -83,11 +108,11 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-clock',
     alcance: 'mio',
     anyOf: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR],
-    contar: (knex, tenantId, userId) =>
-      contarFilas(
+    medir: (knex, tenantId, userId) =>
+      medirCola(knex,
         knex('commercial.expiry_reviews')
           .where({ tenant_id: tenantId, responsible_user_id: userId, status: 'draft' }),
-      ),
+        'created_at'),
   },
 
   // ── Colas compartidas ──────────────────────────────────────────────────────────────────────
@@ -99,8 +124,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-exclamation-triangle',
     alcance: 'bandeja',
     anyOf: [Permission.RECONCILIATION_VER],
-    contar: (knex, tenantId) =>
-      contarFilas(knex('reconciliation.discrepancies').where({ tenant_id: tenantId, status: 'nuevo' })),
+    medir: (knex, tenantId) =>
+      medirCola(knex, knex('reconciliation.discrepancies').where({ tenant_id: tenantId, status: 'nuevo' }), 'created_at'),
   },
   {
     id: 'finanzas-hallazgos',
@@ -110,8 +135,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-flag',
     alcance: 'bandeja',
     anyOf: [Permission.FINANCE_AI_CHAT],
-    contar: (knex, tenantId) =>
-      contarFilas(knex('finance.findings').where({ tenant_id: tenantId, status: 'nuevo' })),
+    medir: (knex, tenantId) =>
+      medirCola(knex, knex('finance.findings').where({ tenant_id: tenantId, status: 'nuevo' }), 'created_at'),
   },
   {
     id: 'maat-acciones',
@@ -121,8 +146,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-check-square',
     alcance: 'bandeja',
     anyOf: [Permission.FINANCE_AI_CHAT],
-    contar: (knex, tenantId) =>
-      contarFilas(knex('finance.proposed_actions').where({ tenant_id: tenantId, estado: 'pending_approval' })),
+    medir: (knex, tenantId) =>
+      medirCola(knex, knex('finance.proposed_actions').where({ tenant_id: tenantId, estado: 'pending_approval' }), 'created_at'),
   },
   {
     id: 'thot-acciones',
@@ -132,8 +157,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-check-square',
     alcance: 'bandeja',
     anyOf: [Permission.COMMERCIAL_THOT_GESTIONAR],
-    contar: (knex, tenantId) =>
-      contarFilas(knex('commercial.commercial_actions').where({ tenant_id: tenantId, status: 'pending_approval' })),
+    medir: (knex, tenantId) =>
+      medirCola(knex, knex('commercial.commercial_actions').where({ tenant_id: tenantId, status: 'pending_approval' }), 'created_at'),
   },
   {
     id: 'compras-hallazgos',
@@ -143,8 +168,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-flag',
     alcance: 'bandeja',
     anyOf: [Permission.COMPRAS_HALLAZGOS_VER],
-    contar: (knex, tenantId) =>
-      contarFilas(knex('commercial.replenishment_findings').where({ tenant_id: tenantId, status: 'open' })),
+    medir: (knex, tenantId) =>
+      medirCola(knex, knex('commercial.replenishment_findings').where({ tenant_id: tenantId, status: 'open' }), 'created_at'),
   },
   {
     id: 'flota-alertas',
@@ -154,8 +179,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
     icono: 'pi pi-bell',
     alcance: 'bandeja',
     anyOf: [Permission.LOGISTICS_FLEET_VER],
-    contar: (knex, tenantId) =>
-      contarFilas(knex('logistics.fleet_alerts').where({ tenant_id: tenantId, status: 'open' })),
+    medir: (knex, tenantId) =>
+      medirCola(knex, knex('logistics.fleet_alerts').where({ tenant_id: tenantId, status: 'open' }), 'created_at'),
   },
 ];
 

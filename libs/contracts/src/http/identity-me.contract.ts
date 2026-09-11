@@ -47,6 +47,13 @@ export interface MePendiente {
   ruta: string;
   icono: string;
   total: number;
+  /**
+   * `[SN.12]` Cuándo entró el pendiente MÁS VIEJO de esta cola (ISO). Es el dato que convierte la
+   * lista en una prioridad: el volumen mide tamaño, no urgencia — una cola de 1,865 puede llevar
+   * meses estable y una de 5 puede ser de ayer. `null` = no se pudo medir, y entonces la bandeja
+   * NO se asume reciente: se ordena al final y se dice (ADR-056).
+   */
+  mas_viejo_at: string | null;
   alcance: 'mio' | 'bandeja';
 }
 

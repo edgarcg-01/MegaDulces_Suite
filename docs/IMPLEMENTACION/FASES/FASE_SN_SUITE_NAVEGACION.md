@@ -175,6 +175,23 @@ Edgar rechazó también SN.10: *"el diseño es horrible. hay que hacer nuevament
 
 ⚠️ **Incidente de entorno, por segunda vez el mismo día:** a `node_modules` le faltan **exactamente** los tres scopes de SN.10 — `@angular`, `@angular-devkit` y `@babel` — con los otros 1398 paquetes presentes, sin `.staging`, sin proceso de npm vivo y con `package-lock.json` intacto. Ni el build ni jest pueden correr. Que se repita el mismo recorte el mismo día deja de ser casualidad y merece causa raíz (candidatos a descartar: antivirus en cuarentena, un `npm prune`/`dedupe` de otra de las ~10 sesiones que comparten el repo). Mientras tanto se verificó de forma estática (70/70: selectores del spec presentes, miembros del componente declarados, cero clases huérfanas, cero restos de la versión anterior, cero tokens inexistentes, breakpoints en `rem`).
 
+#### 4.2.4 SN.12 — reestructuración: color, delimitante, prioridad y registro de uso (2026-09-11)
+
+Seis observaciones de Edgar sobre la pantalla ya corriendo. Tres se resolvieron con evidencia que **cambió el pedido**:
+
+| Pedido | Lo que se midió | Qué se hizo |
+|---|---|---|
+| «un color a cada módulo según se haga hover» | `DESIGN.md` prohíbe decorar con color y veta el «ícono en círculo de color» — pero lo que veta es el ornamento **en reposo** | `--tono` por **entrada** (no por espacio), tomado de `--chart-*`/`--avatar-*` (la excepción declarada: el color codifica dato) y visible **sólo al señalar**. Medido: 22 tarjetas, 0 sin tono, **0 repeticiones dentro de un mismo espacio**. Sin morado a propósito: `--avatar-4` queda fuera porque `DESIGN.md` lo veta como identidad de IA, y la entrada que más lo pediría (Horus) es justo la que no debe llevarlo. ⚠️ `--chart-2` y `--avatar-2` son **el mismo hex** (`#185FA5`): son 15 tokens pero 14 colores |
+| «no existe un delimitante entre Tu trabajo y Tus espacios» | Cierto: sólo las separaba un `gap` de 32 px | Hairline vertical + `padding-left`; apiladas en pantalla chica pasa a ser horizontal |
+| «no hay prioridad en la bandeja» | Las 8 bandejas hacían `contarFilas()` y **devolvían un número y nada más**. El orden era por **volumen**, que no es prioridad | Cada bandeja reporta también `mas_viejo_at` (`count(*)` + `min(created_at)` en **una** pasada) y el orden pasa a ser **por antigüedad**. Verificadas las 6 tablas: todas tienen `created_at`. La que no pueda fecharse **no se asume reciente**: cae al final y se dice «sin fechar» (ADR-056) |
+| «módulos que no son de mucho valor, como Scoring o Planogramas» | No es que valgan poco: **son pantallas de configuración**. Rutas `/dashboard/admin/*`, y `planograma` y `catalogs` declaran **`view: []`** — ni siquiera existe permiso de lectura, sólo `manage` | Las tres se mudan a **Configuración de la suite**. Nadie pierde acceso —cambian de lugar, no de puerta (§5.1 «ocultar ≠ autorizar»)—: Comercial **10 → 7**, Configuración **1 → 4**, total **22 sin cambio** |
+| «registro de qué clickea cada usuario» | **Ya existía**: `commercial.portal_telemetry_events` + `CommercialTelemetryService` (junio 2026), cableado sólo al Portal B2B | Se **generaliza** en vez de inventar tabla: `POST /telemetry/suite`, **autenticado** (adentro siempre hay sesión, así que el `user_id` es el real y no un decode best-effort sin verificar firma). `UsoService` registra qué puerta y qué bandeja abre cada quien. **No** se registra lo que se escribe en el buscador |
+| — | La migración original dejó escrito *«crece rápido. Follow-up: borrar > 90 días. No se implementa aquí»* y nunca se implementó | Se cierra: `@Cron` diario con `timeZone` explícito que purga en lotes de 5,000 y **declara** en el log lo que borró |
+
+**La lección de fondo:** tres de los seis puntos no necesitaban diseño sino medición. «Scoring no vale» era en realidad «Scoring es un ajuste sentado en una silla de operación», «no hay prioridad» era «el backend nunca mandó con qué priorizar», y «quiero registrar clics» era «ya está construido y sirve a un solo dominio» — el caso exacto que ADR-056 llama primitivo sin generalizar.
+
+**Pendiente:** el `mas_viejo_at` se ve como «sin fechar» hasta que se reinicie la API (el front ya lo pide, el backend ya lo manda, el proceso vivo todavía no). Y el registro de uso necesita historia antes de poder ordenar la pantalla por lo que cada quien usa — esa parte es SN.13.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.
