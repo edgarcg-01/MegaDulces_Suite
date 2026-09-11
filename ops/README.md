@@ -109,6 +109,25 @@ ssh superoot@192.168.0.222 'set -a; . ~/secrets/ingest.env; set +a;
     FROM analytics.cron_runs ORDER BY last_finish DESC NULLS LAST;"'
 ```
 
+### Cómo leer esa tabla sin sacar la conclusión equivocada
+
+Medido el **2026-09-11 17:14** (`vie`). Tres cosas se ven raras y ninguna es un problema:
+
+- **`host` es el ID del contenedor, no un nombre.** Todos los carriles de `md` aparecen como
+  hashes (`d34b0ab4a6df` = `feeds-cron`, etc.); `SISTEMAS` es `.249`. Un `host` que cambia tras
+  un redeploy es normal: la imagen se recrea.
+- ⚠️ **`feed_nightly` y `feed_catalog` reportan desde `SISTEMAS`, y NO es que falten por mudar.**
+  Sus tareas en `.249` ya están **`Disabled`** (verificado con `Get-ScheduledTask`), pero sus
+  cadencias son lentas y **todavía no les tocó la primera pasada en `md`**: `nightly` corre a las
+  03:00 y `catalog` los sábados 02:00, o sea después del corte de hoy. Hasta esa primera pasada
+  el renglón conserva el host viejo. Si mañana siguen diciendo `SISTEMAS`, **ahí sí** es un
+  problema.
+- **Hay llaves ZOMBI de carriles retirados, y están en `ok` para siempre:**
+  `kepler_prices_bitacora` (18 d), `wincaja_replica` (24 d — lo reemplazaron `wincaja_replica_inc`
+  y `_hash` en WR.5.1), `kepler_catalog_bulk` (26 d). Nadie las escribe ya y nadie las borró. Un
+  `ok` de 26 días se lee igual que salud: cuando barras la tabla, **ordená por antigüedad**, no
+  por status.
+
 Reglas que ya costaron caro:
 
 - **Un latido sin umbral registrado en `CRON_JOBS`** (`apps/api/src/modules/db-health/db-health.service.ts`)
@@ -117,7 +136,36 @@ Reglas que ya costaron caro:
   (ContPAQi caído, sesión del GPS vencida). Por eso llevan `ODS_HB_IGNORE_ERROR=1`: lo que
   dispara el brazo es que el ciclo **deje de completarse**.
 - **`cdc_reconcile` NO se juzga contra cero.** El régimen normal medido son **42–167 huecos por
-  ventana de 3 días, todos repuestos**. El criterio es `repuestas == huecos` y `errores 0`.
+  ventana de 3 días, todos repuestos**.
+
+  ⚠️ **Y ojo con el criterio, porque este documento decía uno que el código no usa.** Medido el
+  2026-09-11 en `reconcile-ods-window.js`:
+
+  ```js
+  malo = huecos > ALERTA || errores > 0 || (ALERTA_SOBRANTES > 0 && sobrantes > ALERTA_SOBRANTES)
+  ```
+
+  **`repuestas == huecos` no participa.** Sirve para leer el renglón —dice que repuso todo lo
+  que encontró— pero **no es lo que pinta el status**. Lo que lo pinta son tres umbrales:
+
+  | | Variable | Default | Qué significa pasarse |
+  |---|---|---|---|
+  | Huecos | `ODS_RECONCILE_ALERT` | **50** | el carril está perdiendo filas |
+  | Errores | — | `> 0` | una tabla no se pudo comparar |
+  | Sobrantes | `ODS_SOBRANTES_ALERT` | **0 = APAGADO** | `DELETE` sin propagar, revisar a mano |
+
+  ⛔ **Los dos primeros están mal calibrados contra su propio baseline.** Con el régimen normal
+  en 42–167 y el umbral en **50**, la única alarma de completitud está roja la mayor parte del
+  tiempo: el 2026-09-11 a las 17:14 decía `error · huecos 191 · repuestas 191 · errores 0`, o
+  sea **cumpliendo el criterio que este README enunciaba**. Una alarma que grita en régimen
+  normal es exactamente la que se aprende a ignorar — el mismo defecto contra el que avisan las
+  dos reglas de arriba. **Decisión abierta:** subir `ODS_RECONCILE_ALERT` por encima del
+  baseline medido, o aceptar que el tablero viva en rojo. No se toca sin decidirlo.
+
+  ⛔ **Y `sobrantes` no lo vigila nadie**: su umbral nace en `0`, que el código lee como
+  APAGADO. El 2026-09-11 había **16,157 filas de más en el ODS** — que es el síntoma del
+  `DELETE` que no se propaga, ya declarado como riesgo vivo. El número está a la vista en la
+  nota del latido y **ningún sensor lo mira**.
 
 ---
 
