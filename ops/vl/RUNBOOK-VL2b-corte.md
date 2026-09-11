@@ -1,6 +1,6 @@
 # VL.2b · Runbook del corte — mudar la fuente del ODS a `md`
 
-> **Ventana estimada: 35–45 min**, de los cuales **~9 min son la transferencia**.
+> **Ejecutado el 2026-09-11: ventana real de 6 min 34 s** (10:25:53 → 10:32:27), de los cuales **1 min 51 s fue la transferencia** de ~11 GB. La estimación previa era 35–45 min.
 > Todo lo de abajo está **medido** contra las máquinas reales el 2026-09-11, no estimado.
 > Requisito previo cerrado: `pg_hba` de las 8 ramas (`ods_repl` 8/8 · `platform_ro` 6/6).
 
@@ -125,17 +125,22 @@ MSYS_NO_PATHCONV=1 docker run --rm `
   -v pgvector-md-data:/data -v "C:/Users/Sistemas/.ssh:/keys:ro" alpine sh -c '
   apk add --no-cache zstd openssh-client >/dev/null 2>&1
   cp /keys/id_ed25519 /tmp/k && chmod 600 /tmp/k
-  tar cf - --numeric-owner -C /data/18/docker --exclude=base/561593 --exclude=pg_wal/* . \
+  tar cf - --numeric-owner -C /data/18/docker --exclude=./base/561593 . \
    | zstd -1 -T0 \
    | ssh -i /tmp/k -o StrictHostKeyChecking=no -o BatchMode=yes -o Compression=no \
-       superoot@192.168.0.222 "sudo -n mkdir -p /srv/pgods && sudo -n tar xf - --numeric-owner -I zstd -C /srv/pgods"'
+       superoot@192.168.0.222 "bash ~/recv-pgods.sh"'
 ```
 
 ⚠️ `--exclude=base/561593` es **`wincaja`** — confirmar el OID antes de correr, no confiar en este
 número: `select oid, datname from pg_database where datname='wincaja';`
 ⚠️ `--numeric-owner` en **los dos lados**: el `postgres` del contenedor es un uid numérico, no un
 nombre que exista en `md`.
-⚠️ `pg_wal/*` se excluye a propósito — el cluster lo regenera y son 256 MB de nada.
+⛔ **`pg_wal` NO se excluye. Yo lo excluí en la corrida del 2026-09-11 y el cluster no arrancó:**
+`LOG: database system was shut down at … · invalid checkpoint record · PANIC: could not locate a valid
+checkpoint record at FD/15850760`. **Es falso que "el cluster lo regenera"**: aun tras un apagado
+limpio, Postgres necesita el segmento WAL que contiene el checkpoint de cierre para localizarlo y
+arrancar. Son 256 MB (18 segmentos) y viajan en **6 segundos**. Se arregló mandándolo aparte, pero
+cuesta un reintento dentro de la ventana.
 
 ### Paso 4 — arrancar aislado y dropear `wincaja`
 
