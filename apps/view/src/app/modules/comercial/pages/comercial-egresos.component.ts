@@ -28,6 +28,10 @@ import {
   ExpenseFinding,
   ExpenseFindingsReport,
 } from '../comercial.service';
+// [GX.9] Familias de egreso: etiqueta larga/corta y orden salen del contrato, no de acá.
+import {
+  EXPENSE_FAMILIA_LABEL, EXPENSE_FAMILIA_ORDER, EXPENSE_FAMILIA_SHORT, type ExpenseFamilia,
+} from '@megadulces/contracts';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
@@ -61,7 +65,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <div style="display:inline-flex;align-items:center;gap:.4rem"><h1>Egresos contables</h1><app-context-help topic="egresos" /></div>
-          <p class="surf-page-sub">Pólizas de gastos (6xx) y compras (5xx) · desglose por cuenta, beneficiario, sucursal y más · fuente Kepler</p>
+          <p class="surf-page-sub">Pólizas de compras (511), gastos (6xx), activo no circulante (150) y financieros e impuestos (702-764) · desglose por cuenta, beneficiario, sucursal y más · fuente Kepler</p>
         </div>
         <button pButton type="button" class="p-button-sm p-button-outlined" (click)="exportCsv()" [disabled]="!report()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Exportar CSV</span></button>
       </header>
@@ -161,8 +165,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                   (click)="drillRow(row)" (keydown.enter)="drillRow(row)" (keydown.space)="$event.preventDefault(); drillRow(row)">
                 <td>
                   {{ row.label }}
-                  @if (row.familia === '5') { <span class="ex-tag fam5">Compra</span> }
-                  @else if (row.familia === '6') { <span class="ex-tag fam6">Gasto</span> }
+                  @if (famShort(row.familia); as tag) { <span [class]="'ex-tag fam' + row.familia">{{ tag }}</span> }
                 </td>
                 <td class="ta-r">{{ row.movs | number }}</td>
                 <td class="ta-r strong">{{ money(row.total) }}</td>
@@ -334,7 +337,11 @@ export class ComercialEgresosComponent {
   private readonly theme = inject(ThemeService);
 
   readonly reportTabs = FINANZAS_TABS;
-  readonly familiaOpts = [{ label: 'Todo', value: '' }, { label: 'Compras', value: '5' }, { label: 'Gastos', value: '6' }];
+  // [GX.9] Derivado del contrato: una familia nueva aparece acá sola.
+  readonly familiaOpts = [{ label: 'Todo', value: '' },
+    ...EXPENSE_FAMILIA_ORDER.map((f) => ({ label: EXPENSE_FAMILIA_LABEL[f], value: f as string }))];
+  /** Chip corto de familia para la tabla; '' si la familia es desconocida (no se inventa). */
+  famShort(f: string | null): string { return f ? (EXPENSE_FAMILIA_SHORT[f as ExpenseFamilia] ?? '') : ''; }
   readonly viewOpts = [
     { label: 'Árbol', value: 'arbol' }, { label: 'Tabla', value: 'tabla' }, { label: 'Tendencia', value: 'tendencia' },
     { label: 'Proveedores', value: 'proveedores' }, { label: 'Hallazgos', value: 'hallazgos' },
@@ -417,6 +424,8 @@ export class ComercialEgresosComponent {
       datasets: [
         { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: egresChartSeries()[0] },
         { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: egresChartSeries()[1] },
+        { label: 'Financieros e impuestos', data: s.map((p) => p.financiero), backgroundColor: egresChartSeries()[2] },
+        { label: 'Activo no circulante', data: s.map((p) => p.activo), backgroundColor: egresChartSeries()[3] },
       ],
     };
   });
@@ -443,7 +452,7 @@ export class ComercialEgresosComponent {
       d ? `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` : undefined;
     return {
       from: fmt(a), to: fmt(b),
-      sucursal: this.sucursal, familia: (this.familia() || undefined) as '5' | '6' | undefined,
+      sucursal: this.sucursal, familia: (this.familia() || undefined) as ExpenseFamilia | undefined,
       doc_tipo: this.docTipo || undefined, area: this.area || undefined,
       dpto: this.dpto || undefined, concepto: this.concepto || undefined,
       beneficiario: this.beneficiario || undefined,

@@ -473,6 +473,8 @@ export class ComercialEgresoDetalleComponent {
       datasets: [
         { label: 'Compras / Costo', data: s.map((p) => p.compras), backgroundColor: egresChartSeries()[0] },
         { label: 'Gastos', data: s.map((p) => p.gastos), backgroundColor: egresChartSeries()[1] },
+        { label: 'Financieros e impuestos', data: s.map((p) => p.financiero), backgroundColor: egresChartSeries()[2] },
+        { label: 'Activo no circulante', data: s.map((p) => p.activo), backgroundColor: egresChartSeries()[3] },
       ],
     };
   });

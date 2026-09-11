@@ -28,6 +28,9 @@ export * from './http/store.contract';
 // Orden canónico de presentación de tiendas (PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS).
 // Dato chico: no pega al bundle inicial.
 export * from './http/warehouse-order.contract';
+// [GX.9] Egresos: etiqueta/serie por familia contable (150 activo · 511 compras · 6xx gastos · 702-764 financieros e impuestos).
+// Dato chico (4 entradas): no pega al bundle inicial.
+export * from './http/expense-family.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA:
