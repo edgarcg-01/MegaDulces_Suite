@@ -93,7 +93,7 @@ import {
       <app-load-state
         [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && rows().length === 0"
         emptyIcon="pi-file" emptyTitle="Sin facturas en el periodo"
-        emptyHint="Ajusta el rango de fechas o quita filtros para ver facturas."
+        [emptyHint]="pista()"
         (retry)="load()">
 
         <p-table [value]="rows()" dataKey="folio_digital" [scrollable]="true" scrollHeight="calc(100vh - 27rem)"
@@ -307,6 +307,20 @@ export class ComercialReportesCobranzaComponent {
     return total > r.rows.length
       ? `Se muestran ${r.rows.length} de ${total} facturas del filtro. Acota el rango o el vendedor para poder seleccionarlas todas.`
       : null;
+  });
+
+
+  /**
+   * Qué decir cuando la ventana no trajo nada. Un "ajusta el rango" a secas deja al usuario
+   * adivinando: si sabemos cuándo fue la última factura del canal, se dice. Sin eso, la
+   * pantalla de 8 dias arranca en blanco cada vez que el feed viene atrasado y se lee como
+   * que la app esta rota.
+   */
+  readonly pista = computed(() => {
+    const u = this.report()?.ultima_factura;
+    if (!u) return 'Ajusta el rango de fechas o quita filtros para ver facturas.';
+    const [a, m, d] = [u.slice(2, 4), u.slice(5, 7), u.slice(8, 10)];
+    return `La última factura de esta selección es del ${d}/${m}/${a}. Ajusta el rango de fechas.`;
   });
 
   readonly COBRO_LABEL: Record<string, string> = {

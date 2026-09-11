@@ -2543,6 +2543,7 @@ imprime desde Kepler, y filtros que quepan en una hilera.
 | GT.7 | 🧪 2026-09-11 | El **vendedor** va en el encabezado de la guía (Edgar) |
 | GT.8 | 🧪 2026-09-11 | **Una guía = un vendedor** (Edgar): la selección mezclada se rechaza en el backend (identidad por `vendedor_code`, no por nombre) y la pantalla apaga los botones con el motivo antes de llegar ahí |
 | GT.9 | 🧪 2026-09-11 | **Responsive real** (teléfono 390 / tablet 820, medido): filtros por `@container` y no `@media` (§R), breakpoints en `rem`, tabla al canon de `DESIGN_TABLES` (scroll-X + 1ª columna congelada con checkbox+folio), sin alto fijo en teléfono. **Dos hallazgos de plataforma, abajo** |
+| GT.10 | 🧪 2026-09-11 | La ventana vacía **dice cuándo fue la última factura** en vez de dejar la pantalla en $0. Reportado por Edgar como "no funciona": con el default de 8 días y el feed de staging parado el 03-sep, la pantalla abre en blanco y se lee como rota. El `max(fecha)` cuesta ~1 s sobre la vista en vivo → se paga **sólo** en el camino vacío |
 
 **Abierto:** ¿el tab Reportes debería traer sólo pendientes/parciales por default? Hoy deja
 palomear facturas ya pagadas (saldo $0), que no se cobran. Y el **Responsable** se autocompleta

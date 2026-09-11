@@ -163,8 +163,26 @@ export class CommercialSalesDocumentsService {
             trx.raw(`count(*) FILTER (WHERE i.vencimiento_source='erp')::int AS venc_erp`),
           ).first(),
       ]);
-      return { rows, kpis, page, pageSize, range: this.range(q) };
+      // Una pantalla en blanco con todo en $0 se lee como "se rompió". Cuando la ventana no
+      // trae nada, se dice CUÁNDO fue la última factura del canal para que el rango se pueda
+      // corregir sin adivinar. Sólo se paga en el camino vacío: medido, este max() cuesta
+      // ~1 s sobre la vista en vivo y no tiene por qué pagarlo la consulta que sí trajo filas.
+      const ultima = kpis?.documentos ? null : await this.ultimaFactura(trx, tenantId, q);
+      return { rows, kpis, page, pageSize, range: this.range(q), ultima_factura: ultima };
     });
+  }
+
+  /**
+   * Fecha de la última factura del canal, IGNORANDO el rango consultado (el resto de los
+   * filtros sí se respetan: si el vacío lo causó el vendedor o el estado de cobro, la fecha
+   * que se muestra tiene que ser la de ESA selección, no la del canal entero).
+   */
+  private async ultimaFactura(trx: any, tenantId: string, q: SalesDocsQuery): Promise<string | null> {
+    const sinRango: SalesDocsQuery = { ...q, from: '1900-01-01', to: '2999-12-31' };
+    const row = await this.base(trx, tenantId, sinRango).max('i.fecha as ultima').first();
+    const v = row?.ultima;
+    if (!v) return null;
+    return v instanceof Date ? v.toISOString().slice(0, 10) : String(v).slice(0, 10);
   }
 
   /**

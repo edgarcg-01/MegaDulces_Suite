@@ -75,6 +75,8 @@ export interface SalesDocsKpis {
 export interface SalesDocsReport {
   rows: SalesDocRow[]; kpis: SalesDocsKpis;
   page: number; pageSize: number; range: { from: string; to: string };
+  /** Sólo cuando la ventana volvió VACÍA: fecha de la última factura que sí existe (YYYY-MM-DD). */
+  ultima_factura?: string | null;
 }
 export interface SalesDocsFiltros {
   vendedores: { vendedor_code: string; vendedor_nombre: string }[];
