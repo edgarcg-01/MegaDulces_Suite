@@ -1,68 +1,93 @@
 /*
- * [SN.3] [SN.8] [SN.9] Mi trabajo — la landing, en UNA pantalla.
+ * [SN.3] [SN.8] [SN.9] [SN.10] [SN.11] Mi trabajo — la landing.
  *
- * La página no scrollea: `100dvh` repartido en filas de grid (cabecera, buscador, pendientes,
- * espacios, pie) donde sólo la de espacios es elástica. Si el contenido no cupiera —una pantalla
- * chica, un superadmin con 22 entradas— scrollea ESA zona, no la página: cortar contenido para
- * cumplir "sin scroll" sería esconder puertas, que es justo el daño que esta fase vino a arreglar.
- * Objetivo medido: 1920x1080 sin scroll interno.
+ * SN.11 cambia la apuesta, no el estilo. Hasta SN.10 la pantalla ERA el menú: las 22 puertas se
+ * comían el lienzo y el trabajo quedaba en una tira de píldoras, así que cada ronda de "que quepa"
+ * costaba contenido (SN.10 documentó nueve defectos, dos de ellos hacían MENTIR a la pantalla sobre
+ * a quién le toca el trabajo). Ahora son DOS COLUMNAS: el trabajo a la izquierda, fijo; las puertas
+ * a la derecha, rodando dentro de su columna. Nada se corta para caber.
  *
- * La TARJETA se conserva (chip de icono, título, línea de contenido) porque es el organismo que ya
- * funcionaba; lo que se sacrifica para que todo quepa es la descripción larga y el pie "Acceder →".
- * La regla "sin card grid" de DESIGN.md gobierna las superficies de DATOS de Operations; ésta es el
- * lanzador. Tokens de libs/design-tokens/tokens.css; dark sale solo (body.theme-monochrome).
+ * La TARJETA se conserva —es el organismo aprobado— y recupera el aire que la compresión le quitó,
+ * más la línea de grupo que se calculaba y nunca se pintaba. La regla "sin card grid" de DESIGN.md
+ * gobierna las superficies de DATOS de Operations; ésta es el lanzador.
+ *
+ * Tokens de libs/design-tokens/tokens.css; dark sale solo (body.theme-monochrome).
+ * Breakpoints en rem (DESIGN.md §9), no en px.
  */
 :host { display: block; }
 
 .mt-page {
   height: 100dvh;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--layout-bg);
   color: var(--text-main);
   overflow: hidden;
 }
 
-/* ── Barra superior ─────────────────────────────────────────────────────── */
+/* ── Cabecera de identidad ──────────────────────────────────────────────── */
 .mt-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
   background: var(--card-bg);
   border-bottom: 1px solid var(--border-color);
   padding: calc(var(--sp-3) + env(safe-area-inset-top)) calc(var(--sp-6) + env(safe-area-inset-right))
            var(--sp-3) calc(var(--sp-6) + env(safe-area-inset-left));
 }
-.mt-top-inner {
-  max-width: 90rem;
-  margin: 0 auto;
-  display: flex;
+.mt-id { display: flex; align-items: center; gap: var(--sp-3); min-width: 0; flex: 1 1 auto; }
+.mt-avatar {
+  flex: none;
+  width: 2.25rem;
+  height: 2.25rem;
+  display: inline-flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-6);
+  justify-content: center;
+  border-radius: var(--r-pill);
+  background: var(--action);
+  color: var(--action-ink);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  letter-spacing: .02em;
 }
-.mt-top-id { min-width: 0; display: flex; align-items: baseline; gap: var(--sp-4); flex-wrap: wrap; }
-.mt-title {
-  margin: 0;
+.mt-id-txt { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+.mt-name {
   font-size: var(--fs-h3);
   font-weight: var(--fw-bold);
   line-height: 1.2;
+  letter-spacing: -.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.mt-top-user { display: flex; align-items: center; gap: var(--sp-3); flex: none; }
-.mt-top-user-txt { text-align: right; }
-.mt-top-user-name { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-medium); }
-.mt-top-user-role { margin: 0; font-size: var(--fs-micro); color: var(--text-muted); }
 
-/* Contexto: una tira de pares, no cuatro cajas. */
-.mt-ctx { margin: 0; display: flex; flex-wrap: wrap; gap: var(--sp-1) var(--sp-4); min-width: 0; }
-.mt-ctx-cell { display: flex; align-items: baseline; gap: var(--sp-1); min-width: 0; }
-.mt-ctx-k {
-  font-size: var(--fs-micro);
-  text-transform: uppercase;
-  letter-spacing: .06em;
+/* Contexto: una línea de valores separados por punto medio. La etiqueta existe para el lector
+   de pantalla — "Puesto", "Alcance" y "Periodo" no necesitan ocupar pixeles para que se entienda. */
+.mt-ctx { margin: 0; display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-2); min-width: 0; }
+.mt-ctx-cell { display: flex; align-items: baseline; min-width: 0; }
+.mt-ctx-cell + .mt-ctx-cell::before {
+  content: "·";
   color: var(--text-faint);
+  padding-right: var(--sp-2);
 }
-.mt-ctx-v { margin: 0; font-size: var(--fs-micro); font-weight: var(--fw-medium); }
-.mt-ctx-v.is-ausente { font-weight: var(--fw-regular); color: var(--text-faint); font-style: italic; }
-.mt-ctx-err { margin: 0; font-size: var(--fs-micro); color: var(--text-faint); }
+.mt-ctx-k {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.mt-ctx-v {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-ctx-v.is-ausente { color: var(--text-faint); font-style: italic; }
+.mt-ctx-err { font-size: var(--fs-xs); color: var(--text-faint); }
 
 .mt-linkbtn {
   background: none;
@@ -77,33 +102,26 @@
 .mt-linkbtn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
 /* ── Buscador ───────────────────────────────────────────────────────────── */
-.mt-search-row {
-  padding: var(--sp-5) var(--sp-6) var(--sp-3);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--sp-2);
-}
 .mt-search {
-  width: 100%;
-  max-width: 40rem;
+  flex: 0 1 24rem;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: var(--sp-2);
   padding: var(--sp-2) var(--sp-3);
-  background: var(--card-bg);
+  background: var(--layout-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--r-md);
 }
-.mt-search:focus-within { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring, transparent); }
-.mt-search-ico { color: var(--text-faint); font-size: .9rem; flex: none; }
+.mt-search:focus-within { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
+.mt-search-ico { color: var(--text-faint); font-size: var(--fs-xs); flex: none; }
 .mt-search-input {
   flex: 1 1 auto;
   min-width: 0;
   border: 0;
   background: none;
   color: inherit;
-  font-size: var(--fs-body);
+  font-size: var(--fs-sm);
   outline: none;
 }
 .mt-search-input::placeholder { color: var(--text-faint); }
@@ -116,80 +134,171 @@
   color: var(--text-faint);
   cursor: pointer;
   padding: 0 var(--sp-1);
-  font-size: .8rem;
+  font-size: var(--fs-xs);
 }
 .mt-search-clear:hover { color: var(--text-main); }
 .mt-search-clear:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mt-kbd {
   flex: none;
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
+  font-size: var(--fs-nano);
+  color: var(--text-muted);
   border: 1px solid var(--border-color);
   border-radius: var(--r-sm);
   padding: 1px var(--sp-1);
+  background: var(--card-bg);
 }
-.mt-search-count { margin: 0; font-size: var(--fs-micro); color: var(--text-muted); }
-.mt-search-hint { color: var(--text-faint); }
 
-/* ── Pendientes: una tira de píldoras con el número ─────────────────────── */
-.mt-work { padding: 0 var(--sp-6) var(--sp-4); }
-.mt-work-row {
-  max-width: 90rem;
-  margin: 0 auto;
+/* ── Cuerpo: dos columnas ───────────────────────────────────────────────── */
+.mt-body {
+  display: grid;
+  grid-template-columns: minmax(0, 34rem) minmax(0, 1fr);
+  gap: var(--sp-8);
+  min-height: 0;
+  padding: var(--sp-5) calc(var(--sp-6) + env(safe-area-inset-right))
+           var(--sp-4) calc(var(--sp-6) + env(safe-area-inset-left));
+}
+.mt-col { min-height: 0; display: flex; flex-direction: column; }
+/*
+ * La columna de trabajo es la fija. El `overflow` es un seguro, no un recurso de layout: hoy el
+ * máximo son 8 bandejas (~420px) contra ~900 disponibles. Si algún día no cupiera, rueda — antes
+ * que cortar, que es el daño que esta fase vino a arreglar.
+ */
+.mt-work { overflow: auto; }
+.mt-spaces { overflow: hidden; }
+
+.mt-col-head {
   display: flex;
   align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--sp-2) var(--sp-4);
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  padding-bottom: var(--sp-2);
+  border-bottom: 1px solid var(--border-color);
 }
-/* Cada grupo envuelve DENTRO de sí: su etiqueta nunca se queda en la fila de arriba. */
-.mt-work-grupo {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-2);
-  min-width: 0;
-}
-.mt-work-h {
-  margin: 0 var(--sp-2) 0 0;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-1);
+.mt-col-h {
+  margin: 0;
   font-size: var(--fs-micro);
   text-transform: uppercase;
-  letter-spacing: .06em;
+  letter-spacing: .07em;
   font-weight: var(--fw-bold);
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
-.mt-work-tag {
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
-  white-space: nowrap;
-}
-
-.mt-pill {
+.mt-col-meta {
+  margin-left: auto;
   display: inline-flex;
   align-items: baseline;
   gap: var(--sp-2);
-  padding: var(--sp-1) var(--sp-3);
-  border: 1px solid var(--border-color);
-  border-radius: 999px;
-  background: var(--card-bg);
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+.mt-col-meta .is-ausente { font-style: italic; }
+
+/* ── Tu trabajo ─────────────────────────────────────────────────────────── */
+.mt-grupo + .mt-grupo { margin-top: var(--sp-5); }
+.mt-grupo-tag {
+  margin: 0 0 var(--sp-2);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text-faint);
+}
+
+.mt-task {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: var(--row-h-lg);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-4);
+  border-bottom: 1px solid var(--border-color);
   color: inherit;
   text-decoration: none;
-  transition: border-color .15s ease;
+  transition: background-color var(--dur-short) var(--ease-out);
 }
-.mt-pill:hover { border-color: var(--text-muted); }
-.mt-pill:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-.mt-pill-n {
-  font-size: var(--fs-body);
-  font-weight: var(--fw-bold);
+.mt-task:first-of-type { border-top: 1px solid var(--border-color); }
+.mt-task:hover { background: var(--overlay-hover, transparent); }
+.mt-task:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+/* Riel de pertenencia: sunset = es TUYO; neutro = es una cola que abre tu permiso. */
+.mt-task::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  width: 3px;
+  border-radius: var(--r-pill);
+  background: var(--border-color);
+}
+.mt-task.is-mine::before { background: var(--action); }
+.mt-task-n {
+  flex: none;
+  width: 4.5rem;
+  text-align: right;
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-variant-numeric: tabular-nums;
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-medium);
+  letter-spacing: -.02em;
+  line-height: 1.1;
 }
-.mt-pill-l { font-size: var(--fs-micro); color: var(--text-muted); }
-/* Lo que está a TU nombre se distingue de una cola compartida. */
-.mt-pill.is-mine { border-color: var(--action); }
-.mt-pill.is-mine .mt-pill-n { color: var(--action); }
+.mt-task.is-mine .mt-task-n { color: var(--action); }
+.mt-task-txt { min-width: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
+.mt-task-l {
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-medium);
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.mt-task:hover .mt-task-l { text-decoration: underline; text-underline-offset: 3px; }
+.mt-task-d {
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-task-go { flex: none; color: var(--text-faint); font-size: var(--fs-xs); }
+.mt-task:hover .mt-task-go { color: var(--action); }
+
+/* Nadie reparte trabajo nominal hoy (tres tablas en cero filas): se dice, no se disimula. */
+.mt-sin-mio {
+  margin: 0;
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  padding: var(--sp-3);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--r-md);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.mt-sin-mio > i { color: var(--text-faint); margin-top: 2px; }
+.mt-sin-mio b { display: block; font-weight: var(--fw-medium); color: var(--text-main); }
+.mt-sin-mio-why { display: block; color: var(--text-faint); line-height: 1.4; }
+
+.mt-nada {
+  margin: var(--sp-3) 0 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+.mt-declarado {
+  margin: var(--sp-4) 0 0;
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-sm);
+  background: var(--overlay-hover, transparent);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+.mt-declarado > i { color: var(--warn-fg); margin-top: 2px; }
+.mt-declarado b { color: var(--text-main); font-weight: var(--fw-medium); }
 
 .mt-refresh {
   border: 0;
@@ -197,67 +306,46 @@
   color: var(--text-faint);
   cursor: pointer;
   padding: 0;
-  font-size: .75rem;
+  font-size: var(--fs-xs);
 }
 .mt-refresh:hover:not(:disabled) { color: var(--text-main); }
 .mt-refresh:disabled { opacity: .6; cursor: default; }
 .mt-refresh:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .is-spin { display: inline-block; animation: mt-spin 1s linear infinite; }
 @keyframes mt-spin { to { transform: rotate(360deg); } }
-@media (prefers-reduced-motion: reduce) { .is-spin { animation: none; } }
 
-.mt-nada {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--sp-2);
-  font-size: var(--fs-micro);
-  color: var(--text-muted);
-}
-
-/* ── Espacios: rejilla densa. Única zona elástica de la pantalla. ───────── */
-.mt-main {
+/* ── Tus espacios: la única zona que rueda ──────────────────────────────── */
+.mt-scroll {
   min-height: 0;
   overflow: auto;
-  padding: 0 calc(var(--sp-6) + env(safe-area-inset-right)) var(--sp-4) calc(var(--sp-6) + env(safe-area-inset-left));
+  padding-right: var(--sp-2);
 }
-/*
- * Mampostería, no rejilla. Con `grid` cada espacio era una CELDA: "Dirección General" (una sola
- * tarjeta) reservaba una fila entera de la altura del espacio más alto y dejaba medio tablero en
- * blanco mientras "Comercial" (diez) iba apretado. Con `columns` los espacios fluyen y llenan.
- * `break-inside: avoid` mantiene cada espacio entero en una columna.
- */
-.mt-spaces {
-  max-width: 90rem;
-  margin: 0 auto;
-  columns: 3;
-  column-gap: var(--sp-6);
-}
-.mt-spaces > .mt-space {
-  break-inside: avoid;
-  -webkit-column-break-inside: avoid;
-  margin-bottom: var(--sp-5);
-}
-@media (max-width: 1500px) { .mt-spaces { columns: 2; } }
+.mt-space + .mt-space { margin-top: var(--sp-5); }
 .mt-space-title {
   margin: 0 0 var(--sp-2);
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  flex-wrap: wrap;
   font-size: var(--fs-micro);
   text-transform: uppercase;
-  letter-spacing: .06em;
+  letter-spacing: .07em;
   font-weight: var(--fw-bold);
-  color: var(--text-faint);
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: var(--sp-1);
+  color: var(--text-muted);
 }
-.mt-space-ico { font-size: .8rem; }
-.mt-badge-prop { font-size: var(--fs-micro); text-transform: none; letter-spacing: 0; }
+.mt-space-ico { font-size: var(--fs-xs); color: var(--text-faint); }
+.mt-space-n {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-regular);
+  color: var(--text-faint);
+}
+.mt-space-rule { flex: 1 1 auto; height: 1px; background: var(--border-color); }
+.mt-badge-prop { font-size: var(--fs-nano); text-transform: none; letter-spacing: 0; }
 
 .mt-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
   gap: var(--sp-2);
 }
 
@@ -266,18 +354,17 @@
   /* Arriba, no al centro: con el título en dos líneas el icono quedaba flotando a media altura. */
   align-items: flex-start;
   gap: var(--sp-3);
-  padding: var(--sp-2) var(--sp-3);
+  padding: var(--sp-3);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: var(--r-md);
   color: inherit;
   text-decoration: none;
   min-width: 0;
-  transition: border-color .15s ease, transform .15s ease;
+  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
 }
 .mt-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
 .mt-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-@media (prefers-reduced-motion: reduce) { .mt-card { transition: none; } .mt-card:hover { transform: none; } }
 
 .mt-card-ico {
   display: inline-flex;
@@ -289,11 +376,26 @@
   border-radius: var(--r-sm);
   background: var(--layout-bg);
   color: var(--text-main);
-  font-size: .9rem;
-  transition: background-color .15s ease, color .15s ease;
+  font-size: var(--fs-sm);
+  transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
 }
 .mt-card:hover .mt-card-ico { background: var(--action); color: var(--action-ink); }
 .mt-card-txt { display: flex; flex-direction: column; min-width: 0; }
+/*
+ * [SN.11] La línea de grupo se calculaba desde SN.6 y nunca se pintaba: es lo que ubica la entrada
+ * en el árbol de Dirección ("Ventas › Rutas de detalle") sin abrirla.
+ */
+.mt-card-group {
+  font-size: var(--fs-nano);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-faint);
+  line-height: 1.2;
+  margin-bottom: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /*
  * El NOMBRE no se corta: con `nowrap` salían «Compras / Reabastecimie…» y «Cuadre / Supervisor
  * de m…», y el nombre es lo único imprescindible de la tarjeta. Dos líneas y recién ahí elipsis.
@@ -314,14 +416,14 @@
   font-size: var(--fs-micro);
   color: var(--text-faint);
   line-height: 1.3;
+  margin-top: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .mt-vacio-busqueda {
-  max-width: 90rem;
-  margin: var(--sp-6) auto 0;
+  margin: var(--sp-4) 0 0;
   font-size: var(--fs-sm);
   color: var(--text-muted);
 }
@@ -331,29 +433,33 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--sp-2);
-  max-width: 90rem;
-  margin: 0 auto;
   width: 100%;
-  padding: var(--sp-2) var(--sp-6) calc(var(--sp-3) + env(safe-area-inset-bottom));
+  padding: var(--sp-2) calc(var(--sp-6) + env(safe-area-inset-right))
+           calc(var(--sp-3) + env(safe-area-inset-bottom)) calc(var(--sp-6) + env(safe-area-inset-left));
   border-top: 1px solid var(--border-color);
+  background: var(--card-bg);
   font-size: var(--fs-micro);
   color: var(--text-faint);
   line-height: 1.5;
 }
 .mt-foot-sep { opacity: .5; }
-.mt-declarado-txt {
-  max-width: 90rem;
-  margin: var(--sp-2) auto 0;
-  font-size: var(--fs-micro);
-  color: var(--text-faint);
+
+/* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */
+@media (max-width: 80rem) {
+  .mt-body { grid-template-columns: minmax(0, 26rem) minmax(0, 1fr); gap: var(--sp-6); }
 }
 
 /* ── Pantallas chicas: la altura fija deja de valer y se vuelve documento ─ */
-@media (max-width: 900px), (max-height: 620px) {
+@media (max-width: 62rem), (max-height: 39rem) {
   .mt-page { height: auto; min-height: 100dvh; overflow: visible; }
-  .mt-main { overflow: visible; }
-  .mt-spaces { columns: 1; }
-  .mt-top-inner { flex-wrap: wrap; }
-  .mt-top-user-txt { display: none; }
-  .mt-search-row { padding-top: var(--sp-3); }
+  .mt-body { grid-template-columns: minmax(0, 1fr); gap: var(--sp-6); }
+  .mt-work, .mt-spaces, .mt-scroll { overflow: visible; }
+  .mt-top { flex-wrap: wrap; }
+  .mt-search { flex: 1 1 100%; order: 3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-spin { animation: none; }
+  .mt-card, .mt-task { transition: none; }
+  .mt-card:hover { transform: none; }
 }

@@ -28,14 +28,22 @@ import { LoadStateComponent } from '../../shared/components/load-state/load-stat
 import { HlmBadgeDirective } from '../../shared/components/ui/badge/hlm-badge.directive';
 
 /**
- * `[SN.3]` `[SN.8]` `[SN.9]` — "Mi trabajo": la landing de la plataforma web (`/projects`).
+ * `[SN.3]` `[SN.8]` `[SN.9]` `[SN.11]` — "Mi trabajo": la landing de la plataforma web (`/projects`).
  *
- * ── Historia de dos correcciones ────────────────────────────────────────────────────────────
+ * ── Historia de tres correcciones ───────────────────────────────────────────────────────────
  * SN.3 tiró la tarjeta y puso filas de texto. Edgar lo rechazó: el diseño de los módulos ya era
  * correcto, lo que había que cambiar eran los nombres y las posiciones. SN.8 devolvió la tarjeta
- * agrupada por espacio. SN.9 la aprieta: **todo en una pantalla, sin scroll** (objetivo 1920×1080),
- * con un **buscador** como centro de gravedad. El precio elegido a conciencia: la tarjeta pierde
- * la descripción larga y queda en chip de icono + nombre + una línea de módulos.
+ * agrupada por espacio. SN.9 la apretó —todo en una pantalla, sin scroll— y SN.10 arregló nueve
+ * defectos de esa compresión, pero la pantalla se rechazó igual.
+ *
+ * ── SN.11: por qué apretar nunca iba a alcanzar ─────────────────────────────────────────────
+ * Las dos versiones rechazadas eran la MISMA apuesta: que la pantalla FUERA el menú. Las 22 puertas
+ * ocupaban el lienzo y el trabajo quedaba exprimido en una tira de píldoras. Los productos que
+ * resuelven este problema hacen lo contrario — SAP Fiori "My Home" (que llama *Spaces* a lo mismo
+ * que acá son espacios) ordena **To-Dos → Pages → Apps**; Asana y Height abren con lo personal y
+ * dejan lo organizacional a un clic; Humand pone a la persona arriba y la navegación en un riel.
+ * Decisión de Edgar (2026-09-11, sobre tres maquetas a escala): **dos columnas mitad y mitad**,
+ * el trabajo fijo a la izquierda y las puertas rodando a la derecha; nada se corta para caber.
  *
  * ── Por qué el buscador es de cliente ───────────────────────────────────────────────────────
  * Lo que busca —módulos y bandejas— **ya está en memoria**: el mapa de la suite se resuelve en el
@@ -71,6 +79,13 @@ interface EntradaVisible {
   route: string;
   groupLabel: string;
   /**
+   * `[SN.11]` El grupo, recortado a dos niveles para la línea superior de la tarjeta. El completo
+   * («Ventas › Mayoreo › Atención telefónica / Telemarketing») no cabe y tampoco aporta: el tercer
+   * nivel repite el nombre de la entrada. El completo sigue vivo en `groupLabel` para el `title`
+   * y para el haystack del buscador.
+   */
+  grupo: string;
+  /**
    * `[SN.10]` La segunda línea de la tarjeta. Para una entrada de proyecto son los módulos que
    * ESTA persona puede abrir; para un módulo enlazado, de qué proyecto sale ("de Finanzas") — que
    * es lo único que distingue dos «Hallazgos» pegados. Vacía si repetiría el título.
@@ -94,8 +109,12 @@ const DIMENSIONES_ALCANCE: ReadonlyArray<{ dim: string; todo: string; plural: st
   { dim: 'route', todo: 'todas las rutas', plural: 'rutas' },
 ];
 
-/** Cuántos módulos se nombran en la tarjeta compacta antes de resumir con "+N". */
-const MAX_MODULOS_VISIBLES = 3;
+/**
+ * Cuántos módulos se nombran en la tarjeta antes de resumir con "+N".
+ * `[SN.11]` Sube de 3 a 4: la columna de puertas ganó ancho al dejar de competir con el trabajo,
+ * y en SN.10 quedó medido que achicar la tarjeta deja a la línea derivada sin nada que decir.
+ */
+const MAX_MODULOS_VISIBLES = 4;
 
 /** Sin acentos y en minúsculas — el mismo criterio que `public.f_unaccent` en el backend. */
 function normalizar(s: string): string {
@@ -150,6 +169,7 @@ export class MiTrabajoComponent {
           icon: e.icon,
           route: e.route,
           groupLabel: e.groupLabel,
+          grupo: e.groupLabel ? e.groupLabel.split(' › ').slice(0, 2).join(' › ') : '',
           // Repetir el título en la segunda línea ("Telemarketing / Telemarketing") no informa.
           detalle: normalizar(detalle) === normalizar(e.label) ? '' : detalle,
           // El haystack incluye los módulos y el origen: "bancos" tiene que encontrar Finanzas.
@@ -266,6 +286,24 @@ export class MiTrabajoComponent {
     return t.status === 'ok' ? t.data.no_medido : [];
   });
 
+  /**
+   * `[SN.11]` Cuándo se contó, del `medido_at` que manda el servidor. Se muestra la HORA, no un
+   * "hace N minutos": el relativo se calcula restando el reloj del navegador y la Fase VP ya midió
+   * 21 píldoras de la app diciendo "actualizado hace 2 min" sin ninguna medición detrás (ADR-056).
+   * Una hora absoluta no se puede falsear por desfase de relojes. Si no vino, se declara.
+   */
+  readonly medidoAt = computed<string | null>(() => {
+    const t = this.trabajo();
+    return t.status === 'ok' ? t.data.medido_at ?? null : null;
+  });
+  readonly horaConteo = computed<string | null>(() => {
+    const iso = this.medidoAt();
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit' }).format(d);
+  });
+
   readonly periodo = new Intl.DateTimeFormat('es-MX', { month: 'long', year: 'numeric' }).format(new Date());
 
   /** ¿La persona pidió QUEDARSE aunque tenga un solo destino? (link "Mi trabajo" del sidebar). */
@@ -301,6 +339,14 @@ export class MiTrabajoComponent {
     const ctx = this.contexto();
     const nombre = ctx.status === 'ok' ? ctx.data.nombre?.trim() : null;
     return nombre || this.user()?.username || '';
+  });
+
+  /** `[SN.11]` Dos letras para la marca de identidad de la cabecera. Nunca una foto: no existe. */
+  readonly iniciales = computed(() => {
+    const partes = this.nombreVisible().split(/\s+/).filter(Boolean);
+    if (!partes.length) return '··';
+    const letras = partes.length === 1 ? partes[0].slice(0, 2) : partes[0][0] + partes[1][0];
+    return letras.toUpperCase();
   });
 
   readonly celdas = computed<CeldaContexto[]>(() => {
@@ -342,6 +388,11 @@ export class MiTrabajoComponent {
   }
 
   // ── Utilidades ──────────────────────────────────────────────────────────────
+
+  /** `[SN.11]` 1865 → "1,865". Cifras alineadas (tabular-nums lo hace en CSS); el separador acá. */
+  formatoTotal(n: number): string {
+    return new Intl.NumberFormat('es-MX').format(n);
+  }
 
   /** "Bancos · Cobranza · Cartera · +4" — los módulos que ESTA persona puede abrir. */
   lineaModulos(labels: readonly string[]): string {
