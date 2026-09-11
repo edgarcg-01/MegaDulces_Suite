@@ -9,6 +9,10 @@ import { TagModule } from 'primeng/tag';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
+// `[RE.29]` El filtro de periodo. `p-datepicker` y no un `input type="date"`: el nativo no toma
+// el tema (en oscuro sale con el calendario blanco del sistema operativo) — la misma razón por
+// la que RE.17.5 cambió el último `select` crudo de esta pantalla.
+import { DatePickerModule } from 'primeng/datepicker';
 import { TooltipModule } from 'primeng/tooltip';
 import { DialogModule } from 'primeng/dialog';
 import { ToastModule } from 'primeng/toast';
@@ -25,7 +29,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
-import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, type SortState, type SortDir } from '../../../shared/util';
+import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
@@ -75,6 +79,7 @@ interface AttachFile {
   selector: 'app-compras-entradas',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, TagModule, InputTextModule, ButtonModule, SelectModule,
+    DatePickerModule,
     DialogModule, ToastModule, ConfirmDialogModule, TooltipModule, RadioButtonModule, SegmentedComponent, MetricStripComponent,
     LoadStateComponent, EntityInspectorComponent, PageTabsComponent, SidePeekComponent, DocViewerComponent,
     FreshnessPillComponent, ContextHelpComponent, TableDensityComponent],
@@ -96,12 +101,12 @@ interface AttachFile {
               Una fila por compra: lo que facturó el proveedor, los ajustes ligados que lo
               bajaron (devoluciones y notas de crédito) y el <strong>neto que realmente
               pagamos</strong>
-              @if (report()?.settings; as cfg) { , <strong>desde el {{ cfg.reception_start }}</strong> }.
+              @if (report()) { , <strong>{{ ventanaTexto() }}</strong> }.
               La misma cifra agregada por proveedor está en
               <a routerLink="/compras/costo-neto">Costo por proveedor</a>.
             } @else {
               Las órdenes de entrada de la red
-              @if (report()?.settings; as cfg) { <strong>desde el {{ cfg.reception_start }}</strong> }
+              @if (report()) { <strong>{{ ventanaTexto() }}</strong> }
               , lo más reciente primero. Buscá por los <strong>últimos 4 dígitos</strong> del folio,
               o por proveedor / RFC / OC / vale. Para el trabajo diario están las pantallas por
               oficio: <strong>Captura de facturas</strong> y <strong>Revisión de facturas</strong>.
@@ -123,6 +128,32 @@ interface AttachFile {
              paginación sobre exactamente la misma entidad; nadie sabía cuál de las dos abrir. -->
         <div class="cb-field"><label>Ver</label>
           <app-segmented [options]="lenteOpts" [value]="lente()" (valueChange)="setLente($event)" ariaLabel="Lente de la vista" /></div>
+        <!--
+          [RE.29] — EL PERIODO. El backend siempre supo acotar por fecha (from/to, y los
+          aplica a las filas **y** a los KPIs), pero la pantalla no los mandaba: el único control
+          de ventana era el botón de rezago, o sea "desde el arranque del proceso" contra "todo
+          lo anterior". Un mes cerrado no se podía pedir, y en el lente del dinero eso es la
+          pregunta entera ("¿cuánto pagamos en agosto?").
+
+          Va PRIMERO porque define el universo: periodo → estado → cuadre. Mismo control que su
+          hermana /compras/costo-neto (Jakob: no se reinventa el patrón entre dos pantallas del
+          mismo proyecto).
+
+          maxDate/minDate cruzados: un rango invertido no se puede ni teclear. Vale más que
+          un mensaje de error — el rango imposible no llega nunca al server.
+        -->
+        <div class="cb-field"><label>Periodo</label>
+          <p-select [options]="presetOpts" [ngModel]="preset()" (onChange)="onPreset($event.value)"
+                    optionLabel="label" optionValue="value" placeholder="Rango rápido" [showClear]="true"
+                    appendTo="body" ariaLabel="Rango de fecha rápido" /></div>
+        <div class="cb-field"><label>Desde</label>
+          <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)"
+                        dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [maxDate]="dateTo()"
+                        appendTo="body" placeholder="Desde" styleClass="cb-dp" ariaLabel="Desde" /></div>
+        <div class="cb-field"><label>Hasta</label>
+          <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)"
+                        dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" [minDate]="dateFrom()"
+                        appendTo="body" placeholder="Hasta" styleClass="cb-dp" ariaLabel="Hasta" /></div>
         <div class="cb-field"><label>Estado</label>
           <app-segmented [options]="estadoOpts" [value]="estadoSel()" (valueChange)="setEstado($event)" ariaLabel="Estado del comprobante" /></div>
         <!--
@@ -151,7 +182,18 @@ interface AttachFile {
         <div class="cb-field cb-grow"><label>Buscar</label>
           <input pInputText [(ngModel)]="search" placeholder="Últimos 4 del folio (ej. 0397), o proveedor / RFC / OC…" (keyup.enter)="load()" (blur)="queue()" /></div>
         <div class="cb-field"><label>&nbsp;</label>
-          @if (rezago()) {
+          <!-- [RE.29] — el MISMO hueco, ahora con tres estados. El rezago es un atajo de
+               ventana ("todo lo anterior al arranque"); con un periodo explícito puesto sería un
+               segundo control diciendo lo mismo, y dos ventanas que se intersectan en silencio
+               es justo la trampa de la que se sale acá. Con rango activo, el botón ofrece
+               soltarlo — y dice cuál está puesto. -->
+          @if (rango()) {
+            <button pButton type="button" class="p-button-text" (click)="limpiarPeriodo()"
+                    [pTooltip]="'Volver al periodo del proceso (' + ventanaTexto() + ' puesto a mano)'" tooltipPosition="bottom">
+              <span class="p-button-icon p-button-icon-left pi pi-filter-slash" aria-hidden="true"></span>
+              <span class="p-button-label">Limpiar periodo</span>
+            </button>
+          } @else if (rezago()) {
             <button pButton type="button" class="p-button-text" (click)="setRezago(false)"
                     pTooltip="Volver al periodo del proceso" tooltipPosition="bottom">
               <span class="p-button-icon p-button-icon-left pi pi-arrow-left" aria-hidden="true"></span>
@@ -1243,6 +1285,9 @@ interface AttachFile {
     .cb-field { display: flex; flex-direction: column; gap: .3rem; }
     .cb-field > label { font-size: var(--fs-micro, .72rem); text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
     .cb-field.cb-grow { flex: 1 1 16rem; }
+    /* [RE.29] Los dos pickers del periodo, del mismo ancho y sin estirarse: si crecen, el
+       buscador (que es el que tiene cb-grow) pierde su lugar y la barra salta de línea. */
+    .cb-field ::ng-deep .cb-dp input { width: 8.5rem; font-variant-numeric: tabular-nums; }
     /* RE.10 — pill de órdenes nuevas (WS) */
     .cb-newpill { background: var(--action); border-color: var(--action); color: var(--action-ink); }
     .cb-newpill:hover { filter: brightness(1.06); }
@@ -2044,6 +2089,12 @@ export class ComprasEntradasComponent {
     // en la URL tiene que ignorarse, no convertirse en un filtro vacío que parece "sin datos".
     const cua = qp.get('cuadre');
     if (cua && this.cuadreOpts.some((o) => o.value === cua)) this.cuadreSel.set(cua);
+    // `[RE.29]` El periodo, ANTES de la primera carga: si se leyera después, el primer viaje
+    // sale con el carril del proceso y la tabla salta de un universo al otro. `fromIso` devuelve
+    // `null` ante basura, así que un `?from=ayer` se ignora en vez de convertirse en un filtro
+    // vacío que parece "no hay datos".
+    this.dateFrom.set(this.fromIso(qp.get('from')));
+    this.dateTo.set(this.fromIso(qp.get('to')));
     this.load();
     // RE.10 — WS near-real-time: el watcher del backend avisa cuando llegan órdenes nuevas.
     this.grSocket.connect();
@@ -2114,6 +2165,86 @@ export class ComprasEntradasComponent {
     { label: 'No se leyó', value: 'sin_datos' },
   ];
   setCuadre(v: string | null) { this.cuadreSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
+  /**
+   * `[RE.29]` — **el periodo.** `from`/`to` existían en el contrato del endpoint desde RE.13.0
+   * y se aplican tanto a las filas como a los KPIs (`kpiBase`), pero esta pantalla nunca los
+   * mandaba: la única ventana era el botón de rezago. Un mes cerrado no se podía pedir.
+   *
+   * Se guardan como `Date` (lo que habla el `p-datepicker`) y viajan como `YYYY-MM-DD`. La
+   * conversión es **local y a mano** (`toIso`) y no `toISOString()`: ése pasa por UTC y en MX
+   * (−06:00) le resta un día a toda fecha elegida. Misma trampa que LC.16 encontró en el TXT.
+   */
+  readonly dateFrom = signal<Date | null>(null);
+  readonly dateTo = signal<Date | null>(null);
+  readonly preset = signal<string>('');
+  readonly presetOpts = DATE_PRESET_OPTIONS;
+  /** ¿Hay periodo puesto a mano? Si lo hay, MANDA sobre el carril (ver `carril()`). */
+  readonly rango = computed(() => !!(this.dateFrom() || this.dateTo()));
+
+  /**
+   * El carril que se le pide al server. Con un periodo explícito va `todo`, y no es un detalle:
+   * `al_dia` clava un `receipt_date >= reception_start` en el backend, así que pedir enero
+   * mientras el carril sigue en `al_dia` devuelve **cero filas sin decir por qué** — el
+   * calendario mostraría enero y la tabla agosto en adelante. El rango explícito es el que el
+   * usuario ve; el carril es el default de cuando no eligió nada.
+   */
+  private carril(): 'al_dia' | 'rezago' | 'todo' {
+    if (this.rango()) return 'todo';
+    return this.rezago() ? 'rezago' : 'al_dia';
+  }
+
+  /** `Date` → `YYYY-MM-DD` local (sin correr por TZ). */
+  private toIso(d: Date | null): string | undefined {
+    if (!d) return undefined;
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${d.getFullYear()}-${mm}-${dd}`;
+  }
+  /** `YYYY-MM-DD` → `Date` local. */
+  private fromIso(s: string | null): Date | null {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    return y && m && d ? new Date(y, m - 1, d) : null;
+  }
+
+  /**
+   * `[RE.29]` — **la ventana, dicha.** RE.19 puso la bajada "desde el {arranque}" porque una
+   * orden de julio que no aparece se lee como dato faltante. Con un periodo a mano esa frase
+   * pasaba a ser falsa, y una pantalla que declara una ventana y usa otra es peor que una que
+   * no declara nada.
+   */
+  readonly ventanaTexto = computed(() => {
+    const f = this.toIso(this.dateFrom()), t = this.toIso(this.dateTo());
+    if (f && t) return `del ${f} al ${t}`;
+    if (f) return `desde el ${f}`;
+    if (t) return `hasta el ${t}`;
+    const cfg = this.report()?.settings;
+    if (!cfg) return '';
+    return this.rezago() ? `anterior al ${cfg.reception_start}` : `desde el ${cfg.reception_start}`;
+  });
+
+  onDate(which: 'from' | 'to', v: Date | null): void {
+    (which === 'from' ? this.dateFrom : this.dateTo).set(v);
+    this.preset.set(''); // tocar una fecha a mano deja de ser un preset
+    this.page.set(1); this.syncUrl(); this.load();
+  }
+
+  /** Rango rápido: fija Desde/Hasta de una. */
+  onPreset(key: string | null): void {
+    this.preset.set(key || '');
+    const r = key ? datePresetRange(key) : null;
+    // `showClear` manda `null`: limpiar el preset limpia el periodo, o el select diría "nada"
+    // con un rango todavía puesto.
+    if (!r) { this.limpiarPeriodo(); return; }
+    this.dateFrom.set(r.from); this.dateTo.set(r.to);
+    this.page.set(1); this.syncUrl(); this.load();
+  }
+
+  limpiarPeriodo(): void {
+    this.dateFrom.set(null); this.dateTo.set(null); this.preset.set('');
+    this.page.set(1); this.syncUrl(); this.load();
+  }
+
   readonly rezago = signal(false);
   readonly page = signal(1);
   readonly pageSize = 100;
@@ -2165,7 +2296,17 @@ export class ComprasEntradasComponent {
   suc(code: string): string { return branchName(code) || code; }
 
   setSucursal(v: string | null) { this.sucursalSel.set(v || null); this.page.set(1); this.syncUrl(); this.load(); }
-  setRezago(v: boolean) { this.rezago.set(v); this.page.set(1); this.load(); }
+  /**
+   * `[RE.29]` — entrar al rezago SUELTA el periodo puesto a mano. Son dos formas de decir la
+   * misma cosa (qué ventana mirar) y dejar las dos puestas las intersecta en silencio: el
+   * rezago es "antes del arranque" y cualquier rango del proceso vivo es posterior, o sea cero
+   * filas sin explicación. El botón ya no se ofrece con rango activo; esto cubre el resto.
+   */
+  setRezago(v: boolean) {
+    this.rezago.set(v);
+    if (v && this.rango()) { this.dateFrom.set(null); this.dateTo.set(null); this.preset.set(''); }
+    this.page.set(1); this.syncUrl(); this.load();
+  }
   irPagina(n: number) { this.page.set(Math.max(1, n)); this.load(); }
   desde(): number { const r = this.report(); return !r || r.total === 0 ? 0 : (this.page() - 1) * this.pageSize + 1; }
   hasta(): number { const r = this.report(); return !r ? 0 : Math.min(r.total, this.page() * this.pageSize); }
@@ -2180,6 +2321,11 @@ export class ComprasEntradasComponent {
         // RE.25 — el cuadre viaja en la URL para que "mandame las 44 que no se leyeron" sea un
         // link que se pega en un chat, igual que el resto de los lentes de esta pantalla.
         cuadre: this.cuadreSel() || null,
+        // `[RE.29]` El periodo, en la URL. DESIGN.md §Ing.UI: en Operations el rango de fechas
+        // vive en query params — sin eso, F5 pierde el mes que estabas mirando y "mandame agosto"
+        // no es un link. Los nombres son los del endpoint (`from`/`to`), como en costo-neto.
+        from: this.toIso(this.dateFrom()) || null,
+        to: this.toIso(this.dateTo()) || null,
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,
@@ -2195,7 +2341,11 @@ export class ComprasEntradasComponent {
       search: this.search || undefined,
       warehouse_codes: this.sucursalSel() ? [this.sucursalSel() as string] : undefined,
       cuadre: (this.cuadreSel() || undefined) as EntradasQuery['cuadre'],
-      carril: this.rezago() ? 'rezago' : 'al_dia',
+      // `[RE.29]` El periodo. Va junto con el carril que le corresponde (ver `carril()`): con
+      // rango explícito el carril se abre a `todo`, o el propio backend se comería el rango.
+      from: this.toIso(this.dateFrom()),
+      to: this.toIso(this.dateTo()),
+      carril: this.carril(),
       // RE.20.2 — server-paginada: el orden viaja y la lista se recarga. Ordenar las 100 filas
       // de enfrente no ordena las 875.
       ...serverSortParams(this.sort()),
