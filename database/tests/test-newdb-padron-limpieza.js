@@ -272,6 +272,70 @@ const declarar = (msg) => {
         `ninguna ve 0 personas — el eje `.concat(`\`sucursal\` no deja a nadie con la pantalla vacía (en 0: ${sinVer.map((r) => r.username).join(', ') || 'ninguna'})`));
     }
 
+    console.log('\n[10] `[ID.36]` Una persona, una cuenta');
+    // Eran 11 personas cargando 22 de las 128 cuentas: la encargada con su
+    // nombre + una segunda cuenta cuyo username es su código de caja. Nada en el
+    // schema decía que esas doce filas eran seis personas.
+    const NORM = `regexp_replace(lower(translate(btrim(nombre), 'ÁÉÍÓÚÜÑáéíóúüñ', 'AEIOUUNaeiouun')), '\\s+', ' ', 'g')`;
+    const { rows: dobles } = await k.raw(
+      `SELECT ${NORM} AS clave, count(*)::int AS n,
+              string_agg(username, ', ' ORDER BY username) AS quienes
+         FROM identity.users
+        WHERE tenant_id = ? AND activo AND deleted_at IS NULL AND nombre IS NOT NULL
+          AND array_length(regexp_split_to_array(btrim(nombre), '\\s+'), 1) >= 2
+          AND nombre !~ '^Etiquetas'
+        GROUP BY 1 HAVING count(*) > 1`,
+      [TENANT],
+    );
+    check(dobles.length === 0,
+      `ninguna persona con dos cuentas activas (quedan: ${dobles.map((r) => r.quienes).join(' | ') || 'ninguna'})`);
+
+    // ⚠️ La que carga god-mode sin usarse era el riesgo real, no la prolijidad.
+    const { rows: gm } = await k.raw(
+      `SELECT count(*) FILTER (WHERE u.username = '01jzico' AND u.activo)::int AS pos_godmode,
+              count(*) FILTER (WHERE u.activo AND u.deleted_at IS NULL)::int AS activos_godmode
+         FROM identity.users u
+         JOIN identity.role_permissions rp
+           ON rp.tenant_id = u.tenant_id AND rp.role_name = u.role_name
+        WHERE u.tenant_id = ? AND rp.is_platform_admin`,
+      [TENANT],
+    );
+    check(gm[0].pos_godmode === 0,
+      `la cuenta de POS con god-mode (01jzico) está retirada — nunca se usó y cargaba superadmin`);
+    console.log(`      cuentas activas con god-mode: ${gm[0].activos_godmode}`);
+
+    // Y que la consolidación de Diana no haya perdido jornadas.
+    const { rows: dd } = await k.raw(
+      `SELECT count(DISTINCT da.day_of_week)::int AS dias
+         FROM trade.daily_assignments da JOIN identity.users u ON u.id = da.user_id
+        WHERE da.deleted_at IS NULL AND u.username = 'diana_molina'`,
+    );
+    check(dd[0].dias >= 4,
+      `diana_molina conserva la semana consolidada (${dd[0].dias} días de ruta)`);
+
+    // Una jornada vigente colgada de alguien inactivo es trabajo asignado a nadie.
+    const { rows: hu } = await k.raw(
+      `SELECT count(*)::int AS n FROM trade.daily_assignments da
+         JOIN identity.users u ON u.id = da.user_id
+        WHERE da.deleted_at IS NULL AND NOT u.activo`,
+    );
+    check(hu[0].n === 0, `0 jornadas vigentes colgando de cuentas inactivas (hay ${hu[0].n})`);
+
+    // El par que NO se fusionó, declarado para que no se proponga sin confirmar.
+    const { rows: bb } = await k.raw(
+      `SELECT username, nombre, warehouse_code, department_code FROM identity.users
+        WHERE tenant_id = ? AND username IN ('brian_zavala', '54bcz')
+          AND activo AND deleted_at IS NULL ORDER BY 1`,
+      [TENANT],
+    );
+    if (bb.length === 2) {
+      declarar(
+        'sin fusionar a propósito: ' +
+          bb.map((r) => `${r.username} ("${r.nombre}", ${r.department_code}/${r.warehouse_code || 'sin suc'})`).join(' vs ') +
+          ' — apellidos iguales pero nombres de pila distintos, como Ivette vs Ivonne. Necesita confirmación humana.',
+      );
+    }
+
     console.log(
       `\n${fail === 0 ? '✅' : '❌'} [ID.27] padrón limpio: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`,
     );
