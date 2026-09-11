@@ -168,9 +168,13 @@ Los tres mecanismos que existían para detectar el problema estaban ciegos **en 
   `commercial-intelligence` (47) → `commercial-replenishment` (40) → el resto. Reusar
   `composeFreshness()`/`laneAt()`; el modelo de cobertura ya resuelto está en
   `commercial-profitability.service.ts`.
-- ⬜ **VP.2.3** `scripts/check-provenance.js` — **cuarta compuerta**, calcando
-  `scripts/check-authz-tree.js`: endpoint analítico nuevo o modificado sin envelope = CI rojo. Ratchet
-  como TS.0 (error en líneas nuevas, warn en el resto).
+- ⬜ **VP.2.3** `scripts/check-provenance.js` — **cuarta compuerta**: endpoint analítico nuevo o
+  modificado sin envelope = CI rojo. Ratchet como TS.0 (error en líneas nuevas, warn en el resto).
+  ⚠️ El modelo a calcar es `database/tests/test-authz-route-coverage.js` bloque [2] — regex sobre
+  el fuente **con PISO** (`size > 100`) — y **no** `scripts/check-authz-tree.js`, que esta línea
+  citaba: ese script se borró en `[SN.5]` (2026-09-10) porque leía shims re-export de una línea,
+  contaba 0 claves y pintaba verde. Un gate que se pone verde sobre el vacío es la primera cosa que
+  esta compuerta tiene que impedir de sí misma.
 
 ### VP.3 — Historia de datos maestros ⬜
 
