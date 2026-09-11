@@ -620,8 +620,33 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   private altoTiers(box: HTMLElement): number {
     const hijos = Array.from(box.children) as HTMLElement[];
     if (!hijos.length) return 0;
+    const k = this.escalaVisual(box);
     const gap = parseFloat(getComputedStyle(box).rowGap || '0') || 0;
-    return hijos.reduce((a, e) => a + e.getBoundingClientRect().height, 0) + (hijos.length - 1) * gap;
+    return hijos.reduce((a, e) => a + e.getBoundingClientRect().height / k, 0) + (hijos.length - 1) * gap;
+  }
+
+  /**
+   * ⭐ Escala VISUAL del elemento — y por qué existe.
+   *
+   * La vista de hoja dibuja las etiquetas bajo un transform:scale. Ahí getBoundingClientRect()
+   * viene ESCALADO y offsetHeight / clientHeight siguen en px de layout: son dos espacios
+   * distintos y compararlos no es un redondeo, es un factor.
+   *
+   * Medido sobre altoTiers vs clientHeight, que es justo donde se mezclaban:
+   *   escala 0.47 (la vieja, fija) → el alto de los renglones se SUB-estima 53% → nunca dispara
+   *     el encogido, los montos crecen hasta el tope y el bloque se desborda (lo tapa el
+   *     overflow:hidden, así que se ve como un renglón cortado).
+   *   escala 1.42 (monitor grande, con la hoja ya escalada al espacio) → se SOBRE-estima 42% →
+   *     el ajuste encoge los montos hasta el piso: "el precio del paquete salió diminuto".
+   *
+   * La hoja de IMPRESIÓN no va escalada, así que siempre midió bien: de ahí que lo que se ve en
+   * pantalla no coincidiera con lo que sale del papel. Con esto, las dos miden igual.
+   */
+  private escalaVisual(el: HTMLElement): number {
+    const alto = el.offsetHeight;
+    if (!(alto > 0)) return 1;
+    const k = el.getBoundingClientRect().height / alto;
+    return Number.isFinite(k) && k > 0.01 ? k : 1;
   }
 
   /** Reduce la fuente hasta que `el` (contenido) quepa en su contenedor, con piso mínimo. */
@@ -696,9 +721,12 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     // y el siguiente pase (fuentes usables) lo corrige con una medida de verdad.
     if (!(avail > 0)) return;
     const obstaculo = box.querySelector<HTMLElement>('.etq-sprout');
+    // La diferencia de dos rects viene en px VISUALES; availH está en px de layout. Se divide
+    // por la escala para no restar un número de otro espacio (ver escalaVisual).
+    const kBox = this.escalaVisual(box);
     const guarda = obstaculo
-      ? Math.max(0, obstaculo.getBoundingClientRect().bottom
-          - (box.getBoundingClientRect().top + parseFloat(cs.paddingTop || '0')))
+      ? Math.max(0, (obstaculo.getBoundingClientRect().bottom - box.getBoundingClientRect().top) / kBox
+          - parseFloat(cs.paddingTop || '0'))
       : 0;
     const availH = box.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0') - guarda;
     if (!(availH > 0)) return;
