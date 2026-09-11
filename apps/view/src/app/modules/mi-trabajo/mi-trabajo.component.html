@@ -12,8 +12,8 @@
       </div>
       <div class="mt-top-user">
         <div class="mt-top-user-txt">
-          <p class="mt-top-user-name">{{ user()?.username }}</p>
-          <p class="mt-top-user-role">{{ user()?.role_name }}</p>
+          <p class="mt-top-user-name">{{ nombreVisible() }}</p>
+          <p class="mt-top-user-role">{{ user()?.username }} · {{ user()?.role_name }}</p>
         </div>
         <p-button
           label="Cerrar sesión"
@@ -29,14 +29,27 @@
 
   <main class="mt-main">
 
-    <!-- 1 · Mi contexto: persona · puesto · alcance · periodo. Celdas hairline, sin tarjetas. -->
-    <section class="mt-block" aria-labelledby="h-contexto">
-      <h2 id="h-contexto" class="mt-h2">Mi contexto</h2>
+    <!-- ══ Espacio 1 · Mi trabajo ══════════════════════════════════════════════════════════ -->
+    <section class="mt-space" id="espacio-mi-trabajo" aria-labelledby="h-mi-trabajo">
+      <header class="mt-space-head">
+        <div class="mt-space-head-txt">
+          <h2 class="mt-space-title" id="h-mi-trabajo">
+            <i class="pi pi-inbox mt-space-ico" aria-hidden="true"></i>Mi trabajo
+          </h2>
+          <p class="mt-space-desc">Lo que te toca hacer hoy, con el conteo al momento.</p>
+        </div>
+        <button type="button" class="mt-refresh" (click)="cargarTrabajo()" [disabled]="trabajoCargando()">
+          <i class="pi pi-refresh" [class.is-spin]="trabajoCargando()" aria-hidden="true"></i>
+          <span>Actualizar</span>
+        </button>
+      </header>
+
+      <!-- Tira de contexto: rol · puesto · área · alcance · periodo. Una línea, no cuatro cajas. -->
       <app-load-state
         [loading]="contextoCargando()"
         [error]="contextoError()"
         [isEmpty]="false"
-        [skeletonRows]="2"
+        [skeletonRows]="1"
         errorTitle="No se pudo cargar tu contexto"
         (retry)="recargarContexto()">
         <dl class="mt-ctx">
@@ -44,96 +57,157 @@
             <div class="mt-ctx-cell">
               <dt class="mt-ctx-k">{{ c.etiqueta }}</dt>
               <dd class="mt-ctx-v" [class.is-ausente]="c.ausente">{{ c.valor }}</dd>
-              @if (c.detalle) { <dd class="mt-ctx-d">{{ c.detalle }}</dd> }
             </div>
           }
         </dl>
       </app-load-state>
-    </section>
 
-    <!-- 2 · Lo que la especificación pide y todavía no existe: UNA declaración, no cuatro cajas vacías. -->
-    <section class="mt-block mt-declarado" aria-labelledby="h-pendiente">
-      <h2 id="h-pendiente" class="mt-h2">Mis resultados, compromisos, excepciones y acciones correctivas</h2>
+      <!-- Pendientes -->
+      <app-load-state
+        [loading]="trabajoCargando()"
+        [error]="trabajoError()"
+        [isEmpty]="false"
+        [skeletonRows]="2"
+        errorTitle="No se pudo consultar tu trabajo pendiente"
+        (retry)="cargarTrabajo()">
+
+        @if (mios().length) {
+          <h3 class="mt-group-h">A tu nombre</h3>
+          <div class="mt-cards mt-cards-work">
+            @for (p of mios(); track p.id) {
+              <a class="mt-card mt-card-work is-mine" [routerLink]="p.ruta">
+                <span class="mt-work-n">{{ p.total }}</span>
+                <span class="mt-work-txt">
+                  <span class="mt-card-title">{{ p.label }}</span>
+                  <span class="mt-card-body">{{ p.detalle }}</span>
+                </span>
+                <span class="mt-card-go">Resolver<i class="pi pi-arrow-right" aria-hidden="true"></i></span>
+              </a>
+            }
+          </div>
+        }
+
+        @if (deBandeja().length) {
+          <h3 class="mt-group-h">
+            En tus bandejas
+            <span class="mt-group-hint">colas compartidas · nadie las tiene asignadas</span>
+          </h3>
+          <div class="mt-cards mt-cards-work">
+            @for (p of deBandeja(); track p.id) {
+              <a class="mt-card mt-card-work" [routerLink]="p.ruta">
+                <span class="mt-work-n">{{ p.total }}</span>
+                <span class="mt-work-txt">
+                  <span class="mt-card-title">{{ p.label }}</span>
+                  <span class="mt-card-body">{{ p.detalle }}</span>
+                </span>
+                <span class="mt-card-go">Abrir<i class="pi pi-arrow-right" aria-hidden="true"></i></span>
+              </a>
+            }
+          </div>
+        }
+
+        @if (sinPendientes()) {
+          <p class="mt-nada">
+            <i class="pi pi-check-circle" aria-hidden="true"></i>
+            No tienes pendientes en las bandejas a las que tienes acceso.
+          </p>
+        }
+
+        @if (noMedido().length) {
+          <!-- Lo que no se pudo contar se DECLARA: un cero dibujado se lee igual que "al día". -->
+          <p class="mt-declarado-txt">
+            Sin medir:
+            @for (n of noMedido(); track n.id; let last = $last) {
+              <span>{{ n.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+            }
+            — su bandeja no respondió, así que no se muestra en cero.
+          </p>
+        }
+      </app-load-state>
+
+      <!--
+        Lo que la especificación pide y la suite todavía no tiene. Una declaración, no cuatro
+        cajas vacías: hoy NADIE reparte trabajo nominalmente (las tres tablas de asignación están
+        en cero filas), y los indicadores no tienen fórmula ni meta acordada.
+      -->
       <p class="mt-declarado-txt">
-        Pendiente de definición: fórmulas y metas de los indicadores (P-06) y organigrama vigente (P-01).
-        Cuando existan indicadores acordados aparecerán aquí con su fuente y su fecha de actualización.
-        Una meta ausente no es cero; un dato no disponible no es verde.
+        Reparto nominal de tareas e indicadores con meta: pendiente de definición
+        (P-06 fórmulas y metas · P-01 organigrama vigente · P-11 corte del periodo).
+        Mientras tanto lo de arriba son colas por permiso, no asignaciones personales.
       </p>
     </section>
 
-    <!-- 3 · Mi operación: los espacios de la suite a los que esta persona puede entrar. -->
-    <section class="mt-block" aria-labelledby="h-operacion">
-      <div class="mt-h2-row">
-        <h2 id="h-operacion" class="mt-h2">Mi operación</h2>
-        @if (permisosCargados() && espacios().length) {
-          <span class="mt-count">{{ espacios().length }} espacios</span>
-        }
-      </div>
+    <!-- ══ Espacios de la suite ════════════════════════════════════════════════════════════ -->
+    @if (!permisosCargados()) {
+      <!-- Permisos aún sin cargar: un `{}` de "todavía no sé" no es un `{}` de "no tienes". -->
+      <app-load-state [loading]="true" [skeletonRows]="4"></app-load-state>
+    } @else if (sinEspacios()) {
+      <app-load-state
+        [isEmpty]="true"
+        emptyIcon="pi-lock"
+        emptyTitle="Tu cuenta no tiene ningún espacio asignado"
+        [emptyHint]="'Pide a Sistemas que revise el puesto y los permisos de ' + (user()?.username ?? 'tu usuario') + ' (' + (user()?.role_name ?? 'sin rol') + '). Hasta entonces no hay a dónde entrar.'"
+        emptyCta="Cerrar sesión"
+        emptyCtaIcon="pi pi-sign-out"
+        (cta)="logout()">
+      </app-load-state>
+    } @else {
 
-      @if (!permisosCargados()) {
-        <!-- Permisos aún sin cargar: un `{}` de "todavía no sé" no es un `{}` de "no tienes". -->
-        <app-load-state [loading]="true" [skeletonRows]="4"></app-load-state>
-      } @else if (sinEspacios()) {
-        <app-load-state
-          [isEmpty]="true"
-          emptyIcon="pi-lock"
-          emptyTitle="Tu cuenta no tiene ningún espacio asignado"
-          [emptyHint]="'Pide a Sistemas que revise el puesto y los permisos de ' + (user()?.username ?? 'tu usuario') + ' (' + (user()?.role_name ?? 'sin rol') + '). Hasta entonces no hay a dónde entrar.'"
-          emptyCta="Cerrar sesión"
-          emptyCtaIcon="pi pi-sign-out"
-          (cta)="logout()">
-        </app-load-state>
-      } @else {
-
-        @if (conAtajos()) {
-          <nav class="mt-chips" aria-label="Ir a un espacio">
-            @for (s of espacios(); track s.space.id) {
-              <a class="mt-chip" [href]="'#espacio-' + s.space.id" (click)="saltarA($event, s.space.id)">
-                <i [class]="s.space.icon" aria-hidden="true"></i>{{ s.space.label }}
-              </a>
-            }
-          </nav>
-        }
-
-        @for (s of espacios(); track s.space.id) {
-          <section class="mt-space" [id]="'espacio-' + s.space.id" [attr.aria-labelledby]="'h-' + s.space.id">
-            <header class="mt-space-head">
-              <i class="mt-space-ico" [class]="s.space.icon" aria-hidden="true"></i>
-              <h3 class="mt-space-title" [id]="'h-' + s.space.id">{{ s.space.label }}</h3>
-              @if (s.space.status === 'proposed') {
-                <span hlmBadge variant="outline" class="mt-badge" [title]="'Espacio propuesto por la especificación; depende de la decisión ' + s.space.proposal">
-                  Propuesta · {{ s.space.proposal }}
-                </span>
-              }
-              <p class="mt-space-desc">{{ s.space.description }}</p>
-            </header>
-
-            <ul class="mt-rows" role="list">
-              @for (e of s.entries; track e.entry.id) {
-                <li>
-                  <a class="mt-row" [routerLink]="e.route" [class.is-cross]="e.entry.crossLink">
-                    <i class="mt-row-ico" [class]="e.icon" aria-hidden="true"></i>
-                    <span class="mt-row-txt">
-                      <span class="mt-row-label">{{ e.label }}</span>
-                      @if (e.groupLabel) { <span class="mt-row-group">{{ e.groupLabel }}</span> }
-                      @if (e.modules.length) {
-                        <span class="mt-row-mods">{{ lineaModulos(e.modules.map(m => m.label)) }}</span>
-                      } @else if (e.entry.crossLink) {
-                        <span class="mt-row-mods">También en su espacio de origen</span>
-                      }
-                    </span>
-                    <i class="pi pi-arrow-right mt-row-go" aria-hidden="true"></i>
-                  </a>
-                </li>
-              }
-            </ul>
-          </section>
-        }
-
+      @if (conAtajos()) {
+        <nav class="mt-chips" aria-label="Ir a un espacio">
+          @for (s of espacios(); track s.space.id) {
+            <a class="mt-chip" [href]="'#espacio-' + s.space.id" (click)="saltarA($event, s.space.id)">
+              <i [class]="s.space.icon" aria-hidden="true"></i>{{ s.space.label }}
+            </a>
+          }
+        </nav>
       }
 
-      @if (permisosCargados() && declarados().length) {
-        <!-- Lo que la especificación pide y la suite no tiene: se DECLARA, no se pinta como "Próximamente". -->
+      @for (s of espacios(); track s.space.id) {
+        <section class="mt-space" [id]="'espacio-' + s.space.id" [attr.aria-labelledby]="'h-' + s.space.id">
+          <header class="mt-space-head">
+            <div class="mt-space-head-txt">
+              <h2 class="mt-space-title" [id]="'h-' + s.space.id">
+                <i class="mt-space-ico" [class]="s.space.icon" aria-hidden="true"></i>{{ s.space.label }}
+                @if (s.space.status === 'proposed') {
+                  <span hlmBadge variant="outline" class="mt-badge-prop"
+                        [title]="'Espacio propuesto por la especificación; depende de la decisión ' + s.space.proposal">
+                    Propuesta · {{ s.space.proposal }}
+                  </span>
+                }
+              </h2>
+              <p class="mt-space-desc">{{ s.space.description }}</p>
+            </div>
+          </header>
+
+          <div class="mt-cards">
+            @for (e of s.entries; track e.entry.id) {
+              <a class="mt-card" [routerLink]="e.route">
+                <span class="mt-card-head">
+                  <span class="mt-card-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
+                  @if (e.groupLabel) {
+                    <span class="mt-card-tag">{{ e.groupLabel }}</span>
+                  } @else if (e.entry.crossLink) {
+                    <span class="mt-card-tag">Atajo</span>
+                  }
+                </span>
+                <span class="mt-card-title">{{ e.label }}</span>
+                <span class="mt-card-body">
+                  @if (e.modules.length) {
+                    {{ lineaModulos(e.modules.map(m => m.label)) }}
+                  } @else if (e.entry.crossLink) {
+                    También vive en su espacio de origen
+                  }
+                </span>
+                <span class="mt-card-go">Acceder<i class="pi pi-arrow-right" aria-hidden="true"></i></span>
+              </a>
+            }
+          </div>
+        </section>
+      }
+
+      @if (declarados().length) {
+        <!-- Lo que la especificación pide y la suite no tiene: se DECLARA, no se pinta "Próximamente". -->
         <p class="mt-declarados">
           Espacios del mapa sin funciones todavía:
           @for (d of declarados(); track d.id; let last = $last) {
@@ -141,7 +215,7 @@
           }
         </p>
       }
-    </section>
+    }
 
   </main>
 </div>
