@@ -445,7 +445,7 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 
 | hueco | tamaño | por qué |
 |---|---|---|
-| **`U-D-8` sin árbitro** | **$15.3M / 90 d** (`sin_costo`) | Kepler **no escribe** `c62` ni `c63` ahí: vacíos en el **98.81%** de sus renglones, contra 99.99% en el ticket. **No es hueco nuestro** — sus 1,965 SKUs sí tienen escalera pagada |
+| ⛔ **`U-D-8` sin árbitro** — `irresoluble_con_la_fuente` | **$16.05M / 90 d** (16,845 renglones `sin_costo`, re-medido 2026-09-11) | Kepler **no escribe** `c62` ni `c63` ahí (vacíos en ~98.85%), y ése es el **único testigo independiente** del peldaño declarado. ⚠️ **La Fase R intentó cerrarlo y se retractó**: sustituir `c62` por `c58 × costo_del_almacén` es un **espejo** — `costo_almacén/costo_pagado` tiene mediana **1.0000** (93.22% dentro de la banda ±15% del propio árbitro), así que `round(c58 × ku / u1) = c58` por construcción. Ver §9.10. El recheck sembrado medía las **piezas** (99.87%) y no el veredicto; corregido en la mig `20260911200000` |
 | **`contradicho`** en ventas | 9,011 renglones / $2.17M | el costo contradice el factor declarado. Conjunto finito, enumerado |
 | **`contradicho_por_factor`** en existencia | 273 filas / $2.02M | `cost_base` por bulto contra `c16` por pieza |
 | ~~la sucursal 07 no está cableada al mart~~ | **CERRADO 2026-09-10** | ✅ `md_07` (`127.0.0.1:5432/kepler_md_07`) registrado en `dim.sucursales`; el mart la consolidó y el fact la tomó **solo**. La venta publicada de Kepler sube **+2,076 celdas / +$344,505 (90 d)** y el gate quedó verde: cero celdas faltantes de la 07. ⚠️ Su historia arranca el **2026-09-08**: es lo que hay en su Kepler, no un recorte nuestro |
@@ -709,6 +709,44 @@ En los 94 renglones donde el costo dice que el factor **está contradicho**, el 
 con la misma fuerza que en los 60,107 confirmados. **No discrimina — es un espejo** (R5). Si se
 repropone: la prueba va sobre el `contradicho` de `U-D-10` y tiene que salir **distinta** del
 `confirmado`.
+
+### 9.10 ⛔⛔ `c58 × costo_del_almacén` como sustituto del `c62` que falta en `U-D-8`
+
+**Lo propuse yo en el plan de la Fase R, y es la misma hipótesis de §9.1 con otro traje.** §9.1 ya
+había refutado un testigo de precio para `U-D-8` y había dejado escrita la receta de calibración;
+el plan volvió a proponer un testigo — esta vez de costo — sin aplicarla.
+
+El árbitro de la unidad compara dos cosas, y la segunda tiene que ser **independiente** de la
+primera:
+
+```text
+factor_resuelto  = c58                     <- lo que se AFIRMA
+factor_por_costo = round(c62 / u1_cost)    <- el TESTIGO
+```
+
+Sustituir el `c62` ausente por `c58 × v_erp_unit_cost.costo_unitario` deja
+`round(c58 × ku / u1_cost)`: `c58` multiplicado y dividido por dos constantes. Y son **la misma
+constante** — medido 2026-09-11 contra prod, sobre 24,532 pares:
+
+```text
+costo_del_almacen / costo_pagado_al_proveedor, por unidad base
+  mediana 1.0000      p10 0.9999      p90 1.1016
+  dentro de la banda +-15% que usa factor_por_costo:  22,868 = 93.22%
+```
+
+Con la razón pegada a 1 **dentro de la banda de tolerancia del propio árbitro**,
+`round(c58 × ku / u1) = c58` por construcción. Habría marcado `confirmado` los 16,845 renglones
+de `U-D-8` sin comprobar nada, y encima habría tapado las contradicciones reales donde las hubiera.
+
+⭐ **ADR-059 queda como está**: *"`U-D-8` no es arbitrable y el límite es de la fuente"* es
+correcto. Lo que estaba mal era el plan.
+
+⚠️ Y el defecto de segundo orden, que es el que la Fase R vino a cazar: el `recheck_sql` que
+sembré para este hueco preguntaba *"¿hay peldaño y hay costo?"* y respondía **99.87%**. Eso son las
+**piezas**, no el **veredicto**. Un recheck que mide el insumo se lee igual que una medición y no
+lo es — es el mismo defecto que un hueco que no caduca, en la dirección contraria. Corregido en la
+migración `20260911200000`: el recheck mide la cobertura de `c62`, el único testigo independiente,
+y el hueco pasa a `irresoluble_con_la_fuente`.
 
 ### 9.2 ⛔ `caja_sin_capturar` en Wincaja (1,286 SKUs)
 
