@@ -92,11 +92,11 @@ segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
 |---|---|---|
 | **[SN.0]** diagnóstico + docs | ✅ 2026-09-10 | Tres listas de proyectos discrepantes; **build de `view` roto en `main` desde f3fe9dfe** (arnés jest en el programa de la app) — lo arregló en paralelo la sesión TDA.7 (`9cd6d107`, misma línea). Base: Initial 1.23 MB |
 | **[SN.1]** mapa + gates | 🧪 2026-09-10 | `suite-map.ts` + jest en `libs/contracts` (**nuevo target**) + specs 35/35 con negativas + `authz-tree.ts` (label admin, header que citaba un spec inexistente) + `suite-map-visibility-report.js` contra prod: **36 roles, 0 puertas perdidas, 17 ganan (83 usuarios)**. Hallazgo: `/finanzas`, `/contabilidad`, `/admin` tienen redirect fijo → las puertas ganadas rebotarían sin home guards (→ SN.4) |
-| **[SN.2]** `GET /users/me/context` | ⬜ | persona / puesto / departamento / alcance, self-scoped, antes de `:id` |
-| **[SN.3]** landing "Mi trabajo" | ⬜ | lista seccionada, sin card grid; línea secundaria derivada; N=1 auto-entra salvo `stay`; 0 → estado declarado |
-| **[SN.4]** layout + guards | ⬜ | migaja Espacio › Proyecto › Página; "Configuración de la suite"; `adminHomeGuard`; link en Telemarketing |
-| **[SN.5]** limpieza | ⬜ | borrar `scripts/check-authz-tree.js` (vacuo); corregir FASE_AZ L161, GOTCHAS §4, CLAUDE_ONBOARDING L48 |
-| **[SN.6]** cierre | ⬜ | log, CHANGELOG, fila en `CLAUDE.md`, INDEX, medición de bundle después |
+| **[SN.2]** `GET /users/me/context` | 🧪 2026-09-10 | `a0f23e43`. Self-scoped, antes de `:id`; `position` null DECLARADO. Build api verde; smoke estático 5/5; **vivo NO MEDIDO** hasta que Edgar reinicie la API |
+| **[SN.3]** landing "Mi trabajo" | 🧪 2026-09-10 | `db6f2718`. Lista seccionada, sin card grid; línea secundaria derivada; skeleton/error/vacío distintos; N=1 auto-entra salvo `stay`; `modules/projects/` borrado. Spec 13 + gate de rutas 4 |
+| **[SN.4]** layout + home guards | 🧪 2026-09-10 | `db6f2718`. `finanzas/contabilidad/adminHomeGuard` nuevos, comercial+logística completados, `withTreeCandidates()`; `landing-guards.spec` 24 (destapó 2 rebotes preexistentes: CONTAR→sessions, ENTRADAS_VER→entradas). Migaja Espacio › Proyecto › Página; "Configuración de la suite"; link en Telemarketing. Bundle 1.23→1.25 MB |
+| **[SN.5]** limpieza | ✅ 2026-09-10 | `check-authz-tree.js` borrado (viajó en `b39e90d1`, ajeno — índice compartido); FASE_AZ, GOTCHAS §4 (receta de permisos reescrita: enum único + 6º paso "proyecto nuevo → suite-map"), CLAUDE_ONBOARDING corregidos |
+| **[SN.6]** cierre | ✅ 2026-09-10 | log, CHANGELOG, fila `SN` en `CLAUDE.md`, INDEX. **Pendiente humano:** validación visual (dev servers de Edgar) + `run-all-tests` con API viva + redeploy api+view |
 
 ⚠️ **P-14 abierta para Dirección:** §23 y §10 de la spec se contradicen sobre dónde vive "Auditoría en Ruta" (Rutas de detalle vs Mercadotecnia). Default §23; una línea del mapa lo cambia.
 

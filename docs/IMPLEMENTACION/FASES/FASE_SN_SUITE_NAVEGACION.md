@@ -1,6 +1,6 @@
 # Fase SN — Suite: navegación por espacios ("Mi trabajo" en `/projects`)
 
-> **Estado:** 🔨 EN CÓDIGO 2026-09-10 · **ADR-061** · Etapa 2 (*Navegación*) de la especificación de Dirección.
+> **Estado:** 🧪 SN.0–SN.6 EN CÓDIGO Y PROBADO 2026-09-10 · **ADR-061** · Etapa 2 (*Navegación*) de la especificación de Dirección. **Pendiente:** validación visual en browser (dev servers de Edgar), reinicio de la API para la parte viva del smoke de `me/context`, redeploy api+view.
 > **Origen:** `Especificacion_Reestructuracion_Suite_Mega_Dulces_v1.0.md` (Dirección, 2026-09-10), §2, §5, §6, §22, §23, §24.
 > **Criterio de salida (§24):** *funciones existentes accesibles sin pérdida de permisos*, con redirecciones controladas.
 
@@ -114,11 +114,10 @@ Lista **seccionada de una columna** (no master-detail: las entradas son enlaces,
 | *(fix del build)* | `tsconfig.app.json` excluye el arnés → build de `view` vuelve a compilar | ✅ **superado**: lo hizo la sesión TDA.7 en `9cd6d107` con la misma línea; mi copia quedó idéntica a HEAD |
 | `docs([SN.0])` | esta FASE + ADR-061 + tracker | ✅ 2026-09-10 |
 | `feat([SN.1])` | `suite-map.ts` + jest en `libs/contracts` + aliases + shim + specs + `authz-tree.ts` L18/L83 + reporte de visibilidad | ✅ 2026-09-10 (35/35; reporte prod 0 perdidas) |
-| `feat([SN.2])` | `identity-me.contract.ts` + `contextFor` + `GET /users/me/context` + smoke | ⬜ |
-| `feat([SN.3])` | `mi-trabajo.component.*` + `me-context.service.ts` + rutas + specs; borrar `modules/projects/` | ⬜ |
-| `feat([SN.4])` | layout + **home guards** (`admin`, `finanzas`, `contabilidad` nuevos; `comercial` y `logistica` completados — ver §7) + spec "la puerta que la landing abre no rebota" + link en Telemarketing | ⬜ |
-| `chore([SN.5])` | borrar `scripts/check-authz-tree.js`; corregir `FASE_AZ` L161, `GOTCHAS` §4, `CLAUDE_ONBOARDING` L48 | ⬜ |
-| `docs([SN.6])` | tracker ✅, log, CHANGELOG, fila en `CLAUDE.md`, INDEX | ⬜ |
+| `feat([SN.2])` | `identity-me.contract.ts` + `contextFor` + `GET /users/me/context` + smoke | ✅ `a0f23e43` — `nx build api` verde; smoke estático 5/5, parte viva **NO MEDIDA** (sin API local; no se levanta desde acá) |
+| `feat([SN.3-4])` | `mi-trabajo.component.*` + `me-context.service.ts` + rutas + specs; borrar `modules/projects/`; layout + **home guards** + `landing-guards.spec.ts` + link en Telemarketing | ✅ `db6f2718` — un solo commit porque `app.routes.ts` llevaba las dos cosas. ⚠️ Arrastró la baja de `libs/shared-auth` que otra sesión tenía en el índice (§11) |
+| `chore([SN.5])` | borrar `scripts/check-authz-tree.js`; corregir `FASE_AZ` L161, `GOTCHAS` §4, `CLAUDE_ONBOARDING` L48 | ✅ — la baja del script viajó en el commit ajeno `b39e90d1` (§11); los 3 docs en el commit de SN.5 |
+| `docs([SN.6])` | tracker, log, CHANGELOG, fila en `CLAUDE.md`, INDEX, esta FASE | ✅ 2026-09-10 |
 
 ---
 
@@ -151,7 +150,7 @@ Cross-links (Dirección General, Mercadotecnia, Auditoría) aparecen para 27 rol
 | Momento | Initial total | main | Nota |
 |---|---|---|---|
 | Base (main + fix arnés) | **1.23 MB** | 1.09 MB / 236.63 kB gz | 228.91 kB sobre el aviso de 1.00 MB; error en 1.4 MB |
-| Después de SN.3/SN.4 | _(pendiente)_ | | Plan B si excede: índice compacto de rutas para el layout en vez del árbol completo |
+| Después de SN.3/SN.4 | **1.25 MB** | 1.12 MB / 240.73 kB gz | **+20 kB crudos / +4.1 kB gz** por `AUTHZ_TREE` + `suite-map` en el chunk inicial (los importa el layout). 249.12 kB sobre el aviso; error en 1.4 MB. El plan B (índice compacto) no hace falta |
 
 ---
 
@@ -166,9 +165,31 @@ Cross-links (Dirección General, Mercadotecnia, Auditoría) aparecen para 27 rol
 
 ---
 
-## 10. Verificación
+## 10. Verificación (2026-09-10)
 
-- `npx nx test contracts` → **2 suites / 35 pruebas** ✅ (2026-09-10).
-- `node database/tests/test-authz-route-coverage.js` · `node database/run-all-tests.js` · `npx nx test view` · `npx nx build view` (sin pipe; anotar en §8).
-- `GET /users/me/context` vivo con `curl` (build verde ≠ endpoint vivo).
-- Browser (light + dark + 375px) sobre los dev servers de Edgar: superadmin → 4 espacios activos + 2 propuestos con badge + línea de planned; `almacenista` → aterriza directo en `/almacen`; "Mi trabajo" desde el sidebar → se queda; `/admin/users` → migajas "Configuración de la suite / Usuarios"; `/dashboard/captures` → "Comercial / Auditoría en Ruta / Captura Diaria"; Tab recorre filas con ring; `/telemarketing` tiene "Mi trabajo"; usuario sólo `ROLES_VER` entra por `/admin` y aterriza en `/admin/roles`.
+| Qué | Resultado |
+|---|---|
+| `npx nx test contracts` | ✅ 2 suites / **35** pruebas (mapa + paridad, con negativas) |
+| `npx nx test view` | ✅ 18 suites / **243** pruebas (+41: `mi-trabajo.component.spec` 13, `mi-trabajo-route.spec` 4, `landing-guards.spec` 24) |
+| `node database/tests/test-authz-route-coverage.js` | ✅ 22/22 |
+| `node database/scripts/suite-map-visibility-report.js` (prod, read-only) | ✅ 36 roles · 0 puertas perdidas · 17 ganan (§7) |
+| `npx nx build api` | ✅ (la primera corrida falló por `store-arqueo.controller.ts`, WIP ajeno que la sesión SM.34 arregló en `cc9eea00`) |
+| `npx nx build view` (producción, sin pipe) | ✅ 1.25 MB inicial (§8). Errores míos corregidos antes de commitear: unión no estrechada en template estricto (`contexto().error`), shim sin `findProject`, **acento grave en un template inline** (8ª vez en el repo) |
+| `node database/tests/test-newdb-me-context.js` | estático 5/5 ✅ · **vivo NO MEDIDO** (sin API en :3334; regla: no se levanta desde acá) |
+| `node database/run-all-tests.js` | **NO CORRIDO**: ~60 suites exigen la API viva; se corre cuando Edgar la reinicie |
+| Browser (light + dark + 375px) | **PENDIENTE** — dev servers de Edgar. Guion: superadmin → 4 espacios activos + 2 propuestos con badge + línea de planned; `almacenista` → aterriza directo en `/almacen`; "Mi trabajo" desde el sidebar → se queda; `/admin/users` → migajas "Configuración de la suite / Usuarios"; `/dashboard/captures` → "Comercial / Auditoría en Ruta / Captura Diaria"; Tab recorre filas con ring; `/telemarketing` tiene "Mi trabajo"; `ROLES_VER` solo entra por `/admin` y aterriza en `/admin/roles`; `cajero` entra a Finanzas y aterriza en `/finanzas/capturar-gasto` |
+
+**Lo que `landing-guards.spec.ts` destapó al nacer (rebotes PREEXISTENTES, no de esta fase):** `COMMERCIAL_INVENTORY_CONTAR` mandaba a `/almacen/inventory/sessions` (exige SUPERVISAR) cuando la pantalla del contador es `/almacen/inventory/count`; `COMPRAS_ENTRADAS_VER` mandaba a `/compras/entradas` (exige GESTIONAR desde RE.17) cuando la lectura es `/compras/entradas/control`; `COMPRAS_360_VER` apuntaba a un redirect. Los tres corregidos. La deuda árbol-vs-guard (58 pares, casi todos "manage sin view") quedó **enumerada con motivo** en el spec: agregar una nueva = rojo; arreglar una y no borrarla de la lista = rojo.
+
+## 11. Incidente operativo: el índice de git es UNO para 10 sesiones
+
+`ListAgents` mostró **10 sesiones** de Claude sobre este mismo árbol. Consecuencias medidas hoy:
+- El build base falló por WIP ajeno (`store-arqueo.controller.ts`), y el primer intento de commit encontró el repo con **conflictos de merge de otra sesión** (`CHANGELOG.md`, tracker).
+- `db6f2718` (SN.3-4) **arrastró la baja de `libs/shared-auth`** (15 archivos) que otra sesión tenía stageada. La lib estaba muerta (el gate [2b] de `test-authz-route-coverage.js` verifica cero importadores desde `[ID.28]`), así que no rompe nada — pero no era mía y el mensaje del commit no lo dice.
+- Simétrico: `b39e90d1` (VL.2b, ajeno) **arrastró mi baja de `scripts/check-authz-tree.js`**.
+
+**Regla que sale de esto:** `git commit -- <rutas>` (pathspec), que ignora lo que otros tengan en el índice, y `git diff --cached --stat` antes de cada commit. Guardada en memoria.
+
+## 12. Etapa 3 y siguientes (fuera de esta fase)
+
+Indicadores con ficha (P-06) y "Esto ve Dirección General de mi gestión"; renombre `/projects` → `/mi-trabajo`; Operación por zonas (la zona ya es eje de alcance); decisión P-14 (dónde vive `trade`) y P-03 (Auditoría como espacio propio); alinear árbol ↔ guards para ir vaciando `DEUDA`; unificar los `*NavGroups` del layout con el árbol.
