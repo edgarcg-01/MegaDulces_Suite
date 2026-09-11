@@ -1,0 +1,147 @@
+<div class="mt-page">
+
+  <!--
+    Barra superior. `calc(base + env(...))` para que el safe-area SUME al padding base
+    (la clase `safe-top` sola lo REEMPLAZA y el título pegaba al borde en browser normal).
+  -->
+  <header class="mt-top">
+    <div class="mt-top-inner">
+      <div>
+        <p class="mt-eyebrow">Plataforma operativa</p>
+        <h1 class="mt-title">Mi trabajo</h1>
+      </div>
+      <div class="mt-top-user">
+        <div class="mt-top-user-txt">
+          <p class="mt-top-user-name">{{ user()?.username }}</p>
+          <p class="mt-top-user-role">{{ user()?.role_name }}</p>
+        </div>
+        <p-button
+          label="Cerrar sesión"
+          icon="pi pi-sign-out"
+          severity="secondary"
+          [outlined]="true"
+          size="small"
+          (click)="logout()">
+        </p-button>
+      </div>
+    </div>
+  </header>
+
+  <main class="mt-main">
+
+    <!-- 1 · Mi contexto: persona · puesto · alcance · periodo. Celdas hairline, sin tarjetas. -->
+    <section class="mt-block" aria-labelledby="h-contexto">
+      <h2 id="h-contexto" class="mt-h2">Mi contexto</h2>
+      <app-load-state
+        [loading]="contextoCargando()"
+        [error]="contextoError()"
+        [isEmpty]="false"
+        [skeletonRows]="2"
+        errorTitle="No se pudo cargar tu contexto"
+        (retry)="recargarContexto()">
+        <dl class="mt-ctx">
+          @for (c of celdas(); track c.etiqueta) {
+            <div class="mt-ctx-cell">
+              <dt class="mt-ctx-k">{{ c.etiqueta }}</dt>
+              <dd class="mt-ctx-v" [class.is-ausente]="c.ausente">{{ c.valor }}</dd>
+              @if (c.detalle) { <dd class="mt-ctx-d">{{ c.detalle }}</dd> }
+            </div>
+          }
+        </dl>
+      </app-load-state>
+    </section>
+
+    <!-- 2 · Lo que la especificación pide y todavía no existe: UNA declaración, no cuatro cajas vacías. -->
+    <section class="mt-block mt-declarado" aria-labelledby="h-pendiente">
+      <h2 id="h-pendiente" class="mt-h2">Mis resultados, compromisos, excepciones y acciones correctivas</h2>
+      <p class="mt-declarado-txt">
+        Pendiente de definición: fórmulas y metas de los indicadores (P-06) y organigrama vigente (P-01).
+        Cuando existan indicadores acordados aparecerán aquí con su fuente y su fecha de actualización.
+        Una meta ausente no es cero; un dato no disponible no es verde.
+      </p>
+    </section>
+
+    <!-- 3 · Mi operación: los espacios de la suite a los que esta persona puede entrar. -->
+    <section class="mt-block" aria-labelledby="h-operacion">
+      <div class="mt-h2-row">
+        <h2 id="h-operacion" class="mt-h2">Mi operación</h2>
+        @if (permisosCargados() && espacios().length) {
+          <span class="mt-count">{{ espacios().length }} espacios</span>
+        }
+      </div>
+
+      @if (!permisosCargados()) {
+        <!-- Permisos aún sin cargar: un `{}` de "todavía no sé" no es un `{}` de "no tienes". -->
+        <app-load-state [loading]="true" [skeletonRows]="4"></app-load-state>
+      } @else if (sinEspacios()) {
+        <app-load-state
+          [isEmpty]="true"
+          emptyIcon="pi-lock"
+          emptyTitle="Tu cuenta no tiene ningún espacio asignado"
+          [emptyHint]="'Pide a Sistemas que revise el puesto y los permisos de ' + (user()?.username ?? 'tu usuario') + ' (' + (user()?.role_name ?? 'sin rol') + '). Hasta entonces no hay a dónde entrar.'"
+          emptyCta="Cerrar sesión"
+          emptyCtaIcon="pi pi-sign-out"
+          (cta)="logout()">
+        </app-load-state>
+      } @else {
+
+        @if (conAtajos()) {
+          <nav class="mt-chips" aria-label="Ir a un espacio">
+            @for (s of espacios(); track s.space.id) {
+              <a class="mt-chip" [href]="'#espacio-' + s.space.id" (click)="saltarA($event, s.space.id)">
+                <i [class]="s.space.icon" aria-hidden="true"></i>{{ s.space.label }}
+              </a>
+            }
+          </nav>
+        }
+
+        @for (s of espacios(); track s.space.id) {
+          <section class="mt-space" [id]="'espacio-' + s.space.id" [attr.aria-labelledby]="'h-' + s.space.id">
+            <header class="mt-space-head">
+              <i class="mt-space-ico" [class]="s.space.icon" aria-hidden="true"></i>
+              <h3 class="mt-space-title" [id]="'h-' + s.space.id">{{ s.space.label }}</h3>
+              @if (s.space.status === 'proposed') {
+                <span hlmBadge variant="outline" class="mt-badge" [title]="'Espacio propuesto por la especificación; depende de la decisión ' + s.space.proposal">
+                  Propuesta · {{ s.space.proposal }}
+                </span>
+              }
+              <p class="mt-space-desc">{{ s.space.description }}</p>
+            </header>
+
+            <ul class="mt-rows" role="list">
+              @for (e of s.entries; track e.entry.id) {
+                <li>
+                  <a class="mt-row" [routerLink]="e.route" [class.is-cross]="e.entry.crossLink">
+                    <i class="mt-row-ico" [class]="e.icon" aria-hidden="true"></i>
+                    <span class="mt-row-txt">
+                      <span class="mt-row-label">{{ e.label }}</span>
+                      @if (e.groupLabel) { <span class="mt-row-group">{{ e.groupLabel }}</span> }
+                      @if (e.modules.length) {
+                        <span class="mt-row-mods">{{ lineaModulos(e.modules.map(m => m.label)) }}</span>
+                      } @else if (e.entry.crossLink) {
+                        <span class="mt-row-mods">También en su espacio de origen</span>
+                      }
+                    </span>
+                    <i class="pi pi-arrow-right mt-row-go" aria-hidden="true"></i>
+                  </a>
+                </li>
+              }
+            </ul>
+          </section>
+        }
+
+      }
+
+      @if (permisosCargados() && declarados().length) {
+        <!-- Lo que la especificación pide y la suite no tiene: se DECLARA, no se pinta como "Próximamente". -->
+        <p class="mt-declarados">
+          Espacios del mapa sin funciones todavía:
+          @for (d of declarados(); track d.id; let last = $last) {
+            <span>{{ d.label }}</span>@if (!last) { <span aria-hidden="true"> · </span> }
+          }
+        </p>
+      }
+    </section>
+
+  </main>
+</div>

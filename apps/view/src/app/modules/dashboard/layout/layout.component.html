@@ -170,13 +170,13 @@
     <div class="border-t border-divider p-3 space-y-1 shrink-0 bg-surface-sidebar safe-bottom">
       <button
         (click)="goToProjects()"
-        title="Proyectos"
+        title="Mi trabajo"
         class="flex items-center w-full px-2 py-2 min-h-11 rounded-xl text-sm font-medium text-content-muted hover:bg-surface-hover hover:text-content-main transition-colors"
-        aria-label="Cambiar proyecto"
+        aria-label="Ir a Mi trabajo"
       >
-        <i class="pi pi-arrow-right-arrow-left shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
+        <i class="pi pi-home shrink-0 w-8 text-center text-sm" aria-hidden="true"></i>
         @if (sidebarExpanded()) {
-          <span class="ml-1 truncate">Proyectos</span>
+          <span class="ml-1 truncate">Mi trabajo</span>
         }
       </button>
 
@@ -359,9 +359,22 @@
       class="px-6 py-2 bg-surface-card border-b border-divider text-xs text-content-muted"
       aria-label="Migas de pan"
     >
+      <!--
+        `[SN.4]` Espacio › Proyecto › Página. El espacio (Comercial, Almacenes y Logística…) sale
+        del mapa de la suite y enlaza a "Mi trabajo" con `stay` (para que una persona con una sola
+        puerta también pueda volver). En pantallas angostas el espacio se oculta: la página manda.
+      -->
       <ol class="flex items-center gap-2 m-0 p-0 list-none">
-        <li>{{ projectLabel() }}</li>
-        <li aria-hidden="true" class="text-content-faint">/</li>
+        @for (c of crumbs(); track c; let first = $first) {
+          <li [class.hidden]="first && crumbs().length > 1" [class.sm:block]="first && crumbs().length > 1">
+            @if (first && spaceLabel()) {
+              <a [routerLink]="landingRoute" [state]="{ stay: true }" class="hover:text-content-main hover:underline underline-offset-2">{{ c }}</a>
+            } @else {
+              {{ c }}
+            }
+          </li>
+          <li aria-hidden="true" class="text-content-faint" [class.hidden]="first && crumbs().length > 1" [class.sm:block]="first && crumbs().length > 1">/</li>
+        }
         <li class="text-content-main font-medium" aria-current="page">
           {{ currentPageTitle() }}
         </li>

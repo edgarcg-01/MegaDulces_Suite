@@ -131,7 +131,7 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     order: 1,
     label: 'Mi trabajo',
     icon: 'pi pi-home',
-    description: 'Quién sos en la suite, qué alcance tenés y a qué podés entrar.',
+    description: 'Quién eres en la suite, qué alcance tienes y a qué puedes entrar.',
     status: 'active',
     landing: true,
     entries: [],
@@ -168,8 +168,9 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         id: 'ventas-backoffice',
         kind: 'project',
         project: 'comercial',
-        group: ['Ventas'],
-        label: 'Ventas (back-office)',
+        // Sin `group`: ES el nivel "Ventas" del árbol de §5.2; los canales cuelgan debajo. La
+        // etiqueta también viaja a la migaja del layout ("Comercial › Ventas › Pedidos").
+        label: 'Ventas',
         // El vendedor tiene COMMERCIAL_ORDERS_* pero no debe ver el admin de Comercial
         // (mostraría pedidos de toda la tenant): trabaja en su app (`apps/vendor`).
         hideForRoles: ['vendedor'],

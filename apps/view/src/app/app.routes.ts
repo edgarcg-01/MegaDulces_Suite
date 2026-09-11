@@ -1,10 +1,9 @@
 import { inject } from '@angular/core';
 import { Router, Routes } from '@angular/router';
 import { LoginComponent } from './modules/auth/login/login.component';
-import { ProjectsComponent } from './modules/projects/projects/projects.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -17,10 +16,13 @@ export const routes: Routes = [
     path: 'login',
     component: LoginComponent
   },
+  // `[SN.3]` "Mi trabajo": la landing por espacios de responsabilidad (ADR-061). Conserva la URL
+  // `/projects` a propósito: renombrarla es cosmético y toca 7 archivos + la PWA. Lazy como el
+  // resto: quien tiene una sola puerta ni la ve (auto-entrada), así que no va en el chunk inicial.
   {
     path: 'projects',
     canActivate: [authGuard],
-    component: ProjectsComponent
+    loadComponent: () => import('./modules/mi-trabajo/mi-trabajo.component').then(m => m.MiTrabajoComponent),
   },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
@@ -284,7 +286,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'egresos', pathMatch: 'full' },
+      // `[SN.4]` Landing dinámico (antes `redirectTo: 'egresos'` fijo): la primera superficie
+      // accesible del rol. El loadComponent nunca corre porque el guard siempre redirige.
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [finanzasHomeGuard],
+        loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
+      },
       {
         path: 'egresos',
         loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
@@ -386,7 +395,13 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'listas-sat', pathMatch: 'full' },
+      // `[SN.4]` Landing dinámico (antes `redirectTo: 'listas-sat'` fijo).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [contabilidadHomeGuard],
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
+      },
       {
         path: 'listas-sat',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-listas-sat.component').then(m => m.ContabilidadListasSatComponent),
@@ -1144,7 +1159,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'users', pathMatch: 'full' },
+      // `[SN.4]` Landing dinámico (antes `redirectTo: 'users'` fijo, que exige USUARIOS_GESTIONAR
+      // y rebotaba a quien sólo tiene ROLES_VER).
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [adminHomeGuard],
+        loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
+      },
       {
         path: 'users',
         loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
