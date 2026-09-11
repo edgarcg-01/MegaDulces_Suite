@@ -3,3 +3,11 @@
 # arranca (falla silenciosa de deploy). Forzar LF aunque se editen en Windows.
 *.sh text eol=lf
 start.sh text eol=lf
+
+# La AGENDA del cron tambien: no termina en .sh, asi que la regla de arriba NO la cubria.
+# 2026-09-11: se edito desde Windows, git la exporto con CRLF y el  quedo pegado al final de
+# cada comando -> `--apply`. Como `argv.includes('--apply')` es EXACTO, los 9 carriles corrieron
+# en SECO y salieron con codigo 0: el log decia "ok en 9s" y no se escribia una sola fila.
+# Un fallo disfrazado de exito, que es la peor clase.
+ops/vl/crontab.feeds text eol=lf
+*.env text eol=lf
