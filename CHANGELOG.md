@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Fixed — `/comercial/documentos`: la tabla escondía el 94.5% de sus filas (AX.12, 2026-09-12)
+
+- ⭐ **No era lentitud, era truncamiento silencioso.** El backend paginaba desde siempre, pero el frontend **nunca mandaba `page` ni `pageSize`**: caía en el default de 50 y la tabla no tenía paginador. Medido en prod: **912 documentos** en la ventana por defecto (30 d, telemarketing) → **862 inalcanzables (94.5%)**, mientras el KPI del encabezado sí decía 912. La pantalla se contradecía sola. Ahora la tabla es `lazy` con paginador de servidor (50/100/200, "N a M de 912").
+- **Una sola pasada por la vista en vez de dos.** Lista y KPIs corrían en `Promise.all`… dentro del **mismo `tk.run(trx)`**: una transacción tiene UNA conexión, así que no paralelizaban nada — se sumaban. Medido con `EXPLAIN ANALYZE` (mínimo de 3 corridas): **765 + 906 = 1,671 ms → 740 ms (56% menos)**, con los **KPIs idénticos al centavo**, verificado campo por campo. El CTE `MATERIALIZED` se calcula una vez y alimenta los dos.
+- **`pageSize` 200 cuesta lo mismo que 50** (~810 ms, medido): el costo es armar la selección, no devolver las filas. Default 50→**100**, tope 200→500.
+- **Los catálogos de filtros se piden sólo cuando cambia la ventana** (fechas + sucursal), no en cada tecleo ni en cada cambio de página: **~350 ms** que se pagaban de más.
+- ⚠️ **La selección palomeada ya no se poda contra las filas recibidas** — con paginación de servidor eso son *sólo la página*, así que palomear 10 en la página 1 y avanzar habría borrado las 10. Sobrevive al cambio de página y se limpia al cambiar de filtro.
+- ⚠️ **Sexta vez que un acento grave rompe el build acá**: el comentario que escribí dentro del `template:` cerró el template literal. Quedó la advertencia en el propio comentario.
+- 📋 **Declarado, no tocado:** el piso de ~740 ms es la vista `analytics.erp_sales_invoices`, que arma **toda** la cartera (agregado de 28,335→9,603 filas, 425 ms + `Unique` de 49,705, 205 ms) sin importar que la ventana traiga 912 facturas. Bajarlo es cambiar la vista, que tiene otros consumidores: fase aparte, no hotfix.
+
 ### Fixed — de una transacción abortada no se sale con un `try/catch` (SN.22, 2026-09-12)
 
 Edgar abrió «Mi trabajo» con la cuenta de Mayra y **las nueve mediciones** decían *«esa bandeja no respondió»*. Reproducido: hay **un** error real y **ocho de arrastre**.
