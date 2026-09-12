@@ -106,6 +106,55 @@ export interface MeTarea {
 }
 
 /**
+ * `[SN.16]` — El estado de UN periodo dentro de un trabajo cíclico.
+ *
+ * ⛔ Los cuatro valores son distintos y NO se colapsan a "listo / no listo":
+ *  · `sin_datos`   — **no hay con qué trabajar** ese mes (medido: 2026-06 y 2026-07 no tienen
+ *                    estado de cuenta cargado). No es pendiente, no es clickeable, y pintarlo como
+ *                    "sin conciliar" sería inventarle trabajo a alguien que no puede hacerlo.
+ *  · `sin_empezar` — hay trabajo y nadie lo tocó.
+ *  · `en_proceso`  — empezó y falta.
+ *  · `al_dia`      — cerrado.
+ */
+export type EstadoPeriodo = 'sin_datos' | 'sin_empezar' | 'en_proceso' | 'al_dia';
+
+export interface MePeriodo {
+  /** `'YYYY-MM'`. */
+  periodo: string;
+  estado: EstadoPeriodo;
+  /** Cuántas cosas faltan. `null` = **no se pudo contar**, que no es cero (ADR-056). */
+  faltan: number | null;
+  /** Por qué está así, en una línea. */
+  motivo: string;
+  /** Ruta que resuelve ESE mes; `null` cuando no hay a dónde ir (`sin_datos`). */
+  ruta: string | null;
+  /** Query params que aterrizan en el mes exacto (`?view=cuadre&period=2026-02`). */
+  queryParams: Record<string, string> | null;
+}
+
+/**
+ * `[SN.16]` — Un trabajo que se cierra **mes por mes**, no una cola.
+ *
+ * Es el tercer organismo de la landing, junto a `MeTarea` (te lo asignaron) y `MePendiente` (cola
+ * que abre tu permiso). Éste es una cola compartida **con calendario**: la abre el permiso, nadie
+ * la repartió, y su unidad de avance es el periodo.
+ *
+ * ⛔ **No trae el veredicto de cierre.** Para bancos, "¿cuadra el mes?" lo contesta
+ * `GET /finance/bank/diagnostico` (pestaña Cierre) y cuesta ~8 consultas por mes. Acá van los
+ * hechos baratos del avance y el veredicto queda a un clic, con un solo dueño.
+ */
+export interface MeCiclo {
+  id: string;
+  label: string;
+  detalle: string;
+  icono: string;
+  /** Del más viejo al más nuevo. Siempre los 12; un mes sin datos viene declarado, no ausente. */
+  periodos: MePeriodo[];
+  /** Periodos que esperan trabajo (`sin_empezar` + `en_proceso`). `sin_datos` NO cuenta. */
+  pendientes: number;
+}
+
+/**
  * `[SN.7]` — Respuesta de `GET /users/me/work`.
  *
  * Sólo se cuentan las bandejas cuyo permiso tiene esta persona: un conteo es información, y una
@@ -116,6 +165,8 @@ export interface MeWork {
   /** `[SN.15]` Lo que alguien te asignó. Separado de `pendientes` a propósito. */
   tareas: MeTarea[];
   pendientes: MePendiente[];
+  /** `[SN.16]` Trabajo que se cierra mes por mes. Tercer organismo, ni tarea ni cola simple. */
+  ciclos: MeCiclo[];
   no_medido: { id: string; label: string; motivo: string }[];
   /**
    * `[SN.15]` ¿Existe un mapa de responsabilidades para el puesto de esta persona?

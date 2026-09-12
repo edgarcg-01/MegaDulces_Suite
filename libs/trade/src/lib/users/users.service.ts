@@ -9,9 +9,10 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
+import { adaptadorDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
 import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
+import { CICLOS, puedeVerCiclo } from './me-cycles';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -2121,9 +2122,45 @@ export class UsersService {
       return edad(a) - edad(b);
     });
 
+    /*
+     * `[SN.16]` El trabajo CÍCLICO: el que se cierra mes por mes. Tercer organismo, ni tarea ni
+     * cola simple. Cada ciclo mide sus 12 periodos en UNA consulta (medido: ~7 ms el de bancos,
+     * 0.9 ms el del libro de compras).
+     *
+     * ⛔ Un periodo `sin_datos` NO trae ruta y NO cuenta como pendiente: no hay con qué trabajar
+     * ese mes, y ofrecer un enlace a un mes vacío manda a la persona a una pantalla que no le
+     * puede contestar nada.
+     */
+    const ciclos: MeCiclo[] = [];
+    for (const c of CICLOS) {
+      if (!puedeVerCiclo(c, permisos, esAdmin)) continue;
+      try {
+        const periodos = (await c.medir(this.knex, ctx)).map((p) => ({
+          ...p,
+          ruta: p.estado === 'sin_datos' ? null : c.ruta,
+          queryParams: p.estado === 'sin_datos' ? null : c.queryDe(p.periodo),
+        }));
+        ciclos.push({
+          id: c.id,
+          label: c.label,
+          detalle: c.detalle,
+          icono: c.icono,
+          periodos,
+          pendientes: periodos.filter(
+            (p) => p.estado === 'sin_empezar' || p.estado === 'en_proceso',
+          ).length,
+        });
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: ciclo ${c.id} no se pudo medir — ${motivo}`);
+        no_medido.push({ id: c.id, label: c.label, motivo });
+      }
+    }
+
     return {
       tareas,
       pendientes,
+      ciclos,
       no_medido,
       tiene_responsabilidades: await this.tieneResponsabilidades(userId),
       medido_at: new Date().toISOString(),

@@ -340,6 +340,73 @@ async function existe(c, rel) {
       console.log(`   identity.responsibilities NO existe en prod (¿la migración OR.1b no llegó?).`);
     }
 
+    // ── 7. `[SN.16]` Trabajo CÍCLICO: los periodos y a cuánta gente le tocan ──────────────────
+    console.log(`\n── 7. Ciclos por periodo (SN.16) ──`);
+    const CICLOS = [
+      { id: 'conciliacion-bancaria', anyOf: ['FINANCE_BANK_VER'] },
+      { id: 'libro-de-compras', anyOf: ['FISCAL_PURCHASE_BOOK_VER'] },
+    ];
+    for (const cic of CICLOS) {
+      const r = await c.query(
+        `${permisoEfectivo}
+         SELECT count(DISTINCT u.id)::int AS ven
+           FROM identity.users u
+          WHERE u.deleted_at IS NULL AND u.activo = true
+            AND (lower(u.role_name) = ANY($2::text[])
+                 OR EXISTS (SELECT 1 FROM efectivo e
+                             WHERE e.user_id = u.id AND e.permiso = ANY($1::text[])))`,
+        [cic.anyOf, PLATFORM_ADMIN],
+      );
+      console.log(`   ${cic.id.padEnd(24)} lo verían ${n(r.rows[0].ven)} persona(s)`);
+    }
+
+    /*
+     * La consulta REAL del ciclo A, cronometrada. La landing es la primera pantalla de todos:
+     * si esto no es barato, el bloque no puede ir ahí. Es UNA pasada con FILTER, no 12 consultas.
+     */
+    console.log(`\n   Ciclo A · conciliación bancaria (egresos por mes, últimos 12):`);
+    const t0 = Date.now();
+    const banco = await c.query(
+      `SELECT st.period,
+              count(*) FILTER (WHERE bm.amount_out > 0)::int AS egresos,
+              count(*) FILTER (WHERE bm.amount_out > 0 AND bm.recon_status = 'matched')::int AS casados,
+              count(*) FILTER (WHERE bm.amount_out > 0 AND bm.recon_status = 'unmatched')::int AS sin_casar,
+              count(*) FILTER (WHERE bm.category_id IS NULL)::int AS sin_clasificar
+         FROM finance.bank_movements bm
+         JOIN finance.bank_statements st ON st.id = bm.statement_id
+        WHERE bm.deleted_at IS NULL
+          AND st.period >= to_char((now() AT TIME ZONE 'America/Mexico_City') - interval '11 months', 'YYYY-MM')
+        GROUP BY st.period ORDER BY st.period`,
+    );
+    const msA = Date.now() - t0;
+    console.table(banco.rows);
+    console.log(`   → ${msA} ms${msA > 150 ? '  ⚠️ pasa de 150 ms: acotar la ventana o diferir el bloque' : '  ✓ barato'}`);
+
+    /*
+     * ⚠️ Ciclo B: la versión que contaba los CFDIs de cada mes para decir "faltan N facturas"
+     * cuesta **9,144 ms de ejecución en el servidor** (`EXPLAIN ANALYZE`, no ida y vuelta):
+     * `fiscal.cfdis` son 167k filas y ni el `Index Only Scan` sobre `ix_fiscal_cfdis_fecha` la
+     * salva. Se retiró. El universo de meses lo arma el CALENDARIO en el service y acá sólo se
+     * lee el estado — que son 3 filas y tarda 0.9 ms. El número de facturas se DECLARA ausente
+     * en vez de pagar 9 s en la primera pantalla que todos abren (ADR-056).
+     */
+    console.log(`\n   Ciclo B · libro de compras (estado por mes, sin contar CFDIs):`);
+    const t1 = Date.now();
+    const libro = await c.query(
+      `SELECT anio_mes AS periodo, estado, tipo, facturas, renglones
+         FROM finance.purchase_book_runs
+        WHERE deleted_at IS NULL AND tipo = 'libro'
+          AND anio_mes >= to_char((now() AT TIME ZONE 'America/Mexico_City') - interval '11 months', 'YYYY-MM')
+        ORDER BY anio_mes`,
+    );
+    const msB = Date.now() - t1;
+    console.table(libro.rows);
+    console.log(`   → ${msB} ms de ida y vuelta (latencia base a Railway ≈ 154 ms; la consulta son 0.9 ms)`);
+    console.log(
+      `   ⚠️ Los meses que NO aparecen arriba no son "sin conciliar": son SIN DATOS. El universo\n` +
+        `      de 12 meses se genera en el service y lo ausente se declara (ADR-056).`,
+    );
+
     console.log(`\n═══ fin ═══\n`);
   } finally {
     await c.end();
