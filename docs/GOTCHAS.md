@@ -2154,3 +2154,41 @@ correcto es **caliente**, no **grande**.
 ⚠️ **Corolario operativo:** mientras corre un `pg_dump` no entra ningún DDL. Si una migración falla
 con `canceling statement due to lock timeout`, no es un bug de la migración — es que hay un volcado
 abierto. Se reintenta después, no se sube el timeout.
+
+---
+
+## 46. Cambiar `stdio: 'inherit'` por tubos rompe `close`, y el síntoma es un cuelgue de 10 minutos
+
+Vivido el **2026-09-11** en `run-prod-feeds.js` (VL.6.4), y **no llegó a producción porque se probó
+a propósito** — con `close` a secas habría entrado esa misma noche al nocturno.
+
+Para quedarse con la última línea de salida de un subproceso hay que pasar de `stdio: 'inherit'` a
+tubos. Eso cambia una garantía que antes era gratis:
+
+- `'exit'` dispara cuando sale **el proceso**.
+- `'close'` dispara cuando se cierran **los flujos** — y un **nieto** que heredó el tubo los
+  mantiene abiertos aunque el hijo ya haya salido hace rato.
+
+Con `inherit` los flujos son los del padre y el problema no existe. Con tubos, un paso que sale en
+un segundo se queda esperando a su nieto hasta que lo mate el timeout, **y queda registrado como
+fallado**. Medido con un importer de mentira que deja un nieto de 30 s:
+
+| | Resuelve en | Código |
+|---|---|---|
+| sólo `close` | **8,046 ms** (el timeout) | **124** |
+| `exit` + gracia de 500 ms | **613 ms** | **0** |
+
+No es hipotético: `import-auto-received`, `import-cash-cuts` e `import-caja-general` lanzan
+subprocesos, y los tres están en el nocturno.
+
+**El patrón correcto** — `exit` manda, `close` gana si llega antes (en el camino normal la gracia
+no cuesta nada), y la cola de salida se captura igual en los dos casos:
+
+```js
+proc.on('exit',  (code) => { gracia = setTimeout(() => finish(code ?? 1), 500); });
+proc.on('close', (code) => finish(code ?? 1));
+```
+
+⚠️ **Corolario:** un proceso padre con un tubo abierto **tampoco termina solo** — el listener de
+`'data'` mantiene vivo el bucle de eventos hasta que muera el nieto. `run-prod-feeds` sale con
+`process.exit()` explícito, así que no le pega; un script que dependa de terminar por sí mismo, sí.
