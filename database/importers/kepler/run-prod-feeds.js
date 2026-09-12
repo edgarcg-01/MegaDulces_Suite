@@ -108,17 +108,6 @@ const STEPS = {
     path.join(K, 'import-kepler-vecinal-routes.js'), // WIN-<1V0NN> rutas vecinales PH (md_01 kdm1.c12)
   ],
   nightly: [
-    // `[NORM.2]` El reconciliador de códigos de barra. **No estaba en ningún carril**, y su propio
-    // encabezado lo llama "backstop" de un hop-2 que, cuando falla, loguea *"(CDC ok; lo toma el
-    // barrido)"* — un plan B que no existía. Medido en prod el 2026-09-11:
-    // `catalog.product_barcodes` no recibía un solo INSERT desde el 2026-08-25 21:22 (17 días),
-    // y la cobertura de los productos NUEVOS cayó de ~80 % a 13 %. Lo leen la etiquetera
-    // (`commercial-labels`) y el escáner de caducidades de bodega (`commercial-expiry-reviews`).
-    // Va en `nightly` porque es full-catálogo, y es además la ÚNICA vía de la fuente Wincaja
-    // (que no está en el ODS).
-    // Sin `--apply` explícito: el runner ya lo agrega cuando corre en modo aplicar (línea ~313).
-    // Ponerlo acá lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
-    path.join(K, 'import-product-barcodes.js'),
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
     path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
@@ -232,6 +221,25 @@ const STEPS = {
   // script corre con `--gap-fill-only`, que es otra cosa: ahí sólo rellena huecos.
   prices: [
     path.join(K, 'import-label-data.js'),                        // → commercial.product_label_prices (pieza/paq/caja)
+    // `[NORM.2]` Reconciliador de códigos de barra → `catalog.product_barcodes`. **No estaba en
+    // ningún carril**: medido en prod, la tabla no recibía un INSERT desde el 2026-08-25 (17 días)
+    // y la cobertura de los productos NUEVOS había caído de ~80 % a 13 %. La leen la etiquetera
+    // (`commercial-labels`) y el escáner de caducidades de bodega (`commercial-expiry-reviews`).
+    //
+    // ⚠️ **El hop-2 NO está roto** — lo verifiqué corriendo `computeBarcodes` acotado a los SKUs
+    // que faltaban y devuelve las filas correctas. Es que es *event-driven*: sólo recomputa los
+    // SKUs cuya fila de `kdii` shipeó, y una fila que no cambia no vuelve a shipear nunca. Un
+    // barcode que faltaba desde antes **no se puebla solo jamás**. Para exactamente eso existe un
+    // reconciliador full-catálogo; el error era no tenerlo agendado.
+    //
+    // Va acá y no en `nightly` por dos razones medidas: cuesta **4.5 s** el catálogo completo
+    // (12,412 filas / 11,556 SKUs), así que el argumento de costo no existe; y la etiquetera
+    // necesita **precio Y barcode juntos** para imprimir — salen de las mismas filas de `kdii`,
+    // y darle a uno 30 min y al otro 24 h es incoherente.
+    //
+    // Sin `--apply` explícito: el runner ya lo agrega en modo aplicar (línea ~313); ponerlo acá
+    // lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
+    path.join(K, 'import-product-barcodes.js'),                  // → catalog.product_barcodes (1 SKU → N, Kepler ∪ Wincaja)
     [path.join(K, 'repoint-catalog-prices.js'), '--sync'],       // → commercial.product_prices BASE-MXN (precio de venta)
   ],
   // KV.8 — logística sola (on-demand): dims. (import-erp-shipments RETIRADO 2026-08-20:
