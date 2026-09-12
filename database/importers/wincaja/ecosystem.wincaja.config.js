@@ -41,9 +41,32 @@ if (!DB) {
   throw new Error('falta DATABASE_URL_NEW: exportala antes de "pm2 start" — el heartbeat la necesita '
     + 'para reportar a cron_runs; sin ella un feed muerto es indistinguible de uno sano.');
 }
+
+// [VL.7.3] A DÓNDE ESCRIBE LA RÉPLICA. Hasta el 2026-09-12 era el Postgres local de `.249`
+// (`localhost:5433`); ese Postgres se jubila, y la base `wincaja` vive ahora en `md`
+// (192.168.0.222:5433) — movida con `pg_dump`/`pg_restore` y cuadrada: 2,316 tablas,
+// 147,449,607 filas y 264 sumas de control de dinero idénticas a las del origen.
+//
+// ⛔ OJO: los tres carriles NO se mudan de máquina. Leen los `.mdb` con Jet de 32 bits sobre `Z:`,
+// así que siguen corriendo en `.249`. Lo único que cambia es su DESTINO.
+//
+// ⚠️ Y se exige explícita, sin default, a propósito. Los tres scripts traen
+// `|| 'postgresql://…@localhost:5433/wincaja'` como respaldo: con la base vieja todavía en pie,
+// arrancar sin esta variable haría que los carriles escriban felices al Postgres JUBILADO —
+// `pm2 ls` en verde, cero errores, y el dato yéndose a una base que nadie lee. Es exactamente el
+// modo de falla que ya costó 4 días de réplica en cero (27→31 ago) y que el párrafo de arriba
+// describe para `DATABASE_URL_NEW`. Fallar acá, al arrancar, cuesta un minuto; no fallar cuesta
+// días.
+const REPLICA = process.env.WINCAJA_REPLICA_URL;
+if (!REPLICA) {
+  throw new Error('falta WINCAJA_REPLICA_URL: exportala antes de "pm2 start". Desde VL.7.3 la '
+    + 'réplica vive en md (192.168.0.222:5433/wincaja), no en localhost — y el default de los '
+    + 'scripts apunta al Postgres de .249 que se está jubilando.');
+}
+
 const base = {
   cwd: REPO, autorestart: true, max_restarts: 50, restart_delay: 5000, time: true,
-  env: { DATABASE_URL_NEW: DB },
+  env: { DATABASE_URL_NEW: DB, WINCAJA_REPLICA_URL: REPLICA },
 };
 
 module.exports = {
