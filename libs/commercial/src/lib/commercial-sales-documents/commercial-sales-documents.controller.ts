@@ -44,7 +44,7 @@ export class CommercialSalesDocumentsController {
   private q(raw: Record<string, string | undefined>): SalesDocsQuery {
     return {
       from: raw.from, to: raw.to, doc_tipo: raw.doc_tipo,
-      cliente_code: raw.cliente_code, vendedor_code: raw.vendedor_code, search: raw.search,
+      cliente_code: raw.cliente_code, vendedor_code: raw.vendedor_code, search: raw.search, sort: raw.sort,
       vencidas: raw.vencidas, cobro: raw.cobro, min: raw.min, canceladas: raw.canceladas,
       page: raw.page ? Number(raw.page) : undefined,
       pageSize: raw.pageSize ? Number(raw.pageSize) : undefined,
@@ -80,13 +80,42 @@ export class CommercialSalesDocumentsController {
     @Body() body: { folios?: string[]; responsable?: string; nota?: string },
     @Res() res: Response,
   ): Promise<void> {
-    const buf = await this.guia.pdfDeFolios(body?.folios || [], {
+    const { pdf, expediente } = await this.guia.pdfDeFolios(body?.folios || [], {
       responsable: body?.responsable, nota: body?.nota,
       warehouse_codes: await this.alcance(undefined, 'guia-cobranza'),
     });
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', 'inline; filename="guia-cobranza.pdf"');
-    res.end(buf);
+    res.setHeader('Content-Disposition', `inline; filename="${expediente.folio}.pdf"`);
+    // El folio viaja en un header para que la pantalla pueda decir QUÉ expediente acaba de
+    // archivar sin pedir el listado de nuevo (el cuerpo es el PDF, no hay dónde ponerlo).
+    res.setHeader('X-Expediente-Folio', expediente.folio);
+    res.setHeader('X-Expediente-Id', expediente.id);
+    res.setHeader('Access-Control-Expose-Headers', 'X-Expediente-Folio, X-Expediente-Id');
+    res.end(pdf);
+  }
+
+  /**
+   * GT.12 — historial de guías emitidas (el "expediente" por vendedor). Declarado ANTES de
+   * ':folio' por lo mismo de siempre: la ruta genérica se tragaría 'expedientes'.
+   */
+  @Get('expedientes')
+  @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
+  @ApiOperation({ summary: 'Expedientes: historial de Guías de Cobranza emitidas (filtros: vendedor_code, from, to, limit). Cada una guarda el snapshot de lo que se imprimió.' })
+  expedientes(@Query() raw: Record<string, string>): ReturnType<GuiaCobranzaService['listar']> {
+    return this.guia.listar({
+      vendedor_code: raw.vendedor_code, from: raw.from, to: raw.to,
+      limit: raw.limit ? Number(raw.limit) : undefined,
+    });
+  }
+
+  @Get('expedientes/:id/pdf')
+  @RequirePermissions(Permission.COMMERCIAL_SALES_DOCS_VER)
+  @ApiOperation({ summary: 'Reimprime un expediente archivado DESDE SU SNAPSHOT (no desde la cartera de hoy): la copia dice lo mismo que el papel que se firmó.' })
+  async expedientePdf(@Param('id') id: string, @Res() res: Response): Promise<void> {
+    const { pdf, expediente } = await this.guia.reimprimir(id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${expediente.folio}.pdf"`);
+    res.end(pdf);
   }
 
   // Antes de ':folio' — si no, la ruta genérica se traga '/:folio/anexo.pdf'.
