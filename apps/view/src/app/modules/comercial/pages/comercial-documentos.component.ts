@@ -4,7 +4,7 @@ import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { InputTextModule } from 'primeng/inputtext';
-import { TableModule } from 'primeng/table';
+import { TableModule, type TableLazyLoadEvent } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
@@ -110,7 +110,19 @@ import {
         [emptyHint]="pista()"
         (retry)="load()">
 
+        <!--
+          [AX.12] Paginacion DEL SERVIDOR (lazy). Antes la tabla recibia lo que viniera y no
+          habia paginador: el backend mandaba 50 y las otras 862 no existian para nadie, aunque
+          el KPI de arriba las contara. Las opciones llegan a 200 porque esta medido que no le
+          cuesta nada a la base -- el costo es armar la seleccion, no devolver las filas.
+          NO PONER ACENTOS GRAVES ACA: este template es un template literal de TS y un acento
+          grave lo cierra. Es la 6a vez que pasa en este repo (GOTCHAS).
+        -->
         <p-table [value]="rows()" dataKey="folio_digital" [scrollable]="true" scrollHeight="calc(100vh - 25rem)"
+                 [lazy]="true" (onLazyLoad)="paginar($event)" [paginator]="true"
+                 [totalRecords]="totalDocs()" [rows]="tam()" [first]="primerRenglon()"
+                 [rowsPerPageOptions]="[50, 100, 200]" [showCurrentPageReport]="true"
+                 currentPageReportTemplate="{first} a {last} de {totalRecords} documentos"
                  [rowHover]="true" size="small"
                  class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs"
                  [tableStyle]="{ 'min-width': '62rem' }"
@@ -508,6 +520,16 @@ export class ComercialDocumentosComponent {
     const antes = this.filtros().vendedor;
     this.filtros.set(f);
     if (f.vendedor !== antes) this.autoResponsable(f.vendedor);
+    /*
+     * `[AX.12]` Cambiar un filtro vuelve a la página 1. Sin esto, alguien parado en la página 9
+     * que escribe una búsqueda que deja 3 resultados se queda mirando una tabla vacía —y esa
+     * tabla vacía dice "Sin documentos en el periodo", que sería falso.
+     */
+    this.pagina.set(1);
+    // Cambiar el filtro cambia la selección de documentos: lo palomeado deja de tener sentido.
+    // Ver el comentario de `load()` — con paginación de servidor no se puede podar sin traerse
+    // la selección entera, y palomeado-que-ya-no-aplica se imprimiría sin que nadie lo viera.
+    this.sel.set([]);
     this.load();
   }
 
@@ -536,15 +558,30 @@ export class ComercialDocumentosComponent {
       vencidas: f.soloVencidas ? 'true' : undefined,
       warehouse_codes: f.sucursal || undefined,
       sort: f.orden || undefined,
+      // `[AX.12]` La página viaja al servidor. Antes no se mandaba nada, el backend caía en su
+      // default y la tabla mostraba las primeras 50 **sin decirlo y sin manera de pasar a la
+      // siguiente**: medido en prod, 912 documentos en la ventana por defecto → 862 (94.5%)
+      // inalcanzables, mientras el KPI del encabezado sí decía 912.
+      page: this.pagina(),
+      pageSize: this.tam(),
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         if (mia !== this.peticion) return; // llegó tarde: manda la consulta nueva
         this.report.set(r);
-        // La selección sobrevive al cambio de filtro sólo en lo que sigue existiendo: dejar
-        // palomeada una factura que ya no está en la lista imprimiría algo que nadie vio.
-        const vivos = new Set(r.rows.map((d) => d.folio_digital));
-        this.sel.update((s) => s.filter((d) => vivos.has(d.folio_digital)));
+        /*
+         * `[AX.12]` La selección **sobrevive al cambio de página** y se limpia al cambiar de
+         * filtro.
+         *
+         * Acá antes se podaba contra `r.rows` — "dejar palomeada una factura que ya no está en
+         * la lista imprimiría algo que nadie vio". Con paginación de servidor eso se vuelve
+         * falso: `r.rows` es SÓLO la página, así que palomear 10 en la página 1 y avanzar a la 2
+         * habría borrado las 10. Y podar contra la página nueva tampoco sirve: lo seleccionado
+         * puede estar legítimamente en la página 5.
+         *
+         * Por eso la limpieza vive en `aplicar()` —el único lugar donde de verdad cambia la
+         * selección de documentos— y esta respuesta ya no toca `sel`.
+         */
         this.loading.set(false);
       },
       error: (e) => {
@@ -553,9 +590,46 @@ export class ComercialDocumentosComponent {
         this.loading.set(false);
       },
     });
-    // los catálogos siguen la misma ventana; si fallan, los filtros quedan vacíos sin romper la tabla
-    this.svc.filtros(q).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (c) => this.catalogos.set(c), error: () => undefined });
+    /*
+     * `[AX.12]` Los catálogos dependen SÓLO de la ventana (fechas + sucursal): son "los
+     * vendedores que facturaron en este periodo", y a propósito no se recortan por el vendedor
+     * ya elegido ni por la búsqueda — si se recortaran, el selector se quedaría con la única
+     * opción que ya está puesta y no se podría cambiar.
+     *
+     * Por eso no tiene por qué volver a pedirse al cambiar de página, de orden o de texto. Cuesta
+     * **~350 ms** medidos contra prod, y se estaba pagando en cada tecleo.
+     */
+    const ventana = `${q.from}|${q.to}|${q.warehouse_codes ?? ''}`;
+    if (ventana !== this.ventanaCatalogos) {
+      this.ventanaCatalogos = ventana;
+      // si fallan, los filtros quedan vacíos sin romper la tabla
+      this.svc.filtros(q).pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe({ next: (c) => this.catalogos.set(c), error: () => (this.ventanaCatalogos = '') });
+    }
+  }
+
+  // ── `[AX.12]` Paginación del servidor ────────────────────────────────────────
+
+  readonly pagina = signal(1);
+  readonly tam = signal(100);
+  /** Total de la SELECCIÓN, no de la página: sale del mismo KPI que ya se calculaba. */
+  readonly totalDocs = computed(() => this.report()?.kpis?.documentos ?? 0);
+  /** Primer renglón de la página actual, que es lo que el paginador de PrimeNG entiende. */
+  readonly primerRenglon = computed(() => (this.pagina() - 1) * this.tam());
+  /** Ventana de la que ya se pidieron catálogos; `''` fuerza a volver a pedirlos. */
+  private ventanaCatalogos = '';
+
+  /**
+   * `[AX.12]` Cambio de página / de tamaño. Es el `(onLazyLoad)` de la tabla: el servidor manda
+   * el renglón, no el navegador. `first` viene en renglones y la API pagina en páginas.
+   */
+  paginar(ev: TableLazyLoadEvent): void {
+    const tam = ev.rows || this.tam();
+    const pag = Math.floor((ev.first || 0) / tam) + 1;
+    if (pag === this.pagina() && tam === this.tam()) return;
+    this.tam.set(tam);
+    this.pagina.set(pag);
+    this.load();
   }
 
   abrir(row: SalesDocRow | null): void {

@@ -79,7 +79,14 @@ const EMISOR_CACHE = new Map<string, EmisorFiscal>();
 
 // AX 2026-08-25: /comercial/documentos = SOLO telemarketing (se sacó la venta a crédito, U/D/12).
 const DOC_TIPOS = ['telemarketing'] as const;
-const MAX_PAGE = 200;
+/*
+ * `[AX.12]` 200 → 500. No es generosidad: **medido**, `pageSize` 50 y 200 tardan lo mismo
+ * (~810 ms) porque el costo es armar la selección de la vista, no devolver las filas. El tope
+ * existe para que nadie pida 50,000 renglones al navegador, no para cuidar la base.
+ */
+const MAX_PAGE = 500;
+/** `[AX.12]` Lo que pide la pantalla si no dice nada. 100 cabe en una pantalla con scroll. */
+const DEFAULT_PAGE = 100;
 
 /**
  * GT.13 — órdenes que la pantalla ofrece. Lista blanca a propósito: el `sort` viaja por query
@@ -190,11 +197,16 @@ export class CommercialSalesDocumentsService {
    * Con la selección materializada primero, elige hash join —igual que en `kpis()`, que por ser
    * agregado nunca tuvo el problema (791 ms)— y luego ordena 738 filas ya resueltas.
    * Si alguien "simplifica" esto quitando el CTE, la pantalla vuelve a tardar 24 segundos.
+   *
+   * `[AX.12]` La página y los KPIs salen ahora de **una sola** referencia a ese CTE: ver el
+   * comentario del cuerpo. Y el tope de página subió a 500 porque **medido, no cuesta nada**:
+   * `pageSize` 50 y 200 tardan lo mismo (~810 ms), el costo es armar la selección, no devolver
+   * las filas.
    */
   async list(q: SalesDocsQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
-    const pageSize = Math.min(MAX_PAGE, Math.max(1, Number(q.pageSize) || 50));
+    const pageSize = Math.min(MAX_PAGE, Math.max(1, Number(q.pageSize) || DEFAULT_PAGE));
 
     return this.tk.run(async (trx) => {
       const seleccion = this.base(trx, tenantId, q)
@@ -214,31 +226,86 @@ export class CommercialSalesDocumentsService {
           trx.raw('(current_date - i.vencimiento) AS dias_vencida'),
         );
 
-      const [rows, kpis] = await Promise.all([
-        trx.withMaterialized('sel', seleccion)
-          .select('*').from('sel')
-          .orderBy(ORDENES[String(q.sort || '')] ?? ORDENES['fecha_desc'])
-          .limit(pageSize).offset((page - 1) * pageSize),
-        this.base(trx, tenantId, q)
-          .select(
-            trx.raw('count(*)::int AS documentos'),
-            trx.raw('count(DISTINCT i.cliente_code)::int AS clientes'),
-            trx.raw('coalesce(sum(i.total),0)::numeric AS importe'),
+      /*
+       * `[AX.12]` — **Una sola pasada por la vista, no dos.**
+       *
+       * Antes esto eran dos consultas en `Promise.all`… dentro del MISMO `tk.run(trx)`. Una
+       * transacción tiene UNA conexión, así que el `Promise.all` **no paralelizaba nada**: se
+       * ejecutaban en fila. Medido contra prod (EXPLAIN ANALYZE, mínimo de 3 corridas):
+       * lista **765 ms** + KPIs **906 ms** = **1,671 ms** por cada carga y por cada cambio de
+       * página.
+       *
+       * Un CTE `MATERIALIZED` se calcula **una vez** aunque se lo referencie varias veces. Así
+       * que la misma selección alimenta los agregados y la página: **740 ms, 56% menos**, con los
+       * KPIs **idénticos al centavo** (verificado campo por campo contra la formulación vieja).
+       *
+       * ⚠️ `LEFT JOIN LATERAL … ON true` y no `CROSS JOIN`: con un `offset` más allá del final la
+       * página viene vacía, y un `CROSS JOIN` devolvería **cero filas** — o sea que también se
+       * perderían los KPIs, y la pantalla diría "0 documentos" sobre una selección que sí tiene.
+       *
+       * ⚠️ Los KPIs viajan con prefijo `k_` porque `saldo` y `descuento` existen **de los dos
+       * lados**: sin el prefijo, `select k.*, p.*` los pisa y el KPI se convierte en el valor de
+       * la última fila de la página. Ninguna columna del renglón empieza con `k_`.
+       *
+       * ⛔ El CTE materializado NO es cosmético (ver el comentario de arriba): si alguien lo
+       * quita, la pantalla vuelve a tardar 24 segundos.
+       */
+      const orden = ORDENES[String(q.sort || '')] ?? ORDENES['fecha_desc'];
+      // Lista blanca: `column` sale de ORDENES y `order`/`nulls` son uniones cerradas.
+      const ordenSql = orden
+        .map((o) => `"${o.column}" ${o.order === 'asc' ? 'asc' : 'desc'}` +
+          (o.nulls ? ` nulls ${o.nulls === 'first' ? 'first' : 'last'}` : ''))
+        .join(', ');
+
+      const filas: any[] = await trx
+        .withMaterialized('sel', seleccion)
+        .select('k.*', 'p.*')
+        .from(
+          trx.select(
+            trx.raw('count(*)::int AS k_documentos'),
+            trx.raw('count(DISTINCT cliente_code)::int AS k_clientes'),
+            trx.raw('coalesce(sum(total),0)::numeric AS k_importe'),
             // `descuento` (c13) NO es lo que se descontó: Σrenglones − c13 == total sólo en
             // 985 de 1,268. El efectivo se despeja del % y cuadra 3,264/3,264.
-            trx.raw('coalesce(sum(i.descuento_efectivo),0)::numeric AS descuento'),
+            trx.raw('coalesce(sum(descuento_efectivo),0)::numeric AS k_descuento'),
             // Cobranza: vencido = venció Y debe. El resto se declara en vez de esconderse.
-            trx.raw(`count(*) FILTER (WHERE i.vencimiento < current_date
-                     AND i.estatus_cobro IN ('pendiente','parcial'))::int AS vencidas`),
-            trx.raw(`coalesce(sum(i.saldo) FILTER (WHERE i.vencimiento < current_date
-                     AND i.estatus_cobro IN ('pendiente','parcial')),0)::numeric AS saldo_vencido`),
-            trx.raw('coalesce(sum(i.saldo),0)::numeric AS saldo'),
-            trx.raw(`count(*) FILTER (WHERE i.estatus_cobro='pagada')::int AS pagadas`),
-            trx.raw(`count(*) FILTER (WHERE i.estatus_cobro='sin_cartera')::int AS sin_cartera`),
+            trx.raw(`count(*) FILTER (WHERE vencimiento < current_date
+                     AND estatus_cobro IN ('pendiente','parcial'))::int AS k_vencidas`),
+            trx.raw(`coalesce(sum(saldo) FILTER (WHERE vencimiento < current_date
+                     AND estatus_cobro IN ('pendiente','parcial')),0)::numeric AS k_saldo_vencido`),
+            trx.raw('coalesce(sum(saldo),0)::numeric AS k_saldo'),
+            trx.raw(`count(*) FILTER (WHERE estatus_cobro='pagada')::int AS k_pagadas`),
+            trx.raw(`count(*) FILTER (WHERE estatus_cobro='sin_cartera')::int AS k_sin_cartera`),
             // Cuántas fechas de vencimiento son el hecho del ERP y cuántas una reconstrucción.
-            trx.raw(`count(*) FILTER (WHERE i.vencimiento_source='erp')::int AS venc_erp`),
-          ).first(),
-      ]);
+            trx.raw(`count(*) FILTER (WHERE vencimiento_source='erp')::int AS k_venc_erp`),
+          ).from('sel').as('k'),
+        )
+        .joinRaw(
+          `LEFT JOIN LATERAL (SELECT * FROM "sel" ORDER BY ${ordenSql} LIMIT ? OFFSET ?) p ON true`,
+          [pageSize, (page - 1) * pageSize],
+        );
+
+      const primera = filas[0] ?? {};
+      const kpis = {
+        documentos: primera.k_documentos ?? 0,
+        clientes: primera.k_clientes ?? 0,
+        importe: primera.k_importe ?? '0',
+        descuento: primera.k_descuento ?? '0',
+        vencidas: primera.k_vencidas ?? 0,
+        saldo_vencido: primera.k_saldo_vencido ?? '0',
+        saldo: primera.k_saldo ?? '0',
+        pagadas: primera.k_pagadas ?? 0,
+        sin_cartera: primera.k_sin_cartera ?? 0,
+        venc_erp: primera.k_venc_erp ?? 0,
+      };
+      // La fila del `LEFT JOIN` sin página trae `folio_digital` NULL: son los KPIs solos.
+      const rows = filas
+        .filter((f) => f.folio_digital != null)
+        .map((f) => {
+          const row: any = {};
+          for (const col of Object.keys(f)) if (!col.startsWith('k_')) row[col] = f[col];
+          return row;
+        });
       // Una pantalla en blanco con todo en $0 se lee como "se rompió". Cuando la ventana no
       // trae nada, se dice CUÁNDO fue la última factura del canal para que el rango se pueda
       // corregir sin adivinar. Sólo se paga en el camino vacío: medido, este max() cuesta
