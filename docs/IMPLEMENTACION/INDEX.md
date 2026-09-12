@@ -34,6 +34,7 @@
 | Archivo | Función |
 |---|---|
 | [`ARQUITECTURA_DATOS.md`](ARQUITECTURA_DATOS.md) | **Vista de pájaro de TODAS las bases** (sucursales Kepler, Wincaja, KP_CONCENTRADA, prod) + flujo origen→app + pipe CDC al-minuto (`kepler_ods.*` por ctid) + qué es nuevo vs qué se quedó. Diagrama mermaid. |
+| [`ESQUEMA_BD_PROD.md`](../ESQUEMA_BD_PROD.md) | **Snapshot introspectivo de la BD de PROD** (Railway `railway`, 2026-09-11): 20 schemas / 623 tablas / 313 vistas / 12 matviews, tamaños, cobertura RLS y `tenant_id`, top relaciones, inventario tabla-por-tabla con comentarios. Companion CSV con las 15,936 columnas. Es una FOTO, no la fuente del esquema (esa son las migraciones). |
 
 ### Detalle por fase
 | Archivo | Estado del plan | Duración |
