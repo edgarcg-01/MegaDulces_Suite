@@ -284,8 +284,13 @@ export class KpService {
    * defecto que `[TDA.3]` acaba de arreglar con la unidad escaneada. El costo es tamaño de
    * descarga en una LAN, una vez cada 12 h; el beneficio es una sola definición.
    */
-  private async mayoreoDeTodos(): Promise<Map<string, { mayoreo: MayoreoTier[]; contenido: string | null }>> {
+  private async mayoreoDeTodos(sucursal: string | null): Promise<Map<string, { mayoreo: MayoreoTier[]; contenido: string | null }>> {
     const idx = new Map<string, { mayoreo: MayoreoTier[]; contenido: string | null }>();
+    // `[NORM.3]` El defecto que esto cierra: el snapshot se arma **por sucursal** (cada kiosco baja
+    // el de su plaza) y esta consulta leía la tabla **sin filtrar por sucursal**. O sea el modo sin
+    // red servía el mayoreo de la moda a las 8 tiendas. Medido: 1,164 grupos de mayoreo de paquete
+    // (6.3 %) difieren entre plazas.
+    const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     try {
       await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
@@ -298,10 +303,11 @@ export class KpService {
                   l.wholesale_pack_price,  l.wholesale_pack_min_qty,
                   l.pack_price,            l.pack_size
              FROM catalog.products p
-             JOIN commercial.product_label_prices l
+             JOIN ${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} l
                ON l.product_id = p.id AND l.tenant_id = p.tenant_id
-            WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND btrim(coalesce(p.sku,'')) <> ''`,
-          [TENANT],
+            WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND btrim(coalesce(p.sku,'')) <> ''
+              ${suc ? 'AND l.sucursal = ?' : ''}`,
+          suc ? [TENANT, suc] : [TENANT],
         );
         for (const r of rows || []) {
           const t = this.tiersDeFila(r);
@@ -349,7 +355,7 @@ export class KpService {
    *
    * Ante cualquier problema devuelve todo en `null`: es un refinamiento del precio, no el precio.
    */
-  private async datosDeEtiqueta(codigo: string): Promise<{
+  private async datosDeEtiqueta(codigo: string, sucursal: string | null): Promise<{
     override: number | null;
     mayoreo: MayoreoTier[];
     contenido: string | null;
@@ -365,6 +371,11 @@ export class KpService {
     product_id: string | null;
   }> {
     const vacio = { override: null, mayoreo: [] as MayoreoTier[], contenido: null, product_id: null };
+    // `[NORM.3]` La plaza de la que salió el precio. La tabla ahora tiene grano por sucursal, así
+    // que el mayoreo se pide para ESA tienda: 1,164 grupos de mayoreo de paquete (6.3 %) tienen
+    // precio distinto entre plazas, y antes se publicaba el de la moda. Sin plaza conocida se lee
+    // la vista consolidada, que reproduce exactamente la fila que se publicaba hasta hoy.
+    const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     try {
       return await this.db.transaction(async (trx) => {
         await trx.raw(`SET LOCAL app.tenant_id = '${TENANT}'`);
@@ -380,13 +391,16 @@ export class KpService {
                   -- faltaba era publicarla.
                   p.id AS product_id
              FROM catalog.products p
-             JOIN commercial.product_label_prices l
+             JOIN ${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} l
                ON l.product_id = p.id AND l.tenant_id = p.tenant_id
             WHERE p.tenant_id = ?
               AND p.deleted_at IS NULL
               AND btrim(p.sku) = ?
+              ${suc ? 'AND l.sucursal = ?' : ''}
             LIMIT 1`,
-          [TENANT, String(codigo).replace(/^0+/, '')],
+          suc
+            ? [TENANT, String(codigo).replace(/^0+/, ''), suc]
+            : [TENANT, String(codigo).replace(/^0+/, '')],
         );
         const r = rows?.[0];
         if (!r) return vacio;
@@ -477,7 +491,10 @@ export class KpService {
       // el anaquel. Sólo se pisa el precio de la unidad BASE (es lo que la tabla guarda por pieza).
       // `[TDA.4]` Una sola lectura trae el override manual Y los tiers de mayoreo: salen de la
       // misma fila de la etiqueta, así que separarlas sería pagar dos viajes por un solo hecho.
-      const etiqueta = await this.datosDeEtiqueta(r.codigo);
+      // `[NORM.3]` `r` es la fila de la plaza elegida (la pedida, o la determinista). El mayoreo se
+      // pide para esa MISMA plaza: si se pidieran por caminos distintos, el precio unitario y su
+      // mayoreo podrían salir de dos tiendas diferentes.
+      const etiqueta = await this.datosDeEtiqueta(r.codigo, r.sucursal || null);
       const manual = etiqueta.override;
       let origen: 'kepler' | 'override_manual' = 'kepler';
       if (manual != null && base) {
@@ -552,7 +569,7 @@ export class KpService {
 
       // `[TDA.4]` Las etiquetas de TODO el catálogo en una sola lectura: el snapshot lo bajan los
       // kioscos una vez cada 12 h y pedir producto por producto serían ~9,000 viajes.
-      const etiquetas = await this.mayoreoDeTodos();
+      const etiquetas = await this.mayoreoDeTodos(suc);
 
       const vistos = new Set<string>();
       const items: any[] = [];

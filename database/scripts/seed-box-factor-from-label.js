@@ -9,7 +9,7 @@
  * atrapa el caso donde el precio suelto cae por debajo del costo (NUCITA); estos quedan por
  * encima y se colaban (tag `unit_source='revisar'`).
  *
- * Fuente del Pz/Cja: `commercial.product_label_prices.box_size` = factor de la etiqueta 'CJA' de
+ * Fuente del Pz/Cja: `commercial.v_product_label_prices.box_size` = factor de la etiqueta 'CJA' de
  * Kepler (kdii, ver import-label-data.js). Cumple `box_size = factor_sale × pack_size`.
  *
  * Fix: sembrar `commercial.product_unit_overrides.box_factor = box_size` (SUF=1) para los SKUs
@@ -33,7 +33,7 @@ const APPLY = process.argv.includes('--apply');
 const SELECT = `
   SELECT p.id, p.sku, left(p.nombre, 34) AS nombre, p.factor_sale AS fs, l.box_size, l.pack_size
     FROM catalog.products p
-    JOIN commercial.product_label_prices l ON l.tenant_id = p.tenant_id AND l.product_id = p.id
+    JOIN commercial.v_product_label_prices l ON l.tenant_id = p.tenant_id AND l.product_id = p.id
    WHERE p.tenant_id = $1 AND p.activo = true
      AND COALESCE(p.factor_sale, 1) > 1 AND l.box_size > p.factor_sale
      AND l.pack_size > 1 AND l.box_size = p.factor_sale * l.pack_size

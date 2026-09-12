@@ -591,12 +591,24 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
       `SELECT id, btrim(sku) AS sku FROM catalog.products
         WHERE tenant_id=$1 AND deleted_at IS NULL AND btrim(coalesce(sku,'')) = ANY($2)`,
       [tenantId, clean])).rows.map((r) => [r.sku, r.id]));
+    // `[NORM.3]` La identidad es (producto, PLAZA): antes se quedaba con la primera fila del SKU y
+    // tiraba las otras siete. Ahora cada tienda aporta la suya; el dedupe sólo protege de que una
+    // misma plaza llegue repetida.
     const seen = new Set();
+    // Igual que el reconciliador: el PRIMER sku que reclama un producto se queda con todas sus
+    // plazas. Explícito, no heredado del orden de las filas — si no, un producto podría terminar
+    // con la plaza 01 de un sku y la 02 de otro, y ese precio no existiría en ninguna parte.
+    const duenoDePid = new Map();
     const tuples = [];
     for (const lab of labels) {
       const pid = pmap.get(lab.sku);
-      if (!pid || seen.has(pid)) continue; // 1ª (mayor c90 por DISTINCT ON) gana
-      seen.add(pid);
+      if (!pid) continue;
+      const dueno = duenoDePid.get(pid);
+      if (dueno === undefined) duenoDePid.set(pid, lab.sku);
+      else if (dueno !== lab.sku) continue;
+      const k = `${pid} ${lab.sucursal}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
       tuples.push(toStageTuple(lab, pid));
     }
     // `[TDA.1]` Se capturan los product_id que REALMENTE cambiaron (el UPSERT es churn-free, así que
@@ -609,7 +621,11 @@ async function normalizeLabelsFromOds(client, tenantId, skus) {
     // comportamiento de siempre. Bloquear el hop-2 por un aviso le sumaría latencia a un carril que
     // corre cada 15 s, y hacerlo fallar cambiaría un problema chico por uno grande.
     if (cambiados.length) {
-      notifyLabelPricesChanged(tenantId, cambiados).catch(() => { /* fail-open, ya loguea adentro */ });
+      // `[NORM.3]` Con grano por plaza, un mismo producto puede volver hasta 8 veces. El aviso es
+      // por PRODUCTO (la pantalla re-consulta y el backend ya filtra por su sucursal), así que se
+      // deduplica acá: si no, el `truncated` del aviso se dispararía con un octavo de los cambios.
+      notifyLabelPricesChanged(tenantId, Array.from(new Set(cambiados)))
+        .catch(() => { /* fail-open, ya loguea adentro */ });
     }
     return changed;
   } catch (e) {

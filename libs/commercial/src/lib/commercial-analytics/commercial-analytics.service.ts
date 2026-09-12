@@ -3769,7 +3769,7 @@ export class CommercialAnalyticsService {
           .where('p.tenant_id', o.tenantId).whereRaw('p.id = ANY(?::uuid[])', [pids])
           .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale', 'p.brand_id',
             trx.raw('b.nombre as brand_nombre'), trx.raw('b.code as brand_code'),
-            trx.raw('(SELECT max(lp.box_size) FROM commercial.product_label_prices lp WHERE lp.product_id = p.id AND lp.tenant_id = p.tenant_id) as box_size'))
+            trx.raw('(SELECT max(lp.box_size) FROM commercial.v_product_label_prices lp WHERE lp.product_id = p.id AND lp.tenant_id = p.tenant_id) as box_size'))
       : [];
     const pm = new Map<string, any>(pmeta.map((r: any) => [r.id, r]));
     const wmeta = whs.length
@@ -4707,7 +4707,7 @@ export class CommercialAnalyticsService {
         .leftJoin('catalog.suppliers as s', 's.id', 'p.supplier_id')
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
         .leftJoin('catalog.categories as cat', 'cat.id', 'p.category_id')
-        .leftJoin('commercial.product_label_prices as lp', function (this: any) {
+        .leftJoin('commercial.v_product_label_prices as lp', function (this: any) {
           this.on('lp.product_id', 'p.id').andOn('lp.tenant_id', 'p.tenant_id');
         })
         .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {

@@ -88,12 +88,26 @@ describe('etiquetera · el aviso en vivo de cambio de precio', () => {
     expect(PAGE).toMatch(/\[class\.etqp-row-changed\]="filaCambiada\(it\)"/);
   });
 
+  it('[NORM.3] NINGUNA resolución de etiqueta se pide sin la plaza', () => {
+    // El precio de Kepler es por tienda: medido en prod el 2026-09-11, 1,039 de 9,365 SKUs (11.1%)
+    // tienen precio de pieza distinto entre plazas retail y 1,164 grupos de mayoreo de paquete
+    // (6.3%) también. Un camino que llame a `resolve` sin pasar la sucursal imprime el precio de
+    // OTRA tienda, y no falla: sale una etiqueta con un número plausible y equivocado.
+    //
+    // Por eso la aserción es sobre TODAS las llamadas, no sobre las que hoy existen: lo que hay
+    // que impedir es la quinta, la que alguien agregue el mes que viene.
+    const llamadas = PAGE.match(/this\.svc\.resolve\([^)]*\)/g) || [];
+    expect(llamadas.length).toBeGreaterThan(0);
+    const sinPlaza = llamadas.filter((c) => !c.includes('this.sucursalUsuario'));
+    expect(sinPlaza).toEqual([]);
+  });
+
   it('el precio nuevo se pide por el MISMO camino que el escaneo', () => {
     // No un endpoint nuevo: así el refresco pasa por la misma reconciliación y trae su propia
     // frescura medida. Un atajo daría un precio que el escaneo no habría dado.
     const fn = /refrescarPrecios\(\): void \{[\s\S]*?\n  \}/.exec(PAGE);
     expect(fn).not.toBeNull();
-    expect(fn![0]).toMatch(/this\.svc\.resolve\(codes\)/);
+    expect(fn![0]).toMatch(/this\.svc\.resolve\(codes, this\.sucursalUsuario\)/);
     expect(fn![0]).toMatch(/lastFreshness\.set/);
   });
 });

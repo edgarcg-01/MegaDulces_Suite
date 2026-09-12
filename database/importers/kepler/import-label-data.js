@@ -21,7 +21,7 @@
 
 const { Client } = require('pg');
 const { declararActor } = require('../lib/declare-actor');
-const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('../../../services/feeds-ingest/label-compute');
+const { computeLabels, toStageTuple, upsertLabels, barcodeFormat, LABEL_STAGE_COLS } = require('../../../services/feeds-ingest/label-compute');
 /**
  * `[TDA.8]` El aviso de que un precio de etiqueta cambió.
  *
@@ -30,6 +30,12 @@ const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('..
  * hop-2 del servicio `feeds-ingest`. Pero **el que publica el precio de etiqueta hoy es ESTE
  * script**: `[VL.4b]` lo movió al carril `prices` (cada 30 min) del servidor nuevo, y este camino
  * llamaba `upsertLabels` **sin el 5º parámetro**, así que ni siquiera sabía qué había cambiado.
+ *
+ * ⚠️ Ese "cada 30 min" estaba escrito como la expresión de cron (asterisco, barra, 30) DENTRO de
+ * este bloque de comentario: la barra cerraba el comentario ahí mismo y **el archivo dejaba de
+ * compilar** — Node ni siquiera lo cargaba. Misma familia que
+ * `feedback_no_backticks_in_css_comments`: un carácter con significado sintáctico metido en un
+ * comentario. La cadencia se escribe en palabras, nunca con la expresión de cron.
  *
  * O sea: el aviso no estaba apagado por configuración — **no estaba conectado al camino que
  * corre**. La etiquetera tiene su banner de precio vivo desde TDA.1 y nunca se disparó.
@@ -90,15 +96,27 @@ const APPLY = process.argv.includes('--apply');
       console.table(dbg);
     }
 
-    // map sku→pid (fallback barcode), dedup por pid, decisiones de backfill, tuples staged.
+    // map sku→pid (fallback barcode), dedup por (pid, PLAZA), decisiones de backfill, tuples staged.
+    // `[NORM.3]` El dedupe era por `pid` a secas: se quedaba con una plaza y descartaba las otras
+    // siete. Ahora cada tienda aporta su fila; el guard sólo protege de la misma plaza repetida.
     let matched = 0, unmatched = 0, noBarcode = 0, dupPid = 0;
     const staged = [], barcodeFixes = [], claimedEan = new Set(), stagedPids = new Set();
+    // Un producto puede ser reclamado por más de un SKU (el fallback por barcode). El PRIMERO se
+    // queda con TODAS sus plazas; los demás se saltan enteros. Se lleva explícito en vez de
+    // confiar en que las filas vengan contiguas por SKU: hoy vienen así por el `ORDER BY` del
+    // cómputo, pero si alguien lo cambia, un producto terminaría con la plaza 01 de un SKU y la
+    // 02 de otro — un precio que no existe en ningún lado y que nada marcaría como raro.
+    const duenoDePid = new Map();
     for (const lab of labels) {
       let pid = skuToId.get(lab.sku);
       if (!pid) { const bc = String(lab.barcode_raw || '').trim(); if (bc) pid = bcToId.get(bc); }
       if (!pid) { unmatched++; continue; }
-      if (stagedPids.has(pid)) { dupPid++; continue; }  // 1ª (mayor c90 por DISTINCT ON) gana
-      stagedPids.add(pid);
+      const dueno = duenoDePid.get(pid);
+      if (dueno === undefined) duenoDePid.set(pid, lab.sku);
+      else if (dueno !== lab.sku) { dupPid++; continue; }
+      const clave = `${pid} ${lab.sucursal}`;
+      if (stagedPids.has(clave)) { dupPid++; continue; }
+      stagedPids.add(clave);
       if (!lab.barcode_format) noBarcode++;
       // Backfill products.barcode: actual NO-EAN + EAN real libre (sin colisión). Idempotente.
       if (lab.barcode_format) {
@@ -113,7 +131,14 @@ const APPLY = process.argv.includes('--apply');
     }
     console.log(`  match catálogo: ${matched} · sin match: ${unmatched} · sin barcode válido: ${noBarcode} · pid duplicado saltado: ${dupPid}`);
     console.log(`  backfill products.barcode (SKU/basura → EAN real, sin colisión): ${barcodeFixes.length}`);
-    console.table(staged.slice(0, 6).map((s) => ({ content: s[1], barcode: s[2], fmt: s[3], pza: s[4], may_pza: s[6], paq: s[8], box: s[10] })));
+    // Los índices siguen a LABEL_STAGE_COLS: `sucursal` entró en la posición 1 y corrió todo lo
+    // demás un lugar. Se leen por nombre para que el próximo cambio de columnas no los desalinee.
+    const ix = (c) => LABEL_STAGE_COLS.indexOf(c);
+    console.table(staged.slice(0, 6).map((s) => ({
+      plaza: s[ix('sucursal')], content: s[ix('content')], barcode: s[ix('barcode')],
+      fmt: s[ix('barcode_format')], pza: s[ix('piece_price')],
+      may_pza: s[ix('wholesale_piece_price')], paq: s[ix('pack_price')], box: s[ix('box_price')],
+    })));
 
     if (!APPLY) { console.log('\n[DRY-RUN] nada cambió. Corré con --apply.'); return; }
 
@@ -148,12 +173,15 @@ const APPLY = process.argv.includes('--apply');
     // proceso se va antes de que el POST salga del socket y el aviso se pierde en silencio —
     // con el log diciendo que todo salió bien. Es el mismo modo de falla que la Fase OBS
     // persigue: el sistema reportando éxito sin haber entregado nada.
-    if (cambiados.length) {
-      const salio = await notifyLabelPricesChanged(M, cambiados, console.warn);
+    // `[NORM.3]` Se deduplica: con grano por plaza el mismo producto vuelve hasta 8 veces y el
+    // aviso es por PRODUCTO (cada pantalla re-consulta filtrando por SU sucursal).
+    const avisar = Array.from(new Set(cambiados));
+    if (avisar.length) {
+      const salio = await notifyLabelPricesChanged(M, avisar, console.warn);
       console.log(
         salio
-          ? `[APPLY] aviso enviado: ${cambiados.length} producto(s) con precio nuevo.`
-          : `[APPLY] aviso NO enviado (${cambiados.length} producto(s)): las pantallas se enterarán al siguiente escaneo.`,
+          ? `[APPLY] aviso enviado: ${avisar.length} producto(s) con precio nuevo.`
+          : `[APPLY] aviso NO enviado (${avisar.length} producto(s)): las pantallas se enterarán al siguiente escaneo.`,
       );
     }
   } catch (e) {

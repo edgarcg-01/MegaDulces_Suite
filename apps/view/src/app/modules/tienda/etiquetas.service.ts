@@ -34,7 +34,17 @@ export class EtiquetasService {
     return this.http.get<SearchHit[]>(`${this.base}/search`, { params: { q } });
   }
 
-  resolve(codes: string[]): Observable<ResolveResult> {
-    return this.http.post<ResolveResult>(`${this.base}/resolve`, { codes });
+  /**
+   * `[NORM.3]` `sucursal` = la tienda para la que se imprime. El precio de Kepler es POR PLAZA
+   * (1,039 SKUs con precio de pieza distinto entre plazas retail, 1,164 grupos de mayoreo de
+   * paquete), y hasta ahora la etiqueta salía con la moda entre las ocho.
+   *
+   * Se manda la que tiene el usuario (`warehouse_code`). Si no tiene ninguna —un rol global— va
+   * sin ella y el backend responde la forma consolidada de siempre: sin plaza no hay a qué
+   * seguir, y **declararlo es mejor que elegir una tienda al azar**.
+   */
+  resolve(codes: string[], sucursal?: string | null): Observable<ResolveResult> {
+    const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
+    return this.http.post<ResolveResult>(`${this.base}/resolve`, suc ? { codes, sucursal: suc } : { codes });
   }
 }

@@ -33,7 +33,7 @@ const SRC = `
     WHERE a.tenant_id = $1
     GROUP BY p.id, p.sku
   ),
-  c81 AS (SELECT product_id, max(pack_size)::numeric AS ps FROM commercial.product_label_prices WHERE tenant_id = $1 GROUP BY product_id),
+  c81 AS (SELECT product_id, max(pack_size)::numeric AS ps FROM commercial.v_product_label_prices WHERE tenant_id = $1 GROUP BY product_id),
   wcost AS (
     SELECT p.id AS product_id,
            sum(e.costo_promedio * greatest(e.existencia,0)) / nullif(sum(greatest(e.existencia,0)),0) AS unit_cost

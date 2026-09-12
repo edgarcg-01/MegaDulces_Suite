@@ -59,7 +59,7 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
              sum(m.qty) AS pz
         FROM analytics.stock_movements m
         JOIN catalog.products pr ON pr.tenant_id=m.tenant_id AND pr.id=m.product_id
-        LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.product_label_prices GROUP BY tenant_id, product_id) lbl
+        LEFT JOIN (SELECT tenant_id, product_id, max(box_size) bs FROM commercial.v_product_label_prices GROUP BY tenant_id, product_id) lbl
           ON lbl.tenant_id=pr.tenant_id AND lbl.product_id=pr.id
        WHERE m.tenant_id=$1 AND m.movement_kind='entrada'
          AND ((m.genero='X' AND m.doc_type='40') OR m.doc_code='WIN_C')

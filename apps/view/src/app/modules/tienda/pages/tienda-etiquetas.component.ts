@@ -13,6 +13,7 @@ import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES } f
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
 // `[TDA.1]` El aviso en vivo de que un precio cambió en Kepler.
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
+import { AuthService } from '../../../core/services/auth.service';
 
 /** `freshness` = la edad del precio en el momento en que ESTE ítem se resolvió. Viaja con él. */
 interface QueueItem { model: LabelModel; copies: number; hero: HeroKey; freshness: Freshness | null; }
@@ -503,6 +504,14 @@ export class TiendaEtiquetasComponent {
   private readonly svc = inject(EtiquetasService);
   private readonly socket = inject(StoreSocketService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
+
+  /**
+   * `[NORM.3]` La tienda para la que se imprime. Sale del alcance del usuario, el mismo mecanismo
+   * que ya usa el verificador (`sucursalUsuario`): quien está scopeado a una sucursal imprime la
+   * suya. Un rol global va sin plaza y el backend responde la forma consolidada de siempre.
+   */
+  private readonly sucursalUsuario = this.auth.user()?.warehouse_code || null;
 
   // ── `[TDA.1]` El precio cambió mientras la pantalla estaba abierta ──────────
   //
@@ -572,7 +581,7 @@ export class TiendaEtiquetasComponent {
       return;
     }
     this.refrescando.set(true);
-    this.svc.resolve(codes).subscribe({
+    this.svc.resolve(codes, this.sucursalUsuario).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const porId = new Map((r.labels || []).map((l) => [l.product_id, l]));
@@ -858,7 +867,7 @@ export class TiendaEtiquetasComponent {
     this.msg.set(null);
     const code = h.sku || h.barcode;
     if (!code) { this.msg.set({ text: 'El producto no tiene SKU ni código de barras.', kind: 'warn' }); return; }
-    this.svc.resolve([code]).subscribe({
+    this.svc.resolve([code], this.sucursalUsuario).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
@@ -885,7 +894,7 @@ export class TiendaEtiquetasComponent {
     const code = (raw || '').trim();
     if (!code) { this.focusScan(); return; }
     this.msg.set(null);
-    this.svc.resolve([code]).subscribe({
+    this.svc.resolve([code], this.sucursalUsuario).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
@@ -913,7 +922,7 @@ export class TiendaEtiquetasComponent {
     if (!codes.length) return;
     this.loading.set(true);
     this.msg.set(null);
-    this.svc.resolve(codes).subscribe({
+    this.svc.resolve(codes, this.sucursalUsuario).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);

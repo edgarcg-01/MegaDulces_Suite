@@ -467,7 +467,7 @@ export class CommercialReplenishmentService {
           j.on('srcw.tenant_id', 'rp.tenant_id').andOn('srcw.id', 'rc.source_warehouse_id'))
         // Box factor de la etiquetera (fallback de factor_sale para uxc canónico; ver reference_box_factor_factor_sale)
         .leftJoin(
-          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.product_label_prices GROUP BY tenant_id, product_id) as lbl`),
+          trx.raw(`(SELECT tenant_id, product_id, max(box_size) AS bs, max(pack_size) AS ps FROM commercial.v_product_label_prices GROUP BY tenant_id, product_id) as lbl`),
           (j: any) => j.on('lbl.tenant_id', 'rp.tenant_id').andOn('lbl.product_id', 'rp.product_id'))
         // ADR-055 — factor de caja POR ALMACÉN para display (resolvedor canónico único).
         .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
@@ -1225,7 +1225,7 @@ export class CommercialReplenishmentService {
           FROM prod p
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = p.supplier_id
           LEFT JOIN (SELECT product_id, max(box_size) box_size, max(pack_size) pack_size
-                       FROM commercial.product_label_prices WHERE tenant_id = :t GROUP BY product_id) lp
+                       FROM commercial.v_product_label_prices WHERE tenant_id = :t GROUP BY product_id) lp
             ON lp.product_id = p.product_id
           LEFT JOIN analytics.demand_acceleration da ON da.tenant_id = :t AND da.product_id = p.product_id
          ${wbWhere}`;

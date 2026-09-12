@@ -149,9 +149,23 @@ export class CommercialLabelsService {
     });
   }
 
+  /**
+   * `[NORM.3]` `sucursal` = la plaza cuya etiqueta se está imprimiendo.
+   *
+   * `commercial.product_label_prices` pasó a tener grano por sucursal porque el precio de Kepler
+   * **es** por tienda: 1,039 de 9,365 SKUs (11.1 %) tienen precio de pieza distinto entre plazas
+   * retail y 1,164 grupos de mayoreo de paquete (6.3 %) también. La etiqueta de anaquel de una
+   * tienda estaba imprimiendo la moda entre las ocho.
+   *
+   * ⚠️ Sin `sucursal` se lee `commercial.v_product_label_prices`, la vista consolidada que
+   * reproduce exactamente la fila que se publicaba hasta hoy. Es compatibilidad, no el camino
+   * bueno: un `leftJoin` a la TABLA sin filtrar por plaza devolvería 8 filas por producto.
+   */
   async resolveForLabels(
     codesRaw: string[],
+    sucursal: string | null = null,
   ): Promise<{ labels: LabelModel[]; not_found: string[]; freshness: LabelsFreshness }> {
+    const suc = /^[0-9]{2}$/.test(String(sucursal ?? '')) ? String(sucursal) : null;
     const codes = Array.from(
       new Set((codesRaw || []).map((c) => String(c ?? '').trim()).filter(Boolean)),
     );
@@ -175,9 +189,16 @@ export class CommercialLabelsService {
       const skuMatch = Array.from(new Set([...codes, ...extraSkus]));
 
       const rows = await trx('products as p')
-        .leftJoin('commercial.product_label_prices as l', function () {
-          this.on('l.product_id', '=', 'p.id').andOn('l.tenant_id', '=', 'p.tenant_id');
-        })
+        .leftJoin(
+          `${suc ? 'commercial.product_label_prices' : 'commercial.v_product_label_prices'} as l`,
+          function (this: any) {
+            this.on('l.product_id', '=', 'p.id').andOn('l.tenant_id', '=', 'p.tenant_id');
+            // El filtro de plaza va en el ON, no en el WHERE: en un LEFT JOIN, mandarlo al WHERE
+            // convierte el LEFT en INNER y los productos sin etiqueta en esa tienda dejarían de
+            // aparecer — pasarían a `not_found` en vez de salir con los campos en null.
+            if (suc) this.andOn('l.sucursal', '=', trx.raw('?', [suc]));
+          },
+        )
         .whereNull('p.deleted_at')
         .andWhere((b) => b.whereIn('p.sku', skuMatch).orWhereIn('p.barcode', codes))
         .select(
