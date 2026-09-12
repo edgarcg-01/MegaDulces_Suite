@@ -6,6 +6,11 @@
 >
 > **Medido contra PROD** (Railway, tenant `mega_dulces`) el **2026-09-09 16:05 UTC**, salvo lo que
 > se atribuye explícitamente a otra medición. ADR-059.
+>
+> ⛔⛔ **Leé §13 antes que nada (auditoría del origen, 2026-09-11).** Todo lo que este documento
+> arbitra es correcto **sobre el insumo que le llega**, y ese insumo está llegando tarde: el fact de
+> ventas tiene **16 días**, `kepler_ods` entre **2 y 7**, y **257 vistas de prod** cuelgan de ahí.
+> *Un número perfectamente arbitrado sobre dato viejo es una cifra falsa con metodología impecable.*
 
 ---
 
@@ -546,6 +551,12 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **la clase ABC era un objeto nulo** | **2 A / 56,002 C @ $0 → 5,178 A / 7,367 B** | ⭐⭐ **CERRADO (KE.4)**: la demanda salía de `commercial.orders` (**2 órdenes fulfilled en toda su historia**) contra $154.7M de venta real, y **clase B = 0 en todo el sistema** era el delator. Ahora sale de `inventory_health`, **la misma demanda que usa el punto de reorden**, y la clase es una **vista** porque como tabla **llegaba 26 minutos tarde todos los días**. La pantalla de compra mostraba otra clase que el motor (coincidían **64.0%**); ahora lee la misma. Frenos: medir la fuente antes de borrar + abortar si A o B salen en cero (§12.4) |
 | ⏳ **el colchón que falta comprar** | **7,089 políticas / $1,197,206** | Políticas A/B todavía servidas a 0.90. No es código: se corrige cuando `import-computed-reorder` corra con la vista (nightly). El candado lo reporta `NO MEDIDO`, no verde |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
+| ⛔⛔ **el ORIGEN llega tarde y nadie lo declara** | `sales_daily` **16 d** · `kepler_ods` **2–7 d** · **257 vistas de prod** cuelgan del ODS | ⭐ auditoría de origen 2026-09-11, §13. Todo lo arbitrado en este documento es correcto **sobre un insumo viejo**. Un número bien arbitrado sobre dato de hace 16 días sigue estando mal |
+| ⛔ **la `07` sí está en el mart pero NO en el ODS** | 0 filas en `kepler_ods` · **ausente de `mv_kepler_sales_daily`** | §13.2. La fila de arriba que la da por cerrada es cierta **para la ruta del consolidado**; la ruta del ODS nunca la tomó |
+| ⛔ **`06` Canindo al 61% en el ODS** | −3,875 `kdm1` · −56,433 `kdm2` | §13.2. No es recorte nuestro: la réplica los tiene y el ODS no |
+| ⚠️ **existencia fantasma en Kepler** | **132 filas** · **valor NO MEDIDO** | `kdik` con SKU que no está en `kdii` (la `03` aporta 86). ⛔ **El monto se declara sin medir a propósito**: `kdik.c8` casa con `existencia × c16` sólo en **43.4%**, así que no pasó la prueba de unidad (R2). Publicar un peso ahí sería inventarlo — §9.11 |
+| ⚠️ **cobertura del ODS sin clasificar** | **223 de 371** tablas Kepler = **60.1%** | Las 148 que faltan no están analizadas: parte es drift por rama y períodos viejos, parte puede importar. **No medido**, no "no importa" |
+| ⏰ **la bomba de calendario vence** | **2027-01-01**, las 8 ramas a la vez | `kdc22701` no existe en ningún suscriptor y el DDL no se replica → apply worker en ciclo de reinicio cada 5 s, suscripción `enabled` y latido verde. El desactivador existe y **no está agendado** — `ERP_KEPLER.md` §4.2 |
 
 ---
 
@@ -773,6 +784,93 @@ con éste.
 
 ---
 
+## 13. ⭐⭐ El origen: auditoría del Kepler crudo (2026-09-11)
+
+Pedido de Edgar: *"una auditoría de la base de datos de Kepler cruda, como la usa Kepler, desde
+cero"*. Censo estructural de las **8 réplicas** (`kepler_md_00..07`, schema `md`) **arbitrado contra
+dos POS vivos** (`md_02`, `md_03`, sólo catálogo). El decode está en
+[`ERP_KEPLER.md`](ERP_KEPLER.md) §2.4/§2.5/§3/§4; acá va lo que **arbitra** y lo que **se declara**.
+
+> **Por qué hacía falta.** Este documento arbitra, con mucho cuidado, **lo que publicamos**. Nadie
+> había arbitrado **lo que leemos**. Y ahí estaba el problema más caro: no un número mal calculado,
+> sino números bien calculados **sobre un insumo viejo**.
+
+### 13.1 Lo que Kepler garantiza, y lo que no
+
+| | medido | qué implica para arbitrar |
+|---|---|---|
+| PK | **100%** de las tablas, naturales compuestas | La identidad de fila **sí** es confiable. Los joins del decode son sólidos |
+| FK · UNIQUE · CHECK · triggers | **CERO**, en réplicas **y** en los dos POS | ⛔ El motor no garantiza NADA. Toda integridad es de la aplicación, y por lo tanto **hay que medirla, no suponerla** |
+| `NOT NULL` | **100% de las columnas** | ⭐⭐ **Kepler no puede decir "no sé".** Usa centinelas (`''`, `0`, `1800-01-01`). **R4 al revés: la fuente disfraza el hueco por diseño** — si nosotros no lo declaramos, nadie lo hace |
+| columnas muertas | `kdm1` 126/200 · `kdm2` 23/70 | Una columna 100% en cero **se lee igual que un cero legítimo**. Y **8 de `kdm1` + 4 de `kdm2` están muertas en una rama y vivas en otra**: descartar mirando una sucursal es un error medido |
+| tipo del dinero | `numeric(15,2)`×464 **pero `double precision`×190** | ⚠️ **`kdik.c16`, nuestro costo de existencia canónico (§3.2, §12.1), es flotante.** No invalida el árbitro —su veredicto es por mediana de razón— pero **una suma de `c16` no es reproducible bit a bit** |
+
+**Integridad de hecho, medida sin una sola FK** — y es buena noticia para el decode:
+
+| relación | huérfanos | veredicto |
+|---|---|---|
+| `kdm2` → `kdm1` | **0 de 924,835** | ✅ la convención se cumple |
+| `kdm1` → `kdmm` (doctype, 4 ejes) | **2 de 627,577** (8 ramas) | ✅ el decode de §3 es sólido |
+| `kdik` → `kdii` | **132 de 33,921** | ⚠️ hueco declarado, **valor sin medir** (§7, §9.11) |
+
+⭐ **El "0 de 924,835" es lo que valida el join, no lo que valida el dato.** Cuando probé `kdik → kdii`
+por la columna equivocada, dio **100% de fallo**. Un árbitro que falla al 100% no está denunciando el
+dato: está denunciando **tu hipótesis de llave**. Es R5 en su forma útil — *el espejo también se
+detecta por el lado contrario: si contradice TODO, sos vos.*
+
+### 13.2 ⛔⛔ La cascada de frescura: cada salto pierde días, y ninguno lo declara
+
+Medido el 2026-09-11. Cada renglón lee del anterior:
+
+```text
+POS Kepler (8, Postgres 16.4)  ..................  ahora
+  └─ réplicas :5433 (repl. lógica)  ..............  1–28 segundos      ✓
+       ├─ kepler_consolidado.mart  ...............  hoy, las 8 ramas   ✓
+       └─ kepler_ods  ← "LA FUENTE CANÓNICA"  ....  2–7 días           ✗
+            ├─ 257 vistas/MV de prod cuelgan de acá
+            ├─ mv_kepler_sales_daily  ............  2–7 días · SIN la 07   ✗
+            └─ analytics.sales_daily (el fact)  ..  2026-08-26 = 16 DÍAS   ✗✗
+```
+
+⛔ **Hay DOS rutas paralelas desde Kepler y sólo una está documentada.** `kepler_consolidado`
+(`mart.ventas`, 1.77M filas, refrescada cada 2 min) tiene **las 8 ramas al día**, incluida la `07`
+con 7,855 filas. `kepler_ods` no. Que existan dos materializaciones vivas de la venta de Kepler, con
+frescuras distintas, **es exactamente lo que la regla #1 del proyecto prohíbe** — y la sana es la que
+no está en `ERP_KEPLER.md`.
+
+**Paridad Kepler vs ODS, conteo exacto:**
+
+| rama | `kdm1` | `kdm2` | atraso |
+|---|---|---|---|
+| 00 · 01 · 02 · 03 | 90–97% | 89–98% | 2 d |
+| 04 · 05 | 90–95% | 90–95% | 7 d |
+| **06 Canindo** | **61.4%** | **61.7%** | 7 d |
+| **07 Morelia Madero** | **0.1%** | **0.0%** | ausente |
+
+⭐ **El hueco NO es histórico.** En la rama 01 los meses cerrados (may–ago) casan **Δ = 0, fila por
+fila**. No falta un backfill: hay un carril que dejó de entregar. Todo el faltante es del mes en curso.
+
+⛔ **Cómo se ve la falla desde afuera — y por qué ningún tablero la mostró:**
+
+```text
+ods.ctl                  last_run_at = hace minutos   ✓ "corre"
+                         rows_last   = 0 en TODAS     ✗ y no entrega
+kepler_ods._sync_status  rows_last   = 1              ← eso es un smoke, no un embarque
+analytics.cron_runs      sin latido de ods_live_hot / ods_live_mirror
+```
+
+Y el remate: **`analytics.cron_runs` muestra cinco jobs detenidos el mismo día, 26–27 de agosto** —
+`kepler_sales_fact`, `analytics_refresh`, `feed_stock`, `feed_catalog` y **`db_health_scan`**.
+⭐⭐ **El monitor de salud está entre los muertos.** Por eso nadie lo vio: el incidente de fines de
+agosto se dio por cerrado y al menos cinco carriles nunca volvieron.
+
+> **La regla que sale de acá (R8 candidata):** *un número arbitrado no es un número verdadero si su
+> insumo no declara su edad.* Este documento probó con enorme cuidado **con qué** se comprueba cada
+> cifra, y no tenía una sola línea sobre **de cuándo** es el dato que entra. Un margen perfectamente
+> arbitrado sobre un fact de hace 16 días es una cifra falsa con metodología impecable.
+
+---
+
 ## 9. Hipótesis refutadas — no las reconstruyas
 
 Cada una se probó y **se cayó**. Están acá para que nadie pague el mismo camino.
@@ -916,6 +1014,56 @@ publicado desde la sucursal 02** — doble conteo. **El filtro está correcto**,
 ⚠️ **La lección va a R6:** buscar el patrón en el error es correcto, pero **el testigo tiene que ser
 el más fuerte disponible**. Una identidad de folios le gana a un acumulado, y no había excusa para
 no mirarla primero.
+
+---
+
+### 9.11 ⛔ `kdik.c8` como "valor de la existencia" — y los $83,016 que NO publiqué
+
+Al medir la existencia fantasma (§7) tenía el conteo (**132 filas**) y quise ponerle monto. `kdik.c8`
+parece valor: en la primera fila que miré, `c5`=24 × `c16`=15.89 = **381.36 = c8** exacto. Tentador.
+
+Contra las 4,137 filas con existencia y costo: **`c8 = c5 × c16` en sólo 43.4%**, y `c8 = c6 × c16`
+en 16.8%. En la segunda fila de la muestra, `c8`/`c16` da **83.1 unidades** cuando `c5`=76 y `c6`=64
+— ni una ni otra. **`c8` es un valor, pero no de esa cantidad ni de ese costo.**
+
+Iba a publicar **$83,016.43 de inventario fantasma**. El monto queda **NO MEDIDO** y el conteo se
+publica solo. *Una coincidencia exacta en la primera fila es la forma más barata de comprar una
+hipótesis falsa* — R2 exige la prueba de unidad sobre la población, no sobre el ejemplo.
+
+### 9.12 ⛔ "`kdik.c1` es el producto" — el árbitro que falla al 100% te está señalando a vos
+
+Asumí `kdik.c1 = SKU` y el anti-join contra `kdii` dio **4,213 huérfanos de 4,213 = 100%**. La
+lectura ingenua era "la existencia de Kepler está rota". La correcta: **una tasa de fallo del 100%
+no es un hallazgo sobre el dato, es un hallazgo sobre la hipótesis.** `kdik.c1` es el **ALMACÉN** y
+el SKU es `c2` — que casa al **99.7%**.
+
+⚠️ **Y esta confusión es invisible en 7 de las 8 ramas**, porque tienen un solo almacén cuyo código
+es igual al de la sucursal. La única que la delata es la **`03`** (almacenes `01`, `02` y `03`). Un
+error que sólo aparece en una sucursal se atribuye durante meses a "datos sucios de esa tienda".
+`ERP_KEPLER.md` §5 regla 7 omitía `kdik` de la lista; corregido.
+
+### 9.13 ⛔ "la publicación por lista fija pierde las tablas nuevas en silencio"
+
+Al ver `pg_publication.puballtables = false` concluí que la publicación era una lista fija de 336
+tablas y que una tabla nueva se perdería sin ruido. **Falso, y el error de método importa más que la
+conclusión:** `pg_publication_tables` **expande igual** una publicación por esquema, así que los dos
+casos se ven idénticos desde ahí. El desempate está en `pg_publication_namespace` — que tiene fila
+para el schema `md`: es **`FOR TABLES IN SCHEMA`**, las tablas nuevas **sí** entran.
+
+La falla real es otra y es peor: el suscriptor que no tenga la tabla mata su apply worker en ciclo
+de reinicio de 5 s, **congelando la réplica entera** con la suscripción en `enabled`. Ver
+`ERP_KEPLER.md` §4.2 y la fecha: **2027-01-01**.
+
+### 9.14 ⛔ "la sucursal 07 no existe para la plataforma"
+
+Medí 0 filas de la `07` en `kepler_ods` y estuve por escribir que Morelia Madero era invisible. §7 ya
+tenía una fila diciendo lo contrario (*"CERRADO 2026-09-10, el gate quedó verde"*), y **el documento
+tenía razón**: la `07` llega completa y fresca por la **otra** ruta, `kepler_consolidado.mart`
+(7,855 filas, al día). Lo cierto y acotado es: **ausente de `kepler_ods` y de
+`mv_kepler_sales_daily`**, presente en el mart.
+
+⭐ *Cuando tu medición contradice una fila ya arbitrada de este documento, la hipótesis por defecto es
+que estás midiendo otra cosa* — acá, otra ruta. Contradecirlo se gana midiendo las dos.
 
 ---
 

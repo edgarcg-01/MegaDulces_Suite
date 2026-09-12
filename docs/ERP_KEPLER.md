@@ -4,6 +4,13 @@
 > El decode nació de ingeniería inversa sobre los datos — trátalo como conocimiento vivo:
 > verificá contra el dato real antes de asumir. **Este doc NO contiene credenciales ni hosts**
 > (esos viven en el vault / `.env`, ver Etapa 2 del roadmap de equipo).
+>
+> **Auditoría estructural del Kepler crudo: 2026-09-11.** Censo de las 8 réplicas + arbitraje contra
+> dos POS vivos. Lo que se midió está en **§2.4** (forma del schema), **§2.5** (historia de precio
+> nativa), **§3** (los 4 ejes del doctype) y **§4.1/4.2** (la ruta al ODS y su fecha de vencimiento).
+> En esa pasada se corrigieron **cinco contradicciones internas de este mismo archivo** — están
+> marcadas en su lugar. Lo arbitrado y lo declarado sin medir viven en
+> [`VERDAD_ABSOLUTA.md`](VERDAD_ABSOLUTA.md).
 
 ---
 
@@ -16,10 +23,17 @@ tablas `kdXX` (`kdii`, `kdm1`, `kdil`…) y columnas `c1, c2, c3…` **sin nombr
 **Regla de oro para investigar Kepler:** buscar por **nombre de tabla + contenido**
 (ej. `WHERE x::text ILIKE '%FUMIGACION%'`), nunca por nombre de columna (no existen).
 
-Hay **una DB Kepler por sucursal** (01–06) + el CEDIS (00). Cada sucursal tiene su propio `kdii`, `kdil`, etc.
-El schema completo son ~330 tablas; solo ~20 tienen valor real. Referencias exhaustivas en:
+Hay **una DB Kepler por rama**, y hoy son **ocho**: `00` … `07` (ver §2.3 — ⚠️ la `00` es **OFICINAS**,
+no el CEDIS; `06` Canindo y `07` Morelia Madero entraron después de que se escribiera este doc).
+Cada rama tiene su propio `kdii`, `kdil`, etc. Referencias exhaustivas en:
 - [`docs/IMPLEMENTACION/KEPLER_CATALOGO_TABLAS.md`](IMPLEMENTACION/KEPLER_CATALOGO_TABLAS.md) — barrido curado por dominio.
-- [`docs/IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md`](IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md) — inventario de las 330 tablas.
+- [`docs/IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md`](IMPLEMENTACION/KEPLER_TABLAS_COMPLETO.md) — inventario de tablas.
+
+**Cuántas tablas hay, medido** (auditoría 2026-09-11, §2.4): **322–358 por rama**, **371 en la unión** de
+las 8. No es un número: *depende de la rama*. Sólo **315** existen en las ocho; las otras **56** son
+drift real — 21 son tablas de período (`kdc2YYMM`, que nacen cada mes) y 35 son **módulos instalados
+en unas ramas y no en otras** (nómina `kdrh*` sólo en `00/01/06/07`, variantes de `kdfe33*`…). Una
+consulta escrita contra una rama **puede no compilar en otra**.
 
 ---
 
@@ -29,12 +43,12 @@ El schema completo son ~330 tablas; solo ~20 tienen valor real. Referencias exha
 |---|---|---|
 | **`kdii`** | Maestro de productos (por sucursal) | `c1`=SKU · `c2`=nombre · `c7`=código de barras (EAN) · `c8`=clave familia · `c84`=piezas por caja (⚠️ ver regla 5) · **`c33`=mínimo · `c34`=punto de reorden · `c35`=máximo** · **`c11`/`c80`/`c83`=rótulos de la escalera de unidades** (uni1/uni2/uni3 — ver §2.1) · `c90`=precio configurado (respaldo; sólo coincide ~58% con lo cobrado) |
 | **`kdil`** | Existencia/acumulados **por almacén** | ⚠️ `c1`=**ALMACÉN (no sucursal)** — filtrá por la columna `sucursal` + `c1`=almacén principal · `c3`=SKU · **existencia = `c4`(inicial) + `c8`(entradas) − `c9`(salidas)** — ⚠️ `c9` es **SALIDAS**, NO la existencia (ver §2.2) · `c6/c7`=última compra/venta |
-| **`kdik`** | Valuación por sucursal | `c2`=SKU · `c6`=existencia · `c9`=valor a costo → costo unitario = `c9/c6` · **`c16`=costo unitario NETO almacenado** (es el que leemos; ver §2.1) |
+| **`kdik`** | Valuación **por almacén** | ⚠️ **`c1`=ALMACÉN** (igual que `kdil` — ver regla 7, que lo omitía) · `c2`=SKU · `c6`=existencia · `c9`=valor a costo → costo unitario = `c9/c6` · **`c16`=costo unitario NETO almacenado** (es el que leemos; ver §2.1) · ⚠️ `c8` **NO es** existencia×costo (casa sólo 43.4%) |
 | **`kdpv_prov_prod`** | **Costo por proveedor por producto** (la pantalla "Costos por Proveedor por Productos") | `c1`=**código de proveedor** · `c2`=SKU · `c3`=descripción · **`c4`=Costo Uni Mayor** · `c5`/`c6`/`c7`=**% Desc 1/2/3** · **`c8`/`c9`/`c10`=Total Uni 1/2/3** (los 3 peldaños de la escalera) |
-| `kdpv_bitacora_precios` | Bitácora de cambios de precio/costo (el campo "Motivo Cambio Precio en Bitacora" de esa misma pantalla) | |
-| **`kdm1`** | Encabezados de documentos (200 cols) — compras, ventas, ajustes | `c1`=sucursal · `c2/c3/c4`=género/naturaleza/tipo del doc · `c9`=fecha · `c10`=forma de pago |
+| **`kdpv_bitacora_precios`** | **Historia NATIVA de precio, con el peldaño** (⭐ ver §2.5 — la teníamos y nadie la lee) | `c1`=fecha (sin hora) · `c2`=hora **como texto** · `c3`=SKU · **`c4`=unidad del peldaño** (`CJA`/`PAQ`/`PZA`/`KG`/`BTO`…) · `c5`=descripción · **`c6`=precio anterior · `c7`=precio nuevo · `c8`=diferencia** · `c9`=motivo (vacío en la práctica) |
+| **`kdm1`** | Encabezados de documentos (200 cols) — compras, ventas, ajustes | `c1`=sucursal · **`c2/c3/c4/c5`=género/naturaleza/grupo/tipo** (4 ejes → `kdmm.c1/c2/c3/c4`; ver §3) · `c9`=fecha del documento ⚠️ **puede venir en el FUTURO** (medido: hasta 2026-12-31) · `c10`=forma de pago · **`c68`=fecha de CAPTURA** ← la que sirve para ventanas |
 | **`kdm2`** | Detalle/líneas de documentos (1.26M filas) | `c8`=SKU · `c9`=cantidad · `c32`=fecha (≈ header) |
-| **`kdmm`** | **Catálogo de tipos de documento** (la piedra Rosetta) | `c1`=género · `c2`=naturaleza · `c4`=tipo · `c5`=descripción · **`c8`=¿afecta inventario?** · `c19/c20`=cuenta cargo/abono |
+| **`kdmm`** | **Catálogo de tipos de documento** (la piedra Rosetta) — PK `(c1,c2,c3,c4)`, 170 filas | **`c1`=género · `c2`=naturaleza · `c3`=grupo · `c4`=tipo** · `c5`=descripción · **`c8`=¿afecta inventario?** · `c19/c20`=cuenta cargo/abono · ⚠️ **NO confundir con la tabla `doctype`** (§3) |
 | `kdid/kdie/kdif/kdig` | Catálogos: unidad / depto / línea / **proveedor** | `kdig` = proveedores (línea de negocio ≈ marca) |
 | `kdij` | Kardex de movimientos con fecha inline (595k) | |
 | `kdc2YYMM` | Pólizas contables por mes | |
@@ -148,11 +162,103 @@ Wincaja (`w00` / `wincaja.*` con `source_branch='00'`), no Kepler.
    encabezados recientes: infló las ventas de Kepler a **$8.59M contra $4.34M reales (2×)**. Usá la
    fecha propia de la línea (`kdm2.c32`) o acotá las dos puntas.
 
+### 2.4 ⭐ La forma del schema, medida (auditoría estructural 2026-09-11)
+
+Censo sobre las 8 réplicas + **arbitraje contra dos POS vivos** (`md_02` y `md_03`, sólo catálogo).
+Todo lo de abajo está medido, no supuesto.
+
+| Qué | Medido | Qué significa para vos |
+|---|---|---|
+| **Llaves primarias** | **100%** de las tablas tienen PK | La identidad SÍ existe, y es **natural compuesta** de columnas `cN` (`kdm1`=6 cols, `kdm2`=7, `kdij`=9, `kdii`=1, `kdud`=**`c2`**, no `c1`). No hay surrogates. |
+| **Llaves foráneas** | **CERO**, en las 8 réplicas **y en los dos POS** | No hay integridad referencial declarada en todo el ERP. Lo que la sostiene es la aplicación. |
+| **UNIQUE / CHECK** | **CERO** / **CERO** | Ninguna regla de negocio está expresada en el motor. |
+| **Triggers de usuario** | **CERO** | Nada se dispara solo. |
+| **`NOT NULL`** | **100% de las columnas** | ⭐⭐ **Kepler no puede expresar "no hay dato".** La ausencia se codifica con centinelas: `''`, `0`, y fechas `1800-01-01` (visto en `kdik.c3`). *Un cero de Kepler puede ser un cero o puede ser un vacío, y el tipo no los distingue.* |
+| **Nombres de columna** | **~96%** son `cN` opacas | Sólo **21 de 340** tablas tienen columnas con nombre, y son los módulos nuevos (`crdcredit`, `doctype`, `webuser`, `orgbranch`, `orglogtbl_*`, `pos95*`). |
+| **Columnas muertas** | `kdm1` **126 de 200** · `kdm2` **23 de 70** · `kdik` 58/109 · `kdue` 8/31 | Más de la mitad del schema core está 100% vacío. **Y una columna muerta se ve idéntica a un cero legítimo.** |
+| **Tipos** | `numeric(15,2)`×464 (exacto) pero **`double precision`×190** | El dinero está mezclado: parte exacto, parte flotante. ⚠️ **`kdik.c16` —nuestro costo de existencia canónico— es `double precision`.** |
+| **Índices** | ver abajo ⚠️ | |
+
+⚠️ **Las "columnas muertas" NO son iguales en todas las ramas.** Excluyendo `md_07` (que tiene 3 días
+de vida y contamina el conteo), hay **8 columnas en `kdm1` y 4 en `kdm2`** que están vacías en una
+rama y **con dato en otra**. Descartar una columna mirando una sola sucursal es un error medido.
+
+⚠️⚠️ **La réplica NO tiene los índices del POS.** Arbitrado:
+
+| | réplica | POS vivo |
+|---|---|---|
+| índices `md_02` | **341** (sólo los de PK) | **810** |
+| índices `md_03` | **337** | **808** |
+| versión Postgres | 18.6 | **16.4** |
+
+O sea: **todo lo que consultamos contra las réplicas corre sin ~470 índices por rama.** Explica los
+tiempos que la Fase AX tuvo que arreglar con índices de expresión. Las columnas **sí** están completas
+(0 columnas del POS faltan en la réplica), así que la replicación no corre riesgo por ahí.
+
+**Integridad de hecho, sin una sola FK** (medido, y es buena noticia):
+
+- `kdm2` → `kdm1`: **0 huérfanos de 924,835**. La convención se cumple.
+- `kdm1` → `kdmm` (doctype): **2 huérfanos de 627,577** encabezados en las 8 ramas.
+- `kdik` → `kdii` (existencia → catálogo): **132 filas fantasma** en las 8 (la `03` aporta 86).
+  ⚠️ **Su valor está SIN MEDIR**: `kdik.c8` no pasó la prueba de unidad, ver §7 de
+  [`VERDAD_ABSOLUTA.md`](VERDAD_ABSOLUTA.md).
+- `kdm1` sin líneas en `kdm2`: 3,462 (2.5%) — **la mayoría es legítima** (cobros, gastos,
+  transferencias no tienen renglón de producto). Pero **262 `U-D-5` "Factura TK Contado"** y
+  **103 `U-D-8` "Factura Telemarketing"** sin una sola línea sí son anomalía.
+
+**Kepler no sabe en qué sucursal está.** `orgbranch` —el catálogo de sucursales del ERP— tiene **2
+filas genéricas en inglés** (`B001 Main branch` / `W01 Main store`) en *todas* las ramas. Cada
+instalación se cree la única. **La dimensión `sucursal` no sale del dato: sale de a qué base te
+conectaste.** Es un invento nuestro, y por eso existe el concentrado.
+
+### 2.5 ⭐ La historia de precio que ya teníamos y nadie lee
+
+`kdpv_bitacora_precios` es una **bitácora nativa de cambios de precio, con el peldaño de unidad en
+cada renglón**. Medido en `md_02`: **905,546 filas**, del **2024-10-12 a hoy**, 8,426 productos,
+14 unidades distintas. En `kepler_ods` hay **5.6M filas**. **Ningún archivo de `libs/`, `apps/` ni
+`services/` la consulta** (verificado por grep).
+
+⚠️ **Pero el 94.5% es ruido de recálculo**: 856,078 de esas filas son cambios de **menos de un
+centavo** (`15.6000 → 15.6049`). Los cambios reales (≥ $0.01) son **49,468 (5.5%)**. Quien la use
+tiene que filtrar `abs(c8) >= 0.01` o va a "descubrir" un millón de cambios de precio que nunca pasaron.
+
+⚠️ La columna de unidad trae basura junto con lo bueno: `CJA`, `PAQ`, `PZA`, `KG`, `BTO`, `CUB`… y
+también **`500` y `250`** (números como unidad) — la misma patología de rótulos que describe §2.1.
+
+Lo mismo aplica a **`orglogtbl_YY`**, la bitácora nativa de cambios por tabla (`k_table`, `k_mode`,
+`k_date`, `k_user`): **2.48M filas de 2026** en el ODS, y tampoco la consulta nadie. Las dos son
+candidatas directas del hueco *"cero historia de datos maestros"* que declara la Fase VP.3.
+
 ---
 
 ## 3. El modelo de documentos (género · naturaleza · tipo)
 
-Todo en Kepler es un **documento** clasificado por 3 ejes en `kdmm` (género/naturaleza/tipo). Los más importantes:
+Todo en Kepler es un **documento** clasificado en `kdmm`. **Son CUATRO ejes, no tres**
+(género · naturaleza · grupo · tipo), y el apareo con `kdm1` va **corrido en uno**:
+
+```
+kdm1.c2  →  kdmm.c1   género      (N · U · X — y sólo esos tres)
+kdm1.c3  →  kdmm.c2   naturaleza  (A · D)
+kdm1.c4  →  kdmm.c3   grupo       (el número: 10, 30, 37, 40…)
+kdm1.c5  →  kdmm.c4   tipo
+```
+
+Verificado 2026-09-11 en las 8 ramas: **2 encabezados de 627,577** no casan con `kdmm`. El decode es
+sólido — pero el corrimiento es exactamente el tipo de error que devuelve un número plausible.
+
+> ⚠️ **NO confundas `kdmm` con la tabla `doctype`.** Son dos catálogos distintos que hablan de lo
+> mismo con **alfabetos distintos**, y `doctype` es la tentadora porque tiene columnas con nombre:
+>
+> | | `kdmm` (170 filas) | `doctype` (81 filas) |
+> |---|---|---|
+> | idioma | español, los documentos **reales** de esta instalación | inglés, la taxonomía **abstracta del producto** |
+> | "género" | `c1` ∈ **`N` · `U` · `X`** | `k_gender` ∈ **`N` · `P` · `S`** |
+> | para qué | ⭐ **es la piedra Rosetta, la que hay que leer** | modelo interno del ERP; no aparea con `kdm1` |
+>
+> Que las dos tengan una columna llamada "género" y que una de ellas esté en inglés y legible **no
+> la vuelve la buena**. `kdm1` aparea con `kdmm`.
+
+Los más importantes:
 
 **Ventas** (género `U`, naturaleza `D`):
 - `U-D-10` = venta POS/mostrador (el grueso). En `kdm1`: `c2='U' c3='D' c4=10`.
@@ -201,25 +307,87 @@ viene subiendo: **55% de las recepciones de sucursal en ago-2026** ya tienen cop
 Este es el corazón de la integración. **No leemos las DBs de sucursal directo desde la app.**
 
 ```
-6 DBs Kepler (sucursales 01-06, Postgres)
-        │  replicación lógica nativa de Postgres (WAL)
+8 DBs Kepler — ramas 00..07, Postgres 16.4 en el POS
+        │  ① replicación lógica nativa (WAL).  Publicación FOR TABLES IN SCHEMA md.
+        │     MEDIDO 2026-09-11: las 8 conectadas, lag 1–28 SEGUNDOS.  ✓ sano
         ▼
-  kepler_md_01 … kepler_md_06   (réplicas locales, mismo schema md.*)
-        │  replicate-ods-live.js  — normaliza y consolida en UNA tabla por entidad
+  kepler_md_00 … kepler_md_07   (réplicas en :5433, mismo schema md.*, Postgres 18.6)
+        │  ② replicate-ods-live.js — normaliza y consolida en UNA tabla por entidad
+        │     MEDIDO 2026-09-11: corre en verde y embarca CERO.  ✗ ROTO (ver abajo)
         ▼
-  kepler_ods.*   ← LA FUENTE CANÓNICA (single-DB, columna `sucursal`, lag ~segundos)
+  kepler_ods.*   ← LA FUENTE CANÓNICA (single-DB, columna `sucursal`)
         │  vistas "derive-no-copy" (erp_collections, erp_customers, kepler_bank_movements…)
         ▼
   analytics.* / commercial.*  → endpoints → frontend
 ```
 
-- **`kepler_ods.*`** es el modelo canónico: una tabla por entidad Kepler, con columna `sucursal`, alimentada
-  en near-real-time por replicación lógica. **Todo lo que necesite dato de Kepler debe leer de acá**, no de
-  las ramas ni de bases intermedias viejas (`KP_CONCENTRADA`, `Mega_Dulces`).
-- El **CEDIS (00)** es un caso aparte: corre sobre **Access 97** (Fase CA) — no está en el pipeline de
-  replicación lógica todavía.
+- **`kepler_ods.*`** es el modelo canónico: una tabla por entidad Kepler, con columna `sucursal`.
+  **Todo lo que necesite dato de Kepler debe leer de acá**, no de las ramas ni de bases intermedias
+  viejas (`KP_CONCENTRADA`, `Mega_Dulces`).
+- ⚠️ **La rama `00` de Kepler SÍ está en el pipeline** (réplica `kepler_md_00`, suscripción activa).
+  Lo que **no** está es el **CEDIS de verdad**, que corre sobre **Access 97** y es otra cosa
+  (Fase CA). Este doc decía que "el CEDIS (00)" estaba fuera del pipeline — mezclaba las dos, ver §2.3.
 - Runbook operacional del pipeline: [`docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md`](IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md).
 - Modelo canónico y anti-desincronización: [`docs/MODELO_CANONICO_DATOS.md`](MODELO_CANONICO_DATOS.md).
+
+### 4.1 ⛔ Los dos saltos tienen frescuras DISTINTAS — y confundirlas es el error
+
+> **"Lag de segundos" es del salto ①, no del ②.** Este doc afirmaba que `kepler_ods` se alimenta
+> "en near-real-time, lag ~segundos". Eso es cierto de las **réplicas**. El ODS —que es lo que lee la
+> app— se alimenta del salto ②, y ese se mide aparte. **Poblado ≠ fresco** (ADR-056).
+
+**Cobertura de tablas, medida:** de las **371** tablas del universo Kepler, `kepler_ods` tiene **223**
+= **60.1%**. Las 148 restantes nunca se replicaron (mucho es drift por rama y períodos viejos, pero
+**no está clasificado** — hueco declarado, no medido).
+
+**Paridad de filas Kepler vs ODS (conteo exacto, 2026-09-11):**
+
+| rama | `kdm1` | `kdm2` | `kdik` | atraso del ODS |
+|---|---|---|---|---|
+| 00 · 01 · 02 · 03 | 90–97% | 89–98% | 98–99% | **2 días** |
+| 04 · 05 | 90–95% | 90–95% | 98–99% | **7 días** |
+| **06 Canindo** | **61.4%** | **61.7%** | 94.9% | **7 días** |
+| **07 Morelia Madero** | **0.1%** | **0.0%** | **0%** | **invisible** |
+| **TOTAL** | **94.9%** (−32,146) | **93.1%** (−283,401) | **90.6%** | |
+
+⭐ **El hueco es del mes en curso, NO histórico.** En la rama 01 los meses cerrados (may–ago) casan
+**exacto, Δ = 0 fila por fila**. No hay agujero de backfill: hay un carril que dejó de entregar.
+
+⛔ **La rama `07` (Morelia Madero) NO EXISTE para la plataforma.** Su POS migró a Kepler el 2026-09-08,
+su réplica está viva y recibiendo — y el ODS tiene **1 fila** de `kdm1`, **1** de `kdm2`, **0** de
+`kdik` y **0** de `kdii`. Ese "1" es un smoke de una fila, no un embarque.
+
+**Cómo se ve la falla desde afuera — y por qué nadie la vio:**
+
+```
+ods.ctl (en cada réplica)  →  last_run_at = hace minutos    ✓ "el carril corre"
+                              rows_last  = 0 en TODAS        ✗ y no entrega nada
+analytics.cron_runs        →  sin latido de ods_live_hot / ods_live_mirror
+kepler_ods._sync_status    →  rows_last = 1  ← eso es el smoke, no el carril
+```
+
+*Un carril que corre no es un carril que entrega.* El latido tiene que medir **filas entregadas**;
+`last_run_at` solo, y `rows_last = 1` de un smoke, se leen igual que "todo bien".
+
+### 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01**
+
+Kepler crea tablas nuevas al cambiar el período (`kdc2YYMM` mensual; `kdcn<YY>`, `kdmx_<YY>`,
+`orglogtbl_<YY>` anuales) y **la replicación lógica no replica DDL**. Si el suscriptor no tiene la
+tabla, el apply worker muere con `target relation does not exist` y **reinicia cada 5 s para siempre**:
+la réplica se congela entera, con la suscripción en `enabled` y el latido en verde.
+
+Medido en las **8** réplicas (2026-09-11): todas cubiertas hasta **`kdc22612`** (dic-2026) y las tres
+familias anuales hasta **`_27`**.
+
+> ⛔ **El primer mes sin cobertura es `kdc22701` — enero de 2027 — y cae en las 8 ramas a la vez.**
+> Las tres familias anuales aguantan hasta 2028-01-01.
+>
+> El desactivador existe —`ensure-monthly-tables.js`— pero **no está agendado**: su único invocador es
+> `reconcile-ods-window.js`, que `CLAUDE.md` marca como *"escrito y nunca levantado"* (OBS.3, pendiente)
+> y que no aparece en [`ops/vl/crontab.feeds`](../ops/vl/crontab.feeds). La cobertura actual la puso
+> una corrida a mano. **Corregido de paso:** el header de `ensure-monthly-tables.js` dice que "el 1 de
+> enero de 2027 vencen las cuatro familias a la vez"; hoy ya no — las tres anuales están pre-creadas
+> para 2027 y sólo vence la mensual.
 
 ---
 
@@ -227,7 +395,8 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
 
 > ### 0. NUNCA ADIVINES UNA COLUMNA. INVESTIGÁ LA FUENTE.
 >
-> Kepler no tiene nombres de columna ni comentarios: es `c1, c2, c3…` sobre 226 tablas. Eso vuelve
+> Kepler no tiene nombres de columna ni comentarios: es `c1, c2, c3…` sobre **322–358 tablas por rama**
+> (371 en la unión; medido §2.4 — este párrafo decía "226"). Eso vuelve
 > **irresistible** suponer — y toda suposición sobre un `cN` termina en dinero mal calculado, porque
 > nadie la ve fallar: devuelve un número plausible.
 >
@@ -262,7 +431,15 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
    así y **6,135 sí tienen escalera de unidades real** en `kdpv_prov_prod` (factor mediano 16×). Tomar
    `c84` a ciegas falla en 4 de cada 5. Tampoco lo adivines del nombre. Ver §2.1.
 6. **`kepler_ods` filtra por `sucursal`, no por `c1`** (la PK de catálogos es `(sucursal, c1)`).
-7. **En las tablas de detalle (`kdil`, `kdij`, `kdue`, `kdxe`, `kdpv_descuxq`), `c1` es el ALMACÉN, no la sucursal.** En `kepler_ods`/`kp.*` la rama real es la columna `sucursal` (agregada al concentrar); `c1` es el almacén dentro de la rama. Para existencia de rama: `WHERE sucursal='03' AND c1='03'` (almacén principal). Existencia = `kdil.c9` (validado vs `kdik.c6`, con ~38% de drift entre ambas fuentes).
+7. **En las tablas de detalle (`kdil`, **`kdik`**, `kdij`, `kdue`, `kdxe`, `kdpv_descuxq`), `c1` es el ALMACÉN, no la sucursal.** En `kepler_ods`/`kp.*` la rama real es la columna `sucursal` (agregada al concentrar); `c1` es el almacén dentro de la rama. Para existencia de rama: `WHERE sucursal='03' AND c1='03'` (almacén principal).
+   ⚠️ **`kdik` faltaba en esta lista** (agregado 2026-09-11, medido).
+   ⛔⛔ **Y esta confusión NO se ve fallar.** En **7 de las 8 ramas hay un solo almacén y su código es
+   igual al de la sucursal** (`md_04` → almacén `04`), así que tratar `c1` como sucursal **devuelve el
+   resultado correcto**. La única que lo delata es la **`03`, que tiene tres almacenes** (`01`=3 filas,
+   `02`=3,664, `03`=4,561). Un bug que sólo existe en una sucursal es un bug que se atribuye a "datos
+   sucios de esa tienda" durante meses.
+   ⚠️ **La existencia NO es `kdil.c9`** — eso son las SALIDAS. Es `c4`+`c8`−`c9`; ver §2.2, que corrigió
+   esta misma regla y quedó contradiciéndola hasta hoy.
 8. **La notación `X-A-30` = género(`c2`)·naturaleza(`c3`)·grupo(`c4`) en `kdm1`.** El número (30/35/40…) es el **grupo** (`kdm1.c4` = `kdmm.c3`), no el "tipo". Validado vivo 2026-08-25.
 
 ---
