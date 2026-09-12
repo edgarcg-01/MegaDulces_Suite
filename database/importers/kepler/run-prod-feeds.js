@@ -346,13 +346,15 @@ function run(entry) {
       // Cota dura: nos interesa el final, no el historial. 4 KB alcanzan para varias líneas.
       try { cola = (cola + buf.toString('utf8')).slice(-4000); } catch { /* binario raro */ }
     };
-    proc.stdout.on('data', (b) => capturar(process.stdout, b));
-    proc.stderr.on('data', (b) => capturar(process.stderr, b));
+    // `?.` porque un spawn que falla (ENOENT) puede devolver el proceso sin flujos.
+    proc.stdout?.on('data', (b) => capturar(process.stdout, b));
+    proc.stderr?.on('data', (b) => capturar(process.stderr, b));
     currentChild = proc;
     let done = false;
+    let gracia = null;
     const finish = (code) => {
       if (done) return; done = true;
-      clearTimeout(timer);
+      clearTimeout(timer); clearTimeout(gracia);
       if (currentChild === proc) currentChild = null;
       // Última línea NO vacía: es donde los importers dejan su resumen.
       const lineas = cola.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
@@ -364,6 +366,16 @@ function run(entry) {
       killTree(proc);
       finish(124);
     }, mins * 60 * 1000);
+    // ⚠️ CON TUBOS, `close` YA NO ES CONFIABLE POR SÍ SOLO. `close` espera a que se cierren los
+    // flujos, y un NIETO que hereda el tubo los mantiene abiertos aunque el hijo ya haya salido
+    // → el paso quedaría colgado hasta su timeout de 10 min. No es hipotético: `import-auto-
+    // received`, `import-cash-cuts` y `import-caja-general` lanzan subprocesos, y los tres están
+    // en el nocturno. Con `stdio:'inherit'` el problema no existía, así que es una regresión que
+    // habría introducido la captura de la cola.
+    // Se manda `exit` (que dispara cuando sale el PROCESO, haya o no nietos) con una gracia
+    // corta para que termine de drenarse lo ya escrito. En el camino normal `close` llega antes
+    // y la gracia no cuesta nada; en el patológico, acota el cuelgue a medio segundo.
+    proc.on('exit', (code) => { gracia = setTimeout(() => finish(code ?? 1), 500); });
     proc.on('close', (code) => finish(code ?? 1));
     proc.on('error', (e) => { console.error(`No se pudo ejecutar ${script}: ${e.message}`); finish(1); });
   });
