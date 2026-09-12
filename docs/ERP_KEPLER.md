@@ -5,12 +5,16 @@
 > verificá contra el dato real antes de asumir. **Este doc NO contiene credenciales ni hosts**
 > (esos viven en el vault / `.env`, ver Etapa 2 del roadmap de equipo).
 >
-> **Auditoría estructural del Kepler crudo: 2026-09-11.** Censo de las 8 réplicas + arbitraje contra
-> dos POS vivos. Lo que se midió está en **§2.4** (forma del schema), **§2.5** (historia de precio
+> **Auditoría estructural del Kepler crudo: 2026-09-11/12.** Censo de las 8 réplicas + arbitraje
+> contra dos POS vivos. Lo medido está en **§2.4** (forma del schema), **§2.5** (historia de precio
 > nativa), **§3** (los 4 ejes del doctype) y **§4.1/4.2** (la ruta al ODS y su fecha de vencimiento).
-> En esa pasada se corrigieron **cinco contradicciones internas de este mismo archivo** — están
-> marcadas en su lugar. Lo arbitrado y lo declarado sin medir viven en
-> [`VERDAD_ABSOLUTA.md`](VERDAD_ABSOLUTA.md).
+> En esa pasada se corrigieron **cinco contradicciones internas de este mismo archivo**.
+>
+> ⛔ **Y la auditoría se equivocó ella misma, en grande:** su primera versión reportó un incidente de
+> producción inexistente porque midió `platform_test` (la réplica **dev**) creyéndola prod. Leé
+> **§4.1** antes de medir cualquier cosa del ODS, y el caso completo en
+> [`VERDAD_ABSOLUTA.md`](VERDAD_ABSOLUTA.md) §13.3. El decode estructural **no** quedó afectado: se
+> midió contra las réplicas y los POS, que sí son la fuente correcta para preguntas de estructura.
 
 ---
 
@@ -313,7 +317,7 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
         ▼
   kepler_md_00 … kepler_md_07   (réplicas en :5433, mismo schema md.*, Postgres 18.6)
         │  ② replicate-ods-live.js — normaliza y consolida en UNA tabla por entidad
-        │     MEDIDO 2026-09-11: corre en verde y embarca CERO.  ✗ ROTO (ver abajo)
+        │     MEDIDO EN PROD 2026-09-12: paridad Δ=0 en 6 de 8 ramas, frescura del día.  ✓ sano
         ▼
   kepler_ods.*   ← LA FUENTE CANÓNICA (single-DB, columna `sucursal`)
         │  vistas "derive-no-copy" (erp_collections, erp_customers, kepler_bank_movements…)
@@ -330,44 +334,46 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
 - Runbook operacional del pipeline: [`docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md`](IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md).
 - Modelo canónico y anti-desincronización: [`docs/MODELO_CANONICO_DATOS.md`](MODELO_CANONICO_DATOS.md).
 
-### 4.1 ⛔ Los dos saltos tienen frescuras DISTINTAS — y confundirlas es el error
+### 4.1 ⛔⛔ ANTES DE MEDIR EL ODS: asegurate de estar mirando PRODUCCIÓN
 
-> **"Lag de segundos" es del salto ①, no del ②.** Este doc afirmaba que `kepler_ods` se alimenta
-> "en near-real-time, lag ~segundos". Eso es cierto de las **réplicas**. El ODS —que es lo que lee la
-> app— se alimenta del salto ②, y ese se mide aparte. **Poblado ≠ fresco** (ADR-056).
+> **`DATABASE_URL_NEW` del `.env` NO es producción.** Apunta a
+> **`192.168.0.245:5432/platform_test`**, la réplica de **desarrollo**. Producción es Railway
+> (`trolley.proxy.rlwy.net/railway`, en el `.env` bajo `FLEET_DB_URL`). Ver
+> [`reference_prod_db_connection_topology`] y `VERDAD_ABSOLUTA.md` §13.3.
+>
+> ⚠️ **Esta sección afirmó durante un día un incidente de producción que no existía** — ODS con 2–7
+> días de atraso, sucursal 07 ausente, cinco jobs muertos — porque midió `platform_test` creyéndola
+> prod. **Si vas a publicar una cifra del ODS, declará contra qué host y qué nombre de base la
+> mediste**; el nombre de la variable de entorno no alcanza.
+>
+> ⚠️ Y al enmascarar la credencial para no filtrarla, **no recortes el destino**:
+> `sed 's#://[^@]*@#://***@#'` conserva host y base. Un `grep -oE '@[0-9.]+:[0-9]+'` esconde
+> justamente la palabra `test`.
 
-**Cobertura de tablas, medida:** de las **371** tablas del universo Kepler, `kepler_ods` tiene **223**
-= **60.1%**. Las 148 restantes nunca se replicaron (mucho es drift por rama y períodos viejos, pero
-**no está clasificado** — hueco declarado, no medido).
+**Estado real de PROD, medido el 2026-09-12** contra las 8 réplicas:
 
-**Paridad de filas Kepler vs ODS (conteo exacto, 2026-09-11):**
+| | medido |
+|---|---|
+| Paridad `kdm1` réplica vs `kepler_ods` | **Δ = 0** en 6 de 8 ramas; **−6** (suc 03) y **−3** (suc 07) = filas en vuelo |
+| Frescura | `max(c68)` = **el día** en las 8 ramas |
+| Sucursal 07 | **completa**: 9,551 productos · 2,704 existencias · 1,916 de 1,919 encabezados |
+| Carriles | `ods_live_hot` y `ods_live_mirror` **latiendo**, con 151 y 114 filas en la pasada |
 
-| rama | `kdm1` | `kdm2` | `kdik` | atraso del ODS |
-|---|---|---|---|---|
-| 00 · 01 · 02 · 03 | 90–97% | 89–98% | 98–99% | **2 días** |
-| 04 · 05 | 90–95% | 90–95% | 98–99% | **7 días** |
-| **06 Canindo** | **61.4%** | **61.7%** | 94.9% | **7 días** |
-| **07 Morelia Madero** | **0.1%** | **0.0%** | **0%** | **invisible** |
-| **TOTAL** | **94.9%** (−32,146) | **93.1%** (−283,401) | **90.6%** | |
+**Cobertura de tablas:** de las **371** del universo Kepler, `kepler_ods` tiene **223** = **60.1%**.
+Las 148 restantes no se replican — mucho es drift por rama y períodos viejos, pero **no está
+clasificado**: hueco declarado, no medido.
 
-⭐ **El hueco es del mes en curso, NO histórico.** En la rama 01 los meses cerrados (may–ago) casan
-**exacto, Δ = 0 fila por fila**. No hay agujero de backfill: hay un carril que dejó de entregar.
+**Lo que SÍ está abierto en prod** (verificado, no supuesto):
 
-⛔ **La rama `07` (Morelia Madero) NO EXISTE para la plataforma.** Su POS migró a Kepler el 2026-09-08,
-su réplica está viva y recibiendo — y el ODS tiene **1 fila** de `kdm1`, **1** de `kdm2`, **0** de
-`kdik` y **0** de `kdii`. Ese "1" es un smoke de una fila, no un embarque.
-
-**Cómo se ve la falla desde afuera — y por qué nadie la vio:**
-
-```
-ods.ctl (en cada réplica)  →  last_run_at = hace minutos    ✓ "el carril corre"
-                              rows_last  = 0 en TODAS        ✗ y no entrega nada
-analytics.cron_runs        →  sin latido de ods_live_hot / ods_live_mirror
-kepler_ods._sync_status    →  rows_last = 1  ← eso es el smoke, no el carril
-```
-
-*Un carril que corre no es un carril que entrega.* El latido tiene que medir **filas entregadas**;
-`last_run_at` solo, y `rows_last = 1` de un smoke, se leen igual que "todo bien".
+- ⚠️ **El carril pierde filas por encima de su baseline.** `cdc_reconcile` termina en `error` con
+  *"ventana 3d · huecos **536** · repuestas 536 · sobrantes 14,599"* contra un umbral de 50 y un
+  baseline conocido de **48–167 huecos / 3 días**. El reconciliador **las repone todas** — o sea que
+  el dato publicado está bien — pero la causa del goteo no está diagnosticada.
+- ⚠️ **14,599 "sobrantes"** = filas en el ODS que ya no están en el origen: **DELETE no propagado**
+  (el ODS es UPSERT-only, regla 2).
+- ⛔ **`db_health_scan` y `analytics_refresh` no corren desde 2026-07-31** (`host=api`: son `@Cron`
+  del NestJS, no del crontab de `md`), y el `health_watchdog` los reporta **vivos**
+  (*"scanner vivo · canal externo: NINGUNO"*). El dead-man switch no caza a su propio muerto.
 
 ### 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01**
 
@@ -382,10 +388,14 @@ familias anuales hasta **`_27`**.
 > ⛔ **El primer mes sin cobertura es `kdc22701` — enero de 2027 — y cae en las 8 ramas a la vez.**
 > Las tres familias anuales aguantan hasta 2028-01-01.
 >
-> El desactivador existe —`ensure-monthly-tables.js`— pero **no está agendado**: su único invocador es
-> `reconcile-ods-window.js`, que `CLAUDE.md` marca como *"escrito y nunca levantado"* (OBS.3, pendiente)
-> y que no aparece en [`ops/vl/crontab.feeds`](../ops/vl/crontab.feeds). La cobertura actual la puso
-> una corrida a mano. **Corregido de paso:** el header de `ensure-monthly-tables.js` dice que "el 1 de
+> ✅ **El desactivador SÍ corre.** `ensure-monthly-tables.js` lo invoca `reconcile-ods-window.js`, que
+> en prod late como el job **`cdc_reconcile`** (última corrida: el mismo día). ⚠️ **Corrección:** una
+> versión anterior de esta sección decía que estaba *"escrito y nunca levantado"* citando `CLAUDE.md`
+> — ese estado es viejo; el job existe en `analytics.cron_runs` de producción.
+>
+> ⚠️ Lo que **sí** queda por verificar es si pre-crea con margen o **justo al cambiar el mes**: si
+> corre después de que Kepler ya escribió en la tabla nueva, la carrera la gana Kepler y la réplica
+> se congela igual. **Corregido de paso:** el header de `ensure-monthly-tables.js` dice que "el 1 de
 > enero de 2027 vencen las cuatro familias a la vez"; hoy ya no — las tres anuales están pre-creadas
 > para 2027 y sólo vence la mensual.
 
