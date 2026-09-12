@@ -94,14 +94,20 @@ async function q(c, sql, args) { return (await c.query(sql, args)).rows; }
       await c.query(`INSERT INTO stg_bc VALUES ${vals.join(',')}`, params);
     }
     const up = await c.query(`
-      INSERT INTO catalog.product_barcodes (id, tenant_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
-      SELECT gen_random_uuid(), $1, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now() FROM stg_bc s
+      -- [NORM.2] Mismo cambio que el hop-2: se liga por product_id (FK real). JOIN INNER — un
+      -- barcode cuyo sku no existe en el catálogo es el huérfano que la migración retiró.
+      INSERT INTO catalog.product_barcodes (id, tenant_id, product_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
+      SELECT gen_random_uuid(), $1, p.id, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now()
+        FROM stg_bc s
+        JOIN catalog.products p
+          ON p.tenant_id = $1 AND btrim(p.sku) = btrim(s.sku) AND p.deleted_at IS NULL
       ON CONFLICT (tenant_id, sku, barcode) WHERE deleted_at IS NULL DO UPDATE SET
+        product_id=EXCLUDED.product_id,
         unit=EXCLUDED.unit, factor=EXCLUDED.factor, source=EXCLUDED.source,
         is_primary=EXCLUDED.is_primary, synced_at=now(), updated_at=now()
-      WHERE (catalog.product_barcodes.unit, catalog.product_barcodes.factor,
+      WHERE (catalog.product_barcodes.product_id, catalog.product_barcodes.unit, catalog.product_barcodes.factor,
              catalog.product_barcodes.source, catalog.product_barcodes.is_primary)
-            IS DISTINCT FROM (EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
+            IS DISTINCT FROM (EXCLUDED.product_id, EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
       [TENANT]);
     // Soft-delete global de kepler_* que ya no salen de Kepler (reconciliación full-catálogo).
     const del = await c.query(`

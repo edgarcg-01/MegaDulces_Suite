@@ -108,6 +108,17 @@ const STEPS = {
     path.join(K, 'import-kepler-vecinal-routes.js'), // WIN-<1V0NN> rutas vecinales PH (md_01 kdm1.c12)
   ],
   nightly: [
+    // `[NORM.2]` El reconciliador de códigos de barra. **No estaba en ningún carril**, y su propio
+    // encabezado lo llama "backstop" de un hop-2 que, cuando falla, loguea *"(CDC ok; lo toma el
+    // barrido)"* — un plan B que no existía. Medido en prod el 2026-09-11:
+    // `catalog.product_barcodes` no recibía un solo INSERT desde el 2026-08-25 21:22 (17 días),
+    // y la cobertura de los productos NUEVOS cayó de ~80 % a 13 %. Lo leen la etiquetera
+    // (`commercial-labels`) y el escáner de caducidades de bodega (`commercial-expiry-reviews`).
+    // Va en `nightly` porque es full-catálogo, y es además la ÚNICA vía de la fuente Wincaja
+    // (que no está en el ODS).
+    // Sin `--apply` explícito: el runner ya lo agrega cuando corre en modo aplicar (línea ~313).
+    // Ponerlo acá lo haría escribir también en un dry-run, que es justo lo que el dry-run evita.
+    path.join(K, 'import-product-barcodes.js'),
     path.join(K, 'import-rotation-from-consolidado.js'),
     path.join(K, 'import-top-sellers-from-consolidado.js'),
     path.join(K, 'import-margin.js'),        // KV.4 markup (lee sucursal) — antes del fact
