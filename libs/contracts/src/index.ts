@@ -19,6 +19,9 @@ export * from './ports/mailer.port';
 export * from './http/command-center.contract';
 // [VP.2.1] Procedencia (ADR-056): con qué se calculó el número que se publica.
 export * from './http/provenance.contract';
+// [VU.0] La unidad viaja CON la cantidad al escribir. Censo 2026-09-12: 22 tablas con una
+// columna de cantidad y ninguna de unidad al lado. Leer el contrato antes de agregar otra.
+export * from './http/quantity-unit.contract';
 // [CH.1.10] Identidad: el tipo de cuenta y la duración de sesión de un dispositivo.
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".
