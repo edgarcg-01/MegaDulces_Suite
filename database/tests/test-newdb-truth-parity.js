@@ -63,10 +63,18 @@ const PARIDADES = [
     publicado: 'catalog.products.factor_sale',
     // ⭐ El caso de Edgar: factor_sale = 1 contra un resolvedor que dice mas. Es la forma
     // PELIGROSA de la discrepancia -- publica "se vende por pieza" sobre una caja de 58.
-    umbral: 'factor_sale = 1 mientras el arbitro dice > 1',
+    umbral: 'cualquier desacuerdo donde el arbitro TIENE testigo (source <> default)',
     porque: 'la direccion importa: un 1 se lee como "pieza" y multiplica mal en cualquier '
       + 'pantalla que convierta. El caso 96504 (UxC 1, son 58) es de este grupo.',
-    baseline: 208,
+    // ⭐⭐ CERO, no 208. VA.3 (mig 20260912000000, prod batch 399) dejo de ADMINISTRAR esta
+    // divergencia y la elimino: catalog.products.factor_sale se escribio con el valor del
+    // arbitro en las 854 filas donde el arbitro tiene TESTIGO. Un baseline distinto de cero
+    // seria deuda formalizada -- un parche. Cero lo vuelve un INVARIANTE: si vuelve a aparecer
+    // una discrepancia, alguien escribio un factor que el arbitro contradice, y eso es un bug,
+    // no un pendiente.
+    // ⛔ Las 1,479 con source='default' NO entran: ahi el arbitro no afirma nada (un 'default'
+    // es ausencia de testigo, y escribirlo convertiria "no se" en 1).
+    baseline: 0,
     sql: `
       SELECT count(*)::int discrepancias,
              round(COALESCE(sum(v.rev), 0))::numeric dinero
@@ -77,7 +85,8 @@ const PARIDADES = [
                     WHERE tenant_id = '${T}' AND sale_date >= current_date - 90
                     GROUP BY 1) v ON v.product_id = p.id
        WHERE p.tenant_id = '${T}' AND p.deleted_at IS NULL
-         AND p.factor_sale::numeric = 1 AND b.box_factor::numeric > 1`,
+         AND b.source <> 'default'
+         AND p.factor_sale::numeric IS DISTINCT FROM b.box_factor::numeric`,
   },
   {
     nombre: 'costo del catalogo vs costo del ERP',
@@ -223,7 +232,15 @@ const check = (label, cond, detail = '') => {
   if (cond) { ok++; console.log(`  ✔ ${label}`); }
   else { fail++; console.log(`  ✖ ${label}${detail ? ` — ${detail}` : ''}`); }
 };
-const N = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+// ⛔ `Number(n || 0)` convierte un campo INEXISTENTE en 0. Paso el 2026-09-11: una consulta
+// aliaseaba `sin_testigo_NO_escribir` y Postgres devuelve `sin_testigo_no_escribir` (baja a
+// minusculas los identificadores sin comillas); el helper dibujo 1,479 como CERO y por poco
+// se decide sobre ese cero. Un campo ausente NO es un cero -- se grita.
+const N = (n) => {
+  if (n === undefined) throw new Error('N() recibio undefined: nombre de columna mal escrito '
+    + '(Postgres devuelve los alias en MINUSCULAS). Un campo ausente no es un cero.');
+  return Number(n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+};
 
 (async () => {
   const c = new Client({
