@@ -5,7 +5,13 @@ dist
 *.log
 .env
 .idea
-.vscode
+# Se ignora .vscode/ salvo los dos archivos que son CONFIGURACION DEL PROYECTO, no del usuario.
+# `settings.json` fija el TypeScript del repo para el editor: sin el, VSCode compila con su propio
+# compilador (anterior a la 6.0) y el panel Problems inventa 10 errores en los `tsconfig*.json` que
+# `tsc` NO reporta. Con 4 devs, dejarlo local significa que cada uno lo descubre de nuevo.
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 *.swp
 *.bak
 swagger.json
