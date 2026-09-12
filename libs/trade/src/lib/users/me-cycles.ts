@@ -92,59 +92,86 @@ export function ultimosMeses(n = MESES_VISIBLES): string[] {
   return out;
 }
 
+/**
+ * `[SN.17]` Conciliar INGRESOS y conciliar EGRESOS son **dos trabajos distintos**, con dos
+ * personas distintas. Comparten la consulta y la pantalla; lo que cambia es la columna del
+ * movimiento y quién responde.
+ *
+ * ⚠️ Los ingresos NO son un espejo de los egresos: un depósito del banco puede corresponder a
+ * varias pólizas de cobranza en Kepler ("se cuadra por total, no 1 a 1", dice el detalle del
+ * movimiento). Aun así el matcher **sí** los parea — medido en prod: **2,696 filas de
+ * `bank_recon_matches` con `amount_in > 0`** y 2,683 movimientos casados. Por eso el ciclo existe;
+ * si el matcher no los tocara, esta tira habría dicho "sin conciliar" para siempre.
+ */
+function medirBanco(columna: 'amount_in' | 'amount_out', sustantivo: string) {
+  return async (knex: Knex, { tenantId }: MedirCtx): Promise<MedidaPeriodo[]> => {
+    const meses = ultimosMeses();
+    /*
+     * UNA pasada con `FILTER` para los 12 meses. ⚠️ Contadores CRUDOS, y el estado se deriva
+     * arriba: un `CASE` en cascada dentro del SQL colapsaría motivos concurrentes. Está medido
+     * en `v_rd_period_summary`, que reporta `sin_gasto = 0` no porque el gasto esté, sino porque
+     * dos ramas anteriores atrapan la fila antes de llegar ahí.
+     */
+    const filas = await knex('finance.bank_movements as bm')
+      .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+      .where('st.tenant_id', tenantId)
+      .whereNull('bm.deleted_at')
+      .whereIn('st.period', meses)
+      .groupBy('st.period')
+      .select(
+        'st.period',
+        knex.raw(`count(*) FILTER (WHERE bm.?? > 0)::int AS total`, [columna]),
+        knex.raw(`count(*) FILTER (WHERE bm.?? > 0 AND bm.recon_status = 'matched')::int AS casados`, [columna]),
+        knex.raw(`count(*) FILTER (WHERE bm.?? > 0 AND bm.recon_status = 'unmatched')::int AS sin_casar`, [columna]),
+      );
+    const porMes = new Map(filas.map((f: Record<string, unknown>) => [String(f['period']), f]));
+
+    return meses.map((periodo) => {
+      const f = porMes.get(periodo) as { total: number; casados: number; sin_casar: number } | undefined;
+      // El mes no tiene estado de cuenta cargado. NO es "sin conciliar": no hay con qué.
+      if (!f || f.total === 0) {
+        return { periodo, estado: 'sin_datos' as const, faltan: null,
+          motivo: 'No hay estado de cuenta cargado de este mes.' };
+      }
+      // Nadie corrió la conciliación: todo sigue en `pending`.
+      if (f.casados === 0 && f.sin_casar === 0) {
+        return { periodo, estado: 'sin_empezar' as const, faltan: f.total,
+          motivo: `${f.total} ${sustantivo} y la conciliación no se ha corrido.` };
+      }
+      if (f.sin_casar > 0) {
+        return { periodo, estado: 'en_proceso' as const, faltan: f.sin_casar,
+          motivo: `${f.casados} casados, ${f.sin_casar} sin casar contra Kepler.` };
+      }
+      return { periodo, estado: 'al_dia' as const, faltan: 0,
+        motivo: `Los ${f.casados} ${sustantivo} casaron contra Kepler.` };
+    });
+  };
+}
+
 export const CICLOS: readonly CicloDef[] = [
   {
-    id: 'conciliacion-bancaria',
-    label: 'Conciliación de egresos',
-    detalle: 'mes por mes, contra las pólizas del 102 de Kepler',
-    icono: 'pi pi-calendar',
+    id: 'conciliacion-ingresos',
+    label: 'Conciliación de ingresos',
+    detalle: 'los depósitos del mes, contra las pólizas de cobranza de Kepler',
+    icono: 'pi pi-arrow-down-left',
     ruta: '/finanzas/bancos',
     // Verificado: la pantalla lee `?view=&period=` de la URL y valida el periodo contra los que
     // existen (`finanzas-bancos.component.ts` §Ing.UI 9). Aterriza en el mes sin tocar esa pantalla.
     queryDe: (periodo) => ({ view: 'cuadre', period: periodo }),
     anyOf: [Permission.FINANCE_BANK_VER],
-    medir: async (knex, { tenantId }) => {
-      const meses = ultimosMeses();
-      /*
-       * UNA pasada con `FILTER` para los 12 meses. ⚠️ Contadores CRUDOS, y el estado se deriva
-       * arriba: un `CASE` en cascada dentro del SQL colapsaría motivos concurrentes. Está medido
-       * en `v_rd_period_summary`, que reporta `sin_gasto = 0` no porque el gasto esté, sino porque
-       * dos ramas anteriores atrapan la fila antes de llegar ahí.
-       */
-      const filas = await knex('finance.bank_movements as bm')
-        .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
-        .where('st.tenant_id', tenantId)
-        .whereNull('bm.deleted_at')
-        .whereIn('st.period', meses)
-        .groupBy('st.period')
-        .select(
-          'st.period',
-          knex.raw(`count(*) FILTER (WHERE bm.amount_out > 0)::int AS egresos`),
-          knex.raw(`count(*) FILTER (WHERE bm.amount_out > 0 AND bm.recon_status = 'matched')::int AS casados`),
-          knex.raw(`count(*) FILTER (WHERE bm.amount_out > 0 AND bm.recon_status = 'unmatched')::int AS sin_casar`),
-        );
-      const porMes = new Map(filas.map((f: Record<string, unknown>) => [String(f['period']), f]));
-
-      return meses.map((periodo) => {
-        const f = porMes.get(periodo) as { egresos: number; casados: number; sin_casar: number } | undefined;
-        // El mes no tiene estado de cuenta cargado. NO es "sin conciliar": no hay con qué.
-        if (!f || f.egresos === 0) {
-          return { periodo, estado: 'sin_datos' as const, faltan: null,
-            motivo: 'No hay estado de cuenta cargado de este mes.' };
-        }
-        // Nadie corrió la conciliación: todo sigue en `pending`.
-        if (f.casados === 0 && f.sin_casar === 0) {
-          return { periodo, estado: 'sin_empezar' as const, faltan: f.egresos,
-            motivo: `${f.egresos} egresos y la conciliación no se ha corrido.` };
-        }
-        if (f.sin_casar > 0) {
-          return { periodo, estado: 'en_proceso' as const, faltan: f.sin_casar,
-            motivo: `${f.casados} casados, ${f.sin_casar} sin casar contra Kepler.` };
-        }
-        return { periodo, estado: 'al_dia' as const, faltan: 0,
-          motivo: `Los ${f.casados} egresos casaron contra Kepler.` };
-      });
-    },
+    responsabilidad: 'finanzas.conciliacion_ingresos',
+    medir: medirBanco('amount_in', 'depósitos'),
+  },
+  {
+    id: 'conciliacion-egresos',
+    label: 'Conciliación de egresos',
+    detalle: 'los retiros del mes, contra las pólizas del 102 de Kepler',
+    icono: 'pi pi-arrow-up-right',
+    ruta: '/finanzas/bancos',
+    queryDe: (periodo) => ({ view: 'cuadre', period: periodo }),
+    anyOf: [Permission.FINANCE_BANK_VER],
+    responsabilidad: 'finanzas.conciliacion_egresos',
+    medir: medirBanco('amount_out', 'egresos'),
   },
   {
     id: 'libro-de-compras',

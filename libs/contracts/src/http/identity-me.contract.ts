@@ -152,6 +152,16 @@ export interface MeCiclo {
   periodos: MePeriodo[];
   /** Periodos que esperan trabajo (`sin_empezar` + `en_proceso`). `sin_datos` NO cuenta. */
   pendientes: number;
+  /**
+   * `[SN.17]` **¿Este ciclo es TUYO?** Sale de `identity.responsibilities` — del puesto
+   * (`position_responsibilities`) o de una excepción por persona (`user_responsibilities`).
+   *
+   * ⛔ **No gatea: ordena.** Es la regla que `[OR.1b]` dejó escrita — *"el PERMISO decide si podés
+   * ABRIRLO; la RESPONSABILIDAD decide si es TUYO… si también gateara habría un cuarto sistema de
+   * autorización"*. Quien tiene el permiso sigue viendo y abriendo todos los ciclos; `es_mio` sólo
+   * decide cuál va arriba y marcado.
+   */
+  es_mio: boolean;
 }
 
 /**

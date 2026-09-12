@@ -168,6 +168,15 @@
             </a>
           }
 
+          <!--
+            [SN.17] El ciclo del que ESTA persona responde. Ivonne concilia ingresos y Mayra
+            egresos, y las dos son `auxiliar_finanzas` — así que el reparto no sale del puesto sino
+            de `user_responsibilities`. Lo que no es tuyo NO desaparece: baja a «Por periodo».
+          -->
+          @for (c of ciclosMios(); track c.id) {
+            <app-periodo-strip [ciclo]="c" (abrio)="abrioPeriodo(c, $event)" />
+          }
+
           @if (!hayAlgoMio() && !buscando()) {
             <!--
               Tres estados distintos, elegidos por el dato y nunca por un default (ADR-056).
@@ -232,12 +241,12 @@
           La tira no dice si el mes "cuadra": ese veredicto vive en la pestaña Cierre y cuesta ~8
           consultas por mes. Acá van los hechos del avance, y el veredicto está a un clic.
         -->
-        @if (ciclos().length) {
+        @if (ciclosCompartidos().length) {
           <div class="mt-grupo">
-            <p class="mt-grupo-tag" title="Trabajo que se cierra mes por mes: lo abre tu permiso, nadie te lo asignó">
+            <p class="mt-grupo-tag" title="Trabajo que se cierra mes por mes: lo abre tu permiso, pero no respondes tú de él">
               Por periodo
             </p>
-            @for (c of ciclos(); track c.id) {
+            @for (c of ciclosCompartidos(); track c.id) {
               <app-periodo-strip [ciclo]="c" (abrio)="abrioPeriodo(c, $event)" />
             }
           </div>

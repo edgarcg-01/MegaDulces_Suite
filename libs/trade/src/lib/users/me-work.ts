@@ -49,7 +49,11 @@ import { branchKeySql } from '@megadulces/platform-core';
 
 export type AlcancePendiente = 'mio' | 'bandeja';
 
-/** Las 8 claves de `identity.responsibilities` (`[OR.1b]`). Biyección verificada por el candado. */
+/**
+ * Las claves de `identity.responsibilities` (`[OR.1b]`). Las 8 primeras corresponden 1:1 con las
+ * bandejas y lo verifica el candado; las dos de conciliación las agrega `[SN.17]` y pertenecen a
+ * ciclos, no a bandejas — por eso el candado de biyección las excluye explícitamente.
+ */
 export type ResponsabilidadKey =
   | 'finanzas.hallazgos'
   | 'finanzas.acciones'
@@ -58,7 +62,9 @@ export type ResponsabilidadKey =
   | 'almacen.conteo'
   | 'tienda.caducidades'
   | 'logistica.flota'
-  | 'comercial.thot';
+  | 'comercial.thot'
+  | 'finanzas.conciliacion_ingresos'
+  | 'finanzas.conciliacion_egresos';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.

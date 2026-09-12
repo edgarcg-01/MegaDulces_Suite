@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Added — el reparto real: Ivonne concilia ingresos, Mayra egresos (SN.17, 2026-09-12)
+
+*«Ese es para un solo usuario, debemos personalizar según su puesto. Ivonne es de ingresos»*. **Por puesto no se puede, y está medido**: las dos son `auxiliar_finanzas` con el mismo rol, y son **6 personas** en ese puesto. Partir el trabajo por puesto exigiría partir el puesto — decisión de organigrama. Para eso existe `identity.user_responsibilities`, la **excepción por persona** que `[OR.1b]` creó con nota obligatoria y vigencia.
+
+- **La conciliación se parte en dos ciclos**, ingresos y egresos, con su propia tira de meses. ⚠️ Hubo que comprobar que la de ingresos existe: el detalle de un depósito advierte que *«se cuadra por total, no 1 a 1»*. **Medido: 2,696 filas de `bank_recon_matches` con `amount_in > 0`** — el matcher sí los parea, así que el ciclo es real.
+- ⛔ **La responsabilidad ORDENA, no gatea** (regla literal de `[OR.1b]`). Las **24 personas** con `FINANCE_BANK_VER` siguen viendo y abriendo las dos conciliaciones; lo que cambia es que a Ivonne la de ingresos le sube a «A tu nombre» con el chip en sunset, y a Mayra la de egresos. Las otras 4 auxiliares ven las dos como compartidas. **Nadie pierde acceso.**
+- Migración `20260912140000` **aplicada a prod, batch 405**: 2 claves de catálogo + 2 filas de responsabilidad con la nota que explica por qué van por persona. **No toca `position_responsibilities`** — decir que `auxiliar_finanzas` responde de una de las dos sería falso para las 6. ⚠️ Se aplicó **sola, no con `migrate:latest`**: hay migraciones de otras sesiones sin commitear en el directorio.
+- El candado de biyección tuvo que aprender que las colas viven en **tres** registros y que el catálogo se siembra desde **más de una** migración — leyendo sólo la primera acusaba en falso a las claves nuevas. Biyección **10↔10**. `test-newdb-me-context` **107 OK / 0 FAIL / 1 NO MEDIDO** · `nx test view` 19 suites / **295** · builds verdes, 1.25 MB.
+- ⚠️ **El bug del backtick, quinta aparición**: un comentario CSS con backticks dentro de `styles: [\`…\`]` cierra el literal y tumba la suite entera con `ReferenceError`. Está en GOTCHAS y volvió a pasar.
+- 📋 **Abierto y AJENO**: `landing-guards.spec.ts` falla en `almacen` porque `CATALOGO_INTERNO_VER`/`_COSTOS_VER` apuntan a `/almacen/catalogo-interno`, **ruta que no existe**. Viene de `2b75ab89` `[CV.25]`: declararon los permisos y la pantalla todavía no está. Es justo lo que ese candado existe para frenar.
+
 ### Added — «Mi trabajo» aprende a mostrar el trabajo que se cierra MES POR MES (SN.16, 2026-09-12)
 
 *«Hagamos más interactiva la forma de mostrar mi trabajo; por ejemplo `mayra_gutierrez` tiene que conciliar los egresos por mes… y al dar clic la redirija a la pantalla que la lleva a conciliar»*. No era una bandeja más bonita: es un **tercer organismo**. Una bandeja contesta *«¿cuántas cosas esperan?»*, una tarea *«¿quién me lo asignó?»*, y esto *«¿qué parte del calendario ya cerré?»*.
