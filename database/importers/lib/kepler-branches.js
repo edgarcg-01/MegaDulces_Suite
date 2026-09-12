@@ -40,8 +40,11 @@ const PASS = process.env.KEPLER_RO_PASS || 'kepler123';
 const REPLICA_BASE = process.env.KEPLER_REPLICA_BASE || 'postgresql://postgres:superoot@localhost:5433/postgres';
 
 // Sucursales Kepler. host/port/db = infra (tercer octeto de IP = plaza). Orden 00..07.
-// '06' Canindo NO tiene host remoto con platform_ro → `replica` marca que se lee del
-// replica lógico local kepler_md_06 (ver urlOf).
+// Una rama puede tener host (POS remoto con platform_ro) Y replica (base lógica local): NO son
+// excluyentes. urlOf prefiere el POS; el shipper del ODS usa replicaDbName/replicaUrl, que son
+// independientes de urlOf. La '06' Canindo tuvo SÓLO replica hasta el 2026-09-12, cuando se
+// verificó que su POS (192.168.50.50:1977) SÍ expone platform_ro (misma credencial compartida) —
+// antes de ese día su platform_ro tenía otra contraseña, por eso figuraba como replica-only.
 const BRANCHES = Object.freeze([
   { code: '00', host: '192.168.9.95', port: 5432, db: 'md_00', name: 'CEDIS' },
   { code: '01', host: '192.168.10.10', port: 1977, db: 'md_01', name: 'Padre Hidalgo' },
@@ -49,18 +52,26 @@ const BRANCHES = Object.freeze([
   { code: '03', host: '192.168.40.40', port: 5432, db: 'md_03', name: '8 Esquinas' },
   { code: '04', host: '192.168.44.44', port: 5432, db: 'md_04', name: 'Yurécuaro' },
   { code: '05', host: '192.168.54.54', port: 5432, db: 'md_05', name: 'Zamora Centro' },
-  { code: '06', replica: 'kepler_md_06', name: 'Canindo' },
+  // '06' Canindo: POS alcanzable con platform_ro desde 2026-09-12 (así los importers leen el POS
+  // fresco en vez de la réplica; el ODS sigue leyendo kepler_md_06 vía replicaDbName). Antes, sin
+  // POS legible, su contabilidad de septiembre nunca llegaba (kdc22609 sólo replicaba vía ods_repl,
+  // que no la podía leer — ver ERP_KEPLER §4.2b).
+  { code: '06', host: '192.168.50.50', port: 1977, db: 'md_06', replica: 'kepler_md_06', name: 'Canindo' },
   // '07' Morelia Madero: su POS migró de Wincaja ('32') a Kepler propio (`md_07`) el 2026-09-08
   // (handoff limpio — Wincaja 32 cerró caja el 09-07, Kepler arrancó el 09-08, cero traslape).
-  // Replica-only como Canindo (sin platform_ro remoto) → se lee del replica lógico local kepler_md_07.
+  // Replica-only: aún NO se verificó platform_ro en su POS (queda como deuda; sus importers leen la
+  // réplica local kepler_md_07 hasta entonces).
   { code: '07', replica: 'kepler_md_07', name: 'Morelia Madero' },
 ]);
 
-// URL de conexión por rama: remoto (platform_ro) para 00-05; réplica local para las que
-// tienen `replica` (Canindo). El schema `md.*` es idéntico → transparente al importer.
+// URL de conexión por rama para los IMPORTERS: prefiere el POS remoto (platform_ro) cuando la rama
+// tiene host; cae a la réplica lógica local sólo si NO hay POS legible (07). El schema `md.*` es
+// idéntico en ambos → transparente al importer. ⚠️ El shipper del ODS NO pasa por acá: usa
+// replicaDbName/replicaUrl, que SIEMPRE dan la réplica (es lo que ese carril mantiene al día).
 const urlOf = (b) => {
+  if (b.host) return `postgresql://${USER}:${PASS}@${b.host}:${b.port}/${b.db}`;
   if (b.replica) { const u = new URL(REPLICA_BASE); u.pathname = `/${b.replica}`; return u.toString(); }
-  return `postgresql://${USER}:${PASS}@${b.host}:${b.port}/${b.db}`;
+  throw new Error(`kepler-branches: la rama '${b.code}' no tiene ni host ni replica`);
 };
 
 /** Config lista para `new Client()` — resuelve la conexión correcta por rama sin hardcodear
