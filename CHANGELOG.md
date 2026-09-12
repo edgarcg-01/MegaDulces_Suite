@@ -10,6 +10,29 @@
 
 ## [Unreleased]
 
+### Fixed — app de vendedor: la fila mostraba un número y el pedido pedía otro (VT, ADR-062, 2026-09-11)
+
+Reporte de 0Sistemas: *"reportan bugs o poca fluidez al seleccionar las unidades en `/vendor/take-order`"*, aclarado como **elegir cuántas unidades al agregar al carrito**.
+
+- ⭐ **La causa, aritmética:** la línea se guarda en **unidad base** y la fila mostraba `Math.round(base / factor)` — dos espacios de cantidad mezclados. Medido en prod (`analytics.product_units`, **8,928 SKU**): **393** arrancan con una presentación de factor > 1, y la cantidad inicial sale del **promedio histórico del cliente**, que casi nunca es múltiplo. Resultado: promedio de **5 piezas con paquete de 6 → la fila decía 1 y el pedido pedía 5**; con caja de 8 → **decía 0** con la línea ya creada. Y `+` seguido de `−` no volvía al punto de partida (5+6=11, que tampoco es múltiplo), así que el resto quedaba pegado y **teclear el mismo número que ya se veía cambiaba la cantidad**.
+- **Fix:** la aritmética sube a `apps/vendor/.../core/order/qty-units.ts` con una invariante: **lo que se ve × factor = lo que se pide**. Lo que llega fuera de rejilla (voz, canasta predicha, pedido viejo) **se declara en unidad base**, no se redondea (ADR-056). **11 candados, cada uno con su prueba negativa** corriendo la fórmula vieja sobre el mismo caso.
+- **Y el mismo gesto daba dos resultados:** `addToCart` (desde el pitch) subía **1 unidad base** mientras el `+` de la fila subía **una presentación**. Unificados.
+- **Chips de medida repetidos:** `analytics.product_units` trae el mismo rótulo en dos o tres peldaños en **2,061 de 8,928 SKU (23.1 %)** — **163** con los tres iguales. Se publicaban tal cual: 2–3 chips idénticos, **todos marcados activos a la vez** y `@for … track u.unit` con **clave duplicada**. Ahora el rótulo repetido **con el mismo factor** se colapsa; el repetido **con factor distinto** (1 SKU: `PAQ` vale 1 y 11) **no se elige en silencio** — se desambigua con su factor.
+- **La fluidez no era la red: la lista se reordenaba dos veces por toque.** `habitualRows` arrancaba recorriendo el carrito, así que el producto agregado **saltaba al tope** ~500 ms después del toque, y 1,200 ms más tarde Thot re-ranqueaba y movía todo otra vez — con el dedo ya viajando al siguiente renglón. Ahora Habituales va en el orden de los habituales, Sugeridos excluye por **habitual** (agregar una sugerencia ya no la hace desaparecer) y la posición de lo ya mostrado queda **congelada**; el re-ranqueo cart-aware se conserva.
+
+### Added — corregir un pedido ya agendado, sin cancelarlo y recapturarlo (VT.2, 2026-09-11)
+
+Pedido de 0Sistemas: *"agreguemos que se pueda editar un pedido"*. Hasta acá `confirmed` no admitía edición de líneas: la única salida era **cancelar y recapturar el pedido entero**.
+
+- **`POST /commercial/orders/:id/reopen`** (`confirmed`/`pending_approval` → `draft`, **conservando el folio**) + botón **Corregir** en `/vendor/pending` + `take-order?order=<id>` con su aviso en pantalla y el CTA en "Guardar". Se **reabre** en vez de editar sobre `confirmed` a propósito: un pedido que se está corrigiendo **no está listo para surtir** y el estado tiene que decirlo.
+- ⭐ **Lo que se juega no es el estado, es el stock:** en **preventa** `place()` **no reserva nada**, así que devolver *"la cantidad de la línea"* al reabrir **le suelta el apartado a otro pedido**. `reopen()` no mira las líneas: **netea el libro de movimientos** (`reserve − release` por `reference_id`). Smoke `test-newdb-order-reopen` **7/7** contra `platform_test`, con **prueba negativa**: el criterio por línea sí habría liberado 10 unidades que eran la reserva del pedido vecino.
+- ⚠️ **`cancel()` tiene ese mismo defecto hoy y NO se tocó**: es un cambio de comportamiento en una ruta viva que merece su propia medición. Queda **declarado como deuda**.
+- 📋 **Declarado, no resuelto:** `supervisor_ventas` no es rol de plataforma → hoy no puede corregir los pedidos de su gente (3 de los 14 pendientes vivos son suyos); `/vendor/pending` lista por cartera del día y no por autoría, así que el botón puede aparecer sobre un pedido ajeno (el backend contesta el motivo); **sin conexión no se corrige** (el modo offline abriría otro pedido) y se avisa.
+
+### Internal — `apps/vendor` estrena pruebas: la app del campo era la única sin candados (VT.0, 2026-09-11)
+
+No tenía target `test` (sólo `build/serve/extract-i18n/serve-static`). Se agrega `jest.config.ts` + `tsconfig.spec.json` + target calcando `apps/view`. **11 tests** al entrar. **Falta validación visual + redeploy de `api` y `vendor`**; sin migraciones ni permisos nuevos (`reopen` reusa `COMMERCIAL_ORDERS_CONFIRMAR`) → **sin re-login**.
+
 ### Fixed — etiquetera: los tamaños raros NO eran el navegador, era mezclar dos espacios de medida (2026-09-11)
 
 Reporte de tienda: *"muchos problemas con los tamaños de precios o paquetes; verifiquemos compatibilidad con Chrome/Edge y con todas las versiones"*. Se midió antes de opinar, y **la hipótesis del navegador queda refutada**.

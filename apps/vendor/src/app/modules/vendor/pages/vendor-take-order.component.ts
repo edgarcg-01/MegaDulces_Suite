@@ -10,6 +10,7 @@ import {
   effect,
   inject,
   signal,
+  untracked,
   DOCUMENT
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -29,6 +30,15 @@ import { HapticService } from '../../../core/services/haptic.service';
 import { ConnectivityService } from '../../../core/services/connectivity.service';
 import { OfflineOrderService } from '../../../core/services/offline-order.service';
 import { nextBusinessDayIso, todayIso } from '../../../core/date/biz-days';
+import {
+  Presentacion,
+  ajustarARejilla,
+  bajarEscalon,
+  conteoExacto,
+  escalera,
+  factorDe,
+  subirEscalon,
+} from '../../../core/order/qty-units';
 
 type OrderMode = 'instante' | 'futuro';
 
@@ -145,6 +155,14 @@ const foldText = (s: string | null | undefined): string =>
               <span>Según lo que suele pedir. Ajustá cantidades y confirmá.</span>
             </div>
             <button (click)="clearOrder()">Vaciar</button>
+          </div>
+        }
+        <!-- Corrigiendo un pedido que ya estaba agendado: el folio es el mismo y
+             hay que volver a guardarlo, no queda guardado solo. -->
+        @if (isEditing()) {
+          <div class="edit-banner">
+            <i class="pi pi-pencil"></i>
+            <span>Estás corrigiendo <b>{{ editingCode() || 'un pedido agendado' }}</b>. Guardá al terminar para volver a agendarlo.</span>
           </div>
         }
         <!-- Fecha de entrega (preventa) -->
@@ -304,7 +322,7 @@ const foldText = (s: string | null | undefined): string =>
                 <!-- Selector de medida (PZA/PAQ/CJA): solo si el SKU ofrece más de una. -->
                 @if (hasUnitChoice(p)) {
                   <div class="unit-sel">
-                    @for (u of p.units; track u.unit) {
+                    @for (u of unitsOf(p); track u.unit) {
                       <button type="button" class="us-chip" [class.on]="selectedUnit(p)?.unit === u.unit"
                         (click)="setUnit(p, u.unit); $event.stopPropagation()">{{ u.unit }}</button>
                     }
@@ -325,14 +343,22 @@ const foldText = (s: string | null | undefined): string =>
                 }
               </div>
               <div class="row-stepper" [class.empty]="cartQty(p.product_id) === 0">
-                <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
-                <input class="qin" type="number" inputmode="numeric" min="0" step="1"
-                  [ngModel]="dispCount(p) || null"
-                  (change)="setQtyTyped(p, $any($event.target).value)"
-                  (focus)="$any($event.target).select()"
-                  placeholder="0" aria-label="Cantidad" />
+                <div class="rs-row">
+                  <button (click)="decProduct(p)" [disabled]="cartQty(p.product_id) === 0" aria-label="Menos">−</button>
+                  <input class="qin" type="number" inputmode="numeric" min="0" step="1"
+                    [ngModel]="dispCount(p) || null"
+                    (change)="setQtyTyped(p, $any($event.target).value)"
+                    (keydown.enter)="$any($event.target).blur()"
+                    (focus)="$any($event.target).select()"
+                    placeholder="0" [attr.aria-label]="'Cantidad en ' + (rowUnitLabel(p) || 'unidades')" />
                   <button (click)="incProduct(p)" [disabled]="!!adding()[p.product_id]" aria-label="Más">+</button>
                 </div>
+                <!-- En qué se está contando esta fila. Fuera de rejilla cae a unidad base
+                     y se dice, en vez de redondear a una presentación que no es. -->
+                @if (rowUnitLabel(p)) {
+                  <span class="rs-u" [class.warn]="offGrid(p)">{{ rowUnitLabel(p) }}</span>
+                }
+              </div>
               </div>
             </ng-template>
             @if (cartLines().length === 0) {
@@ -354,7 +380,7 @@ const foldText = (s: string | null | undefined): string =>
                 <i class="pi pi-chevron-up"></i>
               </button>
               <button class="cb-go" [disabled]="submitting()" (click)="submit()">
-                Agendar
+                {{ isEditing() ? 'Guardar' : 'Agendar' }}
                 <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
               </button>
             </div>
@@ -582,6 +608,8 @@ const foldText = (s: string | null | undefined): string =>
       .load-err .le-sub { font-size: 0.8rem; color: var(--text-muted); margin-bottom: 0.6rem; }
       .load-err .le-retry { display: inline-flex; align-items: center; gap: 0.45rem; padding: 0.6rem 1.3rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 700; font-size: 0.9rem; }
       .load-err .le-back { border: none; background: none; color: var(--text-muted); font-weight: 600; font-size: 0.85rem; padding: 0.4rem; }
+      .edit-banner { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0.75rem; padding: 0.6rem 0.75rem; border: 1px solid var(--action); border-radius: var(--r-md, 0.5rem); background: var(--ember-soft); color: var(--brand-900); font-size: 0.82rem; line-height: 1.3; }
+      .edit-banner i { flex-shrink: 0; }
       .date-row { display: flex; flex-direction: column; gap: 0.35rem; margin-bottom: 0.875rem; }
       .date-row label { font-size: 0.8rem; font-weight: 600; color: var(--text-muted); display: flex; align-items: center; gap: 0.4rem; }
       .date-input { width: 100%; height: 2.9rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0 0.875rem; font-family: var(--font-body); font-size: 0.95rem; background: var(--card-bg); color: var(--text-main); }
@@ -660,12 +688,15 @@ const foldText = (s: string | null | undefined): string =>
       .add { width: 2.75rem; height: 2.75rem; border-radius: 14px; border: none; background: var(--action); color: #fff; font-size: 1.15rem; display: grid; place-items: center; flex-shrink: 0; transition: transform 0.07s var(--ease, ease); }
       .add:active { transform: scale(0.92); } .add:disabled { opacity: 0.5; }
       /* Stepper en la fila del catálogo (cuando el producto ya está en el carrito) */
-      .prod .row-stepper { display: flex; align-items: center; border: 1px solid var(--text-main); border-radius: var(--r-pill, 999px); overflow: hidden; flex-shrink: 0; }
+      .prod .row-stepper { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; flex-shrink: 0; }
+      .prod .row-stepper .rs-row { display: flex; align-items: center; border: 1px solid var(--text-main); border-radius: var(--r-pill, 999px); overflow: hidden; }
+      .prod .row-stepper.empty .rs-row { border-color: var(--border-color); }
+      .prod .row-stepper .rs-u { font-size: 0.62rem; font-weight: 800; letter-spacing: 0.04em; color: var(--text-muted); text-transform: uppercase; line-height: 1; }
+      .prod .row-stepper .rs-u.warn { color: var(--action); }
       .prod .row-stepper button { width: 2.35rem; height: 2.55rem; border: none; background: transparent; color: var(--text-main); font-size: 1.2rem; font-weight: 800; line-height: 1; }
       .prod .row-stepper button:active { background: var(--surface-ground); }
       .prod .row-stepper .q { min-width: 1.9rem; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
       /* Order pad: input de cantidad tecleable (sin spinners), borde tenue si está en 0 */
-      .prod .row-stepper.empty { border-color: var(--border-color); }
       .prod .row-stepper button:disabled { opacity: 0.3; }
       .prod .row-stepper .qin { width: 2.7rem; height: 2.55rem; border: none; background: transparent; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; -moz-appearance: textfield; appearance: textfield; }
       .prod .row-stepper .qin::-webkit-outer-spin-button, .prod .row-stepper .qin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
@@ -857,6 +888,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         this.sheetPrevFocus?.focus?.();
         this.sheetPrevFocus = null;
       }
+    });
+
+    // Memoria de posición de Sugeridos: append-only. Lee suggestBase (que NO
+    // depende de suggestOrder), así que no hay ciclo con suggestRows.
+    effect(() => {
+      const ids = this.suggestBase().map((p) => p.product_id);
+      const orden = untracked(() => this.suggestOrder());
+      const faltan = ids.filter((id) => !orden.includes(id));
+      if (faltan.length) this.suggestOrder.set([...orden, ...faltan]);
     });
   }
 
@@ -1080,33 +1120,66 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   );
 
   /**
-   * Order pad — grupo "Lo que suele pedir": lo que YA está en el carrito (siempre
-   * visible/editable) + los habituales del cliente con precio. Cantidad arranca en
-   * 0; el vendedor teclea. Sin búsqueda manual para el grueso del pedido.
+   * Order pad — grupo "Lo que suele pedir": los habituales del cliente con precio,
+   * EN SU ORDEN (que se carga una vez y no se mueve), más lo que entró al pedido y
+   * no es habitual ni está en Sugeridos, pegado al final.
+   *
+   * Antes esto arrancaba recorriendo cartLines(), así que cada producto agregado
+   * SALTABA al tope de la sección ~500 ms después del toque, cuando volvía el
+   * reloadCart. Ese salto —con la lista moviéndose bajo el dedo que ya iba al
+   * siguiente renglón— es la mitad del reporte de "poca fluidez". La otra mitad es
+   * el re-ranqueo de Thot, que se estabiliza en suggestRows.
    */
   readonly habitualRows = computed(() => {
     const byId = this.byIdMap();
     const seen = new Set<string>();
     const out: PriceRow[] = [];
-    for (const l of this.cartLines()) {
-      if (seen.has(l.product_id)) continue;
-      const p = byId.get(l.product_id);
-      if (p) { seen.add(l.product_id); out.push(p); }
-    }
     for (const f of this.frequent()) {
       if (seen.has(f.product_id)) continue;
       const p = byId.get(f.product_id);
       if (p && p.price != null && Number(p.price) > 0) { seen.add(f.product_id); out.push(p); }
     }
+    const enSugeridos = new Set(this.suggestBase().map((p) => p.product_id));
+    for (const l of this.cartLines()) {
+      if (seen.has(l.product_id) || enSugeridos.has(l.product_id)) continue;
+      const p = byId.get(l.product_id);
+      if (p) { seen.add(l.product_id); out.push(p); }
+    }
     return out;
   });
 
-  /** Order pad — grupo "Sugeridos" (Thot, o fallback local), sin los ya en habituales. */
-  readonly suggestRows = computed(() => {
-    const inHab = new Set(this.habitualRows().map((p) => p.product_id));
-    const thot = this.thotRows().filter((p) => !inHab.has(p.product_id));
+  /**
+   * Sugeridos ANTES de estabilizar: lo que mandó el motor (o el respaldo local)
+   * menos los habituales. Se excluye por HABITUAL, no por "está en el carrito":
+   * agregar una sugerencia no la debe hacer desaparecer de donde el vendedor la
+   * está mirando.
+   */
+  private readonly suggestBase = computed(() => {
+    const inFreq = new Set(this.frequent().map((f) => f.product_id));
+    const thot = this.thotRows().filter((p) => !inFreq.has(p.product_id));
     if (thot.length) return thot;
-    return this.impulsarLocal().filter((p) => !inHab.has(p.product_id));
+    return this.impulsarLocal().filter((p) => !inFreq.has(p.product_id));
+  });
+
+  /** Orden ya mostrado de Sugeridos: lo que se pintó una vez no se reacomoda. */
+  private readonly suggestOrder = signal<string[]>([]);
+
+  /**
+   * Order pad — grupo "Sugeridos", con la posición CONGELADA para lo que ya está en
+   * pantalla. Thot vuelve a ranquear después de cada cambio del pedido (es
+   * cart-aware, y eso se conserva: lo nuevo entra), pero lo que el vendedor ya
+   * tiene a la vista no se mueve de lugar.
+   */
+  readonly suggestRows = computed(() => {
+    const base = this.suggestBase();
+    const orden = this.suggestOrder();
+    if (!orden.length) return base;
+    const pos = new Map(orden.map((id, i) => [id, i] as const));
+    const conocidos: PriceRow[] = [];
+    const nuevos: PriceRow[] = [];
+    for (const p of base) (pos.has(p.product_id) ? conocidos : nuevos).push(p);
+    conocidos.sort((a, b) => (pos.get(a.product_id) ?? 0) - (pos.get(b.product_id) ?? 0));
+    return [...conocidos, ...nuevos];
   });
 
   /** ¿el pedido se pre-cargó con la canasta predicha? (para el banner + "Vaciar"). */
@@ -1315,12 +1388,39 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.cartLines().filter((l) => this.cartQty(l.product_id) > 0),
   );
 
+  /**
+   * Pedido que se está CORRIGIENDO. Llega como ?order=<id> desde "Por entregar",
+   * que ya lo reabrió a borrador. Con esto la pantalla abre ESE pedido en vez del
+   * borrador suelto del cliente — que puede no existir o, peor, ser otro.
+   */
+  readonly editingOrderId = signal<string | null>(null);
+  readonly editingCode = signal<string | null>(null);
+  readonly isEditing = computed(() => !!this.editingOrderId());
+
   ngOnInit(): void {
     const customerId = this.route.snapshot.paramMap.get('id');
     if (!customerId) return;
     this.customerId = customerId;
-    if (this.conn.isOnline()) this.loadOnline(customerId);
-    else this.loadOffline(customerId);
+    this.editingOrderId.set(this.route.snapshot.queryParamMap.get('order'));
+    if (this.conn.isOnline()) {
+      this.loadOnline(customerId);
+      return;
+    }
+    // Sin señal no se corrige un pedido del servidor: el modo offline trabaja
+    // sobre borradores de Dexie y abriría OTRO pedido, no éste. Se dice y se
+    // vuelve, en vez de dejar al vendedor editando algo que no es.
+    if (this.editingOrderId()) {
+      this.loading.set(false);
+      this.toast.add({
+        severity: 'warn',
+        summary: 'Sin conexión',
+        detail: 'Para corregir un pedido ya agendado hace falta señal.',
+        life: 6000,
+      });
+      this.router.navigate(['/vendor/pending']);
+      return;
+    }
+    this.loadOffline(customerId);
   }
 
   /** Carga online: backend + cachea el contexto para poder abrir offline luego. */
@@ -1350,7 +1450,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
             catalog: this.api
               .catalogForCustomer(customer, warehouseId || undefined)
               .pipe(catchError(() => of({ priceListId: '', prices: [] as PriceRow[] }))),
-            existingDraft: this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
+            // Corrigiendo: el pedido viene dado (ya reabierto a borrador). Si no,
+            // el borrador suelto del cliente, como siempre.
+            existingDraft: this.editingOrderId()
+              ? this.api.orderById(this.editingOrderId()!).pipe(catchError(() => of(null)))
+              : this.api.draftForCustomer(customerId).pipe(catchError(() => of(null))),
             pending: this.api.pendingForCustomer(customerId).pipe(catchError(() => of([] as VendorOrder[]))),
             frequent: this.api.frequentProducts(customerId).pipe(catchError(() => of([] as FrequentProduct[]))),
           });
@@ -1390,6 +1494,13 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           if (existingDraft) {
             // Hay borrador en curso → se respeta tal cual (no se pisa con el predicho).
             this.cartOrderId.set(existingDraft.id);
+            if (this.editingOrderId()) {
+              this.editingCode.set(existingDraft.code || null);
+              // Corrigiendo: se conserva la fecha de entrega que ya tenía, para no
+              // re-agendar en otro día sin que nadie lo pidiera.
+              const fecha = (existingDraft as VendorOrder).requested_delivery_date;
+              if (fecha) this.requestedDate = String(fecha).slice(0, 10);
+            }
             this.api.orderById(existingDraft.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((full) => {
               this.cartLines.set(full.lines || []);
               this.loadSuggestions(); // cart-aware una vez que cargan las líneas
@@ -1488,52 +1599,60 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     this.router.navigate(['/vendor/pending']);
   }
 
-  /** "+" en la fila → sube UNA presentación (factor unidades base) o crea. */
+  /** "+" en la fila → sube UN escalón de la presentación activa, o crea la línea. */
   incProduct(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    const f = this.unitFactor(p);
-    if (cur > 0) this.bumpQty(p.product_id, cur + f);
+    if (cur > 0) this.bumpQty(p.product_id, subirEscalon(cur, this.unitFactor(p)));
     else this.createLine(p, this.suggestedQty(p));
   }
-  /** "−" en la fila → baja UNA presentación (al llegar a 0 el flush quita la línea). */
+  /** "−" en la fila → baja UN escalón (al llegar a 0 el flush quita la línea). */
   decProduct(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    const f = this.unitFactor(p);
-    if (cur > 0) this.bumpQty(p.product_id, Math.max(0, cur - f));
-  }
-
-  /** Cantidad inicial base al tocar "+": promedio histórico (habitual), o una
-   *  presentación completa (factor), o el mínimo de compra — lo que sea mayor. */
-  private suggestedQty(p: PriceRow): number {
-    const avg = this.avgQtyByProduct().get(p.product_id);
-    if (avg) return avg;
-    return Math.max(this.unitFactor(p), p.min_qty || 1);
+    if (cur > 0) this.bumpQty(p.product_id, bajarEscalon(cur, this.unitFactor(p)));
   }
 
   /**
-   * Order pad: cantidad tecleada en la fila EN LA UNIDAD ACTIVA. Se convierte a
-   * base (×factor). 0/vacío quita la línea, >0 la fija o la crea.
+   * Cantidad inicial base al tocar "+": el promedio histórico del cliente (si es
+   * habitual) o una presentación completa, SIEMPRE acomodada a la rejilla de la
+   * medida activa y al mínimo de compra. Sin esto, un promedio de 5 piezas con
+   * paquete de 6 creaba la línea en 5 y la fila mostraba 1; uno de 3 con caja de 8
+   * la mostraba en 0 — el vendedor tocaba "+" y veía cero.
+   */
+  private suggestedQty(p: PriceRow): number {
+    const avg = this.avgQtyByProduct().get(p.product_id) || 0;
+    return ajustarARejilla(avg, this.unitFactor(p), p.min_qty || 1);
+  }
+
+  /**
+   * Order pad: cantidad tecleada en la fila, EN LA UNIDAD QUE LA FILA ESTÁ
+   * MOSTRANDO. Se convierte a base (×factor). 0/vacío quita la línea.
+   *
+   * El factor se toma del display, no de la selección: si la fila cayó a unidad
+   * base por estar fuera de rejilla, lo tecleado son unidades base. Sin esa
+   * distinción, teclear el mismo número que ya se veía cambiaba la cantidad —
+   * el reporte de "se me mueve solo el pedido".
    */
   setQtyTyped(p: PriceRow, raw: string | number): void {
     const count = Math.max(0, Math.floor(Number(raw) || 0));
-    const base = count * this.unitFactor(p);
+    const base = count * (this.offGrid(p) ? 1 : this.unitFactor(p));
     const cur = this.cartQty(p.product_id);
     if (cur > 0) this.bumpQty(p.product_id, base); // existe → ajustar (0 = quitar en flush)
     else if (base > 0) this.createLine(p, base); // nuevo → crear inmediato
   }
 
-  /** Agregar desde el pitch / "+" — usa la cantidad sugerida. */
+  /** Agregar desde el pitch — mismo escalón que el "+" de la fila (antes subía 1
+   *  unidad base, así que el mismo gesto daba dos resultados distintos). */
   addToCart(p: PriceRow): void {
     const cur = this.cartQty(p.product_id);
-    if (cur > 0) { this.bumpQty(p.product_id, cur + 1); return; }
+    if (cur > 0) { this.bumpQty(p.product_id, subirEscalon(cur, this.unitFactor(p))); return; }
     this.createLine(p, this.suggestedQty(p));
   }
 
-  /** Crea la línea (asegurando draft) con la cantidad dada, clampeada a min_qty. */
+  /** Crea la línea (asegurando draft) con la cantidad dada, en rejilla y sobre el mínimo. */
   private createLine(p: PriceRow, qty: number): void {
     const c = this.customer();
     if (!c || !this.warehouseId()) return;
-    const q = Math.max(Math.floor(qty), p.min_qty || 1);
+    const q = ajustarARejilla(qty, this.unitFactor(p), p.min_qty || 1);
     if (q <= 0) return;
     if (p.stock_available != null && q > Number(p.stock_available)) {
       this.toast.add({ severity: 'warn', summary: 'Stock actual bajo', detail: `Hoy hay ${p.stock_available}. Es preventa: se surte al repartir.`, life: 4000 });
@@ -1572,17 +1691,17 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   inc(line: OrderLine): void {
     const f = this.unitFactorById(line.product_id);
-    this.bumpQty(line.product_id, this.cartQty(line.product_id) + f);
+    this.bumpQty(line.product_id, subirEscalon(this.cartQty(line.product_id), f));
   }
   dec(line: OrderLine): void {
     const f = this.unitFactorById(line.product_id);
-    this.bumpQty(line.product_id, Math.max(0, this.cartQty(line.product_id) - f));
+    this.bumpQty(line.product_id, bajarEscalon(this.cartQty(line.product_id), f));
   }
-  /** Conteo del carrito en la unidad activa del producto (base ÷ factor). */
+  /** Conteo del carrito en la unidad activa; crudo en base si no cae en la rejilla. */
   dispCountById(productId: string): number {
     const f = this.unitFactorById(productId);
     const base = this.cartQty(productId);
-    return f > 1 ? Math.round(base / f) : base;
+    return conteoExacto(base, f) ?? base;
   }
 
   /** Ajuste optimista de cantidad por producto + PATCH debounced. No crea líneas
@@ -1925,11 +2044,14 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       return;
     }
     const pretty = new Date(this.requestedDate + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
+    const corrigiendo = this.isEditing();
     this.confirmSvc.confirm({
-      header: 'Agendar pedido',
-      message: `¿Agendar ${this.fmtMoney(this.cartTotal())} para entrega el ${pretty}?`,
-      icon: 'pi pi-calendar',
-      acceptLabel: 'Agendar', rejectLabel: 'Cancelar',
+      header: corrigiendo ? 'Guardar cambios' : 'Agendar pedido',
+      message: corrigiendo
+        ? `¿Guardar ${this.editingCode() || 'el pedido'} en ${this.fmtMoney(this.cartTotal())} para entrega el ${pretty}?`
+        : `¿Agendar ${this.fmtMoney(this.cartTotal())} para entrega el ${pretty}?`,
+      icon: corrigiendo ? 'pi pi-pencil' : 'pi pi-calendar',
+      acceptLabel: corrigiendo ? 'Guardar' : 'Agendar', rejectLabel: 'Cancelar',
       accept: () => {
         this.submitting.set(true);
         // Offline: confirmar el pedido local (queda en cola, se sincroniza al
@@ -2004,6 +2126,15 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private onDone(o: { code?: string; total?: number | string } | null): void {
     this.submitting.set(false);
     const c = this.customer();
+    // Corrección: el pedido ya existía y ya se avisó al cliente cuando se agendó.
+    // Vuelve a "Por entregar", que es de donde salió, en vez de a la pantalla de
+    // "pedido nuevo tomado" con su invitación a mandar WhatsApp otra vez.
+    if (this.isEditing()) {
+      this.haptic.notification('success');
+      this.toast.add({ severity: 'success', summary: 'Pedido corregido', detail: o?.code || this.editingCode() || '' });
+      this.router.navigate(['/vendor/pending']);
+      return;
+    }
     this.router.navigate(['/vendor/order-success'], {
       queryParams: {
         mode: this.mode(),
@@ -2047,7 +2178,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const orderId = this.cartOrderId();
     if (!orderId) return;
     this.confirmSvc.confirm({
-      message: '¿Cancelar este borrador?',
+      // Corrigiendo, esto NO cancela un borrador suelto: cancela un pedido que el
+      // cliente ya tenía agendado. Tiene que decirlo.
+      message: this.isEditing()
+        ? `¿Cancelar ${this.editingCode() || 'el pedido'}? Ya estaba agendado con el cliente.`
+        : '¿Cancelar este borrador?',
       header: 'Cancelar pedido',
       icon: 'pi pi-trash',
       accept: () => {
@@ -2166,25 +2301,45 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   // ───── Medidas de venta (PZA/PAQ/CJA) ─────
   // La línea SIEMPRE se guarda en unidad base; la medida es capa de entrada/display.
   // Default = PAQ si el SKU lo tiene; si no, su unidad base (units[0]).
+  //
+  // La aritmética vive en core/order/qty-units.ts, con sus candados y sus pruebas
+  // negativas. La invariante que sostiene todo: lo que la fila MUESTRA, por el
+  // factor, es exactamente lo que el pedido PIDE. Cuando no se puede cumplir, la
+  // fila lo declara en unidad base en vez de redondear (ADR-056).
 
   /** Unidad seleccionada por producto (label). Vacío = usar el default. */
   readonly unitSel = signal<Record<string, string>>({});
 
-  private defaultUnit(p: PriceRow): { unit: string; factor: number } | null {
-    const us = p.units;
-    if (!us?.length) return null;
+  /**
+   * Escalera de medidas YA saneada, por producto. Se calcula una vez por catálogo
+   * y no en cada ciclo de detección: la fila la consulta en cada binding y el pad
+   * puede traer cientos de renglones.
+   */
+  private readonly unitsById = computed(() => {
+    const m = new Map<string, Presentacion[]>();
+    for (const p of this.prices()) m.set(p.product_id, escalera(p.units));
+    return m;
+  });
+  /** Presentaciones ofrecidas para el SKU (sin rótulos repetidos ni factores basura). */
+  unitsOf(p: PriceRow): Presentacion[] {
+    return this.unitsById().get(p.product_id) ?? escalera(p.units);
+  }
+
+  private defaultUnit(p: PriceRow): Presentacion | null {
+    const us = this.unitsOf(p);
+    if (!us.length) return null;
     return us.find((u) => u.unit === 'PAQ') ?? us[0];
   }
   /** Presentación activa del producto (default PAQ). Null si el SKU no tiene medidas. */
-  selectedUnit(p: PriceRow): { unit: string; factor: number } | null {
-    const us = p.units;
-    if (!us?.length) return null;
+  selectedUnit(p: PriceRow): Presentacion | null {
+    const us = this.unitsOf(p);
+    if (!us.length) return null;
     const sel = this.unitSel()[p.product_id];
     return (sel ? us.find((u) => u.unit === sel) : null) ?? this.defaultUnit(p);
   }
   /** Factor a unidad base de la presentación activa (1 si no hay medidas). */
   unitFactor(p: PriceRow): number {
-    return Math.max(1, Number(this.selectedUnit(p)?.factor) || 1);
+    return factorDe(this.selectedUnit(p));
   }
   /** Factor por product_id (para el carrito, que trae OrderLine sin PriceRow). */
   unitFactorById(productId: string): number {
@@ -2193,20 +2348,52 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   }
   unitLabelById(productId: string): string {
     const p = this.byIdMap().get(productId);
-    return (p && this.selectedUnit(p)?.unit) || '';
+    if (!p) return '';
+    // Fuera de rejilla la fila habla en unidad base: el rótulo tiene que acompañar.
+    return conteoExacto(this.cartQty(productId), this.unitFactor(p)) == null
+      ? this.baseUnitLabel(p)
+      : this.selectedUnit(p)?.unit || '';
   }
-  /** ¿Mostrar el selector? Solo si el SKU ofrece más de una presentación. */
+  /** Rótulo de la unidad base del SKU (el primer peldaño de la escalera). */
+  private baseUnitLabel(p: PriceRow): string {
+    return this.unitsOf(p)[0]?.unit || '';
+  }
+  /** ¿Mostrar el selector? Solo si el SKU ofrece más de una presentación DISTINTA. */
   hasUnitChoice(p: PriceRow): boolean {
-    return (p.units?.length ?? 0) > 1;
+    return this.unitsOf(p).length > 1;
   }
+  /**
+   * Cambia la presentación de captura. Si ya hay cantidad, se acomoda a la rejilla
+   * de la medida nueva: el vendedor eligió hablar en cajas, así que la fila pasa a
+   * cajas completas y el número que ve vuelve a ser el que se pide.
+   */
   setUnit(p: PriceRow, unit: string): void {
+    const destino = this.unitsOf(p).find((u) => u.unit === unit);
+    if (!destino) return;
     this.unitSel.update((m) => ({ ...m, [p.product_id]: unit }));
+    const base = this.cartQty(p.product_id);
+    if (base <= 0) return;
+    const ajustada = ajustarARejilla(base, factorDe(destino), p.min_qty || 1);
+    if (ajustada !== base) this.bumpQty(p.product_id, ajustada);
   }
-  /** Cantidad mostrada en la fila = cantidad base / factor (en la unidad activa). */
+  /**
+   * Cantidad mostrada en la fila, en la unidad activa. null = la cantidad no cae
+   * en la rejilla (llegó de voz, de la canasta predicha o de un pedido viejo) y NO
+   * se redondea: la fila muestra el crudo en unidad base. Antes esto era
+   * Math.round(base/factor) y publicaba 1 sobre un pedido de 5, o 0 sobre uno de 3.
+   */
   dispCount(p: PriceRow): number {
     const f = this.unitFactor(p);
     const base = this.cartQty(p.product_id);
-    return f > 1 ? Math.round(base / f) : base;
+    return conteoExacto(base, f) ?? base;
+  }
+  /** ¿La fila está hablando en unidad base porque la cantidad no cae en la rejilla? */
+  offGrid(p: PriceRow): boolean {
+    return this.unitFactor(p) > 1 && conteoExacto(this.cartQty(p.product_id), this.unitFactor(p)) == null;
+  }
+  /** Rótulo de lo que cuenta el stepper de la fila AHORA (no lo que está elegido). */
+  rowUnitLabel(p: PriceRow): string {
+    return this.offGrid(p) ? this.baseUnitLabel(p) : this.selectedUnit(p)?.unit || '';
   }
   /** Precio unitario mostrado en la unidad activa (base × factor). */
   unitPriceDisplay(p: PriceRow): number {

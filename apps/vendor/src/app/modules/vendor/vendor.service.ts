@@ -458,6 +458,16 @@ export class VendorService {
     return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/place`, dto);
   }
 
+  /**
+   * Reabrir para corregir: confirmed/pending_approval → draft, conservando el folio.
+   * El pedido vuelve a ser editable con el flujo normal y se re-agenda con placeOrder.
+   * El backend rechaza lo entregado, lo cancelado, lo de otro vendedor, y avisa si el
+   * cliente ya tiene otro pedido en curso.
+   */
+  reopenOrder(orderId: string, reason?: string): Observable<VendorOrder> {
+    return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/reopen`, { reason });
+  }
+
   /** confirmed → fulfilled. El vendedor marca el pedido como entregado en campo. */
   fulfill(orderId: string): Observable<VendorOrder> {
     return this.http.post<VendorOrder>(`${this.base}/orders/${orderId}/fulfill`, {});
