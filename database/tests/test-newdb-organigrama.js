@@ -83,9 +83,31 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
     check(mkt && mkt.default_role === 'marketing',
       `auxiliar_mkt propone "marketing" (dice: ${mkt ? mkt.default_role : 'no existe'}) — es lo que desambiguó a los 3 "administrativo"`);
 
+    // ⚠️ Esta aserción cambió de significado con `[OR.7.0]`: antes medía que
+    // `administracion` hubiera dejado de tener 4 puestos para 17 personas; ahora
+    // esa bolsa se PARTIÓ en departamentos reales, así que lo que hay que medir
+    // es que los puestos de oficina existan **repartidos**, no amontonados.
+    const OFICINA_POR_DEPTO = {
+      auxiliar_contabilidad: 'contabilidad',
+      jefe_finanzas: 'finanzas', auxiliar_finanzas: 'finanzas',
+      tesoreria: 'tesoreria',
+      auxiliar_credito_cobranza: 'credito_cobranza',
+      jefe_marketing: 'mercadotecnia', auxiliar_mkt: 'mercadotecnia',
+      gerente_compras: 'compras', comprador: 'compras', auxiliar_compras: 'compras',
+      prevencion: 'prevencion_auditoria', auxiliar_prevencion: 'prevencion_auditoria',
+    };
+    const malUbicados = Object.entries(OFICINA_POR_DEPTO)
+      .filter(([code, dep]) => {
+        const p = cat.find((x) => x.code === code);
+        return p && p.department_code !== dep;
+      })
+      .map(([c]) => c);
+    check(malUbicados.length === 0,
+      `los ${Object.keys(OFICINA_POR_DEPTO).length} puestos de oficina viven en su departamento real ` +
+      `(mal ubicados: ${malUbicados.join(', ') || 'ninguno'})`);
     const admin = cat.filter((x) => x.department_code === 'administracion');
-    check(admin.length >= 10,
-      `administracion tiene ${admin.length} puestos (antes 4, para 17 personas)`);
+    check(admin.length <= 4,
+      `administracion quedó como residual: ${admin.length} puestos (tenía 10 antes de [OR.7.0])`);
 
     // ── 2. El padrón tiene puesto, y lo que falta está DECLARADO ──────────
     console.log('\n── 2. El padrón');
@@ -169,8 +191,58 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
            FROM identity.positions p JOIN ch ON p.code = ch.jefe
           WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND ch.nivel < 20)
        SELECT max(nivel)::int niveles FROM ch`, [TENANT, TENANT]);
-    check(prof.rows[0].niveles >= 2,
-      `la cadena de mando tiene ${prof.rows[0].niveles} nivel(es) — antes era 1 y ningún jefe tenía jefe`);
+    check(prof.rows[0].niveles >= 4,
+      `la cadena de mando tiene ${prof.rows[0].niveles} nivel(es) — era 1 antes de [OR.1a] y 2 antes de la carta de [OR.8]`);
+
+    // `[OR.8]` La carta salió del ORGANIGRAMA que entregó Dirección, no de mi criterio.
+    // ⚠️ El organigrama está por ZONA: el mismo puesto existe 3 veces con 3 jefes.
+    // El puesto da el TIPO de jefe; la zona de la persona da CUÁL — por eso
+    // `users.supervisor_id` sobrevive como desempate y no como decoración.
+    const carta = await k('identity.positions')
+      .where({ tenant_id: TENANT })
+      .whereNull('deleted_at')
+      .whereNotNull('reports_to_position_code')
+      .count('* as n')
+      .first();
+    check(Number(carta.n) >= 45, `${carta.n} aristas declaradas en la carta de mando`);
+
+    const cobCarta = await k.raw(
+      `SELECT count(*)::int con_gente,
+              count(*) FILTER (WHERE p.reports_to_position_code IS NOT NULL)::int con_jefe
+         FROM identity.positions p
+        WHERE p.tenant_id = ? AND p.deleted_at IS NULL
+          AND EXISTS (SELECT 1 FROM identity.users u
+                       WHERE u.tenant_id = p.tenant_id AND u.position_code = p.code
+                         AND u.activo AND u.deleted_at IS NULL AND u.kind = 'interno')`, [TENANT]);
+    check(cobCarta.rows[0].con_jefe >= cobCarta.rows[0].con_gente - 1,
+      `${cobCarta.rows[0].con_jefe}/${cobCarta.rows[0].con_gente} puestos CON gente declaran jefe`);
+
+    const heredan = await k.raw(
+      `SELECT count(*)::int n FROM identity.users u
+         JOIN identity.positions p ON p.tenant_id = u.tenant_id AND p.code = u.position_code
+        WHERE u.tenant_id = ? AND u.activo AND u.deleted_at IS NULL AND u.kind = 'interno'
+          AND p.reports_to_position_code IS NOT NULL`, [TENANT]);
+    check(heredan.rows[0].n >= 95,
+      `${heredan.rows[0].n}/100 personas heredan jefe de su PUESTO (antes: 24 por supervisor_id)`);
+
+    // `jefe_zona` vacante a propósito: un puesto sin ocupante sigue siendo el
+    // lugar al que se reporta. De él cuelga TODA la operación.
+    const zona = await k.raw(
+      `SELECT (SELECT count(*)::int FROM identity.users u
+                WHERE u.tenant_id = ? AND u.position_code = 'jefe_zona'
+                  AND u.activo AND u.deleted_at IS NULL) AS ocupantes,
+              (SELECT count(*)::int FROM identity.positions p
+                WHERE p.tenant_id = ? AND p.deleted_at IS NULL
+                  AND p.reports_to_position_code = 'jefe_zona') AS cuelgan`, [TENANT, TENANT]);
+    check(zona.rows[0].cuelgan >= 6,
+      `${zona.rows[0].cuelgan} puestos cuelgan de jefe_zona (supervisores, encargados, operaciones, mayoreo)`);
+    if (zona.rows[0].ocupantes === 0) {
+      declarar(
+        'las 3 Gerencias de Zona (`jefe_zona`) NO tienen cuenta: la cúpula operativa del organigrama ' +
+        'no está en el padrón. La carta se armó igual —decisión del lead— porque un puesto vacante ' +
+        'sigue siendo el lugar al que se reporta; cuando tengan cuenta, el escalamiento funciona solo.',
+      );
+    }
 
     const trx = await k.transaction();
     try {
@@ -204,15 +276,18 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       check(rechazo, 'jefe inexistente RECHAZADO por la FK compuesta');
       if (rechazo) await trx.raw('ROLLBACK; BEGIN');
 
-      // 3d. CONTROL POSITIVO — sin esto, un candado que bloquee TODO se ve verde
+      // 3d. CONTROL POSITIVO — sin esto, un candado que bloquee TODO se ve verde.
+      // ⚠️ El conejillo cambió: `cajera -> encargado_sucursal` pasó a ser una
+      // arista REAL con `[OR.8]`, así que ese UPDATE ya no probaba nada (escribía
+      // lo que ya estaba). Se usa un puesto que HOY no declara jefe.
       let aceptado = false;
       try {
         await trx.raw(
-          `UPDATE identity.positions SET reports_to_position_code = 'encargado_sucursal'
-            WHERE tenant_id = ? AND code = 'cajera'`, [TENANT]);
+          `UPDATE identity.positions SET reports_to_position_code = 'direccion'
+            WHERE tenant_id = ? AND code = 'auxiliar_rh'`, [TENANT]);
         aceptado = true;
       } catch (e) { console.log(`       (rechazo inesperado: ${e.message.slice(0, 70)})`); }
-      check(aceptado, 'CONTROL: una arista legítima (cajera -> encargado_sucursal) SÍ se acepta');
+      check(aceptado, 'CONTROL: una arista legítima (auxiliar_rh -> direccion) SÍ se acepta');
     } finally {
       await trx.rollback();
     }
@@ -225,10 +300,10 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       .whereNull('deleted_at')
       .select('code', 'reports_to_position_code');
     const mapa = Object.fromEntries(aristas.map((x) => [x.code, x.reports_to_position_code]));
-    check(mapa.cajera === undefined,
-      `prod intacto: el rollback deshizo la arista de prueba (cajera -> ${mapa.cajera ?? 'nada'})`);
-    check(aristas.length === 2,
-      `${aristas.length} arista(s) decidida(s): vendedor_ruta->supervisor_rd y supervisor_inventarios->direccion`);
+    check(mapa.auxiliar_rh === undefined,
+      `prod intacto: el rollback deshizo la arista de prueba (auxiliar_rh -> ${mapa.auxiliar_rh ?? 'nada'})`);
+    check(mapa.cajera === 'encargado_sucursal',
+      `la carta de [OR.8] sigue en pie: cajera -> ${mapa.cajera}`);
 
     // ── 4. El catálogo de responsabilidades ───────────────────────────────
     console.log('\n── 4. Responsabilidades');
@@ -336,11 +411,36 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
           AND EXISTS (SELECT 1 FROM identity.users u WHERE u.tenant_id = p.tenant_id
                        AND u.position_code = p.code AND u.activo AND u.deleted_at IS NULL)`,
       [TENANT]);
+    // `[OR.8]` Lo que la carta deja sin atar, CON motivo. Un puesto sin jefe y sin
+    // motivo escrito es deriva; con motivo es una decisión. El que no esté acá
+    // hace fallar el test.
+    const SIN_JEFE_ACEPTADOS = {
+      vendedor_tlmk: 'TELEMARKETING no aparece en el organigrama entregado por Dirección (3 personas en ese departamento)',
+      coordinador_tlmk: 'idem: telemarketing no está en el organigrama',
+      encargado_logistica: 'su ancla es «Jefatura CEDIS y Operaciones Logísticas», que no existe en el catálogo',
+      chofer_local: 'rama CEDIS: sin ancla y sin gente',
+      chofer_foraneo: 'rama CEDIS: sin ancla y sin gente',
+      auxiliar_chofer: 'rama CEDIS: sin ancla y sin gente',
+      auxiliar_almacen: 'el organigrama no lo nombra',
+      auxiliar_rh: 'su ancla es «Jefatura Capital Humano», que no existe en el catálogo',
+      vendedor_local: 'el organigrama nombra «VENDEDORES MAYOREO» (→ `vendedor_mayoreo`) y no este puesto de `mayoreo`. Lo destapó el propio gate de [OR.8] al no encontrarle motivo.',
+    };
+    const huerfanos = await k('identity.positions')
+      .where({ tenant_id: TENANT })
+      .whereNull('deleted_at')
+      .whereNull('reports_to_position_code')
+      .whereNot({ code: 'direccion' })
+      .pluck('code');
+    const sinMotivo = huerfanos.filter((c) => !SIN_JEFE_ACEPTADOS[c]);
+    check(sinMotivo.length === 0,
+      `todo puesto sin jefe tiene MOTIVO escrito (sin motivo: ${sinMotivo.join(', ') || 'ninguno'})`);
+    huerfanos
+      .filter((c) => SIN_JEFE_ACEPTADOS[c])
+      .forEach((c) => declarar(`${c} sin jefe — ${SIN_JEFE_ACEPTADOS[c]}`));
+
     if (sinJefe.rows[0].n > 0) {
       declarar(
-        `${sinJefe.rows[0].n} puesto(s) CON gente y sin jefe declarado. NULL acá es "no se decidió", ` +
-        'no "no tiene jefe": el dato sólo probaba la arista supervisor_rd <- vendedor_ruta y el resto ' +
-        'se decide con el lead, puesto por puesto.',
+        `${sinJefe.rows[0].n} puesto(s) CON gente y sin jefe declarado (de los de arriba).`,
       );
     }
 
