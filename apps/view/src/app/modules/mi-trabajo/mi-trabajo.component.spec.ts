@@ -59,6 +59,7 @@ const SIN_TRABAJO: MeWork = {
   pendientes: [],
   no_medido: [],
   tiene_responsabilidades: false,
+  ciclos: [],
   medido_at: '2026-09-11T12:00:00.000Z',
 };
 
@@ -67,6 +68,7 @@ const TRABAJO_MIXTO: MeWork = {
   no_medido: [],
   tareas: [],
   tiene_responsabilidades: false,
+  ciclos: [],
   pendientes: [
     { id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio', ambito: 'red' },
     { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865, alcance: 'bandeja', ambito: 'red' },
@@ -79,6 +81,7 @@ const TRABAJO_ASIGNADO: MeWork = {
   no_medido: [],
   pendientes: [],
   tiene_responsabilidades: false,
+  ciclos: [],
   tareas: [
     {
       fuente: 'finance.recon_tasks', label: 'Conciliaciones a tu nombre', detalle: 'te las repartió Maat',
@@ -351,6 +354,69 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     // Es la clave del caso: aparece (no se esconde) y no invita a un 403 (no es <a href>).
     expect(bloqueada[0].tagName).toBe('P');
     expect(bloqueada[0].textContent).toContain('tu permiso no abre');
+  });
+
+  // ── [SN.16] Trabajo cíclico: la tira de meses ─────────────────────────────
+
+  /** Los tres estados que importan + el mes sin datos, con las cifras reales de prod. */
+  const CON_CICLO: MeWork = {
+    ...SIN_TRABAJO,
+    ciclos: [
+      {
+        id: 'conciliacion-bancaria',
+        label: 'Conciliación de egresos',
+        detalle: 'mes por mes, contra las pólizas del 102 de Kepler',
+        icono: 'pi pi-calendar',
+        pendientes: 3,
+        periodos: [
+          { periodo: '2026-01', estado: 'en_proceso', faltan: 2386, motivo: '1111 casados, 2386 sin casar contra Kepler.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-01' } },
+          { periodo: '2026-02', estado: 'sin_empezar', faltan: 2864, motivo: '2864 egresos y la conciliación no se ha corrido.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-02' } },
+          { periodo: '2026-06', estado: 'sin_datos', faltan: null, motivo: 'No hay estado de cuenta cargado de este mes.', ruta: null, queryParams: null },
+          { periodo: '2026-07', estado: 'al_dia', faltan: 0, motivo: 'Los 800 egresos casaron contra Kepler.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-07' } },
+        ],
+      },
+    ],
+  };
+
+  it('la tira lleva a la pantalla CON el mes ya puesto', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(CON_CICLO) });
+    expect(html()).toContain('Conciliación de egresos');
+    const celdas = q<HTMLAnchorElement>('a.ps-mes');
+    // 3 de los 4 periodos navegan; el de `sin_datos` no es enlace (ver caso siguiente).
+    expect(celdas.length).toBe(3);
+    expect(celdas[0].getAttribute('href')).toBe('/finanzas/bancos?view=cuadre&period=2026-01');
+  });
+
+  /*
+   * La prueba negativa que da sentido a toda la fase: medido en prod, junio y julio NO tienen
+   * estado de cuenta cargado. Si se pintaran como "sin conciliar" le estaríamos inventando
+   * trabajo a alguien que no tiene con qué hacerlo, y el enlace lo mandaría a una pantalla que no
+   * le puede contestar nada.
+   */
+  it('un mes SIN DATOS no es enlace, no cuenta como pendiente, y dice por qué', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(CON_CICLO) });
+    const vacio = q<HTMLElement>('.ps-mes.is-vacio');
+    expect(vacio.length).toBe(1);
+    expect(vacio[0].tagName).toBe('SPAN');
+    expect(vacio[0].getAttribute('title')).toContain('No hay estado de cuenta');
+    // Y el resumen lo nombra aparte: 1 sin empezar · 1 a medias · 1 al día · 1 sin datos.
+    expect(html()).toContain('sin datos');
+    expect(html()).not.toContain('4 sin empezar');
+  });
+
+  it('los tres estados con trabajo se distinguen por su punto, no por el fondo', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(CON_CICLO) });
+    expect(q<HTMLElement>('.ps-mes.e-en_proceso').length).toBe(1);
+    expect(q<HTMLElement>('.ps-mes.e-sin_empezar').length).toBe(1);
+    expect(q<HTMLElement>('.ps-mes.e-al_dia').length).toBe(1);
+  });
+
+  it('el ciclo se rotula como cola compartida, no como algo asignado', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(CON_CICLO) });
+    const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('Por periodo'));
+    expect(tag?.getAttribute('title')).toContain('nadie te lo asignó');
+    // Y no se cuela al bloque de lo propio.
+    expect(html()).toContain('No tienes trabajo a tu nombre');
   });
 
   it('un conteo acotado dice a qué universo pertenece; uno sin ficha lo DECLARA', async () => {

@@ -297,6 +297,63 @@ Sólo **una** de las 8 colas gana algo real: las otras 7 o no tienen columna de 
 - **La visibilidad se mide por ROL y la pantalla se dibuja por PERSONA**: `suite-map-visibility-report.js` simula con `role_permissions` crudo — no ve los complementos de `user_roles` (135 filas, 129 espejo → **6 reales**) ni los overrides de `user_permissions` (**31 filas sobre 3 personas**).
 - **`hideForRoles` sólo tapa la entrada primaria**: un vendedor con `COMMERCIAL_PROMOTIONS_VER` ve igual el proyecto por el cross-link.
 
+#### 4.2.8 SN.16 — el trabajo que se cierra mes por mes (2026-09-12)
+
+Pedido de Edgar: *«necesito que hagamos más interactiva la forma de mostrar "mi trabajo"; por ejemplo `mayra_gutierrez` tiene que conciliar los egresos por mes, entonces se me ocurre una gráfica o tabla donde se muestren los meses conciliados y no conciliados, y al dar clic a no conciliados que la redirija a la pantalla que la lleva a conciliar»*.
+
+**No es una bandeja más bonita: es un tercer organismo.** Una bandeja contesta *«¿cuántas cosas esperan?»* (cola sin fin); una tarea, *«¿quién me lo asignó?»*; esto contesta *«¿qué parte del calendario ya cerré?»*. Por eso vive en su propio archivo, `me-cycles.ts`, junto a `me-work.ts` y `me-tasks.ts`.
+
+##### Quién es Mayra, medido
+
+`finanzas_operativo`, **auxiliar de finanzas**, activa, entró ayer. **13 permisos, todos `FINANCE_*`** — incluidos `FINANCE_BANK_VER` y `FINANCE_BANK_GESTIONAR`, o sea que puede ver *y* correr la conciliación. **Cero filas en las 4 tablas de tarea**; está en el pool de reparto de Maat (9 personas con `FINANCE_RECON_RECIBIR`) y nunca le tocó nada. Su columna «A tu nombre» está vacía con razón.
+
+##### El estado real de su trabajo, medido en prod
+
+| mes | egresos | casados | sin casar | qué es |
+|---|---:|---:|---:|---|
+| 2026-01 | 3,497 | 1,111 | 2,386 | corrió, faltan **$27.9M** |
+| 2026-02 … 2026-05 | 10,448 | 0 | 0 | nunca corrió |
+| **2026-06, 2026-07** | — | — | — | ⭐ **sin estado de cuenta: SIN DATOS** |
+| 2026-08 | 3,744 | 854 | 1,043 | corrió, faltan $9.9M |
+| 2026-09 | 1,237 | 0 | 0 | nunca corrió |
+
+⭐ **Junio y julio son la razón por la que esto no se podía improvisar.** «Sin datos» y «sin conciliar» se ven igual si no se separan; pintarlos como pendientes le inventaría trabajo a alguien que no tiene con qué hacerlo. Un mes `sin_datos` **no es clickeable y no cuenta como pendiente** — y hay un candado que lo verifica.
+
+##### Lo que NO se construyó, porque ya existía
+
+- **El criterio de «listo»** lo señaló Edgar con un enlace: `?view=cuadre`. Es `GET /finance/bank/diagnostico`, que devuelve `cuadra` + 5 tipos de problema accionable. ⛔ **No se duplicó.** Cuesta ~8 consultas por mes (saldos por cuenta + P&L contra Kepler + evidencia renglón por renglón); la tira reporta **hechos baratos del avance** y el veredicto queda a un clic, con un solo dueño. Dos verdades sobre «cuadra» sería el defecto que ADR-054 retiró en autorización.
+- **Las dos pantallas ya aceptan el mes por URL** y no se tocó ninguna: bancos lee `?view=&period=` y lo valida contra los periodos existentes; el Libro de Compras lee `?mes=` en su `ngOnInit`.
+- **El patrón visual** se calcó del riel de meses del Libro de Compras, con su lección: *«Punto + texto, NO pastilla llena: 105 pastillas de color le compiten a la única acción naranja. El estado del mes es orientación, no alarma.»* El color va en 6 px de punto, nunca en el fondo.
+
+##### Por qué no es una gráfica
+
+⛔ **Chart.js quedó descartado por dos razones independientes.** `DESIGN.md:471` (BINDING): *«Micro-charts = SVG crudo (0 KB). Nada de Chart.js/Apex»*. Y **+205 KB** en la ruta crítica de `/projects`, que es el destino por defecto de todos al entrar. **Medido después: la tira costó +5,666 B** (chunk 69,577 → 75,243 B) — **36× menos**, con el inicial intacto en 1.25 MB.
+
+##### Lo que la medición corrigió del plan
+
+El plan fijaba un presupuesto de ~150 ms por consulta. La primera corrida dio **1,424 ms** (bancos) y **9,790 ms** (libro). `EXPLAIN ANALYZE` separó las dos causas:
+
+- **La latencia a Railway es de 154 ms** y se estaba contando como si fuera costo de consulta. El ciclo A son **~7 ms** de servidor con caché caliente (394 ms en frío) — sirve.
+- **Contar los CFDIs de cada mes cuesta 9,144 ms de ejecución en el servidor.** `fiscal.cfdis` son 167k filas y ni el `Index Only Scan` sobre `ix_fiscal_cfdis_fecha` la salva. **Se retiró**: el universo lo arma el calendario y el estado sale de `purchase_book_runs` (3 filas, **0.9 ms**). El número de facturas se **declara ausente** (`faltan: null`) en vez de pagar 9 s en la primera pantalla que todos abren. Que no se pueda contar no cambia el hecho de que el trámite no se hizo.
+
+##### Decisiones de diseño
+
+- **Va como cola compartida**, rotulada *«lo abre tu permiso, nadie te lo asignó»*. Mayra no tiene el trabajo declarado como suyo (`position_responsibilities` sigue vacía) y la pantalla no finge que sí. Lo verían **24 personas** (bancos) y **17** (libro de compras).
+- ⚠️ **Sin `CASE` en cascada.** Los contadores viajan crudos y el estado se deriva arriba. Medido en `v_rd_period_summary`: su `CASE` excluyente reporta `sin_gasto = 0` no porque el gasto esté, sino porque dos ramas anteriores atrapan la fila — **colapsa motivos concurrentes**.
+- La TZ se ancla al día 15: la API corre en UTC y el 30 de septiembre a las 19:00 de México ya es octubre en UTC.
+
+##### Candados
+
+`test-newdb-me-context.js` → **109 OK · 0 FAIL · 1 NO MEDIDO**. Bloque **4d** (la ruta de cada ciclo existe y su guard acepta su permiso) y **5c** en vivo: los 12 periodos siempre presentes, formato `YYYY-MM`, y la regla que da sentido a la fase — **`sin_datos` no navega, no inventa conteo, y no suma a `pendientes`**. `nx test view` 19 suites / **295** · `contracts` 35/35.
+
+> ⓘ El único NO MEDIDO es el bloque 5c contra la API viva, que corre código anterior a SN.16. **Los 8 NO MEDIDO de SN.15 bajaron a 0**: la API se reinició y `tareas`/`ambito` quedaron verificados en vivo.
+
+##### Abierto, medido y NO tocado
+
+- **281 filas de `finance.findings.periodo` corruptas** (`"Wed Sep"` en vez de `"2026-09"`), por `String(fecha).slice(0,7)` sobre un `Date` — `maat-detector.service.ts:329,391,509`. **Efecto medible**: esos hallazgos **nunca generan tarea de conciliación**, porque el repartidor filtra por periodo. Es la **tercera** aparición del mismo patrón de fecha en este repo (LC.16 fue la anterior).
+- **`finance.bank_statements.status` es cosmética**: 126 filas, 100 % `imported`, sin un solo `UPDATE` en todo el repo. Quien la lea como *«¿está conciliado el mes?»* va a leer siempre que no. Por eso el estado se deriva de `bank_movements.recon_status`.
+- **Contar CFDIs por mes tarda 9.1 s** — afecta también a `listMeses()`, que es lo que abre la pantalla del Libro de Compras.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

@@ -189,6 +189,29 @@ const tieneDecoradorPermisos = (tramo) =>
    * contra la bandeja que la muestra. El candado exige BIYECCIÓN: ni una clave del catálogo sin
    * cola, ni una cola con una clave que el catálogo no declara.
    */
+  /*
+   * ── 4d. `[SN.16]` Los CICLOS, con el mismo candado ───────────────────────────────────────────
+   * Una celda de la tira es un enlace con el mes ya puesto. Si la ruta no existe o su guard no
+   * acepta el permiso del ciclo, el clic aterriza en un 403 — el defecto que este bloque vigila
+   * para bandejas y tareas desde SN.7.
+   */
+  console.log('\n── 4d. Ciclos por periodo vs los guards de sus rutas ──');
+  const srcC = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/me-cycles.ts'), 'utf8');
+  const ciclos = [...srcC.matchAll(/id: '([^']+)',[\s\S]*?ruta: '([^']+)',[\s\S]*?anyOf: \[([^\]]*)\]/g)].map((m) => ({
+    id: m[1],
+    ruta: m[2],
+    anyOf: [...m[3].matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]),
+  }));
+  check('se leyeron los ciclos del registro (si no, este bloque no mide nada)', ciclos.length >= 2, ciclos.length);
+  for (const cy of ciclos) {
+    const g = guardDe(cy.ruta);
+    check(`${cy.id}: la ruta ${cy.ruta} existe en app.routes.ts`, g.encontrada);
+    if (!g.encontrada) continue;
+    check(`${cy.id}: la ruta ${cy.ruta} declara algún permiso`, g.perms.length > 0, g.perms);
+    check(`${cy.id}: el guard de ${cy.ruta} acepta alguna clave de su anyOf`,
+      g.perms.some((p) => cy.anyOf.includes(p)), { guard: g.perms, ciclo: cy.anyOf });
+  }
+
   console.log('\n── 4c. Biyección bandeja/tarea ↔ identity.responsibilities ──');
   const mig = fs.readFileSync(
     path.resolve(__dirname, '../migrations-newdb/20260911140000_responsibilities.js'), 'utf8',
@@ -293,6 +316,45 @@ const tieneDecoradorPermisos = (tramo) =>
       t.vence_at === null ? t.vencidas === null : typeof t.vencidas === 'number',
       { vence_at: t.vence_at, vencidas: t.vencidas });
     check(`tarea ${t.fuente}: no_responde declarado`, Array.isArray(t.no_responde), t.no_responde);
+  }
+
+  console.log('\n── 5c. Ciclos por periodo (me/work.ciclos) ──');
+  if (wb.ciclos === undefined) {
+    declarar('bloque 5c completo', `la API en ${BASE} responde sin \`ciclos\`: corre código anterior a SN.16`);
+  } else {
+    check('ciclos es arreglo DECLARADO (nunca ausente)', Array.isArray(wb.ciclos), typeof wb.ciclos);
+    const idsCiclo = new Set(ciclos.map((x) => x.id));
+    const ESTADOS = ['sin_datos', 'sin_empezar', 'en_proceso', 'al_dia'];
+    for (const cy of wb.ciclos ?? []) {
+      check(`ciclo ${cy.id}: sale del registro`, idsCiclo.has(cy.id), cy.id);
+      check(`ciclo ${cy.id}: trae los 12 periodos (un mes ausente se declara, no se omite)`,
+        Array.isArray(cy.periodos) && cy.periodos.length === 12, cy.periodos?.length);
+      for (const p of cy.periodos ?? []) {
+        check(`ciclo ${cy.id} ${p.periodo}: estado declarado`, ESTADOS.includes(p.estado), p.estado);
+        check(`ciclo ${cy.id} ${p.periodo}: formato YYYY-MM`, /^\d{4}-\d{2}$/.test(p.periodo), p.periodo);
+        /*
+         * ⭐ La regla que da sentido a la fase: un mes SIN DATOS no navega. Medido en prod,
+         * 2026-06 y 2026-07 no tienen estado de cuenta; ofrecer un enlace ahí manda a la persona
+         * a una pantalla que no le puede contestar nada, y contar ese mes como pendiente le
+         * inventa trabajo que no puede hacer.
+         */
+        if (p.estado === 'sin_datos') {
+          check(`ciclo ${cy.id} ${p.periodo}: sin_datos NO navega`,
+            p.ruta === null && p.queryParams === null, { ruta: p.ruta, q: p.queryParams });
+          check(`ciclo ${cy.id} ${p.periodo}: sin_datos no inventa un conteo`, p.faltan === null, p.faltan);
+        } else {
+          check(`ciclo ${cy.id} ${p.periodo}: navega con el mes puesto`,
+            typeof p.ruta === 'string' && p.ruta.startsWith('/') &&
+              p.queryParams && Object.values(p.queryParams).includes(p.periodo),
+            { ruta: p.ruta, q: p.queryParams });
+        }
+      }
+      const esperados = (cy.periodos ?? []).filter(
+        (p) => p.estado === 'sin_empezar' || p.estado === 'en_proceso',
+      ).length;
+      check(`ciclo ${cy.id}: \`pendientes\` no cuenta los meses sin datos`, cy.pendientes === esperados,
+        { dice: cy.pendientes, son: esperados });
+    }
   }
 
   const anonW = await req('GET', '/users/me/work', null, null);

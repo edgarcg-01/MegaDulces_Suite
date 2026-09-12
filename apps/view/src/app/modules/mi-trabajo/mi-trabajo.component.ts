@@ -13,7 +13,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import type { MeContext, MePendiente, MeTarea, MeWork } from '@megadulces/contracts';
+import type { MeCiclo, MeContext, MePendiente, MePeriodo, MeTarea, MeWork } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { MeContextService } from '../../core/services/me-context.service';
@@ -27,6 +27,7 @@ import {
 } from '../../core/constants/suite-map';
 import { LoadStateComponent } from '../../shared/components/load-state/load-state.component';
 import { HlmBadgeDirective } from '../../shared/components/ui/badge/hlm-badge.directive';
+import { PeriodoStripComponent } from './periodo-strip.component';
 
 /**
  * `[SN.3]` `[SN.8]` `[SN.9]` `[SN.11]` — "Mi trabajo": la landing de la plataforma web (`/projects`).
@@ -175,7 +176,7 @@ function normalizar(s: string): string {
 @Component({
   selector: 'app-mi-trabajo',
   standalone: true,
-  imports: [RouterLink, ButtonModule, LoadStateComponent, HlmBadgeDirective],
+  imports: [RouterLink, ButtonModule, LoadStateComponent, HlmBadgeDirective, PeriodoStripComponent],
   templateUrl: './mi-trabajo.component.html',
   styleUrl: './mi-trabajo.component.css',
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -378,6 +379,17 @@ export class MiTrabajoComponent {
   readonly tareasVencidas = computed(() => this.tareas().reduce((n, t) => n + (t.vencidas ?? 0), 0));
 
   /**
+   * `[SN.16]` Trabajo que se cierra mes por mes. Se filtra con el buscador igual que lo demás —
+   * si escribís "conciliación" tiene que aparecer acá, no sólo en las bandejas.
+   */
+  readonly ciclos = computed<readonly MeCiclo[]>(() => {
+    const t = this.trabajo();
+    const todos = t.status === 'ok' ? t.data.ciclos ?? [] : [];
+    if (!this.buscando()) return todos;
+    return todos.filter((c) => this.casa(normalizar(`${c.label} ${c.detalle}`)));
+  });
+
+  /**
    * `[SN.15]` ¿Se puede siquiera calcular "esto es tuyo"?
    *
    * `false` = `identity.position_responsibilities` no dice de qué responde este puesto — hoy es el
@@ -395,7 +407,8 @@ export class MiTrabajoComponent {
       this.trabajo().status === 'ok' &&
       !this.buscando() &&
       this.pendientes().length === 0 &&
-      this.tareas().length === 0,
+      this.tareas().length === 0 &&
+      this.ciclos().length === 0,
   );
   /** Bandejas que esta persona puede ver y NO se pudieron contar: se declaran, no bajan a cero. */
   readonly noMedido = computed(() => {
@@ -518,6 +531,12 @@ export class MiTrabajoComponent {
 
   abrioBandeja(p: MePendiente): void {
     this.uso.registrarApertura('bandeja', p.id, { alcance: p.alcance, ruta: p.ruta });
+  }
+
+  /** `[SN.16]` Qué MES de qué ciclo abrió. El periodo es el dato que hace útil este registro. */
+  abrioPeriodo(c: MeCiclo, p: MePeriodo): void {
+    if (!p.ruta) return; // un mes sin datos no navega
+    this.uso.registrarApertura('bandeja', c.id, { alcance: 'ciclo', ruta: p.ruta, periodo: p.periodo });
   }
 
   /** `[SN.15]` Igual que la bandeja, pero el id es la FUENTE — que es lo que identifica a la tarea. */

@@ -224,6 +224,25 @@
           </div>
         }
 
+        <!--
+          [SN.16] El trabajo que se cierra MES POR MES. Es el tercer organismo: una tarea tiene
+          dueño, una bandeja es una cola sin fin, y esto es una cola CON CALENDARIO. Va rotulado
+          como lo que es —lo abre tu permiso, nadie te lo asignó— igual que las bandejas.
+
+          La tira no dice si el mes "cuadra": ese veredicto vive en la pestaña Cierre y cuesta ~8
+          consultas por mes. Acá van los hechos del avance, y el veredicto está a un clic.
+        -->
+        @if (ciclos().length) {
+          <div class="mt-grupo">
+            <p class="mt-grupo-tag" title="Trabajo que se cierra mes por mes: lo abre tu permiso, nadie te lo asignó">
+              Por periodo
+            </p>
+            @for (c of ciclos(); track c.id) {
+              <app-periodo-strip [ciclo]="c" (abrio)="abrioPeriodo(c, $event)" />
+            }
+          </div>
+        }
+
         @if (sinPendientes()) {
           <p class="mt-nada"><i class="pi pi-check-circle" aria-hidden="true"></i> Sin pendientes en tus bandejas</p>
         }
