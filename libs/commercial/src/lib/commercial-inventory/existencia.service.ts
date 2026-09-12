@@ -376,8 +376,14 @@ export class ExistenciaService {
                jsonb_object_agg(src.warehouse_code, jsonb_strip_nulls(jsonb_build_object(
                  'q',    CASE WHEN src.rung_veredicto IS NULL THEN round((src.nat / src.dbf)::numeric, 1) END,
                  'val',  CASE WHEN src.rung_veredicto IS NULL THEN round((src.nat * src.cu)::numeric, 2) END,
-                 'nat',  CASE WHEN src.rung_veredicto IS NOT NULL THEN round(src.nat::numeric, 0) END,
-                 'natu', CASE WHEN src.rung_veredicto IS NOT NULL THEN src.base_label END,
+                 -- [EX.U] La cantidad NATIVA viaja SIEMPRE, no sólo cuando el peldaño está
+                 -- contradicho. Antes iba condicionada y por eso la pantalla no podía ofrecer
+                 -- "ver en unidad nativa": para las ~6,600 celdas sanas no tenía con qué.
+                 -- Es el dato que el ERP guarda de verdad; la caja es una DIVISIÓN de éste
+                 -- (ADR-055: el divisor es de presentación, el dato base no se convierte).
+                 -- ⛔ Y no se puede SUMAR entre almacenes: ver la nota del rollup de arriba.
+                 'nat',  round(src.nat::numeric, 2),
+                 'natu', src.base_label,
                  'rung', src.rung_veredicto,
                  -- [W1.0/W1.3] la celda declara que su cifra en cajas se apoya en un divisor SIN
                  -- fuente. jsonb_strip_nulls borra la clave cuando no aplica, así que su sola
