@@ -213,18 +213,38 @@ const tieneDecoradorPermisos = (tramo) =>
   }
 
   console.log('\n── 4c. Biyección bandeja/tarea ↔ identity.responsibilities ──');
-  const mig = fs.readFileSync(
-    path.resolve(__dirname, '../migrations-newdb/20260911140000_responsibilities.js'), 'utf8',
-  );
-  const bloqueCat = mig.slice(mig.indexOf('const RESPONSABILIDADES'), mig.indexOf('const PERMISO_DE_BANDEJA'));
-  const catalogo = [...bloqueCat.matchAll(/\['([a-z]+\.[a-z]+)',/g)].map((m) => m[1]);
-  check('se leyó el catálogo de la migración (si no, este bloque no mide nada)', catalogo.length === 8, catalogo.length);
+  /*
+   * El catálogo NO vive en una sola migración: `[OR.1b]` sembró las 8 primeras y `[SN.17]` agregó
+   * las 2 de conciliación. Leer sólo la primera hacía que este bloque acusara en falso a las
+   * claves nuevas — pasó al agregarlas. Se juntan las claves de toda migración que inserte en
+   * `identity.responsibilities`.
+   */
+  const dirMig = path.resolve(__dirname, '../migrations-newdb');
+  const catalogo = [];
+  for (const f of fs.readdirSync(dirMig).filter((x) => x.endsWith('.js'))) {
+    const txt = fs.readFileSync(path.join(dirMig, f), 'utf8');
+    if (!txt.includes('identity.responsibilities')) continue;
+    // Sólo el array de definición: `['clave', 'Etiqueta', …]` al inicio de la fila.
+    // `\s*` tras el corchete: hay arrays en una línea (`['x', 'Y', …]`) y otros multilínea.
+    for (const m of txt.matchAll(/\[\s*'([a-z]+\.[a-z_]+)',\s*'/g)) {
+      if (!catalogo.includes(m[1])) catalogo.push(m[1]);
+    }
+  }
+  check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
+    catalogo.length === 10, catalogo);
 
+  /*
+   * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
+   * Cuando se agregó el ciclo de conciliación el catálogo pasó a 10 claves y este bloque habría
+   * acusado 2 "sin cola" si sólo mirara los dos primeros archivos.
+   */
   const declaradas = [
     ...[...src.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcT.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
+    ...[...srcC.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
   ];
-  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea)', declaradas.length === 8, declaradas);
+  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 2 ciclos)',
+    declaradas.length === 10, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);

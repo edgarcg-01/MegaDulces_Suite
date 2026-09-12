@@ -374,7 +374,9 @@ export class MiTrabajoComponent {
       this.tareas().reduce((n, t) => n + t.total, 0) +
       this.mios().reduce((n, p) => n + p.total, 0),
   );
-  readonly hayAlgoMio = computed(() => this.tareas().length > 0 || this.mios().length > 0);
+  readonly hayAlgoMio = computed(
+    () => this.tareas().length > 0 || this.mios().length > 0 || this.ciclosMios().length > 0,
+  );
   /** Cuántas de tus tareas ya pasaron su fecha. `null` en una fuente que no maneja vencimiento. */
   readonly tareasVencidas = computed(() => this.tareas().reduce((n, t) => n + (t.vencidas ?? 0), 0));
 
@@ -388,6 +390,14 @@ export class MiTrabajoComponent {
     if (!this.buscando()) return todos;
     return todos.filter((c) => this.casa(normalizar(`${c.label} ${c.detalle}`)));
   });
+  /**
+   * `[SN.17]` Los ciclos de los que ESTA persona responde suben a «A tu nombre»; el resto se queda
+   * abajo como cola compartida. **Nadie pierde acceso**: la responsabilidad ordena, no gatea
+   * (regla de `[OR.1b]`). Medido: Ivonne y Mayra son las dos `auxiliar_finanzas`, así que el
+   * reparto vive en `user_responsibilities` — ingresos a una, egresos a la otra.
+   */
+  readonly ciclosMios = computed(() => this.ciclos().filter((c) => c.es_mio));
+  readonly ciclosCompartidos = computed(() => this.ciclos().filter((c) => !c.es_mio));
 
   /**
    * `[SN.15]` ¿Se puede siquiera calcular "esto es tuyo"?

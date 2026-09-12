@@ -363,11 +363,12 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     ...SIN_TRABAJO,
     ciclos: [
       {
-        id: 'conciliacion-bancaria',
+        id: 'conciliacion-egresos',
         label: 'Conciliación de egresos',
-        detalle: 'mes por mes, contra las pólizas del 102 de Kepler',
-        icono: 'pi pi-calendar',
+        detalle: 'los retiros del mes, contra las pólizas del 102 de Kepler',
+        icono: 'pi pi-arrow-up-right',
         pendientes: 3,
+        es_mio: false,
         periodos: [
           { periodo: '2026-01', estado: 'en_proceso', faltan: 2386, motivo: '1111 casados, 2386 sin casar contra Kepler.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-01' } },
           { periodo: '2026-02', estado: 'sin_empezar', faltan: 2864, motivo: '2864 egresos y la conciliación no se ha corrido.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-02' } },
@@ -411,12 +412,36 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(q<HTMLElement>('.ps-mes.e-al_dia').length).toBe(1);
   });
 
-  it('el ciclo se rotula como cola compartida, no como algo asignado', async () => {
+  it('el ciclo que NO es tuyo se rotula como cola compartida', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(CON_CICLO) });
     const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('Por periodo'));
-    expect(tag?.getAttribute('title')).toContain('nadie te lo asignó');
+    expect(tag?.getAttribute('title')).toContain('no respondes tú de él');
     // Y no se cuela al bloque de lo propio.
     expect(html()).toContain('No tienes trabajo a tu nombre');
+    expect(q<HTMLElement>('.ps.is-mine').length).toBe(0);
+  });
+
+  /*
+   * `[SN.17]` El reparto real: Ivonne concilia ingresos, Mayra egresos, y las dos son
+   * `auxiliar_finanzas` — o sea que el puesto NO las distingue y el reparto vive en
+   * `user_responsibilities`. Lo que se prueba acá es que la responsabilidad ORDENA sin GATEAR:
+   * el ciclo propio sube y se marca, pero el ajeno sigue visible y clickeable.
+   */
+  it('el ciclo del que respondes sube a «A tu nombre» y el otro NO desaparece', async () => {
+    const dos: MeWork = {
+      ...SIN_TRABAJO,
+      ciclos: [
+        { ...CON_CICLO.ciclos[0], id: 'conciliacion-ingresos', label: 'Conciliación de ingresos', es_mio: true },
+        { ...CON_CICLO.ciclos[0], id: 'conciliacion-egresos', label: 'Conciliación de egresos', es_mio: false },
+      ],
+    };
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(dos) });
+    // El propio se marca y deja de decirse que no tienes nada a tu nombre.
+    expect(q<HTMLElement>('.ps.is-mine').length).toBe(1);
+    expect(html()).not.toContain('No tienes trabajo a tu nombre');
+    // ⛔ Y el ajeno NO se esconde: la responsabilidad no autoriza, sólo ordena.
+    expect(html()).toContain('Conciliación de egresos');
+    expect(q<HTMLElement>('app-periodo-strip').length).toBe(2);
   });
 
   it('un conteo acotado dice a qué universo pertenece; uno sin ficha lo DECLARA', async () => {

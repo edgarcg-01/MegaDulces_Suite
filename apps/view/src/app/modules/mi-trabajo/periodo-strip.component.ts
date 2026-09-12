@@ -35,7 +35,7 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
   imports: [RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ps">
+    <div class="ps" [class.is-mine]="ciclo().es_mio">
       <div class="ps-head">
         <span class="ps-ico"><i [class]="ciclo().icono" aria-hidden="true"></i></span>
         <span class="ps-txt">
@@ -86,6 +86,10 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
         border-radius: var(--r-sm); background: var(--layout-bg); color: var(--text-muted);
         font-size: var(--fs-xs);
       }
+      /* [SN.17] Mismo lenguaje que una fila .mt-task.is-mine: el chip en sunset dice "esto es
+         tuyo". Lo decide la responsabilidad declarada, no el permiso.
+         ⚠️ SIN backticks en este bloque: es un template literal y los cierra (ver GOTCHAS). */
+      .ps.is-mine .ps-ico { background: var(--action); color: var(--action-ink); }
       .ps-txt { min-width: 0; display: flex; flex-direction: column; }
       .ps-l { font-size: var(--fs-sm); font-weight: var(--fw-semibold); }
       .ps-d { font-size: var(--fs-micro); color: var(--text-faint); }

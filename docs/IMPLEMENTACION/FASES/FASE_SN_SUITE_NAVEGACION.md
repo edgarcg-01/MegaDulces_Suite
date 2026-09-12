@@ -354,6 +354,53 @@ El plan fijaba un presupuesto de ~150 ms por consulta. La primera corrida dio **
 - **`finance.bank_statements.status` es cosmética**: 126 filas, 100 % `imported`, sin un solo `UPDATE` en todo el repo. Quien la lea como *«¿está conciliado el mes?»* va a leer siempre que no. Por eso el estado se deriva de `bank_movements.recon_status`.
 - **Contar CFDIs por mes tarda 9.1 s** — afecta también a `listMeses()`, que es lo que abre la pantalla del Libro de Compras.
 
+#### 4.2.9 SN.17 — el reparto real: Ivonne concilia ingresos, Mayra egresos (2026-09-12)
+
+Edgar: *«ese es para un solo usuario, debemos personalizar según su puesto. ivonne es de ingresos, ella se encarga de conciliar ingresos»*.
+
+##### ⛔ Por PUESTO no se puede, y está medido
+
+```
+mayra_gutierrez  → position_code = 'auxiliar_finanzas'  role = 'finanzas_operativo'
+ivonne_cruz      → position_code = 'auxiliar_finanzas'  role = 'finanzas_operativo'
+```
+
+**El mismo puesto, y son 6 personas en él.** Lo único que `auxiliar_finanzas` declara hoy es `finanzas.hallazgos`. Partir el trabajo por puesto exigiría **partir el puesto** — decisión de organigrama, de Dirección.
+
+Para eso existe `identity.user_responsibilities`: la **excepción por persona**, que `[OR.1b]` creó con `nota` NOT NULL y vigencia justamente para que cueste y quede explicada. Este es su caso canónico: dos personas del mismo puesto con trabajos distintos. ⚠️ **Si mañana hay que hacerlo con las otras 4, la excepción se volvió la norma** y la respuesta correcta pasa a ser partir el puesto. Queda dicho en la migración para que se note.
+
+##### La conciliación de INGRESOS existe, y hubo que comprobarlo
+
+El detalle de un depósito dice que *«el banco lo registra como UN depósito; en Kepler está repartido en N pólizas… se cuadra por total, no 1 a 1»*, así que el ciclo de ingresos podía no ser medible. **Medido: 2,696 filas de `bank_recon_matches` con `amount_in > 0`** y 2,683 movimientos casados. El matcher sí los parea; si no, la tira habría dicho «sin conciliar» para siempre. Estado real: 2026-01 con 2,065 casados de 3,050, 2026-08 con 618, el resto sin correr.
+
+##### La regla que ordena sin autorizar
+
+⛔ **La responsabilidad ORDENA, no gatea** — regla literal de `[OR.1b]`: *«el PERMISO decide si podés ABRIRLO; la RESPONSABILIDAD decide si es TUYO… si también gateara habría un cuarto sistema de autorización»*. Las **24 personas** con `FINANCE_BANK_VER` siguen viendo y abriendo las dos conciliaciones. Lo que cambia:
+
+| | «A tu nombre» | «Por periodo» |
+|---|---|---|
+| Ivonne | Conciliación de **ingresos** | Conciliación de egresos |
+| Mayra | Conciliación de **egresos** | Conciliación de ingresos |
+| Las otras 4 auxiliares | — | las dos |
+
+El resolvedor (`responsabilidadesDe`) une las dos fuentes con precedencia: lo del puesto más las excepciones por persona, donde `accion: 'resta'` quita y `'suma'` agrega, y una excepción **vencida no cuenta** (`valid_to`).
+
+##### Migración
+
+`20260912140000_responsabilidades_conciliacion.js` — **aplicada a prod, batch 405**. Agrega 2 claves al catálogo (`finanzas.conciliacion_ingresos` / `_egresos`) y 2 filas a `user_responsibilities` con la nota que explica por qué van por persona. ⛔ **No toca `position_responsibilities`**: decir que `auxiliar_finanzas` responde de una de las dos sería falso para las 6.
+
+⚠️ Se aplicó **sola**, no con `migrate:latest`: hay migraciones de otras sesiones sin commitear en el directorio, y arrastrar su trabajo a medio hacer a producción es exactamente el accidente que el índice compartido ya provocó una vez en esta fase.
+
+##### Candados y lo que costó
+
+`test-newdb-me-context.js` → **107 OK · 0 FAIL · 1 NO MEDIDO**. El bloque 4c (biyección) tuvo que aprender que las colas viven en **tres** registros —bandejas, tareas y ciclos— y que el catálogo se siembra desde **más de una** migración: leyendo sólo la primera acusaba en falso a las dos claves nuevas. Ahora junta las claves de toda migración que inserte en `identity.responsibilities`. Biyección **10↔10**. `nx test view` 19 suites / **295**.
+
+⚠️ **El bug del backtick, quinta aparición.** Un comentario CSS con `` `[SN.17]` `` dentro del `styles: [\`…\`]` cierra el template literal y `[SN.17]` se evalúa como código: `ReferenceError: SN is not defined`, con la suite entera sin correr. Está en `GOTCHAS` y volvió a pasar.
+
+##### Abierto, ajeno y NO tocado
+
+`landing-guards.spec.ts` falla en `almacen` por **`CATALOGO_INTERNO_VER` y `CATALOGO_INTERNO_COSTOS_VER` → `/almacen/catalogo-interno`, ruta que no existe en `app.routes.ts`**. Viene del commit `2b75ab89` `[CV.25]` de otra sesión: declararon los permisos en el árbol y la pantalla del frontend todavía no está. Es justo lo que ese candado existe para frenar; lo resuelve esa fase, creando la ruta o declarando la deuda.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

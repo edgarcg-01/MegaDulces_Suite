@@ -2132,6 +2132,7 @@ export class UsersService {
      * puede contestar nada.
      */
     const ciclos: MeCiclo[] = [];
+    const misResponsabilidades = await this.responsabilidadesDe(userId);
     for (const c of CICLOS) {
       if (!puedeVerCiclo(c, permisos, esAdmin)) continue;
       try {
@@ -2149,6 +2150,7 @@ export class UsersService {
           pendientes: periodos.filter(
             (p) => p.estado === 'sin_empezar' || p.estado === 'en_proceso',
           ).length,
+          es_mio: !!c.responsabilidad && !!misResponsabilidades?.has(c.responsabilidad),
         });
       } catch (e) {
         const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
@@ -2157,12 +2159,24 @@ export class UsersService {
       }
     }
 
+    /*
+     * `[SN.17]` Lo TUYO primero, y dentro de cada grupo lo que más espera. La responsabilidad no
+     * quita nada de la lista: sólo la ordena. Ivonne ve su conciliación de ingresos arriba y la de
+     * egresos abajo; Mayra al revés; las otras 4 auxiliares ven las dos como compartidas.
+     */
+    ciclos.sort((a, b) => {
+      if (a.es_mio !== b.es_mio) return a.es_mio ? -1 : 1;
+      return b.pendientes - a.pendientes;
+    });
+
     return {
       tareas,
       pendientes,
       ciclos,
       no_medido,
-      tiene_responsabilidades: await this.tieneResponsabilidades(userId),
+      // `null` sólo si la consulta falló; el set vacío es una respuesta legítima ("no responde
+      // de nada declarado"), distinta de "no se pudo preguntar" (ADR-056).
+      tiene_responsabilidades: misResponsabilidades === null ? null : misResponsabilidades.size > 0,
       medido_at: new Date().toISOString(),
     };
   }
@@ -2206,18 +2220,50 @@ export class UsersService {
    * La pantalla usa esto para DECLARAR por qué no puede decir "esto es tuyo", en vez de callarlo.
    * `null` = no se pudo consultar (la migración no llegó a este ambiente), que no es `false`.
    */
-  private async tieneResponsabilidades(userId: string): Promise<boolean | null> {
+  /**
+   * `[SN.17]` **De qué responde esta persona** — la segunda de las tres preguntas.
+   *
+   * Dos fuentes, y la de persona GANA sobre la de puesto:
+   *  · `identity.position_responsibilities` — lo normal, lo que le toca a su puesto.
+   *  · `identity.user_responsibilities` — la excepción, con `accion` `'suma'` o `'resta'` y
+   *    vigencia. Existe porque el puesto no siempre alcanza: medido, `mayra_gutierrez` e
+   *    `ivonne_cruz` son las dos `auxiliar_finanzas` y hacen trabajos distintos (egresos e
+   *    ingresos). Partirlo por puesto exigiría partir el puesto, que es decisión de organigrama.
+   *
+   * ⛔ Esto **no autoriza nada**: ordena la pantalla. El permiso sigue decidiendo quién abre qué.
+   * `null` = **no se pudo consultar** (la migración no llegó a este ambiente), que no es lo mismo
+   * que "no responde de nada". El peor caso es que nada se marque como propio, nunca que alguien
+   * pierda acceso.
+   */
+  private async responsabilidadesDe(userId: string): Promise<Set<string> | null> {
     try {
-      const row = await this.knex('identity.position_responsibilities as pr')
+      const delPuesto = await this.knex('identity.position_responsibilities as pr')
         .join('identity.users as u', function () {
           this.on('u.position_code', '=', 'pr.position_code').andOn('u.tenant_id', '=', 'pr.tenant_id');
         })
         .where('u.id', userId)
         .where('pr.tenant_id', this.tenantId)
         .whereNull('pr.deleted_at')
-        .first(this.knex.raw('1 as hay'));
-      return !!row;
-    } catch {
+        .pluck('pr.responsibility_key');
+
+      // `valid_to` nulo = sigue vigente. Una excepción vencida NO cuenta.
+      const dePersona = await this.knex('identity.user_responsibilities')
+        .where({ tenant_id: this.tenantId, user_id: userId })
+        .whereNull('deleted_at')
+        .whereRaw('valid_from <= CURRENT_DATE')
+        .andWhere((q) => q.whereNull('valid_to').orWhereRaw('valid_to >= CURRENT_DATE'))
+        .select('responsibility_key', 'accion');
+
+      const set = new Set<string>(delPuesto);
+      for (const r of dePersona as { responsibility_key: string; accion: string }[]) {
+        if (r.accion === 'resta') set.delete(r.responsibility_key);
+        else set.add(r.responsibility_key);
+      }
+      return set;
+    } catch (e) {
+      this.logger.warn(
+        `me/work: no se pudieron leer las responsabilidades de ${userId} — ${e instanceof Error ? e.message : e}`,
+      );
       return null;
     }
   }
