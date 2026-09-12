@@ -2197,7 +2197,15 @@ export interface SellOutRow {
   product_id: string;
   sku: string;
   nombre: string;
+  /**
+   * [UXC.1] Piezas por caja del resolvedor CANÓNICO, no de `catalog.products.factor_sale`.
+   * `null` = no se puede afirmar, y `uxc_veredicto` dice por qué — nunca dibujar un 1.
+   */
   uxc: number | null;
+  /** [UXC.1] `consenso` · `difiere_entre_plazas` (488 productos) · `sin_testigo` (2,197). */
+  uxc_veredicto?: 'consenso' | 'difiere_entre_plazas' | 'sin_testigo' | null;
+  /** [UXC.1] Rango observado cuando las plazas discrepan, p.ej. `1–20`. */
+  uxc_rango?: string | null;
   unit_kind?: 'piece' | 'weight';
   cells: Record<string, SellOutCell>;
   total: SellOutCell;

@@ -409,7 +409,25 @@ export interface SellOutRow {
   product_id: string;
   sku: string;
   nombre: string;
+  /**
+   * [UXC.1] Piezas por caja, del resolvedor CANÓNICO
+   * (`analytics.v_product_box_factor_consensus`), **no** de `catalog.products.factor_sale`.
+   *
+   * `null` NO es "no aplica": es "no se puede afirmar", y `uxc_veredicto` dice por qué. Medido
+   * 2026-09-11 en prod, leer `factor_sale` publicaba **1** en 208 productos donde el resolvedor
+   * dice >1 ($4,971,338 de venta / 90 d) — el caso que lo destapó fue `96504 RUFFLES QUESO 27G`,
+   * que publicaba 1 contra **58** confirmado por Kepler `c84`, por `wincaja.factor_venta` y por
+   * lo PAGADO al proveedor.
+   */
   uxc: number | null;
+  /**
+   * [UXC.1] Por qué el `uxc` vale lo que vale. `consenso` = las plazas con testigo concuerdan ·
+   * `difiere_entre_plazas` = hay más de un factor real (488 productos, $19.07M/90 d) → `uxc` va
+   * NULL, nunca una moda (ADR-056) · `sin_testigo` = ninguna plaza lo declara (2,197 productos).
+   */
+  uxc_veredicto?: 'consenso' | 'difiere_entre_plazas' | 'sin_testigo' | null;
+  /** [UXC.1] Con `difiere_entre_plazas`, el rango observado — para que el lector vea la brecha. */
+  uxc_rango?: string | null;
   /** RS.3 — 'weight' → la cantidad está en KG (granel/bulto, NO se divide a cajas);
    *  'piece'/undefined → cantidad en CAJAS (piezas ÷ factor). El frontend etiqueta según esto. */
   unit_kind?: 'piece' | 'weight';
@@ -2928,7 +2946,7 @@ export class CommercialAnalyticsService {
 
     // El canal/fuente ya vienen HORNEADOS en la fuente unificada (`v_sellout_daily`/`mv_sellout_monthly`):
     // vocabulario {mostrador, ruta, credito, preventa} + source {kepler, wincaja}. Ya no se clasifica acá.
-    const { brand, products, raw, retail, boxMethods, identMap, freshness, routePlaza } = await this.tk.run(async (trx) => {
+    const { brand, products, raw, retail, boxMethods, uxcRows, identMap, freshness, routePlaza } = await this.tk.run(async (trx) => {
       // RS.12 — cota dura: el path EN VIVO (v_sales_lines) de un rango grande puede correr
       // minutos y AGOTAR EL POOL (incidente 2026-08-05: 10 escaneos de 5min tumbaron prod).
       // Con SET LOCAL, una query pesada se auto-aborta y LIBERA la conexión en vez de retenerla.
@@ -2997,6 +3015,23 @@ export class CommercialAnalyticsService {
               'metodo_cajas', 'is_weight')
         : [];
 
+      // [UXC.1] La columna UxC que se MUESTRA y se EXPORTA salía de `catalog.products.factor_sale`,
+      // que es otra fuente distinta del resolvedor canónico (ADR-055). Medido en prod: publicaba
+      // **1** en 208 productos donde el resolvedor dice >1 ($4,971,338 de venta / 90 d). El caso
+      // que lo destapó: `96504 RUFFLES QUESO 27G` con UxC 1 contra **58** que confirman Kepler
+      // `c84`, `wincaja.factor_venta` y lo PAGADO al proveedor ($281.35 / $4.85 = 58.01).
+      //
+      // El grano es PRODUCTO porque el renglón de Sell-Out lo es, y la vista trae el veredicto de
+      // consenso entre plazas: cuando los testigos reales no concuerdan devuelve NULL con motivo
+      // en vez de una moda (488 productos, $19.07M / 90 d). ADR-056: lo que no se puede afirmar
+      // se declara. El cálculo de CAJAS no se toca — ése ya sale del dinero desde U.7.
+      const uxcRows = pids.length
+        ? await trx('analytics.v_product_box_factor_consensus')
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [pids])
+            .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max')
+        : [];
+
       // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
       // el pivote (antes escaneaba sales_daily aparte → su universo podía no coincidir con lo mostrado).
       const retailRows = await this.selloutLeaves(trx, { tenantId, from, to }, 's.warehouse_code, s.branch_name',
@@ -3012,7 +3047,7 @@ export class CommercialAnalyticsService {
           if (r.route_warehouse_code && r.parent_warehouse_code) routePlaza.set(r.route_warehouse_code, r.parent_warehouse_code);
         }
       }
-      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, identMap, freshness, routePlaza };
+      return { brand: b, products: ps, raw: rawRows, retail: retailRows.map((r: any) => r.branch_name), boxMethods, uxcRows, identMap, freshness, routePlaza };
     });
     // [U.7] Dos índices sobre la MISMA lectura: por (producto, almacén) — el correcto, porque el
     // divisor es del almacén — y por producto, para las filas cuyo almacén el resolvedor no cubre
@@ -3032,6 +3067,24 @@ export class CommercialAnalyticsService {
     }
     const methodFor = (pid: string, whCode: unknown): BoxMethod | undefined =>
       methodByCell.get(`${pid}|${String(whCode)}`) ?? methodByProduct.get(pid);
+
+    // [UXC.1] El UxC que se publica, con su veredicto. Un producto SIN fila en el resolvedor no
+    // llega como 1: llega como NULL declarado — una ausencia dibujada como 1 es justo lo que
+    // ADR-056 prohíbe, y en esta pantalla se exporta a Excel y se manda afuera.
+    type UxcInfo = { uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null };
+    const uxcByProduct = new Map<string, UxcInfo>();
+    for (const u of (uxcRows ?? []) as any[]) {
+      const min = u.factor_min != null ? Number(u.factor_min) : null;
+      const max = u.factor_max != null ? Number(u.factor_max) : null;
+      uxcByProduct.set(u.product_id, {
+        uxc: u.box_factor_publicable != null ? Number(u.box_factor_publicable) : null,
+        veredicto: u.veredicto ?? null,
+        rango: u.veredicto === 'difiere_entre_plazas' && min != null && max != null
+          ? `${min}–${max}` : null,
+      });
+    }
+    const uxcFor = (pid: string): UxcInfo =>
+      uxcByProduct.get(pid) ?? { uxc: null, veredicto: null, rango: null };
     // Lo que no se pudo convertir se CUENTA, no se dibuja como cero ni se cuela como piezas.
     const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
 
@@ -3102,7 +3155,7 @@ export class CommercialAnalyticsService {
         if (!prow) {
           prow = {
             product_id: r.product_id, sku: r.sku, nombre: r.nombre,
-            uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+            uxc: uxcFor(r.product_id).uxc, uxc_veredicto: uxcFor(r.product_id).veredicto, uxc_rango: uxcFor(r.product_id).rango,
             unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 },
           };
           rowMap.set(r.sku, prow);
@@ -3238,7 +3291,7 @@ export class CommercialAnalyticsService {
               product_id: r.product_id,
               sku: r.sku,
               nombre: r.nombre,
-              uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+              uxc: uxcFor(r.product_id).uxc, uxc_veredicto: uxcFor(r.product_id).veredicto, uxc_rango: uxcFor(r.product_id).rango,
               unit_kind: isWeight ? 'weight' : 'piece',
               cells: {},
               total: { cajas: 0, monto: 0, monto_neto: 0 },
@@ -3266,7 +3319,7 @@ export class CommercialAnalyticsService {
             product_id: p.id,
             sku: p.sku,
             nombre: p.nombre,
-            uxc: p.factor_sale != null ? Number(p.factor_sale) : null,
+            uxc: uxcFor(p.id).uxc, uxc_veredicto: uxcFor(p.id).veredicto, uxc_rango: uxcFor(p.id).rango,
             cells: {},
             total: { cajas: 0, monto: 0, monto_neto: 0 },
           });
@@ -4243,7 +4296,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, identMap, freshness } = await this.tk.run(async (trx) => {
+    const { brand, raw, uxcRows, identMap, freshness } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
@@ -4257,10 +4310,34 @@ export class CommercialAnalyticsService {
       // → se auto-descartan por isNoiseVendor. Shape esperado por el pivote (sale_channel/uv_win/fac_win/qty).
       const raw = await this.fetchSelloutVendorRows(trx, { tenantId, from, to, brandId, search, promoMode });
       const identMap = await this.loadVendorIdentity(trx, tenantId);
+      // [UXC.1] Mismo resolvedor canónico que el pivote principal, mismo motivo: esta columna
+      // salía de `catalog.products.factor_sale` y publicaba 1 donde el ERP y lo pagado al
+      // proveedor dicen >1. Se lee aparte (y no dentro de `fetchSelloutVendorRows`) para no
+      // tocar el fetcher que comparten las dos vistas.
+      const vpids = Array.from(new Set((raw as any[]).map((x) => x.product_id).filter(Boolean)));
+      const uxcRows = vpids.length
+        ? await trx('analytics.v_product_box_factor_consensus')
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [vpids])
+            .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max')
+        : [];
       // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
       const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
-      return { brand: b, raw, identMap, freshness };
+      return { brand: b, raw, uxcRows, identMap, freshness };
     });
+
+    // [UXC.1] Índice por producto. Sin fila en el resolvedor el UxC va NULL declarado, nunca 1.
+    const uxcByProduct = new Map<string, { uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null }>();
+    for (const u of (uxcRows ?? []) as any[]) {
+      const mn = u.factor_min != null ? Number(u.factor_min) : null;
+      const mx = u.factor_max != null ? Number(u.factor_max) : null;
+      uxcByProduct.set(u.product_id, {
+        uxc: u.box_factor_publicable != null ? Number(u.box_factor_publicable) : null,
+        veredicto: u.veredicto ?? null,
+        rango: u.veredicto === 'difiere_entre_plazas' && mn != null && mx != null ? `${mn}–${mx}` : null,
+      });
+    }
+    const uxcFor = (pid: string) => uxcByProduct.get(pid) ?? { uxc: null, veredicto: null as SellOutRow['uxc_veredicto'], rango: null };
 
     const columns = new Map<string, SellOutColumn>();
     const rowMap = new Map<string, SellOutRow>();
@@ -4298,7 +4375,7 @@ export class CommercialAnalyticsService {
         colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
       }
       let row = rowMap.get(r.sku);
-      if (!row) { row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: r.factor_sale != null ? Number(r.factor_sale) : null, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
+      if (!row) { const ui = uxcFor(r.product_id); row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: ui.uxc, uxc_veredicto: ui.veredicto, uxc_rango: ui.rango, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
       const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
       cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto;
       row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto;
@@ -4772,7 +4849,12 @@ export class CommercialAnalyticsService {
         product_id: r.product_id,
         sku: r.sku,
         nombre: r.nombre,
-        uxc: r.factor_sale != null ? Number(r.factor_sale) : null,
+        // [UXC.1] El UxC que se MUESTRA es el MISMO `boxF` con el que ya se calculan `exist_caja`,
+        // `venta_cajas` y `costo_caja`. Antes salía de `factor_sale` crudo: el renglón podía
+        // enseñar UxC 1 mientras la columna de cajas de al lado estaba dividida entre 58
+        // (medido: 208 productos con factor_sale = 1 y resolvedor > 1). Sin factor no va 1: va
+        // NULL, porque una ausencia dibujada como 1 se lee como "se vende por pieza".
+        uxc: boxF > 0 ? boxF : null,
         unit_sale: r.unit_sale ?? null,
         pack_size: r.pack_size != null ? Number(r.pack_size) : null,
         box_size: boxF > 0 ? boxF : null, // etiqueta box_size, o factor_sale de fallback (coherente con Costo x Caja)

@@ -507,7 +507,18 @@ const CHANNEL_SEL_OPTS = [
                       <td class="frz c1 name">{{ row.nombre }}
                         @if (row.unit_kind === 'weight') { <span class="so-kg-tag" title="Producto a granel: la cantidad está en kilos, no en cajas">granel</span> }
                       </td>
-                      <td class="frz c2 n">{{ row.unit_kind === 'weight' ? 'kg' : (row.uxc ?? '—') }}</td>
+                      <!-- [UXC.1] El UxC sale del resolvedor canónico, y cuando no hay número
+                           DICE por qué. Antes salía de catalog.products.factor_sale y publicaba
+                           1 en 208 productos donde el ERP y lo pagado al proveedor dicen más
+                           (96504 RUFFLES QUESO 27G: 1 contra 58). Un guion mudo se lee igual
+                           que "no aplica" — ADR-056. -->
+                      <td class="frz c2 n" [title]="uxcTitulo(row)">
+                        @if (row.unit_kind === 'weight') { kg }
+                        @else if (row.uxc != null) { {{ row.uxc }} }
+                        @else if (row.uxc_veredicto === 'difiere_entre_plazas') {
+                          <span class="so-uxc-warn">≠</span>
+                        } @else { — }
+                      </td>
                     }
                     @for (c of r.columns; track c.key) {
                       @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
@@ -762,6 +773,8 @@ const CHANNEL_SEL_OPTS = [
     .so-kg-tag { display:inline-block; margin-left:.4rem; font-size:.62rem; font-weight:700; text-transform:uppercase;
       letter-spacing:.04em; color:var(--text-muted); border:1px solid var(--border-color); border-radius:var(--r-xs,4px);
       padding:.02rem .28rem; vertical-align:middle; }
+    /* [UXC.1] Las plazas no coinciden en el factor de caja: se marca, no se promedia. */
+    .so-uxc-warn { font-weight:700; color:var(--warning-fg,#b45309); cursor:help; }
     .so-matrix td.mono { font-family:var(--font-mono); font-size:.74rem; }
     .so-matrix td.b { font-weight:700; }
     /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
@@ -1438,6 +1451,23 @@ export class ComercialSellOutComponent {
 
   cell(row: SellOutReport['rows'][number], key: string): SellOutCell | undefined {
     return row.cells[key];
+  }
+
+  /**
+   * [UXC.1] Por qué el UxC dice lo que dice. Un guion sin explicación se lee igual que
+   * "no aplica", y acá la diferencia importa: `≠` es *las plazas no coinciden* (488 productos)
+   * y `—` es *nadie lo declara* (2,197). El número, cuando lo hay, trae su fuente.
+   */
+  uxcTitulo(row: SellOutReport['rows'][number]): string {
+    if (row.unit_kind === 'weight') return 'Producto a granel: la cantidad va en kilos, no en cajas';
+    if (row.uxc != null) return `${row.uxc} piezas por caja — las plazas con testigo coinciden`;
+    if (row.uxc_veredicto === 'difiere_entre_plazas') {
+      return row.uxc_rango
+        ? `Las plazas no coinciden (${row.uxc_rango} piezas por caja). No se publica un número: sería inventar una moda`
+        : 'Las plazas no coinciden en el factor de caja. No se publica un número';
+    }
+    if (row.uxc_veredicto === 'sin_testigo') return 'Ningún almacén declara el factor de caja para este producto';
+    return 'Sin dato de factor de caja';
   }
 
   colTotal(r: SellOutReport, key: string) {

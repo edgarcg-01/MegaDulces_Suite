@@ -7,6 +7,27 @@ import type { PromoResult } from './route-promo.service';
 /** RS — medida elegida en pantalla; decide las subcolumnas del export. */
 export type SellOutMeasure = 'cajas' | 'monto' | 'ambas';
 
+/**
+ * [UXC.1] La celda UxC del reporte, con su motivo cuando no hay número.
+ *
+ * Antes era `prod.uxc ?? ''` sobre un `uxc` que salía de `catalog.products.factor_sale`: publicaba
+ * **1** en 208 productos donde el resolvedor canónico dice >1 ($4,971,338 de venta / 90 d). El caso
+ * que lo destapó — `96504 RUFFLES QUESO 27G` con UxC 1 contra **58** — se exportaba así a Excel y
+ * se mandaba afuera.
+ *
+ * Ahora el número sale de `analytics.v_product_box_factor_consensus` y **una celda vacía deja de
+ * ser ambigua**: dice si las plazas discrepan (y entre qué valores) o si nadie lo declara. Un
+ * blanco mudo se lee igual que "no aplica", que es justo lo que ADR-056 prohíbe.
+ */
+function uxcCelda(p: { uxc: number | null; uxc_veredicto?: string | null; uxc_rango?: string | null }): string | number {
+  if (p.uxc != null) return p.uxc;
+  if (p.uxc_veredicto === 'difiere_entre_plazas') {
+    return p.uxc_rango ? `difiere ${p.uxc_rango}` : 'difiere entre plazas';
+  }
+  if (p.uxc_veredicto === 'sin_testigo') return 'sin dato';
+  return '';
+}
+
 const MONTH_LABEL: Record<string, string> = {
   '01': 'Enero', '02': 'Febrero', '03': 'Marzo', '04': 'Abril', '05': 'Mayo', '06': 'Junio',
   '07': 'Julio', '08': 'Agosto', '09': 'Septiembre', '10': 'Octubre', '11': 'Noviembre', '12': 'Diciembre',
@@ -122,7 +143,7 @@ export class SellOutExportService {
       const row = ws.getRow(rowIdx++);
       row.getCell(1).value = prod.sku;
       row.getCell(2).value = prod.nombre;
-      row.getCell(3).value = prod.uxc ?? '';
+      row.getCell(3).value = uxcCelda(prod);
       cols.forEach((c, i) => {
         const cell = prod.cells[c.key];
         subs.forEach((s, k) => {
@@ -239,7 +260,7 @@ export class SellOutExportService {
       const row = ws.getRow(rowIdx++);
       row.getCell(1).value = prod.sku;
       row.getCell(2).value = prod.nombre;
-      row.getCell(3).value = prod.uxc ?? '';
+      row.getCell(3).value = uxcCelda(prod);
       cols.forEach((c, i) => {
         const cell = prod.cells[c.key];
         subs.forEach((s, k) => {
@@ -734,7 +755,7 @@ export class SellOutExportService {
     const body = report.rows
       .map((p) => {
         const cells = cols.map((c) => pairTds(p.cells[c.key])).join('');
-        return `<tr><td>${esc(p.sku)}</td><td class="d">${esc(p.nombre)}</td><td class="n">${p.uxc ?? ''}</td>${cells}${pairTds(p.total, true)}</tr>`;
+        return `<tr><td>${esc(p.sku)}</td><td class="d">${esc(p.nombre)}</td><td class="n">${esc(String(uxcCelda(p)))}</td>${cells}${pairTds(p.total, true)}</tr>`;
       })
       .join('');
 
