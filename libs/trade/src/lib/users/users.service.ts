@@ -2032,6 +2032,10 @@ export class UsersService {
     const ctx: MedirCtx = { tenantId: this.tenantId, userId, sucursales };
 
     for (const b of BANDEJAS) {
+      // `[SN.18]` Una bandeja retirada no se cuenta ni se pinta. El motivo vive en su definición,
+      // y NO va a `no_medido`: eso es para lo que falló al medirse, no para lo que se apagó a
+      // propósito. Confundirlos haría que la pantalla pidiera atención sobre una decisión tomada.
+      if (b.retirada) continue;
       if (!puedeVerBandeja(b, permisos, esAdmin)) continue;
       try {
         const { total, mas_viejo_at } = await b.medir(this.knex, ctx);
@@ -2133,8 +2137,33 @@ export class UsersService {
      */
     const ciclos: MeCiclo[] = [];
     const misResponsabilidades = await this.responsabilidadesDe(userId);
+
+    /*
+     * `[SN.20]` **Si te delegaron el trabajo, ves el TUYO y nada más.**
+     *
+     * Edgar (2026-09-12): *"Ivonne es SOLO INGRESOS, ella sólo debe ver ingresos en su «Mi
+     * trabajo» y Mayra sólo egresos. Los módulos se quedan igual, sólo delegamos actividades en
+     * «Mi trabajo»"*.
+     *
+     * ⚠️ Acá yo había aplicado mal la regla de `[OR.1b]` («la responsabilidad no gatea»). Esa regla
+     * existe para que la responsabilidad no se convierta en un cuarto sistema de AUTORIZACIÓN — y
+     * no lo es mientras el módulo siga abierto. «Mi trabajo» no es un menú de permisos: es la lista
+     * de lo que te delegaron. Filtrarla no le quita acceso a nadie: Ivonne entra igual a
+     * `/finanzas/bancos` y ve las cuatro conciliaciones; lo que no le aparece es el trabajo de otra
+     * persona en SU lista de pendientes.
+     *
+     * ⛔ El filtro sólo se aplica a quien **tiene** algo delegado. Quien no tiene ninguna
+     * responsabilidad que cubra un ciclo sigue viéndolos todos — si no, las otras 4 auxiliares (y
+     * cualquier puesto sin reparto) se quedarían con la pantalla vacía, que es peor que de más.
+     */
+    const mios = CICLOS.filter(
+      (c) => c.responsabilidad && misResponsabilidades?.has(c.responsabilidad),
+    );
+    const soloLosMios = mios.length > 0;
+
     for (const c of CICLOS) {
       if (!puedeVerCiclo(c, permisos, esAdmin)) continue;
+      if (soloLosMios && !mios.includes(c)) continue;
       try {
         const periodos = (await c.medir(this.knex, ctx)).map((p) => ({
           ...p,

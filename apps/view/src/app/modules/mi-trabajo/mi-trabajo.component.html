@@ -105,11 +105,8 @@
             <span class="mt-titular-n">{{ formatoTotal(totalPendientes()) }}</span>
             <span class="mt-titular-txt">
               <span class="mt-titular-l">pendientes en {{ bandejasConTrabajo() }} bandejas</span>
-              @if (totalMio() > 0) {
-                <span class="mt-titular-d">{{ formatoTotal(totalMio()) }} a tu nombre</span>
-              } @else {
-                <span class="mt-titular-d">ninguno a tu nombre</span>
-              }
+              <!-- [SN.17] Cada cosa en su unidad: los items a tu nombre y los MESES por cerrar. -->
+              <span class="mt-titular-d">{{ resumenMio() }}</span>
             </span>
           </div>
         }

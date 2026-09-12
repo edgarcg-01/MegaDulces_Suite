@@ -103,7 +103,11 @@ export function ultimosMeses(n = MESES_VISIBLES): string[] {
  * `bank_recon_matches` con `amount_in > 0`** y 2,683 movimientos casados. Por eso el ciclo existe;
  * si el matcher no los tocara, esta tira habría dicho "sin conciliar" para siempre.
  */
-function medirBanco(columna: 'amount_in' | 'amount_out', sustantivo: string) {
+function medirBanco(
+  kind: 'bank' | 'cash',
+  columna: 'amount_in' | 'amount_out',
+  sustantivo: string,
+) {
   return async (knex: Knex, { tenantId }: MedirCtx): Promise<MedidaPeriodo[]> => {
     const meses = ultimosMeses();
     /*
@@ -114,7 +118,10 @@ function medirBanco(columna: 'amount_in' | 'amount_out', sustantivo: string) {
      */
     const filas = await knex('finance.bank_movements as bm')
       .join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+      .join('finance.bank_accounts as ba', 'ba.id', 'st.bank_account_id')
       .where('st.tenant_id', tenantId)
+      // `coalesce` porque `kind` admite NULL y las cuentas viejas lo tienen vacío = banco.
+      .whereRaw(`coalesce(ba.kind, 'bank') = ?`, [kind])
       .whereNull('bm.deleted_at')
       .whereIn('st.period', meses)
       .groupBy('st.period')
@@ -149,29 +156,72 @@ function medirBanco(columna: 'amount_in' | 'amount_out', sustantivo: string) {
 }
 
 export const CICLOS: readonly CicloDef[] = [
+  /*
+   * `[SN.19]` Cuatro ciclos, no dos: **dos fuentes × dos lados**.
+   *
+   * Edgar (2026-09-12): *"lo que debería ver Ivonne sería conciliación de bancos y conciliación de
+   * caja, mismo formato pero sólo ingresos. Mismo caso con Mayra"*. O sea que el trabajo se parte
+   * por DÓNDE (banco o caja) y por QUÉ LADO (lo que entra o lo que sale); la responsabilidad de
+   * cada quien decide el lado, y cada una sigue las dos fuentes.
+   *
+   * Las fuentes son cuentas de `finance.bank_accounts` distinguidas por `kind`, medido en prod:
+   *   · `bank`  — 18 cuentas · 27,092 movimientos
+   *   · `cash`  —  1 cuenta («CAJA / CG») · 8,843 movimientos, y **sí se concilian** (1,060 casados)
+   *   · `factoraje` — 1 cuenta · 196 movimientos ⛔ **queda fuera**: 0 ingresos y 1 solo casado, y
+   *     tiene su propia pestaña. Meterlo dentro de "bancos" ensuciaría un conteo por 196 filas que
+   *     nadie concilia ahí.
+   *
+   * ⚠️ **El clic aterriza en el MES, no en la cuenta.** El shell de `/finanzas/bancos` sólo guarda
+   * `view` y `period` en la URL (`writeUrl`), así que no hay forma de pre-filtrar a CAJA sin tocar
+   * esa pantalla — y eso es de la Fase CB. Por eso la fila dice de qué fuente habla: la persona
+   * llega al cuadre del mes correcto y ahí busca su cuenta. Queda declarado como lo que falta para
+   * que el clic sea exacto.
+   */
   {
-    id: 'conciliacion-ingresos',
-    label: 'Conciliación de ingresos',
-    detalle: 'los depósitos del mes, contra las pólizas de cobranza de Kepler',
-    icono: 'pi pi-arrow-down-left',
+    id: 'conciliacion-bancos-ingresos',
+    label: 'Conciliación de bancos · ingresos',
+    detalle: 'lo que ENTRÓ al banco, contra las pólizas de cobranza de Kepler',
+    icono: 'pi pi-building-columns',
     ruta: '/finanzas/bancos',
     // Verificado: la pantalla lee `?view=&period=` de la URL y valida el periodo contra los que
     // existen (`finanzas-bancos.component.ts` §Ing.UI 9). Aterriza en el mes sin tocar esa pantalla.
     queryDe: (periodo) => ({ view: 'cuadre', period: periodo }),
     anyOf: [Permission.FINANCE_BANK_VER],
     responsabilidad: 'finanzas.conciliacion_ingresos',
-    medir: medirBanco('amount_in', 'depósitos'),
+    medir: medirBanco('bank', 'amount_in', 'depósitos'),
   },
   {
-    id: 'conciliacion-egresos',
-    label: 'Conciliación de egresos',
-    detalle: 'los retiros del mes, contra las pólizas del 102 de Kepler',
-    icono: 'pi pi-arrow-up-right',
+    id: 'conciliacion-caja-ingresos',
+    label: 'Conciliación de caja · ingresos',
+    detalle: 'lo que ENTRÓ a la caja general, contra Kepler',
+    icono: 'pi pi-wallet',
+    ruta: '/finanzas/bancos',
+    queryDe: (periodo) => ({ view: 'cuadre', period: periodo }),
+    anyOf: [Permission.FINANCE_BANK_VER],
+    responsabilidad: 'finanzas.conciliacion_ingresos',
+    medir: medirBanco('cash', 'amount_in', 'entradas'),
+  },
+  {
+    id: 'conciliacion-bancos-egresos',
+    label: 'Conciliación de bancos · egresos',
+    detalle: 'lo que SALIÓ del banco, contra las pólizas del 102 de Kepler',
+    icono: 'pi pi-building-columns',
     ruta: '/finanzas/bancos',
     queryDe: (periodo) => ({ view: 'cuadre', period: periodo }),
     anyOf: [Permission.FINANCE_BANK_VER],
     responsabilidad: 'finanzas.conciliacion_egresos',
-    medir: medirBanco('amount_out', 'egresos'),
+    medir: medirBanco('bank', 'amount_out', 'retiros'),
+  },
+  {
+    id: 'conciliacion-caja-egresos',
+    label: 'Conciliación de caja · egresos',
+    detalle: 'lo que SALIÓ de la caja general, contra Kepler',
+    icono: 'pi pi-wallet',
+    ruta: '/finanzas/bancos',
+    queryDe: (periodo) => ({ view: 'cuadre', period: periodo }),
+    anyOf: [Permission.FINANCE_BANK_VER],
+    responsabilidad: 'finanzas.conciliacion_egresos',
+    medir: medirBanco('cash', 'amount_out', 'salidas'),
   },
   {
     id: 'libro-de-compras',
