@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Fixed — de una transacción abortada no se sale con un `try/catch` (SN.22, 2026-09-12)
+
+Edgar abrió «Mi trabajo» con la cuenta de Mayra y **las nueve mediciones** decían *«esa bandeja no respondió»*. Reproducido: hay **un** error real y **ocho de arrastre**.
+
+- ⭐ **La promesa central de `me-work.ts` era falsa.** `KNEX_CONNECTION` es un proxy que enruta al trx de la request (todo request con token abre uno), y en Postgres **una sentencia fallida aborta la transacción**: todo lo que siga responde `25P02`. **Atrapar la excepción en JS no des-aborta nada**, así que cada `catch` por cola declaraba «esta no respondió» como si las demás siguieran siendo confiables. **Un `catch` por ítem no aísla nada; lo que aísla es el SAVEPOINT.**
+- **El error real:** `identity.position_responsibilities` **no existe en `platform_test`** —la base a la que apunta la API de desarrollo— porque las migraciones de `[OR.1b]` y la `20260912140000` se aplicaron sólo a prod. Un `42P01` que `responsabilidadesDe` atrapaba y convertía en `null` «limpiamente».
+- ⚠️ **Y era una regresión de `[SN.21]`**: mover `responsabilidadesDe()` al inicio de `workFor` convirtió un fallo que antes sólo mataba los ciclos en uno que mata todo. Medido en el smoke: la respuesta pasó de **4 bandejas con conteo a CERO**, para **todos** los usuarios.
+- **El arreglo** es el savepoint que este repo ya usa por el mismo motivo (`catalogs.service.ts:849`): helper `aislado()` en las 3 familias de medición y las 2 lecturas frágiles, con el **`catch` siempre por fuera** — si se atrapa adentro, el error no escapa, el savepoint se libera como si todo hubiera ido bien y el aislamiento queda de adorno. Verificado contra la misma base: de *1 falla + 8 arrastres* a **1 falla aislada y el resto respondiendo**.
+- ⚠️ **El smoke se ponía VERDE con la respuesta vacía** — menos aserciones, ninguna roja: **125 → 104 checks y nadie se enteró**. Ahora imprime el motivo de cada `no_medido` y **falla si dos o más traen `25P02`**. Bloque 4f estático con prueba negativa ejercida. Es la 3ª recurrencia del mismo patrón: `docs/GOTCHAS.md` §2.
+- 📋 **Pendiente:** `platform_test` no tiene las tablas de `[OR.1b]` ni la `20260912140000`, así que **`[SN.17]`–`[SN.21]` no se pueden ver en desarrollo** aunque funcionen en prod.
+
 ### Changed — el filtro que no puede vaciar la pantalla, y la puerta que ya no te saca (SN.21, 2026-09-12)
 
 Las dos cosas que `[SN.20]` dejó abiertas. Las dos se **midieron contra prod antes de escribirlas** (`database/scripts/sn-delegacion-impacto.js`, read-only) y **la medición cambió el diseño de la primera**.

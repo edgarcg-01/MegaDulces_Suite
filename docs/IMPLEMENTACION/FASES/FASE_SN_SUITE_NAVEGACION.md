@@ -504,6 +504,46 @@ El script de impacto **verifica el invariante contra el dato real** (nadie pasa 
 
 **Tres supervisores de ventas (`angel_vazquez`, `francisco_martinez`, `jose_herrera`) responden de `comercial.thot` y no tienen `COMMERCIAL_THOT_GESTIONAR`**: su bandeja no les aparece hoy ni les aparecería con el filtro. Es el desajuste entre quién reparte y quién puede abrir —el mismo que `[SN.15]` ya declara para las tareas— y se reporta medido, no se arregla acá: darles el permiso es una decisión de Edgar.
 
+#### 4.2.12 SN.22 — de una transacción abortada no se sale con un `try/catch` (2026-09-12)
+
+Edgar abrió «Mi trabajo» con la cuenta de Mayra y las **nueve** mediciones decían *«esa bandeja no respondió»*. Reproducido contra la misma base: hay **un** error real y **ocho de arrastre**.
+
+##### Qué pasaba
+
+`KNEX_CONNECTION` es un **proxy**: si hay transacción de request en el ALS —y la hay en todo request con token ([`tenant-context.interceptor.ts`](libs/platform-core/src/lib/tenant/tenant-context.interceptor.ts)— **cada consulta corre dentro de ella**. En Postgres una sentencia fallida **aborta** la transacción y todo lo que siga responde `25P02`. **Atrapar la excepción en JS no des-aborta nada.**
+
+Eso hacía **falsa la promesa central de `me-work.ts`**: cada `medir()` tiene su `catch` y declara «esta cola no respondió» *como si las demás siguieran siendo confiables*. Reproducción, dentro de una sola transacción contra `platform_test`:
+
+```
+OK    ScopeService: identity.users
+OK    ScopeService: identity.user_scopes
+FALLA responsabilidadesDe → [42P01] no existe «identity.position_responsibilities»
+FALLA bandeja maat-acciones → [25P02] transacción abortada
+FALLA tarea finance.recon_tasks → [25P02] transacción abortada
+FALLA ciclo finance.bank_movements → [25P02] transacción abortada
+```
+
+El error real: las tablas de `[OR.1b]` y la migración `20260912140000` **se aplicaron sólo a prod**, y la API de desarrollo apunta a **`platform_test`**.
+
+⚠️ **Y era una regresión de `[SN.21]`**: mover `responsabilidadesDe()` al inicio de `workFor` —para poder calcular la delegación antes de los bucles— convirtió un fallo que antes sólo mataba los ciclos en uno que mata todo. Medido en el smoke: la respuesta pasó de **4 bandejas con conteo a cero**, para **todos** los usuarios, no sólo para Mayra.
+
+##### El arreglo
+
+El savepoint que este repo **ya usa por el mismo motivo** ([`catalogs.service.ts:849`](libs/trade/src/lib/catalogs/catalogs.service.ts#L849)): helper `aislado()` que corre cada medición en un `SAVEPOINT` sobre el trx de la request. Si falla, se deshace hasta ahí y la transacción sigue usable. Aplicado a las **3 familias de medición** (bandejas, tareas, ciclos) y a las **2 lecturas frágiles** (alcance y responsabilidades).
+
+⛔ **El `catch` va SIEMPRE por fuera.** Si se atrapa adentro, el error no escapa, el savepoint se libera como si todo hubiera ido bien, y el aislamiento queda de adorno.
+
+Verificado contra la misma base donde fallaba: la cascada pasa de *1 falla + 8 arrastres* a **1 falla aislada y el resto respondiendo** (`maat-acciones` 94). Con esto `no_medido` dice la verdad por primera vez.
+
+##### Candados
+
+- **4f, estático:** el helper usa savepoint sobre el trx (no una conexión nueva), no abre nada cuando no hay trx, las 5 llamadas siguen envueltas, y el `catch` está por fuera. **Prueba negativa ejercida**: quitar un envoltorio lo pone rojo.
+- **5, en vivo:** se **imprime el motivo** de cada `no_medido` y **falla si dos o más traen `25P02`**. Sin eso, el smoke se ponía **verde** con la respuesta vacía —menos aserciones, ninguna roja— que es el «verde sin medir» que ADR-056 prohíbe: la cuenta había caído de **125 a 104 checks** y nadie se enteró.
+
+##### Lo que sigue pendiente, y no se toca desde acá
+
+**`platform_test` no tiene las tablas de `[OR.1b]` ni la `20260912140000`.** Hasta aplicarlas, en desarrollo `tiene_responsabilidades` y `delegacion` llegan `null` (declarado y correcto) y nada se marca como propio — o sea que **`[SN.17]`–`[SN.21]` no se pueden ver en dev**, aunque funcionen en prod.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.
