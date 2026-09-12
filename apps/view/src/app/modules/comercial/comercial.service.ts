@@ -2220,6 +2220,13 @@ export interface SellOutReport {
    * dice cuándo respondió el servidor — sobre matviews de hace seis días responde igual de rápido.
    */
   freshness: Freshness;
+  /**
+   * [U.7] Venta cuya cantidad NO se pudo expresar en cajas (fila sin método de conversión en
+   * `analytics.v_unit_truth`): el `monto` SÍ cuenta en el total, pero las `cajas` de esas filas van
+   * en 0. Se DECLARA (ADR-056/057), no se dibuja como cero mudo. Opcional: un backend previo a U.7
+   * responde sin el campo. `monto > 0` → la columna Cajas está incompleta por ese monto.
+   */
+  sin_metodo?: { skus: number; unidades: number; monto: number };
   generated_at: string;
 }
 
