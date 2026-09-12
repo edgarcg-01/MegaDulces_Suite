@@ -17,7 +17,7 @@
 | | `md` — **el servidor** | `.249` — **la máquina de escritorio** |
 |---|---|---|
 | Qué es | `192.168.0.222` · Ubuntu Server 26.04.1 · Ryzen 5 4600G 6c/12h · 14 GiB · NVMe 1 TB | `SISTEMAS` · Windows 11 · Ryzen 5 3400G · 30 GB |
-| Qué corre | **La ingesta completa**: la fuente + los 13 carriles | Sólo lo que **no puede** correr en Linux, y el respaldo |
+| Qué corre | **La ingesta completa**: la fuente + los 14 carriles | Sólo lo que **no puede** correr en Linux, y el respaldo |
 | Cómo arranca | `systemd` → Docker → `restart: unless-stopped`. **Sin sesión, sin nadie.** | Docker Desktop y 5 de 6 tareas **exigen sesión iniciada** |
 | Verificado | ⭐ **Reinicio real el 2026-09-11**: los 8 contenedores volvieron solos en **39 s**, Postgres sin recuperación de caída, las 8 suscripciones al instante | — |
 
@@ -38,7 +38,7 @@ en `~/ops/vl/`). Los secretos en `~/secrets/{feeds,ingest}.env`, permisos `600`,
 | `ods-live-hot` | Carril caliente réplica → `kepler_ods` de prod (venta, movimientos, catálogos) | @15 s | `ods_live_hot` |
 | `ods-live-mirror` | Espejo completo de lo que el hot no cubre | @300 s | `ods_live_mirror` |
 | `ods-reconcile` | **La única alarma de COMPLETITUD**: compara llaves y repone el delta | @900 s | `cdc_reconcile` |
-| `feeds-cron` | Los **12 carriles agendados** (§2.2) | ver abajo | uno por carril |
+| `feeds-cron` | Los **14 carriles agendados** (§2.2) | ver abajo | uno por carril |
 | `feeds-livefast` | Venta del día + cajas abiertas. Sub-minuto, por eso **no** va en cron | @60 s | `feed_livefast` |
 | `store-poller` | Tickets en vivo → `/tienda/live` | @25 s | `store_poller` |
 | `ods-autoheal` | **El brazo**: reinicia lo que se declare `unhealthy` | @30 s | — |
@@ -49,16 +49,27 @@ La agenda vive **versionada en el repo**: [`ops/vl/crontab.feeds`](vl/crontab.fe
 revisa en un diff, que es justo lo que el Programador de Windows no permitía.
 
 ```
-* * * * *     receipts · contpaqi · fleet-gps
-*/2 * * * *   refresh-consolidado
-*/5 * * * *   watchdog
-*/15 * * * *  stock
-*/30 * * * *  live · prices
-0 * * * *     intraday
-0 */2 * * *   contpaqi-slow
-0 3 * * *     nightly
-0 2 * * 6     catalog          (sábado 02:00)
+* * * * *          receipts · contpaqi · fleet-gps
+*/2 * * * *        refresh-consolidado
+*/5 * * * *        watchdog
+3-58/5 * * * *     contpaqi-cfdis        (incremental del ADD)
+5,20,35,50 * * * * stock
+*/30 * * * *       live
+2,32 * * * *       prices
+15 * * * *         intraday
+25 */2 * * *       contpaqi-slow
+0 3 * * *          nightly
+45 5 * * *         contpaqi-cfdis-full   (reconciliador, ~167k CFDIs)
+0 2 * * 6          catalog               (sábado 02:00)
 ```
+
+⛔ **Esas fases no son decorativas y este README las tuvo MAL hasta el 2026-09-12** — decía
+`*/15 stock`, `*/30 live · prices`, `0 * * * * intraday`, `0 */2 contpaqi-slow`, que es la versión
+**colapsada** que provocó el incidente de VL.4: los cuatro carriles más pesados cayendo en el mismo
+minuto contra un Postgres IO-limitado, con el ship del ODS muriendo por `statement timeout`. El
+escalonamiento original era accidental (cada tarea de Windows repetía desde la hora en que alguien
+la creó) pero el sistema dependía de él. Si vas a tocar una cadencia, la fuente es
+[`ops/vl/crontab.feeds`](vl/crontab.feeds), **no esta tabla**.
 
 Todos pasan por **[`ops/vl/run-feed.sh`](vl/run-feed.sh)**, que hace dos cosas que `crond` no:
 carga el entorno desde el archivo (busybox `crond` **no hereda** el entorno del contenedor) y
@@ -70,10 +81,26 @@ serializa con `flock` (no existe el `IgnoreNew` del Programador, y los de 1 minu
 
 | Tarea | Por qué no se mudó | Cuándo |
 |---|---|---|
-| `WincajaLive` · `WincajaSyncActual` · `WincajaSyncConcentrada` | ⛔ **El único bloqueo real de "todo en Linux"**: leen `.mdb` con **Jet 4.0 de 32 bits** sobre `Z:` (`\\192.168.0.245\D`). `Z:` es una unidad **mapeada por sesión**, así que la tarea **no puede** correr sin sesión iniciada — y un token `S4U` tampoco lleva credenciales de red | **VL.5**, decisión pendiente |
+| `WincajaLive` · `WincajaSyncActual` · `WincajaSyncConcentrada` | ⛔ **El único bloqueo real de "todo en Linux"**: leen `.mdb` con **Jet 4.0 de 32 bits** sobre `Z:` (`\\192.168.0.245\D`). `Z:` es una unidad **mapeada por sesión**, así que la tarea **no puede** correr sin sesión iniciada — y un token `S4U` tampoco lleva credenciales de red | ⭐ **VL.5 se CANCELA**: Sistemas informó el 2026-09-12 que **Wincaja deja de existir en ~1 semana**. No se porta nada a Linux — sería infraestructura para un sistema con siete días de vida |
 | `\Kepler\FeedGuardian` | Su único vigilado vivo es `WincajaLive`; se retira cuando cierre VL.5 | VL.5 → VL.6 |
 | `TradeMarketing-DailyBackup` | `pg_dump` de prod. Es `S4U`: **sí sobrevive al reinicio**. Late en `backup_prod` | **VL.6.3** |
-| `PM2 Resurrect ODS` | Residuo: PM2 salió del proyecto | VL.7 |
+| `PM2 Resurrect ODS` | ⛔ **NO es residuo todavía**: es lo que revive los carriles de PM2 de abajo tras un reinicio. Apagarlo antes de que Wincaja se vaya los mata en el próximo boot | VL.7, **después** de Wincaja |
+
+### 3.1 PM2 en `.249` — que este README omitía
+
+Medido el **2026-09-12**. Existe un segundo sustrato en `.249` además del Programador, y no estaba
+documentado: si sólo mirás `Get-ScheduledTask` concluís que la máquina ya no hace nada, y es falso.
+
+| App PM2 | Qué hace | Estado |
+|---|---|---|
+| `wincaja-inc` · `wincaja-hash` | Réplica cruda Access → `:5433/wincaja` | siguen acá — Wincaja se retira |
+| `wincaja-live-tickets` | Tickets w30/w32/w00 → `/tienda/live` | ídem |
+| `contpaqi-cfdis-inc` · `contpaqi-cfdis-full` | CFDIs del ADD → `fiscal.cfdis` | ✅ **mudados a `md` el 2026-09-12** (VL.7.1). Quedaron en `pm2 stop`, no borrados — rollback con `pm2 start` |
+
+⚠️ **`contpaqi_add_cfdis_full` va a seguir diciendo `host = SISTEMAS` hasta mañana 05:45**, que es
+su primera pasada en `md`. Es lo mismo que pasó con `feed_nightly` tras VL.4: hasta la primera
+corrida, el renglón conserva el host viejo. Si el **jueves** sigue diciendo `SISTEMAS`, **ahí sí**
+es un problema.
 
 ⚠️ **Las 11 tareas que sí se mudaron quedaron DESHABILITADAS, no borradas** — son el rollback.
 No las vuelvas a habilitar sin apagar antes su contenedor: **un carril = UN dueño**, y dos
