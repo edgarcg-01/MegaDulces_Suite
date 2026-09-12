@@ -308,6 +308,48 @@ const tieneDecoradorPermisos = (tramo) =>
   check('lo que el filtro esconde se DECLARA en la respuesta (ocultas), no desaparece en silencio',
     /ocultasPorDelegacion\+\+/.test(srcSvc) && /ocultas: ocultasPorDelegacion/.test(srcSvc));
 
+  /*
+   * ── 4f. `[SN.22]` Ninguna medición puede envenenar a las demás ───────────────────────────────
+   *
+   * `KNEX_CONNECTION` es un proxy que enruta al trx de la request, y en Postgres una sentencia
+   * fallida ABORTA la transacción: todo lo que siga responde `25P02`. **De eso no se sale con un
+   * `try/catch`.** Por eso cada `catch` de `workFor` mentía: declaraba «esta bandeja no respondió»
+   * como si las demás siguieran siendo confiables.
+   *
+   * Medido en vivo el 2026-09-12 contra `platform_test` (que no tiene las tablas de `[OR.1b]`):
+   * un `42P01` real dejó las NUEVE mediciones de Mayra en «Sin medir», ocho de ellas por arrastre.
+   * Con savepoint, la misma cascada da 1 falla aislada y 3 conteos correctos — reproducido.
+   *
+   * Este bloque vigila que el aislamiento siga puesto en los cinco lugares que lo necesitan.
+   */
+  console.log('\n── 4f. Cada medición de me/work corre aislada (savepoint) ──');
+  check('el helper `aislado` usa un SAVEPOINT sobre el trx de la request, no una conexión nueva',
+    /private aislado<T>/.test(srcSvc) && /store\.tx\.transaction\(\(sp\) =>/.test(srcSvc) &&
+      /legacyTxStorage\.run\(\{ tx: sp/.test(srcSvc));
+  check('sin trx de request el helper NO abre nada (los scripts y los tests no pagan el savepoint)',
+    /if \(!store\?\.tx\) return fn\(\);/.test(srcSvc));
+
+  /*
+   * ⛔ La prueba NEGATIVA: se quitó `this.aislado(...)` de la bandeja y este bloque se puso rojo.
+   * Es la forma en que volvería a romperse — alguien «simplificando» el envoltorio.
+   */
+  const envueltos = [
+    ['la bandeja', /await this\.aislado\(\(\) => b\.medir\(this\.knex, ctx\)\)/],
+    ['la tarea', /await this\.aislado\(\(\) => f\.medir\(this\.knex, this\.tenantId, userId\)\)/],
+    ['el ciclo', /await this\.aislado\(\(\) => c\.medir\(this\.knex, ctx\)\)/],
+    ['el alcance por sucursal', /await this\.aislado\(\(\) => this\.scopeService!\.forUser\(/],
+    ['las responsabilidades', /await this\.aislado\(async \(\) => \(\{/],
+  ];
+  for (const [que, re] of envueltos) {
+    check(`${que} se mide DENTRO de un savepoint`, re.test(srcSvc));
+  }
+  /*
+   * Y el `catch` va por FUERA: si se atrapa adentro, el error no escapa, el savepoint se libera
+   * como si todo hubiera ido bien y el aislamiento queda de adorno.
+   */
+  check('el catch de las responsabilidades NO está dentro del savepoint',
+    srcSvc.indexOf('try {\n      /*\n       * `[SN.22]`') < srcSvc.indexOf('await this.aislado(async () => ({'));
+
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');
   let login;
@@ -349,6 +391,31 @@ const tieneDecoradorPermisos = (tramo) =>
   const wb = w.body || {};
   check('pendientes es arreglo', Array.isArray(wb.pendientes));
   check('no_medido es arreglo DECLARADO (nunca ausente)', Array.isArray(wb.no_medido));
+
+  /*
+   * `[SN.22]` — **Una falla por ARRASTRE no es una medición fallida: es la pantalla entera rota.**
+   *
+   * `KNEX_CONNECTION` enruta al trx de la request; en Postgres una sentencia fallida aborta la
+   * transacción y todo lo que sigue responde `25P02`. Sin este bloque el smoke se ponía VERDE con
+   * la respuesta vacía —menos aserciones, ninguna roja— que es el «verde sin medir» que ADR-056
+   * prohíbe: medido el 2026-09-12, la cuenta cayó de 125 a 104 checks y nadie se enteró.
+   *
+   * Se imprime el motivo de cada una: sin eso, nueve fallas se leen como nueve problemas
+   * independientes cuando en realidad hay UNO real y ocho de arrastre.
+   */
+  for (const nm of wb.no_medido ?? []) console.log(`  ⓘ no_medido: ${nm.id} — ${nm.motivo}`);
+  const arrastre = (wb.no_medido ?? []).filter((nm) => /25P02|abortad|aborted/i.test(nm.motivo ?? ''));
+  check(
+    'ninguna medición falló por ARRASTRE de otra (25P02 = la trx de la request quedó abortada)',
+    arrastre.length === 0,
+    arrastre.length
+      ? {
+          arrastradas: arrastre.map((a) => a.id),
+          remedio: 'el aislamiento por savepoint de [SN.22] no está en el proceso vivo — reiniciar la API',
+        }
+      : undefined,
+  );
+
   check('medido_at es ISO (el número es de ahora, no de un rollup)',
     typeof wb.medido_at === 'string' && !Number.isNaN(Date.parse(wb.medido_at)));
   /*
