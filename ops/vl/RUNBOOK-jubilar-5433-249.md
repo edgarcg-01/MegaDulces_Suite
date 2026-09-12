@@ -74,17 +74,49 @@ Verificado después: `.249` con las 8 en `slot = (ninguno)`, y `md` con las 8 ac
 
 ---
 
+## ✅ Paso 1 — YA HECHO (2026-09-12): `wincaja` se mudó a `md`
+
+Era el 80 % de la base y lo único vivo. **No hubo que esperar a que Wincaja muriera: se movió la
+base y listo.** `pg_dump -Fc -Z1` tirado **desde `md` por TCP** (25 MB/s, comprime 5:1, 6.45 GB en
+~35 min) + `pg_restore -j 4`. ⚠️ Los bytes **no** salen por `docker exec` en `.249`: ahí son 5 MB/s
+contra 25 por la red — la frontera Windows↔WSL es el cuello, igual que en VL.2b.
+
+**Cuadrado contra el origen, no contra el código de salida:**
+
+| | `.249` | `md` |
+|---|---|---|
+| tablas | 2,316 | **2,316** (misma estructura, mismas columnas) |
+| filas | 147,449,607 | **147,449,607** — **cero** tablas con conteo distinto |
+| sumas de control de dinero | 264 | **264, sin una diferencia** (`ValorVenta`/`Precio`/`ValorCosto`/`Importe`) |
+| watermark del CDC | 11 filas | **11 filas, mismo timestamp** |
+
+⛔ **Los tres carriles NO se mudaron de máquina** — leen los `.mdb` con Jet de 32 bits sobre `Z:`.
+Lo que cambió es su **destino**: `WINCAJA_REPLICA_URL` → `192.168.0.222:5433`, y el ecosystem ahora
+**falla al arrancar** si falta esa variable (los scripts traen `localhost:5433` como default, así
+que sin el candado escribirían felices al Postgres jubilado con `pm2 ls` en verde).
+
+**Medido después del corte:** md con 2 conexiones desde `192.168.0.249` · `.249` con **cero** ·
+`/tienda/live` **sin interrupción** (MD-30 con tickets a las 13:02, 13:03 y 13:04, justo durante el
+cambio) · las 8 sucursales frescas.
+
+⚠️ Y dos lecciones del corte: el latido se rompió un minuto por el banner de `dotenv` pegado a la
+URL (GOTCHAS §47), y la prueba obvia —"que avance el watermark en `md`"— **no puede pasar**:
+`setWatermark` sólo se llama `if (rows.length)`, y las fuentes Access no tenían filas nuevas. La
+prueba buena fue `pg_stat_activity` en los dos lados.
+
 ## Precondiciones que faltan
 
-1. ⛔ **Wincaja fuera.** Es el 80 % de la base y lo único vivo. Sistemas informó el 2026-09-12 que
-   **deja de existir en ~1 semana**. Hasta entonces, `.249:5433` no se apaga.
-   → Y con eso **VL.5 queda CANCELADA**: no se porta Jet 32-bit a Linux para un sistema con siete
-   días de vida.
-2. **Decidir qué pasa con la historia de Wincaja.** Los 40 GB son la única copia de esa era. El
-   sell-out tiene un corte explícito *Kepler ≥ / Wincaja <*: esa serie **no se reconstruye desde
-   Kepler**, porque esas sucursales nunca estuvieron ahí. Si el volumen se borra con la máquina,
-   se pierde. Hay que congelarla a propósito **antes** del corte.
-3. **El respaldo en `md`** (VL.6.3). Es precondición del apagón, no un pendiente.
+1. ✅ ~~Wincaja fuera~~ — **resuelto arriba**. Y con eso **VL.5 queda CANCELADA**: no se porta Jet
+   32-bit a Linux para un sistema al que Sistemas le da ~1 semana de vida (2026-09-12).
+2. **El respaldo en `md`** (VL.6.3). Es precondición del apagón, no un pendiente.
+3. **Dejar correr unos días antes de soltar el volumen.** El dato está probado idéntico, así que el
+   riesgo es bajo — pero la vuelta atrás cuesta **una variable de entorno** mientras la base vieja
+   siga en pie, y cuesta una restauración en cuanto se borre. Ese margen es gratis; no lo regales.
+
+### Estado medido el 2026-09-12, después de la mudanza
+
+**Delta de 120 s sobre las 11 bases de `.249:5433`: CERO transacciones en todas.** Ya no le queda
+un solo consumidor — ni `wincaja`, ni las 8 réplicas congeladas, ni `kepler_consolidado`.
 
 ---
 
