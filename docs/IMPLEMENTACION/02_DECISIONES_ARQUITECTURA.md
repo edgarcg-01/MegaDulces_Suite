@@ -1860,3 +1860,56 @@ En el otro frente, `requireEditableForLines` acepta `draft` y `pending_approval`
 **Abierto y declarado:** `supervisor_ventas` no es rol de plataforma, así que hoy no puede corregir los pedidos de su gente (3 de los 14 pendientes vivos son suyos); `/vendor/pending` lista por cartera del día, no por autoría, así que el botón puede aparecer sobre un pedido ajeno y el backend responde con el motivo; sin conexión no se corrige.
 
 Plan y medición en [`FASE_VT`](FASES/FASE_VT_CAPTURA_PEDIDO_VENDEDOR.md).
+
+---
+
+## ADR-063
+
+**La unidad de Kepler no se ARBITRA: se REPRODUCE. Su propia fórmula (`c9 = c56 × c58`) declara la medida, y esa medida es una ESCALERA de unidades, no un escalar.** (Fase VK — aceptado 2026-09-12)
+
+**Contexto medido.** Edgar señaló una celda de Sell-Out: `96504 RUFFLES QUESO 27G` con **UxC 1** cuando son **58**. Al resolverlo se descubrió que el resolvedor canónico ya decía 58 y el 1 salía de `catalog.products.factor_sale` (corregido en VA.3). Pero la pregunta de fondo quedó abierta: *¿por qué hacían falta cuatro fuentes y un árbitro para un número que el ERP conoce?* Edgar lo nombró: *"el punto no es ir conciliando o parchando, es copiar su fórmula para encontrar la medida que ellos hacen"*.
+
+Todo el andamiaje previo (ADR-055/057/059, `v_product_box_factor`, `v_unit_truth`) **arbitra**: ordena testigos —`kdii.c84`, la etiquetera, el override manual, lo pagado al proveedor— y elige. Responde *"¿cuál de mis fuentes miente menos?"*. Kepler no necesita eso: **declara su conversión en cada renglón y calcula con ella.** Medido sobre `U-D` 8/10/12, capturados en su propia sucursal:
+
+```text
+              renglones completos    c9 = c56 x c58        %
+  U-D-10           694,769             694,693         99.9891
+  U-D-8             17,039              17,033         99.9648
+  U-D-12             8,237               8,233         99.9514
+```
+
+⭐ **Se cumple al 99.99% incluido `U-D-8`**, el doctype que ADR-059 declaró "no arbitrable" porque `c62` está vacío. **La unidad nunca dependió de `c62`**: se buscaba un testigo EXTERNO que confirmara el factor, y el factor no hay que confirmarlo — Kepler calcula con él. El hueco de `U-D-8` era de **costo**, no de unidad.
+
+Y `c58` no es "el factor de caja": convierte la unidad **vendida** (`c55`) a la **base** (`c11`) de ese renglón.
+
+```text
+  c58 = 1    661,960 renglones (91.9%)   <- vendido en la unidad base
+  c58 > 1     58,134 renglones ( 8.1%)
+
+  vendida=PAQ base=PZA  35,425 rengl   factor medio 11.00
+  vendida=CJA base=PAQ  10,759 rengl   factor medio 16.32
+  vendida=CJA base=PZA   6,933 rengl   factor medio 35.57
+  vendida=BTO base=KG    2,083 rengl   factor medio 20.72
+```
+
+**Decisión.**
+
+1. **La medida de Kepler se materializa tal cual: `analytics.mv_kepler_unit_ladder`** (mig `20260912020000`, prod batch 403). Grano `(sku, unidad_vendida, unidad_base)` con el factor que Kepler **realmente aplicó**, ventana 365 d. **7,741 peldaños sobre 5,384 SKUs**, 1,962 con factor > 1.
+2. **Es lo que Kepler HIZO, no lo que debería hacer.** Un peldaño existe porque se aplicó en un renglón real. **Sin default, sin respaldo, sin herencia**: donde Kepler nunca vendió un SKU en cierta unidad **no hay fila**, y esa ausencia es información — no un 1.
+3. **La identidad es la COMPUERTA.** La migración aborta si `c9 = c56 × c58` cae por debajo del 99%: sin ella no estaríamos reproduciendo una fórmula sino leyendo tres columnas sueltas, y la escalera entera sería una invención.
+4. **Lo ambiguo se marca, no se promedia.** 235 de 7,741 peldaños tienen más de un factor para el mismo `(sku, vendida, base)`: salen con `ambiguo = true` y el consumidor decide.
+5. **La escalera compone, y está verificado por SKU** — no por promedio: `88045` da `CJA→PAQ 3 × PAQ→PZA 25 = 75 = CJA→PZA`; `97273` da `12 × 12 = 144`; `65109` da `30 × 10 = 300`. ⚠️ **Pero la vista NO publica el compuesto**: de 8 SKUs con los dos caminos, 6 coinciden y 2 no. Componer para publicar pide su propia verificación.
+
+**El veredicto sobre lo que ya se publicaba.** Comparando bien —piezas-por-caja de Kepler, directo o compuesto, contra `v_product_box_factor`—: **356 SKUs, 344 coinciden (96.63%), 12 difieren, y CERO donde publicamos 1 y Kepler vende por caja.** O sea el resolvedor arbitrado ya reproducía bien la medida; lo que fallaba era un consumidor leyendo otra columna.
+
+**Se rechaza:** (a) seguir agregando testigos a la cascada de arbitraje — el problema no era falta de testigos sino no haber leído la fórmula; (b) publicar el peldaño compuesto (2 de 8 contradicen al directo); (c) rellenar los SKUs sin peldaño con un `1` — es la ausencia de evidencia, no evidencia de ausencia; (d) extenderlo a Wincaja — **fuera de alcance por decisión de Edgar (2026-09-12): la verdad absoluta se persigue en Kepler.**
+
+**⚠️ Tres mediciones propias mal construidas en el camino, todas sobre este mismo tema, y vale dejarlas escritas porque el patrón se repite:** (1) *"el resolvedor difiere en 92%"* — se comparó un **escalar contra una escalera**, error de categoría; (2) *"14 SKUs difieren"* — se comparó contra un `mode()` sobre **todos** los peldaños `CJA`, mezclando `CJA→PZA` con `CJA→PAQ`; (3) la comparación correcta da 96.63%. **Antes de publicar una discrepancia, verificar que los dos lados respondan la MISMA pregunta.**
+
+**Hereda:** ADR-055 (el divisor es de PRESENTACIÓN; el dato base no se convierte) · ADR-057 (la unidad se resuelve una vez, con testigo y método — esta ADR le agrega que para Kepler el "testigo" es **su propia aritmética**) · ADR-056 (lo que no se pudo medir se declara; la compuerta de la identidad es su prueba negativa) · ADR-059 (cada ERP se juzga con SU evidencia — acá llevado al extremo: la evidencia de Kepler es Kepler).
+
+**Corrige a ADR-059** en un punto: *"`U-D-8` no es arbitrable y el límite es de la fuente"* vale para el **costo**, no para la **unidad**. Su unidad está declarada al 99.96%.
+
+**Abierto y declarado:** los 235 peldaños ambiguos · los 2 SKUs donde el compuesto contradice al directo · los 12 que difieren de lo publicado · y la decisión de fondo: **si la escalera reemplaza a `c84` en la cascada de `v_product_box_factor`** (impacto medido: 12 SKUs).
+
+Candado `database/tests/test-newdb-kepler-unit-ladder.js` (7 OK / 0 FAIL contra prod). Detalle en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8octies.

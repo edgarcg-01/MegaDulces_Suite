@@ -797,6 +797,134 @@ hallazgo.
 
 ---
 
+## 8octies. ⭐⭐ LA MEDIDA QUE KEPLER HACE — reproducir en vez de arbitrar (VK.1, 2026-09-12 · ADR-063)
+
+Edgar, después de encontrar `96504 RUFFLES QUESO 27G` con **UxC 1** cuando son **58**:
+
+> *"El punto no es ir conciliando o parchando, es copiar su fórmula para encontrar la medida que
+> ellos hacen; una vez con la medida, trabajar con todas las unidades de medida."*
+
+Todo lo de las secciones anteriores **arbitra**: ordena testigos (`kdii.c84`, la etiquetera, el
+override, lo pagado al proveedor) y elige. Responde *"¿cuál de mis fuentes miente menos?"*. Es
+trabajo honesto y en su momento hizo falta — pero es la pregunta equivocada para Kepler.
+
+### 8octies.1 Kepler declara su conversión y calcula con ella
+
+Cada renglón de `kdm2` trae tres columnas que no son independientes:
+
+| columna | qué es |
+|---|---|
+| `c9` | cantidad en la unidad **BASE** |
+| `c56` | cantidad en la unidad **VENDIDA** |
+| `c58` | el **factor** entre las dos |
+| `c11` | la unidad base · `c55` la unidad vendida |
+
+Y su identidad se cumple. Medido sobre 90 d, `U-D` 8/10/12, capturados en su propia sucursal:
+
+```text
+              renglones completos    c9 = c56 x c58        %
+  U-D-10           694,769             694,693         99.9891
+  U-D-8             17,039              17,033         99.9648
+  U-D-12             8,237               8,233         99.9514
+```
+
+⭐ **Incluye `U-D-8`**, el doctype que `VERDAD_ABSOLUTA` §7 declaraba "no arbitrable" porque `c62`
+está vacío. **La unidad nunca dependió de `c62`.** Se buscaba un testigo EXTERNO que confirmara el
+factor; el factor no hay que confirmarlo — Kepler **calcula** con él. Ese hueco era de **costo**.
+
+### 8octies.2 ⛔ `c58` no es "el factor de caja": es un PELDAÑO
+
+```text
+  c58 = 1    661,960 renglones (91.9%)   <- vendido en la unidad base
+  c58 > 1     58,134 renglones ( 8.1%)   <- vendido en una unidad mayor
+
+  vendida=PAQ base=PZA  35,425 rengl   factor medio 11.00
+  vendida=CJA base=PAQ  10,759 rengl   factor medio 16.32
+  vendida=CJA base=PZA   6,933 rengl   factor medio 35.57
+  vendida=BTO base=KG    2,083 rengl   factor medio 20.72
+  vendida=KG  base=500    1,961 rengl   factor medio  2.00
+```
+
+La medida de Kepler es una **ESCALERA** (`PZA → PAQ → CJA`), no un escalar. Leerla como un número
+por producto fue el error de fondo de todas las secciones anteriores.
+
+### 8octies.3 El resolvedor: `analytics.mv_kepler_unit_ladder`
+
+Grano `(sku, unidad_vendida, unidad_base)`, ventana 365 d, `U-D` 8/10/12. **7,741 peldaños sobre
+5,384 SKUs**, 1,962 con factor > 1, **235 ambiguos**. Forma: 3,458 SKUs con 1 peldaño, 1,591 con 2,
+259 con 3, y una cola hasta 6.
+
+⛔ **Es lo que Kepler HIZO, no lo que debería hacer.** Un peldaño existe porque se aplicó en un
+renglón real. **Sin default, sin respaldo, sin herencia**: donde Kepler nunca vendió un SKU en
+cierta unidad **no hay fila**, y esa ausencia es información — no un 1.
+
+⚠️ **La identidad es la compuerta**: la migración aborta si `c9 = c56 × c58` baja del 99%. Sin
+ella no estaríamos reproduciendo una fórmula sino leyendo tres columnas sueltas.
+
+El caso que abrió todo, resuelto por el propio Kepler:
+
+```text
+  96504   CJA -> PAQ = 58.0000    (1 renglon)
+  96504   PAQ -> PAQ =  1.0000    (140 renglones)
+```
+
+⚠️ Ese 58 se apoya en **un solo renglón**. Es correcto y poco ejercitado, y la columna
+`renglones` lo dice en vez de esconderlo.
+
+### 8octies.4 ⭐ La escalera COMPONE — verificado por SKU, no por promedio
+
+```text
+  88045  CJA->PZA=75   ·  CJA->PAQ=3   ·  PAQ->PZA=25   ->   3 x 25 = 75    OK
+  97273  CJA->PZA=144  ·  CJA->PAQ=12  ·  PAQ->PZA=12   ->  12 x 12 = 144   OK
+  65109  CJA->PZA=300  ·  CJA->PAQ=30  ·  PAQ->PZA=10   ->  30 x 10 = 300   OK
+  90019  (sin directo) ·  CJA->PAQ=12  ·  PAQ->PZA=45   ->  12 x 45 = 540   OK
+```
+
+⚠️ **Pero la vista NO publica el compuesto.** De 8 SKUs con el peldaño directo Y el compuesto,
+**6 coinciden y 2 no**. Multiplicar peldaños y publicar el producto pide su propia verificación.
+
+### 8octies.5 El veredicto sobre lo que ya se publicaba
+
+Piezas-por-caja de Kepler (directo, o compuesto si falta el directo) contra `v_product_box_factor`:
+
+```text
+  SKUs con piezas-por-caja en Kepler ....... 356
+  coincide con lo publicado ................ 344   (96.63%)
+  difiere ..................................  12
+  publicamos 1 y Kepler dice mas ...........   0    <- el defecto que abrio esto
+```
+
+⭐ El resolvedor **arbitrado ya reproducía bien** la medida de Kepler. Lo que fallaba era un
+**consumidor leyendo otra columna** (`catalog.products.factor_sale`, corregido en VA.3).
+
+### 8octies.6 ⚠⚠ Tres mediciones mal construidas, sobre este mismo tema, en una sola tarde
+
+Van escritas porque el patrón se repite y cuesta caro:
+
+1. **"el resolvedor difiere en 92%"** — se comparó un **escalar contra una escalera**. Error de
+   categoría.
+2. **"14 SKUs difieren"** — se comparó `box_factor` contra un `mode()` sobre **todos** los
+   peldaños `CJA`, mezclando `CJA→PZA` con `CJA→PAQ`. Artefacto de la consulta.
+3. La comparación correcta da **96.63%** de coincidencia y **cero** del defecto que importaba.
+
+⭐ **La regla:** antes de publicar una discrepancia, verificar que los dos lados respondan la
+**misma pregunta**. Una discrepancia mal medida cuesta más que no medir: manda a arreglar lo que
+no está roto.
+
+### 8octies.7 Lo que queda abierto
+
+| pendiente | tamaño |
+|---|---|
+| peldaños **ambiguos** (Kepler usó más de un factor para el mismo trio) | **235** de 7,741 |
+| SKUs donde el compuesto **contradice** al directo | **2** de 8 |
+| SKUs donde lo publicado difiere de la medida de Kepler | **12** de 356 |
+| ⭐ **¿La escalera reemplaza a `c84` en la cascada de `v_product_box_factor`?** | decisión de fondo, impacto 12 SKUs |
+| **Wincaja** | ⛔ fuera de alcance por decisión (Edgar, 2026-09-12) |
+
+Candado: `database/tests/test-newdb-kepler-unit-ladder.js` (7 OK / 0 FAIL contra prod).
+
+---
+
 ## 9. Lo que NO se investigó
 
 - **Unidad de los SKUs sólo-Wincaja**: 4,925 artículos de la sucursal 30 no existen en la escalera del ODS, así que su `factor_venta` no tiene contra qué contrastarse (mismo problema del §5: factor sin ancla).

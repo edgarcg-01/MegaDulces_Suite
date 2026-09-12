@@ -438,6 +438,7 @@ divergir.
 
 | necesitás | leé | nunca |
 |---|---|---|
+| ⭐⭐ **la unidad que KEPLER usó** (su escalera `PZA→PAQ→CJA`) | `analytics.mv_kepler_unit_ladder` | deducirla de `c84`, de la etiquetera o del override: Kepler la **declara** por renglón y calcula con ella (`c9 = c56 × c58`, 99.99%). ADR-063 · §14 |
 | existencia por almacén × producto | `analytics.v_erp_stock_on_hand` | `commercial.stock` (acierta 91%) |
 | ⭐ **clase ABC que fija el nivel de servicio** | `analytics.v_abc_class` | `commercial.abc_classification` desde el reabasto (llega tarde) · recalcular el Pareto (§12.4) |
 | ⭐ **costo unitario para VALUAR** (los dos ERPs) | `analytics.v_erp_unit_cost` | `catalog.products.cost_base` / `cost_with_tax` (§12) |
@@ -533,7 +534,7 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 
 | hueco | tamaño | por qué |
 |---|---|---|
-| ⛔ **`U-D-8` sin árbitro** — `irresoluble_con_la_fuente` | **$16.05M / 90 d** (16,845 renglones `sin_costo`, re-medido 2026-09-11) | Kepler **no escribe** `c62` ni `c63` ahí (vacíos en ~98.85%), y ése es el **único testigo independiente** del peldaño declarado. ⚠️ **La Fase R intentó cerrarlo y se retractó**: sustituir `c62` por `c58 × costo_del_almacén` es un **espejo** — `costo_almacén/costo_pagado` tiene mediana **1.0000** (93.22% dentro de la banda ±15% del propio árbitro), así que `round(c58 × ku / u1) = c58` por construcción. Ver §9.10. El recheck sembrado medía las **piezas** (99.87%) y no el veredicto; corregido en la mig `20260911200000` |
+| ⛔ **`U-D-8` sin árbitro de COSTO** — `irresoluble_con_la_fuente` | **$16.05M / 90 d** (16,845 renglones `sin_costo`) | Kepler **no escribe** `c62` ni `c63` ahí (~98.85% vacíos), y ése es el único testigo independiente del **costo**. ⚠️ **Corregido 2026-09-12 (ADR-063): esto vale para el COSTO, NO para la UNIDAD.** La unidad de `U-D-8` está declarada por Kepler al **99.96%** (`c9 = c56 × c58`) — se buscaba un testigo externo para un factor con el que el ERP ya calcula. Ver §14. ⚠️ La Fase R además intentó cerrar el costo con `c58 × costo_del_almacén` y es un **espejo** (§9.10); su recheck medía las **piezas** (99.87%) y no el veredicto (**1.14%**), corregido en la mig `20260911200000` |
 | **`contradicho`** en ventas | 9,011 renglones / $2.17M | el costo contradice el factor declarado. Conjunto finito, enumerado |
 | **`contradicho_por_factor`** en existencia | 273 filas / $2.02M | `cost_base` por bulto contra `c16` por pieza |
 | ~~la sucursal 07 no está cableada al mart~~ | **CERRADO 2026-09-10** | ✅ `md_07` (`127.0.0.1:5432/kepler_md_07`) registrado en `dim.sucursales`; el mart la consolidó y el fact la tomó **solo**. La venta publicada de Kepler sube **+2,076 celdas / +$344,505 (90 d)** y el gate quedó verde: cero celdas faltantes de la 07. ⚠️ Su historia arranca el **2026-09-08**: es lo que hay en su Kepler, no un recorte nuestro |
@@ -1122,3 +1123,79 @@ Todos registrados en `database/run-all-tests.js`. **Se corren contra `FLEET_DB_U
 
 [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md) · [`ERP_KEPLER.md`](ERP_KEPLER.md) ·
 [`GOTCHAS.md`](GOTCHAS.md) · [`REGISTRO_CANONICO_COMPLETO.md`](REGISTRO_CANONICO_COMPLETO.md)
+
+---
+
+## 14. ⭐⭐ REPRODUCIR en vez de ARBITRAR — la medida que Kepler hace (VK.1, 2026-09-12 · ADR-063)
+
+Este documento entero está construido sobre **arbitrar**: cada número tiene testigos, se ordenan,
+gana uno, y lo que no se puede decidir se declara. Eso responde *"¿cuál de mis fuentes miente
+menos?"*.
+
+Edgar, 2026-09-12, tras encontrar `96504 RUFFLES QUESO 27G` con **UxC 1** cuando son **58**:
+
+> *"El punto no es ir conciliando o parchando, es copiar su fórmula para encontrar la medida que
+> ellos hacen; una vez con la medida, trabajar con todas las unidades de medida."*
+
+Y tenía razón: **para la UNIDAD en Kepler, arbitrar era la pregunta equivocada.**
+
+### 14.1 Kepler declara su conversión y calcula con ella
+
+```text
+c9 (cantidad BASE) = c56 (cantidad VENDIDA) x c58 (factor)     c11 = unidad base · c55 = vendida
+
+              renglones completos    c9 = c56 x c58        %
+  U-D-10           694,769             694,693         99.9891
+  U-D-8             17,039              17,033         99.9648
+  U-D-12             8,237               8,233         99.9514
+```
+
+⭐ **Incluye `U-D-8`.** §7 lo declaraba "no arbitrable" porque `c62` está vacío — y **la unidad
+nunca dependió de `c62`**. Se buscaba un testigo EXTERNO para confirmar un factor con el que el ERP
+ya calcula. El hueco de `U-D-8` es de **costo**, y sigue abierto; el de **unidad** nunca existió.
+
+### 14.2 La medida es una ESCALERA, no un escalar
+
+`c58` convierte la unidad **vendida** a la **base** de ese renglón — `PZA → PAQ → CJA`. El 91.9% de
+los renglones vende en la base (`c58 = 1`) y el 8.1% en una unidad mayor. Leerlo como *"el factor de
+caja del producto"* fue el error de fondo de §8 y siguientes.
+
+`analytics.mv_kepler_unit_ladder`: **7,741 peldaños sobre 5,384 SKUs**, 1,962 con factor > 1, 235
+ambiguos. Es **lo que Kepler hizo**, no lo que debería hacer: sin default, sin respaldo, sin
+herencia. Donde nunca vendió en esa unidad **no hay fila**, y esa ausencia es información.
+
+⚠️ **La identidad es la compuerta**: la migración aborta si baja del 99%. Sin ella no sería
+reproducción sino invención.
+
+### 14.3 El veredicto sobre lo que ya se publicaba
+
+```text
+  SKUs con piezas-por-caja en Kepler ....... 356
+  coincide con lo publicado ................ 344   (96.63%)
+  publicamos 1 y Kepler dice mas ...........   0
+```
+
+⭐ El resolvedor **arbitrado ya reproducía bien** la medida. Lo que fallaba era un **consumidor
+leyendo otra columna** (`catalog.products.factor_sale` — corregido en VA.3).
+
+### 14.4 ⚠⚠ Y la advertencia que se pagó tres veces la misma tarde
+
+Tres mediciones propias, mal construidas, sobre este mismo tema:
+
+1. *"el resolvedor difiere en 92%"* — se comparó un **escalar contra una escalera**.
+2. *"14 SKUs difieren"* — se comparó contra un `mode()` que mezclaba `CJA→PZA` con `CJA→PAQ`.
+3. La correcta da **96.63%**.
+
+⭐ **Antes de publicar una discrepancia, verificar que los dos lados respondan la MISMA pregunta.**
+Una discrepancia mal medida cuesta más que no medir: manda a arreglar lo que no está roto.
+
+### 14.5 Hasta dónde llega
+
+⛔ **Sólo Kepler.** Wincaja queda fuera por decisión de Edgar (2026-09-12). ⛔ **No compone la
+escalera para publicar**: de 8 SKUs con el peldaño directo y el compuesto, 6 coinciden y **2 no**.
+⛔ **Y no reemplaza todavía a `c84`** en la cascada de `v_product_box_factor` — esa es la decisión
+de fondo que queda abierta (impacto medido: 12 SKUs).
+
+Detalle en [`UNIDADES_DE_MEDIDA.md`](UNIDADES_DE_MEDIDA.md) §8octies · candado
+`database/tests/test-newdb-kepler-unit-ladder.js`.
+
