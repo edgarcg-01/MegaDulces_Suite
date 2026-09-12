@@ -338,6 +338,19 @@ Hacerlo nativo **bien** obliga a `REINDEX` de esos índices más `ALTER DATABASE
 | Respaldos locales | ~90 | 2 completos de prod + WAL |
 | **Total con TODO adentro** | **≈ 300 de 953** | **31 %** — y quedan ~650 GB de crecimiento |
 
+> ⚠️ **Esta tabla era cierta como PLAN y falsa como ESTADO, y la diferencia importa.** El VG tenía
+> 850 GB libres, sí — pero el volumen lógico eran **100 GB**, y un espacio que no está asignado a un
+> filesystem no lo puede usar nadie. Al ir a mover `wincaja` el 2026-09-12, `/` tenía **71 GB
+> libres** contra 40 GB de base: entraba, dejando ~30 GB de margen en la máquina que además va a
+> hospedar prod. El renglón "`/` (ya asignado) 100" estaba **a la vista** y aun así el plan concluyó
+> "31 %, no hace falta comprar nada" — la conclusión saltó del VG al sistema de archivos sin el paso
+> del medio.
+>
+> ✅ **Resuelto el 2026-09-12** (Sistemas, con `sudo`; en caliente, sin desmontar, sin downtime):
+> `lvextend -L +400G` + `resize2fs` → **`/` pasa de 98 GB a 492 GB, con 446 GB libres**. Quedan
+> **~450 GB sin asignar a propósito**: sirven para snapshots de LVM y para darle a prod su **propio
+> volumen** en VL.9 en vez de compartir `/` con la ingesta y los respaldos.
+
 **Consecuencias:**
 
 - **VL.9 ya no exige comprar disco.** Cae la pregunta A6 (segundo slot M.2 / SATA): deja de ser bloqueante y pasa a ser opcional.
