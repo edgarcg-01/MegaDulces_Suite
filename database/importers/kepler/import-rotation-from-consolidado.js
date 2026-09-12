@@ -51,7 +51,7 @@ function percentile(sorted, p) {
               upper(btrim(coalesce(p.unit_sale,''))) AS unit_sale, p.factor_sale,
               l.pack_size, l.box_size, l.unit_base, l.content
          FROM catalog.products p
-         LEFT JOIN commercial.product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
+         LEFT JOIN commercial.v_product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
         WHERE p.tenant_id=$1 AND btrim(coalesce(p.sku,''))<>''`, [M]);
     const skuToId = new Map();
     const modelBySku = new Map();

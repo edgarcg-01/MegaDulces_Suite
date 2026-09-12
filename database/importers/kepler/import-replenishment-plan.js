@@ -333,7 +333,7 @@ const cte = (hist, tr, lead) => `
                 COALESCE(factor_sale,1)::numeric fs, COALESCE(cost_with_tax,0)::numeric cwt
            FROM catalog.products WHERE tenant_id=$1 AND activo=true AND deleted_at IS NULL),
   lbl AS (SELECT product_id, max(box_size) bs, max(pack_size) ps
-            FROM commercial.product_label_prices WHERE tenant_id=$1 GROUP BY product_id),
+            FROM commercial.v_product_label_prices WHERE tenant_id=$1 GROUP BY product_id),
   uov AS (SELECT product_id, pieces_per_unit, box_factor
             FROM commercial.product_unit_overrides WHERE tenant_id=$1 AND deleted_at IS NULL),
   kbf AS (SELECT product_id, box_factor AS bf

@@ -59,36 +59,40 @@ function resolveUnits(slots) {
 }
 
 // ---- SQL (schema whitelisted inline; SKUs opcionales por $1) ----
+/**
+ * `[NORM.3]` Una fila por **(sku, sucursal)** — antes era una sola por SKU, con el precio elegido
+ * por `mode()` sobre las plazas.
+ *
+ * Por qué se retiró la moda: el precio de Kepler **es** por plaza, y colapsarlo publicaba el de
+ * otra tienda. Medido en prod el 2026-09-11: **1,039 de 9,365 SKUs (11.1 %)** tienen precio de
+ * pieza distinto entre plazas retail (brecha mediana 3.1 %, p90 37.3 %), y **1,729 de los 69,711
+ * pares sku×plaza (2.5 %)** publicaban un precio que no era el de su plaza. El mostrador y la
+ * etiqueta del anaquel de esa tienda mostraban el número de otra.
+ *
+ * `kdii` trae exactamente una fila por (sku, sucursal) — verificado en prod: 76,586 pares, cero
+ * duplicados — así que acá no hace falta ningún desempate.
+ */
 function kdiiSql(schema, hasSkus) {
-  const f = hasSkus ? 'AND btrim(c1) = ANY($1)' : '';
   const ff = hasSkus ? 'AND btrim(k.c1) = ANY($1)' : '';
   return `
-    WITH moda_retail AS (
-      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS m
-        FROM ${schema}.kdii
-       WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) <> '00' ${f}
-       GROUP BY btrim(c1)),
-    moda_cedis AS (
-      SELECT btrim(c1) AS sku, mode() WITHIN GROUP (ORDER BY c90::numeric DESC) AS m
-        FROM ${schema}.kdii
-       WHERE btrim(coalesce(c1,''))<>'' AND c90::numeric > 0.05 AND btrim(sucursal) = '00' ${f}
-       GROUP BY btrim(c1)),
-    moda AS (
-      SELECT sku, m FROM moda_retail
-      UNION ALL
-      SELECT c.sku, c.m FROM moda_cedis c WHERE NOT EXISTS (SELECT 1 FROM moda_retail r WHERE r.sku=c.sku))
-    SELECT DISTINCT ON (btrim(k.c1))
+    SELECT btrim(k.sucursal::text) AS sucursal,
            k.c1 AS sku, k.c2 AS name, k.c7 AS barcode, k.c95 AS barcode_alt, k.c11 AS unit_base,
            btrim(k.c80) AS u1, k.c81 AS f1, k.c91 AS p1,
            btrim(k.c83) AS u2, k.c84 AS f2, k.c92 AS p2,
-           md.m AS piece_price
+           k.c90::numeric AS piece_price
       FROM ${schema}.kdii k
-      JOIN moda md ON md.sku = btrim(k.c1) AND k.c90::numeric = md.m
      WHERE btrim(coalesce(k.c1,''))<>'' AND k.c90::numeric > 0.05 ${ff}
-     ORDER BY btrim(k.c1), (btrim(k.sucursal)='00'), btrim(k.sucursal)`;
+     ORDER BY btrim(k.c1), btrim(k.sucursal::text)`;
 }
+/**
+ * `[NORM.3]` Los escalones de mayoreo también salen de la plaza: `kdpv_prod_util` tiene `sucursal`
+ * y la usa. Medido: la cobertura es pareja (~41,600 filas y ~9,300 SKUs en cada una de las 8), y
+ * sólo **485 pares (sku, plaza)** no tienen escalón propio teniéndolo en otra — ésos se quedan sin
+ * mayoreo a propósito: Kepler dice que en esa tienda no existe.
+ */
 function kdpvSql(schema, hasSkus) {
-  return `SELECT DISTINCT c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
+  return `SELECT DISTINCT btrim(sucursal::text) AS sucursal,
+                 c1 AS sku, c2 AS present, c4::numeric AS min_qty, c7::numeric AS price
             FROM ${schema}.kdpv_prod_util WHERE c7 > 0 ${hasSkus ? 'AND c1 = ANY($1)' : ''}`;
 }
 
@@ -114,6 +118,7 @@ function assembleLabel(r, tiers) {
   ]);
   return {
     sku: String(r.sku || '').trim(),
+    sucursal: String(r.sucursal || '').trim(),               // `[NORM.3]` la plaza es parte de la llave
     name: r.name,
     barcode_raw: r.barcode,                                  // c7 crudo (para el fallback sku→pid del importer)
     content: parseGramaje(r.name),
@@ -140,39 +145,48 @@ async function computeLabels(readClient, { schema, skus } = {}) {
   const params = hasSkus ? [skus] : [];
   const kdii = (await readClient.query(kdiiSql(schema, hasSkus), params)).rows;
   const kdpv = (await readClient.query(kdpvSql(schema, hasSkus), params)).rows;
-  const wholesale = new Map(); // sku → Map(present → {price, minQty}); solo tiers con umbral real, el más barato
+  // `[NORM.3]` La llave del mapa es (sku, PLAZA). Antes era sólo el sku, así que un escalón de
+  // cualquier tienda se aplicaba a todas.
+  // Separador EXPLÍCITO y visible: sin él, sku '1' + plaza '23' colisiona con sku '12' + plaza '3'.
+  const llave = (sku, suc) => `${String(sku || '').trim()}|${String(suc || '').trim()}`;
+  const wholesale = new Map(); // (sku,plaza) -> Map(presentacion -> {price, minQty}); solo tiers con umbral real, el mas barato
   for (const r of kdpv) {
     const present = String(r.present || '').trim().toUpperCase();
     const p = Number(r.price);
     if (!present || !Number.isFinite(p) || p <= 0) continue;
     const mq = int(r.min_qty);
     if (!mq || mq <= 1) continue;
-    let m = wholesale.get(r.sku);
-    if (!m) { m = new Map(); wholesale.set(r.sku, m); }
+    const k = llave(r.sku, r.sucursal);
+    let m = wholesale.get(k);
+    if (!m) { m = new Map(); wholesale.set(k, m); }
     const cur = m.get(present);
     // más barato por presentación; DESEMPATE DETERMINISTA por menor minQty (si no, el DISTINCT sin
     // orden elegiría distinto cada corrida → el hop-2 churn-free reescribiría en cada tick de kdii).
     if (!cur || p < cur.price || (p === cur.price && mq < cur.minQty)) m.set(present, { price: p, minQty: mq });
   }
-  return kdii.map((r) => assembleLabel(r, wholesale.get(r.sku) || wholesale.get(String(r.sku || '').trim()) || new Map()));
+  return kdii.map((r) => assembleLabel(r, wholesale.get(llave(r.sku, r.sucursal)) || new Map()));
 }
 
 // ---- staged + upsert (compartidos: mismo orden de columnas y mismo SQL) ----
+/** `[NORM.3]` Las columnas que forman la identidad de la fila. La plaza entró acá, no en los datos. */
+const KEY_COLS = ['product_id', 'sucursal'];
 const LABEL_STAGE_COLS = [
-  'product_id', 'content', 'barcode', 'barcode_format', 'piece_price',
+  ...KEY_COLS, 'content', 'barcode', 'barcode_format', 'piece_price',
   'wholesale_piece_min_qty', 'wholesale_piece_price', 'pack_size', 'pack_price',
   'wholesale_pack_price', 'box_size', 'box_price', 'unit_base', 'wholesale_pack_min_qty', 'sold_by_kg',
 ];
 function toStageTuple(lab, productId) {
   return [
-    productId, lab.content, lab.barcode, lab.barcode_format, lab.piece_price,
+    productId, lab.sucursal, lab.content, lab.barcode, lab.barcode_format, lab.piece_price,
     lab.wholesale_piece_min_qty, lab.wholesale_piece_price, lab.pack_size, lab.pack_price,
     lab.wholesale_pack_price, lab.box_size, lab.box_price, lab.unit_base, lab.wholesale_pack_min_qty, lab.sold_by_kg,
   ];
 }
 
-// columnas de datos (sin product_id) para el guard churn-free y el SET
-const DATA_COLS = LABEL_STAGE_COLS.slice(1);
+// columnas de DATOS (las que no son llave) para el guard churn-free y el SET. Se deriva de
+// KEY_COLS en vez de `slice(1)` para que agregar una columna de llave no meta la plaza en el SET
+// —escribir la llave en el UPDATE es cómo se corrompe una fila sin que nadie lo note—.
+const DATA_COLS = LABEL_STAGE_COLS.filter((c) => !KEY_COLS.includes(c));
 
 /**
  * UPSERT churn-free a commercial.product_label_prices. El caller ya hizo BEGIN + SET LOCAL app.tenant_id.
@@ -194,16 +208,19 @@ const DATA_COLS = LABEL_STAGE_COLS.slice(1);
 async function upsertLabels(client, tenantId, tuples, BATCH = 1000, changedOut = null) {
   if (!tuples.length) return 0;
   await client.query(`CREATE TEMP TABLE stg_label (
-    product_id uuid, content text, barcode text, barcode_format text,
+    product_id uuid, sucursal text, content text, barcode text, barcode_format text,
     piece_price numeric, wholesale_piece_min_qty int, wholesale_piece_price numeric,
     pack_size int, pack_price numeric, wholesale_pack_price numeric,
     box_size int, box_price numeric, unit_base text, wholesale_pack_min_qty int, sold_by_kg boolean) ON COMMIT DROP`);
+  // El ancho sale de LABEL_STAGE_COLS, no de un 15 escrito a mano: agregar una columna y olvidar
+  // el número es cómo se desalinean los parámetros sin que falle nada visible.
+  const W = LABEL_STAGE_COLS.length;
   for (let i = 0; i < tuples.length; i += BATCH) {
     const chunk = tuples.slice(i, i + BATCH);
     const vals = [], params = [];
     chunk.forEach((row, ri) => {
-      const b = ri * 15;
-      vals.push(`($${b + 1},$${b + 2},$${b + 3},$${b + 4},$${b + 5},$${b + 6},$${b + 7},$${b + 8},$${b + 9},$${b + 10},$${b + 11},$${b + 12},$${b + 13},$${b + 14},$${b + 15})`);
+      const b = ri * W;
+      vals.push(`(${Array.from({ length: W }, (_, j) => `$${b + j + 1}`).join(',')})`);
       params.push(...row);
     });
     await client.query(`INSERT INTO stg_label VALUES ${vals.join(',')}`, params);
@@ -217,7 +234,7 @@ async function upsertLabels(client, tenantId, tuples, BATCH = 1000, changedOut =
       (id, tenant_id, ${cols}, source, computed_at, updated_at)
     SELECT gen_random_uuid(), $1, ${LABEL_STAGE_COLS.map((c) => 's.' + c).join(', ')}, 'kepler', now(), now()
     FROM stg_label s
-    ON CONFLICT (tenant_id, product_id) DO UPDATE SET
+    ON CONFLICT (tenant_id, product_id, sucursal) DO UPDATE SET
       ${setList}, source='kepler', computed_at=now(), updated_at=now()
     WHERE commercial.product_label_prices.source <> 'manual'
       AND (${tTuple}) IS DISTINCT FROM (${eTuple})
@@ -228,5 +245,5 @@ async function upsertLabels(client, tenantId, tuples, BATCH = 1000, changedOut =
 
 module.exports = {
   parseGramaje, barcodeFormat, basePresentKey, resolveUnits, num, int,
-  computeLabels, LABEL_STAGE_COLS, toStageTuple, upsertLabels,
+  computeLabels, LABEL_STAGE_COLS, KEY_COLS, toStageTuple, upsertLabels,
 };

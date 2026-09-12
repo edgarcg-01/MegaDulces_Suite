@@ -179,7 +179,10 @@ function cerrar(srv) {
       // Sin `await`: el hop-2 corre dentro del POST del carril @15s. Esperar el aviso le sumaría
       // latencia a la ingesta por algo que no es el dato.
       check('el aviso NO se espera con await', !/await notifyLabelPricesChanged/.test(cuerpo));
-      check('y su rechazo está atrapado', /notifyLabelPricesChanged\([\s\S]{0,80}\)\.catch\(/.test(cuerpo));
+      // El `.catch` puede quedar en otra línea (la llamada se partió en [NORM.3] para deduplicar
+      // los ids). Lo que importa es que EXISTA, no dónde: sin él, un aviso rechazado tumba el
+      // carril de ingesta por algo que ni siquiera es el dato.
+      check('y su rechazo está atrapado', /notifyLabelPricesChanged\([\s\S]{0,160}?\)\s*[\s\S]{0,40}?\.catch\(/.test(cuerpo));
       check('se le pasan los ids REALMENTE cambiados, no los que llegaron',
         /upsertLabels\(client, tenantId, tuples, 1000, cambiados\)/.test(cuerpo));
     }
@@ -205,8 +208,11 @@ function cerrar(srv) {
     // sin `await` el proceso se va antes de que el POST salga del socket y el aviso se pierde en
     // silencio — con el log diciendo que todo salió bien. Es el modo de falla de la Fase OBS:
     // el sistema reportando éxito sin haber entregado nada.
+    // El 2º argumento dejó de llamarse `cambiados` en [NORM.3] (ahora es `avisar`, la lista
+    // deduplicada: con grano por sucursal un mismo producto vuelve hasta 8 veces). Se afirma el
+    // `await`, que es la regla, no el nombre de la variable, que no lo es.
     check('el aviso SÍ se espera con await (es un CLI, no un servidor)',
-      /await notifyLabelPricesChanged\(M, cambiados/.test(src));
+      /await notifyLabelPricesChanged\(M,\s*\w+/.test(src));
   }
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} OK · ${fail} FAIL`);

@@ -24,7 +24,7 @@ const packHint = (name) => { const m = String(name || '').match(/\/\s*(\d{1,3})(
       SELECT p.id, p.sku, p.nombre, coalesce(p.factor_sale,0)::numeric fac_kep,
              l.box_size::numeric box_size, aw.fac_win
         FROM catalog.products p JOIN aw ON aw.sku=p.sku
-        LEFT JOIN commercial.product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
+        LEFT JOIN commercial.v_product_label_prices l ON l.product_id=p.id AND l.tenant_id=p.tenant_id
        WHERE p.tenant_id=$1 AND p.deleted_at IS NULL AND aw.fac_win>1`, [M])).rows;
 
     const fixes = [];
