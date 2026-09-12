@@ -30,12 +30,12 @@
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
 
 # ── cada 15 / 30 minutos ─────────────────────────────────────────────────────
-*/15 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
+5,20,35,50 * * * * /app/ops/vl/run-feed.sh stock "node /app/database/importers/kepler/run-prod-feeds.js stock --apply"
 */30 * * * * /app/ops/vl/run-feed.sh live  "node /app/database/importers/kepler/run-prod-feeds.js live --apply"
 # [VL.4b] PRECIOS. Era una tarea suelta (`run-prices.cmd` llamaba a los dos importers fuera del
 # runner) y por eso no latía. Ahora es un modo del runner → hereda latido `feed_prices`, timeout por
 # paso y agregación de fallas. ⚠️ Es EL carril del incidente que fundó la Fase OBS.
-*/30 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
+2,32 * * * * /app/ops/vl/run-feed.sh prices "node /app/database/importers/kepler/run-prod-feeds.js prices --apply"
 
 # [VL.6.2] EL VIGILANTE. Vigila que el scanner de Salud BD del API siga vivo y, si no, toma el
 # control y abre las alertas el mismo. Se muda a `md` sin tocar una linea: ya viaja dentro de la
@@ -44,12 +44,40 @@
 */5 * * * * /app/ops/vl/run-feed.sh watchdog "node /app/database/importers/lib/health-watchdog.js"
 
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
-0 * * * *   /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
-0 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
+15 * * * *  /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
+25 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
 
 # ── nocturno y semanal (hora MX) ─────────────────────────────────────────────
 0 3 * * *   /app/ops/vl/run-feed.sh nightly "node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
 0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
+
+# ⛔⛔ LA FASE IMPORTA TANTO COMO EL INTERVALO — y eso lo aprendimos rompiéndolo.
+#
+# VL.4 copió las CADENCIAS de las tareas de Windows y se documentó esa prudencia acá mismo
+# ("no se mejoran en la mudanza"). Pero una tarea de Windows con "repetir cada 15 min" repite
+# desde SU StartBoundary — o sea desde la hora en que alguien la creó —, y `cron` dispara en
+# los BORDES DEL RELOJ. Copiar el intervalo y perder el desfase COLAPSÓ una agenda que estaba
+# naturalmente escalonada:
+#
+#     tarea original        disparaba en        `*/N` lo movió a
+#     Stock  (11:50 +15m)   :05 :20 :35 :50  →  :00 :15 :30 :45
+#     Prices (00:02 +30m)   :02 :32          →  :00 :30
+#     Intraday (00:15 +1h)  :15              →  :00
+#     ContpaqiSlow (00:25 +2h) :25           →  :00
+#
+# Resultado medido el 2026-09-11 18:30: los cuatro carriles MÁS PESADOS cayendo juntos en el
+# mismo minuto contra un solo Postgres en Railway, que es IO-limitado. El ship del ODS
+# (`raw-upsert`) empezó a morir con `canceling statement due to statement timeout`, y del lado
+# del shipper se veía como `socket inactivo 60s`.
+#
+# ⚠️ No hubo pérdida de filas — `syncCtid` avanza `ods.ctl` DESPUÉS del flush, así que un ship
+# fallido no mueve el watermark y la pasada siguiente re-lee desde el mismo ctid (y las
+# escrituras son UPSERT). Pero la latencia se fue a minutos y el carril caliente dejó de ser
+# caliente.
+#
+# El escalonamiento original era ACCIDENTAL (cada tarea empezaba cuando la crearon), pero el
+# sistema dependía de él. Acá se restaura tal cual, no se "mejora": cambiar el cuándo justo
+# después de cambiar el dónde vuelve inatribuible la próxima falla.
 
 # ── NO están acá, a propósito ────────────────────────────────────────────────
 #
