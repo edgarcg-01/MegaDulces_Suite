@@ -26,7 +26,7 @@ candado divergen, **gana el candado** y este documento está viejo.
 
 ---
 
-## 1. Las seis reglas
+## 1. Las siete reglas
 
 Todas salieron de errores que ya se pagaron. No son estilo.
 
@@ -83,6 +83,57 @@ corolarios, cada uno pagado:
   (§9.9).
 
 ---
+
+### R7 — Un árbitro sin PARIDAD REGISTRADA no protege nada ⭐⭐
+
+Edgar, 2026-09-11, señalando una celda: *"tu verdad absoluta fallo"*. Tenía razón, y la regla
+sale de medir por qué.
+
+`96504 RUFFLES QUESO 27G` publicaba **UxC 1** cuando son **58**. No falló el dato ni el
+resolvedor: `v_product_box_factor` decía 58 desde siempre, y tres testigos independientes lo
+confirmaban. Falló **este documento como mecanismo**:
+
+- §5 declara QUÉ LEER para cada número.
+- §7 lista los huecos **del dato**.
+- Cada candado verifica que **un resolvedor concuerde con su testigo**.
+- ⛔ **Ninguno verificaba que lo PUBLICADO concordara con el resolvedor.**
+
+La distancia entre lo arbitrado y lo publicado no estaba en ninguna lista. Medido ese día sobre
+publicadores (código, sin comentarios): **factor de caja 19% de adopción · costo 15% · y dos
+resolvedores con CERO lectores** (`v_erp_sales_line_units`, `v_erp_stock_truth`).
+
+**La regla:** todo resolvedor de §5 lleva una **paridad registrada** — una consulta que compara
+lo que se publica contra lo que el árbitro dice, con umbral **calibrado** y baseline medido — o
+un motivo escrito de por qué no puede tenerla. La compuerta vive en
+`database/tests/test-newdb-truth-parity.js` y **lee la tabla de §5 de este archivo**: agregar un
+resolvedor acá sin registrar su paridad pone el candado en rojo solo.
+
+Lo medido al estrenarla:
+
+```text
+factor de caja  catalog.products.factor_sale  vs v_product_box_factor .....   208 · $4,971,906
+costo           catalog.products.cost_base    vs v_erp_unit_cost .........    583 · $21,842,988
+existencia      commercial.stock.quantity     vs v_erp_stock_on_hand .....    140 (dato vivo)
+clase ABC       commercial.abc_classification vs v_abc_class ............. 1,846
+```
+
+⚠️ **Tres trampas, las tres ya cobradas al construir esto:**
+
+1. **Un umbral sin calibrar no es una medición.** La paridad de costo con "difiere > $0.01" daba
+   **5,916**: ruido. Medida la distribución (mediana 0.9731, p90 1.0000, p10 0.81), la señal son
+   las **583 por debajo de 0.5x**.
+2. **Una copia a mano de una declaración se despega de la declaración.** La primera compuerta
+   traía los resolvedores en una lista propia con 7 entradas mientras §5 declara **13** — pasaba
+   en verde con 6 sin paridad. Por eso ahora lee el documento.
+3. **Un baseline sobre dato vivo necesita margen declarado.** La existencia dio 196 y 140 con
+   minutos de diferencia; un trinquete clavado en el valor exacto parpadea en rojo sin que nadie
+   rompa nada, y una alarma que grita en falso enseña a ignorar el tablero.
+
+⛔ **Lo que esta regla NO alcanza, dicho antes de que alguien lo suponga:** sólo ve valores
+**almacenados**. El `uxc` de Sell-Out se calcula al vuelo y no vive en ninguna tabla — para ésos
+hay que golpear el endpoint y comparar la respuesta contra el árbitro, y **eso no está hecho**.
+Tampoco prueba que quien lee el resolvedor lo use bien: Sell-Out lo leía para las cajas desde U.7
+y aun así publicaba el UxC desde otra columna.
 
 ## 2. El estado, en una tabla
 
