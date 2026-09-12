@@ -27,7 +27,7 @@ const DRY = process.argv.includes('--dry');
 
 // Fuente única del mapa de sucursales (paso 3 normalización almacén). Incluye CEDIS '00' y
 // Canindo '06' (este último leído del replica lógico local kepler_md_06 vía clientConfig).
-const { salesMap, clientConfig } = require('../lib/kepler-branches');
+const { salesMap, clientConfig, replicaConfig } = require('../lib/kepler-branches');
 const BRANCHES = process.env.SALES_BRANCH_MAP ? JSON.parse(process.env.SALES_BRANCH_MAP) : salesMap();
 
 // ── LATIDO (VL.4b) ───────────────────────────────────────────────────────────────────────────
@@ -126,7 +126,11 @@ async function latir(fase, { status, rows, note, error, ms } = {}) {
 async function revisarReplicas() {
   const malas = [];
   for (const b of BRANCHES.filter((x) => x.replica)) {
-    const c = new Client(clientConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 15000 }));
+    // ⚠️ replicaConfig, NO clientConfig: este chequeo interroga a la RÉPLICA (su suscripción), y
+    // desde 2026-09-12 la 06/07 tienen host → clientConfig/urlOf devuelven el POS, que es publicador
+    // y no tiene suscripción (daba un falso "la réplica no tiene suscripción"). El detector apunta a
+    // la réplica pase lo que pase con la ruta de lectura de datos.
+    const c = new Client(replicaConfig(b, { connectionTimeoutMillis: 6000, statement_timeout: 15000 }));
     try {
       await c.connect();
       const { rows } = await c.query(`
