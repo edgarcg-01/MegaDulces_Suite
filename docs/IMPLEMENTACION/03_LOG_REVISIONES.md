@@ -6,6 +6,44 @@
 
 ---
 
+## 2026-09-11 — Auditoría de `/comercial/sell-out`: la venta no-caja se declaraba en el back pero no en el front, y el costo de la pantalla está en el fan-out, no en la query
+
+**Disparador:** *"auditor de esta interfaz: /comercial/sell-out"* → *"arreglemos el hallazgo 1"* → *"documentemos el hallazgo 2 y auditemos tiempos de carga o de respuesta, revisando base de datos, front y back"*.
+
+Se auditó el flujo completo: pantalla ([`comercial-sell-out.component.ts`](../../apps/view/src/app/modules/comercial/pages/comercial-sell-out.component.ts)) → servicio ([`comercial.service.ts`](../../apps/view/src/app/modules/comercial/comercial.service.ts)) → controller/servicio backend ([`commercial-analytics`](../../libs/commercial/src/lib/commercial-analytics/)) → vistas/matvistas `analytics.*`.
+
+### Hallazgo 1 (CRÍTICO) — ✅ ARREGLADO (commit `d21c12ea`)
+
+El backend U.7 **declara** `sin_metodo` (venta cuya cantidad no se pudo expresar en cajas: `cajasDe()` devuelve `{cajas:0, ok:false}` y el monto se cuenta, las cajas no — [`commercial-analytics.service.ts:664`](../../libs/commercial/src/lib/commercial-analytics/commercial-analytics.service.ts) / return en `:3319`). **El frontend lo tiraba**: la interfaz `SellOutReport` no tenía el campo y la plantilla nunca lo pintaba → el "Monto total" contaba el 100% pero la columna **Cajas** omitía ese volumen sin una sola señal. Es exactamente el pecado de ADR-056/057 (*"lo que no se pudo medir se DECLARA, nunca se dibuja como cero"*) filtrándose en la frontera front/back. Fix: `sin_metodo?` en el tipo (opcional, por backend previo a U.7) + nota `warn` cuando `monto>0`. Build `view` verde. **Pendiente: validación visual (requiere data con `sin_metodo>0`) + redeploy view.**
+
+### Hallazgo 2 — 🟡 DOCUMENTADO (sin arreglar, por pedido)
+
+La sub-etiqueta del KPI **"Cajas · Unidades ÷ UXC"** documenta un método **retirado en U.7**. Tras U.7 las cajas salen de `analytics.v_unit_truth.metodo_cajas` (dinero › peso › divisor verificado › declarar), NO de "Unidades ÷ UXC". El propio backend ([`:3143-3146`](../../libs/commercial/src/lib/commercial-analytics/commercial-analytics.service.ts)) dice que la cascada `factor_sale ?? box_size ?? 1` —que ES "Unidades ÷ UXC"— se retiró porque publicaba **716,742 piezas rotuladas como cajas** ($14,279,457 = 2.2% de la venta). O sea: la etiqueta describe justo el método erróneo que se corrigió — una procedencia falsa sobre el número que cambió.
+- Ubicaciones: [`comercial-sell-out.component.ts:847`](../../apps/view/src/app/modules/comercial/pages/comercial-sell-out.component.ts) y [`comercial-analisis.component.ts:580`](../../apps/view/src/app/modules/comercial/pages/comercial-analisis.component.ts) (misma etiqueta stale).
+- Fix propuesto (1 línea c/u): `sub` honesto, p.ej. `'Convertidas a caja (método del ERP)'`.
+
+### Auditoría de tiempos de carga/respuesta — el cuello NO está donde uno miraría
+
+**No se pudo medir HTTP en vivo:** la API (`:3000`) estaba abajo durante la auditoría (sólo `view` en `:4200`). Los números citados son los que **los propios devs midieron y dejaron en comentarios del código** (mediciones de prod), más el análisis estático del flujo.
+
+- **DB — sana, no es el cuello.** `mv_sellout_monthly` con índice **covering** `(tenant_id, year_month) INCLUDE (warehouse_code, product_id, channel, source, vendor_code, unit_kind, units, monto)` → pivote de meses cerrados casi index-only (**full-year all-empresas ~1.9s → ~0.9s medido**). Índice `(tenant_id, brand_id, year_month)` para el filtro por empresa; UNIQUE para REFRESH CONCURRENTLY. Split **rollup (meses cerrados) + vista `v_sellout_daily` (borde/mes en curso)** evita el escaneo día-a-día de un año (era el 500 del full-year, ~70s → sub-segundo). `KNEX_NEW_DB_ADMIN` (bypassa RLS) para el scan de Wincaja porque bajo `app_runtime` la barrera RLS impedía usar el índice de fecha → Seq Scan 1.44M filas → timeout 45s. Bien resuelto.
+- **Backend — query bien tuneada; hay reads redundantes por request (menor).** `selloutMonthlyReady()` (query a `pg_class`) corre **~3-4×** en una sola llamada a `sellOut()` (viewReady + fetchSelloutRows→usesRollup + selloutFreshness→usesRollup + selloutLeaves→usesRollup); `planSellOutSources()` se recomputa varias veces; `loadVendorIdentity()` se recarga en `sellOut`/`sellOutByVendor`/`sellOutCanales`/`sellOutVendors` sin cache entre requests. Baratos individualmente, pero se acumulan.
+- **⭐ Frontend — AQUÍ está el costo: fan-out de requests.** El constructor dispara **5 requests** (`sellOutBrands` + `sellOutWarehouses` + `sellOutCanales` + `sellOutVendors` + `sellOut`), y `refreshPeriod()` re-dispara **4** en **cada** cambio de mes/trimestre/año/rango. Peor: `loadTrees()` pide **SIEMPRE** los dos árboles (`canales` **y** `vendors`) aunque en el load default el slicer "Avanzado" esté cerrado y el modo sea `canal` → **3 escaneos del universo desperdiciados** en el arranque (`canales` = 2 `selloutLeaves`, `vendors` = 1). Cada árbol/almacén es un `groupBy` sobre el mismo universo (rollup + borde). Además `generate()` se re-dispara en cada toggle (promo, concentrar, layout, includeZeros, quitar chip, click de columna).
+
+**Recomendaciones (orden de impacto):**
+1. **Lazy-load de los árboles** `sellOutCanales`/`sellOutVendors`: pedir `canales` sólo al abrir "Avanzado", y `vendors` sólo en modo Vendedores. Ahorra 3 escaneos de universo por load y por cambio de periodo.
+2. **Cachear/deduplicar en front** los lookups por rango (los árboles y almacenes de un mismo `from/to` no cambian entre toggles de vista).
+3. **Backend:** resolver `plan`/`usesRollup`/`monthlyReady` **una vez** por request y pasarlo; cache corto de `loadVendorIdentity` por tenant.
+4. Considerar `debounce` en los toggles de vista que hoy hacen round-trip.
+
+### Estado
+
+- H1: en código (2 archivos, commit `d21c12ea`), build `view` verde, **sin push**. Validación visual + redeploy pendientes.
+- H2: documentado aquí, sin tocar.
+- Perf: sin tocar (recomendaciones arriba). Falta timing HTTP end-to-end con la API arriba.
+
+---
+
 ## 2026-09-11 — `[OR.0]`+`[OR.1]` El usuario era una credencial; pasa a ser una persona con un puesto
 
 **Disparador:** *«cambiá tu forma de pensar. Los usuarios son personas que tienen puestos, actividades, jefes, permisos, acciones. Necesito que todo esto se vea representado en la formación de un usuario. ¿Para qué? Poder asignar responsabilidades, asignar tareas, asignar trabajadores o jefes, auditar. Deja de ser una máquina que usa la interfaz, para poder personalizar la interfaz a su medida.»*
