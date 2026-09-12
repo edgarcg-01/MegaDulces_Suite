@@ -444,6 +444,22 @@ const CHANNEL_SEL_OPTS = [
           <p class="so-note"><i class="pi pi-info-circle"></i> {{ r.coverage.note }}</p>
         }
 
+        <!--
+          [U.7] La venta que el resolvedor de unidades NO pudo expresar en cajas (fila sin método en
+          v_unit_truth) se DECLARA, no se dibuja como cero mudo (ADR-056/057). El backend la manda en
+          sin_metodo; sin esta nota, el "Monto total" contaba el 100% pero la columna Cajas omitía ese
+          volumen sin avisar — el pecado que la fase U existe para prohibir. El guard es opcional porque
+          un backend previo a U.7 responde sin el campo.
+        -->
+        @if (r.sin_metodo && r.sin_metodo.monto > 0) {
+          <p class="so-note so-note-sinmetodo" role="status">
+            <i class="pi pi-exclamation-triangle"></i>
+            <span><strong>{{ r.sin_metodo.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>
+            de venta ({{ r.sin_metodo.skus | number }} {{ r.sin_metodo.skus === 1 ? 'producto' : 'productos' }})
+            no se pudo expresar en cajas — su <b>monto sí cuenta</b> en el total, pero <b>no suma a la columna Cajas</b>.</span>
+          </p>
+        }
+
         @if (r.rows.length && !concentrar()) {
           <!-- Matriz (dentro de card premium, como las secciones de reports) -->
           <div class="card-premium card-flat so-matrix-card">
@@ -683,6 +699,9 @@ const CHANNEL_SEL_OPTS = [
     .so-note-stale { color:var(--warn-fg); border-color:color-mix(in srgb, var(--warn-fg) 35%, var(--border-color)); }
     .so-note-stale strong { font-weight:700; }
     .so-note-lanes { flex-basis:100%; opacity:.85; font-size:var(--fs-xs,.72rem); padding-left:1.2rem; }
+    /* [U.7] Venta no expresable en cajas: declarada, tono warn (misma familia que la de frescura). */
+    .so-note-sinmetodo { color:var(--warn-fg); border-color:color-mix(in srgb, var(--warn-fg) 35%, var(--border-color)); }
+    .so-note-sinmetodo strong, .so-note-sinmetodo b { color:var(--warn-fg); font-weight:700; }
     /* Concentrado: total consolidado por dimensión */
     .so-conc { padding:1.25rem 1.5rem; margin-top:1rem; }
     .so-conc-head { display:flex; align-items:baseline; gap:.75rem; flex-wrap:wrap; margin-bottom:1rem; }
