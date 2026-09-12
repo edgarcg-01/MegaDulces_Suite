@@ -150,8 +150,48 @@ const nomedido = (label, why) => { skip++; console.log(`  ○ NO MEDIDO — ${la
     }
   }
 
-  // ── 4. Lo que este candado NO mide ────────────────────────────────────────────────────────
-  console.log('\n── 4. Lo que este candado no mide ──');
+  // ── 4. ⭐ La conversión del servidor: cobertura Y capacidad de RECHAZO ────────────────────
+  //
+  // `resolverUnidadCaptura` (commercial-orders) convierte una captura en CAJA a la unidad base y
+  // **rechaza** cuando el resolvedor no puede afirmar el factor. Las dos mitades importan: si
+  // convirtiera todo, el guard no estaría discriminando; si rechazara todo, la función sería
+  // inútil. Este bloque mide las dos contra el mismo predicado que usa el servicio.
+  console.log('\n── 4. ⭐ Captura en CAJA: cuánto convierte y cuánto RECHAZA ──');
+  const conv = await q(`
+    WITH vta AS (
+      SELECT product_id, sum(monto) m FROM analytics.v_sellout_daily
+       WHERE tenant_id = $1 AND business_date >= current_date - 90 AND channel <> 'traspaso'
+       GROUP BY 1)
+    SELECT (bf.product_id IS NOT NULL
+            AND bf.source <> 'default'
+            AND COALESCE(bf.is_master_suspect, false) = false
+            AND bf.box_factor::numeric > 1) AS convierte,
+           count(*)::int productos,
+           round(sum(COALESCE(vta.m, 0))::numeric, 0) AS venta_90d
+      FROM catalog.products p
+      LEFT JOIN analytics.v_product_box_factor bf
+             ON bf.tenant_id = p.tenant_id AND bf.product_id = p.id
+      LEFT JOIN vta ON vta.product_id = p.id
+     WHERE p.tenant_id = $1 AND p.deleted_at IS NULL
+     GROUP BY 1`, [T]);
+  const si = conv.find((r) => r.convierte === true) || { productos: 0, venta_90d: 0 };
+  const no = conv.find((r) => r.convierte === false) || { productos: 0, venta_90d: 0 };
+  const totalV = Number(si.venta_90d) + Number(no.venta_90d);
+  const pct = totalV > 0 ? (100 * Number(si.venta_90d) / totalV) : 0;
+  console.log(`     convierte ${si.productos} productos ($${Number(si.venta_90d).toLocaleString('en-US')})`
+    + ` · RECHAZA ${no.productos} ($${Number(no.venta_90d).toLocaleString('en-US')})`);
+  console.log(`     el dinero cubierto por la conversión es ${pct.toFixed(1)}%`);
+  check('⭐ la conversión sirve: cubre la mayor parte del dinero',
+    pct > 60,
+    `${pct.toFixed(1)}% — si cae, capturar en caja deja de ser una opción real y la pantalla `
+    + 'tiene que volver a pedir la unidad base');
+  check('⭐ PRUEBA NEGATIVA: y RECHAZA de verdad (el guard discrimina)',
+    Number(no.productos) > 0,
+    'cero rechazos: el guard dejó de exigir afirmación y está convirtiendo también donde el '
+    + 'resolvedor no sostiene el factor — que es meter una pieza donde se pidió una caja');
+
+  // ── 5. Lo que este candado NO mide ────────────────────────────────────────────────────────
+  console.log('\n── 5. Lo que este candado no mide ──');
   console.log('     ⛔ Que el VALOR de qty_unit sea el correcto. Eso lo arbitra el dinero o el ERP,');
   console.log('        y se hace por tabla cuando esa tabla tenga volumen.');
   console.log('     ⚠️  El censo es por NOMBRE de columna: una cantidad llamada de otra forma se le');
