@@ -16,6 +16,8 @@ export interface TmFiltros {
   soloVencidas: boolean;
   /** Código de sucursal (2 dígitos). `null` = todas las que el usuario alcanza. */
   sucursal: string | null;
+  /** Orden de la tabla (GT.13). Ver `ORDEN` — el backend valida contra su propia lista. */
+  orden: string;
 }
 
 /**
@@ -35,6 +37,7 @@ export function tmFiltrosIniciales(): TmFiltros {
     cobro: null,
     soloVencidas: false,
     sucursal: null,
+    orden: 'fecha_desc',
   };
 }
 
@@ -104,6 +107,10 @@ let seq = 0;
                 [options]="COBRO" optionLabel="label" optionValue="value"
                 placeholder="Estado de cobro" [showClear]="true"
                 styleClass="tmf-sel" ariaLabel="Estado de cobro" />
+
+      <p-select [ngModel]="value.orden" (ngModelChange)="emit({ orden: $event })"
+                [options]="ORDEN" optionLabel="label" optionValue="value"
+                styleClass="tmf-sel" ariaLabel="Ordenar" />
 
       <label class="f-check" [for]="id">
         <p-checkbox [ngModel]="value.soloVencidas" (ngModelChange)="emit({ soloVencidas: $event })"
@@ -182,6 +189,20 @@ export class TelemarketingFiltrosComponent implements OnDestroy {
   @Output() readonly cambio = new EventEmitter<TmFiltros>();
 
   readonly id = `tmf-venc-${++seq}`;
+  /**
+   * GT.13 — el orden es un FILTRO más, no una columna clickeable: la tabla está paginada del
+   * lado del servidor, así que ordenar por encabezado sólo reacomodaría la página visible y
+   * mentiría sobre cuál es la factura más grande del periodo.
+   */
+  readonly ORDEN = [
+    { label: 'Más reciente primero', value: 'fecha_desc' },
+    { label: 'Más antigua primero', value: 'fecha_asc' },
+    { label: 'Importe: mayor a menor', value: 'total_desc' },
+    { label: 'Importe: menor a mayor', value: 'total_asc' },
+    { label: 'Saldo: mayor a menor', value: 'saldo_desc' },
+    { label: 'Saldo: menor a mayor', value: 'saldo_asc' },
+  ];
+
   readonly COBRO = [
     { label: 'Pendientes', value: 'pendiente' },
     { label: 'Abono parcial', value: 'parcial' },
