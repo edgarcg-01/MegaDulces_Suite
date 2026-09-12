@@ -233,6 +233,10 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_CARGA_GESTIONAR]: { label: 'Gestionar Carga', description: 'Marcar líneas como cargadas / no cargadas al camión (individual o en lote).', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_MOVEMENTS_VER]: { label: 'Ver Movimientos', description: 'Diario de movimientos de stock (entradas/salidas/traspasos) con drill a documento. Solo lectura.', category: 'Comercial' },
   [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR]: { label: 'Auditar Movimientos', description: 'Marcar/desmarcar un documento de movimiento como auditado.', category: 'Comercial' },
+
+  // ── Fase CV — Catálogo interno (absorbido de 0SistemasMD/catalogo-kp) ──
+  [Permission.CATALOGO_INTERNO_VER]: { label: 'Ver Catálogo Interno', description: 'Consultar el catálogo interno de mostrador: existencia y precio por sucursal.', category: 'Catálogo Interno' },
+  [Permission.CATALOGO_INTERNO_COSTOS_VER]: { label: 'Ver Costos del Catálogo', description: 'Ver costo, margen y valor de inventario en el catálogo interno.', category: 'Catálogo Interno' },
 };
 
 /**
@@ -251,6 +255,7 @@ export const PERMISSION_CATEGORY_ORDER: readonly string[] = [
   'Comercial · Promociones',
   'Comercial · Thot',
   'Comercial · Inventario físico',
+  'Catálogo Interno',
   'Telemarketing',
   'Logística',
   'Reparto',
