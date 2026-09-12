@@ -378,7 +378,42 @@
 .mt-task-go { flex: none; color: var(--text-faint); font-size: var(--fs-xs); }
 .mt-task:hover .mt-task-go { color: var(--action); }
 
-/* Nadie reparte trabajo nominal hoy (tres tablas en cero filas): se dice, no se disimula. */
+/*
+ * `[SN.15]` El vencimiento ocupa el MISMO lugar que la antigüedad, y por eso hereda su caja: en
+ * una tarea la pregunta útil es "¿para cuándo?", y en una cola "¿desde cuándo?". Nunca aparecen
+ * las dos — la plantilla elige una.
+ */
+.mt-task-vence {
+  flex: none;
+  min-width: 2.75rem;
+  text-align: right;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+}
+/*
+ * Vencido es el ÚNICO estado semántico de esta columna. El color va sólo acá porque codifica un
+ * dato (ya pasó la fecha), que es la excepción que DESIGN.md declara — no decora la fila.
+ */
+.mt-task-vence.is-vencido { color: var(--danger, #b42318); font-weight: var(--fw-semibold); }
+
+/*
+ * Te asignaron la tarea y tu permiso no abre su pantalla. Se muestra igual —esconderla taparía
+ * que quien reparte y quien puede abrir no coinciden— pero NO finge ser un enlace: sin cursor,
+ * sin flecha, sin hover. El candado lo dice antes de leer.
+ */
+.mt-task.is-bloqueada {
+  cursor: default;
+  opacity: .78;
+  border-style: dashed;
+}
+.mt-task.is-bloqueada:hover { border-color: var(--border-color); transform: none; }
+.mt-task.is-bloqueada .mt-task-ico { background: var(--layout-bg); color: var(--text-muted); }
+.mt-task.is-bloqueada .mt-task-n { color: var(--text-muted); }
+
+/* Sobre qué universo se contó. Es procedencia, no adorno: va tenue y dentro de la 2ª línea. */
+.mt-task-ambito { color: var(--text-faint); }
+
+/* No hay trabajo a tu nombre — y el porqué cambia según haya reparto o no: se dice, no se disimula. */
 .mt-sin-mio {
   margin: 0;
   display: flex;

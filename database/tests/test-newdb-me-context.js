@@ -34,9 +34,20 @@ const { noMedido } = require('./_lib/no-medido');
 const BASE = process.env.API_BASE || 'http://localhost:3334/api';
 let pass = 0;
 let fail = 0;
+let sinMedir = 0;
 const check = (name, cond, detail) => {
   if (cond) { console.log(`  OK   ${name}`); pass++; }
   else { console.log(`  FAIL ${name}${detail !== undefined ? ` — ${JSON.stringify(detail)}` : ''}`); fail++; }
+};
+/*
+ * `[SN.15]` El tercer estado, para el caso concreto de que el PROCESO vivo sea anterior al código
+ * que estamos probando: un campo nuevo que llega `undefined` no es una regresión, es una API sin
+ * reiniciar. Marcarlo FAIL deja un rojo permanente que enseña a ignorar el tablero; marcarlo OK
+ * sería verde sin medir. Se declara (ADR-056 / `_lib/no-medido.js`), y el proceso sale con 2.
+ */
+const declarar = (name, motivo) => {
+  console.log(`  ⓘ NO MEDIDO ${name} — ${motivo}`);
+  sinMedir++;
 };
 
 async function req(method, p, body, token) {
@@ -113,14 +124,27 @@ const tieneDecoradorPermisos = (tramo) =>
     let fin = rutas.length;
     for (let i = ini + 1; i < rutas.length; i++) if (esProyecto(i)) { fin = i; break; }
 
+    /*
+     * `[SN.15]` El árbol usa DOS estilos y hay que aceptar los dos. La mayoría declara la hija en
+     * varias líneas (`path: 'hallazgos',` sola), pero el bloque `dashboard` la declara entera en
+     * una: `{ path: 'supervisor-ai', loadComponent: …, canActivate: [...] },`. Comparando sólo con
+     * `===` el candado decía «la ruta no existe en app.routes.ts» sobre una ruta que existe y que
+     * sí tiene guard — un falso negativo que además impedía verificar su permiso, que es para lo
+     * único que este bloque sirve.
+     */
     let iHija = -1;
-    for (let i = ini + 1; i < fin; i++) if (rutas[i].trim() === objetivoHija) { iHija = i; break; }
+    let enUnaLinea = false;
+    for (let i = ini + 1; i < fin; i++) {
+      const t = rutas[i].trim();
+      if (t === objetivoHija) { iHija = i; break; }
+      if (t.startsWith(`{ ${objetivoHija}`)) { iHija = i; enUnaLinea = true; break; }
+    }
     if (iHija < 0) return { encontrada: false };
 
-    // Cuerpo de la ruta: hasta la próxima línea `path: '...',` (cualquier indentación) o el fin.
+    // Cuerpo de la ruta: la propia línea si es de una sola; si no, hasta la próxima `path: '...',`.
     let finHija = fin;
     for (let i = iHija + 1; i < fin; i++) if (esLineaDePath(i)) { finHija = i; break; }
-    const cuerpo = rutas.slice(iHija, finHija).join('\n');
+    const cuerpo = enUnaLinea ? rutas[iHija] : rutas.slice(iHija, finHija).join('\n');
     return { encontrada: true, perms: [...cuerpo.matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]) };
   };
 
@@ -134,6 +158,55 @@ const tieneDecoradorPermisos = (tramo) =>
       guard: g.perms, bandeja: b.anyOf,
     });
   }
+
+  /*
+   * ── 4b. `[SN.15]` Las FUENTES DE TAREA, con el mismo candado que las bandejas ────────────────
+   * Una tarea asignada puede llevar a una ruta que su dueño no abre — eso es un hallazgo y la
+   * pantalla lo muestra sin enlace. Pero el registro NO puede apuntar a una ruta inexistente o sin
+   * guard: eso sería un bug nuestro, no un desajuste de reparto.
+   */
+  console.log('\n── 4b. Fuentes de tarea de me/work vs los guards de sus rutas ──');
+  const srcT = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/me-tasks.ts'), 'utf8');
+  const fuentes = [...srcT.matchAll(/fuente: '([^']+)',[\s\S]*?ruta: '([^']+)',[\s\S]*?anyOf: \[([^\]]*)\]/g)].map((m) => ({
+    fuente: m[1],
+    ruta: m[2],
+    anyOf: [...m[3].matchAll(/Permission\.([A-Z0-9_]+)/g)].map((x) => x[1]),
+  }));
+  check('se leyeron las 4 fuentes de tarea (si no, este bloque no mide nada)', fuentes.length === 4, fuentes.length);
+  for (const f of fuentes) {
+    const g = guardDe(f.ruta);
+    check(`${f.fuente}: la ruta ${f.ruta} existe en app.routes.ts`, g.encontrada);
+    if (!g.encontrada) continue;
+    check(`${f.fuente}: la ruta ${f.ruta} declara algún permiso`, g.perms.length > 0, g.perms);
+    check(`${f.fuente}: el guard de ${f.ruta} acepta alguna clave de su anyOf`,
+      g.perms.some((p) => f.anyOf.includes(p)), { guard: g.perms, fuente: f.anyOf });
+  }
+
+  /*
+   * ── 4c. `[SN.15]` Un solo vocabulario para las ocho colas ────────────────────────────────────
+   * `me-work.ts` las llamaba `cuadre` y `identity.responsibilities` `almacen.cuadre`, sin ningún
+   * mapeo en código. El día que `[OR.3]` enrute trabajo por responsabilidad, no iba a poder cruzar
+   * contra la bandeja que la muestra. El candado exige BIYECCIÓN: ni una clave del catálogo sin
+   * cola, ni una cola con una clave que el catálogo no declara.
+   */
+  console.log('\n── 4c. Biyección bandeja/tarea ↔ identity.responsibilities ──');
+  const mig = fs.readFileSync(
+    path.resolve(__dirname, '../migrations-newdb/20260911140000_responsibilities.js'), 'utf8',
+  );
+  const bloqueCat = mig.slice(mig.indexOf('const RESPONSABILIDADES'), mig.indexOf('const PERMISO_DE_BANDEJA'));
+  const catalogo = [...bloqueCat.matchAll(/\['([a-z]+\.[a-z]+)',/g)].map((m) => m[1]);
+  check('se leyó el catálogo de la migración (si no, este bloque no mide nada)', catalogo.length === 8, catalogo.length);
+
+  const declaradas = [
+    ...[...src.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
+    ...[...srcT.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
+  ];
+  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea)', declaradas.length === 8, declaradas);
+  const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
+  const sinCola = catalogo.filter((k) => !declaradas.includes(k));
+  check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
+  check('ninguna clave del catálogo se quedó sin cola', sinCola.length === 0, sinCola);
+  check('no hay responsabilidades repetidas entre colas', new Set(declaradas).size === declaradas.length, declaradas);
 
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');
@@ -183,12 +256,50 @@ const tieneDecoradorPermisos = (tramo) =>
     check(`pendiente ${p.id}: total > 0 (una bandeja en cero no se manda)`, typeof p.total === 'number' && p.total > 0, p);
     check(`pendiente ${p.id}: alcance declarado`, p.alcance === 'mio' || p.alcance === 'bandeja', p.alcance);
     check(`pendiente ${p.id}: ruta absoluta`, typeof p.ruta === 'string' && p.ruta.startsWith('/'), p.ruta);
+    // `[SN.15]` El universo del conteo se DECLARA: un número sin universo se lee como "lo mío".
+    if (p.ambito === undefined) declarar(`pendiente ${p.id}: ámbito`, 'la API viva es anterior a SN.15');
+    else check(`pendiente ${p.id}: ámbito declarado`,
+      ['red', 'sucursal', 'red_sin_ficha'].includes(p.ambito), p.ambito);
   }
+
+  /*
+   * `[SN.15]` Las tareas asignadas. Hasta hoy la pantalla afirmaba «Nadie te asignó trabajo hoy»
+   * SIEMPRE, sobre una medición del 10-sep que decía que las tablas de asignación estaban en cero;
+   * medido el 11-sep contra prod: 151 tareas vivas sobre 38 de 118 personas.
+   */
+  console.log('\n── 5b. Tareas asignadas (me/work.tareas) ──');
+  if (wb.tareas === undefined) {
+    declarar('bloque 5b completo', `la API en ${BASE} responde sin \`tareas\`: corre código anterior a SN.15, hay que reiniciarla`);
+  } else {
+    check('tareas es arreglo DECLARADO (nunca ausente)', Array.isArray(wb.tareas), typeof wb.tareas);
+    check('tiene_responsabilidades es booleano o null DECLARADO',
+      'tiene_responsabilidades' in wb &&
+        (wb.tiene_responsabilidades === null || typeof wb.tiene_responsabilidades === 'boolean'),
+      wb.tiene_responsabilidades);
+  }
+  const fuentesRegistradas = new Set(fuentes.map((f) => f.fuente));
+  for (const t of wb.tareas ?? []) {
+    check(`tarea ${t.fuente}: sale del registro de fuentes`, fuentesRegistradas.has(t.fuente), t.fuente);
+    check(`tarea ${t.fuente}: total > 0 (una fuente en cero no se manda)`, typeof t.total === 'number' && t.total > 0, t.total);
+    // La regla del caso sin permiso: o hay ruta, o hay motivo. Nunca las dos, nunca ninguna.
+    const conRuta = typeof t.ruta === 'string' && t.ruta.startsWith('/');
+    check(`tarea ${t.fuente}: o lleva ruta o DECLARA por qué no`,
+      (conRuta && t.sin_acceso === null) || (t.ruta === null && typeof t.sin_acceso === 'string'),
+      { ruta: t.ruta, sin_acceso: t.sin_acceso });
+    // `vence_at: null` significa "esta fuente no maneja vencimiento", y entonces `vencidas` NO
+    // puede ser 0: sería afirmar que ninguna venció sobre un dato que no existe (ADR-056).
+    check(`tarea ${t.fuente}: vencidas es null si la fuente no maneja vencimiento`,
+      t.vence_at === null ? t.vencidas === null : typeof t.vencidas === 'number',
+      { vence_at: t.vence_at, vencidas: t.vencidas });
+    check(`tarea ${t.fuente}: no_responde declarado`, Array.isArray(t.no_responde), t.no_responde);
+  }
+
   const anonW = await req('GET', '/users/me/work', null, null);
   check('401 sin token', anonW.status === 401, anonW.status);
 
-  console.log(`\n${pass} OK · ${fail} FAIL`);
-  process.exit(fail ? 1 : 0);
+  console.log(`\n${pass} OK · ${fail} FAIL${sinMedir ? ` · ${sinMedir} NO MEDIDO` : ''}`);
+  // exit 2 = NO MEDIDO: no pasó, pero tampoco es una regresión. Contrato de `_lib/no-medido.js`.
+  process.exit(fail ? 1 : sinMedir ? 2 : 0);
 })().catch((e) => {
   console.error(e);
   process.exit(1);

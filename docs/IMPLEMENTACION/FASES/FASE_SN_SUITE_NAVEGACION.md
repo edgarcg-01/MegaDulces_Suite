@@ -235,6 +235,68 @@ Ese `!important` global se come cualquier `outline: none` de componente, así qu
 
 De paso: **`Ctrl K` mentía en Mac.** El atajo acepta `metaKey` desde SN.9, así que ⌘K ya funcionaba, pero el rótulo decía Ctrl siempre. Ahora se anuncia la tecla que de verdad funciona en cada plataforma.
 
+#### 4.2.7 SN.15 — la pantalla afirmaba que nadie te asigna trabajo, y era falso (2026-09-11)
+
+Pedido de Edgar: *«analiza cómo funcionan los usuarios y los roles, y cómo debemos conectar esta interfaz con el funcionamiento de la interfaz que se hizo»*.
+
+**El análisis encontró que la pieza que faltaba ya estaba construida, ese mismo día, por la fase `[OR.*]`** (9 migraciones, batches 377-381 ya en prod). Su regla, en `libs/contracts/src/work/task.contract.ts`:
+
+> El **permiso** decide si podés ABRIRLO; la **responsabilidad** decide si es TUYO; la **tarea** dice que alguien te lo asignó, con nombre y fecha. **Una cola sin `assigned_to` no es una tarea: es una bandeja.**
+
+La landing contestaba **sólo la primera** y la presentaba como si fuera la segunda.
+
+##### Lo que se midió contra prod (`railway`, read-only) antes de tocar nada
+
+`database/scripts/or-landing-gap-report.js`, nuevo. ⚠️ Resuelve `FLEET_DB_URL` **dentro de node** y aborta si la base no es `railway`: `DATABASE_URL_NEW` del `.env` apunta a la réplica de pruebas, y medir la brecha ahí habría dado cifras que no son de nadie.
+
+| # | Medición | Resultado |
+|---|---|---|
+| 1 | Las 4 fuentes de tarea | `recon_tasks` 15 abiertas · `supervisor_tasks` 2 · `inventory_count_assignments` 18 · `daily_assignments` 119 → **151 con dueño activo** |
+| 2 | Personas con trabajo a su nombre | **38 de 118 (32.2 %)** |
+| 3 | Tareas que llevan a un 403 | **2** conteos asignados a gente sin `COMMERCIAL_INVENTORY_CONTAR` |
+| 4 | God-mode invisible | **0** — hipótesis **refutada** (ver abajo) |
+| 5 | Cobertura de sucursal | **93 % / 80 % / 74 %** de quienes ven las bandejas acotables **no tienen `warehouse_code`** |
+| 6 | Eje de responsabilidad | catálogo 8 · puesto→responsabilidad **0** · excepciones **0** |
+
+**⭐ La consecuencia directa: la pantalla mentía.** El texto «Nadie te asignó trabajo hoy · el reparto nominal está pendiente (P-06)» se apoyaba en una medición del **10-sep** que decía que las tablas de asignación estaban en cero. Era falso para **un tercio del padrón**. La frase estaba además **congelada en dos tests**, que la daban por buena.
+
+##### Lo que se construyó
+
+- **`libs/trade/src/lib/users/me-tasks.ts`** — lee las 4 tablas vía los `ADAPTADORES` del contrato. **No crea una quinta tabla**, que es justo lo que el contrato vino a cerrar. Los estados abiertos se **derivan** del mapeo (`dialectosAbiertos`), no se copian.
+- **`trade.daily_assignments` NO suma al conteo de pendientes**: su propio adaptador declara que `status` es decoración (119/119 en `pendiente`, sin CHECK) y que `day_of_week` es **recurrencia, no vencimiento**. Entra como *«tu ruta de hoy»*, filtrada por **ISODOW en TZ MX** — el mismo patrón de `vendor-cartera.sql.ts`, no `DOW`, que arranca en 0.
+- **La tarea cuyo dueño no tiene el permiso de su ruta se muestra SIN enlace**, con el motivo. Esconderla taparía que quien reparte y quien puede abrir no coinciden; enlazarla invitaría a un 403.
+- **Un solo vocabulario**: `BandejaDef.responsabilidad` ata cada cola a su clave de `identity.responsibilities` (`cuadre` ↔ `almacen.cuadre`). Sin esto, el día que `[OR.3]` enrute no iba a poder cruzar.
+- **`conteos-asignados` se mudó de bandeja a tarea**: su fila trae `assigned_by`, o sea que alguien la repartió. Estaba del lado equivocado de la línea que el contrato traza.
+
+##### El acotado por sucursal, y la trampa que casi me cuesta
+
+Sólo **una** de las 8 colas gana algo real: las otras 7 o no tienen columna de sucursal (5, medido) o ya filtran por persona (2). Para el reabasto, acotar lleva el número de **21,940 a 2,249** en una sucursal.
+
+⚠️ **Iba a unir por `warehouses.code` y habría dado CERO a Morelia.** `branchKeySql` (`[RE.23]`) documenta que la llave canónica es el código de 2 dígitos: las 7 sucursales Kepler lo guardan en `code`, pero Morelia guarda `'MD-30'`/`'MD-32'` con el dígito en `wincaja_source_branch`. Medido: la ficha de esas 2 personas dice `'30'`/`'32'`, así que el filtro obvio les habría devuelto **0 teniendo 2,813 y 1,944**.
+
+⛔ **Y el `[]` nunca se propaga.** `applyTo()` emite el mismo `WHERE false` para `none` que para un `own` sin ficha, y la ficha falta en el **74 %**. Acotar sin mirar habría convertido *«tu ficha no tiene sucursal»* en *«estás al día»*. Por eso el conteo sólo se acota si el alcance es **resoluble**, y si no, se cuenta la red y **la fila lo dice** (`ambito: 'red' | 'sucursal' | 'red_sin_ficha'`).
+
+##### Lo que se corrigió de mí mismo
+
+**La hipótesis del god-mode invisible era mía y quedó refutada.** Razoné que el backend evalúa `isPlatformAdminRole` sobre los roles frescos (unión de `user_roles`) y el frontend sobre el `role_name` del JWT (sólo el perfil base), y que como el trigger `sync_primary_role_from_user` **degrada en vez de borrar**, un ex-superadmin conservaría god-mode invisible. Medido: **cero cuentas** con rol de plataforma como complemento. El mecanismo existe; el caso no. Se midió antes de escribirlo como hallazgo.
+
+##### Candados
+
+`database/tests/test-newdb-me-context.js` → **93 OK · 0 FAIL · 8 NO MEDIDO**:
+- **4b** — las 4 fuentes de tarea contra el guard de su ruta, igual que las bandejas. Encontró un **falso negativo del propio candado**: `guardDe` sólo entendía rutas multilínea y el bloque `dashboard` las declara en una sola, así que decía «no existe» sobre `/dashboard/supervisor-ai`, que existe y tiene guard. Ahora acepta los dos estilos.
+- **4c** — **biyección** cola ↔ `identity.responsibilities` (8↔8), contra el catálogo leído de la migración.
+- **5b** — en vivo: `tareas` declarado, `o lleva ruta o dice por qué no`, y `vencidas === null` cuando la fuente no maneja vencimiento (0 sería afirmar que ninguna venció sobre un dato que no existe).
+- ⓘ **NO MEDIDO (exit 2), no FAIL**: la API viva responde sin los campos nuevos porque corre código anterior. Un rojo permanente enseña a ignorar el tablero; un verde sería no medir. Se declara con su motivo, usando `_lib/no-medido.js`.
+
+⚠️ **No se creó `me-work.spec.ts`**, que el propio `me-work.ts` citaba como su prueba: **ese archivo nunca existió** y `libs/trade` no tiene target de test (sólo `lint`), así que habría sido una prueba huérfana más — la Fase VP contó 21. Se corrigió la cita y los candados viven donde sí corren.
+
+##### Abierto, con evidencia
+
+- **`position_responsibilities` sigue vacía** (decisión de Edgar: declararla, no sembrarla desde el permiso). Mientras tanto «es tuyo» no se puede calcular y la pantalla lo dice.
+- **El reparto de permisos tiene desajustes que la landing hace visibles**, y que NO se tocaron acá: `auxiliar_mkt` —2 personas de marketing— puede abrir 6 de las 8 bandejas, incluidos **82,289 hallazgos de finanzas** (medido por `[OR.1b]`).
+- **La visibilidad se mide por ROL y la pantalla se dibuja por PERSONA**: `suite-map-visibility-report.js` simula con `role_permissions` crudo — no ve los complementos de `user_roles` (135 filas, 129 espejo → **6 reales**) ni los overrides de `user_permissions` (**31 filas sobre 3 personas**).
+- **`hideForRoles` sólo tapa la entrada primaria**: un vendedor con `COMMERCIAL_PROMOTIONS_VER` ve igual el proyecto por el cross-link.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

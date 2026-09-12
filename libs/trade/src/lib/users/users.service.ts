@@ -9,8 +9,9 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
-import { BANDEJAS, puedeVerBandeja } from './me-work';
+import { adaptadorDe, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
+import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
+import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -2013,12 +2014,26 @@ export class UsersService {
     esAdmin: boolean,
   ): Promise<MeWork> {
     const pendientes: MePendiente[] = [];
+    const tareas: MeTarea[] = [];
     const no_medido: MeWork['no_medido'] = [];
+
+    /*
+     * `[SN.15]` El alcance se resuelve UNA vez, ANTES de contar y FUERA de cualquier `tk.run`:
+     * `ScopeService` abre su propia conexión y anidar transacciones ya cobró antes en este repo.
+     *
+     * ⛔ `[]` NO se propaga. `applyTo()` emite el mismo `WHERE false` para `none` que para un `own`
+     * cuya ficha está vacía, y la ficha está vacía en el **74%** de quienes ven la bandeja de
+     * reabasto (medido en prod). Un `[]` acá convertiría "tu ficha no tiene sucursal" en "estás al
+     * día". Por eso sólo se acota cuando el alcance es RESOLUBLE y tiene valores; si no, se cuenta
+     * toda la red y la fila lo dice (ADR-056 / `[ID.26]`).
+     */
+    const sucursales = await this.sucursalesDelAlcance(userId);
+    const ctx: MedirCtx = { tenantId: this.tenantId, userId, sucursales };
 
     for (const b of BANDEJAS) {
       if (!puedeVerBandeja(b, permisos, esAdmin)) continue;
       try {
-        const { total, mas_viejo_at } = await b.medir(this.knex, this.tenantId, userId);
+        const { total, mas_viejo_at } = await b.medir(this.knex, ctx);
         // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
         if (total > 0) {
           pendientes.push({
@@ -2030,6 +2045,10 @@ export class UsersService {
             total,
             mas_viejo_at,
             alcance: b.alcance,
+            // El universo del conteo se DECLARA. "Se podría acotar pero tu ficha no tiene
+            // sucursal" no es lo mismo que "esta cola no tiene sucursal", y ninguna de las dos
+            // es "acotado a lo tuyo".
+            ambito: !b.acotablePorSucursal ? 'red' : sucursales ? 'sucursal' : 'red_sin_ficha',
           });
         }
       } catch (e) {
@@ -2046,7 +2065,7 @@ export class UsersService {
      * elementos puede ser un vehículo sin señal desde ayer. La bandeja sin fecha medible NO se
      * asume reciente: cae al final de su grupo y ahí el volumen desempata (ADR-056).
      */
-    const edad = (p: MePendiente): number =>
+    const edad = (p: { mas_viejo_at: string | null }): number =>
       p.mas_viejo_at ? Date.parse(p.mas_viejo_at) : Number.POSITIVE_INFINITY;
     pendientes.sort((a, b) => {
       if (a.alcance !== b.alcance) return a.alcance === 'mio' ? -1 : 1;
@@ -2055,7 +2074,115 @@ export class UsersService {
       if (ea !== eb) return ea - eb;
       return b.total - a.total;
     });
-    return { pendientes, no_medido, medido_at: new Date().toISOString() };
+
+    /*
+     * `[SN.15]` Lo que ALGUIEN te asignó. Va aparte de `pendientes` porque una tarea y una cola no
+     * son lo mismo: la tarea tiene dueño y fecha, la cola no. Ver `work/task.contract.ts`.
+     *
+     * La fila se muestra AUNQUE la persona no tenga el permiso que abre su ruta — en ese caso sin
+     * enlace y con el motivo. Esconderla taparía la discrepancia entre quién reparte y quién puede
+     * abrir; enlazarla invitaría a un 403 (medido en prod: 2 conteos asignados a gente sin la
+     * clave). Es un hallazgo, no un error que convenga disimular.
+     */
+    for (const f of FUENTES_VISIBLES) {
+      try {
+        const m = await f.medir(this.knex, this.tenantId, userId);
+        if (m.total === 0) continue;
+        const puede = puedeAbrirTarea(f, permisos, esAdmin);
+        tareas.push({
+          fuente: f.fuente,
+          label: f.label,
+          detalle: f.detalle,
+          ruta: puede ? f.ruta : null,
+          sin_acceso: puede
+            ? null
+            : `Te la asignaron, pero tu permiso no abre ${f.ruta}. Pídeselo a Sistemas.`,
+          icono: f.icono,
+          total: m.total,
+          mas_viejo_at: m.mas_viejo_at,
+          vence_at: m.vence_at,
+          vencidas: m.vencidas,
+          no_responde: adaptadorDe(f.fuente).no_responde,
+        });
+      } catch (e) {
+        const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
+        this.logger.warn(`me/work: tarea ${f.fuente} no se pudo contar — ${motivo}`);
+        no_medido.push({ id: f.fuente, label: f.label, motivo });
+      }
+    }
+    // Lo vencido primero; después lo que vence antes; al final lo que no vence, por antigüedad.
+    tareas.sort((a, b) => {
+      const va = (a.vencidas ?? 0) > 0 ? 0 : 1;
+      const vb = (b.vencidas ?? 0) > 0 ? 0 : 1;
+      if (va !== vb) return va - vb;
+      const fa = a.vence_at ? Date.parse(a.vence_at) : Number.POSITIVE_INFINITY;
+      const fb = b.vence_at ? Date.parse(b.vence_at) : Number.POSITIVE_INFINITY;
+      if (fa !== fb) return fa - fb;
+      return edad(a) - edad(b);
+    });
+
+    return {
+      tareas,
+      pendientes,
+      no_medido,
+      tiene_responsabilidades: await this.tieneResponsabilidades(userId),
+      medido_at: new Date().toISOString(),
+    };
+  }
+
+  /**
+   * `[SN.15]` Los códigos de sucursal a los que se acota el conteo de esta persona, o `null` para
+   * "no acotar".
+   *
+   * `null` cubre TRES casos que la pantalla necesita distinguir de "no tenés nada":
+   *   · alcance `all` (ve la red entera, por diseño),
+   *   · `resolvable: false` — la ficha no tiene `warehouse_code` (**78 de 122** personas),
+   *   · no hay `ScopeService` (los tests instancian el service sin él).
+   *
+   * Nunca devuelve `[]`: un array vacío filtraría a cero y se leería como "estás al día".
+   */
+  private async sucursalesDelAlcance(userId: string): Promise<string[] | null> {
+    if (!this.scopeService) return null;
+    try {
+      const scope = await this.scopeService.forUser(this.tenantId, userId);
+      const dim = scope.dims.warehouse;
+      if (!dim || dim.mode === 'all' || !dim.resolvable) return null;
+      return dim.values.length ? dim.values : null;
+    } catch (e) {
+      // El alcance es una MEJORA del conteo, no su requisito: si falla, se cuenta todo y se dice.
+      this.logger.warn(
+        `me/work: no se pudo resolver el alcance de ${userId} — ${e instanceof Error ? e.message : e}`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * `[SN.15]` ¿El puesto de esta persona tiene declarado de qué responde?
+   *
+   * Es la segunda de las tres preguntas (`work/task.contract.ts`): el permiso dice si podés
+   * abrirlo, la responsabilidad dice si es TUYO. Hoy la respuesta es **no para todos**:
+   * `identity.position_responsibilities` tiene 0 filas a propósito — `[OR.1b]` se negó a sembrarla
+   * desde el permiso porque eso colapsaría justo la distinción que la tabla crea (medido: una
+   * auxiliar de marketing puede ABRIR 6 de las 8 bandejas, incluidos 82,289 hallazgos de finanzas).
+   *
+   * La pantalla usa esto para DECLARAR por qué no puede decir "esto es tuyo", en vez de callarlo.
+   * `null` = no se pudo consultar (la migración no llegó a este ambiente), que no es `false`.
+   */
+  private async tieneResponsabilidades(userId: string): Promise<boolean | null> {
+    try {
+      const row = await this.knex('identity.position_responsibilities as pr')
+        .join('identity.users as u', function () {
+          this.on('u.position_code', '=', 'pr.position_code').andOn('u.tenant_id', '=', 'pr.tenant_id');
+        })
+        .where('u.id', userId)
+        .where('pr.tenant_id', this.tenantId)
+        .whereNull('pr.deleted_at')
+        .first(this.knex.raw('1 as hay'));
+      return !!row;
+    } catch {
+      return null;
+    }
   }
 
   /**
