@@ -28,7 +28,7 @@ const { computeLabels, toStageTuple, upsertLabels, barcodeFormat } = require('..
  * ── Por qué estaba faltando justo acá ────────────────────────────────────────────────────
  * `notifyLabelPricesChanged` se escribió en `[TDA.1]` y se cableó en `apply-handlers.js` — el
  * hop-2 del servicio `feeds-ingest`. Pero **el que publica el precio de etiqueta hoy es ESTE
- * script**: `[VL.4b]` lo movió al carril `prices` (`*/30`) del servidor nuevo, y este camino
+ * script**: `[VL.4b]` lo movió al carril `prices` (cada 30 min) del servidor nuevo, y este camino
  * llamaba `upsertLabels` **sin el 5º parámetro**, así que ni siquiera sabía qué había cambiado.
  *
  * O sea: el aviso no estaba apagado por configuración — **no estaba conectado al camino que
