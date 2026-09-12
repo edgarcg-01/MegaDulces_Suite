@@ -18,6 +18,7 @@ import {
   SellOutBrandRow,
   SellOutCell,
   SellOutParams,
+  SellOutRow,
   SellOutReport,
   SellOutView,
   SellOutWarehouseRow,
@@ -249,6 +250,16 @@ const CHANNEL_SEL_OPTS = [
                 <label>Medida</label>
                 <app-segmented [options]="measureOpts" [value]="measure()" (valueChange)="setMeasure($event)" ariaLabel="Medida" />
               </div>
+              <!-- [SO.U] MEDIDA y UNIDAD son dos preguntas distintas y la pantalla sólo hacía la
+                   primera: "Cajas | Monto | Ambas" elige QUÉ se mide, no EN QUÉ unidad. La cantidad
+                   salía siempre en cajas, sin ofrecer nunca la unidad en la que el ERP registró el
+                   renglón. Sólo aparece cuando hay columna de cantidad que mirar. -->
+              @if (showCajas()) {
+                <div class="so-field">
+                  <label>Unidad</label>
+                  <app-segmented [options]="unidadOpts" [value]="unidad()" (valueChange)="setUnidad($event)" ariaLabel="Unidad de medida" />
+                </div>
+              }
               @if (reportMode() === 'canal') {
                 <div class="so-field">
                   <label>Formato</label>
@@ -460,6 +471,19 @@ const CHANNEL_SEL_OPTS = [
           </p>
         }
 
+        <!-- [SO.U] Leer en unidad del ERP NO es leer en otra escala: es leer en VARIAS. Se declara
+             antes de la tabla, no en un tooltip: medido en prod (ago-2026) el 49% de los renglones
+             y el 70% del dinero traen dos unidades entre columnas. -->
+        @if (unidad() === 'base' && showCajas() && r.rows.length && !concentrar()) {
+          <p class="so-note so-note-unidad" role="status">
+            <i class="pi pi-info-circle"></i>
+            <span>Cantidades en la <b>unidad del ERP</b>, sin convertir. Cada columna trae la suya
+            (Kepler guarda la cantidad base; Wincaja, la de su unidad de venta) — por eso los
+            renglones que mezclan llevan el rótulo en cada celda y <b>no publican total</b>.
+            Los totales de abajo siguen en <b>cajas</b>: son la única unidad común.</span>
+          </p>
+        }
+
         @if (r.rows.length && !concentrar()) {
           <!-- Matriz (dentro de card premium, como las secciones de reports) -->
           <div class="card-premium card-flat so-matrix-card">
@@ -488,10 +512,10 @@ const CHANNEL_SEL_OPTS = [
                 </tr>
                 <tr>
                   @for (c of r.columns; track c.key) {
-                    @if (showCajas()) { <th class="sub">Cajas</th> }
+                    @if (showCajas()) { <th class="sub" [title]="qtyTitulo()">{{ qtyHeader() }}</th> }
                     @if (showMonto()) { <th class="sub m">Monto</th> }
                   }
-                  @if (showCajas()) { <th class="sub">Cajas</th> }
+                  @if (showCajas()) { <th class="sub" [title]="qtyTitulo()">{{ qtyHeader() }}</th> }
                   @if (showMonto()) { <th class="sub m">Monto</th> }
                 </tr>
               </thead>
@@ -521,10 +545,10 @@ const CHANNEL_SEL_OPTS = [
                       </td>
                     }
                     @for (c of r.columns; track c.key) {
-                      @if (showCajas()) { <td class="n">{{ cell(row, c.key)?.cajas != null ? (cell(row, c.key)!.cajas | number:'1.0-2') : '·' }}</td> }
+                      @if (showCajas()) { <td class="n" [title]="celdaTitulo(row)">{{ qty(row, c.key) }}@if (cellUnit(row, c.key); as u) { <span class="so-u">{{ u }}</span> }</td> }
                       @if (showMonto()) { <td class="n m">{{ cell(row, c.key)?.monto != null ? (cell(row, c.key)!.monto | currency:'MXN':'symbol-narrow':'1.0-0') : '·' }}</td> }
                     }
-                    @if (showCajas()) { <td class="n b">{{ row.total.cajas | number:'1.0-2' }}</td> }
+                    @if (showCajas()) { <td class="n b" [title]="totalFilaTitulo(row)">{{ qtyTotal(row) }}@if (unidad() === 'base' && rowUnit(row)) { <span class="so-u">{{ rowUnit(row) }}</span> }</td> }
                     @if (showMonto()) { <td class="n m b">{{ row.total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   </tr>
                 }
@@ -533,10 +557,10 @@ const CHANNEL_SEL_OPTS = [
                 <tr class="tot-row">
                   <td class="frz c0" [attr.colspan]="r.row_dim === 'month' ? 1 : 3">TOTAL</td>
                   @for (c of r.columns; track c.key) {
-                    @if (showCajas()) { <td class="n">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}</td> }
+                    @if (showCajas()) { <td class="n" [title]="pieTitulo()">{{ colTotal(r, c.key).cajas | number:'1.0-2' }}@if (unidad() === 'base') { <span class="so-u">cjs</span> }</td> }
                     @if (showMonto()) { <td class="n m">{{ colTotal(r, c.key).monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                   }
-                  @if (showCajas()) { <td class="n">{{ r.grand_total.cajas | number:'1.0-2' }}</td> }
+                  @if (showCajas()) { <td class="n" [title]="pieTitulo()">{{ r.grand_total.cajas | number:'1.0-2' }}@if (unidad() === 'base') { <span class="so-u">cjs</span> }</td> }
                   @if (showMonto()) { <td class="n m">{{ r.grand_total.monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</td> }
                 </tr>
               </tfoot>
@@ -712,6 +736,8 @@ const CHANNEL_SEL_OPTS = [
     .so-note-lanes { flex-basis:100%; opacity:.85; font-size:var(--fs-xs,.72rem); padding-left:1.2rem; }
     /* [U.7] Venta no expresable en cajas: declarada, tono warn (misma familia que la de frescura). */
     .so-note-sinmetodo { color:var(--warn-fg); border-color:color-mix(in srgb, var(--warn-fg) 35%, var(--border-color)); }
+    /* [SO.U] Informativa, no alarma: la mezcla de unidades es el estado NORMAL del dato. */
+    .so-note-unidad { color:var(--text-muted); }
     .so-note-sinmetodo strong, .so-note-sinmetodo b { color:var(--warn-fg); font-weight:700; }
     /* Concentrado: total consolidado por dimensión */
     .so-conc { padding:1.25rem 1.5rem; margin-top:1rem; }
@@ -775,6 +801,9 @@ const CHANNEL_SEL_OPTS = [
       padding:.02rem .28rem; vertical-align:middle; }
     /* [UXC.1] Las plazas no coinciden en el factor de caja: se marca, no se promedia. */
     .so-uxc-warn { font-weight:700; color:var(--warning-fg,#b45309); cursor:help; }
+    /* [SO.U] El rotulo de la unidad, pegado a la cifra y en tono secundario: acompana, no compite. */
+    .so-u { margin-left:.22rem; font-size:.62rem; font-weight:600; color:var(--text-muted);
+      text-transform:lowercase; letter-spacing:.02em; }
     .so-matrix td.mono { font-family:var(--font-mono); font-size:.74rem; }
     .so-matrix td.b { font-weight:700; }
     /* Bloque congelado: identidad del producto; divisores internos suaves + sombra de borde. */
@@ -903,6 +932,106 @@ export class ComercialSellOutComponent {
   showMonto = computed(() => this.measure() !== 'cajas');
   grpColspan = computed(() => (this.measure() === 'ambas' ? 2 : 1));
   setMeasure(m: string) { this.measure.set(m as Measure); }
+
+  // ─────────────── [SO.U] En qué UNIDAD se lee la cantidad ───────────────
+  //
+  // Pedido de Edgar (2026-09-12), el mismo que cerró `/compras/existencia`: *"aquí debería tener un
+  // selector de en qué unidad de medida se quiere ver, y la unidad de medida. Nosotros siempre
+  // usaremos por default cajas."*
+  //
+  // ⚠️ NO se confunde con "Medida": ésa elige QUÉ se mide (cantidad / dinero / las dos). Ésta elige
+  // en qué unidad se expresa la cantidad, y son preguntas independientes.
+  //
+  // Las CAJAS de esta pantalla no salen de un divisor: salen del DINERO (ingreso ÷ precio de caja,
+  // U.7) en el 87.8% del volumen, justamente porque `sales_daily.units` mezcla peldaños. La unidad
+  // BASE es lo contrario: es `units` crudo, lo que el ERP registró, sin convertir nada. Cambiar de
+  // unidad acá no recalcula — elige cuál de las dos cifras se muestra.
+  readonly unidad = signal<'caja' | 'base'>('caja');
+  readonly unidadOpts = [
+    { label: 'Cajas', value: 'caja' },
+    { label: 'Unidad del ERP', value: 'base' },
+  ];
+  setUnidad(u: string) {
+    this.unidad.set(u === 'base' ? 'base' : 'caja');
+    this.saveFilters();
+  }
+
+  qtyHeader(): string { return this.unidad() === 'base' ? 'Unidad ERP' : 'Cajas'; }
+
+  qtyTitulo(): string {
+    return this.unidad() === 'base'
+      ? 'Cantidad en la unidad BASE del ERP (la que el renglón realmente trae: piezas, kilos, '
+        + 'paquetes…), sin convertir. ⛔ No es comparable entre ERPs: Kepler guarda la cantidad '
+        + 'base y Wincaja la de su unidad de venta (ADR-055). Los totales siguen en cajas.'
+      : 'Cantidad en CAJAS. En la mayor parte del volumen NO sale de dividir: sale del dinero '
+        + '(ingreso ÷ precio de caja), que es inmune a la unidad de la cantidad. Es la única '
+        + 'unidad comparable entre sucursales y entre los dos ERPs.';
+  }
+
+  /** La cantidad de UNA celda, en la unidad elegida. `·` = la celda no existe (no hubo venta). */
+  qty(row: SellOutRow, key: string): string {
+    const c = this.cell(row, key);
+    if (!c) return '·';
+    return this.unidad() === 'base'
+      ? (c.units ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 2 })
+      : c.cajas.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /**
+   * El total de la FILA. En unidad base sólo se publica si TODAS las columnas de esa fila están en
+   * la misma unidad; si la fila mezcla (Kepler con Wincaja), queda en raya — sumar paquetes con
+   * piezas da un número que no está en ninguna unidad.
+   */
+  qtyTotal(row: SellOutRow): string {
+    if (this.unidad() !== 'base') {
+      return row.total.cajas.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    if (row.base_label_mixto) return '—';
+    return (row.total.units ?? 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });
+  }
+
+  /** El rótulo de la unidad base de la fila. Vacío = nadie la declara, y no se inventa. */
+  rowUnit(row: SellOutRow): string { return row.base_label ?? ''; }
+
+  /**
+   * El rótulo DENTRO de la celda. Sólo aparece cuando hace falta para no engañar: en las filas que
+   * mezclan unidades entre columnas. Medido en prod (ago-2026) son **el 49% de los renglones y el
+   * 70% del dinero** — típicamente `PAQ` en las columnas Wincaja contra `PZA` en las Kepler. En
+   * una fila homogénea el rótulo iría repetido en cada columna sin agregar nada: ahí va una sola
+   * vez, en el total.
+   */
+  cellUnit(row: SellOutRow, key: string): string {
+    if (this.unidad() !== 'base' || !row.base_label_mixto) return '';
+    return this.cell(row, key)?.unit ?? '';
+  }
+
+  celdaTitulo(row: SellOutRow): string {
+    if (this.unidad() !== 'base') return '';
+    if (row.base_label_mixto) {
+      return 'Las columnas de este renglón NO están en la misma unidad (mezcla Kepler, que guarda '
+        + 'la cantidad base, con Wincaja, que guarda la de su unidad de venta). Cada celda es '
+        + 'correcta en SU unidad; el total de la fila no se publica por eso.';
+    }
+    return row.base_label
+      ? `Cantidad en ${row.base_label}, tal como la registró el ERP.`
+      : 'Ninguna fuente declara en qué unidad está esta cantidad. Se muestra el número crudo del '
+        + 'ERP, sin rótulo: inventarle uno sería peor que no tenerlo.';
+  }
+
+  totalFilaTitulo(row: SellOutRow): string {
+    if (this.unidad() !== 'base') return 'Total de la fila, en cajas.';
+    return row.base_label_mixto
+      ? 'Sin total en unidad base: las columnas de esta fila están en unidades distintas.'
+      : this.celdaTitulo(row);
+  }
+
+  pieTitulo(): string {
+    return this.unidad() === 'base'
+      ? 'Los totales van SIEMPRE en cajas, también cuando la matriz se lee en la unidad del ERP: '
+        + 'una columna suma productos distintos (piezas con kilos con paquetes) y ahí no hay una '
+        + 'sola unidad que nombrar. La caja sí es común a todos.'
+      : '';
+  }
   // RS — filtro de promos: sin (default, excluye marcadores $0.01) / solo / todo.
   promo = signal<'sin' | 'solo' | 'todo'>('sin');
   readonly promoOpts = [
@@ -1233,6 +1362,7 @@ export class ComercialSellOutComponent {
     this.reportMode.set('canal');
     this.layout.set('detalle');
     this.measure.set('ambas');
+    this.unidad.set('caja');   // [SO.U] el default es CAJAS, siempre
     this.periodMode.set('month');
     this.selectedCells.set(new Set());
     this.channels.set([]);
@@ -1373,6 +1503,7 @@ export class ComercialSellOutComponent {
     try {
       localStorage.setItem(ComercialSellOutComponent.FKEY, JSON.stringify({
         brandId: this.brandId(), periodMode: this.periodMode(), measure: this.measure(),
+        unidad: this.unidad(),
         promo: this.promo(), concentrar: this.concentrar(), view: this.view(),
         reportMode: this.reportMode(), layout: this.layout(), search: this.search(),
         selectedCells: Array.from(this.selectedCells()),
@@ -1392,6 +1523,8 @@ export class ComercialSellOutComponent {
       if (s.periodMode === 'month' || s.periodMode === 'quarter' || s.periodMode === 'year' || s.periodMode === 'range') this.periodMode.set(s.periodMode);
       if ('brandId' in s) this.brandId.set(s.brandId ?? null);
       if (s.measure === 'cajas' || s.measure === 'monto' || s.measure === 'ambas') this.measure.set(s.measure);
+      // [SO.U] Sin nada guardado manda el default pedido: CAJAS.
+      if (s.unidad === 'caja' || s.unidad === 'base') this.unidad.set(s.unidad);
       if (s.promo === 'sin' || s.promo === 'solo' || s.promo === 'todo') this.promo.set(s.promo);
       if (['', 'ruta', 'canal', 'sucursal', 'empresa'].includes(s.concentrar)) this.concentrar.set(s.concentrar);
       if (s.view === 'product' || s.view === 'month_columns' || s.view === 'month_summary') this.view.set(s.view);

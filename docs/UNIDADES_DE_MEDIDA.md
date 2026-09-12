@@ -925,6 +925,109 @@ Candado: `database/tests/test-newdb-kepler-unit-ladder.js` (7 OK / 0 FAIL contra
 
 ---
 
+## 8nonies. ⭐ La unidad es de la CELDA, no de la fila (SO.U / EC.U, 2026-09-12)
+
+Edgar, después del selector de `/compras/existencia`: *"hay que agregarlo en las pantallas
+necesarias"*. Al construirlo en `/comercial/sell-out` apareció el número que reordena el diseño.
+
+### 8nonies.1 El 70% del dinero vive en renglones que mezclan dos unidades
+
+Medido contra prod sobre el **mes cerrado** (ago-2026), tomando sólo las celdas *(producto ×
+almacén)* **con venta** — o sea exactamente lo que la pantalla dibuja:
+
+```text
+renglones del reporte ........ 4,893
+  MEZCLAN dos unidades ....... 2,349  (48.0%)   $38,869,916  = 70.4% del dinero
+  una sola unidad ............ 2,443  (49.9%)   $16,273,903
+  sin rotulo declarado ....... 101    ( 2.1%)   $    39,581
+
+con que mezclan:   PAQ / PZA  2,246 renglones  $34,110,982
+                   KG  / PZA     70 renglones  $ 4,540,612
+                   resto         33 renglones  $   212,724
+```
+
+**No es un defecto del dato.** Es ADR-055 visto desde arriba: Kepler guarda la cantidad en su
+**unidad base** y Wincaja en su **unidad de venta**, así que una fila que vendió en las dos plazas
+tiene dos unidades correctas y **ninguna suma**. La consecuencia de diseño es directa:
+
+> ⭐ **El rótulo de unidad pertenece a la CELDA. La fila sólo puede llevarlo cuando todas sus
+> columnas coinciden, y el total de columna nunca puede llevarlo** — una columna suma productos
+> distintos (piezas con kilos con paquetes) y ahí no hay una sola unidad que nombrar.
+
+Por eso el modo "unidad del ERP" del sell-out rotula **cada celda** en los renglones mixtos, deja
+el total de la fila **en raya** (no en cero) y mantiene los totales de columna **en cajas**.
+
+### 8nonies.2 ⚠️ En `v_sellout_daily` el ERP viaja en `source`, NO en `channel`
+
+El primer candado de esta tanda salió rojo con **+82.99%** de diferencia contra Kepler. Era la
+consulta, no el dato: filtraba la pierna Wincaja con `channel NOT LIKE 'wincaja%'` y **ese filtro
+no excluye nada** — la pierna Wincaja de `analytics.v_sellout_daily` sale de
+`analytics.mv_wincaja_sales_daily` con canales de nombre normal (`mostrador`, `credito`…) y se
+distingue por la columna `source`. La vista tiene **tres** piernas (Kepler MV · Wincaja MV ·
+`sales_daily` de rutas), y comparar su total contra **un** doctype de Kepler es comparar universos.
+
+⚠️ Ojo con la generalización: en `analytics.sales_daily` el canal **sí** trae el prefijo
+`wincaja_`. El discriminante correcto depende de la tabla — hay que mirarla, no deducirla.
+
+Con las piernas alineadas, la identidad se cumple:
+
+```text
+KEPLER  kdm2 U-D 8/10/12 ....... 999,865.98 u base
+FACT    mv_kepler_sales_daily ... 999,334.89 u          dif  -0.0531%
+```
+
+### 8nonies.3 Rótulos: 12 valores distintos, y 29,785 celdas sin ninguno
+
+```text
+PZA 97,166 · PAQ 47,082 · (sin rotulo) 29,785 · KG 2,794 · CJA 1,108 · 500 1,058 · 250 301 · ...
+```
+
+Dos cosas que **no** se hacen con eso:
+
+- **No se rellena la ausencia.** 29,785 celdas no declaran unidad y siguen sin declararla. Poner
+  `PZA` por conveniencia es ADR-056 al revés.
+- **No se normalizan los rótulos en silencio.** `500` y `250` son el **gramaje de la bolsa**, no un
+  nombre de unidad: la pantalla los detecta (`/^[\d.]+$/`) y no los imprime como si lo fueran. Y
+  `KG` vs `KGS` es el mismo kilo escrito de dos formas, que el conteo lee como mezcla (1 renglón /
+  $2,998) — **se deja así**: normalizar rótulos en silencio es el primer paso para normalizar
+  unidades en silencio.
+
+### 8nonies.4 Qué se tocó, y qué NO
+
+| pantalla | qué tenía | qué tiene |
+|---|---|---|
+| `/compras/existencia` | — | selector (EX.U, 2026-09-12) |
+| `/comercial/sell-out` | "Medida" (cajas/monto/ambas) = **qué** se mide, nunca **en qué unidad** | selector + rótulo por celda + total retenido en filas mixtas |
+| `/compras/existencia-crítica` | 9 columnas **todas** en cajas, la unidad sólo en tooltips | selector + `*_nat` desde la fuente + encabezado que dice la unidad |
+| `/comercial/salidas` | ya publica piezas, paquetes **y** cajas a la vez | sin cambios: ya declara |
+| `/comercial/ventas-por-ruta` | tiene pestaña *Unidades* con el rótulo de la fuente | sin cambios: ya declara |
+| `/compras/pedido` | toggle `cj`/`pz` por sucursal + `Σ Piezas` + `nat`/`natu` | sin cambios: ya declara |
+
+⚠️ **Las cifras nativas de existencia-crítica NO se derivan multiplicando la columna en cajas.** Esa
+columna llega con `ROUND(..., 1)` desde SQL; devolverle el factor a un `0.1` con un divisor de 58
+inventa casi 6 unidades. Se pidieron a la fuente como campos propios (`on_hand_nat`, `min_stock_nat`,
+…), que son expresiones **que la consulta ya calculaba** para el bucket, el orden y el costo — por
+eso agregarlas no mueve ninguna cifra.
+
+⚠️ **Defecto de documentación corregido de paso:** el tooltip de existencia-crítica decía que el
+divisor era `kdii.c84`. El código usa `analytics.v_warehouse_box_factor` desde ADR-055. Nombrar
+`c84` en la pantalla es enseñarle al lector justo la fuente que las reglas prohíben — y es la que
+publicó 1 pieza por caja en el SKU `96504`.
+
+### 8nonies.5 Hallazgo lateral: `SellOutCell.monto_neto` valía cero fuera del layout `plaza`
+
+Las dos piernas SQL **seleccionan** `sum(s.monto_neto)`, el redondeo lo redondea y el contrato lo
+publica — pero ninguna línea lo sumaba en el pivote principal. Hoy **no tiene consumidor** (ni el
+front ni el exporter lo leen), así que no llegó a mentirle a nadie; un campo del contrato que
+siempre vale cero es una trampa armada para el primero que lo lea. Ya se acumula.
+
+Candado: `database/tests/test-newdb-unit-display.js` (**6 OK / 0 FAIL** contra prod), con las tres
+pruebas negativas que importan: que haya **más de un** rótulo, que la **ausencia** siga siendo
+ausencia, y que la rama de **mezcla** se ejerza de verdad. ⛔ No mide que la pantalla muestre lo que
+el backend manda: eso es validación visual y queda **pendiente**.
+
+---
+
 ## 9. Lo que NO se investigó
 
 - **Unidad de los SKUs sólo-Wincaja**: 4,925 artículos de la sucursal 30 no existen en la escalera del ODS, así que su `factor_venta` no tiene contra qué contrastarse (mismo problema del §5: factor sin ancla).

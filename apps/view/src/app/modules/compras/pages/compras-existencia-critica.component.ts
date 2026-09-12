@@ -124,6 +124,17 @@ interface DraftLine {
                  placeholder="SKU o nombre…" aria-label="Buscar por SKU o nombre" />
           @if (fSearch) { <p-inputicon styleClass="pi pi-times ec-search-clear" (click)="clearSearch()" role="button" ariaLabel="Limpiar búsqueda" /> }
         </p-iconfield>
+        <!-- [EC.U] En qué unidad se lee la tabla. Segmentado y a la vista: las nueve columnas de
+             cantidad estaban TODAS en cajas y eso sólo se decía en los tooltips. Mismo control y
+             mismo default (cajas) que /compras/existencia. -->
+        <div class="ec-unit" role="group" aria-label="Unidad de medida">
+          <button type="button" [class.on]="unidad() === 'caja'" (click)="setUnidad('caja')"
+                  [attr.aria-pressed]="unidad() === 'caja'"
+                  title="Cantidades en CAJAS: la cantidad nativa dividida por el factor del almacén (ADR-055). Es la unidad de trabajo de la compra y la única comparable entre los dos ERPs.">Cajas</button>
+          <button type="button" [class.on]="unidad() === 'nativa'" (click)="setUnidad('nativa')"
+                  [attr.aria-pressed]="unidad() === 'nativa'"
+                  title="Cantidades en la unidad NATIVA del almacén (piezas, paquetes, kilos...), tal como las guarda su ERP: sin dividir. Vienen de la fuente, no de re-multiplicar la columna en cajas.">Unidad del ERP</button>
+        </div>
       </div>
 
       <!-- Tabla -->
@@ -139,15 +150,20 @@ interface DraftLine {
             <th pSortableColumn="abc_class">Clase <p-sorticon field="abc_class" /></th>
             <th class="ec-r" pSortableColumn="sales_rank" title="Ranking por venta EN DINERO (venta/mes) del proveedor en la sucursal — #1 = el que más te vende en $ = más importante pedir. Coincide con ordenar por Venta/mes.">Rank vta <p-sorticon field="sales_rank" /></th>
             <th class="ec-r" pSortableColumn="monthly_revenue" title="Venta mensual estimada ($) = demanda diaria × 30 × precio de venta. El peso en dinero del producto: cuánto representa en venta.">Venta/mes <p-sorticon field="monthly_revenue" /></th>
-            <th class="ec-r" pSortableColumn="on_hand" title="Existencia en CAJAS. Almacenes Wincaja (Morelia) se convierten por su factor_venta; el resto por piezas/caja (c84).">Existencia (cajas) <p-sorticon field="on_hand" /></th>
-            <th class="ec-r" pSortableColumn="min_stock" title="Mínimo, en CAJAS.">Mín <p-sorticon field="min_stock" /></th>
-            <th class="ec-r" pSortableColumn="reorder_point" title="Punto de reorden, en CAJAS.">Reorden <p-sorticon field="reorder_point" /></th>
-            <th class="ec-r" pSortableColumn="max_stock" title="Máximo, en CAJAS.">Máx <p-sorticon field="max_stock" /></th>
-            <th class="ec-r" pSortableColumn="safety_stock" title="Colchón (safety stock), en CAJAS.">Colchón <p-sorticon field="safety_stock" /></th>
-            <th class="ec-r" pSortableColumn="in_transit" title="OC en tránsito por recibir, en CAJAS.">OC a recibir <p-sorticon field="in_transit" /></th>
-            <th class="ec-r" pSortableColumn="suggested_qty" title="Sugerido a pedir, en CAJAS = objetivo − existencia − tránsito.">Sugerido <p-sorticon field="suggested_qty" /></th>
-            <th class="ec-r" pSortableColumn="transfer_in" title="Del sugerido, cuánto puedes cubrir con SOBRANTE de otra sucursal (traspaso) en vez de comprar. En CAJAS.">Traspaso <p-sorticon field="transfer_in" /></th>
-            <th class="ec-r" pSortableColumn="buy_qty" title="Compra REAL = sugerido − traspaso posible. Lo que de verdad hay que pedir al proveedor. En CAJAS.">Comprar <p-sorticon field="buy_qty" /></th>
+            <!-- [EC.U] El divisor NO es kdii.c84: es analytics.v_warehouse_box_factor
+                 (display_bf), que es lo que esta consulta usa desde ADR-055. El tooltip nombraba
+                 c84 -- la columna cruda del ERP que las reglas del proyecto prohiben leer, y justo
+                 la que publico 1 pieza por caja en el SKU 96504 que abrio todo esto.
+                 (Sin acentos graves aca: este template es un template literal de JS.) -->
+            <th class="ec-r" pSortableColumn="on_hand" [title]="colTitulo('la existencia')">Existencia {{ unidadSufijo() }} <p-sorticon field="on_hand" /></th>
+            <th class="ec-r" pSortableColumn="min_stock" [title]="colTitulo('el mínimo')">Mín <p-sorticon field="min_stock" /></th>
+            <th class="ec-r" pSortableColumn="reorder_point" [title]="colTitulo('el punto de reorden')">Reorden <p-sorticon field="reorder_point" /></th>
+            <th class="ec-r" pSortableColumn="max_stock" [title]="colTitulo('el máximo')">Máx <p-sorticon field="max_stock" /></th>
+            <th class="ec-r" pSortableColumn="safety_stock" [title]="colTitulo('el colchón (safety stock)')">Colchón <p-sorticon field="safety_stock" /></th>
+            <th class="ec-r" pSortableColumn="in_transit" [title]="colTitulo('la OC en tránsito por recibir')">OC a recibir <p-sorticon field="in_transit" /></th>
+            <th class="ec-r" pSortableColumn="suggested_qty" [title]="colTitulo('el sugerido a pedir (objetivo menos existencia menos tránsito)')">Sugerido <p-sorticon field="suggested_qty" /></th>
+            <th class="ec-r" pSortableColumn="transfer_in" [title]="colTitulo('lo que se cubre con sobrante de otra sucursal en vez de comprar')">Traspaso <p-sorticon field="transfer_in" /></th>
+            <th class="ec-r" pSortableColumn="buy_qty" [title]="colTitulo('la compra REAL: sugerido menos traspaso posible')">Comprar <p-sorticon field="buy_qty" /></th>
             <th pSortableColumn="accion">Acción <p-sorticon field="accion" /></th>
             <th>Estado</th>
             <th pSortableColumn="supplier_name">Proveedor <p-sorticon field="supplier_name" /></th>
@@ -175,15 +191,15 @@ interface DraftLine {
               @if (revNum(r.monthly_revenue) > 0) { {{ money(r.monthly_revenue) }} }
               @else { <span class="ec-muted">—</span> }
             </td>
-            <td class="ec-r" [title]="cajaTitle(r)">{{ r.on_hand | number:'1.0-1' }}</td>
-            <td class="ec-r ec-muted">{{ r.min_stock | number:'1.0-1' }}</td>
-            <td class="ec-r ec-muted">{{ r.reorder_point | number:'1.0-1' }}</td>
-            <td class="ec-r ec-muted">{{ r.max_stock | number:'1.0-1' }}</td>
-            <td class="ec-r" [title]="safetyTitle(r)">{{ r.safety_stock != null ? (r.safety_stock | number:'1.0-1') : '—' }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
-            <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? (r.in_transit | number:'1.0-1') : '—' }}</td>
-            <td class="ec-r ec-muted">{{ r.suggested_qty | number:'1.0-1' }}</td>
-            <td class="ec-r" [class.ec-transit]="(r.transfer_in || 0) > 0" [title]="(r.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (r.surplus_network | number:'1.0-1')) : ''">{{ (r.transfer_in || 0) > 0 ? (r.transfer_in | number:'1.0-1') : '—' }}</td>
-            <td class="ec-r ec-strong">{{ (r.buy_qty ?? r.suggested_qty) | number:'1.0-1' }}</td>
+            <td class="ec-r" [title]="cajaTitle(r)">{{ qv(r, 'on_hand') }}@if (unidad() === 'nativa') { <span class="ec-u">{{ natU(r) }}</span> }</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'min_stock') }}</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'reorder_point') }}</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'max_stock') }}</td>
+            <td class="ec-r" [title]="safetyTitle(r)">{{ qv(r, 'safety_stock') }}@if (r.service_level) {<span class="ec-svc">{{ (r.service_level * 100) | number:'1.0-0' }}%</span>}</td>
+            <td class="ec-r" [class.ec-transit]="r.in_transit > 0">{{ r.in_transit > 0 ? qv(r, 'in_transit') : '—' }}</td>
+            <td class="ec-r ec-muted">{{ qv(r, 'suggested_qty') }}</td>
+            <td class="ec-r" [class.ec-transit]="(r.transfer_in || 0) > 0" [title]="(r.surplus_network || 0) > 0 ? ('Sobrante en la red: ' + (r.surplus_network | number:'1.0-1')) : ''">{{ (r.transfer_in || 0) > 0 ? qv(r, 'transfer_in') : '—' }}</td>
+            <td class="ec-r ec-strong">{{ qvCompra(r) }}</td>
             <td><p-tag [value]="accionLabel(r.accion)" [severity]="accionSev(r.accion)"></p-tag></td>
             <td><p-tag [value]="bucketLabel(r.bucket)" [severity]="bucketSev(r.bucket)"></p-tag></td>
             <td class="ec-muted">{{ r.supplier_name || '—' }}</td>
@@ -319,6 +335,19 @@ interface DraftLine {
     }
     .ec-rung-banner i { color:var(--warn-fg, #b45309); margin-top:.1rem; flex:none; }
     .ec-filters { display: flex; flex-wrap: wrap; gap: .5rem; align-items: flex-start; margin-bottom: .75rem; }
+    /* [EC.U] Selector de unidad: segmentado, las dos opciones SIEMPRE a la vista. Un desplegable
+       esconderia en que unidad se esta leyendo, y esa es justo la informacion que faltaba. */
+    .ec-unit { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm,6px);
+      overflow:hidden; align-self:center; }
+    .ec-unit button { appearance:none; border:0; background:transparent; cursor:pointer;
+      font:inherit; font-size:.72rem; font-weight:600; color:var(--text-muted);
+      padding:.3rem .6rem; line-height:1.2; }
+    .ec-unit button + button { border-left:1px solid var(--border-color); }
+    .ec-unit button.on { background:var(--surface-2, rgba(0,0,0,.05)); color:var(--text-main); }
+    .ec-unit button:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    /* El rotulo de la unidad, pegado a la cifra y en tono secundario: acompana, no compite. */
+    .ec-u { margin-left:.22rem; font-size:.62rem; font-weight:600; color:var(--text-muted);
+      text-transform:lowercase; letter-spacing:.02em; }
     .ec-wh { display: flex; flex-direction: column; gap: .25rem; }
     .ec-atajos { display: flex; align-items: center; gap: .1rem; flex-wrap: wrap; }
     .ec-atajos-lbl { font-size: .7rem; color: var(--text-muted); margin-right: .2rem; }
@@ -541,6 +570,7 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.cargarUnidad();   // [EC.U] sin nada guardado manda el default pedido: cajas
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
       this.warehouseOpts.set(f.warehouses.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id, code: w.code })));
       f.warehouses.forEach((w) => this.warehouseNames.set(w.id, `${w.code} · ${w.name}`));
@@ -803,12 +833,87 @@ export class ComprasExistenciaCriticaComponent implements OnInit {
     const lt = r.lead_time_days ?? '—';
     return `Safety stock por nivel de servicio ${svc} (Z×σ×√lead). Lead ${lt}d.`;
   }
+  // ─────────────── [EC.U] En qué unidad se lee la tabla ───────────────
+  //
+  // Pedido de Edgar (2026-09-12), el mismo que cerró /compras/existencia y el sell-out. Acá las
+  // nueve columnas de cantidad venían TODAS en cajas y la unidad sólo aparecía en los tooltips.
+  //
+  // ⚠️ Cambiar de unidad NO recalcula nada, y sobre todo NO re-multiplica la columna en cajas:
+  // ésa llega con `ROUND(..., 1)` desde SQL, y devolverle el factor a un 0.1 con un divisor de 58
+  // inventaría casi 6 unidades. Las cifras nativas vienen de la fuente, en su propio campo.
+  readonly unidad = signal<'caja' | 'nativa'>('caja');
+
+  setUnidad(u: 'caja' | 'nativa'): void {
+    this.unidad.set(u);
+    try { localStorage.setItem('ec.unidad', u); } catch { /* sin persistencia, no es crítico */ }
+  }
+
+  protected cargarUnidad(): void {
+    try {
+      const u = localStorage.getItem('ec.unidad');
+      if (u === 'nativa' || u === 'caja') this.unidad.set(u);
+    } catch { /* sin localStorage manda el default: cajas */ }
+  }
+
+  /** El campo hermano en unidad nativa de cada columna. Lo manda el backend, no se deriva acá. */
+  private static readonly NAT: Record<string, string> = {
+    on_hand: 'on_hand_nat', min_stock: 'min_stock_nat', reorder_point: 'reorder_point_nat',
+    max_stock: 'max_stock_nat', safety_stock: 'safety_stock_nat', in_transit: 'in_transit_nat',
+    suggested_qty: 'suggested_qty_nat', transfer_in: 'transfer_in_nat', buy_qty: 'buy_qty_nat',
+  };
+
+  /**
+   * La cantidad de una columna, en la unidad elegida. Raya cuando no hay cifra — incluido el caso
+   * en que el backend todavía no manda el campo nativo (despliegue viejo): ahí la respuesta honesta
+   * es "no lo tengo", no un cero ni una multiplicación inventada.
+   */
+  qv(r: CriticalStockRow, field: string): string {
+    const raw = this.unidad() === 'nativa'
+      ? (r as unknown as Record<string, unknown>)[ComprasExistenciaCriticaComponent.NAT[field]]
+      : (r as unknown as Record<string, unknown>)[field];
+    if (raw == null || raw === '') return '—';
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return '—';
+    return n.toLocaleString('es-MX', { maximumFractionDigits: this.unidad() === 'nativa' ? 2 : 1 });
+  }
+
+  /** "Comprar" cae al sugerido cuando el residual no viene, en la unidad que toque. */
+  qvCompra(r: CriticalStockRow): string {
+    const v = this.qv(r, 'buy_qty');
+    return v === '—' ? this.qv(r, 'suggested_qty') : v;
+  }
+
+  /** El rótulo de la unidad nativa. ⚠️ Kepler a veces guarda ahí el GRAMAJE ('500'), no un nombre. */
+  natU(r: CriticalStockRow): string {
+    const raw = String(r.rung_base_label ?? '').trim();
+    if (!raw) return '';
+    return /^[\d.]+$/.test(raw) ? '' : raw.toLowerCase();
+  }
+
+  unidadSufijo(): string { return this.unidad() === 'nativa' ? '(unidad ERP)' : '(cajas)'; }
+
+  colTitulo(que: string): string {
+    return this.unidad() === 'nativa'
+      ? `Acá va ${que} en la unidad NATIVA del almacén (piezas, paquetes, kilos...), tal como la `
+        + 'guarda su ERP: sin dividir. ⛔ No se suma entre almacenes con ERPs distintos.'
+      : `Acá va ${que} en CAJAS = la cantidad nativa dividida por el factor de ESE almacén, del `
+        + 'resolvedor canónico analytics.v_warehouse_box_factor (ADR-055). Wincaja guarda en su '
+        + 'unidad de venta y Kepler en la base, así que el divisor no es el mismo en los dos.';
+  }
+
   cajaTitle(r: CriticalStockRow) {
     const f = r.caja_factor != null ? Number(r.caja_factor) : null;
-    const win = !!r.warehouse_code && ['MD-30', 'MD-32'].includes(r.warehouse_code);
-    if (!f || f <= 1) return 'Cifras en cajas';
-    return win
-      ? `Cajas = existencia Wincaja ÷ ${f} (paquetes por caja)`
-      : `Cajas = existencia ÷ ${f} (piezas por caja)`;
+    const u = this.natU(r);
+    if (this.unidad() === 'nativa') {
+      return u
+        ? `Existencia en ${u}, la unidad del ERP de este almacén. Sin dividir.`
+        : 'Existencia en la unidad del ERP de este almacén, sin dividir. Su rótulo no está '
+          + 'declarado, así que no se le pone uno.';
+    }
+    if (!f || f <= 1) return 'Cifras en cajas (el divisor de este almacén es 1).';
+    // ⚠️ Antes decía "por piezas/caja (c84)". El divisor NO sale de kdii.c84: sale de
+    // analytics.v_warehouse_box_factor, por almacén y producto (ADR-055).
+    return `Cajas = existencia ÷ ${f}${u ? ` (${u} por caja)` : ' por caja'}, con el divisor de `
+      + 'ESTE almacén (analytics.v_warehouse_box_factor).';
   }
 }

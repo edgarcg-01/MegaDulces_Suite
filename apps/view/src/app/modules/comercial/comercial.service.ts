@@ -2191,6 +2191,20 @@ export interface SellOutColumn {
 export interface SellOutCell {
   cajas: number;
   monto: number;
+  /**
+   * [SO.U] La cantidad en la UNIDAD BASE del ERP, sin convertir (`sales_daily.units`: en Kepler su
+   * `c9`, en Wincaja su unidad de venta). El rótulo va en `SellOutRow.base_label`.
+   *
+   * ⛔ Sólo tiene sentido en CELDAS y en el total de la FILA. Los totales de columna y el gran
+   * total llegan en **0 a propósito**: suman productos distintos y ahí no hay una sola unidad que
+   * nombrar — en modo unidad base la pantalla los deja en cajas y los rotula.
+   */
+  units: number;
+  /** [SO.U] Rótulo de la unidad de ESTA celda (`PZA`, `PAQ`, `KG`, `500`…). La unidad es de la
+   *  celda, no de la fila: la columna es una sucursal y una sucursal corre UN ERP. Medido en prod
+   *  (ago-2026): el 49% de los renglones y el **70% del dinero** mezclan dos unidades entre
+   *  columnas, casi siempre `PAQ / PZA` (Kepler base vs Wincaja unidad de venta, ADR-055). */
+  unit?: string | null;
 }
 
 export interface SellOutRow {
@@ -2207,6 +2221,12 @@ export interface SellOutRow {
   /** [UXC.1] Rango observado cuando las plazas discrepan, p.ej. `1–20`. */
   uxc_rango?: string | null;
   unit_kind?: 'piece' | 'weight';
+  /** [SO.U] Rótulo de la unidad base de los `units` de esta fila (`PZA`, `KG`, `PAQ`…), del
+   *  resolvedor `analytics.v_unit_truth`. `null` = nadie lo declara **o** las columnas no coinciden. */
+  base_label?: string | null;
+  /** [SO.U] `true` = las columnas de la fila NO están en la misma unidad base (mezcla Kepler con
+   *  Wincaja, ADR-055) → el total de la fila no se publica en unidad base. */
+  base_label_mixto?: boolean;
   cells: Record<string, SellOutCell>;
   total: SellOutCell;
 }
