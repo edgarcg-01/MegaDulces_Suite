@@ -68,10 +68,30 @@ export interface UpdateOrderDraftDto {
 
 export interface AddLineDto {
   product_id: string;
+  /**
+   * La cantidad. ⚠️ Con `qty_unit` presente, va **en esa unidad** (2 = dos cajas); sin `qty_unit`
+   * va como siempre, en la unidad base, y la línea queda SIN unidad declarada.
+   */
   quantity: number;
+  /**
+   * [VU.2] En qué unidad la capturó el humano (`PZA`, `CJA`, `PAQ`…, el rótulo del ERP).
+   *
+   * Opcional y **aditivo**: sin él todo se comporta igual que antes. Con él, el servidor —no el
+   * cliente— resuelve el factor contra `analytics.v_product_box_factor` y sella la línea. Si el
+   * resolvedor no puede AFIRMAR el factor, la línea se **rechaza**: pedir "2 cajas" sin saber
+   * cuántas piezas son no se resuelve multiplicando por 1.
+   */
+  qty_unit?: string;
   /** Override del descuento por línea (0..1). Si no viene, 0. */
   discount_percent?: number;
   notes?: string;
+}
+
+/** [VU.2] Lo que el servidor sella junto a la cantidad. `null` en los tres = no se registró. */
+interface SelloUnidad {
+  qty_unit: string | null;
+  qty_factor: number | null;
+  qty_factor_source: string | null;
 }
 
 export interface UpdateLineDto {
@@ -338,6 +358,86 @@ export class CommercialOrdersService {
   // Líneas (solo en draft)
   // ─────────────────────────────────────────────────────────────────
 
+  /**
+   * [VU.2] Convierte la cantidad capturada a la unidad base y **sella** con qué la convirtió.
+   *
+   * ── Por qué lo hace el SERVIDOR y no el cliente ─────────────────────────────────────────
+   *
+   * Hasta hoy la conversión vivía en el frontend: la pantalla mostraba "caja de 24", multiplicaba
+   * y mandaba piezas. El servidor recibía un número pelado y lo guardaba sin saber de dónde venía.
+   * Eso es dos defectos en uno — el factor lo elige un cliente que puede tener una versión vieja,
+   * y la conversión no queda escrita en ningún lado (VU.0/VU.1, censo 2026-09-12).
+   *
+   * ⛔ **Sin afirmación no se convierte.** Si el resolvedor no puede sostener el factor —`source`
+   * = `default`, o la fila marcada `is_master_suspect` (pallet/granel)— la línea se RECHAZA con el
+   * motivo. Multiplicar por 1 metería una pieza donde el humano pidió una caja, y ese error es
+   * silencioso: el pedido sale, el cliente recibe 1 en vez de 24, y nadie se entera hasta el
+   * reclamo. Fallar acá es ruidoso y barato.
+   */
+  private async resolverUnidadCaptura(
+    trx: any,
+    productId: string,
+    capturada: number,
+    qtyUnit?: string,
+  ): Promise<{ quantity: number; sello: SelloUnidad }> {
+    const u = String(qtyUnit ?? '').trim().toUpperCase();
+    // Sin unidad declarada: se comporta EXACTAMENTE como antes y el sello queda en null. Un null
+    // acá es honesto; un 'PZA' de relleno sería una afirmación que nadie hizo (ADR-056).
+    if (!u) {
+      return { quantity: capturada, sello: { qty_unit: null, qty_factor: null, qty_factor_source: null } };
+    }
+
+    const bf = await trx('analytics.v_product_box_factor')
+      .where('tenant_id', trx.raw('public.current_tenant_id()'))
+      .andWhere('product_id', productId)
+      .first('box_factor', 'source', 'unit_base', 'is_master_suspect');
+
+    const base = String(bf?.unit_base ?? '').trim().toUpperCase();
+    // Capturó en la unidad base del ERP: no hay conversión que justificar.
+    if (base && u === base) {
+      return {
+        quantity: capturada,
+        sello: { qty_unit: u, qty_factor: 1, qty_factor_source: 'captura_directa' },
+      };
+    }
+
+    // ⛔ Sólo se aceptan DOS unidades: la base declarada por el ERP (arriba) y la CAJA. Cualquier
+    // otro rótulo se rechaza, y no por purismo: medido en prod, la unidad base es **PAQ en 6,595
+    // productos** y PZA en sólo 1,940. Si la pantalla manda 'PZA' para un producto cuya base es
+    // PAQ, el único factor que hay acá es el de la CAJA — multiplicar por él metería una caja
+    // donde el humano pidió una pieza. El peldaño PZA→PAQ es otro, y `v_product_box_factor` no lo
+    // publica: la escalera completa vive en `analytics.mv_kepler_unit_ladder` (ADR-063) y cablearla
+    // es una decisión aparte, no algo que este método deba improvisar.
+    const esCaja = u === 'CJA' || u === 'CAJA';
+    if (!esCaja) {
+      throw new BadRequestException(
+        `Unidad "${u}" no aceptada para este producto. Sólo se admite `
+        + `${base ? `su unidad base (${base})` : 'su unidad base, que el ERP no declara,'} o CJA. `
+        + 'Un rótulo intermedio (p. ej. PZA cuando la base es PAQ) necesita un peldaño que este '
+        + 'resolvedor no publica, y suponerlo cambiaría la cantidad del pedido.',
+      );
+    }
+
+    const factor = Number(bf?.box_factor ?? 0);
+    const afirma = !!bf && bf.source !== 'default' && bf.is_master_suspect !== true && factor > 1;
+    if (!afirma) {
+      throw new BadRequestException(
+        `No se puede convertir "${u}" a la unidad base de este producto: `
+        + (bf
+          ? `el resolvedor no lo afirma (source=${bf.source}`
+            + `${bf.is_master_suspect ? ', marcado sospechoso de pallet/granel' : ''}`
+            + `, factor=${factor}). `
+          : 'el producto no está en el resolvedor de unidad. ')
+        + 'Capturá en la unidad base o corregí el empaque en el catálogo — multiplicar por 1 '
+        + 'metería una pieza donde pediste una caja.',
+      );
+    }
+    return {
+      quantity: capturada * factor,
+      sello: { qty_unit: u, qty_factor: factor, qty_factor_source: String(bf.source) },
+    };
+  }
+
   async addLine(orderId: string, dto: AddLineDto) {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
@@ -361,6 +461,12 @@ export class CommercialOrdersService {
       const order = await this.requireDraft(trx, orderId);
       await this.enforceOrderOwnership(trx, order);
 
+      // [VU.2] La conversión va ANTES de tarificar: el tier de volumen (FIQ.3) se resuelve por
+      // cantidad en la unidad BASE, así que pedir "2 cajas" tiene que consultar el precio de 116
+      // piezas, no el de 2. Convertir después habría dejado el precio de pieza suelta.
+      const conv = await this.resolverUnidadCaptura(trx, dto.product_id, dto.quantity, dto.qty_unit);
+      const qtyBase = conv.quantity;
+
       // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
       // (igual que updateLine: conserva el snapshot de precio y recalcula) en vez
       // de crear una línea duplicada. Antes addLine SIEMPRE insertaba → el mismo
@@ -369,7 +475,7 @@ export class CommercialOrdersService {
         .where({ order_id: orderId, product_id: dto.product_id })
         .first();
       if (existing) {
-        const newQty = Number(existing.quantity) + dto.quantity;
+        const newQty = Number(existing.quantity) + qtyBase;
         // FIQ.3: re-tarificar por el NUEVO total — el tier de volumen puede bajar
         // el precio/pza al acumular (pieza→caja). Fallback al snapshot si no resuelve.
         const pi = await this.pricing.resolvePriceForQty(dto.product_id, newQty);
@@ -390,6 +496,13 @@ export class CommercialOrdersService {
             line_subtotal: exSubtotal,
             line_tax: exLineTax,
             line_total: exTotal,
+            // [VU.2] Al FUSIONAR, el sello de la línea vieja ya no describe el total. Si las dos
+            // capturas fueron en la misma unidad, el sello sigue siendo cierto; si no, se pone en
+            // null: una línea que suma 2 cajas + 5 piezas no está "en cajas" ni "en piezas", y
+            // dejar el sello viejo sería peor que no tenerlo.
+            ...(String(existing.qty_unit ?? '') === String(conv.sello.qty_unit ?? '')
+              ? {}
+              : { qty_unit: null, qty_factor: null, qty_factor_source: null }),
           })
           .returning('*');
         await this.recalcOrderTotals(trx, orderId);
@@ -398,7 +511,7 @@ export class CommercialOrdersService {
 
       // Línea nueva: precio por CANTIDAD (tier de volumen, FIQ.3) + validar MOQ.
       // El precio/pza depende de la cantidad pedida (pieza suelta vs caja).
-      const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, dto.quantity);
+      const priceInfo = await this.pricing.resolvePriceForQty(dto.product_id, qtyBase);
       if (priceInfo.price === null) {
         if (priceInfo.source === 'below_min') {
           throw new ConflictException(
@@ -413,7 +526,7 @@ export class CommercialOrdersService {
       const discount = dto.discount_percent ?? 0;
       const unitPrice = Number(priceInfo.price);
       const taxRate = Number(priceInfo.tax_rate);
-      const lineSubtotal = +(dto.quantity * unitPrice * (1 - discount)).toFixed(2);
+      const lineSubtotal = +(qtyBase * unitPrice * (1 - discount)).toFixed(2);
       const lineTax = +(lineSubtotal * taxRate).toFixed(2);
       const lineTotal = +(lineSubtotal + lineTax).toFixed(2);
 
@@ -429,8 +542,9 @@ export class CommercialOrdersService {
           order_id: orderId,
           product_id: dto.product_id,
           line_number: lineNumber,
-          quantity: dto.quantity,
-          requested_quantity: dto.quantity,
+          quantity: qtyBase,
+          requested_quantity: qtyBase,
+          ...conv.sello,
           unit_price: unitPrice,
           tax_rate: taxRate,
           discount_percent: discount,
@@ -457,14 +571,27 @@ export class CommercialOrdersService {
     if (!UUID_REGEX.test(orderId))
       throw new BadRequestException('orderId inválido');
 
-    const merged = new Map<string, { quantity: number; discount_percent?: number; notes?: string }>();
+    // [VU.2] El dedupe suma cantidades por producto. Si dos renglones del mismo producto vienen en
+    // unidades DISTINTAS, sumarlos crudo daría un número que no está en ninguna unidad — así que
+    // se marca `unidad_mixta` y más abajo esa línea se rechaza en vez de inventar un total.
+    const merged = new Map<string, {
+      quantity: number; discount_percent?: number; notes?: string;
+      qty_unit?: string; unidad_mixta?: boolean;
+    }>();
     for (const l of dto?.lines || []) {
       if (!l || !UUID_REGEX.test(l.product_id)) continue;
       const qty = Number(l.quantity);
       if (!Number.isFinite(qty) || qty <= 0) continue;
+      const u = String(l.qty_unit ?? '').trim().toUpperCase() || undefined;
       const prev = merged.get(l.product_id);
-      if (prev) prev.quantity += qty;
-      else merged.set(l.product_id, { quantity: qty, discount_percent: l.discount_percent, notes: l.notes });
+      if (prev) {
+        prev.quantity += qty;
+        if ((prev.qty_unit ?? '') !== (u ?? '')) prev.unidad_mixta = true;
+      } else {
+        merged.set(l.product_id, {
+          quantity: qty, discount_percent: l.discount_percent, notes: l.notes, qty_unit: u,
+        });
+      }
     }
 
     return this.tk.run(async (trx) => {
@@ -477,6 +604,22 @@ export class CommercialOrdersService {
       const skipped: { product_id: string; reason: string }[] = [];
       let lineNumber = 0;
       for (const [productId, info] of merged) {
+        // [VU.2] Dos capturas del mismo producto en unidades distintas no se suman: se declara.
+        if (info.unidad_mixta) {
+          skipped.push({ product_id: productId, reason: 'renglones en unidades distintas' });
+          continue;
+        }
+        // [VU.2] Convertir ANTES de tarificar: el tier de volumen se resuelve en la unidad base.
+        let conv;
+        try {
+          conv = await this.resolverUnidadCaptura(trx, productId, info.quantity, info.qty_unit);
+        } catch (e: any) {
+          // En el lote NO se aborta el pedido entero: el renglón se omite CON su motivo, igual que
+          // los que no tienen precio. Abortar los 40 renglones por uno sin factor sería peor.
+          skipped.push({ product_id: productId, reason: e?.message || 'unidad no resoluble' });
+          continue;
+        }
+        info.quantity = conv.quantity;
         // FIQ.3: precio por CANTIDAD (tier de volumen). Resolver mínimo, bumpear qty
         // al mínimo si hace falta, y tarificar al qty efectivo (el tier puede cambiar).
         const first = await this.pricing.resolvePriceForQty(productId, info.quantity);
@@ -516,6 +659,11 @@ export class CommercialOrdersService {
           line_tax: lineTax,
           line_total: lineTotal,
           notes: info.notes || null,
+          // [VU.2] Si el MOQ subió la cantidad, la captura original ya no describe la línea: el
+          // sello se conserva sólo cuando no hubo bump.
+          ...(qty === info.quantity
+            ? conv.sello
+            : { qty_unit: null, qty_factor: null, qty_factor_source: null }),
         });
       }
 
@@ -589,6 +737,11 @@ export class CommercialOrdersService {
       const requested = Number(line.requested_quantity ?? line.quantity);
       const quantity =
         dto.quantity !== undefined ? Number(dto.quantity) : prevQty;
+      // [VU.2] Editar la cantidad a mano NO trae unidad: el sello anterior describia otra cifra.
+      // Se borra en vez de quedar mintiendo. Volver a sellarla exige recapturarla con su unidad.
+      const selloTrasEdicion = dto.quantity !== undefined && quantity !== prevQty
+        ? { qty_unit: null, qty_factor: null, qty_factor_source: null }
+        : {};
       const discount =
         dto.discount_percent !== undefined
           ? dto.discount_percent
@@ -634,6 +787,7 @@ export class CommercialOrdersService {
         line_tax: lineTax,
         line_total: lineTotal,
         notes: dto.notes !== undefined ? dto.notes : line.notes,
+        ...selloTrasEdicion,
       };
       if (order.status === 'draft') {
         updatePatch.requested_quantity = quantity;
