@@ -54,6 +54,20 @@ export interface CriticalStockRow {
   // 'x1_inflada' (divisor chico → existencia se lee grande) / 'x2_deflactada' (al revés) / null.
   rung_veredicto?: 'x1_inflada' | 'x2_deflactada' | null;
   rung_base_label?: string | null; // rótulo de la unidad NATIVA del almacén (KG, PAQ, PZA…)
+  // [EC.U] Las MISMAS cantidades en la unidad NATIVA del almacén, sin dividir por el factor de
+  // caja. Vienen de la fuente y NO se derivan multiplicando la columna en cajas: ésa ya está
+  // redondeada a 1 decimal, y re-multiplicar 0.1 por un factor de 58 inventa casi 6 unidades.
+  // El rótulo de esa unidad es `rung_base_label`; sin rótulo NO se inventa uno (Kepler a veces
+  // guarda ahí el gramaje, '500', que no es un nombre de unidad).
+  on_hand_nat?: number | null;
+  in_transit_nat?: number | null;
+  min_stock_nat?: number | null;
+  reorder_point_nat?: number | null;
+  max_stock_nat?: number | null;
+  safety_stock_nat?: number | null;
+  suggested_qty_nat?: number | null;
+  transfer_in_nat?: number | null;
+  buy_qty_nat?: number | null;
   // RA-PRO.16 — redistribución (cruce de red): traspaso vs compra real.
   surplus_here?: number;      // sobrante en ESTE almacén (existencia − máximo) → traspasar a otra
   surplus_network?: number;   // sobrante del producto en OTRAS sucursales (disponible para traspaso)

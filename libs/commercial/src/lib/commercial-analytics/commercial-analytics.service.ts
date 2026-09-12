@@ -388,6 +388,9 @@ export interface BoxMethod {
   boxFactor: number;
   cjaPrice: number;
   isWeight: boolean;
+  /** [SO.U] Rótulo de la unidad BASE de este almacén (`v_unit_truth.base_label`). El resolvedor ya
+   *  lo traía; nadie lo leía, así que la cantidad se publicaba sin decir nunca en qué unidad está. */
+  baseLabel: string | null;
 }
 
 /** [U.7] Lo que NO se pudo convertir a cajas, para declararlo en vez de dibujarlo. */
@@ -403,6 +406,29 @@ export interface SellOutCell {
   /** NETO DE DESCUENTO (con IVA) = total de la factura (Kepler: c16 prorrateado; Wincaja/rutas: ya neto).
    *  `monto` es el BRUTO de línea (antes del descuento de cabecera). Las cajas NO cambian (son volumen). */
   monto_neto: number;
+  /**
+   * [SO.U] La cantidad en la UNIDAD BASE del ERP, **sin convertir**: es `sales_daily.units` tal
+   * cual, que en Kepler es su `c9` (cantidad base) y en Wincaja su unidad de venta.
+   *
+   * Existe porque la pantalla publicaba SIEMPRE cajas y nunca ofrecía la unidad en la que el ERP
+   * realmente registró el renglón. Verificado contra Kepler (mes cerrado anterior):
+   * `265,799 renglones / 999,865.98 u base` contra `999,334.89` de este campo = **-0.05%**.
+   *
+   * ⛔ NO es comparable entre ERPs ni se suma a ciegas. El rótulo va en `unit`, **de la celda**:
+   * medido en prod sobre el mes cerrado (ago-2026), **2,349 de 4,893 renglones del reporte —el
+   * 49% de las filas y el 70% del dinero ($38.9M de $55.2M)— mezclan dos unidades entre columnas**,
+   * casi siempre `PAQ / PZA` (Kepler guarda la cantidad base, Wincaja la de su unidad de venta,
+   * ADR-055). O sea la unidad NO es un atributo de la fila: es de la celda. Los totales de columna
+   * y el gran total NUNCA se publican en esta unidad — suman productos distintos.
+   */
+  units: number;
+  /**
+   * [SO.U] Rótulo de la unidad en la que está `units` de ESTA celda (`PZA`, `PAQ`, `KG`, `500`…),
+   * de `analytics.v_unit_truth.base_label`. `null` = nadie la declara (29,785 celdas del resolvedor
+   * no traen rótulo) o las filas que alimentan la celda no coinciden. Una ausencia no se dibuja
+   * como `PZA`: Kepler a veces guarda ahí el GRAMAJE (`500`, `250`), no un nombre de unidad.
+   */
+  unit?: string | null;
 }
 
 export interface SellOutRow {
@@ -431,6 +457,20 @@ export interface SellOutRow {
   /** RS.3 — 'weight' → la cantidad está en KG (granel/bulto, NO se divide a cajas);
    *  'piece'/undefined → cantidad en CAJAS (piezas ÷ factor). El frontend etiqueta según esto. */
   unit_kind?: 'piece' | 'weight';
+  /**
+   * [SO.U] Rótulo de la unidad BASE **cuando TODA la fila está en la misma** (`PZA`, `KG`, `PAQ`…),
+   * de `analytics.v_unit_truth.base_label`. `null` = ninguna columna lo declara, **o** las columnas
+   * no coinciden entre sí (`base_label_mixto`). Una ausencia NO se dibuja como "PZA" (ADR-056):
+   * Kepler a veces guarda ahí el gramaje de la bolsa (`500`, `250`), que no es un nombre de unidad.
+   */
+  base_label?: string | null;
+  /**
+   * [SO.U] `true` = las columnas de esta fila NO están en la misma unidad base (típico cuando la
+   * fila mezcla Kepler —unidad base— con Wincaja —unidad de venta, ADR-055). Con esto en `true` el
+   * total de la fila **no se publica** en unidad base: sumar paquetes con piezas da un número que
+   * no está en ninguna unidad.
+   */
+  base_label_mixto?: boolean;
   cells: Record<string, SellOutCell>;
   total: SellOutCell;
 }
@@ -670,6 +710,35 @@ function sellOutMonthLabel(ym: string): string {
  * Devuelve `cajas: 0` con `ok: false` a propósito: sumar cero no inventa volumen. Lo que estaba
  * mal antes era dividir por 1 y publicar piezas con la etiqueta "cajas".
  */
+/**
+ * [SO.U] Acumula en la fila el rótulo de la unidad base de cada celda.
+ *
+ * ⚠️ La regla que importa es la del DESACUERDO: si dos columnas de la misma fila están en unidades
+ * distintas (típico cuando la fila mezcla Kepler —unidad base— con Wincaja —unidad de venta,
+ * ADR-055), la fila deja de tener UNA unidad y el total en unidad base no se publica. Sumar
+ * paquetes con piezas da un número que no está en ninguna unidad.
+ *
+ * Una ausencia (`null`, cadena vacía) NO vota: ni confirma el rótulo ni lo contradice.
+ */
+function marcarUnidadBase(row: SellOutRow, label: string | null | undefined): void {
+  const l = String(label ?? '').trim().toUpperCase();
+  if (!l || row.base_label_mixto) return;
+  if (row.base_label == null) { row.base_label = l; return; }
+  if (row.base_label !== l) { row.base_label = null; row.base_label_mixto = true; }
+}
+
+/**
+ * [SO.U] Lo mismo, pero para la CELDA — que es donde la unidad de verdad vive: la columna es una
+ * sucursal, y una sucursal corre UN ERP. Si dos renglones de la misma celda (distintos canales)
+ * trajeran rótulos distintos, la celda se queda sin rótulo en vez de elegir uno.
+ */
+function marcarUnidadCelda(cell: SellOutCell, label: string | null | undefined): void {
+  const l = String(label ?? '').trim().toUpperCase();
+  if (!l) return;
+  if (cell.unit === undefined) { cell.unit = l; return; }
+  if (cell.unit !== l) cell.unit = null;
+}
+
 function cajasDe(
   m: BoxMethod | undefined,
   units: number,
@@ -3012,7 +3081,8 @@ export class CommercialAnalyticsService {
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [pids])
             .select('product_id', 'warehouse_code', 'box_factor', 'cja_price',
-              'metodo_cajas', 'is_weight')
+              // [SO.U] `base_label` = en qué unidad está `sales_daily.units` para este almacén.
+              'metodo_cajas', 'is_weight', 'base_label')
         : [];
 
       // [UXC.1] La columna UxC que se MUESTRA y se EXPORTA salía de `catalog.products.factor_sale`,
@@ -3061,6 +3131,7 @@ export class CommercialAnalyticsService {
         boxFactor: Number(m.box_factor) || 1,
         cjaPrice: Number(m.cja_price) || 0,
         isWeight: !!m.is_weight,
+        baseLabel: m.base_label ? String(m.base_label).trim().toUpperCase() : null,
       };
       methodByCell.set(`${m.product_id}|${m.warehouse_code}`, v);
       if (!methodByProduct.has(m.product_id)) methodByProduct.set(m.product_id, v);
@@ -3100,7 +3171,7 @@ export class CommercialAnalyticsService {
       columns: [],
       rows: [],
       column_totals: {},
-      grand_total: { cajas: 0, monto: 0, monto_neto: 0 },
+      grand_total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
       generated_at: new Date().toISOString(),
     };
 
@@ -3120,7 +3191,7 @@ export class CommercialAnalyticsService {
     if (plaza) {
       for (const col of SELLOUT_PLAZA_COLUMNS) {
         columns.set(col.key, { key: col.key, branch_code: col.key, branch_name: col.label });
-        colTotals.set(col.key, { cajas: 0, monto: 0, monto_neto: 0 });
+        colTotals.set(col.key, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
       }
     }
 
@@ -3138,7 +3209,7 @@ export class CommercialAnalyticsService {
         const colKey = plazaColKey(r.branch_code, channel, routePlaza) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
-          colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
+          colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
         }
         const punits = Number(r.units) || 0;
         const pmonto = Number(r.monto) || 0;
@@ -3156,13 +3227,17 @@ export class CommercialAnalyticsService {
           prow = {
             product_id: r.product_id, sku: r.sku, nombre: r.nombre,
             uxc: uxcFor(r.product_id).uxc, uxc_veredicto: uxcFor(r.product_id).veredicto, uxc_rango: uxcFor(r.product_id).rango,
-            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 },
+            unit_kind: pIsWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
           };
           rowMap.set(r.sku, prow);
         }
-        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
-        pcell.cajas += pcajas; pcell.monto += pmonto; pcell.monto_neto += pmontoNeto;
-        prow.total.cajas += pcajas; prow.total.monto += pmonto; prow.total.monto_neto += pmontoNeto;
+        // [SO.U] La cantidad NATIVA también se acumula, sin convertir, con el rótulo de su unidad.
+        const pBaseU = pIsWeight ? 'KG' : methodFor(r.product_id, r.branch_code)?.baseLabel;
+        marcarUnidadBase(prow, pBaseU);
+        const pcell = prow.cells[colKey] ?? (prow.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+        marcarUnidadCelda(pcell, pBaseU);
+        pcell.cajas += pcajas; pcell.monto += pmonto; pcell.monto_neto += pmontoNeto; pcell.units += punits;
+        prow.total.cajas += pcajas; prow.total.monto += pmonto; prow.total.monto_neto += pmontoNeto; prow.total.units += punits;
         const pct = colTotals.get(colKey)!; pct.cajas += pcajas; pct.monto += pmonto; pct.monto_neto += pmontoNeto;
         grandCajas += pcajas; grandMonto += pmonto; grandMontoNeto += pmontoNeto;
         continue;
@@ -3261,7 +3336,7 @@ export class CommercialAnalyticsService {
               source: src,
               source_label: srcLabel,
             });
-        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
       }
 
       // Filas: por MES (month_summary), por EMPRESA (byBrand → product_id lleva el
@@ -3276,7 +3351,7 @@ export class CommercialAnalyticsService {
               nombre: sellOutMonthLabel(r.sale_month), // el exporter usa nombre como etiqueta de fila
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0, monto_neto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
             }
           : byBrand
           ? {
@@ -3285,7 +3360,7 @@ export class CommercialAnalyticsService {
               nombre: r.brand_nombre || 'Sin empresa',
               uxc: null,
               cells: {},
-              total: { cajas: 0, monto: 0, monto_neto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
             }
           : {
               product_id: r.product_id,
@@ -3294,20 +3369,41 @@ export class CommercialAnalyticsService {
               uxc: uxcFor(r.product_id).uxc, uxc_veredicto: uxcFor(r.product_id).veredicto, uxc_rango: uxcFor(r.product_id).rango,
               unit_kind: isWeight ? 'weight' : 'piece',
               cells: {},
-              total: { cajas: 0, monto: 0, monto_neto: 0 },
+              total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
             };
         rowMap.set(rowKey, row);
       }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
+      // [SO.U] El rótulo de la unidad en la que está `units` para ESTA celda. Una fila que mezcla
+      // Kepler (unidad base) con Wincaja (unidad de venta, ADR-055) queda marcada como mixta y su
+      // total NO se publica en unidad base.
+      const baseU = isWeight ? 'KG' : methodFor(r.product_id, r.branch_code)?.baseLabel;
+      marcarUnidadBase(row, baseU);
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      marcarUnidadCelda(cell, baseU);
+      // ⚠️ `monto_neto` NO se acumulaba acá: las dos piernas SQL lo SELECCIONAN (ver
+      // `sum(s.monto_neto) as monto_neto`), el redondeo de abajo lo redondea y el contrato lo
+      // publica — pero ninguna línea lo sumaba, así que fuera del layout `plaza` salía en CERO en
+      // toda la matriz. Medido hoy: hoy NO tiene consumidor (ni el front ni el exporter leen
+      // `SellOutCell.monto_neto`), así que no llegó a mentirle a nadie — pero un campo del
+      // contrato que siempre vale cero es una trampa armada para el primero que lo lea.
+      const montoNetoCell = Number(r.monto_neto) || 0;
       cell.cajas += cajas;
       cell.monto += monto;
+      cell.monto_neto += montoNetoCell;
+      cell.units += units;
       row.total.cajas += cajas;
       row.total.monto += monto;
+      row.total.monto_neto += montoNetoCell;
+      row.total.units += units;
+      // ⛔ El total de COLUMNA no acumula `units`: suma productos distintos (piezas con kilos con
+      // paquetes). En unidad base la pantalla deja los totales en cajas y los rotula.
       const ct = colTotals.get(colKey)!;
       ct.cajas += cajas;
       ct.monto += monto;
+      ct.monto_neto += montoNetoCell;
       grandCajas += cajas;
       grandMonto += monto;
+      grandMontoNeto += montoNetoCell;
     }
 
     // Filas: incluir SKUs sin venta si include_zeros (solo aplica a filas por producto).
@@ -3321,7 +3417,7 @@ export class CommercialAnalyticsService {
             nombre: p.nombre,
             uxc: uxcFor(p.id).uxc, uxc_veredicto: uxcFor(p.id).veredicto, uxc_rango: uxcFor(p.id).rango,
             cells: {},
-            total: { cajas: 0, monto: 0, monto_neto: 0 },
+            total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
           });
         }
       }
@@ -3352,19 +3448,23 @@ export class CommercialAnalyticsService {
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     for (const row of rows) {
       for (const k of Object.keys(row.cells)) {
-        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
+        // ⚠️ Este redondeo RECONSTRUYE la celda: todo campo que no se copie acá se pierde en
+        // silencio. `unit` es el rótulo, y sin él la cantidad vuelve a ser un número sin unidad.
+        row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2), units: round(row.cells[k].units, 3), unit: row.cells[k].unit ?? null };
       }
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2), units: round(row.total.units, 3) };
     }
     const columnTotalsObj: Record<string, SellOutCell> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2), units: 0 };
 
     return {
       ...base,
       columns: orderedCols,
       rows,
       column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
+      // ⛔ El gran total NO lleva `units`: suma productos distintos, y ahí no hay una sola unidad
+      // que nombrar. En unidad base la pantalla deja el total en cajas y lo rotula.
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
       coverage: this.sellOutCoverage(Array.from(branchesWithData), retail, excludedTransfers),
       freshness,
       // [U.7] La venta que no se pudo expresar en cajas va DECLARADA, no sumada al total con un
@@ -4296,7 +4396,7 @@ export class CommercialAnalyticsService {
     const GROUP_LABEL: Record<string, string> = { mayoreo: 'Mayoreo', ruta: 'RD (Reparto)', preventa: 'RV (Vecinal)' };
     const GROUP_ORD: Record<string, number> = { mayoreo: 0, ruta: 1, preventa: 2 };
 
-    const { brand, raw, uxcRows, identMap, freshness } = await this.tk.run(async (trx) => {
+    const { brand, raw, uxcRows, baseRows, identMap, freshness } = await this.tk.run(async (trx) => {
       await trx.raw(`SET LOCAL statement_timeout = '${SELLOUT_STMT_TIMEOUT}'`); // RS.12 — ver nota en sellOut()
       const b = brandId
         ? await trx('catalog.brands as b').where('b.id', brandId).whereNull('b.deleted_at').select('b.id', 'b.nombre', 'b.code').first()
@@ -4321,10 +4421,28 @@ export class CommercialAnalyticsService {
             .whereRaw('product_id = ANY(?::uuid[])', [vpids])
             .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max')
         : [];
+      // [SO.U] El rótulo de la unidad BASE, del resolvedor y por (producto, almacén).
+      // ⚠️ NO se toma de `uv_win`: ese campo es un `CASE ... ELSE 'PZA'` del propio leg, o sea
+      // rotula PZA todo lo que no es peso — y `sales_daily.units` de Kepler está en la unidad
+      // base real del renglón (`c11`), que también puede ser PAQ o un gramaje. Rotular por
+      // conveniencia es inventar la unidad, que es el defecto que esta fase persigue.
+      const baseRows = vpids.length
+        ? await trx('analytics.v_unit_truth')
+            .where('tenant_id', tenantId)
+            .whereRaw('product_id = ANY(?::uuid[])', [vpids])
+            .select('product_id', 'warehouse_code', 'base_label')
+        : [];
       // [VP.0.3] Mismas MV, misma declaración de edad que el pivote principal.
       const freshness = await this.selloutFreshness(trx, await this.selloutUsesRollup(trx, this.planSellOutSources(from, to)));
-      return { brand: b, raw, uxcRows, identMap, freshness };
+      return { brand: b, raw, uxcRows, baseRows, identMap, freshness };
     });
+    // [SO.U] Índice del rótulo por celda y por producto (el segundo para los almacenes que el
+    // resolvedor no cubre). Sin fila NO se rotula: una ausencia no se dibuja como 'PZA'.
+    const baseByCell = new Map<string, string>();
+    for (const b of (baseRows ?? []) as any[]) {
+      const l = b.base_label ? String(b.base_label).trim().toUpperCase() : '';
+      if (l) baseByCell.set(`${b.product_id}|${b.warehouse_code}`, l);
+    }
 
     // [UXC.1] Índice por producto. Sin fila en el resolvedor el UxC va NULL declarado, nunca 1.
     const uxcByProduct = new Map<string, { uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null }>();
@@ -4372,31 +4490,38 @@ export class CommercialAnalyticsService {
       else { sinMetodo.skus.add(r.sku); sinMetodo.unidades += units; sinMetodo.monto += monto; }
       if (!columns.has(colKey)) {
         columns.set(colKey, { key: colKey, branch_code: vId.key, branch_name: vId.name, channel: group, channel_label: GROUP_LABEL[group] });
-        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0 });
+        colTotals.set(colKey, { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
       }
       let row = rowMap.get(r.sku);
-      if (!row) { const ui = uxcFor(r.product_id); row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: ui.uxc, uxc_veredicto: ui.veredicto, uxc_rango: ui.rango, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0 } }; rowMap.set(r.sku, row); }
-      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0 });
-      cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto;
-      row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto;
+      if (!row) { const ui = uxcFor(r.product_id); row = { product_id: r.product_id, sku: r.sku, nombre: r.nombre, uxc: ui.uxc, uxc_veredicto: ui.veredicto, uxc_rango: ui.rango, unit_kind: isWeight ? 'weight' : 'piece', cells: {}, total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 } }; rowMap.set(r.sku, row); }
+      // [SO.U] La unidad base acá sale del propio renglón (`uv_win`, la unidad de medida con que
+      // Wincaja registró la línea), ya normalizada arriba: en `CJA` el `units` viene multiplicado
+      // por el factor, así que queda en la unidad SUELTA — que es la que el rótulo nombra.
+      const baseU = isWeight ? 'KG' : baseByCell.get(`${r.product_id}|${r.warehouse_code}`);
+      marcarUnidadBase(row, baseU);
+      const cell = row.cells[colKey] ?? (row.cells[colKey] = { cajas: 0, monto: 0, monto_neto: 0, units: 0 });
+      marcarUnidadCelda(cell, baseU);
+      cell.cajas += cajas; cell.monto += monto; cell.monto_neto += montoNeto; cell.units += units;
+      row.total.cajas += cajas; row.total.monto += monto; row.total.monto_neto += montoNeto; row.total.units += units;
       const ct = colTotals.get(colKey)!; ct.cajas += cajas; ct.monto += monto; ct.monto_neto += montoNeto;
       grandCajas += cajas; grandMonto += monto; grandMontoNeto += montoNeto;
     }
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
     const rows = Array.from(rowMap.values()).sort((a, b) => b.total.monto - a.total.monto || a.nombre.localeCompare(b.nombre, 'es'));
     for (const row of rows) {
-      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2) };
-      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2) };
+      // ⚠️ Reconstruye la celda: `unit` se copia explícito o el rótulo se pierde.
+      for (const k of Object.keys(row.cells)) row.cells[k] = { cajas: round(row.cells[k].cajas, 3), monto: round(row.cells[k].monto, 2), monto_neto: round(row.cells[k].monto_neto, 2), units: round(row.cells[k].units, 3), unit: row.cells[k].unit ?? null };
+      row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2), units: round(row.total.units, 3) };
     }
     const orderedCols = Array.from(columns.values()).sort((a, b) =>
       (GROUP_ORD[a.channel ?? ''] ?? 9) - (GROUP_ORD[b.channel ?? ''] ?? 9) || a.branch_name.localeCompare(b.branch_name, 'es'));
     const columnTotalsObj: Record<string, SellOutCell> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2) };
+    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2), units: 0 };
     return {
       brand: { id: brand.id, nombre: brand.nombre, code: brand.code ?? null },
       period: { from, to }, group_by: 'branch_channel', view: 'product', row_dim: 'product',
       columns: orderedCols, rows, column_totals: columnTotalsObj,
-      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2) },
+      grand_total: { cajas: round(grandCajas, 3), monto: round(grandMonto, 2), monto_neto: round(grandMontoNeto, 2), units: 0 },
       // [VP.0.6] La nota de alcance es CIERTA y útil, pero no es una cobertura: este pivote agrupa
       // por vendedor y nunca trae sucursal (`selloutVendorLeg` no la selecciona), así que el eje no
       // se puede medir acá. `measured: false` lo dice; antes los dos arreglos vacíos se leían como

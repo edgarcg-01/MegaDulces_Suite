@@ -510,6 +510,17 @@ export class CommercialReplenishmentService {
       const totalRow: any = await base.clone().clearSelect().clearOrder().count('* as c').first();
       const total = Number(totalRow?.c || 0);
 
+      // [EC.U] Las MISMAS cantidades, sin dividir — en la unidad NATIVA del almacén.
+      //
+      // No se derivan en el front multiplicando la caja por el factor: la columna en cajas ya viene
+      // con `ROUND(..., 1)`, y re-multiplicar un 0.1 por un factor de 58 inventa casi 6 unidades.
+      // Se piden a la fuente. Son expresiones que esta consulta YA calcula (el bucket, el orden y
+      // el costo trabajan sobre ellas sin dividir): agregarlas al SELECT no mueve ninguna cifra.
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
+      const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
+      const surN = `GREATEST(0, COALESCE(sbp.surplus_total,0) - ${surH})`;
+      const tin = `LEAST(${sug}, ${surN})`;
+
       const rows = await base.clone()
         .select(
           'rp.product_id',
@@ -525,6 +536,16 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND(rp.reorder_point / (${cf}), 1) AS reorder_point`),
           trx.raw(`ROUND(rp.max_stock / (${cf}), 1) AS max_stock`),
           trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
+          // [EC.U] Lo mismo en unidad nativa. El rótulo ya viaja en `rung_base_label`.
+          trx.raw(`ROUND((${oh})::numeric, 2)            AS on_hand_nat`),
+          trx.raw(`ROUND((${it})::numeric, 2)            AS in_transit_nat`),
+          trx.raw(`ROUND(rp.min_stock::numeric, 2)       AS min_stock_nat`),
+          trx.raw(`ROUND(rp.reorder_point::numeric, 2)   AS reorder_point_nat`),
+          trx.raw(`ROUND(rp.max_stock::numeric, 2)       AS max_stock_nat`),
+          trx.raw(`ROUND(rp.safety_stock::numeric, 2)    AS safety_stock_nat`),
+          trx.raw(`ROUND((${sug})::numeric, 2)           AS suggested_qty_nat`),
+          trx.raw(`ROUND((${tin})::numeric, 2)           AS transfer_in_nat`),
+          trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin})::numeric, 2) AS buy_qty_nat`),
           'rp.source',
           // RA-PRO.1/2 — política profesional: safety stock por nivel de servicio + segmentación XYZ
           trx.raw(`ROUND(rp.safety_stock / (${cf}), 1) AS safety_stock`),
