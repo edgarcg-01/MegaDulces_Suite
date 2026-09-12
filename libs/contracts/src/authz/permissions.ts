@@ -378,4 +378,13 @@ export enum Permission {
   // decide el dinero, el humano confirma (ADR-016/034).
   WHATSAPP_BOT_VER = 'WHATSAPP_BOT_VER',
   WHATSAPP_BOT_GESTIONAR = 'WHATSAPP_BOT_GESTIONAR',
+
+  // ── Fase CV — Catálogo interno (mostrador), absorbido desde el repo
+  // standalone 0SistemasMD/catalogo-kp. COSTOS_VER separado de VER a
+  // propósito: ver existencia/precio no implica ver cuánto cuesta o cuánto
+  // se gana — dato más sensible, mismo criterio que costo/margen en otros
+  // módulos comerciales. Pendiente de que Edgar confirme a qué role_name(s)
+  // se les asigna cada uno (ver PR).
+  CATALOGO_INTERNO_VER = 'CATALOGO_INTERNO_VER',
+  CATALOGO_INTERNO_COSTOS_VER = 'CATALOGO_INTERNO_COSTOS_VER',
 }
