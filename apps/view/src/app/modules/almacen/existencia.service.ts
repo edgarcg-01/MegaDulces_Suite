@@ -16,7 +16,15 @@ export interface ExistenciaCell {
   q?: number;
   /** Valuado a costo. Ausente por la misma razón — y `null` jamás se dibuja como $0. */
   val?: number;
-  /** Cantidad en la unidad NATIVA del almacén. Sólo viaja cuando `rung` viaja. */
+  /**
+   * `[EX.U]` Cantidad en la unidad NATIVA del almacén — **viaja siempre**. Es lo que el ERP
+   * guarda de verdad; la caja es una DIVISIÓN de este número (ADR-055: el divisor es de
+   * presentación, el dato base no se convierte).
+   *
+   * ⛔ **No se suma entre almacenes**: uno guarda kg, otro paquetes, otro piezas. Sumarlos da un
+   * número que no está en ninguna unidad. La CAJA es la única que los dos ERPs declaran, y por
+   * eso los totales viven sólo en cajas.
+   */
   nat?: number;
   /** Rótulo de esa unidad, tal como lo declara el ERP dueño del almacén (KG, PAQ, PZA…). */
   natu?: string;

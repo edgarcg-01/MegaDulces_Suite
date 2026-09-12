@@ -121,6 +121,22 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p-multiselect [options]="bucketOpts" [(ngModel)]="fBucket" (onChange)="reload(1)"
                        optionLabel="label" optionValue="value" placeholder="Todos los estados"
                        [showClear]="true" [maxSelectedLabels]="1" styleClass="ex-sel" appendTo="body" />
+        <!-- [EX.U] En qué unidad se lee la matriz. Segmentado y no desplegable: la unidad de una
+             cifra no puede quedar escondida detrás de un clic — es la diferencia entre 58 y 1.
+             CAJAS es el default porque es la unidad de trabajo y la ÚNICA que los dos ERPs
+             declaran, así que es la única en la que los totales significan algo. -->
+        <div class="ex-unit" role="group" aria-label="Unidad de medida">
+          <button type="button" [class.on]="unidad() === 'caja'" (click)="setUnidad('caja')"
+                  [attr.aria-pressed]="unidad() === 'caja'"
+                  title="Cantidad en CAJAS. Es una división de la cantidad nativa por el factor del almacén (ADR-055), y la única unidad comparable entre almacenes: los totales sólo existen acá.">
+            Cajas
+          </button>
+          <button type="button" [class.on]="unidad() === 'nativa'" (click)="setUnidad('nativa')"
+                  [attr.aria-pressed]="unidad() === 'nativa'"
+                  title="Cantidad en la unidad NATIVA de cada almacén (kg, paquetes, piezas…), tal como la guarda su ERP. Sin dividir y sin convertir. ⛔ No se suma entre almacenes: los totales quedan en raya.">
+            Unidad del ERP
+          </button>
+        </div>
         <label class="ex-toggle">
           <p-toggleswitch [(ngModel)]="fHideZero" (onChange)="reload(1)" />
           <span>Sólo con existencia</span>
@@ -146,7 +162,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   @if (staleCol(c)) { <i class="pi pi-clock ex-stale" aria-hidden="true"></i> }
                 </th>
               }
-              <th class="ex-r" pSortableColumn="existencia">Total cjs <p-sorticon field="existencia" /></th>
+              <th class="ex-r" pSortableColumn="existencia" [title]="totalTitulo()">Total cjs <p-sorticon field="existencia" /></th>
               <th class="ex-r" pSortableColumn="valor">Valor <p-sorticon field="valor" /></th>
             </tr>
           </ng-template>
@@ -163,6 +179,14 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     <td class="ex-r ex-rung" [title]="rungTitle(r, c.code, cl)">
                       {{ cl.nat | number:'1.0-0' }} {{ natU(cl) }}
                       <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                    </td>
+                  } @else if (unidad() === 'nativa') {
+                    <!-- [EX.U] Unidad del ERP: la cantidad que el almacén guarda de verdad, con
+                         su rótulo. Acá NO hay divisor, así que tampoco hay grado de "divisor sin
+                         fuente": esa advertencia es de la vista en cajas. -->
+                    <td class="ex-r" [title]="natTitle(r, c.code, cl)">
+                      <span [class]="'ex-q ' + bClass(cl.b)">{{ cl.nat | number:'1.0-0' }}</span>
+                      <span class="ex-u">{{ natU(cl) }}</span>
                     </td>
                   } @else {
                     <!-- [W1.0/W1.3] La cifra SE MUESTRA igual (ocultarla borraría entre 24% y 58%
@@ -181,7 +205,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <td class="ex-r ex-none">·</td>
                 }
               }
-              <td class="ex-r ex-strong">{{ r.total_cajas | number:'1.0-1' }}</td>
+              <td class="ex-r ex-strong" [title]="totalTitulo()">{{ r.total_cajas | number:'1.0-1' }}@if (unidad() === 'nativa') { <span class="ex-u">cjs</span> }</td>
               <td class="ex-r ex-val" [title]="valorTitle(r)">
                 @if (r.sin_valuar) {
                   <span class="ex-rung">
@@ -285,6 +309,17 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex-search { flex: 0 1 18rem; }
     .ex-search input { width: 100%; }
     .ex-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-color-secondary); }
+    /* [EX.U] Selector de unidad: segmentado, las dos opciones SIEMPRE a la vista. Un desplegable
+       esconderia en que unidad se esta leyendo, y esa es justo la informacion que faltaba. */
+    .ex-unit { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-xs, 4px); overflow: hidden; }
+    .ex-unit button { border: 0; background: transparent; cursor: pointer; padding: .28rem .6rem;
+      font-size: .74rem; font-weight: 600; color: var(--text-color-secondary); line-height: 1.4; }
+    .ex-unit button + button { border-left: 1px solid var(--border-color); }
+    .ex-unit button:hover { background: var(--surface-hover); }
+    .ex-unit button.on { background: var(--surface-200, #e9e9e7); color: var(--text-color); }
+    .ex-unit button:focus-visible { outline: 2px solid var(--action, #c2410c); outline-offset: -2px; }
+    /* El rotulo de la unidad, pegado a la cifra y en tono secundario: acompana, no compite. */
+    .ex-u { margin-left: .22rem; font-size: .68rem; color: var(--text-color-secondary); font-weight: 500; }
     .ex-chip { cursor: pointer; }
 
     /* O.2 — full-width grid; el alto lo cede al viewport para que el pie quede a la vista. */
@@ -374,6 +409,8 @@ export class AlmacenExistenciaComponent implements OnInit {
   readonly peekSub = signal('');
 
   ngOnInit(): void {
+    // [EX.U] La unidad elegida se recuerda; sin nada guardado manda el default (cajas).
+    this.cargarUnidad();
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reload(1));
     this.reload(1);
@@ -430,6 +467,56 @@ export class AlmacenExistenciaComponent implements OnInit {
     const raw = (cl.natu || '').trim();
     if (!raw) return 'u';
     return /^[\d.]+$/.test(raw) ? 'u' : raw.toLowerCase();
+  }
+
+  // ─────────────── [EX.U] La unidad en la que se LEE la matriz ───────────────
+  //
+  // Pedido de Edgar (2026-09-12): *"aquí debería tener un selector de en qué unidad de medida se
+  // quiere ver, y la unidad de medida. Nosotros siempre usaremos por default cajas."*
+  //
+  // La pantalla mostraba números sin decir NUNCA en qué unidad estaban (salvo en las celdas con
+  // el peldaño contradicho). Dos lecturas posibles y ninguna rotulada es justo la confusión que
+  // costó el `UxC = 1` sobre una caja de 58.
+  //
+  // ⛔ No convierte nada: las dos cifras vienen del backend. `q` es la cantidad nativa DIVIDIDA
+  // por el factor del almacén (ADR-055: el divisor es de presentación) y `nat` es lo que el ERP
+  // guarda. Cambiar de unidad acá no recalcula: elige cuál de las dos se muestra.
+  readonly unidad = signal<'caja' | 'nativa'>('caja');
+
+  /** Se recuerda por usuario. Si el almacenamiento falla (ventana privada), el default manda. */
+  setUnidad(u: 'caja' | 'nativa'): void {
+    this.unidad.set(u);
+    try { localStorage.setItem('ex.unidad', u); } catch { /* sin persistencia, no es crítico */ }
+  }
+
+  private cargarUnidad(): void {
+    try {
+      const u = localStorage.getItem('ex.unidad');
+      if (u === 'nativa' || u === 'caja') this.unidad.set(u);
+    } catch { /* el default ya es 'caja' */ }
+  }
+
+  /**
+   * ⛔ El total SIEMPRE va en cajas, también cuando la matriz se lee en unidad del ERP — y por eso
+   * en ese modo se rotula. Sumar la unidad nativa entre almacenes da un número que no está en
+   * ninguna unidad: uno guarda kg, otro paquetes, otro piezas. La caja es la única que los dos
+   * ERPs declaran. Es la misma regla que el backend aplica al armar el rollup.
+   */
+  totalTitulo(): string {
+    return this.unidad() === 'nativa'
+      ? 'El total va en CAJAS aunque la matriz se lea en la unidad del ERP: sumar kg con paquetes '
+        + 'y con piezas da un número que no está en ninguna unidad. La caja es la única unidad que '
+        + 'los dos ERPs declaran.'
+      : 'Suma en cajas de las celdas medibles. Las que no se pudieron convertir quedan fuera y se '
+        + 'declaran en el aviso de arriba.';
+  }
+
+  /** Qué es exactamente la cifra nativa de esta celda, y en qué se diferencia de la de cajas. */
+  natTitle(r: ExistenciaRow, code: string, cl: ExistenciaCell): string {
+    const u = this.natU(cl);
+    const n = (cl.nat ?? 0).toLocaleString('es-MX');
+    const cajas = cl.q != null ? ` · en cajas serían ${cl.q.toLocaleString('es-MX')}` : '';
+    return `${n} ${u} en ${code}, tal como lo guarda su ERP — sin dividir ni convertir${cajas}.`;
   }
 
   bClass(b?: string): string { return b ? `b-${b}` : ''; }
