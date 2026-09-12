@@ -308,11 +308,22 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
     // ── 4. El catálogo de responsabilidades ───────────────────────────────
     console.log('\n── 4. Responsabilidades');
     const resp = await k('identity.responsibilities').select('key', 'dimension');
-    check(resp.length === 8, `el catálogo tiene ${resp.length} responsabilidades (una por bandeja de me-work.ts)`);
+    /*
+     * ⚠️ Ya NO es «una por bandeja». `[SN.17]` (2026-09-12) agregó dos que
+     * **parten una bandeja en dos trabajos**: conciliación de ingresos y de
+     * egresos viven las dos en /finanzas/bancos. O sea que el catálogo mide
+     * RESPONSABILIDADES, no pantallas, y puede ser más fino que el registro de
+     * bandejas. Se afirma el piso (las 8 originales), no la igualdad.
+     */
+    check(resp.length >= 8, `el catálogo tiene ${resp.length} responsabilidades (piso: las 8 de me-work.ts)`);
 
+    // Cuántas colas no tienen eje es una MEDICIÓN, no un invariante: sube cuando
+    // alguien agrega una responsabilidad sin dimensión. Lo que el candado
+    // sostiene es que estén NOMBRADAS, y que no crezcan sin que nadie lo note.
+    const BASE_SIN_EJE = 7; // 5 de [OR.1b] + las 2 de [SN.17], que tampoco tienen eje
     const sinEje = resp.filter((x) => !x.dimension).map((x) => x.key);
-    check(sinEje.length === 5,
-      `${sinEje.length} colas SIN eje de ruteo — medido, no asumido: ${sinEje.join(', ')}`);
+    check(sinEje.length <= BASE_SIN_EJE,
+      `${sinEje.length} colas SIN eje de ruteo (base ${BASE_SIN_EJE}) — medido, no asumido: ${sinEje.join(', ')}`);
 
     // Es catálogo de PRODUCTO: sin RLS, sólo lectura para la app.
     const meta = await k.raw(
@@ -335,6 +346,9 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
 
     // ── 5. La excepción por persona CUESTA (prueba negativa) ──────────────
     console.log('\n── 5. La excepción por persona tiene que costar');
+    // Se fotografía ANTES: el «prod intacto» de abajo se compara contra esto,
+    // no contra cero. Otras sesiones escriben en esta tabla.
+    const urAntes = Number((await k('identity.user_responsibilities').count('* as n').first()).n);
     const alguien = await k('identity.users')
       .where({ tenant_id: TENANT, kind: 'interno', activo: true })
       .whereNull('deleted_at')
@@ -385,8 +399,16 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       await trx2.rollback();
     }
 
+    /*
+     * «prod intacto» se mide contra el conteo de ANTES, no contra cero.
+     * Clavarlo en 0 afirmaba que nadie más usa la tabla, y `[SN.17]` la empezó a
+     * usar en serio el 2026-09-12 (Ivonne ingresos / Mayra egresos). Un candado
+     * que se pone rojo porque el modelo se está usando mide la cosa equivocada:
+     * lo que tiene que probar es que el ROLLBACK de esta prueba funcionó.
+     */
     const ur = await k('identity.user_responsibilities').count('* as n').first();
-    check(Number(ur.n) === 0, `prod intacto: ${ur.n} excepciones por persona`);
+    check(Number(ur.n) === urAntes,
+      `prod intacto: ${ur.n} excepciones por persona, las mismas que antes de la prueba (${urAntes})`);
 
     // ── 6. Lo que falta, declarado ────────────────────────────────────────
     console.log('\n── 6. Lo que todavía no se decidió');
@@ -407,23 +429,55 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
 
     // Toda bandeja necesita un responsable PRINCIPAL: sin eso el reparto de
     // [OR.3] no tiene a quién apuntar y el trabajo vuelve a ser cola compartida.
-    const sinPrincipal = await k.raw(
+    /*
+     * ⚠️ La afirmación se corrige: lo que importa no es que haya un PUESTO
+     * principal, sino que **alguien responda**. `[SN.17]` repartió conciliación
+     * de ingresos y egresos **por persona a propósito** — las dos auxiliares
+     * comparten el puesto `auxiliar_finanzas`, que son 6 personas, así que el
+     * puesto no distingue los dos trabajos. Exigir puesto principal declaraba
+     * huérfano un reparto que existe y tiene nombre, fecha y motivo escrito.
+     *
+     * Lo que sí sigue siendo cierto: una responsabilidad sin NADIE —ni puesto
+     * ni persona— es trabajo que el reparto de [OR.3] no puede dirigir.
+     */
+    const sinNadie = await k.raw(
       `SELECT r.key FROM identity.responsibilities r
         WHERE NOT EXISTS (
-          SELECT 1 FROM identity.position_responsibilities pr
-           WHERE pr.tenant_id = ? AND pr.responsibility_key = r.key
-             AND pr.es_principal AND pr.deleted_at IS NULL)`, [TENANT]);
-    check(sinPrincipal.rows.length === 0,
-      `las 8 responsabilidades tienen puesto PRINCIPAL (sin: ${sinPrincipal.rows.map((r) => r.key).join(', ') || 'ninguna'})`);
+                SELECT 1 FROM identity.position_responsibilities pr
+                 WHERE pr.tenant_id = ? AND pr.responsibility_key = r.key
+                   AND pr.es_principal AND pr.deleted_at IS NULL)
+          AND NOT EXISTS (
+                SELECT 1 FROM identity.user_responsibilities ur
+                 WHERE ur.tenant_id = ? AND ur.responsibility_key = r.key
+                   AND ur.accion = 'suma'
+                   AND (ur.valid_to IS NULL OR ur.valid_to >= current_date))`, [TENANT, TENANT]);
+    check(sinNadie.rows.length === 0,
+      `toda responsabilidad tiene responsable, por puesto o por persona (sin nadie: ${sinNadie.rows.map((r) => r.key).join(', ') || 'ninguna'})`);
 
     // `[OR.3a]` El catálogo declara qué permiso lo abre. Sin esto, el cruce
     // responsabilidad × permiso vivía SÓLO en TypeScript y la base no podía
     // contestar si un puesto puede abrir lo que responde.
+    /*
+     * LÍNEA BASE DECLARADA, no cero. Las dos de `[SN.17]` nacieron sin claves el
+     * 2026-09-12, y es un hueco REAL: Ivonne y Mayra responden de algo y la base
+     * no puede contestar qué permiso lo abre, así que `v_authz_coherencia_resp`
+     * no las puede juzgar. No se pinta de verde y tampoco se deja el suite en
+     * rojo permanente: se congela el conjunto conocido y **el candado muerde si
+     * CRECE**. Dueño: la sesión de [SN.17]. Se quita esta base al cablearlas.
+     */
+    const BASE_SIN_CLAVE = ['finanzas.conciliacion_ingresos', 'finanzas.conciliacion_egresos'];
     const sinClave = await k('identity.responsibilities')
       .whereRaw(`array_length(permission_keys, 1) IS NULL`)
       .pluck('key');
-    check(sinClave.length === 0,
-      `toda responsabilidad declara las claves que la abren (sin declarar: ${sinClave.join(', ') || 'ninguna'})`);
+    const nuevasSinClave = sinClave.filter((x) => !BASE_SIN_CLAVE.includes(x));
+    check(nuevasSinClave.length === 0,
+      `ninguna responsabilidad NUEVA sin declarar qué permiso la abre (nuevas: ${nuevasSinClave.join(', ') || 'ninguna'})`);
+    if (sinClave.length) {
+      declarar(
+        `${sinClave.length} responsabilidad/es de la base conocida siguen sin permission_keys ` +
+        `(${sinClave.join(', ')}): el cruce responsabilidad × permiso no las puede juzgar. Deuda de [SN.17].`,
+      );
+    }
 
     const sinJefe = await k.raw(
       `SELECT count(*)::int n FROM identity.positions p
