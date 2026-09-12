@@ -375,6 +375,57 @@ clasificado**: hueco declarado, no medido.
   del NestJS, no del crontab de `md`), y el `health_watchdog` los reporta **vivos**
   (*"scanner vivo · canal externo: NINGUNO"*). El dead-man switch no caza a su propio muerto.
 
+### 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12)
+
+**Toda tabla que Kepler cree de hoy en adelante nace invisible para la replicación, en silencio.**
+
+```sql
+-- medido en los 6 POS alcanzables, idéntico en todos:
+default_privileges en schema md:  sa(r):platform_ro=r/sa  |  postgres(r):ods_repl=r/postgres
+                                  ▲ el rol que CREA          ▲ un rol que NO crea nada
+```
+
+El `ALTER DEFAULT PRIVILEGES` quedó **cruzado**. Las tablas de Kepler las crea **`sa`**, y bajo `sa`
+sólo se declaró `platform_ro`. A **`ods_repl`** —el usuario con el que corre el **tablesync**— se le
+declaró el default bajo `postgres`, que no crea tablas. El runbook
+[`RUNBOOK_REPLICACION_LOGICA.md`](IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md) **sí** manda las dos
+líneas; en la realidad sólo entró una.
+
+**Cómo falla:** el worker de tablesync intenta el `COPY`, no tiene `SELECT`, falla y **reintenta para
+siempre**. La tabla queda en `pg_subscription_rel` con `srsubstate='d'`. ⚠️ **La suscripción sigue
+`enabled`, el apply worker sigue sano y el lag sigue en segundos** — sólo esa tabla no llega.
+`sub_md_00` acumulaba **9,568 `sync_error_count`** por esta vía sin que nada se pusiera rojo.
+
+**Medido el 2026-09-12** — la cobertura explicativa es total:
+
+| observación | causa |
+|---|---|
+| `kdc22608` (ago) replicó en las 7 ramas | `has_table_privilege('ods_repl', …)` = **true** (hubo un `GRANT` explícito después de crearla) |
+| `kdc22609` (sep) **no** replica en 01–06 | = **false** |
+| las ramas `00` y `07` **sí** tienen septiembre | su `kdc22609` sí quedó legible |
+| las 7 tablas `kdrh*`/`kdfe33nomem` de la `00`, trabadas desde siempre | = **false** |
+
+**El arreglo (requiere `sa` o superusuario en CADA POS — `platform_ro` no alcanza):**
+
+```sql
+-- 1) la línea que faltaba: evita que vuelva a pasar con CADA tabla futura
+ALTER DEFAULT PRIVILEGES FOR ROLE sa IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;
+
+-- 2) destrabar lo que ya está en 'd' — UNA tabla por sentencia, NO `ON ALL TABLES`
+GRANT SELECT ON md.kdc22609 TO ods_repl;
+```
+
+⚠️ **No usar `GRANT SELECT ON ALL TABLES IN SCHEMA md` en horario hábil.** Toma lock sobre las ~330
+tablas y las retiene hasta el commit: es un POS con cajas cobrando. Grant por tabla, auto-commit.
+
+✅ **No hace falta re-ejecutar el `REFRESH`**: las tablas ya quedaron enroladas en `d` y el tablesync
+reintenta solo — en cuanto el `GRANT` entre, completan y se ponen en `r`.
+
+⚠️ **La rama `06` necesita un paso extra antes**: su `REFRESH` aborta con
+`relation "md.kdrhaspent" does not exist` — el POS creó esa tabla y la réplica nunca la recibió
+(el DDL no se replica). Hay que crearla en el suscriptor primero. De las 8 réplicas sólo `md_07` la
+tiene, así que el DDL hay que sacarlo del POS de la `06`, **no** copiarlo a ojo desde la `07`.
+
 ### 4.2 ⏰ La bomba de calendario — fecha exacta: **2027-01-01**
 
 Kepler crea tablas nuevas al cambiar el período (`kdc2YYMM` mensual; `kdcn<YY>`, `kdmx_<YY>`,
