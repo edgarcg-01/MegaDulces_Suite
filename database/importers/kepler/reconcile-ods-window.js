@@ -24,10 +24,16 @@
  *
  * Desde OBS.8 mira el espejo COMPLETO, no sólo la mitad: además de los FALTANTES (que repone) cuenta
  * los SOBRANTES — llaves que siguen en el ODS y ya no están en el replica. Al retirarse el CDC WAL se
- * fue lo único que propagaba DELETE, y esta es la señal que lo reemplaza. **Se reporta, no se borra**:
- * borrar en el ODS necesita autorización explícita, y una fila a la que le cambió su fecha de negocio
- * sale de la ventana sin haber sido borrada, así que el número trae falsos positivos por construcción.
- * Su alarma nace APAGADA (`ODS_SOBRANTES_ALERT=0`) hasta que haya observación para fijarle un piso.
+ * fue lo único que propagaba DELETE, y este es su reemplazo.
+ *
+ * OBS.11 (Opción A, 2026-09-12): con `--delete-sobrantes` (o `ODS_DELETE_SOBRANTES=1`) ya no sólo
+ * reporta — PROPAGA el DELETE al ODS por `raw-delete` (el MISMO camino que usaba el WAL-CDC retirado).
+ * Dos frenos anti-catástrofe: (1) re-confirma cada sobrante contra la tabla COMPLETA del replica —un
+ * sobrante que sigue ahí salió de la ventana por cambio de fecha, NO fue borrado → no se toca; 0% falso
+ * positivo medido 2026-09-12—; (2) nunca borra más de `ODS_DELETE_MAX_FRAC` (default 0.6) del ODS de una
+ * tabla×rama en una pasada: una réplica rota haría parecer sobrante a TODO el ODS, así que si se pasa,
+ * ABORTA y reporta. `--full` ignora la ventana para el barrido único del backlog (sólo-DELETE, no
+ * repone). Su alarma de sobrantes-como-señal nace APAGADA (`ODS_SOBRANTES_ALERT=0`); el DELETE, OFF.
  *
  * La ventana se acota por la FECHA DE NEGOCIO de cada tabla (`RECENT_COL`), no por `c9` en todas:
  * `c9` es fecha sólo en `kdm1`; en `kdm2` es CANTIDAD. Misma tabla de columnas que usaba la red de
@@ -57,6 +63,15 @@ const TABLES = String(arg('tables', 'kdm1,kdm2,kdij,kdue,kdpord')).split(',').ma
 const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--watch='));
 const WATCH_SEC = WATCH_ARG ? Math.max(60, Number(WATCH_ARG.split('=')[1] || 900)) : 0;
 const SHIP_BATCH = Math.max(200, Number(process.env.ODS_SHIP_BATCH) || 2000);
+
+// OBS.11 — propagación de DELETE (Opción A, 2026-09-12). El reconciliador ya detectaba los SOBRANTES
+// con 0% falso positivo; ahora, con gate, los BORRA. Reemplaza al WAL-CDC retirado (OBS.8, fragilidad
+// de slot) como propagador de DELETE. OFF por default: sólo con --delete-sobrantes o env=1.
+const DELETE_SOB = process.argv.includes('--delete-sobrantes') || process.env.ODS_DELETE_SOBRANTES === '1';
+const FULL = process.argv.includes('--full'); // ignora la ventana: barrido único del backlog (solo-DELETE)
+// Freno anti-catástrofe: si una réplica se rompe y devuelve pocas/0 filas, TODO el ODS parece sobrante.
+// Nunca borrar más de esta fracción del ODS de una tabla×rama en una pasada; si se pasa, ABORTA y reporta.
+const MAX_DELETE_FRAC = Math.min(1, Math.max(0.05, Number(process.env.ODS_DELETE_MAX_FRAC) || 0.6));
 
 // Ventana por tabla: fecha de NEGOCIO, y en kdm1 también la de CAPTURA (`c68`). Vive en
 // ../lib/ods-recent-window.js, compartida con la red de seguridad de replicate-ods-live.js.
@@ -97,40 +112,80 @@ async function tableMeta(src, table) {
 
 const keyOf = (pk, row) => pk.map((k) => String(row[k] ?? '\x00')).join('|');
 
+/** ¿Cuáles de estas llaves SIGUEN existiendo en md.<table> (tabla COMPLETA, sin ventana)? El re-chequeo
+ * que separa un DELETE real (ausente de la tabla) de un artefacto de ventana (salió de la ventana por
+ * cambio de fecha, pero la fila sigue viva). Sin esto, borrar por "no está en la ventana" borraría vivos. */
+async function existsInReplicaFull(local, table, pk, rows) {
+  const found = new Set();
+  const pkList = pk.map(qid).join(', ');
+  const B = 800;
+  for (let i = 0; i < rows.length; i += B) {
+    const chunk = rows.slice(i, i + B);
+    const binds = chunk.flatMap((r) => pk.map((k) => r[k]));
+    const ph = chunk.map((_, ix) => `(${pk.map((__, j) => `$${ix * pk.length + j + 1}`).join(',')})`).join(',');
+    const res = await local.query(`SELECT ${pkList} FROM md.${qid(table)} WHERE (${pkList}) IN (${ph})`, binds);
+    for (const r of res.rows) found.add(keyOf(pk, r));
+  }
+  return found;
+}
+
 async function reconcile(local, prod, code, table) {
-  if (!RECENT_COL[table]) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
+  if (!RECENT_COL[table] && !FULL) return { suc: code, tabla: table, skip: 'sin columna de fecha de negocio' };
   const meta = await tableMeta(local, table);
   if (!meta) return { suc: code, tabla: table, skip: 'no existe en el replica' };
   if (!meta.pk.length) return { suc: code, tabla: table, skip: 'sin PK' };
 
   const pkList = meta.pk.map(qid).join(', ');
   // Misma ventana en los DOS lados (replica y ODS comparten columnas): kdm1 = c9 OR c68.
-  const ventana = recentWindowSql(table, meta.cols, DAYS);
+  // --full la ignora (barrido de backlog): compara la tabla COMPLETA, sólo para borrar (no repone).
+  const ventana = FULL ? 'TRUE' : recentWindowSql(table, meta.cols, DAYS);
   if (!ventana) return { suc: code, tabla: table, skip: 'columna de fecha no es date/timestamp en el replica' };
+  const wLoc = FULL ? '' : `WHERE ${ventana}`;
+  const wOds = FULL ? '' : `AND ${ventana}`;
 
-  const loc = (await local.query(`SELECT ${pkList} FROM md.${qid(table)} WHERE ${ventana}`)).rows;
-  if (!loc.length) return { suc: code, tabla: table, local: 0, faltan: 0 };
+  const loc = (await local.query(`SELECT ${pkList} FROM md.${qid(table)} ${wLoc}`)).rows;
+  // Freno #1: una réplica que devuelve 0 filas en el scope NO prueba "todo se borró en origen" —
+  // prueba réplica rota/vacía. Con el ODS lleno, borrar por esto lo vaciaría. Nunca se borra así.
+  if (!loc.length) return { suc: code, tabla: table, local: 0, faltan: 0, ...(DELETE_SOB ? { skip_delete: 'replica 0 filas en scope — NO se borra (posible replica rota)' } : {}) };
 
   // El ODS es multi-sucursal: SIEMPRE filtrar por `sucursal`, o se compara contra las 7 ramas.
   const pro = (await prod.query(
-    `SELECT ${pkList} FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 AND ${ventana}`, [code])).rows;
+    `SELECT ${pkList} FROM kepler_ods.${qid(table)} WHERE btrim(sucursal)=$1 ${wOds}`, [code])).rows;
   const presentes = new Set(pro.map((r) => keyOf(meta.pk, r)));
-  const faltan = loc.filter((r) => !presentes.has(keyOf(meta.pk, r)));
-
-  // SOBRANTES (OBS.8) — llaves que siguen en el ODS y ya no están en el replica. Es la mitad del
-  // espejo que nadie miraba: al retirar el CDC WAL se fue lo único que propagaba DELETE, y la
-  // comparación de conjuntos que ya hacemos acá la da casi gratis (los dos lados ya están en RAM).
-  //
-  // SE REPORTA, NO SE BORRA. Borrar en el ODS necesita autorización explícita, y además hay un falso
-  // positivo legítimo: si a una fila le CAMBIA su fecha de negocio (`RECENT_COL`) y se sale de la
-  // ventana, desaparece del lado local sin haber sido borrada. Por eso este número es una SEÑAL para
-  // que un humano mire, no un gatillo automático. Se muestran unas llaves de ejemplo para que mirar
-  // no cueste otra investigación desde cero.
   const locales = new Set(loc.map((r) => keyOf(meta.pk, r)));
+  const faltan = FULL ? [] : loc.filter((r) => !presentes.has(keyOf(meta.pk, r))); // --full no repone (sería re-ship masivo)
   const sobran = pro.filter((r) => !locales.has(keyOf(meta.pk, r)));
   const extra = sobran.length
     ? { sobrantes: sobran.length, ej_sobrantes: sobran.slice(0, 3).map((r) => keyOf(meta.pk, r)).join(' ') }
     : {};
+
+  // ── PROPAGACIÓN DE DELETE (OBS.11, gated) — reemplaza al WAL-CDC como propagador de DELETE ──
+  // En modo ventana re-confirma cada sobrante contra la tabla COMPLETA del replica: uno que sigue ahí
+  // salió de la ventana por fecha (NO borrado) → no se toca. En --full, `sobran` YA es la comparación
+  // completa. Freno #2: nunca borrar más de MAX_DELETE_FRAC del ODS de esa tabla×rama en una pasada.
+  if (DELETE_SOB && sobran.length) {
+    const confirmadas = FULL
+      ? sobran
+      : await (async () => {
+        const found = await existsInReplicaFull(local, table, meta.pk, sobran);
+        return sobran.filter((r) => !found.has(keyOf(meta.pk, r)));
+      })();
+    extra.confirmadas_borrar = confirmadas.length;
+    if (confirmadas.length > MAX_DELETE_FRAC * Math.max(pro.length, 1)) {
+      extra.delete_abortado = `${confirmadas.length}/${pro.length} (${(100 * confirmadas.length / Math.max(pro.length, 1)).toFixed(0)}%) > ${(100 * MAX_DELETE_FRAC).toFixed(0)}% — ABORTADO, revisar a mano`;
+    } else if (APPLY && confirmadas.length) {
+      const delMeta = { table, pk: meta.pk, columns: [{ name: 'sucursal', type: 'text' }, ...meta.cols.map((c) => ({ name: c.column_name, type: mapType(c.data_type) }))] };
+      let borrados = 0;
+      for (let i = 0; i < confirmadas.length; i += SHIP_BATCH) {
+        const chunk = confirmadas.slice(i, i + SHIP_BATCH).map((r) => { const o = { sucursal: code }; for (const k of meta.pk) o[k] = r[k]; return o; });
+        await sink.ship('raw-delete', { rows: chunk, tenantId: TENANT, meta: delMeta });
+        borrados += chunk.length;
+      }
+      extra.borrados = borrados;
+    } else if (confirmadas.length) {
+      extra.borrarian = confirmadas.length; // dry-run
+    }
+  }
 
   if (!faltan.length) return { suc: code, tabla: table, local: loc.length, faltan: 0, ...extra };
   if (!APPLY) return { suc: code, tabla: table, local: loc.length, faltan: faltan.length, dry: true, ...extra };
@@ -174,6 +229,9 @@ const resumen = (out) => ({
   huecos: out.reduce((a, r) => a + (r.faltan || 0), 0),
   repuestas: out.reduce((a, r) => a + (r.enviadas || 0), 0),
   sobrantes: out.reduce((a, r) => a + (r.sobrantes || 0), 0),
+  borrados: out.reduce((a, r) => a + (r.borrados || 0), 0),
+  borrarian: out.reduce((a, r) => a + (r.borrarian || 0), 0),
+  abortados: out.filter((r) => r.delete_abortado).length,
   errores: out.filter((r) => r.error).length,
 });
 
@@ -208,7 +266,7 @@ async function latir(destUrl, r, ms) {
   try {
     await c.connect();
     const sobranMal = ALERTA_SOBRANTES > 0 && r.sobrantes > ALERTA_SOBRANTES;
-    const malo = r.huecos > ALERTA || r.errores > 0 || sobranMal;
+    const malo = r.huecos > ALERTA || r.errores > 0 || sobranMal || r.abortados > 0;
     await c.query(`
       INSERT INTO analytics.cron_runs
         (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
@@ -219,11 +277,12 @@ async function latir(destUrl, r, ms) {
         rows_affected=EXCLUDED.rows_affected, duration_ms=EXCLUDED.duration_ms,
         note=EXCLUDED.note, error=EXCLUDED.error, host=EXCLUDED.host, updated_at=now()`,
     [TENANT, ms, malo ? 'error' : 'ok', r.repuestas,
-      `ventana ${DAYS}d · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes} · errores ${r.errores}`,
+      `ventana ${FULL ? 'FULL' : DAYS + 'd'} · huecos ${r.huecos} · repuestas ${r.repuestas} · sobrantes ${r.sobrantes}${DELETE_SOB ? ` · borrados ${r.borrados}` : ''}${r.abortados ? ` · ABORTADOS ${r.abortados}` : ''} · errores ${r.errores}`,
       malo ? [
         r.huecos > ALERTA ? `${r.huecos} filas ausentes en el ODS (umbral ${ALERTA}) — el carril esta perdiendo filas` : null,
         sobranMal ? `${r.sobrantes} filas de mas en el ODS (umbral ${ALERTA_SOBRANTES}) — DELETE sin propagar, revisar a mano` : null,
         r.errores > 0 ? `${r.errores} tablas con error` : null,
+        r.abortados > 0 ? `${r.abortados} tablas con DELETE abortado (fraccion > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%) — revisar a mano` : null,
       ].filter(Boolean).join(' · ') : null,
       require('os').hostname()]);
   } catch (e) {
@@ -234,14 +293,16 @@ async function latir(destUrl, r, ms) {
 (async () => {
   const destUrl = process.env.DATABASE_URL_NEW;
   if (!destUrl) { console.error('Falta DATABASE_URL_NEW (se lee para comparar las llaves del ODS).'); process.exit(2); }
-  console.log(`reconcile-ods-window · ventana ${DAYS}d · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}${WATCH_SEC ? ` · watch ${WATCH_SEC}s` : ''}\n`);
+  console.log(`reconcile-ods-window · ${FULL ? 'FULL (backlog)' : `ventana ${DAYS}d`} · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}${DELETE_SOB ? ' · DELETE-SOBRANTES' : ''}${WATCH_SEC ? ` · watch ${WATCH_SEC}s` : ''}\n`);
 
   if (!WATCH_SEC) {
     const out = await pasada(destUrl);
     console.table(out);
     const r = resumen(out);
     console.log(`\nfilas ausentes en el ODS: ${r.huecos}${APPLY ? ` · repuestas: ${r.repuestas}` : ' (dry-run: nada se envió)'}`);
-    console.log(`filas de MÁS en el ODS (DELETE sin propagar, o fecha de negocio cambiada): ${r.sobrantes} — sólo se reportan`);
+    console.log(`filas de MÁS en el ODS: ${r.sobrantes}${DELETE_SOB
+      ? (APPLY ? ` · BORRADAS: ${r.borrados}` : ` · borrarían: ${r.borrarian}`) + (r.abortados ? ` · ABORTADOS: ${r.abortados} (fracción > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%)` : '')
+      : ' — sólo se reportan (usá --delete-sobrantes para propagar el DELETE)'}`);
     process.exit(0);
   }
 

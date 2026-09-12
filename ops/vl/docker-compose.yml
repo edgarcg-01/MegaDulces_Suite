@@ -147,6 +147,11 @@ services:
       ODS_LIVE_BRANCHES: "00,01,02,03,04,05,06,07"
       ODS_RECONCILE_ALERT: "50"
       ODS_HB_IGNORE_ERROR: "1"
+      # OBS.11 propagacion de DELETE: "0" = solo reporta sobrantes (default seguro). "1" = los BORRA
+      # del ODS por raw-delete, con re-chequeo full-table (0% falso positivo) y freno ODS_DELETE_MAX_FRAC
+      # (0.6). kdpord (~61% fantasma, cola de surtido) se ABORTA solo; kdm2/kdij (chicas) se propagan.
+      # El backlog de kdpord es decision aparte (barrido --full vigilado con umbral elevado), no aqui.
+      ODS_DELETE_SOBRANTES: "0"
     command: ["node", "database/importers/kepler/reconcile-ods-window.js", "--days=3", "--apply", "--watch=900"]
     healthcheck:
       test: ["CMD", "node", "/app/ops/ingest/health.js"]
