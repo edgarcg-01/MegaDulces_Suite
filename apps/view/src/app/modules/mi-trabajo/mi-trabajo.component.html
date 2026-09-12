@@ -114,30 +114,82 @@
           </div>
         }
 
+        <!--
+          [SN.15] "A tu nombre" = lo que ALGUIEN te asignó (tareas, con dueño y fecha) + lo que vos
+          empezaste. Las dos cosas llevan tu nombre; una cola compartida NO, y por eso vive abajo.
+          La regla es de `work/task.contract.ts`: el permiso dice si podés abrirlo, la
+          responsabilidad dice si es tuyo, la tarea dice que alguien te lo asignó.
+        -->
         <div class="mt-grupo">
           <p class="mt-grupo-tag">A tu nombre</p>
-          @if (mios().length) {
-            @for (p of mios(); track p.id) {
-              <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
-                <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
-                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+
+          @for (t of tareas(); track t.fuente) {
+            <!--
+              Sin permiso NO hay enlace: la fila se queda como <p>. Esconderla taparía que quien
+              reparte y quien puede abrir no coinciden; enlazarla llevaría a un 403.
+            -->
+            @if (t.ruta) {
+              <a class="mt-task is-mine" [routerLink]="t.ruta" [title]="t.detalle" (click)="abrioTarea(t)">
+                <span class="mt-task-ico"><i [class]="t.icono" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(t.total) }}</span>
                 <span class="mt-task-txt">
-                  <span class="mt-task-l">{{ p.label }}</span>
-                  @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+                  <span class="mt-task-l">{{ t.label }}</span>
+                  @if (t.detalle) { <span class="mt-task-d">{{ t.detalle }}</span> }
                 </span>
-                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+                @if (vencimiento(t); as v) {
+                  <span class="mt-task-vence" [class.is-vencido]="(t.vencidas ?? 0) > 0">{{ v }}</span>
+                } @else {
+                  <span class="mt-task-edad" [title]="t.mas_viejo_at ? 'Te la asignaron el ' + t.mas_viejo_at : 'Esta fuente no reportó fecha de asignación'">{{ antiguedad(t) }}</span>
+                }
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
+            } @else {
+              <p class="mt-task is-mine is-bloqueada" [title]="t.sin_acceso ?? ''">
+                <span class="mt-task-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(t.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ t.label }}</span>
+                  <span class="mt-task-d">{{ t.sin_acceso }}</span>
+                </span>
+              </p>
             }
-          } @else if (!buscando()) {
+          }
+
+          @for (p of mios(); track p.id) {
+            <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+              <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
+              <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+              <span class="mt-task-txt">
+                <span class="mt-task-l">{{ p.label }}</span>
+                @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+              </span>
+              <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+              <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
+            </a>
+          }
+
+          @if (!hayAlgoMio() && !buscando()) {
+            <!--
+              Tres estados distintos, elegidos por el dato y nunca por un default (ADR-056).
+              Antes acá había UNA frase fija —"Nadie te asignó trabajo hoy… reparto pendiente
+              (P-06)"— apoyada en una medición del 10-sep que decía que las tablas de asignación
+              estaban en cero. Medido el 11-sep: 151 tareas vivas sobre 38 de 118 personas. La
+              frase era falsa para un tercio del padrón.
+            -->
             <p class="mt-sin-mio">
               <i class="pi pi-user" aria-hidden="true"></i>
               <span>
-                <b>Nadie te asignó trabajo hoy.</b>
-                <span class="mt-sin-mio-why">
-                  El reparto nominal de tareas está pendiente de definición (P-06). Mientras tanto,
-                  lo de abajo son colas que abre tu permiso.
-                </span>
+                <b>No tienes trabajo a tu nombre.</b>
+                @if (sinReparto()) {
+                  <span class="mt-sin-mio-why">
+                    Y todavía nadie definió de qué responde tu puesto, así que el sistema tampoco
+                    puede deducirlo. Lo de abajo son colas que abre tu permiso.
+                  </span>
+                } @else {
+                  <span class="mt-sin-mio-why">
+                    Nadie te asignó ninguna tarea. Lo de abajo son colas que abre tu permiso.
+                  </span>
+                }
               </span>
             </p>
           }
@@ -154,7 +206,16 @@
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
                 <span class="mt-task-txt">
                   <span class="mt-task-l">{{ p.label }}</span>
-                  @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+                  <!--
+                    [SN.15] El universo del conteo, sólo cuando hay algo que decir. Si la cola no
+                    tiene sucursal no se rotula: sería ruido en 5 de 8 filas. Si la ficha no tiene
+                    sucursal SÍ, porque ahí el número podría haber sido acotado y no lo fue.
+                  -->
+                  @if (p.detalle) {
+                    <span class="mt-task-d">
+                      {{ p.detalle }}@if (p.ambito === 'sucursal') {<span class="mt-task-ambito"> · tu sucursal</span>}@else if (p.ambito === 'red_sin_ficha') {<span class="mt-task-ambito" title="Esta cola se puede acotar por sucursal, pero tu ficha no tiene una asignada. Se cuenta toda la red."> · toda la red</span>}
+                    </span>
+                  }
                 </span>
                 <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
@@ -187,9 +248,20 @@
         una banda al pie mezclada con la de los espacios, que declara otra cosa distinta.
       -->
       @if (!buscando()) {
+        <!--
+          [SN.15] Decía "Reparto nominal de tareas: pendiente de definición (P-06)", y eso ya no es
+          cierto: el reparto EXISTE (151 tareas vivas, medido). Lo que sigue pendiente es otra cosa
+          —de qué responde cada puesto— y es la que hay que declarar, sin confundirla con la otra.
+        -->
         <p class="mt-declara-pie">
-          Reparto nominal de tareas e indicadores con meta: pendiente de definición
-          (P-06 · P-01 · P-11). Lo de arriba son colas por permiso, no asignaciones personales.
+          @if (sinReparto()) {
+            De qué responde cada puesto todavía no está definido (P-06), así que lo de
+            <b>En tus bandejas</b> son colas que abre tu permiso, no trabajo que alguien te repartió.
+          } @else {
+            <b>A tu nombre</b> es lo que alguien te asignó; <b>En tus bandejas</b> son colas que abre
+            tu permiso y que nadie tiene asignadas.
+          }
+          Indicadores con meta: pendientes de definición (P-01 · P-11).
         </p>
       }
     </section>

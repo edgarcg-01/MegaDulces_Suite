@@ -54,14 +54,45 @@ const SCOPE_BASE: MyScope = {
   },
 };
 
-const SIN_TRABAJO: MeWork = { pendientes: [], no_medido: [], medido_at: '2026-09-11T12:00:00.000Z' };
+const SIN_TRABAJO: MeWork = {
+  tareas: [],
+  pendientes: [],
+  no_medido: [],
+  tiene_responsabilidades: false,
+  medido_at: '2026-09-11T12:00:00.000Z',
+};
 
 const TRABAJO_MIXTO: MeWork = {
   medido_at: '2026-09-11T12:00:00.000Z',
   no_medido: [],
+  tareas: [],
+  tiene_responsabilidades: false,
   pendientes: [
-    { id: 'conteos-asignados', label: 'Conteos de inventario asignados a ti', detalle: 'sesiones abiertas', ruta: '/almacen/inventory/count', icono: 'pi pi-list-check', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio' },
-    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865, alcance: 'bandeja' },
+    { id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio', ambito: 'red' },
+    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865, alcance: 'bandeja', ambito: 'red' },
+  ],
+};
+
+/** `[SN.15]` Una tarea REAL asignada, con su vencimiento, y otra que la persona no puede abrir. */
+const TRABAJO_ASIGNADO: MeWork = {
+  medido_at: '2026-09-11T12:00:00.000Z',
+  no_medido: [],
+  pendientes: [],
+  tiene_responsabilidades: false,
+  tareas: [
+    {
+      fuente: 'finance.recon_tasks', label: 'Conciliaciones a tu nombre', detalle: 'te las repartió Maat',
+      ruta: '/finanzas/tareas', sin_acceso: null, icono: 'pi pi-inbox', total: 3,
+      mas_viejo_at: '2026-09-01T00:00:00.000Z', vence_at: '2026-09-09T00:00:00.000Z', vencidas: 3,
+      no_responde: [],
+    },
+    {
+      fuente: 'commercial.inventory_count_assignments', label: 'Conteos de inventario asignados a ti',
+      detalle: 'sesiones en vuelo', ruta: null,
+      sin_acceso: 'Te la asignaron, pero tu permiso no abre /almacen/inventory/count. Pídeselo a Sistemas.',
+      icono: 'pi pi-list-check', total: 1, mas_viejo_at: '2026-09-05T00:00:00.000Z',
+      vence_at: null, vencidas: null, no_responde: ['estado propio: el ciclo de vida esta en commercial.inventory_counts.status'],
+    },
   ],
 };
 
@@ -247,10 +278,27 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('la cabecera de Dirección NO se estrena: lo pendiente se declara con sus P-xx', async () => {
     await montar({ perms: [], role: 'superadmin' });
     expect(html()).not.toContain('Esto ve Dirección General');
-    expect(html()).toContain('pendiente de definición');
-    expect(html()).toContain('P-06');
+    expect(html()).toContain('pendientes de definición');
     expect(html()).toContain('P-01');
     expect(html()).toContain('P-11');
+    /*
+     * `[SN.15]` P-06 ya NO es incondicional. Era «reparto nominal: pendiente de definición», y el
+     * reparto EXISTE (151 tareas vivas en prod). Lo que sigue pendiente es de qué responde cada
+     * puesto — `identity.position_responsibilities` vacía— y es lo único que P-06 puede reclamar.
+     */
+    expect(html()).toContain('P-06');
+    expect(html()).toContain('De qué responde cada puesto');
+  });
+
+  it('si el puesto YA tiene responsabilidades, la pantalla deja de reclamar P-06', async () => {
+    await montar({
+      perms: [], role: 'superadmin',
+      work$: of({ ...SIN_TRABAJO, tiene_responsabilidades: true }),
+    });
+    // Ojo: `P-06` a secas sigue apareciendo como insignia del espacio "Dirección General", que es
+    // otra cosa. Lo que tiene que desaparecer es el reclamo del PIE del trabajo.
+    expect(html()).not.toContain('De qué responde cada puesto');
+    expect(html()).toContain('A tu nombre es lo que alguien te asignó');
   });
 
   // ── [SN.8] Mi trabajo: pendientes ─────────────────────────────────────────
@@ -263,7 +311,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(ps.length).toBe(2);
     // El "a tu nombre" va primero y se marca distinto.
     expect(ps[0].classList).toContain('is-mine');
-    expect(ps[0].getAttribute('href')).toBe('/almacen/inventory/count');
+    expect(ps[0].getAttribute('href')).toBe('/tienda/caducidades');
     expect(ps[1].classList).not.toContain('is-mine');
     expect(ps[1].textContent).toContain('1,865');
     // La cola compartida se declara como tal: nadie la tiene asignada.
@@ -275,10 +323,47 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
     expect(pendientes().length).toBe(0);
     expect(html()).toContain('Sin pendientes en tus bandejas');
-    // `[SN.11]` El bloque "A tu nombre" no desaparece: su vacío es el HECHO de que nadie reparte
-    // trabajo nominal (tres tablas en cero filas). Esconderlo haría creer que sí y hoy no hay.
-    expect(html()).toContain('Nadie te asignó trabajo hoy');
-    expect(html()).toContain('P-06');
+    // `[SN.11]` El bloque "A tu nombre" no desaparece: esconderlo haría creer que sí hay reparto.
+    expect(html()).toContain('No tienes trabajo a tu nombre');
+  });
+
+  // ── [SN.15] Tareas asignadas: la tercera pregunta ─────────────────────────
+
+  /*
+   * Hasta SN.14 la pantalla afirmaba «Nadie te asignó trabajo hoy» SIEMPRE, apoyada en una
+   * medición del 10-sep que decía que las tablas de asignación estaban en cero. Medido de nuevo
+   * el 11-sep contra prod: 151 tareas vivas sobre 38 de 118 personas. Estos casos son el candado
+   * de que la frase no vuelva a ser un literal.
+   */
+  it('una tarea ASIGNADA se muestra a tu nombre, y ya no se dice que nadie te asignó nada', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_ASIGNADO) });
+    expect(html()).toContain('Conciliaciones a tu nombre');
+    expect(html()).not.toContain('No tienes trabajo a tu nombre');
+    // El vencimiento vencido se dice y se marca; no se disfraza de antigüedad.
+    expect(html()).toContain('venció hace');
+    expect(q<HTMLElement>('.mt-task-vence.is-vencido').length).toBe(1);
+  });
+
+  it('tarea asignada SIN el permiso de su ruta: se muestra, pero NO como enlace', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_ASIGNADO) });
+    const bloqueada = q<HTMLElement>('.mt-task.is-bloqueada');
+    expect(bloqueada.length).toBe(1);
+    // Es la clave del caso: aparece (no se esconde) y no invita a un 403 (no es <a href>).
+    expect(bloqueada[0].tagName).toBe('P');
+    expect(bloqueada[0].textContent).toContain('tu permiso no abre');
+  });
+
+  it('un conteo acotado dice a qué universo pertenece; uno sin ficha lo DECLARA', async () => {
+    const conAmbito: MeWork = {
+      ...SIN_TRABAJO,
+      pendientes: [
+        { id: 'compras-hallazgos', label: 'Hallazgos de reabastecimiento', detalle: 'del barrido nocturno', ruta: '/compras/hallazgos', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 21940, alcance: 'bandeja', ambito: 'red_sin_ficha' },
+      ],
+    };
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(conAmbito) });
+    // Se cuenta toda la red porque la ficha no tiene sucursal, y se dice. Acotar a [] daría 0.
+    expect(html()).toContain('toda la red');
+    expect(html()).not.toContain('tu sucursal');
   });
 
   it('una bandeja que no se pudo contar se DECLARA, no baja a cero', async () => {

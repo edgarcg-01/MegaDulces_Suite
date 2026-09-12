@@ -13,7 +13,7 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
+import type { MeContext, MePendiente, MeTarea, MeWork } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { MeContextService } from '../../core/services/me-context.service';
@@ -353,10 +353,49 @@ export class MiTrabajoComponent {
    */
   readonly totalPendientes = computed(() => this.deBandeja().reduce((n, p) => n + p.total, 0));
   readonly bandejasConTrabajo = computed(() => this.deBandeja().length);
-  readonly totalMio = computed(() => this.mios().reduce((n, p) => n + p.total, 0));
+
+  /**
+   * `[SN.15]` Lo que ALGUIEN te asignó, con nombre y fecha — distinto de una cola que abre tu
+   * permiso. Hasta hoy la pantalla afirmaba «Nadie te asignó trabajo hoy» apoyada en una medición
+   * del 10-sep que decía que las tablas de asignación estaban vacías; medido de nuevo el 11-sep
+   * contra prod hay **151 tareas vivas sobre 38 de 118 personas**. La frase mentía para un tercio
+   * del padrón.
+   */
+  readonly tareas = computed<readonly MeTarea[]>(() => {
+    const t = this.trabajo();
+    const todas = t.status === 'ok' ? t.data.tareas ?? [] : [];
+    if (!this.buscando()) return todas;
+    return todas.filter((x) => this.casa(normalizar(`${x.label} ${x.detalle}`)));
+  });
+  /** Lo tuyo = lo que te asignaron + lo que vos empezaste. Las dos cosas llevan tu nombre. */
+  readonly totalMio = computed(
+    () =>
+      this.tareas().reduce((n, t) => n + t.total, 0) +
+      this.mios().reduce((n, p) => n + p.total, 0),
+  );
+  readonly hayAlgoMio = computed(() => this.tareas().length > 0 || this.mios().length > 0);
+  /** Cuántas de tus tareas ya pasaron su fecha. `null` en una fuente que no maneja vencimiento. */
+  readonly tareasVencidas = computed(() => this.tareas().reduce((n, t) => n + (t.vencidas ?? 0), 0));
+
+  /**
+   * `[SN.15]` ¿Se puede siquiera calcular "esto es tuyo"?
+   *
+   * `false` = `identity.position_responsibilities` no dice de qué responde este puesto — hoy es el
+   * caso de TODOS, porque `[OR.1b]` la dejó vacía a propósito: sembrarla desde el permiso
+   * colapsaría la distinción que existe para crear. La pantalla lo DECLARA en vez de callarlo,
+   * que es la diferencia entre "no te toca nada" y "nadie definió qué te toca".
+   */
+  readonly sinReparto = computed(() => {
+    const t = this.trabajo();
+    return t.status === 'ok' && t.data.tiene_responsabilidades === false;
+  });
 
   readonly sinPendientes = computed(
-    () => this.trabajo().status === 'ok' && !this.buscando() && this.pendientes().length === 0,
+    () =>
+      this.trabajo().status === 'ok' &&
+      !this.buscando() &&
+      this.pendientes().length === 0 &&
+      this.tareas().length === 0,
   );
   /** Bandejas que esta persona puede ver y NO se pudieron contar: se declaran, no bajan a cero. */
   readonly noMedido = computed(() => {
@@ -481,6 +520,27 @@ export class MiTrabajoComponent {
     this.uso.registrarApertura('bandeja', p.id, { alcance: p.alcance, ruta: p.ruta });
   }
 
+  /** `[SN.15]` Igual que la bandeja, pero el id es la FUENTE — que es lo que identifica a la tarea. */
+  abrioTarea(t: MeTarea): void {
+    if (!t.ruta) return; // sin permiso no hay navegación que registrar
+    this.uso.registrarApertura('bandeja', t.fuente, { alcance: 'tarea', ruta: t.ruta });
+  }
+
+  /**
+   * `[SN.15]` Cuándo vence lo más próximo de esta tarea. Tres respuestas distintas, y ninguna se
+   * disfraza de otra: `null` es **la fuente no maneja vencimiento** (lo declara su adaptador), no
+   * "no vence"; vencido se dice vencido; y lo demás va en días.
+   */
+  vencimiento(t: MeTarea): string | null {
+    if (!t.vence_at) return null;
+    const ms = Date.parse(t.vence_at) - Date.now();
+    if (!Number.isFinite(ms)) return null;
+    const dias = Math.round(ms / 86_400_000);
+    if (dias < 0) return `venció hace ${Math.abs(dias)} d`;
+    if (dias === 0) return 'vence hoy';
+    return `vence en ${dias} d`;
+  }
+
   /** `[SN.11]` 1865 → "1,865". Cifras alineadas (tabular-nums lo hace en CSS); el separador acá. */
   formatoTotal(n: number): string {
     return new Intl.NumberFormat('es-MX').format(n);
@@ -491,7 +551,7 @@ export class MiTrabajoComponent {
    * el volumen mide tamaño, no urgencia. Lo que no vino fechado se DECLARA — "sin fechar" — en
    * vez de pasar por recién llegado (ADR-056).
    */
-  antiguedad(p: MePendiente): string {
+  antiguedad(p: { mas_viejo_at: string | null }): string {
     if (!p.mas_viejo_at) return 'sin fechar';
     const ms = Date.now() - Date.parse(p.mas_viejo_at);
     if (!Number.isFinite(ms) || ms < 0) return 'sin fechar';
