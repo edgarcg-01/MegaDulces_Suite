@@ -3,14 +3,10 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { InputTextModule } from 'primeng/inputtext';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
-import { SelectModule } from 'primeng/select';
-import { InputTextModule } from 'primeng/inputtext';
-import { IconFieldModule } from 'primeng/iconfield';
-import { InputIconModule } from 'primeng/inputicon';
-import { CheckboxModule } from 'primeng/checkbox';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
@@ -19,9 +15,13 @@ import {
 } from '../sales-documents.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { DataScopeService } from '../../../core/services/data-scope.service';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { REPORTS_TABS } from '../reports-tabs';
+import { TELEMARKETING_TABS } from '../telemarketing-tabs';
+import {
+  TelemarketingFiltrosComponent, TmFiltros, tmFiltrosIniciales,
+} from '../components/telemarketing-filtros.component';
 
 /**
  * AX.2/AX.3 — Facturación de Telemarketing (el documento que se le entrega al cliente).
@@ -38,9 +38,9 @@ import { REPORTS_TABS } from '../reports-tabs';
   selector: 'app-comercial-documentos',
   standalone: true,
   imports: [
-    CommonModule, FormsModule, TableModule, TagModule, ButtonModule, SelectModule,
-    InputTextModule, IconFieldModule, InputIconModule, CheckboxModule, TooltipModule, ToastModule,
+    CommonModule, FormsModule, InputTextModule, TableModule, TagModule, ButtonModule, TooltipModule, ToastModule,
     MetricStripComponent, LoadStateComponent, SidePeekComponent, PageTabsComponent,
+    TelemarketingFiltrosComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -65,31 +65,37 @@ import { REPORTS_TABS } from '../reports-tabs';
       <app-metric-strip [items]="kpis(r)" />
     }
 
-    <!-- Filtros -->
-    <div class="filtros card-premium card-flat">
-      <p-iconfield class="f-search">
-        <p-inputicon styleClass="pi pi-search" />
-        <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="load()" (blur)="queue()"
-               placeholder="Cliente, RFC, folio o monto" aria-label="Buscar documentos" />
-      </p-iconfield>
+    <app-telemarketing-filtros [value]="filtros()" [vendedores]="vendedorOpts()"
+                               [sucursales]="sucursales()" [sucursalDeclarada]="alcanceLeido()"
+                               (cambio)="aplicar($event)" />
 
-      <p-select [(ngModel)]="vendedor" (onChange)="load()" [options]="vendedorOpts()" optionLabel="label"
-                optionValue="value" placeholder="Vendedor" [showClear]="true" [filter]="true" ariaLabel="Vendedor" />
-
-      <div class="f-fecha">
-        <input pInputText type="date" [(ngModel)]="desde" (change)="load()" aria-label="Desde" />
-        <span class="sep">→</span>
-        <input pInputText type="date" [(ngModel)]="hasta" (change)="load()" aria-label="Hasta" />
+    <!-- GT.14 — la guía se arma ACÁ: se palomean facturas y se genera. Lo seleccionado está
+         siempre a la vista porque es lo que va a salir impreso. -->
+    <div class="barra card-premium card-flat" [class.vacia]="!sel().length">
+      <div class="cuenta">
+        <span class="n">{{ sel().length }}</span>
+        <span class="l">factura{{ sel().length === 1 ? '' : 's' }} seleccionada{{ sel().length === 1 ? '' : 's' }}</span>
+        @if (sel().length) {
+          <span class="det">· {{ clientesSel() }} cliente{{ clientesSel() === 1 ? '' : 's' }}
+            · <b class="mono">{{ importeSel() | currency: 'MXN':'symbol-narrow':'1.2-2':'es-MX' }}</b> a cobrar</span>
+        }
       </div>
 
-      <p-select [(ngModel)]="cobro" (onChange)="load()" [options]="cobroOpts" optionLabel="label"
-                optionValue="value" placeholder="Estado de cobro" [showClear]="true" ariaLabel="Estado de cobro" />
+      <input pInputText type="text" class="resp" [(ngModel)]="responsable"
+             placeholder="Responsable (opcional)" aria-label="Nombre del responsable"
+             pTooltip="Se imprime sobre la línea de firma del responsable." />
 
-      <label class="f-check">
-        <p-checkbox [(ngModel)]="soloVencidas" [binary]="true" (onChange)="load()" inputId="venc" />
-        <span pTooltip="Vencieron y siguen debiendo. Las que ya se cobraron no cuentan.">Solo vencidas</span>
-      </label>
+      <p-button label="Limpiar" [text]="true" size="small" [disabled]="!sel().length"
+                (onClick)="limpiar()" />
+      <p-button icon="pi pi-print" label="Generar e imprimir" size="small"
+                [disabled]="!listo()" [loading]="busy() === 'guia'" (onClick)="generarGuia()" />
     </div>
+
+    @if (mezcla(); as m) {
+      <p class="alerta"><i class="pi pi-exclamation-triangle"></i>
+        La guía es de un solo vendedor y la selección tiene {{ m }}. Filtrá por vendedor
+        arriba y armá una guía por cada uno.</p>
+    }
 
     <!-- Lo que no se pudo medir se declara, no se dibuja (ADR-056) -->
     @if (vencNota(); as nota) {
@@ -101,30 +107,40 @@ import { REPORTS_TABS } from '../reports-tabs';
       <app-load-state
         [loading]="loading()" [error]="error()" [isEmpty]="!loading() && !error() && rows().length === 0"
         emptyIcon="pi-file" emptyTitle="Sin documentos en el periodo"
-        emptyHint="Ajusta el rango de fechas o quita filtros para ver facturas."
+        [emptyHint]="pista()"
         (retry)="load()">
 
         <p-table [value]="rows()" dataKey="folio_digital" [scrollable]="true" scrollHeight="calc(100vh - 25rem)"
-                 [rowHover]="true" styleClass="p-datatable-sm tabla-docs"
-                 [selection]="sel()" selectionMode="single" (selectionChange)="abrir($event)">
+                 [rowHover]="true" size="small"
+                 class="surf-table surf-table--sticky surf-table--frozen-first tabla-docs"
+                 [tableStyle]="{ 'min-width': '62rem' }"
+                 [selection]="sel()" (selectionChange)="sel.set($event)" selectionMode="multiple">
           <ng-template #header>
             <tr>
-              <th style="width:9.5rem">Folio</th>
-              <th>Cliente</th>
-              <th style="width:6.5rem">Fecha</th>
-              <th style="width:8.5rem">Vence</th>
-              <th style="width:9rem" class="r">Total</th>
-              <th style="width:8.5rem" class="r">Saldo</th>
-              <th style="width:8rem">Cobro</th>
-              <th style="width:6.5rem" class="c">Anexo</th>
+              <th scope="col" style="width:12.5rem"><p-tableheadercheckbox /> <span>Folio</span></th>
+              <!-- Piso propio: es la unica columna flexible, y con el min-width de la tabla
+                   repartido entre las fijas se quedaba con 80 px en tablet — el nombre del
+                   cliente salia partido en una palabra por renglon. -->
+              <th scope="col" style="min-width:17rem">Cliente</th>
+              <th scope="col" style="width:6.5rem">Fecha</th>
+              <th scope="col" style="width:8.5rem">Vence</th>
+              <th scope="col" style="width:9rem" class="r">Total</th>
+              <th scope="col" style="width:8.5rem" class="r">Saldo</th>
+              <th scope="col" style="width:8rem">Cobro</th>
+              <th scope="col" style="width:6.5rem" class="c">Anexo</th>
             </tr>
           </ng-template>
 
           <ng-template #body let-d>
-            <tr [pSelectableRow]="d">
-              <td>
-                <span class="mono folio">{{ d.sucursal }} {{ d.doc_prefix }}-{{ d.folio }}</span>
-                <span class="sub">{{ d.doc_label }}</span>
+            <!-- La fila abre el detalle; el checkbox NO (su celda corta la propagación), o
+                 palomear una factura abriría el side-peek encima de la tabla cada vez. -->
+            <tr class="fila-click" (click)="abrir(d)">
+              <td class="c-folio" (click)="$event.stopPropagation()">
+                <p-tablecheckbox [value]="d" />
+                <span>
+                  <span class="mono folio">{{ d.sucursal }} {{ d.doc_prefix }}-{{ d.folio }}</span>
+                  <span class="sub">{{ d.doc_label }}</span>
+                </span>
               </td>
               <td>
                 <span class="nom">{{ d.cliente_nombre }}</span>
@@ -267,17 +283,68 @@ import { REPORTS_TABS } from '../reports-tabs';
   </div>
   `,
   styles: [`
-    :host { display: block; }
+    :host { display: block; min-width: 0; }
     .live { color: var(--ok, var(--text-soft)); font-weight: 600; }
 
-    .filtros { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .625rem .75rem; margin-bottom: .75rem; }
-    .filtros .f-search { flex: 1 1 16rem; min-width: 12rem; }
-    .filtros .f-search input { width: 100%; }
-    .f-fecha { display: flex; align-items: center; gap: .375rem; }
-    .f-fecha .sep { color: var(--text-soft); font-size: var(--fs-sm); }
-    .f-check { display: flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
+    .barra {
+      display: flex; align-items: center; gap: .5rem;
+      padding: .5rem .75rem; margin-bottom: .5rem;
+      border-left: 3px solid var(--action);
+      transition: opacity .15s ease; flex-wrap: wrap;
+    }
+    .barra.vacia { border-left-color: var(--border-color); opacity: .75; }
+    .barra .cuenta { display: flex; align-items: baseline; gap: .4rem; flex: 1 1 14rem; min-width: 0; }
+    .barra .n { font-family: var(--font-mono, ui-monospace, monospace); font-size: 1.05rem; font-weight: 700; }
+    .barra .l { font-size: var(--fs-sm); color: var(--text-main); }
+    .barra .det { font-size: var(--fs-sm); color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .barra .resp { width: 13rem; min-width: 8rem; font-size: var(--fs-sm); }
+    .alerta {
+      display: flex; align-items: center; gap: .45rem; margin: 0 0 .5rem;
+      font-size: var(--fs-sm); font-weight: 600; color: var(--danger, var(--text-main));
+    }
+    @media (max-width: 62.5rem) {
+      .barra .cuenta { flex: 1 1 100%; }
+      .barra .resp { flex: 1 1 10rem; width: auto; }
+    }
+    @media (max-width: 30rem) {
+      .barra { gap: .45rem; }
+      .barra .resp { flex: 1 1 100%; }
+      .barra > p-button { flex: 1 1 auto; }
+      .barra ::ng-deep .p-button { width: 100%; min-height: var(--tap-min, 44px); }
+    }
 
-    .tabla-wrap { padding: 0; overflow: hidden; }
+    /* La 1a columna es la congelada: lleva el identificador y el checkbox, para que al correr
+       la tabla en horizontal se siga viendo QUE se esta palomeando. */
+    .c-folio { display: flex; align-items: flex-start; gap: .5rem; }
+    .fila-click { cursor: pointer; }
+    .tabla-docs th:first-child { white-space: nowrap; }
+    .tabla-wrap { padding: 0; overflow: hidden; min-width: 0; }
+
+    /* Estas dos tablas se salen de la regla global vieja de styles.css (<=60rem esconde de la
+       4a columna en adelante y pega la ultima a la derecha). Ese patron de "columnas
+       prioritarias" pelea con el canon de DESIGN_TABLES -- scroll horizontal + 1a columna
+       congelada -- que es el que aplica aca: en la guia de cobranza el Saldo y el Total son
+       justo lo que no se puede esconder, y la ultima columna pegada a la derecha se encimaba
+       encima de Cliente en 390 px. */
+    @media (max-width: 60rem) {
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td { display: table-cell !important; }
+      :host ::ng-deep .tabla-docs .p-datatable-thead > tr > th:last-child,
+      :host ::ng-deep .tabla-docs .p-datatable-tbody > tr > td:last-child {
+        position: static !important; right: auto !important;
+        box-shadow: none !important; min-width: 0 !important;
+      }
+    }
+
+
+    /* Telefono: la tabla deja de tener scroll vertical PROPIO y crece; el que scrollea es la
+       pagina. Con un scrollHeight fijo quedaban ~4 renglones dentro de una ventanita de 6 cm
+       con la bottom-nav encima. El scroll horizontal (y la 1a columna congelada) siguen. */
+    @media (max-width: 48rem) {
+      .tabla-docs .p-datatable-table-container,
+      :host ::ng-deep .tabla-docs .p-datatable-table-container { max-height: none !important; }
+    }
+
     .tabla-docs th.r, .tabla-docs td.r { text-align: right; }
     .tabla-docs th.c, .tabla-docs td.c { text-align: center; }
     .mono { font-family: var(--font-mono, ui-monospace, monospace); font-variant-numeric: tabular-nums; }
@@ -324,32 +391,46 @@ export class ComercialDocumentosComponent {
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
   readonly busy = signal<string | null>(null);
-  readonly sel = signal<SalesDocRow | null>(null);
+  /** Lo palomeado para la guía. La fila NO se "selecciona" al abrir el detalle (GT.14). */
+  readonly sel = signal<SalesDocRow[]>([]);
+  responsable = '';
+  /** Lo último que se autocompletó desde el vendedor: lo escrito a mano no se pisa. */
+  private respAuto = '';
   readonly peek = signal(false);
   readonly det = signal<SalesDocDetail | null>(null);
   readonly detLoading = signal(false);
-  private readonly filtros = signal<SalesDocsFiltros | null>(null);
+  private readonly catalogos = signal<SalesDocsFiltros | null>(null);
+  private readonly scope = inject(DataScopeService);
+  /**
+   * GT.11 — sucursales que este usuario alcanza (`/users/me/scope`). Alimenta el selector;
+   * NO es el control de acceso: el backend recorta igual (ADR-050). Si el usuario tiene una
+   * sola, se fija como filtro desde el arranque para que la primera consulta ya sea la suya.
+   */
+  readonly sucursales = signal<{ label: string; value: string }[]>([]);
+  readonly alcanceLeido = signal(false);
 
-  search = '';
-  vendedor: string | null = null;
-  cobro: string | null = null;
-  soloVencidas = false;
-  readonly cobroOpts = [
-    { label: 'Pendientes', value: 'pendiente' },
-    { label: 'Abono parcial', value: 'parcial' },
-    { label: 'Pagadas', value: 'pagada' },
-    { label: 'Sin cartera', value: 'sin_cartera' },
-  ];
-  desde = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10);
-  hasta = new Date().toISOString().slice(0, 10);
+  readonly filtros = signal<TmFiltros>(tmFiltrosIniciales());
 
-  readonly tabs = REPORTS_TABS;
+  readonly tabs = TELEMARKETING_TABS;
+  /** Ver el comentario gemelo en Reportes: las respuestas del ERP vuelven fuera de orden. */
+  private peticion = 0;
   readonly vendedorOpts = computed(() =>
-    (this.filtros()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
-
-  private timer?: ReturnType<typeof setTimeout>;
+    (this.catalogos()?.vendedores || []).map((v) => ({ label: v.vendedor_nombre, value: v.vendedor_code })));
 
   constructor() {
+    this.scope.warehouses().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ops) => {
+        this.sucursales.set(ops);
+        this.alcanceLeido.set(true);
+        // Una sola sucursal ⇒ va fija en el filtro. Sin esto la primera consulta sale sin
+        // sucursal y el backend igual la recorta, pero la pantalla no diría cuál está viendo.
+        if (ops.length === 1 && !this.filtros().sucursal) {
+          this.filtros.update((f) => ({ ...f, sucursal: ops[0].value }));
+          this.load();
+        }
+      },
+      error: () => this.alcanceLeido.set(true),
+    });
     this.load();
     // Deep-link `?doc=01UD0801-0000875`: se llega desde otra pantalla (p.ej. el auxiliar de
     // /finanzas/cartera) con un documento concreto en la mano. Abre el side-peek directo, sin
@@ -400,6 +481,20 @@ export class ComercialDocumentosComponent {
     return partes.length ? partes.join(' ') : null;
   });
 
+
+  /**
+   * Qué decir cuando la ventana no trajo nada. Un "ajusta el rango" a secas deja al usuario
+   * adivinando: si sabemos cuándo fue la última factura del canal, se dice. Sin eso, la
+   * pantalla de 8 dias arranca en blanco cada vez que el feed viene atrasado y se lee como
+   * que la app esta rota.
+   */
+  readonly pista = computed(() => {
+    const u = this.report()?.ultima_factura;
+    if (!u) return 'Ajusta el rango de fechas o quita filtros para ver facturas.';
+    const [a, m, d] = [u.slice(2, 4), u.slice(5, 7), u.slice(8, 10)];
+    return `La última factura de esta selección es del ${d}/${m}/${a}. Ajusta el rango de fechas.`;
+  });
+
   readonly COBRO_LABEL: Record<string, string> = {
     pagada: 'Pagada', parcial: 'Abono parcial', pendiente: 'Pendiente',
     sin_cartera: 'Sin cartera', cancelada: 'Cancelada',
@@ -409,34 +504,119 @@ export class ComercialDocumentosComponent {
     sin_cartera: 'secondary', cancelada: 'secondary',
   };
 
-  /** Debounce del texto libre: no dispara una consulta por tecla. */
-  queue(): void {
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => this.load(), 300);
+  aplicar(f: TmFiltros): void {
+    const antes = this.filtros().vendedor;
+    this.filtros.set(f);
+    if (f.vendedor !== antes) this.autoResponsable(f.vendedor);
+    this.load();
+  }
+
+  /**
+   * Al elegir vendedor, su nombre entra como Responsable de la guía: en el 99% de los casos
+   * el que sale a cobrar es el mismo que vendió. Editable, y lo escrito a mano no se pisa.
+   */
+  private autoResponsable(vendedor: string | null): void {
+    if (this.responsable.trim() && this.responsable !== this.respAuto) return;
+    const nombre = vendedor
+      ? (this.catalogos()?.vendedores || []).find((v) => v.vendedor_code === vendedor)?.vendedor_nombre || ''
+      : '';
+    this.responsable = nombre;
+    this.respAuto = nombre;
   }
 
   load(): void {
     this.loading.set(true);
     this.error.set(null);
+    const mia = ++this.peticion;
+    const f = this.filtros();
     const q = {
-      from: this.desde, to: this.hasta, search: this.search || undefined,
-      vendedor_code: this.vendedor || undefined,
-      cobro: this.cobro || undefined,
-      vencidas: this.soloVencidas ? 'true' : undefined,
+      from: f.desde, to: f.hasta, search: f.search || undefined,
+      vendedor_code: f.vendedor || undefined,
+      cobro: f.cobro || undefined,
+      vencidas: f.soloVencidas ? 'true' : undefined,
+      warehouse_codes: f.sucursal || undefined,
+      sort: f.orden || undefined,
     };
     this.svc.list(q).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.report.set(r); this.loading.set(false); },
-      error: (e) => { this.error.set(e?.error?.message || 'No se pudieron cargar los documentos.'); this.loading.set(false); },
+      next: (r) => {
+        if (mia !== this.peticion) return; // llegó tarde: manda la consulta nueva
+        this.report.set(r);
+        // La selección sobrevive al cambio de filtro sólo en lo que sigue existiendo: dejar
+        // palomeada una factura que ya no está en la lista imprimiría algo que nadie vio.
+        const vivos = new Set(r.rows.map((d) => d.folio_digital));
+        this.sel.update((s) => s.filter((d) => vivos.has(d.folio_digital)));
+        this.loading.set(false);
+      },
+      error: (e) => {
+        if (mia !== this.peticion) return;
+        this.error.set(e?.error?.message || 'No se pudieron cargar los documentos.');
+        this.loading.set(false);
+      },
     });
     // los catálogos siguen la misma ventana; si fallan, los filtros quedan vacíos sin romper la tabla
     this.svc.filtros(q).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (f) => this.filtros.set(f), error: () => undefined });
+      .subscribe({ next: (c) => this.catalogos.set(c), error: () => undefined });
   }
 
   abrir(row: SalesDocRow | null): void {
     if (!row) return;
-    this.sel.set(row);
     this.abrirPorFolio(row.folio_digital);
+  }
+
+  limpiar(): void { this.sel.set([]); }
+
+  readonly clientesSel = computed(() => new Set(this.sel().map((d) => d.cliente_code)).size);
+  /** Lo que se va a cobrar: el saldo; sin cartera no hay saldo medido y se cobra el total. */
+  readonly importeSel = computed(() =>
+    this.sel().reduce((a, d) => a + (d.saldo === null ? Number(d.total) || 0 : Number(d.saldo) || 0), 0));
+  /** Cuántos vendedores distintos hay en la selección — `0` cuando no hay mezcla. */
+  readonly mezcla = computed(() => {
+    const n = new Set(this.sel().map((d) => d.vendedor_code || '(sin vendedor)')).size;
+    return n > 1 ? n : 0;
+  });
+  readonly listo = computed(() => this.sel().length > 0 && !this.mezcla());
+
+  /**
+   * GT.14 — generar la guía: se archiva el expediente y se manda a imprimir de una. El
+   * cobrador sale con el papel; el expediente queda en el historial del vendedor.
+   */
+  generarGuia(): void {
+    if (!this.listo()) return;
+    const folios = this.sel().map((d) => d.folio_digital);
+    this.busy.set('guia');
+    this.svc.guiaCobranzaBlob(folios, { responsable: this.responsable || undefined })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (res) => {
+          this.busy.set(null);
+          const folio = res.headers.get('X-Expediente-Folio');
+          const url = URL.createObjectURL(res.body as Blob);
+          this.imprimirPdf(url);
+          setTimeout(() => URL.revokeObjectURL(url), 60_000);
+          this.sel.set([]);
+          this.toast.add({
+            severity: 'success', summary: `Expediente ${folio || 'archivado'}`,
+            detail: 'La guía se archivó en Expedientes y se mandó a imprimir.', life: 6000,
+          });
+        },
+        error: (e) => {
+          this.busy.set(null);
+          this.mensajeDeBlob(e).then((detail) => this.toast.add({
+            severity: 'error', summary: 'No se pudo generar la guía', detail, life: 8000,
+          }));
+        },
+      });
+  }
+
+  /** El endpoint responde blob: el mensaje del backend viene DENTRO del blob. */
+  private async mensajeDeBlob(e: { error?: unknown }): Promise<string> {
+    try {
+      const cuerpo = e?.error instanceof Blob ? await e.error.text() : null;
+      const json = cuerpo ? JSON.parse(cuerpo) : (e?.error as { message?: string | string[] });
+      const m = (json as { message?: string | string[] })?.message;
+      return Array.isArray(m) ? m.join(' · ') : String(m || 'Intenta de nuevo.');
+    } catch {
+      return 'Intenta de nuevo.';
+    }
   }
 
   /** Abre el detalle por folio digital, venga de la tabla o de un deep-link. */
@@ -487,39 +667,40 @@ export class ComercialDocumentosComponent {
     this.imprimirFolio(d.folio_digital, true);
   }
 
-  /**
-   * Imprime en un iframe aislado. Si el visor de PDF del navegador no expone print()
-   * (pasa en Safari/iPadOS y algunos WebView), se cae a abrir el PDF en pestaña nueva
-   * para que el usuario imprima desde el visor — nunca se queda sin salida.
-   */
   private imprimirFolio(folio: string, pagare: boolean): void {
-    this.conBlob(folio, pagare, (url) => {
-      const ifr = document.createElement('iframe');
-      ifr.style.position = 'fixed';
-      ifr.style.right = '0';
-      ifr.style.bottom = '0';
-      ifr.style.width = '0';
-      ifr.style.height = '0';
-      ifr.style.border = '0';
-      ifr.src = url;
-      ifr.onload = () => {
-        try {
-          const w = ifr.contentWindow;
-          if (!w) throw new Error('sin contentWindow');
-          w.focus();
-          w.print();
-          setTimeout(() => ifr.remove(), 60_000);
-        } catch {
-          ifr.remove();
-          window.open(url, '_blank');
-          this.toast.add({
-            severity: 'info', summary: 'Abrí el PDF en otra pestaña',
-            detail: 'Este navegador no permite imprimir directo; usa el botón de imprimir del visor.',
-            life: 6000,
-          });
-        }
-      };
-      document.body.appendChild(ifr);
-    });
+    this.conBlob(folio, pagare, (url) => this.imprimirPdf(url));
+  }
+
+  /**
+   * Imprime el PDF en una PESTAÑA propia, no en un iframe oculto.
+   *
+   * El iframe de 0 px era el bug que reportó Edgar: `iframe.contentWindow.print()` sobre el
+   * visor de PDF de Chrome no imprime el PDF — el trabajo de impresión toma el documento que
+   * CONTIENE al visor, o sea la pantalla de la app. Medido: la ventana principal ni siquiera
+   * recibe la llamada a `print()` y aun así lo que sale en la vista previa es la tabla.
+   *
+   * En una pestaña, el documento ES el PDF y el trabajo es el PDF. El visor no dispara `load`
+   * de forma confiable, así que se intenta al cargar y también tras un retraso corto, con un
+   * cerrojo para no abrir dos diálogos. Si el navegador bloquea la ventana emergente se dice
+   * —el usuario tiene el PDF a un clic, nunca se queda sin salida.
+   */
+  private imprimirPdf(url: string): void {
+    const win = window.open(url, '_blank');
+    if (!win) {
+      this.toast.add({
+        severity: 'warn', summary: 'El navegador bloqueó la ventana',
+        detail: 'Permite las ventanas emergentes de este sitio para imprimir directo, o usa "Ver PDF".',
+        life: 7000,
+      });
+      return;
+    }
+    let lanzado = false;
+    const lanzar = () => {
+      if (lanzado) return;
+      lanzado = true;
+      try { win.focus(); win.print(); } catch { /* el visor tiene su propio botón */ }
+    };
+    try { win.addEventListener('load', lanzar); } catch { /* cross-origin al cargar: queda el timer */ }
+    setTimeout(lanzar, 1200);
   }
 }

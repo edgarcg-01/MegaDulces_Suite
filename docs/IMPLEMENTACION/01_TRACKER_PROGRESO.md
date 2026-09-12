@@ -2635,6 +2635,58 @@ usa el equipo, está **42 migraciones atrás de prod y a la vez tiene 15 que pro
 
 ---
 
+## Fase GT — Telemarketing: área propia + Guía de Cobranza (2026-09-11)
+
+**🧪 EN CÓDIGO, validado en local contra `platform_test`. Sin migraciones ni permisos nuevos.**
+
+Pedido de Edgar: `/comercial/documentos` es el área de **Telemarketing** y necesita su propio juego
+de pestañas, un lugar donde **seleccionar facturas** y sacar la **Guía de Cobranza** que hoy se
+imprime desde Kepler, y filtros que quepan en una hilera.
+
+| Item | Estado | Descripción |
+|---|---|---|
+| GT.1 | 🧪 2026-09-11 | `paraGuia()` — las facturas seleccionadas a mano, por folio explícito, con domicilio del cliente. Reporta las `faltantes` en vez de imprimir de menos |
+| GT.2 | 🧪 2026-09-11 | `GuiaCobranzaService` + `POST /commercial/sales-documents/guia-cobranza.pdf`. Agrupa por cliente, importe = **saldo** de la cartera, **sin sección de Ruta** (no existe el dato acá). Se niega a imprimir si falta una factura o si hay canceladas. Reusa el Chromium compartido del anexo |
+| GT.3 | 🧪 2026-09-11 | Tabs **propios** del área (`TELEMARKETING_TABS`: Facturación TM + Reportes). `REPORTS_TABS` no se toca: desde Sell-Out se sigue entrando |
+| GT.4 | 🧪 2026-09-11 | Página `/comercial/documentos/reportes`: selección múltiple + barra con cuántas/cuántos clientes/cuánto se cobra + Responsable + Generar/Imprimir. Declara cuando la lista viene recortada (200 de N) |
+| GT.5 | 🧪 2026-09-11 | Barra de filtros compartida en **una hilera**, buscador angosto, ventana por defecto **8 días** (lunes a lunes). Responsive: en angosto se acomoda en renglones, no se corta |
+| GT.6 | 🧪 2026-09-11 | **Bug encontrado al probar**: las respuestas del ERP vuelven **fuera de orden** y la vieja pisaba a la nueva — pintaba filas de otro rango y se llevaba la selección. Sello de petición en las dos páginas |
+| GT.7 | 🧪 2026-09-11 | El **vendedor** va en el encabezado de la guía (Edgar) |
+| GT.8 | 🧪 2026-09-11 | **Una guía = un vendedor** (Edgar): la selección mezclada se rechaza en el backend (identidad por `vendedor_code`, no por nombre) y la pantalla apaga los botones con el motivo antes de llegar ahí |
+| GT.9 | 🧪 2026-09-11 | **Responsive real** (teléfono 390 / tablet 820, medido): filtros por `@container` y no `@media` (§R), breakpoints en `rem`, tabla al canon de `DESIGN_TABLES` (scroll-X + 1ª columna congelada con checkbox+folio), sin alto fijo en teléfono. **Dos hallazgos de plataforma, abajo** |
+| GT.12 | 🧪 2026-09-11 | **Expedientes** (`commercial.collection_guides`, mig 20260912120000): cada guía emitida se archiva con folio propio `GC-YYYY-NNNNN` y el **snapshot de lo impreso** — la reimpresión no se reconstruye de la cartera de hoy o la copia diría otra cosa que el papel firmado. Pestaña nueva con el historial por vendedor + reimprimir |
+| GT.13 | 🧪 2026-09-11 | **Orden** de la tabla como filtro (fecha / importe / saldo, mayor↔menor). Lista blanca en el backend: el `sort` viaja por query y armar el ORDER BY con lo que llegue es una inyección. No es un encabezado clickeable porque la tabla está paginada del lado del servidor y ordenar la página visible mentiría sobre cuál es la factura más grande del periodo |
+| GT.14 | 🧪 2026-09-11 | **La guía se arma en Facturación TM** (Edgar: "ahí es donde puedes generar el reporte"): la selección y el botón se mudan a la pantalla donde están las facturas, y al generar se imprime al instante + se archiva. La pestaña Reportes se convierte en **Expedientes** (deep-link viejo redirige) |
+| GT.15 | 🧪 2026-09-11 | **Bug de impresión** (Edgar): el botón imprimía **la pantalla, no el documento**. Medido: `iframe.contentWindow.print()` sobre el visor de PDF de Chrome manda a la impresora el documento que CONTIENE al visor. Ahora el PDF se abre en su propia pestaña y ahí se dispara la impresión |
+| GT.16 | 🧪 2026-09-11 | El formato de la guía queda fijo (Edgar) y **la firma es una sola, del vendedor, centrada al pie**: se retiró el bloque "Nombre y Firma De Encargado" |
+| GT.11 | 🧪 2026-09-11 | **Alcance de sucursal** (ADR-050): quien alcanza varias elige en un selector; quien tiene una designada la ve como chip fijo y trabaja sólo con el personal de esa área (el catálogo de vendedores sale del mismo recorte). Cortado en el BACKEND en las 5 puertas (tabla · catálogo · detalle · anexo · guía), no en la pantalla. Smoke `http-telemarketing-scope-test` 13/13 |
+| GT.10 | 🧪 2026-09-11 | La ventana vacía **dice cuándo fue la última factura** en vez de dejar la pantalla en $0. Reportado por Edgar como "no funciona": con el default de 8 días y el feed de staging parado el 03-sep, la pantalla abre en blanco y se lee como rota. El `max(fecha)` cuesta ~1 s sobre la vista en vivo → se paga **sólo** en el camino vacío |
+
+**Abierto:** ¿el tab Reportes debería traer sólo pendientes/parciales por default? Hoy deja
+palomear facturas ya pagadas (saldo $0), que no se cobran. Y el **Responsable** se autocompleta
+con el vendedor del filtro (Edgar 2026-09-11); lo escrito a mano no se pisa.
+
+**⚠️ Dos hallazgos que NO son de esta fase y afectan al repo entero** (salieron de hacer la
+pantalla responsive; no los toqué fuera de estas dos tablas):
+
+1. **PrimeNG 22 ignora `styleClass` en `p-table`.** El `class` del host lo calcula `cx('root')`
+   y no mezcla lo que le mandes; la densidad chica ahora sale de `size="small"`. O sea que las
+   ~145 tablas con `styleClass="p-datatable-sm surf-table surf-table--sticky …"` **no están
+   recibiendo ninguna de esas clases** desde el upgrade — ni la densidad ni el sticky ni la
+   columna congelada de `DESIGN_TABLES`. Acá se arregló pasando `size="small"` + `class=` estático.
+1bis. **`DataScopeService.reset()` no tenía llamador.** El servicio cachea el alcance con
+   `shareReplay` para toda la vida del SPA y su `reset()` decía "se llama tras un cambio de
+   sesión" — nadie lo llamaba. Al cambiar de usuario sin recargar, TODOS los selectores de
+   sucursal de la app seguían ofreciendo los del usuario anterior. No filtraba filas (el
+   backend recorta), pero la pantalla mentía. Cableado en `AuthService.logout()` + `setSession()`.
+2. **Regla global de móvil vs. el canon.** `styles.css` tiene un patrón viejo de "columnas
+   prioritarias" (`@media (max-width:480px)`: esconde de la 4ª columna en adelante y pega la
+   última a la derecha) que pelea con `DESIGN_TABLES` §2.3 (scroll-X + 1ª congelada). Con las
+   dos activas la última columna se **encimaba** sobre Cliente. Estas dos tablas se salen con
+   un override local; la decisión de cuál gana en todo el repo es de otro sprint.
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

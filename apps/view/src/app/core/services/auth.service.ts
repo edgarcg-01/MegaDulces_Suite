@@ -4,6 +4,7 @@ import { environment } from '../../../environments/environment';
 import { tap, timeout } from 'rxjs/operators';
 import { Observable, firstValueFrom } from 'rxjs';
 import { Permission } from '../constants/permissions';
+import { DataScopeService } from './data-scope.service';
 import { PermissionsService } from './permissions.service';
 
 export interface JwtPayload {
@@ -47,6 +48,7 @@ export class AuthService {
   constructor(
     private http: HttpClient,
     private perms: PermissionsService,
+    private scope: DataScopeService,
   ) {
     this.restoreSession();
   }
@@ -181,6 +183,13 @@ export class AuthService {
     this.token.set(null);
     this.user.set(null);
     this.perms.clear();
+    // El ALCANCE también es de la sesión que se va. `DataScopeService` cachea con
+    // `shareReplay` para toda la vida del SPA y su `reset()` estaba escrito pero sin llamador:
+    // al cambiar de usuario SIN recargar la página, los selectores de sucursal seguían
+    // ofreciendo las del usuario anterior. El backend recorta igual (ADR-050), así que no se
+    // filtraban filas — pero la pantalla mentía: un usuario de una sucursal veía nueve,
+    // elegía una ajena y la tabla volvía vacía sin decir por qué.
+    this.scope.reset();
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* no-op */ }
     // Limpiar cookie legacy si quedó alguno
     if (typeof document !== 'undefined') {
@@ -199,6 +208,9 @@ export class AuthService {
       this.user.set(payload);
 
       this.perms.load(payload.permissions, payload.role_name);
+      // Sesión nueva ⇒ alcance nuevo. Se limpia también acá y no sólo en logout: el login
+      // desde una sesión ya abierta (cambio de usuario) no pasa por logout.
+      this.scope.reset();
 
       if (persist) {
         try { localStorage.setItem(STORAGE_KEY, token); } catch { /* quota / privacy mode */ }

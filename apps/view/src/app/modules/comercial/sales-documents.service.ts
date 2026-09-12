@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
@@ -75,16 +75,38 @@ export interface SalesDocsKpis {
 export interface SalesDocsReport {
   rows: SalesDocRow[]; kpis: SalesDocsKpis;
   page: number; pageSize: number; range: { from: string; to: string };
+  /** Sólo cuando la ventana volvió VACÍA: fecha de la última factura que sí existe (YYYY-MM-DD). */
+  ultima_factura?: string | null;
 }
 export interface SalesDocsFiltros {
   vendedores: { vendedor_code: string; vendedor_nombre: string }[];
   sucursales: { warehouse_id: string; sucursal: string }[];
   doc_tipos: string[];
 }
+/** GT.12 — una guía archivada. `snapshot` es lo que se imprimió, verbatim. */
+export interface ExpedienteGuia {
+  id: string;
+  folio: string;
+  vendedor_code: string | null;
+  vendedor_nombre: string | null;
+  responsable: string | null;
+  sucursales: string[];
+  documentos: number;
+  clientes: number;
+  total: string;
+  folios: string[];
+  created_at: string;
+  created_by_username: string | null;
+}
+
 export interface SalesDocsQuery {
-  from?: string; to?: string; warehouse_ids?: string; doc_tipo?: string;
+  from?: string; to?: string; doc_tipo?: string;
+  /** Código de sucursal (2 dígitos). El backend lo recorta a tu alcance (ADR-050). */
+  warehouse_codes?: string;
   cliente_code?: string; vendedor_code?: string; search?: string;
   vencidas?: string; cobro?: string; min?: string; canceladas?: string;
+  /** fecha_desc | fecha_asc | total_desc | total_asc | saldo_desc | saldo_asc */
+  sort?: string;
   page?: number; pageSize?: number;
 }
 
@@ -121,5 +143,32 @@ export class SalesDocumentsService {
   /** Descarga el PDF como blob — necesario para imprimir: el <iframe> tiene que llevar el JWT. */
   anexoBlob(folio: string, conPagare = true): Observable<Blob> {
     return this.http.get(this.anexoUrl(folio, conPagare), { responseType: 'blob' });
+  }
+
+  /** GT.12 — historial de guías emitidas (expedientes), por vendedor y fecha. */
+  expedientes(q: { vendedor_code?: string; from?: string; to?: string; limit?: number } = {}): Observable<ExpedienteGuia[]> {
+    return this.http.get<ExpedienteGuia[]>(`${this.base}/expedientes`, { params: this.params(q) });
+  }
+
+  /** Reimpresión de un expediente archivado — sale de su snapshot, no de la cartera de hoy. */
+  expedienteBlob(id: string): Observable<Blob> {
+    return this.http.get(`${this.base}/expedientes/${encodeURIComponent(id)}/pdf`, { responseType: 'blob' });
+  }
+
+  /**
+   * GT.2 — Guía de Cobranza de las facturas seleccionadas, en PDF.
+   *
+   * POST: la selección puede traer cientos de folios y no cabe en una URL. Llega como blob
+   * (el interceptor le pone el JWT) para poder imprimirla o verla sin salir de la pantalla.
+   */
+  guiaCobranzaBlob(
+    folios: string[],
+    opts: { responsable?: string; nota?: string } = {},
+  ): Observable<HttpResponse<Blob>> {
+    // `observe: 'response'` para leer `X-Expediente-Folio`: el cuerpo es el PDF y el folio del
+    // expediente recién archivado sólo viaja en el header.
+    return this.http.post(`${this.base}/guia-cobranza.pdf`, { folios, ...opts }, {
+      responseType: 'blob', observe: 'response',
+    });
   }
 }
