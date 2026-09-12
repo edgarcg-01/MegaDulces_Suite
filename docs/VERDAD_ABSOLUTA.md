@@ -560,7 +560,7 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ~~el ORIGEN llega tarde~~ · ~~la `07` no está en el ODS~~ · ~~`06` al 61%~~ | **RETIRADOS 2026-09-12 — eran FALSOS** | ⛔ medidos contra `platform_test` (la réplica **dev**) creyéndola prod. En prod la paridad es **Δ = 0** y la `07` está completa. Caso testigo en **§13.3** — se conserva porque el modo de falla es más instructivo que el hallazgo |
 | ⚠️ **existencia fantasma en Kepler** | **132 filas** · **valor NO MEDIDO** | `kdik` con SKU que no está en `kdii` (la `03` aporta 86). ⛔ **El monto se declara sin medir a propósito**: `kdik.c8` casa con `existencia × c16` sólo en **43.4%**, así que no pasó la prueba de unidad (R2). Publicar un peso ahí sería inventarlo — §9.11 |
 | ⚠️ **cobertura del ODS sin clasificar** | **223 de 371** tablas Kepler = **60.1%** | Las 148 que faltan no están analizadas: parte es drift por rama y períodos viejos, parte puede importar. **No medido**, no "no importa" |
-| ⏰ **la bomba de calendario vence** | **2027-01-01**, las 8 ramas a la vez | `kdc22701` no existe en ningún suscriptor y el DDL no se replica → apply worker en ciclo de reinicio cada 5 s, suscripción `enabled` y latido verde. El desactivador existe y **no está agendado** — `ERP_KEPLER.md` §4.2 |
+| ⏰ **la bomba de calendario vence** | **2027-01-01**, las 8 ramas a la vez | `kdc22701` no existe en ningún suscriptor y el DDL no se replica → apply worker en ciclo de reinicio cada 5 s, suscripción `enabled` y latido verde. **El desactivador SÍ corre** (`ensure-monthly-tables.js` vía `cdc_reconcile` en `analytics.cron_runs`); lo abierto es si pre-crea con margen o justo al cambiar el mes — `ERP_KEPLER.md` §4.2 |
 
 ---
 
