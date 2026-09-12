@@ -451,6 +451,11 @@
 }
 .mt-declarado > i { color: var(--warn-fg); margin-top: 2px; }
 .mt-declarado b { color: var(--text-main); font-weight: var(--fw-medium); }
+/*
+  [SN.21] La misma caja, en tono neutro. El recorte por reparto es una EXPLICACION, no una alarma:
+  con el icono en ambar competia por atencion con lo que si la necesita (una bandeja sin medir).
+*/
+.mt-declarado.is-nota > i { color: var(--text-faint); }
 
 .mt-refresh {
   border: 0;

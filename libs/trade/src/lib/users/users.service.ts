@@ -2030,6 +2030,48 @@ export class UsersService {
      */
     const sucursales = await this.sucursalesDelAlcance(userId);
     const ctx: MedirCtx = { tenantId: this.tenantId, userId, sucursales };
+    const misResponsabilidades = await this.responsabilidadesDe(userId);
+
+    /*
+     * `[SN.21]` — **La regla de delegación, y por qué es auto-limitada.**
+     *
+     * Edgar (2026-09-12): *"Ivonne es SOLO INGRESOS, ella sólo debe ver ingresos en su «Mi
+     * trabajo» y Mayra sólo egresos"*. `[SN.20]` lo aplicó únicamente a los ciclos y con un
+     * criterio POR REGISTRO. Medido: aplicado igual a las bandejas habría sido un **no-op** —
+     * las claves de conciliación no cubren ninguna bandeja, así que `mios` salía vacío y no
+     * filtraba nada. Para que la regla signifique lo que dice, la condición cruza los dos
+     * registros; pero cruzarla a secas tampoco servía:
+     *
+     * ⚠️ **La versión ingenua se midió antes de escribirla y dejaba a 6 personas sin nada.**
+     * `diana_rodriguez`, `ernesto_zarate`, `jesus_carrillo`, `julio_torres`, `maria_rodriguez` y
+     * `perla_garcia` tienen UNA sola responsabilidad, `finanzas.hallazgos`, y esa bandeja está
+     * RETIRADA desde `[SN.18]`. Su delegación apunta a una superficie apagada: filtrar por ella
+     * les escondía la bandeja de acciones y los 4-5 ciclos a cambio de mostrar cero.
+     *
+     * Por eso la condición no es "tenés una responsabilidad" sino **"algo de lo que VES es
+     * tuyo"** — se calcula sobre lo ya filtrado por permiso y por `retirada`. Así el filtro sólo
+     * se enciende cuando al menos un elemento sobrevive, y **no puede vaciar la pantalla**.
+     *
+     * ⛔ Sigue sin ser autorización (`[OR.1b]`): quien pierde una cola de esta lista entra igual
+     * a esa pantalla por el menú. Lo que se recorta es la lista de lo que te toca, no el acceso.
+     */
+    const esMiaLaBandeja = (b: (typeof BANDEJAS)[number]) =>
+      !!misResponsabilidades?.has(b.responsabilidad);
+    const esMioElCiclo = (c: (typeof CICLOS)[number]) =>
+      !!c.responsabilidad && !!misResponsabilidades?.has(c.responsabilidad);
+
+    /*
+     * Una bandeja `'mio'` es tu BORRADOR: la empezaste vos, nadie te la delegó. Ni se filtra ni
+     * cuenta para encender el filtro — esconderle a alguien su propio trabajo a medias sería el
+     * peor resultado posible de una regla que existe para mostrarle lo suyo.
+     */
+    const bandejasFiltrables = BANDEJAS.filter(
+      (b) => !b.retirada && b.alcance !== 'mio' && puedeVerBandeja(b, permisos, esAdmin),
+    );
+    const ciclosVisibles = CICLOS.filter((c) => puedeVerCiclo(c, permisos, esAdmin));
+    const delegacionActiva =
+      bandejasFiltrables.some(esMiaLaBandeja) || ciclosVisibles.some(esMioElCiclo);
+    let ocultasPorDelegacion = 0;
 
     for (const b of BANDEJAS) {
       // `[SN.18]` Una bandeja retirada no se cuenta ni se pinta. El motivo vive en su definición,
@@ -2037,6 +2079,12 @@ export class UsersService {
       // propósito. Confundirlos haría que la pantalla pidiera atención sobre una decisión tomada.
       if (b.retirada) continue;
       if (!puedeVerBandeja(b, permisos, esAdmin)) continue;
+      // `[SN.21]` Con reparto vigente, una cola compartida que no es tuya no va en TU lista. No
+      // entra a `no_medido`: eso es para lo que falló al medirse, no para lo que no te toca.
+      if (delegacionActiva && b.alcance !== 'mio' && !esMiaLaBandeja(b)) {
+        ocultasPorDelegacion++;
+        continue;
+      }
       try {
         const { total, mas_viejo_at } = await b.medir(this.knex, ctx);
         // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
@@ -2136,14 +2184,9 @@ export class UsersService {
      * puede contestar nada.
      */
     const ciclos: MeCiclo[] = [];
-    const misResponsabilidades = await this.responsabilidadesDe(userId);
 
     /*
      * `[SN.20]` **Si te delegaron el trabajo, ves el TUYO y nada más.**
-     *
-     * Edgar (2026-09-12): *"Ivonne es SOLO INGRESOS, ella sólo debe ver ingresos en su «Mi
-     * trabajo» y Mayra sólo egresos. Los módulos se quedan igual, sólo delegamos actividades en
-     * «Mi trabajo»"*.
      *
      * ⚠️ Acá yo había aplicado mal la regla de `[OR.1b]` («la responsabilidad no gatea»). Esa regla
      * existe para que la responsabilidad no se convierta en un cuarto sistema de AUTORIZACIÓN — y
@@ -2152,18 +2195,18 @@ export class UsersService {
      * `/finanzas/bancos` y ve las cuatro conciliaciones; lo que no le aparece es el trabajo de otra
      * persona en SU lista de pendientes.
      *
-     * ⛔ El filtro sólo se aplica a quien **tiene** algo delegado. Quien no tiene ninguna
-     * responsabilidad que cubra un ciclo sigue viéndolos todos — si no, las otras 4 auxiliares (y
-     * cualquier puesto sin reparto) se quedarían con la pantalla vacía, que es peor que de más.
+     * `[SN.21]` La condición se calcula ARRIBA y cruza los dos registros: un ciclo sin
+     * `responsabilidad` (hoy el Libro de compras) nunca es de nadie, así que desaparece para quien
+     * tiene reparto vigente. Eso es correcto —no se lo delegaron— pero es justo el borde que hay
+     * que vigilar: el día que alguien responda del Libro de compras hay que declararlo en el
+     * catálogo, o el filtro se lo va a esconder a su dueño.
      */
-    const mios = CICLOS.filter(
-      (c) => c.responsabilidad && misResponsabilidades?.has(c.responsabilidad),
-    );
-    const soloLosMios = mios.length > 0;
-
     for (const c of CICLOS) {
       if (!puedeVerCiclo(c, permisos, esAdmin)) continue;
-      if (soloLosMios && !mios.includes(c)) continue;
+      if (delegacionActiva && !esMioElCiclo(c)) {
+        ocultasPorDelegacion++;
+        continue;
+      }
       try {
         const periodos = (await c.medir(this.knex, ctx)).map((p) => ({
           ...p,
@@ -2179,7 +2222,7 @@ export class UsersService {
           pendientes: periodos.filter(
             (p) => p.estado === 'sin_empezar' || p.estado === 'en_proceso',
           ).length,
-          es_mio: !!c.responsabilidad && !!misResponsabilidades?.has(c.responsabilidad),
+          es_mio: esMioElCiclo(c),
         });
       } catch (e) {
         const motivo = e instanceof Error ? e.message.split('\n')[0] : 'error desconocido';
@@ -2206,6 +2249,19 @@ export class UsersService {
       // `null` sólo si la consulta falló; el set vacío es una respuesta legítima ("no responde
       // de nada declarado"), distinta de "no se pudo preguntar" (ADR-056).
       tiene_responsabilidades: misResponsabilidades === null ? null : misResponsabilidades.size > 0,
+      /*
+       * `[SN.21]` Lo que el reparto le hizo a esta lista, dicho en voz alta. Una lista recortada
+       * en silencio se lee igual que una lista completa — y entonces «no tenés nada más» y «lo
+       * demás no es tuyo» se confunden, que es exactamente lo que ADR-056 no deja hacer.
+       */
+      delegacion:
+        misResponsabilidades === null
+          ? null
+          : {
+              activa: delegacionActiva,
+              claves: [...misResponsabilidades].sort(),
+              ocultas: ocultasPorDelegacion,
+            },
       medido_at: new Date().toISOString(),
     };
   }

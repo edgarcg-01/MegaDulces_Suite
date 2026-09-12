@@ -59,6 +59,7 @@ const SIN_TRABAJO: MeWork = {
   pendientes: [],
   no_medido: [],
   tiene_responsabilidades: false,
+  delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
   medido_at: '2026-09-11T12:00:00.000Z',
 };
@@ -68,6 +69,7 @@ const TRABAJO_MIXTO: MeWork = {
   no_medido: [],
   tareas: [],
   tiene_responsabilidades: false,
+  delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
   pendientes: [
     { id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio', ambito: 'red' },
@@ -81,6 +83,7 @@ const TRABAJO_ASIGNADO: MeWork = {
   no_medido: [],
   pendientes: [],
   tiene_responsabilidades: false,
+  delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
   tareas: [
     {
@@ -463,6 +466,59 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(q<HTMLElement>('app-periodo-strip').length).toBe(2);
     expect(q<HTMLElement>('.ps.is-mine').length).toBe(0);
     expect(html()).toContain('No tienes trabajo a tu nombre');
+  });
+
+  /*
+   * `[SN.21]` — Lo que el reparto le hizo a la lista se DICE. Una lista recortada en silencio se
+   * lee igual que una completa, y entonces «ya no hay nada» y «lo demás no es tuyo» se confunden.
+   */
+  it('una lista acotada por el reparto lo declara, y dice cuánto quedó fuera', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({
+        ...SIN_TRABAJO,
+        ciclos: [{ ...CON_CICLO.ciclos[0], id: 'conciliacion-caja-ingresos', es_mio: true }],
+        delegacion: { activa: true, claves: ['finanzas.conciliacion_ingresos'], ocultas: 3 },
+      } as MeWork),
+    });
+    expect(html()).toContain('acotada a lo que responde tu reparto');
+    expect(html()).toContain('3 colas más');
+    // Y se aclara que nadie perdió acceso: la responsabilidad ordena, no cierra puertas.
+    expect(html()).toContain('las sigues abriendo desde su pantalla');
+  });
+
+  it('sin recorte no se dice nada: no se habla de un filtro que no se aplicó', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true,
+      work$: of({ ...SIN_TRABAJO, delegacion: { activa: true, claves: ['almacen.cuadre'], ocultas: 0 } } as MeWork),
+    });
+    expect(html()).not.toContain('acotada a lo que responde tu reparto');
+  });
+
+  /*
+   * `[SN.21]` — La auto-entrada deja de pasar por encima del trabajo propio.
+   *
+   * Con UN solo destino la landing navegaba sola, así que Ivonne y Mayra nunca veían la pantalla
+   * que se hizo para ellas. Medido: 18 personas tienen exactamente 1 destino y sólo 3 tienen algo
+   * propio, así que el atajo se conserva para las otras 15 — eso es lo que prueba el primer caso
+   * de este archivo, que sigue verde.
+   */
+  it('con UNA puerta pero trabajo a tu nombre, la app NO te saca de la pantalla', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR],
+      work$: of({ ...SIN_TRABAJO, ciclos: [{ ...CON_CICLO.ciclos[0], es_mio: true }] } as MeWork),
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(q<HTMLElement>('.ps.is-mine').length).toBe(1);
+  });
+
+  it('con UNA puerta y el trabajo SIN MEDIR, tampoco se auto-entra: no se sabe si hay algo tuyo', async () => {
+    await montar({
+      perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR, Permission.COMMERCIAL_INVENTORY_SUPERVISAR],
+      work$: throwError(() => ({ status: 500 })),
+    });
+    expect(navigate).not.toHaveBeenCalled();
+    expect(html()).toContain('No se pudo consultar tu trabajo pendiente');
   });
 
   it('un conteo acotado dice a qué universo pertenece; uno sin ficha lo DECLARA', async () => {

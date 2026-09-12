@@ -266,6 +266,22 @@
             </span>
           </p>
         }
+
+        @if (recorteVisible(); as d) {
+          <!--
+            [SN.21] Una lista RECORTADA en silencio se lee igual que una lista completa, y entonces
+            "ya no hay nada" y "lo demás no es tuyo" se confunden. Se dice cuánto quedó fuera y se
+            aclara que sigue abierto: la responsabilidad ordena esta lista, no cierra ninguna puerta.
+          -->
+          <p class="mt-declarado is-nota">
+            <i class="pi pi-filter" aria-hidden="true"></i>
+            <span>
+              Esta lista está acotada a lo que responde tu reparto.
+              {{ d.ocultas }} {{ d.ocultas === 1 ? 'cola más que tu permiso abre no aparece' : 'colas más que tu permiso abre no aparecen' }}
+              acá — las sigues abriendo desde su pantalla.
+            </span>
+          </p>
+        }
       </app-load-state>
 
       <!--

@@ -260,6 +260,54 @@ const tieneDecoradorPermisos = (tramo) =>
       usadas: [...new Set(declaradas)].length, catalogo: catalogo.length,
     });
 
+  /*
+   * ── 4e. `[SN.21]` La regla de delegación no puede vaciar la pantalla ─────────────────────────
+   *
+   * `workFor` recorta «Mi trabajo» a lo que responde el reparto de cada persona. La versión
+   * ingenua de esa regla —«tenés alguna responsabilidad ⇒ filtrá»— **se midió contra prod antes de
+   * escribirla y dejaba a 6 personas sin nada**: su única delegación es `finanzas.hallazgos`, y esa
+   * bandeja está RETIRADA desde `[SN.18]`. Filtrar por una delegación que no puede mostrar nada es
+   * esconderlo todo a cambio de cero.
+   *
+   * Lo que hace segura a la regla son tres propiedades del CÓDIGO, y este bloque las vigila. No
+   * miden el dato (para eso está `database/scripts/sn-delegacion-impacto.js`, que corre contra
+   * prod): miden que nadie las quite al simplificar, que es como volverían a romperse.
+   */
+  console.log('\n── 4e. La regla de delegación se calcula sobre lo VISIBLE ──');
+  const srcSvc = fs.readFileSync(
+    path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'),
+    'utf8',
+  );
+  const mFiltrables = /const bandejasFiltrables = BANDEJAS\.filter\(([\s\S]*?)\n {4}\);/.exec(srcSvc);
+  check('existe el conjunto de bandejas filtrables (si no, el resto de este bloque no mide nada)',
+    !!mFiltrables);
+  if (mFiltrables) {
+    const cuerpo = mFiltrables[1];
+    check('la bandeja RETIRADA no cuenta para encender el filtro (el caso que vaciaba 6 pantallas)',
+      /!b\.retirada/.test(cuerpo), cuerpo.trim());
+    check('tu BORRADOR (alcance mio) no cuenta ni se filtra: nadie te lo delegó, lo empezaste vos',
+      /b\.alcance !== 'mio'/.test(cuerpo), cuerpo.trim());
+    check('sólo cuenta lo que tu permiso ABRE (si no, filtraría por algo que igual no ves)',
+      /puedeVerBandeja\(b, permisos, esAdmin\)/.test(cuerpo), cuerpo.trim());
+  }
+  const mActiva = /const delegacionActiva =([\s\S]*?);\n/.exec(srcSvc);
+  check('existe la condición que enciende el filtro', !!mActiva);
+  if (mActiva) {
+    const cond = mActiva[1];
+    /*
+     * ⛔ La prueba NEGATIVA de este bloque: la condición NO puede ser `misResponsabilidades.size`.
+     * Ésa es exactamente la versión que se midió y se descartó, y es la que alguien volvería a
+     * escribir por ser la obvia. Se rompió a propósito una vez (cambiando la condición por
+     * `misResponsabilidades.size > 0`) y estas dos aserciones se pusieron rojas.
+     */
+    check('la condición se calcula sobre lo que la persona VE, no sobre cuántas claves tiene',
+      /bandejasFiltrables\.some/.test(cond) && /ciclosVisibles\.some/.test(cond), cond.trim());
+    check('la condición NO es "tiene alguna responsabilidad" (la versión que vaciaba pantallas)',
+      !/misResponsabilidades[?.]*\.size/.test(cond), cond.trim());
+  }
+  check('lo que el filtro esconde se DECLARA en la respuesta (ocultas), no desaparece en silencio',
+    /ocultasPorDelegacion\+\+/.test(srcSvc) && /ocultas: ocultasPorDelegacion/.test(srcSvc));
+
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');
   let login;
@@ -360,6 +408,34 @@ const tieneDecoradorPermisos = (tramo) =>
       'tiene_responsabilidades' in wb &&
         (wb.tiene_responsabilidades === null || typeof wb.tiene_responsabilidades === 'boolean'),
       wb.tiene_responsabilidades);
+  }
+
+  /*
+   * `[SN.21]` El recorte por reparto viaja DECLARADO. `null` es una respuesta legítima ("no se
+   * pudieron leer las responsabilidades"), distinta de un objeto con `activa: false`.
+   */
+  if (wb.delegacion === undefined) {
+    declarar('delegacion en me/work', `la API en ${BASE} responde sin \`delegacion\`: corre código anterior a SN.21, hay que reiniciarla`);
+  } else if (wb.delegacion === null) {
+    check('delegacion null = las responsabilidades no se pudieron leer, y se declara', true);
+  } else {
+    const d = wb.delegacion;
+    check('delegacion trae activa/claves/ocultas con su tipo',
+      typeof d.activa === 'boolean' && Array.isArray(d.claves) && typeof d.ocultas === 'number', d);
+    /*
+     * ⛔ El invariante que hace segura a la regla, medido en vivo: **si el filtro está encendido,
+     * algo sobrevivió**. Si alguna vez `activa: true` llega con las tres listas vacías, la regla
+     * dejó a esta persona sin pantalla — que es justo lo que la versión ingenua hacía con 6.
+     */
+    if (d.activa) {
+      const quedaAlgo =
+        (wb.tareas ?? []).length + (wb.pendientes ?? []).length + (wb.ciclos ?? []).length > 0;
+      check('con el filtro ENCENDIDO queda al menos una cosa que mostrar', quedaAlgo, {
+        tareas: (wb.tareas ?? []).length, pendientes: (wb.pendientes ?? []).length, ciclos: (wb.ciclos ?? []).length,
+      });
+    } else {
+      check('con el filtro apagado no se esconde nada (ocultas = 0)', d.ocultas === 0, d.ocultas);
+    }
   }
   const fuentesRegistradas = new Set(fuentes.map((f) => f.fuente));
   for (const t of wb.tareas ?? []) {

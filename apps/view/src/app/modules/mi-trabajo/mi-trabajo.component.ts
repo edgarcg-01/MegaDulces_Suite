@@ -416,14 +416,31 @@ export class MiTrabajoComponent {
   /**
    * `[SN.15]` ¿Se puede siquiera calcular "esto es tuyo"?
    *
-   * `false` = `identity.position_responsibilities` no dice de qué responde este puesto — hoy es el
-   * caso de TODOS, porque `[OR.1b]` la dejó vacía a propósito: sembrarla desde el permiso
-   * colapsaría la distinción que existe para crear. La pantalla lo DECLARA en vez de callarlo,
-   * que es la diferencia entre "no te toca nada" y "nadie definió qué te toca".
+   * `false` = ni el puesto ni la ficha dicen de qué responde esta persona. La pantalla lo DECLARA
+   * en vez de callarlo, que es la diferencia entre "no te toca nada" y "nadie definió qué te toca".
+   *
+   * ⚠️ `[SN.21]` Acá decía que era «el caso de TODOS, porque `[OR.1b]` la dejó vacía». Medido de
+   * nuevo contra prod el 2026-09-12: **42 filas en `position_responsibilities`, 28 de 122 personas
+   * con reparto**. El comentario estaba vencido; la pantalla no mentía porque el dato se calcula
+   * en vivo, pero es el mismo defecto que `[SN.15]` tuvo que corregir y conviene no repetirlo.
    */
   readonly sinReparto = computed(() => {
     const t = this.trabajo();
     return t.status === 'ok' && t.data.tiene_responsabilidades === false;
+  });
+
+  /**
+   * `[SN.21]` Qué le hizo el reparto a esta lista. Si recortó algo, se dice: una lista recortada en
+   * silencio se lee igual que una completa, y entonces «ya no hay nada» y «lo demás no es tuyo» se
+   * confunden. `null` = las responsabilidades no se pudieron leer.
+   */
+  readonly delegacion = computed(() => {
+    const t = this.trabajo();
+    return t.status === 'ok' ? t.data.delegacion ?? null : null;
+  });
+  readonly recorteVisible = computed(() => {
+    const d = this.delegacion();
+    return d && d.activa && d.ocultas > 0 ? d : null;
   });
 
   readonly sinPendientes = computed(
@@ -475,15 +492,54 @@ export class MiTrabajoComponent {
         error: (e) => this.alcance.set({ status: 'error', error: describirError(e) }),
       });
 
-    // Auto-entrada: UNA sola puerta primaria → adentro, salvo que pidieran quedarse.
+    /*
+     * Auto-entrada: UNA sola puerta primaria → adentro, salvo que pidieran quedarse.
+     *
+     * `[SN.21]` **…y salvo que tengan trabajo propio que mostrarles.** Con un solo destino la
+     * landing navegaba sola, así que Ivonne y Mayra —que tienen su conciliación delegada— nunca
+     * llegaban a ver la pantalla que se construyó para ellas: entraban directo a `/finanzas`.
+     *
+     * Medido antes de tocarlo: **18 personas tienen exactamente 1 destino** (10 a `/tienda`, 5 a
+     * `/finanzas`, 3 a `/almacen`) y de ésas **sólo 3 tienen algo propio** (Ivonne y Mayra por su
+     * ciclo, `jesus_carrillo` por una tarea asignada). Las otras 15 siguen entrando directo.
+     *
+     * ⚠️ El costo es real y se paga en el arranque: la decisión ya no se puede tomar con el JWT
+     * solo, hay que esperar a `GET /users/me/work`. Esas 15 personas ven la landing —con su
+     * esqueleto— durante esa llamada antes de que la app las redirija. Se prefiere eso a decidir
+     * sin el dato: navegar antes de saber si hay trabajo propio es justo lo que rompía la pantalla.
+     *
+     * ⛔ Si la llamada FALLA no se auto-entra. No se sabe si hay trabajo, y ADR-056 dice que lo que
+     * no se pudo medir se declara: la pantalla muestra el error y la única puerta está a un clic.
+     */
     effect(() => {
       if (this.autoEntrada || this.quedarse || !this.permisosCargados()) return;
       const destinos = this.destinos();
-      if (destinos.length === 1) {
-        this.autoEntrada = true;
-        void this.router.navigate([destinos[0]]);
-      }
+      if (destinos.length !== 1) return;
+      const t = this.trabajo();
+      if (t.status !== 'ok') return;
+      if (this.hayTrabajoPropioCrudo(t.data)) return;
+      this.autoEntrada = true;
+      void this.router.navigate([destinos[0]]);
     });
+  }
+
+  /**
+   * `[SN.21]` ¿Hay algo con TU nombre en esta respuesta? Las tres formas de «tuyo» que la suite
+   * distingue: te lo asignaron, lo empezaste, o responde de él tu reparto.
+   *
+   * Lee el dato CRUDO a propósito. `hayAlgoMio()` pasa por el buscador, y atar la auto-entrada al
+   * buscador haría que escribir en la caja cambiara si la app te redirige o no.
+   *
+   * ⛔ `no_medido` NO cuenta. Es tentador —"algo falló, que lo vea"— pero haría que una falla
+   * transitoria de UNA cola compartida le quitara el atajo a las 15 personas que sí lo quieren.
+   * Lo que no se pudo medir se declara DENTRO de la pantalla, no reteniendo a quien no la pidió.
+   */
+  private hayTrabajoPropioCrudo(w: MeWork): boolean {
+    return (
+      (w.tareas ?? []).length > 0 ||
+      w.pendientes.some((p) => p.alcance === 'mio') ||
+      (w.ciclos ?? []).some((c) => c.es_mio)
+    );
   }
 
   // ── Mi contexto (una tira, no cuatro cajas) ─────────────────────────────────
