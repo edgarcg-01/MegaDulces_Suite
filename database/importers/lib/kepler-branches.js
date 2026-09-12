@@ -80,6 +80,17 @@ const urlOf = (b) => {
  *  opciones de pg.Client. */
 const clientConfig = (b, extra = {}) => ({ connectionString: b.url || urlOf(b), ...extra });
 
+/** Config para conectarse SIEMPRE a la réplica lógica local de la rama (kepler_md_XX), no al POS.
+ *  Distinto de clientConfig: éste es para OPERAR SOBRE la réplica (revisar su suscripción, su
+ *  frescura), no para leer datos. Nace 2026-09-12: cuando la 06/07 pasaron a tener host, urlOf
+ *  empezó a devolver el POS, y el detector de réplica-congelada del poller (que usaba clientConfig)
+ *  terminó preguntándole a un PUBLICADOR si tenía suscripción → falso "la réplica no tiene
+ *  suscripción". El chequeo de la réplica tiene que apuntar a la réplica, pase lo que pase con urlOf. */
+const replicaConfig = (b, extra = {}) => {
+  if (!b.replica) throw new Error(`kepler-branches: la rama '${b.code}' no tiene réplica`);
+  return { connectionString: replicaUrl(b.code, REPLICA_BASE), ...extra };
+};
+
 /** Shape SALES: [{code,host,port,db,name,url,replica}]. `cedis` (default true) incluye md_00.
  *  `url` resuelto por rama (Canindo = replica local) → usar con clientConfig o connectionString.
  *  `replica` (null para las ramas con POS remoto) expone el nombre de la base réplica. Se agregó
@@ -149,6 +160,6 @@ async function verifyAgainstDb(pgClient, tenantId = '00000000-0000-0000-0000-000
 }
 
 module.exports = {
-  BRANCHES, salesMap, stockMap, branchUrl, urlOf, clientConfig, verifyAgainstDb,
+  BRANCHES, salesMap, stockMap, branchUrl, urlOf, clientConfig, replicaConfig, verifyAgainstDb,
   replicaDbName, replicaUrl, USER, PASS,
 };
