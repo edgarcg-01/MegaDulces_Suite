@@ -18,7 +18,16 @@ function prodUrl() {
   throw new Error('no encontré la URL de prod');
 }
 const APPLY = process.argv.includes('--apply');
-const DST = process.env.DST_URL || prodUrl();
+// [VL.4.2] `DATABASE_URL_NEW` como penúltimo recurso — ANTES de prodUrl(), que lee la
+// credencial de `C:/KeplerRunner/*.cmd`. Esa ruta es de la máquina Windows `.249`; desde el
+// 2026-09-11 esto corre en un contenedor Linux en `md`, donde NO EXISTE: `prodUrl()` tiraba
+// y el paso moría. Verificado corriéndolo adentro del contenedor antes de que lo hiciera el
+// nocturno de las 03:00 — y habría fallado EN SILENCIO, porque el runner sólo marca el modo
+// en `error` si fallan TODOS sus pasos (son 53).
+// ⚠️ Vale usar DATABASE_URL_NEW acá porque este paso corre bajo `run-feed.sh`, que carga
+// `/secrets/feeds.env`, donde esa variable SÍ es prod. En los shippers del ODS apunta al
+// contenedor de réplicas (GOTCHAS §17): no copiar esta línea a un script del ODS.
+const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || prodUrl();
 const TABLES = [
   ['analytics', 'ap_provider'], ['analytics', 'bank_postings'], ['analytics', 'erp_collections'],
   ['analytics', 'erp_goods_receipt_lines'], ['analytics', 'erp_goods_receipts'], ['analytics', 'erp_purchase_adjustments'],
