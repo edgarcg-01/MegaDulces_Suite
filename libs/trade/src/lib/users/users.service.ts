@@ -25,6 +25,8 @@ import {
   Permission,
   branchKeySql,
   branchKeyFilterSql,
+  // `[SN.22]` Para aislar cada medición de `me/work` en un savepoint: ver `aislado()`.
+  legacyTxStorage,
 } from '@megadulces/platform-core';
 
 interface RequesterContext {
@@ -2086,7 +2088,7 @@ export class UsersService {
         continue;
       }
       try {
-        const { total, mas_viejo_at } = await b.medir(this.knex, ctx);
+        const { total, mas_viejo_at } = await this.aislado(() => b.medir(this.knex, ctx));
         // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
         if (total > 0) {
           pendientes.push({
@@ -2139,7 +2141,7 @@ export class UsersService {
      */
     for (const f of FUENTES_VISIBLES) {
       try {
-        const m = await f.medir(this.knex, this.tenantId, userId);
+        const m = await this.aislado(() => f.medir(this.knex, this.tenantId, userId));
         if (m.total === 0) continue;
         const puede = puedeAbrirTarea(f, permisos, esAdmin);
         tareas.push({
@@ -2208,7 +2210,7 @@ export class UsersService {
         continue;
       }
       try {
-        const periodos = (await c.medir(this.knex, ctx)).map((p) => ({
+        const periodos = (await this.aislado(() => c.medir(this.knex, ctx))).map((p) => ({
           ...p,
           ruta: p.estado === 'sin_datos' ? null : c.ruta,
           queryParams: p.estado === 'sin_datos' ? null : c.queryDe(p.periodo),
@@ -2277,10 +2279,42 @@ export class UsersService {
    *
    * Nunca devuelve `[]`: un array vacío filtraría a cero y se leería como "estás al día".
    */
+  /**
+   * `[SN.22]` — **Una medición que falla no puede envenenar a las demás.**
+   *
+   * `KNEX_CONNECTION` es un proxy: si hay transacción de request en el ALS (y la hay en todo
+   * request con token, `tenant-context.interceptor.ts`), **cada consulta corre dentro de ella**.
+   * Y en Postgres una sentencia fallida ABORTA la transacción: todo lo que siga responde
+   * `25P02 transacción abortada`. **De eso no se sale con un `try/catch`** — atrapar la excepción
+   * en JS no des-aborta nada.
+   *
+   * Eso hacía FALSA la promesa central de `me-work.ts`: cada `medir()` tiene su `catch` y declara
+   * «esta bandeja no respondió», como si las demás siguieran siendo confiables. Medido el
+   * 2026-09-12 contra `platform_test`: **una** tabla ausente (`identity.position_responsibilities`,
+   * que allá no existe porque la migración sólo se aplicó a prod) dejó a Mayra con las **nueve**
+   * mediciones en «Sin medir» — un `42P01` real y ocho `25P02` de arrastre, cada uno reportando su
+   * propio motivo como si fuera independiente.
+   *
+   * El savepoint arregla justo eso: si `fn` falla, se deshace hasta el savepoint y la transacción
+   * de la request sigue usable. Es el mismo patrón —y el mismo motivo— de
+   * `catalogs.service.ts:849`. Cuesta dos idas y vueltas por medición (SAVEPOINT + RELEASE) contra
+   * una base que vive al lado de la API; a cambio, `no_medido` dice la verdad por primera vez.
+   *
+   * ⚠️ El `try/catch` va SIEMPRE por fuera de esta llamada. Si se atrapa adentro, el error no
+   * escapa, el savepoint se libera como si todo hubiera ido bien, y el aislamiento no sirve.
+   */
+  private aislado<T>(fn: () => Promise<T>): Promise<T> {
+    const store = legacyTxStorage.getStore();
+    if (!store?.tx) return fn();
+    return store.tx.transaction((sp) =>
+      legacyTxStorage.run({ tx: sp, tenantId: store.tenantId }, fn),
+    );
+  }
+
   private async sucursalesDelAlcance(userId: string): Promise<string[] | null> {
     if (!this.scopeService) return null;
     try {
-      const scope = await this.scopeService.forUser(this.tenantId, userId);
+      const scope = await this.aislado(() => this.scopeService!.forUser(this.tenantId, userId));
       const dim = scope.dims.warehouse;
       if (!dim || dim.mode === 'all' || !dim.resolvable) return null;
       return dim.values.length ? dim.values : null;
@@ -2322,25 +2356,36 @@ export class UsersService {
    */
   private async responsabilidadesDe(userId: string): Promise<Set<string> | null> {
     try {
-      const delPuesto = await this.knex('identity.position_responsibilities as pr')
-        .join('identity.users as u', function () {
-          this.on('u.position_code', '=', 'pr.position_code').andOn('u.tenant_id', '=', 'pr.tenant_id');
-        })
-        .where('u.id', userId)
-        .where('pr.tenant_id', this.tenantId)
-        .whereNull('pr.deleted_at')
-        .pluck('pr.responsibility_key');
+      /*
+       * `[SN.22]` Las DOS lecturas van en UN solo savepoint, y el `catch` por fuera.
+       *
+       * Éste es el origen medido del incidente del 2026-09-12: las dos tablas las crea `[OR.1b]` y
+       * **no existen en `platform_test`**, así que acá salta un `42P01` — que este `catch` atrapa
+       * y convierte en `null`, como si fuera una degradación limpia. No lo era: la transacción de
+       * la request ya quedaba abortada y las nueve mediciones posteriores morían con `25P02`.
+       * Un ambiente sin una migración dejaba la pantalla entera en «Sin medir».
+       */
+      const { delPuesto, dePersona } = await this.aislado(async () => ({
+        delPuesto: (await this.knex('identity.position_responsibilities as pr')
+          .join('identity.users as u', function () {
+            this.on('u.position_code', '=', 'pr.position_code').andOn('u.tenant_id', '=', 'pr.tenant_id');
+          })
+          .where('u.id', userId)
+          .where('pr.tenant_id', this.tenantId)
+          .whereNull('pr.deleted_at')
+          .pluck('pr.responsibility_key')) as string[],
 
-      // `valid_to` nulo = sigue vigente. Una excepción vencida NO cuenta.
-      const dePersona = await this.knex('identity.user_responsibilities')
-        .where({ tenant_id: this.tenantId, user_id: userId })
-        .whereNull('deleted_at')
-        .whereRaw('valid_from <= CURRENT_DATE')
-        .andWhere((q) => q.whereNull('valid_to').orWhereRaw('valid_to >= CURRENT_DATE'))
-        .select('responsibility_key', 'accion');
+        // `valid_to` nulo = sigue vigente. Una excepción vencida NO cuenta.
+        dePersona: (await this.knex('identity.user_responsibilities')
+          .where({ tenant_id: this.tenantId, user_id: userId })
+          .whereNull('deleted_at')
+          .whereRaw('valid_from <= CURRENT_DATE')
+          .andWhere((q) => q.whereNull('valid_to').orWhereRaw('valid_to >= CURRENT_DATE'))
+          .select('responsibility_key', 'accion')) as { responsibility_key: string; accion: string }[],
+      }));
 
       const set = new Set<string>(delPuesto);
-      for (const r of dePersona as { responsibility_key: string; accion: string }[]) {
+      for (const r of dePersona) {
         if (r.accion === 'resta') set.delete(r.responsibility_key);
         else set.add(r.responsibility_key);
       }
