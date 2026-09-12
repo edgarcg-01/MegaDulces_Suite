@@ -27,6 +27,8 @@ import {
   branchKeyFilterSql,
   // `[SN.22]` Para aislar cada medición de `me/work` en un savepoint: ver `aislado()`.
   legacyTxStorage,
+  // `[AU.0b]` El buscador compartido: sin acentos, multi-palabra, tolera typos.
+  applySmartSearch,
 } from '@megadulces/platform-core';
 
 interface RequesterContext {
@@ -705,11 +707,45 @@ export class UsersService {
     return { ...user, zona: await this.zoneNameOf(zona_id) };
   }
 
+  /**
+   * `[AU.0b]` El padrón, ahora **buscable y paginado en el servidor**.
+   *
+   * ── Por qué cambia la forma de la respuesta ─────────────────────────────
+   * Antes devolvía el arreglo completo y el filtrado era en el cliente. Con 122
+   * cuentas se aguanta; el problema no es el tamaño sino que la búsqueda del
+   * navegador **no tolera acentos ni typos** y la regla de datos densos exige
+   * paginar lo transaccional. `applySmartSearch` ya resuelve las tres cosas y lo
+   * usan 9 servicios más — no se reescribe una décima versión a mano.
+   *
+   * Devuelve un sobre `{ rows, total, page, page_size }`. El único consumidor de
+   * este endpoint es la pantalla de administración (medido: `getTeam()` es lo
+   * que usa `daily-assignments`, no esto), así que no se deja una respuesta
+   * polimórfica «arreglo o sobre» arrastrándose para siempre.
+   *
+   * ⚠️ **El `ORDER BY` no es cosmético.** La consulta no tenía ninguno: sin
+   * orden estable, dos páginas pueden traer a la misma persona y saltearse otra,
+   * porque Postgres no promete conservar el orden entre ejecuciones. Se ordena
+   * por nombre y se desempata por `id`, que es único.
+   *
+   * ⚠️ El total va con `count(DISTINCT u.id)`: el `leftJoin` a las asignaciones
+   * del día **puede** duplicar la fila si alguien tuviera dos rutas el mismo día.
+   * Hoy no pasa (medido: 122 filas para 122 personas) y **no hay nada que lo
+   * impida**, así que el conteo no depende de que siga sin pasar.
+   */
   async findAll(
-    zona: string | undefined,
-    activo: string | undefined,
+    params: {
+      zona?: string;
+      activo?: string;
+      search?: string;
+      page?: number;
+      pageSize?: number;
+      department_code?: string;
+      position_code?: string;
+      kind?: string;
+    },
     requester: RequesterContext,
   ) {
+    const { zona, activo } = params;
     const jsDay = new Date().getDay();
     const dow = jsDay === 0 ? 7 : jsDay;
 
@@ -735,10 +771,30 @@ export class UsersService {
         this.on('ps.tenant_id', '=', 'u.tenant_id');
         this.on('ps.code', '=', 'u.position_code');
       })
+      /*
+       * `[AU.0b]` El NOMBRE de la sucursal, no sólo su código.
+       *
+       * Medido antes de agregarlo: buscar «padre hidalgo» devolvía **3 filas, y
+       * las tres eran kioscos** — los únicos cuyo `nombre` contiene el texto. Las
+       * personas de esa sucursal no aparecían porque en la fila sólo vive
+       * `warehouse_code = '01'`. Buscar gente por el nombre de su tienda es como
+       * busca cualquiera que no se sepa los códigos de memoria.
+       *
+       * ⚠️ El join va por `branchKeySql`, no por `w.code`: en Morelia la llave de
+       * 2 dígitos no está en `code` (`MD-30`) sino en `wincaja_source_branch`
+       * (`[RE.23]`). Con `w.code` esas dos sucursales quedarían fuera.
+       */
+      .leftJoin(
+        knex.raw(
+          `commercial.warehouses as w ON w.tenant_id = u.tenant_id
+             AND w.deleted_at IS NULL AND ${branchKeySql('w')} = u.warehouse_code`,
+        ),
+      )
       .select(
         'u.id',
         'u.username',
         'u.nombre',
+        'w.name as warehouse_name',
         'z.name as zona',
         'u.zona_id',
         'u.role_name',
@@ -790,7 +846,49 @@ export class UsersService {
 
     if (zona) query.where('z.name', zona);
     if (activo) query.where('u.activo', activo === 'true');
-    return query;
+    if (params.department_code) query.where('u.department_code', params.department_code);
+    if (params.position_code) query.where('u.position_code', params.position_code);
+    if (params.kind) query.where('u.kind', params.kind);
+
+    // Insensible a acentos, multi-palabra en cualquier orden y tolerante a
+    // typos. `position_name`/`department_name` entran a propósito: buscar
+    // "cajera" o "finanzas" es como la gente busca a alguien cuyo usuario no
+    // recuerda.
+    applySmartSearch(query, params.search, {
+      columns: [
+        'u.username',
+        'u.nombre',
+        'u.role_name',
+        'u.warehouse_code',
+        'w.name',
+        'ps.name',
+        'dp.name',
+        'z.name',
+      ],
+    });
+
+    // El conteo se saca ANTES de paginar y sobre el MISMO builder (mismos joins,
+    // mismo alcance, mismo filtro): clonarlo evita que el total y las filas se
+    // contesten preguntas distintas.
+    const totalQ = query.clone().clearSelect().clearOrder().countDistinct({ n: 'u.id' });
+
+    const page = Math.max(1, Math.trunc(params.page ?? 1));
+    const pageSize = Math.min(500, Math.max(1, Math.trunc(params.pageSize ?? 50)));
+
+    query
+      .orderByRaw('lower(coalesce(u.nombre, u.username)) asc')
+      .orderBy('u.id', 'asc')
+      .limit(pageSize)
+      .offset((page - 1) * pageSize);
+
+    const [rows, totalRows] = await Promise.all([query, totalQ]);
+    return {
+      rows,
+      total: Number((totalRows as Array<{ n: string | number }>)[0]?.n ?? 0),
+      page,
+      page_size: pageSize,
+      medido_at: new Date().toISOString(),
+    };
   }
 
   async findOne(id: string, requester: RequesterContext) {

@@ -65,16 +65,48 @@ export class UsersController {
     return this.usersService.create(createUserDto, user);
   }
 
+  /**
+   * `[AU.0b]` Devuelve un sobre `{ rows, total, page, page_size }`, no el arreglo
+   * pelado. El filtrado y la búsqueda pasaron al servidor: la del navegador no
+   * tolera acentos ni typos, y lo transaccional se pagina.
+   */
   @Get()
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiQuery({ name: 'zona', required: false })
   @ApiQuery({ name: 'activo', required: false, enum: ['true', 'false'] })
+  @ApiQuery({ name: 'search', required: false })
+  @ApiQuery({ name: 'page', required: false, type: Number })
+  @ApiQuery({ name: 'page_size', required: false, type: Number })
+  @ApiQuery({ name: 'department_code', required: false })
+  @ApiQuery({ name: 'position_code', required: false })
+  @ApiQuery({ name: 'kind', required: false })
   findAll(
     @ReqUser() user: AuthUser,
     @Query('zona') zona?: string,
     @Query('activo') activo?: string,
+    @Query('search') search?: string,
+    @Query('page') page?: string,
+    @Query('page_size') pageSize?: string,
+    @Query('department_code') departmentCode?: string,
+    @Query('position_code') positionCode?: string,
+    @Query('kind') kind?: string,
   ) {
-    return this.usersService.findAll(zona, activo, user);
+    // Los query params llegan como string. `Number('')` es 0 y `Number(undefined)`
+    // es NaN: los dos caen al default del service, que además los acota.
+    const num = (v?: string) => (v == null || v === '' ? undefined : Number(v));
+    return this.usersService.findAll(
+      {
+        zona,
+        activo,
+        search,
+        page: num(page),
+        pageSize: num(pageSize),
+        department_code: departmentCode,
+        position_code: positionCode,
+        kind,
+      },
+      user,
+    );
   }
 
   @Get('roles')
