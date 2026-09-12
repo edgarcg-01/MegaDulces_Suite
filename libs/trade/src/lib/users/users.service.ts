@@ -1441,6 +1441,10 @@ export class UsersService {
         'scope_axis',
         // `[OR.1a]` El jefe del PUESTO. Es la cuarta cosa que el puesto propone.
         'reports_to_position_code',
+        // `[OR.7.0b]` El perfil puede ser COMPUESTO. Nació de medir que las 3
+        // personas de `auxiliar_administrativo` tienen las 3 el complemento
+        // `analisis_ventas`: eso no es una excepción, es el perfil del puesto.
+        'default_complements',
       );
     if (!pos) throw new NotFoundException(`El puesto "${positionCode}" no existe`);
 
@@ -1497,6 +1501,12 @@ export class UsersService {
       role_name: pos.default_role ?? null,
       /** Sin perfil sugerido: la pantalla tiene que pedirlo explícitamente. */
       sin_perfil: !pos.default_role,
+      /**
+       * `[OR.7.0b]` Roles complementarios que el puesto propone. ⛔ **PROPONE, no
+       * otorga**: quien concede sigue siendo `identity.user_roles`. El alta los
+       * precarga igual que el perfil base, y quien los quite deja el motivo.
+       */
+      complementos: (pos.default_complements ?? []) as string[],
       /** `[OR.1a]` El jefe que propone el puesto, y si hay alguien ocupándolo. */
       reports_to: jefe ? { code: jefe.code, name: jefe.name, ocupantes: jefeOcupantes } : null,
       jefe_sin_ocupante: !!jefe && jefeOcupantes.length === 0,
