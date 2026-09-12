@@ -277,6 +277,51 @@ export class CatalogsService {
    * Para `zonas` y `roles` se mantiene el comportamiento previo (hard-delete
    * con sus propios chequeos de integridad).
    */
+  /**
+   * `[OR.7.2]` — Los PUESTOS que proponen este rol.
+   *
+   * ── El bug que cierra ────────────────────────────────────────────────────
+   * Las barreras de borrado y renombre miraban **sólo `users.role_name`**. Un rol
+   * con 0 usuarios pero **propuesto por un puesto** se podía borrar, y la FK
+   * `positions_default_role_fk` es `ON DELETE SET NULL`: el puesto **perdía su
+   * propuesta en silencio**, y el alta volvía a ser «adivina entre 35 roles» para
+   * quien ocupara ese puesto.
+   *
+   * ⚠️ Mira las DOS formas en que un puesto puede proponerlo: `default_role`
+   * (con FK) y `default_complements` (un `text[]`, que **no puede tener FK** —
+   * por eso su integridad depende de esta barrera y del trigger de `[OR.7.0b]`).
+   */
+  private async puestosQueProponen(
+    roleName: string,
+    tenantId: string,
+  ): Promise<{ code: string; como: 'perfil base' | 'complemento' }[]> {
+    const filas = await this.knex('identity.positions')
+      .where({ tenant_id: tenantId })
+      .whereNull('deleted_at')
+      .andWhere((qb) => {
+        qb.where('default_role', roleName).orWhereRaw('? = ANY(default_complements)', [roleName]);
+      })
+      .select('code', 'default_role');
+    return filas.map((f: { code: string; default_role: string | null }) => ({
+      code: f.code,
+      como: f.default_role === roleName ? ('perfil base' as const) : ('complemento' as const),
+    }));
+  }
+
+  /** Mensaje único para las dos barreras, con los puestos por nombre. */
+  private assertNingunPuestoLoPropone(
+    puestos: { code: string; como: string }[],
+    roleName: string,
+    verbo: 'eliminar' | 'renombrar',
+  ): void {
+    if (!puestos.length) return;
+    const lista = puestos.map((p) => `${p.code} (${p.como})`).join(', ');
+    throw new ConflictException(
+      `No se puede ${verbo} el rol "${roleName}": ${puestos.length} puesto(s) lo proponen — ${lista}. ` +
+        `Cambiá la propuesta del puesto antes de ${verbo}lo, o quien lo ocupe se queda sin perfil sugerido.`,
+    );
+  }
+
   async delete(type: string, id: string, requesterId?: string) {
     if (type === 'zonas' || type === 'zones') {
       const existing = await this.knex('zones').where({ id }).first();
@@ -357,6 +402,15 @@ export class CatalogsService {
           `No se puede eliminar el rol "${existing.role_name}": hay ${usersWithRole.length} usuario(s) asignado(s) (${sample}${extra}). Reasígnalos a otro rol antes de eliminar.`,
         );
       }
+
+      // `[OR.7.2]` La segunda barrera: un rol sin usuarios pero PROPUESTO por un
+      // puesto tampoco se borra. Antes se podía, y el puesto quedaba sin
+      // propuesta sin que nadie se enterara (`ON DELETE SET NULL`).
+      this.assertNingunPuestoLoPropone(
+        await this.puestosQueProponen(existing.role_name, tenantId),
+        existing.role_name,
+        'eliminar',
+      );
 
       await this.knex('role_permissions').where({ id, tenant_id: tenantId }).del();
       return { success: true };
@@ -675,6 +729,30 @@ export class CatalogsService {
           .where({ id, tenant_id: tenantId })
           .update({ role_name: newName })
           .returning(['id', 'role_name as value']);
+
+        // `[OR.7.2]` `positions.default_role` sigue el renombre solo, por el
+        // `ON UPDATE CASCADE` de `[ID.32]` — la cuarta FK que esa fase encontró.
+        // ⚠️ Pero `default_complements` es un `text[]` y **un arreglo no puede
+        // tener FK**: sin esto, renombrar un rol dejaría el complemento
+        // apuntando a un nombre que ya no existe, y el trigger de `[OR.7.0b]`
+        // haría fallar la siguiente edición de ese puesto por una causa que
+        // nadie relacionaría con el renombre. Se arrastra a mano.
+        const arrastrados = await this.knex('identity.positions')
+          .where({ tenant_id: tenantId })
+          .whereNull('deleted_at')
+          .whereRaw('? = ANY(default_complements)', [existing.role_name])
+          .update({
+            default_complements: this.knex.raw(
+              'array_replace(default_complements, ?, ?)',
+              [existing.role_name, newName],
+            ),
+            updated_at: this.knex.fn.now(),
+          });
+        if (arrastrados) {
+          this.logger.log(
+            `[OR.7.2] ${arrastrados} puesto(s) traían "${existing.role_name}" como complemento: se renombró a "${newName}".`,
+          );
+        }
         // Renombrar el rol deja usuarios con el role_name viejo huérfanos de
         // permisos; hoy sólo se permite con 0 usuarios asignados, así que no hay
         // cache que invalidar por usuarios activos. Se invalida por prolijidad.
