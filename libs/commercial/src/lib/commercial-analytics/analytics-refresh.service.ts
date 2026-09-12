@@ -165,7 +165,12 @@ export class AnalyticsRefreshService {
             error: errMsg ? errMsg.slice(0, 500) : null, host: 'api', updated_at: admin.fn.now(),
           })
           .onConflict(['tenant_id', 'job_key'])
-          .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+          // ⚠️ `last_start` VA en el merge. Sin él sólo se escribe en el INSERT y queda congelado en
+          // la fecha de la primera corrida: medido el 2026-09-12, este job y `db_health_scan`
+          // mostraban `last_start = 2026-07-31` con `last_finish` de ese mismo día — seis semanas de
+          // "muerto" en un cron que corría cada 15 min. Un tablero (o un auditor) que ordene por
+          // `last_start` reporta un falso positivo; acá pasó.
+          .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
       } catch { /* heartbeat no debe romper el refresh */ }
     }
   }
@@ -284,7 +289,8 @@ export class AnalyticsRefreshService {
           host: 'api', updated_at: this.adminKnex!.fn.now(),
         })
         .onConflict(['tenant_id', 'job_key'])
-        .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+        // ⚠️ `last_start` VA en el merge — ver la nota del otro heartbeat de este archivo.
+        .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
     } catch { /* heartbeat no debe romper el refresh */ }
     return { refreshed_at: new Date().toISOString(), results };
   }

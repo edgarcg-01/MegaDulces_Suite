@@ -1087,6 +1087,38 @@ ya arbitrada de este documento, la hipótesis por defecto **no** es que el docum
 que estás midiendo otra cosa. La primera vez creí que era otra ruta. La segunda resultó ser otra
 **base**. *El documento fue mejor árbitro que mi consulta, dos veces seguidas.*
 
+### 9.15 ⛔⛔ "`RUTA-*` se cuenta dos veces en el sell-out" — y la 'corrección' habría borrado $6.46M
+
+Una auditoría paralela (20 agentes, 2026-09-12) reportó con evidencia que `mv_sales_blended`
+duplicaba **$800,821.51** de venta de ruta en dos períodos **cerrados**, y propuso el arreglo:
+*"excluir los sub-almacenes de ruta de la pierna branch"*. Era la afirmación de mayor apuesta de
+todo el paquete — una cifra ya publicada.
+
+**Es falsa, y el mecanismo que lo impide está escrito:**
+
+| pieza | medido |
+|---|---|
+| `mv_kepler_sales_daily` filtra `btrim(h.c1) = btrim(h.sucursal)` | los sub-almacenes quedan **fuera** de la pierna Kepler **por construcción** |
+| la suc 01 vende desde `01` (41,956 docs) **y** `01-001…01-006` (1,270 docs) | los 6 sub-almacenes existen y **son 6, igual que las 6 rutas** |
+| `import-sales-fact.js:53` | `ROUTE_MAP = { '01-001':'RUTA-21', … '01-006':'RUTA-28' }` |
+
+O sea: la pierna 1 **excluye** los sub-almacenes, el importer los mapea a `RUTA-2N`, y la pierna 2
+los **repone**. No hay solape posible: es un reparto deliberado, no una duplicación.
+
+⛔ **Si alguien ejecuta el arreglo propuesto, borra $6,464,239.77 de venta real** (jul+ago 2026) de
+la cifra publicada. *Una recomendación de "deduplicar" sobre un solape que no existe no deja el
+número igual: lo rompe.*
+
+⭐ **Lo que enseña sobre cómo leer una auditoría:** el hallazgo venía con conteos exactos, ruta de
+archivo y línea de migración — todo verdadero por separado. Lo que faltaba era **una sola condición
+del `WHERE`**. Un paquete de evidencia correcta puede sostener una conclusión falsa; por eso el
+criterio no es "¿la evidencia existe?" sino **"¿probé el mecanismo que la volvería falsa?"**.
+
+⚠️ Queda abierto, declarado y **sin medir**: si los 1,270 documentos de los sub-almacenes se
+corresponden 1:1 con las filas `RUTA-2*` de `sales_daily`, o si hay un tercer feed de ruta
+(`ingest.route_sales_stg` / `mart.ventas` trae `ruta_21…ruta_28` aparte). Que no haya doble conteo
+**no prueba que no haya hueco**.
+
 ---
 
 ## 10. Cómo se verifica
