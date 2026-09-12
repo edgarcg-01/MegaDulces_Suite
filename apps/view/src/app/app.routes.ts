@@ -210,6 +210,16 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/comercial/pages/comercial-documentos.component').then(m => m.ComercialDocumentosComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
       },
+      {
+        // GT.12 — Expedientes: historial de las Guías de Cobranza emitidas. Va DESPUÉS de
+        // 'documentos' y como ruta propia (no hija) porque cada tab es una página hermana.
+        path: 'documentos/expedientes',
+        loadComponent: () => import('./modules/comercial/pages/comercial-expedientes.component').then(m => m.ComercialExpedientesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_SALES_DOCS_VER)]
+      },
+      // La pestaña se llamaba "Reportes" y ahí se seleccionaban las facturas (GT.2). Eso se
+      // movió a Facturación TM, que es donde están; el deep-link viejo no se deja roto.
+      { path: 'documentos/reportes', redirectTo: 'documentos/expedientes' },
       // Egresos vive ahora en el proyecto Finanzas (deep-links viejos siguen funcionando).
       { path: 'egresos', redirectTo: '/finanzas/egresos' },
       { path: 'egresos/detalle', redirectTo: '/finanzas/egresos/detalle' },
