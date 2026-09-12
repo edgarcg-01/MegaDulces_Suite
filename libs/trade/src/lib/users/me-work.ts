@@ -115,6 +115,18 @@ export interface BandejaDef {
   acotablePorSucursal: boolean;
   /** Cualquiera de estas claves abre la bandeja. Debe coincidir con el guard de `ruta`. */
   anyOf: readonly Permission[];
+  /**
+   * `[SN.18]` Si está presente, la bandeja **NO se cuenta ni se muestra**, y el texto dice por qué.
+   *
+   * Se apaga acá en vez de borrar la entrada a propósito: una bandeja retirada sigue teniendo su
+   * ruta, su permiso y su responsabilidad, y el día que la fuente sea confiable se prende quitando
+   * una línea. Borrarla perdería el mapeo y el motivo — y el motivo es lo que evita que alguien la
+   * vuelva a agregar dentro de tres meses sin saber por qué se había quitado.
+   *
+   * ⛔ Retirar la bandeja **no le quita el acceso a nadie**: la pantalla sigue abierta por su
+   * puerta en el espacio que la aloja.
+   */
+  retirada?: string;
   medir: (knex: Knex, ctx: MedirCtx) => Promise<MedidaCola>;
 }
 
@@ -180,6 +192,25 @@ export const BANDEJAS: readonly BandejaDef[] = [
     alcance: 'bandeja',
     responsabilidad: 'finanzas.hallazgos',
     acotablePorSucursal: false,
+    /*
+     * `[SN.18]` RETIRADA por decisión de Edgar (2026-09-12): *"por el momento quitemos hallazgos
+     * como fuente principal, ya que falla mucho y no es confiable"*. Lo medido lo respalda:
+     *
+     *  · **82,377 en `nuevo`**, con el más viejo del **7-jul-2026** — 67 días sin que nadie
+     *    confirme ni descarte. Una cola que nadie trabaja no es trabajo pendiente, es ruido.
+     *  · Dominaba el titular: **82,377 de 82,569 = el 99.8%** de lo que la pantalla reportaba como
+     *    pendiente para un auxiliar de finanzas. Las demás bandejas eran invisibles al lado.
+     *  · La fuente tiene un defecto medido: **281 filas con el `periodo` corrupto** (`"Wed Sep"`,
+     *    por `String(fecha).slice(0,7)` sobre un `Date` en `maat-detector.service.ts`), y esos
+     *    hallazgos ni siquiera llegan a generar tarea de conciliación.
+     *
+     * ⛔ **Nadie pierde acceso**: la pantalla sigue abierta por su puerta en «Auditoría, Prevención
+     * y Control». Lo que se retira es el CONTEO de la landing, no el módulo.
+     *
+     * Para volver a prenderla: borrar esta línea. Antes, arreglar el detector y triagear la cola.
+     */
+    retirada:
+      'La fuente no es confiable todavía: 82,377 sin triage desde julio y 281 periodos corruptos.',
     anyOf: [Permission.FINANCE_AI_CHAT],
     medir: (knex, { tenantId }) =>
       medirCola(knex, knex('finance.findings').where({ tenant_id: tenantId, status: 'nuevo' }), 'created_at'),

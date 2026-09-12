@@ -377,6 +377,20 @@ export class MiTrabajoComponent {
   readonly hayAlgoMio = computed(
     () => this.tareas().length > 0 || this.mios().length > 0 || this.ciclosMios().length > 0,
   );
+  /**
+   * `[SN.17]` El desglose del titular. Un ciclo propio no se cuenta en `totalMio` porque su unidad
+   * es el MES, no el item — sumar meses con hallazgos daría un número que no significa nada. Pero
+   * callarlo era peor: la pantalla decía «ninguno a tu nombre» con el ciclo de Ivonne dibujado
+   * justo arriba. Cada cosa se cuenta en su unidad y se dicen las dos.
+   */
+  readonly resumenMio = computed(() => {
+    const items = this.totalMio();
+    const meses = this.ciclosMios().reduce((n, c) => n + c.pendientes, 0);
+    const partes: string[] = [];
+    if (items > 0) partes.push(`${this.formatoTotal(items)} a tu nombre`);
+    if (meses > 0) partes.push(`${meses} ${meses === 1 ? 'mes' : 'meses'} por cerrar`);
+    return partes.join(' · ') || 'ninguno a tu nombre';
+  });
   /** Cuántas de tus tareas ya pasaron su fecha. `null` en una fuente que no maneja vencimiento. */
   readonly tareasVencidas = computed(() => this.tareas().reduce((n, t) => n + (t.vencidas ?? 0), 0));
 

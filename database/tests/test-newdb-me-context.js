@@ -243,13 +243,22 @@ const tieneDecoradorPermisos = (tramo) =>
     ...[...srcT.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcC.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
   ];
-  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 2 ciclos)',
-    declaradas.length === 10, declaradas);
+  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos)',
+    declaradas.length === 12, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
   check('ninguna clave del catálogo se quedó sin cola', sinCola.length === 0, sinCola);
-  check('no hay responsabilidades repetidas entre colas', new Set(declaradas).size === declaradas.length, declaradas);
+  /*
+   * ⚠️ La unicidad ya NO se exige, y no es un relajamiento: **una responsabilidad puede cubrir
+   * varias colas**. Quien responde de la conciliación de ingresos responde de las dos fuentes
+   * —bancos y caja—, así que `finanzas.conciliacion_ingresos` aparece dos veces a propósito.
+   * Lo que sí tiene que cerrar es el CONJUNTO: ninguna clave inventada, ninguna clave huérfana.
+   */
+  check('el conjunto de claves usadas coincide con el catálogo',
+    new Set(declaradas).size === catalogo.length, {
+      usadas: [...new Set(declaradas)].length, catalogo: catalogo.length,
+    });
 
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');
@@ -294,6 +303,37 @@ const tieneDecoradorPermisos = (tramo) =>
   check('no_medido es arreglo DECLARADO (nunca ausente)', Array.isArray(wb.no_medido));
   check('medido_at es ISO (el número es de ahora, no de un rollup)',
     typeof wb.medido_at === 'string' && !Number.isNaN(Date.parse(wb.medido_at)));
+  /*
+   * `[SN.18]` Las bandejas RETIRADAS no deben llegar nunca a la respuesta. Se apagan en el
+   * registro con un motivo (no se borran), así que el candado las lee de ahí: si alguien quita la
+   * línea `retirada` sin querer, el conteo vuelve a aparecer y esto lo caza.
+   */
+  /*
+   * ⚠️ NO con `/id: '(…)'[\s\S]*?retirada:/`: ese `[\s\S]*?` cruza el límite entre objetos y toma
+   * el id de la PRIMERA bandeja del array, no el de la retirada — la primera versión de este
+   * bloque acusó a `caducidades-mias` estando retirada `finanzas-hallazgos`. Se busca cada
+   * `retirada:` y se retrocede al `id:` más cercano, que sí está en el mismo objeto.
+   */
+  const retiradas = [];
+  for (const m of src.matchAll(/^\s*retirada:/gm)) {
+    const ids = [...src.slice(0, m.index).matchAll(/id: '([^']+)'/g)];
+    if (ids.length) retiradas.push(ids[ids.length - 1][1]);
+  }
+  check('se leyeron las bandejas retiradas del registro', retiradas.length >= 1, retiradas);
+  // Misma señal que el bloque 5c: sin `ciclos` el proceso vivo es anterior a este código, así que
+  // una bandeja retirada que todavía aparece NO es una regresión — es una API sin reiniciar.
+  const apiAnterior = wb.ciclos === undefined;
+  for (const id of retiradas) {
+    if (apiAnterior) {
+      declarar(`bandeja retirada ${id}`, 'la API viva es anterior al retiro');
+      continue;
+    }
+    check(`la bandeja retirada ${id} NO viene en la respuesta`,
+      !(wb.pendientes ?? []).some((p) => p.id === id), id);
+    check(`la bandeja retirada ${id} tampoco va a no_medido (se apagó, no falló)`,
+      !(wb.no_medido ?? []).some((n) => n.id === id), id);
+  }
+
   const idsBandeja = new Set(bandejas.map((x) => x.id));
   for (const p of wb.pendientes ?? []) {
     check(`pendiente ${p.id}: sale del registro de bandejas`, idsBandeja.has(p.id), p.id);
@@ -374,6 +414,21 @@ const tieneDecoradorPermisos = (tramo) =>
       ).length;
       check(`ciclo ${cy.id}: \`pendientes\` no cuenta los meses sin datos`, cy.pendientes === esperados,
         { dice: cy.pendientes, son: esperados });
+    }
+
+    /*
+     * `[SN.20]` Si a esta persona se le delegó algo, la lista trae **sólo lo suyo**: no puede venir
+     * un ciclo ajeno mezclado. Es la regla de «Mi trabajo» como lista de trabajo delegado — y no
+     * afecta el acceso, que lo sigue dando el permiso sobre el módulo.
+     */
+    const algunoMio = (wb.ciclos ?? []).some((c) => c.es_mio === true);
+    if (algunoMio) {
+      const ajenos = (wb.ciclos ?? []).filter((c) => !c.es_mio).map((c) => c.id);
+      check('con trabajo delegado, NO se cuelan ciclos ajenos en la lista', ajenos.length === 0, ajenos);
+    } else if ((wb.ciclos ?? []).length) {
+      // Sin reparto se ven todos: quedarse con la pantalla vacía sería peor que verlo de más.
+      check('sin trabajo delegado, los ciclos visibles NO se esconden',
+        (wb.ciclos ?? []).every((c) => c.es_mio === false), wb.ciclos?.map((c) => c.id));
     }
   }
 

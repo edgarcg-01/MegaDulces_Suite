@@ -10,6 +10,17 @@
 
 ## [Unreleased]
 
+### Changed — delegar de verdad: cada quien ve sólo lo suyo en «Mi trabajo» (SN.18–SN.20, 2026-09-12)
+
+Tres correcciones seguidas sobre la misma pantalla, todas pedidas por Edgar.
+
+- **SN.18 · «Hallazgos» sale de la landing.** *«Falla mucho y no es confiable»*, y lo medido lo respalda: **82,377 en `nuevo`** con el más viejo del **7-jul** —67 días sin triage— y **281 periodos corruptos**. Dominaba el titular con el **99.8%** de lo reportado como pendiente (82,377 de 82,569); retirarla lo llevó a **192**. ⛔ **No se borró, se apagó** (`BandejaDef.retirada` guarda el motivo): se reactiva quitando una línea, **nadie pierde acceso** —la pantalla sigue abierta por su puerta— y la retirada **no va a `no_medido`**, que es para lo que falló al medirse, no para lo que se apagó a propósito.
+- **SN.19 · Dos fuentes, no una.** El trabajo se parte por **dónde** (bancos o caja) y por **qué lado** → **cuatro ciclos**. Medido: `bank` 18 cuentas/27,092 movs · `cash` («CAJA / CG») 1 cuenta/8,843 movs y **sí se concilia** (1,060 casados) · `factoraje` **fuera** (196 movs, 1 casado, tiene su propia pestaña). ⚠️ `/finanzas/caja` es **otra cosa** —caja viva de comisionistas, sistema `Doctos`—, así que los cuatro apuntan a `/finanzas/bancos`. ⚠️ El clic aterriza en el **mes**, no en la cuenta: el shell sólo guarda `view` y `period` en la URL.
+- ⭐ **SN.20 · «Mi trabajo» no es un menú de permisos.** *«Ivonne es SOLO INGRESOS… los módulos se quedan igual, sólo delegamos actividades»*. **Yo había aplicado mal la regla de `[OR.1b]`**: «la responsabilidad no gatea» existe para que no se vuelva un cuarto sistema de **autorización**, y no lo es mientras el módulo siga abierto. Ahora **quien tiene trabajo delegado ve sólo el suyo** (Ivonne sus dos tiras de ingresos, Mayra las de egresos, sin bloque «Por periodo»), y **quien no tiene nada delegado sigue viéndolo todo** — dejar la pantalla vacía a las otras 4 auxiliares sería peor que mostrar de más. Ivonne: **14 meses / 12,679 sin casar**; Mayra: **14 meses / 14,932**.
+- `test-newdb-me-context` **117 OK / 0 FAIL** (candados nuevos: la retirada no llega ni a la respuesta ni a `no_medido`; con delegación no se cuelan ciclos ajenos; sin reparto no se esconde ninguno) · `nx test view` 19 suites / **296** · builds verdes, 1.25 MB.
+- ⚠️ **Dos aserciones mías fallaron por abarcar de más**, no por el código: `not.toContain('P-06')` (la insignia del espacio Dirección lo lleva) y `not.toContain('egresos')` (aparece en los *motivos* de cada mes). Una aserción amplia falla por la razón equivocada y hace dudar del código correcto.
+- 📋 **Abierto:** las **bandejas** todavía no se filtran por lo delegado (a las auxiliares les sigue apareciendo «Acciones de finanzas por aprobar», declarada sólo para `jefe_finanzas`); y **la auto-entrada las saca de la pantalla** — con un solo destino primario la landing navega sola a `/finanzas` y nunca ven «Mi trabajo».
+
 ### Added — el reparto real: Ivonne concilia ingresos, Mayra egresos (SN.17, 2026-09-12)
 
 *«Ese es para un solo usuario, debemos personalizar según su puesto. Ivonne es de ingresos»*. **Por puesto no se puede, y está medido**: las dos son `auxiliar_finanzas` con el mismo rol, y son **6 personas** en ese puesto. Partir el trabajo por puesto exigiría partir el puesto — decisión de organigrama. Para eso existe `identity.user_responsibilities`, la **excepción por persona** que `[OR.1b]` creó con nota obligatoria y vigencia.

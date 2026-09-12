@@ -422,26 +422,47 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   });
 
   /*
-   * `[SN.17]` El reparto real: Ivonne concilia ingresos, Mayra egresos, y las dos son
-   * `auxiliar_finanzas` — o sea que el puesto NO las distingue y el reparto vive en
-   * `user_responsibilities`. Lo que se prueba acá es que la responsabilidad ORDENA sin GATEAR:
-   * el ciclo propio sube y se marca, pero el ajeno sigue visible y clickeable.
+   * `[SN.20]` A quien se le delegó el trabajo ve el SUYO y nada más. Ivonne es sólo ingresos y
+   * Mayra sólo egresos, las dos con el mismo puesto. «Mi trabajo» no es un menú de permisos: es la
+   * lista de lo que te delegaron, y el módulo sigue abierto para las dos.
    */
-  it('el ciclo del que respondes sube a «A tu nombre» y el otro NO desaparece', async () => {
-    const dos: MeWork = {
+  it('a quien se le delegó, la pantalla muestra sólo lo suyo', async () => {
+    const soloIngresos: MeWork = {
       ...SIN_TRABAJO,
       ciclos: [
-        { ...CON_CICLO.ciclos[0], id: 'conciliacion-ingresos', label: 'Conciliación de ingresos', es_mio: true },
-        { ...CON_CICLO.ciclos[0], id: 'conciliacion-egresos', label: 'Conciliación de egresos', es_mio: false },
+        { ...CON_CICLO.ciclos[0], id: 'conciliacion-bancos-ingresos', label: 'Conciliación de bancos · ingresos', es_mio: true },
+        { ...CON_CICLO.ciclos[0], id: 'conciliacion-caja-ingresos', label: 'Conciliación de caja · ingresos', es_mio: true },
       ],
     };
-    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(dos) });
-    // El propio se marca y deja de decirse que no tienes nada a tu nombre.
-    expect(q<HTMLElement>('.ps.is-mine').length).toBe(1);
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(soloIngresos) });
+    // Sus dos tiras, las dos marcadas, arriba en «A tu nombre».
+    expect(q<HTMLElement>('.ps.is-mine').length).toBe(2);
     expect(html()).not.toContain('No tienes trabajo a tu nombre');
-    // ⛔ Y el ajeno NO se esconde: la responsabilidad no autoriza, sólo ordena.
-    expect(html()).toContain('Conciliación de egresos');
+    /*
+     * Y NADA del otro lado. ⚠️ Se asierta sobre el TÍTULO del ciclo, no sobre la palabra suelta:
+     * "egresos" también aparece dentro de los motivos de cada mes ("2,864 egresos y la conciliación
+     * no se ha corrido"), así que un `not.toContain('egresos')` fallaba sin que hubiera ningún
+     * ciclo ajeno en pantalla.
+     */
+    const titulos = Array.from(q<HTMLElement>('.ps-l')).map((e) => e.textContent ?? '');
+    expect(titulos.every((t) => t.includes('ingresos'))).toBe(true);
+    expect(titulos.some((t) => t.includes('egresos'))).toBe(false);
+    expect(Array.from(q<HTMLElement>('.mt-grupo-tag')).some((t) => t.textContent?.includes('Por periodo'))).toBe(false);
+  });
+
+  it('a quien NO se le delegó nada, se le siguen mostrando todos los ciclos', async () => {
+    const sinReparto: MeWork = {
+      ...SIN_TRABAJO,
+      ciclos: [
+        { ...CON_CICLO.ciclos[0], id: 'conciliacion-bancos-ingresos', label: 'Conciliación de bancos · ingresos', es_mio: false },
+        { ...CON_CICLO.ciclos[0], id: 'conciliacion-bancos-egresos', label: 'Conciliación de bancos · egresos', es_mio: false },
+      ],
+    };
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(sinReparto) });
+    // Sin reparto no se esconde nada: quedarse con la pantalla vacía sería peor que verlo de más.
     expect(q<HTMLElement>('app-periodo-strip').length).toBe(2);
+    expect(q<HTMLElement>('.ps.is-mine').length).toBe(0);
+    expect(html()).toContain('No tienes trabajo a tu nombre');
   });
 
   it('un conteo acotado dice a qué universo pertenece; uno sin ficha lo DECLARA', async () => {

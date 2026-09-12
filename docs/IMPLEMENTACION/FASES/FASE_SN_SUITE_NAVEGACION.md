@@ -401,6 +401,60 @@ El resolvedor (`responsabilidadesDe`) une las dos fuentes con precedencia: lo de
 
 `landing-guards.spec.ts` falla en `almacen` por **`CATALOGO_INTERNO_VER` y `CATALOGO_INTERNO_COSTOS_VER` → `/almacen/catalogo-interno`, ruta que no existe en `app.routes.ts`**. Viene del commit `2b75ab89` `[CV.25]` de otra sesión: declararon los permisos en el árbol y la pantalla del frontend todavía no está. Es justo lo que ese candado existe para frenar; lo resuelve esa fase, creando la ruta o declarando la deuda.
 
+#### 4.2.10 SN.18–SN.20 — delegar de verdad: cada quien ve lo suyo (2026-09-12)
+
+Tres correcciones seguidas sobre SN.16/17, todas de Edgar, todas sobre la misma pantalla.
+
+##### SN.18 — «Hallazgos» sale de la landing
+
+*«Por el momento quitemos hallazgos como fuente principal, ya que falla mucho y no es confiable»*. Lo medido lo respalda:
+
+- **82,377 en `nuevo`**, el más viejo del **7-jul-2026** — 67 días sin que nadie confirme ni descarte. Una cola que nadie trabaja no es trabajo pendiente.
+- Dominaba el titular: **82,377 de 82,569 = el 99.8%** de lo que la pantalla reportaba a un auxiliar de finanzas. Las demás bandejas eran invisibles al lado. Retirarla llevó el titular a **192**.
+- La fuente tiene el defecto ya reportado: 281 periodos corruptos que ni siquiera generan tarea.
+
+⛔ **No se borró, se apagó**: `BandejaDef.retirada` guarda el motivo, la ruta y la responsabilidad. Se vuelve a prender quitando una línea. **Nadie pierde acceso** — la pantalla sigue abierta por su puerta en Auditoría. Y la retirada **no va a `no_medido`**: eso es para lo que falló al medirse, no para lo que se apagó a propósito.
+
+##### SN.19 — dos fuentes, no una: bancos y caja
+
+*«Lo que debería ver Ivonne sería conciliación de bancos y conciliación de caja, mismo formato pero sólo ingresos»*. El trabajo se parte por **dónde** y por **qué lado** → **cuatro ciclos**. Medido en `finance.bank_accounts.kind`:
+
+| fuente | cuentas | movimientos | ¿se concilia? |
+|---|---:|---:|---|
+| `bank` | 18 | 27,092 | sí |
+| `cash` («CAJA / CG») | 1 | 8,843 | **sí** — 1,060 casados |
+| `factoraje` | 1 | 196 | ⛔ **fuera**: 0 ingresos, 1 casado, y tiene su propia pestaña |
+
+⚠️ **`/finanzas/caja` es otra cosa** — «caja viva de Comisionistas, sistema `Doctos`». La caja que se concilia es la cuenta `cash` dentro de bancos, así que los cuatro ciclos apuntan a `/finanzas/bancos`.
+
+⚠️ **El clic aterriza en el MES, no en la cuenta**: el shell de bancos sólo guarda `view` y `period` en la URL (`writeUrl`). Pre-filtrar por cuenta es tocar esa pantalla, que es de la Fase CB. Queda declarado en vez de prometido.
+
+##### SN.20 — ⭐ la corrección de fondo: «Mi trabajo» no es un menú de permisos
+
+*«Ivonne es SOLO INGRESOS, ella sólo debe ver ingresos en su “Mi trabajo” y Mayra sólo egresos. Los módulos se quedan igual, sólo delegamos actividades en “Mi trabajo”»*.
+
+**Yo había aplicado mal la regla de `[OR.1b]`** («la responsabilidad no gatea, ordena»). Esa regla existe para que la responsabilidad no se convierta en un cuarto sistema de **autorización** — y no lo es mientras el módulo siga abierto. «Mi trabajo» es la **lista de lo que te delegaron**: filtrarla no le quita acceso a nadie. Ivonne entra igual a `/finanzas/bancos` y ve las cuatro conciliaciones; lo que no le aparece es el trabajo de otra persona en su lista de pendientes.
+
+La regla implementada, con su salvaguarda:
+
+- **Con trabajo delegado** → la pantalla muestra **sólo lo suyo**. Ivonne: bancos·ingresos + caja·ingresos. Mayra: los dos de egresos. El grupo «Por periodo» ni se dibuja.
+- **Sin nada delegado** → se siguen viendo **todos** los que abre el permiso. Dejarle la pantalla vacía a las otras 4 auxiliares (y a cualquier puesto sin reparto) sería peor que mostrar de más.
+
+Medido, lo que ve cada una: Ivonne **14 meses por resolver / 12,679 movimientos sin casar**; Mayra **14 meses / 14,932**. Ningún mes al día en ninguno de los cuatro ciclos.
+
+##### Candados
+
+`test-newdb-me-context.js` → **117 OK · 0 FAIL**. Nuevos: la bandeja retirada no llega a la respuesta *ni* a `no_medido`; con trabajo delegado **no se cuelan ciclos ajenos**; sin reparto **no se esconde ninguno**. `nx test view` 19 suites / **296**.
+
+⚠️ Dos aserciones mías fallaron por ser **demasiado amplias**, no por el código: `not.toContain('P-06')` (la insignia del espacio Dirección lo lleva) y `not.toContain('egresos')` (aparece en los *motivos* de cada mes). Una aserción que abarca de más falla por la razón equivocada y hace dudar del código correcto.
+
+⚠️ El candado de biyección aprendió dos cosas más: que las colas viven en **tres** registros, y que **una responsabilidad puede cubrir varias colas** — `finanzas.conciliacion_ingresos` cubre bancos y caja, así que la unicidad por fila dejó de exigirse y lo que se verifica es el **conjunto**.
+
+##### Abierto
+
+- **Las bandejas no se filtran todavía.** Lo delegado filtra los ciclos; «Acciones de finanzas por aprobar» les sigue apareciendo por permiso aunque `finanzas.acciones` esté declarada sólo para `jefe_finanzas`. Extender el criterio es una decisión aparte, y hay que medir a quién deja con la pantalla vacía antes.
+- **La auto-entrada las saca de la pantalla**: con un solo destino primario (`/finanzas`) la landing navega sola y nunca ven «Mi trabajo» salvo por el enlace del menú. El arreglo —no auto-entrar cuando hay trabajo propio— está sin hacer.
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.
