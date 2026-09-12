@@ -102,6 +102,24 @@ su primera pasada en `md`. Es lo mismo que pasó con `feed_nightly` tras VL.4: h
 corrida, el renglón conserva el host viejo. Si el **jueves** sigue diciendo `SISTEMAS`, **ahí sí**
 es un problema.
 
+### 3.2 Jubilar el `:5433` de `.249` → [`RUNBOOK-jubilar-5433-249.md`](vl/RUNBOOK-jubilar-5433-249.md)
+
+⛔ **El contenedor se llama `pgvector-md` en las DOS máquinas**, y el de `md` es la fuente viva.
+Antes de correr nada: `docker exec pgvector-md psql -U postgres -tAc "SELECT count(*) FILTER
+(WHERE subenabled) FROM pg_subscription"` → **`0` = `.249`** (la que se jubila) · **`8` = `md`,
+pará**.
+
+✅ **Paso 0 hecho el 2026-09-12**: las 8 suscripciones apagadas de `.249` **seguían agarradas al
+`slot_name` del publicador** — el mismo slot que `md` usa. Con eso puesto, un `DROP SUBSCRIPTION`
+allá no es local: le borra el slot **al publicador** y le corta la fuente al servidor vivo. Se
+soltaron con `SET (slot_name = NONE)` (reversible); verificado después: `.249` sin slots, `md` con
+las 8 activas recibiendo a 0.0–0.3 min.
+
+⚠️ **Y el "rollback" ya no existe: está medido.** `.249` quedó **1.83 GB de WAL atrás** de lo que
+`md` consumió, y el hueco crece. Re-apuntarlo hoy lo haría retomar desde la posición actual del
+slot, dejando un hueco permanente. Los `kepler_md_*` de `.249` son una **foto fría del 11-sep**,
+no un standby — dejá de llamarlos rollback antes de que alguien decida apoyándose en la palabra.
+
 ⚠️ **Las 11 tareas que sí se mudaron quedaron DESHABILITADAS, no borradas** — son el rollback.
 No las vuelvas a habilitar sin apagar antes su contenedor: **un carril = UN dueño**, y dos
 procesos con el mismo `job_key` se pisan el renglón del latido (pasó hoy con el watchdog).
