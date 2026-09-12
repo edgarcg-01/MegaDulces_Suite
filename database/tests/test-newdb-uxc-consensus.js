@@ -34,7 +34,15 @@ const check = (label, cond, detail = '') => {
   else { fail++; console.log(`  ✖ ${label}${detail ? ` — ${detail}` : ''}`); }
 };
 const nomedido = (label, why) => { skip++; console.log(`  ○ NO MEDIDO — ${label}: ${why}`); };
-const N = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+// ⛔ `Number(n || 0)` convierte un campo INEXISTENTE en 0. Paso el 2026-09-11: una consulta
+// aliaseaba `sin_testigo_NO_escribir` y Postgres devuelve `sin_testigo_no_escribir` (baja a
+// minusculas los identificadores sin comillas); el helper dibujo 1,479 como CERO y por poco
+// se decide sobre ese cero. Un campo ausente NO es un cero -- se grita.
+const N = (n) => {
+  if (n === undefined) throw new Error('N() recibio undefined: nombre de columna mal escrito '
+    + '(Postgres devuelve los alias en MINUSCULAS). Un campo ausente no es un cero.');
+  return Number(n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+};
 
 (async () => {
   const c = new Client({
@@ -104,11 +112,18 @@ const N = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits:
       + ` ${k.plazas_con_testigo} plazas) · factor_sale del catálogo: ${k.factor_sale}`);
     check('⭐ 96504 RUFFLES QUESO 27G publica 58, no 1', Number(k.publicable) === 58,
       `publica ${k.publicable}`);
-    // ⛔ La premisa del arreglo: el catálogo seguía diciendo 1. Si dejara de decirlo, alguien lo
-    // corrigió a mano y este caso deja de ser el ejemplo — hay que buscar otro, no borrar el test.
-    check('la premisa sigue en pie: `catalog.products.factor_sale` todavía dice 1 para 96504',
-      Number(k.factor_sale) === 1,
-      `factor_sale ahora es ${k.factor_sale} — el caso testigo cambió`);
+    // ⭐⭐ Esta aserción cambió de sentido el 2026-09-11, y el cambio es el punto.
+    //
+    // Nació diciendo "el catálogo TODAVIA dice 1" — o sea vigilaba que el bug siguiera ahí,
+    // porque el arreglo de ese momento (UXC.1) sólo apuntaba la PANTALLA al resolvedor y dejaba
+    // la columna mintiendo. Edgar lo llamó por su nombre: "no quiero parches, quiero una verdad
+    // absoluta". VA.3 elimino la segunda verdad — `factor_sale` se escribio con el valor del
+    // arbitro en las 854 filas con testigo — asi que ahora la aserción vigila lo contrario: que
+    // el catalogo y el arbitro digan LO MISMO. Si vuelven a separarse, alguien escribio un
+    // factor que el arbitro contradice.
+    check('⭐⭐ el catálogo y el árbitro dicen LO MISMO para 96504 (VA.3, ya no hay dos verdades)',
+      Number(k.factor_sale) === Number(k.publicable),
+      `catálogo ${k.factor_sale} vs árbitro ${k.publicable} — volvieron a divergir`);
     const [pag] = await q(`
       SELECT sc.units_per_box::numeric upb FROM analytics.v_supplier_cost_ladder sc
        WHERE sc.sku = '96504'`);

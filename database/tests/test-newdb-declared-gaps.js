@@ -49,7 +49,15 @@ const check = (label, cond, detail = '') => {
   else { fail++; console.log(`  ✖ ${label}${detail ? ` — ${detail}` : ''}`); }
 };
 const nomedido = (label, why) => { skip++; console.log(`  ○ NO MEDIDO — ${label}: ${why}`); };
-const N = (n) => Number(n || 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+// ⛔ `Number(n || 0)` convierte un campo INEXISTENTE en 0. Paso el 2026-09-11: una consulta
+// aliaseaba `sin_testigo_NO_escribir` y Postgres devuelve `sin_testigo_no_escribir` (baja a
+// minusculas los identificadores sin comillas); el helper dibujo 1,479 como CERO y por poco
+// se decide sobre ese cero. Un campo ausente NO es un cero -- se grita.
+const N = (n) => {
+  if (n === undefined) throw new Error('N() recibio undefined: nombre de columna mal escrito '
+    + '(Postgres devuelve los alias en MINUSCULAS). Un campo ausente no es un cero.');
+  return Number(n ?? 0).toLocaleString('en-US', { maximumFractionDigits: 0 });
+};
 
 (async () => {
   const c = new Client({
