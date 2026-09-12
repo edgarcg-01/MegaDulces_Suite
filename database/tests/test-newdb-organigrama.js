@@ -397,13 +397,33 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       .first();
     if (Number(pr.n) === 0) {
       declarar(
-        'position_responsibilities está VACÍA: ningún puesto responde de nada todavía. Es deliberado ' +
+        'position_responsibilities está VACÍA: ningún puesto responde de nada todavía. Era deliberado ' +
         '([OR.1b]): sembrarla desde el permiso haría responsable de los 82,289 hallazgos de finanzas a ' +
-        'auxiliar_mkt, que puede ABRIR 6 de las 8 bandejas. Hasta que se decida, [OR.3] reporta sin_dueño.',
+        'auxiliar_mkt, que puede ABRIR 6 de las 8 bandejas.',
       );
     } else {
-      check(true, `${pr.n} asignaciones puesto x responsabilidad`);
+      check(Number(pr.n) >= 15, `${pr.n} asignaciones puesto × responsabilidad ([OR.3a])`);
     }
+
+    // Toda bandeja necesita un responsable PRINCIPAL: sin eso el reparto de
+    // [OR.3] no tiene a quién apuntar y el trabajo vuelve a ser cola compartida.
+    const sinPrincipal = await k.raw(
+      `SELECT r.key FROM identity.responsibilities r
+        WHERE NOT EXISTS (
+          SELECT 1 FROM identity.position_responsibilities pr
+           WHERE pr.tenant_id = ? AND pr.responsibility_key = r.key
+             AND pr.es_principal AND pr.deleted_at IS NULL)`, [TENANT]);
+    check(sinPrincipal.rows.length === 0,
+      `las 8 responsabilidades tienen puesto PRINCIPAL (sin: ${sinPrincipal.rows.map((r) => r.key).join(', ') || 'ninguna'})`);
+
+    // `[OR.3a]` El catálogo declara qué permiso lo abre. Sin esto, el cruce
+    // responsabilidad × permiso vivía SÓLO en TypeScript y la base no podía
+    // contestar si un puesto puede abrir lo que responde.
+    const sinClave = await k('identity.responsibilities')
+      .whereRaw(`array_length(permission_keys, 1) IS NULL`)
+      .pluck('key');
+    check(sinClave.length === 0,
+      `toda responsabilidad declara las claves que la abren (sin declarar: ${sinClave.join(', ') || 'ninguna'})`);
 
     const sinJefe = await k.raw(
       `SELECT count(*)::int n FROM identity.positions p
