@@ -74,6 +74,28 @@ const BASE = {
   },
 };
 
+/**
+ * `[OR.3a]` El SEXTO tipo, en su propia vista: un puesto que responde de algo que su perfil no le
+ * deja abrir. `[OR.7.1]` lo había dejado fuera «porque una rama que siempre da cero se lee igual
+ * que no hay problemas»; ahora hay 15 asignaciones que cruzar y 4 que no cierran.
+ *
+ * ⚠️ Que existan NO es una falla: es la responsabilidad **revelando permisos que faltan** en vez de
+ * heredarlos. Lo que sí sería una falla es que crezcan sin que nadie lo note, o que alguno pierda
+ * su motivo escrito.
+ */
+const BASE_RESP = {
+  'supervisor_rd|comercial.thot':
+    'PRINCIPAL. Le falta COMMERCIAL_THOT_GESTIONAR, que hoy tienen los 30 `vendedor_ruta` — o sea ' +
+    'que los vendedores aprueban las sugerencias dirigidas a ellos mismos. Decisión de negocio.',
+  'encargado_logistica|logistica.flota':
+    'PRINCIPAL y el puesto NO TIENE ROL (default_role NULL): no puede abrir nada. Medido aparte: ' +
+    'las alertas de flota sólo las abren `jefe_finanzas` y `sistemas` — nadie que pueda mover un camión.',
+  'encargado_sucursal|almacen.conteo':
+    'secundario; el principal (`supervisor_inventarios`) sí abre la bandeja. Le falta COMMERCIAL_INVENTORY_CONTAR.',
+  'auxiliar_encargado|tienda.caducidades':
+    'secundario; el principal (`encargado_sucursal`) sí abre la bandeja. Le falta COMMERCIAL_EXPIRY_VER.',
+};
+
 /** Los 8 departamentos que [OR.7.0] creó al partir la oficina. */
 const DEPTOS_NUEVOS = [
   'compras', 'prevencion_auditoria', 'contabilidad', 'finanzas',
@@ -160,6 +182,27 @@ const DEPTOS_NUEVOS = [
     check(inesperados.length === 0,
       `ningún tipo de desacuerdo fuera de la línea base (nuevos: ${inesperados.join(', ') || 'ninguno'})`);
     hoy.forEach((r) => console.log(`       · ${r.dice}`));
+
+    // ── 2b. El sexto tipo: responder de algo que no podés abrir ──────────
+    console.log('\n── 2b. La responsabilidad revela permisos que faltan');
+    const resp = await k('identity.v_authz_coherencia_resp')
+      .where({ tenant_id: TENANT })
+      .select('sujeto', 'detalle', 'dice');
+    const clave = (r) => `${r.sujeto}|${r.detalle}`;
+    const nuevos = resp.filter((r) => !BASE_RESP[clave(r)]).map(clave);
+    check(nuevos.length === 0,
+      `ninguna responsabilidad sin permiso fuera de la línea base (nuevas: ${nuevos.join(', ') || 'ninguna'})`);
+    resp.filter((r) => BASE_RESP[clave(r)]).forEach((r) => declarar(`${clave(r)} — ${BASE_RESP[clave(r)]}`));
+
+    // CONTROL: que la vista no esté vacía por estar rota. Tiene que ver también
+    // las que SÍ cierran — si no, un 0 se leería como salud.
+    const total = await k('identity.position_responsibilities')
+      .where({ tenant_id: TENANT })
+      .whereNull('deleted_at')
+      .count('* as n')
+      .first();
+    check(Number(total.n) >= 15 && resp.length < Number(total.n),
+      `CONTROL: ${resp.length} sin permiso de ${total.n} asignaciones — la vista discrimina, no marca todo`);
 
     // ── 3. PRUEBA NEGATIVA: la vista tiene que VER un desacuerdo nuevo ────
     console.log('\n── 3. Se inyecta un desacuerdo a propósito');
