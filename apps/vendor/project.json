@@ -8,12 +8,16 @@
   "targets": {
     "build": {
       "executor": "@angular-devkit/build-angular:application",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}"
+      ],
       "options": {
         "outputPath": "dist/apps/vendor",
         "index": "apps/vendor/src/index.html",
         "browser": "apps/vendor/src/main.ts",
-        "polyfills": ["zone.js"],
+        "polyfills": [
+          "zone.js"
+        ],
         "tsConfig": "apps/vendor/tsconfig.app.json",
         "assets": [
           {
@@ -21,9 +25,13 @@
             "input": "apps/vendor/public"
           }
         ],
-        "styles": ["apps/vendor/src/styles.css"],
+        "styles": [
+          "apps/vendor/src/styles.css"
+        ],
         "scripts": [],
-        "allowedCommonJsDependencies": ["leaflet"],
+        "allowedCommonJsDependencies": [
+          "leaflet"
+        ],
         "serviceWorker": "apps/vendor/ngsw-config.json"
       },
       "configurations": {
@@ -75,6 +83,17 @@
         "buildTarget": "vendor:build",
         "staticFilePath": "dist/apps/vendor/browser",
         "spa": true
+      }
+    },
+    "test": {
+      "executor": "@nx/jest:jest",
+      "outputs": [
+        "{workspaceRoot}/coverage/apps/vendor"
+      ],
+      "options": {
+        "jestConfig": "apps/vendor/jest.config.ts",
+        "passWithNoTests": true,
+        "tsConfig": "apps/vendor/tsconfig.spec.json"
       }
     }
   }

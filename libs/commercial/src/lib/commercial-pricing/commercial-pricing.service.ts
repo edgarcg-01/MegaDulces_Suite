@@ -506,7 +506,7 @@ export class CommercialPricingService {
               list.push({ unit: String(u.unit_alt1), factor: Number(u.f_alt1) });
             if (u.unit_alt2 && Number(u.f_alt2) > 0)
               list.push({ unit: String(u.unit_alt2), factor: Number(u.f_alt2) });
-            unitsByProduct.set(u.product_id, list);
+            unitsByProduct.set(u.product_id, this.escaleraSaneada(list));
           }
           for (const r of rows as any[]) r.units = unitsByProduct.get(r.product_id) ?? [];
         } catch (err) {
@@ -1009,6 +1009,43 @@ export class CommercialPricingService {
    */
   private isCustomerB2b(): boolean {
     return this.tenantCtx.get()?.roleName === 'customer_b2b';
+  }
+
+  /**
+   * Sanea la escalera de medidas antes de publicarla al app.
+   *
+   * `analytics.product_units` deriva de `v_product_unit_ladder` y sus tres peldaños
+   * pueden traer el MISMO rótulo. Medido en prod (8,928 SKU): 2,061 (23.1%) tienen
+   * `unit_alt1 = unit_base` y 163 traen los tres iguales. Publicado tal cual, el app
+   * pintaba 2 o 3 chips idénticos, los marcaba todos activos a la vez (compara por
+   * rótulo) y su `@for ... track u.unit` quedaba con clave duplicada.
+   *
+   * Dos casos, dos tratos distintos:
+   *   - mismo rótulo y mismo factor  → es la misma presentación repetida: se colapsa.
+   *   - mismo rótulo y factor distinto → contradicción real de la fuente (1 SKU: PAQ
+   *     vale 1 y 11 a la vez). NO se elige una en silencio, que escondería medio
+   *     catálogo de presentaciones: se desambigua el rótulo con su factor para que
+   *     la ambigüedad se vea y se pueda elegir (ADR-056).
+   */
+  private escaleraSaneada(
+    list: Array<{ unit: string; factor: number }>,
+  ): Array<{ unit: string; factor: number }> {
+    const factoresPorRotulo = new Map<string, Set<number>>();
+    for (const u of list) {
+      const s = factoresPorRotulo.get(u.unit) ?? new Set<number>();
+      s.add(u.factor);
+      factoresPorRotulo.set(u.unit, s);
+    }
+    const out: Array<{ unit: string; factor: number }> = [];
+    const vistos = new Set<string>();
+    for (const u of list) {
+      const ambiguo = (factoresPorRotulo.get(u.unit)?.size ?? 0) > 1;
+      const rotulo = ambiguo && u.factor > 1 ? `${u.unit} x${u.factor}` : u.unit;
+      if (vistos.has(rotulo)) continue;
+      vistos.add(rotulo);
+      out.push({ unit: rotulo, factor: u.factor });
+    }
+    return out;
   }
 
   private stripCostIfCustomer<T extends Record<string, any>>(rows: T[]): T[] {

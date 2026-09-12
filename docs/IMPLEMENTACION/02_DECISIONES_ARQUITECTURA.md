@@ -1834,3 +1834,29 @@ Plan, inventario completo y riesgos en [`FASE_VL`](FASES/FASE_VL_VPS_LOCAL.md).
 **Decisión abierta que deja registrada:** **P-14** — §23 manda "Auditoría en Ruta" a *Rutas de detalle* y §10 pone *Trade Marketing* bajo *Mercadotecnia*; los capturadores son vendedores de ruta directa (sustento de §23) y el contenido es marketing (sustento de §10). Default §23; cambiarlo es una línea.
 
 Plan, diagnóstico y medición en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md).
+
+---
+
+## ADR-062
+
+**La cantidad se captura EN LA PRESENTACIÓN que elige el vendedor, y lo que no cae en su rejilla se declara en unidad base; un pedido agendado se corrige REABRIÉNDOLO, y lo que se devuelve al reabrir lo dice el libro de movimientos, no la línea.** (Fase VT — aceptado 2026-09-11)
+
+**Contexto medido.** La línea de pedido se guarda siempre en unidad base y la presentación (pieza / paquete / caja) era capa de display. La fila de `/vendor/take-order` mostraba `Math.round(base / factor)`, o sea **dos espacios de cantidad mezclados**. Contra prod (`analytics.product_units`, 8,928 SKU): **393** arrancan con una presentación de factor > 1 y la cantidad inicial sale del **promedio histórico del cliente**, que casi nunca es múltiplo del factor. Consecuencias, todas reportadas como *"bugs al agregar al carrito"*: promedio de 5 piezas con paquete de 6 → la fila decía **1** y el pedido pedía **5**; con caja de 8 → decía **0** con la línea ya creada; `+` y luego `−` no volvían al punto de partida; y **teclear el mismo número que ya se veía cambiaba la cantidad**. Aparte, la escalera de medidas traía **rótulos repetidos en 2,061 de 8,928 SKU (23.1%)** — 163 con los tres peldaños iguales — publicados sin sanear: chips idénticos, todos activos a la vez, y `@for ... track u.unit` con clave duplicada.
+
+En el otro frente, `requireEditableForLines` acepta `draft` y `pending_approval`: un pedido **agendado no se podía corregir**, y la única salida era cancelar y recapturarlo entero.
+
+**Decisión.**
+1. **Una invariante, no un formato: lo que la fila MUESTRA, por el factor, es exactamente lo que el pedido PIDE.** Toda cantidad que nace o se toca desde la fila cae en la **rejilla** del factor activo (`core/order/qty-units.ts`, puro y con candados).
+2. **Lo que llega fuera de rejilla** (voz, canasta predicha, pedido viejo, otro dispositivo) **no se redondea ni se corrige solo: se declara en unidad base**, con su rótulo. `conteoExacto` devuelve `null`, y `null` no es cero: es *"esta cantidad no se puede expresar en esta presentación sin mentir"* (ADR-056).
+3. **Rótulo repetido con el MISMO factor se colapsa; con factor DISTINTO se desambigua, no se elige uno.** Son dos problemas: el primero es ruido de la fuente, el segundo una contradicción real (1 SKU donde PAQ vale 1 y 11) — descartar uno escondería media escalera.
+4. **Corregir = REABRIR (`confirmed` → `draft`), conservando el folio.** No se habilita editar líneas sobre `confirmed`: un pedido que se está corrigiendo **no está listo para surtir**, y el estado tiene que decirlo. Reabrir además reusa tal cual toda la edición de borrador y el `place()` idempotente que ya existían.
+5. ⭐ **Al reabrir se devuelve lo que ESE pedido apartó, leído del libro de movimientos** (`reserve − release` por `reference_id`), **nunca la cantidad de la línea**: en preventa `place()` **no reserva**, así que restar la línea le suelta el apartado a **otro** pedido.
+6. **El orden de la lista no se reacomoda bajo el dedo.** El re-ranqueo cart-aware de Thot se conserva (lo nuevo entra), pero lo que ya está en pantalla mantiene su lugar.
+
+**Se rechaza:** (a) redondear el conteo "porque se ve mejor" — es exactamente el defecto; (b) bloquear el selector de medida cuando ya hay cantidad (obliga a retrabajo); (c) permitir editar líneas sobre `confirmed` sin cambiar de estado; (d) **arreglar `cancel()` en este commit** — hoy libera por línea y tiene el mismo defecto, pero es un cambio de comportamiento en una ruta viva que merece su propia medición: **queda declarado como deuda con nombre**; (e) dejar `apps/vendor` sin pruebas: la app del campo era la única sin target `test`.
+
+**Hereda:** ADR-055 y ADR-057 (la unidad se resuelve una vez, con testigo y método; el divisor es de PRESENTACIÓN y el dato base **no** se convierte) · ADR-056 (lo que no se pudo medir se declara; **un gate sin prueba negativa es una intención** — los 11 candados de `qty-units` y los 7 de `reopen` corren la fórmula vieja sobre el mismo caso y la ven fallar).
+
+**Abierto y declarado:** `supervisor_ventas` no es rol de plataforma, así que hoy no puede corregir los pedidos de su gente (3 de los 14 pendientes vivos son suyos); `/vendor/pending` lista por cartera del día, no por autoría, así que el botón puede aparecer sobre un pedido ajeno y el backend responde con el motivo; sin conexión no se corrige.
+
+Plan y medición en [`FASE_VT`](FASES/FASE_VT_CAPTURA_PEDIDO_VENDEDOR.md).

@@ -14,6 +14,7 @@ import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService, MessageService } from 'primeng/api';
+import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { VendorService, VendorOrder } from '../vendor.service';
 import { OrderLine } from '../../portal/portal.service';
@@ -149,6 +150,9 @@ import { OrderLine } from '../../portal/portal.service';
                   </div>
                 }
                 <div class="actions">
+                  <!-- Corregir sin cancelar: hasta acá la única salida era cancelar el
+                       pedido y recapturarlo entero. Entregado no aparece: eso es devolución. -->
+                  <button pButton size="small" [text]="true" [loading]="processing().has(o.id)" (click)="askReopen(o)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Corregir</span></button>
                   @if (kind === 'approve') {
                     <button pButton size="small" [loading]="processing().has(o.id)" (click)="askApprove(o)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
                   }
@@ -229,6 +233,7 @@ export class VendorPendingComponent implements OnInit {
   private readonly api = inject(VendorService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly confirmSvc = inject(ConfirmationService);
+  private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
 
   readonly loading = signal(true);
@@ -327,6 +332,51 @@ export class VendorPendingComponent implements OnInit {
       acceptLabel: 'Aprobar',
       rejectLabel: 'Cancelar',
       accept: () => this.run(o, this.api.approve(o.id), 'Pedido aprobado'),
+    });
+  }
+
+  /**
+   * Corregir un pedido ya agendado: lo reabre como borrador (mismo folio) y lleva
+   * al vendedor a la pantalla de captura, con el pedido cargado. Si el backend
+   * rechaza —otro vendedor, ya entregado, o el cliente con otro pedido en curso—
+   * se muestra el motivo tal cual y NO se navega.
+   */
+  askReopen(o: VendorOrder): void {
+    this.confirmSvc.confirm({
+      header: 'Corregir pedido',
+      message: `¿Abrir ${o.folio || o.code} para corregirlo? Vuelve a quedar en borrador con el mismo folio; hay que agendarlo de nuevo al terminar.`,
+      icon: 'pi pi-pencil',
+      acceptLabel: 'Corregir',
+      rejectLabel: 'Cancelar',
+      accept: () => {
+        const busy = new Set(this.processing());
+        busy.add(o.id);
+        this.processing.set(busy);
+        this.api
+          .reopenOrder(o.id)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.clearProcessing(o.id);
+              if (!o.customer_id) {
+                this.toast.add({ severity: 'warn', summary: 'Pedido reabierto', detail: 'Abrilo desde el cliente para corregirlo.' });
+                this.reload();
+                return;
+              }
+              this.router.navigate(['/vendor/take-order', o.customer_id], {
+                queryParams: { order: o.id },
+              });
+            },
+            error: (e) => {
+              this.clearProcessing(o.id);
+              this.toast.add({
+                severity: 'error',
+                summary: 'No se puede corregir',
+                detail: e?.error?.message || 'Intentá de nuevo.',
+              });
+            },
+          });
+      },
     });
   }
 

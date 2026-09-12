@@ -10,7 +10,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { TenantContextService } from '@megadulces/platform-core';
+import { TenantContextService, isPlatformAdminRole } from '@megadulces/platform-core';
 import { vendorTodayRouteExistsSql } from '../shared/vendor-cartera.sql';
 import { CommercialPricingService } from '../commercial-pricing/commercial-pricing.service';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
@@ -1495,6 +1495,112 @@ export class CommercialOrdersService {
         .returning('*');
 
       await this.recordHistory(trx, orderId, order.status, 'cancelled', reason || null);
+
+      return updated;
+    });
+  }
+
+  /**
+   * Reabrir para corregir: `confirmed` → `draft`.
+   *
+   * El vendedor agendó y se equivocó. Hasta ahora la única salida era cancelar y
+   * recapturar el pedido entero (y `commercial.orders` tiene la huella de eso).
+   * Reabrir deja el pedido en el MISMO estado que cualquier borrador, así que toda
+   * la edición que ya existe —líneas, cantidades, fecha— sirve tal cual, y volver a
+   * agendar es el mismo `place()` de siempre, que es idempotente.
+   *
+   * Se reabre en vez de permitir editar líneas sobre `confirmed` a propósito: un
+   * pedido que se está corrigiendo NO está listo para surtir, y el estado tiene que
+   * decirlo. El folio (`code`) se conserva: es el mismo pedido, no uno nuevo.
+   *
+   * Lo que NO se reabre, y por qué:
+   *   - `fulfilled`: ya consumió inventario y ya es venta publicada → devolución.
+   *   - `cancelled`: no hay nada que corregir.
+   *   - un pedido de otro vendedor (salvo rol de plataforma).
+   *   - si ese cliente ya tiene otro borrador abierto del mismo vendedor: quedarían
+   *     dos y `take-order` abre "el" borrador del cliente — se avisa en vez de
+   *     dejar el lío armado.
+   *
+   * El stock se libera SÓLO por lo que este pedido apartó de verdad, leído del
+   * libro de movimientos (`reserve` − `release` con este `reference_id`), no por
+   * la cantidad de la línea: en preventa `place()` nunca reserva, así que restar la
+   * línea le estaría soltando el apartado a OTRO pedido.
+   */
+  async reopen(orderId: string, reason?: string) {
+    if (!UUID_REGEX.test(orderId))
+      throw new BadRequestException('orderId inválido');
+
+    return this.tk.run(async (trx) => {
+      const order = await trx('commercial.orders').where({ id: orderId }).forUpdate().first();
+      if (!order) throw new NotFoundException(`Order ${orderId} no encontrada`);
+      await this.enforceOrderOwnership(trx, order);
+
+      if (order.status === 'draft') return order; // idempotente: ya editable
+      if (order.status !== 'confirmed' && order.status !== 'pending_approval')
+        throw new ConflictException(
+          order.status === 'fulfilled'
+            ? 'Pedido ya entregado: se corrige con una devolución, no reabriéndolo'
+            : `Pedido en estado '${order.status}' no se puede reabrir`,
+        );
+
+      const ctx = this.tenantCtx.get();
+      const userId = ctx?.userId || null;
+      if (
+        order.user_id &&
+        userId &&
+        order.user_id !== userId &&
+        !isPlatformAdminRole(ctx?.roleName)
+      ) {
+        throw new ForbiddenException('Este pedido lo tomó otro vendedor');
+      }
+
+      const otroBorrador = await trx('commercial.orders')
+        .where({ customer_id: order.customer_id, status: 'draft' })
+        .modify((q: any) => {
+          if (order.user_id) q.where('user_id', order.user_id);
+        })
+        .whereNot('id', orderId)
+        .first();
+      if (otroBorrador)
+        throw new ConflictException(
+          `Este cliente ya tiene un pedido en curso (${otroBorrador.code}). Terminalo o cancelalo antes de corregir este.`,
+        );
+
+      // Lo efectivamente apartado por ESTE pedido, por producto.
+      const apartado = await trx('commercial.stock_movements')
+        .where({ reference_type: 'order', reference_id: orderId })
+        .whereIn('movement_type', ['reserve', 'release'])
+        .groupBy('product_id')
+        .select('product_id')
+        .sum({
+          neto: trx.raw(
+            "CASE WHEN movement_type = 'reserve' THEN quantity ELSE -quantity END",
+          ),
+        });
+      for (const row of apartado as Array<{ product_id: string; neto: string }>) {
+        const neto = Number(row.neto);
+        if (neto > 0)
+          await this.stock.release(trx, order.warehouse_id, row.product_id, neto, orderId);
+      }
+
+      const [updated] = await trx('commercial.orders')
+        .where({ id: orderId })
+        .update({
+          status: 'draft',
+          confirmed_at: null,
+          pending_approval_at: null,
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        })
+        .returning('*');
+
+      await this.recordHistory(
+        trx,
+        orderId,
+        order.status,
+        'draft',
+        reason || 'reabierto para corregir',
+      );
 
       return updated;
     });

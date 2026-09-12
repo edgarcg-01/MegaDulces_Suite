@@ -272,6 +272,16 @@ export class CommercialOrdersController {
     return this.service.place(id, body);
   }
 
+  @Post(':id/reopen')
+  @RequirePermissions(Permission.COMMERCIAL_ORDERS_CONFIRMAR)
+  @ApiOperation({
+    summary:
+      'Reabrir para corregir (confirmed/pending_approval → draft). Conserva el folio, libera solo lo que ESE pedido apartó y deja el pedido editable con el flujo normal de borrador. Entregado y cancelado NO se reabren.',
+  })
+  reopen(@Param('id') id: string, @Body() body: { reason?: string } = {}) {
+    return this.service.reopen(id, body?.reason);
+  }
+
   @Post(':id/fulfill')
   @RequirePermissions(Permission.COMMERCIAL_ORDERS_FULFILL)
   @ApiOperation({ summary: 'Entregar pedido (confirmed → fulfilled). Consume stock.' })
