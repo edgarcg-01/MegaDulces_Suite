@@ -279,7 +279,12 @@ export class DbHealthScannerService {
         host: 'api', updated_at: this.knex.fn.now(),
       })
       .onConflict(['tenant_id', 'job_key'])
-      .merge(['label', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+      // ⚠️ `last_start` VA en el merge. Sin él sólo se escribe en el INSERT y queda congelado en la
+      // fecha de la primera corrida. Medido el 2026-09-12: `db_health_scan` mostraba
+      // `last_start = 2026-07-31` con `last_finish` del día — seis semanas de "muerto" en el propio
+      // scanner de salud. Ordenar por `last_start` (lo natural para "¿cuándo corrió?") daba un falso
+      // positivo, y una auditoría lo reportó como incidente de producción.
+      .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
   }
 
   private ageHuman(sec: number | null): string | null {
