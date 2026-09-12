@@ -650,15 +650,23 @@ async function normalizeBarcodesFromOds(client, tenantId, skus) {
     let changed = 0;
     if (rows.length) {
       const up = await client.query(`
-        INSERT INTO catalog.product_barcodes (id, tenant_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
-        SELECT gen_random_uuid(), $1, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now()
+        -- [NORM.2] La fila se liga al producto por product_id (FK real), no sólo por el texto del
+        -- sku. El JOIN es INNER a propósito: un barcode cuyo sku no existe en el catálogo es
+        -- exactamente el huérfano del que la migración retiró 3,655 — no se vuelve a crear.
+        INSERT INTO catalog.product_barcodes (id, tenant_id, product_id, sku, barcode, unit, factor, source, is_primary, synced_at, updated_at)
+        SELECT gen_random_uuid(), $1, p.id, s.sku, s.barcode, s.unit, s.factor, s.source, s.is_primary, now(), now()
           FROM stg_bc s
+          JOIN catalog.products p
+            ON p.tenant_id = $1 AND btrim(p.sku) = btrim(s.sku) AND p.deleted_at IS NULL
         ON CONFLICT (tenant_id, sku, barcode) WHERE deleted_at IS NULL DO UPDATE SET
+          product_id=EXCLUDED.product_id,
           unit=EXCLUDED.unit, factor=EXCLUDED.factor, source=EXCLUDED.source,
           is_primary=EXCLUDED.is_primary, synced_at=now(), updated_at=now()
-        WHERE (catalog.product_barcodes.unit, catalog.product_barcodes.factor,
+        -- product_id entra en la comparación para que una fila vieja sin ligar se ligue sola en
+        -- la próxima pasada, sin dejar de ser churn-free para las que ya están bien.
+        WHERE (catalog.product_barcodes.product_id, catalog.product_barcodes.unit, catalog.product_barcodes.factor,
                catalog.product_barcodes.source, catalog.product_barcodes.is_primary)
-              IS DISTINCT FROM (EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
+              IS DISTINCT FROM (EXCLUDED.product_id, EXCLUDED.unit, EXCLUDED.factor, EXCLUDED.source, EXCLUDED.is_primary)`,
         [tenantId]);
       changed += up.rowCount;
     }
