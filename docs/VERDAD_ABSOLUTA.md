@@ -7,10 +7,10 @@
 > **Medido contra PROD** (Railway, tenant `mega_dulces`) el **2026-09-09 16:05 UTC**, salvo lo que
 > se atribuye explícitamente a otra medición. ADR-059.
 >
-> ⛔⛔ **Leé §13 antes que nada (auditoría del origen, 2026-09-11).** Todo lo que este documento
-> arbitra es correcto **sobre el insumo que le llega**, y ese insumo está llegando tarde: el fact de
-> ventas tiene **16 días**, `kepler_ods` entre **2 y 7**, y **257 vistas de prod** cuelgan de ahí.
-> *Un número perfectamente arbitrado sobre dato viejo es una cifra falsa con metodología impecable.*
+> ⭐ **§13 — auditoría del origen (Kepler crudo), 2026-09-11/12.** Decode y forma del ERP, arbitrados
+> contra POS vivos. **§13.3 es la más importante del documento para quien vaya a medir algo**: la
+> primera versión de esa auditoría reportó un incidente de producción que **no existía**, porque midió
+> la réplica de desarrollo creyéndola prod. Está conservada como caso testigo.
 
 ---
 
@@ -551,9 +551,9 @@ Ninguno está escondido, y cada uno tiene un candado que se pone rojo si se vuel
 | ✅ **la clase ABC era un objeto nulo** | **2 A / 56,002 C @ $0 → 5,178 A / 7,367 B** | ⭐⭐ **CERRADO (KE.4)**: la demanda salía de `commercial.orders` (**2 órdenes fulfilled en toda su historia**) contra $154.7M de venta real, y **clase B = 0 en todo el sistema** era el delator. Ahora sale de `inventory_health`, **la misma demanda que usa el punto de reorden**, y la clase es una **vista** porque como tabla **llegaba 26 minutos tarde todos los días**. La pantalla de compra mostraba otra clase que el motor (coincidían **64.0%**); ahora lee la misma. Frenos: medir la fuente antes de borrar + abortar si A o B salen en cero (§12.4) |
 | ⏳ **el colchón que falta comprar** | **7,089 políticas / $1,197,206** | Políticas A/B todavía servidas a 0.90. No es código: se corrige cuando `import-computed-reorder` corra con la vista (nightly). El candado lo reporta `NO MEDIDO`, no verde |
 | **Wincaja** | **37.6%** de la venta de los últimos 30 d | fuera de alcance por decisión (§8) |
-| ⛔⛔ **el ORIGEN llega tarde y nadie lo declara** | `sales_daily` **16 d** · `kepler_ods` **2–7 d** · **257 vistas de prod** cuelgan del ODS | ⭐ auditoría de origen 2026-09-11, §13. Todo lo arbitrado en este documento es correcto **sobre un insumo viejo**. Un número bien arbitrado sobre dato de hace 16 días sigue estando mal |
-| ⛔ **la `07` sí está en el mart pero NO en el ODS** | 0 filas en `kepler_ods` · **ausente de `mv_kepler_sales_daily`** | §13.2. La fila de arriba que la da por cerrada es cierta **para la ruta del consolidado**; la ruta del ODS nunca la tomó |
-| ⛔ **`06` Canindo al 61% en el ODS** | −3,875 `kdm1` · −56,433 `kdm2` | §13.2. No es recorte nuestro: la réplica los tiene y el ODS no |
+| ⚠️ **el carril del ODS pierde filas sobre su baseline** | **536 huecos / 3 d** contra un baseline de 48–167 (umbral 50) · **14,599 sobrantes** | ⭐ medido en PROD 2026-09-12 (§13.2): `cdc_reconcile` los detecta y **los repone todos**, pero la causa del goteo no está diagnosticada y los sobrantes son DELETE no propagado |
+| ⛔ **el motor de salud lleva 6 semanas apagado** | `db_health_scan` y `analytics_refresh` sin correr desde **2026-07-31** | §13.2. Son `@Cron` del NestJS (`host=api`), no del crontab de `md`. Y el `health_watchdog` los reporta **vivos** — el dead-man switch no caza a su propio muerto, y sin SMTP la alarma tampoco sale |
+| ~~el ORIGEN llega tarde~~ · ~~la `07` no está en el ODS~~ · ~~`06` al 61%~~ | **RETIRADOS 2026-09-12 — eran FALSOS** | ⛔ medidos contra `platform_test` (la réplica **dev**) creyéndola prod. En prod la paridad es **Δ = 0** y la `07` está completa. Caso testigo en **§13.3** — se conserva porque el modo de falla es más instructivo que el hallazgo |
 | ⚠️ **existencia fantasma en Kepler** | **132 filas** · **valor NO MEDIDO** | `kdik` con SKU que no está en `kdii` (la `03` aporta 86). ⛔ **El monto se declara sin medir a propósito**: `kdik.c8` casa con `existencia × c16` sólo en **43.4%**, así que no pasó la prueba de unidad (R2). Publicar un peso ahí sería inventarlo — §9.11 |
 | ⚠️ **cobertura del ODS sin clasificar** | **223 de 371** tablas Kepler = **60.1%** | Las 148 que faltan no están analizadas: parte es drift por rama y períodos viejos, parte puede importar. **No medido**, no "no importa" |
 | ⏰ **la bomba de calendario vence** | **2027-01-01**, las 8 ramas a la vez | `kdc22701` no existe en ningún suscriptor y el DDL no se replica → apply worker en ciclo de reinicio cada 5 s, suscripción `enabled` y latido verde. El desactivador existe y **no está agendado** — `ERP_KEPLER.md` §4.2 |
@@ -818,56 +818,74 @@ por la columna equivocada, dio **100% de fallo**. Un árbitro que falla al 100% 
 dato: está denunciando **tu hipótesis de llave**. Es R5 en su forma útil — *el espejo también se
 detecta por el lado contrario: si contradice TODO, sos vos.*
 
-### 13.2 ⛔⛔ La cascada de frescura: cada salto pierde días, y ninguno lo declara
+### 13.2 La ruta al ODS, medida contra PRODUCCIÓN (2026-09-12)
 
-Medido el 2026-09-11. Cada renglón lee del anterior:
+⚠️ **Esta sección se reescribió entera.** Su primera versión afirmaba un incidente de producción
+—ODS 2–7 días de atraso, fact de 16 días, sucursal 07 ausente, cinco jobs muertos— que **era falso**.
+Ver §13.3.
 
-```text
-POS Kepler (8, Postgres 16.4)  ..................  ahora
-  └─ réplicas :5433 (repl. lógica)  ..............  1–28 segundos      ✓
-       ├─ kepler_consolidado.mart  ...............  hoy, las 8 ramas   ✓
-       └─ kepler_ods  ← "LA FUENTE CANÓNICA"  ....  2–7 días           ✗
-            ├─ 257 vistas/MV de prod cuelgan de acá
-            ├─ mv_kepler_sales_daily  ............  2–7 días · SIN la 07   ✗
-            └─ analytics.sales_daily (el fact)  ..  2026-08-26 = 16 DÍAS   ✗✗
-```
+**Estado real de prod** (`trolley.proxy.rlwy.net/railway`), medido contra las 8 réplicas:
 
-⛔ **Hay DOS rutas paralelas desde Kepler y sólo una está documentada.** `kepler_consolidado`
-(`mart.ventas`, 1.77M filas, refrescada cada 2 min) tiene **las 8 ramas al día**, incluida la `07`
-con 7,855 filas. `kepler_ods` no. Que existan dos materializaciones vivas de la venta de Kepler, con
-frescuras distintas, **es exactamente lo que la regla #1 del proyecto prohíbe** — y la sana es la que
-no está en `ERP_KEPLER.md`.
+| | medido |
+|---|---|
+| Paridad `kepler_ods.kdm1` vs réplicas | **Δ = 0** en 6 de 8 ramas; **−6** (suc 03) y **−3** (suc 07): filas en vuelo, lag de segundos |
+| Frescura `kepler_ods` | `max(c68)` = **hoy** en las 8 ramas |
+| Sucursal 07 Morelia Madero | **presente**: 9,551 productos, 2,704 existencias, 1,916 de 1,919 encabezados |
+| `mv_kepler_sales_daily` | **719,644 filas**, las 7 ramas con venta al día de hoy o ayer, **la 07 incluida** |
+| `analytics.cron_runs` | **35 jobs**; `ods_live_hot` y `ods_live_mirror` latiendo con 151 y 114 filas |
 
-**Paridad Kepler vs ODS, conteo exacto:**
+**La ruta al ODS está sana.** No hay incidente.
 
-| rama | `kdm1` | `kdm2` | atraso |
-|---|---|---|---|
-| 00 · 01 · 02 · 03 | 90–97% | 89–98% | 2 d |
-| 04 · 05 | 90–95% | 90–95% | 7 d |
-| **06 Canindo** | **61.4%** | **61.7%** | 7 d |
-| **07 Morelia Madero** | **0.1%** | **0.0%** | ausente |
+**Lo que SÍ está abierto en prod, verificado:**
 
-⭐ **El hueco NO es histórico.** En la rama 01 los meses cerrados (may–ago) casan **Δ = 0, fila por
-fila**. No falta un backfill: hay un carril que dejó de entregar. Todo el faltante es del mes en curso.
+| hallazgo | evidencia | por qué importa |
+|---|---|---|
+| ⚠️ **el carril pierde filas por encima de su baseline** | `cdc_reconcile` en **`error`**: *"ventana 3d · huecos **536** · repuestas 536 · sobrantes 14,599 · errores 0"*, umbral 50 | ⭐ **El sistema funcionó**: detectó, repuso las 536 y lo declaró. Pero el baseline conocido es **48–167 huecos/3 d** y 536 es ~3×. El reconciliador tapa el síntoma; la causa del goteo **no está diagnosticada** |
+| ⚠️ **14,599 "sobrantes"** | misma nota | filas en el ODS que ya no están en el origen = **DELETE no propagado** (el ODS es UPSERT-only). Consistente con el CDC apagado |
+| ⛔ **`db_health_scan` no corre desde 2026-07-31** | `last_start` = 31-jul, `host=api` | **seis semanas**. Es un `@Cron` dentro del NestJS, no del crontab de `md`. El motor de salud de la DB está apagado |
+| ⛔ **`analytics_refresh` tampoco, misma fecha y mismo host** | `last_start` = 31-jul | las MVs que dependan de él se refrescan por otra vía o no se refrescan |
+| ⛔⛔ **el dead-man switch reporta VIVO a un muerto de 6 semanas** | `health_watchdog`: *"scanner vivo · 0/6 con falla · **canal externo: NINGUNO**"* | El watchdog existe para cazar justamente esto y no lo caza. Y aunque lo cazara, **la alarma no sale del edificio** (sin SMTP — OBS.0.2) |
 
-⛔ **Cómo se ve la falla desde afuera — y por qué ningún tablero la mostró:**
+### 13.3 ⛔⛔⛔ El caso testigo: esta auditoría midió la base equivocada
 
-```text
-ods.ctl                  last_run_at = hace minutos   ✓ "corre"
-                         rows_last   = 0 en TODAS     ✗ y no entrega
-kepler_ods._sync_status  rows_last   = 1              ← eso es un smoke, no un embarque
-analytics.cron_runs      sin latido de ods_live_hot / ods_live_mirror
-```
+**Se conserva a propósito.** Es el ejemplo más limpio que tiene este documento de su propia tesis, y
+lo produjo el proceso de auditar, no el sistema auditado.
 
-Y el remate: **`analytics.cron_runs` muestra cinco jobs detenidos el mismo día, 26–27 de agosto** —
-`kepler_sales_fact`, `analytics_refresh`, `feed_stock`, `feed_catalog` y **`db_health_scan`**.
-⭐⭐ **El monitor de salud está entre los muertos.** Por eso nadie lo vio: el incidente de fines de
-agosto se dio por cerrado y al menos cinco carriles nunca volvieron.
+La primera versión de §13 reportó un incidente de producción grave: ODS con 2–7 días de atraso, el
+fact de ventas con **16 días**, la sucursal 07 invisible, la 06 al 61%, y **cinco jobs muertos
+incluido `db_health_scan`**. Estaba escrito con cifras exactas, tablas y conteos reales.
 
-> **La regla que sale de acá (R8 candidata):** *un número arbitrado no es un número verdadero si su
-> insumo no declara su edad.* Este documento probó con enorme cuidado **con qué** se comprueba cada
-> cifra, y no tenía una sola línea sobre **de cuándo** es el dato que entra. Un margen perfectamente
-> arbitrado sobre un fact de hace 16 días es una cifra falsa con metodología impecable.
+**Todo falso.** Las mediciones salieron de `DATABASE_URL_NEW` del `.env`, que apunta a
+**`192.168.0.245:5432/platform_test`** — la réplica de **desarrollo**. Producción es Railway. Lo que
+se midió como "incidente" era el estado normal de una copia vieja.
+
+**Cómo se coló, que es lo que hay que aprender:**
+
+1. **Confié en el nombre de la variable.** `DATABASE_URL_NEW` suena a "la DB nueva" — y lo es, la de
+   dev. La palabra **`platform_test` estaba en la cadena de conexión** todo el tiempo.
+2. ⭐⭐ **El enmascaramiento borró la evidencia.** Para no filtrar la credencial, la inspección del
+   `.env` usó `grep -oE '@[0-9.]+:[0-9]+'` — que **recorta el nombre de la base**. Se vio
+   `@192.168.0.245:5432` y nunca la palabra `test`. *Ocultar el secreto ocultó también el sujeto.*
+   Al enmascarar, recortá **la credencial**, nunca el destino: `sed 's#://[^@]*@#://***@#'` conserva
+   host **y** base.
+3. **La memoria correcta estaba a la vista y no se abrió.** `reference_prod_db_connection_topology`
+   dice en su propia descripción: *"PROD newdb = trolley.proxy.rlwy.net; `.env` `DATABASE_URL_NEW`
+   apunta a copia LOCAL stale"*. Se leyó el título del índice, no el archivo.
+4. **La huella estaba en los números.** Esa misma memoria registró `kepler_ods.kdm1` con **595k**
+   filas el 08-sep; la auditoría midió **595,433** el 11-sep. Una tabla de producción que no se mueve
+   en tres días **es la firma de una copia**, y se leyó como "el carril está muerto".
+
+> **La regla (R8):** *antes de publicar una medición, el reporte declara CONTRA QUÉ INSTANCIA se
+> midió — host y nombre de base, no el nombre de la variable de entorno.* Una cifra sin esa línea no
+> es verificable: es irreproducible por construcción. Y el corolario, que es el que duele:
+> **un hallazgo alarmante obliga a verificar el instrumento ANTES de verificar el hallazgo.**
+> Cinco carriles muertos el mismo día no era una coincidencia sospechosa del sistema —
+> era el sistema diciendo *"no estás mirando donde crees"*.
+
+⚠️ **Qué de la auditoría sí se sostiene:** todo §13.1 y el decode de `ERP_KEPLER.md` §2.4/§2.5/§3 —
+porque eso se midió contra las **réplicas `:5433`** y se **arbitró contra dos POS vivos**, que sí son
+la fuente correcta para preguntas de *estructura*. El error fue de instancia, no de método, y sólo
+contaminó las preguntas de *estado*.
 
 ---
 
@@ -1054,16 +1072,19 @@ La falla real es otra y es peor: el suscriptor que no tenga la tabla mata su app
 de reinicio de 5 s, **congelando la réplica entera** con la suscripción en `enabled`. Ver
 `ERP_KEPLER.md` §4.2 y la fecha: **2027-01-01**.
 
-### 9.14 ⛔ "la sucursal 07 no existe para la plataforma"
+### 9.14 ⛔⛔ "la sucursal 07 no existe para la plataforma" — y el documento tenía razón dos veces
 
-Medí 0 filas de la `07` en `kepler_ods` y estuve por escribir que Morelia Madero era invisible. §7 ya
-tenía una fila diciendo lo contrario (*"CERRADO 2026-09-10, el gate quedó verde"*), y **el documento
-tenía razón**: la `07` llega completa y fresca por la **otra** ruta, `kepler_consolidado.mart`
-(7,855 filas, al día). Lo cierto y acotado es: **ausente de `kepler_ods` y de
-`mv_kepler_sales_daily`**, presente en el mart.
+Medí **0 filas** de la `07` en `kepler_ods` y estuve por escribir que Morelia Madero era invisible.
+§7 ya tenía una fila diciendo lo contrario (*"CERRADO 2026-09-10, el gate quedó verde"*).
 
-⭐ *Cuando tu medición contradice una fila ya arbitrada de este documento, la hipótesis por defecto es
-que estás midiendo otra cosa* — acá, otra ruta. Contradecirlo se gana midiendo las dos.
+Primero supuse que la diferencia era de **ruta** (el mart sí, el ODS no). También era falso: en
+**producción** la `07` está en `kepler_ods` con **9,551 productos y 2,704 existencias**, y en
+`mv_kepler_sales_daily`. El 0 que medí era de `platform_test`, la réplica **dev** (§13.3).
+
+⭐⭐ **La lección se cobró dos veces en el mismo hallazgo:** cuando una medición contradice una fila
+ya arbitrada de este documento, la hipótesis por defecto **no** es que el documento envejeció — es
+que estás midiendo otra cosa. La primera vez creí que era otra ruta. La segunda resultó ser otra
+**base**. *El documento fue mejor árbitro que mi consulta, dos veces seguidas.*
 
 ---
 
