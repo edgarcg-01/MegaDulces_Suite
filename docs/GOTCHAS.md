@@ -2192,3 +2192,50 @@ proc.on('close', (code) => finish(code ?? 1));
 ⚠️ **Corolario:** un proceso padre con un tubo abierto **tampoco termina solo** — el listener de
 `'data'` mantiene vivo el bucle de eventos hasta que muera el nieto. `run-prod-feeds` sale con
 `process.exit()` explícito, así que no le pega; un script que dependa de terminar por sí mismo, sí.
+
+---
+
+## 47. `dotenv.config()` imprime un banner a stdout — y contamina cualquier `$(node -e …)`
+
+Vivido el **2026-09-12** repuntando los carriles de Wincaja (VL.7.3). Para pasarle la URL de prod
+a PM2 sin escribirla en el repo, lo natural es:
+
+```sh
+export DATABASE_URL_NEW="$(node -e "require('dotenv').config(); process.stdout.write(process.env.FLEET_DB_URL)")"
+```
+
+**Está mal.** `dotenv` moderno escribe a **stdout** una línea de cortesía al cargarse:
+
+```
+◇ injected env (52) from .env // tip: ⌘ enable debugging { debug: true }
+```
+
+Así que `$( )` captura **el banner pegado a la URL**. La variable queda no vacía —o sea que un
+`[ -n "$VAR" ]` la da por buena— pero `pg` la parsea como cadena con espacios, en formato
+`clave=valor`, y termina resolviendo un host inventado:
+
+```
+[cron-heartbeat] begin wincaja_replica_inc: getaddrinfo ENOTFOUND base
+```
+
+Lo insidioso es **dónde** falla: el carril arranca, `pm2 ls` lo pone `online`, la réplica escribe
+bien… y lo único que se rompe es el **latido**. O sea que el proceso queda mudo justo cuando
+acabás de moverlo, que es cuando más falta hace verlo. Además el texto del banner **rota al azar**
+entre varios tips, así que el síntoma cambia de una corrida a otra.
+
+**Lo correcto** — `parse()` sólo lee y devuelve, no imprime ni toca `process.env`:
+
+```sh
+export VAR="$(node -e "const fs=require('fs');process.stdout.write(require('dotenv').parse(fs.readFileSync('.env')).FLEET_DB_URL||'')")"
+```
+
+⚠️ **Y verificá la FORMA, no que esté llena.** Un `[ -n "$VAR" ]` no distingue una URL de una URL
+con basura adelante. Parsearla y comparar el largo cuesta una línea:
+
+```sh
+node -e "const u=new URL(process.env.VAR); console.log(u.hostname, process.env.VAR.length)"
+```
+
+⚠️ Aplica a **cualquier** librería que salude por stdout (`dotenv`, algunos loaders de TS, CLIs con
+telemetría). La regla general: **stdout de un proceso Node no es un canal confiable para capturar
+un valor**, salvo que hayas apagado todo lo que pueda escribir ahí.
