@@ -46,6 +46,20 @@ misma request tira `25P02` ("current transaction is aborted"). Y si no hay query
 `ROLLBACK TO SAVEPOINT` sin abortar la trx), **nunca** `try/catch` pelado. Para audit logs que deben sobrevivir
 al rollback: conexión separada con su propio `SET LOCAL app.tenant_id`.
 
+⚠️ **Un `catch` POR ÍTEM no aísla nada — el que aísla es el savepoint** (3ª recurrencia, `[SN.22]` 2026-09-12).
+`GET /users/me/work` mide ~15 colas y cada una tiene su propio `try/catch` que la declara en `no_medido` («esa
+bandeja no respondió»). Eso *es* la feature (ADR-056). Pero dentro de la trx compartida la promesa es **falsa**:
+un `42P01` real —`identity.position_responsibilities` no existe en `platform_test`, la base de la API de
+desarrollo— se tragó en su catch y **las 14 mediciones siguientes murieron con `25P02`**, cada una reportando su
+propio motivo como si fuera independiente. En pantalla: todo en «Sin medir», para todos los usuarios.
+Dos reglas que salen de ahí:
+
+- **El `catch` va SIEMPRE por FUERA del savepoint.** Si se atrapa adentro, el error no escapa, el savepoint se
+  libera como si todo hubiera ido bien y el aislamiento queda de adorno.
+- **Un `catch` que engorda una lista de "no medido" es peor que un error**, porque *parece* degradación
+  controlada. Y el smoke se ponía **verde** con la respuesta vacía —menos aserciones, ninguna roja, 125→104
+  checks— hasta que se agregó una aserción que **falla si dos o más fallas traen `25P02`**.
+
 **Relacionado:** recrear una vista que la app consulta en caliente (`DROP+CREATE`, o incluso `CREATE OR REPLACE`)
 invalida los planes cacheados de las conexiones vivas → `0A000 'cached plan must not change result type'` → si un
 catch lo traga, `25P02`. Es transitorio (se cura al reciclar el pool) pero rompe operaciones en vuelo. Protegé el
@@ -2239,3 +2253,41 @@ node -e "const u=new URL(process.env.VAR); console.log(u.hostname, process.env.V
 ⚠️ Aplica a **cualquier** librería que salude por stdout (`dotenv`, algunos loaders de TS, CLIs con
 telemetría). La regla general: **stdout de un proceso Node no es un canal confiable para capturar
 un valor**, salvo que hayas apagado todo lo que pueda escribir ahí.
+
+---
+
+## 48. ⛔ `git commit --amend` en este repo pisa el commit de OTRA sesión
+
+**Vivido el 2026-09-12, por mí, con daño real.**
+
+Ya estaba documentado que el **índice de git está compartido** por ~10 sesiones y que por eso
+hay que commitear con pathspec (`git commit -m "msg" -- <rutas>`). Lo que faltaba decir es que
+**`--amend` tiene el mismo problema y el pathspec no lo salva**: `--amend` no toca rutas, toca
+**HEAD**, y en este árbol HEAD cambia sin que tu sesión se entere.
+
+La secuencia medida:
+
+```text
+e1855327  yo commiteo VU.2                       <- mi trabajo
+285b34f0  yo amendo (el asunto salio con "@ ")   <- todavia era mio
+d5d60421  yo amendo otra vez                     <- todavia era mio
+d8c52bf7  OTRA sesion commitea GOTCHAS 47
+29713d09  OTRA sesion commitea fix([SN.22])      <- HEAD ahora es de ELLOS
+cce577d0  yo amendo -> le puse MI mensaje a SU commit
+```
+
+El contenido **no se perdió** (`git diff --stat 29713d09 cce577d0` = vacío): lo que se perdió fue
+el **mensaje**, que es donde este proyecto guarda el porqué. Y cuando lo noté ya había otro commit
+encima, así que ni siquiera se podía re-enmendar sin un rebase — que en un árbol donde otras
+sesiones están commiteando es mucho peor que el problema.
+
+**La regla:**
+
+- ⛔ **Nunca `git commit --amend` acá.** Ni para arreglar un mensaje. Si el mensaje salió mal, se
+  vive con él o se agrega un `git notes`.
+- ✅ Un mensaje equivocado se corrige con **`git notes add -F <archivo> <sha>`**: no reescribe
+  historia, aparece en `git log`, y se puede poner sobre un commit que ya no es HEAD.
+- ⚠️ Y la causa del mensaje dañado: **no uses `-m` con acentos graves ni here-strings de
+  PowerShell en Bash**. Un `` `qty_unit` `` dentro de `-m "..."` lo ejecuta el shell
+  (`qty_unit: command not found`) y lo sustituye por vacío; un `@'…'@` deja el `@` pegado al
+  asunto. Para un mensaje largo: escribilo a un archivo y `git commit -F <archivo> -- <rutas>`.
