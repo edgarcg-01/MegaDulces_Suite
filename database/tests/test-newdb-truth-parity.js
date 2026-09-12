@@ -93,6 +93,48 @@ const PARIDADES = [
 /** Se agregan al registro de arriba; van aparte sólo para no hacer ilegible el literal. */
 PARIDADES.push(
   {
+    nombre: 'lo publicado vs LA MEDIDA QUE KEPLER HACE',
+    arbitro: 'mv_kepler_unit_ladder',
+    publicado: 'analytics.v_product_box_factor.box_factor',
+    // ⭐⭐ Esta paridad es distinta de las otras: el arbitro no es otro testigo nuestro, es la
+    // ARITMETICA DE KEPLER (c9 = c56 x c58, se cumple 99.99%). No arbitra -- reproduce. ADR-063.
+    //
+    // ⛔ El umbral NO es "cualquier diferencia": es la DIRECCION que costo dinero. Publicar 1
+    // donde Kepler cobro por caja es el defecto que abrio todo esto (96504, UxC 1 contra 58) --
+    // un 1 se lee como "se vende por pieza" y multiplica mal en cualquier pantalla que convierta.
+    // Las otras 12 diferencias (de 356) son la decision abierta de si la escalera reemplaza a
+    // c84 en la cascada; esas NO son un bug, son un pendiente, y viven declaradas.
+    //
+    // ⚠️ Piezas-por-caja se toma del peldano DIRECTO (CJA->PZA) y, si falta, del COMPUESTO
+    // (CJA->PAQ x PAQ->PZA). Verificado por SKU: 88045 da 3 x 25 = 75; 97273 da 12 x 12 = 144.
+    // Comparar box_factor contra un mode() sobre TODOS los peldanos CJA daba 14 falsos positivos
+    // porque mezclaba CJA->PZA con CJA->PAQ: dos preguntas distintas.
+    umbral: 'publicamos 1 mientras Kepler vendio por caja',
+    porque: 'medido 2026-09-12: 356 SKUs con piezas-por-caja en Kepler, 344 coinciden (96.63%) '
+      + 'y CERO caen en esta direccion. Por eso el objetivo es cero: es un invariante, no deuda.',
+    baseline: 0,
+    sql: `
+      WITH pzc AS (
+        SELECT sku, factor FROM analytics.mv_kepler_unit_ladder
+         WHERE unidad_vendida = 'CJA' AND unidad_base = 'PZA'
+        UNION
+        SELECT a.sku, a.factor * x.factor
+          FROM analytics.mv_kepler_unit_ladder a
+          JOIN analytics.mv_kepler_unit_ladder x
+            ON x.sku = a.sku AND x.unidad_vendida = 'PAQ' AND x.unidad_base = 'PZA'
+         WHERE a.unidad_vendida = 'CJA' AND a.unidad_base = 'PAQ'
+           AND NOT EXISTS (SELECT 1 FROM analytics.mv_kepler_unit_ladder z
+                            WHERE z.sku = a.sku AND z.unidad_vendida = 'CJA'
+                              AND z.unidad_base = 'PZA')),
+      u AS (SELECT sku, max(factor) factor FROM pzc GROUP BY 1)
+      SELECT count(*)::int discrepancias, NULL::numeric dinero
+        FROM u
+        JOIN catalog.products p ON p.tenant_id = '${T}' AND p.sku = u.sku AND p.deleted_at IS NULL
+        JOIN analytics.v_product_box_factor b
+          ON b.tenant_id = '${T}' AND b.product_id = p.id
+       WHERE b.box_factor::numeric = 1 AND u.factor > 1`,
+  },
+  {
     nombre: 'existencia publicada vs existencia del ERP',
     arbitro: 'v_erp_stock_on_hand',
     publicado: 'commercial.stock.quantity',
@@ -132,7 +174,12 @@ PARIDADES.push(
     umbral: 'guardada A o B mientras el arbitro dice C',
     porque: 'de 55,396 pares difieren 1,846, y los 1,846 son de esa forma: cero en la direccion '
       + 'contraria. Un A/B guardado se sirve al 0.98/0.95 en vez del 0.90 que le toca.',
-    baseline: 1846,
+    // ⭐ De DEUDA a INVARIANTE el 2026-09-12: el baseline era 1,846 y la medicion dio 0 tras
+    // repoblarse commercial.abc_classification desde el resolvedor (KE.4). Verificado que el cero
+    // es real y no una tabla vacia: 45,453 filas, TODAS joinean con v_abc_class, y la
+    // distribucion es sana (4,954 A / 7,069 B / 33,430 C). Un cero por tabla vacia y un cero por
+    // acuerdo se ven IGUAL desde la paridad -- por eso se comprobo antes de bajarlo.
+    baseline: 0,
     sql: `
       SELECT count(*)::int discrepancias, NULL::numeric dinero
         FROM commercial.abc_classification a
@@ -355,9 +402,10 @@ const N = (n) => {
   console.log('        propio. Cerrarlo pide golpear el endpoint y comparar la respuesta contra');
   console.log('        el árbitro — NO está hecho, y se declara en vez de suponerlo cubierto.');
   console.log('     ⚠️  Los baselines son deuda; un objetivo CERO es un invariante.');
-  console.log('        factor de caja y costo-Kepler estan en CERO: si aparece una');
+  console.log('        factor de caja, costo-Kepler, la medida de Kepler y ABC estan en');
+  console.log('        CERO: si aparece una');
   console.log('        discrepancia es un bug, no un pendiente. Existencia (tope 250, dato');
-  console.log('        vivo) y ABC (1,846) siguen siendo DEUDA: el trinquete impide que');
+  console.log('        vivo) es la unica DEUDA que queda: el trinquete impide que');
   console.log('        crezcan, cerrarlas es trabajo aparte.');
 
   console.log(`\n=== ${ok} OK · ${fail} FAIL · ${skip} NO MEDIDO ===\n`);
