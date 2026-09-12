@@ -167,6 +167,53 @@ Reglas que ya costaron caro:
   `DELETE` que no se propaga, ya declarado como riesgo vivo. El número está a la vista en la
   nota del latido y **ningún sensor lo mira**.
 
+### Cuando el carril tiene 53 pasos, el latido no alcanza — `v_feed_step_health`
+
+`feed_nightly` corre **53 scripts** y reporta **un** estado, que por diseño sólo se pone en
+`error` si fallan **los 53** (`run-prod-feeds.js`: `failed === total`). Medido en la bitácora de
+prod:
+
+```
+feed_nightly  ok  47/53 pasos OK
+feed_nightly  ok  52/53 pasos OK
+feed_nightly  ok  36/52 pasos OK      <-- 16 pasos fallaron. El tablero, verde.
+```
+
+⚠️ **Eso NO se arregla invirtiendo el criterio.** Con 6 pasos fallando en una noche normal, el
+carril quedaría rojo casi siempre — y una alarma que grita todos los días es la que se aprende a
+ignorar, el mismo defecto de las tres reglas de arriba. El autor ya lo había previsto y lo dejó
+escrito en el código (*"sin disparar alarma crítica por ruido"*). Lo que faltaba no era un
+umbral: era **grano**.
+
+Desde VL.6.4 cada paso deja su propia fila en `analytics.cron_run_log` con la llave
+`carril/paso`, y `analytics.v_feed_step_health` la lee (ventana 30 d):
+
+```sh
+ssh superoot@192.168.0.222 'set -a; . ~/secrets/ingest.env; set +a;
+  psql "$ODS_HB_URL" -c "SELECT paso, corridas, fallas, horas_sin_ok, seg_p50,
+    resumenes_distintos, left(ultimo_resumen,60) AS ultimo_resumen, veredicto
+    FROM analytics.v_feed_step_health WHERE carril = \$\$feed_nightly\$\$
+    ORDER BY veredicto DESC, resumenes_distintos, seg_p50;"'
+```
+
+Cómo se lee **sin sacar la conclusión equivocada**:
+
+- **`resumenes_distintos = 1`** sobre muchas corridas = el propio resumen del importer **nunca
+  cambió**. Es la señal de poda más filosa que existe sin tocar los 53 scripts — pero **no es
+  prueba**: un paso legítimamente idempotente también imprime siempre lo mismo. Es por dónde
+  empezar a mirar, no un veredicto.
+- **No hay columna de filas escritas, a propósito.** El orquestador corre a los importers como
+  subprocesos: conoce duración y código de salida, **no** filas. `ultimo_resumen` es la última
+  línea que imprimió el importer, **textual** — una cita, no una medición. Contesta a ojo:
+  `COMMIT — 0 filas` no se parece a `COMMIT — 2,187 filas`.
+- **`horas_sin_ok` en NULL significa "nunca salió bien en la ventana"**, no "recién funcionó".
+- ⛔ **Una fila ausente NO es un paso sano.** El padrón de pasos vive en `run-prod-feeds.js`, no
+  en la BD: la vista sólo muestra lo que corrió al menos una vez. Un paso retirado de la lista no
+  desaparece de golpe — se queda con `ultima_corrida` envejeciendo, que es como se nota.
+- Los carriles **sub-minuto** (`livefast`, `receipts`, `contpaqi`) **no llevan bitácora por
+  paso**: tienen 1-2 pasos cada uno —su latido ya es por paso— y costarían ~7,200 filas/día
+  contra las ~940 de todos los demás carriles juntos.
+
 ---
 
 ## 6. Las variables, que significan cosas distintas según el carril
