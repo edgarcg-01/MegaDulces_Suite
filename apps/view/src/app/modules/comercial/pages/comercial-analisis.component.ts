@@ -577,7 +577,8 @@ export class ComercialAnalisisComponent {
         series: s ? s.months.map((m) => m.monto) : undefined,            // BI.1 — sparkline 12m
         sub: e ? (this.compare() === 'yoy' ? 'vs año anterior' : 'vs periodo anterior') : 'Sell-out del periodo',
       },
-      { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Unidades ÷ UXC' },
+      // [U.7] Cajas por v_unit_truth.metodo_cajas (dinero>peso>divisor verificado>declarar), no "Unidades / UXC".
+      { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Venta convertida a caja' },
       { label: 'Empresas', value: r.rows.length, sub: 'Con venta' },
       { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
     ];

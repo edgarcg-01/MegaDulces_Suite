@@ -205,7 +205,7 @@ const CHANNEL_SEL_OPTS = [
             <button type="button" class="so-adv" [class.is-open]="slicerOpen()" [class.has-val]="selectedCount() > 0"
                     [attr.aria-expanded]="slicerOpen()"
                     [attr.aria-label]="'Filtro avanzado por canal, sucursal o vendedor'"
-                    (click)="slicerOpen.set(!slicerOpen())">
+                    (click)="toggleSlicer()">
               <i class="pi pi-sitemap"></i><span>Avanzado{{ selectedCount() ? ' · ' + selectedCount() : '' }}</span>
             </button>
           </div>
@@ -876,7 +876,9 @@ export class ComercialSellOutComponent {
     if (!r) return [];
     return [
       { label: 'Monto total', value: r.grand_total.monto, format: 'currency', sub: 'Sell-out del periodo' },
-      { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Unidades ÷ UXC' },
+      // [U.7] Las cajas salen de v_unit_truth.metodo_cajas (dinero>peso>divisor verificado>declarar),
+      // NO de "Unidades / UXC" (esa cascada se retiró: publicaba 716,742 piezas como cajas).
+      { label: 'Cajas', value: r.grand_total.cajas, format: 'decimal1', sub: 'Venta convertida a caja' },
       { label: this.rowNounCap(r), value: r.rows.length, sub: r.row_dim === 'brand' ? 'Con venta · click para ver' : r.row_dim === 'month' ? 'Meses con venta' : 'Con venta en el periodo' },
       { label: 'Sucursales', value: r.coverage.branches_with_data.length, sub: r.columns.length + ' columnas' },
     ];
@@ -1073,12 +1075,49 @@ export class ComercialSellOutComponent {
   }
 
   // Los árboles se piden ACOTADOS AL RANGO (from/to) → sus hojas reflejan exactamente lo que el reporte
-  // muestra para el periodo elegido (sintonía filtros↔datos). Se re-piden al cambiar el rango.
-  private loadTrees() {
+  // muestra para el periodo elegido (sintonía filtros↔datos). PERF: se piden BAJO DEMANDA (abrir
+  // "Avanzado" o entrar a modo Vendedor), no en cada carga. Antes se pedían LOS DOS siempre
+  // (canales + vendors) aunque el slicer estuviera cerrado y el modo fuera canal → 3 escaneos del
+  // universo desperdiciados por load y por cambio de periodo. NO afecta el reporte: los árboles sólo
+  // pueblan la UI de filtros (slicer + multiselect de Vendedor), nunca la matriz/totales.
+  private treeRangeKey = { canal: '', vendedor: '' };
+  private rangeKey(): string { return `${this.curFrom}|${this.curTo}`; }
+
+  private ensureCanalTree(): void {
+    const k = this.rangeKey();
+    if (!this.curFrom || !this.curTo || this.treeRangeKey.canal === k) return;
+    this.treeRangeKey.canal = k;
     this.svc.sellOutCanales(this.curFrom, this.curTo).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (t) => { this.canalTree.set(t); if (this.reportMode() === 'canal') this.pruneStaleCells(); }, error: () => {} });
+      .subscribe({ next: (t) => { this.canalTree.set(t); if (this.reportMode() === 'canal') this.pruneStaleCells(); },
+                   error: () => { this.treeRangeKey.canal = ''; } });
+  }
+  private ensureVendorTree(): void {
+    const k = this.rangeKey();
+    if (!this.curFrom || !this.curTo || this.treeRangeKey.vendedor === k) return;
+    this.treeRangeKey.vendedor = k;
     this.svc.sellOutVendors(this.curFrom, this.curTo).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (t) => { this.vendorTree.set(t); if (this.reportMode() === 'vendedor') this.pruneStaleCells(); }, error: () => {} });
+      .subscribe({ next: (t) => { this.vendorTree.set(t); if (this.reportMode() === 'vendedor') this.pruneStaleCells(); },
+                   error: () => { this.treeRangeKey.vendedor = ''; } });
+  }
+
+  /** Carga los árboles que la UI necesita AHORA + refresca los YA cargados al cambiar de rango.
+   *  Los que nadie abrió no se piden. Se llama en el constructor y en cada cambio de periodo. */
+  private loadTrees() {
+    const hadCanal = this.treeRangeKey.canal !== '';
+    const hadVendor = this.treeRangeKey.vendedor !== '';
+    this.treeRangeKey = { canal: '', vendedor: '' }; // el rango pudo cambiar → invalida el cache
+    // Vendedor: el multiselect de Vendedor está visible en modo vendedor → necesita el árbol ya.
+    if (this.reportMode() === 'vendedor' || hadVendor) this.ensureVendorTree();
+    // Canal: el árbol vive detrás de "Avanzado" (lazy). Sólo eager si ya estaba cargado (slicer
+    // abierto) o si hay celdas restauradas que podar/etiquetar.
+    if (hadCanal || this.selectedCells().size) this.ensureCanalTree();
+  }
+
+  /** Abre/cierra "Avanzado" y, al abrir, garantiza el árbol del modo activo (lazy-load). */
+  toggleSlicer(): void {
+    const open = !this.slicerOpen();
+    this.slicerOpen.set(open);
+    if (open) { if (this.reportMode() === 'vendedor') this.ensureVendorTree(); else this.ensureCanalTree(); }
   }
 
   /**
@@ -1116,6 +1155,7 @@ export class ComercialSellOutComponent {
         break;
       case 'vendedores':
         this.reportMode.set('vendedor'); this.selectedCells.set(new Set());
+        this.ensureVendorTree(); // el multiselect de Vendedor necesita el árbol ya (lazy antes = vacío)
         break;
       case 'objetivo':
         this.loadTargets(); return; // no dispara el reporte matriz
