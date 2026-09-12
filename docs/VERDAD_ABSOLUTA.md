@@ -457,6 +457,83 @@ Y para **de dónde sale** cada dato: [`REGISTRO_CANONICO_COMPLETO.md`](REGISTRO_
 
 ---
 
+## 5bis. ⭐⭐ AUDITORÍA DE ADOPCIÓN — quién debería leer el resolvedor, quién lo lee, quién no (2026-09-12)
+
+Edgar: *"realiza una auditoría de quién debería estar tomando esta información, quién la está
+tomando, quién no la está tomando"*. Medido contra prod, tres ejes: **código** (grep de runtime,
+sin migraciones ni pruebas), **base de datos** (`pg_depend`) y **dinero** (venta 90 d del producto
+afectado).
+
+### 5bis.1 El hallazgo de fondo: el resolvedor más nuevo es el que menos se usa
+
+| resolvedor | dependientes en la DB | consumidores en código |
+|---|---:|---|
+| `v_product_box_factor` (el viejo, sin veredicto) | **7** | compras · entradas · anexo de venta · salidas · importers |
+| `v_product_unit_ladder` | 4 | tienda live · route-promo · pricing |
+| `v_warehouse_box_factor` (ADR-055) | 4 | existencia · compras · existencia-crítica |
+| `v_supplier_cost_ladder` | 3 | reabasto |
+| `v_unit_truth` (ADR-057, **con testigo y método**) | 1 | sell-out · análisis |
+| `v_product_box_factor_consensus` (**con veredicto**) | **0** | **sell-out, y nadie más** |
+| `mv_kepler_unit_ladder` (**la medida de Kepler**, ADR-063) | **0** | **NADIE** |
+
+⛔ **La escalera de Kepler se construyó el 2026-09-12 y no la lee ningún consumidor.** El
+resolvedor de consenso tampoco tiene dependientes en la base. Ésta es la forma que toma acá el
+patrón de ADR-056: *el primitivo se construye bien, se aplica a UN dominio y no se generaliza* —
+sólo que en este eje ya van **siete** resolvedores y la adopción va al revés del orden de calidad.
+
+### 5bis.2 Quién NO lo lee, y qué publica en su lugar
+
+| superficie | qué lee hoy | medido en prod |
+|---|---|---|
+| ⭐ **Verificador de precios de mostrador** (`/tienda/verificador`, `kp.service.ts`) | **`kdii.c84` CRUDO** | **29 SKUs difieren** del consenso ($862,663 / 90 d) · **565 productos ($21.9M)** donde `c84` afirma un factor que el resolvedor se NIEGA a publicar (sin testigo o las plazas discrepan) · 8,740 con `c84` vacío ($60.8M) donde simplemente no dice caja |
+| **Catálogo interno** (`catalogo-interno.service.ts`, 3 consultas) | `i.c84 AS pzas_bulto` | mismo defecto, **no estaba declarado en ningún lado** |
+| ⭐ **Bot / conversación comercial** (`commerce-conversation.binding.module.ts:183`) | `GREATEST(COALESCE(p.factor_sale,1),1)` | le dice al **cliente** "2 paquetes (80 pzas)". El `COALESCE(...,1)` es el default silencioso que ADR-056 prohíbe: donde nadie sabe, **afirma 1** |
+| **Andén / recepción** (`almacen/anden/cantidad.util.ts`) | `catalog.product_barcodes.factor` — una **octava** fuente | sólo **383 de 12,503 códigos** (378 productos) traen factor > 1; 7,469 vienen ≤ 1 y 4,651 NULL → el conteo por cajas está muerto en **97%** de los códigos y el input de cajas se deshabilita solo |
+| **Caducidades** (`commercial-expiry-reviews`, `expiry-voice`) | `p.factor_sale` para "PAQ x 24" | tras VA.3 el número coincide, pero **viaja sin veredicto**: no distingue "1 porque es 1" de "1 porque nadie sabe" |
+| **Catálogo de productos** (`commercial-products.service.ts`) | `p.factor_sale` | ídem |
+| **Salidas** (`salidasReport` + su Excel) | cascada `v_product_box_factor` → `box_size` → `factor_sale` | usa el canónico **viejo** y cae a dos fuentes sin testigo; el consenso no participa |
+
+### 5bis.3 Quién SÍ lo lee
+
+`/comercial/sell-out` (UxC por `v_product_box_factor_consensus`, cajas por `v_unit_truth`) ·
+`/comercial/análisis` · `/compras/existencia` · `/compras/pedido` · `/compras/existencia-crítica` ·
+`/almacen/inventory/existencia` (los cuatro por `v_warehouse_box_factor`) · `/compras/entradas` ·
+`/comercial/documentos` (anexo) · tienda live y promos de ruta (por `v_product_unit_ladder`).
+
+### 5bis.4 Los ESCRITORES de `catalog.products.factor_sale` — medido, no supuesto
+
+Se temía que el feed nocturno deshiciera lo que VA.3 escribió. **No pasa:** ningún carril agendado
+escribe `factor_sale`. Los cuatro escritores que existen (`import-catalog-bulk`,
+`import-wincaja-missing-products`, `mega_dulces_sync`, `backfill-factor-from-wincaja`) están
+**fuera de todo carril** — `import-catalog-bulk` fue retirado explícitamente en CANON.0.2. Por eso
+la foto de hoy es sana:
+
+```text
+catalog.products.factor_sale  vs  v_product_box_factor_consensus
+  coinciden .................................. 8,527 productos   $131,589,436 / 90 d
+  el resolvedor NO publica (sin testigo o difiere) 2,685          $ 26,376,427
+  DIFIEREN ...................................       5           $    620,915
+  catálogo NULL y el resolvedor sí tiene .....      22           $      5,416
+```
+
+⚠️ Los 22 NULL son **productos nuevos**: `repoint-catalog-presence` los inserta y no escribe
+`factor_sale`. La ausencia entra sola.
+
+### 5bis.5 Etiquetera
+
+```text
+commercial.product_label_prices.box_size  vs  consenso
+  coinciden ....................... 7,397 productos   $113,773,092 / 90 d
+  la etiquetera no tiene box_size . 3,367             $ 25,403,911
+  tiene, el resolvedor NO publica .   475             $ 19,415,191
+  DIFIEREN ........................     0
+```
+
+Cero contradicciones: la etiquetera **no es el problema**. Lo que aporta es cobertura donde el
+resolvedor calla, y eso es una decisión a tomar, no un defecto a corregir.
+
+---
+
 ## 6. Las trampas que ya cobraron
 
 Todas vividas. El número entre paréntesis es lo que costaron.
