@@ -1,70 +1,62 @@
 'use strict';
 /**
- * `[CH.1.3]` — Da de alta la cuenta de kiosco de cada checador.
+ * Da de alta las cuentas de KIOSCO: una terminal por sucursal, no una persona.
  *
- * Una cuenta de DISPOSITIVO por sitio (`checador.NN`, llave canónica de 2 dígitos
- * de `[RE.23]`), rol `checador_kiosco` — que la migración
- * `20260909131000_rol_checador_kiosco.js` deja recortado a la sola clave
- * `HR_ATTENDANCE_CHECAR`.
+ * Un kiosco es una pantalla de piso que tiene que entrar sin que nadie teclee una
+ * contraseña cada mañana. Ya hay dos clases y comparten todo salvo el rol:
  *
- * Calca `provision-etiqueteras.js` a propósito: es el mismo problema (una pantalla
- * de piso que necesita entrar sin que nadie teclee una contraseña cada mañana) y ya
- * estaba resuelto. Lo que cambia es de dónde sale la lista de sitios.
+ *   --tipo=verificador  ->  `verificador.NN`  rol `verificador_precios`
+ *                           (STORE_PRICE_CHECK_VER, /tienda/verificador)
+ *   --tipo=checador     ->  `checador.NN`     rol `checador_kiosco`
+ *                           (HR_ATTENDANCE_CHECAR, asistencia)
+ *
+ * ── Por qué uno solo y no un script por clase ────────────────────────────────
+ * Éste nació como `provision-checadores.js`, copia casi exacta de
+ * `provision-etiqueteras.js`. Al necesitar el tercero quedaba claro que la copia era
+ * el patrón, no la excepción: mismas guardas, mismo generador de contraseña, misma
+ * validación de sitio, mismo archivo de credenciales. ADR-056 — un mecanismo que se
+ * reinventa en cada fase no cierra la fase. Así que se parametriza.
+ *
+ * ⬜ DECLARADO: `provision-etiqueteras.js` sigue aparte. Funciona y es anterior;
+ * plegarlo acá es churn sobre algo que nadie pidió tocar. Cuando haya que editarlo,
+ * que se pliegue.
  *
  * ── Por qué un script y no una migración ─────────────────────────────────────
  * Crear un usuario exige una contraseña, y un hash de contraseña no va en un archivo
- * versionado. La CONFIGURACIÓN (el rol y su alcance) vive en la migración; el alta
- * de cuentas, acá. Es la división que la propia migración dejó escrita.
+ * versionado. La CONFIGURACIÓN (el rol y su alcance) vive en la migración; el alta de
+ * cuentas, acá.
  *
  * ── ⚠️ Por qué la lista de sitios va EXPLÍCITA y no derivada ─────────────────
- * El hermano de etiquetas deriva las tiendas de `commercial.warehouses`, y ese es el
- * mejor camino cuando aplica. Acá NO aplica, por dos razones medidas:
+ * `provision-etiqueteras.js` deriva las tiendas de `commercial.warehouses`, y ése es
+ * el mejor camino cuando aplica: toda tienda lleva etiquetera. Acá NO aplica — un
+ * kiosco no está en toda tienda, y cuáles lo tienen es un hecho del mundo físico que
+ * la base no sabe. Derivarlo daría altas de más.
  *
- *   1. Un checador no está en toda tienda. Hoy son dos —Padre Hidalgo y 8ESQ— y eso
- *      es un hecho del mundo físico, no algo que la base sepa.
- *   2. La tabla que SÍ podría decirlo, `hr.attendance_devices`, **está vacía en
- *      prod** (medido 2026-09-12: el schema `hr.*` existe, las 6 tablas están
- *      creadas, y `attendance_devices` tiene 0 filas — el importer de la Fase CH
- *      nunca corrió contra prod). Y aunque tuviera las 10 filas, `site_code` sigue
- *      pendiente: **el reloj no sabe dónde está**, que es justo el pendiente
- *      declarado de CH.0.
- *
- * Derivar de una tabla vacía daría CERO altas y el script diría "nada que hacer" —
- * un éxito falso. Así que los sitios se pasan y se validan contra el catálogo:
- * si el código no existe o no tiene zona, **aborta**, no lo inventa.
- *
- * Cuando `hr.attendance_devices` se pueble con su `site_code`, esto se deriva y el
- * parámetro se retira. Queda declarado.
- *
- * ── ⚠️ Estas cuentas todavía no tienen a dónde ir ────────────────────────────
- * `HR_ATTENDANCE_CHECAR` no gatea ninguna pantalla: en `AUTHZ_TREE` la entrada
- * `hr-attendance-kiosk` tiene `view: []` y **sin `route`**, así que los 404/403 no
- * la ofrecen como salida navegable. El kiosco de asistencia es CH.0.10 y no está
- * construido. Estas cuentas pueden ENTRAR y aterrizan en nada. Está dicho en la
- * migración y se repite acá porque es lo que hay que saber antes de entregarlas.
+ * Los sitios se pasan y se VALIDAN contra el catálogo: si el código no existe o no
+ * tiene zona, **aborta**, no lo inventa.
  *
  * ── La contraseña ────────────────────────────────────────────────────────────
  * Una por sitio, aleatoria, sin caracteres ambiguos (no hay `0/O` ni `1/l/I`: se
  * teclea en un kiosco del piso). `must_change_password = false` a propósito: es una
- * credencial compartida por el turno — si se forzara el cambio, la primera persona
- * lo cambia y las demás quedan afuera.
+ * credencial compartida por el turno — si se forzara el cambio, la primera persona lo
+ * cambia y las demás quedan afuera.
  *
- * Las contraseñas en claro **NO se imprimen** ni entran a git: van a un archivo
- * fuera del repo y el script sólo dice la ruta.
+ * Las contraseñas en claro **NO se imprimen** ni entran a git: van a un archivo fuera
+ * del repo y el script sólo dice la ruta.
  *
  * `kind = 'interno'` a propósito: `kind = 'servicio'` bloquea el login interactivo
  * (`[ID.17]`, `auth-mt.service`) y estas cuentas las teclea una persona.
  *
  * ── Uso ──────────────────────────────────────────────────────────────────────
- *   node database/scripts/provision-checadores.js                      # dry-run (01,03)
- *   node database/scripts/provision-checadores.js --apply
- *   node database/scripts/provision-checadores.js --sucursales=01,03,05 --apply
+ *   node database/scripts/provision-kiosco.js --tipo=verificador            # dry-run
+ *   node database/scripts/provision-kiosco.js --tipo=verificador --apply
+ *   node database/scripts/provision-kiosco.js --tipo=checador --sucursales=01,03 --apply
  *
- * Idempotente: el sitio que ya tiene su `checador.NN` se saltea, y a esa cuenta no
- * se le toca la contraseña.
+ * Idempotente: el sitio que ya tiene su cuenta se saltea, y no se le toca la
+ * contraseña.
  *
- * Guarda invertida: `--apply` exige que el destino sea prod, porque el padrón vive
- * en prod y crear cuentas en la base compartida entre devs se lo ensuciaría a otro.
+ * Guarda invertida: `--apply` exige que el destino sea prod, porque el padrón vive en
+ * prod y crear cuentas en la base compartida entre devs se lo ensuciaría a otro.
  *
  * NUNCA imprime la cadena de conexión.
  */
@@ -78,18 +70,49 @@ const bcrypt = require('bcryptjs');
 const APLICAR = process.argv.includes('--apply');
 const URL = process.env.FLEET_DB_URL;
 
-/** Los dos sitios con checador hoy: `01` Padre Hidalgo y `03` 8ESQ. */
+/**
+ * Las clases de kiosco. Cada una es un rol de UNA sola clave, creado por su migración.
+ * `aviso` sale en el archivo de credenciales: lo que hay que saber al entregarlas.
+ */
+const TIPOS = {
+  verificador: {
+    rol: 'verificador_precios',
+    clave: 'STORE_PRICE_CHECK_VER',
+    prefijo: 'verificador',
+    titulo: 'Verificador',
+    mig: '20260912130000',
+    aviso: 'Entra directo a /tienda/verificador. Funciona sin red (respaldo por sucursal).',
+  },
+  checador: {
+    rol: 'checador_kiosco',
+    clave: 'HR_ATTENDANCE_CHECAR',
+    prefijo: 'checador',
+    titulo: 'Checador',
+    mig: '20260909131000',
+    aviso: 'AVISO: la pantalla del kiosco de asistencia (CH.0.10) TODAVIA NO EXISTE. '
+      + 'Estas cuentas pueden entrar y no tienen a donde ir hasta que se construya.',
+  },
+};
+const tipoArg = (process.argv.find((a) => a.startsWith('--tipo=')) || '').split('=')[1];
+const TIPO = TIPOS[tipoArg];
+
+/** Los dos sitios con kiosco hoy: `01` Padre Hidalgo y `03` 8ESQ. */
 const SUCURSALES_DEFAULT = ['01', '03'];
 const arg = (process.argv.find((a) => a.startsWith('--sucursales=')) || '').split('=')[1];
 const SUCURSALES = arg
   ? arg.split(',').map((s) => s.trim()).filter(Boolean)
   : SUCURSALES_DEFAULT;
 
-/** Dónde caen las contraseñas en claro. Fuera del repo, a propósito. */
-const SALIDA = path.join('C:', 'tmp', `checadores-credenciales-${new Date().toISOString().slice(0, 10)}.txt`);
+if (!TIPO) {
+  console.error(`ABORT: --tipo espera uno de: ${Object.keys(TIPOS).join(' | ')}. Recibi: ${tipoArg || '(nada)'}`);
+  process.exit(3);
+}
 
-const ROL = 'checador_kiosco';
-const CLAVE = 'HR_ATTENDANCE_CHECAR';
+/** Dónde caen las contraseñas en claro. Fuera del repo, a propósito. */
+const SALIDA = path.join('C:', 'tmp', `${TIPO.prefijo}-credenciales-${new Date().toISOString().slice(0, 10)}.txt`);
+
+const ROL = TIPO.rol;
+const CLAVE = TIPO.clave;
 /** Llave canónica de sucursal de 2 dígitos, `[RE.23]`. */
 const BK = "(CASE WHEN w.code ~ '^[0-9]{2}$' THEN w.code ELSE w.wincaja_source_branch END)";
 
@@ -137,12 +160,12 @@ function password(largo = 12) {
         WHERE rp.role_name = $1 AND rp.deleted_at IS NULL`,
       [ROL, CLAVE],
     );
-    if (!rol.length) throw new Error(`El rol ${ROL} no existe. Corré la migración 20260909131000 primero.`);
+    if (!rol.length) throw new Error(`El rol ${ROL} no existe. Corré la migración ${TIPO.mig} primero.`);
     for (const r of rol) {
       if (r.claves !== 1 || !r.tiene_la_clave) {
         throw new Error(
           `El rol ${ROL} concede ${r.claves} clave(s) y ${CLAVE}=${r.tiene_la_clave}; se esperaba exactamente 1 y esa. ` +
-            'Corré la migración 20260909131000 antes de dar de alta a nadie.',
+            `Corré la migración ${TIPO.mig} antes de dar de alta a nadie.`,
         );
       }
     }
@@ -161,9 +184,9 @@ function password(largo = 12) {
          FROM t
          LEFT JOIN identity.users u
            ON u.tenant_id = t.tenant_id AND u.deleted_at IS NULL
-          AND u.username = 'checador.' || t.bk
+          AND u.username = $2 || '.' || t.bk
         ORDER BY t.bk`,
-      [SUCURSALES],
+      [SUCURSALES, TIPO.prefijo],
     );
 
     const encontrados = new Set(sitios.map((s) => s.bk));
@@ -186,7 +209,7 @@ function password(largo = 12) {
     }
 
     if (!faltan.length) {
-      console.log('\nTodos los sitios ya tienen su checador. Nada que hacer.');
+      console.log('\nTodos los sitios ya tienen su cuenta de kiosco. Nada que hacer.');
       await c.query('ROLLBACK');
       return;
     }
@@ -194,7 +217,7 @@ function password(largo = 12) {
     console.log(`\n${faltan.length} alta(s) por hacer.\n`);
     const credenciales = [];
     for (const t of faltan) {
-      const username = `checador.${t.bk}`;
+      const username = `${TIPO.prefijo}.${t.bk}`;
       const pass = password();
       const hash = await bcrypt.hash(pass, 10);
       await c.query(
@@ -202,22 +225,22 @@ function password(largo = 12) {
            (tenant_id, username, password_hash, nombre, role_name, zona_id, warehouse_code,
             department_code, position_code, kind, status, activo, must_change_password)
          VALUES ($1, $2, $3, $4, $5, $6, $7, 'tienda', NULL, 'interno', 'active', true, false)`,
-        [t.tenant_id, username, hash, `Checador - ${t.sucursal}`, ROL, t.zona_id, t.bk],
+        [t.tenant_id, username, hash, `${TIPO.titulo} - ${t.sucursal}`, ROL, t.zona_id, t.bk],
       );
       credenciales.push({ username, pass, sucursal: t.sucursal, zona: t.zona, bk: t.bk });
       console.log(`  ✓ ${username.padEnd(16)} ${t.sucursal}`);
     }
 
     // ── Gates, dentro de la misma transacción ──────────────────────────────
-    // (a) Cada sitio pedido con su checador.
+    // (a) Cada sitio pedido con su cuenta.
     const { rows: g1 } = await c.query(
       `SELECT count(*)::int AS n FROM unnest($1::text[]) bk
         WHERE NOT EXISTS (
           SELECT 1 FROM identity.users u
-           WHERE u.deleted_at IS NULL AND u.username = 'checador.' || bk)`,
-      [SUCURSALES],
+           WHERE u.deleted_at IS NULL AND u.username = $2 || '.' || bk)`,
+      [SUCURSALES, TIPO.prefijo],
     );
-    if (g1[0].n > 0) throw new Error(`Quedaron ${g1[0].n} sitio(s) sin checador.`);
+    if (g1[0].n > 0) throw new Error(`Quedaron ${g1[0].n} sitio(s) sin cuenta de kiosco.`);
 
     // (b) Ninguna cuenta con un rol de más: el JWT lleva la UNIÓN de roles, así que
     //     un complemento silencioso le daría a una pantalla de piso permisos que
@@ -225,19 +248,20 @@ function password(largo = 12) {
     const { rows: g2 } = await c.query(
       `SELECT u.username, ur.role_name FROM identity.users u
          JOIN identity.user_roles ur ON ur.tenant_id = u.tenant_id AND ur.user_id = u.id
-        WHERE u.username ~ '^checador[.]' AND u.deleted_at IS NULL AND ur.role_name <> $1`,
-      [ROL],
+        WHERE u.username ~ ('^' || $2 || '[.]') AND u.deleted_at IS NULL AND ur.role_name <> $1`,
+      [ROL, TIPO.prefijo],
     );
-    if (g2.length) throw new Error(`Checadores con rol de mas: ${g2.map((r) => r.username + '/' + r.role_name).join(', ')}`);
+    if (g2.length) throw new Error(`Cuentas con rol de mas: ${g2.map((r) => r.username + '/' + r.role_name).join(', ')}`);
 
     // (c) El alcance es RESOLUBLE: sin `warehouse_code` el `warehouse: own` del rol
     //     no distingue de `none` y la cuenta quedaría ciega sin que nada falle.
     const { rows: g3 } = await c.query(
       `SELECT username FROM identity.users
-        WHERE username ~ '^checador[.]' AND deleted_at IS NULL
+        WHERE username ~ ('^' || $1 || '[.]') AND deleted_at IS NULL
           AND (btrim(coalesce(warehouse_code, '')) = '' OR zona_id IS NULL)`,
+      [TIPO.prefijo],
     );
-    if (g3.length) throw new Error(`Checadores sin alcance resoluble: ${g3.map((r) => r.username).join(', ')}`);
+    if (g3.length) throw new Error(`Cuentas sin alcance resoluble: ${g3.map((r) => r.username).join(', ')}`);
 
     // (d) Prueba NEGATIVA del hash: tiene que verificar contra la contraseña que se
     //     generó y RECHAZAR otra. Un gate sin prueba negativa es una intención.
@@ -260,12 +284,11 @@ function password(largo = 12) {
     // Las credenciales, fuera del repo y sólo después del COMMIT.
     fs.mkdirSync(path.dirname(SALIDA), { recursive: true });
     const cuerpo = [
-      `Checadores dados de alta el ${new Date().toISOString()}`,
+      `Cuentas de kiosco (${tipoArg}) dadas de alta el ${new Date().toISOString()}`,
       `Rol: ${ROL} (solo ${CLAVE}). Login: la app de siempre.`,
       'No fuerzan cambio de contraseña: es una credencial de puesto, compartida por turno.',
       '',
-      'AVISO: la pantalla del kiosco de asistencia (CH.0.10) TODAVIA NO EXISTE.',
-      'Estas cuentas pueden entrar y no tienen a donde ir hasta que se construya.',
+      TIPO.aviso,
       '',
       ...credenciales.map((x) => `${x.bk}  ${x.sucursal}  (${x.zona})\n    usuario: ${x.username}\n    clave:   ${x.pass}\n`),
     ].join('\n');
