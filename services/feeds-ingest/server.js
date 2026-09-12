@@ -93,12 +93,32 @@ const server = http.createServer((req, res) => {
 
     const client = dbClientFactory();
     const t0 = Date.now();
+    // `[OBS.7]` Qué se estaba escribiendo. Sin esto el error de abajo decía sólo el FEED
+    // (`raw-upsert`), que es el mismo para las ~30 tablas que pasan por acá: un
+    // `canceling statement due to statement timeout` era literalmente indiagnosticable.
+    // Medido el 2026-09-11 en los logs de prod: 17 timeouts de `stock-delta` + 14 de
+    // `raw-upsert` + 4 `timeout expired` (ése es el POOL, no el statement) en 400 líneas,
+    // y ninguno decía sobre qué tabla.
+    const meta = (head && head.meta) || null;
+    const donde = meta && meta.table
+      ? `${meta.schema || 'kepler_ods'}.${meta.table}`
+      : '(sin meta)';
+    /** Umbral para avisar ANTES de que cruce: el statement_timeout del cliente es 60 s. */
+    const LENTO_MS = 10000;
     try {
       await client.connect();
-      const rowCount = await handler(client, tenantId, rows, (head && head.meta) || null);
-      send(200, { ok: true, feed, received: rows.length, rowCount, ms: Date.now() - t0 });
+      const rowCount = await handler(client, tenantId, rows, meta);
+      const ms = Date.now() - t0;
+      // Un lote que ya tarda 10 s es el mismo que mañana tarda 60 y se cancela. Se avisa
+      // mientras todavía es un aviso y no un incidente.
+      if (ms >= LENTO_MS) {
+        console.warn(`[ingest] ${feed} LENTO: ${donde} · ${rows.length} filas · ${rowCount} escritas · ${ms} ms`);
+      }
+      send(200, { ok: true, feed, received: rows.length, rowCount, ms });
     } catch (e) {
-      console.error(`[ingest] ${feed} error: ${e.message}`);
+      console.error(
+        `[ingest] ${feed} error: ${donde} · ${rows.length} filas · ${Date.now() - t0} ms · ${e.message}`,
+      );
       send(500, { error: e.message });
     } finally {
       try { await client.end(); } catch { /* noop */ }
