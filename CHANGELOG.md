@@ -10,6 +10,18 @@
 
 ## [Unreleased]
 
+### Changed — el filtro que no puede vaciar la pantalla, y la puerta que ya no te saca (SN.21, 2026-09-12)
+
+Las dos cosas que `[SN.20]` dejó abiertas. Las dos se **midieron contra prod antes de escribirlas** (`database/scripts/sn-delegacion-impacto.js`, read-only) y **la medición cambió el diseño de la primera**.
+
+- ⭐ **La regla obvia dejaba a 6 personas con la pantalla vacía.** «Tenés alguna responsabilidad ⇒ mostrá sólo lo tuyo» parece la traducción literal del pedido. Medido: `diana_rodriguez`, `ernesto_zarate`, `jesus_carrillo`, `julio_torres`, `maria_rodriguez` y `perla_garcia` pasaban de **1 bandeja + 4-5 ciclos a CERO**, todas por la misma causa — su única delegación es `finanzas.hallazgos`, y **esa bandeja está retirada desde `[SN.18]`**. Una delegación que apunta a una superficie apagada: filtrar por ella es esconderlo todo a cambio de nada.
+- **La regla implementada es auto-limitada:** *si algo de lo que **ves** es tuyo, se muestra sólo eso; si nada de lo que ves es tuyo, no se filtra nada*. La condición se calcula sobre lo ya filtrado por permiso y por `retirada`, así que **por construcción no puede vaciar la pantalla**. Quedan siempre fuera del filtro **tu borrador** (`alcance: 'mio'` — lo empezaste vos) y **las tareas asignadas** (`assigned_to` con tu nombre es la forma más fuerte de «es tuyo»). Resultado, **0 regresiones**: Ivonne queda con sus 2 ciclos de ingresos y **sin** «Acciones de finanzas por aprobar»; Mayra igual con egresos; la jefa de finanzas conserva las acciones —que sí son suyas— y suelta las conciliaciones; las 6 de arriba no pierden nada.
+- **Lo que el filtro esconde se DICE**: `MeWork.delegacion { activa, claves, ocultas }` pinta una línea en tono neutro con cuántas colas quedaron fuera y que se siguen abriendo desde su pantalla. Una lista recortada en silencio se lee igual que una completa (ADR-056).
+- **La auto-entrada deja de pasar por encima del trabajo propio.** Medido: **18 personas tienen exactamente 1 destino** (10 → `/tienda`, 5 → `/finanzas`, 3 → `/almacen`) y **sólo 3 tienen algo propio** — Ivonne y Mayra por su ciclo, `jesus_carrillo` por una tarea. Las otras 15 conservan el atajo. ⚠️ **El costo es real**: la decisión ya no se toma con el JWT solo, hay que esperar a `GET /users/me/work`, así que esas 15 ven la landing durante esa llamada. Si la llamada **falla** no se auto-entra: no se sabe si hay trabajo.
+- ⚠️ **`identity.position_responsibilities` ya NO está vacía.** El código afirmaba en tres lugares que `[OR.1b]` la dejó vacía y que por eso «nadie tiene reparto». Medido: **42 filas, 28 de 122 personas (23%)**. La pantalla no mentía (el dato se calcula en vivo), pero los comentarios sí — **el mismo defecto que `[SN.15]` tuvo que corregir**: una medición vencida congelada en un comentario. Los tres corregidos.
+- `test-newdb-me-context` **125 OK / 0 FAIL / 1 NO MEDIDO** (el `delegacion` que la API viva aún no manda) · `nx test view` 19 suites / **300** (+4) · `nx test contracts` verde · builds verdes, **1.25 MB** sin cambio. Bloque **4e** nuevo con **prueba negativa ejercida**: al poner la condición ingenua (`misResponsabilidades.size > 0`) se pone rojo.
+- 📋 **Borde declarado:** un ciclo **sin `responsabilidad`** no puede ser de nadie y desaparece para quien tenga reparto (hoy, el Libro de compras — y hoy no duele porque contabilidad no tiene el filtro encendido). 📋 **Hallazgo no tocado:** 3 supervisores de ventas responden de `comercial.thot` y **no tienen `COMMERCIAL_THOT_GESTIONAR`**.
+
 ### Changed — delegar de verdad: cada quien ve sólo lo suyo en «Mi trabajo» (SN.18–SN.20, 2026-09-12)
 
 Tres correcciones seguidas sobre la misma pantalla, todas pedidas por Edgar.

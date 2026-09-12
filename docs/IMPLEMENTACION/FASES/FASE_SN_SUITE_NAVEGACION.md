@@ -450,10 +450,59 @@ Medido, lo que ve cada una: Ivonne **14 meses por resolver / 12,679 movimientos 
 
 ⚠️ El candado de biyección aprendió dos cosas más: que las colas viven en **tres** registros, y que **una responsabilidad puede cubrir varias colas** — `finanzas.conciliacion_ingresos` cubre bancos y caja, así que la unicidad por fila dejó de exigirse y lo que se verifica es el **conjunto**.
 
-##### Abierto
+##### Abierto (cerrado en 4.2.11)
 
-- **Las bandejas no se filtran todavía.** Lo delegado filtra los ciclos; «Acciones de finanzas por aprobar» les sigue apareciendo por permiso aunque `finanzas.acciones` esté declarada sólo para `jefe_finanzas`. Extender el criterio es una decisión aparte, y hay que medir a quién deja con la pantalla vacía antes.
-- **La auto-entrada las saca de la pantalla**: con un solo destino primario (`/finanzas`) la landing navega sola y nunca ven «Mi trabajo» salvo por el enlace del menú. El arreglo —no auto-entrar cuando hay trabajo propio— está sin hacer.
+- Las bandejas no se filtraban; la auto-entrada las sacaba de la pantalla. Los dos se resolvieron en `[SN.21]`.
+
+#### 4.2.11 SN.21 — el filtro que no puede vaciar la pantalla, y la puerta que ya no te saca (2026-09-12)
+
+Las dos cosas que `[SN.20]` dejó abiertas, aplicadas. Las dos se **midieron contra prod antes de escribirlas** (`database/scripts/sn-delegacion-impacto.js`, read-only), y la medición cambió el diseño de la primera.
+
+##### Dos mediciones que corrigieron el plan
+
+**1. `identity.position_responsibilities` ya NO está vacía.** El código afirmaba —en `me-work.ts`, en el contrato y en el componente— que `[OR.1b]` la había dejado vacía a propósito y que por eso «nadie tiene reparto». Medido el 2026-09-12: **42 filas, 28 de 122 personas activas (23%)**. Alguien la sembró después. La pantalla no mentía (el dato se calcula en vivo), pero los comentarios sí, y es **el mismo defecto que `[SN.15]` tuvo que corregir**: una medición vencida congelada en un comentario. Corregidos los tres.
+
+**2. La regla obvia dejaba a 6 personas con la pantalla vacía.** «Tenés alguna responsabilidad ⇒ mostrá sólo lo tuyo» parece la traducción literal de lo que pidió Edgar. Aplicada al padrón real:
+
+| persona | delegado | antes | con la regla ingenua |
+|---|---|---:|---:|
+| `diana_rodriguez`, `ernesto_zarate` | `finanzas.hallazgos` | 1 bandeja + 5 ciclos | **0** |
+| `jesus_carrillo`, `julio_torres`, `maria_rodriguez`, `perla_garcia` | `finanzas.hallazgos` | 1 bandeja + 4 ciclos | **0** |
+
+Una sola causa: **su única delegación apunta a una superficie apagada.** La bandeja de `finanzas.hallazgos` está **retirada desde `[SN.18]`** (82,377 sin triage, 281 periodos corruptos). Filtrar por una delegación que no puede mostrar nada es esconderlo todo a cambio de cero.
+
+##### La regla que se implementó
+
+> **Si algo de lo que VES es tuyo, se muestra sólo eso. Si nada de lo que ves es tuyo, no se filtra nada.**
+
+La condición se calcula sobre lo ya filtrado por permiso y por `retirada`, así que **es auto-limitada por construcción**: sólo se enciende cuando al menos un elemento sobrevive, y no puede vaciar la pantalla. Dos cosas quedan fuera del filtro a propósito:
+
+- **Tu borrador** (`alcance: 'mio'`): lo empezaste vos, nadie te lo delegó. Esconderle a alguien su propio trabajo a medias sería el peor resultado de una regla que existe para mostrarle lo suyo.
+- **Las tareas asignadas**: `assigned_to` con tu nombre es la forma más fuerte de «es tuyo».
+
+Resultado medido, **0 regresiones**: Ivonne pasa de 1 bandeja + 4 ciclos a **0 bandejas + sus 2 de ingresos**; Mayra igual con egresos; `carmenrodriguez` (jefe de finanzas) conserva «Acciones de finanzas por aprobar» —que sí es suya— y suelta las 4 conciliaciones y las bandejas de compras y flota; `arizbeth_gonzalez` (gerente de compras) se queda con reabasto; las 6 de arriba **no pierden nada** porque el filtro no se enciende para ellas.
+
+**Y lo que el filtro esconde se dice en pantalla**: `MeWork.delegacion { activa, claves, ocultas }` alimenta una línea en tono neutro — *«Esta lista está acotada a lo que responde tu reparto. N colas más que tu permiso abre no aparecen acá — las sigues abriendo desde su pantalla.»* Una lista recortada en silencio se lee igual que una completa, y entonces «ya no hay nada» y «lo demás no es tuyo» se confunden (ADR-056).
+
+⚠️ **El borde que hay que vigilar:** un ciclo **sin `responsabilidad` declarada** no puede ser de nadie, así que desaparece para quien tenga reparto vigente. Hoy es el caso del **Libro de compras**, y hoy no duele —quienes responden de él (`contabilidad`) no tienen el filtro encendido— pero el día que alguien responda del libro hay que declararlo en el catálogo, o el filtro se lo esconde a su dueño.
+
+##### La auto-entrada
+
+Con un solo destino primario la landing navegaba sola, así que Ivonne y Mayra **nunca llegaban a ver la pantalla que se construyó para ellas**. Medido: **18 personas tienen exactamente 1 destino** (10 → `/tienda`, 5 → `/finanzas`, 3 → `/almacen`) y de ésas **sólo 3 tienen algo propio** (Ivonne y Mayra por su ciclo, `jesus_carrillo` por una tarea asignada). Las otras 15 conservan el atajo.
+
+⚠️ **El costo es real y se paga en el arranque.** La decisión ya no se puede tomar con el JWT solo: hay que esperar a `GET /users/me/work`. Esas 15 personas ven la landing —con su esqueleto— durante esa llamada antes de que la app las redirija. Se prefiere eso a decidir sin el dato, que es lo que rompía la pantalla. Y si la llamada **falla** no se auto-entra: no se sabe si hay trabajo, y la única puerta está a un clic.
+
+##### Candados
+
+`test-newdb-me-context.js` → **125 OK · 0 FAIL · 1 NO MEDIDO** (el `delegacion` que la API viva todavía no manda: código anterior, tercer estado funcionando). `nx test view` 19 suites / **300** (+4). `nx test contracts` verde. Builds api y view verdes, inicial **1.25 MB** sin cambio.
+
+Bloque **4e** nuevo, estático sobre `users.service.ts`, con su **prueba negativa ejercida**: se cambió la condición por `misResponsabilidades.size > 0` —la versión que vacía 6 pantallas, y la que alguien volvería a escribir por ser la obvia— y las dos aserciones se pusieron rojas. Vigila tres propiedades: que la bandeja retirada no cuente, que el borrador no cuente ni se filtre, y que la condición se calcule sobre lo visible y **no** sobre cuántas claves tiene la persona. En vivo (5b): si `activa: true` llega con las tres listas vacías, es rojo.
+
+El script de impacto **verifica el invariante contra el dato real** (nadie pasa de tener algo a no tener nada) y sale 1 si alguna vez deja de cumplirse — un invariante que sólo vive en un comentario es una intención.
+
+##### Hallazgo que no se toca
+
+**Tres supervisores de ventas (`angel_vazquez`, `francisco_martinez`, `jose_herrera`) responden de `comercial.thot` y no tienen `COMMERCIAL_THOT_GESTIONAR`**: su bandeja no les aparece hoy ni les aparecería con el filtro. Es el desajuste entre quién reparte y quién puede abrir —el mismo que `[SN.15]` ya declara para las tareas— y se reporta medido, no se arregla acá: darles el permiso es una decisión de Edgar.
 
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 

@@ -171,6 +171,34 @@ export interface MeCiclo {
  * cola que no podés abrir no es tu trabajo. Lo que no se pudo contar va a `no_medido` con motivo
  * — NUNCA baja a cero (ADR-056: un cero dibujado se lee igual que "estás al día").
  */
+/**
+ * `[SN.21]` — **Qué le hizo el reparto a «Mi trabajo».**
+ *
+ * La regla que implementa: *si algo de lo que ves está declarado como TUYO, se muestra sólo eso;
+ * si nada de lo que ves es tuyo, no se filtra nada.* Es la frase de Edgar («Ivonne es SOLO
+ * INGRESOS») convertida en condición, y **es auto-limitada por construcción**: sólo se enciende
+ * cuando al menos un elemento visible sobrevive, así que no puede vaciar la pantalla.
+ *
+ * ⚠️ La versión ingenua —«tenés alguna responsabilidad ⇒ filtrá»— se midió antes de escribirla y
+ * dejaba a **6 personas sin nada**: su única delegación es `finanzas.hallazgos`, cuya bandeja está
+ * RETIRADA desde `[SN.18]`, o sea que apunta a una superficie apagada. Filtrar por una delegación
+ * que no puede mostrar nada es esconder todo a cambio de nada.
+ *
+ * ⛔ Esto NO es autorización: la responsabilidad ordena «Mi trabajo», no abre ni cierra módulos
+ * (regla de `[OR.1b]`). Quien pierde una cola de esta lista entra igual a su pantalla por el menú.
+ */
+export interface MeDelegacion {
+  /** `true` = la lista está recortada a lo tuyo. `false` = se muestra todo lo que abre tu permiso. */
+  activa: boolean;
+  /** Las responsabilidades vigentes de esta persona (puesto + ficha), para poder decir POR QUÉ. */
+  claves: string[];
+  /**
+   * Cuántas colas y ciclos que tu permiso SÍ abre quedaron fuera por no ser tuyos. Se dice en
+   * pantalla: una lista recortada en silencio se lee igual que una lista completa.
+   */
+  ocultas: number;
+}
+
 export interface MeWork {
   /** `[SN.15]` Lo que alguien te asignó. Separado de `pendientes` a propósito. */
   tareas: MeTarea[];
@@ -180,11 +208,21 @@ export interface MeWork {
   no_medido: { id: string; label: string; motivo: string }[];
   /**
    * `[SN.15]` ¿Existe un mapa de responsabilidades para el puesto de esta persona?
-   * `false` = `identity.position_responsibilities` no dice de qué responde su puesto, así que
-   * «es tuyo» NO se puede calcular y la pantalla lo declara en vez de derivarlo del permiso.
-   * `null` = no se pudo consultar.
+   * `false` = ni su puesto ni su ficha declaran de qué responde, así que «es tuyo» NO se puede
+   * calcular y la pantalla lo declara en vez de derivarlo del permiso. `null` = no se pudo
+   * consultar.
+   *
+   * ⚠️ `[SN.21]` Acá decía que era el caso de TODOS porque `[OR.1b]` dejó
+   * `identity.position_responsibilities` vacía. **Medido de nuevo el 2026-09-12: 42 filas sobre 28
+   * de 122 personas activas (23%).** Alguien la sembró después. Es el mismo defecto que corrigió
+   * `[SN.15]`: una medición vencida congelada en un comentario.
    */
   tiene_responsabilidades: boolean | null;
+  /**
+   * `[SN.21]` Qué le hizo el reparto a esta lista. La pantalla no esconde en silencio.
+   * `null` = las responsabilidades no se pudieron leer (ADR-056: se declara, no se asume vacío).
+   */
+  delegacion: MeDelegacion | null;
   /** ISO del momento en que se contó (el número es de ahora, no de un rollup nocturno). */
   medido_at: string;
 }
