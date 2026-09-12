@@ -38,9 +38,11 @@ La sub-etiqueta del KPI **"Cajas · Unidades ÷ UXC"** documenta un método **re
 
 ### Estado
 
-- H1: en código (2 archivos, commit `d21c12ea`), build `view` verde, **sin push**. Validación visual + redeploy pendientes.
-- H2: documentado aquí, sin tocar.
-- Perf: sin tocar (recomendaciones arriba). Falta timing HTTP end-to-end con la API arriba.
+- **H1 ✅** — `sin_metodo` declarado en pantalla (commit `d21c12ea`).
+- **H2 ✅** — etiqueta honesta `'Venta convertida a caja'` en sell-out + análisis (commit `f8071302`).
+- **Perf front ✅** — lazy-load de los árboles del slicer (commit `f8071302`): `sellOutCanales`/`sellOutVendors` sólo bajo demanda (abrir "Avanzado" o entrar a Vendedores). Load default de 5 requests → 3; se eliminan 3 escaneos del universo por load y por cambio de periodo. **Sin afectar el resultado** (los árboles sólo pueblan la UI de filtros). Builds `view` verdes.
+- **Perf backend — DIFERIDO** (a propósito): los reads redundantes (`selloutMonthlyReady`/`planSellOutSources` recomputados, `loadVendorIdentity` sin cache) son sub-ms y están en el camino que produce el número → "sin afectar el resultado" exige correr `test-newdb-sellout-parity` (necesita DB). Se hace en un pase con tests, no a ciegas.
+- **Pendiente:** validación visual (H1 requiere data con `sin_metodo>0`) + timing HTTP end-to-end con la API arriba + redeploy `view`. **Sin push.**
 
 ---
 
