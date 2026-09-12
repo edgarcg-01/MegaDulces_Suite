@@ -40,6 +40,8 @@ import {
 /** Metadata de enriquecimiento por producto: empaque + existencia + tiers de precio. */
 interface EnrichMeta {
   pieces_per_package: number;
+  /** [VA.7] `false` = nadie declara el empaque; el `1` de arriba es un respaldo, no una afirmación. */
+  pieces_per_package_known?: boolean;
   stock_pieces: number;
   tiers: Array<{ min_qty: number; price: number }>;
 }
@@ -172,17 +174,42 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
 
   /**
    * Enriquecimiento común (F.5): por cada product_id, existencia del almacén de
-   * surtido (default activo, quantity − reserved) + empaque (factor_sale). Es el
-   * MISMO almacén que usará el pedido → los buckets/topes son consistentes.
+   * surtido (default activo, quantity − reserved) + empaque. Es el MISMO almacén que usará el
+   * pedido → los buckets/topes son consistentes.
+   *
+   * ── [VA.7] El empaque sale del RESOLVEDOR CANÓNICO, no de `catalog.products.factor_sale` ──
+   *
+   * Este factor no es decorativo: el bot **arma el pedido** con él (`qty × factor = piezas`) y
+   * además se lo dice al cliente ("2 paquetes (80 pzas)"). Salía de `factor_sale`, que es una
+   * columna del catálogo y no el resolvedor — la misma fuente que en el sell-out publicaba **1**
+   * en 208 productos donde el ERP y lo pagado al proveedor dicen más (UXC.1).
+   *
+   * Ahora lo da `analytics.v_product_box_factor`: la misma cascada con guarda anti-pallet que ya
+   * leen compras, entradas y el anexo de venta. Es el resolvedor al que el **dinero le da la
+   * razón** — medido 2026-09-12 contra el precio del propio ERP por plaza.
+   *
+   * ⚠️ El respaldo sigue siendo `1`, y a propósito: acá el factor MULTIPLICA una cantidad, así que
+   * equivocarse hacia arriba le manda al cliente mercancía que no pidió. `1` es el error
+   * conservador. Lo que cambia es que ahora se SABE cuándo es un `1` afirmado y cuándo es un "no
+   * sé": eso viaja en `pieces_per_package_known`, para que el bot no diga "paquete" cuando no
+   * tiene con qué. ⬜ Pendiente: usar esa bandera en la REDACCIÓN del orquestador (11 sitios que
+   * hoy hacen `pieces_per_package || 1`).
    */
   private async enrichMeta(ids: string[]): Promise<Map<string, EnrichMeta>> {
     if (!ids.length) return new Map();
     return this.tk.run(async (trx) => {
       const rows = await trx.raw(
         `SELECT p.id AS product_id,
-                GREATEST(COALESCE(p.factor_sale, 1), 1) AS pieces_per_package,
+                GREATEST(COALESCE(bf.box_factor, 1), 1) AS pieces_per_package,
+                -- Una AFIRMACION, no un relleno: hay testigo y el factor no esta marcado
+                -- sospechoso (pallet/granel). Sin esto, un 1 de ignorancia se lee igual que
+                -- un 1 que alguien verifico.
+                (bf.box_factor IS NOT NULL AND bf.source <> 'default'
+                 AND COALESCE(bf.is_master_suspect, false) = false) AS pieces_per_package_known,
                 COALESCE(s.qty, 0) AS stock_pieces
            FROM catalog.products p
+           LEFT JOIN analytics.v_product_box_factor bf
+                  ON bf.tenant_id = p.tenant_id AND bf.product_id = p.id
            LEFT JOIN LATERAL (
              SELECT (st.quantity - COALESCE(st.reserved_quantity, 0)) AS qty
                FROM commercial.stock st
@@ -201,6 +228,7 @@ class CatalogSearchCommerceAdapter implements CommerceConversationPort {
       for (const r of rows.rows) {
         m.set(r.product_id, {
           pieces_per_package: Math.max(1, Math.round(Number(r.pieces_per_package) || 1)),
+          pieces_per_package_known: r.pieces_per_package_known === true,
           stock_pieces: Math.max(0, Math.floor(Number(r.stock_pieces) || 0)),
           tiers: [],
         });
