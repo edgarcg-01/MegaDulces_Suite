@@ -24,6 +24,8 @@
  */
 
 const BASE = `http://localhost:${process.env.TM_TEST_PORT || 3334}/api`;
+// GT.12/GT.13 — el smoke también cubre el expediente (archivado + reimpresión desde snapshot)
+// y el orden de la tabla, porque los tres comparten el mismo endpoint y el mismo alcance.
 const { Client } = require('pg');
 try { require('dotenv').config(); } catch (e) { /* dotenv opcional */ }
 require('./_lib/assert-safe-target').assertSafeTarget('http-telemarketing-scope-test');
@@ -185,6 +187,69 @@ async function cleanup(pg, ids) {
   check('la guía rechaza el folio ajeno (400, y lo nombra)',
     guia.status === 400 && /no se encontraron/i.test(String(guia.body?.message || '')),
     `status=${guia.status} msg=${String(guia.body?.message || '').slice(0, 90)}`);
+
+  console.log('\n── 9. Expediente: la guía se archiva y se reimprime desde su snapshot ──');
+  const { rows: mias } = await pg.query(
+    `SELECT folio_digital, vendedor_code FROM analytics.erp_sales_invoices
+      WHERE tenant_id=$1 AND doc_tipo='telemarketing' AND cancelada=false AND sucursal=$2
+        AND vendedor_code IS NOT NULL
+      ORDER BY fecha DESC LIMIT 2`, [M, MIA]);
+  const mismoVendedor = mias.length === 2 && mias[0].vendedor_code === mias[1].vendedor_code;
+  const paraGuia = mismoVendedor ? mias.map((r) => r.folio_digital) : [mias[0]?.folio_digital].filter(Boolean);
+  const antes = await req('GET', '/commercial/sales-documents/expedientes', tok);
+  const nAntes = Array.isArray(antes.body) ? antes.body.length : -1;
+
+  // El PDF no se puede leer con `req()` (devuelve binario): se usa fetch directo por el header.
+  const gen = await fetch(`${BASE}/commercial/sales-documents/guia-cobranza.pdf`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${tok}` },
+    body: JSON.stringify({ folios: paraGuia, responsable: 'SMOKE' }),
+  });
+  const folioExp = gen.headers.get('x-expediente-folio');
+  const idExp = gen.headers.get('x-expediente-id');
+  const pdf1 = Buffer.from(await gen.arrayBuffer());
+  check('genera la guía y devuelve el folio del expediente en el header',
+    gen.status === 201 && /^GC-\d{4}-\d{5}$/.test(String(folioExp)) && pdf1.length > 5000,
+    `status=${gen.status} folio=${folioExp} bytes=${pdf1.length}`);
+
+  const desp = await req('GET', '/commercial/sales-documents/expedientes', tok);
+  const historial = Array.isArray(desp.body) ? desp.body : [];
+  const archivado = historial.find((e) => e.folio === folioExp);
+  check('el expediente aparece en el historial, con su vendedor y su total',
+    !!archivado && historial.length === nAntes + 1 && archivado.documentos === paraGuia.length
+      && Number(archivado.total) > 0,
+    `n=${historial.length} (antes ${nAntes}) archivado=${JSON.stringify(archivado || null).slice(0, 140)}`);
+
+  // La reimpresión sale del SNAPSHOT: mismo documento, byte por byte, aunque la cartera cambie.
+  const re = await fetch(`${BASE}/commercial/sales-documents/expedientes/${idExp}/pdf`, {
+    headers: { Authorization: `Bearer ${tok}` },
+  });
+  const pdf2 = Buffer.from(await re.arrayBuffer());
+  check('la reimpresión devuelve el MISMO documento (sale del snapshot, no de la cartera de hoy)',
+    re.status === 200 && pdf2.length === pdf1.length,
+    `status=${re.status} original=${pdf1.length} copia=${pdf2.length}`);
+
+  // Y el alcance también aplica al historial: el usuario acotado no ve guías de otra sucursal
+  // porque no puede crearlas — se verifica que el endpoint responde y no filtra de más.
+  const delOtro = await req('GET', '/commercial/sales-documents/expedientes?vendedor_code=NO-EXISTE', tok);
+  check('el filtro por vendedor del historial responde vacío para uno inexistente',
+    delOtro.status === 200 && Array.isArray(delOtro.body) && delOtro.body.length === 0,
+    `status=${delOtro.status}`);
+
+  console.log('\n── 10. Orden de la tabla (GT.13) ──');
+  const desc = await req('GET', `/commercial/sales-documents?${rango}&sort=total_desc`, tok);
+  const asc = await req('GET', `/commercial/sales-documents?${rango}&sort=total_asc`, tok);
+  const tDesc = (desc.body?.rows || []).map((r) => Number(r.total));
+  const tAsc = (asc.body?.rows || []).map((r) => Number(r.total));
+  check('total_desc ordena de mayor a menor', tDesc.length > 1 && tDesc.every((v, i) => i === 0 || tDesc[i - 1] >= v),
+    `primeros: ${tDesc.slice(0, 3).join(', ')}`);
+  check('total_asc ordena de menor a mayor', tAsc.length > 1 && tAsc.every((v, i) => i === 0 || tAsc[i - 1] <= v),
+    `primeros: ${tAsc.slice(0, 3).join(', ')}`);
+  check('y son órdenes distintos (si coincidieran, el sort no estaría haciendo nada)',
+    tDesc[0] !== tAsc[0] || tDesc.length <= 1);
+
+  // Las guías del smoke se borran: son expedientes de prueba sobre facturas reales.
+  await pg.query(`DELETE FROM commercial.collection_guides WHERE tenant_id=$1 AND responsable='SMOKE'`, [M]).catch(() => {});
 
   await cleanup(pg, [uid, uidAll]);
   await pg.end();

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { AnexoVentaService } from './anexo-venta.service';
 import { CommercialSalesDocumentsService, FacturaGuiaRow } from './commercial-sales-documents.service';
 
@@ -17,6 +18,12 @@ import { CommercialSalesDocumentsService, FacturaGuiaRow } from './commercial-sa
  *    cuánto debe — se imprime el total marcado con `~` y se declara al pie, en vez de afirmar
  *    un saldo que nadie midió (ADR-056).
  *
+ * GT.12 — cada guía emitida se ARCHIVA (`commercial.collection_guides`): el expediente es el
+ * historial por vendedor de lo que salió a cobrar. Se guarda el **snapshot de lo impreso**, no
+ * sólo los folios: el importe es el saldo del momento y ese saldo se mueve; reconstruir la
+ * reimpresión desde la cartera de hoy haría que el papel archivado y su copia dijeran cosas
+ * distintas del mismo folio.
+ *
  * Render por el navegador COMPARTIDO de `AnexoVentaService` (mismo lib, un solo Chromium).
  */
 
@@ -31,6 +38,34 @@ export interface GuiaCobranzaOpts {
   warehouse_codes?: string[] | null;
 }
 
+/** Lo impreso, tal cual salió: es lo que la reimpresión vuelve a dibujar. */
+export interface SnapshotGuia {
+  empresa: string;
+  numero: string;
+  fecha: string;
+  sello: string;
+  derivados: number;
+  nota: string;
+  clientes: ClienteImpreso[];
+}
+
+/** Un expediente archivado (`commercial.collection_guides`). */
+export interface ExpedienteGuia {
+  id: string;
+  folio: string;
+  vendedor_code: string | null;
+  vendedor_nombre: string | null;
+  responsable: string | null;
+  sucursales: string[];
+  documentos: number;
+  clientes: number;
+  total: string;
+  folios: string[];
+  created_at: string;
+  created_by_username: string | null;
+  snapshot: SnapshotGuia;
+}
+
 interface MovImpreso { folio: string; fecha: string; descuento: number; importe: number; derivado: boolean }
 interface ClienteImpreso {
   cliente_id: string; nombre: string; direccion: string;
@@ -42,9 +77,11 @@ export class GuiaCobranzaService {
   constructor(
     private readonly docs: CommercialSalesDocumentsService,
     private readonly pdf: AnexoVentaService,
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
   ) {}
 
-  async pdfDeFolios(folios: string[], opts: GuiaCobranzaOpts = {}): Promise<Buffer> {
+  async pdfDeFolios(folios: string[], opts: GuiaCobranzaOpts = {}): Promise<{ pdf: Buffer; expediente: ExpedienteGuia }> {
     if (!Array.isArray(folios) || !folios.length) {
       throw new BadRequestException('Selecciona al menos una factura para generar la guía.');
     }
@@ -88,21 +125,147 @@ export class GuiaCobranzaService {
     const clientes = this.agrupar(rows);
     const total = clientes.reduce((a, c) => a + c.total, 0);
     const [vendedorCode, vendedorNombre] = [...porVendedor.entries()][0] ?? ['', ''];
+    const sinVendedor = vendedorCode === '(sin vendedor)';
     const ahora = new Date();
+
+    // El expediente se archiva ANTES de imprimir: si el PDF falla, no queda un papel en la
+    // calle sin registro; y si el archivado falla, no se imprime algo que nadie va a poder
+    // reimprimir ni auditar. El folio del expediente va impreso en la guía.
+    const expediente = await this.archivar({
+      vendedorCode: sinVendedor ? null : vendedorCode,
+      vendedorNombre: sinVendedor ? null : vendedorNombre,
+      responsable: (opts.responsable || '').trim() || null,
+      sucursales: [...new Set(rows.map((r) => String(r.sucursal)))],
+      documentos: rows.length,
+      clientes,
+      total,
+      folios: rows.map((r) => String(r.folio_digital)),
+      derivados: rows.filter((r) => r.estatus_cobro === 'sin_cartera' || r.saldo === null).length,
+      emisor: emisor.nombre,
+      nota: (opts.nota || '').trim(),
+      ahora,
+    });
+
+    return { pdf: await this.imprimir(expediente), expediente };
+  }
+
+  /**
+   * Reimprime un expediente archivado — **desde su snapshot**, nunca reconstruyéndolo de la
+   * cartera de hoy: la copia tiene que decir exactamente lo que decía el papel que se firmó.
+   */
+  async reimprimir(id: string): Promise<{ pdf: Buffer; expediente: ExpedienteGuia }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const row = await this.tk.run(async (trx) =>
+      trx('commercial.collection_guides').where({ tenant_id: tenantId, id }).first());
+    if (!row) throw new NotFoundException('Expediente no encontrado');
+    const exp = this.aExpediente(row);
+    return { pdf: await this.imprimir(exp), expediente: exp };
+  }
+
+  /** El PDF de un expediente (recién creado o archivado): un solo camino para los dos. */
+  private async imprimir(exp: ExpedienteGuia): Promise<Buffer> {
+    const s = exp.snapshot;
     return this.pdf.renderPdf(
-      this.html(clientes, {
-        empresa: emisor.nombre,
-        numero: this.sello(ahora, 'YMD'),
-        fecha: this.sello(ahora, 'dmy'),
-        total,
-        vendedor: vendedorCode === '(sin vendedor)' ? null : vendedorNombre,
-        documentos: rows.length,
-        derivados: rows.filter((r) => r.estatus_cobro === 'sin_cartera' || r.saldo === null).length,
-        responsable: (opts.responsable || '').trim(),
-        nota: (opts.nota || '').trim(),
+      this.html(s.clientes, {
+        empresa: s.empresa,
+        folio: exp.folio,
+        numero: s.numero,
+        fecha: s.fecha,
+        total: Number(exp.total) || 0,
+        vendedor: exp.vendedor_nombre,
+        documentos: exp.documentos,
+        derivados: s.derivados,
+        responsable: exp.responsable || '',
+        nota: s.nota || '',
       }),
-      this.pie(this.sello(ahora, 'dmyhm')),
+      this.pie(s.sello),
     );
+  }
+
+  /** Guarda el expediente con folio propio (`GC-YYYY-NNNNN`) y devuelve lo archivado. */
+  private async archivar(d: {
+    vendedorCode: string | null; vendedorNombre: string | null; responsable: string | null;
+    sucursales: string[]; documentos: number; clientes: ClienteImpreso[]; total: number;
+    folios: string[]; derivados: number; emisor: string; nota: string; ahora: Date;
+  }): Promise<ExpedienteGuia> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const ctx = this.tenantCtx.get();
+    const snapshot: SnapshotGuia = {
+      empresa: d.emisor,
+      numero: this.sello(d.ahora, 'YMD'),
+      fecha: this.sello(d.ahora, 'dmy'),
+      sello: this.sello(d.ahora, 'dmyhm'),
+      derivados: d.derivados,
+      nota: d.nota,
+      clientes: d.clientes,
+    };
+    return this.tk.run(async (trx) => {
+      const year = Number(this.sello(d.ahora, 'YMD').slice(0, 4));
+      const { rows: seq } = await trx.raw(
+        `INSERT INTO commercial.collection_guide_sequences (tenant_id, year, current_value)
+         VALUES (?, ?, 1)
+         ON CONFLICT (tenant_id, year) DO UPDATE
+           SET current_value = commercial.collection_guide_sequences.current_value + 1,
+               updated_at = now()
+         RETURNING current_value`,
+        [tenantId, year],
+      );
+      const folio = `GC-${year}-${String(seq[0].current_value).padStart(5, '0')}`;
+      const [row] = await trx('commercial.collection_guides')
+        .insert({
+          tenant_id: tenantId,
+          folio,
+          vendedor_code: d.vendedorCode,
+          vendedor_nombre: d.vendedorNombre,
+          responsable: d.responsable,
+          sucursales: d.sucursales,
+          documentos: d.documentos,
+          clientes: d.clientes.length,
+          total: d.total.toFixed(2),
+          folios: d.folios,
+          snapshot: JSON.stringify(snapshot),
+          created_by: ctx?.userId ?? null,
+          created_by_username: ctx?.username ?? null,
+        })
+        .returning('*');
+      return this.aExpediente(row);
+    });
+  }
+
+  /**
+   * Historial de expedientes. Por default los del mes en curso: la pantalla es un archivo de
+   * trabajo (¿qué salió a cobrar esta semana?), no un reporte anual.
+   */
+  async listar(q: { vendedor_code?: string; from?: string; to?: string; limit?: number }): Promise<ExpedienteGuia[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const limite = Math.min(500, Math.max(1, Number(q.limit) || 100));
+    return this.tk.run(async (trx) => {
+      const b = trx('commercial.collection_guides').where('tenant_id', tenantId);
+      if (q.vendedor_code) b.andWhere('vendedor_code', q.vendedor_code.trim());
+      if (q.from) b.andWhere('created_at', '>=', `${q.from} 00:00:00`);
+      if (q.to) b.andWhere('created_at', '<=', `${q.to} 23:59:59.999`);
+      const rows = await b.orderBy('created_at', 'desc').limit(limite);
+      return rows.map((r: Record<string, unknown>) => this.aExpediente(r));
+    });
+  }
+
+  private aExpediente(row: Record<string, unknown>): ExpedienteGuia {
+    const snap = row['snapshot'];
+    return {
+      id: String(row['id']),
+      folio: String(row['folio']),
+      vendedor_code: (row['vendedor_code'] as string) ?? null,
+      vendedor_nombre: (row['vendedor_nombre'] as string) ?? null,
+      responsable: (row['responsable'] as string) ?? null,
+      sucursales: (row['sucursales'] as string[]) ?? [],
+      documentos: Number(row['documentos']) || 0,
+      clientes: Number(row['clientes']) || 0,
+      total: String(row['total'] ?? '0'),
+      folios: (row['folios'] as string[]) ?? [],
+      created_at: String(row['created_at']),
+      created_by_username: (row['created_by_username'] as string) ?? null,
+      snapshot: (typeof snap === 'string' ? JSON.parse(snap) : snap) as SnapshotGuia,
+    };
   }
 
   // ── armado ─────────────────────────────────────────────────────────────
@@ -182,7 +345,7 @@ export class GuiaCobranzaService {
 
   // ── documento ──────────────────────────────────────────────────────────
   private html(clientes: ClienteImpreso[], h: {
-    empresa: string; numero: string; fecha: string; total: number;
+    empresa: string; folio: string; numero: string; fecha: string; total: number;
     vendedor: string | null;
     documentos: number; derivados: number; responsable: string; nota: string;
   }): string {
@@ -261,8 +424,10 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
 .nota{font-size:8pt;color:var(--muted);margin:6px 0 0}
 .legal{margin-top:14px;border-top:1px solid var(--line);padding-top:8px;
   font-size:7.5pt;line-height:1.35;color:#3d3d3d;text-align:justify}
-.firmas{display:flex;gap:40px;margin-top:26px}
-.firmas div{flex:1;text-align:center;border-top:1px solid var(--ink);padding-top:4px;font-size:8pt}
+/* UNA firma, la del vendedor, centrada al pie (decisión Edgar 2026-09-11). El bloque del
+   encargado se retiró: quien responde por la carga es quien sale a cobrar. */
+.firmas{margin:30px auto 0;width:58%}
+.firmas div{text-align:center;border-top:1px solid var(--ink);padding-top:4px;font-size:8pt}
 .firmas .quien{display:block;font-weight:700;font-size:9pt;min-height:12px}
 </style>
 <div class="head">
@@ -273,7 +438,8 @@ body{margin:0;background:#fff;color:var(--ink);font-family:"Segoe UI",Arial,Helv
   <div class="doc">
     <div class="tit">Guía de Cobranza</div>
     ${h.vendedor ? `<div class="kv vend"><b>Vendedor</b> ${this.esc(h.vendedor)}</div>` : ''}
-    <div class="kv"><b>Número</b> ${this.esc(h.numero)}</div>
+    <div class="kv"><b>Expediente</b> ${this.esc(h.folio)}</div>
+    <div class="kv"><b>Emitida</b> ${this.esc(h.numero)}</div>
     <div class="kv"><b>Fecha</b> ${this.esc(h.fecha)} · <b>${h.documentos}</b> documento${h.documentos === 1 ? '' : 's'} · <b>${clientes.length}</b> cliente${clientes.length === 1 ? '' : 's'}</div>
   </div>
 </div>
@@ -295,8 +461,7 @@ República Mexicana, que a la letra dice: A quien mediante el engaño o el aprov
 se encuentre, obtenga ilícitamente alguna cosa ajena o alcance un lucro indebido para sí o para otro.</p>
 
 <div class="firmas">
-  <div><span class="quien">${this.esc(h.responsable)}</span>Nombre y Firma Del Responsable</div>
-  <div><span class="quien"></span>Nombre y Firma De Encargado</div>
+  <div><span class="quien">${this.esc(h.responsable || h.vendedor || '')}</span>Nombre y Firma del Vendedor</div>
 </div>`;
   }
 }

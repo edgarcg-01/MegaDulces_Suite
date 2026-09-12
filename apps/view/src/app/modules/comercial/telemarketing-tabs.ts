@@ -21,10 +21,11 @@ export const TELEMARKETING_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_SALES_DOCS_VER,
   },
   {
-    // GT.2 — selección de facturas → Guía de Cobranza imprimible.
-    label: 'Reportes',
-    route: '/comercial/documentos/reportes',
-    icon: 'pi pi-print',
+    // GT.12 — el archivo: historial por vendedor de las guías emitidas. La guía se GENERA en
+    // Facturación TM (ahí están las facturas que se palomean); acá sólo se consulta y reimprime.
+    label: 'Expedientes',
+    route: '/comercial/documentos/expedientes',
+    icon: 'pi pi-folder-open',
     permission: Permission.COMMERCIAL_SALES_DOCS_VER,
   },
 ];

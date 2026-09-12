@@ -81,6 +81,22 @@ const EMISOR_CACHE = new Map<string, EmisorFiscal>();
 const DOC_TIPOS = ['telemarketing'] as const;
 const MAX_PAGE = 200;
 
+/**
+ * GT.13 — órdenes que la pantalla ofrece. Lista blanca a propósito: el `sort` viaja por query
+ * y armar el ORDER BY con lo que llegue es una inyección. El desempate siempre es `folio`,
+ * para que dos facturas del mismo día (o del mismo importe) no se intercambien entre páginas.
+ */
+const ORDENES: Record<string, { column: string; order: 'asc' | 'desc'; nulls?: 'first' | 'last' }[]> = {
+  fecha_desc: [{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }],
+  fecha_asc: [{ column: 'fecha', order: 'asc' }, { column: 'folio', order: 'asc' }],
+  total_desc: [{ column: 'total', order: 'desc' }, { column: 'folio', order: 'desc' }],
+  total_asc: [{ column: 'total', order: 'asc' }, { column: 'folio', order: 'asc' }],
+  // El saldo es NULL en las que no están en la cartera: van al final en los dos sentidos, que
+  // es donde estorban menos — no son un "cero", son un desconocido (ADR-056).
+  saldo_desc: [{ column: 'saldo', order: 'desc', nulls: 'last' }, { column: 'folio', order: 'desc' }],
+  saldo_asc: [{ column: 'saldo', order: 'asc', nulls: 'last' }, { column: 'folio', order: 'asc' }],
+};
+
 export interface SalesDocsQuery {
   from?: string;
   to?: string;
@@ -99,6 +115,8 @@ export interface SalesDocsQuery {
   vencidas?: string;       // 'true' → sólo las vencidas QUE AÚN DEBEN (ver base())
   canceladas?: string;     // 'true' → incluir las canceladas en Kepler (por defecto NO)
   cobro?: string;          // pagada | parcial | pendiente | sin_cartera
+  /** Orden de la tabla. Lista blanca — ver ORDENES. Default: lo más reciente primero. */
+  sort?: string;
   min?: string;            // importe mínimo
   page?: number;
   pageSize?: number;
@@ -199,7 +217,7 @@ export class CommercialSalesDocumentsService {
       const [rows, kpis] = await Promise.all([
         trx.withMaterialized('sel', seleccion)
           .select('*').from('sel')
-          .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
+          .orderBy(ORDENES[String(q.sort || '')] ?? ORDENES['fecha_desc'])
           .limit(pageSize).offset((page - 1) * pageSize),
         this.base(trx, tenantId, q)
           .select(
