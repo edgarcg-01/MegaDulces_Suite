@@ -86,7 +86,88 @@ async function end(jobKey, { status = 'ok', rows = null, note = null, error = nu
   }
 }
 
-module.exports = { begin, end };
+/**
+ * [VL.6.4] Bitácora POR PASO de un carril con muchos pasos → `analytics.cron_run_log`.
+ *
+ * ── QUÉ PROBLEMA RESUELVE ───────────────────────────────────────────────────────────────
+ * `feed_nightly` es UN latido para 53 pasos, y por diseño sólo se pone en `error` si fallan
+ * los 53 (run-prod-feeds.js:~420). O sea: un paso que hace años no escribe una fila se ve
+ * IDÉNTICO a uno crítico. Por eso el nocturno tiene 53 pasos y nadie puede decir cuáles
+ * sobran — no hay con qué contestarlo.
+ *
+ * ── POR QUÉ ACÁ Y NO EN UNA TABLA NUEVA ─────────────────────────────────────────────────
+ * `analytics.cron_run_log` (VP.3.3) ya es exactamente esto un piso más arriba: una fila por
+ * corrida TERMINADA, con las mismas columnas (duración, estado, host, nota, error) y los
+ * índices correctos (`(tenant_id, job_key, finished_at DESC)` = la serie de un job). Crear
+ * una segunda bitácora sería el pecado que este repo ya se cobró ocho veces (cada fase
+ * inventando su propia bandeja). Se distinguen por `job_key`: `feed_nightly` es el carril,
+ * `feed_nightly/import-margin.js` es el paso. Nadie consulta con LIKE — medido: la tabla no
+ * tiene ningún lector en producción, sólo su test.
+ *
+ * ⚠️ `rows_affected` va en NULL A PROPÓSITO. El orquestador corre a los importers como
+ * subprocesos: sabe cuánto tardaron y con qué código salieron, pero NO cuántas filas
+ * escribieron — eso vive adentro de cada uno. Sacarle un entero a la última línea de stdout
+ * con un regex daría números equivocados («0 best-sellers — tabla intacta», «suc 03: 120
+ * patas»), y un número equivocado en una columna que se llama `rows_affected` es peor que un
+ * hueco: es justo el «dibujarlo» que prohíbe ADR-056. Lo que sí se guarda es `note` = la
+ * última línea de salida del paso, TEXTUAL. Es una cita, no una medición, y contesta la
+ * pregunta a ojo: `COMMIT — 0 filas` no se parece a `COMMIT — 2,187 filas`.
+ *
+ * ── SE ESCRIBE EN LOTE ──────────────────────────────────────────────────────────────────
+ * Una conexión por paso serían 53 conexiones por nocturno, y con prod inalcanzable cada una
+ * se come su `connectionTimeoutMillis` → hasta ~9 min de castigo a un carril que ya tarda
+ * horas. Se acumula y se descarga cada `LOTE` pasos (y al final). El costo del lote es que
+ * si al runner lo matan a mitad se pierde la cola sin descargar; se acepta porque el hecho
+ * primario —que el carril arrancó y no cerró— ya lo cubre el `status='running'` viejo de
+ * `cron_runs`, que es el dead-man's switch que `db-health` vigila con `maxRunH`.
+ *
+ * Nunca lanza, igual que el resto del módulo: perder la bitácora no puede tumbar un feed.
+ */
+const LOTE = 10;
+
+function stepLog(laneKey) {
+  const pendientes = [];
+
+  async function flush() {
+    if (!pendientes.length) return;
+    const lote = pendientes.splice(0, pendientes.length);
+    let c;
+    try {
+      c = client();
+      await c.connect();
+      await c.query(
+        `INSERT INTO analytics.cron_run_log
+           (tenant_id, job_key, status, started_at, finished_at, rows_affected, duration_ms, host, note, error)
+         SELECT $1, $2 || '/' || x.step, x.status, x.started_at, x.finished_at,
+                NULL, x.duration_ms, $3, x.note, x.error
+           FROM jsonb_to_recordset($4::jsonb)
+             AS x(step text, status text, started_at timestamptz, finished_at timestamptz,
+                  duration_ms bigint, note text, error text)`,
+        [TENANT, laneKey, os.hostname(), JSON.stringify(lote)],
+      );
+    } catch (e) {
+      console.warn(`[cron-heartbeat] bitácora por paso de ${laneKey}: ${e.message}`);
+    } finally { try { if (c) await c.end(); } catch { /* nada que cerrar */ } }
+  }
+
+  return {
+    async add(fila) {
+      pendientes.push({
+        step: String(fila.step).slice(0, 200),
+        status: fila.status === 'ok' ? 'ok' : 'error', // CHECK crl_status_terminal
+        started_at: fila.startedAt,
+        finished_at: fila.finishedAt,
+        duration_ms: fila.durationMs,
+        note: fila.note ? String(fila.note).slice(0, 400) : null,
+        error: fila.error ? String(fila.error).slice(0, 500) : null,
+      });
+      if (pendientes.length >= LOTE) await flush();
+    },
+    flush,
+  };
+}
+
+module.exports = { begin, end, stepLog };
 
 // CLI
 if (require.main === module) {
