@@ -371,9 +371,14 @@ clasificado**: hueco declarado, no medido.
   el dato publicado está bien — pero la causa del goteo no está diagnosticada.
 - ⚠️ **14,599 "sobrantes"** = filas en el ODS que ya no están en el origen: **DELETE no propagado**
   (el ODS es UPSERT-only, regla 2).
-- ⛔ **`db_health_scan` y `analytics_refresh` no corren desde 2026-07-31** (`host=api`: son `@Cron`
-  del NestJS, no del crontab de `md`), y el `health_watchdog` los reporta **vivos**
-  (*"scanner vivo · canal externo: NINGUNO"*). El dead-man switch no caza a su propio muerto.
+- ✅ **`db_health_scan` y `analytics_refresh` SÍ corren** (`host=api`: son `@Cron` del NestJS, no del
+  crontab de `md`): `last_finish` hace minutos, `status=ok`. ⛔ **Corrección 2026-09-12:** una versión
+  anterior de esta sección los declaró *"muertos desde 2026-07-31"* — **falso**, deducido de
+  `last_start`, columna congelada por el bug OBS.8. El `health_watchdog` los reportaba **vivos** y
+  acertaba: lee `last_finish`, no `last_start`. Ver `VERDAD_ABSOLUTA.md` §7 / §13.2.
+- ⛔ **Lo que SÍ queda abierto: la alarma no sale del edificio.** `health_watchdog` sin
+  `WATCHDOG_WEBHOOK_URL` ni `SMTP_*` (*"canal externo: NINGUNO"*): la única salida es la campana del
+  tablero — inútil si lo caído es el API que la muestra. Necesita una URL que sólo el dueño puede dar.
 
 ### 4.2b ⛔⛔⛔ LA CAUSA RAÍZ: `ods_repl` no puede leer las tablas NUEVAS (2026-09-12)
 
@@ -499,8 +504,8 @@ familias anuales hasta **`_27`**.
    resultado correcto**. La única que lo delata es la **`03`, que tiene tres almacenes** (`01`=3 filas,
    `02`=3,664, `03`=4,561). Un bug que sólo existe en una sucursal es un bug que se atribuye a "datos
    sucios de esa tienda" durante meses.
-   ⚠️ **La existencia NO es `kdil.c9`** — eso son las SALIDAS. Es `c4`+`c8`−`c9`; ver §2.2, que corrigió
-   esta misma regla y quedó contradiciéndola hasta hoy.
+   ⚠️ **La existencia NO es `kdil.c9`** — eso son las SALIDAS. Es `c4`+`c8`−`c9` (alineado con §2.2; la
+   contradicción interna que arrastraba esta regla quedó cerrada 2026-09-12).
 8. **La notación `X-A-30` = género(`c2`)·naturaleza(`c3`)·grupo(`c4`) en `kdm1`.** El número (30/35/40…) es el **grupo** (`kdm1.c4` = `kdmm.c3`), no el "tipo". Validado vivo 2026-08-25.
 
 ---

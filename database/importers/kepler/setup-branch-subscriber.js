@@ -114,7 +114,7 @@ const qid = (id) => '"' + String(id).replace(/"/g, '""') + '"';
      postgresql.conf: wal_level=logical + max_slot_wal_keep_size='20GB'  → RESTART
      CREATE ROLE ods_repl WITH REPLICATION LOGIN PASSWORD '<secreto>';
      GRANT USAGE ON SCHEMA md TO ods_repl; GRANT SELECT ON ALL TABLES IN SCHEMA md TO ods_repl;
-     ALTER DEFAULT PRIVILEGES IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;
+     ALTER DEFAULT PRIVILEGES FOR ROLE sa IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;  -- FOR ROLE sa obligatorio: Kepler crea como sa (ERP_KEPLER §4.2b)
      CREATE PUBLICATION ods_pub FOR TABLES IN SCHEMA md;
      pg_hba.conf: host ${db} ods_repl <IP_SUBSCRIBER>/32 scram-sha-256 ; SELECT pg_reload_conf();
 

@@ -73,7 +73,8 @@ Luego **reiniciar** el servicio Postgres de esa caja (ventana de downtime).
 CREATE ROLE ods_repl WITH REPLICATION LOGIN PASSWORD '<secreto-por-rama>';
 GRANT USAGE ON SCHEMA md TO ods_repl;
 GRANT SELECT ON ALL TABLES IN SCHEMA md TO ods_repl;
-ALTER DEFAULT PRIVILEGES IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;  -- para tablas kdc2YYMM futuras
+ALTER DEFAULT PRIVILEGES FOR ROLE sa       IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl, platform_ro;  -- ⭐ FOR ROLE sa: Kepler crea las tablas como sa; SIN esto el default cuelga del rol que corre el GRANT y NO aplica → cada kdc2YYMM futura nace ilegible (causa del apagon 2026-09, ver ERP_KEPLER §4.2b)
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl, platform_ro;  -- belt-and-suspenders por si alguna tabla la crea postgres
 ```
 
 ### 2.3 Publicación — SOLO las tablas que espejamos (no `FOR ALL TABLES`)
@@ -223,7 +224,8 @@ max_slot_wal_keep_size = '20GB'     # ← OBLIGATORIO (hoy -1=ilimitado → ries
 CREATE ROLE ods_repl WITH REPLICATION LOGIN PASSWORD '<secreto-00>';
 GRANT USAGE ON SCHEMA md TO ods_repl;
 GRANT SELECT ON ALL TABLES IN SCHEMA md TO ods_repl;
-ALTER DEFAULT PRIVILEGES IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl;
+ALTER DEFAULT PRIVILEGES FOR ROLE sa       IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl, platform_ro;  -- ⭐ FOR ROLE sa obligatorio (Kepler crea como sa; ver ERP_KEPLER §4.2b — sin esto vuelve el apagon)
+ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA md GRANT SELECT ON TABLES TO ods_repl, platform_ro;
 CREATE PUBLICATION ods_pub FOR TABLES IN SCHEMA md;   -- mirror completo (como las otras ramas)
 ```
 ```conf
