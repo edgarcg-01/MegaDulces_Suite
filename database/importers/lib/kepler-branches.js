@@ -59,9 +59,9 @@ const BRANCHES = Object.freeze([
   { code: '06', host: '192.168.50.50', port: 1977, db: 'md_06', replica: 'kepler_md_06', name: 'Canindo' },
   // '07' Morelia Madero: su POS migró de Wincaja ('32') a Kepler propio (`md_07`) el 2026-09-08
   // (handoff limpio — Wincaja 32 cerró caja el 09-07, Kepler arrancó el 09-08, cero traslape).
-  // Replica-only: aún NO se verificó platform_ro en su POS (queda como deuda; sus importers leen la
-  // réplica local kepler_md_07 hasta entonces).
-  { code: '07', replica: 'kepler_md_07', name: 'Morelia Madero' },
+  // POS alcanzable con platform_ro (credencial compartida) verificado 2026-09-12 → los importers
+  // leen el POS fresco; el ODS sigue con la réplica kepler_md_07 vía replicaDbName.
+  { code: '07', host: '192.168.32.32', port: 1977, db: 'md_07', replica: 'kepler_md_07', name: 'Morelia Madero' },
 ]);
 
 // URL de conexión por rama para los IMPORTERS: prefiere el POS remoto (platform_ro) cuando la rama
