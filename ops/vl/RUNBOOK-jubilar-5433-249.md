@@ -156,16 +156,33 @@ Disable-ScheduledTask -TaskName WincajaLive,WincajaSyncActual,WincajaSyncConcent
 
 Es la única copia de la era Wincaja. Sacarla de la máquina que se va a apagar, no dejarla adentro.
 
-### 4. Recién ahí, soltar
+### 4. ✅ HECHO — el 2026-09-12, por decisión de Sistemas
 
 ```sh
-docker stop pgvector-md && docker rm pgvector-md
-docker volume ls          # identificar el volumen ANTES de borrarlo
+docker stop pgvector-md      # Exited (0): apagado LIMPIO, sin recuperación de caída si se reenciende
 ```
 
-⛔ **El `docker volume rm` es irreversible y se pide por separado.** Un contenedor parado no borra
-nada; el volumen sigue ahí y se puede volver a montar. Separar los dos pasos es lo que deja una
-salida.
+**Preflight, los tres verdes antes de tocarlo:** cero consumidores (`pg_stat_activity` vacío y un
+delta de 120 s con cero transacciones en las 11 bases) · `restart=unless-stopped` y **sin etiqueta
+`autoheal`**, o sea que un `stop` manual se respeta y nada lo revive · la copia fría de 6.45 GB
+presente en `md`. Con eso había **tres copias** del dato al momento de apagarlo.
+
+**Verificado después:** 8 suscripciones activas con 0.5 min de rezago · los 3 carriles de Wincaja
+`online` escribiendo a `md` · **21 latidos, ninguno en `error`**, todos por debajo de 12 min · las
+**8 sucursales** de `/tienda/live` entregando (0.6–8.6 min).
+
+### 5. Lo que NO se hizo, y es a propósito
+
+⛔ **El volumen `pgvector-md-data` sigue intacto** en `/var/lib/docker/volumes/`. Un contenedor
+parado no borra nada.
+
+```sh
+docker start pgvector-md       # la vuelta atrás, en segundos
+docker volume rm pgvector-md-data   # ⛔ IRREVERSIBLE — se pide aparte, no se deduce de "jubilar"
+```
+
+Mientras el volumen viva, revertir cuesta `docker start` más una variable de entorno. En cuanto se
+borre, cuesta restaurar 6.45 GB. Ese margen es gratis: **no lo regales el mismo día del corte.**
 
 ### 5. Después del volumen, y no antes
 

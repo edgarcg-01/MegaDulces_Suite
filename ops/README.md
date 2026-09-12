@@ -102,7 +102,23 @@ su primera pasada en `md`. Es lo mismo que pasó con `feed_nightly` tras VL.4: h
 corrida, el renglón conserva el host viejo. Si el **jueves** sigue diciendo `SISTEMAS`, **ahí sí**
 es un problema.
 
-### 3.2 Jubilar el `:5433` de `.249` → [`RUNBOOK-jubilar-5433-249.md`](vl/RUNBOOK-jubilar-5433-249.md)
+### 3.2 ✅ El `:5433` de `.249` está JUBILADO (2026-09-12) → [runbook](vl/RUNBOOK-jubilar-5433-249.md)
+
+**`.249` ya no tiene base de datos.** Quedó `Exited (0)` — apagado limpio — después de mover
+`wincaja` (40 GB, 34 esquemas, 2,316 tablas) a `md` y cuadrarla contra el origen: **147,449,607
+filas exactas a los dos lados, cero tablas con conteo distinto, y 264 sumas de control de dinero
+sin una diferencia.**
+
+⛔ **Los 3 carriles de Wincaja NO se mudaron de máquina** — leen los `.mdb` con Jet de 32 bits sobre
+`Z:`. Siguen en `.249`; lo que cambió es su **destino** (`WINCAJA_REPLICA_URL` → `192.168.0.222:5433`).
+`.249` pasa a ser un lector de Access sin base propia.
+
+⚠️ **El volumen `pgvector-md-data` sigue intacto**: `docker start pgvector-md` revierte en segundos.
+`docker volume rm` es otra cosa y se pide aparte.
+
+Lo demás que sigue vivo en `.249`: los 3 carriles Wincaja, `redis-md` (pub/sub de un dev server, no
+es ingesta), `ods-autoheal` (**ya no vigila nada**: sus objetivos se fueron a `md` — residuo de
+VL.7), `FeedGuardian`, `TradeMarketing-DailyBackup` y `PM2 Resurrect ODS`.
 
 ⛔ **El contenedor se llama `pgvector-md` en las DOS máquinas**, y el de `md` es la fuente viva.
 Antes de correr nada: `docker exec pgvector-md psql -U postgres -tAc "SELECT count(*) FILTER
