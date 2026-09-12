@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 import { environment } from '../../../../environments/environment';
 // `[CH.1.10]` El tipo de cuenta y la duración de sesión salen del vocabulario común
 // (`@megadulces/contracts`): un cambio de forma es error de compilación en los dos lados, en vez
@@ -238,12 +238,21 @@ export class UsersService {
   private http = inject(HttpClient);
   private apiUrl = `${environment.apiUrl}/users`;
 
+  /**
+   * `[AU.0b]` El endpoint pasó a devolver un sobre `{ rows, total, … }` con
+   * búsqueda y paginación del lado del servidor. Esta pantalla se reemplaza en
+   * `[AU.2]` y hasta entonces sigue filtrando en el cliente, así que acá se
+   * desenvuelve y se pide una página grande: cambiar la forma sin tocar la
+   * pantalla vieja la habría dejado en blanco sin decir por qué.
+   */
   findAll(zona?: string, activo?: boolean): Observable<User[]> {
-    let params = new HttpParams();
+    let params = new HttpParams().set('page_size', '500');
     if (zona) params = params.set('zona', zona);
     if (activo !== undefined) params = params.set('activo', activo.toString());
 
-    return this.http.get<User[]>(this.apiUrl, { params });
+    return this.http
+      .get<{ rows: User[] }>(this.apiUrl, { params })
+      .pipe(map((r) => r.rows ?? []));
   }
 
   findOne(id: string): Observable<User> {
