@@ -74,12 +74,21 @@ const declarar = (msg) => { nomedido++; console.log(`  ~ NO MEDIDO ${msg}`); };
          count(*) FILTER (WHERE kind = 'interno')::int AS personas,
          -- Una persona degradada a máquina es el error caro de esta etapa: un
          -- nombre de 2+ palabras que no es su propio username ES una persona.
+         --
+         -- [OR.9] La excepción dejó de ser el prefijo Etiquetas y pasó a ser la
+         -- convención que esa familia siempre siguió: <función> - <lugar>.
+         -- Medido en prod (2026-09-12): el separador " - " lo traen las 12
+         -- estaciones (8 etiqueteras + 2 checadores + 2 verificadores) y CERO
+         -- personas, así que generalizar no afloja el candado, lo aprieta. Con
+         -- la regla vieja los 4 kioscos daban falso positivo acá («Checador -
+         -- Padre Hidalgo» son 4 palabras) y falso negativo abajo.
          count(*) FILTER (WHERE kind = 'dispositivo' AND nombre IS NOT NULL
-           AND nombre !~ '^Etiquetas' AND upper(btrim(nombre)) <> upper(username)
+           AND nombre NOT LIKE '% - %' AND upper(btrim(nombre)) <> upper(username)
            AND array_length(regexp_split_to_array(btrim(nombre), '\\s+'), 1) >= 2)::int AS personas_mal,
-         -- Y al revés: un nombre que es una tienda o un código no es persona.
+         -- Y al revés: un nombre que es una estación o un código no es persona.
+         -- Con la regla vieja, los 4 kioscos del 12-sep pasaban derecho.
          count(*) FILTER (WHERE kind = 'interno'
-           AND (nombre ~ '^Etiquetas' OR upper(btrim(nombre)) = upper(username)))::int AS sin_marcar
+           AND (nombre LIKE '% - %' OR upper(btrim(nombre)) = upper(username)))::int AS sin_marcar
         FROM identity.users WHERE tenant_id = ? AND deleted_at IS NULL`,
       [TENANT],
     );
@@ -88,6 +97,101 @@ const declarar = (msg) => { nomedido++; console.log(`  ~ NO MEDIDO ${msg}`); };
     check(c0.dispositivos > 0, `hay dispositivos declarados (${c0.dispositivos})`);
     check(c0.personas_mal === 0, `0 personas marcadas como dispositivo (hay ${c0.personas_mal})`);
     check(c0.sin_marcar === 0, `0 credenciales de puesto todavía como interno (hay ${c0.sin_marcar})`);
+
+    console.log('\n[2b] `[OR.9]` Las señales que el heurístico de [2] NO ve');
+    /*
+     * El 2026-09-12 entraron cuatro kioscos al padrón como `kind='interno'`
+     * (`checador.01/03`, `verificador.01/03`) y el bloque [2] no los vio: su
+     * heurística busca `nombre ~ '^Etiquetas'` o `nombre = username`, y
+     * «Checador - Padre Hidalgo» no es ninguna de las dos.
+     *
+     * Costaba dos cosas medibles: el padrón reportaba 104 personas con 4 sin
+     * puesto y 4 sin jefe (eran los kioscos), y ⛔ una estación con
+     * `kind='interno'` **es elegible para recibir trabajo asignado**.
+     *
+     * Acá no hay heurística: hay una DECLARACIÓN. Los roles de estación se
+     * listan con nombre, y la convención de username se escribe una vez.
+     */
+    const ROLES_DE_ESTACION = ['checador_kiosco', 'verificador_precios', 'etiquetas_anaquel'];
+    const USERNAME_DE_ESTACION = '^[a-z_]+[.][0-9]+$';
+
+    // ⚠️ La lista va INTERPOLADA, no como binding: knex expande un array a una
+    // lista de bindings y rompe `= ANY(?)`. Son literales de este archivo, no
+    // entrada de nadie. El regex sí va como binding.
+    const EN_ROLES = `role_name IN (${ROLES_DE_ESTACION.map((r) => `'${r}'`).join(', ')})`;
+    const { rows: est } = await k.raw(
+      `SELECT
+         count(*) FILTER (WHERE ${EN_ROLES})::int   AS por_rol,
+         count(*) FILTER (WHERE username ~ ?)::int  AS por_username,
+         count(*) FILTER (WHERE ${EN_ROLES} AND kind = 'interno')::int   AS rol_mal,
+         count(*) FILTER (WHERE username ~ ? AND kind = 'interno')::int  AS username_mal
+       FROM identity.users WHERE tenant_id = ? AND deleted_at IS NULL`,
+      [USERNAME_DE_ESTACION, USERNAME_DE_ESTACION, TENANT],
+    );
+    const e0 = est[0];
+
+    // CONTROL POSITIVO primero: una regla que no encuentra nada da «0 mal» por
+    // vacío, y se lee idéntico a «todo bien». Si el universo es 0, se DECLARA.
+    if (e0.por_rol === 0) {
+      declarar('ningún rol de estación tiene cuentas: el candado por rol no prueba nada hoy');
+    } else {
+      check(e0.rol_mal === 0,
+        `las ${e0.por_rol} cuentas con rol de estación son dispositivo (hay ${e0.rol_mal} como interno)`);
+    }
+    if (e0.por_username === 0) {
+      declarar('ninguna cuenta usa `<función>.<sucursal>`: el candado por username no prueba nada hoy');
+    } else {
+      check(e0.username_mal === 0,
+        `las ${e0.por_username} cuentas \`<función>.<sucursal>\` son dispositivo (hay ${e0.username_mal} como interno)`);
+    }
+
+    // Y que las dos señales sigan siendo INDEPENDIENTES: si una fuera
+    // subconjunto perfecto de la otra, la segunda no agregaría nada y podría
+    // retirarse. Hoy no lo son (12 por username · 12 por rol, distinto universo
+    // en cuanto alguien agregue un kiosco sin la convención de nombre).
+    console.log(`      ${e0.por_rol} por rol · ${e0.por_username} por username`);
+
+    /*
+     * ⚠️ ABIERTO — `ruta_505` («RUTA 505», rol `promotor_ruta`, alta el mismo
+     * día que las tabletas `rvph0N` que sí son `dispositivo`, con ruta asignada
+     * y login desde Android). Parece credencial de ruta compartida, pero
+     * `promotor_ruta` lo tienen 13 personas reales, así que ninguna de las dos
+     * señales aplica. Degradarla la sacaría del padrón y del reparto de
+     * trabajo. Se declara para que no se pierda, no se adivina.
+     */
+    // ── PRUEBA NEGATIVA — el candado tiene que MORDER ─────────────────────
+    // No se escribe una fila (ver el encabezado: [IDG.1] dejó 5 cuentas de
+    // prueba en el padrón real). Se evalúan los DOS predicados contra filas
+    // sintéticas, que es ejercerlos de verdad sin tocar el padrón.
+    const clasifica = async (username, nombre, kind, role_name) => {
+      const { rows } = await k.raw(
+        `SELECT (kind = 'interno' AND (nombre LIKE '% - %' OR upper(btrim(nombre)) = upper(username))) AS sin_marcar,
+                (kind = 'interno' AND (${EN_ROLES} OR username ~ ?)) AS es_estacion
+           FROM (SELECT ?::varchar AS username, ?::varchar AS nombre,
+                        ?::varchar AS kind, ?::varchar AS role_name) t`,
+        [USERNAME_DE_ESTACION, username, nombre, kind, role_name],
+      );
+      return rows[0];
+    };
+    // El caso que se escapó el 12-sep: tiene que dar positivo en las dos.
+    const kiosco = await clasifica('checador.99', 'Checador - Sucursal Nueva', 'interno', 'checador_kiosco');
+    check(kiosco.sin_marcar === true && kiosco.es_estacion === true,
+      'un kiosco nuevo dado de alta como interno lo atrapan los DOS candados');
+    // Y el error caro al revés: una persona normal no puede dispararlos.
+    const persona = await clasifica('ana_lopez', 'ANA LOPEZ MARTINEZ', 'interno', 'cajero');
+    check(persona.sin_marcar === false && persona.es_estacion === false,
+      'una persona con nombre y rol normales NO la toca ninguno de los dos');
+    // Control del control: si el predicado dijera true a todo, lo de arriba
+    // pasaría igual. Un kiosco YA marcado como dispositivo no debe reportarse.
+    const yaOk = await clasifica('checador.99', 'Checador - Sucursal Nueva', 'dispositivo', 'checador_kiosco');
+    check(yaOk.sin_marcar === false && yaOk.es_estacion === false,
+      'y el mismo kiosco ya marcado como dispositivo deja de reportarse (el predicado discrimina)');
+
+    const { rows: r505 } = await k.raw(
+      `SELECT kind FROM identity.users WHERE tenant_id = ? AND username = 'ruta_505' AND deleted_at IS NULL`,
+      [TENANT],
+    );
+    if (r505.length) declarar(`ruta_505 sigue como '${r505[0].kind}' — falta decisión humana (¿tableta o persona?)`);
 
     console.log('\n[3] Las 28 cuentas con username numérico NO son dispositivos');
     // El heurístico fácil (username que arranca en dígito) se equivocaba en 26
