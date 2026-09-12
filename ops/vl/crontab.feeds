@@ -43,6 +43,26 @@
 # Desde VL.6.2 late en `health_watchdog`: era el unico de su familia invisible para db-health.
 */5 * * * * /app/ops/vl/run-feed.sh watchdog "node /app/database/importers/lib/health-watchdog.js"
 
+# [VL.7.1] CFDIs del ADD de ContPAQi — el ÚLTIMO carril de `.249` fuera de Wincaja.
+# Vivía en PM2 (`ecosystem.contpaqi.config.js`, `--watch 300`), o sea atado a la sesión de
+# usuario y revivido por la tarea `PM2 Resurrect ODS`. Resultó barato de mudar porque el
+# trabajo difícil ya estaba hecho: `md` YA alcanza el SQL Server de contabilidad (el carril
+# `contpaqi` de arriba corre acá cada minuto), y el importer ya viaja en la imagen.
+# Sin `--watch`: el loop lo hace el cron, igual que `fleet-gps`.
+#
+# ⚠️ FASE, no `*/5`: el vigilante ya ocupa los bordes de 5 min. Se corre +3 para no apilar
+# dos carriles en el mismo minuto — la lección de más abajo, aplicada por adelantado.
+#
+# ⚠️ El reconciliador diario lleva su PROPIA llave de latido. Sin eso le presta el pulso al
+# incremental (los dos escriben `analytics.cron_runs`, cuya PK no incluye el host) y un `inc`
+# muerto se vería vivo una vez al día. Las dos llaves ya tienen umbral en `CRON_JOBS`.
+#
+# ⛔ DEUDA que esta mudanza deja a la vista: host, usuario, contraseña e instancia del SQL
+# Server están EMBEBIDOS como valores por defecto en `import-contpaqi-cfdis.js` — por eso
+# funciona en `md` sin que `/secrets/feeds.env` tenga una sola clave `CONTPAQI_SQL_*`.
+# Funciona, y es una credencial de producción versionada en el repo. Va al secreto.
+3-58/5 * * * * /app/ops/vl/run-feed.sh contpaqi-cfdis "node /app/database/importers/contpaqi/import-contpaqi-cfdis.js --apply"
+
 # ── horario / cada 2 h ───────────────────────────────────────────────────────
 15 * * * *  /app/ops/vl/run-feed.sh intraday      "node /app/database/importers/kepler/run-prod-feeds.js intraday --apply"
 25 */2 * * * /app/ops/vl/run-feed.sh contpaqi-slow "node /app/database/importers/kepler/run-prod-feeds.js contpaqi-slow --apply"
@@ -50,6 +70,12 @@
 # ── nocturno y semanal (hora MX) ─────────────────────────────────────────────
 0 3 * * *   /app/ops/vl/run-feed.sh nightly "node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
 0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
+# [VL.7.1] El RECONCILIADOR de CFDIs (pareja del incremental de arriba): recorre año por año
+# ignorando el watermark, o sea ~167,000 CFDIs. Va a las 05:45 por dos razones medidas: el
+# nocturno arranca 03:00 y dura 69–99 min (termina 04:09–04:39), y fuera de horario hábil —
+# una pasada completa contra prod en horario de oficina es justo lo que tiró `/tienda/live`
+# el 2026-09-11.
+45 5 * * *  /app/ops/vl/run-feed.sh contpaqi-cfdis-full "CONTPAQI_HB_KEY=contpaqi_add_cfdis_full node /app/database/importers/contpaqi/import-contpaqi-cfdis.js --apply --full --from 2018-01-01"
 
 # ⛔⛔ LA FASE IMPORTA TANTO COMO EL INTERVALO — y eso lo aprendimos rompiéndolo.
 #
