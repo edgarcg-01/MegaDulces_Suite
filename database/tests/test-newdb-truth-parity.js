@@ -88,30 +88,6 @@ const PARIDADES = [
          AND b.source <> 'default'
          AND p.factor_sale::numeric IS DISTINCT FROM b.box_factor::numeric`,
   },
-  {
-    nombre: 'costo del catalogo vs costo del ERP',
-    arbitro: 'v_erp_unit_cost',
-    publicado: 'catalog.products.cost_base',
-    // ⚠️ Umbral CALIBRADO. La primera version uso "difiere > $0.01" y dio 5,916 = ruido.
-    // La distribucion real: mediana 0.9731, p90 1.0000, p10 0.81. La senal esta abajo de 0.5x.
-    umbral: 'cost_base < 0.5x el costo del ERP',
-    porque: 'medida la razon cost_base/costo_ERP sobre 9,154 pares: 5,153 caen dentro de +-5% '
-      + '(diferencia esperada, neto vs bruto) y CERO superan 2x. Lo anomalo es el piso.',
-    baseline: 583,
-    sql: `
-      WITH r AS (SELECT product_id, max(costo_unitario)::numeric cu
-                   FROM analytics.v_erp_unit_cost
-                  WHERE tenant_id = '${T}' AND costo_unitario > 0 GROUP BY 1)
-      SELECT count(*)::int discrepancias,
-             round(COALESCE(sum(v.rev), 0))::numeric dinero
-        FROM catalog.products p
-        JOIN r ON r.product_id = p.id
-        LEFT JOIN (SELECT product_id, sum(revenue)::numeric rev FROM analytics.sales_daily
-                    WHERE tenant_id = '${T}' AND sale_date >= current_date - 90
-                    GROUP BY 1) v ON v.product_id = p.id
-       WHERE p.tenant_id = '${T}' AND p.deleted_at IS NULL AND p.cost_base > 0
-         AND p.cost_base::numeric < r.cu * 0.5`,
-  },
 ];
 
 /** Se agregan al registro de arriba; van aparte sólo para no hacer ilegible el literal. */
@@ -177,6 +153,18 @@ PARIDADES.push(
  * aplica". Si al leerlo no se entiende qué haría falta para que sí hubiera paridad, está mal.
  */
 const SIN_PARIDAD_CON_MOTIVO = {
+  // El motivo de este es una BUENA noticia, no una excusa. Hasta VA.4 el reabasto valuaba con
+  // `COALESCE(pr.cost_with_tax, pr.cost_base, 0)` -- el catalogo -- y habia paridad que medir
+  // porque habia DOS valores. VA.4 cableo la pierna Kepler al arbitro con un CASE por ERP: ya no
+  // hay segundo valor almacenado, no queda nada que comparar en el DATO.
+  // ⚠️ Una version de este archivo intento medirlo igual y escribio una paridad que daba 1,342 --
+  // pero lo que media era "el arbitro se aparta del catalogo mas alla de la banda fiscal", que es
+  // esperado y NO es un defecto. Una metrica mal rotulada es peor que ninguna.
+  v_erp_unit_cost: 'desde VA.4 el consumidor LEE el arbitro (CASE por ERP en '
+    + 'commercial-replenishment.costUnit()), asi que no hay segundo valor almacenado contra el '
+    + 'cual cotejar: el guardian correcto es la asercion de CODIGO del bloque 4bis. La pierna '
+    + 'Wincaja quedo con el catalogo por decision de alcance y vive declarada en '
+    + 'analytics.declared_gaps (costo_arbitro_no_conmensurable_reabasto)',
   v_kepler_unit_cost: 'es la pierna Kepler de v_erp_unit_cost, que YA tiene paridad registrada. '
     + 'Compararlo aparte mediria dos veces el mismo desacuerdo',
   mv_kepler_sales_daily: 'su paridad existe y vive en su propio candado '
@@ -332,14 +320,45 @@ const N = (n) => {
       `${N(dir.discrepancias)} vs ${N(t.n)} — si fueran iguales, el umbral no estaría filtrando nada`);
   }
 
+  // ── 4bis. ⭐⭐ El guardián del COSTO es de CÓDIGO, no de dato ─────────────────────────────
+  console.log('\n── 4bis. ⭐⭐ El costo del reabasto lee el árbitro (VA.4) ──');
+  console.log('     No hay paridad de dato posible: desde VA.4 no existe un segundo valor');
+  console.log('     almacenado. Lo que se puede afirmar es que el consumidor lee el árbitro.');
+  {
+    const fs2 = require('fs');
+    const path2 = require('path');
+    const REP = path2.resolve(__dirname, '..', '..',
+      'libs/commercial/src/lib/commercial-replenishment/commercial-replenishment.service.ts');
+    if (!fs2.existsSync(REP)) {
+      skip++; console.log('  ○ NO MEDIDO — el cableado del costo: no se encontró el servicio');
+    } else {
+      const rep = fs2.readFileSync(REP, 'utf8')
+        .replace(/\/\*[\s\S]*?\*\//g, '')
+        .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+      check('⭐⭐ el reabasto lee el ÁRBITRO del costo en la pierna Kepler (VA.4)',
+        rep.includes('euc.costo_unitario'),
+        'costUnit() volvió al catálogo: el costo del reabasto dejó de ser el arbitrado');
+      check('⭐ y con un CASE por ERP, no un COALESCE que cruce los dos (ADR-059 R1)',
+        rep.includes("costo_source = 'wincaja_costo_promedio'"),
+        'desapareció el CASE por ERP: o se unificaron las piernas, o se perdió el guard');
+      check('⛔ y el catálogo ya NO se usa para valuar ahí',
+        !/COALESCE\(pr\.cost_with_tax, pr\.cost_base, 0\)\s*'/.test(rep)
+        || !rep.includes('private costUnit() { return'),
+        'costUnit() volvió a devolver el catálogo crudo');
+    }
+  }
+
   // ── 5. Lo que este candado NO alcanza ────────────────────────────────────────────────────
   console.log('\n── 5. Lo que este candado no alcanza ──');
   console.log('     ⛔ Sólo ve valores ALMACENADOS. El `uxc` de Sell-Out se calcula al vuelo y no');
   console.log('        vive en ninguna tabla: para ése, hoy sólo hay VA.1 (código) y su candado');
   console.log('        propio. Cerrarlo pide golpear el endpoint y comparar la respuesta contra');
   console.log('        el árbitro — NO está hecho, y se declara en vez de suponerlo cubierto.');
-  console.log('     ⚠️  Los baselines son deuda, no salud: 208 y 583 discrepancias siguen ahí.');
-  console.log('        El trinquete impide que crezcan; cerrarlas es trabajo aparte.');
+  console.log('     ⚠️  Los baselines son deuda; un objetivo CERO es un invariante.');
+  console.log('        factor de caja y costo-Kepler estan en CERO: si aparece una');
+  console.log('        discrepancia es un bug, no un pendiente. Existencia (tope 250, dato');
+  console.log('        vivo) y ABC (1,846) siguen siendo DEUDA: el trinquete impide que');
+  console.log('        crezcan, cerrarlas es trabajo aparte.');
 
   console.log(`\n=== ${ok} OK · ${fail} FAIL · ${skip} NO MEDIDO ===\n`);
   await c.end();

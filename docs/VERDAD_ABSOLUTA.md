@@ -455,6 +455,38 @@ Y para **de dónde sale** cada dato: [`REGISTRO_CANONICO_COMPLETO.md`](REGISTRO_
 
 Todas vividas. El número entre paréntesis es lo que costaron.
 
+0. ⛔⛔ **Que un resolvedor sea CANÓNICO no lo hace CONMENSURABLE con la cantidad que lo
+   multiplica** (≈$17.1M de sugerido inflado, atajado antes de entregarlo — VA.4, 2026-09-11).
+
+   Se estaba cableando `commercial-replenishment` al árbitro del costo (`v_erp_unit_cost`) en vez
+   del catálogo. Todo el diagnóstico era correcto: el catálogo da UN costo por producto cuando el
+   **86%** tiene más de uno, y prefería el BRUTO — sobre la existencia valuaba **$5,270,072
+   (7.72%)** de más. Y el cambio igual estaba mal.
+
+   El antes/después del **sugerido de compra** dio **+36.79% ($17,092,646)** en vez del −8%
+   esperado. Las razones lo dijeron todo:
+
+   ```text
+   70031 CHOC EST SUIZO /16      5.40 ->    86.35   x15.99   wincaja_costo_promedio
+   18022 CAJETA ENVINADA 25KG   41.34 ->  2066.93   x50.00   wincaja_costo_promedio
+   70043 GOMA A GRANEL 12KG     54.37 ->   652.46   x12.00   wincaja_costo_promedio
+   ```
+
+   **Las razones SON los factores de caja, y todas las filas son de Wincaja.** El costo del árbitro
+   está en la unidad NATIVA del almacén (en Wincaja, el paquete — ADR-055) y
+   `commercial.reorder_policy.max_stock` está en **piezas**. Ninguno de los dos está mal: cada uno
+   es correcto en su marco. **El pecado es multiplicarlos.**
+
+   ⚠️ KE.1/KE.3 no lo sufren con el MISMO árbitro porque valúan contra
+   `v_erp_stock_on_hand.qty_stock_units`, que está en esa misma unidad nativa. El reabasto
+   normaliza a piezas, y ahí el árbitro deja de servir tal cual.
+
+   ⭐ VA.3 (el factor de caja) sí se pudo cortar de un saque porque un factor es **adimensional**.
+   Un costo no. Antes de apuntar un consumidor a un resolvedor, **probar la unidad en la tabla que
+   ese consumidor lee** — la regla ya estaba escrita y no se aplicó: se asumió que apuntar al
+   árbitro alcanzaba. Declarado en `analytics.declared_gaps`
+   (`costo_arbitro_no_conmensurable_reabasto`).
+
 1. ⛔ **`?` dentro de un `knex.raw`** → knex lo toma como binding. El repo tenía anotado que da
    `42P18`; **la variante peor no falla**: guardó `'^-$1[0-9]+(\.[0-9]+)$2…'`, no matcheó nada, y la
    vista devolvió `sin_testigo` en **16,453 filas** — que se lee igual que *"Kepler no tiene costo"*.

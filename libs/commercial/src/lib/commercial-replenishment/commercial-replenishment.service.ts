@@ -315,7 +315,44 @@ export class CommercialReplenishmentService {
   //
   // ⚠️ 110 SKUs ($493k de venta 90d) dan razón mediana 3.47 contra `u1_cost`: ésos SÍ son
   // sospechosos de peldaño, no de impuesto. Van a la bandeja, no a este COALESCE.
-  private costUnit() { return 'COALESCE(pr.cost_with_tax, pr.cost_base, 0)'; }
+  //
+  // ⭐⭐ [VA.4] Edgar, 2026-09-11: *"quiero una verdad absoluta en Kepler, Wincaja no me importa"*.
+  // El costo de la pierna KEPLER lo dice su árbitro (`analytics.v_erp_unit_cost`, KE.3), no el
+  // catálogo. El catálogo da UN costo por producto cuando el 86% tiene más de uno (cada ERP
+  // costea su almacén) y encima prefería el BRUTO.
+  //
+  // ⛔ Es un `CASE` por ERP, NO un COALESCE — el patrón de ADR-059 R1 y de KE.3: cada ERP se
+  // juzga con SU evidencia. Y el ELSE cubre también `catalogo_*`, que ya ES el catálogo.
+  //
+  // ── Por qué Wincaja se queda como estaba, y no es pereza ──────────────────────────────────
+  //
+  // Se intentó cablear los dos y el antes/después lo frenó: el sugerido subía **+36.79%
+  // ($17,092,646)**, todo de Wincaja, con razones pegadas EXACTAS al factor de caja (x15.99,
+  // x50.00, x12.00, x20.00). En una parte de Wincaja el `costo_promedio` viene por la unidad de
+  // venta (el paquete, ADR-055) mientras `rp.max_stock` está en PIEZAS.
+  //
+  // ⚠️ Y NO es sistémico —dividir por el factor lo empeora: la razón mediana pasa de 0.9999 a
+  // 0.0600 y los pegados caen de 6,731 a 745—. O sea el 67% de Wincaja está bien y el daño lo
+  // concentra un subconjunto (granel 12/25 KG, multipacks) que carga volúmenes enormes. Declarado
+  // en `analytics.declared_gaps` como `costo_arbitro_no_conmensurable_reabasto`.
+  //
+  // ── La pierna Kepler, medida antes de cablearla ───────────────────────────────────────────
+  //
+  //   razon arbitro/catalogo: p10 0.8405 · mediana 0.9259 · p90 1.0014   (= 1/(1+IVA))
+  //   dentro de la banda fiscal 0.80-1.05 .... 19,340 de 20,917 = 92.46%
+  //   con la FIRMA de unidad cruzada ......... 0
+  //
+  // O sea en Kepler el cambio es SOLO la corrección de impuesto: el sugerido baja **−10.64%**
+  // ($13,117,950 → $11,722,814), y esa baja es correcta porque el IVA de compra es ACREDITABLE
+  // — no es un costo.
+  //
+  // ⛔ Sin `, 0)` en la rama Kepler: donde el árbitro dice `sin_costo` el valor sale NULL y la
+  // columna queda vacía. Un costo ausente dibujado como 0 valúa en cero y se lee como "gratis".
+  private costUnit() {
+    return `CASE WHEN euc.costo_source = 'wincaja_costo_promedio'
+                 THEN COALESCE(pr.cost_with_tax, pr.cost_base, 0)
+                 ELSE euc.costo_unitario END`;
+  }
   /**
    * U.2 — ¿se puede valuar esta fila? El costo unitario de arriba está en peldaño BASE (medido en
    * U.0); la CANTIDAD que lo multiplica está en la unidad nativa del almacén, y quien dice si esas
@@ -413,6 +450,10 @@ export class CommercialReplenishmentService {
         .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
         .leftJoin('commercial.abc_classification as abc', (j) =>
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'))
+        // [VA.4] el costo del ARBITRO, al grano almacen x producto. Ver costUnit() para el CASE
+        // por ERP y para por que Wincaja se queda con el catalogo.
+        .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
+          j.on('euc.tenant_id', 'rp.tenant_id').andOn('euc.warehouse_id', 'rp.warehouse_id').andOn('euc.product_id', 'rp.product_id'))
         // RA.5 — tránsito desde el fact (sin RLS → tenant_id explícito en el ON)
         .leftJoin('analytics.replenishment_plan as rpl', (j) =>
           j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
@@ -545,12 +586,12 @@ export class CommercialReplenishmentService {
           if (sortExpr) {
             const dir = (q.sort_dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
             qb.orderByRaw(`${sortExpr} ${dir} NULLS LAST`)
-              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`);
+              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC NULLS LAST`);
           } else {
             // U.2 — lo medible primero: sin esto un SKU con el peldaño contradicho (cuyo $ está
             // inflado justamente por eso) encabeza la lista del comprador con una cifra retenida.
             qb.orderByRaw(`(${this.rungMedible()}) DESC`)
-              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC`)
+              .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()} DESC NULLS LAST`)
               .orderByRaw(`CASE ${this.bucketExpr()}
                   WHEN 'agotado' THEN 0 WHEN 'bajo_minimo' THEN 1 WHEN 'bajo_reorden' THEN 2 WHEN 'sobrestock' THEN 4 ELSE 3 END`)
               .orderByRaw(`GREATEST(0, ${target} - ${oh} - ${it}) DESC`);
