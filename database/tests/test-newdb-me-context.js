@@ -220,7 +220,8 @@ const tieneDecoradorPermisos = (tramo) =>
   }
   const token = login.body?.access_token;
   check('JWT recibido', !!token, login.status);
-  if (!token) { console.log(`\n${pass} OK · ${fail} FAIL`); process.exit(fail ? 1 : 0); }
+  // Mismo motivo que el cierre de abajo: `process.exit()` acá salía con 127 en Windows.
+  if (!token) { console.log(`\n${pass} OK · ${fail} FAIL`); process.exitCode = fail ? 1 : 0; return; }
 
   console.log('\n── 2. GET /users/me/context ──');
   const me = await req('GET', '/users/me/context', null, token);
@@ -298,8 +299,19 @@ const tieneDecoradorPermisos = (tramo) =>
   check('401 sin token', anonW.status === 401, anonW.status);
 
   console.log(`\n${pass} OK · ${fail} FAIL${sinMedir ? ` · ${sinMedir} NO MEDIDO` : ''}`);
-  // exit 2 = NO MEDIDO: no pasó, pero tampoco es una regresión. Contrato de `_lib/no-medido.js`.
-  process.exit(fail ? 1 : sinMedir ? 2 : 0);
+  /*
+   * `[SN.15]` `process.exitCode` y NO `process.exit()`.
+   *
+   * Con `process.exit()` este script terminaba con **127** en Windows, no con su código: node
+   * abortaba en `Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), src\win\async.c` al matar
+   * el proceso con los sockets keep-alive de `fetch` todavía cerrándose. El resumen se imprimía
+   * bien, así que a simple vista parecía que todo estaba en orden.
+   *
+   * Daba igual mientras los códigos fueran 0 y 1 —cualquier cosa ≠ 0 se leía como "falló"— pero
+   * con el tercer estado deja de dar igual: 127 haría que un **NO MEDIDO** (2) se reporte como
+   * regresión, que es justo la confusión que `_lib/no-medido.js` existe para eliminar.
+   */
+  process.exitCode = fail ? 1 : sinMedir ? 2 : 0;
 })().catch((e) => {
   console.error(e);
   process.exit(1);
