@@ -295,6 +295,13 @@ const FEED_LABELS = {
   all: 'Feed all (cutover/manual)',
 };
 
+// [VL.6.4] Carriles que NO llevan bitácora por paso. El criterio es medible y es uno solo:
+// **cadencia sub-minuto con 1-2 pasos**. Ahí el latido del carril YA es por paso (si falla uno de
+// dos, el campo `error` dice cuál), y en cambio la bitácora costaría ~7,200 filas/día — 7× lo que
+// suman todos los demás carriles juntos. En los batch (nocturno 53, intradía 8, live 5…) pasa al
+// revés: el latido no puede decir cuál paso murió, y el volumen es de ~940 filas/día.
+const SIN_BITACORA_POR_PASO = new Set(['livefast', 'receipts', 'contpaqi']);
+
 function usage() {
   console.error('Uso: node run-prod-feeds.js <live|stock|nightly|finance|catalog|logistics|all> [--apply]');
   process.exit(2);
@@ -315,20 +322,41 @@ function killTree(proc) {
 // modo distinto del default (ej. repoint-catalog-prices en --gap-fill-only, porque el sync de
 // precio lo tomó repoint-prices-from-bitacora).
 const pathOf = (entry) => (Array.isArray(entry) ? entry[0] : entry);
+// Identidad del paso DENTRO del carril, para la bitácora. Lleva las banderas a propósito:
+// `repoint-catalog-prices.js` corre en `nightly` con --gap-fill-only y en `prices` con --sync,
+// y son operaciones distintas. Medido: ningún carril repite un paso, así que esta llave es única.
+const stepKeyOf = (entry) => (Array.isArray(entry)
+  ? [path.basename(entry[0]), ...entry.slice(1)].join(' ')
+  : path.basename(entry));
 
 function run(entry) {
   return new Promise((resolve) => {
     const script = pathOf(entry);
     const args = [script, ...(Array.isArray(entry) ? entry.slice(1) : [])];
     if (APPLY) args.push('--apply');
-    const proc = spawn('node', args, { stdio: 'inherit' });
+    // [VL.6.4] stdout/stderr por TUBO en vez de `inherit`, para quedarnos con la cola de la
+    // salida (la línea de resumen que cada importer imprime: `COMMIT — N filas…`). Se reescribe
+    // byte a byte al stdout del runner en el mismo momento, así el log del contenedor queda
+    // IGUAL que antes. stdin sigue heredado: ningún importer lee de stdin y no hay razón para
+    // cambiarle el entorno a un carril que corre en prod.
+    const proc = spawn('node', args, { stdio: ['inherit', 'pipe', 'pipe'] });
+    let cola = '';
+    const capturar = (salida, buf) => {
+      try { salida.write(buf); } catch { /* EPIPE: el log se perdió, el paso sigue */ }
+      // Cota dura: nos interesa el final, no el historial. 4 KB alcanzan para varias líneas.
+      try { cola = (cola + buf.toString('utf8')).slice(-4000); } catch { /* binario raro */ }
+    };
+    proc.stdout.on('data', (b) => capturar(process.stdout, b));
+    proc.stderr.on('data', (b) => capturar(process.stderr, b));
     currentChild = proc;
     let done = false;
     const finish = (code) => {
       if (done) return; done = true;
       clearTimeout(timer);
       if (currentChild === proc) currentChild = null;
-      resolve(code);
+      // Última línea NO vacía: es donde los importers dejan su resumen.
+      const lineas = cola.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+      resolve({ code, resumen: lineas.length ? lineas[lineas.length - 1] : null });
     };
     const mins = timeoutMinFor(script);
     const timer = setTimeout(() => {
@@ -401,13 +429,37 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
 
   sweepStaleOrphans(steps); // limpia colgados de una corrida previa antes de arrancar
 
+  // [VL.6.4] Contabilidad POR PASO → analytics.cron_run_log (ver cron-heartbeat.stepLog).
+  // Existe porque `feed_nightly` es UN latido para 53 pasos y sólo se pone rojo si fallan los
+  // 53: un paso que hace años no escribe una fila se ve idéntico a uno crítico. Sin esto,
+  // "¿cuáles de los 53 sobran?" no tiene con qué contestarse.
+  const bitacora = (APPLY && !SIN_BITACORA_POR_PASO.has(MODE)) ? hb.stepLog(hbKey) : null;
+
   let failed = 0;
   const failedSteps = [];
   for (const s of steps) {
     console.log(`\n--- ${pathOf(s)} ---`);
-    const code = await run(s);
+    const t0 = new Date();
+    const { code, resumen } = await run(s);
+    const t1 = new Date();
+    const ms = t1 - t0;
     if (code !== 0) { failed++; failedSteps.push(path.basename(pathOf(s))); console.error(`✗ ${pathOf(s)} salió con código ${code}`); }
+    console.log(`    ⏱  ${(ms / 1000).toFixed(1)}s · ${code === 0 ? 'ok' : 'error'}`);
+    // `add` nunca lanza (la bitácora no puede tumbar el carril) y descarga sola cada 10 pasos.
+    if (bitacora) {
+      await bitacora.add({
+        step: stepKeyOf(s),
+        status: code === 0 ? 'ok' : 'error',
+        startedAt: t0.toISOString(),
+        finishedAt: t1.toISOString(),
+        durationMs: ms,
+        note: resumen, // la última línea del propio importer, TEXTUAL (no es una medición de filas)
+        error: code === 0 ? null
+          : (code === 124 ? `TIMEOUT ${timeoutMinFor(pathOf(s))} min` : `exit ${code}`),
+      });
+    }
   }
+  if (bitacora) await bitacora.flush(); // la cola que no llegó a completar lote
   console.log(`\n=== Runner terminó: ${steps.length - failed}/${steps.length} OK ===`);
 
   // Latido de cierre. status='error' SOLO si el batch entero falló (DB caída / mode roto);
