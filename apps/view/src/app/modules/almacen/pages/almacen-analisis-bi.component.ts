@@ -36,14 +36,14 @@ const ISO = (d: Date) => d.toISOString().slice(0, 10);
  * TODAS visibles por default (no una selección recortada), calcado del que dictó en la revisión.
  */
 const DEFAULT_MOV_COLS = [
-  'doc_date', 'hora', 'zone_name', 'warehouse_code', 'almacen', 'movement_kind', 'movement_label',
-  'doc_code', 'folio', 'sku', 'product_name', 'linea_producto', 'tipo_producto', 'grupo_producto',
+  'doc_date', 'hora', 'zone_name', 'warehouse_code', 'almacen', 'canal', 'movement_kind', 'tipo_operacion', 'movement_label',
+  'doc_code', 'folio', 'vendedor', 'sku', 'product_name', 'linea_producto', 'tipo_producto', 'grupo_producto',
   'qty', 'unidad_operacion', 'unidad_base', 'importe_costo', 'importe_venta',
   'iva_valor', 'ieps_valor', 'venta_neta',
 ];
 const DEFAULT_EXPLORE_FIELDS = [
-  'doc_date', 'hora', 'zone_name', 'warehouse_code', 'almacen', 'movement_kind_label', 'movement_label',
-  'sku', 'product_name', 'linea_producto', 'tipo_producto', 'grupo_producto', 'qty', 'unidad_operacion', 'unidad_base',
+  'doc_date', 'hora', 'zone_name', 'warehouse_code', 'almacen', 'canal', 'movement_kind_label', 'tipo_operacion', 'movement_label',
+  'vendedor', 'sku', 'product_name', 'linea_producto', 'tipo_producto', 'grupo_producto', 'qty', 'unidad_operacion', 'unidad_base',
 ];
 
 @Component({
@@ -246,10 +246,13 @@ const DEFAULT_EXPLORE_FIELDS = [
                 @if (colOn('zone_name')) { <th scope="col">Zona</th> }
                 @if (colOn('warehouse_code')) { <th scope="col">Sucursal</th> }
                 @if (colOn('almacen')) { <th scope="col">Almacén</th> }
+                @if (colOn('canal')) { <th scope="col">Canal</th> }
                 @if (colOn('movement_kind')) { <th scope="col">Tipo</th> }
+                @if (colOn('tipo_operacion')) { <th scope="col">Tipo de operación</th> }
                 @if (colOn('movement_label')) { <th scope="col">Documento</th> }
                 @if (colOn('doc_code')) { <th scope="col">Código doc.</th> }
                 @if (colOn('folio')) { <th scope="col">Folio</th> }
+                @if (colOn('vendedor')) { <th scope="col">Vendedor</th> }
                 @if (colOn('sku')) { <th scope="col">Código</th> }
                 @if (colOn('product_name')) { <th scope="col">Producto</th> }
                 @if (colOn('linea_producto')) { <th scope="col">Línea</th> }
@@ -277,10 +280,13 @@ const DEFAULT_EXPLORE_FIELDS = [
                 @if (colOn('zone_name')) { <td>{{ r.zone_name || '—' }}</td> }
                 @if (colOn('warehouse_code')) { <td class="abi-mono">{{ r.warehouse_code }}</td> }
                 @if (colOn('almacen')) { <td [title]="'Ajustes genéricos hoy — sin motivo capturado en Kepler'">{{ r.almacen }}</td> }
+                @if (colOn('canal')) { <td [title]="'Sólo aplica en documentos de venta'">{{ r.canal || 'No disponible' }}</td> }
                 @if (colOn('movement_kind')) { <td [class.abi-ok]="r.movement_kind === 'entrada'" [class.abi-bad]="r.movement_kind === 'salida'">{{ r.movement_kind === 'entrada' ? 'Entrada' : r.movement_kind === 'salida' ? 'Salida' : 'Informativo' }}</td> }
+                @if (colOn('tipo_operacion')) { <td>{{ r.tipo_operacion }}</td> }
                 @if (colOn('movement_label')) { <td>{{ r.movement_label }}</td> }
                 @if (colOn('doc_code')) { <td class="abi-mono">{{ r.doc_code }}</td> }
                 @if (colOn('folio')) { <td class="abi-mono abi-link">{{ r.folio }}</td> }
+                @if (colOn('vendedor')) { <td [title]="'Sólo aplica en documentos de venta'">{{ r.vendedor || 'No disponible' }}</td> }
                 @if (colOn('sku')) { <td class="abi-mono">{{ r.sku || '—' }}</td> }
                 @if (colOn('product_name')) { <td>{{ r.product_name }}</td> }
                 @if (colOn('linea_producto')) { <td>{{ r.linea_producto || 'No disponible' }}</td> }
@@ -529,8 +535,12 @@ export class AlmacenAnalisisBiComponent {
   visibleMovCols = [...DEFAULT_MOV_COLS];
   readonly movColumnOpts = [
     { key: 'doc_date', label: 'Fecha' }, { key: 'hora', label: 'Hora' }, { key: 'zone_name', label: 'Zona' },
-    { key: 'warehouse_code', label: 'Sucursal' }, { key: 'almacen', label: 'Almacén' }, { key: 'movement_kind', label: 'Tipo' },
+    { key: 'warehouse_code', label: 'Sucursal' }, { key: 'almacen', label: 'Almacén' },
+    { key: 'canal', label: 'Canal' },
+    { key: 'movement_kind', label: 'Tipo' },
+    { key: 'tipo_operacion', label: 'Tipo de operación' },
     { key: 'movement_label', label: 'Documento' }, { key: 'doc_code', label: 'Código doc.' }, { key: 'folio', label: 'Folio' },
+    { key: 'vendedor', label: 'Vendedor' },
     { key: 'sku', label: 'Código' }, { key: 'product_name', label: 'Producto' },
     { key: 'linea_producto', label: 'Línea' }, { key: 'tipo_producto', label: 'Tipo producto' }, { key: 'grupo_producto', label: 'Grupo' },
     { key: 'qty', label: 'Cantidad' }, { key: 'unidad_operacion', label: 'Unidad operación' }, { key: 'unidad_base', label: 'Unidad base' },
