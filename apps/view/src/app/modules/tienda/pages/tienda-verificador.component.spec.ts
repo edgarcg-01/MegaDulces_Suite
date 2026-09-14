@@ -455,10 +455,23 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(fix.nativeElement.querySelector('.vf-cambio')).toBeNull();
   });
 
-  it('el feed pone lo último arriba y no crece sin límite (es mostrador, no bandeja)', () => {
+  /**
+   * `[2026-09-14]` El feed de "últimas consultas" se RETIRÓ (pedido de piso de tienda): en un
+   * mostrador público, cualquiera que pasa leía qué escaneó el cliente anterior y a qué
+   * precio. Es la prueba negativa — si alguien lo reintrodujera, esto se pone rojo.
+   */
+  it('NO deja un historial de productos/precios escaneados a la vista de cualquiera', () => {
     svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
-    for (let i = 0; i < 12; i++) fix.componentInstance.consultar('17083');
-    expect(fix.componentInstance.feed().length).toBe(8);
+    fix.componentInstance.consultar('17083');
+    fix.detectChanges();
+
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO };
+    fix.componentInstance.consultar('70001');
+    fix.detectChanges();
+
+    expect(fix.nativeElement.querySelector('.vf-feed')).toBeNull();
+    // El producto ANTERIOR (ya resuelto) no debe seguir asomando en ningún lado de la pantalla.
+    expect(html()).not.toContain(PRODUCTO.nombre);
   });
 
   /**
