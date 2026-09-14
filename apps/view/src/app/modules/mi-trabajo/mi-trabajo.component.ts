@@ -610,7 +610,9 @@ export class MiTrabajoComponent {
   }
 
   abrioBandeja(p: MePendiente): void {
-    this.uso.registrarApertura('bandeja', p.id, { alcance: p.alcance, ruta: p.ruta });
+    // `[SN.24]` `ruta` puede ser null (la actividad es tuya y tu permiso no la abre). Esa fila no
+    // es un enlace, así que este método no se llama; el `?? ''` es para que el tipo lo diga igual.
+    this.uso.registrarApertura('bandeja', p.id, { alcance: p.alcance, ruta: p.ruta ?? '' });
   }
 
   /** `[SN.16]` Qué MES de qué ciclo abrió. El periodo es el dato que hace útil este registro. */
