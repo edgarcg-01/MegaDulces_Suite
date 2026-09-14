@@ -72,6 +72,9 @@ const FULL = process.argv.includes('--full'); // ignora la ventana: barrido úni
 // Freno anti-catástrofe: si una réplica se rompe y devuelve pocas/0 filas, TODO el ODS parece sobrante.
 // Nunca borrar más de esta fracción del ODS de una tabla×rama en una pasada; si se pasa, ABORTA y reporta.
 const MAX_DELETE_FRAC = Math.min(1, Math.max(0.05, Number(process.env.ODS_DELETE_MAX_FRAC) || 0.6));
+// Latido: el carril continuo late como 'cdc_reconcile'; el barrido agendado (ods-reconcile-full)
+// setea ODS_RECONCILE_HB_KEY para NO pisar ese latido (un carril = un dueño del renglón de cron_runs).
+const HB_KEY = (process.env.ODS_RECONCILE_HB_KEY || 'cdc_reconcile').replace(/[^a-z0-9_]/gi, '') || 'cdc_reconcile';
 
 // Ventana por tabla: fecha de NEGOCIO, y en kdm1 también la de CAPTURA (`c68`). Vive en
 // ../lib/ods-recent-window.js, compartida con la red de seguridad de replicate-ods-live.js.
@@ -270,7 +273,7 @@ async function latir(destUrl, r, ms) {
     await c.query(`
       INSERT INTO analytics.cron_runs
         (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, error, host, updated_at)
-      VALUES ($1,'cdc_reconcile','Reconciliador ODS (completitud)', now() - ($2::int || ' ms')::interval, now(),
+      VALUES ($1,'${HB_KEY}',${FULL ? "'Reconciliador ODS --full (backlog)'" : "'Reconciliador ODS (completitud)'"}, now() - ($2::int || ' ms')::interval, now(),
               $3, $4, $2, $5, $6, $7, now())
       ON CONFLICT (tenant_id, job_key) DO UPDATE SET
         last_start=EXCLUDED.last_start, last_finish=EXCLUDED.last_finish, status=EXCLUDED.status,
@@ -296,6 +299,7 @@ async function latir(destUrl, r, ms) {
   console.log(`reconcile-ods-window · ${FULL ? 'FULL (backlog)' : `ventana ${DAYS}d`} · tablas ${TABLES.join(',')} · ${APPLY ? 'APPLY' : 'dry-run'}${DELETE_SOB ? ' · DELETE-SOBRANTES' : ''}${WATCH_SEC ? ` · watch ${WATCH_SEC}s` : ''}\n`);
 
   if (!WATCH_SEC) {
+    const t0 = Date.now();
     const out = await pasada(destUrl);
     console.table(out);
     const r = resumen(out);
@@ -303,6 +307,10 @@ async function latir(destUrl, r, ms) {
     console.log(`filas de MÁS en el ODS: ${r.sobrantes}${DELETE_SOB
       ? (APPLY ? ` · BORRADAS: ${r.borrados}` : ` · borrarían: ${r.borrarian}`) + (r.abortados ? ` · ABORTADOS: ${r.abortados} (fracción > ${(100 * MAX_DELETE_FRAC).toFixed(0)}%)` : '')
       : ' — sólo se reportan (usá --delete-sobrantes para propagar el DELETE)'}`);
+    // OBS.11 — el barrido agendado (ods-reconcile-full) DECLARA su entrega con latido propio
+    // (ODS_RECONCILE_HB_KEY=cdc_reconcile_full). Las corridas manuales no lo setean → no laten,
+    // así no pisan el latido del carril continuo. Un job de limpieza sin latido es mudo.
+    if (process.env.ODS_RECONCILE_HB_KEY) await latir(destUrl, r, Date.now() - t0);
     process.exit(0);
   }
 
