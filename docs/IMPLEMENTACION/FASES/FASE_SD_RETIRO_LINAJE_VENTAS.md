@@ -14,25 +14,42 @@ motor de margen. No se purga: **se declara no-autoritativo y se migran los lecto
 declarativo del ODS**, con un candado de paridad. Purgar sin migrar tira prod; y borrar dato stale
 no lo vuelve fresco, lo vuelve ausente.
 
-## Evidencia medida (agosto 2026, canales Kepler)
+## Evidencia medida — ⚠️ la de 2026-09-11 era APPLES-TO-ORANGES (SD.0, corregida 2026-09-14)
 
-| Fuente | Revenue agosto |
-|---|--:|
-| `analytics.sales_daily` (tabla, lo que lee el código) | $21,296,918.56 |
-| `analytics.mv_kepler_sales_daily` (matview sobre ODS) | $25,742,138.56 |
-| **Brecha** | **$4,445,220 — 17.3%** |
+> La comparación "por canal" de abajo estaba mal: los dos objetos usan **taxonomías de canal
+> distintas** (`mostrador/preventa/ruta` en el matview vs `tienda/credito/mayoreo` en la tabla), así
+> que comparar `tienda`↔`tienda` (matview = $0) no significaba nada, y el "$21.30M tabla" **omitía el
+> canal `mayoreo`** ($7.5M). Se conserva tachada como caso testigo del pecado que SD existe para evitar.
 
-Descompuesta por canal (**no va en una sola dirección** — clave):
+~~tabla $21,296,918 vs matview $25,742,139 · brecha $4,445,220 (17.3%) · `tienda` −$265,485~~
 
-| canal | matview ODS | tabla `sales_daily` | delta |
-|---|--:|--:|--:|
-| `ruta` | $2,031,381.68 | **$0.00** | +$2,031,382 (la tabla NO tiene venta de ruta) |
-| `credito` | $7,481,351.83 | $4,802,028.91 | +$2,679,323 (subcuenta) |
-| `tienda` | $16,229,405.05 | $16,494,889.65 | **−$265,485** (la tabla tiene MÁS) |
+### SD.0 ✅ — el −$265k no existe; la brecha REAL es la venta de RUTA (medido en PROD 2026-09-14)
 
-**El signo negativo de `tienda` es el bloqueante**: el matview pierde algo que la tabla sí tiene. El
-matview NO es automáticamente el correcto. Mover lectores sin explicar ese −$265k es cambiar un
-número equivocado por otro — el error exacto que la Fase MR ya pagó.
+Re-medido channel-agnóstico (la única comparación honesta), agosto-2026:
+
+| linaje | Ago total | cubre |
+|---|--:|---|
+| `sales_daily` (tabla, lo que leen 65 servicios) | **$54,369,414** | ramas 01-06 + **ruta** + Wincaja |
+| `mv_kepler_sales_daily` (el target que este plan nombraba) | $25,742,139 | **solo ramas Kepler — le falta ruta + Wincaja** |
+| **`mv_sales_blended`** (matview ODS-derivada) | **$54,265,356** | todo — **cuadra con la tabla al 0.19%** |
+| `v_sellout_daily` (vista ODS) | $55,204,315 | todo (~1.5%) |
+| `v_route_sales_lines` (vista ODS de ruta) | $7,275,639 | la pierna de ruta |
+
+**Diagnóstico (ruta crítica CERRADA):** reconciliando tabla vs `mv_kepler_sales_daily` a grano
+`(product_id, día)`, las **ramas fijas 01-06 cuadran al 0.4%** ($104k sobre $25.7M) — los dos linajes
+**coinciden** en la venta de sucursal. **Toda** la brecha de ~$3.73M/mes son **6 almacenes
+`kind='truck'`** (`RUTA-21..28` Kepler + `RUTA-3xx/5xx` Wincaja) que:
+- entran a `sales_daily` por el camino **push→mart** (`analytics.route_push_lines`, $6.47M/65k filas en Ago),
+- tienen **`kepler_code = null`** → **no se replican a `kepler_ods`**,
+- por lo tanto están **ausentes de `mv_kepler_sales_daily`** (`source_branch` = sólo 01-07),
+- y en la tabla caen mayormente en el canal **`credito`** ($3.14M) — por eso el `credito` de la tabla
+  se veía 54× inflado vs el del matview. **No es sobreconteo de la tabla: es un HUECO de cobertura del ODS.**
+
+**Consecuencia para el plan:** el target NO es `mv_kepler_sales_daily` (incompleto, sólo ramas). El
+linaje ODS-derivado **completo ya existe** — `mv_sales_blended` cuadra con la tabla al **0.19%** e
+incluye ramas + ruta + Wincaja. SD.3 deja de ser "reconstruir" y pasa a ser **"repuntar los lectores a
+`mv_sales_blended`/`v_sellout_daily`"**. Mover a `mv_kepler_sales_daily` habría tirado **$3.62M/mes de
+venta de ruta Kepler (~12%)** en silencio — el error que este plan (con el target mal elegido) iba a cometer.
 
 ## Lectores (medido: 65 refs a `sales_daily` vs 13 a `mv_kepler_sales_daily`)
 
@@ -48,17 +65,17 @@ Prioridad (dinero primero):
 
 ## Plan (sin big-bang, sin borrar tablas)
 
-- **SD.0 — Explicar el −$265,485 de `tienda`** (ruta crítica, bloquea todo lo demás). Reconciliar
-  fila a fila `sales_daily` vs `mv_kepler_sales_daily` para tienda; identificar qué incluye la tabla
-  que el matview no (¿devoluciones? ¿un doctype? ¿fechas de captura vs valor?). Hasta no cerrarlo,
-  NO se mueve un solo lector.
-- **SD.1 — Candado de paridad**: smoke que compare los dos linajes mes×canal y falle sobre umbral
-  (patrón `database/run-all-tests.js`; hermano de `test-newdb-sellout-parity.js` de VP.1). Debe
-  incluir el hueco (venta de ruta ausente), no sólo el doble conteo.
+- **SD.0 ✅ CERRADO 2026-09-14 — la brecha es la venta de RUTA, no un −$265k de tienda** (ver arriba).
+  El bloqueante quedó nombrado y cuantificado: `mv_kepler_sales_daily` es incompleto (sólo ramas); el
+  linaje ODS COMPLETO que cuadra con la tabla al 0.19% es **`mv_sales_blended`**. **Corrige el target de SD.3.**
+- **SD.1 — Candado de paridad**: smoke que compare `sales_daily` vs **`mv_sales_blended`** mes×rama y
+  falle sobre umbral (patrón `database/run-all-tests.js`; hermano de `test-newdb-sellout-parity.js` de
+  VP.1). Debe incluir el hueco (que `mv_kepler_sales_daily` NO trae ruta) como prueba negativa, no sólo
+  el doble conteo. Correr contra `FLEET_DB_URL`.
 - **SD.2 — Declarar `sales_daily` no-autoritativa** (comentario en tabla + doc), sin borrarla.
-- **SD.3 — Migrar el motor de margen** al linaje ODS (`v_sales_demand_truth`/`mv_kepler_sales_daily`
-  + Wincaja), con la medición antes/después del número publicado (un commit que cambia un número no
-  cierra sin el antes/después — regla del proyecto).
+- **SD.3 — Migrar el motor de margen** al linaje ODS **`mv_sales_blended`** (NO `mv_kepler_sales_daily`,
+  que perdería $3.62M/mes de ruta), con la medición antes/después del número publicado (un commit que
+  cambia un número no cierra sin el antes/después — regla del proyecto).
 - **SD.4 — Migrar Command Center**.
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
   declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores.
