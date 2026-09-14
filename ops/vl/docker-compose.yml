@@ -180,7 +180,7 @@ services:
       ODS_HB_IGNORE_ERROR: "1"
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - 'node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord; echo "0 3 * * * cd /app && node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord >> /proc/1/fd/1 2>&1" | crontab -; exec crond -f -d 8'
+      - 'node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord,kdm2,kdij; echo "0 3 * * * cd /app && node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord,kdm2,kdij >> /proc/1/fd/1 2>&1" | crontab -; exec crond -f -d 8'
     healthcheck:
       test: ["CMD", "node", "/app/ops/ingest/health.js"]
       interval: 300s
