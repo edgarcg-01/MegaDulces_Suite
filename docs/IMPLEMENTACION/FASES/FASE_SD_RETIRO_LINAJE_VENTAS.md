@@ -111,7 +111,11 @@ Prioridad (dinero primero):
   `mv_kepler` **arrastra `mv_sales_blended`**) + recrear + refresh (mv_kepler 730k / mv_wincaja 4M /
   blend 4.5M filas → minutos sin sell-out). **Necesita ventana + autorización de Edgar.** Candado: extender
   `test-newdb-sales-lineage-parity` con paridad de tickets. Con esto resuelto, `sales_daily.tickets`
-  deja de bloquear el retiro.
+  deja de bloquear el retiro. **Script escrito y VALIDADO 2026-09-14 (sin aplicar):**
+  [`database/scripts/sd4b-folio-counting-blend.js`](../../../database/scripts/sd4b-folio-counting-blend.js)
+  — dry-run por default, `--apply` sólo en ventana. DDL validada contra prod por EXPLAIN dentro de una
+  transacción revertida (3/3, cero cambios); la validación cazó un `GROUP BY` incompleto antes de que
+  nadie lo corriera. **Falta: correrlo con `--apply` en ventana fuera de horario + autorización + el candado de tickets.**
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
   declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores, y tras
   resolver los dos bloqueantes declarados (SD.4b tickets + la taxonomía de canal `mayoreo`).
