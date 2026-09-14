@@ -15,16 +15,6 @@ import { CountUpDirective } from '../../../shared/directives/count-up.directive'
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
 import { EstadoSnapshot, OrigenPrecio, ProductoPrecio, ResultadoBusqueda, SucursalVerificador, VerificadorService } from '../verificador.service';
 
-/** Un renglón del feed de consultas (lo último arriba, patrón POS). */
-interface Consulta {
-  codigo: string;
-  nombre: string;
-  precio: number | null;
-  unidad: string;
-  origen: OrigenPrecio | 'ninguno';
-  hora: Date;
-}
-
 type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 'bad' } | null;
 
 /**
@@ -48,7 +38,9 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
  *
  * ── Superficie ──────────────────────────────────────────────────────────────────────────
  * DESIGN Operations §O.3 (Mostrador/POS): foco permanente en la captura, el precio domina
- * la jerarquía, feed al tope sin paginación.
+ * la jerarquía. NO lleva feed de "últimas consultas" a la vista (se tuvo y se quitó,
+ * 2026-09-14): en un mostrador público cualquiera que pasa lee qué escaneó el cliente
+ * anterior y a qué precio — piso de tienda lo señaló y se declaró correcto retirarlo.
  *
  * ── Excepción confirmada a DESIGN.md §O.3 (decisión 0Sistemas, 2026-09-12) ──────────────
  * Esta pantalla NO usa los tokens de Operations (Hanken Grotesk/Geist Mono, zinc, sunset).
@@ -302,15 +294,6 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
           Productos escaneados: <b>{{ contador() }}</b>
           <button type="button" class="vf-counter-reset" title="Reiniciar contador" (click)="reiniciarContador()">&#8635;</button>
         </span>
-        <div class="vf-feed">
-          @for (c of feed(); track c.hora.getTime() + c.codigo) {
-            <span class="vf-feed-item">
-              <span class="vf-mono">{{ c.codigo }}</span> {{ c.nombre || 'no encontrado' }}
-              <span class="vf-mono">{{ c.precio != null ? money(c.precio) : '—' }}</span>
-              @if (c.origen === 'respaldo') { <i class="pi pi-exclamation-triangle" title="Precio de respaldo"></i> }
-            </span>
-          }
-        </div>
         <span class="vf-version">
           v1.0
           @if (snapshot(); as s) {
@@ -530,8 +513,6 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-counter b { color: var(--vf-naranja); font-weight: 700; }
     .vf-counter-reset { background: none; border: none; cursor: pointer; opacity: .55;
       padding: 0 4px; font: inherit; color: inherit; }
-    .vf-feed { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
-    .vf-feed-item { display: inline-flex; align-items: center; gap: .3rem; }
     .vf-mono { font-family: monospace; }
     .vf-version { display: inline-flex; align-items: center; gap: .4rem; color: #b0b8c4; }
 
@@ -604,8 +585,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
    * una vez por turno. Ver `is-pase-b` en la plantilla.
    */
   readonly pase = signal(0);
-  readonly feed = signal<Consulta[]>([]);
-  /** Productos escaneados en este equipo, de por vida (no se resetea con el feed de 8). */
+  /** Productos escaneados en este equipo, de por vida. */
   readonly contador = signal(0);
 
   /**
@@ -936,14 +916,6 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
         this.banner.set(null);
       }
       this.bumpContador();
-      this.empujarFeed({
-        codigo: r.producto.codigo,
-        nombre: r.producto.nombre,
-        precio: r.producto.unidades?.[0]?.precio_con_iva ?? null,
-        unidad: r.producto.unidades?.[0]?.u || '',
-        origen: r.origen,
-        hora: new Date(),
-      });
       this.desplazarResultadoAlaVista();
       return;
     }
@@ -963,15 +935,6 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
         tono: 'bad',
       });
     }
-    this.empujarFeed({
-      codigo: this.ultimoCodigo(), nombre: '', precio: null, unidad: '',
-      origen: r.estado === 'no_encontrado' ? r.origen : 'ninguno', hora: new Date(),
-    });
-  }
-
-  /** Lo último arriba, tope de 8: es un feed de mostrador, no una bandeja auditable (§O.3). */
-  private empujarFeed(c: Consulta): void {
-    this.feed.update((f) => [c, ...f].slice(0, 8));
   }
 
   private limpiarResultado(): void {
