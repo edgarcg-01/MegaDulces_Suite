@@ -97,19 +97,57 @@ export interface BiSummaryResponse {
 
 export interface BiMovementRow {
   doc_date: string;
+  /** `null` cuando el enriquecimiento contra kepler_ods se saltó por timeout — ver `hora_no_disponible`. */
+  hora: string | null;
   zone_name: string | null;
+  /** Antes "Almacén" — es la SUCURSAL (una fila de commercial.warehouses = una sucursal). */
   warehouse_code: string;
   warehouse_name: string;
+  /**
+   * Sub-almacén dentro de la sucursal (disponible/dañado/caduco). Decisión del negocio
+   * (2026-09-15): el feed de ajustes hoy es genérico (InvIn1/InvOut1, sin motivo capturado en
+   * Kepler) — se declara SIEMPRE 'Disponible' hasta que el ERP capture el motivo real. No es
+   * una clasificación inventada por línea; es el único valor que el dato de hoy sostiene.
+   */
+  almacen: 'Disponible';
   movement_kind: 'entrada' | 'salida' | 'info';
+  /** Antes "Motivo" — nombre de negocio del documento (Venta/Compra/Traspaso/Devolución/Ajuste…). */
   movement_label: string;
   doc_code: string;
   folio: string;
   sku: string | null;
   product_name: string;
+  /** kdii.c3 → kdig (verificado 87.6% de match). Nombre real: fabricante/distribuidor. */
+  linea_producto: string | null;
+  /** kdii.c4 → kdie (verificado 100% de match). El "canasto": DULCES/BOTANAS/ABARROTES/… */
+  tipo_producto: string | null;
+  /** kdii.c5 → kdif (verificado 99.5% de match). Sub-categoría dentro del tipo. */
+  grupo_producto: string | null;
   qty: number;
   signed_qty: number;
+  /** kdm2.c11 — unidad en la que se capturó ESTA línea (PZA/PAQ/CJA/KG/…). */
+  unidad_operacion: string | null;
+  /** analytics.v_unit_truth.base_label — la unidad base del producto en ESE almacén. */
+  unidad_base: string | null;
+  /**
+   * Cantidad convertida a unidad base. `null` cuando la conversión no se pudo verificar
+   * (no se dibuja una cantidad inventada) — ver `unidad_base_medible`.
+   */
+  cantidad_base: number | null;
+  unidad_base_medible: boolean;
   unit_cost: number | null;
   amount: number | null;
+  /** Importe a COSTO de esta línea (compras/ajustes/traspasos). `null` en líneas de venta. */
+  importe_costo: number | null;
+  /** Importe de VENTA de esta línea (ventas/remisiones). `null` en líneas de costo. */
+  importe_venta: number | null;
+  /** Derivado de catalog.products.iva_rate × importe_venta. `null` sin tasa o sin venta. */
+  iva_valor: number | null;
+  /** Derivado de catalog.products.ieps_rate × importe_venta. `null` sin tasa o sin venta. */
+  ieps_valor: number | null;
+  /** importe_venta − iva_valor − ieps_valor, asumiendo importe_venta CON impuesto incluido.
+   * ⚠️ Supuesto NO verificado contra un ticket real — declarado, no confirmado. */
+  venta_neta: number | null;
   cost_base_hoy: number | null;
   source_system: 'kepler';
 }

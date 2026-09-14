@@ -414,6 +414,14 @@ export class CommercialBiAlmacenService {
 
   // ═══════════════════════════════════════════════════════ movimientos ════
 
+  /**
+   * WMS-BI.2 (2026-09-15) — Documentos que representan VENTA (importe_venta/IVA/IEPS/venta neta)
+   * contra los que representan COSTO (importe_costo: compras, ajustes, traspasos, devoluciones a
+   * proveedor). Devoluciones DE VENTA (RtrnEn1/Rtrn1) entran del lado de venta —son la misma
+   * operación en reversa—, devoluciones A PROVEEDOR (RtrnPrd1/RtrnPur1) del lado de costo.
+   */
+  private static readonly SALE_DOC_CODES = new Set(['Sale1', 'Sale2', 'Remiss1', 'RtrnEn1', 'Rtrn1']);
+
   async movements(query: Record<string, unknown>): Promise<BiPage<BiMovementRow>> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(query['page']) || 1);
@@ -446,14 +454,39 @@ export class CommercialBiAlmacenService {
         });
 
       const [{ count }] = await base().count<{ count: string }[]>('m.folio as count');
-      const rows = await base()
+      // Producto (línea/tipo/grupo) y unidad base: joins LIVE sobre el ODS, al grano PRODUCTO
+      // (no por instancia de movimiento) — verificado 2026-09-15: kdii.c3→kdig (línea/fabricante,
+      // 87.6% match), kdii.c4→kdie (tipo, 100%), kdii.c5→kdif (grupo, 99.5%). Se unen por
+      // (sku, sucursal): kdii/kdie/kdif/kdig replican su catálogo por sucursal.
+      const rowsRaw = await base()
+        .leftJoin('kepler_ods.kdii as ii', function (this: any) {
+          this.on(trx.raw('btrim(ii.c1)'), '=', trx.raw('btrim(coalesce(p.sku, m.sku))')).andOn('ii.sucursal', 'w.code');
+        })
+        .leftJoin('kepler_ods.kdie as tp', function (this: any) {
+          this.on('tp.c1', '=', 'ii.c4').andOn('tp.sucursal', 'ii.sucursal');
+        })
+        .leftJoin('kepler_ods.kdif as gp', function (this: any) {
+          this.on('gp.c1', '=', 'ii.c5').andOn('gp.sucursal', 'ii.sucursal');
+        })
+        .leftJoin('kepler_ods.kdig as lp', function (this: any) {
+          this.on(trx.raw('btrim(lp.c1)'), '=', trx.raw('btrim(ii.c3::text)')).andOn('lp.sucursal', 'ii.sucursal');
+        })
+        .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+          this.on('ut.tenant_id', 'm.tenant_id').andOn('ut.warehouse_id', 'm.warehouse_id').andOn('ut.product_id', 'm.product_id');
+        })
         .select(
           trx.raw(`m.doc_date::text AS doc_date`),
           'z.name as zone_name', 'w.code as warehouse_code', 'w.name as warehouse_name',
           'm.movement_kind', 'm.movement_label', 'm.doc_code', 'm.folio',
+          'm.genero', 'm.naturaleza', 'm.doc_type', 'm.source_branch',
           trx.raw(`coalesce(p.sku, m.sku) AS sku`),
           trx.raw(`coalesce(p.nombre, '(sin catálogo)') AS product_name`),
+          trx.raw(`nullif(btrim(lp.c2), '') AS linea_producto`),
+          trx.raw(`nullif(btrim(tp.c2), '') AS tipo_producto`),
+          trx.raw(`nullif(btrim(gp.c2), '') AS grupo_producto`),
           'm.qty', 'm.signed_qty', 'm.unit_cost', 'm.amount',
+          'ut.base_label as unidad_base', 'ut.medible as unidad_base_medible_resolver',
+          'p.iva_rate', 'p.ieps_rate',
           'p.cost_base as cost_base_hoy',
           trx.raw(`'kepler'::text AS source_system`),
         )
@@ -461,7 +494,89 @@ export class CommercialBiAlmacenService {
         .orderBy('m.folio', 'desc')
         .limit(pageSize).offset((page - 1) * pageSize);
 
+      const rows = await this.enrichFromKdm(trx, tenantId, rowsRaw);
       return { page, pageSize, total: Number(count), rows };
+    });
+  }
+
+  /**
+   * Enriquece la PÁGINA visible (≤200 filas) con lo que sólo vive en `kepler_ods.kdm1`/`kdm2` y
+   * el Diario de Movimientos (Fase DM) no capturó: hora real (`kdm1.c9` es TIMESTAMP, el feed lo
+   * trunca a fecha), unidad de la línea (`kdm2.c11`) y el costo REAL de la línea (`kdm2.c62`/`c63`,
+   * ~99.1% de cobertura en U-D-10/U-D-6 según MR.7.2 — no verificado para los demás doctypes de
+   * este módulo). Batch por VALUES (una sola query, no N) — SIN `statement_timeout` a diferencia
+   * de `inventoryValuation`: el join es por llave puntual (sucursal+doctype+folio+sku) sobre ≤200
+   * filas, no un `count(*)` de toda la vista; si falla, cada fila cae a "no disponible" — la
+   * pantalla sigue siendo útil con lo que YA viene de `analytics.stock_movements`.
+   *
+   * ⚠️ **NO EJERCIDO CONTRA DATOS REALES**: `analytics.stock_movements` está vacía en este
+   * entorno (Fase DM). El join reproduce EXACTO el de `import-stock-movements.js` (mismo orden de
+   * columnas c1/c2/c3/c4/c6), pero su correctitud fila-a-fila no se pudo confirmar aquí.
+   */
+  private async enrichFromKdm(trx: any, tenantId: string, rows: any[]): Promise<BiMovementRow[]> {
+    if (!rows.length) return [];
+    let kdmRows: any[] = [];
+    try {
+      const branches = [...new Set(rows.map((r) => r.source_branch))];
+      const folios = [...new Set(rows.map((r) => r.folio))];
+      const res = await trx.raw(
+        `SELECT h.sucursal, h.c2 genero, h.c3 naturaleza, h.c4::text doc_type, h.c6 folio, l.c8 sku,
+                h.c9 AS hora, l.c11 AS unidad_operacion, l.c58 AS peldano, l.c62 AS costo62, l.c63 AS costo63
+           FROM kepler_ods.kdm1 h
+           JOIN kepler_ods.kdm2 l ON l.sucursal = h.sucursal AND l.c1 = h.c1 AND l.c2 = h.c2
+                                 AND l.c3 = h.c3 AND l.c4 = h.c4 AND l.c6 = h.c6
+          WHERE btrim(h.c1) = btrim(h.sucursal)
+            AND h.sucursal = ANY(?) AND h.c6 = ANY(?)`,
+        [branches, folios],
+      );
+      kdmRows = res.rows;
+    } catch (e: any) {
+      // Se declara vacío (todas las filas caen a "no disponible") en vez de tumbar el endpoint —
+      // el resto de la página (fecha/sucursal/documento/folio/producto/cantidad/importe) sigue
+      // siendo real y útil sin este enriquecimiento.
+      this.logger.warn(`enrichFromKdm: no se pudo enriquecer contra kepler_ods (${e?.message}); se declara no disponible`);
+    }
+    const key = (r: { source_branch?: string; sucursal?: string; genero: string; naturaleza: string; doc_type: string; folio: string; sku: string | null }) =>
+      `${r.source_branch ?? r.sucursal}|${r.genero}|${r.naturaleza}|${r.doc_type}|${r.folio}|${(r.sku ?? '').trim()}`;
+    const kdmByKey = new Map(kdmRows.map((r) => [key(r), r]));
+
+    return rows.map((r) => {
+      const k = kdmByKey.get(key(r));
+      const unidadOperacion: string | null = k?.unidad_operacion ? String(k.unidad_operacion).trim() : null;
+      const unidadBase: string | null = r.unidad_base ?? null;
+      let cantidadBase: number | null = null;
+      let medible = false;
+      if (unidadOperacion && unidadBase) {
+        if (unidadOperacion === unidadBase) { cantidadBase = Number(r.qty); medible = true; }
+        else if (k?.peldano != null && Number(k.peldano) > 0) { cantidadBase = Number(r.qty) * Number(k.peldano); medible = true; }
+      }
+
+      const isSale = CommercialBiAlmacenService.SALE_DOC_CODES.has(r.doc_code);
+      const importeCosto = !isSale ? (Number(k?.costo62 ?? k?.costo63 ?? 0) || r.amount) : null;
+      const importeVenta = isSale ? r.amount : null;
+      let ivaValor: number | null = null, iepsValor: number | null = null, ventaNeta: number | null = null;
+      if (importeVenta != null && r.iva_rate != null && r.ieps_rate != null) {
+        const ivaRate = Number(r.iva_rate), iepsRate = Number(r.ieps_rate);
+        const divisor = 1 + ivaRate + iepsRate;
+        ventaNeta = divisor > 0 ? Number((Number(importeVenta) / divisor).toFixed(2)) : null;
+        ivaValor = ventaNeta != null ? Number((ventaNeta * ivaRate).toFixed(2)) : null;
+        iepsValor = ventaNeta != null ? Number((ventaNeta * iepsRate).toFixed(2)) : null;
+      }
+
+      return {
+        doc_date: r.doc_date, hora: k?.hora ? new Date(k.hora).toISOString().slice(11, 19) : null,
+        zone_name: r.zone_name, warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name,
+        almacen: 'Disponible',
+        movement_kind: r.movement_kind, movement_label: r.movement_label, doc_code: r.doc_code, folio: r.folio,
+        sku: r.sku, product_name: r.product_name,
+        linea_producto: r.linea_producto, tipo_producto: r.tipo_producto, grupo_producto: r.grupo_producto,
+        qty: Number(r.qty), signed_qty: Number(r.signed_qty),
+        unidad_operacion: unidadOperacion, unidad_base: unidadBase, cantidad_base: cantidadBase, unidad_base_medible: medible,
+        unit_cost: r.unit_cost, amount: r.amount,
+        importe_costo: importeCosto, importe_venta: importeVenta,
+        iva_valor: ivaValor, ieps_valor: iepsValor, venta_neta: ventaNeta,
+        cost_base_hoy: r.cost_base_hoy, source_system: 'kepler',
+      } satisfies BiMovementRow;
     });
   }
 
@@ -508,37 +623,65 @@ export class CommercialBiAlmacenService {
 
   // ═══════════════════════════════════════════════════════ explorar ════
 
+  /**
+   * Subquery correlacionada hacia `kepler_ods.kdm1`⋈`kdm2` — el MISMO join que
+   * `enrichFromKdm()`, pero como expresión SQL para el picker libre de "Explorar datos" (que arma
+   * el SELECT dinámicamente, columna por columna, y no puede pasar por el batch de `movements()`).
+   * `LIMIT 1`: por diseño hay una sola línea por (documento, sku) — si hubiera dos, cualquiera de
+   * las dos es la misma cantidad/unidad real, así que no hace falta desambiguar más.
+   */
+  private static readonly KDM_SUBQ = (col: string) => `(SELECT ${col} FROM kepler_ods.kdm1 h
+     JOIN kepler_ods.kdm2 l ON l.sucursal=h.sucursal AND l.c1=h.c1 AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4=h.c4 AND l.c6=h.c6
+    WHERE btrim(h.c1)=btrim(h.sucursal) AND h.sucursal=m.source_branch AND h.c2=m.genero AND h.c3=m.naturaleza
+      AND h.c4::text=m.doc_type AND h.c6=m.folio AND btrim(l.c8)=btrim(coalesce(p.sku,m.sku)) LIMIT 1)`;
+
   private readonly EXPLORE_FIELDS: Array<{ key: string; label: string; group: string; sql: string; requires?: string }> = [
     { key: 'doc_date', label: 'Fecha', group: 'Fechas y documentos', sql: `m.doc_date::text` },
+    { key: 'hora', label: 'Hora', group: 'Fechas y documentos', sql: `to_char(${CommercialBiAlmacenService.KDM_SUBQ('h.c9')}, 'HH24:MI:SS')` },
     { key: 'folio', label: 'Folio', group: 'Fechas y documentos', sql: `m.folio` },
-    { key: 'doc_code', label: 'Tipo de documento', group: 'Fechas y documentos', sql: `m.doc_code` },
-    { key: 'movement_label', label: 'Motivo', group: 'Fechas y documentos', sql: `m.movement_label` },
+    { key: 'doc_code', label: 'Documento (código)', group: 'Fechas y documentos', sql: `m.doc_code` },
+    { key: 'movement_label', label: 'Documento', group: 'Fechas y documentos', sql: `m.movement_label` },
+    { key: 'movement_kind_label', label: 'Tipo (entrada/salida)', group: 'Fechas y documentos', sql: `CASE m.movement_kind WHEN 'entrada' THEN 'Entrada' WHEN 'salida' THEN 'Salida' ELSE 'Informativo' END` },
     { key: 'source_branch', label: 'Sucursal origen (Kepler)', group: 'Fechas y documentos', sql: `m.source_branch` },
     { key: 'zone_name', label: 'Zona', group: 'Organización y almacenes', sql: `z.name` },
-    { key: 'warehouse_code', label: 'Almacén (código)', group: 'Organización y almacenes', sql: `w.code` },
-    { key: 'warehouse_name', label: 'Almacén (nombre)', group: 'Organización y almacenes', sql: `w.name` },
+    { key: 'warehouse_code', label: 'Sucursal (código)', group: 'Organización y almacenes', sql: `w.code` },
+    { key: 'warehouse_name', label: 'Sucursal (nombre)', group: 'Organización y almacenes', sql: `w.name` },
+    { key: 'almacen', label: 'Almacén (disponible/dañado/caduco)', group: 'Organización y almacenes', sql: `'Disponible'` },
     { key: 'sku', label: 'Código de producto', group: 'Productos', sql: `coalesce(p.sku, m.sku)` },
     { key: 'product_name', label: 'Nombre del producto', group: 'Productos', sql: `coalesce(p.nombre, '(sin catálogo)')` },
     { key: 'brand_name', label: 'Marca', group: 'Productos', sql: `b.nombre` },
-    { key: 'department', label: 'Departamento', group: 'Productos', sql: `p.department` },
-    { key: 'qty', label: 'Cantidad (unidad de captura Kepler)', group: 'Cantidades y conversiones', sql: `m.qty` },
+    { key: 'linea_producto', label: 'Línea (fabricante)', group: 'Productos', sql: `nullif(btrim(lp.c2), '')` },
+    { key: 'tipo_producto', label: 'Tipo de producto', group: 'Productos', sql: `nullif(btrim(tp.c2), '')` },
+    { key: 'grupo_producto', label: 'Grupo de producto', group: 'Productos', sql: `nullif(btrim(gp.c2), '')` },
+    { key: 'qty', label: 'Cantidad', group: 'Cantidades y conversiones', sql: `m.qty` },
     { key: 'signed_qty', label: 'Efecto en inventario (+entrada/−salida)', group: 'Cantidades y conversiones', sql: `m.signed_qty` },
+    { key: 'unidad_operacion', label: 'Unidad de la operación', group: 'Cantidades y conversiones', sql: `btrim(${CommercialBiAlmacenService.KDM_SUBQ('l.c11')})` },
+    { key: 'unidad_base', label: 'Unidad base', group: 'Cantidades y conversiones', sql: `ut.base_label` },
     { key: 'unit_cost', label: 'Costo del movimiento (histórico)', group: 'Costos', sql: `m.unit_cost` },
     { key: 'amount', label: 'Importe', group: 'Costos', sql: `m.amount` },
     { key: 'cost_base_hoy', label: 'Costo de catálogo (vigente hoy)', group: 'Costos', sql: `p.cost_base` },
+    { key: 'iva_rate', label: 'Tasa de IVA del producto', group: 'Costos', sql: `p.iva_rate` },
+    { key: 'ieps_rate', label: 'Tasa de IEPS del producto', group: 'Costos', sql: `p.ieps_rate` },
     { key: 'dest_label', label: 'Destino del traspaso', group: 'Datos comerciales', sql: `m.dest_label`, requires: 'COMMERCIAL_CUSTOMERS_VER' },
   ];
 
   /**
-   * Las 4 columnas que el pedido original nombra y el feed NO captura: se listan
-   * `available:false` con motivo, para que la pantalla las muestre deshabilitadas en
-   * vez de simplemente no ofrecerlas (que se leería como "no se pensó en ellas").
+   * Lo que sigue sin poder calcularse SIN INVENTAR: la cantidad en unidad base y el desglose de
+   * importe costo/venta/IVA/IEPS/venta neta dependen de un cruce por-instancia (kdm1/kdm2 +
+   * `analytics.v_unit_truth`) que sí vive en `movements()`/`enrichFromKdm()` pero es demasiado
+   * grande para expresarse como una columna suelta del picker libre de Explorar — quedan sólo en
+   * la pestaña Movimientos. La desviación de costo POR LÍNEA (comparar el costo de ESE momento
+   * contra un segundo costo capturado en ese mismo momento) no existe en ningún feed: el proyecto
+   * prohíbe reconstruirla con el costo de catálogo de HOY (sería aplicar un factor actual a una
+   * operación pasada). Esa desviación real se mide por SKU en el Resumen (catálogo vs. ERP).
    */
   private readonly UNAVAILABLE_FIELDS: BiField[] = [
-    { key: 'unit_original', label: 'Unidad original', group: 'Cantidades y conversiones', available: false, reason: 'El feed de movimientos no captura la unidad de la línea (solo la cantidad ya capturada por Kepler).' },
-    { key: 'conversion_factor', label: 'Factor de conversión', group: 'Cantidades y conversiones', available: false, reason: 'Sin la unidad original no hay factor que declarar sin inventarlo.' },
-    { key: 'qty_base', label: 'Cantidad en unidad base', group: 'Cantidades y conversiones', available: false, reason: 'Requiere el factor de conversión de esa línea, no disponible.' },
-    { key: 'unit_base', label: 'Unidad base', group: 'Cantidades y conversiones', available: false, reason: 'Mismo motivo que el factor de conversión.' },
+    { key: 'cantidad_base', label: 'Cantidad en unidad base', group: 'Cantidades y conversiones', available: false, reason: 'Sólo en la pestaña Movimientos: requiere resolver el peldaño cobrado por línea, no expresable como columna suelta aquí.' },
+    { key: 'importe_costo', label: 'Importe costo', group: 'Costos', available: false, reason: 'Sólo en la pestaña Movimientos (depende de clasificar cada documento como costo o venta).' },
+    { key: 'importe_venta', label: 'Importe venta', group: 'Costos', available: false, reason: 'Mismo motivo que Importe costo.' },
+    { key: 'iva_valor', label: 'IVA valor', group: 'Costos', available: false, reason: 'Sólo en la pestaña Movimientos (se deriva de Importe venta).' },
+    { key: 'ieps_valor', label: 'IEPS valor', group: 'Costos', available: false, reason: 'Sólo en la pestaña Movimientos (se deriva de Importe venta).' },
+    { key: 'venta_neta', label: 'Venta neta', group: 'Costos', available: false, reason: 'Sólo en la pestaña Movimientos (se deriva de Importe venta).' },
     { key: 'cost_deviation_line', label: 'Desviación de costo (por línea)', group: 'Costos', available: false, reason: 'No hay un segundo costo capturado AL MOMENTO del movimiento para comparar — comparar contra el costo de catálogo de HOY reconstruiría la operación con un factor actual, que el proyecto prohíbe. La desviación de costo real se mide por SKU en el Resumen (catálogo vs. ERP, ambos vigentes).' },
   ];
 
@@ -581,6 +724,23 @@ export class CommercialBiAlmacenService {
           this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
         })
         .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        // Línea/tipo/grupo de producto: mismos joins verificados que en movements() — al grano
+        // PRODUCTO (no por instancia de movimiento), así que no pesan como las subqueries de kdm1/kdm2.
+        .leftJoin('kepler_ods.kdii as ii', function (this: any) {
+          this.on(trx.raw('btrim(ii.c1)'), '=', trx.raw('btrim(coalesce(p.sku, m.sku))')).andOn('ii.sucursal', 'w.code');
+        })
+        .leftJoin('kepler_ods.kdie as tp', function (this: any) {
+          this.on('tp.c1', '=', 'ii.c4').andOn('tp.sucursal', 'ii.sucursal');
+        })
+        .leftJoin('kepler_ods.kdif as gp', function (this: any) {
+          this.on('gp.c1', '=', 'ii.c5').andOn('gp.sucursal', 'ii.sucursal');
+        })
+        .leftJoin('kepler_ods.kdig as lp', function (this: any) {
+          this.on(trx.raw('btrim(lp.c1)'), '=', trx.raw('btrim(ii.c3::text)')).andOn('lp.sucursal', 'ii.sucursal');
+        })
+        .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+          this.on('ut.tenant_id', 'm.tenant_id').andOn('ut.warehouse_id', 'm.warehouse_id').andOn('ut.product_id', 'm.product_id');
+        })
         .where('m.tenant_id', tenantId)
         .whereBetween('m.doc_date', [from, to])
         .modify((qb: any) => { if (ids !== null) qb.whereIn('m.warehouse_id', ids); });
