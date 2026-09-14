@@ -1,0 +1,608 @@
+import { ForbiddenException, Injectable, Logger } from '@nestjs/common';
+import { TenantKnexService, TenantContextService, ScopeService, branchKeySql, branchKeyFilterSql } from '@megadulces/platform-core';
+import { CommercialMovementsService } from '../commercial-movements/commercial-movements.service';
+import {
+  BiCostDeviation,
+  BiDocType,
+  BiField,
+  BiFiltersResponse,
+  BiInventoryValuation,
+  BiMovementCounts,
+  BiMovementDetail,
+  BiMovementRow,
+  BiPage,
+  BiProductOpt,
+  BiSummaryResponse,
+  BiWarehouseOpt,
+  BiZoneGroup,
+} from './commercial-bi-almacen.types';
+
+/**
+ * WMS-BI.1 — Análisis BI de Almacén (`/almacen/analisis-bi`). Backend.
+ *
+ * Este es el PRIMER endpoint real del módulo — hasta acá sólo existía la puerta
+ * (WMS-BI.0: permiso `ALMACEN_BI_VER` + sidebar + ruta, sin ninguna cifra).
+ *
+ * ── Decisiones de fondo, para que el próximo que toque esto no las reabra ──
+ *
+ * 1. **El alcance por almacén NO es un mecanismo nuevo.** El pedido pedía "gerente de
+ *    Morelia sólo ve sus dos almacenes / almacenista sin acceso a clientes" — y ya
+ *    existe la Fase ID (ADR-050): `identity.role_scopes` + `identity.user_scopes` +
+ *    `ScopeService`, con la dimensión `warehouse` YA CONFIGURADA para los 10 roles que
+ *    tienen `ALMACEN_BI_VER` (medido en `platform_test`: `encargado_tienda`/`supervisor`
+ *    = `own` — su única sucursal —, el resto = `all`). Inventar una segunda tabla de
+ *    autorización habría sido exactamente el primitivo duplicado que ADR-056 prohíbe.
+ *    Todo el filtrado por almacén de este archivo pasa por `resolveWarehouseIds()`.
+ *
+ * 2. **El costo NO se aproxima cuando falta el resolvedor.** El inventario valuado
+ *    necesita el costo VERIFICADO por el mismo ERP que reporta la cantidad
+ *    (`analytics.v_erp_unit_cost`, KE.3/ADR-059) — multiplicar la existencia por
+ *    `catalog.products.cost_base` a secas ya causó un error real de $3.5M en Fase MR
+ *    (ADR-051) porque esa columna viene por CAJA en buena parte del catálogo. Esa vista
+ *    NO existe todavía en este entorno de desarrollo (`platform_test` está detrás de
+ *    varias migraciones — confirmado con `to_regclass`), así que `hasErpCostView()`
+ *    declara la ausencia en vez de calcular con un método que este mismo repo ya probó
+ *    que se equivoca. Cuando la vista exista (ya está medida y aplicada en prod, ver su
+ *    migración `20260910170000`), este código la usa sin cambios.
+ *
+ * 3. **El Diario de Movimientos (`analytics.stock_movements`, Fase DM) es SÓLO Kepler**
+ *    (01-06): Morelia (MD-30/MD-32) y el CEDIS (00) no tienen este feed — son Wincaja.
+ *    `BiMovementCounts.covers_all_scope` lo declara; no se inventa un cero disfrazado
+ *    de "sin movimientos" para esas sucursales.
+ *
+ * 4. **`analytics.stock_movements` está VACÍA en `platform_test`** (verificado: 0 filas).
+ *    Es una tabla existente (Fase DM, alimentada por `import-stock-movements.js`, ya
+ *    poblada en prod donde el Diario de Movimientos opera desde 2026-08) — no una tabla
+ *    nueva de este módulo. Las consultas de este archivo se ejercitaron contra un
+ *    resultado vacío (0 filas, sin error), pero el camino "con datos reales" no se pudo
+ *    verificar en esta sesión.
+ *
+ * 5. **Cantidad/unidad original + factor de conversión + unidad base NO están en el
+ *    feed.** `import-stock-movements.js` guarda `qty` (la cantidad tal como Kepler la
+ *    capturó, `kdm2.c9`) pero no el código de unidad ni el factor de esa línea. Pedirle
+ *    a esas columnas un valor sería inventarlo — se DECLARAN no disponibles (`fields()`)
+ *    en vez de fabricar "pz" / factor 1 por default.
+ *
+ * 6. **Redacción de destino por permiso** (`movementDetail`): un traspaso `TrsfShip` con
+ *    destino "cliente/tienda" (no ruta, no otra sucursal) oculta `dest_label`/`dest_code`
+ *    si el requester no tiene `COMMERCIAL_CUSTOMERS_VER` — el ejemplo textual del pedido
+ *    ("un almacenista sin acceso a clientes no debe descubrirlos al abrir el documento").
+ *    La clasificación es una heurística simple (no matchea "R.D./R.V./RUTA" ni "TI###");
+ *    ver `clasificaDestino()`.
+ */
+@Injectable()
+export class CommercialBiAlmacenService {
+  private readonly logger = new Logger(CommercialBiAlmacenService.name);
+  private erpCostViewExists?: boolean;
+
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+    private readonly scope: ScopeService,
+    private readonly movementsSvc: CommercialMovementsService,
+  ) {}
+
+  // ═══════════════════════════════════════════════════════════ alcance ════
+
+  /**
+   * Traduce el alcance de `warehouse` (códigos canónicos de 2 dígitos, ADR-050) a los
+   * `warehouse_id` (uuid) que el resto de las consultas necesita. `null` = alcance
+   * `all` sin recorte pedido → sin filtro. `[]` = alcance resuelto a CERO almacenes
+   * (declarado, no se lee como "todos").
+   */
+  private async resolveWarehouseIds(
+    trx: any,
+    tenantId: string,
+    query: Record<string, unknown>,
+  ): Promise<string[] | null> {
+    const codes = await this.scope.readParam(query, 'warehouse', 'commercial/bi-almacen');
+    if (codes === null) return null;
+    if (!codes.length) return [];
+    const rows = await trx('commercial.warehouses as w')
+      .where('w.tenant_id', tenantId).whereNull('w.deleted_at')
+      .whereRaw(`(${branchKeySql('w')}) = ANY(?)`, [codes])
+      .select('w.id');
+    return rows.map((r: { id: string }) => r.id);
+  }
+
+  private async hasErpCostView(trx: any): Promise<boolean> {
+    if (this.erpCostViewExists !== undefined) return this.erpCostViewExists;
+    const r = await trx.raw(`SELECT to_regclass('analytics.v_erp_unit_cost') IS NOT NULL AS ok`);
+    this.erpCostViewExists = !!r.rows[0]?.ok;
+    return this.erpCostViewExists;
+  }
+
+  /**
+   * `analytics.v_erp_stock_on_hand` (existencia derivada del ODS, ADR-055) se midió en esta
+   * sesión en **71-82 s** para un `count(*)` sencillo contra `platform_test` — no es un typo,
+   * es lo que tardó dos veces seguidas, fuera de este código, con `EXPLAIN` de por medio. Es un
+   * hallazgo real (posiblemente carga del entorno compartido, no necesariamente prod), pero
+   * arreglar la vista es de quien la dueña (Fase KE/ADR-055), no de este módulo. Lo que SÍ es
+   * responsabilidad de acá: no colgar el endpoint entero por una vista lenta. `statement_timeout`
+   * cancela la query en el SERVIDOR (no sólo deja de esperar del lado de Node, que dejaría la
+   * query viva consumiendo el mismo recurso contendido) y se declara "No disponible", nunca un
+   * número a medias.
+   */
+  private async withTimeout<T>(trx: any, ms: number, fn: () => Promise<T>): Promise<T | 'timeout'> {
+    await trx.raw(`SET LOCAL statement_timeout = ${Number(ms) | 0}`);
+    try {
+      return await fn();
+    } catch (e: any) {
+      if (e?.code === '57014') return 'timeout'; // query_canceled (Postgres)
+      throw e;
+    }
+    // Sin `finally` que resetee el timeout: una cancelación deja la TRANSACCIÓN abortada
+    // (25P02) y cualquier comando posterior en ese mismo `trx` — el propio reset incluido —
+    // fallaría también. Por diseño, quien llama a `withTimeout` es la ÚNICA query de su
+    // transacción (`summary()` abre una `tk.run()` por pieza, ver el comentario ahí); no hay
+    // nada más que corra después en el mismo `trx` a lo que el timeout le importe.
+  }
+
+  // ═══════════════════════════════════════════════════════════ filtros ════
+
+  async filters(query: Record<string, unknown>): Promise<BiFiltersResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+
+      const whRows: Array<{
+        id: string; code: string; name: string; zone_id: string | null; zone_name: string | null;
+        zone_orden: number | null; has_movements_feed: boolean; display_order: number | null;
+      }> = await trx('commercial.warehouses as w')
+        .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')
+        .where('w.tenant_id', tenantId).whereNull('w.deleted_at')
+        .whereRaw(branchKeyFilterSql('w'))
+        .modify((qb: any) => { if (ids !== null) qb.whereIn('w.id', ids); })
+        .select(
+          'w.id', 'w.code', 'w.name', 'w.zone_id', 'z.name as zone_name', 'z.orden as zone_orden',
+          'w.display_order', trx.raw(`(w.kepler_code IS NOT NULL) AS has_movements_feed`),
+        )
+        .orderByRaw('z.orden NULLS LAST, w.display_order NULLS LAST, w.code');
+
+      const zonesMap = new Map<string, BiZoneGroup>();
+      for (const w of whRows) {
+        const key = w.zone_id ?? '(sin-zona)';
+        if (!zonesMap.has(key)) {
+          zonesMap.set(key, { zone_id: w.zone_id, zone_name: w.zone_name ?? '(sin zona)', warehouses: [] });
+        }
+        zonesMap.get(key)!.warehouses.push({
+          id: w.id, code: w.code, name: w.name, zone_id: w.zone_id, zone_name: w.zone_name ?? null,
+          has_movements_feed: w.has_movements_feed,
+        } satisfies BiWarehouseOpt);
+      }
+
+      const docTypes: BiDocType[] = await trx('analytics.stock_movements as m')
+        .where('m.tenant_id', tenantId)
+        .modify((qb: any) => { if (ids !== null) qb.whereIn('m.warehouse_id', ids); })
+        .distinct('m.doc_code', 'm.movement_label', 'm.movement_kind')
+        .orderBy('m.movement_label');
+
+      const fresh = (await trx.raw(
+        `SELECT max(doc_date)::text AS max_doc_date, max(imported_at)::text AS max_imported_at, count(*)::int AS total_rows
+           FROM analytics.stock_movements WHERE tenant_id = ?`,
+        [tenantId],
+      )).rows[0];
+
+      const sc = await this.scope.current();
+      const whDim = sc.dims['warehouse'];
+
+      return {
+        zones: [...zonesMap.values()],
+        doc_types: docTypes,
+        scope: {
+          mode: whDim.mode,
+          resolvable: whDim.resolvable !== false,
+          warehouse_count: whDim.mode === 'all' ? null : whDim.values.length,
+        },
+        movements_as_of: {
+          max_doc_date: fresh.max_doc_date, max_imported_at: fresh.max_imported_at,
+          total_rows: fresh.total_rows,
+        },
+        inventory_as_of: new Date().toISOString(),
+      };
+    });
+  }
+
+  async productSearch(q: string, page: number, pageSize: number): Promise<BiPage<BiProductOpt>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const p = Math.max(1, page || 1);
+    const size = Math.min(50, Math.max(1, pageSize || 20));
+    const term = (q || '').trim();
+    return this.tk.run(async (trx) => {
+      const base = trx('catalog.products as p')
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .where('p.tenant_id', tenantId).whereNull('p.deleted_at')
+        .modify((qb: any) => {
+          if (term) qb.andWhere((w: any) => w.whereILike('p.nombre', `%${term}%`).orWhereILike('p.sku', `%${term}%`));
+        });
+      const [{ count }] = await base.clone().count<{ count: string }[]>('p.id as count');
+      const rows = await base.clone()
+        .select('p.id', 'p.sku', 'p.nombre as name', 'b.nombre as brand_name')
+        .orderBy('p.nombre').limit(size).offset((p - 1) * size);
+      return { page: p, pageSize: size, total: Number(count), rows };
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════ resumen ════
+
+  async summary(query: Record<string, unknown>): Promise<BiSummaryResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const from = this.dateOr(query['from'], this.daysAgo(30));
+    const to = this.dateOr(query['to'], this.today());
+    const productId = this.uuidOr(query['product_id']);
+
+    // TRES transacciones separadas, no una compartida. `statement_timeout` cancela la query
+    // pero deja la TRANSACCIÓN abortada (Postgres 25P02): cualquier query siguiente en ese
+    // mismo `trx` — aunque sea liviana, como movementCounts sobre stock_movements — fallaría
+    // en cascada. Cada pieza abre su propia conexión vía `tk.run()`; si una se cancela, sólo
+    // ESA transacción se pierde (rollback normal) y las otras dos siguen intactas. `ids` se
+    // recalcula en cada una (una query rápida contra commercial.warehouses) en vez de
+    // compartirse, precisamente para no acoplar sus transacciones.
+    const inventory = await this.tk.run(async (trx) => {
+      const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      return this.inventoryValuation(trx, tenantId, ids, productId);
+    });
+    const movements = await this.tk.run(async (trx) => {
+      const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      return this.movementCounts(trx, tenantId, ids, from, to, productId);
+    });
+    const cost_deviation = await this.tk.run(async (trx) => {
+      const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      return this.costDeviation(trx, tenantId, ids);
+    });
+    return { from, to, inventory, movements, cost_deviation };
+  }
+
+  /** Tope duro sobre `analytics.v_erp_stock_on_hand`: medido en 71-82 s en esta sesión (ver el
+   * comentario de `withTimeout`). 10 s alcanza en condiciones normales y evita colgar el resumen. */
+  private static readonly INVENTORY_QUERY_TIMEOUT_MS = 10_000;
+
+  private async inventoryValuation(
+    trx: any, tenantId: string, ids: string[] | null, productId: string | null,
+  ): Promise<BiInventoryValuation> {
+    const hasErp = await this.hasErpCostView(trx);
+    const as_of = new Date().toISOString();
+    const timedOut = (): BiInventoryValuation => ({
+      as_of, erp_cost_available: false,
+      unavailable_reason: `La consulta de existencia (analytics.v_erp_stock_on_hand) tardó más de ${CommercialBiAlmacenService.INVENTORY_QUERY_TIMEOUT_MS / 1000}s y se canceló — el entorno está lento en este momento, no es un error de la pantalla.`,
+      // null, no 0: el conteo real es desconocido (la query que lo daría es justo la que se
+      // canceló), y 0 se leería como "no hay existencia" cuando en realidad no se pudo medir.
+      sku_en_scope: null, valor_catalogo: null, valor_erp_verificado: null,
+      valor_catalogo_mismo_subset: null, diferencia: null, cobertura_testigo_pct: null,
+    });
+    if (!hasErp) {
+      // El conteo de SKU SÍ es real (v_erp_stock_on_hand no depende del resolvedor de costo):
+      // declarar "0 SKU" cuando en realidad hay existencia sería la misma mentira que esta
+      // rama existe para evitar del lado del dinero.
+      const cnt = await this.withTimeout<any>(trx, CommercialBiAlmacenService.INVENTORY_QUERY_TIMEOUT_MS, () => trx.raw(
+        `SELECT count(*)::int AS n FROM analytics.v_erp_stock_on_hand s
+          WHERE s.tenant_id = ? AND s.qty_stock_units > 0
+            ${ids !== null ? 'AND s.warehouse_id = ANY(?)' : ''}
+            ${productId ? 'AND s.product_id = ?' : ''}`,
+        [tenantId, ...(ids !== null ? [ids] : []), ...(productId ? [productId] : [])],
+      ));
+      if (cnt === 'timeout') return timedOut();
+      return {
+        as_of, erp_cost_available: false,
+        unavailable_reason: 'analytics.v_erp_unit_cost no existe en este entorno (KE.3): sin el testigo de costo del ERP no se valúa — multiplicar por catalog.products.cost_base a secas ya causó un error medido de 3.5M en Fase MR (ADR-051).',
+        sku_en_scope: Number(cnt.rows[0].n) || 0, valor_catalogo: null, valor_erp_verificado: null,
+        valor_catalogo_mismo_subset: null, diferencia: null, cobertura_testigo_pct: null,
+      };
+    }
+    const res = await this.withTimeout<any>(trx, CommercialBiAlmacenService.INVENTORY_QUERY_TIMEOUT_MS, () => trx.raw(
+      `SELECT count(*)::int AS filas,
+              count(*) FILTER (WHERE c.tiene_testigo)::int AS con_testigo,
+              round(sum(s.qty_stock_units * coalesce(p.cost_base,0)))::numeric AS valor_catalogo,
+              round(sum(s.qty_stock_units * c.costo_unitario) FILTER (WHERE c.tiene_testigo))::numeric AS valor_erp,
+              round(sum(s.qty_stock_units * coalesce(p.cost_base,0)) FILTER (WHERE c.tiene_testigo))::numeric AS valor_catalogo_subset
+         FROM analytics.v_erp_stock_on_hand s
+         JOIN catalog.products p ON p.tenant_id = s.tenant_id AND p.id = s.product_id AND p.deleted_at IS NULL
+         LEFT JOIN analytics.v_erp_unit_cost c
+           ON c.tenant_id = s.tenant_id AND c.warehouse_id = s.warehouse_id AND c.product_id = s.product_id
+        WHERE s.tenant_id = ? AND s.qty_stock_units > 0
+          ${ids !== null ? 'AND s.warehouse_id = ANY(?)' : ''}
+          ${productId ? 'AND s.product_id = ?' : ''}`,
+      [tenantId, ...(ids !== null ? [ids] : []), ...(productId ? [productId] : [])],
+    ));
+    if (res === 'timeout') return timedOut();
+    const row = res.rows[0];
+    const filas = Number(row.filas) || 0;
+    const conTestigo = Number(row.con_testigo) || 0;
+    const valorErp = row.valor_erp == null ? null : Number(row.valor_erp);
+    const valorCatSubset = row.valor_catalogo_subset == null ? null : Number(row.valor_catalogo_subset);
+    return {
+      as_of, erp_cost_available: true, unavailable_reason: null,
+      sku_en_scope: filas,
+      valor_catalogo: row.valor_catalogo == null ? null : Number(row.valor_catalogo),
+      valor_erp_verificado: valorErp,
+      valor_catalogo_mismo_subset: valorCatSubset,
+      diferencia: valorErp != null && valorCatSubset != null ? Number((valorErp - valorCatSubset).toFixed(2)) : null,
+      cobertura_testigo_pct: filas > 0 ? Number(((100 * conTestigo) / filas).toFixed(2)) : null,
+    };
+  }
+
+  private async movementCounts(
+    trx: any, tenantId: string, ids: string[] | null, from: string, to: string, productId: string | null,
+  ): Promise<BiMovementCounts> {
+    const base = () => trx('analytics.stock_movements as m')
+      .where('m.tenant_id', tenantId)
+      .whereBetween('m.doc_date', [from, to])
+      .modify((qb: any) => {
+        if (ids !== null) qb.whereIn('m.warehouse_id', ids);
+        if (productId) qb.andWhere('m.product_id', productId);
+      });
+
+    const totals = (await base()
+      .select(
+        trx.raw(`count(*) FILTER (WHERE movement_kind = 'entrada')::int AS entradas`),
+        trx.raw(`count(*) FILTER (WHERE movement_kind = 'salida')::int AS salidas`),
+        trx.raw(`count(DISTINCT product_id)::int AS productos`),
+      ))[0] ?? { entradas: 0, salidas: 0, productos: 0 };
+
+    const daily = await base()
+      .groupBy(trx.raw(`m.doc_date`))
+      .select(
+        trx.raw(`m.doc_date::text AS date`),
+        trx.raw(`count(*) FILTER (WHERE movement_kind = 'entrada')::int AS entradas`),
+        trx.raw(`count(*) FILTER (WHERE movement_kind = 'salida')::int AS salidas`),
+      )
+      .orderBy('date');
+
+    const topSalida = await base()
+      .andWhere('m.movement_kind', 'salida')
+      .leftJoin('catalog.products as p', function (this: any) {
+        this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
+      })
+      .groupBy('m.product_id', 'p.nombre', 'p.sku', 'm.sku')
+      .select(
+        trx.raw(`coalesce(p.sku, m.sku) AS sku`),
+        trx.raw(`coalesce(p.nombre, '(sin catálogo)') AS product_name`),
+        trx.raw(`round(sum(m.amount))::numeric AS valor`),
+      )
+      .orderBy('valor', 'desc').limit(10);
+
+    // Kepler-only ⇒ declarado cuando el scope pedido incluye una sucursal Wincaja.
+    let coversAll = true;
+    if (ids !== null && ids.length) {
+      const nonKepler = (await trx('commercial.warehouses').whereIn('id', ids).whereNull('kepler_code').count('* as n'))[0];
+      coversAll = Number(nonKepler.n) === 0;
+    }
+
+    return {
+      covers_all_scope: coversAll,
+      entradas_lineas: Number(totals.entradas) || 0,
+      salidas_lineas: Number(totals.salidas) || 0,
+      productos_con_movimiento: Number(totals.productos) || 0,
+      daily_series: daily,
+      top_salida_valor: topSalida.map((r: any) => ({ sku: r.sku, product_name: r.product_name, valor: Number(r.valor) || 0 })),
+    };
+  }
+
+  private async costDeviation(trx: any, tenantId: string, ids: string[] | null): Promise<BiCostDeviation> {
+    const hasErp = await this.hasErpCostView(trx);
+    if (!hasErp) {
+      return {
+        available: false,
+        unavailable_reason: 'analytics.v_erp_unit_cost no existe en este entorno: sin ambos costos verificados no hay con qué comparar (nunca se aproxima con un solo lado).',
+        rows: [],
+      };
+    }
+    const res = await this.withTimeout<any>(trx, CommercialBiAlmacenService.INVENTORY_QUERY_TIMEOUT_MS, () => trx.raw(
+      `SELECT c.warehouse_code, p.sku, p.nombre AS product_name,
+              p.cost_base AS costo_catalogo, c.costo_unitario AS costo_erp,
+              round(c.costo_unitario - p.cost_base, 4) AS diferencia,
+              CASE WHEN p.cost_base > 0 THEN round(100.0 * (c.costo_unitario - p.cost_base) / p.cost_base, 2) END AS diferencia_pct
+         FROM analytics.v_erp_unit_cost c
+         JOIN catalog.products p ON p.tenant_id = c.tenant_id AND p.id = c.product_id AND p.deleted_at IS NULL
+         JOIN analytics.v_erp_stock_on_hand s
+           ON s.tenant_id = c.tenant_id AND s.warehouse_id = c.warehouse_id AND s.product_id = c.product_id AND s.qty_stock_units > 0
+        WHERE c.tenant_id = ? AND c.tiene_testigo AND p.cost_base > 0
+          ${ids !== null ? 'AND c.warehouse_id = ANY(?)' : ''}
+        ORDER BY abs(c.costo_unitario - p.cost_base) DESC
+        LIMIT 15`,
+      [tenantId, ...(ids !== null ? [ids] : [])],
+    ));
+    if (res === 'timeout') {
+      return {
+        available: false,
+        unavailable_reason: `La consulta tardó más de ${CommercialBiAlmacenService.INVENTORY_QUERY_TIMEOUT_MS / 1000}s y se canceló — el entorno está lento en este momento.`,
+        rows: [],
+      };
+    }
+    return { available: true, unavailable_reason: null, rows: res.rows };
+  }
+
+  // ═══════════════════════════════════════════════════════ movimientos ════
+
+  async movements(query: Record<string, unknown>): Promise<BiPage<BiMovementRow>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(query['page']) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(query['pageSize']) || 50));
+    const from = this.dateOr(query['from'], this.daysAgo(30));
+    const to = this.dateOr(query['to'], this.today());
+    const docCode = this.strOr(query['doc_code']);
+    const kind = ['entrada', 'salida'].includes(String(query['movement_kind'] || '')) ? String(query['movement_kind']) : null;
+    const folio = this.strOr(query['folio']);
+    const productId = this.uuidOr(query['product_id']);
+    const sortField = ['doc_date', 'qty', 'amount'].includes(String(query['sort'] || '')) ? String(query['sort']) : 'doc_date';
+    const sortDir = String(query['dir'] || 'desc').toLowerCase() === 'asc' ? 'asc' : 'desc';
+
+    return this.tk.run(async (trx) => {
+      const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      const base = () => trx('analytics.stock_movements as m')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')
+        .leftJoin('catalog.products as p', function (this: any) {
+          this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
+        })
+        .where('m.tenant_id', tenantId)
+        .whereBetween('m.doc_date', [from, to])
+        .modify((qb: any) => {
+          if (ids !== null) qb.whereIn('m.warehouse_id', ids);
+          if (docCode) qb.andWhere('m.doc_code', docCode);
+          if (kind) qb.andWhere('m.movement_kind', kind);
+          if (folio) qb.whereILike('m.folio', `%${folio}%`);
+          if (productId) qb.andWhere('m.product_id', productId);
+        });
+
+      const [{ count }] = await base().count<{ count: string }[]>('m.folio as count');
+      const rows = await base()
+        .select(
+          trx.raw(`m.doc_date::text AS doc_date`),
+          'z.name as zone_name', 'w.code as warehouse_code', 'w.name as warehouse_name',
+          'm.movement_kind', 'm.movement_label', 'm.doc_code', 'm.folio',
+          trx.raw(`coalesce(p.sku, m.sku) AS sku`),
+          trx.raw(`coalesce(p.nombre, '(sin catálogo)') AS product_name`),
+          'm.qty', 'm.signed_qty', 'm.unit_cost', 'm.amount',
+          'p.cost_base as cost_base_hoy',
+          trx.raw(`'kepler'::text AS source_system`),
+        )
+        .orderBy(sortField === 'doc_date' ? 'm.doc_date' : sortField === 'qty' ? 'm.qty' : 'm.amount', sortDir)
+        .orderBy('m.folio', 'desc')
+        .limit(pageSize).offset((page - 1) * pageSize);
+
+      return { page, pageSize, total: Number(count), rows };
+    });
+  }
+
+  /**
+   * Detalle de UN documento. Delega en `CommercialMovementsService.document()` (misma
+   * tabla, mismo código — no se duplica la lógica de armar header/líneas/contraparte) y
+   * le agrega DOS cosas propias de BI: (a) verificar que el almacén del documento está
+   * dentro del alcance del requester —403 explícito si no— y (b) redactar el destino
+   * cuando es un cliente/tienda y falta `COMMERCIAL_CUSTOMERS_VER`.
+   */
+  async movementDetail(
+    params: { warehouse_id: string; doc_code?: string; folio: string; doc_serie?: string },
+    permissions: Record<string, boolean> | undefined,
+  ): Promise<BiMovementDetail> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      if (params.warehouse_id) {
+        const ids = await this.resolveWarehouseIds(trx, tenantId, {});
+        if (ids !== null && !ids.includes(params.warehouse_id)) {
+          throw new ForbiddenException('Ese almacén no está en tu alcance de datos.');
+        }
+      }
+      const doc = await this.movementsSvc.document(params);
+      let destRedacted = false;
+      const canSeeClientes = permissions?.['COMMERCIAL_CUSTOMERS_VER'] === true;
+      if (doc.header && this.clasificaDestino((doc.header as any).dest_label, (doc.header as any).dest_code) === 'cliente' && !canSeeClientes) {
+        (doc.header as any).dest_label = '(restringido)';
+        (doc.header as any).dest_code = null;
+        (doc.header as any).dest_warehouse_name = null;
+        destRedacted = true;
+      }
+      return { ...doc, dest_redacted: destRedacted } as BiMovementDetail;
+    });
+  }
+
+  /** Heurística simple: no es cliente si parece ruta de reparto o traspaso a otra sucursal (TI###). */
+  private clasificaDestino(label: string | null | undefined, code: string | null | undefined): 'ruta' | 'sucursal' | 'cliente' | null {
+    if (!label && !code) return null;
+    const s = `${label ?? ''} ${code ?? ''}`.trim();
+    if (/^\s*(R\.[DV]|R[DV]|RUTA)/i.test(s)) return 'ruta';
+    if (/^TI\d/i.test(code ?? '')) return 'sucursal';
+    return 'cliente';
+  }
+
+  // ═══════════════════════════════════════════════════════ explorar ════
+
+  private readonly EXPLORE_FIELDS: Array<{ key: string; label: string; group: string; sql: string; requires?: string }> = [
+    { key: 'doc_date', label: 'Fecha', group: 'Fechas y documentos', sql: `m.doc_date::text` },
+    { key: 'folio', label: 'Folio', group: 'Fechas y documentos', sql: `m.folio` },
+    { key: 'doc_code', label: 'Tipo de documento', group: 'Fechas y documentos', sql: `m.doc_code` },
+    { key: 'movement_label', label: 'Motivo', group: 'Fechas y documentos', sql: `m.movement_label` },
+    { key: 'source_branch', label: 'Sucursal origen (Kepler)', group: 'Fechas y documentos', sql: `m.source_branch` },
+    { key: 'zone_name', label: 'Zona', group: 'Organización y almacenes', sql: `z.name` },
+    { key: 'warehouse_code', label: 'Almacén (código)', group: 'Organización y almacenes', sql: `w.code` },
+    { key: 'warehouse_name', label: 'Almacén (nombre)', group: 'Organización y almacenes', sql: `w.name` },
+    { key: 'sku', label: 'Código de producto', group: 'Productos', sql: `coalesce(p.sku, m.sku)` },
+    { key: 'product_name', label: 'Nombre del producto', group: 'Productos', sql: `coalesce(p.nombre, '(sin catálogo)')` },
+    { key: 'brand_name', label: 'Marca', group: 'Productos', sql: `b.nombre` },
+    { key: 'department', label: 'Departamento', group: 'Productos', sql: `p.department` },
+    { key: 'qty', label: 'Cantidad (unidad de captura Kepler)', group: 'Cantidades y conversiones', sql: `m.qty` },
+    { key: 'signed_qty', label: 'Efecto en inventario (+entrada/−salida)', group: 'Cantidades y conversiones', sql: `m.signed_qty` },
+    { key: 'unit_cost', label: 'Costo del movimiento (histórico)', group: 'Costos', sql: `m.unit_cost` },
+    { key: 'amount', label: 'Importe', group: 'Costos', sql: `m.amount` },
+    { key: 'cost_base_hoy', label: 'Costo de catálogo (vigente hoy)', group: 'Costos', sql: `p.cost_base` },
+    { key: 'dest_label', label: 'Destino del traspaso', group: 'Datos comerciales', sql: `m.dest_label`, requires: 'COMMERCIAL_CUSTOMERS_VER' },
+  ];
+
+  /**
+   * Las 4 columnas que el pedido original nombra y el feed NO captura: se listan
+   * `available:false` con motivo, para que la pantalla las muestre deshabilitadas en
+   * vez de simplemente no ofrecerlas (que se leería como "no se pensó en ellas").
+   */
+  private readonly UNAVAILABLE_FIELDS: BiField[] = [
+    { key: 'unit_original', label: 'Unidad original', group: 'Cantidades y conversiones', available: false, reason: 'El feed de movimientos no captura la unidad de la línea (solo la cantidad ya capturada por Kepler).' },
+    { key: 'conversion_factor', label: 'Factor de conversión', group: 'Cantidades y conversiones', available: false, reason: 'Sin la unidad original no hay factor que declarar sin inventarlo.' },
+    { key: 'qty_base', label: 'Cantidad en unidad base', group: 'Cantidades y conversiones', available: false, reason: 'Requiere el factor de conversión de esa línea, no disponible.' },
+    { key: 'unit_base', label: 'Unidad base', group: 'Cantidades y conversiones', available: false, reason: 'Mismo motivo que el factor de conversión.' },
+    { key: 'cost_deviation_line', label: 'Desviación de costo (por línea)', group: 'Costos', available: false, reason: 'No hay un segundo costo capturado AL MOMENTO del movimiento para comparar — comparar contra el costo de catálogo de HOY reconstruiría la operación con un factor actual, que el proyecto prohíbe. La desviación de costo real se mide por SKU en el Resumen (catálogo vs. ERP, ambos vigentes).' },
+  ];
+
+  async fields(permissions: Record<string, boolean> | undefined): Promise<BiField[]> {
+    const real: BiField[] = this.EXPLORE_FIELDS.map((f) => ({
+      key: f.key, label: f.label, group: f.group,
+      available: !f.requires || permissions?.[f.requires] === true,
+      reason: f.requires && permissions?.[f.requires] !== true ? 'No disponible para tu perfil.' : undefined,
+    }));
+    return [...real, ...this.UNAVAILABLE_FIELDS];
+  }
+
+  async explore(
+    query: Record<string, unknown>,
+    fieldsReq: string[],
+    permissions: Record<string, boolean> | undefined,
+  ): Promise<BiPage<Record<string, unknown>>> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(query['page']) || 1);
+    const pageSize = Math.min(200, Math.max(1, Number(query['pageSize']) || 50));
+    const from = this.dateOr(query['from'], this.daysAgo(30));
+    const to = this.dateOr(query['to'], this.today());
+
+    // El servidor NUNCA confía en la lista del cliente: se recorta contra el whitelist +
+    // el permiso real de la sesión. Un campo restringido pedido a mano no llega ni deshabilitado.
+    const allowed = new Set(
+      this.EXPLORE_FIELDS.filter((f) => !f.requires || permissions?.[f.requires] === true).map((f) => f.key),
+    );
+    const selected = (fieldsReq.length ? fieldsReq : ['doc_date', 'warehouse_code', 'sku', 'product_name', 'signed_qty', 'amount'])
+      .filter((k) => allowed.has(k));
+    const fieldMap = new Map(this.EXPLORE_FIELDS.map((f) => [f.key, f]));
+    const cols = selected.length ? selected : ['doc_date', 'warehouse_code', 'sku', 'product_name', 'signed_qty', 'amount'];
+
+    return this.tk.run(async (trx) => {
+      const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      const base = () => trx('analytics.stock_movements as m')
+        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')
+        .leftJoin('catalog.products as p', function (this: any) {
+          this.on('p.id', 'm.product_id').andOn('p.tenant_id', 'm.tenant_id');
+        })
+        .leftJoin('catalog.brands as b', 'b.id', 'p.brand_id')
+        .where('m.tenant_id', tenantId)
+        .whereBetween('m.doc_date', [from, to])
+        .modify((qb: any) => { if (ids !== null) qb.whereIn('m.warehouse_id', ids); });
+
+      const [{ count }] = await base().count<{ count: string }[]>('m.folio as count');
+      // `k` sólo puede venir del whitelist `EXPLORE_FIELDS` (filtrado arriba con `allowed`),
+      // así que es seguro usarlo como identificador de columna sin bindear — no es input libre.
+      const selectExprs = cols.map((k) => trx.raw(`${fieldMap.get(k)!.sql} AS "${k}"`));
+      const rows = await base().select(selectExprs).orderBy('m.doc_date', 'desc').limit(pageSize).offset((page - 1) * pageSize);
+      return { page, pageSize, total: Number(count), rows };
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════ helpers ════
+
+  private today(): string { return new Date().toISOString().slice(0, 10); }
+  private daysAgo(n: number): string { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+  private dateOr(v: unknown, fallback: string): string {
+    return typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : fallback;
+  }
+  private strOr(v: unknown): string | null { return typeof v === 'string' && v.trim() ? v.trim() : null; }
+  private uuidOr(v: unknown): string | null {
+    return typeof v === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : null;
+  }
+}
