@@ -336,7 +336,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   <th>Sucursal</th>
                                   <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal, en CAJAS. Ordena la lista dentro de cada zona: la que más vende, arriba.">Venta 30d</th>
                                   <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
-                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino); editalo con las flechas o escribiendo.">Pedido ✎</th>
+                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino). Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · Alt + ↑ ↓ suma o resta de a uno · escribí para reemplazar.">Pedido ✎</th>
                                   <th class="pr-r" title="En qué unidad estás capturando ESTE renglón. Sólo cambia cómo se escribe: el pedido, los días y el valor siempre se calculan en cajas.">Unidad</th>
                                   <th class="pr-r" title="Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ (venta 30d ÷ 30.4). Se mueve mientras escribís.">Días inv.</th>
                                   <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS (que después baja la mercancía por traspaso).">Entrega</th>
@@ -382,7 +382,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <td class="pr-r pr-muted">—</td>
                                       } @else {
                                         <td class="pr-r">
-                                          <input type="number" min="0" step="1" class="pr-qty pr-qty-sm"
+                                          <input type="number" min="0" step="1" class="pr-qty pr-qty-sm" aria-keyshortcuts="ArrowUp ArrowDown Enter Alt+ArrowUp Alt+ArrowDown"
                                                  [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
                                                  (wheel)="onQtyWheel($event)" (keydown)="onQtyKey($event)"
                                                  [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
@@ -1820,20 +1820,52 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
 
   /**
-   * Teclado del campo de cantidad. `↑ ↓` de a 1 ya los da el input nativo; acá se agrega
-   * **Shift + ↑ ↓ = de a 10**, que es el gesto que sirve cuando se pide por decenas de cajas.
-   * Respeta `min` y redondea al paso, para no dejar un 7.5 en una columna de cajas.
+   * Teclado de la columna de captura: **las flechas MUEVEN ENTRE CAMPOS, no incrementan.**
+   *
+   * `input[type=number]` usa ↑↓ para sumar/restar de a uno, y eso choca de frente con lo que
+   * necesita una columna de captura: bajar al siguiente renglón. Gana bajar. Razones:
+   *  · Ley de Jakob — esto es una tabla y el usuario ya sabe Excel: en una columna de números las
+   *    flechas cambian de celda. Reinventar eso frena a quien captura todo el día.
+   *  · El valor se escribe, no se incrementa: pedir 24 cajas a golpe de flecha son 24 pulsaciones.
+   *  · El spinner ya se retiró (D.5), así que el incremento ni siquiera tiene affordance visual.
+   *
+   *   ↑ ↓            campo anterior / siguiente de la columna
+   *   Enter          siguiente (Shift+Enter: anterior) — el gesto de Excel
+   *   Alt + ↑ ↓      sumar / restar un paso, para quien lo quiera
+   *
+   * Al llegar se hace `select()`: teclear reemplaza, que es lo que espera quien viene capturando.
+   * El recorrido usa el orden del DOM de los `.pr-qty` visibles, así que cruza filas abiertas en
+   * el mismo orden en que se ven.
    */
   onQtyKey(ev: KeyboardEvent): void {
-    if (!ev.shiftKey || (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown')) return;
     const el = ev.target as HTMLInputElement;
-    const step = el.step === 'any' ? 1 : (Number(el.step) || 1);
-    const delta = (ev.key === 'ArrowUp' ? 10 : -10) * step;
-    const min = el.min === '' ? -Infinity : Number(el.min);
-    const next = Math.max(min, (Number(el.value) || 0) + delta);
-    ev.preventDefault();
-    el.value = String(next);
-    el.dispatchEvent(new Event('input', { bubbles: true }));   // que ngModel se entere
+    const up = ev.key === 'ArrowUp';
+    const down = ev.key === 'ArrowDown';
+    const enter = ev.key === 'Enter';
+    if (!up && !down && !enter) return;
+
+    // Alt + flecha = el incremento de siempre, explícito.
+    if ((up || down) && ev.altKey) {
+      const step = el.step === 'any' ? 1 : (Number(el.step) || 1);
+      const min = el.min === '' ? -Infinity : Number(el.min);
+      ev.preventDefault();
+      el.value = String(Math.max(min, (Number(el.value) || 0) + (up ? step : -step)));
+      el.dispatchEvent(new Event('input', { bubbles: true }));   // que ngModel se entere
+      return;
+    }
+
+    const fields = Array.from(
+      document.querySelectorAll<HTMLInputElement>('.pr-qty:not([disabled]):not([readonly])'),
+    ).filter((n) => n.offsetParent !== null);       // sólo los visibles (hay tabs colapsadas)
+    const i = fields.indexOf(el);
+    if (i < 0) return;
+
+    const dir = up || (enter && ev.shiftKey) ? -1 : 1;
+    const next = fields[i + dir];
+    ev.preventDefault();                            // corta el incremento nativo del ↑↓
+    if (!next) return;                              // en el borde no hace nada (no da la vuelta:
+    next.focus();                                   // dar la vuelta en captura desorienta)
+    next.select();
   }
 
   readonly toolbarIdx = signal(0);
