@@ -69,20 +69,34 @@
   --brand-900: #8C2308;
   --brand-950: #4B1300;
 
-  /* ── NEUTRAL — Stone cálido (no Zinc frío) ───────────────────────────────
-     Ramp con L uniforme en OKLCH. Ver DESIGN_FOUNDATIONS.md §1.2.
-     Flip negro/blanco: L ≈ 0.69 (frontera stone-500/stone-600). */
-  --neutral-50:  #FBF9F6;
-  --neutral-100: #F5F1EA;
-  --neutral-200: #E8E2D7;
-  --neutral-300: #D8CFC0;
-  --neutral-400: #B0A595;
-  --neutral-500: #837A6C;
-  --neutral-600: #5E564B;
-  --neutral-700: #463F36;
-  --neutral-800: #2B2620;
-  --neutral-900: #1A1611;
-  --neutral-950: #100D09;
+  /* ── NEUTRAL — Slate (PrimeNG Aura) ──────────────────────────────────────
+     Decisión Edgar 2026-09-14: los neutrales de OPERATIONS pasan de Stone
+     cálido a Slate, la paleta de superficies de PrimeNG Aura — el tema del
+     componente que ya usamos (medido de @primeuix/themes: `surface` =
+     light-dark({slate}, {zinc})).
+
+     El porqué, medido en OKLCH: slate-100 tiene MENOS croma que stone-100
+     (0.0069 vs 0.0103) y más luz (L* 96.8 vs 95.9). Eso es lo que se percibe
+     como "limpio": menos tinte y más claridad, no el azul. A croma tan bajo
+     el azul casi no se ve, pero empuja hacia donde un blanco se lee más
+     blanco (el principio del abrillantador óptico); un tinte amarillo a igual
+     luminancia se lee "papel viejo". Ver DESIGN.md → Decisions Log 2026-09-14.
+
+     ⚠️ ALCANCE: sólo Operations (apps/view + apps/vendor). El Storefront
+     (/portal) NO cambia: `.portal-shell`/`.pl-wrap` re-apuntan --neutral-*
+     a --stone-* más abajo, así que el portal sigue cálido por construcción.
+     La rampa --stone-* SIGUE VIVA y es la del Storefront — no borrarla. */
+  --neutral-50:  #F8FAFC;
+  --neutral-100: #F1F5F9;
+  --neutral-200: #E2E8F0;
+  --neutral-300: #CBD5E1;
+  --neutral-400: #94A3B8;
+  --neutral-500: #64748B;
+  --neutral-600: #475569;
+  --neutral-700: #334155;
+  --neutral-800: #1E293B;
+  --neutral-900: #0F172A;
+  --neutral-950: #020617;
 
   /* ── SEMÁNTICOS — fg=sólido, soft-bg=chip, soft-fg=texto sobre soft-bg ──── */
   --ok-fg:        #16A34A;
@@ -124,9 +138,9 @@
   --chart-axis-text: var(--neutral-500);
   --chart-meta-line: var(--neutral-400);
 
-  --chart-fill-low:  #D8CFC0; /* stone-300 — warm */
-  --chart-fill-mid:  #837A6C; /* stone-500 */
-  --chart-fill-high: #2B2620; /* stone-800 */
+  --chart-fill-low:  #CBD5E1; /* slate-300 */
+  --chart-fill-mid:  #64748B; /* slate-500 */
+  --chart-fill-high: #1E293B; /* slate-800 */
 
   /* ── AVATARS — 8 colores estables, AA ≥ 4.5 con texto blanco ──────────── */
   --avatar-1: #C53E15; /* brand-800 (warm anchor) */
@@ -149,8 +163,8 @@
 
   --border-color:  var(--neutral-200);
   --table-border:  var(--neutral-50);
-  /* Tinta base de los overlays interactivos (se voltea en dark). LIGHT = stone-950. */
-  --ink-rgb: 16, 13, 9;
+  /* Tinta base de los overlays interactivos (se voltea en dark). LIGHT = slate-950. */
+  --ink-rgb: 2, 6, 23;
   /* Hover de tabla = overlay de rol (deriva de --ink-rgb, sirve en ambos modos). */
   --table-hover:   var(--overlay-hover);
   /* --table-zebra: deprecado (directiva no-zebra 2026-06-23) — sin consumidores. */
@@ -160,7 +174,7 @@
   --text-main:     var(--neutral-950);
   --text-muted:    var(--neutral-600);
   --text-faint:    var(--neutral-400);
-  --text-disabled: rgba(16, 13, 9, 0.45);
+  --text-disabled: rgba(2, 6, 23, 0.45);
 
   /* Alias de foreground con nombre no ambiguo — preferir en código nuevo. */
   --fg-1:        var(--text-main);
@@ -172,8 +186,8 @@
   --shadow-hover:  0 10px 30px -10px rgba(0, 0, 0, 0.1);
   /* Overlay flotante (menú/popover/sheet). Regla de elevación: in-page = borde
      hairline SIN sombra; overlay = sombra + borde. Ver DESIGN.md §datos densos 1. */
-  --shadow-float:  0 2px 4px rgba(16, 13, 9, 0.04), 0 10px 24px -12px rgba(16, 13, 9, 0.16);
-  --skeleton-bg:   #D8CFC0; /* stone-300 warm — reemplaza el frío #E2E8F0 */
+  --shadow-float:  0 2px 4px rgba(2, 6, 23, 0.04), 0 10px 24px -12px rgba(2, 6, 23, 0.16);
+  --skeleton-bg:   #E2E8F0; /* slate-200 — vuelve al frío al adoptar Aura (2026-09-14) */
 
   /* Form controls — action (sunset) en vez de info (azul). */
   --checkbox-accent:       var(--action);
@@ -294,30 +308,40 @@
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   DARK MODE — Operations surface: zinc neutro (#111111).
+   DARK MODE — Operations surface: ZINC (PrimeNG Aura).
+   Aura define `surface: light-dark({slate}, {zinc})` — su modo oscuro NO es
+   slate, es zinc. Decisión Edgar 2026-09-14: se adopta Aura completo, así que
+   el oscuro de Operations es la rampa zinc de Aura, no hexes escritos a mano.
+
+   Qué cambió respecto del set anterior: los valores viejos (#111111/#1A1A1A/
+   #2A2A2A) tenían croma EXACTAMENTE 0 y no salían de ninguna rampa — se
+   escribieron a mano y el texto encima era cálido (stone, hue 79°), lo que
+   hacía leer la superficie como fría por contraste simultáneo. Ahora
+   superficie y texto son la MISMA familia (zinc), que es la regla de fondo:
+   el texto pertenece a la familia de la superficie que lo sostiene.
+
    El Storefront (/portal) mantiene el espresso cálido vía el override de abajo.
-   Operations ("esto es serio") usa neutro puro: sin tinte cálido visible.
    Ver DESIGN_FOUNDATIONS.md §1.1 — calibrar contraste con APCA.
    ════════════════════════════════════════════════════════════════════════════ */
 body.theme-monochrome {
-  --layout-bg:     #111111;
-  --sidebar-bg:    #1A1A1A;
-  --card-bg:       #1A1A1A;
-  --surface-ground:#141414;
-  --hover-bg:      #252525;
-  --active-bg:     #FBF4E9;
-  --active-text:   #111111;
+  --layout-bg:     #09090B;   /* zinc-950 */
+  --sidebar-bg:    #18181B;   /* zinc-900 */
+  --card-bg:       #18181B;   /* zinc-900 */
+  --surface-ground:#111113;   /* entre 950 y 900 */
+  --hover-bg:      #27272A;   /* zinc-800 */
+  --active-bg:     #FAFAFA;   /* zinc-50  */
+  --active-text:   #09090B;
 
-  --border-color:  #2A2A2A;
-  --table-border:  #222222;
+  --border-color:  #27272A;   /* zinc-800 */
+  --table-border:  #1F1F22;
   /* DARK: la tinta del overlay se vuelve clara → hover/active/selected recalculan solos. */
-  --ink-rgb: 251, 249, 246;
+  --ink-rgb: 250, 250, 250;   /* zinc-50 */
   /* --table-hover y --table-zebra heredan del :root (derivan de --ink-rgb). */
 
-  --text-main:     #FBF4E9;
-  --text-muted:    #B0A595;
-  --text-faint:    #837A6C;
-  --text-disabled: rgba(251, 244, 233, 0.45);
+  --text-main:     #FAFAFA;   /* zinc-50  */
+  --text-muted:    #A1A1AA;   /* zinc-400 */
+  --text-faint:    #71717A;   /* zinc-500 */
+  --text-disabled: rgba(250, 250, 250, 0.45);
 
   --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
   --shadow-hover:  0 0 20px rgba(251, 244, 233, 0.08);
@@ -362,12 +386,12 @@ body.theme-monochrome {
   --chart-8: #A1A1AA;
 
   --chart-grid:      rgba(255, 255, 255, 0.06);
-  --chart-axis-text: #B0A595;
-  --chart-meta-line: #837A6C;
+  --chart-axis-text: #A1A1AA; /* zinc-400 — era stone-400 (cálido sobre superficie fría) */
+  --chart-meta-line: #71717A; /* zinc-500 — era stone-500 */
 
-  --chart-fill-low:  #463F36; /* stone-700 */
-  --chart-fill-mid:  #B0A595; /* stone-400 */
-  --chart-fill-high: #FBF9F6; /* stone-50 */
+  --chart-fill-low:  #3F3F46; /* zinc-700 */
+  --chart-fill-mid:  #A1A1AA; /* zinc-400 */
+  --chart-fill-high: #FAFAFA; /* zinc-50  */
 
   --avatar-1: #FB923C;
   --avatar-2: #60A5FA;
