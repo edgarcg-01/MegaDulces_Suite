@@ -120,6 +120,23 @@ export interface Product {
   cost_base: number | null;
   cost_with_tax: number | null;
   cost_per_case: number | null;
+  /**
+   * [PR.1] Las cifras que el RESTO de la Suite ya usa, para que esta pantalla diga lo mismo.
+   *
+   * `uxc` = factor de caja del resolvedor con veredicto (`v_product_box_factor_consensus`), NO
+   * `factor_sale`. `null` = no se puede afirmar, y `uxc_veredicto` dice por qué.
+   * `costo_erp` = el árbitro (`analytics.v_erp_unit_cost`, mediana entre almacenes).
+   *
+   * ⛔ `cost_base` NO se reemplaza: es con lo que se valúa el inventario (ADR-051). Se muestran
+   * los dos y `costo_difiere` declara la brecha — medido: 5,382 de 11,239 productos (48%) no
+   * coinciden con el árbitro.
+   */
+  uxc?: number | null;
+  uxc_veredicto?: 'consenso' | 'difiere_entre_plazas' | 'sin_testigo' | null;
+  uxc_rango?: string | null;
+  costo_erp?: number | null;
+  costo_erp_almacenes?: number;
+  costo_difiere?: boolean;
   location: string | null;
   location_warehouse: string | null;
   loyalty_points: number | null;
