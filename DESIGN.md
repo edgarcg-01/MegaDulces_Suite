@@ -107,7 +107,7 @@
 - **Tokens: una sola [`tokens.css`](libs/design-tokens/tokens.css)**, sin copias en `apps/*`. La consolidación de ago-2026 se sostiene.
 - **Disciplina tipográfica — la regla mejor cumplida del sistema:** Fraunces / Inter / JetBrains fuera de las 3 apps, y `--font-display`/Poppins con **0 fugas** a `apps/view` y `apps/vendor`.
 - **GSAP 100% por `import()` lazy**, plugins incluidos (`cart-fx.service.ts`, `portal-login`, `portal-shell`, `portal-cart`, `portal-catalog`, `portal-order-detail`).
-- Dark Operations zinc `#111111` ✓ · `tabular-nums` con 577 usos ✓ · los 8 docs satélite enlazados existen todos ✓.
+- **Neutrales: dos familias coherentes, cada superficie con su texto.** Operations = Slate/Zinc (Aura) desde el 2026-09-14; Storefront = Stone/Espresso, protegido por el scope `.portal-shell`. Ya no hay texto de una familia sobre superficie de otra — que era el bug de fondo. `tabular-nums` con 577 usos ✓ · los 8 docs satélite enlazados existen todos ✓.
 
 **Deuda declarada, medida y abierta** (⛔ = viola una regla marcada BINDING):
 
@@ -152,9 +152,18 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/mi-trabajo` | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
 | **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
 
+**⚠️ Los neutrales YA NO se comparten entre surfaces** (decisión Edgar 2026-09-14):
+
+| | Operations (`view` · `vendor`) | Storefront (`portal`) |
+|---|---|---|
+| Neutrales claro | **Slate** (PrimeNG Aura) — `#F1F5F9` ground | **Stone** cálido — `#F5F1EA` ground |
+| Neutrales oscuro | **Zinc** (PrimeNG Aura) — `#09090B` ground | **Espresso** cálido — `#16130F` ground |
+
+La rampa `--stone-*` **sigue viva**: `.portal-shell`/`.pl-wrap` re-apuntan `--neutral-*` a `--stone-*`, así que el Storefront queda cálido por construcción y no hay que tocarlo. Cambiar el `:root` sólo mueve Operations.
+
 **Cómo mantener esta tabla honesta:** las raíces salen de [`apps/view/src/app/app.routes.ts`](apps/view/src/app/app.routes.ts) — `grep -nE "^    path: '" apps/view/src/app/app.routes.ts`. Si agregás un proyecto nuevo de primer nivel, **se agrega acá**: el paso 1 del pre-vuelo manda ubicar el surface en esta tabla, y una tabla incompleta manda a la pantalla nueva a ningún régimen.
 
-Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, escala de radios, tokens semánticos. **El dark NO se comparte**: Operations usa zinc neutro `#111111` ("esto es serio"), Storefront usa espresso cálido `#16130F` (scopeado a `.portal-shell`/`.pl-wrap`). Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
+Ambos surfaces comparten: **sunset `--action`, IA ember, escala de radios, tokens semánticos, tipografía**. Lo que **ya no** comparten son los **neutrales** (tabla de arriba) — ni en claro ni en oscuro. Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
 
 La regla 1-línea: Operations es el portal pero sin storefront. Mismo lenguaje, menos drama.
 
@@ -274,18 +283,37 @@ Mantiene la calidez de marca Mega Dulces, pero **reasigna los roles**: el amaril
 --action:       #F05A28;            /* botones, links, foco, steppers, "+" */
 --action-hover: #D2451C;
 --action-press: #B83C15;
---action-ink:   #FFFFFF;            /* texto sobre --action (AA OK) */
+--action-ink:   #FFFFFF;            /* texto sobre --action — ver nota de contraste abajo */
 --action-ring:  rgba(240,90,40,0.30);
 ```
 Regla: amarillo `#FDE707` solo con texto oscuro (`--stone-950`), nunca blanco.
 
-### Neutrales cálidos — Stone (reemplaza Zinc frío)
+> ⚠️ **Corrección medida 2026-09-14 — el comentario `(AA OK)` que llevaba `--action-ink` era falso.** Blanco sobre `--action` da **3.39:1**, que es AA **sólo para texto grande** (≥18.66px bold o ≥24px). La mayoría de nuestros CTA son de 13–14px → **no cumplen AA a tamaño normal**. No se cambió nada todavía porque tocar `--action` mueve la marca entera; queda **declarado, no disfrazado** (ADR-056). Salidas posibles cuando se decida: oscurecer `--action` a ~`#D2451C` (el `--action-hover` actual, que da 4.5:1), subir el label del botón a ≥16px bold, o aceptar el riesgo por escrito. Lo que NO vale es seguir escribiendo "AA OK" al lado.
+
+### Neutrales — DOS familias, una por surface (decisión 2026-09-14)
+
+> ⚠️ **Antes de 2026-09-14 había una sola rampa (Stone) para todo.** Ya no. Elegí por surface; nunca mezcles hexes de una familia con superficies de la otra — ése es el bug que originó el cambio (ver Decisions Log).
+
+**Operations (`apps/view` · `apps/vendor`) — Slate / Zinc, la paleta de PrimeNG Aura.** Es la que `--neutral-*` sirve en `:root`:
+```css
+/* claro — slate */
+--neutral-50:#F8FAFC; --neutral-100:#F1F5F9; --neutral-200:#E2E8F0; --neutral-300:#CBD5E1;
+--neutral-400:#94A3B8; --neutral-500:#64748B; --neutral-600:#475569; --neutral-700:#334155;
+--neutral-800:#1E293B; --neutral-900:#0F172A; --neutral-950:#020617;
+/* oscuro — zinc (body.theme-monochrome) */
+--layout-bg:#09090B; --card-bg:#18181B; --border-color:#27272A;
+--text-main:#FAFAFA; --text-muted:#A1A1AA; --text-faint:#71717A;
+```
+
+**Storefront (`/portal`) — Stone cálido, sin cambios.** Vive scopeada a `.portal-shell`/`.pl-wrap`, que re-apuntan `--neutral-*` a `--stone-*`:
 ```css
 --stone-50:#FBF9F6; --stone-100:#F5F1EA; --stone-200:#E8E2D7; --stone-300:#D8CFC0;
 --stone-400:#B0A595; --stone-500:#837A6C; --stone-600:#5E564B; --stone-700:#463F36;
 --stone-800:#2B2620; --stone-900:#1A1611; --stone-950:#100D09;
 ```
-Esta es la palanca que mata el "frío SaaS": cada superficie toma un sustrato cálido.
+En el Storefront sigue valiendo la tesis original: el sustrato cálido mata el "frío SaaS". En Operations la calidez ahora la aportan **el sunset y el ember**, no el sustrato.
+
+**La regla que sale de esto (vale para cualquier surface futura): el texto pertenece a la familia de la superficie que lo sostiene.** Texto cálido sobre superficie neutra —o al revés— se percibe como un tinte que ninguno de los dos tiene: es contraste simultáneo, y fue exactamente la causa del "se ve zinc".
 
 ### IA — Ember (mata el `#8b5cf6` morado)
 ```css
@@ -465,10 +493,10 @@ Un supervisor que entra una vez recuerda: **velocidad y densidad** — está usa
 | Display font | **Ninguna.** Page-head = Hanken Bold + tracking tight | **Poppins** (`--font-display`) |
 | Body font | Hanken Grotesk 13/14/16 | Hanken Grotesk 14/15/16 |
 | Data font | Geist Mono + `tabular-nums` obligatorio | Geist Mono |
-| Neutrales | Stone cálido (igual que portal) | Stone |
+| Neutrales | **Slate** (PrimeNG Aura) — `#F1F5F9` ground | **Stone** cálido — `#F5F1EA` ground |
 | Acción | `--action` sunset (igual que portal) | Sunset |
 | IA | Ember `--ember-grad` | Ember |
-| Dark | **Zinc neutro `#111111`** | **Espresso `#16130F`** (scopeado al shell del portal) |
+| Dark | **Zinc (Aura) `#09090B`** | **Espresso `#16130F`** (scopeado al shell del portal) |
 | Density | **compact++** (más denso que tool-mode portal) | compact / comfortable |
 | Primary organism | **Tabla densa + master-detail**. Cards solo para KPIs minimal | Card grid |
 | Decoración | nula (sin ilustraciones SVG dulces — son del storefront) | intencional |
@@ -565,7 +593,8 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 - Status semantics clásico verde/ámbar/rojo
 
 ### RISK choices (donde Mega Dulces se diferencia de cualquier ERP)
-1. **Stone + sunset + ember en backoffice**: 95% de tools internas son Zinc/blue/Inter. Mover Operations a la paleta del portal hace que el supervisor sienta que es la MISMA empresa, no "el portal por un lado y la herramienta de trabajo por otro". Costo: swap de tokens. Win: identidad cross-app.
+1. ~~**Stone + sunset + ember en backoffice**: 95% de tools internas son Zinc/blue/Inter. Mover Operations a la paleta del portal hace que el supervisor sienta que es la MISMA empresa, no "el portal por un lado y la herramienta de trabajo por otro". Costo: swap de tokens. Win: identidad cross-app.~~
+   **⛔ REVERTIDO 2026-09-14 (decisión Edgar).** Operations pasó a **Slate/Zinc de PrimeNG Aura**. La apuesta de arriba se tomó a conciencia y se dejó ir a conciencia: el riesgo que nombra —verse como el otro 95%— **se acepta**, a cambio de un claro que se lee limpio (slate-100 tiene 33% menos croma y más luz que stone-100; medido). Lo que queda de la tesis: el sunset y el ember **siguen siendo los mismos en los dos surfaces**, así que la identidad cross-app ahora la carga el **acento**, no el sustrato. Razonamiento completo en el Decisions Log 2026-09-14.
 2. **No Fraunces ni decoración en internal**: muchos ERPs meten serif en empty states para no verse crudos. Aquí vamos full grotesque honesto. Costo: empties visualmente más fríos. Win: refuerza la promesa "esto es serio".
 3. **IA ember preventivo en backoffice**: cuando Trade agregue scoring assist / anomaly detection / product match (Fase K extension), ya tiene identidad coherente con portal. Costo: nada hoy. Win: evita el reflejo "azul SaaS" o "morado AI" cuando aparezca el primer feature IA en operations.
 
@@ -994,6 +1023,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-09-14 | **Los neutrales de Operations pasan de Stone cálido a Slate/Zinc — la paleta de PrimeNG Aura.** Decisión de Edgar. `:root --neutral-*` → slate (`#F8FAFC`…`#020617`); `body.theme-monochrome` → zinc de Aura (`#09090B` / `#18181B` / `#27272A`, texto `#FAFAFA`/`#A1A1AA`/`#71717A`). **El Storefront NO cambia**: `.portal-shell`/`.pl-wrap` ya re-apuntaban `--neutral-*` a `--stone-*`, así que el portal queda cálido por construcción y la rampa `--stone-*` sigue viva. Arrastró además los neutrales que estaban sueltos fuera de la rampa: `--ink-rgb`, `--text-disabled`, `--shadow-float`, `--skeleton-bg` y los 5 `--chart-fill-*`/`--chart-axis-text`/`--chart-meta-line` de ambos modos. **Supersede** el RISK choice #1 y la decisión 2026-06-04 "Zinc → Stone" **sólo para Operations**. | **La queja fue "no me gusta el fondo como zinc", y medir mostró que había DOS bugs con una causa común: el sistema no gestionaba el tinte de sus neutrales.** (1) En oscuro, las superficies (`#111111`/`#1A1A1A`/`#2A2A2A`) tenían croma **exactamente 0** —el único set del sistema sin tinte, y **escrito a mano, sin salir de ninguna rampa**— mientras el texto encima era Stone cálido (hue 79°): un neutro puro junto a un crema se percibe **frío por contraste simultáneo**. (2) En claro, croma 0.0103 en **hue 82° (amarillo)**, que a esa saturación no lee "crema cálido" sino "papel viejo". Al comparar contra lo que Edgar señaló (PrimeNG Aura) apareció el dato que decidió: **slate-100 tiene 33% MENOS croma que stone-100 (0.0069 vs 0.0103) y más luz (L\* 96.8 vs 95.9)** — lo que se percibía como "limpio" no era el azul, era menos tinte y más claridad; a ese croma el azul casi no se ve pero empuja hacia donde un blanco se lee más blanco (principio del abrillantador óptico), mientras el mismo croma en amarillo se lee sucio. **Se advirtió el costo antes de ejecutar** (adoptar el tema por default de PrimeNG es volverse el "95% de tools Zinc/blue" que el RISK choice #1 quería evitar) y Edgar lo confirmó. **Contraste verificado, ambos lados calculados:** todo par de texto se mantiene o mejora (principal en oscuro **17.28 → 19.06**; en claro **17.21 → 18.41**; muted −0.03 en oscuro). Builds `portal` + `vendor` verdes; `view` no compila por **WIP ajeno sin commitear** (`admin-roles-grid` + `admin-responsabilidades`: acento grave dentro de un template literal — el gotcha de siempre), ninguno de los dos tocado por este cambio. ⚠️ **Hallazgo colateral declarado, no arreglado:** el comentario `(AA OK)` de `--action-ink` era **falso** — blanco sobre `--action` da **3.39:1**, AA sólo para texto grande, y nuestros CTA son de 13–14px. |
 | 2026-09-14 | **Auditoría del doc contra el código: 6 contradicciones internas corregidas + toda cifra fechada + [Estado de cumplimiento](#estado-de-cumplimiento--lo-que-el-doc-manda-vs-lo-que-el-código-hace) e [índice](#mapa-del-documento) nuevos.** Corregido: (1) **§Ing.UI 4 seguía exigiendo `NgZone.runOutsideAngular()`** — el retiro estaba *declarado* en la fila 2026-09-09 de esta misma tabla y **nunca se ejecutó**; ahora dice qué hacer en zoneless (el callback no dispara CD salvo que escriba una `signal`). (2) **§Ing.UI 5 y §R mandaban poner los componentes compartidos en `libs/`**, que tiene **0 componentes Angular**: la regla apuntaba a un conjunto vacío y por eso se leía como cumplida; ahora apunta a `apps/view/src/app/shared/components/` y declara el hueco real (portal y vendor con **0** componentes compartidos). (3) **La tabla de Surfaces —paso 1 del pre-vuelo— listaba 6 rutas y faltaban 8** (`/finanzas`, `/contabilidad`, `/compras`, `/almacen`, `/tienda`, `/reparto`, `/projects`, `/mi-trabajo`), justo las pantallas de dinero más densas; y listaba `/vendor` y `/portal` como rutas de `apps/view` cuando hace tiempo son apps. (4) **Typography apuntaba a un solo `index.html`**: cada app carga su `<link>` y `apps/view` sirve **Sniglet** (3ª familia, exención §O.3) sin estar documentada. (5) **§Type scale prohibía el namespace `--text-*` para tamaños** mientras `--text-display-xl/-lg/-md` existen en `tokens.css` con 14 usos. (6) **El paso 6 del plan Operations, marcado "APLICADO", ordenaba dark espresso** cuando lo decidido y vigente es zinc `#111111`. | **Un contrato que se cita como BINDING y contiene afirmaciones falsas no gatea: enseña a no creerle.** Lo detonó medir, no opinar: al contrastar las cifras que el doc publica contra `grep` de hoy, **cuatro estaban vencidas y dos habían empeorado** — `::ng-deep` 317 → **370 (+17%)** contra una métrica de §S que dice literalmente "no sube", y breakpoints en px 124 → **169 (+36%)**, siendo antipatrón declarado. Y `@layer` **sigue en 0**, así que la justificación que §S le exige a cada `!important` (*"por qué no alcanza la capa"*) era imposible de dar desde el día que se escribió. El patrón de fondo: **lo que se cumple solo** (tokens en un archivo único, tipografía con 0 fugas, GSAP 100% lazy) tiene **un solo lugar donde vive**; lo que se degrada es lo que depende de que la revisión se acuerde. Por ADR-056, *un gate sin prueba negativa es una intención*: las 3 cifras que empeoraron son justo las **mecánicamente medibles**, o sea las que un check de CI habría frenado. ⚠️ **Declarado sin resolver (no se tocó código):** `MetricStrip` —arquetipo de ADR-033 en 64 pantallas— anima `width` 900ms (viola techo 350ms **y** compositor-only) · el morado prohibido `#8b5cf6` volvió en `promotions-meta.ts` junto a la paleta default de Tailwind · 171 hex crudos en 40 archivos de `apps/view` · `surf-table--zebra` no-op aplicada en 35 archivos · `TabShell` y `MiniBars` con **0 adopción** · `motion@^12.38.0` sigue muerta. Todo con archivo y línea en el Estado de cumplimiento. |
 | 2026-09-09 | **El contrato de motion decía una cosa y el `package.json` otra: se reconcilia.** §U y el punto 8 afirmaban *"GSAP no es dependencia"* y **es falso desde el 2026-06-25** (`gsap@^3.15.0`, commit `d011d92d`), corriendo en **producción** en `apps/portal` con plugins de Club GreenSock (SplitText, DrawSVG, Physics2D, MotionPath). Regla nueva: **CSS/WAAPI por default; GSAP permitido SÓLO por `import()` lazy**; ninguna librería NUEVA de animación entra. Se retira además el consejo de `NgZone.runOutsideAngular` (obsoleto: `apps/view` es zoneless). | §U *se verifica en review*, así que el contrato desactualizado bloqueaba cualquier PR de animación contra un hecho que ya no era cierto — y al revés, dejaba pasar sin discusión el uso que ya estaba en prod. Medido al reconciliar: el **bundle inicial de `apps/view` ya excede su warning** (1.171 MiB contra 1 MB; 234 KiB de aire hasta el error), así que la regla de *lazy* no es preferencia, es lo único que cabe; la **CSP bloquea todo CDN** (`script-src 'self'`), así que cualquier librería tiene que ser npm bundleada; y la **adopción de los tokens de duración es del 9%** (31 de 338 declaraciones), con dos animaciones en `styles.css` **por encima del techo de 350ms** (400ms y 500ms). ⚠️ Declarado sin resolver: `motion@^12.38.0` está instalada desde el 2026-04-27 con **cero imports** — dep muerta; retirarla toca el lockfile compartido, así que es decisión de Edgar (`npm uninstall motion`). |
 | 2026-08-25 | **Plataforma web moderna BINDING (§R-§W + pre-vuelo 16/17)** (responsividad por capas: `@media`=página / `@container`=componente / `clamp()` con máx ≤2.5× / grid intrínseco, breakpoints en `rem` · cascada `@layer` + `!important` justificado + `::ng-deep` solo vendor · overlays nativos Popover+anchor+`<dialog closedby>`+`base-select` · motion nativo View Transitions/scroll-driven/`linear()` · presupuesto INP<200ms como criterio de aceptación · ganancias gratis `text-wrap`/`field-sizing`/`light-dark`/`contrast-color`/`:has`) **+ agentic UX BINDING (§X + pre-vuelo 18)** (plan previo · autonomía por dominio · razón en llano · confianza visible · auditoría+undo con ventana · escalación) **+ marco de mejora progresiva** (`@supports`, el piso es que funcione sin la feature) | Auditoría del DS contra la plataforma (investigación [`DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md)): **el sistema de diseño iba muy por delante de la tecnología con la que lo implementábamos**. Medido en el repo: **0 `@container`** (aunque §Ing.UI 5 lo mandaba desde jul-2026), **0 `@layer`** contra **971 `!important` + 317 `::ng-deep`**, **124 breakpoints en px** (rompen zoom), y features gratis sin usar (`text-wrap` 1 archivo, `field-sizing` 1, `content-visibility` 2, `popover` 1). Además faltaba por completo el contrato visual de las superficies con IA — teníamos la tesis (motor decide / LLM fuera del dinero) y la identidad (ember), pero no las reglas de **confianza** (plan, razón, confianza, reversa, escalación), que es el problema de diseño #1 de la IA en 2026. Se anotó también el riesgo de licencia de PrimeNG (v22+ comercial, repo archivado jun-2026) en pre-vuelo 3 sin cerrar la decisión — es de Edgar. |

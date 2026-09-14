@@ -9,9 +9,10 @@ import Aura from '@primeuix/themes/aura';
  *
  * Qué mapea:
  *  - primary  → rampa naranja centrada en sunset --action (#F05A28).
- *  - surface (light) → Stone cálido (no el zinc frío de Aura).
  *  - highlight / focusRing → sunset.
- * Dark conserva el surface neutro de Aura (nuestro dark Operations es zinc #111).
+ *  - surface  → NO se pisa: se usa el de Aura (slate en claro, zinc en oscuro),
+ *    que desde el 2026-09-14 es también la rampa de neutrales de Operations en
+ *    tokens.css. Antes de esa fecha acá se forzaba Stone cálido.
  *
  * Global: afecta TODAS las surfaces (comercial/admin/portal/vendor). Es coherente
  * — el portal ya usa --action sunset y DESIGN.md manda sunset en Operations.
@@ -52,22 +53,14 @@ export const OperationsPreset = definePreset(Aura, {
           color: '#B83C15',
           focusColor: '#B83C15',
         },
-        // Surface cálido Stone (reemplaza el zinc frío de Aura en panels,
-        // overlays, dropdowns, dialogs, inputs).
-        surface: {
-          0: '#FFFFFF',
-          50: '#FBF9F6',
-          100: '#F5F1EA',
-          200: '#E8E2D7',
-          300: '#D8CFC0',
-          400: '#B0A595',
-          500: '#837A6C',
-          600: '#5E564B',
-          700: '#463F36',
-          800: '#2B2620',
-          900: '#1A1611',
-          950: '#100D09',
-        },
+        // Surface: SIN override — hereda el de Aura (slate en claro, zinc en
+        // oscuro). Hasta el 2026-09-14 acá se pisaba con Stone cálido; al
+        // adoptar Aura como paleta de neutrales de Operations (decisión Edgar,
+        // ver DESIGN.md → Decisions Log) el override dejó de tener sentido:
+        // pisarlo volvería a separar los componentes PrimeNG (panels, overlays,
+        // dropdowns, dialogs, inputs) del chrome de la página, que ahora es
+        // slate. El acento sunset se mantiene arriba, que es lo que sí
+        // diferencia la marca.
       },
       dark: {
         primary: {
