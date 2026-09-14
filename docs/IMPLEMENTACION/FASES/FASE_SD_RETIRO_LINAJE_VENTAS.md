@@ -82,12 +82,22 @@ Prioridad (dinero primero):
   **Antes/después medido en prod (el número NO se mueve):** margen ago **11.25%→11.24%** (Δ 0.01 pp),
   jul **idéntico**; cobertura de costo incluso **mejora** (99.47%→99.98%). Ninguna de las 6 columnas que
   a `mv_sales_blended` le faltan (`id/margin/rung_factor/rung_mixed/units_base/units_unresolved`) se usa.
-  `nx test commercial` **60/60**. ⚠️ **Único cambio visible:** las etiquetas del **desglose por canal**
-  pasan a la taxonomía del ODS (`mostrador/preventa/ruta/…` en vez de `tienda/credito/mayoreo` — la
-  arbitrada, K.3 midió que los canales de la tabla eran poco confiables). **La deuda de costo de MR
-  (Kepler 50/50) se preserva IGUAL** — SD.3 mueve el linaje, no arregla el costo. **Pendiente: validación
-  visual (`/comercial/rentabilidad`, dev servers de Edgar) + redeploy.** 1 de 65 lectores; el resto sigue.
-- **SD.4 — Migrar Command Center**.
+  `nx test commercial` **60/60**. ✅ **Sin cambio visible en el número.** ⚠️ **Corrección (SD.4 lo cazó):**
+  el **desglose por canal** NO se migró — se queda en `sales_daily` a propósito. `mv_sales_blended`
+  **carece del canal `mayoreo`** ($9.88M/30d, medido) y lo reparte en credito/preventa/ruta → migrarlo
+  haría **desaparecer mayoreo** de la pantalla y duplicar credito ($6.03M→$13.22M). Es taxonomía de
+  negocio, se **declara como dependencia**, no se fuerza (mi afirmación inicial "las etiquetas pasan a
+  mostrador/preventa/ruta" era falsa — ésa es la taxonomía de `mv_kepler`, no la del blend). **La deuda
+  de costo de MR (Kepler 50/50) se preserva IGUAL** — SD.3 mueve el linaje, no arregla el costo.
+  **Pendiente: validación visual (`/comercial/rentabilidad`) + redeploy.** 1 de 65 lectores.
+- **SD.4 🟡 EN CURSO 2026-09-14 — Command Center: el dinero YA estaba migrado.** Al medirlo (no asumirlo):
+  `commercial-analytics.service.ts` ya lee **`mv_sales_blended`** en los KPIs de dinero (overview, top
+  productos, mix por marca, serie diaria — migrados en KV.1/KV.4/"PARIDAD-ODS"). Lo que **sigue** en
+  `sales_daily` son **dependencias declaradas, no pendientes triviales**: (1) **tickets** —
+  `mv_sales_blended.tickets` = **20× menor** (26k vs 536k/mes; no cuenta folio), es una dependencia REAL;
+  (2) **desglose por canal** — el `mayoreo` ($9.88M/30d) no existe en el blend; migrarlo lo desaparece;
+  (3) facets de filtro + algún detalle por rango. Las tres **bloquean el retiro (SD.5)** hasta resolver
+  la taxonomía de canal y el conteo de folio en el ODS. No se fuerza ninguna: se **declaran**.
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
   declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores.
 

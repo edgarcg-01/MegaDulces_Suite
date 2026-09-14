@@ -6,12 +6,16 @@ import { TenantKnexService } from '@megadulces/platform-core';
  *
  * De `analytics.sales_daily` (tabla poblada por importer, 3.76 GB) al twin
  * `analytics.mv_sales_blended` (matview derivada del ODS: mismo grano y columnas
- * revenue/cost/units/channel/warehouse_id). Medido en prod 2026-09-14: cuadran al
- * **0.19%** y el margen NO se mueve (ago 11.25%→11.24%, jul idéntico). Único cambio
- * visible: el desglose por CANAL pasa a la taxonomía del ODS (mostrador/preventa/ruta/…,
- * la arbitrada — K.3 midió que los canales de la tabla eran poco confiables). El candado
- * `test-newdb-sales-lineage-parity` (SD.1) guarda la paridad y prueba que `mv_kepler_sales_daily`
- * NO servía de target (le falta la venta de ruta). Un solo lugar de verdad para los 64 lectores restantes.
+ * revenue/cost/units/warehouse_id). Medido en prod 2026-09-14: cuadran al **0.19%** y el
+ * margen NO se mueve (ago 11.25%→11.24%, jul idéntico); la cobertura de costo mejora 99.47%→99.98%.
+ * **Sin cambio visible en el número.** El candado `test-newdb-sales-lineage-parity` (SD.1) guarda la
+ * paridad y prueba que `mv_kepler_sales_daily` NO servía de target (le falta la venta de ruta).
+ *
+ * ⚠️ **El desglose por CANAL NO usa esta constante** (se queda en `sales_daily`): `mv_sales_blended`
+ * carece del canal `mayoreo` ($9.88M/30d) y lo reparte en credito/preventa/ruta — migrarlo lo haría
+ * desaparecer de la pantalla. Es taxonomía de negocio, se declara como dependencia pendiente (ver el
+ * comentario en la query de `channels`). Y `tickets` tampoco: `mv_sales_blended.tickets` es 20× menor
+ * (no cuenta folio). Ambas bloquean el retiro de `sales_daily` (SD.5) hasta que se resuelvan.
  */
 const SALES_FACT = 'analytics.mv_sales_blended';
 
@@ -564,7 +568,12 @@ export class CommercialProfitabilityService {
       const marginPct = revenue > 0 ? (marginAmount / revenue) * 100 : null;
 
       // Canales que alimentan la ventana: la otra mitad de "sobre qué medimos".
-      const channels = await trx(SALES_FACT)
+      // [SD.3] Este desglose SE QUEDA en sales_daily a propósito: mv_sales_blended NO tiene el canal
+      // `mayoreo` ($9.88M/30d medido en prod) — lo reparte en credito/preventa/ruta, así que migrarlo
+      // haría DESAPARECER mayoreo de la pantalla y duplicar credito ($6.03M→$13.22M). Es una pregunta de
+      // taxonomía de negocio (¿mayoreo es un canal que la empresa quiere ver?), no de linaje: se declara
+      // como dependencia pendiente de sales_daily, no se fuerza en silencio. El MARGEN (salesAgg) sí migró.
+      const channels = await trx('analytics.sales_daily')
         .whereRaw('tenant_id = public.current_tenant_id()')
         .whereRaw(`sale_date >= CURRENT_DATE - INTERVAL '${w.days} days'`)
         .groupBy('channel')
