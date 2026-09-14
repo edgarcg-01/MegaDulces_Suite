@@ -138,6 +138,74 @@ export class CommercialProductsService {
         .limit(pageSize)
         .offset(offset);
 
+      // ── [PR.1] SINCRONÍA con el resto de la Suite ─────────────────────────────────────────
+      //
+      // Edgar (2026-09-14): *"/comercial/products debe tomar la misma base de datos que los demás,
+      // para tener una sincronía con la información"*.
+      //
+      // Esta pantalla publicaba dos cifras del ESPEJO del catálogo mientras compras, existencia y
+      // sell-out ya leen los resolvedores canónicos. Medido en prod el mismo día:
+      //
+      // ```text
+      //   COSTO   cost_base contra analytics.v_erp_unit_cost (el arbitro, ADR-059)
+      //     coinciden (+-2%) ........ 3,776
+      //     la pantalla dice DE MENOS 3,709      <- 48% de los productos muestran otro costo
+      //     la pantalla dice DE MAS . 1,673
+      //     el arbitro no lo cubre .. 1,183
+      //     sin costo en el catalogo    898
+      //
+      //   FACTOR  factor_sale contra v_product_box_factor_consensus
+      //     coinciden .............. 8,527
+      //     el resolvedor NO publica  2,685      <- y la pantalla mostraba un numero igual
+      //     DIFIEREN ...............     27
+      // ```
+      //
+      // ⛔ `cost_base` NO se reemplaza acá. Es la columna con la que se VALÚA el inventario
+      // (ADR-051, enmienda del 31-ago), y cambiarla mueve dinero: pide su propio antes/despues, no
+      // un join en una pantalla de catálogo. Lo que se hace es **mostrar los dos y declarar la
+      // diferencia** — que es justo lo que faltaba para que el usuario vea la misma información
+      // que ve en compras.
+      //
+      // El enriquecimiento va por PÁGINA (un `whereIn` sobre los ids que ya se devolvieron) y no
+      // como join: `v_erp_unit_cost` agregado sobre los 11,239 productos no termina en 300 s.
+      const ids = (data as any[]).map((r) => r.id).filter(Boolean);
+      if (ids.length) {
+        const uxcRows = await trx('analytics.v_product_box_factor_consensus')
+          .whereIn('product_id', ids)
+          .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max');
+        const uxcBy = new Map<string, any>(uxcRows.map((r: any) => [r.product_id, r]));
+
+        const costoRows = await trx('analytics.v_erp_unit_cost')
+          .whereIn('product_id', ids)
+          .andWhere('costo_unitario', '>', 0)
+          .groupBy('product_id')
+          .select('product_id')
+          .select(trx.raw(
+            'round(percentile_cont(0.5) WITHIN GROUP (ORDER BY costo_unitario)::numeric, 4) AS costo_erp'))
+          .select(trx.raw('count(DISTINCT warehouse_id)::int AS almacenes_con_costo'));
+        const costoBy = new Map<string, any>(costoRows.map((r: any) => [r.product_id, r]));
+
+        for (const row of data as any[]) {
+          const u = uxcBy.get(row.id);
+          // El numero PUBLICABLE con su veredicto, igual que la columna UxC del sell-out (UXC.1).
+          // `null` no es "no aplica": es "no se puede afirmar", y `uxc_veredicto` dice por que.
+          row.uxc = u?.box_factor_publicable != null ? Number(u.box_factor_publicable) : null;
+          row.uxc_veredicto = u?.veredicto ?? null;
+          row.uxc_rango = u?.veredicto === 'difiere_entre_plazas'
+            && u?.factor_min != null && u?.factor_max != null
+            ? `${Number(u.factor_min)}–${Number(u.factor_max)}` : null;
+
+          const co = costoBy.get(row.id);
+          row.costo_erp = co?.costo_erp != null ? Number(co.costo_erp) : null;
+          row.costo_erp_almacenes = co?.almacenes_con_costo ?? 0;
+          // La diferencia se DECLARA; no se elige un ganador dentro de un SELECT de catalogo.
+          const cb = row.cost_base != null ? Number(row.cost_base) : null;
+          row.costo_difiere = row.costo_erp != null && cb != null && cb > 0
+            ? Math.abs(cb - row.costo_erp) / row.costo_erp > 0.02
+            : false;
+        }
+      }
+
       const totalNum = Number(total) || 0;
       return {
         data,

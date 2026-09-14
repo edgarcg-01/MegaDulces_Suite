@@ -265,7 +265,10 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                   </td>
                   <td class="comm-num">
                     @if (p.cost_base != null) {
-                      <span>{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                      <!-- [PR.1] El costo del catalogo, y cuando el ARBITRO del ERP dice otra cosa,
+                           se marca. No se elige un ganador aca: cost_base es con lo que se valua el
+                           inventario (ADR-051) y cambiarlo mueve dinero. Medido: 48% difiere. -->
+                      <span [title]="costoTitulo(p)">{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (p.costo_difiere) { <span class="comm-muted is-small">&nbsp;≠ERP</span> }</span>
                     }
                     @if (p.cost_base == null) {
                       <span class="comm-muted">—</span>
@@ -273,8 +276,15 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                   </td>
                   <td class="comm-num">
                     @if (p.unit_sale) {
-                      <span>{{ p.unit_sale }}@if (p.factor_sale && p.factor_sale > 1) {
-                        <span class="comm-muted is-small"> × {{ p.factor_sale }}</span>
+                      <!-- [PR.1] El factor sale del resolvedor CANONICO con veredicto, no de
+                           factor_sale: en 2,685 productos el resolvedor se niega a publicar y esta
+                           pantalla mostraba un numero igual. Sin afirmacion va un simbolo, no una cifra. -->
+                      <span [title]="uxcTitulo(p)">{{ p.unit_sale }}@if (p.uxc && p.uxc > 1) {
+                        <span class="comm-muted is-small"> × {{ p.uxc }}</span>
+                      } @else if (p.uxc_veredicto === 'difiere_entre_plazas') {
+                        <span class="comm-muted is-small"> × ≠</span>
+                      } @else if (p.factor_sale && p.factor_sale > 1) {
+                        <span class="comm-muted is-small"> × {{ p.factor_sale }} ?</span>
                       }</span>
                     }
                     @if (!p.unit_sale) {
@@ -535,6 +545,41 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class ComercialProductsComponent {
+  /**
+   * [PR.1] Por qué el costo de esta pantalla puede no ser el que se ve en compras.
+   *
+   * `cost_base` es del catálogo y con él se VALÚA el inventario (ADR-051). El árbitro
+   * (`analytics.v_erp_unit_cost`) es lo que el ERP registró por almacén. Medido en prod el
+   * 2026-09-14: de 11,239 productos, 3,709 tienen el costo del catálogo por DEBAJO del árbitro y
+   * 1,673 por encima — 48% no coinciden. No se elige uno acá: se muestran los dos.
+   */
+  costoTitulo(p: Product): string {
+    if (p.costo_erp == null) {
+      return 'Costo del catálogo. El árbitro del ERP no cubre este producto, así que no hay con '
+        + 'qué contrastarlo.';
+    }
+    const erp = p.costo_erp.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+    if (!p.costo_difiere) return `Costo del catálogo. Coincide con el ERP (${erp}).`;
+    return `⚠️ El catálogo dice esto y el ERP dice ${erp} `
+      + `(mediana de ${p.costo_erp_almacenes ?? 0} almacén(es)). No se corrige acá: con el costo `
+      + 'del catálogo se valúa el inventario, y cambiarlo mueve dinero.';
+  }
+
+  /** [PR.1] El factor de caja, con el mismo veredicto que publica el Sell-Out (UXC.1). */
+  uxcTitulo(p: Product): string {
+    if (p.uxc != null) return `${p.uxc} por caja — las plazas con testigo concuerdan.`;
+    if (p.uxc_veredicto === 'difiere_entre_plazas') {
+      return `Las plazas NO concuerdan en cuántas unidades trae una caja (${p.uxc_rango ?? 'rango '
+        + 'no disponible'}). Por eso no va un número: una moda sería inventar el acuerdo.`;
+    }
+    if (p.uxc_veredicto === 'sin_testigo') {
+      return 'Ninguna plaza declara cuántas unidades trae una caja. El número con "?" viene de '
+        + '`catalog.products.factor_sale`, que no tiene testigo — se muestra para que no falte, '
+        + 'pero no está confirmado.';
+    }
+    return 'Sin dato de empaque en el resolvedor canónico.';
+  }
+
   private readonly api = inject(ComercialService);
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);
