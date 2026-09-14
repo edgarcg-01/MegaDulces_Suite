@@ -167,6 +167,17 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       { label: 'Riesgo', icon: 'pi pi-chart-bar', route: '/almacen/riesgo', permission: Permission.COMMERCIAL_PREVENTION_VER, exact: true },
     ],
   },
+  {
+    key: 'analisis-bi',
+    label: 'Análisis BI',
+    // Un solo tab hoy → la barra NO se pinta (el shell la esconde con menos de dos), así que
+    // el área se ve como un item simple de sidebar. Cuando entre el segundo indicador, se
+    // agrega acá como tab y la barra aparece sola: no hay que tocar el layout.
+    match: ['/almacen/analisis-bi'],
+    tabs: [
+      { label: 'Panorama', icon: 'pi pi-chart-line', route: '/almacen/analisis-bi', permission: Permission.ALMACEN_BI_VER, exact: true },
+    ],
+  },
 ];
 
 /** Quita query string y fragmento — `routerLinkActive` compara sin ellos. */
