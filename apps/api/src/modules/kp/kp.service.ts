@@ -480,6 +480,36 @@ export class KpService {
       // pantalla decide a cuál le da el número grande; el arreglo sigue siendo base-primero.
       const uEscaneada = this.unidadDelCodigo(r, code);
 
+      // `[TDA.9]` ⭐ ¿El código cayó en MÁS DE UN PRODUCTO?
+      //
+      // Encontrado el 2026-09-14 revisando `7503008008816`: ese código está en el `c7` (la casilla
+      // primaria) de `33252 MERENGUES FANY/20` **y** en el `c93` (la secundaria) de
+      // `33259 KOKITO ALFAJOR 227G`. Son dos productos distintos, a $28.36 y $31.83.
+      //
+      // Hasta hoy esto no se veía: `rows[0]` elegía uno —el de `c1` menor, o sea MERENGUES— y la
+      // pantalla lo mostraba con total confianza. Y el caso real es el peor posible: MERENGUES
+      // tiene **0 de existencia y no se vende desde 2026-01-15**, mientras KOKITO tiene **284
+      // unidades en 4 almacenes y venta al 2026-09-11**. O sea el cajero escanea el producto vivo
+      // y la pantalla le contesta con el muerto, al precio del muerto.
+      //
+      // ⚠️ `precio_ambiguo` NO cubría esto: compara precios ENTRE PLAZAS del mismo producto, no
+      // entre productos distintos. Dos ambigüedades diferentes con nombres parecidos.
+      //
+      // Medido en prod: **185 códigos colisionan** sobre 373 filas y 293 SKUs, con **$13,126,691
+      // de venta a 90 días**. No se arregla acá —hay que corregir el catálogo— pero se DECLARA:
+      // el mostrador deja de afirmar un producto cuando el código apunta a dos.
+      const skusDistintos = Array.from(new Set(
+        rows.map((x: any) => String(x.codigo ?? '').trim()).filter(Boolean),
+      ));
+      const codigoAmbiguo = skusDistintos.length > 1;
+      const candidatos = codigoAmbiguo
+        ? Array.from(new Map(rows.map((x: any) => [String(x.codigo).trim(), {
+            codigo: String(x.codigo).trim(),
+            nombre: String(x.nombre ?? '').trim(),
+            precio_con_iva: x.pv1 != null ? redondea(Number(x.pv1)) : null,
+          }])).values())
+        : [];
+
       // ¿Las plazas discrepan en el precio base? Sólo importa cuando NO se pidió una: con plaza
       // la respuesta es la de esa plaza y no hay ambigüedad que declarar.
       const distintos = new Set(
@@ -536,6 +566,11 @@ export class KpService {
         sucursal_precio: r.sucursal || null,
         precio_ambiguo: ambiguo,
         plazas_con_precio_distinto: ambiguo ? distintos.size : 1,
+        // `[TDA.9]` El código apunta a más de un producto. La pantalla tiene que PREGUNTAR, no
+        // mostrar el que salió primero: `codigo`/`nombre`/`precio` de arriba son UNO de los
+        // candidatos, elegido por orden, y con esto en `true` dejan de ser una afirmación.
+        codigo_ambiguo: codigoAmbiguo,
+        productos_candidatos: candidatos,
         plaza_pedida_sin_dato: plazaPedidaSinDato,
         origen_precio: origen,
       };

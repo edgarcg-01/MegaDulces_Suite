@@ -79,6 +79,15 @@ export interface ProcedenciaPrecio {
   unidadBase?: string | null;
   /** El precio varía entre plazas y no se pudo acotar a una. */
   precioAmbiguo?: boolean;
+  /**
+   * `[TDA.9]` El código apunta a MÁS DE UN producto. Encontrado el 2026-09-14 con
+   * `7503008008816`, que está en la casilla primaria de `33252 MERENGUES FANY` y en la secundaria
+   * de `33259 KOKITO ALFAJOR 227G`. ⚠️ No es lo mismo que `precioAmbiguo`, que compara precios
+   * entre PLAZAS del mismo producto. Acá lo ambiguo es QUÉ producto es.
+   */
+  codigoAmbiguo?: boolean;
+  /** `[TDA.9]` Los productos que ese código matchea, para que el humano elija en vez de adivinar. */
+  candidatos?: { codigo: string; nombre: string; precio_con_iva: number | null }[];
   /** Cuántos precios distintos hay entre plazas para este código. */
   plazasDistintas?: number;
   /** Se pidió una plaza y esa plaza no tiene el producto (existe en otras). */
@@ -237,6 +246,9 @@ export class VerificadorService {
           // corrigió una persona (ese override es el que se imprime en el anaquel, y el mostrador
           // lo tenía invisible porque leía el ERP crudo).
           precioAmbiguo: r.precio_ambiguo === true,
+          // `[TDA.9]` Ambigüedad de PRODUCTO (no de precio entre plazas).
+          codigoAmbiguo: r.codigo_ambiguo === true,
+          candidatos: Array.isArray(r.productos_candidatos) ? r.productos_candidatos : [],
           plazasDistintas: Number(r.plazas_con_precio_distinto) || 1,
           plazaSinDato: r.plaza_pedida_sin_dato === true,
           origenPrecio: r.origen_precio === 'override_manual' ? 'override_manual' : 'kepler',
