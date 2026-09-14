@@ -40,6 +40,169 @@ export interface MeContextRef {
  * propósito), o sea la pregunta *«¿de qué respondés?»* — que es distinta de *«¿qué te asignaron?»*.
  * Lo asignado va ahora en `MeWork.tareas`; esto sigue siendo el conteo de colas.
  */
+/**
+ * `[SN.29]` **El veredicto de una cola: qué hay que hacer con ella, no cuánto tiene.**
+ *
+ * ── Por qué hacía falta ─────────────────────────────────────────────────────────────────────
+ * Hasta acá una bandeja reportaba dos cosas —`total` y `mas_viejo_at`— y la pantalla las pintaba
+ * iguales para todas. Medido contra prod el 2026-09-14, eso le daba el MISMO tratamiento a:
+ *
+ *   · `logistics.fleet_alerts` — 9 abiertas, todas de hoy, **10,339 resueltas**; y
+ *   · `reconciliation.discrepancies` — 2,409 abiertas de 2,409 filas, **cero resueltas jamás**,
+ *     con la más vieja del 8-jul (68 días).
+ *
+ * Un número y una edad no distinguen un flujo de trabajo de un vertedero. Y el orden por
+ * antigüedad que introdujo `[SN.12]` **premia el abandono**: una cola que nadie trabaja siempre
+ * tiene el más viejo antiguo, así que el criterio sube al tope justo las colas donde hacer clic
+ * no sirve de nada.
+ *
+ * ── El primitivo, y de dónde sale ───────────────────────────────────────────────────────────
+ * Es el mismo que `db-health` aplica a los feeds desde ADR-053: **una fuente declara su umbral y
+ * el sistema emite un veredicto**. La Fase VP midió que sin umbral registrado el clasificador
+ * caía en `cfg ? classify : 'ok'` — verde incondicional. Las bandejas estaban en ese estado
+ * exacto: sin `umbral_dias`, nada podía estar tarde, y entonces todo se veía igual de bien.
+ *
+ * ⛔ **`sin_medir` no es `al_dia`.** Lo que no se pudo medir se declara y NO se ordena junto a lo
+ * sano (ADR-056). Y `cerradas_30d: null` («esta fuente no puede contestarlo») nunca se colapsa a
+ * `0` («nadie cerró ninguna»), que es la afirmación opuesta.
+ */
+export type MeVeredicto =
+  /** Entran más de las que salen: la cola crece. Es lo único que el clic de hoy puede frenar. */
+  | 'se_acumula'
+  /** Se trabaja, pero el más viejo pasó el umbral declarado: hay cola vieja atorada. */
+  | 'atrasada'
+  /**
+   * **Cero salidas en 30 días, medido.** No es trabajo pendiente: es una decisión que nadie tomó
+   * — o se le asigna dueño, o se apaga con `BandejaDef.retirada` (precedente `[SN.18]`).
+   * Se ordena DEBAJO de lo accionable a propósito: nadie la va a drenar con un clic.
+   */
+  | 'congelada'
+  /** El flujo o la fecha no se pudieron medir. Nunca se asume sana. */
+  | 'sin_medir'
+  /** Sale al menos tanto como entra y nada pasó su umbral. */
+  | 'al_dia';
+
+/** `[SN.29]` Orden de atención. Índice más chico = más arriba en la lista. */
+export const ORDEN_VEREDICTO: Readonly<Record<MeVeredicto, number>> = {
+  se_acumula: 0,
+  atrasada: 1,
+  congelada: 2,
+  sin_medir: 3,
+  al_dia: 4,
+};
+
+/**
+ * `[SN.29]` El FLUJO de una cola: entradas contra salidas, en la MISMA ventana.
+ *
+ * ⚠️ `entradas_30d` y `cerradas_30d` comparten ventana a propósito. La primera versión comparaba
+ * `entradas_7d` contra `cerradas_30d` normalizando por día, y eso mezcla dos regímenes: una cola
+ * con un pico de ayer se declaraba «se acumula» aunque el mes entero fuera a la baja.
+ * `entradas_7d` queda **sólo** para la línea de contexto («+209 esta semana»), no para el veredicto.
+ */
+export interface MeFlujo {
+  /** Abiertas que ENTRARON en los últimos 7 días. `null` = la cola no se pudo fechar. */
+  entradas_7d: number | null;
+  /** Filas creadas en 30 días, **en cualquier estado**: lo que llegó, se haya resuelto o no. */
+  entradas_30d: number | null;
+  /**
+   * Filas que SALIERON del estado abierto en 30 días, según la columna de cierre que declara cada
+   * bandeja. ⛔ `null` = **la fuente no puede contestarlo**, nunca «nadie cerró ninguna».
+   */
+  cerradas_30d: number | null;
+}
+
+/** Lo mínimo que `veredictoDe` necesita: la medición cruda, sin el resto de la fila. */
+export interface ColaMedida {
+  total: number;
+  mas_viejo_at: string | null;
+  flujo: MeFlujo;
+}
+
+/** Días transcurridos desde `iso`, o `null` si no vino fechado. `ahora` se inyecta para poder probar. */
+function diasDesde(iso: string | null, ahora: number): number | null {
+  if (!iso) return null;
+  const ms = ahora - Date.parse(iso);
+  return Number.isFinite(ms) && ms >= 0 ? Math.floor(ms / 86_400_000) : null;
+}
+
+/**
+ * `[SN.29]` **Qué fracción de lo que llegó tiene que resolverse para que la cola «lleve el ritmo».**
+ *
+ * ⚠️ Este número existe porque la regla obvia —`entradas > cerradas` ⇒ se acumula— **la refutó su
+ * propia prueba en la primera corrida**, con datos reales: `logistics.fleet_alerts` recibió 7,205
+ * y resolvió 7,202 en 30 días, y salía *«crece»*. Tenía 9 abiertas de 10,339 filas; es la cola más
+ * sana de la empresa. La resta cruda no distingue una tendencia de la fluctuación normal de una
+ * cola en régimen, porque el saldo de una cola sana nunca es exactamente cero.
+ *
+ * La razón `cerradas / entradas` sí las separa, y con margen: flota **99.96 %**, reabasto **179 %**,
+ * Thot **129 %** · descuadres **0 %**, Maat **0 %**. Cualquier corte entre 5 % y 95 % daba el mismo
+ * veredicto para las cinco; **0.9** deja 10 puntos de tolerancia a la fluctuación sin acercarse a
+ * ninguna de las dos poblaciones.
+ *
+ * Es política declarada, como `umbral_dias`: se cambia acá y se mide en `veredicto.spec.ts`.
+ */
+const RITMO_MINIMO = 0.9;
+
+/**
+ * `[SN.29]` **El veredicto.** Cinco reglas en orden; la primera que aplica gana.
+ *
+ * ⛔ Vive en `libs/contracts` y NO junto al registro de bandejas, que es donde nació. Motivo: es
+ * lógica PURA sobre el contrato —no toca knex ni Nest— y `libs/trade` **no tiene runner de
+ * pruebas** (sólo `lint`), así que ahí habría sido un primitivo sin candado. ADR-056 es explícito:
+ * un mecanismo genérico no cierra su item hasta vivir en `libs/` compartido. Acá sí corre jest.
+ *
+ * ⛔ El orden NO es por urgencia percibida sino por **qué puede hacer la persona que está mirando**:
+ *
+ *  1. `sin_medir`  — no hay con qué opinar. No se asume sana (ADR-056) y no se ordena con `al_dia`.
+ *  2. `congelada`  — cero salidas en 30 días, MEDIDO (`cerradas_30d === 0`, no `null`). Ordena
+ *     TERCERA a propósito: nadie drena con un clic una cola sin dueño. Lo que necesita es una
+ *     decisión —asignar o apagar—, y `[SN.18]` ya sentó el precedente.
+ *  3. `se_acumula` — entran más de las que salen en la MISMA ventana. Es lo único que el trabajo
+ *     de hoy puede frenar, así que encabeza la lista.
+ *  4. `atrasada`   — se trabaja, pero el más viejo pasó el umbral declarado.
+ *  5. `al_dia`     — todo lo demás.
+ *
+ * ⚠️ Una cola sin `umbral_dias` no puede salir `atrasada`, y eso es deliberado y peligroso: si
+ * alguien agrega una bandeja sin umbral, la pantalla la pintaría `al_dia` para siempre — el
+ * `cfg ? classify : 'ok'` que la Fase VP encontró dando verde incondicional en `db-health`. Por eso
+ * `BandejaDef.umbral_dias` es obligatorio y el bloque 4g del smoke lo verifica con prueba negativa.
+ */
+export function veredictoDe(
+  m: ColaMedida,
+  umbralDias: number | null,
+  ahora: number = Date.now(),
+): MeVeredicto {
+  const { entradas_30d, cerradas_30d } = m.flujo;
+  const dias = diasDesde(m.mas_viejo_at, ahora);
+
+  // Sin flujo Y sin fecha no hay nada que decir. Con una de las dos sí se puede opinar.
+  if (cerradas_30d === null && entradas_30d === null && dias === null) return 'sin_medir';
+
+  // Cero salidas MEDIDAS en 30 días, teniendo abiertos: nadie la trabaja.
+  if (cerradas_30d === 0 && m.total > 0) return 'congelada';
+
+  /*
+   * No alcanza con `entradas > cerradas`: el saldo de una cola sana nunca es exactamente cero y esa
+   * resta la declaraba «crece» por tres filas sobre siete mil (ver `RITMO_MINIMO`). Lo que se mide
+   * es si LLEVA EL RITMO de lo que le llega. Si no llegó nada, no puede estar creciendo.
+   */
+  if (
+    entradas_30d !== null &&
+    cerradas_30d !== null &&
+    entradas_30d > 0 &&
+    cerradas_30d / entradas_30d < RITMO_MINIMO
+  ) {
+    return 'se_acumula';
+  }
+
+  if (umbralDias !== null && dias !== null && dias > umbralDias) return 'atrasada';
+
+  // Si el flujo no se pudo medir y el umbral no alcanzó para condenarla, NO se declara sana.
+  if (cerradas_30d === null && entradas_30d === null) return 'sin_medir';
+
+  return 'al_dia';
+}
+
 export interface MePendiente {
   id: string;
   /** "Descuadres por revisar". Lo que hay que hacer, no el nombre de la tabla. */
@@ -67,6 +230,18 @@ export interface MePendiente {
    * NO se asume reciente: se ordena al final y se dice (ADR-056).
    */
   mas_viejo_at: string | null;
+  /**
+   * `[SN.29]` Días que esta cola puede tener su más viejo abierto antes de contar como atrasada.
+   * Es **política declarada**, no medición: vive en `BANDEJAS` con su motivo y se cambia en una
+   * línea. `null` = esta cola no declaró umbral, y entonces NUNCA puede salir `atrasada` — que es
+   * exactamente el verde incondicional que ADR-053 y la Fase VP vinieron a cerrar; por eso el
+   * candado exige que toda bandeja viva lo traiga.
+   */
+  umbral_dias: number | null;
+  /** `[SN.29]` Entradas contra salidas. Lo que distingue un flujo de trabajo de un vertedero. */
+  flujo: MeFlujo;
+  /** `[SN.29]` El veredicto derivado de `flujo` + `mas_viejo_at` + `umbral_dias`. Ordena la lista. */
+  veredicto: MeVeredicto;
   alcance: 'mio' | 'bandeja';
   /**
    * `[SN.15]` **Sobre qué universo se contó.** Un número sin universo se lee como "lo mío", y no

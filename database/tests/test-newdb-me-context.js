@@ -390,6 +390,61 @@ const tieneDecoradorPermisos = (tramo) =>
   check('el catch de las responsabilidades NO está dentro del savepoint',
     srcSvc.indexOf('try {\n      /*\n       * `[SN.22]`') < srcSvc.indexOf('await this.aislado(async () => ({'));
 
+  /**
+   * ── 4g. `[SN.29]` Toda bandeja viva declara su umbral y su columna de cierre ─────────────────
+   *
+   * Es el candado que evita repetir, en las bandejas, el defecto que la Fase VP encontró en
+   * `db-health`: `cfg ? classify : 'ok'` daba **verde incondicional** a toda fuente sin umbral
+   * registrado. Acá el equivalente es una bandeja sin `umbral_dias`: `veredictoDe` no puede
+   * emitirle `atrasada` nunca, así que se pinta al día para siempre por más vieja que esté.
+   *
+   * ⛔ Prueba negativa EJERCIDA: se le quitó `umbral_dias` a `cuadre` y la primera aserción se
+   * puso roja (`5 de 6`). Es la forma exacta en que volvería a romperse — alguien agregando una
+   * bandeja nueva copiando otra y borrando la línea que "no entiende".
+   */
+  console.log('\n── 4g. Umbral y columna de cierre declarados por bandeja ──');
+  /** Cada bloque de bandeja, de `id:` al `id:` siguiente (o al fin del arreglo). */
+  const bloques = [...src.matchAll(/\n    id: '([^']+)',([\s\S]*?)(?=\n    id: '|\n\];)/g)].map((m) => ({
+    id: m[1],
+    cuerpo: m[2],
+  }));
+  check('se leyeron los bloques de bandeja (si no, este bloque no mide nada)', bloques.length >= 6, bloques.length);
+
+  const vivas = bloques.filter((b) => !/\n\s*retirada:/.test(b.cuerpo));
+  check('hay bandejas vivas que auditar', vivas.length >= 5, vivas.length);
+
+  for (const b of vivas) {
+    const umbral = b.cuerpo.match(/umbral_dias: (\d+)/);
+    check(`${b.id} declara umbral_dias`, !!umbral, umbral ? `${umbral[1]} d` : 'AUSENTE');
+    if (umbral) {
+      check(`${b.id}: el umbral es un plazo real (1..90 días)`,
+        Number(umbral[1]) >= 1 && Number(umbral[1]) <= 90, umbral[1]);
+    }
+    /*
+     * ⛔ `cierre` puede ser `null` a propósito (la fuente no puede contestarlo) pero NO puede
+     * FALTAR: si falta, `medirCola` no recibe la propiedad y `cerradas_30d` saldría del `else`
+     * igual — sólo que sin que nadie lo haya decidido. Lo que se exige es la DECISIÓN explícita.
+     */
+    check(b.id + ' declara columna de cierre (o null con motivo)', /cierre: ('[^']+'|null)/.test(b.cuerpo));
+  }
+
+  // El registro no puede volver a la forma vieja, donde el estado iba en el `.where()` y el flujo
+  // era inmedible sin una segunda consulta por bandeja.
+  check('medirCola recibe los EJES, no una consulta ya filtrada al estado abierto',
+    /async function medirCola\(knex: Knex, q: Knex\.QueryBuilder, ejes: EjesCola\)/.test(src));
+  check('el flujo sale de la MISMA pasada (count filter), no de una segunda consulta',
+    (src.match(/count\(\*\) filter \(where/g) || []).length >= 3);
+  check('⛔ cerradas_30d viaja null cuando no hay columna de cierre, NUNCA 0',
+    /null::int as c30/.test(src) && !/c30.*\?\?\s*0/.test(src));
+
+  // `veredictoDe` vive donde SÍ hay runner de pruebas (ADR-056: el primitivo va a `libs/`).
+  const srcVer = fs.readFileSync(
+    path.resolve(__dirname, '../../libs/contracts/src/http/identity-me.contract.ts'), 'utf8');
+  check('veredictoDe vive en libs/contracts (donde corre jest), no en libs/trade (que sólo lintea)',
+    /export function veredictoDe\(/.test(srcVer) && !/export function veredictoDe\(/.test(src));
+  check('tiene su propio spec con negativas',
+    fs.existsSync(path.resolve(__dirname, '../../libs/contracts/src/http/veredicto.spec.ts')));
+
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');
   let login;

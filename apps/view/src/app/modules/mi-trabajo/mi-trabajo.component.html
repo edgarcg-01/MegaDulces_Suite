@@ -100,13 +100,21 @@
           y su cifra mayor era de 18 px: el dato por el que existe la pantalla pesaba como una
           etiqueta. Es la ÚNICA headline metric de la vista (DESIGN.md permite una).
         -->
-        @if (totalPendientes() > 0 && !buscando()) {
+        <!--
+          [SN.29] El numero grande es LO TUYO, no la suma de las colas compartidas.
+
+          Antes iba `totalPendientes()` = suma de `deBandeja()`, o sea por construccion lo unico
+          de la pantalla que no es de nadie: en la captura que disparo esto, 1 era tuyo y 2,082 no.
+          Un 0 aca no se esconde -- que nadie te haya asignado nada es el hecho medido, y taparlo
+          fue exactamente el error que [SN.11] ya habia corregido para el bloque "A tu nombre".
+        -->
+        @if (hayTrabajo() && !buscando()) {
           <div class="mt-titular">
-            <span class="mt-titular-n">{{ formatoTotal(totalPendientes()) }}</span>
+            <span class="mt-titular-n" [class.is-cero]="totalPendientes() === 0">{{ formatoTotal(totalPendientes()) }}</span>
             <span class="mt-titular-txt">
-              <span class="mt-titular-l">pendientes en {{ bandejasConTrabajo() }} bandejas</span>
-              <!-- [SN.17] Cada cosa en su unidad: los items a tu nombre y los MESES por cerrar. -->
-              <span class="mt-titular-d">{{ resumenMio() }}</span>
+              <span class="mt-titular-l">{{ totalPendientes() === 1 ? 'pendiente a tu nombre' : 'pendientes a tu nombre' }}</span>
+              <!-- [SN.17] Cada cosa en su unidad: los MESES por cerrar y los items de las colas. -->
+              @if (resumenMio()) { <span class="mt-titular-d">{{ resumenMio() }}</span> }
             </span>
           </div>
         }
@@ -234,11 +242,20 @@
                   </span>
                 </p>
               } @else {
-              <a class="mt-task" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+              <a class="mt-task" [class]="'is-v-' + p.veredicto" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
                 <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
                 <span class="mt-task-txt">
-                  <span class="mt-task-l">{{ p.label }}</span>
+                  <span class="mt-task-l">
+                    {{ p.label }}
+                    <!--
+                      [SN.29] La insignia del veredicto. Lo sano NO lleva una: si las cinco filas
+                      la llevaran, volverian a verse todas iguales -- que es el defecto de origen.
+                    -->
+                    @if (veredictoTexto(p); as v) {
+                      <span class="mt-veredicto" [title]="veredictoMotivo(p)">{{ v }}</span>
+                    }
+                  </span>
                   <!--
                     [SN.15] El universo del conteo, sólo cuando hay algo que decir. Si la cola no
                     tiene sucursal no se rotula: sería ruido en 5 de 8 filas. Si la ficha no tiene
@@ -249,11 +266,38 @@
                       {{ p.detalle }}@if (p.ambito === 'sucursal') {<span class="mt-task-ambito"> · tu sucursal</span>}@else if (p.ambito === 'red_sin_ficha') {<span class="mt-task-ambito" title="Esta cola se puede acotar por sucursal, pero tu ficha no tiene una asignada. Se cuenta toda la red."> · toda la red</span>}
                     </span>
                   }
+                  <!--
+                    [SN.29] El FLUJO: lo que entro contra lo que salio. Es lo que distingue un
+                    vertedero de una cola que se trabaja, y de paso da el "desde la ultima vez"
+                    que la pantalla no tenia: abrirla dos veces mostraba el mismo total.
+                  -->
+                  @if (flujoTexto(p); as f) { <span class="mt-task-flujo">{{ f }}</span> }
                 </span>
                 <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
               }
+            }
+
+            <!--
+              [SN.29] Las colas CONGELADAS se declaran, no se disfrazan de trabajo pendiente.
+
+              Medido contra prod: dos de las cinco que la pantalla publicaba no han tenido una sola
+              fila resuelta (descuadres 2,409 de 2,409 desde el 8-jul; acciones de Maat 192 de 198,
+              las unicas 6 decididas el 6-ago). Juntas eran el 90% del titular viejo.
+
+              Es el criterio de [SN.18] -- "una cola que nadie trabaja no es trabajo pendiente" --
+              pero sin decidir por Edgar que se apaguen: se dice lo que les falta, que es un DUENO,
+              no un clic. Apagarlas es una linea (`BandejaDef.retirada`) y es su decision.
+            -->
+            @if (congeladas().length && !buscando()) {
+              <p class="mt-congeladas">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>
+                  {{ congeladas().length === 1 ? 'Una de estas colas está congelada' : congeladas().length + ' de estas colas están congeladas' }}:
+                  nadie ha resuelto una sola fila en 30 días. Lo que les falta es un dueño, no un clic.
+                </span>
+              </p>
             }
           </div>
         }

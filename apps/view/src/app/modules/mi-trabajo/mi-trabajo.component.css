@@ -255,6 +255,13 @@
   line-height: 1;
   color: var(--text-main);
 }
+/*
+ * `[SN.29]` Un 0 propio se pinta, y se pinta ATENUADO. Que nadie te haya asignado nada es el hecho
+ * medido —hoy 94 de 122 personas no tienen responsabilidad declarada— y esconderlo fue el error
+ * que `[SN.11]` ya corrigió para el bloque «A tu nombre». Pero un 0 a 40 px en negro pleno grita
+ * como si fuera una cifra, y no lo es: es una ausencia.
+ */
+.mt-titular-n.is-cero { color: var(--text-faint); font-weight: var(--fw-bold); }
 .mt-titular-txt { display: flex; flex-direction: column; min-width: 0; }
 .mt-titular-l { font-size: var(--fs-body); font-weight: var(--fw-medium); line-height: 1.25; }
 .mt-titular-d { font-size: var(--fs-xs); color: var(--text-faint); line-height: 1.3; }
@@ -379,6 +386,79 @@
 .mt-task:hover .mt-task-go { color: var(--action); }
 
 /*
+ * `[SN.29]` ── El veredicto de la cola ───────────────────────────────────────────────────────────
+ *
+ * PUNTO + TEXTO, nunca pastilla llena. Es la lección que `[SN.16]` ya trajo del riel de meses del
+ * Libro de Compras: *«105 pastillas de color le compiten a la única acción naranja»*. Acá son
+ * pocas filas, pero el principio es el mismo — el estado orienta, no alarma, y la única superficie
+ * saturada de la pantalla sigue siendo la acción.
+ *
+ * Y `al_dia` NO tiene regla: lo sano no lleva insignia. Si las cinco filas la llevaran volverían a
+ * verse todas iguales, que es exactamente el defecto que esto corrige.
+ */
+.mt-veredicto {
+  display: inline-flex;
+  align-items: center;
+  gap: .3em;
+  margin-left: var(--sp-2);
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.mt-veredicto::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+/* Crece: entran más de las que salen. Es lo único que el trabajo de hoy puede frenar. */
+.is-v-se_acumula .mt-veredicto { color: var(--bad-fg); }
+/* Atrasada: se trabaja, pero el más viejo pasó su umbral declarado. */
+.is-v-atrasada   .mt-veredicto { color: var(--warn-fg); }
+/*
+ * Congelada y sin medir van en NEUTRO a propósito. No son alarmas que la persona pueda apagar
+ * trabajando: una necesita dueño y la otra necesita que alguien arregle la medición. Pintarlas de
+ * rojo pediría atención sobre algo que el clic no resuelve — y una alarma que no se puede atender
+ * enseña a ignorar el tablero (la lección del `fleet_gps` en `[VL.4b]`).
+ */
+.is-v-congelada  .mt-veredicto,
+.is-v-sin_medir  .mt-veredicto { color: var(--text-faint); }
+
+/*
+ * `[SN.29]` La línea de flujo. Es la tercera de la fila y la más chica: el número manda, la
+ * etiqueta explica, y esto CALIFICA. Se corta al final, nunca a media palabra.
+ */
+.mt-task-flujo {
+  display: block;
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* `[SN.29]` La declaración de las colas congeladas. Tono neutro: es un hecho, no una alarma. */
+.mt-congeladas {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  font-size: var(--fs-micro);
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+.mt-congeladas .pi { flex: none; margin-top: .15em; color: var(--text-faint); }
+
+/*
  * `[SN.15]` El vencimiento ocupa el MISMO lugar que la antigüedad, y por eso hereda su caja: en
  * una tarea la pregunta útil es "¿para cuándo?", y en una cola "¿desde cuándo?". Nunca aparecen
  * las dos — la plantilla elige una.
@@ -394,7 +474,13 @@
  * Vencido es el ÚNICO estado semántico de esta columna. El color va sólo acá porque codifica un
  * dato (ya pasó la fecha), que es la excepción que DESIGN.md declara — no decora la fila.
  */
-.mt-task-vence.is-vencido { color: var(--danger, #b42318); font-weight: var(--fw-semibold); }
+/*
+ * `[SN.29]` ⚠️ Acá decía `var(--danger, #b42318)` y **`--danger` no existe en `tokens.css`**: el
+ * fallback ganaba SIEMPRE, así que el vencido se pintaba con un hex fijo que no se adapta al modo
+ * oscuro (donde el rojo tiene que subir a `#F87171` para mantener contraste sobre zinc-950). El
+ * token correcto es `--bad-fg`, que ya redefine su valor en el bloque oscuro.
+ */
+.mt-task-vence.is-vencido { color: var(--bad-fg); font-weight: var(--fw-semibold); }
 
 /*
  * Te asignaron la tarea y tu permiso no abre su pantalla. Se muestra igual —esconderla taparía

@@ -9,7 +9,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
+import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
 import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
 import { CICLOS, puedeVerCiclo } from './me-cycles';
@@ -2406,7 +2406,8 @@ export class UsersService {
         continue;
       }
       try {
-        const { total, mas_viejo_at } = await this.aislado(() => b.medir(this.knex, ctx));
+        const medida = await this.aislado(() => b.medir(this.knex, ctx));
+        const { total, mas_viejo_at } = medida;
         // Una bandeja en cero no se pinta: la pantalla no tiene cajas vacías.
         if (total > 0) {
           pendientes.push({
@@ -2421,6 +2422,11 @@ export class UsersService {
             icono: b.icono,
             total,
             mas_viejo_at,
+            // `[SN.29]` El umbral viaja para que la pantalla pueda decir contra QUÉ está atrasada
+            // («7 d de umbral»), no sólo que lo está. Un veredicto sin su vara es una opinión.
+            umbral_dias: b.umbral_dias,
+            flujo: medida.flujo,
+            veredicto: veredictoDe(medida, b.umbral_dias),
             alcance: b.alcance,
             // El universo del conteo se DECLARA. "Se podría acotar pero tu ficha no tiene
             // sucursal" no es lo mismo que "esta cola no tiene sucursal", y ninguna de las dos
@@ -2436,16 +2442,35 @@ export class UsersService {
     }
 
     /*
-     * `[SN.12]` Lo propio primero, y dentro de cada grupo lo MÁS VIEJO arriba — no lo más grande.
-     * Ordenar por volumen ponía 1,865 descuadres sobre 5 alertas de flota, y el tamaño de una cola
-     * no dice nada de su urgencia: una cola grande puede llevar meses estable y una de cinco
-     * elementos puede ser un vehículo sin señal desde ayer. La bandeja sin fecha medible NO se
-     * asume reciente: cae al final de su grupo y ahí el volumen desempata (ADR-056).
+     * `[SN.29]` **Lo propio primero, y después por VEREDICTO — no por edad y no por volumen.**
+     *
+     * ⚠️ Esto corrige a `[SN.12]`, que cambió volumen → antigüedad del más viejo, y a `[SN.13]`,
+     * que lo celebró con el ejemplo *«1,208 con 15 días aparece antes que 1,865 con 14»*. Las dos
+     * versiones fallan por el mismo motivo, y recién se ve con el flujo medido:
+     *
+     *   **una cola que nadie trabaja SIEMPRE tiene el más viejo antiguo.**
+     *
+     * O sea que ordenar por antigüedad promueve sistemáticamente las colas donde hacer clic no
+     * sirve. Medido en prod el 2026-09-14: arriba quedaban los descuadres (68 días, **cero**
+     * resueltos de 2,409 en toda su historia) y al fondo las alertas de flota (9 abiertas, todas
+     * de hoy, 10,339 cerradas) — la cola más sana de la empresa, enterrada por estar sana.
+     *
+     * El orden nuevo, y por qué `congelada` va TERCERA y no primera: lo primero es lo que el
+     * trabajo de hoy puede cambiar (`se_acumula`), después lo que ya se trabaja pero arrastra cola
+     * vieja (`atrasada`), y recién ahí la congelada — que no se drena con un clic, necesita que
+     * alguien decida asignarle dueño o apagarla (`[SN.18]`). `sin_medir` nunca se ordena junto a
+     * `al_dia`: no poder medir no es estar bien (ADR-056).
+     *
+     * Dentro del mismo veredicto se conserva el criterio de `[SN.12]`: lo más viejo arriba, y la
+     * bandeja sin fecha medible al final de su grupo, donde el volumen desempata.
      */
     const edad = (p: { mas_viejo_at: string | null }): number =>
       p.mas_viejo_at ? Date.parse(p.mas_viejo_at) : Number.POSITIVE_INFINITY;
     pendientes.sort((a, b) => {
       if (a.alcance !== b.alcance) return a.alcance === 'mio' ? -1 : 1;
+      const va = ORDEN_VEREDICTO[a.veredicto];
+      const vb = ORDEN_VEREDICTO[b.veredicto];
+      if (va !== vb) return va - vb;
       const ea = edad(a);
       const eb = edad(b);
       if (ea !== eb) return ea - eb;

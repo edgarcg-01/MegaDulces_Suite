@@ -45,10 +45,21 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
       </div>
 
       <!--
-        Los 12 meses SIEMPRE están, del más viejo al más nuevo. Un mes sin datos viene declarado
-        y se dibuja apagado — nunca se omite, porque un hueco en la tira se leería como que ese
-        mes no existe en vez de como que no hay con qué trabajarlo.
+        [SN.29] Un ciclo SIN UN SOLO MES trabajable no dibuja la tira: dibuja una linea.
+
+        Medido en la captura que disparo esta correccion: tres de los cuatro ciclos venian con los
+        12 meses sin datos, o sea 36 de 48 celdas diciendo "no hay con que trabajar esto".
+        Ocupaban ~40% de la columna de trabajo para declarar una ausencia. Es la misma regla que
+        [SN.7] ya aplica a las bandejas -- "una bandeja en 0 no se pinta" -- y un ciclo sin meses
+        trabajables tiene exactamente esa forma.
+
+        ⛔ Se COLAPSA, no se esconde: quien responde de esta conciliacion necesita saber que no hay
+        estado de cuenta cargado en ningun mes. Lo que se retira son los 12 objetos vacios, no el
+        hecho. La tira completa vuelve sola en cuanto un mes tenga datos.
       -->
+      @if (sinNadaQueHacer()) {
+        <p class="ps-nada">{{ motivoVacio() }}</p>
+      } @else {
       <ul class="ps-tira" [attr.aria-label]="'Avance por mes de ' + ciclo().label">
         @for (p of ciclo().periodos; track p.periodo) {
           <li>
@@ -85,6 +96,7 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
           </li>
         }
       </ul>
+      }
     </div>
   `,
   styles: [
@@ -141,6 +153,16 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
       /* [SN.24] Hay trabajo y no se puede abrir: conserva su punto de estado, pierde el clic. */
       .ps-mes.is-cerrado { cursor: not-allowed; opacity: .8; }
 
+      /* [SN.29] El ciclo sin un solo mes trabajable: una linea en lugar de 12 celdas vacias.
+         Tono neutro y sin borde -- es una declaracion de ausencia, no un objeto que se abre. */
+      .ps-nada {
+        margin: 0;
+        padding-left: calc(1.75rem + var(--sp-3));
+        font-size: var(--fs-micro);
+        color: var(--text-faint);
+        line-height: 1.4;
+      }
+
       /* Etiqueta para lector de pantalla: el punto no dice nada por sí solo (DESIGN.md: el color
          nunca es el único portador de significado). */
       .ps-sr {
@@ -190,6 +212,28 @@ export class PeriodoStripComponent {
     if (n('al_dia')) partes.push(`${n('al_dia')} al día`);
     if (n('sin_datos')) partes.push(`${n('sin_datos')} sin datos`);
     return partes.join(' · ') || 'sin periodos que mostrar';
+  });
+
+  /**
+   * `[SN.29]` ¿Este ciclo tiene ALGÚN mes con el que se pueda trabajar?
+   *
+   * ⚠️ Se pregunta por `sin_datos`, no por `pendientes === 0`: son cosas distintas y confundirlas
+   * es el error que `[SN.16]` peleó para no cometer. Un ciclo **al día** (todos los meses cerrados)
+   * también tiene `pendientes === 0` y SÍ merece su tira — esa tira es justamente la prueba de que
+   * el trabajo se hizo. Lo que se colapsa es la ausencia de materia prima, no el éxito.
+   */
+  readonly sinNadaQueHacer = computed(() => {
+    const ps = this.ciclo().periodos;
+    return ps.length > 0 && ps.every((p) => p.estado === 'sin_datos');
+  });
+
+  /** El motivo, tomado del primer periodo: lo declara el backend y no se reescribe acá. */
+  readonly motivoVacio = computed(() => {
+    const ps = this.ciclo().periodos;
+    const motivo = ps[0]?.motivo?.trim();
+    const meses = ps.length;
+    const base = `Sin datos en los ${meses} meses`;
+    return motivo ? `${base} · ${motivo}` : base;
   });
 
   /** Día 15 a mediodía UTC: ningún corrimiento de zona mueve el mes. */
