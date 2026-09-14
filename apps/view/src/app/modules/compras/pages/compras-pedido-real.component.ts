@@ -27,6 +27,8 @@ import {
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
+import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 type Mode = 'pedido' | 'muerto';
@@ -94,7 +96,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
-    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent, ContextHelpComponent,
+    InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -112,9 +114,18 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         </div>
       </header>
 
-      @if (loadedAt()) {
-        <div class="pr-fresh"><i class="pi pi-clock" aria-hidden="true"></i> Datos actualizados {{ freshLabel() }}</div>
-      }
+      <!-- [VP.0] Acá había una píldora hecha a mano que decía "Datos actualizados hace N min"
+           midiendo 'Date.now()' del NAVEGADOR al terminar el fetch. O sea: prometía la edad del
+           DATO y medía la de la CONSULTA. Es el mismo bug que VP.0 corrigió en 21 de 24 píldoras
+           de la app, y en una pantalla de existencias es el más caro (la Fase OBS nació de seis
+           días publicando precios viejos sin que nadie lo notara).
+           Ahora usa el componente canónico con 'measures="fetch"', que dice "cargado hace N" —
+           verdad, y no promete nada sobre la edad del dato.
+           ⚠️ Para poder pasar a 'measures="data"' el backend tiene que mandar un 'data_as_of'
+           en 'WorkbookResponse'; hoy no lo manda (verificado 2026-09-14). Queda declarado. -->
+      <div class="pr-fresh">
+        <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
+      </div>
 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
@@ -146,15 +157,18 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                            decrementButtonClass="p-button-text" incrementButtonClass="p-button-text"
                            incrementButtonIcon="pi pi-plus" decrementButtonIcon="pi pi-minus" ariaLabel="Días de cobertura"></p-inputnumber>
           </label>
-          <div class="pr-presets" role="group" aria-label="Cobertura rápida">
-            @for (p of [14, 30, 45]; track p) {
-              <button type="button" class="pr-chip" [class.pr-chip-on]="coverage === p" (click)="coverage = p; loadWorkbook()">{{ p }}d</button>
-            }
-          </div>
-          <button type="button" class="pr-chip" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
-          <button type="button" class="pr-chip" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
-          <button type="button" class="pr-chip" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
-          <button type="button" class="pr-chip" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
+          <!-- Los presets de cobertura son un SELECTOR DE VALOR (mutuamente excluyente), no un
+               toggle. Hasta 2026-09-14 usaban '.pr-chip', la misma clase que los filtros
+               booleanos de al lado: mismo aspecto, semántica opuesta, y nadie podía saber
+               cuáles se excluían. Ahora usan el segmented canónico (radiogroup accesible,
+               navegable con flechas) y los toggles quedan visualmente aparte. -->
+          <app-segmented [options]="coverageOpts" [value]="coverage + ''" ariaLabel="Días de cobertura"
+                         (valueChange)="setCoverage($event)"></app-segmented>
+          <span class="pr-fsep" aria-hidden="true"></span>
+          <button type="button" class="pr-chip" [attr.aria-pressed]="wbScopeNeeded()" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
+          <button type="button" class="pr-chip" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
+          <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
+          <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
         </div>
 
         @if (error()) {
@@ -208,9 +222,9 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 </tr>
               </ng-template>
               <ng-template #body let-r>
-                <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
+                <tr class="pr-wb-row" [class.pr-wb-open]="isOpen(r)" [class.pr-wb-noncom]="esContable(r)" (click)="toggleRow(r)" tabindex="0" (keyup.enter)="toggleRow(r)"
                     [attr.aria-expanded]="isOpen(r)" [attr.aria-label]="(isOpen(r) ? 'Cerrar' : 'Abrir') + ' detalle de ' + r.sku">
-                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta"><span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }</div></td>
+                  <td><div class="pr-prod"><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
                     <div>{{ r.uxc | number:'1.0-0' }} <span class="pr-unit" [title]="unidadTitle(r)">{{ unidadBase(r) }}</span></div>
                     @if (r.packs_per_box) { <div class="pr-unit2" [title]="r.packs_per_box + ' paquetes de ' + r.pack_size + ' por caja'">{{ r.packs_per_box }} paq × {{ r.pack_size }}</div> }
@@ -470,7 +484,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                             @if (prodTr(r.product_id) > 0) { <span class="pr-gs-tr">· traspaso {{ money(prodTr(r.product_id)) }}</span> }
                           </span>
                           <span class="pr-bulk-sp"></span>
-                          <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
+                          <!-- [DESIGN §Operations 9] Secundaria = ghost NEUTRO. Era 'p-button-text' a secas,
+                               que PrimeNG pinta con el primary (sunset): quedaban DOS acciones naranjas en la
+                               misma fila y "Requisición" —la única que escribe en la DB— dejaba de ser la
+                               acción obvia. 'p-button-secondary' la baja a neutro sin tocar el token. -->
+                          <p-button type="button" label="XLSX del producto" icon="pi pi-file-excel" styleClass="p-button-sm p-button-text p-button-secondary" (click)="exportScope(undefined, r.product_id)" [disabled]="dl()"></p-button>
                           <p-button type="button" [label]="saving() ? 'Armando…' : 'Requisición'" icon="pi pi-check" styleClass="p-button-sm" (click)="buildReq(undefined, r.product_id)" [disabled]="saving() || (sumValor(r) + prodTr(r.product_id)) <= 0"></p-button>
                         </div>
                       </div>
@@ -632,48 +650,48 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host { display: block; padding-bottom: 3.5rem; }
     app-metric-strip { display: block; margin-bottom: 1rem; }
     .surf-page-head { display: flex; align-items: flex-start; gap: 1rem; }
-    .pr-badge { font-family: var(--font-mono, ui-monospace, monospace); font-size: .6rem; text-transform: uppercase; letter-spacing: .08em;
+    .pr-badge { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: .08em;
       color: var(--action); border: 1px solid var(--action-ring, var(--border-color)); border-radius: var(--r-pill, 999px); padding: .05rem .45rem; vertical-align: middle; margin-left: .4rem; }
     .pr-mode { display: inline-flex; gap: .15rem; margin-left: auto; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
-    .pr-tab { font-size: .78rem; padding: .3rem .7rem; border: 0; background: transparent; color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; }
+    .pr-tab { font-size: var(--fs-sm); padding: .3rem .7rem; border: 0; background: transparent; color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; }
     .pr-tab-on { background: var(--overlay-selected, var(--hover-bg)); color: var(--text-main); font-weight: 600; }
     .pr-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
     :host ::ng-deep .pr-sel-wide { min-width: 17rem; }
     :host ::ng-deep .pr-sel { min-width: 13rem; }
     :host ::ng-deep .pr-search input { min-width: 12rem; }
-    .pr-count { margin-left: auto; font-size: .8rem; color: var(--text-muted); }
-    .pr-cov { display: inline-flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--text-muted); }
+    .pr-count { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); }
+    .pr-cov { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-muted); }
     :host ::ng-deep .pr-cov-in { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
     .pr-chips { display: inline-flex; gap: .25rem; }
     .pr-presets { display: inline-flex; gap: .25rem; }
-    .pr-chip { font-size: .74rem; padding: .2rem .5rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-muted);
+    .pr-chip { font-size: var(--fs-xs); padding: .2rem .5rem; border: 1px solid var(--border-color); background: transparent; color: var(--text-muted);
       border-radius: var(--r-sm, 8px); cursor: pointer; font-variant-numeric: tabular-nums; }
     .pr-chip:hover { background: var(--overlay-hover, var(--hover-bg)); color: var(--text-main); }
     .pr-chip-on { border-color: var(--action); color: var(--action); font-weight: 600; }
-    .pr-table { font-size: .84rem; }
+    .pr-table { font-size: var(--fs-body); }
     .pr-r { text-align: right; font-variant-numeric: tabular-nums; }
     .pr-muted, .pr-muted-h { color: var(--text-muted); }
     .pr-prod { line-height: 1.2; }
     .pr-prod-meta { display: flex; align-items: center; gap: .4rem; margin-top: .1rem; }
-    .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: .7rem; color: var(--text-faint); }
+    .pr-sku { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); color: var(--text-faint); }
     .pr-unit-btn { border: 0; background: transparent; padding: 0; cursor: pointer; }
     /* RA-PRO.44 — "En camino": chip accionable que abre las OCs abiertas del SKU. */
-    .pr-tran-btn { display: inline-flex; align-items: center; gap: .25rem; font: inherit; font-size: .78rem;
+    .pr-tran-btn { display: inline-flex; align-items: center; gap: .25rem; font: inherit; font-size: var(--fs-sm);
       padding: .1rem .4rem; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px);
       background: transparent; color: var(--info-fg, var(--text-main)); cursor: pointer;
       font-variant-numeric: tabular-nums; }
     .pr-tran-btn:hover { background: var(--overlay-hover, var(--hover-bg)); border-color: var(--action); color: var(--action); }
     .pr-tran-btn:focus-visible { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
-    .pr-tran-btn i { font-size: .7rem; }
+    .pr-tran-btn i { font-size: var(--fs-micro); }
     /* RA-PRO.45 — por qué el pedido no descuenta todo lo que dice el papel. */
-    .pr-tran-gap { display: flex; gap: .4rem; align-items: flex-start; font-size: .78rem; line-height: 1.45;
+    .pr-tran-gap { display: flex; gap: .4rem; align-items: flex-start; font-size: var(--fs-sm); line-height: 1.45;
       margin: 0 0 1rem; padding: .5rem .65rem; border: 1px solid var(--border-color);
       border-left: 2px solid var(--warn-fg); border-radius: var(--r-sm, 8px);
       background: var(--surface-2, transparent); color: var(--text-muted); }
     .pr-tran-gap i { color: var(--warn-fg); margin-top: .12rem; }
     /* U.2 — el hueco del valuado, declarado. Mismo lenguaje visual que .pr-tran-gap (hairline +
        filete ámbar): es una advertencia de dato, no un error de la pantalla. */
-    .pr-rung-banner { display: flex; gap: .5rem; align-items: flex-start; font-size: .8rem;
+    .pr-rung-banner { display: flex; gap: .5rem; align-items: flex-start; font-size: var(--fs-sm);
       line-height: 1.5; margin: 0 0 1rem; padding: .6rem .75rem;
       border: 1px solid var(--border-color); border-left: 2px solid var(--warn-fg);
       border-radius: var(--r-sm, 8px); background: var(--surface-2, transparent);
@@ -685,35 +703,35 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-rung { display: inline-flex; align-items: baseline; gap: .25rem;
       font-family: var(--font-mono, ui-monospace); font-variant-numeric: tabular-nums;
       color: var(--warn-fg); cursor: help; }
-    .pr-rung i { font-size: .68rem; }
+    .pr-rung i { font-size: var(--fs-micro); }
     .pr-edad { font-variant-numeric: tabular-nums; color: var(--text-muted); }
     .pr-edad-warn { color: var(--warn-fg); font-weight: 600; }
     .pr-edad-bad { color: var(--bad-fg); font-weight: 600; }
     .pr-uov-prod { margin: 0 0 .5rem; }
-    .pr-uov-hint { font-size: .78rem; color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
+    .pr-uov-hint { font-size: var(--fs-sm); color: var(--text-muted); margin: 0 0 1rem; line-height: 1.4; }
     .pr-uov-f { display: block; margin-bottom: .9rem; }
-    .pr-uov-f > span { display: block; font-size: .8rem; font-weight: 600; margin-bottom: .25rem; }
+    .pr-uov-f > span { display: block; font-size: var(--fs-sm); font-weight: 600; margin-bottom: .25rem; }
     .pr-uov-f input { width: 100%; }
-    .pr-uov-f small { display: block; font-size: .7rem; color: var(--text-muted); margin-top: .2rem; }
+    .pr-uov-f small { display: block; font-size: var(--fs-micro); color: var(--text-muted); margin-top: .2rem; }
     .pr-uov-actions { display: flex; align-items: center; gap: .4rem; margin-top: .5rem; }
-    :host ::ng-deep .pr-abc { font-size: .6rem; padding: .02rem .3rem; line-height: 1.3; }
+    :host ::ng-deep .pr-abc { font-size: var(--fs-nano); padding: .02rem .3rem; line-height: 1.3; }
     /* group header por sucursal */
     .pr-grp td { background: var(--overlay-hover, var(--hover-bg)); border-top: 1px solid var(--border-color); }
     .pr-grp-in { display: flex; align-items: center; gap: .6rem; padding: .15rem 0; }
-    .pr-grp-name { font-weight: 700; color: var(--text-main); font-size: .82rem; }
+    .pr-grp-name { font-weight: 700; color: var(--text-main); font-size: var(--fs-sm); }
     .pr-grp-name-btn { border: 0; background: transparent; padding: 0; cursor: pointer; text-align: left; }
     :host ::ng-deep .pr-grp-tog { color: var(--text-muted); width: 1.7rem; height: 1.7rem; padding: 0; }
-    .pr-grp-n { font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; }
+    .pr-grp-n { font-size: var(--fs-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; }
     .pr-exp-bar { display: flex; align-items: center; gap: .4rem; margin-bottom: .5rem; }
-    .pr-exp-hint { font-size: .74rem; color: var(--text-muted); }
-    .pr-grp-sub { display: inline-flex; gap: .5rem; font-size: .72rem; }
+    .pr-exp-hint { font-size: var(--fs-xs); color: var(--text-muted); }
+    .pr-grp-sub { display: inline-flex; gap: .5rem; font-size: var(--fs-xs); }
     .pr-gs { font-variant-numeric: tabular-nums; }
     .pr-gs-buy { color: var(--action); } .pr-gs-tr { color: var(--text-main); } .pr-gs-over { color: var(--warn-fg, var(--text-muted)); }
     .pr-grp-sp { flex: 1; }
-    :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: .74rem; }
+    :host ::ng-deep .pr-grp-btn { --p-button-sm-font-size: var(--fs-xs); }
     .pr-link { color: var(--action); cursor: pointer; text-decoration: underline; }
-    .pr-supp { color: var(--text-muted); font-size: .8rem; }
-    .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: .78rem; }
+    .pr-supp { color: var(--text-muted); font-size: var(--fs-sm); }
+    .pr-mono { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-sm); }
     .pr-strong { font-weight: 700; }
     .pr-sug { background: var(--overlay-selected, transparent); }
     .pr-val { color: var(--text-main); }
@@ -722,45 +740,72 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* input de cantidad — estilo propio (ya no depende de pInputText; ver primeng#12522). */
     .pr-qty { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; padding: .2rem .35rem;
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg);
-      color: var(--text-main); font-size: .84rem; font-family: inherit; }
+      color: var(--text-main); font-size: var(--fs-body); font-family: inherit; }
     .pr-qty:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
     :host ::ng-deep .pr-cov-tag { font-variant-numeric: tabular-nums; }
     .pr-empty { text-align: center; color: var(--text-muted); padding: 2rem 1rem; }
-    .pr-empty i { font-size: 1.6rem; display: block; margin-bottom: .5rem; color: var(--text-faint); }
+    .pr-empty i { font-size: 1.6rem /* glifo, no texto: la escala --fs-* es de TIPO y su tope util acá es 1.25rem */; display: block; margin-bottom: .5rem; color: var(--text-faint); }
     .pr-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main); }
-    .pr-empty span { font-size: .78rem; }
+    .pr-empty span { font-size: var(--fs-sm); }
     .pr-state { display: flex; gap: .75rem; align-items: center; padding: 1.25rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); }
-    .pr-error { color: var(--bad-fg); } .pr-error i { font-size: 1.4rem; } .pr-error p { margin: 0; color: var(--text-main); }
-    .pr-foot { font-size: .72rem; color: var(--text-muted); margin-top: .5rem; }
-    .pr-fresh { display: inline-flex; align-items: center; gap: .35rem; font-size: .72rem; color: var(--text-muted); margin: -.25rem 0 .6rem; }
-    .pr-fresh i { font-size: .7rem; color: var(--text-faint); }
+    .pr-error { color: var(--bad-fg); } .pr-error i { font-size: 1.4rem /* glifo, no texto (idem .pr-empty i) */; } .pr-error p { margin: 0; color: var(--text-main); }
+    .pr-foot { font-size: var(--fs-xs); color: var(--text-muted); margin-top: .5rem; }
+    .pr-fresh { display: inline-flex; align-items: center; margin: -.25rem 0 .6rem; }
+    /* Separador entre el selector de VALOR (cobertura) y los toggles booleanos: el ojo necesita
+       ver que son dos grupos distintos, no siete botones iguales en fila. */
+    .pr-fsep { width: 1px; align-self: stretch; margin: .15rem .35rem; background: var(--border-color); }
+    /* Pseudo-producto contable (unidad SER). Chip neutro — NO semántico: no es un error ni un
+       riesgo, es "esto no se pide". El renglón se atenúa para que el ojo lo salte. */
+    .pr-noncom { display: inline-flex; align-items: center; font-size: var(--fs-nano); font-weight: 600;
+      text-transform: uppercase; letter-spacing: .05em; color: var(--text-faint);
+      border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: 0 .3rem; margin-right: .3rem; }
+    :host ::ng-deep .pr-wb tr.pr-wb-noncom > td { opacity: .62; }
+    :host ::ng-deep .pr-wb tr.pr-wb-noncom:hover > td { opacity: 1; }
     .pr-bulk { position: sticky; bottom: 0; display: flex; align-items: center; gap: .5rem; margin-top: .75rem; padding: .6rem .9rem;
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); box-shadow: var(--shadow-sm, 0 1px 3px rgba(0,0,0,.08)); }
-    .pr-bulk-n { font-size: .84rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .pr-bulk-n { font-size: var(--fs-body); color: var(--text-main); font-variant-numeric: tabular-nums; }
     .pr-bulk-sp { flex: 1; }
     /* RA-PRO.32 — vista Excel (workbook) */
     .pr-seg { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
     /* RA-PRO.32.1 — botón englobar/desglosar columnas por sucursal */
-    .pr-colbtn { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; padding: .4rem .75rem; border: 1px solid var(--border-color);
+    .pr-colbtn { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); padding: .4rem .75rem; border: 1px solid var(--border-color);
       background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; font-family: inherit; }
     .pr-colbtn:hover { background: var(--overlay-hover, var(--hover-bg)); color: var(--text-main); }
     .pr-colbtn-on { border-color: var(--action); color: var(--action); font-weight: 600; }
-    .pr-colbtn i { font-size: .8rem; }
+    .pr-colbtn i { font-size: var(--fs-sm); }
     .pr-wb-scroll { overflow-x: auto; }
-    :host ::ng-deep .pr-wb { font-size: .8rem; }
-    :host ::ng-deep .pr-wb th.pr-grp-h { text-align: center; border-left: 1px solid var(--border-color); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
-    :host ::ng-deep .pr-wb th.pr-sub-h { font-size: .66rem; font-weight: 600; color: var(--text-faint); }
+    :host ::ng-deep .pr-wb { font-size: var(--fs-sm); }
+    /* [DESIGN §datos densos 10] Header de columna = --fs-micro, --fw-medium, muted, uppercase con
+       tracking. Faltaba: el th heredaba --fs-sm en caja normal, así que esta tabla y el desglose de
+       adentro —que sí lo cumplía— se veían de dos sistemas distintos EN LA MISMA PANTALLA.
+       Las variantes .pr-grp-h / .pr-sub-h de abajo ganan por especificidad y conservan lo suyo. */
+    :host ::ng-deep .pr-wb thead th { font-size: var(--fs-micro); font-weight: var(--fw-medium);
+      color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; line-height: 1.3; }
+    /* Jerga descubrible. Había 22 definiciones de columna escondidas en 'title=' SIN ninguna señal
+       de que existieran: había que pasar el mouse a ciegas por "Tend.", "Est." o "XYZ" para
+       enterarse. Un subrayado punteado (convención de <abbr>, ley de Jakob) las delata sin ocupar
+       espacio. Fuente canónica de las definiciones = el diccionario de '<app-context-help>', que es
+       el camino de quien está en touch y no tiene hover.
+       ⚠️ Pendiente §T: el tooltip sigue siendo el NATIVO del navegador, que se posiciona en el
+       cursor y llega a tapar las columnas de la derecha. Migrarlo a Popover API + anchor
+       positioning necesita verificación visual, que esta sesión no puede hacer. Declarado. */
+    :host ::ng-deep .pr-wb thead th[title],
+    .pr-peek-tbl th[title], .pr-det th[title] {
+      text-decoration: underline dotted 1px var(--text-faint); text-underline-offset: 3px; cursor: help;
+    }
+    :host ::ng-deep .pr-wb th.pr-grp-h { text-align: center; border-left: 1px solid var(--border-color); font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
+    :host ::ng-deep .pr-wb th.pr-sub-h { font-size: var(--fs-micro); font-weight: 600; color: var(--text-faint); }
     :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
     .pr-ped { font-variant-numeric: tabular-nums; }
     .pr-ped-on { color: var(--action); font-weight: 600; }
     .pr-uxc { line-height: 1.15; }
-    .pr-unit { font-size: .6rem; color: var(--text-faint); }
-    .pr-unit2 { font-size: .62rem; color: var(--info-fg, var(--text-muted)); }
+    .pr-unit { font-size: var(--fs-nano); color: var(--text-faint); }
+    .pr-unit2 { font-size: var(--fs-nano); color: var(--info-fg, var(--text-muted)); }
     :host ::ng-deep .pr-wb .pr-wb-row { cursor: pointer; }
     :host ::ng-deep .pr-wb .pr-wb-row:hover td { background: var(--overlay-hover, var(--hover-bg)); }
     :host ::ng-deep .pr-wb .pr-wb-open td { background: var(--overlay-selected, var(--hover-bg)); }
     :host ::ng-deep .pr-wb .pr-wb-open td:first-child { box-shadow: inset 3px 0 0 var(--action); }
-    .pr-wb-go { font-size: .7rem; color: var(--text-faint); margin-right: .1rem; }
+    .pr-wb-go { font-size: var(--fs-micro); color: var(--text-faint); margin-right: .1rem; }
     /* Producto congelado al scrollear horizontal (columna 1 sticky, patrón existencia-crítica) */
     :host ::ng-deep .pr-wb thead tr:first-child th:first-child,
     :host ::ng-deep .pr-wb tbody td:first-child { position: sticky; left: 0; z-index: 2; background: var(--card-bg); }
@@ -771,8 +816,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host ::ng-deep .pr-wb .pr-wb-exp > td { padding: 0; background: var(--card-bg); border-bottom: 2px solid var(--border-color); }
     .pr-exp-in { padding: .85rem 1rem 1rem 1.75rem; border-left: 3px solid var(--action); }
     .pr-exp-actions { display: flex; align-items: center; gap: .5rem; margin-top: .6rem; padding-top: .6rem; border-top: 1px solid var(--border-color); }
-    .pr-exp-sum { font-size: .8rem; color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: .35rem; flex-wrap: wrap; }
-    .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: .8rem; }
+    .pr-exp-sum { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; display: inline-flex; gap: .35rem; flex-wrap: wrap; }
+    .pr-qty-sm { width: 4rem; padding: .15rem .3rem; font-size: var(--fs-sm); }
     .pr-det-tbl td { vertical-align: middle; }
     /* El desglose NO se estira. Vive dentro de un td que abarca las 15 columnas de la tabla de
        arriba (~82rem), y con width:100% sus 8 columnas cortas quedaban repartidas en todo ese
@@ -784,17 +829,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-det-tbl th:first-child, .pr-det-tbl td:first-child { padding-right: 1.2rem; }
     /* RA-PRO.47 — encabezado y cejitas del desglose por sucursal */
     .pr-det-head { display: flex; align-items: baseline; gap: .5rem; flex-wrap: wrap; margin-bottom: .5rem; }
-    .pr-det-sku { font-size: .75rem; color: var(--text-muted); }
-    .pr-det-name { font-size: .9rem; color: var(--text-main); letter-spacing: -.01em; }
-    .pr-det-uxc { font-size: .68rem; color: var(--text-faint); font-variant-numeric: tabular-nums; margin-left: auto; }
+    .pr-det-sku { font-size: var(--fs-xs); color: var(--text-muted); }
+    .pr-det-name { font-size: var(--fs-body); color: var(--text-main); letter-spacing: -.01em; }
+    .pr-det-uxc { font-size: var(--fs-micro); color: var(--text-faint); font-variant-numeric: tabular-nums; margin-left: auto; }
     .pr-det-tabs { display: inline-flex; gap: .15rem; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; margin-bottom: .6rem; }
     .pr-det-tabs .pr-tab { display: inline-flex; align-items: center; gap: .35rem; }
-    .pr-tab-n { font-family: var(--font-mono, ui-monospace, monospace); font-size: .62rem; padding: 0 .3rem; border-radius: var(--r-pill, 999px);
+    .pr-tab-n { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-nano); padding: 0 .3rem; border-radius: var(--r-pill, 999px);
       background: var(--overlay-hover, var(--hover-bg)); color: var(--text-muted); }
     .pr-tab-on .pr-tab-n { background: var(--action); color: var(--action-fg, #fff); }
     /* selector de unidad de captura POR RENGLÓN (cajas / piezas) */
     .pr-uu { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); overflow: hidden; }
-    .pr-uu-b { font-family: var(--font-mono, ui-monospace, monospace); font-size: .68rem; line-height: 1; padding: .25rem .4rem; border: 0;
+    .pr-uu-b { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-micro); line-height: 1; padding: .25rem .4rem; border: 0;
       background: transparent; color: var(--text-muted); cursor: pointer; }
     .pr-uu-b + .pr-uu-b { border-left: 1px solid var(--border-color); }
     .pr-uu-b:hover { background: var(--overlay-hover, var(--hover-bg)); color: var(--text-main); }
@@ -804,41 +849,41 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-uu-b:disabled { opacity: .4; cursor: not-allowed; }
     /* RA-PRO.48 — encabezado de ZONA dentro del desglose */
     .pr-zrow > td { background: var(--overlay-hover, var(--hover-bg)); padding: .3rem .5rem !important; border-top: 1px solid var(--border-color); }
-    .pr-zname { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-main); }
-    .pr-zhub { font-size: .68rem; color: var(--text-muted); margin-left: .5rem; }
-    .pr-zlink { font-size: .66rem; border: 0; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm, 8px); }
+    .pr-zname { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-main); }
+    .pr-zhub { font-size: var(--fs-micro); color: var(--text-muted); margin-left: .5rem; }
+    .pr-zlink { font-size: var(--fs-micro); border: 0; background: transparent; color: var(--action); cursor: pointer; padding: .1rem .3rem; border-radius: var(--r-sm, 8px); }
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
     /* control de entrega + selector de CEDIS */
     .pr-ent { white-space: nowrap; }
-    .pr-cedis { margin-left: .35rem; font-size: .7rem; padding: .15rem .25rem; max-width: 15rem;
+    .pr-cedis { margin-left: .35rem; font-size: var(--fs-micro); padding: .15rem .25rem; max-width: 15rem;
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
     /* ACUSE de entregas */
     .pr-entregas { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; padding: .4rem .55rem;
       border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--overlay-hover, var(--hover-bg)); }
-    .pr-ent-lbl { font-size: .66rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
-    .pr-ent-chip { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem; color: var(--text-main);
+    .pr-ent-lbl { font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+    .pr-ent-chip { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs); color: var(--text-main);
       background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-pill, 999px); padding: .1rem .5rem; font-variant-numeric: tabular-nums; }
-    .pr-ent-chip i { font-size: .68rem; color: var(--action); }
+    .pr-ent-chip i { font-size: var(--fs-micro); color: var(--action); }
     .pr-ent-chip b { font-weight: 700; }
-    .pr-ent-chip em { font-style: normal; font-size: .64rem; color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
+    .pr-ent-chip em { font-style: normal; font-size: var(--fs-nano); color: var(--text-faint); text-transform: uppercase; letter-spacing: .04em; }
     .pr-ent-dir { border-style: dashed; }
-    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: .68rem; color: var(--warn-fg, var(--text-muted)); }
+    .pr-ent-warn { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-micro); color: var(--warn-fg, var(--text-muted)); }
     .pr-ordu { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; margin: .1rem 0 .6rem; }
-    .pr-ordu-lbl { font-size: .72rem; color: var(--text-muted); font-weight: 600; }
-    .pr-ordu-hint { font-size: .68rem; color: var(--text-faint); margin-left: .4rem; font-variant-numeric: tabular-nums; }
+    .pr-ordu-lbl { font-size: var(--fs-xs); color: var(--text-muted); font-weight: 600; }
+    .pr-ordu-hint { font-size: var(--fs-micro); color: var(--text-faint); margin-left: .4rem; font-variant-numeric: tabular-nums; }
     .pr-det-act { display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
-    .pr-from { color: var(--info-fg, var(--text-muted)); font-size: .72rem; }
+    .pr-from { color: var(--info-fg, var(--text-muted)); font-size: var(--fs-xs); }
     .pr-peek-loading { color: var(--text-muted); padding: 1rem 0; }
     .pr-peek-econ { display: grid; grid-template-columns: repeat(2, 1fr); gap: .6rem 1rem; margin-bottom: 1.25rem; }
     .pr-peek-stat { display: flex; flex-direction: column; gap: .1rem; }
-    .pr-peek-stat span { font-size: .66rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
-    .pr-peek-stat strong { font-size: .9rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
-    .pr-peek-h { font-size: .8rem; font-weight: 700; margin: 0 0 .5rem; color: var(--text-main); }
-    .pr-peek-tbl { width: 100%; border-collapse: collapse; font-size: .8rem; }
-    .pr-peek-tbl th { text-align: left; font-size: .64rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 600; padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); }
+    .pr-peek-stat span { font-size: var(--fs-micro); color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; }
+    .pr-peek-stat strong { font-size: var(--fs-body); color: var(--text-main); font-variant-numeric: tabular-nums; }
+    .pr-peek-h { font-size: var(--fs-sm); font-weight: 700; margin: 0 0 .5rem; color: var(--text-main); }
+    .pr-peek-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .pr-peek-tbl th { text-align: left; font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); font-weight: 600; padding: .3rem .4rem; border-bottom: 1px solid var(--border-color); }
     .pr-peek-tbl td { padding: .35rem .4rem; border-bottom: 1px solid var(--border-color); }
-    .pr-peek-terr { font-size: .7rem; color: var(--text-muted); }
-    .pr-peek-note { font-size: .7rem; color: var(--text-muted); margin-top: .75rem; line-height: 1.4; }
+    .pr-peek-terr { font-size: var(--fs-micro); color: var(--text-muted); }
+    .pr-peek-note { font-size: var(--fs-micro); color: var(--text-muted); margin-top: .75rem; line-height: 1.4; }
   `],
 })
 export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
@@ -856,13 +901,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   onBeforeUnload(e: BeforeUnloadEvent): void { if (this.dirty()) e.preventDefault(); }
 
   // P2 — frescura del dato (el pedido se calcula sobre feeds que pueden estar stale).
+  /** Cuándo se pidió la página. Lo consume `app-freshness-pill` con `measures="fetch"`. */
   readonly loadedAt = signal<number | null>(null);
-  private readonly nowTick = signal(Date.now());
-  readonly freshLabel = computed(() => {
-    const t = this.loadedAt(); if (!t) return '';
-    const mins = Math.floor((this.nowTick() - t) / 60000);
-    return mins < 1 ? 'recién' : mins < 60 ? `hace ${mins} min` : `hace ${Math.floor(mins / 60)} h`;
-  });
 
   private readonly buyRows = signal<PurchaseSuggestionRow[]>([]);
   private readonly trRows = signal<TransferSuggestionRow[]>([]);
@@ -1266,6 +1306,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * 500 g (rótulo `500`), no en piezas. Sin dato, se muestra "u" — genérico honesto, no "pz" falso.
    */
   unidadBase(r: WorkbookRow): string { return (r.unidad_base || '').trim().toLowerCase() || 'u'; }
+  /**
+   * Pseudo-producto CONTABLE de Kepler, no mercancía: "DEVOLUCIONES 16%", "DESCUENTO A FACTURA",
+   * "TIEMPO AIRE", "VENTAS AL 0 %"…
+   *
+   * El criterio NO se inventó acá: `unidad = 'SER'` ya es la identificación canónica en el repo —
+   * `catalogo-interno.service.ts` la usa como `FILTRO_SERVICIOS` con el comentario "kdii mezcla
+   * pseudo-productos contables (unidad 'SER') … traen existencias absurdas", y
+   * `receiving-session.service.ts` la usa para separar renglones de servicio de los de mercancía.
+   *
+   * ⚠️ Por qué se MARCA y no se esconde: el workbook pagina en el SERVIDOR, así que filtrar del
+   * lado del cliente dejaría huecos en las páginas y mentiría el total del paginador. Marcar es lo
+   * único honesto que puede hacer el frontend. **El arreglo de fondo es excluirlos en la query del
+   * workbook** (mismo `<> 'SER'` que ya usan los otros dos módulos) — queda declarado como
+   * pendiente de backend, ver DESIGN.md → Decisions Log 2026-09-14.
+   */
+  esContable(r: WorkbookRow): boolean { return (r.unidad_base || '').trim().toUpperCase() === 'SER'; }
   unidadTitle(r: WorkbookRow): string {
     const u = (r.unidad_base || '').trim();
     return u ? `${r.uxc} ${u} por caja (unidad declarada en Kepler)` : `${r.uxc} unidades por caja — Kepler no declara la unidad`;
@@ -1520,9 +1576,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
     else this.loadWorkbook();
-    // Refresca la etiqueta "hace N min" sin recargar datos.
-    const id = setInterval(() => this.nowTick.set(Date.now()), 60000);
-    this.destroyRef.onDestroy(() => clearInterval(id));
+    // (2026-09-14) Acá vivía un setInterval de 60s que refrescaba la etiqueta "hace N min" a mano.
+    // `app-freshness-pill` trae el suyo (15s, limpiado en su propio DestroyRef), así que éste
+    // quedó sin consumidor y se retira: un timer por minuto que no pinta nada es trabajo puro.
   }
 
   // Persistencia de filtros en localStorage → se mantienen al recargar / navegar / cambiar de pestaña.
@@ -1644,7 +1700,21 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     ];
   }
 
-  setCoverage(d: number): void { this.coverage = d; this.loadAll(); }
+  /** Opciones del segmented de cobertura. Los mismos 14/30/45 que eran chips sueltos. */
+  readonly coverageOpts: SegOption[] = [
+    { label: '14d', value: '14' }, { label: '30d', value: '30' }, { label: '45d', value: '45' },
+  ];
+  /**
+   * Preset de cobertura. Llama `loadWorkbook()` —NO `loadAll()`— para conservar exactamente el
+   * comportamiento que tenían los chips: el preset recarga el workbook, no el resto de la pantalla.
+   * (Este método existía desde antes llamando a `loadAll()` y no lo invocaba nadie: código muerto.)
+   */
+  setCoverage(d: string | number): void {
+    const n = typeof d === 'number' ? d : parseInt(d, 10);
+    if (!Number.isFinite(n)) return;
+    this.coverage = n;
+    this.loadWorkbook();
+  }
   tick(): void { this.tickN.update((n) => n + 1); }
 
   /** Carga las 3 fuentes (compra needed / traspasos / sobrestock) y arma el modelo unificado. */
