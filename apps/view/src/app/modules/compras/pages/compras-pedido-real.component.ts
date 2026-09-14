@@ -108,10 +108,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <h1 style="display:inline-flex;align-items:center;gap:.4rem">Pedido <span class="pr-badge">unificado</span> <app-context-help topic="pedido-compras" /></h1>
           <p class="surf-page-sub">Una fila por producto, con su <strong>total de red</strong>. Clic en la fila para abrir el desglose <strong>por sucursal</strong>, en dos cejitas: <strong>Pedir a proveedor</strong> (ordenado por la que más vende, con cantidad editable, días de inventario en vivo y su valor) y <strong>Traspasos</strong> desde el CEDIS. Lo que edites abajo mueve las columnas <strong>Σ Ped.</strong> y <strong>$ Pedido</strong> de arriba. Exporta XLSX o arma la requisición por producto o global.</p>
         </div>
-        <div class="pr-mode" role="tablist" aria-label="Vista">
-          <button role="tab" [attr.aria-selected]="mode()==='pedido'" class="pr-tab" [class.pr-tab-on]="mode()==='pedido'" (click)="setMode('pedido')">Pedido</button>
-          <button role="tab" [attr.aria-selected]="mode()==='muerto'" class="pr-tab" [class.pr-tab-on]="mode()==='muerto'" (click)="setMode('muerto')">Stock muerto</button>
-        </div>
+        <!-- Era un role="tablist" con dos role="tab" y CERO role="tabpanel": un tab que no controla
+             ningún panel es ARIA rota (el lector anuncia "pestaña 1 de 2" y no hay panel al que
+             llevar), y encima sólo respondía al click. app-segmented es un radiogroup de verdad —
+             que es lo que esto es— y trae el teclado: ← → ↑ ↓ circulares, Home/End, y UN solo tab
+             stop para el grupo en vez de uno por opción. -->
+        <app-segmented [options]="modeOpts" [value]="mode()" ariaLabel="Vista"
+                       (valueChange)="setMode($any($event))"></app-segmented>
       </header>
 
       <!-- [VP.0] Acá había una píldora hecha a mano que decía "Datos actualizados hace N min"
@@ -165,10 +168,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <app-segmented [options]="coverageOpts" [value]="coverage + ''" ariaLabel="Días de cobertura"
                          (valueChange)="setCoverage($event)"></app-segmented>
           <span class="pr-fsep" aria-hidden="true"></span>
-          <button type="button" class="pr-chip" [attr.aria-pressed]="wbScopeNeeded()" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
-          <button type="button" class="pr-chip" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
-          <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
-          <button type="button" class="pr-chip" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
+          <!-- Barra de herramientas ARIA: los toggles + Limpiar son UN solo tab stop y se recorren
+               con ← →. Antes eran cinco paradas de tabulador seguidas, y para llegar a la tabla
+               había que cruzarlas todas. Los p-select de arriba NO entran acá a propósito: manejan
+               las flechas por su cuenta (abren su lista) y meterlos en el toolbar se las robaría. -->
+          <div class="pr-toolbar" role="toolbar" aria-label="Filtros y acciones"
+               (keydown)="onToolbarKey($event)">
+            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 0 ? 0 : -1" [attr.aria-pressed]="wbScopeNeeded()" [class.pr-chip-on]="wbScopeNeeded()" (click)="wbScopeNeeded.set(!wbScopeNeeded()); loadWorkbook()">Solo con pedido</button>
+            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 1 ? 0 : -1" [attr.aria-pressed]="wbOnlyOver()" [class.pr-chip-on]="wbOnlyOver()" (click)="toggleOnlyOver()" title="Ver solo productos con sobrestock (capital inmovilizado)">Con sobrestock</button>
+            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 2 ? 0 : -1" [attr.aria-pressed]="fIad()==='accel'" [class.pr-chip-on]="fIad()==='accel'" (click)="toggleIad('accel')" title="Solo productos con demanda acelerando (IAD ≥ +0.25)">▲ Acelerando</button>
+            <button type="button" class="pr-chip" [tabindex]="toolbarIdx() === 3 ? 0 : -1" [attr.aria-pressed]="fIad()==='decel'" [class.pr-chip-on]="fIad()==='decel'" (click)="toggleIad('decel')" title="Solo productos con demanda desacelerando (IAD ≤ −0.25)">▼ Desacelerando</button>
+            @if (filtrosActivos() > 0) {
+              <button type="button" class="pr-clear" [tabindex]="toolbarIdx() === 4 ? 0 : -1"
+                      (click)="limpiarFiltros()"
+                      [attr.aria-label]="'Limpiar ' + filtrosActivos() + (filtrosActivos() === 1 ? ' filtro activo' : ' filtros activos')">
+                <i class="pi pi-times" aria-hidden="true"></i> Limpiar <span class="pr-clear-n">{{ filtrosActivos() }}</span>
+              </button>
+            }
+          </div>
         </div>
 
         @if (error()) {
@@ -290,7 +307,15 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                           @if (r.supplier_name) { <span class="pr-supp">{{ r.supplier_name }}</span> }
                           <span class="pr-det-uxc">1 caja = {{ r.uxc | number:'1.0-0' }} {{ unidadBase(r) }}</span>
                         </div>
-                        <div class="pr-det-tabs" role="tablist" aria-label="Desglose por sucursal">
+                        <!-- Flechas con activación MANUAL (el patrón ARIA lo permite): ← → mueven el
+                             foco, Enter/Espacio conmuta. No se activa al enfocar porque cambiar de
+                             pestaña recarga el panel y sería un cambio de contenido por accidente.
+                             ⚠️ Declarado: a estas pestañas les falta el role="tabpanel" con
+                             aria-controls sobre el bloque de abajo. Restructurar el template
+                             anidado sin poder verlo en pantalla es riesgo sin necesidad — queda
+                             anotado, no disfrazado. -->
+                        <div class="pr-det-tabs" role="tablist" aria-label="Desglose por sucursal"
+                             (keydown)="onToolbarKey($event)">
                           <button role="tab" type="button" class="pr-tab" [class.pr-tab-on]="tabOf(r.product_id)==='buy'"
                                   [attr.aria-selected]="tabOf(r.product_id)==='buy'" (click)="setTab(r.product_id, 'buy')">
                             Pedir a proveedor @if (branchBuys(r).length) { <span class="pr-tab-n">{{ branchBuys(r).length }}</span> }
@@ -652,7 +677,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .surf-page-head { display: flex; align-items: flex-start; gap: 1rem; }
     .pr-badge { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--fs-nano); text-transform: uppercase; letter-spacing: .08em;
       color: var(--action); border: 1px solid var(--action-ring, var(--border-color)); border-radius: var(--r-pill, 999px); padding: .05rem .45rem; vertical-align: middle; margin-left: .4rem; }
-    .pr-mode { display: inline-flex; gap: .15rem; margin-left: auto; border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: .15rem; }
+    /* (2026-09-14) .pr-mode se retira: el selector de vista pasó a app-segmented. */
     .pr-tab { font-size: var(--fs-sm); padding: .3rem .7rem; border: 0; background: transparent; color: var(--text-muted); border-radius: var(--r-sm, 8px); cursor: pointer; }
     .pr-tab-on { background: var(--overlay-selected, var(--hover-bg)); color: var(--text-main); font-weight: 600; }
     .pr-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .75rem; }
@@ -754,6 +779,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     /* Separador entre el selector de VALOR (cobertura) y los toggles booleanos: el ojo necesita
        ver que son dos grupos distintos, no siete botones iguales en fila. */
     .pr-fsep { width: 1px; align-self: stretch; margin: .15rem .35rem; background: var(--border-color); }
+    .pr-toolbar { display: inline-flex; align-items: center; gap: .3rem; flex-wrap: wrap; }
+    /* Limpiar filtros: acción secundaria → ghost NEUTRO, nunca --action. Sólo existe cuando hay
+       algo que limpiar; un botón permanentemente deshabilitado es ruido, no información. */
+    .pr-clear { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs);
+      padding: .25rem .55rem; border-radius: var(--r-pill, 999px); cursor: pointer;
+      background: transparent; border: 1px dashed var(--border-color); color: var(--text-muted);
+      transition: color var(--dur-micro, 120ms) var(--ease-standard), border-color var(--dur-micro, 120ms) var(--ease-standard); }
+    .pr-clear:hover { color: var(--text-main); border-color: var(--text-faint); border-style: solid; }
+    .pr-clear:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .pr-clear i { font-size: var(--fs-nano); }
+    .pr-clear-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-main); }
     /* Pseudo-producto contable (unidad SER). Chip neutro — NO semántico: no es un error ni un
        riesgo, es "esto no se pide". El renglón se atenúa para que el ojo lo salte. */
     .pr-noncom { display: inline-flex; align-items: center; font-size: var(--fs-nano); font-weight: 600;
@@ -1713,6 +1749,70 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly coverageOpts: SegOption[] = [
     { label: '14d', value: '14' }, { label: '30d', value: '30' }, { label: '45d', value: '45' },
   ];
+  /** Vista. Era un role="tablist" sin tabpanel; ahora radiogroup con teclado. */
+  readonly modeOpts: SegOption[] = [
+    { label: 'Pedido', value: 'pedido' }, { label: 'Stock muerto', value: 'muerto' },
+  ];
+
+  /** Valor por default de la cobertura — el mismo que arranca `coverage`. */
+  private static readonly COVERAGE_DEF = 30;
+
+  /**
+   * Cuántos filtros están puestos. Se muestra en el botón Limpiar y decide si existe: sin filtros
+   * el botón no aparece (un "Limpiar" permanentemente deshabilitado es ruido, no información).
+   * La cobertura cuenta sólo si NO está en su valor por default.
+   */
+  readonly filtrosActivos = computed(() => {
+    let n = 0;
+    if (this.fSupplier) n++;
+    if (this.fBrand) n++;
+    if (this.fCategory) n++;
+    if (this.wbWarehouses.length) n++;
+    if (this.search.trim()) n++;
+    if (this.coverage !== ComprasPedidoRealComponent.COVERAGE_DEF) n++;
+    if (this.wbScopeNeeded()) n++;
+    if (this.wbOnlyOver()) n++;
+    if (this.fIad() !== 'all') n++;
+    return n;
+  });
+
+  /** Deja la pantalla como recién abierta y recarga una sola vez. */
+  limpiarFiltros(): void {
+    this.fSupplier = null; this.fBrand = null; this.fCategory = null;
+    this.wbWarehouses = []; this.search = '';
+    this.coverage = ComprasPedidoRealComponent.COVERAGE_DEF;
+    this.wbScopeNeeded.set(false);
+    this.wbOnlyOver.set(false);
+    this.fIad.set('all');
+    this.toolbarIdx.set(0);
+    this.loadWorkbook();
+  }
+
+  /**
+   * Roving tabindex del toolbar de filtros (patrón WAI-ARIA `toolbar`): el grupo entero es UN tab
+   * stop y las flechas mueven el foco dentro. Es el mismo criterio que `app-segmented` (SM.30):
+   * cinco paradas de tabulador seguidas obligan a cruzarlas todas para llegar a la tabla.
+   *
+   * A diferencia de un radiogroup, acá el foco NO selecciona: son toggles independientes, así que
+   * moverse con flechas no debe activarlos. Se activa con Enter/Espacio, que es el default del
+   * `<button>` y por eso no hay que interceptarlo.
+   */
+  readonly toolbarIdx = signal(0);
+  onToolbarKey(ev: KeyboardEvent): void {
+    const k = ev.key;
+    if (k !== 'ArrowRight' && k !== 'ArrowLeft' && k !== 'Home' && k !== 'End') return;
+    const host = ev.currentTarget as HTMLElement;
+    const items = Array.from(host.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+    if (!items.length) return;
+    const cur = Math.max(0, items.indexOf(document.activeElement as HTMLButtonElement));
+    const next = k === 'Home' ? 0
+      : k === 'End' ? items.length - 1
+      : k === 'ArrowRight' ? (cur + 1) % items.length
+      : (cur - 1 + items.length) % items.length;
+    ev.preventDefault();
+    this.toolbarIdx.set(next);
+    items[next].focus();
+  }
   /**
    * Preset de cobertura. Llama `loadWorkbook()` —NO `loadAll()`— para conservar exactamente el
    * comportamiento que tenían los chips: el preset recarga el workbook, no el resto de la pantalla.

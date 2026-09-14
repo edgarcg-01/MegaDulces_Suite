@@ -642,10 +642,17 @@ Una columna de números alinea a la derecha **la celda Y su título**. Si no, el
 **El repo ya tiene la solución:** `td.num, th.num` en [`styles.css`](apps/view/src/styles.css) — alineación derecha + `--font-mono` + `tabular-nums`, calificada por elemento para ganarle al vendor.
 ⛔ **Medido 2026-09-14: 52 componentes inventaron su propia clase de alineación contra 41 que usan `.num`.** Toda tabla nueva usa `.num`; ninguna inventa la suya.
 
+**D.4 — Un grupo de controles contiguos es UN tab stop, y toda barra de filtros se puede limpiar.**
+**(a) Roving tabindex.** Cinco chips seguidos son cinco paradas de tabulador que hay que cruzar para llegar a la tabla. El grupo lleva `role="toolbar"` (o el `app-segmented` que ya lo encapsula): **un** `tabindex="0"`, el resto `-1`, y `← →` / `Home` / `End` mueven el foco dentro. En un **radiogroup** la selección sigue al foco; en un **toolbar de toggles** NO —moverse no debe activar— y en **tabs que recargan un panel** se usa activación manual (`Enter`/`Espacio`). ⛔ Los `select`/`combobox` **no entran** al toolbar: ya usan las flechas para abrir su lista y el contenedor se las robaría.
+**(b) Salida.** Toda barra de filtros expone **cuántos hay activos** y cómo limpiarlos de un gesto. El botón **existe sólo si hay algo que limpiar** (uno permanentemente deshabilitado es ruido, no información) y es **secundario** (ghost neutro, jamás `--action`).
+**(c)** `role="tab"` sin `role="tabpanel"` que controlar es ARIA rota: el lector anuncia "pestaña 1 de 2" y no hay panel al que ir. Si no hay panel, no son tabs — es un radiogroup (`app-segmented`).
+
 **D.3 — Lo que no se puede arreglar desde el frontend se MARCA, no se esconde.** Con paginación de servidor, filtrar filas del lado del cliente deja huecos en las páginas y miente el total del paginador. Cuando la fuente manda algo que no corresponde (pseudo-productos contables en una pantalla de compras), el frontend lo **rotula y lo atenúa**, declara por qué está ahí, y el arreglo de fondo queda anotado como pendiente de backend. Esconder sin poder contar es peor que mostrar con etiqueta (ADR-056).
 
 ### Antipatrones para Operations (flag en review)
 - Cabecera de columna numérica alineada distinto que su celda, o clase de alineación inventada por la pantalla en vez de `.num` (→ D.0).
+- Grupo de botones contiguos con un tab stop cada uno; barra de filtros sin forma de limpiarlos ni conteo de activos; `role="tab"` sin `role="tabpanel"` (→ D.4).
+- Sumar una librería de a11y/headless para un patrón que [`app-segmented`](apps/view/src/app/shared/components/segmented/segmented.component.ts) ya resuelve. `@angular/aria` **no está instalado** (verificado 2026-09-14) y la decisión de PrimeNG sigue abierta: mientras lo esté, **no crecer la dependencia** (→ pre-vuelo 3).
 - Chip de valor y chip de toggle con el mismo aspecto (→ D.1).
 - Cabecera con jerga sin señal de que es explicable, o explicación que sólo vive en un `title` (→ D.2).
 - Píldora de frescura que dice **"Datos actualizados"** midiendo `Date.now()` del navegador: promete la edad del DATO y mide la de la CONSULTA. Si no hay timestamp del servidor, `measures="fetch"` y dice "cargado hace N" (→ VP.0).
