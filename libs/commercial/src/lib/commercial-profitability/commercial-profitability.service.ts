@@ -2,14 +2,28 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 
 /**
+ * [SD.3] Fuente del hecho de venta — migrada del linaje IMPERATIVO al DERIVADO del ODS.
+ *
+ * De `analytics.sales_daily` (tabla poblada por importer, 3.76 GB) al twin
+ * `analytics.mv_sales_blended` (matview derivada del ODS: mismo grano y columnas
+ * revenue/cost/units/channel/warehouse_id). Medido en prod 2026-09-14: cuadran al
+ * **0.19%** y el margen NO se mueve (ago 11.25%→11.24%, jul idéntico). Único cambio
+ * visible: el desglose por CANAL pasa a la taxonomía del ODS (mostrador/preventa/ruta/…,
+ * la arbitrada — K.3 midió que los canales de la tabla eran poco confiables). El candado
+ * `test-newdb-sales-lineage-parity` (SD.1) guarda la paridad y prueba que `mv_kepler_sales_daily`
+ * NO servía de target (le falta la venta de ruta). Un solo lugar de verdad para los 64 lectores restantes.
+ */
+const SALES_FACT = 'analytics.mv_sales_blended';
+
+/**
  * Motor de Rentabilidad (Fase MR) — la cascada de margen sobre venta REAL.
  *
- * Fuente de la venta Y del costo: `analytics.sales_daily` (sell-out consolidado
- * de Kepler/Wincaja). NO `commercial.order_lines` — esa tabla tiene 18 filas: la
- * venta de Mega Dulces no pasa por la plataforma.
+ * Fuente de la venta Y del costo: `analytics.mv_sales_blended` (sell-out consolidado
+ * de Kepler/Wincaja, derivado del ODS — ver [SD.3] arriba). NO `commercial.order_lines`
+ * — esa tabla tiene 18 filas: la venta de Mega Dulces no pasa por la plataforma.
  *
  * **El costo sale del fact, NO de `catalog.products.cost_base`.**
- * `sales_daily.cost` es el costo que registró el PdV en la transacción, en la
+ * El `cost` del fact es el costo que registró el PdV en la transacción, en la
  * MISMA unidad en que cobró. `cost_base` es costo de catálogo y en buena parte
  * del catálogo viene por CAJA — multiplicarlo por unidades vendidas por PIEZA
  * mezcla unidades. Medido: 30 SKUs aportaban $1.76M de COGS (10.4% del total)
@@ -184,7 +198,7 @@ export class CommercialProfitabilityService {
              -- sin inventar la unidad. catalog.products.unit_sale miente en 5,906
              -- de 8,708 productos, así que NO se usa para esto.
              MAX(sd.unit_kind)                                  AS unit_kind
-        FROM analytics.sales_daily sd
+        FROM ${SALES_FACT} sd
        WHERE sd.tenant_id = public.current_tenant_id()
          AND sd.sale_date >= CURRENT_DATE - INTERVAL '${days} days'
          ${w.join('\n         ')}
@@ -307,7 +321,7 @@ export class CommercialProfitabilityService {
    * `String(...)` daría "Wed Aug 26 2026 …" en vez de la fecha.
    */
   private async dataAsOf(trx: any) {
-    const [r] = await trx('analytics.sales_daily')
+    const [r] = await trx(SALES_FACT)
       .whereRaw('tenant_id = public.current_tenant_id()')
       .select(trx.raw('MAX(sale_date)::date::text AS d'));
     return r?.d ?? null;
@@ -317,7 +331,7 @@ export class CommercialProfitabilityService {
    * [OBS.6.3] ¿El fact alcanzó al calendario?
    *
    * ⚠️ Acá `data_as_of` NO es un timestamp de feed sino una **fecha de negocio**: el último día con
-   * venta en `analytics.sales_daily`. El rezago significa algo distinto que en la etiquetera —
+   * venta en el fact (`analytics.mv_sales_blended`, SD.3). El rezago significa algo distinto que en la etiquetera —
    * no "el precio está viejo" sino **"a esta cascada le faltan días de venta"**, que sesga el
    * margen hacia abajo sin que nadie lo note.
    *
@@ -550,7 +564,7 @@ export class CommercialProfitabilityService {
       const marginPct = revenue > 0 ? (marginAmount / revenue) * 100 : null;
 
       // Canales que alimentan la ventana: la otra mitad de "sobre qué medimos".
-      const channels = await trx('analytics.sales_daily')
+      const channels = await trx(SALES_FACT)
         .whereRaw('tenant_id = public.current_tenant_id()')
         .whereRaw(`sale_date >= CURRENT_DATE - INTERVAL '${w.days} days'`)
         .groupBy('channel')

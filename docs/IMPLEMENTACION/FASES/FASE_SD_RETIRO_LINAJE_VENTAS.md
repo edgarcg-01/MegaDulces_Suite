@@ -75,9 +75,18 @@ Prioridad (dinero primero):
   material invisible → migrar ahí tiraría $3.62M/mes. Umbral roto a propósito (0.1% → ago falla) = rojo
   verificado. Cae a `FLEET_DB_URL` del `.env` si no hay `DATABASE_URL_NEW` (read-only, assert de prod).
 - **SD.2 — Declarar `sales_daily` no-autoritativa** (comentario en tabla + doc), sin borrarla.
-- **SD.3 — Migrar el motor de margen** al linaje ODS **`mv_sales_blended`** (NO `mv_kepler_sales_daily`,
-  que perdería $3.62M/mes de ruta), con la medición antes/después del número publicado (un commit que
-  cambia un número no cierra sin el antes/después — regla del proyecto).
+- **SD.3 🧪 EN CÓDIGO 2026-09-14 — motor de margen migrado a `mv_sales_blended`.**
+  `commercial-profitability.service.ts`: las 3 lecturas del fact (`salesAgg` + `dataAsOf` + desglose de
+  canal) pasan por una sola constante `SALES_FACT = 'analytics.mv_sales_blended'`. Arquitectura limpia:
+  `salesAgg()` es el único método que lee la venta y todo el margen/GMROI/breakdown lo consume.
+  **Antes/después medido en prod (el número NO se mueve):** margen ago **11.25%→11.24%** (Δ 0.01 pp),
+  jul **idéntico**; cobertura de costo incluso **mejora** (99.47%→99.98%). Ninguna de las 6 columnas que
+  a `mv_sales_blended` le faltan (`id/margin/rung_factor/rung_mixed/units_base/units_unresolved`) se usa.
+  `nx test commercial` **60/60**. ⚠️ **Único cambio visible:** las etiquetas del **desglose por canal**
+  pasan a la taxonomía del ODS (`mostrador/preventa/ruta/…` en vez de `tienda/credito/mayoreo` — la
+  arbitrada, K.3 midió que los canales de la tabla eran poco confiables). **La deuda de costo de MR
+  (Kepler 50/50) se preserva IGUAL** — SD.3 mueve el linaje, no arregla el costo. **Pendiente: validación
+  visual (`/comercial/rentabilidad`, dev servers de Edgar) + redeploy.** 1 de 65 lectores; el resto sigue.
 - **SD.4 — Migrar Command Center**.
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
   declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores.
