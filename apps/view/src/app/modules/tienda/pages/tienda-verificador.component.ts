@@ -281,6 +281,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                     excluye a proposito).
                   -->
                   @if (origenPrecio() === 'override_manual') { Precio corregido a mano: es el mismo que sale en la etiqueta del anaquel. }
+                  @if (codigoAmbiguo()) { <strong>Ese codigo esta en {{ candidatos().length }} productos distintos</strong> del catalogo: {{ candidatos()[0]?.nombre }} y {{ candidatos()[1]?.nombre }}. Lo de arriba es UNO de ellos, elegido por orden. Confirma cual tienes en la mano antes de cobrar. }
                   @if (precioAmbiguo()) { Este producto tiene {{ plazasDistintas() }} precios distintos entre plazas y no se pudo acotar a la tuya: confirmalo en caja. }
                   @if (plazaSinDato()) { Tu sucursal no tiene este producto cargado; el precio es de otra plaza. }
                 </p>
@@ -720,6 +721,9 @@ export class TiendaVerificadorComponent implements OnInit {
   // podían decir números distintos del mismo producto, sin que la pantalla lo insinuara.
   readonly origenPrecio = signal<'kepler' | 'override_manual'>('kepler');
   readonly precioAmbiguo = signal(false);
+  /** `[TDA.9]` El código matchea más de un producto: la pantalla PREGUNTA, no elige. */
+  readonly codigoAmbiguo = signal(false);
+  readonly candidatos = signal<{ codigo: string; nombre: string; precio_con_iva: number | null }[]>([]);
   readonly plazasDistintas = signal(1);
   readonly plazaSinDato = signal(false);
   readonly ultimoCodigo = signal('');
@@ -1027,6 +1031,8 @@ export class TiendaVerificadorComponent implements OnInit {
       // producto anterior, la pantalla diría "corregido a mano" sobre uno que no lo está.
       this.origenPrecio.set(r.origenPrecio ?? 'kepler');
       this.precioAmbiguo.set(r.precioAmbiguo === true);
+      this.codigoAmbiguo.set(r.codigoAmbiguo === true);
+      this.candidatos.set(Array.isArray(r.candidatos) ? r.candidatos : []);
       this.plazasDistintas.set(r.plazasDistintas ?? 1);
       this.plazaSinDato.set(r.plazaSinDato === true);
       // `[TDA.3]` Mismo criterio: se resetea en CADA resultado. Pegada del escaneo anterior, la
