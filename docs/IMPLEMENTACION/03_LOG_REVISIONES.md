@@ -6,6 +6,34 @@
 
 ---
 
+## 2026-09-14 — Auditoría del Kepler crudo + ruta al ODS: CERRADA al 100% (censo, causa raíz, sobrantes durables) — y 3 afirmaciones falsas que la disciplina cazó (2 mías)
+
+**Disparador:** *"una auditoría de la base de datos de Kepler cruda, como la usa Kepler, desde cero"* → *"recompila todo lo que encontramos y solucionémoslo"* → *"caracteriza [los sobrantes]"* → *"revive el CDC, debe vivir en .222"* → *"dejemos esta auditoría al 100%"*.
+
+**Qué quedó cerrado** (detalle en [`VERDAD_ABSOLUTA.md §7`](../VERDAD_ABSOLUTA.md) + [`ERP_KEPLER.md §4.1/§4.2b`](../ERP_KEPLER.md)):
+- **Decode del Kepler crudo** (0 FK/UNIQUE/CHECK, 100% NOT NULL con centinelas, 96% `cN`, 4 ejes de doctype, `kdmm`≠`doctype`) + **causa raíz de la replicación**: `ALTER DEFAULT PRIVILEGES` cruzado (`sa→platform_ro`, `postgres→ods_repl`) → toda tabla nueva nace ilegible para el tablesync.
+- **Censo 100%**: 371 tablas = 236 replicadas + 138 fuera (76 vacías + 55 módulos no consumidos [fiscal/RH/POS] + 7 período). **Sin pérdida oculta.**
+- **Sobrantes del ODS resueltos + durables**: **28,877 fantasma borrados** (25,541 `kdpord` + 3,336 `kdm2`/`kdij`) + servicio `ods-reconcile-full` (barrido diario 03:00 MX en `.222`, latido propio `cdc_reconcile_full` + healthcheck + umbral en db-health). Mecanismo `reconcile-ods-window --full --delete-sobrantes`, reemplaza al WAL-CDC retirado (OBS.8) sin su fragilidad de slot.
+- **Bomba de calendario** (margen ~3 meses verificado) · **existencia fantasma** (cota ~$3.08M declarada, no publicada) · **deuda ERP** (formalizada como riesgo ACEPTADO por política).
+- **Commits:** `9a9ba784`…`8cedd816` (cadena AUD-KEPLER + OBS.11).
+
+### Lecciones (para que nadie las reconstruya)
+
+1. **Medir la DB correcta ANTES de publicar (R8).** La 1ª versión midió `.245/platform_test` creyéndola prod → una "crisis" entera falsa (ODS atrasado, 07 ausente, jobs muertos). El enmascarado `grep -oE '@[0-9.]+:[0-9]+'` escondía la palabra `test`. Regla: declarar **host + nombre de base** (no el nombre de la var) antes de publicar; enmascarar con `sed 's#://[^@]*@#://***@#'` que conserva host+base. **Un hallazgo alarmante obliga a verificar el instrumento ANTES que el hallazgo.**
+2. **Ser crítico con uno mismo.** Dos afirmaciones falsas fueron MÍAS ("medí prod", "jobs muertos desde julio" = `last_start` congelado). El watchdog que lee `last_finish` tenía razón; yo leyendo `last_start` estaba mal. Y el "doble conteo $800k" de un workflow paralelo habría borrado **$6.46M** reales. La disciplina las cazó, no el instinto.
+3. **El pedido choca con el código → decirlo con cita, no obedecer.** ".220 es el nuevo concentrado" no aparecía en ningún lado → pregunté → era typo de `.222`. "Revive el CDC" chocaba con OBS.8 (el WAL-CDC se retiró **a propósito** por frágil) → recomendé darle al reconciliador —ya en `.222`— permiso para borrar, no resucitar el slot.
+4. **"En main" ≠ "corriendo en prod".** Commitear no despliega. Medido: a los 2 días el mecanismo inyectado revirtió al código viejo y se re-acumularon 830 fantasma. **Migrado = latido verde en prod**, no "el commit está" (ADR-056). El sink desde el dev box es `pg`-mode (tira error sin `client`); el DELETE **sólo** corre en `md` (`FEEDS_SINK=http`) — verificar la topología del sink antes de un `--apply`.
+5. **Caracterizar antes de borrar; leer el nombre real, no adivinar.** Los ~15k sobrantes parecían pérdida; medidos = cola de surtido transitoria (`kdpord`) + líneas re-editadas. `U-D-40` = **"Pedido"** (leído de `kdmm`), NO embarque (`U-D-41`). Money-safe: verificado que `mv_kepler_sales_daily` filtra `U-D∈{8,10,12}` → excluye `U-D-40`. Nada a ciegas.
+6. **Un DELETE de prod = dos frenos + canario + prueba negativa.** (a) re-confirmar cada llave contra la tabla COMPLETA de la réplica (0% falso positivo) — nunca por "salió de la ventana"; (b) tope de fracción (60%): una réplica vacía haría parecer sobrante a TODO el ODS → **aborta** (probado en vivo: la rama 07 con réplica vacía se auto-protegió). Rompí el freno a propósito para verlo abortar. Canario en rama chica (04, 6 filas) antes de las 24,699.
+7. **"No medido" ≠ "problema" — pero hay que medirlo para saberlo.** Las 148 tablas "sin clasificar" resultaron 76 vacías + 55 módulos + 7 período: cero hueco. Un job de limpieza **sin latido es mudo** → el barrido diario lleva latido propio + umbral (no verde-incondicional).
+8. **Una auditoría al 100% puede tener riesgo ACEPTADO, no incógnitas.** La deuda ERP no se arregla (política: no tocar el ERP) → se **formaliza**: medida, mitigada (leer el POS con `platform_ro`), vigilada (candado `test-ods-enrolamiento` rojo a propósito), runbook listo. **Cerrar ≠ resolver todo; cerrar = cero incógnitas.** Vuelve cada 1° de mes (próxima `kdc22610` el 2026-10-01).
+
+### Estado
+
+**Auditoría de Kepler crudo + ruta al ODS = 🟢 CERRADA al 100%.** Deuda con nombre y fecha: (1) grant ERP — riesgo aceptado, reaparece 2026-10-01; (2) redeploy del API para el umbral `cdc_reconcile_full` en el tablero (el healthcheck del contenedor ya lo vigila); (3) rotar la credencial de Railway que se pegó en texto plano en la sesión.
+
+---
+
 ## 2026-09-11 — Auditoría de `/comercial/sell-out`: la venta no-caja se declaraba en el back pero no en el front, y el costo de la pantalla está en el fan-out, no en la query
 
 **Disparador:** *"auditor de esta interfaz: /comercial/sell-out"* → *"arreglemos el hallazgo 1"* → *"documentemos el hallazgo 2 y auditemos tiempos de carga o de respuesta, revisando base de datos, front y back"*.
