@@ -10,6 +10,19 @@
 
 ## [Unreleased]
 
+### Fixed — el god-mode no puede volverte dueño del trabajo de otro (SN.28, 2026-09-14)
+
+Edgar: *«usuarios a los que no se les asignó la tarea de conciliación (que sólo fue a Ivonne y Mayra) siguen viendo esa información»* · *«una cosa es tener acceso a la interfaz y otra muy diferente tener asignada la responsabilidad; son dos cosas diferentes e independientes»*.
+
+- ⭐ **La regla de `[SN.24]` funcionaba; se la saltaba justo el grupo que estaba a la vista.** Medido en prod: la conciliación la veían en la portada **10 personas** — su dueña y los **9 `superadmin`** (aaron_alejo, david_cisneros, felipe_galvan, guillermo_lopez, jlh_lopez, luis_hernandez, ramon_rodriguez, superoot, superuser). Nueve personas tenían de cabecera el trabajo de otras.
+- ⭐ **El error de concepto es el que Edgar nombró.** `ajena()` eximía al god-mode, y el god-mode es un hecho de **acceso**, no de **responsabilidad** — los dos ejes que `task.contract.ts` separa desde el principio: *el permiso decide si podés ABRIRLO, la responsabilidad decide si es TUYO*. Usarlo ahí lo convertía en **dueño universal**, en una columna que se llama «Tu trabajo». Se retira la exención; `puedeVerBandeja`/`puedeVerCiclo` **siguen** honrándolo, que es donde decide el acceso.
+- ⛔ **Y el candado protegía el bug.** La aserción que había decía literalmente `check('god-mode ve todo', /esAdmin/…)`: el defecto pasaba verde porque el test exigía el defecto. Hoy la aserción está **invertida** y su prueba negativa está ejercida (devolver `esAdmin` la pone roja, verificado).
+- ⭐ **Mi herramienta de medición y el código discrepaban, y le creí a la herramienta.** El `ajena()` de `sn-landing-censo.js` **nunca** eximió al god-mode — modelaba la regla correcta — mientras el servicio hacía otra cosa. Dos copias de la misma regla en dos archivos: el censo reportaba la cifra que yo quería y la pantalla mostraba otra. Ahora la compuerta vive en **un solo lugar** dentro del censo, y éste estrena un bloque que imprime **nominalmente** quién ve cada cola con dueño (un total agregado se lee igual si son los dueños o nueve extraños).
+- **Medido después del arreglo: `personas viendo trabajo que no es suyo: 0`.** Cada cola la ven exactamente sus dueños — cuadre 7, Thot 3, Maat 1, reabastecimiento 7, conciliación de ingresos 1 (Ivonne), de egresos 1 (Mayra).
+- ⚠️ **Un falso positivo mío, corregido antes de publicarlo:** el bloque nuevo acusaba **29 personas** viendo trabajo ajeno en `tienda.caducidades`. Esa cola es de alcance `mio` y **ya filtra por `responsible_user_id`**: lo que ve cada quien ahí es lo suyo. Es el mismo error de inflar un hallazgo que este censo ya cometió una vez (14 donde eran 5).
+- **Consecuencia declarada:** «Sólo catálogo» (puertas sí, «Tu trabajo» vacío) sube a **51 de 122**, porque un superadmin que no responde de nada ahora tiene esa columna vacía. Es el resultado correcto, no una regresión.
+- `test-newdb-me-context.js` **385 ok / 0 fail**. `nx build api` verde. ⚠️ **El proceso vivo de la API es anterior al arreglo**: el artefacto ya está compilado, toma efecto en el próximo reinicio.
+
 ### Changed — el hueco no estaba en la tarjeta, estaba en el grupo (SN.27, 2026-09-14)
 
 Edgar: *«hay que tratar de usar todo el espacio en pantalla»*.
