@@ -199,6 +199,20 @@ Reporte de tienda: *"el tamaño de la etiqueta se redujo y los usuarios no logra
 - **La carga masiva se pliega** detrás de "Pegar lista" y el buscador sube a la línea de la pistola. Se usa poco (cambio de precios de temporada) y abierta costaba una tarjeta entera de alto — justo el alto que le faltaba a la hoja. La función queda intacta: mismo textarea, mismo `addBulk()`, mismo aviso de no encontrados (visible también con el panel cerrado).
 - **Medido** (etiqueta en pantalla, antes 147×63 px en cualquier monitor): 1366×768 → **212×90 (×1.44)** · 1920×1080 → **327×139 (×2.22)** · 2560×1440 → **439×188 (×2.99)**. En pantalla chica manda el alto, y la hoja **entera** sigue visible sin scroll — es una vista de hoja: si hay que scrollear para ver la última fila deja de servir para lo que sirve.
 - Build `view` verde; suite de etiquetas verde (6/6). ⚠️ `mi-trabajo.component.spec.ts` falla en `main`, ajeno a este cambio. **Validación visual pendiente** (los dev servers son de Edgar).
+### Added — primer indicador real de Análisis BI: Resumen, Movimientos y Explorar datos (WMS-BI.1, 2026-09-14)
+
+`/almacen/analisis-bi` deja de ser sólo la puerta (WMS-BI.0) y publica sus primeras cifras. Backend nuevo `libs/commercial/src/lib/commercial-bi-almacen` + frontend con 3 pestañas.
+
+- **El alcance por almacén reusa `ScopeService`/ADR-050** — ya vigente, ya configurado para los 10 roles con `ALMACEN_BI_VER` (`encargado_tienda`/`supervisor` = su sucursal; el resto = toda la red). Inventar una tabla de autorización propia habría sido el primitivo duplicado que ADR-056 prohíbe. Verificado con un usuario `encargado_tienda` de prueba: su alcance se recorta a 1 almacén, y pedir otro por query param se ignora en silencio.
+- **El costo se declara, no se aproxima.** `analytics.v_erp_unit_cost` (KE.3) no existe todavía en este entorno; en vez de caer a `catalog.products.cost_base` a secas —el mismo error que costó $3.5M en Fase MR/ADR-051— el inventario valuado y la desviación de costo muestran `No disponible` con el motivo.
+- **El Diario de Movimientos es sólo Kepler** (01-06); Morelia/CEDIS no tienen ese feed todavía, y la pantalla lo declara (`covers_all_scope`) en vez de mostrar un cero engañoso.
+- ⭐ **Hallazgo real de otra fase:** `analytics.v_erp_stock_on_hand` tardó **71-82 s** para un `count(*)` simple, medido dos veces fuera de este código. Es la misma vista que usan `/almacen/inventory/existencia` y `/compras/pedido` — arreglarla es de Fase KE/ADR-055, no de acá. Se acotó con `statement_timeout` (10 s) del lado del servidor: cancela la query y declara "No disponible — el entorno está lento" en vez de colgar el endpoint entero.
+- ⚠️ **Fixed — bug real encontrado en el navegador:** las tres consultas de `summary()` corrían con `Promise.all` sobre la MISMA transacción; `pg` no soporta dos queries concurrentes en un cliente (deprecation warning real en el log), y por sí sola esa carrera ya explicaba ~72 s. Ahora corren en tres transacciones separadas y secuenciales.
+- **Explorar datos** declara 5 columnas del pedido original que el feed de Kepler no captura (unidad original, factor de conversión, cantidad en unidad base, unidad base, desviación de costo por línea) — deshabilitadas con motivo, no omitidas en silencio.
+- Verificado con Playwright contra el build real (no sólo `curl`): login, 3 pestañas sin errores de consola, filtros, autocomplete de producto real, tabla de Movimientos, Explorar datos con los 5 campos bloqueados. `nx build api`/`view` limpios, `nx test contracts` 35/35, `nx test view` 300/304 (la 1 falla es ajena, ya declarada en WMS-BI.0).
+- **No verificado:** con `analytics.stock_movements` vacía en este entorno, no se pudo ejercer el camino con líneas reales (paginación, orden, drill a documento, redacción de destino por permiso).
+- **Pendiente: migración a Railway + redeploy api/view + re-login.**
+
 ### Added — módulo Análisis BI en el sidebar de Almacén (WMS-BI.0, 2026-09-14)
 
 Nuevo módulo `/almacen/analisis-bi`, visible como item del sidebar del proyecto Almacén. Este primer PR entrega **la puerta**, no los indicadores.

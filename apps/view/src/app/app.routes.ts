@@ -740,6 +740,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        // WMS-BI.1 — detalle de UN documento, abierto en pestaña nueva desde Análisis BI.
+        // Foco: sin barra de tabs. Ruta propia (no /almacen/movimientos) — ver el comentario
+        // en AlmacenAnalisisBiComponent.openDocument().
+        path: 'analisis-bi/documento',
+        loadComponent: () => import('./modules/almacen/pages/almacen-bi-documento.component').then(m => m.AlmacenBiDocumentoComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
+      },
+      {
         // WMS-REC — **Andén de Entrada**: las dos puertas (cotejo+acceso, y
         // fechado+acomodo) en una sola pasada junto al camión. Reemplaza el
         // recorrido de 4 pantallas: 79 toques por vale de 5 líneas → 24.
