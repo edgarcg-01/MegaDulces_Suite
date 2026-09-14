@@ -777,10 +777,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host ::ng-deep .pr-wb { font-size: var(--fs-sm); }
     /* [DESIGN §datos densos 10] Header de columna = --fs-micro, --fw-medium, muted, uppercase con
        tracking. Faltaba: el th heredaba --fs-sm en caja normal, así que esta tabla y el desglose de
-       adentro —que sí lo cumplía— se veían de dos sistemas distintos EN LA MISMA PANTALLA.
-       Las variantes .pr-grp-h / .pr-sub-h de abajo ganan por especificidad y conservan lo suyo. */
+       adentro —que sí lo cumplía— se veían de dos sistemas distintos EN LA MISMA PANTALLA. */
     :host ::ng-deep .pr-wb thead th { font-size: var(--fs-micro); font-weight: var(--fw-medium);
       color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; line-height: 1.3; }
+    /* ⭐ EL HEADER SE ALINEA CON SU COLUMNA. PrimeNG pone 'text-align: start' en el th con más
+       especificidad que nuestra '.pr-r' (0,1,0), así que las columnas numéricas tenían el dato a la
+       derecha y su título a la izquierda: el ojo no podía emparejarlos y la tabla se leía
+       descuadrada. Vale para las DOS tablas — la principal y la del desglose, que además se comía
+       la alineación con su propia '.pr-peek-tbl th { text-align: left }'.
+       Regla: una columna numérica alinea a la derecha su celda Y su cabecera. Sin excepción. */
+    :host ::ng-deep .pr-wb thead th.pr-r { text-align: right; }
+    .pr-peek-tbl th.pr-r { text-align: right; }
     /* Jerga descubrible. Había 22 definiciones de columna escondidas en 'title=' SIN ninguna señal
        de que existieran: había que pasar el mouse a ciegas por "Tend.", "Est." o "XYZ" para
        enterarse. Un subrayado punteado (convención de <abbr>, ley de Jakob) las delata sin ocupar
@@ -793,8 +800,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-peek-tbl th[title], .pr-det th[title] {
       text-decoration: underline dotted 1px var(--text-faint); text-underline-offset: 3px; cursor: help;
     }
-    :host ::ng-deep .pr-wb th.pr-grp-h { text-align: center; border-left: 1px solid var(--border-color); font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); font-weight: 700; }
-    :host ::ng-deep .pr-wb th.pr-sub-h { font-size: var(--fs-micro); font-weight: 600; color: var(--text-faint); }
+    /* (2026-09-14) Acá vivían '.pr-grp-h' (cabecera de grupo, centrada) y '.pr-sub-h'. Ninguna de
+       las dos aparece en el markup de este componente — CSS muerto de una versión con cabeceras
+       agrupadas que ya no existe. Se retiran: una regla centrada que nadie aplica es justo lo que
+       hace dudar de dónde sale un desalineo cuando se audita. */
     :host ::ng-deep .pr-wb th.pr-ped-h { color: var(--action); }
     .pr-ped { font-variant-numeric: tabular-nums; }
     .pr-ped-on { color: var(--action); font-weight: 600; }

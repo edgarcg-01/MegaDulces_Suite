@@ -119,6 +119,7 @@
 | 4 | ⛔ Anti-slop #1 (morado IA) + §Q.6 (color de grupo = `--chart-*`) | **`#8b5cf6` volvió**, junto a `#3b82f6` y `#16a34a` — la paleta default de Tailwind — como color por tipo de promo. Alimenta 2 pantallas | [`promotions-meta.ts:38`](apps/view/src/app/modules/comercial/promotions-meta.ts#L38) |
 | 5 | ⛔ §R breakpoints en `rem` | **169 en px** vs 26 en rem (+36% vs los 124 de ago) | todo el repo |
 | 6 | ⛔ pre-vuelo 2 "cero hex crudo" + 12b (dark) | **171 declaraciones de color con hex literal en 40 archivos** de `apps/view`. Hay legítimas (`#fff` de hoja de papel, exención propia) y rotas en dark con token existente: `background:#dcfce7;color:#15803d` (= `--ok-soft-*`), `border-color:#fecaca` (= `--bad-border`), `color:#b42318`, `color:#b45309` | `almacen-cuadre`, `finanzas-cartera`, `vendor-history`, `team-day`, … |
+| 6a | ⛔ D.0 alineación de tabla | **52 componentes inventaron su propia clase de celda numérica** (`.pr-r`, `.co-r`…) contra **41** que usan la canónica `td.num, th.num` de `styles.css`. Una clase suelta `(0,1,0)` pierde contra el `th` de PrimeNG → el dato queda a la derecha y su título a la izquierda | todo el repo |
 | 6b | ⛔ Escala tipográfica (`--fs-*`, declarada ESTRICTA en `tokens.css`) | **97 tamaños de letra distintos** en `apps/view`. 1,881 `font-size` con literal contra 1,142 con token = **38% de adopción**. Los 9 literales más usados —`.8` `.72` `.82` `.78` `.85` `.7` `.68` `.74` `.76`— están **todos fuera de la escala**. Es la regla binding con peor cumplimiento del sistema | todo el repo |
 | 7 | §Motion adopción de tokens | **27 de 270 declaraciones** usan `var(--dur-*)` = **10%** (era 9% el 09-sep: sin movimiento) | todo el repo |
 | 8 | `surf-table--zebra` neutralizada | la clase es no-op ✓ pero **35 archivos la siguen aplicando**: declaran una intención que el sistema descarta en silencio. Falta el barrido | 35 plantillas |
@@ -635,9 +636,16 @@ Si `14d / 30d / 45d` (mutuamente excluyentes) y `Solo con pedido` / `Con sobrest
 
 **D.2 — La jerga necesita AFORDANCIA, no sólo definición.** Tener la definición en el diccionario de `<app-context-help>` es necesario y **no alcanza**: si `Tend.`, `Est.` o `XYZ` no muestran que son explicables, nadie va a buscarlas. Toda cabecera con jerga lleva señal visible (subrayado punteado + `cursor: help`, la convención de `<abbr>`). Y como el hover **no existe en touch**, la definición tiene que estar **también** en el cajón de ayuda — el `title` es el atajo de escritorio, nunca el único canal.
 
+**D.0 — La cabecera se alinea con su columna, y la celda numérica usa la clase canónica `.num`.**
+Una columna de números alinea a la derecha **la celda Y su título**. Si no, el ojo no puede emparejarlos y la tabla se lee descuadrada aunque cada celda esté bien.
+**Por qué se rompe solo:** PrimeNG pone `text-align: start` en el `th` con especificidad de elemento; una clase suelta inventada por la pantalla (`.pr-r`, `.co-r`, `.so-r`…) es `(0,1,0)` y **pierde**, así que el dato queda a la derecha y el título a la izquierda. No es un descuido: es el resultado predecible de no usar la utilidad compartida.
+**El repo ya tiene la solución:** `td.num, th.num` en [`styles.css`](apps/view/src/styles.css) — alineación derecha + `--font-mono` + `tabular-nums`, calificada por elemento para ganarle al vendor.
+⛔ **Medido 2026-09-14: 52 componentes inventaron su propia clase de alineación contra 41 que usan `.num`.** Toda tabla nueva usa `.num`; ninguna inventa la suya.
+
 **D.3 — Lo que no se puede arreglar desde el frontend se MARCA, no se esconde.** Con paginación de servidor, filtrar filas del lado del cliente deja huecos en las páginas y miente el total del paginador. Cuando la fuente manda algo que no corresponde (pseudo-productos contables en una pantalla de compras), el frontend lo **rotula y lo atenúa**, declara por qué está ahí, y el arreglo de fondo queda anotado como pendiente de backend. Esconder sin poder contar es peor que mostrar con etiqueta (ADR-056).
 
 ### Antipatrones para Operations (flag en review)
+- Cabecera de columna numérica alineada distinto que su celda, o clase de alineación inventada por la pantalla en vez de `.num` (→ D.0).
 - Chip de valor y chip de toggle con el mismo aspecto (→ D.1).
 - Cabecera con jerga sin señal de que es explicable, o explicación que sólo vive en un `title` (→ D.2).
 - Píldora de frescura que dice **"Datos actualizados"** midiendo `Date.now()` del navegador: promete la edad del DATO y mide la de la CONSULTA. Si no hay timestamp del servidor, `measures="fetch"` y dice "cargado hace N" (→ VP.0).
