@@ -3430,7 +3430,17 @@ export class CommercialAnalyticsService {
 
     // Orden de columnas: plaza → orden del template (Map ya viene en ese orden + OTROS al final).
     // Si no, mes asc (month_columns) o sucursal → canal (orden fijo) → fuente (Kepler, Wincaja).
-    const orderedCols = plaza ? Array.from(columns.values()) : Array.from(columns.values()).sort((a, b) => {
+    // RS.13 — "Por plaza" con FILTRO de sucursal: ocultar las columnas de plaza VACÍAS. El template
+    // fijo de 14 columnas es para la vista de TODA la empresa (comparar plazas); filtrando una sola
+    // plaza, las otras ~11 iban en cero y sólo ensuciaban ("14 columnas" cuando sólo 3 tienen dato).
+    // Sin filtro se conserva el template completo.
+    const plazaColHasData = (c: SellOutColumn) => {
+      const t = colTotals.get(c.key);
+      return !!t && (Number(t.monto) !== 0 || Number(t.cajas) !== 0 || Number(t.monto_neto) !== 0);
+    };
+    const orderedCols = plaza
+      ? (warehouseFilter ? Array.from(columns.values()).filter(plazaColHasData) : Array.from(columns.values()))
+      : Array.from(columns.values()).sort((a, b) => {
       if (monthCols) return (a.month ?? '').localeCompare(b.month ?? '');
       // RS.10 — Mayoreo (credito) forma su propio bloque, DESPUÉS de las sucursales, ordenado
       // por nombre de vendedor. Así queda separado y comprensible (sucursales | vendedores mayoreo).
@@ -3454,8 +3464,9 @@ export class CommercialAnalyticsService {
       }
       row.total = { cajas: round(row.total.cajas, 3), monto: round(row.total.monto, 2), monto_neto: round(row.total.monto_neto, 2), units: round(row.total.units, 3) };
     }
+    // Los totales de columna siguen a las columnas MOSTRADAS (así no quedan claves de plazas podadas).
     const columnTotalsObj: Record<string, SellOutCell> = {};
-    for (const [k, v] of colTotals) columnTotalsObj[k] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2), units: 0 };
+    for (const c of orderedCols) { const v = colTotals.get(c.key); if (v) columnTotalsObj[c.key] = { cajas: round(v.cajas, 3), monto: round(v.monto, 2), monto_neto: round(v.monto_neto, 2), units: 0 }; }
 
     return {
       ...base,
