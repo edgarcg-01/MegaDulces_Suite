@@ -141,7 +141,12 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
            onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
       <div class="vf-logo-txt" style="display:none"><span class="vf-m">Mega</span><span class="vf-d">Dulces</span></div>
 
-      <div class="vf-scanbar"><i class="pi pi-camera" aria-hidden="true"></i> Escanea tu Producto</div>
+      <!-- La barra ES el disparador de la cámara: ya tenía el icono y el texto, un botón
+           redondo aparte al lado del input era el mismo gesto duplicado dos veces. -->
+      <button type="button" class="vf-scanbar" [disabled]="!sucursal()"
+              aria-label="Escanear con la cámara del celular" (click)="abrirCamara()">
+        <i class="pi pi-camera" aria-hidden="true"></i> Escanea tu Producto
+      </button>
 
       <!-- Captura: lo único con foco. Input nativo (mismo criterio que antes: un componente de
            PrimeNG metería su propio borde y rompería el look de la píldora). -->
@@ -153,11 +158,6 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                (keyup.enter)="consultar(scan.value); scan.value = ''"
                (blur)="reenfocar()" />
         @if (buscando()) { <i class="pi pi-spin pi-spinner vf-busy" aria-label="Consultando"></i> }
-        <!-- Cámara del celular como lector: para quien llega sin pistola HID. -->
-        <button type="button" class="vf-cam-btn" aria-label="Escanear con la cámara del celular"
-                [disabled]="!sucursal()" (click)="abrirCamara()">
-          <i class="pi pi-camera" aria-hidden="true"></i>
-        </button>
       </div>
       <div class="vf-hint">Coloca el código de barras frente al lector</div>
 
@@ -178,7 +178,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
             @if (producto(); as p) {
               <!-- [TDA.6] is-pase-b alterna en cada consulta para reiniciar la animación
                    "pop" sobre el MISMO nodo del DOM (ver comentario histórico más abajo). -->
-              <div class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
+              <div #card class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
                    [class.is-pase-b]="pase() % 2 === 1">
                 <div class="vf-card-top">
                   <span class="vf-cod">{{ p.codigo }}</span>
@@ -338,13 +338,22 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       color: var(--vf-oscuro);
     }
 
-    .vf-page { position: relative; overflow: hidden; border-radius: var(--r-lg, 16px);
+    /* overflow-x: hidden (nunca "hidden" a secas): el fondo de dulces es inset:0 y no
+       necesita recorte, pero un "hidden" en las dos direcciones ATRAPABA de verdad la
+       tarjeta cuando el mayoreo la hacía más alta que la ventana — sin barra de scroll y
+       sin mouse/touch en un kiosco real, esa parte quedaba invisible para siempre, no sólo
+       recortada. Medido en vivo (terminal 40/Oficina): "LLEVANDO 3 O MÁS PAQUETES" cortado
+       exacto en el borde inferior de la ventana. overflow-y: visible dentro del flujo
+       normal deja que crezca el contenedor (o la app por fuera) en vez de esconder nada;
+       el modo kiosco de abajo SÍ necesita su propio scroll porque ahí no hay contenedor
+       exterior (position: fixed lo saca del flujo del documento). */
+    .vf-page { position: relative; overflow-x: hidden; border-radius: var(--r-lg, 16px);
       display: flex; flex-direction: column; align-items: center; gap: .5rem;
       padding: 0 1.25rem 1.25rem; min-height: 640px;
       background: linear-gradient(160deg, #fffdf7 0%, #fdf3e2 100%); }
     /* Modo kiosco: se come el chrome de la app — el mostrador real es un monitor dedicado,
        no una ventana con sidebar al lado. */
-    .vf-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow: auto;
+    .vf-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow-y: auto;
       border-radius: 0; padding-bottom: 2rem; }
 
     .vf-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
@@ -381,26 +390,27 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     .vf-logo-txt .vf-m { color: var(--vf-naranja); } .vf-logo-txt .vf-d { color: var(--vf-oscuro); }
 
     /* ── Captura: idéntica jerarquía al HTML — barra, input, hint ─────────────────────── */
+    /* Cámara del celular: NO existía en el HTML (dependía de una pistola física USB/BT); es la
+       tercera vía que se agregó en esta sesión, con el mismo cableado @zxing/browser que ya
+       usan ScanFieldComponent/ProductScanFieldComponent. Vive EN esta barra (antes era un botón
+       redondo aparte, junto al input): la barra ya decía "Escanea tu Producto" con un ícono de
+       cámara — un segundo botón con el mismo ícono al lado era el mismo gesto duplicado. */
     .vf-scanbar { position: relative; z-index: 1; background: var(--vf-naranja); color: #fff;
-      font-size: 15px; font-weight: 400; letter-spacing: 1px; padding: 8px 24px;
-      border-radius: 8px; margin-top: 6px; display: flex; align-items: center; gap: .4rem; }
+      font: inherit; font-size: 15px; font-weight: 400; letter-spacing: 1px; padding: 8px 24px;
+      border: none; border-radius: 8px; margin-top: 6px; display: flex; align-items: center;
+      gap: .4rem; cursor: pointer; }
+    .vf-scanbar:hover:not(:disabled) { filter: brightness(1.06); }
+    .vf-scanbar:disabled { opacity: .55; cursor: default; }
+    .vf-scanbar:focus-visible { outline: 2px solid var(--vf-oscuro); outline-offset: 2px; }
     .vf-input-row { position: relative; z-index: 1; margin-top: 10px;
       width: min(560px, 92vw); display: flex; align-items: center; gap: .5rem; }
-    .vf-input { flex: 1; min-width: 0; text-align: center; font-size: 26px; font-weight: 700;
+    .vf-input { flex: 1; min-width: 0; text-align: center; font-size: 26px; font-weight: 400;
       font-family: inherit; padding: 14px; border-radius: 14px; border: 3px solid var(--vf-naranja);
       background: #fff; color: var(--vf-oscuro); letter-spacing: 2px; outline: none;
       box-shadow: 0 4px 16px rgba(0,0,0,.06); }
     .vf-input::placeholder { color: #c0c0c0; font-size: 16px; letter-spacing: 1px; }
     .vf-input:disabled { color: #b0b0b0; }
     .vf-busy { color: var(--vf-naranja); font-size: 1.3rem; }
-    /* Cámara del celular: NO existía en el HTML (dependía de una pistola física USB/BT); es
-       la tercera vía que se agregó en esta sesión, con el mismo cableado @zxing/browser que
-       ya usan ScanFieldComponent/ProductScanFieldComponent. */
-    .vf-cam-btn { flex: 0 0 auto; width: 52px; height: 52px; display: inline-flex;
-      align-items: center; justify-content: center; background: #fff; color: var(--vf-naranja);
-      border: 3px solid var(--vf-naranja); border-radius: 14px; font-size: 1.2rem; cursor: pointer; }
-    .vf-cam-btn:disabled { opacity: .4; cursor: default; }
-    .vf-cam-btn:focus-visible { outline: 2px solid var(--vf-naranja); outline-offset: 2px; }
     .vf-hint { position: relative; z-index: 1; margin-top: 8px; color: #888; font-size: 13px; }
 
     .vf-cam-ov { position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column;
@@ -541,6 +551,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   @ViewChild('scan') private scanInput?: ElementRef<HTMLInputElement>;
   @ViewChild('video') private videoEl?: ElementRef<HTMLVideoElement>;
   @ViewChild('camCancelar') private camCancelarBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('card') private cardEl?: ElementRef<HTMLDivElement>;
   private lector?: BrowserMultiFormatReader;
   private controles?: IScannerControls;
 
@@ -549,9 +560,11 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   /** Contador de productos escaneados, persistente por equipo — igual que `mdVerifCount` del
    * HTML original, con clave propia (ese localStorage era de otro origen, inalcanzable acá). */
   private static readonly LS_CONTADOR = 'tienda.verificador.contador';
-  /** A los 15s de inactividad la tarjeta se limpia sola, como `armarClear()` en el HTML
-   * original: un precio (o un error) no debe quedar pegado en pantalla toda la tarde. */
-  private static readonly MS_AUTOLIMPIA = 15_000;
+  /** A los 20s de inactividad la tarjeta se limpia sola, como `armarClear()` en el HTML
+   * original: un precio (o un error) no debe quedar pegado en pantalla toda la tarde.
+   * Subido de 15 a 20 (pedido 0Sistemas): con mayoreo en pantalla, 15s no alcanzaban a
+   * leer la condición + el ahorro antes de que se borrara solo. */
+  private static readonly MS_AUTOLIMPIA = 20_000;
   private clearTimer?: ReturnType<typeof setTimeout>;
 
   readonly sucursal = signal<string | null>(null);
@@ -885,7 +898,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
     // `[TDA.6]` Un pase por consulta contestada, encontrada o no. Es lo que reinicia la
     // animación de entrada sobre un nodo que no se recrea.
     this.pase.update((n) => n + 1);
-    // Como `armarClear()` del HTML original: 15s de inactividad y la pantalla vuelve sola a
+    // Como `armarClear()` del HTML original: 20s de inactividad y la pantalla vuelve sola a
     // "listo para consultar" — un precio (o un error) no debe quedar pegado toda la tarde.
     this.armarClear();
     if (r.estado === 'encontrado') {
@@ -925,6 +938,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
         origen: r.origen,
         hora: new Date(),
       });
+      this.desplazarResultadoAlaVista();
       return;
     }
 
@@ -960,10 +974,31 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
     this.ultimoCodigo.set('');
   }
 
-  /** `armarClear()` del HTML original: reinicia el reloj de 15s cada vez que hay un resultado nuevo. */
+  /** `armarClear()` del HTML original: reinicia el reloj de 20s cada vez que hay un resultado nuevo. */
   private armarClear(): void {
     if (this.clearTimer) clearTimeout(this.clearTimer);
     this.clearTimer = setTimeout(() => this.limpiarResultado(), TiendaVerificadorComponent.MS_AUTOLIMPIA);
+  }
+
+  /**
+   * El mayoreo quedaba fuera de la vista, sin forma de llegar a él.
+   *
+   * En un kiosco real el único periférico es la pistola: no hay mouse ni dedo para hacer
+   * scroll. Medido en vivo (terminal 40/Oficina, ventana chica): con `LA ROSA MAZAPAN /30` el
+   * bloque "LLEVANDO 3 O MÁS PAQUETES" quedaba cortado exacto en el borde inferior — no
+   * "apretado", **invisible**, porque `.vf-page` además tenía `overflow: hidden` (ver el
+   * comentario en esa regla). Con el overflow ya destrabado, esto hace la otra mitad: bajar
+   * la ventana sola hasta que el PIE de la tarjeta (mayoreo/ahorro/nota, lo último que se
+   * agrega y lo que más espacio pide) quede a la vista, en vez de esperar un scroll que en
+   * ese equipo nadie puede dar.
+   */
+  private desplazarResultadoAlaVista(): void {
+    setTimeout(() => {
+      const el = this.cardEl?.nativeElement;
+      if (!el) return;
+      const reducido = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ block: 'end', inline: 'nearest', behavior: reducido ? 'auto' : 'smooth' });
+    }, 0);
   }
 
   private bumpContador(): void {
@@ -1041,6 +1076,10 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
       return;
     }
     this.camaraAbierta.set(true);
+    // `[MU1EABF2-1]` ver el comentario de `onCameraGlobalError`: la falla llega tarde, como
+    // promesa sin capturar, y ningún try/catch de acá abajo la alcanza a ver.
+    window.addEventListener('unhandledrejection', this.onCameraGlobalError);
+    window.addEventListener('error', this.onCameraGlobalError);
     setTimeout(() => this.camCancelarBtn?.nativeElement?.focus(), 150);
     setTimeout(async () => {
       const v = this.videoEl?.nativeElement;
@@ -1080,11 +1119,43 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
 
   cerrarCamara(): void {
     this.camaraAbierta.set(false);
+    window.removeEventListener('unhandledrejection', this.onCameraGlobalError);
+    window.removeEventListener('error', this.onCameraGlobalError);
     try { this.controles?.stop(); } catch { /* la cámara ya estaba cerrada */ }
     this.controles = undefined;
     this.lector = undefined;
     this.enfocar();
   }
+
+  /**
+   * `setPhotoOptions failed` — bug real de cámara en Android (varios fabricantes), reportado
+   * por el monitor de errores en vivo (código `MU1EABF2-1`, `/tienda/verificador`,
+   * 2026-09-14T15:25:42Z). zxing pregunta `track.getCapabilities()` para saber si la cámara
+   * tiene torch; en esos equipos el navegador falla esa negociación DESPUÉS de que
+   * `decodeFromConstraints` ya resolvió — llega como promesa/evento sin capturar, y el
+   * try/catch de `abrirCamara()` (que sólo cubre la apertura) no la ve.
+   *
+   * Sin este listener: la cámara queda abierta y congelada, sin ningún aviso — la persona
+   * sigue apuntando a un código que ya no se está leyendo. Con él: se cierra y se declara,
+   * como cualquier otra falla de cámara de esta pantalla (ADR-056).
+   *
+   * Sólo escucha mientras la cámara está abierta (se engancha en `abrirCamara`, se
+   * desengancha en `cerrarCamara`) — un listener global permanente en `window` se comería
+   * errores de OTRAS partes de la app que no tienen nada que ver con esto.
+   */
+  private readonly onCameraGlobalError = (ev: PromiseRejectionEvent | ErrorEvent): void => {
+    const msg = String(
+      (ev as PromiseRejectionEvent).reason?.message ?? (ev as ErrorEvent).message ?? '',
+    );
+    if (!/setPhotoOptions|getCapabilities|ImageCapture/i.test(msg)) return;
+    ev.preventDefault?.();
+    this.cerrarCamara();
+    this.banner.set({
+      texto: 'La cámara se interrumpió.',
+      detalle: 'Es una falla conocida de algunos celulares Android al abrir la cámara. Usa la pistola o teclea el código.',
+      tono: 'warn',
+    });
+  };
 
   ngOnDestroy(): void {
     this.cerrarCamara();
