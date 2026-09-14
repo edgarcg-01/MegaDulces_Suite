@@ -9,10 +9,12 @@ import {
   BiInventoryValuation,
   BiMovementCounts,
   BiMovementDetail,
+  BiMovementPage,
   BiMovementRow,
   BiPage,
   BiProductOpt,
   BiSummaryResponse,
+  BiUnitProvenance,
   BiWarehouseOpt,
   BiZoneGroup,
 } from './commercial-bi-almacen.types';
@@ -74,6 +76,8 @@ import {
 export class CommercialBiAlmacenService {
   private readonly logger = new Logger(CommercialBiAlmacenService.name);
   private erpCostViewExists?: boolean;
+  /** [WMS-BI.4.3] `undefined` = todavía no se preguntó. Ver `unitTruthRel()`. */
+  private unitTruthMvExists?: boolean;
 
   constructor(
     private readonly tk: TenantKnexService,
@@ -110,6 +114,33 @@ export class CommercialBiAlmacenService {
     const r = await trx.raw(`SELECT to_regclass('analytics.v_erp_unit_cost') IS NOT NULL AS ok`);
     this.erpCostViewExists = !!r.rows[0]?.ok;
     return this.erpCostViewExists;
+  }
+
+  /**
+   * [WMS-BI.4.3] De dónde se lee la unidad base: la copia materializada si existe, la vista viva
+   * si no.
+   *
+   * ⚠️ **Es la misma definición en los dos casos** — `analytics.mv_unit_truth` es `SELECT *` de
+   * `analytics.v_unit_truth` (ADR-057 intacto: sigue habiendo un solo resolvedor). Lo único que
+   * cambia es la EDAD del dato, y por eso la respuesta la declara (`unit_provenance`) en vez de
+   * dejar al consumidor suponer que es en vivo.
+   *
+   * El fallback existe porque la migración `20260914130000_mv_unit_truth` puede no estar aplicada
+   * todavía en un entorno donde el código sí está desplegado. Sin él, la pestaña entera tiraría
+   * `relation does not exist` — un despliegue parcial no debe apagar la pantalla, debe degradarla
+   * y decirlo.
+   */
+  private async unitTruthRel(trx: any): Promise<'analytics.mv_unit_truth' | 'analytics.v_unit_truth'> {
+    if (this.unitTruthMvExists === undefined) {
+      const r = await trx.raw(`SELECT to_regclass('analytics.mv_unit_truth') IS NOT NULL AS ok`);
+      this.unitTruthMvExists = !!r.rows[0]?.ok;
+      if (!this.unitTruthMvExists) {
+        this.logger.warn(
+          'analytics.mv_unit_truth no existe: se lee la vista viva (correcta pero ~8× más lenta). '
+          + 'Falta aplicar la migración 20260914130000_mv_unit_truth.');
+      }
+    }
+    return this.unitTruthMvExists ? 'analytics.mv_unit_truth' : 'analytics.v_unit_truth';
   }
 
   /**
@@ -457,7 +488,7 @@ export class CommercialBiAlmacenService {
     return 'Venta al detalle';
   }
 
-  async movements(query: Record<string, unknown>): Promise<BiPage<BiMovementRow>> {
+  async movements(query: Record<string, unknown>): Promise<BiMovementPage> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(query['page']) || 1);
     const pageSize = Math.min(200, Math.max(1, Number(query['pageSize']) || 50));
@@ -472,6 +503,7 @@ export class CommercialBiAlmacenService {
 
     return this.tk.run(async (trx) => {
       const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      const unitRel = await this.unitTruthRel(trx);
       const base = () => trx('analytics.stock_movements as m')
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')
@@ -506,7 +538,7 @@ export class CommercialBiAlmacenService {
         .leftJoin('kepler_ods.kdig as lp', function (this: any) {
           this.on(trx.raw('btrim(lp.c1)'), '=', trx.raw('btrim(ii.c3::text)')).andOn('lp.sucursal', 'ii.sucursal');
         })
-        .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+        .leftJoin(`${unitRel} as ut`, function (this: any) {
           this.on('ut.tenant_id', 'm.tenant_id').andOn('ut.warehouse_id', 'm.warehouse_id').andOn('ut.product_id', 'm.product_id');
         })
         .select(
@@ -530,7 +562,22 @@ export class CommercialBiAlmacenService {
         .limit(pageSize).offset((page - 1) * pageSize);
 
       const rows = await this.enrichFromKdm(trx, tenantId, rowsRaw);
-      return { page, pageSize, total: Number(count), rows };
+
+      // [WMS-BI.4.3] La edad del resolvedor de unidad va EN LA RESPUESTA, no en un comentario:
+      // una copia que nadie fecha se lee igual que un dato en vivo (ADR-056). Se pregunta una vez
+      // por página, no por fila — son 50 timestamps idénticos.
+      const unit_provenance: BiUnitProvenance = unitRel === 'analytics.mv_unit_truth'
+        ? {
+            source: 'mv',
+            // `LIMIT 1` y no `max()`: `now()` es el timestamp de la transacción del REFRESH, así
+            // que las 179,824 filas traen el MISMO valor — agregarlas sería escanear la MV entera
+            // para obtener un dato que está en cualquier fila.
+            refreshed_at: (await trx.raw(
+              `SELECT refreshed_at::text AS t FROM analytics.mv_unit_truth LIMIT 1`)).rows[0]?.t ?? null,
+          }
+        : { source: 'view', refreshed_at: null };
+
+      return { page, pageSize, total: Number(count), rows, unit_provenance };
     });
   }
 
@@ -814,6 +861,7 @@ export class CommercialBiAlmacenService {
 
     return this.tk.run(async (trx) => {
       const ids = await this.resolveWarehouseIds(trx, tenantId, query);
+      const unitRel = await this.unitTruthRel(trx);
       const base = () => trx('analytics.stock_movements as m')
         .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
         .leftJoin('trade.zones as z', 'z.id', 'w.zone_id')
@@ -835,7 +883,7 @@ export class CommercialBiAlmacenService {
         .leftJoin('kepler_ods.kdig as lp', function (this: any) {
           this.on(trx.raw('btrim(lp.c1)'), '=', trx.raw('btrim(ii.c3::text)')).andOn('lp.sucursal', 'ii.sucursal');
         })
-        .leftJoin('analytics.v_unit_truth as ut', function (this: any) {
+        .leftJoin(`${unitRel} as ut`, function (this: any) {
           this.on('ut.tenant_id', 'm.tenant_id').andOn('ut.warehouse_id', 'm.warehouse_id').andOn('ut.product_id', 'm.product_id');
         })
         .where('m.tenant_id', tenantId)

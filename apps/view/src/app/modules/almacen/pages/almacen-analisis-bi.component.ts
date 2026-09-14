@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, of } from 'rxjs';
+import { catchError, switchMap, tap } from 'rxjs/operators';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -24,7 +26,7 @@ import { makeLazyLoad, LazyTableEvent } from '../../../shared/util/lazy-table.ut
 import { money, moneyShort } from '../../../shared/util/money.util';
 import {
   AlmacenBiService, BiFilters, BiZoneGroup, BiWarehouseOpt, BiProductOpt, BiSummary,
-  BiMovementRow, BiField, BiFilterParams,
+  BiMovementRow, BiField, BiFilterParams, BiUnitProvenance,
 } from '../almacen-bi.service';
 
 /** Rótulo del bloque colapsado Sucursal/Almacén: en este modelo son la MISMA fila. */
@@ -84,15 +86,15 @@ const DEFAULT_EXPLORE_FIELDS = [
       <!-- ── Filtros ─────────────────────────────────────────────────────── -->
       <div class="abi-filters">
         <div class="abi-filter-row">
-          <p-select [options]="periodOpts" [(ngModel)]="periodPreset" optionLabel="label" optionValue="value"
+          <p-select [options]="periodOpts" [ngModel]="periodPreset()" (ngModelChange)="periodPreset.set($event)" optionLabel="label" optionValue="value"
                     placeholder="Periodo" styleClass="abi-fld"></p-select>
-          @if (periodPreset === 'custom') {
-            <p-datepicker [(ngModel)]="customFrom" placeholder="Desde" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" styleClass="abi-fld"></p-datepicker>
-            <p-datepicker [(ngModel)]="customTo" placeholder="Hasta" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" styleClass="abi-fld"></p-datepicker>
+          @if (periodPreset() === 'custom') {
+            <p-datepicker [ngModel]="customFrom()" (ngModelChange)="customFrom.set($event)" placeholder="Desde" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" styleClass="abi-fld"></p-datepicker>
+            <p-datepicker [ngModel]="customTo()" (ngModelChange)="customTo.set($event)" placeholder="Hasta" dateFormat="yy-mm-dd" [showIcon]="true" appendTo="body" styleClass="abi-fld"></p-datepicker>
           }
-          <p-multiselect [options]="zoneOpts()" [(ngModel)]="selectedZoneIds" optionLabel="label" optionValue="value"
+          <p-multiselect [options]="zoneOpts()" [ngModel]="selectedZoneIds()" (ngModelChange)="selectedZoneIds.set($event)" optionLabel="label" optionValue="value"
                           placeholder="Zona" [showToggleAll]="false" styleClass="abi-fld" display="chip"></p-multiselect>
-          <p-multiselect [options]="warehouseOptsFiltered()" [(ngModel)]="selectedWarehouseIds" optionLabel="label" optionValue="value"
+          <p-multiselect [options]="warehouseOptsFiltered()" [ngModel]="selectedWarehouseIds()" (ngModelChange)="selectedWarehouseIds.set($event)" optionLabel="label" optionValue="value"
                           placeholder="Almacén" [showToggleAll]="false" styleClass="abi-fld" display="chip"></p-multiselect>
           <p-autocomplete [(ngModel)]="selectedProduct" [suggestions]="productSuggestions()" (completeMethod)="onProductSearch($event)"
                            (onSelect)="onProductSelect($event)" (onClear)="selectedProductId.set(null)"
@@ -106,7 +108,7 @@ const DEFAULT_EXPLORE_FIELDS = [
             </ng-template>
             <ng-template #empty><div class="abi-ac-empty">Sin coincidencias</div></ng-template>
           </p-autocomplete>
-          <p-select [options]="movKindOpts" [(ngModel)]="movementKind" optionLabel="label" optionValue="value"
+          <p-select [options]="movKindOpts" [ngModel]="movementKind()" (ngModelChange)="movementKind.set($event)" optionLabel="label" optionValue="value"
                     placeholder="Tipo de movimiento" styleClass="abi-fld"></p-select>
         </div>
         <div class="abi-filter-actions">
@@ -233,7 +235,7 @@ const DEFAULT_EXPLORE_FIELDS = [
         <!-- ═══════════════════════ MOVIMIENTOS ═══════════════════════ -->
         <p-tabpanel value="movimientos">
           <div class="abi-mov-toolbar">
-            <p-multiselect [options]="movColumnOpts" [(ngModel)]="visibleMovCols" optionLabel="label" optionValue="key"
+            <p-multiselect [options]="movColumnOpts" [ngModel]="visibleMovCols()" (ngModelChange)="visibleMovCols.set($event)" optionLabel="label" optionValue="key"
                             [optionDisabled]="'disabled'" placeholder="Columnas" styleClass="abi-fld" display="chip"></p-multiselect>
           </div>
           <p-table [value]="movRows()" [loading]="movLoading()" [lazy]="true" (onLazyLoad)="onMovLazyLoad($any($event))"
@@ -274,7 +276,9 @@ const DEFAULT_EXPLORE_FIELDS = [
               </tr>
             </ng-template>
             <ng-template #body let-r>
-              <tr class="abi-mov-row" (click)="openDocument(r)" (keydown.enter)="openDocument(r)" tabindex="0">
+              <!-- [WMS-BI.4.7] El (click) vive en el FOLIO, no en el <tr>: con toda la fila
+                   clicable, seleccionar el texto de una celda para copiarlo abría una pestaña. -->
+              <tr class="abi-mov-row">
                 @if (colOn('doc_date')) { <td>{{ r.doc_date }}</td> }
                 @if (colOn('hora')) { <td class="abi-mono">{{ r.hora || 'No disponible' }}</td> }
                 @if (colOn('zone_name')) { <td>{{ r.zone_name || '—' }}</td> }
@@ -285,7 +289,12 @@ const DEFAULT_EXPLORE_FIELDS = [
                 @if (colOn('tipo_operacion')) { <td>{{ r.tipo_operacion }}</td> }
                 @if (colOn('movement_label')) { <td>{{ r.movement_label }}</td> }
                 @if (colOn('doc_code')) { <td class="abi-mono">{{ r.doc_code }}</td> }
-                @if (colOn('folio')) { <td class="abi-mono abi-link">{{ r.folio }}</td> }
+                @if (colOn('folio')) {
+                  <td class="abi-mono">
+                    <button type="button" class="abi-folio-btn" (click)="openDocument(r)"
+                            [attr.aria-label]="'Abrir documento ' + r.folio">{{ r.folio }}</button>
+                  </td>
+                }
                 @if (colOn('vendedor')) { <td [title]="'Sólo aplica en documentos de venta'">{{ r.vendedor || 'No disponible' }}</td> }
                 @if (colOn('sku')) { <td class="abi-mono">{{ r.sku || '—' }}</td> }
                 @if (colOn('product_name')) { <td>{{ r.product_name }}</td> }
@@ -308,7 +317,7 @@ const DEFAULT_EXPLORE_FIELDS = [
               </tr>
             </ng-template>
             <ng-template #emptymessage>
-              <tr><td [attr.colspan]="visibleMovCols.length" class="comm-empty-cell">
+              <tr><td [attr.colspan]="visibleMovCols().length" class="comm-empty-cell">
                 <div class="comm-empty">
                   <div class="comm-empty-icon"><i class="pi pi-inbox" aria-hidden="true"></i></div>
                   <h3>Sin movimientos</h3>
@@ -317,6 +326,9 @@ const DEFAULT_EXPLORE_FIELDS = [
               </td></tr>
             </ng-template>
           </p-table>
+          @if (unitProvenanceNota(); as nota) {
+            <p class="abi-unavailable-note"><i class="pi pi-clock" aria-hidden="true"></i> {{ nota }}</p>
+          }
           <p class="abi-unavailable-note">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
             "Almacén" muestra siempre <strong>Disponible</strong>: los ajustes de inventario en Kepler todavía no capturan un motivo
@@ -417,6 +429,13 @@ const DEFAULT_EXPLORE_FIELDS = [
     .abi-fg h4 { margin: 0 0 .35rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .03em; color: var(--text-color-secondary); }
     .abi-fg-item { display: flex; align-items: center; gap: .4rem; padding: .2rem 0; font-size: .82rem; cursor: pointer; }
     .abi-fg-disabled { opacity: .5; cursor: not-allowed; }
+    /* [WMS-BI.4.7] El folio es lo clicable, no la fila entera. Botón real (no un <td> con click):
+       llega por teclado y anuncia su destino sin que haya que poner tabindex a mano. */
+    .abi-folio-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--action, #C2410C);
+      cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+    .abi-folio-btn:hover { text-decoration-thickness: 2px; }
+    .abi-folio-btn:focus-visible { outline: 2px solid var(--action, #C2410C); outline-offset: 2px; border-radius: 3px; }
+
     .abi-explore-actions { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
     .abi-explore-count { font-size: .78rem; color: var(--text-color-secondary); }
   `],
@@ -440,14 +459,22 @@ export class AlmacenAnalisisBiComponent {
   ];
 
   // ── filtros ──
-  periodPreset = 'd30';
-  customFrom: Date | null = null;
-  customTo: Date | null = null;
-  selectedZoneIds: string[] = [];
-  selectedWarehouseIds: string[] = [];
+  // [WMS-BI.4.7] SEÑALES, no campos planos. La app corre zoneless (`provideZonelessChangeDetection()`
+  // en app.config.ts, `zone.js` fuera de polyfills), y acá había dos `computed()` leyendo campos
+  // planos: `warehouseOptsFiltered` (leía `selectedZoneIds`) y `selectedFields` (leía
+  // `selectedFieldsList`). Un `computed` sólo se invalida por SEÑALES ⇒ los dos servían caché:
+  // elegir una Zona no volvía a filtrar el desplegable de Almacén, y tildar un campo en "Explorar
+  // datos" no cambiaba la tabla. El primero engañaba más porque SÍ se refrescaba — por la señal
+  // `filters()` de al lado, no por la que el usuario tocaba. Candado en
+  // `almacen-analisis-bi.reactividad.spec.ts`.
+  readonly periodPreset = signal('d30');
+  readonly customFrom = signal<Date | null>(null);
+  readonly customTo = signal<Date | null>(null);
+  readonly selectedZoneIds = signal<string[]>([]);
+  readonly selectedWarehouseIds = signal<string[]>([]);
   selectedProduct: BiProductOpt | null = null;
   selectedProductId = signal<string | null>(null);
-  movementKind: 'entrada' | 'salida' | '' = '';
+  readonly movementKind = signal<'entrada' | 'salida' | ''>('');
   productSuggestions = signal<BiProductOpt[]>([]);
 
   readonly filters = signal<BiFilters | null>(null);
@@ -459,7 +486,7 @@ export class AlmacenAnalisisBiComponent {
   private readonly allWarehouseOpts = computed<WhOpt[]>(() =>
     (this.filters()?.zones || []).flatMap((z: BiZoneGroup) => z.warehouses.map((w) => ({ ...w, zone_label: z.zone_name }))));
   readonly warehouseOptsFiltered = computed(() => {
-    const zids = this.selectedZoneIds;
+    const zids = this.selectedZoneIds();
     const opts = zids.length ? this.allWarehouseOpts().filter((w) => zids.includes(w.zone_id || '(sin-zona)')) : this.allWarehouseOpts();
     return opts.map((w) => ({ label: `${w.code} · ${w.name}`, value: w.id }));
   });
@@ -532,7 +559,26 @@ export class AlmacenAnalisisBiComponent {
   private movSortField = 'doc_date';
   private movSortDir: 'asc' | 'desc' = 'desc';
   readonly movLoading = signal(false);
-  visibleMovCols = [...DEFAULT_MOV_COLS];
+  readonly visibleMovCols = signal<string[]>([...DEFAULT_MOV_COLS]);
+  /**
+   * [WMS-BI.4.7] `colOn()` se evalúa una vez por columna y por fila: con 200 filas × 30 columnas
+   * son 6,000 `Array.includes()` sobre una lista de 25 en CADA render. Un `Set` en un `computed`
+   * lo deja en 6,000 lookups O(1) que además sólo se reconstruye cuando cambia la selección.
+   */
+  private readonly visibleMovColSet = computed(() => new Set(this.visibleMovCols()));
+  /**
+   * [WMS-BI.4.3] Edad del resolvedor de unidad. `null` = todavía no llegó una respuesta.
+   * La pantalla lo IMPRIME: una copia materializada que nadie fecha se lee igual que un dato
+   * en vivo (ADR-056).
+   */
+  readonly unitProvenance = signal<BiUnitProvenance | null>(null);
+  readonly unitProvenanceNota = computed(() => {
+    const p = this.unitProvenance();
+    if (!p) return '';
+    if (p.source === 'view') return 'Unidad base: resolvedor en vivo (la copia materializada no existe en este entorno).';
+    if (!p.refreshed_at) return 'Unidad base: copia materializada, sin fecha de actualización — no se pudo medir.';
+    return `Unidad base: copia materializada del ${new Date(p.refreshed_at).toLocaleString('es-MX')}.`;
+  });
   readonly movColumnOpts = [
     { key: 'doc_date', label: 'Fecha' }, { key: 'hora', label: 'Hora' }, { key: 'zone_name', label: 'Zona' },
     { key: 'warehouse_code', label: 'Sucursal' }, { key: 'almacen', label: 'Almacén' },
@@ -549,7 +595,7 @@ export class AlmacenAnalisisBiComponent {
     { key: 'iva_valor', label: 'IVA valor' }, { key: 'ieps_valor', label: 'IEPS valor' }, { key: 'venta_neta', label: 'Venta neta' },
     { key: 'cost_base_hoy', label: 'Costo catálogo (hoy)' }, { key: 'source_system', label: 'Sistema' },
   ];
-  colOn(k: string): boolean { return this.visibleMovCols.includes(k); }
+  colOn(k: string): boolean { return this.visibleMovColSet().has(k); }
   /** `makeLazyLoad` sólo traduce página/tamaño — el orden servidor lo captura acá (PrimeNG
    * manda `sortOrder` 1/-1, el backend espera 'asc'/'desc'). */
   private readonly movLazyBase = makeLazyLoad(this.movPage, this.movPageSize, () => this.loadMovements());
@@ -561,8 +607,10 @@ export class AlmacenAnalisisBiComponent {
 
   // ── Explorar ──
   readonly fields = signal<BiField[]>([]);
-  selectedFieldsList = [...DEFAULT_EXPLORE_FIELDS];
-  readonly selectedFields = computed(() => this.selectedFieldsList);
+  // [WMS-BI.4.7] Era `selectedFieldsList` plano + `computed(() => this.selectedFieldsList)`, que
+  // no tenía NINGUNA dependencia de señal ⇒ se evaluaba una vez y quedaba congelado: las casillas
+  // se tildaban pero la tabla nunca cambiaba de columnas.
+  readonly selectedFields = signal<string[]>([...DEFAULT_EXPLORE_FIELDS]);
   readonly exploreRows = signal<Record<string, unknown>[]>([]);
   readonly exploreTotal = signal(0);
   readonly explorePage = signal(1);
@@ -574,9 +622,9 @@ export class AlmacenAnalisisBiComponent {
     for (const f of this.fields()) { if (!byGroup.has(f.group)) byGroup.set(f.group, []); byGroup.get(f.group)!.push(f); }
     return [...byGroup.entries()].map(([name, fields]) => ({ name, fields }));
   });
-  isFieldSelected(k: string): boolean { return this.selectedFieldsList.includes(k); }
+  isFieldSelected(k: string): boolean { return this.selectedFields().includes(k); }
   toggleField(k: string): void {
-    this.selectedFieldsList = this.isFieldSelected(k) ? this.selectedFieldsList.filter((x) => x !== k) : [...this.selectedFieldsList, k];
+    this.selectedFields.update((sel) => sel.includes(k) ? sel.filter((x) => x !== k) : [...sel, k]);
   }
   fieldLabel(k: string): string { return this.fields().find((f) => f.key === k)?.label || k; }
   formatExploreCell(v: unknown): string {
@@ -586,6 +634,17 @@ export class AlmacenAnalisisBiComponent {
   }
 
   constructor() {
+    // Una sola suscripción para toda la vida del componente; cada pedido entra por `movRequest$`
+    // y `switchMap` se encarga de que sólo la última pedida pinte.
+    this.movStream.subscribe((r) => {
+      this.movLoading.set(false);
+      if (!r) return;
+      this.movRows.set(r.rows);
+      this.movTotal.set(r.total);
+      this.unitProvenance.set(r.unit_provenance ?? null);
+      this.lastQueried.set(new Date());
+    });
+
     const tabParam = this.route.snapshot.queryParamMap.get('tab');
     if (tabParam === 'movimientos' || tabParam === 'explorar') this.activeTab.set(tabParam);
     this.loadFilters();
@@ -594,10 +653,11 @@ export class AlmacenAnalisisBiComponent {
   }
 
   private currentRange(): { from: string; to: string } {
-    if (this.periodPreset === 'custom' && this.customFrom && this.customTo) {
-      return { from: ISO(this.customFrom), to: ISO(this.customTo) };
+    const desde = this.customFrom(), hasta = this.customTo();
+    if (this.periodPreset() === 'custom' && desde && hasta) {
+      return { from: ISO(desde), to: ISO(hasta) };
     }
-    const r = datePresetRange(this.periodPreset) || datePresetRange('d30')!;
+    const r = datePresetRange(this.periodPreset()) || datePresetRange('d30')!;
     return { from: ISO(r.from), to: ISO(r.to) };
   }
   /**
@@ -607,9 +667,10 @@ export class AlmacenAnalisisBiComponent {
    * el alcance completo del usuario.
    */
   private currentWarehouseIds(): string[] | undefined {
-    if (this.selectedWarehouseIds.length) return this.selectedWarehouseIds;
-    if (this.selectedZoneIds.length) {
-      const ids = this.allWarehouseOpts().filter((w) => this.selectedZoneIds.includes(w.zone_id || '(sin-zona)')).map((w) => w.id);
+    const whs = this.selectedWarehouseIds(), zonas = this.selectedZoneIds();
+    if (whs.length) return whs;
+    if (zonas.length) {
+      const ids = this.allWarehouseOpts().filter((w) => zonas.includes(w.zone_id || '(sin-zona)')).map((w) => w.id);
       return ids.length ? ids : undefined;
     }
     return undefined;
@@ -617,7 +678,7 @@ export class AlmacenAnalisisBiComponent {
   private currentFilterParams(): BiFilterParams {
     const { from, to } = this.currentRange();
     return {
-      from, to, movement_kind: this.movementKind || undefined, product_id: this.selectedProductId() || undefined,
+      from, to, movement_kind: this.movementKind() || undefined, product_id: this.selectedProductId() || undefined,
       warehouse_ids: this.currentWarehouseIds(),
     };
   }
@@ -636,10 +697,10 @@ export class AlmacenAnalisisBiComponent {
     this.ensureLoaded(this.activeTab());
   }
   clearFilters(): void {
-    this.periodPreset = 'd30'; this.customFrom = null; this.customTo = null;
-    this.selectedZoneIds = []; this.selectedWarehouseIds = [];
+    this.periodPreset.set('d30'); this.customFrom.set(null); this.customTo.set(null);
+    this.selectedZoneIds.set([]); this.selectedWarehouseIds.set([]);
     this.selectedProduct = null; this.selectedProductId.set(null);
-    this.movementKind = '';
+    this.movementKind.set('');
     this.applyFilters();
   }
   refresh(): void { this.dirty = { resumen: true, movimientos: true, explorar: true }; this.loadFilters(); this.ensureLoaded(this.activeTab()); }
@@ -666,18 +727,36 @@ export class AlmacenAnalisisBiComponent {
     });
   }
 
-  loadMovements(): void {
-    this.movLoading.set(true);
-    this.bi.movements(this.currentFilterParams(), this.movPage(), this.movPageSize(), this.movSortField, this.movSortDir)
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (r) => { this.movRows.set(r.rows); this.movTotal.set(r.total); this.movLoading.set(false); this.lastQueried.set(new Date()); },
-        error: () => { this.movLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los movimientos' }); },
-      });
-  }
+  /**
+   * [WMS-BI.4.7] Paginar dispara una consulta NUEVA sin esperar a la anterior.
+   *
+   * Antes cada llamada abría su propio `subscribe()`: con la latencia medida de esta pestaña
+   * (**19.4 s en frío, 3–5 s en caliente** contra prod, antes de la MV de 4.3), tocar el paginador
+   * tres veces dejaba tres requests en vuelo y **pintaba la que contestara última** — que no es
+   * necesariamente la última pedida. El usuario terminaba viendo la página 2 con el paginador
+   * marcando la 4, sin ningún error de por medio.
+   *
+   * `switchMap` cancela la anterior al llegar la siguiente: **la última pedida es la única que
+   * pinta**. Es el punto donde RxJS resuelve un bug, no un estilo — el resto de este componente
+   * vive bien con señales.
+   */
+  private readonly movRequest$ = new Subject<void>();
+  private readonly movStream = this.movRequest$.pipe(
+    tap(() => this.movLoading.set(true)),
+    switchMap(() => this.bi
+      .movements(this.currentFilterParams(), this.movPage(), this.movPageSize(), this.movSortField, this.movSortDir)
+      .pipe(catchError(() => {
+        this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los movimientos' });
+        return of(null);
+      }))),
+    takeUntilDestroyed(this.destroyRef),
+  );
+
+  loadMovements(): void { this.movRequest$.next(); }
 
   loadExplore(): void {
     this.exploreLoading.set(true);
-    this.bi.explore(this.currentFilterParams(), this.selectedFieldsList, this.explorePage(), this.explorePageSize())
+    this.bi.explore(this.currentFilterParams(), this.selectedFields(), this.explorePage(), this.explorePageSize())
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => { this.exploreRows.set(r.rows); this.exploreTotal.set(r.total); this.exploreLoading.set(false); this.lastQueried.set(new Date()); },
         error: () => { this.exploreLoading.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo consultar' }); },
@@ -701,14 +780,63 @@ export class AlmacenAnalisisBiComponent {
    */
   openMovementsFor(r: { warehouse_code: string; sku: string | null }): void {
     const w = this.allWarehouseOpts().find((x) => x.code === r.warehouse_code);
-    if (w) { this.selectedWarehouseIds = [w.id]; this.dirty.movimientos = true; }
+    if (w) { this.selectedWarehouseIds.set([w.id]); this.dirty.movimientos = true; }
     this.activeTab.set('movimientos');
     this.router.navigate([], { relativeTo: this.route, queryParams: { tab: 'movimientos' }, queryParamsHandling: 'merge', replaceUrl: true });
     this.ensureLoaded('movimientos');
   }
 
+  /**
+   * [WMS-BI.4.7] Antes esto era un `toast` que DESCRIBÍA una exportación que no existía: el botón
+   * estaba habilitado, el usuario lo tocaba, leía "la exportación toma la vista filtrada actual" y
+   * no bajaba ningún archivo. Un botón que explica lo que no hace es peor que no tenerlo.
+   *
+   * Ahora baja de verdad lo que está EN PANTALLA — la página cargada, con las columnas visibles y
+   * en el orden en que se ven — y el mensaje dice exactamente cuántas filas tomó, para que nadie
+   * confunda 50 filas con las 136,242 del filtro.
+   *
+   * ⚠️ La exportación COMPLETA del filtro (todas las páginas) es server-side y sigue pendiente
+   * (WMS-BI.4.4): traerla al navegador serían cientos de miles de filas por una consulta que hoy
+   * tarda segundos por página.
+   */
   exportCurrent(): void {
-    this.toast.add({ severity: 'info', summary: 'Exportar', detail: 'La exportación toma la vista filtrada actual (hasta la página cargada). Usá el paginador para traer más filas antes de exportar.' });
+    const esExplorar = this.activeTab() === 'explorar';
+    const cols = esExplorar ? this.selectedFields() : this.visibleMovCols();
+    const filas: Array<Record<string, unknown>> = esExplorar
+      ? this.exploreRows()
+      : (this.movRows() as unknown as Array<Record<string, unknown>>);
+
+    if (!filas.length || !cols.length) {
+      this.toast.add({ severity: 'warn', summary: 'Exportar', detail: 'No hay filas cargadas para exportar.' });
+      return;
+    }
+
+    const etiqueta = (k: string) => esExplorar
+      ? this.fieldLabel(k)
+      : (this.movColumnOpts.find((c) => c.key === k)?.label ?? k);
+    // Excel en es-MX abre CSV con `;`; el BOM evita que se coma los acentos.
+    const celda = (v: unknown): string => {
+      if (v == null) return '';
+      const s = String(v);
+      return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const csv = [
+      cols.map((k) => celda(etiqueta(k))).join(';'),
+      ...filas.map((r) => cols.map((k) => celda(r[k])).join(';')),
+    ].join('\r\n');
+
+    const { from, to } = this.currentRange();
+    const nombre = `bi-almacen-${esExplorar ? 'explorar' : 'movimientos'}-${from}_${to}.csv`;
+    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url; a.download = nombre; a.click();
+    URL.revokeObjectURL(url);
+
+    const total = esExplorar ? this.exploreTotal() : this.movTotal();
+    this.toast.add({
+      severity: 'success', summary: 'Exportado',
+      detail: `${filas.length.toLocaleString('es-MX')} filas (la página cargada) de ${total.toLocaleString('es-MX')} que tiene el filtro.`,
+    });
   }
 
   canSeeCustomers(): boolean {

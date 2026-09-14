@@ -121,6 +121,17 @@ export class AnalyticsRefreshService {
       // ⚠️ Su umbral está registrado en `CRON_JOBS` (`analytics_refresh_sold_rung`): sin eso el
       // sensor cae en `cfg ? classify : 'ok'` y una MV parada se vería VERDE (lección OBS.1).
       ['analytics.mv_kepler_sold_rung', 'analytics_refresh_sold_rung', 'Refresh MV peldaño cobrado (nightly)', []],
+      // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (`analytics.v_unit_truth`, ADR-057).
+      // `deps` vacío a propósito: NO deriva de otra MV, sale de la vista canónica, que a su vez
+      // sale del ODS. Se materializa por COSTO: medido con EXPLAIN contra prod, el join vivo
+      // descartaba 8,981,845 filas para devolver 50 en /almacen/analisis-bi (1,420 ms → 170 ms
+      // sobre la ventana de 30 d). La MV es `SELECT *` de la vista: una copia, no una segunda
+      // definición.
+      // ⚠️ Su umbral está registrado en `CRON_JOBS` (`analytics_refresh_unit_truth`): sin eso el
+      // sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (lección OBS.1). Y acá
+      // no es cosmético: cuando envejece, un producto cuya unidad base cambió sigue publicándose
+      // con la anterior, y la unidad es justo lo que ADR-057 existe para no adivinar.
+      ['analytics.mv_unit_truth', 'analytics_refresh_unit_truth', 'Refresh MV verdad de unidad (nightly)', []],
     ] as const) {
       const start = Date.now();
       let ok = false;
