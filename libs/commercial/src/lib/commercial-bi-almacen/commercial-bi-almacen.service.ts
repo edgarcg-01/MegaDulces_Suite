@@ -422,6 +422,41 @@ export class CommercialBiAlmacenService {
    */
   private static readonly SALE_DOC_CODES = new Set(['Sale1', 'Sale2', 'Remiss1', 'RtrnEn1', 'Rtrn1']);
 
+  /**
+   * WMS-BI.3 (2026-09-15) — "Tipo de operación", a pedido del usuario. El pedido original era
+   * 2 valores (comercial/traspasos internos); medido contra `import-stock-movements.js` hay un
+   * TERCER grupo real que no es ninguno de los dos: `InvIn1`/`InvOut1`/`PhysInv1`/`PhysInvIn` son
+   * correcciones de CONTEO (ajuste de inventario), no una venta/compra ni un traspaso entre
+   * almacenes — forzarlos a "comercial" o "traspaso" sería inventar un hecho que el documento no
+   * tiene (ADR-056). Se declara un tercer valor en vez de mentir en dos.
+   */
+  private static readonly TRANSFER_DOC_CODES = ['InvTrsf1', 'TrsfRcv', 'TrsfInBr', 'TrsfInWh', 'TrsfShip', 'TrsfOutBr'];
+  private static readonly ADJUSTMENT_DOC_CODES = ['InvIn1', 'InvOut1', 'PhysInv1', 'PhysInvIn'];
+
+  private static tipoOperacion(docCode: string): 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario' {
+    if (CommercialBiAlmacenService.TRANSFER_DOC_CODES.includes(docCode)) return 'Traspasos internos';
+    if (CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES.includes(docCode)) return 'Ajuste de inventario';
+    return 'Comercial';
+  }
+
+  /**
+   * WMS-BI.3 (2026-09-15) — "Canal", a pedido del usuario, confirmado el mapeo tras mostrarle los
+   * hallazgos: `kduv.c3` (mismo campo de Vendedor) trae 3 familias de código reconocibles en el
+   * texto — "... PISO"/"PV ..." (mostrador de sucursal) → Punto de Venta; "TLMK.../TLMKT..."
+   * (telemarketing) → Mayoreo; el resto con nombre real (rutas RD/RV, sin prefijo TLMK) → Venta al
+   * detalle. Códigos especiales que no son un canal de venta ("E-COMMERCE", "Otros Ingresos",
+   * "TRASPASOS INTERNOS") se declaran `null`, no se fuerzan a uno de los 3. Sólo aplica a
+   * documentos de venta (mismo alcance que Vendedor — ver nota en `enrichFromKdm`).
+   */
+  private static canalFromVendedor(vendedorName: string | null | undefined): 'Punto de Venta' | 'Mayoreo' | 'Venta al detalle' | null {
+    if (!vendedorName) return null;
+    const v = vendedorName.toUpperCase();
+    if (/OTROS INGRESOS|E-COMMERCE|TRASPASOS/.test(v)) return null;
+    if (/PISO|^PV /.test(v)) return 'Punto de Venta';
+    if (/^TLMK/.test(v)) return 'Mayoreo';
+    return 'Venta al detalle';
+  }
+
   async movements(query: Record<string, unknown>): Promise<BiPage<BiMovementRow>> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(query['page']) || 1);
@@ -501,17 +536,33 @@ export class CommercialBiAlmacenService {
 
   /**
    * Enriquece la PÁGINA visible (≤200 filas) con lo que sólo vive en `kepler_ods.kdm1`/`kdm2` y
-   * el Diario de Movimientos (Fase DM) no capturó: hora real (`kdm1.c9` es TIMESTAMP, el feed lo
-   * trunca a fecha), unidad de la línea (`kdm2.c11`) y el costo REAL de la línea (`kdm2.c62`/`c63`,
-   * ~99.1% de cobertura en U-D-10/U-D-6 según MR.7.2 — no verificado para los demás doctypes de
-   * este módulo). Batch por VALUES (una sola query, no N) — SIN `statement_timeout` a diferencia
-   * de `inventoryValuation`: el join es por llave puntual (sucursal+doctype+folio+sku) sobre ≤200
-   * filas, no un `count(*)` de toda la vista; si falla, cada fila cae a "no disponible" — la
-   * pantalla sigue siendo útil con lo que YA viene de `analytics.stock_movements`.
+   * el Diario de Movimientos (Fase DM) no capturó: hora real (`kdm1.c69`, texto "HH:MM" — ver nota
+   * abajo), vendedor (`kdm1.c12` → `kduv.c3`, sólo para documentos de venta), unidad de la línea
+   * (`kdm2.c11`) y el costo REAL de la línea (`kdm2.c62`/`c63`, ~99.1% de cobertura en U-D-10/U-D-6
+   * según MR.7.2 — no verificado para los demás doctypes de este módulo). Batch por VALUES (una
+   * sola query, no N) — SIN `statement_timeout` a diferencia de `inventoryValuation`: el join es
+   * por llave puntual (sucursal+doctype+folio+sku) sobre ≤200 filas, no un `count(*)` de toda la
+   * vista; si falla, cada fila cae a "no disponible" — la pantalla sigue siendo útil con lo que YA
+   * viene de `analytics.stock_movements`.
    *
-   * ⚠️ **NO EJERCIDO CONTRA DATOS REALES**: `analytics.stock_movements` está vacía en este
-   * entorno (Fase DM). El join reproduce EXACTO el de `import-stock-movements.js` (mismo orden de
-   * columnas c1/c2/c3/c4/c6), pero su correctitud fila-a-fila no se pudo confirmar aquí.
+   * ⚠️ **`c9` NO es la hora — corregido 2026-09-15.** El commit anterior de este módulo asumía
+   * `kdm1.c9` como timestamp con hora real. Medido en vivo contra `kepler_ods.kdm1` (595,433 filas):
+   * `c9` es SIEMPRE medianoche (0 filas con hora ≠ 00:00:00); `c69` (texto "HH:MM") está poblado en
+   * el 99.98% y es la hora real (verificado contra varias filas: `c68`+`c69` = fecha+hora del
+   * documento). Se corrige aquí sin esperar a que alguien lo reporte desde el navegador.
+   *
+   * ⚠️ **Vendedor sólo aplica a documentos de VENTA.** `kdm1.c12` se REUSA por tipo de documento
+   * (patrón típico de Kepler): para género `U` (venta) resuelve casi siempre contra `kduv.c3`
+   * (medido: Sale1 87.6% de match, 01-06); para género `X` (compra) el mismo campo NO resuelve
+   * nunca (0/13,000+ medido) — ahí `c12` es otra cosa (probablemente referencia de proveedor), no
+   * un vendedor. Se declara `null` fuera de `SALE_DOC_CODES` en vez de publicar un valor que
+   * casualmente pudiera coincidir con un código de `kduv` sin significar lo mismo.
+   *
+   * ⚠️ **NO EJERCIDO CONTRA DATOS REALES DE ESTE MÓDULO**: `analytics.stock_movements` está vacía
+   * en este entorno (Fase DM). El join reproduce EXACTO el de `import-stock-movements.js` (mismo
+   * orden de columnas c1/c2/c3/c4/c6), y el decode de `c69`/`c12`→`kduv` SÍ se verificó por
+   * separado contra `kepler_ods` en vivo (ver comentarios arriba), pero la correctitud fila-a-fila
+   * del ENRIQUECIMIENTO completo no se pudo confirmar aquí por falta de datos en esta tabla.
    */
   private async enrichFromKdm(trx: any, tenantId: string, rows: any[]): Promise<BiMovementRow[]> {
     if (!rows.length) return [];
@@ -521,10 +572,12 @@ export class CommercialBiAlmacenService {
       const folios = [...new Set(rows.map((r) => r.folio))];
       const res = await trx.raw(
         `SELECT h.sucursal, h.c2 genero, h.c3 naturaleza, h.c4::text doc_type, h.c6 folio, l.c8 sku,
-                h.c9 AS hora, l.c11 AS unidad_operacion, l.c58 AS peldano, l.c62 AS costo62, l.c63 AS costo63
+                h.c69 AS hora, nullif(btrim(v.c3), '') AS vendedor_name,
+                l.c11 AS unidad_operacion, l.c58 AS peldano, l.c62 AS costo62, l.c63 AS costo63
            FROM kepler_ods.kdm1 h
            JOIN kepler_ods.kdm2 l ON l.sucursal = h.sucursal AND l.c1 = h.c1 AND l.c2 = h.c2
                                  AND l.c3 = h.c3 AND l.c4 = h.c4 AND l.c6 = h.c6
+           LEFT JOIN kepler_ods.kduv v ON v.sucursal = h.sucursal AND btrim(v.c2) = btrim(h.c12)
           WHERE btrim(h.c1) = btrim(h.sucursal)
             AND h.sucursal = ANY(?) AND h.c6 = ANY(?)`,
         [branches, folios],
@@ -564,10 +617,14 @@ export class CommercialBiAlmacenService {
       }
 
       return {
-        doc_date: r.doc_date, hora: k?.hora ? new Date(k.hora).toISOString().slice(11, 19) : null,
+        doc_date: r.doc_date, hora: k?.hora ? String(k.hora).trim() || null : null,
         zone_name: r.zone_name, warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name,
         almacen: 'Disponible',
-        movement_kind: r.movement_kind, movement_label: r.movement_label, doc_code: r.doc_code, folio: r.folio,
+        movement_kind: r.movement_kind, movement_label: r.movement_label,
+        tipo_operacion: CommercialBiAlmacenService.tipoOperacion(r.doc_code),
+        doc_code: r.doc_code, folio: r.folio,
+        vendedor: isSale ? (k?.vendedor_name ?? null) : null,
+        canal: isSale ? CommercialBiAlmacenService.canalFromVendedor(k?.vendedor_name) : null,
         sku: r.sku, product_name: r.product_name,
         linea_producto: r.linea_producto, tipo_producto: r.tipo_producto, grupo_producto: r.grupo_producto,
         qty: Number(r.qty), signed_qty: Number(r.signed_qty),
@@ -635,18 +692,58 @@ export class CommercialBiAlmacenService {
     WHERE btrim(h.c1)=btrim(h.sucursal) AND h.sucursal=m.source_branch AND h.c2=m.genero AND h.c3=m.naturaleza
       AND h.c4::text=m.doc_type AND h.c6=m.folio AND btrim(l.c8)=btrim(coalesce(p.sku,m.sku)) LIMIT 1)`;
 
+  /** Mismo join que `KDM_SUBQ` + `kduv` para el vendedor (`kdm1.c12`) — ver nota en `enrichFromKdm`
+   * sobre por qué sólo aplica a documentos de venta (`SALE_DOC_CODES`). */
+  private static readonly KDM_SUBQ_VENDEDOR = `(SELECT nullif(btrim(v.c3), '') FROM kepler_ods.kdm1 h
+     JOIN kepler_ods.kdm2 l ON l.sucursal=h.sucursal AND l.c1=h.c1 AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4=h.c4 AND l.c6=h.c6
+     LEFT JOIN kepler_ods.kduv v ON v.sucursal=h.sucursal AND btrim(v.c2)=btrim(h.c12)
+    WHERE btrim(h.c1)=btrim(h.sucursal) AND h.sucursal=m.source_branch AND h.c2=m.genero AND h.c3=m.naturaleza
+      AND h.c4::text=m.doc_type AND h.c6=m.folio AND btrim(l.c8)=btrim(coalesce(p.sku,m.sku)) LIMIT 1)`;
+
+  /** Mismo join + el mapeo de `canalFromVendedor()` calcado en SQL — ver la nota junto a ese método
+   * (confirmado con el usuario 2026-09-15). */
+  private static readonly KDM_SUBQ_CANAL = `(SELECT CASE
+         WHEN nullif(btrim(v.c3), '') IS NULL THEN NULL
+         WHEN v.c3 ~* 'OTROS INGRESOS|E-COMMERCE|TRASPASOS' THEN NULL
+         WHEN v.c3 ~* 'PISO|^PV ' THEN 'Punto de Venta'
+         WHEN v.c3 ~* '^TLMK' THEN 'Mayoreo'
+         ELSE 'Venta al detalle' END
+       FROM kepler_ods.kdm1 h
+       JOIN kepler_ods.kdm2 l ON l.sucursal=h.sucursal AND l.c1=h.c1 AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4=h.c4 AND l.c6=h.c6
+       LEFT JOIN kepler_ods.kduv v ON v.sucursal=h.sucursal AND btrim(v.c2)=btrim(h.c12)
+      WHERE btrim(h.c1)=btrim(h.sucursal) AND h.sucursal=m.source_branch AND h.c2=m.genero AND h.c3=m.naturaleza
+        AND h.c4::text=m.doc_type AND h.c6=m.folio AND btrim(l.c8)=btrim(coalesce(p.sku,m.sku)) LIMIT 1)`;
+
+  private static readonly SALE_DOC_CODES_SQL_LIST = [...CommercialBiAlmacenService.SALE_DOC_CODES].map((c) => `'${c}'`).join(',');
+  private static readonly TRANSFER_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.TRANSFER_DOC_CODES.map((c) => `'${c}'`).join(',');
+  private static readonly ADJUSTMENT_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES.map((c) => `'${c}'`).join(',');
+
   private readonly EXPLORE_FIELDS: Array<{ key: string; label: string; group: string; sql: string; requires?: string }> = [
     { key: 'doc_date', label: 'Fecha', group: 'Fechas y documentos', sql: `m.doc_date::text` },
-    { key: 'hora', label: 'Hora', group: 'Fechas y documentos', sql: `to_char(${CommercialBiAlmacenService.KDM_SUBQ('h.c9')}, 'HH24:MI:SS')` },
+    { key: 'hora', label: 'Hora', group: 'Fechas y documentos', sql: `btrim(${CommercialBiAlmacenService.KDM_SUBQ('h.c69')})` },
     { key: 'folio', label: 'Folio', group: 'Fechas y documentos', sql: `m.folio` },
     { key: 'doc_code', label: 'Documento (código)', group: 'Fechas y documentos', sql: `m.doc_code` },
     { key: 'movement_label', label: 'Documento', group: 'Fechas y documentos', sql: `m.movement_label` },
     { key: 'movement_kind_label', label: 'Tipo (entrada/salida)', group: 'Fechas y documentos', sql: `CASE m.movement_kind WHEN 'entrada' THEN 'Entrada' WHEN 'salida' THEN 'Salida' ELSE 'Informativo' END` },
+    {
+      key: 'tipo_operacion', label: 'Tipo de operación', group: 'Fechas y documentos',
+      sql: `CASE WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.TRANSFER_DOC_CODES_SQL_LIST}]) THEN 'Traspasos internos'
+                 WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES_SQL_LIST}]) THEN 'Ajuste de inventario'
+                 ELSE 'Comercial' END`,
+    },
+    {
+      key: 'vendedor', label: 'Vendedor', group: 'Fechas y documentos',
+      sql: `CASE WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.SALE_DOC_CODES_SQL_LIST}]) THEN ${CommercialBiAlmacenService.KDM_SUBQ_VENDEDOR} ELSE NULL END`,
+    },
     { key: 'source_branch', label: 'Sucursal origen (Kepler)', group: 'Fechas y documentos', sql: `m.source_branch` },
     { key: 'zone_name', label: 'Zona', group: 'Organización y almacenes', sql: `z.name` },
     { key: 'warehouse_code', label: 'Sucursal (código)', group: 'Organización y almacenes', sql: `w.code` },
     { key: 'warehouse_name', label: 'Sucursal (nombre)', group: 'Organización y almacenes', sql: `w.name` },
     { key: 'almacen', label: 'Almacén (disponible/dañado/caduco)', group: 'Organización y almacenes', sql: `'Disponible'` },
+    {
+      key: 'canal', label: 'Canal (Punto de Venta/Mayoreo/Detalle)', group: 'Organización y almacenes',
+      sql: `CASE WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.SALE_DOC_CODES_SQL_LIST}]) THEN ${CommercialBiAlmacenService.KDM_SUBQ_CANAL} ELSE NULL END`,
+    },
     { key: 'sku', label: 'Código de producto', group: 'Productos', sql: `coalesce(p.sku, m.sku)` },
     { key: 'product_name', label: 'Nombre del producto', group: 'Productos', sql: `coalesce(p.nombre, '(sin catálogo)')` },
     { key: 'brand_name', label: 'Marca', group: 'Productos', sql: `b.nombre` },

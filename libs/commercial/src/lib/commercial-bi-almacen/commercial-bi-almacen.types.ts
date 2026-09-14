@@ -111,10 +111,33 @@ export interface BiMovementRow {
    */
   almacen: 'Disponible';
   movement_kind: 'entrada' | 'salida' | 'info';
+  /**
+   * Pedido explícito del usuario (2026-09-15): el documento es comercial (venta/compra/devolución)
+   * o traspaso interno. Medido: hay un TERCER grupo real — `InvIn1`/`InvOut1`/`PhysInv1`/`PhysInvIn`
+   * son correcciones de conteo, ni venta ni traspaso — se declara "Ajuste de inventario" en vez de
+   * forzarlas a uno de los dos valores pedidos.
+   */
+  tipo_operacion: 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario';
   /** Antes "Motivo" — nombre de negocio del documento (Venta/Compra/Traspaso/Devolución/Ajuste…). */
   movement_label: string;
   doc_code: string;
   folio: string;
+  /**
+   * `kdm1.c12` → `kduv.c3`, SÓLO en documentos de venta (verificado: género U ~87.6-100% de match
+   * según sub-tipo; género X —compra— 0% de match, ahí `c12` es otra cosa). `null` fuera de venta:
+   * no se publica un valor que casualmente pudiera resolver contra `kduv` sin significar lo mismo.
+   * A veces el valor es un nombre de persona (vendedor de ruta) y a veces un código de mostrador
+   * genérico como "SUCURSAL PADRE HIDALGO PISO" (venta de piso, sin vendedor individual) — Kepler
+   * no separa esos dos casos en un campo aparte.
+   */
+  vendedor: string | null;
+  /**
+   * Confirmado con el usuario (2026-09-15) sobre el mismo campo de Vendedor: "... PISO"/"PV ..."
+   * (mostrador) → Punto de Venta; "TLMK.../TLMKT..." (telemarketing) → Mayoreo; el resto con
+   * nombre real (rutas) → Venta al detalle. Códigos que no son un canal de venta (E-COMMERCE,
+   * Otros Ingresos, Traspasos internos) se declaran `null`. Mismo alcance que Vendedor (sólo venta).
+   */
+  canal: 'Punto de Venta' | 'Mayoreo' | 'Venta al detalle' | null;
   sku: string | null;
   product_name: string;
   /** kdii.c3 → kdig (verificado 87.6% de match). Nombre real: fabricante/distribuidor. */

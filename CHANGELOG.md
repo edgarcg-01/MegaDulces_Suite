@@ -199,6 +199,18 @@ Reporte de tienda: *"el tamaño de la etiqueta se redujo y los usuarios no logra
 - **La carga masiva se pliega** detrás de "Pegar lista" y el buscador sube a la línea de la pistola. Se usa poco (cambio de precios de temporada) y abierta costaba una tarjeta entera de alto — justo el alto que le faltaba a la hoja. La función queda intacta: mismo textarea, mismo `addBulk()`, mismo aviso de no encontrados (visible también con el panel cerrado).
 - **Medido** (etiqueta en pantalla, antes 147×63 px en cualquier monitor): 1366×768 → **212×90 (×1.44)** · 1920×1080 → **327×139 (×2.22)** · 2560×1440 → **439×188 (×2.99)**. En pantalla chica manda el alto, y la hoja **entera** sigue visible sin scroll — es una vista de hoja: si hay que scrollear para ver la última fila deja de servir para lo que sirve.
 - Build `view` verde; suite de etiquetas verde (6/6). ⚠️ `mi-trabajo.component.spec.ts` falla en `main`, ajeno a este cambio. **Validación visual pendiente** (los dev servers son de Edgar).
+### Fixed — Análisis BI de Almacén: Vendedor, Canal, Tipo de operación + la Hora estaba mal (WMS-BI.4, 2026-09-15)
+
+Pedido del usuario sobre WMS-BI.3: faltaba Vendedor/Cajero, y un Canal (Punto de Venta/Mayoreo/Venta al detalle) para operaciones comerciales.
+
+- ⚠️ **Bug real encontrado al investigar, no reportado desde el navegador**: la Hora (WMS-BI.3) leía `kdm1.c9` asumiéndolo timestamp con hora real. Medido contra 595,433 filas de `kepler_ods.kdm1`: `c9` es **siempre medianoche**; la hora real vive en `kdm1.c69` (texto "HH:MM", 99.98% poblado). Corregido antes de que nadie lo reportara.
+- **Vendedor** (`kdm1.c12` → `kduv.c3`) — 87.6-100% de match en documentos de venta, 0% en compras (ahí el campo es otra cosa) — se declara `null` fuera del alcance de venta.
+- **Canal** — confirmado con el usuario: "...PISO"/"PV ..." (mostrador) → Punto de Venta; "TLMK.../TLMKT..." (telemarketing) → Mayoreo; el resto con nombre real (rutas) → Venta al detalle. Códigos que no son canal de venta se declaran `null`.
+- **Tipo de operación** — el pedido era 2 valores; medido contra el importer hay un tercer grupo real (`InvIn1`/`InvOut1`/`PhysInv1`/`PhysInvIn` = ajustes de conteo, ni venta/compra ni traspaso) — se agrega como tercer valor en vez de forzarlo.
+- ⚠️ **Cajero investigado y NO implementado**: el candidato (`kdpv_folio_caja`, cortes de caja) tiene sesiones que se traslapan en el tiempo para una misma caja — un documento no se puede asignar a un cajero sin adivinar. Declarado abierto, pendiente de aclarar el modelo de sesiones con Edgar/el dueño de Kepler.
+- Verificado insertando una fila sintética con datos 100% reales en `analytics.stock_movements` (vacía en este entorno) y reproduciendo la query completa directo contra Postgres (el dev server no pudo levantarse esta sesión por un `spawn ENAMETOOLONG` de Windows, no relacionado con este cambio). Build `api`/`view` limpios.
+- **Pendiente: validación visual con Playwright cuando el dev server levante.**
+
 ### Changed — Movimientos/Explorar de Análisis BI: columnas re-hechas a pedido de negocio (WMS-BI.3, 2026-09-14)
 
 Revisión del usuario sobre WMS-BI.1: la fecha/zona quedan, pero el resto de las columnas de Movimientos se re-hacen — se agrega Hora; "Almacén" se separa en **Sucursal** (antes mal llamado así — una fila de `commercial.warehouses`) y **Almacén** (sub-tipo dentro de la sucursal: disponible/dañado/caduco); Tipo pasa a ser sólo entrada/salida; se agrega Documento (TICKET/FACTURA/APLICACION ORDEN ENTRADA/DEVOLUCION/TRASPASO ENTRE SUCURSAL); y tras Cantidad se agregan Línea/Tipo/Grupo de producto, Unidad de la operación/base e Importe costo/venta/IVA/IEPS/Venta neta. Mismo set de columnas replicado en Explorar datos.

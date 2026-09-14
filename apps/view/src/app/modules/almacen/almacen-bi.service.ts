@@ -48,7 +48,11 @@ export interface BiMovementRow {
   zone_name: string | null;
   warehouse_code: string; warehouse_name: string;
   almacen: 'Disponible';
-  movement_kind: 'entrada' | 'salida' | 'info'; movement_label: string; doc_code: string; folio: string;
+  movement_kind: 'entrada' | 'salida' | 'info';
+  tipo_operacion: 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario';
+  movement_label: string; doc_code: string; folio: string;
+  vendedor: string | null;
+  canal: 'Punto de Venta' | 'Mayoreo' | 'Venta al detalle' | null;
   sku: string | null; product_name: string;
   linea_producto: string | null; tipo_producto: string | null; grupo_producto: string | null;
   qty: number; signed_qty: number;
