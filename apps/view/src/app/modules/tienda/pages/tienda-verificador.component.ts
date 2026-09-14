@@ -1,11 +1,12 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnDestroy, OnInit, ViewChild, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
-import { TagModule } from 'primeng/tag';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
+import { BarcodeFormat, DecodeHintType } from '@zxing/library';
 import { AuthService } from '../../../core/services/auth.service';
 import { branchName } from '../../../core/constants/store-branches';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -47,54 +48,86 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
  *
  * ── Superficie ──────────────────────────────────────────────────────────────────────────
  * DESIGN Operations §O.3 (Mostrador/POS): foco permanente en la captura, el precio domina
- * la jerarquía, feed al tope sin paginación. Tokens y PrimeIcons, dark de primera clase.
+ * la jerarquía, feed al tope sin paginación.
+ *
+ * ── Excepción confirmada a DESIGN.md §O.3 (decisión 0Sistemas, 2026-09-12) ──────────────
+ * Esta pantalla NO usa los tokens de Operations (Hanken Grotesk/Geist Mono, zinc, sunset).
+ * Es un clon fiel del look del `verificador.html` que corría como kiosco autocontenido antes
+ * de la Fase CV: tipografía Sniglet, paleta cruda (`--vf-*` abajo, con las MISMAS cifras hex
+ * del HTML original), fondo cálido con patrón de dulces, precio gigante en verde. Es la única
+ * pantalla del repo con esta excepción — no repetir el patrón en otro módulo sin la misma
+ * autorización explícita. El tema fijo (siempre claro) es a propósito: un kiosco físico de
+ * mostrador no cambia de tema con el modo oscuro del navegador de quien lo dejó configurado.
+ * Lo que SÍ sigue intacto (no es "look", es correctud): procedencia del precio (TDA.2),
+ * unidad escaneada (TDA.3), mayoreo con foco (TDA.4/7), declarar en vez de ocultar (ADR-056),
+ * "no encontrado" != "sin conexión" (DESIGN pre-vuelo 6) — todo esto se conserva, solo cambia
+ * la piel.
  */
 @Component({
   selector: 'app-tienda-verificador',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, TagModule, ContextHelpComponent, FreshnessPillComponent, CountUpDirective],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, ContextHelpComponent, FreshnessPillComponent, CountUpDirective],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="vp-page" [class.is-kiosco]="kiosco()">
-      <header class="vp-head">
-        <div class="vp-head-txt">
-          <h1>Verificador de precios</h1>
-          <p class="vp-sub">
-            Apunta el producto al lector o teclea la clave y presiona Enter.
-            <strong>{{ sucursalNombre() }}</strong>
-          </p>
-        </div>
-        <div class="vp-head-right">
-          <!-- measures="data": datos_al lo calcula el backend (latido del CDC de esa
-               sucursal), no el reloj del navegador.
-               Y cuando el backend NO lo trae, se DECLARA en vez de callarse: la píldora se
-               oculta sola con un since en null, y una píldora ausente se lee igual que "todo
-               bien" (ADR-056). Medido el 2026-09-08 en el cluster local: analytics.cron_runs
-               no tiene ninguna fila cdc_wal_NN, así que hoy datos_al llega null para las
-               7 sucursales.
-               (Sin acentos graves acá a propósito: rompen el template literal — GOTCHAS.) -->
-          @if (datosAl()) {
-            <app-freshness-pill measures="data" [since]="datosAl()" [staleAfterSec]="3600" />
-          } @else {
-            <span class="vp-fresh-nd" title="El backend no reporta el latido del ERP para esta sucursal (analytics.cron_runs, cdc_wal_NN). No se sabe de cuándo es el precio.">
-              <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura del ERP sin medir
-            </span>
-          }
-          @if (!sucursalFija()) {
-            <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value"
-                      [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
-                      placeholder="Sucursal" styleClass="vp-sel" appendTo="body"
-                      aria-label="Sucursal del verificador"></p-select>
-          }
-          <p-button type="button" [icon]="kiosco() ? 'pi pi-window-minimize' : 'pi pi-window-maximize'"
-                    [label]="kiosco() ? 'Salir de kiosco' : 'Modo kiosco'"
-                    styleClass="p-button-sm p-button-text" (click)="toggleKiosco()"></p-button>
-          <app-context-help topic="verificador" />
-        </div>
-      </header>
+    <div class="vf-page" [class.is-kiosco]="kiosco()">
+      <!-- Patrón de dulces del verificador.html original, calcado 1:1 (mismas formas/coords). -->
+      <svg class="vf-bg" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <pattern id="vfDulces" width="240" height="240" patternUnits="userSpaceOnUse" patternTransform="rotate(8)">
+            <g fill="none" stroke-width="3">
+              <circle cx="46" cy="46" r="22" stroke="#E8680A"/>
+              <path d="M46 46 m-13 0 a13 13 0 1 1 13 13" stroke="#F5C500"/>
+              <line x1="46" y1="68" x2="46" y2="104" stroke="#E8680A"/>
+            </g>
+            <g fill="none" stroke="#ec4899" stroke-width="3" transform="translate(160,64) rotate(18)">
+              <ellipse cx="0" cy="0" rx="20" ry="13"/>
+              <path d="M-20 0 L-38 -11 L-38 11 Z"/>
+              <path d="M20 0 L38 -11 L38 11 Z"/>
+            </g>
+            <path d="M52 150 Q52 118 70 118 Q88 118 88 150 Z" fill="none" stroke="#0ea5e9" stroke-width="3"/>
+            <g fill="none" stroke="#16a34a" stroke-width="3" transform="translate(178,168)">
+              <circle cx="0" cy="0" r="14"/>
+              <path d="M-14 0 L14 0 M0 -14 L0 14"/>
+            </g>
+            <g fill="none" stroke="#F5C500" stroke-width="3" transform="translate(120,205) rotate(-12)">
+              <ellipse cx="0" cy="0" rx="12" ry="8"/>
+              <path d="M-12 0 L-24 -7 L-24 7 Z"/>
+              <path d="M12 0 L24 -7 L24 7 Z"/>
+            </g>
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" fill="url(#vfDulces)"/>
+      </svg>
+      <div class="vf-top"></div>
+
+      <!-- Franja de control: lo que el kiosco de 2026 NO tenía y sí necesita (multi-sucursal,
+           frescura declarada, ayuda) — funcional, no decoración, así que se queda, sólo con la
+           piel nueva. Chica y arriba a la derecha para no competir con el logo/escáner. -->
+      <div class="vf-ctrl">
+        @if (datosAl()) {
+          <app-freshness-pill measures="data" [since]="datosAl()" [staleAfterSec]="3600" />
+        } @else {
+          <span class="vf-fresh-nd" title="El backend no reporta el latido del ERP para esta sucursal (analytics.cron_runs, cdc_wal_NN). No se sabe de cuándo es el precio.">
+            <i class="pi pi-question-circle" aria-hidden="true"></i> Frescura del ERP sin medir
+          </span>
+        }
+        @if (!sucursalFija()) {
+          <p-select [options]="opcionesSucursal()" optionLabel="label" optionValue="value"
+                    [ngModel]="sucursal()" (ngModelChange)="cambiarSucursal($event)"
+                    placeholder="Sucursal" styleClass="vf-sel" appendTo="body"
+                    aria-label="Sucursal del verificador"></p-select>
+        } @else {
+          <span class="vf-suc">{{ sucursalNombre() }}</span>
+        }
+        <button type="button" class="vf-icon-btn" [attr.aria-label]="kiosco() ? 'Salir de kiosco' : 'Modo kiosco'"
+                (click)="toggleKiosco()">
+          <i class="pi" [class.pi-window-minimize]="kiosco()" [class.pi-window-maximize]="!kiosco()"></i>
+        </button>
+        <app-context-help topic="verificador" />
+      </div>
 
       @if (banner(); as b) {
-        <div class="vp-banner" [class]="'is-' + b.tono" role="status">
+        <div class="vf-banner" [class]="'is-' + b.tono" role="status">
           <i class="pi" [class.pi-info-circle]="b.tono === 'info'" [class.pi-check-circle]="b.tono === 'ok'"
              [class.pi-exclamation-triangle]="b.tono === 'warn'" [class.pi-times-circle]="b.tono === 'bad'"></i>
           <div>
@@ -104,49 +137,62 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
         </div>
       }
 
-      <!-- Captura: lo único con foco. El borde/anillo lo lleva la barra por :focus-within,
-           así que el input va sin caja propia (input nativo a propósito: p-inputText mete su
-           propio borde y rompe el look de la barra). -->
-      <div class="vp-scanbar" (click)="enfocar()">
-        <i class="pi pi-barcode" aria-hidden="true"></i>
+      <img class="vf-logo" src="assets/logos/mega-dulces-logo.webp" alt="Mega Dulces"
+           onerror="this.style.display='none'; this.nextElementSibling.style.display='block';">
+      <div class="vf-logo-txt" style="display:none"><span class="vf-m">Mega</span><span class="vf-d">Dulces</span></div>
+
+      <div class="vf-scanbar"><i class="pi pi-camera" aria-hidden="true"></i> Escanea tu Producto</div>
+
+      <!-- Captura: lo único con foco. Input nativo (mismo criterio que antes: un componente de
+           PrimeNG metería su propio borde y rompería el look de la píldora). -->
+      <div class="vf-input-row">
         <input #scan type="text" inputmode="numeric" autocomplete="off" enterkeyhint="search"
-               class="vp-scan-input" aria-label="Escanear o teclear la clave o el código de barras"
-               placeholder="Escanea el producto o teclea la clave y Enter…"
+               class="vf-input" aria-label="Escanear o teclear la clave o el código de barras"
+               placeholder="Escanea o teclea el código…"
                [disabled]="!sucursal()"
                (keyup.enter)="consultar(scan.value); scan.value = ''"
                (blur)="reenfocar()" />
-        @if (buscando()) { <i class="pi pi-spin pi-spinner vp-scan-busy" aria-label="Consultando"></i> }
-        <span class="vp-scan-hint">Clave de 5 dígitos o código de barras</span>
+        @if (buscando()) { <i class="pi pi-spin pi-spinner vf-busy" aria-label="Consultando"></i> }
+        <!-- Cámara del celular como lector: para quien llega sin pistola HID. -->
+        <button type="button" class="vf-cam-btn" aria-label="Escanear con la cámara del celular"
+                [disabled]="!sucursal()" (click)="abrirCamara()">
+          <i class="pi pi-camera" aria-hidden="true"></i>
+        </button>
       </div>
+      <div class="vf-hint">Coloca el código de barras frente al lector</div>
 
-      <!-- Resultado: es el "total" de esta superficie, domina todo lo demás (§O.3). -->
-      <section class="vp-result" aria-live="polite">
+      @if (camaraAbierta()) {
+        <div class="vf-cam-ov" role="dialog" aria-modal="true" aria-label="Escaneo con la cámara">
+          <p class="vf-cam-tip">Encuadra el código de barras</p>
+          <video #video class="vf-cam-vid" playsinline muted></video>
+          <button #camCancelar type="button" class="vf-cam-x" (click)="cerrarCamara()"
+                  (keyup.escape)="cerrarCamara()">Cancelar</button>
+        </div>
+      }
+
+      <!-- Resultado: la tarjeta, tal como en el HTML original (oculta hasta la primera
+           consulta, sin placeholder de "listo para consultar"). -->
+      <section class="vf-result" aria-live="polite">
         @switch (estado()) {
           @case ('encontrado') {
             @if (producto(); as p) {
-              <!--
-                [TDA.6] is-pase-b alterna en cada consulta. NO es decoracion: la tarjeta es el
-                MISMO nodo del DOM entre escaneo y escaneo (el @if no la recrea si el estado
-                sigue en "encontrado"), asi que una animacion de entrada corria UNA sola vez en
-                todo el turno -- justo lo contrario de lo que se pidio. Alternar la clase cambia
-                el animation-name y el navegador reinicia la animacion. Un contador y una clase,
-                sin recrear el nodo ni tocar la estructura.
-              -->
-              <div class="vp-card" [class.is-respaldo]="origen() === 'respaldo'"
+              <!-- [TDA.6] is-pase-b alterna en cada consulta para reiniciar la animación
+                   "pop" sobre el MISMO nodo del DOM (ver comentario histórico más abajo). -->
+              <div class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
                    [class.is-pase-b]="pase() % 2 === 1">
-                <div class="vp-card-top">
-                  <span class="vp-cod">{{ p.codigo }}</span>
+                <div class="vf-card-top">
+                  <span class="vf-cod">{{ p.codigo }}</span>
                   @if (origen() === 'respaldo') {
-                    <p-tag severity="warn" icon="pi pi-exclamation-triangle" value="Precio de respaldo"></p-tag>
+                    <span class="vf-tag is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> Precio de respaldo</span>
                   } @else {
-                    <p-tag severity="success" icon="pi pi-bolt" value="Precio en línea"></p-tag>
+                    <span class="vf-tag is-ok"><i class="pi pi-bolt" aria-hidden="true"></i> Precio en línea</span>
                   }
                 </div>
-                <h2 class="vp-nombre">
+                <div class="vf-nombre">
                   {{ p.nombre || 'Sin nombre en el catálogo' }}
                   <!-- [TDA.4] El gramaje califica al nombre, no es un dato aparte. -->
-                  @if (p.contenido) { <span class="vp-gramaje">{{ p.contenido }}</span> }
-                </h2>
+                  @if (p.contenido) { <span class="vf-gramaje">{{ p.contenido }}</span> }
+                </div>
 
                 <!--
                   [TDA.8] El precio cambio en el ERP mientras estaba en pantalla. Va ARRIBA de la
@@ -155,538 +201,337 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
                   lo anuncie sin robar el foco de la captura (O.3: el foco no se mueve nunca).
                 -->
                 @if (precioCambio()) {
-                  <p class="vp-cambio" role="status">
+                  <p class="vf-cambio" role="status">
                     <i class="pi pi-refresh" aria-hidden="true"></i>
                     <span>
                       Este precio <strong>acaba de cambiar</strong> en el ERP.
                       @if (precioAnterior() != null) {
-                        Antes decía <span class="vp-mono">{{ money(precioAnterior()) }}</span>.
+                        Antes decía <span class="vf-mono">{{ money(precioAnterior()) }}</span>.
                       }
                       Confirma en caja antes de cobrar.
                     </span>
                   </p>
                 }
 
-                <div class="vp-precio-principal">
-                  <span class="vp-precio">{{ money(precioPrincipal()) }}</span>
-                  <span class="vp-precio-u">por {{ unidadPrincipal() }}</span>
-                </div>
-                <!--
-                  [TDA.3] Solo cuando el producto tiene MAS de una unidad con precio. Medido: el
-                  93.6% de los SKUs tiene una sola unidad registrada, asi que un aviso
-                  incondicional saldria en 9 de cada 10 escaneos y se aprenderia a ignorar.
-                -->
-                @if (vaAclararUnidad()) {
-                  <p class="vp-u-aclara">
-                    <i class="pi pi-barcode" aria-hidden="true"></i>
-                    El codigo que escaneaste es de <strong>{{ unidadEscaneada() }}</strong>: este es su precio.
-                  </p>
-                }
-                <!--
-                  [TDA.4] EL MAYOREO. Medido en prod: el 94% de los productos lo tiene, asi que
-                  no es un extra para un rincon -- es el caso normal, y esta es la pantalla donde
-                  se cierra la venta. Va PEGADO al precio grande porque es la continuacion de la
-                  misma pregunta ("cuanto cuesta" -> "y si llevo mas?"), antes que cualquier
-                  nota secundaria.
+                <div class="vf-unidad-lbl">POR {{ unidadLabel(unidadPrincipal()) | uppercase }}</div>
+                <div class="vf-precio"><span class="vf-peso">$</span>{{ moneySinSigno(precioPrincipal()) }}</div>
 
-                  Lo que NO se hace: mostrar un mayoreo sin saber desde cuantas unidades. El
-                  backend ya descarto esos (17 productos en prod) porque un mayoreo cuya
-                  condicion no se conoce fabrica una discusion en el mostrador.
-                -->
+                <!-- [TDA.3] Sólo cuando hay más de una unidad con precio: medido, el 93.6% de
+                     los SKUs tiene una sola, así que un aviso incondicional se aprendería a
+                     ignorar en 9 de cada 10 escaneos. -->
+                @if (vaAclararUnidad()) {
+                  <p class="vf-u-aclara">El código que escaneaste es de <strong>{{ unidadLabel(unidadEscaneada() || '') }}</strong>: este es su precio.</p>
+                }
+
+                <!-- [TDA.4/7] El mayoreo, con foco en la unidad ESCANEADA (backend ya
+                     descartó los tiers sin condición conocida — la pantalla pinta, no decide). -->
                 @if (mayoreo().length) {
-                  <div class="vp-mayoreo">
+                  <div class="vf-mayoreo">
                     @for (x of mayoreoConFoco(); track x.t.etiqueta) {
                       @let t = x.t;
-                      <!--
-                        [TDA.7] is-foco = el escalon de la unidad que se ESCANEO. Es el que va
-                        grande; el otro se atenua. Sin esto los dos salian del mismo tamano y uno
-                        podia estar en pesos por paquete y el otro en pesos por pieza.
-                      -->
-                      <div class="vp-may-row" [class.is-realza]="t.realza"
-                           [class.is-foco]="x.destacado">
-                        <!--
-                          La CONDICION va arriba y grande, no de subtitulo. Es el punto critico
-                          de esta pantalla: si el monto de mayoreo crece y la condicion se
-                          susurra, alguien que lleva UNA pieza lee el precio de 3 y se cobra mal.
-                          El enfasis se gana con tamano y superficie, y la condicion tiene que
-                          crecer con el monto.
-                        -->
-                        <div class="vp-may-cond">
-                          <i class="pi pi-tags" aria-hidden="true"></i>
-                          Llevando <strong class="vp-may-n">{{ t.desde }}</strong>
-                          o más {{ t.palabra }}
-                        </div>
-                        <div class="vp-may-precio">
-                          <span class="vp-may-monto">{{ money(t.precio_con_iva) }}</span>
-                          <!--
-                            [TDA.7] La unidad del monto VIENE con el escalon; estaba cableada a
-                            "c/u" y eso erraba la cifra por 7x. Medido en prod: en 380 productos
-                            de base pieza con paquete registrado, wholesale_pack_price es el
-                            precio de un PAQUETE (mediana 0.93 contra pack_price). Decirle "c/u"
-                            a $65.11 cuando la pieza cuesta $9.37 es otro numero, no otro estilo.
-                          -->
-                          <span class="vp-may-cu">{{ t.unidad_monto }}</span>
+                      <div class="vf-may-row" [class.is-realza]="t.realza" [class.is-foco]="x.destacado">
+                        <div class="vf-may-cond">Llevando <strong class="vf-may-n">{{ t.desde }}</strong> o más {{ t.palabra }}</div>
+                        <div class="vf-may-precio">
+                          <span class="vf-may-monto">{{ money(t.precio_con_iva) }}</span>
+                          <span class="vf-may-cu">{{ t.unidad_monto }}</span>
                         </div>
                       </div>
-                      <!--
-                        El ahorro es lo que cierra la venta: no es lo mismo "$41.10 c/u" que
-                        "te ahorras $34.70". Solo se pinta como GANANCIA cuando el descuento es
-                        perceptible (>=1%): abajo de eso el numero es cierto pero pintarlo de
-                        verde seria mentir con el color. Medido: 366 tiers caen ahi.
-                      -->
-                      <!--
-                        [TDA.7] La pastilla del ahorro va SOLO en el escalon de la unidad leida.
-                        Dos ahorros grandes, uno por pieza y otro por paquete, compiten entre si
-                        y ninguno queda claro; y el del escalon que no aplica invita a una compra
-                        que no es la que se esta cotizando.
-                      -->
                       @if (t.realza && x.destacado) {
-                        <p class="vp-may-ahorro">
-                          <i class="pi pi-arrow-down" aria-hidden="true"></i>
+                        <p class="vf-may-ahorro">
                           Te ahorras
-                          <!--
-                            [TDA.6] El count-up va SOLO acá, y la excepción es deliberada.
-                            El precio unitario y el de mayoreo se leen en voz alta a una
-                            clienta: tienen que ser legibles en el primer fotograma, no al
-                            final de una transición. El AHORRO es lo contrario -- es la
-                            invitación, y contar hasta la cifra es lo que hace que el ojo
-                            aterrice ahí. Es el idioma de la casa (DESIGN.md 7b + §Motion KPI
-                            3, count-up ~900ms), no un invento de esta pantalla, y usa la
-                            directiva compartida en vez de una copia.
-                            appCountUpLive: sin esto la directiva anima UNA vez en la vida del
-                            nodo y el segundo escaneo del turno no contaría. Su tween cancela
-                            el rAF anterior, así que un escaneo a los 2s no deja dos cifras
-                            peleando -- rueda del valor anterior al nuevo.
-                            El texto final queda en el DOM (la directiva escribe textContent),
-                            así que el lector de pantalla lee el importe, no un hueco.
-                          -->
-                          <strong [appCountUp]="t.ahorro_en_el_minimo" [appCountUpLive]="true"
-                                  countUpFormat="money2"></strong>
-                          <span class="vp-may-pct">{{ t.descuento_pct }}% menos c/u</span>
+                          <strong [appCountUp]="t.ahorro_en_el_minimo" [appCountUpLive]="true" countUpFormat="money2"></strong>
+                          <span class="vf-may-pct">({{ t.descuento_pct }}% menos c/u)</span>
                         </p>
                       }
                     }
                   </div>
                 }
 
-                <p class="vp-precio-nota">
+                <!-- [TDA.3] Las OTRAS unidades, como píldoras (mismo tratamiento visual que
+                     .u-item del HTML original). El factor se refiere a la unidad BASE. -->
+                @if (otrasUnidades().length) {
+                  <div class="vf-otras">
+                    @for (u of otrasUnidades(); track u.u) {
+                      <span class="vf-u-item">
+                        <b>{{ unidadLabel(u.u) }}</b>
+                        <span class="vf-u-precio">{{ money(u.precio_con_iva) }}</span>
+                        @if (u.factor > 1 && unidadBase()) { <span class="vf-u-f">({{ u.factor }} {{ unidadBase() }})</span> }
+                      </span>
+                    }
+                  </div>
+                }
+
+                <!-- [TDA.2] Procedencia: se DECLARA en vez de esconderse (ADR-056). -->
+                <p class="vf-nota">
                   Precio al público, IVA incluido.
                   @if (p.iva_pct != null) { IVA {{ p.iva_pct }}%. }
                   @if (p.ieps_pct) { IEPS {{ p.ieps_pct }}%. }
                   @if (origen() === 'respaldo') { Tomado del respaldo del {{ snapshotAl() | date:'dd/MM/yy HH:mm' }}. }
-                  <!--
-                    [TDA.2] Procedencia. Se DECLARA en vez de esconderse: hasta este cambio esta
-                    pantalla publicaba un numero sin decir de que plaza salia, y sin sucursal el ERP
-                    devolvia una fila arbitraria (podia ser la de CEDIS, la que la etiquetera
-                    excluye a proposito).
-                  -->
                   @if (origenPrecio() === 'override_manual') { Precio corregido a mano: es el mismo que sale en la etiqueta del anaquel. }
-                  @if (precioAmbiguo()) { Este producto tiene {{ plazasDistintas() }} precios distintos entre plazas y no se pudo acotar a la tuya: confirmalo en caja. }
+                  @if (precioAmbiguo()) { Este producto tiene {{ plazasDistintas() }} precios distintos entre plazas y no se pudo acotar a la tuya: confírmalo en caja. }
                   @if (plazaSinDato()) { Tu sucursal no tiene este producto cargado; el precio es de otra plaza. }
                 </p>
-
-                <!--
-                  [TDA.3] Las OTRAS unidades: todas menos la que va en grande. Antes era
-                  slice(1) --siempre "todas menos la base"--, lo que ahora repetiria el precio
-                  grande abajo y esconderia el de la base.
-                  El factor se refiere a la unidad BASE, no a la que se muestra en grande: decir
-                  "12 CJA" cuando el hero es la caja seria falso.
-                -->
-                @if (otrasUnidades().length) {
-                  <ul class="vp-unidades">
-                    @for (u of otrasUnidades(); track u.u) {
-                      <li>
-                        <span class="vp-u-nom">{{ u.u }}</span>
-                        <span class="vp-u-p">{{ money(u.precio_con_iva) }}</span>
-                        @if (u.factor > 1 && unidadBase()) { <span class="vp-u-f">{{ u.factor }} {{ unidadBase() }}</span> }
-                      </li>
-                    }
-                  </ul>
-                }
               </div>
             }
           }
           @case ('no_encontrado') {
-            <!-- Vacío real: el catálogo contestó y no lo tiene. Distinto de un fallo de red. -->
-            <div class="vp-vacio">
-              <i class="pi pi-search-minus" aria-hidden="true"></i>
-              <div>
-                <strong>No encontramos <span class="vp-mono">{{ ultimoCodigo() }}</span> en el catálogo.</strong>
-                <p>Revisa que el código esté completo, o pregunta en caja: puede ser un producto nuevo sin precio cargado.</p>
-              </div>
+            <!-- Vacío real (el catálogo contestó "no está"), no un error de red — mismo copy
+                 del verificador.html original, con tono más suave que "sin_datos" a propósito:
+                 DESIGN pre-vuelo 6 exige que las dos se distingan, no sólo en texto. -->
+            <div class="vf-err">
+              DISCULPE LAS MOLESTIAS
+              <small>PRODUCTO NO ENCONTRADO · Código: {{ ultimoCodigo() }}</small>
             </div>
           }
           @case ('sin_datos') {
-            <!-- Fallo de red SIN respaldo con qué contestar. No se disfraza de "no existe". -->
-            <div class="vp-vacio is-bad">
-              <i class="pi pi-wifi" aria-hidden="true"></i>
-              <div>
-                <strong>Sin conexión y sin respaldo descargado.</strong>
-                <p>No se puede consultar el precio de <span class="vp-mono">{{ ultimoCodigo() }}</span> ahora mismo. Cuando vuelva la red, descarga el respaldo para que el mostrador siga funcionando sin señal.</p>
-                <p-button type="button" label="Descargar respaldo" icon="pi pi-download"
-                          styleClass="p-button-sm" [disabled]="descargando() || !sucursal()"
-                          (click)="descargarRespaldo()"></p-button>
-              </div>
-            </div>
-          }
-          @default {
-            <div class="vp-vacio is-idle">
-              <i class="pi pi-barcode" aria-hidden="true"></i>
-              <div>
-                <strong>Listo para consultar.</strong>
-                <p>Pasa el producto por el lector. El precio aparece aquí en grande.</p>
-              </div>
+            <!-- Fallo de red SIN respaldo con qué contestar: el estado grave de verdad. -->
+            <div class="vf-err is-bad">
+              SIN CONEXIÓN AL SERVIDOR
+              <small>Verifica la red. Código: {{ ultimoCodigo() }} — sin respaldo local descargado.</small>
+              <p-button type="button" label="Descargar respaldo" icon="pi pi-download"
+                        styleClass="p-button-sm vf-btn-respaldo" [disabled]="descargando() || !sucursal()"
+                        (click)="descargarRespaldo()"></p-button>
             </div>
           }
         }
       </section>
 
-      <footer class="vp-foot">
-        <div class="vp-feed">
-          <span class="vp-feed-lbl">Últimas consultas</span>
-          @if (!feed().length) { <span class="vp-feed-vacio">Todavía ninguna.</span> }
-          <ul>
-            @for (c of feed(); track c.hora.getTime() + c.codigo) {
-              <li>
-                <span class="vp-mono">{{ c.codigo }}</span>
-                <span class="vp-feed-n">{{ c.nombre || 'no encontrado' }}</span>
-                <span class="vp-feed-p">{{ c.precio != null ? money(c.precio) : '—' }}</span>
-                @if (c.origen === 'respaldo') { <i class="pi pi-exclamation-triangle" title="Precio de respaldo"></i> }
-                <span class="vp-feed-h">{{ c.hora | date:'HH:mm:ss' }}</span>
-              </li>
-            }
-          </ul>
-        </div>
-
-        <div class="vp-respaldo">
-          @if (snapshot(); as s) {
-            <span class="vp-respaldo-ok">
-              <i class="pi pi-database" aria-hidden="true"></i>
-              Respaldo local: {{ s.total }} productos · {{ s.descargadoAl | date:'dd/MM HH:mm' }}
-            </span>
-          } @else {
-            <span class="vp-respaldo-no">
-              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-              Sin respaldo local: si se cae la red, la pantalla no puede contestar.
+      <footer class="vf-foot">
+        <span class="vf-counter">
+          Productos escaneados: <b>{{ contador() }}</b>
+          <button type="button" class="vf-counter-reset" title="Reiniciar contador" (click)="reiniciarContador()">&#8635;</button>
+        </span>
+        <div class="vf-feed">
+          @for (c of feed(); track c.hora.getTime() + c.codigo) {
+            <span class="vf-feed-item">
+              <span class="vf-mono">{{ c.codigo }}</span> {{ c.nombre || 'no encontrado' }}
+              <span class="vf-mono">{{ c.precio != null ? money(c.precio) : '—' }}</span>
+              @if (c.origen === 'respaldo') { <i class="pi pi-exclamation-triangle" title="Precio de respaldo"></i> }
             </span>
           }
-          <p-button type="button" label="Actualizar respaldo" icon="pi pi-download"
-                    styleClass="p-button-sm p-button-text" [disabled]="descargando() || !sucursal()"
-                    (click)="descargarRespaldo()"></p-button>
         </div>
+        <span class="vf-version">
+          v1.0
+          @if (snapshot(); as s) {
+            · Respaldo: {{ s.total }} productos ({{ s.descargadoAl | date:'dd/MM HH:mm' }})
+          } @else {
+            · Sin respaldo local
+          }
+          <p-button type="button" label="Actualizar respaldo" icon="pi pi-download"
+                    styleClass="p-button-sm p-button-text vf-btn-respaldo" [disabled]="descargando() || !sucursal()"
+                    (click)="descargarRespaldo()"></p-button>
+        </span>
       </footer>
     </div>
   `,
   styles: [`
-    :host { display: block; }
+    /* ═══════════════════════════════════════════════════════════════════════════════════
+       CLON FIEL de verificador.html (kiosco retirado en Fase CV) — ver el comentario de
+       "Excepción confirmada" arriba de la clase. Paleta CRUDA a propósito (son las mismas
+       cifras hex del HTML original, no tokens): --vf-amarillo/--vf-naranja/--vf-oscuro/
+       --vf-verde. Tema fijo (siempre claro), Sniglet como tipografía única del componente.
+       ═══════════════════════════════════════════════════════════════════════════════════ */
+    :host {
+      --vf-amarillo: #F5C500; --vf-naranja: #E8680A; --vf-oscuro: #151515; --vf-verde: #16a34a;
+      --vf-rojo: #b91c1c; --vf-gris: #94a3b8;
+      display: block; font-family: 'Sniglet', 'Comic Sans MS', 'Segoe UI', Roboto, Arial, sans-serif;
+      color: var(--vf-oscuro);
+    }
 
-    /* [TDA.5] La pagina se ACOTA. No lo hacia, y en el monitor ancho del mostrador
-       (medido: 5023 px) el resultado no era "amplio", era roto: la cifra quedaba pegada
-       al borde izquierdo con ~4,000 px de vacio al lado, y los pares se partian a los
-       extremos opuestos de la pantalla -- "CJA / $1,586.23" y, en el pie, el nombre del
-       producto contra su propio precio.
-       Ninguno de esos tres es un bug aparte: los tres son flex: 1 y 1fr haciendo
-       exactamente lo suyo sobre un ancho que nadie limito. Por eso sobrevivio a la
-       revision -- en un monitor normal se ve bien, y nunca lo abri en uno que no lo fuera.
+    .vf-page { position: relative; overflow: hidden; border-radius: var(--r-lg, 16px);
+      display: flex; flex-direction: column; align-items: center; gap: .5rem;
+      padding: 0 1.25rem 1.25rem; min-height: 640px;
+      background: linear-gradient(160deg, #fffdf7 0%, #fdf3e2 100%); }
+    /* Modo kiosco: se come el chrome de la app — el mostrador real es un monitor dedicado,
+       no una ventana con sidebar al lado. */
+    .vf-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow: auto;
+      border-radius: 0; padding-bottom: 2rem; }
 
-       Se acota con el PADDING y no con max-width, a proposito: el modo kiosco de abajo es
-       position: fixed; inset: 0 con fondo propio, y un max-width ahi le recortaria el
-       fondo y dejaria ver la app por los costados. Asi el sangrado sigue completo y lo que
-       se acota es el CONTENIDO -- una sola regla que sirve a los dos modos. */
-    .vp-page { display: flex; flex-direction: column; gap: var(--sp-4);
-      padding: var(--sp-5) max(var(--sp-6), calc((100% - 78rem) / 2));
-      color: var(--text-main); }
-    /* Modo kiosco: la pantalla se come el chrome de la app (sidebar incluido) para que
-       la clienta vea el precio y nada más. Es un overlay, no un layout aparte.
-       Repite el acotado lateral: si sólo cambiara el padding vertical, el max() de arriba
-       se perdería y el kiosco —que es JUSTO el que corre en el monitor ancho de la tienda—
-       volvería a estirarse de borde a borde. */
-    .vp-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow: auto;
-      background: var(--layout-bg);
-      padding: var(--sp-4) max(var(--sp-5), calc((100% - 78rem) / 2)); }
+    .vf-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
+      opacity: .10; pointer-events: none; }
+    .vf-top { position: sticky; top: 0; left: -1.25rem; width: calc(100% + 2.5rem); height: 8px;
+      background: linear-gradient(90deg, var(--vf-naranja), var(--vf-amarillo)); z-index: 1; }
 
-    .vp-head { display: flex; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
-    .vp-head-txt { margin-right: auto; }
-    .vp-head-txt h1 { margin: 0; font-size: var(--fs-h2, 1.25rem); font-weight: 700;
-      letter-spacing: -0.01em; line-height: 1.2; }
-    .vp-sub { margin: .15rem 0 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
-    .vp-sub strong { color: var(--text-muted); font-weight: 600; }
-    .vp-head-right { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
-    /* Sin punto de color: el verde afirmaría salud del dato, y justamente no se midió. */
-    .vp-fresh-nd { display: inline-flex; align-items: center; gap: .3rem; font-size: var(--fs-xs, .75rem);
-      color: var(--text-faint); white-space: nowrap; cursor: help; }
+    /* Franja de control funcional (sucursal/frescura/kiosco/ayuda) — NO existía en el HTML
+       original (era un kiosco de una sola sucursal); se queda por necesidad operativa real,
+       chica y discreta arriba a la derecha para no competirle al logo/escáner. */
+    .vf-ctrl { position: relative; z-index: 2; align-self: stretch; display: flex;
+      align-items: center; justify-content: flex-end; gap: .5rem; flex-wrap: wrap;
+      padding-top: .6rem; font-size: 12px; color: #64748b; }
+    .vf-fresh-nd { display: inline-flex; align-items: center; gap: .25rem; cursor: help; }
+    .vf-suc { font-weight: 700; color: var(--vf-oscuro); }
+    .vf-icon-btn { min-width: 32px; min-height: 32px; display: inline-flex; align-items: center;
+      justify-content: center; background: #fff; color: #555; border: 1px solid #e5e7eb;
+      border-radius: 8px; cursor: pointer; font: inherit; }
+    .vf-icon-btn:hover { color: var(--vf-naranja); border-color: var(--vf-naranja); }
 
-    .vp-banner { display: flex; align-items: flex-start; gap: .6rem; padding: .6rem .75rem;
-      border-radius: var(--r-sm); font-size: var(--fs-sm, .8125rem);
-      border: 1px solid var(--info-soft-bg); background: var(--info-soft-bg); color: var(--info-soft-fg); }
-    .vp-banner.is-ok { border-color: var(--ok-soft-bg); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-    .vp-banner.is-warn { border-color: var(--warn-soft-bg); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
-    .vp-banner.is-bad { border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
-    .vp-banner > div { display: flex; flex-direction: column; gap: .1rem; }
-    .vp-banner span { opacity: .85; font-size: var(--fs-xs, .75rem); }
+    .vf-banner { position: relative; z-index: 2; align-self: stretch; display: flex;
+      align-items: flex-start; gap: .5rem; padding: .5rem .75rem; margin-top: .35rem;
+      border-radius: 10px; font-size: 13px; border: 1px solid #fde68a; background: #fffbeb; color: #92400e; }
+    .vf-banner.is-ok { border-color: #86efac; background: #f0fdf4; color: #166534; }
+    .vf-banner.is-warn { border-color: #fdba74; background: #fff7ed; color: #9a3412; }
+    .vf-banner.is-bad { border-color: #fca5a5; background: #fef2f2; color: var(--vf-rojo); }
+    .vf-banner > div { display: flex; flex-direction: column; gap: .1rem; }
+    .vf-banner span { opacity: .85; font-size: 11.5px; }
 
-    /* ── Captura ─────────────────────────────────────────────────────────── */
-    .vp-scanbar { display: flex; align-items: center; gap: .6rem; padding: .6rem .9rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg);
-      cursor: text; transition: border-color .12s ease, box-shadow .12s ease; }
-    .vp-scanbar:focus-within { border-color: var(--action); box-shadow: 0 0 0 3px var(--action-ring); }
-    .vp-scanbar > i { color: var(--action); font-size: 1.35rem; }
-    .vp-scan-input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text-main);
-      font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: clamp(1rem, 2.2vw, 1.5rem); padding: .3rem .1rem; }
-    .vp-scan-input:focus { outline: none; }
-    .vp-scan-input:disabled { color: var(--text-faint); }
-    .vp-scan-busy { color: var(--text-faint); font-size: 1rem; }
-    .vp-scan-hint { font-size: var(--fs-xs, .75rem); color: var(--text-faint); white-space: nowrap; }
-    @media (max-width: 40rem) { .vp-scan-hint { display: none; } }
+    .vf-logo { position: relative; z-index: 1; display: block; margin: 18px auto 4px;
+      max-height: 96px; max-width: 70vw; object-fit: contain; }
+    .vf-logo-txt { position: relative; z-index: 1; margin: 22px 0 4px; font-size: 30px;
+      font-weight: 800; letter-spacing: 1px; text-align: center; line-height: 1; }
+    .vf-logo-txt .vf-m { color: var(--vf-naranja); } .vf-logo-txt .vf-d { color: var(--vf-oscuro); }
 
-    /* ── Resultado ───────────────────────────────────────────────────────── */
-    .vp-result { flex: 1; display: flex; }
-    .vp-card { flex: 1; border: 1px solid var(--border-color); border-radius: var(--r-md);
-      background: var(--card-bg); padding: var(--sp-5); display: flex; flex-direction: column; gap: .35rem; }
-    .vp-card.is-respaldo { border-color: var(--warn-soft-fg); }
-    .vp-card-top { display: flex; align-items: center; gap: var(--sp-3); }
-    .vp-cod { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-size: var(--fs-sm, .8125rem); color: var(--text-faint); letter-spacing: .04em; }
-    .vp-nombre { margin: 0; font-size: clamp(1.05rem, 2.6vw, 1.75rem); font-weight: 700;
-      line-height: 1.15; text-wrap: balance; }
+    /* ── Captura: idéntica jerarquía al HTML — barra, input, hint ─────────────────────── */
+    .vf-scanbar { position: relative; z-index: 1; background: var(--vf-naranja); color: #fff;
+      font-size: 15px; font-weight: 400; letter-spacing: 1px; padding: 8px 24px;
+      border-radius: 8px; margin-top: 6px; display: flex; align-items: center; gap: .4rem; }
+    .vf-input-row { position: relative; z-index: 1; margin-top: 10px;
+      width: min(560px, 92vw); display: flex; align-items: center; gap: .5rem; }
+    .vf-input { flex: 1; min-width: 0; text-align: center; font-size: 26px; font-weight: 700;
+      font-family: inherit; padding: 14px; border-radius: 14px; border: 3px solid var(--vf-naranja);
+      background: #fff; color: var(--vf-oscuro); letter-spacing: 2px; outline: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,.06); }
+    .vf-input::placeholder { color: #c0c0c0; font-size: 16px; letter-spacing: 1px; }
+    .vf-input:disabled { color: #b0b0b0; }
+    .vf-busy { color: var(--vf-naranja); font-size: 1.3rem; }
+    /* Cámara del celular: NO existía en el HTML (dependía de una pistola física USB/BT); es
+       la tercera vía que se agregó en esta sesión, con el mismo cableado @zxing/browser que
+       ya usan ScanFieldComponent/ProductScanFieldComponent. */
+    .vf-cam-btn { flex: 0 0 auto; width: 52px; height: 52px; display: inline-flex;
+      align-items: center; justify-content: center; background: #fff; color: var(--vf-naranja);
+      border: 3px solid var(--vf-naranja); border-radius: 14px; font-size: 1.2rem; cursor: pointer; }
+    .vf-cam-btn:disabled { opacity: .4; cursor: default; }
+    .vf-cam-btn:focus-visible { outline: 2px solid var(--vf-naranja); outline-offset: 2px; }
+    .vf-hint { position: relative; z-index: 1; margin-top: 8px; color: #888; font-size: 13px; }
 
-    /* ── [TDA.6] La respuesta va CENTRADA ────────────────────────────────
-       Estaba alineada a la izquierda. En la pantalla que existe para que un numero se lea
-       desde el otro lado del mostrador, el objeto principal pegado a un borde deja de ser
-       el centro de atencion y se vuelve una esquina. Se centra el BLOQUE DE RESPUESTA
-       (nombre, cifra, mayoreo, unidades); lo que no se centra es la letra chica larga, que
-       se acota con max-width para no leerse en zig-zag.
+    .vf-cam-ov { position: fixed; inset: 0; z-index: 1200; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: .75rem;
+      background: rgba(21,21,21,.92); padding: 1rem; }
+    .vf-cam-tip { margin: 0; color: #fff; font-size: .85rem; }
+    .vf-cam-vid { width: min(100%, 520px); aspect-ratio: 4 / 3; object-fit: cover;
+      background: #333; border-radius: 14px; }
+    .vf-cam-x { min-height: 48px; min-width: 160px; padding: 0 1.25rem; background: #fff;
+      color: var(--vf-oscuro); border: none; border-radius: 10px; font: inherit;
+      font-weight: 700; cursor: pointer; }
 
-       [TDA.7] CORRIJO LA JUSTIFICACION QUE ESCRIBI ACA. Decia que "§O.3 no dice donde" y me
-       autoricé desde el silencio. DESIGN.md no está callado: "todo centrado" está en la lista
-       anti-slop, "Centered everything" es antipatrón de Operations, y §Ing.UI 1 manda patrón F
-       con las palabras "no centrado por estética". Centrar el NUCLEO de la respuesta se queda
-       porque lo pidió 0Sistemas de forma explícita para esta pantalla —y en un mostrador que se
-       lee de frente el patrón F no es el que aplica—, pero deja de ser un text-align que se
-       hereda a todo: la nota legal y la lista de unidades vuelven a alinearse, porque ahí
-       centrar rompía cosas que sí importan (ver .vp-unidades).
-       (Sin acentos graves acá: rompen el template literal. Van 8 veces en este repo y esta la
-       cometí yo, en el mismo archivo que ya lo advierte arriba.) */
-    .vp-card-top { justify-content: center; }
-    .vp-nombre, .vp-precio-principal, .vp-u-aclara, .vp-mayoreo { text-align: center; }
-    .vp-precio-principal { display: flex; align-items: baseline; gap: var(--sp-3);
-      flex-wrap: wrap; justify-content: center; margin-top: var(--sp-2); }
-    /* La cifra es el objeto de la pantalla: se lee a un metro y medio, del otro lado del
-       mostrador. clamp para que no reviente en el monitor chico del kiosco. */
-    .vp-precio { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-weight: 800; font-size: clamp(2.75rem, 9vw, 6rem); line-height: 1;
-      letter-spacing: -0.02em; color: var(--text-main); }
-    .vp-precio-u { font-size: var(--fs-body, .875rem); color: var(--text-muted); text-transform: lowercase; }
+    /* ── Tarjeta de resultado ──────────────────────────────────────────────────────────
+       min-height/width y sombra calcados del HTML (740px/300px, sombra 0 20px 60px). Los
+       otros datos (mayoreo, procedencia) que el HTML original nunca tuvo se agregaron
+       después (TDA.2-7) y se conservan íntegros — sólo cambia la piel. */
+    .vf-result { position: relative; z-index: 1; flex: 1; display: flex;
+      align-items: center; justify-content: center; width: 100%; margin-top: 18px; }
+    .vf-card { width: min(740px, 92vw); min-height: 260px; background: #fff; color: var(--vf-oscuro);
+      border-radius: 22px; box-shadow: 0 20px 60px rgba(0,0,0,.5); padding: 24px 28px;
+      text-align: center; display: flex; flex-direction: column; align-items: center; gap: .35rem;
+      --vf-pop: vfPopA; animation: var(--vf-pop) .18s ease both; }
+    .vf-card.is-pase-b { --vf-pop: vfPopB; }
+    .vf-card.is-respaldo { box-shadow: 0 20px 60px rgba(232,104,10,.35); }
+    @keyframes vfPopA { from { transform: scale(.96); opacity: .4; } to { transform: scale(1); opacity: 1; } }
+    @keyframes vfPopB { from { transform: scale(.96); opacity: .4; } to { transform: scale(1); opacity: 1; } }
 
-    /* [TDA.8] La advertencia de precio cambiado. Semantico --warn-*, y nunca solo el color:
-       lleva icono y texto (DESIGN.md 5, el color no es unico portador de significado).
-       No se centra el parrafo: es texto para leer, no una cifra. El bloque si va centrado. */
-    .vp-cambio { margin: var(--sp-2) auto 0; width: fit-content; max-width: 60ch;
+    /* [TDA.8] La advertencia de precio cambiado, re-pintada con la paleta cruda del clon
+       (antes usaba --warn-*/--r-md de tokens). Nunca solo el color: icono + texto (DESIGN.md
+       5, aunque este bloque ya no vive bajo DESIGN.md por la excepción de §O.3 declarada
+       arriba, el principio de fondo se conserva). El párrafo NO se centra: es texto para
+       leer, no una cifra — el bloque sí va centrado (margin auto). */
+    .vf-cambio { margin: 6px auto 0; width: fit-content; max-width: 60ch;
       display: flex; align-items: flex-start; gap: .5rem; text-align: left;
-      padding: .4rem .75rem; border-radius: var(--r-md);
-      background: var(--warn-soft-bg); border: 1px solid var(--warn-border);
-      color: var(--warn-soft-fg); font-size: var(--fs-sm, .8125rem); text-wrap: pretty; }
-    .vp-cambio > i { color: var(--warn-fg); font-size: .95em; flex: none; margin-top: .15em; }
-    .vp-cambio strong { color: var(--warn-fg); }
-    .vp-precio-nota { margin: .2rem auto 0; font-size: var(--fs-xs, .75rem); color: var(--text-faint);
-      max-width: 68ch; text-wrap: pretty; }
+      padding: .4rem .75rem; border-radius: 10px;
+      background: #fff7ed; border: 1px solid #fdba74; color: #9a3412;
+      font-size: 13px; text-wrap: pretty; }
+    .vf-cambio > i { color: var(--vf-naranja); font-size: .95em; flex: none; margin-top: .15em; }
+    .vf-cambio strong { color: var(--vf-naranja); }
 
-    /* ── [TDA.4] Mayoreo ──────────────────────────────────────────────────
-       Colorimetria segun DESIGN.md 5: la marca (--action, sunset) va en lo ACTIVO y en lo que
-       hay que mirar, no decorando. Aca la lleva UNA sola cosa: el numero del umbral ("10+"),
-       que es el dato accionable -- cuantas hay que llevar. El resto es neutro.
+    .vf-card-top { display: flex; align-items: center; justify-content: center; gap: .6rem; }
+    .vf-cod { font-family: monospace; font-size: 14px; color: #888; letter-spacing: 1px; }
+    .vf-tag { display: inline-flex; align-items: center; gap: .3rem; font-size: 11.5px;
+      font-weight: 700; padding: .2rem .55rem; border-radius: 999px; text-transform: uppercase;
+      letter-spacing: .04em; }
+    .vf-tag.is-ok { background: #f0fdf4; color: #166534; border: 1px solid #86efac; }
+    .vf-tag.is-warn { background: #fff7ed; color: #9a3412; border: 1px solid #fdba74; }
 
-       El ahorro SI es una ganancia, asi que usa el semantico --ok-*, y nunca solo: lleva icono
-       y texto (DESIGN.md 5, "color nunca es unico portador de significado"). Y solo aparece
-       cuando el descuento es perceptible: por eso .is-realza gatea la fila entera.
+    .vf-nombre { font-size: 26px; font-weight: 400; color: var(--vf-oscuro); margin: 4px 0 12px;
+      line-height: 1.15; }
+    .vf-gramaje { font-size: .55em; font-weight: 500; color: #94a3b8; margin-left: .5rem; }
+    .vf-unidad-lbl { font-size: 16px; color: var(--vf-naranja); font-weight: 400;
+      text-transform: uppercase; letter-spacing: 1px; }
+    /* La cifra: 104px como el original, pero con clamp para no reventar en el kiosco chico —
+       el HTML era de un solo tamaño de monitor conocido; esta pantalla corre en varios. Impact
+       (o su análogo del SO) es la fuente condensada del original; Sniglet no la reemplaza acá
+       porque a ese tamaño se ve demasiado redonda para una cifra de mostrador. */
+    .vf-precio { font-family: Impact, 'Arial Narrow Bold', 'Haettenschweiler', sans-serif;
+      font-size: clamp(3.2rem, 11vw, 6.5rem); font-weight: 400; color: var(--vf-verde);
+      line-height: 1; margin: 2px 0; letter-spacing: 1px; font-variant-numeric: tabular-nums; }
+    .vf-peso { font-size: .5em; vertical-align: baseline; margin-right: .06em; }
 
-       Sin hex inline en todo el bloque. */
-    /* ── [TDA.6] El mayoreo pasa a ser LA OFERTA, no un renglon ───────────
-       Antes era una fila de 1.6rem con el ahorro en letra chica: cierto y facil de saltear.
-       El negocio quiere lo contrario -- que la persona se enfoque en llevarse mas y ahorrar --
-       asi que gana superficie propia, franja de marca y una cifra que se lee de lejos.
+    .vf-u-aclara { margin: 2px 0 0; font-size: 13px; color: #64748b; max-width: 46ch; }
+    .vf-u-aclara strong { color: var(--vf-oscuro); font-weight: 700; }
 
-       ⚠️ EL PUNTO CRITICO, y es de cobro, no de estetica: si el monto de mayoreo crece y la
-       CONDICION se susurra, alguien que lleva una sola pieza lee el precio de tres. Por eso la
-       condicion sube arriba, en mayusculas, al tamano del cuerpo, con el umbral en color de
-       marca y 1.5em -- crece junto con el monto, nunca por detras.
+    /* Mayoreo (TDA.4/7): no existía en el HTML original — paleta nueva, misma jerarquía
+       ya probada (condición grande arriba, precio segundo, ahorro en pastilla verde). */
+    .vf-mayoreo { margin-top: 14px; padding: 12px 16px 10px; border-radius: 14px;
+      border: 2px solid var(--vf-amarillo); background: #fffdf5; display: flex;
+      flex-direction: column; align-items: center; gap: .4rem; width: 100%; }
+    .vf-may-row { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
+    .vf-may-cond { font-size: 14px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: .04em; color: #57534e; }
+    .vf-may-n { color: var(--vf-naranja); font-weight: 800; font-size: 1.4em; }
+    .vf-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .3rem; }
+    .vf-may-monto { font-family: monospace; font-weight: 800;
+      font-size: clamp(1.6rem, 4vw, 2.4rem); color: var(--vf-oscuro); }
+    .vf-may-cu { font-size: 13px; color: #78716c; }
+    .vf-may-row:not(.is-realza) .vf-may-monto, .vf-may-row:not(.is-foco) .vf-may-monto {
+      font-weight: 600; color: #a8a29e; font-size: clamp(1.2rem, 2.6vw, 1.6rem); }
+    .vf-may-row:not(.is-foco) .vf-may-cond { opacity: .75; }
+    .vf-may-ahorro { margin: 0; display: inline-flex; align-items: center; gap: .35rem;
+      padding: .3rem .75rem; border-radius: 999px; background: #f0fdf4; border: 1px solid #86efac;
+      font-size: 13.5px; color: #166534; }
+    .vf-may-ahorro strong { font-family: monospace; font-weight: 800; font-size: 1.1em; color: var(--vf-verde); }
+    .vf-may-pct { opacity: .8; }
 
-       Y el hero sigue mandando (§O.3): 6rem contra 3.25rem de tope. El enfasis se gana con
-       superficie, franja y aire; no robandole tamano al precio unitario. */
-    .vp-mayoreo { margin: var(--sp-4) 0 0; padding: var(--sp-4) var(--sp-4) var(--sp-3);
-      border-radius: var(--r-md); border: 1px solid var(--action-ring);
-      background: var(--surface-ground); position: relative; overflow: hidden;
-      display: flex; flex-direction: column; gap: var(--sp-2); }
-    /* Franja de marca: marca EL BLOQUE que hay que mirar. Es el idioma de card del
-       repertorio (DESIGN.md 7b: hairline + stripe 3px), no decoracion suelta. */
-    .vp-mayoreo::before { content: ''; position: absolute; inset-inline: 0; top: 0; height: 3px;
-      background: var(--action); }
-    .vp-may-row { display: flex; flex-direction: column; align-items: center; gap: .1rem; }
-    .vp-may-cond { display: flex; align-items: baseline; justify-content: center; gap: .4rem;
-      font-size: var(--fs-body, .875rem); font-weight: 600; text-transform: uppercase;
-      letter-spacing: .06em; color: var(--text-muted); }
-    .vp-may-cond > i { color: var(--action); font-size: .95em; }
-    /* El umbral es lo unico con color de marca dentro del texto: es la respuesta a
-       "cuantas necesito", el dato accionable. */
-    .vp-may-n { color: var(--action); font-weight: 800; font-family: var(--font-mono);
-      font-variant-numeric: tabular-nums; font-size: 1.5em; line-height: 1; }
-    .vp-may-precio { display: flex; align-items: baseline; justify-content: center; gap: .35rem; }
-    /* Segundo en jerarquia y a mucha distancia del hero (3.25rem vs 6rem), pero ya no es
-       letra chica. clamp con maximo 1.71x el minimo (regla: <= 2.5x, DESIGN.md 9). */
-    .vp-may-monto { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-weight: 800; font-size: clamp(1.9rem, 4.5vw, 3.25rem); line-height: 1;
-      letter-spacing: -0.015em; color: var(--text-main); }
-    .vp-may-cu { font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
-    /* El ahorro deja de ser un renglon y pasa a ser una PASTILLA: es la frase que cierra la
-       venta. Semantico --ok-* (es una ganancia), y nunca solo el color -- icono + texto
-       (DESIGN.md 5, el color no es unico portador de significado). */
-    .vp-may-ahorro { align-self: center; margin: 0; display: inline-flex; align-items: center;
-      gap: .4rem; padding: .35rem .8rem; border-radius: var(--r-pill);
-      background: var(--ok-soft-bg); border: 1px solid var(--ok-border);
-      font-size: var(--fs-body, .875rem); color: var(--ok-soft-fg); }
-    .vp-may-ahorro > i { color: var(--ok-fg); font-size: .95em; }
-    .vp-may-ahorro strong { font-family: var(--font-mono); font-variant-numeric: tabular-nums;
-      font-weight: 800; font-size: 1.15em; color: var(--ok-fg); }
-    .vp-may-pct { color: var(--ok-soft-fg); opacity: .75; font-size: .9em; }
-    /* Sin realce (descuento < 1%): el dato se muestra igual, apagado, y el bloque pierde la
-       franja. Es cierto, no es oferta -- pintarlo como oferta seria mentir con el color. */
-    .vp-may-row:not(.is-realza) .vp-may-monto { font-weight: 600; color: var(--text-muted);
-      font-size: clamp(1.4rem, 3vw, 2rem); }
-    .vp-mayoreo:not(:has(.is-realza)) { border-color: var(--border-color); }
-    .vp-mayoreo:not(:has(.is-realza))::before { background: var(--border-color); }
+    /* Otras unidades: píldoras calcadas de .u-item/.u-precio del HTML original. */
+    .vf-otras { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px 12px;
+      margin-top: 14px; padding-top: 14px; border-top: 1px solid #e5e7eb; width: 100%; }
+    .vf-u-item { font-size: 18px; color: #334155; background: #f1f5f9; border-radius: 10px;
+      padding: 6px 14px; display: flex; align-items: baseline; gap: 5px; }
+    .vf-u-item b { color: var(--vf-naranja); text-transform: uppercase; font-size: 13px;
+      font-weight: 400; letter-spacing: .5px; }
+    .vf-u-precio { font-family: monospace; font-size: 22px; color: var(--vf-verde); letter-spacing: .4px; }
+    .vf-u-f { font-size: 11px; color: #94a3b8; }
 
-    /* ── [TDA.7] El escalon que NO es de la unidad leida ───────────────────
-       Mismo tratamiento apagado que el sin-realce, y por un motivo mas fuerte: su monto puede
-       estar en otra unidad que el hero (pesos por paquete contra pesos por pieza). Se muestra
-       porque la cifra es cierta y viene rotulada con su unidad, pero no compite por el ojo con
-       la que corresponde a lo que se escaneo.
-       El :has() de arriba mira .is-realza, no .is-foco, a proposito: la franja de marca depende
-       de que HAYA una oferta real en el bloque, no de cual esta destacada. */
-    .vp-may-row:not(.is-foco) .vp-may-monto { font-weight: 600; color: var(--text-muted);
-      font-size: clamp(1.4rem, 3vw, 2rem); }
-    .vp-may-row:not(.is-foco) .vp-may-cond { opacity: .8; }
-    .vp-may-row:not(.is-foco) .vp-may-n { color: var(--text-muted); }
+    .vf-nota { margin: 10px auto 0; font-size: 11.5px; color: #94a3b8; max-width: 60ch; }
 
-    /* El gramaje califica al nombre: mismo renglon, peso menor. */
-    .vp-gramaje { font-size: .55em; font-weight: 500; color: var(--text-faint);
-      margin-left: .5rem; white-space: nowrap; }
+    /* Error / no-encontrado: copy calcado del HTML ("DISCULPE LAS MOLESTIAS"), con la
+       distinción de severidad que DESIGN pre-vuelo 6 exige entre "no existe" (más suave) y
+       "sin conexión" (grave) — el HTML original no distinguía, esta pantalla sí debe. */
+    .vf-err { width: min(740px, 92vw); min-height: 200px; background: #fff; border-radius: 22px;
+      box-shadow: 0 20px 60px rgba(0,0,0,.35); padding: 40px 24px; text-align: center;
+      font-size: 30px; font-weight: 800; color: var(--vf-naranja);
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+      animation: vfPopA .18s ease both; }
+    .vf-err.is-bad { color: var(--vf-rojo); box-shadow: 0 20px 60px rgba(185,28,28,.3); }
+    .vf-err small { font-size: 16px; color: #888; font-weight: 500; }
+    ::ng-deep .vf-btn-respaldo .p-button { background: var(--vf-verde); border-color: var(--vf-verde); color: #fff; }
+    ::ng-deep .vf-btn-respaldo .p-button:hover { filter: brightness(1.08); }
 
-    /* ── [TDA.4] Movimiento ───────────────────────────────────────────────
-       CSS puro con los TOKENS del sistema (tokens.css declara BINDING: micro 120ms, short
-       150ms, techo duro 350ms, y solo transform+opacity). Cero librerias: lo que esta pantalla
-       pide es micro, y el bundle de view ya excede su budget por 228 kB.
+    .vf-foot { position: relative; z-index: 1; align-self: stretch; margin-top: 12px;
+      padding-top: 10px; border-top: 1px solid rgba(0,0,0,.06); display: flex;
+      flex-direction: column; gap: 4px; font-size: 12px; color: #94a3b8; }
+    .vf-counter b { color: var(--vf-naranja); font-weight: 700; }
+    .vf-counter-reset { background: none; border: none; cursor: pointer; opacity: .55;
+      padding: 0 4px; font: inherit; color: inherit; }
+    .vf-feed { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
+    .vf-feed-item { display: inline-flex; align-items: center; gap: .3rem; }
+    .vf-mono { font-family: monospace; }
+    .vf-version { display: inline-flex; align-items: center; gap: .4rem; color: #b0b8c4; }
 
-       Se anima la TARJETA, nunca la cifra: en un mostrador el precio tiene que ser legible de
-       inmediato, no al final de una transicion. Por eso tampoco hay count-up.
-
-       prefers-reduced-motion lo neutraliza el bloque global de styles.css (regla con * e
-       !important), asi que no se repite aca. */
-    /* Dos juegos IDENTICOS de keyframes. No es duplicacion por descuido: la tarjeta es el
-       mismo nodo entre escaneos, y cambiar el animation-name es lo que hace que el navegador
-       reinicie la animacion. La clase is-pase-b alterna en cada consulta (ver la plantilla).
-       Sin esto, la entrada corria UNA vez por turno.
-
-       [TDA.7] ACA USABA --ease-spring Y LO DEFENDI CON "ya existe en tokens.css". Existir no es
-       estar permitido: DESIGN.md §Motion acota esa curva a "solo gestos drag-to-dismiss", y una
-       entrada de tarjeta no es un gesto. Pasa a --ease-decelerate, que es la curva que §Motion
-       nombra para ENTRADAS. Se pierde el sobrepaso; el escalonado sigue dando el ritmo.
-       NO se agrega libreria -- §U lo prohibe por nombre (anime.js/framer no entran) y motion@12
-       ya esta instalada con cero imports desde abril. Una segunda dep muerta no arregla un easing.
-
-       ESCALONADO, y suma bajo el techo duro de 350ms contando el retardo:
-         nombre    0ms + 150 = 150      mayoreo    90ms + 150 = 240
-         precio   40ms + 150 = 190      pastilla  140ms + 150 = 290
-       Los PRECIOS no se animan por dentro: en un mostrador la cifra que se le lee en voz alta a
-       una clienta tiene que ser legible en el primer fotograma, no al final de una transicion.
-       Se mueve el bloque, nunca el digito. Solo transform + opacity, jamas medidas.
-       [TDA.7] Este comentario decia "y no hay count-up" y quedo desactualizado en el commit
-       065b4667: SI hay count-up, en el AHORRO (no en un precio). Excepcion documentada en
-       DESIGN.md §Motion KPI.
-
-       prefers-reduced-motion lo neutraliza el bloque global de styles.css (regla con * e
-       !important), asi que no se repite aca. */
-    @keyframes vpEntraA { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-    @keyframes vpEntraB { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-    @keyframes vpPopA { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: none; } }
-    @keyframes vpPopB { from { opacity: 0; transform: scale(.88); } to { opacity: 1; transform: none; } }
-    @keyframes vpFadeA { from { opacity: 0; } to { opacity: 1; } }
-    @keyframes vpFadeB { from { opacity: 0; } to { opacity: 1; } }
-
-    .vp-card { --vp-in: vpEntraA; --vp-pop: vpPopA; --vp-fade: vpFadeA;
-      animation: var(--vp-fade) var(--dur-short, 150ms) var(--ease-out, ease-out) both; }
-    .vp-card.is-pase-b { --vp-in: vpEntraB; --vp-pop: vpPopB; --vp-fade: vpFadeB; }
-
-    .vp-card .vp-nombre { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) both; }
-    .vp-card .vp-precio-principal { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) 40ms both; }
-    .vp-card .vp-mayoreo { animation: var(--vp-in) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) 90ms both; }
-    .vp-card .vp-may-ahorro { animation: var(--vp-pop) var(--dur-short, 150ms) var(--ease-decelerate, ease-out) 140ms both; }
-    /* [TDA.3] "El codigo que escaneaste es de CJA". Va pegada al precio grande porque lo CALIFICA:
-       separada, el operador leeria el numero antes de saber de que unidad es. */
-    .vp-u-aclara { display: flex; align-items: center; justify-content: center; gap: .4rem;
-      margin: .35rem 0 0; font-size: var(--fs-sm, .8125rem); color: var(--text-muted); }
-    .vp-u-aclara strong { color: var(--text-main); font-weight: 600; }
-
-    /* [TDA.6] El min-width de 7rem en la etiqueta separaba "CJA" de su propio precio, y en
-       pantalla ancha el par se leia como dos datos sin relacion. Eso se queda arreglado.
-
-       [TDA.7] Lo que se DESHACE es haber centrado los renglones. Este bloque conserva
-       font-variant-numeric: tabular-nums en .vp-u-p, que existe para una sola cosa: que las
-       cifras formen columna y los decimales alineen (DESIGN.md Q.5 lo llama innegociable). Con
-       justify-content: center cada renglon se acomodaba a su propio ancho y la columna
-       desaparecia -- la propiedad quedaba inerte. Y esta lista 0Sistemas nunca la menciono: se
-       centro de arrastre por un text-align en la tarjeta.
-       El BLOQUE sigue centrado (margin auto); lo que vuelve es la alineacion interna: etiqueta a
-       la izquierda, cifra a la derecha, como pide DESIGN.md para listas de numeros. */
-    .vp-unidades { list-style: none; margin: var(--sp-3) auto 0; padding: var(--sp-3) 0 0;
-      border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: .3rem;
-      width: fit-content; min-width: min(100%, 22rem); text-align: left; }
-    .vp-unidades li { display: flex; align-items: baseline; justify-content: flex-start;
-      gap: var(--sp-3); font-size: var(--fs-sm, .8125rem); }
-    /* El auto empuja cifra y equivalencia al borde derecho, JUNTAS: la equivalencia califica a
-       la cifra, no es una tercera columna. */
-    .vp-unidades li > .vp-u-p { margin-left: auto; }
-    .vp-u-nom { color: var(--text-muted); text-transform: uppercase;
-      font-size: var(--fs-xs, .75rem); letter-spacing: .06em; }
-    .vp-u-p { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; }
-    .vp-u-f { color: var(--text-faint); font-size: var(--fs-xs, .75rem); }
-
-    .vp-vacio { flex: 1; display: flex; align-items: center; gap: var(--sp-4);
-      border: 1px dashed var(--border-color); border-radius: var(--r-md); padding: var(--sp-5); }
-    .vp-vacio > i { font-size: 2rem; color: var(--text-faint); flex: none; }
-    .vp-vacio strong { display: block; font-size: var(--fs-body, .875rem); }
-    .vp-vacio p { margin: .25rem 0 .5rem; font-size: var(--fs-sm, .8125rem); color: var(--text-muted); max-width: 46ch; }
-    .vp-vacio.is-bad { border-style: solid; border-color: var(--bad-soft-bg); background: var(--bad-soft-bg); }
-    .vp-vacio.is-bad > i, .vp-vacio.is-bad strong { color: var(--bad-soft-fg); }
-    .vp-vacio.is-bad p { color: var(--bad-soft-fg); opacity: .9; }
-
-    /* ── Pie: feed + estado del respaldo ─────────────────────────────────── */
-    .vp-foot { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--sp-4);
-      align-items: start; border-top: 1px solid var(--border-color); padding-top: var(--sp-3); }
-    @media (max-width: 60rem) { .vp-foot { grid-template-columns: 1fr; } }
-    .vp-feed-lbl { font-size: var(--fs-micro, .6875rem); text-transform: uppercase;
-      letter-spacing: .06em; color: var(--text-faint); }
-    .vp-feed-vacio { margin-left: .5rem; font-size: var(--fs-xs, .75rem); color: var(--text-faint); }
-    .vp-feed ul { list-style: none; margin: .35rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .15rem; }
-    .vp-feed li { display: flex; align-items: baseline; gap: var(--sp-3); font-size: var(--fs-xs, .75rem); }
-    .vp-feed li > i { color: var(--warn-soft-fg); font-size: .7rem; }
-    .vp-feed-n { color: var(--text-muted); flex: 1; min-width: 0; overflow: hidden;
-      white-space: nowrap; text-overflow: ellipsis; }
-    .vp-feed-p { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-main); }
-    .vp-feed-h { font-family: var(--font-mono); font-variant-numeric: tabular-nums; color: var(--text-faint); }
-    .vp-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-
-    .vp-respaldo { display: flex; flex-direction: column; align-items: flex-start; gap: .2rem;
-      font-size: var(--fs-xs, .75rem); }
-    .vp-respaldo-ok { color: var(--text-faint); display: inline-flex; align-items: center; gap: .35rem; }
-    .vp-respaldo-no { color: var(--warn-soft-fg); display: inline-flex; align-items: center; gap: .35rem; }
+    ::ng-deep .vf-sel .p-select { border-radius: 8px; }
 
     @media (prefers-reduced-motion: reduce) {
-      .vp-scanbar { transition: none; }
+      .vf-card, .vf-err { animation: none; }
     }
   `],
 })
-export class TiendaVerificadorComponent implements OnInit {
+export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   private readonly svc = inject(VerificadorService);
   private readonly auth = inject(AuthService);
   private readonly route = inject(ActivatedRoute);
@@ -694,9 +539,20 @@ export class TiendaVerificadorComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
 
   @ViewChild('scan') private scanInput?: ElementRef<HTMLInputElement>;
+  @ViewChild('video') private videoEl?: ElementRef<HTMLVideoElement>;
+  @ViewChild('camCancelar') private camCancelarBtn?: ElementRef<HTMLButtonElement>;
+  private lector?: BrowserMultiFormatReader;
+  private controles?: IScannerControls;
 
   /** Clave de preferencia del kiosco: la máquina del mostrador queda en kiosco tras recargar. */
   private static readonly LS_KIOSCO = 'tienda.verificador.kiosco';
+  /** Contador de productos escaneados, persistente por equipo — igual que `mdVerifCount` del
+   * HTML original, con clave propia (ese localStorage era de otro origen, inalcanzable acá). */
+  private static readonly LS_CONTADOR = 'tienda.verificador.contador';
+  /** A los 15s de inactividad la tarjeta se limpia sola, como `armarClear()` en el HTML
+   * original: un precio (o un error) no debe quedar pegado en pantalla toda la tarde. */
+  private static readonly MS_AUTOLIMPIA = 15_000;
+  private clearTimer?: ReturnType<typeof setTimeout>;
 
   readonly sucursal = signal<string | null>(null);
   readonly sucursales = signal<SucursalVerificador[]>([]);
@@ -704,6 +560,8 @@ export class TiendaVerificadorComponent implements OnInit {
   readonly buscando = signal(false);
   readonly descargando = signal(false);
   readonly banner = signal<Banner>(null);
+  /** Overlay de la cámara del celular como lector (tercera vía además de pistola HID y teclado). */
+  readonly camaraAbierta = signal(false);
 
   readonly estado = signal<'idle' | 'encontrado' | 'no_encontrado' | 'sin_datos'>('idle');
   readonly producto = signal<ProductoPrecio | null>(null);
@@ -730,6 +588,8 @@ export class TiendaVerificadorComponent implements OnInit {
    */
   readonly pase = signal(0);
   readonly feed = signal<Consulta[]>([]);
+  /** Productos escaneados en este equipo, de por vida (no se resetea con el feed de 8). */
+  readonly contador = signal(0);
 
   /**
    * `[TDA.8]` El precio que está en pantalla cambió en el ERP mientras estaba a la vista.
@@ -924,6 +784,10 @@ export class TiendaVerificadorComponent implements OnInit {
     this.sucursal.set(inicial);
 
     try {
+      this.contador.set(parseInt(localStorage.getItem(TiendaVerificadorComponent.LS_CONTADOR) || '0', 10) || 0);
+    } catch { /* localStorage bloqueado: el contador arranca en 0, no es crítico */ }
+
+    try {
       this.kiosco.set(localStorage.getItem(TiendaVerificadorComponent.LS_KIOSCO) === '1');
     } catch { /* localStorage bloqueado: el kiosco arranca apagado, no es crítico */ }
 
@@ -993,6 +857,9 @@ export class TiendaVerificadorComponent implements OnInit {
     const suc = this.sucursal();
     if (!suc) { this.enfocar(); return; }
 
+    // Una consulta nueva cancela el auto-limpiado de la anterior: si no, un escaneo lento
+    // (red) podía tropezar con el timeout de la tarjeta previa a mitad de la espera.
+    if (this.clearTimer) clearTimeout(this.clearTimer);
     this.ultimoCodigo.set(codigo);
     this.buscando.set(true);
 
@@ -1018,6 +885,9 @@ export class TiendaVerificadorComponent implements OnInit {
     // `[TDA.6]` Un pase por consulta contestada, encontrada o no. Es lo que reinicia la
     // animación de entrada sobre un nodo que no se recrea.
     this.pase.update((n) => n + 1);
+    // Como `armarClear()` del HTML original: 15s de inactividad y la pantalla vuelve sola a
+    // "listo para consultar" — un precio (o un error) no debe quedar pegado toda la tarde.
+    this.armarClear();
     if (r.estado === 'encontrado') {
       this.estado.set('encontrado');
       this.producto.set(r.producto);
@@ -1046,6 +916,7 @@ export class TiendaVerificadorComponent implements OnInit {
       } else {
         this.banner.set(null);
       }
+      this.bumpContador();
       this.empujarFeed({
         codigo: r.producto.codigo,
         nombre: r.producto.nombre,
@@ -1089,6 +960,24 @@ export class TiendaVerificadorComponent implements OnInit {
     this.ultimoCodigo.set('');
   }
 
+  /** `armarClear()` del HTML original: reinicia el reloj de 15s cada vez que hay un resultado nuevo. */
+  private armarClear(): void {
+    if (this.clearTimer) clearTimeout(this.clearTimer);
+    this.clearTimer = setTimeout(() => this.limpiarResultado(), TiendaVerificadorComponent.MS_AUTOLIMPIA);
+  }
+
+  private bumpContador(): void {
+    const n = this.contador() + 1;
+    this.contador.set(n);
+    try { localStorage.setItem(TiendaVerificadorComponent.LS_CONTADOR, String(n)); } catch { /* no crítico */ }
+  }
+
+  reiniciarContador(): void {
+    if (!confirm('¿Reiniciar el contador de productos escaneados a cero?')) return;
+    this.contador.set(0);
+    try { localStorage.setItem(TiendaVerificadorComponent.LS_CONTADOR, '0'); } catch { /* no crítico */ }
+  }
+
   descargarRespaldo(): void {
     const suc = this.sucursal();
     if (!suc || this.descargando()) return;
@@ -1121,10 +1010,85 @@ export class TiendaVerificadorComponent implements OnInit {
     this.enfocar();
   }
 
-  /** Escape sale del kiosco (en pantalla completa no hay chrome del navegador que ayude). */
+  /**
+   * Escape sale del kiosco (en pantalla completa no hay chrome del navegador que ayude).
+   * Si la cámara está abierta tiene prioridad: un Escape cierra la cámara, no el kiosco.
+   */
   @HostListener('document:keydown.escape')
   onEscape(): void {
+    if (this.camaraAbierta()) { this.cerrarCamara(); return; }
     if (this.kiosco()) this.toggleKiosco();
+  }
+
+  /**
+   * Cámara del celular como lector — tercera vía junto a la pistola HID y el teclado, para
+   * quien recorre el mostrador sin pistola a la mano. Es la misma que ya usaban el Andén
+   * (`ScanFieldComponent`) y el escaneo comercial (`ProductScanFieldComponent`): mismo
+   * cableado `@zxing/browser`, formatos de retail, vibración al leer. Si aparece un cuarto
+   * consumidor, ahí sí conviene extraer una primitiva compartida — con tres, y cada uno con
+   * su propio botón/estilo, la duplicación pesa menos que una abstracción prematura.
+   */
+  async abrirCamara(): Promise<void> {
+    if (!this.sucursal() || this.camaraAbierta()) return;
+    // `getUserMedia` no existe fuera de contexto seguro: en http de LAN el botón tiene que
+    // decir POR QUÉ no abre, no quedarse mudo.
+    if (!navigator.mediaDevices?.getUserMedia) {
+      this.banner.set({
+        texto: 'Este equipo no da acceso a la cámara.',
+        detalle: 'Requiere HTTPS. Usa la pistola o teclea el código.',
+        tono: 'warn',
+      });
+      return;
+    }
+    this.camaraAbierta.set(true);
+    setTimeout(() => this.camCancelarBtn?.nativeElement?.focus(), 150);
+    setTimeout(async () => {
+      const v = this.videoEl?.nativeElement;
+      if (!v) return;
+      const hints = new Map();
+      // Solo formatos de retail: menos trabajo por intento, engancha antes.
+      hints.set(DecodeHintType.POSSIBLE_FORMATS, [
+        BarcodeFormat.EAN_13, BarcodeFormat.EAN_8, BarcodeFormat.UPC_A, BarcodeFormat.UPC_E,
+        BarcodeFormat.CODE_128, BarcodeFormat.ITF,
+      ]);
+      this.lector = new BrowserMultiFormatReader(hints, { delayBetweenScanAttempts: 100 });
+      try {
+        this.controles = await this.lector.decodeFromConstraints(
+          { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } },
+          v,
+          (r) => { if (r) this.leido(r.getText()); },
+        );
+      } catch {
+        this.cerrarCamara();
+        this.banner.set({
+          texto: 'No se pudo abrir la cámara.',
+          detalle: 'Revisa los permisos del navegador (requiere HTTPS).',
+          tono: 'warn',
+        });
+      }
+    }, 80);
+  }
+
+  private leido(raw: string): void {
+    // El zumbido confirma sin mirar la pantalla: en el mostrador se lee de reojo.
+    if (navigator.vibrate) navigator.vibrate(80);
+    const codigo = raw.trim();
+    this.cerrarCamara();
+    if (this.scanInput?.nativeElement) this.scanInput.nativeElement.value = '';
+    this.consultar(codigo);
+  }
+
+  cerrarCamara(): void {
+    this.camaraAbierta.set(false);
+    try { this.controles?.stop(); } catch { /* la cámara ya estaba cerrada */ }
+    this.controles = undefined;
+    this.lector = undefined;
+    this.enfocar();
+  }
+
+  ngOnDestroy(): void {
+    this.cerrarCamara();
+    if (this.clearTimer) clearTimeout(this.clearTimer);
   }
 
   /**
@@ -1151,6 +1115,23 @@ export class TiendaVerificadorComponent implements OnInit {
     return (Number(v) || 0).toLocaleString('es-MX', {
       style: 'currency', currency: 'MXN', minimumFractionDigits: 2, maximumFractionDigits: 2,
     });
+  }
+
+  /** El precio hero separa el "$" en un span chico (`.vf-peso`, calcado del HTML original):
+   * este helper da el número sin el signo para que el template lo envuelva aparte. */
+  moneySinSigno(v: number | null | undefined): string {
+    if (v == null) return '—';
+    return (Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  /** Mismo mapeo de `unidadLabel()` del HTML original. */
+  unidadLabel(u: string): string {
+    const s = String(u || '').toUpperCase();
+    if (s === 'PZA') return 'Pieza';
+    if (s === 'PAQ') return 'Paquete';
+    if (s === 'CJA') return 'Caja';
+    if (s === 'KG') return 'Kilo';
+    return s || '';
   }
 
   private httpMsg(e: any): string {
