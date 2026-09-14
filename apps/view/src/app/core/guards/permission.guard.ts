@@ -278,11 +278,17 @@ export const contabilidadHomeGuard: CanActivateFn = landingRedirectGuard(CONTABI
 /**
  * `[SN.4]` Landing de `/admin` ("Configuración de la suite"). Antes: `redirectTo: 'users'` fijo,
  * que exige USUARIOS_GESTIONAR. `direccion` y `encargado_tienda` (10 usuarios) tienen ROLES_VER sin
- * GESTIONAR: podían abrir `/admin/roles` y el índice los rebotaba. USUARIOS_VER y USUARIOS_PASSWORDS
- * no abren ninguna pantalla — por eso el mapa de la landing ni los ofrece (gate explícito).
+ * GESTIONAR: podían abrir `/admin/roles` y el índice los rebotaba.
+ *
+ * `[AU.1]` ⚠️ La nota de `[SN.4]` decía que «USUARIOS_VER no abre ninguna pantalla» y **era cierto
+ * porque la ruta estaba mal gateada**, no porque fuera el diseño: el árbol de authz declara
+ * `/admin/users` como `view: [USUARIOS_VER]` desde siempre. Ahora que la ruta lo honra, entra al
+ * mapa — y va DESPUÉS de `USUARIOS_GESTIONAR` porque quien administra aterriza igual ahí.
+ * `USUARIOS_PASSWORDS` sigue afuera: no abre pantalla propia.
  */
 export const ADMIN_LANDING: LandingCandidate[] = [
   { perm: Permission.USUARIOS_GESTIONAR, url: '/admin/users' },
+  { perm: Permission.USUARIOS_VER, url: '/admin/users' },
   { perm: Permission.ROLES_VER, url: '/admin/roles' },
   { perm: Permission.ROLES_CONFIGURAR, url: '/admin/roles' },
 ];

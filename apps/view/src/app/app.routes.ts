@@ -1178,9 +1178,36 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
       },
       {
+        /*
+         * `[AU.1]` La puerta abre con `USUARIOS_VER`, no con `USUARIOS_GESTIONAR`.
+         *
+         * El árbol de authz declara esta pantalla como `view: [USUARIOS_VER]`
+         * (`authz-tree.ts`), y la ruta exigía el permiso de ESCRIBIR. Medido en
+         * prod: entraban **sólo los 9 superadmin**, y otras **10 personas con
+         * `USUARIOS_VER` rebotaban** — 6 encargados de tienda, 3 supervisores de
+         * ventas y 1 jefe de mercadotecnia. Un permiso que el árbol promete y la
+         * ruta no honra es una compuerta muerta, que es lo que ADR-054 midió
+         * cuatro veces.
+         *
+         * ⛔ No afloja nada: escribir sigue exigiendo `USUARIOS_GESTIONAR`, y lo
+         * valida el BACKEND en cada `POST`/`PUT`/`DELETE` — el botón escondido es
+         * cortesía, la barrera está del otro lado.
+         *
+         * Y el alcance ya estaba resuelto: `alcanceDelPadron()` (`[ID.27]`/`[ID.35]`)
+         * acota a cada quien. Medido, lo que ve cada uno de los 10 al abrir:
+         * los 6 encargados 5–13 (el personal de SU sucursal), los 3 supervisores
+         * 7–14 (su equipo).
+         *
+         * ⚠️ `anyPermissionGuard`, no `permissionGuard(USUARIOS_VER)`: con la clave
+         * sola, quien tuviera `USUARIOS_GESTIONAR` **sin** `USUARIOS_VER` quedaría
+         * afuera de la pantalla que administra. Hoy nadie está así (los 2 roles que
+         * conceden GESTIONAR conceden VER), pero el gate es literal y el editor de
+         * roles deja dejarlo en ese estado con dos clics. Lo atrapó
+         * `landing-guards.spec.ts`, que es para lo que existe.
+         */
         path: 'users',
         loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
-        canActivate: [permissionGuard(Permission.USUARIOS_GESTIONAR)]
+        canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
       },
       {
         // P2.6 — asignar marcas a promotores (scoping del Control de Caducidades)

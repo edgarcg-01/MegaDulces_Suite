@@ -350,7 +350,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
   ];
 
   private adminNavItems: NavItem[] = [
-    { label: 'Usuarios', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_GESTIONAR },
+    // `[AU.1]` Con `USUARIOS_GESTIONAR` el ítem no se pintaba para las 10 personas
+    // que tienen `USUARIOS_VER`: aunque la ruta abriera, no tenían por dónde llegar.
+    { label: 'Usuarios', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_VER },
     { label: 'Promotores de marca', icon: 'pi pi-id-card', route: '/admin/promotores', permission: Permission.USUARIOS_GESTIONAR },
     { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_CONFIGURAR  },
     { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.USUARIOS_GESTIONAR },
