@@ -13,6 +13,12 @@ export interface LabelModel {
   barcode: string | null;            // número validado (o null si Kepler traía basura)
   barcode_format: string | null;     // EAN13 | UPC | EAN8
   piece_price: number | null;
+  /**
+   * `[ET.3]` De dónde salió `piece_price`. `erp_vivo` = de `kepler_ods.kdii` en el momento ·
+   * `erp_sin_precio` = el ERP no lo cotiza en esa plaza y por eso va `null` (no se imprime un
+   * precio viejo) · `copia` = no se pidió plaza, así que se conserva la vista consolidada.
+   */
+  piece_price_origen?: 'erp_vivo' | 'erp_sin_precio' | 'copia';
   wholesale_piece_min_qty: number | null;
   wholesale_piece_price: number | null;
   pack_size: number | null;
@@ -161,6 +167,16 @@ export class CommercialLabelsService {
    * reproduce exactamente la fila que se publicaba hasta hoy. Es compatibilidad, no el camino
    * bueno: un `leftJoin` a la TABLA sin filtrar por plaza devolvería 8 filas por producto.
    */
+  /**
+   * `[ET.3]` El precio del ERP en vivo, o `null`. El umbral `0.05` es el MISMO que usa el cómputo
+   * de la etiquetera (`label-compute.js`: `WHERE k.c90::numeric > 0.05`): si se usara otro, la
+   * etiqueta y la copia discreparían por una frontera distinta, que es un defecto nuevo.
+   */
+  private precioVivoDe(r: any): number | null {
+    const v = r?.ods_piece_price != null ? Number(r.ods_piece_price) : NaN;
+    return Number.isFinite(v) && v > 0.05 ? v : null;
+  }
+
   async resolveForLabels(
     codesRaw: string[],
     sucursal: string | null = null,
@@ -199,6 +215,33 @@ export class CommercialLabelsService {
             if (suc) this.andOn('l.sucursal', '=', trx.raw('?', [suc]));
           },
         )
+        // ── `[ET.3]` EL PRECIO SALE DE LA FUENTE, NO DE LA COPIA ───────────────────────────
+        //
+        // Edgar (2026-09-14): *"hay que usar fuentes principal y ver que esta interfaz tome
+        // información correcta"*.
+        //
+        // `commercial.product_label_prices` es una COPIA que mantiene un importer cada 30 min, y
+        // su UPSERT es *churn-free*: sólo toca la fila cuando cambia. Consecuencia medida — no hay
+        // señal de frescura por fila, así que *"fresca y sin cambios"* y *"abandonada"* se ven
+        // idénticas. Y el cómputo filtra `c90 > 0.05` con un merge que NO borra, así que **cuando
+        // el ERP baja un precio a cero, la fila vieja sobrevive con su último valor**: medido en
+        // prod, el SKU `71077` en la plaza `07` seguía imprimiendo **$55.55** con el ERP en 0.
+        //
+        // El verificador de mostrador NO tenía este problema porque su precio base ya salía de
+        // `kepler_ods.kdii` en vivo. La etiqueta —la que se imprime en papel y queda en el
+        // anaquel— era la única que lo tomaba de la copia. Ahora las dos leen lo mismo.
+        //
+        // ⚠️ El JOIN va SÓLO con plaza: `kdii` trae una fila por (sku, sucursal), así que sin
+        // plaza multiplicaría cada producto por ocho. Sin plaza se conserva el camino de antes
+        // (la vista consolidada), que es lo que ya se publicaba.
+        .modify((qb) => {
+          if (!suc) return;
+          qb.leftJoin('kepler_ods.kdii as k', function (this: any) {
+            this.on(trx.raw('btrim(k.c1) = btrim(p.sku)'))
+              .andOn(trx.raw('btrim(k.sucursal::text) = ?', [suc]));
+          }).select(trx.raw(
+            `NULLIF(regexp_replace(k.c90::text, '[^0-9.]', '', 'g'), '')::numeric AS ods_piece_price`));
+        })
         .whereNull('p.deleted_at')
         .andWhere((b) => b.whereIn('p.sku', skuMatch).orWhereIn('p.barcode', codes))
         .select(
@@ -239,7 +282,12 @@ export class CommercialLabelsService {
           content: r.content ?? null,
           barcode: fmt ? rawBc : null,
           barcode_format: fmt,
-          piece_price: n(r.piece_price),
+          // `[ET.3]` Con plaza, el precio es el del ERP EN VIVO. `null` cuando el ERP no lo
+          // cotiza (0 o ausente) — y `null` es correcto: la etiqueta deja de imprimir un precio
+          // en vez de imprimir el que el ERP ya retiró. Sin plaza se conserva el de la copia.
+          piece_price: suc ? this.precioVivoDe(r) : n(r.piece_price),
+          // `[ET.3]` De dónde salió, para que la pantalla lo pueda decir y no lo tenga que suponer.
+          piece_price_origen: suc ? (this.precioVivoDe(r) == null ? 'erp_sin_precio' : 'erp_vivo') : 'copia',
           wholesale_piece_min_qty: r.wholesale_piece_min_qty ?? null,
           wholesale_piece_price: n(r.wholesale_piece_price),
           pack_size: r.pack_size ?? null,

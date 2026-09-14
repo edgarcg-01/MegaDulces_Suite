@@ -139,6 +139,12 @@ export interface LabelModel {
   barcode: string | null;
   barcode_format: string | null;
   piece_price: number | null;
+  /**
+   * [ET.3] De donde salio el precio de arriba. 'erp_vivo' = de kepler_ods.kdii en el momento ·
+   * 'erp_sin_precio' = el ERP no lo cotiza en esa tienda (por eso llega null y la etiqueta lo
+   * DICE en vez de imprimir un cero) · 'copia' = no se pidio plaza, se conservo la consolidada.
+   */
+  piece_price_origen?: 'erp_vivo' | 'erp_sin_precio' | 'copia';
   wholesale_piece_min_qty: number | null;
   wholesale_piece_price: number | null;
   pack_size: number | null;
@@ -265,6 +271,8 @@ export interface LabelModel {
     /* MAYOREO: es el renglón por el que el cliente decide comprar más, así que se realza —
        chip amarillo de marca + trazo más grueso en el número. Es el mismo amarillo de la caja
        del precio grande, para que se lean como pareja. */
+    /* [ET.3] Se lee como un estado, no como una oferta: sin realce y en el tono apagado. */
+    .etq-sinprecio{ font-size:9mm; letter-spacing:.5px; color:#6b6b6b; }
     .etq-tier.is-mayoreo{ background:rgba(246,196,0,.32); border-radius:1mm; padding:.3mm 1mm; margin:0 -1mm; }
     .etq-tier.is-mayoreo::before{ display:none; }
     .etq-tier.is-mayoreo + .etq-tier::before{ display:none; }
@@ -307,13 +315,23 @@ export interface LabelModel {
             <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
           </div>
           <div class="etq-pricebox">
-            <div class="etq-price" #priceEl><span class="cur">$</span>{{ bigInt }}<span class="dot">.</span>{{ bigDec }}</div>
+            <!-- [ET.3] Sin precio NO se imprime $0.00. Antes este caso ni existia porque la
+                 etiqueta tomaba el precio de la COPIA, que conservaba el ultimo valor conocido
+                 aunque el ERP ya lo hubiera retirado (medido: 71077 en la plaza 07 imprimia
+                 $55.55 con el ERP en cero). Ahora el precio sale del ERP en vivo, y cuando el ERP
+                 no lo cotiza la etiqueta lo DICE. Un cero es una afirmacion de precio; "sin
+                 precio" es la verdad. Medido en la plaza 07: 9 de 8,693 etiquetas. -->
+            @if (sinPrecio) {
+              <div class="etq-price etq-sinprecio" #priceEl>SIN PRECIO</div>
+            } @else {
+              <div class="etq-price" #priceEl><span class="cur">$</span>{{ bigInt }}<span class="dot">.</span>{{ bigDec }}</div>
+            }
             <!-- La UNIDAD del precio grande. El 73.5% de las etiquetas muestran un precio de
                  PAQUETE y el cliente compra esa unidad en el 92.8% de los renglones: leer el
                  número sin su unidad es el error más caro del proyecto (ADR-055). Por eso la
                  palabra va en su propio nivel de jerarquía, no como pie de foto. -->
             <div class="etq-pieza" #pieza>
-              <span class="etq-pieza-txt" #piezaTxt><span class="pre">Precio por</span><span class="u">{{ bigUnit.word }}</span></span>
+              <span class="etq-pieza-txt" #piezaTxt>@if (sinPrecio) {<span class="pre">el ERP no lo cotiza en esta tienda</span>} @else {<span class="pre">Precio por</span><span class="u">{{ bigUnit.word }}</span>}</span>
             </div>
           </div>
         </div>
@@ -576,6 +594,16 @@ export class LabelComponent implements AfterViewInit, OnChanges {
       : { label: '1 kg', value: this.perKgPrice };
   }
   private get bigStr(): string { return this.bigUnit.value.toFixed(2); }
+
+  /**
+   * `[ET.3]` No hay precio que imprimir.
+   *
+   * Pasa cuando el ERP dejo de cotizar el producto en ESA tienda (`piece_price_origen =
+   * 'erp_sin_precio'`) y tampoco hay paquete ni caja con precio. Antes era invisible: la etiqueta
+   * tomaba el precio de la copia, que conserva el ultimo valor conocido porque el computo filtra
+   * `c90 > 0.05` y el merge no borra. Imprimir $0.00 seria cambiar un precio falso por otro.
+   */
+  get sinPrecio(): boolean { return this.bigUnit.value <= 0; }
   // F4: separador de miles (igual que los tiers con number:'1.2-2') → "1,044".
   get bigInt(): string { return this.bigStr.split('.')[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
