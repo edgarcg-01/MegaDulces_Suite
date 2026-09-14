@@ -160,9 +160,30 @@ async function computeLabels(readClient, { schema, skus } = {}) {
     let m = wholesale.get(k);
     if (!m) { m = new Map(); wholesale.set(k, m); }
     const cur = m.get(present);
-    // más barato por presentación; DESEMPATE DETERMINISTA por menor minQty (si no, el DISTINCT sin
-    // orden elegiría distinto cada corrida → el hop-2 churn-free reescribiría en cada tick de kdii).
-    if (!cur || p < cur.price || (p === cur.price && mq < cur.minQty)) m.set(present, { price: p, minQty: mq });
+    // `[ET.1]` ⭐ El PRIMER escalon alcanzable, no el mas barato. Desempate determinista por menor
+    // precio (si no, el DISTINCT sin orden elegiria distinto cada corrida -> el hop-2 churn-free
+    // reescribiria en cada tick de kdii).
+    //
+    // ── Por que cambio ──────────────────────────────────────────────────────────────────────
+    // Elegia `p < cur.price`, o sea el escalon MAS BARATO, que en Kepler es casi siempre el MAS
+    // PROFUNDO. Medido en prod 2026-09-14 sobre kdpv_prod_util:
+    //
+    //   grupos (sku, plaza, presentacion) ................. 148,936
+    //     con MAS DE UN escalon ........................... 91,164  (61.2%)
+    //     donde el umbral publicado NO era el primero ......  89,605
+    //       umbral publicado, mediana ..................... desde 10
+    //       umbral primero alcanzable, mediana ............ desde 3
+    //       diferencia de PRECIO entre los dos ............ 0.9%
+    //
+    // O sea la etiqueta y el verificador anunciaban "Mayoreo 100+" donde existia "Mayoreo 3+", y
+    // pedian mas del TRIPLE de cantidad para ahorrar menos del 1%. Casos reales de la plaza 01:
+    // 03118 PZA publicaba "desde 100 a $120.81" existiendo "desde 3 a $127.45"; 44020 publicaba
+    // "desde 80" existiendo "desde 3".
+    //
+    // El escalon profundo no es falso -- es el menos util: una etiqueta de anaquel promete una
+    // condicion que quien la lee tiene que poder cumplir. Los dos consumidores (etiquetera y
+    // verificador) leen de aca, y por eso los dos lo tomaban mal.
+    if (!cur || mq < cur.minQty || (mq === cur.minQty && p < cur.price)) m.set(present, { price: p, minQty: mq });
   }
   return kdii.map((r) => assembleLabel(r, wholesale.get(llave(r.sku, r.sucursal)) || new Map()));
 }
