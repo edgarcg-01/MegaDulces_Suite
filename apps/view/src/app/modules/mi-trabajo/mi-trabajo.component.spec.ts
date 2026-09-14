@@ -706,10 +706,53 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('…y aparece con lo que abriste, sin repetir y con lo más reciente primero', async () => {
     localStorage.setItem('mt.accesos.v1', JSON.stringify(['finanzas', 'compras', 'finanzas']));
     await montar({ perms: [], role: 'superadmin' });
-    const tiles = q<HTMLAnchorElement>('a.mt-tile');
-    expect(tiles.length).toBe(2);
-    expect(tiles[0].textContent).toContain('Finanzas');
+    const chips = q<HTMLAnchorElement>('a.mt-chip');
+    expect(chips.length).toBe(2);
+    expect(chips[0].textContent).toContain('Finanzas');
     localStorage.removeItem('mt.accesos.v1');
+  });
+
+  /*
+   * `[SN.26]` El atajo **no puede costar más alto que las puertas a las que atajo**. Medido a
+   * 1440×874 (la laptop con la que Edgar lo revisó): la columna derecha pedía 836 px sobre 732
+   * disponibles, y los mosaicos 4:3 se llevaban 146 de esos 732 para repetir tarjetas que ya
+   * estaban en pantalla. Esta prueba fija el contrato de forma —línea, no retícula— para que nadie
+   * los devuelva a un bloque alto sin volver a medir el presupuesto.
+   */
+  it('los accesos van en una línea de chips, no en una retícula de mosaicos', async () => {
+    localStorage.setItem('mt.accesos.v1', JSON.stringify(['finanzas', 'compras']));
+    await montar({ perms: [], role: 'superadmin' });
+    expect(q('.mt-chips').length).toBe(1);
+    // La retícula de 4:3 no vuelve por la puerta de atrás.
+    expect(q('.mt-tiles').length).toBe(0);
+    expect(q('a.mt-tile').length).toBe(0);
+    localStorage.removeItem('mt.accesos.v1');
+  });
+
+  /*
+   * `[SN.26]` El acceso directo **tiene que verse**. Se hundía con `--layout-bg`, que arriba de
+   * 100rem es EXACTAMENTE el fondo de la isla del grupo: 11 de 22 tarjetas sin contraste de relleno
+   * contra su propio contenedor. La distinción vive en tipo y contraste (DESIGN.md Q.5), no en un
+   * relleno que lo desaparece — así que la clase ya no puede traer `background` propio.
+   */
+  it('un acceso directo se distingue por tipo, no por un relleno que lo borra', () => {
+    /*
+     * ⚠️ Se lee el ARCHIVO, no `document.styleSheets`: en jsdom los estilos del componente no
+     * llegan al DOM, así que la primera versión de esta prueba encontraba cero reglas y se ponía
+     * verde sin medir nada. Es el mismo tercer estado de ADR-056 — cero coincidencias no es cero
+     * infracciones — y por eso la aserción de abajo existe antes que la del `background`.
+     */
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path') as typeof import('path');
+    const css = fs
+      .readFileSync(path.join(__dirname, 'mi-trabajo.component.css'), 'utf8')
+      // Los comentarios CITAN la regla retirada; sin quitarlos la prueba juzga la explicación.
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const reglas = css.match(/\.is-alias\b[^{}]*\{[^}]*\}/g) ?? [];
+    expect(reglas.length).toBeGreaterThan(0);
+    for (const r of reglas) expect(r).not.toMatch(/background/);
   });
 
   it('el buscador encuentra SUBMÓDULOS y lleva directo, no sólo al módulo que los contiene', async () => {

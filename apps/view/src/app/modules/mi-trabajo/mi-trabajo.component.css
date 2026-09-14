@@ -538,12 +538,27 @@
   Elevacion reactiva (patron Linear). ⚠️ DESIGN.md:448 prohibe la sombra difusa en una card in-page
   y pide "borde O sombra, nunca ambas" -- pero exceptua el lift TRANSITORIO de hover, que no es
   elevacion en reposo. Esto entra por esa puerta y queda declarado como excepcion, no como regla.
+
+  [SN.26] ⚠️ Y NO SE VEIA. Edgar lo reporto asi: "no existe un cambio de color al hacer hover a un
+  modulo". La causa, medida: la sombra se dibujaba con var(--overlay-hover), que NO es un color de
+  sombra -- es el TINTE DE SUPERFICIE de hover del sistema, 4.5% de tinta (rgba(16,13,9,0.045)), el
+  mismo que alimentan --surface-hover-bg y --table-row-hover-bg. Una sombra al 4.5% repartida en
+  10 px de blur es invisible, y el fondo no cambiaba nunca: el unico aviso era el borde subiendo a
+  --text-muted, 1 px. Ademas el fallback que tenia escrito al lado (rgba(0,0,0,.10)) NUNCA se
+  aplicaba, porque el token SI esta definido -- el segundo argumento de var() es para la ausencia.
+
+  Ahora cambian cuatro cosas a la vez: la superficie sube a --card-bg (y eso ademas rescata al
+  acceso directo, que en reposo va mas apagado), el borde toma el color de accion, el icono con el,
+  y la sombra usa --shadow-float, el token de elevacion del sistema, definido para los DOS temas
+  (el que yo habia escrito a mano se volvia un halo claro en oscuro).
 */
 .mt-cell:hover {
   transform: translateY(-2px);
-  box-shadow: 0 3px 10px var(--overlay-hover, rgba(0, 0, 0, .10));
-  border-color: var(--text-muted);
+  background: var(--card-bg);
+  border-color: var(--action);
+  box-shadow: var(--shadow-float);
 }
+.mt-cell:hover .mt-cell-ico { color: var(--action); }
 .mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mt-cell-ico { font-size: var(--fs-sm); color: var(--text-faint); flex: none; }
 .mt-cell-tx { display: flex; flex-direction: column; min-width: 0; }
@@ -567,10 +582,21 @@
 }
 /*
   [SN.25] La celda que NO es un modulo: es un submodulo de otro modulo, sacado a la portada.
-  Medido: 10 de las 22. Se hunde el fondo para que se lea como acceso directo y no como otro lugar.
+  Medido: 11 de las 22.
+
+  [SN.26] ⚠️ Se hundia con background: var(--layout-bg) -- y ese es EXACTAMENTE el fondo que toma
+  la isla del grupo arriba de 100rem. Medido en vivo: celda rgb(245,241,234) sobre isla
+  rgb(245,241,234). Once de las 22 tarjetas quedaban sin ningun contraste de relleno contra su
+  propio contenedor: sostenidas por una hairline de 1 px, se leian como deshabilitadas, no como
+  acceso directo. Y en esa mitad del catalogo entran las cinco de Auditoria y tres de
+  Configuracion, o sea grupos ENTEROS que parecian apagados.
+
+  El relleno se retira. La distincion se queda donde DESIGN.md Q.5 la pide -- tipo y contraste, no
+  color ni mas cajas: el titulo en peso regular contra el medium del modulo, el icono mas apagado,
+  y la segunda linea diciendo literalmente de donde sale ("de Comercial / Ventas").
 */
-.mt-cell.is-alias { background: var(--layout-bg); }
-.mt-cell.is-alias .mt-cell-nm { font-weight: var(--fw-regular); }
+.mt-cell.is-alias .mt-cell-nm { font-weight: var(--fw-regular); color: var(--text-muted); }
+.mt-cell.is-alias .mt-cell-ico { opacity: .7; }
 
 /* [SN.25] Submodulos hallados por el buscador: los 101 tienen ruta propia. */
 .mt-cell.is-sub .mt-cell-ico { color: var(--action); }
@@ -578,8 +604,20 @@
 /*
   [SN.25] «Tus accesos» — la unica fila donde la tarjeta grande se gana el lugar (4:3, icono
   protagonista, patron Vercel/ClickUp). Son seis: 22 cuadradas no caben, seis si.
+
+  [SN.26] ⚠️ REVERTIDO A CHIPS, y el motivo es aritmetica de la laptop. Medido a 1440x874, que es
+  la maquina con la que Edgar lo miro: la columna derecha necesita 836 px y tiene 732 -- 104 px de
+  scroll en la pantalla que existe para NO tener scroll. La fila de mosaicos costaba 146 px de esos
+  732 (el 20% del presupuesto vertical) y ademas dejaba 3 de 5 columnas vacias, porque un grid de
+  ancho fijo con dos elementos deja huecos.
+
+  Y lo que compraba con esos 146 px era una repeticion: medido en vivo, 2 de 2 mosaicos apuntaban a
+  una tarjeta que ya estaba visible 200 px mas abajo, sin scroll de por medio. Un atajo sirve para
+  lo que esta LEJOS; en una pantalla que cabe entera no hay nada lejos. El chip conserva el bloque
+  que pedia el brief (ClickUp) en 32 px, se acomoda en linea sin dejar huecos, y devuelve 114 px
+  -- los que hacian falta para que el catalogo entre en una laptop.
 */
-.mt-freq { margin-bottom: var(--sp-4); }
+.mt-freq { margin-bottom: var(--sp-3); }
 .mt-freq-h {
   margin: 0 0 var(--sp-2);
   display: flex;
@@ -589,7 +627,13 @@
   text-transform: uppercase;
   letter-spacing: .07em;
   font-weight: var(--fw-bold);
-  color: var(--action);
+  /*
+    [SN.26] Iba en --action. Era lo UNICO naranja de toda la columna derecha, puesto encima del
+    bloque menos informativo de la pantalla (una comodidad que vive en este navegador), mientras
+    los seis rotulos de espacio -- que si ordenan el catalogo -- iban en --text-muted. El acento
+    gastado al reves. DESIGN.md Q.5: la jerarquia se expresa por tipo y contraste, nunca por color.
+  */
+  color: var(--text-muted);
 }
 .mt-freq-rule { flex: 1 1 auto; height: 1px; background: var(--border-color); }
 .mt-freq-why {
@@ -598,50 +642,38 @@
   font-weight: var(--fw-regular);
   color: var(--text-faint);
 }
-.mt-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: var(--sp-2); }
-.mt-tile {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  /* 4:3 sobre el ancho de columna. `aspect-ratio` con un tope, para que no crezca sin control. */
-  aspect-ratio: 4 / 3;
-  max-height: 9.5rem;
-  padding: var(--sp-3);
+/*
+  [SN.26] El chip. Se acomoda en LINEA y toma el ancho de su texto, asi que no deja huecos: es la
+  unica forma de esta pantalla que no hereda el hueco del grid de ancho fijo.
+*/
+.mt-chips { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+.mt-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 2rem;
+  max-width: 15rem;
+  padding: 0 var(--sp-3);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: var(--r-md);
+  border-radius: var(--r-pill);
   color: inherit;
   text-decoration: none;
-  min-width: 0;
+  font-size: var(--fs-xs);
   transition:
     transform 180ms ease-in-out,
     box-shadow 180ms ease-in-out,
     border-color 180ms ease-in-out;
 }
-.mt-tile:hover {
+.mt-chip:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px var(--overlay-hover, rgba(0, 0, 0, .10));
-  border-color: var(--text-muted);
+  border-color: var(--action);
+  box-shadow: var(--shadow-float);
 }
-.mt-tile:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-/* El icono es el protagonista: es lo unico que crece respecto de la celda compacta. */
-.mt-tile-ico { font-size: var(--fs-h2); line-height: 1; color: var(--text-muted); }
-.mt-tile-txt { display: flex; flex-direction: column; min-width: 0; }
-.mt-tile-nm {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  line-height: 1.2;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.mt-tile-sb {
-  font-size: var(--fs-nano);
-  color: var(--text-faint);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.mt-chip:hover .mt-chip-ico { color: var(--action); }
+.mt-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.mt-chip-ico { font-size: var(--fs-xs); color: var(--text-faint); flex: none; }
+.mt-chip-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mt-subs { margin-bottom: var(--sp-4); }
 
 /*
@@ -707,6 +739,18 @@
   line-height: 1.5;
 }
 
+/*
+  [SN.26] La laptop. Medido a 1440x874 con las 22 puertas: despues de cambiar los mosaicos por
+  chips la columna pedia 747 px sobre 732 -- quedaban 15. El grupo se forma por espaciado
+  (DESIGN.md:540), asi que lo que se ajusta es el espaciado, no el contenido: 20 px entre grupos
+  bajan a 16 SOLO donde el alto aprieta, y son 5 huecos = 20 px recuperados. El escritorio alto
+  conserva su ritmo. ⚠️ Recortar tarjetas para que "quepa" seria esconder puertas, que es lo que
+  esta pantalla existe para no hacer.
+*/
+@media (max-height: 56rem) {
+  .mt-space + .mt-space { margin-top: var(--sp-4); }
+}
+
 /* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */
 @media (max-width: 80rem) {
   .mt-body { grid-template-columns: minmax(0, 26rem) minmax(0, 1fr); gap: var(--sp-6); }
@@ -726,6 +770,10 @@
 @media (prefers-reduced-motion: reduce) {
   .is-spin { animation: none; }
   /* `[SN.25]` El brief pide 180 ms; quien pidió menos movimiento no recibe ninguno. */
-  .mt-cell, .mt-tile, .mt-task { transition: none; }
-  .mt-cell:hover, .mt-tile:hover { transform: none; box-shadow: none; }
+  .mt-cell, .mt-chip, .mt-task { transition: none; }
+  /*
+    `[SN.26]` El movimiento se va, el AVISO se queda: sin `transform` ni sombra sigue habiendo
+    cambio de borde, de fondo y de icono. Antes esta regla apagaba las dos únicas señales que había.
+  */
+  .mt-cell:hover, .mt-chip:hover { transform: none; box-shadow: none; }
 }
