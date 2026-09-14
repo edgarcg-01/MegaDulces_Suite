@@ -798,6 +798,7 @@ Para UI **nueva** (no se reescribe lo que ya funciona con PrimeNG):
 - **Layout: keyboard-first / POS.** Foco **permanente** en el input de búsqueda/captura (listo para escáner / ingreso rápido). El **TOTAL y las acciones de cobro dominan** la jerarquía visual sobre cualquier otra métrica.
 - **Adición en tiempo real al tope** de la lista (feed de ticket/captura), **no paginación tradicional**.
 - **Reconciliación (crítica) con §datos densos 7:** esto aplica SOLO a la superficie de captura/POS en vivo. Las **listas transaccionales/auditables** (bandeja de pedidos, facturas, ledger de stock) **siguen paginadas** — auditabilidad manda. No confundir "mostrador" (feed) con "bandeja" (registro).
+- **Excepción confirmada (decisión 0Sistemas, 2026-09-12):** `/tienda/verificador` (`TiendaVerificadorComponent`) NO sigue esta sección — es un clon fiel a propósito del kiosco `verificador.html` retirado en la Fase CV: Sniglet en vez de Hanken Grotesk, paleta cruda propia (`--vf-*`, mismas cifras hex del HTML original) en vez de tokens, fondo con patrón decorativo, tema fijo (siempre claro, ignora el modo oscuro del navegador). Es la única pantalla del repo con esta excepción — no repetir el patrón en otro módulo sin la misma autorización explícita. Lo que sí sigue intacto (no es "look"): foco permanente, procedencia del precio, declarar-en-vez-de-esconder (ADR-056), "no encontrado" ≠ "sin conexión" (§pre-vuelo 6).
 
 ### P. Ayuda contextual (Abouts por módulo)
 

@@ -250,8 +250,8 @@ describe('verificador · el mayoreo', () => {
 
   /** `[TDA.7]` La unidad del monto viaja con el escalón; estaba cableada a `c/u`. */
   it('la unidad del monto la declara el escalón, no la plantilla', () => {
-    expect(PAGE).toMatch(/class="vp-may-cu">\{\{ t\.unidad_monto \}\}/);
-    expect(PAGE).not.toMatch(/class="vp-may-cu">c\/u</);
+    expect(PAGE).toMatch(/class="vf-may-cu">\{\{ t\.unidad_monto \}\}/);
+    expect(PAGE).not.toMatch(/class="vf-may-cu">c\/u</);
     const fn = /private tiersDeFila\([\s\S]*?\n  \}(?=\r?\n)/.exec(SVC)![0];
     expect(fn).toMatch(/unidad_monto: paqueteReal \? 'por paquete' : 'c\/u'/);
   });
@@ -304,13 +304,14 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/Te ahorras/);
   });
 
-  // Colorimetría (DESIGN.md 5): el color de marca va en UNA cosa —el umbral, que es el dato
-  // accionable—, el ahorro usa el semántico `--ok-*`, y nada de hex inline.
-  it('el color sigue el sistema: marca en el umbral, semántico en el ahorro', () => {
-    expect(PAGE).toMatch(/\.vp-may-n \{[\s\S]*?var\(--action\)/);
-    expect(PAGE).toMatch(/\.vp-may-ahorro[\s\S]*?var\(--ok-/);
-    const css = /\.vp-mayoreo \{[\s\S]*?\.vp-gramaje/.exec(PAGE)![0];
-    expect(css).not.toMatch(/#[0-9a-fA-F]{3,8}/);
+  // [CV.25-look] Excepción confirmada a DESIGN.md §O.3 (decisión 0Sistemas, 2026-09-12): esta
+  // pantalla clona el look de verificador.html y NO usa --action/--ok-* — usa su propia paleta
+  // cruda (--vf-naranja/--vf-verde), declarada UNA vez en :host con las mismas cifras hex del
+  // HTML original. Lo que se vigila ahora no es "cero hex" (ya no aplica acá), sino que el resto
+  // del bloque REUSE esa única fuente en vez de repetir un hex distinto a mano.
+  it('el color del mayoreo reusa la paleta declarada del componente (--vf-naranja/--vf-verde)', () => {
+    expect(PAGE).toMatch(/\.vf-may-n \{[\s\S]*?var\(--vf-naranja\)/);
+    expect(PAGE).toMatch(/\.vf-may-ahorro strong\s*\{[\s\S]*?var\(--vf-verde\)/);
   });
 
   // Movimiento (tokens.css BINDING): sólo transform+opacity, con TOKEN de duración, y nunca sobre
@@ -326,39 +327,28 @@ describe('verificador · el mayoreo', () => {
    * retardo**. Un escalonado se sale del presupuesto sumando delays, no duraciones, y nada
    * lo miraba.
    */
-  it('el movimiento respeta el techo (retardo incluido), sólo transform/opacity, y cero librerías', () => {
-    // La escala BINDING de tokens.css. Si alguien inventa una duración fuera de la escala,
-    // no está acá y la aserción de abajo la marca.
-    const ESCALA: Record<string, number> = {
-      '--dur-micro': 120, '--dur-short': 150, '--dur-standard': 250, '--dur-max': 350,
-    };
-
-    const decls = [...PAGE.matchAll(/animation:\s*([^;]+);/g)].map((m) => m[1].trim());
-    expect(decls.length).toBeGreaterThan(3); // piso: si el regex deja de casar, no se pone verde en vacío
-
-    for (const d of decls) {
-      const tok = d.match(/var\((--dur-[a-z]+)/);
-      expect(tok).not.toBeNull();
-      const dur = ESCALA[tok![1]];
-      expect(dur).toBeDefined();
-      // El retardo es el 2º tiempo de la shorthand; sin él, 0.
-      const delay = Number((d.match(/\)\s+(\d+)ms\b/) || [, '0'])[1]);
-      expect(dur + delay).toBeLessThanOrEqual(ESCALA['--dur-max']);
-    }
+  /**
+   * `[CV.25-look]` La animación pasa de un fade escalonado con tokens de duración a un "pop"
+   * único de `.18s ease`, calcado del `verificador.html` original (`@keyframes pop`) — es la
+   * excepción aprobada a DESIGN.md §Motion, no un olvido, así que la escala de duración ya NO
+   * se vigila acá. Lo que SÍ sigue siendo el mismo invariante de `[TDA.6]`: la tarjeta es el
+   * MISMO nodo del DOM entre escaneos, así que sin alternar el `animation-name` entre DOS
+   * keyframes idénticos, la entrada corre una sola vez por turno.
+   */
+  it('el mecanismo de reinicio sigue vivo: dos keyframes + la clase que alterna, sólo transform/opacity', () => {
+    expect(PAGE).toMatch(/@keyframes vfPopA/);
+    expect(PAGE).toMatch(/@keyframes vfPopB/);
+    expect(PAGE).toMatch(/\[class\.is-pase-b\]="pase\(\) % 2 === 1"/);
 
     // Los keyframes de esta pantalla sólo mueven transform/opacity: nada de width/height/
-    // margin/padding/box-shadow, que hacen reflow (DESIGN.md §Motion).
-    for (const kf of PAGE.matchAll(/@keyframes\s+vp[A-Za-z]+\s*\{([^@]*?)\}\s*\n/g)) {
+    // margin/padding/box-shadow, que hacen reflow (DESIGN.md §Motion — esto SÍ sigue rigiendo).
+    const kfs = [...PAGE.matchAll(/@keyframes\s+vfPop[A-Za-z]+\s*\{([^@]*?)\}\s*\n/g)];
+    expect(kfs.length).toBeGreaterThanOrEqual(2); // piso: si el regex deja de casar, no se pone verde en vacío
+    for (const kf of kfs) {
       const props = [...kf[1].matchAll(/([a-z-]+)\s*:/g)].map((m) => m[1]);
       expect(props.length).toBeGreaterThan(0);
       for (const p of props) expect(['opacity', 'transform']).toContain(p);
     }
-
-    // El mecanismo de reinicio: dos juegos de keyframes + la clase que alterna. Sin esto la
-    // entrada corre una sola vez por turno, porque la tarjeta es el mismo nodo del DOM.
-    expect(PAGE).toMatch(/@keyframes vpEntraA/);
-    expect(PAGE).toMatch(/@keyframes vpEntraB/);
-    expect(PAGE).toMatch(/\[class\.is-pase-b\]="pase\(\) % 2 === 1"/);
 
     // Nada de librería de animación en esta pantalla (§U las nombra: anime.js/framer no entran).
     expect(PAGE).not.toMatch(/from 'gsap'|import\('gsap'\)|animejs|from 'motion'/);
@@ -389,13 +379,16 @@ describe('verificador · el mayoreo', () => {
     expect(PAGE).toMatch(/\[appCountUpLive\]="true"/);
 
     // Y la línea que no se cruza: ninguna cifra de PRECIO se anima por dentro.
-    const enHero = /class="vp-precio"[^>]*appCountUp|appCountUp[^>]*class="vp-precio"/;
-    const enMayoreo = /class="vp-may-monto"[^>]*appCountUp|appCountUp[^>]*class="vp-may-monto"/;
+    const enHero = /class="vf-precio"[^>]*appCountUp|appCountUp[^>]*class="vf-precio"/;
+    const enMayoreo = /class="vf-may-monto"[^>]*appCountUp|appCountUp[^>]*class="vf-may-monto"/;
     expect(PAGE).not.toMatch(enHero);
     expect(PAGE).not.toMatch(enMayoreo);
     // Los dos precios siguen siendo interpolación directa: visibles en el primer fotograma.
-    expect(PAGE).toMatch(/class="vp-precio">\{\{ money\(precioPrincipal\(\)\) \}\}/);
-    expect(PAGE).toMatch(/class="vp-may-monto">\{\{ money\(t\.precio_con_iva\) \}\}/);
+    // [CV.25-look] El hero separa el "$" en `.vf-peso` (calcado del HTML original) y usa
+    // `moneySinSigno()` en vez de `money()` para eso — sigue siendo interpolación directa,
+    // no una directiva de conteo.
+    expect(PAGE).toMatch(/class="vf-precio"><span class="vf-peso">\$<\/span>\{\{ moneySinSigno\(precioPrincipal\(\)\) \}\}/);
+    expect(PAGE).toMatch(/class="vf-may-monto">\{\{ money\(t\.precio_con_iva\) \}\}/);
   });
 
   /**
@@ -426,16 +419,21 @@ describe('verificador · el mayoreo', () => {
     };
     // Regla de clamp de DESIGN.md 9: el máximo no puede pasar 2.5x el mínimo (revienta el zoom
     // al 200 %, WCAG 1.4.4). Esta sí es una regla del sistema, no un criterio mío.
-    for (const clase of ['vp-precio', 'vp-may-monto']) {
+    for (const clase of ['vf-precio', 'vf-may-monto']) {
       const c = clampDe(clase);
       expect(c.max / c.min).toBeLessThanOrEqual(2.5);
     }
 
-    // La condición viaja al tamaño del cuerpo, no en letra chica: si el monto de mayoreo crece y
-    // la condición se susurra, alguien que lleva UNA pieza lee el precio de tres.
-    const cond = PAGE.slice(PAGE.indexOf('.vp-may-cond {'), PAGE.indexOf('.vp-may-cond > i'));
-    expect(cond).toMatch(/font-size:\s*var\(--fs-body/);
-    expect(cond).not.toMatch(/font-size:\s*var\(--fs-(xs|micro)/);
+    // La condición viaja a un tamaño igual o mayor que la letra chica del monto (`.vf-may-cu`),
+    // no por debajo: si el monto de mayoreo crece y la condición se susurra, alguien que lleva
+    // UNA pieza lee el precio de tres. [CV.25-look] Ya no hay token `--fs-*` acá (paleta cruda
+    // del clon), así que se compara en px crudo contra su propio vecino.
+    const bloque = (clase: string) => PAGE.slice(PAGE.indexOf(`.${clase} {`), PAGE.indexOf(`.${clase} {`) + 220);
+    const pxDe = (bloqueCss: string) => parseFloat((bloqueCss.match(/font-size:\s*([\d.]+)px/) || ['', '0'])[1]);
+    const condPx = pxDe(bloque('vf-may-cond'));
+    const cuPx = pxDe(bloque('vf-may-cu'));
+    expect(condPx).toBeGreaterThan(0);
+    expect(condPx).toBeGreaterThanOrEqual(cuPx);
   });
 
   /**
@@ -452,7 +450,7 @@ describe('verificador · el mayoreo', () => {
     // El backend dice a qué unidad pertenece cada escalón; la pantalla sólo compara.
     expect(PAGE).toMatch(/\(t\.aplica_a \?\? 'base'\) === quiere/);
     // Y el que no está en foco pierde tamaño: su monto puede estar en otra unidad que el hero.
-    expect(PAGE).toMatch(/\.vp-may-row:not\(\.is-foco\) \.vp-may-monto/);
+    expect(PAGE).toMatch(/\.vf-may-row:not\(\.is-foco\) \.vf-may-monto/);
   });
 
   /**
@@ -474,9 +472,15 @@ describe('verificador · el mayoreo', () => {
   /**
    * `[TDA.7]` La curva: `--ease-spring` está acotada por DESIGN.md §Motion a "sólo gestos
    * drag-to-dismiss". La defendí con "ya existe en tokens.css" — existir no es estar permitido.
+   *
+   * `[CV.25-look]` La entrada deja de usar `--ease-decelerate` de tokens.css: pasa a un `ease`
+   * fijo de `.18s`, calcado literal del `verificador.html` original (excepción aprobada a
+   * DESIGN.md §Motion). Lo que sigue prohibido, con o sin excepción, es la curva de GESTO
+   * (`--ease-spring`) en una animación de entrada — esa prohibición no depende de qué surface
+   * o paleta use la pantalla.
    */
-  it('las entradas usan la curva de ENTRADA, no la de gesto', () => {
-    expect(PAGE).not.toMatch(/animation:[^;]*--ease-spring/);
-    expect(PAGE).toMatch(/animation: var\(--vp-in\) var\(--dur-short, 150ms\) var\(--ease-decelerate/);
+  it('no reintroduce --ease-spring (acotada a gestos drag-to-dismiss) en la entrada', () => {
+    expect(PAGE).not.toMatch(/--ease-spring/);
+    expect(PAGE).toMatch(/animation:\s*var\(--vf-pop\)\s*\.18s\s+ease\s+both/);
   });
 });
