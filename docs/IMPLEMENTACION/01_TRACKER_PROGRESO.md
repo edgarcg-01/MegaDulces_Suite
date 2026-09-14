@@ -82,6 +82,41 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase AU — Administración de usuarios desde cero · continúa la Fase OR
+
+La Fase OR cambió qué **es** un usuario (una persona que ocupa un puesto) y lo dejó entero en la
+base. La pantalla no se enteró: `/admin/users` eran **3,070 líneas en un componente**, con un
+formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
+
+- [x] **[AU.0a]** 🧪 La organización por API — `OrgService` + `OrgController` (`/org`, 15 rutas):
+      puestos, cadena de mando, mapa puesto × responsabilidad, excepción por persona, historia y
+      coherencia. Cierra que el reparto de `[SN.17]` se haya tenido que hacer **por migración**.
+      Commit `1149cc6a` · 2026-09-13
+- [x] **[AU.0b]** 🧪 El padrón se busca y se pagina en el servidor (`applySmartSearch`). Destapó
+      que la consulta **no tenía `ORDER BY`** y que buscar por sucursal no funcionaba
+      («padre hidalgo» → 3 kioscos, ahora 13 personas). Commit `b29cd03a` · 2026-09-13
+- [x] **[AU.1]** 🧪 La puerta: la ruta exigía `USUARIOS_GESTIONAR` y el árbol declara
+      `view: [USUARIOS_VER]` → entraban **sólo los 9 superadmin** y 10 personas rebotaban.
+      Commit `70578558` · 2026-09-13
+- [x] **[AU.1b]** 🧪 El padrón deja de heredar `REPORTES_VER_GLOBAL` (decisión del lead): 18 sin
+      cambio, 1 acotado de 122 a 3. Y «su gente» pasa a ser UNIÓN `supervisor_id` ∪ (puesto ∩ eje).
+      Commit `bf33f543` · 2026-09-13
+- [x] **[AU.2]/[AU.3]/[AU.4]** 🧪 Las tres pantallas nuevas en `modules/admin/`: personas (ficha por
+      las cinco preguntas, con la propuesta del puesto que **nadie llamaba**), puestos con cadena de
+      mando, y responsabilidades con el diagnóstico `abre`. Commit `6e908b82` · 2026-09-13
+- [x] **[AU.6]** 🧪 Los candados: 35 ok / 0 / 1 declarado, **cero escrituras**, con prueba negativa
+      y control positivo por bloque. Commit `a2ab064f` · 2026-09-13
+- [ ] **[AU.5]** ⬜ El ciclo de vida completo: alta por invitación (`invited` sin contraseña, que el
+      CHECK admite desde `[ID.31]` y **nadie estrenó**) y baja real que **exige reasignar** lo que
+      queda huérfano — responsabilidades propias, tareas abiertas y reportes directos.
+- [ ] **[AU.7]** ⬜ Retirar `dashboard/admin-users` (3,619 líneas, ya sin ruta) y mover su
+      `UsersService`, que `daily-assignments` todavía importa. **Después** de la validación visual.
+- [ ] **[AU.8]** ⬜ ADR de la fase. ⚠️ ADR-052 está triple-ocupado: verificar numeración libre.
+
+**Deuda declarada:** `DEUDA-AU-ROLES` (el editor de permisos sigue escribiendo las 175 claves del
+enum) · `DEUDA-AU-SCOPEROL` (el alcance por ROL sigue sin pantalla, y es la causa de las 36
+excepciones de `warehouse`) · `DEUDA-AU-DIMS` (3 de 6 dimensiones sin editor).
+
 ### Fase SN — Suite: navegación por espacios ("Mi trabajo" en `/projects`) · plan en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md) · ADR-061
 
 Etapa 2 de la especificación de Dirección (2026-09-10): la landing deja de ser un catálogo de 11
