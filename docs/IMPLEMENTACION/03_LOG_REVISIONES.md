@@ -6,6 +6,31 @@
 
 ---
 
+## 2026-09-14 — Auditoría de las bases PROPIAS (prod `railway`): CERRADA al 100% — la limpieza declarada YA ocurrió, la procedencia vive en prod, y un 4º rojo falso (mío) cazado antes de publicar
+
+**Disparador:** *"ya auditamos la implementación del ERP Kepler. ahora audita nuestras propias bases de datos"* → alcance elegido: **todo el prod `railway`** (los 20 schemas que diseñamos + el espejo `kepler_ods`/`md`), entrega **completa + cierre**, postura **solo-auditar**.
+
+**Qué quedó cerrado** (detalle en [`FASE_BD`](FASES/FASE_BD_AUDITORIA_BASES_PROPIAS.md) + [`VERDAD_ABSOLUTA.md §7`](../VERDAD_ABSOLUTA.md)):
+- **Censo read-only de prod** (asserts `current_database='railway'` + `classify=prod` antes de cada SELECT): 617 tablas · 313 vistas · 13 matviews · 515 FKs · 31 GB · 2 roles login. El snapshot `ESQUEMA_BD_PROD.md` (2026-09-11) **derivó** en 3 días (+21 migs) — anotado.
+- **La base propia está estructuralmente SANA:** los 6 `_bak` de F1 **ya dropeados** (purga SD, batches 394-410); **0 bloat** (autovacuum sano); migraciones **coherentes** (0 aplicadas-sin-archivo → 0 riesgo directory-corrupt, 1 pendiente); **5** FK NO ACTION (no 68) · **3** sin PK · **0** triggers deshabilitados.
+- **La procedencia (VP) VIVE en prod** — contra la memoria "solo en `platform_test`": `master_data_history` 202,750 filas (202,748 en 7 d), `cron_run_log` 72k, `period_close` 28, `declared_gaps` 10. VP.3.1/3.3/4.1 desplegados y activos.
+- **El monitor (db-health) FUNCIONA:** medido bien (`resolved_at IS NULL`) hay **10 alertas abiertas, 1 por fuente, 0 fantasmas** — dedup y resolve correctos. Su verdad real: **carril Wincaja caído (6) + backup 2.8 d + cdc_reconcile error**, todo operativo en `.249`.
+- **Ruteo, no mecanismo nuevo:** doble linaje `sales_daily`→**SD**; Wincaja+backup→**VL.5**; alarma sin canal→**OBS**; RLS-moot (pool superuser)→deuda ADR-010; credencial Railway sin rotar→seguridad.
+
+### Lecciones (para que nadie las reconstruya)
+1. **Re-verificar en vivo gana al snapshot y a la memoria.** Los 6 `_bak` "vivos" ya no existían; `master_data_history` estaba "solo en platform_test" y está **vivo en prod con 202k filas**. Re-medir evitó reportar ~8 hallazgos muertos o falsos como nuevos.
+2. **El 4º rojo (mío): leer qué SIGNIFICA la columna antes de contarla.** Conté `db_health_alerts` por `status IN ('critical','warn')` y casi publiqué *"648 abiertas, el monitor está roto"*. El scanner marca resuelto con **`resolved_at`**, no con `status`. Correcto: **10 abiertas**. Medir la columna equivocada publica un rojo que no existe — el mismo pecado que la auditoría existe para cazar.
+3. **Los estimadores mienten dos veces.** `reltuples = -1` = *nunca analizada*, NO vacía. `n_live_tup = 0` tras un reset de stats (reinicio de Railway) tampoco es vacía: `inventory.products_active` salía "vacía" con **9,772 filas**. Contar `count(*)` exacto lo dudoso — 96 de 173 "vacías" tenían dato.
+4. **Clasificar contra la CADENCIA registrada, no contra la edad.** `feed_catalog` "stale 2.4 d" es **normal** (semanal, warn 180h); `backup_prod` "stale 2.8 d" es **crítico** (diario, crit 50h). Misma edad, veredictos opuestos — la edad sola engaña.
+5. **Vacío ≠ roto.** Las 77 tablas realmente vacías son **feature-construido-antes-del-uso** (scaffolding de beta + bandejas HITL sin estrenar), NO importer-muerto: **toda** tabla alimentada por importer (`analytics/catalog/inventory/finance/fiscal`) tiene dato. El patrón `customer_receivables` **no recurre**.
+6. **Auditar "nuestras bases" es un CENSO que RUTEA, no una fase paralela.** Los fixes van a VP/OBS/SD/VL. Abrir un mecanismo nuevo que re-trate procedencia/frescura repetiría el anti-patrón que VP mismo midió (un primitivo inventado por fase, nunca generalizado).
+7. **Cerrar ≠ resolver todo; cerrar = cero incógnitas.** La base está sana; lo abierto es **operativo** (Wincaja + backup en `.249`, doble linaje SD) — todo con dueño y fecha, ninguna incógnita.
+
+### Estado
+🟢 **Auditoría de bases propias = CERRADA al 100%** (censo + veredicto + ruteo). Deuda con nombre y dueño, **no incógnitas**: (1) doble linaje `sales_daily` → **SD**; (2) carril Wincaja + `backup_prod` sin correr en `.249` → **VL.5**; (3) alarma sin canal externo → **OBS.0.2/5**; (4) credencial Railway sin rotar → seguridad; (5) `ESQUEMA_BD_PROD.md` a regenerar. Ningún cambio ejecutado (postura solo-auditar).
+
+---
+
 ## 2026-09-14 — Auditoría del Kepler crudo + ruta al ODS: CERRADA al 100% (censo, causa raíz, sobrantes durables) — y 3 afirmaciones falsas que la disciplina cazó (2 mías)
 
 **Disparador:** *"una auditoría de la base de datos de Kepler cruda, como la usa Kepler, desde cero"* → *"recompila todo lo que encontramos y solucionémoslo"* → *"caracteriza [los sobrantes]"* → *"revive el CDC, debe vivir en .222"* → *"dejemos esta auditoría al 100%"*.
