@@ -65,7 +65,18 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
                 <span class="ps-sr">{{ titulo(p) }}</span>
               </a>
             } @else {
-              <span class="ps-mes is-vacio" [title]="titulo(p)">
+              <!--
+                [SN.24] Sin ruta hay DOS motivos distintos y no se pueden dibujar igual:
+                  sin_datos  -> no hay con que trabajar ese mes: apagado y punteado.
+                  el resto   -> el mes SI tiene trabajo, pero tu permiso no abre la pantalla.
+                Pintar el segundo como vacio diria que no hay nada, que es falso (ADR-056).
+              -->
+              <span
+                class="ps-mes"
+                [class]="'e-' + p.estado"
+                [class.is-vacio]="p.estado === 'sin_datos'"
+                [class.is-cerrado]="p.estado !== 'sin_datos'"
+                [title]="titulo(p)">
                 <span class="ps-mes-n">{{ mes(p.periodo) }}</span>
                 <span class="ps-dot" aria-hidden="true"></span>
                 <span class="ps-sr">{{ titulo(p) }}</span>
@@ -127,6 +138,8 @@ import type { MeCiclo, MePeriodo } from '@megadulces/contracts';
       /* Sin datos: apagado y sin cursor. No es un pendiente ni un enlace. */
       .ps-mes.is-vacio { background: transparent; border-style: dashed; opacity: .55; cursor: default; }
       .ps-mes.is-vacio .ps-dot { background: var(--border-color); }
+      /* [SN.24] Hay trabajo y no se puede abrir: conserva su punto de estado, pierde el clic. */
+      .ps-mes.is-cerrado { cursor: not-allowed; opacity: .8; }
 
       /* Etiqueta para lector de pantalla: el punto no dice nada por sí solo (DESIGN.md: el color
          nunca es el único portador de significado). */

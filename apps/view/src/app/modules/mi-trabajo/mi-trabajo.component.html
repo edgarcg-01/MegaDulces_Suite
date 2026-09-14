@@ -153,16 +153,32 @@
           }
 
           @for (p of mios(); track p.id) {
-            <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
-              <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
-              <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
-              <span class="mt-task-txt">
-                <span class="mt-task-l">{{ p.label }}</span>
-                @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
-              </span>
-              <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
-              <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
-            </a>
+            @if (p.ruta) {
+              <a class="mt-task is-mine" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
+                <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ p.label }}</span>
+                  @if (p.detalle) { <span class="mt-task-d">{{ p.detalle }}</span> }
+                </span>
+                <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
+                <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
+              </a>
+            } @else {
+              <!--
+                [SN.24] La actividad es TUYA pero tu permiso no abre su pantalla. Se muestra con el
+                motivo y SIN enlace, igual que una tarea asignada sin acceso: esconderla taparia la
+                discrepancia entre quien reparte y quien puede abrir, y enlazarla invitaria a un 403.
+              -->
+              <p class="mt-task is-mine is-bloqueada" [title]="p.sin_acceso ?? ''">
+                <span class="mt-task-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                <span class="mt-task-txt">
+                  <span class="mt-task-l">{{ p.label }}</span>
+                  <span class="mt-task-d">{{ p.sin_acceso }}</span>
+                </span>
+              </p>
+            }
           }
 
           <!--
@@ -207,6 +223,17 @@
               En tus bandejas
             </p>
             @for (p of deBandeja(); track p.id) {
+              @if (!p.ruta) {
+                <!-- [SN.24] Tuya por designacion, cerrada por permiso: se dice, no se esconde. -->
+                <p class="mt-task is-bloqueada" [title]="p.sin_acceso ?? ''">
+                  <span class="mt-task-ico"><i class="pi pi-lock" aria-hidden="true"></i></span>
+                  <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
+                  <span class="mt-task-txt">
+                    <span class="mt-task-l">{{ p.label }}</span>
+                    <span class="mt-task-d">{{ p.sin_acceso }}</span>
+                  </span>
+                </p>
+              } @else {
               <a class="mt-task" [routerLink]="p.ruta" [title]="p.detalle" (click)="abrioBandeja(p)">
                 <span class="mt-task-ico"><i [class]="p.icono" aria-hidden="true"></i></span>
                 <span class="mt-task-n">{{ formatoTotal(p.total) }}</span>
@@ -226,6 +253,7 @@
                 <span class="mt-task-edad" [title]="p.mas_viejo_at ? 'El más viejo entró el ' + p.mas_viejo_at : 'Esta bandeja no reportó fecha del más viejo'">{{ antiguedad(p) }}</span>
                 <i class="pi pi-arrow-right mt-task-go" aria-hidden="true"></i>
               </a>
+              }
             }
           </div>
         }

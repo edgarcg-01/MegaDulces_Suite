@@ -46,8 +46,18 @@ export interface MePendiente {
   label: string;
   /** Segunda línea: de dónde sale el número. */
   detalle: string;
-  /** Ruta que RESUELVE el pendiente. Gateada con el permiso que abrió esta bandeja. */
-  ruta: string;
+  /**
+   * Ruta que RESUELVE el pendiente. Gateada con el permiso que abrió esta bandeja.
+   *
+   * `[SN.24]` `null` = la actividad **es tuya** pero tu permiso no abre su pantalla. La fila se
+   * muestra igual, con el motivo en `sin_acceso` y sin enlace — mismo criterio que `MeTarea`:
+   * esconderla taparía la discrepancia entre quién reparte y quién puede abrir; enlazarla
+   * invitaría a un 403. Medido en prod: 3 supervisores responden de `comercial.thot` sin tener
+   * `COMMERCIAL_THOT_GESTIONAR`.
+   */
+  ruta: string | null;
+  /** `[SN.24]` Por qué no hay enlace. `null` cuando sí lo hay. Nunca las dos cosas a la vez. */
+  sin_acceso: string | null;
   icono: string;
   total: number;
   /**
@@ -156,12 +166,21 @@ export interface MeCiclo {
    * `[SN.17]` **¿Este ciclo es TUYO?** Sale de `identity.responsibilities` — del puesto
    * (`position_responsibilities`) o de una excepción por persona (`user_responsibilities`).
    *
-   * ⛔ **No gatea: ordena.** Es la regla que `[OR.1b]` dejó escrita — *"el PERMISO decide si podés
-   * ABRIRLO; la RESPONSABILIDAD decide si es TUYO… si también gateara habría un cuarto sistema de
-   * autorización"*. Quien tiene el permiso sigue viendo y abriendo todos los ciclos; `es_mio` sólo
-   * decide cuál va arriba y marcado.
+   * ⚠️ `[SN.24]` **Acá decía "no gatea: ordena", y eso cambió por decisión de Edgar
+   * (2026-09-14):** *"ese trabajo sólo lo puede ver quien tiene designada esa actividad"*. Hoy una
+   * actividad **con dueño** sólo le llega a su dueño; una **sin dueño** sigue siendo cola
+   * compartida para quien la abra su permiso.
+   *
+   * ⛔ Sigue sin ser un cuarto sistema de AUTORIZACIÓN, que es lo que `[OR.1b]` quería evitar: el
+   * módulo no se cierra. Quien deja de ver un ciclo acá entra igual a `/finanzas/bancos` por el
+   * menú y lo trabaja. Lo que se recorta es **la lista de lo que te toca**, no el acceso.
    */
   es_mio: boolean;
+  /**
+   * `[SN.24]` Por qué este ciclo no lleva a ningún lado: es TUYO pero tu permiso no abre su
+   * pantalla. `null` cuando sí la abre. Cuando trae texto, ningún mes de la tira navega.
+   */
+  sin_acceso: string | null;
 }
 
 /**

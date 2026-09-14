@@ -261,51 +261,75 @@ const tieneDecoradorPermisos = (tramo) =>
     });
 
   /*
-   * ── 4e. `[SN.21]` La regla de delegación no puede vaciar la pantalla ─────────────────────────
+   * ── 4e. `[SN.24]` El trabajo con dueño SÓLO lo ve su dueño ───────────────────────────────────
    *
-   * `workFor` recorta «Mi trabajo» a lo que responde el reparto de cada persona. La versión
-   * ingenua de esa regla —«tenés alguna responsabilidad ⇒ filtrá»— **se midió contra prod antes de
-   * escribirla y dejaba a 6 personas sin nada**: su única delegación es `finanzas.hallazgos`, y esa
-   * bandeja está RETIRADA desde `[SN.18]`. Filtrar por una delegación que no puede mostrar nada es
-   * esconderlo todo a cambio de cero.
+   * Edgar (2026-09-14): *"todos pueden ver el trabajo de conciliación, que está mal. Ese trabajo
+   * sólo lo puede ver quien tiene designada esa actividad."* Medido: cada conciliación la veían
+   * **15 personas**, siendo de Ivonne (ingresos) y Mayra (egresos).
    *
-   * Lo que hace segura a la regla son tres propiedades del CÓDIGO, y este bloque las vigila. No
-   * miden el dato (para eso está `database/scripts/sn-delegacion-impacto.js`, que corre contra
-   * prod): miden que nadie las quite al simplificar, que es como volverían a romperse.
+   * La causa era el SUJETO de la condición. `[SN.21]` preguntaba «¿VOS tenés reparto?» y, como casi
+   * nadie lo tiene, su salvaguarda («sin reparto, ves todo») se volvió el caso normal. Ahora la
+   * pregunta es **por cola**: «¿esta actividad tiene dueño?».
+   *
+   * Este bloque vigila la FORMA en el código; el efecto sobre el dato lo mide
+   * `database/scripts/sn-landing-censo.js` contra prod.
    */
-  console.log('\n── 4e. La regla de delegación se calcula sobre lo VISIBLE ──');
+  console.log('\n── 4e. El trabajo con dueño sólo lo ve su dueño ──');
   const srcSvc = fs.readFileSync(
     path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'),
     'utf8',
   );
-  const mFiltrables = /const bandejasFiltrables = BANDEJAS\.filter\(([\s\S]*?)\n {4}\);/.exec(srcSvc);
-  check('existe el conjunto de bandejas filtrables (si no, el resto de este bloque no mide nada)',
-    !!mFiltrables);
-  if (mFiltrables) {
-    const cuerpo = mFiltrables[1];
-    check('la bandeja RETIRADA no cuenta para encender el filtro (el caso que vaciaba 6 pantallas)',
-      /!b\.retirada/.test(cuerpo), cuerpo.trim());
-    check('tu BORRADOR (alcance mio) no cuenta ni se filtra: nadie te lo delegó, lo empezaste vos',
-      /b\.alcance !== 'mio'/.test(cuerpo), cuerpo.trim());
-    check('sólo cuenta lo que tu permiso ABRE (si no, filtraría por algo que igual no ves)',
-      /puedeVerBandeja\(b, permisos, esAdmin\)/.test(cuerpo), cuerpo.trim());
-  }
-  const mActiva = /const delegacionActiva =([\s\S]*?);\n/.exec(srcSvc);
-  check('existe la condición que enciende el filtro', !!mActiva);
-  if (mActiva) {
-    const cond = mActiva[1];
+
+  const mDuenos = /private async responsabilidadesConDueno\(\)[\s\S]*?\n  \}/.exec(srcSvc);
+  check('existe la consulta de "qué actividades tienen dueño" (si no, nada de esto mide)', !!mDuenos);
+  if (mDuenos) {
+    const cuerpo = mDuenos[0];
     /*
-     * ⛔ La prueba NEGATIVA de este bloque: la condición NO puede ser `misResponsabilidades.size`.
-     * Ésa es exactamente la versión que se midió y se descartó, y es la que alguien volvería a
-     * escribir por ser la obvia. Se rompió a propósito una vez (cambiando la condición por
-     * `misResponsabilidades.size > 0`) y estas dos aserciones se pusieron rojas.
+     * ⛔ Las tres propiedades que hacen correcta la respuesta, y las tres son bugs si se caen:
+     *  · sin filtro de tenant, un dueño de OTRO tenant escondería la cola acá (la conexión
+     *    bypassa RLS: el aislamiento es por filtro explícito, lo dice `me-work.ts`);
+     *  · un puesto que nadie ocupa NO designa a nadie — sin el join a `users`, una fila vieja de
+     *    `position_responsibilities` dejaría la cola escondida para todos y sin dueño que la vea;
+     *  · una `resta` le quita la actividad a UNA persona, no le quita el dueño a la actividad.
      */
-    check('la condición se calcula sobre lo que la persona VE, no sobre cuántas claves tiene',
-      /bandejasFiltrables\.some/.test(cond) && /ciclosVisibles\.some/.test(cond), cond.trim());
-    check('la condición NO es "tiene alguna responsabilidad" (la versión que vaciaba pantallas)',
-      !/misResponsabilidades[?.]*\.size/.test(cond), cond.trim());
+    check('filtra por tenant en las DOS fuentes (la conexión bypassa RLS)',
+      (cuerpo.match(/tenant_id', this\.tenantId/g) || []).length >= 2);
+    check('un puesto que NADIE ocupa no designa a nadie (join a identity.users activo)',
+      /identity\.users as u/.test(cuerpo) && /'u\.activo', true/.test(cuerpo));
+    check('una `resta` no CREA dueño: sólo cuenta accion = suma',
+      /'ur\.accion', 'suma'/.test(cuerpo), 'falta el filtro de accion');
+    check('corre aislada en savepoint, como toda medición de me/work ([SN.22])',
+      /await this\.aislado\(/.test(cuerpo));
   }
-  check('lo que el filtro esconde se DECLARA en la respuesta (ocultas), no desaparece en silencio',
+
+  const mAjena = /const ajena = \(([\s\S]*?)\n    \};/.exec(srcSvc);
+  check('existe la compuerta por cola (`ajena`)', !!mAjena);
+  if (mAjena) {
+    const cond = mAjena[1];
+    /*
+     * ⛔ Prueba NEGATIVA de este bloque: la compuerta NO puede volver a preguntar por la persona.
+     * Se rompió a propósito (cambiando `tieneDueno(clave) && !propia` por `delegacionActiva`) y
+     * estas aserciones se pusieron rojas.
+     */
+    check('la condición pregunta si la COLA tiene dueño, no si la persona tiene reparto',
+      /tieneDueno\(clave\)/.test(cond) && !/delegacionActiva/.test(cond), cond.trim());
+    check('tu BORRADOR (alcance mio) nunca se esconde: lo empezaste vos',
+      /alcance === 'mio'/.test(cond), cond.trim());
+    check('god-mode ve todo', /esAdmin/.test(cond), cond.trim());
+    check('si no se pudo leer quién es dueño, se falla ABIERTO (no se esconde por una falla)',
+      /clavesConDueno === null/.test(cond), cond.trim());
+  }
+
+  /*
+   * El caso que sin esta rama borraría una cola de la suite entera: medido, los 3 dueños de
+   * `comercial.thot` no tienen `COMMERCIAL_THOT_GESTIONAR`, así que «sólo la ve su dueño» +
+   * «su dueño no puede abrirla» = nadie. Se muestra al dueño, sin enlace y con el motivo.
+   */
+  check('la cola que es TUYA pero tu permiso no abre se muestra sin enlace (no desaparece)',
+    /if \(!abre && !propia\) continue;/.test(srcSvc) && /if \(!abreCiclo && !mio\) continue;/.test(srcSvc));
+  check('y viaja con su motivo, nunca con enlace y motivo a la vez',
+    /ruta: abre \? b\.ruta : null/.test(srcSvc) && /sin_acceso: abre/.test(srcSvc));
+  check('lo que se esconde por tener otro dueño se DECLARA (ocultas), no desaparece en silencio',
     /ocultasPorDelegacion\+\+/.test(srcSvc) && /ocultas: ocultasPorDelegacion/.test(srcSvc));
 
   /*
