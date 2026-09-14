@@ -80,7 +80,7 @@ export const OperationsPreset = definePreset(Aura, {
       dark: {
         primary: {
           color: '#F2744E',
-          contrastColor: '#1A1A1A',
+          contrastColor: '#18181B',
           hoverColor: '#F05A28',
           activeColor: '#F2744E',
         },

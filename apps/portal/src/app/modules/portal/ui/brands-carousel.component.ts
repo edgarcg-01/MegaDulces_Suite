@@ -302,7 +302,7 @@ export class BrandsCarouselComponent implements AfterViewInit, OnChanges, OnDest
     const g = parseInt(c.slice(2, 4), 16);
     const b = parseInt(c.slice(4, 6), 16);
     const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-    return lum > 0.62 ? '#100D09' : '#ffffff';
+    return lum > 0.62 ? '#09090B' : '#ffffff';
   }
   mono(name: string | null | undefined): string {
     const src = this.label(name) || '?';

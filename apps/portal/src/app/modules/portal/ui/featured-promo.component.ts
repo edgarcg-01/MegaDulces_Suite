@@ -77,7 +77,7 @@ import { RouterModule } from '@angular/router';
         background: var(--card-bg, #fff);
         border: 1px solid var(--border-color, #ECE7DE);
         box-shadow: var(--shadow-float);
-        color: var(--text-main, #100D09);
+        color: var(--text-main, #09090B);
         isolation: isolate;
       }
 
@@ -101,7 +101,7 @@ import { RouterModule } from '@angular/router';
         line-height: 1.02;
         letter-spacing: -0.02em;
         margin: 0 0 0.5rem;
-        color: var(--neutral-950, #100D09);
+        color: var(--neutral-950, #09090B);
       }
       .fp-underline {
         display: block;
@@ -113,7 +113,7 @@ import { RouterModule } from '@angular/router';
       .fp-lead {
         font-size: var(--fs-h3);
         line-height: 1.5;
-        color: var(--text-muted, #5E564B);
+        color: var(--text-muted, #52525B);
         margin: 0 0 1.4rem;
         max-width: 40ch;
       }
@@ -123,7 +123,7 @@ import { RouterModule } from '@angular/router';
         font-weight: 800;
         font-size: var(--fs-h3);
         letter-spacing: -0.01em;
-        color: var(--neutral-950, #100d09);
+        color: var(--neutral-950, #09090B);
         background: var(--brand-400, #FDE707);
         padding: 0.4rem 0.85rem;
         border-radius: var(--r-pill);

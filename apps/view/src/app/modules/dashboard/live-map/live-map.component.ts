@@ -440,12 +440,12 @@ export class LiveMapComponent implements AfterViewInit, OnDestroy {
   protected legend = computed<LegendLayer[]>(() => [
     { id: 'personal', label: 'Personal', color: 'var(--ok-fg, #16a34a)', count: this.svc.counts().total, visible: this.showPersonal() },
     { id: 'fleet', label: 'Unidades de ruta', color: 'var(--info-soft-fg, #2563eb)', count: this.vehicles().length, visible: this.showFleet() },
-    { id: 'stores', label: 'Tiendas', color: 'var(--neutral-400, #9ca3af)', count: this.stores().length, visible: this.showStores() },
+    { id: 'stores', label: 'Tiendas', color: 'var(--neutral-400, #A1A1AA)', count: this.stores().length, visible: this.showStores() },
     { id: 'deadstops', label: 'Fuera de tienda', color: 'var(--bad-fg, #dc2626)', count: this.cockpit()?.dead_stops.length || 0, visible: this.showDeadStops() },
   ]);
 
   private storeMarkers = computed<MapMarker[]>(() =>
-    this.stores().map((s) => ({ id: 's:' + s.id, lat: s.lat, lng: s.lng, kind: 'pin', color: 'var(--neutral-400, #9ca3af)', title: s.nombre })),
+    this.stores().map((s) => ({ id: 's:' + s.id, lat: s.lat, lng: s.lng, kind: 'pin', color: 'var(--neutral-400, #A1A1AA)', title: s.nombre })),
   );
 
   protected mapLayers = computed<MapLayer[]>(() => {

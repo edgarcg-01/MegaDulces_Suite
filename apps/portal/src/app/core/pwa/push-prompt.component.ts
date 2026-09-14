@@ -44,7 +44,7 @@ const DISMISS_KEY = 'portal:push:dismissed';
       gap: .75rem;
       padding: .75rem 1rem;
       border-radius: 16px;
-      background: #16130F;
+      background: #09090B;
       color: #fff;
       box-shadow: 0 12px 32px rgba(0,0,0,.22);
     }
@@ -53,7 +53,7 @@ const DISMISS_KEY = 'portal:push:dismissed';
     .push-prompt-body strong { font-size: .9375rem; }
     .push-prompt-btn {
       flex: none; margin-left: auto; border: 0; cursor: pointer; font-weight: 700;
-      color: #16130F; background: #FDE707; padding: .5rem .9rem; border-radius: 999px;
+      color: #09090B; background: #FDE707; padding: .5rem .9rem; border-radius: 999px;
     }
     .push-prompt-btn:disabled { opacity: .6; cursor: default; }
     .push-prompt-x { flex: none; border: 0; background: transparent; color: #fff; opacity: .6; cursor: pointer; padding: .25rem; }

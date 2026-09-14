@@ -27,7 +27,7 @@ export function egresChartSeries(): string[] {
 }
 
 export function egresChartOptions(dark: boolean) {
-  const axis = cssVar('--text-muted', dark ? '#B0A595' : '#57534E');
+  const axis = cssVar('--text-muted', dark ? '#A1A1AA' : '#52525B');
   const grid = dark ? 'rgba(255,255,255,.09)' : 'rgba(0,0,0,.08)';
   return {
     responsive: true,

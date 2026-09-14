@@ -484,7 +484,7 @@ import { GeolocationService } from '../../../core/services/geolocation.service';
       .sheet.closing { animation: sheet-down 0.2s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) forwards; }
       @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
       @keyframes sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
-      .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--stone-200); margin: 0 auto 0.875rem; }
+      .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--neutral-200); margin: 0 auto 0.875rem; }
       .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
       .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }

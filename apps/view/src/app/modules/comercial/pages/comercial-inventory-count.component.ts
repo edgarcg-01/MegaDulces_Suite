@@ -254,26 +254,26 @@ interface FeedEntry {
     }
 
     /* Empty state operacional (sin folio) — voz técnica, sin CTA (lo abre el supervisor). */
-    .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #5e564b); }
-    .ic-empty i { font-size: 2.5rem; opacity: .5; display: block; margin-bottom: .75rem; color: var(--text-faint, #b0a595); }
-    .ic-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main, #100d09); }
-    .ic-empty small { color: var(--text-muted, #5e564b); }
+    .ic-empty { text-align: center; padding: 3rem 1rem; color: var(--text-muted, #52525B); }
+    .ic-empty i { font-size: 2.5rem; opacity: .5; display: block; margin-bottom: .75rem; color: var(--text-faint, #A1A1AA); }
+    .ic-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main, #09090B); }
+    .ic-empty small { color: var(--text-muted, #52525B); }
 
     /* Selector de folio */
     .ic-folio-row { margin-bottom: 1rem; }
     :host ::ng-deep .ic-folio-select { width: 100%; }
 
     /* Estados de jornada (arranque / terminada) — card hairline, sin sombra (regla elevación). */
-    .ic-start, .ic-done { text-align: center; padding: 2.5rem 1.25rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e8e2d7); border-radius: var(--r-lg, 16px); }
+    .ic-start, .ic-done { text-align: center; padding: 2.5rem 1.25rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #E4E4E7); border-radius: var(--r-lg, 16px); }
     .ic-start i, .ic-done i { font-size: 2.75rem; display: block; margin-bottom: .75rem; }
     .ic-start i { color: var(--action, #f05a28); }
     .ic-done i { color: var(--ok-fg, #16a34a); }
-    .ic-start h2, .ic-done h2 { font-size: 1.2rem; margin: 0 0 .4rem; color: var(--text-main, #100d09); }
-    .ic-start p, .ic-done p { color: var(--text-muted, #5e564b); margin: 0 auto 1.25rem; max-width: 34ch; line-height: 1.45; }
+    .ic-start h2, .ic-done h2 { font-size: 1.2rem; margin: 0 0 .4rem; color: var(--text-main, #09090B); }
+    .ic-start p, .ic-done p { color: var(--text-muted, #52525B); margin: 0 auto 1.25rem; max-width: 34ch; line-height: 1.45; }
     :host ::ng-deep .ic-start-btn { padding: .9rem 2rem; font-size: 1.05rem; min-height: 48px; }
 
     /* Banner "conteo en curso" */
-    .ic-phase-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .5rem .5rem .9rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); color: var(--text-main, #100d09); font-weight: 600; }
+    .ic-phase-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .5rem .5rem .5rem .9rem; margin-bottom: 1rem; border-radius: var(--r-md, 12px); background: color-mix(in srgb, var(--action, #f05a28) 12%, transparent); color: var(--text-main, #09090B); font-weight: 600; }
     .ic-phase-banner i { margin-right: .35rem; color: var(--action, #f05a28); }
 
     /* Banner de red (offline-first): conteos a salvo en la cola; cero pérdida. */
@@ -288,15 +288,15 @@ interface FeedEntry {
 
     /* Progreso ciego — barra + cifras tabulares (Geist Mono). */
     .ic-progress { margin-bottom: 1.25rem; }
-    .ic-progress-bar { height: 10px; border-radius: var(--r-pill, 999px); background: var(--border-color, #e8e2d7); overflow: hidden; }
+    .ic-progress-bar { height: 10px; border-radius: var(--r-pill, 999px); background: var(--border-color, #E4E4E7); overflow: hidden; }
     .ic-progress-fill { height: 100%; background: var(--action, #f05a28); border-radius: inherit; transition: width .3s var(--ease-out, ease); }
-    .ic-progress-meta { display: flex; justify-content: space-between; gap: .5rem; font-size: .8rem; margin-top: .45rem; color: var(--text-muted, #5e564b); }
-    .ic-progress-meta b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #100d09); font-weight: 600; }
+    .ic-progress-meta { display: flex; justify-content: space-between; gap: .5rem; font-size: .8rem; margin-top: .45rem; color: var(--text-muted, #52525B); }
+    .ic-progress-meta b { font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #09090B); font-weight: 600; }
     .ic-mine { margin-left: auto; }
 
     /* Captura — tarjeta activa (lo que el contador mira en bucle). */
-    .ic-capture { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.5rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #e8e2d7); border-radius: var(--r-lg, 16px); padding: 1rem 1rem 1.15rem; }
-    .ic-label { font-size: .75rem; font-weight: 600; color: var(--text-muted, #5e564b); text-transform: uppercase; letter-spacing: .04em; margin-top: .5rem; }
+    .ic-capture { display: flex; flex-direction: column; gap: .35rem; margin-bottom: 1.5rem; background: var(--card-bg, #fff); border: 1px solid var(--border-color, #E4E4E7); border-radius: var(--r-lg, 16px); padding: 1rem 1rem 1.15rem; }
+    .ic-label { font-size: .75rem; font-weight: 600; color: var(--text-muted, #52525B); text-transform: uppercase; letter-spacing: .04em; margin-top: .5rem; }
     .ic-label:first-child { margin-top: 0; }
     .ic-code-row { display: flex; gap: .5rem; align-items: stretch; }
     .ic-code-row .ic-input-code { flex: 1; }
@@ -306,8 +306,8 @@ interface FeedEntry {
     :host ::ng-deep .ic-input:focus-visible { outline: 2px solid var(--action, #f05a28); outline-offset: 1px; }
     :host ::ng-deep .p-inputnumber { width: 100%; }
     /* Steppers neutros y grandes (Fitts) — el ÚNICO naranja es el CTA "Registrar". */
-    :host ::ng-deep .p-inputnumber-buttons-horizontal .p-inputnumber-button { min-width: 54px; background: var(--card-bg, #fff); border-color: var(--border-color, #e8e2d7); color: var(--text-main, #100d09); }
-    :host ::ng-deep .p-inputnumber-buttons-horizontal .p-inputnumber-button:hover { background: var(--hover-bg, #f5f1ea); color: var(--text-main, #100d09); }
+    :host ::ng-deep .p-inputnumber-buttons-horizontal .p-inputnumber-button { min-width: 54px; background: var(--card-bg, #fff); border-color: var(--border-color, #E4E4E7); color: var(--text-main, #09090B); }
+    :host ::ng-deep .p-inputnumber-buttons-horizontal .p-inputnumber-button:hover { background: var(--hover-bg, #F4F4F5); color: var(--text-main, #09090B); }
     :host ::ng-deep .ic-scan-btn { min-width: 56px; min-height: 56px; }
     :host ::ng-deep .ic-scan-btn .p-button-icon { font-size: 1.4rem; }
 
@@ -318,13 +318,13 @@ interface FeedEntry {
     .ic-scan-mask { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; padding: 0 1rem; pointer-events: none; }
     .ic-scan-frame { width: min(80%, 360px); aspect-ratio: 5 / 3; border: 3px solid rgba(255,255,255,.92); border-radius: var(--r-md, 12px); box-shadow: 0 0 0 9999px rgba(0,0,0,.45); }
     .ic-scan-hint { margin: 0; color: #fff; font-weight: 600; font-size: .95rem; text-shadow: 0 1px 3px rgba(0,0,0,.7); }
-    :host ::ng-deep .ic-scan-cancel { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); min-height: 50px; min-width: 170px; background: rgba(255,255,255,.95); color: var(--text-main, #100d09); border: none; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
-    :host ::ng-deep .ic-scan-cancel:hover { background: #fff; color: var(--text-main, #100d09); }
+    :host ::ng-deep .ic-scan-cancel { position: absolute; left: 50%; transform: translateX(-50%); bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px)); min-height: 50px; min-width: 170px; background: rgba(255,255,255,.95); color: var(--text-main, #09090B); border: none; box-shadow: 0 4px 16px rgba(0,0,0,.4); }
+    :host ::ng-deep .ic-scan-cancel:hover { background: #fff; color: var(--text-main, #09090B); }
 
     /* Producto reconocido — feedback semántico tokenizado (dark-safe). */
     .ic-prod { display: flex; align-items: center; gap: .6rem; padding: .7rem .85rem; border-radius: var(--r-md, 12px); margin-top: .5rem; }
     .ic-prod i { font-size: 1.4rem; flex-shrink: 0; }
-    .ic-prod-loading { background: var(--hover-bg, #f5f1ea); color: var(--text-muted, #5e564b); }
+    .ic-prod-loading { background: var(--hover-bg, #F4F4F5); color: var(--text-muted, #52525B); }
     .ic-prod-ok { background: var(--ok-soft-bg, #dcfce7); color: var(--ok-soft-fg, #166534); }
     .ic-prod-ok i { color: var(--ok-fg, #16a34a); }
     .ic-prod-bad { background: var(--bad-soft-bg, #fee2e2); color: var(--bad-soft-fg, #991b1b); }
@@ -332,21 +332,21 @@ interface FeedEntry {
     .ic-prod-warn { background: var(--warn-soft-bg, #fef3c7); color: var(--warn-soft-fg, #92400e); }
     .ic-prod-warn i { color: var(--warn-fg, #d97706); }
     .ic-prod-info { display: flex; flex-direction: column; min-width: 0; }
-    .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; color: var(--text-main, #100d09); }
-    .ic-prod-meta { font-size: .8rem; color: var(--text-muted, #5e564b); font-family: var(--font-mono, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    .ic-prod-name { font-weight: 700; font-size: 1.05rem; line-height: 1.2; color: var(--text-main, #09090B); }
+    .ic-prod-meta { font-size: .8rem; color: var(--text-muted, #52525B); font-family: var(--font-mono, monospace); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 
     /* Submit — CTA grande, zona del pulgar. */
     .ic-submit { margin-top: 1rem; width: 100%; }
     :host ::ng-deep .ic-submit { padding: .9rem; font-size: 1.05rem; min-height: 48px; }
 
     /* Feed de últimos conteos */
-    .ic-feed h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted, #5e564b); margin: 0 0 .5rem; }
-    .ic-feed-row { display: flex; align-items: center; gap: .75rem; padding: .6rem .25rem; border-bottom: 1px solid var(--border-color, #e8e2d7); }
+    .ic-feed h3 { font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted, #52525B); margin: 0 0 .5rem; }
+    .ic-feed-row { display: flex; align-items: center; gap: .75rem; padding: .6rem .25rem; border-bottom: 1px solid var(--border-color, #E4E4E7); }
     .ic-feed-row:last-child { border-bottom: none; }
     .ic-feed-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-    .ic-feed-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main, #100d09); }
-    .ic-feed-sku { font-size: .75rem; color: var(--text-muted, #5e564b); font-family: var(--font-mono, monospace); }
-    .ic-feed-qty { font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #100d09); }
+    .ic-feed-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main, #09090B); }
+    .ic-feed-sku { font-size: .75rem; color: var(--text-muted, #52525B); font-family: var(--font-mono, monospace); }
+    .ic-feed-qty { font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono, monospace); font-variant-numeric: tabular-nums; color: var(--text-main, #09090B); }
 
     @media (prefers-reduced-motion: reduce) {
       .ic-progress-fill { transition: none; }

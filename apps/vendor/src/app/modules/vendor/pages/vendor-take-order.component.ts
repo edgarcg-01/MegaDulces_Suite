@@ -593,7 +593,7 @@ const foldText = (s: string | null | undefined): string =>
         margin: -1rem -1rem 0.75rem; padding: 0.7rem 1rem; background: var(--card-bg); border-bottom: 1px solid var(--border-color);
       }
       .to-head .bk { width: 2.25rem; height: 2.25rem; border-radius: 14px; border: none; background: var(--surface-ground); color: var(--text-main); display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0; }
-      .to-head .av { width: 2.35rem; height: 2.35rem; border-radius: 14px; background: var(--brand-400); color: var(--stone-950); display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
+      .to-head .av { width: 2.35rem; height: 2.35rem; border-radius: 14px; background: var(--brand-400); color: var(--neutral-950); display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .to-head .ci { flex: 1; min-width: 0; }
       .to-head .nm { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .to-head .cd { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }
@@ -649,7 +649,7 @@ const foldText = (s: string | null | undefined): string =>
 
       .catalog { display: flex; flex-direction: column; gap: 0.5rem; }
       .prod { display: flex; align-items: center; gap: 0.75rem; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md, 12px); padding: 0.55rem 0.7rem; }
-      .prod .ph { width: 2.5rem; height: 2.5rem; border-radius: 14px; background: var(--stone-100); display: grid; place-items: center; color: var(--stone-400); font-size: 1.05rem; flex-shrink: 0; }
+      .prod .ph { width: 2.5rem; height: 2.5rem; border-radius: 14px; background: var(--neutral-100); display: grid; place-items: center; color: var(--neutral-400); font-size: 1.05rem; flex-shrink: 0; }
       .prod .pb { flex: 1; min-width: 0; }
       .prod .pn { font-weight: 600; font-size: 0.9rem; color: var(--text-main); line-height: 1.2; }
       .prod .pm { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
@@ -729,7 +729,7 @@ const foldText = (s: string | null | undefined): string =>
       /* Barra de carrito (pulgar): abrir pedido + cobrar */
       .cartbar {
         position: fixed; left: 1rem; right: 1rem; bottom: calc(4.75rem + env(safe-area-inset-bottom));
-        height: 3.6rem; border-radius: var(--r-lg, 16px); background: var(--stone-900); color: #fff;
+        height: 3.6rem; border-radius: var(--r-lg, 16px); background: var(--neutral-900); color: #fff;
         display: flex; align-items: stretch; gap: 0.5rem; padding: 0.45rem; z-index: 40;
         box-shadow: 0 14px 32px -6px rgba(0,0,0,0.5);
       }
@@ -737,8 +737,8 @@ const foldText = (s: string | null | undefined): string =>
       .cartbar .cb-count { width: 1.85rem; height: 1.85rem; flex-shrink: 0; border-radius: 999px; background: var(--action); color: #fff; display: grid; place-items: center; font-weight: 800; font-size: 0.85rem; font-variant-numeric: tabular-nums; }
       .cartbar .cb-info { flex: 1; min-width: 0; }
       .cartbar .cb-info b { display: block; font-family: var(--font-mono); font-size: 1.05rem; font-variant-numeric: tabular-nums; line-height: 1.15; }
-      .cartbar .cb-info span { font-size: 0.67rem; color: var(--stone-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-      .cartbar .cb-open > .pi-chevron-up { color: var(--stone-400); font-size: 0.78rem; flex-shrink: 0; }
+      .cartbar .cb-info span { font-size: 0.67rem; color: var(--neutral-400); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+      .cartbar .cb-open > .pi-chevron-up { color: var(--neutral-400); font-size: 0.78rem; flex-shrink: 0; }
       .cartbar .cb-go { flex-shrink: 0; padding: 0 1.15rem; border: none; border-radius: var(--r-md, 12px); background: var(--action); color: #fff; font-weight: 700; font-size: 0.92rem; display: flex; align-items: center; gap: 0.45rem; transition: transform 0.07s var(--ease, ease); }
       .cartbar .cb-go:active { transform: scale(0.96); } .cartbar .cb-go:disabled { opacity: 0.7; }
 

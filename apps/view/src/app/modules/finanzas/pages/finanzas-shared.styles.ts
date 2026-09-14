@@ -54,7 +54,7 @@ export const FINANZAS_SHARED_STYLES = `
   .fb-skel-row { height: var(--row-h-md); border-radius: var(--r-sm); background: var(--hover-bg); animation: fb-pulse 1.4s ease-in-out infinite; }
   @keyframes fb-pulse { 0%,100% { opacity: .5; } 50% { opacity: .9; } }
   @media (prefers-reduced-motion: reduce) { .fb-skel-row { animation: none; } }
-  .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-micro); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--stone-950); }
+  .fb-seg-count { display: inline-flex; align-items: center; justify-content: center; min-width: 1.1rem; height: 1.1rem; padding: 0 4px; margin-left: 4px; font-size: var(--fs-micro); font-weight: 700; border-radius: var(--r-pill); background: var(--warn-fg); color: var(--neutral-950); }
 
   /* ── Veredicto: la conclusión, arriba de todo ──────────────────────────────
      Borde izquierdo de 3px como portador de estado además del icono. Elevación =

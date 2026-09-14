@@ -25,7 +25,7 @@ export function freshnessColor(f: Freshness): string {
   switch (f) {
     case 'online': return 'var(--ok-fg, #16a34a)';
     case 'idle': return 'var(--warn-fg, #d97706)';
-    default: return 'var(--neutral-400, #9ca3af)';
+    default: return 'var(--neutral-400, #A1A1AA)';
   }
 }
 

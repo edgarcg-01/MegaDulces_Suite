@@ -233,7 +233,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       .ct .dot.no { color: var(--bad-fg, #dc2626); }
 
       /* Segmented toggle */
-      .seg { display: flex; gap: 4px; padding: 4px; background: var(--stone-100, #f0ece6); border-radius: var(--r-pill, 999px); margin-bottom: 0.9rem; }
+      .seg { display: flex; gap: 4px; padding: 4px; background: var(--neutral-100, #F4F4F5); border-radius: var(--r-pill, 999px); margin-bottom: 0.9rem; }
       .seg button { flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; border: none; background: none; cursor: pointer; padding: 0.5rem 0.5rem; border-radius: var(--r-pill, 999px); font-family: var(--font-body); font-weight: 700; font-size: 0.85rem; color: var(--text-muted); transition: color 0.15s ease; }
       .seg button i { font-size: 0.8rem; }
       .seg button.on { background: var(--card-bg); color: var(--text-main); box-shadow: 0 1px 3px rgba(16,13,9,0.1); }
@@ -242,7 +242,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       .days { display: flex; gap: 0.4rem; overflow-x: auto; padding-bottom: 0.2rem; margin-bottom: 0.75rem; -webkit-overflow-scrolling: touch; }
       .daychip { flex-shrink: 0; display: inline-flex; align-items: center; gap: 0.35rem; border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-muted); border-radius: var(--r-pill, 999px); padding: 0.4rem 0.8rem; font-weight: 700; font-size: 0.82rem; cursor: pointer; text-transform: capitalize; }
       .daychip.on { border-color: var(--action, #d9822b); background: var(--action-soft-bg, var(--card-bg)); color: var(--text-main); }
-      .daychip .cnt { font-family: var(--font-mono); font-variant-numeric: tabular-nums; background: var(--stone-100, #f0ece6); color: var(--text-muted); border-radius: 999px; padding: 0 0.4rem; font-size: 0.72rem; }
+      .daychip .cnt { font-family: var(--font-mono); font-variant-numeric: tabular-nums; background: var(--neutral-100, #F4F4F5); color: var(--text-muted); border-radius: 999px; padding: 0 0.4rem; font-size: 0.72rem; }
       .daychip.on .cnt { background: var(--action, #d9822b); color: #fff; }
 
       /* Aviso: día distinto al próximo hábil */
@@ -270,12 +270,12 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       .lmain { display: flex; align-items: center; gap: 0.7rem; }
       .olines li .qty { font-family: var(--font-mono); font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-main); font-size: 0.85rem; min-width: 2.2rem; }
       .olines li .lname { flex: 1; min-width: 0; font-size: 0.85rem; color: var(--text-main); }
-      .olines li.loaded .lname, .olines li.loaded .qty { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--stone-300); }
+      .olines li.loaded .lname, .olines li.loaded .qty { color: var(--text-muted); text-decoration: line-through; text-decoration-color: var(--neutral-300); }
       .olines li.noload .lname { color: var(--bad-fg, #dc2626); }
 
       /* Acciones tri-estado (✓ / ✗) */
       .lacts { display: inline-flex; gap: 0.4rem; flex-shrink: 0; }
-      .act { width: 1.9rem; height: 1.9rem; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--stone-300, #d8d2c8); background: transparent; color: var(--text-faint); cursor: pointer; transition: transform 0.08s var(--ease, ease); }
+      .act { width: 1.9rem; height: 1.9rem; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--neutral-300, #D4D4D8); background: transparent; color: var(--text-faint); cursor: pointer; transition: transform 0.08s var(--ease, ease); }
       .act i { font-size: 0.8rem; }
       .act:active { transform: scale(0.9); }
       .act.ok.on { background: var(--ok-fg, #16a34a); border-color: var(--ok-fg, #16a34a); color: #fff; }
@@ -293,7 +293,7 @@ const NOT_LOADED_REASONS: { key: string; label: string }[] = [
       .prow.noload { border-color: var(--bad-border, var(--bad-fg)); }
       .pinfo { flex: 1; min-width: 0; }
       .pinfo .nm { display: block; font-weight: 700; font-size: 0.92rem; color: var(--text-main); line-height: 1.2; }
-      .prow.loaded .pinfo .nm { text-decoration: line-through; text-decoration-color: var(--stone-300); color: var(--text-muted); }
+      .prow.loaded .pinfo .nm { text-decoration: line-through; text-decoration-color: var(--neutral-300); color: var(--text-muted); }
       .prow.noload .pinfo .nm { color: var(--bad-fg, #dc2626); }
       .pinfo .sub { font-size: 0.74rem; color: var(--text-muted); font-family: var(--font-mono); }
 
