@@ -98,8 +98,23 @@ Prioridad (dinero primero):
   (2) **desglose por canal** — el `mayoreo` ($9.88M/30d) no existe en el blend; migrarlo lo desaparece;
   (3) facets de filtro + algún detalle por rango. Las tres **bloquean el retiro (SD.5)** hasta resolver
   la taxonomía de canal y el conteo de folio en el ODS. No se fuerza ninguna: se **declaran**.
+- **SD.4b 🟢 FOLIO-COUNTING — diseño VALIDADO (feasibilidad probada en prod 2026-09-14), sin aplicar.**
+  El bloqueante de tickets tiene solución medida. `mv_sales_blended.tickets` (26k/mes) es 20× menor que
+  `sales_daily.tickets` (536k) porque sus 3 piernas hardcodean `0 AS tickets` salvo rutas. **Feasibilidad
+  probada:** reconstruir `count(DISTINCT documento)` desde `kepler_ods.kdm1` (llave `c1..c6`, mismo
+  FROM/WHERE/grano que `mv_kepler_sales_daily`) reproduce `sales_daily.tickets` al **98–99.9% en las 5
+  sucursales puras-Kepler**. El "10% de gap" era **100% la sucursal 06** (Canindo corre **los DOS ERPs en
+  el mismo almacén** — KX.2): su Kepler = 30,811 (mi reconstrucción 30,769, 99.9%) + Wincaja = 27,165.
+  **Diseño:** `tickets = count(DISTINCT doc)` en `mv_kepler_sales_daily` (llave kdm1) + `mv_wincaja_sales_daily`
+  (su folio) + sumar las 3 piernas en `mv_sales_blended` (quitar los `0 AS tickets`). ⚠️ **Es cirugía de
+  matview en PROD:** agregar columna a un matview obliga `DROP MATERIALIZED VIEW … CASCADE` (el de
+  `mv_kepler` **arrastra `mv_sales_blended`**) + recrear + refresh (mv_kepler 730k / mv_wincaja 4M /
+  blend 4.5M filas → minutos sin sell-out). **Necesita ventana + autorización de Edgar.** Candado: extender
+  `test-newdb-sales-lineage-parity` con paridad de tickets. Con esto resuelto, `sales_daily.tickets`
+  deja de bloquear el retiro.
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
-  declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores.
+  declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores, y tras
+  resolver los dos bloqueantes declarados (SD.4b tickets + la taxonomía de canal `mayoreo`).
 
 ## Verificación
 
