@@ -24,6 +24,7 @@ export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';
 export * from './lib/commercial-movements/commercial-movements.module';
+export * from './lib/commercial-bi-almacen/commercial-bi-almacen.module';
 export * from './lib/commercial-sales-documents/commercial-sales-documents.module';
 export * from './lib/commercial-sales-documents/commercial-sales-documents.service';
 export * from './lib/commercial-labels/commercial-labels.module';
