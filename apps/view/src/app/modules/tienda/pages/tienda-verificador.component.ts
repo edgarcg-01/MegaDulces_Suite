@@ -178,7 +178,7 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
             @if (producto(); as p) {
               <!-- [TDA.6] is-pase-b alterna en cada consulta para reiniciar la animación
                    "pop" sobre el MISMO nodo del DOM (ver comentario histórico más abajo). -->
-              <div class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
+              <div #card class="vf-card" [class.is-respaldo]="origen() === 'respaldo'"
                    [class.is-pase-b]="pase() % 2 === 1">
                 <div class="vf-card-top">
                   <span class="vf-cod">{{ p.codigo }}</span>
@@ -338,13 +338,22 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
       color: var(--vf-oscuro);
     }
 
-    .vf-page { position: relative; overflow: hidden; border-radius: var(--r-lg, 16px);
+    /* overflow-x: hidden (nunca "hidden" a secas): el fondo de dulces es inset:0 y no
+       necesita recorte, pero un "hidden" en las dos direcciones ATRAPABA de verdad la
+       tarjeta cuando el mayoreo la hacía más alta que la ventana — sin barra de scroll y
+       sin mouse/touch en un kiosco real, esa parte quedaba invisible para siempre, no sólo
+       recortada. Medido en vivo (terminal 40/Oficina): "LLEVANDO 3 O MÁS PAQUETES" cortado
+       exacto en el borde inferior de la ventana. overflow-y: visible dentro del flujo
+       normal deja que crezca el contenedor (o la app por fuera) en vez de esconder nada;
+       el modo kiosco de abajo SÍ necesita su propio scroll porque ahí no hay contenedor
+       exterior (position: fixed lo saca del flujo del documento). */
+    .vf-page { position: relative; overflow-x: hidden; border-radius: var(--r-lg, 16px);
       display: flex; flex-direction: column; align-items: center; gap: .5rem;
       padding: 0 1.25rem 1.25rem; min-height: 640px;
       background: linear-gradient(160deg, #fffdf7 0%, #fdf3e2 100%); }
     /* Modo kiosco: se come el chrome de la app — el mostrador real es un monitor dedicado,
        no una ventana con sidebar al lado. */
-    .vf-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow: auto;
+    .vf-page.is-kiosco { position: fixed; inset: 0; z-index: 60; overflow-y: auto;
       border-radius: 0; padding-bottom: 2rem; }
 
     .vf-bg { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 0;
@@ -541,6 +550,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   @ViewChild('scan') private scanInput?: ElementRef<HTMLInputElement>;
   @ViewChild('video') private videoEl?: ElementRef<HTMLVideoElement>;
   @ViewChild('camCancelar') private camCancelarBtn?: ElementRef<HTMLButtonElement>;
+  @ViewChild('card') private cardEl?: ElementRef<HTMLDivElement>;
   private lector?: BrowserMultiFormatReader;
   private controles?: IScannerControls;
 
@@ -925,6 +935,7 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
         origen: r.origen,
         hora: new Date(),
       });
+      this.desplazarResultadoAlaVista();
       return;
     }
 
@@ -964,6 +975,27 @@ export class TiendaVerificadorComponent implements OnInit, OnDestroy {
   private armarClear(): void {
     if (this.clearTimer) clearTimeout(this.clearTimer);
     this.clearTimer = setTimeout(() => this.limpiarResultado(), TiendaVerificadorComponent.MS_AUTOLIMPIA);
+  }
+
+  /**
+   * El mayoreo quedaba fuera de la vista, sin forma de llegar a él.
+   *
+   * En un kiosco real el único periférico es la pistola: no hay mouse ni dedo para hacer
+   * scroll. Medido en vivo (terminal 40/Oficina, ventana chica): con `LA ROSA MAZAPAN /30` el
+   * bloque "LLEVANDO 3 O MÁS PAQUETES" quedaba cortado exacto en el borde inferior — no
+   * "apretado", **invisible**, porque `.vf-page` además tenía `overflow: hidden` (ver el
+   * comentario en esa regla). Con el overflow ya destrabado, esto hace la otra mitad: bajar
+   * la ventana sola hasta que el PIE de la tarjeta (mayoreo/ahorro/nota, lo último que se
+   * agrega y lo que más espacio pide) quede a la vista, en vez de esperar un scroll que en
+   * ese equipo nadie puede dar.
+   */
+  private desplazarResultadoAlaVista(): void {
+    setTimeout(() => {
+      const el = this.cardEl?.nativeElement;
+      if (!el) return;
+      const reducido = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      el.scrollIntoView({ block: 'end', inline: 'nearest', behavior: reducido ? 'auto' : 'smooth' });
+    }, 0);
   }
 
   private bumpContador(): void {

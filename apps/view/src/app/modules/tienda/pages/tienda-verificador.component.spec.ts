@@ -461,6 +461,40 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(fix.componentInstance.feed().length).toBe(8);
   });
 
+  /**
+   * El mayoreo quedaba fuera de la vista sin forma de llegar a él: en un kiosco real el único
+   * periférico es la pistola, no hay mouse ni dedo para hacer scroll. Medido en vivo (terminal
+   * 40/Oficina): "LLEVANDO 3 O MÁS PAQUETES" cortado exacto en el borde inferior de la ventana.
+   * Se afirma el mecanismo (la tarjeta se desplaza sola, hasta que se ve su PIE, que es donde
+   * vive el mayoreo/ahorro que más espacio pide), no el string de la implementación.
+   */
+  it('tras un resultado, la tarjeta se desplaza sola hasta que su pie queda a la vista', async () => {
+    const spy = jest.fn();
+    // jsdom no implementa el layout real: se stubbea para AFIRMAR que se llamó, no el resultado
+    // visual (eso no se puede medir sin browser — declarado, no fingido).
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = spy;
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+
+    try {
+      fix.componentInstance.consultar('70001');
+      fix.detectChanges();
+      // El desplazamiento va detrás de un setTimeout(0) (esperar a que Angular pinte la
+      // tarjeta antes de medirla) — un tick real de la cola de tareas alcanza para que corra.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // No se afirma un total exacto de llamadas: otras pruebas del archivo también dejan
+      // programado su propio `setTimeout(0)` y drenan en el mismo tick. La LLAMADA que
+      // corresponde a ESTE escaneo es la última en la cola (FIFO por tiempo de programación).
+      expect(spy).toHaveBeenCalled();
+      // block: 'end' es el punto que importa: alinea el PIE de la tarjeta contra el borde de
+      // la ventana, no la cabecera — si volviera a 'start', el mayoreo seguiría fuera de vista.
+      expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({ block: 'end' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
   // ── Cámara del celular como lector: tercera vía junto a la pistola HID y el teclado ───────
   describe('cámara del celular como lector', () => {
     it('el botón está visible en la barra de escaneo', () => {
