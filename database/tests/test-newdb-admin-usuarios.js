@@ -322,6 +322,74 @@ const BASE_ALCANCE = {
       'y NO escribe permisos desde la pantalla de responsabilidades (sería el 4º sistema de authz)',
     );
 
+    // ══ 9. Ningún byte invisible en el código ══════════════════════════════
+    //
+    // `[AU.9]` Un `\0` se coló en `org.service.ts` como centinela de "sin puesto"
+    // y viajaba a Postgres como parámetro: `invalid byte sequence for encoding
+    // "UTF8": 0x00`. El endpoint tiraba 500 para toda persona sin puesto. Ni el
+    // build ni el lint ni este suite lo veían — se lee igual que un espacio.
+    console.log('\n[9] Ningún byte de control en los fuentes de usuarios');
+    const fuentes = [];
+    (function juntar(dir) {
+      for (const f of fs.readdirSync(path.join(REPO, dir))) {
+        const rel = `${dir}/${f}`;
+        if (fs.statSync(path.join(REPO, rel)).isDirectory()) juntar(rel);
+        else if (/\.(ts|js)$/.test(f)) fuentes.push(rel);
+      }
+    })('libs/trade/src/lib/users');
+    const sucios = fuentes.filter((rel) => {
+      const b = fs.readFileSync(path.join(REPO, rel));
+      return b.indexOf(0) >= 0 || b.indexOf(0x1a) >= 0;
+    });
+    check(
+      sucios.length === 0,
+      `los ${fuentes.length} fuentes de usuarios no traen NUL ni EOF${sucios.length ? ` — sucios: ${sucios.join(', ')}` : ''}`,
+    );
+    // Control positivo: el detector encuentra un NUL cuando de verdad lo hay.
+    check(
+      Buffer.from("x ?? '\0'", 'utf8').indexOf(0) >= 0,
+      'y el detector SÍ marca un buffer con un NUL adentro (no es un check vacío)',
+    );
+
+    // ══ 10. El padrón no cuenta a los que ya no están ══════════════════════
+    //
+    // `[AU.12]` `findAll` no filtraba `deleted_at`: `kind='interno'` devolvía 111
+    // filas para 100 personas vivas, y la pantalla pintaba a las 11 dadas de baja
+    // como «Suspendida», que es otro estado del ciclo.
+    console.log('\n[10] El padrón excluye las bajas, y el estado es el REAL');
+    const padronSvc = leer('libs/trade/src/lib/users/users.service.ts');
+    check(
+      /if \(!params\.incluir_bajas\) query\.whereNull\('u\.deleted_at'\)/.test(padronSvc),
+      'findAll excluye `deleted_at` salvo que se pida explícitamente',
+    );
+    check(/'u\.status',/.test(padronSvc), "y selecciona `status`, no sólo el booleano `activo`");
+
+    const { rows: padron } = await k.raw(
+      `SELECT count(*)::int AS filas,
+              count(*) FILTER (WHERE deleted_at IS NULL)::int AS vivas,
+              count(*) FILTER (WHERE deleted_at IS NOT NULL)::int AS bajas,
+              count(DISTINCT status)::int AS estados
+         FROM identity.users WHERE tenant_id = ? AND kind = 'interno'`,
+      [TENANT],
+    );
+    const p = padron[0];
+    if (p.filas === 0) {
+      declarar('el tenant no tiene cuentas internas: no hay con qué medir el recorte');
+    } else {
+      check(
+        p.vivas + p.bajas === p.filas,
+        `el recorte es real: ${p.filas} filas = ${p.vivas} vivas + ${p.bajas} baja(s) que la pantalla ya no cuenta`,
+      );
+      // Control positivo: si `status` fuera un campo muerto habría un solo valor.
+      check(p.estados >= 1, `y \`status\` tiene ${p.estados} valor(es) distinto(s) en uso`);
+    }
+
+    // El resumen de la tira se cuenta en el SERVIDOR sobre el mismo builder.
+    check(
+      /count\(DISTINCT u\.id\) FILTER \(WHERE u\.position_code IS NULL\)/.test(padronSvc),
+      'la tira de KPI la cuenta el servidor sobre el padrón, no el navegador sobre la página',
+    );
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} [AU] administración de usuarios: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {

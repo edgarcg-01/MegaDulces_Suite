@@ -848,6 +848,8 @@ export class UsersService {
       department_code?: string;
       position_code?: string;
       kind?: string;
+      status?: string;
+      incluir_bajas?: boolean;
     },
     requester: RequesterContext,
   ) {
@@ -905,6 +907,10 @@ export class UsersService {
         'u.zona_id',
         'u.role_name',
         'u.activo',
+        // `[AU.12]` El ciclo de vida REAL. `activo` es un booleano deprecado que
+        // no distingue `suspended` de `terminated`, y la pantalla llamaba
+        // «Suspendida» a las 11 personas que en prod están dadas de baja.
+        'u.status',
         'u.supervisor_id',
         'u.warehouse_code',
         // [ID.24.1] La ruta de la persona: su eje, si es de ruta.
@@ -945,11 +951,22 @@ export class UsersService {
       query.where('u.id', requester.sub);
     }
 
+    /*
+     * `[AU.12]` Las bajas salen del padrón salvo que se pidan.
+     *
+     * Medido en prod antes de cambiarlo: `kind='interno'` devolvía **111 filas,
+     * 100 vivas y 11 con `deleted_at`**, y cinco de esas once caían en la primera
+     * página. La pantalla las pintaba como «Suspendida», que es otro estado del
+     * ciclo. El padrón sobre-reportaba 11 personas que ya no trabajan acá.
+     */
+    if (!params.incluir_bajas) query.whereNull('u.deleted_at');
+
     if (zona) query.where('z.name', zona);
     if (activo) query.where('u.activo', activo === 'true');
     if (params.department_code) query.where('u.department_code', params.department_code);
     if (params.position_code) query.where('u.position_code', params.position_code);
     if (params.kind) query.where('u.kind', params.kind);
+    if (params.status) query.where('u.status', params.status);
 
     // Insensible a acentos, multi-palabra en cualquier orden y tolerante a
     // typos. `position_name`/`department_name` entran a propósito: buscar
@@ -973,6 +990,31 @@ export class UsersService {
     // contesten preguntas distintas.
     const totalQ = query.clone().clearSelect().clearOrder().countDistinct({ n: 'u.id' });
 
+    /*
+     * `[AU.12]` El resumen se cuenta sobre el MISMO builder, por la misma razón.
+     *
+     * Antes la tira de KPI se calculaba en el navegador sobre las 50 filas de la
+     * página y se leía como el padrón entero: decía «sin puesto 25» cuando el
+     * padrón tenía 81, y el número cambiaba al pasar de página.
+     *
+     * ⚠️ `DISTINCT u.id` y no `count(*)`: el join de almacenes puede casar más de
+     * una fila por persona, igual que en `totalQ`.
+     * ⚠️ Tampoco sirve `diagnosticoPadron()`: mide el tenant entero, así que a un
+     * supervisor le pondría un número que no corresponde a su tabla.
+     */
+    const resumenQ = query
+      .clone()
+      .clearSelect()
+      .clearOrder()
+      .select(
+        knex.raw(
+          `count(DISTINCT u.id) FILTER (WHERE u.position_code IS NULL)::int AS sin_puesto,
+           count(DISTINCT u.id) FILTER (WHERE u.supervisor_id IS NULL)::int AS sin_jefe,
+           count(DISTINCT u.id) FILTER (WHERE u.token_ttl_days IS NOT NULL)::int AS sesion_larga,
+           count(DISTINCT u.id) FILTER (WHERE u.last_login_at IS NULL)::int AS nunca_entraron`,
+        ),
+      );
+
     const page = Math.max(1, Math.trunc(params.page ?? 1));
     const pageSize = Math.min(500, Math.max(1, Math.trunc(params.pageSize ?? 50)));
 
@@ -982,12 +1024,19 @@ export class UsersService {
       .limit(pageSize)
       .offset((page - 1) * pageSize);
 
-    const [rows, totalRows] = await Promise.all([query, totalQ]);
+    const [rows, totalRows, resumenRows] = await Promise.all([query, totalQ, resumenQ]);
+    const r = (resumenRows as Array<Record<string, number>>)[0] ?? {};
     return {
       rows,
       total: Number((totalRows as Array<{ n: string | number }>)[0]?.n ?? 0),
       page,
       page_size: pageSize,
+      resumen: {
+        sin_puesto: Number(r['sin_puesto'] ?? 0),
+        sin_jefe: Number(r['sin_jefe'] ?? 0),
+        sesion_larga: Number(r['sesion_larga'] ?? 0),
+        nunca_entraron: Number(r['nunca_entraron'] ?? 0),
+      },
       medido_at: new Date().toISOString(),
     };
   }

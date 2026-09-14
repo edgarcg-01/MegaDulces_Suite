@@ -149,14 +149,20 @@ const PLATFORM_ADMIN_ROLES: readonly string[] = ['superadmin', 'admin'];
 
             <!-- Acciones -->
             <div class="flex items-center justify-between pt-1 mt-auto border-t border-divider">
-              <button
-                type="button"
-                class="text-xs font-medium text-brand hover:underline flex items-center gap-1"
-                (click)="$event.stopPropagation(); editPermissions.emit(card.value)"
-                [attr.aria-label]="'Editar permisos de ' + card.value"
-              >
-                <i class="pi pi-sliders-h text-xs"></i> Editar permisos
-              </button>
+              <!-- El editor de permisos exige ROLES_CONFIGURAR: sin el gate, quien
+                   sólo tiene ROLES_VER clickeaba y el guard lo sacaba de /admin. -->
+              @if (canManage()) {
+                <button
+                  type="button"
+                  class="text-xs font-medium text-brand hover:underline flex items-center gap-1"
+                  (click)="$event.stopPropagation(); editPermissions.emit(card.value)"
+                  [attr.aria-label]="'Editar permisos de ' + card.value"
+                >
+                  <i class="pi pi-sliders-h text-xs"></i> Editar permisos
+                </button>
+              } @else {
+                <span class="text-xs text-content-muted">Sólo lectura</span>
+              }
               @if (canManage() && !card.is_system) {
                 <div class="flex gap-1">
                   <button type="button" class="icon-btn-ghost icon-btn-ghost-info" (click)="$event.stopPropagation(); renameRole.emit(card)" pTooltip="Renombrar" aria-label="Renombrar rol"><i class="pi pi-pencil text-sm"></i></button>
@@ -226,13 +232,15 @@ const PLATFORM_ADMIN_ROLES: readonly string[] = ['superadmin', 'admin'];
             } @else {
               <span></span>
             }
-            <button
-              type="button"
-              class="btn-ghost btn-ghost-brand text-sm"
-              (click)="editPermissions.emit(role.value); closeDrawer()"
-            >
-              <i class="pi pi-sliders-h"></i> Editar permisos
-            </button>
+            @if (canManage()) {
+              <button
+                type="button"
+                class="btn-ghost btn-ghost-brand text-sm"
+                (click)="editPermissions.emit(role.value); closeDrawer()"
+              >
+                <i class="pi pi-sliders-h"></i> Editar permisos
+              </button>
+            }
           </div>
         </div>
       </div>

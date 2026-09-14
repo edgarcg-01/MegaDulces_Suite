@@ -80,6 +80,12 @@ export class UsersController {
   @ApiQuery({ name: 'department_code', required: false })
   @ApiQuery({ name: 'position_code', required: false })
   @ApiQuery({ name: 'kind', required: false })
+  @ApiQuery({ name: 'status', required: false, description: 'invited | active | suspended | terminated' })
+  @ApiQuery({
+    name: 'incluir_bajas',
+    required: false,
+    description: 'Por defecto el padrón NO trae las cuentas con `deleted_at`. Ponelo en true para auditarlas.',
+  })
   findAll(
     @ReqUser() user: AuthUser,
     @Query('zona') zona?: string,
@@ -90,6 +96,8 @@ export class UsersController {
     @Query('department_code') departmentCode?: string,
     @Query('position_code') positionCode?: string,
     @Query('kind') kind?: string,
+    @Query('status') status?: string,
+    @Query('incluir_bajas') incluirBajas?: string,
   ) {
     // Los query params llegan como string. `Number('')` es 0 y `Number(undefined)`
     // es NaN: los dos caen al default del service, que además los acota.
@@ -104,6 +112,8 @@ export class UsersController {
         department_code: departmentCode,
         position_code: positionCode,
         kind,
+        status,
+        incluir_bajas: incluirBajas === 'true',
       },
       user,
     );

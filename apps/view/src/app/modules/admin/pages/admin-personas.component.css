@@ -67,12 +67,14 @@
 
 /* ── Tabla ─────────────────────────────────────────────────────────────── */
 
+/* `--fg-2` y no `--fg-3`: el faint mide 2.42:1 sobre el fondo de la tarjeta y
+   AA pide 4.5 en texto chico. El faint queda para lo decorativo. */
 .ap-table th {
   font-size: var(--fs-micro);
   font-weight: var(--fw-medium);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--fg-3);
+  color: var(--fg-2);
 }
 
 .ap-table td {
@@ -118,7 +120,7 @@
 
 .ap-user {
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--fg-2);
 }
 
 .ap-puesto {
@@ -128,12 +130,12 @@
 .ap-sub {
   display: block;
   font-size: var(--fs-xs);
-  color: var(--fg-3);
+  color: var(--fg-2);
 }
 
 /* Lo que falta se DECLARA, no se deja en blanco. */
 .ap-falta {
-  color: var(--fg-3);
+  color: var(--fg-2);
   font-style: italic;
 }
 

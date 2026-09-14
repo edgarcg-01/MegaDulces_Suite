@@ -13,6 +13,7 @@ import type {
   HistoriaDePuesto,
   PuestoDetalle,
   PuestoFila,
+  PuestoQueResponde,
   ResponsabilidadDePuesto,
   ResponsabilidadFila,
   ResponsabilidadesDePersona,
@@ -479,6 +480,41 @@ export class OrgService {
     return rows;
   }
 
+  /**
+   * El inverso: qué puestos responden de una responsabilidad.
+   *
+   * La pantalla lo armaba pidiendo `positionResponsibilities` de cada puesto con
+   * responsabilidades —once GET por drawer, y otra vez después de cada asignar o
+   * quitar— porque este endpoint no existía.
+   */
+  async responsibilityPositions(key: string): Promise<PuestoQueResponde[]> {
+    const tenantId = this.tenantId;
+    const { rows } = await this.knex.raw(
+      `SELECT p.code AS position_code, p.name AS position_name, pr.es_principal,
+              (SELECT count(*)::int FROM identity.users u
+                WHERE u.tenant_id = p.tenant_id AND u.position_code = p.code
+                  AND u.deleted_at IS NULL) AS personas,
+              CASE
+                WHEN COALESCE(array_length(r.permission_keys, 1), 0) = 0 THEN NULL
+                WHEN p.default_role IS NULL THEN FALSE
+                ELSE EXISTS (
+                  SELECT 1 FROM identity.role_permissions rp
+                   WHERE rp.tenant_id = pr.tenant_id AND rp.role_name = p.default_role
+                     AND EXISTS (
+                       SELECT 1 FROM unnest(r.permission_keys) k
+                        WHERE rp.permissions ->> k = 'true'))
+              END AS abre
+         FROM identity.position_responsibilities pr
+         JOIN identity.responsibilities r ON r.key = pr.responsibility_key
+         JOIN identity.positions p
+           ON p.tenant_id = pr.tenant_id AND p.code = pr.position_code AND p.deleted_at IS NULL
+        WHERE pr.tenant_id = ? AND pr.responsibility_key = ? AND pr.deleted_at IS NULL
+        ORDER BY pr.es_principal DESC, p.name`,
+      [tenantId, key],
+    );
+    return rows;
+  }
+
   async addPositionResponsibility(
     code: string,
     key: string,
@@ -586,14 +622,20 @@ export class OrgService {
       .first('id', 'username', 'position_code');
     if (!user) throw new NotFoundException('El usuario no existe.');
 
-    const { rows: heredadas } = await this.knex.raw(
-      `SELECT pr.responsibility_key, r.label, r.dimension, pr.es_principal
-         FROM identity.position_responsibilities pr
-         JOIN identity.responsibilities r ON r.key = pr.responsibility_key
-        WHERE pr.tenant_id = ? AND pr.position_code = ? AND pr.deleted_at IS NULL
-        ORDER BY r.orden`,
-      [tenantId, user.position_code ?? ' '],
-    );
+    // Sin puesto no hay nada que heredar: se contesta vacío y no se consulta. El
+    // centinela que había acá viajaba como parámetro y Postgres rechaza el 0x00.
+    const heredadas: ResponsabilidadesDePersona['heredadas'] = user.position_code
+      ? (
+          await this.knex.raw(
+            `SELECT pr.responsibility_key, r.label, r.dimension, pr.es_principal
+               FROM identity.position_responsibilities pr
+               JOIN identity.responsibilities r ON r.key = pr.responsibility_key
+              WHERE pr.tenant_id = ? AND pr.position_code = ? AND pr.deleted_at IS NULL
+              ORDER BY r.orden`,
+            [tenantId, user.position_code],
+          )
+        ).rows
+      : [];
 
     const { rows: propias } = await this.knex.raw(
       `SELECT ur.id, ur.responsibility_key, r.label, r.dimension, ur.accion, ur.nota,

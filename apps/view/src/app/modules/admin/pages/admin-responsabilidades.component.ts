@@ -15,14 +15,16 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SelectModule } from 'primeng/select';
-import { MessageService } from 'primeng/api';
-import type { PuestoFila, ResponsabilidadDePuesto, ResponsabilidadFila } from '@megadulces/contracts';
+import { ConfirmationService, MessageService } from 'primeng/api';
+import type { PuestoFila, PuestoQueResponde, ResponsabilidadFila } from '@megadulces/contracts';
 
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AdminService } from '../admin.service';
@@ -49,13 +51,16 @@ import { ADMIN_TABS } from '../admin-tabs';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, ToastModule,
-    SelectModule, MetricStripComponent, SidePeekComponent, LoadStateComponent, PageTabsComponent,
+    ConfirmDialogModule, SelectModule,
+    MetricStripComponent, SidePeekComponent, LoadStateComponent, PageTabsComponent,
+    ContextHelpComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page in ar-page">
       <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="tabs"></app-page-tabs>
 
       <header class="surf-page-head">
@@ -67,6 +72,7 @@ import { ADMIN_TABS } from '../admin-tabs';
             perfil del puesto no abre la bandeja, lo que corresponde es arreglar el rol.
           </p>
         </div>
+        <app-context-help topic="organizacion-personas" />
       </header>
 
       <app-metric-strip [items]="kpis()" ariaLabel="Resumen de responsabilidades"></app-metric-strip>
@@ -171,7 +177,7 @@ import { ADMIN_TABS } from '../admin-tabs';
                     <span class="ar-sub">{{ a.personas }} persona(s)</span>
                     @if (puedeEscribir()) {
                       <button pButton type="button" class="icon-btn-ghost-bad"
-                              (click)="quitar(a.position_code)"
+                              (click)="quitar(a)"
                               [attr.aria-label]="'Quitar ' + a.position_name">
                         <span class="pi pi-times" aria-hidden="true"></span>
                       </button>
@@ -227,6 +233,7 @@ export class AdminResponsabilidadesComponent implements OnInit {
   private api = inject(AdminService);
   private perms = inject(PermissionsService);
   private toast = inject(MessageService);
+  private confirm = inject(ConfirmationService);
   private destroyRef = inject(DestroyRef);
 
   readonly tabs = ADMIN_TABS;
@@ -241,10 +248,7 @@ export class AdminResponsabilidadesComponent implements OnInit {
   readonly msg = signal<string | null>(null);
   readonly cargandoPuestos = signal(false);
 
-  /** Puesto × esta responsabilidad, armado cruzando el catálogo con cada puesto. */
-  readonly asignados = signal<
-    Array<{ position_code: string; position_name: string; es_principal: boolean; abre: boolean | null; personas: number }>
-  >([]);
+  readonly asignados = signal<PuestoQueResponde[]>([]);
 
   nuevoPuesto: string | null = null;
   nuevoPrincipal = false;
@@ -314,50 +318,22 @@ export class AdminResponsabilidadesComponent implements OnInit {
     this.recargarAsignados(r.key);
   }
 
-  /**
-   * ⚠️ No hay endpoint «qué puestos responden de X»: hay «de qué responde el
-   * puesto Y». Se cruza sobre los puestos que YA declaran responsabilidades, que
-   * es el dato que la lista trae, en vez de preguntar por los 57.
-   */
   private recargarAsignados(key: string): void {
     this.cargandoPuestos.set(true);
-    const conResp = this.puestos().filter((p) => p.responsabilidades > 0);
-    if (!conResp.length) {
-      this.asignados.set([]);
-      this.cargandoPuestos.set(false);
-      return;
-    }
-    let pendientes = conResp.length;
-    const acc: Array<{ position_code: string; position_name: string; es_principal: boolean; abre: boolean | null; personas: number }> = [];
-    for (const p of conResp) {
-      this.api
-        .responsabilidadesDePuesto(p.code)
-        .pipe(takeUntilDestroyed(this.destroyRef))
-        .subscribe({
-          next: (rs: ResponsabilidadDePuesto[]) => {
-            const m = rs.find((x) => x.responsibility_key === key);
-            if (m) {
-              acc.push({
-                position_code: p.code,
-                position_name: p.name,
-                es_principal: m.es_principal,
-                abre: m.abre,
-                personas: p.personas,
-              });
-            }
-            if (--pendientes === 0) this.cerrarCarga(acc);
-          },
-          error: () => {
-            if (--pendientes === 0) this.cerrarCarga(acc);
-          },
-        });
-    }
-  }
-
-  private cerrarCarga(acc: Array<{ position_code: string; position_name: string; es_principal: boolean; abre: boolean | null; personas: number }>): void {
-    acc.sort((a, b) => Number(b.es_principal) - Number(a.es_principal) || a.position_name.localeCompare(b.position_name));
-    this.asignados.set(acc);
-    this.cargandoPuestos.set(false);
+    this.api
+      .puestosQueResponden(key)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (a) => {
+          this.asignados.set(a);
+          this.cargandoPuestos.set(false);
+        },
+        error: (e) => {
+          this.asignados.set([]);
+          this.cargandoPuestos.set(false);
+          this.msg.set(this.mensajeDe(e));
+        },
+      });
   }
 
   cerrar(abierto: boolean): void {
@@ -386,19 +362,33 @@ export class AdminResponsabilidadesComponent implements OnInit {
       });
   }
 
-  quitar(positionCode: string): void {
+  quitar(a: PuestoQueResponde): void {
     const r = this.sel();
     if (!r) return;
-    this.api
-      .quitarDePuesto(positionCode, r.key)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: () => {
-          this.cargar();
-          this.recargarAsignados(r.key);
-        },
-        error: (e) => this.msg.set(this.mensajeDe(e)),
-      });
+    const ultimo = this.asignados().length === 1;
+    this.confirm.confirm({
+      header: 'Quitar la responsabilidad',
+      message: ultimo
+        ? `«${a.position_name}» es el ÚNICO que responde de «${r.label}». Si lo quitás, el trabajo de esa bandeja deja de tener a quién dirigirse.`
+        : `«${a.position_name}» deja de responder de «${r.label}».`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, quitar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => {
+        this.api
+          .quitarDePuesto(a.position_code, r.key)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: () => {
+              this.cargar();
+              this.recargarAsignados(r.key);
+            },
+            error: (e) => this.msg.set(this.mensajeDe(e)),
+          });
+      },
+    });
   }
 
   private mensajeDe(e: unknown): string {

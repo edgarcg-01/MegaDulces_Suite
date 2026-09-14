@@ -23,6 +23,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AdminService } from '../admin.service';
@@ -47,6 +48,7 @@ import { ADMIN_TABS } from '../admin-tabs';
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
     SelectModule, InputTextModule,
     MetricStripComponent, SidePeekComponent, LoadStateComponent, PageTabsComponent,
+    ContextHelpComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -64,20 +66,25 @@ import { ADMIN_TABS } from '../admin-tabs';
             — la zona desempata cuál de los tres jefes del mismo tipo corresponde.
           </p>
         </div>
-        @if (puedeEscribir()) {
-          <button pButton type="button" class="p-button-sm" severity="contrast" (click)="abrirAlta()">
-            <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span>
-            <span class="p-button-label">Nuevo puesto</span>
-          </button>
-        }
+        <div class="ax-head-actions">
+          <app-context-help topic="organizacion-personas" />
+          @if (puedeEscribir()) {
+            <button pButton type="button" class="p-button-sm" severity="contrast" (click)="abrirAlta()">
+              <span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span>
+              <span class="p-button-label">Nuevo puesto</span>
+            </button>
+          }
+        </div>
       </header>
 
       <app-metric-strip [items]="kpis()" ariaLabel="Resumen del catálogo de puestos"></app-metric-strip>
 
       <div class="ax-filters">
-        <p-select [options]="deptOpts()" [(ngModel)]="fDept" optionLabel="label" optionValue="value"
+        <p-select [options]="deptOpts()" [ngModel]="fDept()" (ngModelChange)="fDept.set($event)"
+                  optionLabel="label" optionValue="value"
                   styleClass="ax-sel" appendTo="body" ariaLabel="Departamento"></p-select>
-        <p-select [options]="ocupacionOpts" [(ngModel)]="fOcupacion" optionLabel="label" optionValue="value"
+        <p-select [options]="ocupacionOpts" [ngModel]="fOcupacion()" (ngModelChange)="fOcupacion.set($event)"
+                  optionLabel="label" optionValue="value"
                   styleClass="ax-sel" appendTo="body" ariaLabel="Ocupación"></p-select>
         <span class="ax-count">{{ visibles().length | number }} de {{ puestos().length | number }} puesto(s)</span>
       </div>
@@ -153,28 +160,35 @@ import { ADMIN_TABS } from '../admin-tabs';
             }
 
             <label class="ax-lbl" for="ax-name">Nombre</label>
-            <input pInputText id="ax-name" [(ngModel)]="fName" [disabled]="!puedeEscribir()" />
+            <input pInputText id="ax-name" [ngModel]="fName()" (ngModelChange)="fName.set($event)"
+                   [disabled]="!puedeEscribir()" />
 
             @if (!sel()) {
               <label class="ax-lbl" for="ax-code">Código</label>
-              <input pInputText id="ax-code" [(ngModel)]="fCode" class="mono"
-                     placeholder="auxiliar_compras" [disabled]="!puedeEscribir()" />
+              <input pInputText id="ax-code" [ngModel]="fCode()" (ngModelChange)="fCode.set($event)"
+                     class="mono" placeholder="auxiliar_compras" [disabled]="!puedeEscribir()" />
               <p class="ax-hint">Minúsculas, sin espacios ni acentos. No se renombra después.</p>
             }
 
             <label class="ax-lbl" for="ax-dept">Departamento</label>
-            <p-select inputId="ax-dept" [options]="deptSoloOpts()" [(ngModel)]="fDeptEdit"
+            <p-select inputId="ax-dept" [options]="deptSoloOpts()" [ngModel]="fDeptEdit()"
+                      (ngModelChange)="fDeptEdit.set($event)"
                       optionLabel="label" optionValue="value" appendTo="body"
                       [disabled]="!puedeEscribir()"></p-select>
 
             <label class="ax-lbl" for="ax-rol">Perfil que propone</label>
-            <p-select inputId="ax-rol" [options]="rolOpts()" [(ngModel)]="fRol" optionLabel="label"
+            <p-select inputId="ax-rol" [options]="rolOpts()" [ngModel]="fRol()"
+                      (ngModelChange)="fRol.set($event)" optionLabel="label"
                       optionValue="value" [filter]="true" filterBy="label" appendTo="body"
                       [disabled]="!puedeEscribir()" placeholder="Ninguno"></p-select>
-            <p class="ax-hint">⛔ Propone, no otorga: quien concede sigue siendo el rol de la persona.</p>
+            <p class="ax-hint">
+              <i class="pi pi-ban" aria-hidden="true"></i>
+              Propone, no otorga: quien concede sigue siendo el rol de la persona.
+            </p>
 
             <label class="ax-lbl" for="ax-jefe">Reporta a</label>
-            <p-select inputId="ax-jefe" [options]="jefeOpts()" [(ngModel)]="fJefe" optionLabel="label"
+            <p-select inputId="ax-jefe" [options]="jefeOpts()" [ngModel]="fJefe()"
+                      (ngModelChange)="fJefe.set($event)" optionLabel="label"
                       optionValue="value" [filter]="true" filterBy="label" appendTo="body"
                       [disabled]="!puedeEscribir()" placeholder="Ninguno (raíz)"></p-select>
 
@@ -217,8 +231,7 @@ import { ADMIN_TABS } from '../admin-tabs';
               </button>
               @if (puedeEscribir()) {
                 <button pButton type="button" class="p-button-sm" severity="contrast"
-                        [disabled]="guardando() || !fName.trim() || (!sel() && !fCode.trim())"
-                        (click)="guardar()">
+                        [disabled]="!puedeGuardar()" (click)="guardar()">
                   <span class="p-button-label">{{ sel() ? 'Guardar' : 'Crear puesto' }}</span>
                 </button>
               }
@@ -249,13 +262,16 @@ export class AdminPuestosComponent implements OnInit {
   readonly msg = signal<string | null>(null);
   private readonly roles = signal<string[]>([]);
 
-  fDept: string | null = null;
-  fOcupacion: string | null = null;
-  fName = '';
-  fCode = '';
-  fDeptEdit: string | null = null;
-  fRol: string | null = null;
-  fJefe: string | null = null;
+  // Signals y no props planas: un `computed` sólo recalcula cuando cambia un
+  // signal que leyó. Con props planas `visibles()` quedaba congelado en su
+  // primer valor y los dos filtros no filtraban nada.
+  readonly fDept = signal<string | null>(null);
+  readonly fOcupacion = signal<string | null>(null);
+  readonly fName = signal('');
+  readonly fCode = signal('');
+  readonly fDeptEdit = signal<string | null>(null);
+  readonly fRol = signal<string | null>(null);
+  readonly fJefe = signal<string | null>(null);
 
   readonly ocupacionOpts = [
     { label: 'Todos', value: null },
@@ -290,13 +306,19 @@ export class AdminPuestosComponent implements OnInit {
   ]);
 
   readonly visibles = computed(() => {
+    const dept = this.fDept();
+    const ocup = this.fOcupacion();
     let out = this.puestos();
-    if (this.fDept) out = out.filter((p) => p.department_code === this.fDept);
-    if (this.fOcupacion === 'con') out = out.filter((p) => p.personas > 0);
-    if (this.fOcupacion === 'sin') out = out.filter((p) => p.personas === 0);
-    if (this.fOcupacion === 'raiz') out = out.filter((p) => !p.reports_to_position_code);
+    if (dept) out = out.filter((p) => p.department_code === dept);
+    if (ocup === 'con') out = out.filter((p) => p.personas > 0);
+    if (ocup === 'sin') out = out.filter((p) => p.personas === 0);
+    if (ocup === 'raiz') out = out.filter((p) => !p.reports_to_position_code);
     return out;
   });
+
+  readonly puedeGuardar = computed(
+    () => !this.guardando() && !!this.fName().trim() && (!!this.sel() || !!this.fCode().trim()),
+  );
 
   readonly kpis = computed<MetricStripItem[]>(() => {
     const p = this.puestos();
@@ -338,11 +360,11 @@ export class AdminPuestosComponent implements OnInit {
   abrir(p: PuestoFila): void {
     this.sel.set(p);
     this.msg.set(null);
-    this.fName = p.name;
-    this.fCode = p.code;
-    this.fDeptEdit = p.department_code;
-    this.fRol = p.default_role;
-    this.fJefe = p.reports_to_position_code;
+    this.fName.set(p.name);
+    this.fCode.set(p.code);
+    this.fDeptEdit.set(p.department_code);
+    this.fRol.set(p.default_role);
+    this.fJefe.set(p.reports_to_position_code);
     this.detalle.set(null);
     this.peek.set(true);
     this.api.puesto(p.code).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -355,11 +377,11 @@ export class AdminPuestosComponent implements OnInit {
     this.sel.set(null);
     this.detalle.set(null);
     this.msg.set(null);
-    this.fName = '';
-    this.fCode = '';
-    this.fDeptEdit = null;
-    this.fRol = null;
-    this.fJefe = null;
+    this.fName.set('');
+    this.fCode.set('');
+    this.fDeptEdit.set(null);
+    this.fRol.set(null);
+    this.fJefe.set(null);
     this.peek.set(true);
   }
 
@@ -380,22 +402,23 @@ export class AdminPuestosComponent implements OnInit {
     this.guardando.set(true);
     this.msg.set(null);
 
+    const jefe = this.fJefe();
     const body = {
-      name: this.fName.trim(),
-      department_code: this.fDeptEdit,
-      default_role: this.fRol,
+      name: this.fName().trim(),
+      department_code: this.fDeptEdit(),
+      default_role: this.fRol(),
     };
     const actual = this.sel();
     const obs = actual
       ? this.api.editarPuesto(actual.code, body)
-      : this.api.crearPuesto({ ...body, code: this.fCode.trim() });
+      : this.api.crearPuesto({ ...body, code: this.fCode().trim() });
 
     obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
-        const code = actual?.code ?? this.fCode.trim();
-        const jefeCambio = actual ? this.fJefe !== actual.reports_to_position_code : !!this.fJefe;
+        const code = actual?.code ?? this.fCode().trim();
+        const jefeCambio = actual ? jefe !== actual.reports_to_position_code : !!jefe;
         if (!jefeCambio) return this.listo(actual ? 'Puesto actualizado.' : 'Puesto creado.');
-        this.api.setJefeDePuesto(code, this.fJefe).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        this.api.setJefeDePuesto(code, jefe).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: () => this.listo(actual ? 'Puesto y cadena actualizados.' : 'Puesto creado.'),
           error: (e) => {
             this.guardando.set(false);

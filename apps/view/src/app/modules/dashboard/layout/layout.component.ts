@@ -352,9 +352,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
   private adminNavItems: NavItem[] = [
     // `[AU.1]` Con `USUARIOS_GESTIONAR` el ítem no se pintaba para las 10 personas
     // que tienen `USUARIOS_VER`: aunque la ruta abriera, no tenían por dónde llegar.
-    { label: 'Usuarios', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_VER },
+    { label: 'Personas', icon: 'pi pi-users',  route: '/admin/users', permission: Permission.USUARIOS_VER },
+    // `[AU.3]`/`[AU.4]` Estaban sólo como pestañas: una pantalla que no está en el
+    // sidebar, para quien no conoce la pestaña, no existe.
+    { label: 'Puestos',  icon: 'pi pi-sitemap', route: '/admin/puestos', permission: Permission.USUARIOS_VER },
+    { label: 'Responsabilidades', icon: 'pi pi-flag', route: '/admin/responsabilidades', permission: Permission.USUARIOS_VER },
     { label: 'Promotores de marca', icon: 'pi pi-id-card', route: '/admin/promotores', permission: Permission.USUARIOS_GESTIONAR },
-    { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_CONFIGURAR  },
+    // La ruta pide `ROLES_VER`; con `ROLES_CONFIGURAR` el ítem no se pintaba para
+    // quien sí puede abrirla.
+    { label: 'Roles',    icon: 'pi pi-shield', route: '/admin/roles', permission: Permission.ROLES_VER },
     { label: 'Salud DB', icon: 'pi pi-heart',  route: '/admin/db-health', permission: Permission.USUARIOS_GESTIONAR },
   ];
 
