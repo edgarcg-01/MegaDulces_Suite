@@ -178,8 +178,19 @@ async function existe(c, rel) {
     const conDueno = new Set();
     for (const x of gente.values()) for (const k of x.resp) conDueno.add(k);
 
+    /** ACCESO: el permiso (o el god-mode) abre la pantalla. Eje 1. */
     const ve = (g, it) => g.esAdmin || it.anyOf.some((k) => g.perms[k] === true);
+    /** RESPONSABILIDAD: te designaron. Eje 2, INDEPENDIENTE del anterior. */
     const esMio = (g, it) => !!it.resp && g.resp.has(it.resp);
+    /*
+     * `[SN.28]` La compuerta, en UN solo lugar. Antes vivía dentro del bucle por persona y el
+     * bloque 0 no podía usarla: dos copias de la misma regla es exactamente cómo el servicio y
+     * este script terminaron discrepando sin que nadie lo viera.
+     *
+     * ⛔ NO exime al god-mode, y el servicio ahora tampoco: tener acceso a la interfaz y tener la
+     * responsabilidad asignada son dos cosas distintas e independientes.
+     */
+    const esAjena = (g, it) => !!it.resp && conDueno.has(it.resp) && !esMio(g, it) && it.alcance !== 'mio';
 
     const vacias = [];        // ni puertas ni trabajo
     const soloCatalogo = [];  // puertas sí, trabajo no
@@ -199,11 +210,10 @@ async function existe(c, rel) {
        * muestra igual** (sin enlace), así que cuenta como trabajo: si no contara, el censo diría
        * que esas 5 personas no tienen nada y es al revés — tienen algo que no pueden abrir.
        */
-      const ajena = (it) => it.resp && conDueno.has(it.resp) && !esMio(g, it) && it.alcance !== 'mio';
       const bandFinal = BANDEJAS.filter(
-        (b) => !b.retirada && (ve(g, b) || esMio(g, b)) && !ajena(b),
+        (b) => !b.retirada && (ve(g, b) || esMio(g, b)) && !esAjena(g, b),
       );
-      const cicFinal = CICLOS.filter((x) => (ve(g, x) || esMio(g, x)) && !ajena(x));
+      const cicFinal = CICLOS.filter((x) => (ve(g, x) || esMio(g, x)) && !esAjena(g, x));
       const trabajo = g.tareas + bandFinal.length + cicFinal.length;
 
       if (entradas === 0 && trabajo === 0) vacias.push({ g, puertas, entradas });
@@ -227,6 +237,49 @@ async function existe(c, rel) {
       if (ciegas.length) repartoCiego.push({ g, ciegas });
       if (apagadas.length) repartoApagado.push({ g, apagadas });
     }
+
+    /*
+     * ── 0. `[SN.28]` ⭐ Quién ve cada cola CON DUEÑO ──────────────────────────────────────────
+     *
+     * Este bloque nace de un defecto que este mismo script **no pudo destapar, por estar de
+     * acuerdo consigo mismo**: su `ajena()` (arriba) modela la regla correcta y NO exime al
+     * god-mode, pero `users.service.ts` sí lo eximía. Herramienta y código discrepaban, el censo
+     * reportaba la cifra que yo quería y la pantalla mostraba otra. Edgar lo vio antes que yo:
+     * *"usuarios a los que no se les asignó la conciliación siguen viendo esa información"* —
+     * eran los 9 `superadmin`.
+     *
+     * Por eso se imprime **nominalmente**: un total agregado («10 personas la ven») se lee igual
+     * si son los dueños o si son nueve extraños. La lista con nombre y rol no.
+     */
+    console.log(`\n── 0. ⭐ Colas con dueño: quién las ve en la portada ──`);
+    /*
+     * ⚠️ Fuera las de `alcance: 'mio'`, y NO es para que el número quede lindo. `caducidades-mias`
+     * filtra por `responsible_user_id` DENTRO de su propia consulta: lo que ve cada quien ahí son
+     * SUS borradores, no los de otro. Contarlas acá daba **29 personas "viendo trabajo ajeno"**
+     * que en realidad ven el propio — el mismo error de inflar un hallazgo que ya se cometió una
+     * vez en este censo (14 personas donde eran 5). El universo de este bloque son las colas
+     * COMPARTIDAS, que son las que la responsabilidad reparte.
+     */
+    const colasConDueno = [...BANDEJAS.filter((b) => !b.retirada), ...CICLOS]
+      .filter((it) => it.resp && conDueno.has(it.resp) && it.alcance !== 'mio');
+    const yaVisto = new Set();
+    let intrusos = 0;
+    for (const it of colasConDueno) {
+      if (yaVisto.has(it.resp)) continue;
+      yaVisto.add(it.resp);
+      const hermanas = colasConDueno.filter((x) => x.resp === it.resp);
+      const duenos = [...gente.values()].filter((g) => g.resp.has(it.resp));
+      const laVen = [...gente.values()].filter((g) => hermanas.some((h) => (ve(g, h) || esMio(g, h)) && !esAjena(g, h)));
+      const ajenos = laVen.filter((g) => !g.resp.has(it.resp));
+      intrusos += ajenos.length;
+      console.log(`\n   ${it.resp}  (${hermanas.length} cola/s: ${hermanas.map((h) => h.id).join(', ')})`);
+      console.log(`      dueños : ${duenos.map((g) => g.username).join(', ') || '⚠️ ninguno'}`);
+      console.log(`      la ven : ${n(laVen.length)} → ${laVen.map((g) => g.username).join(', ')}`);
+      if (ajenos.length) {
+        console.log(`      ⛔ SIN SER DUEÑOS: ${n(ajenos.length)} → ${ajenos.map((g) => `${g.username}/${g.rol}`).join(', ')}`);
+      }
+    }
+    console.log(`\n   ⇒ personas viendo trabajo que no es suyo: ${n(intrusos)} ${intrusos === 0 ? '✔' : '⛔'}`);
 
     console.log(`\n── 1. Puertas por persona ──`);
     for (const k of [...histo.keys()].sort((a, b) => a - b)) {

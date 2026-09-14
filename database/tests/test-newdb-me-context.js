@@ -315,7 +315,23 @@ const tieneDecoradorPermisos = (tramo) =>
       /tieneDueno\(clave\)/.test(cond) && !/delegacionActiva/.test(cond), cond.trim());
     check('tu BORRADOR (alcance mio) nunca se esconde: lo empezaste vos',
       /alcance === 'mio'/.test(cond), cond.trim());
-    check('god-mode ve todo', /esAdmin/.test(cond), cond.trim());
+    /*
+     * ⛔ `[SN.28]` **El god-mode NO puede ser una exención acá, y ésta es la aserción invertida.**
+     *
+     * Edgar (2026-09-14): *"una cosa es tener acceso a la interfaz y otra muy diferente tener
+     * asignada la responsabilidad; son dos cosas diferentes e independientes."*
+     *
+     * Hasta hoy esta misma línea exigía lo contrario (`check('god-mode ve todo', /esAdmin/…)`) y
+     * por eso el defecto pasaba verde: el candado protegía el bug. Medido en prod, la conciliación
+     * la veían en la portada su dueña **y los 9 `superadmin`** — nueve personas con el trabajo de
+     * otras de cabecera. `esAdmin` sigue vivo en `puedeVerBandeja`/`puedeVerCiclo`, que es donde
+     * corresponde: ahí decide el ACCESO.
+     */
+    check('el god-mode NO convierte a nadie en dueño (es acceso, no responsabilidad)',
+      !/esAdmin/.test(cond), cond.trim());
+    check('el god-mode SÍ sigue decidiendo el acceso, que es otro eje',
+      /puedeVerBandeja\(b, permisos, esAdmin\)/.test(srcSvc) &&
+      /puedeVerCiclo\(c, permisos, esAdmin\)/.test(srcSvc));
     check('si no se pudo leer quién es dueño, se falla ABIERTO (no se esconde por una falla)',
       /clavesConDueno === null/.test(cond), cond.trim());
   }

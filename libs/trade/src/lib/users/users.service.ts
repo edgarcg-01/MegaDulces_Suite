@@ -2319,18 +2319,34 @@ export class UsersService {
     /**
      * ¿Esta cola se le esconde a esta persona? Sólo si tiene dueño y no es ella.
      *
-     * ⛔ Dos exenciones, y las dos tienen motivo:
-     *  · **`alcance: 'mio'`** es tu BORRADOR — `caducidades-mias` ya filtra por
-     *    `responsible_user_id`. Gatearlo por responsabilidad le escondería a alguien su propio
-     *    trabajo a medias, que es el peor resultado de una regla que existe para mostrarle lo suyo.
-     *  · **God-mode** ve todo, como en el resto de la suite.
+     * ⛔ **`[SN.28]` El god-mode DEJÓ de ser una exención, y ése era el defecto que Edgar reportó**
+     * («usuarios a los que no se les asignó la conciliación siguen viendo esa información»).
+     *
+     * Medido en prod: la conciliación la ven en la portada **10 personas** — su dueña y los **9
+     * `superadmin`** (`aaron_alejo`, `david_cisneros`, `felipe_galvan`, `guillermo_lopez`,
+     * `jlh_lopez`, `luis_hernandez`, `ramon_rodriguez`, `superoot`, `superuser`). La regla de
+     * `[SN.24]` funcionaba; se la saltaba justo el grupo que Edgar tenía enfrente.
+     *
+     * El error de concepto es mío y es de los tres pilares de `task.contract.ts`: **el permiso
+     * decide si podés ABRIRLO, la responsabilidad decide si es TUYO**. God-mode es un hecho de
+     * permiso. Usarlo acá lo convertía en dueño universal — y esta columna se llama «Tu trabajo»,
+     * no «todo el trabajo que podés abrir». Nueve personas tenían de cabecera el trabajo de otras.
+     *
+     * ⛔ No se pierde acceso: `puedeVerBandeja` / `puedeVerCiclo` **siguen** honrando el god-mode,
+     * y cualquiera entra a esas pantallas por el menú. Se recorta lo que se te ofrece como TUYO.
+     * Y lo que queda fuera se DECLARA en `delegacion.ocultas` — no desaparece en silencio.
+     *
+     * ⛔ La única exención que queda, con su motivo: **`alcance: 'mio'`** es tu BORRADOR —
+     * `caducidades-mias` ya filtra por `responsible_user_id`. Gatearlo por responsabilidad le
+     * escondería a alguien su propio trabajo a medias, que es el peor resultado de una regla que
+     * existe para mostrarle lo suyo.
      *
      * ⛔ Y si las responsabilidades NO se pudieron leer (`null`), se falla ABIERTO: no se sabe
      * quién es dueño de qué, y esconder por una falla transitoria vaciaría pantallas. Es la misma
      * lección de `[SN.22]` — lo que no se pudo medir se declara, no se asume.
      */
     const ajena = (clave: string | null | undefined, propia: boolean, alcance?: string): boolean => {
-      if (esAdmin || alcance === 'mio' || clavesConDueno === null) return false;
+      if (alcance === 'mio' || clavesConDueno === null) return false;
       return tieneDueno(clave) && !propia;
     };
     let ocultasPorDelegacion = 0;
