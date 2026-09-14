@@ -1241,4 +1241,51 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[AU.14]` Las tres pantallas de la organización comparten un vocabulario que no
+  // se explica en ningún otro lado, y del que depende entender por qué alguien ve
+  // o no ve algo.
+  'organizacion-personas': {
+    title: 'Personas, puestos y responsabilidades — guía',
+    intro:
+      'Una persona ocupa un puesto, y del puesto salen su perfil de acceso, su jefe y de qué responde. Apartarse de lo que el puesto propone se puede, dejando escrito el motivo.',
+    groups: [
+      {
+        heading: 'Los tres ejes que NO se mezclan',
+        entries: [
+          { term: 'Permiso', def: 'Decide si podés ABRIR una pantalla. Sale del rol, y se edita en Roles y permisos.' },
+          { term: 'Responsabilidad', def: 'Decide si un trabajo ES TUYO. No abre nada: si el puesto responde de una bandeja que su perfil no abre, lo que corresponde es arreglar el rol.' },
+          { term: 'Tarea', def: 'Dice que alguien te asignó algo en concreto. Es lo que aparece en Mi trabajo.' },
+          { term: 'Por qué separados', def: 'Juntarlos crearía un cuarto sistema de autorización. Ya pasó: se midieron cuatro compuertas muertas por tener la autorización en dos lugares.' },
+        ],
+      },
+      {
+        heading: 'El puesto',
+        entries: [
+          { term: 'Lo que propone', def: 'Perfil de acceso, complementos, jefe y responsabilidades. Propone: no otorga. Quien concede sigue siendo el rol de la persona.' },
+          { term: 'Motivo de apartarse', def: 'Si se elige un perfil distinto del que propone el puesto, hay que escribir por qué. Queda en la bitácora de la persona.' },
+          { term: 'Raíz', def: 'Un puesto que no cuelga de ningún otro. Algunos lo son a propósito (Dirección); otros quedaron sueltos y su escalamiento no llega a nadie.' },
+          { term: 'Vacante', def: 'Un puesto sin nadie. Un jefe declarado sobre un puesto vacante es una cadena correcta que no despierta a ninguna persona.' },
+        ],
+      },
+      {
+        heading: 'Dónde opera, y por qué importa',
+        entries: [
+          { term: 'Eje de alcance', def: 'Qué se le pregunta para saber qué filas ve: su ruta, su tienda, su plaza, o nada si es de oficina (red). Sale del puesto, o del departamento si el puesto no lo declara.' },
+          { term: 'Fail-closed', def: 'Sin regla de alcance, no ve NADA. Es a propósito: es preferible que alguien pida acceso a que vea de más sin que nadie se entere.' },
+          { term: 'La cadena es por zona', def: 'El mismo puesto existe varias veces con jefes distintos. Por eso el jefe se declara entre PUESTOS y la zona desempata cuál de ellos corresponde.' },
+        ],
+      },
+      {
+        heading: 'El estado de una cuenta',
+        entries: [
+          { term: 'Invitada', def: 'Creada y todavía no entró.' },
+          { term: 'Activa', def: 'En uso.' },
+          { term: 'Suspendida', def: 'Baja temporal: vuelve.' },
+          { term: 'Dada de baja', def: 'Ya no trabaja acá. Conserva su historial; no es lo mismo que suspendida.' },
+          { term: 'Sesión larga', def: 'Una credencial que dura meses. Es para un kiosco o una tableta que nadie vuelve a desbloquear, no para una persona.' },
+        ],
+      },
+    ],
+  },
 };

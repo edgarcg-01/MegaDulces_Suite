@@ -123,6 +123,16 @@ export interface ResponsabilidadDePersona {
  * única pregunta que importa al auditar — *¿le toca por el puesto, o alguien se
  * lo asignó a ella con nombre y fecha?*
  */
+/** El inverso de `ResponsabilidadDePuesto`: quién responde de una responsabilidad. */
+export interface PuestoQueResponde {
+  position_code: string;
+  position_name: string;
+  es_principal: boolean;
+  personas: number;
+  /** ⛔ Diagnóstico, no compuerta. `null` = la responsabilidad no declara permisos. */
+  abre: boolean | null;
+}
+
 export interface ResponsabilidadesDePersona {
   user_id: string;
   username: string;
@@ -181,7 +191,10 @@ export interface PersonaFila {
   zona: string | null;
   zona_id: string | null;
   role_name: string | null;
+  /** @deprecated usar `status`: un booleano no distingue `suspended` de `terminated`. */
   activo: boolean;
+  /** El ciclo de vida. `[ID.8]` lo declaró fuente de verdad y `activo` se deriva. */
+  status: EstadoDePersona;
   supervisor_id: string | null;
   warehouse_code: string | null;
   route_id: string | null;
@@ -200,12 +213,33 @@ export interface PersonaFila {
   route_name_today: string | null;
 }
 
+/**
+ * Los cuatro estados de una cuenta (`[ID.8]`). `activo` es el booleano deprecado
+ * que no distingue una baja temporal de una definitiva.
+ */
+export const ESTADOS_DE_PERSONA = ['invited', 'active', 'suspended', 'terminated'] as const;
+export type EstadoDePersona = (typeof ESTADOS_DE_PERSONA)[number];
+
+/**
+ * Lo que el padrón cuenta sobre SÍ MISMO: mismo alcance, mismos filtros, antes de
+ * paginar. `[AU.12]` — la tira de KPI se calculaba en el navegador sobre la
+ * página y se leía como el padrón entero.
+ */
+export interface ResumenDelPadron {
+  sin_puesto: number;
+  sin_jefe: number;
+  sesion_larga: number;
+  nunca_entraron: number;
+}
+
 /** El sobre paginado de `GET /users` (`[AU.0b]`). */
 export interface PadronPagina<T> {
   rows: T[];
   total: number;
   page: number;
   page_size: number;
+  /** Contado sobre el mismo builder que `total`, no sobre `rows`. */
+  resumen: ResumenDelPadron;
   medido_at: string;
 }
 

@@ -19,6 +19,7 @@ import { TagModule } from 'primeng/tag';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
+import { ConfirmationService } from 'primeng/api';
 import type {
   HistoriaDePuesto,
   PersonaFila,
@@ -27,27 +28,22 @@ import type {
 } from '@megadulces/contracts';
 
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+// ⚠️ Vive todavía en el módulo viejo; se muda con él cuando `[AU.7]` lo retire.
+import {
+  SESSION_PRESETS,
+  generateDevicePassword,
+} from '../../dashboard/admin-users/device-session';
 import { AdminService, EventoDePersona, OpcionCatalogo, PermisosDePersona } from '../admin.service';
 
 /**
- * `[AU.2]` — La ficha de una persona, organizada por las cinco preguntas que se
- * le hacen: **quién es · qué abre · qué datos ve · de qué responde · qué pasó**.
+ * `[AU.2]` — La ficha de una persona, por las cinco preguntas que se le hacen:
+ * **quién es · qué abre · qué datos ve · de qué responde · qué pasó**.
  *
- * ── Por qué en pestañas y no en un formulario largo ─────────────────────────
- * La ficha anterior era **un `<form>` de 700 líneas con scroll** y dos acordeones
- * al final. Los cinco bloques no se miran juntos casi nunca: quien da de alta
- * mira el puesto, quien audita mira la historia, y quien arregla un acceso mira
- * las excepciones.
+ * Los cinco bloques casi nunca se miran juntos: quien da de alta mira el puesto,
+ * quien audita mira la historia, quien arregla un acceso mira las excepciones.
  *
- * ── Tres defectos medidos de la pantalla vieja que esto corrige ─────────────
- *  1. **El endpoint de la propuesta no se llamaba.** La propuesta se recalculaba
- *     en el cliente desde el catálogo de puestos, que sólo trae `default_role`:
- *     el jefe, los complementos y las responsabilidades eran invisibles.
- *  2. **En el alta no se podían fijar permisos ni alcance** (estaban gateados a
- *     `isEditing()`), así que crear a alguien eran dos pasos.
- *  3. **`persistPermisos`/`persistAlcance` corrían con el drawer ya cerrado**: si
- *     el PUT fallaba, el toast salía sobre una pantalla sin editor y lo tecleado
- *     se perdía. Acá nada se cierra hasta que todo terminó bien.
+ * ⛔ Nada se persiste después de cerrar el drawer: si el guardado falla, el editor
+ * sigue abierto con lo tecleado.
  */
 
 type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
@@ -76,21 +72,62 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
       @if (pestana() === 'persona') {
         <section class="pd-blk">
           <label class="pd-lbl" for="pd-nombre">Nombre</label>
-          <input pInputText id="pd-nombre" [(ngModel)]="f.nombre" [disabled]="!puedeEscribir"
-                 placeholder="Nombre completo" />
+          <input pInputText id="pd-nombre" [ngModel]="fNombre()" (ngModelChange)="fNombre.set($event)"
+                 [disabled]="!puedeEscribir" placeholder="Nombre completo" />
 
           <label class="pd-lbl" for="pd-user">Usuario</label>
-          <input pInputText id="pd-user" [(ngModel)]="f.username" [disabled]="!puedeEscribir || !!persona"
+          <input pInputText id="pd-user" [ngModel]="fUsername()" (ngModelChange)="fUsername.set($event)"
+                 [disabled]="!puedeEscribir || !!persona"
                  placeholder="nombre_apellido" class="mono" />
           @if (persona) {
             <p class="pd-hint">El usuario no se renombra: lo referencian la bitácora y las sesiones abiertas.</p>
           }
 
+          @if (!persona) {
+            <label class="pd-lbl pd-lbl-req" for="pd-pass">Contraseña</label>
+            <div class="pd-pass">
+              <input pInputText id="pd-pass" [type]="verPass() ? 'text' : 'password'"
+                     [ngModel]="fPassword()" (ngModelChange)="fPassword.set($event)"
+                     [disabled]="!puedeEscribir" class="mono" autocomplete="new-password"
+                     placeholder="Mínimo 6 caracteres" />
+              <button pButton type="button" class="icon-btn-ghost" (click)="verPass.set(!verPass())"
+                      [attr.aria-label]="verPass() ? 'Ocultar la contraseña' : 'Ver la contraseña'">
+                <span class="pi" [class.pi-eye]="!verPass()" [class.pi-eye-slash]="verPass()"
+                      aria-hidden="true"></span>
+              </button>
+              <button pButton type="button" class="p-button-sm p-button-text" (click)="generarPass()"
+                      [disabled]="!puedeEscribir">
+                <span class="p-button-label">Generar</span>
+              </button>
+            </div>
+            <p class="pd-hint">
+              Se genera en tu navegador y sólo viaja en el alta, ya hasheada del otro lado.
+              Sin caracteres que se confundan: no hay <code>0/O</code> ni <code>1/l/I</code>.
+            </p>
+          }
+
           <label class="pd-lbl" for="pd-puesto">Puesto</label>
-          <p-select inputId="pd-puesto" [options]="puestoOpts()" [(ngModel)]="f.position_code"
+          <p-select inputId="pd-puesto" [options]="puestoOpts()" [ngModel]="fPuesto()"
+                    (ngModelChange)="fPuesto.set($event)"
                     (onChange)="cargarPropuesta()" optionLabel="label" optionValue="value"
                     [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
                     placeholder="¿Qué puesto ocupa?"></p-select>
+
+          <label class="pd-lbl pd-lbl-req" for="pd-depto">Departamento</label>
+          <p-select inputId="pd-depto" [options]="deptoOpts()" [ngModel]="fDepto()"
+                    (ngModelChange)="fDepto.set($event)" optionLabel="label" optionValue="value"
+                    [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
+                    placeholder="¿De qué área depende?"></p-select>
+
+          <label class="pd-lbl" for="pd-jefe">Jefe directo</label>
+          <p-select inputId="pd-jefe" [options]="jefeOpts()" [ngModel]="fJefe()"
+                    (ngModelChange)="fJefe.set($event)" optionLabel="label" optionValue="value"
+                    [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
+                    placeholder="Sin jefe directo"></p-select>
+          <p class="pd-hint">
+            Si se deja vacío, el escalamiento usa el jefe que propone el puesto. Declararlo acá
+            sirve cuando el organigrama por zona no alcanza para desempatar.
+          </p>
         </section>
 
         <!-- Lo que el puesto PROPONE: las cuatro cosas, del servidor. -->
@@ -162,18 +199,19 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
         @if (ajustar() || !propuesta()) {
           <section class="pd-blk">
             <label class="pd-lbl" for="pd-rol">Perfil de acceso</label>
-            <p-select inputId="pd-rol" [options]="rolOpts()" [(ngModel)]="f.role_name" optionLabel="label"
+            <p-select inputId="pd-rol" [options]="rolOpts()" [ngModel]="fRol()"
+                      (ngModelChange)="fRol.set($event)" optionLabel="label"
                       optionValue="value" [filter]="true" filterBy="label" appendTo="body"
                       [disabled]="!puedeEscribir" placeholder="Elegí el perfil"></p-select>
 
             @if (hayDesvio()) {
               <label class="pd-lbl pd-lbl-req" for="pd-motivo">Motivo de apartarse del puesto</label>
-              <textarea pTextarea id="pd-motivo" [(ngModel)]="f.motivo_desvio" rows="2" maxlength="300"
-                        [disabled]="!puedeEscribir"
+              <textarea pTextarea id="pd-motivo" [ngModel]="fMotivo()" (ngModelChange)="fMotivo.set($event)"
+                        rows="2" maxlength="300" [disabled]="!puedeEscribir"
                         placeholder="Por qué este perfil y no el que propone el puesto"></textarea>
               <p class="pd-hint">
                 El puesto propone <strong>{{ propuesta()?.role_name }}</strong> y elegiste
-                <strong>{{ f.role_name }}</strong>. El motivo queda en la bitácora.
+                <strong>{{ fRol() }}</strong>. El motivo queda en la bitácora.
               </p>
             }
           </section>
@@ -182,8 +220,20 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
 
       <!-- ── 2. QUÉ ABRE ────────────────────────────────────────────────── -->
       @if (pestana() === 'acceso') {
+        <section class="pd-blk">
+          <label class="pd-lbl" for="pd-ttl">Duración de la sesión</label>
+          <p-select inputId="pd-ttl" [options]="sesionOpts" [ngModel]="fTtl()"
+                    (ngModelChange)="fTtl.set($event)" optionLabel="label" optionValue="value"
+                    appendTo="body" [disabled]="!puedeEscribir"></p-select>
+          <p class="pd-hint">
+            Una sesión larga es para un <strong>kiosco o una tableta</strong> que nadie vuelve a
+            desbloquear, no para una persona. Un permiso de un año que no se puede ver desde acá
+            tampoco se puede revisar ni quitar.
+          </p>
+        </section>
+
         @if (!persona) {
-          <p class="pd-vacio">El acceso se configura una vez que la persona existe. Guardá primero.</p>
+          <p class="pd-vacio">Los permisos se revisan una vez que la persona existe. Guardá primero.</p>
         } @else if (cargandoAcceso()) {
           <p class="pd-vacio">Leyendo el acceso…</p>
         } @else if (permisos(); as pm) {
@@ -227,10 +277,43 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
 
       <!-- ── 3. QUÉ DATOS VE ───────────────────────────────────────────── -->
       @if (pestana() === 'datos') {
+        <section class="pd-blk">
+          <h3>Dónde opera</h3>
+          <p class="pd-hint">
+            El eje del puesto dice cuál de estos tres se le pregunta. Si queda vacío el que le
+            corresponde, <strong>no va a ver ninguna fila</strong>: el alcance es fail-closed.
+            @if (propuesta()?.scope_axis; as eje) {
+              Su puesto se resuelve por <strong>{{ eje }}</strong> — {{ ejeExplica(eje) }}.
+            }
+          </p>
+
+          <label class="pd-lbl" for="pd-suc">Sucursal</label>
+          <p-select inputId="pd-suc" [options]="sucursalOpts()" [ngModel]="fSucursal()"
+                    (ngModelChange)="fSucursal.set($event)" optionLabel="label" optionValue="value"
+                    [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
+                    placeholder="Ninguna"></p-select>
+
+          <label class="pd-lbl" for="pd-ruta">Ruta</label>
+          <p-select inputId="pd-ruta" [options]="rutaOpts()" [ngModel]="fRuta()"
+                    (ngModelChange)="fRuta.set($event)" optionLabel="label" optionValue="value"
+                    [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
+                    placeholder="Ninguna"></p-select>
+
+          <label class="pd-lbl" for="pd-zona">Zona</label>
+          <p-select inputId="pd-zona" [options]="zonaOpts()" [ngModel]="fZona()"
+                    (ngModelChange)="fZona.set($event)" optionLabel="label" optionValue="value"
+                    [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
+                    placeholder="Ninguna"></p-select>
+        </section>
+
         @if (!persona) {
-          <p class="pd-vacio">El alcance se configura una vez que la persona existe.</p>
+          <p class="pd-vacio">
+            Las reglas de alcance por dimensión se ven cuando la persona existe. Lo de arriba sí se
+            guarda con el alta.
+          </p>
         } @else if (alcance(); as al) {
           <section class="pd-blk">
+            <h3>Qué filas ve</h3>
             <p class="pd-hint">
               Qué filas ve en cada dimensión. <strong>Sin regla, no ve nada</strong> — el alcance
               es fail-closed a propósito.
@@ -288,7 +371,8 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                     <span class="pd-nota">{{ p.nota }}</span>
                     @if (puedeEscribir) {
                       <button pButton type="button" class="icon-btn-ghost-bad"
-                              (click)="quitarResponsabilidad(p.id)" [attr.aria-label]="'Quitar ' + p.label">
+                              (click)="quitarResponsabilidad(p.id, p.label)"
+                              [attr.aria-label]="'Quitar ' + p.label">
                         <span class="pi pi-times" aria-hidden="true"></span>
                       </button>
                     }
@@ -386,6 +470,8 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
 })
 export class PersonaDetalleComponent implements OnChanges {
   private api = inject(AdminService);
+  /** Lo provee la página: el diálogo vive en su plantilla, no en el drawer. */
+  private confirm = inject(ConfirmationService);
   private destroyRef = inject(DestroyRef);
 
   @Input() persona: PersonaFila | null = null;
@@ -409,17 +495,39 @@ export class PersonaDetalleComponent implements OnChanges {
   private readonly puestos = signal<OpcionCatalogo[]>([]);
   private readonly roles = signal<string[]>([]);
   private readonly catalogoResp = signal<Array<{ key: string; label: string }>>([]);
+  private readonly departamentos = signal<OpcionCatalogo[]>([]);
+  private readonly jefes = signal<Array<{ id: string; nombre: string | null; username: string }>>([]);
+  private readonly branches = signal<Array<{ code: string; name: string }>>([]);
+  private readonly routes = signal<Array<{ id: string; name: string }>>([]);
+  private readonly zones = signal<Array<{ id: string; value: string }>>([]);
 
   nuevaResp: string | null = null;
   nuevaNota = '';
 
-  f: {
-    nombre: string;
-    username: string;
-    position_code: string | null;
-    role_name: string | null;
-    motivo_desvio: string;
-  } = { nombre: '', username: '', position_code: null, role_name: null, motivo_desvio: '' };
+  /*
+   * Signals y no un objeto plano: `hayDesvio()` y `puedeGuardar()` los leen
+   * desde un `computed`, y un `computed` sólo recalcula cuando cambia un signal
+   * que leyó. Con props planas dependían sólo de `propuesta`, así que
+   * `hayDesvio()` quedaba congelado en `false` al cambiar el perfil: el textarea
+   * del motivo NO aparecía nunca y el backend sí lo exige — 400 sin campo donde
+   * escribirlo.
+   */
+  readonly fNombre = signal('');
+  readonly fUsername = signal('');
+  readonly fPassword = signal('');
+  readonly fPuesto = signal<string | null>(null);
+  readonly fDepto = signal<string | null>(null);
+  readonly fJefe = signal<string | null>(null);
+  readonly fRol = signal<string | null>(null);
+  readonly fMotivo = signal('');
+  readonly fSucursal = signal<string | null>(null);
+  readonly fRuta = signal<string | null>(null);
+  readonly fZona = signal<string | null>(null);
+  readonly fTtl = signal<number | null>(null);
+  readonly verPass = signal(false);
+
+  /** Copia mutable: `p-select` no acepta un `ReadonlyArray` en `[options]`. */
+  readonly sesionOpts = [...SESSION_PRESETS];
 
   readonly pestanas = computed<SegOption[]>(() => [
     { label: 'Persona', value: 'persona' },
@@ -435,6 +543,32 @@ export class PersonaDetalleComponent implements OnChanges {
 
   readonly rolOpts = computed(() => this.roles().map((r) => ({ label: r, value: r })));
 
+  readonly deptoOpts = computed(() =>
+    this.departamentos().map((d) => ({ label: d.name, value: d.code })),
+  );
+
+  readonly jefeOpts = computed(() => [
+    { label: 'Sin jefe directo', value: null as string | null },
+    ...this.jefes()
+      .filter((j) => j.id !== this.persona?.id)
+      .map((j) => ({ label: j.nombre || j.username, value: j.id as string | null })),
+  ]);
+
+  readonly sucursalOpts = computed(() => [
+    { label: 'Ninguna', value: null as string | null },
+    ...this.branches().map((b) => ({ label: b.name, value: b.code as string | null })),
+  ]);
+
+  readonly rutaOpts = computed(() => [
+    { label: 'Ninguna', value: null as string | null },
+    ...this.routes().map((r) => ({ label: r.name, value: r.id as string | null })),
+  ]);
+
+  readonly zonaOpts = computed(() => [
+    { label: 'Ninguna', value: null as string | null },
+    ...this.zones().map((z) => ({ label: z.value, value: z.id as string | null })),
+  ]);
+
   readonly respOpts = computed(() =>
     this.catalogoResp().map((r) => ({ label: r.label, value: r.key })),
   );
@@ -446,18 +580,31 @@ export class PersonaDetalleComponent implements OnChanges {
    */
   readonly hayDesvio = computed(() => {
     const p = this.propuesta();
+    const rol = this.fRol();
+    const puesto = this.fPuesto();
     if (!p || p.sin_perfil) return false;
-    if (!this.f.role_name) return false;
-    if (this.f.role_name === p.role_name) return false;
+    if (!rol) return false;
+    if (rol === p.role_name) return false;
     if (!this.persona) return true;
-    return this.f.role_name !== this.persona.role_name || this.f.position_code !== this.persona.position_code;
+    return rol !== this.persona.role_name || puesto !== this.persona.position_code;
   });
 
   readonly puedeGuardar = computed(() => {
-    if (!this.f.username.trim()) return false;
-    if (!this.f.position_code) return false;
-    if (!this.f.role_name) return false;
-    if (this.hayDesvio() && !this.f.motivo_desvio.trim()) return false;
+    // Los signals se leen SIEMPRE primero e incondicionales: un `&&` que corta
+    // antes de leer uno deja el computed sin esa dependencia.
+    const usuario = this.fUsername().trim();
+    const puesto = this.fPuesto();
+    const depto = this.fDepto();
+    const rol = this.fRol();
+    const pass = this.fPassword();
+    const motivo = this.fMotivo().trim();
+    const desvio = this.hayDesvio();
+    if (!usuario || !puesto || !rol) return false;
+    // `department_code` y `password` los exige el DTO del alta: sin ellos el POST
+    // vuelve 400 antes de tocar el servicio.
+    if (!depto) return false;
+    if (!this.persona && pass.trim().length < 6) return false;
+    if (desvio && !motivo) return false;
     return true;
   });
 
@@ -480,13 +627,19 @@ export class PersonaDetalleComponent implements OnChanges {
     this.historia.set(null);
     this.eventos.set([]);
 
-    this.f = {
-      nombre: this.persona?.nombre ?? '',
-      username: this.persona?.username ?? '',
-      position_code: this.persona?.position_code ?? null,
-      role_name: this.persona?.role_name ?? null,
-      motivo_desvio: '',
-    };
+    this.fNombre.set(this.persona?.nombre ?? '');
+    this.fUsername.set(this.persona?.username ?? '');
+    this.fPassword.set('');
+    this.verPass.set(false);
+    this.fPuesto.set(this.persona?.position_code ?? null);
+    this.fDepto.set(this.persona?.department_code ?? null);
+    this.fJefe.set(this.persona?.supervisor_id ?? null);
+    this.fRol.set(this.persona?.role_name ?? null);
+    this.fMotivo.set('');
+    this.fSucursal.set(this.persona?.warehouse_code ?? null);
+    this.fRuta.set(this.persona?.route_id ?? null);
+    this.fZona.set(this.persona?.zona_id ?? null);
+    this.fTtl.set(this.persona?.token_ttl_days ?? null);
 
     if (!this.puestos().length) {
       this.api.puestosSimples().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -506,8 +659,38 @@ export class PersonaDetalleComponent implements OnChanges {
         error: () => this.roles.set([]),
       });
     }
+    if (!this.departamentos().length) {
+      this.api.departamentos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => this.departamentos.set(d),
+        error: () => this.departamentos.set([]),
+      });
+    }
+    if (!this.jefes().length) {
+      this.api.supervisores().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (j) => this.jefes.set(j),
+        error: () => this.jefes.set([]),
+      });
+    }
+    if (!this.branches().length) {
+      this.api.sucursales().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (b) => this.branches.set(b),
+        error: () => this.branches.set([]),
+      });
+    }
+    if (!this.routes().length) {
+      this.api.rutas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => this.routes.set(r),
+        error: () => this.routes.set([]),
+      });
+    }
+    if (!this.zones().length) {
+      this.api.zonas().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (z) => this.zones.set(z),
+        error: () => this.zones.set([]),
+      });
+    }
 
-    if (this.f.position_code) this.cargarPropuesta();
+    if (this.fPuesto()) this.cargarPropuesta();
     if (this.persona) this.cargarLoDeLaPersona(this.persona.id);
   }
 
@@ -538,9 +721,9 @@ export class PersonaDetalleComponent implements OnChanges {
     });
   }
 
-  /** ⭐ El endpoint que la pantalla vieja nunca llamó. */
+  /** Lo que el puesto propone: rol, complementos, jefe y responsabilidades. */
   cargarPropuesta(): void {
-    const code = this.f.position_code;
+    const code = this.fPuesto();
     if (!code) {
       this.propuesta.set(null);
       return;
@@ -549,7 +732,7 @@ export class PersonaDetalleComponent implements OnChanges {
       next: (p) => {
         this.propuesta.set(p);
         // En el alta se precarga; en una edición no se pisa lo que ya tiene.
-        if (!this.persona && !this.f.role_name && p.role_name) this.f.role_name = p.role_name;
+        if (!this.persona && !this.fRol() && p.role_name) this.fRol.set(p.role_name);
       },
       error: () => this.propuesta.set(null),
     });
@@ -558,8 +741,8 @@ export class PersonaDetalleComponent implements OnChanges {
   aceptarPropuesta(): void {
     const p = this.propuesta();
     if (!p?.role_name) return;
-    this.f.role_name = p.role_name;
-    this.f.motivo_desvio = '';
+    this.fRol.set(p.role_name);
+    this.fMotivo.set('');
     this.ajustar.set(false);
   }
 
@@ -567,21 +750,40 @@ export class PersonaDetalleComponent implements OnChanges {
     this.pestana.set(p);
   }
 
+  generarPass(): void {
+    this.fPassword.set(generateDevicePassword());
+    this.verPass.set(true);
+  }
+
   guardar(): void {
     if (!this.puedeGuardar() || this.guardando()) return;
     this.guardando.set(true);
     this.errorGuardado.set(null);
 
+    const ttl = this.fTtl();
     const body: Record<string, unknown> = {
-      nombre: this.f.nombre.trim() || null,
-      position_code: this.f.position_code,
-      role_name: this.f.role_name,
+      nombre: this.fNombre().trim() || null,
+      position_code: this.fPuesto(),
+      department_code: this.fDepto(),
+      role_name: this.fRol(),
+      supervisor_id: this.fJefe(),
+      warehouse_code: this.fSucursal(),
+      route_id: this.fRuta(),
+      zone_id: this.fZona(),
+      token_ttl_days: ttl,
     };
-    if (this.hayDesvio()) body['motivo_desvio'] = this.f.motivo_desvio.trim();
+    if (this.hayDesvio()) body['motivo_desvio'] = this.fMotivo().trim();
 
     const obs = this.persona
       ? this.api.editarPersona(this.persona.id, body)
-      : this.api.crearPersona({ ...body, username: this.f.username.trim() });
+      : this.api.crearPersona({
+          ...body,
+          username: this.fUsername().trim(),
+          password: this.fPassword(),
+          // Una cuenta de kiosco es compartida y nadie la desbloquea: exigirle
+          // cambio de contraseña al primer login la deja inservible.
+          must_change_password: ttl == null,
+        });
 
     obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
@@ -616,15 +818,27 @@ export class PersonaDetalleComponent implements OnChanges {
       });
   }
 
-  quitarResponsabilidad(rowId: string): void {
-    if (!this.persona) return;
-    this.api
-      .quitarDePersona(this.persona.id, rowId)
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({
-        next: (r) => this.responsabilidades.set(r),
-        error: (e) => this.errorGuardado.set(this.mensajeDe(e)),
-      });
+  quitarResponsabilidad(rowId: string, label: string): void {
+    const persona = this.persona;
+    if (!persona) return;
+    this.confirm.confirm({
+      header: 'Quitar la excepción',
+      message: `«${label}» deja de ser responsabilidad propia de ${persona.nombre || persona.username}. Lo que herede de su puesto no cambia.`,
+      icon: 'pi pi-exclamation-triangle',
+      acceptLabel: 'Sí, quitar',
+      rejectLabel: 'Cancelar',
+      acceptButtonStyleClass: 'p-button-danger p-button-sm',
+      rejectButtonStyleClass: 'p-button-text p-button-sm',
+      accept: () => {
+        this.api
+          .quitarDePersona(persona.id, rowId)
+          .pipe(takeUntilDestroyed(this.destroyRef))
+          .subscribe({
+            next: (r) => this.responsabilidades.set(r),
+            error: (e) => this.errorGuardado.set(this.mensajeDe(e)),
+          });
+      },
+    });
   }
 
   private mensajeDe(e: unknown): string {

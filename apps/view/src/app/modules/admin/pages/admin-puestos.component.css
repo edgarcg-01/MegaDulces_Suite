@@ -2,13 +2,15 @@
 
 .ax-page { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0; }
 
+.ax-head-actions { display: flex; align-items: center; gap: var(--sp-2); }
+
 .ax-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
 .ax-sel { min-width: 12rem; }
 .ax-count { margin-left: auto; font-size: var(--fs-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
 
 .ax-table th {
   font-size: var(--fs-micro); font-weight: var(--fw-medium);
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
 }
 .ax-table td { font-size: var(--fs-sm); }
 .ax-sticky { position: sticky; left: 0; z-index: 1; background: var(--card-bg); }
@@ -18,10 +20,10 @@
 .ax-r { text-align: right; font-variant-numeric: tabular-nums; }
 
 .ax-nombre { display: block; font-weight: var(--fw-medium); }
-.ax-code { display: block; font-size: var(--fs-xs); color: var(--fg-3); }
-.ax-sub { display: block; font-size: var(--fs-xs); color: var(--fg-3); }
+.ax-code { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
+.ax-sub { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
 .ax-mas { margin-left: var(--sp-1); }
-.ax-falta { color: var(--fg-3); font-style: italic; }
+.ax-falta { color: var(--fg-2); font-style: italic; }
 .ax-foot { font-size: var(--fs-xs); color: var(--fg-3); margin: 0; max-width: 68ch; }
 
 /* ── Panel de detalle ─────────────────────────────────────────────────── */
@@ -29,7 +31,7 @@
 .ax-peek h3 { font-size: var(--fs-h3); font-weight: var(--fw-bold); margin: var(--sp-3) 0 0; }
 .ax-lbl {
   font-size: var(--fs-micro); font-weight: var(--fw-medium);
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
 }
 .ax-hint { font-size: var(--fs-xs); color: var(--fg-3); margin: 0; max-width: 60ch; }
 .ax-vacio { font-size: var(--fs-sm); color: var(--fg-3); margin: 0; padding: var(--sp-2) 0; }

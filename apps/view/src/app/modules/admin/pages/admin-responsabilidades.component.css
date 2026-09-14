@@ -10,7 +10,7 @@
 
 .ar-table th {
   font-size: var(--fs-micro); font-weight: var(--fw-medium);
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-2);
 }
 .ar-table td { font-size: var(--fs-sm); }
 .ar-sticky { position: sticky; left: 0; z-index: 1; background: var(--card-bg); }
@@ -20,10 +20,10 @@
 .ar-r { text-align: right; font-variant-numeric: tabular-nums; }
 
 .ar-nombre { display: block; font-weight: var(--fw-medium); }
-.ar-code { display: block; font-size: var(--fs-xs); color: var(--fg-3); }
-.ar-sub { font-size: var(--fs-xs); color: var(--fg-3); }
+.ar-code { display: block; font-size: var(--fs-xs); color: var(--fg-2); }
+.ar-sub { font-size: var(--fs-xs); color: var(--fg-2); }
 .ar-mas { margin-right: var(--sp-1); }
-.ar-falta { color: var(--fg-3); font-style: italic; }
+.ar-falta { color: var(--fg-2); font-style: italic; }
 .ar-foot { font-size: var(--fs-xs); color: var(--fg-3); margin: 0; max-width: 68ch; }
 
 /* ── Panel de detalle ─────────────────────────────────────────────────── */

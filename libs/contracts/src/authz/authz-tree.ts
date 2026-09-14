@@ -92,7 +92,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-cog',
         route: '/admin',
         modules: [
-          { id: 'users', label: 'Usuarios', route: '/admin/users', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR, Permission.USUARIOS_PASSWORDS] },
+          // `Personas` y no `Usuarios`: la migaja decía una palabra, la pestaña y el
+          // título decían otra, para la misma pantalla. Un sustantivo por concepto.
+          { id: 'users', label: 'Personas', route: '/admin/users', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR, Permission.USUARIOS_PASSWORDS] },
           // `[AU.3]`/`[AU.4]` La organización deja de administrarse por migración. Comparten el par
           // de permisos del padrón a propósito: quien administra a la persona administra la
           // estructura en la que encaja, y `[LC.6.2]` dejó la lección de que un permiso nuevo no

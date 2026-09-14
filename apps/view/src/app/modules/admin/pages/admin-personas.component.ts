@@ -15,16 +15,19 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
+import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
-import { MessageService } from 'primeng/api';
+import { ConfirmationService, MessageService } from 'primeng/api';
 import { debounceTime, Subject } from 'rxjs';
-import type { PersonaFila } from '@megadulces/contracts';
+import type { EstadoDePersona, PersonaFila, ResumenDelPadron } from '@megadulces/contracts';
 
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { AdminService, OpcionCatalogo } from '../admin.service';
@@ -32,41 +35,27 @@ import { ADMIN_TABS } from '../admin-tabs';
 import { PersonaDetalleComponent } from '../components/persona-detalle.component';
 
 /**
- * `[AU.2]` — **El padrón: personas con un puesto, no credenciales con permisos.**
+ * `[AU.2]` — El padrón: personas con un puesto, no credenciales con permisos.
  *
- * Reemplaza `dashboard/admin-users`, que eran **3,070 líneas en un componente**
- * con un formulario de 700 líneas adentro de un drawer.
- *
- * ── Lo que cambia de fondo ──────────────────────────────────────────────────
- * La ficha deja de ser una lista de campos sueltos y pasa a organizarse por las
- * cinco preguntas que se le hacen a una persona: **quién es · qué abre · qué
- * datos ve · de qué responde · qué pasó con ella**. El puesto deja de ser un
- * `select` más: al elegirlo se pide `GET /users/positions/:code/propuesta` y se
- * pintan las CUATRO propuestas (rol, complementos, jefe, responsabilidades).
- *
- * Superficie **Operations**: tabla densa + master-detail en `side-peek`, KPIs en
- * `MetricStrip` (ADR-033), `app-load-state` (vacío ≠ error de red), estado en la
- * URL, cero hex crudo.
- *
- * ⛔ **Lectura y escritura son distintas.** La pantalla abre con `USUARIOS_VER`
- * (`[AU.1]`: 10 personas rebotaban) y los controles de escritura exigen
- * `USUARIOS_GESTIONAR`. El botón escondido es cortesía: la barrera de verdad la
- * pone el backend en cada `POST`/`PUT`/`DELETE`.
+ * ⛔ Lectura y escritura son distintas: la pantalla abre con `USUARIOS_VER` y los
+ * controles de escritura exigen `USUARIOS_GESTIONAR`. El botón escondido es
+ * cortesía; la barrera la pone el backend en cada `POST`/`PUT`/`DELETE`.
  */
 @Component({
   selector: 'app-admin-personas',
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
-    SelectModule, InputTextModule,
+    ConfirmDialogModule, SelectModule, InputTextModule,
     MetricStripComponent, SidePeekComponent, LoadStateComponent, PageTabsComponent,
-    PersonaDetalleComponent,
+    FreshnessPillComponent, ContextHelpComponent, PersonaDetalleComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  providers: [MessageService],
+  providers: [MessageService, ConfirmationService],
   template: `
     <div class="surf-page in ap-page">
       <p-toast></p-toast>
+      <p-confirmdialog></p-confirmdialog>
       <app-page-tabs [tabs]="tabs"></app-page-tabs>
 
       <header class="surf-page-head">
@@ -79,6 +68,8 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
           </p>
         </div>
         <div class="ap-head-actions">
+          <app-context-help topic="organizacion-personas" />
+          <app-freshness-pill measures="data" [since]="medidoAt()" label="Medido"></app-freshness-pill>
           <button pButton type="button" class="p-button-sm p-button-text" [disabled]="loading()"
                   (click)="recargar()" aria-label="Actualizar el padrón">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
@@ -103,16 +94,20 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
       <app-metric-strip [items]="kpis()" ariaLabel="Resumen del padrón"></app-metric-strip>
 
       <div class="ap-filters">
-        <p-select [options]="deptOpts()" [(ngModel)]="fDept" (onChange)="onFiltro()" optionLabel="label"
+        <p-select [options]="deptOpts()" [ngModel]="fDept()" (ngModelChange)="fDept.set($event)"
+                  (onChange)="onFiltro()" optionLabel="label"
                   optionValue="value" styleClass="ap-sel" appendTo="body" ariaLabel="Departamento"></p-select>
-        <p-select [options]="puestoOpts()" [(ngModel)]="fPuesto" (onChange)="onFiltro()" optionLabel="label"
+        <p-select [options]="puestoOpts()" [ngModel]="fPuesto()" (ngModelChange)="fPuesto.set($event)"
+                  (onChange)="onFiltro()" optionLabel="label"
                   optionValue="value" styleClass="ap-sel" appendTo="body" [filter]="true" filterBy="label"
                   ariaLabel="Puesto"></p-select>
-        <p-select [options]="kindOpts" [(ngModel)]="fKind" (onChange)="onFiltro()" optionLabel="label"
+        <p-select [options]="kindOpts" [ngModel]="fKind()" (ngModelChange)="fKind.set($event)"
+                  (onChange)="onFiltro()" optionLabel="label"
                   optionValue="value" styleClass="ap-sel" appendTo="body" ariaLabel="Tipo de cuenta"></p-select>
         <span class="ap-search">
           <i class="pi pi-search" aria-hidden="true"></i>
-          <input pInputText type="search" [(ngModel)]="fSearch" (ngModelChange)="buscar$.next($event)"
+          <input pInputText type="search" [ngModel]="fSearch()"
+                 (ngModelChange)="fSearch.set($event); buscar$.next($event)"
                  placeholder="Nombre, usuario, puesto o sucursal" aria-label="Buscar personas" />
         </span>
         @if (hayFiltro()) {
@@ -182,11 +177,10 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
               </td>
               <td>
                 @if (u.kind !== 'interno') {
-                  <p-tag [value]="u.kind" severity="secondary" styleClass="ap-chip"></p-tag>
-                } @else {
-                  <p-tag [value]="u.activo ? 'Activa' : 'Suspendida'"
-                         [severity]="u.activo ? 'success' : 'warn'" styleClass="ap-chip"></p-tag>
+                  <p-tag [value]="claseDeCuenta(u.kind)" severity="secondary" styleClass="ap-chip"></p-tag>
                 }
+                <p-tag [value]="estadoLabel(u.status)" [severity]="estadoTono(u.status)"
+                       styleClass="ap-chip"></p-tag>
               </td>
               <td class="ap-r comm-num">{{ u.last_login_at ? (u.last_login_at | date: 'dd/MM/yy') : 'nunca' }}</td>
             </tr>
@@ -200,7 +194,7 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
         contraseñas ni datos de nómina — esta pantalla administra acceso, no legajos.
       </p>
 
-      <app-side-peek [open]="peek()" (openChange)="cerrarFicha($event)" [width]="620"
+      <app-side-peek [open]="peek()" (openChange)="cerrarFicha($event)" [width]="560"
                      [title]="sel() ? (sel()!.nombre || sel()!.username) : 'Dar de alta'"
                      [subtitle]="sel() ? ('@' + sel()!.username) : 'Una persona nueva empieza por su puesto'">
         @if (peek()) {
@@ -226,6 +220,13 @@ export class AdminPersonasComponent implements OnInit {
 
   readonly filas = signal<PersonaFila[]>([]);
   readonly total = signal(0);
+  readonly resumen = signal<ResumenDelPadron>({
+    sin_puesto: 0,
+    sin_jefe: 0,
+    sesion_larga: 0,
+    nunca_entraron: 0,
+  });
+  readonly medidoAt = signal<string | null>(null);
   readonly page = signal(1);
   readonly pageSize = signal(50);
   readonly loading = signal(true);
@@ -237,10 +238,13 @@ export class AdminPersonasComponent implements OnInit {
   private readonly departamentos = signal<OpcionCatalogo[]>([]);
   private readonly puestos = signal<OpcionCatalogo[]>([]);
 
-  fSearch = '';
-  fDept: string | null = null;
-  fPuesto: string | null = null;
-  fKind: string | null = 'interno';
+  // Signals y no props planas: `hayFiltro()` las lee desde un `computed`, y con
+  // props planas quedaba congelado en su primer valor — el botón «Limpiar» no
+  // aparecía nunca y el vacío-por-filtro se leía como «el padrón está vacío».
+  readonly fSearch = signal('');
+  readonly fDept = signal<string | null>(null);
+  readonly fPuesto = signal<string | null>(null);
+  readonly fKind = signal<string | null>('interno');
 
   readonly buscar$ = new Subject<string>();
 
@@ -262,26 +266,45 @@ export class AdminPersonasComponent implements OnInit {
   ]);
 
   readonly hayFiltro = computed(
-    () => !!this.fSearch || !!this.fDept || !!this.fPuesto || this.fKind !== 'interno',
+    () => !!this.fSearch() || !!this.fDept() || !!this.fPuesto() || this.fKind() !== 'interno',
   );
 
   /**
-   * ⚠️ Los KPI se calculan sobre la PÁGINA, no sobre el padrón: decir «12 sin
-   * puesto» cuando sólo se miraron 50 de 122 sería inventar. Por eso el rótulo
-   * dice de qué universo habla.
+   * Las cifras las cuenta el servidor sobre el mismo alcance y los mismos
+   * filtros que la tabla, antes de paginar. Calcularlas acá sobre `filas()`
+   * contaba la página y se leía como el padrón: decía «sin puesto 25» con 81
+   * sin puesto, y el número cambiaba al pasar de página.
    */
   readonly kpis = computed<MetricStripItem[]>(() => {
-    const f = this.filas();
-    const sinPuesto = f.filter((u) => u.kind === 'interno' && !u.position_code).length;
-    const sinJefe = f.filter((u) => u.kind === 'interno' && !u.supervisor_id).length;
-    const sesionLarga = f.filter((u) => u.token_ttl_days != null).length;
-    return [
+    const r = this.resumen();
+    const items: MetricStripItem[] = [
       { label: 'En el padrón', value: this.total(), format: 'number' },
-      { label: 'En esta página', value: f.length, format: 'number' },
-      { label: 'Sin puesto', value: sinPuesto, format: 'number', tone: sinPuesto ? 'warn' : undefined },
-      { label: 'Con sesión larga', value: sesionLarga, format: 'number', sub: 'kiosco o tableta' },
-      { label: 'Sin jefe directo', value: sinJefe, format: 'number', sub: 'lo hereda del puesto' },
+      {
+        label: 'Sin puesto',
+        value: r.sin_puesto,
+        format: 'number',
+        tone: r.sin_puesto ? 'warn' : undefined,
+        sub: 'no heredan perfil ni jefe',
+      },
+      {
+        label: 'Sin jefe directo',
+        value: r.sin_jefe,
+        format: 'number',
+        sub: 'lo hereda del puesto',
+      },
+      { label: 'Nunca entraron', value: r.nunca_entraron, format: 'number' },
     ];
+    // Sólo cuando el filtro los incluye: el TTL largo vive en kioscos y tabletas,
+    // así que con `kind='interno'` esta cifra sería 0 por construcción.
+    if (this.fKind() !== 'interno') {
+      items.push({
+        label: 'Con sesión larga',
+        value: r.sesion_larga,
+        format: 'number',
+        sub: 'kiosco o tableta',
+      });
+    }
+    return items;
   });
 
   ngOnInit(): void {
@@ -289,16 +312,17 @@ export class AdminPersonasComponent implements OnInit {
       .pipe(debounceTime(250), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => {
         this.page.set(1);
+        this.sincronizarUrl();
         this.cargar();
       });
 
     // `[DESIGN §Ing.UI 9]` El estado vive en la URL: compartir el link comparte
     // lo que el otro va a ver.
     const q = this.route.snapshot.queryParamMap;
-    this.fSearch = q.get('q') ?? '';
-    this.fDept = q.get('dept');
-    this.fPuesto = q.get('puesto');
-    if (q.get('kind') !== null) this.fKind = q.get('kind');
+    this.fSearch.set(q.get('q') ?? '');
+    this.fDept.set(q.get('dept'));
+    this.fPuesto.set(q.get('puesto'));
+    if (q.get('kind') !== null) this.fKind.set(q.get('kind'));
 
     this.api.departamentos().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => this.departamentos.set(d),
@@ -317,18 +341,20 @@ export class AdminPersonasComponent implements OnInit {
     this.error.set(null);
     this.api
       .padron({
-        search: this.fSearch || undefined,
+        search: this.fSearch() || undefined,
         page: this.page(),
         pageSize: this.pageSize(),
-        department_code: this.fDept || undefined,
-        position_code: this.fPuesto || undefined,
-        kind: this.fKind || undefined,
+        department_code: this.fDept() || undefined,
+        position_code: this.fPuesto() || undefined,
+        kind: this.fKind() || undefined,
       })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r) => {
           this.filas.set(r.rows);
           this.total.set(r.total);
+          if (r.resumen) this.resumen.set(r.resumen);
+          this.medidoAt.set(r.medido_at ?? null);
           this.loading.set(false);
         },
         error: (e) => {
@@ -348,10 +374,10 @@ export class AdminPersonasComponent implements OnInit {
     this.router.navigate([], {
       relativeTo: this.route,
       queryParams: {
-        q: this.fSearch || null,
-        dept: this.fDept || null,
-        puesto: this.fPuesto || null,
-        kind: this.fKind === 'interno' ? null : this.fKind,
+        q: this.fSearch() || null,
+        dept: this.fDept() || null,
+        puesto: this.fPuesto() || null,
+        kind: this.fKind() === 'interno' ? null : this.fKind(),
       },
       queryParamsHandling: 'merge',
       replaceUrl: true,
@@ -367,10 +393,10 @@ export class AdminPersonasComponent implements OnInit {
   }
 
   limpiarFiltros(): void {
-    this.fSearch = '';
-    this.fDept = null;
-    this.fPuesto = null;
-    this.fKind = 'interno';
+    this.fSearch.set('');
+    this.fDept.set(null);
+    this.fPuesto.set(null);
+    this.fKind.set('interno');
     this.onFiltro();
   }
 
@@ -391,6 +417,40 @@ export class AdminPersonasComponent implements OnInit {
   cerrarFicha(abierto: boolean): void {
     this.peek.set(abierto);
     if (!abierto) this.sel.set(null);
+  }
+
+  /**
+   * Los cuatro estados llevan cuatro etiquetas. Con el booleano `activo`, una
+   * persona dada de baja se leía «Suspendida», que es otra cosa: suspendida
+   * vuelve, dada de baja no. En prod son 11 personas.
+   */
+  estadoLabel(s: EstadoDePersona | null): string {
+    switch (s) {
+      case 'invited': return 'Invitada';
+      case 'active': return 'Activa';
+      case 'suspended': return 'Suspendida';
+      case 'terminated': return 'Dada de baja';
+      default: return 'sin estado';
+    }
+  }
+
+  estadoTono(s: EstadoDePersona | null): 'success' | 'warn' | 'danger' | 'info' | 'secondary' {
+    switch (s) {
+      case 'invited': return 'info';
+      case 'active': return 'success';
+      case 'suspended': return 'warn';
+      case 'terminated': return 'danger';
+      default: return 'secondary';
+    }
+  }
+
+  claseDeCuenta(kind: string): string {
+    switch (kind) {
+      case 'dispositivo': return 'Dispositivo';
+      case 'cliente': return 'Cliente';
+      case 'servicio': return 'Servicio';
+      default: return kind;
+    }
   }
 
   /** El detalle avisa cuando guardó. Recargar es más honesto que parchear la fila. */

@@ -196,3 +196,14 @@
   padding-top: var(--sp-3);
   border-top: 1px solid var(--table-border);
 }
+
+.pd-pass {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.pd-pass input {
+  flex: 1 1 auto;
+  min-width: 0;
+}

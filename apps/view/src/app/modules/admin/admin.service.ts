@@ -10,6 +10,7 @@ import type {
   PropuestaDePuesto,
   PuestoDetalle,
   PuestoFila,
+  PuestoQueResponde,
   ResponsabilidadDePuesto,
   ResponsabilidadFila,
   ResponsabilidadesDePersona,
@@ -18,18 +19,8 @@ import type {
 /**
  * `[AU.2]` — El cliente de `/admin/*`.
  *
- * ── Por qué no reusa el `users.service.ts` de la pantalla vieja ─────────────
- * Aquel declara **12 tipos de dominio adentro** (`User`, `PositionOption`,
- * `ScopeAxis`, `PermissionOverride`…) y filtra el padrón en el navegador. Acá
- * los tipos vienen de `@megadulces/contracts`, así que un cambio de forma en el
- * backend es error de compilación de este lado en vez de un `undefined` en
- * pantalla.
- *
- * ── Lo que el cliente viejo NO llamaba, y era el corazón de la Fase OR ──────
- * `GET /users/positions/:code/propuesta` existía desde `[ID.15]` y `[OR.2]` lo
- * enriqueció con jefe, responsabilidades y complementos. **Nadie lo llamaba**:
- * la pantalla recalculaba la propuesta en el cliente desde `GET /users/positions`,
- * que sólo trae `default_role`. Por eso el puesto se veía como una etiqueta.
+ * Los tipos vienen de `@megadulces/contracts`: un cambio de forma en el backend
+ * es un error de compilación de este lado y no un `undefined` en pantalla.
  */
 
 /** Lo que se puede pedir al listar el padrón. Todo opcional. */
@@ -140,6 +131,12 @@ export class AdminService {
     return this.http.get<Array<{ id: string; value: string; orden: number }>>(`${this.users}/zones`);
   }
 
+  supervisores(): Observable<Array<{ id: string; nombre: string | null; username: string; zona: string | null }>> {
+    return this.http.get<Array<{ id: string; nombre: string | null; username: string; zona: string | null }>>(
+      `${this.users}/supervisors`,
+    );
+  }
+
   /** El catálogo de perfiles. `GET /users/roles` no exige permiso: lo consumen varios selects. */
   roles(): Observable<Array<{ role_name: string }>> {
     return this.http.get<Array<{ role_name: string }>>(`${this.users}/roles`);
@@ -230,6 +227,13 @@ export class AdminService {
 
   responsabilidades(): Observable<ResponsabilidadFila[]> {
     return this.http.get<ResponsabilidadFila[]>(`${this.org}/responsibilities`);
+  }
+
+  /** El inverso. Antes la pantalla lo armaba con un GET por puesto: once por drawer. */
+  puestosQueResponden(key: string): Observable<PuestoQueResponde[]> {
+    return this.http.get<PuestoQueResponde[]>(
+      `${this.org}/responsibilities/${encodeURIComponent(key)}/positions`,
+    );
   }
 
   responsabilidadesDePuesto(code: string): Observable<ResponsabilidadDePuesto[]> {

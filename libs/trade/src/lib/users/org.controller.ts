@@ -65,6 +65,13 @@ export class OrgController {
     return this.org.listResponsibilities();
   }
 
+  @Get('responsibilities/:key/positions')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Qué puestos responden de una responsabilidad, con el diagnóstico `abre`' })
+  responsibilityPositions(@Param('key') key: string) {
+    return this.org.responsibilityPositions(key);
+  }
+
   @Get('coherencia')
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiOperation({ summary: 'Los desacuerdos entre puesto, rol/permiso y alcance' })
