@@ -146,10 +146,13 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
   });
 
   it('arranca en espera, con la sucursal del usuario y sin ofrecer selector', () => {
-    expect(html()).toContain('Listo para consultar');
+    // [CV.25-look] Sin tarjeta hasta la primera consulta (fiel al verificador.html original:
+    // el ".card" no existía hasta el primer escaneo, no había placeholder de "listo").
+    expect(fix.nativeElement.querySelector('.vf-card')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-err')).toBeNull();
     expect(html()).toContain('8 ESQUINAS');
     expect(fix.nativeElement.querySelector('p-select')).toBeNull();
-    expect(fix.nativeElement.querySelector('input.vp-scan-input')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('input.vf-input')).toBeTruthy();
   });
 
   it('un precio en línea se pinta en grande y se rotula como en línea', () => {
@@ -159,7 +162,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
 
     const t = html();
     expect(t).toContain('ALTOS CAM CHICA COLOR 1KG CLASICA');
-    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('62.99');
     expect(t).toContain('Precio en línea');
     expect(t).not.toContain('Precio de respaldo');
     // La segunda unidad se lista con su equivalencia, no se esconde.
@@ -179,21 +182,27 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     const t = html();
     expect(t).toContain('Precio de respaldo');
     expect(t).toContain('Confirma en caja antes de cobrar');
-    expect(fix.nativeElement.querySelector('.vp-card.is-respaldo')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-card.is-respaldo')).toBeTruthy();
   });
 
   it('distingue "no encontrado" de "sin conexión" — son dos pantallas', () => {
     svc.proximo = { estado: 'no_encontrado', origen: 'live', codigo: '99999', snapshotAl: null };
     fix.componentInstance.consultar('99999');
     fix.detectChanges();
-    expect(html()).toContain('No encontramos');
-    expect(html()).not.toContain('Sin conexión y sin respaldo');
+    // [CV.25-look] Copy calcado del verificador.html original para "no está en el catálogo".
+    expect(html()).toContain('DISCULPE LAS MOLESTIAS');
+    expect(html()).toContain('PRODUCTO NO ENCONTRADO');
+    expect(fix.nativeElement.querySelector('.vf-err.is-bad')).toBeNull();
+    expect(html()).not.toContain('SIN CONEXIÓN AL SERVIDOR');
 
     svc.proximo = { estado: 'sin_datos', codigo: '99999' };
     fix.componentInstance.consultar('99999');
     fix.detectChanges();
-    expect(html()).toContain('Sin conexión y sin respaldo');
-    expect(html()).not.toContain('No encontramos');
+    // El estado grave de verdad (sin red, sin respaldo) usa el tratamiento .is-bad y su
+    // propio copy — nunca el mismo texto que "no está en el catálogo".
+    expect(html()).toContain('SIN CONEXIÓN AL SERVIDOR');
+    expect(fix.nativeElement.querySelector('.vf-err.is-bad')).toBeTruthy();
+    expect(html()).not.toContain('DISCULPE LAS MOLESTIAS');
   });
 
   it('declara la frescura que no pudo medir, en vez de ocultar la píldora', () => {
@@ -241,7 +250,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
 
-    const cifra = fix.nativeElement.querySelector('.vp-may-ahorro strong') as HTMLElement | null;
+    const cifra = fix.nativeElement.querySelector('.vf-may-ahorro strong') as HTMLElement | null;
     expect(cifra).toBeTruthy();
     expect(cifra!.textContent).toContain('6.60');
     expect(cifra!.textContent?.trim()).not.toBe('$0.00');
@@ -263,12 +272,12 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
 
-    const foco = fix.nativeElement.querySelectorAll('.vp-may-row.is-foco');
+    const foco = fix.nativeElement.querySelectorAll('.vf-may-row.is-foco');
     expect(foco.length).toBe(1);
     expect(foco[0].textContent).toContain('8.71');   // el de pieza
     expect(foco[0].textContent).toContain('10');     // desde 10 piezas
     // El de paquete existe pero NO está en foco: su monto está en otra unidad.
-    const sinFoco = fix.nativeElement.querySelectorAll('.vp-may-row:not(.is-foco)');
+    const sinFoco = fix.nativeElement.querySelectorAll('.vf-may-row:not(.is-foco)');
     expect(sinFoco.length).toBe(1);
     expect(sinFoco[0].textContent).toContain('65.11');
   });
@@ -282,14 +291,14 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
 
-    const foco = fix.nativeElement.querySelector('.vp-may-row.is-foco') as HTMLElement;
+    const foco = fix.nativeElement.querySelector('.vf-may-row.is-foco') as HTMLElement;
     expect(foco).toBeTruthy();
     expect(foco.textContent).toContain('65.11');
     // La unidad del monto viene con el escalón. Cableada a "c/u", $65.11 se leía como el precio
     // de UNA pieza de un producto que cuesta $9.37: la cifra errada por 7x.
-    expect(foco.querySelector('.vp-may-cu')?.textContent?.trim()).toBe('por paquete');
+    expect(foco.querySelector('.vf-may-cu')?.textContent?.trim()).toBe('por paquete');
     // El primero del DOM es el destacado: el orden lo decide la unidad leída, no el backend.
-    const filas = fix.nativeElement.querySelectorAll('.vp-may-row');
+    const filas = fix.nativeElement.querySelectorAll('.vf-may-row');
     expect(filas[0].classList.contains('is-foco')).toBe(true);
   });
 
@@ -303,7 +312,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
 
-    const pastillas = fix.nativeElement.querySelectorAll('.vp-may-ahorro');
+    const pastillas = fix.nativeElement.querySelectorAll('.vf-may-ahorro');
     expect(pastillas.length).toBe(1);
     expect(pastillas[0].textContent).toContain('15.03');   // el ahorro del paquete
     expect(pastillas[0].textContent).not.toContain('6.60'); // no el de pieza
@@ -321,13 +330,13 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
 
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
-    const card = fix.nativeElement.querySelector('.vp-card') as HTMLElement;
+    const card = fix.nativeElement.querySelector('.vf-card') as HTMLElement;
     const primero = card.classList.contains('is-pase-b');
 
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
     // MISMO nodo (si se recreara, el reinicio no haría falta) y clase distinta.
-    expect(fix.nativeElement.querySelector('.vp-card')).toBe(card);
+    expect(fix.nativeElement.querySelector('.vf-card')).toBe(card);
     expect(card.classList.contains('is-pase-b')).toBe(!primero);
   });
 
@@ -356,16 +365,16 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
 
   it('el aviso de SU producto reconsulta, y declara el cambio con el precio anterior', () => {
     const evento = conProductoEnPantalla();
-    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('62.99');
 
     yElPrecioAhoraEs(PRODUCTO, 71.5);
     sock.labelPricesChanged$.next(evento);
     fix.detectChanges();
 
     // La cifra en pantalla es la nueva: es la que va a cobrar la caja.
-    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('71.50');
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('71.50');
     // Y NO cambió en silencio: lo dice, y dice desde cuánto.
-    const aviso = fix.nativeElement.querySelector('.vp-cambio') as HTMLElement | null;
+    const aviso = fix.nativeElement.querySelector('.vf-cambio') as HTMLElement | null;
     expect(aviso).toBeTruthy();
     expect(aviso!.textContent).toContain('acaba de cambiar');
     expect(aviso!.textContent).toContain('62.99');
@@ -381,8 +390,8 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     });
     fix.detectChanges();
 
-    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
-    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('62.99');
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeNull();
   });
 
   /**
@@ -396,8 +405,8 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     sock.labelPricesChanged$.next({ product_ids: [], total: 9000, truncated: true, at: new Date().toISOString() });
     fix.detectChanges();
 
-    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('71.50');
-    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('71.50');
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeTruthy();
   });
 
   /** Desde el respaldo no hay `product_id`: tampoco se puede descartar, así que se verifica. */
@@ -416,7 +425,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     });
     fix.detectChanges();
 
-    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeTruthy();
   });
 
   /**
@@ -428,8 +437,8 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     sock.labelPricesChanged$.next(evento); // `svc.proximo` sigue devolviendo 62.99
     fix.detectChanges();
 
-    expect(fix.nativeElement.querySelector('.vp-precio')?.textContent).toContain('62.99');
-    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-precio')?.textContent).toContain('62.99');
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeNull();
   });
 
   it('la marca no se queda pegada al escanear el siguiente producto', () => {
@@ -437,18 +446,140 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     yElPrecioAhoraEs(PRODUCTO, 71.5);
     sock.labelPricesChanged$.next(evento);
     fix.detectChanges();
-    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeTruthy();
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeTruthy();
 
     svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
     fix.componentInstance.consultar('70001');
     fix.detectChanges();
 
-    expect(fix.nativeElement.querySelector('.vp-cambio')).toBeNull();
+    expect(fix.nativeElement.querySelector('.vf-cambio')).toBeNull();
   });
 
   it('el feed pone lo último arriba y no crece sin límite (es mostrador, no bandeja)', () => {
     svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: PRODUCTO };
     for (let i = 0; i < 12; i++) fix.componentInstance.consultar('17083');
     expect(fix.componentInstance.feed().length).toBe(8);
+  });
+
+  /**
+   * El mayoreo quedaba fuera de la vista sin forma de llegar a él: en un kiosco real el único
+   * periférico es la pistola, no hay mouse ni dedo para hacer scroll. Medido en vivo (terminal
+   * 40/Oficina): "LLEVANDO 3 O MÁS PAQUETES" cortado exacto en el borde inferior de la ventana.
+   * Se afirma el mecanismo (la tarjeta se desplaza sola, hasta que se ve su PIE, que es donde
+   * vive el mayoreo/ahorro que más espacio pide), no el string de la implementación.
+   */
+  it('tras un resultado, la tarjeta se desplaza sola hasta que su pie queda a la vista', async () => {
+    const spy = jest.fn();
+    // jsdom no implementa el layout real: se stubbea para AFIRMAR que se llamó, no el resultado
+    // visual (eso no se puede medir sin browser — declarado, no fingido).
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = spy;
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+
+    try {
+      fix.componentInstance.consultar('70001');
+      fix.detectChanges();
+      // El desplazamiento va detrás de un setTimeout(0) (esperar a que Angular pinte la
+      // tarjeta antes de medirla) — un tick real de la cola de tareas alcanza para que corra.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // No se afirma un total exacto de llamadas: otras pruebas del archivo también dejan
+      // programado su propio `setTimeout(0)` y drenan en el mismo tick. La LLAMADA que
+      // corresponde a ESTE escaneo es la última en la cola (FIFO por tiempo de programación).
+      expect(spy).toHaveBeenCalled();
+      // block: 'end' es el punto que importa: alinea el PIE de la tarjeta contra el borde de
+      // la ventana, no la cabecera — si volviera a 'start', el mayoreo seguiría fuera de vista.
+      expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({ block: 'end' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
+  // ── Cámara del celular como lector: tercera vía junto a la pistola HID y el teclado ───────
+  describe('cámara del celular como lector', () => {
+    it('la barra "Escanea tu Producto" ES el botón (ya no hay uno redondo aparte)', () => {
+      const btn = fix.nativeElement.querySelector('button.vf-scanbar') as HTMLButtonElement;
+      expect(btn).toBeTruthy();
+      expect(btn.disabled).toBe(false); // este fixture ya trae sucursal fija del usuario
+    });
+
+    /**
+     * jsdom no implementa `getUserMedia`: es el mismo estado que un navegador sin HTTPS.
+     * Es la prueba NEGATIVA del gate — sin ella, un cambio que dejara el botón mudo ante la
+     * falta de cámara pasaría en verde (ADR-056: "un gate sin prueba negativa es una intención").
+     */
+    it('sin acceso a cámara, avisa por qué en vez de quedarse mudo', async () => {
+      await fix.componentInstance.abrirCamara();
+      fix.detectChanges();
+      expect(fix.componentInstance.camaraAbierta()).toBe(false);
+      expect(html()).toContain('Este equipo no da acceso a la cámara');
+      expect(fix.nativeElement.querySelector('.vf-cam-ov')).toBeNull();
+    });
+
+    it('cerrarCamara() no truena si la cámara nunca se abrió', () => {
+      expect(() => fix.componentInstance.cerrarCamara()).not.toThrow();
+      expect(fix.componentInstance.camaraAbierta()).toBe(false);
+    });
+
+    /**
+     * `[MU1EABF2-1]` Error real capturado por el monitor en un celular Android
+     * (`/tienda/verificador`, 2026-09-14T15:25:42Z): `UnknownError: setPhotoOptions failed`.
+     * zxing pregunta `track.getCapabilities()` para saber si hay torch, y en esos equipos el
+     * navegador falla esa negociación DESPUÉS de que la cámara ya abrió — llega como promesa
+     * sin capturar, no como una excepción que el try/catch de `abrirCamara()` pueda ver.
+     *
+     * Sin el manejador global, la cámara queda abierta y congelada sin ningún aviso. Ésta es
+     * la prueba negativa: se dispara el mismo tipo de evento y se afirma que SÍ se cierra y
+     * SÍ se declara — no que la pantalla "no truena" (eso ya lo garantiza jsdom).
+     */
+    it('un error de cámara sin capturar (setPhotoOptions) la cierra y lo declara, no la deja congelada', async () => {
+      // jsdom no trae mediaDevices.getUserMedia: se stubbea sólo para pasar la primera guarda
+      // de abrirCamara() — lo que se prueba es el manejador de errores globales, no el decoder.
+      // Se restaura al terminar: otras pruebas del archivo dependen de que NO exista.
+      const originalMediaDevices = (navigator as any).mediaDevices;
+      (navigator as any).mediaDevices = { getUserMedia: async () => ({ getVideoTracks: () => [] }) };
+      try {
+        await fix.componentInstance.abrirCamara();
+        expect(fix.componentInstance.camaraAbierta()).toBe(true);
+
+        const evento = new Event('unhandledrejection') as unknown as { reason: unknown };
+        (evento as any).reason = new Error('UnknownError: setPhotoOptions failed');
+        window.dispatchEvent(evento as unknown as Event);
+        fix.detectChanges();
+
+        expect(fix.componentInstance.camaraAbierta()).toBe(false);
+        expect(html()).toContain('La cámara se interrumpió');
+      } finally {
+        (navigator as any).mediaDevices = originalMediaDevices;
+      }
+    });
+
+    it('sin sucursal elegida, el botón queda deshabilitado y abrirCamara() no hace nada', async () => {
+      // Dos sucursales y sin warehouse_code de usuario: el componente NO auto-elige ninguna.
+      const authSinSucursal = { user: () => ({ username: 'qa' }) };
+      const svc2 = new VerificadorStub();
+      svc2.sucursalesResp = [
+        { codigo: '03', nombre: '8 ESQUINAS', direccion: '', ciudad: '', almacenes: ['03'], datos_al: null },
+        { codigo: '04', nombre: 'BOULEVARD', direccion: '', ciudad: '', almacenes: ['04'], datos_al: null },
+      ];
+      await TestBed.resetTestingModule().configureTestingModule({
+        imports: [TiendaVerificadorComponent],
+        providers: [
+          provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+          { provide: VerificadorService, useValue: svc2 },
+          // `[TDA.8]` ngOnInit ahora tambien conecta el socket de etiquetas; sin stub, la
+          // implementacion real pide `auth.token()` (que este AuthService minimo no tiene).
+          { provide: StoreSocketService, useValue: new SocketStub() },
+          { provide: AuthService, useValue: authSinSucursal },
+        ],
+      }).compileComponents();
+      const f2 = TestBed.createComponent(TiendaVerificadorComponent);
+      f2.detectChanges();
+
+      const btn = f2.nativeElement.querySelector('button.vf-scanbar') as HTMLButtonElement;
+      expect(btn.disabled).toBe(true);
+      await f2.componentInstance.abrirCamara();
+      expect(f2.componentInstance.camaraAbierta()).toBe(false);
+    });
   });
 });
