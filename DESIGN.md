@@ -19,7 +19,31 @@
 >    - **Excepción confirmada (decisión Edgar 2026-06-23):** los **accents de color por card** en `MetricCard` y las gráficas (sparkline/bars/gauge/donut) **se conservan** — ahí el color **codifica dato**, no decora (igual que los charts de Linear/Stripe). No atenuar a monocromo. La regla "casi monocromático" aplica a la **estructura/chrome** (tablas, paneles, navegación, formularios), no a la capa de data-viz.
 > 2. **Separadores apenas perceptibles:** borde 1px (`--border-color`/`--c-divider`); profundidad con sombras mínimas (`shadow-sm`) o ring 1px, **nunca** sombras difusas/pesadas. Radios discretos (`md`/`lg`); pill solo para badges.
 > 3. **Densidad Stripe:** `--fs-sm` base, `--fs-xs` para metadatos; jerarquía por **contraste de texto** (`c-text-1` principal / `c-text-2`/`c-text-3` secundario).
-> 4. **Tablas:** padding compacto, números/estados a la derecha, texto a la izquierda, **filas separadas por divisor inferior 1px fino**. ⛔ **NADA de zebra striping** (se ve anticuado) — `surf-table--zebra` quedó **neutralizado (no-op)**. Detalle en [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).
+> 4. **Tablas:** padding compacto, números/estados a la derecha, texto a la izquierda, **filas separadas por divisor inferior 1px fino**. ⛔ **NADA de zebra striping** (se ve anticuado) — `surf-table--zebra` quedó **neutralizado (no-op)**. ⚠️ **35 archivos siguen aplicando la clase** (medido 2026-09-14): no rompe nada pero es una intención que el sistema descarta en silencio — al tocar una de esas tablas, quitala. Detalle en [`docs/DESIGN_TABLES.md`](docs/DESIGN_TABLES.md).
+
+---
+
+## Mapa del documento
+
+> **Última verificación contra el código: 2026-09-14** ([Estado de cumplimiento](#estado-de-cumplimiento--lo-que-el-doc-manda-vs-lo-que-el-código-hace)). Las secciones marcadas 🗄️ son **histórico** — trazabilidad, no checklist.
+
+| # | Sección | Qué contiene | ¿Binding? |
+|---|---|---|---|
+| 1 | [Checklist pre-vuelo](#️-checklist-pre-vuelo-leer-antes-de-tocar-frontend) | los 18 puntos que hay que tener en la cabeza. **Empezá acá** | sí (resume todo) |
+| 2 | [Estado de cumplimiento](#estado-de-cumplimiento--lo-que-el-doc-manda-vs-lo-que-el-código-hace) | qué se cumple hoy y qué no, medido y fechado | — (es el espejo) |
+| 3 | [Arquitectura de tokens](#arquitectura-de-tokens-3-tiers--interacción--densidad-por-puntero) · [Surfaces](#surfaces--dos-modes-del-mismo-sistema) · [Inventario](#inventario-de-componentes-compartidos) | de dónde sale cada valor y qué pieza ya existe | sí |
+| 4 | [Typography](#typography) · [Color](#color) · [Spacing](#spacing) · [Layout](#layout) · [Motion](#motion) | el sistema visual. **§Motion es la única fuente de duraciones y curvas** | sí |
+| 5 | [Botones «Confite»](#sistema-de-botones-confite-storefront--binding) | firma táctil del Storefront | sí (storefront) |
+| 6 | [Operations](#mercado--operations--surface-interno) → [datos densos](#reglas-canónicas-de-datos-densos-crm--inventario--binding) · [motion de KPI](#motion-de-kpi-cards-binding) | el surface interno y sus 13+9 reglas | sí |
+| 7 | [Ingeniería de UI §1-§11](#ingeniería-de-ui--contrato-de-implementación-binding) | cómo se construye: estados, a11y, motion, errores, dominio, XSS, URL | sí |
+| 8 | [Plataforma web moderna §R-§W](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding) | responsividad por capas, `@layer`, overlays nativos, INP | sí |
+| 9 | [Superficies con IA §X](#superficies-con-ia--contrato-de-agentic-ux-binding) | plan · razón · confianza · reversa · escalación | sí |
+| 10 | [Leyes de interacción](#leyes-de-interacción--arquitectura-de-interacciones-resilientes-binding) | Tesler/Miller/Jakob/Von Restorff + estado sucio, lote, doble-clic | sí |
+| 11 | [Layouts por sector §O/§P](#arquitectura-de-layouts-por-sector--ayuda-contextual-binding) | fiscal vs almacén vs mostrador + ayuda contextual | sí |
+| 12 | [Jerarquía del dato §Q](#jerarquía-visual--comprensión-del-dato-interfaces-densas-en-valores--binding) | answer-first en pantallas con muchas cifras | sí |
+| 13 | [PWA](#pwa--app-instalable-binding) | app instalable: SW, manifest, safe-area, offline | sí (`apps/vendor`) |
+| 14 | [Decisions Log](#decisions-log) | por qué cada cosa es como es | — |
+| 15 | Auditorías 2026-06-04 + planes de migración | 🗄️ histórico | no |
 
 ---
 
@@ -28,7 +52,7 @@
 > **Regla dura:** antes de crear o editar cualquier archivo frontend (componente Angular, HTML, SCSS/CSS, token), se lee esta sección + [`tokens.css`](libs/design-tokens/tokens.css). No es opcional.
 > Cada punto enlaza a su detalle binding abajo. Si algo aquí choca con el requerimiento, se expone el conflicto y decide Edgar — no se resuelve en silencio.
 
-**1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) (`/portal/*`, editorial, Poppins, comfortable) o [Operations](#mercado--operations--surface-interno) (`/dashboard` · `/comercial` · `/logistica` · `/admin` · `/vendor` · `/telemarketing`; denso, sin Fraunces/Poppins display, quiet-luxury). Las reglas cambian por surface.
+**1. Ubicá tu surface.** [Storefront](#surfaces--dos-modes-del-mismo-sistema) = `apps/portal` (editorial, Poppins, comfortable) · [Operations](#mercado--operations--surface-interno) = `apps/view` **y** `apps/vendor` (denso, sin display font, quiet-luxury). Las 13 raíces de ruta de `apps/view` están en la [tabla de Surfaces](#surfaces--dos-modes-del-mismo-sistema) — si la tuya no figura, **agregala ahí antes de seguir**; no inventes régimen. Las reglas cambian por surface, y §O las tensa además por **sector** (fiscal / almacén / mostrador).
 
 **2. Cero hex crudo.** Referenciá un [rol/token de 3 tiers](#arquitectura-de-tokens-3-tiers--interacción--densidad-por-puntero); si no existe, agregá el token, no un literal. Estados de superficie = alpha-overlays sobre `--ink-rgb`, no hex por interacción.
 
@@ -73,6 +97,37 @@
 
 ---
 
+## Estado de cumplimiento — lo que el doc manda vs. lo que el código hace
+
+> **Última verificación contra el código: 2026-09-14.** Método: `grep` sobre `apps/` + `libs/`, excluyendo `node_modules`. **Toda cifra de este documento lleva la fecha en que se midió** — una cifra sin fecha es una foto vencida, y este doc ya publicó cuatro.
+> **Para qué sirve esta sección:** el doc marca **55 veces BINDING** y dice *"se verifica en review"* 7 veces, pero **el CI no corre ni un check de diseño** (corre gitleaks, build, lint, boundary gate, provenance gate y tests; no hay stylelint). Por ADR-056 del propio repo, *un gate sin prueba negativa es una intención*. Entonces: antes de citar una regla como cumplida, mirá acá.
+
+**Lo que SÍ se cumple** (y no hay que tocar):
+
+- **Tokens: una sola [`tokens.css`](libs/design-tokens/tokens.css)**, sin copias en `apps/*`. La consolidación de ago-2026 se sostiene.
+- **Disciplina tipográfica — la regla mejor cumplida del sistema:** Fraunces / Inter / JetBrains fuera de las 3 apps, y `--font-display`/Poppins con **0 fugas** a `apps/view` y `apps/vendor`.
+- **GSAP 100% por `import()` lazy**, plugins incluidos (`cart-fx.service.ts`, `portal-login`, `portal-shell`, `portal-cart`, `portal-catalog`, `portal-order-detail`).
+- Dark Operations zinc `#111111` ✓ · `tabular-nums` con 577 usos ✓ · los 8 docs satélite enlazados existen todos ✓.
+
+**Deuda declarada, medida y abierta** (⛔ = viola una regla marcada BINDING):
+
+| # | Regla | Estado 2026-09-14 | Dónde |
+|---|---|---|---|
+| 1 | ⛔ §S cascada en capas | **`@layer` = 0**. El orden global que §S declara no existe; `!important` 961, `::ng-deep` **370 (+17% vs ago)** | todo el repo |
+| 2 | ⛔ §Motion techo 350ms + sólo `transform`/`opacity` | **19 declaraciones por encima del techo**, hasta 1100ms; varias animan `width` | peor caso: `MetricStrip` (ver #3) |
+| 3 | ⛔ §Motion KPI 1/7 | **`MetricStrip` —el arquetipo canónico de ADR-033, en 64 archivos— hace `transition: width 900ms`**: 2.6× el techo y sobre una propiedad de layout. Su fallback `var(--ease-standard, cubic-bezier(.2,0,0,1))` además cae en la curva de `--ease-emphasized`, la que perdió en la consolidación | [`metric-strip.component.ts:137,143`](apps/view/src/app/shared/components/metric-strip/metric-strip.component.ts#L137) |
+| 4 | ⛔ Anti-slop #1 (morado IA) + §Q.6 (color de grupo = `--chart-*`) | **`#8b5cf6` volvió**, junto a `#3b82f6` y `#16a34a` — la paleta default de Tailwind — como color por tipo de promo. Alimenta 2 pantallas | [`promotions-meta.ts:38`](apps/view/src/app/modules/comercial/promotions-meta.ts#L38) |
+| 5 | ⛔ §R breakpoints en `rem` | **169 en px** vs 26 en rem (+36% vs los 124 de ago) | todo el repo |
+| 6 | ⛔ pre-vuelo 2 "cero hex crudo" + 12b (dark) | **171 declaraciones de color con hex literal en 40 archivos** de `apps/view`. Hay legítimas (`#fff` de hoja de papel, exención propia) y rotas en dark con token existente: `background:#dcfce7;color:#15803d` (= `--ok-soft-*`), `border-color:#fecaca` (= `--bad-border`), `color:#b42318`, `color:#b45309` | `almacen-cuadre`, `finanzas-cartera`, `vendor-history`, `team-day`, … |
+| 7 | §Motion adopción de tokens | **27 de 270 declaraciones** usan `var(--dur-*)` = **10%** (era 9% el 09-sep: sin movimiento) | todo el repo |
+| 8 | `surf-table--zebra` neutralizada | la clase es no-op ✓ pero **35 archivos la siguen aplicando**: declaran una intención que el sistema descarta en silencio. Falta el barrido | 35 plantillas |
+| 9 | Capa atómica (hallazgo #1 de 2026-06-04, sigue ⬜) | **133 selectores de botón** entre las 3 apps (view 83 · portal 31 · vendor 19). Sólo en portal conviven **25 clases bespoke** con los 6 átomos `.portal-btn-*`, incluidas `cat-drawer-btn-primary`/`-secondary`, que redeclaran la jerarquía que el átomo debía poseer. ⚠️ El "✅ Resuelve #3 y #5" del sprint Atomic es **parcial** | `apps/portal`, `apps/vendor` |
+| 10 | `motion@^12.38.0` | dep muerta desde 2026-04-27, **0 imports** (el único hit es un test que la prohíbe). Declarada el 09-sep, sigue | `package.json:136` |
+
+**La lectura de fondo:** las cifras que empeoraron (#1, #5) son justamente las **mecánicamente medibles** — las que un gate de CI habría frenado el día que se escribieron. Las que se cumplen solas (tipografía, tokens, GSAP lazy) son las que tienen **una sola forma de hacerse bien** y están en un archivo único. Eso es lo que hay que replicar: **regla con un solo lugar donde vive + instrumento que la mida**, no más párrafos.
+
+---
+
 ## Arquitectura de tokens (3 tiers + interacción + densidad por puntero)
 
 Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla: **un componente nuevo referencia un rol/token, nunca inventa un hex.**
@@ -89,10 +144,15 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 
 ## Surfaces — dos modes del mismo sistema
 
-| Surface | Alcance | Mode | Decoración | Display font |
-|---|---|---|---|---|
-| **Storefront** | `/portal/*` (Portal Web B2B) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
-| **Operations** | `/dashboard`, `/comercial`, `/logistica`, `/admin`, `/vendor`, `/telemarketing` | **solo tool** | nula | Hanken Grotesk + Geist Mono (sin Fraunces) |
+> **El surface lo decide la APP, no sólo la ruta** (corregido 2026-09-14: la tabla listaba `/vendor` y `/portal` como rutas de `apps/view`, y hace tiempo son apps propias).
+
+| Surface | App | Alcance (raíces de ruta reales) | Mode | Decoración | Display font |
+|---|---|---|---|---|---|
+| **Storefront** | `apps/portal` | todo el portal B2B (se sirve en `/portal/*`) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
+| **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/mi-trabajo` | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
+| **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
+
+**Cómo mantener esta tabla honesta:** las raíces salen de [`apps/view/src/app/app.routes.ts`](apps/view/src/app/app.routes.ts) — `grep -nE "^    path: '" apps/view/src/app/app.routes.ts`. Si agregás un proyecto nuevo de primer nivel, **se agrega acá**: el paso 1 del pre-vuelo manda ubicar el surface en esta tabla, y una tabla incompleta manda a la pantalla nueva a ningún régimen.
 
 Ambos surfaces comparten: paleta Stone, sunset acción, IA ember, escala de radios, tokens semánticos. **El dark NO se comparte**: Operations usa zinc neutro `#111111` ("esto es serio"), Storefront usa espresso cálido `#16130F` (scopeado a `.portal-shell`/`.pl-wrap`). Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
 
@@ -102,23 +162,27 @@ La regla 1-línea: Operations es el portal pero sin storefront. Mismo lenguaje, 
 
 ## Inventario de componentes compartidos
 
-> **Antes de construir una pieza de UI, buscá acá.** Todo vive en [`apps/view/src/app/shared/components/`](apps/view/src/app/shared/components/) (excepto `context-help`, en `shared/context-help/`). Adopción medida 2026-08-12. Re-estilar a mano lo que ya existe es el antipatrón #1 de Atomic Design y está flagueado en review.
+> **Antes de construir una pieza de UI, buscá acá.** Todo vive en [`apps/view/src/app/shared/components/`](apps/view/src/app/shared/components/) (excepto `context-help`, en `shared/context-help/`). Re-estilar a mano lo que ya existe es el antipatrón #1 de Atomic Design y está flagueado en review.
+> **Adopción = archivos que instancian el selector.** Re-medir con: `grep -rl "<app-metric-strip[ >]" apps --include=*.html --include=*.ts | wc -l`. La columna "ago-12" se conserva para ver la dirección.
+> ⚠️ **Este repertorio sirve sólo a `apps/view`.** `apps/portal` y `apps/vendor` tienen **0 componentes compartidos** — ver el hueco declarado en §Ing.UI 5.
 
-| Componente | Selector | Cuándo se usa | Adopción |
-|---|---|---|---|
-| **MetricStrip** | `app-metric-strip` | **Header de KPIs de una pantalla** (ADR-033): sin caja, hairline entre métricas, cifra mono con count-up. Modos `strip · spark · ring · bullet · composition` según la forma del dato | 50 |
-| **MetricCard** | `app-metric-card` | **Tile rico individual** con su propia micro-viz (gauge/sparkline). Dashboards, no headers de página | 16 |
-| **PageTabs** | `app-page-tabs` | Barra de tabs de un apartado, con gate por `permission` por tab | 46 |
-| **TabShell** | `app-tab-shell` | Shell con tabs **ruteadas** (lee `data.tabs` de la ruta padre + `<router-outlet>`) | 0 |
-| **ContextHelp** | `app-context-help` | Regla P: cajón de ayuda de negocio desde el **diccionario versionado**. Obligatorio donde hay jerga o reglas estrictas | 31 |
-| **FreshnessPill** | `app-freshness-pill` | §9 datos añejos: "actualizado hace N min", pasa a warn tras `staleAfterSec`. Obligatorio en dato volátil | 15 |
-| **LoadState** | `app-load-state` | §2 matriz de estados: separa `loading` / `empty` / `error` (mata el bug `error === empty`). Proyecta el contenido real | 12 |
-| **SidePeek** | `app-side-peek` | §datos densos 8: drawer de detalle 480–560px sin perder la lista | 6 |
-| **Segmented** | `app-segmented` | Segmented control canónico (radiogroup accesible). Reemplazó 3 implementaciones ad-hoc | 10 |
-| **Map** / **MapLegend** | `app-map` · `app-map-legend` | Mapa Leaflet tokenizado + su leyenda | 11 / 4 |
-| **MiniBars** | `app-mini-bars` | Micro-chart de columnas para cards. SVG/CSS puro, 0 KB de librería | 1 |
-| **Customer360Panel** | `app-customer-360-panel` | Drill-down compartido de cliente | 2 |
-| **OfflineStatus** | `app-offline-status` | §PWA 5: estado de red visible en app instalable | 1 |
+| Componente | Selector | Cuándo se usa | ago-12 | **2026-09-14** |
+|---|---|---|---|---|
+| **MetricStrip** | `app-metric-strip` | **Header de KPIs de una pantalla** (ADR-033): sin caja, hairline entre métricas, cifra mono con count-up. Modos `strip · spark · ring · bullet · composition` según la forma del dato | 50 | **64** |
+| **MetricCard** | `app-metric-card` | **Tile rico individual** con su propia micro-viz (gauge/sparkline). Dashboards, no headers de página | 16 | **17** |
+| **PageTabs** | `app-page-tabs` | Barra de tabs de un apartado, con gate por `permission` por tab | 46 | **50** |
+| **TabShell** | `app-tab-shell` | Shell con tabs **ruteadas** (lee `data.tabs` de la ruta padre + `<router-outlet>`) | 0 | **0** ⚠️ nunca se usó |
+| **ContextHelp** | `app-context-help` | Regla P: cajón de ayuda de negocio desde el **diccionario versionado**. Obligatorio donde hay jerga o reglas estrictas | 31 | **38** |
+| **FreshnessPill** | `app-freshness-pill` | §9 datos añejos: "actualizado hace N min", pasa a warn tras `staleAfterSec`. Obligatorio en dato volátil | 15 | **26** |
+| **LoadState** | `app-load-state` | §2 matriz de estados: separa `loading` / `empty` / `error` (mata el bug `error === empty`). Proyecta el contenido real | 12 | **22** |
+| **SidePeek** | `app-side-peek` | §datos densos 8: drawer de detalle 480–560px sin perder la lista | 6 | **17** |
+| **Segmented** | `app-segmented` | Segmented control canónico (radiogroup accesible). Reemplazó 3 implementaciones ad-hoc | 10 | **18** |
+| **Map** / **MapLegend** | `app-map` · `app-map-legend` | Mapa Leaflet tokenizado + su leyenda | 11 / 4 | **11 / 4** |
+| **MiniBars** | `app-mini-bars` | Micro-chart de columnas para cards. SVG/CSS puro, 0 KB de librería | 1 | **0** ⛔ sin usos |
+| **Customer360Panel** | `app-customer-360-panel` | Drill-down compartido de cliente | 2 | **1** |
+| **OfflineStatus** | `app-offline-status` | §PWA 5: estado de red visible en app instalable | 1 | **1** |
+
+⛔ **Dos componentes compartidos con cero adopción** (`TabShell` nunca arrancó; `MiniBars` la perdió). Un componente en este inventario con 0 usos es peor que no tenerlo: se ofrece como camino canónico y nadie lo ejercita, así que nadie sabe si funciona. Decisión pendiente por cada uno: **adoptarlo o retirarlo** — no dejarlo listado como si estuviera vivo.
 
 **Huecos conocidos** (no existe componente compartido — hoy se resuelve a mano en cada pantalla): formulario/campo, tabla (se usa `p-table` + clases `surf-table--*` de `styles.css`), empty-state genérico, badge/pill, stepper, search-bar. Extraerlos es backlog abierto.
 
@@ -157,7 +221,15 @@ Una herramienta de pedido mayorista que se siente como una **marca CPG mexicana 
 
 ## Typography
 
-Cargadas desde Google Fonts en [`apps/portal/src/index.html`](apps/portal/src/index.html).
+**Cada app carga SU propio `<link>` de Google Fonts — no hay uno global** (verificado 2026-09-14). Lo que sirve cada una:
+
+| App | Familias que descarga | Nota |
+|---|---|---|
+| [`apps/portal`](apps/portal/src/index.html) | Poppins · Hanken Grotesk · Geist Mono | la única con display font |
+| [`apps/view`](apps/view/src/index.html) | Hanken Grotesk · Geist Mono · **Sniglet** | Sniglet es **sólo** para `/tienda/verificador` (excepción §O.3), no está en ningún token |
+| [`apps/vendor`](apps/vendor/src/index.html) | Hanken Grotesk · Geist Mono | |
+
+⛔ **No copies el `<link>` del portal a otra app**: le metés Poppins a Operations y rompés la regla display (storefront-only). Si agregás una familia, va en el `<link>` de *esa* app y se declara en esta tabla.
 
 - **Display/Hero:** **Poppins** (sans geométrica redondeada — look "delivery app" tipo Rappi). Pesos 500/600/700/800. Solo en **storefront mode**: hero h1, section heads, empty states, títulos de promo, monogramas. **Nunca** en tablas/UI densa. *(Cambiado de Fraunces serif → Poppins el 2026-06-24, decisión de marca: identidad táctil tipo Rappi sobre editorial.)*
 - **Body/UI:** **Hanken Grotesk** (reemplaza a Inter) — grotesca redonda, cálida, amigable, muy legible. Pesos 400/500/600/700/800.
@@ -170,8 +242,11 @@ Cargadas desde Google Fonts en [`apps/portal/src/index.html`](apps/portal/src/in
 - **Escala UI:** 0.7 / 0.75 / 0.8125 / 0.875 / 0.9375 / 1 / 1.125rem. Tool mode tira hacia abajo; storefront hacia arriba.
 
 ```html
-<!-- index.html -->
+<!-- apps/portal/src/index.html — ÚNICA app con Poppins -->
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<!-- apps/view + apps/vendor (Operations) — SIN display font -->
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 ```
 ```css
 --font-display: 'Poppins', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
@@ -402,7 +477,8 @@ Un supervisor que entra una vez recuerda: **velocidad y densidad** — está usa
 ### Type scale (única, ambos surfaces)
 
 > **Los tokens reales son `--fs-*` + `--fw-*`**, en [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css).
-> ⛔ **No existe ni debe crearse un namespace `--text-<rol>` para tamaños**: `--text-*` ya significa **color de texto** (`--text-main/muted/faint`). Colisionar los prefijos fue el error de la versión anterior de esta tabla (mandaba `--text-page-head/data/label`, que nunca se declararon → 0 usos en código y `font-size` crudo en su lugar).
+> ⛔ **No crear tokens nuevos de tamaño en el namespace `--text-<rol>`**: `--text-*` significa **color de texto** (`--text-main/muted/faint`). Colisionar los prefijos fue el error de la versión anterior de esta tabla (mandaba `--text-page-head/data/label`, que nunca se declararon → 0 usos en código y `font-size` crudo en su lugar).
+> ⚠️ **Excepción heredada, real y en uso** (medida 2026-09-14): `--text-display-xl/-lg/-md` **sí existen** en `tokens.css:28-30` y tienen **14 usos** — son la escala display `clamp()` del Storefront (documentada arriba en §Typography). O sea: el prefijo `--text-` hoy carga **dos significados**. No los uses en Operations (no hay display font ahí) y **no agregues más**; renombrarlos a `--fs-display-*` es deuda abierta (toca 14 call sites + tokens.css).
 > Alias de color sin ambigüedad para código nuevo: `--fg-1` / `--fg-2` / `--fg-3`.
 
 | Token | Value | Uso |
@@ -473,6 +549,7 @@ Regla: siempre `p-tag` con `[severity]` mapeado a token semántico. Nunca hex in
 5. **Entrada:** stagger one-time en primer paint (`translateY(8–12px)+opacity`, 150–250ms/card, stagger 30–60ms). Jamás en refresh.
 6. **Hover/press:** `:active scale(0.97)`; hover lift `translateY(-1px)` + revelar borde/acento, 120–150ms. Sin glow ni barrido de color.
 7. **Presupuesto:** todo **<300ms**, `ease-out`, **solo `transform`+`opacity`**, CSS para hover/entrada y rAF solo para count-up.
+   - ⛔ **El arquetipo canónico incumple hoy esta regla y las barras son el caso:** `MetricStrip` anima el relleno de `bullet` y `composition` con `transition: width 900ms` ([`metric-strip.component.ts:137,143`](apps/view/src/app/shared/components/metric-strip/metric-strip.component.ts#L137)) — 2.6× el techo **y** sobre una propiedad de layout, en el componente que está en 64 pantallas. **Una barra se anima con `transform: scaleX()` sobre un elemento de ancho fijo, nunca con `width`.** Mientras no se arregle, no lo copies como referencia de motion.
 8. **Skeleton dimensionado** (CLS 0) + crossfade ~180ms a data.
 9. **Variedad por tipo de dato — las cards NO deben ser todas iguales.** Cada KPI lleva la micro-viz que su dato pide, y eso las diferencia visualmente: **serie temporal → sparkline/mini-barras** · **ratio/cobertura → barra de progreso con %** · **actual vs meta → bullet** · **% acotado → ring** · **valor único sin serie → headline grande** (count-up, sin chart falso). Un strip donde las 4 cards son idénticas (mismo layout, solo cambia el número) es plano y se siente genérico — usar el tipo de métrica para dar ritmo visual. Nunca inventar una serie/chart si no hay dato real (eso es slop, §9).
 
@@ -503,7 +580,7 @@ Costo bajo: casi todo es swap de tokens en `tokens.css`.
 3. Aliasar `--neutral-50..950` → `--stone-50..950` en `:root`. El portal ya lo hace localmente; será no-op para él.
 4. `--ai-accent` → `--action` sólido (o `--ember-grad` para chips que soporten gradiente). Mata el `#2563EB` azul tibio actual.
 5. `--active-bg: var(--neutral-950)` → revaluar: ¿negro hard o stone-950? Bajo paleta cálida el negro puro se ve agresivo. Recomendación: stone-950 light, stone-50 dark.
-6. Dark mode `:root` → espresso: copiar el bloque `.portal-shell body.theme-monochrome` al `body.theme-monochrome` global.
+6. ~~Dark mode `:root` → espresso: copiar el bloque `.portal-shell body.theme-monochrome` al `body.theme-monochrome` global.~~ ⛔ **NO se ejecutó así y no debe ejecutarse**: la decisión final fue **zinc neutro `#111111`** para Operations ("esto es serio"), y el espresso quedó scopeado al portal. Lo que corrió es el bloque zinc de [`tokens.css:297-309`](libs/design-tokens/tokens.css). *(Paso corregido 2026-09-14: estaba marcado como aplicado y ordenaba lo contrario de lo decidido.)*
 7. Cargar Hanken + Geist Mono en `index.html` sin scope (ya están cargados — verificar).
 8. Pin tokenizado en [`MapComponent`](apps/view/src/app/shared/components/map/map.component.ts): `var(--brand, #f97316)` → `var(--action)`. Aplica también a [`routes-analysis`](apps/view/src/app/modules/dashboard/routes-analysis/routes-analysis.component.ts) que tiene el mismo fallback inline.
 9. `--focus-ring` → `--action-ring` globalmente.
@@ -560,14 +637,16 @@ Ningún componente se considera terminado sin sus estados. Cada entrega los decl
 > Extiende el techo de motion ya binding (§11 datos densos, §Motion KPI). **GSAP ES dependencia desde el 2026-06-25** (`gsap@^3.15.0`) y corre en producción en `apps/portal`. Estas reglas rigen CSS/Web Animations API **por default**, y GSAP **sólo cargado con `import()` lazy** (patrón de referencia: `apps/portal/src/app/modules/portal/cart-fx.service.ts`). Motivo: el bundle inicial de `apps/view` ya excede su warning (1.171 MiB contra 1 MB; quedan ~234 KiB al error de 1.4 MB), así que nada de animación entra al `main`.
 - **Solo propiedades de compositor:** `transform` + `opacity`. Prohibido animar `width/height/top/left/margin/padding/box-shadow` (layout thrashing/reflow). Si un efecto "lo necesita", se rediseña con `scale`/`clip-path`/crossfade de capas.
 - **`will-change` quirúrgico y temporal**, nunca permanente (cada capa promovida come VRAM).
-- **Zone.js:** toda animación con callbacks de alta frecuencia (`onUpdate`, ScrollTrigger, rAF) corre en `NgZone.runOutsideAngular()`; solo re-entrar (`zone.run()`) si un callback debe mutar estado de app. El jank suele venir de change detection por tick, no del compositor.
+- **Change detection (⚠️ NO usar `NgZone` en código nuevo):** `apps/view` es **zoneless** (`provideZonelessChangeDetection()` en [`app.config.ts`](apps/view/src/app/app.config.ts)), así que **`NgZone.runOutsideAngular()` ya no es la herramienta** — ahí no hay tick de zona del que escapar. En zoneless, un callback de alta frecuencia (`onUpdate`, ScrollTrigger, `rAF`) **no dispara** change detection por sí mismo: sólo la dispara si escribe una `signal` que la vista consume. Regla: **el callback muta variables locales / estilos, y toca una `signal` lo menos posible** (idealmente una sola vez al final, no por frame). En las apps que todavía corran con zona, `runOutsideAngular()` sigue siendo válido — verificar el `app.config.ts` de *esa* app antes de aplicarlo. *(Retiro declarado en el Decisions Log 2026-09-09 y ejecutado el 2026-09-14; quedan ~30 usos heredados en código, barrido aparte.)*
 - **Limpieza (memory leaks):** escopar al host y limpiar en `DestroyRef`. Con GSAP: `gsap.context(...)` + `destroyRef.onDestroy(() => ctx.revert())` — `revert()` sobre `kill()` porque además **restaura estilos inline** (crítico si el componente se re-instancia por navegación). ScrollTriggers viven dentro del context y mueren con él.
 - **`prefers-reduced-motion`** gatea todo (`gsap.matchMedia()` o media query CSS) — ya patrón en el repo (`motion-safe`).
 
 ### 5. Container queries sobre media queries en componentes reutilizables (Nx)
-- Un componente que vive en `libs/` y se embebe en distintos anchos (tabla de inventario en Operations *y* en `/portal`) **no** decide su layout interno por viewport (`md:`/`lg:`/`@media`) sino por el espacio que le da el padre: `@container` de Tailwind sobre un wrapper con `container-type: inline-size`.
+- Un componente **compartido** — el que se embebe en más de un ancho (una card en el dashboard *y* dentro de un side-peek de 480px) — **no** decide su layout interno por viewport (`md:`/`lg:`/`@media`) sino por el espacio que le da el padre: `@container` sobre un wrapper con `container-type: inline-size`.
+- **CSS crudo, no Tailwind.** El plugin `@tailwindcss/container-queries` **no está instalado** y estamos en Tailwind 3.4 (`apps/portal` ni siquiera tiene config de Tailwind). Las container queries se escriben a mano en el `styles` del componente — que es como ya están los 16 usos vivos del repo.
 - **Trampa:** `container-type` establece contención de tamaño y **rompe elementos que se desbordan a propósito** (overlays PrimeNG, `p-overlay`, tooltips). Regla: container query en el *wrapper de layout*, no en el nodo que ancla overlays.
-- Componente reutilizable cross-app = vive en `libs/`, no en `apps/view`.
+- **Dónde vive un componente compartido — estado real (medido 2026-09-14):** en [`apps/view/src/app/shared/components/`](apps/view/src/app/shared/components/) (19 componentes, ver [Inventario](#inventario-de-componentes-compartidos)). ⚠️ **`libs/` NO es hoy la casa de nada de frontend**: tiene **0 componentes Angular** (es backend NestJS + `contracts` + `design-tokens`). Mientras no exista una lib Angular, "ponelo en `libs/`" es una instrucción vacía — **no la sigas**: sumá el componente al shared de `apps/view` y declaralo en el Inventario.
+- ⚠️ **Hueco abierto:** `apps/portal` y `apps/vendor` tienen **0 componentes compartidos** — cada una re-estila a mano (133 selectores de botón distintos entre las 3 apps). El repertorio del Inventario sirve sólo a `apps/view`. Una lib Angular compartida (`libs/ui`) es el prerrequisito real para que esta regla aplique cross-app; hasta entonces, la regla es **por app**.
 - **Método completo** (las 4 herramientas, `rem` en breakpoints, regla del `clamp()`, style queries y `scroll-state`): [§R](#plataforma-web-moderna--cascada-responsividad-overlays-motion-nativo-binding). *(Auditoría ago-2026: esta regla existía desde jul-2026 y el repo tenía **0 usos** de `@container` — el gap se atacó ahí.)*
 
 ### 6. Error boundaries por sección + degradación elegante
@@ -603,7 +682,19 @@ Cuando un requerimiento choque con `DESIGN.md`, **no se resuelve en silencio**: 
 ## Plataforma web moderna — cascada, responsividad, overlays, motion nativo (BINDING)
 
 > Alcance: **toda** superficie. Añadido 2026-08-25, destilado de [`docs/DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md) (estado del arte técnico ago-2026) y de la auditoría de adopción del repo.
-> **El diagnóstico que origina esta sección:** el DS visual iba muy por delante de la plataforma con la que lo implementábamos — **0 container queries** (aunque §5 ya las mandaba), **0 `@layer`** contra **971 `!important`** + **317 `::ng-deep`**, 124 breakpoints en px, y features gratis sin usar (`text-wrap`, `field-sizing`, `content-visibility`). Estas reglas se **verifican en review**.
+> **El diagnóstico que origina esta sección (ago-2026):** el DS visual iba muy por delante de la plataforma con la que lo implementábamos — **0 container queries** (aunque §5 ya las mandaba), **0 `@layer`** contra **971 `!important`** + **317 `::ng-deep`**, 124 breakpoints en px, y features gratis sin usar (`text-wrap`, `field-sizing`, `content-visibility`). Estas reglas se **verifican en review**.
+>
+> **Re-medición 2026-09-14 (3 semanas después) — el diagnóstico no se movió, y en dos ejes empeoró:**
+>
+> | Señal | ago-2026 | **2026-09-14** | Lectura |
+> |---|---|---|---|
+> | `@container` | 0 | **16** (8 archivos) | único avance real; todos en `apps/view`, ninguno en un componente compartido |
+> | `@layer` | 0 | **0** | la cascada en capas **no existe**; §S es aspiracional |
+> | `!important` | 971 | **961** | plano (−1%) |
+> | `::ng-deep` | 317 | **370** | ⛔ **+17%** contra una métrica que dice "no sube" |
+> | breakpoints en px | 124 | **169** (rem: 26) | ⛔ **+36%**, siendo antipatrón declarado |
+>
+> **Conclusión operativa, no reproche:** una regla marcada BINDING que sólo se "verifica en review" se cumple exactamente tanto como la revisión alcance a mirar. Las tres cifras que empeoraron son las tres **mecánicamente medibles** — o sea, las que un gate habría frenado. Sin gate, esta sección describe una intención. Ver [Estado de cumplimiento](#estado-de-cumplimiento--lo-que-el-doc-manda-vs-lo-que-el-código-hace).
 > **Regla marco — mejora progresiva:** todo lo de esta sección entra bajo `@supports` cuando no es Baseline widely available. El piso es que la pantalla **funcione sin la feature** (el campo corre Android de gama baja). Ninguna capacidad moderna es requisito de render.
 
 ### R. Responsividad por capas — 4 herramientas, 4 trabajos
@@ -612,7 +703,7 @@ Cada herramienta tiene **su** trabajo; usar la de al lado es el bug:
 | Herramienta | Trabajo | Regla |
 |---|---|---|
 | `@media` | **página / chrome**: sidebar colapsa, tab bar móvil, densidad por `pointer: coarse` | Solo para esto. Breakpoints nuevos en **`rem`** (respetan zoom), nunca px |
-| `@container` | **componente**: cómo se reorganiza según el ancho que le dio el padre | Obligatorio en `libs/` y en todo componente que viva en >1 ancho (card, tabla, panel de master-detail) |
+| `@container` | **componente**: cómo se reorganiza según el ancho que le dio el padre | Obligatorio en todo componente **compartido** (`shared/components/`) y en cualquiera que viva en >1 ancho (card, tabla, panel de master-detail). CSS crudo — el plugin de Tailwind no está instalado (→ §Ing.UI 5) |
 | `clamp()` | **fluido**: type y spacing entre extremos | Máximo **≤ 2.5×** el mínimo y término medio con componente `rem` (si no, rompe WCAG 1.4.4 a 200% de zoom) |
 | Grid intrínseco | **layout sin breakpoints**: `auto-fit` + `minmax()`, `subgrid` para alinear filas entre cards | Preferido sobre inventar un breakpoint |
 
@@ -645,6 +736,9 @@ Cada herramienta tiene **su** trabajo; usar la de al lado es el bug:
 - **`!important` requiere justificación explícita en review** (comentario en el sitio: qué regla de vendor está peleando y por qué no alcanza la capa). No se acepta "para que agarre".
 - **`::ng-deep` es solo para vendor**, con comentario, y con horizonte de retiro: si el componente es nuestro, se resuelve con token de Tier 3 o `@scope`.
 - **Métrica de QA:** el conteo de `!important` y `::ng-deep` **por módulo** no sube. Bajar es la dirección; subir necesita justificación.
+  - ⛔ **Re-medido 2026-09-14 y la métrica se incumplió sin que nadie se enterara:** `::ng-deep` **317 → 370 (+17%)** y `!important` 971 → 961 (−1%, plano). **`@layer` sigue en 0**, así que el orden de cascada de arriba **no existe en el código** y la justificación que esta sección le exige a un `!important` ("contra qué regla de vendor pelea y por qué no alcanza la capa") es **imposible de dar**: no hay capa que pueda no alcanzar.
+  - **Causa de fondo, no de disciplina:** una métrica declarada sin instrumento es una intención (ADR-056). Hasta que haya gate en CI, se mide a mano con `grep -rn "<patrón>" apps libs --include=*.css --include=*.scss --include=*.ts --include=*.html | grep -v node_modules | wc -l` para `::ng-deep`, `!important` y `@layer`.
+  - **Orden de trabajo:** primero declarar `@layer` una vez global (sin eso lo demás no tiene a dónde ir), recién después bajar los conteos. Mientras `@layer` sea 0, **esta sección es aspiracional y hay que leerla así.**
 - Estilos de módulo nuevos: `@scope` antes que subir especificidad.
 
 ### T. Overlays y controles nativos — menos JS de plomería
@@ -900,6 +994,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-09-14 | **Auditoría del doc contra el código: 6 contradicciones internas corregidas + toda cifra fechada + [Estado de cumplimiento](#estado-de-cumplimiento--lo-que-el-doc-manda-vs-lo-que-el-código-hace) e [índice](#mapa-del-documento) nuevos.** Corregido: (1) **§Ing.UI 4 seguía exigiendo `NgZone.runOutsideAngular()`** — el retiro estaba *declarado* en la fila 2026-09-09 de esta misma tabla y **nunca se ejecutó**; ahora dice qué hacer en zoneless (el callback no dispara CD salvo que escriba una `signal`). (2) **§Ing.UI 5 y §R mandaban poner los componentes compartidos en `libs/`**, que tiene **0 componentes Angular**: la regla apuntaba a un conjunto vacío y por eso se leía como cumplida; ahora apunta a `apps/view/src/app/shared/components/` y declara el hueco real (portal y vendor con **0** componentes compartidos). (3) **La tabla de Surfaces —paso 1 del pre-vuelo— listaba 6 rutas y faltaban 8** (`/finanzas`, `/contabilidad`, `/compras`, `/almacen`, `/tienda`, `/reparto`, `/projects`, `/mi-trabajo`), justo las pantallas de dinero más densas; y listaba `/vendor` y `/portal` como rutas de `apps/view` cuando hace tiempo son apps. (4) **Typography apuntaba a un solo `index.html`**: cada app carga su `<link>` y `apps/view` sirve **Sniglet** (3ª familia, exención §O.3) sin estar documentada. (5) **§Type scale prohibía el namespace `--text-*` para tamaños** mientras `--text-display-xl/-lg/-md` existen en `tokens.css` con 14 usos. (6) **El paso 6 del plan Operations, marcado "APLICADO", ordenaba dark espresso** cuando lo decidido y vigente es zinc `#111111`. | **Un contrato que se cita como BINDING y contiene afirmaciones falsas no gatea: enseña a no creerle.** Lo detonó medir, no opinar: al contrastar las cifras que el doc publica contra `grep` de hoy, **cuatro estaban vencidas y dos habían empeorado** — `::ng-deep` 317 → **370 (+17%)** contra una métrica de §S que dice literalmente "no sube", y breakpoints en px 124 → **169 (+36%)**, siendo antipatrón declarado. Y `@layer` **sigue en 0**, así que la justificación que §S le exige a cada `!important` (*"por qué no alcanza la capa"*) era imposible de dar desde el día que se escribió. El patrón de fondo: **lo que se cumple solo** (tokens en un archivo único, tipografía con 0 fugas, GSAP 100% lazy) tiene **un solo lugar donde vive**; lo que se degrada es lo que depende de que la revisión se acuerde. Por ADR-056, *un gate sin prueba negativa es una intención*: las 3 cifras que empeoraron son justo las **mecánicamente medibles**, o sea las que un check de CI habría frenado. ⚠️ **Declarado sin resolver (no se tocó código):** `MetricStrip` —arquetipo de ADR-033 en 64 pantallas— anima `width` 900ms (viola techo 350ms **y** compositor-only) · el morado prohibido `#8b5cf6` volvió en `promotions-meta.ts` junto a la paleta default de Tailwind · 171 hex crudos en 40 archivos de `apps/view` · `surf-table--zebra` no-op aplicada en 35 archivos · `TabShell` y `MiniBars` con **0 adopción** · `motion@^12.38.0` sigue muerta. Todo con archivo y línea en el Estado de cumplimiento. |
 | 2026-09-09 | **El contrato de motion decía una cosa y el `package.json` otra: se reconcilia.** §U y el punto 8 afirmaban *"GSAP no es dependencia"* y **es falso desde el 2026-06-25** (`gsap@^3.15.0`, commit `d011d92d`), corriendo en **producción** en `apps/portal` con plugins de Club GreenSock (SplitText, DrawSVG, Physics2D, MotionPath). Regla nueva: **CSS/WAAPI por default; GSAP permitido SÓLO por `import()` lazy**; ninguna librería NUEVA de animación entra. Se retira además el consejo de `NgZone.runOutsideAngular` (obsoleto: `apps/view` es zoneless). | §U *se verifica en review*, así que el contrato desactualizado bloqueaba cualquier PR de animación contra un hecho que ya no era cierto — y al revés, dejaba pasar sin discusión el uso que ya estaba en prod. Medido al reconciliar: el **bundle inicial de `apps/view` ya excede su warning** (1.171 MiB contra 1 MB; 234 KiB de aire hasta el error), así que la regla de *lazy* no es preferencia, es lo único que cabe; la **CSP bloquea todo CDN** (`script-src 'self'`), así que cualquier librería tiene que ser npm bundleada; y la **adopción de los tokens de duración es del 9%** (31 de 338 declaraciones), con dos animaciones en `styles.css` **por encima del techo de 350ms** (400ms y 500ms). ⚠️ Declarado sin resolver: `motion@^12.38.0` está instalada desde el 2026-04-27 con **cero imports** — dep muerta; retirarla toca el lockfile compartido, así que es decisión de Edgar (`npm uninstall motion`). |
 | 2026-08-25 | **Plataforma web moderna BINDING (§R-§W + pre-vuelo 16/17)** (responsividad por capas: `@media`=página / `@container`=componente / `clamp()` con máx ≤2.5× / grid intrínseco, breakpoints en `rem` · cascada `@layer` + `!important` justificado + `::ng-deep` solo vendor · overlays nativos Popover+anchor+`<dialog closedby>`+`base-select` · motion nativo View Transitions/scroll-driven/`linear()` · presupuesto INP<200ms como criterio de aceptación · ganancias gratis `text-wrap`/`field-sizing`/`light-dark`/`contrast-color`/`:has`) **+ agentic UX BINDING (§X + pre-vuelo 18)** (plan previo · autonomía por dominio · razón en llano · confianza visible · auditoría+undo con ventana · escalación) **+ marco de mejora progresiva** (`@supports`, el piso es que funcione sin la feature) | Auditoría del DS contra la plataforma (investigación [`DESIGN_TECNOLOGIA_2026.md`](docs/DESIGN_TECNOLOGIA_2026.md)): **el sistema de diseño iba muy por delante de la tecnología con la que lo implementábamos**. Medido en el repo: **0 `@container`** (aunque §Ing.UI 5 lo mandaba desde jul-2026), **0 `@layer`** contra **971 `!important` + 317 `::ng-deep`**, **124 breakpoints en px** (rompen zoom), y features gratis sin usar (`text-wrap` 1 archivo, `field-sizing` 1, `content-visibility` 2, `popover` 1). Además faltaba por completo el contrato visual de las superficies con IA — teníamos la tesis (motor decide / LLM fuera del dinero) y la identidad (ember), pero no las reglas de **confianza** (plan, razón, confianza, reversa, escalación), que es el problema de diseño #1 de la IA en 2026. Se anotó también el riesgo de licencia de PrimeNG (v22+ comercial, repo archivado jun-2026) en pre-vuelo 3 sin cerrar la decisión — es de Edgar. |
 | 2026-08-12 | **Tokens consolidados en un archivo único** [`libs/design-tokens/tokens.css`](libs/design-tokens/tokens.css) para las 3 apps + **6 contradicciones del doc resueltas** + **inventario de componentes** agregado | Auditoría del DS contra el código. La "fuente única" eran **3 copias** de `tokens.css` (una por app) **más** un segundo bloque de tokens duplicado dentro de cada `styles.css`, y ya habían divergido: `apps/portal` servía **Inter + JetBrains Mono** en `:root` (retiradas en 2026-06-04, sólo se salvaba por el override de `.portal-shell`) y **`--ease-standard` estaba declarado dos veces con curvas distintas** — ganaba la de `styles.css`, así que la curva documentada acá no era la que corría. Resueltas además: motion 400↔350ms (→ **350ms**, §Motion es la única fuente) · dark Operations zinc↔espresso (→ **zinc `#111111`**; espresso queda scopeado al portal) · dos escalas de spacing (→ **`--sp-*`**) · Fraunces "retirada" vs. autorizada en portal (→ **retirada de verdad**: fuera de `--font-display` y de los `<link>` de las 3 apps; display = Poppins, storefront-only) · elevación hairline vs. spotlight de cards (→ el spotlight/lift es **respuesta al puntero, no elevación en reposo**) · `#2563EB` antipatrón vs. `--info-fg` (→ **se prohíbe el rol, no el hex**). Y la **escala tipográfica**: el doc mandaba `--text-page-head/data/label`, que **nunca existieron** (0 declaraciones, 1 uso) y además colisionaban con `--text-*` = *color*; la escala real `--fs-*`/`--fw-*` (481 usos) quedó documentada y movida al archivo canónico, con alias `--fg-1/2/3` para color. Efecto colateral medible: el payload de fuentes de `view` y `vendor` baja de **5 familias a 2** (Inter/Fraunces/JetBrains ya no se descargan). Builds view+portal+vendor verdes. |
