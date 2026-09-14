@@ -177,6 +177,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'inventory-health', label: 'Salud de inventario', route: '/almacen/inventory-health', view: [Permission.COMMERCIAL_INVHEALTH_VER], manage: [] },
           { id: 'cuadre', label: 'Cuadre / Supervisor de movimientos', route: '/almacen/cuadre', view: [Permission.RECONCILIATION_VER], manage: [Permission.RECONCILIATION_GESTIONAR] },
           { id: 'movimientos', label: 'Diario de movimientos', route: '/almacen/movimientos', view: [Permission.COMMERCIAL_MOVEMENTS_VER], manage: [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR] },
+          // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
+          // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
+          // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.
+          { id: 'analisis-bi', label: 'Análisis BI', route: '/almacen/analisis-bi', view: [Permission.ALMACEN_BI_VER], manage: [] },
           // Fase CV — absorbido de 0SistemasMD/catalogo-kp. `route` es la que tendría
           // en apps/view si algún día se le hace pantalla propia; hoy el frontend
           // sigue siendo el HTML estático del repo standalone (deuda documentada
