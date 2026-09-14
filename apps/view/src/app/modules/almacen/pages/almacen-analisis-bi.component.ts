@@ -31,8 +31,20 @@ import {
 interface WhOpt extends BiWarehouseOpt { zone_label: string }
 
 const ISO = (d: Date) => d.toISOString().slice(0, 10);
-const DEFAULT_MOV_COLS = ['doc_date', 'warehouse_code', 'movement_label', 'folio', 'sku', 'product_name', 'signed_qty', 'amount'];
-const DEFAULT_EXPLORE_FIELDS = ['doc_date', 'warehouse_code', 'sku', 'product_name', 'signed_qty', 'amount'];
+/**
+ * WMS-BI.2 (2026-09-15) — pedido explícito del usuario: este orden y este set de columnas van
+ * TODAS visibles por default (no una selección recortada), calcado del que dictó en la revisión.
+ */
+const DEFAULT_MOV_COLS = [
+  'doc_date', 'hora', 'zone_name', 'warehouse_code', 'almacen', 'movement_kind', 'movement_label',
+  'doc_code', 'folio', 'sku', 'product_name', 'linea_producto', 'tipo_producto', 'grupo_producto',
+  'qty', 'unidad_operacion', 'unidad_base', 'importe_costo', 'importe_venta',
+  'iva_valor', 'ieps_valor', 'venta_neta',
+];
+const DEFAULT_EXPLORE_FIELDS = [
+  'doc_date', 'hora', 'zone_name', 'warehouse_code', 'almacen', 'movement_kind_label', 'movement_label',
+  'sku', 'product_name', 'linea_producto', 'tipo_producto', 'grupo_producto', 'qty', 'unidad_operacion', 'unidad_base',
+];
 
 @Component({
   selector: 'app-almacen-analisis-bi',
@@ -230,17 +242,30 @@ const DEFAULT_EXPLORE_FIELDS = ['doc_date', 'warehouse_code', 'sku', 'product_na
             <ng-template #header>
               <tr>
                 @if (colOn('doc_date')) { <th scope="col" pSortableColumn="doc_date">Fecha <p-sorticon field="doc_date" /></th> }
+                @if (colOn('hora')) { <th scope="col">Hora</th> }
                 @if (colOn('zone_name')) { <th scope="col">Zona</th> }
-                @if (colOn('warehouse_code')) { <th scope="col">Almacén</th> }
-                @if (colOn('movement_label')) { <th scope="col">Motivo</th> }
-                @if (colOn('doc_code')) { <th scope="col">Tipo</th> }
+                @if (colOn('warehouse_code')) { <th scope="col">Sucursal</th> }
+                @if (colOn('almacen')) { <th scope="col">Almacén</th> }
+                @if (colOn('movement_kind')) { <th scope="col">Tipo</th> }
+                @if (colOn('movement_label')) { <th scope="col">Documento</th> }
+                @if (colOn('doc_code')) { <th scope="col">Código doc.</th> }
                 @if (colOn('folio')) { <th scope="col">Folio</th> }
                 @if (colOn('sku')) { <th scope="col">Código</th> }
                 @if (colOn('product_name')) { <th scope="col">Producto</th> }
+                @if (colOn('linea_producto')) { <th scope="col">Línea</th> }
+                @if (colOn('tipo_producto')) { <th scope="col">Tipo producto</th> }
+                @if (colOn('grupo_producto')) { <th scope="col">Grupo</th> }
                 @if (colOn('qty')) { <th scope="col" class="num" pSortableColumn="qty">Cantidad <p-sorticon field="qty" /></th> }
+                @if (colOn('unidad_operacion')) { <th scope="col">Unidad operación</th> }
+                @if (colOn('unidad_base')) { <th scope="col">Unidad base</th> }
                 @if (colOn('signed_qty')) { <th scope="col" class="num">Efecto en inventario</th> }
                 @if (colOn('unit_cost')) { <th scope="col" class="num">Costo del movimiento</th> }
                 @if (colOn('amount')) { <th scope="col" class="num" pSortableColumn="amount">Importe <p-sorticon field="amount" /></th> }
+                @if (colOn('importe_costo')) { <th scope="col" class="num">Importe costo</th> }
+                @if (colOn('importe_venta')) { <th scope="col" class="num">Importe venta</th> }
+                @if (colOn('iva_valor')) { <th scope="col" class="num">IVA valor</th> }
+                @if (colOn('ieps_valor')) { <th scope="col" class="num">IEPS valor</th> }
+                @if (colOn('venta_neta')) { <th scope="col" class="num">Venta neta</th> }
                 @if (colOn('cost_base_hoy')) { <th scope="col" class="num">Costo catálogo (hoy)</th> }
                 @if (colOn('source_system')) { <th scope="col">Sistema</th> }
               </tr>
@@ -248,17 +273,30 @@ const DEFAULT_EXPLORE_FIELDS = ['doc_date', 'warehouse_code', 'sku', 'product_na
             <ng-template #body let-r>
               <tr class="abi-mov-row" (click)="openDocument(r)" (keydown.enter)="openDocument(r)" tabindex="0">
                 @if (colOn('doc_date')) { <td>{{ r.doc_date }}</td> }
+                @if (colOn('hora')) { <td class="abi-mono">{{ r.hora || 'No disponible' }}</td> }
                 @if (colOn('zone_name')) { <td>{{ r.zone_name || '—' }}</td> }
                 @if (colOn('warehouse_code')) { <td class="abi-mono">{{ r.warehouse_code }}</td> }
+                @if (colOn('almacen')) { <td [title]="'Ajustes genéricos hoy — sin motivo capturado en Kepler'">{{ r.almacen }}</td> }
+                @if (colOn('movement_kind')) { <td [class.abi-ok]="r.movement_kind === 'entrada'" [class.abi-bad]="r.movement_kind === 'salida'">{{ r.movement_kind === 'entrada' ? 'Entrada' : r.movement_kind === 'salida' ? 'Salida' : 'Informativo' }}</td> }
                 @if (colOn('movement_label')) { <td>{{ r.movement_label }}</td> }
                 @if (colOn('doc_code')) { <td class="abi-mono">{{ r.doc_code }}</td> }
                 @if (colOn('folio')) { <td class="abi-mono abi-link">{{ r.folio }}</td> }
                 @if (colOn('sku')) { <td class="abi-mono">{{ r.sku || '—' }}</td> }
                 @if (colOn('product_name')) { <td>{{ r.product_name }}</td> }
+                @if (colOn('linea_producto')) { <td>{{ r.linea_producto || 'No disponible' }}</td> }
+                @if (colOn('tipo_producto')) { <td>{{ r.tipo_producto || 'No disponible' }}</td> }
+                @if (colOn('grupo_producto')) { <td>{{ r.grupo_producto || 'No disponible' }}</td> }
                 @if (colOn('qty')) { <td class="num">{{ r.qty | number:'1.0-3' }}</td> }
+                @if (colOn('unidad_operacion')) { <td class="abi-mono">{{ r.unidad_operacion || 'No disponible' }}</td> }
+                @if (colOn('unidad_base')) { <td class="abi-mono">{{ r.unidad_base || 'No disponible' }}</td> }
                 @if (colOn('signed_qty')) { <td class="num" [class.abi-ok]="r.signed_qty > 0" [class.abi-bad]="r.signed_qty < 0">{{ r.signed_qty > 0 ? '+' : '' }}{{ r.signed_qty | number:'1.0-3' }}</td> }
                 @if (colOn('unit_cost')) { <td class="num">{{ r.unit_cost != null ? money(r.unit_cost) : 'No disponible' }}</td> }
                 @if (colOn('amount')) { <td class="num">{{ r.amount != null ? money(r.amount) : 'No disponible' }}</td> }
+                @if (colOn('importe_costo')) { <td class="num">{{ r.importe_costo != null ? money(r.importe_costo) : 'No aplica' }}</td> }
+                @if (colOn('importe_venta')) { <td class="num">{{ r.importe_venta != null ? money(r.importe_venta) : 'No aplica' }}</td> }
+                @if (colOn('iva_valor')) { <td class="num">{{ r.iva_valor != null ? money(r.iva_valor) : 'No disponible' }}</td> }
+                @if (colOn('ieps_valor')) { <td class="num">{{ r.ieps_valor != null ? money(r.ieps_valor) : 'No disponible' }}</td> }
+                @if (colOn('venta_neta')) { <td class="num">{{ r.venta_neta != null ? money(r.venta_neta) : 'No disponible' }}</td> }
                 @if (colOn('cost_base_hoy')) { <td class="num">{{ r.cost_base_hoy != null ? money(r.cost_base_hoy) : 'No disponible' }}</td> }
                 @if (colOn('source_system')) { <td>Kepler</td> }
               </tr>
@@ -275,8 +313,9 @@ const DEFAULT_EXPLORE_FIELDS = ['doc_date', 'warehouse_code', 'sku', 'product_na
           </p-table>
           <p class="abi-unavailable-note">
             <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Unidad original, factor de conversión y cantidad en unidad base no están disponibles: el feed de Kepler no captura esos datos por línea
-            (ver <em>Explorar datos</em> para el detalle de por qué).
+            "Almacén" muestra siempre <strong>Disponible</strong>: los ajustes de inventario en Kepler todavía no capturan un motivo
+            (daño/caducidad) por línea — decisión del negocio, no un dato omitido. "Unidad operación", "Hora" y la desviación de costo
+            por línea pueden faltar en documentos donde Kepler no lo registró (ver <em>Explorar datos</em> para el detalle).
           </p>
         </p-tabpanel>
 
@@ -489,11 +528,16 @@ export class AlmacenAnalisisBiComponent {
   readonly movLoading = signal(false);
   visibleMovCols = [...DEFAULT_MOV_COLS];
   readonly movColumnOpts = [
-    { key: 'doc_date', label: 'Fecha' }, { key: 'zone_name', label: 'Zona' }, { key: 'warehouse_code', label: 'Almacén' },
-    { key: 'movement_label', label: 'Motivo' }, { key: 'doc_code', label: 'Tipo' }, { key: 'folio', label: 'Folio' },
-    { key: 'sku', label: 'Código' }, { key: 'product_name', label: 'Producto' }, { key: 'qty', label: 'Cantidad' },
-    { key: 'signed_qty', label: 'Efecto en inventario' }, { key: 'unit_cost', label: 'Costo del movimiento' },
-    { key: 'amount', label: 'Importe' }, { key: 'cost_base_hoy', label: 'Costo catálogo (hoy)' }, { key: 'source_system', label: 'Sistema' },
+    { key: 'doc_date', label: 'Fecha' }, { key: 'hora', label: 'Hora' }, { key: 'zone_name', label: 'Zona' },
+    { key: 'warehouse_code', label: 'Sucursal' }, { key: 'almacen', label: 'Almacén' }, { key: 'movement_kind', label: 'Tipo' },
+    { key: 'movement_label', label: 'Documento' }, { key: 'doc_code', label: 'Código doc.' }, { key: 'folio', label: 'Folio' },
+    { key: 'sku', label: 'Código' }, { key: 'product_name', label: 'Producto' },
+    { key: 'linea_producto', label: 'Línea' }, { key: 'tipo_producto', label: 'Tipo producto' }, { key: 'grupo_producto', label: 'Grupo' },
+    { key: 'qty', label: 'Cantidad' }, { key: 'unidad_operacion', label: 'Unidad operación' }, { key: 'unidad_base', label: 'Unidad base' },
+    { key: 'signed_qty', label: 'Efecto en inventario' }, { key: 'unit_cost', label: 'Costo del movimiento' }, { key: 'amount', label: 'Importe' },
+    { key: 'importe_costo', label: 'Importe costo' }, { key: 'importe_venta', label: 'Importe venta' },
+    { key: 'iva_valor', label: 'IVA valor' }, { key: 'ieps_valor', label: 'IEPS valor' }, { key: 'venta_neta', label: 'Venta neta' },
+    { key: 'cost_base_hoy', label: 'Costo catálogo (hoy)' }, { key: 'source_system', label: 'Sistema' },
   ];
   colOn(k: string): boolean { return this.visibleMovCols.includes(k); }
   /** `makeLazyLoad` sólo traduce página/tamaño — el orden servidor lo captura acá (PrimeNG

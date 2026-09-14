@@ -43,10 +43,21 @@ export interface BiSummary {
   inventory: BiInventoryValuation; movements: BiMovementCounts; cost_deviation: BiCostDeviation;
 }
 export interface BiMovementRow {
-  doc_date: string; zone_name: string | null; warehouse_code: string; warehouse_name: string;
+  doc_date: string;
+  hora: string | null;
+  zone_name: string | null;
+  warehouse_code: string; warehouse_name: string;
+  almacen: 'Disponible';
   movement_kind: 'entrada' | 'salida' | 'info'; movement_label: string; doc_code: string; folio: string;
-  sku: string | null; product_name: string; qty: number; signed_qty: number;
-  unit_cost: number | null; amount: number | null; cost_base_hoy: number | null; source_system: 'kepler';
+  sku: string | null; product_name: string;
+  linea_producto: string | null; tipo_producto: string | null; grupo_producto: string | null;
+  qty: number; signed_qty: number;
+  unidad_operacion: string | null; unidad_base: string | null;
+  cantidad_base: number | null; unidad_base_medible: boolean;
+  unit_cost: number | null; amount: number | null;
+  importe_costo: number | null; importe_venta: number | null;
+  iva_valor: number | null; ieps_valor: number | null; venta_neta: number | null;
+  cost_base_hoy: number | null; source_system: 'kepler';
 }
 export interface BiField { key: string; label: string; group: string; available: boolean; reason?: string; }
 export interface BiMovementDetail {
