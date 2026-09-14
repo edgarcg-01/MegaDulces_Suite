@@ -124,6 +124,24 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   /** `[SN.11]` La píldora pasó a fila: dos columnas, el trabajo con su propio espacio. */
   const pendientes = () => q<HTMLAnchorElement>('a.mt-task');
 
+  /**
+   * `[SN.26]` La hoja de estilos del componente, leída del ARCHIVO y sin comentarios.
+   *
+   * ⚠️ No sirve `document.styleSheets`: en jsdom los estilos del componente no llegan al DOM, y la
+   * primera versión de estas pruebas encontraba **cero reglas** y se ponía verde sin medir nada
+   * (ADR-056: cero coincidencias no es cero infracciones). Los comentarios se quitan porque
+   * **citan** las reglas retiradas — sin eso la prueba juzgaría la explicación, no el código.
+   */
+  function cssDelComponente(): string {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs') as typeof import('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path') as typeof import('path');
+    return fs
+      .readFileSync(path.join(__dirname, 'mi-trabajo.component.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+  }
+
   /** Escribe en el buscador y refresca la vista. */
   function buscar(texto: string) {
     const input = (fix.nativeElement as HTMLElement).querySelector<HTMLInputElement>('input.mt-search-input')!;
@@ -735,22 +753,24 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
    * contra su propio contenedor. La distinción vive en tipo y contraste (DESIGN.md Q.5), no en un
    * relleno que lo desaparece — así que la clase ya no puede traer `background` propio.
    */
+  /*
+   * `[SN.27]` **El hueco no estaba en la celda, estaba en el GRUPO.** Cada espacio ocupaba una
+   * franja de ancho completo, así que uno de 2 tarjetas dejaba 3 huecos a su derecha: 52% de
+   * ocupación a 1920, 63% a 1440. Con los espacios en columnas los grupos chicos comparten fila y
+   * sube a 88%. Esta prueba fija las dos mitades del contrato —el contenedor existe y declara
+   * columnas— porque jsdom no calcula multicolumna y sin las dos la regresión pasa muda.
+   */
+  it('los espacios fluyen en columnas, no en franjas de ancho completo', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const cont = q<HTMLElement>('.mt-espacios');
+    expect(cont.length).toBe(1);
+    expect(cont[0].querySelectorAll('section.mt-space').length).toBeGreaterThan(3);
+    expect(cssDelComponente()).toMatch(/\.mt-espacios\s*\{[^}]*columns\s*:/);
+  });
+
   it('un acceso directo se distingue por tipo, no por un relleno que lo borra', () => {
-    /*
-     * ⚠️ Se lee el ARCHIVO, no `document.styleSheets`: en jsdom los estilos del componente no
-     * llegan al DOM, así que la primera versión de esta prueba encontraba cero reglas y se ponía
-     * verde sin medir nada. Es el mismo tercer estado de ADR-056 — cero coincidencias no es cero
-     * infracciones — y por eso la aserción de abajo existe antes que la del `background`.
-     */
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require('fs') as typeof import('fs');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require('path') as typeof import('path');
-    const css = fs
-      .readFileSync(path.join(__dirname, 'mi-trabajo.component.css'), 'utf8')
-      // Los comentarios CITAN la regla retirada; sin quitarlos la prueba juzga la explicación.
-      .replace(/\/\*[\s\S]*?\*\//g, '');
-    const reglas = css.match(/\.is-alias\b[^{}]*\{[^}]*\}/g) ?? [];
+    const reglas = cssDelComponente().match(/\.is-alias\b[^{}]*\{[^}]*\}/g) ?? [];
+    // ⛔ Sin esto la prueba pasa EN VACÍO: cero coincidencias se lee igual que cero infracciones.
     expect(reglas.length).toBeGreaterThan(0);
     for (const r of reglas) expect(r).not.toMatch(/background/);
   });

@@ -477,7 +477,38 @@
   overflow: auto;
   padding-right: var(--sp-2);
 }
-.mt-space + .mt-space { margin-top: var(--sp-5); }
+/*
+  [SN.27] LOS ESPACIOS EN COLUMNAS. El hueco no estaba en la celda, estaba en el GRUPO: cada uno
+  ocupaba una franja de ancho completo, asi que "Administracion y Finanzas" con 2 tarjetas dejaba
+  3 huecos a su derecha y "Direccion General" con 1 dejaba 6. Medido antes: 52% de ocupacion a
+  1920 (20 huecos de 42 celdas) y 63% a 1440.
+
+  Multicolumna y no grid, por una razon concreta: el navegador BALANCEA las columnas al mismo alto.
+  Un grid de espacios los acomoda fila por fila, y entonces la altura de cada fila es la del grupo
+  mas alto -- el hueco vuelve, girado 90 grados.
+
+  Manda el ANCHO de columna, no un numero fijo de columnas: asi la laptop parte en 2 y el
+  escritorio en 3 sin una sola consulta de medios. 23rem es el ancho que hace entrar DOS celdas por
+  columna en las tres pantallas medidas (1366, 1440, 1920).
+*/
+.mt-espacios {
+  /*
+    ⚠️ 21rem y no 23rem, y la diferencia la decidio UN pixel. El navegador parte en
+    floor((disponible + hueco) / (ancho + hueco)): a 1366 el catalogo tiene 755 px utiles y con
+    23rem pedia 388x2 = 776 > 775, asi que caia a UNA columna -- justo la pantalla mas apretada se
+    quedaba sin el arreglo. Medido con 21rem: 2 columnas a 1366 y a 1440, 3 a 1920.
+  */
+  columns: 21rem;
+  column-gap: var(--sp-5);
+}
+/*
+  Un grupo partido a la mitad entre dos columnas seria peor que el hueco que vino a resolver.
+
+  ⚠️ Y la separacion va ABAJO, no arriba entre hermanos: el primer grupo de la segunda columna
+  sigue siendo el hermano adyacente del ultimo de la primera, asi que un margin-top le habria
+  hundido el arranque respecto de la columna de al lado. Al pie de cada grupo el reparto es parejo.
+*/
+.mt-space { break-inside: avoid; margin-bottom: var(--sp-5); }
 .mt-space-title {
   margin: 0 0 var(--sp-2);
   display: flex;
@@ -515,12 +546,18 @@
   gap: var(--sp-2);
 }
 
-/* La celda compacta: icono + nombre + UNA linea truncada. Altura fija, sin excepciones. */
+/*
+  La celda compacta: icono + nombre + UNA linea truncada. Altura fija, sin excepciones.
+
+  [SN.27] La altura sube de 3.25rem a 4rem, y el alto salio de una medicion, no del gusto: al
+  repartir los espacios en columnas la columna derecha paso a pedir 624 px de los 732 que tiene
+  -- 108 px sin usar debajo del catalogo. Se gastan en que el NOMBRE entre (ver .mt-cell-nm).
+*/
 .mt-cell {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  min-height: 3.25rem;
+  min-height: 4rem;
   padding: 0 var(--sp-3);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -562,14 +599,25 @@
 .mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .mt-cell-ico { font-size: var(--fs-sm); color: var(--text-faint); flex: none; }
 .mt-cell-tx { display: flex; flex-direction: column; min-width: 0; }
-/* Jerarquia estricta (patron Attio): peso SOLO en el titulo. */
+/*
+  Jerarquia estricta (patron Attio): peso SOLO en el titulo.
+
+  [SN.27] DOS lineas, no una truncada. Medido con la celda de 153 px: 8 de 22 nombres se cortaban a
+  1920 -- "Centro de Control (vista parcial: Comer...", "Cuadre / Supervisor ...". Un catalogo donde
+  el 36% de los nombres no se puede leer no es un catalogo, y el atajo obvio (achicar la letra) era
+  cambiar un defecto por otro. Con los espacios en columnas la celda paso de 153 a 201 px de ancho
+  y sobraron 108 px de alto: las dos cosas juntas alcanzan para el segundo renglon.
+  El corte sigue existiendo en el tercer renglon, que ningun nombre del mapa alcanza hoy.
+*/
 .mt-cell-nm {
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
   line-height: 1.2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* Una linea, truncada. Nunca dos: una descripcion larga deformaba la retícula. */
 .mt-cell-sb {
@@ -689,7 +737,7 @@
     padding: var(--sp-3) var(--sp-3) var(--sp-3);
     background: var(--layout-bg);
   }
-  .mt-space + .mt-space { margin-top: var(--sp-3); }
+  .mt-space { margin-bottom: var(--sp-3); }
   .mt-space-title { margin-bottom: var(--sp-2); }
 }
 
@@ -748,7 +796,47 @@
   esta pantalla existe para no hacer.
 */
 @media (max-height: 56rem) {
-  .mt-space + .mt-space { margin-top: var(--sp-4); }
+  .mt-space { margin-bottom: var(--sp-4); }
+}
+
+/*
+  [SN.27] La pantalla mas baja del parque (1366x768). Aun con los espacios en dos columnas quedaban
+  82 px afuera: 21 de las 22 puertas visibles y una debajo del pliegue. Se cierran donde menos
+  cuesta, y el orden de prioridad esta dicho: primero las PUERTAS, despues la comodidad.
+
+  Con 768 px de alto, la fila de accesos se lleva 57 px -- el 9% del presupuesto -- para repetir
+  tarjetas que en esta configuracion ya estan TODAS en pantalla. Se apaga, y la celda cede 4 px.
+  ⚠️ Es la unica pantalla donde se apaga; de 48rem para arriba vuelve.
+*/
+@media (max-height: 48rem) {
+  .mt-freq { display: none; }
+  .mt-cell { min-height: 3.75rem; }
+}
+
+/*
+  [SN.27] El monitor grande. Con los espacios en columnas el catalogo pasa a pedir 442 px de los
+  801 que tiene a 1920x1080: sobran 359. Ahi la tarjeta con cuerpo que pedia el brief (Vercel,
+  proporcion cercana a 4:3, icono protagonista) por fin se puede pagar -- no cabia porque el
+  catalogo ocupaba una franja por grupo, no porque la tarjeta fuera mala idea.
+
+  ⚠️ Solo por ALTO, nunca por ancho: lo que decide si una tarjeta alta cabe es el alto disponible.
+  La laptop conserva la celda de 4rem, que es la que la hace entrar sin scroll.
+*/
+@media (min-height: 60rem) {
+  /*
+    Y con el alto pagado, la tarjeta toma la FORMA del brief (Vercel): el icono arriba, solo, como
+    ancla visual, y el texto al pie. Una tarjeta alta con el icono chico al lado del titulo deja el
+    50% inferior en blanco -- seria mover el aire de abajo de la pantalla a adentro de la tarjeta.
+  */
+  .mt-cell {
+    min-height: 7rem;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: space-between;
+    padding: var(--sp-3);
+  }
+  .mt-cell-ico { font-size: var(--fs-h3, 1.5rem); }
+  .mt-cell-tx { width: 100%; }
 }
 
 /* ── Angosto: la izquierda se achica antes de romper la rejilla de puertas ─ */

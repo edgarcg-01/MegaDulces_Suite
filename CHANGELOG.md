@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Changed — el hueco no estaba en la tarjeta, estaba en el grupo (SN.27, 2026-09-14)
+
+Edgar: *«hay que tratar de usar todo el espacio en pantalla»*.
+
+- ⭐ **Cada espacio ocupaba una franja de ancho completo.** Por eso «Administración y Finanzas», con 2 tarjetas, dejaba 3 huecos a su derecha, y «Dirección General», con 1, dejaba 6. Medido: **52% de ocupación a 1920** (20 huecos de 42 celdas) y 63% a 1440. Ahora los espacios fluyen en **columnas**, los grupos chicos comparten fila y sube a **88% en las tres pantallas medidas**.
+- **Multicolumna y no retícula, por una razón concreta:** el navegador **balancea** las columnas al mismo alto. Una retícula de espacios los acomoda fila por fila y la altura de cada fila es la del grupo más alto — el hueco vuelve, girado 90 grados.
+- ⚠️ **El corte de columna se decidió por UN pixel.** Manda el ancho (`columns: 21rem`), no un número fijo: el navegador parte en `floor((disponible + hueco) / (ancho + hueco))`. Con 23rem, a 1366 pedía 776 sobre 775 disponibles y caía a **una sola columna** — justo la pantalla más apretada se quedaba sin el arreglo.
+- **La separación entre grupos pasó de arriba a abajo.** El primer grupo de la segunda columna sigue siendo el hermano adyacente del último de la primera: un `margin-top` le hundía el arranque respecto de la columna de al lado.
+- ⭐ **Y con el alto liberado, los dos defectos que quedaban abiertos se cerraron.** Los nombres pasan a **dos líneas**: eran **8 de 22 truncados a 1920** («Centro de Control (vista parcial: Comer…», «Cuadre / Supervisor …»), ahora **cero** en 1366, 1440 y 1920. Y a 1366×768 entran **las 22 puertas sin scroll** (venían 13 de 22, después 21).
+- **En el monitor grande la tarjeta toma la forma del brief** (Vercel: ícono arriba como ancla, texto al pie, 196×112). No cabía porque el catálogo ocupaba una franja por grupo, **no porque la tarjeta fuera mala idea** — sólo se activa por **alto** (`min-height: 60rem`), que es lo que decide si una tarjeta alta cabe.
+- **Prioridad declarada en la pantalla más baja** (768 px): la fila de accesos se apaga, porque se llevaba el 9% del presupuesto para repetir tarjetas que en esa configuración ya están **todas** en pantalla. Primero las puertas, después la comodidad.
+- **Sobra por pantalla:** 24 px a 1440, 119 px a 1920, 0 a 1366. Llenar esos 119 exigiría tarjetas más altas que anchas — aire adentro de la tarjeta en vez de abajo de la pantalla.
+- `nx test view` **314 verdes** (+1 candado, con su **prueba negativa ejercida**: quitar `columns` lo pone rojo). Único rojo el ajeno de `[CV.25]`.
+
 ### Fixed — el hover no se veía, media docena de tarjetas tampoco, y en una laptop no cabía (SN.26, 2026-09-14)
 
 Auditoría de mi propio `[SN.25]`, disparada por Edgar: *«no ocupamos todo el espacio, no existe un cambio de color al hacer hover a un módulo»* + una captura a **1440×874**, que es la laptop real.

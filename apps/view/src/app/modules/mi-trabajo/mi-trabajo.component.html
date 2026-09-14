@@ -428,6 +428,13 @@
             </div>
           }
 
+          <!--
+            [SN.27] Los espacios fluyen en COLUMNAS. Cada grupo era una franja de ancho completo, así
+            que uno de 2 tarjetas dejaba 3 o 5 huecos a su derecha: medido, 52% de ocupación a 1920 y
+            63% a 1440. Con columnas los grupos chicos comparten fila y la retícula se llena.
+            El ancho de columna manda (no un número fijo): 2 columnas en laptop, 3 en escritorio.
+          -->
+          <div class="mt-espacios">
           @for (s of espacios(); track s.id) {
             <section class="mt-space" [id]="'espacio-' + s.id" [attr.aria-labelledby]="'h-' + s.id">
               <h3 class="mt-space-title" [id]="'h-' + s.id">
@@ -465,6 +472,7 @@
               </div>
             </section>
           }
+          </div>
 
           <!-- Lo que la especificación pide y la suite todavía no tiene: se declara, no se pinta. -->
           @if (declarados().length && !buscando()) {
