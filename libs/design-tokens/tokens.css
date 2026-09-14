@@ -69,34 +69,42 @@
   --brand-900: #8C2308;
   --brand-950: #4B1300;
 
-  /* ── NEUTRAL — Slate (PrimeNG Aura) ──────────────────────────────────────
+  /* ── NEUTRAL — Zinc (PrimeNG Aura) ───────────────────────────────────────
      Decisión Edgar 2026-09-14: los neutrales de OPERATIONS pasan de Stone
-     cálido a Slate, la paleta de superficies de PrimeNG Aura — el tema del
-     componente que ya usamos (medido de @primeuix/themes: `surface` =
-     light-dark({slate}, {zinc})).
+     cálido a la paleta de PrimeNG Aura — el tema del componente que ya usamos.
 
-     El porqué, medido en OKLCH: slate-100 tiene MENOS croma que stone-100
-     (0.0069 vs 0.0103) y más luz (L* 96.8 vs 95.9). Eso es lo que se percibe
-     como "limpio": menos tinte y más claridad, no el azul. A croma tan bajo
-     el azul casi no se ve, pero empuja hacia donde un blanco se lee más
-     blanco (el principio del abrillantador óptico); un tinte amarillo a igual
-     luminancia se lee "papel viejo". Ver DESIGN.md → Decisions Log 2026-09-14.
+     Primero se probó SLATE (el default de Aura en claro) y se revirtió el
+     mismo día: "demasiado azulado" sobre la app real. La medición explica por
+     qué, y la lección vale para cualquier rampa futura:
+
+       LO QUE TIÑE UNA PANTALLA NO ES EL FONDO, ES EL CHROME.
+       El croma de slate crece rápido bajando la rampa — ground 0.0069, borde
+       0.0126, texto faint 0.0351 (5× el ground). Los bordes de las cards, los
+       iconos y el texto secundario cubren mucha más superficie visual que el
+       fondo, así que mandan ellos. Al elegir neutrales, mirar los pasos
+       200–600, no el 100.
+
+     Zinc corta ese tinte ~70% en cada paso (ground 0.0013 · borde 0.0040 ·
+     faint 0.0129) conservando un frío mínimo, y —clave— es la MISMA familia
+     que el modo oscuro, que en Aura ya era zinc. Una sola familia en los dos
+     modos: Aura misma se parte en slate/zinc y eso era justo la incoherencia
+     que originó todo. Ver DESIGN.md → Decisions Log 2026-09-14.
 
      ⚠️ ALCANCE: sólo Operations (apps/view + apps/vendor). El Storefront
      (/portal) NO cambia: `.portal-shell`/`.pl-wrap` re-apuntan --neutral-*
      a --stone-* más abajo, así que el portal sigue cálido por construcción.
      La rampa --stone-* SIGUE VIVA y es la del Storefront — no borrarla. */
-  --neutral-50:  #F8FAFC;
-  --neutral-100: #F1F5F9;
-  --neutral-200: #E2E8F0;
-  --neutral-300: #CBD5E1;
-  --neutral-400: #94A3B8;
-  --neutral-500: #64748B;
-  --neutral-600: #475569;
-  --neutral-700: #334155;
-  --neutral-800: #1E293B;
-  --neutral-900: #0F172A;
-  --neutral-950: #020617;
+  --neutral-50:  #FAFAFA;
+  --neutral-100: #F4F4F5;
+  --neutral-200: #E4E4E7;
+  --neutral-300: #D4D4D8;
+  --neutral-400: #A1A1AA;
+  --neutral-500: #71717A;
+  --neutral-600: #52525B;
+  --neutral-700: #3F3F46;
+  --neutral-800: #27272A;
+  --neutral-900: #18181B;
+  --neutral-950: #09090B;
 
   /* ── SEMÁNTICOS — fg=sólido, soft-bg=chip, soft-fg=texto sobre soft-bg ──── */
   --ok-fg:        #16A34A;
@@ -138,9 +146,9 @@
   --chart-axis-text: var(--neutral-500);
   --chart-meta-line: var(--neutral-400);
 
-  --chart-fill-low:  #CBD5E1; /* slate-300 */
-  --chart-fill-mid:  #64748B; /* slate-500 */
-  --chart-fill-high: #1E293B; /* slate-800 */
+  --chart-fill-low:  #D4D4D8; /* zinc-300 */
+  --chart-fill-mid:  #71717A; /* zinc-500 */
+  --chart-fill-high: #27272A; /* zinc-800 */
 
   /* ── AVATARS — 8 colores estables, AA ≥ 4.5 con texto blanco ──────────── */
   --avatar-1: #C53E15; /* brand-800 (warm anchor) */
@@ -164,7 +172,7 @@
   --border-color:  var(--neutral-200);
   --table-border:  var(--neutral-50);
   /* Tinta base de los overlays interactivos (se voltea en dark). LIGHT = slate-950. */
-  --ink-rgb: 2, 6, 23;
+  --ink-rgb: 9, 9, 11;
   /* Hover de tabla = overlay de rol (deriva de --ink-rgb, sirve en ambos modos). */
   --table-hover:   var(--overlay-hover);
   /* --table-zebra: deprecado (directiva no-zebra 2026-06-23) — sin consumidores. */
@@ -174,7 +182,7 @@
   --text-main:     var(--neutral-950);
   --text-muted:    var(--neutral-600);
   --text-faint:    var(--neutral-400);
-  --text-disabled: rgba(2, 6, 23, 0.45);
+  --text-disabled: rgba(9, 9, 11, 0.45);
 
   /* Alias de foreground con nombre no ambiguo — preferir en código nuevo. */
   --fg-1:        var(--text-main);
@@ -186,8 +194,8 @@
   --shadow-hover:  0 10px 30px -10px rgba(0, 0, 0, 0.1);
   /* Overlay flotante (menú/popover/sheet). Regla de elevación: in-page = borde
      hairline SIN sombra; overlay = sombra + borde. Ver DESIGN.md §datos densos 1. */
-  --shadow-float:  0 2px 4px rgba(2, 6, 23, 0.04), 0 10px 24px -12px rgba(2, 6, 23, 0.16);
-  --skeleton-bg:   #E2E8F0; /* slate-200 — vuelve al frío al adoptar Aura (2026-09-14) */
+  --shadow-float:  0 2px 4px rgba(9, 9, 11, 0.04), 0 10px 24px -12px rgba(9, 9, 11, 0.16);
+  --skeleton-bg:   #E4E4E7; /* zinc-200 */
 
   /* Form controls — action (sunset) en vez de info (azul). */
   --checkbox-accent:       var(--action);

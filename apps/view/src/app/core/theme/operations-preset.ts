@@ -53,14 +53,29 @@ export const OperationsPreset = definePreset(Aura, {
           color: '#B83C15',
           focusColor: '#B83C15',
         },
-        // Surface: SIN override — hereda el de Aura (slate en claro, zinc en
-        // oscuro). Hasta el 2026-09-14 acá se pisaba con Stone cálido; al
-        // adoptar Aura como paleta de neutrales de Operations (decisión Edgar,
-        // ver DESIGN.md → Decisions Log) el override dejó de tener sentido:
-        // pisarlo volvería a separar los componentes PrimeNG (panels, overlays,
-        // dropdowns, dialogs, inputs) del chrome de la página, que ahora es
-        // slate. El acento sunset se mantiene arriba, que es lo que sí
-        // diferencia la marca.
+        // Surface = ZINC, igual que --neutral-* de tokens.css.
+        // Aura por default sirve SLATE en claro y ZINC en oscuro; se probó tal
+        // cual el 2026-09-14 y se revirtió el mismo día ("demasiado azulado"):
+        // el croma de slate crece bajando la rampa (ground 0.0069 → borde
+        // 0.0126 → faint 0.0351), y lo que tiñe una pantalla son los bordes,
+        // iconos y texto secundario, no el fondo. Se fija zinc a mano para que
+        // los componentes PrimeNG (panels, overlays, dropdowns, dialogs,
+        // inputs) queden en la MISMA familia que el chrome de la página, y la
+        // misma en claro y en oscuro.
+        surface: {
+          0: '#FFFFFF',
+          50: '#FAFAFA',
+          100: '#F4F4F5',
+          200: '#E4E4E7',
+          300: '#D4D4D8',
+          400: '#A1A1AA',
+          500: '#71717A',
+          600: '#52525B',
+          700: '#3F3F46',
+          800: '#27272A',
+          900: '#18181B',
+          950: '#09090B',
+        },
       },
       dark: {
         primary: {
