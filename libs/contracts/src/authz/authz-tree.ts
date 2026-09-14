@@ -93,6 +93,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         route: '/admin',
         modules: [
           { id: 'users', label: 'Usuarios', route: '/admin/users', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR, Permission.USUARIOS_PASSWORDS] },
+          // `[AU.3]`/`[AU.4]` La organización deja de administrarse por migración. Comparten el par
+          // de permisos del padrón a propósito: quien administra a la persona administra la
+          // estructura en la que encaja, y `[LC.6.2]` dejó la lección de que un permiso nuevo no
+          // abre nada hasta que alguien lo REPARTE en prod.
+          { id: 'positions', label: 'Puestos', route: '/admin/puestos', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR] },
+          { id: 'responsibilities', label: 'Responsabilidades', route: '/admin/responsabilidades', view: [Permission.USUARIOS_VER], manage: [Permission.USUARIOS_GESTIONAR] },
           { id: 'roles', label: 'Roles y permisos', route: '/admin/roles', view: [Permission.ROLES_VER], manage: [Permission.ROLES_CONFIGURAR] },
         ],
       },

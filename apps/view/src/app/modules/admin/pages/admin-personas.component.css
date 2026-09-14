@@ -1,0 +1,159 @@
+/* `[AU.2]` Padrón — superficie Operations. Cero hex crudo: todo sale de tokens. */
+
+.ap-page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-height: 0;
+}
+
+.ap-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Aviso de modo lectura. Borde hairline, SIN sombra: es un bloque in-page. */
+.ap-note {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3);
+  border: 1px solid var(--info-border);
+  border-radius: var(--r-md);
+  background: var(--info-soft-bg);
+  color: var(--info-soft-fg);
+  font-size: var(--fs-sm);
+}
+
+.ap-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.ap-sel {
+  min-width: 11rem;
+}
+
+.ap-search {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: 1 1 16rem;
+  min-width: 12rem;
+}
+
+.ap-search .pi {
+  position: absolute;
+  left: var(--sp-3);
+  color: var(--fg-3);
+  font-size: var(--fs-xs);
+  pointer-events: none;
+}
+
+.ap-search input {
+  width: 100%;
+  padding-left: var(--sp-8);
+}
+
+.ap-count {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Tabla ─────────────────────────────────────────────────────────────── */
+
+.ap-table th {
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-3);
+}
+
+.ap-table td {
+  font-size: var(--fs-sm);
+}
+
+.ap-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card-bg);
+}
+
+.ap-row {
+  cursor: pointer;
+  height: var(--row-h-lg);
+}
+
+.ap-row:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: -2px;
+}
+
+.ap-row-sel,
+.ap-row-sel .ap-sticky {
+  background: var(--table-row-selected-bg);
+}
+
+.ap-r {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-persona {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+
+.ap-nombre {
+  font-weight: var(--fw-medium);
+}
+
+.ap-user {
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+}
+
+.ap-puesto {
+  display: block;
+}
+
+.ap-sub {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+}
+
+/* Lo que falta se DECLARA, no se deja en blanco. */
+.ap-falta {
+  color: var(--fg-3);
+  font-style: italic;
+}
+
+.ap-chip {
+  font-size: var(--fs-micro);
+}
+
+.ap-foot {
+  font-size: var(--fs-xs);
+  color: var(--fg-3);
+  margin: 0;
+  max-width: 68ch;
+}
+
+@media (max-width: 720px) {
+  .ap-count {
+    margin-left: 0;
+  }
+
+  .ap-search {
+    flex-basis: 100%;
+  }
+}

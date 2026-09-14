@@ -1175,7 +1175,7 @@ export const routes: Routes = [
         path: '',
         pathMatch: 'full',
         canActivate: [adminHomeGuard],
-        loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
+        loadComponent: () => import('./modules/admin/pages/admin-personas.component').then(m => m.AdminPersonasComponent),
       },
       {
         /*
@@ -1206,7 +1206,21 @@ export const routes: Routes = [
          * `landing-guards.spec.ts`, que es para lo que existe.
          */
         path: 'users',
-        loadComponent: () => import('./modules/dashboard/admin-users/admin-users.component').then(m => m.AdminUsersComponent),
+        loadComponent: () => import('./modules/admin/pages/admin-personas.component').then(m => m.AdminPersonasComponent),
+        canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
+      },
+      {
+        // `[AU.3]` El catálogo de puestos y la cadena de mando. Hasta ahora sólo
+        // se administraba por migración.
+        path: 'puestos',
+        loadComponent: () => import('./modules/admin/pages/admin-puestos.component').then(m => m.AdminPuestosComponent),
+        canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
+      },
+      {
+        // `[AU.4]` De qué responde cada puesto, con el diagnóstico de si su
+        // perfil puede abrirlo.
+        path: 'responsabilidades',
+        loadComponent: () => import('./modules/admin/pages/admin-responsabilidades.component').then(m => m.AdminResponsabilidadesComponent),
         canActivate: [anyPermissionGuard(Permission.USUARIOS_VER, Permission.USUARIOS_GESTIONAR)]
       },
       {
