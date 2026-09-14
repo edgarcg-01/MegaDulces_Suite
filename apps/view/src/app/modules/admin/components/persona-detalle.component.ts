@@ -196,7 +196,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
           </section>
         }
 
-        @if (ajustar() || !propuesta()) {
+        @if (ajustar() || !propuesta() || sinPropuesta()) {
           <section class="pd-blk">
             <label class="pd-lbl" for="pd-rol">Perfil de acceso</label>
             <p-select inputId="pd-rol" [options]="rolOpts()" [ngModel]="fRol()"
@@ -205,14 +205,27 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                       [disabled]="!puedeEscribir" placeholder="Elegí el perfil"></p-select>
 
             @if (hayDesvio()) {
-              <label class="pd-lbl pd-lbl-req" for="pd-motivo">Motivo de apartarse del puesto</label>
+              <label class="pd-lbl pd-lbl-req" for="pd-motivo">
+                {{ sinPropuesta() ? 'Motivo de este perfil' : 'Motivo de apartarse del puesto' }}
+              </label>
               <textarea pTextarea id="pd-motivo" [ngModel]="fMotivo()" (ngModelChange)="fMotivo.set($event)"
                         rows="2" maxlength="300" [disabled]="!puedeEscribir"
-                        placeholder="Por qué este perfil y no el que propone el puesto"></textarea>
-              <p class="pd-hint">
-                El puesto propone <strong>{{ propuesta()?.role_name }}</strong> y elegiste
-                <strong>{{ fRol() }}</strong>. El motivo queda en la bitácora.
-              </p>
+                        [placeholder]="sinPropuesta()
+                          ? 'Por qué este perfil, si el puesto no propone ninguno'
+                          : 'Por qué este perfil y no el que propone el puesto'"></textarea>
+              @if (sinPropuesta()) {
+                <p class="pd-hint">
+                  Este puesto <strong>no propone ningún perfil</strong>, así que
+                  <strong>{{ fRol() }}</strong> es una elección a dedo y no hay contra qué
+                  contrastarla. El motivo queda en la bitácora. Lo que lo cierra de raíz es
+                  <a class="pd-link" routerLink="/admin/puestos">darle un perfil al puesto</a>.
+                </p>
+              } @else {
+                <p class="pd-hint">
+                  El puesto propone <strong>{{ propuesta()?.role_name }}</strong> y elegiste
+                  <strong>{{ fRol() }}</strong>. El motivo queda en la bitácora.
+                </p>
+              }
             }
           </section>
         }
@@ -582,12 +595,20 @@ export class PersonaDetalleComponent implements OnChanges {
     const p = this.propuesta();
     const rol = this.fRol();
     const puesto = this.fPuesto();
-    if (!p || p.sin_perfil) return false;
-    if (!rol) return false;
+    if (!p || !rol) return false;
+    const cambia = !this.persona
+      ? true
+      : rol !== this.persona.role_name || puesto !== this.persona.position_code;
+    // `[AU.15]` Un puesto que no propone nada tampoco da contra qué contrastar:
+    // el perfil se elige a dedo y el motivo es lo único que deja rastro. El
+    // backend lo exige igual.
+    if (p.sin_perfil) return cambia;
     if (rol === p.role_name) return false;
-    if (!this.persona) return true;
-    return rol !== this.persona.role_name || puesto !== this.persona.position_code;
+    return cambia;
   });
+
+  /** El desvío existe porque el puesto no propone nada, no porque difiera. */
+  readonly sinPropuesta = computed(() => !!this.propuesta()?.sin_perfil);
 
   readonly puedeGuardar = computed(() => {
     // Los signals se leen SIEMPRE primero e incondicionales: un `&&` que corta

@@ -649,14 +649,23 @@ export class UsersService {
   private async detectarDesvio(
     positionCode: string | null | undefined,
     roleName: string | null | undefined,
-  ): Promise<{ position_code: string; propone: string; elegido: string } | null> {
+  ): Promise<{ position_code: string; propone: string | null; elegido: string } | null> {
     if (!positionCode || !roleName) return null;
     const pos = await this.knex('identity.positions')
       .where({ tenant_id: this.tenantId, code: positionCode })
       .whereNull('deleted_at')
       .first('code', 'default_role');
-    if (!pos?.default_role) return null;
+    if (!pos) return null;
+    /*
+     * `[AU.15]` Un puesto que no propone NADA no es «sin desvío».
+     *
+     * Hasta acá `if (!pos.default_role) return null` apagaba la regla entera: el
+     * perfil se elegía a dedo y no quedaba escrito por qué. Son **13 puestos** en
+     * prod, todos vacantes hoy — o sea el hueco se abre justo el día que alguien
+     * los ocupe. `propone: null` lo DECLARA en vez de dibujarlo como «en orden».
+     */
     const elegido = roleName.toLowerCase();
+    if (!pos.default_role) return { position_code: pos.code, propone: null, elegido };
     if (pos.default_role.toLowerCase() === elegido) return null;
     return { position_code: pos.code, propone: pos.default_role, elegido };
   }
@@ -672,10 +681,17 @@ export class UsersService {
    * un alta divergente, o un cambio que mueve el rol o el puesto.
    */
   private exigirMotivo(
-    desvio: { position_code: string; propone: string; elegido: string },
+    desvio: { position_code: string; propone: string | null; elegido: string },
     motivo: string | null | undefined,
   ): void {
     if (motivo && motivo.trim()) return;
+    if (desvio.propone === null) {
+      throw new BadRequestException(
+        `El puesto "${desvio.position_code}" no propone ningún perfil, así que "${desvio.elegido}" ` +
+          `es una elección a dedo y no hay contra qué contrastarla. Se puede, pero hay que decir ` +
+          `por qué: enviá "motivo_desvio". (Lo que lo cierra de raíz es darle un perfil al puesto.)`,
+      );
+    }
     throw new BadRequestException(
       `El puesto "${desvio.position_code}" propone el perfil "${desvio.propone}" y se eligió ` +
         `"${desvio.elegido}". Apartarse está permitido, pero hay que decir por qué: enviá ` +
@@ -1188,7 +1204,7 @@ export class UsersService {
     // guardado pediría motivo cada vez que alguien edita el teléfono de una de
     // las 14 personas que ya divergen, por una decisión que tomó otro hace
     // meses. Sólo se le pide a quien CREA la divergencia.
-    let desvioUpd: { position_code: string; propone: string; elegido: string } | null = null;
+    let desvioUpd: { position_code: string; propone: string | null; elegido: string } | null = null;
     if (role_name !== undefined || 'position_code' in updateUserDto) {
       const actual = await this.knex('users')
         .where({ id, tenant_id: this.tenantId })
@@ -1912,39 +1928,45 @@ export class UsersService {
     // ("paso a estos 12 a `cajera` aunque su perfil sea otro"), y pedir doce
     // motivos volvería inusable justamente la herramienta que existe para
     // normalizar 116 usuarios sin depender de un script.
-    let desviados: { id: string; username: string; propone: string; elegido: string }[] = [];
+    let desviados: { id: string; username: string; propone: string | null; elegido: string }[] = [];
     if (dto.position_code) {
       const pos = await this.knex('identity.positions')
         .where({ tenant_id: this.tenantId, code: dto.position_code })
         .whereNull('deleted_at')
         .first('code', 'default_role');
-      if (pos?.default_role) {
+      if (pos) {
         const filas = await this.knex('users')
           .where({ tenant_id: this.tenantId })
           .whereIn('id', ids)
           .whereNull('deleted_at')
           .select('id', 'username', 'role_name', 'position_code');
+        // `[AU.15]` El mismo hueco que en el alta: `if (pos?.default_role)` dejaba
+        // pasar el lote entero cuando el puesto destino no propone nada.
+        const mueve = (u: { position_code?: string }) =>
+          (u.position_code ?? null) !== dto.position_code;
         desviados = filas
-          .filter(
-            (u: { role_name?: string; position_code?: string }) =>
-              (u.role_name ?? '').toLowerCase() !== pos.default_role.toLowerCase() &&
-              (u.position_code ?? null) !== dto.position_code,
+          .filter((u: { role_name?: string; position_code?: string }) =>
+            pos.default_role
+              ? (u.role_name ?? '').toLowerCase() !== pos.default_role.toLowerCase() && mueve(u)
+              : mueve(u),
           )
           .map((u: { id: string; username: string; role_name: string }) => ({
             id: u.id,
             username: u.username,
-            propone: pos.default_role,
+            propone: pos.default_role ?? null,
             elegido: u.role_name,
           }));
       }
     }
     if (desviados.length && !(dto.motivo_desvio ?? '').trim()) {
       const ejemplos = desviados.slice(0, 3).map((d) => `${d.username} (${d.elegido})`).join(', ');
+      const cola = `${desviados.length > 3 ? '…' : ''}. Se puede, pero hay que decir por qué: enviá "motivo_desvio".`;
       throw new BadRequestException(
-        `${desviados.length} de los seleccionados quedarían con un perfil distinto al que propone ` +
-          `"${dto.position_code}" ("${desviados[0].propone}"): ${ejemplos}` +
-          `${desviados.length > 3 ? '…' : ''}. Apartarse está permitido, pero hay que decir por qué: ` +
-          `enviá "motivo_desvio".`,
+        desviados[0].propone === null
+          ? `El puesto "${dto.position_code}" no propone ningún perfil, así que los ${desviados.length} ` +
+            `seleccionados se quedan con el suyo y nadie deja escrito por qué: ${ejemplos}${cola}`
+          : `${desviados.length} de los seleccionados quedarían con un perfil distinto al que propone ` +
+            `"${dto.position_code}" ("${desviados[0].propone}"): ${ejemplos}${cola}`,
       );
     }
 

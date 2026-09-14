@@ -390,6 +390,50 @@ const BASE_ALCANCE = {
       'la tira de KPI la cuenta el servidor sobre el padrón, no el navegador sobre la página',
     );
 
+    // ══ 11. El puesto que no propone perfil tampoco es barra libre ═════════
+    //
+    // `[AU.15]` `detectarDesvio` hacía `if (!pos.default_role) return null`: un
+    // puesto sin propuesta apagaba la regla del motivo entera. El perfil se
+    // elegía a dedo y no quedaba escrito por qué — que es justo donde MÁS falta,
+    // porque no hay nada contra qué contrastarlo.
+    console.log('\n[11] Sin propuesta, el motivo se pide igual');
+    const desvioSvc = leer('libs/trade/src/lib/users/users.service.ts');
+    check(
+      !/if \(!pos\?\.default_role\) return null;/.test(desvioSvc),
+      'el atajo que apagaba la regla cuando el puesto no propone nada ya no está',
+    );
+    check(
+      /propone: null, elegido/.test(desvioSvc),
+      'y el caso «sin propuesta» se DECLARA (propone: null) en vez de leerse como «en orden»',
+    );
+    check(
+      /no propone ningún perfil/.test(desvioSvc),
+      'con su propio mensaje: el usuario tiene que saber por qué se le pide el motivo',
+    );
+    // El camino masivo tenía el mismo atajo.
+    check(
+      !/if \(pos\?\.default_role\) \{/.test(desvioSvc),
+      'y el camino masivo tampoco lo esquiva',
+    );
+
+    const { rows: vac } = await k.raw(
+      `SELECT count(*)::int AS sin_perfil,
+              count(*) FILTER (WHERE ocupantes > 0)::int AS sin_perfil_ocupados
+         FROM (SELECT p.code,
+                      (SELECT count(*) FROM identity.users u
+                        WHERE u.tenant_id = p.tenant_id AND u.position_code = p.code
+                          AND u.deleted_at IS NULL) AS ocupantes
+                 FROM identity.positions p
+                WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND p.default_role IS NULL) x`,
+      [TENANT],
+    );
+    // Control positivo del alcance: si algún día uno de ésos se ocupa, el número
+    // deja de ser 0 y la regla nueva es la que sostiene la trazabilidad.
+    check(
+      vac[0].sin_perfil_ocupados === 0,
+      `los ${vac[0].sin_perfil} puesto(s) sin perfil siguen vacantes (${vac[0].sin_perfil_ocupados} ocupado/s): hoy nadie entró por ese camino`,
+    );
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} [AU] administración de usuarios: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {

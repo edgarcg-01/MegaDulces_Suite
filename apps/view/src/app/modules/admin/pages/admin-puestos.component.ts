@@ -146,6 +146,8 @@ import { ADMIN_TABS } from '../admin-tabs';
       <p class="ax-foot">
         <strong>Raíz</strong> significa que el puesto no cuelga de ningún otro. Algunos lo son a
         propósito (Dirección); otros quedaron sueltos y son un escalamiento que no llega a nadie.
+        Un puesto <strong>sin perfil que proponer</strong> no molesta mientras esté vacante, pero el
+        día que alguien lo ocupe su acceso se elige a dedo y hay que escribir por qué.
       </p>
 
       <app-side-peek [open]="peek()" (openChange)="cerrar($event)" [width]="560"
@@ -278,6 +280,7 @@ export class AdminPuestosComponent implements OnInit {
     { label: 'Con gente', value: 'con' },
     { label: 'Vacantes', value: 'sin' },
     { label: 'Sin jefe (raíz)', value: 'raiz' },
+    { label: 'Sin perfil que proponer', value: 'sin_perfil' },
   ];
 
   readonly deptOpts = computed(() => [
@@ -313,6 +316,7 @@ export class AdminPuestosComponent implements OnInit {
     if (ocup === 'con') out = out.filter((p) => p.personas > 0);
     if (ocup === 'sin') out = out.filter((p) => p.personas === 0);
     if (ocup === 'raiz') out = out.filter((p) => !p.reports_to_position_code);
+    if (ocup === 'sin_perfil') out = out.filter((p) => !p.default_role);
     return out;
   });
 
