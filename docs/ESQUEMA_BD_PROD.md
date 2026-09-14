@@ -3,6 +3,12 @@
 > **Generado**: 2026-09-11 · introspección **read-only** (catálogos `pg_catalog`) contra prod.
 > No editar a mano para "corregir el esquema": es una FOTO. Para cambiar el esquema, migración en `database/migrations-newdb/`.
 > Companion machine-readable: [`esquema-bd-prod-columnas.csv`](esquema-bd-prod-columnas.csv) (todas las columnas de todos los schemas).
+>
+> ⚠️ **Esta FOTO derivó.** Re-medido contra prod el **2026-09-14** (Fase BD): **713 migs / batch 410**
+> (era 692/393), **617 tablas** (era 623), **13 matviews** (era 12), **515 FKs** (era 534), **31 GB**.
+> Los 6 `analytics/public/identity *_bak` y los `pgboss.queue_stats_2026*` de este snapshot **ya no
+> existen** (dropeados en la purga SD, batches 394-410). Regenerar re-corriendo el script de introspección.
+> Veredicto completo en [`FASE_BD`](IMPLEMENTACION/FASES/FASE_BD_AUDITORIA_BASES_PROPIAS.md).
 
 ## 0. Identidad del servidor
 
