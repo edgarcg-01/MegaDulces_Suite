@@ -371,6 +371,60 @@
             <button type="button" class="mt-linkbtn" (click)="limpiar()">Limpiar búsqueda</button>
           </p>
         } @else {
+          <!--
+            [SN.25] Tus accesos: lo ULTIMO que abriste, desde este navegador.
+            NO es "lo mas usado" -- ese dato no existe todavia (ver el comentario de `recientes`).
+            Arranca vacia y por eso no se dibuja hasta que haya algo: una caja vacia prometiendo
+            accesos frecuentes seria peor que no tenerla.
+          -->
+          @if (accesos().length) {
+            <div class="mt-freq">
+              <p class="mt-freq-h">
+                <span>Tus accesos</span>
+                <span class="mt-freq-rule" aria-hidden="true"></span>
+                <span class="mt-freq-why" title="Se llena sola con lo que vas abriendo. Vive en este navegador.">lo último que abriste</span>
+              </p>
+              <div class="mt-tiles">
+                @for (e of accesos(); track e.id) {
+                  <a class="mt-tile" [routerLink]="e.route" [title]="e.groupLabel || e.label"
+                     (click)="abrioPuerta(e, { id: '', label: '', icon: '', status: '', entradas: [] })">
+                    <span class="mt-tile-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
+                    <span class="mt-tile-txt">
+                      <span class="mt-tile-nm">{{ e.label }}</span>
+                      @if (e.sub) { <span class="mt-tile-sb">{{ e.sub }}</span> }
+                    </span>
+                  </a>
+                }
+              </div>
+            </div>
+          }
+
+          <!--
+            [SN.25] Los submodulos que casan con la busqueda. Son 101 y cada uno trae ruta propia,
+            asi que escribir "Clientes 360" ya no te deja en Ventas para que busques adentro.
+          -->
+          @if (submodulos().length) {
+            <div class="mt-subs">
+              <p class="mt-freq-h">
+                <span>Submódulos</span>
+                <span class="mt-freq-rule" aria-hidden="true"></span>
+                <span class="mt-freq-why">{{ submodulos().length }} coinciden</span>
+              </p>
+              <div class="mt-grid">
+                @for (x of submodulos(); track x.id) {
+                  <a class="mt-cell is-sub" [routerLink]="x.route" [title]="x.label + ' · de ' + x.modulo"
+                     (click)="abrioSubmodulo(x)">
+                    <i class="mt-cell-ico pi pi-angle-right" aria-hidden="true"></i>
+                    <span class="mt-cell-tx">
+                      <span class="mt-cell-nm">{{ x.label }}</span>
+                      <span class="mt-cell-sb">de {{ x.modulo }}</span>
+                    </span>
+                  </a>
+                }
+              </div>
+            </div>
+          }
+
           @for (s of espacios(); track s.id) {
             <section class="mt-space" [id]="'espacio-' + s.id" [attr.aria-labelledby]="'h-' + s.id">
               <h3 class="mt-space-title" [id]="'h-' + s.id">
@@ -386,16 +440,22 @@
                 <span class="mt-space-rule" aria-hidden="true"></span>
               </h3>
 
-              <div class="mt-cards">
+              <!--
+                [SN.25] Grilla RIGIDA: todas las celdas del mismo ancho, sin huecos al final de fila.
+                Una celda compacta (52 px) en vez de la tarjeta apaisada de 3 lineas.
+                Medido: la tarjeta 1:1 que pedia el brief necesita 2,245 px de alto a 1920 y hay 944.
+                `is-alias` es la celda que NO es un modulo sino un submodulo de otro, sacado a la
+                portada: 10 de las 22. Antes llevaba el mismo cuerpo que un modulo de 21 submodulos.
+              -->
+              <div class="mt-grid">
                 @for (e of s.entradas; track e.id) {
-                  <a class="mt-card" [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label"
-                     [style.--tono]="e.color" (click)="abrioPuerta(e, s)">
-                    <span class="mt-card-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
-                    <span class="mt-card-txt">
-                      <!-- Siempre presente, aunque vaya vacío: reserva el renglón y alinea la fila. -->
-                      <span class="mt-card-group">{{ e.grupo }}</span>
-                      <span class="mt-card-title">{{ e.label }}</span>
-                      @if (e.detalle) { <span class="mt-card-body">{{ e.detalle }}</span> }
+                  <a class="mt-cell" [class.is-alias]="e.esAlias"
+                     [routerLink]="e.route" [title]="e.groupLabel || e.detalle || e.label"
+                     (click)="abrioPuerta(e, s)">
+                    <i class="mt-cell-ico" [class]="e.icon" aria-hidden="true"></i>
+                    <span class="mt-cell-tx">
+                      <span class="mt-cell-nm">{{ e.label }}</span>
+                      @if (e.sub) { <span class="mt-cell-sb">{{ e.sub }}</span> }
                     </span>
                   </a>
                 }

@@ -87,8 +87,14 @@ interface EntradaVisible {
    * y para el haystack del buscador.
    */
   grupo: string;
-  /** `[SN.12]` El tono propio de este módulo, que aparece al señalarlo. Ver `COLOR_ENTRADA`. */
-  color: string;
+  /*
+   * `[SN.25]` Acá vivía `color`: un tono por módulo que pintaba el chip en hover.
+   *
+   * Se retiró con el mapa `COLOR_ENTRADA` entero. La justificación que tenía —«sólo en hover, en
+   * reposo es monocromática»— defendía el momento, no el criterio: ese color **no codificaba ningún
+   * dato**, era arbitrario por id, y DESIGN.md Q.6 pide tinte o borde, nunca fill saturado, y
+   * siempre con leyenda. Un color que hay que explicar no está codificando nada.
+   */
   /**
    * `[SN.10]` La segunda línea de la tarjeta. Para una entrada de proyecto son los módulos que
    * ESTA persona puede abrir; para un módulo enlazado, de qué proyecto sale ("de Finanzas") — que
@@ -96,6 +102,77 @@ interface EntradaVisible {
    */
   detalle: string;
   buscable: string;
+  /**
+   * `[SN.25]` **Esta entrada no es un módulo: es un submódulo de otro módulo, sacado a la portada.**
+   *
+   * Medido contra el árbol: **10 de las 22 tarjetas** son esto. «Promociones» y «Promos del ERP» ya
+   * están dentro de Ventas; «Prevención» y «Cuadre» dentro de Almacén; «Planogramas», «Scoring»,
+   * «Catálogos de captura» y «Supervisor AI» dentro de Auditoría en Ruta. Y por eso hay **dos
+   * «Hallazgos» idénticos**: uno es el de Finanzas y el otro el de Compras.
+   *
+   * Hasta ahora llevaban el mismo cuerpo, el mismo tamaño y el mismo peso que un módulo de 21
+   * submódulos. Con esto se pintan distinto y dicen de dónde salen.
+   */
+  esAlias: boolean;
+  /** `[SN.25]` Una sola línea, la que distingue. Truncada con puntos suspensivos, nunca dos renglones. */
+  sub: string;
+  /** `[SN.25]` Cuántos submódulos abre esta persona acá. `0` en un acceso directo. */
+  nSub: number;
+}
+
+/**
+ * `[SN.25]` Un submódulo como destino del buscador. Los 101 traen ruta propia (verificado contra el
+ * árbol), así que `Ctrl K` deja de encontrar sólo los 22 módulos y encuentra **todo**: escribir
+ * «Clientes 360» ya no te deja en Ventas para que busques adentro, te lleva ahí.
+ */
+interface SubHallado {
+  id: string;
+  label: string;
+  route: string;
+  modulo: string;
+  buscable: string;
+}
+
+/** `[SN.25]` Cuántos accesos recientes se muestran, y cuántos se recuerdan. */
+const MAX_ACCESOS = 6;
+const MAX_RECORDADOS = 12;
+/** Tope de submódulos que el buscador lista: más que esto deja de ser una lista y es un volcado. */
+const MAX_SUBMODULOS = 24;
+const CLAVE_RECIENTES = 'mt.accesos.v1';
+
+/**
+ * `[SN.25]` Lee los accesos recientes del navegador.
+ *
+ * ⛔ Siempre en `try/catch`: en una ventana privada o con los datos del sitio bloqueados, el mero
+ * ACCESO a `localStorage` tira excepción — no devuelve vacío. Y el peor caso tiene que ser que la
+ * fila no aparezca, nunca que la pantalla no cargue.
+ */
+function leerRecientes(): string[] {
+  try {
+    const raw = localStorage.getItem(CLAVE_RECIENTES);
+    const v: unknown = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(v)) return [];
+    /*
+     * ⚠️ Se deduplica **al leer**, no sólo al escribir. Lo destapó su propia prueba: `guardarReciente`
+     * ya evitaba el repetido, pero un valor viejo o tocado a mano salía con duplicados y la fila
+     * mostraba el mismo módulo dos veces. Confiar en que lo escrito siempre esté sano es la clase de
+     * supuesto que este repo ya pagó caro.
+     */
+    return [...new Set(v.filter((x): x is string => typeof x === 'string'))];
+  } catch {
+    return [];
+  }
+}
+
+/** Pone `id` al frente, sin repetir, y recorta. Devuelve la lista nueva aunque no se pueda guardar. */
+function guardarReciente(id: string, prev: readonly string[]): string[] {
+  const lista = [id, ...prev.filter((x) => x !== id)].slice(0, MAX_RECORDADOS);
+  try {
+    localStorage.setItem(CLAVE_RECIENTES, JSON.stringify(lista));
+  } catch {
+    /* sin persistencia: la fila igual funciona mientras dure la pestaña */
+  }
+  return lista;
 }
 
 interface EspacioVisible {
@@ -107,53 +184,6 @@ interface EspacioVisible {
   entradas: EntradaVisible[];
 }
 
-/**
- * `[SN.12]` Un color por MÓDULO, y sólo en hover.
- *
- * DESIGN.md prohíbe decorar con color y lista como antipatrón el «ícono en círculo de color»; lo
- * que prohíbe es el ornamento EN REPOSO. Acá el color no adorna: identifica la puerta que estás por
- * abrir, y sólo aparece mientras la señalás. En reposo la tarjeta sigue siendo hairline
- * monocromática. Sale de las rampas `--chart-*` y `--avatar-*` —la excepción ya declarada del
- * sistema, «el color codifica dato»— y NUNCA de un hex inventado.
- *
- * Tres reglas al asignarlos:
- *  · se mapea por **id de entrada**, no por posición: si cambia el orden de §5.1, Finanzas sigue
- *    siendo del mismo verde y la memoria de quien lo usa a diario no se rompe;
- *  · dentro de un mismo espacio **no se repite ninguno** — es donde el ojo compara. Entre espacios
- *    distintos sí, porque están separados por su encabezado y su regla;
- *  · **sin morado**: `--avatar-4` queda fuera a propósito. DESIGN.md lo veta como identidad de IA,
- *    y la entrada que más lo pediría (Supervisor AI / Horus) es justamente la que no debe llevarlo.
- */
-const COLOR_ENTRADA: Readonly<Record<string, string>> = {
-  // Dirección General
-  'dg-centro-de-control': 'var(--chart-2)',
-  // Comercial
-  'ventas-backoffice': 'var(--chart-1)',
-  'pisos-de-venta': 'var(--chart-7)',
-  'mayoreo-telemarketing': 'var(--chart-4)',
-  'rutas-auditoria': 'var(--chart-3)',
-  compras: 'var(--chart-5)',
-  'mkt-promociones': 'var(--avatar-7)',
-  'mkt-erp-promos': 'var(--avatar-2)',
-  // Almacenes y Logística
-  almacenes: 'var(--chart-6)',
-  'transporte-y-embarques': 'var(--avatar-5)',
-  'entregas-reparto': 'var(--chart-2)',
-  // Administración y Finanzas
-  finanzas: 'var(--chart-3)',
-  contabilidad: 'var(--avatar-3)',
-  // Auditoría, Prevención y Control
-  'apc-prevencion-inventarios': 'var(--avatar-6)',
-  'apc-cuadre': 'var(--chart-7)',
-  'apc-hallazgos-finanzas': 'var(--chart-5)',
-  'apc-hallazgos-compras': 'var(--avatar-1)',
-  'apc-supervisor-ai': 'var(--chart-4)',
-  // Configuración de la suite
-  'configuracion-suite': 'var(--chart-8)',
-  'mkt-planograma': 'var(--avatar-8)',
-  'mkt-scoring': 'var(--chart-1)',
-  'mkt-catalogos-captura': 'var(--avatar-2)',
-};
 const DIMENSIONES_ALCANCE: ReadonlyArray<{ dim: string; todo: string; plural: string }> = [
   { dim: 'warehouse', todo: 'toda la red', plural: 'sucursales' },
   { dim: 'zone', todo: 'todas las zonas', plural: 'zonas' },
@@ -228,6 +258,22 @@ export class MiTrabajoComponent {
         const modulos = this.lineaModulos(e.modules.map((m) => m.label));
         // Un módulo enlazado no tiene submódulos que listar; lo útil es de dónde sale.
         const detalle = modulos || (e.origin ? `de ${e.origin}` : '');
+        /*
+         * `[SN.25]` **Una sola línea, y la que distingue.**
+         *
+         * Antes iban tres módulos y un «+N» — y el corte era POR POSICIÓN, los tres primeros tal
+         * como fueron declarados. Medido: «Ventas» tiene 21 submódulos y nombraba tres; el «+18»
+         * escondía el 70% del catálogo y no se podía tocar. A 52 px de alto no entra una lista, así
+         * que la tarjeta deja de fingir que es un índice: dice **de dónde sale** si es un acceso
+         * directo, y **cuántos submódulos abre** si es un módulo. Lo demás lo resuelve `Ctrl K`,
+         * que ahora sí llega a los 101.
+         */
+        const esAlias = !!e.entry.crossLink;
+        const sub = esAlias
+          ? (e.origin ? `de ${e.origin}` : 'acceso directo')
+          : e.modules.length
+            ? `${e.modules.length} ${e.modules.length === 1 ? 'submódulo' : 'submódulos'}`
+            : '';
         return {
           id: e.entry.id,
           label: e.label,
@@ -235,9 +281,11 @@ export class MiTrabajoComponent {
           route: e.route,
           groupLabel: e.groupLabel,
           grupo: e.groupLabel ? e.groupLabel.split(' › ').slice(0, 2).join(' › ') : '',
-          color: COLOR_ENTRADA[e.entry.id] ?? 'var(--action)',
           // Repetir el título en la segunda línea ("Telemarketing / Telemarketing") no informa.
           detalle: normalizar(detalle) === normalizar(e.label) ? '' : detalle,
+          esAlias,
+          sub,
+          nSub: e.modules.length,
           // El haystack incluye los módulos y el origen: "bancos" tiene que encontrar Finanzas.
           buscable: normalizar(
             [e.label, e.groupLabel, s.space.label, e.origin ?? '', e.modules.map((m) => m.label).join(' ')].join(' '),
@@ -269,6 +317,59 @@ export class MiTrabajoComponent {
       .filter((s) => s.entradas.length > 0);
   });
 
+  /**
+   * `[SN.25]` — **«Tus accesos»: lo ÚLTIMO que abriste, no «lo más usado».**
+   *
+   * El brief pedía los módulos más utilizados (patrón ClickUp). ⛔ **Hoy no se puede, y no se
+   * inventa.** El registro de uso escribe de verdad (`UsoService` → `POST /telemetry/suite` →
+   * `commercial.portal_telemetry_events`) pero **nadie lo lee**: cero endpoints, cero lectores,
+   * instrumentado en una sola pantalla, nacido el 2026-09-11, y la tabla tiene 534 filas casi todas
+   * del portal B2B, sin índice por `user_id` y con purga a 90 días. Un «más usado» calculado sobre
+   * eso sería un ranking inventado.
+   *
+   * Lo que SÍ es cierto desde el primer día: lo que esta persona abrió en ESTE navegador. Vive en
+   * `localStorage`, arranca **vacía** —y entonces la fila no se dibuja, no se pinta una caja
+   * prometiendo algo que no hay— y se llena sola con el uso.
+   *
+   * ⚠️ `localStorage` puede tirar (ventana privada, datos bloqueados): cada lectura y cada escritura
+   * van en `try/catch` y el peor caso es que la fila no aparezca.
+   */
+  private readonly recientes = signal<string[]>(leerRecientes());
+
+  /** Hasta 6, y sólo las que esta persona TODAVÍA puede abrir: un permiso revocado no deja rastro. */
+  readonly accesos = computed<EntradaVisible[]>(() => {
+    if (this.buscando()) return [];
+    const porId = new Map<string, EntradaVisible>();
+    for (const s of this.espaciosTodos()) for (const e of s.entradas) porId.set(e.id, e);
+    return this.recientes()
+      .map((id) => porId.get(id))
+      .filter((e): e is EntradaVisible => !!e)
+      .slice(0, MAX_ACCESOS);
+  });
+
+  /**
+   * `[SN.25]` Los submódulos que casan con la búsqueda. Son 101 y cada uno trae ruta propia, así que
+   * `Ctrl K` deja de dejarte en la puerta del módulo para que busques adentro.
+   */
+  readonly submodulos = computed<SubHallado[]>(() => {
+    if (!this.buscando()) return [];
+    const out: SubHallado[] = [];
+    for (const s of this.vis().spaces) {
+      for (const e of s.entries) {
+        // Un acceso directo no aporta submódulos: los suyos ya los listó su módulo de origen.
+        if (e.entry.crossLink) continue;
+        for (const m of e.modules) {
+          if (!m.route) continue;
+          const heno = normalizar(`${m.label} ${e.label} ${s.space.label}`);
+          if (this.casa(heno)) {
+            out.push({ id: `${e.entry.id}:${m.id}`, label: m.label, route: m.route, modulo: e.label, buscable: heno });
+          }
+        }
+      }
+    }
+    return out.slice(0, MAX_SUBMODULOS);
+  });
+
   readonly totalEntradas = computed(() => this.espaciosTodos().reduce((n, s) => n + s.entradas.length, 0));
   readonly entradasVisibles = computed(() => this.espacios().reduce((n, s) => n + s.entradas.length, 0));
   /** Buscando y sin una sola coincidencia: se dice, no se deja la pantalla en blanco. */
@@ -276,8 +377,21 @@ export class MiTrabajoComponent {
     () => this.buscando() && this.entradasVisibles() === 0 && this.pendientes().length === 0,
   );
 
-  /** Enter va al primer resultado — el que está arriba a la izquierda. */
+  /**
+   * Enter va al primer resultado — el que está arriba a la izquierda.
+   *
+   * ⚠️ `[SN.25]` Y ahora el primero puede ser un SUBMÓDULO: el bloque de submódulos se pinta antes
+   * que los espacios. Lo destapó la prueba de «Enter abre el primer resultado», que quedó roja
+   * porque el foco saltaba al primer módulo mientras la pantalla mostraba otra cosa arriba. Enter
+   * tiene que abrir **lo que se ve primero**, no lo que el código listó primero.
+   */
   irAlPrimero(): void {
+    const sub = this.submodulos()[0];
+    if (sub) {
+      this.abrioSubmodulo(sub);
+      void this.router.navigate([sub.route]);
+      return;
+    }
     const primera = this.espacios()[0]?.entradas[0];
     if (primera) {
       void this.router.navigate([primera.route]);
@@ -607,6 +721,13 @@ export class MiTrabajoComponent {
    */
   abrioPuerta(e: EntradaVisible, s: EspacioVisible): void {
     this.uso.registrarApertura('puerta', e.id, { espacio: s.id, ruta: e.route });
+    // `[SN.25]` Y se recuerda acá mismo, para «Tus accesos». Ver `recientes`.
+    this.recientes.update((prev) => guardarReciente(e.id, prev));
+  }
+
+  /** `[SN.25]` Un submódulo abierto desde el buscador. Se registra igual: es una puerta. */
+  abrioSubmodulo(x: SubHallado): void {
+    this.uso.registrarApertura('puerta', x.id, { ruta: x.route, via: 'buscador' });
   }
 
   abrioBandeja(p: MePendiente): void {

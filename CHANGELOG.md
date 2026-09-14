@@ -10,6 +10,20 @@
 
 ## [Unreleased]
 
+### Changed — «Tus espacios»: una pantalla sin scroll, y 10 tarjetas que no eran módulos (SN.25, 2026-09-14)
+
+Edgar: *«todo esto tiene que entrar en una sola interfaz, sin scroll»* + un brief de referencias (Odoo, SAP Fiori, Vercel, Attio, Linear, Monday, ClickUp).
+
+- ⭐ **El brief se contradecía consigo mismo, y el cálculo lo dice.** Presupuesto vertical medido sobre el layout vigente: la columna tiene **944 px a 1920×1080** y **632 px a 1366×768**. La tarjeta **1:1 de 240 px** que pedía necesita **2,245 px** — y **ningún** tamaño de cuadrado entra, ni 120 px. A 1366 pide **5× la pantalla**. Y las **islas de Fiori cuestan 384 px: el 41% del presupuesto a 1920 y el 61% a 1366**; con ellas, lo único que cabe es una tarjeta de 159×86, **apaisada**, justo lo que el brief quería abandonar.
+- **La salida salió del propio brief: el tamaño lo gana el uso.** 22 cuadradas no caben, **6 sí** — la fila de accesos (patrón ClickUp) es donde la tarjeta 4:3 con icono protagonista se justifica. El catálogo va en grilla rígida de celdas de 52 px.
+- ⭐ **Hallazgo que dio forma al rediseño: 10 de las 22 tarjetas no son módulos.** Son un **submódulo de otro módulo** sacado a la portada, con el mismo cuerpo y peso que un módulo de 21. Verificado uno por uno: «Promociones»/«Promos del ERP» ya están en Ventas; «Prevención»/«Cuadre» en Almacén; «Planogramas»/«Scoring»/«Catálogos»/«Supervisor AI» en Auditoría en Ruta. **Por eso había dos «Hallazgos» idénticos**: el de Finanzas y el de Compras. Ahora se pintan hundidos y dicen de dónde salen.
+- **El «+N» escondía 71 de 101 submódulos (70%) y el corte era por POSICIÓN.** Se retira: la celda dice cuántos submódulos abre **esa persona**, y `Ctrl K` pasa a encontrar **los 101** — cada submódulo trae ruta propia, así que «Clientes 360» ya no te deja en Ventas para que busques adentro.
+- **«Tus accesos» es «lo último que abriste», no «lo más usado».** El registro de uso escribe pero **nadie lo lee** (cero endpoints, instrumentado en una pantalla, 534 filas casi todas del portal B2B). Se hace con `localStorage`: arranca **vacía** y entonces la fila **no se dibuja**.
+- **Se retira el chip de color saturado** (`COLOR_ENTRADA`, 22 ids → `--chart-*`): no codificaba ningún dato. DESIGN.md Q.6 pide tinte o borde, nunca fill saturado. La justificación que tenía —«sólo en hover»— defendía el momento, no el criterio.
+- ⚠️ **Dos excepciones declaradas, no silenciadas:** la sombra en hover entra por la excepción del *lift transitorio* de `:448`, y las islas con borde contradicen `:540` (por eso quedan sólo a ≥100rem, donde el alto sobra).
+- ⚠️ **Dos defectos que destaparon mis propias pruebas nuevas:** los accesos no se deduplicaban **al leer** (un valor viejo mostraba el mismo módulo dos veces), y `Enter` abría el primer módulo mientras la pantalla mostraba submódulos arriba — ahora abre **lo que se ve primero**.
+- `nx test view` 19 suites / **305** (+5; el único rojo sigue siendo el ajeno de `[CV.25]`) · `nx build view` verde, **1.25 MB** sin cambio. **«Mi trabajo» no se tocó**: ni su ancho, ni su layout, ni su backend.
+
 ### Added — `/admin/users` desde cero: la persona, el puesto y de qué responde (AU.0–AU.6, 2026-09-13)
 
 La Fase OR cambió qué **es** un usuario —una persona que ocupa un puesto, no una credencial con permisos— y lo dejó entero en la base. **La pantalla no se enteró:** `/admin/users` seguía siendo 3,070 líneas en un componente, con un formulario de 700 líneas dentro de un drawer.

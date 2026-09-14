@@ -500,17 +500,112 @@
 .mt-space-rule { flex: 1 1 auto; height: 1px; background: var(--border-color); }
 .mt-badge-prop { font-size: var(--fs-nano); text-transform: none; letter-spacing: 0; }
 
-.mt-cards {
+/*
+  [SN.25] LA GRILLA RIGIDA (brief de Edgar, patron Odoo / SAP Fiori).
+
+  `auto-fill` + `minmax` fuerza que todas las celdas midan exactamente lo mismo y que no queden
+  huecos asimetricos al final de la fila. El minimo baja de 15.5rem a 9.5rem porque el presupuesto
+  vertical lo exige: medido sobre el layout vigente, la columna derecha tiene 944 px de alto a
+  1920x1080 y 632 px a 1366x768, y la tarjeta 1:1 de 240 px que pedia el brief necesita 2,245 px.
+  No hay tamano de cuadrado que entre con 22 modulos -- ni 120 px. Lo que entra es esta celda.
+*/
+.mt-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
   gap: var(--sp-2);
 }
 
-.mt-card {
+/* La celda compacta: icono + nombre + UNA linea truncada. Altura fija, sin excepciones. */
+.mt-cell {
   display: flex;
-  /* Arriba, no al centro: con el título en dos líneas el icono quedaba flotando a media altura. */
-  align-items: flex-start;
-  gap: var(--sp-3);
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 3.25rem;
+  padding: 0 var(--sp-3);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  color: inherit;
+  text-decoration: none;
+  min-width: 0;
+  /* Brief: 200 ms maximo. En un sistema transaccional una animacion larga se lee como lentitud. */
+  transition:
+    transform 180ms ease-in-out,
+    box-shadow 180ms ease-in-out,
+    border-color 180ms ease-in-out;
+}
+/*
+  Elevacion reactiva (patron Linear). ⚠️ DESIGN.md:448 prohibe la sombra difusa en una card in-page
+  y pide "borde O sombra, nunca ambas" -- pero exceptua el lift TRANSITORIO de hover, que no es
+  elevacion en reposo. Esto entra por esa puerta y queda declarado como excepcion, no como regla.
+*/
+.mt-cell:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 3px 10px var(--overlay-hover, rgba(0, 0, 0, .10));
+  border-color: var(--text-muted);
+}
+.mt-cell:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.mt-cell-ico { font-size: var(--fs-sm); color: var(--text-faint); flex: none; }
+.mt-cell-tx { display: flex; flex-direction: column; min-width: 0; }
+/* Jerarquia estricta (patron Attio): peso SOLO en el titulo. */
+.mt-cell-nm {
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Una linea, truncada. Nunca dos: una descripcion larga deformaba la retícula. */
+.mt-cell-sb {
+  font-size: var(--fs-nano);
+  color: var(--text-faint);
+  line-height: 1.25;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/*
+  [SN.25] La celda que NO es un modulo: es un submodulo de otro modulo, sacado a la portada.
+  Medido: 10 de las 22. Se hunde el fondo para que se lea como acceso directo y no como otro lugar.
+*/
+.mt-cell.is-alias { background: var(--layout-bg); }
+.mt-cell.is-alias .mt-cell-nm { font-weight: var(--fw-regular); }
+
+/* [SN.25] Submodulos hallados por el buscador: los 101 tienen ruta propia. */
+.mt-cell.is-sub .mt-cell-ico { color: var(--action); }
+
+/*
+  [SN.25] «Tus accesos» — la unica fila donde la tarjeta grande se gana el lugar (4:3, icono
+  protagonista, patron Vercel/ClickUp). Son seis: 22 cuadradas no caben, seis si.
+*/
+.mt-freq { margin-bottom: var(--sp-4); }
+.mt-freq-h {
+  margin: 0 0 var(--sp-2);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--fw-bold);
+  color: var(--action);
+}
+.mt-freq-rule { flex: 1 1 auto; height: 1px; background: var(--border-color); }
+.mt-freq-why {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: var(--fw-regular);
+  color: var(--text-faint);
+}
+.mt-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: var(--sp-2); }
+.mt-tile {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  /* 4:3 sobre el ancho de columna. `aspect-ratio` con un tope, para que no crezca sin control. */
+  aspect-ratio: 4 / 3;
+  max-height: 9.5rem;
   padding: var(--sp-3);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -518,95 +613,79 @@
   color: inherit;
   text-decoration: none;
   min-width: 0;
-  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
+  transition:
+    transform 180ms ease-in-out,
+    box-shadow 180ms ease-in-out,
+    border-color 180ms ease-in-out;
 }
-.mt-card:hover { border-color: var(--text-muted); transform: translateY(-1px); }
-.mt-card:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
-
-.mt-card-ico {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
-  flex: none;
-  border-radius: var(--r-sm);
-  background: var(--layout-bg);
-  color: var(--text-main);
+.mt-tile:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px var(--overlay-hover, rgba(0, 0, 0, .10));
+  border-color: var(--text-muted);
+}
+.mt-tile:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+/* El icono es el protagonista: es lo unico que crece respecto de la celda compacta. */
+.mt-tile-ico { font-size: var(--fs-h2); line-height: 1; color: var(--text-muted); }
+.mt-tile-txt { display: flex; flex-direction: column; min-width: 0; }
+.mt-tile-nm {
   font-size: var(--fs-sm);
-  transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
-}
-/*
- * `[SN.12]` El chip toma el color de SU espacio al pasar el mouse. No es decoración: dice a qué
- * espacio pertenece la puerta que estás por abrir, y sólo mientras la señalás — en reposo la
- * tarjeta sigue siendo hairline monocromática, que es lo que DESIGN.md exige. El color sale de la
- * rampa `--chart-*`/`--avatar-*` (la excepción declarada: el color codifica dato) vía `--tono`,
- * que pinta cada TARJETA — el color identifica al módulo, no al espacio. Fallback: el acento.
- */
-.mt-card:hover .mt-card-ico {
-  background: var(--tono, var(--action));
-  color: var(--action-ink);
-}
-.mt-card:hover { border-color: var(--tono, var(--text-muted)); }
-.mt-card:focus-visible .mt-card-ico {
-  background: var(--tono, var(--action));
-  color: var(--action-ink);
-}
-.mt-card-txt { display: flex; flex-direction: column; min-width: 0; }
-/*
- * [SN.11] La línea de grupo se calculaba desde SN.6 y nunca se pintaba: es lo que ubica la entrada
- * en el árbol de Dirección ("Ventas › Rutas de detalle") sin abrirla.
- */
-.mt-card-group {
-  font-size: var(--fs-nano);
-  text-transform: uppercase;
-  letter-spacing: .05em;
-  color: var(--text-faint);
+  font-weight: var(--fw-medium);
   line-height: 1.2;
-  /*
-   * El renglón se reserva SIEMPRE, aunque la entrada no tenga grupo: si no, "Ventas" (sin grupo)
-   * arrancaba 14 px más arriba que sus cuatro vecinas de la misma fila. Medido en vivo.
-   */
-  min-height: 1.2em;
-  margin-bottom: 2px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/*
- * El NOMBRE no se corta: con `nowrap` salían «Compras / Reabastecimie…» y «Cuadre / Supervisor
- * de m…», y el nombre es lo único imprescindible de la tarjeta. Dos líneas y recién ahí elipsis.
- */
-.mt-card-title {
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-medium);
-  line-height: 1.25;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  overflow-wrap: anywhere;
-}
-.mt-card:hover .mt-card-title { text-decoration: underline; text-underline-offset: 3px; }
-/*
- * Dos renglones, no uno. Medido en vivo con los nombres REALES: en una sola línea se cortaban
- * 9 de 21 segundas líneas, y bajar de 4 módulos a 3 no movía la aguja (seguían 9) — para que
- * entrara la de Finanzas la tarjeta tendría que medir 681 px contra los 249 que tiene. Los nombres
- * de esta suite son largos por naturaleza («Listas SAT (EFOS 69-B / Art. 69)»), así que el problema
- * no era el N: era exigirle una línea. Con dos entran ~80 caracteres y sobra alto en la columna.
- */
-.mt-card-body {
-  font-size: var(--fs-micro);
+.mt-tile-sb {
+  font-size: var(--fs-nano);
   color: var(--text-faint);
-  line-height: 1.3;
-  margin-top: 2px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+.mt-subs { margin-bottom: var(--sp-4); }
+
+/*
+  [SN.25] Las «islas» de Fiori, SOLO donde el alto sobra. Medido: seis superficies con borde,
+  padding y encabezado cuestan 384 px -- el 41% del presupuesto a 1920 y el 61% a 1366. Por debajo
+  de 100rem el grupo se forma con espaciado y rotulo, que ademas es lo que pide DESIGN.md:540
+  ("el borde es el ultimo recurso, no el primero").
+*/
+@media (min-width: 100rem) {
+  .mt-space {
+    border: 1px solid var(--border-color);
+    border-radius: var(--r-md);
+    padding: var(--sp-3) var(--sp-3) var(--sp-3);
+    background: var(--layout-bg);
+  }
+  .mt-space + .mt-space { margin-top: var(--sp-3); }
+  .mt-space-title { margin-bottom: var(--sp-2); }
+}
+
+/*
+ * `[SN.25]` Acá vivía `.mt-card`: la tarjeta apaisada de tres líneas con el chip de color.
+ *
+ * Se retiró entera, y no sólo por espacio. El chip se rellenaba de color SATURADO al pasar el
+ * mouse, y ese color no codificaba ningún dato: era arbitrario por módulo (un mapa de 22 ids a
+ * `--chart-*`). DESIGN.md Q.6 (`:832`) pide «tinte/borde, **no fill saturado**», determinista y
+ * nunca único portador; y `:520` lista el ícono de color como antipatrón. La justificación que
+ * tenía escrita —«sólo en hover, en reposo es monocromática»— defendía el momento, no el criterio.
+ *
+ * La reemplaza `.mt-cell` (la grilla rígida, más arriba), que además cabe: medido sobre este mismo
+ * layout, la columna tiene 944 px de alto a 1920×1080 y la tarjeta 1:1 del brief pedía 2,245 px.
+ */
+/*
+ * `[SN.25]` ⚠️ **La migaja del grupo también se retiró, y vale decir por qué.**
+ *
+ * `[SN.11]` la había agregado con buen motivo —ubica la entrada en el árbol de Dirección sin
+ * abrirla— pero iba ARRIBA del nombre, en mayúsculas, y por estar primero se leía antes que el
+ * título. En una celda de 52 px no hay renglón para las dos, y entre «VENTAS › PISOS DE VENTA» y
+ * «Punto de Venta» lo imprescindible es el nombre. El grupo completo sigue vivo en el `title` del
+ * enlace y en el heno del buscador, así que no se perdió: dejó de competir.
+ *
+ * Y el nombre ahora SÍ se trunca con elipsis, contra lo que decía el comentario anterior. Es la
+ * regla del brief (jerarquía estricta, una línea) y es lo que sostiene la retícula: un nombre de
+ * dos renglones deformaba la fila entera.
+ */
 
 .mt-vacio-busqueda {
   margin: var(--sp-4) 0 0;
@@ -646,6 +725,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .is-spin { animation: none; }
-  .mt-card, .mt-task { transition: none; }
-  .mt-card:hover { transform: none; }
+  /* `[SN.25]` El brief pide 180 ms; quien pidió menos movimiento no recibe ninguno. */
+  .mt-cell, .mt-tile, .mt-task { transition: none; }
+  .mt-cell:hover, .mt-tile:hover { transform: none; box-shadow: none; }
 }

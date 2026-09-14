@@ -119,7 +119,8 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   let navigate: jest.SpyInstance;
   const html = () => (fix.nativeElement as HTMLElement).textContent ?? '';
   const q = <T extends Element>(sel: string) => (fix.nativeElement as HTMLElement).querySelectorAll<T>(sel);
-  const tarjetas = () => q<HTMLAnchorElement>('a.mt-card');
+  /** `[SN.25]` La tarjeta apaisada pasó a ser la celda de la grilla rígida. */
+  const tarjetas = () => q<HTMLAnchorElement>('a.mt-cell');
   /** `[SN.11]` La píldora pasó a fila: dos columnas, el trabajo con su propio espacio. */
   const pendientes = () => q<HTMLAnchorElement>('a.mt-task');
 
@@ -186,7 +187,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const cards = tarjetas();
     expect(cards.length).toBe(1);
     expect(cards[0].textContent).toContain('Almacén');
-    expect(cards[0].textContent).toContain('Recepción');
+    /*
+     * `[SN.25]` La celda ya no nombra tres submódulos: dice CUÁNTOS abre esta persona. Y el número
+     * sigue siendo el de ella, no el del módulo — Almacén tiene 12 y con RECIBIR + SUPERVISAR se
+     * abren 2. Eso es lo que la prueba original protegía, y se protege mejor: antes se verificaba
+     * un nombre, ahora el recuento completo.
+     */
+    expect(cards[0].textContent).toContain('2 submódulos');
     // Es un enlace de verdad: href puesto por routerLink.
     expect(cards[0].getAttribute('href')).toBe('/almacen');
     // Y no ofrece lo que no puede abrir.
@@ -238,12 +245,17 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).toContain('Punto de Venta');
   });
 
-  it('la línea de contenido lista los módulos de ESA persona, con +N cuando hay más', async () => {
+  /*
+   * `[SN.25]` Esta prueba exigía «tres módulos y un +N», que es exactamente lo que se retiró: el
+   * corte era POR POSICIÓN y el «+N» escondía 71 de 101 submódulos sin poder tocarse. Ahora exige
+   * lo contrario — que la línea diga el recuento de ESA persona y que el «+N» no vuelva.
+   */
+  it('la línea de contenido dice cuántos submódulos abre ESA persona, y ya no hay «+N»', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const finanzas = Array.from(tarjetas()).find((a) => a.getAttribute('href') === '/finanzas');
     expect(finanzas).toBeTruthy();
-    expect(finanzas!.textContent).toMatch(/Bancos/);
-    expect(finanzas!.textContent).toMatch(/· \+\d+/);
+    expect(finanzas!.textContent).toMatch(/\d+ submódulos/);
+    expect(finanzas!.textContent).not.toMatch(/· \+\d+/);
   });
 
   // ── Mi contexto ───────────────────────────────────────────────────────────
@@ -633,8 +645,8 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('la segunda línea no repite el título', async () => {
     await montar({ perms: [], role: 'superadmin' });
     for (const a of Array.from(tarjetas())) {
-      const titulo = a.querySelector('.mt-card-title')?.textContent?.trim() ?? '';
-      const cuerpo = a.querySelector('.mt-card-body')?.textContent?.trim() ?? '';
+      const titulo = a.querySelector('.mt-cell-nm')?.textContent?.trim() ?? '';
+      const cuerpo = a.querySelector('.mt-cell-sb')?.textContent?.trim() ?? '';
       if (cuerpo) expect(cuerpo.toLowerCase()).not.toBe(titulo.toLowerCase());
     }
   });
@@ -642,10 +654,72 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('los módulos enlazados no comparten todos el icono de su proyecto', async () => {
     await montar({ perms: [], role: 'superadmin' });
     const iconos = Array.from(tarjetas())
-      .map((a) => a.querySelector('.mt-card-ico i')?.className ?? '')
+      .map((a) => a.querySelector('.mt-cell-ico')?.className ?? '')
       .filter(Boolean);
     // Antes `entryIcon` devolvía SIEMPRE el del proyecto: cinco módulos de `trade` salían iguales.
     expect(new Set(iconos).size).toBeGreaterThan(iconos.length / 2);
+  });
+
+  // ── [SN.25] Cómo se presentan los módulos ─────────────────────────────────
+
+  /*
+   * El hallazgo que dio forma a este rediseño: 10 de las 22 tarjetas NO son módulos, son un
+   * submódulo de otro módulo sacado a la portada — y llevaban el mismo cuerpo, tamaño y peso que
+   * un módulo de 21 submódulos. Por eso había dos «Hallazgos» idénticos uno al lado del otro.
+   */
+  it('un acceso directo se distingue de un módulo, y dice de dónde sale', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const alias = q<HTMLElement>('a.mt-cell.is-alias');
+    expect(alias.length).toBeGreaterThan(5);
+    // Cada uno declara su origen; ninguno finge tener submódulos propios.
+    for (const a of Array.from(alias)) {
+      const sb = a.querySelector('.mt-cell-sb')?.textContent?.trim() ?? '';
+      expect(sb.startsWith('de ') || sb === 'acceso directo').toBe(true);
+      expect(sb).not.toMatch(/submódulos?$/);
+    }
+  });
+
+  it('un módulo dice cuántos submódulos abre, en vez de nombrar tres y esconder el resto', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    const propios = Array.from(tarjetas()).filter((a) => !a.classList.contains('is-alias'));
+    const conCuenta = propios
+      .map((a) => a.querySelector('.mt-cell-sb')?.textContent?.trim() ?? '')
+      .filter((t) => /submódulos?$/.test(t));
+    expect(conCuenta.length).toBeGreaterThan(5);
+    // Y ya no queda ningún «+N»: era el residuo que escondía el 70% del catálogo.
+    expect(html()).not.toMatch(/·\s*\+\d+/);
+  });
+
+  /*
+   * ⛔ La prueba que sostiene la honestidad de «Tus accesos»: arranca VACÍA. No se puede pintar
+   * «lo más usado» porque el registro de uso todavía no se lee (cero endpoints, días de vida), así
+   * que lo que hay es «lo último que abriste» — y si no abriste nada, no se dibuja una caja
+   * prometiendo accesos que no existen.
+   */
+  it('«Tus accesos» no se dibuja mientras no hayas abierto nada', async () => {
+    localStorage.removeItem('mt.accesos.v1');
+    await montar({ perms: [], role: 'superadmin' });
+    expect(q('.mt-freq').length).toBe(0);
+    expect(html()).not.toContain('Tus accesos');
+  });
+
+  it('…y aparece con lo que abriste, sin repetir y con lo más reciente primero', async () => {
+    localStorage.setItem('mt.accesos.v1', JSON.stringify(['finanzas', 'compras', 'finanzas']));
+    await montar({ perms: [], role: 'superadmin' });
+    const tiles = q<HTMLAnchorElement>('a.mt-tile');
+    expect(tiles.length).toBe(2);
+    expect(tiles[0].textContent).toContain('Finanzas');
+    localStorage.removeItem('mt.accesos.v1');
+  });
+
+  it('el buscador encuentra SUBMÓDULOS y lleva directo, no sólo al módulo que los contiene', async () => {
+    await montar({ perms: [], role: 'superadmin' });
+    buscar('clientes 360');
+    const subs = q<HTMLAnchorElement>('a.mt-cell.is-sub');
+    expect(subs.length).toBeGreaterThan(0);
+    // Lleva al submódulo, no a la puerta del módulo.
+    expect(subs[0].getAttribute('href')).not.toBe('/comercial');
+    expect(subs[0].textContent).toContain('de Ventas');
   });
 
   it('cada grupo de pendientes lleva su propia etiqueta dentro', async () => {
@@ -669,19 +743,22 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(html()).toContain('Tu trabajo');
     expect(html()).toContain('Tus espacios');
     // Y las puertas siguen siendo enlaces reales dentro de su propia zona de scroll.
-    expect(q('.mt-scroll a.mt-card').length).toBe(tarjetas().length);
+    expect(q('.mt-scroll a.mt-cell').length).toBe(tarjetas().length);
   });
 
-  it('la tarjeta dice en qué rama del árbol vive, recortada a dos niveles', async () => {
+  /*
+   * `[SN.25]` La migaja del árbol ya no se pinta arriba del nombre: en una celda de 52 px no caben
+   * las dos, y por ir primero se leía antes que el título. No se perdió — vive en el `title`, que es
+   * lo que esta prueba ahora protege. Si alguien la quita de ahí también, se pone roja.
+   */
+  it('la rama del árbol no compite con el nombre, pero sigue disponible al señalar', async () => {
     await montar({ perms: [], role: 'superadmin' });
-    const grupoDe = (href: string) =>
-      Array.from(tarjetas()).find((a) => a.getAttribute('href') === href)?.querySelector('.mt-card-group')?.textContent?.trim();
-    expect(grupoDe('/dashboard')).toBe('Ventas › Rutas de detalle');
+    const celda = (href: string) => Array.from(tarjetas()).find((a) => a.getAttribute('href') === href);
+    expect(celda('/dashboard')?.getAttribute('title')).toContain('Ventas › Rutas de detalle');
     // El grupo completo de Telemarketing tiene un tercer nivel que repite el nombre de la entrada.
-    expect(grupoDe('/telemarketing')).toBe('Ventas › Mayoreo');
-    // …pero el completo sigue disponible al pasar el mouse y para el buscador.
-    const tele = Array.from(tarjetas()).find((a) => a.getAttribute('href') === '/telemarketing');
-    expect(tele?.getAttribute('title')).toContain('Atención telefónica');
+    expect(celda('/telemarketing')?.getAttribute('title')).toContain('Atención telefónica');
+    // Y ya no se pinta como renglón propio: era lo que competía con el título.
+    expect(q('.mt-card-group').length).toBe(0);
   });
 
   it('las cifras llevan separador de miles', async () => {
