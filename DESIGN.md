@@ -647,10 +647,17 @@ Una columna de números alinea a la derecha **la celda Y su título**. Si no, el
 **(b) Salida.** Toda barra de filtros expone **cuántos hay activos** y cómo limpiarlos de un gesto. El botón **existe sólo si hay algo que limpiar** (uno permanentemente deshabilitado es ruido, no información) y es **secundario** (ghost neutro, jamás `--action`).
 **(c)** `role="tab"` sin `role="tabpanel"` que controlar es ARIA rota: el lector anuncia "pestaña 1 de 2" y no hay panel al que ir. Si no hay panel, no son tabs — es un radiogroup (`app-segmented`).
 
+**D.5 — `input[type=number]`: fuera el spinner, guarda en la rueda, y el teclado hace el trabajo.**
+⛔ **La rueda del mouse sobre un campo numérico ENFOCADO cambia el valor.** Es el default del navegador y en una pantalla de captura es un **riesgo de dato**: scrolleás la tabla para mirar otra fila y de paso alteraste una cantidad que después se convierte en requisición, factura o conteo — sin tocar el teclado y sin que nada lo avise. Todo campo numérico suelta el foco al primer `wheel` (sin `preventDefault`, que trabaría el scroll de la página).
+**El spinner nativo se quita** (`appearance: textfield` + `::-webkit-*-spin-button`): aparece al enfocar y **empuja la cifra** —justo en la columna que existe para que las cifras estén alineadas—, son dos targets de ~9px (contra el piso de 24px de §datos densos 13), no existen en touch, y se comen ~1rem de un campo de 4rem.
+**Lo que se pierde no es nada:** `↑ ↓` son del *input*, no del spinner, y siguen funcionando. Se agrega **`Shift + ↑ ↓` = de a 10**, que es el gesto real cuando se pide por decenas.
+⛔ **Medido 2026-09-14: 23 componentes usan `input[type=number]` y sólo 1 protege la rueda o quita el spinner.** Entre los 22 restantes: recepción de mercancía, detalle de orden de compra, facturación, gasto de ruta y cuadre de almacén — todas de cantidad o de dinero. Barrido pendiente.
+
 **D.3 — Lo que no se puede arreglar desde el frontend se MARCA, no se esconde.** Con paginación de servidor, filtrar filas del lado del cliente deja huecos en las páginas y miente el total del paginador. Cuando la fuente manda algo que no corresponde (pseudo-productos contables en una pantalla de compras), el frontend lo **rotula y lo atenúa**, declara por qué está ahí, y el arreglo de fondo queda anotado como pendiente de backend. Esconder sin poder contar es peor que mostrar con etiqueta (ADR-056).
 
 ### Antipatrones para Operations (flag en review)
 - Cabecera de columna numérica alineada distinto que su celda, o clase de alineación inventada por la pantalla en vez de `.num` (→ D.0).
+- Campo numérico que cambia de valor al scrollear, o con el spinner nativo puesto en una columna de cifras (→ D.5).
 - Grupo de botones contiguos con un tab stop cada uno; barra de filtros sin forma de limpiarlos ni conteo de activos; `role="tab"` sin `role="tabpanel"` (→ D.4).
 - Sumar una librería de a11y/headless para un patrón que [`app-segmented`](apps/view/src/app/shared/components/segmented/segmented.component.ts) ya resuelve. `@angular/aria` **no está instalado** (verificado 2026-09-14) y la decisión de PrimeNG sigue abierta: mientras lo esté, **no crecer la dependencia** (→ pre-vuelo 3).
 - Chip de valor y chip de toggle con el mismo aspecto (→ D.1).

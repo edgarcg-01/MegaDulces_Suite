@@ -384,6 +384,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <td class="pr-r">
                                           <input type="number" min="0" step="1" class="pr-qty pr-qty-sm"
                                                  [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
+                                                 (wheel)="onQtyWheel($event)" (keydown)="onQtyKey($event)"
                                                  [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
                                         </td>
                                         <td class="pr-r">
@@ -491,7 +492,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       </td>
                                       <td class="pr-r"><span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span></td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
-                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
+                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (wheel)="onQtyWheel($event)" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
                                       <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
                                       <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
                                       <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost) }}</td>
@@ -767,6 +768,15 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg);
       color: var(--text-main); font-size: var(--fs-body); font-family: inherit; }
     .pr-qty:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
+    /* Fuera el spinner nativo del input[type=number]. En una columna de captura hace tres daños:
+       (a) aparece al enfocar/hover y EMPUJA la cifra, así que el número salta justo en la columna
+       que existe para que las cifras estén alineadas; (b) son dos targets de ~9px, muy por debajo
+       del piso de 24px de §datos densos 13, e inexistentes en touch; (c) se come ~1rem de un campo
+       de 4rem. Las flechas ↑↓ del TECLADO siguen funcionando —son del input, no del spinner— y
+       ahora Shift+↑↓ mueve de a 10. */
+    .pr-qty { appearance: textfield; -moz-appearance: textfield; }
+    .pr-qty::-webkit-outer-spin-button,
+    .pr-qty::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
     :host ::ng-deep .pr-cov-tag { font-variant-numeric: tabular-nums; }
     .pr-empty { text-align: center; color: var(--text-muted); padding: 2rem 1rem; }
     .pr-empty i { font-size: 1.6rem /* glifo, no texto: la escala --fs-* es de TIPO y su tope util acá es 1.25rem */; display: block; margin-bottom: .5rem; color: var(--text-faint); }
@@ -1797,6 +1807,35 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * moverse con flechas no debe activarlos. Se activa con Enter/Espacio, que es el default del
    * `<button>` y por eso no hay que interceptarlo.
    */
+  /**
+   * ⚠️ La rueda del mouse sobre un `input type=number` ENFOCADO cambia el valor. Es el default del
+   * navegador y en esta pantalla es un riesgo de dato: scrolleás la tabla para mirar otra sucursal
+   * y de paso alteraste una cantidad que después se convierte en requisición, sin tocar el teclado
+   * y sin que nada lo avise. Al primer wheel se suelta el foco: el valor queda intacto y la página
+   * scrollea normal (no se hace `preventDefault`, que trabaría el scroll).
+   */
+  onQtyWheel(ev: WheelEvent): void {
+    const el = ev.target as HTMLInputElement;
+    if (document.activeElement === el) el.blur();
+  }
+
+  /**
+   * Teclado del campo de cantidad. `↑ ↓` de a 1 ya los da el input nativo; acá se agrega
+   * **Shift + ↑ ↓ = de a 10**, que es el gesto que sirve cuando se pide por decenas de cajas.
+   * Respeta `min` y redondea al paso, para no dejar un 7.5 en una columna de cajas.
+   */
+  onQtyKey(ev: KeyboardEvent): void {
+    if (!ev.shiftKey || (ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown')) return;
+    const el = ev.target as HTMLInputElement;
+    const step = el.step === 'any' ? 1 : (Number(el.step) || 1);
+    const delta = (ev.key === 'ArrowUp' ? 10 : -10) * step;
+    const min = el.min === '' ? -Infinity : Number(el.min);
+    const next = Math.max(min, (Number(el.value) || 0) + delta);
+    ev.preventDefault();
+    el.value = String(next);
+    el.dispatchEvent(new Event('input', { bubbles: true }));   // que ngModel se entere
+  }
+
   readonly toolbarIdx = signal(0);
   onToolbarKey(ev: KeyboardEvent): void {
     const k = ev.key;
