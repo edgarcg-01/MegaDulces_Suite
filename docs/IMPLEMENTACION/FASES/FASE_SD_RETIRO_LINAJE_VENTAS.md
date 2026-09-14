@@ -68,10 +68,12 @@ Prioridad (dinero primero):
 - **SD.0 ✅ CERRADO 2026-09-14 — la brecha es la venta de RUTA, no un −$265k de tienda** (ver arriba).
   El bloqueante quedó nombrado y cuantificado: `mv_kepler_sales_daily` es incompleto (sólo ramas); el
   linaje ODS COMPLETO que cuadra con la tabla al 0.19% es **`mv_sales_blended`**. **Corrige el target de SD.3.**
-- **SD.1 — Candado de paridad**: smoke que compare `sales_daily` vs **`mv_sales_blended`** mes×rama y
-  falle sobre umbral (patrón `database/run-all-tests.js`; hermano de `test-newdb-sellout-parity.js` de
-  VP.1). Debe incluir el hueco (que `mv_kepler_sales_daily` NO trae ruta) como prueba negativa, no sólo
-  el doble conteo. Correr contra `FLEET_DB_URL`.
+- **SD.1 ✅ CERRADO 2026-09-14** — `database/tests/test-newdb-sales-lineage-parity.js` (11/11 contra
+  prod, registrado en `run-all-tests.js`). Candados: `sales_daily`==`mv_sales_blended` ≤0.5% en meses
+  cerrados (calibrado: jul 0.012% · ago 0.191%) + la ruta(truck) empata al peso (Δ$0) + **prueba
+  negativa** que congela SD.0: `mv_kepler_sales_daily` sólo tiene ramas 00-07 y hay venta de truck
+  material invisible → migrar ahí tiraría $3.62M/mes. Umbral roto a propósito (0.1% → ago falla) = rojo
+  verificado. Cae a `FLEET_DB_URL` del `.env` si no hay `DATABASE_URL_NEW` (read-only, assert de prod).
 - **SD.2 — Declarar `sales_daily` no-autoritativa** (comentario en tabla + doc), sin borrarla.
 - **SD.3 — Migrar el motor de margen** al linaje ODS **`mv_sales_blended`** (NO `mv_kepler_sales_daily`,
   que perdería $3.62M/mes de ruta), con la medición antes/después del número publicado (un commit que
