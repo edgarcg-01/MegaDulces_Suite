@@ -1,0 +1,53 @@
+/* `[AU.3]` Puestos y cadena de mando — superficie Operations. Cero hex crudo. */
+
+.ax-page { display: flex; flex-direction: column; gap: var(--sp-4); min-height: 0; }
+
+.ax-filters { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.ax-sel { min-width: 12rem; }
+.ax-count { margin-left: auto; font-size: var(--fs-xs); color: var(--fg-3); font-variant-numeric: tabular-nums; }
+
+.ax-table th {
+  font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3);
+}
+.ax-table td { font-size: var(--fs-sm); }
+.ax-sticky { position: sticky; left: 0; z-index: 1; background: var(--card-bg); }
+.ax-row { cursor: pointer; height: var(--row-h-lg); }
+.ax-row:focus-visible { outline: 2px solid var(--action); outline-offset: -2px; }
+.ax-row-sel, .ax-row-sel .ax-sticky { background: var(--table-row-selected-bg); }
+.ax-r { text-align: right; font-variant-numeric: tabular-nums; }
+
+.ax-nombre { display: block; font-weight: var(--fw-medium); }
+.ax-code { display: block; font-size: var(--fs-xs); color: var(--fg-3); }
+.ax-sub { display: block; font-size: var(--fs-xs); color: var(--fg-3); }
+.ax-mas { margin-left: var(--sp-1); }
+.ax-falta { color: var(--fg-3); font-style: italic; }
+.ax-foot { font-size: var(--fs-xs); color: var(--fg-3); margin: 0; max-width: 68ch; }
+
+/* ── Panel de detalle ─────────────────────────────────────────────────── */
+.ax-peek { display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); }
+.ax-peek h3 { font-size: var(--fs-h3); font-weight: var(--fw-bold); margin: var(--sp-3) 0 0; }
+.ax-lbl {
+  font-size: var(--fs-micro); font-weight: var(--fw-medium);
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-3);
+}
+.ax-hint { font-size: var(--fs-xs); color: var(--fg-3); margin: 0; max-width: 60ch; }
+.ax-vacio { font-size: var(--fs-sm); color: var(--fg-3); margin: 0; padding: var(--sp-2) 0; }
+.ax-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.ax-lista li {
+  display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) 0; border-bottom: 1px solid var(--table-border); min-height: var(--row-h-sm);
+}
+.ax-lista li:last-child { border-bottom: 0; }
+.ax-tag { font-size: var(--fs-micro); }
+.ax-error {
+  display: flex; align-items: flex-start; gap: var(--sp-2); padding: var(--sp-3);
+  border: 1px solid var(--bad-border); border-radius: var(--r-md);
+  background: var(--bad-soft-bg); color: var(--bad-soft-fg);
+}
+.ax-acc {
+  display: flex; justify-content: flex-end; gap: var(--sp-2);
+  padding-top: var(--sp-3); border-top: 1px solid var(--table-border);
+}
+
+@media (max-width: 720px) { .ax-count { margin-left: 0; } }

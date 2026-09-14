@@ -8,6 +8,15 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION, TenantContextService } from '@megadulces/platform-core';
+import type {
+  Coherencia,
+  HistoriaDePuesto,
+  PuestoDetalle,
+  PuestoFila,
+  ResponsabilidadDePuesto,
+  ResponsabilidadFila,
+  ResponsabilidadesDePersona,
+} from '@megadulces/contracts';
 
 /**
  * `[AU.0]` — La ORGANIZACIÓN por API: puestos, cadena de mando y responsabilidades.
@@ -118,7 +127,7 @@ export class OrgService {
    * viaje: cuánta gente lo ocupa, qué propone, de quién cuelga y de cuántas
    * cosas responde.
    */
-  async listPositions() {
+  async listPositions(): Promise<PuestoFila[]> {
     const tenantId = this.tenantId;
     const { rows } = await this.knex.raw(
       `SELECT p.code, p.name, p.department_code, d.name AS department_name,
@@ -149,7 +158,7 @@ export class OrgService {
     return rows;
   }
 
-  async getPosition(code: string) {
+  async getPosition(code: string): Promise<PuestoDetalle> {
     const rows = await this.listPositions();
     const pos = rows.find((r: { code: string }) => r.code === code);
     if (!pos) throw new NotFoundException(`El puesto "${code}" no existe.`);
@@ -416,7 +425,7 @@ export class OrgService {
    * `[SN.17]` están así. Se devuelve `claves_declaradas: false` para que la
    * pantalla lo diga en vez de pintarlo como verde.
    */
-  async listResponsibilities() {
+  async listResponsibilities(): Promise<ResponsabilidadFila[]> {
     const tenantId = this.tenantId;
     const { rows } = await this.knex.raw(
       `SELECT r.key, r.label, r.descripcion, r.dimension, r.orden, r.permission_keys,
@@ -443,7 +452,7 @@ export class OrgService {
    * puesto. Cuando da `false`, la respuesta correcta es arreglar el rol en
    * `/admin/roles` — no que la responsabilidad conceda el permiso.
    */
-  async positionResponsibilities(code: string) {
+  async positionResponsibilities(code: string): Promise<ResponsabilidadDePuesto[]> {
     const tenantId = this.tenantId;
     const { rows } = await this.knex.raw(
       `SELECT pr.responsibility_key, r.label, r.dimension, r.permission_keys,
@@ -569,7 +578,7 @@ export class OrgService {
    * pregunta que importa al auditar: *¿esto le toca por el puesto, o alguien se
    * lo asignó a ella con nombre y fecha?*
    */
-  async userResponsibilities(userId: string) {
+  async userResponsibilities(userId: string): Promise<ResponsabilidadesDePersona> {
     const tenantId = this.tenantId;
 
     const user = await this.knex('identity.users')
@@ -757,7 +766,7 @@ export class OrgService {
    * creó la cuenta · `estimado_alta` es una estimación. Pintarlos igual sería
    * dar por medido lo que está estimado.
    */
-  async positionHistory(userId: string) {
+  async positionHistory(userId: string): Promise<HistoriaDePuesto> {
     const rows = await this.knex('identity.v_position_history')
       .where({ tenant_id: this.tenantId, user_id: userId })
       .orderBy([
@@ -787,7 +796,7 @@ export class OrgService {
    * `CREATE OR REPLACE` arriesgaba perderle el `security_invoker`, que es un
    * gotcha vivo del repo.
    */
-  async coherencia() {
+  async coherencia(): Promise<Coherencia> {
     const tenantId = this.tenantId;
     const [authz, resp] = await Promise.all([
       this.knex('identity.v_authz_coherencia').where({ tenant_id: tenantId }).select('*'),

@@ -26,6 +26,10 @@ export * from './http/quantity-unit.contract';
 export * from './http/identity.contract';
 // [SN.2] Identidad: el contexto de la persona en sesión (persona/puesto/departamento) para "Mi trabajo".
 export * from './http/identity-me.contract';
+// [AU.0] Identidad: la ORGANIZACIÓN (puesto, cadena de mando, responsabilidad, historia).
+// Producer `OrgController` y consumer `/admin/*` importan de acá: un cambio de forma es error de
+// compilación en los dos lados. La pantalla que esto reemplaza declaraba sus 12 tipos adentro.
+export * from './http/identity-org.contract';
 // [OR.4] Trabajo: el vocabulario común de una tarea asignada. El reparto se construyó CUATRO veces
 // (recon_tasks, supervisor_tasks, inventory_count_assignments, daily_assignments) y ninguna subió a
 // libs/. Esto NO crea una quinta tabla: declara el mapeo de las cuatro a un solo vocabulario, y
