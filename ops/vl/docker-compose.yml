@@ -161,6 +161,34 @@ services:
       retries: 3
 
   # ═══════════════════════════════════════════════════════════════════════════
+  # OBS.11 — BARRIDO DIARIO del backlog de kdpord (cola de surtido de alta rotacion).
+  # NO va en el carril continuo (ods-reconcile): su ventana de 3d es ~61% fantasma y el freno lo
+  # abortaria cada 15 min (tablero rojo). Off-hours, --full, con el MISMO env que ods-reconcile
+  # (ingest.env via *lane): ODS_SOURCE_BASE=replicas + DATABASE_URL_NEW=prod + FEEDS_SINK=http.
+  # Corre --full UNA vez al arrancar (limpieza + latido inmediato para el healthcheck) y despues
+  # cada dia 03:00 MX via crond. Latido PROPIO (cdc_reconcile_full) para no pisar el del carril.
+  # ═══════════════════════════════════════════════════════════════════════════
+  ods-reconcile-full:
+    <<: *lane
+    container_name: ods-reconcile-full
+    depends_on: [ods-live-hot]
+    environment:
+      TZ: America/Mexico_City
+      ODS_RECONCILE_HB_KEY: cdc_reconcile_full
+      ODS_HB_KEY: cdc_reconcile_full
+      ODS_HB_MAX_MIN: "1560"
+      ODS_HB_IGNORE_ERROR: "1"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord; echo "0 3 * * * cd /app && node database/importers/kepler/reconcile-ods-window.js --full --delete-sobrantes --apply --tables=kdpord >> /proc/1/fd/1 2>&1" | crontab -; exec crond -f -d 8'
+    healthcheck:
+      test: ["CMD", "node", "/app/ops/ingest/health.js"]
+      interval: 300s
+      timeout: 30s
+      start_period: 300s
+      retries: 3
+
+  # ═══════════════════════════════════════════════════════════════════════════
   # VL.4 — LOS CARRILES QUE SALIERON DEL PROGRAMADOR DE WINDOWS
   #
   # ⚠️ Env DISTINTO al de los carriles del ODS, a propósito: `feeds.env`, no

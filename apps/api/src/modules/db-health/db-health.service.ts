@@ -640,6 +640,10 @@ const CRON_JOBS: CronCfg[] = [
   // reciente (replica vs kepler_ods), repone el delta y late acá con lo que encontró; si supera el
   // umbral escribe status='error' → CRÍTICO. Un número > 0 sostenido = se está perdiendo otra vez.
   { key: 'cdc_reconcile',       label: 'Reconciliador ODS (completitud)', cadence: 'continuo ~15 min', warnH: 1, critH: 3 },
+  // OBS.11 — barrido DIARIO del backlog de kdpord (ods-reconcile-full, off-hours 03:00 MX). Latido
+  // PROPIO (cdc_reconcile_full) para no pisar el del carril continuo. Diario → warn si pasa un día
+  // sin correr. Sin esta entrada caía en el `cfg ? classify : 'ok'` = VERDE INCONDICIONAL (la trampa OBS).
+  { key: 'cdc_reconcile_full',  label: 'Reconciliador ODS --full (backlog kdpord)', cadence: 'diario 03:00 MX', warnH: 25, critH: 30 },
   // OBS.1 — el carril del POLL (replicate-ods-live.js), que es el que de verdad alimentaba prod y
   // era MUDO: no escribía a cron_runs y no tenía entrada acá, así que db-health no tenía NADA que
   // vigilar. Estuvo parado del 27/08 al 02/09/2026 — 6 días, ~23,200 filas de catálogo sin shipear
