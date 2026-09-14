@@ -199,7 +199,7 @@ html {
    viven en body.theme-monochrome → html no los hereda. Hardcodeamos el color del
    chrome dark (= --card-bg de Operations) para que la safe-area matchee header/nav. */
 html.theme-monochrome {
-  background-color: #1A1A1A;
+  background-color: #18181B;
 }
 
 body {
@@ -1821,9 +1821,11 @@ input:focus, textarea:focus, select:focus {
 }
 
 .theme-monochrome .liquid-tabs-indicator {
-  /* Gris neutro elevado — NO var(--neutral-700) (Stone #463F36, café cálido)
-     que rompía el dark neutro con un pill marrón. */
-  background: #333333;
+  /* Gris neutro elevado. Hasta el 2026-09-14 esto era un `#333333` hardcodeado
+     porque --neutral-700 era Stone (#463F36, café cálido) y dejaba un pill
+     marrón sobre el dark neutro. Con la rampa en zinc el token ya es neutro
+     (#3F3F46), así que el workaround se retira. */
+  background: var(--neutral-700);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.4),
     0 4px 16px rgba(0, 0, 0, 0.5),
@@ -2963,7 +2965,7 @@ code.comm-code,
 .surf-table--plain > thead > tr > th.comm-num,
 .surf-table--plain > thead > tr > th.num { text-align: right; }
 
-/* El separador de la columna congelada usa `--table-border`, que en claro es #FBF9F6 —
+/* El separador de la columna congelada usa `--table-border`, que en claro es #FAFAFA —
  * invisible sobre la card blanca. Sobre esta base se dibuja con el borde real. */
 .surf-table--plain.surf-table--frozen-first > thead > tr > th:first-child,
 .surf-table--plain.surf-table--frozen-first > tbody > tr > td:first-child {

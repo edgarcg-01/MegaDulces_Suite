@@ -254,7 +254,7 @@ import { AuthService } from '../../../core/services/auth.service';
       }
       .client:active { transform: scale(0.985); }
       @media (prefers-reduced-motion: reduce) { .list { animation: none; } .client { transition: none; } .new-form { animation: none; } }
-      .av { width: 2.4rem; height: 2.4rem; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; background: var(--stone-100); color: var(--stone-700); font-weight: 800; font-size: 0.9rem; }
+      .av { width: 2.4rem; height: 2.4rem; border-radius: 16px; flex-shrink: 0; display: grid; place-items: center; background: var(--neutral-100); color: var(--neutral-700); font-weight: 800; font-size: 0.9rem; }
       .cbody { flex: 1; min-width: 0; }
       .nm { display: block; font-weight: 700; font-size: 0.95rem; color: var(--text-main); line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .meta { display: flex; gap: 0.4rem; font-size: 0.78rem; color: var(--text-muted); margin-top: 0.15rem; }
@@ -276,7 +276,7 @@ import { AuthService } from '../../../core/services/auth.service';
       .sheet.closing { animation: sheet-down 0.2s var(--ease-out, cubic-bezier(0.23,1,0.32,1)) forwards; }
       @keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
       @keyframes sheet-down { from { transform: translateY(0); } to { transform: translateY(100%); } }
-      .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--stone-200); margin: 0 auto 0.875rem; }
+      .sheet-handle { width: 2.5rem; height: 0.25rem; border-radius: 999px; background: var(--neutral-200); margin: 0 auto 0.875rem; }
       .sheet-head { display: flex; align-items: center; gap: 0.75rem; padding-bottom: 0.75rem; border-bottom: 1px solid var(--border-color); }
       .sheet-head .av { width: 2.6rem; height: 2.6rem; border-radius: 16px; background: var(--ember-grad, var(--action)); color: #fff; display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .sheet-head .n { display: block; font-weight: 800; font-size: 1.05rem; letter-spacing: -0.01em; color: var(--text-main); }

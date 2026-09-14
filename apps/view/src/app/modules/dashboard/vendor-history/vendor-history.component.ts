@@ -203,7 +203,7 @@ export class VendorHistoryComponent implements OnInit, OnDestroy {
     if (!this.pbStarted()) return [{ points: full, color: 'var(--action, #F05A28)' }];
     const revealed = full.slice(0, this.cursorIdx() + 1);
     return [
-      { points: full, color: 'var(--neutral-300, #d6d3d1)' },
+      { points: full, color: 'var(--neutral-300, #D4D4D8)' },
       { points: revealed, color: 'var(--action, #F05A28)' },
     ];
   });

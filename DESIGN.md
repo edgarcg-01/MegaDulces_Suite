@@ -107,7 +107,7 @@
 - **Tokens: una sola [`tokens.css`](libs/design-tokens/tokens.css)**, sin copias en `apps/*`. La consolidación de ago-2026 se sostiene.
 - **Disciplina tipográfica — la regla mejor cumplida del sistema:** Fraunces / Inter / JetBrains fuera de las 3 apps, y `--font-display`/Poppins con **0 fugas** a `apps/view` y `apps/vendor`.
 - **GSAP 100% por `import()` lazy**, plugins incluidos (`cart-fx.service.ts`, `portal-login`, `portal-shell`, `portal-cart`, `portal-catalog`, `portal-order-detail`).
-- **Neutrales: dos familias coherentes, cada superficie con su texto.** Operations = Zinc (Aura), misma familia en claro y oscuro, desde el 2026-09-14; Storefront = Stone/Espresso, protegido por el scope `.portal-shell`. Ya no hay texto de una familia sobre superficie de otra — que era el bug de fondo. `tabular-nums` con 577 usos ✓ · los 8 docs satélite enlazados existen todos ✓.
+- **Neutrales: UNA sola familia en toda la suite.** Zinc (PrimeNG Aura) en las 3 apps y en los dos modos, desde el 2026-09-14. Ya no hay texto de una familia sobre superficie de otra —que era el bug de fondo— ni dos rampas que puedan divergir. `tabular-nums` con 577 usos ✓ · los 8 docs satélite enlazados existen todos ✓.
 
 **Deuda declarada, medida y abierta** (⛔ = viola una regla marcada BINDING):
 
@@ -152,18 +152,22 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/mi-trabajo` | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
 | **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
 
-**⚠️ Los neutrales YA NO se comparten entre surfaces** (decisión Edgar 2026-09-14):
+**⭐ Los neutrales son UNA SOLA FAMILIA en toda la suite** (decisión Edgar 2026-09-14): **Zinc de PrimeNG Aura**, en las 3 apps y en los dos modos.
 
-| | Operations (`view` · `vendor`) | Storefront (`portal`) |
+| | Claro | Oscuro |
 |---|---|---|
-| Neutrales claro | **Zinc** (PrimeNG Aura) — `#F4F4F5` ground | **Stone** cálido — `#F5F1EA` ground |
-| Neutrales oscuro | **Zinc** (PrimeNG Aura) — `#09090B` ground | **Espresso** cálido — `#16130F` ground |
+| ground | `#F4F4F5` (zinc-100) | `#09090B` (zinc-950) |
+| card | `#FFFFFF` | `#18181B` (zinc-900) |
+| borde | `#E4E4E7` (zinc-200) | `#27272A` (zinc-800) |
+| texto 1/2/3 | `#09090B` · `#52525B` · `#A1A1AA` | `#FAFAFA` · `#A1A1AA` · `#71717A` |
 
-La rampa `--stone-*` **sigue viva**: `.portal-shell`/`.pl-wrap` re-apuntan `--neutral-*` a `--stone-*`, así que el Storefront queda cálido por construcción y no hay que tocarlo. Cambiar el `:root` sólo mueve Operations.
+`.portal-shell`/`.pl-wrap` **ya no pisan los neutrales** — heredan de `:root`. Sólo conservan propio su `--font-body`/`--font-mono` y la identidad IA ámbar (`--ai-accent`). **La rampa `--stone-*` se retiró** en el mismo commit: quedó con cero consumidores, y dejarla declarada invitaba a volver a partir el sistema. Está en git.
+
+**La calidez de marca ya no vive en el sustrato: vive en `--brand-*`, `--action` (sunset) y `--ember-*`.** Ése es el cambio de tesis — el color de marca tiene que ganarse la pantalla por acento, no por fondo.
 
 **Cómo mantener esta tabla honesta:** las raíces salen de [`apps/view/src/app/app.routes.ts`](apps/view/src/app/app.routes.ts) — `grep -nE "^    path: '" apps/view/src/app/app.routes.ts`. Si agregás un proyecto nuevo de primer nivel, **se agrega acá**: el paso 1 del pre-vuelo manda ubicar el surface en esta tabla, y una tabla incompleta manda a la pantalla nueva a ningún régimen.
 
-Ambos surfaces comparten: **sunset `--action`, IA ember, escala de radios, tokens semánticos, tipografía**. Lo que **ya no** comparten son los **neutrales** (tabla de arriba) — ni en claro ni en oscuro. Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
+Ambos surfaces comparten: **neutrales zinc, sunset `--action`, IA ember, escala de radios, tokens semánticos, tipografía de body y data**. Lo que **Operations** descarta: display font, ilustraciones, momentos editoriales, densidad comfortable.
 
 La regla 1-línea: Operations es el portal pero sin storefront. Mismo lenguaje, menos drama.
 
@@ -290,11 +294,11 @@ Regla: amarillo `#FDE707` solo con texto oscuro (`--stone-950`), nunca blanco.
 
 > ⚠️ **Corrección medida 2026-09-14 — el comentario `(AA OK)` que llevaba `--action-ink` era falso.** Blanco sobre `--action` da **3.39:1**, que es AA **sólo para texto grande** (≥18.66px bold o ≥24px). La mayoría de nuestros CTA son de 13–14px → **no cumplen AA a tamaño normal**. No se cambió nada todavía porque tocar `--action` mueve la marca entera; queda **declarado, no disfrazado** (ADR-056). Salidas posibles cuando se decida: oscurecer `--action` a ~`#D2451C` (el `--action-hover` actual, que da 4.5:1), subir el label del botón a ≥16px bold, o aceptar el riesgo por escrito. Lo que NO vale es seguir escribiendo "AA OK" al lado.
 
-### Neutrales — DOS familias, una por surface (decisión 2026-09-14)
+### Neutrales — UNA sola familia: Zinc de PrimeNG Aura (decisión 2026-09-14)
 
-> ⚠️ **Antes de 2026-09-14 había una sola rampa (Stone) para todo.** Ya no. Elegí por surface; nunca mezcles hexes de una familia con superficies de la otra — ése es el bug que originó el cambio (ver Decisions Log).
+> ⚠️ **Una rampa para las 3 apps y los dos modos. No hay rampa por surface.** El día que se decidió esto se pasó por un estado intermedio de *dos* familias (Operations zinc / Storefront stone) y se cerró el mismo día en una sola: dos rampas paralelas son dos cosas que pueden divergir, y este archivo ya tiene la cicatriz de esa divergencia en su cabecera (consolidación 2026-08-12). **Nunca mezcles hexes de una paleta con superficies de otra** — ése es el bug que originó todo el cambio (ver Decisions Log).
 
-**Operations (`apps/view` · `apps/vendor`) — Zinc de PrimeNG Aura, la MISMA familia en los dos modos.** Es la que `--neutral-*` sirve en `:root`:
+**Las 3 apps — Zinc de PrimeNG Aura.** Es lo que `--neutral-*` sirve en `:root`, sin overrides por surface:
 ```css
 --neutral-50:#FAFAFA; --neutral-100:#F4F4F5; --neutral-200:#E4E4E7; --neutral-300:#D4D4D8;
 --neutral-400:#A1A1AA; --neutral-500:#71717A; --neutral-600:#52525B; --neutral-700:#3F3F46;
@@ -307,15 +311,14 @@ Regla: amarillo `#FDE707` solo con texto oscuro (`--stone-950`), nunca blanco.
 
 **⭐ La lección, que vale para cualquier rampa futura: lo que tiñe una pantalla NO es el fondo, es el chrome.** El croma de slate crece rápido bajando la rampa — ground 0.0069 → borde 0.0126 → texto faint 0.0351 (**5× el ground**). Los bordes de las cards, los iconos y el texto secundario cubren mucha más superficie visual que el fondo, así que mandan ellos: el ground era casi neutro y aun así la pantalla se leía azul. **Al elegir neutrales, mirá los pasos 200–600, no el 100.**
 
-**Storefront (`/portal`) — Stone cálido, sin cambios.** Vive scopeada a `.portal-shell`/`.pl-wrap`, que re-apuntan `--neutral-*` a `--stone-*`:
-```css
---stone-50:#FBF9F6; --stone-100:#F5F1EA; --stone-200:#E8E2D7; --stone-300:#D8CFC0;
---stone-400:#B0A595; --stone-500:#837A6C; --stone-600:#5E564B; --stone-700:#463F36;
---stone-800:#2B2620; --stone-900:#1A1611; --stone-950:#100D09;
-```
-En el Storefront sigue valiendo la tesis original: el sustrato cálido mata el "frío SaaS". En Operations la calidez ahora la aportan **el sunset y el ember**, no el sustrato.
+**⛔ La rampa `--stone-*` se RETIRÓ** (2026-09-14). Quedó con cero consumidores cuando el portal dejó de pisar sus neutrales, y una rampa declarada sin usar invita a volver a partir el sistema en dos. Está en git si hace falta.
 
-**La regla que sale de esto (vale para cualquier surface futura): el texto pertenece a la familia de la superficie que lo sostiene.** Texto cálido sobre superficie neutra —o al revés— se percibe como un tinte que ninguno de los dos tiene: es contraste simultáneo, y fue exactamente la causa del "se ve zinc".
+**Qué pasó con la tesis "el sustrato cálido mata el frío SaaS":** se sostiene, pero **cambió de portador**. La calidez ya no la da el fondo — la dan `--brand-*`, `--action` (sunset) y `--ember-*`. El color de marca tiene que ganarse la pantalla por **acento**, no por sustrato. En el Storefront eso se refuerza además con Poppins, las ilustraciones y la densidad comfortable, que Operations no tiene.
+
+**Dos reglas que salen de esto y valen para cualquier surface futura:**
+
+1. **El texto pertenece a la familia de la superficie que lo sostiene.** Texto cálido sobre superficie neutra —o al revés— se percibe como un tinte que ninguno de los dos tiene: es contraste simultáneo, y fue exactamente la causa del "se ve zinc".
+2. **Lo que tiñe una pantalla no es el fondo, es el chrome.** Al elegir o juzgar una rampa, mirá los pasos **200–600** (bordes, iconos, texto secundario), no el 100. El ground de slate era casi neutro y aun así la pantalla se leía azul.
 
 ### IA — Ember (mata el `#8b5cf6` morado)
 ```css
@@ -347,15 +350,16 @@ Toda superficie de IA (búsqueda semántica, chips "Sugeridos IA", recomendacion
 --text-faint: var(--stone-400);
 ```
 
-### Dark mode — espresso cálido (reemplaza `#000` puro)
+### Dark mode — zinc (una sola definición para las 3 apps)
 `body.theme-monochrome`:
 ```css
---surface-ground:#1A1611; --card-bg:#1F1A14; --layout-bg:#16130F;
---hover-bg:#2B2620; --border-color:#352E25;
---text-main:#FBF4E9; --text-muted:#B0A595; --text-faint:#837A6C;
+--layout-bg:#09090B; --surface-ground:#111113; --card-bg:#18181B;
+--hover-bg:#27272A; --border-color:#27272A;
+--text-main:#FAFAFA; --text-muted:#A1A1AA; --text-faint:#71717A;
+--ink-rgb: 250, 250, 250;   /* la tinta se voltea: los overlays recalculan solos */
 --ember-soft: rgba(248,180,0,0.16);
 ```
-Negro puro bajo una marca cálida se ve duro/barato; el espresso conserva la calidez en oscuro.
+Sigue sin ser `#000` puro (`#09090B` es zinc-950), así que la objeción original —negro puro se ve duro/barato— queda cubierta. **El espresso cálido `#16130F` se retiró el 2026-09-14**: era el dark exclusivo del Storefront y desapareció al unificar la suite en una familia. Los tres `theme-color` de los `index.html` apuntan a `#18181B` (= `--card-bg`, el color del chrome), no al ground.
 
 ---
 
@@ -495,10 +499,10 @@ Un supervisor que entra una vez recuerda: **velocidad y densidad** — está usa
 | Display font | **Ninguna.** Page-head = Hanken Bold + tracking tight | **Poppins** (`--font-display`) |
 | Body font | Hanken Grotesk 13/14/16 | Hanken Grotesk 14/15/16 |
 | Data font | Geist Mono + `tabular-nums` obligatorio | Geist Mono |
-| Neutrales | **Zinc** (PrimeNG Aura) — `#F4F4F5` ground | **Stone** cálido — `#F5F1EA` ground |
+| Neutrales | **Zinc** (PrimeNG Aura) — `#F4F4F5` ground | **Zinc** — el mismo |
 | Acción | `--action` sunset (igual que portal) | Sunset |
 | IA | Ember `--ember-grad` | Ember |
-| Dark | **Zinc (Aura) `#09090B`** | **Espresso `#16130F`** (scopeado al shell del portal) |
+| Dark | **Zinc (Aura) `#09090B`** | **Zinc — el mismo** (el espresso se retiró) |
 | Density | **compact++** (más denso que tool-mode portal) | compact / comfortable |
 | Primary organism | **Tabla densa + master-detail**. Cards solo para KPIs minimal | Card grid |
 | Decoración | nula (sin ilustraciones SVG dulces — son del storefront) | intencional |
@@ -1025,6 +1029,7 @@ Una app instalada **promete capacidades nativas**: arranca offline, se ve como a
 ## Decisions Log
 | Fecha | Decisión | Razón |
 |------|----------|-------|
+| 2026-09-14 | **Tercer y último paso: el Storefront también pasa a zinc → UNA sola familia de neutrales en toda la suite, y se retira la rampa `--stone-*`.** Decisión de Edgar ("cambiemos los demás"). `.portal-shell`/`.pl-wrap` **dejan de pisar** los neutrales —no se reescribieron a zinc, se **borraron**: heredar es más barato que duplicar, y un override que repite al padre es la forma más común de que dos definiciones diverjan sin que nadie lo note (ya pasó en este archivo, ver cabecera 2026-08-12). El portal conserva propio sólo `--font-body`/`--font-mono` y `--ai-accent`. El dark espresso del portal se retira. Barrido completo en el mismo commit: **16 usos de `var(--stone-N)` dentro de Operations** (15 en `apps/vendor`) que mi búsqueda por hex no veía, los **8 gradientes de `brand-placeholder.ts`** (thumbnails del catálogo, regenerados en zinc **conservando el L\* exacto de cada extremo** → misma progresión de tonos y mismo contraste del monograma), los banners PWA y el `theme-color` de las 3 apps, y el `#333333` hardcodeado del `liquid-tabs-indicator` que existía **sólo porque** `--neutral-700` era café cálido — ahora vuelve al token. | **Una segunda rampa paralela es una segunda cosa que puede divergir.** El propio encabezado de `tokens.css` documenta la vez que pasó. Con el portal en zinc, `--stone-*` quedó en **cero consumidores**: dejarla declarada era invitar a re-partir el sistema, así que se borró (está en git). ⚠️ **Lo que este barrido enseñó sobre cómo auditar color:** buscar por **hex** encuentra poco y miente. De 55 ocurrencias de la paleta vieja, **50 eran fallbacks muertos** de `var(--token, #hex)` —el token siempre existe, el hex nunca se aplica— y de las 5 "reales" **3 eran comentarios**. O sea: la búsqueda por hex decía "66 islas cálidas" y no había casi ninguna. Las islas de verdad estaban en `var(--stone-N)`, que usa el **token correcto de la familia equivocada** y ningún grep de hex lo ve. **Al migrar una paleta hay que barrer las tres formas: el hex, el token de la familia vieja, y el fallback dentro de `var()`.** Builds `portal` + `vendor` verdes. |
 | 2026-09-14 | **Corrección el mismo día: Slate → ZINC.** Al ver la app real con slate, el veredicto fue *"demasiado azulado"*. Se cambió `:root --neutral-*` a la rampa **zinc** de Aura (`#FAFAFA`…`#09090B`), más `--ink-rgb`, `--text-disabled`, `--shadow-float`, `--skeleton-bg` y los `--chart-fill-*`; y se **re-agregó** el override de `surface` en `operations-preset.ts`, ahora con zinc — porque Aura sirve **slate** en claro por default y sin ese override los componentes PrimeNG quedaban azules bajo un chrome zinc. El modo oscuro **no se tocó**: ya era zinc, así que ahora hay **una sola familia de neutrales en los dos modos** (Aura misma se parte en slate/zinc, y esa partición era justo la incoherencia que originó todo). | **⭐ La lección que deja, y es la de más valor de toda la sesión: lo que tiñe una pantalla NO es el fondo, es el chrome.** El ground de slate era casi neutro (croma 0.0069) y aun así la pantalla se leía azul, porque **el croma crece bajando la rampa**: borde 0.0126, texto faint **0.0351** — 5× el ground. Los bordes de las cards, los iconos y el texto secundario cubren muchísima más superficie visual que el fondo, así que mandan ellos. Medido el corte al pasar a zinc: ground **−81%**, borde **−68%**, faint **−63%**, muted **−61%**, texto principal **−89%**. **Regla operativa: al elegir una rampa de neutrales, mirá los pasos 200–600, no el 100.** Contraste sin daño (claro: principal 18.10:1, muted 7.03:1; oscuro sin cambios). Builds `portal` + `vendor` verdes; `view` sigue sin compilar por el mismo WIP ajeno. ⚠️ **Se descartaron con medición, no por gusto:** `gray` corta el azul sólo a la mitad (borde 0.0058) y `neutral` es croma **0** en todos los pasos — que es exactamente el estado que produjo el "se ve zinc" original cuando el texto encima era de otra familia. Zinc conserva un frío mínimo **y** unifica los dos modos. |
 | 2026-09-14 | **Los neutrales de Operations pasan de Stone cálido a Slate/Zinc — la paleta de PrimeNG Aura.** *(Corregido el mismo día a zinc — ver la fila de arriba.)* Decisión de Edgar. `:root --neutral-*` → slate (`#F8FAFC`…`#020617`); `body.theme-monochrome` → zinc de Aura (`#09090B` / `#18181B` / `#27272A`, texto `#FAFAFA`/`#A1A1AA`/`#71717A`). **El Storefront NO cambia**: `.portal-shell`/`.pl-wrap` ya re-apuntaban `--neutral-*` a `--stone-*`, así que el portal queda cálido por construcción y la rampa `--stone-*` sigue viva. Arrastró además los neutrales que estaban sueltos fuera de la rampa: `--ink-rgb`, `--text-disabled`, `--shadow-float`, `--skeleton-bg` y los 5 `--chart-fill-*`/`--chart-axis-text`/`--chart-meta-line` de ambos modos. **Supersede** el RISK choice #1 y la decisión 2026-06-04 "Zinc → Stone" **sólo para Operations**. | **La queja fue "no me gusta el fondo como zinc", y medir mostró que había DOS bugs con una causa común: el sistema no gestionaba el tinte de sus neutrales.** (1) En oscuro, las superficies (`#111111`/`#1A1A1A`/`#2A2A2A`) tenían croma **exactamente 0** —el único set del sistema sin tinte, y **escrito a mano, sin salir de ninguna rampa**— mientras el texto encima era Stone cálido (hue 79°): un neutro puro junto a un crema se percibe **frío por contraste simultáneo**. (2) En claro, croma 0.0103 en **hue 82° (amarillo)**, que a esa saturación no lee "crema cálido" sino "papel viejo". Al comparar contra lo que Edgar señaló (PrimeNG Aura) apareció el dato que decidió: **slate-100 tiene 33% MENOS croma que stone-100 (0.0069 vs 0.0103) y más luz (L\* 96.8 vs 95.9)** — lo que se percibía como "limpio" no era el azul, era menos tinte y más claridad; a ese croma el azul casi no se ve pero empuja hacia donde un blanco se lee más blanco (principio del abrillantador óptico), mientras el mismo croma en amarillo se lee sucio. **Se advirtió el costo antes de ejecutar** (adoptar el tema por default de PrimeNG es volverse el "95% de tools Zinc/blue" que el RISK choice #1 quería evitar) y Edgar lo confirmó. **Contraste verificado, ambos lados calculados:** todo par de texto se mantiene o mejora (principal en oscuro **17.28 → 19.06**; en claro **17.21 → 18.41**; muted −0.03 en oscuro). Builds `portal` + `vendor` verdes; `view` no compila por **WIP ajeno sin commitear** (`admin-roles-grid` + `admin-responsabilidades`: acento grave dentro de un template literal — el gotcha de siempre), ninguno de los dos tocado por este cambio. ⚠️ **Hallazgo colateral declarado, no arreglado:** el comentario `(AA OK)` de `--action-ink` era **falso** — blanco sobre `--action` da **3.39:1**, AA sólo para texto grande, y nuestros CTA son de 13–14px. |
 | 2026-09-14 | **Auditoría del doc contra el código: 6 contradicciones internas corregidas + toda cifra fechada + [Estado de cumplimiento](#estado-de-cumplimiento--lo-que-el-doc-manda-vs-lo-que-el-código-hace) e [índice](#mapa-del-documento) nuevos.** Corregido: (1) **§Ing.UI 4 seguía exigiendo `NgZone.runOutsideAngular()`** — el retiro estaba *declarado* en la fila 2026-09-09 de esta misma tabla y **nunca se ejecutó**; ahora dice qué hacer en zoneless (el callback no dispara CD salvo que escriba una `signal`). (2) **§Ing.UI 5 y §R mandaban poner los componentes compartidos en `libs/`**, que tiene **0 componentes Angular**: la regla apuntaba a un conjunto vacío y por eso se leía como cumplida; ahora apunta a `apps/view/src/app/shared/components/` y declara el hueco real (portal y vendor con **0** componentes compartidos). (3) **La tabla de Surfaces —paso 1 del pre-vuelo— listaba 6 rutas y faltaban 8** (`/finanzas`, `/contabilidad`, `/compras`, `/almacen`, `/tienda`, `/reparto`, `/projects`, `/mi-trabajo`), justo las pantallas de dinero más densas; y listaba `/vendor` y `/portal` como rutas de `apps/view` cuando hace tiempo son apps. (4) **Typography apuntaba a un solo `index.html`**: cada app carga su `<link>` y `apps/view` sirve **Sniglet** (3ª familia, exención §O.3) sin estar documentada. (5) **§Type scale prohibía el namespace `--text-*` para tamaños** mientras `--text-display-xl/-lg/-md` existen en `tokens.css` con 14 usos. (6) **El paso 6 del plan Operations, marcado "APLICADO", ordenaba dark espresso** cuando lo decidido y vigente es zinc `#111111`. | **Un contrato que se cita como BINDING y contiene afirmaciones falsas no gatea: enseña a no creerle.** Lo detonó medir, no opinar: al contrastar las cifras que el doc publica contra `grep` de hoy, **cuatro estaban vencidas y dos habían empeorado** — `::ng-deep` 317 → **370 (+17%)** contra una métrica de §S que dice literalmente "no sube", y breakpoints en px 124 → **169 (+36%)**, siendo antipatrón declarado. Y `@layer` **sigue en 0**, así que la justificación que §S le exige a cada `!important` (*"por qué no alcanza la capa"*) era imposible de dar desde el día que se escribió. El patrón de fondo: **lo que se cumple solo** (tokens en un archivo único, tipografía con 0 fugas, GSAP 100% lazy) tiene **un solo lugar donde vive**; lo que se degrada es lo que depende de que la revisión se acuerde. Por ADR-056, *un gate sin prueba negativa es una intención*: las 3 cifras que empeoraron son justo las **mecánicamente medibles**, o sea las que un check de CI habría frenado. ⚠️ **Declarado sin resolver (no se tocó código):** `MetricStrip` —arquetipo de ADR-033 en 64 pantallas— anima `width` 900ms (viola techo 350ms **y** compositor-only) · el morado prohibido `#8b5cf6` volvió en `promotions-meta.ts` junto a la paleta default de Tailwind · 171 hex crudos en 40 archivos de `apps/view` · `surf-table--zebra` no-op aplicada en 35 archivos · `TabShell` y `MiniBars` con **0 adopción** · `motion@^12.38.0` sigue muerta. Todo con archivo y línea en el Estado de cumplimiento. |

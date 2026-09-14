@@ -1,23 +1,28 @@
 /**
  * Placeholder de marca para productos sin foto. Devuelve un gradiente
- * MONOCROMÁTICO (escala Stone, carbón cálido) DETERMINISTA por clave (mismo
- * producto → mismo tono siempre), para que la pared del catálogo sea estable
- * entre cargas. Dirección quiet-luxury (DESIGN.md): el color de marca queda
- * para CTA/promos/estado, no para los thumbnails. El monograma blanco de los
+ * MONOCROMÁTICO (escala Zinc) DETERMINISTA por clave (mismo producto → mismo
+ * tono siempre), para que la pared del catálogo sea estable entre cargas.
+ * Dirección quiet-luxury (DESIGN.md): el color de marca queda para
+ * CTA/promos/estado, no para los thumbnails. El monograma blanco de los
  * consumidores sigue legible porque todos los tonos son oscuros.
+ *
+ * 2026-09-14: los 8 gradientes pasaron de Stone (carbón cálido) a Zinc al
+ * unificar los neutrales de toda la suite. Se conservó el L* EXACTO de cada
+ * extremo, así que la progresión de tonos y el contraste del monograma no se
+ * movieron — sólo cambió la familia de color.
  *
  * Fuente única: la usan portal-product-card (catálogo) y portal-home
  * ("Comprar de nuevo"), así el lenguaje visual del placeholder es idéntico.
  */
 const PH_GRADIENTS = [
-  'linear-gradient(140deg, #2B2620 0%, #100D09 100%)',
-  'linear-gradient(140deg, #463F36 0%, #1A1611 100%)',
-  'linear-gradient(140deg, #5E564B 0%, #2B2620 100%)',
-  'linear-gradient(140deg, #3A332B 0%, #16130F 100%)',
-  'linear-gradient(140deg, #514A40 0%, #211D18 100%)',
-  'linear-gradient(140deg, #1A1611 0%, #2B2620 100%)',
-  'linear-gradient(140deg, #6B6356 0%, #322C25 100%)',
-  'linear-gradient(140deg, #38322A 0%, #100D09 100%)',
+  'linear-gradient(140deg, #272728 0%, #0D0D0F 100%)',
+  'linear-gradient(140deg, #404042 0%, #171718 100%)',
+  'linear-gradient(140deg, #57575A 0%, #272728 100%)',
+  'linear-gradient(140deg, #343436 0%, #131315 100%)',
+  'linear-gradient(140deg, #4B4B4D 0%, #1D1D1F 100%)',
+  'linear-gradient(140deg, #171718 0%, #272728 100%)',
+  'linear-gradient(140deg, #646467 0%, #2D2D2F 100%)',
+  'linear-gradient(140deg, #333335 0%, #0D0D0F 100%)',
 ];
 
 export function brandPlaceholderGradient(key: string | null | undefined): string {

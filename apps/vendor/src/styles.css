@@ -203,7 +203,7 @@ html {
    body.theme-monochrome → html no los hereda. Hardcodeamos el --layout-bg dark
    (= el de la nav/página) para que la franja de abajo no se vea más clara. */
 html.theme-monochrome {
-  background-color: #111111;
+  background-color: #09090B;
 }
 
 body {
@@ -1822,9 +1822,11 @@ input:focus, textarea:focus, select:focus {
 }
 
 .theme-monochrome .liquid-tabs-indicator {
-  /* Gris neutro elevado — NO var(--neutral-700) (Stone #463F36, café cálido)
-     que rompía el dark neutro con un pill marrón. */
-  background: #333333;
+  /* Gris neutro elevado. Hasta el 2026-09-14 esto era un `#333333` hardcodeado
+     porque --neutral-700 era Stone (#463F36, café cálido) y dejaba un pill
+     marrón sobre el dark neutro. Con la rampa en zinc el token ya es neutro
+     (#3F3F46), así que el workaround se retira. */
+  background: var(--neutral-700);
   box-shadow:
     0 1px 2px rgba(0, 0, 0, 0.4),
     0 4px 16px rgba(0, 0, 0, 0.5),

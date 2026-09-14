@@ -125,7 +125,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
       :host { display: block; }
       .hero {
         margin: -1rem -1rem 0; padding: 1.3rem 1rem 1.4rem;
-        background: var(--stone-50, #faf7f3);
+        background: var(--neutral-50, #FAFAFA);
         color: var(--text-main, #2b2622); position: relative; overflow: hidden; isolation: isolate;
         border-bottom: 1px solid var(--border-color, rgba(40,30,20,0.08));
       }
@@ -182,7 +182,7 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
       .chip.info { background: var(--info-soft-bg); color: var(--info-soft-fg); }
       .chip.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
       .chip.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
-      .chip.muted { background: var(--stone-100); color: var(--stone-600); }
+      .chip.muted { background: var(--neutral-100); color: var(--neutral-600); }
 
       .pending-sync { margin-bottom: 1.1rem; }
       .pending-sync .seclab { display: flex; align-items: center; gap: 0.35rem; }

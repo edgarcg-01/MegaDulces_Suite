@@ -90,10 +90,12 @@
      modos: Aura misma se parte en slate/zinc y eso era justo la incoherencia
      que originó todo. Ver DESIGN.md → Decisions Log 2026-09-14.
 
-     ⚠️ ALCANCE: sólo Operations (apps/view + apps/vendor). El Storefront
-     (/portal) NO cambia: `.portal-shell`/`.pl-wrap` re-apuntan --neutral-*
-     a --stone-* más abajo, así que el portal sigue cálido por construcción.
-     La rampa --stone-* SIGUE VIVA y es la del Storefront — no borrarla. */
+     ⚠️ ALCANCE: TODA la suite. Arrancó siendo sólo Operations y el mismo día
+     se extendió al Storefront (decisión Edgar): `.portal-shell`/`.pl-wrap`
+     dejaron de pisar los neutrales y ahora heredan de acá. UNA sola familia
+     en las 3 apps y en los dos modos. La rampa --stone-* se retiró en el mismo
+     commit (había quedado con cero consumidores); está en git si hace falta.
+     La calidez de marca la llevan --brand-*, --action y --ember-*. */
   --neutral-50:  #FAFAFA;
   --neutral-100: #F4F4F5;
   --neutral-200: #E4E4E7;
@@ -354,7 +356,7 @@ body.theme-monochrome {
   --shadow-light:  0 1px 3px rgba(0, 0, 0, 0.5);
   --shadow-hover:  0 0 20px rgba(251, 244, 233, 0.08);
   --shadow-float:  0 2px 6px rgba(0, 0, 0, 0.4), 0 12px 28px -14px rgba(0, 0, 0, 0.6);
-  --skeleton-bg:   #2A2A2A;
+  --skeleton-bg:   #27272A;
 
   --accent-brand-light: rgba(253, 231, 7, 0.2);
 
@@ -427,9 +429,12 @@ body.theme-monochrome {
    Radii / Spacing / Motion / Density / Interacción.
    ════════════════════════════════════════════════════════════════════════════ */
 :root {
-  --stone-50:#FBF9F6; --stone-100:#F5F1EA; --stone-200:#E8E2D7; --stone-300:#D8CFC0;
-  --stone-400:#B0A595; --stone-500:#837A6C; --stone-600:#5E564B; --stone-700:#463F36;
-  --stone-800:#2B2620; --stone-900:#1A1611; --stone-950:#100D09;
+  /* La rampa --stone-* (neutrales cálidos) se RETIRÓ el 2026-09-14 al unificar
+     toda la suite en zinc. Tenía cero consumidores después de que el portal
+     dejara de pisar sus neutrales, y dejarla declarada invitaba a volver a
+     partir el sistema en dos familias. Está en git (commit de esa fecha) si
+     hiciera falta recuperarla. La calidez de marca vive en --brand-*,
+     --action y --ember-*, no en el sustrato. */
 
   --action:       #F05A28;
   --action-hover: #D2451C;
@@ -539,49 +544,32 @@ body.theme-monochrome {
 
 /* ════════════════════════════════════════════════════════════════════════════
    SURFACE — Storefront (Portal B2B). Overrides SCOPEADOS a .portal-shell/.pl-wrap.
-   El resto de la app no se ve afectado. Dark = espresso cálido (no el zinc de
-   Operations): negro puro bajo una marca cálida se ve duro/barato.
+
+   ⚠️ NEUTRALES: desde el 2026-09-14 el portal NO los pisa — hereda el zinc de
+   `:root` y de `body.theme-monochrome`, igual que Operations. Decisión de Edgar:
+   UNA sola familia de neutrales en toda la suite.
+
+   Hasta esa fecha acá se re-apuntaba --neutral-* a --stone-* (cálido) y el dark
+   era espresso (#16130F). Se retiró entero, no se reescribió a zinc: heredar es
+   más barato que duplicar, y un override que repite el valor del padre es la
+   forma más común de que las dos definiciones diverjan sin que nadie lo note
+   (ya pasó una vez en este archivo — ver la cabecera, consolidación 2026-08-12).
+
+   Lo que el portal SÍ conserva propio: su tipografía (Poppins entra por
+   --font-display en :root, pero body/mono se fijan acá por herencia histórica)
+   y la identidad IA ámbar. La calidez de marca ahora la llevan --action sunset,
+   --brand-* y --ember-*, no el sustrato.
    ════════════════════════════════════════════════════════════════════════════ */
 .portal-shell,
 .pl-wrap {
   --font-body: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --neutral-50:  var(--stone-50);
-  --neutral-100: var(--stone-100);
-  --neutral-200: var(--stone-200);
-  --neutral-300: var(--stone-300);
-  --neutral-400: var(--stone-400);
-  --neutral-500: var(--stone-500);
-  --neutral-600: var(--stone-600);
-  --neutral-700: var(--stone-700);
-  --neutral-800: var(--stone-800);
-  --neutral-900: var(--stone-900);
-  --neutral-950: var(--stone-950);
-
-  --surface-ground: var(--stone-50);
-  --layout-bg:      var(--stone-100);
-  --card-bg:        #FFFFFF;
-  --hover-bg:       var(--stone-100);
-  --border-color:   var(--stone-200);
-  --text-main:      var(--stone-950);
-  --text-muted:     var(--stone-600);
-  --text-faint:     var(--stone-400);
-
   --ai-accent: #F8B400; /* ember-from: identidad IA en storefront */
 }
 
 body.theme-monochrome .portal-shell,
 body.theme-monochrome .pl-wrap {
-  --surface-ground: #1A1611;
-  --layout-bg:      #16130F;
-  --card-bg:        #1F1A14;
-  --sidebar-bg:     #1F1A14;
-  --hover-bg:       #2B2620;
-  --border-color:   #352E25;
-  --text-main:      #FBF4E9;
-  --text-muted:     #B0A595;
-  --text-faint:     #837A6C;
   --ember-soft:     rgba(248, 180, 0, 0.16);
   --ai-accent:      #F8B400;
 }

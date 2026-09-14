@@ -48,7 +48,7 @@ import { OutboxService } from '../offline/outbox.service';
       box-shadow: 0 -2px 12px rgba(0, 0, 0, .25);
     }
     .offline-banner.offline { background: #b91c1c; }
-    .offline-banner.syncing { background: #16130F; }
+    .offline-banner.syncing { background: #09090B; }
     .offline-banner .pi-sync.spin { animation: ob-spin 1s linear infinite; }
     @keyframes ob-spin { to { transform: rotate(360deg); } }
   `],
