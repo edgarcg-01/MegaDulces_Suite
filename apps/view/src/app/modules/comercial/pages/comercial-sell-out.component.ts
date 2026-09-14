@@ -184,7 +184,7 @@ const CHANNEL_SEL_OPTS = [
               <p-multiselect [options]="channelSelOpts" [ngModel]="channels()" (ngModelChange)="channels.set($event)"
                              optionLabel="label" optionValue="value" placeholder="Todos" appendTo="body"
                              styleClass="w-full" [maxSelectedLabels]="2" selectedItemsLabel="{0} canales"
-                             (onPanelHide)="onFilterMultiChange()" />
+                             (onPanelHide)="onChannelMultiChange()" />
             </div>
           } @else {
             <div class="so-field so-ms so-ms-wide">
@@ -1050,7 +1050,14 @@ export class ComercialSellOutComponent {
     { label: 'Sucursal', value: 'sucursal' },
     { label: 'Empresa', value: 'empresa' },
   ];
-  setConcentrar(v: string) { this.concentrar.set(v as '' | 'ruta' | 'canal' | 'sucursal' | 'empresa'); this.generate(); }
+  setConcentrar(v: string) {
+    const c = v as '' | 'ruta' | 'canal' | 'sucursal' | 'empresa';
+    // Sincronía: "Concentrar por ruta" acota a ruta → toma la dimensión Canal (limpia el multiselect
+    // para no dejar dos filtros de canal en conflicto). Los demás concentrados no filtran.
+    if (c === 'ruta' && this.channels().length) this.channels.set([]);
+    this.concentrar.set(c);
+    this.generate();
+  }
   /**
    * [VP.0.3] Los eslabones que fallan, para que el aviso nombre algo accionable ("la MV de Kepler
    * lleva 3 días") y no un genérico "hay rezago" que nadie sabe a quién escalar.
@@ -1122,15 +1129,31 @@ export class ComercialSellOutComponent {
   readonly vendorSelArray = computed(() => Array.from(this.selectedCells()));
 
   /**
-   * Chips de "filtros activos" (C): un filtro es un filtro venga del dropdown, del preset del
-   * trabajo o de un clic en el cuadro. Removibles → limpian ese filtro y regeneran.
+   * SINCRONÍA DE FILTROS — canal EFECTIVO: la única fuente de verdad de qué canales van al backend.
+   * `buildParams` Y los chips leen de acá, así el chip NUNCA miente. `Concentrar por ruta` acota a
+   * ruta (comportamiento histórico), pero acá queda declarado en vez de pisar en silencio el Canal.
+   */
+  readonly effectiveChannels = computed<string[]>(() =>
+    this.concentrar() === 'ruta' ? ['ruta'] : this.channels(),
+  );
+
+  /**
+   * Chips de "filtros activos" (C): reflejan el REQUEST EFECTIVO, no las señales crudas — venga del
+   * dropdown, del preset del trabajo, de un clic en el cuadro o de `concentrar`. Removibles → limpian
+   * ESE filtro y regeneran. (Sincronía: si algo pisa a otro, el chip lo dice.)
    */
   readonly activeChips = computed<{ kind: string; type: string; label: string; key: string }[]>(() => {
     const out: { kind: string; type: string; label: string; key: string }[] = [];
     const bid = this.brandId();
     if (bid) out.push({ kind: 'brand', type: 'Empresa', label: this.brands().find((b) => b.id === bid)?.nombre ?? '—', key: bid });
     for (const w of this.warehouses()) out.push({ kind: 'wh', type: 'Sucursal', label: this.warehouseOpts().find((o) => o.code === w)?.name ?? w, key: w });
-    for (const c of this.channels()) out.push({ kind: 'ch', type: 'Canal', label: this.channelSelOpts.find((o) => o.value === c)?.label ?? c, key: c });
+    const forcedRuta = this.concentrar() === 'ruta';
+    for (const c of this.effectiveChannels()) {
+      const lbl = this.channelSelOpts.find((o) => o.value === c)?.label ?? c;
+      out.push(forcedRuta && c === 'ruta'
+        ? { kind: 'conc', type: 'Concentrado', label: lbl, key: c }
+        : { kind: 'ch', type: 'Canal', label: lbl, key: c });
+    }
     for (const t of this.selectedCells()) {
       const isVen = this.reportMode() === 'vendedor';
       const label = isVen ? (this.vendorOptions().find((o) => o.value === t)?.label ?? t) : t;
@@ -1144,6 +1167,7 @@ export class ComercialSellOutComponent {
       case 'brand': this.brandId.set(null); break;
       case 'wh': this.warehouses.set(this.warehouses().filter((x) => x !== c.key)); break;
       case 'ch': this.channels.set(this.channels().filter((x) => x !== c.key)); break;
+      case 'conc': this.concentrar.set(''); break; // el chip forzado por "Concentrar por ruta"
       case 'cell': { const s = new Set(this.selectedCells()); s.delete(c.key); this.selectedCells.set(s); break; }
       case 'search': this.search.set(''); break;
     }
@@ -1304,11 +1328,17 @@ export class ComercialSellOutComponent {
     });
   }
 
-  /** Cambio en un multiselect visible (Sucursal/Canal): usar la vía visible limpia el árbol
-   *  avanzado (`cells`) para no mezclar dos filtros que se pisan, y regenera. */
+  /** Cambio en un multiselect visible (Sucursal/Canal): usar la vía SIMPLE limpia el árbol
+   *  avanzado (`cells`) para no mezclar dos filtros de la misma dimensión, y regenera. */
   onFilterMultiChange() {
     if (this.selectedCells().size) this.selectedCells.set(new Set());
     this.generate();
+  }
+  /** Cambio en el multiselect de CANAL: además, si estaba "Concentrar por ruta" (que acota a ruta)
+   *  lo suelta — el usuario ahora elige canal explícito. Sincronía: una vía activa por dimensión. */
+  onChannelMultiChange() {
+    if (this.concentrar() === 'ruta') this.concentrar.set('');
+    this.onFilterMultiChange();
   }
   /** Selección del multiselect de Vendedor → escribe los tokens `grupo|code` en selectedCells.
    *  Regenera al cerrar el panel (onPanelHide), no en cada toggle. */
@@ -1380,7 +1410,18 @@ export class ComercialSellOutComponent {
     this.syncPeriod();
     this.generate();
   }
-  applyCells() { this.slicerOpen.set(false); this.generate(); }
+  /** Aplicar el árbol AVANZADO (`cells` = canal|almacén). Sincronía: el avanzado abarca sucursal Y
+   *  canal por hoja, así que toma esas dimensiones — limpia los multiselect simples y el concentrar-ruta
+   *  para no combinar dos filtros de lo mismo (que en el backend se AND-ean y confunden). */
+  applyCells() {
+    if (this.selectedCells().size && this.reportMode() === 'canal') {
+      if (this.warehouses().length) this.warehouses.set([]);
+      if (this.channels().length) this.channels.set([]);
+      if (this.concentrar() === 'ruta') this.concentrar.set('');
+    }
+    this.slicerOpen.set(false);
+    this.generate();
+  }
 
   /** Autocomplete de producto (todas las empresas): al elegir uno, filtra por su SKU y regenera.
    *  Al elegir un SKU específico ponemos Promos en "Todo" — el usuario pidió ESE producto, así que
@@ -1484,7 +1525,7 @@ export class ComercialSellOutComponent {
       to: this.curTo,
       group_by: this.byChannel ? 'branch_channel' : 'branch',
       view: this.view(),
-      channels: this.concentrar() === 'ruta' ? ['ruta'] : (this.channels().length ? this.channels() : undefined),
+      channels: this.effectiveChannels().length ? this.effectiveChannels() : undefined,
       warehouses: this.warehouses().length ? this.warehouses() : undefined,
       cells: this.selectedCells().size ? Array.from(this.selectedCells()) : undefined,
       mode: this.reportMode(),

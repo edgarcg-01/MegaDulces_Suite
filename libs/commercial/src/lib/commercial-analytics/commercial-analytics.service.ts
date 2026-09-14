@@ -3003,7 +3003,9 @@ export class CommercialAnalyticsService {
     const channelFilter = (q.channels && q.channels.length)
       ? new Set(q.channels.map((c) => c.trim().toLowerCase()).filter(Boolean))
       : null;
-    // RS.4 — filtro por celdas (canal|almacén). Gana sobre channels/warehouses sueltos.
+    // RS.4 — filtro por celdas (canal|almacén, el árbol "Avanzado"). Se COMBINA (AND) con el filtro
+    // de canal y con el de sucursal; NO los reemplaza. El frontend evita mandarlos juntos (una vía
+    // activa por dimensión, sincronía de filtros), así que en la práctica llega uno u otro.
     const cellFilter = (q.cells && q.cells.length)
       ? new Set(q.cells.map((c) => c.trim().toLowerCase()).filter(Boolean))
       : null;
@@ -3202,10 +3204,16 @@ export class CommercialAnalyticsService {
         continue;
       }
 
-      // RS.13 — layout "por plaza": mapear (almacén, canal) → columna fija del template; sin
-      // filtros de canal/celda ni desglose por vendedor. Fila = producto. Nada se pierde: lo
-      // que no matchea cae en OTROS y el total cuadra.
+      // RS.13 — layout "por plaza": mapear (almacén, canal) → columna fija del template. Fila =
+      // producto; sin desglose por vendedor. SÍ honra los filtros de canal y de celda (Avanzado):
+      // un filtro puesto DEBE aplicar en todo layout (sincronía de filtros). Lo que no matchea el
+      // template cae en OTROS y el total cuadra.
       if (plaza) {
+        if (channelFilter && !channelFilter.has(channel)) continue;
+        if (cellFilter) {
+          const leafKey = `${channel}|${String(r.branch_code).toLowerCase()}`;
+          if (!cellFilter.has(leafKey) && !cellFilter.has(`${channel}|*`)) continue;
+        }
         const colKey = plazaColKey(r.branch_code, channel, routePlaza) ?? PLAZA_OTROS_KEY;
         if (!columns.has(colKey)) {
           columns.set(colKey, { key: colKey, branch_code: colKey, branch_name: 'OTROS' });
