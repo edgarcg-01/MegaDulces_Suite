@@ -782,6 +782,13 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/almacen-area-shell.component').then(m => m.AlmacenAreaShellComponent),
         children: [
       {
+        // Análisis BI — espacio de indicadores cruzados del almacén. Arranca SIN indicadores
+        // publicados a propósito: ver el doc del componente.
+        path: 'analisis-bi',
+        loadComponent: () => import('./modules/almacen/pages/almacen-analisis-bi.component').then(m => m.AlmacenAnalisisBiComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
+      },
+      {
         // EXISTENCIA — el censo físico, derivado del ERP (el ODS). MISMO componente que
         // /compras/existencia y MISMO permiso: es la misma pantalla para las dos audiencias
         // (precedente vivo: Caducidades en /almacen + /tienda).

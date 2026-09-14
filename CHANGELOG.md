@@ -199,6 +199,16 @@ Reporte de tienda: *"el tamaño de la etiqueta se redujo y los usuarios no logra
 - **La carga masiva se pliega** detrás de "Pegar lista" y el buscador sube a la línea de la pistola. Se usa poco (cambio de precios de temporada) y abierta costaba una tarjeta entera de alto — justo el alto que le faltaba a la hoja. La función queda intacta: mismo textarea, mismo `addBulk()`, mismo aviso de no encontrados (visible también con el panel cerrado).
 - **Medido** (etiqueta en pantalla, antes 147×63 px en cualquier monitor): 1366×768 → **212×90 (×1.44)** · 1920×1080 → **327×139 (×2.22)** · 2560×1440 → **439×188 (×2.99)**. En pantalla chica manda el alto, y la hoja **entera** sigue visible sin scroll — es una vista de hoja: si hay que scrollear para ver la última fila deja de servir para lo que sirve.
 - Build `view` verde; suite de etiquetas verde (6/6). ⚠️ `mi-trabajo.component.spec.ts` falla en `main`, ajeno a este cambio. **Validación visual pendiente** (los dev servers son de Edgar).
+### Added — módulo Análisis BI en el sidebar de Almacén (WMS-BI.0, 2026-09-14)
+
+Nuevo módulo `/almacen/analisis-bi`, visible como item del sidebar del proyecto Almacén. Este primer PR entrega **la puerta**, no los indicadores.
+
+- **Área, no item suelto.** El sidebar de `/almacen` se deriva de `ALMACEN_AREAS`; el área nueva trae un solo tab, y el shell esconde la barra con menos de dos → hoy se ve como item simple, y el segundo indicador la enciende sin tocar el layout.
+- **La pantalla arranca vacía y lo dice.** Sin tarjetas en cero: un cero dibujado se lee igual que un cero medido (ADR-056). Cada indicador entra en su PR con su fuente declarada, y **sin importer nuevo** (regla ⭐).
+- **Permiso propio `ALMACEN_BI_VER`, con migración que lo REPARTE** (`20260914120000`): declarar la clave no le da acceso a nadie — ya cobró con `FISCAL_PURCHASE_BOOK_VER` (LC.6.2) y `STORE_PRICE_CHECK_VER` (CV.24). El alcance se **deriva del estado vivo** (quien supervisa inventario físico o ve el diario de movimientos): **10 roles**, medido. Se descartaron los hermanos obvios porque están repartidos anchos — `INVHEALTH`/`DEADSTOCK` los tienen 10 roles incluidos `repartidor` y `telemarketing`, `EXISTENCIA_VER` 14 con tesorería.
+- ⚠️ **Fixed (en la migración nueva, hallado al verificarla):** el `UPDATE` derivado filtraba por `role_name` y `identity.role_permissions` es por tenant (`superadmin` tiene 2 filas) → tocaba una fila que la derivación no seleccionó, y el log reportaba 11 mientras listaba 10 nombres. Ahora apunta por `id`. **La hermana `20260909120000` arrastra la misma imprecisión**, declarada en el comentario.
+- Internal: `nx test contracts` 35/35 y `nx test view` 255 (incluye `landing-guards.spec.ts`); la migración se ejercitó con `up`/`down` reales en una transacción con rollback (idempotencia comprobada con una segunda corrida).
+- **Pendiente: migración a Railway + redeploy view + re-login de los roles afectados + validación visual.**
 ### Added — Egresos: entran el activo no circulante (150) y los financieros e impuestos (702-764) (GX.9, 2026-09-11)
 
 `/finanzas/egresos` contaba sólo compras (511) y gastos (6xx). Detalle y medición en [`03_LOG_REVISIONES`](docs/IMPLEMENTACION/03_LOG_REVISIONES.md).

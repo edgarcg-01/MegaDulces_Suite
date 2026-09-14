@@ -245,6 +245,14 @@ export enum Permission {
   // todavía — verificado, no supuesto; se agrega cuando exista.
   EXISTENCIA_VER = 'EXISTENCIA_VER',
   EXISTENCIA_GESTIONAR = 'EXISTENCIA_GESTIONAR',
+  // Análisis BI — el espacio de indicadores cruzados de Almacén (/almacen/analisis-bi).
+  // Permiso PROPIO y no un COMMERCIAL_* reusado: el módulo existe sólo en Almacén (a diferencia
+  // de EXISTENCIA_*, que vive en dos proyectos y por eso va sin prefijo), y compartirlo con
+  // INVHEALTH/DEADSTOCK haría imposible dar el BI sin dar esas dos pantallas, ni quitarlo sin
+  // quitarlas. Precedentes de clave con prefijo propio de superficie: STORE_*, REPARTO_*.
+  // Sin _GESTIONAR: la pantalla todavía no escribe nada, y un gate sin acción que gatear es un
+  // permiso muerto (ADR-054). Se agrega cuando exista la acción.
+  ALMACEN_BI_VER = 'ALMACEN_BI_VER',
   // Páginas independientes que estaban bajo un permiso compartido:
   COMMERCIAL_ERP_PROMOS_VER = 'COMMERCIAL_ERP_PROMOS_VER',   // /comercial/erp-promos (promos del ERP)
   COMMERCIAL_VENDOR_SALES_VER = 'COMMERCIAL_VENDOR_SALES_VER', // /comercial/vendor-sales (ventas de vendedor)
