@@ -671,6 +671,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
     inventario: 'pi pi-box',
     conteo: 'pi pi-qrcode',
     control: 'pi pi-shield',
+    'analisis-bi': 'pi pi-chart-line',
   };
 
   /**
