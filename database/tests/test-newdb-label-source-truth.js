@@ -24,6 +24,11 @@
  * — que es lo que hace este archivo.
  *
  * ⛔ Lo que NO hace: arreglar nada. Mide y se pone rojo.
+ *
+ * ⚠️ El bloque 3 mide la COPIA y **declara** en vez de fallar, porque desde `[ET.3]` el defecto ya
+ * no llega a un humano: la etiqueta toma el precio del ERP en vivo. Lo que ahí se asegura con un
+ * FAIL es la otra mitad —**que el lector siga yendo a la fuente**— con un guard de código: si
+ * alguien revierte eso, la tabla se seguiría viendo igual de sana y nada más lo notaría.
  */
 
 const { Client } = require('pg');
@@ -127,11 +132,37 @@ const N = (n) => Number(n ?? 0).toLocaleString('en-US');
            round(sum(lp.piece_price)::numeric, 2) AS suma_publicada
       FROM lp JOIN ods o ON o.suc = lp.suc AND o.sku = lp.sku
      WHERE COALESCE(o.c90, 0) <= 0.05 AND lp.piece_price > 0.05`, [T]);
-  console.log(`     ${N(z.filas)} filas publican un precio que el ERP dejó en 0 ($${z.suma_publicada})`);
-  check('⭐⭐ ninguna etiqueta publica un precio que el ERP ya puso en cero',
-    Number(z.filas) === 0,
-    `${N(z.filas)} filas. El cómputo filtra \`c90 > 0.05\` y el merge no borra: cuando el ERP baja `
-    + 'un precio a cero, la fila vieja sobrevive con su último valor y nadie la marca');
+  console.log(`     ${N(z.filas)} filas de la COPIA conservan un precio que el ERP dejó en 0`
+    + ` ($${z.suma_publicada})`);
+  console.log('     ⬜ DECLARADO, no FAIL: la copia efectivamente las conserva (el cómputo filtra');
+  console.log('        `c90 > 0.05` y el merge no borra), pero desde [ET.3] **ninguna interfaz las');
+  console.log('        publica**: la etiqueta toma el precio del ERP en vivo y dice SIN PRECIO');
+  console.log('        cuando no lo cotiza; el verificador ya leía kdii. Lo que sigue abierto es');
+  console.log('        la copia misma, y eso lo cierra la vista derive-no-copy.');
+
+  // ⭐ EL CANDADO DE VERDAD ES DE CÓDIGO: que el lector siga yendo a la FUENTE.
+  // Si alguien revierte [ET.3] y la etiqueta vuelve a imprimir `l.piece_price` de la copia, esas
+  // filas vuelven al papel y nada más lo notaría — la tabla se vería igual de "sana".
+  const fs = require('fs');
+  const path = require('path');
+  const svc = path.join(process.cwd(), 'libs', 'commercial', 'src', 'lib',
+    'commercial-labels', 'commercial-labels.service.ts');
+  if (!fs.existsSync(svc)) {
+    nomedido('el guard de código de la etiquetera', `no encuentro ${svc}`);
+  } else {
+    // Se comparan sólo las líneas de CÓDIGO: un comentario que cite `kepler_ods.kdii` haría pasar
+    // el guard sin que nadie lea la fuente. Ya pasó en esta sesión con otro grep.
+    const codigo = fs.readFileSync(svc, 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '')
+      .split('\n').filter((l) => !l.trim().startsWith('//')).join('\n');
+    const leeFuente = /kepler_ods\.kdii/.test(codigo);
+    const usaVivo = /precioVivoDe\s*\(/.test(codigo);
+    check('⭐⭐ la etiquetera lee el precio de la FUENTE (kepler_ods.kdii), no de la copia',
+      leeFuente && usaVivo,
+      `join a kepler_ods.kdii: ${leeFuente} · usa precioVivoDe(): ${usaVivo}`
+      + ' — sin esto la etiqueta vuelve a imprimir el último precio conocido de la copia, que'
+      + ' sobrevive aunque el ERP lo haya retirado');
+  }
 
   // ── 4. La copia no tiene dato propio → debería ser una VISTA ──────────────────────────────
   console.log('\n── 4. ¿La copia tiene algo que NO se pueda derivar? ──');
