@@ -384,15 +384,18 @@
                 <span class="mt-freq-rule" aria-hidden="true"></span>
                 <span class="mt-freq-why" title="Se llena sola con lo que vas abriendo. Vive en este navegador.">lo último que abriste</span>
               </p>
-              <div class="mt-tiles">
+              <!--
+                [SN.26] Chips, no mosaicos 4:3. Medido a 1440x874: los mosaicos costaban 146 px de
+                un presupuesto de 732 y dejaban 3 de 5 columnas vacías, para repetir tarjetas que
+                ya estaban visibles 200 px más abajo (2 de 2, medido). El chip toma el ancho de su
+                texto y se acomoda en línea: mismo bloque, 32 px, sin huecos.
+              -->
+              <div class="mt-chips">
                 @for (e of accesos(); track e.id) {
-                  <a class="mt-tile" [routerLink]="e.route" [title]="e.groupLabel || e.label"
+                  <a class="mt-chip" [routerLink]="e.route" [title]="e.groupLabel || e.label"
                      (click)="abrioPuerta(e, { id: '', label: '', icon: '', status: '', entradas: [] })">
-                    <span class="mt-tile-ico"><i [class]="e.icon" aria-hidden="true"></i></span>
-                    <span class="mt-tile-txt">
-                      <span class="mt-tile-nm">{{ e.label }}</span>
-                      @if (e.sub) { <span class="mt-tile-sb">{{ e.sub }}</span> }
-                    </span>
+                    <i class="mt-chip-ico" [class]="e.icon" aria-hidden="true"></i>
+                    <span class="mt-chip-nm">{{ e.label }}</span>
                   </a>
                 }
               </div>
