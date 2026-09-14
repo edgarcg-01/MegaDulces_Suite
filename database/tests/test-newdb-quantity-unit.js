@@ -190,8 +190,53 @@ const nomedido = (label, why) => { skip++; console.log(`  ○ NO MEDIDO — ${la
     'cero rechazos: el guard dejó de exigir afirmación y está convirtiendo también donde el '
     + 'resolvedor no sostiene el factor — que es meter una pieza donde se pidió una caja');
 
-  // ── 5. Lo que este candado NO mide ────────────────────────────────────────────────────────
-  console.log('\n── 5. Lo que este candado no mide ──');
+  // ── 5. ⭐⭐ Los DOS resolvedores que se usan en el mismo pedido ────────────────────────────
+  //
+  // La pantalla del vendedor arma sus presentaciones con `analytics.v_product_unit_ladder` (f3 =
+  // la caja) y el servidor valida con `analytics.v_product_box_factor`. Son dos resolvedores para
+  // la MISMA pregunta — la adopción desigual que la auditoría del 12-sep encontró, vista desde
+  // adentro de un pedido.
+  //
+  // `resolverUnidadCaptura` RECHAZA la línea cuando los dos afirman cosas distintas. Eso sólo es
+  // aceptable mientras el desacuerdo sea marginal: si crece, el vendedor deja de poder pedir y
+  // hay que unificar los resolvedores en serio, no subir el umbral.
+  console.log('\n── 5. ⭐⭐ Desacuerdo entre el resolvedor de la PANTALLA y el del SERVIDOR ──');
+  const dis = await q(`
+    WITH vta AS (
+      SELECT product_id, sum(monto) m FROM analytics.v_sellout_daily
+       WHERE tenant_id = $1 AND business_date >= current_date - 90 AND channel <> 'traspaso'
+       GROUP BY 1)
+    SELECT count(*) FILTER (WHERE COALESCE(l.f3,0) > 1
+             AND bf.product_id IS NOT NULL AND bf.source <> 'default'
+             AND COALESCE(bf.is_master_suspect,false) = false AND bf.box_factor::numeric > 1
+             AND abs(l.f3::numeric - bf.box_factor::numeric) > 0.0001)::int AS discrepan,
+           round(COALESCE(sum(v.m) FILTER (WHERE COALESCE(l.f3,0) > 1
+             AND bf.product_id IS NOT NULL AND bf.source <> 'default'
+             AND COALESCE(bf.is_master_suspect,false) = false AND bf.box_factor::numeric > 1
+             AND abs(l.f3::numeric - bf.box_factor::numeric) > 0.0001), 0)::numeric, 0) AS venta_discrepan,
+           count(*) FILTER (WHERE COALESCE(l.f3,0) > 1
+             AND bf.product_id IS NOT NULL AND bf.source <> 'default'
+             AND COALESCE(bf.is_master_suspect,false) = false AND bf.box_factor::numeric > 1
+             AND abs(l.f3::numeric - bf.box_factor::numeric) <= 0.0001)::int AS coinciden
+      FROM catalog.products p
+      LEFT JOIN analytics.v_product_unit_ladder l ON l.sku = p.sku
+      LEFT JOIN analytics.v_product_box_factor bf
+             ON bf.tenant_id = p.tenant_id AND bf.product_id = p.id
+      LEFT JOIN vta v ON v.product_id = p.id
+     WHERE p.tenant_id = $1 AND p.deleted_at IS NULL`, [T]);
+  const d = dis[0];
+  console.log(`     coinciden ${d.coinciden} productos · DISCREPAN ${d.discrepan}`
+    + ` ($${Number(d.venta_discrepan).toLocaleString('en-US')} / 90 d)`);
+  check('⭐⭐ el desacuerdo entre los dos resolvedores sigue siendo marginal',
+    Number(d.discrepan) <= 25,
+    `${d.discrepan} productos discrepan (baseline medido 2026-09-14: 2). Cada uno es una línea `
+    + 'que el vendedor NO puede pedir. Si subió, unificar los resolvedores — no relajar este umbral');
+  check('⭐ y los dos coinciden en la mayoría (si no, no son el mismo dato)',
+    Number(d.coinciden) > 1000,
+    `sólo ${d.coinciden} coinciden`);
+
+  // ── 6. Lo que este candado NO mide ────────────────────────────────────────────────────────
+  console.log('\n── 6. Lo que este candado no mide ──');
   console.log('     ⛔ Que el VALOR de qty_unit sea el correcto. Eso lo arbitra el dinero o el ERP,');
   console.log('        y se hace por tabla cuando esa tabla tenga volumen.');
   console.log('     ⚠️  El censo es por NOMBRE de columna: una cantidad llamada de otra forma se le');

@@ -82,6 +82,16 @@ export interface AddLineDto {
    * cuántas piezas son no se resuelve multiplicando por 1.
    */
   qty_unit?: string;
+  /**
+   * [VU.3] El factor que usó la pantalla, como ÚLTIMO recurso. El servidor prefiere siempre el
+   * suyo; éste sólo entra cuando el resolvedor no puede afirmar nada, y queda rotulado
+   * `cliente_declara` para que se note que es dato de menor autoridad.
+   *
+   * ⚠️ Si el servidor SÍ tiene factor y el del cliente no coincide, la línea se **rechaza**: son
+   * dos cifras distintas para la misma caja, y elegir en silencio cambiaría el pedido respecto de
+   * lo que el humano vio en pantalla.
+   */
+  qty_factor?: number;
   /** Override del descuento por línea (0..1). Si no viene, 0. */
   discount_percent?: number;
   notes?: string;
@@ -379,6 +389,7 @@ export class CommercialOrdersService {
     productId: string,
     capturada: number,
     qtyUnit?: string,
+    qtyFactorCliente?: number,
   ): Promise<{ quantity: number; sello: SelloUnidad }> {
     const u = String(qtyUnit ?? '').trim().toUpperCase();
     // Sin unidad declarada: se comporta EXACTAMENTE como antes y el sello queda en null. Un null
@@ -409,33 +420,60 @@ export class CommercialOrdersService {
     // publica: la escalera completa vive en `analytics.mv_kepler_unit_ladder` (ADR-063) y cablearla
     // es una decisión aparte, no algo que este método deba improvisar.
     const esCaja = u === 'CJA' || u === 'CAJA';
-    if (!esCaja) {
+    const factor = Number(bf?.box_factor ?? 0);
+    // El servidor sólo puede AFIRMAR el peldaño de la CAJA: es el único que este resolvedor
+    // publica. Un rótulo intermedio (PAQ cuando la base es PZA) no lo sabe.
+    const afirma = esCaja && !!bf && bf.source !== 'default'
+      && bf.is_master_suspect !== true && factor > 1;
+
+    const fc = Number(qtyFactorCliente);
+    const clienteDeclara = Number.isFinite(fc) && fc > 0;
+
+    // [VU.3] Las dos cifras existen y NO coinciden: se rechaza en vez de elegir en silencio.
+    // Elegir la del servidor cambiaría el pedido respecto de lo que el humano vio en pantalla;
+    // elegir la del cliente tiraría la evidencia del ERP. Un desacuerdo se muestra, no se arbitra
+    // de contrabando dentro de un insert.
+    if (afirma && clienteDeclara && Math.abs(fc - factor) > 0.0001) {
       throw new BadRequestException(
-        `Unidad "${u}" no aceptada para este producto. Sólo se admite `
-        + `${base ? `su unidad base (${base})` : 'su unidad base, que el ERP no declara,'} o CJA. `
-        + 'Un rótulo intermedio (p. ej. PZA cuando la base es PAQ) necesita un peldaño que este '
-        + 'resolvedor no publica, y suponerlo cambiaría la cantidad del pedido.',
+        `Desacuerdo de empaque en "${u}": la pantalla usó ${fc} y el ERP dice ${factor}. `
+        + 'La línea no se guarda con ninguno de los dos: refrescá el catálogo de la pantalla o '
+        + 'corregí el empaque, pero que los dos digan lo mismo antes de pedir.',
       );
     }
 
-    const factor = Number(bf?.box_factor ?? 0);
-    const afirma = !!bf && bf.source !== 'default' && bf.is_master_suspect !== true && factor > 1;
-    if (!afirma) {
-      throw new BadRequestException(
-        `No se puede convertir "${u}" a la unidad base de este producto: `
-        + (bf
-          ? `el resolvedor no lo afirma (source=${bf.source}`
+    if (afirma) {
+      return {
+        quantity: capturada * factor,
+        sello: { qty_unit: u, qty_factor: factor, qty_factor_source: String(bf.source) },
+      };
+    }
+
+    // [VU.3] El servidor no puede afirmarlo. Si la pantalla trae SU factor, se usa y se ROTULA
+    // como suyo. Medido 2026-09-14: el vendedor captura por default en PAQ y en 1,940 productos
+    // ($33.7M/90d) la base es PZA — exigir el peldaño PAQ->PZA habría roto la toma de pedidos en
+    // la cuarta parte del dinero, y `mv_kepler_unit_ladder` sólo lo tiene en 302 SKUs con 96
+    // ambiguos. Aceptarlo rotulado es peor que tener el peldaño y mejor que no poder pedir.
+    if (clienteDeclara) {
+      return {
+        quantity: capturada * fc,
+        sello: { qty_unit: u, qty_factor: fc, qty_factor_source: 'cliente_declara' },
+      };
+    }
+
+    throw new BadRequestException(
+      `No se puede convertir "${u}" a la unidad base de este producto`
+      + `${base ? ` (${base})` : ' (el ERP no declara su unidad base)'}: `
+      + (esCaja
+        ? (bf
+          ? `el resolvedor no afirma el factor de caja (source=${bf.source}`
             + `${bf.is_master_suspect ? ', marcado sospechoso de pallet/granel' : ''}`
             + `, factor=${factor}). `
           : 'el producto no está en el resolvedor de unidad. ')
-        + 'Capturá en la unidad base o corregí el empaque en el catálogo — multiplicar por 1 '
-        + 'metería una pieza donde pediste una caja.',
-      );
-    }
-    return {
-      quantity: capturada * factor,
-      sello: { qty_unit: u, qty_factor: factor, qty_factor_source: String(bf.source) },
-    };
+        : 'es un rótulo intermedio y este resolvedor sólo publica el peldaño de la caja. ')
+      + 'Mandá `qty_factor` con el empaque que mostró la pantalla, capturá en la unidad base, o '
+      + 'corregí el empaque en el catálogo — multiplicar por 1 metería una pieza donde pediste '
+      + 'una caja.',
+    );
   }
 
   async addLine(orderId: string, dto: AddLineDto) {
@@ -464,7 +502,8 @@ export class CommercialOrdersService {
       // [VU.2] La conversión va ANTES de tarificar: el tier de volumen (FIQ.3) se resuelve por
       // cantidad en la unidad BASE, así que pedir "2 cajas" tiene que consultar el precio de 116
       // piezas, no el de 2. Convertir después habría dejado el precio de pieza suelta.
-      const conv = await this.resolverUnidadCaptura(trx, dto.product_id, dto.quantity, dto.qty_unit);
+      const conv = await this.resolverUnidadCaptura(
+        trx, dto.product_id, dto.quantity, dto.qty_unit, dto.qty_factor);
       const qtyBase = conv.quantity;
 
       // Merge por producto: si el SKU ya tiene línea en el carrito, se INCREMENTA
@@ -576,7 +615,7 @@ export class CommercialOrdersService {
     // se marca `unidad_mixta` y más abajo esa línea se rechaza en vez de inventar un total.
     const merged = new Map<string, {
       quantity: number; discount_percent?: number; notes?: string;
-      qty_unit?: string; unidad_mixta?: boolean;
+      qty_unit?: string; qty_factor?: number; unidad_mixta?: boolean;
     }>();
     for (const l of dto?.lines || []) {
       if (!l || !UUID_REGEX.test(l.product_id)) continue;
@@ -589,7 +628,8 @@ export class CommercialOrdersService {
         if ((prev.qty_unit ?? '') !== (u ?? '')) prev.unidad_mixta = true;
       } else {
         merged.set(l.product_id, {
-          quantity: qty, discount_percent: l.discount_percent, notes: l.notes, qty_unit: u,
+          quantity: qty, discount_percent: l.discount_percent, notes: l.notes,
+          qty_unit: u, qty_factor: l.qty_factor,
         });
       }
     }
@@ -612,7 +652,8 @@ export class CommercialOrdersService {
         // [VU.2] Convertir ANTES de tarificar: el tier de volumen se resuelve en la unidad base.
         let conv;
         try {
-          conv = await this.resolverUnidadCaptura(trx, productId, info.quantity, info.qty_unit);
+          conv = await this.resolverUnidadCaptura(
+            trx, productId, info.quantity, info.qty_unit, info.qty_factor);
         } catch (e: any) {
           // En el lote NO se aborta el pedido entero: el renglón se omite CON su motivo, igual que
           // los que no tienen precio. Abortar los 40 renglones por uno sin factor sería peor.

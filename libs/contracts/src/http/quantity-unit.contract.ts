@@ -63,6 +63,18 @@ export type QtyFactorSource =
   | 'factor_sale'
   /** La guarda anti-pallet: `c84` era ≥ 3× el empaque interno y se usó el interno. */
   | 'inner_box_guard'
+  /**
+   * [VU.3] El factor lo declaró el CLIENTE (la pantalla que capturó), no el resolvedor del
+   * servidor. Se acepta como último recurso y se rotula así a propósito: es dato de menor
+   * autoridad y un consumidor tiene que poder distinguirlo.
+   *
+   * Existe porque la medición lo exigió: el vendedor captura por default en `PAQ`, y en **1,940
+   * productos ($33.7M / 90 d) la unidad base es `PZA`** — ahí el peldaño `PAQ→PZA` es el que hace
+   * falta, y `mv_kepler_unit_ladder` sólo lo tiene en **302 SKUs, 96 de ellos ambiguos (32%)**.
+   * Rechazar esos pedidos por no tener el peldaño habría roto la toma de pedidos en la cuarta
+   * parte del dinero.
+   */
+  | 'cliente_declara'
   /** ⛔ NO hay factor: el `1` es un respaldo, no una afirmación. Se distingue de `captura_directa`. */
   | 'default';
 
