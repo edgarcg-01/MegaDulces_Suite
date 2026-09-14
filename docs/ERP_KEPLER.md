@@ -359,9 +359,13 @@ Este es el corazón de la integración. **No leemos las DBs de sucursal directo 
 | Sucursal 07 | **completa**: 9,551 productos · 2,704 existencias · 1,916 de 1,919 encabezados |
 | Carriles | `ods_live_hot` y `ods_live_mirror` **latiendo**, con 151 y 114 filas en la pasada |
 
-**Cobertura de tablas:** de las **371** del universo Kepler, `kepler_ods` tiene **223** = **60.1%**.
-Las 148 restantes no se replican — mucho es drift por rama y períodos viejos, pero **no está
-clasificado**: hueco declarado, no medido.
+**Cobertura de tablas (censo clasificado 100%, 2026-09-14):** de las **371** del universo Kepler
+(unión de las 8 réplicas), `kepler_ods` replica **236**. Las **138** restantes **NO son hueco de
+datos**, medido: **76 vacías** (0 filas en las 8 ramas — features de Kepler sin usar: CRM `kdcrm*`,
+cotizaciones `kdv*`, promos, variantes `kdm3/4/7/9`, `kdpord2/3/4/8`, `webuser`, `kdtriggers`) +
+**55 módulos no consumidos** (43 fiscal-CFDI `kdfe*` · 8 RH/nómina `kdrh*` · 4 POS `pos95*`) +
+**7 de período** (`kdc2YYMM` + anuales, los maneja la rotación). El ODS espeja las 236 que cargan
+el dato comercial/inventario/movimientos; lo de afuera es vacío, fuera de alcance, o período.
 
 **Lo que SÍ está abierto en prod** (verificado, no supuesto):
 
