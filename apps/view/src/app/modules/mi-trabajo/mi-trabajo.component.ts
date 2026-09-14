@@ -463,11 +463,23 @@ export class MiTrabajoComponent {
    * 5 más que el título de una tarjeta. El dato por el que existe la pantalla pesaba como una
    * etiqueta. Es la ÚNICA headline metric de la vista, que es lo que DESIGN.md permite.
    *
-   * Suma filas de colas distintas a propósito y se rotula literal — "pendientes en N bandejas" —
-   * porque eso es lo que cuenta: cuántas cosas esperan, no un indicador de negocio.
+   * ⚠️ `[SN.29]` **Lo que cambió es CUÁL número ocupa esos 40 px, y era un defecto de fondo.**
+   * Acá iba la suma de `deBandeja()` — o sea, **por construcción, lo único de la pantalla que no
+   * es de nadie**. La tesis entera de `[SN.7]`/`[SN.15]`/`[SN.20]` es que «a tu nombre» y «en tus
+   * bandejas» no se mezclan, y después la pantalla ponía lo segundo a 40 px y lo primero a 12 px
+   * en el subtítulo: en la captura que disparó esta corrección, **1** era tuyo y **2,082** no.
+   *
+   * Y el 2,082 tampoco era un total honesto: el 89.6 % era una sola cola (`cuadre`) que —medido
+   * contra prod— **jamás ha tenido una fila resuelta**. Nadie puede «hacer» 2,082 de nada.
+   *
+   * El titular pasa a ser lo que esta persona puede TERMINAR: lo asignado + sus borradores. Si es
+   * 1, dice 1. El volumen de las colas compartidas sigue visible fila por fila, que es donde se
+   * puede juzgar con su veredicto al lado.
    */
-  readonly totalPendientes = computed(() => this.deBandeja().reduce((n, p) => n + p.total, 0));
+  readonly totalPendientes = computed(() => this.totalMio());
   readonly bandejasConTrabajo = computed(() => this.deBandeja().length);
+  /** Cuántos items esperan en las colas compartidas. Baja al subtítulo: no es de nadie. */
+  readonly totalBandejas = computed(() => this.deBandeja().reduce((n, p) => n + p.total, 0));
 
   /**
    * `[SN.15]` Lo que ALGUIEN te asignó, con nombre y fecha — distinto de una cola que abre tu
@@ -498,13 +510,35 @@ export class MiTrabajoComponent {
    * justo arriba. Cada cosa se cuenta en su unidad y se dicen las dos.
    */
   readonly resumenMio = computed(() => {
-    const items = this.totalMio();
     const meses = this.ciclosMios().reduce((n, c) => n + c.pendientes, 0);
     const partes: string[] = [];
-    if (items > 0) partes.push(`${this.formatoTotal(items)} a tu nombre`);
     if (meses > 0) partes.push(`${meses} ${meses === 1 ? 'mes' : 'meses'} por cerrar`);
-    return partes.join(' · ') || 'ninguno a tu nombre';
+    const enColas = this.totalBandejas();
+    if (enColas > 0) {
+      const n = this.bandejasConTrabajo();
+      partes.push(`${this.formatoTotal(enColas)} en ${n} ${n === 1 ? 'cola compartida' : 'colas compartidas'}`);
+    }
+    return partes.join(' · ');
   });
+
+  /** `[SN.29]` ¿Hay algo que mostrar en el titular? Incluye lo compartido: un 0 propio es un dato. */
+  readonly hayTrabajo = computed(
+    () => this.totalMio() > 0 || this.deBandeja().length > 0 || this.ciclos().length > 0,
+  );
+
+  /**
+   * `[SN.29]` **Las colas congeladas se declaran aparte, y no se suman a nada.**
+   *
+   * Medido contra prod el 2026-09-14: de las cinco colas que la pantalla publicaba como «trabajo
+   * pendiente», **dos no han tenido una sola fila resuelta** — `reconciliation.discrepancies`
+   * (2,409 de 2,409 en `nuevo` desde el 8-jul) y `finance.proposed_actions` (192 de 198, las
+   * únicas 6 decididas el 6-ago). Juntas eran el 90 % del titular viejo.
+   *
+   * Es el mismo criterio que `[SN.18]` usó para retirar `finance.findings` —*«una cola que nadie
+   * trabaja no es trabajo pendiente»*— pero sin decidir por Edgar que se apaguen: se muestran con
+   * su veredicto y se resumen al pie con lo que les falta, que es un DUEÑO, no un clic.
+   */
+  readonly congeladas = computed(() => this.deBandeja().filter((p) => p.veredicto === 'congelada'));
   /** Cuántas de tus tareas ya pasaron su fecha. `null` en una fuente que no maneja vencimiento. */
   readonly tareasVencidas = computed(() => this.tareas().reduce((n, t) => n + (t.vencidas ?? 0), 0));
 
@@ -782,6 +816,63 @@ export class MiTrabajoComponent {
     if (dias >= 1) return `${dias} d`;
     const horas = Math.floor(ms / 3_600_000);
     return horas >= 1 ? `${horas} h` : 'hoy';
+  }
+
+  /**
+   * `[SN.29]` El veredicto, en una palabra que se pueda leer de reojo.
+   *
+   * ⛔ `al_dia` devuelve `null` a propósito: **lo sano no lleva insignia**. Ponerle una a las cinco
+   * filas volvería a dejarlas todas iguales, que es el defecto que esto vino a corregir — y
+   * `DESIGN.md` Q.6 ya lo dice para el color. La insignia marca lo que se sale de la norma.
+   */
+  veredictoTexto(p: MePendiente): string | null {
+    switch (p.veredicto) {
+      case 'se_acumula':
+        return 'crece';
+      case 'atrasada':
+        return 'atrasada';
+      case 'congelada':
+        return 'congelada';
+      case 'sin_medir':
+        return 'sin medir';
+      default:
+        return null;
+    }
+  }
+
+  /** El motivo largo del veredicto, para el `title`. Dice contra QUÉ vara se juzgó. */
+  veredictoMotivo(p: MePendiente): string {
+    const f = p.flujo;
+    switch (p.veredicto) {
+      case 'se_acumula':
+        return `Entraron ${f.entradas_30d} en 30 días y salieron ${f.cerradas_30d}: la cola crece.`;
+      case 'atrasada':
+        return `El más viejo lleva más de ${p.umbral_dias} ${p.umbral_dias === 1 ? 'día' : 'días'}, que es el umbral declarado para esta cola.`;
+      case 'congelada':
+        return 'Cero filas resueltas en 30 días, medido. No es trabajo pendiente hasta que tenga dueño.';
+      case 'sin_medir':
+        return 'Esta cola no pudo reportar su flujo. No se asume que esté al día.';
+      default:
+        return `Sale al menos tanto como entra y nada pasó el umbral de ${p.umbral_dias} ${p.umbral_dias === 1 ? 'día' : 'días'}.`;
+    }
+  }
+
+  /**
+   * `[SN.29]` La línea de flujo: qué entró y qué salió. Es lo que convierte un stock en algo que
+   * se puede juzgar — y de paso resuelve que la pantalla no tuviera noción de «desde la última
+   * vez»: abrirla dos veces al día mostraba el mismo total sin decir si había mejorado.
+   *
+   * ⛔ `cerradas_30d === null` NO se pinta como «0 resueltas»: se dice que la fuente no lo reporta.
+   */
+  flujoTexto(p: MePendiente): string | null {
+    const { entradas_7d, cerradas_30d } = p.flujo;
+    const partes: string[] = [];
+    if (entradas_7d !== null && entradas_7d > 0) {
+      partes.push(`+${this.formatoTotal(entradas_7d)} esta semana`);
+    }
+    if (cerradas_30d === null) partes.push('salidas sin medir');
+    else partes.push(`${this.formatoTotal(cerradas_30d)} resueltas en 30 d`);
+    return partes.length ? partes.join(' · ') : null;
   }
 
   /** "Bancos · Cobranza · Cartera · +4" — los módulos que ESTA persona puede abrir. */

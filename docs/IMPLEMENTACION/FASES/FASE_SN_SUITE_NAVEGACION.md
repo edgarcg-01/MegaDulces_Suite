@@ -544,6 +544,162 @@ Verificado contra la misma base donde fallaba: la cascada pasa de *1 falla + 8 a
 
 **`platform_test` no tiene las tablas de `[OR.1b]` ni la `20260912140000`.** Hasta aplicarlas, en desarrollo `tiene_responsabilidades` y `delegacion` llegan `null` (declarado y correcto) y nada se marca como propio — o sea que **`[SN.17]`–`[SN.21]` no se pueden ver en dev**, aunque funcionen en prod.
 
+#### 4.2.13 SN.29 — un conteo sin tasa no es una lista de trabajo (2026-09-14)
+
+Edgar pidió analizar cómo debería funcionar `/projects`. El análisis se hizo **midiendo contra prod
+antes de opinar**, y encontró un defecto de fondo que 28 iteraciones no habían tocado: la pantalla
+reportaba **cuánto hay**, nunca **si se mueve**.
+
+##### La medición que reformuló el problema
+
+⚠️ Primero, una corrección de encuadre: los números de la captura (99 / 94 / 1,865 / 19) son de
+`platform_test`, no de prod. En prod las mismas cinco colas suman **23,858**.
+
+| Cola | Abiertos | Filas totales | Cerradas 30 d | Entradas 7 d | Más viejo | Qué es en realidad |
+|---|---:|---:|---:|---:|---|---|
+| `reconciliation.discrepancies` | **2,409** | 2,409 | **0** | 203 | 8-jul (68 d) | **jamás salió una fila** |
+| `finance.proposed_actions` | **192** | 198 | **0** | 1 | 6-ago | las únicas 6 se decidieron el 6-ago |
+| `commercial.commercial_actions` | 125 | 610 | 376 | 30 | 25-jul | viva, con cola vieja |
+| `commercial.replenishment_findings` | 21,125 | 33,200 | 7,262 | 1,688 | 10-jul | viva y creciendo |
+| `logistics.fleet_alerts` | **4** | 10,335 | 10,331 resueltas | 4 | **hoy** | la más sana de la empresa |
+
+La pantalla les daba **el mismo tratamiento a las cinco**: un número, una flecha, y la edad en
+`--text-faint` (el color más tenue disponible). No se podía distinguir un flujo de trabajo de un
+vertedero.
+
+##### ⭐ El defecto de fondo: ordenar por antigüedad PREMIA el abandono
+
+`[SN.12]` cambió el orden de volumen → antigüedad del más viejo, y `[SN.13]` lo celebró
+(*«1,208 con 15 días aparece antes que 1,865 con 14»*). Las dos versiones fallan por lo mismo, y
+recién se ve con el flujo medido:
+
+> **una cola que nadie trabaja SIEMPRE tiene el más viejo antiguo.**
+
+O sea que el criterio promueve sistemáticamente las colas donde hacer clic no sirve. Medido: arriba
+quedaban los descuadres (68 días, cero resueltos en toda su historia) y al fondo las alertas de
+flota (4 abiertas de hoy, 10,331 cerradas) — la cola más sana, enterrada **por estar sana**.
+
+##### El primitivo, que ya existía en otro dominio
+
+Es el de ADR-053 en `db-health`: **una fuente declara su umbral y el sistema emite un veredicto**.
+La Fase VP midió que sin umbral registrado el clasificador caía en `cfg ? classify : 'ok'` — verde
+incondicional. **Las bandejas estaban en ese estado exacto**: sin `umbral_dias`, nada podía estar
+tarde. Es el caso que ADR-056 llama *primitivo bien hecho en un solo dominio y nunca generalizado*.
+
+- `MeFlujo` — `entradas_7d`, `entradas_30d`, `cerradas_30d`; los tres de la **misma pasada** que ya
+  contaba (cinco `count(*) FILTER`). Medido: la consulta combinada cuesta **157-285 ms incluyendo
+  los ~154 ms de latencia a Railway**, o sea lo mismo que la de dos contadores que reemplaza. La
+  alternativa —una segunda consulta por bandeja— sumaba seis viajes **en serie**.
+- `MeVeredicto` — `se_acumula | atrasada | congelada | sin_medir | al_dia`, y `ORDEN_VEREDICTO`.
+- `BandejaDef.umbral_dias` **obligatorio**, con su motivo pegado (el cuadre es semanal → 7 d; una
+  propuesta de pago envejece en 3; el barrido de reabasto es nocturno → 2; flota es del día → 1).
+- `EjesCola.cierre` — la columna que marca la salida, **declarada por bandeja**.
+
+##### Tres cosas que sólo aparecieron al medir, y cada una habría mentido
+
+1. ⛔ **Dos columnas de cierre «obvias» están MUERTAS.** `commercial_actions.approved_at` devuelve
+   **0** con 376 filas cerradas en 30 días, y `fleet_alerts.acknowledged_at` devuelve **0** con
+   10,331 (nadie acusa recibo: las cierra el scanner). Elegir la que suena bien habría declarado
+   **congeladas dos colas sanas**.
+2. ⛔ **`logistics.fleet_alerts` no tiene `updated_at`.** Es la que obligó a que `cerradas_30d`
+   pueda viajar `null` — «la fuente no lo puede contestar» y «nadie cerró ninguna» son afirmaciones
+   **opuestas**, y un `?? 0` en el camino habría congelado la cola más sana.
+3. ⭐ **La regla obvia la refutó su propia prueba, en la primera corrida.** `entradas > cerradas ⇒
+   se acumula` declaraba *«crece»* a `fleet_alerts`, que recibió 7,205 y resolvió 7,202: **3 filas
+   de saldo sobre siete mil**. El saldo de una cola en régimen nunca es exactamente cero. Se pasó a
+   la razón `cerradas / entradas` con `RITMO_MINIMO = 0.9`, y la medición lo respalda con margen:
+   flota **99.96 %**, reabasto **179 %**, Thot **129 %** · descuadres **0 %**, Maat **0 %**.
+   Cualquier corte entre 5 % y 95 % daba el mismo veredicto para las cinco.
+
+##### El titular estaba invertido, y era de construcción
+
+`totalPendientes()` sumaba `deBandeja()` — **por construcción, lo único de la pantalla que no es de
+nadie**. La tesis de `[SN.7]`/`[SN.15]`/`[SN.20]` es que «a tu nombre» y «en tus bandejas» no se
+mezclan, y después la pantalla ponía lo segundo a 40 px y lo primero a 12 px en el subtítulo: en la
+captura, **1** era tuyo y **2,082** no. Y ese 2,082 tampoco era un total honesto — el **89.6 %** era
+una sola cola que jamás resolvió una fila. Nadie puede «hacer» 2,082 de nada.
+
+El titular pasa a ser lo que se puede TERMINAR (asignado + borradores). Un **0** se pinta y se
+atenúa: la ausencia de reparto es el hecho medido (94 de 122 personas), y esconderlo fue el error
+que `[SN.11]` ya había corregido para el bloque «A tu nombre».
+
+##### Lo demás
+
+- **Las congeladas se declaran, no se apagan.** `[SN.18]` retiró `finance.findings` por este mismo
+  criterio. Acá se muestran con su veredicto y una línea al pie que dice lo que les falta: **un
+  dueño, no un clic**. Apagarlas es una línea (`BandejaDef.retirada`) y es decisión de Edgar.
+- **El ciclo sin un solo mes trabajable se COLAPSA a una línea.** Tres de los cuatro venían con los
+  12 meses en `sin_datos`: 36 de 48 celdas declarando una ausencia, ~40 % de la columna. Misma regla
+  que «una bandeja en 0 no se pinta». ⚠️ Se pregunta por `sin_datos`, **no** por `pendientes === 0`:
+  un ciclo *al día* también tiene 0 pendientes y su tira es justamente la prueba de que se hizo.
+- **La línea de flujo da el «desde la última vez»** que la pantalla no tenía: abrirla dos veces al
+  día mostraba el mismo total sin decir si había mejorado.
+- ⚠️ **Defecto ajeno encontrado de paso:** `.mt-task-vence.is-vencido` usaba `var(--danger, #b42318)`
+  y **`--danger` no existe en `tokens.css`** — el fallback ganaba siempre, así que el vencido no se
+  adaptaba al modo oscuro. Corregido a `--bad-fg`.
+
+##### Qué dice ahora la pantalla, medido contra prod con la función real
+
+`node database/scripts/sn-veredicto-prod-report.js` (read-only, transpila el contrato al vuelo para
+usar `veredictoDe` **de producción**, no una copia — una copia probaría que dos implementaciones
+coinciden, no que la buena acierta):
+
+```
+orden  veredicto    abiertos   +7d   ent30   cer30  mas_viejo    bandeja
+   1.  se_acumula        13     1      11       1  2026-08-12   Revisiones de caducidad
+   2.  atrasada       21125  1688    4054    7262  2026-07-10   Hallazgos de reabastecimiento
+   3.  atrasada         125    30     291     376  2026-07-25   Acciones comerciales
+   4.  congelada       2409   203     648       0  2026-07-08   Descuadres por revisar
+   5.  congelada        192     1     106       0  2026-08-06   Acciones de finanzas
+   6.  al_dia             4     4    7204    7206  2026-09-14   Alertas de flota
+```
+
+Con el orden viejo, los descuadres encabezaban y flota iba última.
+
+##### Candados
+
+| Dónde | Qué vigila | Negativa **ejercida** |
+|---|---|---|
+| `libs/contracts/src/http/veredicto.spec.ts` **nuevo** (18 pruebas) | las tres confusiones: `null` ≠ `0`, `sin_medir` ≠ `al_dia`, y que sin umbral nunca salga `atrasada`; más el orden de atención y la regresión de `[SN.12]` | la regla `entradas > cerradas` **se puso roja sola** en la primera corrida y cambió el diseño |
+| `test-newdb-me-context.js` bloque **4g** | toda bandeja viva declara `umbral_dias` (1..90) y su columna de cierre; el flujo sale de la misma pasada; `veredictoDe` vive donde corre jest | se le quitó `umbral_dias` a `cuadre` → `FAIL cuadre declara umbral_dias — "AUSENTE"` ✅ |
+| `mi-trabajo.component.spec.ts` (5 nuevas) | lo sano NO lleva insignia; `cerradas_30d: null` se declara y nunca se pinta «0 resueltas»; el titular es lo tuyo; el 0 se atenúa | — |
+
+⭐ **`veredictoDe` se mudó de `libs/trade` a `libs/contracts`.** `libs/trade` no tiene runner de
+pruebas (sólo `lint`), así que ahí habría sido un primitivo sin candado — la clase de deuda que la
+Fase VP contó 21 veces. ADR-056 es explícito: el mecanismo genérico no cierra su item hasta vivir
+en `libs/` compartido.
+
+⚠️ **El bug del backtick, séptima aparición.** Un comentario de *template* con el nombre de un
+estado entre acentos graves, dentro del `template:` (que es un template literal), cerró el literal:
+`ReferenceError: sin_datos is not defined`, con la suite entera sin correr. El archivo **ya tenía la
+advertencia escrita tres líneas más arriba**, para el bloque de estilos. Está en `GOTCHAS` y volvió
+a pasar.
+
+##### Verificación
+
+`nx test contracts` **53/53** · `nx test view` **21 suites / 328** (el único rojo es el ajeno de
+§4.2.9: `CATALOGO_INTERNO_VER` → ruta inexistente, de `[CV.25]`) · `test-newdb-me-context.js` bloque
+4g **26/26** · `nx build api` ✅ · `nx build view` ✅ **1.25 MB sin cambio**.
+
+**Pendiente:** reinicio de la API (el proceso vivo corre código anterior, así que `flujo`/`veredicto`
+llegan `undefined` hasta entonces) · validación visual · redeploy api+view.
+
+##### Abierto, medido y NO tocado
+
+- **Dos de las cinco colas que la landing publica no han resuelto una sola fila.** Ahora se dice en
+  pantalla; **apagarlas o asignarles dueño es decisión de Edgar**.
+- **El contador en la puerta** (que la tarjeta de Compras diga que hay 21,125 detrás) quedó fuera a
+  propósito: pondría el problema del 2,082 en 22 tarjetas. Sólo tendría sentido con trabajo **tuyo**.
+- **«Tus accesos» sigue siendo por recencia.** `UsoService` (`[SN.12]`) ya junta el histórico; la
+  recencia re-ofrece lo que acabás de cerrar. Cambiarlo a frecuencia necesita historia y es aparte.
+- **El cuello de botella real no es la pantalla:** `identity.position_responsibilities` cubre **28
+  de 122 personas (23 %)** y hay **17 tareas abiertas** en las 4 fuentes nominales para toda la
+  empresa. ⚠️ El doc de `[SN.21]` dice «42 filas»; medido hoy hay **15** (sobre 11 puestos) — esa
+  cifra ya se venció otra vez, la cobertura de personas sí aguanta. Mientras el 77 % no tenga
+  responsabilidad declarada, la pantalla tiene que mostrar colas compartidas.
+
+---
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

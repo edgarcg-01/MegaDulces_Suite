@@ -1,5 +1,6 @@
 import type { Knex } from 'knex';
 import { Permission } from '@megadulces/contracts/authz/permissions';
+import type { MeFlujo, MeVeredicto } from '@megadulces/contracts';
 import { branchKeySql } from '@megadulces/platform-core';
 
 /**
@@ -95,6 +96,39 @@ export interface MedirCtx {
 export interface MedidaCola {
   total: number;
   mas_viejo_at: string | null;
+  /** `[SN.29]` Entradas contra salidas, de la misma pasada. */
+  flujo: MeFlujo;
+}
+
+/**
+ * `[SN.29]` Lo que una bandeja necesita declarar para que su flujo se pueda medir en UNA consulta.
+ *
+ * El registro pasa de entregar una consulta YA filtrada al estado abierto, a entregar la consulta
+ * BASE más el predicado del estado. Es lo que permite contar, en la misma pasada, las que están
+ * abiertas y las que ya salieron — sin una segunda consulta por bandeja (serían 6 más por request,
+ * y `workFor` cuenta en serie).
+ */
+export interface EjesCola {
+  /** Columna de estado (`'status'`, `'estado'`, o `'f.status'` cuando hay JOIN). */
+  estadoCol: string;
+  /** Valor que significa «abierto» (`'nuevo'`, `'pending_approval'`, `'open'`, `'draft'`). */
+  estadoAbierto: string;
+  /** Columna de entrada. La misma que ordenaba antes (`'created_at'`, `'f.created_at'`). */
+  fecha: string;
+  /**
+   * Columna que marca la SALIDA del estado abierto.
+   *
+   * ⛔ `null` = esta fuente no puede contestar cuántas salieron, y entonces `cerradas_30d` viaja
+   * `null` — **nunca 0**, que es la afirmación contraria («nadie cerró ninguna»). Hoy ninguna de
+   * las seis está en ese caso, pero la rama existe porque `logistics.fleet_alerts` sí carece de
+   * `updated_at` y estuvo a un `??  0` de mentir.
+   *
+   * ⚠️ Se declara por bandeja porque la columna precisa NO es siempre `updated_at`, y dos de las
+   * candidatas obvias están MUERTAS (medido en prod, 30 días): `commercial_actions.approved_at`
+   * devuelve 0 con 376 filas cerradas, y `fleet_alerts.acknowledged_at` devuelve 0 con 10,339.
+   * Elegir «la que suena bien» habría declarado congeladas dos colas sanas.
+   */
+  cierre: string | null;
 }
 
 export interface BandejaDef {
@@ -127,6 +161,18 @@ export interface BandejaDef {
    * puerta en el espacio que la aloja.
    */
   retirada?: string;
+  /**
+   * `[SN.29]` **Cuántos días puede esperar el más viejo antes de contar como atrasado.**
+   *
+   * Es POLÍTICA, no medición, y por eso cada valor lleva su motivo pegado abajo. Se cambia en una
+   * línea y no hay que tocar nada más — igual que el umbral de un feed en `CRON_JOBS`.
+   *
+   * ⛔ **Obligatorio en toda bandeja viva.** Sin umbral, `veredictoDe` no puede emitir `atrasada`
+   * y la cola se pinta `al_dia` para siempre: el `cfg ? classify : 'ok'` que la Fase VP encontró
+   * dando verde incondicional a las matvistas del sell-out. El bloque 4g del smoke lo vigila, con
+   * su prueba negativa.
+   */
+  umbral_dias: number;
   medir: (knex: Knex, ctx: MedirCtx) => Promise<MedidaCola>;
 }
 
@@ -136,15 +182,49 @@ export interface BandejaDef {
  * `columnaFecha` se declara por bandeja porque en una cola con JOIN importa cuál de las dos
  * fechas es la que le habla a la persona.
  */
-async function medirCola(knex: Knex, q: Knex.QueryBuilder, columnaFecha: string): Promise<MedidaCola> {
+async function medirCola(knex: Knex, q: Knex.QueryBuilder, ejes: EjesCola): Promise<MedidaCola> {
+  const { estadoCol, estadoAbierto, fecha, cierre } = ejes;
+  /*
+   * `[SN.29]` Los cinco contadores salen de UNA pasada con `FILTER`. Medido contra prod: la
+   * consulta combinada cuesta 157-285 ms **incluyendo los ~154 ms de latencia a Railway**, o sea
+   * lo mismo que la de dos contadores que reemplaza. La alternativa —una segunda consulta por
+   * bandeja— habría sumado seis viajes en serie a la primera pantalla que todos abren.
+   */
   const row = await q
     .clearSelect()
-    .select(knex.raw('count(*) as n'), knex.raw('min(??) as viejo', [columnaFecha]))
-    .first<{ n: string | number; viejo: Date | string | null }>();
+    .select(
+      knex.raw('count(*) filter (where ?? = ?) as n', [estadoCol, estadoAbierto]),
+      knex.raw('min(??) filter (where ?? = ?) as viejo', [fecha, estadoCol, estadoAbierto]),
+      knex.raw(
+        `count(*) filter (where ?? = ? and ?? > now() - interval '7 days') as e7`,
+        [estadoCol, estadoAbierto, fecha],
+      ),
+      knex.raw(`count(*) filter (where ?? > now() - interval '30 days') as e30`, [fecha]),
+      cierre
+        ? knex.raw(
+            `count(*) filter (where ?? <> ? and ?? > now() - interval '30 days') as c30`,
+            [estadoCol, estadoAbierto, cierre],
+          )
+        : // ⛔ `null`, NO `0`: la fuente no puede contestarlo. Son afirmaciones opuestas.
+          knex.raw('null::int as c30'),
+    )
+    .first<{
+      n: string | number;
+      viejo: Date | string | null;
+      e7: string | number | null;
+      e30: string | number | null;
+      c30: string | number | null;
+    }>();
+
   const viejo = row?.viejo ?? null;
+  /** `null` se preserva; sólo se convierte a número lo que de verdad vino. */
+  const num = (v: string | number | null | undefined): number | null =>
+    v === null || v === undefined ? null : Number(v);
+
   return {
     total: Number(row?.n ?? 0),
     mas_viejo_at: viejo ? new Date(viejo).toISOString() : null,
+    flujo: { entradas_7d: num(row?.e7), entradas_30d: num(row?.e30), cerradas_30d: num(row?.c30) },
   };
 }
 
@@ -161,12 +241,19 @@ export const BANDEJAS: readonly BandejaDef[] = [
     // La tabla tiene `warehouse_id`, pero ya filtra por `responsible_user_id`: acotar por sucursal
     // no quitaría ni una fila y sí sugeriría una precisión que no aporta.
     acotablePorSucursal: false,
+    // Es TU borrador y lo empezaste vos: una hoja de revisión abierta más de dos días ya perdió
+    // el momento de la visita que la originó.
+    umbral_dias: 2,
     anyOf: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR],
     medir: (knex, { tenantId, userId }) =>
-      medirCola(knex,
-        knex('commercial.expiry_reviews')
-          .where({ tenant_id: tenantId, responsible_user_id: userId, status: 'draft' }),
-        'created_at'),
+      medirCola(
+        knex,
+        knex('commercial.expiry_reviews').where({
+          tenant_id: tenantId,
+          responsible_user_id: userId,
+        }),
+        { estadoCol: 'status', estadoAbierto: 'draft', fecha: 'created_at', cierre: 'submitted_at' },
+      ),
   },
 
   // ── Colas compartidas ──────────────────────────────────────────────────────────────────────
@@ -179,9 +266,24 @@ export const BANDEJAS: readonly BandejaDef[] = [
     alcance: 'bandeja',
     responsabilidad: 'almacen.cuadre',
     acotablePorSucursal: false, // medido: la tabla NO tiene ninguna columna de ruteo
+    // El cuadre de caja e inventario es semanal: un descuadre que cruza la semana ya no se puede
+    // contrastar contra el turno que lo produjo.
+    umbral_dias: 7,
     anyOf: [Permission.RECONCILIATION_VER],
+    /*
+     * ⚠️ **Esta cola sale `congelada` en prod, y no es un error de la regla.** Medido el
+     * 2026-09-14: 2,409 abiertas de **2,409 filas totales** — ni una sola ha salido de `nuevo`
+     * desde el 8-jul. `updated_at` es la única columna de cierre que la tabla tiene (no hay
+     * `resolved_at`) y da 0 en 30 días. El veredicto lo va a decir en pantalla en vez de
+     * publicar «2,409 pendientes» como si alguien los estuviera trabajando.
+     */
     medir: (knex, { tenantId }) =>
-      medirCola(knex, knex('reconciliation.discrepancies').where({ tenant_id: tenantId, status: 'nuevo' }), 'created_at'),
+      medirCola(knex, knex('reconciliation.discrepancies').where({ tenant_id: tenantId }), {
+        estadoCol: 'status',
+        estadoAbierto: 'nuevo',
+        fecha: 'created_at',
+        cierre: 'updated_at',
+      }),
   },
   {
     id: 'finanzas-hallazgos',
@@ -211,9 +313,15 @@ export const BANDEJAS: readonly BandejaDef[] = [
      */
     retirada:
       'La fuente no es confiable todavía: 82,377 sin triage desde julio y 281 periodos corruptos.',
+    umbral_dias: 7,
     anyOf: [Permission.FINANCE_AI_CHAT],
     medir: (knex, { tenantId }) =>
-      medirCola(knex, knex('finance.findings').where({ tenant_id: tenantId, status: 'nuevo' }), 'created_at'),
+      medirCola(knex, knex('finance.findings').where({ tenant_id: tenantId }), {
+        estadoCol: 'status',
+        estadoAbierto: 'nuevo',
+        fecha: 'created_at',
+        cierre: 'updated_at',
+      }),
   },
   {
     id: 'maat-acciones',
@@ -224,9 +332,24 @@ export const BANDEJAS: readonly BandejaDef[] = [
     alcance: 'bandeja',
     responsabilidad: 'finanzas.acciones',
     acotablePorSucursal: false,
+    // Una propuesta de pago que espera tres días ya no sirve para decidir: el vencimiento, el
+    // saldo y el tipo de cambio con los que se calculó se movieron.
+    umbral_dias: 3,
     anyOf: [Permission.FINANCE_AI_CHAT],
+    /*
+     * ⚠️ También sale `congelada`, y también es cierto. Medido: 192 abiertas de 198 filas; las
+     * únicas 6 que salieron se decidieron **todas el 6-ago** (3 ejecutadas, 3 rechazadas) y no ha
+     * habido una más en 39 días. ⛔ `decided_at` existe y sería la columna semánticamente exacta,
+     * pero da **0 en 30 días** igual que `updated_at`: acá las dos coinciden porque no hay nada
+     * que contar. Se usa `updated_at`, que es la que no depende de que el flujo escriba bien.
+     */
     medir: (knex, { tenantId }) =>
-      medirCola(knex, knex('finance.proposed_actions').where({ tenant_id: tenantId, estado: 'pending_approval' }), 'created_at'),
+      medirCola(knex, knex('finance.proposed_actions').where({ tenant_id: tenantId }), {
+        estadoCol: 'estado',
+        estadoAbierto: 'pending_approval',
+        fecha: 'created_at',
+        cierre: 'updated_at',
+      }),
   },
   {
     id: 'thot-acciones',
@@ -237,9 +360,24 @@ export const BANDEJAS: readonly BandejaDef[] = [
     alcance: 'bandeja',
     responsabilidad: 'comercial.thot',
     acotablePorSucursal: false,
+    // La acción comercial se propone contra la semana de venta que la disparó: pasada esa
+    // ventana, curarla es archivar, no decidir.
+    umbral_dias: 7,
     anyOf: [Permission.COMMERCIAL_THOT_GESTIONAR],
+    /*
+     * ⛔ **`approved_at` está MUERTA y habría declarado congelada una cola sana.** Medido en prod:
+     * 376 filas salieron de `pending_approval` en 30 días y `approved_at > now()-30d` devuelve
+     * **0** — nunca se escribe (o sólo en la rama de aprobación, que no es por donde salen). Es
+     * el caso exacto por el que la columna de cierre se declara por bandeja y se verifica contra
+     * el dato, en vez de elegir «la que suena bien».
+     */
     medir: (knex, { tenantId }) =>
-      medirCola(knex, knex('commercial.commercial_actions').where({ tenant_id: tenantId, status: 'pending_approval' }), 'created_at'),
+      medirCola(knex, knex('commercial.commercial_actions').where({ tenant_id: tenantId }), {
+        estadoCol: 'status',
+        estadoAbierto: 'pending_approval',
+        fecha: 'created_at',
+        cierre: 'updated_at',
+      }),
   },
   {
     id: 'compras-hallazgos',
@@ -255,10 +393,11 @@ export const BANDEJAS: readonly BandejaDef[] = [
      * sucursal en su ficha, el número pasa de "toda la red" a lo suyo.
      */
     acotablePorSucursal: true,
+    // El barrido es nocturno: un agotado que sobrevive dos barridos es venta perdida, no cola.
+    umbral_dias: 2,
     anyOf: [Permission.COMPRAS_HALLAZGOS_VER],
     medir: (knex, { tenantId, sucursales }) => {
-      const q = knex('commercial.replenishment_findings as f')
-        .where({ 'f.tenant_id': tenantId, 'f.status': 'open' });
+      const q = knex('commercial.replenishment_findings as f').where({ 'f.tenant_id': tenantId });
       if (sucursales) {
         /*
          * La tabla guarda el uuid del almacén y la ficha guarda el código: el puente es
@@ -276,7 +415,12 @@ export const BANDEJAS: readonly BandejaDef[] = [
           sucursales,
         );
       }
-      return medirCola(knex, q, 'f.created_at');
+      return medirCola(knex, q, {
+        estadoCol: 'f.status',
+        estadoAbierto: 'open',
+        fecha: 'f.created_at',
+        cierre: 'f.resolved_at',
+      });
     },
   },
   {
@@ -288,9 +432,24 @@ export const BANDEJAS: readonly BandejaDef[] = [
     alcance: 'bandeja',
     responsabilidad: 'logistica.flota',
     acotablePorSucursal: false,
+    // Sin señal o exceso de velocidad son hechos del día de operación: al día siguiente ya no hay
+    // a quién preguntarle qué pasó.
+    umbral_dias: 1,
     anyOf: [Permission.LOGISTICS_FLEET_VER],
+    /*
+     * ⛔ Esta tabla **no tiene `updated_at`** — fue la que obligó a que `cierre` pudiera ser
+     * `null` y a que `cerradas_30d` viaje `null` en vez de `0`. Sí tiene `resolved_at`, y es la
+     * correcta: 7,202 resueltas en 30 días. ⚠️ `acknowledged_at` da **0** con 10,339 filas
+     * cerradas: nadie acusa recibo, las cierra el propio scanner. La cola se drena, pero por
+     * máquina — el veredicto mide la cola, no el esfuerzo humano, y no debe afirmar lo segundo.
+     */
     medir: (knex, { tenantId }) =>
-      medirCola(knex, knex('logistics.fleet_alerts').where({ tenant_id: tenantId, status: 'open' }), 'created_at'),
+      medirCola(knex, knex('logistics.fleet_alerts').where({ tenant_id: tenantId }), {
+        estadoCol: 'status',
+        estadoAbierto: 'open',
+        fecha: 'created_at',
+        cierre: 'resolved_at',
+      }),
   },
 ];
 

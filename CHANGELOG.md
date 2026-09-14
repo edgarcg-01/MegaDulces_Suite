@@ -10,6 +10,30 @@
 
 ## [Unreleased]
 
+### Changed — un conteo sin tasa no es una lista de trabajo (SN.29, 2026-09-14)
+
+Edgar pidió analizar cómo debería funcionar `/projects`. Se midió contra prod antes de opinar, y apareció un defecto de fondo que 28 iteraciones no habían tocado: la pantalla reportaba **cuánto hay**, nunca **si se mueve**.
+
+- ⭐ **Dos de las cinco colas que la landing publicaba como «trabajo pendiente» no han resuelto una sola fila.** Medido: `reconciliation.discrepancies` tiene **2,409 abiertas de 2,409 filas** (ni una salió de `nuevo` desde el 8-jul) y `finance.proposed_actions` **192 de 198**, con las únicas 6 decididas el 6-ago. Juntas eran el **90 %** del titular. Al lado, `logistics.fleet_alerts` —4 abiertas de hoy, 10,331 resueltas— recibía **el mismo tratamiento visual**: un número, una flecha y la edad en el gris más tenue.
+- ⭐ **Ordenar por antigüedad PREMIA el abandono, y eso corrige a `[SN.12]`/`[SN.13]`.** Una cola que nadie trabaja **siempre** tiene el más viejo antiguo, así que el criterio subía al tope justo las colas donde hacer clic no sirve: los descuadres encabezaban y la cola más sana de la empresa iba última, por sana. El orden pasa a ser por **veredicto** (`se_acumula` → `atrasada` → `congelada` → `sin_medir` → `al_dia`), y dentro de cada uno se conserva la antigüedad.
+- **El primitivo ya existía en otro dominio: es el de `db-health` (ADR-053).** Sin umbral registrado, el clasificador de feeds caía en `cfg ? classify : 'ok'` = verde incondicional (Fase VP). Las bandejas estaban en ese estado exacto. Ahora `BandejaDef.umbral_dias` es **obligatorio** con su motivo pegado, y cada cola reporta su flujo —`entradas_7d`, `entradas_30d`, `cerradas_30d`— desde la **misma pasada** que ya contaba (cinco `count(*) FILTER`; medido: 157-285 ms, lo mismo que la consulta de dos contadores que reemplaza, con ~154 ms de eso siendo latencia a Railway).
+- ⭐ **El número de 40 px era, por construcción, el único de la pantalla que no es de nadie.** `totalPendientes()` sumaba las colas compartidas; en la captura que disparó esto, **1** era tuyo y **2,082** no. Pasa a ser lo que se puede terminar (asignado + borradores); lo compartido baja al subtítulo con su unidad dicha. Un **0** se pinta y se atenúa: la ausencia de reparto es el hecho medido.
+- **Las colas congeladas se declaran, no se apagan.** `[SN.18]` retiró `finance.findings` por este mismo criterio; acá se muestran con su veredicto y una línea que dice lo que les falta — **un dueño, no un clic**. Apagarlas es una línea y es decisión de negocio.
+- **El ciclo sin un solo mes trabajable colapsa a una línea.** Tres de los cuatro traían los 12 meses en `sin_datos`: 36 de 48 celdas declarando una ausencia, ~40 % de la columna de trabajo.
+
+### Fixed — dos columnas de cierre muertas y un token que no existe (SN.29)
+
+- ⛔ **`commercial_actions.approved_at` y `fleet_alerts.acknowledged_at` devuelven 0** con 376 y 10,331 filas cerradas en 30 días: nunca se escriben. Elegir «la que suena bien» habría declarado **congeladas dos colas sanas**. Por eso la columna de cierre se declara por bandeja y se verificó contra el dato.
+- ⛔ **`logistics.fleet_alerts` no tiene `updated_at`**, y eso obligó a que `cerradas_30d` pueda viajar `null`: «la fuente no lo puede contestar» y «nadie cerró ninguna» son afirmaciones opuestas, y un `?? 0` habría congelado la cola más sana.
+- **`.mt-task-vence.is-vencido` usaba `var(--danger, #b42318)` y `--danger` no existe en `tokens.css`**: el fallback ganaba siempre, así que el vencido no se adaptaba al modo oscuro. Corregido a `--bad-fg`.
+
+### Internal — el primitivo se mudó a donde sí corre jest (SN.29)
+
+- **`veredictoDe` vive ahora en `libs/contracts`**, no en `libs/trade` — que no tiene runner de pruebas (sólo `lint`), así que ahí habría sido un primitivo sin candado: la deuda que la Fase VP contó 21 veces. ADR-056: el mecanismo genérico no cierra su item hasta vivir en `libs/` compartido.
+- ⭐ **La regla obvia la refutó su propia prueba en la primera corrida.** `entradas > cerradas ⇒ se acumula` declaraba «crece» a una cola que recibió 7,205 y resolvió 7,202 — **3 filas de saldo sobre siete mil**. El saldo de una cola en régimen nunca es exactamente cero. Se pasó a la razón `cerradas/entradas` con `RITMO_MINIMO = 0.9`; la medición la respalda con margen (flota 99.96 % · reabasto 179 % · Thot 129 % · descuadres 0 % · Maat 0 %).
+- Nuevo `libs/contracts/src/http/veredicto.spec.ts` (18 pruebas con negativas) · bloque **4g** en `test-newdb-me-context.js` con su negativa ejercida (quitarle el umbral a una bandeja la pone roja) · 5 pruebas nuevas en `mi-trabajo.component.spec.ts` · nuevo `database/scripts/sn-veredicto-prod-report.js` (read-only, usa la función de producción transpilada al vuelo, no una copia).
+- ⚠️ **El bug del backtick, séptima aparición**: un comentario dentro del `template:` con un nombre entre acentos graves cerró el template literal y dejó la suite entera sin correr. El archivo ya tenía la advertencia escrita tres líneas más arriba.
+
 ### Fixed — el god-mode no puede volverte dueño del trabajo de otro (SN.28, 2026-09-14)
 
 Edgar: *«usuarios a los que no se les asignó la tarea de conciliación (que sólo fue a Ivonne y Mayra) siguen viendo esa información»* · *«una cosa es tener acceso a la interfaz y otra muy diferente tener asignada la responsabilidad; son dos cosas diferentes e independientes»*.

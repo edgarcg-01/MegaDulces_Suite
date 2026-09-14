@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { Observable, of, throwError } from 'rxjs';
-import type { MeContext, MeWork } from '@megadulces/contracts';
+import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
 import { MiTrabajoComponent } from './mi-trabajo.component';
 import { AuthService, JwtPayload } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
@@ -64,6 +64,34 @@ const SIN_TRABAJO: MeWork = {
   medido_at: '2026-09-11T12:00:00.000Z',
 };
 
+/**
+ * `[SN.29]` Factoría de bandejas para los fixtures.
+ *
+ * Nace de un dolor concreto: al agregar `umbral_dias`/`flujo`/`veredicto` se rompieron **6 pruebas
+ * de golpe**, todas por lo mismo — cada fixture repetía el objeto entero a mano, así que un campo
+ * nuevo obliga a tocar cada literal. Con la factoría, el próximo campo se agrega en un lugar.
+ *
+ * Los valores por omisión describen una cola SANA (`al_dia`, sale tanto como entra): así, una
+ * prueba que quiera verificar un veredicto tiene que PEDIRLO explícitamente, y ninguna se pone
+ * verde por accidente sobre un default alarmante.
+ */
+function bandeja(p: Partial<MePendiente> & Pick<MePendiente, 'id' | 'label'>): MePendiente {
+  return {
+    detalle: '',
+    ruta: '/almacen/cuadre',
+    sin_acceso: null,
+    icono: 'pi pi-flag',
+    total: 1,
+    mas_viejo_at: '2026-09-11T00:00:00.000Z',
+    umbral_dias: 7,
+    flujo: { entradas_7d: 1, entradas_30d: 4, cerradas_30d: 4 },
+    veredicto: 'al_dia',
+    alcance: 'bandeja',
+    ambito: 'red',
+    ...p,
+  };
+}
+
 const TRABAJO_MIXTO: MeWork = {
   medido_at: '2026-09-11T12:00:00.000Z',
   no_medido: [],
@@ -72,8 +100,8 @@ const TRABAJO_MIXTO: MeWork = {
   delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
   pendientes: [
-    { id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio', ambito: 'red' },
-    { id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', ruta: '/almacen/cuadre', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865, alcance: 'bandeja', ambito: 'red' },
+    bandeja({ id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio' }),
+    bandeja({ id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865 }),
   ],
 };
 
@@ -555,7 +583,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const conAmbito: MeWork = {
       ...SIN_TRABAJO,
       pendientes: [
-        { id: 'compras-hallazgos', label: 'Hallazgos de reabastecimiento', detalle: 'del barrido nocturno', ruta: '/compras/hallazgos', icono: 'pi pi-flag', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 21940, alcance: 'bandeja', ambito: 'red_sin_ficha' },
+        bandeja({ id: 'compras-hallazgos', label: 'Hallazgos de reabastecimiento', detalle: 'del barrido nocturno', ruta: '/compras/hallazgos', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 21940, ambito: 'red_sin_ficha' }),
       ],
     };
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(conAmbito) });
@@ -871,5 +899,82 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const tira = (fix.nativeElement as HTMLElement).querySelector('.mt-ctx')?.textContent ?? '';
     expect(tira).toContain('Sistemas');
     expect(tira.match(/Sistemas/g)?.length).toBe(1);
+  });
+
+  /*
+   * `[SN.29]` ── El veredicto en pantalla ────────────────────────────────────────────────────────
+   *
+   * La lógica del veredicto se prueba en `libs/contracts/src/http/veredicto.spec.ts`. Acá se prueba
+   * lo OTRO: que la pantalla no vuelva a dejar todas las filas iguales, y que no convierta un
+   * «no se pudo medir» en un «cero».
+   */
+  const TRABAJO_CON_VEREDICTOS: MeWork = {
+    ...SIN_TRABAJO,
+    pendientes: [
+      bandeja({
+        id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario',
+        total: 2409, mas_viejo_at: '2026-07-08T00:00:00.000Z', umbral_dias: 7,
+        flujo: { entradas_7d: 209, entradas_30d: 648, cerradas_30d: 0 }, veredicto: 'congelada',
+      }),
+      bandeja({
+        id: 'flota-alertas', label: 'Alertas de flota abiertas', detalle: 'sin señal',
+        ruta: '/logistica/rastreo', total: 9, umbral_dias: 1,
+        flujo: { entradas_7d: 9, entradas_30d: 7205, cerradas_30d: null }, veredicto: 'al_dia',
+      }),
+    ],
+  };
+
+  it('la cola congelada lleva su insignia y la sana NO lleva ninguna', async () => {
+    // Si las dos la llevaran, volverían a verse iguales — que es el defecto de origen: la pantalla
+    // le daba el mismo tratamiento a 2,409 sin resolver jamás y a 9 abiertas de hoy.
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_CON_VEREDICTOS) });
+    const insignias = Array.from(q<HTMLElement>('.mt-veredicto')).map((e) => e.textContent?.trim());
+    expect(insignias).toEqual(['congelada']);
+    expect(q('a.mt-task.is-v-congelada')).toHaveLength(1);
+    expect(q('a.mt-task.is-v-al_dia')).toHaveLength(1);
+  });
+
+  it('⛔ `cerradas_30d: null` se declara «sin medir», NUNCA se pinta como «0 resueltas»', async () => {
+    // Es la confusión que ADR-056 prohíbe: «la fuente no lo puede contestar» y «nadie cerró
+    // ninguna» son afirmaciones opuestas. `logistics.fleet_alerts` no tiene `updated_at`.
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_CON_VEREDICTOS) });
+    const flujos = Array.from(q<HTMLElement>('.mt-task-flujo')).map((e) => e.textContent?.trim() ?? '');
+    expect(flujos.some((f) => f.includes('salidas sin medir'))).toBe(true);
+    expect(flujos.some((f) => f.includes('0 resueltas'))).toBe(true); // la congelada SÍ midió su 0
+    // Y la que no pudo medir no dice un número de resueltas.
+    const flota = flujos.find((f) => f.includes('salidas sin medir')) ?? '';
+    expect(flota).not.toMatch(/\d+ resueltas/);
+  });
+
+  it('las colas congeladas se declaran al pie con lo que les falta: un dueño', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_CON_VEREDICTOS) });
+    const pie = (fix.nativeElement as HTMLElement).querySelector('.mt-congeladas')?.textContent ?? '';
+    expect(pie).toContain('congelada');
+    expect(pie).toContain('dueño');
+  });
+
+  it('⛔ el número de 40 px es LO TUYO, no la suma de las colas compartidas', async () => {
+    /*
+     * El defecto que disparó `[SN.29]`: `totalPendientes()` sumaba `deBandeja()`, o sea por
+     * construcción lo único de la pantalla que no es de nadie. En la captura real, 1 era tuyo y
+     * 2,082 no — y el 89.6% de ese 2,082 era una sola cola que jamás resolvió una fila.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
+    const titular = (fix.nativeElement as HTMLElement).querySelector('.mt-titular-n')?.textContent?.trim();
+    // TRABAJO_MIXTO: 2 propias (caducidades) + 1,865 compartidas (cuadre).
+    expect(titular).toBe('2');
+    expect(titular).not.toBe('1,865');
+    const sub = (fix.nativeElement as HTMLElement).querySelector('.mt-titular-txt')?.textContent ?? '';
+    expect(sub).toContain('a tu nombre');
+    // Lo compartido no desaparece: baja al subtítulo, con su unidad dicha.
+    expect(sub).toContain('1,865');
+    expect(sub).toContain('cola compartida');
+  });
+
+  it('un 0 propio se pinta y se atenúa: la ausencia de reparto es el hecho medido', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_CON_VEREDICTOS) });
+    const n = (fix.nativeElement as HTMLElement).querySelector('.mt-titular-n');
+    expect(n?.textContent?.trim()).toBe('0');
+    expect(n?.classList.contains('is-cero')).toBe(true);
   });
 });
