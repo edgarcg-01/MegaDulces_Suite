@@ -63,6 +63,13 @@ export interface BiMovementRow {
   iva_valor: number | null; ieps_valor: number | null; venta_neta: number | null;
   cost_base_hoy: number | null; source_system: 'kepler';
 }
+/**
+ * [WMS-BI.4.3] De dónde salió la columna "Unidad base" y de cuándo. `source: 'view'` es el camino
+ * degradado (la MV `analytics.mv_unit_truth` no está aplicada en ese entorno): correcto pero ~8×
+ * más lento, y se DECLARA en vez de disimularse.
+ */
+export interface BiUnitProvenance { source: 'mv' | 'view'; refreshed_at: string | null; }
+export interface BiMovementPage extends BiPage<BiMovementRow> { unit_provenance: BiUnitProvenance; }
 export interface BiField { key: string; label: string; group: string; available: boolean; reason?: string; }
 export interface BiMovementDetail {
   header: Record<string, unknown> | null; lines: Array<Record<string, unknown>>;
@@ -115,8 +122,8 @@ export class AlmacenBiService {
     return this.http.get<BiSummary>(`${this.base}/summary`, { params: this.params(f) });
   }
 
-  movements(f: BiFilterParams, page: number, pageSize: number, sort?: string, dir?: 'asc' | 'desc'): Observable<BiPage<BiMovementRow>> {
-    return this.http.get<BiPage<BiMovementRow>>(`${this.base}/movements`, {
+  movements(f: BiFilterParams, page: number, pageSize: number, sort?: string, dir?: 'asc' | 'desc'): Observable<BiMovementPage> {
+    return this.http.get<BiMovementPage>(`${this.base}/movements`, {
       params: this.params(f, { page, pageSize, sort, dir }),
     });
   }

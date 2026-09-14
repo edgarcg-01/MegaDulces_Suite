@@ -702,6 +702,11 @@ const CRON_JOBS: CronCfg[] = [
   // cosmetico: cuando envejece, el piso que corrige `box_factor = 1` deja de recibir peldanos
   // nuevos y un producto que empezo a venderse por bulto sigue publicandose como pieza.
   { key: 'analytics_refresh_sold_rung',       label: 'Refresh MV peldano cobrado',        cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [WMS-BI.4.3] Copia cacheada del resolvedor de unidad (v_unit_truth, ADR-057). Mismo motivo
+  // que la de arriba: sin umbral el sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve
+  // VERDE. Cuando envejece, un producto cuya unidad base cambio se sigue publicando con la
+  // anterior — y la unidad es justo lo que ADR-057 existe para no adivinar.
+  { key: 'analytics_refresh_unit_truth',      label: 'Refresh MV verdad de unidad',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // Internos del API (@Cron NestJS)
   { key: 'analytics_refresh',   label: 'Refresh MVs analytics',      cadence: 'cada 15 min',     warnH: 1,   critH: 3 },
   { key: 'db_health_scan',      label: 'Scanner Salud BD',           cadence: 'cada 5 min',      warnH: 0.5, critH: 2 },

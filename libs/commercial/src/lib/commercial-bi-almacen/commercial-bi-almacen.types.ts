@@ -182,6 +182,29 @@ export interface BiPage<T> {
   rows: T[];
 }
 
+/**
+ * [WMS-BI.4.3] Procedencia de la columna "Unidad base": de dónde salió y de cuándo.
+ *
+ * La unidad la resuelve `analytics.v_unit_truth` (ADR-057). Para no pagar los 8.9M de filas
+ * descartadas por request, esta pantalla lee la copia materializada — y **una copia obliga a
+ * declarar su edad** (ADR-056): un resolvedor con dos días de rezago sigue publicando la unidad
+ * anterior de un producto que ya cambió, sin que nada en la pantalla lo delate.
+ *
+ * `source: 'view'` es el camino degradado: la MV todavía no existe en este entorno (migración
+ * `20260914130000_mv_unit_truth` sin aplicar). Se lee la vista viva — correcta pero lenta — y
+ * se DECLARA, en vez de romper la página o fingir que se leyó la copia.
+ */
+export interface BiUnitProvenance {
+  source: 'mv' | 'view';
+  /** `now()` de la última materialización. `null` cuando `source === 'view'` (es en vivo). */
+  refreshed_at: string | null;
+}
+
+/** Página de movimientos: la de arriba + la procedencia de la unidad. */
+export interface BiMovementPage extends BiPage<BiMovementRow> {
+  unit_provenance: BiUnitProvenance;
+}
+
 export interface BiField {
   key: string;
   label: string;
