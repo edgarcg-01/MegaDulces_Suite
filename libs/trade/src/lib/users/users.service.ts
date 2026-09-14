@@ -29,6 +29,9 @@ import {
   legacyTxStorage,
   // `[AU.0b]` El buscador compartido: sin acentos, multi-palabra, tolera typos.
   applySmartSearch,
+  // `[AU.1b]` El god-mode se pregunta EXPLÍCITO antes de degradar el `all` del
+  // padrón: si saliera por `getDataScope`, degradarlo degradaría a superadmin.
+  isPlatformAdminRole,
 } from '@megadulces/platform-core';
 
 interface RequesterContext {
@@ -143,8 +146,32 @@ export class UsersService {
       return { type: 'sucursal', userId: requester.sub };
     }
 
-    // Todo lo demás conserva exactamente el comportamiento vigente, god-mode
-    // incluido: `getDataScope` ya resuelve `isPlatformAdminRole` primero.
+    /**
+     * `[AU.1b]` — **El padrón deja de heredar `REPORTES_VER_GLOBAL`.**
+     *
+     * `getDataScope` devuelve `all` a quien ve reportes globales, y hasta ahora
+     * eso también abría el padrón entero. Estaba tapado porque la ruta exigía
+     * `USUARIOS_GESTIONAR` y nadie con sólo reportes podía llegar; al abrir la
+     * puerta en `[AU.1]` quedó a la vista: **`jefe_marketing` vería las 122
+     * cuentas**, que no es «su gente».
+     *
+     * Ver el padrón COMPLETO pasa a exigir `USUARIOS_GESTIONAR`. Un permiso de
+     * reportes habla de cifras del negocio, no del legajo de las personas.
+     *
+     * ⛔ El god-mode NO se toca: `isPlatformAdminRole` se pregunta explícito
+     * ANTES de degradar. Si se dejara salir por `getDataScope`, degradar el
+     * `all` degradaría también a superadmin — hoy no se nota porque además
+     * tienen `USUARIOS_GESTIONAR`, y esa coincidencia es justo lo que haría el
+     * bug invisible.
+     *
+     * Medido: hoy afecta a **una sola persona** (`cristian.lopez`), que pasa de
+     * 122 a su equipo. Decisión del lead, 2026-09-13.
+     */
+    if (porReportes.type === 'all' && !isPlatformAdminRole(requester.role_name)) {
+      return { type: 'team', userId: requester.sub };
+    }
+
+    // God-mode y `team` conservan el comportamiento vigente.
     return porReportes;
   }
 
@@ -158,6 +185,85 @@ export class UsersService {
    * exactamente el fail-open silencioso que `[ID.26]` vino a hacer visible, y no
    * se reintroduce por la puerta de al lado.
    */
+  /**
+   * `[AU.1b]` **Mi equipo: quien me reporta a mí, o cuyo PUESTO le reporta al mío.**
+   *
+   * ── Por qué no alcanza `supervisor_id` ──────────────────────────────────────
+   * Es la única fuente del jefe desde siempre y está poblada en **24 de 100**
+   * personas; la cadena de mando entre puestos (`[OR.8]`) cubre **98**. Quien
+   * tiene equipo pero nadie le apunta con `supervisor_id` ve una sola fila: la
+   * suya. Le pasa hoy a `cristian.lopez`, que tiene dos auxiliares a cargo.
+   *
+   * ── ⚠️ Por qué el puesto SOLO sería peor que el bug ─────────────────────────
+   * La organización es por ZONA, así que el mismo puesto existe tres veces con
+   * tres jefes: `cajera` reporta a `encargado_sucursal`, y hay 24 cajeras en la
+   * red. Sin acotar, **cada encargado vería las 24**. Medido. El puesto da el
+   * TIPO de jefe; el EJE del departamento dice cuál de ellos.
+   *
+   * Por eso se cruza con el eje efectivo (`coalesce(positions.scope_axis,
+   * departments.scope_axis)`, la misma precedencia de `[ID.24.2]`), y el valor
+   * del eje tiene que existir en LAS DOS fichas: comparar dos NULL con
+   * `IS NOT DISTINCT FROM` haría que dos personas sin sucursal «coincidan», que
+   * es ensanchar por un descuido de datos.
+   *
+   * Es UNIÓN, no reemplazo: nadie pierde a quien ya veía. Medido antes de
+   * escribirlo — los 3 supervisores ven lo mismo que hoy (14/11/7) porque su
+   * `supervisor_id` ya es más generoso que su cadena de puestos.
+   */
+  private async acotarPorEquipo(
+    query: Knex.QueryBuilder,
+    requesterId: string,
+  ): Promise<Knex.QueryBuilder> {
+    const tenantId = this.tenantId;
+    const yo = await this.knex('identity.users as u')
+      .leftJoin('identity.positions as p', function () {
+        this.on('p.tenant_id', '=', 'u.tenant_id').andOn('p.code', '=', 'u.position_code');
+      })
+      .leftJoin('identity.departments as d', function () {
+        this.on('d.tenant_id', '=', 'u.tenant_id').andOn('d.code', '=', 'u.department_code');
+      })
+      .where({ 'u.tenant_id': tenantId, 'u.id': requesterId })
+      .first(
+        'u.position_code',
+        'u.warehouse_code',
+        'u.zona_id',
+        this.knex.raw('COALESCE(p.scope_axis, d.scope_axis) AS eje'),
+      );
+
+    // El eje decide con qué columna se desempata. `red`, `cartera` y `cliente`
+    // no acotan por lugar: ahí el puesto ya es suficientemente específico.
+    const porEje: { columna: string; valor: string | null } | null =
+      yo?.eje === 'sucursal'
+        ? { columna: 'u.warehouse_code', valor: (yo.warehouse_code as string) ?? null }
+        : yo?.eje === 'zona' || yo?.eje === 'ruta'
+          ? { columna: 'u.zona_id', valor: (yo.zona_id as string) ?? null }
+          : null;
+
+    // Si el eje pide un valor y mi ficha no lo tiene, la rama del puesto NO
+    // aporta: sin desempate traería a todos los del puesto en toda la red.
+    const puestoSirve = Boolean(yo?.position_code) && (porEje === null || porEje.valor != null);
+
+    return query.where((qb: Knex.QueryBuilder) => {
+      qb.where('u.supervisor_id', requesterId).orWhere('u.id', requesterId);
+      if (!puestoSirve) return;
+      // ⚠️ El eje va DENTRO de esta rama, no colgado del grupo: un `andWhere` al
+      // final se aplicaría también a `supervisor_id` y a mi propia fila, y ahí el
+      // cambio dejaría de ser una unión — les quitaría a los 3 supervisores a
+      // quien ya ven y no comparta su zona. Es la diferencia entre `A OR B OR
+      // (C AND eje)` y `(A OR B OR C) AND eje`.
+      qb.orWhere((rama: Knex.QueryBuilder) => {
+        rama.whereIn('u.position_code', (sub: Knex.QueryBuilder) => {
+          sub
+            .select('code')
+            .from('identity.positions')
+            .where({ tenant_id: tenantId, reports_to_position_code: yo.position_code })
+            .whereNull('deleted_at');
+        });
+        if (porEje?.valor != null) rama.andWhere(porEje.columna, porEje.valor);
+      });
+    });
+  }
+
   private async acotarPorSucursal(
     query: Knex.QueryBuilder,
     requesterId: string,
@@ -832,12 +938,7 @@ export class UsersService {
     // alcanzaba — `[ID.27]`.
     const scope = this.alcanceDelPadron(requester);
     if (scope.type === 'team') {
-      query.where((qb) => {
-        qb.where('u.supervisor_id', requester.sub).orWhere(
-          'u.id',
-          requester.sub,
-        );
-      });
+      await this.acotarPorEquipo(query, requester.sub);
     } else if (scope.type === 'sucursal') {
       await this.acotarPorSucursal(query, requester.sub);
     } else if (scope.type === 'own') {
