@@ -3072,6 +3072,21 @@ export class CommercialAnalyticsService {
       const uuidRx = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       const pidsAll = rawRows.map((r) => r.product_id).filter((p) => typeof p === 'string' && uuidRx.test(p));
       const pids = pidsAll.filter((v, i) => pidsAll.indexOf(v) === i);
+      // [UXC.2] ⛔ `pids` sale de las filas de VENTA — y la columna UxC también la piden los SKUs
+      // SIN venta, los que entran por `include_zeros`. Ésos se arman abajo con `uxcFor(p.id)` con
+      // un id que NUNCA se consultó, así que caían al default del índice y la pantalla imprimía
+      // «—» con el tooltip «Sin dato de factor de caja» sobre productos cuyo factor el resolvedor
+      // SÍ publica por consenso. Medido en prod (2026-09-14) con la vista de una marca:
+      // `00395 GALL CRACKETS 135G` salía «—» y el resolvedor dice **20**; igual `00531` (8),
+      // `01021` (18), `01027` (25), `01075` (50), `44001` (12). El patrón delata la causa: los
+      // que SÍ mostraban número son exactamente los que tuvieron venta en la ventana.
+      //
+      // ⚠️ `pids` NO se toca: además del UxC alimenta la lectura por (producto × almacén) de
+      // `v_unit_truth`, que sí debe ceñirse a lo vendido — un SKU sin venta no tiene celda que
+      // convertir y ampliarlo multiplicaría esa consulta por el catálogo entero de la marca.
+      const uxcPids = Array.from(new Set(pids.concat(
+        (ps as any[]).map((p) => p.id).filter((p) => typeof p === 'string' && uuidRx.test(p)),
+      )));
       // [U.7] Una sola lectura al resolvedor: trae el divisor NATIVO del almacén (ADR-055), el
       // precio de caja y — lo que faltaba — el MÉTODO con el que se puede convertir. Reemplaza
       // las dos consultas separadas a `v_product_box_factor` + `product_box_price`, cuya cascada
@@ -3097,10 +3112,10 @@ export class CommercialAnalyticsService {
       // consenso entre plazas: cuando los testigos reales no concuerdan devuelve NULL con motivo
       // en vez de una moda (488 productos, $19.07M / 90 d). ADR-056: lo que no se puede afirmar
       // se declara. El cálculo de CAJAS no se toca — ése ya sale del dinero desde U.7.
-      const uxcRows = pids.length
+      const uxcRows = uxcPids.length
         ? await trx('analytics.v_product_box_factor_consensus')
             .where('tenant_id', tenantId)
-            .whereRaw('product_id = ANY(?::uuid[])', [pids])
+            .whereRaw('product_id = ANY(?::uuid[])', [uxcPids])
             .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max')
         : [];
 
