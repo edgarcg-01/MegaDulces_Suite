@@ -55,6 +55,9 @@ function resolveUrl() {
 const UMBRAL_TOTAL_PCT = Number(process.env.SD1_UMBRAL_TOTAL_PCT) || 0.5;   // calibrado: jul 0.012% · ago 0.191% (2026-09-14)
 const UMBRAL_RUTA_$ = 1;        // la ruta empata al peso
 const RUTA_MATERIAL_$ = 1_000_000; // la venta de truck/mes es material (~$4.4M)
+// [SD.4b] tickets: mv_sales_blended cuenta folios desde el ODS. Calibrado 2026-09-14 (post --apply):
+// ago 0.32% · jul 0.01%. El ~1-2% de holgura es el sobre-conteo por unidad de sales_daily (documentado).
+const UMBRAL_TICKETS_PCT = Number(process.env.SD1_UMBRAL_TICKETS_PCT) || 2;
 
 let ok = 0; let fail = 0; let nm = 0;
 const check = (label, cond, detail = '') => {
@@ -136,6 +139,23 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
      WHERE s.tenant_id=$1 AND w.kind='truck' AND s.sale_date >= date_trunc('month',(now() AT TIME ZONE 'America/Mexico_City')) - interval '1 month'`, [T]))[0].r);
   check('hay venta de truck material invisible a mv_kepler (migrar ahí la perdería)', truckRev > RUTA_MATERIAL_$,
     `truck 30d≈ $${Math.round(truckRev).toLocaleString()}`);
+
+  // ── 5. paridad de TICKETS/folios (SD.4b: el blend cuenta folios desde el ODS, no 0) ─────────────
+  // Antes de SD.4b las piernas Kepler/Wincaja hardcodeaban 0 → 20× corto. Ahora cuentan folios desde
+  // v_kepler_ticket_count (kdm1) + v_wincaja_ticket_count (v_sales_lines). Es la última dependencia que
+  // sales_daily le imponía al Command Center. Si un destino no aplicó SD.4b, tickets=0 → NO MEDIDO.
+  console.log('\n5 · TICKETS/FOLIOS (mv_sales_blended cuenta folios del ODS — SD.4b)');
+  for (const { mes } of meses) {
+    const r = (await q(`SELECT
+      (SELECT COALESCE(sum(tickets),0) FROM analytics.sales_daily     WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2)::bigint sd,
+      (SELECT COALESCE(sum(tickets),0) FROM analytics.mv_sales_blended WHERE tenant_id=$1 AND to_char(sale_date,'YYYY-MM')=$2)::bigint mb`, [T, mes]))[0];
+    const sd = Number(r.sd), mb = Number(r.mb);
+    if (mb === 0) { noMedido(`paridad de tickets ${mes}`, 'mv_sales_blended.tickets = 0 (SD.4b no aplicado en este destino)'); continue; }
+    const off = sd ? Math.abs(sd - mb) / sd * 100 : 999;
+    check(`${mes}: |tickets tabla − blended| ≤ ${UMBRAL_TICKETS_PCT}% (Δ ${off.toFixed(2)}%)`, off <= UMBRAL_TICKETS_PCT,
+      `sd=${sd.toLocaleString()} mb=${mb.toLocaleString()}`);
+  }
+  if (!meses.length) noMedido('paridad de tickets', 'sin meses cerrados');
 
   await c.end();
   const resumen = `${ok} OK · ${fail} falla(s)` + (nm ? ` · ${nm} NO MEDIDO(S)` : '');
