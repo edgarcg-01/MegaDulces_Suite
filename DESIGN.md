@@ -661,6 +661,7 @@ Una columna de números alinea a la derecha **la celda Y su título**. Si no, el
 - Campo numérico que cambia de valor al scrollear, o con el spinner nativo puesto en una columna de cifras (→ D.5).
 - Grupo de botones contiguos con un tab stop cada uno; barra de filtros sin forma de limpiarlos ni conteo de activos; `role="tab"` sin `role="tabpanel"` (→ D.4).
 - Control nativo (`<select>`, `<input type=checkbox>`…) conviviendo con su equivalente de PrimeNG en la MISMA vista: distinto alto, distinto foco, distinta cortinilla, y en oscuro lo pinta el sistema operativo en vez de nuestros tokens. Medido 2026-09-14: **5 archivos con `<select>` nativo contra 128 con `p-select`** (→ pre-vuelo 3).
+- Control nativo (`<select>`, checkbox…) conviviendo con su equivalente de PrimeNG en la **misma vista**: distinto alto, distinto foco, distinta cortinilla, y en oscuro lo pinta el sistema operativo en vez de nuestros tokens. Medido 2026-09-14: **5 archivos con `<select>` nativo contra 128 con `p-select`** — es el outlier, no una convención alternativa (→ pre-vuelo 3).
 - Sumar una librería de a11y/headless para un patrón que [`app-segmented`](apps/view/src/app/shared/components/segmented/segmented.component.ts) ya resuelve. `@angular/aria` **no está instalado** (verificado 2026-09-14) y la decisión de PrimeNG sigue abierta: mientras lo esté, **no crecer la dependencia** (→ pre-vuelo 3).
 - Chip de valor y chip de toggle con el mismo aspecto (→ D.1).
 - Cabecera con jerga sin señal de que es explicable, o explicación que sólo vive en un `title` (→ D.2).
