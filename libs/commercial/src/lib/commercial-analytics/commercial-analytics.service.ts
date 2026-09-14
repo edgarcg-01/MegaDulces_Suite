@@ -5911,7 +5911,7 @@ export class CommercialAnalyticsService {
     const set = new Set(withData);
     const missing = retail.filter((n) => !set.has(n));
     const parts: string[] = [
-      'Fuente: venta real (analytics.sales_daily) — Kepler (Padre Hidalgo, La Piedad, 8ESQ, Yurécuaro, Zamora) + Wincaja (Morelia Abastos/Madero, Canindo y sus rutas de reparto).',
+      'Fuente unificada — venta real: Kepler del ODS (Padre Hidalgo, La Piedad, 8 Esquinas, Yurécuaro, Zamora, Canindo) + Wincaja (Morelia Abastos/Madero). Las rutas de reparto (venta a bordo) suben del Kepler local de cada camioneta.',
     ];
     if (excludedTransfers > 0) {
       const m = Math.round(excludedTransfers).toLocaleString('es-MX');
