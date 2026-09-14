@@ -461,10 +461,44 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     expect(fix.componentInstance.feed().length).toBe(8);
   });
 
+  /**
+   * El mayoreo quedaba fuera de la vista sin forma de llegar a él: en un kiosco real el único
+   * periférico es la pistola, no hay mouse ni dedo para hacer scroll. Medido en vivo (terminal
+   * 40/Oficina): "LLEVANDO 3 O MÁS PAQUETES" cortado exacto en el borde inferior de la ventana.
+   * Se afirma el mecanismo (la tarjeta se desplaza sola, hasta que se ve su PIE, que es donde
+   * vive el mayoreo/ahorro que más espacio pide), no el string de la implementación.
+   */
+  it('tras un resultado, la tarjeta se desplaza sola hasta que su pie queda a la vista', async () => {
+    const spy = jest.fn();
+    // jsdom no implementa el layout real: se stubbea para AFIRMAR que se llamó, no el resultado
+    // visual (eso no se puede medir sin browser — declarado, no fingido).
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = spy;
+    svc.proximo = { estado: 'encontrado', origen: 'live', snapshotAl: null, producto: CON_MAYOREO } as ResultadoBusqueda;
+
+    try {
+      fix.componentInstance.consultar('70001');
+      fix.detectChanges();
+      // El desplazamiento va detrás de un setTimeout(0) (esperar a que Angular pinte la
+      // tarjeta antes de medirla) — un tick real de la cola de tareas alcanza para que corra.
+      await new Promise((resolve) => setTimeout(resolve, 0));
+
+      // No se afirma un total exacto de llamadas: otras pruebas del archivo también dejan
+      // programado su propio `setTimeout(0)` y drenan en el mismo tick. La LLAMADA que
+      // corresponde a ESTE escaneo es la última en la cola (FIFO por tiempo de programación).
+      expect(spy).toHaveBeenCalled();
+      // block: 'end' es el punto que importa: alinea el PIE de la tarjeta contra el borde de
+      // la ventana, no la cabecera — si volviera a 'start', el mayoreo seguiría fuera de vista.
+      expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({ block: 'end' });
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+    }
+  });
+
   // ── Cámara del celular como lector: tercera vía junto a la pistola HID y el teclado ───────
   describe('cámara del celular como lector', () => {
-    it('el botón está visible en la barra de escaneo', () => {
-      const btn = fix.nativeElement.querySelector('button.vf-cam-btn') as HTMLButtonElement;
+    it('la barra "Escanea tu Producto" ES el botón (ya no hay uno redondo aparte)', () => {
+      const btn = fix.nativeElement.querySelector('button.vf-scanbar') as HTMLButtonElement;
       expect(btn).toBeTruthy();
       expect(btn.disabled).toBe(false); // este fixture ya trae sucursal fija del usuario
     });
@@ -485,6 +519,39 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
     it('cerrarCamara() no truena si la cámara nunca se abrió', () => {
       expect(() => fix.componentInstance.cerrarCamara()).not.toThrow();
       expect(fix.componentInstance.camaraAbierta()).toBe(false);
+    });
+
+    /**
+     * `[MU1EABF2-1]` Error real capturado por el monitor en un celular Android
+     * (`/tienda/verificador`, 2026-09-14T15:25:42Z): `UnknownError: setPhotoOptions failed`.
+     * zxing pregunta `track.getCapabilities()` para saber si hay torch, y en esos equipos el
+     * navegador falla esa negociación DESPUÉS de que la cámara ya abrió — llega como promesa
+     * sin capturar, no como una excepción que el try/catch de `abrirCamara()` pueda ver.
+     *
+     * Sin el manejador global, la cámara queda abierta y congelada sin ningún aviso. Ésta es
+     * la prueba negativa: se dispara el mismo tipo de evento y se afirma que SÍ se cierra y
+     * SÍ se declara — no que la pantalla "no truena" (eso ya lo garantiza jsdom).
+     */
+    it('un error de cámara sin capturar (setPhotoOptions) la cierra y lo declara, no la deja congelada', async () => {
+      // jsdom no trae mediaDevices.getUserMedia: se stubbea sólo para pasar la primera guarda
+      // de abrirCamara() — lo que se prueba es el manejador de errores globales, no el decoder.
+      // Se restaura al terminar: otras pruebas del archivo dependen de que NO exista.
+      const originalMediaDevices = (navigator as any).mediaDevices;
+      (navigator as any).mediaDevices = { getUserMedia: async () => ({ getVideoTracks: () => [] }) };
+      try {
+        await fix.componentInstance.abrirCamara();
+        expect(fix.componentInstance.camaraAbierta()).toBe(true);
+
+        const evento = new Event('unhandledrejection') as unknown as { reason: unknown };
+        (evento as any).reason = new Error('UnknownError: setPhotoOptions failed');
+        window.dispatchEvent(evento as unknown as Event);
+        fix.detectChanges();
+
+        expect(fix.componentInstance.camaraAbierta()).toBe(false);
+        expect(html()).toContain('La cámara se interrumpió');
+      } finally {
+        (navigator as any).mediaDevices = originalMediaDevices;
+      }
     });
 
     it('sin sucursal elegida, el botón queda deshabilitado y abrirCamara() no hace nada', async () => {
@@ -509,7 +576,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
       const f2 = TestBed.createComponent(TiendaVerificadorComponent);
       f2.detectChanges();
 
-      const btn = f2.nativeElement.querySelector('button.vf-cam-btn') as HTMLButtonElement;
+      const btn = f2.nativeElement.querySelector('button.vf-scanbar') as HTMLButtonElement;
       expect(btn.disabled).toBe(true);
       await f2.componentInstance.abrirCamara();
       expect(f2.componentInstance.camaraAbierta()).toBe(false);
