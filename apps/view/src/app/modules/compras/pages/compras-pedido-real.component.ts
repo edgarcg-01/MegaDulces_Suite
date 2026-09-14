@@ -416,12 +416,18 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                                     title="El proveedor entrega en un CEDIS y de ahí baja por traspaso">Consolidado</button>
                                           </div>
                                           @if (isConsolidated(r, b)) {
-                                            <select class="pr-cedis" [ngModel]="deliverOf(r, b)" (ngModelChange)="setDeliverTo(r, b, $event)"
-                                                    [title]="deliverTitle(r, b)" [attr.aria-label]="'CEDIS donde se entrega lo de ' + b.code">
-                                              @for (cd of cedisFor(b); track cd.code) {
-                                                <option [value]="cd.code">→ {{ cd.code }} · {{ cedisLabel(cd.name) }}</option>
-                                              }
-                                            </select>
+                                            <!-- Era el ÚNICO <select> nativo de la pantalla, entre tres p-select:
+                                                 distinto alto, distinto foco, distinta cortinilla, y en modo oscuro
+                                                 lo pintaba el sistema operativo en vez de nuestros tokens. Pasa a
+                                                 p-select por pre-vuelo 3 (PrimeNG-first) y sobre todo por coherencia
+                                                 con sus tres hermanos de la misma vista. appendTo="body" es
+                                                 obligatorio acá: la cortinilla nace dentro de una celda con scroll
+                                                 y sin eso queda recortada. -->
+                                            <p-select class="pr-cedis" styleClass="pr-cedis-sel" [options]="cedisOpts(b)"
+                                                      optionLabel="label" optionValue="value" appendTo="body"
+                                                      [ngModel]="deliverOf(r, b)" (ngModelChange)="setDeliverTo(r, b, $event)"
+                                                      [title]="deliverTitle(r, b)"
+                                                      [ariaLabel]="'CEDIS donde se entrega lo de ' + b.code"></p-select>
                                           }
                                         </td>
                                         <td class="pr-r pr-val" [class.pr-strong]="qtyOf(r, b) > 0">{{ money(qtyOf(r, b) * b.cc) }}</td>
@@ -910,8 +916,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-zlink:hover { background: var(--card-bg); text-decoration: underline; }
     /* control de entrega + selector de CEDIS */
     .pr-ent { white-space: nowrap; }
-    .pr-cedis { margin-left: .35rem; font-size: var(--fs-micro); padding: .15rem .25rem; max-width: 15rem;
-      border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg); color: var(--text-main); }
+    /* El borde/fondo/radio ya los pone el tema de PrimeNG con nuestros tokens: acá sólo queda la
+       posición y el tamaño. Antes esto re-dibujaba a mano un select nativo. */
+    .pr-cedis { display: inline-flex; margin-left: .35rem; max-width: 15rem; vertical-align: middle; }
+    :host ::ng-deep .pr-cedis-sel { font-size: var(--fs-micro); }
+    :host ::ng-deep .pr-cedis-sel .p-select-label { padding: .15rem .35rem; }
     /* ACUSE de entregas */
     .pr-entregas { display: flex; align-items: center; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; padding: .4rem .55rem;
       border: 1px dashed var(--border-color); border-radius: var(--r-md, 12px); background: var(--overlay-hover, var(--hover-bg)); }
@@ -1256,6 +1265,24 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   }
   /** CEDIS elegibles para este renglón: todos menos él mismo (consolidarse en sí mismo no es nada). */
   cedisFor(b: BranchBuy): { code: string; name: string }[] { return this.cedisList().filter((cd) => cd.code !== b.code); }
+  /**
+   * Las mismas opciones ya en la forma que consume `p-select`, **memoizadas por sucursal**.
+   * Sin el caché, cada ciclo de detección de cambios construiría un arreglo nuevo y `p-select`
+   * lo vería como otra lista: parpadeo del overlay y trabajo de más en una tabla que puede tener
+   * decenas de renglones abiertos. Se invalida cuando cambia la lista de CEDIS.
+   */
+  private cedisOptsCache = new Map<string, { label: string; value: string }[]>();
+  private cedisOptsKey: string | null = null;
+  cedisOpts(b: BranchBuy): { label: string; value: string }[] {
+    const key = this.cedisList().map((c) => c.code).join(',');
+    if (key !== this.cedisOptsKey) { this.cedisOptsCache = new Map(); this.cedisOptsKey = key; }
+    let v = this.cedisOptsCache.get(b.code);
+    if (!v) {
+      v = this.cedisFor(b).map((cd) => ({ label: `→ ${cd.code} · ${this.cedisLabel(cd.name)}`, value: cd.code }));
+      this.cedisOptsCache.set(b.code, v);
+    }
+    return v;
+  }
   /**
    * Nombre del CEDIS para la cortinilla. El almacén de Morelia se llama `Almacén Morelia Abastos
    * (30)` en la tabla: dentro de un desplegable angosto ese prefijo y ese sufijo son ruido que
