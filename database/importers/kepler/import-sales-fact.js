@@ -28,6 +28,7 @@
 
 const { Client } = require('pg');
 const hb = require('../lib/cron-heartbeat');
+const { analyzeIfStale } = require('../lib/analyze-if-stale');
 const { productKind, buildModel, toCanonicalPriced } = require('./unit-normalization');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
@@ -239,7 +240,10 @@ async function runCycle(src, db) {
            (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind,
             EXCLUDED.rung_factor, EXCLUDED.rung_mixed, EXCLUDED.units_unresolved)`, [M]);
   await db.query('COMMIT');
-  await db.query(`ANALYZE analytics.sales_daily`); // RS.12c — stats frescas → plan bueno en sell-out
+  // RS.12c — stats frescas → plan bueno en sell-out. [DB-MEM.9] Ahora CONDICIONAL: el carril
+  // `livefast` (loop ~60 s) llamaba a este importer sin parar y disparaba un ANALYZE completo de
+  // una tabla de 4.5 GB ~20 veces por hora, la mitad de ellas con `n_mod_since_analyze = 0`.
+  await analyzeIfStale((s) => db.query(s), 'analytics.sales_daily');
   console.log(`\n[APPLY] COMMIT — ${up.rowCount} filas en analytics.sales_daily.`);
   return { status: 'ok', rows: up.rowCount };
 }
