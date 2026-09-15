@@ -80,7 +80,7 @@ export class ExpenseComprobacionesController {
 
   @Get('status-by-solicitud')
   @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: 'Mapa folio_solicitud → estado de la comprobación (overlay en /finanzas/solicitudes).' })
+  @ApiOperation({ summary: 'Mapa folio_solicitud → estado de la comprobación (overlay en /finanzas/gastos).' })
   statusBySolicitud() {
     return this.svc.statusBySolicitud();
   }

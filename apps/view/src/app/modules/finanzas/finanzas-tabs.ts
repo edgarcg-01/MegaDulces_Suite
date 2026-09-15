@@ -74,24 +74,25 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_BANK_VER,
   },
   {
-    label: 'Solicitudes de gasto',
-    route: '/finanzas/solicitudes',
+    /**
+     * GX.10 — UNA entrada para todo el ciclo del gasto. Antes eran tres tabs
+     * («Solicitudes de gasto» · «Capturas de campo» · «Capturar gasto») que
+     * resolvían el mismo trámite en tres lugares.
+     *
+     * No se fundieron en una pantalla sola porque son DOS públicos, medido:
+     * 11 roles (75 usuarios activos — 32 cajeros, 19 promotores de ruta…) pueden
+     * capturar pero NO ver el tablero; y otros 5 pueden ver sin capturar. Una
+     * pantalla que exigiera `FINANCE_EXPENSES_VER` habría dejado afuera justo a
+     * quienes capturan. Así que la ruta es única y **el contenido se adapta a
+     * quién entra** (ver `FinanzasGastosComponent`).
+     *
+     * Por eso `anyOf`: con un permiso único, uno de los dos grupos perdía
+     * el tab aunque el guard lo dejara pasar.
+     */
+    label: 'Gastos',
+    route: '/finanzas/gastos',
     icon: 'pi pi-file-edit',
-    permission: Permission.FINANCE_EXPENSES_VER,
-  },
-  {
-    // GX.9 — va pegado a «Solicitudes de gasto» porque es su antesala: lo que está acá
-    // entra allá en cuanto se le pone folio.
-    label: 'Capturas de campo',
-    route: '/finanzas/capturas-sin-folio',
-    icon: 'pi pi-mobile',
-    permission: Permission.FINANCE_EXPENSES_VER,
-  },
-  {
-    label: 'Capturar gasto',
-    route: '/finanzas/capturar-gasto',
-    icon: 'pi pi-upload',
-    permission: Permission.FINANCE_EXPENSES_CAPTURAR,
+    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
   },
   {
     label: 'Pregúntale a Maat',

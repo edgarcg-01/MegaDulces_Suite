@@ -539,10 +539,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Gastos',
       items: [
-        // Dos destinos, dos roles: el autorizador trabaja el tablero, el capturista sube.
+        // GX.10 — UN destino. Siguen siendo dos roles (el autorizador trabaja el tablero,
+        // el capturista sube), pero eso lo resuelve la pantalla según quién entra, no el
+        // menú: tener dos entradas obligaba a los 7 roles con ambos permisos a elegir
+        // entre dos puertas al mismo trámite.
         // Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
-        { label: 'Solicitudes de gasto', icon: 'pi pi-file-edit', route: '/finanzas/solicitudes', permission: Permission.FINANCE_EXPENSES_VER },
-        { label: 'Capturar gasto', icon: 'pi pi-receipt', route: '/finanzas/capturar-gasto', permission: Permission.FINANCE_EXPENSES_CAPTURAR },
+        { label: 'Gastos', icon: 'pi pi-file-edit', route: '/finanzas/gastos',
+          permission: Permission.FINANCE_EXPENSES_VER,
+          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
       ],
     },
     {
