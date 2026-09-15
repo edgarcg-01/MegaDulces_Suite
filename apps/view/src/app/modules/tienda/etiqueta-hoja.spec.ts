@@ -562,6 +562,41 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     for (const dato of ['fontSize', 'offsetWidth', 'avail', 'fuentesOk']) expect(rastro).toContain(dato);
   });
 
+  it('⭐⭐ el tamaño del precio se CALCULA con las métricas de la tipografía, no se mide del DOM', () => {
+    // Cuatro entregas arreglando "el momento de medir" y las cuatro fallaron: lo frágil no era el
+    // momento, era medir el DOM. `measureText` lee las tablas de la fuente — sin elemento, sin
+    // reflow, sin maquetación y por lo tanto sin momento.
+    expect(LABEL).toContain('export const MEDIDOR_DE_TEXTO');
+    expect(LABEL).toMatch(/measureText\(txt\)\.width/);
+    const fit = /private fitPrice\(\): void \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    // El tamaño se DESPEJA (ancho y alto), no se busca con un bucle que lee el elemento.
+    // El ancho es AFÍN: el margen del signo está en mm y NO escala con el cuerpo. Si entrara en el
+    // ancho por milímetro crecería con el número y el tamaño saldría chico de más.
+    expect(fit).toMatch(/const porAncho = \(avail \/ PRECIO_ANCHO_K - met\.fijoPx\) \/ met\.porMm;/);
+    expect(Number(/\.etq-price \.cur\{[^}]*margin-right:([\d.]+)mm/.exec(LABEL)![1]))
+      .toBe(Number(/PRECIO_CUR_MARGIN_MM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(fit).toMatch(/const porAlto = availH \/ \(PX_POR_MM \* PRECIO_LINE_H\);/);
+    // Al paso hacia ABAJO: redondear hacia arriba es volver a desbordar.
+    expect(fit).toMatch(/Math\.floor\(max \/ PRECIO_PASO_MM\) \* PRECIO_PASO_MM/);
+    // Y el VEREDICTO juzga con la misma regla — si juzga con `offsetWidth` vuelve a decir `ok`
+    // sobre un número desbordado, que es lo que pasó: leía los mismos 91 px falsos.
+    const ver = /private veredicto\(\): 'ok'[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    expect(ver).toMatch(/const met = this\.anchoPrecioPorMm\(el\);/);
+    expect(ver).not.toMatch(/el\.offsetWidth \* PRECIO_ANCHO_K > avail/);
+
+    // Los tres números del CSS que usa el cálculo tienen que ser los MISMOS con los que se dibuja.
+    // Si se mueve uno solo, el tamaño se decide contra una geometría que no es la que se imprime.
+    const css = (re: RegExp) => Number(re.exec(LABEL)![1]);
+    expect(css(/\.etq-price\{[^}]*line-height:([\d.]+)/)).toBe(Number(/PRECIO_LINE_H = ([\d.]+)/.exec(LABEL)![1]));
+    expect(css(/\.etq-price \.cur\{[^}]*font-size:([\d.]+)em/)).toBe(Number(/PRECIO_CUR_EM = ([\d.]+)/.exec(LABEL)![1]));
+    expect(css(/\.etq-price \.dot\{[^}]*font-size:([\d.]+)em/)).toBe(Number(/PRECIO_DOT_EM = ([\d.]+)/.exec(LABEL)![1]));
+    // El signo y el punto se miden con SU cuerpo, no con el del número: medir la cadena entera a
+    // un solo tamaño da de más y el precio saldría más chico de lo que puede.
+    expect(LABEL).toMatch(/private segmentosPrecio\(\)/);
+    expect(LABEL).toMatch(/\{ txt: '\$', em: PRECIO_CUR_EM \}/);
+    expect(LABEL).toMatch(/\{ txt: '\.', em: PRECIO_DOT_EM \}/);
+  });
+
   it('⭐ un pase NO puede TERMINAR en desborde si un tamaño menor cabe', () => {
     // El invariante que no depende de entender la causa. Sea lo que sea lo que dejó el número
     // grande —una tipografía más angosta al medir, un texto que llegó después, una geometría que

@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ALL_SECTIONS, LabelComponent, LabelModel, LabelSections } from './label.component';
+import { ALL_SECTIONS, LabelComponent, LabelModel, LabelSections, MEDIDOR_DE_TEXTO } from './label.component';
 
 /**
  * La etiqueta RENDERIZADA (jsdom). Los candados de `../etiqueta-hoja.spec.ts` leen el código;
@@ -194,6 +194,68 @@ describe('LabelComponent · lo que sale impreso', () => {
       await dosCuadros();
       await dosCuadros();
       expect(spy).toHaveBeenCalledTimes(2);
+    });
+
+    /**
+     * ⭐⭐ LA PROPIEDAD QUE CIERRA EL DEFECTO: el DOM ya no decide el tamaño.
+     *
+     * Cuatro entregas (ET.5, ET.6, ET.6b, ET.6c) fueron la misma forma de arreglo —"medir el DOM
+     * en el momento correcto"— y las cuatro fallaron, porque lo frágil no era el momento sino
+     * medir el DOM. Acá `offsetWidth` MIENTE de las dos maneras posibles: primero devuelve 0 (lo
+     * que hacía crecer el número hasta el techo de 15 mm, el desborde reportado) y después un
+     * número enorme (lo que lo hundiría hasta el piso de 4.5 mm).
+     *
+     * Con el tamaño calculado desde las métricas de la tipografía, **las dos mentiras dan el mismo
+     * resultado**. Si algún día alguien vuelve a hacer que el ancho salga del elemento, estas dos
+     * lecturas se separan y esta prueba se pone roja.
+     */
+    it('⭐⭐ el DOM ya no decide: con `offsetWidth` mintiendo en las dos direcciones, el tamaño es el mismo', async () => {
+      const original = Object.getOwnPropertyDescriptor(document, 'fonts');
+      Object.defineProperty(document, 'fonts', {
+        value: { check: () => true, load: () => Promise.resolve() }, configurable: true,
+      });
+      // Métricas de mentira pero COHERENTES: cada carácter ocupa 0.45 del cuerpo con que se dibuja.
+      const medidor = jest.spyOn(MEDIDOR_DE_TEXTO, 'ancho').mockImplementation((txt: string, fuente: string) => {
+        const px = Number(/(\d+(?:\.\d+)?)px/.exec(fuente)?.[1] ?? 0);
+        return txt.length * px * 0.45;
+      });
+      try {
+        await render(BASE);
+        await frame();
+        const price = el().querySelector('.etq-price') as HTMLElement;
+        const box = price.parentElement as HTMLElement;
+        // jsdom no maqueta: se le da a la caja una geometría, que es lo ÚNICO del DOM que se sigue
+        // leyendo (y es estable: viene de un ancho fijo en milímetros).
+        price.style.fontFamily = 'Anton, sans-serif';
+        Object.defineProperty(box, 'clientWidth', { value: 120, configurable: true });
+        Object.defineProperty(box, 'clientHeight', { value: 60, configurable: true });
+        // ⚠️ Las dos mentiras tienen que ser distintas ENTRE SÍ y del valor inicial: la firma
+        // incluye `offsetWidth`, así que repetir un valor no dispara un pase nuevo y se leería el
+        // tamaño viejo. (Pasó al escribir esta prueba: el primer pase usaba 0, que es lo que jsdom
+        // ya devolvía, y nunca volvió a maquetar.)
+        let mentira = 1;
+        Object.defineProperty(price, 'offsetWidth', { get: () => mentira, configurable: true });
+
+        cmp().programar();
+        await dosCuadros();
+        const conChico = price.style.fontSize; // con el viejo camino: 15mm (el techo)
+
+        mentira = 9999;
+        cmp().programar();
+        await dosCuadros();
+        const conEnorme = price.style.fontSize; // con el viejo camino: 4.5mm (el piso)
+
+        expect(conChico).toBe(conEnorme);
+        // …y el cálculo SÍ acotó: ni se quedó en el techo ni se fue al piso.
+        expect(parseFloat(conChico)).toBeLessThan(15);
+        expect(parseFloat(conChico)).toBeGreaterThan(4.5);
+        // El tamaño sale de las métricas, no del elemento.
+        expect(medidor).toHaveBeenCalled();
+      } finally {
+        medidor.mockRestore();
+        if (original) Object.defineProperty(document, 'fonts', original);
+        else delete (document as unknown as Record<string, unknown>)['fonts'];
+      }
     });
 
     it('declara su veredicto, y en jsdom (sin layout) es "sin_medida" — nunca "ok"', async () => {
