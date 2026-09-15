@@ -129,12 +129,19 @@ Prioridad (dinero primero):
   99.61%, header-only, sin el join a kdm2 de 4M) + agregar kdm1 ANTES de unir kdud (el planner estimaba kdm1=1 fila → nested-loop
   catastrófico) → **48 s**. ✅ **Refresh cableado** (`AnalyticsRefreshService` + umbral `analytics_refresh_payment_terms` en db-health,
   para que una MV parada no se vea verde — OBS.1). **Falta: redeploy del API** (para que el refresh nocturno corra). **Pieza aparte,
-  SD-CH escrita + VALIDADA 2026-09-15 (sin aplicar):** [`may-preserve-mayoreo-channel.js`](../../../database/scripts/may-preserve-mayoreo-channel.js)
+  SD-CH ✅ APLICADA A PROD 2026-09-15 — mayoreo preservado ($9.56M/30d):** [`may-preserve-mayoreo-channel.js`](../../../database/scripts/may-preserve-mayoreo-channel.js)
   — reemplaza quirúrgicamente `WHEN 'mayoreo' THEN 'credito'` → `WHEN 'credito' THEN 'contado_nf'` en la def
   ACTUAL de `mv_sales_blended` (preserva el folio-counting de SD.4b) y de `v_sellout_daily`; `mayoreo` cae al
-  ELSE (se preserva). `CREATE OR REPLACE VIEW` v_sellout + REFRESH `mv_sellout_monthly` + DROP/CREATE del blend.
-  dry-run: 1 reemplazo en cada uno + EXPLAIN de los dos SELECT modificados OK. ⚠️ **Cambia etiquetas VISIBLES**
-  (el desglose por canal muestra `mayoreo` y `credito`→`contado_nf`) → **falta `--apply` en ventana + validación visual.** Diseño original de SD-PAY:
+  ELSE (se preserva). `CREATE OR REPLACE VIEW` v_sellout + REFRESH `mv_sellout_monthly` + DROP/CREATE del blend
+  (refresh 751 s). **Medido en el blend tras aplicar (30d): `tienda` $18.1M · `mayoreo` $9.56M (= raw Kepler exacto) ·
+  `credito` $3.50M · `preventa` $2.14M · `ruta` $412k · `contado_nf` $128k (= raw U-D-12 exacto).** El `credito`
+  residual $3.5M **no es regresión**: viene de la **pierna de ruta** (`sales_daily` RUTA-% pasa `sd.channel` tal cual),
+  intacta — SD-CH sólo tocó el CASE del `k.channel` de la pierna Kepler. **Candado 13/13** (revenue Δ 0.191%/0.012%,
+  ruta Δ $0, tickets Δ 0.32%/0.01% → sólo la etiqueta de canal se movió). ⚠️ **Dos correcciones al script durante el apply:**
+  (1) `pg_get_viewdef` cierra la def con `;` → en `AS <select>; WITH NO DATA` rompía "syntax error at or near DATA"
+  (strip del `;` final); (2) el apply parcial previo dejó `v_sellout_daily` ya migrado y el blend no → guard tolerante a
+  reanudación (omite el lado que ya contiene la taxonomía nueva). ⚠️ **Cambia etiquetas VISIBLES** → **falta validación visual**
+  (`/comercial/rentabilidad` + Command Center; dev servers los levanta Edgar). Diseño original de SD-PAY:
   `credito` NO es un canal — es condición de PAGO. Medido en prod: el crédito **cruza canales** pero está
   **96% en mayoreo/telemarketing** (684 de 711 folios/30d); U-D-12 (lo que el blend llama "credito") es
   *"Factura CONTADO No Fiscal"* = efectivo; el crédito real (U-D-13) son $0.16M/30d, **fuera del sell-out**.
@@ -144,7 +151,8 @@ Prioridad (dinero primero):
   el ODS), **ADITIVO (sin CASCADE)**, canales corregidos (mayoreo preservado, U-D-12→`contado_nf`). Dry-run + EXPLAIN
   validado, sin aplicar. ⚠️ **Pieza aparte, más grande:** el fix del remapeo `mayoreo→credito` vive en el **blend Y
   en `v_sellout_daily`** (que arrastra `mv_sellout_monthly`) → integrarlo al linaje principal es CASCADE de 4 objetos;
-  por eso la dimensión de pago se hace aditiva. **Falta: `--apply` en ventana + el fix de mayoreo.**
+  por eso la dimensión de pago se hace aditiva. ~~**Falta: `--apply` en ventana + el fix de mayoreo.**~~
+  ✅ SD-PAY aplicado (2026-09-14) + fix de mayoreo SD-CH aplicado (2026-09-15). **Falta sólo: redeploy del API** (refresh nocturno de `mv_sales_payment_terms` + motor de margen SD.3 sobre el ODS) **+ validación visual.**
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
   declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores, y tras
   resolver los dos bloqueantes declarados (~~SD.4b tickets~~ ✅ + la taxonomía de canal `mayoreo` → SD-PAY).
