@@ -848,8 +848,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        ⚠️ Pendiente §T: el tooltip sigue siendo el NATIVO del navegador, que se posiciona en el
        cursor y llega a tapar las columnas de la derecha. Migrarlo a Popover API + anchor
        positioning necesita verificación visual, que esta sesión no puede hacer. Declarado. */
-    :host ::ng-deep .pr-wb thead th[title],
-    .pr-peek-tbl th[title], .pr-det th[title] {
+    /* La regla vive en styles.css como utilidad compartida ('.surf-def' + 'th[title]' de tabla):
+       nació acá el 2026-09-14 y se subió el mismo día, cuando la segunda pantalla la necesitó.
+       Sólo queda lo que styles.css no alcanza: la tabla de PrimeNG, que está fuera del alcance
+       de una hoja global por la encapsulación del componente. */
+    :host ::ng-deep .pr-wb thead th[title] {
       text-decoration: underline dotted 1px var(--text-faint); text-underline-offset: 3px; cursor: help;
     }
     /* (2026-09-14) Acá vivían '.pr-grp-h' (cabecera de grupo, centrada) y '.pr-sub-h'. Ninguna de

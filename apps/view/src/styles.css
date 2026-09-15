@@ -3019,6 +3019,32 @@ td.num, th.num {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── DESIGN D.2 — "acá hay una definición" ─────────────────────────────────────
+ * Afordancia para la jerga: un término cuya explicación vive en un tooltip o en
+ * el diccionario de <app-context-help> necesita DECIR que es explicable. Sin
+ * señal, la definición existe pero nadie la encuentra: hay que pasar el mouse a
+ * ciegas por "Tend.", "XYZ" o "p50 / p90" para enterarse de que había algo.
+ * Subrayado punteado = la convención de <abbr>, que el usuario ya conoce.
+ *
+ * Cubre las dos formas en que el repo explica una columna: el `title` nativo y
+ * el `pTooltip` de PrimeNG (que NO deja `title` en el DOM, por eso hace falta
+ * marcar con la clase). En touch no hay hover: la definición tiene que estar
+ * TAMBIÉN en el cajón de ayuda — esto es el atajo de escritorio, no el canal. */
+.surf-def,
+.surf-table thead th[title],
+.p-datatable thead th[title],
+/* El `text-decoration` NO se propaga dentro de un <button>: en una cabecera
+ * ordenable el rótulo vive en `.surf-sort` y sin esto el subrayado no se ve. */
+.surf-def .surf-sort,
+.surf-table thead th[title] .surf-sort {
+  text-decoration: underline dotted 1px var(--text-faint);
+  text-underline-offset: 3px;
+  cursor: help;
+}
+/* …pero sobre el botón el cursor correcto es el de clic: ahí SÍ se puede ordenar. */
+.surf-def .surf-sort,
+.surf-table thead th[title] .surf-sort { cursor: pointer; }
+
 /* Visually-hidden accesible: etiqueta para SR sin ocupar espacio visual
  * (headers de columna de acciones, captions de tabla, etc.). */
 .sr-only {
