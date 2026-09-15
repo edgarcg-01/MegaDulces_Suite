@@ -7,6 +7,11 @@
  * NO acá — redeclararlo acá lo pisa en silencio (pasó con --ease-standard).
  */
 @import '../../../libs/design-tokens/tokens.css';
+/*
+ * Campo numérico — la mitad en CSS de DESIGN.md D.5 (fuera el spinner nativo).
+ * La otra mitad es installNumberWheelGuard(), en el mismo lib, cableada en main.ts.
+ */
+@import '../../../libs/ui-web/src/number-input.css';
 
 @tailwind base;
 @tailwind components;

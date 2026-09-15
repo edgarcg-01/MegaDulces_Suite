@@ -698,8 +698,9 @@ const foldText = (s: string | null | undefined): string =>
       .prod .row-stepper .q { min-width: 1.9rem; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; }
       /* Order pad: input de cantidad tecleable (sin spinners), borde tenue si está en 0 */
       .prod .row-stepper button:disabled { opacity: 0.3; }
-      .prod .row-stepper .qin { width: 2.7rem; height: 2.55rem; border: none; background: transparent; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; -moz-appearance: textfield; appearance: textfield; }
-      .prod .row-stepper .qin::-webkit-outer-spin-button, .prod .row-stepper .qin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      /* Sin appearance ni spin-button acá: los retira libs/ui-web/src/number-input.css para toda
+         la suite (D.5). El stepper +/− de esta fila es el reemplazo que esa regla da por supuesto. */
+      .prod .row-stepper .qin { width: 2.7rem; height: 2.55rem; border: none; background: transparent; text-align: center; font-family: var(--font-mono); font-weight: 800; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; }
       .prod .row-stepper .qin::placeholder { color: var(--text-faint); font-weight: 600; }
       .list-head.sug { margin-top: 1.1rem; }
 
@@ -777,8 +778,7 @@ const foldText = (s: string | null | undefined): string =>
       .voice-sheet .voice-empty p { font-size: 0.88rem; line-height: 1.4; margin-bottom: 0.9rem; }
       .voice-sheet .voice-empty .sh-go { max-width: 16rem; margin: 0 auto; }
       /* Input tecleable dentro del stepper (carrito + voz) */
-      .stepper .qin { width: 2.1rem; text-align: center; border: none; background: transparent; font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; -moz-appearance: textfield; appearance: textfield; }
-      .stepper .qin::-webkit-outer-spin-button, .stepper .qin::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+      .stepper .qin { width: 2.1rem; text-align: center; border: none; background: transparent; font-family: var(--font-mono); font-weight: 700; font-size: 0.95rem; color: var(--text-main); font-variant-numeric: tabular-nums; outline: none; padding: 0; }
 
       /* Fila tocable + hint "por qué" */
       .prod .pb.tappable { cursor: pointer; }
