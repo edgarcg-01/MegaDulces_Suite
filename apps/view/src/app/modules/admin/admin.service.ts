@@ -3,6 +3,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import type {
+  AlcanceDePersona,
   Coherencia,
   HistoriaDePuesto,
   PadronPagina,
@@ -182,12 +183,12 @@ export class AdminService {
     return this.http.put(`${this.users}/${id}/permissions`, { overrides });
   }
 
-  alcanceDe(id: string): Observable<{ user_id: string; role_name: string; dimensions: Record<string, unknown> }> {
-    return this.http.get<{ user_id: string; role_name: string; dimensions: Record<string, unknown> }>(
-      `${this.users}/${id}/scope`,
-    );
+  alcanceDe(id: string): Observable<AlcanceDePersona> {
+    return this.http.get<AlcanceDePersona>(`${this.users}/${id}/scope`);
   }
 
+  /** `mode: null` BORRA el override y la persona vuelve al default de su rol — que
+   *  no es lo mismo que `mode: 'none'`, que es «explícitamente no ve nada». */
   setAlcance(
     id: string,
     dimension: string,

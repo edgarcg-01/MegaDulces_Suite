@@ -232,6 +232,37 @@ export interface ResumenDelPadron {
   nunca_entraron: number;
 }
 
+/**
+ * `[AU.21]` — El alcance de una persona, dimensión por dimensión.
+ *
+ * Lo devuelve `GET /users/:id/scope` vía `ScopeService.describe()`. Trae todo lo
+ * que hace falta para EDITARLO, no sólo para mostrarlo: qué modo tiene, de dónde
+ * sale, qué valores están marcados hoy y **cuáles se pueden elegir**.
+ */
+export const MODOS_DE_ALCANCE = ['none', 'own', 'listed', 'all'] as const;
+export type ModoDeAlcance = (typeof MODOS_DE_ALCANCE)[number];
+
+export interface DimensionDeAlcance {
+  mode: ModoDeAlcance;
+  modeWrite: ModoDeAlcance;
+  /** `user` = override propio · `role` = lo hereda · `default` = no hay regla. */
+  source: 'user' | 'role' | 'default';
+  nota: string | null;
+  values: string[];
+  valuesWrite: string[];
+  /** `own` sólo se ofrece donde la dimensión lo admite (`identity.scope_dimensions`). */
+  supportsOwn: boolean;
+  /** `[ID.26]` `false` = no se sabe qué ve, que NO es lo mismo que «no ve nada». */
+  resolvable: boolean;
+  options: Array<{ value: string; label: string }>;
+}
+
+export interface AlcanceDePersona {
+  user_id: string;
+  role_name: string | null;
+  dimensions: Record<string, DimensionDeAlcance>;
+}
+
 /** El sobre paginado de `GET /users` (`[AU.0b]`). */
 export interface PadronPagina<T> {
   rows: T[];
