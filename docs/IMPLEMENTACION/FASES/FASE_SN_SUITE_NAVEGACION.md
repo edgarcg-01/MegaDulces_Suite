@@ -700,6 +700,134 @@ llegan `undefined` hasta entonces) · validación visual · redeploy api+view.
 
 ---
 
+#### 4.2.14 SN.30 — «si no tiene responsabilidades no se le muestra nada» (2026-09-14)
+
+Edgar, sobre la conclusión de `[SN.29]` (*«mientras el 77 % no tenga responsabilidad declarada, la
+pantalla tiene que mostrar colas compartidas»*): **«no, si no tiene responsabilidades no se le
+muestra nada»**.
+
+##### La regla se simplifica, y lo que se cae es una salvaguarda mía
+
+`[SN.24]` preguntaba **«¿esta actividad tiene dueño?»** y, si no lo tenía, la trataba como cola
+compartida visible para cualquiera con permiso. Esa segunda mitad venía de `[SN.21]`, donde la puse
+para no dejar pantallas vacías — y **era justo la que producía el problema**: el titular de 2,082 de
+la captura eran cinco colas sin dueño ofrecidas a un superadmin que no responde de ninguna.
+
+> **Una cola se te muestra SÓLO si vos respondés de ella.** Punto.
+
+Con eso se cae el concepto entero de «cola sin dueño», y con él la consulta
+`responsabilidadesConDueno()` (65 líneas, dos tablas por request): ya no hace falta saber si alguien
+más la reclama, sólo si vos la reclamás.
+
+⛔ **Sigue sin ser autorización** (`[OR.1b]`): quien deja de ver una cola acá entra igual a esa
+pantalla por el menú. Se recorta la lista de lo que te toca, **no el acceso**.
+
+##### Lo medido en prod ANTES de aplicarlo
+
+| | |
+|---|---:|
+| Personas activas | 122 |
+| Con alguna responsabilidad declarada | **28 (23 %)** |
+| **Ven su columna vacía** | **94 (77 %)** |
+| …de ésas, conservan algo por tarea asignada o borrador propio | 10 |
+| **Quedan en blanco de verdad** | **84** |
+
+Reporte permanente: `node database/scripts/sn-responsabilidad-huecos.js` (read-only, sale con 1 si
+hay alguna cola viva sin dueño).
+
+##### ⭐ Los dos huecos que la regla abre, y que NO se pueden ver desde el código
+
+1. ⛔ **`logistica.flota` no tiene dueño**, así que las alertas de flota **desaparecen de la portada
+   de todo el mundo**. No es un bug —es la regla funcionando— pero si nadie lo mira, una cola con
+   trabajo real deja de pedir atención. Es un hecho de DATO: el arreglo es sembrar la clave.
+2. ⛔ **`libro-de-compras` ni siquiera declara `responsabilidad`** en el registro de ciclos, así que
+   no puede ser de nadie y desaparece para todos. Es un hecho de CÓDIGO, y por eso tiene candado
+   propio (bloque **4h**): la deuda queda **enumerada con motivo**, agregar otra pone el smoke en
+   rojo, y arreglar ésta sin sacarla de la lista también.
+
+`[SN.21]` ya había anticipado el segundo (*«el día que alguien responda del libro hay que declararlo
+en el catálogo, o el filtro se lo esconde a su dueño»*) y quedó sin candado. Ahora lo tiene.
+
+##### El tercer caso, que es el que MENTIRÍA
+
+⚠️ **6 personas** (`diana_rodriguez`, `ernesto_zarate`, `maria_rodriguez`, `jesus_carrillo`,
+`perla_garcia`, `julio_torres`) tienen como ÚNICA responsabilidad `finanzas.hallazgos`, **retirada
+desde `[SN.18]`**. Sí tienen reparto; lo que pasa es que su cola está apagada. Sin distinguirlo, la
+pantalla les diría *«nadie te asignó nada»*, que es falso.
+
+Por eso `MeDelegacion` gana `retiradas: string[]` y el bloque vacío pasa a tener **cuatro** estados,
+elegidos por el dato y nunca por un default (ADR-056):
+
+| Estado | Qué dice |
+|---|---|
+| `soloRetiradas()` | *«Tu actividad está pausada»* — respondés de X, pero esa bandeja está apagada |
+| `sinReparto()` | *«Nadie definió de qué respondes»* — con a quién pedírselo, y aclarando que el acceso no cambia |
+| `delegacion() === null` | *«No se pudo leer tu reparto»* — no se muestra nada en vez de adivinar |
+| resto | *«Estás al día»* — respondés de X y ninguna tiene pendientes |
+
+##### Las dos exenciones que quedan, con su motivo
+
+⛔ **`alcance: 'mio'`** es tu BORRADOR (`caducidades-mias` filtra por `responsible_user_id`).
+Esconderle a alguien su propio trabajo a medias sería el peor resultado de una regla que existe para
+mostrarle lo suyo.
+
+⛔ **Las TAREAS asignadas** no pasan por el filtro. Un `assigned_to` con tu nombre es la afirmación
+**más fuerte** de las tres que separa `work/task.contract.ts` (*el permiso decide si podés abrirlo,
+la responsabilidad decide si es tuyo, la tarea dice que alguien te lo asignó*): filtrarla por
+responsabilidad sería esconderte algo que una persona te repartió con nombre y fecha.
+
+⛔ Y si las responsabilidades **no se pudieron leer**, se falla ABIERTO: vaciar la pantalla por una
+falla transitoria es la lección de `[SN.22]`.
+
+##### El frontend también deja de tener DÓNDE poner trabajo ajeno
+
+El mismo defecto —el trabajo de otra persona en tu portada— se reportó **tres veces**
+(`[SN.20]`, `[SN.24]`, `[SN.28]`) y cada vez algo se filtró. Así que no alcanza con que el backend
+deje de mandarlo: el grupo «Por periodo» pasa a renderizarse **sólo** cuando `delegacion() === null`
+(la válvula de falla abierta), con el rótulo honesto *«sin poder confirmar que es tuyo»*. En
+cualquier otro caso falla **cerrado**.
+
+Y el rótulo de las bandejas cambió porque **decía lo contrario de lo que pasa**: era «En tus
+bandejas · Colas compartidas: las abre tu permiso, nadie las tiene asignadas». Ahora es **«De las
+que respondes»**.
+
+##### Candados: cuatro pruebas exigían la regla vieja
+
+⭐ **La señal de que el cambio es de fondo: cuatro pruebas se pusieron rojas porque codificaban la
+salvaguarda que Edgar acaba de quitar.** La más explícita se llamaba literalmente *«a quien NO se le
+delegó nada, se le siguen mostrando todos los ciclos»*. Las cuatro quedan **invertidas con el rastro
+de por qué**, no borradas.
+
+| Dónde | Qué vigila ahora | Negativa **ejercida** |
+|---|---|---|
+| smoke **4e** (reescrito) | la condición es «no es tuya» a secas, NO «tiene otro dueño»; `responsabilidadesConDueno()` se retiró; el god-mode no es exención; falla abierta si no se pudo leer | devolverle la rama vieja pone rojas las dos primeras |
+| smoke **4h** (nuevo) | ningún ciclo NUEVO sin `responsabilidad` (sería invisible **en silencio**); la deuda declarada sigue siendo real | se le quitó la clave a `conciliacion-bancos-ingresos` → `FAIL … ["conciliacion-bancos-ingresos"]` ✅ |
+| smoke en vivo | ningún ciclo ajeno en la lista, condicionado a `delegacion !== null` — **al síntoma no**, que lo volvería incapaz de detectar el bug que vigila | — |
+| `mi-trabajo.component.spec.ts` | las 4 invertidas + una nueva para la válvula de falla abierta | — |
+
+⚠️ **La primera prueba negativa del 4h NO se puso roja, y eso fue el hallazgo.** Mi script de
+edición buscaba `',\r\n'` y el archivo es LF, así que **no reemplazó nada** y la «negativa» corrió
+contra el código intacto. *Una prueba negativa sin `assert` de que el sabotaje se aplicó no prueba
+nada* — es la misma familia de verde-sin-medir que ADR-056 persigue. Con el assert puesto, roja.
+
+##### Verificación
+
+`nx test contracts` **53/53** · `nx test view` **21 suites / 329** (el único rojo es el ajeno de
+§4.2.9) · `test-newdb-me-context.js` **410 OK · 0 FAIL** · `nx build api` ✅ · `nx build view` ✅
+**1.25 MB sin cambio**.
+
+**Pendiente:** reiniciar la API · validación visual · redeploy.
+
+##### Lo que hay que decidir (no es código)
+
+- **Sembrar `logistica.flota`**, o aceptar que nadie vea las alertas en su portada.
+- **Declararle clave a `libro-de-compras`** y asignársela a contabilidad, o aceptar lo mismo.
+- **Las 6 personas con reparto a una bandeja apagada**: prender la bandeja o darles otra actividad.
+- **Y el fondo: 84 personas con la columna en blanco.** La pantalla ahora dice por qué y a quién
+  pedírselo, pero la respuesta es sembrar `identity.position_responsibilities`.
+
+---
+
 ### 4.3 Backend — `GET /users/me/context` (self-scoped, sin `@RequirePermissions`, antes de `:id`)
 
 `{ user_id, username, nombre, role_name, kind, warehouse_code, zona, department:{code,name}|null, position:{code,name}|null }`. Contrato en `libs/contracts/src/http/identity-me.contract.ts`.

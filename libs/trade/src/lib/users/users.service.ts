@@ -2330,46 +2330,65 @@ export class UsersService {
      * ⛔ Sigue sin ser autorización (`[OR.1b]`): quien deja de ver una cola acá entra igual a esa
      * pantalla por el menú. Se recorta la lista de lo que te toca, no el acceso.
      */
-    const clavesConDueno = await this.responsabilidadesConDueno();
-    const tieneDueno = (clave: string | null | undefined): boolean =>
-      !!clave && !!clavesConDueno?.has(clave);
     const esMiaLaBandeja = (b: (typeof BANDEJAS)[number]) =>
       !!misResponsabilidades?.has(b.responsabilidad);
     const esMioElCiclo = (c: (typeof CICLOS)[number]) =>
       !!c.responsabilidad && !!misResponsabilidades?.has(c.responsabilidad);
 
     /**
-     * ¿Esta cola se le esconde a esta persona? Sólo si tiene dueño y no es ella.
+     * `[SN.30]` **Una cola se te muestra SÓLO si vos respondés de ella.** Punto.
      *
-     * ⛔ **`[SN.28]` El god-mode DEJÓ de ser una exención, y ése era el defecto que Edgar reportó**
-     * («usuarios a los que no se les asignó la conciliación siguen viendo esa información»).
+     * ── Qué cambió y por qué ─────────────────────────────────────────────────────────────────
+     * Edgar (2026-09-14): *«si no tiene responsabilidades no se le muestra nada»*.
      *
-     * Medido en prod: la conciliación la ven en la portada **10 personas** — su dueña y los **9
-     * `superadmin`** (`aaron_alejo`, `david_cisneros`, `felipe_galvan`, `guillermo_lopez`,
-     * `jlh_lopez`, `luis_hernandez`, `ramon_rodriguez`, `superoot`, `superuser`). La regla de
-     * `[SN.24]` funcionaba; se la saltaba justo el grupo que Edgar tenía enfrente.
+     * `[SN.24]` preguntaba **«¿esta actividad tiene dueño?»** y, si no lo tenía, la trataba como
+     * cola compartida visible para cualquiera que la abriera. Esa mitad se cae: era la última
+     * salvaguarda mía contra dejar pantallas vacías, y **era justo la que producía el problema**
+     * — el titular de 2,082 de la captura eran cinco colas sin dueño ofrecidas a un superadmin
+     * que no responde de ninguna. La condición ya no mira la cola: mira si es TUYA.
      *
-     * El error de concepto es mío y es de los tres pilares de `task.contract.ts`: **el permiso
-     * decide si podés ABRIRLO, la responsabilidad decide si es TUYO**. God-mode es un hecho de
-     * permiso. Usarlo acá lo convertía en dueño universal — y esta columna se llama «Tu trabajo»,
-     * no «todo el trabajo que podés abrir». Nueve personas tenían de cabecera el trabajo de otras.
+     * `[SN.28]` sigue vigente y ahora es redundante por construcción: el god-mode no puede
+     * volverte dueño porque acá ya no se pregunta por permiso, sólo por responsabilidad.
      *
-     * ⛔ No se pierde acceso: `puedeVerBandeja` / `puedeVerCiclo` **siguen** honrando el god-mode,
-     * y cualquiera entra a esas pantallas por el menú. Se recorta lo que se te ofrece como TUYO.
-     * Y lo que queda fuera se DECLARA en `delegacion.ocultas` — no desaparece en silencio.
+     * ⛔ **Se cae también el concepto de «cola sin dueño».** Por eso desaparece la consulta
+     * `responsabilidadesConDueno()`: no hace falta saber si alguien más la reclama, sólo si vos
+     * la reclamás. Una consulta menos por request.
      *
-     * ⛔ La única exención que queda, con su motivo: **`alcance: 'mio'`** es tu BORRADOR —
-     * `caducidades-mias` ya filtra por `responsible_user_id`. Gatearlo por responsabilidad le
-     * escondería a alguien su propio trabajo a medias, que es el peor resultado de una regla que
-     * existe para mostrarle lo suyo.
+     * ── Lo medido antes de aplicarlo (prod, 2026-09-14) ──────────────────────────────────────
+     *  · **94 de 122 personas (77 %)** no tienen ninguna responsabilidad declarada y pasan a ver
+     *    su columna vacía. **De ésas, 10 conservan algo** por tarea asignada o borrador propio,
+     *    así que **84 quedan en blanco de verdad**. La pantalla lo dice con su motivo: el vacío
+     *    es el hecho, no un error (`[SN.11]`).
+     *  · ⛔ **`logistica.flota` NO tiene dueño**, así que las alertas de flota **desaparecen de
+     *    la portada de todo el mundo** hasta que alguien responda de ellas. Es consecuencia
+     *    buscada de la regla, no un efecto colateral: queda declarado acá y reportado a Edgar.
+     *  · ⚠️ **6 personas** (`diana_rodriguez`, `ernesto_zarate`, `maria_rodriguez`,
+     *    `jesus_carrillo`, `perla_garcia`, `julio_torres`) tienen como ÚNICA responsabilidad
+     *    `finanzas.hallazgos`, que está **retirada desde `[SN.18]`**. Su columna queda vacía
+     *    aunque sí tengan reparto — su cola está apagada, que es un caso distinto de no tener
+     *    ninguna, y la pantalla los distingue.
      *
-     * ⛔ Y si las responsabilidades NO se pudieron leer (`null`), se falla ABIERTO: no se sabe
-     * quién es dueño de qué, y esconder por una falla transitoria vaciaría pantallas. Es la misma
-     * lección de `[SN.22]` — lo que no se pudo medir se declara, no se asume.
+     * ── Las dos exenciones que quedan, con su motivo ─────────────────────────────────────────
+     * ⛔ **`alcance: 'mio'`** es tu BORRADOR: `caducidades-mias` ya filtra por
+     * `responsible_user_id`. Esconderle a alguien su propio trabajo a medias sería el peor
+     * resultado de una regla que existe para mostrarle lo suyo.
+     *
+     * ⛔ **Las TAREAS asignadas** (`me-tasks.ts`) no pasan por acá y siguen mostrándose. Un
+     * `assigned_to` con tu nombre es la afirmación MÁS fuerte de las tres que separa
+     * `work/task.contract.ts` (*el permiso decide si podés abrirlo, la responsabilidad decide si
+     * es tuyo, la tarea dice que alguien te lo asignó*): filtrarla por responsabilidad sería
+     * esconderte algo que una persona te repartió con nombre y fecha.
+     *
+     * ⛔ Y si las responsabilidades NO se pudieron leer (`null`), se falla ABIERTO: vaciar la
+     * pantalla por una falla transitoria es la lección de `[SN.22]` — lo que no se pudo medir se
+     * declara, no se asume.
+     *
+     * ⛔ Sigue sin ser autorización (`[OR.1b]`): quien deja de ver una cola acá entra igual a esa
+     * pantalla por el menú. Se recorta la lista de lo que te toca, **no el acceso**.
      */
-    const ajena = (clave: string | null | undefined, propia: boolean, alcance?: string): boolean => {
-      if (alcance === 'mio' || clavesConDueno === null) return false;
-      return tieneDueno(clave) && !propia;
+    const ajena = (propia: boolean, alcance?: string): boolean => {
+      if (alcance === 'mio' || misResponsabilidades === null) return false;
+      return !propia;
     };
     let ocultasPorDelegacion = 0;
 
@@ -2399,9 +2418,9 @@ export class UsersService {
       const propia = esMiaLaBandeja(b);
       const abre = puedeVerBandeja(b, permisos, esAdmin);
       if (!abre && !propia) continue;
-      // `[SN.24]` Una cola con dueño ajeno no va en TU lista. No entra a `no_medido`: eso es para
-      // lo que falló al medirse, no para lo que le toca a otra persona.
-      if (ajena(b.responsabilidad, propia, b.alcance)) {
+      // `[SN.30]` La cola que NO es tuya no va en TU lista. No entra a `no_medido`: eso es para
+      // lo que falló al medirse, no para lo que le toca a otra persona (o a nadie todavía).
+      if (ajena(propia, b.alcance)) {
         ocultasPorDelegacion++;
         continue;
       }
@@ -2555,7 +2574,7 @@ export class UsersService {
       const mio = esMioElCiclo(c);
       const abreCiclo = puedeVerCiclo(c, permisos, esAdmin);
       if (!abreCiclo && !mio) continue;
-      if (ajena(c.responsabilidad, mio)) {
+      if (ajena(mio)) {
         ocultasPorDelegacion++;
         continue;
       }
@@ -2611,17 +2630,29 @@ export class UsersService {
        * demás no es tuyo» se confunden, que es exactamente lo que ADR-056 no deja hacer.
        */
       /*
-       * `[SN.24]` `activa` ya no describe un filtro por persona sino el HECHO de que algo quedó
-       * fuera **por tener otro dueño** — que es distinto de «no tenés permiso» y por eso se dice
-       * aparte. `null` cuando las responsabilidades no se pudieron leer (ADR-056).
+       * `[SN.30]` `activa` es el HECHO de que algo que tu permiso abre quedó fuera **por no ser
+       * tuyo** — distinto de «no tenés permiso», y por eso se dice aparte. `null` cuando las
+       * responsabilidades no se pudieron leer (ADR-056: se declara, no se asume vacío).
        */
       delegacion:
-        misResponsabilidades === null || clavesConDueno === null
+        misResponsabilidades === null
           ? null
           : {
               activa: ocultasPorDelegacion > 0,
               claves: [...misResponsabilidades].sort(),
               ocultas: ocultasPorDelegacion,
+              /*
+               * `[SN.30]` Tus responsabilidades cuya superficie está APAGADA. Sin esto la pantalla
+               * le diría «no tienes trabajo a tu nombre» a alguien que SÍ tiene reparto — sólo que
+               * su cola está retirada. Medido: le pasa a 6 personas cuya única responsabilidad es
+               * `finanzas.hallazgos`, retirada desde `[SN.18]`.
+               */
+              // Hoy sólo `BandejaDef` tiene `retirada`; `CicloDef` no la declara. El día que la
+              // gane, se suma acá en una línea.
+              retiradas: [...new Set(
+                BANDEJAS.filter((b) => !!b.retirada && misResponsabilidades.has(b.responsabilidad))
+                  .map((b) => b.responsabilidad as string),
+              )].sort(),
             },
       medido_at: new Date().toISOString(),
     };
@@ -2713,71 +2744,6 @@ export class UsersService {
    * que "no responde de nada". El peor caso es que nada se marque como propio, nunca que alguien
    * pierda acceso.
    */
-  /**
-   * `[SN.24]` — **Qué actividades tienen dueño en este tenant.**
-   *
-   * Es la mitad que le faltaba a la regla. `responsabilidadesDe()` contesta «¿de qué respondés
-   * VOS?»; ésta contesta «¿esta actividad tiene dueño, sea quien sea?». Con las dos se decide por
-   * COLA en vez de por persona, que es lo que pidió Edgar: *el trabajo con dueño designado sólo
-   * lo ve su dueño*.
-   *
-   * Cuenta las dos fuentes igual que `responsabilidadesDe`, con una diferencia que importa: una
-   * `'resta'` **no** quita el dueño de la actividad, sólo se lo quita a esa persona. Si el puesto
-   * de almacén responde del cuadre y a una persona se lo restaron, la actividad **sigue teniendo
-   * dueño** (los demás del puesto) y no vuelve a ser compartida.
-   *
-   * Dos tablas chicas (42 y 2 filas medidas en prod), una sola consulta, dentro de `aislado()`
-   * para que su falla no envenene el resto de la petición (`[SN.22]`).
-   *
-   * `null` = no se pudo consultar. El llamador falla ABIERTO: sin saber quién es dueño de qué,
-   * esconder sería peor que mostrar de más.
-   */
-  private async responsabilidadesConDueno(): Promise<Set<string> | null> {
-    try {
-      const [dePuesto, dePersona] = await this.aislado(async () => [
-        /*
-         * ⚠️ Un puesto que NADIE ocupa no designa a nadie: si `position_responsibilities` dice que
-         * `jefe_taller` responde del cuadre y no hay ningún jefe de taller activo, esa actividad
-         * sigue SIN dueño y tiene que seguir siendo compartida. Por eso el join a `users`.
-         */
-        (await this.knex('identity.position_responsibilities as pr')
-          .join('identity.users as u', function () {
-            this.on('u.position_code', '=', 'pr.position_code').andOn('u.tenant_id', '=', 'pr.tenant_id');
-          })
-          .where('pr.tenant_id', this.tenantId)
-          .whereNull('pr.deleted_at')
-          .whereNull('u.deleted_at')
-          .where('u.activo', true)
-          .distinct()
-          .pluck('pr.responsibility_key')) as string[],
-
-        /*
-         * ⚠️ Sólo `'suma'`: una `'resta'` le quita la actividad a UNA persona, no le quita el dueño
-         * a la actividad. Contarla acá haría que quitarle el cuadre a alguien volviera el cuadre
-         * compartido para toda la empresa.
-         */
-        (await this.knex('identity.user_responsibilities as ur')
-          .join('identity.users as u', function () {
-            this.on('u.id', '=', 'ur.user_id').andOn('u.tenant_id', '=', 'ur.tenant_id');
-          })
-          .where('ur.tenant_id', this.tenantId)
-          .where('ur.accion', 'suma')
-          .whereNull('ur.deleted_at')
-          .whereNull('u.deleted_at')
-          .where('u.activo', true)
-          .whereRaw('ur.valid_from <= CURRENT_DATE')
-          .andWhere((q) => q.whereNull('ur.valid_to').orWhereRaw('ur.valid_to >= CURRENT_DATE'))
-          .distinct()
-          .pluck('ur.responsibility_key')) as string[],
-      ]);
-      return new Set<string>([...dePuesto, ...dePersona]);
-    } catch (e) {
-      this.logger.warn(
-        `me/work: no se pudo leer qué actividades tienen dueño — ${e instanceof Error ? e.message : e}`,
-      );
-      return null;
-    }
-  }
 
   private async responsabilidadesDe(userId: string): Promise<Set<string> | null> {
     try {

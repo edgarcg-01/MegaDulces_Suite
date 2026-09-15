@@ -591,6 +591,41 @@ export class MiTrabajoComponent {
     return d && d.activa && d.ocultas > 0 ? d : null;
   });
 
+  /**
+   * `[SN.30]` **Tenés reparto, pero TODAS tus actividades están apagadas.**
+   *
+   * Devuelve el texto de esas claves, o `null` si no es el caso. Es el cuarto estado del bloque
+   * vacío y existe porque sin él la pantalla les diría *«nadie te asignó nada»* a **6 personas**
+   * medidas en prod (`diana_rodriguez`, `ernesto_zarate`, `maria_rodriguez`, `jesus_carrillo`,
+   * `perla_garcia`, `julio_torres`) cuya única responsabilidad es `finanzas.hallazgos`, retirada
+   * desde `[SN.18]`. Sí tienen trabajo asignado; lo que pasa es que su bandeja está apagada, y
+   * son dos hechos distintos.
+   */
+  readonly soloRetiradas = computed(() => {
+    const d = this.delegacion();
+    if (!d || d.claves.length === 0) return null;
+    const ret = d.retiradas ?? [];
+    // Todas las claves que tiene apuntan a una superficie apagada.
+    if (ret.length === 0 || ret.length !== d.claves.length) return null;
+    return this.listaLegible(ret);
+  });
+
+  /** Las responsabilidades de esta persona, en prosa. Para el estado "estás al día". */
+  readonly clavesTexto = computed(() => this.listaLegible(this.delegacion()?.claves ?? []));
+
+  /**
+   * `almacen.cuadre` → «Cuadre». Se usa el último segmento y se capitaliza: la clave es el
+   * vocabulario del catálogo (`[OR.1b]`), no algo que una persona deba leer tal cual.
+   */
+  private listaLegible(claves: readonly string[]): string {
+    const nombres = claves.map((k) => {
+      const hoja = (k.split('.').pop() ?? k).replace(/_/g, ' ');
+      return hoja.charAt(0).toUpperCase() + hoja.slice(1);
+    });
+    if (nombres.length <= 1) return nombres[0] ?? '';
+    return `${nombres.slice(0, -1).join(', ')} y ${nombres[nombres.length - 1]}`;
+  }
+
   readonly sinPendientes = computed(
     () =>
       this.trabajo().status === 'ok' &&

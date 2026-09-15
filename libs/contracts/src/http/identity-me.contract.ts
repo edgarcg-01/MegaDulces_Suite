@@ -391,6 +391,19 @@ export interface MeDelegacion {
    * pantalla: una lista recortada en silencio se lee igual que una lista completa.
    */
   ocultas: number;
+  /**
+   * `[SN.30]` **Responsabilidades tuyas cuya superficie está APAGADA** (`BandejaDef.retirada`).
+   *
+   * Sin esto la pantalla le diría *«no tienes trabajo a tu nombre»* a alguien que sí tiene
+   * reparto — sólo que su cola está retirada. Son dos hechos distintos y confundirlos es la
+   * clase de mentira que esta fase existe para no cometer (ADR-056).
+   *
+   * Medido en prod el 2026-09-14: **6 personas** (`diana_rodriguez`, `ernesto_zarate`,
+   * `maria_rodriguez`, `jesus_carrillo`, `perla_garcia`, `julio_torres`) tienen como ÚNICA
+   * responsabilidad `finanzas.hallazgos`, retirada desde `[SN.18]` por 82,377 sin triage. Con la
+   * regla de `[SN.30]` su columna queda vacía, y sin este campo no sabrían por qué.
+   */
+  retiradas: string[];
 }
 
 export interface MeWork {
