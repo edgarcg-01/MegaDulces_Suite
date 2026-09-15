@@ -33,7 +33,7 @@ const { branchUrl } = require('../lib/kepler-branches');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW (prod Railway)'); })();
-const SRC_PUSH = process.env.SRC_URL || 'postgresql://postgres:superoot@192.168.0.249:5433/kepler_consolidado';
+const SRC_PUSH = process.env.SRC_URL || process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@192.168.0.222:5433/kepler_consolidado';
 const SRC_BRANCH = process.env.CANINDO_SRC || branchUrl('06'); // réplica local kepler_md_06
 const APPLY = process.argv.includes('--apply');
 const yi = process.argv.indexOf('--year');

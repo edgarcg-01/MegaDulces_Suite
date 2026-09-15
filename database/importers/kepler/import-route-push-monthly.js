@@ -6,7 +6,7 @@
  * Contexto (cutover fin de junio 2026): las rutas de PH migraron de las Access `.mdb`
  * de Wincaja (fuente legacy, congelada ~06-27) al PUSH: cada camioneta corre un Kepler
  * local y su `push-ruta.cmd` sube la venta cada 15 min al runner consolidado
- * (`192.168.0.249:5433/kepler_consolidado` → `mart.ventas`, `sucursal='ruta_NN'`).
+ * (`192.168.0.222:5433/kepler_consolidado` → `mart.ventas`, `sucursal='ruta_NN'`).
  * Ese push llega FRESCO pero no había puente hacia la plataforma → el reporte mostraba
  * julio vacío. Este feed cierra ese puente.
  *
@@ -16,7 +16,24 @@
  * julio crece con los días; junio (2 días del push) nunca degrada el mes completo Wincaja.
  * Compatible con import-wincaja-routes-monthly (ahora UPSERT, no borra el namespace).
  *
- *   SRC_URL=…@192.168.0.249:5433/kepler_consolidado (default)
+ * ⭐ [VL.7.5] EL RUNNER SE MUDÓ A LINUX (2026-09-14). Era `192.168.0.249:5433`, un Postgres en
+ * Docker Desktop sobre Windows. Ahora `192.168.0.222:5433` (`md`), y este feed lo lee **local**
+ * por `DATABASE_URL_KEPLER_CONSOLIDADO` (el contenedor `pg-ods`), sin salir a la red.
+ *
+ * ⛔ LAS ~35 CAMIONETAS SIGUEN APUNTANDO A `.249` Y ESO ES A PROPÓSITO. Tienen la IP escrita a
+ * mano en su `push-ruta.cmd`, y repuntarlas es visitar 35 equipos. En su lugar, `.249:5433` quedó
+ * como un **reenvío TCP de Windows** (`netsh interface portproxy`) hacia `md`: la camioneta cree
+ * que habla con `.249` y el dato aterriza en Linux.
+ *
+ * ⭐ El reenvío NO es sólo comodidad, es más disponible que lo que reemplaza: `netsh portproxy`
+ * vive en el servicio `iphlpsvc` (automático, arranca CON LA MÁQUINA), mientras que el Postgres
+ * en Docker Desktop **no arranca hasta que alguien inicia sesión** — la falla que dejó 9.5 h sin
+ * ingesta el 2026-09-10.
+ *
+ * ⚠️ Antes se leía desde `.249` a través del proxy de puertos de Docker Desktop, y eso tenía a
+ * este feed fallando **27 de 27 corridas** con `timeout expired`. Leer local lo elimina.
+ *
+ *   SRC_URL=…@192.168.0.222:5433/kepler_consolidado (default; en `md` gana DATABASE_URL_KEPLER_CONSOLIDADO)
  *   DST_URL / DATABASE_URL_NEW = destino (prod Railway)
  *
  *   DST_URL=…railway node database/importers/kepler/import-route-push-monthly.js           # dry-run
@@ -26,7 +43,7 @@
 const { Client } = require('pg');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
-const SRC = process.env.SRC_URL || 'postgresql://postgres:superoot@192.168.0.249:5433/kepler_consolidado';
+const SRC = process.env.SRC_URL || process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@192.168.0.222:5433/kepler_consolidado';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
 const yi = process.argv.indexOf('--year');
