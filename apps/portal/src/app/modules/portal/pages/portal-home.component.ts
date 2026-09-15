@@ -722,7 +722,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         letter-spacing: -0.02em;
         line-height: 1.02;
         margin: 0 0 1rem;
-        color: var(--neutral-950);
+        color: var(--text-main);
       }
       .ph-hero-promo-name {
         display: inline-block;
@@ -740,7 +740,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-hero-lead {
         font-size: var(--fs-h3);
         line-height: 1.5;
-        color: var(--neutral-700);
+        color: var(--text-muted);
         margin: 0 0 1.75rem;
         max-width: 36ch;
         font-weight: 500;
@@ -837,7 +837,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-trust-text strong {
         font-size: var(--fs-body);
         font-weight: 700;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.2;
       }
       .ph-trust-text span {
@@ -873,7 +873,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         font-size: var(--text-display-lg);
         font-weight: 700;
         letter-spacing: -0.02em;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin: 0;
         line-height: 1.1;
       }
@@ -938,7 +938,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-history-summary {
         font-size: var(--fs-body);
         font-weight: 700;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.25;
       }
       .ph-history-meta {
@@ -961,7 +961,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-history-total {
         font-size: var(--fs-h3);
         font-weight: 800;
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.01em;
         white-space: nowrap;
@@ -984,7 +984,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
         font-size: var(--fs-h2);
         font-weight: 700;
         margin: 0 0 0.5rem;
-        color: var(--neutral-950);
+        color: var(--text-main);
         letter-spacing: -0.015em;
       }
       .ph-empty p { color: var(--text-muted); margin: 0 0 1.25rem; }
@@ -1012,7 +1012,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-foot-item span {
         font-size: var(--fs-body);
         font-weight: 600;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.3;
       }
 
@@ -1097,7 +1097,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-reorder-name {
         font-size: var(--fs-sm);
         font-weight: 600;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.25;
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -1108,7 +1108,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-reorder-price {
         font-size: var(--fs-body);
         font-weight: 700;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin-top: 0.15rem;
         font-variant-numeric: tabular-nums;
       }
@@ -1186,7 +1186,7 @@ const PROMOTION_TYPE_LABELS: Record<string, string> = {
       .ph-restock-name {
         font-size: var(--fs-sm);
         font-weight: 600;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.2;
         white-space: nowrap;
         overflow: hidden;

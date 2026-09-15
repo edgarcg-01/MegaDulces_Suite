@@ -228,7 +228,7 @@ import { CountUpDirective } from './count-up.directive';
         border: none;
         border-radius: 50%;
         background: rgba(255, 255, 255, 0.92);
-        color: var(--neutral-950);
+        color: var(--text-main);
         display: grid;
         place-items: center;
         cursor: pointer;
@@ -249,7 +249,7 @@ import { CountUpDirective } from './count-up.directive';
       .psheet-price {
         font-size: var(--text-display-md);
         font-weight: 800;
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.02em;
       }
@@ -291,7 +291,7 @@ import { CountUpDirective } from './count-up.directive';
         letter-spacing: -0.02em;
         line-height: 1.12;
         margin: 0;
-        color: var(--neutral-950);
+        color: var(--text-main);
       }
       .psheet-stock {
         display: inline-flex;
@@ -329,7 +329,7 @@ import { CountUpDirective } from './count-up.directive';
         border: none;
         border-radius: 50%;
         background: var(--card-bg);
-        color: var(--neutral-950);
+        color: var(--text-main);
         display: grid;
         place-items: center;
         cursor: pointer;
@@ -424,7 +424,7 @@ import { CountUpDirective } from './count-up.directive';
       .psheet-cross-nm {
         font-size: var(--fs-nano);
         font-weight: 600;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.2;
         text-align: center;
         display: -webkit-box;
@@ -436,7 +436,7 @@ import { CountUpDirective } from './count-up.directive';
       .psheet-cross-pr {
         font-size: var(--fs-xs);
         font-weight: 800;
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-variant-numeric: tabular-nums;
       }
 

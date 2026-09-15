@@ -168,7 +168,7 @@ import { CartFxService } from '../cart-fx.service';
         font-weight: 700;
         letter-spacing: -0.02em;
         line-height: 1.05;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin: 0;
       }
       .pom-head-right { display: flex; align-items: center; gap: 0.75rem; }
@@ -186,13 +186,13 @@ import { CartFxService } from '../cart-fx.service';
         border-radius: 50%;
         border: 1px solid var(--neutral-200);
         background: var(--card-bg);
-        color: var(--neutral-700);
+        color: var(--text-muted);
         display: grid;
         place-items: center;
         cursor: pointer;
         transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard), transform 120ms var(--ease-spring);
       }
-      .pom-arrow:hover { background: var(--neutral-100); border-color: var(--neutral-300); color: var(--neutral-950); }
+      .pom-arrow:hover { background: var(--neutral-100); border-color: var(--neutral-300); color: var(--text-main); }
       .pom-arrow:active { transform: scale(0.9); }
       .pom-arrow i { font-size: var(--fs-sm); }
 
@@ -279,7 +279,7 @@ import { CartFxService } from '../cart-fx.service';
       .pom-name {
         font-size: var(--fs-sm);
         font-weight: 600;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.25;
         display: -webkit-box;
         -webkit-line-clamp: 2;
@@ -290,7 +290,7 @@ import { CartFxService } from '../cart-fx.service';
       .pom-price {
         font-size: var(--fs-h3);
         font-weight: 800;
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.01em;
         margin-top: 0.15rem;

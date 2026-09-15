@@ -270,12 +270,12 @@ interface Arrival {
     .cll-wh { min-width:14rem; }
     .cll-summary {
       display:flex; align-items:center; gap:.5rem; flex-wrap:wrap;
-      font-size:.8125rem; color:var(--surf-text-muted, #6b7280);
+      font-size:.8125rem; color:var(--text-muted);
       padding:.5rem .75rem; margin-bottom:.5rem;
       background:var(--surf-panel, #fafaf9); border:1px solid var(--surf-border, #e7e5e4); border-radius:.5rem;
     }
     .cll-dot { opacity:.5; }
-    .cll-sub { display:block; font-size:.6875rem; color:var(--surf-text-muted, #6b7280); }
+    .cll-sub { display:block; font-size:.6875rem; color:var(--text-muted); }
 
     .cll-prog { display:flex; align-items:center; gap:.5rem; }
     .cll-prog-bar {
@@ -283,7 +283,7 @@ interface Arrival {
       background:var(--surf-border, #e7e5e4);
     }
     .cll-prog-bar > span { display:block; height:100%; background:var(--action, #ea580c); border-radius:999px; }
-    .cll-prog-txt { font-size:.6875rem; font-variant-numeric:tabular-nums; color:var(--surf-text-muted, #6b7280); }
+    .cll-prog-txt { font-size:.6875rem; font-variant-numeric:tabular-nums; color:var(--text-muted); }
 
     .cll-grp { margin-bottom:1rem; border:1px solid var(--surf-border, #e7e5e4); border-radius:.625rem;
       background:var(--surf-panel, #fafaf9); overflow:hidden; }
@@ -291,10 +291,10 @@ interface Arrival {
       padding:.5rem .75rem; border-bottom:1px solid var(--surf-border, #e7e5e4); font-size:.8125rem; }
     .cll-grp-id { display:flex; align-items:baseline; gap:.375rem; flex-wrap:wrap; min-width:0; }
     .cll-grp-meta { display:flex; align-items:center; gap:.75rem; flex-wrap:wrap; }
-    .cll-grp-n { font-size:.75rem; font-weight:600; color:var(--surf-text-muted, #6b7280); }
+    .cll-grp-n { font-size:.75rem; font-weight:600; color:var(--text-muted); }
     .cll-grp-meta .cll-prog { width:9rem; }
     .cll-det { padding:.625rem .75rem; display:flex; flex-direction:column; gap:.5rem; }
-    .cll-loading { font-size:.8125rem; color:var(--surf-text-muted, #6b7280); }
+    .cll-loading { font-size:.8125rem; color:var(--text-muted); }
 
     .cll-line {
       display:flex; flex-wrap:wrap; align-items:flex-end; gap:.75rem 1rem;
@@ -304,7 +304,7 @@ interface Arrival {
     .cll-line-id { min-width:14rem; flex:1 1 14rem; font-size:.8125rem; }
     .cll-line-nums { display:flex; gap:1rem; font-size:.8125rem; font-variant-numeric:tabular-nums; }
     .cll-line-nums em { display:block; font-style:normal; font-size:.625rem; text-transform:uppercase;
-      letter-spacing:.04em; color:var(--surf-text-muted, #6b7280); }
+      letter-spacing:.04em; color:var(--text-muted); }
     .cll-line-nums .cll-falta { font-weight:700; }
     .cll-line-nums .cll-held { color:#dc2626; font-weight:600; }
 
@@ -315,7 +315,7 @@ interface Arrival {
     .cll-scan-grid { display:grid; grid-template-columns: minmax(12rem, 22rem) 7.5rem 10rem 10rem max-content 1fr;
       gap:.5rem .75rem; align-items:end; }
     .cll-f { display:flex; flex-direction:column; gap:.25rem; min-width:0; }
-    .cll-f > span { font-size:.75rem; font-weight:600; color:var(--surf-text-muted, #6b7280); }
+    .cll-f > span { font-size:.75rem; font-weight:600; color:var(--text-muted); }
     .cll-f > span em { font-style:normal; font-weight:400; }
     .cll-f input { width:100%; }
     .cll-code { font-size:1.05rem; }
@@ -324,8 +324,8 @@ interface Arrival {
       font-size:.8125rem; font-weight:600; color:#dc2626; }
     .cll-scan-hit { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-top:.625rem;
       font-size:.8125rem; color:#16a34a; }
-    .cll-scan-hit strong { color:var(--surf-text, #1c1917); }
-    .cll-scan-falta { font-weight:700; color:var(--surf-text, #1c1917); }
+    .cll-scan-hit strong { color:var(--text-main); }
+    .cll-scan-falta { font-weight:700; color:var(--text-main); }
     .cll-line--sel { outline:2px solid var(--action, #ea580c); outline-offset:1px; }
     .cll-hold { margin-top:1.25rem; border:1px solid var(--surf-border, #e7e5e4); border-radius:.625rem;
       background:var(--surf-panel, #fafaf9); overflow:hidden; }

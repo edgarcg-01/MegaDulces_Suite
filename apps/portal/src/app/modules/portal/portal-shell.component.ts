@@ -452,7 +452,7 @@ interface NavItem {
         padding: 0 5px;
         border-radius: var(--r-sm);
         background: var(--brand-400);
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-size: var(--fs-nano);
         font-weight: 800;
         line-height: 18px;
@@ -733,7 +733,7 @@ interface NavItem {
         padding: 0 6px;
         border-radius: var(--r-pill);
         background: var(--brand-400);
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-size: var(--fs-sm);
         font-weight: 800;
         line-height: 28px;
@@ -769,7 +769,7 @@ interface NavItem {
         padding: 0 5px;
         border-radius: var(--r-sm);
         background: var(--brand-400);
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-size: var(--fs-nano);
         font-weight: 800;
         line-height: 18px;

@@ -581,7 +581,7 @@ interface OfferCard {
         display: inline-block;
         align-self: flex-start;
         background: var(--brand-400);
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-size: var(--fs-micro);
         font-weight: 800;
         text-transform: uppercase;
@@ -764,7 +764,7 @@ interface OfferCard {
         top: 0.5rem;
         left: 0.5rem;
         background: var(--brand-400);
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-size: var(--fs-micro);
         font-weight: 800;
         letter-spacing: 0.04em;
