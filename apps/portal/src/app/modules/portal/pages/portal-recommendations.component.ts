@@ -698,12 +698,7 @@ const EXAMPLES = [
         font-variant-numeric: tabular-nums;
         background: transparent;
         color: var(--text-main);
-        -moz-appearance: textfield;
-      }
-      .ai-sug-qty input::-webkit-outer-spin-button,
-      .ai-sug-qty input::-webkit-inner-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
+        /* El spinner nativo lo retira libs/ui-web/src/number-input.css para toda la suite (D.5). */
       }
 
       .ai-sug-subtotal {

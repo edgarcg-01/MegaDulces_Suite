@@ -434,12 +434,8 @@ import { CountUpDirective } from '../ui/count-up.directive';
         font-variant-numeric: tabular-nums;
         background: transparent;
         color: var(--text-main);
-        -moz-appearance: textfield;
-      }
-      .ca-line-qty input::-webkit-outer-spin-button,
-      .ca-line-qty input::-webkit-inner-spin-button {
-        -webkit-appearance: none;
-        margin: 0;
+        /* El spinner nativo lo retira libs/ui-web/src/number-input.css para toda la suite (D.5).
+           El stepper +/− de al lado es el reemplazo, y por eso acá sigue habiendo uno. */
       }
       /* iOS hace zoom al enfocar inputs <16px; en touch subimos a 16px. */
       @media (pointer: coarse) {

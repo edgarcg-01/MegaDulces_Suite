@@ -774,15 +774,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       border: 1px solid var(--border-color); border-radius: var(--r-sm, 8px); background: var(--card-bg);
       color: var(--text-main); font-size: var(--fs-body); font-family: inherit; }
     .pr-qty:focus { outline: none; border-color: var(--action); box-shadow: 0 0 0 2px var(--action-ring); }
-    /* Fuera el spinner nativo del input[type=number]. En una columna de captura hace tres daños:
-       (a) aparece al enfocar/hover y EMPUJA la cifra, así que el número salta justo en la columna
-       que existe para que las cifras estén alineadas; (b) son dos targets de ~9px, muy por debajo
-       del piso de 24px de §datos densos 13, e inexistentes en touch; (c) se come ~1rem de un campo
-       de 4rem. Las flechas ↑↓ del TECLADO siguen funcionando —son del input, no del spinner— y
-       ahora Shift+↑↓ mueve de a 10. */
-    .pr-qty { appearance: textfield; -moz-appearance: textfield; }
-    .pr-qty::-webkit-outer-spin-button,
-    .pr-qty::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+    /* El spinner nativo se retira para TODA la suite desde libs/ui-web/src/number-input.css
+       (D.5), así que la regla que vivía acá se fue con él. Las flechas del TECLADO siguen siendo
+       del input, no del spinner — y en esta pantalla onQtyKey las reasigna a moverse entre
+       campos, con Alt+flecha para incrementar. */
     :host ::ng-deep .pr-cov-tag { font-variant-numeric: tabular-nums; }
     .pr-empty { text-align: center; color: var(--text-muted); padding: 2rem 1rem; }
     .pr-empty i { font-size: 1.6rem /* glifo, no texto: la escala --fs-* es de TIPO y su tope util acá es 1.25rem */; display: block; margin-bottom: .5rem; color: var(--text-faint); }
