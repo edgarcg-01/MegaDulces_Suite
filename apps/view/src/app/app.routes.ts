@@ -585,6 +585,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
+        // [CAT.3] El mismo producto a distinto precio segun la plaza.
+        path: 'catalogo/precios',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-precios.component').then(m => m.ComprasCatalogoPreciosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
         path: 'catalogo/codigos',
         loadComponent: () => import('./modules/compras/pages/compras-catalogo-codigos.component').then(m => m.ComprasCatalogoCodigosComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]

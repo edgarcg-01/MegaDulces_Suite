@@ -314,6 +314,146 @@ export class CommercialProductsService {
   }
 
   /**
+   * `[CAT.3]` **Precios distintos** — el mismo producto a distinto precio según la sucursal.
+   *
+   * El cliente que compra el mismo dulce en 8 Esquinas y en Padre Hidalgo debería pagar lo mismo.
+   * Cuando no pasa, casi siempre es que alguien actualizó el precio en una plaza y no se replicó a
+   * las demás — no una decisión comercial.
+   *
+   * ── DE DÓNDE SALE ───────────────────────────────────────────────────────────────────────────
+   * `commercial.product_label_prices`, que desde `[NORM.3]` tiene grano **(tenant, producto,
+   * sucursal)** y la alimenta el hop-2 desde el ODS en la misma transacción en que las filas
+   * aterrizan. O sea: es el precio que la tienda publica, no una copia nuestra ni un promedio.
+   *
+   * ⚠️ Se usa la TABLA, no `commercial.v_product_label_prices`. La vista existe para los lectores
+   * agregados y **elige una sola fila por producto** (moda entre plazas) — justo lo que acá hay
+   * que comparar. Consultarla daría 0 diferencias siempre.
+   *
+   * ── DOS DEFECTOS, NO UNO ────────────────────────────────────────────────────────────────────
+   *   `pieza`   — el precio normal difiere entre plazas.
+   *   `mayoreo` — el precio normal coincide, pero el de volumen no. Se ve menos y duele igual:
+   *               quien se lleva una caja paga distinto según dónde entre.
+   * Se reportan por separado porque se corrigen en pantallas distintas de Kepler.
+   *
+   * No decide cuál precio es "el correcto": eso necesita saber **cuál se actualizó al último**, y
+   * esta tabla no guarda esa historia. Acá se muestra la dispersión y en qué plaza está cada
+   * extremo; quién manda es trabajo de la fase Red de Precios.
+   */
+  async priceDiscrepancies(query: {
+    search?: string; minPct?: number; kind?: 'pieza' | 'mayoreo' | 'unidad' | ''; limit?: number;
+  } = {}) {
+    const search = (query.search || '').trim();
+    const minPct = Number.isFinite(Number(query.minPct)) ? Math.max(0, Number(query.minPct)) : 0;
+    const k = query.kind;
+    const kind = k === 'pieza' || k === 'mayoreo' || k === 'unidad' ? k : '';
+    const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 500);
+
+    return this.tk.run(async (trx) => {
+      const chk = await trx.raw(`
+        SELECT to_regclass('commercial.product_label_prices') IS NOT NULL AS tabla,
+               EXISTS (SELECT 1 FROM information_schema.columns
+                        WHERE table_schema = 'commercial' AND table_name = 'product_label_prices'
+                          AND column_name = 'sucursal') AS por_sucursal`);
+      if (chk.rows[0]?.tabla !== true || chk.rows[0]?.por_sucursal !== true) {
+        return { total: 0, comparable: false, rows: [] };
+      }
+
+      const filtro = search ? `AND (p.nombre ILIKE :q OR p.sku ILIKE :q OR b.barcode ILIKE :q)` : '';
+      const filtroKind =
+        kind === 'pieza'   ? 'AND a.pieza_pct > 0 AND NOT a.sospecha_unidad'
+        : kind === 'mayoreo' ? 'AND a.mayoreo_pct > 0'
+        : kind === 'unidad'  ? 'AND a.sospecha_unidad'
+        : 'AND NOT a.sospecha_unidad';
+
+      // (Sin acentos graves acá adentro: cierran el template literal de JS. Ya rompió el build
+      //  cinco veces en este repo — ver CLAUDE.md.)
+      const { rows } = await trx.raw(
+        `
+        WITH agg AS (
+          SELECT lp.product_id,
+                 count(DISTINCT lp.sucursal)::int                                          AS sucursales,
+                 min(lp.piece_price) FILTER (WHERE lp.piece_price > 0)                     AS pieza_min,
+                 max(lp.piece_price) FILTER (WHERE lp.piece_price > 0)                     AS pieza_max,
+                 min(lp.wholesale_piece_price) FILTER (WHERE lp.wholesale_piece_price > 0) AS may_min,
+                 max(lp.wholesale_piece_price) FILTER (WHERE lp.wholesale_piece_price > 0) AS may_max,
+                 (array_agg(w.name ORDER BY lp.piece_price ASC  NULLS LAST)
+                    FILTER (WHERE lp.piece_price > 0))[1]                                  AS suc_barata,
+                 (array_agg(w.name ORDER BY lp.piece_price DESC NULLS LAST)
+                    FILTER (WHERE lp.piece_price > 0))[1]                                  AS suc_cara
+            FROM commercial.product_label_prices lp
+            -- Solo las plazas que VENDEN AL PUBLICO. El join ademas deja fuera al CEDIS 00
+            -- sin hardcodearlo: no esta dado de alta en warehouses, y su precio de pieza es
+            -- en realidad el de caja: mezclarlo inventaba diferencias de 9,000 %.
+            JOIN commercial.warehouses w
+              ON w.kepler_code = lp.sucursal AND w.deleted_at IS NULL AND w.sells_to_public IS TRUE
+           GROUP BY lp.product_id
+          HAVING count(DISTINCT lp.sucursal) > 1
+        ), a AS (
+          SELECT agg.*,
+                 CASE WHEN pieza_min > 0 THEN (pieza_max - pieza_min) / pieza_min * 100 ELSE 0 END AS pieza_pct,
+                 CASE WHEN may_min  > 0 THEN (may_max  - may_min)  / may_min  * 100 ELSE 0 END AS mayoreo_pct,
+                 -- ⚠️ Una plaza cobrando 3 veces lo de otra por el MISMO SKU casi nunca es una
+                 -- decisión de precio: es que una capturó por pieza y la otra por caja. Se marca
+                 -- y se saca de la lista principal, porque si no acapara los primeros lugares y
+                 -- entierra las diferencias reales (medido en prod: 58 casos contra 974 reales).
+                 -- No se BORRA: se manda a su propia vista, porque también hay que arreglarlo.
+                 (pieza_min > 0 AND pieza_max / pieza_min >= 3) AS sospecha_unidad
+            FROM agg
+        )
+        SELECT p.sku, p.nombre, p.activo, b.barcode, s.name AS supplier_name,
+               a.sucursales, a.suc_barata, a.suc_cara, a.sospecha_unidad,
+               a.pieza_min, a.pieza_max, round(a.pieza_pct::numeric, 2)   AS pieza_pct,
+               a.may_min,   a.may_max,   round(a.mayoreo_pct::numeric, 2) AS mayoreo_pct,
+               (SELECT json_agg(json_build_object(
+                          'sucursal', w2.name, 'pieza', x.piece_price,
+                          'mayoreo', x.wholesale_piece_price, 'desde', x.wholesale_piece_min_qty)
+                        ORDER BY w2.name)
+                  FROM commercial.product_label_prices x
+                  JOIN commercial.warehouses w2
+                    ON w2.kepler_code = x.sucursal AND w2.deleted_at IS NULL
+                   AND w2.sells_to_public IS TRUE
+                 WHERE x.product_id = p.id)                                AS por_sucursal
+          FROM a
+          JOIN catalog.products p ON p.id = a.product_id AND p.deleted_at IS NULL
+          LEFT JOIN LATERAL (
+            SELECT z.barcode FROM commercial.product_label_prices z
+             WHERE z.product_id = p.id AND z.barcode IS NOT NULL LIMIT 1
+          ) b ON true
+          LEFT JOIN catalog.suppliers s ON s.id = p.supplier_id
+         WHERE (a.pieza_pct > 0 OR a.mayoreo_pct > 0)
+           AND greatest(a.pieza_pct, a.mayoreo_pct) >= :minpct
+           ${filtroKind} ${filtro}
+         ORDER BY a.sospecha_unidad, greatest(a.pieza_pct, a.mayoreo_pct) DESC
+         LIMIT :lim
+        `,
+        search ? { q: `%${search}%`, minpct: minPct, lim: limit } : { minpct: minPct, lim: limit },
+      );
+
+      const num = (v: unknown) => (v == null ? null : Number(v));
+      return {
+        total: rows.length,
+        comparable: true,
+        rows: rows.map((r: Record<string, unknown>) => ({
+          sku: String(r.sku),
+          nombre: (r.nombre as string) ?? null,
+          barcode: (r.barcode as string) ?? null,
+          activo: r.activo === true,
+          supplier_name: (r.supplier_name as string) ?? null,
+          sucursales: Number(r.sucursales),
+          suc_barata: (r.suc_barata as string) ?? null,
+          suc_cara: (r.suc_cara as string) ?? null,
+          sospecha_unidad: r.sospecha_unidad === true,
+          pieza_min: num(r.pieza_min), pieza_max: num(r.pieza_max),
+          pieza_pct: num(r.pieza_pct) ?? 0,
+          mayoreo_min: num(r.may_min), mayoreo_max: num(r.may_max),
+          mayoreo_pct: num(r.mayoreo_pct) ?? 0,
+          por_sucursal: (r.por_sucursal as unknown[]) ?? [],
+        })),
+      };
+    });
+  }
+
+  /**
    * Agregados catálogo-wide para el KPI strip (independiente del paginado y de los
    * segmentos activo/costo de la tabla). Honra `search` para que los KPIs describan
    * el universo filtrado por texto. Incluye top marcas por # de SKU para data-viz.
