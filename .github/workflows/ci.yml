@@ -129,6 +129,22 @@ jobs:
       - name: Provenance gate (generated_at sin freshness)
         run: node scripts/check-provenance.js
 
+      # DESIGN (2026-09-14): el backtick suelto dentro de un comentario del `template:`/`styles:`
+      # CIERRA el template literal. TypeScript sigue leyendo lo que viene como código y el error
+      # sale desplazado —NG1002 o una cascada de TS1005 a cientos de líneas— así que se pierde el
+      # tiempo buscándolo donde no está. Ya rompió el build de este repo varias veces, y en una
+      # sola sesión de trabajo sobre DESIGN.md volvió a pasar OCHO veces: se comete justo cuando
+      # uno documenta un token o una clase en el comentario, que es lo que más se pide hacer acá.
+      #
+      # El script existía desde antes y nunca se había cableado. Corre sobre los 303 componentes
+      # en ~1.8 s. Ojo con lo que aporta: este job y `build` son independientes y corren EN
+      # PARALELO, así que no le ahorra el ciclo al build — lo que da es el DIAGNÓSTICO exacto
+      # (archivo y línea del backtick) en segundos, mientras el build tarda minutos y encima
+      # reporta el error desplazado. No reemplaza a `tsc`: sólo parsea, no valida tipos ni
+      # templates. Prueba negativa hecha el 2026-09-14: con un backtick suelto sale 1; sin él, 0.
+      - name: Template literal gate (backtick suelto en template/styles)
+        run: npm run check:templates
+
       - name: Test (affected)
         run: npx nx affected -t test --parallel=3 --passWithNoTests
         env:
