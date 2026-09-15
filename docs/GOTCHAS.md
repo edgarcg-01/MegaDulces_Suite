@@ -2438,3 +2438,66 @@ medido cambiando de 91 a 127 **sin ningún evento** (ni resize, ni `loadingdone`
 texto) y se exige que haya un segundo pase de ajuste, y que después converja (si no, sería un lazo
 por cuadro). Roto a propósito de dos formas —sacar la medida de la firma, sacar el pase de
 verificación— y las dos dan **rojo en esa prueba**.
+
+### 49.3 · La solución de fondo: el tamaño se CALCULA con las métricas de la tipografía, no se mide del DOM
+
+Cuatro entregas seguidas (§49, §49.1, §49.2) fueron **la misma forma de arreglo** — *"medir el DOM
+en el momento correcto"* — y las cuatro fallaron en la misma caja:
+
+| | qué se hizo | qué se asumió |
+|---|---|---|
+| ET.5 | re-medir al cierre del pase | "la caja se movió después" |
+| ET.6 | observadores + firma | "faltaba detectar el cambio" |
+| ET.6b | fuentes locales + reintento | "la fuente llega tarde" |
+| ET.6c | la medida entra en la firma | "el navegador re-maqueta tarde" |
+
+**Lo frágil no era el momento: era medir el DOM.** Mientras el tamaño dependa de leer `offsetWidth`
+de un elemento vivo, existe un estado del navegador —tipografía a medio aplicar, maquetación
+diferida, capa compuesta— en el que ese número miente, y se persigue el estado número cinco.
+
+**La regla:**
+
+> Un auto-ajuste de texto se resuelve con **aritmética sobre las métricas de la fuente**
+> (`canvas.measureText`), no con un bucle que lee el elemento. El ancho es **afín** en el cuerpo,
+> así que se mide una vez a un tamaño de referencia y se despeja:
+>
+> ```
+> tamaño_máx = min( techo,
+>                   (disponible/K − fijo_px) / ancho_por_mm,     ← por ancho
+>                   disponible_alto / (px_por_mm · line-height) ) ← por alto
+> ```
+>
+> Sin elemento, sin reflow, sin maquetación y por lo tanto **sin momento**: el mismo texto con la
+> misma fuente da siempre el mismo resultado. Y si la fuente aún no está usable, el canvas resuelve
+> la cadena de respaldo igual que el DOM — o sea mide **la que va a pintar**, que es lo correcto.
+
+**Los cuatro detalles que hacen que la cuenta sea exacta y no aproximada:**
+
+1. **Cada pedazo se mide con SU cuerpo.** El signo va a `.5em` y el punto a `.78em`; medir la
+   cadena entera a un solo tamaño da de más y el precio saldría más chico de lo que puede.
+2. **Lo que está en mm no escala con el cuerpo.** El `margin-right` del signo es un término
+   independiente (`fijo_px`), no parte del ancho por milímetro — por eso la fórmula es afín.
+3. **Se redondea hacia ABAJO al paso.** Redondear hacia arriba es volver a desbordar.
+4. **Las constantes del CSS que usa el cálculo (`line-height`, los `em`, el margen) están
+   duplicadas en el TS y el spec exige que coincidan.** Si se mueve una sola, el tamaño se decide
+   contra una geometría que no es la que se imprime.
+
+⚠️ **Y el veredicto tiene que juzgar con la MISMA regla.** Mientras `veredicto()` leía
+`offsetWidth`, decía `ok` sobre un número desbordado porque leía los mismos 91 px falsos que habían
+causado el desborde. *Una compuerta que comparte el dato defectuoso con lo que vigila no vigila nada.*
+
+**El camino viejo (bucle sobre `offsetWidth`) se conserva SÓLO para cuando no hay canvas** (jsdom,
+algún kiosco viejo), y ahí vale lo de siempre: es lo que había.
+
+**Probado con la propiedad, no con el síntoma:** en jsdom se sustituye el medidor por métricas de
+mentira pero coherentes y se hace que `offsetWidth` **mienta en las dos direcciones** — 1 px (que
+antes hacía crecer hasta el techo de 15 mm) y 9999 px (que lo hundía al piso de 4.5). **Las dos
+mentiras dan el mismo tamaño.** Si alguien vuelve a hacer que el ancho salga del elemento, esas dos
+lecturas se separan y la prueba se pone roja. Tres roturas a propósito verificadas (quitar el
+camino determinista, devolver el veredicto a `offsetWidth`, medir el punto con el cuerpo del
+número) → rojo cada una.
+
+⚠️ **Al escribir esa prueba, el primer pase usaba `offsetWidth = 0`** — que es lo que jsdom ya
+devolvía, así que la firma no cambiaba, **no se re-maquetaba y se leía el tamaño viejo**. Una
+prueba que no cambia el estado que dice ejercer no prueba nada; las dos mentiras tienen que ser
+distintas entre sí **y del valor inicial**.

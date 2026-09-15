@@ -205,6 +205,60 @@ const cancelar = (id: number): void => {
  */
 const PRECIO_ANCHO_K = 1.12;
 
+/** Píxeles CSS por milímetro. Es una constante de CSS (96 dpi), no del equipo ni del monitor. */
+const PX_POR_MM = 96 / 25.4;
+/** Paso del ajuste del precio, y su piso. Están en mm, como todo lo que se imprime. */
+const PRECIO_PASO_MM = 0.25;
+const PRECIO_PISO_MM = 4.5;
+/**
+ * Los tres números del CSS de `.etq-price` que necesita el CÁLCULO del tamaño: el alto de línea y
+ * los cuerpos relativos del signo y del punto. Están duplicados con el CSS a propósito (el CSS lo
+ * necesita para pintar, el TS para calcular) y el spec exige que coincidan — si se mueve uno solo,
+ * el cálculo decide un tamaño contra una geometría que no es la que se dibuja.
+ */
+const PRECIO_LINE_H = 0.82;
+const PRECIO_CUR_EM = 0.5;
+const PRECIO_DOT_EM = 0.78;
+/** El aire entre el signo y la primera cifra. Es FIJO en mm: no escala con el cuerpo, así que
+ *  entra en la cuenta como término independiente y no dentro del ancho por milímetro. */
+const PRECIO_CUR_MARGIN_MM = 0.3;
+
+/**
+ * ⭐⭐ EL MEDIDOR: el ancho de un texto según las MÉTRICAS DE LA TIPOGRAFÍA, no según el elemento.
+ *
+ * Es la pieza que cierra el defecto de raíz. Cuatro entregas seguidas (ET.5, ET.6, ET.6b, ET.6c)
+ * fueron la misma forma de arreglo —"medir el DOM en el momento correcto"— y las cuatro fallaron,
+ * porque lo frágil no es el momento: es **medir el DOM**. Mientras el tamaño dependa de leer
+ * `offsetWidth` de un elemento vivo hay un estado del navegador (tipografía a medio aplicar,
+ * maquetación diferida) en el que ese número miente. Medido en Yurécuaro: el estilo decía 15 mm y
+ * `offsetWidth` devolvía 91 px, que es lo que ese `$86.00` mide a **10.75 mm**.
+ *
+ * `measureText` lee las tablas de la fuente. No hay elemento, no hay reflow, no hay maquetación y
+ * por lo tanto no hay momento: el mismo texto con la misma fuente da siempre el mismo ancho. Y si
+ * la fuente todavía no está usable, el canvas resuelve la cadena de respaldo igual que el DOM, o
+ * sea mide **la que va a pintar** — que es exactamente lo correcto en ese instante.
+ *
+ * Vive en un objeto exportado para que las pruebas puedan sustituirlo: jsdom no trae canvas, así
+ * que sin esto el camino determinista no se podría ejercer en ninguna prueba.
+ */
+export const MEDIDOR_DE_TEXTO = {
+  ctx: undefined as CanvasRenderingContext2D | null | undefined,
+  /**
+   * Ancho en px de `txt` con `fuente` (la abreviada de CSS completa: `400 50px Anton, sans-serif`).
+   * `null` = este navegador no da canvas, y ahí se cae al camino de medir el DOM.
+   */
+  ancho(txt: string, fuente: string): number | null {
+    if (this.ctx === undefined) {
+      try { this.ctx = (globalThis as any).document?.createElement('canvas')?.getContext('2d') ?? null; }
+      catch { this.ctx = null; }
+    }
+    if (!this.ctx) return null;
+    if (!txt) return 0;
+    try { this.ctx.font = fuente; return this.ctx.measureText(txt).width; }
+    catch { return null; }
+  },
+};
+
 export interface LabelModel {
   code?: string;
   product_id: string;
@@ -835,7 +889,12 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     if (el && box) {
       const cs = getComputedStyle(box);
       const avail = Math.round(box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0'));
-      root.setAttribute('data-etq-medida', `${el.style.fontSize || '?'}|${el.offsetWidth}|${avail}|${this.fuentesOk ? 'fuentes' : 'respaldo'}`);
+      const met = this.anchoPrecioPorMm(el);
+      const mm = parseFloat(el.style.fontSize || '') || PRECIO_MM;
+      // Los DOS anchos: el calculado con las métricas (el que manda) y el que dice el DOM. Que
+      // discrepen es el síntoma del defecto de raíz, y así queda a la vista en una captura.
+      const calc = met !== null ? Math.round(met.porMm * mm + met.fijoPx) : 'sin_canvas';
+      root.setAttribute('data-etq-medida', `${el.style.fontSize || '?'}|calc:${calc}|dom:${el.offsetWidth}|${avail}|${this.fuentesOk ? 'fuentes' : 'respaldo'}`);
     }
     if (this.fuentesOk) root.setAttribute('data-etq-settled', 'fonts');
     else if (ESPERA_FUENTES_TERMINADA) root.setAttribute('data-etq-settled', 'fallback');
@@ -855,7 +914,14 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const cs = getComputedStyle(box);
     const avail = box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
     if (!(avail > 0)) return 'sin_medida';
-    if (el.offsetWidth * PRECIO_ANCHO_K > avail) return 'overflow';
+    // ⛔ El veredicto juzga con LA MISMA regla con que se decidió el tamaño — las métricas de la
+    // tipografía —, no con `offsetWidth`. Cuando juzgaba con el DOM decía `ok` sobre un número
+    // desbordado, porque leía los mismos 91 px falsos que habían causado el desborde: una
+    // compuerta que comparte el dato defectuoso con lo que vigila no vigila nada.
+    const met = this.anchoPrecioPorMm(el);
+    const mm = parseFloat(el.style.fontSize || '') || PRECIO_MM;
+    const ancho = met !== null ? met.porMm * mm + met.fijoPx : el.offsetWidth;
+    if (ancho * PRECIO_ANCHO_K > avail) return 'overflow';
     const desborda = (e?: HTMLElement): boolean => !!e && e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1;
     if (desborda(this.head?.nativeElement) || desborda(this.meta?.nativeElement)) return 'overflow';
     return 'ok';
@@ -1009,6 +1075,50 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * caja y le respeta su alto. Hoy no hay ninguno (el brote se mudó a la banda del nombre) y la
    * guarda sale 0 sola; si mañana alguien mete una insignia ahí, el número se protege solo.
    */
+  /**
+   * Los pedazos del precio con su cuerpo relativo: el número se dibuja con el signo y el punto más
+   * chicos (`.cur` y `.dot` en el CSS), así que medirlo como una sola cadena al mismo cuerpo daría
+   * de más. Cada pedazo se mide con el tamaño con el que se va a dibujar.
+   */
+  private segmentosPrecio(): { txt: string; em: number }[] {
+    if (this.sinPrecio) return [{ txt: 'SIN PRECIO', em: 1 }];
+    return [
+      { txt: '$', em: PRECIO_CUR_EM },
+      { txt: this.bigInt, em: 1 },
+      { txt: '.', em: PRECIO_DOT_EM },
+      { txt: this.bigDec, em: 1 },
+    ];
+  }
+
+  /**
+   * Ancho del precio en px por cada mm de cuerpo, con la tipografía que el elemento va a usar.
+   * `null` = no hay canvas en este navegador (ver `MEDIDOR_DE_TEXTO`).
+   *
+   * Se mide a un tamaño de REFERENCIA grande y se divide: a cuerpos chicos el redondeo de
+   * `measureText` pesa, y acá el error se multiplica por el tamaño final.
+   */
+  private anchoPrecioPorMm(el: HTMLElement): { porMm: number; fijoPx: number } | null {
+    const REF_PX = 100;
+    const cs = getComputedStyle(el);
+    const peso = cs.fontWeight || '400';
+    const familia = cs.fontFamily;
+    if (!familia) return null;
+    let total = 0;
+    for (const s of this.segmentosPrecio()) {
+      const px = REF_PX * s.em; // cada pedazo se mide con el cuerpo con el que se dibuja
+      const w = MEDIDOR_DE_TEXTO.ancho(s.txt, `${peso} ${px}px ${familia}`);
+      if (w === null) return null;
+      total += w;
+    }
+    // El ancho es AFÍN, no lineal: `porMm` escala con el cuerpo y `fijoPx` no (el margen del
+    // signo está en mm). Meter el margen dentro del ancho por milímetro lo haría crecer con el
+    // número y el tamaño saldría chico de más.
+    return {
+      porMm: (total / REF_PX) * PX_POR_MM,
+      fijoPx: this.sinPrecio ? 0 : PRECIO_CUR_MARGIN_MM * PX_POR_MM,
+    };
+  }
+
   private fitPrice(): void {
     const el = this.priceEl?.nativeElement;
     const box = el?.parentElement; // .etq-pricebox
@@ -1036,6 +1146,28 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
       : 0;
     const availH = box.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0') - guarda;
     if (!(availH > 0)) return;
+
+    // ⭐⭐ CAMINO DETERMINISTA: el tamaño se CALCULA con las métricas de la tipografía.
+    //
+    // El ancho del texto es LINEAL en el cuerpo, así que alcanza con medirlo una vez a un tamaño
+    // de referencia y despejar. Sin bucle, sin leer el elemento, sin depender del instante:
+    //
+    //     tamaño_máx = disponible / (K · ancho_por_mm)      … y lo mismo por alto
+    //
+    // El camino de abajo (medir `offsetWidth` paso a paso) queda SÓLO para cuando no hay canvas
+    // —jsdom, algún kiosco viejo—, y ahí vale lo de siempre: es lo que había.
+    const met = this.anchoPrecioPorMm(el);
+    if (met !== null && met.porMm > 0) {
+      const techoFuentes = this.fuentesOk ? PRECIO_MAX_MM : PRECIO_MM;
+      const porAncho = (avail / PRECIO_ANCHO_K - met.fijoPx) / met.porMm;
+      const porAlto = availH / (PX_POR_MM * PRECIO_LINE_H);
+      const max = Math.min(techoFuentes, porAncho, porAlto);
+      // Al PASO de abajo, nunca hacia arriba: redondear hacia arriba es volver a desbordar.
+      size = Math.max(PRECIO_PISO_MM, Math.floor(max / PRECIO_PASO_MM) * PRECIO_PASO_MM);
+      el.style.fontSize = size + 'mm';
+      return;
+    }
+
     const cabe = () => el.offsetWidth * PRECIO_ANCHO_K <= avail && el.offsetHeight <= availH;
     let guard = 0;
     if (!cabe()) {
