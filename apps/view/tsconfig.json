@@ -33,6 +33,7 @@
       "@megadulces/contracts/authz/suite-map": ["../../libs/contracts/src/authz/suite-map.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],
+      "@megadulces/ui-web": ["../../libs/ui-web/src/index.ts"],
       "@spartan-ng/helm/*": ["src/app/shared/components/ui/*"]
     },
     "ignoreDeprecations": "6.0",

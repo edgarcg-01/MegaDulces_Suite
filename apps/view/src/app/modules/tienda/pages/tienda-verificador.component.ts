@@ -423,7 +423,11 @@ type Banner = { texto: string; detalle?: string; tono: 'info' | 'ok' | 'warn' | 
     @keyframes vfPopB { from { transform: scale(.96); opacity: .4; } to { transform: scale(1); opacity: 1; } }
 
     /* [TDA.8] La advertencia de precio cambiado, re-pintada con la paleta cruda del clon
-       (antes usaba --warn-*/--r-md de tokens). Nunca solo el color: icono + texto (DESIGN.md
+       (antes usaba los --warn-* y --r-md de tokens). ⚠️ Ese "--warn-*" llevaba una barra pegada
+       y la secuencia CERRABA ESTE COMENTARIO acá mismo: todo lo que sigue se parseaba como CSS y
+       terminaba absorbido en el selector de .vf-cambio, que así no matcheaba nada — la caja de
+       aviso salía SIN ESTILO en producción y el build sólo lo decía como warning. Nunca solo el
+       color: icono + texto (DESIGN.md
        5, aunque este bloque ya no vive bajo DESIGN.md por la excepción de §O.3 declarada
        arriba, el principio de fondo se conserva). El párrafo NO se centra: es texto para
        leer, no una cifra — el bloque sí va centrado (margin auto). */
