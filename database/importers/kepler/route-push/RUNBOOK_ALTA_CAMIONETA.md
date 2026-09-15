@@ -182,9 +182,20 @@ docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U post
 > Para las 11 vans que se dieron de alta antes del 2026-09-11 y quedaron con el runner viejo en su
 > `push-ruta.cmd`. Hoy funcionan por el reenvío TCP de `.249`; esto las desengancha de esa máquina.
 
-**Lo que cambia es UNA línea** (`set DST=`), y nada más: mismo puerto, misma base, mismo usuario,
-misma tarea programada, mismo `TRUCK` y `ROUTE_SERIE`. El `SRC` (Postgres local de la van) **no se
-toca**.
+**Lo que cambia es UNA IP**, y nada más: mismo puerto, misma base, mismo usuario, misma tarea
+programada, mismo `TRUCK` y `ROUTE_SERIE`. El origen (Postgres local de la van) **no se toca**.
+
+> ⛔ **NO busques el cambio por el nombre de la variable.** Medido en `ruta_21` el 2026-09-15: el
+> agente **desplegado** no usa la línea de estas plantillas. En campo es
+>
+> ```
+> set RUNNER_CONN=host=192.168.0.222 port=5433 dbname=kepler_consolidado user=ingest password=… connect_timeout=6
+> ```
+>
+> —formato de **palabras clave** (no URI) y usuario **`ingest`** (no `postgres`)—, mientras el repo
+> trae `set DST=postgresql://postgres:…`. **Hay una versión en campo que nunca volvió al repo.**
+> Por eso el procedimiento de abajo reemplaza **la IP** y no la línea: es lo único que vale en las
+> dos variantes. Buscar `set DST=` no encuentra nada y parece que el archivo está mal.
 
 ### P1 — en la laptop de la van (no hace falta elevar: es editar un archivo)
 
@@ -193,10 +204,19 @@ $f = 'C:\KeplerPush\push-ruta.cmd'
 Copy-Item $f "$f.bak-$(Get-Date -Format yyyyMMdd-HHmm)" -Force     # respaldo con fecha
 (Get-Content $f -Raw) -replace '192\.168\.0\.249', '192.168.0.222' |
   Set-Content $f -Encoding ASCII -NoNewline                        # el .cmd NO puede quedar UTF-8 con BOM
-Select-String -Path $f -Pattern 'set DST='                         # debe decir 192.168.0.222
+Get-Item $f | Select-Object Length, LastWriteTime                  # que no haya quedado vacío
+Select-String -Path $f -Pattern '192\.168\.0\.'                    # debe decir 192.168.0.222
 ```
 
 Es **idempotente**: correrlo dos veces no hace daño (la segunda no encuentra qué reemplazar).
+
+⚠️ **Se verifica por la IP y por el tamaño del archivo**, no por el nombre de la variable (ver el
+recuadro de arriba) — y el tamaño porque el mismo comando que reemplaza **reescribe el archivo**:
+si el origen viniera vacío, lo dejaría vacío sin dar error.
+
+⚠️ **La contraseña del runner está EN CLARO en ese archivo, en las 11 vans y es la misma.** No la
+pegues en un chat ni en un ticket al verificar: filtrá la salida a la IP, como arriba. Si se
+expuso, rotarla **después** de terminar el repunte (rotarla antes deja mudas a las que faltan).
 
 ### P2 — probar a mano, desde un `cmd` YA abierto (no doble clic)
 
