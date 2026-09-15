@@ -55,6 +55,22 @@ const APP_SOURCES: SourceCfg[] = [
   // una relación inexistente hasta el 09-09. Este sensor la vigila: si el matview FALTA, db-health la
   // atrapa en el try/catch como 'unknown' (visible); si está pero el nightly no la refrescó, warn/crit por edad.
   { key: 'sales_blended',   label: 'Blend consolidado (Command Center)', table: 'analytics.mv_sales_blended', tsCandidates: ['updated_at'], warnH: 30, critH: 50, cadence: 'nightly (tras kepler+wincaja)' },
+  // [DB-MEM.8] CAJA GENERAL — el feed que estuvo 5 DÍAS PARADO sin que nada lo vigilara.
+  //
+  // `import-caja-general.js` lee los .mdb de `\\192.168.0.245\D` con PowerShell + ACE.OLEDB.
+  // VL.4b (2026-09-11) mudó sus carriles a `md`, que es Linux → dejó de correr ese mismo día.
+  // Fallaba en el 100 % de los intentos (24 al día) y el tablero decía `ok`, porque el runner
+  // sólo marca `error` si fallan TODOS los pasos. Nadie se enteró porque **este sensor no existía**:
+  // `analytics.caja_*` no figuraba en APP_SOURCES ni en CRON_JOBS.
+  //
+  // Se mide `arqueo_date` de `caja_arqueos` (el arqueo de caja 20, que es el dato VIVO; las otras
+  // tablas de `caja_*` son histórico o traen fechas de negocio con basura — `caja_depositos` llega
+  // a 2026-12-31). Umbral de feed diario: warn al saltarse una corrida, crítico a las dos.
+  //
+  // ⚠️ Va a nacer en ROJO, y está bien: refleja que el dato lleva días sin llegar. Se apaga cuando
+  // alguien corra el modo `finance` desde `.249` (Windows, con Z: montado), que es el único
+  // sustrato donde este importer puede correr.
+  { key: 'caja_general',    label: 'Caja general (arqueos .mdb — requiere Windows + Z:)', table: 'analytics.caja_arqueos', tsCandidates: ['arqueo_date'], warnH: 30, critH: 50, cadence: 'diario (modo finance, desde .249)' },
   { key: 'reorder_policy',  label: 'Política de reorden',     table: 'commercial.reorder_policy',      tsCandidates: ['updated_at', 'computed_at'], warnH: 200, critH: 400, cadence: 'nightly / semanal' },
   { key: 'products',        label: 'Catálogo de productos',   table: 'catalog.products',               tsCandidates: ['updated_at', 'created_at'],  warnH: 360, critH: 720, cadence: 'semanal' },
   // Etiquetas de anaquel (precios pieza/paq/caja desde Kepler c90/91/92). CARA AL CLIENTE:
