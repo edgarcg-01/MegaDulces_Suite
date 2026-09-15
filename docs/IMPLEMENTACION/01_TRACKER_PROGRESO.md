@@ -148,6 +148,40 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       rechazar fuera de su plaza. Mig `20260915160000` · 2026-09-15
 - [x] **[AU.21]** ✅ El alcance deja de viajar como `Record<string, unknown>`: `AlcanceDePersona` /
       `DimensionDeAlcance` en contracts. Commit `d30ea4f7` · 2026-09-15
+- [x] **[AU.22]** ✅ La ficha mandaba `token_ttl_days` en **toda** edición, y el backend lo lee como
+      «quitá la sesión larga» (`[CH.1.10]`) → **400 al editar a 96 de 100 personas**, con un mensaje
+      sobre sesiones para quien nunca tuvo una. Ahora viaja sólo si cambió, y nunca sola: con su
+      `must_change_password`. Commit `4ac44aac` · 2026-09-15
+- [x] **[AU.23]** ✅ **El organigrama pasa a ser el de MDTask** (decisión de Edgar: *«la verdad
+      absoluta es mdtask»*). 89 puestos, 1 raíz, 88 aristas contra los 57 con **10 sin jefe** que
+      había. ⛔ El catálogo NO se reemplaza, y está medido por qué: `users.position_code` es
+      `ON DELETE SET NULL` (100 fichas sin puesto, en silencio) y `position_responsibilities` es
+      `ON DELETE CASCADE` (las 17 responsabilidades, `logistica.flota` incluida). Además MDTask no
+      trae `default_role`, `scope_axis` ni responsabilidades: aporta jerarquía, no autorización.
+      **45 nodos reusan código, 44 son nuevos**; mapeo a mano (el automático daba `auxiliar-cedis`
+      contra `auxiliar_mkt`). Nueva columna `positions.nivel` (7 valores) + la unidad en
+      `org_labels`. De los 12 códigos que el árbol no contempla, 5 con gente se cuelgan con motivo
+      escrito y 7 vacíos van a baja blanda. **Prod: 94 puestos vivos, 1 raíz, 106 fichas y 17
+      responsabilidades intactas.** 6 pruebas negativas con control positivo; `down` real contra el
+      snapshot previo. Batch 429 · commit `6a7526a5` · 2026-09-15
+- [x] **[AU.24]** ✅ **Un almacenista tenía `superadmin`**, y nuestro backfill lo propagó. Salió del
+      cruce MDTask↔padrón. Medido: la noche del 2026-07-13 se dieron de alta 4 fichas seguidas y los
+      tres almacenistas de esa sesión llevan el mismo rol **menos uno** (170 permisos contra 3). El
+      puesto `sistemas` no lo eligió nadie: lo derivó `[OR.1c]` **desde ese rol mal capturado**.
+      Cuenta sin una sola sesión. superadmin 9 → 8. Batch 430 · commit `81fbffd4` · 2026-09-15
+- [x] **[AU.25]** ✅ **28 personas estaban en un puesto que no es el suyo.** Segunda mitad de
+      `[AU.23]`. ⭐ Lo primero es lo que un cambio de puesto **no** hace: el puesto **propone**, no
+      otorga — no se tocó ni un `role_name`, y la migración lo asevera comparando los 122 roles antes
+      y después. Identificación por nombre completo con orden indiferente: **score mínimo 0.67,
+      segundo candidato máximo 0.50**, y aborta si el margen baja de 0.15. Entre ellas, el **Jefe de
+      Finanzas figuraba como `auxiliar_finanzas`**. Batch 431 · commit `335aadb0` · 2026-09-15
+- [x] **[AU.26]** ✅ Los candados vecinos, puestos al día **con motivo, no bajando la vara**:
+      `organigrama` (el diccionario `SIN_JEFE_ACEPTADOS` tenía 9 excusas y **`[AU.23]` las cerró** —
+      casi todas eran *«su ancla no existe en el catálogo»*; queda `direccion`, que es la raíz) y
+      `authz-coherencia` (`puesto_con_dos_roles` 3 → **18**). ⭐ Ese 18 **no es más desacuerdo: es el
+      mismo, ahora visible** — las 28 ya tenían su rol, sólo estaban en un puesto donde no
+      desentonaba. Dos conejillos de prueba negativa se habían vuelto casos reales (`auxiliar_rh`,
+      `cajera`): el de coherencia ahora **se elige en runtime**. 2026-09-15
 
 **Decisión del lead (2026-09-15):** la administración de padrón, puestos y alcance se hace en la
 **app desplegada**, no en local. `platform_test` **no es prod con menos migraciones — es otra base**
@@ -159,14 +193,23 @@ la base quedó intacta. Queda para features, no para administrar.
 **Deuda declarada:** `DEUDA-AU-ROLES` (el editor de permisos sigue escribiendo las 175 claves del
 enum) · `DEUDA-AU-SCOPEROL` (el alcance por ROL sigue sin pantalla, y es la causa de las 36
 excepciones de `warehouse`) · `DEUDA-AU-DIMS` (3 de 6 dimensiones sin editor) ·
-`DEUDA-AU-PUESTOS-VACANTES` (**decisión del lead 2026-09-14: se omiten por ahora**) — 13 puestos sin
-`default_role`, **los 13 vacantes y sin un solo ocupante histórico**, así que el perfil no se puede
-derivar de nada y asignarlo es decisión de negocio. No afectan a nadie hoy; el hueco se abre el día
-que alguien los ocupe, y `[AU.15]` lo cubre exigiendo motivo. El bloque [11] de
-`test-newdb-admin-usuarios` los cuenta y **se pone en rojo si alguno se ocupa**. ⚠️ Caso aparte con
-consecuencia HOY: «Alertas de flota» tiene responsable PRINCIPAL en `encargado_logistica`, vacante →
-10 personas pueden abrir flota y **ninguna responde de ella**; se resuelve dándole ocupante o
-moviendo la responsabilidad, no poniéndole un perfil al puesto vacío.
+`DEUDA-AU-PUESTOS-VACANTES` (**decisión del lead 2026-09-14: se omiten por ahora**) — eran 13
+puestos sin `default_role`; **`[AU.23]` los llevó a 54** al traer los 44 del organigrama de MDTask,
+que aporta jerarquía y no autorización. **49 siguen vacantes** y 5 tienen ocupante.
+
+⛔ **Los 5 ocupados NO son derivables, que era la salida fácil, y la medición dice adónde llevaba:**
+sus cinco ocupantes llegaron ahí con `[AU.25]`, así que su `role_name` es el del puesto **anterior**.
+Derivar la propuesta del puesto nuevo desde el rol que traían del viejo es circular — `facturador`
+habría propuesto **`telemarketing`**, el error que `[AU.25]` acababa de corregir, y
+`full_stack_developer` habría propuesto **`superadmin`**, convirtiendo el privilegio de una persona
+en propuesta institucional. Es la misma forma que `[AU.24]`. Asignarlos es trabajo de RH.
+
+El bloque [11] de `test-newdb-admin-usuarios` ya no exige `=== 0` (aspiracional): declara el número
+y **falla si los ocupados crecen sobre el baseline de 5**. ⚠️ Caso aparte con consecuencia HOY:
+«Alertas de flota» tiene responsable PRINCIPAL en `encargado_logistica`, vacante → 10 personas
+pueden abrir flota y **ninguna responde de ella**. ⭐ `[AU.23]` le puso nombre al ocupante que
+falta: en la nómina ese puesto es **«Coordinador de Logística»** y lo ocupa **García López Juan
+Francisco** (*Encargado de Transportes*, CEDIS), **que no tiene ficha en la plataforma**.
 
 ### Fase SN — Suite: navegación por espacios ("Mi trabajo" en `/projects`) · plan en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md) · ADR-061
 

@@ -42,8 +42,18 @@ const declarar = (msg) => { nomedido++; console.log(`  ~ NO MEDIDO ${msg}`); };
  */
 const BASE = {
   puesto_con_dos_roles: {
-    max: 3,
+    max: 18,
     motivo:
+      '⭐ `[AU.25]` subió esto de 3 a 18, y NO porque haya más desacuerdo: hay el mismo, ahora ' +
+      'visible. Ese lote movió a 28 personas al puesto que el organigrama de MDTask les da, sin ' +
+      'tocar un solo `role_name` (el puesto propone, no otorga — está medido y asertado en la ' +
+      'propia migración). El rol que cada una tiene ya lo tenía; lo que cambió es que antes ' +
+      'estaban en un puesto equivocado, donde su rol no desentonaba. Los casos: `cajera` y ' +
+      '`cajero_rv_promotor` reciben gente que conserva `auxiliar_tienda`; `auxiliar_encargado` ' +
+      'recibe dos ex `encargado_tienda`; `jefe_finanzas` queda con `finanzas` + ' +
+      '`finanzas_operativo` porque Carrillo llegó del auxiliar; `vendedor_ruta` suma el ' +
+      '`supervisor_ventas` de Vázquez Mejía. ⚠️ Baja cuando se les asigne el perfil que les toca ' +
+      '— que es trabajo de RH, no de una migración, porque toca permisos. ' +
       '(1) `vendedor_ruta` con 13 `promotor_ruta` + 11 `vendedor_ruta` — ver abajo. (2) y (3) ' +
       '`jefe_zona`, que `[AU.18]` pobló con los tres jefes de plaza: Ivette Cruz conserva ' +
       '`encargado_tienda` y Alejo y Rodríguez `superadmin` porque siguen siendo Sistemas, contra ' +
@@ -212,16 +222,33 @@ const DEPTOS_NUEVOS = [
 
     // ── 3. PRUEBA NEGATIVA: la vista tiene que VER un desacuerdo nuevo ────
     console.log('\n── 3. Se inyecta un desacuerdo a propósito');
+    let sano = null;
     const trx = await k.transaction();
     try {
-      // Un puesto sano hoy: `cajera`, 19 personas, todas con rol `cajero`.
+      // ⚠️ El conejillo se ELIGE en runtime, no se escribe a mano. Antes era
+      // `cajera` y `[AU.25]` lo volvió un puesto con dos roles de verdad, así
+      // que la prueba negativa dejó de probar nada: inyectar un desacuerdo
+      // donde ya hay uno no demuestra que la vista lo vea. Se toma cualquier
+      // puesto con 2+ ocupantes y un solo rol entre ellos.
+      const { rows: sanos } = await trx.raw(
+        `SELECT position_code FROM identity.users
+          WHERE tenant_id = ? AND deleted_at IS NULL AND position_code IS NOT NULL
+            AND role_name IS NOT NULL
+          GROUP BY position_code
+         HAVING count(DISTINCT role_name) = 1 AND count(*) > 1
+          ORDER BY count(*) DESC LIMIT 1`,
+        [TENANT],
+      );
+      if (!sanos.length) throw new Error('no hay ningún puesto sano con el que probar la vista');
+      const SANO = sanos[0].position_code;
+
       const antes = await trx('identity.v_authz_coherencia')
         .where({ tenant_id: TENANT, tipo: 'puesto_con_dos_roles' })
         .count('* as n')
         .first();
 
       const victima = await trx('identity.users')
-        .where({ tenant_id: TENANT, position_code: 'cajera', activo: true })
+        .where({ tenant_id: TENANT, position_code: SANO, activo: true })
         .whereNull('deleted_at')
         .first('id', 'username', 'role_name');
       // Se le cambia el rol a uno que existe y no es el que su puesto propone.
@@ -233,17 +260,18 @@ const DEPTOS_NUEVOS = [
         .where({ tenant_id: TENANT, tipo: 'puesto_con_dos_roles' })
         .select('sujeto', 'detalle');
       check(
-        despues.some((r) => r.sujeto === 'cajera' && r.detalle === 'almacenista'),
-        `la vista DETECTA que "cajera" pasó a tener dos roles adentro (antes ${antes.n}, ahora ${despues.length})`,
+        despues.some((r) => r.sujeto === SANO && r.detalle === 'almacenista'),
+        `la vista DETECTA que "${SANO}" pasó a tener dos roles adentro (antes ${antes.n}, ahora ${despues.length})`,
       );
+      sano = SANO;
     } finally {
       await trx.rollback();
     }
     const post = await k('identity.v_authz_coherencia')
-      .where({ tenant_id: TENANT, tipo: 'puesto_con_dos_roles', sujeto: 'cajera' })
+      .where({ tenant_id: TENANT, tipo: 'puesto_con_dos_roles', sujeto: sano })
       .count('* as n')
       .first();
-    check(Number(post.n) === 0, `prod intacto: "cajera" vuelve a tener un solo rol (rollback)`);
+    check(Number(post.n) === 0, `prod intacto: "${sano}" vuelve a tener un solo rol (rollback)`);
 
     // ── 4. El perfil compuesto del puesto ─────────────────────────────────
     console.log('\n── 4. El puesto puede proponer un perfil compuesto');

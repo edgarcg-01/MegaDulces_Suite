@@ -427,11 +427,29 @@ const BASE_ALCANCE = {
                 WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND p.default_role IS NULL) x`,
       [TENANT],
     );
-    // Control positivo del alcance: si algún día uno de ésos se ocupa, el número
-    // deja de ser 0 y la regla nueva es la que sostiene la trazabilidad.
+    // `[AU.26]` Esta aserción era `=== 0` y se puso roja al aplicar `[AU.23]`,
+    // que sumó 44 puestos del organigrama de MDTask sin `default_role` — MDTask
+    // trae jerarquía, no autorización, y un perfil de acceso no se inventa.
+    //
+    // ⛔ Y los 5 ocupados NO son derivables, que era la salida fácil: sus cinco
+    // ocupantes llegaron ahí con `[AU.25]`, así que su `role_name` es el del
+    // puesto ANTERIOR. Derivar la propuesta del puesto nuevo desde el rol que
+    // traían del viejo es circular, y se midió adónde llevaba: `facturador`
+    // habría propuesto `telemarketing` —el error que `[AU.25]` acababa de
+    // corregir— y `full_stack_developer` habría propuesto `superadmin`,
+    // convirtiendo un privilegio de una persona en propuesta institucional.
+    // Es la forma de `[AU.24]`: derivar de un dato ya contaminado.
+    //
+    // Entonces el número se DECLARA con su baseline medido, y la guarda es que
+    // no crezca sin que alguien lo mire. Bajarlo es asignar perfiles a mano.
+    const BASELINE_SIN_PERFIL_OCUPADOS = 5;
     check(
-      vac[0].sin_perfil_ocupados === 0,
-      `los ${vac[0].sin_perfil} puesto(s) sin perfil siguen vacantes (${vac[0].sin_perfil_ocupados} ocupado/s): hoy nadie entró por ese camino`,
+      vac[0].sin_perfil_ocupados <= BASELINE_SIN_PERFIL_OCUPADOS,
+      `puestos sin perfil ocupados: ${vac[0].sin_perfil_ocupados} (baseline ${BASELINE_SIN_PERFIL_OCUPADOS}); no crecieron sin registro`,
+    );
+    declarar(
+      `${vac[0].sin_perfil} puesto(s) sin perfil propuesto, ${vac[0].sin_perfil_ocupados} de ellos ocupados ` +
+        `(DEUDA-AU-PUESTOS-VACANTES). Los 44 nuevos vienen de [AU.23] y ninguno se derivó a propósito`,
     );
 
     // ══ 12. El jefe sale del ORGANIGRAMA, no del nombre del rol ════════════

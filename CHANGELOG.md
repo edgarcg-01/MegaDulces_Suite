@@ -10,6 +10,27 @@
 
 ## [Unreleased]
 
+### Changed — el organigrama pasa a ser el de MDTask (AU.23–AU.26, 2026-09-15)
+
+Edgar, sobre el organigrama que MDTask mantiene en su propio código: **«la verdad absoluta es mdtask»**. Su árbol tiene **89 puestos, una raíz y 88 aristas**; `identity.positions` tenía **57 y 10 sin jefe**.
+
+- **AU.23** — la jerarquía de MDTask manda, pero **el catálogo no se reemplaza**, y la razón está medida, no es prudencia: `users.position_code` es `ON DELETE SET NULL` (borrar los 57 dejaba **100 fichas sin puesto, en silencio**) y `position_responsibilities` es `ON DELETE CASCADE` (se llevaba **las 17 responsabilidades**, `logistica.flota` incluida). De fondo: MDTask no trae `default_role`, `scope_axis` ni responsabilidades — **aporta jerarquía, no autorización**. Cada nodo recibe el código de prod donde hay equivalencia (45) o uno nuevo (44), mapeado **a mano**: el automático daba falsos como `auxiliar-cedis` contra `auxiliar_mkt`, que coinciden sólo en la palabra «auxiliar». Nueva columna `positions.nivel` (7 valores) + la unidad en `org_labels`. **Prod: 94 puestos vivos, 1 raíz, 106 fichas y 17 responsabilidades intactas.**
+- **AU.25** — **28 personas estaban en un puesto que no es el suyo**, entre ellas el **Jefe de Finanzas figurando como `auxiliar_finanzas`**. ⭐ Lo primero es lo que un cambio de puesto **no** hace: el puesto **propone**, no otorga; no se tocó ni un `role_name` y la migración lo asevera comparando los 122 roles antes y después.
+
+**Lo que salió al cruzar, y no estaba buscándose:**
+
+- ⛔ **Un almacenista tenía `superadmin`** (AU.24). La noche del 2026-07-13 se dieron de alta cuatro fichas seguidas y **los tres almacenistas de esa sesión llevan el mismo rol menos uno** — 170 permisos contra 3. Y la segunda mitad es nuestra: el puesto `sistemas` no lo eligió nadie, lo **derivó el backfill `[OR.1c]` desde ese rol mal capturado**. La cuenta nunca inició sesión, por eso nadie lo vio. superadmin **9 → 8**.
+- ⭐ **«Alertas de flota» tiene nombre.** Su responsable PRINCIPAL es `encargado_logistica`, vacante — 10 personas abren flota y ninguna responde de ella. En la nómina ese puesto es «Coordinador de Logística» y lo ocupa **García López Juan Francisco**, que **no tiene ficha en la plataforma**.
+- ⚠️ **La app cubre 60 de 184 personas de nómina**, y tiene 40 fichas que la nómina no reconoce — seis de ellas no son personas, incluida **`rep_prueba` («REPARTIDOR PRUEBA»), activa en producción**.
+
+**Los candados vecinos se pusieron al día con motivo, no bajando la vara** (AU.26):
+
+- El diccionario `SIN_JEFE_ACEPTADOS` del smoke de organigrama tenía **nueve excusas** y **AU.23 las cerró**: casi todas decían *«su ancla no existe en el catálogo»* —Jefatura CEDIS, Jefatura Capital Humano, la rama de choferes—. Queda `direccion`, que es la raíz.
+- `puesto_con_dos_roles` sube de 3 a **18**, y ⭐ **no es más desacuerdo: es el mismo, ahora visible**. Las 28 ya tenían su rol; estaban en un puesto donde no desentonaba.
+- Dos conejillos de prueba negativa se habían vuelto casos reales (`auxiliar_rh`, `cajera`) — inyectar un desacuerdo donde ya hay uno no prueba que la vista lo vea. El de coherencia ahora **se elige en runtime**.
+
+⚠️ **Declarado, no resuelto:** `DEUDA-AU-PUESTOS-VACANTES` pasa de 13 a **54** puestos sin perfil propuesto. Los 5 ocupados **no se derivaron a propósito**: sus ocupantes acaban de llegar con AU.25, así que su rol es el del puesto anterior — `facturador` habría propuesto `telemarketing` (el error recién corregido) y `full_stack_developer` habría propuesto `superadmin`. Derivar de un dato contaminado es la forma de AU.24. También queda abierto que `jefe_finanzas` tenga dos ocupantes, y el límite de la fuente: **la nómina es de agosto y el padrón es de hoy**.
+
 ### Added — el jefe de zona ve cuánto vendió su zona, y qué NO se puede comparar (JZ.1–JZ.3, 2026-09-15)
 
 Edgar: *«que los jefes de zona vean cómo van sus tiendas y si están por encima o por debajo de sus ventas»*, con el encuadre que define la entrega: **«mucho de lo que vamos a presentar ya existe, sólo vamos a tomar la información o redireccionar a la interfaz correcta: `/tienda/live` y `/ventas-por-ruta`»**. Así que no hay pantalla nueva: hay ocho números por zona y un enlace a la pantalla que ya sabe contar el detalle.
