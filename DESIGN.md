@@ -80,6 +80,7 @@
 **11. a11y AA piso** (APCA guía en texto chico): `aria-label` en icon-buttons, foco al abrir/retorno al cerrar dialogs, targets ≥44px en touch (`pointer: coarse`). → [§3](#ingeniería-de-ui--contrato-de-implementación-binding).
 
 **12. Verificá.** Build prod `nx build <p> --skip-nx-cache` de lo tocado; probar vivo (endpoint nuevo → o avisar que falta restart); QA con datos reales extremos, **light + dark + móvil** (los tres, siempre).
+> ⚡ **Antes del build, `npm run check:templates`** (~1.8 s, 303 componentes). Un **acento grave dentro de un comentario del `template:`/`styles:` CIERRA el template literal**, y el error sale desplazado —`NG1002` o una cascada de `TS1005` a cientos de líneas— así que se pierde el tiempo buscándolo donde no está. Se comete justo al documentar un token o una clase en el comentario, que es lo que más se pide hacer acá: en la sesión que escribió estas reglas volvió a pasar **ocho veces**. **Con gate en CI desde el 2026-09-14** (job `verify`, con prueba negativa), pero el gate avisa tarde: corriéndolo local te ahorrás el ciclo.
 
 **12b. Modo oscuro — SIEMPRE.** Dark es first-class, no un pase final. En cada componente/estilo: usar solo tokens que flipean por tema (nunca hex crudo — un `#fff`/`#ddd`/`--border` inexistente se ve bien en light y roto en dark); las sombras casi desaparecen en dark → la profundidad la lleva el **borde 1px**; verificar contraste AA en **ambos** temas (no naive-invert). `#fff`/`#000` literales solo si son correctos en los dos (ej. preview de hoja de papel).
 
