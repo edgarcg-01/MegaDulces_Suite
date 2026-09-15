@@ -2,6 +2,7 @@ import { Injectable, Logger, BadRequestException, Inject, Optional } from '@nest
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { RECON_NOTIFIER_PORT, ReconNotifierPort } from '@megadulces/contracts';
 import { MovementReconcileService, RawDiscrepancy } from './movement-reconcile.service';
+import { cuadreTurno, pideRetiro, CUADRE_UMBRAL } from './cash-cut-identity';
 
 /**
  * SM.8 / P1 — Arqueo ciego. El cajero captura el conteo físico por denominación
@@ -82,6 +83,26 @@ export interface TurnoPendiente {
   corte_en_min?: number | null;
   /** Dispersión (IQR) de esa hora en minutos: si es grande, el pronóstico no sirve. */
   corte_iqr_min?: number | null;
+
+  /**
+   * SM.35 — El límite de efectivo del cajón (Kepler `c46`). Es por CAJA, no
+   * global: suc01 caja4 corre en $70,000 y suc04 caja2 en $8,000. Se le muestra
+   * a la cajera porque es una política que ya conoce.
+   */
+  cash_limit?: number | null;
+  /** La caja pasó su límite: toca sangría. Bandera, sin revelar el monto. */
+  pide_retiro?: boolean;
+  /** Kepler registró sangrías que nadie contó. Es el hueco que falseaba el cierre. */
+  retiro_sin_contar?: boolean;
+  /** Toca el corte del turno (parcial por naturaleza, y el que cierra). */
+  pide_cierre?: boolean;
+
+  // Montos — `null` para la cajera (el arqueo es ciego), visibles con `revela`.
+  /** ESTIMACIÓN (`c49 − c48`), no conteo. Nunca alimenta una diferencia. */
+  cajon_estimado?: number | null;
+  retirado_kepler?: number | null;
+  retiros_contados?: number | null;
+  retiro_sin_contar_monto?: number | null;
 }
 const money = (n: number) => Number(n || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
 
@@ -141,7 +162,10 @@ export class BlindCountService {
    * lugares que no filtran `cerrado` — meterle los turnos abiertos (esperado 0,
    * diff 0) ensuciaría KPIs, focos y el propio `compare()`.
    *
-   * **No devuelve montos.** Es la lista de qué contar, no de cuánto debería haber.
+   * **A la cajera no le devuelve montos.** Es la lista de qué contar, no de
+   * cuánto debería haber — el arqueo es ciego. SM.35 agrega qué TOCA hacer
+   * (`pide_retiro`, `retiro_sin_contar`, `pide_cierre`) como banderas, y los
+   * montos que las sustentan solo con `revela` (supervisor).
    */
   async turnosPendientes(q: { cajeroCode?: string; warehouseCodes?: string[] | null; dias?: number; revela?: boolean }) {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -177,7 +201,31 @@ export class BlindCountService {
                 CASE WHEN k.c10::date = DATE '1800-01-01' AND p.prox IS NOT NULL
                      THEN round(EXTRACT(EPOCH FROM (p.prox - (now() AT TIME ZONE 'America/Mexico_City')::time)) / 60)::int
                 END                                  AS corte_en_min,
-                CASE WHEN k.c10::date = DATE '1800-01-01' THEN p.iqr END AS corte_iqr_min
+                CASE WHEN k.c10::date = DATE '1800-01-01' THEN p.iqr END AS corte_iqr_min,
+                -- SM.35 - Lo que se necesita para PEDIR la sangria y el corte.
+                -- Kepler mantiene vivas, con el turno abierto, solo tres cosas
+                -- utiles (medido sobre los 34 turnos abiertos): c46/c47 (el
+                -- limite), c48 (lo ya retirado) y c49 (la venta en efectivo del
+                -- turno). OJO: c15 (esperado) viene en 0 en LOS 34 -- Kepler lo
+                -- escribe recien al cerrar, asi que "cuanto deberia haber" no
+                -- existe mientras la caja opera, y c15 - c48 da basura negativa.
+                -- c49 es efectivo: coincide con c15 al peso en 930 de 975 cortes
+                -- cerrados (95.4%), y con c15+c16+c17 solo en 31.5%.
+                round(COALESCE(k.c46, 0), 2)        AS cash_limit,
+                round(COALESCE(k.c47, 0), 2)        AS cash_limit_max,
+                round(COALESCE(k.c48, 0), 2)        AS retirado_kepler,
+                round(COALESCE(k.c49, 0), 2)        AS venta_efectivo,
+                -- Lo que YA contamos de las sangrías de este turno. Al mismo
+                -- grano que el corte (suc/caja/fecha/cajero), no por folio.
+                (SELECT COALESCE(SUM(r.total_contado), 0)
+                   FROM reconciliation.blind_counts r
+                  WHERE r.tenant_id = ?
+                    AND r.warehouse_code = k.sucursal
+                    AND r.caja = k.c2
+                    AND r.business_date = k.c5::date
+                    AND r.tipo = 'retiro'
+                    AND upper(COALESCE(r.cajero_code, '')) = upper(btrim(k.c8)))::numeric
+                                                    AS retiros_contados
            FROM kepler_ods.kdpv_folio_caja k
            /**
             * El horario del corte NO es global: cada caja tiene el suyo y cada
@@ -238,10 +286,75 @@ export class BlindCountService {
           -- que mirar, porque un turno sin arquear es donde se esconde el hueco.
           ORDER BY k.c5 ASC, k.c2
           LIMIT 50`,
-        [tenantId, cajero, dias, q.warehouseCodes ?? null, q.warehouseCodes ?? null, tenantId],
+        // El primer `tenantId` es del subselect de retiros, que va en el SELECT
+        // y por lo tanto ANTES del resto de los placeholders.
+        [tenantId, tenantId, cajero, dias, q.warehouseCodes ?? null, q.warehouseCodes ?? null, tenantId],
       );
-      return rows as TurnoPendiente[];
+      return (rows as any[]).map((r) => this.armarTurno(r, !!q.revela)) as TurnoPendiente[];
     });
+  }
+
+  /**
+   * SM.35 — Convierte el turno en una PETICIÓN: qué toca hacer ahora.
+   *
+   * ⚠️ El arqueo es CIEGO por diseño (SM.8): la cajera no puede ver cuánto
+   * debería haber antes de contar. Por eso los montos van solo con `revela`
+   * (supervisor) y a ella le llegan **banderas**, no cifras. El límite sí se le
+   * muestra: es una política que ya conoce y no dice qué hay en el cajón.
+   */
+  private armarTurno(r: any, revela: boolean): TurnoPendiente {
+    const n = (v: any) => (v == null ? null : Number(v));
+    const limite = n(r.cash_limit) || null;
+    const retiradoKepler = n(r.retirado_kepler) ?? 0;
+    const retirosContados = n(r.retiros_contados) ?? 0;
+    const ventaEfectivo = n(r.venta_efectivo) ?? 0;
+    const abierto = r.abierto === true;
+
+    // Estimación, NO conteo: `c49 − c48` acierta el cajón final dentro de $50 en
+    // el 54.4% de los turnos (sesgo +$671, no incluye el fondo inicial). Sirve
+    // para disparar el aviso y nada más — nunca alimenta una diferencia.
+    const cajonEstimado = ventaEfectivo > 0 ? Math.round((ventaEfectivo - retiradoKepler) * 100) / 100 : null;
+
+    // Sangría que Kepler ya registró y nosotros no contamos. Esto NO es una
+    // predicción: es el hueco exacto que producía el faltante falso.
+    const retiroSinContar = Math.round(Math.max(0, retiradoKepler - retirosContados) * 100) / 100;
+
+    const corteEnMin = n(r.corte_en_min);
+    const cerradoHaceMin = n(r.cerrado_hace_min);
+
+    return {
+      warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name ?? null,
+      caja: r.caja, folio: r.folio, business_date: r.business_date,
+      hora_apertura: r.hora_apertura ?? null, hora_cierre: r.hora_cierre ?? null,
+      cajero_code: r.cajero_code ?? null, turno: r.turno ?? null,
+      abierto, abierto_at: r.abierto_at ?? null,
+      cerrado_hace_min: cerradoHaceMin, corte_tipico: r.corte_tipico ?? null,
+      corte_en_min: corteEnMin, corte_iqr_min: n(r.corte_iqr_min),
+
+      cash_limit: limite,
+      // La caja pasó su límite → toca sangría. Solo tiene sentido con la caja
+      // abierta: en un turno cerrado el retiro ya ocurrió (o no va a ocurrir).
+      pide_retiro: abierto && pideRetiro(cajonEstimado, limite),
+      // Kepler registró retiros que no contamos. Vale abierta y cerrada: es lo
+      // que hay que contar para que el cierre pueda cuadrar.
+      retiro_sin_contar: retiroSinContar > 0,
+      /**
+       * El corte del turno — parcial por naturaleza (el resto del dinero ya
+       * salió en sangrías) y a la vez el que cierra. Se pide cuando Kepler ya
+       * cerró el turno, o cuando falta poco para la hora en que ESA caja suele
+       * cortar (SM.17) y el pronóstico es confiable: con un IQR ancho la mediana
+       * no sirve y pedirlo sería adivinar.
+       */
+      pide_cierre: cerradoHaceMin != null
+        || (abierto && corteEnMin != null && corteEnMin <= 30
+            && (n(r.corte_iqr_min) ?? 999) <= 90),
+
+      // Montos: solo para quien ya puede ver el esperado.
+      cajon_estimado: revela ? cajonEstimado : null,
+      retirado_kepler: revela ? retiradoKepler : null,
+      retiros_contados: revela ? retirosContados : null,
+      retiro_sin_contar_monto: revela ? retiroSinContar : null,
+    };
   }
 
   /**
@@ -460,35 +573,28 @@ export class BlindCountService {
    * y "no lo contamos" son cosas distintas y no pueden sumar al mismo número.
    */
   private armarComparacion(cut: any, total: number, retirosContados = 0, medios: Record<string, number> | null = null) {
-    const esperado = Number(cut.efectivo_esperado);
-    const keplerContado = Number(cut.efectivo_contado);
-    const keplerDiff = Number(cut.efectivo_diff);
-    const retiradoKepler = cut.efectivo_retirado == null ? 0 : Number(cut.efectivo_retirado);
-    const r2 = (n: number) => Math.round(n * 100) / 100;
-
-    // Lo que salió del cajón y NO alcanzamos a contar. Se acepta la cifra de
-    // Kepler para poder cerrar la ecuación, pero queda marcado como no verificado.
-    const sinVerificar = r2(Math.max(0, retiradoKepler - retirosContados));
-    const contadoTotal = r2(total + retirosContados + sinVerificar);
-    const diffReal = r2(esperado - contadoTotal);
-    // Qué porción del efectivo del turno pasó de verdad por unas manos que contaron.
-    const cobertura = esperado > 0 ? Math.min(1, r2((total + retirosContados) / esperado)) : null;
-    // Kepler dijo "cuadrado" (|diff|<50) pero el arqueo ciego revela ≥$50 → enmascaró.
-    const keplerEnmascaro = Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50;
-
+    // SM.35 — la identidad vive en `cash-cut-identity.ts`. Estaba escrita acá y
+    // copiada (mal) en `list()` y `porCajera()`; ahora las tres leen la misma.
+    const c = cuadreTurno(cut, { cajonContado: total, retirosContados });
     return {
       matched: true, ambiguous: false, folio: cut.folio,
-      esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff,
-      diff_real: diffReal, kepler_enmascaro: keplerEnmascaro,
+      esperado: c.esperado, kepler_contado: c.kepler_contado, kepler_diff: c.diff_publicado,
+      diff_real: c.diff_real, kepler_enmascaro: c.kepler_enmascaro,
       // El cuadre del turno completo, para que se pueda leer de dónde sale el número.
-      cajon_contado: r2(total),
-      retiros_contados: r2(retirosContados),
-      retiros_sin_verificar: sinVerificar,
-      contado_total: contadoTotal,
-      cobertura,
+      cajon_contado: c.cajon_contado,
+      retiros_contados: c.retiros_contados,
+      retiros_sin_verificar: c.retiros_sin_verificar,
+      contado_total: c.contado_total,
+      cobertura: c.cobertura,
+      // La diferencia que sale del propio desglose de Kepler, al lado de la
+      // nuestra: donde contamos, las dos coinciden al centavo (verificado en 7
+      // turnos), y donde NO contamos es la única que existe.
+      diff_kepler: c.diff_kepler,
+      medible: c.medible, motivo_no_medible: c.motivo,
       kepler_billetes: cut.arqueo_billetes == null ? null : Number(cut.arqueo_billetes),
       kepler_monedas: cut.arqueo_monedas == null ? null : Number(cut.arqueo_monedas),
-      kepler_retirado: retiradoKepler,
+      kepler_retirado: c.retirado_kepler,
+      kepler_cajon: c.cajon_kepler,
       medios: this.cuadraMedios(cut, medios),
     };
   }
@@ -580,10 +686,20 @@ export class BlindCountService {
             .andOn('pc.warehouse_code', '=', 'cc.warehouse_code')
             .andOn('pc.cajero_code', '=', 'cc.cajero_cierre');
         })
-        // Nuestro conteo del mismo turno, si existe. Por folio: es la liga exacta.
+        /**
+         * Nuestro conteo del mismo turno, si existe.
+         *
+         * SM.35 — El folio NO identifica el turno: en el ODS `c3` se REUSA dentro
+         * del mismo día y la misma caja (15 claves duplicadas, las 15 con dinero
+         * distinto; el caso verificado es suc01 caja1 03/09 folio 68, que son dos
+         * cajeros). Ligando solo por folio, el arqueo de una cajera se le colgaba
+         * a la otra. Van también caja y fecha.
+         */
         .leftJoin('reconciliation.blind_counts as bc', function (this: any) {
           this.on('bc.tenant_id', '=', 'cc.tenant_id')
             .andOn('bc.warehouse_code', '=', 'cc.warehouse_code')
+            .andOn('bc.caja', '=', 'cc.caja')
+            .andOn('bc.business_date', '=', 'cc.business_date')
             .andOn('bc.cash_cut_folio', '=', 'cc.folio')
             .andOn(trx.raw("bc.tipo = 'cierre'"));
         })
@@ -609,6 +725,18 @@ export class BlindCountService {
           'bc.nota', 'bc.incidencia_tipo', 'bc.validado_nota', 'cc.turno',
           trx.raw('cc.tarjeta_contado::numeric AS kepler_tarjeta'),
           trx.raw('cc.transfer_contado::numeric AS kepler_transfer'),
+          trx.raw('cc.efectivo_diff::numeric AS kepler_diff'),
+          trx.raw('cc.cash_limit::numeric AS cash_limit'),
+          // SM.35 — los retiros de ESE turno, al mismo grano que el corte.
+          trx.raw(`(SELECT COALESCE(SUM(r.total_contado), 0)
+                      FROM reconciliation.blind_counts r
+                     WHERE r.tenant_id = cc.tenant_id
+                       AND r.warehouse_code = cc.warehouse_code
+                       AND r.caja = cc.caja
+                       AND r.business_date = cc.business_date
+                       AND r.tipo = 'retiro'
+                       AND r.cajero_code IS NOT DISTINCT FROM cc.cajero_cierre)::numeric
+                   AS retiros_contados`),
         )
         .orderBy('cc.business_date', 'desc').orderBy('cc.hora_cierre', 'desc')
         .limit(limite);
@@ -633,9 +761,27 @@ export class BlindCountService {
         };
         acc.set(key, g);
       }
-      const esperado = r.esperado != null ? Number(r.esperado) : null;
       const nuestro = r.nuestro_contado != null ? Number(r.nuestro_contado) : null;
-      const diff = esperado != null && nuestro != null ? Math.round((esperado - nuestro) * 100) / 100 : null;
+      /**
+       * SM.35 — Acá vivía la TERCERA copia de la identidad, y era la peor: de
+       * este `diff` salen `faltante_total` (el ranking que señala a personas por
+       * nombre) y el `diff_real` que `imprimirTicket()` estampa en papel con la
+       * etiqueta FALTANTE. O sea que el número falso no se quedaba en pantalla:
+       * se le entregaba impreso a la cajera.
+       */
+      const c = cuadreTurno({
+        efectivo_esperado: r.esperado,
+        efectivo_contado: r.kepler_contado,
+        efectivo_diff: r.kepler_diff,
+        arqueo_billetes: r.kepler_billetes,
+        arqueo_monedas: r.kepler_monedas,
+        efectivo_retirado: r.kepler_retirado,
+        cash_limit: r.cash_limit,
+      }, { cajonContado: nuestro, retirosContados: Number(r.retiros_contados || 0) });
+      const esperado = c.esperado;
+      // El acumulado por cajera usa SOLO lo que contamos: el desglose de Kepler
+      // sirve para ver el turno, no para imputarle un faltante a una persona.
+      const diff = c.diff_real;
       const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
       const denominaciones = DENOMS
         .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
@@ -666,6 +812,17 @@ export class BlindCountService {
         kepler_retirado: r.kepler_retirado != null ? Number(r.kepler_retirado) : null,
         venta: r.venta != null ? Number(r.venta) : null,
         nuestro_contado: nuestro, diff_real: diff, denominaciones,
+        // El cuadre del turno, para que el ticket y la pantalla puedan explicar
+        // el número en vez de solo afirmarlo.
+        retiros_contados: c.retiros_contados,
+        retiros_sin_verificar: c.retiros_sin_verificar,
+        contado_total: c.contado_total,
+        cobertura: c.cobertura,
+        diff_kepler: c.diff_kepler,
+        medible: c.medible, motivo_no_medible: c.motivo,
+        kepler_enmascaro: c.kepler_enmascaro,
+        kepler_diff: c.diff_publicado,
+        cash_limit: r.cash_limit != null ? Number(r.cash_limit) : null,
         capturado_por: r.captured_by || null, capturado_at: r.captured_at || null,
         validado_por: r.validado_por || null, validado_at: r.validado_at || null,
       });
@@ -781,7 +938,24 @@ export class BlindCountService {
           // no existe en el ERP), pero sí separa billetes de monedas.
           trx.raw('cc.arqueo_billetes::numeric AS kepler_billetes'),
           trx.raw('cc.arqueo_monedas::numeric AS kepler_monedas'),
-          trx.raw('cc.efectivo_retirado::numeric AS kepler_retirado'))
+          trx.raw('cc.efectivo_retirado::numeric AS kepler_retirado'),
+          trx.raw('cc.cash_limit::numeric AS cash_limit'),
+          /**
+           * SM.35 — La mitad que faltaba de la ecuación. `list()` no traía los
+           * retiros, así que restaba el cajón contra un esperado que incluye
+           * dinero que salió hace horas. Se agrupa al MISMO grano que el join al
+           * corte (suc/caja/fecha/cajero), no por folio: dos cajeras pueden
+           * compartir folio el mismo día y sumarse los retiros de la otra.
+           */
+          trx.raw(`(SELECT COALESCE(SUM(r.total_contado), 0)
+                      FROM reconciliation.blind_counts r
+                     WHERE r.tenant_id = bc.tenant_id
+                       AND r.warehouse_code = bc.warehouse_code
+                       AND r.caja = bc.caja
+                       AND r.business_date = bc.business_date
+                       AND r.tipo = 'retiro'
+                       AND r.cajero_code IS NOT DISTINCT FROM bc.cajero_code)::numeric
+                   AS retiros_contados`))
         .orderBy('bc.captured_at', 'desc').limit(limit);
       if (q.warehouse_code) b.where('bc.warehouse_code', q.warehouse_code);
       if (q.warehouse_codes) {
@@ -814,14 +988,38 @@ export class BlindCountService {
       const rows = await b;
       return rows.map((r: any) => {
         const total = Number(r.total_contado);
-        // El relevo es intra-turno: no compara contra el corte del día.
-        const esperado = r.tipo === 'relevo' ? null : (r.esperado != null ? Number(r.esperado) : null);
-        const diffReal = esperado != null ? Math.round((esperado - total) * 100) / 100 : null;
-        const keplerDiff = r.tipo === 'relevo' ? null : (r.kepler_diff != null ? Number(r.kepler_diff) : null);
+        /**
+         * SM.35 — Ni el relevo NI EL RETIRO se comparan contra el corte del día.
+         * Antes solo se neutralizaba el relevo, y una sangría de $15,000 contra
+         * un esperado de $57,833 imprimía "+$42,833 FALTAN". Peor: el índice
+         * único incluye `tipo`, así que el cierre y el retiro del mismo turno
+         * son DOS filas y las dos se restaban del mismo esperado — el mismo
+         * dinero acusado dos veces. Medido: 20 retiros en prod con diff 100%
+         * falso, el peor "+$49,583.70" sobre un retiro de $8,250 que es
+         * exactamente lo que tenía que salir del cajón.
+         */
+        const intraTurno = r.tipo === 'relevo' || r.tipo === 'retiro';
+        // Los alias del SELECT no son los nombres de la tabla, así que el corte
+        // se arma explícito: pasar la fila cruda leería `undefined` en silencio.
+        const c = intraTurno ? null : cuadreTurno({
+          efectivo_esperado: r.esperado,
+          efectivo_contado: r.kepler_contado,
+          efectivo_diff: r.kepler_diff,
+          arqueo_billetes: r.kepler_billetes,
+          arqueo_monedas: r.kepler_monedas,
+          efectivo_retirado: r.kepler_retirado,
+          cash_limit: r.cash_limit,
+        }, {
+          cajonContado: total,
+          retirosContados: Number(r.retiros_contados || 0),
+        });
+        const esperado = c?.esperado ?? null;
+        const diffReal = c?.diff_real ?? null;
+        const keplerDiff = c?.diff_publicado ?? null;
         // El arqueo que DECLARÓ Kepler (c25), al lado del nuestro. Es la
         // comparación que valida la encargada: los dos dicen contar el mismo
         // cajón y casi nunca coinciden.
-        const keplerContado = r.tipo === 'relevo' ? null : (r.kepler_contado != null ? Number(r.kepler_contado) : null);
+        const keplerContado = c?.kepler_contado ?? null;
         // Nuestro conteo partido igual que el de Kepler, para poder compararlos:
         // en MXN el billete arranca en $20 y de ahí para abajo es moneda.
         const den: Record<string, number> = (typeof r.denominations === 'string' ? JSON.parse(r.denominations) : r.denominations) || {};
@@ -844,17 +1042,9 @@ export class BlindCountService {
           .map((d) => ({ denominacion: d, cantidad: Number(den[String(d)]) || 0 }))
           .filter((x) => x.cantidad > 0)
           .map((x) => ({ ...x, subtotal: Math.round(x.denominacion * x.cantidad * 100) / 100 }));
-        const keplerBilletes = r.tipo === 'relevo' ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
-        const keplerMonedas = r.tipo === 'relevo' ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
-        const keplerRetirado = r.tipo === 'relevo' ? null : (r.kepler_retirado != null ? Number(r.kepler_retirado) : null);
-        /**
-         * Chequeo de coherencia del corte de Kepler: billetes + monedas + retirado
-         * debe dar el contado. Cuando no cierra, el hueco suele ser un número
-         * redondo — un retiro que nadie registró.
-         */
-        const sumaKepler = (keplerBilletes ?? 0) + (keplerMonedas ?? 0) + (keplerRetirado ?? 0);
-        const keplerDesgloseCuadra = keplerContado != null && keplerBilletes != null
-          ? Math.abs(sumaKepler - keplerContado) < 1 : null;
+        const keplerBilletes = intraTurno ? null : (r.kepler_billetes != null ? Number(r.kepler_billetes) : null);
+        const keplerMonedas = intraTurno ? null : (r.kepler_monedas != null ? Number(r.kepler_monedas) : null);
+        const keplerRetirado = c?.retirado_kepler ?? null;
         return {
           id: r.id, tipo: r.tipo, warehouse_code: r.warehouse_code, caja: r.caja, business_date: r.business_date, turno: r.turno,
           cajero_code: r.cajero_code, cajero_entrante: r.cajero_entrante || null, cajero_nombre: r.cajero_nombre || null, total_contado: total,
@@ -863,11 +1053,26 @@ export class BlindCountService {
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
           esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal,
           kepler_billetes: keplerBilletes, kepler_monedas: keplerMonedas, kepler_retirado: keplerRetirado,
-          kepler_desglose_cuadra: keplerDesgloseCuadra,
-          kepler_desglose_faltante: keplerDesgloseCuadra === false
-            ? Math.round((keplerContado! - sumaKepler) * 100) / 100 : null,
+          /**
+           * Chequeo de coherencia del corte de Kepler: billetes + monedas +
+           * retirado debe dar el contado. Cuando no cierra, ese hueco NO es un
+           * error de captura — es la diferencia real que `c35` esconde. Medido:
+           * el desglose implica $2,698,325 de faltante y Kepler publica $699,811.
+           */
+          kepler_desglose_cuadra: c?.kepler_desglose_cuadra ?? null,
+          kepler_desglose_faltante: c?.kepler_desglose_faltante ?? null,
           nuestro_billetes: nuestroBilletes, nuestro_monedas: nuestroMonedas, denominaciones,
-          kepler_enmascaro: keplerDiff != null && diffReal != null && Math.abs(keplerDiff) < 50 && Math.abs(diffReal) >= 50,
+          // El cuadre completo, para que el número se pueda leer de dónde sale.
+          cajon_contado: c?.cajon_contado ?? null,
+          retiros_contados: c?.retiros_contados ?? Number(r.retiros_contados || 0),
+          retiros_sin_verificar: c?.retiros_sin_verificar ?? null,
+          contado_total: c?.contado_total ?? null,
+          cobertura: c?.cobertura ?? null,
+          diff_kepler: c?.diff_kepler ?? null,
+          medible: c?.medible ?? false,
+          motivo_no_medible: c?.motivo ?? (intraTurno ? 'sin_esperado' : null),
+          cash_limit: r.cash_limit != null ? Number(r.cash_limit) : null,
+          kepler_enmascaro: c?.kepler_enmascaro ?? false,
         };
       });
     });

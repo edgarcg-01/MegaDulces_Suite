@@ -42,6 +42,25 @@ export interface Turno {
   corte_tipico?: string | null;
   corte_en_min?: number | null;
   corte_iqr_min?: number | null;
+  /**
+   * SM.35 — Qué TOCA hacer con este turno, resuelto en el backend.
+   *
+   * Son banderas, no montos: el arqueo es ciego y la cajera no puede ver cuánto
+   * debería haber antes de contar. `cash_limit` sí llega (es la política de su
+   * caja, que ya conoce, y no dice qué hay en el cajón); los montos que
+   * sustentan las banderas solo viajan para el supervisor (`revela`).
+   */
+  cash_limit?: number | null;
+  /** La caja pasó su límite (Kepler `c46`): toca sangría. */
+  pide_retiro?: boolean;
+  /** Kepler registró sangrías que nadie contó — sin esto el cierre no cuadra. */
+  retiro_sin_contar?: boolean;
+  /** Toca el corte del turno: parcial por naturaleza, y el que cierra. */
+  pide_cierre?: boolean;
+  cajon_estimado?: number | null;
+  retirado_kepler?: number | null;
+  retiros_contados?: number | null;
+  retiro_sin_contar_monto?: number | null;
 }
 
 export interface ArqueoDto {

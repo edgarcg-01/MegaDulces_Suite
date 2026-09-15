@@ -177,6 +177,48 @@ interface CortesPersona {
                   </div>
                 </div>
               }
+              <!-- SM.35 — La sangría, PEDIDA. El límite de la caja (Kepler c46) es
+                   un umbral medido: por debajo hay retiro en 2.4-14.1% de los turnos
+                   y al cruzarlo salta a 70.8% → 99.1%. Antes el tipo "Retiro" era una
+                   pestaña que había que descubrir; ahora la pantalla lo pide sola.
+                   No se muestra el monto del cajón: el arqueo es ciego. -->
+              @if (t.pide_retiro && aTipo() !== 'retiro') {
+                <div class="arq-pide-box urge">
+                  <i class="pi pi-arrow-circle-up"></i>
+                  <div>
+                    <strong>Tu caja llegó a su límite{{ t.cash_limit ? ' de ' + money(t.cash_limit) : '' }} — toca hacer un retiro.</strong>
+                    <p class="muted">Contá lo que sacás del cajón y guardalo como retiro. Sin eso, al cerrar el turno ese dinero aparece como faltante tuyo.</p>
+                    <p-button type="button" label="Contar el retiro" icon="pi pi-arrow-right"
+                              styleClass="p-button-sm" (click)="pasarATipo('retiro')"></p-button>
+                  </div>
+                </div>
+              }
+              <!-- Kepler ya registró sangrías que nadie contó. Esto NO es un
+                   pronóstico: es el hueco exacto que producía el faltante falso. -->
+              @if (t.retiro_sin_contar && !t.pide_retiro && aTipo() !== 'retiro') {
+                <div class="arq-pide-box urge">
+                  <i class="pi pi-exclamation-circle"></i>
+                  <div>
+                    <strong>Hay retiros de este turno sin contar.</strong>
+                    <p class="muted">Kepler los registró pero nadie los contó. Contalos antes del cierre: es lo que permite que el turno cuadre.</p>
+                    <p-button type="button" label="Contar el retiro" icon="pi pi-arrow-right"
+                              styleClass="p-button-sm" (click)="pasarATipo('retiro')"></p-button>
+                  </div>
+                </div>
+              }
+              <!-- El corte del turno. Es PARCIAL por naturaleza —el resto del dinero
+                   ya salió en sangrías— y a la vez el que cierra. -->
+              @if (t.pide_cierre && aTipo() !== 'cierre') {
+                <div class="arq-pide-box">
+                  <i class="pi pi-flag"></i>
+                  <div>
+                    <strong>Toca el corte de tu turno.</strong>
+                    <p class="muted">Contá lo que queda en el cajón. Con eso y tus retiros, el turno cierra completo.</p>
+                    <p-button type="button" label="Hacer el corte" icon="pi pi-arrow-right"
+                              styleClass="p-button-sm" (click)="pasarATipo('cierre')"></p-button>
+                  </div>
+                </div>
+              }
               <!-- Encabezado NO editable: cada dato viene del turno de Kepler. -->
               <div class="arq-datos">
                 <div><span class="arq-ev-k">Sucursal</span><span class="arq-ev-v">{{ branchLabel(t.warehouse_code) }}</span></div>
@@ -728,6 +770,13 @@ interface CortesPersona {
                     background: color-mix(in srgb, var(--action) 8%, transparent); border-radius: var(--r-md); }
     .arq-pide-box i { color: var(--action); margin-top: .15rem; }
     .arq-pide-box p { margin: .15rem 0 0; font-size: .78rem; }
+    /* SM.35 - El aviso de sangria usa el tono de alerta, no el de accion: es lo
+       unico de esta pantalla que, si se ignora, convierte el dinero de la caja
+       en un faltante a nombre de la cajera. */
+    .arq-pide-box.urge { border-color: color-mix(in srgb, var(--warn-fg) 55%, transparent);
+                         background: color-mix(in srgb, var(--warn-fg) 10%, transparent); }
+    .arq-pide-box.urge i { color: var(--warn-fg); }
+    .arq-pide-box.urge p-button { margin-top: .45rem; display: inline-block; }
     .arq-turno-meta { font-size: .7rem; color: var(--text-muted); }
     .arq-datos { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(6rem, 100%), 1fr)); gap: .5rem .9rem; margin-bottom: .9rem;
                  padding: .7rem .8rem; border-radius: var(--r-md); background: var(--surface-hover-bg); border: 1px solid var(--border-color); }
@@ -1125,6 +1174,10 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
         // Un solo turno abierto es el caso normal: se elige solo, la cajera solo cuenta.
         // Se preselecciona el que TOCA (el más viejo), no el primero que llegó.
         if (t.length && !this.turnoSel()) this.turnoFolio.set(this.turnoQueToca()?.folio ?? t[0].folio);
+        // SM.35 - y con el turno ya elegido, el TIPO que toca (sangria antes que
+        // corte). Sin esto la pantalla pedia el retiro y dejaba el formulario en
+        // 'Cierre de dia': el aviso decia una cosa y el formulario otra.
+        this.sugerirTipo();
         this.cargandoTurnos.set(false);
       },
       error: () => this.cargandoTurnos.set(false),
@@ -1173,7 +1226,36 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   elegirTipo(v: string) { this.aTipo.set(v as ArqueoTipo); this.dirty.set(true); }
 
-  elegirTurno(folio: string) { this.turnoFolio.set(folio); this.result.set(null); }
+  elegirTurno(folio: string) {
+    this.turnoFolio.set(folio);
+    this.result.set(null);
+    this.sugerirTipo();
+  }
+
+  /**
+   * SM.35 — Preselecciona lo que TOCA en este turno.
+   *
+   * Prioridad: primero la sangría (si la caja pasó su límite, o si Kepler
+   * registró retiros que nadie contó), después el corte. El retiro va primero a
+   * propósito: es lo que hay que contar ANTES de cerrar, y contarlo tarde es
+   * justo lo que producía el faltante falso.
+   *
+   * No pisa lo que la persona ya empezó a llenar (`dirty`): cambiarle el tipo de
+   * arqueo con denominaciones capturadas sería perderle el trabajo.
+   */
+  private sugerirTipo() {
+    if (this.dirty()) return;
+    const t = this.turnoSel();
+    if (!t) return;
+    if (t.pide_retiro || t.retiro_sin_contar) this.aTipo.set('retiro');
+    else if (t.pide_cierre) this.aTipo.set('cierre');
+  }
+
+  /** Salta al tipo que la pantalla está pidiendo, desde el aviso. */
+  pasarATipo(tipo: ArqueoTipo) {
+    this.aTipo.set(tipo);
+    this.result.set(null);
+  }
 
   /**
    * Ticket del arqueo recién capturado. Las denominaciones salen del formulario,

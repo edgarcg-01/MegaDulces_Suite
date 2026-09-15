@@ -33,7 +33,12 @@
  * cortes según sucursal (2,901 y 2,807 de 3,051). La identidad que cierra NO es
  * `c43+c44 = c25` sino:
  *
- *     c43 (billetes) + c44 (monedas) + c48 (retirado) = c25 (contado)   → 63.6%
+ *     c43 (billetes) + c44 (monedas) + c48 (retirado) = c25 (contado)   → 63.4% CON TOLERANCIA DE $1 (exacto: 37.4%; con retiro: 28.4%)
+ *     SM.35: ese hueco no es error de captura. c35 = c15 - c25 en el 100% de los
+ *     cortes y c25 = c15 exacto en el 75.8%, o sea que el total declarado se
+ *     escribe igualando al esperado. El desglose implica $2,698,325 de faltante
+ *     contra $699,811 que Kepler publica. Gemelo de cash-cuts-sync.service.ts:
+ *     si se toca una sentencia, tocar la otra.
  *
  * porque lo que queda en el cajón al cerrar es lo contado MENOS lo que se fue en
  * sangrías durante el turno. Ejemplo real: 590 + 67 + 9,000 = 9,657 vs contado
@@ -76,7 +81,7 @@ const DST = process.env.DATABASE_URL_NEW || 'postgresql://postgres:superoot@127.
  * los montos en cero — no es un arqueo, es una caja en operación.
  */
 const SRC = `
-  SELECT DISTINCT ON (k.sucursal, k.c2, k.c5::date, k.c3)
+  SELECT DISTINCT ON (k.sucursal, k.c2, k.c5::date, k.c3, NULLIF(btrim(k.c8), ''))
          k.sucursal, k.c2 AS caja, k.c3::bigint::text AS folio, k.c5::date AS business_date,
          k.c5 AS opened_at,
          CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE k.c10 END AS closed_at,
@@ -98,6 +103,8 @@ const SRC = `
          round(COALESCE(k.c44, 0), 2) AS arq_mon,
          round(COALESCE(k.c45, 0), 2) AS arq_otros,
          round(COALESCE(k.c48, 0), 2) AS retirado,
+         round(COALESCE(k.c46, 0), 2) AS cash_limit,
+         round(COALESCE(k.c47, 0), 2) AS cash_limit_max,
          round(COALESCE(k.c49, 0), 2) AS total_venta,
          round(COALESCE(k.c15, 0) + COALESCE(k.c16, 0) + COALESCE(k.c17, 0), 2) AS venta_total,
          h.dur AS duracion_horas
@@ -114,7 +121,7 @@ const SRC = `
    WHERE (COALESCE(k.c25, 0) <> 0 OR COALESCE(k.c35, 0) <> 0)
      AND ($1::date IS NULL OR k.c5::date >= $1::date)
      AND ($2::text IS NULL OR k.sucursal = $2::text)
-   ORDER BY k.sucursal, k.c2, k.c5::date, k.c3, k.c10 DESC NULLS LAST
+   ORDER BY k.sucursal, k.c2, k.c5::date, k.c3, NULLIF(btrim(k.c8), ''), k.c10 DESC NULLS LAST
 `;
 
 // `handoff` NO se lista: es GENERATED ALWAYS (cajero_apertura IS DISTINCT FROM cajero_cierre).
@@ -126,7 +133,7 @@ INSERT INTO analytics.cash_cuts (
   tarjeta_esperado, tarjeta_contado, tarjeta_diff,
   transfer_esperado, transfer_contado, transfer_diff,
   arqueo_billetes, arqueo_monedas, arqueo_otros,
-  efectivo_retirado, total_venta, venta_total,
+  efectivo_retirado, cash_limit, cash_limit_max, total_venta, venta_total,
   hora_apertura, hora_cierre, duracion_horas,
   warehouse_id, cerrado, source
 )
@@ -136,13 +143,13 @@ SELECT $3::uuid, s.sucursal, w.name, s.caja, s.folio, s.business_date,
        s.tj_esp, s.tj_cont, s.tj_diff,
        s.tr_esp, s.tr_cont, s.tr_diff,
        s.arq_bil, s.arq_mon, s.arq_otros,
-       s.retirado, s.total_venta, s.venta_total,
+       s.retirado, s.cash_limit, s.cash_limit_max, s.total_venta, s.venta_total,
        s.hora_apertura, s.hora_cierre, s.duracion_horas,
        w.id, true, 'kepler'
   FROM (${SRC}) s
   LEFT JOIN commercial.warehouses w
     ON w.tenant_id = $3::uuid AND w.code = s.sucursal AND w.deleted_at IS NULL
-ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio) DO UPDATE SET
+ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio, cajero_cierre) DO UPDATE SET
   warehouse_name    = EXCLUDED.warehouse_name,
   warehouse_id      = EXCLUDED.warehouse_id,
   opened_at         = EXCLUDED.opened_at,
@@ -163,6 +170,8 @@ ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio) DO UPDATE SE
   arqueo_monedas    = EXCLUDED.arqueo_monedas,
   arqueo_otros      = EXCLUDED.arqueo_otros,
   efectivo_retirado = EXCLUDED.efectivo_retirado,
+  cash_limit        = EXCLUDED.cash_limit,
+  cash_limit_max    = EXCLUDED.cash_limit_max,
   total_venta       = EXCLUDED.total_venta,
   venta_total       = EXCLUDED.venta_total,
   hora_apertura     = EXCLUDED.hora_apertura,
