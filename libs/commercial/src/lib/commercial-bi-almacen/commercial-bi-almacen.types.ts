@@ -95,6 +95,14 @@ export interface BiSummaryResponse {
   cost_deviation: BiCostDeviation;
 }
 
+/**
+ * [WMS-BI.4.2] `'Sin clasificar'` NO es un cajón de sastre: es la declaración de que apareció un
+ * `doc_code` que no está en `DOC_CATALOG`. Antes ese caso caía en `'Comercial'` por un
+ * `return` al final de la función, y así fue como 163,109 movimientos de ajuste y merma de
+ * Wincaja se publicaron como operación comercial sin que nada lo dijera.
+ */
+export type BiTipoOperacion = 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario' | 'Sin clasificar';
+
 export interface BiMovementRow {
   doc_date: string;
   /** `null` cuando el enriquecimiento contra kepler_ods se saltó por timeout — ver `hora_no_disponible`. */
@@ -117,7 +125,17 @@ export interface BiMovementRow {
    * son correcciones de conteo, ni venta ni traspaso — se declara "Ajuste de inventario" en vez de
    * forzarlas a uno de los dos valores pedidos.
    */
-  tipo_operacion: 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario';
+  tipo_operacion: BiTipoOperacion;
+  /**
+   * [WMS-BI.4.2] `true` = este documento representa una VENTA, así que Canal, Vendedor, Importe
+   * venta, IVA, IEPS y Venta neta **tienen sentido** acá. `false` = no corresponden a este tipo
+   * de documento (una orden de compra no tiene canal ni vendedor ni base gravable).
+   *
+   * Existe para que la pantalla pueda decir **"No aplica"** en vez de **"No disponible"**: lo
+   * segundo afirma que el dato falta, y en una compra eso es falso. Medido en la fila que lo
+   * destapó (`ApEntOr1`, CEDIS, SKU 00022): de sus 7 celdas vacías, **5 no eran huecos**.
+   */
+  aplica_venta: boolean;
   /** Antes "Motivo" — nombre de negocio del documento (Venta/Compra/Traspaso/Devolución/Ajuste…). */
   movement_label: string;
   doc_code: string;
@@ -172,7 +190,14 @@ export interface BiMovementRow {
    * ⚠️ Supuesto NO verificado contra un ticket real — declarado, no confirmado. */
   venta_neta: number | null;
   cost_base_hoy: number | null;
-  source_system: 'kepler';
+  /** Sucursal de origen tal como la escribió el feed: `00`–`07` (Kepler) o `W30`/`W32`/… (Wincaja). */
+  source_branch: string | null;
+  /**
+   * [WMS-BI.4.2] Era el literal `'kepler'` — falso en el **89%** de `analytics.stock_movements`
+   * (3,364,207 de 3,699,345 filas son Wincaja). Hoy se DERIVA del prefijo de `source_branch`.
+   * ⚠️ Es una derivación, no una columna: la columna propia llega con WMS-BI.4.1.
+   */
+  source_system: 'kepler' | 'wincaja';
 }
 
 export interface BiPage<T> {
