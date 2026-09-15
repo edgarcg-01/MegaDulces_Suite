@@ -517,10 +517,32 @@ export class BlindCountService {
     // el arqueo cuenta ESE corte, no "alguno de los de esa caja ese día" (el ~4.5%
     // de caja-días con 2+ cortes era justo lo que obligaba a devolver `ambiguous`).
     if (dto.cash_cut_folio) {
-      const cut = await trx('analytics.cash_cuts')
-        .where({ tenant_id: tenantId, warehouse_code: dto.warehouse_code, folio: String(dto.cash_cut_folio) })
-        .first();
-      if (cut) return this.armarComparacion(cut, total, await this.retirosContados(trx, tenantId, dto.warehouse_code, String(dto.cash_cut_folio)), medios);
+      /**
+       * SM.35 — El folio SOLO no identifica el corte: `c3` se reusa dentro del
+       * mismo día y la misma caja (15 claves duplicadas en prod, las 15 con
+       * dinero distinto). Este lookup hacía `.first()` sin orden sobre
+       * `(tenant, sucursal, folio)`, así que podía traer el corte de OTRA cajera
+       * de otro día — el folio 272 de suc03 son el 10/09 caja 2 (esperado
+       * $34,783.15) y el 14/09 caja 1 ($57,833.70).
+       *
+       * Y desde que `uq_cash_cut_cajero` admite dos cortes con el mismo folio,
+       * el `.first()` arbitrario pasó de riesgoso a directamente incorrecto.
+       * Van caja, fecha y cajero — los cuatro que el DTO ya trae.
+       */
+      const q = trx('analytics.cash_cuts').where({
+        tenant_id: tenantId, warehouse_code: dto.warehouse_code,
+        caja: dto.caja, business_date: dto.business_date,
+        folio: String(dto.cash_cut_folio),
+      });
+      if (dto.cajero_code) q.where('cajero_cierre', dto.cajero_code);
+      const candidatos: any[] = await q;
+      // Si sigue habiendo más de uno, se DECLARA ambiguo en vez de elegir: un
+      // corte elegido a dedo le revelaría a esta cajera el faltante de otra.
+      if (candidatos.length > 1) {
+        return { matched: false, ambiguous: true, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
+      }
+      const cut = candidatos[0];
+      if (cut) return this.armarComparacion(cut, total, await this.retirosContados(trx, tenantId, dto, cut.folio), medios);
       // El turno existe en Kepler pero todavía no cerró (o el feed no lo trajo):
       // se guarda el conteo y la diferencia aparece cuando el corte llegue.
       return { matched: false, ambiguous: false, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
@@ -534,7 +556,7 @@ export class BlindCountService {
     if (!dto.cajero_code && cuts.length > 1) {
       return { matched: false, ambiguous: true, esperado: null, kepler_contado: null, kepler_diff: null, diff_real: null, kepler_enmascaro: false };
     }
-    return this.armarComparacion(cuts[0], total, await this.retirosContados(trx, tenantId, dto.warehouse_code, cuts[0].folio), medios);
+    return this.armarComparacion(cuts[0], total, await this.retirosContados(trx, tenantId, dto, cuts[0].folio), medios);
   }
 
   /**
@@ -542,12 +564,24 @@ export class BlindCountService {
    * la ecuación: sin esto, el cierre se comparaba contra un esperado que incluye
    * dinero que salió del cajón hace horas.
    */
-  private async retirosContados(trx: any, tenantId: string, warehouseCode: string, folio: string): Promise<number> {
+  private async retirosContados(trx: any, tenantId: string, dto: BlindCountDto, folio: string): Promise<number> {
     if (!folio) return 0;
-    const row = await trx('reconciliation.blind_counts')
-      .where({ tenant_id: tenantId, warehouse_code: warehouseCode, tipo: 'retiro', cash_cut_folio: String(folio) })
-      .sum({ t: 'total_contado' })
-      .first();
+    /**
+     * SM.35 — Se acota por caja, fecha y cajero, no solo por folio: el folio de
+     * Kepler se reusa y sin esto se le sumaban a un turno los retiros de otro
+     * (los de otra cajera, incluso), inflando `retiros_contados` y convirtiendo
+     * un faltante real en un cuadre aparente. Va en la MISMA dirección que el
+     * bug que esta fase arregla, pero al revés — y es el más peligroso de los
+     * dos, porque tapa en vez de acusar.
+     */
+    const q = trx('reconciliation.blind_counts')
+      .where({
+        tenant_id: tenantId, warehouse_code: dto.warehouse_code,
+        caja: dto.caja, business_date: dto.business_date,
+        tipo: 'retiro', cash_cut_folio: String(folio),
+      });
+    if (dto.cajero_code) q.where('cajero_code', dto.cajero_code);
+    const row = await q.sum({ t: 'total_contado' }).first();
     return Number(row?.t || 0);
   }
 
