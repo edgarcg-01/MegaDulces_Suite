@@ -41,6 +41,7 @@ export class CommercialProductsController {
     @Query('supplier_id') supplierId?: string,
     @Query('active') active?: string,
     @Query('with_cost') withCost?: string,
+    @Query('without_price') withoutPrice?: string,
   ) {
     return this.service.list({
       page: page ? Number(page) : undefined,
@@ -52,7 +53,22 @@ export class CommercialProductsController {
       supplier_id: supplierId,
       active: active === undefined ? undefined : active === 'true',
       with_cost: withCost === 'true',
+      without_price: withoutPrice === 'true',
     });
+  }
+
+  @Get('duplicate-barcodes')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'Códigos de barras dados de alta en MÁS DE UN producto. No depende de que haya '
+      + 'precios: el defecto vive en el catálogo de códigos y el precio sólo dice si además cobran '
+      + 'distinto. `precios_disponibles` declara si ese contexto pudo calcularse.',
+  })
+  duplicateBarcodes(
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.duplicateBarcodes({ search, limit: limit ? Number(limit) : undefined });
   }
 
   @Get('suppliers')
