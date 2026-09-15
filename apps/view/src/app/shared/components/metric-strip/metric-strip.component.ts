@@ -76,7 +76,7 @@ export interface MetricStripItem {
               </div>
             } @else {
               <div class="ms-row">
-                @if (it.format === 'text') { <b class="ms-v is-text">{{ it.value }}</b> }
+                @if (isText(it)) { <b class="ms-v is-text">{{ it.value }}</b> }
                 @else { <b class="ms-v" [appCountUp]="num(it)" [countUpFormat]="cu(it)"></b> }
                 @if (it.delta !== null && it.delta !== undefined) {
                   <span class="ms-delta" [class.up]="it.delta! > 0" [class.down]="it.delta! < 0">
@@ -175,6 +175,26 @@ export class MetricStripComponent implements AfterViewInit {
     this.items().reduce((s, it) => s + (Number(it.value) || 0), 0));
 
   num(it: MetricStripItem): number { return Number(it.value) || 0; }
+
+  /**
+   * ¿Se pinta como TEXTO? Sí cuando lo declara el llamador, y **también** cuando el valor no es un
+   * número — aunque el llamador se haya olvidado del `format`.
+   *
+   * Sin esa segunda condición el strip caía en la rama numérica y `num()` convertía el valor en
+   * **0** (`Number('—') || 0`): una ausencia dibujada como cero, que es exactamente lo que
+   * ADR-056 prohíbe, y en silencio — el KPI se ve perfecto, sólo que miente. Pasó de verdad en
+   * `/compras/pedido` ("Inventario 0" con la bajada "sin demanda medida" al lado).
+   *
+   * Se resuelve acá y no sólo en el llamador para que el olvido no vuelva a ser posible: son 2
+   * llamadores hoy y el tipo `value` admite `string`, así que el próximo tropieza igual.
+   */
+  isText(it: MetricStripItem): boolean {
+    if (it.format === 'text') return true;
+    if (typeof it.value !== 'string') return false;
+    // La cadena vacía también: `Number('')` es 0 y es finito, así que sin esta guarda un valor
+    // ausente se pintaría como un 0 igual de falso que el del guion.
+    return it.value.trim() === '' || !Number.isFinite(Number(it.value));
+  }
 
   cu(it: MetricStripItem): 'int' | 'decimal1' | 'percent1' | 'money' | 'money2' | 'money-short' {
     switch (it.format) {

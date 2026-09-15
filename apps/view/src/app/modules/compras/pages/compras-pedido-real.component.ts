@@ -982,7 +982,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   // RA-PRO.32 — Vista Excel (réplica del workbook del comprador, una fila por SKU × punto de compra).
   wbRows = signal<WorkbookRow[]>([]);
-  wbTotals = signal<{ pedido: number; venta: number; exis: number }>({ pedido: 0, venta: 0, exis: 0 });
+  wbTotals = signal<{ pedido: number; venta: number; exis: number; venta_costo?: number | null }>(
+    { pedido: 0, venta: 0, exis: 0 });
   // U.2 — el hueco del valuado. null cuando no hay nada sin verificar (el banner no se pinta).
   private readonly wbRung = signal<{ skus: number; celdas: number; arbitrado: number } | null>(null);
   rungGap(): { skus: number; celdas: number; arbitrado: number } | null {
@@ -1776,8 +1777,67 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       { label: 'A traspasar', value: this.totTr(), format: 'currency', sub: 'desde CEDIS' },
       { label: 'Sobrestock', value: this.totOver(), format: 'currency', tone: 'warn', sub: 'inmovilizado' },
       { label: 'SKUs', value: this.wbTotal() },
+      // `[RA-PRO.49]` El par: lo que HAY y lo que se BUSCA, uno al lado del otro. Suelto, "Cobertura
+      // 30 días objetivo" no dice si estamos arriba o abajo de la meta; el número de al lado es el
+      // que lo contesta. Va ANTES del objetivo porque se lee "tengo N, quiero M".
+      // El guion sólo llega a la pantalla si además se declara `format: 'text'`. Sin eso el strip
+      // toma la rama numérica y `Number('—') || 0` lo pinta como **0** — justo el cero que este
+      // KPI documenta que nunca hay que dibujar (ADR-056), y encima con la bajada diciendo
+      // "sin demanda medida" al lado. Mismo patrón que ya usa `vendor-history` para km/h.
+      this.diasInventario() == null
+        ? { label: 'Días de existencia', value: '—', format: 'text', sub: this.diasInventarioSub() }
+        : { label: 'Días de existencia', value: this.diasInventario()!, sub: this.diasInventarioSub() },
       { label: 'Cobertura', value: this.coverage, sub: 'días objetivo' },
     ];
+  }
+
+  /**
+   * `[RA-PRO.49]` **Días de inventario en existencia** de lo filtrado.
+   *
+   * `inventario al costo ÷ (venta 30d al costo ÷ 30.4)`. Es un cociente de DINERO a propósito, por
+   * dos razones medidas:
+   *   1. **La unidad se cancela.** Sumar cajas de SKUs distintos mezcla una caja de chicles con
+   *      una de azúcar; el dinero es el árbitro (ADR-059). Y arriba y abajo va el MISMO
+   *      `caja_cost`, así que el margen también se cancela — por eso el denominador es la venta
+   *      **al costo** y no `venta` (que está a precio y devolvería los días cortos por el margen).
+   *   2. **Cubre las mismas celdas.** El backend gatea las dos sumas con el mismo veredicto de
+   *      peldaño (U.2), así que no se divide el inventario de un universo entre la venta de otro.
+   *
+   * `null` cuando no hay demanda medida — nunca `0` ni `∞` (ADR-056).
+   *
+   * **El divisor es 30.4, el mismo que la columna "Días inv." del desglose** (decisión de Edgar,
+   * 2026-09-15): es el convenio de días del mes que el comprador ya usa en su Excel. Se eligió
+   * por encima de 30 porque los dos números que la pantalla MUESTRA en días tienen que poder
+   * compararse entre sí — el de arriba con el de cada sucursal. La diferencia es 1.3%, así que
+   * lo que se gana no es precisión sino que nadie tenga que preguntarse por qué no cuadran.
+   *
+   * ⚠️ Queda una divergencia, y es a propósito: el filtro "Con sobrestock" del backend sigue
+   * cortando con `exis × 30 / vta > 90`. Es un UMBRAL de filtro, no un número en pantalla, así
+   * que no se compara con nada a la vista.
+   */
+  diasInventario(): number | null {
+    const t = this.wbTotals();
+    const ventaDiaria = t.venta_costo == null ? 0 : t.venta_costo / 30.4;
+    if (!(ventaDiaria > 0) || !(t.exis > 0)) return null;
+    return Math.round(t.exis / ventaDiaria);
+  }
+
+  /**
+   * La bajada DICE por qué no hay número, en vez de dejar un guion sin explicación — y las **tres
+   * ausencias llevan etiquetas distintas** (ADR-059 regla 4), porque piden trabajos distintos:
+   *   · `undefined` → la API que respondió no manda el campo (build viejo / sin redesplegar).
+   *   · `null`      → la API sí respondió: no hay demanda medida (revisar el feed del fact).
+   *   · sin existencia valuada → hay demanda pero el inventario no se pudo valuar (peldaño, U.2).
+   * Fundirlas en un "sin datos" manda a revisar el lugar equivocado.
+   */
+  diasInventarioSub(): string {
+    const t = this.wbTotals();
+    if (t.venta_costo === undefined) return 'dato no disponible';
+    if (t.venta_costo === null) return 'sin demanda medida';
+    if (!(t.exis > 0)) return 'sin existencia valuada';
+    // La etiqueta ya dice "Días de existencia", así que la bajada no la repite: dice de CUÁNDO
+    // es el número, que es lo que lo hace comparable con el objetivo de al lado.
+    return 'lo que hay hoy';
   }
 
   /** Opciones del segmented de cobertura. Los mismos 14/30/45 que eran chips sueltos. */
