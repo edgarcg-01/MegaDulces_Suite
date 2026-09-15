@@ -55,6 +55,15 @@ export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
  */
 const PRECIO_MM = 10;
 const MONTO_MM = 5.4;
+/**
+ * Arranque y ALTO del renglón "contenido | Código: NNNNN".
+ *
+ * El alto es lo que importa: es el único bloque de la columna izquierda que se interponía
+ * entre la caja del precio y su altura real. Con él fijo, el precio deja de depender de
+ * cuántas líneas ocupe un texto que no controlamos. Duplicados en el CSS (ver `.etq-meta`).
+ */
+const META_MM = 3.2;
+const META_ALTO_MM = 5.1;
 /** Franja de la unidad: arranque del auto-ajuste de la PALABRA (pieza/paquete/caja/kg). */
 const UNIDAD_MM = 4.2;
 
@@ -102,9 +111,21 @@ const MAYOREO_MIN_DESC = 0.01;
  * Resuelve cuando Anton/Bebas/Baloo están REALMENTE usables (o a los 3 s). Ver el bloque de arriba.
  * Exportada porque la impresión la espera antes de clonar la hoja (ver `print()` en la etiquetera).
  */
+/**
+ * Las familias de las que depende el TAMAÑO medido, exportadas para que la pantalla declare
+ * exactamente éstas y no otra.
+ *
+ * ⚠️ Las tres cuentan, y eso no era obvio: el diagnóstico de la etiquetera comprobaba sólo
+ * Anton —la del número— y decía "tipografía ✓" mientras el precio salía 25% más chico porque
+ * la que faltaba era **Baloo 2**, la del renglón del código, que es la que define cuánto alto
+ * le queda a la caja del precio. Un verde que mira la fuente equivocada es un falso verde
+ * (ADR-056): la pantalla tiene que declarar la que de verdad decide.
+ */
+export const FUENTES_SPECS: readonly string[] = ['11mm Anton', "5mm 'Bebas Neue'", "4mm 'Baloo 2'"];
+
 export const FUENTES_USABLES: Promise<void> = (() => {
   const f: any = (globalThis as any).document?.fonts;
-  const specs = ['11mm Anton', "5mm 'Bebas Neue'", "4mm 'Baloo 2'"];
+  const specs = FUENTES_SPECS;
   if (!f?.load || !f?.check) return Promise.resolve();
   const listas = () => specs.every((s) => { try { return f.check(s); } catch { return true; } });
   return new Promise<void>((resolve) => {
@@ -220,7 +241,21 @@ export interface LabelModel {
        unitario —que arranca un poco más chico— a la columna del mayoreo, que es donde el
        cliente compara. */
     .etq-left{ width:34mm; display:flex; flex-direction:column; }
-    .etq-meta{ display:flex; align-items:baseline; gap:1.2mm; font-weight:800; font-size:3.2mm; margin-bottom:.8mm; }
+    /* ⭐ ALTO FIJO, y es la corrección de la que colgaba el tamaño del precio.
+       Este renglón no tenía alto ni line-height: lo decidía el texto. Al envolver a dos
+       líneas se quedaba con 3.4 mm que salen DIRECTO de la caja del precio, que topa por
+       alto. Medido en Chrome con la geometría real: 1 línea → precio 14.75 mm · 2 líneas →
+       11.00 mm (−25%) · 2 líneas anchas → 8.50 mm (−42%). Y como el renglón no fijaba
+       nowrap, envolvía según los DÍGITOS del SKU: "500 ml" con el 59108 daba 14.75 y con el
+       44604 daba 8.50 — misma forma, 42% de diferencia, sin nada que lo explicara en el
+       anaquel. 51 de los 8,760 pares (contenido, SKU) de prod caían ahí; con la tipografía
+       del texto en respaldo, TODAS.
+       ⚠️ El 5.1mm está duplicado en META_ALTO_MM (el TS arranca de ahí su ajuste) y el
+       candado exige que coincidan. Es el alto que el renglón ya tenía con Baloo 2 cargada,
+       elegido así a propósito: las 8,709 etiquetas que hoy salen bien no cambian de tamaño. */
+    .etq-meta{ display:flex; align-items:center; gap:1.2mm; font-weight:800; font-size:3.2mm;
+      height:5.1mm; min-height:5.1mm; line-height:1; margin-bottom:.8mm;
+      white-space:nowrap; overflow:hidden; font-variant-numeric:tabular-nums; }
     .etq-meta .sep{ color:var(--green); opacity:.5; }
     /* ⚠️ El 6.8mm de abajo está DOS veces: acá y en el inset del punteado. Es la reserva de la
        franja de la unidad (6.2mm de alto + 0.6 de aire) y los dos se mueven juntos o el borde
@@ -310,7 +345,7 @@ export interface LabelModel {
       </div>
       <div class="etq-body">
         <div class="etq-left">
-          <div class="etq-meta">
+          <div class="etq-meta" #meta>
             @if (model.content) { <span>{{ model.content }}</span><span class="sep">|</span> }
             <span>Código: <span class="etq-red">{{ model.sku }}</span></span>
           </div>
@@ -395,6 +430,7 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   @ViewChild('bc') bc?: ElementRef<SVGElement>;
   @ViewChild('head') head?: ElementRef<HTMLElement>;
   @ViewChild('headtxt') headtxt?: ElementRef<HTMLElement>;
+  @ViewChild('meta') meta?: ElementRef<HTMLElement>;
   @ViewChild('priceEl') priceEl?: ElementRef<HTMLElement>;
   @ViewChild('pieza') pieza?: ElementRef<HTMLElement>;
   @ViewChild('piezaTxt') piezaTxt?: ElementRef<HTMLElement>;
@@ -629,13 +665,24 @@ export class LabelComponent implements AfterViewInit, OnChanges {
 
   /**
    * Corre todos los auto-ajustes. El ORDEN es obligatorio y está candado en el spec:
-   *   · `fitUnit` antes de `fitPrice` — la franja de la unidad define cuánto alto le queda al número;
+   *   · `fitMeta` antes de `fitPrice` — el renglón del código define cuánto alto le queda al número;
+   *   · `fitUnit` antes de `fitPrice` — la franja de la unidad define lo mismo, por abajo;
    *   · `fitPrice` antes de `fitTiers` — el techo del monto se clampea contra el hero MEDIDO;
+   *   · `fitBarcode` antes de `fitTiers` — ⭐ INVERTIDO. Corría al final con el argumento de que
+   *     "el aire sólo se puede medir cuando los montos ya se asentaron", y por correr al final
+   *     no encontraba aire NUNCA: `fitTiers` crecía los montos hasta llenar la columna. Medido:
+   *     con 2, 3 o 4 renglones el símbolo quedaba en su mínimo de 5 mm — el 19% de la altura
+   *     nominal de un EAN-13, que el propio decode llama la causa nº 1 de no-lectura en ángulo.
+   *     Ahora el código reclama su altura con los montos en su ARRANQUE, y los montos crecen
+   *     con lo que sobre. Un monto más chico se sigue leyendo; un código que no engancha obliga
+   *     a teclear;
    *   · `fitTiers` antes de `fitAmts` — el primero iguala todos los montos a lo alto, el segundo
-   *     encoge el que no quepa a lo ancho de su celda;
-   *   · `fitBarcode` al final — el aire sólo se puede medir cuando los montos ya se asentaron.
+   *     encoge el que no quepa a lo ancho de su celda.
    */
-  private layout(): void { this.fitHead(); this.fitUnit(); this.fitPrice(); this.fitTiers(); this.fitAmts(); this.fitBarcode(); }
+  private layout(): void {
+    this.fitHead(); this.fitMeta(); this.fitUnit(); this.fitPrice();
+    this.fitBarcode(); this.fitTiers(); this.fitAmts();
+  }
 
   /**
    * Alto que ocupan los renglones de tier, medido por EXTENSIÓN DE LOS HIJOS.
@@ -699,6 +746,27 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     while (txt.scrollWidth > txt.clientWidth && size > 2.3 && guard++ < 40) {
       size -= 0.12;
       head.style.fontSize = size + 'mm';
+    }
+  }
+
+  /**
+   * Auto-ajuste del renglón "contenido | Código". Sólo encoge — calco de `fitHead`.
+   *
+   * Existe porque el renglón pasó a `nowrap` con alto fijo: sin esto, el texto que antes
+   * envolvía ahora se RECORTARÍA (lo tapa el `overflow:hidden`), que es peor — el código del
+   * producto es lo que la cajera teclea cuando el lector falla. Encoger es la salida honesta:
+   * el renglón se lee más chico, pero se lee entero, y el precio conserva su altura.
+   */
+  private fitMeta(): void {
+    const meta = this.meta?.nativeElement;
+    if (!meta) return;
+    let size = META_MM;
+    meta.style.fontSize = size + 'mm'; // anti-trinquete: siempre desde la constante
+    if (!(meta.clientWidth > 0)) return; // sin medida no se toca (ver fitPrice)
+    let guard = 0;
+    while (meta.scrollWidth > meta.clientWidth && size > 2.2 && guard++ < 40) {
+      size -= 0.1;
+      meta.style.fontSize = size + 'mm';
     }
   }
 
@@ -829,22 +897,39 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   }
 
   /**
-   * El código de barras se lleva el aire que los renglones NO usaron.
+   * El código de barras reclama el alto que los renglones no necesitan A SU TAMAÑO DE ARRANQUE.
    *
    * A 5 mm el símbolo está al **19% de la altura nominal de un EAN-13** (25.9 mm), y el símbolo
-   * truncado es la causa número uno de no-lectura en ángulo. Medido sobre el catálogo, el bloque
-   * de renglones deja 7.7 mm de aire en promedio (21 mm en el 5% que no tiene ningún renglón).
+   * truncado es la causa número uno de no-lectura en ángulo.
    *
-   * Es una transferencia de UNA pasada, no un bucle: consume el aire medido menos 0.3 mm de
-   * holgura, así que el bloque se contrae exactamente por lo que no estaba usando y no hay
-   * circularidad. El ANCHO no se toca (mínimo físico del EAN-13).
+   * ⭐ Dos cosas cambian respecto de la versión anterior, y las dos las obligó la medición:
+   *
+   * 1. Corre ANTES de `fitTiers` (ver el orden en `layout`) y **pone los montos en su arranque
+   *    antes de medir**. Midiendo después, los montos ya habían crecido hasta llenar la columna
+   *    y el aire salía 0: el símbolo se quedaba en 5 mm en el caso común. No es que sobrara
+   *    poco espacio — es que el otro ajuste ya se lo había llevado.
+   *
+   * 2. El aire se mide contra la COLUMNA (`.etq-right`), no contra el bloque de renglones. Con
+   *    cero renglones —el 5% del catálogo, y justo el caso donde el decode prometía 21 mm de
+   *    aire— `.etq-tiers` va `flex:0 0 auto`, su `clientHeight` es 0 y la guarda sacaba a la
+   *    función sin ajustar nada: el caso de más aire era el único que no lo usaba.
+   *
+   * Sigue siendo una transferencia de UNA pasada, no un bucle: el símbolo arranca de su mínimo
+   * (anti-trinquete) y consume el aire medido menos 0.3 mm de holgura, así que no hay
+   * circularidad con el `flex:1` de los renglones. El ANCHO no se toca (mínimo físico del EAN-13).
    */
   private fitBarcode(): void {
     const svg = this.bc?.nativeElement;
     const box = this.tiers?.nativeElement;
-    if (!svg || !box) return;
-    if (!(box.clientHeight > 0)) return;
-    const aire = (box.clientHeight - this.altoTiers(box)) / 96 * 25.4;
+    const bloque = svg?.parentElement;   // .etq-barcode (símbolo + dígitos legibles)
+    const col = box?.parentElement;      // .etq-right
+    if (!svg || !box || !bloque || !col) return;
+    svg.style.height = BARCODE_MIN_MM + 'mm'; // anti-trinquete: siempre desde el mínimo
+    // Los renglones, a su tamaño de ARRANQUE: es el reparto que decide quién se lleva el aire.
+    this.amtEls?.forEach((r) => { r.nativeElement.style.fontSize = MONTO_MM + 'mm'; });
+    if (!(col.clientHeight > 0)) return; // sin medida no se toca (ver fitPrice)
+    const usado = this.altoTiers(box) + bloque.offsetHeight;
+    const aire = (col.clientHeight - usado) / 96 * 25.4;
     if (!(aire > 0)) return;
     const alto = Math.max(BARCODE_MIN_MM, Math.min(BARCODE_MAX_MM, BARCODE_MIN_MM + aire - 0.3));
     svg.style.height = alto + 'mm';
