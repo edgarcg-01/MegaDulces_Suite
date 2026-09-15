@@ -265,6 +265,25 @@ export class CommercialProductsService {
              AND source LIKE 'kepler%' AND btrim(coalesce(barcode, '')) <> ''
            GROUP BY btrim(barcode)
           HAVING count(DISTINCT sku) > 1
+        ), suc AS (
+          -- [CAT.4] EN QUE SUCURSAL se repite. catalog.product_barcodes NO tiene plaza (lo dice su
+          -- propia migracion de NORM.3), asi que el rastro sale de product_label_prices, que si la
+          -- tiene. OJO: esa tabla guarda el codigo de PIEZA, de modo que si el duplicado vive en el
+          -- codigo de paquete o de caja, aca no aparece. Medido en prod: de 50 codigos repetidos,
+          -- 26 tienen rastro de plaza y 24 no. Los 24 se marcan "no consta" en vez de inventarles
+          -- una sucursal o de esconderlos.
+          SELECT btrim(lp.barcode) AS barcode,
+                 array_agg(DISTINCT w.name ORDER BY w.name) AS sucursales
+            FROM commercial.product_label_prices lp
+            JOIN commercial.warehouses w
+              ON w.kepler_code = lp.sucursal AND w.deleted_at IS NULL AND w.sells_to_public IS TRUE
+           WHERE btrim(coalesce(lp.barcode, '')) <> ''
+           GROUP BY btrim(lp.barcode), lp.sucursal
+          HAVING count(DISTINCT lp.product_id) > 1
+        ), suc2 AS (
+          SELECT barcode, array_agg(DISTINCT x ORDER BY x) AS sucursales
+            FROM suc, unnest(sucursales) AS x
+           GROUP BY barcode
         )${cte}
         SELECT d.barcode,
                count(DISTINCT b.sku)::int AS altas,
@@ -275,7 +294,8 @@ export class CommercialProductsService {
                  'sucursales', coalesce(pr.sucursales, 0)
                )) AS productos,
                min(pr.precio_min) AS precio_min,
-               max(pr.precio_max) AS precio_max
+               max(pr.precio_max) AS precio_max,
+               max(sc.sucursales) AS sucursales
           FROM dup d
           JOIN catalog.product_barcodes b
             ON btrim(b.barcode) = d.barcode
@@ -283,6 +303,7 @@ export class CommercialProductsService {
           LEFT JOIN catalog.products p ON p.sku = b.sku AND p.deleted_at IS NULL
           LEFT JOIN catalog.suppliers s ON s.id = p.supplier_id
           LEFT JOIN pr ON pr.product_id = p.id
+          LEFT JOIN suc2 sc ON sc.barcode = d.barcode
          WHERE true ${filtro}
          GROUP BY d.barcode
          ORDER BY (max(pr.precio_max) - min(pr.precio_min)) DESC NULLS LAST, d.barcode
@@ -302,6 +323,8 @@ export class CommercialProductsService {
           return {
             barcode: String(r.barcode),
             altas: Number(r.altas),
+            // `[]` significa "no consta en que plaza", NO "en ninguna". La pantalla los distingue.
+            sucursales: (r.sucursales as string[]) ?? [],
             productos: (r.productos as unknown[]) ?? [],
             precio_min: mn,
             precio_max: mx,

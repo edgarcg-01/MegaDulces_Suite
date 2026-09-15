@@ -31,6 +31,36 @@ Edgar, sobre el organigrama que MDTask mantiene en su propio código: **«la ver
 
 ⚠️ **Declarado, no resuelto:** `DEUDA-AU-PUESTOS-VACANTES` pasa de 13 a **54** puestos sin perfil propuesto. Los 5 ocupados **no se derivaron a propósito**: sus ocupantes acaban de llegar con AU.25, así que su rol es el del puesto anterior — `facturador` habría propuesto `telemarketing` (el error recién corregido) y `full_stack_developer` habría propuesto `superadmin`. Derivar de un dato contaminado es la forma de AU.24. También queda abierto que `jefe_finanzas` tenga dos ocupantes, y el límite de la fuente: **la nómina es de agosto y el padrón es de hoy**.
 
+### Fixed — el retiro dejaba de ser retiro y se publicaba como faltante de la cajera (SM.35, 2026-09-15)
+
+Edgar: *«revisa a fondo y dime por qué llega a haber una diferencia tan grande en los retiros y arqueos»*. La pantalla decía **«+$41,949.70 FALTAN»** en cada fila, y la diferencia era **exactamente** `esperado − cajón`: la corrección por sangrías no se aplicaba.
+
+- **La identidad `Σ retiros + cajón = esperado` vivía escrita TRES veces a mano** y sólo una estaba bien. `armarComparacion()` la tenía correcta —con el comentario que ya avisaba que restar directo *«acusa a una cajera honesta de un faltante del tamaño de sus retiros»*—, y `list()` y `porCajera()` la tenían mal. O sea: al **guardar** la cajera veía el número correcto y en el **historial** el falso. Medido en prod sobre 11 cierres: **$387,085.43 de faltante publicado contra −$13,564.57 real**, 11 de 11 filas en rojo, y las tres de arriba cuadrando al centavo (−$0.30 · +$0.01 · +$9.77). Ahora hay un solo `cuadreTurno()` en `libs/reconciliation/src/lib/cash-cut-identity.ts`.
+- ⛔ **No se quedaba en pantalla:** de `porCajera()` salen `faltante_total` —el ranking que señala a personas por nombre— y el `diff_real` que `imprimirTicket()` estampa **en papel** con la etiqueta FALTANTE.
+- **`tipo='retiro'` no se neutralizaba** (sólo `'relevo'`). Como el índice único incluye `tipo`, cierre y retiro son DOS filas que se restaban del **mismo** esperado: el mismo dinero acusado dos veces. 20 retiros con diff 100% falso, el peor «+$49,583.70» sobre un retiro de $8,250 que es exactamente lo que tenía que salir del cajón.
+- **`kepler_enmascaro` heredaba el diff falso** → la etiqueta ENMASCARÓ prendía en el **100%** de las filas (Kepler declara cuadrado el 89.7% de sus cortes), saturando la única señal que la regla existe para dar.
+
+### Added — la diferencia real ya estaba dentro de Kepler, y nadie la leía (SM.35)
+
+Al escribir el veredicto se iba a declarar «no medible» el 36.6% de cortes cuyo desglose no cuadra — y eso habría **borrado diferencias reales**. El «hueco interno» del corte **es** nuestro `diff_real`: 953.83 = 953.83, 69.52 = 69.52 en los turnos donde nuestro conteo coincidió con el cajón que Kepler declara.
+
+- `c15 − (c43+c44+c48)` es la diferencia real **y existe para todos los cortes, sin que nadie arquee**. Razón: `c35 = c15 − c25` en el **100%** de 3,553 cortes (es una resta, no una medición) y `c25 = c15` exacto en el **75.8%**, 1,700 de ellos con retiro.
+- ⭐ **Kepler publica $699,811 de faltante y su propio desglose implica $2,698,325: 1,066 cortes (30.0%) por $2,204,552** salen como cuadrados y su desglose los contradice (suc01 $901,871 · suc03 $453,788 · suc05 $366,051). `c25`/`c35` quedan **informativos**; el árbitro es `c43`/`c44`/`c48`.
+
+### Added — la sangría y el corte se PIDEN solos (SM.35)
+
+- **`c46` es el umbral del retiro, y está medido**: por debajo del límite hay sangría en 2.4–14.1% de los turnos y al cruzarlo salta a **70.8% → 99.1% → 99.9%**. Función escalón, no correlación. **NO son $15,000 para todos** —suc01 caja4 corre en $70,000 y suc04 caja2 en $8,000— y el código lo tenía escrito como constante. `c46`/`c47` entran a `analytics.cash_cuts`.
+- ⛔ **El disparo no se puede calcular con `c15`: viene en 0 en los 34 turnos abiertos** (Kepler lo escribe al cerrar). Se usa `c49 − c48`, los dos vivos, y `c49` es efectivo (coincide con `c15` al peso en 930 de 975 cortes). Es **estimación** (54.4% dentro de $50, sesgo +$671 por el fondo inicial): dispara el aviso y **nunca alimenta una diferencia**.
+- El arqueo sigue siendo **ciego**: `turnosPendientes()` devuelve `pide_retiro`/`retiro_sin_contar`/`pide_cierre` como **banderas**, y los montos sólo con `revela` (supervisor). El límite sí se muestra — es la política de su caja, que ya conoce.
+
+### Fixed — el sync descartaba turnos enteros, en silencio (SM.35)
+
+El folio `c3` se **reusa** dentro del mismo día y la misma caja: **15 claves duplicadas, las 15 con dinero distinto**. Verificado — suc01 caja1 03/09 folio **68** son dos turnos: `10C01` con esperado $53,474.85 / retiro $49,000 y `26VHGH` con $12,184.01 / retiro $0. El `DISTINCT ON` se quedaba con uno: **16 filas, $485,076.32 de esperado y $278,900 de retiro** que nunca llegaron a `analytics.cash_cuts`. La clave gana `cajero_cierre` en el sync **y en su gemelo** `load-cash-cuts-from-ods.js` (mig `20260915210000`, `NULLS NOT DISTINCT`). El join de `porCajera()`, que ligaba sólo por folio, podía colgarle a una cajera el arqueo de otra.
+
+### Internal — SM.35
+
+`libs/reconciliation` estrena target de `test` (sólo tenía `lint`): **20/20**, con los números reales de prod como fixtures y **prueba negativa en cada bloque** — la fórmula vieja da otro número, un corte realmente cuadrado no se marca como enmascarado, y `esperado = 0` devuelve `null` y no 0. Nuevo `test-newdb-arqueo-cuadre.js` **12 ✓ / 0 ✗ / 1 ⊘ NO MEDIDO declarado**, que además ejercita el `ON CONFLICT` del sync de verdad: `test-newdb-cash-cuts-sync` no lo toca (0 cortes en la ventana) y un target que no resuelve dejaría de traer cortes **enteros**. ⚠️ Quinta vez que un acento grave en un comentario dentro de un template literal rompe el build. **Pendiente: mig a `platform_test` (mi rol no es owner de `analytics.cash_cuts`) y a Railway + redeploy api+view + validación visual.** Sin permisos nuevos → sin re-login.
+
 ### Added — el jefe de zona ve cuánto vendió su zona, y qué NO se puede comparar (JZ.1–JZ.3, 2026-09-15)
 
 Edgar: *«que los jefes de zona vean cómo van sus tiendas y si están por encima o por debajo de sus ventas»*, con el encuadre que define la entrega: **«mucho de lo que vamos a presentar ya existe, sólo vamos a tomar la información o redireccionar a la interfaz correcta: `/tienda/live` y `/ventas-por-ruta`»**. Así que no hay pantalla nueva: hay ocho números por zona y un enlace a la pantalla que ya sabe contar el detalle.

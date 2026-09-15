@@ -23,6 +23,16 @@ import { KNEX_NEW_DB, TenantKnexService, TenantContextService } from '@megadulce
  *   `c15` esperado · `c25` contado (DECLARADO, no verificado) · `c35` = c15 − c25
  *   `c43` billetes · `c44` monedas · `c48` retirado → c43+c44+c48 = c25 en 63.6%
  *   `c45` NO es parte del efectivo contado.
+ *   `c46` limite de efectivo del cajon (dispara la sangria) / `c47` segundo escalon.
+ *
+ * OJO: el "c43+c44+c48 = c25 en 63.6%" de arriba estaba medido CON TOLERANCIA
+ * DE $1. Exacto son 37.4% (1,436 de 3,844), y con retiro baja a 28.4%. Ese hueco
+ * NO es error de captura: c35 = c15 - c25 en el 100% de los cortes (es una resta,
+ * no una medicion) y c25 = c15 exacto en el 75.8% -1,700 de ellos con retiro-,
+ * asi que el total declarado se escribe igualando al esperado mientras el
+ * desglose cuenta de verdad. Resultado medido: el desglose implica $2,698,325 de
+ * faltante y Kepler publica $699,811. Por eso cuadreTurno() arbitra con
+ * c43/c44/c48 y deja c25/c35 informativos.
  * Kepler **no** guarda el conteo por denominación: eso solo existe en nuestro
  * arqueo ciego. Por eso el corte de Kepler nunca reemplaza al conteo físico —
  * el 74.6% cierra al centavo exacto, que es el patrón de arqueo no ciego (SM.7).
@@ -123,6 +133,14 @@ export class CashCutsSyncService {
  * `ON CONFLICT` revienta con "cannot affect row a second time". Gana el cierre
  * más reciente.
  *
+ * SM.35 - La clave incluye c8 (cajero de cierre). El folio c3 se REUSA dentro
+ * del mismo dia y la misma caja: 15 claves duplicadas, las 15 con dinero
+ * distinto. Verificado: suc01 caja1 03/09 folio 68 son DOS turnos, 10C01 con
+ * esperado $53,474.85 / retiro $49,000 y 26VHGH con $12,184.01 / retiro $0. Sin
+ * c8 el DISTINCT ON se quedaba con uno y el otro no llegaba nunca: 16 filas,
+ * $485,076.32 de esperado y $278,900 de retiro perdidos en silencio. Exige la
+ * clave unica uq_cash_cut_cajero (mig 20260915210000).
+ *
  * El filtro deja fuera dos cosas y solo dos: la caja **abierta** (Kepler la marca
  * con `c10 = 1800-01-01`, no es un arqueo sino una caja en operación) y el turno
  * que abrió y cerró en cero, sin un peso (32 en los últimos 30 días, todos de
@@ -130,7 +148,7 @@ export class CashCutsSyncService {
  * corte descuadrado — sobre todo el corte descuadrado.
  */
 const SRC = `
-  SELECT DISTINCT ON (k.sucursal, k.c2, k.c5::date, k.c3)
+  SELECT DISTINCT ON (k.sucursal, k.c2, k.c5::date, k.c3, NULLIF(btrim(k.c8), ''))
          k.sucursal, k.c2 AS caja, k.c3::bigint::text AS folio, k.c5::date AS business_date,
          k.c5 AS opened_at,
          CASE WHEN k.c10::date = DATE '1800-01-01' THEN NULL ELSE k.c10 END AS closed_at,
@@ -152,6 +170,8 @@ const SRC = `
          round(COALESCE(k.c44, 0), 2) AS arq_mon,
          round(COALESCE(k.c45, 0), 2) AS arq_otros,
          round(COALESCE(k.c48, 0), 2) AS retirado,
+         round(COALESCE(k.c46, 0), 2) AS cash_limit,
+         round(COALESCE(k.c47, 0), 2) AS cash_limit_max,
          round(COALESCE(k.c49, 0), 2) AS total_venta,
          round(COALESCE(k.c15, 0) + COALESCE(k.c16, 0) + COALESCE(k.c17, 0), 2) AS venta_total,
          h.dur AS duracion_horas
@@ -167,7 +187,7 @@ const SRC = `
     ) h
    WHERE (COALESCE(k.c25, 0) <> 0 OR COALESCE(k.c35, 0) <> 0)
      AND k.c5::date >= current_date - CAST(:dias AS int)
-   ORDER BY k.sucursal, k.c2, k.c5::date, k.c3, k.c10 DESC NULLS LAST
+   ORDER BY k.sucursal, k.c2, k.c5::date, k.c3, NULLIF(btrim(k.c8), ''), k.c10 DESC NULLS LAST
 `;
 
 // `handoff` NO se lista: es GENERATED ALWAYS (cajero_apertura IS DISTINCT FROM cajero_cierre).
@@ -181,7 +201,7 @@ INSERT INTO analytics.cash_cuts (
   tarjeta_esperado, tarjeta_contado, tarjeta_diff,
   transfer_esperado, transfer_contado, transfer_diff,
   arqueo_billetes, arqueo_monedas, arqueo_otros,
-  efectivo_retirado, total_venta, venta_total,
+  efectivo_retirado, cash_limit, cash_limit_max, total_venta, venta_total,
   hora_apertura, hora_cierre, duracion_horas,
   warehouse_id, cerrado, source
 )
@@ -191,13 +211,13 @@ SELECT CAST(:tenant AS uuid), s.sucursal, w.name, s.caja, s.folio, s.business_da
        s.tj_esp, s.tj_cont, s.tj_diff,
        s.tr_esp, s.tr_cont, s.tr_diff,
        s.arq_bil, s.arq_mon, s.arq_otros,
-       s.retirado, s.total_venta, s.venta_total,
+       s.retirado, s.cash_limit, s.cash_limit_max, s.total_venta, s.venta_total,
        s.hora_apertura, s.hora_cierre, s.duracion_horas,
        w.id, true, 'kepler'
   FROM (${SRC}) s
   JOIN commercial.warehouses w
     ON w.tenant_id = CAST(:tenant AS uuid) AND w.code = s.sucursal AND w.deleted_at IS NULL
-ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio) DO UPDATE SET
+ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio, cajero_cierre) DO UPDATE SET
   warehouse_name    = EXCLUDED.warehouse_name,
   warehouse_id      = EXCLUDED.warehouse_id,
   opened_at         = EXCLUDED.opened_at,
@@ -218,6 +238,8 @@ ON CONFLICT (tenant_id, warehouse_code, caja, business_date, folio) DO UPDATE SE
   arqueo_monedas    = EXCLUDED.arqueo_monedas,
   arqueo_otros      = EXCLUDED.arqueo_otros,
   efectivo_retirado = EXCLUDED.efectivo_retirado,
+  cash_limit        = EXCLUDED.cash_limit,
+  cash_limit_max    = EXCLUDED.cash_limit_max,
   total_venta       = EXCLUDED.total_venta,
   venta_total       = EXCLUDED.venta_total,
   hora_apertura     = EXCLUDED.hora_apertura,
