@@ -583,7 +583,12 @@ export class CommercialBiAlmacenService {
   async movements(query: Record<string, unknown>): Promise<BiMovementPage> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(query['page']) || 1);
-    const pageSize = Math.min(200, Math.max(1, Number(query['pageSize']) || 50));
+    // El export pide TODA la consulta en UNA sola llamada (hasta EXPORT_ROW_CAP filas). Sin esto
+    // se clampeaba a 200 y el export loopeaba ~500 veces (COUNT + 4 joins ODS + enrich por página):
+    // 133,933 filas/30d medidas contra prod = ~371 s → timeout → el CSV nunca se generaba.
+    // Un solo tiro con LIMIT 100k mide ~44 s (medido 2026-09-15).
+    const cap = query['__export'] === true ? CommercialBiAlmacenService.EXPORT_ROW_CAP : 200;
+    const pageSize = Math.min(cap, Math.max(1, Number(query['pageSize']) || 50));
     const from = this.dateOr(query['from'], this.daysAgo(30));
     const to = this.dateOr(query['to'], this.today());
     const docCode = this.strOr(query['doc_code']);
@@ -980,7 +985,9 @@ export class CommercialBiAlmacenService {
   ): Promise<BiPage<Record<string, unknown>>> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(query['page']) || 1);
-    const pageSize = Math.min(200, Math.max(1, Number(query['pageSize']) || 50));
+    // Igual que movements(): el export trae todo en una llamada (ver nota de EXPORT_ROW_CAP).
+    const cap = query['__export'] === true ? CommercialBiAlmacenService.EXPORT_ROW_CAP : 200;
+    const pageSize = Math.min(cap, Math.max(1, Number(query['pageSize']) || 50));
     const from = this.dateOr(query['from'], this.daysAgo(30));
     const to = this.dateOr(query['to'], this.today());
     const resolved = this.resolveExploreFields(fieldsReq, permissions);
@@ -1052,8 +1059,7 @@ export class CommercialBiAlmacenService {
    * sufre el límite práctico de filas de una hoja de cálculo — igual se declara `truncated`
    * si el resultado real excede el tope, nunca se recorta en silencio.
    */
-  private static readonly EXPORT_PAGE = 200;
-  private static readonly EXPORT_MAX_PAGES = 500; // tope 100,000 filas
+  private static readonly EXPORT_ROW_CAP = 100000; // tope de filas del export, en UNA sola query
 
   /** Columnas del export de Movimientos — TODAS las de `BiMovementRow` (no sólo las que el
    * usuario tiene visibles en pantalla en ese momento: el export es el volcado completo). */
@@ -1075,15 +1081,13 @@ export class CommercialBiAlmacenService {
     { key: 'cost_base_hoy', label: 'Costo catálogo (hoy)', numeric: true }, { key: 'source_system', label: 'Sistema' },
   ];
 
+  // UNA sola query (no un loop de ~500 páginas): pasa `__export` para que movements() suba el
+  // clamp a EXPORT_ROW_CAP y traiga todo de un tiro. `truncated` avisa si se alcanzó el tope.
   async exportMovements(query: Record<string, unknown>): Promise<{ rows: BiMovementRow[]; total: number; truncated: boolean; from: string; to: string }> {
-    const PAGE = CommercialBiAlmacenService.EXPORT_PAGE;
     const from = this.dateOr(query['from'], this.daysAgo(30));
     const to = this.dateOr(query['to'], this.today());
-    const first = await this.movements({ ...query, page: 1, pageSize: PAGE });
-    const rows = [...first.rows];
-    const pages = Math.min(Math.ceil(first.total / PAGE), CommercialBiAlmacenService.EXPORT_MAX_PAGES);
-    for (let p = 2; p <= pages; p++) rows.push(...(await this.movements({ ...query, page: p, pageSize: PAGE })).rows);
-    return { rows, total: first.total, truncated: first.total > rows.length, from, to };
+    const res = await this.movements({ ...query, page: 1, pageSize: CommercialBiAlmacenService.EXPORT_ROW_CAP, __export: true });
+    return { rows: res.rows, total: res.total, truncated: res.total > res.rows.length, from, to };
   }
 
   async exportExplore(
@@ -1092,15 +1096,11 @@ export class CommercialBiAlmacenService {
     rows: Array<Record<string, unknown>>; total: number; truncated: boolean;
     columns: Array<{ key: string; label: string; numeric?: true }>; from: string; to: string;
   }> {
-    const PAGE = CommercialBiAlmacenService.EXPORT_PAGE;
     const from = this.dateOr(query['from'], this.daysAgo(30));
     const to = this.dateOr(query['to'], this.today());
     const columns = this.resolveExploreFields(fieldsReq, permissions).map((f) => ({ key: f.key, label: f.label, numeric: f.numeric }));
-    const first = await this.explore({ ...query, page: 1, pageSize: PAGE }, fieldsReq, permissions);
-    const rows = [...first.rows];
-    const pages = Math.min(Math.ceil(first.total / PAGE), CommercialBiAlmacenService.EXPORT_MAX_PAGES);
-    for (let p = 2; p <= pages; p++) rows.push(...(await this.explore({ ...query, page: p, pageSize: PAGE }, fieldsReq, permissions)).rows);
-    return { rows, total: first.total, truncated: first.total > rows.length, columns, from, to };
+    const res = await this.explore({ ...query, page: 1, pageSize: CommercialBiAlmacenService.EXPORT_ROW_CAP, __export: true }, fieldsReq, permissions);
+    return { rows: res.rows, total: res.total, truncated: res.total > res.rows.length, columns, from, to };
   }
 
   // ═══════════════════════════════════════════════════════════ helpers ════
