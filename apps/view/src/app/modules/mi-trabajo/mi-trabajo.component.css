@@ -944,7 +944,7 @@
 @media (prefers-reduced-motion: reduce) {
   .is-spin { animation: none; }
   /* `[SN.25]` El brief pide 180 ms; quien pidió menos movimiento no recibe ninguno. */
-  .mt-cell, .mt-chip, .mt-task, .mt-canal { transition: none; }
+  .mt-cell, .mt-chip, .mt-task, .mt-canal, .mt-periodo { transition: none; }
   /*
     `[SN.26]` El movimiento se va, el AVISO se queda: sin `transform` ni sombra sigue habiendo
     cambio de borde, de fondo y de icono. Antes esta regla apagaba las dos únicas señales que había.
@@ -1053,3 +1053,40 @@
   border-radius: var(--r-md);
 }
 .mt-excluido b { color: var(--text-main); font-weight: var(--fw-bold); }
+
+/* ═══ [JZ.4] El selector de grano ══════════════════════════════════════════════════════════
+ *
+ * Tres botones en un riel, no un <select>: son tres y se cambian seguido, así que esconderlos
+ * tras un clic cuesta más de lo que ahorra. Superficie Operations: hairline + radio chico, el
+ * activo con el color de acción, sin pastilla llena.
+ */
+.mt-periodos {
+  display: inline-flex;
+  gap: 2px;
+  margin-bottom: var(--sp-3);
+  padding: 2px;
+  background: var(--surface-ground);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+}
+.mt-periodo {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: background var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out);
+}
+.mt-periodo:hover { color: var(--text-main); }
+.mt-periodo:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.mt-periodo.is-on { background: var(--action); color: var(--action-ink); font-weight: var(--fw-bold); }
+
+/* El recorte NO es una nota al pie: cambió el tramo sobre el que se calculó el número de arriba. */
+.mt-titular-d.is-corte { color: var(--warn-fg); font-weight: var(--fw-medium); }

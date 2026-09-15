@@ -23,7 +23,7 @@
  * Sale con 1 si algún jefe de zona queda **sin un solo canal medible**: eso es una portada vacía
  * para alguien que sí tiene reparto, y es accionable, no informativo.
  *
- * Uso:  node database/scripts/jz-zona-prod-report.js
+ * Uso:  node database/scripts/jz-zona-prod-report.js [dia|semana|mes]   (default: mes)
  */
 
 const path = require('path');
@@ -92,19 +92,24 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
 
   console.log(`\n[JZ.3] ${jefes.length} persona(s) con reparto de venta por zona\n`);
 
+  const PERIODO = ['dia', 'semana', 'mes'].includes(process.argv[2]) ? process.argv[2] : 'mes';
   const claves = await knex('identity.responsibilities')
     .where('key', 'like', 'comercial.venta%')
     .pluck('key');
   let vacias = 0;
 
   for (const j of jefes) {
-    const r = await meZona.medirZona(knex, {
-      tenantId: j.tenant_id,
-      userId: j.id,
-      responsabilidades: new Set(claves),
-      permisos: j.permissions || {},
-      esAdmin: false, // a propósito: se mide el permiso REAL, no el god-mode
-    });
+    const r = await meZona.medirZona(
+      knex,
+      {
+        tenantId: j.tenant_id,
+        userId: j.id,
+        responsabilidades: new Set(claves),
+        permisos: j.permissions || {},
+        esAdmin: false, // a propósito: se mide el permiso REAL, no el god-mode
+      },
+      PERIODO,
+    );
 
     console.log('═'.repeat(78));
     console.log(`${j.nombre || j.username}  ·  ${j.role_name}`);
@@ -114,7 +119,17 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
       continue;
     }
     const z = r.zona;
-    console.log(`  ${z.zona}  ·  ${z.desde}…${z.hasta}  contra  ${z.desde_comparado}…${z.hasta_comparado}`);
+    console.log(`  ${z.zona}  ·  [${z.periodo}]  ${z.desde}…${z.hasta}  contra  ${z.desde_comparado}…${z.hasta_comparado}`);
+    /*
+     * ⛔ El recorte por frescura. Sin esta linea, MORELIA ABASTOS publicaba −26.1 % siendo
+     * +17.1 %: `hasta` salia del RELOJ y no de hasta donde entrego la fuente mas lenta.
+     */
+    if (z.corte) {
+      console.log(
+        `  ⛔ tramo RECORTADO al ${z.hasta} (nominal ${z.corte.hasta_nominal}): ` +
+          `${z.corte.fuentes.join(', ')} lleva(n) ${z.corte.dias_sin_entregar} dia(s) sin entregar`,
+      );
+    }
     console.log(`  TOTAL ${mdp(z.monto)}   ${pct(z.variacion_pct)}   (contra ${mdp(z.comparado)})`);
     /*
      * Lo que NO entró en la comparación. Sin esta línea, ZAMORA se leería como «−10.7 %» sin que

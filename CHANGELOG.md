@@ -10,6 +10,28 @@
 
 ## [Unreleased]
 
+### Fixed — el tramo termina donde termina el DATO, y el jefe elige el grano (JZ.4, 2026-09-15)
+
+Edgar: *«hay que agregar que se seleccione por día, semana o mes»*. Al medir los tres granos contra prod salieron **dos comparaciones falsas más**, de la misma familia que el −42.2 % de JZ.3 pero en el eje del TIEMPO.
+
+- ⛔ **MORELIA ABASTOS publicaba −26.1 % cuando sube 17.1 %.** Su almacén vende por `wincaja_*` y esa fuente **no entregaba desde el 10-sep**; el tramo comparaba **10 días de septiembre contra 15 de agosto**. `hasta` salía del **reloj** (`todayMx()`) y no de hasta dónde llegó el dato. Una inversión de signo completa, sobre la única cifra de esa portada. `recortarAlDato()` recorta **los dos lados** al último día entregado, y el recorte se **declara** con su fuente y sus días — recortar en silencio cambiaría una mentira por otra.
+- ⛔ **`semana` de lunes-a-hoy daba −31.9 % un martes por la tarde**, porque el día en curso era la MITAD de la ventana. Pasa a ser **los últimos 7 días CERRADOS**, que además traen los siete días de la semana una vez cada uno: el par es conmensurable por construcción y el lunes no deja el tramo vacío.
+- ⚠️ **La línea que separa «la fuente va atrasada» de «este canal murió»:** sólo recorta un canal que entregó algo **dentro del tramo en curso**. Sin eso, las rutas de ZAMORA —sin entregar desde el 11-ago— recortarían la zona entera cinco semanas; ésas ya se declaran fila por fila y en `no_comparado`, que es otro hecho.
+
+**Los tres granos, cada uno con su comparador** (`?periodo=` en `GET /users/me/work`, lista cerrada, default `mes`):
+
+| grano | tramo | contra |
+|---|---|---|
+| **Día** | el último día cerrado | el **mismo día de la semana** anterior |
+| **Semana** | los últimos 7 días cerrados | los 7 anteriores |
+| **Mes** | del 1 a hoy | el mismo tramo del mes pasado |
+
+`dia` no compara contra ayer, y eso está medido: sobre 60 días, en rutas **lunes 162,470 contra sábado 115,765** (40 %) y en tiendas **martes 756,969 contra domingo 345,281** (2.2×) — «contra ayer» publicaría un salto que es puro calendario. `dia` y `semana` terminan en el último día cerrado porque `sales_daily` tiene grano de DÍA (no hay hora) y un hoy a medias contra un día completo es una caída que se achica sola con las horas; `mes` sí lo incluye —«mes corrido» es la convención y ahí pesa 1/N— y lo **declara** (`incluye_dia_en_curso`).
+
+⚠️ **Medido de paso, y es de otro dueño:** `wincaja_*` lleva 5 días sin entregar a `sales_daily` (afecta MD-30 y el `06`), y **MD-32 lleva ~8 días sin un solo ticket en vivo**. El stream de `/tienda/live` sí trae MD-30 al minuto: **el dato existe, lo que va atrasado es el pipeline que llena la tabla.**
+
+Pruebas: contracts **74 (+11)**, view **359 (+4)**, smoke `test-newdb-me-context` **138 OK / 0 FAIL**; dos sabotajes más ejercidos → rojo, verde al restaurar. **Pendiente: redeploy api+view.**
+
 ### Changed — el organigrama pasa a ser el de MDTask (AU.23–AU.26, 2026-09-15)
 
 Edgar, sobre el organigrama que MDTask mantiene en su propio código: **«la verdad absoluta es mdtask»**. Su árbol tiene **89 puestos, una raíz y 88 aristas**; `identity.positions` tenía **57 y 10 sin jefe**.

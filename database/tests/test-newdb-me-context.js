@@ -570,6 +570,39 @@ const tieneDecoradorPermisos = (tramo) =>
     /no_comparado/.test(srcZ) && /monto_anterior/.test(srcZ));
 
   /*
+   * ── `[JZ.4]` El tramo termina donde termina el DATO, y el grano lo elige la persona ──────────
+   *
+   * ⛔ El recorte por frescura nació de una mentira publicada: MORELIA ABASTOS decía **−26.1 %**
+   * comparando 10 días de septiembre contra 15 de agosto, porque `wincaja_*` no entregaba desde
+   * el 10. Con el tramo parejo la zona **sube 17.1 %** — una inversión de signo completa sobre la
+   * única cifra de esa portada. `hasta` salía de `todayMx()` y no de hasta dónde llegó la fuente.
+   *
+   * ⚠️ La línea que separa «la fuente va atrasada» de «este canal murió»: sólo recorta un canal
+   * que entregó ALGO dentro del tramo en curso. Sin eso, las rutas de ZAMORA —que no entregan
+   * desde el 11-ago— recortarían la zona entera cinco semanas.
+   */
+  check('⛔ el tramo se recorta al último día ENTREGADO, no al reloj',
+    /recortarAlDato\(/.test(srcZ) && /max\(sale_date\) as ultimo/.test(srcZ));
+  check('⛔ la frescura se mide DENTRO del tramo en curso (un canal muerto no recorta la zona)',
+    /whereBetween\('sale_date', \[nominal\.desde, nominal\.hasta\]\)/.test(srcZ));
+  check('el recorte se DECLARA con su fuente y sus días', /corte = \{/.test(srcZ)
+    && /dias_sin_entregar/.test(srcZ) && /fuentes:/.test(srcZ));
+
+  const srcCtrl = fs.readFileSync(
+    path.resolve(__dirname, '../../libs/trade/src/lib/users/users.controller.ts'), 'utf8');
+  check('el endpoint acepta ?periodo=', /@Query\('periodo'\)/.test(srcCtrl));
+  /*
+   * ⛔ Lista CERRADA. Un `periodo` libre elegiría un comparador que nadie diseñó — y como cada
+   * grano compara contra un tramo distinto, el número saldría verosímil y mal.
+   */
+  check('⛔ y lo valida contra la lista cerrada, cayendo a "mes"',
+    /periodo === 'dia' \|\| periodo === 'semana' \|\| periodo === 'mes' \? periodo : 'mes'/.test(srcCtrl));
+  check('los tres granos existen en el contrato',
+    /'dia' \| 'semana' \| 'mes'/.test(srcVer));
+  check('⛔ dia y semana NO incluyen el día en curso; mes lo DECLARA',
+    /incluye_dia_en_curso: false/.test(srcVer) && /incluye_dia_en_curso: true/.test(srcVer));
+
+  /*
    * Las dos claves tienen que existir en el catálogo, y su migración tiene que repartirlas: una
    * clave declarada y no repartida es un bloque que no ve NADIE — el defecto exacto de `[LC.6.2]`
    * («un módulo no está entregado hasta que su permiso está repartido, no sólo declarado»).

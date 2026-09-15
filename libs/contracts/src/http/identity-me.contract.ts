@@ -518,9 +518,26 @@ export interface MeZonaBloque {
 export interface MeZona {
   /** Nombre de la zona (`trade.zones.name`). */
   zona: string;
+  /** `[JZ.4]` El grano que eligió la persona. Cada uno trae su propio comparador. */
+  periodo: MeZonaPeriodo;
+  /**
+   * `[JZ.4]` **El tramo se recortó porque una fuente va atrasada.** `null` = no hizo falta.
+   *
+   * ⛔ Nace de una mentira publicada: MORELIA ABASTOS decía **−26.1 %** comparando 10 días de
+   * septiembre contra 15 de agosto, porque su fuente (`wincaja_*`) no entregaba desde el 10.
+   * Con el tramo parejo la zona **sube 17.1 %**. Recortar sin decirlo cambiaría una mentira por
+   * un silencio: la pantalla tiene que poder decir «al 10-sep, faltan 5 días de Wincaja».
+   */
+  corte: { hasta_nominal: string; dias_sin_entregar: number; fuentes: string[] } | null;
   /** Tramo medido, inclusive (`'2026-09-01'` … `'2026-09-15'`). */
   desde: string;
   hasta: string;
+  /**
+   * `[JZ.4]` El tramo llega a HOY, que va a medias (sólo puede pasar en `mes`). Se declara para
+   * que la pantalla lo diga: el comparador es un tramo completo y éste no, y el desnivel se
+   * achica solo con las horas. `dia` y `semana` terminan en el último día cerrado.
+   */
+  incluye_dia_en_curso: boolean;
   /** El MISMO número de días del mes anterior. El comparador se declara, no se adivina. */
   desde_comparado: string;
   hasta_comparado: string;
@@ -549,39 +566,143 @@ export function variacionPct(monto: number | null, comparado: number | null): nu
 }
 
 /**
- * `[JZ.3]` — **El tramo comparable: días 1..N de este mes contra días 1..N del anterior.**
+ * `[JZ.4]` — **Con qué se compara, y en qué grano.** El jefe de zona elige día, semana o mes.
  *
- * Comparar el mes corrido contra el mes anterior COMPLETO es la forma fácil de publicar una caída
- * que no existe: el día 15 siempre "bajaría" ~50 %. Se compara tramo contra tramo.
+ * ⛔ **Cada grano tiene su propio comparador, y NO son intercambiables.** Medido en prod sobre
+ * 60 días, el día de la semana manda más que la tendencia:
  *
- * ⛔ **El recorte del mes corto.** El 31 de marzo, «los mismos 31 días de febrero» no existen:
- * `2026-02-01 + 30 días` es el **3 de marzo**, y el comparador se comería tres días del mes que
- * se está midiendo — inflándolo y bajando la variación de todos los canales a la vez. El tope es
- * el último día real del mes anterior, y entonces el tramo comparado es más corto: eso es un
- * hecho del calendario, no un error, y por eso las dos fechas viajan en la respuesta para que la
- * pantalla pueda decir contra qué se comparó.
+ *     rutas    lunes 162,470  ·  sábado 115,765     → 40 % de diferencia
+ *     tiendas  martes 756,969 ·  domingo 345,281    → 2.2 ×
  *
- * @param hoy Fecha en hora de México (`'YYYY-MM-DD'`), tal como la devuelve `todayMx()`.
+ * Por eso `dia` **no compara contra ayer**: un lunes contra un domingo publicaría un salto que es
+ * puro calendario. Compara contra el **mismo día de la semana anterior**, que es lo único
+ * conmensurable. Lo mismo con `semana`: lunes-a-hoy contra lunes-a-mismo-día.
+ *
+ * ⛔ **`dia` y `semana` terminan en el último día CERRADO, no en hoy.** `analytics.sales_daily`
+ * tiene grano de DÍA —no hay hora— así que un «hoy» parcial contra un día completo da una caída
+ * falsa que se achica sola con las horas. Medido: con `semana` de lunes-a-hoy, LA PIEDAD salía
+ * **−31.9 %** un martes por la tarde, porque el día en curso era la MITAD de la ventana.
+ *
+ * ⚠️ `mes` **sí** incluye el día en curso, y es una decisión, no un descuido: «mes corrido» es la
+ * convención que todo el mundo lee, y ahí el día parcial pesa 1/N (hoy, 1 de 15 ≈ 3 %) en vez de
+ * 1/2. Se DECLARA con `incluye_dia_en_curso` para que la pantalla lo pueda decir. Excluirlo
+ * además abriría un hueco el día 1 de cada mes, cuando no hay ningún día cerrado todavía.
+ *
+ * Para el pulso de hoy en vivo está `/tienda/live`, que es la pantalla que existe para eso.
  */
+export type MeZonaPeriodo = 'dia' | 'semana' | 'mes';
+
 export interface VentanaComparable {
+  periodo: MeZonaPeriodo;
   desde: string;
   hasta: string;
   desde_comparado: string;
   hasta_comparado: string;
+  /** `true` sólo en `mes`: el tramo llega a hoy, que va a medias. La pantalla lo dice. */
+  incluye_dia_en_curso: boolean;
 }
 
-export function ventanaComparable(hoy: string): VentanaComparable {
-  const [y, m, d] = hoy.split('-').map(Number);
+/** Suma días a `'YYYY-MM-DD'` sin tocar husos: todo en UTC, que acá es sólo aritmética. */
+function masDias(iso: string, n: number): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10);
+}
+
+/** Días entre dos fechas `'YYYY-MM-DD'` (b − a). */
+function diasEntre(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
+}
+
+/**
+ * `[JZ.3]`/`[JZ.4]` El tramo y su comparador, según el grano.
+ *
+ * ⛔ **El recorte del mes corto** (sólo aplica a `mes`). El 31 de marzo, «los mismos 31 días de
+ * febrero» no existen: `2026-02-01 + 30 días` es el **3 de marzo**, y el comparador se comería
+ * tres días del mes que se está midiendo — inflándolo y bajando la variación de todos los canales
+ * a la vez. El tope es el último día real del mes anterior, y entonces el tramo comparado queda
+ * más corto: es un hecho del calendario, no un error, y por eso las cuatro fechas viajan en la
+ * respuesta para que la pantalla pueda decir contra qué se comparó.
+ *
+ * @param hoy Fecha en hora de México (`'YYYY-MM-DD'`), tal como la devuelve `todayMx()`.
+ */
+export function ventanaComparable(hoy: string, periodo: MeZonaPeriodo = 'mes'): VentanaComparable {
   const pad = (n: number) => String(n).padStart(2, '0');
+
+  const ayer = masDias(hoy, -1);
+
+  if (periodo === 'dia') {
+    // El último día CERRADO, y contra el mismo día de la semana: martes contra martes.
+    return {
+      periodo,
+      desde: ayer,
+      hasta: ayer,
+      desde_comparado: masDias(ayer, -7),
+      hasta_comparado: masDias(ayer, -7),
+      incluye_dia_en_curso: false,
+    };
+  }
+
+  if (periodo === 'semana') {
+    /*
+     * ⚠️ **7 días CERRADOS que ruedan, no la semana del calendario.** La semana natural
+     * (lunes-a-hoy) tiene dos defectos que se suman: el día en curso puede ser la mitad del tramo
+     * —medido, −31.9 % falso un martes— y el lunes el tramo se queda sin un solo día cerrado.
+     * Los últimos 7 cerrados siempre traen **los siete días de la semana, una vez cada uno**, así
+     * que el par es conmensurable por construcción: ni un sábado de más ni un domingo de menos.
+     */
+    return {
+      periodo,
+      desde: masDias(ayer, -6),
+      hasta: ayer,
+      desde_comparado: masDias(ayer, -13),
+      hasta_comparado: masDias(ayer, -7),
+      incluye_dia_en_curso: false,
+    };
+  }
+
+  const [y, m, d] = hoy.split('-').map(Number);
   const py = m === 1 ? y - 1 : y;
   const pm = m === 1 ? 12 : m - 1;
   // Día 0 del mes siguiente = último día de `pm`. Cubre febrero y los bisiestos sin tabla.
   const ultimoPrev = new Date(Date.UTC(py, pm, 0)).getUTCDate();
   return {
+    periodo,
     desde: `${y}-${pad(m)}-01`,
     hasta: hoy,
     desde_comparado: `${py}-${pad(pm)}-01`,
     hasta_comparado: `${py}-${pad(pm)}-${pad(Math.min(d, ultimoPrev))}`,
+    incluye_dia_en_curso: true,
+  };
+}
+
+/**
+ * `[JZ.4]` — **El tramo termina donde termina el DATO, no donde termina el reloj.**
+ *
+ * ⛔ Esto nació de una mentira publicada, medida el 15-sep-2026. La portada de MORELIA ABASTOS
+ * decía **−26.1 %**: su almacén vende por `wincaja_*`, esa fuente **no entregaba desde el 10-sep**,
+ * y el tramo comparaba **10 días de septiembre contra 15 de agosto**. Comparando 1–10 contra 1–10
+ * la zona **sube 17.1 %**. Una inversión de signo completa, sobre la única cifra de esa portada.
+ *
+ * Es la misma falla que el pareo de canales (`sumaPareada`), corrida al eje del TIEMPO: los dos
+ * lados tienen que cubrir el mismo tramo, y `hasta` salía de `now()` en vez de salir de hasta
+ * dónde entregó la fuente más lenta.
+ *
+ * Al recortar el lado de arriba, el comparador se recorta **al mismo número de días** — si no, se
+ * cambia una mentira por la opuesta.
+ *
+ * ⚠️ `hastaDato` sólo puede ACORTAR. Una fuente que entregó de más (filas fechadas en el futuro:
+ * `sales_daily` tiene 4 del 6-dic-2026) no puede estirar el tramo.
+ */
+export function recortarAlDato(v: VentanaComparable, hastaDato: string | null): VentanaComparable {
+  if (!hastaDato || hastaDato >= v.hasta) return v;
+  if (hastaDato < v.desde) return v; // la fuente no entregó NADA del tramo: eso no se recorta, se declara
+  return {
+    ...v,
+    hasta: hastaDato,
+    hasta_comparado: masDias(v.desde_comparado, diasEntre(v.desde, hastaDato)),
+    // Si el recorte dejó fuera el día de hoy, el tramo ya no lo incluye. Decir que sí sería
+    // ponerle a la pantalla una advertencia sobre un día que no está en la suma.
+    incluye_dia_en_curso: false,
   };
 }
 
