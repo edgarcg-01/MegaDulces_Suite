@@ -53,6 +53,21 @@ const pagina = (page: number): BiMovementPage => ({
   unit_provenance: { source: 'mv', refreshed_at: '2026-09-14T12:00:00Z' },
 });
 
+/** La fila real que destapó WMS-BI.4.2: una orden de compra del CEDIS. */
+const COMPRA = {
+  doc_date: '2026-09-14', doc_code: 'ApEntOr1', movement_label: 'Aplicación de orden de entrada',
+  warehouse_code: '00', zone_name: null, folio: '0009659', sku: '00022',
+  aplica_venta: false, source_branch: '00', source_system: 'kepler',
+  canal: null, vendedor: null, importe_venta: null, iva_valor: null, ieps_valor: null, venta_neta: null,
+} as unknown as import('../almacen-bi.service').BiMovementRow;
+
+/** Una venta de Wincaja: el bloque que antes caía entero del lado del costo. */
+const VENTA_WIN = {
+  ...COMPRA, doc_code: 'WIN_V', movement_label: 'Venta', warehouse_code: 'MD-30',
+  aplica_venta: true, source_branch: 'W30', source_system: 'wincaja',
+  canal: null, vendedor: null,
+} as unknown as import('../almacen-bi.service').BiMovementRow;
+
 /**
  * jsdom no implementa `ResizeObserver` y `p-tablist` de PrimeNG lo usa en `ngAfterViewInit`.
  * Es una carencia del entorno de prueba, no del componente — se stubea acá en vez de dejar de
@@ -166,6 +181,30 @@ describe('AlmacenAnalisisBiComponent · WMS-BI.4.7', () => {
     c.loadMovements();
     movSubjects[0].next({ ...pagina(1), unit_provenance: { source: 'view', refreshed_at: null } });
     expect(c.unitProvenanceNota()).toContain('en vivo');
+  });
+
+  it('WMS-BI.4.2 · "No aplica" no se confunde con "No disponible"', () => {
+    const c = crear();
+    // Una orden de compra: canal, vendedor, IVA y venta neta NO corresponden.
+    expect(c.faltaVenta(COMPRA)).toBe('No aplica');
+    expect(c.tituloVenta(COMPRA)).toContain('no es una venta');
+    // Una venta a la que el feed no le trajo el dato: ahí SÍ falta.
+    expect(c.faltaVenta(VENTA_WIN)).toBe('No disponible');
+    expect(c.tituloVenta(VENTA_WIN)).toContain('no vino en el feed');
+  });
+
+  it('WMS-BI.4.2 · la columna Sistema deja de decir "Kepler" sobre filas de Wincaja', () => {
+    const c = crear();
+    expect(c.sistemaDe(COMPRA)).toBe('Kepler');
+    expect(c.sistemaDe(VENTA_WIN)).toBe('Wincaja');
+  });
+
+  it('el folio arma un enlace real al documento (no un window.open simulado)', () => {
+    const c = crear();
+    const href = c.docHref(COMPRA);
+    expect(href).toContain('/almacen/analisis-bi/documento');
+    expect(href).toContain('folio=0009659');
+    expect(href).toContain('doc_code=ApEntOr1');
   });
 
   it('colOn() usa el Set y sigue a la selección de columnas', () => {

@@ -148,7 +148,13 @@ const DEFAULT_EXPLORE_FIELDS = [
                   <span class="abi-kpi-sub">Cobertura: {{ s.inventory.cobertura_testigo_pct != null ? s.inventory.cobertura_testigo_pct + '%' : '—' }} del inventario en scope</span>
                 } @else {
                   <span class="abi-kpi-n abi-na">No disponible</span>
-                  <span class="abi-kpi-sub abi-na-reason" [title]="s.inventory.unavailable_reason || ''">Falta el resolvedor de costo del ERP en este entorno</span>
+                  <!-- [WMS-BI.4.2] El MOTIVO REAL, no uno fijo. Acá había un texto hardcodeado
+                       ("Falta el resolvedor de costo del ERP en este entorno") que se imprimía
+                       pasara lo que pasara, con la razón verdadera escondida en un title. El
+                       backend distingue tres casos (la vista no existe / la consulta se canceló
+                       por lenta / otro) y los tres salían con la misma frase — que además era
+                       falsa: la vista existe en prod desde el 2026-09-11. -->
+                  <span class="abi-kpi-sub abi-na-reason">{{ s.inventory.unavailable_reason || 'Sin motivo declarado por el servidor' }}</span>
                 }
               </div>
               <div class="abi-kpi">
@@ -281,21 +287,26 @@ const DEFAULT_EXPLORE_FIELDS = [
               <tr class="abi-mov-row">
                 @if (colOn('doc_date')) { <td>{{ r.doc_date }}</td> }
                 @if (colOn('hora')) { <td class="abi-mono">{{ r.hora || 'No disponible' }}</td> }
-                @if (colOn('zone_name')) { <td>{{ r.zone_name || '—' }}</td> }
+                <!-- El CEDIS (00) tiene zone_id NULL en commercial.warehouses: no es un dato
+                     que falte, es un almacén que no pertenece a ninguna zona comercial. -->
+                @if (colOn('zone_name')) { <td [class.abi-na-cell]="!r.zone_name">{{ r.zone_name || 'Sin zona' }}</td> }
                 @if (colOn('warehouse_code')) { <td class="abi-mono">{{ r.warehouse_code }}</td> }
                 @if (colOn('almacen')) { <td [title]="'Ajustes genéricos hoy — sin motivo capturado en Kepler'">{{ r.almacen }}</td> }
-                @if (colOn('canal')) { <td [title]="'Sólo aplica en documentos de venta'">{{ r.canal || 'No disponible' }}</td> }
+                @if (colOn('canal')) { <td [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.canal || faltaVenta(r) }}</td> }
                 @if (colOn('movement_kind')) { <td [class.abi-ok]="r.movement_kind === 'entrada'" [class.abi-bad]="r.movement_kind === 'salida'">{{ r.movement_kind === 'entrada' ? 'Entrada' : r.movement_kind === 'salida' ? 'Salida' : 'Informativo' }}</td> }
                 @if (colOn('tipo_operacion')) { <td>{{ r.tipo_operacion }}</td> }
                 @if (colOn('movement_label')) { <td>{{ r.movement_label }}</td> }
                 @if (colOn('doc_code')) { <td class="abi-mono">{{ r.doc_code }}</td> }
+                <!-- Enlace real, no <button>: el folio se copia con el resto de la fila al
+                     seleccionar la tabla (un <button> no siempre aporta su texto al portapapeles,
+                     que es justo lo que se rompió al sacar el click del <tr>), y "abrir en pestaña
+                     nueva" deja de ser un window.open simulado. -->
                 @if (colOn('folio')) {
                   <td class="abi-mono">
-                    <button type="button" class="abi-folio-btn" (click)="openDocument(r)"
-                            [attr.aria-label]="'Abrir documento ' + r.folio">{{ r.folio }}</button>
+                    <a class="abi-folio-link" [href]="docHref(r)" target="_blank" rel="noopener">{{ r.folio }}</a>
                   </td>
                 }
-                @if (colOn('vendedor')) { <td [title]="'Sólo aplica en documentos de venta'">{{ r.vendedor || 'No disponible' }}</td> }
+                @if (colOn('vendedor')) { <td [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.vendedor || faltaVenta(r) }}</td> }
                 @if (colOn('sku')) { <td class="abi-mono">{{ r.sku || '—' }}</td> }
                 @if (colOn('product_name')) { <td>{{ r.product_name }}</td> }
                 @if (colOn('linea_producto')) { <td>{{ r.linea_producto || 'No disponible' }}</td> }
@@ -307,13 +318,17 @@ const DEFAULT_EXPLORE_FIELDS = [
                 @if (colOn('signed_qty')) { <td class="num" [class.abi-ok]="r.signed_qty > 0" [class.abi-bad]="r.signed_qty < 0">{{ r.signed_qty > 0 ? '+' : '' }}{{ r.signed_qty | number:'1.0-3' }}</td> }
                 @if (colOn('unit_cost')) { <td class="num">{{ r.unit_cost != null ? money(r.unit_cost) : 'No disponible' }}</td> }
                 @if (colOn('amount')) { <td class="num">{{ r.amount != null ? money(r.amount) : 'No disponible' }}</td> }
-                @if (colOn('importe_costo')) { <td class="num">{{ r.importe_costo != null ? money(r.importe_costo) : 'No aplica' }}</td> }
-                @if (colOn('importe_venta')) { <td class="num">{{ r.importe_venta != null ? money(r.importe_venta) : 'No aplica' }}</td> }
-                @if (colOn('iva_valor')) { <td class="num">{{ r.iva_valor != null ? money(r.iva_valor) : 'No disponible' }}</td> }
-                @if (colOn('ieps_valor')) { <td class="num">{{ r.ieps_valor != null ? money(r.ieps_valor) : 'No disponible' }}</td> }
-                @if (colOn('venta_neta')) { <td class="num">{{ r.venta_neta != null ? money(r.venta_neta) : 'No disponible' }}</td> }
+                @if (colOn('importe_costo')) { <td class="num" [class.abi-na-cell]="r.aplica_venta">{{ r.importe_costo != null ? money(r.importe_costo) : 'No aplica' }}</td> }
+                @if (colOn('importe_venta')) { <td class="num" [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.importe_venta != null ? money(r.importe_venta) : faltaVenta(r) }}</td> }
+                @if (colOn('iva_valor')) { <td class="num" [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.iva_valor != null ? money(r.iva_valor) : faltaVenta(r) }}</td> }
+                @if (colOn('ieps_valor')) { <td class="num" [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.ieps_valor != null ? money(r.ieps_valor) : faltaVenta(r) }}</td> }
+                @if (colOn('venta_neta')) { <td class="num" [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.venta_neta != null ? money(r.venta_neta) : faltaVenta(r) }}</td> }
                 @if (colOn('cost_base_hoy')) { <td class="num">{{ r.cost_base_hoy != null ? money(r.cost_base_hoy) : 'No disponible' }}</td> }
-                @if (colOn('source_system')) { <td>Kepler</td> }
+                <!-- [WMS-BI.4.2] Era el literal Kepler. El 89% de las filas de esta tabla son
+                     Wincaja (source_branch W30/W32/...), asi que la columna mentia en la
+                     mayoría. El campo real llega en WMS-BI.4.1; hasta entonces se deriva del
+                     prefijo del origen, que es el mismo criterio que usa el importer. -->
+                @if (colOn('source_system')) { <td>{{ sistemaDe(r) }}</td> }
               </tr>
             </ng-template>
             <ng-template #emptymessage>
@@ -419,7 +434,8 @@ const DEFAULT_EXPLORE_FIELDS = [
     .abi-error { display: flex; gap: .5rem; align-items: center; padding: 1rem; color: var(--bad-fg, #b91c1c); }
 
     .abi-mov-toolbar { display: flex; justify-content: flex-end; margin-bottom: .5rem; }
-    .abi-mov-row { cursor: pointer; }
+    /* La fila ya NO es clicable (el enlace vive en el folio): sin cursor pointer, que prometia
+       un click que no existe. */
     .abi-unavailable-note { font-size: .76rem; color: var(--text-color-secondary); margin-top: .5rem; display: flex; gap: .35rem; align-items: flex-start; }
 
     .abi-explore-layout { display: grid; grid-template-columns: 16rem 1fr; gap: 1rem; }
@@ -431,10 +447,14 @@ const DEFAULT_EXPLORE_FIELDS = [
     .abi-fg-disabled { opacity: .5; cursor: not-allowed; }
     /* [WMS-BI.4.7] El folio es lo clicable, no la fila entera. Botón real (no un <td> con click):
        llega por teclado y anuncia su destino sin que haya que poner tabindex a mano. */
-    .abi-folio-btn { background: none; border: 0; padding: 0; font: inherit; color: var(--action, #C2410C);
-      cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
-    .abi-folio-btn:hover { text-decoration-thickness: 2px; }
-    .abi-folio-btn:focus-visible { outline: 2px solid var(--action, #C2410C); outline-offset: 2px; border-radius: 3px; }
+    .abi-folio-link { color: var(--action, #C2410C); text-decoration: underline; text-underline-offset: 2px; }
+    .abi-folio-link:hover { text-decoration-thickness: 2px; }
+    .abi-folio-link:focus-visible { outline: 2px solid var(--action, #C2410C); outline-offset: 2px; border-radius: 3px; }
+
+    /* [WMS-BI.4.2] "No aplica" se atenúa: es una celda que no corresponde a este documento, no un
+       hueco que alguien deba salir a llenar. Lo que queda en el color normal es el dato real y lo
+       que SÍ falta — que es lo que se tiene que poder barrer con la vista. */
+    .abi-na-cell { color: var(--text-color-secondary); font-style: italic; }
 
     .abi-explore-actions { display: flex; align-items: center; gap: .75rem; margin-bottom: .5rem; }
     .abi-explore-count { font-size: .78rem; color: var(--text-color-secondary); }
@@ -596,6 +616,30 @@ export class AlmacenAnalisisBiComponent {
     { key: 'cost_base_hoy', label: 'Costo catálogo (hoy)' }, { key: 'source_system', label: 'Sistema' },
   ];
   colOn(k: string): boolean { return this.visibleMovColSet().has(k); }
+
+  /**
+   * [WMS-BI.4.2] **"No aplica" ≠ "No disponible".** Lo segundo afirma que el dato falta; en una
+   * orden de compra no hay canal, ni vendedor, ni base gravable que buscar — no falta nada.
+   *
+   * Medido en la fila que destapó esto (`ApEntOr1`, CEDIS, SKU 00022, 2026-09-14): de sus **7
+   * celdas vacías, 5 no eran huecos** sino columnas que no corresponden a ese documento. Y no es
+   * un caso raro: en la ventana de 30 días **el 95% de las filas** no son venta, así que la
+   * pantalla repetía 5 "No disponible" falsos por renglón. Eso es lo que la volvía ilegible.
+   */
+  faltaVenta(r: BiMovementRow): string { return r.aplica_venta ? 'No disponible' : 'No aplica'; }
+  tituloVenta(r: BiMovementRow): string {
+    return r.aplica_venta
+      ? 'Este documento es una venta: el dato corresponde, pero no vino en el feed.'
+      : `"${r.movement_label}" no es una venta — esta columna no aplica a este documento.`;
+  }
+  sistemaDe(r: BiMovementRow): string { return r.source_system === 'wincaja' ? 'Wincaja' : 'Kepler'; }
+  /** El folio como enlace de verdad: se copia con la fila y "abrir en pestaña nueva" es nativo. */
+  docHref(r: BiMovementRow): string {
+    const w = this.allWarehouseOpts().find((x) => x.code === r.warehouse_code);
+    return this.router.serializeUrl(this.router.createUrlTree(['/almacen/analisis-bi/documento'], {
+      queryParams: { warehouse_id: w?.id, folio: r.folio, doc_code: r.doc_code },
+    }));
+  }
   /** `makeLazyLoad` sólo traduce página/tamaño — el orden servidor lo captura acá (PrimeNG
    * manda `sortOrder` 1/-1, el backend espera 'asc'/'desc'). */
   private readonly movLazyBase = makeLazyLoad(this.movPage, this.movPageSize, () => this.loadMovements());
@@ -763,15 +807,8 @@ export class AlmacenAnalisisBiComponent {
       });
   }
 
-  openDocument(r: BiMovementRow): void {
-    // Ruta PROPIA (no /almacen/movimientos): mismo permiso ALMACEN_BI_VER + redacción de
-    // destino por perfil — ver el comentario en el service backend.
-    const w = this.allWarehouseOpts().find((x) => x.code === r.warehouse_code);
-    const url = this.router.serializeUrl(this.router.createUrlTree(['/almacen/analisis-bi/documento'], {
-      queryParams: { warehouse_id: w?.id, folio: r.folio, doc_code: r.doc_code },
-    }));
-    window.open(url, '_blank');
-  }
+  // `openDocument()` se retiró: el destino lo arma `docHref()` y lo abre el `<a target="_blank">`
+  // del folio. Un `window.open` a una URL que ya existe era simular un enlace teniendo uno.
   /**
    * Del renglón de desviación a Movimientos, filtrado por ESE almacén. No filtra por SKU:
    * `movements()` acepta `product_id` (uuid), no `sku` suelto, y esta fila no trae el id —

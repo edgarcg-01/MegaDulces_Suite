@@ -14,6 +14,7 @@ import {
   BiPage,
   BiProductOpt,
   BiSummaryResponse,
+  BiTipoOperacion,
   BiUnitProvenance,
   BiWarehouseOpt,
   BiZoneGroup,
@@ -109,10 +110,39 @@ export class CommercialBiAlmacenService {
     return rows.map((r: { id: string }) => r.id);
   }
 
+  /**
+   * ⚠️ [WMS-BI.4.2] **La ausencia NO se cachea para siempre.** Antes esto era
+   * `if (this.erpCostViewExists !== undefined) return this.erpCostViewExists`, que guarda el "no
+   * existe" con la misma fuerza que el "existe" — y las dos cosas no son simétricas:
+   *
+   *   · una vista que YA existe no desaparece sola ⇒ el `true` se puede cachear de por vida;
+   *   · una que NO existe **aparece en cuanto corre su migración**, y este servicio es un
+   *     singleton ⇒ el `false` quedaba congelado hasta que alguien reiniciara el proceso.
+   *
+   * Medido en PROD el 2026-09-14: `analytics.v_erp_unit_cost` **existe** (migración
+   * `20260910170000`, aplicada el 2026-09-11 00:37), `app_runtime` la lee (USAGE + SELECT ✓), y
+   * la consulta de valuación corre en **1,254 ms** devolviendo $71.96M catálogo vs $69.57M ERP
+   * con 22,656 de 22,687 SKU con testigo (99.86%). O sea: un proceso arrancado antes de esa
+   * fecha sigue publicando "no se puede valuar" sobre datos que están ahí.
+   *
+   * Un deploy que llega antes que su migración es normal; que su consecuencia sea permanente, no.
+   */
+  private static readonly ERP_VIEW_RECHECK_MS = 60_000;
+  private erpCostViewCheckedAt = 0;
+
   private async hasErpCostView(trx: any): Promise<boolean> {
-    if (this.erpCostViewExists !== undefined) return this.erpCostViewExists;
+    if (this.erpCostViewExists === true) return true;
+    if (this.erpCostViewExists === false
+        && Date.now() - this.erpCostViewCheckedAt < CommercialBiAlmacenService.ERP_VIEW_RECHECK_MS) {
+      return false;
+    }
     const r = await trx.raw(`SELECT to_regclass('analytics.v_erp_unit_cost') IS NOT NULL AS ok`);
     this.erpCostViewExists = !!r.rows[0]?.ok;
+    this.erpCostViewCheckedAt = Date.now();
+    if (!this.erpCostViewExists) {
+      this.logger.warn('analytics.v_erp_unit_cost no existe: el inventario no se valúa. '
+        + `Se reintenta en ${CommercialBiAlmacenService.ERP_VIEW_RECHECK_MS / 1000}s (no se cachea la ausencia).`);
+    }
     return this.erpCostViewExists;
   }
 
@@ -454,6 +484,68 @@ export class CommercialBiAlmacenService {
   private static readonly SALE_DOC_CODES = new Set(['Sale1', 'Sale2', 'Remiss1', 'RtrnEn1', 'Rtrn1']);
 
   /**
+   * [WMS-BI.4.2] El catálogo COMPLETO de `doc_code`, medido contra PROD el 2026-09-14 (los 19 que
+   * existen en `analytics.stock_movements`, 3,699,345 filas). Reemplaza a `SALE_DOC_CODES` +
+   * `TRANSFER_DOC_CODES` + `ADJUSTMENT_DOC_CODES`, que entre las tres dejaban un **default
+   * silencioso**: `tipoOperacion()` terminaba en `return 'Comercial'`, así que cualquier
+   * `doc_code` que nadie hubiera listado se publicaba como Comercial sin una queja.
+   *
+   * ── Lo que ese default escondía, medido ───────────────────────────────────────────────────
+   *
+   * Los 9 `doc_code` de **Wincaja** (`WIN_*`) no estaban en ninguna de las tres listas, y son el
+   * **89% de la tabla** (3,364,207 de 3,699,345):
+   *
+   *   · `WIN_V` "Venta" (2,993,472 filas) no era venta para este módulo ⇒ su importe se publicaba
+   *     en **"Importe costo"** y las 4 columnas de venta quedaban vacías. En la ventana de 30 días
+   *     eso son **62,144 líneas / $20,325,383** en la columna equivocada: el 94% de los pesos de
+   *     venta del periodo.
+   *   · `WIN_E`/`WIN_S`/`WIN_I`/`WIN_M` dicen "ajuste"/"Merma" en su PROPIO `movement_label` y
+   *     caían en "Comercial" (163,109 filas).
+   *
+   * ── Y 3 de las 5 entradas de `SALE_DOC_CODES` estaban muertas ─────────────────────────────
+   *
+   * `Remiss1`, `RtrnEn1` y `Rtrn1`: **0 filas** en toda la tabla. Se conservan igual —son
+   * doctypes válidos de Kepler que pueden aparecer— pero ahora se sabe que hoy no aportan nada.
+   *
+   * ⛔ **La regla nueva: lo que no está en este mapa NO se clasifica, se DECLARA.** Un
+   * `doc_code` nuevo sale como `Sin clasificar` y se ve en pantalla, en vez de heredar en
+   * silencio la etiqueta del vecino (ADR-056). Es lo único que evita que esto se repita.
+   */
+  private static readonly DOC_CATALOG: Readonly<Record<string, { op: BiTipoOperacion; venta: boolean }>> = {
+    // ── Venta (y su reverso). `venta: true` habilita importe_venta / IVA / IEPS / venta neta.
+    Sale1:     { op: 'Comercial', venta: true },   // U-D-5  "Venta"
+    Sale2:     { op: 'Comercial', venta: true },   // U-D-5  "Venta contado"
+    WIN_V:     { op: 'Comercial', venta: true },   // W-D-V  "Venta"          ← 2,993,472 filas
+    WIN_D:     { op: 'Comercial', venta: true },   // W-A-D  "Devolución de venta"
+    Remiss1:   { op: 'Comercial', venta: true },   // 0 filas hoy
+    RtrnEn1:   { op: 'Comercial', venta: true },   // 0 filas hoy
+    Rtrn1:     { op: 'Comercial', venta: true },   // 0 filas hoy
+    // ── Compra / entrada de mercancía: el importe es COSTO, no venta.
+    EntryOr1:  { op: 'Comercial', venta: false },  // X-A-40 "Orden de entrada"
+    ApEntOr1:  { op: 'Comercial', venta: false },  // X-A-20 "Aplicación de orden de entrada"
+    RtrnPur1:  { op: 'Comercial', venta: false },  // X-D-40 "Devolución de compra"
+    WIN_C:     { op: 'Comercial', venta: false },  // W-A-C  "Compra"
+    WIN_P:     { op: 'Comercial', venta: false },  // W-A-P  "Compra (pedido)"
+    // ── Traspasos internos: ni venta ni compra, la mercancía sólo cambia de almacén.
+    TrsfShip:  { op: 'Traspasos internos', venta: false },  // U-D-41 "Traspaso a sucursal"
+    TrsfRcv:   { op: 'Traspasos internos', venta: false },  // U-A-50 "Recepción de traspaso"
+    InvTrsf1:  { op: 'Traspasos internos', venta: false },  // 0 filas hoy
+    TrsfInBr:  { op: 'Traspasos internos', venta: false },  // 0 filas hoy
+    TrsfInWh:  { op: 'Traspasos internos', venta: false },  // 0 filas hoy
+    TrsfOutBr: { op: 'Traspasos internos', venta: false },  // 0 filas hoy
+    // ── Corrección de conteo / merma: no es una operación comercial (ADR-056: tercer valor
+    //    declarado en vez de forzarlo a uno de los otros dos).
+    InvIn1:    { op: 'Ajuste de inventario', venta: false },  // N-A-20 "Ajuste de entrada"
+    InvOut1:   { op: 'Ajuste de inventario', venta: false },  // N-D-5  "Ajuste de salida"
+    PhysInv1:  { op: 'Ajuste de inventario', venta: false },  // N-D-30 "Inventario físico"
+    PhysInvIn: { op: 'Ajuste de inventario', venta: false },  // N-A-30 "Inventario físico (entrada)"
+    WIN_E:     { op: 'Ajuste de inventario', venta: false },  // W-A-E  "Entrada (ajuste)"
+    WIN_S:     { op: 'Ajuste de inventario', venta: false },  // W-D-S  "Salida (ajuste)"
+    WIN_M:     { op: 'Ajuste de inventario', venta: false },  // W-A-M  "Ajuste (entrada)"
+    WIN_I:     { op: 'Ajuste de inventario', venta: false },  // W-D-I  "Merma / baja"
+  };
+
+  /**
    * WMS-BI.3 (2026-09-15) — "Tipo de operación", a pedido del usuario. El pedido original era
    * 2 valores (comercial/traspasos internos); medido contra `import-stock-movements.js` hay un
    * TERCER grupo real que no es ninguno de los dos: `InvIn1`/`InvOut1`/`PhysInv1`/`PhysInvIn` son
@@ -461,13 +553,13 @@ export class CommercialBiAlmacenService {
    * almacenes — forzarlos a "comercial" o "traspaso" sería inventar un hecho que el documento no
    * tiene (ADR-056). Se declara un tercer valor en vez de mentir en dos.
    */
-  private static readonly TRANSFER_DOC_CODES = ['InvTrsf1', 'TrsfRcv', 'TrsfInBr', 'TrsfInWh', 'TrsfShip', 'TrsfOutBr'];
-  private static readonly ADJUSTMENT_DOC_CODES = ['InvIn1', 'InvOut1', 'PhysInv1', 'PhysInvIn'];
-
-  private static tipoOperacion(docCode: string): 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario' {
-    if (CommercialBiAlmacenService.TRANSFER_DOC_CODES.includes(docCode)) return 'Traspasos internos';
-    if (CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES.includes(docCode)) return 'Ajuste de inventario';
-    return 'Comercial';
+  /** `undefined` = `doc_code` que no está en `DOC_CATALOG`. NO se adivina: ver `clasificar()`. */
+  private static clasificar(docCode: string): { op: BiTipoOperacion; venta: boolean } {
+    return CommercialBiAlmacenService.DOC_CATALOG[docCode]
+      // Sin default silencioso: un doctype nuevo se DECLARA sin clasificar y se ve en pantalla.
+      // `venta: false` acá no afirma que no sea venta — afirma que no lo sabemos, y por eso la
+      // fila también sale con `aplica_venta: false` y la etiqueta lo dice.
+      ?? { op: 'Sin clasificar', venta: false };
   }
 
   /**
@@ -651,8 +743,17 @@ export class CommercialBiAlmacenService {
         else if (k?.peldano != null && Number(k.peldano) > 0) { cantidadBase = Number(r.qty) * Number(k.peldano); medible = true; }
       }
 
-      const isSale = CommercialBiAlmacenService.SALE_DOC_CODES.has(r.doc_code);
-      const importeCosto = !isSale ? (Number(k?.costo62 ?? k?.costo63 ?? 0) || r.amount) : null;
+      const clase = CommercialBiAlmacenService.clasificar(r.doc_code);
+      const isSale = clase.venta;
+      // [WMS-BI.4.2] `importe_costo` ya NO intenta leer `kdm2.c62`/`c63`. Medido contra prod por
+      // doctype: esas dos columnas están pobladas SÓLO en `U-D-5/10/12` —documentos de VENTA,
+      // donde `isSale` corta antes de leerlas— y al **0%** en todos los doctypes de costo
+      // (`X-A-20/30/35/37/40`, `N-A-20`, `X-D-40`). Además son `text`: `''` no lo atrapa el `??`,
+      // lo atrapa `Number('') = 0 || r.amount`. O sea que la rama nunca se ejecutó y el valor
+      // publicado siempre fue `r.amount`. Se retira el teatro y se dice lo que es.
+      // ⚠️ Y si algún día se poblaran, `c62` es un costo UNITARIO por peldaño, no un importe
+      // extendido: publicarlo bajo "Importe costo" mezclaría unidad con extensión (ADR-051).
+      const importeCosto = !isSale ? r.amount : null;
       const importeVenta = isSale ? r.amount : null;
       let ivaValor: number | null = null, iepsValor: number | null = null, ventaNeta: number | null = null;
       if (importeVenta != null && r.iva_rate != null && r.ieps_rate != null) {
@@ -668,7 +769,13 @@ export class CommercialBiAlmacenService {
         zone_name: r.zone_name, warehouse_code: r.warehouse_code, warehouse_name: r.warehouse_name,
         almacen: 'Disponible',
         movement_kind: r.movement_kind, movement_label: r.movement_label,
-        tipo_operacion: CommercialBiAlmacenService.tipoOperacion(r.doc_code),
+        tipo_operacion: clase.op,
+        // [WMS-BI.4.2] Para que la pantalla pueda distinguir "falta el dato" de "no corresponde a
+        // este documento". Sin esto, Canal / Vendedor / IVA / IEPS / Venta neta salían todas como
+        // "No disponible" en una orden de compra, que es una respuesta falsa: ahí no hay canal ni
+        // vendedor ni base gravable que buscar. Ausencias distintas, etiquetas distintas
+        // (ADR-059 regla 4).
+        aplica_venta: isSale,
         doc_code: r.doc_code, folio: r.folio,
         vendedor: isSale ? (k?.vendedor_name ?? null) : null,
         canal: isSale ? CommercialBiAlmacenService.canalFromVendedor(k?.vendedor_name) : null,
@@ -679,7 +786,14 @@ export class CommercialBiAlmacenService {
         unit_cost: r.unit_cost, amount: r.amount,
         importe_costo: importeCosto, importe_venta: importeVenta,
         iva_valor: ivaValor, ieps_valor: iepsValor, venta_neta: ventaNeta,
-        cost_base_hoy: r.cost_base_hoy, source_system: 'kepler',
+        cost_base_hoy: r.cost_base_hoy,
+        // [WMS-BI.4.2] El origen REAL, no el literal `'kepler'` que estaba acá y mentía en el 89%
+        // de la tabla. `source_branch` con prefijo `W` es Wincaja — es el mismo criterio que usa
+        // `import-wincaja-stock-movements.js` al escribirlo (`source_branch = 'W'||unidad`), y el
+        // que el feed de Kepler usa para excluirlas de su DELETE.
+        // ⚠️ Es una DERIVACIÓN, no una columna: la columna propia llega en WMS-BI.4.1.
+        source_branch: r.source_branch,
+        source_system: String(r.source_branch ?? '').startsWith('W') ? 'wincaja' : 'kepler',
       } satisfies BiMovementRow;
     });
   }
@@ -761,9 +875,26 @@ export class CommercialBiAlmacenService {
       WHERE btrim(h.c1)=btrim(h.sucursal) AND h.sucursal=m.source_branch AND h.c2=m.genero AND h.c3=m.naturaleza
         AND h.c4::text=m.doc_type AND h.c6=m.folio AND btrim(l.c8)=btrim(coalesce(p.sku,m.sku)) LIMIT 1)`;
 
-  private static readonly SALE_DOC_CODES_SQL_LIST = [...CommercialBiAlmacenService.SALE_DOC_CODES].map((c) => `'${c}'`).join(',');
-  private static readonly TRANSFER_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.TRANSFER_DOC_CODES.map((c) => `'${c}'`).join(',');
-  private static readonly ADJUSTMENT_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES.map((c) => `'${c}'`).join(',');
+  /**
+   * [WMS-BI.4.2] ⚠️ **La misma regla estaba escrita DOS veces**: en TypeScript para la pestaña
+   * Movimientos y otra vez, a mano, en el `CASE` de SQL de "Explorar datos". Así que los mismos
+   * 3.36M de movimientos de Wincaja salían mal clasificados en las DOS pestañas, y arreglar una
+   * habría dejado la otra mintiendo — con la agravante de que el `CASE` de SQL también terminaba
+   * en `ELSE 'Comercial'`, el mismo default silencioso.
+   *
+   * Ahora las dos listas se DERIVAN de `DOC_CATALOG`: una sola definición, dos consumidores.
+   * Agregar un `doc_code` es tocar un solo lugar (ADR-056: el primitivo vive en un lado).
+   */
+  private static docsSql(pred: (v: { op: BiTipoOperacion; venta: boolean }) => boolean): string {
+    const codes = Object.entries(CommercialBiAlmacenService.DOC_CATALOG)
+      .filter(([, v]) => pred(v)).map(([k]) => `'${k}'`);
+    // ARRAY[] vacío no tipa en Postgres; con un centinela imposible el predicado da false y punto.
+    return codes.length ? codes.join(',') : `'__ninguno__'`;
+  }
+  private static readonly SALE_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.docsSql((v) => v.venta);
+  private static readonly TRANSFER_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.docsSql((v) => v.op === 'Traspasos internos');
+  private static readonly ADJUSTMENT_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.docsSql((v) => v.op === 'Ajuste de inventario');
+  private static readonly COMERCIAL_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.docsSql((v) => v.op === 'Comercial');
 
   private readonly EXPLORE_FIELDS: Array<{ key: string; label: string; group: string; sql: string; requires?: string }> = [
     { key: 'doc_date', label: 'Fecha', group: 'Fechas y documentos', sql: `m.doc_date::text` },
@@ -774,9 +905,13 @@ export class CommercialBiAlmacenService {
     { key: 'movement_kind_label', label: 'Tipo (entrada/salida)', group: 'Fechas y documentos', sql: `CASE m.movement_kind WHEN 'entrada' THEN 'Entrada' WHEN 'salida' THEN 'Salida' ELSE 'Informativo' END` },
     {
       key: 'tipo_operacion', label: 'Tipo de operación', group: 'Fechas y documentos',
+      // Sin `ELSE 'Comercial'`: un doc_code desconocido se DECLARA, igual que en la pestaña
+      // Movimientos. El default silencioso es lo que hizo que 163,109 ajustes de Wincaja se
+      // publicaran como operación comercial sin que nada lo dijera.
       sql: `CASE WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.TRANSFER_DOC_CODES_SQL_LIST}]) THEN 'Traspasos internos'
                  WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES_SQL_LIST}]) THEN 'Ajuste de inventario'
-                 ELSE 'Comercial' END`,
+                 WHEN m.doc_code = ANY(ARRAY[${CommercialBiAlmacenService.COMERCIAL_DOC_CODES_SQL_LIST}]) THEN 'Comercial'
+                 ELSE 'Sin clasificar' END`,
     },
     {
       key: 'vendedor', label: 'Vendedor', group: 'Fechas y documentos',

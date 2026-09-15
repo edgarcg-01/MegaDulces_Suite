@@ -49,7 +49,9 @@ export interface BiMovementRow {
   warehouse_code: string; warehouse_name: string;
   almacen: 'Disponible';
   movement_kind: 'entrada' | 'salida' | 'info';
-  tipo_operacion: 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario';
+  /** `'Sin clasificar'` = apareció un `doc_code` que el catálogo del backend no conoce. Se declara
+   *  en vez de heredar "Comercial" por default, que fue como 163,109 ajustes se publicaron mal. */
+  tipo_operacion: 'Comercial' | 'Traspasos internos' | 'Ajuste de inventario' | 'Sin clasificar';
   movement_label: string; doc_code: string; folio: string;
   vendedor: string | null;
   canal: 'Punto de Venta' | 'Mayoreo' | 'Venta al detalle' | null;
@@ -61,7 +63,12 @@ export interface BiMovementRow {
   unit_cost: number | null; amount: number | null;
   importe_costo: number | null; importe_venta: number | null;
   iva_valor: number | null; ieps_valor: number | null; venta_neta: number | null;
-  cost_base_hoy: number | null; source_system: 'kepler';
+  cost_base_hoy: number | null;
+  /** `00`–`07` = Kepler · `W30`/`W32`/… = Wincaja (el 89% de la tabla). */
+  source_branch: string | null;
+  source_system: 'kepler' | 'wincaja';
+  /** [WMS-BI.4.2] `false` ⇒ Canal/Vendedor/Importe venta/IVA/IEPS/Venta neta **no aplican** acá. */
+  aplica_venta: boolean;
 }
 /**
  * [WMS-BI.4.3] De dónde salió la columna "Unidad base" y de cuándo. `source: 'view'` es el camino
