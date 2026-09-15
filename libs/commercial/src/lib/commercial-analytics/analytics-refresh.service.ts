@@ -132,6 +132,11 @@ export class AnalyticsRefreshService {
       // no es cosmético: cuando envejece, un producto cuya unidad base cambió sigue publicándose
       // con la anterior, y la unidad es justo lo que ADR-057 existe para no adivinar.
       ['analytics.mv_unit_truth', 'analytics_refresh_unit_truth', 'Refresh MV verdad de unidad (nightly)', []],
+      // [SD-PAY] Condición de pago (credito/contado) por canal. `deps` vacío: deriva directo del ODS
+      // (kdm1 header total c16 + kdud días c16). Aditiva — no la lee el linaje principal. ⚠️ Su umbral
+      // vive en `CRON_JOBS` (`analytics_refresh_payment_terms`): sin eso el sensor cae en `cfg ? classify : 'ok'`
+      // y una MV parada se ve VERDE (OBS.1) — y acá el crédito vencido depende de que esté fresca.
+      ['analytics.mv_sales_payment_terms', 'analytics_refresh_payment_terms', 'Refresh MV condición de pago (nightly)', []],
     ] as const) {
       const start = Date.now();
       let ok = false;
