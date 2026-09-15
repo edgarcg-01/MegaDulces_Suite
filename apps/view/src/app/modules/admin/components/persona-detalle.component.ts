@@ -266,6 +266,21 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
             desbloquear, no para una persona. Un permiso de un año que no se puede ver desde acá
             tampoco se puede revisar ni quitar.
           </p>
+          @if (persona && cambiaSesion()) {
+            <div class="pd-aviso-blk" role="status">
+              <i class="pi pi-key" aria-hidden="true"></i>
+              <div>
+                @if (fTtl() == null) {
+                  Al volver a <strong>sesión normal</strong> se le va a exigir
+                  <strong>cambiar la contraseña</strong> la próxima vez que entre: la que tiene hoy
+                  la eligió un admin, no ella.
+                } @else {
+                  Con <strong>sesión larga</strong> deja de pedírsele el cambio de contraseña. Es lo
+                  correcto para un kiosco compartido y lo incorrecto para una persona.
+                }
+              </div>
+            </div>
+          }
         </section>
 
         @if (!persona) {
@@ -603,6 +618,16 @@ export class PersonaDetalleComponent implements OnChanges {
     return cambia;
   });
 
+  /**
+   * `[CH.1.10]` La duración de sesión cambió en esta edición. En un alta siempre
+   * se declara; en una edición sólo si de verdad se movió.
+   */
+  readonly cambiaSesion = computed(() => {
+    const ttl = this.fTtl();
+    if (!this.persona) return true;
+    return ttl !== (this.persona.token_ttl_days ?? null);
+  });
+
   /** El desvío existe porque el puesto no propone nada, no porque difiera. */
   readonly sinPropuesta = computed(() => !!this.propuesta()?.sin_perfil);
 
@@ -757,7 +782,6 @@ export class PersonaDetalleComponent implements OnChanges {
     this.guardando.set(true);
     this.errorGuardado.set(null);
 
-    const ttl = this.fTtl();
     const body: Record<string, unknown> = {
       nombre: this.fNombre().trim() || null,
       position_code: this.fPuesto(),
@@ -767,9 +791,29 @@ export class PersonaDetalleComponent implements OnChanges {
       warehouse_code: this.fSucursal(),
       route_id: this.fRuta(),
       zone_id: this.fZona(),
-      token_ttl_days: ttl,
     };
     if (this.hayDesvio()) body['motivo_desvio'] = this.fMotivo().trim();
+
+    /*
+     * `[CH.1.10]` La duración de sesión viaja SÓLO si cambió, y nunca sin el
+     * cambio de contraseña forzado que le corresponde.
+     *
+     * Mandarla siempre rebotaba con 400 al editar a **96 de las 100 personas**:
+     * el backend lee un `token_ttl_days: null` como «quitá la sesión larga», y
+     * como esas 96 tienen `must_change_password = false`, quedaría una
+     * contraseña que nadie eligió y que nadie está obligado a cambiar. La regla
+     * se evalúa sobre el CAMBIO, igual que el motivo de desvío.
+     *
+     * Y los dos campos van juntos porque son dos mitades de una decisión: sesión
+     * normal ⇒ la contraseña la eligió el admin y el dueño tiene que cambiarla;
+     * sesión larga ⇒ es un kiosco compartido y exigirle el cambio lo deja
+     * inservible.
+     */
+    const ttl = this.fTtl();
+    if (this.cambiaSesion()) {
+      body['token_ttl_days'] = ttl;
+      body['must_change_password'] = ttl == null;
+    }
 
     const obs = this.persona
       ? this.api.editarPersona(this.persona.id, body)
@@ -777,9 +821,6 @@ export class PersonaDetalleComponent implements OnChanges {
           ...body,
           username: this.fUsername().trim(),
           password: this.fPassword(),
-          // Una cuenta de kiosco es compartida y nadie la desbloquea: exigirle
-          // cambio de contraseña al primer login la deja inservible.
-          must_change_password: ttl == null,
         });
 
     obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
