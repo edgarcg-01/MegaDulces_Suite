@@ -43,34 +43,43 @@ function url() {
   return m[1].trim();
 }
 
-// El SELECT del sell-out con canal corregido + payment_term. Reusa el FROM/WHERE de mv_kepler_sales_daily.
+// El SELECT del sell-out por canal corregido + payment_term. HEADER-ONLY (kdm1): el revenue sale del
+// TOTAL de encabezado `h.c16` (= SUM de renglones al 99.61% medido; el 0.39% son líneas SER que el
+// grano por-renglón excluye — despreciable para un split de condición de pago). Sin el join a kdm2 el
+// refresh es rápido (kdm1 603k filas, no 3.9M de kdm2). Canal/payment/folio ya son todos de encabezado.
+// ⚠️ DOS niveles a propósito: si el kdud se une por-renglón de kdm1, el planner estima kdm1=1 fila (no
+// puede medir los filtros btrim) y elige un NESTED LOOP contra kdud = catastrófico (250k × 2231). Se
+// AGREGA kdm1 primero (rápido, índice de fecha) por (día,rama,canal,cliente) y RECIÉN ahí se hace hash-join
+// a kdud sobre el conjunto chico, y se re-agrega colapsando el cliente en payment_term.
 const SELECT_BODY = `
-SELECT '${T}'::uuid AS tenant_id,
-       h.c9::date AS business_date,
-       btrim(h.sucursal) AS source_branch,
-       CASE
-         WHEN btrim(v.c3) ILIKE 'RUTA VECINAL%' OR btrim(h.c12) ~ '^[0-9]+V[0-9]' THEN 'preventa'
-         WHEN btrim(v.c3) ILIKE 'RUTA %' OR btrim(h.c12) ~ '^1V' THEN 'ruta'
-         WHEN btrim(h.sucursal) = '06' AND h.c4::int = 10 AND btrim(h.c67) ~ '^500[1-9]$' THEN 'ruta'
-         WHEN h.c4::int = 8 THEN 'mayoreo'          -- preservado (era plegado a credito)
-         WHEN h.c4::int = 12 THEN 'contado_nf'      -- U-D-12 = Factura Contado No Fiscal (NO credito)
-         ELSE 'tienda'                              -- mostrador (U-D-10)
-       END AS channel,
+WITH base AS (
+  SELECT h.c9::date AS business_date,
+         btrim(h.sucursal) AS source_branch,
+         CASE
+           WHEN btrim(v.c3) ILIKE 'RUTA VECINAL%' OR btrim(h.c12) ~ '^[0-9]+V[0-9]' THEN 'preventa'
+           WHEN btrim(v.c3) ILIKE 'RUTA %' OR btrim(h.c12) ~ '^1V' THEN 'ruta'
+           WHEN btrim(h.sucursal) = '06' AND h.c4::int = 10 AND btrim(h.c67) ~ '^500[1-9]$' THEN 'ruta'
+           WHEN h.c4::int = 8 THEN 'mayoreo'          -- preservado (era plegado a credito)
+           WHEN h.c4::int = 12 THEN 'contado_nf'      -- U-D-12 = Factura Contado No Fiscal (NO credito)
+           ELSE 'tienda'                              -- mostrador (U-D-10)
+         END AS channel,
+         btrim(h.c10::text) AS cli,
+         round(sum(round(COALESCE(NULLIF(regexp_replace(h.c16::text,'[^0-9.-]','','g'),'')::numeric,0),2))::numeric,2) AS revenue,
+         count(*) AS folios   -- kdm1 = un renglón por documento → count(*) = folios
+  FROM kepler_ods.kdm1 h
+    LEFT JOIN kepler_ods.kduv v ON btrim(v.sucursal)=btrim(h.sucursal) AND btrim(v.c2)=btrim(h.c12)
+  WHERE h.c2='U' AND h.c3='D' AND h.c4::int = ANY(ARRAY[8,10,12]) AND btrim(h.c1)=btrim(h.sucursal)
+    AND COALESCE(NULLIF(btrim(h.c43),''),'') <> 'C'
+    AND h.c9::date <= (now() AT TIME ZONE 'America/Mexico_City')::date
+    AND h.c9::date >= (now() AT TIME ZONE 'America/Mexico_City')::date - INTERVAL '13 months'
+  GROUP BY 1, 2, 3, 4
+),
+kd AS (SELECT DISTINCT ON (btrim(c2)) btrim(c2) code, NULLIF(regexp_replace(c16::text,'[^0-9-]','','g'),'')::int dias
+       FROM kepler_ods.kdud ORDER BY btrim(c2), c7 DESC)
+SELECT '${T}'::uuid AS tenant_id, base.business_date, base.source_branch, base.channel,
        CASE WHEN COALESCE(kd.dias, 0) > 0 THEN 'credito' ELSE 'contado' END AS payment_term,
-       round(sum(round(COALESCE(NULLIF(regexp_replace(l.c13::text,'[^0-9.-]','','g'),'')::numeric,0),2))::numeric,2) AS revenue,
-       count(DISTINCT (btrim(h.c1)||'|'||h.c2||'|'||h.c3||'|'||h.c4||'|'||h.c5||'|'||btrim(h.c6))) AS folios
-FROM kepler_ods.kdm1 h
-  JOIN kepler_ods.kdm2 l ON btrim(l.sucursal)=btrim(h.sucursal) AND btrim(l.c1)=btrim(h.c1)
-    AND l.c2=h.c2 AND l.c3=h.c3 AND l.c4::int=h.c4::int AND l.c5::int=h.c5::int AND btrim(l.c6)=btrim(h.c6)
-  LEFT JOIN kepler_ods.kduv v ON btrim(v.sucursal)=btrim(h.sucursal) AND btrim(v.c2)=btrim(h.c12)
-  LEFT JOIN (SELECT DISTINCT ON (btrim(c2)) btrim(c2) code,
-               NULLIF(regexp_replace(c16::text,'[^0-9-]','','g'),'')::int dias
-             FROM kepler_ods.kdud ORDER BY btrim(c2), c7 DESC) kd ON kd.code = btrim(h.c10::text)
-WHERE h.c2='U' AND h.c3='D' AND h.c4::int = ANY(ARRAY[8,10,12]) AND btrim(h.c1)=btrim(h.sucursal)
-  AND COALESCE(NULLIF(btrim(h.c43),''),'') <> 'C' AND COALESCE(btrim(l.c11),'') <> 'SER'
-  AND abs(COALESCE(l.c9::numeric,0)) > 0
-  AND h.c9::date <= (now() AT TIME ZONE 'America/Mexico_City')::date
-  AND h.c9::date >= (now() AT TIME ZONE 'America/Mexico_City')::date - INTERVAL '13 months'
+       round(sum(base.revenue)::numeric,2) AS revenue, sum(base.folios) AS folios
+FROM base LEFT JOIN kd ON kd.code = base.cli
 GROUP BY 2, 3, 4, 5`;
 
 const MV = `CREATE MATERIALIZED VIEW analytics.mv_sales_payment_terms AS ${SELECT_BODY} WITH NO DATA`;

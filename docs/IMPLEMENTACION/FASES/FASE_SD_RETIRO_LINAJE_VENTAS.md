@@ -122,7 +122,14 @@ Prioridad (dinero primero):
   — dry-run por default, `--apply` sólo en ventana. DDL validada contra prod por EXPLAIN dentro de una
   transacción revertida (3/3, cero cambios); la validación cazó un `GROUP BY` incompleto antes de que
   nadie lo corriera. **Falta: correrlo con `--apply` en ventana fuera de horario + autorización + el candado de tickets.**
-- **SD-PAY 🟢 CONDICIÓN DE PAGO — diseño escrito y VALIDADO 2026-09-14, sin aplicar (decisión de Edgar "opción a").**
+- **SD-PAY ✅ CONDICIÓN DE PAGO — APLICADO A PROD 2026-09-14 (decisión de Edgar "opción a"). Venta a crédito = $7.89M/30d.**
+  `analytics.mv_sales_payment_terms` creado + refrescado (37 s). Medido en el matview nuevo: **credito $7.89M · contado $22.74M**
+  (30d), con el crédito **81% en mayoreo** ($7.85M) — cruza canales, condición de pago, no canal. ⚡ **Perf:** el refresh como
+  linaje-original (kdm1⋈kdm2, 13m) se pasaba de 300 s; se resolvió con el **total de encabezado `kdm1.c16`** (= renglones al
+  99.61%, header-only, sin el join a kdm2 de 4M) + agregar kdm1 ANTES de unir kdud (el planner estimaba kdm1=1 fila → nested-loop
+  catastrófico) → **48 s**. ✅ **Refresh cableado** (`AnalyticsRefreshService` + umbral `analytics_refresh_payment_terms` en db-health,
+  para que una MV parada no se vea verde — OBS.1). **Falta: redeploy del API** (para que el refresh nocturno corra). **Pieza pendiente
+  aparte:** el fix de `mayoreo` en el blend + `v_sellout_daily`. Diseño original:
   `credito` NO es un canal — es condición de PAGO. Medido en prod: el crédito **cruza canales** pero está
   **96% en mayoreo/telemarketing** (684 de 711 folios/30d); U-D-12 (lo que el blend llama "credito") es
   *"Factura CONTADO No Fiscal"* = efectivo; el crédito real (U-D-13) son $0.16M/30d, **fuera del sell-out**.
