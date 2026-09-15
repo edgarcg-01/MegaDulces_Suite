@@ -19,9 +19,9 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { branchName } from '../../../core/constants/store-branches';
-import { money, moneyShort, toggleSort, sortIcon, ariaSort, sortRows, type SortState, type SortDir } from '../../../shared/util';
+import { money, moneyShort, toggleSort, sortIcon, ariaSort, sortRows, datePresetRange, isoLocalDate, type SortState, type SortDir } from '../../../shared/util';
 
-type Periodo = 'arranque' | 'mes' | 'semana';
+type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
 
 /**
  * `[RE.16.2]` — **Centro de control · Por sucursal**. La pestaña de entrada del administrador.
@@ -380,12 +380,19 @@ export class ComprasEntradasControlComponent {
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
   readonly cargadoAt = signal<number | null>(null);
-  readonly periodo = signal<Periodo>('arranque');
+  /**
+   * Periodo por default: **hoy**. El tablero se abre sobre lo del día porque la pregunta diaria
+   * del administrador es "¿de quién falta la factura HOY?"; el acumulado desde el arranque sirve
+   * para auditar, no para la parada de la mañana, y con meses de historia encima esconde el
+   * atraso de hoy detrás de un promedio grande.
+   */
+  readonly periodo = signal<Periodo>('hoy');
 
   readonly periodoOpts = [
-    { label: 'Desde el arranque', value: 'arranque' },
-    { label: 'Este mes', value: 'mes' },
+    { label: 'Hoy', value: 'hoy' },
     { label: 'Últimos 7 días', value: 'semana' },
+    { label: 'Este mes', value: 'mes' },
+    { label: 'Desde el arranque', value: 'arranque' },
   ];
 
   /**
@@ -457,7 +464,15 @@ export class ComprasEntradasControlComponent {
 
   readonly veredicto = computed(() => {
     const t = this.tot();
-    if (!t.entradas) return 'Sin órdenes de entrada en el periodo.';
+    // Con `hoy` de default, "sin órdenes" deja de ser una anomalía y pasa a ser el caso más
+    // común (un día sin recepciones es normal). Un empty neutro ahí no informa: la salida es
+    // ampliar el periodo, y el texto lo dice — es el patrón de empty operacional del DS
+    // ("Ninguna ruta registra actividad entre X e Y · [Ampliar a 30 días]").
+    if (!t.entradas) {
+      return this.periodo() === 'hoy'
+        ? 'Hoy todavía no hay órdenes de entrada. Ampliá el periodo para ver los días anteriores.'
+        : 'Sin órdenes de entrada en el periodo.';
+    }
     const falta = t.entradas - t.con_evidencia;
     const huerfanas = this.sinResponsable().length;
     const partes = [`La red lleva ${this.pctRed()}% comprobado: faltan ${falta} facturas por ${money(t.monto_pendiente)}`];
@@ -501,8 +516,11 @@ export class ComprasEntradasControlComponent {
 
   constructor() {
     // Estado en la URL: el link a "la cobertura de este mes" se puede pegar en un chat.
+    // El default pasó a `hoy`, así que es `hoy` el que NO viaja en la URL y `arranque` el que sí
+    // (antes era al revés). Si esto no se acompaña, un link con `?periodo=arranque` se abriría en
+    // el periodo equivocado y el link de "hoy" arrastraría un parámetro que no dice nada.
     const p = this.route.snapshot.queryParamMap.get('periodo') as Periodo | null;
-    if (p === 'mes' || p === 'semana') this.periodo.set(p);
+    if (p === 'mes' || p === 'semana' || p === 'arranque') this.periodo.set(p);
     this.cargar();
   }
 
@@ -510,7 +528,7 @@ export class ComprasEntradasControlComponent {
     this.periodo.set(v);
     this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { periodo: v === 'arranque' ? null : v },
+      queryParams: { periodo: v === 'hoy' ? null : v },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
@@ -535,16 +553,22 @@ export class ComprasEntradasControlComponent {
     });
   }
 
-  /** `arranque` no manda `from`: el server ya recorta en la fecha de arranque del tenant. */
+  /**
+   * `arranque` no manda `from`: el server ya recorta en la fecha de arranque del tenant.
+   *
+   * ⚠️ **La fecha se arma con los componentes LOCALES, no con `toISOString()`** — que devuelve
+   * UTC. Medido: en `America/Mexico_City` (UTC−6), a partir de las **18:00** `toISOString()` ya
+   * da el día SIGUIENTE. Así estaba antes, y tenía dos consecuencias:
+   *   · "Últimos 7 días" pedía desde 6 días atrás cada tarde — 7 días que eran 6, en silencio.
+   *   · "Hoy" habría pedido **desde mañana**: tabla vacía toda la tarde-noche, que es justo el
+   *     turno en que se suben las facturas.
+   * Un rango ancho disimula el corrimiento de un día; uno de un día lo vuelve el 100% del error.
+   * Es la trampa que DESIGN §Ing.UI 7 nombra ("no re-convertir con `new Date()` ingenuo").
+   */
   private rango(): { from?: string; to?: string } {
-    const hoy = new Date();
-    const iso = (d: Date) => d.toISOString().slice(0, 10);
-    if (this.periodo() === 'mes') return { from: iso(new Date(hoy.getFullYear(), hoy.getMonth(), 1)) };
-    if (this.periodo() === 'semana') {
-      const d = new Date(hoy); d.setDate(d.getDate() - 6);
-      return { from: iso(d) };
-    }
-    return {};
+    if (this.periodo() === 'arranque') return {};
+    const r = datePresetRange(this.periodo() === 'semana' ? 'd7' : this.periodo(), new Date());
+    return r ? { from: isoLocalDate(r.from) } : {};
   }
 
   nombres(c: CoverageRow): string {
