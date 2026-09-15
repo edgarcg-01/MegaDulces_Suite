@@ -131,10 +131,17 @@ export class AdminService {
     return this.http.get<Array<{ id: string; value: string; orden: number }>>(`${this.users}/zones`);
   }
 
-  supervisores(): Observable<Array<{ id: string; nombre: string | null; username: string; zona: string | null }>> {
-    return this.http.get<Array<{ id: string; nombre: string | null; username: string; zona: string | null }>>(
-      `${this.users}/supervisors`,
-    );
+  /**
+   * ⚠️ NO usa `GET /users/supervisors`: ése filtra `role_name LIKE '%supervisor%'`
+   * y ofrece 4 personas cuando los jefes del organigrama son 15. Éste sale de
+   * quién ocupa un puesto del que cuelga otro.
+   */
+  jefes(): Observable<
+    Array<{ id: string; username: string; nombre: string | null; position_code: string | null; position_name: string | null; puestos_a_cargo: number }>
+  > {
+    return this.http.get<
+      Array<{ id: string; username: string; nombre: string | null; position_code: string | null; position_name: string | null; puestos_a_cargo: number }>
+    >(`${this.org}/managers`);
   }
 
   /** El catálogo de perfiles. `GET /users/roles` no exige permiso: lo consumen varios selects. */

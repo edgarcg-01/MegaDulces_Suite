@@ -481,6 +481,39 @@ export class OrgService {
   }
 
   /**
+   * `[AU.16]` — Quién puede ser jefe de alguien, **derivado del organigrama**.
+   *
+   * `GET /users/supervisors` filtra `role_name LIKE '%supervisor%'`, o sea por el
+   * NOMBRE del rol. Medido en prod: ofrece **4 personas** y los jefes reales del
+   * organigrama son **15** — entre los excluidos está una `encargado_tienda` que
+   * ya es jefa de alguien. En el modelo persona-con-puesto el jefe de una cajera
+   * es el encargado de sucursal, no un «supervisor»: la substring no sabe eso.
+   *
+   * ⚠️ El endpoint viejo NO se toca: lo consume el filtro «Supervisor» de
+   * reportes, donde sí se quiere la familia de roles de venta.
+   */
+  async managers(): Promise<
+    Array<{ id: string; username: string; nombre: string | null; position_code: string | null; position_name: string | null; puestos_a_cargo: number }>
+  > {
+    const { rows } = await this.knex.raw(
+      `SELECT u.id, u.username, u.nombre, u.position_code, p.name AS position_name,
+              (SELECT count(*)::int FROM identity.positions s
+                WHERE s.tenant_id = p.tenant_id AND s.deleted_at IS NULL
+                  AND s.reports_to_position_code = p.code) AS puestos_a_cargo
+         FROM identity.users u
+         JOIN identity.positions p
+           ON p.tenant_id = u.tenant_id AND p.code = u.position_code AND p.deleted_at IS NULL
+        WHERE u.tenant_id = ? AND u.deleted_at IS NULL AND u.kind = 'interno'
+          AND EXISTS (SELECT 1 FROM identity.positions s
+                       WHERE s.tenant_id = p.tenant_id AND s.deleted_at IS NULL
+                         AND s.reports_to_position_code = p.code)
+        ORDER BY p.name, lower(coalesce(u.nombre, u.username))`,
+      [this.tenantId],
+    );
+    return rows;
+  }
+
+  /**
    * El inverso: qué puestos responden de una responsabilidad.
    *
    * La pantalla lo armaba pidiendo `positionResponsibilities` de cada puesto con

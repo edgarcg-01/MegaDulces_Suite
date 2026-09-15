@@ -199,7 +199,8 @@ import { PersonaDetalleComponent } from '../components/persona-detalle.component
                      [subtitle]="sel() ? ('@' + sel()!.username) : 'Una persona nueva empieza por su puesto'">
         @if (peek()) {
           <app-persona-detalle [persona]="sel()" [puedeEscribir]="puedeEscribir()"
-                               (guardado)="onGuardado($event)" (cancelado)="cerrarFicha(false)">
+                               (guardado)="onGuardado($event)" (aviso)="onAviso($event)"
+                               (cancelado)="cerrarFicha(false)">
           </app-persona-detalle>
         }
       </app-side-peek>
@@ -287,10 +288,11 @@ export class AdminPersonasComponent implements OnInit {
         sub: 'no heredan perfil ni jefe',
       },
       {
-        label: 'Sin jefe directo',
+        label: 'Sin jefe',
         value: r.sin_jefe,
         format: 'number',
-        sub: 'lo hereda del puesto',
+        tone: r.sin_jefe ? 'warn' : undefined,
+        sub: 'ni por puesto: su escalamiento no llega a nadie',
       },
       { label: 'Nunca entraron', value: r.nunca_entraron, format: 'number' },
     ];
@@ -459,5 +461,10 @@ export class AdminPersonasComponent implements OnInit {
     this.peek.set(false);
     this.sel.set(null);
     this.cargar();
+  }
+
+  /** Acceso y alcance se guardan sin salir de la ficha: cerrarla sería perder el hilo. */
+  onAviso(msg: string): void {
+    this.toast.add({ severity: 'success', summary: 'Guardado', detail: msg, life: 3500 });
   }
 }
