@@ -8,9 +8,18 @@
  * para que `/admin/roles` lo muestre) y a `gerente_finanzas`/`finanzas` como VER (oversight, sin
  * gestionar — el dueño de Presupuestos es `coordinador_presupuestos`).
  *
- * Mismo patrón que `20260821120000_grant_expenses_capturar_to_roles.js`: UPDATE directo sobre
- * `identity.role_permissions`, tolerante a roles que no existan en un tenant dado. Requiere
- * RE-LOGIN (los permisos viajan en el JWT).
+ * ── Idempotente por `IS NULL`, no por `COALESCE(...) IS NOT TRUE` ────────────────────
+ * `permissions -> 'KEY' IS NULL` = "nunca se tocó". Un `false` explícito (decisión manual desde
+ * `/admin/roles`) NO se pisa — mismo patrón que `20260914120000_grant_almacen_bi_perm.js`. La
+ * versión anterior de este archivo usaba `COALESCE(...) IS NOT TRUE`, que trata "nunca se tocó"
+ * y "false explícito" igual: en el primer `apply` no hay diferencia (nada es `false` todavía),
+ * pero un re-apply contra una DB donde alguien ya puso `false` a mano habría pisado esa decisión.
+ * Corregido en revisión de PR #100 (Edgar).
+ *
+ * Se apunta por `id` de fila (no por `role_name`): la tabla es por tenant y un mismo rol puede
+ * tener varias filas — filtrar por nombre tocaría también la fila de otro tenant.
+ *
+ * Los permisos viajan en el JWT → los usuarios afectados deben RE-LOGUEAR.
  *
  * @param { import("knex").Knex } knex
  */
@@ -20,16 +29,29 @@ const VER_ROLES = ['coordinador_presupuestos', 'superadmin', 'gerente_finanzas',
 
 async function grant(knex, perm, roles) {
   if (!roles.length) return;
-  const res = await knex.raw(
-    `UPDATE identity.role_permissions
-        SET permissions = permissions || jsonb_build_object(?::text, true),
-            updated_at = now()
-      WHERE lower(role_name) = ANY(?::text[])
-        AND deleted_at IS NULL
-        AND COALESCE((permissions->>?::text)::boolean, false) IS NOT TRUE`,
-    [perm, roles, perm],
+  const { rows: destino } = await knex.raw(
+    `SELECT id, role_name, permissions -> ?::text AS ya
+       FROM identity.role_permissions
+      WHERE lower(role_name) = ANY(?::text[]) AND deleted_at IS NULL`,
+    [perm, roles],
   );
-  console.log(`[grant_presupuestos] ${perm} otorgado en ${res.rowCount ?? 0} fila(s) de rol`);
+  const nuevos = destino.filter((r) => r.ya === null);
+  const enFalse = destino.filter((r) => r.ya === false).map((r) => r.role_name);
+  if (nuevos.length) {
+    const patch = JSON.stringify({ [perm]: true });
+    const res = await knex.raw(
+      `UPDATE identity.role_permissions
+          SET permissions = permissions || ?::jsonb, updated_at = now()
+        WHERE id = ANY(?) AND deleted_at IS NULL AND permissions -> ?::text IS NULL`,
+      [patch, nuevos.map((r) => r.id), perm],
+    );
+    console.log(`[grant_presupuestos] ${perm} otorgado en ${res.rowCount ?? 0} fila(s): ${nuevos.map((r) => r.role_name).join(', ')}`);
+  } else {
+    console.log(`[grant_presupuestos] ${perm}: ningún rol nuevo por tocar.`);
+  }
+  if (enFalse.length) {
+    console.log(`[grant_presupuestos] ${perm} en false (decisión manual, NO se pisa): ${enFalse.join(', ')}`);
+  }
 }
 
 exports.up = async function up(knex) {
@@ -59,10 +81,14 @@ exports.up = async function up(knex) {
 
 /** @param { import("knex").Knex } knex */
 exports.down = async function down(knex) {
-  await knex.raw(
-    `UPDATE identity.role_permissions
-        SET permissions = permissions || jsonb_build_object('PRESUPUESTOS_VER', false, 'PRESUPUESTOS_GESTIONAR', false)
-      WHERE lower(role_name) = ANY(?::text[])`,
-    [VER_ROLES],
-  );
+  // Se apaga la clave (false explícito, no se borra) en los roles que la tienen en true.
+  for (const perm of ['PRESUPUESTOS_VER', 'PRESUPUESTOS_GESTIONAR']) {
+    const off = JSON.stringify({ [perm]: false });
+    await knex.raw(
+      `UPDATE identity.role_permissions
+          SET permissions = permissions || ?::jsonb, updated_at = now()
+        WHERE deleted_at IS NULL AND permissions -> ?::text = 'true'::jsonb`,
+      [off, perm],
+    );
+  }
 };

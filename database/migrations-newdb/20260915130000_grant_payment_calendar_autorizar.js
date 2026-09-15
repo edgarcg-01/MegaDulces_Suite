@@ -5,8 +5,14 @@
  * (que preparan el lote con `FINANCE_PAYMENTS_GESTIONAR`). Es la separación de funciones que
  * pidió el usuario: quien prepara no es quien autoriza.
  *
- * Mismo patrón que `20260914150000_grant_presupuestos_to_roles.js`. Tolerante a roles que no
- * existan en un tenant dado. Requiere RE-LOGIN (los permisos viajan en el JWT).
+ * ── Idempotente por `IS NULL`, no por `COALESCE(...) IS NOT TRUE` ────────────────────
+ * Mismo fix que `20260914150000_grant_presupuestos_to_roles.js` (revisión PR #100, Edgar):
+ * `permissions -> 'KEY' IS NULL` = "nunca se tocó" — un `false` explícito (decisión manual desde
+ * `/admin/roles`) NO se pisa. Se apunta por `id` de fila, no por `role_name` (la tabla es por
+ * tenant y un mismo rol puede tener varias filas).
+ *
+ * Tolerante a roles que no existan en un tenant dado. Requiere RE-LOGIN (los permisos viajan en
+ * el JWT).
  *
  * @param { import("knex").Knex } knex
  */
@@ -14,16 +20,30 @@ const PERM = 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR';
 const ROLES = ['gerente_finanzas', 'direccion', 'superadmin'];
 
 exports.up = async function up(knex) {
-  const res = await knex.raw(
-    `UPDATE identity.role_permissions
-        SET permissions = permissions || jsonb_build_object(?::text, true),
-            updated_at = now()
-      WHERE lower(role_name) = ANY(?::text[])
-        AND deleted_at IS NULL
-        AND COALESCE((permissions->>?::text)::boolean, false) IS NOT TRUE`,
-    [PERM, ROLES, PERM],
+  const { rows: destino } = await knex.raw(
+    `SELECT id, role_name, permissions -> ?::text AS ya
+       FROM identity.role_permissions
+      WHERE lower(role_name) = ANY(?::text[]) AND deleted_at IS NULL`,
+    [PERM, ROLES],
   );
-  console.log(`[grant_payment_calendar_autorizar] ${PERM} otorgado en ${res.rowCount ?? 0} fila(s) de rol`);
+  const nuevos = destino.filter((r) => r.ya === null);
+  const enFalse = destino.filter((r) => r.ya === false).map((r) => r.role_name);
+
+  if (nuevos.length) {
+    const patch = JSON.stringify({ [PERM]: true });
+    const res = await knex.raw(
+      `UPDATE identity.role_permissions
+          SET permissions = permissions || ?::jsonb, updated_at = now()
+        WHERE id = ANY(?) AND deleted_at IS NULL AND permissions -> ?::text IS NULL`,
+      [patch, nuevos.map((r) => r.id), PERM],
+    );
+    console.log(`[grant_payment_calendar_autorizar] ${PERM} otorgado en ${res.rowCount ?? 0} fila(s): ${nuevos.map((r) => r.role_name).join(', ')}`);
+  } else {
+    console.log(`[grant_payment_calendar_autorizar] ${PERM}: ningún rol nuevo por tocar.`);
+  }
+  if (enFalse.length) {
+    console.log(`[grant_payment_calendar_autorizar] ${PERM} en false (decisión manual, NO se pisa): ${enFalse.join(', ')}`);
+  }
 
   const cobertura = await knex.raw(
     `SELECT rp.role_name,
@@ -57,10 +77,11 @@ exports.up = async function up(knex) {
 
 /** @param { import("knex").Knex } knex */
 exports.down = async function down(knex) {
+  const off = JSON.stringify({ [PERM]: false });
   await knex.raw(
     `UPDATE identity.role_permissions
-        SET permissions = permissions || jsonb_build_object(?::text, false)
-      WHERE lower(role_name) = ANY(?::text[])`,
-    [PERM, ROLES],
+        SET permissions = permissions || ?::jsonb, updated_at = now()
+      WHERE deleted_at IS NULL AND permissions -> ?::text = 'true'::jsonb`,
+    [off, PERM],
   );
 };
