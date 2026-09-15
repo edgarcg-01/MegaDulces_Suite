@@ -730,6 +730,13 @@ const CRON_JOBS: CronCfg[] = [
   // candado de VP.0.5 lo exige —todo `job_key` que late tiene umbral— y porque un comparador que
   // deja de correr en silencio devuelve la deriva a ser invisible, que es lo que la fase cerró.
   { key: 'period_close_check',                label: 'Verificación de cierres de mes',    cadence: 'nightly 07:10 MX', warnH: 26, critH: 50 },
+  // [DB-MEM] El apareo INCREMENTAL de recepciones gemelas (`GoodsReceiptTwinsService`, cada 5 min).
+  // Nació mudo: el único job_key de recepciones que este tablero veía era `feed_receipts`, que es el
+  // CLI de barrido HISTÓRICO — agendado cada minuto y llevándose el 42.8% del tiempo de ejecución de
+  // la base. Sin este latido no se podía bajar la cadencia del CLI sin arriesgar dinero contado dos
+  // veces, porque nadie podía comprobar que el incremental estuviera vivo. Umbral de job de alta
+  // frecuencia, mismo criterio que `kepler_stock`.
+  { key: 'twins_pairing',                     label: 'Apareo de recepciones gemelas (cron API)', cadence: 'cada 5 min', warnH: 3, critH: 12 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_payment_terms',   label: 'Refresh MV condición de pago (SD-PAY, nightly)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
