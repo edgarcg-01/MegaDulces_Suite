@@ -3040,6 +3040,17 @@ export class CommercialAnalyticsService {
         ? await trx('catalog.products as p')
             .where('p.brand_id', brandId)
             .whereNull('p.deleted_at')
+            // [UXC.4] Fuera los fantasmas del seed de MAYO-2026 (previos al import real de Kepler
+            // de junio): productos SIN SKU, o sea sin identidad en el ERP. Medido en prod hoy:
+            // **1,144** vivos, **0 con existencia** y **0 con venta de por vida**. Eran el 52% de
+            // los renglones que esta pantalla pintaba con guion en UxC — y no es que falte el
+            // factor, es que no hay producto que medir. Misma regla que ya se aplicó en
+            // `salidasReport()` (commit b2fc112): se CONSERVA el que tenga existencia real, para
+            // que la anomalía se siga viendo donde sí es una anomalía.
+            .whereRaw(`(nullif(btrim(coalesce(p.sku, '')), '') IS NOT NULL
+               OR EXISTS (SELECT 1 FROM commercial.stock s
+                           WHERE s.tenant_id = p.tenant_id AND s.product_id = p.id
+                             AND s.quantity <> 0))`)
             .modify((qb) => this.promoFilter(qb, promoMode))
             .modify((qb) => { if (search) qb.whereRaw('(p.sku ILIKE ? OR p.nombre ILIKE ?)', [`%${search}%`, `%${search}%`]); })
             .select('p.id', 'p.sku', 'p.nombre', 'p.factor_sale')
@@ -3116,7 +3127,13 @@ export class CommercialAnalyticsService {
         ? await trx('analytics.v_product_box_factor_consensus')
             .where('tenant_id', tenantId)
             .whereRaw('product_id = ANY(?::uuid[])', [uxcPids])
-            .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max')
+            // [UXC.3] `is_weight` viaja en la MISMA lectura (la vista ya lo trae): el renglón a
+            // granel no tiene "piezas por caja" y la pantalla ya sabe imprimir `kg`, pero sólo se
+            // enteraba por la fila de VENTA. Un SKU a granel SIN venta caía al guion mudo, que se
+            // lee como "falta el dato" cuando lo correcto es "va en kilos". Medido: 77 productos
+            // a granel, $3,031,966 de venta / 90 d.
+            .select('product_id', 'box_factor_publicable', 'veredicto', 'factor_min', 'factor_max',
+              'is_weight')
         : [];
 
       // Cobertura: almacenes con venta (CUALQUIER marca) en el periodo, de la MISMA fuente unificada que
@@ -3159,7 +3176,11 @@ export class CommercialAnalyticsService {
     // [UXC.1] El UxC que se publica, con su veredicto. Un producto SIN fila en el resolvedor no
     // llega como 1: llega como NULL declarado — una ausencia dibujada como 1 es justo lo que
     // ADR-056 prohíbe, y en esta pantalla se exporta a Excel y se manda afuera.
-    type UxcInfo = { uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null };
+    type UxcInfo = {
+      uxc: number | null; veredicto: SellOutRow['uxc_veredicto']; rango: string | null;
+      /** [UXC.3] El renglón va en kilos: no tiene "piezas por caja" y no es un dato faltante. */
+      peso: boolean;
+    };
     const uxcByProduct = new Map<string, UxcInfo>();
     for (const u of (uxcRows ?? []) as any[]) {
       const min = u.factor_min != null ? Number(u.factor_min) : null;
@@ -3169,10 +3190,11 @@ export class CommercialAnalyticsService {
         veredicto: u.veredicto ?? null,
         rango: u.veredicto === 'difiere_entre_plazas' && min != null && max != null
           ? `${min}–${max}` : null,
+        peso: !!u.is_weight,
       });
     }
     const uxcFor = (pid: string): UxcInfo =>
-      uxcByProduct.get(pid) ?? { uxc: null, veredicto: null, rango: null };
+      uxcByProduct.get(pid) ?? { uxc: null, veredicto: null, rango: null, peso: false };
     // Lo que no se pudo convertir se CUENTA, no se dibuja como cero ni se cuela como piezas.
     const sinMetodo = { skus: new Set<string>(), unidades: 0, monto: 0 };
 
@@ -3439,6 +3461,9 @@ export class CommercialAnalyticsService {
             sku: p.sku,
             nombre: p.nombre,
             uxc: uxcFor(p.id).uxc, uxc_veredicto: uxcFor(p.id).veredicto, uxc_rango: uxcFor(p.id).rango,
+            // [UXC.3] El camino de VENTA rotula la unidad (`isWeight`) y éste no lo hacía: un SKU
+            // a granel sin venta salía con guion mudo en vez de `kg`.
+            unit_kind: uxcFor(p.id).peso ? 'weight' : 'piece',
             cells: {},
             total: { cajas: 0, monto: 0, monto_neto: 0, units: 0 },
           });
