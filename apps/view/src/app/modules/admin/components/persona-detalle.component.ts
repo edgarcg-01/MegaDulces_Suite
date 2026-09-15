@@ -28,12 +28,14 @@ import type {
 } from '@megadulces/contracts';
 
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
+import { PersonaAccesoComponent } from './persona-acceso.component';
+import { PersonaDatosComponent } from './persona-datos.component';
 // ⚠️ Vive todavía en el módulo viejo; se muda con él cuando `[AU.7]` lo retire.
 import {
   SESSION_PRESETS,
   generateDevicePassword,
 } from '../../dashboard/admin-users/device-session';
-import { AdminService, EventoDePersona, OpcionCatalogo, PermisosDePersona } from '../admin.service';
+import { AdminService, EventoDePersona, OpcionCatalogo } from '../admin.service';
 
 /**
  * `[AU.2]` — La ficha de una persona, por las cinco preguntas que se le hacen:
@@ -53,7 +55,7 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
   standalone: true,
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TagModule, SelectModule, InputTextModule,
-    TextareaModule, SegmentedComponent,
+    TextareaModule, SegmentedComponent, PersonaAccesoComponent, PersonaDatosComponent,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -123,11 +125,32 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
           <p-select inputId="pd-jefe" [options]="jefeOpts()" [ngModel]="fJefe()"
                     (ngModelChange)="fJefe.set($event)" optionLabel="label" optionValue="value"
                     [filter]="true" filterBy="label" appendTo="body" [disabled]="!puedeEscribir"
-                    placeholder="Sin jefe directo"></p-select>
-          <p class="pd-hint">
-            Si se deja vacío, el escalamiento usa el jefe que propone el puesto. Declararlo acá
-            sirve cuando el organigrama por zona no alcanza para desempatar.
-          </p>
+                    placeholder="Lo hereda del puesto"></p-select>
+          @if (!fJefe()) {
+            @if (jefeHeredado(); as h) {
+              <p class="pd-hint">
+                No necesita jefe a mano: su puesto reporta a <strong>{{ h.puesto }}</strong>@if (h.quienes.length) {,
+                hoy <strong>{{ h.quienes.join(', ') }}</strong>}. Declararlo acá sólo sirve para
+                apartarse de eso.
+                @if (!h.quienes.length) {
+                  <br /><span class="pd-aviso">
+                    ⚠ Ese puesto está vacante, así que el escalamiento no llega a nadie.
+                  </span>
+                }
+              </p>
+            } @else {
+              <p class="pd-hint">
+                Su puesto no cuelga de ningún otro, así que <strong>de verdad no tiene jefe</strong>.
+                Si eso no es correcto, se arregla en
+                <a class="pd-link" routerLink="/admin/puestos">la cadena de mando del puesto</a>.
+              </p>
+            }
+          } @else {
+            <p class="pd-hint">
+              Jefe puesto a mano: gana sobre el que propone el puesto. Los de arriba de la lista son
+              los que el organigrama sugiere.
+            </p>
+          }
         </section>
 
         <!-- Lo que el puesto PROPONE: las cuatro cosas, del servidor. -->
@@ -247,44 +270,9 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
 
         @if (!persona) {
           <p class="pd-vacio">Los permisos se revisan una vez que la persona existe. Guardá primero.</p>
-        } @else if (cargandoAcceso()) {
-          <p class="pd-vacio">Leyendo el acceso…</p>
-        } @else if (permisos(); as pm) {
-          <section class="pd-blk">
-            <dl class="pd-dl">
-              <dt>Perfil base</dt>
-              <dd><span class="comm-code">{{ persona.role_name }}</span></dd>
-              <dt>Permisos que abre</dt>
-              <dd class="comm-num">{{ pm.efectivos.length }}</dd>
-            </dl>
-
-            @if (pm.overrides.length) {
-              <div class="pd-aviso-blk" role="status">
-                <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
-                <div>
-                  <strong>{{ pm.overrides.length }} clave(s) sueltas</strong> sobre su perfil:
-                  {{ cuantosConceden(pm) }} conceden y {{ cuantosQuitan(pm) }} quitan.
-                  <p class="pd-sub">
-                    Un override de este tamaño no es una excepción: es que el rol no le queda.
-                    Lo que corrige el problema de raíz es arreglar el rol, no acumular excepciones.
-                  </p>
-                  <a class="pd-link" routerLink="/admin/roles">Ir a Roles y permisos →</a>
-                </div>
-              </div>
-              <ul class="pd-lista">
-                @for (o of pm.overrides; track o.permission_key) {
-                  <li>
-                    <span class="comm-code">{{ o.permission_key }}</span>
-                    <p-tag [value]="o.allow ? 'concede' : 'quita'"
-                           [severity]="o.allow ? 'success' : 'danger'" styleClass="pd-tag"></p-tag>
-                    @if (o.nota) { <span class="pd-sub">{{ o.nota }}</span> }
-                  </li>
-                }
-              </ul>
-            } @else {
-              <p class="pd-vacio">Sin excepciones: su acceso sale entero de su perfil. Es lo deseable.</p>
-            }
-          </section>
+        } @else {
+          <app-persona-acceso [userId]="persona.id" [puedeEscribir]="puedeEscribir"
+                              (guardado)="aviso.emit($event)"></app-persona-acceso>
         }
       }
 
@@ -324,29 +312,12 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
             Las reglas de alcance por dimensión se ven cuando la persona existe. Lo de arriba sí se
             guarda con el alta.
           </p>
-        } @else if (alcance(); as al) {
+        } @else {
           <section class="pd-blk">
             <h3>Qué filas ve</h3>
-            <p class="pd-hint">
-              Qué filas ve en cada dimensión. <strong>Sin regla, no ve nada</strong> — el alcance
-              es fail-closed a propósito.
-            </p>
-            <ul class="pd-lista">
-              @for (d of dimensiones(); track d.code) {
-                <li>
-                  <span class="pd-dim">{{ d.code }}</span>
-                  <p-tag [value]="d.mode" [severity]="d.mode === 'all' ? 'info' : 'secondary'"
-                         styleClass="pd-tag"></p-tag>
-                  <span class="pd-sub">{{ d.source }}</span>
-                  @if (d.resolvable === false) {
-                    <span class="pd-aviso">· no resoluble: su ficha no tiene el dato</span>
-                  }
-                </li>
-              }
-            </ul>
+            <app-persona-datos [userId]="persona.id" [puedeEscribir]="puedeEscribir"
+                               (guardado)="aviso.emit($event)"></app-persona-datos>
           </section>
-        } @else {
-          <p class="pd-vacio">Leyendo el alcance…</p>
         }
       }
 
@@ -489,7 +460,10 @@ export class PersonaDetalleComponent implements OnChanges {
 
   @Input() persona: PersonaFila | null = null;
   @Input() puedeEscribir = false;
+  /** Se guardó la ficha: la lista recarga y el cajón cierra. */
   @Output() guardado = new EventEmitter<string>();
+  /** Se guardó algo de adentro (acceso, alcance): avisa y el cajón SIGUE abierto. */
+  @Output() aviso = new EventEmitter<string>();
   @Output() cancelado = new EventEmitter<void>();
 
   readonly pestana = signal<Pestana>('persona');
@@ -498,18 +472,17 @@ export class PersonaDetalleComponent implements OnChanges {
   readonly guardando = signal(false);
   readonly errorGuardado = signal<string | null>(null);
 
-  readonly permisos = signal<PermisosDePersona | null>(null);
-  readonly alcance = signal<{ dimensions: Record<string, unknown> } | null>(null);
   readonly responsabilidades = signal<ResponsabilidadesDePersona | null>(null);
   readonly historia = signal<HistoriaDePuesto | null>(null);
   readonly eventos = signal<EventoDePersona[]>([]);
-  readonly cargandoAcceso = signal(false);
 
   private readonly puestos = signal<OpcionCatalogo[]>([]);
   private readonly roles = signal<string[]>([]);
   private readonly catalogoResp = signal<Array<{ key: string; label: string }>>([]);
   private readonly departamentos = signal<OpcionCatalogo[]>([]);
-  private readonly jefes = signal<Array<{ id: string; nombre: string | null; username: string }>>([]);
+  private readonly jefes = signal<
+    Array<{ id: string; username: string; nombre: string | null; position_code: string | null; position_name: string | null; puestos_a_cargo: number }>
+  >([]);
   private readonly branches = signal<Array<{ code: string; name: string }>>([]);
   private readonly routes = signal<Array<{ id: string; name: string }>>([]);
   private readonly zones = signal<Array<{ id: string; value: string }>>([]);
@@ -560,12 +533,35 @@ export class PersonaDetalleComponent implements OnChanges {
     this.departamentos().map((d) => ({ label: d.name, value: d.code })),
   );
 
-  readonly jefeOpts = computed(() => [
-    { label: 'Sin jefe directo', value: null as string | null },
-    ...this.jefes()
-      .filter((j) => j.id !== this.persona?.id)
-      .map((j) => ({ label: j.nombre || j.username, value: j.id as string | null })),
-  ]);
+  /**
+   * Los candidatos salen del ORGANIGRAMA, no del nombre del rol. Arriba, los que
+   * ocupan el puesto al que reporta su puesto —que es lo que la cadena dice—; y
+   * después el resto de los jefes, para la excepción.
+   */
+  readonly jefeOpts = computed(() => {
+    const yo = this.persona?.id;
+    const sugeridos = new Set((this.propuesta()?.reports_to?.ocupantes ?? []).map((o) => o.id));
+    const todos = this.jefes().filter((j) => j.id !== yo);
+    const fila = (j: { id: string; nombre: string | null; username: string; position_name: string | null }) => ({
+      label: `${j.nombre || j.username}${j.position_name ? ` · ${j.position_name}` : ''}`,
+      value: j.id as string | null,
+    });
+    const arriba = todos.filter((j) => sugeridos.has(j.id)).map(fila);
+    const resto = todos.filter((j) => !sugeridos.has(j.id)).map(fila);
+    return [
+      { label: 'Lo hereda del puesto', value: null as string | null },
+      ...arriba,
+      ...resto,
+    ];
+  });
+
+  /** De quién depende hoy si nadie le puso jefe a mano. */
+  readonly jefeHeredado = computed(() => {
+    const r = this.propuesta()?.reports_to;
+    if (!r) return null;
+    const quienes = (r.ocupantes ?? []).map((o) => o.nombre || o.username);
+    return { puesto: r.name, quienes };
+  });
 
   readonly sucursalOpts = computed(() => [
     { label: 'Ninguna', value: null as string | null },
@@ -629,21 +625,11 @@ export class PersonaDetalleComponent implements OnChanges {
     return true;
   });
 
-  readonly dimensiones = computed(() => {
-    const d = this.alcance()?.dimensions ?? {};
-    return Object.entries(d).map(([code, v]) => ({
-      code,
-      ...(v as { mode: string; source: string; resolvable?: boolean }),
-    }));
-  });
-
   ngOnChanges(): void {
     this.pestana.set('persona');
     this.errorGuardado.set(null);
     this.ajustar.set(false);
     this.propuesta.set(null);
-    this.permisos.set(null);
-    this.alcance.set(null);
     this.responsabilidades.set(null);
     this.historia.set(null);
     this.eventos.set([]);
@@ -687,7 +673,7 @@ export class PersonaDetalleComponent implements OnChanges {
       });
     }
     if (!this.jefes().length) {
-      this.api.supervisores().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      this.api.jefes().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (j) => this.jefes.set(j),
         error: () => this.jefes.set([]),
       });
@@ -716,18 +702,8 @@ export class PersonaDetalleComponent implements OnChanges {
   }
 
   private cargarLoDeLaPersona(id: string): void {
-    this.cargandoAcceso.set(true);
-    this.api.permisosDe(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (p) => {
-        this.permisos.set(p);
-        this.cargandoAcceso.set(false);
-      },
-      error: () => this.cargandoAcceso.set(false),
-    });
-    this.api.alcanceDe(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (a) => this.alcance.set(a),
-      error: () => this.alcance.set(null),
-    });
+    // Acceso y alcance los pide cada sub-componente cuando su pestaña se abre:
+    // traerlos acá cargaba cinco llamadas por ficha para mirar una sola.
     this.api.responsabilidadesDePersona(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.responsabilidades.set(r),
       error: () => this.responsabilidades.set(null),
@@ -867,14 +843,6 @@ export class PersonaDetalleComponent implements OnChanges {
     const m = err?.error?.message;
     if (Array.isArray(m)) return m.join(' · ');
     return m ?? 'No se pudo guardar. Nada cambió.';
-  }
-
-  cuantosConceden(p: PermisosDePersona): number {
-    return p.overrides.filter((o) => o.allow).length;
-  }
-
-  cuantosQuitan(p: PermisosDePersona): number {
-    return p.overrides.filter((o) => !o.allow).length;
   }
 
   nombresDe(ocupantes: Array<{ nombre: string | null; username: string }>): string {

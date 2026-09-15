@@ -65,6 +65,13 @@ export class OrgController {
     return this.org.listResponsibilities();
   }
 
+  @Get('managers')
+  @RequirePermissions(Permission.USUARIOS_VER)
+  @ApiOperation({ summary: 'Quién puede ser jefe: los que ocupan un puesto del que cuelga otro. Derivado del organigrama, no del nombre del rol' })
+  managers() {
+    return this.org.managers();
+  }
+
   @Get('responsibilities/:key/positions')
   @RequirePermissions(Permission.USUARIOS_VER)
   @ApiOperation({ summary: 'Qué puestos responden de una responsabilidad, con el diagnóstico `abre`' })

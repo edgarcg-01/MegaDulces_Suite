@@ -1023,9 +1023,22 @@ export class UsersService {
       .clearSelect()
       .clearOrder()
       .select(
+        /*
+         * `[AU.16]` «Sin jefe» cuenta a quien no tiene jefe **ni por puesto**.
+         *
+         * Contar `supervisor_id IS NULL` daba 76 de 100 y se leía como «76 sin
+         * jefe», pero **45 de esos 76 sí tienen jefe**: su puesto reporta a otro
+         * que está ocupado. El número accionable es el resto — los 29 cuyo
+         * puesto jefe está vacante y los 2 que son raíz del organigrama.
+         */
         knex.raw(
           `count(DISTINCT u.id) FILTER (WHERE u.position_code IS NULL)::int AS sin_puesto,
-           count(DISTINCT u.id) FILTER (WHERE u.supervisor_id IS NULL)::int AS sin_jefe,
+           count(DISTINCT u.id) FILTER (
+             WHERE u.supervisor_id IS NULL AND NOT EXISTS (
+               SELECT 1 FROM identity.users oj
+                WHERE oj.tenant_id = u.tenant_id AND oj.deleted_at IS NULL
+                  AND oj.position_code = ps.reports_to_position_code)
+           )::int AS sin_jefe,
            count(DISTINCT u.id) FILTER (WHERE u.token_ttl_days IS NOT NULL)::int AS sesion_larga,
            count(DISTINCT u.id) FILTER (WHERE u.last_login_at IS NULL)::int AS nunca_entraron`,
         ),

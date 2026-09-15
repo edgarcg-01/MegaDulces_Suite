@@ -434,6 +434,59 @@ const BASE_ALCANCE = {
       `los ${vac[0].sin_perfil} puesto(s) sin perfil siguen vacantes (${vac[0].sin_perfil_ocupados} ocupado/s): hoy nadie entró por ese camino`,
     );
 
+    // ══ 12. El jefe sale del ORGANIGRAMA, no del nombre del rol ════════════
+    //
+    // `[AU.16]` El selector de jefe usaba `GET /users/supervisors`, que filtra
+    // `role_name LIKE '%supervisor%'`. En un modelo persona-con-puesto el jefe de
+    // una cajera es el encargado de sucursal, y la substring no sabe eso.
+    console.log('\n[12] El jefe se deriva del puesto');
+    const { rows: ofrece } = await k.raw(
+      `SELECT
+         (SELECT count(*)::int FROM identity.users u
+           WHERE u.tenant_id = ? AND u.activo AND u.role_name LIKE '%supervisor%') AS por_substring,
+         (SELECT count(*)::int FROM identity.users u
+            JOIN identity.positions p
+              ON p.tenant_id = u.tenant_id AND p.code = u.position_code AND p.deleted_at IS NULL
+           WHERE u.tenant_id = ? AND u.deleted_at IS NULL AND u.kind = 'interno'
+             AND EXISTS (SELECT 1 FROM identity.positions s
+                          WHERE s.tenant_id = p.tenant_id AND s.deleted_at IS NULL
+                            AND s.reports_to_position_code = p.code)) AS por_organigrama`,
+      [TENANT, TENANT],
+    );
+    const o = ofrece[0];
+    check(
+      o.por_organigrama >= o.por_substring,
+      `el organigrama ofrece ${o.por_organigrama} jefe(s) y la substring ${o.por_substring}: no se pierde ninguno`,
+    );
+    // Prueba negativa: si los dos dieran lo mismo, el cambio sería cosmético.
+    check(
+      o.por_organigrama > o.por_substring,
+      `y ofrece ${o.por_organigrama - o.por_substring} MÁS — el filtro por nombre de rol dejaba fuera a jefes reales`,
+    );
+
+    const { rows: jefe } = await k.raw(
+      `SELECT count(*)::int AS sin_supervisor_id,
+              count(*) FILTER (WHERE NOT EXISTS (
+                SELECT 1 FROM identity.users oj
+                 WHERE oj.tenant_id = u.tenant_id AND oj.deleted_at IS NULL
+                   AND oj.position_code = p.reports_to_position_code))::int AS sin_jefe_real
+         FROM identity.users u
+         LEFT JOIN identity.positions p
+           ON p.tenant_id = u.tenant_id AND p.code = u.position_code AND p.deleted_at IS NULL
+        WHERE u.tenant_id = ? AND u.deleted_at IS NULL AND u.kind = 'interno'
+          AND u.supervisor_id IS NULL`,
+      [TENANT],
+    );
+    const j = jefe[0];
+    check(
+      j.sin_jefe_real <= j.sin_supervisor_id,
+      `«sin jefe» cuenta ${j.sin_jefe_real} y no ${j.sin_supervisor_id}: ${j.sin_supervisor_id - j.sin_jefe_real} lo heredan del puesto`,
+    );
+    check(
+      /oj\.position_code = ps\.reports_to_position_code/.test(padronSvc),
+      'y el KPI del padrón usa esa definición, no `supervisor_id IS NULL` a secas',
+    );
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} [AU] administración de usuarios: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {
