@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommercialMovementsModule } from '../commercial-movements/commercial-movements.module';
 import { CommercialBiAlmacenService } from './commercial-bi-almacen.service';
+import { CommercialBiAlmacenExportService } from './commercial-bi-almacen-export.service';
 import { CommercialBiAlmacenController } from './commercial-bi-almacen.controller';
 
 /**
@@ -12,7 +13,7 @@ import { CommercialBiAlmacenController } from './commercial-bi-almacen.controlle
 @Module({
   imports: [CommercialMovementsModule],
   controllers: [CommercialBiAlmacenController],
-  providers: [CommercialBiAlmacenService],
+  providers: [CommercialBiAlmacenService, CommercialBiAlmacenExportService],
   exports: [CommercialBiAlmacenService],
 })
 export class CommercialBiAlmacenModule {}
