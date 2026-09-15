@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -9,9 +9,7 @@ import { DialogModule } from 'primeng/dialog';
 import { AutoCompleteModule } from 'primeng/autocomplete';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { CapturasSinFolioService, CapturaSinFolio, CaptureLink } from '../capturas-sin-folio.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -24,46 +22,30 @@ import { dmy } from './finanzas-format';
 interface SolSug { folio: string; fecha: string | null; importe: number; beneficiario: string | null; sucursal: string | null; solicitante: string | null; label?: string; }
 
 /**
- * GX.9 — «Capturas de campo»: lo que llegó por link y todavía no se liga a una solicitud
- * de Kepler, más la administración de los links.
+ * GX.9/GX.10 — «Sin folio»: lo que llegó por link y todavía no se liga a una solicitud de
+ * Kepler, más la administración de los links.
  *
- * Por qué es una pantalla aparte y no una etapa del embudo de `/finanzas/solicitudes`: ese
- * tablero se arma desde las filas de Kepler. Una captura sin folio **no tiene fila allá**,
- * así que no hay dónde ponerla — no es una etapa que falte, es que todavía no existe el
- * documento que el otro tablero lista.
+ * **Nació como pantalla aparte y ahora es una etapa del embudo de Gastos.** El argumento
+ * para separarla era que el tablero se arma desde las filas de Kepler y una captura sin
+ * folio no tiene fila allá — cierto, pero eso obliga a que la TABLA sea distinta, no a que
+ * la pantalla lo sea. Para quien trabaja es la misma bandeja: mirar gastos pendientes y
+ * empujarlos. Así que el tablero muestra este panel cuando la etapa elegida es `sin_folio`.
  *
- * El trabajo de esta pantalla es uno solo: **ponerle folio a cada captura**. En cuanto lo
- * tiene, desaparece de acá y entra al ciclo normal en Solicitudes, donde se aprueba.
+ * El trabajo del panel es uno solo: **ponerle folio a cada captura**. En cuanto lo tiene,
+ * desaparece de acá y sigue el ciclo normal en las demás etapas, donde se aprueba.
  */
 @Component({
-  selector: 'app-finanzas-capturas-sin-folio',
+  selector: 'app-capturas-sin-folio-panel',
   standalone: true,
   imports: [CommonModule, FormsModule, TableModule, ButtonModule, InputTextModule, DialogModule,
-    AutoCompleteModule, ToastModule, PageTabsComponent, LoadStateComponent],
+    AutoCompleteModule, ToastModule, LoadStateComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="surf-page in">
+    <!-- GX.10 — panel EMBEBIDO en el tablero de Gastos, no página propia. El encabezado,
+         el periodo y el embudo son del tablero; acá empieza directamente el trabajo. -->
+    <div class="cf-panel">
       <p-toast />
-      <app-page-tabs [tabs]="tabs" />
-
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
-          <h1>Capturas de campo</h1>
-          <p class="surf-page-sub">Gastos que llegaron por link, antes de que exista su solicitud en Kepler · el trabajo es ligarlas a su folio</p>
-        </div>
-        <div class="cf-head-right">
-          <button pButton type="button" class="p-button-text p-button-sm" (click)="cargar()" [loading]="cargando()"
-                  aria-label="Volver a consultar">
-            <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
-          </button>
-          @if (puedeEmitir()) {
-            <button pButton type="button" class="p-button-sm" (click)="verLinks()">
-              <span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span>
-              <span class="p-button-label">Links ({{ linksVigentes() }})</span></button>
-          }
-        </div>
-      </header>
 
       @if (report(); as r) {
         <p class="cf-lead">
@@ -86,6 +68,18 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
             <label for="cf-q">Buscar</label>
             <input id="cf-q" pInputText [(ngModel)]="search" placeholder="Quién, a quién le pagó, de qué…"
                    (keyup.enter)="cargar()" (blur)="cargar()" />
+          </div>
+          <!-- Refrescar y los links bajan acá: el encabezado ahora es del tablero. -->
+          <div class="cf-acts">
+            <button pButton type="button" class="p-button-text p-button-sm" (click)="cargar()" [loading]="cargando()"
+                    aria-label="Volver a consultar">
+              <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
+            </button>
+            @if (puedeEmitir()) {
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verLinks()">
+                <span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span>
+                <span class="p-button-label">Links ({{ linksVigentes() }})</span></button>
+            }
           </div>
         </div>
 
@@ -242,9 +236,10 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
   `,
   styles: [FINANZAS_SHARED_STYLES, `
     :host { display: block; }
-    .cf-head-right { display: flex; align-items: center; gap: var(--sp-2); }
+    .cf-panel { display: block; }
+    .cf-acts { display: flex; align-items: center; gap: var(--sp-2); margin-left: auto; }
 
-    .cf-lead { margin: var(--sp-3) 0; max-width: 80ch; font-size: var(--fs-body); color: var(--fg-1); line-height: 1.5; }
+    .cf-lead { margin: 0 0 var(--sp-3); max-width: 80ch; font-size: var(--fs-body); color: var(--fg-1); line-height: 1.5; }
     .cf-warn { color: var(--warn-fg); }
 
     .card-premium.cf-card { padding: 0; overflow: hidden; box-shadow: none; }
@@ -312,12 +307,14 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
   `],
 })
 export class FinanzasCapturasSinFolioComponent {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(CapturasSinFolioService);
   private readonly toast = inject(MessageService);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
+
+  /** Al ligar una captura cambia el contador del embudo: el tablero tiene que recargarlo. */
+  readonly changed = output<void>();
 
   readonly report = signal<{ kpis: { total: number; importe: number; por_link: number; no_cuadran: number }; rows: CapturaSinFolio[] } | null>(null);
   readonly cargando = signal(false);
@@ -414,6 +411,7 @@ export class FinanzasCapturasSinFolioComponent {
           life: dif ? 8000 : 4000,
         });
         this.cargar();
+        this.changed.emit();
       },
       error: (e) => {
         this.casando.set(false);

@@ -29,6 +29,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { ComprobacionGastosService } from '../comprobacion-gastos.service';
+import { CapturasSinFolioService } from '../capturas-sin-folio.service';
+import { FinanzasCapturasSinFolioComponent } from './finanzas-capturas-sin-folio.component';
 import { datePresetRange, money, moneyShort } from '../../../shared/util';
 import { dmy } from './finanzas-format';
 
@@ -44,7 +46,7 @@ type Periodo = 'hoy' | 'd7' | 'd30' | 'rango';
  * comprobable) decide qué documentos lleva, y eso vive DENTRO del expediente, no como
  * columna del embudo.
  */
-type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'canceladas' | 'todas';
+type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'completo' | 'canceladas' | 'todas';
 
 /**
  * GX.6 — "Solicitudes de gasto": lista de solicitudes (Kepler XA1501) con su estado
@@ -59,7 +61,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'ca
 @Component({
   selector: 'app-finanzas-solicitudes',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent],
+  imports: [CommonModule, FormsModule, TableModule, MultiSelectModule, SelectModule, DatePickerModule, InputTextModule, InputNumberModule, SkeletonModule, ButtonModule, ToastModule, PageTabsComponent, SegmentedComponent, FreshnessPillComponent, ContextHelpComponent, LoadStateComponent, ExpenseEvidencePeekComponent, ExpenseEvidenceDialogComponent, FinanzasCapturasSinFolioComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -71,8 +73,8 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'ca
            mid-page: es el control que gobierna TODA la pantalla, no un filtro más. -->
       <header class="surf-page-head">
         <div class="surf-page-head-text">
-          <div class="so-title"><h1>Solicitudes de gasto</h1><app-context-help topic="solicitudes" /></div>
-          <p class="surf-page-sub">Solicitudes (XA1501) y su aplicación a gasto (XA1001) · estado, solicitante y días de proceso · fuente Kepler</p>
+          <div class="so-title"><h1>Gastos</h1><app-context-help topic="solicitudes" /></div>
+          <p class="surf-page-sub">El ciclo completo: solicitudes de Kepler (XA1501), su aplicación a gasto (XA1001) y lo capturado en campo que falta ligar</p>
           @if (mias() && !sinAnclas()) { <p class="so-scope"><i class="pi pi-user" aria-hidden="true"></i> Mías = <strong>{{ miScopeTexto() }}</strong></p> }
           @if (mias() && sinAnclas()) { <p class="so-scope is-warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No hay con qué saber cuáles son tuyas — pedí que te asignen tus áreas de gasto en Usuarios.</p> }
         </div>
@@ -143,6 +145,11 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'ca
       <p class="so-stage-note">{{ notaEtapa() }}</p>
       }
 
+      @if (etapa() === 'sin_folio') {
+        <!-- Otra tabla, misma bandeja. Estas filas no existen en Kepler todavía, así que
+             ni el periodo ni los filtros de arriba aplican — el panel trae los suyos. -->
+        <app-capturas-sin-folio-panel (changed)="cargarSinFolio()" />
+      } @else {
       <div class="card-premium card-flat so-card">
         <!-- Filtros secundarios pegados a la tabla que filtran, no flotando mid-page. -->
         <div class="so-tools">
@@ -254,6 +261,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'completo' | 'ca
           </p-table>
         </app-load-state>
       </div>
+      }
     </div>
 
     <!-- Expediente: Kepler + evidencia + decisión, sin perder la lista. -->
@@ -478,6 +486,12 @@ export class FinanzasSolicitudesComponent {
       acc[k].n++; acc[k].importe += Number(r.importe) || 0;
       acc['todas'].n++; acc['todas'].importe += Number(r.importe) || 0;
     }
+    // «Sin folio» viene de otra consulta y de OTRO universo: son capturas de campo que
+    // todavía no existen en Kepler, así que no caen dentro del periodo ni entran en
+    // `todas` — sumarlas ahí haría que el total dejara de cuadrar con la tabla. El chip
+    // muestra el pendiente completo y la nota de la etapa lo dice.
+    const sf = this.sinFolioKpis();
+    acc['sin_folio'] = { n: sf.total, importe: sf.importe };
     return acc;
   });
 
@@ -540,6 +554,10 @@ export class FinanzasSolicitudesComponent {
       ejercer: `Ya autorizadas, pero todavía sin el gasto que las ejerza.`,
       capturar: `Le toca al capturista, en «Capturar gasto»: registrar la solicitud (subir la firmada + clasificarla), o —si ya se aprobó y es comprobable— subir la evidencia.`,
       validar: `Le toca al aprobador: aprobar la solicitud recién capturada, o validar la evidencia que quedó en revisión.`,
+      sin_folio: `Lo que llegó por link desde el celular y todavía no se liga a una solicitud de Kepler. 
+        El trabajo es ponerle folio: ahí entra al ciclo normal y se aprueba como cualquier otra. 
+        ⚠️ Este conteo NO depende del periodo de arriba — es una cola de pendientes, y esconder 
+        una captura de anteayer porque estás mirando «Hoy» sería perderla.`,
       completo: `Expediente cerrado: validado con su evidencia — o declarado no comprobable con motivo.`,
       canceladas: `Canceladas en Kepler. El importe queda en cero al cancelar.`,
       todas: `Todas las etapas juntas, en orden de fecha.`,
@@ -613,6 +631,11 @@ export class FinanzasSolicitudesComponent {
     { label: 'Expediente', etapas: [
       { value: 'capturar', label: 'Por capturar' },
       { value: 'validar', label: 'Por validar' },
+      // GX.10 — lo que llegó por link y todavía no tiene folio de Kepler. Va en este
+      // bloque porque el trabajo es nuestro, no del ERP. ⚠️ Su conteo NO sale de
+      // `rows()`: esas filas no existen en Kepler todavía, así que no están en el
+      // periodo. Ver `sinFolioKpis` y la nota de la etapa.
+      { value: 'sin_folio', label: 'Sin folio' },
     ] },
     { label: 'Cerradas', etapas: [
       { value: 'completo', label: 'Completo' },
@@ -656,6 +679,7 @@ export class FinanzasSolicitudesComponent {
     this.svc.expensesFilters().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((f) => this.solicitantes.set(f.areas || []));
     this.refreshProofs();
+    this.cargarSinFolio();
     this.compGastos.statusBySolicitud().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe((m) => this.compStatus.set(m || {}));
     this.load();
@@ -663,6 +687,23 @@ export class FinanzasSolicitudesComponent {
     this.socket.connect();
     this.socket.change$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => this.refreshProofs());
     this.destroyRef.onDestroy(() => this.socket.disconnect());
+  }
+
+  /**
+   * KPIs de las capturas sin folio. Consulta aparte y SIN periodo a propósito: es una cola
+   * de pendientes, no un reporte del rango — esconder una captura de anteayer porque estás
+   * mirando "Hoy" sería perderla.
+   */
+  readonly sinFolioKpis = signal<{ total: number; importe: number }>({ total: 0, importe: 0 });
+  private readonly capturas = inject(CapturasSinFolioService);
+
+  cargarSinFolio(): void {
+    this.capturas.sinFolio().pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => this.sinFolioKpis.set({ total: r.kpis.total, importe: r.kpis.importe }),
+        // Que falle esta cola no debe romper el tablero: el chip queda en cero.
+        error: () => this.sinFolioKpis.set({ total: 0, importe: 0 }),
+      });
   }
 
   private refreshProofs(): void {

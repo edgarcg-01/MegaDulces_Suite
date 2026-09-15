@@ -622,7 +622,7 @@ export class ExpenseProofsService {
   }
 
   /**
-   * (C) Mapa folio_solicitud → EXPEDIENTE, para el tablero de /finanzas/solicitudes.
+   * (C) Mapa folio_solicitud → EXPEDIENTE, para el tablero de /finanzas/gastos.
    *
    * Devuelve el id (para poder resolver desde donde se ve), el estado, y qué documentos
    * hay. Sin los documentos el tablero no puede separar «falta el comprobante» de «falta
@@ -786,7 +786,7 @@ export class ExpenseProofsService {
 
   /**
    * Los expedientes capturados en campo que todavía no se ligaron a su solicitud XA1501.
-   * No aparecen en el tablero de `/finanzas/solicitudes` por construcción: ese tablero se
+   * No aparecen en el tablero de `/finanzas/gastos` por construcción: ese tablero se
    * arma desde las filas de Kepler, y éstos todavía no tienen una.
    */
   async sinFolio(q?: { search?: string; limit?: number }) {

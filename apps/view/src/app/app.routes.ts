@@ -329,26 +329,28 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
+        // GX.10 — UNA puerta al ciclo del gasto. Antes eran tres rutas para el mismo
+        // trámite. El guard deja pasar con CUALQUIERA de los dos permisos y el componente
+        // decide la superficie: tablero para quien puede ver, captura mínima para quien
+        // sólo captura (75 usuarios activos están en ese segundo grupo — ver el componente).
+        path: 'gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos.component').then(m => m.FinanzasGastosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+      },
+      // Las tres rutas viejas quedan como redirect: hay enlaces internos, marcadores del
+      // equipo y links compartidos apuntando ahí. `solicitudes` conserva sus query params
+      // (periodo/etapa/mias/anejas viajan en la URL), y `capturas-sin-folio` aterriza con
+      // su etapa ya elegida — ahora es una etapa más del embudo, no una pantalla aparte.
+      {
         path: 'solicitudes',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+        redirectTo: ({ queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/finanzas/gastos'], { queryParams, fragment: fragment ?? undefined }),
       },
+      { path: 'capturar-gasto', pathMatch: 'full', redirectTo: 'gastos' },
       {
-        // GX.9 — lo que llegó por link y todavía no tiene folio de Kepler. Pantalla aparte
-        // del embudo de /finanzas/solicitudes a propósito: ese tablero se arma desde las
-        // filas de Kepler, y una captura sin folio no tiene fila allá que mostrar.
         path: 'capturas-sin-folio',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-capturas-sin-folio.component').then(m => m.FinanzasCapturasSinFolioComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
-      },
-      {
-        // GX.8 — Captura (capturista): solo folio + subir comprobante. Sin bandeja de revisión.
-        // Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21:
-        // sólo servían para re-capturar datos que Kepler ya tiene. El tablero del autorizador
-        // es /finanzas/solicitudes, con el expediente y la captura como organismos encima.
-        path: 'capturar-gasto',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-capturar-gasto.component').then(m => m.FinanzasCapturarGastoComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_CAPTURAR)]
+        redirectTo: () =>
+          inject(Router).createUrlTree(['/finanzas/gastos'], { queryParams: { etapa: 'sin_folio' } }),
       },
       {
         path: 'cobranza',

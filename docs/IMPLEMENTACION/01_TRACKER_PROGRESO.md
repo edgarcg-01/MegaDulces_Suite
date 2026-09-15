@@ -287,6 +287,57 @@ _(vacío)_
 
 ---
 
+## GX.10 — Una sola puerta al gasto 🧪 2026-09-15 (en código, LOCAL)
+
+Eran **tres entradas de menú para el mismo trámite**: «Solicitudes de gasto», «Capturar gasto» y
+la «Capturas de campo» que había nacido el día anterior con GX.9.
+
+**El dato que decidió la forma:** no se pueden fundir en una pantalla sola. Medido en
+`role_permissions` — **11 roles / 75 usuarios activos** (32 cajeros, 19 promotores de ruta, 9
+encargados de tienda…) tienen `FINANCE_EXPENSES_CAPTURAR` **sin** `FINANCE_EXPENSES_VER`, y otros
+5 (`finanzas`, `direccion`, `auditor_externo`, `credito_cobranza`, `auxiliar finanzas`) al revés.
+Una pantalla que exigiera VER habría dejado afuera justo a quienes capturan. **Sólo 7 roles tienen
+los dos permisos — y eran los únicos que sufrían la duplicación.**
+
+Así que: **una ruta, una entrada, contenido según quién entra.**
+
+- [x] **[GX.10.1]** `/finanzas/gastos` + `FinanzasGastosComponent`: con VER → el tablero (la
+      captura ya vivía adentro como diálogo); sólo con CAPTURAR → la superficie mínima.
+      Guard `anyPermissionGuard(VER, CAPTURAR)`.
+- [x] **[GX.10.2]** Las 3 rutas viejas quedan como **redirect** (hay enlaces internos y marcadores
+      del equipo). `solicitudes` conserva sus query params; `capturas-sin-folio` aterriza con
+      `?etapa=sin_folio`. Se usó `redirectTo` como función, que este repo ya usaba en `televenta`.
+- [x] **[GX.10.3]** «Sin folio» pasa a ser **una etapa del embudo**, no una pantalla. El argumento
+      para separarla (el tablero se arma desde filas de Kepler y un huérfano no tiene fila allá)
+      obligaba a que la **tabla** fuera distinta, no la pantalla. `FinanzasCapturasSinFolioComponent`
+      se convirtió en panel embebible (`app-capturas-sin-folio-panel`, sin page-tabs ni header).
+- [x] **[GX.10.4]** ⚠️ **Su conteo NO sale de `rows()` ni entra en `todas`**: esas capturas no
+      existen en Kepler, así que no están en el periodo. Sumarlas habría hecho que el total dejara
+      de cuadrar con la tabla — el mismo pecado que el propio componente ya advertía («dos filas
+      que contaban universos distintos sin avisarlo»). Es una **cola de pendientes, sin periodo**,
+      y la nota de la etapa lo dice: esconder una captura de anteayer por estar mirando «Hoy»
+      sería perderla.
+- [x] **[GX.10.5]** Lo que la búsqueda destapó y había que arreglar igual: el **sidebar**
+      (`layout.component.ts` — que era lo que se veía en la captura de pantalla, no la barra de
+      tabs), el **aterrizaje** de `FINANCE_EXPENSES_CAPTURAR` en `permission.guard.ts`, los **dos
+      nodos del `authz-tree`** fundidos en uno (ADR-054 obliga a cablearlo) y el spec de DEUDA.
+- [x] **[GX.10.6]** `PageTab.anyOf` — pero **reusando el nombre que `NavItem` ya tenía** en el
+      sidebar para exactamente este caso. La primera versión lo llamó `anyPermission`: un segundo
+      nombre para el mismo concepto sólo obliga a recordar cuál va en cada lugar.
+
+**Verificado:** `nx build view` verde · `tsc` del API limpio · el spec `landing-guards` falla lo
+**mismo** con y sin estos cambios (1 suite / 4 tests, todas claves `COMMERCIAL_*` y de almacén —
+residuo del movimiento del catálogo en curso en esta rama, no de acá).
+
+**⚠️ Colisión de código de ticket:** `[GX.9]` ya estaba ocupado por un commit del 2026-09-11
+(«el egreso suma el activo no circulante…») y la fase del link lo reusó el 09-14 sin verificar.
+Misma clase de problema que ADR-052 triple-ocupado. **Antes de tomar un código, buscarlo en
+`git log --all --grep`.**
+
+**Pendiente:** validación visual · nada aplicado a Railway.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
