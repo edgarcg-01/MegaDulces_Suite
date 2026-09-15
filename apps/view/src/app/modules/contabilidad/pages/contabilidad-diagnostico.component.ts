@@ -87,7 +87,7 @@ import { FacturasService } from '../facturas.service';
                  [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
           <ng-template #header>
             <tr>
-              <th style="width:2.5rem"></th>
+              <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
               <th style="width:6rem">Sev.</th>
               <th style="width:8rem">Tipo</th>
               <th>Qué pasó</th>

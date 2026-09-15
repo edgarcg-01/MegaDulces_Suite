@@ -50,7 +50,7 @@ interface SupplierOpt { id: string; name: string; code: string; is_critical: boo
 
       <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm surf-table obl-table">
         <ng-template #header>
-          <tr><th>Proveedor</th><th>Folio</th><th>Concepto</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"></th></tr>
+          <tr><th>Proveedor</th><th>Folio</th><th>Concepto</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
         <ng-template #body let-o>
           <tr [class.obl-row-critical]="o.supplier_critical">

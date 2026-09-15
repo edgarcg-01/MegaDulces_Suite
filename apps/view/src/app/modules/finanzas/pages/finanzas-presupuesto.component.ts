@@ -80,7 +80,7 @@ interface ExpenseObligation {
         </div>
         <p-table [value]="expenses()" [loading]="loadingExpenses()" styleClass="p-datatable-sm surf-table pres-table">
           <ng-template #header>
-            <tr><th>Concepto</th><th>Beneficiario</th><th>Tipo</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"></th></tr>
+            <tr><th>Concepto</th><th>Beneficiario</th><th>Tipo</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
           </ng-template>
           <ng-template #body let-e>
             <tr [class.pres-row-critical]="e.is_critical">

@@ -64,7 +64,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                   <th scope="col">Domicilio</th>
                   <th scope="col" class="comm-num">Cobra</th>
                   <th scope="col">Repartidor</th>
-                  <th scope="col"></th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template #body let-o>

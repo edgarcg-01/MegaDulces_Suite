@@ -205,7 +205,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <th>Cliente</th>
               <th>Teléfono</th>
               <th>Último pedido</th>
-              <th></th>
+              <th><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-c>

@@ -54,7 +54,7 @@ import { CredencialesService, CredStatus } from '../credenciales.service';
       <div class="card-premium card-flat">
         <p-table [value]="rows()" styleClass="p-datatable-sm cr-table" [rowHover]="true" [loading]="loading()">
           <ng-template #header>
-            <tr><th>RFC</th><th>Razón social</th><th style="width:9rem">Vigencia cert.</th><th class="ta-r" style="width:8rem">Días</th><th style="width:7rem">Estado</th><th style="width:5rem"></th></tr>
+            <tr><th>RFC</th><th>Razón social</th><th style="width:9rem">Vigencia cert.</th><th class="ta-r" style="width:8rem">Días</th><th style="width:7rem">Estado</th><th style="width:5rem"><span class="sr-only">Acciones</span></th></tr>
           </ng-template>
           <ng-template #body let-c>
             <tr>

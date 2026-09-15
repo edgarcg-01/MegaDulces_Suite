@@ -606,7 +606,7 @@ const QUADRANT_LABELS: Record<string, string> = {
                   <th class="num">Juicios</th>
                   <th class="num">Precisión</th>
                   <th>Estado</th>
-                  <th></th>
+                  <th><span class="sr-only">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>

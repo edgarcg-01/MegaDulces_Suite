@@ -401,12 +401,13 @@ interface PdfSection {
                                               <th style="width:3rem">
                                                 <input
                                                   type="checkbox"
+                                                  aria-label="Seleccionar todas las jornadas"
                                                   (change)="toggleSelectAll($event)"
                                                   class="focus-visible:ring-2 focus-visible:ring-info focus-visible:outline-none"
                                                   style="accent-color:var(--ok-fg)"
                                                   />
                                                 </th>
-                                                <th style="width:3rem"></th>
+                                                <th style="width:3rem"><span class="sr-only">Detalle</span></th>
                                                 <th class="py-3 px-4">Jornada / Fecha</th>
                                                 <th class="text-center">Visitas</th>
                                                 <th class="text-center">Avg Score</th>

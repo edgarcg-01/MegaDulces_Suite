@@ -91,7 +91,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           <table class="tw-tbl">
             <thead>
               <tr>
-                <th scope="col"></th>
+                <th scope="col"><span class="sr-only">Concepto</span></th>
                 <th scope="col" class="ta-r"><i class="pi pi-building"></i> Workbook</th>
                 <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler (tesorería)</th>
                 <th scope="col" class="ta-r"><i class="pi pi-book"></i> ContPAQi</th>
