@@ -289,9 +289,41 @@ Leer la línea **`ventana por ruta`**: la ruta nueva debe aparecer con `*` y su 
 o `hueco frontal`). Correr con `--apply` para cargarla; el nightly también lo hace solo.
 
 Después, el hueco tiene que dar **cero** (runner vs plataforma, ruta×mes):
-```bash
-# quedan deltas de 1-5 líneas con importe $0 = líneas de SKU vacío que el loader descarta a propósito
+⛔ **El delta de LÍNEAS no es cero, y la explicación que decía acá era FALSA.** Este runbook afirmaba
+que eran *"líneas de SKU vacío que el loader descarta a propósito"*. Medido el 2026-09-15 contra
+septiembre: **no hay ni una línea con SKU vacío** en las 11 rutas. La causa real es otra —
+`import-route-push-lines.js` agrupa por `(route_no, business_date, folio, sku)` y **suma** el
+importe, así que **el mismo producto repetido dos veces en el mismo ticket entra como un renglón**.
+
+Medido, y cuadra exacto:
+
+| | runner | plataforma | Δ líneas | Δ importe |
+|---|---|---|---|---|
+| 8 rutas | — | — | **0** | **0** |
+| `ruta_27` | 1,852 | 1,845 | −7 | **0** |
+| `ruta_502` | 2,223 | 2,222 | −1 | **0** |
+| `ruta_503` | 2,959 | 2,957 | −2 | **0** |
+
+…y los renglones duplicados por `folio+sku` en el runner son **exactamente 7 / 1 / 2** en esas tres
+rutas. **El dinero cuadra al peso en las 11.**
+
+```sql
+-- Lo que explica el delta de líneas (debe dar los MISMOS números que el hueco):
+SELECT substring(sucursal from 'ruta_(.*)') AS ruta, sum(cnt-1)::int AS lineas_consolidadas
+  FROM (SELECT sucursal, fecha, folio, sku, count(*) AS cnt
+          FROM mart.ventas_enriched
+         WHERE sucursal LIKE 'ruta_%' AND fecha >= date_trunc('month', CURRENT_DATE)
+           AND btrim(coalesce(sku,'')) <> ''
+         GROUP BY 1,2,3,4 HAVING count(*) > 1) d
+ GROUP BY 1 ORDER BY 1;
 ```
+
+⚠️ **La lección, que vale más que el número:** un hueco *explicado por una cita* es un hueco sin
+explicar. Si el delta no se reproduce con una consulta, no está entendido — y el día que aparezca
+un hueco de verdad se va a archivar con el mismo motivo equivocado.
+
+⚠️ El comparativo se hace contra **`mart.ventas_enriched`**, que es lo que lee el importer, no contra
+`mart.ventas`. Son tablas distintas y compararlas contra la equivocada mueve el delta.
 
 ## Señales de éxito
 - Log dice `ONLINE` + `OK`.
