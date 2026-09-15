@@ -24,14 +24,20 @@ import { KNEX_NEW_DB_ADMIN } from '@megadulces/platform-core';
  * skippean automáticamente si el FDW no es alcanzable, sin reintentar 15min
  * más tarde y sin spamear el log.
  */
-const MVS: Array<{ name: string; requires_fdw?: boolean }> = [
+const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = [
   { name: 'analytics.mv_sales_overview_30d' },
   { name: 'analytics.mv_top_customers_30d' },
   { name: 'analytics.mv_top_products_30d' },
   { name: 'public.products_top_sellers', requires_fdw: true },
   // PERF (mig 20260831150000): momentum r30/r90 para ThotService.suggest(). Antes se
   // agregaba 90d de sales_daily en vivo por request (~1.4 s); ahora es un join al matview.
-  { name: 'analytics.mv_product_momentum' },
+  //
+  // [DB-MEM.5] `everyMin: 120` — **el refresh más caro de este array, y el que menos lo necesita.**
+  // Medido en prod con `pg_stat_statements`: **65.7 s por REFRESH**. A 15 min son 96 corridas/día
+  // = **~1.75 h/día de CPU** para materializar 5,935 filas / 1.7 MB. Y lo que calcula son ventanas
+  // **r30/r90**: en 15 minutos una media de 30 días no se mueve de forma que alguien pueda notar.
+  // A 2 h son 12 corridas/día (~13 min) — mismo dato para quien lo lee, ~1.5 h/día menos de CPU.
+  { name: 'analytics.mv_product_momentum', everyMin: 120 },
   // PERF (mig 20260831160000): ventas del mes en curso pre-agregadas para el path diario
   // de sellOut (mes en curso nunca es month-aligned → escaneaba 111k filas + sort-a-disco).
   { name: 'analytics.mv_sales_current_month' },
@@ -209,16 +215,33 @@ export class AnalyticsRefreshService {
     // El MV de wincaja NO va en el cron de 15 min (MVS) pero SÍ en el refresh MANUAL, para que el botón
     // "Refresh" lo pueble on-demand — p.ej. la 1ª vez tras aplicar la migración (nace WITH NO DATA) sin
     // esperar al cron nocturno de 06:20. El loop ya maneja WITH NO DATA (REFRESH inicial no-CONCURRENTLY).
-    const list = source === 'manual'
+    type MvEntry = { name: string; requires_fdw?: boolean; everyMin?: number };
+    const list: MvEntry[] = source === 'manual'
       ? [...MVS,
-         { name: 'analytics.mv_wincaja_sales_daily' } as { name: string; requires_fdw?: boolean },
-         { name: 'analytics.mv_kepler_sales_daily' } as { name: string; requires_fdw?: boolean },
-         { name: 'analytics.mv_sellout_monthly' } as { name: string; requires_fdw?: boolean },
-         { name: 'analytics.mv_sales_blended' } as { name: string; requires_fdw?: boolean }]
+         { name: 'analytics.mv_wincaja_sales_daily' },
+         { name: 'analytics.mv_kepler_sales_daily' },
+         { name: 'analytics.mv_sellout_monthly' },
+         { name: 'analytics.mv_sales_blended' }]
       : MVS;
     try {
       for (const entry of list) {
         const mv = entry.name;
+
+        // [DB-MEM.5] Cadencia propia. El cron dispara cada 15 min; una MV con `everyMin` sólo se
+        // refresca en los ticks que le tocan. Se mide contra el minuto del DÍA (no del reloj de
+        // pared del proceso) para que el patrón sea estable entre reinicios: con `everyMin: 120`
+        // toca en :00 de las horas pares, siempre las mismas.
+        // ⚠️ El refresh MANUAL ignora esto a propósito: el botón está para forzar, y quien lo
+        // aprieta espera ver su dato actualizado, no una explicación de cadencias.
+        if (source !== 'manual' && entry.everyMin && entry.everyMin > 15) {
+          const d = new Date();
+          const minutoDelDia = d.getHours() * 60 + d.getMinutes();
+          if (minutoDelDia % entry.everyMin >= 15) {
+            this.logger.debug(`Skip ${mv}: cadencia propia de ${entry.everyMin} min`);
+            results.push({ mv, ok: true, skipped: true });
+            continue;
+          }
+        }
 
         // FDW health gate: si una corrida previa marcó el FDW como caído,
         // saltamos las MVs que lo requieren hasta que pase la ventana.
