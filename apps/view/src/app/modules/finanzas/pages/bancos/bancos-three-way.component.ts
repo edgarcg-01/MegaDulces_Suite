@@ -363,6 +363,15 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           @if (dd.totals.kepler_only_n) { <span class="warn"><b>{{ dd.totals.kepler_only_n }}</b> solo Kepler ({{ dd.totals.kepler_only_monto | currency:'MXN':'symbol-narrow':'1.2-2' }})</span> }
           @if (dd.totals.contpaqi_only_n) { <span class="warn"><b>{{ dd.totals.contpaqi_only_n }}</b> solo ContPAQi ({{ dd.totals.contpaqi_only_monto | currency:'MXN':'symbol-narrow':'1.2-2' }})</span> }
         </div>
+        <!-- CB.41 — Partición EXHAUSTIVA: cada movimiento del banco cae en UN estado; sólo "Revisar" es faltante real. -->
+        <div class="tw-recon-strip" aria-label="Estado de conciliación de cada movimiento del banco">
+          @for (s of RECON_KEYS; track s) {
+            @if (dd.recon_totals[s].n) {
+              <span [class]="reconClass(s)" [title]="reconTitle(s)">{{ reconLabel(s) }} <b>{{ dd.recon_totals[s].n }}</b> · {{ dd.recon_totals[s].monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
+            }
+          }
+        </div>
+        <p class="tw-recon-note">Cada movimiento del banco queda clasificado — <b>ninguno se reporta como "no existe" sin razón</b>. Sólo <b class="bad">Revisar</b> es excepción real; <b>Traspaso</b> (traslado entre cuentas), <b>Factoraje</b> (financiamiento) y <b>Partido por venta</b> (Kepler lo asienta partido) están en Kepler, sólo que no 1:1. Δ agregado banco − Kepler: depósitos {{ dd.agg.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}, retiros {{ dd.agg.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
         <div class="tw-drill-filters">
           <div class="tw-fg" role="group" aria-label="Dirección">
             <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
@@ -372,7 +381,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
           <div class="tw-fg" role="group" aria-label="Estado">
             <button type="button" [class.on]="dfEstado()===''" (click)="dfEstado.set('')">Todos</button>
             <button type="button" [class.on]="dfEstado()==='casado'" (click)="dfEstado.set('casado')">En las 3</button>
-            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Falta en alguna</button>
+            <button type="button" [class.on]="dfEstado()==='descuadre'" (click)="dfEstado.set('descuadre')">Revisar</button>
           </div>
           <input type="text" class="tw-fsearch" [ngModel]="dfSearch()" (ngModelChange)="dfSearch.set($event)" placeholder="Buscar concepto / monto…" aria-label="Buscar" />
           <span class="muted tw-fcount">{{ drillRows().length }} de {{ dd.excel.length }}</span>
@@ -402,9 +411,10 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
                   <td class="ta-r mono">@if (e.kepler) { <button type="button" class="tw-dlink" [title]="'Ver detalle (Kepler) · ' + (e.kepler_doc || '')" [class.tw-cent]="e.kepler_importe !== e.importe" (click)="openMov('kepler', e.kepler_key)">{{ e.kepler_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="ta-r mono">@if (e.contpaqi) { <button type="button" class="tw-dlink" [title]="'Ver detalle (ContPAQi) · ' + (e.contpaqi_poliza || '')" [class.tw-cent]="e.contpaqi_importe !== e.importe" (click)="openMov('contpaqi', e.contpaqi_key)">{{ e.contpaqi_importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</button> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
                   <td class="tw-concept">{{ e.concepto || '—' }}</td>
+                  <td><span [class]="reconClass(e.recon)" [title]="reconTitle(e.recon)">{{ reconLabel(e.recon) }}</span></td>
                 </tr>
               }
-              @if (!drillRows().length) { <tr><td colspan="6" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
+              @if (!drillRows().length) { <tr><td colspan="7" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -446,6 +456,17 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     </p-dialog>
   `,
   styles: [BANCOS_STYLES, FINANZAS_SHARED_STYLES, `
+    /* CB.41 — chips/tags de estado de conciliación (partición exhaustiva) */
+    .tw-recon-strip { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-2) 0 var(--sp-1); }
+    .tw-recon { display: inline-flex; align-items: center; gap: 4px; font-size: var(--fs-xs); font-weight: 600; padding: 1px 8px; border-radius: var(--r-pill); border: 1px solid var(--border-color); background: var(--surface-2, color-mix(in srgb, var(--text-muted) 8%, transparent)); color: var(--text-muted); white-space: nowrap; }
+    .tw-recon b { font-variant-numeric: tabular-nums; color: var(--text-main); }
+    .tw-recon--casado { border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); color: var(--ok-fg); }
+    .tw-recon--casado b { color: var(--ok-fg); }
+    .tw-recon--traspaso, .tw-recon--factoraje, .tw-recon--fiscal, .tw-recon--partido { border-color: color-mix(in srgb, var(--text-muted) 30%, transparent); }
+    .tw-recon--sin_match { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent); color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); }
+    .tw-recon--sin_match b { color: var(--bad-fg); }
+    .tw-recon-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); line-height: 1.5; }
+    .tw-recon-note .bad { color: var(--bad-fg); }
     .bmv { margin: 0; }
     .bmv-row { display: grid; grid-template-columns: 11rem 1fr; gap: var(--sp-2); padding: var(--sp-2) 2px; border-bottom: 1px solid var(--border-color); }
     .bmv-row:last-child { border-bottom: none; }
@@ -568,7 +589,24 @@ export class BancosThreeWayComponent {
     { field: 'kepler_importe',   label: 'Kepler',    cls: 'ta-r' },
     { field: 'contpaqi_importe', label: 'ContPAQi',  cls: 'ta-r' },
     { field: 'concepto',         label: 'Concepto',  cls: '' },
+    { field: 'recon',            label: 'Estado',    cls: '' },
   ];
+  /** Orden de lectura de los estados de conciliación (CB.41). */
+  readonly RECON_KEYS = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_match'] as const;
+  /** Etiqueta honesta por estado de conciliación (CB.41). */
+  reconLabel(r: string): string {
+    return r === 'casado' ? 'Casado' : r === 'traspaso' ? 'Traspaso' : r === 'factoraje' ? 'Factoraje'
+      : r === 'fiscal' ? 'En ContPAQi' : r === 'partido' ? 'Partido por venta' : 'Revisar';
+  }
+  reconClass(r: string): string { return `tw-recon tw-recon--${r}`; }
+  reconTitle(r: string): string {
+    return r === 'casado' ? 'Casa 1:1 con un movimiento de la tesorería de Kepler.'
+      : r === 'traspaso' ? 'Traspaso entre cuentas propias: el banco lo ve como depósito, Kepler lo asienta como traslado con su contraparte (no es un pago faltante).'
+      : r === 'factoraje' ? 'Financiamiento (factoraje): no es un abono normal al 102.'
+      : r === 'fiscal' ? 'No casó con la tesorería de Kepler, pero SÍ está en los libros fiscales de ContPAQi.'
+      : r === 'partido' ? 'Venta de ruta/tienda: el banco la deposita en bulto, Kepler la asienta partida por venta. La cuenta cuadra en agregado (ver Δ agregado).'
+      : 'Sin conciliar en ninguna fuente: excepción real a investigar.';
+  }
   readonly drillSort = signal<SortState | null>(null);
   readonly sortIcon = sortIcon;
   readonly ariaSort = ariaSort;
@@ -580,7 +618,8 @@ export class BancosThreeWayComponent {
     const filtered = dd.excel.filter((e) => {
       if (dir && e.dir !== dir) return false;
       if (est === 'casado' && !(e.kepler && e.contpaqi)) return false;
-      if (est === 'descuadre' && e.kepler && e.contpaqi) return false;
+      // "Falta en alguna" ahora = excepciones REALES (sin_match), no los traspasos/ventas partidas.
+      if (est === 'descuadre' && e.recon !== 'sin_match') return false;
       if (q && !`${e.concepto || ''} ${e.importe}`.toLowerCase().includes(q)) return false;
       return true;
     });
