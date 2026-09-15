@@ -16,6 +16,9 @@ export interface PairResult {
   ms: number;
 }
 
+/** Tenant bajo el que se registra el latido del barrido multi-tenant (mismo criterio que `period_close_check`). */
+const MEGA = '00000000-0000-0000-0000-00000000d01c';
+
 /**
  * `[RE.14.6]` — **El motor que enlaza las gemelas solo.**
  *
@@ -98,6 +101,10 @@ export class GoodsReceiptTwinsService {
 
   private async correr(origen: string, soloTenant?: string): Promise<PairResult[]> {
     const out: PairResult[] = [];
+    const t0Total = Date.now();
+    // Lo que falló, para que el latido lo DECLARE. Antes estos errores sólo iban a `logger.warn`:
+    // si tronaban todos los tenants, `correr()` devolvía `[]` y el tablero no se enteraba.
+    const fallos: string[] = [];
     try {
       const tenants: { id: string }[] = soloTenant
         ? [{ id: soloTenant }]
@@ -128,14 +135,65 @@ export class GoodsReceiptTwinsService {
             );
           }
         } catch (e: any) {
-          // Un tenant que truena no puede frenar a los demás ni tirar el cron.
+          // Un tenant que truena no puede frenar a los demás ni tirar el cron — pero SÍ tiene que
+          // salir del edificio: se acumula para que el latido lo declare.
+          fallos.push(`${t.id}: ${e.message}`);
           this.logger.warn(`[${origen}] tenant ${t.id}: ${e.message}`);
         }
       }
       if (!soloTenant) this.lastOkAt = Date.now();
     } catch (e: any) {
+      fallos.push(e.message);
       this.logger.warn(`[${origen}] ${e.message}`);
     }
+    // El barrido de toda la plataforma late; `pairNow()` (un solo tenant, apretado por una persona
+    // que ya ve el resultado en pantalla) no — si latiera, un botón haría parecer sano un cron muerto.
+    if (!soloTenant) await this.latir(out, fallos, Date.now() - t0Total);
     return out;
+  }
+
+  /**
+   * Latido a `analytics.cron_runs`. **El motivo por el que existe:** hasta 2026-09-15 este cron era
+   * mudo, y el único `job_key` de recepciones que el tablero veía era `feed_receipts` — el CLI de
+   * barrido histórico. Con el cron sin latido no había forma de saber desde la DB si el apareo
+   * incremental estaba vivo, así que **tampoco había forma de bajarle la cadencia al CLI sin
+   * arriesgarse a dejar el dinero contado dos veces** (el CLI estaba agendado *cada minuto* y se
+   * llevaba el 42.8% del tiempo de ejecución de la base).
+   *
+   * Hereda ADR-053: el latido mide **entrega** (`nuevas`), no "el proceso corre". Y a diferencia de
+   * `run-prod-feeds.js` —que sólo marca `error` si fallan TODOS los pasos— acá **un solo tenant que
+   * falle pinta la corrida de rojo**: un tenant sin aparear es dinero contado dos veces, no un
+   * detalle estadístico.
+   *
+   * ⚠️ Su umbral vive en `CRON_JOBS` (`apps/api/src/modules/db-health/db-health.service.ts`). Sin esa
+   * entrada, `db-health` cae en `cfg ? classify : 'ok'` y un cron parado se vería VERDE.
+   */
+  private async latir(out: PairResult[], fallos: string[], ms: number): Promise<void> {
+    try {
+      const nuevas = out.reduce((a, r) => a + r.nuevas, 0);
+      const propuestas = out.reduce((a, r) => a + r.propuestas, 0);
+      const obsoletas = out.reduce((a, r) => a + r.obsoletas, 0);
+      await this.knex('analytics.cron_runs')
+        .insert({
+          tenant_id: MEGA,
+          job_key: 'twins_pairing',
+          label: 'Apareo de recepciones gemelas (cron API)',
+          last_start: this.knex.fn.now(),
+          last_finish: this.knex.fn.now(),
+          status: fallos.length ? 'error' : 'ok',
+          // Lo accionable es lo que CAMBIÓ, no cuántas marcas se reescribieron: `marcadas` son casi
+          // siempre las mismas y un número que nunca se mueve no distingue sano de muerto.
+          rows_affected: nuevas,
+          duration_ms: ms,
+          note: fallos.length
+            ? null
+            : `${out.length} tenant(s) · ${nuevas} par(es) nuevo(s) · ${propuestas} por dictaminar · ${obsoletas} obsoleta(s)`,
+          error: fallos.length ? fallos.join(' | ').slice(0, 500) : null,
+          host: 'api',
+          updated_at: this.knex.fn.now(),
+        })
+        .onConflict(['tenant_id', 'job_key'])
+        .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'duration_ms', 'note', 'error', 'host', 'updated_at']);
+    } catch { /* el latido nunca rompe al que late (mismo criterio que cron-heartbeat.js) */ }
   }
 }
