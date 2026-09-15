@@ -371,7 +371,7 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             }
           }
         </div>
-        <p class="tw-recon-note">Cada movimiento del banco queda clasificado — <b>ninguno se reporta como "no existe" sin razón</b>. Sólo <b class="bad">Revisar</b> es excepción real; <b>Traspaso</b> (traslado entre cuentas), <b>Factoraje</b> (financiamiento) y <b>Partido por venta</b> (Kepler lo asienta partido) están en Kepler, sólo que no 1:1. Δ agregado banco − Kepler: depósitos {{ dd.agg.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}, retiros {{ dd.agg.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
+        <p class="tw-recon-note">Cada movimiento del banco queda clasificado — <b>ninguno se reporta como "no existe" sin razón</b>. Sólo <b class="bad">Revisar</b> es excepción real; <b>Traspaso</b> (traslado entre cuentas), <b>Factoraje</b> (financiamiento) y <b>Partido por venta</b> (Kepler lo asienta partido) están en Kepler, sólo que no 1:1; <b>Sin categoría</b> es dato por categorizar (una regla por concepto en Config lo resuelve, no es faltante de dinero). Δ agregado banco − Kepler: depósitos {{ dd.agg.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}, retiros {{ dd.agg.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}.</p>
         <div class="tw-drill-filters">
           <div class="tw-fg" role="group" aria-label="Dirección">
             <button type="button" [class.on]="dfDir()===''" (click)="dfDir.set('')">Todos</button>
@@ -463,6 +463,8 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-recon--casado { border-color: color-mix(in srgb, var(--ok-fg) 40%, transparent); color: var(--ok-fg); }
     .tw-recon--casado b { color: var(--ok-fg); }
     .tw-recon--traspaso, .tw-recon--factoraje, .tw-recon--fiscal, .tw-recon--partido { border-color: color-mix(in srgb, var(--text-muted) 30%, transparent); }
+    .tw-recon--sin_categoria { border-color: color-mix(in srgb, var(--warn-fg) 45%, transparent); color: var(--warn-fg); background: color-mix(in srgb, var(--warn-fg) 8%, transparent); }
+    .tw-recon--sin_categoria b { color: var(--warn-fg); }
     .tw-recon--sin_match { border-color: color-mix(in srgb, var(--bad-fg) 45%, transparent); color: var(--bad-fg); background: color-mix(in srgb, var(--bad-fg) 8%, transparent); }
     .tw-recon--sin_match b { color: var(--bad-fg); }
     .tw-recon-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); line-height: 1.5; }
@@ -592,11 +594,12 @@ export class BancosThreeWayComponent {
     { field: 'recon',            label: 'Estado',    cls: '' },
   ];
   /** Orden de lectura de los estados de conciliación (CB.41). */
-  readonly RECON_KEYS = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_match'] as const;
+  readonly RECON_KEYS = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_categoria', 'sin_match'] as const;
   /** Etiqueta honesta por estado de conciliación (CB.41). */
   reconLabel(r: string): string {
     return r === 'casado' ? 'Casado' : r === 'traspaso' ? 'Traspaso' : r === 'factoraje' ? 'Factoraje'
-      : r === 'fiscal' ? 'En ContPAQi' : r === 'partido' ? 'Partido por venta' : 'Revisar';
+      : r === 'fiscal' ? 'En ContPAQi' : r === 'partido' ? 'Partido por venta'
+        : r === 'sin_categoria' ? 'Sin categoría' : 'Revisar';
   }
   reconClass(r: string): string { return `tw-recon tw-recon--${r}`; }
   reconTitle(r: string): string {
@@ -605,6 +608,7 @@ export class BancosThreeWayComponent {
       : r === 'factoraje' ? 'Financiamiento (factoraje): no es un abono normal al 102.'
       : r === 'fiscal' ? 'No casó con la tesorería de Kepler, pero SÍ está en los libros fiscales de ContPAQi.'
       : r === 'partido' ? 'Venta de ruta/tienda: el banco la deposita en bulto, Kepler la asienta partida por venta. La cuenta cuadra en agregado (ver Δ agregado).'
+      : r === 'sin_categoria' ? 'Sin categoría asignada — una regla de clasificación por concepto (Config → reglas) lo resolvería. No es un faltante de dinero, es dato por categorizar.'
       : 'Sin conciliar en ninguna fuente: excepción real a investigar.';
   }
   readonly drillSort = signal<SortState | null>(null);

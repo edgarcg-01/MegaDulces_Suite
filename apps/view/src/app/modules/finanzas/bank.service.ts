@@ -265,7 +265,7 @@ export interface ChequesTransito {
 /** CB.33 — Drill 3 vías por cuenta a nivel movimiento. */
 export type BankMovSource = 'workbook' | 'kepler' | 'contpaqi';
 export interface BankMovDetail { source: BankMovSource; title: string; fields: { label: string; value: string | number | null }[] }
-export type ReconStatus = 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_match';
+export type ReconStatus = 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_categoria' | 'sin_match';
 export interface ThreeWayDetailExcel {
   id: string; source: 'workbook'; key: string; fecha: string; concepto: string | null; codigo: string | null;
   dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean; recon: ReconStatus;
