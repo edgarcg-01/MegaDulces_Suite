@@ -18,7 +18,7 @@ import { AuthService } from '../../../../core/services/auth.service';
 import { Permission } from '../../../../core/constants/permissions';
 import { LibroComprasService, MesNoAsociado, MesDetalle, FacturaMes, ImpuestosModo, FacturaRespaldo, MovimientoRespaldo, CoberturaUuid } from '../../libro-compras.service';
 import { exportXlsx } from '../../../../shared/export/xlsx-export';
-import { NO_ASOCIADOS_STYLES } from './libro-compras.styles';
+import { LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES } from './libro-compras.styles';
 
 /**
  * Los cuatro grupos en que cae una factura del mes. Son excluyentes y cubren el total, así
@@ -56,7 +56,8 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
-  styles: [NO_ASOCIADOS_STYLES],
+  // Los dos por separado, no concatenados con `${}`: ver la nota en `libro-compras.styles.ts`.
+  styles: [LIBRO_COMPRAS_STYLES, NO_ASOCIADOS_STYLES],
   template: `
     <p-toast />
     <app-page-tabs [tabs]="tabs" />

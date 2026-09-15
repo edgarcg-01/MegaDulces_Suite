@@ -109,10 +109,23 @@ export const LIBRO_COMPRAS_STYLES = `
 `;
 
 /**
- * Extras del sub-módulo "Movimientos no asociados". Se concatenan a los de arriba en vez de
- * duplicar el archivo: es la misma pantalla con otro alcance, no otro diseño.
+ * Extras del sub-módulo "Movimientos no asociados". Es la misma pantalla con otro alcance, no
+ * otro diseño, así que reusa los de arriba — pero **por composición en el `styles: []`**, no por
+ * interpolación.
+ *
+ * ⛔ **No volver a `` `${LIBRO_COMPRAS_STYLES}…` ``.** Así estaba, y rompía `nx serve view` /
+ * `nx build view --configuration=development` con
+ * `Angular compilation initialization failed — Failed to resolve styles at position 0 to a
+ * string: Value could not be determined statically`. El evaluador estático del compilador
+ * resuelve una constante de string exportada, pero **no** una construida por interpolación, y el
+ * camino de desarrollo (`optimization: false` → `parallel-worker` → `parseDirectiveStyles`) exige
+ * resolverla. La compilación de producción sí pasaba, así que el defecto era invisible para
+ * `nx build view` y sólo aparecía al levantar el servidor de desarrollo.
+ *
+ * El patrón correcto es el que ya usan las 10 vistas de `finanzas/pages/bancos`:
+ * `styles: [BASE_STYLES, EXTRAS]` — dos literales, cero interpolación.
  */
-export const NO_ASOCIADOS_STYLES = `${LIBRO_COMPRAS_STYLES}
+export const NO_ASOCIADOS_STYLES = `
 /* En el tablero del sub-módulo el número que manda es lo que ENTRA AL TXT, no el total sin
    asociar del mes: es el mismo número que el encabezado del detalle, para que no se lean
    dos cifras distintas del mismo mes. */
