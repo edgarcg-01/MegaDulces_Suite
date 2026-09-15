@@ -197,6 +197,40 @@ programada, mismo `TRUCK` y `ROUTE_SERIE`. El origen (Postgres local de la van) 
 > Por eso el procedimiento de abajo reemplaza **la IP** y no la línea: es lo único que vale en las
 > dos variantes. Buscar `set DST=` no encuentra nada y parece que el archivo está mal.
 
+### P0 — PREFLIGHT, obligatorio en un segmento NO probado (ej. Canindo `192.168.50.x`)
+
+> En un segmento que ya se probó (PH `.10.x`), esto se puede saltar: se cambia y se prueba. En uno
+> **sin probar, se prueba ANTES de cambiar** — si no hay camino, la van queda muda hasta que alguien
+> lo note, y el agente sale rápido y en silencio cuando el runner no responde.
+
+**No modifica nada** y no imprime la contraseña:
+
+```powershell
+# 1) ¿hay camino TCP hasta el runner nuevo?
+Test-NetConnection -ComputerName 192.168.0.222 -Port 5433 -InformationLevel Quiet
+
+# 2) ¿autentica de verdad? — usa la cadena del PROPIO archivo, cambiando sólo el host
+$f = 'C:\KeplerPush\push-ruta.cmd'
+$c = ((Select-String -Path $f -Pattern '192\.168\.0\.\d+').Line -split '=', 2)[1] -replace '192\.168\.0\.249','192.168.0.222'
+$psql = (Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin\psql.exe' -EA SilentlyContinue | Select-Object -Last 1).FullName
+& $psql -d "$c" -c "select 'OK 222' as prueba"
+```
+
+⭐ El `-split '=', 2` lo hace **agnóstico al nombre de la variable** (`RUNNER_CONN`, `DST`, lo que
+sea) y sirve igual para formato URI que de palabras clave. Y `-d` es obligatorio: este psql se
+**cuelga** en interactivo si se le pasa la cadena como argumento posicional con `-c`.
+
+| resultado | qué hacer |
+|---|---|
+| `True` + `OK 222` | seguir con P1 |
+| `False` | ⛔ **no tocar la van.** Sigue entregando por el reenvío de `.249` y no se pierde nada. Es problema de red: hay que permitir `.0.222` desde ese segmento |
+| `True` pero psql falla | raro — `md` tiene `pg_hba` `host all all all`. Investigar antes de seguir |
+
+**Lo que YA está medido del lado servidor (2026-09-15), para no repetirlo:** `.249` y `md` tienen
+**la misma tabla de rutas** (sólo default vía `192.168.0.254`, sin rutas estáticas ni VPN), y desde
+`md` el gateway de Canindo (`192.168.50.1`) **responde**. O sea que el camino de vuelta existe; lo
+único sin verificar es si el segmento de la van permite salir hacia `.0.222`.
+
 ### P1 — en la laptop de la van (no hace falta elevar: es editar un archivo)
 
 ```powershell
