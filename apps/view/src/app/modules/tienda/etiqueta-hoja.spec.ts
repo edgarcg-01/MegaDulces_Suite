@@ -218,13 +218,78 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
   });
 
   it('el orden de los ajustes es el que las dependencias exigen', () => {
-    const orden = /private layout\(\): void \{([^}]*)\}/.exec(LABEL)![1];
+    const orden = /private layout\(\): void \{([\s\S]*?)\n  \}/.exec(LABEL)![1];
     const i = (m: string) => orden.indexOf(m);
     expect(i('fitUnit')).toBeGreaterThan(-1);
+    expect(i('fitMeta')).toBeLessThan(i('fitPrice'));   // el renglón del código define el alto disponible
     expect(i('fitUnit')).toBeLessThan(i('fitPrice'));   // la franja define el alto disponible
     expect(i('fitPrice')).toBeLessThan(i('fitTiers'));  // el techo del monto lee el hero
     expect(i('fitTiers')).toBeLessThan(i('fitAmts'));   // uniforme antes que individual
-    expect(i('fitAmts')).toBeLessThan(i('fitBarcode')); // el aire se mide al final
+    // ⭐ INVERTIDO a propósito. La premisa vieja ("el aire se mide al final") se midió FALSA:
+    // corriendo al final, `fitTiers` ya se había llevado el aire y el símbolo quedaba en su
+    // mínimo de 5 mm (19% de un EAN-13) con 2, 3 y 4 renglones. Mide 0/1/2/3/4 renglones si
+    // alguien quiere revertirlo.
+    expect(i('fitBarcode')).toBeLessThan(i('fitTiers'));
+  });
+
+  /**
+   * ⭐ El renglón "contenido | Código: NNNNN" no puede decidir el tamaño del precio.
+   *
+   * Era la causa del reporte "problemas con el tamaño de los precios": el renglón no tenía alto
+   * fijo y, al envolver, se quedaba con 3.4 mm que salen de la caja del precio, que topa por
+   * alto. Medido en Chrome con la geometría real: 1 línea → 14.75 mm · 2 líneas → 11.00 mm
+   * (−25%) · 2 líneas anchas → 8.50 mm (−42%).
+   */
+  it('⭐ el renglón del código tiene alto FIJO: el precio no depende de cuántas líneas ocupe', () => {
+    const meta = /\.etq-meta\{([\s\S]*?)\}/.exec(LABEL)![1];
+    // Las tres condiciones son conjuntas: sin nowrap envuelve, sin height el envoltorio se
+    // traduce en alto, y sin overflow el texto que ya no envuelve se derrama sobre el precio.
+    expect(meta).toContain('white-space:nowrap');
+    expect(meta).toContain('overflow:hidden');
+    const alto = Number(/height:([\d.]+)mm/.exec(meta)![1]);
+    expect(alto).toBe(Number(/const META_ALTO_MM = ([\d.]+)/.exec(LABEL)![1]));
+    // …y con nowrap, lo que antes envolvía ahora se RECORTARÍA: tiene que haber quien lo encoja.
+    expect(LABEL).toContain('private fitMeta()');
+    const arranque = Number(/\.etq-meta\{[\s\S]*?font-size:([\d.]+)mm/.exec(LABEL)![1]);
+    expect(arranque).toBe(Number(/const META_MM = ([\d.]+)/.exec(LABEL)![1]));
+  });
+
+  /**
+   * ⭐ El ancho del renglón no puede depender de QUÉ dígitos trae el SKU.
+   *
+   * Medido en Baloo 2: sin cifras tabulares, cinco dígitos miden 23.76, 31.79 o 36.33 px según
+   * cuáles sean — hasta 54% de diferencia. Por eso `500 ml` con el SKU 59108 imprimía el precio
+   * a 14.75 mm y con el 44604 a 8.50: misma forma, 42% de diferencia, inexplicable en el anaquel.
+   */
+  it('⭐ el renglón del código usa cifras tabulares (el SKU no cambia de ancho según sus dígitos)', () => {
+    const meta = /\.etq-meta\{([\s\S]*?)\}/.exec(LABEL)![1];
+    expect(meta).toContain('font-variant-numeric:tabular-nums');
+  });
+
+  /**
+   * ⭐ El diagnóstico de la pantalla mira las fuentes que DECIDEN el tamaño.
+   *
+   * Comprobaba sólo Anton —la del número— y podía pintar "tipografía ✓" con Baloo 2 sin cargar,
+   * que es la del renglón del código y la que define el alto de la caja del precio: verde en
+   * pantalla, precio 25% más chico en el papel. Un verde que mira la fuente equivocada es un
+   * falso verde (ADR-056).
+   */
+  it('⭐ la pantalla declara las TRES familias, y no las duplica a mano', () => {
+    expect(LABEL).toContain('export const FUENTES_SPECS');
+    expect(PAGE).toContain('FUENTES_SPECS');
+    // La página NO puede nombrar una familia por su cuenta: en el momento en que escribe un
+    // literal propio, esa lista puede divergir de la que el guardián espera y vuelve el falso
+    // verde. Se mira el CÓDIGO, no los comentarios — el porqué del cambio vive ahí y debe poder
+    // nombrar a Anton y a Baloo 2 sin disparar el candado.
+    const codigo = PAGE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    for (const familia of ['Anton', 'Bebas Neue', 'Baloo 2']) {
+      expect(codigo).not.toContain(familia);
+    }
+    // Las tres que espera el guardián son las tres que se declaran.
+    const specs = /FUENTES_SPECS: readonly string\[\] = \[([^\]]*)\]/.exec(LABEL)![1];
+    expect(specs).toContain('Anton');
+    expect(specs).toContain('Bebas Neue');
+    expect(specs).toContain('Baloo 2');
   });
 
   it('la reserva de la franja está en lockstep con el punteado interior', () => {

@@ -9,7 +9,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
-import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES } from '../components/label.component';
+import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES, FUENTES_SPECS } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
 // `[TDA.1]` El aviso en vivo de que un precio cambió en Kepler.
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
@@ -263,7 +263,7 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
             @if (navegador) { <span class="etqp-diag" title="Navegador de este equipo. Úsalo al reportar.">· {{ navegador }}</span> }
             @switch (fuenteEtiqueta()) {
               @case ('respaldo') {
-                <span class="etqp-diag bad" title="Este equipo no pudo cargar la tipografía Anton (fonts.googleapis.com). La etiqueta se mide e imprime con la de respaldo, y los tamaños salen distintos de los de un equipo con internet. Revisa la salida a internet de esta máquina.">· tipografía de respaldo — los tamaños salen distintos ⚠</span>
+                <span class="etqp-diag bad" [title]="'Este equipo no pudo cargar ' + fuentesFaltantesTexto() + ' (fonts.googleapis.com). La etiqueta se mide e imprime con la tipografía de respaldo, y los tamaños salen distintos de los de un equipo con internet. Revisa la salida a internet de esta máquina.'">· tipografía de respaldo: falta {{ fuentesFaltantesTexto() }} — los tamaños salen distintos ⚠</span>
               }
               @case ('sin_medir') {
                 <span class="etqp-diag" title="Este navegador no permite verificar la tipografía; los tamaños pueden no coincidir con otros equipos.">· tipografía sin verificar</span>
@@ -723,6 +723,14 @@ export class TiendaEtiquetasComponent {
    * Tres estados, no dos (ADR-056): si el navegador no deja preguntar, se dice eso.
    */
   readonly fuenteEtiqueta = signal<'midiendo' | 'anton' | 'respaldo' | 'sin_medir'>('midiendo');
+  /** Cuáles de las tres familias no llegaron — para decirlo, no sólo marcarlo en rojo. */
+  readonly fuentesFaltantes = signal<string[]>([]);
+  /** "Anton", "Anton y Bebas Neue", "Anton, Bebas Neue y Baloo 2". */
+  readonly fuentesFaltantesTexto = computed(() => {
+    const f = this.fuentesFaltantes();
+    if (f.length <= 1) return f.join('');
+    return f.slice(0, -1).join(', ') + ' y ' + f[f.length - 1];
+  });
 
   private checkPrintGuard(): void {
     let found = false;
@@ -749,8 +757,15 @@ export class TiendaEtiquetasComponent {
     FUENTES_USABLES.then(() => {
       const f = (document as unknown as { fonts?: { check?: (s: string) => boolean } }).fonts;
       if (!f?.check) { this.fuenteEtiqueta.set('sin_medir'); return; }
-      try { this.fuenteEtiqueta.set(f.check('11mm Anton') ? 'anton' : 'respaldo'); }
-      catch { this.fuenteEtiqueta.set('sin_medir'); }
+      try {
+        // ⭐ Se comprueban las TRES familias de las que depende el tamaño, no sólo la del
+        // número. Antes miraba `11mm Anton` a secas y podía pintar el ✓ con Baloo 2 —la del
+        // renglón del código, que es la que define el alto de la caja del precio— sin cargar:
+        // verde en pantalla y el precio 25% más chico en el papel. Falta UNA y se declara.
+        const faltan = FUENTES_SPECS.filter((s) => !f.check!(s));
+        this.fuentesFaltantes.set(faltan.map((s) => s.replace(/^[\d.]+mm /, '').replace(/'/g, '')));
+        this.fuenteEtiqueta.set(faltan.length ? 'respaldo' : 'anton');
+      } catch { this.fuenteEtiqueta.set('sin_medir'); }
     });
 
     // La hoja se re-escala cuando cambia el ancho de su columna o el alto de la ventana. Se mide

@@ -144,6 +144,25 @@ segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
 
 ⚠️ **P-14 abierta para Dirección:** §23 y §10 de la spec se contradicen sobre dónde vive "Auditoría en Ruta" (Rutas de detalle vs Mercadotecnia). Default §23; una línea del mapa lo cambia.
 
+### Fase ET — Etiqueta de anaquel (`/tienda/etiquetas`)
+
+Reporte de 0Sistemas (2026-09-14), con captura: *"existen problemas con el formato o tamaño de los
+precios"*. Medido en Chrome real con un banco que reproduce la geometría de la etiqueta (CSS y
+ajustes copiados literal) contra los **8,760 pares (contenido, SKU) reales de prod**.
+
+| Item | Estado | Nota |
+|---|---|---|
+| ⛔ **el zoom de la vista de hoja** | REFUTADO 2026-09-14 | Era mi primera hipótesis. Medido en las 5 escalas (impresión, 0.474, 0.68, 1.054, 1.418): **14.75 mm en todas**, estable en 8 pasadas. El arreglo de `22495851` quedó bien. Queda escrito para que nadie lo reconstruya. |
+| **[ET.4]** el precio lo decidía el renglón del código | 🧪 2026-09-14 | El precio grande crece hasta topar por ALTO, y ese alto lo definía `contenido \| Código: NNNNN` — un renglón **sin alto ni `line-height` fijos**. Al envolver se quedaba con 3.4 mm que salen de la caja del precio: **1 línea → 14.75 mm · 2 líneas → 11.00 (−25%) · 2 líneas anchas → 8.50 (−42%)**. Fix: alto fijo **5.1 mm** —el que ya tenía con Baloo 2, elegido así para que **las 8,709 etiquetas que salían bien no cambien**— + `nowrap` + `fitMeta()` que encoge en vez de recortar (el código es lo que se teclea si el lector falla). **Medido: 8,760 de 8,760 en 14.75 mm y 0 renglones recortados.** |
+| **[ET.4b]** el SKU cambiaba el tamaño del precio según sus DÍGITOS | 🧪 2026-09-14 | El renglón no usaba cifras tabulares. Medido en Baloo 2: cinco dígitos miden **23.76, 31.79 o 36.33 px** según cuáles sean (54%). Por eso `500 ml` con el SKU **59108** daba **14.75 mm** y con el **44604** daba **8.50** — misma forma, 42% de diferencia, inexplicable en el anaquel. **51 de 8,760 pares** caían ahí; con la tipografía del texto en respaldo, **todas**. Fix: `tabular-nums` (verificado que en Baloo 2 **sí** hace efecto: los tres anchos se igualan a 36.64). |
+| **[ET.4c]** el diagnóstico miraba la fuente equivocada | 🧪 2026-09-14 | El chip comprobaba sólo `11mm Anton` —la del número— y podía pintar **"tipografía ✓" con Baloo 2 sin cargar**, que es la que decide el alto de la caja del precio: verde en pantalla, precio 25% más chico en el papel. **Es el estado exacto de la captura del reporte.** Falso verde (ADR-056). Ahora comprueba las **tres** vía `FUENTES_SPECS` exportada —nada de listas duplicadas— y **dice cuál falta**. |
+| **[ET.4d]** el código de barras nunca encontraba aire | 🧪 2026-09-14 | `fitBarcode` corría al final con el argumento *"el aire sólo se puede medir cuando los montos ya se asentaron"*, y **por correr al final `fitTiers` ya se lo había llevado**: con 2, 3 y 4 renglones el símbolo quedaba en su mínimo de **5 mm = 19% de la nominal de un EAN-13**, la causa nº 1 de no-lectura en ángulo según el propio decode. Y con **0 renglones** —el 5% del catálogo, el caso donde el decode prometía 21 mm de aire— `.etq-tiers` va `flex:0 0 auto`, `clientHeight` es 0 y la guarda sacaba a la función: **el caso de más aire era el único que no lo usaba**. Fix: reclama su altura ANTES de que los montos crezcan y mide contra la COLUMNA. **0 renglones 5.00 → 12.00 mm (19%→46%) · 2 renglones (76.1% del catálogo) 5.00 → 8.65 (19%→33%) · 3 y 4 → 5.22** (ahí no hay aire, y se declara). ⭐ **Los montos no pagaron nada: siguen en 6.8 mm.** |
+
+⚠️ **Dos errores propios, declarados:** (1) el primer candado del diagnóstico **no dio rojo** al romperlo —la regex no lo atrapaba— y se reescribió hasta que sí; (2) medí "la columna desborda" con `scrollHeight`, que es justo lo que este código documenta como inservible en un flex centrado (`altoTiers`): re-medido por extensión de los hijos, **todo cabe** (98.7 de 100 px).
+
+**Falta: validación visual + redeploy de `view`.** Sin migraciones ni permisos → sin re-login.
+⚠️ El código de barras cambia de altura en **toda** etiqueta impresa (punto aprobado explícitamente).
+
 ### Fase VT — Captura de pedido del vendedor (`/vendor/take-order`) · ADR-062
 
 Pedido de 0Sistemas (2026-09-11): *"hay que darle más fluidez a la app de vendedor. reportan bugs

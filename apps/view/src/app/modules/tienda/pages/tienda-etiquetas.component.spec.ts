@@ -152,6 +152,10 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
       const f1 = await crear();
       expect(f1.componentInstance.fuenteEtiqueta()).toBe('respaldo');
       expect((f1.nativeElement as HTMLElement).textContent).toContain('tipografía de respaldo');
+      // …y DICE cuál falta. Mirar sólo Anton era el falso verde: la que decide el alto de la
+      // caja del precio es Baloo 2, y con ella ausente el precio sale 25% más chico.
+      expect(f1.componentInstance.fuentesFaltantes()).toContain('Baloo 2');
+      expect((f1.nativeElement as HTMLElement).textContent).toContain('Baloo 2');
 
       // El navegador no deja preguntar → se DECLARA, no se asume que está bien.
       poner({ check: () => { throw new Error('no soportado'); } });
