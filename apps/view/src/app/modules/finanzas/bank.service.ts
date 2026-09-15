@@ -265,9 +265,10 @@ export interface ChequesTransito {
 /** CB.33 — Drill 3 vías por cuenta a nivel movimiento. */
 export type BankMovSource = 'workbook' | 'kepler' | 'contpaqi';
 export interface BankMovDetail { source: BankMovSource; title: string; fields: { label: string; value: string | number | null }[] }
+export type ReconStatus = 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_match';
 export interface ThreeWayDetailExcel {
   id: string; source: 'workbook'; key: string; fecha: string; concepto: string | null; codigo: string | null;
-  dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean;
+  dir: 'in' | 'out'; importe: number; kepler: boolean; contpaqi: boolean; recon: ReconStatus;
   kepler_importe: number | null; contpaqi_importe: number | null;
   kepler_doc: string | null; contpaqi_poliza: string | null;
   kepler_key: string | null; contpaqi_key: string | null;
@@ -278,7 +279,10 @@ export interface ThreeWayDetail {
   excel: ThreeWayDetailExcel[];
   kepler_only: { source: 'kepler'; key: string; doc: string; fecha: string; importe: number; dir: string; concepto: string | null; metodo: string | null }[];
   contpaqi_only: { source: 'contpaqi'; key: string; poliza: string; fecha: string; importe: number; dir: string; concepto: string | null }[];
+  recon_totals: Record<ReconStatus, { n: number; monto: number }>;
+  agg: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number };
   totals: { excel_n: number; excel_monto: number; excel_en_kepler: number; excel_en_contpaqi: number;
+    sin_match_n: number; sin_match_monto: number;
     kepler_only_n: number; kepler_only_monto: number; contpaqi_only_n: number; contpaqi_only_monto: number };
 }
 

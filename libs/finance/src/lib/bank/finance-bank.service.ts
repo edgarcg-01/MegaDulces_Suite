@@ -2350,11 +2350,13 @@ export class FinanceBankService {
       if (!acct) throw new BadRequestException(`cuenta ${accountLabel} no encontrada`);
 
       const excel = (await trx('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .leftJoin('finance.movement_categories as mc', 'mc.id', 'bm.category_id')
         .where('st.period', period).andWhere('bm.bank_account_id', acct.id).whereNull('bm.deleted_at')
         .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
-        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept', 'bm.raw_code')
+        .select('bm.id', 'bm.movement_date', 'bm.amount_in', 'bm.amount_out', 'bm.concept', 'bm.raw_code', 'bm.raw_type', 'mc.group_key')
         .orderBy('bm.movement_date')).map((b: any) => ({
           id: b.id, fecha: b.movement_date, concepto: b.concept, codigo: b.raw_code,
+          raw_type: b.raw_type, group_key: b.group_key,
           dir: n(b.amount_out) > 0 ? 'out' : 'in', importe: n(b.amount_out) > 0 ? n(b.amount_out) : n(b.amount_in),
         }));
 
@@ -2394,9 +2396,28 @@ export class FinanceBankService {
         return null;
       };
 
+      // CB.41 — CLASIFICACIÓN EXHAUSTIVA: cada movimiento del Excel recibe UN estado de conciliación
+      // (partición total, nada queda "fuera"). El "no existe en Kepler" era un falso faltante para tres
+      // categorías legítimas — traspasos internos (el banco los ve como depósito, Kepler los asienta como
+      // traslado con su contraparte), factoraje (financiamiento) y ventas de ruta/tienda (el banco las
+      // deposita en BULTO, Kepler las parte por venta). Se apoya en la categoría ya poblada
+      // (movement_categories.group_key) + el tipo del Excel (raw_type TI/TE=traspaso, CF/PF=factoraje).
+      // Sólo `sin_match` es una excepción REAL a investigar. Prioridad: casado > traspaso > factoraje >
+      // fiscal(ContPAQi) > partido(venta) > sin_match.
+      const isTraspaso = (e: any) => e.group_key === 'traspaso' || e.raw_type === 'TI' || e.raw_type === 'TE';
+      const isFactoraje = (e: any) => e.group_key === 'factoraje' || e.raw_type === 'CF' || e.raw_type === 'PF';
+      const kepHasIn = kepler.some((x: any) => x.dir === 'in');
+      const kepHasOut = kepler.some((x: any) => x.dir === 'out');
       const excelRows = excel.map((e: any) => {
         const k = take(kIdx, e.dir, e.importe), c = take(cIdx, e.dir, e.importe);
-        return { ...e, source: 'workbook', key: String(e.id), kepler: !!k, contpaqi: !!c,
+        const recon: 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_match' =
+          k ? 'casado'
+            : isTraspaso(e) ? 'traspaso'
+              : isFactoraje(e) ? 'factoraje'
+                : c ? 'fiscal'
+                  : (e.dir === 'in' ? kepHasIn : kepHasOut) ? 'partido'
+                    : 'sin_match';
+        return { ...e, source: 'workbook', key: String(e.id), kepler: !!k, contpaqi: !!c, recon,
           kepler_importe: k ? n(k.importe) : null, contpaqi_importe: c ? n(c.importe) : null,
           kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null,
           kepler_key: k ? k.key : null, contpaqi_key: c ? c.key : null };
@@ -2405,15 +2426,35 @@ export class FinanceBankService {
       const contpaqiOnly = contpaqi.filter((x) => !x.used).map((x) => ({ source: 'contpaqi', key: x.key, poliza: x.poliza, fecha: x.fecha, importe: x.importe, dir: x.dir, concepto: x.concepto }));
 
       const sum = (a: any[]) => r2(a.reduce((s, r) => s + r.importe, 0));
+
+      // CB.41 — Desglose por estado de conciliación (partición EXHAUSTIVA del Excel). El candado
+      // `test-newdb-bank-threeway-recon` verifica que Σ(recon) == total Excel (nada queda fuera) y
+      // que sólo `sin_match` cuenta como faltante real. El orden fija la prioridad de lectura.
+      const RECON_ORDER = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_match'] as const;
+      const reconTotals: Record<string, { n: number; monto: number }> = {};
+      for (const s of RECON_ORDER) reconTotals[s] = { n: 0, monto: 0 };
+      for (const r of excelRows) { const b = reconTotals[r.recon]; b.n++; b.monto = r2(b.monto + r.importe); }
+      // Agregado por cuenta: banco vs tesorería Kepler por dirección — la red de seguridad "considerar
+      // todo". Si la cuenta cuadra en agregado, `partido` (bulto-vs-partido) está justificado; el
+      // residuo real es `sin_match`.
+      const agg = {
+        bank_in: sum(excel.filter((e: any) => e.dir === 'in')), kepler_in: r2(kepler.filter((x: any) => x.dir === 'in').reduce((s: number, x: any) => s + x.importe, 0)),
+        bank_out: sum(excel.filter((e: any) => e.dir === 'out')), kepler_out: r2(kepler.filter((x: any) => x.dir === 'out').reduce((s: number, x: any) => s + x.importe, 0)),
+      };
+
       return {
         period,
         account: { bank: acct.bank, account_label: acct.account_label, contpaqi_cuenta: acct.contpaqi_cuenta, contpaqi_nombre: acct.contpaqi_cuenta_nombre, linked_cpq: !!acct.contpaqi_cuenta },
         excel: excelRows,
         kepler_only: keplerOnly,
         contpaqi_only: contpaqiOnly,
+        recon_totals: reconTotals,
+        agg: { ...agg, delta_in: r2(agg.bank_in - agg.kepler_in), delta_out: r2(agg.bank_out - agg.kepler_out) },
         totals: {
           excel_n: excel.length, excel_monto: sum(excel),
           excel_en_kepler: excelRows.filter((r) => r.kepler).length, excel_en_contpaqi: excelRows.filter((r) => r.contpaqi).length,
+          // `sin_match` = las excepciones REALES (ni casado, ni traspaso/factoraje, ni fiscal, ni partido).
+          sin_match_n: reconTotals['sin_match'].n, sin_match_monto: reconTotals['sin_match'].monto,
           kepler_only_n: keplerOnly.length, kepler_only_monto: sum(keplerOnly),
           contpaqi_only_n: contpaqiOnly.length, contpaqi_only_monto: sum(contpaqiOnly),
         },
