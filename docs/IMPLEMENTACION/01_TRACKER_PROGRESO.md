@@ -287,6 +287,67 @@ _(vacío)_
 
 ---
 
+## GX.9 — Captura de gasto por link (cámara, sin cuenta, sin folio) 🧪 2026-09-15 (en código, LOCAL)
+
+**Problema:** el sistema exigía que Kepler fuera primero. `finance.expense_proofs.folio_solicitud`
+era `NOT NULL`, así que no había dónde guardar la evidencia hasta que alguien en oficina capturara
+la solicitud en el ERP. Pero el orden real es al revés: el trabajador recibe la solicitud **firmada
+en papel**, gasta, junta tickets — y recién después eso llega a Kepler. Mientras tanto la foto se
+quedaba en el celular.
+
+- [x] **[GX.9.1]** Migración `20260915120000_expense_capture_links` — `folio_solicitud` y
+      `departamento` pasan a NULLable · `origen` (`interno`/`link`) · `capture_link_id` ·
+      `capture_meta` jsonb · índice parcial `WHERE folio_solicitud IS NULL` ·
+      tabla `finance.expense_capture_links` (RLS forzado + grants). ✅ aplicada a `platform_local`.
+- [x] **[GX.9.2]** Blindar `statusByFolio()` con `whereNotNull('folio_solicitud')`. Sin esto los
+      huérfanos caían todos en la partición `null` del `row_number()` y entraba una fila arbitraria
+      al mapa folio→expediente bajo la clave `null`. (`proofByFolio` ya era seguro: compara contra
+      un string no vacío.)
+- [x] **[GX.9.3]** `ExpenseCaptureLinksService` — emitir/listar/revocar + resolución de token.
+      **La autoridad es la fila, no el JWT**: persona, vigencia y revocación se releen en cada uso,
+      así revocar surte efecto al instante sin esperar a que expire el token.
+- [x] **[GX.9.4]** Superficie pública `@Public()` `finance/captura/:token` (contexto, upload, submit)
+      con throttle propio. Abre su **scope de tenant sintético** (`tenantCtx.run`), porque el
+      `TenantContextInterceptor` pasa de largo cuando no hay `Authorization`.
+- [x] **[GX.9.5]** `authInterceptor` (view) exceptúa `/finance/captura`. **Dos bugs evitados:** un
+      token viejo en `localStorage` se pegaba a la request pública y el interceptor del servidor
+      la tiraba con 401; y ese 401 mandaba al trabajador —que no tiene cuenta— a `/login`.
+- [x] **[GX.9.6]** `CameraShotComponent` — `getUserMedia` + canvas, sin selector de archivos.
+      Fallback a `<input capture>` si el permiso se niega. Suelta los tracks en cada salida
+      (si no, la cámara del celular queda prendida).
+- [x] **[GX.9.7]** Página pública `/captura/:token` (Operations, touch). Orden: **tipo → fotos →
+      datos**, porque el tipo decide qué fotos pedir. Lo **devuelto va arriba de todo**: es el único
+      lugar donde un trabajador sin cuenta se entera de que le rechazaron un ticket.
+- [x] **[GX.9.8]** Bandeja `/finanzas/capturas-sin-folio` + `sinFolio()` + `match()`. Al ligar, el
+      importe pasa a ser el de Kepler y el declarado se conserva en `capture_meta.importe_declarado`
+      — si difieren, eso es justo lo que hay que ver.
+- [x] **[GX.9.9]** Smoke `test-newdb-expense-capture-link.js` — **28/28 verde**.
+
+**Decisiones:** link **por persona, reutilizable** (uno por gasto es incompatible con este flujo:
+lo tendría que emitir alguien que todavía no sabe que el gasto ocurrió) · lo que entra por link
+**nunca se auto-valida** aunque el OCR cuadre, porque es superficie pública · **sin permiso nuevo**
+(emitir/ligar reusan `FINANCE_EXPENSES_COMPROBAR`) para no repetir el agujero de LC.6.2, donde un
+permiso declarado pero sin repartir dejó un módulo que no podía abrir nadie.
+
+**Honestidad sobre la cámara:** `capture` en un `<input>` es una *sugerencia* — varios navegadores
+Android igual ofrecen el carrete. Por eso la cámara vive dentro de la página. Aun así **es fricción,
+no prueba**: nadie puede impedir que le tomen foto a una pantalla. Lo que sí deja rastro es el sello
+de tiempo del servidor, el cuadre por visión y el hash de cada imagen (`capture_meta.hashes`).
+
+**⚠️ Sin verificar en local, con motivo:**
+- **El paso de ligar (`match`)** — `kepler_ods` está **vacío** en `platform_local` (todas las tablas
+  en 0), así que `analytics.expense_requests` (vista viva) no devuelve nada. El smoke lo SKIPea
+  diciéndolo. Necesita `platform_test`, que hoy rechaza a esta máquina por `pg_hba`.
+- **Que los bytes lleguen al bucket** — las `S3_*` existen en `.env` pero **vacías**. Es carencia
+  previa del entorno: el flujo interno de captura sube por el mismo `storage.putFile` y falla igual.
+
+**Pendiente:** validación visual de Edgar · `APP_PUBLIC_URL` (hoy cae a `localhost:4200`) ·
+**nada aplicado a Railway** — migración sólo en local, a la espera de autorización en el PR.
+
+---
+
+---
+
 ## GX.10 — Una sola puerta al gasto 🧪 2026-09-15 (en código, LOCAL)
 
 Eran **tres entradas de menú para el mismo trámite**: «Solicitudes de gasto», «Capturar gasto» y
