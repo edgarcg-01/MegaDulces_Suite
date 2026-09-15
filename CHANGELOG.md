@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Fixed — `/admin`: auditoría de las 4 interfaces nuevas, con la pantalla abierta (AU.9–AU.15, 2026-09-14)
+
+Pedido de 0Sistemas: *"auditemos cada interfaz"*. Las cuatro pantallas de la Fase AU compilaban, la suite pasaba y se veían bien. Auditadas contra el código, contra prod (read-only) y contra la DB que la pantalla lee.
+
+- ⛔ **Un byte `NUL` en `org.service.ts`**: `?? '\0'` donde iba `?? ''`. Postgres rechaza un parámetro con NUL (`invalid byte sequence for encoding "UTF8": 0x00`, probado con control positivo) → `GET /org/users/:id/responsibilities` tiraba **500 para toda persona sin puesto**. En pantalla no se veía el error: la pestaña quedaba en *"Leyendo…"* para siempre. **El build, el lint y el smoke no lo veían** — se lee igual que un espacio. Candado nuevo que escanea los 12 fuentes de `users/` por bytes de control.
+- ⛔ **"Dar de alta" no podía funcionar nunca**: el DTO exige `password` y `department_code` y la ficha no tenía ninguno de los dos. 400 antes de tocar el servicio.
+- ⛔ **Cuatro `computed()` sobre props planas quedaban congelados** (un computed sólo recalcula cuando cambia un *signal* que leyó): los dos filtros de Puestos no filtraban nada, "Limpiar" no aparecía nunca, y **el textarea del motivo no salía jamás** aunque el backend sí lo exige — 400 sin campo donde escribirlo.
+- ⭐ **Tres de los cinco KPI contaban la PÁGINA y se leían como el padrón**: decía "sin puesto 25" con **81** sin puesto, y el número cambiaba al pasar de página. Ahora los cuenta el servidor sobre el mismo builder que las filas (mismo alcance, mismos filtros, antes de paginar).
+- ⭐ **El padrón traía a los dados de baja y los llamaba "Suspendida"**: `findAll` nunca filtró `deleted_at` → **111 filas para 100 personas vivas** en prod, con 5 de las 11 bajas en la primera página. `identity.users.status` existía, estaba poblado (`active` 100 / `terminated` 11) y **nadie lo leía**; el chip se derivaba del booleano deprecado. Ahora son cuatro estados con cuatro etiquetas.
+- **Regresión contra la pantalla vieja**: editaba **14 campos**, la nueva **4** — y la vieja ya no tiene ruta. Vuelven contraseña (con el generador de dispositivo), departamento, jefe, sucursal, ruta, zona y TTL de sesión, todo en un solo POST.
+- **`[AU.15]`** — un puesto que **no propone perfil** apagaba la regla del motivo entera (`if (!pos.default_role) return null`), en el alta, la edición y el lote: el rol se elegía a dedo sin dejar escrito por qué, justo donde más falta porque no hay nada contra qué contrastarlo. Ahora se **declara** (`propone: null`) con mensaje propio.
+- **Más**: endpoint inverso de responsabilidades (**un GET por drawer en vez de once**), confirmación antes de quitar, Puestos y Responsabilidades al sidebar, el botón "Editar permisos" gateado por `ROLES_CONFIGURAR` (6 `encargado_tienda` clickeaban y el guard los sacaba de `/admin`), ayuda contextual, frescura visible desde `medido_at` —que ya viajaba en el sobre y se tiraba— y contraste AA en lo que lleva dato (`--text-faint` mide **2.42:1**, AA pide 4.5).
+- ⚠️ **Hallazgo propio retractado**: reporté que `/admin/roles` estaba guardado por `USUARIOS_GESTIONAR` y que 6 personas rebotaban en la pestaña. Falso — leí el `canActivate` vecino, que es el de `db-health`. La ruta pide `ROLES_VER`, la misma llave que la pestaña.
+- ⚠️ **Sexta vez que un acento grave dentro de un template literal rompe el build** en este repo, y esta vez escribiéndolo en medio de una auditoría que lista esa regla.
+- **Declarado, no resuelto** (`DEUDA-AU-PUESTOS-VACANTES`, decisión del lead): 13 puestos sin perfil que proponer, **los 13 vacantes y sin un solo ocupante histórico** — el perfil no se deriva de nada y asignarlo es decisión de negocio. Caso aparte con consecuencia hoy: «Alertas de flota» tiene responsable PRINCIPAL en un puesto vacante → 10 personas pueden abrirla y ninguna responde de ella.
+
 ### Fixed — etiquetera: el tamaño del precio lo decidía el renglón del código, no la caja del precio (ET.4, 2026-09-14)
 
 Reporte de 0Sistemas con captura de `/tienda/etiquetas`: *"existen problemas con el formato o tamaño de los precios"*. Se midió en Chrome real, con un banco que reproduce la geometría de la etiqueta (el CSS y los ajustes copiados literal) y los **8,760 pares (contenido, SKU) reales de prod**.
