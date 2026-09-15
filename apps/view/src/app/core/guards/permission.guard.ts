@@ -222,6 +222,9 @@ export const COMPRAS_LANDING: LandingCandidate[] = withTreeCandidates('compras',
   { perm: Permission.COMPRAS_DESCUENTOS_VER, url: '/compras/descuentos' },
   { perm: Permission.COMPRAS_PROVEEDORES_VER, url: '/compras/proveedores' },
   { perm: Permission.COMPRAS_CATEGORIAS_VER, url: '/compras/categorias' },
+  // [CAT.1] El catálogo vino de Ventas. Va al final: quien además tenga cualquier permiso
+  // operativo sigue aterrizando donde aterrizaba, y a nadie se le mueve el piso.
+  { perm: Permission.COMMERCIAL_PRODUCTS_VER, url: '/compras/catalogo' },
 ]);
 
 /** Landing de `/compras`: manda a la primera vista accesible del rol (no fijo a Pedido).
