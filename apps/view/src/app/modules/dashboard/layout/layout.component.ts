@@ -531,6 +531,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Pagos',
       items: [
         { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Calendario de pagos', icon: 'pi pi-calendar', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
