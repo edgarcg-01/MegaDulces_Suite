@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -316,6 +316,14 @@ export class FinanzasCapturasSinFolioComponent {
   /** Al ligar una captura cambia el contador del embudo: el tablero tiene que recargarlo. */
   readonly changed = output<void>();
 
+  /**
+   * El tablero pide abrir los links al entrar. Existe porque repartir links es circular:
+   * sin links no hay capturas, y el boton vivia SOLO dentro de esta etapa — o sea escondido
+   * detras de una tabla que el dia uno esta vacia. Ahora tambien se llega desde el
+   * encabezado, y esa entrada aterriza aca con el dialogo ya abierto.
+   */
+  readonly abrirLinks = input(false);
+
   readonly report = signal<{ kpis: { total: number; importe: number; por_link: number; no_cuadran: number }; rows: CapturaSinFolio[] } | null>(null);
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
@@ -331,9 +339,15 @@ export class FinanzasCapturasSinFolioComponent {
     || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true);
   readonly puedeEmitir = this.puedeCasar;
 
+  private yaAbrio = false;
+
   constructor() {
     this.cargar();
     this.cargarLinks();
+    // Una sola vez: si no, volver de cerrar el dialogo lo reabriria en loop.
+    effect(() => {
+      if (this.abrirLinks() && !this.yaAbrio) { this.yaAbrio = true; this.verLinks(); }
+    });
   }
 
   cargar(): void {
