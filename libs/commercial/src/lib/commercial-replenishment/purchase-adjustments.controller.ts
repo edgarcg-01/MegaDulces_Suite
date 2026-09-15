@@ -209,15 +209,17 @@ export class PurchaseAdjustmentsController {
   @Get('supplier-fiscal-ledger')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'CXP.9 — tercera lente: FISCAL (ContPAQi). Compara al proveedor en los 3 libros: Kepler operativo (facturas/pagos) vs Kepler contable (201) vs ContPAQi fiscal (cuenta proveedores 2120*, match por nombre normalizado) + movimientos ContPAQi. Los 3 NO atan al peso (distinto alcance/periodo). Param: proveedor (nombre).' })
-  supplierFiscalLedger(@Query('proveedor') proveedor?: string) {
-    return this.svc.supplierFiscalLedger({ proveedor });
+  supplierFiscalLedger(@Query('proveedor') proveedor?: string, @Query('ejercicio') ejercicio?: string) {
+    const ej = ejercicio ? Number(ejercicio) : undefined;
+    return this.svc.supplierFiscalLedger({ proveedor, ejercicio: Number.isFinite(ej) ? ej : undefined });
   }
 
   @Get('contpaqi-payables')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
   @ApiOperation({ summary: 'CXP.10 — "Lo que se debe" a proveedores según ContPAQi: saldo REAL de la cuenta 2120 (balanza contpaqi_ledger_monthly, con apertura) por proveedor + total + flag stale (saldo viejo sin movimiento). Filtros: search, only_stale.' })
-  contpaqiPayables(@Query('search') search?: string, @Query('only_stale') only_stale?: string) {
-    return this.svc.contpaqiPayables({ search, only_stale: only_stale === 'true' || only_stale === '1' });
+  contpaqiPayables(@Query('search') search?: string, @Query('only_stale') only_stale?: string, @Query('ejercicio') ejercicio?: string) {
+    const ej = ejercicio ? Number(ejercicio) : undefined;
+    return this.svc.contpaqiPayables({ search, only_stale: only_stale === 'true' || only_stale === '1', ejercicio: Number.isFinite(ej) ? ej : undefined });
   }
 
   @Get('landed-cost')

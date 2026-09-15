@@ -59,6 +59,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           <p-datepicker [ngModel]="dateFrom()" (onSelect)="onDate('from', $event)" (onClear)="onDate('from', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Desde" styleClass="cq-dp" ariaLabel="Desde" />
           <p-datepicker [ngModel]="dateTo()" (onSelect)="onDate('to', $event)" (onClear)="onDate('to', null)" dateFormat="yy-mm-dd" [showIcon]="true" [showClear]="true" appendTo="body" placeholder="Hasta" styleClass="cq-dp" ariaLabel="Hasta" />
         } @else {
+          <p-select [options]="ejercicioOpts()" [ngModel]="ejercicio()" (onChange)="onEjercicio($event.value)" optionLabel="label" optionValue="value" styleClass="cq-sel" ariaLabel="Ejercicio (año)" appendTo="body" />
           <button pButton type="button" class="p-button-sm" [class.p-button-outlined]="!onlyStale()" (click)="toggleStale()"><span class="pi pi-clock" aria-hidden="true"></span>&nbsp;Solo saldos viejos</button>
         }
         @if (hasFilters()) {
@@ -280,6 +281,13 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
           @if (fiscalLoading()) {
             <p class="cq-empty">Cargando libros fiscales…</p>
           } @else if (fiscal(); as fx) {
+            @if (fiscalEjercicioOpts().length > 1) {
+              <div class="cq-fiscal-yr">
+                <span class="cq-fiscal-yr-lbl">Ejercicio (ContPAQi)</span>
+                <p-select [options]="fiscalEjercicioOpts()" [ngModel]="fx.contpaqi.ejercicio" (onChange)="onFiscalEjercicio($event.value)" optionLabel="label" optionValue="value" styleClass="cq-sel-sm" ariaLabel="Ejercicio fiscal" appendTo="body" />
+                <span class="cq-fiscal-yr-hint">Cambia el año para cuadrar la deuda inicial contra el anterior.</span>
+              </div>
+            }
             <table class="cq-3way">
               <thead>
                 <tr><th>Libro</th><th class="ta-r">Facturado</th><th class="ta-r">Pagado</th><th class="ta-r">Saldo</th></tr>
@@ -392,6 +400,10 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
     .cq-3way-tag { display:inline-block; margin-left:.4rem; font-size:.68rem; color:var(--text-faint); }
     .cq-3way-nd { font-style:italic; }
     :host ::ng-deep .cq-3way-fiscal td:last-child { font-weight:700; }
+    .cq-fiscal-yr { display:flex; align-items:center; gap:.55rem; flex-wrap:wrap; margin-bottom:.8rem; }
+    .cq-fiscal-yr-lbl { font-size:.72rem; text-transform:uppercase; letter-spacing:.03em; color:var(--text-muted); font-weight:600; }
+    .cq-fiscal-yr-hint { font-size:.72rem; color:var(--text-faint); }
+    :host ::ng-deep .cq-sel-sm { min-width:7rem; }
     .cq-fiscal-ini { font-size:.78rem; color:var(--text-muted); margin:.2rem 0 .7rem; }
     .cq-fiscal-ini b { color:var(--text-main); font-family:var(--font-mono); }
     :host ::ng-deep .cq-tag { font-size:.64rem; }
@@ -442,6 +454,14 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   readonly dateTo = signal<Date | null>(null);
   readonly preset = signal<string>('');
   readonly presetOpts = DATE_PRESET_OPTIONS;
+  // Selector de ejercicio (modo 'debe' / ContPAQi). null = "Actual" (saldo vigente, último año por cuenta).
+  // Un año fijo (2025…) = snapshot de cierre de ESE ejercicio → para cuadrar la deuda inicial contra el año pasado.
+  readonly ejercicio = signal<number | null>(null);
+  // Opciones del selector: "Actual" + los ejercicios que trae la respuesta (descendente).
+  readonly ejercicioOpts = computed(() => {
+    const yrs = this.payables()?.ejercicios || [];
+    return [{ label: 'Actual', value: null as number | null }, ...yrs.map((y) => ({ label: String(y), value: y as number | null }))];
+  });
   private searchTimer: any;
   readonly skelRows = Array.from({ length: 8 });
   // Drill (3 lentes) del proveedor. `drillName` = nombre que resuelve las lentes Kepler (para filas
@@ -457,6 +477,12 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   readonly invoiceLoading = signal(false);
   readonly fiscal = signal<SupplierFiscalLedgerResponse | null>(null);
   readonly fiscalLoading = signal(false);
+  // Ejercicio del lente Fiscal del drill (null = último disponible del proveedor). Independiente del selector de la lista.
+  readonly fiscalEjercicio = signal<number | null>(null);
+  readonly fiscalEjercicioOpts = computed(() => {
+    const yrs = this.fiscal()?.contpaqi?.ejercicios || [];
+    return yrs.map((y) => ({ label: String(y), value: y }));
+  });
   // Cuenta-T: compras (facturado, sube deuda) a la izquierda; pagos/notas/devoluciones (bajan) a la
   // derecha. `signed` > 0 = compra · < 0 = pago/crédito (lo escribe el backend por categoría).
   readonly comprasMoves = computed(() => this.moves().filter((m) => m.signed > 0));
@@ -503,7 +529,7 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   reload(): void {
     this.loading.set(true); this.err.set(null);
     if (this.entryMode() === 'debe') {
-      this.svc.contpaqiPayables({ search: this.search() || undefined, only_stale: this.onlyStale() })
+      this.svc.contpaqiPayables({ search: this.search() || undefined, only_stale: this.onlyStale(), ejercicio: this.ejercicio() ?? undefined })
         .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
           next: (p) => { this.payables.set(p); this.loading.set(false); },
           error: () => { this.loading.set(false); this.err.set('No se pudo cargar la deuda a proveedores (ContPAQi).'); },
@@ -563,6 +589,10 @@ export class ComprasCuadreProveedorComponent implements OnInit {
     this.reload();
   }
   toggleStale(): void { this.onlyStale.set(!this.onlyStale()); this.reload(); }
+  /** Cambia el ejercicio de la lista "Lo que se debe" (null = actual). */
+  onEjercicio(v: number | null): void { this.ejercicio.set(v ?? null); this.reload(); }
+  /** Cambia el ejercicio del lente Fiscal del drill y lo recarga. */
+  onFiscalEjercicio(v: number | null): void { this.fiscalEjercicio.set(v ?? null); this.loadFiscal(); }
 
   /** Fila del modo "Movimiento (Kepler 201)": el nombre 201 resuelve todas las lentes. */
   openKepler(r: SupplierLedgerRow): void { this.openDrill(r.proveedor || '', r.proveedor || ''); }
@@ -572,7 +602,7 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   /** Abre el drill (3 lentes). `drillName` alimenta las lentes; arranca en Contable, factura/fiscal son lazy. */
   private openDrill(proveedor: string, drillName: string): void {
     this.detail.set({ proveedor, drillName });
-    this.dtTab.set('contable'); this.invoice.set(null); this.fiscal.set(null);
+    this.dtTab.set('contable'); this.invoice.set(null); this.fiscal.set(null); this.fiscalEjercicio.set(null);
     this.moves.set([]); this.saldoFinal.set(0); this.movesLoading.set(true);
     this.svc.supplierLedgerDetail({ proveedor: drillName || undefined, date_from: this.toIso(this.dateFrom()), date_to: this.toIso(this.dateTo()) })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -600,10 +630,10 @@ export class ComprasCuadreProveedorComponent implements OnInit {
   private loadFiscal(): void {
     const r = this.detail(); if (!r) return;
     this.fiscalLoading.set(true);
-    this.svc.supplierFiscalLedger({ proveedor: r.drillName || undefined })
+    this.svc.supplierFiscalLedger({ proveedor: r.drillName || undefined, ejercicio: this.fiscalEjercicio() ?? undefined })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (d) => { this.fiscal.set(d); this.fiscalLoading.set(false); },
-        error: () => { this.fiscal.set({ proveedor: r.proveedor, contpaqi: { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, n: 0 }, operativo: null, contable: null, rows: [] }); this.fiscalLoading.set(false); },
+        error: () => { this.fiscal.set({ proveedor: r.proveedor, contpaqi: { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, ejercicios: [], n: 0 }, operativo: null, contable: null, rows: [] }); this.fiscalLoading.set(false); },
       });
   }
 

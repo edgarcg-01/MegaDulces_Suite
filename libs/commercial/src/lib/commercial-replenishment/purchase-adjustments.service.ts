@@ -967,7 +967,7 @@ export class PurchaseAdjustmentsService {
    * tres libros NO atan al peso: distinto alcance/periodo/filtro fiscal → sirve para ver
    * DIVERGENCIA, no cuadre exacto. analytics.* sin RLS → tenant explícito.
    */
-  async supplierFiscalLedger(q: { proveedor?: string } = {}) {
+  async supplierFiscalLedger(q: { proveedor?: string; ejercicio?: number } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     const nombre = (q.proveedor || '').trim();
     if (!nombre) return { proveedor: null, contpaqi: { matched: false }, operativo: null, contable: null, rows: [] as any[] };
@@ -989,8 +989,11 @@ export class PurchaseAdjustmentsService {
       let rows: any[] = [];
       if (hits.length) {
         const cuentas = hits.map((h) => h.cuenta);
-        const [ejr]: any = await trx('analytics.contpaqi_ledger_monthly').where('tenant_id', tenantId).whereIn('cuenta', cuentas).max({ ej: 'ejercicio' });
-        const ej = Number(ejr?.ej) || null;
+        // Ejercicios disponibles para este proveedor (selector de año); el pedido si es válido, si no el MAX.
+        const ejAll: any[] = await trx('analytics.contpaqi_ledger_monthly').where('tenant_id', tenantId).whereIn('cuenta', cuentas)
+          .distinct('ejercicio').orderBy('ejercicio', 'desc');
+        const ejercicios = ejAll.map((r) => Number(r.ejercicio)).filter(Boolean);
+        const ej = q.ejercicio && ejercicios.includes(Number(q.ejercicio)) ? Number(q.ejercicio) : (ejercicios[0] || null);
         // meses del último ejercicio (sum agrega si el proveedor tuviera >1 cuenta 2120)
         const mens: any[] = ej ? await trx('analytics.contpaqi_ledger_monthly')
           .where('tenant_id', tenantId).whereIn('cuenta', cuentas).where('ejercicio', ej)
@@ -1009,9 +1012,9 @@ export class PurchaseAdjustmentsService {
         });
         const facturado = rows.reduce((s, r) => s + r.abonos, 0);
         const pagado = rows.reduce((s, r) => s + r.cargos, 0);
-        contpaqi = { matched: true, cuentas, cuenta_nombre: hits[0].cuenta_nombre, facturado, pagado, saldo: running, saldo_ini: saldoIni, ejercicio: ej, n: rows.length };
+        contpaqi = { matched: true, cuentas, cuenta_nombre: hits[0].cuenta_nombre, facturado, pagado, saldo: running, saldo_ini: saldoIni, ejercicio: ej, ejercicios, n: rows.length };
       } else {
-        contpaqi = { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, n: 0 };
+        contpaqi = { matched: false, cuentas: [], cuenta_nombre: null, facturado: 0, pagado: 0, saldo: 0, saldo_ini: 0, ejercicio: null, ejercicios: [], n: 0 };
       }
 
       // Kepler operativo (facturas/pagos reales, histórico completo).
@@ -1045,13 +1048,25 @@ export class PurchaseAdjustmentsService {
    * Read-only; analytics.* sin RLS → tenant explícito (named binding, evita el gotcha del `?`).
    * Filtros: search, only_stale.
    */
-  async contpaqiPayables(q: { search?: string; only_stale?: boolean } = {}) {
+  async contpaqiPayables(q: { search?: string; only_stale?: boolean; ejercicio?: number } = {}) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // Ejercicios disponibles de las 2120 (para el selector de año). Descendente: el más nuevo primero.
+      const ejRows: any[] = await trx('analytics.contpaqi_ledger_monthly')
+        .where('tenant_id', tenantId).where('cuenta', 'like', '2120%')
+        .distinct('ejercicio').orderBy('ejercicio', 'desc');
+      const ejercicios = ejRows.map((r) => Number(r.ejercicio)).filter(Boolean);
+      // ejercicio pedido (si es válido) → snapshot de ESE año; null = "actual" (MAX por cuenta, incluye
+      // deudas dormidas). `ejSel` sale de la lista de la DB y pasa por Number() → seguro de interpolar.
+      const ejSel = q.ejercicio && ejercicios.includes(Number(q.ejercicio)) ? Number(q.ejercicio) : null;
+      // `ly` fija cada cuenta a un ejercicio: el pedido (cierre de ese año) o su MAX (saldo vigente).
+      const lyCte = ejSel
+        ? `SELECT DISTINCT cuenta, ${ejSel}::int ej FROM analytics.contpaqi_ledger_monthly
+             WHERE tenant_id = :tenant AND cuenta LIKE '2120%' AND ejercicio = ${ejSel}`
+        : `SELECT cuenta, MAX(ejercicio) ej FROM analytics.contpaqi_ledger_monthly
+             WHERE tenant_id = :tenant AND cuenta LIKE '2120%' GROUP BY cuenta`;
       const res: any = await trx.raw(
-        `WITH ly AS (
-           SELECT cuenta, MAX(ejercicio) ej FROM analytics.contpaqi_ledger_monthly
-            WHERE tenant_id = :tenant AND cuenta LIKE '2120%' GROUP BY cuenta)
+        `WITH ly AS (${lyCte})
          SELECT l.cuenta,
                 max(l.cuenta_nombre) AS proveedor,
                 max(l.saldo_ini::numeric) AS saldo_ini,
@@ -1085,7 +1100,7 @@ export class PurchaseAdjustmentsService {
       const total_debe = rows.filter((r) => r.saldo > 0).reduce((s, r) => s + r.saldo, 0);
       const total_favor = rows.filter((r) => r.saldo < 0).reduce((s, r) => s + r.saldo, 0);
       const n_stale = rows.filter((r) => r.stale && r.saldo > 0).length;
-      return { as_of: globalHasta, total_debe, total_favor, neto: total_debe + total_favor, n: rows.length, n_stale, rows: rows.slice(0, 1000) };
+      return { as_of: globalHasta, ejercicio: ejSel, ejercicios, total_debe, total_favor, neto: total_debe + total_favor, n: rows.length, n_stale, rows: rows.slice(0, 1000) };
     });
   }
 

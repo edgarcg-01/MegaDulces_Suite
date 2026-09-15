@@ -1314,18 +1314,20 @@ export class ComprasService {
   }
 
   /** CXP.9 — tercera lente: FISCAL (ContPAQi) — proveedor en los 3 libros + evolución mensual ContPAQi. */
-  supplierFiscalLedger(q: { proveedor?: string }): Observable<SupplierFiscalLedgerResponse> {
+  supplierFiscalLedger(q: { proveedor?: string; ejercicio?: number }): Observable<SupplierFiscalLedgerResponse> {
     const p = new URLSearchParams();
     if (q.proveedor) p.set('proveedor', q.proveedor);
+    if (q.ejercicio) p.set('ejercicio', String(q.ejercicio));
     const qs = p.toString();
     return this.http.get<SupplierFiscalLedgerResponse>(`${this.adjBase}/supplier-fiscal-ledger${qs ? '?' + qs : ''}`);
   }
 
   /** CXP.10 — "Lo que se debe" a proveedores según ContPAQi (saldo real de la 2120, balanza). */
-  contpaqiPayables(q: { search?: string; only_stale?: boolean } = {}): Observable<ContpaqiPayablesResponse> {
+  contpaqiPayables(q: { search?: string; only_stale?: boolean; ejercicio?: number } = {}): Observable<ContpaqiPayablesResponse> {
     const p = new URLSearchParams();
     if (q.search) p.set('search', q.search);
     if (q.only_stale) p.set('only_stale', '1');
+    if (q.ejercicio) p.set('ejercicio', String(q.ejercicio));
     const qs = p.toString();
     return this.http.get<ContpaqiPayablesResponse>(`${this.adjBase}/contpaqi-payables${qs ? '?' + qs : ''}`);
   }
@@ -1347,12 +1349,12 @@ export interface SupplierInvoiceTotals {
 export interface SupplierInvoiceLedgerResponse { found: boolean; proveedor_code: string | null; proveedor_nombre: string | null; totals: SupplierInvoiceTotals | null; rows: SupplierInvoiceRow[] }
 
 export interface FiscalBook { facturado: number; pagado: number; saldo: number }
-export interface FiscalContpaqi extends FiscalBook { matched: boolean; cuentas: string[]; cuenta_nombre: string | null; saldo_ini: number; ejercicio: number | null; n: number }
+export interface FiscalContpaqi extends FiscalBook { matched: boolean; cuentas: string[]; cuenta_nombre: string | null; saldo_ini: number; ejercicio: number | null; ejercicios?: number[]; n: number }
 export interface FiscalMonth { anio_mes: string; abonos: number; cargos: number; saldo: number }
 export interface SupplierFiscalLedgerResponse { proveedor: string | null; contpaqi: FiscalContpaqi; operativo: (FiscalBook & { proveedor_code: string }) | null; contable: FiscalBook | null; rows: FiscalMonth[] }
 
 export interface ContpaqiPayableRow { cuenta: string; proveedor: string | null; proveedor_kepler: string | null; saldo: number; hasta: string; stale: boolean }
-export interface ContpaqiPayablesResponse { as_of: string; total_debe: number; total_favor: number; neto: number; n: number; n_stale: number; rows: ContpaqiPayableRow[] }
+export interface ContpaqiPayablesResponse { as_of: string; ejercicio: number | null; ejercicios: number[]; total_debe: number; total_favor: number; neto: number; n: number; n_stale: number; rows: ContpaqiPayableRow[] }
 
 export interface PolizaHeader { ejercicio: number; periodo: number; anio_mes: string; fecha: string | null; concepto: string | null; cargos: number; abonos: number; neto: number; num_lines: number }
 export interface PolizaLine { ejercicio: number; periodo: number; num_movto: number; cuenta: string; cuenta_nombre: string | null; cuenta_afectable: boolean | null; cargo_abono: 'C' | 'A'; importe: number }
