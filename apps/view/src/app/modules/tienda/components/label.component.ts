@@ -258,20 +258,13 @@ export interface LabelModel {
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
-    /* ⭐ Las tres familias viajan CON la app (assets/fonts, licencia OFL junto a los archivos),
-       ya no por un @import a fonts.googleapis.com. Con el @import la etiqueta dependía de la
-       salida a internet de cada caja: la misma etiqueta se medía con Anton en una máquina y con
-       Impact en la de al lado; y en la ventana antes de bajar ese CSS no existía ningún
-       @font-face, así que fonts.check() decía "sí" a una familia que no estaba (ver
-       familiasFaltantes). Baloo 2 es variable: un solo archivo cubre 500-800. font-display:swap
-       pinta ya con la de respaldo y el evento loadingdone vuelve a medir cuando llega la buena.
-       Sólo el subconjunto latino: cubre el español de México (ñ, acentos, ¿¡). */
-    @font-face{ font-family:'Anton'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('/assets/fonts/anton-latin.woff2') format('woff2'); }
-    @font-face{ font-family:'Bebas Neue'; font-style:normal; font-weight:400; font-display:swap;
-      src:url('/assets/fonts/bebasneue-latin.woff2') format('woff2'); }
-    @font-face{ font-family:'Baloo 2'; font-style:normal; font-weight:500 800; font-display:swap;
-      src:url('/assets/fonts/baloo2-latin-var.woff2') format('woff2'); }
+    /* ⛔ ACÁ NO VA NINGÚN @font-face NI @import DE TIPOGRAFÍA. Las tres familias de la etiqueta se
+       declaran en el CSS GLOBAL (apps/view/src/styles.css) y los archivos viven en assets/fonts.
+       Los estilos de un componente Angular se inyectan al PRIMER render de ese componente: con la
+       declaración acá, mientras no hubiera una etiqueta en pantalla no existía ninguna cara y las
+       fuentes NO empezaban a bajar — la primera etiqueta siempre se medía con la de respaldo, y
+       el chip de la pantalla decía "falta Anton, Bebas Neue y Baloo 2" antes de agregar nada.
+       El porqué completo está en el comentario de styles.css; el candado, en etiqueta-hoja.spec. */
     .etq-label{
       --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea;
       /* El naranja del texto CHICO (SKU 3.2 mm, cantidades 2.6 mm) es brand-800, no brand-700
@@ -783,7 +776,33 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     this.fuentesOk = familiasFaltantes()?.length === 0;
     const firma = `${root.offsetWidth}x${root.offsetHeight}|${this.fuentesOk}|${root.textContent}`;
     if (firma !== this.ultimaFirma) { this.layout(); this.ultimaFirma = firma; }
-    root.setAttribute('data-etq-fit', this.veredicto());
+    // ⭐ EL INVARIANTE, y es lo único acá que no depende de entender la causa: un pase NO puede
+    // TERMINAR en desborde si un tamaño menor cabe. Si el veredicto sale `overflow`, se vuelve a
+    // ajustar el número —`fitPrice` arranca de PRECIO_MM y re-deriva, así que converge— y se
+    // vuelve a juzgar. Un solo reintento: si sigue desbordado es porque no cabe ni en el piso, y
+    // eso se DECLARA (ADR-056), no se esconde.
+    //
+    // Medido: en Yurécuaro el número quedaba en 15 mm (el techo) con 127 px en 120 disponibles,
+    // mientras la misma etiqueta en otro equipo daba 11.75 mm y `ok`. Llegar al techo exige que
+    // en ESE instante midiera ≤107 px, o sea que creció contra una tipografía ~19% más angosta
+    // que la que después pintó (la cadena de respaldo trae Haettenschweiler y Arial Narrow, las
+    // dos más angostas que Anton). Con las caras declaradas en el CSS global la carrera ya no
+    // existe; esto es el cinturón para cualquier otra forma de llegar al mismo lugar.
+    let v = this.veredicto();
+    if (v === 'overflow') { this.fitPrice(); v = this.veredicto(); }
+    root.setAttribute('data-etq-fit', v);
+    // ⭐ El RASTRO de la medición, en el DOM. Un "salió de otro tamaño" se contesta leyendo esto
+    // en la caja que falla, en vez de tres viajes de ida y vuelta con sondas a medida: qué tamaño
+    // quedó, cuánto mide el número, cuánto había, y con qué tipografía se midió. Este defecto
+    // costó cuatro hipótesis refutadas y un parche publicado que no arreglaba nada, porque el
+    // único dato que importaba —el ancho EN EL INSTANTE de medir— no quedaba escrito en ningún lado.
+    const el = this.priceEl?.nativeElement;
+    const box = el?.parentElement;
+    if (el && box) {
+      const cs = getComputedStyle(box);
+      const avail = Math.round(box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0'));
+      root.setAttribute('data-etq-medida', `${el.style.fontSize || '?'}|${el.offsetWidth}|${avail}|${this.fuentesOk ? 'fuentes' : 'respaldo'}`);
+    }
     if (this.fuentesOk) root.setAttribute('data-etq-settled', 'fonts');
     else if (ESPERA_FUENTES_TERMINADA) root.setAttribute('data-etq-settled', 'fallback');
   }

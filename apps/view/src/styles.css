@@ -13,6 +13,36 @@
  */
 @import '../../../libs/ui-web/src/number-input.css';
 
+/*
+ * ⭐ Las tres tipografías de la ETIQUETA DE ANAQUEL (/tienda/etiquetas), acá y no en los estilos
+ * del componente que las usa.
+ *
+ * Dos razones, las dos medidas:
+ *
+ * 1. Angular inyecta los estilos de un componente al PRIMER render de ese componente. Con el
+ *    `@font-face` adentro, mientras no hubiera una etiqueta en pantalla no existía ninguna cara
+ *    declarada → el navegador no tenía qué descargar → las fuentes recién empezaban a bajar
+ *    DESPUÉS de la primera etiqueta, o sea que la primera siempre se medía con la de respaldo.
+ *    El chip de la pantalla lo reportaba: "falta Anton, Bebas Neue y Baloo 2" antes de agregar
+ *    nada. Declaradas acá, existen desde que arranca la app y `document.fonts.load()` (en
+ *    label.component) las baja de verdad.
+ * 2. Antes bajaban de fonts.googleapis.com por un `@import` DENTRO del CSS del componente. Eso
+ *    ataba el TAMAÑO impreso a la salida a internet de cada caja: la misma etiqueta se medía con
+ *    Anton en una máquina y con Impact en la de al lado (hasta 17% de diferencia en el número).
+ *    Una dependencia de red por máquina no es una fuente de verdad, es una fuente de variación.
+ *
+ * Los archivos viven en `assets/fonts` con su licencia OFL al lado. Sólo el subconjunto latino
+ * (cubre el español de México). Baloo 2 es variable: un archivo cubre 500–800.
+ * `font-display:swap` pinta ya con la de respaldo, y el evento `loadingdone` hace que la etiqueta
+ * se vuelva a medir cuando llega la buena (ver `observar()` en label.component).
+ */
+@font-face{ font-family:'Anton'; font-style:normal; font-weight:400; font-display:swap;
+  src:url('/assets/fonts/anton-latin.woff2') format('woff2'); }
+@font-face{ font-family:'Bebas Neue'; font-style:normal; font-weight:400; font-display:swap;
+  src:url('/assets/fonts/bebasneue-latin.woff2') format('woff2'); }
+@font-face{ font-family:'Baloo 2'; font-style:normal; font-weight:500 800; font-display:swap;
+  src:url('/assets/fonts/baloo2-latin-var.woff2') format('woff2'); }
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
