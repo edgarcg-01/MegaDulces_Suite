@@ -97,6 +97,21 @@ Edgar: *«usuarios a los que no se les asignó la tarea de conciliación (que s�
 - **Consecuencia declarada:** «Sólo catálogo» (puertas sí, «Tu trabajo» vacío) sube a **51 de 122**, porque un superadmin que no responde de nada ahora tiene esa columna vacía. Es el resultado correcto, no una regresión.
 - `test-newdb-me-context.js` **385 ok / 0 fail**. `nx build api` verde. ⚠️ **El proceso vivo de la API es anterior al arreglo**: el artefacto ya está compilado, toma efecto en el próximo reinicio.
 
+### Fixed — el mayoreo era invisible, la cámara se congelaba en Android, y el historial delataba al cliente anterior (CV.27, 2026-09-14)
+
+Tres bugs reales encontrados usando el verificador en la terminal/celular reales, no en `platform_test` ni en jsdom.
+
+- ⭐ **El mayoreo quedaba cortado en el borde de la pantalla, sin forma de llegar a él.** `.vf-page` tenía `overflow: hidden` a secas — no recortaba, **atrapaba**: cualquier tarjeta más alta que la ventana quedaba invisible para siempre. Y en un kiosco real el único periférico es la pistola, así que aunque el overflow fuera `auto` nadie podría hacer scroll manual. Se corrige el overflow (`overflow-x` nada más) **y** se agrega `scrollIntoView({ block: 'end' })` tras cada resultado, para que la ventana baje sola hasta que el pie de la tarjeta (mayoreo/ahorro) quede visible.
+- ⭐ **`UnknownError: setPhotoOptions failed`** — bug conocido de Chromium/Android negociando capacidades de torch de la cámara (`track.getCapabilities()`), reportado en vivo por el monitor de errores. Llega como promesa sin capturar, **después** de que la cámara ya abrió, y dejaba la cámara congelada sin ningún aviso. Se agrega un listener `unhandledrejection`/`error` en `window`, armado sólo mientras la cámara está abierta, que la cierra y lo declara. Confirmado en el celular real que reportó el error original: ya no sale.
+- ⭐ **El feed de "últimas consultas" se retira** (piso de tienda lo señaló): en un mostrador público, cualquiera que pasa frente a la pantalla podía leer qué escaneó el cliente anterior y a qué precio. Se retira por completo (interfaz, señal, método, plantilla, CSS) — el contador TOTAL de productos escaneados se queda, porque no revela qué se escaneó.
+- La barra "Escanea tu Producto" pasa a ser el botón de la cámara (se elimina el botón redondo duplicado), el auto-limpiado sube de 15s a 20s, y el campo de captura pasa de Sniglet bold a regular.
+- `nx test view` 306/310 (mismos 3 `todo` + 1 falla preexistente y ajena en `landing-guards.spec.ts`, de un hueco ya documentado de `[CV.25]`).
+
+### Added — cámara del celular como lector + clon fiel del `verificador.html` original (CV.26/27, 2026-09-12)
+
+- La cámara del celular se suma como tercera vía de captura en `/tienda/verificador`, junto a la pistola HID y el teclado — mismo cableado `@zxing/browser` que ya usan `ScanFieldComponent` (Andén) y `ProductScanFieldComponent` (Comercial).
+- ⚠️ **Excepción confirmada a DESIGN.md §O.3** (decisión explícita de 0Sistemas): la pantalla clona el look del kiosco `verificador.html` retirado en la Fase CV — tipografía Sniglet, paleta cruda propia (mismas cifras hex del HTML original), fondo con patrón de dulces, precio gigante en verde, tema fijo. Es la única pantalla del repo con esta excepción, documentada en `DESIGN.md` junto a §O.3. Lo que sigue intacto por ser correctud y no "look": procedencia del precio, unidad escaneada, mayoreo con foco, declarar-en-vez-de-ocultar (ADR-056).
+
 ### Changed — el hueco no estaba en la tarjeta, estaba en el grupo (SN.27, 2026-09-14)
 
 Edgar: *«hay que tratar de usar todo el espacio en pantalla»*.
