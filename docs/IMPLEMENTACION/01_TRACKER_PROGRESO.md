@@ -113,10 +113,31 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
 - [ ] **[AU.7]** ⬜ Retirar `dashboard/admin-users` (3,619 líneas, ya sin ruta) y mover su
       `UsersService`, que `daily-assignments` todavía importa. **Después** de la validación visual.
 - [ ] **[AU.8]** ⬜ ADR de la fase. ⚠️ ADR-052 está triple-ocupado: verificar numeración libre.
+- [x] **[AU.9]–[AU.14]** 🧪 Auditoría de las 4 interfaces, con la pantalla abierta. **Rompía:** un
+      byte `NUL` en `org.service.ts` viajaba como parámetro y Postgres lo rechaza → 500 en
+      `/org/users/:id/responsibilities` para toda persona sin puesto; el alta no podía funcionar
+      (faltaban `password` y `department_code`, los dos `@IsNotEmpty`); cuatro `computed()` sobre
+      props planas quedaban congelados —los filtros de Puestos no filtraban y el textarea del motivo
+      **no aparecía nunca** aunque el backend lo exige. **Mentía:** la tira de KPI contaba la PÁGINA
+      y se leía como el padrón (25 vs 81 sin puesto); el padrón traía las bajas (111 vs 100 en prod)
+      y las pintaba «Suspendida» aunque `status='terminated'`. **Faltaba:** 10 de los 14 campos que
+      editaba la pantalla vieja. Commit `b65718f5` · 2026-09-14
+- [x] **[AU.15]** 🧪 Un puesto que no propone perfil apagaba la regla del motivo
+      (`if (!pos.default_role) return null`), en el alta, la edición y el lote: el rol se elegía a
+      dedo sin dejar escrito por qué. Ahora se DECLARA (`propone: null`) con mensaje propio.
+      Commit `3e9f1e69` · 2026-09-14
 
 **Deuda declarada:** `DEUDA-AU-ROLES` (el editor de permisos sigue escribiendo las 175 claves del
 enum) · `DEUDA-AU-SCOPEROL` (el alcance por ROL sigue sin pantalla, y es la causa de las 36
-excepciones de `warehouse`) · `DEUDA-AU-DIMS` (3 de 6 dimensiones sin editor).
+excepciones de `warehouse`) · `DEUDA-AU-DIMS` (3 de 6 dimensiones sin editor) ·
+`DEUDA-AU-PUESTOS-VACANTES` (**decisión del lead 2026-09-14: se omiten por ahora**) — 13 puestos sin
+`default_role`, **los 13 vacantes y sin un solo ocupante histórico**, así que el perfil no se puede
+derivar de nada y asignarlo es decisión de negocio. No afectan a nadie hoy; el hueco se abre el día
+que alguien los ocupe, y `[AU.15]` lo cubre exigiendo motivo. El bloque [11] de
+`test-newdb-admin-usuarios` los cuenta y **se pone en rojo si alguno se ocupa**. ⚠️ Caso aparte con
+consecuencia HOY: «Alertas de flota» tiene responsable PRINCIPAL en `encargado_logistica`, vacante →
+10 personas pueden abrir flota y **ninguna responde de ella**; se resuelve dándole ocupante o
+moviendo la responsabilidad, no poniéndole un perfil al puesto vacío.
 
 ### Fase SN — Suite: navegación por espacios ("Mi trabajo" en `/projects`) · plan en [`FASE_SN`](FASES/FASE_SN_SUITE_NAVEGACION.md) · ADR-061
 
