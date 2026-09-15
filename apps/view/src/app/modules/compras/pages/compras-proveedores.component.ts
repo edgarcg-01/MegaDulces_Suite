@@ -75,8 +75,8 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <th class="cp-r" title="RA-PRO.27 — colchón adicional % sobre el sugerido de este proveedor">Colchón %</th>
             <th class="cp-r" title="RA-PRO.27 — días de cobertura propios (reemplazan el global del filtro)">Cobertura (d)</th>
             <th class="cp-r cp-sep" title="WMS-REC.8 — faltantes reclamados en la ventana (los que no se descartaron bajan el fill rate)">Reclamos</th>
-            <th class="cp-r" style="width:6rem"></th>
-            <th style="width:2rem"></th>
+            <th class="cp-r" style="width:6rem"><span class="sr-only">Acciones</span></th>
+            <th style="width:2rem"><span class="sr-only">Guardado</span></th>
           </tr>
         </ng-template>
         <ng-template #body let-r>

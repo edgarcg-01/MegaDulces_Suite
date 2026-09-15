@@ -172,7 +172,7 @@ import { ComercialService, RoutePromoResult, RoutePromoBody, PromoClientRow } fr
                   </div>
                   <table class="rp-tbl rp-det">
                     <thead><tr>
-                      <th></th><th>Vendedor</th><th>Cliente</th><th class="n">Tickets</th>
+                      <th><span class="sr-only">Detalle</span></th><th>Vendedor</th><th>Cliente</th><th class="n">Tickets</th>
                       <th class="n">Importe</th><th class="n">Bono</th>
                     </tr></thead>
                     <tbody>

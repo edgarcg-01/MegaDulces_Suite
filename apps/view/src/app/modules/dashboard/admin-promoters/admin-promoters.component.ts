@@ -57,7 +57,7 @@ import { ComercialService } from '../../comercial/comercial.service';
       <h2 class="ap-h2">Promotores actuales</h2>
       <p-table [value]="promoters()" [loading]="loading()" styleClass="p-datatable-sm surf-table surf-table--zebra">
         <ng-template #header>
-          <tr><th scope="col">Usuario</th><th scope="col">Nombre</th><th scope="col">Marcas</th><th scope="col"></th></tr>
+          <tr><th scope="col">Usuario</th><th scope="col">Nombre</th><th scope="col">Marcas</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
         <ng-template #body let-p>
           <tr>

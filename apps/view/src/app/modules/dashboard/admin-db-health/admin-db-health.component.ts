@@ -61,7 +61,7 @@ type Sev = 'success' | 'warn' | 'danger' | 'secondary';
       <div class="card">
         <p-table [value]="openAlerts()" styleClass="p-datatable-sm" [tableStyle]="{ 'min-width': '48rem' }">
           <ng-template #header>
-            <tr><th>Fuente</th><th>Estado</th><th class="num">Desactualizada</th><th>Detectada</th><th></th></tr>
+            <tr><th>Fuente</th><th>Estado</th><th class="num">Desactualizada</th><th>Detectada</th><th><span class="sr-only">Acciones</span></th></tr>
           </ng-template>
           <ng-template #body let-a>
             <tr [class.row-ack]="a.acknowledged_at">

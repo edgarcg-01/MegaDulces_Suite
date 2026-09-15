@@ -126,7 +126,7 @@ import { BinLocationService, WarehouseBin, LotLocation, UnlocatedLot } from '../
           <button pButton size="small" (click)="createBin()" [disabled]="!newBinCode.trim()" [loading]="savingBin()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span> Crear bin</button>
         </div>
         <p-table [value]="bins()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="280px">
-          <ng-template #header><tr><th scope="col">Código</th><th scope="col">Etiqueta</th><th scope="col" class="num">Unidades</th><th scope="col"></th></tr></ng-template>
+          <ng-template #header><tr><th scope="col">Código</th><th scope="col">Etiqueta</th><th scope="col" class="num">Unidades</th><th scope="col"><span class="sr-only">Acciones</span></th></tr></ng-template>
           <ng-template #body let-b>
             <tr>
               <td class="ub-mono ub-strong">{{ b.code }}</td>

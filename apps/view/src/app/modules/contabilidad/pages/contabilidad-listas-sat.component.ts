@@ -90,7 +90,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
                  [paginator]="filteredMatches().length > 50" [rows]="50">
           <ng-template #header>
             <tr>
-              <th style="width:2.5rem"></th>
+              <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
               <th style="width:6rem">Situación</th>
               <th>Proveedor</th>
               <th style="width:7rem">Lista</th>

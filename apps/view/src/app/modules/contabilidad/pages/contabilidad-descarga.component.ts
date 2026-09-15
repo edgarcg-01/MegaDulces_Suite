@@ -64,7 +64,7 @@ import { CredencialesService } from '../credenciales.service';
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="rows().length > 50" [rows]="50">
           <ng-template #header>
             <tr>
-              <th style="width:2.5rem"></th>
+              <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
               <th style="width:7rem">Estado</th>
               <th style="width:8rem">RFC</th>
               <th style="width:6rem">Rol</th>

@@ -87,7 +87,7 @@ import { CfdiService, CfdiRow, CfdiStats, CfdiFilters } from '../cfdi.service';
               <th style="width:5rem">Método</th>
               <th class="ta-r" style="width:10rem">Total</th>
               <th style="width:8rem">Estatus</th>
-              <th style="width:3rem"></th>
+              <th style="width:3rem"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-c>

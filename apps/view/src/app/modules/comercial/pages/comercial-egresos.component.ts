@@ -157,7 +157,7 @@ import { egresChartOptions, egresChartSeries } from './egresos-chart-opts';
                 <th class="ta-r" style="width:12rem" pSortableColumn="total">Importe</th>
                 <th class="ta-r" style="width:7rem" pSortableColumn="share_pct">%</th>
                 @if (compare()) { <th class="ta-r" style="width:8rem" pSortableColumn="delta_pct">Δ vs prev</th> }
-                <th style="width:3rem"></th>
+                <th style="width:3rem"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-row>

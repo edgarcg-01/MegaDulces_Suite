@@ -66,7 +66,7 @@ import { Permission } from '../../../core/constants/permissions';
             [(selection)]="selected" selectionMode="single" dataKey="folio" (onRowSelect)="openDetail($event.data)">
             <ng-template #header>
               <tr>
-                <th scope="col" class="pz-c-ok"></th>
+                <th scope="col" class="pz-c-ok"><span class="sr-only">Estado</span></th>
                 <th scope="col">Póliza</th>
                 <th scope="col">Mes</th>
                 <th scope="col" class="pz-num">Cargos</th>

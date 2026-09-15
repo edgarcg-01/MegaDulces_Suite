@@ -154,7 +154,7 @@ const SUGGESTIONS = [
                       <div class="tc-table-wrap">
                         <table class="tc-table">
                           <thead>
-                            <tr>@for (c of b.cols; track c.key) { <th [class.tc-r]="c.type !== 'text'">{{ c.label }}</th> }@if (b.urlKey) { <th style="width:2.5rem"></th> }</tr>
+                            <tr>@for (c of b.cols; track c.key) { <th [class.tc-r]="c.type !== 'text'">{{ c.label }}</th> }@if (b.urlKey) { <th style="width:2.5rem"><span class="sr-only">Acciones</span></th> }</tr>
                           </thead>
                           <tbody>
                             @for (r of b.rows; track $index) {

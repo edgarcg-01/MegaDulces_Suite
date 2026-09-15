@@ -352,7 +352,7 @@ const MES: Record<string, string> = {
               <p-table [value]="detail()!.daily" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="52vh">
                 <ng-template #header><tr>
                   <th scope="col">Día</th><th scope="col" class="comm-num">Tickets</th>
-                  <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"></th></tr>
+                  <th scope="col" class="comm-num">Venta</th><th scope="col" class="rr-barcol"><span class="sr-only">Proporción</span></th></tr>
                 </ng-template>
                 <ng-template #body let-x>
                   <tr class="rr-row" (click)="drillDay(x.date)" [title]="'Ver tickets del ' + x.date">

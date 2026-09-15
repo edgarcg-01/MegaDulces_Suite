@@ -412,7 +412,7 @@ type Condition = 'bueno' | 'regular' | 'malo';
                 <th scope="col">Vence</th>
                 <th scope="col">Plazo</th>
                 <th scope="col">Levantó</th>
-                <th scope="col"></th>
+                <th scope="col"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-h>

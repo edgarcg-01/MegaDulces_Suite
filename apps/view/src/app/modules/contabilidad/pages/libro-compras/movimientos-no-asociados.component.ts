@@ -328,7 +328,7 @@ type Grupo = 'entran' | 'sin_cuenta' | 'revisar' | 'ya_libro';
                      [rows]="100" dataKey="uuid">
               <ng-template #header>
                 <tr>
-                  <th class="c-chk"></th>
+                  <th class="c-chk"><span class="sr-only">Seleccionar</span></th>
                   <th>Proveedor</th>
                   <th class="c-num">Folio</th>
                   <th class="c-num">Fecha</th>

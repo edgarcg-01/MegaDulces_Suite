@@ -68,7 +68,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
             <th>Nombre</th>
             <th class="cat-r" style="width:8rem">Productos</th>
             <th class="cat-r" style="width:8rem">Proveedores</th>
-            <th style="width:3rem"></th>
+            <th style="width:3rem"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template #body let-c>

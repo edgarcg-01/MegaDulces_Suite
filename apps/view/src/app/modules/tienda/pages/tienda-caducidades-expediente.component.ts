@@ -156,7 +156,7 @@ import { formatExpiryEcho } from '../../almacen/shared/expiry-short';
               <th scope="col">Sucursal</th>
               <th scope="col">Levantó</th>
               <th scope="col">Fecha</th>
-              <th scope="col"></th>
+              <th scope="col"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-h>
