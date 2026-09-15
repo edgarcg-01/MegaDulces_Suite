@@ -2501,3 +2501,51 @@ número) → rojo cada una.
 devolvía, así que la firma no cambiaba, **no se re-maquetaba y se leía el tamaño viejo**. Una
 prueba que no cambia el estado que dice ejercer no prueba nada; las dos mentiras tienen que ser
 distintas entre sí **y del valor inicial**.
+
+## 50. Un folio de Kepler NO identifica un turno: se reusa el mismo día en la misma caja
+
+Medido en prod (SM.35, 2026-09-15) sobre `kepler_ods.kdpv_folio_caja`: el folio
+`c3` tiene **15 claves duplicadas** en la clave `(sucursal, caja, fecha, folio)`,
+**las 15 con dinero distinto**. El caso canónico: suc01 caja1 del 03/09, folio
+**68**, son **dos turnos de dos cajeros** —`10C01` con esperado $53,474.85 y
+retiro $49,000, y `26VHGH` con $12,184.01 y retiro $0—.
+
+Qué cobró:
+
+- El `DISTINCT ON (sucursal, caja, fecha, folio)` del sync (y de su gemelo
+  `load-cash-cuts-from-ods.js`) se quedaba con **uno** y el otro **no existía**
+  en `analytics.cash_cuts`: **16 filas, $485,076.32 de esperado y $278,900 de
+  retiro** perdidos en silencio. No faltaba una columna — faltaba el turno.
+- `compare()` buscaba el corte con `.where({tenant_id, warehouse_code, folio}).first()`
+  **sin orden**: podía comparar el arqueo de una cajera contra el corte de otra,
+  de cuatro días antes.
+- El join de `porCajera()` ligaba el arqueo por `cash_cut_folio = folio` sin caja
+  ni fecha, así que podía colgarle a una cajera el conteo de la compañera.
+
+**Regla:** para identificar un turno hacen falta `sucursal + caja + fecha +
+folio + cajero de cierre` (`c8`). Y si la clave única de la tabla destino no
+incluye al cajero, el `DISTINCT ON` **no puede** incluirlo: el `ON CONFLICT`
+revienta con *"cannot affect row a second time"*. Se cambian las dos juntas.
+
+⚠️ En un índice único los NULL son **distintos** por default: sin
+`NULLS NOT DISTINCT` (PG15+) dos cortes sin cajero del mismo folio vuelven a
+coexistir y el agujero sigue abierto.
+
+⚠️ Y el corolario general: **un test que no escribe no prueba un `ON CONFLICT`**.
+`test-newdb-cash-cuts-sync.js` estaba verde con 0 cortes en su ventana, así que
+un target de conflicto que no resolviera habría pasado inadvertido hasta correr
+en una sucursal con datos — y ahí deja de traer cortes enteros, no un campo.
+
+## 51. `COMMENT ON` no acepta bind params
+
+`knex.raw("COMMENT ON COLUMN t.c IS ?", [texto])` falla con
+`syntax error at or near "$1"`. `COMMENT ON` toma un **literal**, no un
+parámetro. Va inline con la comilla escapada:
+
+```js
+await knex.raw(`COMMENT ON COLUMN t.c IS '${String(txt).replace(/'/g, "''")}'`);
+```
+
+Cuesta caro porque revienta **a mitad de la migración**: el `ADD COLUMN` de
+arriba ya corrió, y si la migración no fuera transaccional quedaría la columna
+sin el comentario y el ledger sin la fila.

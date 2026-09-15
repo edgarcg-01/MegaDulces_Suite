@@ -639,6 +639,112 @@ despliegue opciones en vez de bajar. Se llega con `Tab`.
 
 **Pendiente prod:** redeploy view. Sin migración, sin re-login.
 
+### SM.35 — El retiro dejaba de ser retiro (2026-09-15)
+
+Disparado por una pantalla que decia "+$41,949.70 FALTAN" en cada fila. La
+diferencia era **exactamente** `esperado - cajon`: la correccion por sangrias no
+se aplicaba.
+
+**La identidad vivia escrita TRES veces a mano** y solo una estaba bien:
+
+    suma de retiros + cajon contado = esperado
+
+`armarComparacion()` la tenia correcta (con el comentario que ya avisaba que
+restar directo "acusa a una cajera honesta de un faltante del tamano de sus
+retiros"). `list()` y `porCajera()` la tenian mal. O sea: al **guardar** el
+arqueo la cajera veia el numero correcto y en el **historial** el falso.
+
+| | Pantalla | Real |
+|---|---|---|
+| Faltante, 11 cierres | **$387,085.43** | **-$13,564.57** (sobrante neto) |
+| Filas en rojo | 11 de 11 | 8 |
+
+Las tres de arriba cuadraban al centavo: -$0.30 / +$0.01 / +$9.77.
+
+**No se quedaba en pantalla.** De `porCajera()` salen `faltante_total` (el ranking
+que senala a personas por nombre) y el `diff_real` que `imprimirTicket()` estampa
+en PAPEL con la etiqueta FALTANTE.
+
+Mas dos bugs de la misma familia: `tipo='retiro'` no se neutralizaba (solo
+`'relevo'`), y como el indice unico incluye `tipo`, cierre y retiro son DOS filas
+que se restaban del **mismo** esperado -- el mismo dinero acusado dos veces, 20
+retiros con diff 100% falso. Y `kepler_enmascaro` heredaba el diff falso, o sea
+que la etiqueta prendia en el 100% de las filas y saturaba la unica senal que
+`arqueo_ciego_divergente` existe para dar.
+
+Fix: `libs/reconciliation/src/lib/cash-cut-identity.ts`, un solo `cuadreTurno()`.
+
+#### El hallazgo grande: el diff real ya estaba en Kepler
+
+Al escribir el veredicto iba a declarar "no medible" el 36.6% de cortes cuyo
+desglose no cuadra -- y habria **borrado diferencias reales**. El "hueco interno"
+de Kepler **es** nuestro `diff_real`: 953.83 = 953.83, 69.52 = 69.52 en los
+turnos donde nuestro conteo coincidio con su cajon declarado.
+
+O sea que `c15 - (c43+c44+c48)` es la diferencia real **y existe para todos los
+cortes, sin que nadie arquee**. Por que: `c35 = c15 - c25` en el **100%** de
+3,553 cortes (es una resta, no una medicion) y `c25 = c15` exacto en el **75.8%**,
+1,700 de ellos con retiro.
+
+**Kepler publica $699,811 de faltante y su propio desglose implica $2,698,325:
+1,066 cortes (30.0%) por $2,204,552** salen como cuadrados y su desglose los
+contradice (suc01 $901,871 / suc03 $453,788 / suc05 $366,051).
+
+Por eso `c25`/`c35` quedan **informativos** y el arbitro es `c43`/`c44`/`c48`.
+
+#### El sync descartaba turnos enteros
+
+El folio `c3` se **reusa** dentro del mismo dia y la misma caja: 15 claves
+duplicadas, **las 15 con dinero distinto**. Verificado -- suc01 caja1 03/09 folio
+**68** son dos turnos: `10C01` con esperado $53,474.85 / retiro $49,000 y
+`26VHGH` con $12,184.01 / retiro $0. El `DISTINCT ON` se quedaba con uno:
+**16 filas, $485,076.32 de esperado y $278,900 de retiro** que nunca llegaron.
+
+Clave gana `c8` en el sync **y en su gemelo** `load-cash-cuts-from-ods.js`, mas
+`uq_cash_cut_cajero` (`NULLS NOT DISTINCT`; mig `20260915210000`). Y el join de
+`porCajera()`, que ligaba solo por folio, podia colgarle a una cajera el arqueo de
+otra.
+
+#### La sangria y el corte, PEDIDOS
+
+`c46` **es** el umbral, y esta medido con la curva:
+
+| esperado / c46 | turnos | con retiro |
+|---|---|---|
+| <50% | 451 | 2.4% |
+| 80-100% | 185 | 14.1% |
+| **100-150%** | 387 | **70.8%** |
+| >300% | 809 | 99.9% |
+
+Funcion escalon centrada en `c46`, no correlacion. **NO son $15,000 para todos**:
+suc01 caja4 corre en $70,000 y suc04 caja2 en $8,000 -- el codigo lo tenia escrito
+como constante. El limite manda *cuando*, no *cuanto*: 0 de 2,234 casos dejan el
+cajon exacto en el limite y en 86.7% se retira de mas.
+
+**El disparo NO se puede calcular con `c15`: viene en 0 en los 34 turnos
+abiertos** (Kepler lo escribe al cerrar, y `c15 - c48` da basura negativa). Se usa
+`c49 - c48`, los dos vivos; `c49` es efectivo (coincide con `c15` al peso en 930
+de 975 cortes, contra 307 si fuera todos los medios). Es **estimacion** (54.4%
+dentro de $50, sesgo +$671 porque no incluye el fondo inicial): dispara el aviso y
+**nunca alimenta una diferencia**.
+
+`turnosPendientes()` devuelve `pide_retiro`, `retiro_sin_contar` y `pide_cierre`
+como **banderas**: el arqueo es ciego (SM.8) y la cajera no puede ver cuanto
+deberia haber antes de contar. Los montos solo viajan con `revela`. El limite si
+se le muestra -- es la politica de su caja, que ya conoce.
+
+**Pruebas:** `nx test reconciliation` 20/20 (target nuevo: la lib solo tenia
+`lint`) con los numeros de prod como fixtures y **prueba negativa en cada bloque**;
+`test-newdb-arqueo-cuadre.js` 12/0 + **1 NO MEDIDO declarado**, incluyendo el
+`ON CONFLICT` del sync ejercido de verdad -- `test-newdb-cash-cuts-sync` no lo
+toca (0 cortes en la ventana) y un target que no resuelve dejaria de traer cortes
+**enteros**.
+
+**Pendiente:** mig a `platform_test` (mi rol no es owner de `analytics.cash_cuts`)
+y a Railway, redeploy api+view, validacion visual. Sin permisos nuevos, sin
+re-login.
+
+
 ## Gotchas (bakeados)
 
 - `kdil.c4=0` → existencia teórica del kardex; conteo físico = verdad periódica.
