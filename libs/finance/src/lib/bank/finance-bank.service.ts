@@ -2407,16 +2407,20 @@ export class FinanceBankService {
       const isTraspaso = (e: any) => e.group_key === 'traspaso' || e.raw_type === 'TI' || e.raw_type === 'TE';
       const isFactoraje = (e: any) => e.group_key === 'factoraje' || e.raw_type === 'CF' || e.raw_type === 'PF';
       const kepHasIn = kepler.some((x: any) => x.dir === 'in');
-      const kepHasOut = kepler.some((x: any) => x.dir === 'out');
       const excelRows = excel.map((e: any) => {
         const k = take(kIdx, e.dir, e.importe), c = take(cIdx, e.dir, e.importe);
-        const recon: 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_match' =
+        // `partido` (Kepler parte la venta) es SÓLO para depósitos: un egreso no se "parte por venta".
+        // `sin_categoria` = sin `group_key` (ni traspaso/factoraje por raw_type): lo que una REGLA de
+        // clasificación por concepto (bank_classify_rules) resolvería — no es un faltante de dinero,
+        // es dato por categorizar. `sin_match` = excepción REAL (categorizado, sin conciliar en nada).
+        const recon: 'casado' | 'traspaso' | 'factoraje' | 'fiscal' | 'partido' | 'sin_categoria' | 'sin_match' =
           k ? 'casado'
             : isTraspaso(e) ? 'traspaso'
               : isFactoraje(e) ? 'factoraje'
                 : c ? 'fiscal'
-                  : (e.dir === 'in' ? kepHasIn : kepHasOut) ? 'partido'
-                    : 'sin_match';
+                  : (e.dir === 'in' && kepHasIn) ? 'partido'
+                    : (e.group_key == null) ? 'sin_categoria'
+                      : 'sin_match';
         return { ...e, source: 'workbook', key: String(e.id), kepler: !!k, contpaqi: !!c, recon,
           kepler_importe: k ? n(k.importe) : null, contpaqi_importe: c ? n(c.importe) : null,
           kepler_doc: k ? `${k.doc_tipo} ${k.folio}`.trim() : null, contpaqi_poliza: c ? c.poliza : null,
@@ -2430,7 +2434,7 @@ export class FinanceBankService {
       // CB.41 — Desglose por estado de conciliación (partición EXHAUSTIVA del Excel). El candado
       // `test-newdb-bank-threeway-recon` verifica que Σ(recon) == total Excel (nada queda fuera) y
       // que sólo `sin_match` cuenta como faltante real. El orden fija la prioridad de lectura.
-      const RECON_ORDER = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_match'] as const;
+      const RECON_ORDER = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_categoria', 'sin_match'] as const;
       const reconTotals: Record<string, { n: number; monto: number }> = {};
       for (const s of RECON_ORDER) reconTotals[s] = { n: 0, monto: 0 };
       for (const r of excelRows) { const b = reconTotals[r.recon]; b.n++; b.monto = r2(b.monto + r.importe); }

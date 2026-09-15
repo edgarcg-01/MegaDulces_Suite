@@ -61,15 +61,15 @@ function classifyAccount(excel, kepler, contpaqi) {
     return null;
   };
   const kepHasIn = kepler.some((x) => x.dir === 'in');
-  const kepHasOut = kepler.some((x) => x.dir === 'out');
   return excel.map((e) => {
     const k = take(kIdx, e.dir, e.importe), c = take(cIdx, e.dir, e.importe);
     const recon = k ? 'casado'
       : isTraspaso(e) ? 'traspaso'
         : isFactoraje(e) ? 'factoraje'
           : c ? 'fiscal'
-            : (e.dir === 'in' ? kepHasIn : kepHasOut) ? 'partido'
-              : 'sin_match';
+            : (e.dir === 'in' && kepHasIn) ? 'partido'
+              : (e.group_key == null) ? 'sin_categoria'
+                : 'sin_match';
     return { ...e, recon };
   });
 }
@@ -82,7 +82,7 @@ function classifyAccount(excel, kepler, contpaqi) {
   if ((await q('select current_database() d'))[0].d !== 'railway') { console.error('ABORT: no es railway'); process.exit(2); }
 
   console.log(`\n=== [CB.41] Candado partición exhaustiva del Cuadre 3-vías · ${PERIOD} ===\n`);
-  const RECON = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_match'];
+  const RECON = ['casado', 'traspaso', 'factoraje', 'fiscal', 'partido', 'sin_categoria', 'sin_match'];
   let ok = 0, fail = 0;
   const pass = (m) => { ok++; console.log('  ✔ ' + m); };
   const bad = (m) => { fail++; console.log('  ✖ ' + m); };
@@ -169,17 +169,25 @@ function classifyAccount(excel, kepler, contpaqi) {
   if (test4166.canindo_no_sinmatch) pass('4166: ninguna "VENTAS RD CANINDO" queda como sin_match');
   else bad('4166: una venta de ruta CANINDO quedó como sin_match');
 
-  // 5 · PRUEBA NEGATIVA: movimiento sin categoría y sin match → sin_match (no se pierde)
-  const fakeExcel = [{ id: 'x', concept: 'MOV DESCONOCIDO', raw_type: 'X', group_key: null, dir: 'in', importe: 999999.99 }];
-  const negRows = classifyAccount(fakeExcel, [], []);
-  if (negRows.length === 1 && negRows[0].recon === 'sin_match') pass('Negativa: un movimiento sin categoría y sin match cae en sin_match (no se pierde)');
-  else bad('Negativa: un movimiento desconocido NO cayó en sin_match: ' + JSON.stringify(negRows.map((r) => r.recon)));
+  // 5 · PRUEBA NEGATIVA: movimiento SIN categoría y sin match → sin_categoria (dato por
+  //     categorizar, no faltante de dinero) — no se pierde, y no se disfraza de faltante.
+  const fakeSinCat = [{ id: 'x', concept: 'UBER', raw_type: 'G', group_key: null, dir: 'out', importe: 350.0 }];
+  const negSC = classifyAccount(fakeSinCat, [], []);
+  if (negSC.length === 1 && negSC[0].recon === 'sin_categoria') pass('Negativa: un movimiento sin categoría cae en sin_categoria (regla por concepto lo resuelve, no se pierde)');
+  else bad('Negativa: un movimiento sin categoría NO cayó en sin_categoria: ' + JSON.stringify(negSC.map((r) => r.recon)));
 
-  // 6 · PRUEBA NEGATIVA 2: un traspaso NUNCA es sin_match aunque no case por monto
-  const fakeTrasp = [{ id: 't', concept: 'TRASPASO ENTRE CTAS 999', raw_type: 'TI', group_key: 'traspaso', dir: 'in', importe: 123456.78 }];
+  // 6 · PRUEBA NEGATIVA 2: un traspaso NUNCA es sin_match/sin_categoria aunque no case por monto
+  const fakeTrasp = [{ id: 't', concept: 'TRASPASO ENTRE CTAS 999', raw_type: 'TI', group_key: null, dir: 'in', importe: 123456.78 }];
   const negT = classifyAccount(fakeTrasp, [], []);
-  if (negT[0].recon === 'traspaso') pass('Negativa 2: un TI sin match se clasifica traspaso, jamás sin_match');
+  if (negT[0].recon === 'traspaso') pass('Negativa 2: un TI sin match y sin categoría se clasifica traspaso (raw_type manda), jamás faltante');
   else bad('Negativa 2: un traspaso cayó en ' + negT[0].recon);
+
+  // 7 · PRUEBA NEGATIVA 3: un egreso CATEGORIZADO y sin conciliar en ninguna fuente → sin_match
+  //     (excepción real). Antes caía en `partido`, que era falso ("partido por venta" no aplica a egresos).
+  const fakeSinMatch = [{ id: 's', concept: 'PAGO RARO', raw_type: 'G', group_key: 'gasto', dir: 'out', importe: 88888.88 }];
+  const negSM = classifyAccount(fakeSinMatch, [{ dir: 'out', importe: 1 }], []);
+  if (negSM[0].recon === 'sin_match') pass('Negativa 3: un egreso categorizado sin conciliar → sin_match (ya no se disfraza de "partido")');
+  else bad('Negativa 3: un egreso categorizado sin match cayó en ' + negSM[0].recon);
 
   console.log(`\n  ${ok} OK · ${fail} falla(s)\n`);
   await c.end();
