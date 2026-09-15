@@ -96,7 +96,24 @@ const STEPS = {
     // CG.16 — Control de CAJA GENERAL (.mdb/Doctos): los GASTOS se capturan/suben al .mdb (no
     // viven en Kepler), así que el importer del .mdb es la fuente válida. Sube a INTRADAY (no solo
     // nightly) para que refresque seguido junto al ritmo del libro. Requiere Z: (.245) montado.
-    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'),
+    //
+    // [DB-MEM.8] ⛔ RETIRADO de `intraday` y `nightly` el 2026-09-15 — NO PUEDE correr acá.
+    // `import-caja-general.js` lee los `.mdb` de `\\192.168.0.245\D` (Z:) con **PowerShell +
+    // ACE.OLEDB** (`extract-mdb.ps1`). Desde VL.4b estos carriles corren en `md`, que es Linux:
+    // verificado dentro del contenedor — no hay `powershell`, no hay `pwsh`, no hay `Z:`.
+    //
+    // Lo que se midió antes de tocarlo (2026-09-15):
+    //   · fallaba en el **100 %** de las corridas de `intraday` (24 intentos al día)
+    //   · `analytics.caja_arqueos` / `caja_general_movimientos` congelados en **2026-09-11**,
+    //     que es exactamente el día en que VL.4b mudó los carriles a `md`
+    //   · el tablero decía `ok` igual, porque `run-prod-feeds.js` sólo marca `error` si fallan
+    //     TODOS los pasos → **5 días de datos financieros parados, en silencio**
+    //   · y **no existía ningún sensor de caja en `db-health`** que lo vigilara
+    //
+    // Sigue disponible en el modo `finance`, que NO está en `ops/vl/crontab.feeds` y por lo tanto
+    // puede lanzarse desde `.249` (Windows, con Z: montado), igual que los 3 carriles de Wincaja.
+    // Mismo criterio de VL: **lo que no corre en Linux se DECLARA, no se deja fallando**.
+    // Su frescura ahora la vigila el sensor `caja_general` de db-health.
     path.join(K, 'import-stock-movements.js'),   // DM — diario de movimientos Kepler (6 sucursales). Ventana rodante STOCK_MOVEMENTS_DAYS (intradía); el nightly hace el pase 120d. Antes SOLO nightly → /almacen/movimientos iba 2 días atrás mientras Wincaja iba al día.
     // RR — ventas por ruta AL DÍA. El reporte /comercial/ventas-por-ruta lee el rollup
     // analytics.sales_by_route_monthly; antes estos feeds SOLO estaban en nightly → el reporte
@@ -168,7 +185,10 @@ const STEPS = {
     // RETIRADO 2026-09-03: import-bank-postings.js → analytics.bank_postings ahora es MATERIALIZED VIEW
     // derive-no-copy sobre kepler_ods.kdc2YYMM vía analytics.bank_postings_src() (mig 20260903130000).
     // La refresca AnalyticsRefreshService (cron 15m). Cero importer.
-    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
+    // [DB-MEM.8] ⛔ RETIRADO del `nightly` por el mismo motivo que de `intraday` (ver allá): este
+    // carril corre en `md` (Linux) desde VL.4b y el importer exige PowerShell + ACE.OLEDB + `Z:`.
+    // Queda sólo en el modo `finance`, que se lanza desde `.249`.
+    // path.join(DIR, 'movimientos-caja', 'import-caja-general.js'), // CG — arqueo caja 20 VIVO (BMovimientosCajas, al día) + Base Movimientos (histórico). Idempotente (UPSERT). REQUIERE Z: (.245 \\D) montado en el host del feed + PowerShell/ACE.OLEDB.
     // Feeds antes HUÉRFANOS (nunca agendados → se quedaban viejos). Cadencia diaria correcta.
     path.join(K, 'import-kepler-polizas.js'),    // pólizas contables Kepler (kdc2) → analytics.gl_poliza_*
     path.join(K, 'import-sales-boxes-monthly.js'), // venta en cajas mensual → analytics.sales_boxes_monthly
