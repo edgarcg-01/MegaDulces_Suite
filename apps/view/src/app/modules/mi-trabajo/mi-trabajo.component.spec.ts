@@ -1016,9 +1016,15 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(titular).not.toBe('1,865');
     const sub = (fix.nativeElement as HTMLElement).querySelector('.mt-titular-txt')?.textContent ?? '';
     expect(sub).toContain('a tu nombre');
-    // Lo compartido no desaparece: baja al subtítulo, con su unidad dicha.
+    // Lo que respondes no desaparece: baja al subtítulo, con su unidad dicha.
     expect(sub).toContain('1,865');
-    expect(sub).toContain('cola compartida');
+    /*
+     * `[SN.31]` Decía `'cola compartida'` y con `[SN.30]` ese término quedó FALSO: si una fila
+     * llega a esta lista es porque esta persona responde de ella. El defecto apareció midiendo
+     * qué ve un jefe de zona, cuya única fila decía «126 en 1 cola compartida» sobre algo suyo.
+     */
+    expect(sub).toContain('actividad que respondes');
+    expect(sub).not.toContain('compartida');
   });
 
   it('un 0 propio se pinta y se atenúa: la ausencia de reparto es el hecho medido', async () => {

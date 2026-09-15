@@ -516,7 +516,16 @@ export class MiTrabajoComponent {
     const enColas = this.totalBandejas();
     if (enColas > 0) {
       const n = this.bandejasConTrabajo();
-      partes.push(`${this.formatoTotal(enColas)} en ${n} ${n === 1 ? 'cola compartida' : 'colas compartidas'}`);
+      /*
+       * ⚠️ `[SN.31]` Acá decía «N colas compartidas», y con `[SN.30]` eso pasó a ser FALSO: si una
+       * cola llega a esta lista es porque esta persona responde de ella. El término se retiró del
+       * rótulo del grupo en `[SN.30]` y este subtítulo se quedó atrás — el defecto apareció al
+       * medir qué ve un jefe de zona, cuya única fila decía «126 en 1 cola compartida» sobre una
+       * actividad que es suya.
+       */
+      partes.push(
+        `${this.formatoTotal(enColas)} en ${n} ${n === 1 ? 'actividad que respondes' : 'actividades que respondes'}`,
+      );
     }
     return partes.join(' · ');
   });
