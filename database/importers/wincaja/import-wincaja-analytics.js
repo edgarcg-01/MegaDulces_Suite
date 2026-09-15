@@ -19,6 +19,7 @@
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '..', '.env') });
 const knexLib = require('knex');
+const { analyzeIfStale } = require('../lib/analyze-if-stale');
 
 const APPLY = process.argv.includes('--apply');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
@@ -101,8 +102,10 @@ const SELECT_SRC = buildSalesDailySrc({ tenantId: TENANT });
   });
 
   // RS.12c — refrescar estadísticas: el bulk-upsert deja stats obsoletas y el planner degrada
-  // el sell-out (medido: rollup de cajas 7.5s→1s con ANALYZE). Barato; corre en cada feed.
-  await db.raw(`ANALYZE analytics.sales_daily`);
+  // el sell-out (medido: rollup de cajas 7.5s→1s con ANALYZE).
+  // [DB-MEM.9] Decía "Barato; corre en cada feed" y lo era. Medido en prod: la tabla llegó a
+  // 4.5 GB y el ANALYZE cuesta 12.2 s — ahora sólo corre si de verdad cambió algo.
+  await analyzeIfStale((s) => db.raw(s), 'analytics.sales_daily');
 
   const chk = (await db.raw(
     `SELECT channel, count(*)::int n, coalesce(round(sum(revenue)::numeric,0),0) rev, count(distinct warehouse_id) wh
