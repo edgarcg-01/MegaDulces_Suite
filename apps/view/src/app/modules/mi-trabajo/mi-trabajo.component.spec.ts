@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
 import { Observable, of, throwError } from 'rxjs';
-import type { MeContext, MePendiente, MeWork } from '@megadulces/contracts';
+import type { MeContext, MePendiente, MeWork, MeZona } from '@megadulces/contracts';
 import { MiTrabajoComponent } from './mi-trabajo.component';
 import { AuthService, JwtPayload } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
@@ -61,6 +61,9 @@ const SIN_TRABAJO: MeWork = {
   tiene_responsabilidades: false,
   delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
+  // `[JZ.3]` Sin reparto de venta por zona no hay bloque. `null` es el caso de las 119
+  // personas que no son jefe de zona: el default honesto para los fixtures.
+  zona: null,
   medido_at: '2026-09-11T12:00:00.000Z',
 };
 
@@ -99,6 +102,7 @@ const TRABAJO_MIXTO: MeWork = {
   tiene_responsabilidades: false,
   delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
+  zona: null,
   pendientes: [
     bandeja({ id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio' }),
     bandeja({ id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865 }),
@@ -113,6 +117,7 @@ const TRABAJO_ASIGNADO: MeWork = {
   tiene_responsabilidades: false,
   delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
+  zona: null,
   tareas: [
     {
       fuente: 'finance.recon_tasks', label: 'Conciliaciones a tu nombre', detalle: 'te las repartió Maat',
@@ -1032,5 +1037,126 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const n = (fix.nativeElement as HTMLElement).querySelector('.mt-titular-n');
     expect(n?.textContent?.trim()).toBe('0');
     expect(n?.classList.contains('is-cero')).toBe(true);
+  });
+
+  /* ═══ `[JZ.3]` Cómo va tu zona ══════════════════════════════════════════════════════════ */
+
+  /**
+   * La zona de LA PIEDAD tal como la mide prod el 15-sep-2026, con el caso que importa metido
+   * adentro: una ruta que **dejó de reportar** (el patrón ZAMORA/Wincaja) y otra que su permiso
+   * no abre (el caso real de Ivette Cruz, jefa de zona sin `COMMERCIAL_ROUTE_SALES_VER`).
+   */
+  const ZONA_PIEDAD: MeZona = {
+    zona: 'LA PIEDAD RD',
+    desde: '2026-09-01', hasta: '2026-09-15',
+    desde_comparado: '2026-08-01', hasta_comparado: '2026-08-15',
+    monto: 10_214_832, comparado: 9_640_000, variacion_pct: 0.0596,
+    // La Ruta 501 no reporta desde el 12-ago: su venta de agosto NO entra en la comparación.
+    no_comparado: { canales: 1, monto_anterior: 163_878 },
+    bloques: [
+      {
+        grupo: 'tienda', label: 'Tus tiendas',
+        monto: 8_066_000, comparado: 8_162_000, variacion_pct: -0.0118, peso: 0.79,
+        no_comparado: null,
+        excluidos: [],
+        canales: [
+          { id: '01', label: '01 · Padre Hidalgo', detalle: 'contra 4,897,182 del mismo tramo',
+            grupo: 'tienda', monto: 4_827_899, comparado: 4_897_182, variacion_pct: -0.0141,
+            ultima_venta: '2026-09-15', sin_medir: null, ruta: '/tienda/live', queryParams: null,
+            sin_acceso: null },
+        ],
+      },
+      {
+        grupo: 'ruta', label: 'Tus rutas',
+        monto: 2_148_825, comparado: 1_477_725, variacion_pct: 0.4541, peso: 0.21,
+        no_comparado: { canales: 1, monto_anterior: 163_878 },
+        excluidos: [{ label: 'RUTA 29', motivo: 'está en el catálogo de la zona y no tiene almacén que venda' }],
+        canales: [
+          { id: 'RUTA-28', label: 'Ruta 28', detalle: 'contra 207,621 del mismo tramo',
+            grupo: 'ruta', monto: 337_976, comparado: 207_621, variacion_pct: 0.6279,
+            ultima_venta: '2026-09-14', sin_medir: null, ruta: '/comercial/ventas-por-ruta',
+            queryParams: { route: 'RUTA-28' }, sin_acceso: null },
+          { id: 'RUTA-501', label: 'Ruta 501', detalle: 'contra 163,878 del mismo tramo',
+            grupo: 'ruta', monto: null, comparado: 163_878, variacion_pct: null,
+            ultima_venta: '2026-08-12', sin_medir: 'sin venta registrada desde el 12-ago',
+            ruta: '/comercial/ventas-por-ruta', queryParams: { route: 'RUTA-501' }, sin_acceso: null },
+          { id: 'RUTA-22', label: 'Ruta 22', detalle: 'contra 217,413 del mismo tramo',
+            grupo: 'ruta', monto: 307_537, comparado: 217_413, variacion_pct: 0.4145,
+            ultima_venta: '2026-09-14', sin_medir: null, ruta: null, queryParams: null,
+            sin_acceso: 'Respondes de esto y tu permiso no abre /comercial/ventas-por-ruta (falta COMMERCIAL_ROUTE_SALES_VER).' },
+        ],
+      },
+    ],
+  };
+
+  const CON_ZONA: MeWork = { ...SIN_TRABAJO, zona: ZONA_PIEDAD };
+  const canales = () => q<HTMLElement>('.mt-canal');
+
+  it('⛔ una ruta sin venta en el tramo dice DESDE CUÁNDO, y jamás −100%', async () => {
+    /*
+     * La razón de ser del bloque. Medido en prod: las 5 rutas de ZAMORA vendieron $824k en julio
+     * y no registran un peso desde el 11-12 de agosto — y no es una caída, es la pierna Wincaja
+     * del sell-out que dejó de llegar (las de LA PIEDAD, que venden por otro canal, llegan al día
+     * sin hueco). Un jefe que lee −100 % sale a buscar al vendedor equivocado.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const texto = html();
+    expect(texto).toContain('sin venta registrada desde el 12-ago');
+    expect(texto).toContain('sin medir');
+    expect(texto).not.toContain('−100.0%');
+    expect(texto).not.toContain('-100.0%');
+  });
+
+  it('el canal que tu permiso no abre se muestra SIN enlace y con el motivo', async () => {
+    // Caso real: Ivette Cruz es jefa de zona de LA PIEDAD y no tiene COMMERCIAL_ROUTE_SALES_VER.
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const bloqueada = Array.from(canales()).find((e) => e.textContent?.includes('Ruta 22'))!;
+    expect(bloqueada.tagName).toBe('P');            // no es <a>: no lleva a un 403
+    expect(bloqueada.textContent).toContain('COMMERCIAL_ROUTE_SALES_VER');
+  });
+
+  it('la ruta enlaza a /comercial/ventas-por-ruta YA FILTRADA', async () => {
+    // Es la mitad que `[JZ.1]` hizo posible: sin el filtro por URL el enlace abriría el reporte
+    // completo y el jefe tendría que volver a buscar la ruta que acaba de ver.
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const a = Array.from(q<HTMLAnchorElement>('a.mt-canal')).find((e) => e.textContent?.includes('Ruta 28'))!;
+    expect(a.getAttribute('href')).toBe('/comercial/ventas-por-ruta?route=RUTA-28');
+  });
+
+  it('⛔ lo ambiguo o sin almacén NO se suma, y se dice por qué', async () => {
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const texto = html();
+    expect(texto).toContain('RUTA 29');
+    expect(texto).toContain('no se suma');
+  });
+
+  it('⛔ NEGATIVA — sin reparto de venta por zona el bloque NO existe', async () => {
+    // `[SN.30]`: «si no tiene responsabilidades no se le muestra nada». 119 de 122 personas.
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(SIN_TRABAJO) });
+    expect(canales().length).toBe(0);
+    expect(html()).not.toContain('en lo que va del mes');
+  });
+
+  it('⛔ lo que NO entró en la comparación se dice, no desaparece del subtotal', async () => {
+    /*
+     * El defecto que lo obligó, medido contra prod: ZAMORA publicaba **−42.2 %** sumando su
+     * tienda de este mes contra la tienda MÁS tres rutas del anterior. Con el pareo el total baja
+     * a −10.7 %, que es cierto — pero callar las 3 rutas que valían medio millón sería la otra
+     * mitad de la mentira.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const t = (fix.nativeElement as HTMLElement).querySelector('.mt-titular.is-zona')?.textContent ?? '';
+    expect(t).toContain('quedan fuera de la comparación');
+    expect(t).toContain('163,878');
+  });
+
+  it('el titular de la zona dice contra qué tramo se comparó', async () => {
+    // Comparar contra el mes anterior COMPLETO haría que el día 15 siempre "baje" ~50 %. El
+    // tramo comparado viaja en la respuesta justamente para poder mostrarlo.
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const t = (fix.nativeElement as HTMLElement).querySelector('.mt-titular.is-zona')?.textContent ?? '';
+    expect(t).toContain('10.21 MDP');
+    expect(t).toContain('+6.0%');
+    expect(t).toContain('2026-08-15');
   });
 });

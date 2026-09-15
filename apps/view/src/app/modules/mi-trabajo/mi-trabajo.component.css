@@ -944,10 +944,112 @@
 @media (prefers-reduced-motion: reduce) {
   .is-spin { animation: none; }
   /* `[SN.25]` El brief pide 180 ms; quien pidió menos movimiento no recibe ninguno. */
-  .mt-cell, .mt-chip, .mt-task { transition: none; }
+  .mt-cell, .mt-chip, .mt-task, .mt-canal { transition: none; }
   /*
     `[SN.26]` El movimiento se va, el AVISO se queda: sin `transform` ni sombra sigue habiendo
     cambio de borde, de fondo y de icono. Antes esta regla apagaba las dos únicas señales que había.
   */
   .mt-cell:hover, .mt-chip:hover { transform: none; box-shadow: none; }
 }
+
+/* ═══ [JZ.3] Cómo va tu zona ═══════════════════════════════════════════════════════════════
+ *
+ * Superficie Operations de DESIGN.md: sin ilustración, cifras en mono tabular, punto + texto en
+ * lugar de pastilla llena, y lo que no se pudo medir se DECLARA en vez de pintarse como cero.
+ *
+ * La fila reusa el cuerpo de .mt-task (fondo de tarjeta + hairline + radio) pero NO su riel de
+ * pertenencia: acá todo lo que se muestra ya es tuyo por construcción — si una fila llegó a esta
+ * lista es porque respondés de ese canal ([SN.30]). Un riel que está siempre encendido no informa.
+ */
+.mt-zona { margin-bottom: var(--sp-6); }
+
+/* El total de la zona no compite con el titular de pendientes: es la mitad de alto. */
+.mt-titular.is-zona { margin-bottom: var(--sp-4); }
+.mt-titular.is-zona .mt-titular-n { font-size: var(--fs-h1); font-weight: var(--fw-bold); }
+
+.mt-grupo-sub { text-transform: none; letter-spacing: 0; }
+
+.mt-canal {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--r-md);
+  color: inherit;
+  text-decoration: none;
+  transition: border-color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out);
+}
+.mt-canal:hover { border-color: var(--text-muted); transform: translateY(-1px); }
+.mt-canal:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+/* Sin cifra: borde punteado y fondo hundido. Se ve distinto de un dato, porque no lo es. */
+.mt-canal.is-nd, .mt-canal.is-bloqueada {
+  border-style: dashed;
+  background: var(--surface-ground);
+}
+.mt-canal.is-bloqueada:hover { transform: none; border-color: var(--border-color); }
+
+.mt-canal-ico {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  flex: none;
+  border-radius: var(--r-sm);
+  background: var(--surface-ground);
+  color: var(--text-muted);
+  font-size: var(--fs-micro);
+}
+.mt-canal-txt { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.mt-canal-l { font-size: var(--fs-sm); font-weight: var(--fw-medium); line-height: 1.3; }
+.mt-canal-d {
+  font-size: var(--fs-micro);
+  color: var(--text-faint);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mt-canal-v { flex: none; display: flex; flex-direction: column; align-items: flex-end; min-width: 5.5rem; }
+.mt-canal-m {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-bold);
+  letter-spacing: -.02em;
+  line-height: 1.25;
+}
+.mt-canal-p { font-size: var(--fs-micro); line-height: 1.2; }
+
+/*
+ * ⛔ El tercer estado tiene su propio color, y NO es el rojo de «bajó».
+ *
+ * Las 5 rutas de ZAMORA no venden desde el 12-ago porque dejó de llegar el dato del sell-out, no
+ * porque hayan dejado de vender. Pintarlas de rojo mandaría al jefe a buscar al vendedor; en gris
+ * y con «sin medir» le habla a Sistemas.
+ */
+.mt-delta {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-bold);
+}
+.mt-delta.is-up { color: var(--ok-fg); }
+.mt-delta.is-down { color: var(--bad-fg); }
+.mt-delta.is-plano { color: var(--text-muted); }
+.mt-delta.is-nd { color: var(--text-faint); font-weight: var(--fw-medium); }
+
+.mt-excluido {
+  display: flex;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+  line-height: 1.45;
+  border: 1px dashed var(--border-color);
+  border-radius: var(--r-md);
+}
+.mt-excluido b { color: var(--text-main); font-weight: var(--fw-bold); }

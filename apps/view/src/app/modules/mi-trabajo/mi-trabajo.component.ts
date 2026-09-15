@@ -13,7 +13,16 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
-import type { MeCiclo, MeContext, MePendiente, MePeriodo, MeTarea, MeWork } from '@megadulces/contracts';
+import type {
+  MeCanal,
+  MeCiclo,
+  MeContext,
+  MePendiente,
+  MePeriodo,
+  MeTarea,
+  MeWork,
+  MeZona,
+} from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { MeContextService } from '../../core/services/me-context.service';
@@ -536,6 +545,26 @@ export class MiTrabajoComponent {
   );
 
   /**
+   * `[JZ.3]` **Cómo va tu zona.** El cuarto organismo, y el único que no cuenta pendientes.
+   *
+   * Se filtra con el buscador igual que lo demás: si escribís «ruta 28» tiene que quedar esa
+   * fila, no desaparecer el bloque entero. Un bloque que se queda sin filas por el filtro no se
+   * pinta — igual que una bandeja en 0 (regla 4 de `me-work.ts`).
+   */
+  readonly zona = computed<MeZona | null>(() => {
+    const t = this.trabajo();
+    const z = t.status === 'ok' ? t.data.zona ?? null : null;
+    if (!z || !this.buscando()) return z;
+    const bloques = z.bloques
+      .map((b) => ({
+        ...b,
+        canales: b.canales.filter((c) => this.casa(normalizar(`${c.label} ${c.detalle}`))),
+      }))
+      .filter((b) => b.canales.length > 0);
+    return bloques.length ? { ...z, bloques } : null;
+  });
+
+  /**
    * `[SN.29]` **Las colas congeladas se declaran aparte, y no se suman a nada.**
    *
    * Medido contra prod el 2026-09-14: de las cinco colas que la pantalla publicaba como «trabajo
@@ -844,6 +873,42 @@ export class MiTrabajoComponent {
   /** `[SN.11]` 1865 → "1,865". Cifras alineadas (tabular-nums lo hace en CSS); el separador acá. */
   formatoTotal(n: number): string {
     return new Intl.NumberFormat('es-MX').format(n);
+  }
+
+  /**
+   * `[JZ.3]` **10,214,832 → "10.21 MDP"; 337,976 → "337,976".**
+   *
+   * El corte está en el millón porque es donde el número deja de leerse de un vistazo: ocho
+   * dígitos alineados obligan a contar comas. Debajo de eso el peso exacto informa más que un
+   * redondeo — una ruta que hizo 337,976 no es "0.34 MDP".
+   */
+  formatoDinero(n: number | null): string {
+    if (n === null) return '—';
+    return n >= 1_000_000
+      ? `${(n / 1_000_000).toFixed(2)} MDP`
+      : new Intl.NumberFormat('es-MX', { maximumFractionDigits: 0 }).format(n);
+  }
+
+  /**
+   * `[JZ.3]` `0.084` → `"+8.4%"`. ⛔ `null` devuelve `null`, **nunca "0%" ni "−100%"**: es la
+   * regla por la que existe este bloque. Las 5 rutas de ZAMORA no venden desde el 12-ago porque
+   * dejó de llegar el dato; un −100% manda al jefe a buscar al vendedor equivocado.
+   */
+  formatoVariacion(p: number | null): string | null {
+    if (p === null) return null;
+    const signo = p > 0 ? '+' : p < 0 ? '−' : '';
+    return `${signo}${Math.abs(p * 100).toFixed(1)}%`;
+  }
+
+  /** Clase de color: sube, baja, o **no se sabe** — que es un tercer estado, no un gris de relleno. */
+  claseVariacion(p: number | null): string {
+    if (p === null) return 'is-nd';
+    return p > 0 ? 'is-up' : p < 0 ? 'is-down' : 'is-plano';
+  }
+
+  /** El texto de la segunda línea de un canal: la comparación, o por qué no hay cifra. */
+  detalleCanal(c: MeCanal): string {
+    return c.sin_medir ?? c.detalle;
   }
 
   /**

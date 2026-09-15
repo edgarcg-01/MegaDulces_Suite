@@ -10,6 +10,30 @@
 
 ## [Unreleased]
 
+### Added — el jefe de zona ve cuánto vendió su zona, y qué NO se puede comparar (JZ.1–JZ.3, 2026-09-15)
+
+Edgar: *«que los jefes de zona vean cómo van sus tiendas y si están por encima o por debajo de sus ventas»*, con el encuadre que define la entrega: **«mucho de lo que vamos a presentar ya existe, sólo vamos a tomar la información o redireccionar a la interfaz correcta: `/tienda/live` y `/ventas-por-ruta`»**. Así que no hay pantalla nueva: hay ocho números por zona y un enlace a la pantalla que ya sabe contar el detalle.
+
+- **JZ.1** — `/comercial/ventas-por-ruta` aterriza **filtrada desde la URL** (`?route=`/`?branch=`/`?year=`). El filtro ya existía como control; lo que no existía era leerlo (cero usos de `ActivatedRoute`). 9 pruebas, que afirman sobre **el argumento con el que se llamó a `salesByRoute`**, no sobre el estado final del componente — el estado final sería verde aunque la consulta hubiera salido sin filtro.
+- **JZ.2** — `analytics.v_route_warehouse`: vista (no tabla) que une la ruta del catálogo (`RUTA 21`) con el almacén que vende (`RUTA-21`), normalizando la llave. **24 rutas · 11 usables · 9 sin almacén · 6 ambiguas · 0 almacenes huérfanos.** ⛔ **Tres claves las reclaman dos zonas** (`501`, `502`, `VECINAL1`); las dos primeras valen **$1.04M** entre junio y agosto. La vista las marca `ambigua` y **no elige**: sumarlas las contaría dos veces y elegir a dedo sería inventar un hecho de negocio. ZAMORA baja de 5 rutas a 3 sumables hasta que se corrija el catálogo.
+- **JZ.3** — **cuarto organismo** de «Mi trabajo» (`MeZona`): no cuenta pendientes, mide resultado. Dos claves nuevas de `identity.responsibilities` (`comercial.venta_tiendas` / `comercial.venta_rutas`) repartidas al puesto `jefe_zona`, porque desde `[SN.30]` lo que no se responde no se muestra.
+
+**Las tres mentiras que este bloque existe para no publicar**, las tres medidas contra prod:
+
+- ⛔ **Sin venta NO es −100 %.** Las 5 rutas de ZAMORA no registran un peso desde el **11-12 de agosto** y vendieron $824k en julio — es la pierna Wincaja del sell-out que dejó de llegar, no una caída (las 6 de LA PIEDAD, que venden por otro canal, llegan al día sin hueco). Un jefe que lee −100 % sale a buscar al vendedor; uno que lee «sin venta desde el 12-ago» le habla a Sistemas. `monto: null` ⇒ `variacion_pct: null`, siempre.
+- ⛔ **Los dos lados de una comparación cubren el mismo universo.** Lo destapó el reporte contra prod, no una revisión de código: **ZAMORA publicaba −42.2 %** sumando su tienda de septiembre contra la tienda **más tres rutas** de agosto. Un número verosímil y falso — el −100 % un nivel arriba y más difícil de ver. Un canal entra en los dos lados o en ninguno (−10.7 % real), y lo que queda afuera se **cuenta** (`no_comparado`: 3 canales, $479,648) en vez de desaparecer del subtotal.
+- ⛔ **El tramo se compara contra el mismo tramo**, no contra el mes anterior completo (el día 15 «bajaría» 50 % siempre). Y el 31 de marzo no invade marzo: el comparador se topa en el último día real de febrero.
+
+**Hallazgos que salieron al medir, y que no son código:**
+
+- ⭐ **Corrijo una medición mía anterior:** yo había reportado que el puesto `jefe_zona` tenía **0 personas**. Hoy tiene **3** —Ivette Cruz (LA PIEDAD RD), Aarón Alejo (MORELIA ABASTOS), Ramón Rodríguez (ZAMORA)— y `supervisor_rd` tiene **3 distintas**. Los dos niveles existen y están poblados.
+- ⚠️ **Ivette Cruz, jefa de zona, no tiene `COMMERCIAL_ROUTE_SALES_VER`**: sus 6 rutas (el **21 %** de la venta de su zona) le salen **sin enlace y con el motivo**. Se declara, no se esconde — repartir permisos es decisión de quien administra roles, y la responsabilidad ordena, no autoriza.
+- ⚠️ **MORELIA ABASTOS se queda sin bloque de rutas**: su única ruta (`Ruta vecinal 1`) choca con MORELIA MADERO.
+
+**Y un candado que llevaba meses verde sin medir.** `esLineaDePath`, del gate estático de `[SN.15]`, ancla con `,$` sobre un `app.routes.ts` en **CRLF**: el `\r` queda entre la coma y el fin de línea, así que **no matcheó nunca** — medido, **0 de 198** líneas `path:`. Consecuencia: el «cuerpo» de cada ruta se extendía hasta el fin del proyecto y `guardDe` devolvía la unión de decenas de permisos, así que «el guard de X acepta la clave de la bandeja» era cierto para casi cualquier clave. Lo destapó la prueba negativa de JZ.3: se cambió a propósito un permiso y el candado **siguió verde**. Corregido en el origen (se normaliza el `\r` al partir), y **nada se estaba escondiendo detrás**: con el arreglo puesto, ninguna ruta real quedó mal. *Una prueba negativa que no se ejerce no prueba nada* — tercera vez en esta fase.
+
+Migración `20260915180000` (vista) y `20260915200000` (las dos claves + reparto) **aplicadas a prod** (batches 419 y 420), una por una y no con `migrate:latest` —el directorio tiene una migración ajena sin commitear— y registrando en **`public.knex_migrations` calificado**: el `search_path` de esta base lleva `identity` primero, y el nombre sin schema escribe en una tabla vacía que nadie usa (síntoma: «batch 1» en una base con 419). Reporte permanente `database/scripts/jz-zona-prod-report.js` (read-only, corre `medirZona` de producción transpilada al vuelo, sale con 1 si un jefe queda sin una sola cifra). Pruebas: contracts **63 (+28)**, view **355 (+7)**, smoke `test-newdb-me-context` **131 OK / 0 FAIL**; cuatro sabotajes ejercidos → rojo, verde al restaurar. **Pendiente: redeploy api+view** (el bloque no se ve hasta entonces) **y decidir el permiso de rutas para Ivette.**
+
 ### Fixed — la etiqueta de anaquel se RE-MIDE cuando cambia lo que mide (ET.5 refutado → ET.6, 2026-09-15)
 
 Reporte de tienda: *«las etiquetas salen mal en unos navegadores y en otros no»*. Se llegó a la respuesta con sonda en la caja que fallaba (Yurécuaro), no adivinando: se descartaron tipografía, navegador, re-ajuste al redimensionar y trinquete montos→precio; se midió **136 px de número en una caja de 129**.
