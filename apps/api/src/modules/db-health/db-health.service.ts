@@ -647,7 +647,14 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'feed_live',           label: 'Feed live (venta viva)',            cadence: 'cada 30 min',  warnH: 2,   critH: 6, maxRunH: 1 },
   { key: 'feed_livefast',       label: 'Feed livefast (loop ~60s)',         cadence: 'continuo ~60s', warnH: 0.5, critH: 2 },
   { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4, maxRunH: 1 },
-  { key: 'feed_receipts',       label: 'Feed recepciones (XA2001)',         cadence: 'cada 1-2 min', warnH: 0.5, critH: 2, maxRunH: 1 },
+  // [DB-MEM.2] Pasó de "cada minuto" a diario 04:30 — y con él, su umbral. NO es un feed: es el
+  // BARRIDO HISTÓRICO (`detect-goods-receipt-duplicates.js`, ventana `--from=2026-01-01`), que
+  // costaba el 42.8% del tiempo de ejecución de la base para procesar 1-54 recepciones por DÍA.
+  // Lo incremental lo hace `twins_pairing` (cada 5 min), que es quien debe vigilarse de cerca.
+  // ⚠️ Si este umbral se hubiera quedado en 0.5/2 h, el tablero lo marcaría CRÍTICO todos los
+  // días a las 06:30 — una alarma permanente por el comportamiento correcto, que es justo lo que
+  // enseña a ignorar el tablero.
+  { key: 'feed_receipts',       label: 'Barrido histórico de recepciones (XA2001)', cadence: 'diario 04:30 MX', warnH: 26, critH: 50, maxRunH: 2 },
   { key: 'feed_intraday',       label: 'Feed intraday (transaccionales)',   cadence: 'cada 1 h',     warnH: 3,   critH: 8, maxRunH: 2 },
   { key: 'feed_nightly',        label: 'Feed nightly (batch nocturno)',     cadence: 'diario 03:00', warnH: 30,  critH: 50, maxRunH: 4 },
   // La tarea \Kepler\Catalog es SEMANAL (MSFT_TaskWeeklyTrigger, domingos 02:00), no diaria:
