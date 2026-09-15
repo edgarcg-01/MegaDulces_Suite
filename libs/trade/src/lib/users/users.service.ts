@@ -461,6 +461,41 @@ export class UsersService {
   }
 
   /**
+   * `[AU.28]` — Cambiarle la contraseña a otro exige `USUARIOS_PASSWORDS`.
+   *
+   * ⛔ Ese permiso existía **muerto**: estaba en el enum, en `permission-meta`,
+   * en `role-presets` y en `authz-tree`, y **ningún endpoint lo pedía**. Resetear
+   * una contraseña pasaba por `USUARIOS_GESTIONAR`, el mismo permiso con el que
+   * RH da de alta gente. Es la clase de compuerta que ADR-054 retiró: declarada
+   * en cuatro lugares y sin efecto en ninguno.
+   *
+   * A diferencia de `assertCanSetDeviceSession` —que reusó el mecanismo de rol
+   * en vez de estrenar un permiso, porque uno nuevo hay que repartirlo y sin
+   * repartir es la deuda de `[LC.6.2]`— acá **no hay nada que repartir**: se
+   * midió en prod antes de encenderlo y los dos permisos viven exactamente en
+   * los mismos 2 roles (`superadmin` con 8 personas, `recursos_humanos` con 0).
+   * Encenderlo **no le quita el acceso a nadie**; le devuelve sentido a una
+   * llave que ya está en los llaveros correctos.
+   *
+   * Sólo mira lo que el request PIDE: un PUT sin `password` no pasa por acá, y
+   * cambiarse la PROPIA contraseña tampoco — para eso está el flujo de cuenta,
+   * que no es administrar a un tercero.
+   */
+  private assertCanChangePassword(
+    password: string | undefined,
+    id: string,
+    requester: RequesterContext,
+  ): void {
+    if (!password) return;
+    if (id === requester.sub) return;
+    if (isPlatformAdminRole(requester.role_name)) return;
+    if (requester.permissions?.[Permission.USUARIOS_PASSWORDS] === true) return;
+    throw new ForbiddenException(
+      'Cambiarle la contraseña a otra persona exige el permiso «Resetear Contraseñas» (USUARIOS_PASSWORDS), que es distinto de administrar su ficha.',
+    );
+  }
+
+  /**
    * `[CH.1.10]` — Una contraseña que nadie está obligado a cambiar sólo se
    * justifica en una pantalla desatendida.
    *
@@ -1251,7 +1286,44 @@ export class UsersService {
     const updateData: Record<string, unknown> = { ...rest };
 
     if (password) {
+      // `[AU.28]` La llave que estaba declarada en cuatro lugares y no la pedía
+      // nadie. Va ANTES del hash: no se gasta un bcrypt en un request que se
+      // va a rechazar.
+      this.assertCanChangePassword(password, id, requester);
+
       updateData['password_hash'] = await bcrypt.hash(password, 10);
+
+      /*
+       * `[AU.28]` Los dos campos que el ALTA sí escribe y la EDICIÓN no escribía.
+       *
+       * Sin `password_changed_at`, la fecha queda diciendo cuándo se puso la
+       * contraseña ANTERIOR — y es el único dato con el que se puede responder
+       * «¿desde cuándo tiene ésta?».
+       *
+       * Y sin `must_change_password`, un reset dejaba exactamente lo que
+       * `[CH.1.10]` no admite en ningún otro camino: **una contraseña que eligió
+       * el admin y que el dueño no está obligado a cambiar**. El alta lo pone en
+       * `true` por esa razón; un reset es el mismo hecho.
+       *
+       * ⚠️ Con UNA excepción, que es la misma que `[CH.1.10]` ya reconoce: una
+       * cuenta de dispositivo. Forzarle el cambio a un kiosco lo deja inservible
+       * —la primera persona que pasa la cambia y la pantalla queda afuera—, así
+       * que si la cuenta tiene sesión larga, no se fuerza. Y si el request lo
+       * dice explícito, gana lo que mandó: ya pasó por `assertDeviceCredential`.
+       */
+      updateData['password_changed_at'] = this.knex.fn.now();
+      if (updateUserDto.must_change_password === undefined) {
+        const esDispositivo =
+          'token_ttl_days' in updateUserDto
+            ? updateUserDto.token_ttl_days != null
+            : (
+                await this.knex('users')
+                  .where({ id, tenant_id: this.tenantId })
+                  .select('token_ttl_days')
+                  .first()
+              )?.token_ttl_days != null;
+        updateData['must_change_password'] = !esDispositivo;
+      }
     }
 
     if (username) {
