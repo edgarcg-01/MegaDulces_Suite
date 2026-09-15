@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 /**
  * RR — Line-level del PUSH de rutas para el DRILL-DOWN de /comercial/ventas-por-ruta.
- * Lee `.249 mart.ventas` (sucursal='ruta_NN') a nivel línea (folio×sku) y lo aterriza en
+  * Lee `mart.ventas` del consolidado (`md`, antes `.249`) (sucursal='ruta_NN') a nivel línea (folio×sku) y lo aterriza en
  * `analytics.route_push_lines`, que la vista `analytics.v_route_sales_lines` une con la
  * venta a bordo Wincaja. Complementa a import-route-push-monthly.js (ese es el rollup para
  * la matriz; éste es el detalle).
@@ -13,7 +13,7 @@
  * (idempotente: re-cargar un día ya cargado reescribe los mismos valores).
  *
  *   DST_URL / DATABASE_URL_NEW = destino (prod)
- *   SRC_URL = runner .249 (default)  ·  --days N = piso mínimo de ventana (default auto)
+ *   SRC_URL = runner consolidado (default: local en md)  ·  --days N = piso mínimo de ventana (default auto)
  *   node database/importers/kepler/import-route-push-lines.js --apply
  */
 const { Client } = require('pg');
@@ -31,9 +31,9 @@ const DAYS_FLOOR = di !== -1 ? Number(process.argv[di + 1]) : null; // fuerza ve
   await dst.connect();
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 180000 });
   try {
-    console.log(`\n=== LINE-LEVEL venta en ruta (PUSH .249) → analytics.route_push_lines (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
+    console.log(`\n=== LINE-LEVEL venta en ruta (PUSH camionetas) → analytics.route_push_lines (${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
     try { await src.connect(); }
-    catch (e) { console.error(`❌ sin conexión al runner .249 (${e.message}) — abortando`); process.exitCode = 1; return; }
+    catch (e) { console.error(`❌ sin conexión al runner consolidado (${e.message}) — abortando`); process.exitCode = 1; return; }
 
     // Incremental POR RUTA (no global): cada ruta reanuda desde su propio último día cargado (−1),
     // y una ruta NUEVA — una van recién dada de alta — arranca en el cutover y trae TODA su historia.

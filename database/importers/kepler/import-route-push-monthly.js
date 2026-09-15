@@ -54,9 +54,9 @@ const YEAR = yi !== -1 ? Number(process.argv[yi + 1]) : new Date().getFullYear()
   await dst.connect();
   const src = new Client({ connectionString: SRC, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
   try {
-    console.log(`\n=== VENTA en ruta (PUSH .249) → analytics.sales_by_route_monthly (${APPLY ? 'APPLY' : 'DRY-RUN'}, año ${YEAR}) ===\n`);
+    console.log(`\n=== VENTA en ruta (PUSH camionetas) → analytics.sales_by_route_monthly (${APPLY ? 'APPLY' : 'DRY-RUN'}, año ${YEAR}) ===\n`);
     try { await src.connect(); }
-    catch (e) { console.error(`❌ sin conexión al runner .249 (${e.message}) — abortando`); process.exitCode = 1; return; }
+    catch (e) { console.error(`❌ sin conexión al runner consolidado (${e.message}) — abortando`); process.exitCode = 1; return; }
 
     const from = `${YEAR}-01-01`, to = `${YEAR + 1}-01-01`;
     // Agrego mart.ventas (line-level) → ruta × mes. warehouse = prefijo del almacén ('01-003' → '01').
