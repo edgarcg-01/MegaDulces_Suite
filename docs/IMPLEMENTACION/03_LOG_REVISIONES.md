@@ -128,6 +128,74 @@ Las dejo tachadas en vez de borrarlas, porque el **cómo** me equivoqué es la p
 
 ---
 
+## 2026-09-14 — Fase TP cerrada: Calendario de Pagos (ADR-064)
+
+**Disparador:** pedido explícito de implementar "Calendario de pagos" en `/finanzas`, con capacidad
+diaria (Presupuestos), obligaciones autorizadas de tres orígenes (Compras/Presupuestos/Finanzas),
+prioridad, parcialidades/agrupamiento, preparación operativa y estados separados (obligación/lote/
+movimiento).
+
+**Investigación previa (sin código) confirmó que ni Presupuestos ni el motor de asignación
+existían**: `finance.payment_program` (Fase PP) es una **bitácora retrospectiva** del Excel
+"PROGRAMA PAGOS 2026", no un registro de obligaciones autorizadas con saldo pendiente; RA.15
+(`commercial.purchase_orders`/`goods_receipts`) trackea unidades/costo pactado, no "cuenta por
+pagar" con vencimiento negociable. Se decidió (ADR-064) construir los TRES orígenes primero
+(`budget.expense_obligations`+`daily_capacity`, `finance.financial_commitments`,
+`commercial.supplier_payment_obligations`) y luego el motor de asignación polimórfico
+(`payment_calendar_lots`/`payment_allocations`/`payment_allocation_items`/
+`payment_negotiation_agreements`), en vez de forzar el calendario sobre `payment_program`.
+
+**Diseño clave:** `reserved_amount`/`paid_amount`/`status` de cada obligación se **recalculan
+siempre** desde los `payment_allocation_items` activos (nunca `+=`/`-=` manual) — evita el bug
+clásico de saldo desincronizado. Capacidad consumida = Σ `amount_assigned` de allocations
+`pending`+`executed` (ejecutar no libera capacidad; fallar sí, sin liquidar la obligación).
+Reprogramar = cancelar + recrear (lineage `reprogrammed_from_id`), lo que actualiza el consumo de
+ambas fechas gratis por construcción (el cancelado deja de sumar en su lote).
+
+**Permisos**: 2 pares nuevos (`PRESUPUESTOS_*`, `COMPRAS_OBLIGACIONES_*`) + reuso deliberado de
+`FINANCE_PAYMENTS_VER/GESTIONAR` para el calendario y los compromisos financieros (evita
+duplicar la familia "Finanzas·pagos" que ya usan Programa de Pagos/Pagos a proveedor/Cuadre-proveedor).
+`PRESUPUESTOS_*` se otorgó al rol legado `coordinador_presupuestos`, que existía en el padrón
+(mapeado a área 'finanzas' en `role-presets.ts`) pero no tenía ningún permiso de este dominio —
+mismo patrón de "reparto" que `20260821120000_grant_expenses_capturar_to_roles.js`.
+
+**Gotcha real encontrado escribiendo el smoke test (no en el código de producción): Postgres
+aborta la transacción completa tras el PRIMER error, y un `try/catch` sin `SAVEPOINT` no lo
+deshace** — exactamente la lección de SN.22 (`03_LOG_REVISIONES.md` 2026-09-12), reencontrada de
+cero al probar 3 violaciones de CHECK dentro de una misma transacción de prueba: la primera
+pasaba, las siguientes fallaban con `25P02` (transacción abortada) en vez de `23514` (CHECK). Fix:
+`SAVEPOINT`/`ROLLBACK TO SAVEPOINT` alrededor de cada intento de violación.
+
+**Migración local:** `npm run migrate:new` (equivalente a `knex migrate:latest`) se colgó ~17 min
+sin aplicar ni una sola migración contra `platform_test` — el backlog local venía de 6 días atrás
+(última aplicada: 2026-09-08) y algo en las migraciones pendientes de OTRAS sesiones tomó el lock
+sin soltarlo. Se abortó el proceso, se liberó `knex_migrations_lock` (huérfano tras el kill) y se
+aplicaron las 3 migraciones de esta fase **directamente** (`exports.up(knex)` + registro manual en
+`knex_migrations`) — completamente compatibles con un futuro `migrate:latest` real (idempotentes).
+No se investigó la causa raíz del cuelgue del backlog (fuera de alcance de esta fase, y la DB es
+compartida por otras sesiones activas).
+
+**Verificado:** `nx build api` y `nx build view` limpios. Smoke `test-newdb-payment-calendar.js`:
+**50 ✓ / 0 ✗** contra `platform_test` real (rollback, 0 filas persistidas) — schema+RLS de las 9
+tablas nuevas, capacidad con historial, distinción NULL≠0, 3 orígenes, un pago agrupando 2
+obligaciones, una obligación parcializada en 2 fechas sin doble-reserva, reprogramar con lineage,
+fallo que regresa el saldo sin liquidar, ejecución que no vuelve a liberar capacidad, 3 CHECKs, y
+la vista UNION de obligaciones disponibles con beneficiario resuelto por join.
+
+**NO verificado esta sesión:** validación visual (no se pudo levantar `nx serve view` — mismo
+patrón de flakiness de Windows ya documentado en WMS-BI.4), ejecución end-to-end vía HTTP real
+(el smoke es DB-direct, replica la lógica del servicio pero no llama a los controllers).
+
+**Declarado, no construido:** integración con Caja General (banco/caja hoy texto libre en la
+preparación del pago), conciliación banco↔pago (equivalente a PP.4), vínculo automático
+OC/recepción→obligación de Compras (hoy manual). Detalle completo en
+[`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md).
+
+**Pendiente:** aplicar migraciones a Railway + redeploy api+view + re-login de los roles afectados
+(permisos nuevos viajan en el JWT).
+
+---
+
 ## 2026-09-11 — Auditoría de `/comercial/sell-out`: la venta no-caja se declaraba en el back pero no en el front, y el costo de la pantalla está en el fan-out, no en la query
 
 **Disparador:** *"auditor de esta interfaz: /comercial/sell-out"* → *"arreglemos el hallazgo 1"* → *"documentemos el hallazgo 2 y auditemos tiempos de carga o de respuesta, revisando base de datos, front y back"*.

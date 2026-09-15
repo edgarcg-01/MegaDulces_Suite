@@ -268,6 +268,13 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'compras-reclamos', label: 'Reclamos de recepción', route: '/compras/reclamos', view: [Permission.COMPRAS_HALLAZGOS_VER], manage: [Permission.COMPRAS_HALLAZGOS_GESTIONAR] },
           { id: 'compras-proveedores', label: 'Proveedores', route: '/compras/proveedores', view: [Permission.COMPRAS_PROVEEDORES_VER], manage: [Permission.COMPRAS_PROVEEDORES_GESTIONAR] },
           { id: 'compras-categorias', label: 'Categorías', route: '/compras/categorias', view: [Permission.COMPRAS_CATEGORIAS_VER], manage: [Permission.COMPRAS_CATEGORIAS_GESTIONAR] },
+          // Fase TP (ADR-064) — la "cuenta por pagar" a proveedor de mercancía que
+          // alimenta el Calendario de Pagos de Finanzas. Permiso propio.
+          { id: 'compras-obligaciones', label: 'Obligaciones a proveedor', route: '/compras/obligaciones', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
+          // TP.7 — catálogo de cuentas de pago a proveedor. Solicitar (crear/cambiar) usa el
+          // mismo permiso que Obligaciones; aprobar la solicitud exige FINANCE_PAYMENT_CALENDAR_
+          // AUTORIZAR (nodo de Finanzas) — el propio endpoint lo exige, no este nodo.
+          { id: 'compras-cuentas-pago', label: 'Cuentas de pago a proveedor', route: '/compras/cuentas-pago', view: [Permission.COMPRAS_OBLIGACIONES_VER], manage: [Permission.COMPRAS_OBLIGACIONES_GESTIONAR] },
         ],
       },
       {
@@ -280,6 +287,16 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Cartera de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
+          // Fase TP (ADR-064) — el calendario prospectivo (asigna obligaciones ya
+          // autorizadas a un día, dentro de la capacidad de Presupuestos). Reusa
+          // FINANCE_PAYMENTS_* (misma familia que Programa de Pagos/Pagos a proveedor).
+          // TP.6 — dos permisos de manage a propósito: GESTIONAR prepara (asigna/reprograma/
+          // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
+          // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
+          { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] },
+          // Fase TP — Presupuestos: capacidad de pago por fecha + gastos autorizados.
+          // Permiso propio: Presupuestos es responsable distinto de Tesorería/Finanzas.
+          { id: 'presupuesto', label: 'Presupuesto', route: '/finanzas/presupuesto', view: [Permission.PRESUPUESTOS_VER], manage: [Permission.PRESUPUESTOS_GESTIONAR] },
           // `[AUTHZ.5]` `FINANCE_RECON_RECIBIR` estaba en el enum y **fuera del árbol**: no se podía
           // otorgar desde acá. No es un permiso de pantalla sino un MARCADOR — `maat-recon-tasks`
           // consulta `role_permissions` directo para saber a qué roles repartirle tareas. Sin

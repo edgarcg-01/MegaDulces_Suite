@@ -50,6 +50,18 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
   {
+    label: 'Calendario de pagos',
+    route: '/finanzas/calendario-pagos',
+    icon: 'pi pi-calendar',
+    permission: Permission.FINANCE_PAYMENTS_VER,
+  },
+  {
+    label: 'Presupuesto',
+    route: '/finanzas/presupuesto',
+    icon: 'pi pi-chart-pie',
+    permission: Permission.PRESUPUESTOS_VER,
+  },
+  {
     label: 'Hallazgos',
     route: '/finanzas/hallazgos',
     icon: 'pi pi-flag',
