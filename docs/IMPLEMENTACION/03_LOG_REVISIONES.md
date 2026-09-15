@@ -116,6 +116,21 @@ Verificación final: **20 carriles (16 ok · 3 corriendo)**, marcas de dedup int
 - ⚠️ **`CREATE INDEX IF NOT EXISTS` igual pide lock sobre la tabla** para resolver el "if". Con el feed escribiendo, falló con `canceling statement due to lock timeout` **aunque el índice ya existía**. La migración pregunta antes con `to_regclass` y sale.
 - ⚠️ **`CREATE INDEX CONCURRENTLY` quedó 39 min en `waiting for old snapshots`**, bloqueado por un request del API de **71 minutos** sobre `analytics.v_route_sales_lines` — la misma cadena de vistas que ya causó las dos caídas que el código documenta (*"10 escaneos de 5 min tumbaron prod"*, *"504 en prod"*). `CONCURRENTLY` no bloquea escrituras, pero **espera a toda transacción abierta anterior**.
 
+#### ⭐ Tercera tanda — el CTE del reabastecimiento se ejecutaba DOS VECES
+
+`database/importers/kepler/import-replenishment-plan.js` corría el CTE completo (**48 sub-CTEs, 18 tablas, 1,447 MB de disco por corrida**) dos veces: una para el `CREATE TEMP TABLE stg_rplan` y **otra, antes, sólo para imprimir una línea de log**.
+
+| | Llamadas | ms c/u | Total |
+|---|---|---|---|
+| `CREATE TEMP TABLE stg_rplan` (el trabajo) | 24 | 174,102 | 4,178 s |
+| El conteo previo (mismo CTE, sólo `console.log`) | 24 | **37,609** | **903 s** |
+
+37.6 s por corrida × ~100 corridas/día (`stock` 4 veces/hora + nightly + intraday) ≈ **1 hora de CPU al día para imprimir una línea**.
+
+El conteo ahora sale de `stg_rplan` ya materializada, fusionado en la consulta de controles de cordura que **ya existía** (mismo viaje, costo ~0). Y es **más correcto**: el conteo viejo medía `base ⋈ econ`, un cálculo *paralelo* al que se materializa — si divergieran, el log habría seguido reportando el número viejo y nadie se enteraría.
+
+Verificado con dry-run contra prod (termina en `ROLLBACK`): `47,369 filas · 9,893 productos · 9 almacenes`, exit 0 en **183 s** (antes ~220 s), y **cuadra exacto** contra lo que hay en `analytics.replenishment_plan`.
+
 #### El blanco siguiente, ya medido
 
 Con el barrido de recepciones fuera, el TOP lo encabezan:
