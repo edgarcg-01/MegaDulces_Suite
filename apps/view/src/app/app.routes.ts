@@ -363,6 +363,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // Fase TP (ADR-064) — Calendario de Pagos: asigna obligaciones autorizadas a un día,
+        // dentro de la capacidad de Presupuestos. Vive en Finanzas (no subordinado a Tesorería).
+        path: 'calendario-pagos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-calendario-pagos.component').then(m => m.FinanzasCalendarioPagosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
+        // Fase TP — Presupuestos: capacidad de pago por fecha + gastos autorizados.
+        path: 'presupuesto',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-presupuesto.component').then(m => m.FinanzasPresupuestoComponent),
+        canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)]
+      },
+      {
         // CG.4 — Caja General (Tesorería): venta diaria → depósito + arqueo + conciliación CB.
         path: 'caja',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-caja.component').then(m => m.FinanzasCajaComponent),
@@ -688,6 +701,19 @@ export const routes: Routes = [
         path: 'categorias',
         loadComponent: () => import('./modules/compras/pages/compras-categorias.component').then(m => m.ComprasCategoriasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_CATEGORIAS_VER)]
+      },
+      {
+        // Fase TP (ADR-064) — Obligaciones a proveedor de mercancía. Alimenta el
+        // Calendario de Pagos de Finanzas.
+        path: 'obligaciones',
+        loadComponent: () => import('./modules/compras/pages/compras-obligaciones.component').then(m => m.ComprasObligacionesComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
+      },
+      {
+        // Fase TP.7 (ADR-064) — Catálogo de cuentas de pago a proveedor + workflow de aprobación.
+        path: 'cuentas-pago',
+        loadComponent: () => import('./modules/compras/pages/compras-cuentas-pago.component').then(m => m.ComprasCuentasPagoComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_OBLIGACIONES_VER)]
       },
       {
         path: 'requisiciones/:id',
@@ -1230,32 +1256,47 @@ export const routes: Routes = [
   {
     path: 'telemarketing',
     canActivate: [televentaGuard],
-    loadComponent: () =>
-      import('./modules/televenta/televenta-shell.component').then((m) => m.TeleventaShellComponent),
+    // [SN.22] Monta el chrome de Operations (sidebar + migaja + tema), igual que Compras,
+    // Tienda o Finanzas. Antes montaba un shell propio con la navegación en un header
+    // horizontal: era el único proyecto sin el sidebar que DESIGN.md da por estándar, y
+    // mantenerlo obligaba a un segundo chrome a mano. Las secciones del módulo viven en
+    // `televentaNavGroups` (layout.component.ts).
+    component: LayoutComponent,
     children: [
       { path: '', redirectTo: 'dashboard', pathMatch: 'full' },
-      // E.4 — Dashboard métricas
       {
-        path: 'dashboard',
+        // Fase TM — shell de área: monta la barra de tabs una sola vez. `path: ''`, así que
+        // las URLs de las hijas NO cambian y los enlaces guardados siguen valiendo.
+        path: '',
         loadComponent: () =>
-          import('./modules/televenta/pages/televenta-dashboard.component').then(
-            (m) => m.TeleventaDashboardComponent,
+          import('./modules/televenta/telemarketing-area-shell.component').then(
+            (m) => m.TelemarketingAreaShellComponent,
           ),
-      },
-      {
-        path: 'queue',
-        loadComponent: () =>
-          import('./modules/televenta/pages/televenta-queue.component').then(
-            (m) => m.TeleventaQueueComponent,
-          ),
-      },
-      {
-        path: 'my',
-        // Reusa el mismo queue component (muestra Mis reservas activas arriba).
-        loadComponent: () =>
-          import('./modules/televenta/pages/televenta-queue.component').then(
-            (m) => m.TeleventaQueueComponent,
-          ),
+        children: [
+          // E.4 — Dashboard métricas
+          {
+            path: 'dashboard',
+            loadComponent: () =>
+              import('./modules/televenta/pages/televenta-dashboard.component').then(
+                (m) => m.TeleventaDashboardComponent,
+              ),
+          },
+          {
+            path: 'queue',
+            loadComponent: () =>
+              import('./modules/televenta/pages/televenta-queue.component').then(
+                (m) => m.TeleventaQueueComponent,
+              ),
+          },
+          {
+            path: 'my',
+            // Reusa el mismo queue component (muestra Mis reservas activas arriba).
+            loadComponent: () =>
+              import('./modules/televenta/pages/televenta-queue.component').then(
+                (m) => m.TeleventaQueueComponent,
+              ),
+          },
+        ],
       },
       {
         path: 'lead/:customer_id',

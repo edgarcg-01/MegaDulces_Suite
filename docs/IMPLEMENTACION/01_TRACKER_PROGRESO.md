@@ -105,6 +105,8 @@ segunda lista. Lo que la spec pide y no existe se declara, no se pinta.
 | **[SN.9]** una pantalla + buscador | 🧪 2026-09-11 | Pedido de Edgar: concentrar módulos, Mi trabajo, pendientes y un buscador **sin scroll**. Opciones presentadas; elegidas **rejilla densa + buscador**, búsqueda **cliente** (módulos y pendientes), objetivo **1920×1080**. Medido el peor caso: **22 entradas / 6 espacios** (superadmin). `100dvh` en 5 filas de grid, sólo la de espacios elástica: en pantalla chica scrollea **esa zona**, nunca se esconde una puerta. Buscador sin acentos + multi-token AND, con los **módulos en el haystack** ("bancos" → Finanzas); `Ctrl-K` / `/` enfocan, `Enter` abre el primero. Sin coincidencias se dice. `nx test view` 253/256 (+6). **Diferido y declarado:** entidades de negocio (endpoint nuevo sobre `applySmartSearch`) y lenguaje natural |
 | **[SN.8]** corrección de la landing | 🧪 2026-09-11 | **Edgar rechazó SN.3**: "interfaz compleja y poco interactiva, módulos poco profesionales, el trabajo no está delegado o asignado a una persona; el diseño de los módulos ya era correcto, sólo era cambiar los nombres y las posiciones y darle un espacio a Mi trabajo". Vuelve la **tarjeta** de `modules/projects/` agrupada por espacio (ahora `<a routerLink>`, sin el badge "Activo" literal, con la línea de contenido derivada); "Mi trabajo" pasa a ser el **primer espacio** con los pendientes reales. Bundle 1.25 MB (sin cambio); `nx test view` 247/250 |
 
+| **[SN.22]** Telemarketing entra al sidebar | 🧪 2026-09-15 | Pedido: "una sidebar decente que ayude en todas sus subdivisiones". **Era el ÚNICO proyecto de Operations sin el sidebar** que DESIGN.md §8 da por estándar (`LayoutComponent`): montaba un shell propio con la navegación en un header horizontal. Se retiró ese shell en vez de escribir un segundo chrome a mano — `televenta` entra a `PROJECT_KEY` + `televentaNavGroups` (**Operación**: Cola de llamadas, Mis clientes tomados · **Resultados**: Resumen, Facturación con su propio permiso). `anyOf: [VER, OPERATE]` en los tres items propios: el route-guard exige **OPERATE** y los items se filtraban por **VER**, así que un rol con OPERATE y sin VER entraba y encontraba el sidebar vacío. **Dos defectos vivos encontrados de paso:** (1) queue/lead/take-order inyectaban `MessageService` **sin proveerlo** y pintaban en el `<p-toast>` del shell — al quitarlo se rompían; ahora cada página es dueña de su toast, como el resto de la app; (2) dos `routerLink` seguían en la URL vieja `/televenta/queue`, y **su gate estaba verde**: buscaba `'/televenta/` con comilla SIMPLE y en un template los atributos van con comilla doble. Gate reescrito a los 3 delimitadores + **prueba negativa ejercida** (rojo con el enlace viejo). `nx build view` OK · spec 11/11 · lint sin errores nuevos. **Pendiente humano: validación visual** (esta sesión no tuvo browser: los MCP de Playwright/chrome-devtools no conectaron). ⚠️ Los 3 rojos de `landing-guards.spec` son **preexistentes y ajenos** (`/almacen/catalogo-interno` declarado en el árbol desde `77eca70b` sin ruta en `app.routes.ts`) |
+
 ⚠️ **P-14 abierta para Dirección:** §23 y §10 de la spec se contradicen sobre dónde vive "Auditoría en Ruta" (Rutas de detalle vs Mercadotecnia). Default §23; una línea del mapa lo cambia.
 
 ### Fase VT — Captura de pedido del vendedor (`/vendor/take-order`) · ADR-062
@@ -2751,6 +2753,73 @@ pantalla responsive; no los toqué fuera de estas dos tablas):
 - ⚠️ **Cajero — investigado y NO implementado, declarado abierto.** Se buscó (a pedido del usuario) "quién firma cada documento": Kepler no tiene un campo de cajero en `kdm1`; el candidato más cercano es `kdpv_folio_caja` (cortes de caja, con login tipo "10C01"/cajero real) cruzado por sucursal+caja+ventana de horario — pero **las sesiones de una misma caja se traslapan en el tiempo** (medido: caja "03" de la sucursal 01 el 2026-09-01 tuvo 2-3 cajeros con ventanas de horario que se pisan), así que un documento no se puede asignar a UN cajero sin adivinar cuál de las sesiones traslapadas lo procesó. Se paró en vez de improvisar (regla del proyecto). Necesita a Edgar o al dueño de Kepler para entender el modelo real de sesiones de caja antes de intentarlo de nuevo.
 - **Verificado**: build `nx build api`/`nx build view` limpios. Con `analytics.stock_movements` vacía localmente, se insertó una fila sintética con datos 100% reales (folio `0000830`, SKU `88124`, sucursal 01, tomados de `kepler_ods.kdm1`/`kdm2` reales) y se reprodujo la query completa de `movements()`+`enrichFromKdm()` directo contra Postgres (sin poder levantar el server de desarrollo esta sesión — ver nota abajo): Hora `09:18` (ya no medianoche), Vendedor `"SUCURSAL PADRE HIDALGO PISO"`, Canal `"Punto de Venta"` (correcto: PISO→mostrador), Tipo de operación `"Comercial"` — los 4 campos nuevos/corregidos resuelven como se espera. Fila borrada al terminar.
 - ⚠️ **No se pudo levantar el server de desarrollo esta sesión** (`nx serve api` falló 2 veces con `spawn ENAMETOOLONG` de Windows tras ~20 reinicios del watcher en 5 min — no relacionado con este cambio, ambiente/infra). La verificación de arriba se hizo con la query reconstruida directo contra Postgres, no con Playwright/HTTP real. **Pendiente: repetir la verificación visual cuando el dev server levante.**
+
+---
+
+## Fase TP — Calendario de Pagos (ADR-064) — ✅ TP.0-TP.5 2026-09-14
+
+**Tesis:** el Calendario de Pagos es un CONSUMIDOR — cada obligación nace precargada y autorizada
+en su módulo de origen (Compras/Presupuestos/Finanzas); el calendario solo la ASIGNA a un día,
+dentro de la capacidad que Presupuestos fija, y prepara su ejecución. Vive en `/finanzas/calendario-pagos`
+(NO subordinado a Tesorería). Absorbe el sprint PP.5 de Fase PP (bitácora retrospectiva ≠ este
+motor prospectivo).
+
+- [x] **TP.0** — schema: `budget.daily_capacity`(+history)/`expense_obligations`,
+  `finance.financial_commitments`, `commercial.supplier_payment_obligations`,
+  `catalog.suppliers.is_critical`/`critical_reason`, `finance.payment_calendar_lots`/
+  `payment_allocations`/`payment_allocation_items`/`payment_negotiation_agreements`. Migraciones
+  `20260914130000`/`20260914140000` idempotentes, RLS forzado, grants `app_runtime`.
+- [x] **TP.1** — backend: `BudgetCapacityService` (capacidad+historial), `BudgetExpenseObligationsService`,
+  `FinancialCommitmentsService`, `SupplierPaymentObligationsService` (`libs/commercial`),
+  `PaymentCalendarService` (UNION de obligaciones + lotes/allocations/items/agreements + día
+  resumen + reprogramar/preparar/ejecutar/fallar/cancelar/liberar/cerrar). `nx build api` OK.
+- [x] **TP.2** — permisos: `PRESUPUESTOS_VER/GESTIONAR` (nuevo, otorgado a `coordinador_presupuestos`
+  vía migración `20260914150000`) + `COMPRAS_OBLIGACIONES_VER/GESTIONAR` (nuevo, grupo `compras`) +
+  reuso de `FINANCE_PAYMENTS_VER/GESTIONAR` para el calendario y compromisos financieros. `authz-tree`
+  + `finanzas-tabs` + `role-presets` actualizados.
+- [x] **TP.3** — frontend: `/finanzas/calendario-pagos` (navegador de fecha, resumen del día,
+  obligaciones disponibles con selección múltiple/agrupar, pagos del día con preparar/reprogramar/
+  ejecutar/cancelar, liberar día), `/finanzas/presupuesto` (capacidad+historial, gastos autorizados),
+  `/compras/obligaciones` (obligaciones a proveedor + marcar crítico). `nx build view` OK.
+- [x] **TP.4** — smoke `database/tests/test-newdb-payment-calendar.js`: **50 ✓ / 0 ✗** contra
+  `platform_test` real (schema+RLS, capacidad con historial, NULL≠0, 3 orígenes, pago agrupa 2
+  facturas, parcialidad en 2 fechas sin doble-reserva, reprogramar cancela+recrea con lineage,
+  fallo regresa saldo, ejecutar no libera capacidad, 3 CHECKs, UNION de obligaciones). Alta en
+  `run-all-tests.js`. Migraciones aplicadas localmente (`migrate:latest` se colgó por un backlog
+  de otras sesiones — se aplicaron las 3 migraciones directamente, idempotentes y compatibles con
+  un futuro `migrate:latest` real; ver `03_LOG_REVISIONES.md` 2026-09-14).
+- [x] **TP.5** — documentación: ADR-064, `FASE_TP_CALENDARIO_PAGOS.md`, PP.5 marcado absorbido,
+  CHANGELOG, este tracker.
+
+**Declarado, no construido:** integración con Caja General para ejecución real (banco/caja hoy
+texto libre), conciliación banco↔pago (equivalente a PP.4), vínculo automático OC/recepción→
+obligación (hoy manual en Compras), validación visual (no se pudo levantar `nx serve view`).
+Detalle completo en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md).
+
+### TP.6-TP.8+TP.10 — Control interno (ADR-065) — ✅ 2026-09-15
+
+Pedido explícito del usuario sobre el módulo ya construido: separación preparar≠autorizar,
+catálogo de cuentas de pago a proveedor con workflow de aprobación, folio consecutivo al
+autorizar, documentos imprimibles (preliminar + Caja General), y motivo de reprogramación.
+
+- [x] **TP.6** — permiso `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (fuera de todo `MODULE_GROUP`,
+  repartido a `gerente_finanzas`/`direccion`/`superadmin`) exige liberar el lote. `suggestPriorityOrder`
+  propone el orden de pago, `setPriorityRank` lo ajusta, `releaseLot` exige orden completo.
+- [x] **TP.7** — `commercial.supplier_payment_accounts`+`_change_requests` (alta/cambio/baja SÓLO
+  vía solicitud aprobada, favorita exclusiva por proveedor). `libs/commercial/supplier-payment-accounts`.
+- [x] **TP.8** — folio de lote (`YYMMDD-01`) y pago (`<folio>-NN`) generado al autorizar.
+  `PaymentCalendarDocumentService` (Chromium propio) — preliminar + instrucción a Caja General.
+- [x] **TP.10** — `reprogram_reason` CHECK cerrado + detalle si "otro"; reprogramar acepta
+  pendiente O fallido.
+- [x] Migraciones `20260915120000`/`20260915130000` aplicadas localmente. `nx build api`/`view` OK.
+  Smoke `test-newdb-payment-calendar-controls.js` **28 ✓ / 0 ✗**; smoke original re-verificado
+  **50 ✓ / 0 ✗** tras aislarlo de datos ambiente (colisión real encontrada con el seed de demo).
+
+**Declarado (decisión explícita del usuario):** TP.9 (comprobación final) para la siguiente
+entrega; catálogo tipado de cajas de Caja General; cobertura de inventario por proveedor y
+programa de ingresos — fuera de alcance, la reunión semanal los sigue manejando fuera del sistema.
+Detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md) sección "Extensión
+TP.6-TP.8+TP.10".
 
 ---
 ## 📋 BACKLOG — Fases G, H, I

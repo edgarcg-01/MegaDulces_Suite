@@ -10,6 +10,64 @@
 
 ## [Unreleased]
 
+### Added — Calendario de Pagos: control interno real (Fase TP.6-TP.8+TP.10, ADR-065, 2026-09-15)
+
+- **Separación de funciones**: permiso nuevo `FINANCE_PAYMENT_CALENDAR_AUTORIZAR` (repartido sólo
+  a `gerente_finanzas`/`direccion`/`superadmin`, nunca a quien prepara) exige liberar/autorizar el
+  lote del día — distinto de `FINANCE_PAYMENTS_GESTIONAR`. Precedente: `COMPRAS_ENTRADAS_GESTIONAR`
+  vs `_VALIDAR`, único caso previo en el repo de dos permisos separados para la misma acción.
+- **Orden de pago real**: `suggestPriorityOrder` propone (compromiso financiero → crítico →
+  resto), Tesorería ajusta con `setPriorityRank`; autorizar exige que todo pago tenga orden.
+- **Catálogo de cuentas de pago a proveedor** (`commercial.supplier_payment_accounts` +
+  `_change_requests`, `/compras/cuentas-pago`): banco/CLABE/alias/adjunto JPG-PDF/favorita. Toda
+  alta/cambio/baja pasa por una solicitud que aprueba el autorizador — nunca alta directa (control
+  anti-fraude). Favorita exclusiva **por proveedor**.
+- **Folio consecutivo al autorizar** (`YYMMDD-01` el lote, `<folio>-NN` cada pago según su orden)
+  — nunca al crear el borrador. Documentos imprimibles nuevos (`PaymentCalendarDocumentService`,
+  Chromium propio): preliminar para autorización (leyendas de control interno) e instrucción de
+  ejecución para Caja General (sólo tras autorizar).
+- **Motivo de reprogramación** cerrado (`cuenta_erronea | falla_sistema_banco | pago_devuelto |
+  presupuesto_recortado | otro` + detalle libre) — reprogramar ahora acepta pagos pendientes o
+  fallidos.
+- Smoke nuevo `test-newdb-payment-calendar-controls.js`: **28 ✓ / 0 ✗**. Migraciones
+  `20260915120000`/`20260915130000` aplicadas localmente.
+- **Declarado (decisión del usuario):** comprobación final (TP.9) para la siguiente entrega;
+  cobertura de inventario por proveedor y programa de ingresos, fuera de alcance.
+
+### Added — Calendario de Pagos (Fase TP, ADR-064, 2026-09-14)
+
+- **Nuevo módulo en `/finanzas/calendario-pagos`** (NO subordinado a Tesorería — Tesorería es una de
+  las responsables del proceso, no su dueña). Organiza los pagos día por día: capacidad autorizada
+  por Presupuestos, obligaciones ya autorizadas de Compras/Presupuestos/Finanzas, asignación,
+  preparación operativa (método/banco/caja) y ejecución.
+- **Tres orígenes nuevos, cada uno dueño de su verdad** (el calendario solo LEE, nunca captura
+  obligaciones sueltas): `budget.expense_obligations` (Presupuestos, `/finanzas/presupuesto` — módulo
+  nuevo, Presupuestos no existía), `finance.financial_commitments` (Finanzas: factoraje/interés/
+  amortización), `commercial.supplier_payment_obligations` (Compras, `/compras/obligaciones` — la
+  "cuenta por pagar" que RA.15 no modelaba).
+- **Capacidad diaria con historial**: `budget.daily_capacity` + `budget.daily_capacity_history`
+  (quién/cuándo/por qué). Sin fila = capacidad NO definida (distinta de cero) — el día no libera pagos.
+- **Motor de asignación polimórfico**: `finance.payment_calendar_lots` (día) + `payment_allocations`
+  (1 pago) + `payment_allocation_items` (N:M pago↔obligación) resuelve sin duplicar reservas: un pago
+  cubre varias facturas, una factura se parcializa en varias fechas. Ejecutar mueve saldo
+  reservado→pagado sin volver a liberar capacidad; un pago fallido regresa su reserva (no liquida).
+- Proveedor crítico (`catalog.suppliers.is_critical`/`critical_reason`) — flag manual con motivo,
+  nunca inferido del importe. Permisos nuevos `PRESUPUESTOS_VER/GESTIONAR` (otorgado al rol legado
+  `coordinador_presupuestos`) y `COMPRAS_OBLIGACIONES_VER/GESTIONAR`; el calendario y los compromisos
+  financieros reusan `FINANCE_PAYMENTS_VER/GESTIONAR`. Smoke `test-newdb-payment-calendar.js`:
+  **50 ✓ / 0 ✗** contra `platform_test` real (rollback, sin efecto real).
+- **Seed de ejemplo** (`database/seeds-newdb/08_mega_dulces_payment_calendar_demo.js`, `npm run
+  seed:new`): 90 días de capacidad + 36 obligaciones (proveedores reales del catálogo) + 17 pagos
+  cubriendo ejecutado/fallido/agrupado/parcializado/reprogramado/excedido, para visualizar el
+  módulo sin captura manual. Idempotente, verificado contra `platform_test`.
+- Absorbe el sprint PP.5 de [`FASE_PP_PROGRAMA_PAGOS.md`](docs/IMPLEMENTACION/FASES/FASE_PP_PROGRAMA_PAGOS.md)
+  (la bitácora retrospectiva de PP sigue viva; TP es la mitad prospectiva). Plan completo en
+  [`FASE_TP_CALENDARIO_PAGOS.md`](docs/IMPLEMENTACION/FASES/FASE_TP_CALENDARIO_PAGOS.md).
+- **Declarado, no construido en este corte**: integración con Caja General para la ejecución real
+  (hoy caja/banco son texto libre en la preparación), conciliación banco↔pago (equivalente a PP.4),
+  vínculo automático OC/recepción→obligación (hoy manual), validación visual (no se pudo levantar
+  `nx serve view` en esta sesión).
+
 ### Fixed — `/comercial/documentos`: la tabla escondía el 94.5% de sus filas (AX.12, 2026-09-12)
 
 - ⭐ **No era lentitud, era truncamiento silencioso.** El backend paginaba desde siempre, pero el frontend **nunca mandaba `page` ni `pageSize`**: caía en el default de 50 y la tabla no tenía paginador. Medido en prod: **912 documentos** en la ventana por defecto (30 d, telemarketing) → **862 inalcanzables (94.5%)**, mientras el KPI del encabezado sí decía 912. La pantalla se contradecía sola. Ahora la tabla es `lazy` con paginador de servidor (50/100/200, "N a M de 912").
