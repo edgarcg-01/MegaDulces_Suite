@@ -137,4 +137,22 @@ export class AlmacenBiService {
       params: this.params(f, { fields: fields.join(','), page, pageSize }),
     });
   }
+
+  /**
+   * WMS-BI.5 — descarga TODA la consulta filtrada (no sólo la página cargada), tope 100,000
+   * filas en el servidor. `format`: csv | xlsx (Excel) | sqlite (base de datos real — el
+   * equivalente moderno al .mdb del sistema anterior, sin el límite práctico de filas de
+   * CSV/Excel, con los tipos preservados).
+   */
+  downloadMovementsExport(f: BiFilterParams, format: 'csv' | 'xlsx' | 'sqlite') {
+    return this.http.get(`${this.base}/movements/export.${format}`, {
+      params: this.params(f), responseType: 'blob', observe: 'response',
+    });
+  }
+
+  downloadExploreExport(f: BiFilterParams, fields: string[], format: 'csv' | 'xlsx' | 'sqlite') {
+    return this.http.get(`${this.base}/explore/export.${format}`, {
+      params: this.params(f, { fields: fields.join(',') }), responseType: 'blob', observe: 'response',
+    });
+  }
 }
