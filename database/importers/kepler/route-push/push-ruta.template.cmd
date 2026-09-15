@@ -35,7 +35,9 @@ set ROUTE_SERIE=UD1001
 REM  SRC = Postgres LOCAL de la camioneta.  DST = runner (fijo).
 REM  Password embebida en la URI (sin espacios -> a prueba de comillas de cmd).
 set SRC=postgresql://postgres:<CLAVE_LOCAL>@localhost:5432/<DB_LOCAL>
-set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.249:5433/kepler_consolidado
+REM  [VL.7.6] El runner es 192.168.0.222 (`md`), no .249 — ver la nota de push-ruta.v2.template.cmd.
+REM  ⚠️ Esta es la plantilla v1 y NO se usa para altas nuevas: usar push-ruta.v2.template.cmd.
+set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.222:5433/kepler_consolidado
 
 set LOG=C:\KeplerPush\push_%TRUCK%.log
 REM ============================================================================

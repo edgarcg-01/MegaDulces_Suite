@@ -120,6 +120,46 @@ Lo demás que sigue vivo en `.249`: los 3 carriles Wincaja, `redis-md` (pub/sub 
 es ingesta), `ods-autoheal` (**ya no vigila nada**: sus objetivos se fueron a `md` — residuo de
 VL.7), `FeedGuardian`, `TradeMarketing-DailyBackup` y `PM2 Resurrect ODS`.
 
+#### 3.2.1 ⛔ El REENVÍO TCP de `.249:5433` — 11 camionetas cuelgan de él, y no estaba escrito acá
+
+Medido el **2026-09-15**. `.249` ya no tiene base, pero **sigue escuchando en el 5433**:
+
+```
+netsh interface portproxy show all     →     0.0.0.0:5433  →  192.168.0.222:5433
+```
+
+Lo puso VL.7.5 para no tener que visitar las camionetas el mismo día del corte. **Las 11 vans de
+ruta escriben su venta ahí** (`push-ruta.cmd` con `DST=…@192.168.0.249:5433/kepler_consolidado`) y
+llegan a `md` por este salto. Funciona — y **por eso el riesgo es invisible**: la venta de ruta
+depende de una máquina de escritorio que ya no es servidor de nada y **que se reinicia sola con
+Windows Update**.
+
+⭐ El reenvío vive en el servicio `iphlpsvc` (automático, **arranca con la máquina, sin sesión**), o
+sea que es *más* disponible que el Postgres en Docker Desktop al que reemplazó. Pero sigue siendo
+una dependencia de más en el camino del dinero.
+
+**Quién empuja, medido del dato** (no de `netstat`: las vans suben al cerrar el día, así que en
+cualquier instante puede no haber ninguna conectada):
+
+```sql
+SELECT sucursal, max(fecha), (CURRENT_DATE - max(fecha)) AS dias, count(*)
+  FROM mart.ventas WHERE sucursal LIKE 'ruta_%' GROUP BY 1 ORDER BY 2 DESC;
+```
+
+**11 rutas** (PH `21,22,23,26,27,28` + Canindo `501–505`) — ⚠️ *no* las ~35 que decía el plan de VL.
+Al 15-sep, 10 empujaron el día anterior y **`ruta_505` llevaba 5 días muda** (falla anterior, ajena
+a esto).
+
+**Cómo se desengancha:** [CASO 4 del runbook de camionetas](../database/importers/kepler/route-push/RUNBOOK_ALTA_CAMIONETA.md)
+— una línea por van (`DST` → `.222`), de a una y verificando. ⛔ **El reenvío no se quita hasta que
+las 11 estén verificadas**, y antes de quitarlo hay que medir **qué más lo usa**: se vieron
+conexiones locales desde `127.0.0.1:5433` en la propia `.249`. Quitarlo sin mirar eso es repetir el
+apagón de 49 h (se inventarió *qué corre en* la máquina y nunca *quién le escribe desde afuera*).
+
+Del lado servidor **no hay nada que abrir**: `md` no tiene `ufw` activo, publica `0.0.0.0:5433` y su
+`pg_hba` es `host all all all scram-sha-256`. En `.249` sí había regla de firewall, y dejaba entrar
+a exactamente tres subredes: `192.168.0.0/24`, `192.168.10.0/24`, `192.168.50.0/24`.
+
 ⛔ **El contenedor se llama `pgvector-md` en las DOS máquinas**, y el de `md` es la fuente viva.
 Antes de correr nada: `docker exec pgvector-md psql -U postgres -tAc "SELECT count(*) FILTER
 (WHERE subenabled) FROM pg_subscription"` → **`0` = `.249`** (la que se jubila) · **`8` = `md`,

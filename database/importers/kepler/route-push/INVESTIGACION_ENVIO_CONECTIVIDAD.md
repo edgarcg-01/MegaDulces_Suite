@@ -3,6 +3,12 @@
 > Objetivo: mejorar **cómo** las camionetas nos mandan la venta, de modo que **detecten cuando tienen internet y envíen solas**, sin depender de que alguien esté al pendiente.
 > Contexto: el push actual dejó de subir venta en `ruta_23`/`ruta_27` desde el 1–2 de julio 2026 sin que nadie se enterara (ver [`INVENTARIO_Y_PLAN_RUTAS.md`](INVENTARIO_Y_PLAN_RUTAS.md) §1.1).
 > Fecha: **2026-07-13**.
+>
+> ⚠️ **Documento HISTÓRICO — no copiar conexiones de acá.** Todo el texto habla del runner
+> `192.168.0.249:5433`, que era el de entonces. **Desde el 2026-09-11 el runner es
+> `192.168.0.222:5433`** (el servidor Linux `md`); el `:5433` de `.249` quedó jubilado y hoy sólo
+> sobrevive como reenvío TCP hacia `.222`. Para configurar una van: las plantillas de esta carpeta
+> y [`RUNBOOK_ALTA_CAMIONETA.md`](RUNBOOK_ALTA_CAMIONETA.md).
 
 ---
 

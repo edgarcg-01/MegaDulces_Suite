@@ -1,5 +1,6 @@
 -- Lado RUNNER — HEARTBEAT del push de ruta. Aditivo sobre runner-ingest-setup.sql.
--- Aplicar UNA vez en kepler_consolidado (192.168.0.249:5433).
+-- Aplicar UNA vez en kepler_consolidado (192.168.0.222:5433 — el servidor `md`; era .249 hasta
+-- el 2026-09-11, y la base viajó con el volumen, así que el latido YA está aplicado allá).
 -- Da observabilidad: cada push exitoso deja su latido; un scanner central alerta
 -- si una ruta lleva > N horas sin reportar (lo que faltaba cuando cayeron ruta_23/27).
 

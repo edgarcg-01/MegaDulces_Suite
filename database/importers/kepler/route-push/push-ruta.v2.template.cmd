@@ -31,8 +31,15 @@ REM  OJO: si la base tiene VARIAS rutas, este filtro es OBLIGATORIO (o hay doble
 set ROUTE_SERIE=UD1001
 
 REM  SRC = Postgres LOCAL de la camioneta.  DST = runner (fijo).  connect_timeout=5 -> no cuelga.
+REM
+REM  [VL.7.6] EL RUNNER ES 192.168.0.222 (el servidor Linux `md`), NO 192.168.0.249.
+REM  La ingesta se mudo el 2026-09-11; el :5433 de .249 quedo JUBILADO y hoy solo sobrevive como
+REM  un reenvio TCP (netsh portproxy) hacia .222, puesto para no tener que visitar las camionetas
+REM  el mismo dia. Una van dada de alta contra .249 funciona -- por el reenvio -- y por eso el
+REM  error no se ve: queda colgando de una maquina de escritorio que ya no es servidor de nada.
+REM  Alta nueva => .222 directo.  Van vieja => ver CASO 4 del RUNBOOK_ALTA_CAMIONETA.md.
 set SRC=postgresql://postgres:<CLAVE_LOCAL>@localhost:5432/<DB_LOCAL>?connect_timeout=5
-set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.249:5433/kepler_consolidado?connect_timeout=5
+set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.222:5433/kepler_consolidado?connect_timeout=5
 
 set LOG=C:\KeplerPush\push_%TRUCK%.log
 REM ============================================================================
