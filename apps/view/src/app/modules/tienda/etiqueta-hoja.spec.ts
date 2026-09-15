@@ -17,6 +17,22 @@ import { join } from 'node:path';
 
 const LABEL = readFileSync(join(__dirname, 'components', 'label.component.ts'), 'utf8');
 const PAGE = readFileSync(join(__dirname, 'pages', 'tienda-etiquetas.component.ts'), 'utf8');
+/** CSS global de la app: ahí se declaran las tipografías de la etiqueta (ver el candado de abajo). */
+const GLOBAL = readFileSync(join(__dirname, '..', '..', '..', 'styles.css'), 'utf8');
+
+/**
+ * ⛔ El mismo archivo SIN COMENTARIOS — para toda aserción que pregunte "¿el código dice X?".
+ *
+ * Tres veces ya un candado de este archivo se rompió por leer comentarios como si fueran código,
+ * y las tres en direcciones distintas: el orden de `layout()` se ponía verde porque mi comentario
+ * nombraba `fitPrice`; la lista de familias se ponía roja porque el comentario del padre nombraba
+ * a Baloo 2; y la negativa de `@font-face` se ponía roja porque el comentario que dice DÓNDE NO
+ * va lo nombra. Un comentario tiene que poder explicar el porqué —incluso citando lo que prohíbe—
+ * sin mover el veredicto.
+ */
+const sinComentarios = (s: string): string =>
+  s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+const LABEL_CODIGO = sinComentarios(LABEL);
 
 /** Carta horizontal (279.4×215.9 mm) con el margen de `@page`, redondeado a mm enteros. */
 const MARGEN_PAGE = Number(/@page\s*\{\s*size:\s*letter landscape;\s*margin:\s*([\d.]+)mm/.exec(PAGE)![1]);
@@ -524,19 +540,51 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     expect(LABEL).toMatch(/if \(!\(avail > 0\)\) return 'sin_medida';/);
     expect(PAGE).toContain('[data-etq-fit="overflow"]');
     expect(PAGE).toMatch(/precio desbordado/);
+    // …y el RASTRO de la medición queda escrito: tamaño, ancho del número, espacio y con qué
+    // tipografía se midió. Sin esto, "salió de otro tamaño" sólo se puede responder con sondas a
+    // medida en la caja que falla — cuatro hipótesis refutadas y un parche inútil salieron de ahí.
+    expect(LABEL).toContain("'data-etq-medida'");
+    const rastro = /data-etq-medida', `([^`]*)`/.exec(LABEL)![1];
+    for (const dato of ['fontSize', 'offsetWidth', 'avail', 'fuentesOk']) expect(rastro).toContain(dato);
+  });
+
+  it('⭐ un pase NO puede TERMINAR en desborde si un tamaño menor cabe', () => {
+    // El invariante que no depende de entender la causa. Sea lo que sea lo que dejó el número
+    // grande —una tipografía más angosta al medir, un texto que llegó después, una geometría que
+    // se movió—, el pase se re-ajusta y se vuelve a juzgar antes de escribir el veredicto.
+    // Un solo reintento: si sigue desbordado es que no cabe ni en el piso, y eso se DECLARA.
+    const fn = /private ajustar\(\): void \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    expect(fn).toMatch(/let v = this\.veredicto\(\);/);
+    expect(fn).toMatch(/if \(v === 'overflow'\) \{ this\.fitPrice\(\); v = this\.veredicto\(\); \}/);
+    expect(fn).toMatch(/'data-etq-fit', v\)/);
+    // NEGATIVA: el veredicto no puede escribirse SIN pasar por el reintento.
+    expect(fn).not.toMatch(/'data-etq-fit', this\.veredicto\(\)\)/);
     // El veredicto y el ajuste comparten el factor del scaleX: si midieran con dos números
     // distintos, uno diría "cabe" y el otro "desborda" sobre el mismo texto.
     expect((LABEL.match(/\* PRECIO_ANCHO_K/g) || []).length).toBe(2);
     expect(LABEL).not.toMatch(/offsetWidth \* 1\.12/);
   });
 
-  it('⭐ las tipografías de la etiqueta viajan CON la app: cero dependencia de fonts.googleapis.com', () => {
-    // Con el @import la misma etiqueta se medía con Anton en una caja y con Impact en la de al
-    // lado según su salida a internet — y `check()` decía "sí" antes de que el CSS bajara.
-    expect(LABEL).not.toMatch(/@import url\(/);
-    expect(LABEL).not.toContain('fonts.googleapis.com/css');
-    const caras = [...LABEL.matchAll(/@font-face\{[^}]*font-family:'([^']+)'[^}]*src:url\('\/assets\/fonts\/([^']+)'\)/g)];
+  it('⭐ las tipografías viajan CON la app y se declaran en el CSS GLOBAL, no en el componente', () => {
+    // Dos defectos distintos, los dos medidos, y el candado cierra los dos:
+    //
+    // (1) Con el `@import` a fonts.googleapis.com la misma etiqueta se medía con Anton en una caja
+    //     y con Impact en la de al lado según su salida a internet (hasta 17% en el número).
+    // (2) Con el `@font-face` dentro de los estilos del COMPONENTE, Angular los inyecta al primer
+    //     render de ese componente: sin ninguna etiqueta en pantalla no existía ninguna cara, las
+    //     fuentes no empezaban a bajar, y el chip decía "falta Anton, Bebas Neue y Baloo 2" antes
+    //     de agregar nada — la primera etiqueta siempre se medía con la de respaldo.
+    // Se mira el CÓDIGO, no los comentarios: el comentario que dice dónde NO va la declaración
+    // tiene que poder nombrarla (ver `sinComentarios`, y las tres veces que esto ya falló).
+    expect(LABEL_CODIGO).not.toMatch(/@import url\(/);
+    expect(LABEL_CODIGO).not.toContain('fonts.googleapis.com/css');
+    // NEGATIVA de (2): la declaración NO puede volver a los estilos del componente.
+    expect(LABEL_CODIGO).not.toContain('@font-face');
+    const caras = [...GLOBAL.matchAll(/@font-face\{[^}]*font-family:'([^']+)'[^}]*src:url\('\/assets\/fonts\/([^']+)'\)/g)];
     expect(caras.map((m) => m[1]).sort()).toEqual(['Anton', 'Baloo 2', 'Bebas Neue']);
+    // Las tres que se declaran son exactamente las tres de las que depende la MEDIDA.
+    const specs = /FUENTES_SPECS: readonly string\[\] = \[([^\]]*)\]/.exec(LABEL)![1];
+    for (const [, familia] of caras) expect(specs).toContain(familia);
     const dir = join(__dirname, '..', '..', '..', 'assets', 'fonts');
     for (const [, familia, archivo] of caras) {
       // El archivo existe y es woff2 de verdad (no un HTML de error guardado con ese nombre).
@@ -546,7 +594,7 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     // Redistribuir una fuente OFL exige acompañarla de su licencia.
     for (const f of ['OFL-anton.txt', 'OFL-baloo2.txt', 'OFL-bebasneue.txt']) expect(existsSync(join(dir, f))).toBe(true);
     // Baloo 2 es variable: una sola cara declara el rango que usa la etiqueta (500–800).
-    expect(LABEL).toMatch(/font-family:'Baloo 2'[^}]*font-weight:500 800/);
+    expect(GLOBAL).toMatch(/font-family:'Baloo 2'[^}]*font-weight:500 800/);
   });
 
   it('la cola tiene tope, es un número entero de hojas y se muestra antes de chocar con él', () => {

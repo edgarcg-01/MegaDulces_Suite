@@ -2350,3 +2350,40 @@ mismo aviso sin cambio → cero; dos pedidos sin cambio → cero pases; el vered
 `sin_medida`), y se rompió a propósito dos veces (quitar el `mo.observe`, quitar el
 `addEventListener('loadingdone')`): **2 fallas cada vez**, verde al restaurar. Ver `label.component.ts`
 (encabezado + `observar()`/`ajustar()`) y `etiqueta-hoja.spec.ts`.
+
+### 49.1 · Corolario: un `@font-face` dentro de los estilos de un COMPONENTE no existe hasta que ese componente se renderiza
+
+Al mover las fuentes de la etiqueta desde `fonts.googleapis.com` a `assets/`, las declaré en los
+`styles: [...]` del propio componente. **Angular inyecta los estilos de un componente en el primer
+render de ese componente.** Consecuencia medida, con el build ya en producción:
+
+- Con la pantalla de etiquetas abierta y **sin ninguna etiqueta en la cola** no existía ninguna
+  `@font-face` → el navegador no tenía qué descargar → `document.fonts.load()` resolvía sin bajar
+  nada, y el chip de la pantalla declaraba, correctamente, **"falta Anton, Bebas Neue y Baloo 2"**.
+- Al agregar el primer producto se inyectaban los estilos y **recién ahí** empezaba la descarga.
+  O sea: **la primera etiqueta siempre se medía contra la tipografía de respaldo**, y el resultado
+  dependía de quién ganara la carrera en esa máquina. Medido, mismo producto y mismo Chrome 152:
+  un equipo `ok 11.75mm`, el otro `overflow 15mm` (el techo).
+- Por qué el techo: para **crecer** hasta 15 mm el bucle tuvo que medir ≤107 px, y después el
+  mismo número medía 127. La cadena de respaldo (`Impact, Haettenschweiler, Arial Narrow`) tiene
+  fuentes **más angostas** que Anton; crecer contra una de ellas deja el número más grande de lo
+  que Anton aguanta. Es exactamente el modo de falla que el propio archivo tenía documentado, y
+  el seguro que lo evitaba (`fuentesOk`) no alcanzaba porque las caras **todavía no existían**.
+
+**Reglas:**
+
+- ⛔ Un `@font-face` (y cualquier `@import` de tipografía) va en el **CSS global**, nunca en los
+  estilos de un componente. Si el tamaño de algo depende de esa fuente, la declaración tiene que
+  existir **antes** que el primer elemento que la usa.
+- ⚠️ Y el chip que decía "tipografía ✓" en ese mismo estado **mentía** por la trampa de §49: sin
+  ninguna cara que coincida, `check()` devuelve `true`. Al exigir `status === 'loaded'` el chip
+  pasó a decir la verdad — y la verdad era que las fuentes no estaban. *Un diagnóstico que se
+  vuelve "más ruidoso" después de hacerlo estricto no está roto: está destapando lo que tapaba.*
+- ✅ **El invariante que no depende de entender la causa:** un pase de ajuste **no puede TERMINAR
+  en desborde si un tamaño menor cabe**. Si el veredicto sale `overflow`, se re-ajusta y se vuelve
+  a juzgar (un reintento; si sigue, es que no cabe ni en el piso y se declara). Esto habría
+  contenido el defecto sin saber nada de tipografías.
+- ✅ **El rastro de la medición se escribe en el DOM** (`data-etq-medida` = tamaño | ancho del
+  número | espacio | con qué tipografía). El dato que importaba —el ancho **en el instante de
+  medir**— no quedaba en ningún lado, y por eso costó cuatro hipótesis refutadas y un parche
+  publicado que no arreglaba nada.
