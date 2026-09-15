@@ -42,9 +42,13 @@ const declarar = (msg) => { nomedido++; console.log(`  ~ NO MEDIDO ${msg}`); };
  */
 const BASE = {
   puesto_con_dos_roles: {
-    max: 18,
+    max: 17,
     motivo:
-      '⭐ `[AU.25]` subió esto de 3 a 18, y NO porque haya más desacuerdo: hay el mismo, ahora ' +
+      '⬇️ `[AU.29]` lo BAJÓ de 18 a 17: los tres jefes de zona pasaron a tener el mismo perfil ' +
+      '(Ivette Cruz de `encargado_tienda` a `superadmin`, igualándose a Alejo y Rodríguez), así ' +
+      'que `jefe_zona` dejó de aportar dos filas y aporta una. Un baseline que sólo sabe subir ' +
+      'deja de medir: se baja cuando el desacuerdo se resuelve, no sólo se sube cuando aparece. ' +
+      '⭐ `[AU.25]` lo había subido de 3 a 18, y NO porque haya más desacuerdo: hay el mismo, ahora ' +
       'visible. Ese lote movió a 28 personas al puesto que el organigrama de MDTask les da, sin ' +
       'tocar un solo `role_name` (el puesto propone, no otorga — está medido y asertado en la ' +
       'propia migración). El rol que cada una tiene ya lo tenía; lo que cambió es que antes ' +
