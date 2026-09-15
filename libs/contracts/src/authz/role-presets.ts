@@ -120,6 +120,7 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.COMPRAS_HALLAZGOS_VER, Permission.COMPRAS_HALLAZGOS_GESTIONAR,
     Permission.COMPRAS_PROVEEDORES_VER, Permission.COMPRAS_PROVEEDORES_GESTIONAR,
     Permission.COMPRAS_CATEGORIAS_VER, Permission.COMPRAS_CATEGORIAS_GESTIONAR,
+    Permission.COMPRAS_OBLIGACIONES_VER, Permission.COMPRAS_OBLIGACIONES_GESTIONAR,
   ],
   logistica: [
     Permission.LOGISTICS_FLEET_VER,
@@ -152,6 +153,9 @@ export const MODULE_GROUPS: Record<string, Permission[]> = {
     Permission.FINANCE_RECON_ASIGNAR,
     Permission.FINANCE_RECON_RECIBIR,
   ],
+  // Fase TP (ADR-064) — Presupuestos es responsable propio del proceso de pago
+  // (capacidad diaria + gastos autorizados), separado de Tesorería/Finanzas.
+  presupuestos: [Permission.PRESUPUESTOS_VER, Permission.PRESUPUESTOS_GESTIONAR],
 };
 
 export interface AreaPreset {
@@ -213,7 +217,7 @@ export const AREA_PRESETS: AreaPreset[] = [
     primary: ['supervisor_ai', 'cuadre'],
     secondary: [
       'usuarios', 'trade', 'rutas', 'tienda', 'comercial', 'pagos', 'analytics',
-      'almacen', 'compras', 'logistica', 'nomina', 'reparto', 'televenta', 'finanzas',
+      'almacen', 'compras', 'logistica', 'nomina', 'reparto', 'televenta', 'finanzas', 'presupuestos',
     ],
     secondaryMode: 'ver',
   },

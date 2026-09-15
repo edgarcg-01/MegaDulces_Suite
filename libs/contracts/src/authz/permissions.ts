@@ -289,6 +289,12 @@ export enum Permission {
   // GESTIONAR = revisor valida/rechaza.
   FINANCE_PAYMENTS_VER = 'FINANCE_PAYMENTS_VER',
   FINANCE_PAYMENTS_GESTIONAR = 'FINANCE_PAYMENTS_GESTIONAR',
+  // Fase TP.6 (ADR-064) — separación de funciones: quien PREPARA el lote del Calendario de
+  // Pagos (FINANCE_PAYMENTS_GESTIONAR) NO es quien lo AUTORIZA. Permiso deliberadamente NO
+  // incluido en ningún MODULE_GROUP (para que no se otorgue "de paquete") — se reparte por
+  // migración a roles de gerencia/dirección. Mismo permiso autoriza el cambio de cuenta
+  // bancaria de un proveedor (TP.7) — un solo "autorizador" de Finanzas para todo el módulo.
+  FINANCE_PAYMENT_CALENDAR_AUTORIZAR = 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR',
   // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
   // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
@@ -304,6 +310,13 @@ export enum Permission {
   FINANCE_EXPENSES_COMPROBAR = 'FINANCE_EXPENSES_COMPROBAR',
   // Capturar: subir folio + comprobante SIN acceso a la bandeja de revisión (rol capturista).
   FINANCE_EXPENSES_CAPTURAR = 'FINANCE_EXPENSES_CAPTURAR',
+
+  // ── Presupuestos (Fase TP — ADR-064) ──────────────────────────────────
+  // Módulo NUEVO: capacidad de pago por fecha + gastos autorizados. Dueño real:
+  // rol legado `coordinador_presupuestos`. Separado de FINANCE_PAYMENTS_* porque
+  // Presupuestos y Tesorería son responsables distintos del mismo proceso.
+  PRESUPUESTOS_VER = 'PRESUPUESTOS_VER',
+  PRESUPUESTOS_GESTIONAR = 'PRESUPUESTOS_GESTIONAR',
 
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',
@@ -343,6 +356,11 @@ export enum Permission {
   // Categorías de compra (normalización/fusión).
   COMPRAS_CATEGORIAS_VER = 'COMPRAS_CATEGORIAS_VER',
   COMPRAS_CATEGORIAS_GESTIONAR = 'COMPRAS_CATEGORIAS_GESTIONAR',
+  // Obligaciones a proveedor de mercancía (Fase TP — ADR-064): la "cuenta por pagar"
+  // que alimenta el Calendario de Pagos. Permiso propio (no COMPRAS_ORDENES_*: una OC
+  // es unidades/costo pactado, esto es saldo pendiente con vencimiento negociable).
+  COMPRAS_OBLIGACIONES_VER = 'COMPRAS_OBLIGACIONES_VER',
+  COMPRAS_OBLIGACIONES_GESTIONAR = 'COMPRAS_OBLIGACIONES_GESTIONAR',
 
   // ── Fiscal (auditoría CFDI / cumplimiento SAT — libs/fiscal) ──────────
   // FISCAL.0/1 = motor de listas SAT (EFOS 69-B, Art. 69) + validación RFC.

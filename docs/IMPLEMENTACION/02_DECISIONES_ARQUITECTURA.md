@@ -1913,3 +1913,69 @@ Y `c58` no es "el factor de caja": convierte la unidad **vendida** (`c55`) a la 
 **Abierto y declarado:** los 235 peldaños ambiguos · los 2 SKUs donde el compuesto contradice al directo · los 12 que difieren de lo publicado · y la decisión de fondo: **si la escalera reemplaza a `c84` en la cascada de `v_product_box_factor`** (impacto medido: 12 SKUs).
 
 Candado `database/tests/test-newdb-kepler-unit-ladder.js` (7 OK / 0 FAIL contra prod). Detalle en [`UNIDADES_DE_MEDIDA.md`](../UNIDADES_DE_MEDIDA.md) §8octies.
+
+---
+
+## ADR-064
+
+**El Calendario de Pagos es un CONSUMIDOR, no una caja de captura: cada obligación nace autorizada en su módulo de origen, y el calendario solo la ASIGNA a un día dentro de una capacidad que Presupuestos fija — nunca la inventa.** (Fase TP — aceptado 2026-09-14)
+
+**Contexto.** Se pidió digitalizar "PROGRAMA PAGOS 2026.xlsx" como un calendario día-por-día (15-sep, 16-sep…) con capacidad diaria, prioridad y preparación operativa. La Fase PP (`FASE_PP_PROGRAMA_PAGOS.md`) ya cubre la mitad **retrospectiva** de este mismo dominio (bitácora de lo ya pagado, `finance.payment_program`, importada del mismo Excel) y su sprint PP.5 ya anotaba, sin construir, la mitad **prospectiva**: "de bitácora a planificador". La Fase TP es esa mitad prospectiva — construida, y absorbe formalmente PP.5.
+
+**Lo medido antes de diseñar (Explore, sin código):** **Presupuestos no existe** como módulo — cero tablas, cero permisos. **Tesorería/Programación de Pagos tampoco existe** como motor de asignación (solo la bitácora PP). **Caja General** existe (`libs/finance/lib/caja`) pero solo para el flujo venta-diaria→depósito, no para pagos salientes. **No existe una entidad "saldo pendiente/vencimiento" de cuentas por pagar** dentro de la plataforma — el aging vive fuera (Kepler 201 / ContPAQi 2120), y `commercial.purchase_orders`/`goods_receipts` (RA.15) trackean UNIDADES y costo pactado, no una obligación de pago con vencimiento negociable. Es decir: **para que el calendario tuviera qué mostrar, hubo que construir el registro de obligaciones en los tres módulos de origen** (Presupuestos, Finanzas, Compras), no solo el calendario.
+
+**Decisión — cuatro piezas separadas, cada una dueña de su verdad:**
+
+1. **Los tres orígenes son schemas/tablas propias, con autorización como columna NOT NULL, nunca inferida:** `budget.expense_obligations` (Presupuestos: gastos autorizados) + `finance.financial_commitments` (Finanzas: deuda — factoraje/interés/amortización) + `commercial.supplier_payment_obligations` (Compras: proveedores de mercancía, opcionalmente ligada a `purchase_orders`/`goods_receipts` de RA.15). Las tres comparten forma (`original_amount`, `reserved_amount`, `paid_amount`, `original_due_date`, `negotiated_date`, `status`, `authorized_by/at`) pero **viven separadas** — igual que Compras/Presupuestos/Finanzas son responsables distintos en el organigrama. El calendario las lee por una vista agregada (`UNION ALL` tipado), nunca las escribe.
+2. **La capacidad es de Presupuestos, por fecha, con historial obligatorio:** `budget.daily_capacity` (1 fila por día) + `budget.daily_capacity_history` (quién/cuándo/por qué cambió). Sin fila de capacidad, el día **no tiene** capacidad definida (NULL ≠ 0) y sus pagos no se pueden liberar — la ausencia se declara, no se dibuja como cero (ADR-056).
+3. **La reserva de saldo es polimórfica y compone (evita el doble-conteo):** `finance.payment_allocations` (1 fila = 1 pago que el día agenda: fecha, monto, prioridad, y — más tarde — método/banco/caja de ejecución) + `finance.payment_allocation_items` (join N:M contra las obligaciones, con `applied_amount` por documento). Esto da, gratis, los tres requisitos del punto 6 del pedido: un pago cubre varias facturas (N items, 1 allocation), una factura se parcializa en varias fechas (N allocations, mismo `obligation_id`), y el saldo disponible de una obligación siempre es `original_amount − reservado_activo − pagado` — nunca se reserva dos veces porque se sub-consulta contra los items no cancelados de TODAS las fechas, no solo la del día en pantalla.
+4. **Ejecutar no libera capacidad, fallar no liquida:** el consumo de capacidad de un día es la suma de `amount_assigned` de sus allocations no-canceladas, **sin importar si ya se ejecutaron** — ejecutar mueve saldo de `reserved` a `paid` en la obligación (mismo total), nunca vuelve a abrir el hueco del día. Un movimiento fallido regresa su reserva al fondo común (puede reprogramarse) pero el pago programado (los $/fecha ya liberados) no se retira solo — hay que reprogramarlo o cancelarlo explícitamente, dejando rastro (`reprogrammed_from_id`).
+
+**Permisos — reuso antes que permiso nuevo (regla del proyecto).** El calendario y los compromisos financieros reusan `FINANCE_PAYMENTS_VER/GESTIONAR` (ya usado por Programa de Pagos, Pagos a proveedor y Cuadre-proveedor — misma familia "Finanzas·pagos"). Se crean solo dos pares nuevos, porque son capacidades genuinamente nuevas sin dueño previo: `PRESUPUESTOS_VER/GESTIONAR` (otorgado al rol legado ya existente `coordinador_presupuestos`, que hoy no tenía ningún permiso de este dominio) y `COMPRAS_OBLIGACIONES_VER/GESTIONAR` (grupo `compras`, mismos roles que ya operan Compras). La "criticidad" de un proveedor (spec: *"no inferir por importe"*) reusa el permiso ya existente `COMPRAS_PROVEEDORES_GESTIONAR` sobre una columna nueva de `catalog.suppliers` (`is_critical`/`critical_reason`) — no se creó tabla ni permiso aparte para un booleano.
+
+**Se rechaza:** (a) que el calendario capture obligaciones sueltas (el pedido lo prohíbe explícitamente: *"no permitas capturar obligaciones independientes"*); (b) modelar capacidad/gasto-autorizado dentro de `finance.*` como si Presupuestos fuera parte de Finanzas — son responsables distintos (§8 del pedido) aunque casi todo su código viva en el mismo lib `libs/finance` por pragmatismo de Nx (no de dominio: los schemas SQL sí están separados); (c) inferir "proveedor crítico" o "gasto crítico" de su importe — es un flag manual con motivo, igual que pidió el usuario; (d) tocar `commercial-replenishment.service.ts` (RA, código vivo de producción) para añadir el flag de criticidad — se aisló en un endpoint nuevo del módulo de obligaciones para no arriesgar ese archivo bajo presión de tiempo.
+
+**Consecuencias:**
+- ✅ El triángulo de CxP que PP ya nombraba (Deuda → Programa → Banco) gana su falta real: un motor de **asignación prospectiva**, no solo la bitácora de lo ya hecho.
+- ✅ Los tres orígenes son reutilizables fuera del calendario (Presupuestos y compromisos financieros son primitivos nuevos del organigrama, no una pantalla de un solo uso).
+- ⚠️ **Declarado, no construido en este corte:** integración con Caja General para la ejecución real (hoy `payment_allocations.cash_register_text` es texto libre, no una cuenta de caja tipada); conciliación banco↔allocation (equivalente a PP.4, para cuando el pago ya salió); importación del histórico del Excel hacia estas tablas (el Excel sigue siendo insumo de PP, no de TP); vínculo automático `purchase_orders`/`goods_receipts` → `supplier_payment_obligations` (hoy la liga es manual/opcional, Compras captura la obligación con o sin OC de por medio).
+- 🔄 Reversible: todo aditivo, ninguna tabla existente pierde columnas ni filas.
+
+**Hereda:** ADR-028 (Maat/Finanzas, motor decide) · ADR-056 (lo no medido se declara, nunca cero) · ADR-016 (LLM fuera del camino del dinero — este módulo no tiene LLM en absoluto). Absorbe el sprint **PP.5** de [`FASE_PP_PROGRAMA_PAGOS.md`](FASES/FASE_PP_PROGRAMA_PAGOS.md) (queda marcado ahí como "ver Fase TP").
+
+Plan y schema completo en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md).
+
+---
+
+## ADR-065
+
+**El Calendario de Pagos gana control interno real: quien PREPARA un lote no es quien lo AUTORIZA (permiso propio, no de paquete), toda cuenta bancaria de proveedor nace o cambia por una solicitud que otro aprueba, y el folio se genera al autorizar — nunca antes.** (Fase TP.6-TP.8+TP.10 — aceptado 2026-09-15)
+
+**Contexto.** El usuario pidió, sobre el Calendario ya construido (ADR-064): capacidad/día más visible, catálogo de cuentas de pago con adjunto de la solicitud, botón de impresión a Caja General, folio consecutivo al autorizar, leyendas de control interno en el preliminar, comprobación final, y reprogramación de fallidos con motivo — pidiendo explícitamente que se señalaran omisiones antes de construir.
+
+**Investigación previa (sin código) confirmó los patrones a reusar, no inventar:**
+- `COMPRAS_ENTRADAS_GESTIONAR` vs `COMPRAS_ENTRADAS_VALIDAR` — único precedente real en todo el repo de dos permisos DISTINTOS para "quien prepara" y "quien autoriza" la misma acción (25 personas tienen el segundo, deliberadamente restringido).
+- `commercial.warehouses.is_default` / `price_lists.is_default` — la exclusividad de un flag "favorito" es responsabilidad del *servicio* (`clearDefaultFlag` antes del insert/update), no de un constraint parcial único en DB.
+- `finance.proposed_actions` (Maat, ADR-013) — el molde de "solicitud → aprobación → aplicación" con `created_by` ≠ `decided_by` y CERO auto-ejecución.
+- Los tres generadores de folio existentes (`order_sequences`, `purchase_doc_sequences`, `expiry_folio_sequences`) claveaban por AÑO, ninguno por fecha exacta — se adapta el mismo `INSERT...ON CONFLICT DO UPDATE...RETURNING`, pero como `payment_calendar_lots` ya es 1 fila/día (`UNIQUE(tenant_id,lot_date)`), el "consecutivo de lote" del folio es hoy siempre `01` — **no se crea una tabla de secuencia para un valor que sólo puede devolver 1**.
+- Fase AX (`AnexoVentaService`) usa Puppeteer DIRECTO con un Chromium singleton propio, deliberadamente SIN exponerlo a otros libs (el comentario de AX.4 documenta que ya se descartó una vez un `PdfService` compartido para no crear una arista `commercial→trade`). El barrel de `libs/finance` declara explícito "NO importa commercial" — `PaymentCalendarDocumentService` duplica el mismo patrón de singleton en vez de cruzar esa frontera.
+- **No existe** una métrica de cobertura de inventario POR PROVEEDOR, ni un forecast de ingresos/programa de ventas — declarado fuera de alcance de este corte (decisión del usuario), no inventado.
+
+**Decisión — cuatro piezas:**
+
+1. **Permiso nuevo `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`, deliberadamente FUERA de todo `MODULE_GROUP`** (para que no se otorgue "de paquete" a quien ya tiene `FINANCE_PAYMENTS_GESTIONAR`) — se reparte por migración sólo a `gerente_finanzas`/`direccion`/`superadmin`, nunca a `tesoreria`/`finanzas`/`auxiliar_finanzas` (la migración de reparto trae su propio control: avisa si detecta la fuga). Libera el lote (autoriza) Y aprueba/rechaza cambios de cuenta bancaria — un solo "autorizador" para todo el módulo, decisión explícita del usuario.
+2. **Catálogo `commercial.supplier_payment_accounts` sin alta directa**: toda fila nace o cambia por `commercial.supplier_payment_account_change_requests` (mismo molde que `proposed_actions`). La cuenta "favorita" es exclusiva **por proveedor** (no por tenant, a diferencia de `warehouses`/`price_lists` que son 1-por-tenant) — mismo patrón `clearDefaultFlag`, scope distinto.
+3. **El orden de pago (`priority_rank`) pasa de sugerencia opcional a control real**: `suggestPriorityOrder` propone (compromiso financiero → crítico → resto, ya diseñado en ADR-064 §4), Tesorería ajusta, y `releaseLot` ahora EXIGE que todo pago pendiente tenga orden antes de autorizar — es la base del folio (`<folio del lote>-<orden de 2 dígitos>`) y de "dónde cortar" si el presupuesto no alcanza.
+4. **El folio se genera SOLO al autorizar** (`releaseLot`), nunca al crear el borrador — el "preliminar" que se imprime para autorización puede no tener folio todavía (lo dice el propio PDF). Una vez autorizado, un segundo documento ("Instrucción de Ejecución — Caja General") queda disponible, con las leyendas de control interno que pidió el usuario.
+
+**Se rechaza:** (a) una tabla de secuencia para el consecutivo de lote — siempre devolvería 1 mientras exista `UNIQUE(tenant_id,lot_date)`; (b) permitir alta directa de cuenta bancaria "porque es la primera" — la primera cuenta de un proveedor es tan sensible como cambiarla (vector de fraude clásico); (c) cruzar `libs/finance → @megadulces/commercial` para reusar el Chromium de Fase AX — la frontera ya estaba declarada y AX mismo rechazó ese cruce antes; (d) construir cobertura de inventario por proveedor o forecast de ingresos en este corte — declarado, no inventado.
+
+**Consecuencias:**
+- ✅ Primer precedente de separación de funciones real (más allá de VER/GESTIONAR) fuera del módulo de recepción de mercancía.
+- ✅ El folio y el orden de pago quedan ligados por construcción (uno deriva del otro), no son dos campos que puedan desincronizarse.
+- ⚠️ **Declarado, no construido en este corte:** comprobación final (evidencia de ejecución — TP.9, decisión explícita del usuario de dejarlo para después), integración real con un catálogo de cajas de Caja General (`cash_register_text` sigue siendo texto libre).
+- 🔄 Reversible: todo aditivo (nuevas tablas/columnas/permiso), ninguna tabla existente pierde datos.
+
+**Hereda:** ADR-064 (el calendario es consumidor, nunca captura obligaciones sueltas) · ADR-013 (HITL: el motor propone, el humano aprueba, nunca se auto-ejecuta) · ADR-056 (lo no construido se declara).
+
+Plan y detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md).
