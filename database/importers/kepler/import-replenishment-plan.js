@@ -554,10 +554,22 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
     const CTE = cte(hasOds ? ocHist : histEmpty, hasOds ? trOds : trEmpty, hasOds ? leadOds : leadEmpty);
     if (!hasOds) console.log('  ⚠ sin kepler_ods → tránsito = 0 y lead_days = NULL (dev local sin réplica)');
 
-    const s = await db.query(`${CTE} SELECT count(*)::int filas, count(DISTINCT b.product_id)::int prods,
-                                     count(DISTINCT b.warehouse_id)::int whs FROM base b JOIN econ e ON e.product_id=b.product_id`, [M]);
-    console.log(`  filas almacén×producto=${Number(s.rows[0].filas).toLocaleString()} · productos=${s.rows[0].prods} · almacenes=${s.rows[0].whs}`);
-
+    // [DB-MEM.6] El conteo de control se hace ABAJO, sobre `stg_rplan` ya materializada.
+    //
+    // Acá había un `${CTE} SELECT count(*) … FROM base b JOIN econ e` — es decir, **el CTE
+    // completo se ejecutaba DOS VECES por corrida**: una para este contador y otra para el
+    // CREATE TEMP TABLE de abajo. Medido en prod con `pg_stat_statements`:
+    //
+    //   CREATE TEMP TABLE stg_rplan  ·  24 llamadas × 174,102 ms  =  4,178 s
+    //   este conteo previo           ·  24 llamadas ×  37,609 ms  =    903 s   ← sólo un console.log
+    //
+    // 37.6 s por corrida, ~100 corridas al día (el carril `stock` va 4 veces por hora, más
+    // nightly e intraday) ≈ **1 hora de CPU al día para imprimir una línea de log**.
+    //
+    // ⭐ Y contarlo desde `stg_rplan` no sólo es más barato: es **más correcto**. El conteo de
+    // arriba medía `base ⋈ econ`, que es un cálculo PARALELO al que se materializa; si alguna vez
+    // divergieran (un LEFT JOIN de `PROJECT` que multiplique), el log habría seguido reportando
+    // el número viejo y nadie se enteraría. Ahora reporta lo que de verdad quedó en la tabla.
     const t0 = Date.now();
     await db.query('BEGIN');
     await db.query(`CREATE TEMP TABLE stg_rplan ON COMMIT DROP AS ${CTE} ${PROJECT}`, [M]);
@@ -572,8 +584,14 @@ const DIST_E = `(${DATA.map((c) => `EXCLUDED.${c}`).join(', ')})`;
              count(DISTINCT product_id) FILTER (WHERE season_ratio IS DISTINCT FROM 1 AND season_ratio IS NOT NULL) AS prods_con_estacion,
              round(min(season_ratio)::numeric,2) AS season_min, round(max(season_ratio)::numeric,2) AS season_max,
              count(DISTINCT product_id) FILTER (WHERE safety_pct_q IS NOT NULL) AS prods_con_colchon,
-             count(DISTINCT product_id) FILTER (WHERE lead_days IS NOT NULL)    AS prods_con_lead
+             count(DISTINCT product_id) FILTER (WHERE lead_days IS NOT NULL)    AS prods_con_lead,
+             -- [DB-MEM.6] el conteo de control, acá: sobre la tabla YA materializada y en el
+             -- MISMO viaje que el resto de los controles. Antes costaba re-ejecutar el CTE entero.
+             count(*)::int                        AS filas,
+             count(DISTINCT product_id)::int      AS prods,
+             count(DISTINCT warehouse_id)::int    AS whs
         FROM stg_rplan`)).rows[0];
+    console.log(`  filas almacén×producto=${Number(chk.filas).toLocaleString()} · productos=${chk.prods} · almacenes=${chk.whs}`);
     const rutasResid = (await db.query(`
       SELECT count(*) n FROM stg_rplan s
         JOIN commercial.warehouses w ON w.id = s.warehouse_id
