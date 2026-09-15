@@ -130,7 +130,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
         <ng-template #header>
           <tr>
             <th style="width:2.2rem"><p-tableheadercheckbox /></th>
-            <th style="width:2.5rem"></th>
+            <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
             <th>Estado</th><th>Próximo</th><th>Proveedor</th><th>Almacén</th><th>Canal</th>
             <th class="qt-r">Cadencia</th><th>Última</th><th class="qt-r">SKUs</th>
             <th class="qt-r" pTooltip="Sugerido a pedir, en CAJAS." tooltipPosition="bottom">Sugerido</th><th class="qt-r">Costo est.</th>

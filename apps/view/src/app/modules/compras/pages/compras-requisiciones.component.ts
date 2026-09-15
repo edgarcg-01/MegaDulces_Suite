@@ -37,7 +37,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           <tr>
             <th>Folio</th><th>Almacén</th><th>Proveedor</th>
             <th class="rq-r">Líneas</th><th class="rq-r">Unidades</th><th class="rq-r">Costo</th>
-            <th>Estado</th><th>Fecha</th><th></th>
+            <th>Estado</th><th>Fecha</th><th><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template #body let-r>

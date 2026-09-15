@@ -92,7 +92,7 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
               <th style="width:12rem">Dónde está</th>
               <th style="width:11rem">Asignado a</th>
               <th style="width:8rem">Estado</th>
-              <th style="width:14rem"></th>
+              <th style="width:14rem"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-t>

@@ -28,7 +28,7 @@ import { BANCOS_STYLES } from './bancos.styles';
         <div class="fb-kve-wrap">
           <table class="fb-kve">
             <thead>
-              <tr><th scope="col"></th><th scope="col" class="ta-r">Excel (banco)</th><th scope="col" class="ta-r">Kepler ({{ rc.cash.kepler_source === 'contable' ? '102 contable' : 'tesorería' }})</th><th scope="col" class="ta-r">Diferencia</th><th scope="col" class="ta-c">Estado</th></tr>
+              <tr><th scope="col"><span class="sr-only">Concepto</span></th><th scope="col" class="ta-r">Excel (banco)</th><th scope="col" class="ta-r">Kepler ({{ rc.cash.kepler_source === 'contable' ? '102 contable' : 'tesorería' }})</th><th scope="col" class="ta-r">Diferencia</th><th scope="col" class="ta-c">Estado</th></tr>
             </thead>
             <tbody>
               <tr>

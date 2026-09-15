@@ -60,7 +60,7 @@ interface ChangeRequest {
         @if (selectedSupplier()) {
           <div class="cta-sup-current">Proveedor seleccionado: <strong>{{ selectedSupplier()!.name }}</strong></div>
           <p-table [value]="accounts()" [loading]="loadingAccounts()" styleClass="p-datatable-sm surf-table cta-table">
-            <ng-template #header><tr><th>Banco</th><th>Cuenta</th><th>CLABE</th><th>Alias</th><th>Favorita</th><th>Adjunto</th><th style="width:8rem"></th></tr></ng-template>
+            <ng-template #header><tr><th>Banco</th><th>Cuenta</th><th>CLABE</th><th>Alias</th><th>Favorita</th><th>Adjunto</th><th style="width:8rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
             <ng-template #body let-a>
               <tr>
                 <td>{{ a.bank_name }}</td><td class="cta-mono">{{ a.account_number || '—' }}</td><td class="cta-mono">{{ a.clabe || '—' }}</td>
@@ -80,7 +80,7 @@ interface ChangeRequest {
       <section class="cta-section">
         <div class="cta-section-head"><h2>Solicitudes pendientes</h2></div>
         <p-table [value]="requests()" [loading]="loadingRequests()" styleClass="p-datatable-sm surf-table cta-table">
-          <ng-template #header><tr><th>Proveedor</th><th>Tipo</th><th>Propuesta</th><th>Motivo</th><th>Solicitó</th><th style="width:12rem"></th></tr></ng-template>
+          <ng-template #header><tr><th>Proveedor</th><th>Tipo</th><th>Propuesta</th><th>Motivo</th><th>Solicitó</th><th style="width:12rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
           <ng-template #body let-r>
             <tr>
               <td>{{ r.supplier_name }}</td>

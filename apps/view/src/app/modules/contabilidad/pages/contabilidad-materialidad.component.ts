@@ -132,7 +132,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <th class="ta-r" style="width:10rem">Monto</th>
                 <th class="ta-r" style="width:7rem">Recepción</th>
                 <th style="width:9rem">Riesgo</th>
-                <th style="width:3rem"></th>
+                <th style="width:3rem"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-p>
@@ -184,7 +184,7 @@ import { Permission } from '../../../core/constants/permissions';
                    [scrollable]="true" scrollHeight="52vh" [paginator]="(chains()?.length || 0) > 25" [rows]="25">
             <ng-template #header>
               <tr>
-                <th style="width:2.5rem"></th>
+                <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
                 <th>Factura</th>
                 <th style="width:5rem">Suc.</th>
                 <th class="ta-r" style="width:9rem">Total</th>
@@ -278,7 +278,7 @@ import { Permission } from '../../../core/constants/permissions';
                 <th>CFDI</th>
                 <th class="ta-r" style="width:8.5rem">Total</th>
                 <th style="width:19rem">Operación que lo respalda</th>
-                <th style="width:2.5rem"></th>
+                <th style="width:2.5rem"><span class="sr-only">Acciones</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-c>

@@ -138,7 +138,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <p-table [value]="cortes()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()" dataKey="id"
             [expandedRowKeys]="expandedCortes()" [scrollable]="true" scrollHeight="600px" [paginator]="cortes().length > 100" [rows]="100">
             <ng-template #header>
-              <tr><th style="width:2.5rem"></th><th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Transf.</th><th class="ta-r">Venta total</th><th>Arqueo ciego</th></tr>
+              <tr><th style="width:2.5rem"><span class="sr-only">Detalle</span></th><th>Fecha</th><th>Sucursal</th><th>Caja</th><th>Cajero</th><th class="ta-r">Efvo esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th><th class="ta-r">Tarjeta</th><th class="ta-r">Transf.</th><th class="ta-r">Venta total</th><th>Arqueo ciego</th></tr>
             </ng-template>
             <ng-template #body let-c let-expanded="expanded">
               <tr [class.cd-row-bad]="abs(c.efectivo_diff) >= 50 || abs(c.tarjeta_diff) >= 50 || abs(c.transfer_diff) >= 50">
@@ -175,7 +175,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                   <div class="cd-corte-block">
                     <h4>Formas de pago</h4>
                     <table class="cd-mini-table">
-                      <tr><th></th><th class="ta-r">Esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr>
+                      <tr><th><span class="sr-only">Forma de pago</span></th><th class="ta-r">Esperado</th><th class="ta-r">Contado</th><th class="ta-r">Diferencia</th></tr>
                       <tr><td>Efectivo</td><td class="ta-r">{{ money(c.efectivo_esperado) }}</td><td class="ta-r">{{ money(c.efectivo_contado) }}</td><td class="ta-r strong" [class.bad]="c.efectivo_diff>0" [class.ok]="c.efectivo_diff<0">{{ signed(c.efectivo_diff) }}</td></tr>
                       <tr><td>Tarjeta</td><td class="ta-r">{{ money(c.tarjeta_esperado) }}</td><td class="ta-r">{{ money(c.tarjeta_contado) }}</td><td class="ta-r strong" [class.bad]="c.tarjeta_diff>0" [class.ok]="c.tarjeta_diff<0">{{ signed(c.tarjeta_diff) }}</td></tr>
                       <tr><td>Transferencia</td><td class="ta-r">{{ money(c.transfer_esperado) }}</td><td class="ta-r">{{ money(c.transfer_contado) }}</td><td class="ta-r strong" [class.bad]="c.transfer_diff>0" [class.ok]="c.transfer_diff<0">{{ signed(c.transfer_diff) }}</td></tr>
@@ -372,7 +372,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <div class="card-premium card-flat cd-panel">
             <h3 class="cd-card-title">Salud de las reglas <span class="muted">(precisión = confirmados / veredictos)</span></h3>
             <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true">
-              <ng-template #header><tr><th>Regla</th><th>Plano</th><th class="ta-r">Total</th><th class="ta-r">✓/✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:4rem"></th></tr></ng-template>
+              <ng-template #header><tr><th>Regla</th><th>Plano</th><th class="ta-r">Total</th><th class="ta-r">✓/✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:4rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
               <ng-template #body let-r>
                 <tr [class.cd-suppressed]="r.suppressed_auto">
                   <td>{{ r.nombre }}</td><td><span class="cd-tag" [ngClass]="'pl-' + r.plano">{{ planoLabel(r.plano) }}</span></td>
@@ -390,7 +390,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
           <p-table [value]="items()" styleClass="p-datatable-sm cd-table" [rowHover]="true" [loading]="loading()"
             dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="items().length > 50" [rows]="50">
             <ng-template #header>
-              <tr><th style="width:2.5rem"></th><th style="width:6rem">Severidad</th><th>Descuadre</th><th style="width:6rem">Plano</th><th class="ta-r" style="width:9rem">Diferencia</th><th style="width:12rem">Acciones</th></tr>
+              <tr><th style="width:2.5rem"><span class="sr-only">Detalle</span></th><th style="width:6rem">Severidad</th><th>Descuadre</th><th style="width:6rem">Plano</th><th class="ta-r" style="width:9rem">Diferencia</th><th style="width:12rem">Acciones</th></tr>
             </ng-template>
             <ng-template #body let-d let-expanded="expanded">
               <tr>

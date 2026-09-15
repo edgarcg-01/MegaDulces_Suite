@@ -136,7 +136,7 @@ import { Permission } from '../../../core/constants/permissions';
               <tr>
                 <th>Cliente</th><th>Suc</th><th>Zona</th><th>Vend</th><th class="ta-r">Partidas</th>
                 <th class="ta-r">Paga a</th>
-                <th class="ta-r">Línea</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th></th>
+                <th class="ta-r">Línea</th><th class="ta-r">Vencido</th><th class="ta-r">Saldo</th><th><span class="sr-only">Acciones</span></th>
               </tr>
             </thead>
             <tbody>
@@ -211,7 +211,7 @@ import { Permission } from '../../../core/constants/permissions';
           }
         </div>
         <table class="ct-det-table">
-          <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Estado</th><th></th></tr></thead>
+          <thead><tr><th>Documento</th><th>Folio</th><th>Fecha</th><th>Vence</th><th class="ta-r">Importe</th><th class="ta-r">Saldo</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr></thead>
           <tbody>
             @for (p of partidasVisibles(); track p.folio_digital) {
               <tr [class.ct-row-venc]="p.vencida" [class.ct-row-pagada]="p.saldada">

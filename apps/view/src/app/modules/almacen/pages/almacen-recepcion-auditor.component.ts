@@ -188,7 +188,7 @@ interface ValePendiente extends ReceivingLine {
             </div>
             <p-table [value]="pendingReds()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="320px">
               <ng-template #header>
-                <tr><th scope="col">Producto</th><th scope="col">Prov</th><th scope="col">Caduca</th><th scope="col">Motivo</th><th scope="col"></th></tr>
+                <tr><th scope="col">Producto</th><th scope="col">Prov</th><th scope="col">Caduca</th><th scope="col">Motivo</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
               </ng-template>
               <ng-template #body let-r>
                 <tr>
@@ -261,7 +261,7 @@ interface ValePendiente extends ReceivingLine {
 
         <p-table [value]="policies()" styleClass="p-datatable-sm surf-table" [scrollable]="true" scrollHeight="240px">
           <ng-template #header>
-            <tr><th scope="col">Ámbito</th><th scope="col" class="num">Mín. días</th><th scope="col">+viejo</th><th scope="col"></th></tr>
+            <tr><th scope="col">Ámbito</th><th scope="col" class="num">Mín. días</th><th scope="col">+viejo</th><th scope="col"><span class="sr-only">Acciones</span></th></tr>
           </ng-template>
           <ng-template #body let-p>
             <tr>

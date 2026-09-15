@@ -66,7 +66,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               </div>
             </div>
             <p-table [value]="findings()" [loading]="loading()==='findings'" styleClass="p-datatable-sm rz-table" dataKey="id">
-              <ng-template #header><tr><th style="width:2.5rem"></th><th>Severidad</th><th>Tipo</th><th>Sujeto</th><th class="rz-r">Score</th><th>Explicación</th><th>Detectado</th><th style="width:11rem">Triage</th></tr></ng-template>
+              <ng-template #header><tr><th style="width:2.5rem"><span class="sr-only">Detalle</span></th><th>Severidad</th><th>Tipo</th><th>Sujeto</th><th class="rz-r">Score</th><th>Explicación</th><th>Detectado</th><th style="width:11rem">Triage</th></tr></ng-template>
               <ng-template #body let-f let-expanded="expanded">
                 <tr [class.rz-done]="f.status!=='open'">
                   <td><p-button type="button" [icon]="expanded?'pi pi-chevron-down':'pi pi-chevron-right'" styleClass="p-button-text p-button-sm" [pRowToggler]="f"></p-button></td>
@@ -125,7 +125,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <div class="rz-bar"><span class="rz-count">{{ actions().length }} acción(es) propuesta(s) · aprobar = efecto real (HITL)</span>
               <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='actions'" (click)="recompute('actions')"><span class="p-button-icon p-button-icon-left pi pi-bolt" aria-hidden="true"></span><span class="p-button-label">Proponer</span></button></div>
             <p-table [value]="actions()" [loading]="loading()==='actions'" styleClass="p-datatable-sm rz-table" dataKey="id">
-              <ng-template #header><tr><th class="rz-r">Prioridad</th><th>Tipo</th><th>Acción</th><th class="rz-r">Confianza</th><th>Impacto esperado</th><th>Estado</th><th style="width:14rem"></th></tr></ng-template>
+              <ng-template #header><tr><th class="rz-r">Prioridad</th><th>Tipo</th><th>Acción</th><th class="rz-r">Confianza</th><th>Impacto esperado</th><th>Estado</th><th style="width:14rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
               <ng-template #body let-a>
                 <tr [class.rz-done]="a.status!=='pending_approval'">
                   <td class="rz-r">{{ a.priority!=null ? (a.priority|number:'1.0-0') : '—' }}</td>
@@ -152,7 +152,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <div class="rz-bar"><span class="rz-count">Dial por tipo de acción · el motor ejecuta sólo lo que habilites (default OFF)</span>
               <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="busy()==='autonomy'" (click)="runAutonomy()"><span class="p-button-icon p-button-icon-left pi pi-play" aria-hidden="true"></span><span class="p-button-label">Ejecutar habilitadas</span></button></div>
             <p-table [value]="policies()" [loading]="loading()==='autonomy'" styleClass="p-datatable-sm rz-table">
-              <ng-template #header><tr><th>Tipo de acción</th><th style="width:11rem">Modo</th><th class="rz-r">Confianza mín</th><th class="rz-r">Tope diario</th><th class="rz-r">Tope $ (MXN)</th><th style="width:7rem"></th></tr></ng-template>
+              <ng-template #header><tr><th>Tipo de acción</th><th style="width:11rem">Modo</th><th class="rz-r">Confianza mín</th><th class="rz-r">Tope diario</th><th class="rz-r">Tope $ (MXN)</th><th style="width:7rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
               <ng-template #body let-p>
                 <tr [class.rz-kill]="p.action_type==='__global__'">
                   <td class="rz-strong">{{ p.action_type==='__global__' ? 'GLOBAL (kill-switch)' : p.action_type }}</td>

@@ -147,7 +147,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                (onRowExpand)="onDayExpand($event.data)" styleClass="p-datatable-sm dm-table surf-table--sticky" [scrollable]="true" scrollHeight="flex">
         <ng-template #header>
           <tr>
-            <th style="width:2.5rem"></th>
+            <th style="width:2.5rem"><span class="sr-only">Detalle</span></th>
             <th>Día</th>
             <th class="dm-r" style="width:6rem">Docs</th>
             <th class="dm-r" style="width:8rem">Entradas</th>
@@ -373,7 +373,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
                 </div>
 
                 <table class="dm-docs dm-tbl">
-                  <thead><tr><th>Estado</th><th>Mes</th><th>Tipo</th><th>Destino</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th><th></th></tr></thead>
+                  <thead><tr><th>Estado</th><th>Mes</th><th>Tipo</th><th>Destino</th><th>Suc.</th><th class="dm-r">Importe</th><th>Referencia (localizador)</th><th><span class="sr-only">Acciones</span></th></tr></thead>
                   <tbody>
                     @if (detailLoading()) { <tr><td colspan="8" class="dm-empty">Cargando…</td></tr> }
                     @else {

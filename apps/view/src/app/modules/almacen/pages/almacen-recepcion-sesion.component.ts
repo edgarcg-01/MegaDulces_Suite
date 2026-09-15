@@ -150,7 +150,7 @@ import { SidePeekComponent } from '../../../shared/components/side-peek/side-pee
             <th scope="col">SKU</th><th scope="col">Producto</th>
             <th scope="col" class="num">Esperado</th><th scope="col">Unidad</th>
             <th scope="col" class="num">Recibido</th><th scope="col" class="num">Declarado</th>
-            <th scope="col">Estado</th><th scope="col"></th>
+            <th scope="col">Estado</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template #body let-l let-i="rowIndex">
