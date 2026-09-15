@@ -184,6 +184,8 @@ export interface DupProduct {
   sku: string; nombre: string | null; unit: string | null; activo: boolean | null;
   supplier_name: string | null; precio_min: number | null; precio_max: number | null;
   sucursales: number;
+  /** `[CAT.6]` A qué precio sale ESA alta en CADA plaza. Vacío = no se pudo saber. */
+  por_sucursal: { sucursal: string; precio: number | null }[];
 }
 
 export interface DupBarcodeRow {

@@ -9,7 +9,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
-import { ComercialService, DupBarcodeRow } from '../../comercial/comercial.service';
+import { ComercialService, DupBarcodeRow, DupProduct } from '../../comercial/comercial.service';
 
 type Severidad = '' | 'distinto' | '5' | '25';
 
@@ -171,13 +171,12 @@ type Severidad = '' | 'distinto' | '5' | '25';
             </td>
             <td>
               @if (g.sucursales.length) {
-                @if (g.sucursales.length >= totalSucursales()) {
-                  <span class="cd-badge cd-badge-bad">las {{ g.sucursales.length }} sucursales</span>
-                } @else {
-                  <div class="cd-plazas">
-                    @for (s of g.sucursales; track s) { <span class="cd-plaza">{{ s }}</span> }
-                  </div>
-                }
+                <div class="cd-plazas">
+                  @if (g.sucursales.length >= totalSucursales()) {
+                    <span class="cd-badge cd-badge-bad">las {{ g.sucursales.length }}</span>
+                  }
+                  @for (s of g.sucursales; track s) { <span class="cd-plaza">{{ s }}</span> }
+                </div>
               } @else {
                 <span class="cd-muted cd-small-inline"
                       pTooltip="El código de pieza no delata este duplicado: vive en el de paquete o caja, y esa tabla no guarda sucursal."
@@ -217,36 +216,55 @@ type Severidad = '' | 'distinto' | '5' | '25';
         <ng-template #expandedrow let-g>
           <tr class="cd-detalle">
             <td [attr.colspan]="7">
-              <table class="cd-mini">
-                <thead>
-                  <tr>
-                    <th scope="col">SKU</th>
-                    <th scope="col">Nombre</th>
-                    <th scope="col">Unidad</th>
-                    <th scope="col">Proveedor</th>
-                    <th scope="col">Estado</th>
-                    <th scope="col" class="cd-r">Precio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (p of g.productos; track p.sku) {
+              <!--
+                [CAT.6] Matriz alta x sucursal. "Las 7 sucursales" dice que el duplicado esta en
+                todas, pero no contesta la pregunta operativa: a que precio sale CADA alta en CADA
+                plaza. Con la matriz se ve de un golpe si el problema es del catalogo central (las
+                dos altas cuestan lo mismo en todas, como el caso 7503009290074) o de una tienda.
+              -->
+              <div class="cd-scroll">
+                <table class="cd-mini">
+                  <thead>
                     <tr>
-                      <td><code class="comm-code">{{ p.sku }}</code></td>
-                      <td>{{ p.nombre || '—' }}</td>
-                      <td class="cd-muted">{{ p.unit || '—' }}</td>
-                      <td class="cd-muted">{{ p.supplier_name || '—' }}</td>
-                      <td>
-                        <span class="cd-badge" [class.cd-badge-ok]="p.activo" [class.cd-badge-warn]="!p.activo">
-                          {{ p.activo ? 'activo' : 'inactivo' }}
-                        </span>
-                      </td>
-                      <td class="cd-r cd-num">
-                        {{ p.precio_min == null ? '—' : (p.precio_min | currency:'MXN':'symbol-narrow':'1.2-2') }}
-                      </td>
+                      <th scope="col">SKU</th>
+                      <th scope="col">Nombre</th>
+                      <th scope="col">Estado</th>
+                      @for (s of plazasDe(g); track s) {
+                        <th scope="col" class="cd-r">{{ s }}</th>
+                      }
+                      @if (!plazasDe(g).length) { <th scope="col" class="cd-r">Precio</th> }
                     </tr>
-                  }
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    @for (p of g.productos; track p.sku) {
+                      <tr>
+                        <td><code class="comm-code">{{ p.sku }}</code></td>
+                        <td>
+                          <div>{{ p.nombre || '—' }}</div>
+                          <div class="cd-sub">{{ p.unit || '—' }} · {{ p.supplier_name || 'sin proveedor' }}</div>
+                        </td>
+                        <td>
+                          <span class="cd-badge" [class.cd-badge-ok]="p.activo" [class.cd-badge-warn]="!p.activo">
+                            {{ p.activo ? 'activo' : 'inactivo' }}
+                          </span>
+                        </td>
+                        @for (s of plazasDe(g); track s) {
+                          <td class="cd-r cd-num"
+                              [class.cd-bad]="precioEn(p, s) != null && precioEn(p, s) === g.precio_max"
+                              [class.cd-ok]="precioEn(p, s) != null && precioEn(p, s) === g.precio_min">
+                            {{ precioEn(p, s) == null ? '—' : (precioEn(p, s) | currency:'MXN':'symbol-narrow':'1.2-2') }}
+                          </td>
+                        }
+                        @if (!plazasDe(g).length) {
+                          <td class="cd-r cd-num">
+                            {{ p.precio_min == null ? '—' : (p.precio_min | currency:'MXN':'symbol-narrow':'1.2-2') }}
+                          </td>
+                        }
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
               <p class="cd-pie">
                 El arreglo es dar de baja el código que sobra <strong>en Kepler</strong>. Esta
                 pantalla sólo detecta y da seguimiento.
@@ -330,6 +348,8 @@ type Severidad = '' | 'distinto' | '5' | '25';
     .cd-badge-warn { color: var(--warn-fg); background: var(--warn-bg); border-color: var(--warn-fg); }
     .cd-nombres { display: flex; flex-direction: column; gap: .05rem; font-size: .8rem; }
     .cd-plazas { display: flex; flex-wrap: wrap; gap: .2rem; }
+    .cd-scroll { overflow-x: auto; }
+    .cd-sub { font-size: .68rem; color: var(--c-text-2); }
     .cd-plaza {
       font-size: .66rem; padding: .05rem .35rem; border-radius: 999px;
       background: var(--c-surface-2); border: 1px solid var(--c-divider); color: var(--c-text-2);
@@ -448,6 +468,20 @@ export class ComprasCatalogoCodigosComponent implements OnInit {
    */
   readonly totalSucursales = computed(() =>
     this.todas().reduce((m, g) => Math.max(m, g.sucursales.length), 0) || 7);
+
+  /**
+   * [CAT.6] Las plazas que aparecen en ESTE grupo, en orden. Se sacan de los propios productos:
+   * si una tienda no maneja el producto, no se le dibuja columna vacía.
+   */
+  plazasDe(g: DupBarcodeRow): string[] {
+    const set = new Set<string>();
+    for (const p of g.productos) for (const s of p.por_sucursal || []) set.add(s.sucursal);
+    return [...set].sort((a, b) => a.localeCompare(b, 'es'));
+  }
+
+  precioEn(p: DupProduct, sucursal: string): number | null {
+    return (p.por_sucursal || []).find((s) => s.sucursal === sucursal)?.precio ?? null;
+  }
 
   /** El caso peor: el alta duplicada no se quedó en una plaza, se replicó a toda la red. */
   readonly enTodas = computed(() =>
