@@ -133,7 +133,7 @@ const REPROGRAM_REASON_OPTS: { label: string; value: ReprogramReason }[] = [
           </div>
           <p-table [value]="obligations()" [loading]="loadingObligations()" [scrollable]="true" scrollHeight="26rem" styleClass="p-datatable-sm surf-table cal-table">
             <ng-template #header>
-              <tr><th style="width:2rem"></th><th>Beneficiario</th><th>Vence</th><th class="ta-r">Disponible</th><th style="width:3rem"></th></tr>
+              <tr><th style="width:2rem"><span class="sr-only">Seleccionar</span></th><th>Beneficiario</th><th>Vence</th><th class="ta-r">Disponible</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
             </ng-template>
             <ng-template #body let-o>
               <tr [class.cal-row-critical]="o.is_critical">
@@ -166,7 +166,7 @@ const REPROGRAM_REASON_OPTS: { label: string; value: ReprogramReason }[] = [
           </div>
           <p-table [value]="allocations()" [loading]="loadingAllocations()" [scrollable]="true" scrollHeight="30rem" styleClass="p-datatable-sm surf-table cal-table">
             <ng-template #header>
-              <tr><th style="width:4rem">Orden</th><th>Beneficiario(s)</th><th>Clasif.</th><th class="ta-r">Importe</th><th>Estado</th><th style="width:14rem"></th></tr>
+              <tr><th style="width:4rem">Orden</th><th>Beneficiario(s)</th><th>Clasif.</th><th class="ta-r">Importe</th><th>Estado</th><th style="width:14rem"><span class="sr-only">Acciones</span></th></tr>
             </ng-template>
             <ng-template #body let-a>
               <tr>

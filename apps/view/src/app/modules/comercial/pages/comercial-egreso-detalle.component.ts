@@ -124,7 +124,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
             </div>
             <p-table [value]="topRows()" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="300px">
               <ng-template #header>
-                <tr><th>{{ breakdownLabel() }}</th><th class="ta-r" style="width:8rem">Importe</th><th class="ta-r" style="width:5rem">%</th><th style="width:2.5rem"></th></tr>
+                <tr><th>{{ breakdownLabel() }}</th><th class="ta-r" style="width:8rem">Importe</th><th class="ta-r" style="width:5rem">%</th><th style="width:2.5rem"><span class="sr-only">Filtrar</span></th></tr>
               </ng-template>
               <ng-template #body let-row>
                 <tr class="ed-clickable" tabindex="0" role="button" [attr.aria-label]="'Filtrar por ' + row.label"
@@ -170,7 +170,7 @@ interface Constraint { type: SliceType; key: string; label: string; }
           <p-table [value]="docs()" styleClass="p-datatable-sm ed-table" [rowHover]="true" [scrollable]="true" scrollHeight="480px"
                    [paginator]="docs().length > 100" [rows]="100">
             <ng-template #header>
-              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Concepto</th><th>Beneficiario</th><th>Comentario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"></th></tr>
+              <tr><th style="width:6rem">Fecha</th><th>Documento</th><th>Sucursal</th><th>Cuenta</th><th>Concepto</th><th>Beneficiario</th><th>Comentario</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:2.5rem"><span class="sr-only">Detalle</span></th></tr>
             </ng-template>
             <ng-template #body let-d>
               <tr class="ed-clickable" tabindex="0" role="button" [attr.aria-label]="'Ver documento ' + d.doc_tipo + '-' + d.doc_folio"

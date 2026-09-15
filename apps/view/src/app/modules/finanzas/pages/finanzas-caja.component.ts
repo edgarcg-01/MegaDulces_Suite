@@ -156,7 +156,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </div>
           </div>
           <p-table [value]="d.movimientos" dataKey="uid" [expandedRowKeys]="expanded()" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh" [paginator]="d.movimientos.length>100" [rows]="100">
-            <ng-template #header><tr><th class="cg-w-x"></th><th class="cg-w-date">Fecha</th><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></ng-template>
+            <ng-template #header><tr><th class="cg-w-x"><span class="sr-only">Detalle</span></th><th class="cg-w-date">Fecha</th><th>Cuenta</th><th>Cliente / Concepto</th><th class="ta-r">Egreso</th><th class="ta-r">Ingreso</th></tr></ng-template>
             <ng-template #body let-r>
               <tr class="cg-row-click" (click)="toggleRow(r)" [class.cg-row-open]="isExp(r)">
                 <td><i class="pi cg-chev" [class.pi-chevron-right]="!isExp(r)" [class.pi-chevron-down]="isExp(r)" aria-hidden="true"></i></td>
@@ -226,7 +226,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
               <table class="tw-tbl">
                 <thead>
                   <tr>
-                    <th scope="col"></th>
+                    <th scope="col"><span class="sr-only">Concepto</span></th>
                     <th scope="col" class="ta-r"><i class="pi pi-wallet"></i> Control</th>
                     <th scope="col" class="ta-r"><i class="pi pi-file-excel"></i> Workbook</th>
                     <th scope="col" class="ta-r"><i class="pi pi-database"></i> Kepler</th>
@@ -491,7 +491,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         @else if (xw(); as rows) {
           <p class="cg-note" style="margin:.2rem 0 .8rem">Mapea cada <b>cuenta interna de Caja</b> a su <b>cuenta de banco real</b> (account_label, la llave que comparten Bancos y Kepler). La sugerencia se deriva <b>vía Kepler</b> (match de depósitos por monto+fecha, mismo banco) — es dispersa, por eso se <b>confirma a mano</b>. Confirmar habilita la conciliación exacta por cuenta (en vez de por nombre de banco).</p>
           <p-table [value]="rows" styleClass="p-datatable-sm" [rowHover]="true" [scrollable]="true" scrollHeight="58vh">
-            <ng-template #header><tr><th>Cuenta Caja</th><th>Banco</th><th class="ta-r">Depósitos</th><th class="ta-c cg-w-d">#</th><th>Sugerencia (Kepler)</th><th class="cg-w-sel">Cuenta banco</th><th class="cg-w-e"></th></tr></ng-template>
+            <ng-template #header><tr><th>Cuenta Caja</th><th>Banco</th><th class="ta-r">Depósitos</th><th class="ta-c cg-w-d">#</th><th>Sugerencia (Kepler)</th><th class="cg-w-sel">Cuenta banco</th><th class="cg-w-e"><span class="sr-only">Acciones</span></th></tr></ng-template>
             <ng-template #body let-r>
               <tr>
                 <td class="cg-mono">{{ r.banco_name || '—' }} <span class="muted">#{{ r.banco_code }}</span></td>

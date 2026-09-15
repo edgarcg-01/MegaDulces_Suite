@@ -94,7 +94,7 @@ import { FacturasService } from '../facturas.service';
               <th style="width:7rem">Código</th>
               <th>Comprobante / cliente</th>
               <th class="ta-c" style="width:4rem">Int.</th>
-              <th style="width:12rem"></th>
+              <th style="width:12rem"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-r let-expanded="expanded">

@@ -611,7 +611,7 @@ interface Hoja {
                 <!-- El análisis: qué dice Kepler contra qué dice el papel, renglón por renglón. -->
                 <table class="ep-cmp">
                   <thead>
-                    <tr><th scope="col"></th><th scope="col">En Kepler</th><th scope="col">En la factura</th></tr>
+                    <tr><th scope="col"><span class="sr-only">Concepto</span></th><th scope="col">En Kepler</th><th scope="col">En la factura</th></tr>
                   </thead>
                   <tbody>
                     <tr>

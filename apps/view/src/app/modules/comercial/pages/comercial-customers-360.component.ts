@@ -46,7 +46,7 @@ import { CUSTOMERS_TABS } from '../customers-tabs';
                [scrollable]="true" scrollHeight="flex" [paginator]="true" [rows]="25" [rowsPerPageOptions]="[25,50,100]">
         <ng-template #header>
           <tr>
-            <th scope="col" style="width:3rem"></th>
+            <th scope="col" style="width:3rem"><span class="sr-only">Detalle</span></th>
             <th scope="col">Cliente</th><th scope="col">Código</th><th scope="col">RFC</th><th scope="col">Ciudad</th>
             <th scope="col" class="c3-num">Productos</th><th scope="col" class="c3-num">Compra 180d</th><th scope="col">Última</th>
           </tr>

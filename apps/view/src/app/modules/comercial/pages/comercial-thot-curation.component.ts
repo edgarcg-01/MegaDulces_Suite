@@ -59,7 +59,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
       </div>
       <p-table [value]="conversations()" [loading]="convLoading()" styleClass="p-datatable-sm surf-table" [paginator]="conversations().length > 12" [rows]="12">
         <ng-template #header>
-          <tr><th>Fecha</th><th>Usuario</th><th>Pregunta</th><th>Respuesta</th><th></th><th></th></tr>
+          <tr><th>Fecha</th><th>Usuario</th><th>Pregunta</th><th>Respuesta</th><th><span class="sr-only">Feedback</span></th><th><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
         <ng-template #body let-c>
           <tr class="tcur-conv-row" (click)="openConv(c)">
@@ -80,7 +80,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
       <h3 class="tcur-h">Cola de curaduría <span class="tcur-badge">{{ candidates().length }}</span></h3>
       <p-table [value]="candidates()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [paginator]="candidates().length > 10" [rows]="10">
         <ng-template #header>
-          <tr><th>Pregunta</th><th>Respuesta</th><th>Tools</th><th>Usuario</th><th></th></tr>
+          <tr><th>Pregunta</th><th>Respuesta</th><th>Tools</th><th>Usuario</th><th><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
         <ng-template #body let-c>
           <tr>
@@ -100,7 +100,7 @@ import { ANALYTICS_TABS } from '../analytics-tabs';
       <h3 class="tcur-h">Ejemplos verificados <span class="tcur-badge">{{ examples().length }}</span></h3>
       <p-table [value]="examples()" [loading]="loading()" styleClass="p-datatable-sm surf-table" [paginator]="examples().length > 15" [rows]="15">
         <ng-template #header>
-          <tr><th>Perfil</th><th>Pregunta</th><th>Tools</th><th>Estado</th><th></th></tr>
+          <tr><th>Perfil</th><th>Pregunta</th><th>Tools</th><th>Estado</th><th><span class="sr-only">Acciones</span></th></tr>
         </ng-template>
         <ng-template #body let-e>
           <tr [class.tcur-off]="!e.enabled">

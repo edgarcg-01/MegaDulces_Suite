@@ -95,7 +95,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
               <th class="ta-r" style="width:6rem">IVA</th>
               <th class="ta-r" style="width:8rem">Total</th>
               <th style="width:6rem">Estatus</th>
-              <th style="width:6rem"></th>
+              <th style="width:6rem"><span class="sr-only">Acciones</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-r>
@@ -155,7 +155,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
 
           <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" class="p-button-text p-button-sm" (click)="addConcepto()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar</span></button></div>
           <p-table [value]="conceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
-            <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+            <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"><span class="sr-only">Quitar</span></th></tr></ng-template>
             <ng-template #body let-c let-i="rowIndex">
               <tr>
                 <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Dulces surtidos" /></td>
@@ -239,7 +239,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
             <p class="fa-note"><i class="pi pi-info-circle"></i> CFDI de <strong>Egreso</strong> relacionado (01) a <strong>{{ r.serie }}{{ r.folio }}</strong> · {{ r.receptor_nombre || 'Público general' }} ({{ r.receptor_rfc }}). Captura lo que se devuelve/bonifica.</p>
             <div class="fa-concept-head"><span>Conceptos *</span><button pButton type="button" class="p-button-text p-button-sm" (click)="addNcConcepto()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Agregar</span></button></div>
             <p-table [value]="ncConceptos()" styleClass="p-datatable-sm fa-concepts-tbl">
-              <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"></th></tr></ng-template>
+              <ng-template #header><tr><th>Descripción</th><th style="width:5rem">Cant.</th><th style="width:8rem">P. Unit.</th><th class="ta-r" style="width:7rem">Importe</th><th style="width:2rem"><span class="sr-only">Quitar</span></th></tr></ng-template>
               <ng-template #body let-c let-i="rowIndex">
                 <tr>
                   <td><input pInputText [(ngModel)]="c.descripcion" placeholder="Devolución de mercancía" /></td>
@@ -303,7 +303,7 @@ interface ConceptoRow { descripcion: string; cantidad: number; valor_unitario: n
                 <p class="fa-note fa-note-ok"><i class="pi pi-check-circle"></i> Sin mostrador pendiente de factura global.</p>
               } @else {
                 <p-table [value]="rec.pending_global_by_day" styleClass="p-datatable-sm fa-cont-tbl" [rowHover]="true">
-                  <ng-template #header><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th></th></tr></ng-template>
+                  <ng-template #header><tr><th>Día</th><th class="ta-r">Pedidos</th><th class="ta-r">Total</th><th><span class="sr-only">Acciones</span></th></tr></ng-template>
                   <ng-template #body let-d>
                     <tr>
                       <td class="mono">{{ d.day | date:'dd/MM/yy' }}</td>

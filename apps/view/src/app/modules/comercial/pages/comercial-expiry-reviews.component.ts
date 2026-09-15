@@ -49,7 +49,7 @@ import { ComercialService, ExpiryReview } from '../comercial.service';
         <ng-template #header>
           <tr>
             <th scope="col">Fecha</th><th scope="col">Almacén</th><th scope="col">Responsable</th>
-            <th scope="col" class="num">Renglones</th><th scope="col">Estado</th><th scope="col"></th>
+            <th scope="col" class="num">Renglones</th><th scope="col">Estado</th><th scope="col"><span class="sr-only">Acciones</span></th>
           </tr>
         </ng-template>
         <ng-template #body let-r>

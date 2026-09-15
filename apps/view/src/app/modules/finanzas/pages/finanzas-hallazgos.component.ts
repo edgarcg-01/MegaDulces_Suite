@@ -87,7 +87,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
           <h3 class="fh-card-title">Salud de las reglas <span class="muted">(precisión = confirmados / veredictos)</span></h3>
           <p-table [value]="rules()" styleClass="p-datatable-sm" [rowHover]="true">
             <ng-template #header>
-              <tr><th>Regla</th><th>Clase</th><th class="ta-r">Hallazgos</th><th class="ta-r">✓ / ✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:5rem"></th></tr>
+              <tr><th>Regla</th><th>Clase</th><th class="ta-r">Hallazgos</th><th class="ta-r">✓ / ✗</th><th class="ta-r">Precisión</th><th>Estado</th><th style="width:5rem"><span class="sr-only">Acciones</span></th></tr>
             </ng-template>
             <ng-template #body let-r>
               <tr [class.fh-suppressed]="r.suppressed_auto">
@@ -132,7 +132,7 @@ import { ActionsService, ProposedAction } from '../actions.service';
         <p-table [value]="findings()" styleClass="p-datatable-sm fh-table" [rowHover]="true" [loading]="loading()"
                  dataKey="id" [expandedRowKeys]="expanded()" [scrollable]="true" scrollHeight="560px" [paginator]="findings().length > 50" [rows]="50">
           <ng-template #header>
-            <tr><th style="width:2.5rem"></th><th style="width:6rem">Severidad</th><th>Hallazgo</th><th style="width:8rem">Clase</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:13rem">Acciones</th></tr>
+            <tr><th style="width:2.5rem"><span class="sr-only">Detalle</span></th><th style="width:6rem">Severidad</th><th>Hallazgo</th><th style="width:8rem">Clase</th><th class="ta-r" style="width:9rem">Importe</th><th style="width:13rem">Acciones</th></tr>
           </ng-template>
           <ng-template #body let-f let-expanded="expanded">
             <tr>
