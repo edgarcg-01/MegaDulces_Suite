@@ -230,11 +230,14 @@ html {
   background-color: var(--card-bg);
 }
 
-/* ThemeService agrega .theme-monochrome a <html> además de <body>, pero los tokens
-   viven en body.theme-monochrome → html no los hereda. Hardcodeamos el color del
-   chrome dark (= --card-bg de Operations) para que la safe-area matchee header/nav. */
+/* Color del chrome dark, para que la safe-area matchee header/nav.
+   Desde el 2026-09-15 el token SÍ llega a <html>: el bloque oscuro de tokens.css
+   declara `:root.theme-monochrome, body.theme-monochrome`. Antes vivía sólo en
+   `body`, html no lo heredaba y por eso acá había un #18181B a mano — que es la
+   punta del mismo iceberg que dejaba los títulos invisibles (ver el comentario
+   largo en tokens.css). Ahora se lee del token y no puede desincronizarse. */
 html.theme-monochrome {
-  background-color: #18181B;
+  background-color: var(--card-bg);
 }
 
 body {

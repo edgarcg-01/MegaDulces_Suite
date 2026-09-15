@@ -204,11 +204,12 @@ html {
   background-color: var(--layout-bg);
 }
 
-/* ThemeService pone .theme-monochrome en <html> y <body>, pero los tokens viven en
-   body.theme-monochrome → html no los hereda. Hardcodeamos el --layout-bg dark
-   (= el de la nav/página) para que la franja de abajo no se vea más clara. */
+/* Para que la franja de abajo no se vea más clara que la nav/página.
+   Desde el 2026-09-15 el token SÍ llega a <html> (tokens.css declara el bloque
+   oscuro en `:root.theme-monochrome, body.theme-monochrome`), así que esto deja
+   de ser un #09090B a mano y se lee del token. */
 html.theme-monochrome {
-  background-color: #09090B;
+  background-color: var(--layout-bg);
 }
 
 body {

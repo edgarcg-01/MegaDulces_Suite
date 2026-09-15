@@ -332,7 +332,23 @@
 
    El Storefront (/portal) mantiene el espresso cálido vía el override de abajo.
    Ver DESIGN_FOUNDATIONS.md §1.1 — calibrar contraste con APCA.
+
+   ⛔ EL SELECTOR LLEVA `:root` A PROPÓSITO, y no es cosmético — 2026-09-15.
+   Los ~32 ALIAS de `:root` (`--c-text-1: var(--text-main)`, `--fg-1`, `--text`,
+   `--content-*`, `--c-surface-*`, `--status-*-fg`…) se COMPUTAN en el elemento
+   donde se declaran, o sea en `<html>`: su `var()` se sustituye ahí y ese valor
+   YA RESUELTO es el que heredan los hijos. Con los tokens sólo en `body`, `<html>`
+   nunca los veía, así que cada alias quedaba CONGELADO en su valor CLARO y lo
+   repartía a toda la página, aunque `body` sí tuviera el valor oscuro.
+   Medido en navegador antes de tocar esto: un `h1` con `color: var(--c-text-1)`
+   computaba `rgb(9,9,11)` = **exactamente `--layout-bg`** — texto invisible, no
+   bajo contraste. Es lo que reportó Edgar en /almacen/movimientos. El control con
+   `var(--text-main)` directo daba `#FAFAFA`: fallaban SÓLO los alias.
+   ThemeService ya pone la clase en `<html>` y en `<body>` (theme.service.ts:128),
+   así que esto no cambia nada del lado del TS.
+   ⚠️ Si algún día se agrega otro bloque de tema, tiene que cubrir los DOS o vuelve.
    ════════════════════════════════════════════════════════════════════════════ */
+:root.theme-monochrome,
 body.theme-monochrome {
   --layout-bg:     #09090B;   /* zinc-950 */
   --sidebar-bg:    #18181B;   /* zinc-900 */
