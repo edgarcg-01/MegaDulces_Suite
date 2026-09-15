@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
-import type { MeContext, MeWork } from '@megadulces/contracts';
+import type { MeContext, MeWork, MeZonaPeriodo } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
 
@@ -43,8 +43,16 @@ export class MeContextService {
    * trabaja, y servirlo de un `shareReplay` mostraría "12 por revisar" después de haber revisado
    * los 12. La landing lo pide cada vez que se abre, y el botón "Actualizar" lo vuelve a pedir.
    */
-  work(): Observable<MeWork> {
-    return this.http.get<MeWork>(`${environment.apiUrl}/users/me/work`);
+  work(periodoZona?: MeZonaPeriodo): Observable<MeWork> {
+    /*
+     * `[JZ.4]` El grano del bloque «Cómo va tu zona» viaja en la URL, no en el cliente: cada grano
+     * tiene su propio COMPARADOR (día contra el mismo día de la semana, semana contra los 7
+     * cerrados anteriores, mes contra el mismo tramo) y ésos se calculan del lado del servidor,
+     * que es donde vive la regla. Recortar en el navegador daría el mismo total con el comparador
+     * equivocado — el error más difícil de ver de los tres.
+     */
+    const q = periodoZona ? `?periodo=${periodoZona}` : '';
+    return this.http.get<MeWork>(`${environment.apiUrl}/users/me/work${q}`);
   }
 
   reset(): void {

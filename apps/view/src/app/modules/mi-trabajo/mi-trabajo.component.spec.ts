@@ -183,6 +183,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     fix.detectChanges();
   }
 
+  /**
+   * `[JZ.4]` Espía de `work()`. Existe para poder afirmar sobre el ARGUMENTO con el que se pidió
+   * el dato y no sobre el estado final del componente — la lección de `[JZ.1]`: el estado final
+   * sale verde aunque la consulta haya salido con el periodo equivocado.
+   */
+  let espiaWork: jest.Mock;
+
   async function montar(m: Montaje = {}) {
     const permisos = con(...(m.perms ?? []));
     const role = m.role ?? 'almacenista';
@@ -205,7 +212,10 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
           provide: MeContextService,
           useValue: {
             mine: () => m.ctx$ ?? of(CTX_BASE),
-            work: () => m.work$ ?? of(SIN_TRABAJO),
+            work: (espiaWork = jest.fn((p?: string) => {
+              void p;
+              return m.work$ ?? of(SIN_TRABAJO);
+            })),
             reset: jest.fn(),
           },
         },
@@ -1048,6 +1058,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
    */
   const ZONA_PIEDAD: MeZona = {
     zona: 'LA PIEDAD RD',
+    periodo: 'mes', corte: null, incluye_dia_en_curso: true,
     desde: '2026-09-01', hasta: '2026-09-15',
     desde_comparado: '2026-08-01', hasta_comparado: '2026-08-15',
     monto: 10_214_832, comparado: 9_640_000, variacion_pct: 0.0596,
@@ -1148,6 +1159,58 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const t = (fix.nativeElement as HTMLElement).querySelector('.mt-titular.is-zona')?.textContent ?? '';
     expect(t).toContain('quedan fuera de la comparación');
     expect(t).toContain('163,878');
+  });
+
+  it('⛔ el tramo RECORTADO por rezago de la fuente se dice, con nombre y días', async () => {
+    /*
+     * La mentira que lo obligó, medida en prod: MORELIA ABASTOS publicaba **−26.1 %** comparando
+     * 10 días de septiembre contra 15 de agosto, porque `wincaja_*` no entregaba desde el 10.
+     * Con el tramo parejo la zona **sube 17.1 %**. Recortar y callarlo cambiaría una mentira por
+     * un silencio: el número de arriba ya no cubre lo que el jefe cree que cubre.
+     */
+    const rezagada: MeWork = {
+      ...SIN_TRABAJO,
+      zona: {
+        ...ZONA_PIEDAD,
+        hasta: '2026-09-10',
+        hasta_comparado: '2026-08-10',
+        incluye_dia_en_curso: false,
+        corte: { hasta_nominal: '2026-09-15', dias_sin_entregar: 5, fuentes: ['wincaja_mostrador'] },
+      },
+    };
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(rezagada) });
+    const t = (fix.nativeElement as HTMLElement).querySelector('.mt-titular.is-zona')?.textContent ?? '';
+    expect(t).toContain('Tramo recortado al 2026-09-10');
+    expect(t).toContain('wincaja_mostrador');
+    expect(t).toContain('5 días sin entregar');
+    // Y el aviso del día en curso NO aparece: el recorte ya lo dejó fuera del tramo.
+    expect(t).not.toContain('va a medias');
+  });
+
+  it('el selector de grano vuelve a PEDIR el dato, no recorta en el navegador', async () => {
+    /*
+     * Cada grano tiene su propio COMPARADOR y lo calcula el servidor (día contra el mismo día de
+     * la semana, semana contra los 7 cerrados anteriores, mes contra el mismo tramo). Recortar en
+     * el cliente daría el mismo total contra el tramo equivocado — el error más difícil de ver.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const botones = Array.from(q<HTMLButtonElement>('button.mt-periodo'));
+    expect(botones.map((b) => b.textContent?.trim())).toEqual(['Día', 'Semana', 'Mes']);
+    expect(botones.find((b) => b.textContent?.trim() === 'Mes')?.classList).toContain('is-on');
+
+    // La carga inicial pidió 'mes', que es el default declarado.
+    expect(espiaWork).toHaveBeenCalledWith('mes');
+
+    botones.find((b) => b.textContent?.trim() === 'Semana')!.click();
+    fix.detectChanges();
+    // ⛔ Lo que importa: se volvió a PEDIR, y con el grano nuevo.
+    expect(espiaWork).toHaveBeenCalledTimes(2);
+    expect(espiaWork).toHaveBeenLastCalledWith('semana');
+
+    // Y volver a hacer clic en el mismo grano NO gasta otra consulta.
+    botones.find((b) => b.textContent?.trim() === 'Semana')!.click();
+    fix.detectChanges();
+    expect(espiaWork).toHaveBeenCalledTimes(2);
   });
 
   it('el titular de la zona dice contra qué tramo se comparó', async () => {

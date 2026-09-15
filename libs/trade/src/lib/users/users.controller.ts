@@ -29,6 +29,7 @@ import {
   ApiQuery,
   ApiTags,
 } from '@nestjs/swagger';
+import type { MeZonaPeriodo } from '@megadulces/contracts';
 
 /**
  * Lo que este controller usa de `req.user`.
@@ -302,8 +303,20 @@ export class UsersController {
    */
   @Get('me/work')
   @ApiOperation({ summary: 'Trabajo pendiente de la persona en sesión (bandejas con conteo al momento)' })
-  myWork(@ReqUser() user: AuthUser) {
-    return this.usersService.workFor(user.sub, user.permissions, isPlatformAdminRole(user.role_name));
+  myWork(@ReqUser() user: AuthUser, @Query('periodo') periodo?: string) {
+    /*
+     * `[JZ.4]` El grano del bloque «Cómo va tu zona» (día / semana / mes). Se valida contra la
+     * lista cerrada y cualquier otra cosa cae en `'mes'` — un valor libre elegiría un comparador
+     * que nadie diseñó. Sólo afecta a ese bloque: bandejas, tareas y ciclos no tienen periodo.
+     */
+    const p: MeZonaPeriodo =
+      periodo === 'dia' || periodo === 'semana' || periodo === 'mes' ? periodo : 'mes';
+    return this.usersService.workFor(
+      user.sub,
+      user.permissions,
+      isPlatformAdminRole(user.role_name),
+      p,
+    );
   }
 
   /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */

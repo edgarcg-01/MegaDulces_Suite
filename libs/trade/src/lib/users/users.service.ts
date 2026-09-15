@@ -9,7 +9,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
+import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeZonaPeriodo } from '@megadulces/contracts';
 import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
 import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
@@ -2371,6 +2371,8 @@ export class UsersService {
     userId: string,
     permisos: Record<string, boolean> | null | undefined,
     esAdmin: boolean,
+    /** `[JZ.4]` Grano del bloque de zona. Sólo afecta a ése; las colas no tienen periodo. */
+    periodoZona: MeZonaPeriodo = 'mes',
   ): Promise<MeWork> {
     const pendientes: MePendiente[] = [];
     const tareas: MeTarea[] = [];
@@ -2709,13 +2711,17 @@ export class UsersService {
      */
     let zona: MeWork['zona'] = null;
     try {
-      const r = await medirZona(this.knex, {
-        tenantId: this.tenantId,
-        userId,
-        responsabilidades: misResponsabilidades,
-        permisos,
-        esAdmin,
-      });
+      const r = await medirZona(
+        this.knex,
+        {
+          tenantId: this.tenantId,
+          userId,
+          responsabilidades: misResponsabilidades,
+          permisos,
+          esAdmin,
+        },
+        periodoZona,
+      );
       zona = r.zona;
       if (r.motivo) no_medido.push({ id: 'zona', label: 'Cómo va tu zona', motivo: r.motivo });
     } catch (e) {

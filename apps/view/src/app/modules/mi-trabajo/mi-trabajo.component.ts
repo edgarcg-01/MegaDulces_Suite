@@ -22,6 +22,7 @@ import type {
   MeTarea,
   MeWork,
   MeZona,
+  MeZonaPeriodo,
 } from '@megadulces/contracts';
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
@@ -444,6 +445,17 @@ export class MiTrabajoComponent {
   readonly contexto = signal<Carga<MeContext>>({ status: 'loading' });
   readonly alcance = signal<Carga<MyScope | null>>({ status: 'loading' });
   readonly trabajo = signal<Carga<MeWork>>({ status: 'loading' });
+
+  /**
+   * `[JZ.4]` El grano del bloque «Cómo va tu zona». Arranca en `'mes'` porque es la pregunta que
+   * el jefe hace primero («¿cómo va el mes?») y la única de las tres que incluye el día de hoy.
+   */
+  readonly periodoZona = signal<MeZonaPeriodo>('mes');
+  readonly PERIODOS: readonly { id: MeZonaPeriodo; label: string; ayuda: string }[] = [
+    { id: 'dia', label: 'Día', ayuda: 'El último día cerrado, contra el mismo día de la semana anterior' },
+    { id: 'semana', label: 'Semana', ayuda: 'Los últimos 7 días cerrados, contra los 7 anteriores' },
+    { id: 'mes', label: 'Mes', ayuda: 'Del día 1 a hoy, contra el mismo tramo del mes pasado' },
+  ];
 
   /** Derivados: los templates estrictos no estrechan una unión entre dos llamadas a la señal. */
   readonly contextoCargando = computed(() => this.contexto().status === 'loading');
@@ -1008,10 +1020,21 @@ export class MiTrabajoComponent {
       });
   }
 
+  /**
+   * `[JZ.4]` Cambiar el grano del bloque de zona. Vuelve a pedir `me/work` porque el COMPARADOR
+   * lo calcula el servidor: recortar en el navegador daría el mismo total contra el tramo
+   * equivocado, que es el error más difícil de ver de los tres.
+   */
+  cambiarPeriodo(p: MeZonaPeriodo): void {
+    if (p === this.periodoZona()) return;
+    this.periodoZona.set(p);
+    this.cargarTrabajo();
+  }
+
   cargarTrabajo(): void {
     this.trabajo.set({ status: 'loading' });
     this.meCtx
-      .work()
+      .work(this.periodoZona())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (data) => this.trabajo.set({ status: 'ok', data }),

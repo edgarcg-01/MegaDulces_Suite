@@ -134,6 +134,25 @@
         -->
         @if (zona(); as z) {
           <div class="mt-zona">
+            <!--
+              [JZ.4] El grano. Cada uno trae su PROPIO comparador y no son intercambiables:
+              dia    -> el ultimo dia cerrado contra el mismo dia de la semana anterior
+              semana -> los ultimos 7 dias cerrados contra los 7 anteriores
+              mes    -> del 1 a hoy contra el mismo tramo del mes pasado
+              Medido en prod sobre 60 dias, el dia de la semana manda mas que la tendencia
+              (rutas: lunes 162,470 vs sabado 115,765), asi que "contra ayer" seria puro calendario.
+              El cambio vuelve a pedir me/work: el comparador se calcula en el servidor.
+            -->
+            <div class="mt-periodos" role="group" aria-label="Periodo de la comparación">
+              @for (p of PERIODOS; track p.id) {
+                <button type="button" class="mt-periodo"
+                        [class.is-on]="periodoZona() === p.id"
+                        [attr.aria-pressed]="periodoZona() === p.id"
+                        [title]="p.ayuda"
+                        (click)="cambiarPeriodo(p.id)">{{ p.label }}</button>
+              }
+            </div>
+
             <div class="mt-titular is-zona">
               <span class="mt-titular-n">{{ formatoDinero(z.monto) }}</span>
               <span class="mt-titular-txt">
@@ -154,9 +173,25 @@
                 -->
                 @if (z.no_comparado; as nc) {
                   <span class="mt-titular-d">
-                    ⚠ {{ nc.canales }} {{ nc.canales === 1 ? 'canal' : 'canales' }} sin dato este mes
-                    ({{ formatoDinero(nc.monto_anterior) }} el mes pasado) quedan fuera de la comparación
+                    ⚠ {{ nc.canales }} {{ nc.canales === 1 ? 'canal' : 'canales' }} sin dato en el tramo
+                    ({{ formatoDinero(nc.monto_anterior) }} en el anterior) quedan fuera de la comparación
                   </span>
+                }
+                <!--
+                  [JZ.4] El tramo termina donde termina el DATO, no donde termina el reloj.
+                  Nace de una mentira publicada: MORELIA ABASTOS decia -26.1% comparando 10 dias de
+                  septiembre contra 15 de agosto porque su fuente no entregaba desde el 10; con el
+                  tramo parejo la zona SUBE 17.1%. Recortar sin decirlo cambiaria una mentira por
+                  un silencio.
+                -->
+                @if (z.corte; as c) {
+                  <span class="mt-titular-d is-corte">
+                    ⛔ Tramo recortado al {{ z.hasta }}: {{ c.fuentes.join(', ') }}
+                    {{ c.fuentes.length === 1 ? 'lleva' : 'llevan' }}
+                    {{ c.dias_sin_entregar }} {{ c.dias_sin_entregar === 1 ? 'día' : 'días' }} sin entregar
+                  </span>
+                } @else if (z.incluye_dia_en_curso) {
+                  <span class="mt-titular-d">Incluye el día de hoy, que va a medias</span>
                 }
               </span>
             </div>

@@ -1,12 +1,14 @@
 import type { Knex } from 'knex';
 import { Permission } from '@megadulces/contracts/authz/permissions';
 import {
+  recortarAlDato,
   variacionPct,
   ventanaComparable,
   type MeCanal,
   type MeCanalGrupo,
   type MeZona,
   type MeZonaBloque,
+  type MeZonaPeriodo,
 } from '@megadulces/contracts';
 import { todayMx } from '@megadulces/platform-core';
 
@@ -157,7 +159,11 @@ function fechaCorta(iso: string): string {
   return `${Number(d)}-${MES[Number(m) - 1]}`;
 }
 
-export async function medirZona(knex: Knex, ctx: ZonaCtx): Promise<ResultadoZona> {
+export async function medirZona(
+  knex: Knex,
+  ctx: ZonaCtx,
+  periodo: MeZonaPeriodo = 'mes',
+): Promise<ResultadoZona> {
   const { tenantId, userId, responsabilidades } = ctx;
 
   /*
@@ -187,7 +193,7 @@ export async function medirZona(knex: Knex, ctx: ZonaCtx): Promise<ResultadoZona
     };
   }
 
-  const v = ventanaComparable(todayMx());
+  const nominal = ventanaComparable(todayMx(), periodo);
 
   // ── Los canales, de sus dos catálogos ────────────────────────────────────────────────────
   const canales: CanalCrudo[] = [];
@@ -237,6 +243,52 @@ export async function medirZona(knex: Knex, ctx: ZonaCtx): Promise<ResultadoZona
         warehouse_id: r.warehouse_id,
         grupo: 'ruta',
       });
+    }
+  }
+
+  /*
+   * ── `[JZ.4]` Hasta dónde entregó cada FUENTE, antes de medir nada ───────────────────────────
+   *
+   * ⛔ Esto existe porque la portada de MORELIA ABASTOS publicó **−26.1 %** siendo **+17.1 %**:
+   * su almacén vende por `wincaja_*`, esa fuente no entregaba desde el 10-sep, y el tramo
+   * comparaba **10 días de septiembre contra 15 de agosto**. `hasta` salía del reloj (`todayMx`)
+   * y no de hasta dónde llegó el dato.
+   *
+   * ⚠️ **Sólo recorta un canal que entregó ALGO dentro del tramo en curso.** Es la línea que
+   * separa «la fuente va atrasada» de «este canal dejó de existir»: las rutas de ZAMORA no
+   * entregan desde el 11-ago, y si contaran acá recortarían la zona entera cinco semanas. Ésas ya
+   * se declaran fila por fila (`sin_medir`) y en `no_comparado`; no son un rezago, son una
+   * ausencia, y son dos hechos distintos.
+   */
+  let v = nominal;
+  let corte: MeZona['corte'] = null;
+  if (canales.length > 0) {
+    const frescura = (await knex('analytics.sales_daily')
+      .where('tenant_id', tenantId)
+      .whereIn('warehouse_id', canales.map((c) => c.warehouse_id))
+      .whereBetween('sale_date', [nominal.desde, nominal.hasta])
+      .groupBy('channel')
+      .select('channel', knex.raw('max(sale_date) as ultimo'))) as {
+      channel: string;
+      ultimo: Date | string;
+    }[];
+
+    if (frescura.length > 0) {
+      const porCanal = frescura.map((f) => ({
+        canal: f.channel,
+        ultimo: new Date(f.ultimo).toISOString().slice(0, 10),
+      }));
+      const masLento = porCanal.reduce((a, b) => (b.ultimo < a.ultimo ? b : a));
+      v = recortarAlDato(nominal, masLento.ultimo);
+      if (v.hasta !== nominal.hasta) {
+        corte = {
+          hasta_nominal: nominal.hasta,
+          dias_sin_entregar: Math.round(
+            (Date.parse(`${nominal.hasta}T00:00:00Z`) - Date.parse(`${v.hasta}T00:00:00Z`)) / 86_400_000,
+          ),
+          fuentes: porCanal.filter((c) => c.ultimo === masLento.ultimo).map((c) => c.canal).sort(),
+        };
+      }
     }
   }
 
@@ -369,6 +421,9 @@ export async function medirZona(knex: Knex, ctx: ZonaCtx): Promise<ResultadoZona
   return {
     zona: {
       zona: ficha.zona_name,
+      periodo,
+      corte,
+      incluye_dia_en_curso: v.incluye_dia_en_curso,
       desde: v.desde,
       hasta: v.hasta,
       desde_comparado: v.desde_comparado,
