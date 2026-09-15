@@ -49,11 +49,28 @@ Síntomas que eso producía: **126,921 archivos temporales / 1,096 GB escritos a
 4. **`pg_stat_database` es acumulado histórico y NO se resetea en un restart limpio** — el 87 % no se mueve en minutos. El efecto del cambio se mide con `pg_stat_statements` (que sí arranca limpio), no con el contador global.
 5. **⚠️ Leak propio:** enmascarar credenciales con `sed 's#://[^@]*@#://***@#'` **no cubre** una variable suelta `POSTGRES_PASSWORD=…`. Al listar variables de Railway se imprimió en claro la contraseña de Postgres de prod. **Pendiente: rotarla.** Filtrar por nombre de variable ANTES de imprimir, nunca por forma de URL.
 
+### ⚠️ DOS AFIRMACIONES DE ESTA ENTRADA ESTABAN MAL — corregidas el mismo día
+
+Las dejo tachadas en vez de borrarlas, porque el **cómo** me equivoqué es la parte útil.
+
+1. ~~"`wincaja.caja_channels` acumula 396 M de seq scans sobre una tabla **VACÍA** → ese `EXISTS` siempre da `false`: la taxonomía de canal podría no estar clasificando nada"~~ → **FALSO.** La tabla tiene **7 filas** (`count(*)` exacto); me guié por `n_live_tup`, que es un **estimador**. La clasificación de canal funciona. Y el `EXPLAIN (ANALYZE, BUFFERS)` de la consulta real muestra **Parallel Index Scan + Hash Anti Join en 810 ms**, no el Seq Scan de 1.5 M filas que después llegué a suponer: `caja_channels` sale incluso como `never executed`.
+
+2. ~~"~460 MB de índices redundantes … `ix_sales_daily_prod` (134 MB)"~~ → **FALSO para ese índice**: tiene **3,459,371 usos**. Ser prefijo de otro **no** lo hace descartable — uno más chico y más usado puede ser mejor. Candidatos reales, cruzando redundancia **y** uso: `idx_commercial_stock_tenant` (39 MB, **9** usos), `ix_mv_sales_blended_date` (31 MB, **1**), `ix_sales_boxes_monthly_prod` (22 MB, **2**).
+
+**El error fue el mismo las dos veces:** leer un contador estimado, o una condición estructural, sin cruzarlo con el uso real. Peor: sobre `caja_channels` me equivoqué **en las dos direcciones** — primero "tabla vacía, bug funcional", después "P0, Seq Scan de 1.5 M filas" — y lo que zanjó fue el `EXPLAIN`, no el razonamiento. Lo que hizo casi imposible dudar de la segunda versión es que **tenía un antecedente documentado en este mismo repo, con su propio EXPLAIN y su migración correctiva** (`20260805240000_wincaja_maestro_fecha_date_idx.js`): el antecedente era real, sólo que no aplicaba a esa consulta.
+
+> **Regla:** `reltuples`/`n_live_tup` son estimadores; un antecedente documentado es una **hipótesis**. Antes de tocar algo por rendimiento: `count(*)` exacto para el volumen, `idx_scan`/`n_tup_upd` para el uso, y **`EXPLAIN (ANALYZE, BUFFERS)` sobre la consulta real** para el plan.
+
 ### Pendiente (medido, no aplicado — requiere ventana fuera de horario)
-- **`DROP INDEX CONCURRENTLY`** de los redundantes por prefijo: `ix_sales_daily_date` (125 MB, contenido en `ix_sales_daily_cover`), `ix_sales_daily_prod` (134 MB, en `uq_sales_daily`), `idx_commercial_stock_tenant` (39 MB, en otros 5), `ix_gll_poliza` (22 MB) — **~460 MB** sin tocar los UNIQUE de matviews.
+- **`DROP INDEX CONCURRENTLY`** de los tres candidatos reales de arriba (~92 MB), tras **7 días** de `pg_stat_statements` para cubrir carga estacional. ⛔ Excluir siempre los UNIQUE sobre matviews (`ux_mv_sales_blended` 445 MB y compañía): son los que `REFRESH … CONCURRENTLY` exige y marcan `idx_scan = 0` por diseño.
 - **`ix_sales_daily_cover`: 1,222 MB para 2,457 usos** (vs `uq_sales_daily`, 928 MB y 259 M usos) y **`sales_daily_pkey` 343 MB con 0 usos**. Decidir con `pg_stat_statements`, que ahora sí mide.
-- **Hallazgo funcional ajeno:** `wincaja.caja_channels` acumula **396 M de seq scans sobre una tabla VACÍA** (`EXISTS` correlacionado en `wincaja-tickets-poller.js:103` y `weekly-analytics.service.ts:357`) → ese `EXISTS` siempre da `false`: la taxonomía de canal podría no estar clasificando nada.
 - `max_connections = 500` con ~25 conexiones reales; bajarlo liberaría memoria reservada, pero exige otro reinicio y no era el cuello.
+
+### ⭐ Lo que la medición posterior SÍ encontró (plan completo aparte)
+- **El barrido histórico de recepciones corre cada minuto**: `ops/vl/crontab.feeds:22` agenda `detect-goods-receipt-duplicates.js`, cuyo propio encabezado dice *"en operación normal no hace falta correrlo"*, con ventana `--from=2026-01-01`. Medido: **42.8 % del tiempo de ejecución de toda la base**, 1,440 corridas diarias para ~30 recepciones, y **12.5 M de UPDATEs sobre 2,814 filas vivas**.
+- **El monitor de salud hace `count(*)` completo** por cada una de sus **37 tablas** vigiladas (`db-health.service.ts:926`): 13.7 s con **0.8 %** de aciertos de caché sobre `stock_movements`, que **no tiene índice en `imported_at`**.
+- **6 matvistas se refrescan 96×/día para 1 solo consumidor cada una** (`mv_product_momentum`: **58 s** por refresh, para 5,935 filas).
+- **`TenantCacheService` está construido y tiene cero consumidores**, mientras `isUserActive()` pega a `identity.users` en **cada request** (~936 queries/min con 117 usuarios).
 
 ---
 
