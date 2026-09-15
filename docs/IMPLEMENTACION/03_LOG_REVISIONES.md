@@ -92,6 +92,40 @@ Los updates que quedan son reales —filas que sí cambiaron—, que es la prueb
 2. ⛔ **`migrate.latest()` no era una opción de todos modos**: había **8 pendientes, 7 ajenas** (grants, calendario de pagos, presupuestos) de otras sesiones. La autorización era para **una**. Se aplicó sola: SQL en una transacción con `SET LOCAL lock_timeout`, más el `INSERT` en `public.knex_migrations` con el batch siguiente.
 3. ⚠️ **Los commits se publicaron sin que este autor hiciera push.** La rama la comparten ~10 sesiones: otra sesión pusheó su trabajo y arrastró estos commits a `origin/main`, y Railway desplegó a las 10:44. Conviene saberlo: **un commit local acá puede estar en producción en minutos.**
 
+### ✅ Segunda tanda (misma tarde) — lo que faltaba, aplicado y medido
+
+| Qué | Efecto medido |
+|---|---|
+| **`receipts` de cada minuto → `30 4 * * *`** (`ops/vl/crontab.feeds`, desplegado a `md`) | el carril costaba **42.8 % del tiempo de ejecución de la base** |
+| **Índice `ix_stockmov_imported_at`** | sensor: `Seq Scan` 128,025 bloques / **11,597 ms** → `Index Only Scan` 59 bloques / **21 ms** (**545×**) |
+| **`count(*)` fuera del sensor de db-health** | la consulta del sensor: **923 ms → 0.049 ms** (el `max()` solo) |
+| **`idle_in_transaction_session_timeout` 0 → 5 min** | había 3 sesiones ociosas de hasta **14 min** bloqueando autovacuum y el `CREATE INDEX` |
+| **Umbral de `feed_receipts`** a diario | sin esto el tablero lo marcaría **crítico todos los días a las 06:30** |
+
+Verificación final: **20 carriles (16 ok · 3 corriendo)**, marcas de dedup intactas (2,815) con **50** tuplas muertas, índice válido, y las transacciones más largas bajaron de **2,572 s a 152 s**.
+
+#### Tres hipótesis que murieron al medirlas (y una que no se tocó)
+
+1. **§3.1 — reescribir los 3 sensores de `wincaja`**: la versión sin los joins innecesarios daba resultado idéntico… y **261,435 → 261,235 buffers. Mejora 1.0×.** El costo son los **2,042 MB** que la consulta toca por el join a `detalles_mov_almacen`, no los joins que se quitaban. Arreglarlo exige una matview; queda declarado, no inventado.
+2. **§7.1 — el `fecha::date` del poller de tickets**: el `EXPLAIN` mostró `Parallel Index Scan` + `Hash Anti Join` en 810 ms, no el Seq Scan de 1.5 M filas que se suponía. Y además **ese poller no está agendado en ningún lado**: su costo real es **cero**.
+3. **§6 — `isUserActive()` sin caché, "~936 queries/min"**: era una extrapolación teórica (117 usuarios × 4 métodos × 2/min), no una medición. `isUserActive()` **ya tiene caché con TTL**. Medido: toda la identidad son **1,831 llamadas / 43 s = 0.09 %** del tiempo de la base en 220 min.
+4. ⛔ **`cdc_reconcile` NO se tocó, a propósito.** Su alarma dispara en el **21.9 %** de las corridas (147 de 672) porque el régimen real de huecos es 4–636 contra un umbral de 50, y en todas `huecos == repuestas`. Pero su propio comentario dice que es *"la única alarma del sistema que mide COMPLETITUD"* y que los latidos estuvieron verdes mientras se perdía 2-7 % de las filas diarias. Distinguir "ruido de lectura" de "pérdida real" exige medir la tasa de escritura contra la duración de cada pasada; **equivocarse ahí silencia una alarma de pérdida de datos.** Queda como hallazgo para el equipo.
+
+#### Dos trampas más de esta tanda
+
+- ⚠️ **`CREATE INDEX IF NOT EXISTS` igual pide lock sobre la tabla** para resolver el "if". Con el feed escribiendo, falló con `canceling statement due to lock timeout` **aunque el índice ya existía**. La migración pregunta antes con `to_regclass` y sale.
+- ⚠️ **`CREATE INDEX CONCURRENTLY` quedó 39 min en `waiting for old snapshots`**, bloqueado por un request del API de **71 minutos** sobre `analytics.v_route_sales_lines` — la misma cadena de vistas que ya causó las dos caídas que el código documenta (*"10 escaneos de 5 min tumbaron prod"*, *"504 en prod"*). `CONCURRENTLY` no bloquea escrituras, pero **espera a toda transacción abierta anterior**.
+
+#### El blanco siguiente, ya medido
+
+Con el barrido de recepciones fuera, el TOP lo encabezan:
+
+| Consulta | Costo |
+|---|---|
+| `CREATE TEMP TABLE stg_rplan` (plan de reabastecimiento) | **3,934 s** en 22 llamadas (**179 s** c/u) |
+| **`KDM_SUBQ_*` de "Explorar datos"** (`commercial-bi-almacen`) | **4,203 s en 703 llamadas** (5–7 s c/u) — el §5.3 del plan, y `enrichFromKdm()` ya existe 150 líneas más arriba en el mismo archivo |
+| `WITH ship AS …` | 2,342 s en **3** llamadas (**780 s** c/u) |
+
 ### ⭐ Lo que la medición posterior SÍ encontró (plan completo aparte)
 - **El barrido histórico de recepciones corre cada minuto**: `ops/vl/crontab.feeds:22` agenda `detect-goods-receipt-duplicates.js`, cuyo propio encabezado dice *"en operación normal no hace falta correrlo"*, con ventana `--from=2026-01-01`. Medido: **42.8 % del tiempo de ejecución de toda la base**, 1,440 corridas diarias para ~30 recepciones, y **12.5 M de UPDATEs sobre 2,814 filas vivas**.
 - **El monitor de salud hace `count(*)` completo** por cada una de sus **37 tablas** vigiladas (`db-health.service.ts:926`): 13.7 s con **0.8 %** de aciertos de caché sobre `stock_movements`, que **no tiene índice en `imported_at`**.
