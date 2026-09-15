@@ -128,8 +128,13 @@ Prioridad (dinero primero):
   linaje-original (kdm1⋈kdm2, 13m) se pasaba de 300 s; se resolvió con el **total de encabezado `kdm1.c16`** (= renglones al
   99.61%, header-only, sin el join a kdm2 de 4M) + agregar kdm1 ANTES de unir kdud (el planner estimaba kdm1=1 fila → nested-loop
   catastrófico) → **48 s**. ✅ **Refresh cableado** (`AnalyticsRefreshService` + umbral `analytics_refresh_payment_terms` en db-health,
-  para que una MV parada no se vea verde — OBS.1). **Falta: redeploy del API** (para que el refresh nocturno corra). **Pieza pendiente
-  aparte:** el fix de `mayoreo` en el blend + `v_sellout_daily`. Diseño original:
+  para que una MV parada no se vea verde — OBS.1). **Falta: redeploy del API** (para que el refresh nocturno corra). **Pieza aparte,
+  SD-CH escrita + VALIDADA 2026-09-15 (sin aplicar):** [`may-preserve-mayoreo-channel.js`](../../../database/scripts/may-preserve-mayoreo-channel.js)
+  — reemplaza quirúrgicamente `WHEN 'mayoreo' THEN 'credito'` → `WHEN 'credito' THEN 'contado_nf'` en la def
+  ACTUAL de `mv_sales_blended` (preserva el folio-counting de SD.4b) y de `v_sellout_daily`; `mayoreo` cae al
+  ELSE (se preserva). `CREATE OR REPLACE VIEW` v_sellout + REFRESH `mv_sellout_monthly` + DROP/CREATE del blend.
+  dry-run: 1 reemplazo en cada uno + EXPLAIN de los dos SELECT modificados OK. ⚠️ **Cambia etiquetas VISIBLES**
+  (el desglose por canal muestra `mayoreo` y `credito`→`contado_nf`) → **falta `--apply` en ventana + validación visual.** Diseño original de SD-PAY:
   `credito` NO es un canal — es condición de PAGO. Medido en prod: el crédito **cruza canales** pero está
   **96% en mayoreo/telemarketing** (684 de 711 folios/30d); U-D-12 (lo que el blend llama "credito") es
   *"Factura CONTADO No Fiscal"* = efectivo; el crédito real (U-D-13) son $0.16M/30d, **fuera del sell-out**.
