@@ -384,7 +384,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                         <td class="pr-r">
                                           <input type="number" min="0" step="1" class="pr-qty pr-qty-sm" aria-keyshortcuts="ArrowUp ArrowDown Enter Alt+ArrowUp Alt+ArrowDown"
                                                  [ngModel]="dispOf(r, b)" (ngModelChange)="setDispOf(r, b, $event)"
-                                                 (wheel)="onQtyWheel($event)" (keydown)="onQtyKey($event)"
+                                                 (keydown)="onQtyKey($event)"
                                                  [attr.aria-label]="'Pedido de ' + r.sku + ' en ' + b.code + ' en ' + (unitOfBranch(r, b) === 'pieza' ? 'piezas' : 'cajas')" />
                                         </td>
                                         <td class="pr-r">
@@ -498,7 +498,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                       </td>
                                       <td class="pr-r"><span class="pr-muted" title="Déficit de la sucursal (cajas)">déf {{ u.deficit | number:'1.0-1' }}</span></td>
                                       <td class="pr-r"><p-tag [value]="(u.on_hand | number:'1.0-1') ?? ''" [severity]="existSevU(u)" styleClass="pr-cov-tag" [title]="existTitleU(u)"></p-tag></td>
-                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (wheel)="onQtyWheel($event)" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
+                                      <td class="pr-r"><input type="number" min="0" step="any" class="pr-qty pr-qty-sm" (keydown)="onQtyKey($event)" [ngModel]="dispQty(u)" (ngModelChange)="setDispQty(u, $event)" [attr.aria-label]="'Traspaso de ' + r.sku + ' a ' + u.warehouse_code + ' (' + unitLabelShort(r.product_id) + ')'" /></td>
                                       <td class="pr-r pr-muted">{{ (u.qty * u.uxc) | number:'1.0-0' }}</td>
                                       <td class="pr-r pr-muted">{{ money(u.unit_cost) }}</td>
                                       <td class="pr-r pr-strong">{{ money(u.qty * u.unit_cost) }}</td>
@@ -1837,17 +1837,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
    * moverse con flechas no debe activarlos. Se activa con Enter/Espacio, que es el default del
    * `<button>` y por eso no hay que interceptarlo.
    */
-  /**
-   * ⚠️ La rueda del mouse sobre un `input type=number` ENFOCADO cambia el valor. Es el default del
-   * navegador y en esta pantalla es un riesgo de dato: scrolleás la tabla para mirar otra sucursal
-   * y de paso alteraste una cantidad que después se convierte en requisición, sin tocar el teclado
-   * y sin que nada lo avise. Al primer wheel se suelta el foco: el valor queda intacto y la página
-   * scrollea normal (no se hace `preventDefault`, que trabaría el scroll).
-   */
-  onQtyWheel(ev: WheelEvent): void {
-    const el = ev.target as HTMLInputElement;
-    if (document.activeElement === el) el.blur();
-  }
+  // ⚠️ La guarda de la rueda (scrollear sobre un input numérico enfocado cambiaba su valor) vivía
+  // acá y se fue a `libs/ui-web` — `installNumberWheelGuard`, un listener por app en `main.ts`.
+  // Esta pantalla no era la única expuesta: eran 30 archivos y sólo ésta estaba cubierta. Un
+  // handler por componente se olvida en el siguiente, que es exactamente cómo se llegó a 29 sin
+  // guarda. Ver DESIGN.md D.5.
 
   /**
    * Teclado de la columna de captura: **las flechas MUEVEN ENTRE CAMPOS, no incrementan.**

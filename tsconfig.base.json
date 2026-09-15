@@ -47,6 +47,7 @@
       "@megadulces/reconciliation": ["libs/reconciliation/src/index.ts"],
       "@megadulces/shared-scoring": ["libs/shared-scoring/index.ts"],
       "@megadulces/trade": ["libs/trade/src/index.ts"],
+      "@megadulces/ui-web": ["libs/ui-web/src/index.ts"],
       "@megadulces/whatsapp": ["libs/whatsapp/src/index.ts"]
     },
     "strict": false,
