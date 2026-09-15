@@ -1,6 +1,6 @@
 import {
-  AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, Input,
-  OnChanges, QueryList, ViewChild, ViewChildren, ViewEncapsulation,
+  AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, Input, NgZone,
+  OnChanges, OnDestroy, QueryList, ViewChild, ViewChildren, ViewEncapsulation, inject,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import JsBarcode from 'jsbarcode';
@@ -20,12 +20,14 @@ export const ALL_SECTIONS: LabelSections = { mayoreoPza: true, paquete: true, ma
 export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
 
 /**
- * ⭐ EL BUG DEL "número que a veces se ve más chico".
+ * ⭐ EL BUG DEL "número que a veces se ve más chico" — y su hermano, el que a veces DESBORDA.
  *
- * `fitPrice()`/`fitAmts()` encogen el texto midiendo su ancho. Si miden ANTES de que la
- * tipografía definitiva esté usable, miden con la **fallback**, que tiene otro ancho, y el
- * tamaño que dejan queda mal en la dirección de esa fallback. Medido (mismo precio, misma
- * caja, cambiando sólo la fuente con la que se mide):
+ * Los ajustes (`fitPrice`, `fitAmts`, …) encogen o crecen el texto midiendo su ancho. Una
+ * medida vale para el instante en que se tomó. Si DESPUÉS cambia la tipografía (llegó Anton, o
+ * se está pintando con la de respaldo), el texto (llegó el precio del ERP) o la geometría (la
+ * hoja se re-escaló, entró a impresión), el tamaño que dejó queda mal: chico si midió con una
+ * fuente más ancha, desbordado si midió con una más angosta o con menos cifras. Medido (mismo
+ * precio, misma caja, cambiando sólo la fuente con la que se mide):
  *
  *   midiendo con        ancho vs Anton    un precio de 4 cifras queda en
  *   Anton (la buena)    —                 9.00 mm
@@ -33,18 +35,20 @@ export type HeroKey = 'pieza' | 'paquete' | 'caja' | 'kg';
  *   Helvetica (iPad)    +13…21%           7.50 mm  ← 17% más chico
  *   Arial Narrow        −1…7%             9.25 mm  (y al llegar Anton se RECORTA)
  *
- * `document.fonts.ready` NO alcanzaba, y de ahí lo intermitente: las familias llegan por un
- * `@import` a fonts.googleapis.com DENTRO del CSS de este componente, así que mientras esa
- * hoja no baja **no existe ningún `@font-face`** — no hay carga pendiente, `fonts.ready`
- * resuelve al instante y `layout()` mide con la fallback. Encima el re-layout vivía sólo en
- * `ngAfterViewInit`: toda etiqueta creada por un cambio de input (que es como las crea la
- * etiquetera al armar la cola) se quedaba con la medida equivocada para siempre.
+ * Tres versiones de este archivo arreglaron "el momento que faltaba" —esperar `fonts.check` en
+ * vez de `fonts.ready`; colgar el re-layout también de `ngOnChanges`; volver a medir el número
+ * al cierre del pase— y cada una dejó abierto el momento siguiente. El 2026-09-15, en una caja
+ * de Yurécuaro y con el último de esos parches ya en producción: número a 15 mm (el techo) con
+ * 127 px en 120 disponibles. Para crecer hasta ahí el bucle tuvo que medir ≤107 px, o sea el
+ * insumo de la medida cambió un 19% DESPUÉS del pase, y nada volvía a medir.
  *
- * Esto espera a que las familias estén **realmente usables** (`fonts.load` + `fonts.check`,
- * con tope de 3 s), una sola vez para toda la app. Si no llegan —equipo sin internet— se
- * sigue midiendo con la fallback, que ahí es lo CORRECTO: es la que va a imprimir.
- *
- * (Ver `FUENTES_USABLES` abajo, que es la pieza que lo implementa.)
+ * Por eso ya no hay "momentos". `observar()` mira los tres insumos de la medida —geometría
+ * (`ResizeObserver`), texto (`MutationObserver`, sin atributos) y tipografía (`fonts`
+ * `loadingdone` + `familiasFaltantes()` leída AL MEDIR, no un booleano de una vez)— y
+ * `ajustar()` vuelve a correr los ajustes cuando la FIRMA de esos insumos cambia, y sólo
+ * entonces (idempotente, sin lazo). Al terminar deja su veredicto en el DOM (`data-etq-fit`)
+ * para que la impresión lo DIGA en vez de imprimir callada (ADR-056). Y las tres familias
+ * viajan con la app (`assets/fonts`): la caja sin internet mide con lo mismo que la de al lado.
  */
 
 /**
@@ -108,10 +112,6 @@ const BARCODE_MODULE_PX = 2;
 const MAYOREO_MIN_DESC = 0.01;
 
 /**
- * Resuelve cuando Anton/Bebas/Baloo están REALMENTE usables (o a los 3 s). Ver el bloque de arriba.
- * Exportada porque la impresión la espera antes de clonar la hoja (ver `print()` en la etiquetera).
- */
-/**
  * Las familias de las que depende el TAMAÑO medido, exportadas para que la pantalla declare
  * exactamente éstas y no otra.
  *
@@ -123,16 +123,55 @@ const MAYOREO_MIN_DESC = 0.01;
  */
 export const FUENTES_SPECS: readonly string[] = ['11mm Anton', "5mm 'Bebas Neue'", "4mm 'Baloo 2'"];
 
+/**
+ * ¿Cuáles de las tres familias NO están usables AHORA? `[]` = las tres listas. `null` = este
+ * navegador no deja preguntar → se declara "sin verificar", no se asume que está bien.
+ *
+ * Es una FUNCIÓN y no una bandera a propósito: la respuesta cambia con el tiempo (una fuente
+ * llega a los 4 s) y el que mide la necesita en el instante de medir, no la de hace un rato.
+ *
+ * ⭐ `fonts.check()` solo NO alcanza, y es la especificación, no un bug del navegador: cuando
+ * NINGUNA `@font-face` coincide con la familia preguntada, `check()` devuelve **true** ("no hay
+ * nada que cargar"). Con las familias por `@import` eso pasaba en la ventana entre montar el
+ * componente y bajar el CSS: `check('11mm Anton')` decía sí sin que Anton existiera. Por eso,
+ * cuando el navegador expone la lista de caras (`FontFaceSet` es iterable), se exige además una
+ * cara de esa familia con `status === 'loaded'`. Sin lista, `check` es todo lo que hay y se usa.
+ */
+export function familiasFaltantes(): string[] | null {
+  const f: any = (globalThis as any).document?.fonts;
+  if (!f?.check) return null;
+  try {
+    let cargadas: Set<string> | null = null;
+    if (typeof f[Symbol.iterator] === 'function' || typeof f.forEach === 'function') {
+      cargadas = new Set<string>();
+      const caras: any[] = [];
+      if (typeof f[Symbol.iterator] === 'function') caras.push(...Array.from(f as Iterable<any>));
+      else f.forEach((c: any) => caras.push(c));
+      for (const c of caras) if (c?.status === 'loaded') cargadas.add(String(c.family || '').replace(/^["']|["']$/g, ''));
+    }
+    return FUENTES_SPECS.filter((s) => {
+      if (!f.check(s)) return true;
+      if (!cargadas) return false;
+      const familia = s.replace(/^[\d.]+mm /, '').replace(/^["']|["']$/g, '');
+      return !cargadas.has(familia);
+    });
+  } catch { return null; }
+}
+
+/**
+ * Resuelve cuando las tres familias están REALMENTE usables, o a los 3 s. Es una ESPERA, no una
+ * verdad: quien necesita saber si las fuentes están usables pregunta `familiasFaltantes()` en
+ * el momento de medir (ver `ajustar()`). Exportada porque la impresión la espera antes de
+ * clonar la hoja (ver `print()` en la etiquetera).
+ */
 export const FUENTES_USABLES: Promise<void> = (() => {
   const f: any = (globalThis as any).document?.fonts;
-  const specs = FUENTES_SPECS;
   if (!f?.load || !f?.check) return Promise.resolve();
-  const listas = () => specs.every((s) => { try { return f.check(s); } catch { return true; } });
   return new Promise<void>((resolve) => {
-    Promise.all(specs.map((s) => f.load(s).catch(() => undefined))).catch(() => undefined);
+    Promise.all(FUENTES_SPECS.map((s) => f.load(s).catch(() => undefined))).catch(() => undefined);
     const t0 = Date.now();
     const tick = () => {
-      if (listas() || Date.now() - t0 > 3000) { resolve(); return; }
+      if (familiasFaltantes()?.length === 0 || Date.now() - t0 > 3000) { resolve(); return; }
       setTimeout(tick, 60);
     };
     tick();
@@ -140,16 +179,31 @@ export const FUENTES_USABLES: Promise<void> = (() => {
 })();
 
 /**
- * ⭐ El seguro del CRECIMIENTO. Mientras sea `false`, los ajustes sólo pueden encoger — o sea
- * se comportan exactamente como la versión anterior.
+ * ⭐ La espera TERMINÓ (con fuentes o por tope). Gobierna únicamente la MARCA `data-etq-settled`
+ * que la impresión espera; NUNCA el techo del crecimiento.
  *
- * Sin esto la bidireccionalidad convierte un defecto cosmético en un RECORTE: medir con una
- * fallback más angosta (Arial Narrow mide −1..7% contra Anton, ya medido) y **crecer** deja el
- * número más grande de lo que la fuente definitiva aguanta; cuando llega Anton, se corta.
- * Encoger con la fuente equivocada era seguro (quedaba chico pero cabía); crecer no lo es.
+ * Antes acá vivía `FUENTES_OK = true`, un booleano de una sola vez que sí gobernaba el techo, y
+ * se ponía en `true` también cuando ganaba el tope de 3 s: en una caja con internet lento el
+ * número crecía contra la fuente de respaldo, Anton llegaba a los 4 s y nadie volvía a medir.
+ * El techo ahora lee `familiasFaltantes()` en cada pase (`this.fuentesOk`), y `loadingdone`
+ * vuelve a pedir el pase cuando una familia llega tarde.
  */
-let FUENTES_OK = false;
-FUENTES_USABLES.then(() => { FUENTES_OK = true; });
+let ESPERA_FUENTES_TERMINADA = false;
+FUENTES_USABLES.then(() => { ESPERA_FUENTES_TERMINADA = true; });
+
+/** Un pase de medición por cuadro de animación; sin `requestAnimationFrame` (SSR/tests), un tick. */
+const agendar = (cb: () => void): number =>
+  typeof requestAnimationFrame === 'function' ? requestAnimationFrame(cb) : (setTimeout(cb, 0) as unknown as number);
+const cancelar = (id: number): void => {
+  if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(id); else clearTimeout(id);
+};
+
+/**
+ * Compensación del `transform:scaleX(1.1)` del número: `offsetWidth` es pre-transform, así que
+ * el ancho que de verdad ocupa es ×1.1 (y un pelo de aire). Lo usan el ajuste y el veredicto:
+ * si midieran con factores distintos, uno diría "cabe" y el otro "desborda" sobre lo mismo.
+ */
+const PRECIO_ANCHO_K = 1.12;
 
 export interface LabelModel {
   code?: string;
@@ -204,7 +258,20 @@ export interface LabelModel {
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   styles: [`
-    @import url('https://fonts.googleapis.com/css2?family=Anton&family=Baloo+2:wght@500;600;700;800&family=Bebas+Neue&display=swap');
+    /* ⭐ Las tres familias viajan CON la app (assets/fonts, licencia OFL junto a los archivos),
+       ya no por un @import a fonts.googleapis.com. Con el @import la etiqueta dependía de la
+       salida a internet de cada caja: la misma etiqueta se medía con Anton en una máquina y con
+       Impact en la de al lado; y en la ventana antes de bajar ese CSS no existía ningún
+       @font-face, así que fonts.check() decía "sí" a una familia que no estaba (ver
+       familiasFaltantes). Baloo 2 es variable: un solo archivo cubre 500-800. font-display:swap
+       pinta ya con la de respaldo y el evento loadingdone vuelve a medir cuando llega la buena.
+       Sólo el subconjunto latino: cubre el español de México (ñ, acentos, ¿¡). */
+    @font-face{ font-family:'Anton'; font-style:normal; font-weight:400; font-display:swap;
+      src:url('/assets/fonts/anton-latin.woff2') format('woff2'); }
+    @font-face{ font-family:'Bebas Neue'; font-style:normal; font-weight:400; font-display:swap;
+      src:url('/assets/fonts/bebasneue-latin.woff2') format('woff2'); }
+    @font-face{ font-family:'Baloo 2'; font-style:normal; font-weight:500 800; font-display:swap;
+      src:url('/assets/fonts/baloo2-latin-var.woff2') format('woff2'); }
     .etq-label{
       --green:hsl(141,76%,16%); --yellow:#f6c400; --cream:#f8f6ea;
       /* El naranja del texto CHICO (SKU 3.2 mm, cantidades 2.6 mm) es brand-800, no brand-700
@@ -421,7 +488,7 @@ export interface LabelModel {
     </div>
   `,
 })
-export class LabelComponent implements AfterViewInit, OnChanges {
+export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
   @Input({ required: true }) model!: LabelModel;
   @Input() show: LabelSections = ALL_SECTIONS;
   /** Precio que va en grande. Null = default (pieza con fallback). Intercambiable por ticket. */
@@ -644,24 +711,102 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   get bigInt(): string { return this.bigStr.split('.')[0].replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   get bigDec(): string { return this.bigStr.split('.')[1] ?? '00'; }
 
-  ngAfterViewInit(): void { this.render(); FUENTES_USABLES.then(() => this.settle()); }
-  ngOnChanges(): void { queueMicrotask(() => { this.unsettle(); this.render(); FUENTES_USABLES.then(() => this.settle()); }); }
+  ngAfterViewInit(): void { this.render(); this.observar(); FUENTES_USABLES.then(() => this.programar()); }
+  ngOnChanges(): void { queueMicrotask(() => this.render()); }
+  ngOnDestroy(): void {
+    this.ro?.disconnect();
+    this.mo?.disconnect();
+    (globalThis as any).document?.fonts?.removeEventListener?.('loadingdone', this.alCambiarFuentes);
+    if (this.pendiente) { cancelar(this.pendiente); this.pendiente = 0; }
+  }
 
-  private render(): void { this.renderBarcode(); this.layout(); }
+  /** Dibuja el código de barras y PIDE una medición. No mide él: cuándo medir lo decide `ajustar()`. */
+  private render(): void { this.renderBarcode(); this.programar(); }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  // ⭐ EL MECANISMO: se vuelve a medir cuando cambia LO QUE SE MIDE, no cuando un hook cree que
+  // algo cambió. Los tres insumos de una medida de texto son la geometría de la caja, el texto y
+  // la tipografía con que se pinta; cada uno tiene su observador, los tres desembocan en
+  // `programar()`, y `ajustar()` sólo trabaja si la FIRMA de los tres cambió desde el último
+  // pase. Eso lo hace idempotente (dos pedidos sin cambio = un pase) y sin lazo (lo que los
+  // ajustes ESCRIBEN —`style.fontSize`— son atributos, y el observador de texto no los mira).
+  // Ver el encabezado del archivo para el porqué: tres parches de "el momento que faltaba".
+  // ───────────────────────────────────────────────────────────────────────────────────────────
+  private ro?: ResizeObserver;
+  private mo?: MutationObserver;
+  private pendiente = 0;
+  private ultimaFirma = '';
+  /** Verdad de la tipografía EN ESTE pase; la leen los techos de `fitPrice`/`fitTiers`. */
+  private fuentesOk = false;
+  private readonly alCambiarFuentes = (): void => this.programar();
+  private readonly zone = inject(NgZone);
+
+  private observar(): void {
+    const root = this.root?.nativeElement;
+    if (!root) return;
+    // Fuera de la zona de Angular: son medidas de DOM, no cambian estado de la vista.
+    this.zone.runOutsideAngular(() => {
+      if (typeof ResizeObserver !== 'undefined') {
+        this.ro = new ResizeObserver(() => this.programar());
+        this.ro.observe(root);
+      }
+      if (typeof MutationObserver !== 'undefined') {
+        this.mo = new MutationObserver(() => this.programar());
+        // ⛔ SIN `attributes`: los ajustes escriben `style.fontSize` y observarlo sería un lazo.
+        this.mo.observe(root, { childList: true, characterData: true, subtree: true });
+      }
+      (globalThis as any).document?.fonts?.addEventListener?.('loadingdone', this.alCambiarFuentes);
+    });
+  }
 
   /**
-   * El pase DEFINITIVO: corre después de `FUENTES_USABLES`, o sea medido con la tipografía que va
-   * a imprimir (Anton, o la fallback si a los 3 s no llegó — que ahí es la correcta). Deja una
-   * marca en el DOM para quien tenga que esperarlo: la impresión clona la hoja oculta por
-   * `innerHTML` con los tamaños ya inline, y antes esperaba 500 ms fijos — en un equipo frío se
-   * llevaba los tamaños medidos con la fallback: el número chico, por la única puerta que faltaba.
+   * Pide un pase de medición para el próximo cuadro (coalesce: N pedidos en un cuadro = 1 pase).
+   * Quita la marca `data-etq-settled` de inmediato: hasta que se vuelva a medir, esta etiqueta
+   * NO está lista para clonarse a impresión.
    */
-  private settle(): void {
-    this.layout();
-    this.root?.nativeElement.setAttribute('data-etq-settled', FUENTES_OK ? 'fonts' : 'fallback');
+  private programar(): void {
+    this.root?.nativeElement.removeAttribute('data-etq-settled');
+    if (this.pendiente) return;
+    this.zone.runOutsideAngular(() => { this.pendiente = agendar(() => { this.pendiente = 0; this.ajustar(); }); });
   }
-  /** Un cambio de modelo invalida la marca hasta que se vuelva a medir. */
-  private unsettle(): void { this.root?.nativeElement.removeAttribute('data-etq-settled'); }
+
+  /**
+   * El pase. Lee la verdad de la tipografía AHORA, arma la firma de los tres insumos y sólo corre
+   * los ajustes si cambió. Después declara: el veredicto (`data-etq-fit`) y la marca que espera
+   * la impresión (`data-etq-settled`: 'fonts' si midió con la tipografía definitiva; 'fallback'
+   * si la espera venció y midió con la de respaldo, que ahí es la que va a imprimir; ninguna
+   * mientras la espera siga abierta).
+   */
+  private ajustar(): void {
+    const root = this.root?.nativeElement;
+    if (!root) return;
+    this.fuentesOk = familiasFaltantes()?.length === 0;
+    const firma = `${root.offsetWidth}x${root.offsetHeight}|${this.fuentesOk}|${root.textContent}`;
+    if (firma !== this.ultimaFirma) { this.layout(); this.ultimaFirma = firma; }
+    root.setAttribute('data-etq-fit', this.veredicto());
+    if (this.fuentesOk) root.setAttribute('data-etq-settled', 'fonts');
+    else if (ESPERA_FUENTES_TERMINADA) root.setAttribute('data-etq-settled', 'fallback');
+  }
+
+  /**
+   * Lo que la impresión y la pantalla pueden DECLARAR de esta etiqueta después de medir:
+   *   'ok'          el número y los renglones caben con el criterio de sus propios ajustes;
+   *   'overflow'    algo NO cabe aunque los ajustes ya corrieron — se dice, no se imprime callado;
+   *   'sin_medida'  la caja no tiene ancho (oculta, sin estilos, jsdom): no se pudo comprobar.
+   * Un 'sin_medida' NUNCA se pinta como 'ok' (ADR-056).
+   */
+  private veredicto(): 'ok' | 'overflow' | 'sin_medida' {
+    const el = this.priceEl?.nativeElement;
+    const box = el?.parentElement;
+    if (!el || !box) return 'sin_medida';
+    const cs = getComputedStyle(box);
+    const avail = box.clientWidth - parseFloat(cs.paddingLeft || '0') - parseFloat(cs.paddingRight || '0');
+    if (!(avail > 0)) return 'sin_medida';
+    if (el.offsetWidth * PRECIO_ANCHO_K > avail) return 'overflow';
+    const desborda = (e?: HTMLElement): boolean => !!e && e.clientWidth > 0 && e.scrollWidth > e.clientWidth + 1;
+    if (desborda(this.head?.nativeElement) || desborda(this.meta?.nativeElement)) return 'overflow';
+    return 'ok';
+  }
 
   /**
    * Corre todos los auto-ajustes. El ORDEN es obligatorio y está candado en el spec:
@@ -682,25 +827,17 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   private layout(): void {
     this.fitHead(); this.fitMeta(); this.fitUnit(); this.fitPrice();
     this.fitBarcode(); this.fitTiers(); this.fitAmts();
-    // ⭐ [ET.5] EL NÚMERO SE VUELVE A MEDIR AL FINAL, y no es redundante: es el candado.
+    // El número se vuelve a medir al cierre del pase. Barato e idempotente (`fitPrice` arranca de
+    // PRECIO_MM y re-deriva) y cubre que alguno de los cuatro ajustes de en medio mueva la caja
+    // del precio dentro de UN pase.
     //
-    // `fitPrice` decide el tamaño ARRIBA, contra la caja que hay en ese instante — y las cuatro
-    // llamadas de abajo cambian la columna derecha DESPUÉS. Cuando eso pasa, el número ya quedó
-    // clavado y nadie lo revisaba: el bucle sólo puede TERMINAR en un tamaño que verificó como
-    // bueno, así que un precio que no cabe es prueba de que la caja se movió después de medirla.
-    //
-    // Medido en una caja de Yurécuaro (15/09/2026), con la etiqueta ya asentada (`settled:fonts`):
-    //   ancho del número 136 px · caja del precio 129 px · criterio del propio código
-    //   (ancho × 1.12 ≤ disponible) → necesitaba 115. Se pasaba por 21 px, y de ahí el número
-    //   desbordado que aplastaba el resto. En otra caja el mismo producto daba 10.75 mm, bien.
-    //
-    // ⚠️ NO se arregla reordenando: el orden de arriba está candado por razones propias (el
-    // techo del monto se clampea contra el hero medido, el código reclama su altura con los
-    // montos en su arranque). Lo que faltaba era VERIFICAR al final lo que se prometió al
-    // principio. Correrlo de nuevo es barato y seguro: `fitPrice` se resetea a PRECIO_MM y
-    // re-deriva todo, así que es idempotente, y las columnas tienen ancho fijo — medido:
-    // devolver los montos a su arranque movió la caja del precio **0 px** —, de modo que
-    // re-medir el número no invalida lo que acaban de ajustar `fitTiers`/`fitAmts`.
+    // ⚠️ [ET.5] NO fue la causa del desborde del 2026-09-15, y hay que decirlo porque se publicó
+    // como si lo fuera. En la caja de Yurécuaro se midió que devolver los montos a su arranque
+    // movía la caja del precio **0 px**, y con este cierre ya en producción el número seguía a
+    // 15 mm (el techo) con 127 px en 120 disponibles. Para llegar a 15 mm el bucle tuvo que
+    // medir ≤107 px: el mismo número era 19% más ancho que cuando se midió. Cambió el INSUMO
+    // (texto o tipografía) DESPUÉS del pase, y nada volvía a medir. Eso lo cierra `observar()`,
+    // no esta línea. Se queda por lo que sí cubre, no por lo que se creyó que cubría.
     this.fitPrice();
   }
 
@@ -846,7 +983,7 @@ export class LabelComponent implements AfterViewInit, OnChanges {
       : 0;
     const availH = box.clientHeight - parseFloat(cs.paddingTop || '0') - parseFloat(cs.paddingBottom || '0') - guarda;
     if (!(availH > 0)) return;
-    const cabe = () => el.offsetWidth * 1.12 <= avail && el.offsetHeight <= availH;
+    const cabe = () => el.offsetWidth * PRECIO_ANCHO_K <= avail && el.offsetHeight <= availH;
     let guard = 0;
     if (!cabe()) {
       while (!cabe() && size > 4.5 && guard++ < 120) {
@@ -855,11 +992,12 @@ export class LabelComponent implements AfterViewInit, OnChanges {
       }
       return;
     }
-    // ⭐ Crecer SÓLO con las fuentes usables. Medir con una fallback más ANGOSTA (Arial Narrow,
-    // −1..7%) y crecer dejaría el número más grande de lo que Anton aguanta → al llegar la
-    // fuente buena, se recorta. Antes de eso el techo es el arranque, o sea se comporta
-    // exactamente como la versión que sólo encogía.
-    const techo = FUENTES_OK ? PRECIO_MAX_MM : PRECIO_MM;
+    // ⭐ Crecer SÓLO con las fuentes usables EN ESTE PASE (`this.fuentesOk`, leída por `ajustar()`
+    // al arrancar el pase — no una bandera de una vez). Medir con una fallback más ANGOSTA
+    // (Arial Narrow, −1..7%) y crecer dejaría el número más grande de lo que Anton aguanta → al
+    // llegar la fuente buena, se recorta. Sin fuentes el techo es el arranque, o sea se comporta
+    // exactamente como la versión que sólo encogía; cuando lleguen, `loadingdone` re-mide.
+    const techo = this.fuentesOk ? PRECIO_MAX_MM : PRECIO_MM;
     while (size + 0.25 <= techo && guard++ < 120) {
       el.style.fontSize = (size + 0.25) + 'mm';
       if (!cabe()) { el.style.fontSize = size + 'mm'; return; }
@@ -908,7 +1046,7 @@ export class LabelComponent implements AfterViewInit, OnChanges {
     // 4 cifras el hero baja de 10 mm y un monto de 7 sería más grande que el precio grande. Así
     // "el precio grande es siempre el número más grande de la etiqueta" queda como invariante.
     const heroMm = parseFloat(this.priceEl?.nativeElement.style.fontSize || '') || PRECIO_MM;
-    const techo = FUENTES_OK ? Math.min(MONTO_MAX_MM, heroMm * 0.7) : MONTO_MM;
+    const techo = this.fuentesOk ? Math.min(MONTO_MAX_MM, heroMm * 0.7) : MONTO_MM;
     while (size + 0.2 <= techo && guard++ < 60) {
       set(size + 0.2);
       if (noCabe() || !anchoOk()) { set(size); return; }

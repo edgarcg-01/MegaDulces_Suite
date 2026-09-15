@@ -9,7 +9,7 @@ import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
-import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES, FUENTES_SPECS } from '../components/label.component';
+import { LabelComponent, LabelModel, LabelSections, HeroKey, FUENTES_USABLES, familiasFaltantes } from '../components/label.component';
 import { EtiquetasService, Freshness, FreshnessStatus, SearchHit } from '../etiquetas.service';
 // `[TDA.1]` El aviso en vivo de que un precio cambió en Kepler.
 import { StoreSocketService, type LabelPricesChanged } from '../store-socket.service';
@@ -259,11 +259,12 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
             <!-- Qué equipo es y con qué tipografía se está midiendo. Con esto, un reporte de
                  "el precio salió de otro tamaño" se contesta con una foto de la pantalla en vez
                  de adivinar. La fuente importa: medir con la de respaldo deja el precio hasta
-                 17% más chico, y depende de si ESTA máquina alcanza fonts.googleapis.com. -->
+                 17% más chico. Las familias viajan con la app (assets/fonts), así que "falta"
+                 ya no significa "sin internet": significa que este navegador no la pudo cargar. -->
             @if (navegador) { <span class="etqp-diag" title="Navegador de este equipo. Úsalo al reportar.">· {{ navegador }}</span> }
             @switch (fuenteEtiqueta()) {
               @case ('respaldo') {
-                <span class="etqp-diag bad" [title]="'Este equipo no pudo cargar ' + fuentesFaltantesTexto() + ' (fonts.googleapis.com). La etiqueta se mide e imprime con la tipografía de respaldo, y los tamaños salen distintos de los de un equipo con internet. Revisa la salida a internet de esta máquina.'">· tipografía de respaldo: falta {{ fuentesFaltantesTexto() }} — los tamaños salen distintos ⚠</span>
+                <span class="etqp-diag bad" [title]="'Este equipo no pudo cargar ' + fuentesFaltantesTexto() + ' (viaja con la app, en assets/fonts). La etiqueta se mide e imprime con la tipografía de respaldo y los tamaños salen distintos de los de otro equipo. Recarga la página; si sigue, repórtalo con una foto de esta línea.'">· tipografía de respaldo: falta {{ fuentesFaltantesTexto() }} — los tamaños salen distintos ⚠</span>
               }
               @case ('sin_medir') {
                 <span class="etqp-diag" title="Este navegador no permite verificar la tipografía; los tamaños pueden no coincidir con otros equipos.">· tipografía sin verificar</span>
@@ -716,9 +717,11 @@ export class TiendaEtiquetasComponent {
    * ¿La etiqueta se está midiendo con SU tipografía (Anton) o con la de respaldo?
    *
    * No es cosmético: medir con la fallback deja el precio hasta 17% más chico (la tabla del
-   * encabezado de label.component). Las familias bajan de fonts.googleapis.com, así que un
-   * equipo de tienda sin salida a internet imprime distinto que el de al lado **con el mismo
-   * navegador** — la única variación por máquina que quedó, y hasta hoy era invisible.
+   * encabezado de label.component). Las familias viajan con la app (assets/fonts) desde ET.6;
+   * antes bajaban de fonts.googleapis.com y un equipo sin salida a internet imprimía distinto que
+   * el de al lado **con el mismo navegador**. La declaración se queda porque la pregunta sigue
+   * valiendo (un navegador puede no cargar una cara) — y se RE-EVALÚA cuando llega una fuente
+   * tarde, no sólo al terminar la espera.
    *
    * Tres estados, no dos (ADR-056): si el navegador no deja preguntar, se dice eso.
    */
@@ -752,21 +755,29 @@ export class TiendaEtiquetasComponent {
     // Angular inyecta los estilos del componente al renderizarlo: se mira después del render.
     afterNextRender(() => this.checkPrintGuard());
 
-    // Qué tipografía quedó usable para medir. FUENTES_USABLES resuelve cuando las familias
-    // están listas O a los 3 s; recién ahí la respuesta significa algo.
-    FUENTES_USABLES.then(() => {
-      const f = (document as unknown as { fonts?: { check?: (s: string) => boolean } }).fonts;
-      if (!f?.check) { this.fuenteEtiqueta.set('sin_medir'); return; }
-      try {
-        // ⭐ Se comprueban las TRES familias de las que depende el tamaño, no sólo la del
-        // número. Antes miraba `11mm Anton` a secas y podía pintar el ✓ con Baloo 2 —la del
-        // renglón del código, que es la que define el alto de la caja del precio— sin cargar:
-        // verde en pantalla y el precio 25% más chico en el papel. Falta UNA y se declara.
-        const faltan = FUENTES_SPECS.filter((s) => !f.check!(s));
-        this.fuentesFaltantes.set(faltan.map((s) => s.replace(/^[\d.]+mm /, '').replace(/'/g, '')));
-        this.fuenteEtiqueta.set(faltan.length ? 'respaldo' : 'anton');
-      } catch { this.fuenteEtiqueta.set('sin_medir'); }
-    });
+    // Qué tipografía está usable para medir — con la MISMA función con que la etiqueta decide
+    // su techo al medir (`familiasFaltantes`), así pantalla y medida no pueden discrepar.
+    //
+    // ⭐ Se comprueban las TRES familias de las que depende el tamaño, no sólo la del número.
+    // Antes miraba `11mm Anton` a secas y podía pintar el ✓ con Baloo 2 —la del renglón del
+    // código, que es la que define el alto de la caja del precio— sin cargar: verde en pantalla
+    // y el precio 25% más chico en el papel. Falta UNA y se declara.
+    //
+    // Se evalúa al terminar la espera Y cada vez que el navegador avisa que llegó una fuente
+    // (`loadingdone`): la respuesta puede cambiar después de los 3 s y antes la pantalla se
+    // quedaba con la primera para siempre.
+    const declararFuentes = (): void => {
+      const faltan = familiasFaltantes();
+      if (faltan === null) { this.fuenteEtiqueta.set('sin_medir'); return; }
+      this.fuentesFaltantes.set(faltan.map((s) => s.replace(/^[\d.]+mm /, '').replace(/'/g, '')));
+      this.fuenteEtiqueta.set(faltan.length ? 'respaldo' : 'anton');
+    };
+    FUENTES_USABLES.then(declararFuentes);
+    const fonts = (document as unknown as { fonts?: Partial<EventTarget> }).fonts;
+    if (typeof fonts?.addEventListener === 'function') {
+      fonts.addEventListener('loadingdone', declararFuentes);
+      this.destroyRef.onDestroy(() => fonts.removeEventListener?.('loadingdone', declararFuentes));
+    }
 
     // La hoja se re-escala cuando cambia el ancho de su columna o el alto de la ventana. Se mide
     // la REGLA (.etqp-ruler, ancho de la columna) y no la caja: la caja mide lo que el zoom
@@ -1120,11 +1131,15 @@ export class TiendaEtiquetasComponent {
       await new Promise<void>((r) => setTimeout(r, 0));
     }
     const listas = await this.waitForSettled(all.length);
-    if (listas < all.length) {
-      // Se imprime igual (el operador decide), pero se DICE: un tope que gana en silencio es
-      // exactamente el falso verde que esta espera vino a quitar.
-      this.msg.set({ text: `${all.length - listas} etiqueta(s) no terminaron de ajustarse a tiempo — revisa la impresión antes de pegarlas.`, kind: 'warn' });
-    }
+    // Se imprime igual (el operador decide), pero se DICE: un tope que gana en silencio es
+    // exactamente el falso verde que esta espera vino a quitar.
+    const avisos: string[] = [];
+    if (listas < all.length) avisos.push(`${all.length - listas} etiqueta(s) no terminaron de ajustarse a tiempo`);
+    // [ET.6] Y lo que la etiqueta DECLARA después de medir: si algún precio quedó desbordado
+    // pese a los ajustes, se cuenta y se dice antes de mandar a la impresora.
+    const desbordadas = this.printSheet?.nativeElement.querySelectorAll('.etq-label[data-etq-fit="overflow"]').length ?? 0;
+    if (desbordadas) avisos.push(`${desbordadas} etiqueta(s) quedaron con el precio desbordado`);
+    if (avisos.length) this.msg.set({ text: `${avisos.join(' y ')} — revisa la impresión antes de pegarlas.`, kind: 'warn' });
     this.printIsolated();
   }
 
