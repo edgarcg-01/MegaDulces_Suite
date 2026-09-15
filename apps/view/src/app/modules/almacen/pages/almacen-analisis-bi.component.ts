@@ -77,8 +77,17 @@ const DEFAULT_EXPLORE_FIELDS = [
           <button pButton type="button" class="p-button-outlined p-button-sm" (click)="refresh()" [loading]="loadingAny()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span> Actualizar
           </button>
-          <button pButton type="button" class="p-button-outlined p-button-sm" (click)="exportCurrent()" [disabled]="activeTab() === 'resumen'">
-            <span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span> Exportar
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlCsv()" [disabled]="activeTab() === 'resumen'"
+                  (click)="download('csv')" title="Exporta TODA la consulta filtrada (no sólo la página cargada) — CSV">
+            <span class="p-button-icon p-button-icon-left pi pi-file" aria-hidden="true"></span><span class="p-button-label">CSV</span>
+          </button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" [disabled]="activeTab() === 'resumen'"
+                  (click)="download('xlsx')" title="Exporta TODA la consulta filtrada — Excel">
+            <span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span>
+          </button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlSqlite()" [disabled]="activeTab() === 'resumen'"
+                  (click)="download('sqlite')" title="Exporta TODA la consulta como base de datos SQLite — sin el límite de filas de CSV/Excel, tipos preservados. Ábrelo con DB Browser for SQLite u otra herramienta libre.">
+            <span class="p-button-icon p-button-icon-left pi pi-database" aria-hidden="true"></span><span class="p-button-label">Base de datos</span>
           </button>
         </div>
       </header>
@@ -823,56 +832,38 @@ export class AlmacenAnalisisBiComponent {
     this.ensureLoaded('movimientos');
   }
 
+  readonly dlCsv = signal(false);
+  readonly dlXlsx = signal(false);
+  readonly dlSqlite = signal(false);
+
   /**
-   * [WMS-BI.4.7] Antes esto era un `toast` que DESCRIBÍA una exportación que no existía: el botón
-   * estaba habilitado, el usuario lo tocaba, leía "la exportación toma la vista filtrada actual" y
-   * no bajaba ningún archivo. Un botón que explica lo que no hace es peor que no tenerlo.
-   *
-   * Ahora baja de verdad lo que está EN PANTALLA — la página cargada, con las columnas visibles y
-   * en el orden en que se ven — y el mensaje dice exactamente cuántas filas tomó, para que nadie
-   * confunda 50 filas con las 136,242 del filtro.
-   *
-   * ⚠️ La exportación COMPLETA del filtro (todas las páginas) es server-side y sigue pendiente
-   * (WMS-BI.4.4): traerla al navegador serían cientos de miles de filas por una consulta que hoy
-   * tarda segundos por página.
+   * WMS-BI.5 — exporta TODA la consulta filtrada (no sólo la página cargada en el navegador,
+   * pedido explícito del usuario), en Movimientos o Explorar según la pestaña activa. Mismo
+   * patrón de descarga que `almacen-movimientos.component.ts` (`download()`): blob + ancla
+   * sintética, nombre de archivo tomado de `Content-Disposition`.
    */
-  exportCurrent(): void {
-    const esExplorar = this.activeTab() === 'explorar';
-    const cols = esExplorar ? this.selectedFields() : this.visibleMovCols();
-    const filas: Array<Record<string, unknown>> = esExplorar
-      ? this.exploreRows()
-      : (this.movRows() as unknown as Array<Record<string, unknown>>);
-
-    if (!filas.length || !cols.length) {
-      this.toast.add({ severity: 'warn', summary: 'Exportar', detail: 'No hay filas cargadas para exportar.' });
-      return;
-    }
-
-    const etiqueta = (k: string) => esExplorar
-      ? this.fieldLabel(k)
-      : (this.movColumnOpts.find((c) => c.key === k)?.label ?? k);
-    // Excel en es-MX abre CSV con `;`; el BOM evita que se coma los acentos.
-    const celda = (v: unknown): string => {
-      if (v == null) return '';
-      const s = String(v);
-      return /[";\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-    };
-    const csv = [
-      cols.map((k) => celda(etiqueta(k))).join(';'),
-      ...filas.map((r) => cols.map((k) => celda(r[k])).join(';')),
-    ].join('\r\n');
-
-    const { from, to } = this.currentRange();
-    const nombre = `bi-almacen-${esExplorar ? 'explorar' : 'movimientos'}-${from}_${to}.csv`;
-    const url = URL.createObjectURL(new Blob([`﻿${csv}`], { type: 'text/csv;charset=utf-8;' }));
-    const a = document.createElement('a');
-    a.href = url; a.download = nombre; a.click();
-    URL.revokeObjectURL(url);
-
-    const total = esExplorar ? this.exploreTotal() : this.movTotal();
-    this.toast.add({
-      severity: 'success', summary: 'Exportado',
-      detail: `${filas.length.toLocaleString('es-MX')} filas (la página cargada) de ${total.toLocaleString('es-MX')} que tiene el filtro.`,
+  download(format: 'csv' | 'xlsx' | 'sqlite'): void {
+    const tab = this.activeTab();
+    if (tab === 'resumen') return;
+    const flag = format === 'csv' ? this.dlCsv : format === 'xlsx' ? this.dlXlsx : this.dlSqlite;
+    flag.set(true);
+    const obs = tab === 'movimientos'
+      ? this.bi.downloadMovementsExport(this.currentFilterParams(), format)
+      : this.bi.downloadExploreExport(this.currentFilterParams(), this.selectedFieldsList, format);
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
+        flag.set(false);
+        const cd = resp.headers.get('content-disposition') || '';
+        const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const name = m ? decodeURIComponent(m[1]) : `Analisis BI Almacen.${format}`;
+        const url = URL.createObjectURL(resp.body!);
+        const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => {
+        flag.set(false);
+        this.toast.add({ severity: 'error', summary: 'Exportar', detail: 'No se pudo generar el archivo. Intentá de nuevo.' });
+      },
     });
   }
 
