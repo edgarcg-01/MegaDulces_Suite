@@ -487,6 +487,47 @@ const BASE_ALCANCE = {
       'y el KPI del padrón usa esa definición, no `supervisor_id IS NULL` a secas',
     );
 
+    // ══ 13. La sesión y la contraseña forzada son UNA decisión ═════════════
+    //
+    // `[AU.22]` La ficha mandaba `token_ttl_days` en CADA edición, aunque no
+    // cambiara. El backend lee un `token_ttl_days: null` como «quitá la sesión
+    // larga» (`[CH.1.10]`), y como casi todo el padrón tiene
+    // `must_change_password = false`, rebotaba con 400 al editar a gente que no
+    // tenía nada que ver con sesiones. La regla se evalúa sobre el CAMBIO.
+    console.log('\n[13] La duración de sesión viaja sólo si cambió');
+    const ficha = leer('apps/view/src/app/modules/admin/components/persona-detalle.component.ts');
+    check(
+      /if \(this\.cambiaSesion\(\)\) \{/.test(ficha),
+      'la ficha manda `token_ttl_days` sólo cuando cambió',
+    );
+    check(
+      /body\['must_change_password'\] = ttl == null;/.test(ficha),
+      'y nunca sola: va con el cambio de contraseña forzado que le corresponde',
+    );
+
+    const { rows: exp } = await k.raw(
+      `SELECT count(*)::int AS total,
+              count(*) FILTER (WHERE must_change_password = false)::int AS rebotarian,
+              count(*) FILTER (WHERE token_ttl_days IS NOT NULL)::int AS con_sesion_larga
+         FROM identity.users
+        WHERE tenant_id = ? AND deleted_at IS NULL AND kind = 'interno'`,
+      [TENANT],
+    );
+    const e13 = exp[0];
+    if (!e13.total) {
+      declarar('el tenant no tiene cuentas internas: no hay con qué medir el rebote');
+    } else {
+      check(
+        e13.rebotarian > 0,
+        `mandarla siempre rebotaría a ${e13.rebotarian} de ${e13.total} persona(s): por eso va sobre el cambio`,
+      );
+    }
+    declarar(
+      `${e13.con_sesion_larga} cuenta(s) interna(s) con sesion larga: el TTL de [CH.1.7] sigue sin ` +
+        `estrenar en prod, asi que la regla se sostiene por el predicado y no por datos que la ejerzan`,
+    );
+
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} [AU] administración de usuarios: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {
