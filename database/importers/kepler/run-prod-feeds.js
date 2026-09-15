@@ -430,7 +430,36 @@ for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
   }
   if (LOCAL) console.log('  modo LOCAL: poblando DB de desarrollo (' + (dst || 'DATABASE_URL_NEW — sin ella los importers fallan; la copia local :5433/postgres_platform fue purgada 2026-09-08') + ')');
 
+  // [DB-MEM.7] ENV POR MODO — la mitigación existía, pero en el sustrato equivocado.
+  //
+  // `import-stock-movements.js` trae un auto-ligado (ship↔rcv, DM.11d) cuyo propio comentario
+  // dice: *"es MANTENIMIENTO: NO hace falta cada corrida y su LATERAL escanea la tabla (~9 min)
+  // … Se SALTA en intradía/catch-up (SKIP_AUTOLINK=1)"*. Ese `SKIP_AUTOLINK` estaba declarado
+  // **sólo en `database/importers/orchestrator/schedules.js`**, que lo consume `feed-worker.js`
+  // (PM2 + pgboss). Pero el sustrato que corre en producción desde la Fase VL es
+  // `ops/vl/crontab.feeds` → ESTE runner, que nunca lo seteó.
+  //
+  // Resultado medido en prod con `pg_stat_statements`: el LATERAL corría **780 s por llamada**,
+  // 2,113 MB de disco, y el carril `intraday` va cada hora (`15 * * * *`) → ~24 corridas al día
+  // = **~5 h de CPU diarias** en una tarea que el autor marcó como "no hace falta cada corrida".
+  //
+  // ⚠️ El `nightly` NO lleva el skip a propósito: ahí es donde el auto-ligado debe correr (y ya
+  // va acotado a su ventana). Si mañana aparece otra mitigación por modo, va acá, no en el
+  // orchestrator — o vuelve a quedar escrita para un sustrato que no es el que corre.
+  const ENV_POR_MODO = {
+    intraday: { SKIP_AUTOLINK: '1' },
+    stock:    { SKIP_AUTOLINK: '1' },
+    live:     { SKIP_AUTOLINK: '1' },
+    livefast: { SKIP_AUTOLINK: '1' },
+  };
+  for (const [k, v] of Object.entries(ENV_POR_MODO[MODE] || {})) {
+    if (process.env[k] === undefined) process.env[k] = v;   // un override explícito del entorno gana
+  }
+
   console.log(`\n=== Runner prod feeds — modo "${MODE}" (${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${steps.length} paso(s) ===`);
+  if (ENV_POR_MODO[MODE]) {
+    console.log(`  env del modo: ${Object.entries(ENV_POR_MODO[MODE]).map(([k, v]) => `${k}=${process.env[k]}${process.env[k] !== v ? ' (del entorno)' : ''}`).join(' · ')}`);
+  }
 
   // El latido va PRIMERO, antes de cualquier otra cosa. Si el runner se cae despues (o se lo
   // matan), queda un latido 'running' que envejece y Salud BD lo marca en rojo por maxRunH: es
