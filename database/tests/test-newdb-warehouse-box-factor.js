@@ -92,6 +92,11 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
       ON v.tenant_id=rp.tenant_id AND v.warehouse_id=rp.warehouse_id AND v.product_id=rp.product_id
    WHERE rp.tenant_id=$1`, [T])).rows[0];
   check('el fact no tiene display_bf en NULL', sync.nulos === 0, `nulos=${sync.nulos}`);
+  // ⚠️ Esta aserción se pone roja de forma TRANSITORIA cada vez que se cambia el resolvedor: el
+  // fact `replenishment_plan` lleva `display_bf` materializado y sólo se re-sincroniza cuando
+  // corre su importer. Vivido al aplicar `[UN.2]` (2026-09-15): salió `desalineados=2/47356` y
+  // volvió a 0 sola en menos de 15 min. NO se relaja ni se le pone tolerancia — un
+  // desalineamiento que NO se cierra solo es justo lo que hay que ver.
   check('el fact coincide con el resolvedor', sync.desalineados === 0, `desalineados=${sync.desalineados}/${sync.n}`);
 
   // ── 6. Kepler sólo se mueve por una razón, y hay que poder nombrarla ───────────────
@@ -108,12 +113,21 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
   // ⭐ Y ESTE CHECK YA SE GANÓ SU SUELDO: al aplicar KX.5 (el piso del peldaño cobrado) se puso
   // ROJO con "2 filas que el guard NO explica — apareció otra causa". Era cierto: había una
   // segunda causa legítima. Se nombra, no se relaja — una TERCERA lo vuelve a poner rojo.
+  // ⭐ Y SE LO VOLVIÓ A GANAR: al cablear `[UN.2]` (la escalera de unidades del propio Kepler
+  // como último testigo) apareció la TERCERA causa, exactamente como este bloque predecía. Es
+  // legítima y se nombra: el factor ahora sale de la ficha del ERP (`v_kepler_unit_ladder`) en
+  // productos donde la cascada de PRODUCTO sigue en `default` — así que `display_bf` (por
+  // almacén) supera a `bf` (por producto) sin que nada esté mal. Medido al aplicarla: 2 filas.
+  // Una CUARTA lo vuelve a poner rojo.
   const kepSame = (await c.query(`SELECT
       count(*)::int distintos,
       count(*) FILTER (WHERE pv.source = 'override_no_dato')::int del_guard,
       count(*) FILTER (WHERE wv.factor_source = 'kepler_peldano_vendido')::int del_piso,
+      count(*) FILTER (WHERE wv.factor_source IN
+                         ('kepler_escalera', 'kepler_escalera_costo'))::int de_la_escalera,
       count(*) FILTER (WHERE pv.source <> 'override_no_dato'
-                         AND wv.factor_source <> 'kepler_peldano_vendido')::int sin_explicar
+                         AND wv.factor_source NOT IN ('kepler_peldano_vendido',
+                               'kepler_escalera', 'kepler_escalera_costo'))::int sin_explicar
     FROM analytics.replenishment_plan rp
     JOIN commercial.warehouses w ON w.id=rp.warehouse_id
     JOIN analytics.v_product_box_factor pv
@@ -125,13 +139,14 @@ const money = (n) => `$${Number(n || 0).toLocaleString('en-US', { maximumFractio
      AND abs(rp.display_bf - GREATEST(COALESCE(rp.bf,1),1)) > 0.0001`, [T])).rows[0];
   console.log(`     Kepler: ${kepSame.distintos} filas con display_bf <> bf`
     + ` · guard KX.4: ${kepSame.del_guard} · piso KX.5: ${kepSame.del_piso}`
-    + ` · sin explicar: ${kepSame.sin_explicar}`);
-  check('⭐ en Kepler, TODO desalineamiento display_bf vs bf tiene su causa NOMBRADA (KX.4 o KX.5)',
+    + ` · escalera UN.2: ${kepSame.de_la_escalera} · sin explicar: ${kepSame.sin_explicar}`);
+  check('⭐ en Kepler, TODO desalineamiento display_bf vs bf tiene su causa NOMBRADA '
+    + '(KX.4, KX.5 o UN.2)',
     kepSame.sin_explicar === 0,
-    `${kepSame.sin_explicar} filas sin explicar — apareció una TERCERA causa, hay que nombrarla`);
-  check('⚠️ y ninguna de las dos causas se desbordó (79 + 2 medidas; techo 200 y 400)',
-    kepSame.del_guard <= 200 && kepSame.del_piso <= 400,
-    `guard=${kepSame.del_guard} piso=${kepSame.del_piso}`);
+    `${kepSame.sin_explicar} filas sin explicar — apareció una CUARTA causa, hay que nombrarla`);
+  check('⚠️ y ninguna de las tres causas se desbordó (78 + 2 + 2 medidas; techo 200, 400 y 300)',
+    kepSame.del_guard <= 200 && kepSame.del_piso <= 400 && kepSame.de_la_escalera <= 300,
+    `guard=${kepSame.del_guard} piso=${kepSame.del_piso} escalera=${kepSame.de_la_escalera}`);
 
   // ── 7. LA PRUEBA DE LA UNIDAD: factor_venta cuenta unidades de venta de Wincaja por caja ────
   // Contrastado contra la escalera del ODS (kdii): o es igual a f3 (Wincaja vende la unidad base)
