@@ -545,6 +545,54 @@ const BASE_ALCANCE = {
         `estrenar en prod, asi que la regla se sostiene por el predicado y no por datos que la ejerzan`,
     );
 
+    // ══ 14. Se le puede cambiar la contraseña a alguien ════════════════════
+    //
+    // `[AU.28]` Reportado por Edgar: «no me deja cambiar la contraseña desde la
+    // interfaz». No era un permiso ni un 400: **el campo no existía**. Estaba
+    // detrás de un `@if (!persona)` —sólo en el alta— y `password` sólo viajaba
+    // en `crearPersona`. Como `dashboard/admin-users` ya no tiene ruta, no había
+    // forma de resetearle la contraseña a nadie en toda la suite, con
+    // `USUARIOS_PASSWORDS` declarado en el árbol todo el tiempo.
+    console.log('\n[14] La contraseña se puede cambiar, y deja rastro');
+    const fichaPass = leer('apps/view/src/app/modules/admin/components/persona-detalle.component.ts');
+    check(
+      !/@if \(!persona\) \{\s*<label class="pd-lbl pd-lbl-req" for="pd-pass">/.test(fichaPass),
+      'el campo de contraseña ya no está encerrado en el alta',
+    );
+    check(
+      /if \(this\.persona && pass\) body\['password'\] = pass;/.test(fichaPass),
+      'y en edición viaja SÓLO si se escribió una (vacío no es «ponela vacía»)',
+    );
+
+    const svcPass = leer('libs/trade/src/lib/users/users.service.ts');
+    check(
+      /assertCanChangePassword\(password, id, requester\);/.test(svcPass),
+      'cambiarle la contraseña a otro exige USUARIOS_PASSWORDS, que no lo pedía ningún endpoint',
+    );
+    check(
+      /updateData\['password_changed_at'\] = this\.knex\.fn\.now\(\);/.test(svcPass),
+      'y el reset escribe `password_changed_at`: sin eso la fecha habla de la contraseña anterior',
+    );
+    check(
+      /updateData\['must_change_password'\] = !esDispositivo;/.test(svcPass),
+      'y fuerza el cambio salvo en dispositivos — la eligió el admin, no su dueño ([CH.1.10])',
+    );
+
+    // ⭐ El control que decide si encender la llave era seguro: si los dos
+    // permisos no vivieran en los mismos roles, exigir USUARIOS_PASSWORDS le
+    // quitaría el reset a alguien que hoy lo tiene.
+    const { rows: pw } = await k.raw(
+      `SELECT count(*) FILTER (WHERE permissions ->> 'USUARIOS_GESTIONAR' = 'true'
+                                 AND (permissions ->> 'USUARIOS_PASSWORDS') IS DISTINCT FROM 'true')::int AS pierden,
+              count(*) FILTER (WHERE permissions ->> 'USUARIOS_PASSWORDS' = 'true')::int AS con_llave
+         FROM identity.role_permissions WHERE tenant_id = ?`,
+      [TENANT],
+    );
+    check(
+      pw[0].pierden === 0,
+      `ningún rol pierde el reset al encender la llave: ${pw[0].pierden} con GESTIONAR sin PASSWORDS, ` +
+        `${pw[0].con_llave} rol(es) con la llave`,
+    );
 
     console.log(`\n${fail === 0 ? '✅' : '❌'} [AU] administración de usuarios: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;

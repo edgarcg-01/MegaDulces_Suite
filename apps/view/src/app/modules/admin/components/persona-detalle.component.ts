@@ -85,26 +85,41 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
             <p class="pd-hint">El usuario no se renombra: lo referencian la bitácora y las sesiones abiertas.</p>
           }
 
+          <label class="pd-lbl" [class.pd-lbl-req]="!persona" for="pd-pass">
+            {{ persona ? 'Nueva contraseña' : 'Contraseña' }}
+          </label>
+          <div class="pd-pass">
+            <input pInputText id="pd-pass" [type]="verPass() ? 'text' : 'password'"
+                   [ngModel]="fPassword()" (ngModelChange)="fPassword.set($event)"
+                   [disabled]="!puedeEscribir" class="mono" autocomplete="new-password"
+                   [placeholder]="persona ? 'Dejala vacía para no cambiarla' : 'Mínimo 6 caracteres'" />
+            <button pButton type="button" class="icon-btn-ghost" (click)="verPass.set(!verPass())"
+                    [attr.aria-label]="verPass() ? 'Ocultar la contraseña' : 'Ver la contraseña'">
+              <span class="pi" [class.pi-eye]="!verPass()" [class.pi-eye-slash]="verPass()"
+                    aria-hidden="true"></span>
+            </button>
+            <button pButton type="button" class="p-button-sm p-button-text" (click)="generarPass()"
+                    [disabled]="!puedeEscribir">
+              <span class="p-button-label">Generar</span>
+            </button>
+          </div>
           @if (!persona) {
-            <label class="pd-lbl pd-lbl-req" for="pd-pass">Contraseña</label>
-            <div class="pd-pass">
-              <input pInputText id="pd-pass" [type]="verPass() ? 'text' : 'password'"
-                     [ngModel]="fPassword()" (ngModelChange)="fPassword.set($event)"
-                     [disabled]="!puedeEscribir" class="mono" autocomplete="new-password"
-                     placeholder="Mínimo 6 caracteres" />
-              <button pButton type="button" class="icon-btn-ghost" (click)="verPass.set(!verPass())"
-                      [attr.aria-label]="verPass() ? 'Ocultar la contraseña' : 'Ver la contraseña'">
-                <span class="pi" [class.pi-eye]="!verPass()" [class.pi-eye-slash]="verPass()"
-                      aria-hidden="true"></span>
-              </button>
-              <button pButton type="button" class="p-button-sm p-button-text" (click)="generarPass()"
-                      [disabled]="!puedeEscribir">
-                <span class="p-button-label">Generar</span>
-              </button>
-            </div>
             <p class="pd-hint">
-              Se genera en tu navegador y sólo viaja en el alta, ya hasheada del otro lado.
+              Se genera en tu navegador y viaja una sola vez, ya hasheada del otro lado.
               Sin caracteres que se confundan: no hay <code>0/O</code> ni <code>1/l/I</code>.
+            </p>
+          } @else if (fPassword()) {
+            <p class="pd-hint pd-hint-warn">
+              <span class="pi pi-exclamation-triangle" aria-hidden="true"></span>
+              Al guardar, la contraseña cambia y
+              {{ esDispositivo()
+                 ? 'la cuenta NO tendrá que cambiarla: es de dispositivo, y forzarlo dejaría la pantalla afuera.'
+                 : 'tendrá que cambiarla la primera vez que entre — la elegiste vos, no su dueño.' }}
+              Copiala antes de guardar: no se vuelve a mostrar.
+            </p>
+          } @else {
+            <p class="pd-hint">
+              Sólo se cambia si escribís una. La actual no se puede leer: está hasheada.
             </p>
           }
 
@@ -631,6 +646,14 @@ export class PersonaDetalleComponent implements OnChanges {
   /** El desvío existe porque el puesto no propone nada, no porque difiera. */
   readonly sinPropuesta = computed(() => !!this.propuesta()?.sin_perfil);
 
+  /**
+   * `[AU.28]` Si la cuenta es de dispositivo, un reset NO le fuerza el cambio:
+   * la primera persona que pasa por el kiosco la cambiaría y la pantalla queda
+   * afuera. Lee el TTL del formulario, no el de la ficha, porque el aviso tiene
+   * que hablar del estado en que va a quedar al guardar.
+   */
+  readonly esDispositivo = computed(() => this.fTtl() != null);
+
   readonly puedeGuardar = computed(() => {
     // Los signals se leen SIEMPRE primero e incondicionales: un `&&` que corta
     // antes de leer uno deja el computed sin esa dependencia.
@@ -815,12 +838,26 @@ export class PersonaDetalleComponent implements OnChanges {
       body['must_change_password'] = ttl == null;
     }
 
+    /*
+     * `[AU.28]` La contraseña viaja SÓLO si se escribió una.
+     *
+     * Antes el campo ni siquiera se pintaba en edición (`@if (!persona)`) y el
+     * valor sólo se mandaba en `crearPersona`. Como la pantalla vieja ya no
+     * tiene ruta, **no había forma de resetearle la contraseña a nadie en toda
+     * la suite** — y `USUARIOS_PASSWORDS` seguía declarado en el árbol.
+     *
+     * Vacío ⇒ no se manda: un `password: ''` sería el pedido de poner una
+     * contraseña vacía, no el de dejarla como está.
+     */
+    const pass = this.fPassword();
+    if (this.persona && pass) body['password'] = pass;
+
     const obs = this.persona
       ? this.api.editarPersona(this.persona.id, body)
       : this.api.crearPersona({
           ...body,
           username: this.fUsername().trim(),
-          password: this.fPassword(),
+          password: pass,
         });
 
     obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({

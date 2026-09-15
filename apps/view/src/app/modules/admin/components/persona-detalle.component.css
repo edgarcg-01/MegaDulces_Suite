@@ -40,6 +40,21 @@
   max-width: 60ch;
 }
 
+/* `[AU.28]` El aviso de que la contraseña va a cambiar: lleva dato, no adorno,
+   así que sube de `--fg-3` (2.42:1, por debajo de AA) a un tono que se lee. */
+.pd-hint-warn {
+  color: var(--fg-1);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+
+.pd-hint-warn .pi {
+  color: var(--warning, var(--action));
+  margin-top: 0.15em;
+  flex: none;
+}
+
 .pd-sub {
   font-size: var(--fs-xs);
   color: var(--fg-3);
