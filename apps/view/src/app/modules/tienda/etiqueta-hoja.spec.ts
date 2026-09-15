@@ -218,7 +218,15 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
   });
 
   it('el orden de los ajustes es el que las dependencias exigen', () => {
-    const orden = /private layout\(\): void \{([\s\S]*?)\n  \}/.exec(LABEL)![1];
+    // ⛔ SIN LOS COMENTARIOS. Este candado lee el cuerpo de `layout()` como texto, así que un
+    // comentario que nombre un ajuste cuenta como si fuera la llamada — y entonces el candado
+    // **se cumple a sí mismo**. Pasó de verdad al escribir la verificación final de ET.5: se
+    // quitó la llamada a propósito para ver el rojo, y el test siguió verde porque el comentario
+    // de al lado decía `fitPrice`. Un verde que mira el texto equivocado es un falso verde
+    // (ADR-056), y acá sale gratis cerrarlo para las SEIS aserciones, no sólo para la nueva.
+    const orden = /private layout\(\): void \{([\s\S]*?)\n  \}/.exec(LABEL)![1]
+      .replace(/\/\/.*$/gm, '')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
     const i = (m: string) => orden.indexOf(m);
     expect(i('fitUnit')).toBeGreaterThan(-1);
     expect(i('fitMeta')).toBeLessThan(i('fitPrice'));   // el renglón del código define el alto disponible
@@ -230,6 +238,21 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // mínimo de 5 mm (19% de un EAN-13) con 2, 3 y 4 renglones. Mide 0/1/2/3/4 renglones si
     // alguien quiere revertirlo.
     expect(i('fitBarcode')).toBeLessThan(i('fitTiers'));
+
+    // ⭐ [ET.5] Y EL ÚLTIMO AJUSTE VUELVE A SER EL PRECIO. No es una repetición: es la
+    // verificación de lo que se prometió arriba.
+    //
+    // `fitPrice` sólo puede TERMINAR en un tamaño que verificó como bueno — el bucle revierte
+    // apenas deja de caber. Así que un precio que no cabe es prueba de que la caja se movió
+    // DESPUÉS de medirla, y quien la mueve son justo los cuatro ajustes de arriba.
+    //
+    // Medido en una caja de Yurécuaro (15/09/2026), etiqueta ya asentada (`settled:fonts`):
+    // número 136 px dentro de una caja de 129, cuando el criterio del propio código
+    // (ancho × 1.12 ≤ disponible) pedía ≤ 115. El mismo producto en otra caja daba 10.75 mm.
+    // De ahí el reporte "las etiquetas salen mal en unos navegadores y en otros no": no era el
+    // navegador ni la tipografía (las dos cajas reportaban `tipografía ✓`), era el instante en
+    // que se midió.
+    expect(orden.lastIndexOf('fitPrice')).toBeGreaterThan(i('fitAmts'));
   });
 
   /**
