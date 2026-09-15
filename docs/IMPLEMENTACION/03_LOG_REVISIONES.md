@@ -131,6 +131,28 @@ El conteo ahora sale de `stg_rplan` ya materializada, fusionado en la consulta d
 
 Verificado con dry-run contra prod (termina en `ROLLBACK`): `47,369 filas · 9,893 productos · 9 almacenes`, exit 0 en **183 s** (antes ~220 s), y **cuadra exacto** contra lo que hay en `analytics.replenishment_plan`.
 
+#### ⭐⭐ Cuarta tanda — una mitigación que existía, pero escrita para el sustrato equivocado
+
+`import-stock-movements.js` trae un auto-ligado (ship↔rcv, DM.11d) cuyo **propio comentario** dice:
+
+> *"es MANTENIMIENTO: **NO hace falta cada corrida** y su LATERAL escanea la tabla (~9 min)… **Se SALTA en intradía/catch-up (`SKIP_AUTOLINK=1`)**"*
+
+Ese `SKIP_AUTOLINK` estaba declarado **sólo en `database/importers/orchestrator/schedules.js`**, que lo consume `feed-worker.js` (PM2 + pgboss). **Pero el sustrato que corre en producción desde la Fase VL es `ops/vl/crontab.feeds` → `run-prod-feeds.js`, que nunca lo seteó.**
+
+Medido en prod con `pg_stat_statements`:
+
+| | Valor |
+|---|---|
+| `WITH ship AS (…) JOIN LATERAL (…)` | **780,826 ms por llamada** · 2,113 MB de disco |
+| Carril que lo dispara | `intraday`, cada hora (`15 * * * *`) → **~24 corridas/día** |
+| Costo | **~5 horas de CPU diarias** |
+
+Las 3 llamadas medidas en 4.5 h de uptime cuadran exacto con ese carril. Y **ningún índice de `analytics.stock_movements` cubre `parent_folio`** (son por `warehouse_id`/`doc_date`/`doc_code`/`folio`), así que el LATERAL escanea por fila.
+
+**Fix**: `ENV_POR_MODO` en el runner, igual que hace `schedules.js`. `intraday`/`stock`/`live`/`livefast` llevan `SKIP_AUTOLINK=1`; **el `nightly` NO**, porque ahí es donde el auto-ligado debe correr (y ya va acotado a su ventana). Un override explícito del entorno gana sobre el default del modo, y el runner lo imprime.
+
+> ⭐ **La lección**: *una mitigación escrita para un sustrato que ya no es el que corre es una mitigación que no existe.* La Fase VL movió los carriles de PM2/pgboss a cron en `md`; ésta se quedó atrás y nadie lo notó porque el código seguía ahí, correcto, en el archivo equivocado.
+
 #### El blanco siguiente, ya medido
 
 Con el barrido de recepciones fuera, el TOP lo encabezan:
