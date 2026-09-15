@@ -360,7 +360,7 @@ import { AuthStageComponent } from '../ui/auth-stage.component';
         line-height: 1.02;
         letter-spacing: -0.03em;
         margin: 0.25rem 0 0.5rem;
-        color: var(--neutral-950);
+        color: var(--text-main);
       }
       .pl-em {
         color: var(--action);

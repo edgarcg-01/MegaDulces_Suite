@@ -207,7 +207,7 @@ interface RailSpec {
         font-weight: 700;
         letter-spacing: -0.02em;
         line-height: 1.05;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin: 0;
       }
       .hf-grid {

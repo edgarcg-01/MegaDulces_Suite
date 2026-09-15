@@ -106,7 +106,7 @@ import type { PromotionRow } from '../portal.service';
         font-weight: 700;
         letter-spacing: -0.02em;
         line-height: 1.05;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin: 0;
       }
       .pc-head-right { display: flex; align-items: center; gap: 0.875rem; }
@@ -126,13 +126,13 @@ import type { PromotionRow } from '../portal.service';
         border-radius: 50%;
         border: 1px solid var(--border-color);
         background: var(--card-bg);
-        color: var(--neutral-700);
+        color: var(--text-muted);
         display: grid;
         place-items: center;
         cursor: pointer;
         transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard), transform 120ms var(--ease-spring);
       }
-      .pc-arrow:hover { background: var(--neutral-100); border-color: var(--neutral-300); color: var(--neutral-950); }
+      .pc-arrow:hover { background: var(--neutral-100); border-color: var(--neutral-300); color: var(--text-main); }
       .pc-arrow:active { transform: scale(0.9); }
       .pc-arrow i { font-size: var(--fs-sm); }
 
@@ -204,7 +204,7 @@ import type { PromotionRow } from '../portal.service';
         letter-spacing: -0.015em;
         line-height: 1.18;
         margin: 0;
-        color: var(--neutral-950);
+        color: var(--text-main);
         display: -webkit-box;
         -webkit-line-clamp: 2;
         -webkit-box-orient: vertical;
@@ -262,7 +262,7 @@ import type { PromotionRow } from '../portal.service';
       .pc-card-lead h3 { color: #fff; }
       .pc-card-lead p { color: rgba(255, 255, 255, 0.82); }
       .pc-card-lead .pc-icon { background: rgba(253, 231, 7, 0.16); color: var(--brand-400); }
-      .pc-card-lead .pc-badge { background: var(--brand-400); color: var(--neutral-950); }
+      .pc-card-lead .pc-badge { background: var(--brand-400); color: var(--text-main); }
       .pc-card-lead .pc-foot { border-top-color: rgba(255, 255, 255, 0.14); }
       .pc-card-lead .pc-exp { color: rgba(255, 255, 255, 0.7); }
       .pc-card-lead .pc-cta { color: var(--brand-400); }

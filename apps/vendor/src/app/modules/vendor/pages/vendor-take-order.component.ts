@@ -593,7 +593,7 @@ const foldText = (s: string | null | undefined): string =>
         margin: -1rem -1rem 0.75rem; padding: 0.7rem 1rem; background: var(--card-bg); border-bottom: 1px solid var(--border-color);
       }
       .to-head .bk { width: 2.25rem; height: 2.25rem; border-radius: 14px; border: none; background: var(--surface-ground); color: var(--text-main); display: grid; place-items: center; font-size: 1.05rem; flex-shrink: 0; }
-      .to-head .av { width: 2.35rem; height: 2.35rem; border-radius: 14px; background: var(--brand-400); color: var(--neutral-950); display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
+      .to-head .av { width: 2.35rem; height: 2.35rem; border-radius: 14px; background: var(--brand-400); color: var(--text-main); display: grid; place-items: center; font-weight: 800; flex-shrink: 0; }
       .to-head .ci { flex: 1; min-width: 0; }
       .to-head .nm { font-weight: 700; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .to-head .cd { font-family: var(--font-mono); font-size: 0.72rem; color: var(--text-muted); }

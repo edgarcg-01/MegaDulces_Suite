@@ -179,7 +179,7 @@ import { CartFxService } from '../cart-fx.service';
         font-weight: 700;
         letter-spacing: -0.02em;
         line-height: 1.05;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin: 0;
       }
       .tp-head-right { display: flex; align-items: center; gap: 0.75rem; }
@@ -197,13 +197,13 @@ import { CartFxService } from '../cart-fx.service';
         border-radius: 50%;
         border: 1px solid var(--border-color);
         background: var(--card-bg);
-        color: var(--neutral-700);
+        color: var(--text-muted);
         display: grid;
         place-items: center;
         cursor: pointer;
         transition: background-color 150ms var(--ease-standard), border-color 150ms var(--ease-standard), transform 120ms var(--ease-spring);
       }
-      .tp-arrow:hover { background: var(--neutral-100); border-color: var(--neutral-300); color: var(--neutral-950); }
+      .tp-arrow:hover { background: var(--neutral-100); border-color: var(--neutral-300); color: var(--text-main); }
       .tp-arrow:active { transform: scale(0.9); }
       .tp-arrow i { font-size: var(--fs-sm); }
 
@@ -266,7 +266,7 @@ import { CartFxService } from '../cart-fx.service';
         padding: 0.12rem 0.45rem;
         font-variant-numeric: tabular-nums;
       }
-      .tp-rank.is-gold { background: var(--brand-400); color: var(--neutral-950); }
+      .tp-rank.is-gold { background: var(--brand-400); color: var(--text-main); }
 
       .tp-body {
         display: flex;
@@ -308,7 +308,7 @@ import { CartFxService } from '../cart-fx.service';
       .tp-name {
         font-size: var(--fs-sm);
         font-weight: 600;
-        color: var(--neutral-950);
+        color: var(--text-main);
         line-height: 1.25;
         margin: 0;
         display: -webkit-box;
@@ -328,7 +328,7 @@ import { CartFxService } from '../cart-fx.service';
       .tp-price {
         font-size: var(--fs-h3);
         font-weight: 800;
-        color: var(--neutral-950);
+        color: var(--text-main);
         font-variant-numeric: tabular-nums;
         letter-spacing: -0.01em;
       }
@@ -394,7 +394,7 @@ import { CartFxService } from '../cart-fx.service';
       }
       .tp-card-lead .tp-stepper { background: var(--brand-400); }
       .tp-card-lead .tp-step,
-      .tp-card-lead .tp-step-val { color: var(--neutral-950); }
+      .tp-card-lead .tp-step-val { color: var(--text-main); }
       .tp-card-lead .tp-step:hover:not(:disabled) { background: rgba(0, 0, 0, 0.12); }
       @media (prefers-reduced-motion: reduce) { .tp-stepper { animation: none; } }
 
@@ -405,7 +405,7 @@ import { CartFxService } from '../cart-fx.service';
       .tp-card-lead .tp-brand { color: rgba(255, 255, 255, 0.6); }
       .tp-card-lead .tp-name { color: #fff; }
       .tp-card-lead .tp-price { color: #fff; }
-      .tp-card-lead .tp-add { background: var(--brand-400); color: var(--neutral-950); }
+      .tp-card-lead .tp-add { background: var(--brand-400); color: var(--text-main); }
 
       /* Pre-animación: oculta las cards hasta que GSAP las revele. */
       :host(.tp-pending) .tp-card { opacity: 0; }

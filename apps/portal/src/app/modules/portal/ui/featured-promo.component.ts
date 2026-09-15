@@ -101,7 +101,7 @@ import { RouterModule } from '@angular/router';
         line-height: 1.02;
         letter-spacing: -0.02em;
         margin: 0 0 0.5rem;
-        color: var(--neutral-950, #09090B);
+        color: var(--text-main);
       }
       .fp-underline {
         display: block;

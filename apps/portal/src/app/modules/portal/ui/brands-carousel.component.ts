@@ -86,7 +86,7 @@ export interface BrandFacet {
         font-weight: 700;
         letter-spacing: -0.02em;
         line-height: 1.05;
-        color: var(--neutral-950);
+        color: var(--text-main);
         margin: 0;
       }
       .bc-link { font-size: var(--fs-sm); font-weight: 700; color: var(--brand-700); text-decoration: none; white-space: nowrap; }
