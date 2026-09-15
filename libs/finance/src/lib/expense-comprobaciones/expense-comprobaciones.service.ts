@@ -10,7 +10,7 @@ export interface ScopeUser { sub?: string; role_name?: string; permissions?: Rec
  * ligada por folio al gasto de Kepler (XA1001), con su archivo comprobatorio. Vive
  * en `finance.expense_comprobaciones`; NO escribe a Kepler (se concilia por folio).
  * Al crear resuelve el `folio_solicitud` (XA1501) del gasto para el seguimiento
- * cruzado con /finanzas/solicitudes. Flujo `recibida → validada | rechazada`.
+ * cruzado con /finanzas/gastos. Flujo `recibida → validada | rechazada`.
  */
 
 export const COMPROBACION_FILE_ROLES = ['comprobacion', 'evidencia_1', 'evidencia_2'] as const;
@@ -562,7 +562,7 @@ export class ExpenseComprobacionesService {
     return this.latestStatusBy('folio_gasto');
   }
 
-  /** Mapa folio_solicitud → estado (último), para el overlay en /finanzas/solicitudes. */
+  /** Mapa folio_solicitud → estado (último), para el overlay en /finanzas/gastos. */
   async statusBySolicitud(): Promise<Record<string, string>> {
     return this.latestStatusBy('folio_solicitud');
   }

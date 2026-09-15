@@ -24,6 +24,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./modules/mi-trabajo/mi-trabajo.component').then(m => m.MiTrabajoComponent),
   },
+  // GX.9 — captura de gasto por link, desde el celular y SIN cuenta. Va al tope del árbol,
+  // fuera del LayoutComponent y sin ningún guard: quien la abre no tiene sesión (y no debe
+  // necesitarla). Se autoriza con el token de la URL, que el backend revalida contra la fila
+  // del link en cada uso. `authInterceptor` tiene exceptuada esta ruta de API.
+  {
+    path: 'captura/:token',
+    loadComponent: () => import('./modules/finanzas/pages/captura-gasto-link.component').then(m => m.CapturaGastoLinkComponent),
+  },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
   {
@@ -321,18 +329,28 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
       },
       {
-        path: 'solicitudes',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+        // GX.10 — UNA puerta al ciclo del gasto. Antes eran tres rutas para el mismo
+        // trámite. El guard deja pasar con CUALQUIERA de los dos permisos y el componente
+        // decide la superficie: tablero para quien puede ver, captura mínima para quien
+        // sólo captura (75 usuarios activos están en ese segundo grupo — ver el componente).
+        path: 'gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos.component').then(m => m.FinanzasGastosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
       },
+      // Las tres rutas viejas quedan como redirect: hay enlaces internos, marcadores del
+      // equipo y links compartidos apuntando ahí. `solicitudes` conserva sus query params
+      // (periodo/etapa/mias/anejas viajan en la URL), y `capturas-sin-folio` aterriza con
+      // su etapa ya elegida — ahora es una etapa más del embudo, no una pantalla aparte.
       {
-        // GX.8 — Captura (capturista): solo folio + subir comprobante. Sin bandeja de revisión.
-        // Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21:
-        // sólo servían para re-capturar datos que Kepler ya tiene. El tablero del autorizador
-        // es /finanzas/solicitudes, con el expediente y la captura como organismos encima.
-        path: 'capturar-gasto',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-capturar-gasto.component').then(m => m.FinanzasCapturarGastoComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_CAPTURAR)]
+        path: 'solicitudes',
+        redirectTo: ({ queryParams, fragment }) =>
+          inject(Router).createUrlTree(['/finanzas/gastos'], { queryParams, fragment: fragment ?? undefined }),
+      },
+      { path: 'capturar-gasto', pathMatch: 'full', redirectTo: 'gastos' },
+      {
+        path: 'capturas-sin-folio',
+        redirectTo: () =>
+          inject(Router).createUrlTree(['/finanzas/gastos'], { queryParams: { etapa: 'sin_folio' } }),
       },
       {
         path: 'cobranza',
@@ -569,6 +587,12 @@ export const routes: Routes = [
         // Adentro trae su pestaña de códigos de barras repetidos (CATALOGO_TABS).
         path: 'catalogo',
         loadComponent: () => import('./modules/compras/pages/compras-catalogo.component').then(m => m.ComprasCatalogoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        // [CAT.3] El mismo producto a distinto precio segun la plaza.
+        path: 'catalogo/precios',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-precios.component').then(m => m.ComprasCatalogoPreciosComponent),
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {

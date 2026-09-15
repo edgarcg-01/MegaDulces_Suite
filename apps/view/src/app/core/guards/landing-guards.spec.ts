@@ -84,9 +84,9 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.FINANCE_PAYMENTS_GESTIONAR, url: '/finanzas/pagos-comprobantes', motivo: 'manage sin view' },
   { perm: Permission.FINANCE_RECON_ASIGNAR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER' },
   { perm: Permission.FINANCE_RECON_RECIBIR, url: '/finanzas/tareas', motivo: 'la ruta exige BANK_VER (es un marcador para repartir tareas, no un permiso de pantalla)' },
-  { perm: Permission.FINANCE_EXPENSES_VER_ALL, url: '/finanzas/solicitudes', motivo: 'la ruta exige EXPENSES_VER' },
-  { perm: Permission.FINANCE_EXPENSES_COMPROBAR, url: '/finanzas/solicitudes', motivo: 'ídem' },
-  { perm: Permission.FINANCE_FINDINGS_GESTIONAR, url: '/finanzas/solicitudes', motivo: 'ídem' },
+  { perm: Permission.FINANCE_EXPENSES_VER_ALL, url: '/finanzas/gastos', motivo: 'la ruta exige EXPENSES_VER' },
+  { perm: Permission.FINANCE_EXPENSES_COMPROBAR, url: '/finanzas/gastos', motivo: 'ídem' },
+  { perm: Permission.FINANCE_FINDINGS_GESTIONAR, url: '/finanzas/gastos', motivo: 'ídem' },
   // contabilidad
   { perm: Permission.FISCAL_LISTAS_GESTIONAR, url: '/contabilidad/listas-sat', motivo: 'manage sin view' },
   { perm: Permission.FISCAL_PURCHASE_BOOK_GESTIONAR, url: '/contabilidad/movimientos-no-asociados', motivo: 'manage sin view' },

@@ -4,6 +4,9 @@ import { CloudinaryModule, AiProductMatcherModule, requireJwtSecret, jwtVerifyOp
 import { ExpenseProofsService } from './expense-proofs.service';
 import { ExpenseProofsController } from './expense-proofs.controller';
 import { ExpenseProofsGateway } from './expense-proofs.gateway';
+import { ExpenseCaptureLinksService } from './expense-capture-links.service';
+import { ExpenseCaptureLinksController } from './expense-capture-links.controller';
+import { ExpenseCapturePublicController } from './expense-capture-public.controller';
 
 /**
  * GX.7 — Comprobación de gasto (captura del comprobante fiscal en plataforma,
@@ -20,8 +23,8 @@ import { ExpenseProofsGateway } from './expense-proofs.gateway';
       verifyOptions: jwtVerifyOptions,
     }),
   ],
-  controllers: [ExpenseProofsController],
-  providers: [ExpenseProofsService, ExpenseProofsGateway],
-  exports: [ExpenseProofsService],
+  controllers: [ExpenseProofsController, ExpenseCaptureLinksController, ExpenseCapturePublicController],
+  providers: [ExpenseProofsService, ExpenseProofsGateway, ExpenseCaptureLinksService],
+  exports: [ExpenseProofsService, ExpenseCaptureLinksService],
 })
 export class FinanceExpenseProofsModule {}

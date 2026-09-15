@@ -71,6 +71,15 @@ export class ExpenseProofsController {
     return this.svc.proofByFolio(folio || '');
   }
 
+  // GX.9 — la bandeja de lo capturado en campo que todavía no se liga a un folio Kepler.
+  // Va ANTES de ':id' o la ruta paramétrica se la traga (misma trampa que las de arriba).
+  @Get('sin-folio')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
+  @ApiOperation({ summary: 'Capturas de campo SIN casar (folio_solicitud IS NULL) + KPIs.' })
+  sinFolio(@Query('search') search?: string, @Query('limit') limit?: string) {
+    return this.svc.sinFolio({ search, limit: limit ? Number(limit) : undefined });
+  }
+
   // Va después de las rutas GET estáticas: declarada antes, ':id' se tragaría
   // 'departamentos', 'status-by-folio' y 'proof-by-folio'.
   @Get(':id')
@@ -126,6 +135,15 @@ export class ExpenseProofsController {
   @ApiOperation({ summary: 'Valida el expediente de gasto (con reclasificación opcional). Auditado.' })
   validate(@Param('id') id: string, @Body() body: { clasificacion?: string; comprobacion_nota?: string }, @Req() req: AuthedRequest) {
     return this.svc.validate(id, req?.user?.full_name || req?.user?.username, body);
+  }
+
+  // GX.9 — ligar una captura de campo con su solicitud Kepler. Mismo permiso que aprobar:
+  // decidir a qué folio pertenece un gasto es una decisión sobre el dinero, no captura.
+  @Post(':id/match')
+  @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
+  @ApiOperation({ summary: 'Casa una captura sin folio con su solicitud XA1501; re-corre el cuadre contra el importe de Kepler.' })
+  match(@Param('id') id: string, @Body() body: { folio?: string }, @Req() req: AuthedRequest) {
+    return this.svc.match(id, body?.folio || '', req?.user?.full_name || req?.user?.username);
   }
 
   @Post(':id/reject')
