@@ -2,7 +2,22 @@
 
 > Se sigue **con la van físicamente en base** conectada a la red interna (PH o CEDIS).
 > Tú corres los comandos en la laptop de la van y me pegas la salida; yo verifico el lado runner.
-> Prerrequisito ya hecho: `runner-heartbeat.sql` aplicado en `.249` ✅.
+> Prerrequisito ya hecho: `runner-heartbeat.sql` aplicado en el runner ✅.
+
+> ## ⛔ EL RUNNER ES `192.168.0.222`, NO `.249`
+>
+> La ingesta se mudó al servidor Linux `md` el **2026-09-11** ([`FASE_VL`](../../../../docs/IMPLEMENTACION/FASES/FASE_VL_VPS_LOCAL.md)).
+> El `:5433` de `.249` quedó **jubilado**; hoy sobrevive sólo como un **reenvío TCP**
+> (`netsh interface portproxy`, `0.0.0.0:5433 → 192.168.0.222:5433`) puesto para no tener que
+> visitar las 11 camionetas el mismo día.
+>
+> ⚠️ **Por eso el error no se ve:** una van configurada contra `.249` **funciona** — el reenvío la
+> lleva igual. Lo que no se ve es que su venta depende de una máquina de escritorio que ya no es
+> servidor de nada y que **se reinicia sola con Windows Update** (medido: 9.5 h sin ingesta el
+> 2026-09-10, porque Docker Desktop no arranca hasta que alguien inicia sesión).
+>
+> - **Alta nueva** → `.222` directo (las plantillas de este repo ya vienen así).
+> - **Van ya dada de alta contra `.249`** → **CASO 4**, abajo.
 
 ---
 
@@ -77,7 +92,7 @@ Copiar a `C:\KeplerPush\`:
 - `set TRUCK=ruta_NN`
 - `set ROUTE_SERIE=<serie del Paso A3>`
 - `set SRC=postgresql://postgres:<CLAVE_LOCAL>@localhost:5432/<DB_LOCAL>?connect_timeout=5`
-- `set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.249:5433/kepler_consolidado?connect_timeout=5`
+- `set DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.222:5433/kepler_consolidado?connect_timeout=5`
 
 ### Bloque C — Probar a mano (en la laptop de la van)
 
@@ -134,13 +149,21 @@ if (-not (Select-String -Path $hba -Pattern '192.168.0.0/16' -Quiet)) { Add-Cont
 ```
 (Su Postgres ya escucha en la LAN — NO hace falta `listen_addresses` ni reiniciar. Clave local Canindo = `kepler123`.)
 
-**R2 — abrir el RUNNER `.249`** para esa subred (**una sola vez por plaza**, en `.249`):
-```powershell
-Set-NetFirewallRule -DisplayName "Kepler ingest 5433" -RemoteAddress @('192.168.0.0/24','192.168.10.0/24','192.168.50.0/24')
-```
-> ✅ **Canindo `.50.0/24` YA está agregada** → las próximas vans de Canindo saltan R2.
+**R2 — abrir el RUNNER** para esa subred. ⭐ **Con `md` (`.222`) este paso YA NO EXISTE**: medido el
+2026-09-15, `md` no tiene `ufw` activo y el contenedor publica `0.0.0.0:5433`, y su `pg_hba` es
+`host all all all scram-sha-256` → **entra cualquier subred con contraseña**. No hay nada que abrir
+del lado servidor.
 
-**R3 — descubrir DESDE `.249`** (más rápido que en la van; ya alcanzable tras R1):
+> Para referencia histórica, en `.249` sí había que hacerlo, y la regla dejaba entrar a **exactamente
+> tres** subredes — `192.168.0.0/24`, `192.168.10.0/24`, `192.168.50.0/24`:
+> ```powershell
+> Set-NetFirewallRule -DisplayName "Kepler ingest 5433" -RemoteAddress @('192.168.0.0/24','192.168.10.0/24','192.168.50.0/24')
+> ```
+> ⚠️ Que el servidor acepte **no** significa que la van llegue: el ruteo entre segmentos es otra
+> cosa, y se comprueba desde la van (el log dice `OFFLINE` si no alcanza). No se da por hecho.
+
+**R3 — descubrir DESDE el runner** (más rápido que en la van; ya alcanzable tras R1). El contenedor
+`pgvector-md` vive ahora en `md`, así que se entra por `ssh superoot@192.168.0.222`:
 ```
 docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U postgres -d postgres -tAc "select datname from pg_database where datname like 'md%'"
 docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U postgres -d <DB> -tAc "select rtrim(btrim(c63),'-') serie, btrim(c67) ruta, count(*) from md.kdm1 where c2='U' and c3='D' and c4=10 group by 1,2"
@@ -151,6 +174,74 @@ docker exec -e PGPASSWORD=kepler123 pgvector-md psql -h <IP_VAN> -p 5432 -U post
 - ⚠️ **crear `C:\KeplerPush` primero** (`New-Item -ItemType Directory -Force C:\KeplerPush`) — cada van es una máquina distinta.
 
 **R5 — ⚠️ retirar la ruta del `c67` del branch** (server-side, para no doble-contar): las vans de Canindo también sincronizan al POS, así que su venta ya entra por `import-canindo-routes-monthly` (`WIN-50N`). Al ponerla en push, retirar esa `50N` del path `c67` (patrón Wincaja '50'). Mientras `ruta_50N` no tenga mapeo a warehouse, no llega a sell-out → seguro. Ver [`INVENTARIO_Y_PLAN_RUTAS.md`](INVENTARIO_Y_PLAN_RUTAS.md) §1.5.
+
+---
+
+## CASO 4 — repuntar una camioneta YA dada de alta: `.249` → `.222`
+
+> Para las 11 vans que se dieron de alta antes del 2026-09-11 y quedaron con el runner viejo en su
+> `push-ruta.cmd`. Hoy funcionan por el reenvío TCP de `.249`; esto las desengancha de esa máquina.
+
+**Lo que cambia es UNA línea** (`set DST=`), y nada más: mismo puerto, misma base, mismo usuario,
+misma tarea programada, mismo `TRUCK` y `ROUTE_SERIE`. El `SRC` (Postgres local de la van) **no se
+toca**.
+
+### P1 — en la laptop de la van (no hace falta elevar: es editar un archivo)
+
+```powershell
+$f = 'C:\KeplerPush\push-ruta.cmd'
+Copy-Item $f "$f.bak-$(Get-Date -Format yyyyMMdd-HHmm)" -Force     # respaldo con fecha
+(Get-Content $f -Raw) -replace '192\.168\.0\.249', '192.168.0.222' |
+  Set-Content $f -Encoding ASCII -NoNewline                        # el .cmd NO puede quedar UTF-8 con BOM
+Select-String -Path $f -Pattern 'set DST='                         # debe decir 192.168.0.222
+```
+
+Es **idempotente**: correrlo dos veces no hace daño (la segunda no encuentra qué reemplazar).
+
+### P2 — probar a mano, desde un `cmd` YA abierto (no doble clic)
+
+```
+cd /d C:\KeplerPush
+push-ruta.cmd
+type C:\KeplerPush\push_ruta_NN.log
+```
+
+Tiene que decir **`ONLINE`** + `merge -> filas: <N>` + **`OK`**.
+
+⛔ Si dice **`OFFLINE`**, la van **no alcanza `.222`** desde su segmento y hay un problema de ruteo o
+firewall — **revertí con el `.bak` y avisá**. No lo dejes así: el agente sale rápido y en silencio
+cuando el runner no responde, o sea que la van se queda muda sin ruido.
+
+### P3 — lo verifico yo del lado runner (con el dato, no con "debería andar")
+
+```sql
+SELECT sucursal, max(fecha), count(*) FROM mart.ventas WHERE sucursal='ruta_NN' GROUP BY 1;
+SELECT * FROM ingest.route_push_heartbeat WHERE truck='ruta_NN';
+```
+
+### Orden, y por qué importa
+
+1. **Una sola van primero** (conviene la que empujó hoy: se ve el resultado enseguida).
+2. Verificación P3 **antes** de seguir.
+3. Las otras diez.
+4. ⛔ **El reenvío de `.249` se queda puesto** hasta que las 11 estén verificadas. No cuesta nada y
+   **es el rollback**: si una falla, vuelve a `.249` y sigue entregando.
+5. Recién ahí se evalúa quitar el reenvío — y **antes de quitarlo hay que medir qué MÁS lo usa**:
+   el 2026-09-15 se vieron conexiones locales desde `127.0.0.1:5433` en la propia `.249`. Quitarlo
+   sin mirar eso es repetir el apagón de 49 h de `ruta_*` (se inventarió *qué corre en* la máquina
+   y nunca *quién le escribe desde afuera*).
+
+### ⚠️ Antes de empezar: dos cosas que NO son consecuencia del cambio
+
+- **`ruta_505` lleva sin empujar desde el 2026-09-10** (medido el 15-sep). Si la repuntás y sigue
+  callada, **eso no significa que el repunte falló** — ya estaba rota.
+- Las vans empujan **al cerrar el día**, no continuo. Que `netstat` no muestre conexiones no dice
+  nada; el inventario de quién empuja se saca del **dato**:
+
+```sql
+SELECT sucursal, max(fecha) AS ultima, (CURRENT_DATE - max(fecha)) AS dias, count(*) AS lineas
+  FROM mart.ventas WHERE sucursal LIKE 'ruta_%' GROUP BY 1 ORDER BY 2 DESC;
+```
 
 ---
 

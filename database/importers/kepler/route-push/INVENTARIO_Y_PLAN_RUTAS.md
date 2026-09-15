@@ -18,7 +18,7 @@ El flujo tiene **3 capas físicas**. Ninguna corre en la PC de analítica/dev (a
 ### 1.1 Runner consolidado (destino del push)
 | Campo | Valor |
 |---|---|
-| Host | `192.168.0.249:5433` |
+| Host | `192.168.0.222:5433` (el servidor Linux `md`). ⚠️ **Era `192.168.0.249` hasta el 2026-09-11**; ese `:5433` está jubilado y hoy sólo es un reenvío TCP hacia `.222`. Las 11 vans dadas de alta antes de esa fecha siguen apuntando a `.249` → [CASO 4 del runbook](RUNBOOK_ALTA_CAMIONETA.md) |
 | DB | `kepler_consolidado` |
 | Credencial | `postgres` / `superoot` (alcanza para `\copy` + `merge_route_sales` SECURITY DEFINER) |
 | Staging | `ingest.route_sales_stg` (se vacía tras cada merge) |
@@ -221,15 +221,15 @@ Para cada camioneta nueva, en su laptop:
    ```
    - Si devuelve **una** serie → esa es `ROUTE_SERIE`.
    - Si devuelve **varias** → la base tiene varias rutas; el filtro `ROUTE_SERIE` es **obligatorio** (o hay doble conteo). Confirmar cuál corresponde al `ruta_NN` de negocio.
-2. **Llenar** `C:\KeplerPush\push-ruta.cmd` desde la plantilla: `TRUCK=ruta_NN`, `ROUTE_SERIE=<serie local>`, `SRC=<DB local>`, `DST=…@192.168.0.249:5433/kepler_consolidado`, `DAYS=15`.
+2. **Llenar** `C:\KeplerPush\push-ruta.cmd` desde la plantilla: `TRUCK=ruta_NN`, `ROUTE_SERIE=<serie local>`, `SRC=<DB local>`, `DST=…@192.168.0.222:5433/kepler_consolidado`, `DAYS=15`.
 3. **Probar a mano** desde un `cmd` ya abierto (no doble-clic): `cd /d C:\KeplerPush && push-ruta.cmd` → debe cerrar mostrando el conteo del merge, sin "sintaxis incorrecta".
 4. **Instalar la tarea** (cmd como Administrador), nombre único por ruta:
    ```
    schtasks /Create /TN RutaNN /TR "C:\KeplerPush\push-ruta.cmd" /SC MINUTE /MO 15 /RU SYSTEM /RL HIGHEST /F
    ```
-5. **Verificar en el runner** (desde cualquier lado con red a `.249`):
+5. **Verificar en el runner** (desde cualquier lado con red a `.222`):
    ```
-   psql "postgresql://postgres:superoot@192.168.0.249:5433/kepler_consolidado" -c "select sucursal,count(*),max(fecha) from mart.ventas where sucursal='ruta_NN' group by 1"
+   psql "postgresql://postgres:superoot@192.168.0.222:5433/kepler_consolidado" -c "select sucursal,count(*),max(fecha) from mart.ventas where sucursal='ruta_NN' group by 1"
    ```
 6. **Registrar** la fila en la tabla §1.3 de este documento.
 
@@ -252,7 +252,7 @@ Para cada camioneta nueva, en su laptop:
 
 ```bash
 # Estado global de rutas en el runner
-psql "postgresql://postgres:superoot@192.168.0.249:5433/kepler_consolidado" \
+psql "postgresql://postgres:superoot@192.168.0.222:5433/kepler_consolidado" \
   -c "select sucursal, count(*), min(fecha), max(fecha) from mart.ventas where sucursal ilike 'ruta%' group by 1 order by 1"
 
 # En una laptop de camioneta: ¿la tarea corre bien?

@@ -1,7 +1,9 @@
 # Push de ventas de RUTA (camionetas Kepler → runner → `mart.ventas`)
 
 Cada camioneta de ruta tiene su **Kepler local** (esquema `md.*`). Este agente
-empuja su venta al **runner** (`192.168.0.249:5433 / kepler_consolidado`), donde
+empuja su venta al **runner** (`192.168.0.222:5433 / kepler_consolidado` — el servidor Linux
+`md`; **era `.249` hasta el 2026-09-11**, ver [`RUNBOOK_ALTA_CAMIONETA.md`](RUNBOOK_ALTA_CAMIONETA.md)
+CASO 4), donde
 entra a `mart.ventas` como `sucursal='ruta_NN'` y sigue el mismo pipeline
 analítico que las sucursales (Command Center, sell-out, etc.).
 
@@ -49,7 +51,7 @@ Desde `push-ruta.template.cmd`, ajustar:
 - `TRUCK=ruta_27` → clave en `mart.ventas` (número de ruta de la **empresa**).
 - `ROUTE_SERIE=UD1001` → la serie **local** del paso 1.
 - `SRC=postgresql://postgres:<CLAVE_LOCAL>@localhost:5432/<DB_LOCAL>`
-- `DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.249:5433/kepler_consolidado`
+- `DST=postgresql://postgres:<CLAVE_RUNNER>@192.168.0.222:5433/kepler_consolidado`
 
 ### 3. Probar a mano (desde un `cmd` ya abierto, no doble-clic)
 ```
