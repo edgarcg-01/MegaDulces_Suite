@@ -503,12 +503,48 @@ const APP_SOURCES: SourceCfg[] = [
   // pasaron a intraday (~1h, 24/7) → updated_at avanza cada corrida (el UPSERT hace updated_at=now()
   // sin guard). Dead-man propio porque una falla del PASO de ruta (ej. .249 mart.ventas inalcanzable)
   // NO alarma feed_intraday (falla parcial = batch 'ok'), pero aquí congela updated_at. Umbral intradía.
+  // ⛔ 2026-09-14 — ESTE SENSOR SE ENMASCARABA A SÍ MISMO, y con el mismo mecanismo que su propio
+  // comentario de arriba denuncia un piso más arriba.
+  //
+  // Usaba max(updated_at) sobre TODA la tabla. Pero la tabla tiene TRES escritores independientes:
+  // import-route-push-monthly/-lines (camionetas, leen .249), import-kepler-vecinal-routes (lee
+  // md_01) e import-canindo-routes-monthly. Con las vecinales sanas refrescando cada hora, el
+  // máximo SIEMPRE es reciente — así que la pierna de camionetas puede estar muerta y el sensor
+  // no se entera.
+  //
+  // Medido: el 12-sep se apagó el Postgres de .249 y la pierna de camionetas quedó 50.1 h sin
+  // avanzar mientras las vecinales iban a 0.9 h. El sensor reportó `ok` las 49 horas. Antes de eso
+  // ya llevaba 27 de 27 corridas fallando con "sin conexión al runner .249 (timeout expired)",
+  // también en verde.
+  //
+  // Ahora mide la PEOR ruta ACTIVA, no el máximo. Un max() sobre una tabla con escritores
+  // independientes es un agregado que OCULTA: basta un escritor sano para tapar a los demás.
+  //
+  // ⚠️ "Activa" = con datos en el mes actual o el anterior. Sin ese recorte el sensor vive en rojo
+  // por rutas RETIRADAS (medido: WIN-321 jun-2026, WIN-322 jul-2026, WIN-VEC-PH-H jun-2026 con
+  // 48 días), y una alarma que grita siempre se aprende a ignorar. Lo excluido NO se esconde: va
+  // nombrado en la nota (ADR-056 — lo que no entra al veredicto se declara).
+  //
+  // ⚠️ El criterio es por ACTIVIDAD, no por patrón de nombre. Clasificar por nombre parecía obvio
+  // y es una trampa: WIN-50% agarra tanto a Canindo como a las camionetas 501-505.
   {
     key: 'route_sales', label: 'Ventas por ruta (rollup intradía)', table: 'analytics.sales_by_route_monthly', tsCandidates: [],
-    sql: `SELECT max(updated_at) AS last_update,
-                 count(DISTINCT route_code)::text || ' rutas · mes ' ||
-                   coalesce(to_char(max(month),'MM/YYYY'),'—') AS note_extra
-            FROM analytics.sales_by_route_monthly WHERE route_code LIKE 'WIN-%'`,
+    sql: `WITH r AS (
+              SELECT route_code, max(updated_at) AS ult, max(month) AS ult_mes
+                FROM analytics.sales_by_route_monthly
+               WHERE route_code LIKE 'WIN-%'
+               GROUP BY route_code
+            ), act AS (
+              SELECT * FROM r WHERE ult_mes >= date_trunc('month', CURRENT_DATE) - interval '1 month'
+            ), ret AS (
+              SELECT * FROM r WHERE ult_mes <  date_trunc('month', CURRENT_DATE) - interval '1 month'
+            )
+            SELECT (SELECT min(ult) FROM act) AS last_update,
+                   (SELECT count(*) FROM act)::text || ' rutas activas · mas rezagada '
+                   || coalesce((SELECT route_code || ' (' || round(extract(epoch FROM (now()-ult))/3600.0,1) || ' h)'
+                                  FROM act ORDER BY ult LIMIT 1), '—')
+                   || coalesce((SELECT ' · ' || count(*) || ' retirada(s) fuera de la alarma: '
+                                  || string_agg(route_code, ', ' ORDER BY route_code) FROM ret), '') AS note_extra`,
     warnH: 3, critH: 8, cadence: 'intradía ~1h (feeds de ruta en intraday) + respaldo nightly',
   },
 ];
