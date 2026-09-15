@@ -609,6 +609,19 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
         ));
 
     // PRUEBA EN VIVO: el trigger tiene que ver pasar un cambio real.
+    // Se fotografía ANTES: el «prod intacto» de abajo se compara contra ESTO y no
+    // contra cero. `[AU.18]` movió a tres personas a `jefe_zona` de verdad, así que
+    // los tramos de cambio reales dejaron de ser cero — y lo que la prueba tiene que
+    // demostrar es que SU tramo se revirtió, no que nadie cambie nunca de puesto.
+    const cambiosAntes = Number(
+      (
+        await k('identity.v_position_history')
+          .where({ tenant_id: TENANT, desde_origen: 'cambio' })
+          .count('* as n')
+          .first()
+      ).n,
+    );
+
     const trx3 = await k.transaction();
     try {
       const victima = await trx3('identity.users')
@@ -679,8 +692,9 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       .where({ tenant_id: TENANT, desde_origen: 'cambio' })
       .count('* as n')
       .first();
-    check(Number(postHist.n) === 0,
-      `prod intacto: ${postHist.n} tramos con desde_origen="cambio" (el de la prueba se revirtió)`);
+    check(Number(postHist.n) === cambiosAntes,
+      `prod intacto: ${postHist.n} tramo(s) con desde_origen="cambio", los mismos ${cambiosAntes} de antes ` +
+        `(el de la prueba se revirtió)`);
 
     // ⚠️ La pregunta que la fase existe para contestar — «¿quién respondía de
     // esto en marzo?» — hoy se puede FORMULAR pero devuelve vacío, y eso no es

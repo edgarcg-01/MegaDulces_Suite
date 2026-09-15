@@ -42,9 +42,15 @@ const declarar = (msg) => { nomedido++; console.log(`  ~ NO MEDIDO ${msg}`); };
  */
 const BASE = {
   puesto_con_dos_roles: {
-    max: 1,
+    max: 3,
     motivo:
-      '`vendedor_ruta` con 13 `promotor_ruta` + 11 `vendedor_ruta`. El lead decidió NO crear el ' +
+      '(1) `vendedor_ruta` con 13 `promotor_ruta` + 11 `vendedor_ruta` — ver abajo. (2) y (3) ' +
+      '`jefe_zona`, que `[AU.18]` pobló con los tres jefes de plaza: Ivette Cruz conserva ' +
+      '`encargado_tienda` y Alejo y Rodríguez `superadmin` porque siguen siendo Sistemas, contra ' +
+      'el `supervisor_ventas` que el puesto propone. Los tres desvíos están asentados con su ' +
+      'motivo en `user_events` (decisión de Dirección, 2026-09-15): es una decisión escrita, no ' +
+      'deriva. ⚠️ Deja de contar cuando se les dé un perfil que sí les quede. ' +
+      'El caso (1): el lead decidió NO crear el ' +
       'puesto (`DEUDA-OR7-RUTA`): los roles convergen. ⚠️ Y el dato dice que NO es un recorte — ' +
       'cada rol tiene permisos que el otro no tiene — así que la dirección de la convergencia ' +
       'toca dinero (PAYMENTS_REGISTRAR, CARTERA_GESTIONAR) y necesita autorización propia.',
