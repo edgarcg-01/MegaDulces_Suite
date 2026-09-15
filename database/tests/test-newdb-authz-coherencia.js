@@ -56,10 +56,15 @@ const BASE = {
       '— que es trabajo de RH, no de una migración, porque toca permisos. ' +
       '(1) `vendedor_ruta` con 13 `promotor_ruta` + 11 `vendedor_ruta` — ver abajo. (2) y (3) ' +
       '`jefe_zona`, que `[AU.18]` pobló con los tres jefes de plaza: Ivette Cruz conserva ' +
-      '`encargado_tienda` y Alejo y Rodríguez `superadmin` porque siguen siendo Sistemas, contra ' +
-      'el `supervisor_ventas` que el puesto propone. Los tres desvíos están asentados con su ' +
-      'motivo en `user_events` (decisión de Dirección, 2026-09-15): es una decisión escrita, no ' +
-      'deriva. ⚠️ Deja de contar cuando se les dé un perfil que sí les quede. ' +
+      '`encargado_tienda`, y Alejo y Rodríguez `superadmin`, contra el `supervisor_ventas` que el ' +
+      'puesto propone. ⚠️ `[AU.27]` corrige el motivo que estaba escrito acá: decía que Alejo y ' +
+      'Rodríguez lo conservan «porque siguen siendo Sistemas», y eso lo contradicen las DOS ' +
+      'fuentes — el evento real en `user_events` dice «le quitaría accesos que necesita por su ' +
+      'área», y el organigrama de MDTask (`[AU.23]`) pone a Alejo como Jefe Zona Morelia, no en ' +
+      'la unidad `sistemas`. Los tres desvíos están asentados con el MISMO motivo y la misma ' +
+      'firma (decisión de Dirección, 2026-09-15): no hay asimetría sin explicar entre los tres, ' +
+      'cada uno conserva el perfil que traía. Es una decisión escrita, no deriva. ' +
+      '⚠️ Deja de contar cuando se les dé un perfil que sí les quede. ' +
       'El caso (1): el lead decidió NO crear el ' +
       'puesto (`DEUDA-OR7-RUTA`): los roles convergen. ⚠️ Y el dato dice que NO es un recorte — ' +
       'cada rol tiene permisos que el otro no tiene — así que la dirección de la convergencia ' +
