@@ -57,7 +57,26 @@ const STEPS = {
     path.join(K, 'import-sales-fact.js'),  // mart.ventas_enriched → analytics.sales_daily (Command Center)
     path.join(K, 'import-sales-stats.js'), // sales_daily → ABC/share
     path.join(K, 'import-demand-clean.js'), // RA-PRO.17.1 demanda LIMPIA (revenue÷precio_pieza) → analytics.product_demand (compra/traspaso/ranking) — tras sales-fact
-    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido (almacén×producto) → /compras/pedido lee de aquí — tras demanda
+    // [DB-MEM.10] `import-replenishment-plan.js` SE RETIRÓ DE ACÁ (sigue en `stock` y `nightly`).
+    //
+    // Es la consulta #1 de toda la base: `CREATE TEMP TABLE stg_rplan` mide **157 s por corrida**
+    // y corría 6 veces por hora (live @30min = 2 + stock @15min = 4) = **39 % del gasto vivo**,
+    // medio core continuo. El `EXPLAIN (ANALYZE, BUFFERS)` del 2026-09-15 dice que NO hay un nodo
+    // malo que arreglar: el costo está repartido entre 44 sub-CTEs (econ 24 s · swk 11 s · slvl
+    // 10 s · gy 9 s · hist 9 s) y `analytics.sales_daily` (4.5 GB) se escanea **4 veces por
+    // corrida** — 28 s de los 64 s. Reescribir eso es cirugía sobre la ruta del dinero.
+    //
+    // Y el resultado casi no cambia: de las 47,327 filas del fact, **2,879 (6.1 %) cambiaron en
+    // los últimos 15 min** y **31,210 (66 %) llevan más de 6 horas iguales**.
+    //
+    // ⭐ Por qué se saca de `live` y NO de `stock`: el único insumo que se mueve rápido es la
+    // EXISTENCIA, y `stock` es justo el carril que la refresca (por eso recalcula el plan ahí,
+    // "tras cambiar existencia"). Lo que `live` aporta es DEMANDA — ventanas de 90 días, que no
+    // se mueven en media hora; el propio comentario de `livefast` (abajo) ya lo declara así.
+    //
+    // ⚠️ El rezago que esto introduce está ACOTADO A 5 MINUTOS, no a 30: `stock` corre a los
+    // 5,20,35,50 y `live` a los 0,30 — o sea que después de cada `live` hay un `stock` cinco
+    // minutos más tarde que vuelve a computar el plan con la demanda nueva.
     path.join(K, 'import-cash-sessions.js'), // SM.10 — cajas ABIERTAS ahora (kp.kdpv_folio_caja, source=kp por default) → /tienda/cajas
   ],
   // LIVEFAST (loop continuo ~60s): la capa COCINADA display-crítica al momento — venta del día
