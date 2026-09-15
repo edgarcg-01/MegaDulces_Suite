@@ -19,7 +19,7 @@
 const { Client } = require('pg');
 
 const M = '00000000-0000-0000-0000-00000000d01c';
-const SRC = process.env.SRC_URL || 'postgresql://postgres:superoot@192.168.0.249:5433/kepler_consolidado';
+const SRC = process.env.SRC_URL || process.env.DATABASE_URL_KEPLER_CONSOLIDADO || 'postgresql://postgres:superoot@192.168.0.222:5433/kepler_consolidado';
 const DST = process.env.DST_URL || process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la URL de la DB destino: exporta DATABASE_URL_NEW — la copia local :5433/postgres_platform fue PURGADA 2026-09-08 (ver reference_prod_db_connection_topology)'); })();
 const APPLY = process.argv.includes('--apply');
 const CUTOVER = '2026-06-28'; // PH migró de .mdb al push ~fin de junio
