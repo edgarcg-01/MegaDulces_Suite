@@ -207,6 +207,43 @@ export interface DupBarcodeResponse {
   rows: DupBarcodeRow[];
 }
 
+/** El precio de un producto en UNA sucursal. */
+export interface PrecioSucursal {
+  sucursal: string;
+  pieza: number | null;
+  mayoreo: number | null;
+  /** Desde cuántas piezas aplica el mayoreo. */
+  desde: number | null;
+}
+
+export interface PriceGapRow {
+  sku: string;
+  nombre: string | null;
+  barcode: string | null;
+  activo: boolean;
+  supplier_name: string | null;
+  sucursales: number;
+  /** Las plazas donde está cada extremo del precio de pieza. */
+  suc_barata: string | null;
+  suc_cara: string | null;
+  /** Una plaza cobra 3× lo de otra: casi siempre es que una capturó por pieza y otra por caja. */
+  sospecha_unidad: boolean;
+  pieza_min: number | null;
+  pieza_max: number | null;
+  pieza_pct: number;
+  mayoreo_min: number | null;
+  mayoreo_max: number | null;
+  mayoreo_pct: number;
+  por_sucursal: PrecioSucursal[];
+}
+
+export interface PriceGapResponse {
+  total: number;
+  /** `false` = esta base no tiene el precio con grano por sucursal: no hay nada que comparar. */
+  comparable: boolean;
+  rows: PriceGapRow[];
+}
+
 export interface UpdateProductDto {
   description?: string | null;
   location?: string | null;
@@ -912,6 +949,18 @@ export class ComercialService {
     if (opts.search?.trim()) params = params.set('search', opts.search.trim());
     if (opts.limit != null) params = params.set('limit', opts.limit);
     return this.http.get<DupBarcodeResponse>(`${this.base}/products/duplicate-barcodes`, { params });
+  }
+
+  /**
+   * `[CAT.3]` Productos cuyo precio al cliente no es el mismo en todas las sucursales.
+   */
+  priceDiscrepancies(opts: { search?: string; minPct?: number; kind?: string; limit?: number } = {}) {
+    let params = new HttpParams();
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.minPct) params = params.set('min_pct', opts.minPct);
+    if (opts.kind) params = params.set('kind', opts.kind);
+    if (opts.limit != null) params = params.set('limit', opts.limit);
+    return this.http.get<PriceGapResponse>(`${this.base}/products/price-discrepancies`, { params });
   }
 
   /** Proveedores con productos (para el filtro de /comercial/products). */

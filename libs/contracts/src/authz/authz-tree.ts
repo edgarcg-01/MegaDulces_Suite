@@ -303,8 +303,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // casilla, el equipo de conciliación sólo se podía cambiar por SQL.
           { id: 'tareas', label: 'Tareas de conciliación', route: '/finanzas/tareas', view: [Permission.FINANCE_BANK_VER], manage: [Permission.FINANCE_RECON_ASIGNAR, Permission.FINANCE_RECON_RECIBIR] },
           { id: 'egresos', label: 'Egresos contables', route: '/finanzas/egresos', view: [Permission.FINANCE_EXPENSES_VER], manage: [] },
-          { id: 'solicitudes', label: 'Solicitudes de gasto (evidencia)', route: '/finanzas/solicitudes', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
-          { id: 'capturar-gasto', label: 'Capturar gasto (comprobante)', route: '/finanzas/capturar-gasto', view: [Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_VER], manage: [] },
+          // GX.10 — una sola pantalla para el ciclo del gasto: el tablero para quien puede
+          // ver, la captura mínima para quien sólo captura. Antes eran dos nodos porque
+          // eran dos rutas.
+          { id: 'gastos', label: 'Gastos (solicitudes, captura y evidencia)', route: '/finanzas/gastos', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL, Permission.FINANCE_EXPENSES_CAPTURAR], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
         ],

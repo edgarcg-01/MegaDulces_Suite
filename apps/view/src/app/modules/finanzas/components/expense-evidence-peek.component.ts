@@ -29,7 +29,7 @@ const ETIQUETAS: Record<string, string> = {
  *
  * Vive fuera de la página porque reemplaza a la bandeja `/finanzas/comprobaciones`, que
  * existía sólo para volver a mostrar datos que Kepler ya tiene. El tablero es
- * `/finanzas/solicitudes`; esto es su detalle.
+ * `/finanzas/gastos`; esto es su detalle.
  *
  * Las URLs de los adjuntos se piden AL ABRIR: la lista las firma con TTL de 10 min y
  * quien revisa trabaja la bandeja un buen rato.

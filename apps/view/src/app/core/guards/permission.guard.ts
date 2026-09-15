@@ -260,7 +260,7 @@ export const FINANZAS_LANDING: LandingCandidate[] = withTreeCandidates('finanzas
   { perm: Permission.FINANCE_RECEIVABLES_VER, url: '/finanzas/cartera' },
   { perm: Permission.FINANCE_PAYMENTS_VER, url: '/finanzas/pagos-comprobantes' },
   { perm: Permission.FINANCE_AI_CHAT, url: '/finanzas/hallazgos' },
-  { perm: Permission.FINANCE_EXPENSES_CAPTURAR, url: '/finanzas/capturar-gasto' },
+  { perm: Permission.FINANCE_EXPENSES_CAPTURAR, url: '/finanzas/gastos' },
 ]);
 export const finanzasHomeGuard: CanActivateFn = landingRedirectGuard(FINANZAS_LANDING, '/finanzas/egresos');
 

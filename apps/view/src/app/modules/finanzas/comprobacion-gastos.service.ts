@@ -168,6 +168,6 @@ export class ComprobacionGastosService {
   requestCorrection(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/request-correction`, { motivo }); }
   /** Reusa el catálogo de departamentos del módulo de reembolsos. */
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.proofsBase}/departamentos`); }
-  /** Mapa folio_solicitud → estado, para el overlay de comprobación en /finanzas/solicitudes. */
+  /** Mapa folio_solicitud → estado, para el overlay de comprobación en /finanzas/gastos. */
   statusBySolicitud(): Observable<Record<string, string>> { return this.http.get<Record<string, string>>(`${this.base}/status-by-solicitud`); }
 }

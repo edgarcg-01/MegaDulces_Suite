@@ -12,6 +12,16 @@ export interface PageTab {
   icon?: string;
   /** Si se especifica, el tab solo se muestra si el user tiene ese permiso. */
   permission?: Permission;
+  /**
+   * Alternativa a `permission` cuando UNA pantalla sirve a dos públicos con permisos
+   * distintos: basta con tener cualquiera de estos. Mismo nombre que `NavItem.anyOf`
+   * del sidebar, que ya resolvía este caso — un segundo nombre para el mismo concepto
+   * sólo obliga a recordar cuál va en cada lugar. Nace en «Gastos», que es una sola
+   * ruta que muestra el tablero a quien puede ver y la captura a quien sólo captura.
+   * Con un permiso único, uno de los dos grupos perdía el tab aunque el guard lo dejara
+   * entrar — y no es un caso raro: 5 roles tienen VER sin CAPTURAR y 11 al revés.
+   */
+  anyOf?: Permission[];
   /** routerLinkActiveOptions.exact (default true). */
   exact?: boolean;
 }
@@ -144,9 +154,12 @@ export class PageTabsComponent implements AfterViewInit {
    */
   readonly visibleTabs = computed(() => {
     const all = this.perms.isAdmin();
-    return this.tabs().filter(
-      (t) => !t.permission || all || this.auth.user()?.permissions?.[t.permission] === true,
-    );
+    const tiene = (p: Permission) => this.auth.user()?.permissions?.[p] === true;
+    return this.tabs().filter((t) => {
+      if (all) return true;
+      if (t.anyOf?.length) return t.anyOf.some(tiene);
+      return !t.permission || tiene(t.permission);
+    });
   });
 
   ngAfterViewInit(): void {

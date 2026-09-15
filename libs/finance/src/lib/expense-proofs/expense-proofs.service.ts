@@ -622,7 +622,7 @@ export class ExpenseProofsService {
   }
 
   /**
-   * (C) Mapa folio_solicitud → EXPEDIENTE, para el tablero de /finanzas/solicitudes.
+   * (C) Mapa folio_solicitud → EXPEDIENTE, para el tablero de /finanzas/gastos.
    *
    * Devuelve el id (para poder resolver desde donde se ve), el estado, y qué documentos
    * hay. Sin los documentos el tablero no puede separar «falta el comprobante» de «falta
@@ -637,6 +637,11 @@ export class ExpenseProofsService {
       const rows = await trx
         .with('ranked', (qb: any) => {
           qb.from('finance.expense_proofs')
+            // GX.9 — desde que el folio es NULLable, los expedientes capturados por link y
+            // todavía SIN CASAR caerían todos en la misma partición `null` y `rn=1` elegiría
+            // uno arbitrario entre ellos, que además entraría al mapa bajo la clave `null`.
+            // El mapa es folio→expediente: lo que no tiene folio no le pertenece.
+            .whereNotNull('folio_solicitud')
             .select('id', 'folio_solicitud', 'status', 'files',
               ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
               ...(clasCol ? ['clasificacion'] : []),
@@ -772,6 +777,151 @@ export class ExpenseProofsService {
         .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
       if (full) this.emit('rejected', full, actor);
       return row;
+    });
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════
+  // GX.9 — Capturas SIN FOLIO (llegadas por link) y su casamiento
+  // ══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * Los expedientes capturados en campo que todavía no se ligaron a su solicitud XA1501.
+   * No aparecen en el tablero de `/finanzas/gastos` por construcción: ese tablero se
+   * arma desde las filas de Kepler, y éstos todavía no tienen una.
+   */
+  async sinFolio(q?: { search?: string; limit?: number }) {
+    this.tenantCtx.requireTenantId();
+    const limit = Math.min(500, Math.max(1, Number(q?.limit) || 200));
+    return this.tk.run(async (trx) => {
+      const base = () => {
+        const b = trx('finance.expense_proofs as p').whereNull('p.folio_solicitud');
+        const s = (q?.search || '').trim();
+        if (s) {
+          b.andWhere((w: any) => w
+            .whereILike('p.proveedor', `%${s}%`)
+            .orWhereILike('p.solicitante', `%${s}%`)
+            .orWhereILike('p.comentarios', `%${s}%`));
+        }
+        return b;
+      };
+
+      const k: any = await base().first(
+        trx.raw('COUNT(*)::int AS total'),
+        trx.raw('COALESCE(SUM(p.importe),0)::numeric AS importe'),
+        trx.raw(`COUNT(*) FILTER (WHERE p.origen='link')::int AS por_link`),
+        trx.raw(`COUNT(*) FILTER (WHERE p.monto_match IS FALSE)::int AS no_cuadran`),
+      );
+
+      const rows = await base()
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', 'p.tenant_id').andOn('w.code', 'p.sucursal');
+        })
+        .orderBy('p.created_at', 'desc').limit(limit)
+        .select('p.id', 'p.solicitante', 'p.sucursal', 'w.name as sucursal_nombre', 'p.proveedor',
+          'p.comentarios', 'p.clasificacion', 'p.status', 'p.origen', 'p.files',
+          'p.monto_match', 'p.revision_nota', 'p.created_at', 'p.capture_meta',
+          trx.raw('p.importe::numeric AS importe'),
+          trx.raw('p.monto_ocr::numeric AS monto_ocr'),
+          trx.raw(`to_char(p.fecha_gasto,'YYYY-MM-DD') AS fecha_gasto`));
+
+      return {
+        kpis: {
+          total: Number(k?.total || 0),
+          importe: Number(k?.importe || 0),
+          por_link: Number(k?.por_link || 0),
+          no_cuadran: Number(k?.no_cuadran || 0),
+        },
+        rows: rows.map((r: any) => {
+          const files: any[] = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
+          const meta = typeof r.capture_meta === 'string' ? JSON.parse(r.capture_meta || '{}') : (r.capture_meta || {});
+          return {
+            ...r, files: undefined, capture_meta: undefined,
+            importe: Number(r.importe) || 0,
+            monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
+            fotos: files.length,
+            tiene_solicitud: files.some((f) => String(f?.role || '') === REQUEST_ROLE && f?.url),
+            camara: meta.camera ?? null,
+            captured_at: meta.captured_at ?? null,
+          };
+        }),
+      };
+    });
+  }
+
+  /**
+   * Casa una captura de campo con su solicitud de Kepler. Es un UPDATE sobre el MISMO
+   * expediente — no se mueve la fila a otro lado: siempre fue el mismo expediente, sólo que
+   * hasta ahora no sabíamos a qué folio pertenecía.
+   *
+   * Al casar pasan dos cosas que importan:
+   *   1. El importe pasa a ser el de **Kepler** (la fuente de verdad). El que declaró quien
+   *      capturó se guarda en `capture_meta.importe_declarado` — si no coinciden, eso es
+   *      justamente lo que hay que ver, y borrarlo sería perder la evidencia.
+   *   2. Se recorre el cuadre por visión contra ese importe real. El cuadre de la captura
+   *      era contra lo declarado, que es lo único que había sin folio.
+   *
+   * No cambia el `status`: sigue esperando aprobación como cualquier expediente capturado.
+   */
+  async match(id: string, folio: string, actor?: string) {
+    this.tenantCtx.requireTenantId();
+    const f = String(folio || '').trim();
+    if (!f) throw new BadRequestException('folio requerido');
+
+    const cur: any = await this.tk.run(async (trx) =>
+      trx('finance.expense_proofs').where({ id }).whereNull('folio_solicitud')
+        .first('id', 'files', 'clasificacion', 'capture_meta', trx.raw('importe::numeric AS importe')));
+    if (!cur) throw new BadRequestException('esta captura no existe o ya fue casada');
+
+    const sol = await this.lookupSolicitud(f);
+    if (!sol) throw new BadRequestException(`la solicitud ${f} no aparece en Kepler`);
+
+    const declarado = Number(cur.importe) || 0;
+    const real = Number(sol.importe) || 0;
+    const files: ProofFile[] = typeof cur.files === 'string' ? JSON.parse(cur.files || '[]') : (cur.files || []);
+
+    // Cuadre bueno: contra el importe de Kepler. Fuera de la trx (visión es I/O de segundos).
+    let ocr: { usado: number | null; match: boolean | null; nota: string | null } = { usado: null, match: null, nota: null };
+    if (requiereEvidencia(cur.clasificacion) && files.length) {
+      const srv = await this.serverReadReceipt(files, {} as CreateExpenseProofDto);
+      const { match, usado, diff } = this.montoCuadra(real, srv.total, srv.subtotal);
+      const fmt = (v: number | null) => (v == null ? '—' : `$${(Number(v) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+      ocr = {
+        usado, match: srv.legible ? match : null,
+        nota: (srv.legible && match) ? null
+          : (!srv.legible ? 'Foto ilegible o sin lectura — validar a mano'
+            : `Monto no cuadra: foto ${fmt(usado)} vs solicitud ${fmt(real)}${diff != null ? ` (Δ ${fmt(diff)})` : ''}`),
+      };
+    }
+
+    return this.tk.run(async (trx) => {
+      const meta = typeof cur.capture_meta === 'string' ? JSON.parse(cur.capture_meta || '{}') : (cur.capture_meta || {});
+      const [row] = await trx('finance.expense_proofs').where({ id }).whereNull('folio_solicitud')
+        .update({
+          folio_solicitud: f,
+          importe: real || declarado,
+          solicitante: trx.raw('COALESCE(NULLIF(?, \'\'), solicitante)', [sol.solicitante || '']),
+          fecha_gasto: sol.fecha || trx.raw('fecha_gasto'),
+          monto_ocr: ocr.usado,
+          monto_match: ocr.match,
+          revision_nota: ocr.nota,
+          capture_meta: JSON.stringify({
+            ...meta,
+            importe_declarado: declarado,
+            casado_por: actor || null,
+            casado_at: new Date().toISOString(),
+          }),
+          updated_at: trx.fn.now(),
+        })
+        .returning(['id', 'folio_solicitud', 'status']);
+      if (!row) throw new BadRequestException('esta captura no existe o ya fue casada');
+
+      const brecha = real && Math.abs(real - declarado) > 0.5
+        ? ` · declaró ${declarado} y Kepler dice ${real}` : '';
+      this.logger.log(`captura ${id} casada con ${f} por ${actor || '?'}${brecha}`);
+      const [full] = await trx('finance.expense_proofs').where({ id })
+        .select('folio_solicitud', 'status', 'solicitante', 'importe', 'sucursal');
+      if (full) this.emit('captured', full, actor);
+      return { ...row, importe_declarado: declarado, importe_kepler: real };
     });
   }
 }
