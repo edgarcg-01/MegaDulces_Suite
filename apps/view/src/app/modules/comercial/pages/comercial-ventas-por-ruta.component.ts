@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { ActivatedRoute } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
@@ -604,6 +605,8 @@ export class ComercialVentasPorRutaComponent {
   private readonly svc = inject(ComercialService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  /** `[JZ.1]` Para aterrizar filtrado desde un enlace. Ver `leerFiltrosDeLaUrl()`. */
+  private readonly ruta = inject(ActivatedRoute);
 
   routeOpts = signal<SalesByRouteOption[]>([]);
   productOpts = signal<{ value: string; label: string }[]>([]);
@@ -931,7 +934,56 @@ export class ComercialVentasPorRutaComponent {
 
   yearOpts = computed(() => { const y = new Date().getFullYear(); return [y, y - 1, y - 2]; });
 
+  /**
+   * `[JZ.1]` **La pantalla aterriza filtrada cuando se llega desde otro lado.**
+   *
+   * Nace de la portada del jefe de zona: su fila «Ruta 28 · +62.8%» tiene que abrir ESTA pantalla
+   * ya puesta en esa ruta, no en el reporte completo para que él vuelva a filtrar. El filtro por
+   * sucursal y por ruta **ya existía como control**; lo que no existía era leerlo de la URL — cero
+   * usos de `ActivatedRoute` en el archivo antes de esto.
+   *
+   * Es el mismo patrón que `[SN.16]` reusó sin tocar las pantallas: bancos lee `?view=&period=` y
+   * el Libro de compras lee `?mes=`. Acá:
+   *
+   *   `/comercial/ventas-por-ruta?branch=01,02,03`   → filtro de vista por sucursal
+   *   `/comercial/ventas-por-ruta?route=RUTA-28`     → filtro de servidor por ruta (re-agrega)
+   *   `/comercial/ventas-por-ruta?year=2026`         → el año del reporte
+   *
+   * ⛔ **Sólo LEE la URL, no la escribe.** Escribirla haría que cada cambio de filtro empuje una
+   * entrada al historial, y el valor que se busca acá es aterrizar desde un enlace — no que la
+   * pantalla sea compartible. Queda declarado: si más adelante hace falta compartir un filtro, se
+   * agrega `writeUrl` como en bancos.
+   *
+   * ⚠️ `branch` es un filtro de VISTA sobre lo ya cargado. Un código que no esté en el reporte deja
+   * la tabla vacía — igual que si la persona lo eligiera a mano en el multiselect. No se valida
+   * contra `branchOpts()` porque ese `computed` depende del reporte, que todavía no llegó acá.
+   */
+  private leerFiltrosDeLaUrl(): void {
+    const qp = this.ruta.snapshot.queryParamMap;
+
+    const year = Number(qp.get('year'));
+    // Rango sano: el reporte es por año de folio, no acepta cualquier entero.
+    if (Number.isInteger(year) && year >= 2000 && year <= 2100) this.year = year;
+
+    // `route` y `routes` son el mismo parámetro: el singular es el que usa un enlace de una fila.
+    const rutas = this.lista(qp.get('route') ?? qp.get('routes'));
+    if (rutas.length) this.routes = rutas;
+
+    const sucursales = this.lista(qp.get('branch') ?? qp.get('branches'));
+    if (sucursales.length) this.fBranch.set(sucursales);
+  }
+
+  /** `'01,02 , 03'` → `['01','02','03']`. Vacío si no vino nada útil. */
+  private lista(v: string | null): string[] {
+    return (v ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+  }
+
   constructor() {
+    // ANTES del `load()`: `year` y `routes` viajan en `params()`, así que leerlos después
+    // dispararía una segunda consulta con el filtro puesto y mostraría el reporte completo
+    // durante el parpadeo.
+    this.leerFiltrosDeLaUrl();
+
     this.svc.salesByRouteRoutes().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (r) => this.routeOpts.set(r), error: () => undefined });
     this.svc.salesByRouteProducts().pipe(takeUntilDestroyed(this.destroyRef))
