@@ -10,6 +10,16 @@
 
 ## [Unreleased]
 
+### Fixed — la etiqueta de anaquel se RE-MIDE cuando cambia lo que mide (ET.5 refutado → ET.6, 2026-09-15)
+
+Reporte de tienda: *«las etiquetas salen mal en unos navegadores y en otros no»*. Se llegó a la respuesta con sonda en la caja que fallaba (Yurécuaro), no adivinando: se descartaron tipografía, navegador, re-ajuste al redimensionar y trinquete montos→precio; se midió **136 px de número en una caja de 129**.
+
+- ❌ **El hotfix ET.5 (`fitPrice()` al cierre de `layout()`) se desplegó y NO arregló nada** — verificado leyendo el chunk servido en prod: con el parche puesto, el número seguía a 15 mm (el techo) con 127 px en 120 disponibles. Para crecer a 15 mm el bucle tuvo que medir ≤107 px: **el insumo de la medida (texto o tipografía) cambió DESPUÉS del pase** y nada re-medía. La caja no se movió (129 px en ambas lecturas). Se deja la línea por lo que sí cubre, con el comentario corregido.
+- ⭐ **ET.6 — diseño, no cuarto parche:** `observar()` mira los tres insumos de una medida de texto —geometría (`ResizeObserver`), texto (`MutationObserver` sin `attributes`), tipografía (`loadingdone` + verdad leída **al medir**)— y `ajustar()` sólo corre si cambió la **firma** de los tres (idempotente). Los hooks de Angular sólo piden medir. Veredicto en el DOM (`data-etq-fit = ok | overflow | sin_medida`) y la impresión **cuenta y dice** cuántas quedaron desbordadas.
+- ⛔ **Dos trampas debajo:** `FontFaceSet.check()` devuelve `true` cuando ninguna `@font-face` coincide (con el `@import` decía «sí» antes de bajar el CSS → se exige cara `status === 'loaded'`); y `FUENTES_OK` era una bandera de una vez puesta `true` también por **tope de 3 s** — internet lento crecía contra la fuente de respaldo y Anton a los 4 s no re-medía. El tope ahora sólo gobierna la marca que espera la impresión.
+- **Las tres tipografías viajan con la app** (`apps/view/src/assets/fonts`, OFL; Baloo 2 variable). Cero `fonts.googleapis.com` en la etiqueta: dos cajas iguales ya no pueden medir distinto por su salida a internet.
+- Pruebas: **8 suites / 150 (+7)**, roto a propósito dos veces → rojo, verde al restaurar. `nx build view` OK. Detalle: `docs/GOTCHAS.md` §49.
+
 ### Changed — «si no tiene responsabilidades no se le muestra nada» (SN.30, 2026-09-14)
 
 Edgar, sobre la conclusión de SN.29 (*«mientras el 77 % no tenga responsabilidad declarada, la pantalla tiene que mostrar colas compartidas»*): **«no, si no tiene responsabilidades no se le muestra nada»**.

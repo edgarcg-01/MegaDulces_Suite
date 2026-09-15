@@ -2291,3 +2291,62 @@ sesiones están commiteando es mucho peor que el problema.
   PowerShell en Bash**. Un `` `qty_unit` `` dentro de `-m "..."` lo ejecuta el shell
   (`qty_unit: command not found`) y lo sustituye por vacío; un `@'…'@` deja el `@` pegado al
   asunto. Para un mensaje largo: escribilo a un archivo y `git commit -F <archivo> -- <rutas>`.
+
+## 49. Un auto-ajuste que mide UNA vez es un bug diferido: se re-mide cuando cambia el INSUMO, no en "el momento"
+
+La etiqueta de anaquel (`label.component.ts`) ajusta el tamaño del precio midiendo el ancho del
+texto. Se arregló **tres veces** en tres sesiones, y las tres veces con la misma forma: *"faltaba
+medir en tal momento"* — esperar `fonts.check` en vez de `fonts.ready`; colgar el re-layout también
+de `ngOnChanges`; volver a medir el número al cierre del pase. Cada una dejó abierto el momento
+siguiente, y la tercera se publicó como **la causa** de un desborde que no arreglaba.
+
+**Lo que se midió en la caja que fallaba (Yurécuaro, 2026-09-15), con ese tercer parche ya en
+producción** (verificado leyendo el chunk servido: `layout()` terminaba en `fitPrice` x2):
+
+```
+precio 15 mm (el techo) · ancho 127 px · necesita 142 · disponible 120 · cabe: false
+```
+
+Para haber **crecido** hasta 15 mm el bucle tuvo que medir el número en **≤ 107 px** en ese
+instante. Ahora medía 127. **El mismo número, en la misma caja (129 px en ambas lecturas), era 19 %
+más ancho que cuando se midió.** La caja no se movió; cambió el *insumo* de la medida (texto o
+tipografía) DESPUÉS del pase, y nada volvía a medir. Ningún reorden de llamadas cierra eso.
+
+**La regla:** una medida de texto depende de tres insumos —geometría, texto, tipografía— y vale
+sólo mientras ninguno cambie. El diseño robusto no es "encontrar el momento", es **observar los
+tres y re-medir cuando la firma de los tres cambia, y sólo entonces**:
+
+- `ResizeObserver` sobre la raíz (geometría: re-escala de la hoja, entrar a impresión);
+- `MutationObserver` sobre la raíz con `childList + characterData + subtree` y **sin `attributes`**
+  — los ajustes escriben `style.fontSize`, observarlo sería un lazo;
+- `document.fonts` `loadingdone` **más la verdad leída AL MEDIR**, no una bandera puesta una vez;
+- una **firma** `ancho×alto | fuentesOk | textContent`: si no cambió, no hay pase (idempotente);
+- y al terminar, el **veredicto en el DOM** (`data-etq-fit = ok | overflow | sin_medida`) para
+  que quien imprime lo DIGA, en vez de imprimir callado. Lo que no se pudo medir es `sin_medida`,
+  nunca `ok` (ADR-056).
+
+**Dos trampas que estaban debajo y que esto destapó:**
+
+1. ⛔ **`FontFaceSet.check()` devuelve `true` cuando NINGUNA `@font-face` coincide** con la familia
+   preguntada ("no hay nada que cargar"). Es la especificación. Con las familias por `@import` a
+   `fonts.googleapis.com` dentro del CSS del componente, en la ventana entre montar el componente
+   y bajar ese CSS `check('11mm Anton')` decía **sí** sin que Anton existiera. Cuando el navegador
+   expone la lista de caras (`FontFaceSet` es iterable), exigir además una cara de esa familia con
+   `status === 'loaded'`.
+2. ⛔ **Una bandera de una sola vez con tope de tiempo** (`FUENTES_OK = true` al resolver una espera
+   que también resolvía a los 3 s) gobernaba el **crecimiento**: internet lento → creció contra la
+   fuente de respaldo → Anton llegó a los 4 s → nadie re-midió. La espera con tope sólo puede
+   gobernar una **marca** ("ya se puede clonar a impresión"); la verdad para decidir el techo se
+   lee en el instante de decidir.
+
+Y la raíz de que dos cajas iguales midieran distinto: **las fuentes bajaban de internet en cada
+caja**. Ahora viajan con la app (`apps/view/src/assets/fonts`, OFL junto a los archivos; Baloo 2
+es variable y un archivo cubre 500–800). Una dependencia de red por máquina no es una fuente de
+verdad, es una fuente de variación.
+
+**Cómo se probó:** siete pruebas nuevas en jsdom (mutar el texto sin pasar por Angular → re-mide;
+escribir `style` → **no** re-mide; `loadingdone` con la firma cambiada → re-mide una vez, y el
+mismo aviso sin cambio → cero; dos pedidos sin cambio → cero pases; el veredicto en jsdom es
+`sin_medida`), y se rompió a propósito dos veces (quitar el `mo.observe`, quitar el
+`addEventListener('loadingdone')`): **2 fallas cada vez**, verde al restaurar. Ver `label.component.ts`
+(encabezado + `observar()`/`ajustar()`) y `etiqueta-hoja.spec.ts`.

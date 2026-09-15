@@ -27,11 +27,15 @@ describe('LabelComponent · lo que sale impreso', () => {
     fix.componentRef.setInput('model', model);
     fix.componentRef.setInput('show', show);
     fix.detectChanges();
-    // `ngOnChanges` difiere el render a un microtask y el asentamiento cuelga de FUENTES_USABLES.
+    // `ngOnChanges` difiere el render a un microtask; la medición corre en el siguiente cuadro
+    // (`requestAnimationFrame`, fuera de la zona de Angular) — se espera un cuadro de verdad.
     await fix.whenStable();
     await new Promise((r) => setTimeout(r, 0));
+    await frame();
     fix.detectChanges();
   }
+  /** Un cuadro de animación: cuando corre `ajustar()`. */
+  const frame = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()));
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({ imports: [LabelComponent] }).compileComponents();
@@ -88,6 +92,84 @@ describe('LabelComponent · lo que sale impreso', () => {
   it('marca cuándo terminó de ajustarse, para que la impresión tenga qué esperar', async () => {
     await render(BASE);
     expect(el().querySelector('.etq-label')?.getAttribute('data-etq-settled')).toBeTruthy();
+  });
+
+  /**
+   * ⭐ El ajuste reacciona a LO QUE SE MIDE. Tres insumos (texto, tipografía, geometría —esta
+   * última no se puede ejercer en jsdom, que no tiene ResizeObserver) y una NEGATIVA: lo que los
+   * ajustes ESCRIBEN (`style`) no puede volver a disparar el ajuste, o es un lazo. Y la firma:
+   * dos pedidos sin cambio = cero pases.
+   */
+  describe('⭐ vuelve a medir cuando cambia el insumo, y sólo entonces', () => {
+    const cmp = () => fix.componentInstance as unknown as { layout(): void; programar(): void };
+    const espiar = () => jest.spyOn(cmp(), 'layout');
+    const dosCuadros = async () => { await frame(); await frame(); };
+
+    it('un cambio de TEXTO que no pasa por Angular (el modelo mutado en sitio) re-mide', async () => {
+      await render(BASE);
+      await frame();
+      const spy = espiar();
+      // Como si el precio del ERP hubiera llegado después de la primera medida.
+      el().querySelector('.etq-price')!.textContent = '$1,234.56';
+      await dosCuadros();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+
+    it('NEGATIVA: escribir `style` (lo que hacen los ajustes) NO re-mide — sin esto sería un lazo', async () => {
+      await render(BASE);
+      await frame();
+      const spy = espiar();
+      (el().querySelector('.etq-price') as HTMLElement).style.fontSize = '9mm';
+      (el().querySelector('.etq-label') as HTMLElement).style.setProperty('--x', '1');
+      await dosCuadros();
+      expect(spy).not.toHaveBeenCalled();
+    });
+
+    it('cuando el navegador avisa que llegó una fuente (`loadingdone`) re-mide con la verdad nueva', async () => {
+      const original = Object.getOwnPropertyDescriptor(document, 'fonts');
+      const fake = new EventTarget() as EventTarget & { check: (s: string) => boolean; load: () => Promise<void> };
+      fake.check = () => false;
+      fake.load = () => Promise.resolve();
+      Object.defineProperty(document, 'fonts', { value: fake, configurable: true });
+      try {
+        await render(BASE);
+        await frame();
+        // Sin fuentes la etiqueta lo declara…
+        const raiz = el().querySelector('.etq-label')!;
+        expect(raiz.getAttribute('data-etq-settled')).toBe('fallback');
+        const spy = espiar();
+        // …llega la familia: la firma cambia (fuentesOk false → true) y se re-mide UNA vez.
+        fake.check = () => true;
+        fake.dispatchEvent(new Event('loadingdone'));
+        await dosCuadros();
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(raiz.getAttribute('data-etq-settled')).toBe('fonts');
+        // NEGATIVA: el mismo aviso sin cambio real no re-mide.
+        fake.dispatchEvent(new Event('loadingdone'));
+        await dosCuadros();
+        expect(spy).toHaveBeenCalledTimes(1);
+      } finally {
+        if (original) Object.defineProperty(document, 'fonts', original);
+        else delete (document as unknown as Record<string, unknown>)['fonts'];
+      }
+    });
+
+    it('misma firma → NO re-mide: dos pedidos seguidos sin cambio son cero pases', async () => {
+      await render(BASE);
+      await frame();
+      const spy = espiar();
+      cmp().programar();
+      cmp().programar();
+      await dosCuadros();
+      expect(spy).not.toHaveBeenCalled();
+      // …pero la marca para la impresión se REPONE aunque no haya habido pase.
+      expect(el().querySelector('.etq-label')?.getAttribute('data-etq-settled')).toBeTruthy();
+    });
+
+    it('declara su veredicto, y en jsdom (sin layout) es "sin_medida" — nunca "ok"', async () => {
+      await render(BASE);
+      expect(el().querySelector('.etq-label')?.getAttribute('data-etq-fit')).toBe('sin_medida');
+    });
   });
 
   /**

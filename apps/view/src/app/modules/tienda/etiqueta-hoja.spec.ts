@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /**
@@ -117,18 +117,36 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(montoCss).toBe(Number(/const MONTO_MM = ([\d.]+)/.exec(LABEL)![1]));
   });
 
-  it('no se mide antes de que la tipografía esté usable', () => {
-    // NEGATIVA del bug: `document.fonts.ready` resuelve ANTES de que exista el @font-face
-    // (las familias llegan por un @import), así que medir ahí da la fallback — hasta 21% más
-    // ancha → el precio quedaba 17% más chico. Tiene que esperar `check`, no `ready`.
+  it('⭐ se mide cuando cambia LO QUE SE MIDE, no cuando un hook cree que algo cambió', () => {
+    // NEGATIVA del bug, que se arregló tres veces "en el momento que faltaba" y las tres dejaron
+    // abierto el siguiente: `fonts.ready` resolvía antes del @font-face (medía con la fallback,
+    // precio 17% más chico); el re-layout vivía sólo en `ngAfterViewInit` (las etiquetas de la
+    // cola nacen de un cambio de input); y el número se medía una vez y el insumo cambiaba
+    // DESPUÉS (2026-09-15, Yurécuaro: 15 mm con 127 px en 120 disponibles). Ya no hay momentos:
+    // hay observadores de los tres insumos de la medida y una firma que decide si se re-mide.
     expect(LABEL).toContain('FUENTES_USABLES');
     // Nadie vuelve a colgar el re-layout de `fonts.ready` a secas.
     expect(/ngAfterViewInit\(\)[^\n]*fonts\??\.ready/.test(LABEL)).toBe(false);
     expect(LABEL).toContain('f.check(s)');
-    // …y el re-ajuste tiene que colgar de los DOS hooks: las etiquetas de la cola nacen de un
-    // cambio de input, no de un primer render.
-    expect(/ngAfterViewInit\(\): void \{[^\n]*FUENTES_USABLES/.test(LABEL)).toBe(true);
-    expect(/ngOnChanges\(\): void \{[^\n]*FUENTES_USABLES/.test(LABEL)).toBe(true);
+    // Los tres insumos están observados: geometría, texto, tipografía…
+    expect(LABEL).toMatch(/new ResizeObserver\(/);
+    expect(LABEL).toMatch(/new MutationObserver\(/);
+    expect(LABEL).toMatch(/addEventListener\?\.\('loadingdone'/);
+    // …el observador de texto NO mira atributos (los ajustes escriben `style`: sería un lazo)…
+    const mo = /\.mo\.observe\(root, \{([^}]*)\}\)/.exec(LABEL)![1];
+    expect(mo).toContain('characterData: true');
+    expect(mo).toContain('childList: true');
+    expect(mo).not.toContain('attributes');
+    // …los dos hooks PIDEN medir en vez de medir (la decisión es de `ajustar()`)…
+    expect(/ngAfterViewInit\(\): void \{[^\n]*this\.render\(\)/.test(LABEL)).toBe(true);
+    expect(/ngOnChanges\(\): void \{[^\n]*this\.render\(\)/.test(LABEL)).toBe(true);
+    expect(/private render\(\): void \{[^\n]*this\.programar\(\)/.test(LABEL)).toBe(true);
+    expect(/private render\(\): void \{[^\n]*this\.layout\(\)/.test(LABEL)).toBe(false);
+    // …y la firma lleva los tres insumos: el que falte, ese cambio no re-mide.
+    const firma = /const firma = ([^\n]*)/.exec(LABEL)![1];
+    for (const insumo of ['offsetWidth', 'offsetHeight', 'fuentesOk', 'textContent']) expect(firma).toContain(insumo);
+    // Y se limpia: sin `ngOnDestroy` cada etiqueta de una cola de 300 dejaría tres observadores vivos.
+    expect(LABEL).toMatch(/ngOnDestroy\(\): void \{[\s\S]*?\.disconnect\(\)[\s\S]*?removeEventListener/);
   });
 
   it('una caja sin ancho NO encoge el número hasta el piso', () => {
@@ -186,15 +204,26 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(/private fitTiers\(\): void \{[\s\S]*?let size = MONTO_MM;/.test(LABEL)).toBe(true);
   });
 
-  it('sólo se CRECE con las fuentes usables', () => {
+  it('sólo se CRECE con las fuentes usables — y "usables" se lee AL MEDIR, nunca de una bandera de una vez', () => {
     // Encoger midiendo la fuente equivocada era seguro (quedaba chico pero cabía). Crecer con
     // una fallback más ANGOSTA deja el número más grande de lo que Anton aguanta → se recorta.
-    expect(LABEL).toContain('let FUENTES_OK = false;');
-    expect(LABEL).toMatch(/FUENTES_USABLES\.then\(\(\) => \{ FUENTES_OK = true; \}\)/);
+    //
+    // El seguro viejo era `let FUENTES_OK = false` puesto en `true` al resolver la espera — y la
+    // espera resolvía TAMBIÉN cuando ganaba el tope de 3 s. En una caja con internet lento el
+    // número crecía contra la de respaldo, Anton llegaba a los 4 s y nadie re-medía.
+    expect(LABEL).not.toContain('let FUENTES_OK');
+    expect(LABEL).toMatch(/this\.fuentesOk = familiasFaltantes\(\)\?\.length === 0;/);
     for (const m of ['fitPrice', 'fitTiers']) {
       const fn = new RegExp(`private ${m}\\(\\): void \\{[\\s\\S]*?\\n  \\}`).exec(LABEL)![0];
-      expect(fn).toContain('FUENTES_OK ?');
+      expect(fn).toContain('this.fuentesOk ?');
     }
+    // `fonts.check()` devuelve true cuando NINGUNA cara coincide (es la especificación): con las
+    // familias por @import decía "sí" antes de que el CSS bajara. Se exige además una cara cargada.
+    expect(LABEL).toContain("status === 'loaded'");
+    // La espera con tope gobierna sólo la MARCA que espera la impresión — nunca el techo.
+    expect(LABEL).toContain('ESPERA_FUENTES_TERMINADA');
+    expect(/const techo = [^\n]*ESPERA_FUENTES_TERMINADA/.test(LABEL)).toBe(false);
+    expect(/data-etq-settled', 'fallback'\)/.test(LABEL)).toBe(true);
   });
 
   it('la guarda del precio se MIDE, no se escribe', () => {
@@ -239,19 +268,14 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     // alguien quiere revertirlo.
     expect(i('fitBarcode')).toBeLessThan(i('fitTiers'));
 
-    // ⭐ [ET.5] Y EL ÚLTIMO AJUSTE VUELVE A SER EL PRECIO. No es una repetición: es la
-    // verificación de lo que se prometió arriba.
+    // [ET.5] El último ajuste vuelve a ser el precio: cierre barato e idempotente del pase, por si
+    // alguno de los cuatro ajustes de en medio mueve la caja del precio dentro de UN pase.
     //
-    // `fitPrice` sólo puede TERMINAR en un tamaño que verificó como bueno — el bucle revierte
-    // apenas deja de caber. Así que un precio que no cabe es prueba de que la caja se movió
-    // DESPUÉS de medirla, y quien la mueve son justo los cuatro ajustes de arriba.
-    //
-    // Medido en una caja de Yurécuaro (15/09/2026), etiqueta ya asentada (`settled:fonts`):
-    // número 136 px dentro de una caja de 129, cuando el criterio del propio código
-    // (ancho × 1.12 ≤ disponible) pedía ≤ 115. El mismo producto en otra caja daba 10.75 mm.
-    // De ahí el reporte "las etiquetas salen mal en unos navegadores y en otros no": no era el
-    // navegador ni la tipografía (las dos cajas reportaban `tipografía ✓`), era el instante en
-    // que se midió.
+    // ⚠️ Se publicó como LA causa del desborde de Yurécuaro (15/09/2026) y NO lo era: con este
+    // cierre ya en producción el número seguía a 15 mm (el techo) con 127 px en 120 disponibles,
+    // y devolver los montos a su arranque movía la caja del precio 0 px. Para crecer a 15 mm el
+    // bucle tuvo que medir ≤107 px: el insumo (texto/tipografía) cambió DESPUÉS del pase. Eso lo
+    // cierra el mecanismo de observadores + firma (candado de arriba), no este orden.
     expect(orden.lastIndexOf('fitPrice')).toBeGreaterThan(i('fitAmts'));
   });
 
@@ -299,7 +323,10 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
    */
   it('⭐ la pantalla declara las TRES familias, y no las duplica a mano', () => {
     expect(LABEL).toContain('export const FUENTES_SPECS');
-    expect(PAGE).toContain('FUENTES_SPECS');
+    // La página pregunta por las familias a través del MISMO helper con que la etiqueta mide
+    // (`familiasFaltantes`, construido sobre FUENTES_SPECS): una sola verdad para pantalla y medida.
+    expect(PAGE).toContain('familiasFaltantes()');
+    expect(LABEL).toMatch(/return FUENTES_SPECS\.filter\(/);
     // La página NO puede nombrar una familia por su cuenta: en el momento en que escribe un
     // literal propio, esa lista puede divergir de la que el guardián espera y vuelve el falso
     // verde. Se mira el CÓDIGO, no los comentarios — el porqué del cambio vive ahí y debe poder
@@ -485,6 +512,41 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     expect(LABEL).toContain("'data-etq-settled'");
     expect(PAGE).toContain('[data-etq-settled]');
     expect(PAGE).toMatch(/no terminaron de ajustarse/);
+  });
+
+  it('⭐ la impresión DECLARA cuántas etiquetas quedaron con el precio desbordado', () => {
+    // Después de medir, la etiqueta deja su veredicto en el DOM. Tres valores, no dos: lo que no
+    // se pudo medir (caja sin ancho) se dice `sin_medida`, nunca `ok` (ADR-056). La impresión
+    // cuenta los `overflow` y lo dice antes de mandar a la impresora — imprime igual (el
+    // operador decide), pero nunca callada.
+    expect(LABEL).toContain("'data-etq-fit'");
+    expect(LABEL).toMatch(/'ok' \| 'overflow' \| 'sin_medida'/);
+    expect(LABEL).toMatch(/if \(!\(avail > 0\)\) return 'sin_medida';/);
+    expect(PAGE).toContain('[data-etq-fit="overflow"]');
+    expect(PAGE).toMatch(/precio desbordado/);
+    // El veredicto y el ajuste comparten el factor del scaleX: si midieran con dos números
+    // distintos, uno diría "cabe" y el otro "desborda" sobre el mismo texto.
+    expect((LABEL.match(/\* PRECIO_ANCHO_K/g) || []).length).toBe(2);
+    expect(LABEL).not.toMatch(/offsetWidth \* 1\.12/);
+  });
+
+  it('⭐ las tipografías de la etiqueta viajan CON la app: cero dependencia de fonts.googleapis.com', () => {
+    // Con el @import la misma etiqueta se medía con Anton en una caja y con Impact en la de al
+    // lado según su salida a internet — y `check()` decía "sí" antes de que el CSS bajara.
+    expect(LABEL).not.toMatch(/@import url\(/);
+    expect(LABEL).not.toContain('fonts.googleapis.com/css');
+    const caras = [...LABEL.matchAll(/@font-face\{[^}]*font-family:'([^']+)'[^}]*src:url\('\/assets\/fonts\/([^']+)'\)/g)];
+    expect(caras.map((m) => m[1]).sort()).toEqual(['Anton', 'Baloo 2', 'Bebas Neue']);
+    const dir = join(__dirname, '..', '..', '..', 'assets', 'fonts');
+    for (const [, familia, archivo] of caras) {
+      // El archivo existe y es woff2 de verdad (no un HTML de error guardado con ese nombre).
+      expect({ familia, existe: existsSync(join(dir, archivo)) }).toEqual({ familia, existe: true });
+      expect(readFileSync(join(dir, archivo)).subarray(0, 4).toString('latin1')).toBe('wOF2');
+    }
+    // Redistribuir una fuente OFL exige acompañarla de su licencia.
+    for (const f of ['OFL-anton.txt', 'OFL-baloo2.txt', 'OFL-bebasneue.txt']) expect(existsSync(join(dir, f))).toBe(true);
+    // Baloo 2 es variable: una sola cara declara el rango que usa la etiqueta (500–800).
+    expect(LABEL).toMatch(/font-family:'Baloo 2'[^}]*font-weight:500 800/);
   });
 
   it('la cola tiene tope, es un número entero de hojas y se muestra antes de chocar con él', () => {
