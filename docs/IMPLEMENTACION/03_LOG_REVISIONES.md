@@ -5,6 +5,56 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-15 — Memoria de Postgres en prod: estaba en **configuración de fábrica**. Tuneada en caliente + un reinicio de 27 s
+
+**Disparador:** una lista de recomendaciones genéricas traída de una conversación con Gemini ("PKs para replica identity, FKs como aduana, LISTEN/NOTIFY, OnPush, virtual scrolling…"), con el pedido: *"cambiar varias cosas de la base de datos sin cambiar los resultados, sólo la eficiencia y el consumo de RAM"*.
+
+### Lo que la lista pedía, contrastado antes de tocar nada
+- **PKs para Replica Identity → YA ESTABA.** Medido en el suscriptor real (`192.168.0.222:5433`): `kepler_md_00` 358 tablas, `kepler_md_04` 322, **100 % con `relreplident='d'`, 0 sin PK**, 8 suscripciones vivas. En prod, **0 tablas sin PK** con >1000 filas. Cero trabajo.
+- **FKs como "aduana" en el concentrador → RECHAZADO, hace lo contrario de lo pedido.** `kepler_ods.*` es espejo crudo de un ERP legacy con huérfanas conocidas y los carriles escriben **en paralelo sin orden padre→hijo**. Una FK ahí (1) **cambia resultados** —rechaza filas que hoy entran— y (2) cobra un lookup extra por fila insertada: **más CPU, no menos**.
+- **LISTEN/NOTIFY → no es donde está el costo.** Exige conexión dedicada fuera del pool, payload ≤8 kB y **pierde eventos** si nadie escucha. Con Redis ya en el stack, el pub/sub encaja mejor. Los 11 gateways no eran el problema.
+- **Frontend (OnPush / virtual scroll / lazy loading) → fuera de alcance** y el lazy loading de rutas ya está en toda la app.
+- **"Agregar índices y matviews" → invertido:** ya hay 15 matviews y **1,617 índices pesando 13 GB**. No faltan: sobran y no caben en RAM.
+
+### La causa raíz que la lista no podía ver (medida)
+Postgres de prod corría con **los defaults de fábrica** sobre una base de 31 GB, en un contenedor de **5.59 GiB** (cgroup):
+
+| | Antes | Después | Réplicas Kepler en `md` (referencia) |
+|---|---|---|---|
+| `shared_buffers` | **128 MB** (2.2 % de la RAM) | **1536 MB** | 4 GB |
+| `work_mem` | **4 MB** | **16 MB** | 32 MB |
+| `maintenance_work_mem` | 64 MB | 256 MB | 1 GB |
+| `random_page_cost` | **4** (disco giratorio) | **1.1** (SSD) | — |
+
+Síntomas que eso producía: **126,921 archivos temporales / 1,096 GB escritos a disco**, cache hit global **87.35 %** (sano >99 %), y por tabla `commercial.stock` **7.3 %**, `contpaqi_bank_movements` **0.4 %**, `sales_daily` **46.1 %**. `analytics.stock_movements` acumulaba **~24 TB leídos de disco**.
+
+### Qué se aplicó
+1. **Sin downtime** (`ALTER SYSTEM` + `pg_reload_conf()`): `work_mem`, `maintenance_work_mem`, `effective_cache_size`, `random_page_cost`.
+2. **`CREATE EXTENSION pg_stat_statements`** — ⭐ **no hizo falta reinicio: `shared_preload_libraries` YA la traía precargada**, sólo faltaba crear la extensión. Hasta hoy **nadie podía saber qué consulta duele**.
+3. **Autovacuum agresivo** (`scale_factor` 0.02/0.01, `cost_limit` 1000) en las 5 con bloat medido: `fiscal.cfdis` (**99.9 % muertas**), `analytics.erp_goods_receipt_dedup` (**4,665 %**), `contpaqi_ledger_monthly` (155 %), `stock_movements`, `kepler_ods.kdm2`.
+4. **`ANALYZE`** de `wincaja.maestro_mov_almacen` (1.5 M filas, **nunca** analizada → el planner elegía sin estadísticas), `kdm1`, `kdm2`.
+5. **`shared_buffers` 128 MB → 1536 MB** + `railway restart -s BD_CENTRALIZADO`: **27 s**, la DB volvió sola.
+
+### Verificación
+- **14 carriles latiendo** tras el reinicio, `ods_live_hot` "8/8 ramas · 0 tablas con error"; los INSERT de los feeds visibles en `pg_stat_statements`. La ingesta no se enteró.
+- Hit ratio de lo ejecutado **desde el reinicio: 97.06 %** (vs 87.35 % acumulado histórico).
+- Único `error` en el tablero: `wincaja_sync` de hace **28.5 h** — **preexistente y ajeno** (tarea `Interactive` en `.249`, Fase VL.5; Wincaja se retira en días).
+
+### Lecciones
+1. **⭐ "Borrá los índices con `idx_scan = 0`" habría roto el sell-out.** De los 318 sin uso (1,132 MB), **`ux_mv_sales_blended` (445 MB), `ux_mv_sales_current_month` e `idx_bank_postings_uk` son los UNIQUE que `REFRESH MATERIALIZED VIEW CONCURRENTLY` EXIGE**. Marcan cero porque nadie los consulta, no porque sobren. Un consejo genérico sobre un catálogo que no se midió es una receta para romper producción.
+2. **`pending_restart` sólo se marca DESPUÉS de recargar la config.** Un `ALTER SYSTEM SET shared_buffers` deja el flag en `false` hasta el `pg_reload_conf()`; leerlo antes hace creer que el cambio no se escribió. Se confirmó leyendo `postgresql.auto.conf` con `pg_read_file()` en vez de confiar en el flag.
+3. **La herramienta de diagnóstico ya estaba pagada y sin estrenar.** `shared_preload_libraries` traía `pg_stat_statements` desde siempre; faltaba un `CREATE EXTENSION` de 161 ms. Antes de planear un reinicio, verificar qué parte del costo ya está pagada.
+4. **`pg_stat_database` es acumulado histórico y NO se resetea en un restart limpio** — el 87 % no se mueve en minutos. El efecto del cambio se mide con `pg_stat_statements` (que sí arranca limpio), no con el contador global.
+5. **⚠️ Leak propio:** enmascarar credenciales con `sed 's#://[^@]*@#://***@#'` **no cubre** una variable suelta `POSTGRES_PASSWORD=…`. Al listar variables de Railway se imprimió en claro la contraseña de Postgres de prod. **Pendiente: rotarla.** Filtrar por nombre de variable ANTES de imprimir, nunca por forma de URL.
+
+### Pendiente (medido, no aplicado — requiere ventana fuera de horario)
+- **`DROP INDEX CONCURRENTLY`** de los redundantes por prefijo: `ix_sales_daily_date` (125 MB, contenido en `ix_sales_daily_cover`), `ix_sales_daily_prod` (134 MB, en `uq_sales_daily`), `idx_commercial_stock_tenant` (39 MB, en otros 5), `ix_gll_poliza` (22 MB) — **~460 MB** sin tocar los UNIQUE de matviews.
+- **`ix_sales_daily_cover`: 1,222 MB para 2,457 usos** (vs `uq_sales_daily`, 928 MB y 259 M usos) y **`sales_daily_pkey` 343 MB con 0 usos**. Decidir con `pg_stat_statements`, que ahora sí mide.
+- **Hallazgo funcional ajeno:** `wincaja.caja_channels` acumula **396 M de seq scans sobre una tabla VACÍA** (`EXISTS` correlacionado en `wincaja-tickets-poller.js:103` y `weekly-analytics.service.ts:357`) → ese `EXISTS` siempre da `false`: la taxonomía de canal podría no estar clasificando nada.
+- `max_connections = 500` con ~25 conexiones reales; bajarlo liberaría memoria reservada, pero exige otro reinicio y no era el cuello.
+
+---
+
 
 ## 2026-09-14 — Auditoría de las bases PROPIAS (prod `railway`): CERRADA al 100% — la limpieza declarada YA ocurrió, la procedencia vive en prod, y un 4º rojo falso (mío) cazado antes de publicar
 
