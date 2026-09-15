@@ -24,6 +24,14 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./modules/mi-trabajo/mi-trabajo.component').then(m => m.MiTrabajoComponent),
   },
+  // GX.9 — captura de gasto por link, desde el celular y SIN cuenta. Va al tope del árbol,
+  // fuera del LayoutComponent y sin ningún guard: quien la abre no tiene sesión (y no debe
+  // necesitarla). Se autoriza con el token de la URL, que el backend revalida contra la fila
+  // del link en cada uso. `authInterceptor` tiene exceptuada esta ruta de API.
+  {
+    path: 'captura/:token',
+    loadComponent: () => import('./modules/finanzas/pages/captura-gasto-link.component').then(m => m.CapturaGastoLinkComponent),
+  },
   // Diagnostico de un cuelgue en un clic. Sin permiso propio a proposito: cuando algo se
   // traba hay que poder pedirselo a quien lo esta sufriendo, sea quien sea.
   {
@@ -323,6 +331,14 @@ export const routes: Routes = [
       {
         path: 'solicitudes',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
+      },
+      {
+        // GX.9 — lo que llegó por link y todavía no tiene folio de Kepler. Pantalla aparte
+        // del embudo de /finanzas/solicitudes a propósito: ese tablero se arma desde las
+        // filas de Kepler, y una captura sin folio no tiene fila allá que mostrar.
+        path: 'capturas-sin-folio',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-capturas-sin-folio.component').then(m => m.FinanzasCapturasSinFolioComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
       },
       {

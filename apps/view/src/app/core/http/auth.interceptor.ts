@@ -12,7 +12,16 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   // Skip open routes: legacy /auth/login + multi-tenant /auth-mt/login.
   // Sin esto, un 401 en /auth-mt/login (credenciales incorrectas en portal) gatillaría
   // el redirect global a /login y el usuario nunca vería el error inline.
-  if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')) {
+  // GX.9 — la captura de gasto por link es PÚBLICA y se autoriza con el token de la URL.
+  // Va acá por dos motivos, y los dos muerden:
+  //   1. Si el celular arrastra un token viejo en localStorage, este interceptor lo pegaría
+  //      en la petición; el `TenantContextInterceptor` del servidor sólo pasa de largo cuando
+  //      NO hay header — con uno inválido tira 401. O sea: un token vencido que no le importa
+  //      a nadie rompería una ruta pública.
+  //   2. Ese 401 dispararía el logout + redirect de abajo, y el trabajador terminaría en un
+  //      /login que no puede usar porque no tiene cuenta.
+  if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')
+      || req.url.includes('/finance/captura')) {
     return next(req);
   }
 

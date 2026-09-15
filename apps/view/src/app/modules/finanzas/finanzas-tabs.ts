@@ -80,6 +80,14 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_EXPENSES_VER,
   },
   {
+    // GX.9 — va pegado a «Solicitudes de gasto» porque es su antesala: lo que está acá
+    // entra allá en cuanto se le pone folio.
+    label: 'Capturas de campo',
+    route: '/finanzas/capturas-sin-folio',
+    icon: 'pi pi-mobile',
+    permission: Permission.FINANCE_EXPENSES_VER,
+  },
+  {
     label: 'Capturar gasto',
     route: '/finanzas/capturar-gasto',
     icon: 'pi pi-upload',
