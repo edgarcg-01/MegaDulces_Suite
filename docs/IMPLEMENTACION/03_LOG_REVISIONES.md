@@ -37,7 +37,9 @@ Síntomas que eso producía: **126,921 archivos temporales / 1,096 GB escritos a
 
 ### Verificación
 - **14 carriles latiendo** tras el reinicio, `ods_live_hot` "8/8 ramas · 0 tablas con error"; los INSERT de los feeds visibles en `pg_stat_statements`. La ingesta no se enteró.
-- Hit ratio de lo ejecutado **desde el reinicio: 97.06 %** (vs 87.35 % acumulado histórico).
+- ⚠️ **El efecto sobre el hit ratio NO está medido todavía, y se declara así.** A los 4 min daba 97.06 %; a los 7 min, con casi el doble de muestra (9,601 llamadas), **88.76 %** — el caché de 1.5 GB apenas se está llenando sobre 31 GB de datos. Publicar el 97 % habría sido dibujar de verde una medición temprana. **Se vuelve a medir con  a las 24-48 h**, que es justo la herramienta que esta sesión encendió.
+-  desde el reinicio: **174 MB en 7 min**. No es comparable contra los 1,096 GB históricos porque  es  (nunca se reseteó): **no se sabe en cuánto tiempo se acumularon**. Sin ese denominador, el delta de spill queda **NO MEDIDO**.
+-  no está instalado: la ocupación real de los 1536 MB no se pudo verificar.
 - Único `error` en el tablero: `wincaja_sync` de hace **28.5 h** — **preexistente y ajeno** (tarea `Interactive` en `.249`, Fase VL.5; Wincaja se retira en días).
 
 ### Lecciones
