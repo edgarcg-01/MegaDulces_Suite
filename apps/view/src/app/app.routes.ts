@@ -350,6 +350,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        path: 'calendario-pagos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-calendario-pagos.component').then(m => m.FinanzasCalendarioPagosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         // CXP.7 — Cuadre y deuda por proveedor (CxP/Tesorería): estado de cuenta 201 Kepler +
         // deuda real ContPAQi 2120. Vive en Finanzas (el componente sigue en modules/compras
         // porque consume ComprasService). Antes en /compras/cuadre-proveedor (redirect abajo).

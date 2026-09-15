@@ -2925,10 +2925,15 @@ autorizar, documentos imprimibles (preliminar + Caja General), y motivo de repro
 - [x] Migraciones `20260915120000`/`20260915130000` aplicadas localmente. `nx build api`/`view` OK.
   Smoke `test-newdb-payment-calendar-controls.js` **28 ✓ / 0 ✗**; smoke original re-verificado
   **50 ✓ / 0 ✗** tras aislarlo de datos ambiente (colisión real encontrada con el seed de demo).
+- [x] **TP.9** — comprobación final 2026-09-15: el componente `FinanzasCalendarioPagosComponent`
+  y su entrada en `finanzas-tabs.ts` existían desde TP.3, pero **nunca se registró la ruta en
+  `app.routes.ts`** — el botón del sidebar no cargaba nada. Fix de una línea siguiendo el patrón
+  de `bancos`/`pagos-comprobantes` (gateada por `FINANCE_PAYMENTS_VER`). Verificado con
+  `nx build view` + confirmando que el chunk lazy del componente quedó en el bundle de producción.
 
-**Declarado (decisión explícita del usuario):** TP.9 (comprobación final) para la siguiente
-entrega; catálogo tipado de cajas de Caja General; cobertura de inventario por proveedor y
-programa de ingresos — fuera de alcance, la reunión semanal los sigue manejando fuera del sistema.
+**Declarado (decisión explícita del usuario):** catálogo tipado de cajas de Caja General;
+cobertura de inventario por proveedor y programa de ingresos — fuera de alcance, la reunión
+semanal los sigue manejando fuera del sistema.
 Detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md) sección "Extensión
 TP.6-TP.8+TP.10".
 
