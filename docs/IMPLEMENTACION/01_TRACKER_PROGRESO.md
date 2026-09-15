@@ -127,6 +127,35 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       dedo sin dejar escrito por qué. Ahora se DECLARA (`propone: null`) con mensaje propio.
       Commit `3e9f1e69` · 2026-09-14
 
+- [x] **[AU.18]** ✅ Los tres jefes de zona y la escalera de operaciones, en PROD. `jefe_zona` estaba
+      VACANTE y de él cuelgan 7 puestos: ésa era la causa de que 39 personas no tuvieran jefe
+      resuelto. Lo ocupan Ivette Cruz (La Piedad), Aaron Alejo (Morelia) y José Ramón Rodríguez
+      (Zamora) — a los dos últimos se les corrigió la zona, que estaba en OFICINAS y CANINDO por
+      default. `auxiliar_compras` pasa a reportar a `encargado_operaciones` (arrastra a los otros
+      3 auxiliares, decidido). **Medido: sin jefe 76 → 37.** Mig `20260915130000` · 2026-09-15
+- [x] **[AU.19]** ✅ La historia de puesto **se cerraba sola**: `v_position_history` calculaba el
+      `lead()` dentro del CTE y filtraba `position_code` DESPUÉS, así que un evento sin puesto no
+      se mostraba pero SÍ le ponía fecha de fin al tramo vigente. Las tres quedaron sin puesto
+      vigente. Filtro adentro de la ventana + se retira el evento duplicado que metió `[AU.18]`
+      (el trigger ya lo escribía). ⚠️ **`[AU.19.1]`**: el `CREATE OR REPLACE VIEW` perdió
+      `security_invoker` sobre una vista que lee `user_events` (RLS forzado) — lo atrapó la
+      aserción de metadata de `[OR.6]`. Migs `20260915140000` + `150000` · 2026-09-15
+- [x] **[AU.20]** ✅ Aide Piceno ve sólo Morelia en `/compras/entradas` y `/entradas/control`:
+      **2,535 de 14,918 entradas (17%)**, antes las 9 sucursales por heredar `warehouse: all` de
+      su rol. ⚠️ Trampa `[RE.23]`: las dos Morelias resuelven su llave por caminos distintos
+      (`MD-30`→`wincaja_source_branch`='30', `07`→su `code`; `MD-32` está borrada y tiene 0
+      entradas), así que el alcance es `['30','07']`. `mode_write` nulo → tampoco puede validar ni
+      rechazar fuera de su plaza. Mig `20260915160000` · 2026-09-15
+- [x] **[AU.21]** ✅ El alcance deja de viajar como `Record<string, unknown>`: `AlcanceDePersona` /
+      `DimensionDeAlcance` en contracts. Commit `d30ea4f7` · 2026-09-15
+
+**Decisión del lead (2026-09-15):** la administración de padrón, puestos y alcance se hace en la
+**app desplegada**, no en local. `platform_test` **no es prod con menos migraciones — es otra base**
+(153 personas vs 100, 43 puestos vs 57, 66 migraciones pendientes), y ponerle el esquema al día daría
+un tercer estado que no es ninguno de los dos. Medido al intentarlo: la primera migración corrió
+**>20 min** sobre `analytics.v_erp_stock_truth` (dev no tiene los datos ni los índices) y se cortó;
+la base quedó intacta. Queda para features, no para administrar.
+
 **Deuda declarada:** `DEUDA-AU-ROLES` (el editor de permisos sigue escribiendo las 175 claves del
 enum) · `DEUDA-AU-SCOPEROL` (el alcance por ROL sigue sin pantalla, y es la causa de las 36
 excepciones de `warehouse`) · `DEUDA-AU-DIMS` (3 de 6 dimensiones sin editor) ·
