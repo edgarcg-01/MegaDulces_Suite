@@ -166,6 +166,36 @@ describe('LabelComponent · lo que sale impreso', () => {
       expect(el().querySelector('.etq-label')?.getAttribute('data-etq-settled')).toBeTruthy();
     });
 
+    /**
+     * ⭐⭐ EL BUG DE YURÉCUARO (2026-09-15), ejercido.
+     *
+     * `document.fonts` dice "cargada" ANTES de que el navegador vuelva a maquetar el texto que la
+     * usa. El ajuste crece contra el ancho VIEJO (más chico) hasta el techo, y cuando entra Anton
+     * el número se ensancha y desborda. Rastro real: `15mm | 91 | 120 | fuentes` — 91 px es el
+     * ancho que ese `$86.00` tiene a 10.75 mm, no a 15.
+     *
+     * Acá el re-maquetado tardío llega SIN ningún evento (ni resize, ni loadingdone, ni cambio de
+     * texto): sólo cambia el ancho medido. Se corrige porque la firma vigila la MEDIDA, y porque
+     * cada pase que maqueta pide un pase de verificación.
+     */
+    it('⭐ una re-maquetación TARDÍA se corrige sola, sin que ningún evento la avise', async () => {
+      await render(BASE);
+      await frame();
+      const price = el().querySelector('.etq-price') as HTMLElement;
+      let ancho = 91; // lo que mide con la maquetación de la tipografía anterior
+      Object.defineProperty(price, 'offsetWidth', { get: () => ancho, configurable: true });
+      const spy = espiar();
+      cmp().programar();
+      await frame(); // pase 1: la firma cambió (91) → maqueta y pide verificación
+      ancho = 127; // el navegador re-maquetó con Anton; nadie avisó
+      await frame(); // pase 2 (la verificación): lo detecta y vuelve a ajustar
+      expect(spy).toHaveBeenCalledTimes(2);
+      // …y CONVERGE: sin más cambios deja de maquetar (si no, sería un lazo por cuadro).
+      await dosCuadros();
+      await dosCuadros();
+      expect(spy).toHaveBeenCalledTimes(2);
+    });
+
     it('declara su veredicto, y en jsdom (sin layout) es "sin_medida" — nunca "ok"', async () => {
       await render(BASE);
       expect(el().querySelector('.etq-label')?.getAttribute('data-etq-fit')).toBe('sin_medida');

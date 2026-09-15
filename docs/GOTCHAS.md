@@ -2387,3 +2387,54 @@ render de ese componente.** Consecuencia medida, con el build ya en producción:
   número | espacio | con qué tipografía). El dato que importaba —el ancho **en el instante de
   medir**— no quedaba en ningún lado, y por eso costó cuatro hipótesis refutadas y un parche
   publicado que no arreglaba nada.
+
+### 49.2 · La causa de fondo: `document.fonts` dice "cargada" ANTES de que el navegador re-maquete el texto
+
+Tres entregas después (§49, §49.1) la etiqueta seguía saliendo mal en una caja y bien en la de al
+lado. Lo que lo destrabó fue una frase del operador, no una sonda: **«si cambio las dimensiones se
+hace pequeño el número; si lo dejo normal queda grande; en otra computadora sale normal»**.
+
+El rastro que la propia etiqueta escribía (`data-etq-medida`) decía:
+
+```
+ok :: 15mm | 91 | 120 | fuentes
+```
+
+Con Anton cargada y pintando. Pero **`$86.00` en Anton a 15 mm mide 127 px, no 91** — y 91 px es
+exactamente lo que ese número mide a **10.75 mm**. O sea: *el estilo ya decía 15 mm y el elemento
+seguía MEDIDO con la maquetación de la tipografía anterior.*
+
+**`document.fonts.check()` / el evento `loadingdone` informan que la cara terminó de cargar, no que
+el texto que la usa ya se volvió a maquetar.** El bucle crece contra el ancho viejo (más chico)
+hasta el techo; cuando el navegador re-maqueta con la fuente definitiva el número se ensancha y
+desborda. De ahí las tres observaciones: redimensionar lo arregla (fuerza re-layout), la otra
+computadora sale bien (ahí el swap ocurre antes de medir), y el veredicto decía `ok` porque
+**estaba juzgando con la misma medida vieja**.
+
+**Y por qué el mecanismo de §49 no lo veía:** la firma vigilaba `root.offsetWidth/offsetHeight`, y
+esta etiqueta es de **tamaño fijo** (82×35 mm) — esos números no cambian nunca, así que el
+`ResizeObserver` de la raíz **no dispara jamás**. La firma vigilaba las *causas* que se me
+ocurrieron (geometría, texto, tipografía) y ninguna de las tres cubre un re-maquetado del navegador.
+
+**La regla, y es general para cualquier auto-ajuste que mida texto:**
+
+> **Vigilá el EFECTO, no sólo las causas: la firma tiene que incluir la medida misma.**
+> Y **cada pase que maqueta pide un pase de verificación** en el cuadro siguiente, así una
+> re-maquetación tardía se corrige sola sin depender de que algún evento avise. Converge porque la
+> firma se recalcula *después* de maquetar: si nada se movió, el pase siguiente no hace nada.
+
+```
+firma = root.offsetWidth × offsetHeight | fuentesOk | priceEl.offsetWidth × offsetHeight | textContent
+                                                      ^^^^^^^^^^^^^^^^^^ la pieza que faltaba
+```
+
+⚠️ **Un veredicto que se calcula con la medida sospechosa no es una red de seguridad.** El
+invariante de §49.1 («un pase no puede terminar en desborde si un tamaño menor cabe») estaba puesto
+y **no se disparó**, porque `veredicto()` leía los mismos 91 px. Una compuerta que comparte el dato
+defectuoso con lo que vigila no vigila nada.
+
+**Probado con una prueba de COMPORTAMIENTO, no un candado de texto:** en jsdom se simula el ancho
+medido cambiando de 91 a 127 **sin ningún evento** (ni resize, ni `loadingdone`, ni cambio de
+texto) y se exige que haya un segundo pase de ajuste, y que después converja (si no, sería un lazo
+por cuadro). Roto a propósito de dos formas —sacar la medida de la firma, sacar el pase de
+verificación— y las dos dan **rojo en esa prueba**.
