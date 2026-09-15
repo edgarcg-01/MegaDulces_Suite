@@ -250,10 +250,11 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PRICING_VER)]
       },
       {
-        // Sprint M.7 — catálogo de productos admin (data Mega_Dulces enriquecida)
+        // [CAT.1] El catálogo se mudó a Compras (/compras/catalogo). Se deja el redirect porque hay
+        // enlaces internos y marcadores del equipo apuntando a esta ruta.
         path: 'products',
-        loadComponent: () => import('./modules/comercial/pages/comercial-products.component').then(m => m.ComercialProductsComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+        redirectTo: '/compras/catalogo',
+        pathMatch: 'full'
       },
       {
         path: 'promotions',
@@ -556,6 +557,19 @@ export const routes: Routes = [
         path: 'oc-abiertas',
         loadComponent: () => import('./modules/compras/pages/compras-oc-abiertas.component').then(m => m.ComprasOcAbiertasComponent),
         canActivate: [permissionGuard(Permission.COMPRAS_PEDIDO_VER)]
+      },
+      {
+        // [CAT.1] El catálogo se muda de Ventas (/comercial/products) a Compras: quien lo mantiene
+        // es el comprador (da de alta el producto, negocia el costo y captura el precio en Kepler).
+        // Adentro trae su pestaña de códigos de barras repetidos (CATALOGO_TABS).
+        path: 'catalogo',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo.component').then(m => m.ComprasCatalogoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
+        path: 'catalogo/codigos',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-codigos.component').then(m => m.ComprasCatalogoCodigosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
       },
       {
         path: 'proveedores',

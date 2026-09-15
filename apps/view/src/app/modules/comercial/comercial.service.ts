@@ -120,6 +120,11 @@ export interface Product {
   cost_base: number | null;
   cost_with_tax: number | null;
   cost_per_case: number | null;
+  /** `[CAT.1]` Precio AL CLIENTE, lista BASE-MXN (la que coincide con lo que cobra la caja). */
+  price_customer: number | null;
+  price_min_qty: number | null;
+  /** Cuando se actualizo ese precio. La pantalla lo publica: un precio viejo no se disimula. */
+  price_updated_at: string | null;
   /**
    * [PR.1] Las cifras que el RESTO de la Suite ya usa, para que esta pantalla diga lo mismo.
    *
@@ -166,9 +171,40 @@ export interface ProductStats {
   inactive: number;
   with_cost: number;
   with_location: number;
+  with_price: number;
+  /** Fecha del precio mas reciente de la lista. Alimenta el aviso de rezago. */
+  price_updated_at: string | null;
   brands: number;
   categories: number;
   top_brands: { name: string; sku_count: number }[];
+}
+
+/** Un alta que comparte el codigo de barras con otra. */
+export interface DupProduct {
+  sku: string; nombre: string | null; unit: string | null; activo: boolean | null;
+  supplier_name: string | null; precio_min: number | null; precio_max: number | null;
+  sucursales: number;
+}
+
+export interface DupBarcodeRow {
+  barcode: string;
+  /** Cuantos productos distintos escanean con este codigo. */
+  altas: number;
+  productos: DupProduct[];
+  precio_min: number | null;
+  precio_max: number | null;
+  /** `false` = no se pudo saber el precio. NO significa que sea gratis. */
+  precio_conocido: boolean;
+  cobran_distinto: boolean;
+}
+
+export interface DupBarcodeResponse {
+  total: number;
+  /** Declara si el CONTEXTO de precio pudo calcularse. El defecto se detecta igual sin el. */
+  precios_disponibles: boolean;
+  /** `true` = el precio viene con grano por sucursal, asi que el rango es dispersion real. */
+  precio_por_sucursal: boolean;
+  rows: DupBarcodeRow[];
 }
 
 export interface UpdateProductDto {
@@ -852,6 +888,7 @@ export class ComercialService {
     supplier_id?: string;
     active?: boolean;
     with_cost?: boolean;
+    without_price?: boolean;
   } = {}) {
     let params = new HttpParams();
     if (opts.page != null) params = params.set('page', opts.page);
@@ -863,8 +900,20 @@ export class ComercialService {
     if (opts.supplier_id) params = params.set('supplier_id', opts.supplier_id);
     if (opts.active !== undefined) params = params.set('active', String(opts.active));
     if (opts.with_cost) params = params.set('with_cost', 'true');
+    if (opts.without_price) params = params.set('without_price', 'true');
     return this.http.get<ProductsPage>(`${this.base}/products`, { params });
   }
+  /**
+   * `[CAT.2]` Codigos de barras repetidos. NO depende de que haya precios: el defecto vive en el
+   * catalogo de codigos y el precio solo dice si ademas cobran distinto.
+   */
+  duplicateBarcodes(opts: { search?: string; limit?: number } = {}) {
+    let params = new HttpParams();
+    if (opts.search?.trim()) params = params.set('search', opts.search.trim());
+    if (opts.limit != null) params = params.set('limit', opts.limit);
+    return this.http.get<DupBarcodeResponse>(`${this.base}/products/duplicate-barcodes`, { params });
+  }
+
   /** Proveedores con productos (para el filtro de /comercial/products). */
   productSuppliers() {
     return this.http.get<ProductSupplierOption[]>(`${this.base}/products/suppliers`);
