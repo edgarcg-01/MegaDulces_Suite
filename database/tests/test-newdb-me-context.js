@@ -274,66 +274,93 @@ const tieneDecoradorPermisos = (tramo) =>
    * Este bloque vigila la FORMA en el código; el efecto sobre el dato lo mide
    * `database/scripts/sn-landing-censo.js` contra prod.
    */
-  console.log('\n── 4e. El trabajo con dueño sólo lo ve su dueño ──');
+  console.log('\n── 4e. Una cola se muestra SÓLO si vos respondés de ella ──');
   const srcSvc = fs.readFileSync(
     path.resolve(__dirname, '../../libs/trade/src/lib/users/users.service.ts'),
     'utf8',
   );
 
-  const mDuenos = /private async responsabilidadesConDueno\(\)[\s\S]*?\n  \}/.exec(srcSvc);
-  check('existe la consulta de "qué actividades tienen dueño" (si no, nada de esto mide)', !!mDuenos);
-  if (mDuenos) {
-    const cuerpo = mDuenos[0];
-    /*
-     * ⛔ Las tres propiedades que hacen correcta la respuesta, y las tres son bugs si se caen:
-     *  · sin filtro de tenant, un dueño de OTRO tenant escondería la cola acá (la conexión
-     *    bypassa RLS: el aislamiento es por filtro explícito, lo dice `me-work.ts`);
-     *  · un puesto que nadie ocupa NO designa a nadie — sin el join a `users`, una fila vieja de
-     *    `position_responsibilities` dejaría la cola escondida para todos y sin dueño que la vea;
-     *  · una `resta` le quita la actividad a UNA persona, no le quita el dueño a la actividad.
-     */
-    check('filtra por tenant en las DOS fuentes (la conexión bypassa RLS)',
-      (cuerpo.match(/tenant_id', this\.tenantId/g) || []).length >= 2);
-    check('un puesto que NADIE ocupa no designa a nadie (join a identity.users activo)',
-      /identity\.users as u/.test(cuerpo) && /'u\.activo', true/.test(cuerpo));
-    check('una `resta` no CREA dueño: sólo cuenta accion = suma',
-      /'ur\.accion', 'suma'/.test(cuerpo), 'falta el filtro de accion');
-    check('corre aislada en savepoint, como toda medición de me/work ([SN.22])',
-      /await this\.aislado\(/.test(cuerpo));
-  }
+  /*
+   * ⛔ `[SN.30]` **La consulta de "qué colas tienen dueño" ya no debe existir.**
+   *
+   * `[SN.24]` preguntaba «¿esta actividad tiene dueño?» y, si no lo tenía, la ofrecía a cualquiera
+   * con permiso. Esa mitad se cayó por decisión de Edgar (*«si no tiene responsabilidades no se le
+   * muestra nada»*), y con ella el concepto entero de «cola sin dueño»: acá ya sólo se pregunta si
+   * la cola es TUYA. Dejar la consulta viva sería una pasada a dos tablas por request que nadie
+   * lee — y peor, la tentación de volver a colgarle la regla vieja.
+   */
+  check('⛔ responsabilidadesConDueno() se retiró (el concepto de "cola sin dueño" ya no existe)',
+    !/private async responsabilidadesConDueno\(/.test(srcSvc));
 
   const mAjena = /const ajena = \(([\s\S]*?)\n    \};/.exec(srcSvc);
-  check('existe la compuerta por cola (`ajena`)', !!mAjena);
+  check('existe la compuerta (`ajena`)', !!mAjena);
   if (mAjena) {
     const cond = mAjena[1];
     /*
-     * ⛔ Prueba NEGATIVA de este bloque: la compuerta NO puede volver a preguntar por la persona.
-     * Se rompió a propósito (cambiando `tieneDueno(clave) && !propia` por `delegacionActiva`) y
-     * estas aserciones se pusieron rojas.
+     * ⛔ Prueba NEGATIVA de este bloque, ejercida: se le devolvió la rama vieja
+     * (`tieneDueno(clave) && !propia`) y las dos primeras aserciones se pusieron rojas.
      */
-    check('la condición pregunta si la COLA tiene dueño, no si la persona tiene reparto',
-      /tieneDueno\(clave\)/.test(cond) && !/delegacionActiva/.test(cond), cond.trim());
+    check('la condición es "no es tuya" a secas — NO "tiene otro dueño"',
+      /return !propia;/.test(cond) && !/tieneDueno/.test(cond), cond.trim());
+    check('⛔ y NO vuelve a preguntar por la persona ("¿vos tenés reparto?" era la salvaguarda de [SN.21])',
+      !/delegacionActiva/.test(cond) && !/\.size > 0/.test(cond), cond.trim());
     check('tu BORRADOR (alcance mio) nunca se esconde: lo empezaste vos',
       /alcance === 'mio'/.test(cond), cond.trim());
     /*
-     * ⛔ `[SN.28]` **El god-mode NO puede ser una exención acá, y ésta es la aserción invertida.**
-     *
-     * Edgar (2026-09-14): *"una cosa es tener acceso a la interfaz y otra muy diferente tener
-     * asignada la responsabilidad; son dos cosas diferentes e independientes."*
-     *
-     * Hasta hoy esta misma línea exigía lo contrario (`check('god-mode ve todo', /esAdmin/…)`) y
-     * por eso el defecto pasaba verde: el candado protegía el bug. Medido en prod, la conciliación
-     * la veían en la portada su dueña **y los 9 `superadmin`** — nueve personas con el trabajo de
-     * otras de cabecera. `esAdmin` sigue vivo en `puedeVerBandeja`/`puedeVerCiclo`, que es donde
-     * corresponde: ahí decide el ACCESO.
+     * ⛔ `[SN.28]` **El god-mode NO puede ser una exención acá**, y con `[SN.30]` es redundante por
+     * construcción: la compuerta ya no mira permisos, sólo responsabilidad. La aserción se queda
+     * porque es barata y porque la línea que protege ya se escribió mal una vez — hasta `[SN.28]`
+     * este mismo check exigía lo CONTRARIO (`check('god-mode ve todo', /esAdmin/…)`) y por eso el
+     * defecto pasaba verde: el candado protegía el bug.
      */
     check('el god-mode NO convierte a nadie en dueño (es acceso, no responsabilidad)',
       !/esAdmin/.test(cond), cond.trim());
     check('el god-mode SÍ sigue decidiendo el acceso, que es otro eje',
       /puedeVerBandeja\(b, permisos, esAdmin\)/.test(srcSvc) &&
       /puedeVerCiclo\(c, permisos, esAdmin\)/.test(srcSvc));
-    check('si no se pudo leer quién es dueño, se falla ABIERTO (no se esconde por una falla)',
-      /clavesConDueno === null/.test(cond), cond.trim());
+    check('si no se pudieron leer las responsabilidades, se falla ABIERTO (no se vacía por una falla)',
+      /misResponsabilidades === null/.test(cond), cond.trim());
+  }
+
+  /*
+   * ⛔ `[SN.30]` **Una cola sin `responsabilidad` declarada es INVISIBLE PARA SIEMPRE.**
+   *
+   * Con la regla nueva, una cola se muestra sólo si vos respondés de ella — y no se puede
+   * responder de algo que no tiene clave en el catálogo de `[OR.1b]`. Antes esto no dolía: sin
+   * dueño, la cola caía en «compartida» y la veía cualquiera con permiso. Ahora desaparece de la
+   * portada de todo el mundo, **en silencio**, que es la forma exacta de fallar que ADR-056
+   * prohíbe.
+   *
+   * Se enumera la deuda conocida en vez de exigir cero: agregar una nueva pone esto en ROJO, y
+   * arreglar una y no sacarla de la lista también. Mismo patrón que la lista DEUDA de
+   * `landing-guards.spec.ts`.
+   *
+   * ⚠️ `logistics.flota` es el caso GEMELO pero de DATO, no de código: la bandeja sí declara su
+   * clave y lo que falta es que alguna PERSONA la tenga. Eso no se puede vigilar desde acá —
+   * lo mide `database/scripts/sn-landing-censo.js` contra prod.
+   */
+  console.log('\n── 4h. Ninguna cola nueva puede quedar sin responsabilidad (= invisible) ──');
+  const SIN_RESPONSABILIDAD_CONOCIDOS = {
+    'libro-de-compras':
+      'Nadie respondía de él cuando se creó ([SN.16]); con [SN.30] no lo ve nadie hasta que se ' +
+      'le declare una clave en identity.responsibilities y se le asigne a contabilidad.',
+  };
+  const srcCiclos = fs.readFileSync(
+    path.resolve(__dirname, '../../libs/trade/src/lib/users/me-cycles.ts'), 'utf8');
+  const bloquesCiclo = [...srcCiclos.matchAll(/\n    id: '([^']+)',([\s\S]*?)(?=\n    id: '|\n\];)/g)];
+  check('se leyeron los ciclos del registro (si no, este bloque no mide nada)',
+    bloquesCiclo.length >= 4, bloquesCiclo.length);
+  const huerfanos = bloquesCiclo
+    .filter((m) => !/\n\s*responsabilidad:/.test(m[2]))
+    .map((m) => m[1]);
+  const nuevos = huerfanos.filter((id) => !(id in SIN_RESPONSABILIDAD_CONOCIDOS));
+  const yaArreglados = Object.keys(SIN_RESPONSABILIDAD_CONOCIDOS).filter((id) => !huerfanos.includes(id));
+  check('⛔ ningún ciclo NUEVO sin responsabilidad (seria invisible para todos, en silencio)',
+    nuevos.length === 0, nuevos);
+  check('la deuda declarada sigue siendo real (si se arregló, hay que sacarla de la lista)',
+    yaArreglados.length === 0, yaArreglados);
+  for (const id of huerfanos) {
+    console.log(`  ⓘ DEUDA ${id} — ${SIN_RESPONSABILIDAD_CONOCIDOS[id] ?? 'sin motivo declarado'}`);
   }
 
   /*
@@ -345,7 +372,7 @@ const tieneDecoradorPermisos = (tramo) =>
     /if \(!abre && !propia\) continue;/.test(srcSvc) && /if \(!abreCiclo && !mio\) continue;/.test(srcSvc));
   check('y viaja con su motivo, nunca con enlace y motivo a la vez',
     /ruta: abre \? b\.ruta : null/.test(srcSvc) && /sin_acceso: abre/.test(srcSvc));
-  check('lo que se esconde por tener otro dueño se DECLARA (ocultas), no desaparece en silencio',
+  check('lo que se esconde por no ser tuyo se DECLARA (ocultas), no desaparece en silencio',
     /ocultasPorDelegacion\+\+/.test(srcSvc) && /ocultas: ocultasPorDelegacion/.test(srcSvc));
 
   /*
@@ -655,18 +682,36 @@ const tieneDecoradorPermisos = (tramo) =>
     }
 
     /*
-     * `[SN.20]` Si a esta persona se le delegó algo, la lista trae **sólo lo suyo**: no puede venir
-     * un ciclo ajeno mezclado. Es la regla de «Mi trabajo» como lista de trabajo delegado — y no
-     * afecta el acceso, que lo sigue dando el permiso sobre el módulo.
+     * `[SN.30]` **Ningún ciclo ajeno puede venir en la lista, tenga reparto esta persona o no.**
+     *
+     * ⚠️ Acá vivía la regla contraria y hay que dejar el rastro: `[SN.20]` sólo exigía que NO se
+     * colaran ajenos *si* la persona tenía algo propio, y la otra rama afirmaba literalmente que
+     * «sin reparto se ven todos». Esa salvaguarda era mía y —medido— cubría al **77 % del padrón**,
+     * así que era el caso normal, no la excepción: es la que producía el titular de 2,082 de un
+     * superadmin que no responde de ninguna de esas colas.
+     *
+     * Edgar (2026-09-14): *«si no tiene responsabilidades no se le muestra nada»*.
+     *
+     * ⛔ **La única forma legítima de que llegue un `es_mio: false` es la válvula de falla abierta**
+     * de `[SN.22]`: si las responsabilidades no se pudieron leer, el backend manda todo con
+     * `delegacion: null` en vez de vaciar la pantalla por un error transitorio. Por eso la
+     * aserción se condiciona a ESE hecho y no a la presencia de ajenos — condicionarla al síntoma
+     * la volvería incapaz de detectar el bug que vigila.
+     *
+     * ⚠️ Mientras la API viva corra código anterior a `[SN.30]` esto va a dar rojo, y es correcto
+     * que lo dé: significa «falta reiniciar», no «el código está mal». Se declara NO MEDIDO en vez
+     * de FAIL sólo cuando el proceso vivo ni siquiera conoce el campo.
      */
-    const algunoMio = (wb.ciclos ?? []).some((c) => c.es_mio === true);
-    if (algunoMio) {
-      const ajenos = (wb.ciclos ?? []).filter((c) => !c.es_mio).map((c) => c.id);
-      check('con trabajo delegado, NO se cuelan ciclos ajenos en la lista', ajenos.length === 0, ajenos);
-    } else if ((wb.ciclos ?? []).length) {
-      // Sin reparto se ven todos: quedarse con la pantalla vacía sería peor que verlo de más.
-      check('sin trabajo delegado, los ciclos visibles NO se esconden',
-        (wb.ciclos ?? []).every((c) => c.es_mio === false), wb.ciclos?.map((c) => c.id));
+    const ajenos = (wb.ciclos ?? []).filter((c) => c.es_mio === false).map((c) => c.id);
+    if (wb.delegacion === null) {
+      check('falla abierta: sin poder leer el reparto se manda todo (no se vacía la pantalla)',
+        true, { motivo: 'delegacion=null', ciclos: wb.ciclos?.length ?? 0 });
+    } else if (wb.delegacion === undefined) {
+      declarar('ningún ciclo ajeno en la lista ([SN.30])',
+        'la API viva corre código anterior: no manda `delegacion`. Reiniciar y volver a correr.');
+    } else {
+      check('⛔ [SN.30] ningún ciclo ajeno en la lista (una cola se ve SÓLO si respondes de ella)',
+        ajenos.length === 0, ajenos);
     }
   }
 

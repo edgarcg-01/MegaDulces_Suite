@@ -10,6 +10,24 @@
 
 ## [Unreleased]
 
+### Changed — «si no tiene responsabilidades no se le muestra nada» (SN.30, 2026-09-14)
+
+Edgar, sobre la conclusión de SN.29 (*«mientras el 77 % no tenga responsabilidad declarada, la pantalla tiene que mostrar colas compartidas»*): **«no, si no tiene responsabilidades no se le muestra nada»**.
+
+- ⭐ **La regla se simplifica a una línea: una cola se te muestra SÓLO si vos respondés de ella.** `[SN.24]` preguntaba «¿esta actividad tiene dueño?» y, si no lo tenía, la ofrecía a cualquiera con permiso — esa mitad venía de `[SN.21]`, donde la puse como salvaguarda contra pantallas vacías, y **era justo la que producía el problema**: el titular de 2,082 eran cinco colas sin dueño ofrecidas a un superadmin que no responde de ninguna. Se cae con ella el concepto de «cola sin dueño» y la consulta `responsabilidadesConDueno()` (65 líneas, dos tablas por request).
+- **Medido antes de aplicarlo:** de 122 personas activas, **28 tienen alguna responsabilidad** y **94 (77 %) ven su columna vacía**; de ésas, 10 conservan algo por tarea asignada o borrador propio, así que **84 quedan en blanco**. Nuevo reporte permanente `database/scripts/sn-responsabilidad-huecos.js` (read-only, sale con 1 si hay una cola viva sin dueño).
+- ⛔ **Dos huecos que la regla abre y que no se ven desde el código:** `logistica.flota` **no tiene dueño**, así que las alertas de flota desaparecen de la portada de todos; y `libro-de-compras` **ni siquiera declara `responsabilidad`**, así que no puede ser de nadie. El primero es un hecho de dato (se siembra la clave); el segundo tiene candado propio, con la deuda enumerada y su motivo.
+- ⚠️ **6 personas** (`diana_rodriguez`, `ernesto_zarate`, `maria_rodriguez`, `jesus_carrillo`, `perla_garcia`, `julio_torres`) tienen como única responsabilidad `finanzas.hallazgos`, **retirada desde `[SN.18]`**. Sí tienen reparto — su cola está apagada. Sin distinguirlo la pantalla les diría «nadie te asignó nada», que es falso: `MeDelegacion` gana `retiradas[]` y el bloque vacío pasa a tener **cuatro** estados.
+- **El frontend deja de tener DÓNDE poner trabajo ajeno.** El mismo defecto se reportó tres veces (SN.20, SN.24, SN.28) y cada vez algo se filtró, así que no alcanza con que el backend deje de mandarlo: «Por periodo» sólo se renderiza cuando `delegacion === null` (la válvula de falla abierta de SN.22), rotulado «sin poder confirmar que es tuyo». En cualquier otro caso falla **cerrado**. Y el rótulo de las bandejas decía lo contrario de lo que pasa («Colas compartidas… nadie las tiene asignadas») → ahora es **«De las que respondes»**.
+- **Dos exenciones, con su motivo:** tu BORRADOR (`alcance: 'mio'`) y las TAREAS asignadas. Un `assigned_to` con tu nombre es la afirmación más fuerte de las tres de `task.contract.ts`; filtrarla por responsabilidad sería esconderte algo que una persona te repartió con nombre y fecha.
+
+### Internal — cuatro pruebas exigían la regla vieja (SN.30)
+
+- ⭐ **La señal de que el cambio es de fondo:** cuatro pruebas se pusieron rojas porque codificaban la salvaguarda retirada — la más explícita se llamaba *«a quien NO se le delegó nada, se le siguen mostrando todos los ciclos»*. Quedan **invertidas con el rastro de por qué**, no borradas.
+- Bloque **4h** nuevo en el smoke: ningún ciclo nuevo puede quedar sin `responsabilidad` (sería invisible **en silencio**), con la deuda conocida enumerada; negativa ejercida. Bloque **4e** reescrito. La aserción en vivo se condiciona a `delegacion !== null`, **no al síntoma** — condicionarla a la presencia de ajenos la volvería incapaz de detectar el bug que vigila.
+- ⚠️ **La primera prueba negativa del 4h no se puso roja, y ése fue el hallazgo:** mi script de edición buscaba `',
+'` y el archivo es LF, así que **no reemplazó nada** y la «negativa» corrió contra el código intacto. *Una prueba negativa sin `assert` de que el sabotaje se aplicó no prueba nada.*
+
 ### Fixed — `/admin`: auditoría de las 4 interfaces nuevas, con la pantalla abierta (AU.9–AU.15, 2026-09-14)
 
 Pedido de 0Sistemas: *"auditemos cada interfaz"*. Las cuatro pantallas de la Fase AU compilaban, la suite pasaba y se veían bien. Auditadas contra el código, contra prod (read-only) y contra la DB que la pantalla lee.

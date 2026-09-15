@@ -370,7 +370,8 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
   it('lo que está A TU NOMBRE no se mezcla con la cola compartida', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(TRABAJO_MIXTO) });
     expect(html()).toContain('A tu nombre');
-    expect(html()).toContain('En tus bandejas');
+    // `[SN.30]` Ya no son "colas compartidas": aca solo llega lo que esta persona responde.
+    expect(html()).toContain('De las que respondes');
     const ps = pendientes();
     expect(ps.length).toBe(2);
     // El "a tu nombre" va primero y se marca distinto.
@@ -378,17 +379,28 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(ps[0].getAttribute('href')).toBe('/tienda/caducidades');
     expect(ps[1].classList).not.toContain('is-mine');
     expect(ps[1].textContent).toContain('1,865');
-    // La cola compartida se declara como tal: nadie la tiene asignada.
-    const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('bandejas'));
-    expect(tag?.getAttribute('title')).toContain('nadie las tiene asignadas');
+    /*
+     * `[SN.30]` El rotulo dice que la actividad es TUYA, no que sea de todos. Antes decia
+     * "Colas compartidas: las abre tu permiso, nadie las tiene asignadas" y con la regla nueva
+     * eso es falso: si esta en la lista es porque respondes de ella.
+     */
+    const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('respondes'));
+    expect(tag?.getAttribute('title')).toContain('Actividades de las que respondes');
+    expect(tag?.getAttribute('title')).not.toContain('Colas compartidas');
   });
 
   it('sin pendientes → se dice, no se pintan cajas en cero', async () => {
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true });
     expect(pendientes().length).toBe(0);
     expect(html()).toContain('Sin pendientes en tus bandejas');
-    // `[SN.11]` El bloque "A tu nombre" no desaparece: esconderlo haría creer que sí hay reparto.
-    expect(html()).toContain('No tienes trabajo a tu nombre');
+    /*
+     * `[SN.30]` El bloque no desaparece y ahora dice POR QUE. `SIN_TRABAJO` trae
+     * `tiene_responsabilidades: false`, que es el caso de 94 de 122 personas en prod: la columna
+     * esta vacia porque nadie definio de que responden, no porque el sistema haya fallado.
+     */
+    expect(html()).toContain('Nadie definió de qué respondes');
+    // Y se aclara que el acceso NO cambia: son dos ejes distintos ([OR.1b]).
+    expect(html()).toContain('tener acceso y tener la responsabilidad son dos');
   });
 
   // ── [SN.15] Tareas asignadas: la tercera pregunta ─────────────────────────
@@ -429,7 +441,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
         detalle: 'los retiros del mes, contra las pólizas del 102 de Kepler',
         icono: 'pi pi-arrow-up-right',
         pendientes: 3,
-        es_mio: false,
+        /*
+         * `[SN.30]` Era `false` (un ciclo "compartido" que la pantalla rotulaba como ajeno). Ese
+         * caso ya no existe: el backend solo manda lo que esta persona responde. Las pruebas de
+         * la TIRA (enlace con el mes, `sin_datos` sin enlace, punto por estado) son sobre el
+         * organismo, no sobre la propiedad, asi que van con el caso normal: es tuyo.
+         */
+        es_mio: true,
         periodos: [
           { periodo: '2026-01', estado: 'en_proceso', faltan: 2386, motivo: '1111 casados, 2386 sin casar contra Kepler.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-01' } },
           { periodo: '2026-02', estado: 'sin_empezar', faltan: 2864, motivo: '2864 egresos y la conciliación no se ha corrido.', ruta: '/finanzas/bancos', queryParams: { view: 'cuadre', period: '2026-02' } },
@@ -473,13 +491,41 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(q<HTMLElement>('.ps-mes.e-al_dia').length).toBe(1);
   });
 
-  it('el ciclo que NO es tuyo se rotula como cola compartida', async () => {
-    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(CON_CICLO) });
-    const tag = Array.from(q<HTMLElement>('.mt-grupo-tag')).find((t) => t.textContent?.includes('Por periodo'));
-    expect(tag?.getAttribute('title')).toContain('no respondes tú de él');
-    // Y no se cuela al bloque de lo propio.
-    expect(html()).toContain('No tienes trabajo a tu nombre');
-    expect(q<HTMLElement>('.ps.is-mine').length).toBe(0);
+  it('⛔ [SN.30] el ciclo que NO es tuyo ya no se rotula como compartido: NO SE MUESTRA', async () => {
+    /*
+     * Antes esta prueba exigia que el ciclo ajeno apareciera bajo "Por periodo" con el titulo
+     * "no respondes tu de el". Edgar (2026-09-14): *"si no tiene responsabilidades no se le
+     * muestra nada"*. El concepto de "cola compartida" se cayo entero, asi que el backend ya no
+     * lo manda y el grupo "Por periodo" no tiene que existir en pantalla.
+     */
+    const ajeno: MeWork = {
+      ...SIN_TRABAJO,
+      ciclos: [{ ...CON_CICLO.ciclos[0], es_mio: false }],
+      // `delegacion` NO es null: las responsabilidades SI se pudieron leer, asi que no aplica la
+      // valvula de falla abierta y el ciclo ajeno no tiene donde caer.
+      delegacion: { activa: true, claves: ['finanzas.conciliacion_ingresos'], ocultas: 1, retiradas: [] },
+    };
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(ajeno) });
+    expect(Array.from(q<HTMLElement>('.mt-grupo-tag')).some((t) => t.textContent?.includes('Por periodo'))).toBe(false);
+    expect(q<HTMLElement>('app-periodo-strip').length).toBe(0);
+  });
+
+  it('⛔ [SN.30] pero si NO se pudo leer el reparto, se falla ABIERTO y se dice', async () => {
+    /*
+     * La valvula de `[SN.22]`: vaciar la pantalla por una falla transitoria seria peor que mostrar
+     * de mas. Cuando `delegacion` llega `null` el backend manda todo y la pantalla lo rotula como
+     * lo que es -- no pudo confirmar que sea tuyo -- en vez de afirmar que lo es.
+     */
+    const sinPoderLeer: MeWork = {
+      ...SIN_TRABAJO,
+      ciclos: [{ ...CON_CICLO.ciclos[0], es_mio: false }],
+      tiene_responsabilidades: null,
+      delegacion: null,
+    };
+    await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(sinPoderLeer) });
+    expect(q<HTMLElement>('app-periodo-strip').length).toBe(1);
+    expect(html()).toContain('sin poder confirmar que es tuyo');
+    expect(html()).toContain('No se pudo leer tu reparto');
   });
 
   /*
@@ -511,19 +557,23 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(Array.from(q<HTMLElement>('.mt-grupo-tag')).some((t) => t.textContent?.includes('Por periodo'))).toBe(false);
   });
 
-  it('a quien NO se le delegó nada, se le siguen mostrando todos los ciclos', async () => {
-    const sinReparto: MeWork = {
-      ...SIN_TRABAJO,
-      ciclos: [
-        { ...CON_CICLO.ciclos[0], id: 'conciliacion-bancos-ingresos', label: 'Conciliación de bancos · ingresos', es_mio: false },
-        { ...CON_CICLO.ciclos[0], id: 'conciliacion-bancos-egresos', label: 'Conciliación de bancos · egresos', es_mio: false },
-      ],
-    };
+  it('⛔ [SN.30] a quien NO se le delegó nada NO se le muestra nada (se invierte la salvaguarda de [SN.21])', async () => {
+    /*
+     * ⭐ Esta prueba exigia LO CONTRARIO y por eso vale la pena dejar el rastro: `[SN.21]` puso una
+     * salvaguarda —«si nada de lo que ves es tuyo, no se filtra nada»— para no dejar pantallas
+     * vacias. Medido despues: como el 77% del padron no tiene reparto, esa excepcion **era el caso
+     * normal**, y era justo la que producia el titular de 2,082 de un superadmin que no responde de
+     * ninguna de esas colas.
+     *
+     * Edgar (2026-09-14): *"si no tiene responsabilidades no se le muestra nada"*. El backend ya no
+     * manda lo ajeno; si igual llegara, la pantalla no debe inventarle un grupo donde ponerlo.
+     */
+    const sinReparto: MeWork = { ...SIN_TRABAJO, ciclos: [] };
     await montar({ perms: [Permission.COMMERCIAL_INVENTORY_RECIBIR], stay: true, work$: of(sinReparto) });
-    // Sin reparto no se esconde nada: quedarse con la pantalla vacía sería peor que verlo de más.
-    expect(q<HTMLElement>('app-periodo-strip').length).toBe(2);
-    expect(q<HTMLElement>('.ps.is-mine').length).toBe(0);
-    expect(html()).toContain('No tienes trabajo a tu nombre');
+    expect(q<HTMLElement>('app-periodo-strip').length).toBe(0);
+    expect(Array.from(q<HTMLElement>('.mt-grupo-tag')).some((t) => t.textContent?.includes('Por periodo'))).toBe(false);
+    // Y la columna vacia DICE por que, en vez de parecer un error del sistema.
+    expect(html()).toContain('Nadie definió de qué respondes');
   });
 
   /*
