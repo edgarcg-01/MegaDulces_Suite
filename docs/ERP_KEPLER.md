@@ -92,6 +92,60 @@ estándar ni último costo — sólo 20.2% coincide exacto con la última compra
 92.1% con la valuación `c9/c6` (que *es* promedio por construcción). Cada sucursal promedia **sus**
 entradas: mismo centro, deriva propia (19.6%–52.8% idénticos al CEDIS, sin markup de traspaso).
 
+#### 2.1.1 ⭐⭐ La fórmula de Kepler, decodificada desde su propia ficha (2026-09-15)
+
+La pantalla **"Estructura de Unidades para POS"** del catálogo de Kepler es una rejilla de 3 filas ×
+6 campos, y cada celda tiene su columna en `kdii`. El mapeo quedó fijado contra la ficha real del
+SKU `96158` (los valores coinciden al centavo, no es suposición):
+
+| fila de la ficha | Unidades | Factor | Costo | %Margen | PV | Cód. barras |
+|---|---|---|---|---|---|---|
+| **Base** | `c11` | 1 | **`c77`** | **`c87`** | `c90` | `c7` |
+| **Unidad Dos** | `c80` | `c81` | **`c78`** | **`c88`** | `c91` | `c82` |
+| **Unidad Tres** | `c83` | `c84` | **`c79`** | **`c89`** | `c92` | `c85` |
+
+*(`96158`: `c11`=PZA · `c77`=145.00 · `c87`=23.2600 · `c90`=178.73 · `c7`=96158.)*
+
+**Las dos ecuaciones, validadas contra las 76,219 filas del maestro:**
+
+```text
+(1)  costo_peldaño_N = costo_base × factor_N      Unidad Dos  68,526/69,487 = 98.6%
+                                                  Unidad Tres 19,409/19,703 = 98.5%
+(2)  PV_peldaño_N    = costo_peldaño_N × (1 + margen_N/100)   a escala solo 32.3%
+```
+
+`14030`: 22.34 × 1.264 = **28.24** = `c90` exacto; 223.44 × 1.107 = **247.35** = `c91` exacto.
+
+⭐ **De (1) se despeja el factor sin depender de que alguien lo capture:**
+
+```text
+factor_N = costo_peldaño_N / costo_base
+```
+
+Medido contra el factor que Kepler sí tiene capturado: **52,231 de 53,112 = 98.3%** dan el mismo
+entero, mediana derivado/capturado **1.00000** exacta.
+
+⛔ **El PRECIO no sirve para derivar la unidad y el COSTO sí** — y la razón es estructural, no
+empírica: `PV2/PV1 = factor × (1+m2)/(1+m1)`. El margen por peldaño es distinto (`14030`: 26.40% en
+la base contra 10.70% en la caja), así que la razón de precios trae el margen adentro. *El costo es
+lineal en el factor; el precio no.* Intentarlo con el precio acierta **10.7%** — medido antes de
+descartarlo.
+
+⚠️ **El peldaño "caja" es el de MAYOR FACTOR, no el último rotulado.** `14030` trae `u2=CJA` con
+factor 10 y `u3=PZA` **rotulada pero vacía** (factor 0, costo 0): tomar el último rótulo lo declara
+"sin dato" cuando su factor está capturado y es correcto. Es la escalera corrida de §2.1.
+
+⚠️ **Sin rótulo de Unidad Dos ni Tres, el factor es 1 — y eso es un DATO, no un hueco.** Lo dice la
+propia ficha al pie: *"La facturación es siempre sobre la unidad Base, Los inventarios están en la
+unidad Base"*. Distinto de `c84 ∈ {0,1}`, que sí es ambiguo (§5 regla 5): ahí se mira el **factor**,
+acá el **rótulo**. Medido: 840 SKUs con una sola unidad.
+
+**Resolvedor canónico: `analytics.v_kepler_unit_ladder`** (vista derive-no-copy, grano
+**sucursal × sku**, sin `mode()`), con `factor_caja` + `factor_source` ∈ `capturado` ·
+`derivado_del_costo` · `unidad_unica` · `capturado_contradice_al_costo` · `rotulo_sin_factor_ni_costo`.
+Medido al crearla: 67,372 filas capturado · 6,605 unidad única · **343 derivadas del costo** ·
+849 donde Kepler se contradice a sí mismo · 1,465 sin dato.
+
 **Cross-check independiente:** `kdpv_prov_prod` valida el factor de caja desde una fuente distinta a
 `v_product_box_factor`. Medido: **5,568 de 5,571** coinciden. Sirve como validador de DQ, no como
 fuente primaria.
