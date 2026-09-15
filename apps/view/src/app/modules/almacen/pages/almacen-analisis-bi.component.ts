@@ -75,8 +75,17 @@ const DEFAULT_EXPLORE_FIELDS = [
           <button pButton type="button" class="p-button-outlined p-button-sm" (click)="refresh()" [loading]="loadingAny()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span> Actualizar
           </button>
-          <button pButton type="button" class="p-button-outlined p-button-sm" (click)="exportCurrent()" [disabled]="activeTab() === 'resumen'">
-            <span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span> Exportar
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlCsv()" [disabled]="activeTab() === 'resumen'"
+                  (click)="download('csv')" title="Exporta TODA la consulta filtrada (no sólo la página cargada) — CSV">
+            <span class="p-button-icon p-button-icon-left pi pi-file" aria-hidden="true"></span><span class="p-button-label">CSV</span>
+          </button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlXlsx()" [disabled]="activeTab() === 'resumen'"
+                  (click)="download('xlsx')" title="Exporta TODA la consulta filtrada — Excel">
+            <span class="p-button-icon p-button-icon-left pi pi-file-excel" aria-hidden="true"></span><span class="p-button-label">Excel</span>
+          </button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="dlSqlite()" [disabled]="activeTab() === 'resumen'"
+                  (click)="download('sqlite')" title="Exporta TODA la consulta como base de datos SQLite — sin el límite de filas de CSV/Excel, tipos preservados. Ábrelo con DB Browser for SQLite u otra herramienta libre.">
+            <span class="p-button-icon p-button-icon-left pi pi-database" aria-hidden="true"></span><span class="p-button-label">Base de datos</span>
           </button>
         </div>
       </header>
@@ -707,8 +716,39 @@ export class AlmacenAnalisisBiComponent {
     this.ensureLoaded('movimientos');
   }
 
-  exportCurrent(): void {
-    this.toast.add({ severity: 'info', summary: 'Exportar', detail: 'La exportación toma la vista filtrada actual (hasta la página cargada). Usá el paginador para traer más filas antes de exportar.' });
+  readonly dlCsv = signal(false);
+  readonly dlXlsx = signal(false);
+  readonly dlSqlite = signal(false);
+
+  /**
+   * WMS-BI.5 — exporta TODA la consulta filtrada (no sólo la página cargada en el navegador,
+   * pedido explícito del usuario), en Movimientos o Explorar según la pestaña activa. Mismo
+   * patrón de descarga que `almacen-movimientos.component.ts` (`download()`): blob + ancla
+   * sintética, nombre de archivo tomado de `Content-Disposition`.
+   */
+  download(format: 'csv' | 'xlsx' | 'sqlite'): void {
+    const tab = this.activeTab();
+    if (tab === 'resumen') return;
+    const flag = format === 'csv' ? this.dlCsv : format === 'xlsx' ? this.dlXlsx : this.dlSqlite;
+    flag.set(true);
+    const obs = tab === 'movimientos'
+      ? this.bi.downloadMovementsExport(this.currentFilterParams(), format)
+      : this.bi.downloadExploreExport(this.currentFilterParams(), this.selectedFieldsList, format);
+    obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (resp) => {
+        flag.set(false);
+        const cd = resp.headers.get('content-disposition') || '';
+        const m = /filename\*=UTF-8''([^;]+)/i.exec(cd);
+        const name = m ? decodeURIComponent(m[1]) : `Analisis BI Almacen.${format}`;
+        const url = URL.createObjectURL(resp.body!);
+        const a = document.createElement('a'); a.href = url; a.download = name; a.click();
+        URL.revokeObjectURL(url);
+      },
+      error: () => {
+        flag.set(false);
+        this.toast.add({ severity: 'error', summary: 'Exportar', detail: 'No se pudo generar el archivo. Intentá de nuevo.' });
+      },
+    });
   }
 
   canSeeCustomers(): boolean {

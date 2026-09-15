@@ -718,7 +718,7 @@ export class CommercialBiAlmacenService {
   private static readonly TRANSFER_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.TRANSFER_DOC_CODES.map((c) => `'${c}'`).join(',');
   private static readonly ADJUSTMENT_DOC_CODES_SQL_LIST = CommercialBiAlmacenService.ADJUSTMENT_DOC_CODES.map((c) => `'${c}'`).join(',');
 
-  private readonly EXPLORE_FIELDS: Array<{ key: string; label: string; group: string; sql: string; requires?: string }> = [
+  private readonly EXPLORE_FIELDS: Array<{ key: string; label: string; group: string; sql: string; requires?: string; numeric?: true }> = [
     { key: 'doc_date', label: 'Fecha', group: 'Fechas y documentos', sql: `m.doc_date::text` },
     { key: 'hora', label: 'Hora', group: 'Fechas y documentos', sql: `btrim(${CommercialBiAlmacenService.KDM_SUBQ('h.c69')})` },
     { key: 'folio', label: 'Folio', group: 'Fechas y documentos', sql: `m.folio` },
@@ -750,15 +750,15 @@ export class CommercialBiAlmacenService {
     { key: 'linea_producto', label: 'Línea (fabricante)', group: 'Productos', sql: `nullif(btrim(lp.c2), '')` },
     { key: 'tipo_producto', label: 'Tipo de producto', group: 'Productos', sql: `nullif(btrim(tp.c2), '')` },
     { key: 'grupo_producto', label: 'Grupo de producto', group: 'Productos', sql: `nullif(btrim(gp.c2), '')` },
-    { key: 'qty', label: 'Cantidad', group: 'Cantidades y conversiones', sql: `m.qty` },
-    { key: 'signed_qty', label: 'Efecto en inventario (+entrada/−salida)', group: 'Cantidades y conversiones', sql: `m.signed_qty` },
+    { key: 'qty', label: 'Cantidad', group: 'Cantidades y conversiones', sql: `m.qty`, numeric: true },
+    { key: 'signed_qty', label: 'Efecto en inventario (+entrada/−salida)', group: 'Cantidades y conversiones', sql: `m.signed_qty`, numeric: true },
     { key: 'unidad_operacion', label: 'Unidad de la operación', group: 'Cantidades y conversiones', sql: `btrim(${CommercialBiAlmacenService.KDM_SUBQ('l.c11')})` },
     { key: 'unidad_base', label: 'Unidad base', group: 'Cantidades y conversiones', sql: `ut.base_label` },
-    { key: 'unit_cost', label: 'Costo del movimiento (histórico)', group: 'Costos', sql: `m.unit_cost` },
-    { key: 'amount', label: 'Importe', group: 'Costos', sql: `m.amount` },
-    { key: 'cost_base_hoy', label: 'Costo de catálogo (vigente hoy)', group: 'Costos', sql: `p.cost_base` },
-    { key: 'iva_rate', label: 'Tasa de IVA del producto', group: 'Costos', sql: `p.iva_rate` },
-    { key: 'ieps_rate', label: 'Tasa de IEPS del producto', group: 'Costos', sql: `p.ieps_rate` },
+    { key: 'unit_cost', label: 'Costo del movimiento (histórico)', group: 'Costos', sql: `m.unit_cost`, numeric: true },
+    { key: 'amount', label: 'Importe', group: 'Costos', sql: `m.amount`, numeric: true },
+    { key: 'cost_base_hoy', label: 'Costo de catálogo (vigente hoy)', group: 'Costos', sql: `p.cost_base`, numeric: true },
+    { key: 'iva_rate', label: 'Tasa de IVA del producto', group: 'Costos', sql: `p.iva_rate`, numeric: true },
+    { key: 'ieps_rate', label: 'Tasa de IEPS del producto', group: 'Costos', sql: `p.ieps_rate`, numeric: true },
     { key: 'dest_label', label: 'Destino del traspaso', group: 'Datos comerciales', sql: `m.dest_label`, requires: 'COMMERCIAL_CUSTOMERS_VER' },
   ];
 
@@ -801,16 +801,9 @@ export class CommercialBiAlmacenService {
     const pageSize = Math.min(200, Math.max(1, Number(query['pageSize']) || 50));
     const from = this.dateOr(query['from'], this.daysAgo(30));
     const to = this.dateOr(query['to'], this.today());
-
-    // El servidor NUNCA confía en la lista del cliente: se recorta contra el whitelist +
-    // el permiso real de la sesión. Un campo restringido pedido a mano no llega ni deshabilitado.
-    const allowed = new Set(
-      this.EXPLORE_FIELDS.filter((f) => !f.requires || permissions?.[f.requires] === true).map((f) => f.key),
-    );
-    const selected = (fieldsReq.length ? fieldsReq : ['doc_date', 'warehouse_code', 'sku', 'product_name', 'signed_qty', 'amount'])
-      .filter((k) => allowed.has(k));
+    const resolved = this.resolveExploreFields(fieldsReq, permissions);
+    const cols = resolved.map((f) => f.key);
     const fieldMap = new Map(this.EXPLORE_FIELDS.map((f) => [f.key, f]));
-    const cols = selected.length ? selected : ['doc_date', 'warehouse_code', 'sku', 'product_name', 'signed_qty', 'amount'];
 
     return this.tk.run(async (trx) => {
       const ids = await this.resolveWarehouseIds(trx, tenantId, query);
@@ -849,6 +842,82 @@ export class CommercialBiAlmacenService {
       const rows = await base().select(selectExprs).orderBy('m.doc_date', 'desc').limit(pageSize).offset((page - 1) * pageSize);
       return { page, pageSize, total: Number(count), rows };
     });
+  }
+
+  /** El servidor NUNCA confía en la lista del cliente: se recorta contra el whitelist + el
+   * permiso real de la sesión. Un campo restringido pedido a mano no llega ni deshabilitado.
+   * Compartido por `explore()` y `exportExplore()` — un solo lugar decide qué campo es válido. */
+  private resolveExploreFields(fieldsReq: string[], permissions: Record<string, boolean> | undefined) {
+    const DEFAULTS = ['doc_date', 'warehouse_code', 'sku', 'product_name', 'signed_qty', 'amount'];
+    const allowed = new Set(
+      this.EXPLORE_FIELDS.filter((f) => !f.requires || permissions?.[f.requires] === true).map((f) => f.key),
+    );
+    const selected = (fieldsReq.length ? fieldsReq : DEFAULTS).filter((k) => allowed.has(k));
+    const cols = selected.length ? selected : DEFAULTS;
+    const fieldMap = new Map(this.EXPLORE_FIELDS.map((f) => [f.key, f]));
+    return cols.map((k) => fieldMap.get(k)!);
+  }
+
+  /**
+   * WMS-BI.5 (2026-09-15) — Exportar TODA la consulta filtrada, no sólo la página cargada en
+   * el navegador (pedido explícito del usuario). Reusa `movements()`/`explore()` en un LOOP
+   * paginado — mismo patrón ya establecido en el módulo hermano `commercial-movements`
+   * (`CommercialMovementsService.exportData()`, tope 5,000/500×10) — así que hereda gratis
+   * el alcance por almacén, los permisos de Explorar, y el enriquecimiento kdm1/kdm2 sin
+   * duplicar una sola línea de esa lógica. Tope más alto que el hermano (100,000 filas,
+   * 200×500) porque el destino ya no es Excel/CSV en pantalla sino también SQLite, que no
+   * sufre el límite práctico de filas de una hoja de cálculo — igual se declara `truncated`
+   * si el resultado real excede el tope, nunca se recorta en silencio.
+   */
+  private static readonly EXPORT_PAGE = 200;
+  private static readonly EXPORT_MAX_PAGES = 500; // tope 100,000 filas
+
+  /** Columnas del export de Movimientos — TODAS las de `BiMovementRow` (no sólo las que el
+   * usuario tiene visibles en pantalla en ese momento: el export es el volcado completo). */
+  static readonly MOVEMENT_EXPORT_COLUMNS: Array<{ key: string; label: string; numeric?: true }> = [
+    { key: 'doc_date', label: 'Fecha' }, { key: 'hora', label: 'Hora' }, { key: 'zone_name', label: 'Zona' },
+    { key: 'warehouse_code', label: 'Sucursal' }, { key: 'warehouse_name', label: 'Sucursal (nombre)' },
+    { key: 'almacen', label: 'Almacén' }, { key: 'canal', label: 'Canal' },
+    { key: 'movement_kind', label: 'Tipo' }, { key: 'tipo_operacion', label: 'Tipo de operación' },
+    { key: 'movement_label', label: 'Documento' }, { key: 'doc_code', label: 'Código doc.' }, { key: 'folio', label: 'Folio' },
+    { key: 'vendedor', label: 'Vendedor' }, { key: 'sku', label: 'Código' }, { key: 'product_name', label: 'Producto' },
+    { key: 'linea_producto', label: 'Línea' }, { key: 'tipo_producto', label: 'Tipo producto' }, { key: 'grupo_producto', label: 'Grupo' },
+    { key: 'qty', label: 'Cantidad', numeric: true }, { key: 'unidad_operacion', label: 'Unidad operación' },
+    { key: 'unidad_base', label: 'Unidad base' }, { key: 'cantidad_base', label: 'Cantidad en unidad base', numeric: true },
+    { key: 'unidad_base_medible', label: 'Unidad base medible' },
+    { key: 'signed_qty', label: 'Efecto en inventario', numeric: true }, { key: 'unit_cost', label: 'Costo del movimiento', numeric: true },
+    { key: 'amount', label: 'Importe', numeric: true }, { key: 'importe_costo', label: 'Importe costo', numeric: true },
+    { key: 'importe_venta', label: 'Importe venta', numeric: true }, { key: 'iva_valor', label: 'IVA valor', numeric: true },
+    { key: 'ieps_valor', label: 'IEPS valor', numeric: true }, { key: 'venta_neta', label: 'Venta neta', numeric: true },
+    { key: 'cost_base_hoy', label: 'Costo catálogo (hoy)', numeric: true }, { key: 'source_system', label: 'Sistema' },
+  ];
+
+  async exportMovements(query: Record<string, unknown>): Promise<{ rows: BiMovementRow[]; total: number; truncated: boolean; from: string; to: string }> {
+    const PAGE = CommercialBiAlmacenService.EXPORT_PAGE;
+    const from = this.dateOr(query['from'], this.daysAgo(30));
+    const to = this.dateOr(query['to'], this.today());
+    const first = await this.movements({ ...query, page: 1, pageSize: PAGE });
+    const rows = [...first.rows];
+    const pages = Math.min(Math.ceil(first.total / PAGE), CommercialBiAlmacenService.EXPORT_MAX_PAGES);
+    for (let p = 2; p <= pages; p++) rows.push(...(await this.movements({ ...query, page: p, pageSize: PAGE })).rows);
+    return { rows, total: first.total, truncated: first.total > rows.length, from, to };
+  }
+
+  async exportExplore(
+    query: Record<string, unknown>, fieldsReq: string[], permissions: Record<string, boolean> | undefined,
+  ): Promise<{
+    rows: Array<Record<string, unknown>>; total: number; truncated: boolean;
+    columns: Array<{ key: string; label: string; numeric?: true }>; from: string; to: string;
+  }> {
+    const PAGE = CommercialBiAlmacenService.EXPORT_PAGE;
+    const from = this.dateOr(query['from'], this.daysAgo(30));
+    const to = this.dateOr(query['to'], this.today());
+    const columns = this.resolveExploreFields(fieldsReq, permissions).map((f) => ({ key: f.key, label: f.label, numeric: f.numeric }));
+    const first = await this.explore({ ...query, page: 1, pageSize: PAGE }, fieldsReq, permissions);
+    const rows = [...first.rows];
+    const pages = Math.min(Math.ceil(first.total / PAGE), CommercialBiAlmacenService.EXPORT_MAX_PAGES);
+    for (let p = 2; p <= pages; p++) rows.push(...(await this.explore({ ...query, page: p, pageSize: PAGE }, fieldsReq, permissions)).rows);
+    return { rows, total: first.total, truncated: first.total > rows.length, columns, from, to };
   }
 
   // ═══════════════════════════════════════════════════════════ helpers ════

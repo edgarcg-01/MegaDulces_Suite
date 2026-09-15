@@ -199,6 +199,16 @@ Reporte de tienda: *"el tamaño de la etiqueta se redujo y los usuarios no logra
 - **La carga masiva se pliega** detrás de "Pegar lista" y el buscador sube a la línea de la pistola. Se usa poco (cambio de precios de temporada) y abierta costaba una tarjeta entera de alto — justo el alto que le faltaba a la hoja. La función queda intacta: mismo textarea, mismo `addBulk()`, mismo aviso de no encontrados (visible también con el panel cerrado).
 - **Medido** (etiqueta en pantalla, antes 147×63 px en cualquier monitor): 1366×768 → **212×90 (×1.44)** · 1920×1080 → **327×139 (×2.22)** · 2560×1440 → **439×188 (×2.99)**. En pantalla chica manda el alto, y la hoja **entera** sigue visible sin scroll — es una vista de hoja: si hay que scrollear para ver la última fila deja de servir para lo que sirve.
 - Build `view` verde; suite de etiquetas verde (6/6). ⚠️ `mi-trabajo.component.spec.ts` falla en `main`, ajeno a este cambio. **Validación visual pendiente** (los dev servers son de Edgar).
+### Added — Análisis BI de Almacén: exportar TODA la consulta, no sólo la página cargada — CSV, Excel y SQLite (WMS-BI.5, 2026-09-15)
+
+El botón "Exportar" era un placeholder ("usá el paginador para traer más filas"). Ahora exporta la consulta filtrada COMPLETA (tope 100,000 filas, declarado si se alcanza) en Movimientos y Explorar, en 3 formatos.
+
+- **CSV y Excel** (ExcelJS, ya dependencia del repo).
+- **SQLite** — nuevo, a pedido explícito del usuario ("una forma de exportar como base de datos para no depender de la capacidad de los csv"; el sistema anterior exportaba a `.mdb`). Un archivo portátil con una base de datos real, tipos preservados, sin límite práctico de filas, abrible con DB Browser for SQLite u otra herramienta libre — el equivalente moderno al `.mdb`.
+- **Elección técnica investigada, no supuesta**: se probó `better-sqlite3` primero y se descartó con evidencia (exige Node ≥22; bajando de versión, falló al compilar en esta máquina por falta de Visual Studio Build Tools). Se usa `sql.js` (SQLite vía WebAssembly) — cero compilación nativa, mismo comportamiento en cualquier SO/Docker. Verificado con un round-trip completo antes de integrarlo.
+- Backend reusa `movements()`/`explore()` en un loop paginado (mismo patrón que `commercial-movements`), heredando alcance por almacén y permisos sin duplicar lógica.
+- **Verificación parcial esta ronda** — el generador de archivos se probó de punta a punta (ts-node aislado, valores/tipos correctos en los 3 formatos) y el backend compila limpio, pero no se pudo probar por HTTP real: el dev server no arranca por una dependencia rota en un módulo de OTRO trabajo en curso en este mismo árbol (no relacionado con este cambio). Pendiente repetir la prueba end-to-end cuando el API pueda levantar.
+
 ### Fixed — Análisis BI de Almacén: Vendedor, Canal, Tipo de operación + la Hora estaba mal (WMS-BI.4, 2026-09-15)
 
 Pedido del usuario sobre WMS-BI.3: faltaba Vendedor/Cajero, y un Canal (Punto de Venta/Mayoreo/Venta al detalle) para operaciones comerciales.
