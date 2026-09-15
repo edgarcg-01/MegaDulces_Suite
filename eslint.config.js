@@ -43,8 +43,19 @@ module.exports = [
             { sourceTag: 'scope:platform', onlyDependOnLibsWithTags: ['scope:platform', 'scope:shared'] },
             // contracts no depende de nada
             { sourceTag: 'scope:shared', onlyDependOnLibsWithTags: ['scope:shared'] },
-            // frontend
+            // ── frontend ──
+            // Las tres apps de browser tienen el MISMO permiso: shared (contracts, ui-web,
+            // shared-scoring) y platform. Nada de dominio: lo que el frontend necesita del
+            // dominio viaja por HTTP con los tipos de `contracts`, no importando la lib.
+            //
+            // ⚠️ `portal` y `vendor` estuvieron SIN TAGS hasta el 2026-09-15, y un proyecto sin
+            // tags no matchea ningún `sourceTag`: las 15 reglas de acá NO les aplicaban, o sea
+            // que 2 de las 4 apps podían importar cualquier dominio y el candado que el repo
+            // creía tener puesto no existía para ellas. Medido al taparlo: cero violaciones —
+            // las dos ya importaban sólo `scope:shared`. Se cierra antes de que cueste.
             { sourceTag: 'scope:view', onlyDependOnLibsWithTags: ['scope:shared', 'scope:platform'] },
+            { sourceTag: 'scope:portal', onlyDependOnLibsWithTags: ['scope:shared', 'scope:platform'] },
+            { sourceTag: 'scope:vendor', onlyDependOnLibsWithTags: ['scope:shared', 'scope:platform'] },
           ],
         },
       ],

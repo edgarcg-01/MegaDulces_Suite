@@ -5,9 +5,23 @@ name: CI
 # production + --import load-compiler.mjs). Atrapa errores de TS / budgets de
 # Angular ANTES de que Railway deploye un build roto.
 #
-# Flujo de equipo (3 devs): este workflow es el GATE OBLIGATORIO de todo PR a
-# main. `main` está protegida (branch protection) — no se mergea con el CI en
-# rojo. Ver ONBOARDING.md §8.
+# ⛔ MEDIDO EL 2026-09-15 — este workflow NO es hoy un gate, aunque abajo diga lo contrario:
+#
+#   · `gh workflow list` lo reporta **disabled_manually**: alguien lo apagó a mano. La última
+#     corrida fue el **2026-08-25** y desde entonces se mergearon PRs sin que corriera ni una vez.
+#   · Las 25 corridas previas salieron TODAS en rojo, pero no por código: los 3 jobs mueren en
+#     2–4 s con `steps: 0` y `runner: ninguno asignado`. Nunca se les dio máquina. Es un problema
+#     de infraestructura/cuenta de GitHub, no del repo — el log ni siquiera existe.
+#   · `main` exige **review**, pero su branch protection NO tiene ningún required status check
+#     (`required_status_checks: ninguno`), así que aun encendido esto no bloquearía un merge.
+#
+# O sea que el boundary gate, el provenance gate y el de comentarios existen y están probados,
+# pero **no se están ejecutando**. Reactivarlo es decisión de equipo (hay que resolver primero
+# por qué no se asignan runners); mientras tanto, los gates se corren en local — ver DESIGN.md
+# pre-vuelo y `npm run check:templates`.
+#
+# Flujo de equipo (3 devs): rama por feature → PR → 1 review (CODEOWNERS) → merge a main.
+# Ver ONBOARDING.md §8.
 #
 # NO publica imágenes: Railway construye desde el repo en cada push. Este job
 # es puramente un gate de calidad.
@@ -48,12 +62,14 @@ jobs:
           GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
 
   build:
-    name: Build & typecheck (api · view · portal · vendor)
+    name: Build & typecheck (affected)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # `nx affected` necesita el historial para el diff base↔head.
 
       - name: Setup Node 20
         uses: actions/setup-node@v4
@@ -69,12 +85,45 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
+      # Caché de TAREAS de Nx entre corridas. Hasta el 2026-09-15 el workflow sólo cacheaba
+      # `npm` (vía setup-node), así que cada PR recompilaba todo desde cero aunque nada de lo
+      # suyo hubiera cambiado, y lo que ya había compilado otra corrida no le servía a nadie.
+      # No hay Nx Cloud configurado (`nxCloud: NO CONFIGURADO` en nx.json), y esto es el
+      # sustituto pobre pero gratis: el caché local de Nx, subido y bajado como artefacto.
+      #
+      # La key lleva el SHA para que cada corrida escriba su propia entrada; `restore-keys`
+      # hace que una corrida nueva arranque del caché más reciente de esa rama y, si no hay,
+      # de cualquiera. Nx igual verifica por hash de entradas: un caché viejo NUNCA devuelve
+      # un resultado incorrecto, sólo deja de acertar.
+      - name: Caché de tareas Nx
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-${{ github.ref_name }}-
+            nx-${{ runner.os }}-
+
+      - name: Derivar SHAs base/head para affected
+        uses: nrwl/nx-set-shas@v4
+
+      # `affected` en vez de `run-many`: este job compila TRES apps Angular de producción
+      # y era el más caro del workflow, pero hasta el 2026-09-15 recompilaba las cuatro
+      # aunque el cambio tocara una sola. Medido sobre commits reales del repo: un fix de
+      # un componente selecciona 1 proyecto (`view`) y un commit de sólo docs selecciona
+      # 0 — mientras que el `run-many` construía api+view+portal+vendor en los tres casos.
+      #
+      # Lo que NO cambia: un cambio en `package.json`/`package-lock.json` o en una lib
+      # compartida sigue afectando a las 17, porque entra por `sharedGlobals`. Eso es
+      # correcto y es justo lo que se quiere conservar — medido en el commit de WMS-BI.5,
+      # que agregó `sql.js` y afectó a todos.
+      #
       # --parallel=1: el heap de 4096 es por PROCESO y acá hay TRES apps Angular
       # (view, portal, vendor). Con parallel=2 dos de ellas pican a la vez y el
       # runner se queda sin RAM; el job muere sin imprimir error de TypeScript.
       # Mismo criterio que el Dockerfile raíz.
-      - name: Build all deployables
-        run: npx nx run-many -t build -p api view portal vendor --configuration=production --parallel=1
+      - name: Build (affected)
+        run: npx nx affected -t build --configuration=production --parallel=1
         env:
           NX_DAEMON: 'false'
           # Mismo arranque que los Dockerfiles: heap 4096 + @angular/compiler
@@ -109,6 +158,17 @@ jobs:
         env:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
+
+      # Mismo caché de tareas que el job `build` — ver el comentario de allá. Acá aplica a
+      # `lint` y `test`, que también son targets cacheables de Nx.
+      - name: Caché de tareas Nx
+        uses: actions/cache@v4
+        with:
+          path: .nx/cache
+          key: nx-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-${{ github.ref_name }}-
+            nx-${{ runner.os }}-
 
       - name: Lint (affected)
         run: npx nx affected -t lint --parallel=3

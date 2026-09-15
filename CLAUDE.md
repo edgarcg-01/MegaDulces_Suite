@@ -8,7 +8,9 @@
 
 **Equipo de 4 devs** (lead Edgar + 3). El trabajo se apoya fuerte en **Claude Code**: los `.md` del repo son la memoria compartida del proyecto entre sesiones y máquinas; mantenerlos actualizados es **mandatorio** al cerrar cualquier item.
 
-**Flujo de trabajo:** rama por feature → PR → CI verde + 1 review (CODEOWNERS) → merge a `main`. `main` está protegida. Onboarding de máquina en [`ONBOARDING.md`](ONBOARDING.md). Reglas duras en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
+**Flujo de trabajo:** rama por feature → PR → 1 review (CODEOWNERS) → merge a `main`. `main` está protegida. Onboarding de máquina en [`ONBOARDING.md`](ONBOARDING.md). Reglas duras en [`docs/GOTCHAS.md`](docs/GOTCHAS.md).
+
+> ⛔ **"CI verde" salió de esta línea el 2026-09-15 porque era falso, medido.** El workflow está **`disabled_manually`** (última corrida **2026-08-25**; desde entonces se mergearon PRs sin que corriera). Las 25 corridas previas murieron en 2–4 s con `steps: 0` y **sin runner asignado** — infraestructura de GitHub, no código. Y la branch protection de `main` exige review pero **no tiene ningún required status check**, así que ni encendido bloquearía un merge. **Hasta que se reactive, los gates se corren en LOCAL** (`npm run check:templates`, `node scripts/check-provenance.js`, `node scripts/lint-boundary-gate.js`). Detalle en la cabecera de [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 > **Para el Claude de un dev nuevo:** seguí el protocolo de orientación en [`docs/CLAUDE_ONBOARDING.md`](docs/CLAUDE_ONBOARDING.md) — te guía paso a paso a entender la estructura completa (leé esos docs en orden: ARCHITECTURE, ARQUITECTURA_DATOS, GLOSSARY, ERP_KEPLER, GOTCHAS, DESIGN + los 6 modelos mentales y las reglas duras). La memoria personal de Claude NO se comparte entre máquinas — todo lo que deba verlo el equipo va a estos `.md`.
 
