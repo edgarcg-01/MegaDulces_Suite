@@ -66,6 +66,32 @@ Las dejo tachadas en vez de borrarlas, porque el **cómo** me equivoqué es la p
 - **`ix_sales_daily_cover`: 1,222 MB para 2,457 usos** (vs `uq_sales_daily`, 928 MB y 259 M usos) y **`sales_daily_pkey` 343 MB con 0 usos**. Decidir con `pg_stat_statements`, que ahora sí mide.
 - `max_connections = 500` con ~25 conexiones reales; bajarlo liberaría memoria reservada, pero exige otro reinicio y no era el cuello.
 
+### ✅ Aplicado el mismo día (2026-09-15, tarde)
+
+| Qué | Dónde | Estado |
+|---|---|---|
+| **Latido `twins_pairing`** para el apareo incremental | `goods-receipt-twins.service.ts` + `CRON_JOBS` | ✅ **vivo en prod** (deploy 10:44) |
+| **`mv_product_momentum` 15 min → 2 h** (`everyMin`) | `analytics-refresh.service.ts` | ✅ **vivo en prod** |
+| **UPSERT sin churn** (`IS DISTINCT FROM`) | mig `20260915170000` | ✅ **aplicada a prod**, batch 416 |
+
+**Efecto medido del UPSERT sin churn**, sobre `analytics.erp_goods_receipt_dedup`:
+
+| | Antes | Después |
+|---|---|---|
+| UPDATEs por corrida | **~2,814** (la tabla entera) | **~1** (2 en 4 min) |
+| Tuplas muertas | 131,293 (4,665 %) | **4** |
+| Filas vivas | 2,814 | **2,814** (intactas: $25.9M auto + $44.5M propuesto) |
+
+Los updates que quedan son reales —filas que sí cambiaron—, que es la prueba de que el guard no bloqueó todo. Y el latido confirma que el apareo sigue entregando: *"1 tenant · 1 par nuevo · 217 por dictaminar"* en 3,011 ms (la ventana de 45 días del cron, contra los 77 s del CLI con 9 meses).
+
+⚠️ **`IS DISTINCT FROM` y no `<>`**: `suc_prov`, `cedis_prov` y `delta_*` llegan NULL desde vistas con `LEFT JOIN`. Con `<>`, `NULL <> NULL` da NULL → el WHERE no se cumple → la fila **no se actualizaría nunca**. El bug opuesto, silencioso y peor.
+
+#### Tres trampas de esta aplicación, que valen para la próxima
+
+1. ⛔ **Hay DOS tablas `knex_migrations` en prod, y el `search_path` lleva a la vacía.** El `search_path` de la conexión es `identity, catalog, trade, commercial, logistics, public`: un `select ... from knex_migrations` resuelve a **`identity.knex_migrations`, que tiene 0 filas**. La real es **`public.knex_migrations`, con 718**. Leyendo la equivocada, el diagnóstico fue *"0 aplicadas, 726 pendientes"* — y **si se hubiera corrido `migrate.latest()` con esa lectura, habría intentado aplicar 726 migraciones a producción.** Calificar siempre el schema.
+2. ⛔ **`migrate.latest()` no era una opción de todos modos**: había **8 pendientes, 7 ajenas** (grants, calendario de pagos, presupuestos) de otras sesiones. La autorización era para **una**. Se aplicó sola: SQL en una transacción con `SET LOCAL lock_timeout`, más el `INSERT` en `public.knex_migrations` con el batch siguiente.
+3. ⚠️ **Los commits se publicaron sin que este autor hiciera push.** La rama la comparten ~10 sesiones: otra sesión pusheó su trabajo y arrastró estos commits a `origin/main`, y Railway desplegó a las 10:44. Conviene saberlo: **un commit local acá puede estar en producción en minutos.**
+
 ### ⭐ Lo que la medición posterior SÍ encontró (plan completo aparte)
 - **El barrido histórico de recepciones corre cada minuto**: `ops/vl/crontab.feeds:22` agenda `detect-goods-receipt-duplicates.js`, cuyo propio encabezado dice *"en operación normal no hace falta correrlo"*, con ventana `--from=2026-01-01`. Medido: **42.8 % del tiempo de ejecución de toda la base**, 1,440 corridas diarias para ~30 recepciones, y **12.5 M de UPDATEs sobre 2,814 filas vivas**.
 - **El monitor de salud hace `count(*)` completo** por cada una de sus **37 tablas** vigiladas (`db-health.service.ts:926`): 13.7 s con **0.8 %** de aciertos de caché sobre `stock_movements`, que **no tiene índice en `imported_at`**.
