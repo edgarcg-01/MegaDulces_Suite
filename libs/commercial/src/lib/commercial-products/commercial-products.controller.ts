@@ -71,6 +71,27 @@ export class CommercialProductsController {
     return this.service.duplicateBarcodes({ search, limit: limit ? Number(limit) : undefined });
   }
 
+  @Get('price-discrepancies')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'Productos cuyo precio al cliente NO es el mismo en todas las sucursales. Separa el '
+      + 'precio de pieza del de mayoreo porque se corrigen en pantallas distintas de Kepler. '
+      + '`comparable: false` = esta base no tiene el precio con grano por sucursal.',
+  })
+  priceDiscrepancies(
+    @Query('search') search?: string,
+    @Query('min_pct') minPct?: string,
+    @Query('kind') kind?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.priceDiscrepancies({
+      search,
+      minPct: minPct ? Number(minPct) : undefined,
+      kind: ['pieza','mayoreo','unidad'].includes(String(kind)) ? (kind as 'pieza'|'mayoreo'|'unidad') : '',
+      limit: limit ? Number(limit) : undefined,
+    });
+  }
+
   @Get('suppliers')
   // Lookup compartido: catálogo de productos + /comercial/salidas (filtro de proveedor).
   // Independencia de permisos entre features: basta VER productos O salidas.
