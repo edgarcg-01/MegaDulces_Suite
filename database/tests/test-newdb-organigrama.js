@@ -106,7 +106,11 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       `los ${Object.keys(OFICINA_POR_DEPTO).length} puestos de oficina viven en su departamento real ` +
       `(mal ubicados: ${malUbicados.join(', ') || 'ninguno'})`);
     const admin = cat.filter((x) => x.department_code === 'administracion');
-    check(admin.length <= 4,
+    // `[AU.23]` subió el tope de 4 a 5: el organigrama de MDTask trajo
+    // `encargado_activos_insumos` y `jefe_mantenimiento`, que en el catálogo de
+    // 21 departamentos no tienen uno mejor que `administracion`. No es la bolsa
+    // volviendo a crecer — los 10 originales sí se repartieron.
+    check(admin.length <= 5,
       `administracion quedó como residual: ${admin.length} puestos (tenía 10 antes de [OR.7.0])`);
 
     // ── 2. El padrón tiene puesto, y lo que falta está DECLARADO ──────────
@@ -277,17 +281,20 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       if (rechazo) await trx.raw('ROLLBACK; BEGIN');
 
       // 3d. CONTROL POSITIVO — sin esto, un candado que bloquee TODO se ve verde.
-      // ⚠️ El conejillo cambió: `cajera -> encargado_sucursal` pasó a ser una
-      // arista REAL con `[OR.8]`, así que ese UPDATE ya no probaba nada (escribía
-      // lo que ya estaba). Se usa un puesto que HOY no declara jefe.
+      // ⚠️ El conejillo cambió DOS veces. Primero `cajera -> encargado_sucursal`
+      // se volvió arista real con `[OR.8]`; después `auxiliar_rh -> direccion`
+      // dejó de servir con `[AU.23]`, que le dio a `auxiliar_rh` su jefe de
+      // verdad (`jefatura_capital_humano`). Con el árbol de MDTask ya sólo
+      // `direccion` no declara jefe, así que un conejillo «sin jefe» no existe
+      // más: se prueba REEMPLAZAR una arista por otra igual de legítima.
       let aceptado = false;
       try {
         await trx.raw(
           `UPDATE identity.positions SET reports_to_position_code = 'direccion'
-            WHERE tenant_id = ? AND code = 'auxiliar_rh'`, [TENANT]);
+            WHERE tenant_id = ? AND code = 'intendencia'`, [TENANT]);
         aceptado = true;
       } catch (e) { console.log(`       (rechazo inesperado: ${e.message.slice(0, 70)})`); }
-      check(aceptado, 'CONTROL: una arista legítima (auxiliar_rh -> direccion) SÍ se acepta');
+      check(aceptado, 'CONTROL: una arista legítima (intendencia -> direccion) SÍ se acepta');
     } finally {
       await trx.rollback();
     }
@@ -300,8 +307,8 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
       .whereNull('deleted_at')
       .select('code', 'reports_to_position_code');
     const mapa = Object.fromEntries(aristas.map((x) => [x.code, x.reports_to_position_code]));
-    check(mapa.auxiliar_rh === undefined,
-      `prod intacto: el rollback deshizo la arista de prueba (auxiliar_rh -> ${mapa.auxiliar_rh ?? 'nada'})`);
+    check(mapa.intendencia === 'encargado_sucursal',
+      `prod intacto: el rollback deshizo la arista de prueba (intendencia -> ${mapa.intendencia ?? 'nada'})`);
     check(mapa.cajera === 'encargado_sucursal',
       `la carta de [OR.8] sigue en pie: cajera -> ${mapa.cajera}`);
 
@@ -488,16 +495,18 @@ const PUESTOS_DECIDIDOS = ['direccion', 'supervisor_inventarios'];
     // `[OR.8]` Lo que la carta deja sin atar, CON motivo. Un puesto sin jefe y sin
     // motivo escrito es deriva; con motivo es una decisión. El que no esté acá
     // hace fallar el test.
+    // ⭐ `[AU.23]` vació este diccionario, y vale la pena leer lo que decía: las
+    // nueve excusas eran, casi todas, «su ancla no existe en el catálogo»
+    // —Jefatura CEDIS, Jefatura Capital Humano, la rama de choferes—. El
+    // organigrama de MDTask trajo esas anclas, así que dejaron de faltar; los
+    // huérfanos sin gente ni responsabilidades (`auxiliar_almacen`,
+    // `chofer_foraneo`, `vendedor_local`) se dieron de baja blanda, y los dos de
+    // telemarketing cuelgan de `encargado_operaciones`, declarado en la propia
+    // migración porque MDTask ignora ese departamento y la Fase E opera.
+    //
+    // Queda `direccion`, que es la raíz: un árbol tiene exactamente una.
     const SIN_JEFE_ACEPTADOS = {
-      vendedor_tlmk: 'TELEMARKETING no aparece en el organigrama entregado por Dirección (3 personas en ese departamento)',
-      coordinador_tlmk: 'idem: telemarketing no está en el organigrama',
-      encargado_logistica: 'su ancla es «Jefatura CEDIS y Operaciones Logísticas», que no existe en el catálogo',
-      chofer_local: 'rama CEDIS: sin ancla y sin gente',
-      chofer_foraneo: 'rama CEDIS: sin ancla y sin gente',
-      auxiliar_chofer: 'rama CEDIS: sin ancla y sin gente',
-      auxiliar_almacen: 'el organigrama no lo nombra',
-      auxiliar_rh: 'su ancla es «Jefatura Capital Humano», que no existe en el catálogo',
-      vendedor_local: 'el organigrama nombra «VENDEDORES MAYOREO» (→ `vendedor_mayoreo`) y no este puesto de `mayoreo`. Lo destapó el propio gate de [OR.8] al no encontrarle motivo.',
+      direccion: 'es la raíz del organigrama; el árbol de [AU.23] tiene exactamente una',
     };
     const huerfanos = await k('identity.positions')
       .where({ tenant_id: TENANT })

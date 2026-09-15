@@ -5,6 +5,56 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-15 — `[AU.23]`–`[AU.26]`: el organigrama pasa a ser el de MDTask, y el cruce destapa un `superadmin`
+
+**Disparador:** Edgar pega el organigrama que MDTask mantiene en su propio código (89 puestos, 189 personas de la nómina de agosto) y decide: *«la verdad absoluta es mdtask. generemos el organigrama bajo esa jerarquia»*.
+
+### Antes de construir: qué aporta cada lado, medido
+
+Ninguno de los dos era superconjunto del otro. MDTask tenía **89 puestos, 1 raíz, 88 aristas**, `nivel` y `unidad`; `identity.positions` tenía **57 y 10 sin jefe**, pero también `default_role`, `scope_axis` y las 17 responsabilidades. Y los códigos **no compartían ni uno** (`gerencia-admin-financiera` contra `jefe_finanzas`).
+
+Se recomendó **no importar los 89** —sería una segunda materialización del mismo concepto— y Edgar decidió lo contrario. Entonces se hizo completo, con la forma que no rompe:
+
+### Por qué el catálogo NO se reemplazó (y no es prudencia)
+
+- `identity.users.position_code` es **`ON DELETE SET NULL`**: borrar los 57 dejaba **100 fichas sin puesto, en silencio**.
+- `identity.position_responsibilities.position_code` es **`ON DELETE CASCADE`**: se llevaba **las 17 responsabilidades**, incluida `logistica.flota`, la única que apunta a `encargado_logistica`.
+- Y de fondo: **MDTask aporta jerarquía, no autorización.** No trae `default_role`, `scope_axis` ni responsabilidades.
+
+Cada nodo recibió el código de prod donde había equivalencia real (**45**) o uno nuevo (**44**). El mapeo se hizo **a mano, nodo por nodo**: el emparejamiento automático por nombre proponía `auxiliar-cedis` contra `auxiliar_mkt`, que coinciden sólo en la palabra «auxiliar».
+
+### Lo que salió al cruzar, sin estar buscándolo
+
+- ⛔ **Un almacenista tenía `superadmin`.** La noche del 2026-07-13 se dieron de alta cuatro fichas seguidas (21:14, 21:18, 21:20, 21:21) y **los tres almacenistas de esa sesión llevan el mismo rol menos uno** — 170 permisos contra 3. **La segunda mitad es nuestra:** el puesto `sistemas` no lo eligió nadie, lo derivó el backfill `[OR.1c]` *desde ese rol mal capturado*. Derivar el puesto del rol está bien cuando el rol está bien; con uno malo convierte un error de un campo en uno de dos. La cuenta **nunca inició sesión**: por eso nadie lo vio en dos meses.
+- ⭐ **«Alertas de flota» tiene nombre.** Su responsable PRINCIPAL es `encargado_logistica`, vacante. En la nómina ese puesto es «Coordinador de Logística» y lo ocupa **García López Juan Francisco** (*Encargado de Transportes*, CEDIS), **que no tiene ficha**.
+- ⚠️ **28 personas estaban en el puesto equivocado**, entre ellas el **Jefe de Finanzas como `auxiliar_finanzas`**.
+- ⚠️ La app cubre **60 de 184** personas de nómina; y de las 40 fichas que la nómina no reconoce, seis no son personas — incluida **`rep_prueba` («REPARTIDOR PRUEBA»), activa en prod**.
+
+### Las tres cosas que se decidieron NO hacer, con su medición
+
+1. **No derivar el `default_role` de los 5 puestos nuevos que tienen ocupante.** Era la salida fácil y se midió adónde llevaba: esos cinco llegaron ahí con `[AU.25]`, así que su rol es el del puesto **anterior** — `facturador` habría propuesto **`telemarketing`**, el error que `[AU.25]` acababa de corregir, y `full_stack_developer` habría propuesto **`superadmin`**. Es la misma forma que `[AU.24]`: derivar de un dato ya contaminado. La deuda pasa de 13 a 54 y se **declara**.
+2. **No tocar ningún `role_name` al mover a las 28.** El puesto **propone**, no otorga; la migración lo asevera comparando los 122 roles antes y después.
+3. **No dar de baja `rep_prueba` ni las otras 8 cuentas `superadmin`.** Dos son jefes de zona y **la tercera jefa de zona no lo tiene** — esa asimetría se resuelve con una decisión, no con una migración.
+
+### Lección: un candado que se pone rojo puede estar diciendo que mejoraste
+
+El smoke de organigrama tenía un diccionario `SIN_JEFE_ACEPTADOS` con **nueve excusas**, y casi todas decían lo mismo: *«su ancla —Jefatura CEDIS, Jefatura Capital Humano, la rama de choferes— no existe en el catálogo»*. `[AU.23]` trajo esas anclas y el diccionario quedó **vacío salvo la raíz**. El test describía como carencia permanente algo que era un hueco esperando a llenarse.
+
+Y dos conejillos de prueba negativa se habían vuelto casos reales (`auxiliar_rh` ya tiene jefe; `cajera` ya tiene dos roles): **inyectar un desacuerdo donde ya hay uno no demuestra que la vista lo vea**. El de coherencia ahora elige su conejillo **en runtime**.
+
+`puesto_con_dos_roles` subió de 3 a 18 y ⭐ **no es más desacuerdo: es el mismo, ahora visible** — las 28 ya tenían su rol, sólo estaban donde no desentonaba.
+
+### Verificación
+
+Todo se probó **en transacción con rollback contra prod** antes de aplicar: 6 pruebas en `[AU.23]` (incluida la baja blanda que aborta nombrando `chofer_rd`, y el ida y vuelta 94 → 57), 4 en `[AU.24]`, 4 en `[AU.25]`. Las tres migraciones tienen **`down` real** contra el snapshot del estado previo, versionado en `database/seeds-data/organigrama-mdtask.json`.
+
+Batches **429, 430, 431**. Smokes: `admin-usuarios` 54/0/3 · `organigrama` 47/1 (el fallo restante es de `[JZ.3]`, otra sesión) · `authz-coherencia` 23/0/16.
+
+### Abierto
+
+`jefe_finanzas` con dos ocupantes (el otro no figura en nómina y no entra desde el 2026-08-12) · las 8 `superadmin` restantes · `rep_prueba` · los 54 puestos sin perfil · **el límite de la fuente: la nómina es de agosto y el padrón es de hoy**, así que donde la ficha esté más al día, `[AU.25]` la pisó.
+
+---
 ## 2026-09-15 — Memoria de Postgres en prod: estaba en **configuración de fábrica**. Tuneada en caliente + un reinicio de 27 s
 
 **Disparador:** una lista de recomendaciones genéricas traída de una conversación con Gemini ("PKs para replica identity, FKs como aduana, LISTEN/NOTIFY, OnPush, virtual scrolling…"), con el pedido: *"cambiar varias cosas de la base de datos sin cambiar los resultados, sólo la eficiencia y el consumo de RAM"*.
