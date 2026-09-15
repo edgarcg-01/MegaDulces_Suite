@@ -190,6 +190,14 @@ export interface DupBarcodeRow {
   barcode: string;
   /** Cuantos productos distintos escanean con este codigo. */
   altas: number;
+  /**
+   * `[CAT.4]` Las sucursales donde ese codigo escanea como 2+ productos.
+   *
+   * ⚠️ Vacio significa **no consta**, NO "en ninguna": `catalog.product_barcodes` no guarda plaza,
+   * y el rastro sale de `product_label_prices`, que solo tiene el codigo de PIEZA. Si el duplicado
+   * vive en el codigo de paquete o de caja, no deja rastro. La pantalla los distingue.
+   */
+  sucursales: string[];
   productos: DupProduct[];
   precio_min: number | null;
   precio_max: number | null;

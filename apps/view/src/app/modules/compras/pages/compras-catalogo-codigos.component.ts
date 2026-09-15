@@ -92,9 +92,9 @@ type Severidad = '' | 'distinto' | '5' | '25';
           }
         </div>
         <div class="cd-kpi">
-          <span class="cd-k">Productos involucrados</span>
-          <span class="cd-v">{{ productosInvolucrados() | number }}</span>
-          <span class="cd-d">altas que comparten un código</span>
+          <span class="cd-k">En todas las sucursales</span>
+          <span class="cd-v cd-bad">{{ enTodas() | number }}</span>
+          <span class="cd-d">el alta duplicada se replicó a toda la red</span>
         </div>
         <div class="cd-kpi">
           <span class="cd-k">Mismo precio</span>
@@ -146,6 +146,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
             <th scope="col" style="width:2.5rem"><span class="sr-only">Abrir</span></th>
             <th scope="col">Código de barras</th>
             <th scope="col">Productos que lo comparten</th>
+            <th scope="col">Se repite en</th>
             <th scope="col" class="cd-r">Altas</th>
             <th scope="col" class="cd-r">Precio</th>
             <th scope="col">Veredicto</th>
@@ -167,6 +168,21 @@ type Severidad = '' | 'distinto' | '5' | '25';
                   <span>{{ p.nombre || p.sku }}</span>
                 }
               </div>
+            </td>
+            <td>
+              @if (g.sucursales.length) {
+                @if (g.sucursales.length >= totalSucursales()) {
+                  <span class="cd-badge cd-badge-bad">las {{ g.sucursales.length }} sucursales</span>
+                } @else {
+                  <div class="cd-plazas">
+                    @for (s of g.sucursales; track s) { <span class="cd-plaza">{{ s }}</span> }
+                  </div>
+                }
+              } @else {
+                <span class="cd-muted cd-small-inline"
+                      pTooltip="El código de pieza no delata este duplicado: vive en el de paquete o caja, y esa tabla no guarda sucursal."
+                      tooltipPosition="top">no consta</span>
+              }
             </td>
             <td class="cd-r cd-num">{{ g.altas }}</td>
             <td class="cd-r">
@@ -200,7 +216,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
         -->
         <ng-template #expandedrow let-g>
           <tr class="cd-detalle">
-            <td [attr.colspan]="6">
+            <td [attr.colspan]="7">
               <table class="cd-mini">
                 <thead>
                   <tr>
@@ -241,7 +257,7 @@ type Severidad = '' | 'distinto' | '5' | '25';
 
         <ng-template #emptymessage>
           <tr>
-            <td [attr.colspan]="6" class="cd-vacio">
+            <td [attr.colspan]="7" class="cd-vacio">
               @if (cargando()) { Leyendo el catálogo… }
               @else { Ningún código repetido con estos filtros. }
             </td>
@@ -313,6 +329,12 @@ type Severidad = '' | 'distinto' | '5' | '25';
     .cd-badge-ok { color: var(--ok-fg); background: var(--ok-bg); border-color: var(--ok-fg); }
     .cd-badge-warn { color: var(--warn-fg); background: var(--warn-bg); border-color: var(--warn-fg); }
     .cd-nombres { display: flex; flex-direction: column; gap: .05rem; font-size: .8rem; }
+    .cd-plazas { display: flex; flex-wrap: wrap; gap: .2rem; }
+    .cd-plaza {
+      font-size: .66rem; padding: .05rem .35rem; border-radius: 999px;
+      background: var(--c-surface-2); border: 1px solid var(--c-divider); color: var(--c-text-2);
+      white-space: nowrap;
+    }
     .cd-small-inline { font-size: .75rem; }
     .cd-pie { margin: .5rem 0 0; font-size: .72rem; color: var(--c-text-2); }
     .cd-pie strong { color: var(--c-text-1); }
@@ -419,8 +441,17 @@ export class ComprasCatalogoCodigosComponent implements OnInit {
   ];
 
   readonly cobranDistinto = computed(() => this.grupos().filter((g) => g.cobran_distinto).length);
-  readonly productosInvolucrados = computed(() =>
-    this.grupos().reduce((s, g) => s + g.altas, 0));
+
+  /**
+   * [CAT.4] Cuántas sucursales hay en juego. Se deduce del máximo observado en vez de clavarlo en
+   * 7: si mañana abre una tienda, la etiqueta "las N sucursales" sigue siendo cierta sola.
+   */
+  readonly totalSucursales = computed(() =>
+    this.todas().reduce((m, g) => Math.max(m, g.sucursales.length), 0) || 7);
+
+  /** El caso peor: el alta duplicada no se quedó en una plaza, se replicó a toda la red. */
+  readonly enTodas = computed(() =>
+    this.grupos().filter((g) => g.sucursales.length >= this.totalSucursales()).length);
 
   setSeveridad(v: Severidad): void { this.severidad.set(v); }
 
