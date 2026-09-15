@@ -239,18 +239,31 @@ export class CommercialProductsService {
       const conPrecio = chk.rows[0]?.tabla === true;
       const porSucursal = chk.rows[0]?.por_sucursal === true;
 
+      // [CAT.6] Ademas del rango, el DESGLOSE por plaza de cada alta: "las 7 sucursales" no
+      // contesta la pregunta operativa, que es a que precio sale en CADA una. Se arma con
+      // json_agg dentro del mismo GROUP BY, sin una consulta extra por fila.
       const cte = conPrecio
         ? `, pr AS (
              SELECT lp.product_id,
                     min(lp.piece_price) AS precio_min,
                     max(lp.piece_price) AS precio_max,
-                    ${porSucursal ? 'count(DISTINCT lp.sucursal)::int' : '1'} AS sucursales
+                    ${porSucursal ? 'count(DISTINCT lp.sucursal)::int' : '1'} AS sucursales,
+                    ${porSucursal
+                      ? `json_agg(json_build_object('sucursal', w3.name, 'precio', lp.piece_price)
+                                  ORDER BY w3.name)`
+                      : `'[]'::json`} AS por_sucursal
                FROM commercial.product_label_prices lp
+               ${porSucursal
+                 ? `JOIN commercial.warehouses w3
+                      ON w3.kepler_code = lp.sucursal AND w3.deleted_at IS NULL
+                     AND w3.sells_to_public IS TRUE`
+                 : ''}
               WHERE lp.piece_price IS NOT NULL AND lp.piece_price > 0
               GROUP BY lp.product_id
            )`
         : `, pr AS (SELECT NULL::uuid AS product_id, NULL::numeric AS precio_min,
-                          NULL::numeric AS precio_max, 0::int AS sucursales WHERE false)`;
+                          NULL::numeric AS precio_max, 0::int AS sucursales,
+                          '[]'::json AS por_sucursal WHERE false)`;
 
       const filtro = search
         ? `AND (b.barcode ILIKE :q OR b.sku ILIKE :q OR p.nombre ILIKE :q)`
@@ -291,7 +304,8 @@ export class CommercialProductsService {
                  'sku', b.sku, 'nombre', p.nombre, 'unit', b.unit, 'activo', p.activo,
                  'supplier_name', s.name,
                  'precio_min', pr.precio_min, 'precio_max', pr.precio_max,
-                 'sucursales', coalesce(pr.sucursales, 0)
+                 'sucursales', coalesce(pr.sucursales, 0),
+                 'por_sucursal', coalesce(pr.por_sucursal, '[]'::json)
                )) AS productos,
                min(pr.precio_min) AS precio_min,
                max(pr.precio_max) AS precio_max,
