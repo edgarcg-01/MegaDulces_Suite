@@ -406,12 +406,197 @@ export interface MeDelegacion {
   retiradas: string[];
 }
 
+/**
+ * `[JZ.3]` — **Un canal de venta de la zona: una tienda o una ruta.**
+ *
+ * ── Por qué es un organismo NUEVO y no una bandeja ──────────────────────────────────────────
+ * Los tres que había miden trabajo PENDIENTE: una cola que drenar (`MePendiente`), algo que
+ * alguien te repartió (`MeTarea`), un mes que cerrar (`MeCiclo`). Un jefe de zona no tiene una
+ * cola: tiene un resultado. La pregunta que le contesta su portada es *«¿cómo voy?»*, y eso no
+ * se cuenta en filas pendientes — se mide en pesos contra un tramo comparable.
+ *
+ * ⛔ No se fuerza dentro de `MePendiente`: su `total` es «cuántas faltan» y el veredicto de
+ * `[SN.29]` mide entradas contra salidas. Meter pesos ahí haría que `veredictoDe` opine sobre un
+ * número que no es una cola, y la pantalla ordenaría una venta junto a un descuadre.
+ *
+ * ── ⛔ La regla que este tipo existe para hacer cumplir ──────────────────────────────────────
+ * **Sin venta en el tramo NO es −100%.** Medido en prod el 2026-09-15: las cinco rutas de ZAMORA
+ * (`RUTA-501`…`505`) vendieron $824k en julio y **cero desde el 11-12 de agosto** — y no es una
+ * caída, es la pierna Wincaja del sell-out que dejó de llegar (las seis de LA PIEDAD, que venden
+ * por otro canal, llegan al día sin hueco).
+ *
+ * Un jefe que ve **−100%** sale a buscar al vendedor. Uno que ve **«sin venta registrada desde el
+ * 12-ago»** le habla a Sistemas. Por eso `monto: null` ⇒ `variacion_pct: null` **siempre**, y el
+ * motivo viaja en `sin_medir` (ADR-056: lo que no se puede medir se declara, nunca se dibuja).
+ */
+export interface MeCanal {
+  /** Código del almacén (`'01'`, `'RUTA-28'`). Estable: es con lo que se enruta. */
+  id: string;
+  label: string;
+  /** Segunda línea: contra qué se compara, o por qué no hay cifra. */
+  detalle: string;
+  grupo: MeCanalGrupo;
+  /**
+   * Venta del tramo corrido del mes, en pesos. ⛔ `null` = **no hubo ninguna fila**, que NO es
+   * cero: no se puede distinguir «no vendió» de «no llegó el dato», y las dos llevan a acciones
+   * opuestas. Cuando es `null`, `sin_medir` dice desde cuándo.
+   */
+  monto: number | null;
+  /** El MISMO tramo del mes anterior (días 1..N contra días 1..N). `null` = sin comparador. */
+  comparado: number | null;
+  /**
+   * Variación relativa (`0.084` = +8.4 %). `null` si falta cualquiera de los dos lados o si el
+   * comparador es 0 — dividir entre cero publicaría un infinito como si fuera un crecimiento.
+   */
+  variacion_pct: number | null;
+  /** Último día con venta registrada (`'YYYY-MM-DD'`). Es lo que separa «bajó» de «se cortó». */
+  ultima_venta: string | null;
+  /** Por qué no hay cifra, en una línea. `null` cuando sí la hay. Nunca las dos cosas. */
+  sin_medir: string | null;
+  /**
+   * Pantalla que muestra el detalle de ESTE canal. `null` = tu permiso no la abre, y entonces
+   * `sin_acceso` dice cuál falta — mismo criterio que `MePendiente`/`MeTarea`: la fila se muestra
+   * igual, sin enlace, porque esconderla taparía la discrepancia y enlazarla invitaría a un 403.
+   * Medido: la jefa de zona de LA PIEDAD no tiene `COMMERCIAL_ROUTE_SALES_VER`.
+   */
+  ruta: string | null;
+  /** Los params que aterrizan la pantalla ya filtrada (`[JZ.1]`). `null` cuando no hay ruta. */
+  queryParams: Record<string, string> | null;
+  sin_acceso: string | null;
+}
+
+/** `[JZ.3]` Los dos canales por los que vende una zona. Son pantallas distintas, no una vista. */
+export type MeCanalGrupo = 'tienda' | 'ruta';
+
+/**
+ * `[JZ.3]` — Un canal agrupado: sus filas, su subtotal, y **lo que quedó fuera de la suma**.
+ *
+ * ⛔ `excluidos` no es adorno. Una ruta ambigua —la misma clave reclamada por dos zonas— no se
+ * puede sumar a ninguna sin contarla dos veces (`[JZ.2]`: `RUTA-501`/`502` valen $1.04M y las
+ * reclaman ZAMORA y CANINDO). Sumarla mentiría; omitirla en silencio haría que el subtotal no
+ * cuadre con lo que el jefe sabe de su zona y nadie podría explicar la diferencia.
+ */
+export interface MeZonaBloque {
+  grupo: MeCanalGrupo;
+  label: string;
+  /** Suma de los canales MEDIDOS. `null` si ninguno se pudo medir. */
+  monto: number | null;
+  comparado: number | null;
+  variacion_pct: number | null;
+  /**
+   * `[JZ.3]` **Lo que quedó FUERA de la comparación por no tener cifra este mes.**
+   *
+   * ⛔ Este campo nació de un defecto medido contra prod: ZAMORA publicaba **−42.2 %**. Sus 3
+   * rutas vendieron ~$480k del 1 al 15 de agosto y cero en septiembre —porque dejó de llegar el
+   * dato, no porque dejaran de vender—, y el total sumaba **un** canal de este mes contra **dos**
+   * del anterior. Un número verosímil y falso, que es peor que el −100 % que ya se había cerrado.
+   *
+   * La regla es que un canal entra en los dos lados o en ninguno. Pero omitirlo en silencio haría
+   * que el subtotal no cuadre con lo que el jefe sabe de su zona, así que lo que sale se cuenta
+   * acá: cuántos canales y cuánto valían. `null` = no quedó nada afuera.
+   */
+  no_comparado: { canales: number; monto_anterior: number } | null;
+  /** Qué porción de la venta de la zona es este canal (`0.79`). `null` si el total no se midió. */
+  peso: number | null;
+  canales: MeCanal[];
+  /** Lo que NO entró en el subtotal, con su motivo. Se dice, no se calla. */
+  excluidos: { label: string; motivo: string }[];
+}
+
+/**
+ * `[JZ.3]` — **Cómo va la zona de esta persona.**
+ *
+ * ── El sujeto es la ficha, y eso tiene un límite declarado ───────────────────────────────────
+ * La zona sale de `identity.users.zona_id` (la misma que publica `MeContext.zona`), no de
+ * `ScopeService`. Motivo medido: de los 3 `jefe_zona` de prod, **2 son `superadmin`** y su alcance
+ * de zona es `all` — mostrarles las 9 zonas convertiría *su* portada en la de la empresa.
+ *
+ * ⚠️ **Límite conocido:** una persona = una zona. `LA PIEDAD RD` y `LA PIEDAD VECINAL` son la
+ * misma plaza y hoy son dos filas de `trade.zones` sin nada arriba; hasta que exista el agrupador
+ * de plaza, un jefe con dos zonas ve una. Queda dicho acá para que no se descubra por accidente.
+ */
+export interface MeZona {
+  /** Nombre de la zona (`trade.zones.name`). */
+  zona: string;
+  /** Tramo medido, inclusive (`'2026-09-01'` … `'2026-09-15'`). */
+  desde: string;
+  hasta: string;
+  /** El MISMO número de días del mes anterior. El comparador se declara, no se adivina. */
+  desde_comparado: string;
+  hasta_comparado: string;
+  /** Total de la zona = suma de los subtotales medidos. `null` = nada medible. */
+  monto: number | null;
+  comparado: number | null;
+  variacion_pct: number | null;
+  /** `[JZ.3]` Lo que quedó fuera de la comparación de la ZONA. Ver `MeZonaBloque.no_comparado`. */
+  no_comparado: { canales: number; monto_anterior: number } | null;
+  /** Un bloque por canal del que esta persona responde. Vacío = no responde de ninguno. */
+  bloques: MeZonaBloque[];
+}
+
+/**
+ * `[JZ.3]` — **La variación, o `null`.** Pura, en el contrato, para poder probarla.
+ *
+ * Las tres ramas que devuelven `null` son las tres formas de mentir que esto evita:
+ *  · `monto === null`      → *«sin datos»* se dibujaría como **−100 %** (el caso ZAMORA/Wincaja).
+ *  · `comparado === null`  → no hay contra qué, y un `+∞` se lee como un crecimiento récord.
+ *  · `comparado === 0`     → división entre cero. `Infinity` sobrevive a `JSON.stringify` como
+ *                            `null`, así que el bug llegaría al front disfrazado de dato ausente.
+ */
+export function variacionPct(monto: number | null, comparado: number | null): number | null {
+  if (monto === null || comparado === null || comparado === 0) return null;
+  return (monto - comparado) / comparado;
+}
+
+/**
+ * `[JZ.3]` — **El tramo comparable: días 1..N de este mes contra días 1..N del anterior.**
+ *
+ * Comparar el mes corrido contra el mes anterior COMPLETO es la forma fácil de publicar una caída
+ * que no existe: el día 15 siempre "bajaría" ~50 %. Se compara tramo contra tramo.
+ *
+ * ⛔ **El recorte del mes corto.** El 31 de marzo, «los mismos 31 días de febrero» no existen:
+ * `2026-02-01 + 30 días` es el **3 de marzo**, y el comparador se comería tres días del mes que
+ * se está midiendo — inflándolo y bajando la variación de todos los canales a la vez. El tope es
+ * el último día real del mes anterior, y entonces el tramo comparado es más corto: eso es un
+ * hecho del calendario, no un error, y por eso las dos fechas viajan en la respuesta para que la
+ * pantalla pueda decir contra qué se comparó.
+ *
+ * @param hoy Fecha en hora de México (`'YYYY-MM-DD'`), tal como la devuelve `todayMx()`.
+ */
+export interface VentanaComparable {
+  desde: string;
+  hasta: string;
+  desde_comparado: string;
+  hasta_comparado: string;
+}
+
+export function ventanaComparable(hoy: string): VentanaComparable {
+  const [y, m, d] = hoy.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const py = m === 1 ? y - 1 : y;
+  const pm = m === 1 ? 12 : m - 1;
+  // Día 0 del mes siguiente = último día de `pm`. Cubre febrero y los bisiestos sin tabla.
+  const ultimoPrev = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+  return {
+    desde: `${y}-${pad(m)}-01`,
+    hasta: hoy,
+    desde_comparado: `${py}-${pad(pm)}-01`,
+    hasta_comparado: `${py}-${pad(pm)}-${pad(Math.min(d, ultimoPrev))}`,
+  };
+}
+
 export interface MeWork {
   /** `[SN.15]` Lo que alguien te asignó. Separado de `pendientes` a propósito. */
   tareas: MeTarea[];
   pendientes: MePendiente[];
   /** `[SN.16]` Trabajo que se cierra mes por mes. Tercer organismo, ni tarea ni cola simple. */
   ciclos: MeCiclo[];
+  /**
+   * `[JZ.3]` Cómo va la zona de esta persona. **Cuarto organismo**: no es trabajo pendiente, es
+   * resultado. `null` = esta persona no responde de ningún canal de venta, o su ficha no tiene
+   * zona — las dos cosas se declaran en `no_medido` con su motivo, nunca se dibujan en cero.
+   */
+  zona: MeZona | null;
   no_medido: { id: string; label: string; motivo: string }[];
   /**
    * `[SN.15]` ¿Existe un mapa de responsabilidades para el puesto de esta persona?

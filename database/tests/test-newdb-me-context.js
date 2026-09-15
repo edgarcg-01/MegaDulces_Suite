@@ -93,7 +93,25 @@ const tieneDecoradorPermisos = (tramo) =>
   const src = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/me-work.ts'), 'utf8');
   const rutas = fs
     .readFileSync(path.resolve(__dirname, '../../apps/view/src/app/app.routes.ts'), 'utf8')
-    .split('\n');
+    .split('\n')
+    /*
+     * ⛔ `[JZ.3]` **El `\r` invisible que dejó ciego a este candado.**
+     *
+     * `app.routes.ts` está en CRLF, y `esLineaDePath` ancla con `,$`: el `\r` queda entre la coma
+     * y el fin de línea, así que el regex **no matcheó NUNCA** — medido, `0 de 198` líneas `path:`.
+     * Consecuencia: el "cuerpo" de cada ruta se extendía hasta el fin del proyecto entero, y
+     * `guardDe` devolvía la unión de decenas de permisos. Los bloques 4a/4b/4c llevaban meses
+     * diciendo «el guard de X acepta la clave de la bandeja» sobre una lista donde estaba **casi
+     * cualquier** clave del proyecto.
+     *
+     * Lo destapó la prueba negativa de 4i: se cambió a propósito el permiso de
+     * `/comercial/ventas-por-ruta` por otro y el candado **siguió verde**. Es la lección de la
+     * fase, otra vez: *una prueba negativa que no se ejerce no prueba nada*.
+     *
+     * Se normaliza acá, en el origen, y no arreglando el regex: cualquier otro ancla `$` que se
+     * agregue más abajo tendría el mismo agujero y nadie lo notaría.
+     */
+    .map((l) => l.replace(/\r$/, ''));
 
   // Bandejas declaradas: id + ruta + claves del anyOf, en el orden del archivo.
   const bandejas = [...src.matchAll(/id: '([^']+)',[\s\S]*?ruta: '([^']+)',[\s\S]*?anyOf: \[([^\]]*)\]/g)].map((m) => ({
@@ -231,20 +249,28 @@ const tieneDecoradorPermisos = (tramo) =>
     }
   }
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 10, catalogo);
+    catalogo.length === 12, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
    * Cuando se agregó el ciclo de conciliación el catálogo pasó a 10 claves y este bloque habría
    * acusado 2 "sin cola" si sólo mirara los dos primeros archivos.
    */
+  /*
+   * `[JZ.3]` Y ahora son CUATRO registros: entró «Cómo va tu zona», que no es una cola sino un
+   * resultado, y por eso declara sus claves en un mapa (`RESPONSABILIDAD_CANAL`) y no en un campo
+   * `responsabilidad:` de una definición de bandeja. La biyección igual tiene que cerrar: una
+   * clave del catálogo que ningún registro use es un bloque que nadie va a ver nunca.
+   */
+  const srcZ = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/me-zona.ts'), 'utf8');
   const declaradas = [
     ...[...src.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcT.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcC.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
+    ...[...srcZ.matchAll(/^\s*(?:tienda|ruta): '([a-z]+\.[a-z_]+)',/gm)].map((m) => m[1]),
   ];
-  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos)',
-    declaradas.length === 12, declaradas);
+  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos + 2 canales)',
+    declaradas.length === 14, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -471,6 +497,94 @@ const tieneDecoradorPermisos = (tramo) =>
     /export function veredictoDe\(/.test(srcVer) && !/export function veredictoDe\(/.test(src));
   check('tiene su propio spec con negativas',
     fs.existsSync(path.resolve(__dirname, '../../libs/contracts/src/http/veredicto.spec.ts')));
+
+  /**
+   * ── 4i. `[JZ.3]` El bloque de zona: destino con guard, y el −100 % que no se puede publicar ──
+   *
+   * Dos defectos distintos, los dos ya vividos en esta pantalla:
+   *
+   *  1. **Un número que invita a hacer clic y aterriza en un 403.** Es el mismo candado que 4a
+   *     aplica a las bandejas; acá el destino no vive en un `anyOf` sino en el mapa `DESTINO`, y
+   *     su permiso tiene que ser el que gatea la ruta en `app.routes.ts`.
+   *
+   *  2. **Dibujar «−100 %» sobre un dato que dejó de llegar.** Medido en prod: las 5 rutas de
+   *     ZAMORA no registran venta desde el 11-12 de agosto y vendieron $824k en julio — la pierna
+   *     Wincaja del sell-out, no una caída. El candado exige que la variación salga del primitivo
+   *     de `libs/contracts` (que sí tiene jest y sus negativas) y que este archivo no se la
+   *     calcule a mano, que es como volvería a aparecer.
+   *
+   * ⛔ Prueba negativa EJERCIDA: se cambió el permiso de `ruta` a `COMMERCIAL_ANALYTICS_VER` y la
+   * aserción del guard se puso roja.
+   */
+  console.log('\n── 4i. [JZ.3] Cómo va tu zona: destino, permiso y el no−100% ──');
+
+  /*
+   * ⚠️ El regex atraviesa saltos de línea a propósito, y esa NO fue la primera versión. La de una
+   * sola línea leyó **1 de 2 destinos** —prettier parte la entrada de `ruta` en tres renglones—
+   * así que el guard de `/comercial/ventas-por-ruta`, que es justo el que falla en prod (la jefa
+   * de zona no tiene su permiso), no se estaba verificando. El bucle habría corrido sobre un solo
+   * elemento y salido verde. Lo agarró la aserción de abajo: **por eso un candado empieza
+   * afirmando que leyó lo que cree haber leído** (cero coincidencias no es cero infracciones).
+   */
+  const destinos = [...srcZ.matchAll(/(tienda|ruta): \{\s*ruta: '([^']+)',\s*permiso: Permission\.([A-Z0-9_]+)/g)]
+    .map((m) => ({ grupo: m[1], ruta: m[2], permiso: m[3] }));
+  check('se leyó el mapa DESTINO COMPLETO (si no, este bloque mide de menos)', destinos.length === 2, destinos);
+  for (const d of destinos) {
+    const g = guardDe(d.ruta);
+    check(`${d.grupo}: la ruta ${d.ruta} existe en app.routes.ts`, g.encontrada);
+    if (!g.encontrada) continue;
+    check(`${d.grupo}: el guard de ${d.ruta} acepta ${d.permiso}`, g.perms.includes(d.permiso), {
+      guard: g.perms, declarado: d.permiso,
+    });
+  }
+
+  // La variación NO se calcula acá: sale del primitivo probado. Una resta a mano es el camino de
+  // vuelta al −100 %, porque `null - 824000` en JS no falla: da NaN, y NaN sobrevive a JSON.
+  check('⛔ la variación sale de variacionPct(), no de una resta local',
+    /variacionPct\(/.test(srcZ) && !/\(\s*monto\s*-\s*comparado\s*\)\s*\//.test(srcZ));
+  check('variacionPct y ventanaComparable viven en libs/contracts (donde corre jest)',
+    /export function variacionPct\(/.test(srcVer) && /export function ventanaComparable\(/.test(srcVer));
+  check('tienen su propio spec con negativas',
+    fs.existsSync(path.resolve(__dirname, '../../libs/contracts/src/http/zona-venta.spec.ts')));
+
+  // `monto: null` es "no hubo ninguna fila", NUNCA 0. Un `?? 0` acá borra la distinción entera.
+  check('⛔ el monto preserva el null y no cae a 0',
+    /f\.mtd === null \? null : Number\(f\.mtd\)/.test(srcZ) && !/mtd.*\?\?\s*0/.test(srcZ));
+  check('la última venta se busca con tope en hoy (sales_daily tiene filas en el FUTURO)',
+    /\.where\('sale_date', '<=', v\.hasta\)/.test(srcZ));
+  check('lo ambiguo y lo que no tiene almacén se DECLARA, no se suma',
+    /excluidos\.ruta\.push/.test(srcZ) && /if \(r\.ambigua\)/.test(srcZ));
+
+  /*
+   * ⛔ **El pareo de los dos lados de la comparación.** Lo destapó el reporte contra prod, no una
+   * revisión de código: ZAMORA publicaba **−42.2 %** porque el `monto` sumaba UN canal y el
+   * `comparado` sumaba DOS — su tienda de septiembre contra la tienda más tres rutas de agosto.
+   * Es el −100 % un nivel arriba, y más peligroso porque el número es verosímil.
+   *
+   * Si alguien vuelve a `sumaMedida(filas.map(f => f.comparado))` —que es la forma obvia— esto se
+   * pone rojo. Prueba negativa EJERCIDA.
+   */
+  check('⛔ el subtotal parea los dos lados: un canal entra en ambos o en ninguno',
+    /function sumaPareada\(/.test(srcZ) && /dentro\.length === 0 \? null : sumaMedida\(dentro\.map/.test(srcZ));
+  check('⛔ y lo que queda fuera se CUENTA, no desaparece del subtotal',
+    /no_comparado/.test(srcZ) && /monto_anterior/.test(srcZ));
+
+  /*
+   * Las dos claves tienen que existir en el catálogo, y su migración tiene que repartirlas: una
+   * clave declarada y no repartida es un bloque que no ve NADIE — el defecto exacto de `[LC.6.2]`
+   * («un módulo no está entregado hasta que su permiso está repartido, no sólo declarado»).
+   */
+  const migZ = fs.readdirSync(dirMig).filter((f) => /responsabilidades_venta_zona/.test(f));
+  check('existe la migración que declara las dos claves de venta por zona', migZ.length === 1, migZ);
+  if (migZ.length === 1) {
+    const txtZ = fs.readFileSync(path.join(dirMig, migZ[0]), 'utf8');
+    for (const k of ['comercial.venta_tiendas', 'comercial.venta_rutas']) {
+      check(`la migración declara "${k}"`, txtZ.includes(k));
+      check(`me-zona.ts usa la MISMA clave "${k}"`, srcZ.includes(k));
+    }
+    check('⛔ la migración REPARTE las claves a un puesto, no sólo las declara',
+      /position_responsibilities/.test(txtZ) && /jefe_zona/.test(txtZ));
+  }
 
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');

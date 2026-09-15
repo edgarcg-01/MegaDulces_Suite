@@ -11,6 +11,7 @@ import {
 import { Knex } from 'knex';
 import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork } from '@megadulces/contracts';
 import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
+import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
 import { CICLOS, puedeVerCiclo } from './me-cycles';
 import { KNEX_CONNECTION } from '@megadulces/platform-core';
@@ -2629,10 +2630,35 @@ export class UsersService {
       return b.pendientes - a.pendientes;
     });
 
+    /*
+     * `[JZ.3]` Cómo va la zona. Va en su propio `try`, igual que cada bandeja: si la vista
+     * `analytics.v_route_warehouse` todavía no existe en este ambiente (`[JZ.2]` a medio
+     * desplegar), el bloque se DECLARA en `no_medido` y el resto de la portada sigue.
+     */
+    let zona: MeWork['zona'] = null;
+    try {
+      const r = await medirZona(this.knex, {
+        tenantId: this.tenantId,
+        userId,
+        responsabilidades: misResponsabilidades,
+        permisos,
+        esAdmin,
+      });
+      zona = r.zona;
+      if (r.motivo) no_medido.push({ id: 'zona', label: 'Cómo va tu zona', motivo: r.motivo });
+    } catch (e) {
+      no_medido.push({
+        id: 'zona',
+        label: 'Cómo va tu zona',
+        motivo: `No se pudo medir la venta de tu zona: ${(e as Error).message}`,
+      });
+    }
+
     return {
       tareas,
       pendientes,
       ciclos,
+      zona,
       no_medido,
       // `null` sólo si la consulta falló; el set vacío es una respuesta legítima ("no responde
       // de nada declarado"), distinta de "no se pudo preguntar" (ADR-056).
