@@ -111,7 +111,7 @@ const SQL_WINCAJA = `
     try {
       await push.connect();
     } catch (e) {
-      console.error(`  ❌ sin conexión al runner .249 (${e.message}) — abort (sin el push la serie quedaría trunca)`);
+      console.error(`  ❌ sin conexión al runner consolidado (${e.message}) — abort (sin el push la serie quedaría trunca)`);
       await db.end(); process.exitCode = 1; return;
     }
     try {
