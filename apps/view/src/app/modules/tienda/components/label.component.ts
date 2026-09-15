@@ -682,6 +682,26 @@ export class LabelComponent implements AfterViewInit, OnChanges {
   private layout(): void {
     this.fitHead(); this.fitMeta(); this.fitUnit(); this.fitPrice();
     this.fitBarcode(); this.fitTiers(); this.fitAmts();
+    // ⭐ [ET.5] EL NÚMERO SE VUELVE A MEDIR AL FINAL, y no es redundante: es el candado.
+    //
+    // `fitPrice` decide el tamaño ARRIBA, contra la caja que hay en ese instante — y las cuatro
+    // llamadas de abajo cambian la columna derecha DESPUÉS. Cuando eso pasa, el número ya quedó
+    // clavado y nadie lo revisaba: el bucle sólo puede TERMINAR en un tamaño que verificó como
+    // bueno, así que un precio que no cabe es prueba de que la caja se movió después de medirla.
+    //
+    // Medido en una caja de Yurécuaro (15/09/2026), con la etiqueta ya asentada (`settled:fonts`):
+    //   ancho del número 136 px · caja del precio 129 px · criterio del propio código
+    //   (ancho × 1.12 ≤ disponible) → necesitaba 115. Se pasaba por 21 px, y de ahí el número
+    //   desbordado que aplastaba el resto. En otra caja el mismo producto daba 10.75 mm, bien.
+    //
+    // ⚠️ NO se arregla reordenando: el orden de arriba está candado por razones propias (el
+    // techo del monto se clampea contra el hero medido, el código reclama su altura con los
+    // montos en su arranque). Lo que faltaba era VERIFICAR al final lo que se prometió al
+    // principio. Correrlo de nuevo es barato y seguro: `fitPrice` se resetea a PRECIO_MM y
+    // re-deriva todo, así que es idempotente, y las columnas tienen ancho fijo — medido:
+    // devolver los montos a su arranque movió la caja del precio **0 px** —, de modo que
+    // re-medir el número no invalida lo que acaban de ajustar `fitTiers`/`fitAmts`.
+    this.fitPrice();
   }
 
   /**
