@@ -1,0 +1,1518 @@
+{
+  "_fuente": "organigrama (1).json de MDTask, entregado por Edgar el 2026-09-15. 89 puestos, 1 raiz, 88 aristas.",
+  "_mapeo": "Cada nodo recibe el code de identity.positions cuando hay equivalencia real (45) o uno nuevo (44). Mapeo hecho a mano; el fuzzy automatico daba falsos como auxiliar-cedis -> auxiliar_mkt.",
+  "_consume": "database/migrations-newdb/20260915210000_organigrama_mdtask.js",
+  "arbol": [
+    {
+      "code": "direccion",
+      "name": "Dirección General",
+      "nivel": "direccion",
+      "unidad": "direccion",
+      "department_code": "direccion_zona",
+      "reports_to": null,
+      "orden": 10,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "jefe_finanzas",
+      "name": "Gerencia Administrativa y Financiera",
+      "nivel": "gerencia",
+      "unidad": "administrativa",
+      "department_code": "finanzas",
+      "reports_to": "direccion",
+      "orden": 20,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "prevencion",
+      "name": "Coordinación de Auditoría Operativa y Prevención de Pérdidas",
+      "nivel": "coordinacion",
+      "unidad": "administrativa",
+      "department_code": "prevencion_auditoria",
+      "reports_to": "jefe_finanzas",
+      "orden": 30,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "auxiliar_prevencion",
+      "name": "Auxiliar de Auditoría y Prevención",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "prevencion_auditoria",
+      "reports_to": "prevencion",
+      "orden": 40,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "encargado_activos_insumos",
+      "name": "Encargado de Activos e Insumos",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "administracion",
+      "reports_to": "jefe_finanzas",
+      "orden": 50,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "encargado_contabilidad",
+      "name": "Encargado de Contabilidad",
+      "nivel": "coordinacion",
+      "unidad": "administrativa",
+      "department_code": "contabilidad",
+      "reports_to": "jefe_finanzas",
+      "orden": 60,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_contabilidad",
+      "name": "Analista Contable",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "contabilidad",
+      "reports_to": "encargado_contabilidad",
+      "orden": 70,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "jefe_mantenimiento",
+      "name": "Jefe de Mantenimiento",
+      "nivel": "jefatura",
+      "unidad": "administrativa",
+      "department_code": "administracion",
+      "reports_to": "jefe_finanzas",
+      "orden": 80,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "tesoreria",
+      "name": "Jefe de Tesorería",
+      "nivel": "jefatura",
+      "unidad": "administrativa",
+      "department_code": "tesoreria",
+      "reports_to": "jefe_finanzas",
+      "orden": 90,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "analista_egresos",
+      "name": "Analista de Egresos",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "tesoreria",
+      "reports_to": "tesoreria",
+      "orden": 100,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "analista_ingresos",
+      "name": "Analista de Ingresos",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "tesoreria",
+      "reports_to": "tesoreria",
+      "orden": 110,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "caja_general",
+      "name": "Caja General",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "cajas",
+      "reports_to": "tesoreria",
+      "orden": 120,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "practicante_caja_general",
+      "name": "Practicante Administrativo de Caja General",
+      "nivel": "practicante",
+      "unidad": "administrativa",
+      "department_code": "cajas",
+      "reports_to": "caja_general",
+      "orden": 130,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_credito_cobranza",
+      "name": "Crédito y Cobranza",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "credito_cobranza",
+      "reports_to": "tesoreria",
+      "orden": 140,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "presupuestos_compras_corp",
+      "name": "Presupuestos y Compras Corporativas",
+      "nivel": "operativo",
+      "unidad": "administrativa",
+      "department_code": "finanzas",
+      "reports_to": "jefe_finanzas",
+      "orden": 150,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "jefatura_capital_humano",
+      "name": "Jefatura de Capital Humano",
+      "nivel": "jefatura",
+      "unidad": "capital-humano",
+      "department_code": "rh",
+      "reports_to": "direccion",
+      "orden": 160,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "reclutamiento_onboarding",
+      "name": "Reclutamiento y Onboarding",
+      "nivel": "operativo",
+      "unidad": "capital-humano",
+      "department_code": "rh",
+      "reports_to": "jefatura_capital_humano",
+      "orden": 170,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "practicante_atraccion_talento",
+      "name": "Practicante de Atracción de Talento y Selección",
+      "nivel": "practicante",
+      "unidad": "capital-humano",
+      "department_code": "rh",
+      "reports_to": "reclutamiento_onboarding",
+      "orden": 180,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_rh",
+      "name": "Servicios al Personal",
+      "nivel": "operativo",
+      "unidad": "capital-humano",
+      "department_code": "rh",
+      "reports_to": "jefatura_capital_humano",
+      "orden": 190,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "practicante_control_doc_rh",
+      "name": "Practicante de Control Documental de RH",
+      "nivel": "practicante",
+      "unidad": "capital-humano",
+      "department_code": "rh",
+      "reports_to": "auxiliar_rh",
+      "orden": 200,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "jefatura_cedis",
+      "name": "Jefatura de CEDIS y Operaciones Logísticas",
+      "nivel": "jefatura",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "direccion",
+      "orden": 210,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_cedis",
+      "name": "Auxiliar de CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "jefatura_cedis",
+      "orden": 220,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "encargado_logistica",
+      "name": "Coordinador de Logística",
+      "nivel": "coordinacion",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "jefatura_cedis",
+      "orden": 230,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "aux_administrativo_logistica",
+      "name": "Auxiliar Administrativo de Logística",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "encargado_logistica",
+      "orden": 240,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_chofer",
+      "name": "Auxiliar de Chofer",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "encargado_logistica",
+      "orden": 250,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "aux_logistica_flotilla",
+      "name": "Auxiliar de Logística – Flotilla",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "encargado_logistica",
+      "orden": 260,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "chofer_cedis",
+      "name": "Chofer",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "encargado_logistica",
+      "orden": 270,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "repartidor",
+      "name": "Repartidor",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "logistica",
+      "reports_to": "encargado_logistica",
+      "orden": 280,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "encargado_almacen_cedis",
+      "name": "Encargado de Almacén CEDIS",
+      "nivel": "coordinacion",
+      "unidad": "cedis",
+      "department_code": "almacen",
+      "reports_to": "jefatura_cedis",
+      "orden": 290,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "almacenista_cedis",
+      "name": "Almacenista CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "almacen",
+      "reports_to": "encargado_almacen_cedis",
+      "orden": 300,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "checador_cedis",
+      "name": "Checador CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "almacen",
+      "reports_to": "encargado_almacen_cedis",
+      "orden": 310,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "entradas_salidas_cedis",
+      "name": "Entradas y Salidas de Almacén CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "almacen",
+      "reports_to": "encargado_almacen_cedis",
+      "orden": 320,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "facturacion_cedis",
+      "name": "Facturación CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "mayoreo",
+      "reports_to": "encargado_almacen_cedis",
+      "orden": 330,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "receptor_mercancia",
+      "name": "Recepción de Producto CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "almacen",
+      "reports_to": "encargado_almacen_cedis",
+      "orden": 340,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "surtidor_cedis",
+      "name": "Surtidor CEDIS",
+      "nivel": "operativo",
+      "unidad": "cedis",
+      "department_code": "almacen",
+      "reports_to": "encargado_almacen_cedis",
+      "orden": 350,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "direccion_comercial",
+      "name": "Dirección Comercial y Marketing",
+      "nivel": "direccion",
+      "unidad": "comercial-marketing",
+      "department_code": "administracion",
+      "reports_to": "direccion",
+      "orden": 360,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "gerente_compras",
+      "name": "Coordinación de Compras",
+      "nivel": "coordinacion",
+      "unidad": "comercial-marketing",
+      "department_code": "compras",
+      "reports_to": "direccion_comercial",
+      "orden": 370,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "analista_abastecimiento_comercial",
+      "name": "Analista de Abastecimiento Comercial",
+      "nivel": "operativo",
+      "unidad": "comercial-marketing",
+      "department_code": "compras",
+      "reports_to": "gerente_compras",
+      "orden": 380,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "analista_catalogo_productos",
+      "name": "Analista de Catálogo de Productos",
+      "nivel": "operativo",
+      "unidad": "comercial-marketing",
+      "department_code": "compras",
+      "reports_to": "gerente_compras",
+      "orden": 390,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_compras",
+      "name": "Analista de Órdenes de Entrada",
+      "nivel": "operativo",
+      "unidad": "comercial-marketing",
+      "department_code": "compras",
+      "reports_to": "gerente_compras",
+      "orden": 400,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "inteligencia_comercial",
+      "name": "Inteligencia Comercial",
+      "nivel": "operativo",
+      "unidad": "comercial-marketing",
+      "department_code": "mercadotecnia",
+      "reports_to": "direccion_comercial",
+      "orden": 410,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "jefe_marketing",
+      "name": "Jefe de Marketing",
+      "nivel": "jefatura",
+      "unidad": "comercial-marketing",
+      "department_code": "mercadotecnia",
+      "reports_to": "direccion_comercial",
+      "orden": 420,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "coordinador_mkt_digital",
+      "name": "Coordinador de Marketing Digital y Ecommerce",
+      "nivel": "coordinacion",
+      "unidad": "comercial-marketing",
+      "department_code": "mercadotecnia",
+      "reports_to": "jefe_marketing",
+      "orden": 430,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "practicante_diseno_grafico",
+      "name": "Practicante de Diseño Gráfico y Marca",
+      "nivel": "practicante",
+      "unidad": "comercial-marketing",
+      "department_code": "mercadotecnia",
+      "reports_to": "coordinador_mkt_digital",
+      "orden": 440,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "practicante_produccion_av",
+      "name": "Practicante de Producción Audiovisual",
+      "nivel": "practicante",
+      "unidad": "comercial-marketing",
+      "department_code": "mercadotecnia",
+      "reports_to": "coordinador_mkt_digital",
+      "orden": 450,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "trade_marketing",
+      "name": "Trade Marketing",
+      "nivel": "operativo",
+      "unidad": "comercial-marketing",
+      "department_code": "mercadotecnia",
+      "reports_to": "jefe_marketing",
+      "orden": 460,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "sistemas",
+      "name": "Jefatura de Sistemas y Transformación Digital",
+      "nivel": "jefatura",
+      "unidad": "sistemas",
+      "department_code": "sistemas",
+      "reports_to": "direccion",
+      "orden": 470,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "full_stack_developer",
+      "name": "Full Stack Developer",
+      "nivel": "operativo",
+      "unidad": "sistemas",
+      "department_code": "sistemas",
+      "reports_to": "sistemas",
+      "orden": 480,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "infraestructura_seguridad",
+      "name": "Infraestructura y Seguridad",
+      "nivel": "operativo",
+      "unidad": "sistemas",
+      "department_code": "sistemas",
+      "reports_to": "sistemas",
+      "orden": 490,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "jefe_zona",
+      "name": "Gerencia de Zona",
+      "nivel": "gerencia",
+      "unidad": "zona",
+      "department_code": "direccion_zona",
+      "reports_to": "direccion",
+      "orden": 500,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "encargado_operaciones",
+      "name": "Coordinador de Operaciones de Zona",
+      "nivel": "coordinacion",
+      "unidad": "operaciones-zona",
+      "department_code": "operaciones",
+      "reports_to": "jefe_zona",
+      "orden": 510,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "aux_reparto",
+      "name": "Auxiliar de Reparto",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "logistica",
+      "reports_to": "encargado_operaciones",
+      "orden": 520,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "checador",
+      "name": "Checador",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "almacen",
+      "reports_to": "encargado_operaciones",
+      "orden": 530,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "chofer_local",
+      "name": "Chofer de Zona",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "logistica",
+      "reports_to": "encargado_operaciones",
+      "orden": 540,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "embarques",
+      "name": "Embarques",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "logistica",
+      "reports_to": "encargado_operaciones",
+      "orden": 550,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "empaquetador",
+      "name": "Empaque",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "tienda",
+      "reports_to": "encargado_operaciones",
+      "orden": 560,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "facturador",
+      "name": "Facturación",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "mayoreo",
+      "reports_to": "encargado_operaciones",
+      "orden": 570,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "recepcion_mercancia_zona",
+      "name": "Recepción de Mercancía de Zona",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "almacen",
+      "reports_to": "encargado_operaciones",
+      "orden": 580,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "surtidor",
+      "name": "Surtidor de Zona",
+      "nivel": "operativo",
+      "unidad": "operaciones-zona",
+      "department_code": "almacen",
+      "reports_to": "encargado_operaciones",
+      "orden": 590,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "analista_abastecimiento_regional",
+      "name": "Analista Regional de Abastecimiento Comercial",
+      "nivel": "operativo",
+      "unidad": "staff-zona",
+      "department_code": "compras",
+      "reports_to": "jefe_zona",
+      "orden": 600,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_administrativo",
+      "name": "Auxiliar Administrativo de Zona",
+      "nivel": "operativo",
+      "unidad": "staff-zona",
+      "department_code": "administracion",
+      "reports_to": "jefe_zona",
+      "orden": 610,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "aux_caja_general_zona",
+      "name": "Auxiliar de Caja General de Zona",
+      "nivel": "operativo",
+      "unidad": "staff-zona",
+      "department_code": "cajas",
+      "reports_to": "jefe_zona",
+      "orden": 620,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "auxiliar_mkt",
+      "name": "Auxiliar de Mercadotecnia de Zona",
+      "nivel": "operativo",
+      "unidad": "staff-zona",
+      "department_code": "mercadotecnia",
+      "reports_to": "jefe_zona",
+      "orden": 630,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "vendedor_promociones",
+      "name": "Promotora",
+      "nivel": "operativo",
+      "unidad": "staff-zona",
+      "department_code": "tienda",
+      "reports_to": "jefe_zona",
+      "orden": 640,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "encargado_sucursal",
+      "name": "Encargado(a) de Sucursal",
+      "nivel": "coordinacion",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "jefe_zona",
+      "orden": 650,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "almacenista",
+      "name": "Almacenista de Sucursal",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "almacen",
+      "reports_to": "encargado_sucursal",
+      "orden": 660,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "anaquelista",
+      "name": "Anaquelista de Sucursal",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 670,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "auxiliar_encargado",
+      "name": "Auxiliar de Encargado",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 680,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "bodeguero",
+      "name": "Bodeguero de Sucursal",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "almacen",
+      "reports_to": "encargado_sucursal",
+      "orden": 690,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "cajera",
+      "name": "Cajero(a) de Sucursal",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "cajas",
+      "reports_to": "encargado_sucursal",
+      "orden": 700,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "encargado_cajas",
+      "name": "Coordinador de Cajas",
+      "nivel": "coordinacion",
+      "unidad": "sucursal",
+      "department_code": "cajas",
+      "reports_to": "encargado_sucursal",
+      "orden": 710,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "coordinador_piso_ventas",
+      "name": "Coordinador de Piso de Ventas",
+      "nivel": "coordinacion",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 720,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "intendencia",
+      "name": "Intendencia",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "administracion",
+      "reports_to": "encargado_sucursal",
+      "orden": 730,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "multifuncional",
+      "name": "Multifuncional",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 740,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "recepcion_mercancia_sucursal",
+      "name": "Recepción de Mercancía de Sucursal",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "almacen",
+      "reports_to": "encargado_sucursal",
+      "orden": 750,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "surtidor_tienda",
+      "name": "Surtidor de Sucursal",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 760,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "vendedor_piso",
+      "name": "Vendedora de Piso",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 770,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "vigilancia",
+      "name": "Vigilancia",
+      "nivel": "operativo",
+      "unidad": "sucursal",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 780,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "supervisor_rd",
+      "name": "Supervisor de Ventas Ruta Directa",
+      "nivel": "supervision",
+      "unidad": "ventas",
+      "department_code": "ruta_directa",
+      "reports_to": "jefe_zona",
+      "orden": 790,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "cajero_rd",
+      "name": "Cajero Ruta Directa",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 800,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "ejecutivo_trade_marketing",
+      "name": "Ejecutivo de Trade Marketing",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "mercadotecnia",
+      "reports_to": "supervisor_rd",
+      "orden": 810,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "surtidor_ventas",
+      "name": "Surtidor de Ventas",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 820,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "vendedor_ruta",
+      "name": "Vendedor Ruta Directa",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 830,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "vendedor_suplente",
+      "name": "Vendedor Suplente",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 840,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "supervisor_rv",
+      "name": "Supervisor de Ventas Vecinal",
+      "nivel": "supervision",
+      "unidad": "ventas",
+      "department_code": "ruta_vecinal",
+      "reports_to": "jefe_zona",
+      "orden": 850,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "cajero_rv_promotor",
+      "name": "Cajero Vecinal",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_vecinal",
+      "reports_to": "supervisor_rv",
+      "orden": 860,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "repartidor_vecinal",
+      "name": "Repartidor Vecinal",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_vecinal",
+      "reports_to": "supervisor_rv",
+      "orden": 870,
+      "codigo_nuevo": true
+    },
+    {
+      "code": "vendedor_vecinal",
+      "name": "Vendedor Vecinal",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "ruta_vecinal",
+      "reports_to": "supervisor_rv",
+      "orden": 880,
+      "codigo_nuevo": false
+    },
+    {
+      "code": "vendedor_mayoreo",
+      "name": "Vendedor Mayoreo",
+      "nivel": "operativo",
+      "unidad": "ventas",
+      "department_code": "mayoreo",
+      "reports_to": "jefe_zona",
+      "orden": 890,
+      "codigo_nuevo": false
+    }
+  ],
+  "_estado_previo": "Snapshot de identity.positions tomado en prod el 2026-09-15, ANTES de aplicar [AU.23]. Es lo que restaura exports.down: 57 puestos vivos, 10 sin jefe. No es una copia de tabla: es el inverso de esta migracion, versionado con ella.",
+  "estado_previo": [
+    {
+      "code": "almacenista",
+      "name": "Almacenista",
+      "department_code": "almacen",
+      "reports_to": "encargado_sucursal",
+      "orden": 270,
+      "org_labels": [
+        "ALMACENISTA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "almacenista_surtidor_rv",
+      "name": "Almacenista / Surtidor RV",
+      "department_code": "ruta_vecinal",
+      "reports_to": "supervisor_rv",
+      "orden": 210,
+      "org_labels": [
+        "ALMACENISTA/ SURTIDOR RV"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "anaquelista",
+      "name": "Anaquelista",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 60,
+      "org_labels": [
+        "ANAQUELISTAS"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_administrativo",
+      "name": "Auxiliar administrativo",
+      "department_code": "administracion",
+      "reports_to": "jefe_zona",
+      "orden": 380,
+      "org_labels": [
+        "AUX. ADMINISTRATIVO"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_almacen",
+      "name": "Auxiliar de almacén",
+      "department_code": "almacen",
+      "reports_to": null,
+      "orden": 280,
+      "org_labels": [
+        "AUXILIAR"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_chofer",
+      "name": "Auxiliar de chofer",
+      "department_code": "logistica",
+      "reports_to": null,
+      "orden": 360,
+      "org_labels": [
+        "AUX.DE CHOFER"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_compras",
+      "name": "Auxiliar de compras",
+      "department_code": "compras",
+      "reports_to": "encargado_operaciones",
+      "orden": 390,
+      "org_labels": [
+        "AUX. DE COMPRAS"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_contabilidad",
+      "name": "Auxiliar de contabilidad",
+      "department_code": "contabilidad",
+      "reports_to": "jefe_finanzas",
+      "orden": 450,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_credito_cobranza",
+      "name": "Auxiliar de crédito y cobranza",
+      "department_code": "credito_cobranza",
+      "reports_to": "tesoreria",
+      "orden": 460,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_encargado",
+      "name": "Auxiliar de encargado",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 40,
+      "org_labels": [
+        "AUX ENCARGADO",
+        "AUXILIAR DE ENCARGADO",
+        "AUX. DE ENCARGADO"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_finanzas",
+      "name": "Auxiliar de finanzas",
+      "department_code": "finanzas",
+      "reports_to": "tesoreria",
+      "orden": 480,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_mkt",
+      "name": "Auxiliar de Mercadotecnia",
+      "department_code": "mercadotecnia",
+      "reports_to": "jefe_marketing",
+      "orden": 410,
+      "org_labels": [
+        "AUX. DE MKT"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_piso_venta",
+      "name": "Auxiliar de piso de venta",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 50,
+      "org_labels": [
+        "AUXILIAR PISO DE VENTA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_prevencion",
+      "name": "Auxiliar de prevención",
+      "department_code": "prevencion_auditoria",
+      "reports_to": "prevencion",
+      "orden": 540,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "auxiliar_rh",
+      "name": "Auxiliar de Recursos Humanos",
+      "department_code": "rh",
+      "reports_to": null,
+      "orden": 400,
+      "org_labels": [
+        "AUX. DE RR-HH"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "bodeguero",
+      "name": "Bodeguero",
+      "department_code": "almacen",
+      "reports_to": "encargado_sucursal",
+      "orden": 300,
+      "org_labels": [
+        "BODEGUERO",
+        "BODEGUEROS"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "caja_general",
+      "name": "Caja general",
+      "department_code": "cajas",
+      "reports_to": "tesoreria",
+      "orden": 130,
+      "org_labels": [
+        "CAJA GENERAL"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "cajera",
+      "name": "Cajero(a)",
+      "department_code": "cajas",
+      "reports_to": "encargado_sucursal",
+      "orden": 120,
+      "org_labels": [
+        "CAJERA",
+        "CAJERO",
+        "CAJEROS",
+        "CAJERAS"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "cajero_rv_promotor",
+      "name": "Cajero RV / Promotor / Aux. tienda",
+      "department_code": "ruta_vecinal",
+      "reports_to": "supervisor_rv",
+      "orden": 200,
+      "org_labels": [
+        "CAJERO RV/ PROMOTOR/ AUX. TIENDA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "checador",
+      "name": "Checador",
+      "department_code": "almacen",
+      "reports_to": "encargado_operaciones",
+      "orden": 320,
+      "org_labels": [
+        "CHECADOR",
+        "CHECADORES"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "chofer_foraneo",
+      "name": "Chofer foráneo",
+      "department_code": "logistica",
+      "reports_to": null,
+      "orden": 350,
+      "org_labels": [
+        "CHOFER FORANEO"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "chofer_local",
+      "name": "Chofer local",
+      "department_code": "logistica",
+      "reports_to": null,
+      "orden": 340,
+      "org_labels": [
+        "CHOFER LOCAL"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "chofer_rd",
+      "name": "Chofer de Ruta Directa",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 170,
+      "org_labels": [
+        "CHOFER RD"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "comprador",
+      "name": "Comprador",
+      "department_code": "compras",
+      "reports_to": "gerente_compras",
+      "orden": 510,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "coordinador_tlmk",
+      "name": "Coordinador de Telemarketing",
+      "department_code": "telemarketing",
+      "reports_to": null,
+      "orden": 220,
+      "org_labels": [
+        "COORDINADOR DE TLMK"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "direccion",
+      "name": "Dirección",
+      "department_code": "direccion_zona",
+      "reports_to": null,
+      "orden": 570,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "direccion_comercial",
+      "name": "Dirección Comercial y Marketing",
+      "department_code": "administracion",
+      "reports_to": "direccion",
+      "orden": 580,
+      "org_labels": [
+        "DIRECCIÓN COMERCIAL Y MARKETING"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "empaquetador",
+      "name": "Empaquetador",
+      "department_code": "tienda",
+      "reports_to": "encargado_operaciones",
+      "orden": 70,
+      "org_labels": [
+        "EMPAQUETADOR",
+        "EMPAQUETADORES"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "encargado_cajas",
+      "name": "Encargado de cajas",
+      "department_code": "cajas",
+      "reports_to": "encargado_sucursal",
+      "orden": 110,
+      "org_labels": [
+        "ENC. DE CAJAS"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "encargado_logistica",
+      "name": "Encargado de logística",
+      "department_code": "logistica",
+      "reports_to": null,
+      "orden": 330,
+      "org_labels": [
+        "ENC. LOGISTICA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "encargado_operaciones",
+      "name": "Encargado de operaciones",
+      "department_code": "operaciones",
+      "reports_to": "jefe_zona",
+      "orden": 370,
+      "org_labels": [
+        "ENC. DE OPERACIONES"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "encargado_sucursal",
+      "name": "Encargado de sucursal",
+      "department_code": "tienda",
+      "reports_to": "jefe_zona",
+      "orden": 30,
+      "org_labels": [
+        "ENCARGADO DE SUCURSAL",
+        "ENC. DE SUCURSAL",
+        "ENCARGADO PADRE HIDALGO",
+        "ENCARGADO 8 ESQUINAS",
+        "ENCARGADO LA PIEDAD ABASTOS"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "facturador",
+      "name": "Facturador",
+      "department_code": "mayoreo",
+      "reports_to": "encargado_operaciones",
+      "orden": 260,
+      "org_labels": [
+        "FACTURADOR"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "gerente_compras",
+      "name": "Gerente de compras",
+      "department_code": "compras",
+      "reports_to": "direccion_comercial",
+      "orden": 520,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "intendencia",
+      "name": "Intendencia",
+      "department_code": "administracion",
+      "reports_to": "encargado_sucursal",
+      "orden": 420,
+      "org_labels": [
+        "INTENDENCIA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "jefe_finanzas",
+      "name": "Jefe de finanzas",
+      "department_code": "finanzas",
+      "reports_to": "direccion",
+      "orden": 470,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "jefe_marketing",
+      "name": "Jefe de mercadotecnia",
+      "department_code": "mercadotecnia",
+      "reports_to": "direccion_comercial",
+      "orden": 500,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "jefe_zona",
+      "name": "Jefe de zona",
+      "department_code": "direccion_zona",
+      "reports_to": "direccion",
+      "orden": 10,
+      "org_labels": [
+        "Jefe de zona"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "prevencion",
+      "name": "Prevención de pérdidas",
+      "department_code": "prevencion_auditoria",
+      "reports_to": "jefe_finanzas",
+      "orden": 530,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "receptor_mercancia",
+      "name": "Receptor de mercancía",
+      "department_code": "almacen",
+      "reports_to": "encargado_operaciones",
+      "orden": 290,
+      "org_labels": [
+        "RECEPTOR DE MERCANCIA",
+        "RECEPCIÓN DE MERCANCIA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "repartidor",
+      "name": "Repartidor",
+      "department_code": "logistica",
+      "reports_to": "supervisor_rv",
+      "orden": 550,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "sistemas",
+      "name": "Sistemas",
+      "department_code": "sistemas",
+      "reports_to": "direccion",
+      "orden": 430,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "supervisor_inventarios",
+      "name": "Supervisor de inventarios",
+      "department_code": "almacen",
+      "reports_to": "direccion",
+      "orden": 580,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "supervisor_rd",
+      "name": "Supervisor de Ruta Directa",
+      "department_code": "ruta_directa",
+      "reports_to": "jefe_zona",
+      "orden": 140,
+      "org_labels": [
+        "SUPERVISOR DE RD",
+        "SUPERVISOR RD"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "supervisor_rv",
+      "name": "Supervisor de Ruta Vecinal",
+      "department_code": "ruta_vecinal",
+      "reports_to": "jefe_zona",
+      "orden": 180,
+      "org_labels": [
+        "SUPERVISOR DE RV"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "supervisor_zona",
+      "name": "Supervisor de zona",
+      "department_code": "direccion_zona",
+      "reports_to": "jefe_zona",
+      "orden": 20,
+      "org_labels": [
+        "SUPERVISOR ZONA",
+        "SUPERVISOR DE ZONA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "surtidor",
+      "name": "Surtidor",
+      "department_code": "almacen",
+      "reports_to": "encargado_operaciones",
+      "orden": 310,
+      "org_labels": [
+        "SURTIDOR",
+        "SURTIDORES"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "surtidor_tienda",
+      "name": "Surtidor de tienda",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 90,
+      "org_labels": [
+        "SURTIDOR DE TIENDA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "tesoreria",
+      "name": "Tesorería",
+      "department_code": "tesoreria",
+      "reports_to": "jefe_finanzas",
+      "orden": 490,
+      "org_labels": [],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_local",
+      "name": "Vendedor local",
+      "department_code": "mayoreo",
+      "reports_to": null,
+      "orden": 250,
+      "org_labels": [
+        "VENDEDOR LOCAL"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_mayoreo",
+      "name": "Vendedor de mayoreo",
+      "department_code": "mayoreo",
+      "reports_to": "jefe_zona",
+      "orden": 240,
+      "org_labels": [
+        "VENDEDOR DE MAYOREO"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_piso",
+      "name": "Vendedor(a) de piso",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 100,
+      "org_labels": [
+        "VENDEDORA"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_promociones",
+      "name": "Vendedor de promociones",
+      "department_code": "tienda",
+      "reports_to": "encargado_sucursal",
+      "orden": 80,
+      "org_labels": [
+        "VEND PROMOCIONES",
+        "VEND. PROMOCIONES"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_ruta",
+      "name": "Vendedor de ruta",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 150,
+      "org_labels": [
+        "VENDEDORES",
+        "VENDEDORES RD"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_suplente",
+      "name": "Vendedor suplente",
+      "department_code": "ruta_directa",
+      "reports_to": "supervisor_rd",
+      "orden": 160,
+      "org_labels": [
+        "VENDEDOR SUPLENTE"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_tlmk",
+      "name": "Vendedor de Telemarketing",
+      "department_code": "telemarketing",
+      "reports_to": null,
+      "orden": 230,
+      "org_labels": [
+        "VENDEDOR DE TLMK",
+        "VENDEDOR TLMK"
+      ],
+      "de_baja": false
+    },
+    {
+      "code": "vendedor_vecinal",
+      "name": "Vendedor vecinal",
+      "department_code": "ruta_vecinal",
+      "reports_to": "supervisor_rv",
+      "orden": 190,
+      "org_labels": [
+        "VENDEDOR VECINAL"
+      ],
+      "de_baja": false
+    }
+  ]
+}
