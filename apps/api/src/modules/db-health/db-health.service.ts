@@ -936,14 +936,28 @@ export class DbHealthService {
         }
         const tsCol = await this.pickTsCol(schema, table, s.tsCandidates);
         if (!tsCol) { out.push({ ...base, note: 'sin columna de fecha' }); continue; }
+        // [DB-MEM.3] El `max()` y el conteo van SEPARADOS, y no por prolijidad.
+        //
+        // Este sensor corre para 37 fuentes cada 5 minutos. Juntar los dos agregados en una
+        // sola consulta obliga a recorrer la tabla entera, aunque el `max()` pueda resolverse
+        // por índice. Medido en prod sobre `analytics.stock_movements` (3.7M filas):
+        //
+        //   SELECT max(imported_at), count(*)   →  923.759 ms   (8,854 buffers)
+        //   SELECT max(imported_at)             →    0.049 ms   (5 buffers)   ← Index Only Scan
+        //   SELECT count(*)                     →  206.311 ms   (6,573 buffers)
+        //
+        // Y el conteo **no decide nada**: el veredicto sale de `classify(ageSec, warnH, critH)`,
+        // que sólo mira la EDAD. `rows` es informativo, alimenta la columna de la pantalla.
         const { rows } = await this.knex!.raw(
-          `SELECT max("${tsCol}") AS last_update, count(*)::bigint AS rows FROM ${s.table}`);
+          `SELECT max("${tsCol}") AS last_update FROM ${s.table}`);
         const last = rows[0]?.last_update ? new Date(rows[0].last_update) : null;
         const ageSec = this.ageOf(last);
+        const conteo = await this.contarBarato(s.table);
         out.push({
           ...base, ts_col: tsCol, last_update: last ? last.toISOString() : null,
           age_seconds: ageSec, status: this.classify(ageSec, s.warnH, s.critH),
-          rows: rows[0]?.rows != null ? Number(rows[0].rows) : null,
+          rows: conteo.rows,
+          note: conteo.nota ?? base.note,
         });
       } catch (e) {
         this.logger.warn(`db-health app ${s.table}: ${(e as Error).message}`);
@@ -951,6 +965,36 @@ export class DbHealthService {
       }
     }
     return out;
+  }
+
+  /**
+   * [DB-MEM.3] Cuántas filas tiene la tabla, **sin pagar un `count(*)` de la tabla entera cada
+   * 5 minutos** para un número que es puramente informativo.
+   *
+   * Exacto donde es barato (tablas chicas) y **declarado como estimado** donde no (ADR-056: lo
+   * que no se midió exacto se declara, no se disfraza de exacto).
+   *
+   * ⚠️ `reltuples = -1` significa **nunca analizada**, NO vacía. Es el gotcha que este proyecto
+   * ya pagó (una auditoría reportó 96 tablas "vacías" que tenían dato). Por eso ese caso
+   * devuelve `null` con su motivo, en vez de un cero que se leería como "no llegó nada".
+   */
+  private async contarBarato(tabla: string): Promise<{ rows: number | null; nota?: string }> {
+    const UMBRAL_EXACTO = 100_000;
+    try {
+      const est = await this.knex!.raw(
+        `SELECT reltuples::bigint AS n FROM pg_class WHERE oid = to_regclass(?)`, [tabla]);
+      const n = est.rows[0]?.n != null ? Number(est.rows[0].n) : null;
+
+      if (n == null) return { rows: null, nota: 'sin estadísticas (tabla no encontrada)' };
+      if (n < 0) return { rows: null, nota: 'conteo no medido: la tabla nunca fue analizada' };
+      if (n < UMBRAL_EXACTO) {
+        const ex = await this.knex!.raw(`SELECT count(*)::bigint AS n FROM ${tabla}`);
+        return { rows: ex.rows[0]?.n != null ? Number(ex.rows[0].n) : null };
+      }
+      return { rows: n, nota: `~${n.toLocaleString('es-MX')} filas (estimado)` };
+    } catch {
+      return { rows: null, nota: 'conteo no medido' };
+    }
   }
 
   // ── Grupo 'source': DBs origen (por env, con timeout corto y en paralelo) ────
