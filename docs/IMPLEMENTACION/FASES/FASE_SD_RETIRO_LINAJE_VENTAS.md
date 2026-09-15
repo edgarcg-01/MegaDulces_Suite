@@ -122,9 +122,20 @@ Prioridad (dinero primero):
   — dry-run por default, `--apply` sólo en ventana. DDL validada contra prod por EXPLAIN dentro de una
   transacción revertida (3/3, cero cambios); la validación cazó un `GROUP BY` incompleto antes de que
   nadie lo corriera. **Falta: correrlo con `--apply` en ventana fuera de horario + autorización + el candado de tickets.**
+- **SD-PAY 🟢 CONDICIÓN DE PAGO — diseño escrito y VALIDADO 2026-09-14, sin aplicar (decisión de Edgar "opción a").**
+  `credito` NO es un canal — es condición de PAGO. Medido en prod: el crédito **cruza canales** pero está
+  **96% en mayoreo/telemarketing** (684 de 711 folios/30d); U-D-12 (lo que el blend llama "credito") es
+  *"Factura CONTADO No Fiscal"* = efectivo; el crédito real (U-D-13) son $0.16M/30d, **fuera del sell-out**.
+  Señal correcta: **cliente con `kdud.c16` días > 0**, ligado `kdm1.c10 → kdud.c2` (match 100%). `sales_daily.credito`
+  ($6.13M) ≈ "mayoreo vendido a crédito". **Script:** [`pay-dimension-payment-terms.js`](../../../database/scripts/pay-dimension-payment-terms.js)
+  — crea `analytics.mv_sales_payment_terms` (venta × día × rama × canal × `payment_term`, **derive-no-copy** sobre
+  el ODS), **ADITIVO (sin CASCADE)**, canales corregidos (mayoreo preservado, U-D-12→`contado_nf`). Dry-run + EXPLAIN
+  validado, sin aplicar. ⚠️ **Pieza aparte, más grande:** el fix del remapeo `mayoreo→credito` vive en el **blend Y
+  en `v_sellout_daily`** (que arrastra `mv_sellout_monthly`) → integrarlo al linaje principal es CASCADE de 4 objetos;
+  por eso la dimensión de pago se hace aditiva. **Falta: `--apply` en ventana + el fix de mayoreo.**
 - **SD.5 — Retirar los rollups imperativos** que ya nadie lea (convertir a vista sobre el ODS o
   declarar deuda con nombre). Recién aquí se libera espacio, y sólo tras probar 0 lectores, y tras
-  resolver los dos bloqueantes declarados (SD.4b tickets + la taxonomía de canal `mayoreo`).
+  resolver los dos bloqueantes declarados (~~SD.4b tickets~~ ✅ + la taxonomía de canal `mayoreo` → SD-PAY).
 
 ## Verificación
 
