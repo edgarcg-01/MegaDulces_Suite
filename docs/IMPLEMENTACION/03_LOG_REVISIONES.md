@@ -203,6 +203,29 @@ Las 3 llamadas medidas en 4.5 h de uptime cuadran exacto con ese carril. Y **nin
 
 > ⭐ **La lección**: *una mitigación escrita para un sustrato que ya no es el que corre es una mitigación que no existe.* La Fase VL movió los carriles de PM2/pgboss a cron en `md`; ésta se quedó atrás y nadie lo notó porque el código seguía ahí, correcto, en el archivo equivocado.
 
+#### ⭐⭐ Quinta tanda — un feed de datos financieros llevaba 5 días parado, en silencio
+
+Apareció tirando del hilo de *"¿por qué el `intraday` nunca cierra en 8/8?"*. En 3 días: **71 corridas, ninguna completa** — 44 con `5/8 pasos OK`, 5 con `3/8`.
+
+El que fallaba **en el 100 %** es `import-caja-general.js`, que lee los `.mdb` de `\\192.168.0.245\D` (Z:) con **PowerShell + ACE.OLEDB**. VL.4b (2026-09-11) mudó sus carriles a `md`, que es **Linux** — verificado dentro del contenedor: no hay `powershell`, no hay `pwsh`, no hay `Z:`.
+
+| Evidencia | Valor |
+|---|---|
+| Intentos fallidos | **24 al día, el 100 %** |
+| `analytics.caja_arqueos` / `caja_general_movimientos` | congelados en **2026-09-11** — el día exacto de VL.4b |
+| Lo que decía el tablero | **`ok`** (el runner sólo marca `error` si fallan TODOS los pasos) |
+| Sensores de caja en `db-health` | **ninguno** — `analytics.caja_*` no figuraba ni en `APP_SOURCES` ni en `CRON_JOBS` |
+
+**Cinco días de arqueos y movimientos de caja sin llegar, con el tablero en verde.** Es el mismo patrón que fundó la Fase OBS.
+
+**Dos cambios:**
+1. Retirado de `intraday` y `nightly` (los que corren en `md`). Queda en el modo **`finance`**, que **no** está en `crontab.feeds` y por lo tanto se lanza desde `.249` — mismo criterio que los 3 carriles de Wincaja. *Lo que no corre en Linux se declara, no se deja fallando.*
+2. **Sensor `caja_general`** en `db-health` sobre `caja_arqueos.arqueo_date` (el dato vivo; las otras tablas son histórico o traen fechas de negocio con basura — `caja_depositos` llega a 2026-12-31).
+
+⚠️ El sensor **nace en rojo, y está bien**: refleja que el dato no llega. Se apaga cuando alguien corra el modo `finance` desde `.249`.
+
+> **El patrón, por tercera vez en el día**: la Fase VL movió el sustrato y tres cosas se quedaron atrás — el `SKIP_AUTOLINK` (escrito para pgboss), este importer (necesita Windows) y su vigilancia (nunca existió). Las tres eran invisibles porque **el código seguía ahí, correcto**.
+
 #### El blanco siguiente, ya medido
 
 Con el barrido de recepciones fuera, el TOP lo encabezan:
