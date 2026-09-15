@@ -459,11 +459,6 @@ export class FinanzasSolicitudesComponent {
   /** Primera carga = cargando y todavía sin nada en pantalla. Un refresh no vacía la vista. */
   readonly primeraCarga = computed(() => this.loading() && !this.report());
 
-  /** Estado de la evidencia de una solicitud: comprobante propio, o comprobación del gasto. */
-  private evidenciaDe(folio: string): string {
-    return this.proofStatus()[folio]?.status || this.compStatus()[folio] || 'sin';
-  }
-
   /**
    * En qué etapa está una solicitud. El orden de las reglas importa: cada fila cae en UNA
    * y sólo una. Cancelada gana sobre todo (es terminal, aunque Kepler tenga 102 canceladas
@@ -473,7 +468,7 @@ export class FinanzasSolicitudesComponent {
     if (r.estado === 'C') return 'canceladas';
     if (!r.aplicada) return r.estado === 'N' ? 'autorizar' : 'ejercer';
 
-    const p = this.proofStatus()[r.folio];
+    const p = this.proofStatus()[ComprobacionesService.key(r.sucursal, r.folio)];
     // Sin expediente todavía, o devuelto: el capturista debe (re)capturar la solicitud.
     if (!p || p.status === 'rechazada') return 'capturar';
     // Falta la solicitud firmada (obligatoria siempre): sin ella no se aprueba → sigue en
@@ -862,8 +857,8 @@ export class FinanzasSolicitudesComponent {
   readonly peekOpen = signal(false);
   readonly dlgOpen = signal(false);
   readonly selProofId = computed(() => {
-    const f = this.sel()?.folio;
-    return f ? (this.proofStatus()[f]?.id ?? null) : null;
+    const r = this.sel();
+    return r ? (this.proofStatus()[ComprobacionesService.key(r.sucursal, r.folio)]?.id ?? null) : null;
   });
   readonly selTieneComprobacion = computed(() => {
     const f = this.sel()?.folio;
@@ -879,7 +874,7 @@ export class FinanzasSolicitudesComponent {
    * la evidencia la sube el capturista en «Capturar gasto».
    */
   capturar(r: ExpenseRequestRow) {
-    const p = this.proofStatus()[r.folio];
+    const p = this.proofStatus()[ComprobacionesService.key(r.sucursal, r.folio)];
     if (p && p.status !== 'rechazada') { this.verExpediente(r); return; }
     this.adjuntar(r);
   }
