@@ -23,14 +23,14 @@ import { TooltipModule } from 'primeng/tooltip';
 import { SkeletonModule } from 'primeng/skeleton';
 import { MessageService } from 'primeng/api';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ComercialService, Product, ProductStats, ProductSupplierOption, UpdateProductDto } from '../comercial.service';
+import { ComercialService, Product, ProductStats, ProductSupplierOption, UpdateProductDto } from '../../comercial/comercial.service';
 import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
-
-type ActiveFilter = 'all' | 'active' | 'inactive';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { CATALOGO_TABS } from '../catalogo-tabs';
 
 @Component({
-  selector: 'app-comercial-products',
+  selector: 'app-compras-catalogo',
   standalone: true,
   imports: [
     CommonModule,
@@ -49,6 +49,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     TooltipModule,
     SkeletonModule,
     MetricCardComponent,
+    PageTabsComponent,
   ],
   providers: [MessageService],
   template: `
@@ -68,7 +69,25 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
           <button pButton [text]="true" severity="secondary" size="small" (click)="refresh()" [loading]="loading()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
-    
+
+      <app-page-tabs [tabs]="tabs" />
+
+      <!--
+        De donde sale el precio y que tan viejo es. Va arriba y sin boton de cerrar porque es una
+        condicion del dato, no el resultado de una accion. La lista NO tiene sucursal: el numero es
+        uno solo para toda la red, y eso hay que decirlo, no dejarlo suponer.
+        (Sin acentos graves aca adentro: cierran el template literal de JS.)
+      -->
+      @if (avisoPrecio(); as a) {
+        <div class="pp-aviso" [class.pp-aviso-warn]="a.viejo" role="status">
+          <i [class]="a.viejo ? 'pi pi-clock' : 'pi pi-info-circle'" aria-hidden="true"></i>
+          <div>
+            <strong>{{ a.titulo }}</strong>
+            <span>{{ a.detalle }}</span>
+          </div>
+        </div>
+      }
+
       <!-- Toolbar -->
       <div class="sheet cols-12">
         <article class="cell cell-span-12 is-flush pp-filters-cell">
@@ -95,18 +114,6 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                     >
                     <i class="pi pi-times" aria-hidden="true"></i>
                   </button>
-                }
-              </div>
-    
-              <!-- Active filter -->
-              <div class="pp-segment" role="group" aria-label="Filtrar por estado">
-                @for (f of activeFilters; track f) {
-                  <button
-                    type="button"
-                    class="pp-seg-btn"
-                    [class.active]="activeFilter() === f.key"
-                    (click)="setActiveFilter(f.key)"
-                  >{{ f.label }}</button>
                 }
               </div>
     
@@ -176,8 +183,8 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
               label="Con costo" [value]="s.with_cost" [goal]="s.total" format="number"
             accent="var(--chart-2)" sub="validados desde el ERP"></app-metric-card>
             <app-metric-card class="panel-col-3" variant="progress"
-              label="Con ubicación" [value]="s.with_location" [goal]="s.total" format="number"
-            accent="var(--chart-6)" sub="ubicación asignada"></app-metric-card>
+              label="Con precio al cliente" [value]="s.with_price" [goal]="s.total" format="number"
+            accent="var(--chart-6)" [sub]="subtituloPrecio()"></app-metric-card>
           </div>
         }
     
@@ -207,6 +214,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                   <th scope="col">Categoría</th>
                   <th scope="col">Ubic.</th>
                   <th scope="col" class="comm-num">Costo</th>
+                  <th scope="col" class="comm-num">Precio al cliente</th>
                   <th scope="col" class="comm-num">Unidad</th>
                   <th scope="col">Estado</th>
                   <th scope="col"><span class="sr-only">Acciones</span></th>
@@ -265,26 +273,27 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
                   </td>
                   <td class="comm-num">
                     @if (p.cost_base != null) {
-                      <!-- [PR.1] El costo del catalogo, y cuando el ARBITRO del ERP dice otra cosa,
-                           se marca. No se elige un ganador aca: cost_base es con lo que se valua el
-                           inventario (ADR-051) y cambiarlo mueve dinero. Medido: 48% difiere. -->
-                      <span [title]="costoTitulo(p)">{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}@if (p.costo_difiere) { <span class="comm-muted is-small">&nbsp;≠ERP</span> }</span>
+                      <span>{{ p.cost_base | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
                     }
                     @if (p.cost_base == null) {
                       <span class="comm-muted">—</span>
                     }
                   </td>
                   <td class="comm-num">
+                    @if (p.price_customer != null) {
+                      <span class="pp-pv">{{ p.price_customer | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                      @if (p.price_min_qty && p.price_min_qty > 1) {
+                        <span class="comm-muted is-small pp-pv-qty">desde {{ p.price_min_qty }}</span>
+                      }
+                    } @else {
+                      <span class="comm-muted" pTooltip="Este producto no tiene precio publicado en la lista de mostrador."
+                            tooltipPosition="left">sin precio</span>
+                    }
+                  </td>
+                  <td class="comm-num">
                     @if (p.unit_sale) {
-                      <!-- [PR.1] El factor sale del resolvedor CANONICO con veredicto, no de
-                           factor_sale: en 2,685 productos el resolvedor se niega a publicar y esta
-                           pantalla mostraba un numero igual. Sin afirmacion va un simbolo, no una cifra. -->
-                      <span [title]="uxcTitulo(p)">{{ p.unit_sale }}@if (p.uxc && p.uxc > 1) {
-                        <span class="comm-muted is-small"> × {{ p.uxc }}</span>
-                      } @else if (p.uxc_veredicto === 'difiere_entre_plazas') {
-                        <span class="comm-muted is-small"> × ≠</span>
-                      } @else if (p.factor_sale && p.factor_sale > 1) {
-                        <span class="comm-muted is-small"> × {{ p.factor_sale }} ?</span>
+                      <span>{{ p.unit_sale }}@if (p.factor_sale && p.factor_sale > 1) {
+                        <span class="comm-muted is-small"> × {{ p.factor_sale }}</span>
                       }</span>
                     }
                     @if (!p.unit_sale) {
@@ -304,7 +313,7 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
               </ng-template>
               <ng-template #emptymessage>
                 <tr>
-                  <td colspan="10" class="comm-empty-cell">
+                  <td colspan="11" class="comm-empty-cell">
                     <div class="comm-empty">
                       <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                       <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
@@ -437,30 +446,20 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
     }
     .pp-search-clear:hover { color: var(--c-text-1); background: var(--c-surface-2); }
 
-    .pp-segment {
-      display: inline-flex; align-items: stretch;
-      height: 32px;
-      background: var(--c-surface-2);
-      border: 1px solid var(--c-divider);
-      border-radius: 8px;
-      padding: 2px; gap: 2px;
+
+    .pp-pv { font-weight: var(--fw-bold); }
+    .pp-pv-qty { display: block; }
+
+    .pp-aviso {
+      display: flex; gap: .55rem; align-items: flex-start;
+      padding: .5rem .75rem; margin: .75rem 0 0;
+      border: 1px solid var(--c-divider); border-left-width: 3px;
+      border-radius: 6px; background: var(--c-surface-1);
+      font-size: var(--fs-xs); color: var(--c-text-2);
     }
-    .pp-seg-btn {
-      background: transparent; border: none;
-      padding: 0 .65rem;
-      font-size: var(--fs-xs); font-weight: var(--fw-medium);
-      color: var(--c-text-2);
-      cursor: pointer; border-radius: 6px;
-      transition: all 100ms var(--ease-standard);
-      white-space: nowrap;
-    }
-    .pp-seg-btn:hover { color: var(--c-text-1); }
-    .pp-seg-btn.active {
-      background: var(--c-surface-1);
-      color: var(--c-text-1);
-      box-shadow: 0 1px 2px rgba(0,0,0,.08);
-      font-weight: var(--fw-bold);
-    }
+    .pp-aviso-warn { border-left-color: var(--warn-fg); background: var(--warn-bg); }
+    .pp-aviso i { margin-top: .1rem; }
+    .pp-aviso strong { display: block; color: var(--c-text-1); }
 
     .pp-toggle {
       display: inline-flex; align-items: center; gap: .5rem;
@@ -544,41 +543,43 @@ type ActiveFilter = 'all' | 'active' | 'inactive';
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class ComercialProductsComponent {
-  /**
-   * [PR.1] Por qué el costo de esta pantalla puede no ser el que se ve en compras.
-   *
-   * `cost_base` es del catálogo y con él se VALÚA el inventario (ADR-051). El árbitro
-   * (`analytics.v_erp_unit_cost`) es lo que el ERP registró por almacén. Medido en prod el
-   * 2026-09-14: de 11,239 productos, 3,709 tienen el costo del catálogo por DEBAJO del árbitro y
-   * 1,673 por encima — 48% no coinciden. No se elige uno acá: se muestran los dos.
-   */
-  costoTitulo(p: Product): string {
-    if (p.costo_erp == null) {
-      return 'Costo del catálogo. El árbitro del ERP no cubre este producto, así que no hay con '
-        + 'qué contrastarlo.';
-    }
-    const erp = p.costo_erp.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
-    if (!p.costo_difiere) return `Costo del catálogo. Coincide con el ERP (${erp}).`;
-    return `⚠️ El catálogo dice esto y el ERP dice ${erp} `
-      + `(mediana de ${p.costo_erp_almacenes ?? 0} almacén(es)). No se corrige acá: con el costo `
-      + 'del catálogo se valúa el inventario, y cambiarlo mueve dinero.';
-  }
+export class ComprasCatalogoComponent {
+  readonly tabs = CATALOGO_TABS;
 
-  /** [PR.1] El factor de caja, con el mismo veredicto que publica el Sell-Out (UXC.1). */
-  uxcTitulo(p: Product): string {
-    if (p.uxc != null) return `${p.uxc} por caja — las plazas con testigo concuerdan.`;
-    if (p.uxc_veredicto === 'difiere_entre_plazas') {
-      return `Las plazas NO concuerdan en cuántas unidades trae una caja (${p.uxc_rango ?? 'rango '
-        + 'no disponible'}). Por eso no va un número: una moda sería inventar el acuerdo.`;
+  /**
+   * [RP.12] De donde sale el precio y que tan viejo es.
+   *
+   * Dos cosas que la pantalla NO puede callar: (1) es la lista de mostrador, una sola para toda la
+   * red — la fase RP existe porque el precio difiere entre las 7 sucursales, y este numero no lo
+   * muestra; (2) la alimenta un importer desde la DB legacy, asi que puede llevar semanas parada.
+   * El umbral son 7 dias: mas que eso ya no es "el precio de hoy".
+   */
+  readonly avisoPrecio = computed(() => {
+    const st = this.stats();
+    if (!st) return null;
+    const iso = st.price_updated_at;
+    if (!iso) {
+      return {
+        viejo: true,
+        titulo: 'No se sabe de cuando es este precio.',
+        detalle: 'La lista de mostrador no trae fecha de actualizacion.',
+      };
     }
-    if (p.uxc_veredicto === 'sin_testigo') {
-      return 'Ninguna plaza declara cuántas unidades trae una caja. El número con "?" viene de '
-        + '`catalog.products.factor_sale`, que no tiene testigo — se muestra para que no falte, '
-        + 'pero no está confirmado.';
-    }
-    return 'Sin dato de empaque en el resolvedor canónico.';
-  }
+    const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+    const fecha = new Date(iso).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
+    const base = 'Precio de mostrador (lista BASE-MXN), uno solo para toda la red: no distingue sucursal. '
+      + 'El precio por sucursal vive en la pestana Precios distintos.';
+    return dias > 7
+      ? { viejo: true, titulo: 'Estos precios llevan ' + dias + ' dias sin actualizarse (ultimo: ' + fecha + ').', detalle: base }
+      : { viejo: false, titulo: 'Precios actualizados el ' + fecha + '.', detalle: base };
+  });
+
+  readonly subtituloPrecio = computed(() => {
+    const st = this.stats();
+    if (!st) return 'lista de mostrador';
+    const sin = st.total - st.with_price;
+    return sin > 0 ? sin.toLocaleString('es-MX') + ' sin precio publicado' : 'todos con precio';
+  });
 
   private readonly api = inject(ComercialService);
   private readonly fb = inject(FormBuilder);
@@ -593,12 +594,6 @@ export class ComercialProductsComponent {
   searchInput = '';
   readonly searchSignal = signal('');
 
-  readonly activeFilter = signal<ActiveFilter>('all');
-  readonly activeFilters: { key: ActiveFilter; label: string }[] = [
-    { key: 'all',      label: 'Todos' },
-    { key: 'active',   label: 'Activos' },
-    { key: 'inactive', label: 'Inactivos' },
-  ];
   readonly onlyWithCost = signal(false);
   readonly selectedSupplier = signal<string | null>(null);
 
@@ -611,7 +606,6 @@ export class ComercialProductsComponent {
       pageSize: this.pageSize(),
       search: this.searchSignal() || undefined,
       supplier_id: this.selectedSupplier() || undefined,
-      active: this.activeFilter() === 'all' ? undefined : this.activeFilter() === 'active',
       with_cost: this.onlyWithCost() || undefined,
     }),
     stream: ({ params }) => this.api.listProducts(params),
@@ -688,12 +682,6 @@ export class ComercialProductsComponent {
     this.page.set(1);
   }
 
-  setActiveFilter(key: ActiveFilter): void {
-    if (this.activeFilter() === key) return;
-    this.activeFilter.set(key);
-    this.reload();
-  }
-
   onOnlyWithCostChange(v: boolean): void {
     this.onlyWithCost.set(v);
     this.reload();
@@ -702,14 +690,13 @@ export class ComercialProductsComponent {
   resetFilters(): void {
     this.searchInput = '';
     this.searchSignal.set('');
-    this.activeFilter.set('all');
     this.onlyWithCost.set(false);
     this.selectedSupplier.set(null);
     this.page.set(1);
   }
 
   hasActiveFilters(): boolean {
-    return !!this.searchSignal() || this.activeFilter() !== 'all' || this.onlyWithCost() || !!this.selectedSupplier();
+    return !!this.searchSignal() || this.onlyWithCost() || !!this.selectedSupplier();
   }
 
   // El evento lazy solo actualiza page/pageSize (señales); el rxResource reacciona → no-op.
