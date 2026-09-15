@@ -158,9 +158,23 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
     expect(/ngOnChanges\(\): void \{[^\n]*this\.render\(\)/.test(LABEL)).toBe(true);
     expect(/private render\(\): void \{[^\n]*this\.programar\(\)/.test(LABEL)).toBe(true);
     expect(/private render\(\): void \{[^\n]*this\.layout\(\)/.test(LABEL)).toBe(false);
-    // …y la firma lleva los tres insumos: el que falte, ese cambio no re-mide.
-    const firma = /const firma = ([^\n]*)/.exec(LABEL)![1];
-    for (const insumo of ['offsetWidth', 'offsetHeight', 'fuentesOk', 'textContent']) expect(firma).toContain(insumo);
+    // …y la firma lleva los tres insumos MÁS la medida misma: el que falte, ese cambio no re-mide.
+    //
+    // ⭐ `priceEl` es el que faltaba y el que costó el bug: la etiqueta es de tamaño FIJO, así que
+    // `root.offsetWidth/offsetHeight` no cambian NUNCA y el `ResizeObserver` de la raíz no dispara
+    // jamás. Vigilando sólo las causas, un re-maquetado tardío (el swap de la tipografía, que
+    // ocurre DESPUÉS de que `document.fonts` dice "cargada") era invisible: medido en Yurécuaro,
+    // estilo de 15 mm con 91 px de ancho, y 91 px es lo que ese número mide a 10.75 mm.
+    const firma = /private firma\(\): string \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    for (const insumo of ['root?.offsetWidth', 'root?.offsetHeight', 'this.fuentesOk', 'root?.textContent']) {
+      expect(firma).toContain(insumo);
+    }
+    expect(firma).toMatch(/price\?\.offsetWidth/);
+    // Y cada pase que MAQUETA pide otro pase: así la corrección llega sola al cuadro siguiente,
+    // sin depender de que algún evento externo avise. Converge porque la firma se recalcula
+    // DESPUÉS de maquetar (si nada se movió, el pase siguiente no hace nada).
+    const aj = /private ajustar\(\): void \{[\s\S]*?\n  \}/.exec(sinComentarios(LABEL))![0];
+    expect(aj).toMatch(/this\.layout\(\);\s*this\.ultimaFirma = this\.firma\(\);\s*this\.programar\(\);/);
     // Y se limpia: sin `ngOnDestroy` cada etiqueta de una cola de 300 dejaría tres observadores vivos.
     expect(LABEL).toMatch(/ngOnDestroy\(\): void \{[\s\S]*?\.disconnect\(\)[\s\S]*?removeEventListener/);
   });

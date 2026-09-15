@@ -757,6 +757,36 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
    * Quita la marca `data-etq-settled` de inmediato: hasta que se vuelva a medir, esta etiqueta
    * NO está lista para clonarse a impresión.
    */
+  /**
+   * ⭐⭐ LA FIRMA: lo que hay que vigilar para saber si hace falta volver a medir. Y la pieza que
+   * faltaba es que incluye **la medida misma** (`priceEl.offsetWidth`), no sólo sus causas.
+   *
+   * ── El defecto que esto cierra, medido en Yurécuaro el 2026-09-15 ─────────────────────────
+   * El rastro decía `15mm | 91 | 120 | fuentes`: estilo de 15 mm, pero 91 px de ancho — y 91 px
+   * es el ancho que ese mismo `$86.00` tiene a **10.75 mm**. O sea el elemento estaba MEDIDO con
+   * la maquetación de la tipografía anterior mientras el estilo ya decía 15 mm.
+   *
+   * `document.fonts` dice "cargada" ANTES de que el navegador vuelva a maquetar el texto que la
+   * usa. El bucle crece contra el ancho viejo (más chico) hasta el techo, y cuando entra Anton el
+   * número se ensancha y desborda. Por eso **cambiar el tamaño de la ventana lo arreglaba** (fuerza
+   * un re-layout) y por eso **en otra computadora salía bien** (ahí el swap ocurre antes de medir).
+   *
+   * ── Por qué la firma anterior no lo veía ──────────────────────────────────────────────────
+   * Miraba `root.offsetWidth/offsetHeight`, y la etiqueta es de tamaño FIJO (82×35 mm): esos dos
+   * números no cambian NUNCA. El `ResizeObserver` sobre la raíz, por lo mismo, no dispara jamás.
+   * La firma vigilaba las causas que se me ocurrieron (geometría, texto, tipografía) y no el
+   * EFECTO — así que un re-maquetado que no venía de ninguna de las tres era invisible.
+   *
+   * Con el ancho del número adentro, un re-layout tardío cambia la firma solo. Y como cada pase
+   * que maqueta pide otro pase, la corrección llega al cuadro siguiente sin que nadie la dispare.
+   * Converge: si nada se movió, la firma repite y el pase siguiente no hace nada.
+   */
+  private firma(): string {
+    const root = this.root?.nativeElement;
+    const price = this.priceEl?.nativeElement;
+    return `${root?.offsetWidth}x${root?.offsetHeight}|${this.fuentesOk}|${price?.offsetWidth}x${price?.offsetHeight}|${root?.textContent}`;
+  }
+
   private programar(): void {
     this.root?.nativeElement.removeAttribute('data-etq-settled');
     if (this.pendiente) return;
@@ -774,8 +804,12 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     const root = this.root?.nativeElement;
     if (!root) return;
     this.fuentesOk = familiasFaltantes()?.length === 0;
-    const firma = `${root.offsetWidth}x${root.offsetHeight}|${this.fuentesOk}|${root.textContent}`;
-    if (firma !== this.ultimaFirma) { this.layout(); this.ultimaFirma = firma; }
+    if (this.firma() !== this.ultimaFirma) {
+      this.layout();
+      // La firma se recalcula DESPUÉS de maquetar, y se pide otro pase. Ver `firma()`.
+      this.ultimaFirma = this.firma();
+      this.programar();
+    }
     // ⭐ EL INVARIANTE, y es lo único acá que no depende de entender la causa: un pase NO puede
     // TERMINAR en desborde si un tamaño menor cabe. Si el veredicto sale `overflow`, se vuelve a
     // ajustar el número —`fitPrice` arranca de PRECIO_MM y re-deriva, así que converge— y se
@@ -784,10 +818,10 @@ export class LabelComponent implements AfterViewInit, OnChanges, OnDestroy {
     //
     // Medido: en Yurécuaro el número quedaba en 15 mm (el techo) con 127 px en 120 disponibles,
     // mientras la misma etiqueta en otro equipo daba 11.75 mm y `ok`. Llegar al techo exige que
-    // en ESE instante midiera ≤107 px, o sea que creció contra una tipografía ~19% más angosta
-    // que la que después pintó (la cadena de respaldo trae Haettenschweiler y Arial Narrow, las
-    // dos más angostas que Anton). Con las caras declaradas en el CSS global la carrera ya no
-    // existe; esto es el cinturón para cualquier otra forma de llegar al mismo lugar.
+    // en ESE instante midiera ≤107 px, o sea que creció contra un ancho ~19% más chico que el que
+    // después pintó. ⛔ Ojo: acá NO alcanza con que el veredicto sea `ok` — si la medida que lee
+    // el veredicto es la misma medida vieja, dice `ok` sobre un número que desborda. Por eso el
+    // arreglo de fondo es `firma()` (que vigila la medida), y esto es sólo el cinturón.
     let v = this.veredicto();
     if (v === 'overflow') { this.fitPrice(); v = this.veredicto(); }
     root.setAttribute('data-etq-fit', v);
