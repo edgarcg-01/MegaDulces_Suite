@@ -87,7 +87,13 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
              mismo semáforo y gritaba (DESIGN §15: jerarquía por tipo y contraste, no color). -->
         <p class="ec-verdict">{{ veredicto() }}</p>
 
-        <app-metric-strip [items]="kpis()" ariaLabel="Cobertura de la red" />
+        <!-- Sin órdenes no hay nada que medir, y la tira lo decía igual: "Comprobado 0%" en ROJO
+             sobre un día en que nadie recibió mercancía. Contradecía al veredicto de acá arriba
+             ("todavía no hay órdenes") y culpaba a la red por un cero que no es un resultado sino
+             una ausencia. Un cero calculado sobre cero se DECLARA, no se pinta de rojo. -->
+        @if (tot().entradas) {
+          <app-metric-strip [items]="kpis()" ariaLabel="Cobertura de la red" />
+        }
 
         <div class="ec-filters">
           <span class="ec-lbl">Periodo</span>
@@ -111,8 +117,23 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
         } @else if (loading() && !report()) {
           <app-load-state [loading]="true" [skeletonRows]="7" />
         } @else if (!rows().length) {
-          <app-load-state [isEmpty]="true" emptyIcon="pi-sitemap" emptyTitle="Sin sucursales en tu alcance"
-                          emptyHint="Tu usuario no tiene ninguna sucursal asignada. Pedile a sistemas que revise tu alcance de datos." />
+          <!-- El backend agrupa POR RECIBO (GROUP BY c.sucursal sobre erp_goods_receipts), así que
+               una sucursal sin entradas en el periodo no devuelve fila: con el default en "hoy",
+               una mañana tranquila vacía la tabla entera. Y devuelve exactamente la MISMA forma
+               cuando el usuario no tiene alcance, así que desde acá los dos casos son
+               indistinguibles. Antes había un solo texto —"pedile a sistemas que revise tu
+               alcance"— que mandaba a otra área por un día sin recepciones. Lo que el frontend SÍ
+               sabe es el periodo, y con eso alcanza para liderar con la causa probable sin
+               afirmar la que no puede probar. -->
+          @if (periodo() === 'arranque') {
+            <app-load-state [isEmpty]="true" emptyIcon="pi-sitemap" emptyTitle="Sin sucursales en tu alcance"
+                            emptyHint="No hay ni una orden de entrada desde el arranque del proceso, así que no es el periodo: lo más probable es que tu usuario no tenga sucursales asignadas. Pedile a sistemas que revise tu alcance de datos." />
+          } @else {
+            <app-load-state [isEmpty]="true" emptyIcon="pi-calendar"
+                            [emptyTitle]="'Sin órdenes de entrada ' + periodoFrase()"
+                            emptyHint="Puede ser que todavía no se reciba nada. Ampliá el periodo: si con «Desde el arranque» tampoco aparece nada, entonces sí es tu alcance de datos."
+                            emptyCta="Ver este mes" emptyCtaIcon="pi pi-calendar" (cta)="setPeriodo('mes')" />
+          }
         } @else {
           <div class="ec-scroll">
             <!-- Acá el modificador frozen-first SÍ corresponde: 10 columnas con scroll y la
@@ -155,7 +176,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                   <!-- RE.28.2 — el conteo Y su parte vencida en la misma celda, como
                        "Antigüedad p50/p90". El total sin plazo escondía la cola: 27 días se
                        veía igual que ayer. Ordena por lo VENCIDO, que es lo accionable. -->
-                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'por_validar_vencidas')"
+                  <th scope="col" class="comm-num surf-def" [attr.aria-sort]="ariaSort(sort(), 'por_validar_vencidas')"
                       [pTooltip]="'Evidencia subida esperando decisión. En rojo, la que pasó los ' + slaRevision() + ' días.'" tooltipPosition="top">
                     <button type="button" class="surf-sort" (click)="ordenarPor('por_validar_vencidas')" aria-label="Ordenar por evidencia vencida sin revisar">
                       Por revisar <i [class]="sortIcon(sort(), 'por_validar_vencidas')" aria-hidden="true"></i>
@@ -163,7 +184,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                   </th>
                   <!-- RE.28.2 — se llamaba "Vencidas" a secas y ahora hay DOS plazos: éste es el
                        de captura (nadie subió el papel), el de al lado es el del revisor. -->
-                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'atrasadas')"
+                  <th scope="col" class="comm-num surf-def" [attr.aria-sort]="ariaSort(sort(), 'atrasadas')"
                       [pTooltip]="'Entradas que pasaron los ' + slaCaptura() + ' días sin que nadie suba la factura.'" tooltipPosition="top">
                     <button type="button" class="surf-sort" (click)="ordenarPor('atrasadas')" aria-label="Ordenar por entradas sin subir vencidas">
                       Sin subir <i [class]="sortIcon(sort(), 'atrasadas')" aria-hidden="true"></i>
@@ -274,7 +295,11 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                     }
                   </td>
                   <td class="comm-num">{{ tot().entradas }}</td>
-                  <td class="ec-bar">
+                  <!-- El tono va acá también. Sin él esta barra quedaba SIEMPRE verde, que es el
+                       mismo defecto que el comentario de la fila de arriba dice haber arreglado:
+                       se corrigió en el cuerpo y no llegó al pie — justo el renglón que más se
+                       mira, porque es el total de la red. -->
+                  <td class="ec-bar" [attr.data-tone]="tono(pctRed())">
                     <span class="ec-track"><span [style.width.%]="pctRed()"></span></span>
                     <em class="mono">{{ pctRed() }}%</em>
                   </td>
@@ -322,8 +347,13 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
 
     .ec-card { padding: 0; overflow: hidden; }
     .ec-scroll { overflow-x: auto; }
-    /* La base (tipografía, densidad, header, divisores) es surf-table--plain. Acá queda
-       sólo el pie pegado: el total de la red tiene que verse sin scrollear. */
+    /* La base (tipografía, densidad, header, divisores) es surf-table--plain.
+       ⚠️ Este pie pegado HOY NO PEGA, y el encabezado de surf-table--sticky tampoco: .ec-scroll
+       declara overflow-x auto y nada de alto, y por spec el eje visible pasa a auto, así que el
+       contenedor es scrollport de los dos ejes pero NUNCA desborda en vertical — el sticky queda
+       confinado ahí y no se activa ni cuando scrollea la página. No se borra porque no es de esta
+       pantalla: 3 de 6 usos de surf-table--sticky en el repo están igual, sin alto en el
+       envoltorio. Con ~7 sucursales no se nota; es barrido, no parche local. */
     .ec-table tfoot td { position: sticky; bottom: 0; }
 
     .ec-suc b { display: block; color: var(--text-main); font-weight: 600; }
@@ -394,6 +424,20 @@ export class ComprasEntradasControlComponent {
     { label: 'Este mes', value: 'mes' },
     { label: 'Desde el arranque', value: 'arranque' },
   ];
+
+  /**
+   * El periodo dicho en prosa, para pegarlo atrás de una frase. Las etiquetas del selector no
+   * sirven acá: "Sin órdenes de entrada en Hoy" no se lee. Una sola fuente para el vacío y para
+   * el veredicto, que antes decían cosas distintas del mismo estado.
+   */
+  readonly periodoFrase = computed(() => {
+    switch (this.periodo()) {
+      case 'hoy': return 'hoy';
+      case 'semana': return 'en los últimos 7 días';
+      case 'mes': return 'en este mes';
+      default: return 'desde el arranque';
+    }
+  });
 
   /**
    * `[RE.20.2]` — orden por columna, **en memoria**: acá vienen todas las sucursales de una
@@ -469,9 +513,9 @@ export class ComprasEntradasControlComponent {
     // ampliar el periodo, y el texto lo dice — es el patrón de empty operacional del DS
     // ("Ninguna ruta registra actividad entre X e Y · [Ampliar a 30 días]").
     if (!t.entradas) {
-      return this.periodo() === 'hoy'
-        ? 'Hoy todavía no hay órdenes de entrada. Ampliá el periodo para ver los días anteriores.'
-        : 'Sin órdenes de entrada en el periodo.';
+      return this.periodo() === 'arranque'
+        ? 'Sin órdenes de entrada desde el arranque del proceso.'
+        : `Todavía no hay órdenes de entrada ${this.periodoFrase()}. Ampliá el periodo para ver lo anterior.`;
     }
     const falta = t.entradas - t.con_evidencia;
     const huerfanas = this.sinResponsable().length;
