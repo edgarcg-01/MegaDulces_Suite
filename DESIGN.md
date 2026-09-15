@@ -654,6 +654,12 @@ Una columna de números alinea a la derecha **la celda Y su título**. Si no, el
 ⚠️ **Y se anuncia** (→ D.2): `aria-keyshortcuts` en el campo y el atajo escrito en la cabecera de la columna. Un atajo que nadie sabe que existe no existe. Si cambiás el teclado, **la cabecera que lo describía queda mintiendo** — actualizala en el mismo commit.
 ⛔ **Medido 2026-09-14: 23 componentes usan `input[type=number]` y sólo 1 protege la rueda o quita el spinner.** Entre los 22 restantes: recepción de mercancía, detalle de orden de compra, facturación, gasto de ruta y cuadre de almacén — todas de cantidad o de dinero. Barrido pendiente.
 
+**D.6 — Una fecha de calendario se arma con los componentes LOCALES, nunca con `toISOString()`.**
+⛔ `d.toISOString().slice(0, 10)` devuelve la fecha **UTC**, y en `America/Mexico_City` (UTC−6) eso **ya es el día siguiente a partir de las 18:00**. Medido: a las 19:30 del 14-sep devuelve `2026-09-15`.
+**El daño escala al revés de lo que uno espera:** en un rango de un mes el corrimiento de un día es invisible; en un filtro **"hoy"** es el **100% del error** — pide desde mañana y la pantalla sale vacía toda la tarde, que en captura de facturas es justo el turno. Por eso el bug puede vivir años en "últimos 7 días" (que en realidad son 6 cada tarde) y sólo explotar cuando alguien agrega el preset de un día.
+**Usar `isoLocalDate()`** de [`shared/util/date-presets.util.ts`](apps/view/src/app/shared/util/date-presets.util.ts), junto a `datePresetRange()` que ya resuelve los presets en `Date` locales. Es la contracara en el frontend de `mx-date.ts` del servidor y de §Ing.UI 7 ("no re-convertir con `new Date()` ingenuo").
+⛔ **Medido 2026-09-14: 17 lugares de `apps/view` usan `toISOString().slice(0,10)`.** No todos son fechas de calendario locales —algunos sí quieren UTC— pero **ninguno lo declara**, así que hay que revisarlos uno por uno. Barrido pendiente.
+
 **D.3 — Lo que no se puede arreglar desde el frontend se MARCA, no se esconde.** Con paginación de servidor, filtrar filas del lado del cliente deja huecos en las páginas y miente el total del paginador. Cuando la fuente manda algo que no corresponde (pseudo-productos contables en una pantalla de compras), el frontend lo **rotula y lo atenúa**, declara por qué está ahí, y el arreglo de fondo queda anotado como pendiente de backend. Esconder sin poder contar es peor que mostrar con etiqueta (ADR-056).
 
 ### Antipatrones para Operations (flag en review)

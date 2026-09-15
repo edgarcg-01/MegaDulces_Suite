@@ -5,6 +5,26 @@
  */
 export interface DatePresetOption { label: string; value: string; }
 
+/**
+ * `Date` → `YYYY-MM-DD` **en la fecha LOCAL**, que es la que el usuario ve en el calendario.
+ *
+ * ⚠️ El reflejo de escribir `d.toISOString().slice(0, 10)` devuelve la fecha **UTC**, y en
+ * `America/Mexico_City` (UTC−6) eso **ya es el día siguiente a partir de las 18:00**. Medido:
+ * a las 19:30 del 14-sep, `toISOString()` da `2026-09-15`.
+ *
+ * El daño escala al revés de lo que uno espera: en un rango de un mes el corrimiento de un día
+ * es invisible, pero en un filtro **"hoy"** es el 100% del error — pide desde mañana y la
+ * pantalla sale vacía toda la tarde. Y en un turno vespertino de captura, la tarde es el turno.
+ *
+ * Usar SIEMPRE esto para mandarle una fecha de calendario al backend. Es la contracara en el
+ * frontend de lo que `apps/api/src/shared/date/mx-date.ts` hace del lado del servidor, y de la
+ * regla de DESIGN §Ing.UI 7: "no re-convertir con `new Date()` ingenuo del navegador".
+ */
+export function isoLocalDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 export const DATE_PRESET_OPTIONS: DatePresetOption[] = [
   { label: 'Hoy', value: 'hoy' },
   { label: 'Últimos 7 días', value: 'd7' },
