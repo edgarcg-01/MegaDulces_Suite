@@ -19,7 +19,6 @@
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── cada minuto ──────────────────────────────────────────────────────────────
-* * * * *   /app/ops/vl/run-feed.sh receipts  "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
 * * * * *   /app/ops/vl/run-feed.sh contpaqi  "node /app/database/importers/kepler/run-prod-feeds.js contpaqi --apply"
 # [VL.4b] GPS de la flota. FLEET_RUN_ONCE=1 = una pasada y sale, igual que el .vbs que reemplaza
 # (el loop lo hace el cron, no el script). Ya no es mudo: late en `fleet_gps`, y reporta ERROR si el
@@ -69,6 +68,27 @@
 
 # ── nocturno y semanal (hora MX) ─────────────────────────────────────────────
 0 3 * * *   /app/ops/vl/run-feed.sh nightly "node /app/database/importers/kepler/run-prod-feeds.js nightly --apply"
+# [DB-MEM.2] ⭐ RECEIPTS — estaba en "cada minuto" y era el BARRIDO HISTÓRICO, no un feed.
+#
+# Su único paso es `detect-goods-receipt-duplicates.js`, cuyo propio encabezado dice: "en
+# operación normal NO hace falta correrlo — el cron de la API (GoodsReceiptTwinsService, cada
+# 5 min) aparea las gemelas nuevas con una ventana corta; este CLI es para el barrido
+# histórico". Su ventana por defecto es `--from=2026-01-01`: barría 9 MESES, cada minuto.
+#
+# Medido en prod con pg_stat_statements (2026-09-15): las dos funciones que ejecuta
+# (`fn_goods_receipt_twin_candidates` + `fn_pair_goods_receipts`) costaban **42.8 % del tiempo
+# de ejecución de TODA la base**, ~78 s cada una. La corrida entera dura ~163 s contra un cron
+# de 60 s → con el `flock` de run-feed.sh, corría en bucle continuo sin parar nunca.
+# Y procesa **1 a 54 recepciones por DÍA**: eran ~48 corridas por cada recepción nueva.
+#
+# 04:30 y no 04:00: `feed_nightly` arranca 03:00 y mide 69–99 min (termina 04:09–04:39).
+#
+# ⚠️ Esto sólo es seguro porque el cron de la API **ya late** en `analytics.cron_runs`
+# (`twins_pairing`, con umbral en CRON_JOBS). Antes era mudo: no había forma de comprobar que
+# el apareo incremental estuviera vivo, y bajarle la cadencia a este CLI habría podido dejar
+# el dinero contado dos veces sin que nadie se enterara. Si `twins_pairing` deja de latir,
+# esta línea vuelve a `* * * * *` y se investiga.
+30 4 * * *  /app/ops/vl/run-feed.sh receipts "node /app/database/importers/kepler/run-prod-feeds.js receipts --apply"
 0 2 * * 6   /app/ops/vl/run-feed.sh catalog "node /app/database/importers/kepler/run-prod-feeds.js catalog --apply"
 # [VL.7.1] El RECONCILIADOR de CFDIs (pareja del incremental de arriba): recorre año por año
 # ignorando el watermark, o sea ~167,000 CFDIs. Va a las 05:45 por dos razones medidas: el
