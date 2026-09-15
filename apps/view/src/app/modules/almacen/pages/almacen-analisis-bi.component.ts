@@ -849,7 +849,7 @@ export class AlmacenAnalisisBiComponent {
     flag.set(true);
     const obs = tab === 'movimientos'
       ? this.bi.downloadMovementsExport(this.currentFilterParams(), format)
-      : this.bi.downloadExploreExport(this.currentFilterParams(), this.selectedFieldsList, format);
+      : this.bi.downloadExploreExport(this.currentFilterParams(), this.selectedFields(), format);
     obs.pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (resp) => {
         flag.set(false);

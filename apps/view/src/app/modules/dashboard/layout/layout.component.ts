@@ -319,9 +319,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
       ],
     },
     {
-      title: 'Catálogo',
+      // [CAT.1] Se llamaba "Catálogo", pero el catálogo se fue a Compras y adentro quedaron sólo
+      // precios y promos. Un grupo llamado Catálogo sin catálogo adentro manda a la gente a
+      // buscarlo justo donde ya no está.
+      title: 'Precios y promociones',
       items: [
-        { label: 'Catálogo',          icon: 'pi pi-shopping-bag', route: '/comercial/products',   permission: Permission.CATALOGO_GESTIONAR },
         { label: 'Listas de precios', icon: 'pi pi-tag',          route: '/comercial/pricing',    permission: Permission.COMMERCIAL_PRICING_VER },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
@@ -663,6 +665,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
     {
       title: 'Catálogo',
       items: [
+        // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
+        { label: 'Catálogo',    icon: 'pi pi-shopping-bag', route: '/compras/catalogo', permission: Permission.COMMERCIAL_PRODUCTS_VER },
         { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
         { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
       ],
