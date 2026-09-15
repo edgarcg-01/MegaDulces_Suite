@@ -64,9 +64,19 @@ const count = (s, sub) => s.split(sub).length - 1;
   const nSell = count(selloutDef, REMAP_OLD);
   const nBlend = count(blendDef, REMAP_OLD);
   console.log(`reemplazos de "mayoreo→credito": v_sellout_daily=${nSell} · mv_sales_blended=${nBlend}`);
-  if (nSell === 0 || nBlend === 0) { console.error('ABORT: no encontré el remapeo en alguno — la def cambió, revisar a mano.'); await c.end(); process.exit(2); }
-  const newSellout = selloutDef.split(REMAP_OLD).join(REMAP_NEW);
-  const newBlend = blendDef.split(REMAP_OLD).join(REMAP_NEW);
+  // Tolerar reanudación: un lado con 0 remapeos SÓLO es válido si ya está en la taxonomía nueva (contiene REMAP_NEW).
+  // Si un lado no tiene ni el viejo ni el nuevo, la def cambió → abortar. Si ambos ya están migrados, nada que hacer.
+  const sellDone = nSell === 0 && selloutDef.includes(REMAP_NEW);
+  const blendDone = nBlend === 0 && blendDef.includes(REMAP_NEW);
+  if (nSell === 0 && !sellDone) { console.error('ABORT: v_sellout_daily sin remapeo viejo NI nuevo — def cambió, revisar a mano.'); await c.end(); process.exit(2); }
+  if (nBlend === 0 && !blendDone) { console.error('ABORT: mv_sales_blended sin remapeo viejo NI nuevo — def cambió, revisar a mano.'); await c.end(); process.exit(2); }
+  if (sellDone) console.log('  ↳ v_sellout_daily YA está en la taxonomía nueva — se omite (reanudación).');
+  if (blendDone) console.log('  ↳ mv_sales_blended YA está en la taxonomía nueva — se omite (reanudación).');
+  if (sellDone && blendDone) { console.log('\n✅ Ambos objetos ya migrados. Nada que aplicar.'); await c.end(); process.exit(0); }
+  // pg_get_viewdef termina la def con ';' → en `AS <select>; WITH NO DATA` rompe "syntax error at or near DATA".
+  const strip = (s) => s.replace(/;\s*$/, '');
+  const newSellout = strip(selloutDef.split(REMAP_OLD).join(REMAP_NEW));
+  const newBlend = strip(blendDef.split(REMAP_OLD).join(REMAP_NEW));
 
   if (!APPLY) {
     // Validar sin aplicar: EXPLAIN de los dos SELECT modificados (read-only, resuelve todo)
@@ -83,21 +93,29 @@ const count = (s, sub) => s.split(sub).length - 1;
     await c.end(); process.exit(fail ? 1 : 0);
   }
 
-  console.log('[apply] v_sellout_daily: CREATE OR REPLACE VIEW…');
-  await q(`CREATE OR REPLACE VIEW analytics.v_sellout_daily AS ${newSellout}`);
-  console.log('[apply] REFRESH mv_sellout_monthly…');
-  await q(`REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_sellout_monthly`);
-  console.log('[apply] mv_sales_blended: DROP + CREATE…');
-  await q('BEGIN'); await q(`SET LOCAL lock_timeout = '10s'`);
-  await q(`DROP MATERIALIZED VIEW IF EXISTS analytics.mv_sales_blended`);
-  await q(`CREATE MATERIALIZED VIEW analytics.mv_sales_blended AS ${newBlend} WITH NO DATA`);
-  for (const ix of BLEND_IDX) await q(ix);
-  await q(`GRANT SELECT ON analytics.mv_sales_blended TO app_runtime`);
-  await q('COMMIT');
-  console.log('[apply] REFRESH mv_sales_blended…');
-  const t0 = Date.now();
-  await q(`REFRESH MATERIALIZED VIEW analytics.mv_sales_blended`);
-  console.log(`[apply] refresh OK en ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  if (!sellDone) {
+    console.log('[apply] v_sellout_daily: CREATE OR REPLACE VIEW…');
+    await q(`CREATE OR REPLACE VIEW analytics.v_sellout_daily AS ${newSellout}`);
+    console.log('[apply] REFRESH mv_sellout_monthly…');
+    await q(`REFRESH MATERIALIZED VIEW CONCURRENTLY analytics.mv_sellout_monthly`);
+  } else {
+    console.log('[apply] v_sellout_daily/mv_sellout_monthly ya migrados — se omiten.');
+  }
+  if (!blendDone) {
+    console.log('[apply] mv_sales_blended: DROP + CREATE…');
+    await q('BEGIN'); await q(`SET LOCAL lock_timeout = '10s'`);
+    await q(`DROP MATERIALIZED VIEW IF EXISTS analytics.mv_sales_blended`);
+    await q(`CREATE MATERIALIZED VIEW analytics.mv_sales_blended AS ${newBlend} WITH NO DATA`);
+    for (const ix of BLEND_IDX) await q(ix);
+    await q(`GRANT SELECT ON analytics.mv_sales_blended TO app_runtime`);
+    await q('COMMIT');
+    console.log('[apply] REFRESH mv_sales_blended…');
+    const t0 = Date.now();
+    await q(`REFRESH MATERIALIZED VIEW analytics.mv_sales_blended`);
+    console.log(`[apply] refresh OK en ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  } else {
+    console.log('[apply] mv_sales_blended ya migrado — se omite.');
+  }
   console.log('\ncanal DESPUÉS (blend, 30d) — debe mostrar mayoreo:');
   for (const r of await rows(`SELECT channel, round(sum(revenue))::numeric m FROM analytics.mv_sales_blended WHERE sale_date>=current_date-30 AND channel NOT LIKE 'wincaja_%' GROUP BY 1 ORDER BY 2 DESC`))
     console.log(`    ${String(r.channel).padEnd(12)} $${Number(r.m).toLocaleString()}`);
