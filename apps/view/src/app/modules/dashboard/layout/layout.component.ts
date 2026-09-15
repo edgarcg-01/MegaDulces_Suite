@@ -33,13 +33,21 @@ import { LANDING_ROUTE, entryLabel, resolveProjectForUrl, resolveSpaceForUrl } f
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
 import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
+// Fase TM — fuente única de la navegación de Telemarketing (áreas del sidebar + tabs).
+import {
+  TELEMARKETING_AREAS,
+  TELEMARKETING_GROUP_ORDER,
+  resolveTelemarketingArea,
+  telemarketingLandingCandidates,
+  telemarketingTabPermissions,
+} from '../../televenta/telemarketing-areas';
 import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras';
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'televenta';
 
-/** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp, televenta) cae al default. */
+/** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   trade: 'trademk',
   pdv: 'tienda',
@@ -51,6 +59,7 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   contabilidad: 'contabilidad',
   almacen: 'almacen',
   compras: 'compras',
+  televenta: 'televenta',
 };
 
 interface NavItem {
@@ -434,7 +443,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   isNavActive(item: NavItem): boolean {
     if (!item.activeAreaKey) return false;
-    return resolveAlmacenArea(this.currentUrl())?.key === item.activeAreaKey;
+    const url = this.currentUrl();
+    // Fase TM — cada proyecto resuelve con SU registro. Se elige por el prefijo de la URL y
+    // no probando los dos resolvedores en cascada: dos áreas de proyectos distintos podrían
+    // llamarse igual ('inventario', 'agenda'…) y el primero que contestara ganaría.
+    if (this.currentProject() === 'televenta') {
+      return resolveTelemarketingArea(url)?.key === item.activeAreaKey;
+    }
+    return resolveAlmacenArea(url)?.key === item.activeAreaKey;
   }
 
   /**
@@ -442,7 +458,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * no es `/admin`; un proyecto con `route: ''` nunca casa) y se traduce a la clave interna de este
    * componente, que sigue siendo la misma union: los `*NavGroups` se indexan por ella. Default =
    * trade marketing, como antes — `isRestricted()` depende de ese default para las URLs sin
-   * proyecto (`/sin-acceso`, 404). `/telemarketing` no monta este layout.
+   * proyecto (`/sin-acceso`, 404). `/telemarketing` también monta este layout: su shell propio se retiró.
    */
   private currentProject = computed<LayoutProject>(() => {
     const id = resolveProjectForUrl(this.currentUrl())?.id;
@@ -514,16 +530,28 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Egresos contables', icon: 'pi pi-wallet', route: '/finanzas/egresos', permission: Permission.FINANCE_EXPENSES_VER },
         { label: 'Bancos', icon: 'pi pi-building-columns', route: '/finanzas/bancos', permission: Permission.FINANCE_BANK_VER },
         { label: 'Caja General', icon: 'pi pi-calculator', route: '/finanzas/caja', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Cancelados', icon: 'pi pi-ban', route: '/finanzas/cancelados', permission: Permission.FINANCE_BANK_VER },
+        { label: 'Tareas de conciliación', icon: 'pi pi-check-square', route: '/finanzas/tareas', permission: Permission.FINANCE_BANK_VER },
         { label: 'Cobranza', icon: 'pi pi-money-bill', route: '/finanzas/cobranza', permission: Permission.FINANCE_COLLECTIONS_VER },
+        { label: 'Cartera', icon: 'pi pi-address-book', route: '/finanzas/cartera', permission: Permission.FINANCE_RECEIVABLES_VER },
       ],
     },
     {
       title: 'Pagos',
       items: [
         { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+        { label: 'Calendario de pagos', icon: 'pi pi-calendar-plus', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
+      ],
+    },
+    {
+      // Fase TP (ADR-064/065) — Presupuestos es responsable propio (capacidad diaria +
+      // gastos autorizados), separado de Tesorería/Finanzas. Permiso propio PRESUPUESTOS_VER.
+      title: 'Presupuesto',
+      items: [
+        { label: 'Presupuesto', icon: 'pi pi-chart-pie', route: '/finanzas/presupuesto', permission: Permission.PRESUPUESTOS_VER },
       ],
     },
     {
@@ -659,6 +687,15 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Categorías',  icon: 'pi pi-tags',  route: '/compras/categorias',  permission: Permission.COMPRAS_CATEGORIAS_VER },
       ],
     },
+    {
+      // Fase TP.7 (ADR-064/065) — la cuenta por pagar y las cuentas bancarias del proveedor,
+      // que alimentan el Calendario de Pagos de Finanzas.
+      title: 'Pagos a proveedor',
+      items: [
+        { label: 'Obligaciones',        icon: 'pi pi-file-check', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
+        { label: 'Cuentas de pago',     icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
+      ],
+    },
   ];
 
   /** Icono por área de Almacén (WMS.1). Vive acá y no en `almacen-tabs.ts`
@@ -742,6 +779,57 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Cortes de caja',   icon: 'pi pi-wallet',     route: '/reparto/cortes',           permission: Permission.REPARTO_DESPACHAR },
   ];
 
+  /**
+   * Telemarketing (call center de mayoreo). Hasta [SN.22] este módulo montaba un shell propio
+   * con la navegación en un header horizontal — el único proyecto de Operations sin el sidebar
+   * que DESIGN.md §8 da por estándar. Se retiró ese shell: las subdivisiones viven acá, como
+   * las de los otros diez proyectos.
+   *
+   * `anyOf` en los tres items propios NO es decoración: el route-guard del módulo exige
+   * OPERATE y estos items se filtrarían por VER, así que un rol con OPERATE y sin VER entraba
+   * a la pantalla y encontraba el sidebar vacío.
+   */
+  /**
+   * Telemarketing (el espacio CRM del equipo comercial). Fase TM: el sidebar se DERIVA del
+   * registro tipado `TELEMARKETING_AREAS` — una sola lista, la misma que alimenta la barra
+   * de tabs del shell de área. Escribirlo dos veces era la deuda que `[SN.22]` dejó abierta.
+   *
+   * Un área se pinta sólo si el rol puede abrir AL MENOS una de sus pantallas, y el item
+   * apunta a la primera alcanzable: así ningún enlace del sidebar termina en un rebote.
+   *
+   * Los grupos salen de `TELEMARKETING_GROUP_ORDER`, no de un objeto aparte: el orden de las
+   * secciones es parte del registro.
+   */
+  private get televentaNavGroups(): { title: string; items: NavItem[] }[] {
+    const porGrupo = new Map<string, NavItem[]>();
+    for (const area of TELEMARKETING_AREAS) {
+      const landing = telemarketingLandingCandidates(area).find((t) =>
+        telemarketingTabPermissions(area, t).some((p) => this.canPerm(p)),
+      );
+      if (!landing) continue;
+      const claves = telemarketingTabPermissions(area, landing);
+      const items = porGrupo.get(area.group) ?? [];
+      items.push({
+        label: area.label,
+        icon: area.icon,
+        route: landing.route,
+        // `permission` + `anyOf` con las MISMAS claves que decidieron el aterrizaje:
+        // `hasPermFor` las vuelve a evaluar y nunca contradice a `canPerm`.
+        permission: claves[0],
+        anyOf: claves,
+        // Resaltado por área con el mismo resolvedor que la barra de tabs → nunca dos items
+        // activos a la vez. Las áreas externas NO lo llevan: su URL pertenece a otro proyecto
+        // y para entonces el sidebar ya es el de ese proyecto.
+        ...(area.external ? {} : { activeAreaKey: area.key }),
+      });
+      porGrupo.set(area.group, items);
+    }
+    return TELEMARKETING_GROUP_ORDER.filter((g) => porGrupo.get(g)?.length).map((g) => ({
+      title: g,
+      items: this.dedupeByRoute(porGrupo.get(g) as NavItem[]),
+    }));
+  }
+
   /** Título de la primera sección. En Trade se llama "Trade"; resto, "Operaciones". */
   mainSectionTitle = computed(() =>
     this.currentProject() === 'trademk' ? 'Trade' : 'Operaciones',
@@ -786,6 +874,11 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'logistica') {
       return this.dedupeByRoute(this.flatOf(this.logisticaNavGroups).filter((i) => this.hasPermFor(i)));
+    }
+    // Telemarketing: el operador de call center no tiene REPORTES_VER_*, así que sin este
+    // early-return caía en el gate `!fullDashboard` de abajo y el sidebar quedaba vacío.
+    if (this.currentProject() === 'televenta') {
+      return this.dedupeByRoute(this.flatOf(this.televentaNavGroups).filter((i) => this.hasPermFor(i)));
     }
     // Colaborador restringido (sin reportes de equipo/global): solo captura diaria.
     const legacy = user.permissions;
@@ -846,6 +939,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'logistica') {
       return this.mapGroups(this.logisticaNavGroups, true);
+    }
+    if (this.currentProject() === 'televenta') {
+      return this.mapGroups(this.televentaNavGroups, true);
     }
     if (this.currentProject() === 'admin') {
       // `[SN.4]` §22 de la spec: "Administración" → "Configuración de la suite" cuando se refiere
