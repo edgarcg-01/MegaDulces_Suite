@@ -169,7 +169,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                       Sin subir <i [class]="sortIcon(sort(), 'atrasadas')" aria-hidden="true"></i>
                     </button>
                   </th>
-                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'dias_p90')"
+                  <th scope="col" class="comm-num surf-def" [attr.aria-sort]="ariaSort(sort(), 'dias_p90')"
                       pTooltip="La mitad de lo pendiente lleva p50 días o más; el 10% peor, p90. Ordena por p90." tooltipPosition="top">
                     <button type="button" class="surf-sort" (click)="ordenarPor('dias_p90')" aria-label="Ordenar por antigüedad del 10% peor">
                       Antigüedad p50/p90 <i [class]="sortIcon(sort(), 'dias_p90')" aria-hidden="true"></i>
@@ -183,13 +183,13 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                   <!-- RE.20.3 — el contrapeso del descarte. Las descartadas YA salieron del
                        denominador de "Con factura"; si además no se vieran, descartar sería el
                        camino corto al 100%. Un motivo que empieza a crecer es una señal. -->
-                  <th scope="col" class="comm-num" [attr.aria-sort]="ariaSort(sort(), 'descartadas')"
+                  <th scope="col" class="comm-num surf-def" [attr.aria-sort]="ariaSort(sort(), 'descartadas')"
                       pTooltip="Entradas que nunca van a tener factura (traspaso, $0, canceladas). Están fuera del % de arriba." tooltipPosition="top">
                     <button type="button" class="surf-sort" (click)="ordenarPor('descartadas')" aria-label="Ordenar por descartadas">
                       Descartadas <i [class]="sortIcon(sort(), 'descartadas')" aria-hidden="true"></i>
                     </button>
                   </th>
-                  <th scope="col"></th>
+                  <th scope="col"><span class="sr-only">Acciones</span></th>
                 </tr>
               </thead>
               <tbody>
