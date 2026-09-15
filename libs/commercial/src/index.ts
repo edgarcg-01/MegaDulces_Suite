@@ -50,6 +50,10 @@ export * from './lib/mega-dulces-sync/mega-dulces-sync.module';
 export * from './lib/commercial-telemetry/commercial-telemetry.module';
 export * from './lib/commercial-push/commercial-push.module';
 export * from './lib/commercial-push/commercial-push.service';
+export * from './lib/supplier-payment-obligations/commercial-supplier-payment-obligations.module';
+export * from './lib/supplier-payment-obligations/supplier-payment-obligations.service';
+export * from './lib/supplier-payment-accounts/commercial-supplier-payment-accounts.module';
+export * from './lib/supplier-payment-accounts/supplier-payment-accounts.service';
 
 // Servicios expuestos para el composition root (binding modules de los Ports).
 export * from './lib/commercial-orders/commercial-orders.service';

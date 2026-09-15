@@ -49,6 +49,12 @@
   (pagado-no-registrado / programado-sin-salida / pago-sin-factura). Tolera lag del mes en curso.
 - **PP.5** forward-looking: de bitácora a **planificador** — proyecta pagos desde deuda (2120 aging) ×
   días de crédito → calendario + flujo de caja proyectado por banco/semana.
+  **✅ Absorbido por la Fase TP (Calendario de Pagos, ADR-064, 2026-09-14)** — construida completa en
+  [`FASE_TP_CALENDARIO_PAGOS.md`](FASE_TP_CALENDARIO_PAGOS.md). PP sigue siendo la bitácora
+  retrospectiva (lo ya pagado, del Excel); TP es la mitad prospectiva (capacidad por día + asignación +
+  preparación de ejecución), con sus propias tablas (`budget.*`, `finance.payment_allocations`, etc.) —
+  no reutiliza `finance.payment_program` porque ese es un espejo de EJECUCIÓN histórica, no un registro
+  de obligaciones autorizadas con saldo pendiente.
 - **PP.6** Maat: tool `maat_programa_pagos` + detectores (duplicado, EFOS pagado, concentración banco, PP desaprovechado).
 
 MVP = PP.0 + PP.2 + PP.3.
