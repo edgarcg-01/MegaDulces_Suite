@@ -28,8 +28,9 @@
 | 2026-09-08 → 09-09 | `TDA.1`–`TDA.4` (precio en vivo, alineación con etiquetera, mayoreo) + `ID.29` (permiso repartido a prod) | ✅ Extendido y corregido en prod |
 | 2026-09-10 | Esta sesión: validación visual en browser con cuenta descartable | ✅ Los 3 estados (en vivo / no encontrado / respaldo) + modo kiosco, confirmados reales |
 | 2026-09-10 (más tarde) | 0Sistemas retoma el repo **standalone** `verificador-precios` (independiente de este monorepo) para portar el híbrido + las reglas de Edgar sobre el modelo visual anterior (`verificador.html`) | ✅ Repuntado a `kepler_ods` (`KP_CONCENTRADA` ya no existe) + TDA.2/TDA.3 portados + híbrido validado — ver §7 |
+| 2026-09-12 → 09-14 | `[CV.26/27]`: cámara del celular + clon fiel de `verificador.html` (excepción a DESIGN.md §O.3) + 3 bugs reales encontrados en uso real (mayoreo invisible, cámara Android congelada, feed de historial visible a terceros) | ✅ Los 3 corregidos y verificados en la terminal/celular real — ver §8 |
 
-**Qué falta:** que Edgar (o alguien con cuenta real) confirme en su propia sesión, con su propia sucursal, y que se pruebe el mayoreo contra una DB con `commercial.product_label_prices` poblada (en `platform_test` los códigos de muestra no traían tiers). Para el repo standalone: que el equipo confirme el host/rol real de producción para `kepler_ods` (ver §7).
+**Qué falta:** que Edgar apruebe el PR #96 (retiro del feed de historial, ver §8.5) — los PR #94 y #95 ya están mergeados. Del bloque anterior: mayoreo **ya confirmado en prod real** (ver §8.2, resuelve el pendiente de §3.2/§6). Para el repo standalone: que el equipo confirme el host/rol real de producción para `kepler_ods` (ver §7).
 
 ---
 
@@ -344,3 +345,110 @@ push. Commit `02fa348` en `github.com/0SistemasMD/verificador-precios`
 - `public/*.html` (los 8 generados) quedaron con datos de `platform_test`
   de esta validación — regenerar contra datos reales una vez resuelto lo
   anterior (son gitignored, no afecta al repo).
+
+## 8. Cámara + clon visual + 3 bugs reales de uso (2026-09-12 → 09-14)
+
+Sesión distinta, mismo archivo (`TiendaVerificadorComponent`). Dos pedidos
+de fondo de 0Sistemas y tres bugs que sólo aparecieron al usarlo de verdad
+en la terminal/celular reales — no en `platform_test` ni en jsdom.
+
+### 8.1 Cámara del celular + clon fiel de `verificador.html`
+
+- **Cámara como tercera vía de captura**, junto a la pistola HID y el
+  teclado. Mismo cableado `@zxing/browser` que ya usan `ScanFieldComponent`
+  (Andén, `apps/view/.../almacen/anden/components/`) y
+  `ProductScanFieldComponent` (Comercial) — formatos de retail
+  (EAN-13/8, UPC-A/E, CODE-128, ITF), vibración al leer. Es la TERCERA
+  copia de este patrón en el repo; si aparece una cuarta, ahí sí conviene
+  extraer una primitiva compartida.
+- **Excepción confirmada a DESIGN.md §O.3** (decisión explícita de
+  0Sistemas, preguntada y respondida — no asumida): la pantalla clona el
+  look del `verificador.html` original **byte a byte en paleta**
+  (tipografía Sniglet, colores crudos `--vf-amarillo/naranja/oscuro/verde`
+  = las MISMAS cifras hex del HTML viejo, fondo con patrón de dulces,
+  precio gigante en verde, tema fijo siempre claro). Documentada en
+  `DESIGN.md` junto a §O.3 para que QA no la marque como error — es la
+  ÚNICA pantalla del repo con esta excepción, no repetir el patrón sin la
+  misma autorización.
+- **Lo que NO cambió, porque es correctud y no "look"**: procedencia del
+  precio (`TDA.2`), unidad escaneada (`TDA.3`), mayoreo con foco
+  (`TDA.4`/`TDA.7`), declarar-en-vez-de-ocultar (ADR-056), "no encontrado"
+  ≠ "sin conexión". El aviso en vivo de precio de etiqueta (`TDA.8`,
+  mergeado a `main` por Edgar EN PARALELO a este trabajo) se integró
+  durante el rebase, re-pintado con la paleta cruda en vez de `--warn-*`.
+- **PR #94** — mergeado (aprobado por Edgar).
+
+### 8.2 Bug real #1: el mayoreo quedaba invisible, sin cómo llegar a él
+
+Reportado por 0Sistemas viendo la terminal real (**40/Oficina, VNC**): con
+"LA ROSA MAZAPAN /30" el bloque "LLEVANDO 3 O MÁS PAQUETES" quedaba cortado
+exacto en el borde inferior de la ventana — **con esto, el mayoreo real en
+prod queda confirmado visible** (cierra el pendiente de §3.2/§6 de este
+mismo documento, donde `platform_test` no traía tiers para probar).
+
+Dos causas, no una:
+1. `.vf-page` tenía `overflow: hidden` a secas (pensado para recortar el
+   fondo de dulces, que ni lo necesita — es `inset:0`). Eso no recortaba,
+   **atrapaba**: cualquier contenido más alto que la ventana quedaba
+   invisible para siempre. Pasa a `overflow-x: hidden` nada más.
+2. Aun con el overflow correcto, en un kiosco real el único periférico es
+   la pistola — no hay mouse ni dedo para hacer scroll manual. Se agregó
+   `desplazarResultadoAlaVista()`: tras cada resultado, `scrollIntoView({
+   block: 'end' })` sobre la tarjeta baja la ventana sola hasta que el PIE
+   (mayoreo/ahorro/nota) queda visible, respetando `prefers-reduced-motion`.
+
+### 8.3 Bug real #2: `UnknownError: setPhotoOptions failed` (Android)
+
+Capturado por el monitor de errores del navegador en vivo: código
+`MU1EABF2-1`, pantalla `/tienda/verificador`, `2026-09-14T15:25:42.350Z`.
+
+Es un bug conocido de Chromium/Android: zxing pregunta
+`track.getCapabilities()` para saber si la cámara tiene torch, y en varios
+equipos Android esa negociación falla **después** de que la cámara ya
+abrió — llega como promesa/evento sin capturar, no como una excepción que
+el `try/catch` de `abrirCamara()` pueda ver. Sin manejo, la cámara quedaba
+abierta y congelada, sin ningún aviso.
+
+Fix: un listener `unhandledrejection`/`error` en `window`, armado SÓLO
+mientras la cámara está abierta (se desarma en `cerrarCamara()` — un
+listener global permanente se comería errores de otras partes de la app).
+Al detectar la firma del error (`setPhotoOptions|getCapabilities|
+ImageCapture`), cierra la cámara y lo declara con el mismo banner que las
+otras fallas de cámara. **Confirmado por 0Sistemas en el celular real que
+reportó el error original: ya no sale.**
+
+### 8.4 Otros tres ajustes pedidos en uso real
+
+- La barra "Escanea tu Producto" **pasa a SER el botón de la cámara** — ya
+  tenía el ícono y el texto; el botón redondo aparte junto al input era el
+  mismo gesto duplicado dos veces. Se elimina `.vf-cam-btn`.
+- Auto-limpiado: **15s → 20s** (con mayoreo en pantalla, 15 no alcanzaban a
+  leer la condición + el ahorro antes de que se borrara solo).
+- El campo de captura pasa de Sniglet **bold (700) a regular (400)**.
+
+### 8.5 Bug real #3 (privacidad): el feed de "últimas consultas" se retira
+
+Pedido de 0Sistemas, señalado por **piso de tienda**: en un mostrador
+público, cualquiera que pasa frente a la pantalla podía leer qué escaneó
+el cliente anterior y a qué precio — código, nombre y precio de los
+últimos 8 escaneos, siempre visibles al pie de la pantalla (era una
+adición de esta fase, el `verificador.html` original nunca lo tuvo).
+
+Se retiró **por completo**, no se ocultó con CSS: la interfaz `Consulta`,
+la señal `feed`, `empujarFeed()` y sus dos sitios de llamada, el bloque de
+plantilla y las reglas `.vf-feed`/`.vf-feed-item`. El contador TOTAL
+("Productos escaneados: N") se queda — es un número agregado, no un
+historial de qué se escaneó, así que no revela nada de terceros.
+
+**PR #96** — abierto, pendiente de review de Edgar.
+
+### 8.6 Pendiente (al cierre de esta sección)
+
+- **PR #96** sin aprobar todavía.
+- Confirmación visual de los 3 ajustes de §8.4 (barra=botón, 20s, fuente
+  regular) — 0Sistemas confirmó §8.3 (ya no sale el error) pero no estos
+  tres explícitamente.
+- El hallazgo de `nx serve api` en Windows (`spawn ENAMETOOLONG` en un
+  loop de reinicios del executor `@nx/js:node`) sigue vigente — el
+  workaround usado en esta sesión y en §5 es el mismo: `nx build api` +
+  `node dist/apps/api/main.js` directo, sin pasar por el executor.
