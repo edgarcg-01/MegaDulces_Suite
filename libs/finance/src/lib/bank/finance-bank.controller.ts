@@ -299,6 +299,11 @@ export class FinanceBankController {
   @ApiOperation({ summary: 'CB.33 — Drill 3 vías por cuenta a nivel movimiento (Excel ↔ Kepler ↔ ContPAQi) + huérfanos.' })
   threeWayDetail(@Query('period') period?: string, @Query('account_label') accountLabel?: string) { return this.svc.threeWayDetail(period, accountLabel); }
 
+  @Get('three-way-daily')
+  @RequirePermissions(Permission.FINANCE_BANK_VER)
+  @ApiOperation({ summary: 'CB.42 — Conciliación POR DÍA de una cuenta: banco vs Kepler por día + Δ acumulado + duplicados de Kepler (doble conteo).' })
+  threeWayDaily(@Query('period') period?: string, @Query('account_label') accountLabel?: string) { return this.svc.threeWayDaily(period, accountLabel); }
+
   @Get('movement')
   @RequirePermissions(Permission.FINANCE_BANK_VER)
   @ApiOperation({ summary: 'CB.40 — Detalle COMPLETO de un movimiento del cuadre (click). source=workbook|kepler|contpaqi + key (PK codificada).' })

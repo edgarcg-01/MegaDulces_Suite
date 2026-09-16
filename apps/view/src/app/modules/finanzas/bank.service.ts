@@ -286,6 +286,18 @@ export interface ThreeWayDetail {
     kepler_only_n: number; kepler_only_monto: number; contpaqi_only_n: number; contpaqi_only_monto: number };
 }
 
+export interface ThreeWayDailyRow {
+  dia: string; bank_in: number; bank_out: number; kepler_in: number; kepler_out: number;
+  delta_in: number; delta_out: number; cum_delta_in: number; cum_delta_out: number;
+  n_bank: number; n_kepler: number; dup_n: number; dup_monto: number;
+}
+export interface ThreeWayDaily {
+  period: string;
+  account: { bank: string; account_label: string };
+  days: ThreeWayDailyRow[];
+  totals: { bank_in: number; kepler_in: number; bank_out: number; kepler_out: number; delta_in: number; delta_out: number; dup_n: number; dup_monto: number };
+}
+
 /** CB.23 — Sync del workbook maestro (Google Sheet vía export público). */
 export interface SheetSyncConfig {
   id: string; sheet_id: string; period: string; active: boolean;
@@ -399,6 +411,10 @@ export class BankService {
   }
   threeWayDetail(period: string, accountLabel: string): Observable<ThreeWayDetail> {
     return this.http.get<ThreeWayDetail>(`${this.base}/three-way-detail?period=${encodeURIComponent(period)}&account_label=${encodeURIComponent(accountLabel)}`);
+  }
+  /** CB.42 — conciliación por día de una cuenta (banco vs Kepler + Δ acumulado + duplicados). */
+  threeWayDaily(period: string, accountLabel: string): Observable<ThreeWayDaily> {
+    return this.http.get<ThreeWayDaily>(`${this.base}/three-way-daily?period=${encodeURIComponent(period)}&account_label=${encodeURIComponent(accountLabel)}`);
   }
   /** CB.40 — detalle completo de un movimiento del cuadre (click en el drill). */
   bankMovement(source: BankMovSource, key: string): Observable<BankMovDetail> {

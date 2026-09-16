@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { DialogModule } from 'primeng/dialog';
 import { ButtonModule } from 'primeng/button';
-import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail, BankMovDetail, BankMovSource } from '../../bank.service';
+import { BankService, ThreeWay, ThreeWayRow, ThreeWayAccount, ChequesTransito, ThreeWayDetail, ThreeWayDaily, BankMovDetail, BankMovSource } from '../../bank.service';
 import { money, dmShort } from './bancos-shared';
 import { SortState, toggleSort, sortIcon, ariaSort, sortRows } from '../../../../shared/util';
 import { exportXlsx, XlsxSheet } from '../../../../shared/export/xlsx-export';
@@ -355,7 +355,12 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
       @if (drillLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando movimientos…</p></div> }
       @else if (drillErr()) { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>{{ drillErr() }}</p></div> }
       @else if (drill(); as dd) {
-        <p class="dlg-lead">Cada movimiento del <b>banco</b> (Excel) marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).</p>
+        <div class="tw-drillmode" role="tablist" aria-label="Modo del detalle">
+          <button type="button" role="tab" [attr.aria-selected]="drillMode()==='movimientos'" [class.on]="drillMode()==='movimientos'" (click)="setDrillMode('movimientos')">Movimientos (1:1)</button>
+          <button type="button" role="tab" [attr.aria-selected]="drillMode()==='dia'" [class.on]="drillMode()==='dia'" (click)="setDrillMode('dia')">Por día</button>
+        </div>
+        @if (drillMode() === 'movimientos') {
+        <p class="dlg-lead">Cada movimiento del <b>banco</b> (Excel) marca si <b>Kepler</b> (tesorería) y <b>ContPAQi</b> (libros) lo tienen, por monto+dirección. Abajo, lo que Kepler o ContPAQi registran y el banco no movió (huérfanos).@if (dfDay(); as dy) { <span class="tw-dayfilter">· filtrado al día <b>{{ dy }}</b> <button type="button" class="tw-daychip" (click)="dfDay.set('')">quitar ✕</button></span> }</p>
         <div class="tw-drill-kpis">
           <span><b>{{ dd.totals.excel_n }}</b> movs banco</span>
           <span class="ok"><b>{{ dd.totals.excel_en_kepler }}</b> en Kepler</span>
@@ -438,6 +443,38 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             }
           </div>
         }
+        }
+        @if (drillMode() === 'dia') {
+          @if (dailyLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando por día…</p></div> }
+          @else if (daily(); as dy) {
+            <p class="dlg-lead">Conciliación <b>por día</b>: total del banco vs Kepler (tesorería). Robusta al bulto-vs-partido — el <b>Δ acumulado</b> es la deriva real (el Δ del día suelto puede ser <i>timing</i>). <b>dup</b> = duplicados de Kepler ese día (mismo importe+fecha) = doble conteo, no faltante. <b>Clic en un día</b> → sus movimientos.</p>
+            <div class="tw-drill-kpis">
+              <span>Banco <b>{{ dy.totals.bank_in + dy.totals.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span>Kepler <b>{{ dy.totals.kepler_in + dy.totals.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span [class.warn]="!cuad(dy.totals.delta_in + dy.totals.delta_out)">Δ acum <b>{{ dy.totals.delta_in + dy.totals.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              @if (dy.totals.dup_n) { <span class="warn">dup Kepler <b>{{ dy.totals.dup_n }}</b> · {{ dy.totals.dup_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+            </div>
+            <table class="tw-tbl tw-daily-tbl">
+              <thead><tr>
+                <th>Día</th><th class="ta-r">Banco</th><th class="ta-r">Kepler</th><th class="ta-r">Δ día</th><th class="ta-r">Δ acum</th><th class="ta-c">n b/k</th><th class="ta-r">dup</th>
+              </tr></thead>
+              <tbody>
+                @for (r of dy.days; track r.dia) {
+                  <tr class="tw-row-click" (click)="focusDay(r.dia)" tabindex="0" role="button" (keyup.enter)="focusDay(r.dia)" [title]="'Ver los movimientos del ' + r.dia">
+                    <td class="mono">{{ r.dia }}</td>
+                    <td class="ta-r mono">{{ r.bank_in + r.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono">{{ r.kepler_in + r.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono" [class.tw-cent]="!cuad(r.delta_in + r.delta_out)">{{ r.delta_in + r.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-r mono" [class.tw-cum-warn]="!cuad(r.cum_delta_in + r.cum_delta_out)">{{ r.cum_delta_in + r.cum_delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                    <td class="ta-c mono muted">{{ r.n_bank }}/{{ r.n_kepler }}</td>
+                    <td class="ta-r mono">@if (r.dup_n) { <span class="tw-dup" [title]="r.dup_n + ' duplicados = ' + (r.dup_monto | currency:'MXN')">{{ r.dup_n }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                  </tr>
+                }
+                @if (!dy.days.length) { <tr><td colspan="7" class="ta-c muted tw-empty">Sin movimientos en el periodo.</td></tr> }
+              </tbody>
+            </table>
+          } @else { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>No se pudo cargar la vista por día.</p></div> }
+        }
       }
     </p-dialog>
 
@@ -469,6 +506,18 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-recon--sin_match b { color: var(--bad-fg); }
     .tw-recon-note { font-size: var(--fs-xs); color: var(--text-muted); margin: 0 0 var(--sp-3); line-height: 1.5; }
     .tw-recon-note .bad { color: var(--bad-fg); }
+    /* CB.42 — toggle Movimientos ↔ Por día + tabla por día */
+    .tw-drillmode { display: flex; gap: .3rem; margin: 0 0 var(--sp-3); border-bottom: 1px solid var(--border-color); }
+    .tw-drillmode button { appearance: none; background: none; border: 0; border-bottom: 2px solid transparent; padding: .45rem .9rem; font: inherit; font-size: .84rem; color: var(--text-muted); cursor: pointer; }
+    .tw-drillmode button:hover { color: var(--text-main); }
+    .tw-drillmode button.on { color: var(--text-main); border-bottom-color: var(--action); font-weight: 600; }
+    .tw-drillmode button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; border-radius: var(--r-sm); }
+    .tw-daily-tbl { width: 100%; margin-top: var(--sp-2); }
+    .tw-daily-tbl .tw-cum-warn { color: var(--warn-fg); font-weight: 700; }
+    .tw-dup { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-fg); font-weight: 700; }
+    .tw-dayfilter { color: var(--text-muted); margin-left: .3rem; }
+    .tw-daychip { appearance: none; border: 1px solid var(--border-color); background: var(--card-bg); border-radius: var(--r-pill); padding: 0 .5rem; font: inherit; font-size: .7rem; cursor: pointer; color: var(--text-muted); }
+    .tw-daychip:hover { color: var(--text-main); }
     .bmv { margin: 0; }
     .bmv-row { display: grid; grid-template-columns: 11rem 1fr; gap: var(--sp-2); padding: var(--sp-2) 2px; border-bottom: 1px solid var(--border-color); }
     .bmv-row:last-child { border-bottom: none; }
@@ -565,6 +614,12 @@ export class BancosThreeWayComponent {
   readonly drillLoading = signal(false);
   readonly drillErr = signal<string | null>(null);
   readonly drill = signal<ThreeWayDetail | null>(null);
+  // CB.42 — modo del drill: 'movimientos' (1:1, actual) | 'dia' (conciliación por día, robusta al bulto-vs-partido).
+  readonly drillMode = signal<'movimientos' | 'dia'>('movimientos');
+  readonly daily = signal<ThreeWayDaily | null>(null);
+  readonly dailyLoading = signal(false);
+  private drillPeriod = '';
+  private drillAcctLabel = '';
   private drillAcct = '';
   // CB.40 — detalle completo de UN movimiento (click en cualquier vía del drill).
   readonly movOpen = signal(false);
@@ -618,9 +673,10 @@ export class BancosThreeWayComponent {
 
   readonly drillRows = computed(() => {
     const dd = this.drill(); if (!dd) return [];
-    const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch().trim().toLowerCase();
+    const dir = this.dfDir(), est = this.dfEstado(), q = this.dfSearch().trim().toLowerCase(), day = this.dfDay();
     const filtered = dd.excel.filter((e) => {
       if (dir && e.dir !== dir) return false;
+      if (day && String(e.fecha || '').slice(0, 10) !== day) return false;
       if (est === 'casado' && !(e.kepler && e.contpaqi)) return false;
       // "Falta en alguna" ahora = excepciones REALES (sin_match), no los traspasos/ventas partidas.
       if (est === 'descuadre' && e.recon !== 'sin_match') return false;
@@ -862,6 +918,8 @@ export class BancosThreeWayComponent {
   drillTitle(): string { return this.drillAcct ? `Detalle 3 vías — ${this.drillAcct}` : 'Detalle'; }
   openDrill(period: string, r: ThreeWayAccount): void {
     this.drillAcct = `${r.bank} ${r.account_label}`;
+    this.drillPeriod = period; this.drillAcctLabel = r.account_label;
+    this.drillMode.set('movimientos'); this.daily.set(null);
     this.dfDir.set(''); this.dfEstado.set(''); this.dfSearch.set(''); this.drillSort.set(null);
     this.drill.set(null); this.drillErr.set(null); this.drillOpen.set(true); this.drillLoading.set(true);
     this.api.threeWayDetail(period, r.account_label).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -869,6 +927,22 @@ export class BancosThreeWayComponent {
       error: () => { this.drillErr.set('No se pudo cargar el detalle de la cuenta.'); this.drillLoading.set(false); },
     });
   }
+
+  /** Cambia entre 'movimientos' (1:1) y 'dia' (por día). La vista por día se carga la 1ª vez. */
+  setDrillMode(m: 'movimientos' | 'dia'): void {
+    if (this.drillMode() === m) return;
+    this.drillMode.set(m);
+    if (m === 'dia' && !this.daily() && !this.dailyLoading() && this.drillAcctLabel) {
+      this.dailyLoading.set(true);
+      this.api.threeWayDaily(this.drillPeriod, this.drillAcctLabel).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (d) => { this.daily.set(d); this.dailyLoading.set(false); },
+        error: () => { this.dailyLoading.set(false); },
+      });
+    }
+  }
+  /** Clic en un día → filtra la tabla de Movimientos a ese día (vuelve a 'movimientos'). */
+  focusDay(dia: string): void { this.drillMode.set('movimientos'); this.dfSearch.set(''); this.dfDir.set(''); this.dfEstado.set(''); this.dfDay.set(dia); }
+  readonly dfDay = signal<string>('');
 
   /**
    * Tolerancia de cuadre: la manda el servidor. El encabezado imprimía `d.tolerance` mientras
