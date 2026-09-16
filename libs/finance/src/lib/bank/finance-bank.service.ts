@@ -2467,6 +2467,84 @@ export class FinanceBankService {
   }
 
   /**
+   * CB.42 — Conciliación POR DÍA de una cuenta: banco vs Kepler (tesorería) por día, con Δ y Δ
+   * ACUMULADO. Nace del bulto-vs-partido + doble conteo de Kepler: el match 1:1 hace ruido porque
+   * el banco consolida y Kepler itemiza (y duplica el mismo depósito por sucursal Y por ruta). El
+   * total del DÍA es robusto a eso, y el Δ acumulado revela la deriva REAL (el Δ del día suelto
+   * puede ser timing — un depósito cae en el banco un día y en Kepler otro; se cancela entre días
+   * vecinos). `dup_n`/`dup_monto` = duplicados de Kepler del día (mismo importe+fecha, count≥2) →
+   * el Δ = doble conteo, no faltante. Read-only; analytics.* sin RLS → tenant explícito.
+   */
+  async threeWayDaily(period?: string, accountLabel?: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    if (!period) throw new BadRequestException('period requerido (YYYY-MM)');
+    if (!accountLabel) throw new BadRequestException('account_label requerido');
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const [yy, mm] = period.split('-').map(Number);
+    const ini = `${period}-01`;
+    const fin = mm >= 12 ? `${yy + 1}-01-01` : `${yy}-${String(mm + 1).padStart(2, '0')}-01`;
+    return this.tk.run(async (trx) => {
+      const acct = await trx('finance.bank_accounts').where('account_label', accountLabel)
+        .first('id', 'bank', 'account_label', 'contpaqi_cuenta');
+      if (!acct) throw new BadRequestException(`cuenta ${accountLabel} no encontrada`);
+
+      // Banco por día (movement_date).
+      const bank = await trx('finance.bank_movements as bm').join('finance.bank_statements as st', 'st.id', 'bm.statement_id')
+        .where('st.period', period).andWhere('bm.bank_account_id', acct.id).whereNull('bm.deleted_at')
+        .whereRaw('(bm.amount_in > 0 OR bm.amount_out > 0)')
+        .groupByRaw("to_char(bm.movement_date, 'YYYY-MM-DD')")
+        .select(trx.raw("to_char(bm.movement_date, 'YYYY-MM-DD') AS dia"),
+          trx.raw('COALESCE(SUM(bm.amount_in),0)::numeric AS bin'),
+          trx.raw('COALESCE(SUM(bm.amount_out),0)::numeric AS bout'),
+          trx.raw('COUNT(*)::int AS n'));
+      // Kepler tesorería por día (fecha_valor).
+      const kep = await trx('analytics.kepler_bank_movements')
+        .where('tenant_id', tenantId).where('account_label', accountLabel).whereRaw('signo <> 0')
+        .andWhere('fecha_valor', '>=', ini).andWhere('fecha_valor', '<', fin)
+        .groupByRaw("to_char(fecha_valor, 'YYYY-MM-DD')")
+        .select(trx.raw("to_char(fecha_valor, 'YYYY-MM-DD') AS dia"),
+          trx.raw('COALESCE(SUM(importe) FILTER (WHERE signo > 0),0)::numeric AS kin'),
+          trx.raw('COALESCE(SUM(importe) FILTER (WHERE signo < 0),0)::numeric AS kout'),
+          trx.raw('COUNT(*)::int AS n'));
+      // Duplicados de Kepler por día: grupos (importe, fecha, signo) con count≥2 → exceso = doble conteo.
+      const dups = await trx.raw(
+        `WITH grp AS (
+           SELECT to_char(fecha_valor,'YYYY-MM-DD') dia, round(importe::numeric,2) imp, signo, count(*) n
+             FROM analytics.kepler_bank_movements
+            WHERE tenant_id = :tenant AND account_label = :al AND signo <> 0
+              AND fecha_valor >= :ini AND fecha_valor < :fin
+            GROUP BY 1,2,3 HAVING count(*) >= 2)
+         SELECT dia, SUM(n-1)::int AS dup_n, SUM((n-1)*imp)::numeric AS dup_monto FROM grp GROUP BY 1`,
+        { tenant: tenantId, al: accountLabel, ini, fin });
+      const dupRows: any[] = dups.rows || dups;
+
+      const bmap = new Map<string, any>((bank as any[]).map((r) => [r.dia, r]));
+      const kmap = new Map<string, any>((kep as any[]).map((r) => [r.dia, r]));
+      const dmap = new Map<string, any>(dupRows.map((r) => [r.dia, r]));
+      const dias = [...new Set([...bmap.keys(), ...kmap.keys()])].sort();
+
+      let cumIn = 0, cumOut = 0;
+      const days = dias.map((dia) => {
+        const b = bmap.get(dia), k = kmap.get(dia), d = dmap.get(dia);
+        const bin = n(b?.bin), bout = n(b?.bout), kin = n(k?.kin), kout = n(k?.kout);
+        const dIn = r2(bin - kin), dOut = r2(bout - kout);
+        cumIn = r2(cumIn + dIn); cumOut = r2(cumOut + dOut);
+        return { dia, bank_in: r2(bin), bank_out: r2(bout), kepler_in: r2(kin), kepler_out: r2(kout),
+          delta_in: dIn, delta_out: dOut, cum_delta_in: cumIn, cum_delta_out: cumOut,
+          n_bank: Number(b?.n) || 0, n_kepler: Number(k?.n) || 0,
+          dup_n: Number(d?.dup_n) || 0, dup_monto: r2(n(d?.dup_monto)) };
+      });
+      const totals = {
+        bank_in: r2(days.reduce((s, r) => s + r.bank_in, 0)), kepler_in: r2(days.reduce((s, r) => s + r.kepler_in, 0)),
+        bank_out: r2(days.reduce((s, r) => s + r.bank_out, 0)), kepler_out: r2(days.reduce((s, r) => s + r.kepler_out, 0)),
+        delta_in: cumIn, delta_out: cumOut,
+        dup_n: days.reduce((s, r) => s + r.dup_n, 0), dup_monto: r2(days.reduce((s, r) => s + r.dup_monto, 0)),
+      };
+      return { period, account: { bank: acct.bank, account_label: acct.account_label }, days, totals };
+    });
+  }
+
+  /**
    * CB.40 — Detalle COMPLETO de un movimiento del cuadre 3-vías (click en el drill). Devuelve
    * todos los campos del registro crudo de la fuente como {label,value} ordenados. `key` = PK
    * codificada que arma threeWayDetail: workbook=id · kepler=`suc|doc_tipo|folio|clave_banco` ·
