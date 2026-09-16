@@ -1271,19 +1271,83 @@ export class CommercialMovementsService {
     };
   }
 
-  /** Almacenes + tipos de documento presentes (para los selects del frontend). */
+  /**
+   * Almacenes + tipos de documento presentes (para los selects del frontend).
+   *
+   * [DB-MEM.11] Los dos `DISTINCT` de acá barrían `analytics.stock_movements` ENTERA —
+   * 3,702,198 filas / 1,980 MB — para devolver **10 almacenes y 19 tipos de documento**.
+   * Medido en prod: 23,385 ms el de almacenes y 11,079 ms el de tipos, o sea que la barra de
+   * filtros de la pantalla costaba ~34 s. Es el patrón "escaneo una tabla de hechos para llenar
+   * un combo": lo caro no es el DISTINCT, es que la única forma de saber qué valores EXISTEN era
+   * mirarlos todos.
+   *
+   * Los dos se dan vuelta para preguntar desde el lado chico:
+   *
+   *  - ALMACENES: en vez de barrer los movimientos y juntar los almacenes, se recorren los
+   *    almacenes (28 filas) y se le pregunta al índice si cada uno tiene movimientos.
+   *    Medido: 12,342 páginas (96 MB) → **91 páginas (1 MB)**, 528 ms → 0.247 ms.
+   *    ⚠️ Antes de cambiarlo se verificó que NO hay `warehouse_id` huérfano (0 de 10): con
+   *    huérfanos, el `LEFT JOIN` original los mostraba con code/name en NULL y el `EXISTS` los
+   *    perdería. Si algún día aparece uno, este cambio deja de ser equivalente.
+   *
+   *  - TIPOS DE DOCUMENTO: salto de índice ("loose index scan") sobre
+   *    `ix_stockmov_code (tenant_id, warehouse_id, doc_code)` — en vez de leer 3.7 M filas para
+   *    quedarse con 19 valores, salta de un `doc_code` al siguiente.
+   *    Medido: 130,991 páginas (1,023 MB) → **1,768 páginas (14 MB)**, 12,360 ms → 184 ms.
+   *    ⚠️ Se verificó que `movement_label`/`movement_kind` dependen SÓLO de `doc_code`
+   *    (0 códigos con más de una etiqueta); si dejara de cumplirse, el `LIMIT 1` del LATERAL
+   *    elegiría una etiqueta arbitraria.
+   *
+   * ⚠️ El desempate por `doc_code` NO es cosmético. `ORDER BY movement_label` solo NO garantiza
+   * orden entre empates, y hay dos: `Sale1` y `WIN_V`, ambos etiquetados "Venta". O sea que el
+   * combo YA podía voltearlos entre corridas. Con el desempate el resultado queda idéntico, fila
+   * por fila, al que producción devuelve hoy — y además deja de ser arbitrario.
+   */
   async filters() {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      const warehouses = await trx('analytics.stock_movements as m')
-        .where('m.tenant_id', tenantId)
-        .leftJoin('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
-        .distinct('m.warehouse_id as id', 'w.code', 'w.name')
-        .orderBy('w.code');
-      const doc_types = await trx('analytics.stock_movements as m')
-        .where('m.tenant_id', tenantId)
-        .distinct('m.doc_code', 'm.movement_label', 'm.movement_kind')
-        .orderBy('m.movement_label');
+      const warehouses = (
+        await trx.raw(
+          `SELECT w.id, w.code, w.name
+             FROM commercial.warehouses w
+            WHERE EXISTS (SELECT 1 FROM analytics.stock_movements m
+                           WHERE m.tenant_id = ? AND m.warehouse_id = w.id)
+            ORDER BY w.code ASC`,
+          [tenantId],
+        )
+      ).rows;
+
+      const doc_types = (
+        await trx.raw(
+          `WITH RECURSIVE wh AS (
+             SELECT w.id FROM commercial.warehouses w
+              WHERE EXISTS (SELECT 1 FROM analytics.stock_movements m
+                             WHERE m.tenant_id = ? AND m.warehouse_id = w.id)
+           ), saltos AS (
+             SELECT wh.id AS warehouse_id,
+                    (SELECT min(m.doc_code) FROM analytics.stock_movements m
+                      WHERE m.tenant_id = ? AND m.warehouse_id = wh.id) AS doc_code
+               FROM wh
+             UNION ALL
+             SELECT s.warehouse_id,
+                    (SELECT min(m.doc_code) FROM analytics.stock_movements m
+                      WHERE m.tenant_id = ? AND m.warehouse_id = s.warehouse_id
+                        AND m.doc_code > s.doc_code)
+               FROM saltos s WHERE s.doc_code IS NOT NULL
+           )
+           SELECT DISTINCT d.doc_code, d.movement_label, d.movement_kind
+             FROM (SELECT DISTINCT warehouse_id, doc_code FROM saltos WHERE doc_code IS NOT NULL) s
+             CROSS JOIN LATERAL (
+               SELECT m.doc_code, m.movement_label, m.movement_kind
+                 FROM analytics.stock_movements m
+                WHERE m.tenant_id = ? AND m.warehouse_id = s.warehouse_id
+                  AND m.doc_code = s.doc_code
+                LIMIT 1) d
+            ORDER BY d.movement_label ASC, d.doc_code ASC`,
+          [tenantId, tenantId, tenantId, tenantId],
+        )
+      ).rows;
+
       return { warehouses, doc_types };
     });
   }
