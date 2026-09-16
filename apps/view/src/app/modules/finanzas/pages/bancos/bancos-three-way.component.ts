@@ -423,56 +423,76 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
             </tbody>
           </table>
         </div>
-        @if (dd.kepler_only.length || dd.contpaqi_only.length) {
+        @if (keplerOnlyRows().length || contpaqiOnlyRows().length) {
           <div class="tw-orphans">
-            @if (dd.kepler_only.length) {
+            @if (keplerOnlyRows(); as ko) { @if (ko.length) {
               <div class="tw-orphan">
-                <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ dd.kepler_only.length }})</h4>
+                <h4><i class="pi pi-database"></i> En Kepler, sin banco ({{ ko.length }}<span class="tw-orphan-tot"> · {{ orphanTotal(ko) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (k of dd.kepler_only; track k.doc) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (k of ko; track k.key) { <tr class="tw-clickable" (click)="openMov('kepler', k.key)" title="Ver detalle (Kepler)"><td class="mono muted nowrap">{{ dmShort(k.fecha) }}</td><td class="ta-c"><i [class]="k.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="k.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ k.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ k.concepto || k.doc }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
-            }
-            @if (dd.contpaqi_only.length) {
+            } }
+            @if (contpaqiOnlyRows(); as co) { @if (co.length) {
               <div class="tw-orphan">
-                <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ dd.contpaqi_only.length }})</h4>
+                <h4><i class="pi pi-book"></i> En ContPAQi, sin banco ({{ co.length }}<span class="tw-orphan-tot"> · {{ orphanTotal(co) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>)</h4>
                 <table class="tw-tbl"><tbody>
-                  @for (c of dd.contpaqi_only; track c.poliza) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
+                  @for (c of co; track c.key) { <tr class="tw-clickable" (click)="openMov('contpaqi', c.key)" title="Ver detalle (ContPAQi)"><td class="mono muted nowrap">{{ dmShort(c.fecha) }}</td><td class="ta-c"><i [class]="c.dir === 'in' ? 'pi pi-arrow-down-left tw-in-ico' : 'pi pi-arrow-up-right tw-out-ico'" [attr.title]="c.dir === 'in' ? 'Ingreso' : 'Egreso'" aria-hidden="true"></i></td><td class="ta-r mono">{{ c.importe | currency:'MXN':'symbol-narrow':'1.2-2' }}</td><td class="tw-concept">{{ c.concepto || c.poliza }}<i class="pi pi-search-plus tw-drill-ico" aria-hidden="true"></i></td></tr> }
                 </tbody></table>
               </div>
-            }
+            } }
           </div>
+          @if (dfDir() || dfDay() || dfSearch().trim()) { <p class="tw-orphan-note muted">Huérfanos filtrados igual que la tabla (dirección · día · búsqueda).</p> }
         }
         }
         @if (drillMode() === 'dia') {
           @if (dailyLoading()) { <div class="surf-empty"><i class="pi pi-spin pi-spinner"></i><p>Cargando por día…</p></div> }
           @else if (daily(); as dy) {
-            <p class="dlg-lead">Conciliación <b>por día</b>: total del banco vs Kepler (tesorería). Robusta al bulto-vs-partido — el <b>Δ acumulado</b> es la deriva real (el Δ del día suelto puede ser <i>timing</i>). <b>dup</b> = duplicados de Kepler ese día (mismo importe+fecha) = doble conteo, no faltante. <b>Clic en un día</b> → sus movimientos.</p>
+            <p class="dlg-lead">Conciliación <b>por día</b>, <b>depósitos y retiros por separado</b>: banco vs Kepler (tesorería). Robusta al bulto-vs-partido — el <b>Δ acumulado</b> (abajo) es la deriva real; el Δ del día suelto puede ser <i>timing</i>. <b>dup</b> = duplicados de Kepler ese día = doble conteo, no faltante. <b>Clic en un día</b> → sus movimientos.</p>
             <div class="tw-drill-kpis">
-              <span>Banco <b>{{ dy.totals.bank_in + dy.totals.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
-              <span>Kepler <b>{{ dy.totals.kepler_in + dy.totals.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
-              <span [class.warn]="!cuad(dy.totals.delta_in + dy.totals.delta_out)">Δ acum <b>{{ dy.totals.delta_in + dy.totals.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
-              @if (dy.totals.dup_n) { <span class="warn">dup Kepler <b>{{ dy.totals.dup_n }}</b> · {{ dy.totals.dup_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
+              <span class="tw-kpi-grp">Depósitos:</span>
+              <span>banco <b>{{ dy.totals.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span>Kepler <b>{{ dy.totals.kepler_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span [class.warn]="!cuad(dy.totals.delta_in)">Δ acum <b>{{ dy.totals.delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span class="tw-kpi-grp tw-kpi-sep">Retiros:</span>
+              <span>banco <b>{{ dy.totals.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span>Kepler <b>{{ dy.totals.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              <span [class.warn]="!cuad(dy.totals.delta_out)">Δ acum <b>{{ dy.totals.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</b></span>
+              @if (dy.totals.dup_n) { <span class="warn tw-kpi-sep">dup Kepler <b>{{ dy.totals.dup_n }}</b> · {{ dy.totals.dup_monto | currency:'MXN':'symbol-narrow':'1.0-0' }}</span> }
             </div>
-            <table class="tw-tbl tw-daily-tbl">
-              <thead><tr>
-                <th>Día</th><th class="ta-r">Banco</th><th class="ta-r">Kepler</th><th class="ta-r">Δ día</th><th class="ta-r">Δ acum</th><th class="ta-c">n b/k</th><th class="ta-r">dup</th>
-              </tr></thead>
-              <tbody>
-                @for (r of dy.days; track r.dia) {
-                  <tr class="tw-row-click" (click)="focusDay(r.dia)" tabindex="0" role="button" (keyup.enter)="focusDay(r.dia)" [title]="'Ver los movimientos del ' + r.dia">
-                    <td class="mono">{{ r.dia }}</td>
-                    <td class="ta-r mono">{{ r.bank_in + r.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono">{{ r.kepler_in + r.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono" [class.tw-cent]="!cuad(r.delta_in + r.delta_out)">{{ r.delta_in + r.delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-r mono" [class.tw-cum-warn]="!cuad(r.cum_delta_in + r.cum_delta_out)">{{ r.cum_delta_in + r.cum_delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
-                    <td class="ta-c mono muted">{{ r.n_bank }}/{{ r.n_kepler }}</td>
-                    <td class="ta-r mono">@if (r.dup_n) { <span class="tw-dup" [title]="r.dup_n + ' duplicados = ' + (r.dup_monto | currency:'MXN')">{{ r.dup_n }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+            <div class="tw-daily-scroll">
+              <table class="tw-tbl tw-daily-tbl">
+                <thead>
+                  <tr class="tw-daily-grp">
+                    <th></th>
+                    <th colspan="3" class="ta-c tw-grp-dep">Depósitos (ingresos)</th>
+                    <th colspan="3" class="ta-c tw-grp-ret tw-coldiv">Retiros (egresos)</th>
+                    <th></th>
                   </tr>
-                }
-                @if (!dy.days.length) { <tr><td colspan="7" class="ta-c muted tw-empty">Sin movimientos en el periodo.</td></tr> }
-              </tbody>
-            </table>
+                  <tr>
+                    <th>Día</th>
+                    <th class="ta-r">Banco</th><th class="ta-r">Kepler</th><th class="ta-r">Δ acum</th>
+                    <th class="ta-r tw-coldiv">Banco</th><th class="ta-r">Kepler</th><th class="ta-r">Δ acum</th>
+                    <th class="ta-r">dup</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (r of dy.days; track r.dia) {
+                    <tr class="tw-row-click" (click)="focusDay(r.dia)" tabindex="0" role="button" (keyup.enter)="focusDay(r.dia)" [title]="'Ver los movimientos del ' + r.dia">
+                      <td class="mono">{{ r.dia }}</td>
+                      <td class="ta-r mono">{{ r.bank_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="ta-r mono" [class.tw-cent]="!cuad(r.delta_in)">{{ r.kepler_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="ta-r mono" [class.tw-cum-warn]="!cuad(r.cum_delta_in)">{{ r.cum_delta_in | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="ta-r mono tw-coldiv">{{ r.bank_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="ta-r mono" [class.tw-cent]="!cuad(r.delta_out)">{{ r.kepler_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="ta-r mono" [class.tw-cum-warn]="!cuad(r.cum_delta_out)">{{ r.cum_delta_out | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="ta-r mono">@if (r.dup_n) { <span class="tw-dup" [title]="r.dup_n + ' duplicados = ' + (r.dup_monto | currency:'MXN')">{{ r.dup_n }}</span> } @else { <i class="pi pi-minus tw-faint"></i> }</td>
+                    </tr>
+                  }
+                  @if (!dy.days.length) { <tr><td colspan="8" class="ta-c muted tw-empty">Sin movimientos en el periodo.</td></tr> }
+                </tbody>
+              </table>
+            </div>
           } @else { <div class="surf-empty"><i class="pi pi-exclamation-triangle bad"></i><p>No se pudo cargar la vista por día.</p></div> }
         }
       }
@@ -512,8 +532,17 @@ import { ExplainAccount, ExplainMovement, PAIR_META, TwPair, TwRow,
     .tw-drillmode button:hover { color: var(--text-main); }
     .tw-drillmode button.on { color: var(--text-main); border-bottom-color: var(--action); font-weight: 600; }
     .tw-drillmode button:focus-visible { outline: 2px solid var(--action-ring); outline-offset: -2px; border-radius: var(--r-sm); }
-    .tw-daily-tbl { width: 100%; margin-top: var(--sp-2); }
+    .tw-daily-scroll { overflow-x: auto; }
+    .tw-daily-tbl { width: 100%; margin-top: var(--sp-2); min-width: 46rem; }
     .tw-daily-tbl .tw-cum-warn { color: var(--warn-fg); font-weight: 700; }
+    .tw-daily-tbl .tw-coldiv { border-left: 2px solid var(--border-color); }
+    .tw-daily-grp th { font-size: var(--fs-xs); font-weight: 700; padding-bottom: 2px; }
+    .tw-daily-grp .tw-grp-dep { color: var(--ok-fg); }
+    .tw-daily-grp .tw-grp-ret { color: var(--warn-fg); }
+    .tw-kpi-grp { font-weight: 700; color: var(--text-main); }
+    .tw-kpi-sep { border-left: 1px solid var(--border-color); padding-left: var(--sp-2); margin-left: var(--sp-1); }
+    .tw-orphan-tot { color: var(--text-muted); font-weight: 400; font-family: var(--font-mono); }
+    .tw-orphan-note { font-size: var(--fs-xs); margin: var(--sp-1) 0 0; }
     .tw-dup { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: var(--r-pill); background: color-mix(in srgb, var(--warn-fg) 15%, transparent); color: var(--warn-fg); font-weight: 700; }
     .tw-dayfilter { color: var(--text-muted); margin-left: .3rem; }
     .tw-daychip { appearance: none; border: 1px solid var(--border-color); background: var(--card-bg); border-radius: var(--r-pill); padding: 0 .5rem; font: inherit; font-size: .7rem; cursor: pointer; color: var(--text-muted); }
@@ -686,6 +715,20 @@ export class BancosThreeWayComponent {
     // Sin orden elegido se respeta el del backend (cronológico).
     return sortRows(filtered, this.drillSort(), (r, f) => (r as unknown as Record<string, unknown>)[f]);
   });
+
+  /** Los huérfanos ("En Kepler/ContPAQi, sin banco") respetan los MISMOS filtros que la tabla
+   *  (dirección · día · búsqueda). Antes mostraban SIEMPRE todo → al filtrar por día engañaban. */
+  private orphanFilter<T extends { fecha: any; dir: string; importe: number; concepto: string | null }>(rows: T[] | undefined): T[] {
+    const dir = this.dfDir(), day = this.dfDay(), q = this.dfSearch().trim().toLowerCase();
+    return (rows || []).filter((r) => {
+      if (dir && r.dir !== dir) return false;
+      if (day && String(r.fecha || '').slice(0, 10) !== day) return false;
+      if (q && !`${r.concepto || ''} ${r.importe}`.toLowerCase().includes(q)) return false;
+      return true;
+    });
+  }
+  readonly keplerOnlyRows = computed(() => this.orphanFilter(this.drill()?.kepler_only));
+  readonly contpaqiOnlyRows = computed(() => this.orphanFilter(this.drill()?.contpaqi_only));
 
   constructor() {
     effect(() => {
@@ -953,6 +996,8 @@ export class BancosThreeWayComponent {
   cuad(delta: number): boolean { return Math.abs(delta) < this.tol(); }
   money = money;
   dmShort = dmShort;
+  /** Suma de importes de una lista de huérfanos (para el subtotal del encabezado, ya filtrado). */
+  orphanTotal(rows: { importe: number }[]): number { return rows.reduce((s, r) => s + (Number(r.importe) || 0), 0); }
 
   rows(d: ThreeWay): ThreeWayRow[] { return [d.total.ingresos, d.total.egresos]; }
 
