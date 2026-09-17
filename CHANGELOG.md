@@ -32,6 +32,16 @@ Edgar: *«hay que agregar que se seleccione por día, semana o mes»*. Al medir 
 
 Pruebas: contracts **74 (+11)**, view **359 (+4)**, smoke `test-newdb-me-context` **138 OK / 0 FAIL**; dos sabotajes más ejercidos → rojo, verde al restaurar. **Pendiente: redeploy api+view.**
 
+### Fixed — la contraseña se puede cambiar, y las cuentas que no son personas se pueden guardar (AU.27–AU.32, 2026-09-15/17)
+
+- **AU.28** — ⛔ **No había forma de cambiarle la contraseña a nadie en toda la suite.** El campo vivía tras un `@if (!persona)` —sólo en el alta— y `dashboard/admin-users` perdió su ruta con la Fase AU. Al medirlo aparecieron tres huecos más del servidor: **`USUARIOS_PASSWORDS` era un permiso muerto** (declarado en 4 lugares, exigido en ninguno; encenderlo **no le quita el acceso a nadie** — vive en los mismos 2 roles que `USUARIOS_GESTIONAR`), el reset no escribía `password_changed_at`, y no ponía `must_change_password`, dejando lo único que `[CH.1.10]` no admite en ningún otro camino: una contraseña que eligió el admin y que su dueño no está obligado a cambiar.
+- **AU.31** — ⛔ **La ficha trataba a toda cuenta como si fuera una persona.** Exigir puesto siempre dejaba **16 cuentas sin poder guardarse** (12 dispositivos, 3 clientes, 1 servicio). Y el peor, que nadie había reportado: `esDispositivo()` miraba `token_ttl_days`, pero **las 18 cuentas `kind='dispositivo'` lo tienen en NULL** — guardar una contraseña ahí habría dejado **las 8 etiqueteras afuera**, que es textual lo que `[CH.1.10]` dice que ya pasó.
+- **AU.27** — «REPARTIDOR PRUEBA» estaba activa en producción. Baja tras medir que no deja nada atrás.
+- **AU.29** — Los tres jefes de zona quedan con el mismo perfil. ⚠️ El override de almacenes de Ivette **queda inerte**: `ScopeService` devuelve `all` para un rol de plataforma. No se borra; se declara.
+- **AU.30** — «Carmen Rodriguez» y «María del Carmen Rodríguez Vera» eran una sola. El criterio de huella de `[ID.36]` **no desempata** (las dos dan cero contra las 98 tablas con FK); desempata cuál credencial conoce la persona. Nombre corregido contra `analytics.pos_cashiers`, fuente independiente del padrón.
+
+**AU.32 — la lección, que es lo que vale más que los arreglos.** Edgar: *«hay que revisar más a profundidad el trabajo que generas»*, después de que en dos de tres entregas el defecto lo encontrara él abriendo la pantalla. La causa tiene nombre: los candados eran **expresiones regulares sobre el código fuente**, y uno así **se pone verde con lógica falsa** — se puso. La regla ya estaba escrita en el repo (**ADR-044**, citada en `libs/commercial/jest.config.ts`, puesta después de que un smoke que reimplementaba la lógica diera 17/17 con la ruta caída). Ahora hay un smoke HTTP que ejerce `PUT /users/:id` de verdad: **8 ok / 0 / 1 declarado**. ⭐ Y el declarado es el hallazgo: **`platform_test` no admite el kind `dispositivo`**, así que **contra dev ese test no habría atrapado el bug**. Razón estructural: **`libs/trade` no tiene target `test` ni un solo `.spec.ts`** sobre 2,400 líneas de `users.service.ts`.
+
 ### Changed — el organigrama pasa a ser el de MDTask (AU.23–AU.26, 2026-09-15)
 
 Edgar, sobre el organigrama que MDTask mantiene en su propio código: **«la verdad absoluta es mdtask»**. Su árbol tiene **89 puestos, una raíz y 88 aristas**; `identity.positions` tenía **57 y 10 sin jefe**.
