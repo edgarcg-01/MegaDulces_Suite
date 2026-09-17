@@ -1,5 +1,5 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantKnexService, tomarCandadoDeCron } from '@megadulces/platform-core';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DEFAULT_TENANT_ID =
@@ -33,11 +33,34 @@ export class FleetAlertsService {
   async scan(tenantId: string = DEFAULT_TENANT_ID): Promise<ScanResult> {
     const now = Date.now();
     return this.tk.run(tenantId, async (trx) => {
+      // [DB-MEM.17] El `running` del scanner es por PROCESO. Con dos instancias del API —que es
+      // lo que hay hoy— las dos recorrían los mismos 50 rastreadores y escribían las mismas
+      // filas, dentro de una transacción que las bloquea hasta terminar. Medido en prod: un
+      // UPDATE de una fila por PK cuesta **0.501 ms sin competencia y 197.8 ms acá** (395×), y
+      // el INSERT 429.8 ms. No trabajaba: se esperaba a sí mismo.
+      if (!(await tomarCandadoDeCron(trx, 'fleet_alerts_scan'))) {
+        return { opened: 0, resolved: 0, scanned: 0 };
+      }
+
       const trackers = await trx('logistics.trackers')
         .whereNull('deleted_at')
         .select('id', 'vehicle_id', 'last_seen_at', 'last_speed_kmh', 'last_status');
       let opened = 0;
       let resolved = 0;
+
+      // [DB-MEM.17] Las alertas vivas se traen de UNA vez, no con un SELECT por (rastreador,
+      // condición). Eran 50 × 3 = 150 viajes por corrida — 89,850 llamadas medidas en 49.8 h
+      // para 5 alertas vivas.
+      // ⚠️ El `.first('id')` que esto reemplaza no tenía `ORDER BY`: con dos alertas vivas del
+      // mismo par elegía una al azar. Verificado antes de agrupar que eso NO pasa —
+      // **0 pares (tracker_id, kind) con más de una viva** — así que el mapa es equivalente.
+      // Si algún día pasara, acá habría que decidir cuál gana en vez de heredar el azar.
+      const vivas = await trx('logistics.fleet_alerts')
+        .whereIn('status', ['open', 'ack'])
+        .select('id', 'tracker_id', 'kind');
+      const vivaPorClave = new Map<string, { id: string }>(
+        vivas.map((a: any) => [`${a.tracker_id}|${a.kind}`, { id: a.id }]),
+      );
 
       // LTV.7 — pedidos pendientes por vehículo en embarques de hoy (para
       // 'stopped_with_pending'). Una query, sin coords.
@@ -96,11 +119,7 @@ export class FleetAlertsService {
           // dejaba la `ack` colgada para siempre — `listActive` muestra las dos.
           // Ahora la ack se actualiza en su lugar (sigue silenciada) y se cierra
           // como cualquier otra cuando la condición se va.
-          const viva = await trx('logistics.fleet_alerts')
-            .where({ tracker_id: t.id, kind: c.kind })
-            .whereIn('status', ['open', 'ack'])
-            .first('id');
-          const open = viva;
+          const open = vivaPorClave.get(`${t.id}|${c.kind}`);
           if (c.on) {
             if (open) {
               await trx('logistics.fleet_alerts')
