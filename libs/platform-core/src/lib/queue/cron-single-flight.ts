@@ -11,19 +11,39 @@
  * Y `shouldRunInProcessCron()` no cubre esto: devuelve `true` salvo que `ENABLE_WORKER_QUEUE`
  * valga exactamente `'true'`, así que con la configuración de hoy es un no-op.
  *
- * ## Lo que costaba, medido en prod (2026-09-17)
+ * ## ⚠️ Este helper NO nació de un problema medido de rendimiento. La primera versión decía que sí
  *
- * `FleetAlertsScannerService` corre cada 5 min en **las dos** instancias, recorre los mismos 50
- * rastreadores en el mismo orden y escribe las mismas filas, todo dentro de UNA transacción —
- * o sea que cada fila queda bloqueada hasta que esa transacción entera termina. La segunda
- * instancia se queda esperando:
+ * La afirmación original era: «hoy corren dos instancias y se bloquean entre sí; un UPDATE de una
+ * fila por PK cuesta 0.501 ms aislado y 197.8 ms en prod». **Era falsa**, y la corrección vale más
+ * que el dato. Lo que la refutó, en orden:
  *
- *   UPDATE de una fila por PK, sin competencia .....   0.501 ms
- *   la MISMA forma, en produccion .................. 197.800 ms   (395x)
- *   INSERT ......................................... 429.800 ms
+ *   1. El SELECT interno del scanner mide **1,804 llamadas/hora**, y 150 por corrida × 12
+ *      corridas/hora = **1,800**. Eso es UN escáner. Con dos serían ~3,600.
+ *   2. Railway reporta **una** réplica.
+ *   3. Capturando una corrida real (296 muestras en 120 s): la consulta aparece **una vez y sin
+ *      ninguna espera**.
+ *   4. Y el error de método propio: la medición «aislada» se hizo como `postgres`, que es
+ *      superusuario y **saltea la RLS** de una tabla con RLS forzada. Rehecha con
+ *      `SET ROLE app_runtime` da 0.216 ms — la RLS tampoco era la causa.
  *
- * Total: 94,789 llamadas en 49.8 h = **0.587 % del tiempo de ejecución de toda la base**, para
- * 50 rastreadores y una tabla de 4 MB. No estaba trabajando: estaba esperándose a sí mismo.
+ * Lo que de verdad pasaba: la media de 197.8 ms es un **artefacto de saturación del contenedor**.
+ * Mínimo 0.08 ms, máximo 3,884 ms, desviación 440 sobre media 198 (CV 2.22) → episódico. Y es
+ * global: de 293 consultas con más de 500 llamadas, **234 tienen la desviación por encima de su
+ * media** y **93 son normalmente sub-milisegundo con picos de segundos**.
+ * `UPDATE pgboss.version SET flow_on = now()` va de **0.01 ms a 21,691 ms**.
+ *
+ * ⭐ **La lección, que aplica a cualquier medición futura:** en un servidor saturado,
+ * `mean_exec_time` le atribuye la saturación a lo que estuviera corriendo. Leer la media como
+ * «esta consulta es lenta» es confundir el síntoma con la causa. Lo que discrimina es
+ * `min_exec_time` (el costo real, sin competencia) y el CV (si es parejo o episódico).
+ *
+ * ## Entonces, ¿para qué queda esto?
+ *
+ * Para el riesgo que el repo ya declara y que sigue vigente: **no hay leader election en ningún
+ * lado**. Hoy hay una instancia y no duele; el día que haya dos, los 50 crons sin guard corren
+ * duplicados — y ahí el problema no es el costo sino el **efecto duplicado** (borrar imágenes en
+ * Cloudinary, llamar al SAT o al PAC, mandar avisos). Esto es una red para ese día, no una
+ * optimización de hoy.
  *
  * ## Por qué un candado de TRANSACCIÓN y no de sesión
  *

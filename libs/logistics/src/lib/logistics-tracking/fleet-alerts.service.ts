@@ -33,11 +33,25 @@ export class FleetAlertsService {
   async scan(tenantId: string = DEFAULT_TENANT_ID): Promise<ScanResult> {
     const now = Date.now();
     return this.tk.run(tenantId, async (trx) => {
-      // [DB-MEM.17] El `running` del scanner es por PROCESO. Con dos instancias del API —que es
-      // lo que hay hoy— las dos recorrían los mismos 50 rastreadores y escribían las mismas
-      // filas, dentro de una transacción que las bloquea hasta terminar. Medido en prod: un
-      // UPDATE de una fila por PK cuesta **0.501 ms sin competencia y 197.8 ms acá** (395×), y
-      // el INSERT 429.8 ms. No trabajaba: se esperaba a sí mismo.
+      // [DB-MEM.17] Candado de UNA corrida entre PROCESOS: el `running` del scanner es por
+      // proceso y no sirve si algún día corren dos instancias del API.
+      //
+      // ⚠️ HOY NO ESTÁ PASANDO, y la primera versión de este comentario decía que sí. La
+      // corrección importa más que el dato: `pg_stat_statements` mostraba 197.8 ms de media para
+      // un UPDATE de una fila por PK, y lo leí como contención entre dos instancias. Es falso.
+      // Lo que lo refutó: el SELECT interno mide 1,804 llamadas/hora y 150 × 12 corridas = 1,800,
+      // o sea UN escáner; Railway reporta una réplica; y al capturar una corrida real, la consulta
+      // aparece sin ninguna espera.
+      //
+      // La media era un artefacto: mínimo 0.08 ms, máximo 3,884 ms, desviación 440 ms sobre una
+      // media de 198 (CV 2.22). Episódico, no estructural — y global: de 293 consultas con más de
+      // 500 llamadas, **234 tienen la desviación por encima de su media** y **93 son normalmente
+      // sub-milisegundo con picos de segundos**. `UPDATE pgboss.version SET flow_on = now()`, una
+      // fila y un campo, va de 0.01 ms a 21,691 ms. Eso no es un candado: es el contenedor entero
+      // saturado (medido el mismo día tocando su techo de 4.0 vCPU).
+      //
+      // O sea que este scanner era VÍCTIMA, no causa. El candado se queda igual porque es correcto
+      // y hoy es un no-op (con una instancia siempre lo toma), pero no se justifica por rendimiento.
       if (!(await tomarCandadoDeCron(trx, 'fleet_alerts_scan'))) {
         return { opened: 0, resolved: 0, scanned: 0 };
       }
