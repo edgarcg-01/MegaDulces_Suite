@@ -4,6 +4,7 @@ import {
   conteoExacto,
   escalera,
   factorDe,
+  rotuloCrudo,
   hayEleccion,
   subirEscalon,
 } from './qty-units';
@@ -47,6 +48,25 @@ describe('qty-units · la cantidad que se ve es la que se pide', () => {
       expect(new Set(e.map((u) => u.unit)).size).toBe(3);
       expect(e[1].unit).toBe('PAQ x11');
       expect(hayEleccion(cruda)).toBe(true);
+    });
+
+    it('⭐ el rotulo desambiguado conserva el CRUDO para mandarlo al servidor', () => {
+      // `PAQ x11` es un rotulo de PANTALLA: sirve para que el vendedor distinga los dos
+      // peldanos, pero no es una unidad que el ERP conozca. Mandarlo como `qty_unit` haria
+      // que el resolvedor del servidor no reconociera ni siquiera la unidad base, y la
+      // linea terminaria convertida con el factor equivocado o rechazada.
+      const e = escalera([
+        { unit: 'PAQ', factor: 1 },
+        { unit: 'PAQ', factor: 11 },
+      ]);
+      expect(e[1].unit).toBe('PAQ x11');
+      expect(rotuloCrudo(e[1])).toBe('PAQ');
+      // Y cuando NO hubo desambiguacion, el crudo es el mismo rotulo (sin campo de mas).
+      const simple = escalera([{ unit: 'CJA', factor: 12 }]);
+      expect(simple[0].unitRaw).toBeUndefined();
+      expect(rotuloCrudo(simple[0])).toBe('CJA');
+      // Prueba negativa: sin presentacion no hay rotulo que declarar (y no revienta).
+      expect(rotuloCrudo(null)).toBe('');
     });
 
     it('descarta factores no usables sin tumbar la escalera', () => {

@@ -37,21 +37,28 @@ import {
   conteoExacto,
   escalera,
   factorDe,
+  rotuloCrudo,
   subirEscalon,
 } from '../../../core/order/qty-units';
-
-type OrderMode = 'instante' | 'futuro';
 
 /** Normaliza para búsqueda tipo Google: minúsculas + sin acentos/diacríticos. */
 const foldText = (s: string | null | undefined): string =>
   (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
 /**
- * Tomar pedido (rediseño Mercado mobile-first). Modos:
- *  - instante (autoventa): "Cobrar y entregar" → deliver-now (consume stock).
- *  - futuro: fecha de entrega agendada → confirma (queda pendiente para reparto).
- * Catálogo con "+" 44px, carrito con steppers, y cart pill flotante en la zona
- * del pulgar como CTA único.
+ * Tomar pedido (rediseño Mercado mobile-first). Catálogo con "+" 44px, carrito con
+ * steppers, y cart pill flotante en la zona del pulgar como CTA único.
+ *
+ * **Es preventa y solo preventa**: el pedido se agenda con fecha de entrega y se
+ * surte al repartir, desde la sucursal del vendedor. Nunca consume stock acá
+ * (`place()` no reserva cuando hay `requested_delivery_date`).
+ *
+ * Hasta acá vivía un segundo modo, `instante` (autoventa: "Cobrar y entregar" →
+ * `deliverNow`, que sí consume). Estaba documentado y tipado pero **muerto**: la
+ * señal nunca se seteaba, el encabezado decía "Preventa" fijo, el único CTA era
+ * Agendar y `deliverNow` no se llamaba desde ninguna parte. Se retiró en vez de
+ * dejarlo: vender del camión es la Fase VR, que no tiene código y va a necesitar su
+ * propio contrato (folio local, conciliación de carga, arqueo), no esta rama.
  */
 @Component({
   selector: 'app-vendor-take-order',
@@ -210,6 +217,12 @@ const foldText = (s: string | null | undefined): string =>
             </div>
             @if (stockSources().sucursal?.assigned === false) {
               <p class="ss-warn"><i class="pi pi-info-circle"></i> No tenés sucursal de surtido asignada — se muestra el almacén general. Pedile a tu supervisor que te asigne tu ruta.</p>
+            }
+            <!-- Mirar la camioneta es consulta, no surtido: el pedido es preventa y se
+                 reparte desde la sucursal. Si no se dice, el vendedor cree que está
+                 pidiendo de lo que trae hoy. -->
+            @if (stockView() === 'camioneta') {
+              <p class="ss-note"><i class="pi pi-info-circle"></i> Estás viendo lo que traés en la camioneta. El pedido se surte igual desde {{ stockSources().sucursal?.name || 'tu sucursal' }} al repartir.</p>
             }
           }
           <!-- Banner de escucha (transcripción en vivo) -->
@@ -374,14 +387,19 @@ const foldText = (s: string | null | undefined): string =>
               <button class="cb-open" (click)="cartOpen.set(true)" aria-label="Ver pedido">
                 <span class="cb-count">{{ cartLines().length }}</span>
                 <span class="cb-info">
-                  <b>{{ fmtMoney(cartTotal()) }}</b>
-                  <span>{{ cartUnitsTotal() }} u · {{ cartLines().length }} SKU · ver pedido</span>
+                  <!-- El dinero lo calcula el servidor (tiers + promos): mientras hay
+                       ajustes sin volcar, el total que tenemos es el de ANTES del
+                       ajuste. Se dice, en vez de publicar una cifra vieja como firme. -->
+                  <b [class.stale]="totalPendiente()">{{ fmtMoney(cartTotal()) }}</b>
+                  <span>
+                    @if (totalPendiente()) { actualizando total… } @else { {{ cartUnitsTotal() }} u · {{ cartLines().length }} SKU · ver pedido }
+                  </span>
                 </span>
                 <i class="pi pi-chevron-up"></i>
               </button>
-              <button class="cb-go" [disabled]="submitting()" (click)="submit()">
-                {{ isEditing() ? 'Guardar' : 'Agendar' }}
-                <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
+              <button class="cb-go" [disabled]="submitting() || settling()" (click)="submit()">
+                {{ settling() ? 'Calculando…' : (isEditing() ? 'Guardar' : 'Agendar') }}
+                <i class="pi" [ngClass]="(submitting() || settling()) ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
               </button>
             </div>
           }
@@ -430,11 +448,14 @@ const foldText = (s: string | null | undefined): string =>
                   @if (cartMarginPct() !== null) {
                     <div class="row mg-row"><span>Margen aprox.</span><b [class.neg]="cartMarginPct()! < 0">{{ cartMarginPct() }}%</b></div>
                   }
-                  <div class="row total"><span>Total</span><b>{{ fmtMoney(cartTotal()) }}</b></div>
+                  <div class="row total">
+                    <span>Total@if (totalPendiente()) {<small class="t-stale">actualizando…</small>}</span>
+                    <b [class.stale]="totalPendiente()">{{ fmtMoney(cartTotal()) }}</b>
+                  </div>
                 </div>
-                <button class="sh-go" [disabled]="submitting()" (click)="submit()">
-                  Agendar pedido
-                  <i class="pi" [ngClass]="submitting() ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
+                <button class="sh-go" [disabled]="submitting() || settling()" (click)="submit()">
+                  {{ settling() ? 'Calculando total…' : 'Agendar pedido' }}
+                  <i class="pi" [ngClass]="(submitting() || settling()) ? 'pi-spin pi-spinner' : 'pi-arrow-right'"></i>
                 </button>
                 <button class="cancel" (click)="cancelDraft()"><i class="pi pi-trash"></i> Cancelar borrador</button>
               </div>
@@ -681,6 +702,8 @@ const foldText = (s: string | null | undefined): string =>
       .stock-src .ss-b.unassigned.on { background: var(--warn-fg, #b45309); color: #fff; }
       .ss-warn { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--warn-fg, #b45309); }
       .ss-warn i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
+      .ss-note { display: flex; align-items: flex-start; gap: 0.35rem; margin: 0.15rem 0 0.4rem; font-size: 0.74rem; line-height: 1.35; color: var(--text-muted); }
+      .ss-note i { font-size: 0.72rem; margin-top: 0.1rem; flex-shrink: 0; }
       .stock-src .ss-b i { font-size: 0.72rem; }
       .stock-src .ss-spin { font-size: 0.85rem; color: var(--action); }
       .prod .pm .rsn { display: inline-flex; align-items: center; gap: 0.2rem; color: var(--brand-900); font-weight: 700; background: var(--ember-soft); border: 1px solid var(--ember-border); border-radius: var(--r-pill, 999px); padding: 0.05rem 0.45rem; }
@@ -720,6 +743,10 @@ const foldText = (s: string | null | undefined): string =>
       .totals { margin: 0.875rem 0 0 auto; max-width: 16rem; }
       .totals .row { display: flex; justify-content: space-between; padding: 0.2rem 0; color: var(--text-main); font-size: 0.9rem; }
       .totals .row b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+      /* Total todavía no firme (hay ajustes sin volcar al servidor): se atenúa para
+         que no se lea como cifra final. Ver totalPendiente() en la clase. */
+      .totals .row b.stale, .cartbar .cb-info b.stale { opacity: 0.45; }
+      .totals .row .t-stale { margin-left: 0.35rem; font-size: 0.72rem; font-weight: 600; color: var(--text-muted); }
       .totals .mg-row b { color: var(--ok-fg); } .totals .mg-row b.neg { color: var(--bad-fg); }
       .totals .total { border-top: 2px solid var(--brand-400); padding-top: 0.4rem; margin-top: 0.4rem; font-size: 1.1rem; font-weight: 800; }
       .cancel { margin-top: 0.875rem; background: none; border: none; color: var(--bad-fg); font-weight: 600; font-size: 0.85rem; display: inline-flex; align-items: center; gap: 0.4rem; }
@@ -960,7 +987,25 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly prices = signal<PriceRow[]>([]);
   readonly cartLines = signal<OrderLine[]>([]);
   readonly cartOrderId = signal<string | null>(null);
-  readonly warehouseId = signal<string>('');
+  /**
+   * Almacén de SURTIDO del pedido: de dónde sale la mercancía cuando se reparte.
+   * Lo fija la carga (la sucursal del vendedor) y NO lo mueve el toggle de abajo —
+   * ver `stockWarehouseId`. Es el que viaja a `commercial.orders.warehouse_id`, o
+   * sea el almacén del que se consume al fulfillar.
+   */
+  readonly orderWarehouseId = signal<string>('');
+  /**
+   * Almacén cuya EXISTENCIA se está mirando (toggle sucursal ↔ camioneta). Es capa
+   * de consulta: cambia los badges de stock del catálogo, nunca el pedido.
+   *
+   * Antes esto y el de arriba eran la misma señal, y el toggle terminaba decidiendo
+   * el almacén del pedido cuando el carrito estaba vacío (el draft nace en el primer
+   * "+", con lo que hubiera en ese momento). El mismo gesto daba dos resultados según
+   * si ya habías agregado algo, y el pedido se surtía del camión sin que nadie lo
+   * pidiera. Hoy la toma de pedido es preventa pura: se surte al repartir, desde la
+   * sucursal. La autoventa desde el camión es Fase VR y no tiene código.
+   */
+  readonly stockWarehouseId = signal<string>('');
   /** Fuentes de existencia del vendedor (sucursal de surtido + camioneta). */
   readonly stockSources = signal<{
     sucursal: { id: string; code: string; name: string; assigned?: boolean; source?: string } | null;
@@ -975,9 +1020,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly offlineMode = signal(false);
   private priceListId = '';
   readonly submitting = signal(false);
-  /** Siempre preventa: el pedido se agenda y queda para reparto (la venta directa
-   *  se registra capturando el ticket, no por este flujo). */
-  readonly mode = signal<OrderMode>('futuro');
+  /** Volcando los ajustes pendientes para poder mostrar un total firme (ver submit). */
+  readonly settling = signal(false);
   /** Sheet de pedido (drawer) abierto/cerrado. */
   readonly cartOpen = signal(false);
   /** Sheet de acciones de la visita (···). */
@@ -1346,6 +1390,12 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   readonly cartSubtotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.line_subtotal), 0));
   readonly cartTaxTotal = computed(() => this.cartLines().reduce((s, l) => s + Number(l.line_tax), 0));
   readonly cartTotal = computed(() => this.cartSubtotal() + this.cartTaxTotal());
+  /**
+   * El total en pantalla es más viejo que las cantidades: hay ajustes sin volcar al
+   * servidor, que es quien resuelve tiers de volumen y promociones. No se recalcula
+   * acá a propósito (sería inventar el número); se declara que todavía no es firme.
+   */
+  readonly totalPendiente = computed(() => this.pendingQty().size > 0 || this.settling());
 
   /** Margen aprox. del pedido: (subtotal − costo) / subtotal. Null si no hay costo. */
   readonly cartMarginPct = computed(() => {
@@ -1466,7 +1516,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
           this.customer.set(customer);
           this.prices.set(catalog.prices);
           this.priceListId = catalog.priceListId;
-          this.warehouseId.set(warehouseId || '');
+          this.orderWarehouseId.set(warehouseId || '');
+          this.stockWarehouseId.set(warehouseId || '');
           // Cobertura de precio: cuántos productos del maestro existen pero no se
           // pueden pedir por falta de precio (para avisar a oficina). Best-effort.
           if (catalog.priceListId) {
@@ -1501,10 +1552,22 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
               const fecha = (existingDraft as VendorOrder).requested_delivery_date;
               if (fecha) this.requestedDate = String(fecha).slice(0, 10);
             }
-            this.api.orderById(existingDraft.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((full) => {
-              this.cartLines.set(full.lines || []);
-              this.loadSuggestions(); // cart-aware una vez que cargan las líneas
-            });
+            // Corrigiendo, `existingDraft` YA vino de `GET /orders/:id`, que trae las
+            // líneas: re-pedirlo era un request de más en cada apertura, sobre red de
+            // campo. `draftForCustomer` (pedido nuevo) sale de un listado y no las
+            // trae, así que ahí sí hay que ir a buscarlas.
+            if (existingDraft.lines) {
+              this.cartLines.set(existingDraft.lines);
+              this.loadSuggestions();
+            } else {
+              this.api.orderById(existingDraft.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+                next: (full) => {
+                  this.cartLines.set(full.lines || []);
+                  this.loadSuggestions(); // cart-aware una vez que cargan las líneas
+                },
+                error: () => this.loadSuggestions(),
+              });
+            }
           } else {
             // Pedido nuevo: NO auto-armamos la canasta predicha (evitar agendar de
             // más sin querer). Se ofrece como CTA opt-in (banner) y mostramos las
@@ -1524,9 +1587,13 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
 
   /**
    * Cambia la fuente de existencia mostrada (sucursal ↔ camioneta) y re-consulta el
-   * catálogo para traer el stock de ESE almacén. No cambia el pedido en curso; solo la
-   * existencia que ve el vendedor. Offline no aplica (el catálogo cacheado es de la
-   * sucursal). No hace nada si la fuente no existe.
+   * catálogo para traer el stock de ESE almacén.
+   *
+   * Solo mira: NO toca `orderWarehouseId`, así que el pedido se sigue surtiendo de la
+   * sucursal aunque estés viendo la camioneta — y da igual si el carrito está vacío o
+   * no (antes no daba igual: con el carrito vacío el toggle elegía el almacén del
+   * pedido, porque el draft nace en el primer "+"). Offline no aplica (el catálogo
+   * cacheado es de la sucursal). No hace nada si la fuente no existe.
    */
   switchStockView(view: 'sucursal' | 'camioneta'): void {
     if (view === this.stockView() || this.offlineMode()) return;
@@ -1535,7 +1602,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const c = this.customer();
     if (!c) return;
     this.stockView.set(view);
-    this.warehouseId.set(src.id);
+    this.stockWarehouseId.set(src.id);
     this.stockLoading.set(true);
     this.api
       .catalogForCustomer(c, src.id)
@@ -1576,7 +1643,8 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         }
         this.customer.set(ctx.customer);
         this.prices.set(ctx.prices);
-        this.warehouseId.set(ctx.warehouseId || '');
+        this.orderWarehouseId.set(ctx.warehouseId || '');
+        this.stockWarehouseId.set(ctx.warehouseId || '');
         this.frequent.set(ctx.frequent);
         // Abrir/crear el draft local y reflejar sus líneas.
         const draft = await this.offlineApi.ensureDraft(ctx.customer, ctx.warehouseId || '');
@@ -1651,10 +1719,17 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   /** Crea la línea (asegurando draft) con la cantidad dada, en rejilla y sobre el mínimo. */
   private createLine(p: PriceRow, qty: number): void {
     const c = this.customer();
-    if (!c || !this.warehouseId()) return;
+    if (!c || !this.orderWarehouseId()) return;
     const q = ajustarARejilla(qty, this.unitFactor(p), p.min_qty || 1);
     if (q <= 0) return;
-    if (p.stock_available != null && q > Number(p.stock_available)) {
+    // El aviso solo vale si lo que se está mirando es el almacén que va a surtir. Con
+    // la vista en camioneta, `stock_available` es del camión y el pedido sale de la
+    // sucursal: avisar ahí sería comparar contra la existencia equivocada.
+    if (
+      p.stock_available != null &&
+      q > Number(p.stock_available) &&
+      this.stockWarehouseId() === this.orderWarehouseId()
+    ) {
       this.toast.add({ severity: 'warn', summary: 'Stock actual bajo', detail: `Hoy hay ${p.stock_available}. Es preventa: se surte al repartir.`, life: 4000 });
     }
     if (this.offlineMode()) {
@@ -1663,14 +1738,21 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       return;
     }
     this.adding.update((m) => ({ ...m, [p.product_id]: true }));
+    // [VU.4] Con sello, la cantidad viaja EN LA UNIDAD CAPTURADA (`q` está en base, así que
+    // se divide por el factor) y el servidor la convierte de vuelta. Sin sello va en base.
+    // Mandar `q` en base junto con el sello la multiplicaría otra vez.
+    const sello = this.selloDe(p);
+    const qEnviada = sello ? conteoExacto(q, sello.qty_factor) : null;
     const ensure$ = this.cartOrderId()
       ? of({ id: this.cartOrderId()! } as any)
-      : this.api.ensureDraftForCustomer(c.id, this.warehouseId(), 'route');
+      : this.api.ensureDraftForCustomer(c.id, this.orderWarehouseId(), 'route');
     ensure$
       .pipe(
         switchMap((draft) => {
           this.cartOrderId.set(draft.id);
-          return this.api.addLine(draft.id, p.product_id, q);
+          return qEnviada != null && sello
+            ? this.api.addLine(draft.id, p.product_id, qEnviada, sello)
+            : this.api.addLine(draft.id, p.product_id, q);
         }),
         takeUntilDestroyed(this.destroyRef),
       )
@@ -1748,7 +1830,21 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     for (const [productId, qty] of pend) {
       const line = lines.find((l) => l.product_id === productId);
       if (!line || Number(line.quantity) === qty) continue;
-      ops.push(qty <= 0 ? this.api.removeLine(orderId, line.id) : this.api.updateLine(orderId, line.id, qty));
+      if (qty <= 0) {
+        ops.push(this.api.removeLine(orderId, line.id));
+        continue;
+      }
+      // [VU.4] Mismo contrato que createLine: con sello se manda el CONTEO en la unidad
+      // activa, no la base. Sin esto, cada toque del stepper borraba el sello que puso
+      // `addLine` (el backend lo limpia cuando la cantidad cambia sin unidad declarada),
+      // así que la procedencia no sobrevivía a la primera interacción.
+      const sello = this.selloDeId(productId);
+      const enviada = sello ? conteoExacto(qty, sello.qty_factor) : null;
+      ops.push(
+        enviada != null && sello
+          ? this.api.updateLine(orderId, line.id, enviada, sello)
+          : this.api.updateLine(orderId, line.id, qty),
+      );
     }
     this.pendingQty.set(new Map());
     return ops.length ? forkJoin(ops).pipe(map(() => void 0)) : of(void 0);
@@ -1827,7 +1923,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private prefillPredicted(): void {
     const lines = this.predictedLines();
     const c = this.customer();
-    if (!lines.length || !c || !this.warehouseId()) { this.loadSuggestions(); return; }
+    if (!lines.length || !c || !this.orderWarehouseId()) { this.loadSuggestions(); return; }
     if (this.offlineMode()) {
       const orderId = this.cartOrderId();
       if (!orderId) return;
@@ -1849,7 +1945,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     }
     this.prefilling.set(true);
     this.api
-      .ensureDraftForCustomer(c.id, this.warehouseId(), 'route')
+      .ensureDraftForCustomer(c.id, this.orderWarehouseId(), 'route')
       .pipe(
         switchMap((draft) => { this.cartOrderId.set(draft.id); return this.api.replaceLines(draft.id, lines); }),
         takeUntilDestroyed(this.destroyRef),
@@ -1997,11 +2093,11 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   applyVoiceItems(): void {
     const items = this.voiceItems().filter((x) => x.qty > 0);
     const c = this.customer();
-    if (!items.length || !c || !this.warehouseId()) { this.voiceOpen.set(false); return; }
+    if (!items.length || !c || !this.orderWarehouseId()) { this.voiceOpen.set(false); return; }
     this.voiceLoading.set(true);
     const ensure$ = this.cartOrderId()
       ? of({ id: this.cartOrderId()! } as any)
-      : this.api.ensureDraftForCustomer(c.id, this.warehouseId(), 'route');
+      : this.api.ensureDraftForCustomer(c.id, this.orderWarehouseId(), 'route');
     ensure$
       .pipe(
         switchMap((draft) => {
@@ -2036,13 +2132,56 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       });
   }
 
+  /**
+   * Agendar. Antes de preguntar, VUELCA los ajustes pendientes y recarga el pedido:
+   * el mensaje del diálogo es un string que se arma una sola vez, así que si se
+   * construía con `cartTotal()` en caliente podía anunciar un monto y agendar otro.
+   *
+   * Pasaba de verdad: la cantidad del carrito es optimista (se ve al instante) pero
+   * el dinero lo calcula el servidor (tiers de volumen, promociones) y solo llega con
+   * la recarga, 500 ms después. Tocar "+" y enseguida "Agendar" mostraba la cantidad
+   * nueva con el total viejo, y ese total viejo quedaba congelado en el diálogo
+   * mientras el `place` se iba con la cantidad nueva.
+   *
+   * No se recalcula el total en el front a propósito: los tiers y las promos los
+   * resuelve el backend, y un número inventado acá sería peor que esperar.
+   */
   submit(): void {
     const orderId = this.cartOrderId();
-    if (!orderId || this.submitting()) return;
+    if (!orderId || this.submitting() || this.settling()) return;
     if (!this.requestedDate) {
       this.toast.add({ severity: 'warn', summary: 'Elegí la fecha de entrega' });
       return;
     }
+    // Sin ajustes en vuelo, el total ya es el del servidor → se pregunta directo.
+    if (this.pendingQty().size === 0) {
+      this.askAndPlace(orderId);
+      return;
+    }
+    this.settling.set(true);
+    this.flushQty()
+      .pipe(
+        switchMap(() => this.reloadCart$()),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe({
+        next: () => {
+          this.settling.set(false);
+          if (!this.cartLines().length) {
+            this.toast.add({ severity: 'warn', summary: 'El pedido quedó vacío' });
+            return;
+          }
+          this.askAndPlace(orderId);
+        },
+        error: (err) => {
+          this.settling.set(false);
+          this.onError(err);
+        },
+      });
+  }
+
+  /** Pregunta con el total YA firme y, si aceptan, lo agenda. */
+  private askAndPlace(orderId: string): void {
     const pretty = new Date(this.requestedDate + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' });
     const corrigiendo = this.isEditing();
     this.confirmSvc.confirm({
@@ -2054,8 +2193,9 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
       acceptLabel: corrigiendo ? 'Guardar' : 'Agendar', rejectLabel: 'Cancelar',
       accept: () => {
         this.submitting.set(true);
-        // Offline: confirmar el pedido local (queda en cola, se sincroniza al
-        // reconectar). flushQty primero para volcar los ajustes pendientes.
+        // `flushQty` ya corrió en submit() (y el diálogo no se abre hasta que el
+        // total quedó firme), pero se vuelve a llamar por si el vendedor movió una
+        // cantidad con el diálogo abierto: es no-op cuando no hay nada pendiente.
         if (this.offlineMode()) {
           this.flushQty()
             .pipe(
@@ -2067,7 +2207,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         }
         // Online: 1 request atómico e idempotente: draft → confirmed con la fecha
         // de entrega (reemplaza updateDraftHeader→confirm→approve, que podía
-        // quedar a medias). flushQty primero para no confirmar con qty viejas.
+        // quedar a medias).
         this.flushQty()
           .pipe(
             switchMap(() => this.api.placeOrder(orderId, { requested_delivery_date: this.requestedDate })),
@@ -2137,7 +2277,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     }
     this.router.navigate(['/vendor/order-success'], {
       queryParams: {
-        mode: this.mode(),
         code: o?.code || '',
         total: o?.total ?? this.cartTotal(),
         units: this.cartUnitsTotal(),
@@ -2156,7 +2295,6 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
     const c = this.customer();
     this.router.navigate(['/vendor/order-success'], {
       queryParams: {
-        mode: this.mode(),
         code: '',
         total: this.cartTotal(),
         units: this.cartUnitsTotal(),
@@ -2358,6 +2496,33 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   private baseUnitLabel(p: PriceRow): string {
     return this.unitsOf(p)[0]?.unit || '';
   }
+
+  /**
+   * [VU.4] El sello con el que se manda una cantidad al servidor: en qué unidad la capturó
+   * el vendedor y con qué factor la mostró la pantalla. Con él, `quantity` viaja **en esa
+   * unidad** y convierte el servidor (que además contrasta el factor contra el ERP y frena
+   * el desacuerdo). Antes no se mandaba nada: la pantalla convertía a base y la línea
+   * quedaba sin decir si esas 116 piezas eran "2 cajas" o "116 piezas sueltas".
+   *
+   * Devuelve null cuando no hay nada que declarar:
+   *  - el SKU no publica escalera de medidas, o
+   *  - la fila está fuera de rejilla y habla en unidad base cruda (`offGrid`): el número
+   *    tecleado no está en la presentación elegida, así que sellarlo con ella sería mentir.
+   * En ambos casos la cantidad va en base, como siempre.
+   */
+  private selloDe(p: PriceRow): { qty_unit: string; qty_factor: number } | null {
+    if (this.offGrid(p)) return null;
+    const sel = this.selectedUnit(p);
+    const unit = rotuloCrudo(sel);
+    if (!sel || !unit) return null;
+    return { qty_unit: unit, qty_factor: factorDe(sel) };
+  }
+
+  /** Igual que `selloDe` pero por product_id (el carrito trae OrderLine, no PriceRow). */
+  private selloDeId(productId: string): { qty_unit: string; qty_factor: number } | null {
+    const p = this.byIdMap().get(productId);
+    return p ? this.selloDe(p) : null;
+  }
   /** ¿Mostrar el selector? Solo si el SKU ofrece más de una presentación DISTINTA. */
   hasUnitChoice(p: PriceRow): boolean {
     return this.unitsOf(p).length > 1;
@@ -2408,16 +2573,39 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
   trackProduct(_: number, p: PriceRow): string { return p.product_id; }
   trackLine(_: number, l: OrderLine): string { return l.id; }
 
+  /**
+   * Recarga el pedido y completa cuando `cartLines` ya refleja al servidor. Misma
+   * lectura que `reloadCart`, en forma encadenable — la necesita `submit()`, que no
+   * puede preguntar el monto hasta que el total sea el firme.
+   */
+  private reloadCart$(): Observable<void> {
+    return new Observable<void>((sub) => {
+      this.reloadCart(() => {
+        sub.next();
+        sub.complete();
+      });
+    });
+  }
+
+  /**
+   * ⚠️ `after` se invoca SIEMPRE — también sin pedido y también si la lectura falla.
+   * Antes solo corría en el camino feliz: como el único uso era refrescar sugerencias,
+   * perderlo no se notaba. Encadenado a `submit()` (reloadCart$) un fallo de red dejaba
+   * la pantalla trabada en "Calculando…" sin forma de salir.
+   */
   private reloadCart(after?: () => void): void {
     const orderId = this.cartOrderId();
-    if (!orderId) return;
+    if (!orderId) { after?.(); return; }
     if (this.offlineMode()) {
-      void this.offlineApi.getById(orderId).then((draft) => {
-        const lines = draft ? this.offlineApi.toOrderLines(draft) : [];
-        this.cartLines.set(lines);
-        if (!lines.length) this.cartOpen.set(false);
-        after?.();
-      });
+      void this.offlineApi
+        .getById(orderId)
+        .then((draft) => {
+          const lines = draft ? this.offlineApi.toOrderLines(draft) : [];
+          this.cartLines.set(lines);
+          if (!lines.length) this.cartOpen.set(false);
+        })
+        .catch(() => void 0)
+        .finally(() => after?.());
       return;
     }
     this.api.orderById(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -2427,6 +2615,7 @@ export class VendorTakeOrderComponent implements OnInit, OnDestroy {
         if (!lines.length) this.cartOpen.set(false); // se vació → cerrar el sheet
         after?.();
       },
+      error: () => after?.(),
     });
   }
 

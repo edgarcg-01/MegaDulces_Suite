@@ -26,8 +26,17 @@
 
 /** Una presentacion de venta: el rotulo que ve el vendedor y cuantas unidades base trae. */
 export interface Presentacion {
+  /** Lo que se PINTA. Puede venir desambiguado ("PAQ x11") cuando la fuente se contradice. */
   unit: string;
   factor: number;
+  /**
+   * El rotulo tal como lo declara el ERP, sin el sufijo de desambiguacion. Es el que
+   * viaja al servidor como `qty_unit`: "PAQ x11" no es una unidad que nadie conozca, y
+   * mandarlo haria que el resolvedor no reconociera ni la unidad base.
+   *
+   * Ausente = `unit` ya era el crudo.
+   */
+  unitRaw?: string;
 }
 
 /**
@@ -65,9 +74,16 @@ export function escalera(units: readonly Presentacion[] | null | undefined): Pre
     const clave = `${rotulo}|${ambiguo ? factor : ''}`;
     if (vistos.has(clave)) continue;
     vistos.add(clave);
-    out.push({ unit: rotulo, factor });
+    // `unitRaw` solo cuando el rotulo se desambiguo: si no se toco, `unit` YA es el crudo y
+    // repetirlo seria ruido en el caso comun (el 99% de los SKU).
+    out.push(rotulo === u.unit ? { unit: rotulo, factor } : { unit: rotulo, factor, unitRaw: u.unit });
   }
   return out;
+}
+
+/** El rotulo que entiende el ERP (sin el sufijo de desambiguacion). Para `qty_unit`. */
+export function rotuloCrudo(p: Presentacion | null | undefined): string {
+  return (p?.unitRaw ?? p?.unit ?? '').trim();
 }
 
 /** Ofrecer el selector solo si quedan DOS presentaciones distintas de verdad. */

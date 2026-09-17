@@ -15,21 +15,16 @@ import { VendorService } from '../vendor.service';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="ok" [class.fut]="isFuturo()">
+    <div class="ok">
       @for (c of confetti; track c) {
         <span class="confetti" [style.left.%]="c.l" [style.background]="c.c" [style.animation-delay.s]="c.d"></span>
       }
     
       <div class="ok-check">
-        @if (!isFuturo()) {
-          <svg viewBox="0 0 60 60"><path d="M16 31 L26 41 L44 20"/></svg>
-        }
-        @if (isFuturo()) {
-          <i class="pi pi-calendar-plus"></i>
-        }
+        <i class="pi pi-calendar-plus"></i>
       </div>
     
-      <h2>{{ isFuturo() ? 'Pedido agendado' : 'Entregado' }}</h2>
+      <h2>Pedido agendado</h2>
       <div class="folio">
         @if (offline()) {
           <i class="pi pi-cloud-upload"></i> Se enviará al reconectar
@@ -64,9 +59,12 @@ import { VendorService } from '../vendor.service';
         position: relative; margin: -1rem; min-height: calc(100dvh - 8rem);
         display: flex; flex-direction: column; align-items: center; justify-content: center;
         padding: 2rem 1.5rem 7rem; text-align: center; overflow: hidden; color: #fff;
-        background: linear-gradient(170deg, #16A34A 0%, #0E7A37 100%);
+        /* Mismo gradiente que ya se veia: la rama "entregado" (verde) nunca se
+           alcanzaba. OJO: este azul es el #2563EB que DESIGN.md prohibe — se
+           conserva tal cual para no cambiar el look de paso; cambiarlo es
+           decision de diseno, no de esta limpieza. */
+        background: linear-gradient(170deg, #2563EB 0%, #1E40AF 100%);
       }
-      .ok.fut { background: linear-gradient(170deg, #2563EB 0%, #1E40AF 100%); }
 
       .confetti { position: absolute; top: -40px; width: 9px; height: 14px; border-radius: 2px; opacity: 0.9; animation: fall 2.4s linear infinite; }
       @keyframes fall { 0% { transform: translateY(-40px) rotate(0); } 100% { transform: translateY(105vh) rotate(420deg); } }
@@ -90,8 +88,7 @@ import { VendorService } from '../vendor.service';
         transition: transform 0.1s var(--ease-out, cubic-bezier(0.23,1,0.32,1));
       }
       .acts .wa:active, .acts .back:active, .acts .ghost:active { transform: scale(0.97); }
-      .acts .wa { background: #fff; color: #0E7A37; }
-      .ok.fut .acts .wa { color: #1E40AF; }
+      .acts .wa { background: #fff; color: #1E40AF; }
       .acts .ghost { background: rgba(255,255,255,0.12); color: #fff; border: 1px solid rgba(255,255,255,0.35); }
       .acts .back { background: rgba(255,255,255,0.22); color: #fff; }
       .acts .back:disabled { opacity: 0.7; }
@@ -111,7 +108,6 @@ export class VendorOrderSuccessComponent implements OnInit {
   private readonly haptic = inject(HapticService);
   private readonly api = inject(VendorService);
 
-  readonly mode = signal<'instante' | 'futuro'>('instante');
   readonly code = signal<string>('');
   readonly total = signal<number>(0);
   readonly units = signal<number>(0);
@@ -129,13 +125,8 @@ export class VendorOrderSuccessComponent implements OnInit {
     { l: 92, c: '#FDE707', d: 0.35 },
   ];
 
-  isFuturo(): boolean {
-    return this.mode() === 'futuro';
-  }
-
   ngOnInit(): void {
     const q = this.route.snapshot.queryParamMap;
-    if (q.get('mode') === 'futuro') this.mode.set('futuro');
     this.code.set(q.get('code') || '');
     this.total.set(Number(q.get('total')) || 0);
     this.units.set(Number(q.get('units')) || 0);
@@ -167,13 +158,10 @@ export class VendorOrderSuccessComponent implements OnInit {
 
   summary(): string {
     const u = this.units() ? `${this.units()} productos` : 'Pedido';
-    if (this.isFuturo()) {
-      const d = this.date()
-        ? new Date(this.date() + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
-        : '';
-      return `${u} · entrega ${d}`;
-    }
-    return `${u} · pago en efectivo · stock descontado`;
+    const d = this.date()
+      ? new Date(this.date() + 'T00:00:00').toLocaleDateString('es-MX', { day: '2-digit', month: 'short' })
+      : '';
+    return `${u} · entrega ${d}`;
   }
 
   waLink(): string {

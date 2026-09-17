@@ -458,11 +458,22 @@ export class PortalService {
     );
   }
 
-  addLine(orderId: string, productId: string, quantity: number): Observable<OrderLine> {
+  /**
+   * ⚠️ Contrato de unidad: con `sello` presente, `quantity` va **en la unidad capturada**
+   * (2 = dos cajas) y el servidor la convierte; sin `sello`, va en unidad base como siempre.
+   * Mandar la cantidad YA convertida junto con el sello la multiplicaría de nuevo.
+   */
+  addLine(
+    orderId: string,
+    productId: string,
+    quantity: number,
+    sello?: { qty_unit: string; qty_factor: number },
+  ): Observable<OrderLine> {
     return this.http
       .post<OrderLine>(`${this.base}/orders/${orderId}/lines`, {
         product_id: productId,
         quantity,
+        ...(sello ?? {}),
       })
       .pipe(tap(() => this.refreshCart()));
   }
@@ -535,9 +546,15 @@ export class PortalService {
     );
   }
 
-  updateLine(orderId: string, lineId: string, quantity: number): Observable<OrderLine> {
+  /** Mismo contrato de unidad que `addLine`: con `sello`, `quantity` va en esa unidad. */
+  updateLine(
+    orderId: string,
+    lineId: string,
+    quantity: number,
+    sello?: { qty_unit: string; qty_factor: number },
+  ): Observable<OrderLine> {
     return this.http
-      .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, { quantity })
+      .patch<OrderLine>(`${this.base}/orders/${orderId}/lines/${lineId}`, { quantity, ...(sello ?? {}) })
       .pipe(tap(() => this.refreshCart()));
   }
 

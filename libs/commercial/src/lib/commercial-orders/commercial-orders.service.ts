@@ -105,7 +105,25 @@ interface SelloUnidad {
 }
 
 export interface UpdateLineDto {
+  /**
+   * La cantidad. ⚠️ Mismo contrato que `AddLineDto`: con `qty_unit` presente va **en esa
+   * unidad** (2 = dos cajas); sin `qty_unit` va en unidad base y la línea queda SIN unidad
+   * declarada — el sello anterior se borra, porque describía otra cifra.
+   */
   quantity?: number;
+  /**
+   * [VU.4] En qué unidad la recapturó el humano. Sin esto, ajustar una cantidad **borraba** el
+   * sello que `addLine` había puesto: en la toma de pedido del vendedor todo ajuste pasa por
+   * acá (los steppers del carrito), así que el primer "+" dejaba la línea sin procedencia y el
+   * protocolo de unidad no llegaba a sobrevivir a la primera interacción.
+   *
+   * Mismas reglas que en `addLine`: el servidor resuelve el factor contra
+   * `analytics.v_product_box_factor`, rechaza el desacuerdo en vez de arbitrarlo, y rotula
+   * `cliente_declara` lo que solo afirma la pantalla.
+   */
+  qty_unit?: string;
+  /** [VU.4] El factor que mostró la pantalla, como último recurso. Ver `AddLineDto.qty_factor`. */
+  qty_factor?: number;
   discount_percent?: number;
   notes?: string;
 }
@@ -776,13 +794,22 @@ export class CommercialOrdersService {
 
       const prevQty = Number(line.quantity);
       const requested = Number(line.requested_quantity ?? line.quantity);
-      const quantity =
-        dto.quantity !== undefined ? Number(dto.quantity) : prevQty;
-      // [VU.2] Editar la cantidad a mano NO trae unidad: el sello anterior describia otra cifra.
-      // Se borra en vez de quedar mintiendo. Volver a sellarla exige recapturarla con su unidad.
-      const selloTrasEdicion = dto.quantity !== undefined && quantity !== prevQty
-        ? { qty_unit: null, qty_factor: null, qty_factor_source: null }
-        : {};
+
+      // [VU.4] Recaptura CON unidad: se convierte igual que en addLine (el servidor resuelve el
+      // factor, no el cliente) y la línea queda sellada. Sin unidad se mantiene el
+      // comportamiento de siempre: la cantidad llega en base.
+      let quantity = dto.quantity !== undefined ? Number(dto.quantity) : prevQty;
+      let selloTrasEdicion: Record<string, any> = {};
+      if (dto.quantity !== undefined && String(dto.qty_unit ?? '').trim()) {
+        const conv = await this.resolverUnidadCaptura(
+          trx, line.product_id, Number(dto.quantity), dto.qty_unit, dto.qty_factor);
+        quantity = conv.quantity;
+        selloTrasEdicion = { ...conv.sello };
+      } else if (dto.quantity !== undefined && quantity !== prevQty) {
+        // [VU.2] Editar la cantidad a mano NO trae unidad: el sello anterior describia otra cifra.
+        // Se borra en vez de quedar mintiendo. Volver a sellarla exige recapturarla con su unidad.
+        selloTrasEdicion = { qty_unit: null, qty_factor: null, qty_factor_source: null };
+      }
       const discount =
         dto.discount_percent !== undefined
           ? dto.discount_percent

@@ -5,6 +5,52 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-17 — `[TO.1]`–`[TO.6]`: auditoría del flujo `/vendor/take-order`
+
+**Disparador:** *«necesito que revises /vendor/take-order/. analiza el flujo que existe»*, y después *«hay que resolver estos hallazgos»*.
+
+### Dos hallazgos donde el comentario afirmaba lo contrario de lo que hacía el código
+
+`switchStockView` decía *"No cambia el pedido en curso; solo la existencia que ve el vendedor"* y pisaba `warehouseId` — la misma señal que `createLine` le pasa a `ensureDraftForCustomer`. Como el draft nace en el **primer "+"**, mirar la camioneta antes de agregar hacía que el pedido naciera contra el almacén `kind='truck'`, y `order.warehouse_id` es de donde se consume al fulfillar. Con el carrito ya armado, el mismo gesto no hacía nada. **El comentario era cierto para la mitad de los casos**, que es la forma más cara de estar equivocado.
+
+⭐ **El punto abierto lo decidió el código, no una pregunta.** Antes de tocar nada: el camión se carga con el ticket de carga (`ensureTruckWarehouse` hace *stock-in* al camión), la autoventa es Fase VR y **no tiene código**, y `place()` nunca reserva acá porque `requestedDate` siempre trae fecha (`isPreventa` = true). O sea: preventa pura, se surte de la sucursal. Separado en `orderWarehouseId` vs `stockWarehouseId`, y la pantalla ahora **lo dice** — sin esa línea el arreglo era invisible y el vendedor seguía creyendo que pedía del camión.
+
+### El diálogo que anunciaba un monto y agendaba otro
+
+El mensaje de `ConfirmationService` se arma **una sola vez**, como string, y se armaba con `cartTotal()` en caliente. La cantidad del carrito es optimista (se ve al instante, vía `pendingQty`) pero el dinero lo calcula el servidor —tiers de volumen, promociones— y sólo llega con la recarga, 500 ms después. Tocar "+" y enseguida "Agendar" dejaba el total viejo **congelado en el diálogo** mientras el `place` se iba con la cantidad nueva.
+
+⛔ **Se rechazó recalcular el total en el front**: los tiers y las promos los resuelve el backend, y un número inventado en la pantalla es peor que esperar. `submit()` ahora vuelca y recarga antes de preguntar, y mientras el total no es firme **se declara** (atenuado + "actualizando"), en vez de publicar una cifra vieja como final.
+
+Arrastró un bug latente: `reloadCart` no invocaba `after` cuando no había pedido ni cuando el GET fallaba. Con el único uso anterior (refrescar sugerencias) perderlo no se notaba; encadenado al submit dejaba la pantalla trabada en "Calculando…" sin salida.
+
+### El protocolo de unidad estaba construido y no lo llamaba nadie
+
+VU.2/VU.3 dejaron el servidor resolviendo el factor contra el ERP y **frenando el desacuerdo en vez de arbitrarlo**. Desde el campo no llegaba nada: la pantalla convertía a base y mandaba el crudo, así que la línea no decía si esas 116 piezas eran "2 cajas" o "116 sueltas". Peor: `updateLine` —por donde pasa **todo** ajuste del carrito— borraba el sello a propósito, así que aunque `addLine` sellara, el primer toque del stepper lo limpiaba. **La procedencia no sobrevivía a la primera interacción.**
+
+⭐ **Se midió antes de cablearlo, y la medición cambió el riesgo estimado.** Las presentaciones del catálogo salen de `analytics.product_units`; el resolvedor valida contra `analytics.v_product_box_factor`. **Son dos fuentes distintas para el mismo factor**, así que mandar el sello podía disparar el 400 de "desacuerdo de empaque" y romper la toma de pedidos en campo. Medido: de **7,833** presentaciones de caja, el resolvedor afirma **7,763** y **desacuerda en 1**. El 400 nuevo cuesta 0.013% — y ese caso hoy se pide con el factor de la pantalla sin que nadie se entere.
+
+⚠️ **El riesgo que NO existía antes** y que el candado vigila: `quantity` cambia de significado según venga o no `qty_unit`. Mandar la cantidad ya convertida **junto** con el sello la multiplica de nuevo (un pedido de 2 cajas se vuelve uno de 232 piezas). No lo ve un build ni un lint: se ve en el almacén. Por eso `http-vendor-qty-unit-test.js` compara el pedido sellado contra el mismo pedido hecho en base, y asevera explícitamente que **no** es `factor²`.
+
+### Código muerto que se documentaba como vivo
+
+El docblock anunciaba un modo `instante` (*"Cobrar y entregar → deliver-now (consume stock)"*) que no existía: la señal nunca se seteaba, el encabezado decía "Preventa" fijo, el único CTA era Agendar y `deliverNow` no se llamaba desde ninguna parte. `vendor-order-success` arrastraba lo mismo **con el default al revés** (`'instante'`), o sea que un query param perdido mostraba "Entregado" sobre un pedido agendado. Retirado de las dos: cuando VR llegue va a necesitar su propio contrato (folio local, conciliación de carga, arqueo), no esta rama.
+
+### `[TO.6]` — lo que apareció al querer probar, y queda abierto
+
+El smoke no arrancaba: **`commercial.order_lines` no tenía las columnas del sello** en `platform_test`, y como el código de VU.2 las escribe siempre, `addLine` devolvía **500 a todo el mundo** en la base compartida de dev — con sello y sin él. La migración `20260912040000_qty_unit_stamp` estaba sin aplicar **aunque migraciones posteriores sí lo estaban**.
+
+Se aplicó **sólo esa** (`migrate.up({name})`; es aditiva, `ADD COLUMN` nullable con guardas `hasColumn` y aserciones propias). ⛔ No se corrió `migrate:latest`: había **87 pendientes ajenas** y es una base que ven los demás devs.
+
+**Prod no se midió.** El start corre `migrate:latest` y migración y código entraron a `main` el mismo día, así que el mecanismo la aplica — pero *que se haya aplicado* sigue sin verificarse, y tampoco se investigó por qué esa base quedó 88 migraciones atrás. Se declara, no se da por bueno.
+
+### Lecciones
+
+- **Un comentario que describe la intención no describe el código.** Los dos hallazgos más caros fueron métodos cuyo comentario afirmaba justo lo contrario de lo que hacían en la mitad de los casos.
+- **Antes de preguntar, ver si el código ya decidió.** El punto abierto del `[TO.1]` ("¿puede el camión ser el almacén de un pedido?") lo contestaban `ensureTruckWarehouse`, el estado de Fase VR y `isPreventa`.
+- **Un protocolo a medio cablear es decorativo.** El sello existía en `addLine` y moría en `updateLine`: la mitad construida no daba ninguna garantía.
+- ⚠️ **Quinta vez que un acento grave en un comentario CSS rompe el build de este repo** (`Failed to resolve styles at position 1 to a string`). Los estilos son template literals.
+
+---
 ## 2026-09-17 — `[DB-MEM.9]`–`[DB-MEM.13]`: el estándar deja de ser la RAM y pasa a ser el segundo
 
 **Disparador:** *«el consumo de ram en prod no ha bajado nada»*, y después el criterio explícito: *«una consulta de más de 1 segundo no sirve, es más, una interfaz que tarda más de un segundo no sirve»*.
