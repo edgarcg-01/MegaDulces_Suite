@@ -65,6 +65,11 @@ interface CampaignEval {
   warnings: string[];
 }
 
+interface ImportPreview { summary: { total: number; create: number; update: number; errors: number }; rows: { i: number; concept: string; action: string; error?: string }[] }
+interface Projection { authorized_vigente: number; proyeccion_firme: number; proyeccion_plena: number; actual: { exercised: number; committed: number; reserved: number; disponible: number }; note: string }
+interface CompareRow { concept: string; area: string | null; line_type: string; vigente_a: number | null; vigente_b: number | null; delta: number | null; estado: string }
+interface CompareResult { totals: { a: number; b: number; delta: number }; rows: CompareRow[] }
+
 type PresView = 'ejercicios' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
@@ -133,7 +138,13 @@ type PresView = 'ejercicios' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
                 }
                 @if (b.status === 'aprobado') {
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="lifecycle(b, 'close')" [loading]="savingLifecycle()">Cerrar</button>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openProjection()" title="Proyección de cierre"><span class="pi pi-flag"></span>&nbsp;Proyección</button>
                 }
+                @if (b.status === 'borrador' || b.status === 'en_revision') {
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openImport()" title="Importar partidas"><span class="pi pi-upload"></span>&nbsp;Importar</button>
+                }
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCopy()" title="Copiar ejercicio"><span class="pi pi-copy"></span>&nbsp;Copiar</button>
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCompare()" title="Comparar con otro ejercicio"><span class="pi pi-arrows-h"></span>&nbsp;Comparar</button>
               </div>
             </div>
 
@@ -587,6 +598,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
   ];
   cancelTargetOpts = [{ label: 'Reserva', value: 'reserva' }, { label: 'Compromiso', value: 'compromiso' }];
 
+  // ── Planeación (PU.4): copiar / comparar / importar / proyección ──
+  copyVisible = false; savingCopy = signal(false);
+  copyForm: { name?: string; scenario?: string; fiscal_year?: number } = {};
+  importVisible = false; importText = ''; importPreviewing = signal(false); importApplying = signal(false);
+  importPreview = signal<ImportPreview | null>(null);
+  compareVisible = false; compareOther = ''; comparing = signal(false);
+  compareResult = signal<CompareResult | null>(null);
+  projVisible = false; loadingProj = signal(false);
+  projection = signal<Projection | null>(null);
+
   // ── Flujo de efectivo (PU.3) ──
   cashflow = signal<Cashflow | null>(null);
   loadingCashflow = signal(false);
@@ -714,6 +735,66 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   private reloadDetail(): void { const b = this.selected(); if (b) this.selectBudget(b); }
+
+  // ── Planeación (PU.4) ──
+  openCopy(): void { const b = this.selected(); this.copyForm = { name: b?.name, scenario: b?.scenario, fiscal_year: b?.fiscal_year }; this.copyVisible = true; }
+  confirmCopy(): void {
+    const b = this.selected(); if (!b) return;
+    this.savingCopy.set(true);
+    this.http.post<{ budget: BudgetHeader; copied_lines: number }>(`${this.base}/budgets/${b.id}/copy`, this.copyForm).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.savingCopy.set(false); this.copyVisible = false; this.loadBudgets(); if (r?.budget) this.selectBudget(r.budget); this.toast.add({ severity: 'success', summary: 'Copiado', detail: `Nuevo ejercicio en borrador (${r?.copied_lines ?? 0} partidas, sin autorizaciones).` }); },
+      error: (e) => { this.savingCopy.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo copiar.' }); },
+    });
+  }
+
+  openImport(): void { this.importText = ''; this.importPreview.set(null); this.importVisible = true; }
+  /** Cada renglón: `concepto; tipo; area; importe` (tipo/area opcionales). */
+  private parseImport(): { concept: string; line_type: string; area: string | null; original_amount: number }[] {
+    return this.importText.split('\n').map((ln) => ln.trim()).filter(Boolean).map((ln) => {
+      const [concept, tipo, area, imp] = ln.split(';').map((s) => s.trim());
+      return { concept: concept || '', line_type: tipo || 'gasto', area: area || null, original_amount: Number(imp) };
+    });
+  }
+  doPreview(): void {
+    const b = this.selected(); if (!b) return;
+    const rows = this.parseImport();
+    if (!rows.length) { this.toast.add({ severity: 'warn', summary: 'Sin filas', detail: 'Pega al menos una partida.' }); return; }
+    this.importPreviewing.set(true);
+    this.http.post<ImportPreview>(`${this.base}/budgets/${b.id}/import/preview`, { rows }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => { this.importPreview.set(p); this.importPreviewing.set(false); },
+      error: (e) => { this.importPreviewing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo previsualizar.' }); },
+    });
+  }
+  doApply(): void {
+    const b = this.selected(); if (!b) return;
+    const rows = this.parseImport();
+    this.importApplying.set(true);
+    this.http.post<{ created: number; updated: number; skipped: number }>(`${this.base}/budgets/${b.id}/import/apply`, { rows }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.importApplying.set(false); this.importVisible = false; this.reloadDetail(); this.toast.add({ severity: 'success', summary: 'Importado', detail: `${r.created} creadas · ${r.updated} actualizadas · ${r.skipped} omitidas.` }); },
+      error: (e) => { this.importApplying.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo importar.' }); },
+    });
+  }
+
+  openCompare(): void { this.compareOther = ''; this.compareResult.set(null); this.compareVisible = true; }
+  runCompare(): void {
+    const b = this.selected(); if (!b || !this.compareOther) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Elige el ejercicio a comparar.' }); return; }
+    this.comparing.set(true);
+    this.http.get<CompareResult>(`${this.base}/compare`, { params: { a: b.id, b: this.compareOther } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.compareResult.set(r); this.comparing.set(false); },
+      error: (e) => { this.comparing.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo comparar.' }); },
+    });
+  }
+  otherBudgets(): BudgetHeader[] { const id = this.selected()?.id; return this.budgets().filter((x) => x.id !== id); }
+
+  openProjection(): void {
+    const b = this.selected(); if (!b) return;
+    this.projection.set(null); this.loadingProj.set(true); this.projVisible = true;
+    this.http.get<Projection>(`${this.base}/budgets/${b.id}/projection`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => { this.projection.set(p); this.loadingProj.set(false); },
+      error: () => { this.loadingProj.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo calcular la proyección.' }); },
+    });
+  }
+  compareSeverity(estado: string): 'secondary' | 'info' | 'warn' { return estado === 'igual' ? 'secondary' : estado === 'cambio' ? 'warn' : 'info'; }
 
   // ── Flujo de efectivo ──
   loadCashflow(): void {

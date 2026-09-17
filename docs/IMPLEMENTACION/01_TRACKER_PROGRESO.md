@@ -201,8 +201,16 @@ importers.
   ⚠️ **El build de `view` está ROJO por WIP ajeno** — `almacen-surtido.component.ts` (fase SU, otra sesión) tiene
   `new Set()` inline en un binding de template (`NG5002`); NO es de PU y no se toca. Los 3 errores son todos de ese
   archivo; ninguno referencia `finanzas-presupuesto`.
-  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); UI de planeación/copia/import (PU.4);
-  vincular partida↔campaña desde la UI (el backend ya lo soporta); verificación HTTP en runtime (guards/RLS).
+  **5o slice ✅ — Planeación (PU.4):** acciones sobre el ejercicio seleccionado (no otra pestaña): **Copiar** (nace
+  borrador, sin autorizaciones), **Importar** partidas con **preview→apply** (textarea `concepto;tipo;área;importe`,
+  muestra crea/actualiza/errores antes de aplicar; idempotente), **Comparar** con otro ejercicio (tabla línea a línea
+  + Δ + estado igual/cambio/solo_a/solo_b), **Proyección de cierre** (firme/plena, declarada "no altera lo
+  autorizado"). `check:templates` ✅ · lint 0 · **`nx build view` ✅ VERDE** (el rojo del slice anterior era estado
+  concurrente del árbol + WIP ajeno de `almacen-surtido`, ya resuelto). **Con esto la UI cubre las 5 capas.**
+  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); vincular partida↔campaña desde la UI
+  (el backend ya lo soporta); verificación HTTP en runtime (guards/RLS); migraciones a prod (3 migs budget en dev).
+  ⚠️ **Deuda técnica declarada:** `finanzas-presupuesto.component.ts` es un god-component (~980 líneas, 5 sub-vistas) —
+  candidato a partir en componentes por vista cuando se estabilice.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
