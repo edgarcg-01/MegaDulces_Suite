@@ -13,6 +13,7 @@
     "build": "nx run-many -t build",
     "test": "nx run-many -t test",
     "lint": "nx run-many -t lint",
+    "check": "node scripts/check-all.js",
     "lint:boundary": "node scripts/lint-boundary-gate.js",
     "check:templates": "node scripts/check-template-literals.js",
     "check:provenance": "node scripts/check-provenance.js",
