@@ -1313,15 +1313,27 @@ export class UsersService {
        */
       updateData['password_changed_at'] = this.knex.fn.now();
       if (updateUserDto.must_change_password === undefined) {
-        const esDispositivo =
+        /*
+         * ⛔ `[AU.31]` Esto decidía sólo por `token_ttl_days`, y estaba mal: se
+         * midió en prod y **las 18 cuentas `kind='dispositivo'` tienen
+         * `token_ttl_days = NULL`** — las 8 etiqueteras incluidas. El TTL no es
+         * lo que hace a un dispositivo: es `kind`. Con la versión anterior, un
+         * reset a `etiquetas.32` le ponía `must_change_password = true` y
+         * dejaba las 8 pantallas afuera, que es textual lo que `[CH.1.10]` dice
+         * que ya pasó una vez.
+         *
+         * El TTL se conserva como segundo criterio: una cuenta interna con
+         * sesión larga también es una credencial desatendida.
+         */
+        const fila = await this.knex('users')
+          .where({ id, tenant_id: this.tenantId })
+          .select('token_ttl_days', 'kind')
+          .first();
+        const ttlResultante =
           'token_ttl_days' in updateUserDto
-            ? updateUserDto.token_ttl_days != null
-            : (
-                await this.knex('users')
-                  .where({ id, tenant_id: this.tenantId })
-                  .select('token_ttl_days')
-                  .first()
-              )?.token_ttl_days != null;
+            ? updateUserDto.token_ttl_days
+            : fila?.token_ttl_days;
+        const esDispositivo = fila?.kind === 'dispositivo' || ttlResultante != null;
         updateData['must_change_password'] = !esDispositivo;
       }
     }
