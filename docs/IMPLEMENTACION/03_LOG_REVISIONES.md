@@ -5,6 +5,84 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-17 — `[DB-MEM.9]`–`[DB-MEM.13]`: el estándar deja de ser la RAM y pasa a ser el segundo
+
+**Disparador:** *«el consumo de ram en prod no ha bajado nada»*, y después el criterio explícito: *«una consulta de más de 1 segundo no sirve, es más, una interfaz que tarda más de un segundo no sirve»*.
+
+### La primera respuesta fue corregir la premisa, con medición
+
+La RAM no había bajado, y una parte era **mía**: el §0 del plan subió `shared_buffers` de 128 MB a 1536 MB. Pero el fondo es que **en Postgres la RAM no baja optimizando consultas**:
+
+| | |
+|---|---|
+| Reserva compartida total | **1,647 MB** (1,536 son `shared_buffers`) |
+| Todo lo demás que reserva | 111 MB |
+| Los ~4.3 GB restantes de los 6 GB | **caché del SO**, que llena lo libre por diseño |
+| Datos | 31 GB · aciertos de caché **87.78 %** · **1,154 GB** derramados a disco temporal |
+| Reinicios / OOM | ninguno |
+
+La gráfica del contenedor pegada al techo es el estado **sano**, y su propio desplome de las 13:15 (de ~5 GB a menos de 2, y de vuelta) lo prueba: eso es el kernel reclamando caché, algo que sólo puede hacer con memoria reclamable.
+
+⛔ **Hipótesis muerta:** el plan tenía anotado `max_connections = 500` como *«bajarlo liberaría memoria reservada»*. Medido con `pg_shmem_allocations`, las estructuras que escalan con ese parámetro suman **~400 kB**: bajarlo a 100 liberaría **320 kB**. Cuarta hipótesis de este plan que muere al medirla.
+
+**Lo que sí se movió fue CPU:** de tocar el límite de 4.0 vCPU al mediodía a **1.6 vCPU**.
+
+### `[DB-MEM.9]` Un `ANALYZE` de 4.5 GB, veinte veces por hora, para 35 filas
+
+`import-sales-fact.js` e `import-wincaja-analytics.js` corrían `ANALYZE analytics.sales_daily` en **cada** corrida. El comentario decía *«Barato; corre en cada feed»* — y lo era cuando se escribió.
+
+| | |
+|---|---|
+| `analytics.sales_daily` | 4,531,364 filas / **4,488 MB** |
+| `ANALYZE` manual | **7,985 veces** (autoanalyze del motor: **1**) |
+| Ritmo real de cambio | 9 inserts + 26 updates **en 3 minutos** |
+| `n_mod_since_analyze` | **0** |
+| Costo | 12.2 s × ~20/hora = **10.5 % del gasto vivo** |
+
+Lo dispara `livefast` (loop ~60 s), **que nació después** de que el ANALYZE se declarara barato. Helper compartido `lib/analyze-if-stale.js`: le pregunta a Postgres cuánto cambió y analiza sólo si pasa el umbral, **derivado del que usa el propio motor** (`50 + 0.10 × filas` = ~453,000) y puesto 10× más estricto (45,971). Verificado en prod: **0 corridas en 20 minutos**, contra ~7 antes.
+
+### `[DB-MEM.10]` La consulta #1 corría 6 veces por hora para cambiar el 6 % de sus filas
+
+`stg_rplan` mide **157 s** y corría 6×/hora (`live` 2 + `stock` 4) = **39 % del gasto vivo**. El `EXPLAIN (ANALYZE, BUFFERS)` dice que **no hay un nodo malo que arreglar**: el costo está repartido en 44 sub-CTEs (`econ` 24 s · `swk` 11 s · `slvl` 10 s · `gy` 9 s · `hist` 9 s) y `sales_daily` se escanea **4 veces por corrida**.
+
+Y el resultado casi no cambia: de 47,327 filas, **2,879 (6.1 %)** cambiaron en 15 min y **31,210 (66 %)** llevan más de 6 horas iguales. Sale de `live` y **no** de `stock` porque el único insumo rápido es la existencia y `stock` es su carril; el rezago queda **acotado a 5 minutos** (`stock` corre a los 5,20,35,50 y `live` a los 0,30). Verificado: **3.9/hora**.
+
+### `[DB-MEM.11]` y `[DB-MEM.12]` «Escaneo una tabla de hechos para llenar un combo»
+
+Dos `filters()` distintos hacían `SELECT DISTINCT` sobre `analytics.stock_movements` **entera** (3,702,198 filas / 1,980 MB) para devolver **10 almacenes y 19 tipos de documento**.
+
+| | Páginas antes | Páginas después |
+|---|---|---|
+| Almacenes (`EXISTS` desde los 28 almacenes) | 12,342 (96 MB) | **91 (1 MB)** |
+| Tipos de documento (salto de índice) | 130,991 (1,023 MB) | **1,768 (14 MB)** |
+
+**Equivalencia verificada contra prod, no razonada:** 10 y 19 filas idénticas **posición por posición**; **0 `warehouse_id` huérfanos** (con huérfanos el `LEFT JOIN` los mostraba y el `EXISTS` los perdería) y **0 `doc_code` con más de una etiqueta** (si no, el `LIMIT 1` del LATERAL elegiría mal).
+
+⭐ **Y un hallazgo que merece ser regla:** las tres medidas de frescura de BI Almacén iban en **una sola query**, y eso costaba **5× más** que pedirlas por separado — 1,023 MB juntas contra 266 MB separadas. Con las tres en el mismo `SELECT`, Postgres no puede usar la optimización de cada una y cae a un único escaneo que las satisface a todas. **Es el mismo hallazgo que el sensor de `db-health`** (923 ms → 0.049 ms al separarlas): pasó dos veces, no es anécdota.
+
+El `count(*)` pasa a **estimado y declarado** (`total_rows_estimated`, ADR-056): el exacto costaba 195 MB y ~1.8 s en cada carga para un número que **ninguna plantilla pinta**.
+
+### `[DB-MEM.13]` Un índice cubridor de 355 MB al que le faltan dos columnas
+
+`ix_mv_sales_blended_cover` se creó para que el Command Center leyera sin tocar el heap. Las tres consultas que lo necesitan piden una columna que no está: `#5` pide `MAX(updated_at)`, `#6` y `#7` unen por `product_id`. Resultado: **16 usos acumulados** y las tres barriendo 1,459 MB.
+
+Probado quitándole a la **misma** consulta el campo que falta: con `MAX(updated_at)` son 199,641 páginas tocando el heap; **sin él, 22,218 e `INDEX-ONLY`**. Migración `20260917120000` escrita y **no aplicada**: construir ~459 MB es escritura pesada (el `ix_stockmov_imported_at` del día anterior tardó 49 min en `CONCURRENTLY`).
+
+### Lo que se midió sobre el estándar de 1 segundo
+
+**No está todo lento: hay un puñado atroz.** De 143,359 llamadas del API, **141,317 (98.6 %) están por debajo de 1 s**; las 2,042 restantes se reparten en 126 consultas.
+
+Y **no había nada que matara a las lentas**: `statement_timeout = 0` en el servidor y el pool principal del API sin ninguno — por eso una consulta pudo correr **9.5 minutos** reteniendo su conexión. Se puso techo de 120 s al rol `app_runtime`, que modelado contra los datos corta **exactamente 1 consulta, 2 llamadas**: `v_route_sales_lines`, la que ya tiró prod dos veces. ⚠️ **No medido:** que una conexión nueva reciba los 120 s — no hay credencial de `app_runtime` acá; se confirma cuando el pool recicle.
+
+### Lección: para «optimizar sin cambiar resultados», primero hay que tener un orden estable
+
+El item más caro (**4,820 s**, la familia `KDM_SUBQ` de «Explorar datos») **no se tocó**, y la razón la encontró la refutación adversarial: `explore()` ordena **sólo por `m.doc_date`, que es `date`, no `timestamp`**, sin desempate. Con ~30 valores distintos para 134k filas, el `LIMIT` **ya elige un subconjunto arbitrario**; mover las subconsultas después del `LIMIT` enriquecería *otro* subconjunto arbitrario.
+
+Más: el arreglo propuesto omitía `m.doc_code` del select, y sin él `clasificar(undefined)` devuelve `isSale=false` siempre → **Vendedor y Canal quedarían vacíos en el 100 % de las filas**.
+
+El mismo patrón apareció solo en `[DB-MEM.11]`: dos tipos de documento etiquetados «Venta» (`Sale1` y `WIN_V`) que `ORDER BY movement_label` puede voltear entre corridas. **Un `ORDER BY` ambiguo no es un detalle de presentación: es lo que hace imposible demostrar que una optimización no cambió nada.**
+
+---
 ## 2026-09-15 — `[AU.23]`–`[AU.26]`: el organigrama pasa a ser el de MDTask, y el cruce destapa un `superadmin`
 
 **Disparador:** Edgar pega el organigrama que MDTask mantiene en su propio código (89 puestos, 189 personas de la nómina de agosto) y decide: *«la verdad absoluta es mdtask. generemos el organigrama bajo esa jerarquia»*.
