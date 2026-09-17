@@ -2011,3 +2011,35 @@ Plan y detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS
 **Hereda:** ADR-064 (el calendario es consumidor) · ADR-016 (motor decide, LLM fuera del dinero) · ADR-056 (lo no medido se declara, nunca cero) · ADR-059 (el real se arbitra; salvedad de costo). Reconcilia el `budget.*` de la Fase TP.
 
 Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md).
+
+---
+
+## ADR-067
+
+**El tramo de almacén es un EJE PARALELO al pedido, no 33 estados del pedido** (Fase SU)
+
+**Fecha:** 2026-09-17 · **Estado:** ⏳ Propuesto
+
+**Contexto:** el documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md` v1.0 pide un flujo digital completo de preventa (pedido → ola → surtido → desconsolidación → chequeo → facturación → embarque → entrega → liquidación → caja) y propone una máquina de **22 estados principales + 11 extraordinarios** sobre el pedido, más 18 etapas de implementación.
+
+**Lo medido antes de decidir:** entre **10 y 12 de las 18 etapas ya están en producción** — pedido maestro (`commercial.orders` + `order_status_history`, folio `PD-`), interfaz del vendedor (`/vendor/take-order`), CFDI (FE.5 por `INVOICE_ISSUER_PORT`), embarques y custodia (Fase J/LM), liquidación con **arqueo ciego** (`commercial-rider-liquidation`), corte de caja (`libs/finance/lib/caja`), traspasos (Fase RA), inteligencia y copiloto (Thot, ADR-018, + `commercial-recommendations`). Lo genuinamente ausente son las etapas 3–8 y 20: pool, olas, consolidación, surtidor, excepciones, desconsolidación y chequeo. ⛔ Y **`commercial.warehouse_bins` = 0 filas / `stock_lot_locations` = 0**, con backend (`put-away`, `pick-suggestion`) y UI ya construidos desde la mig `20260817140000`: el beneficio central prometido ("disminuir recorridos") depende de un dato que nadie capturó.
+
+**Decisión:**
+1. El pedido **no cambia de identidad**: `commercial.orders` y el folio `PD-` siguen siendo el pedido maestro. No se crea `PV-`.
+2. El avance físico vive en un **eje de fulfillment propio** (`pool → asignado_ola → en_surtido → surtido → desconsolidado → checado → listo_embarque`) que referencia al pedido.
+3. Las "excepciones" del documento (faltante, agotado, diferencia, sustitución pendiente…) **no son estados**: son filas de una tabla de excepciones, porque varias coexisten sobre el mismo pedido.
+4. Toda cantidad mostrada al surtidor lleva **unidad visible**, resuelta por `analytics.v_unit_truth` (ADR-057). Lo no resoluble se declara, no se redondea.
+5. La recuperación de agotados y las sustituciones (§16, §18) se resuelven con **Thot + Fase RA**, no con un motor nuevo.
+
+**Se rechaza:** (a) ampliar `commercial.orders.status` a 33 valores — el CHECK vivo tiene 5 y de él cuelga todo el flujo comercial (portal, vendedor, telemarketing, tienda, bot); además mezcla dos preguntas distintas (*¿el cliente se comprometió?* vs *¿dónde va la mercancía?*), y un CASE que mezcla dos preguntas le miente a una (ADR-057); (b) tomar el documento como backlog literal — reconstruiría medio sistema; (c) mover la facturación a la cajera sin decidirlo explícitamente (hoy el CFDI sale al fulfillar, FE.5); (d) reusar `commercial-receiving` para el chequeo de salida — es recepción de proveedor, comparte forma pero no dominio.
+
+**Consecuencias:**
+- ✅ El flujo comercial actual no se toca: la fase es aditiva.
+- ⛔ **SU.0 (rotular y capturar ubicaciones + medir la línea base de hoy) es el camino crítico y NO es trabajo de software.** Sin la línea base, el §47 del documento ("criterio de éxito") es indemostrable: pide bajar tiempos y errores y no existe el número contra el cual comparar.
+- ⚠️ **Decisión abierta y cara:** §15 (distribuir inventario escaso) exige **reservas duras**, y hoy la preventa NO reserva, a propósito (`test-newdb-order-reopen`: devolver la cantidad de la línea le suelta el apartado a otro pedido). Además se reservaría sobre `commercial.stock`, que **no es el SoR** (la existencia manda desde `analytics.v_erp_stock_on_hand`; Kepler/Wincaja son el sistema de registro).
+- ⚠️ §30 ("alimentar Contabilidad") choca con **ADR-040**: ContPAQi es SoR contable y la plataforma lee, jamás escribe directo. Se redacta como "genera el asiento y lo entrega".
+- ⚠️ **El granel queda declarado**: 232 SKUs en KG no entran en `escanear → contar → confirmar`; o se capturan por peso o salen de las olas.
+
+**Hereda:** ADR-055 y ADR-057 (la unidad se resuelve una vez, con testigo — $866,805 de sobre-pedido ya pagados por un divisor equivocado) · ADR-016/018 (el motor decide, el LLM fuera del camino del dinero — a lo que el propio documento llega por su cuenta en §31/§33) · ADR-056 (lo que no se puede medir se declara; un gate sin prueba negativa es una intención) · ADR-040 (ContPAQi es SoR contable).
+
+Plan y detalle en [`FASE_SU_SURTIDO_POR_OLAS.md`](FASES/FASE_SU_SURTIDO_POR_OLAS.md).
