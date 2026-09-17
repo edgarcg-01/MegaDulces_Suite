@@ -5,6 +5,48 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-17 — `[DB-MEM.17]` Deuda declarada: 50 crons sin candado entre procesos, y el helper NO los cubre a todos
+
+**Cómo se llegó:** midiendo `logistics.fleet_alerts` (0.587 % de la base) concluí que **dos instancias** del API corrían el mismo cron y se bloqueaban. **Era falso** — la corrección está en `[DB-MEM.17.1]`. Pero el riesgo latente que destapó sí es real y no estaba inventariado.
+
+### El riesgo, que el propio repo ya declaraba
+
+`app.module.ts:418`: *«cada cron tiene su `isRunning` en memoria, que no sirve entre procesos: **no hay leader election en ningún lado**»*. Y `shouldRunInProcessCron()` no lo cubre: devuelve `true` salvo que `ENABLE_WORKER_QUEUE` valga exactamente `'true'`, o sea que hoy es un **no-op**. Medido: **52 `@Cron`, 7 lo llaman**.
+
+Hoy hay **una réplica**, así que no duele. El día que haya dos, **50 crons corren duplicados**.
+
+### Lo que se clasificó (50 crons, un agente cada uno, con refutación adversarial)
+
+| | |
+|---|---|
+| Candado recomendado | **33** |
+| Necesita otra cosa / NO ponerle candado | **16** |
+| No hace falta | 1 |
+| **Con efecto duplicado IRREVERSIBLE** | **12** |
+| **Donde el candado NO es seguro** | **12** |
+
+⛔ **El hallazgo que impide aplicarlo en masa: el helper no sirve para la mayoría.** `tomarCandadoDeCron()` usa `pg_try_advisory_xact_lock`, que es **de transacción**. De los 5 de prioridad alta, **ninguno usa `tk.run()` ni `transaction()`** — no hay transacción donde tomarlo. `fleet-alerts` funcionó por casualidad: es de los pocos que ya corría dentro de una.
+
+Un candado de **sesión** sí serviría, pero se queda tomado si el proceso muere y deja el cron **apagado** hasta que la conexión se recicle — falla en silencio y hacia el lado inseguro. Resolverlo de verdad pide expiración (arrendamiento con latido), que es trabajo aparte.
+
+### Los que el análisis marcó como PELIGROSO candar, con su motivo
+
+- `goods-receipts-watcher` — guarda en memoria las claves ya vistas; saltear una corrida congela ese estado y la instancia que pierde dispara una avalancha cuando gane.
+- `finance-feed-scanner` — **el watermark se congela**.
+- `alerts-scanner` — el cooldown de 1 h vive en memoria: el candado **empeora el spam**. (Y hallazgo aparte: ese cron **está apagado** — `ENABLE_COMMERCIAL_ALERTS` no existe fuera de su propia línea, por decisión de producto.)
+- `fleet-poller` — el push en vivo **se pierde en silencio**.
+- `field-alerts-scanner` — peligroso en las dos ramas, **por motivos opuestos**.
+- `job-runner` — objeción **mecánica** al helper, no al cron.
+- `cash-count-sla` — el efecto es un fan-out por WS y su **alcance** cambia.
+- `analytics-refresh` — `fdwUnhealthyUntil` (backoff de 30 min del FDW caído) vive en memoria: sólo aprendería la instancia que gana.
+
+### Por qué NO se aplicó
+
+Beneficio **cero hoy** (una réplica) contra 33 ediciones en ruta de dinero, 28 de las cuales necesitan trabajo individual porque el helper no les aplica. Queda **declarado como deuda con nombre**, que es lo que ADR-056 pide cuando un primitivo no alcanza: *«el item no está cerrado hasta que el mecanismo vive en `libs/` compartido **o** queda declarado como deuda con nombre en el tracker»*.
+
+⚠️ **Prerrequisito real antes de escalar a 2 réplicas.** No es opcional: **12 de los 50 tienen efecto irreversible** — borrar fotos en Cloudinary (`tasks.service.ts`), llamar al SAT o al PAC (`estatus-scanner`, `fiscal-listas-scanner`, `invoice-retry-cron`, `job-runner`), mandar avisos (`route-ticket-reminder`).
+
+---
 ## 2026-09-17 — `[TO.1]`–`[TO.6]`: auditoría del flujo `/vendor/take-order`
 
 **Disparador:** *«necesito que revises /vendor/take-order/. analiza el flujo que existe»*, y después *«hay que resolver estos hallazgos»*.
