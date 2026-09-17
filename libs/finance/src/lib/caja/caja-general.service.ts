@@ -9,11 +9,28 @@ import { TenantKnexService, TenantContextService, applySmartSearch, branchName }
  * analytics.* NO tiene RLS → filtro tenant EXPLÍCITO dentro de tk.run().
  *
  * Tolerancias de conciliación (heredadas de CB/CC, ver bancos-shared):
- *   · MATCH_EPS   = ±$1     → casar un movimiento contra el banco (efectivo exacto).
- *   · CUADRE_EPS  = ±$1,000 → cuadre de TOTALES (absorbe centavos/redondeo).
+ *   · MATCH_EPS   = ±$5     → casar un movimiento contra el banco, y que el DÍA cuadre.
+ *   · CUADRE_EPS  = ±$1,000 → cuadre de TOTALES (absorbe el redondeo de ~30 días).
  * El descuadre venta→depósito NO usa tolerancia: el hueco es la señal.
+ *
+ * ⭐ `MATCH_EPS` pasó de ±$1 a ±$5 el 2026-09-17, a pedido de Finanzas. MEDIDO antes de
+ * cambiarlo, con el mismo algoritmo greedy, sobre 1-jul→17-sep (67 días con movimientos):
+ *
+ *            casados            huérfanos Control     huérfanos banco
+ *   ±$1      7,030  $76.38M     382  $11.36M          332  $9.28M
+ *   ±$5      7,048  $77.64M     364  $10.10M          314  $8.03M
+ *   Δ        +18    +$1.26M     −18  −$1.26M          −18  −$1.26M
+ *
+ * O sea: **18 movimientos más casan y salen $1.26M de la columna de huérfanos** — ~$70k
+ * promedio cada uno, movimientos grandes que diferían por menos de cinco pesos. Ampliar una
+ * tolerancia BAJA el descuadre reportado, así que el número de antes queda escrito acá: sin
+ * eso, la cifra de la pantalla cambia y nadie sabe cuánto fue el cambio y cuánto la realidad.
+ *
+ * ⛔ Y era UNA tolerancia escrita TRES veces a mano (`MATCH_EPS`, el `AMT_TOL` del matcher en
+ * centavos, y el `EPS` del cuadre por día). Las tres se derivan de ésta ahora: mover una sola
+ * dejaba la pantalla diciendo "±$1" mientras el matcher usaba otra cosa.
  */
-const MATCH_EPS = 1;
+const MATCH_EPS = 5;
 const CUADRE_EPS = 1000;
 const TENDERS = ['efectivo', 'morralla', 'cheques', 'tarjeta', 'caja_chica', 'sobregiro'];
 
@@ -298,7 +315,7 @@ export class CajaGeneralService {
       for (const r of wb as any[]) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.wb_ingreso = n(r.ingreso); d.wb_gasto = n(r.gasto); d.wb_n = n(r.n); byDay.set(k, d); }
       for (const r of kp as any[]) { const k = key(r.fecha); const d = byDay.get(k) || blank(k); d.kp_ingreso = n(r.ingreso); d.kp_gasto = n(r.gasto); d.kp_n = n(r.n); byDay.set(k, d); }
 
-      const EPS = 1; // ±$1 por día = cuadra (mdb ↔ workbook, la comparación exacta)
+      const EPS = MATCH_EPS; // el día cuadra dentro de la MISMA tolerancia con que casan los movimientos
       const por_dia = Array.from(byDay.values()).map((d) => {
         const di = r2(d.mdb_ingreso - d.wb_ingreso), dg = r2(d.mdb_gasto - d.wb_gasto);
         const wb_vacio = d.wb_n === 0;
@@ -329,7 +346,7 @@ export class CajaGeneralService {
         por_dia,
         // Dos tolerancias distintas y nombradas: el DÍA se compara al peso (una captura
         // manual o cuadra o no), pero el TOTAL DEL MES acumula el redondeo de ~30 días y con
-        // ±$1 marcaría descuadre aunque cada día cuadre. `CUADRE_EPS` es la de totales, la
+        // ±$5 marcaría descuadre aunque cada día cuadre. `CUADRE_EPS` es la de totales, la
         // misma que usa el Cuadre de Bancos.
         eps: EPS, eps_total: CUADRE_EPS,
       };
@@ -399,7 +416,7 @@ export class CajaGeneralService {
    * CG.12 — Drill "¿dónde está el descuadre?" de la caja — ESPEJO del de Bancos
    * (finance-bank.contpaqiAccountDetail). Para UN día, enfrenta movimiento a movimiento
    * la caja operativa (.mdb) contra las OTRAS dos fuentes por separado — Manual (workbook)
-   * y Kepler (ERP) — casando greedy por importe ±$1 dentro de cada dirección (ingreso/gasto),
+   * y Kepler (ERP) — casando greedy por importe ±MATCH_EPS dentro de cada dirección (ingreso/gasto),
    * y devuelve los HUÉRFANOS de cada lado (los movimientos que faltan/sobran). La suma de
    * huérfanos explica el Δ, igual que en Bancos.
    */
@@ -409,7 +426,7 @@ export class CajaGeneralService {
     const n = (x: any) => Number(x) || 0;
     const r2 = (v: number) => Math.round(v * 100) / 100;
     const cents = (v: any) => Math.round(n(v) * 100);
-    const AMT_TOL = 100; // ±$1 absorbe centavos de captura
+    const AMT_TOL = MATCH_EPS * 100; // en CENTAVOS — derivado, no escrito a mano (ver la cabecera)
 
     // Etiqueta uniforme de un movimiento (para render idéntico en el frontend). `source` + `key`
     // (PK completa codificada) habilitan el click → detalle completo del movimiento (movementDetail).
@@ -797,7 +814,7 @@ export class CajaGeneralService {
 
   /**
    * CG.8 — Conciliación de INGRESOS a nivel movimiento: depósito de Caja ↔ ingreso del
-   * banco (workbook/CB), casados por monto (±$1) + fecha (±3d) dentro del mismo banco.
+   * banco (workbook/CB), casados por monto (±MATCH_EPS) + fecha (±3d) dentro del mismo banco.
    * Resuelve el "memo de ingresos" de Bancos y detecta fuga:
    *   · matched     = depósito de Caja que SÍ aparece en el banco.
    *   · caja_only   = depósito registrado en Caja SIN ingreso en banco (fuga/rezago).
@@ -835,12 +852,32 @@ export class CajaGeneralService {
       for (const b of bank) { const k = `${b.canon}|${Math.round(b.amt)}`; (byKey.get(k) || byKey.set(k, []).get(k))!.push(b); }
 
       const dayDiff = (a: any, b: any) => Math.abs((new Date(a).getTime() - new Date(b).getTime()) / 864e5);
+      /**
+       * ⛔ ACÁ NO HABÍA TOLERANCIA, aunque el comentario de arriba decía "±$1".
+       *
+       * El índice es un balde por PESO ENTERO (`canon|round(monto)`) y la búsqueda pedía el
+       * balde exacto. Eso no es ±$1: es "que redondeen al mismo peso". $100.49 y $100.51 **no
+       * casaban** (redondean a 100 y a 101, dos centavos de diferencia) mientras $100.01 y
+       * $100.99 sí — un peso de diferencia. Y un balde no se puede "ampliar": subir la
+       * tolerancia no cambiaba nada acá, así que la pantalla iba a rotular ±$5 con un matcher
+       * que no toleraba un centavo.
+       *
+       * Ahora se barren los baldes vecinos (±MATCH_EPS pesos) y se filtra por la diferencia
+       * REAL de importe. El desempate sigue siendo la fecha más cercana.
+       */
+      const cercanos = (m: Map<string, any[]>, canon: string, amt: number) => {
+        const base = Math.round(amt); const out: any[] = [];
+        for (let d = -Math.ceil(MATCH_EPS); d <= Math.ceil(MATCH_EPS); d++) out.push(...(m.get(`${canon}|${base + d}`) || []));
+        return out;
+      };
       const matched: any[] = []; const cajaOnly: any[] = [];
       for (const c of cajaRows) {
         const canon = labelBank.get(codeToLabel.get(String(c.banco_code)) || '') || this.canonBank(c.banco_name);
         if (filterBank && canon !== filterBank) continue;
         const amt = Number(c.total_deposito_real);
-        const cands = (byKey.get(`${canon}|${Math.round(amt)}`) || []).filter((b) => !b.used && dayDiff(b.date, c.deposito_date) <= 3).sort((x, y) => dayDiff(x.date, c.deposito_date) - dayDiff(y.date, c.deposito_date));
+        const cands = cercanos(byKey, canon, amt)
+          .filter((b) => !b.used && Math.abs(b.amt - amt) <= MATCH_EPS && dayDiff(b.date, c.deposito_date) <= 3)
+          .sort((x, y) => dayDiff(x.date, c.deposito_date) - dayDiff(y.date, c.deposito_date) || Math.abs(x.amt - amt) - Math.abs(y.amt - amt));
         if (cands.length) {
           cands[0].used = true;
           matched.push({ canon, caja_id: c.deposito_id, banco: c.banco_name, almacen: c.almacen, fecha: c.deposito_date, monto: amt, bank_id: cands[0].id, bank_fecha: cands[0].date });
@@ -851,7 +888,7 @@ export class CajaGeneralService {
       const bankOnly = bank.filter((b) => !b.used && (!filterBank || b.canon === filterBank)).map((b) => ({ canon: b.canon, bank_id: b.id, label: b.label, fecha: b.date, monto: b.amt, concept: b.concept, via_cobranza: false }));
 
       // CG.9 — 2º pase: atribuir el "banco sin Caja" a COBRANZA (cobros Kepler UA0501),
-      // por monto (±$1) + fecha (±5d). El cobro no trae banco → match sin banco. Lo que
+      // por monto (±MATCH_EPS) + fecha (±5d). El cobro no trae banco → match sin banco. Lo que
       // no case queda como residual (transferencia directa / financiero / inter-cuenta).
       let cob: any[] = [];
       try {
@@ -859,10 +896,16 @@ export class CajaGeneralService {
           .where('tenant_id', tenantId).whereBetween('cobro_date', [from, to]).where('monto', '>', 0)
           .select('cobro_date', 'monto');
       } catch { cob = []; }
+      // Mismo defecto del balde exacto que arriba, y misma corrección: se barren los vecinos
+      // y se filtra por la diferencia real de importe.
       const cobByAmt = new Map<number, any[]>();
-      for (const x of cob) { const k = Math.round(Number(x.monto)); (cobByAmt.get(k) || cobByAmt.set(k, []).get(k))!.push({ date: x.cobro_date, used: false }); }
+      for (const x of cob) { const k = Math.round(Number(x.monto)); (cobByAmt.get(k) || cobByAmt.set(k, []).get(k))!.push({ amt: Number(x.monto), date: x.cobro_date, used: false }); }
       for (const b of bankOnly) {
-        const cands = (cobByAmt.get(Math.round(b.monto)) || []).filter((x) => !x.used && dayDiff(x.date, b.fecha) <= 5).sort((x, y) => dayDiff(x.date, b.fecha) - dayDiff(y.date, b.fecha));
+        const base = Math.round(b.monto); const pool: any[] = [];
+        for (let d = -Math.ceil(MATCH_EPS); d <= Math.ceil(MATCH_EPS); d++) pool.push(...(cobByAmt.get(base + d) || []));
+        const cands = pool
+          .filter((x) => !x.used && Math.abs(x.amt - b.monto) <= MATCH_EPS && dayDiff(x.date, b.fecha) <= 5)
+          .sort((x, y) => dayDiff(x.date, b.fecha) - dayDiff(y.date, b.fecha) || Math.abs(x.amt - b.monto) - Math.abs(y.amt - b.monto));
         if (cands.length) { cands[0].used = true; b.via_cobranza = true; }
       }
       const cobranza = bankOnly.filter((b) => b.via_cobranza);
