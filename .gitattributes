@@ -17,3 +17,9 @@ ops/vl/crontab.feeds text eol=lf
 # authentication failed' con una clave que a la vista es correcta -- el mismo cuadro que
 # el CRON_TENANT_ID invalido del 2026-09-11.
 *.sql text eol=lf
+
+# Los .md tambien: 252 de los 253 del repo ya son LF. El unico CRLF era el tracker,
+# y por eso cada herramienta que lo tocaba lo "normalizaba" sin querer: 895f42b9 (GX.10)
+# y 3b8dcba4 (GX.11) lo pasaron entero a LF, con diffs de ~3,000 lineas por cambio de fin
+# de linea sobre 38 lineas reales. Se fija la norma que el repo ya tenia de hecho.
+*.md text eol=lf
