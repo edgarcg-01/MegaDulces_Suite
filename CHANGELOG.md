@@ -10,6 +10,23 @@
 
 ## [Unreleased]
 
+### Changed — jest sale, Vitest entra, y el target `test` deja de poder mentir (NX.3, 2026-09-17)
+
+Pedido: *«hay que arreglar todo para que nx funcione adecuadamente y no hay que usar jest, hay que usar vitest»*.
+
+**Lo medido antes de tocar nada:** `nx run-many -t test` fallaba en **3 de 8 proyectos**, y dos de esas fallas eran el mismo defecto estructural — `apps/api` y `libs/shared-scoring` declaraban a mano un `jestConfig` apuntando a un archivo **que no existe**, con un error que no lo dice (`Can't find a root directory while resolving a config file path`). Ahora el target `test` lo **infiere** el plugin `@nx/vitest` de la existencia de un `vitest.config.ts`: si no hay config, no hay target, y esa clase de bug deja de ser posible.
+
+- ⛔ **Detrás del archivo faltante había una segunda capa.** Los 3 specs de `apps/api` **nunca corrieron ni una vez** desde que se generaron, y **dos no podían pasar**: pedían `AuthService` / `KNEX_CONNECTION` / `JwtService` sin proveerlos. Reescritos para afirmar algo: 401 sin usuario, **401 y no 500** con cuenta invitada (`[ID.31]` — `bcrypt.compare(x, null)` lanza), normalización del username, y que el token lleve **sólo los permisos concedidos** (`[ID.29]`).
+- ⛔ **Los `tsconfig.spec.json` de las 4 librerías heredaban un `exclude` que borraba sus propios specs.** `tsc -p` respondía `TS18003 "No inputs were found"` en las cuatro: **nunca verificaron un tipo desde que existen**. `extends` no fusiona arrays — el hijo reemplaza al padre, la misma trampa ya documentada para `paths`.
+- ⭐ **La trampa cara fue la letra de unidad** (GOTCHAS §53): la misma suite daba **6 fallas con `vitest` a mano y 125 con `nx test`**, porque Nx lanza el proceso con `c:` minúscula y el compilador de Angular indexa con `C:`. ⚠️ Y la primera explicación —el paralelismo— era **casual y perfectamente consistente**: todas las corridas directas eran mayúscula y todas las de Nx minúscula. Se destrabó cruzando las dos variables en una tabla, no probando una sola.
+- Otras tres que sólo aparecen al correrlo de verdad: `isolatedModules: true` hace que el emit de Angular se **omita** en modo test; `unplugin-swc` aplica igual el `.swcrc`, que excluye los `*.spec.ts` (**cero pruebas corridas**); y `vite-tsconfig-paths` sólo busca archivos llamados `tsconfig.json`, así que los alias fallaban **sólo dentro de los specs**. Las tres viven resueltas en `vitest.shared.ts`, una vez y no siete.
+- ⛔ **Un signo de menor en un comentario CSS rompía la carga de una suite entera** (GOTCHAS §54, hermano del §34): Angular lo escapa al inlinear y queda como escape octal heredado, prohibido en ESM. Con jest no pasaba porque ts-jest nunca hace pasar el CSS por un parser de JavaScript.
+
+**Estado, 3 corridas idénticas: 544 pruebas pasan, 6 fallan, 0 avisos**, caché de Nx 6/6. Antes: 365 pasaban en `view` y dos proyectos ni arrancaban. ⚠️ **Las 6 rojas son PREEXISTENTES y del producto** — `landing-guards.spec.ts` (SN.4): rutas que la landing ofrece y el proyecto rechaza. La migración las conserva tal cual; no se tocaron.
+
+**Removed:** `jest`, `@nx/jest`, `@types/jest`, `jest-environment-jsdom`, `jest-environment-node`, `jest-preset-angular`, `jest-util`, `ts-jest`, los 8 `jest.config.ts` + `jest.preset.js`, y `apps/api/test/` (config de jest e2e + un spec que arranca `AppModule` entero — sin runner desde el 21-abr, referenciado por nadie).
+
+
 ### Fixed — la portada toma el número de donde lo toma la pantalla, y vecinal sale aparte (JZ.6, 2026-09-17)
 
 Edgar: *«hay que mostrar vecinal aparte»*. Al investigar dónde vive la venta vecinal se encontró que **la base del bloque de rutas estaba mal**, así que este item es la corrección y el pedido juntos.
