@@ -20,6 +20,16 @@ import { buildThotSystemPrompt } from './thot-semantic';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * [SD.3] Fuente de la venta: el twin ODS-derivado en vez de la tabla imperativa
+ * `analytics.sales_daily`. Mismo grano y columnas (revenue/units/tickets/channel), y
+ * a diferencia de cuando se escribió esto, el twin YA cuenta `tickets` por folio (SD.4b,
+ * 99.68% de la tabla) y trae la taxonomía cruda de canal incl. `mayoreo` (SD-CH). El
+ * escape-hatch no filtra canal ni excluye RUTA → migra sin cambiar la lógica; sólo cuando
+ * se agrupa por canal el twin separa `preventa`/`contado_nf` de `credito` (más fino, hacia ODS).
+ */
+const SALES_FACT = 'analytics.mv_sales_blended';
+
 /** Métricas y dimensiones permitidas en flexible_aggregate (whitelist, anti-injection). */
 const FLEX_METRICS: Record<string, string> = {
   revenue: 'COALESCE(SUM(s.revenue),0)',
@@ -430,7 +440,7 @@ export class ThotToolsService implements ThotToolProvider {
     return this.tk.run(async (trx) => {
       const res = await trx.raw(
         `SELECT ${dim.label} AS label, ${metric}::numeric AS value
-         FROM analytics.sales_daily s ${dim.join}
+         FROM ${SALES_FACT} s ${dim.join}
          WHERE s.tenant_id = ?
            ${from ? 'AND s.sale_date >= ?' : ''}
            ${to ? 'AND s.sale_date <= ?' : ''}
@@ -451,7 +461,7 @@ export class ThotToolsService implements ThotToolProvider {
         metric: args.metric,
         group_by: args.group_by,
         period: { from, to },
-        source: 'venta real ERP (analytics.sales_daily)',
+        source: 'venta real ERP (analytics.mv_sales_blended, twin ODS)',
         total: +total.toFixed(2),
         total_is_partial: rows.length >= limit,
         rows: withShare,
