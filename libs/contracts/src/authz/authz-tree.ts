@@ -294,9 +294,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // prepara), AUTORIZAR libera el lote (separación de funciones, precedente
           // COMPRAS_ENTRADAS_GESTIONAR/VALIDAR). Ver el comentario largo en permissions.ts.
           { id: 'calendario-pagos', label: 'Calendario de pagos', route: '/finanzas/calendario-pagos', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR, Permission.FINANCE_PAYMENT_CALENDAR_AUTORIZAR] },
-          // Fase TP — Presupuestos: capacidad de pago por fecha + gastos autorizados.
-          // Permiso propio: Presupuestos es responsable distinto de Tesorería/Finanzas.
-          { id: 'presupuesto', label: 'Presupuesto', route: '/finanzas/presupuesto', view: [Permission.PRESUPUESTOS_VER], manage: [Permission.PRESUPUESTOS_GESTIONAR] },
+          // Presupuestos se movió a su PROPIO proyecto top-level (`presupuestos`, /presupuesto):
+          // es responsable distinto de Tesorería/Finanzas (decisión usuario 2026-09-17). Ver el nodo abajo.
           // `[AUTHZ.5]` `FINANCE_RECON_RECIBIR` estaba en el enum y **fuera del árbol**: no se podía
           // otorgar desde acá. No es un permiso de pantalla sino un MARCADOR — `maat-recon-tasks`
           // consulta `role_permissions` directo para saber a qué roles repartirle tareas. Sin
@@ -309,6 +308,18 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'gastos', label: 'Gastos (solicitudes, captura y evidencia)', route: '/finanzas/gastos', view: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_VER_ALL, Permission.FINANCE_EXPENSES_CAPTURAR], manage: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'hallazgos', label: 'Hallazgos', route: '/finanzas/hallazgos', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
           { id: 'maat', label: 'Pregúntale a Maat', route: '/finanzas/maat', view: [Permission.FINANCE_AI_CHAT], manage: [Permission.FINANCE_FINDINGS_GESTIONAR] },
+        ],
+      },
+      {
+        // Fase PU (ADR-066) — Presupuestos como PROYECTO propio, fuera de Finanzas (decisión usuario
+        // 2026-09-17): responsable distinto de Tesorería/Finanzas. Una sola pantalla con sub-vistas
+        // internas (ejercicios/flujo/campañas/capacidad/gastos) por Segmented, no rutas separadas.
+        id: 'presupuestos',
+        label: 'Presupuestos',
+        icon: 'pi pi-chart-pie',
+        route: '/presupuesto',
+        modules: [
+          { id: 'presupuesto', label: 'Presupuesto', route: '/presupuesto', view: [Permission.PRESUPUESTOS_VER], manage: [Permission.PRESUPUESTOS_GESTIONAR] },
         ],
       },
       {

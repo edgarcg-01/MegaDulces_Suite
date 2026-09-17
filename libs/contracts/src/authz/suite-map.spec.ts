@@ -242,8 +242,9 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
       'auditoria-prevencion-control',
       'configuracion-de-la-suite',
     ]);
-    // Once puertas primarias: los 12 proyectos menos WhatsApp, que no tiene ruta.
-    expect(primaryDestinations(vis)).toHaveLength(11);
+    // Doce puertas primarias: los 13 proyectos menos WhatsApp, que no tiene ruta.
+    // (+1 vs antes: Presupuestos es módulo propio desde Fase PU, ya no tab de Finanzas.)
+    expect(primaryDestinations(vis)).toHaveLength(12);
     expect(ids(vis)).not.toContain('whatsapp-bot');
   });
 

@@ -324,6 +324,14 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
         source: { status: 'confirmado', cite: '§13 + §23 fila Finanzas' },
       },
       {
+        // Fase PU — Presupuestos como MÓDULO/proyecto propio, no como tab de Finanzas
+        // (decisión usuario 2026-09-17): planeación y control de recursos, responsable distinto.
+        id: 'presupuestos',
+        kind: 'project',
+        project: 'presupuestos',
+        source: { status: 'confirmado', cite: 'módulo propio (decisión usuario 2026-09-17)' },
+      },
+      {
         id: 'contabilidad',
         kind: 'project',
         project: 'contabilidad',
