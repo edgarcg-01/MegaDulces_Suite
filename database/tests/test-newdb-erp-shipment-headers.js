@@ -185,7 +185,50 @@ correr(async () => {
     assert(n(trips.multi_chofer) === 0,
       `el viaje lleva un solo chofer, que es lo que justifica el grano (${trips.multi_chofer} excepciones)`);
 
-    console.log(`\n✅ EMB.0: ${assertions} aserciones, 0 fallas.\n`);
+    // ── 6. LA FLOTA: del embarque a la unidad de la Suite y a su GPS ─────────────────────
+    console.log('\n── 6. Embarque → unidad → GPS (EMB.5/EMB.6)');
+    const tieneCol = await q(`
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema='analytics' AND table_name='erp_shipment_headers' AND column_name='vehicle_id'`);
+    if (tieneCol.length === 0) {
+      console.log('  ⓘ sin vehicle_id en este destino (mig 20260917160000 sin aplicar) — no se comprueba la flota acá');
+    } else {
+      // ⛔ Una unidad física, UNA fila. El defecto que EMB.5 arregló fue tener la camioneta dos
+      // veces porque Kepler escribe 'GA-2027-C' y MagniTracking 'GA2027C': el GPS colgaba de
+      // una fila y la clave de Kepler de la otra.
+      const [dup] = await q(`
+        SELECT count(*) AS pares FROM (
+          SELECT regexp_replace(upper(btrim(plate)),'[^A-Z0-9]','','g') pn
+            FROM logistics.vehicles WHERE deleted_at IS NULL AND btrim(coalesce(plate,'')) <> ''
+           GROUP BY 1 HAVING count(*) > 1) x`);
+      assert(n(dup.pares) === 0,
+        `ninguna placa está dos veces con distinta puntuación (${dup.pares} pares) — así volvieron a juntarse el GPS y la clave de Kepler`);
+
+      const [flota] = await q(`
+        SELECT count(DISTINCT transporte_clave_kepler) AS unidades,
+               count(DISTINCT transporte_clave_kepler) FILTER (WHERE vehicle_id IS NOT NULL) AS en_flota
+          FROM analytics.erp_shipment_headers
+         WHERE fecha >= current_date - 90 AND transporte_clave_kepler IS NOT NULL`);
+      assert(n(flota.en_flota) > 0 && n(flota.en_flota) <= n(flota.unidades),
+        `${flota.en_flota} de ${flota.unidades} unidades que embarcan resuelven a una fila de logistics.vehicles`);
+
+      // El NULL viaja crudo a propósito: "no tiene rastreador" y "no se pudo resolver" son
+      // hechos distintos y el consumidor tiene que poder separarlos.
+      const [gps] = await q(`
+        SELECT count(*) AS con_gps FROM (
+          SELECT DISTINCT h.vehicle_id FROM analytics.erp_shipment_headers h
+            JOIN logistics.trackers t ON t.vehicle_id = h.vehicle_id AND t.deleted_at IS NULL
+           WHERE h.fecha >= current_date - 90 AND h.vehicle_id IS NOT NULL) x`);
+      assert(n(gps.con_gps) > 0,
+        `${gps.con_gps} unidades que embarcaron tienen rastreador alcanzable — antes de la fusión eran 3`);
+
+      const [tr] = await q(`
+        SELECT count(*) AS viajes, count(vehicle_id) AS con_unidad FROM analytics.erp_shipment_trips`);
+      assert(n(tr.con_unidad) > 0 && n(tr.con_unidad) <= n(tr.viajes),
+        `el viaje también trae la unidad (${tr.con_unidad} de ${tr.viajes})`);
+    }
+
+    console.log(`\n✅ EMB: ${assertions} aserciones, 0 fallas.\n`);
   } finally {
     await db.end();
   }

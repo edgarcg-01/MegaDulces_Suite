@@ -38,7 +38,16 @@ const APPLY = process.argv.includes('--apply');
  * existe sin clave, actualiza lo que ya la tiene, e inserta lo nuevo. Nunca borra: una unidad
  * dada de baja en Kepler puede seguir teniendo viajes, costos y fotos colgando en la Suite.
  */
-async function sincronizar(db, { tabla, filas, campo, insertar }) {
+async function sincronizar(db, { tabla, filas, campo, insertar, normaliza }) {
+  // ⚠️ `normaliza` existe por un defecto REAL (EMB.5): comparar la placa literal creó 8 filas
+  // duplicadas — Kepler la escribe `GA-2027-C` y MagniTracking `GA2027C`, así que el importer
+  // no reconocía la unidad que el GPS ya había dado de alta y creaba un cascarón al lado. El
+  // rastreo quedaba colgando de una fila y la clave de Kepler de la otra: de 25 unidades que
+  // embarcan, sólo 3 tenían GPS alcanzable. Misma familia que los ceros a la izquierda de
+  // EMB.0.1 — la misma llave escrita de dos maneras.
+  const cmp = normaliza
+    ? (c) => `regexp_replace(upper(btrim(${c})),'[^A-Z0-9]','','g')`
+    : (c) => `upper(btrim(${c}))`;
   let adoptados = 0, actualizados = 0, insertados = 0;
   for (const f of filas) {
     // 1) ¿ya la tenemos por clave?
@@ -46,17 +55,17 @@ async function sincronizar(db, { tabla, filas, campo, insertar }) {
       `SELECT id FROM logistics.${tabla} WHERE tenant_id=$1 AND kepler_code=$2 AND deleted_at IS NULL`,
       [M, f.clave]);
     if (porClave.rowCount) {
-      await db.query(
-        `UPDATE logistics.${tabla} SET ${campo}=$3, updated_at=now() WHERE tenant_id=$1 AND id=$2`,
-        [M, porClave.rows[0].id, f.valor]);
+      // ⛔ NO se pisa el atributo: tras la fusión EMB.5 la fila viva es la del GPS y su placa
+      // (`GA2027C`) es la buena para el rastreo. Reescribirla con la forma de Kepler
+      // (`GA-2027-C`) desharía la fusión en la siguiente corrida.
       actualizados++;
       continue;
     }
-    // 2) ¿existe sin clave, de antes de EMB.1? Se ADOPTA en vez de duplicarla.
+    // 2) ¿existe sin clave, de antes de EMB.1 o dada de alta por el GPS? Se ADOPTA.
     const porAtributo = await db.query(
       `SELECT id FROM logistics.${tabla}
         WHERE tenant_id=$1 AND kepler_code IS NULL AND deleted_at IS NULL
-          AND upper(btrim(${campo}))=upper(btrim($2))`,
+          AND ${cmp(campo)}=${cmp('$2')}`,
       [M, f.valor]);
     if (porAtributo.rowCount) {
       await db.query(
@@ -95,7 +104,7 @@ async function main() {
        WHERE placas IS NOT NULL
        ORDER BY clave_kepler, sucursal`)).rows;
     await sincronizar(db, {
-      tabla: 'vehicles', filas: veh, campo: 'plate',
+      tabla: 'vehicles', filas: veh, campo: 'plate', normaliza: true,
       insertar: (d, f) => d.query(
         `INSERT INTO logistics.vehicles (tenant_id, plate, brand, model, status, active, kepler_code, notes)
          VALUES ($1,$2,'',$3,'disponible',true,$4,$5)`,
