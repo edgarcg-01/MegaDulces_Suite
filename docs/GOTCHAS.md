@@ -2549,3 +2549,83 @@ await knex.raw(`COMMENT ON COLUMN t.c IS '${String(txt).replace(/'/g, "''")}'`);
 Cuesta caro porque revienta **a mitad de la migración**: el `ADD COLUMN` de
 arriba ya corrió, y si la migración no fuera transaccional quedaría la columna
 sin el comentario y el ledger sin la fila.
+
+## 52. ⛔ ABIERTO — `kepler_ods` lleva 12 días sin recibir catálogo/existencia (3 de 4 carriles medidos, mudos)
+
+**No es una lección cerrada, es un incidente activo.** Se deja registrado
+para que quien tenga acceso a los hosts on-prem lo levante — nadie con
+acceso a este repo puede reiniciar nada desde acá.
+
+**Hallado 2026-09-16** mientras se investigaba por qué el indicador de
+frescura de `catalogo-kp` salía en blanco (`0SistemasMD/catalogo-kp`,
+`docs/CHECKPOINT.md`, pendientes #1 y #2 de esa fecha). Confirmado directo
+contra `platform_test` con el rol de sólo lectura `dev_sistemas`:
+
+```sql
+SELECT table_name, last_push_at, rows_last
+FROM kepler_ods._sync_status
+WHERE table_name IN ('kdii','kdik','kdil','kdm2');
+```
+
+| tabla  | qué es                    | último push (`last_push_at`) |
+|--------|---------------------------|-------------------------------|
+| `kdii` | catálogo                  | 2026-09-04 21:26:59 UTC       |
+| `kdik` | existencia/valuación      | 2026-09-04 21:27:25 UTC       |
+| `kdil` | existencia/acumulados     | 2026-09-04 21:27:25 UTC       |
+| `kdm2` | ventas                    | 2026-09-09 23:44:13 UTC       |
+
+Vuelto a medir el 2026-09-16 21:16 UTC: **12 días sin moverse** en
+catálogo/existencia, **7 días** en ventas. Una primera revisión
+(2026-09-10, ver el mismo CHECKPOINT de catalogo-kp) sólo había
+encontrado `kdii`/`kdik`/`kdil` frenadas, con `kdm2` "casi al día"
+(~1 día de atraso en ese momento) — **`kdm2` se congeló recién DESPUÉS**
+de esa revisión. Ya no es un carril aislado: son 3 de 4 medidos, y el
+cuarto se apagó mientras se investigaba el primero.
+
+**`analytics.cron_runs`** (la fuente que ya usa el resto de la Suite,
+ver §17/§35) da fechas **todavía más atrasadas y que no concuerdan**
+con `_sync_status`:
+
+| `job_key`            | `last_finish` |
+|-----------------------|---------------|
+| `feed_catalog`        | 2026-08-26    |
+| `feed_stock`          | 2026-08-26    |
+| `kepler_sales_fact`   | 2026-08-27    |
+| `kepler_stock`        | 2026-09-02    |
+
+Dos fuentes de frescura para el mismo pipeline, dos calendarios
+distintos de "última corrida", y ninguno coincide con el otro — lo que
+sugiere que puede haber más de un carril fantasma (uno que ya nadie
+alimenta hace semanas, marcado como si fuera la señal viva) o que
+`_sync_status` y `cron_runs` dejaron de ser la misma verdad en algún
+punto sin que nadie lo notara.
+
+**Impacto de negocio ya confirmado** (investigado en catalogo-kp,
+2026-09-10): comparando Zamora Centro (sucursal 05) contra Kepler en
+vivo, el catálogo mostraba $12.06M de inventario a costo vs. ~$2M
+reales. De esa brecha, $1.26M es un error de captura real y aislado en
+Kepler (producto `17237`, 30,240.7 KG capturados vs. 22–46 KG normal en
+cualquier otra sucursal — huele a punto decimal, no corregible desde
+aquí). El resto (~$8.8M) es simplemente existencia de hace 12 días que
+no ha descontado 12 días de ventas — afecta a TODA la base, no sólo
+Zamora.
+
+**Huele a §35** (el healthcheck dice "healthy" con el proceso muerto
+adentro), pero no se pudo confirmar contra los hosts reales desde una
+sesión sin SSH/RDP a las máquinas on-prem que corren el shipper.
+**Lo que falta revisar, en la máquina real:**
+1. Estado del contenedor/proceso que hoy sirve este carril (`ods-live-hot`
+   u otro) — uptime declarado vs. última fila de verdad escrita.
+2. `guardian.log` de FeedGuardian — ¿mató el proceso a media pasada
+   como en §35, dejando las ramas de catálogo/existencia sin alcanzar?
+3. Si el shipper de `kdii`/`kdik`/`kdil`/`kdm2` corre por Docker, por
+   tarea de Windows, o por los dos a la vez pisando el mismo renglón
+   (el bug exacto de §35).
+4. Por qué `analytics.cron_runs` no se escribe para estos 4 `job_key`
+   desde el 26–27 de agosto — mismo proceso que además alimenta
+   `_sync_status`, o carriles completamente separados que fallaron cada
+   uno por su cuenta.
+
+No se reinició nada desde acá — ni acceso a los hosts, ni sentido:
+mismo criterio que §35/§39, reiniciar a mano sin entender la causa real
+sólo esconde el síntoma hasta la próxima vez.
