@@ -90,6 +90,22 @@ Prioridad (dinero primero):
   mostrador/preventa/ruta" era falsa — ésa es la taxonomía de `mv_kepler`, no la del blend). **La deuda
   de costo de MR (Kepler 50/50) se preserva IGUAL** — SD.3 mueve el linaje, no arregla el costo.
   **Pendiente: validación visual (`/comercial/rentabilidad`) + redeploy.** 1 de 65 lectores.
+- **SD.3b 🧪 EN CÓDIGO 2026-09-17 — `weekly-analytics` migrado al twin, y el reframe: SD.3 NO está schema-blocked.**
+  Primero se midió el estado VIVO del twin en prod (no la def cacheada, que estaba vieja): **tickets ya
+  resueltos** (blended 534,437 = **99.68%** de sales_daily, ago — SD.4b) y **`mayoreo` presente** ($7.38M,
+  la def viva remapea `mostrador→tienda`/`credito→contado_nf` y `mayoreo` pasa crudo — SD-CH). O sea las
+  dos dependencias que SD.4 declaró como bloqueos **ya aterrizaron**; los lectores de canal **pueden**
+  migrar (la única fricción es que el twin parte `preventa`/`contado_nf` de `credito` — taxonomía más
+  fina, no un bloqueo). Un barrido clasificó los 21 archivos que mencionan `sales_daily`: sólo **~5 son
+  lectores SQL reales** (los otros son frontend/comentarios/contratos/monitoreo/el escritor). **`weekly-analytics.service.ts`**
+  (proyecto Tienda, `/tienda/analisis-semanal`) no usa canal ni cuenta tickets → migrado vía la misma
+  constante `SALES_FACT = 'analytics.mv_sales_blended'`, derivando el margen (`sum(revenue - cost)`, el
+  twin no tiene columna `margin`; verificado exacto en prod: 0 de 498,256 filas difieren). Sus 8 lecturas
+  del fact + 9 sumas de margen migraron; `product_sales_daily` (unidades oficiales, otra tabla) intacto.
+  **Antes/después medido en prod (jul+ago, non-RUTA):** revenue **Δ 0.098%** · margen **Δ 0.118%** · units
+  **Δ 0.454%** — dentro del ≤0.5% del candado SD.1, corrimiento HACIA el ODS. ⚠️ El twin parte por
+  `unit_kind`; `sum(units)` mezcla peldaños igual que ya lo hacía `sales_daily.units`. `nx build api` verde.
+  **Pendiente: redeploy + validación visual (`/tienda/analisis-semanal`).** 2 de ~5 lectores reales.
 - **SD.4 🟡 EN CURSO 2026-09-14 — Command Center: el dinero YA estaba migrado.** Al medirlo (no asumirlo):
   `commercial-analytics.service.ts` ya lee **`mv_sales_blended`** en los KPIs de dinero (overview, top
   productos, mix por marca, serie diaria — migrados en KV.1/KV.4/"PARIDAD-ODS"). Lo que **sigue** en

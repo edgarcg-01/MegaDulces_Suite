@@ -44,6 +44,19 @@ export interface RangeQuery {
   warehouse_codes?: string[] | null;
 }
 
+/**
+ * [SD.3] Fuente de la venta: el twin ODS-derivado `analytics.mv_sales_blended` en vez de la
+ * tabla imperativa `analytics.sales_daily` (3.76 GB, poblada por importer). Misma constante y
+ * mismo patrón que el motor de margen (`commercial-profitability`). Medido contra PROD read-only
+ * (jul+ago 2026, non-RUTA): revenue Δ 0.098% · margen Δ 0.118% · units Δ 0.454% — dentro del
+ * ≤0.5% del candado de paridad SD.1, y el corrimiento es HACIA la verdad del ODS.
+ * ⚠️ El twin NO tiene columna `margin` (a diferencia de la tabla): se DERIVA `revenue - cost`,
+ * que en prod es idéntico al peso (0 de 498,256 filas difieren). El grano del twin incluye
+ * `unit_kind`; `sum(units)` mezcla peldaños igual que ya lo hacía `sales_daily.units`.
+ * `product_sales_daily` (unidades oficiales) NO se toca: es otra tabla, fuera de SD.
+ */
+const SALES_FACT = 'analytics.mv_sales_blended';
+
 const MX_TZ = 'America/Mexico_City';
 const pct = (cur: number, prev: number): number | null =>
   prev > 0 ? Math.round(((cur - prev) / prev) * 1000) / 10 : null;
@@ -100,16 +113,21 @@ export class WeeklyAnalyticsService {
       const windowStart = addDays(refStart, -(weeks - 1) * 7);
       const label = (ws: string) => this.isoWeekLabel(ws);
 
-      const whClause = whs ? `AND w.code = ANY(?)` : ``;
+      // TIENDA = tienda: se sacan las camionetas de ruta (almacenes RUTA-%), que en sales_daily vienen
+      // mal-etiquetadas con canal 'tienda'/'credito' (~8.2% = $4.43M en ago-2026). Una ruta no es una
+      // tienda. La venta de ruta sigue VIVA en la tabla para el blend/Command Center (mv_sales_blended
+      // leg RUTA-%); acá sólo se excluye de la vista de tienda. Aplica a todos los reads de sales_daily
+      // y product_sales_daily de este método (usan whClause); la query de tickets ya excluía ruta.
+      const whClause = (whs ? `AND w.code = ANY(?)` : ``) + ` AND w.code NOT LIKE 'RUTA-%'`;
       const whBind = whs ? [whs] : [];
 
       // 2) Serie de tendencia (sales_daily, historia completa).
       const seriesRes: any = await trx.raw(
         `SELECT date_trunc('week', sd.sale_date)::date AS ws,
                 COALESCE(sum(sd.revenue),0)::float AS revenue,
-                COALESCE(sum(sd.margin),0)::float  AS margin,
+                COALESCE(sum(sd.revenue - sd.cost),0)::float  AS margin,
                 COALESCE(sum(sd.units),0)::float   AS units
-           FROM analytics.sales_daily sd
+           FROM ${SALES_FACT} sd
            JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
           GROUP BY 1 ORDER BY 1`,
@@ -124,11 +142,11 @@ export class WeeklyAnalyticsService {
       const kpiSd: any = await trx.raw(
         `SELECT COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_cur,
                 COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_prev,
-                COALESCE(sum(sd.margin)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_cur,
-                COALESCE(sum(sd.margin)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_prev,
+                COALESCE(sum(sd.revenue - sd.cost)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_cur,
+                COALESCE(sum(sd.revenue - sd.cost)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_prev,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_cur,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_prev
-           FROM analytics.sales_daily sd
+           FROM ${SALES_FACT} sd
            JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}`,
         [refStart, refEnd, prevStart, refStart, refStart, refEnd, prevStart, refStart,
@@ -155,10 +173,10 @@ export class WeeklyAnalyticsService {
         `SELECT w.code, w.name,
                 COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_cur,
                 COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_prev,
-                COALESCE(sum(sd.margin)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_cur,
+                COALESCE(sum(sd.revenue - sd.cost)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_cur,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_cur,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_prev
-           FROM analytics.sales_daily sd
+           FROM ${SALES_FACT} sd
            JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
           GROUP BY w.code, w.name
@@ -178,7 +196,7 @@ export class WeeklyAnalyticsService {
                 COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_cur,
                 COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_prev,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_cur
-           FROM analytics.sales_daily sd
+           FROM ${SALES_FACT} sd
            JOIN commercial.warehouses w ON w.id = sd.warehouse_id
            JOIN catalog.products pr ON pr.id = sd.product_id
            LEFT JOIN catalog.brands b ON b.id = pr.brand_id
@@ -241,7 +259,10 @@ export class WeeklyAnalyticsService {
     const prevFrom = addDays(from, -days);    // período previo del mismo tamaño
     const prevToExcl = from;                  // exclusivo = from (previo termina el día antes)
 
-    const whClause = whs ? `AND w.code = ANY(?)` : ``;
+    // TIENDA = tienda: se sacan las camionetas de ruta (almacenes RUTA-%), mal-etiquetadas canal
+    // 'tienda'/'credito' en sales_daily. Una ruta no es una tienda. La venta de ruta sigue viva en la
+    // tabla para el blend/Command Center; acá sólo se excluye de la vista de tienda. (ver método weekly)
+    const whClause = (whs ? `AND w.code = ANY(?)` : ``) + ` AND w.code NOT LIKE 'RUTA-%'`;
     const whBind = whs ? [whs] : [];
 
     return this.tk.run(async (trx) => {
@@ -251,11 +272,11 @@ export class WeeklyAnalyticsService {
       const sd: any = await trx.raw(
         `SELECT COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_cur,
                 COALESCE(sum(sd.revenue) FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS rev_prev,
-                COALESCE(sum(sd.margin)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_cur,
-                COALESCE(sum(sd.margin)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_prev,
+                COALESCE(sum(sd.revenue - sd.cost)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_cur,
+                COALESCE(sum(sd.revenue - sd.cost)  FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS mar_prev,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_cur,
                 COALESCE(sum(sd.units)   FILTER (WHERE sd.sale_date >= ? AND sd.sale_date < ?),0)::float AS uni_prev
-           FROM analytics.sales_daily sd
+           FROM ${SALES_FACT} sd
            JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}`,
         [from, toExcl, prevFrom, prevToExcl, from, toExcl, prevFrom, prevToExcl,
@@ -380,8 +401,8 @@ export class WeeklyAnalyticsService {
       //    período actual— porque de acá sale también la COBERTURA del período previo, que
       //    es la que decide si el Δ% de las razones cruzadas significa algo.
       const dailySd: any = await trx.raw(
-        `SELECT sd.sale_date::date AS d, sum(sd.revenue)::float AS revenue, sum(sd.margin)::float AS margin, sum(sd.units)::float AS units
-           FROM analytics.sales_daily sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
+        `SELECT sd.sale_date::date AS d, sum(sd.revenue)::float AS revenue, sum(sd.revenue - sd.cost)::float AS margin, sum(sd.units)::float AS units
+           FROM ${SALES_FACT} sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
           GROUP BY 1 ORDER BY 1`,
         [tenantId, prevFrom, toExcl, ...whBind],
@@ -467,8 +488,8 @@ export class WeeklyAnalyticsService {
       // 5) Por sucursal (si el user ve más de una): venta/margen/unidades + tickets.
       const branchRes: any = await trx.raw(
         `SELECT w.code, w.name,
-                sum(sd.revenue)::float AS revenue, sum(sd.margin)::float AS margin, sum(sd.units)::float AS units
-           FROM analytics.sales_daily sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
+                sum(sd.revenue)::float AS revenue, sum(sd.revenue - sd.cost)::float AS margin, sum(sd.units)::float AS units
+           FROM ${SALES_FACT} sd JOIN commercial.warehouses w ON w.id = sd.warehouse_id
           WHERE sd.tenant_id = ? AND sd.sale_date >= ? AND sd.sale_date < ? ${whClause}
           GROUP BY w.code, w.name ORDER BY revenue DESC`,
         [tenantId, from, toExcl, ...whBind],
@@ -484,8 +505,8 @@ export class WeeklyAnalyticsService {
       // 6) Top productos por venta $ + unidades oficiales.
       const prodRes: any = await trx.raw(
         `SELECT sd.product_id, pr.sku, pr.nombre, b.nombre AS brand,
-                sum(sd.revenue)::float AS revenue, sum(sd.margin)::float AS margin, sum(sd.units)::float AS units
-           FROM analytics.sales_daily sd
+                sum(sd.revenue)::float AS revenue, sum(sd.revenue - sd.cost)::float AS margin, sum(sd.units)::float AS units
+           FROM ${SALES_FACT} sd
            JOIN commercial.warehouses w ON w.id = sd.warehouse_id
            JOIN catalog.products pr ON pr.id = sd.product_id
            LEFT JOIN catalog.brands b ON b.id = pr.brand_id
