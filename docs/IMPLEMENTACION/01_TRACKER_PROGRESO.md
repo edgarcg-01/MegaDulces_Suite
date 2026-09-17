@@ -331,6 +331,44 @@ _(vacío)_
 
 ---
 
+## GX.11 — El folio no identifica nada por sí solo · la evidencia se exige al capturar 🧪 2026-09-17 (en código)
+
+**El folio es por SUCURSAL, y está verificado como DISEÑO de Kepler, no como defecto.** Medido
+en prod: cada sucursal lleva su contador, arranca en 1 y no deja huecos (00 → 1…9478, 02 →
+1…252, 03 → 1…97, 04 → 1…24); **252 folios viven en más de una plaza y CERO son el mismo
+documento** — el `0000001` son cuatro gastos distintos. Decode en
+[`ERP_KEPLER` §3.x](../ERP_KEPLER.md). ⛔ **No unificar la secuencia**: sería reescribir un ERP
+read-only y rompería la identidad de todo el histórico.
+
+- [x] **[GX.11.1]** La llave pasa a `(sucursal, folio)` vía `proofKey()` (backend) y
+      `ComprobacionesService.key()` (front). Sin migración: la columna `sucursal` ya existía
+      en `expense_proofs`; lo que fallaba eran las búsquedas, que la ignoraban.
+- [x] **[GX.11.2]** `statusByFolio()` particiona por el par (encendía el indicador en la fila
+      de otra plaza) y `lookupSolicitud()` filtra por sucursal — **de ahí salen el IMPORTE y el
+      solicitante contra los que cuadra Claude Vision**, así que el cuadre podía correr contra
+      el dinero de otra tienda. Los dos fallaban en silencio.
+- [x] **[GX.11.3]** `evidenciaDe()` borrado: sin llamadores, y arrastraba el mismo bug por
+      `compStatus`.
+- [x] **[GX.11.4]** La evidencia se exige **al crear** el expediente (decisión del PM: acá
+      siempre se captura después de gastar, así que el ticket ya existe). El diálogo del tablero
+      ya la exigía; los permisivos eran el backend y la página del capturista, que **ni mostraba
+      el campo** en modo captura. `addEvidence()` y el estado `aprobada` se conservan: hay
+      expedientes en prod parados ahí.
+- [x] **[GX.11.5]** Los dos commits varados (`d6d0fc84` GX.10.7 · `05c7c275` GX.11) unificados
+      en `feat/gx11-folio-y-evidencia`, desde `main`. Se habían dispersado en 6 ramas distintas.
+
+**Verificado:** `tsc` del API limpio · `nx build view` verde · cherry-picks sin conflicto y
+contenido comprobado en el merge.
+
+**⚠️ SIN correr el smoke:** el entorno local está abajo (cero contenedores Docker, sin API ni
+view). `test-newdb-expense-capture-link.js` daba 28/28 en la rama de origen; acá **no se pudo
+re-medir**.
+
+**Pendiente:** merge a `main` · redeploy api+view · validación visual del paso 4 del capturista ·
+**el bug del folio sigue VIVO en prod** hasta que esto se despliegue.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.

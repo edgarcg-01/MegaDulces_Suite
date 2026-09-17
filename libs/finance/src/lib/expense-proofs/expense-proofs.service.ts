@@ -44,6 +44,23 @@ const REQUEST_ROLE: ProofFileRole = 'solicitud_kepler';
 
 export interface ProofFile { role: string; url: string; public_id?: string; kind?: string; name?: string; }
 
+/**
+ * Clave de un expediente contra Kepler. **El folio NO alcanza**: en Kepler es único por
+ * SUCURSAL, no global. Medido en prod (2026-09-15): de 9,831 solicitudes hay 9,458 folios
+ * distintos pero 9,831 pares `(sucursal, folio)` — o sea **373 folios viven en más de una
+ * sucursal** (el `0000002` está en cuatro: 00, 02, 03 y 04).
+ *
+ * Buscar sólo por folio hacía dos daños silenciosos: el indicador del tablero se encendía en
+ * la fila de otra plaza, y `lookupSolicitud` tomaba una fila arbitraria — de ahí salen el
+ * IMPORTE y el solicitante con los que se cuadra contra Kepler.
+ *
+ * Se usa `|` como separador porque el folio de Kepler es `[0-9]` con ceros a la izquierda y
+ * la sucursal es de 2 dígitos: ninguno de los dos puede contenerlo.
+ */
+export function proofKey(sucursal: string | null | undefined, folio: string | null | undefined): string {
+  return `${(sucursal ?? '').trim()}|${(folio ?? '').trim()}`;
+}
+
 /** Lo que el tablero necesita saber de un folio sin abrir el expediente. */
 export interface ProofByFolio {
   id: string;
@@ -285,7 +302,7 @@ export class ExpenseProofsService {
     // contradiga a Kepler—. Lo que de verdad falta aportar es la evidencia.
     // Lo que venga en el DTO sigue mandando: permite capturar una solicitud que todavía
     // no llegó por el feed.
-    const sol = await this.lookupSolicitud(folioSolicitud);
+    const sol = await this.lookupSolicitud(folioSolicitud, req(dto.sucursal));
     const solicitante = req(dto.solicitante) || req(sol?.solicitante) || actor || '';
     const proveedor = req(dto.proveedor) || req(sol?.beneficiario);
     // `departamento` solo servía para derivar la sucursal; si la solicitud ya la trae,
@@ -302,9 +319,17 @@ export class ExpenseProofsService {
     if (!roles.has(REQUEST_ROLE)) {
       throw new BadRequestException('falta la solicitud de gasto firmada (se adjunta siempre, incluso si el gasto no es comprobable)');
     }
-    // La EVIDENCIA ya NO se exige acá: la captura es sólo el primer momento (solicitud
-    // firmada + clasificación). La evidencia/factura se sube DESPUÉS de aprobar, y sólo si
-    // el gasto es comprobable — ver `approve()` y `addEvidence()`.
+    // GX.11 — la EVIDENCIA vuelve a exigirse en la captura. El diseño de «dos momentos»
+    // (mig 20260827120000) la difería hasta después de aprobar, y existía para el caso
+    // *pedir dinero → gastar → comprobar*. Decisión del PM (2026-09-15): acá el expediente
+    // SIEMPRE se captura después de gastar, así que el ticket ya existe al capturar y
+    // diferirlo sólo creaba expedientes a medias esperando a alguien.
+    //
+    // `addEvidence()` y el estado 'aprobada' se conservan: hay expedientes en prod parados
+    // en ese punto y quitarlos los dejaría sin forma de cerrarse.
+    if (llevaEvidencia && !files.some((f) => String(f.role).startsWith('comprobante'))) {
+      throw new BadRequestException('falta la evidencia del gasto (el ticket o la factura)');
+    }
     // No comprobable: no se exige foto, pero sí el motivo — si no, el «no» no se audita.
     if (!llevaEvidencia && !motivo) {
       throw new BadRequestException('un gasto no comprobable exige un motivo (por qué no lleva evidencia)');
@@ -642,17 +667,20 @@ export class ExpenseProofsService {
             // uno arbitrario entre ellos, que además entraría al mapa bajo la clave `null`.
             // El mapa es folio→expediente: lo que no tiene folio no le pertenece.
             .whereNotNull('folio_solicitud')
-            .select('id', 'folio_solicitud', 'status', 'files',
+            .select('id', 'folio_solicitud', 'sucursal', 'status', 'files',
               ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
               ...(clasCol ? ['clasificacion'] : []),
-              trx.raw('row_number() OVER (PARTITION BY folio_solicitud ORDER BY created_at DESC) AS rn'));
+              // Particiona por el par, no por el folio: el folio se repite entre sucursales
+              // y `rn=1` elegiría el expediente de otra plaza. Ver `proofKey`.
+              trx.raw('row_number() OVER (PARTITION BY sucursal, folio_solicitud ORDER BY created_at DESC) AS rn'));
         })
         .from('ranked').where('rn', 1).select('*');
       return Object.fromEntries(rows.map((r: any) => {
+        // La clave del mapa es `sucursal|folio` — ver `proofKey`.
         const files: any[] = typeof r.files === 'string' ? JSON.parse(r.files || '[]') : (r.files || []);
         const rol = (p: string) => files.some((f) => String(f?.role || '').startsWith(p) && f?.url);
         const clasificacion = clasCol ? (r.clasificacion || null) : null;
-        return [r.folio_solicitud, {
+        return [proofKey(r.sucursal, r.folio_solicitud), {
           id: r.id,
           status: r.status,
           comprobante: rol('comprobante'),
@@ -673,15 +701,20 @@ export class ExpenseProofsService {
    * expediente → capturar solicitud; 'aprobada' comprobable → subir evidencia; 'recibida'
    * → esperando aprobación; cerrada → nada que hacer.
    */
-  async proofByFolio(folio: string): Promise<ProofByFolio | null> {
+  async proofByFolio(folio: string, sucursal?: string): Promise<ProofByFolio | null> {
     this.tenantCtx.requireTenantId();
     const f = String(folio || '').trim();
     if (!f) return null;
     return this.tk.run(async (trx) => {
       const clasCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'clasificacion');
       const tieneCol = await trx.schema.withSchema('finance').hasColumn('expense_proofs', 'tiene_comprobacion');
+      const suc = String(sucursal || '').trim();
       const r: any = await trx('finance.expense_proofs')
         .where('folio_solicitud', f)
+        // Sin sucursal se cae a la vieja búsqueda ambigua (373 folios viven en más de una
+        // plaza). Se acepta por compatibilidad —el capturista puede teclear sólo el folio—
+        // pero quien la llame con la sucursal a mano DEBE pasarla.
+        .modify((qb: any) => { if (suc) qb.where('sucursal', suc); })
         .orderBy('created_at', 'desc')
         .first('id', 'status', 'files',
           ...(tieneCol ? ['tiene_comprobacion', 'comprobacion_nota'] : []),
@@ -705,10 +738,15 @@ export class ExpenseProofsService {
    * cabecera; el formulario solo aporta la evidencia. Devuelve null si el feed todavía no
    * la trajo — en ese caso el DTO tiene que traer los datos.
    */
-  private async lookupSolicitud(folio: string) {
+  private async lookupSolicitud(folio: string, sucursal?: string) {
+    const suc = String(sucursal || '').trim();
     return this.tk.run(async (trx) =>
       trx('analytics.expense_requests')
         .where({ tenant_id: this.tenantCtx.requireTenantId(), folio })
+        // ⚠️ De acá salen el IMPORTE y el solicitante contra los que se cuadra. Sin la
+        // sucursal, `.first()` toma una fila arbitraria entre las plazas que comparten el
+        // folio y el cuadre corre contra el dinero de otra tienda.
+        .modify((qb: any) => { if (suc) qb.where('sucursal', suc); })
         .first('solicitante', 'beneficiario', 'sucursal', 'concepto',
           trx.raw(`to_char(fecha,'YYYY-MM-DD') AS fecha`), trx.raw('importe::numeric AS importe')),
     ) as Promise<{ solicitante?: string; beneficiario?: string; sucursal?: string; concepto?: string; fecha?: string; importe?: number } | undefined>;
@@ -869,11 +907,13 @@ export class ExpenseProofsService {
 
     const cur: any = await this.tk.run(async (trx) =>
       trx('finance.expense_proofs').where({ id }).whereNull('folio_solicitud')
-        .first('id', 'files', 'clasificacion', 'capture_meta', trx.raw('importe::numeric AS importe')));
+        .first('id', 'files', 'clasificacion', 'capture_meta', 'sucursal', trx.raw('importe::numeric AS importe')));
     if (!cur) throw new BadRequestException('esta captura no existe o ya fue casada');
 
-    const sol = await this.lookupSolicitud(f);
-    if (!sol) throw new BadRequestException(`la solicitud ${f} no aparece en Kepler`);
+    // La sucursal sale de la captura: el trabajador la declaró al subir. Sin ella, el folio
+    // podría resolver a la solicitud de otra plaza.
+    const sol = await this.lookupSolicitud(f, cur.sucursal);
+    if (!sol) throw new BadRequestException(`la solicitud ${f} no aparece en Kepler${cur.sucursal ? ` para la sucursal ${cur.sucursal}` : ''}`);
 
     const declarado = Number(cur.importe) || 0;
     const real = Number(sol.importe) || 0;

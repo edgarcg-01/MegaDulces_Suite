@@ -165,8 +165,18 @@ export class ComprobacionesService {
     return this.http.post<{ id: string; folio_solicitud: string; status: string }>(`${this.base}/${id}/evidence`, body);
   }
   /** Estado del expediente de un folio (para saber en qué momento está la captura). Accesible al capturista. */
-  proofByFolio(folio: string): Observable<ProofByFolio | null> {
-    return this.http.get<ProofByFolio | null>(`${this.base}/proof-by-folio`, { params: new HttpParams().set('folio', folio) });
+  /**
+   * Clave del mapa folio→expediente. **El folio solo no alcanza**: en Kepler es único por
+   * SUCURSAL. Medido en prod: 373 folios viven en más de una plaza (el `0000002` está en
+   * cuatro). Buscar sólo por folio encendía el indicador en la fila de otra tienda.
+   * Debe coincidir exacto con `proofKey()` del backend.
+   */
+  static key(sucursal: string | null | undefined, folio: string | null | undefined): string {
+    return `${(sucursal ?? '').trim()}|${(folio ?? '').trim()}`;
+  }
+
+  proofByFolio(folio: string, sucursal?: string): Observable<ProofByFolio | null> {
+    return this.http.get<ProofByFolio | null>(`${this.base}/proof-by-folio`, { params: (() => { let p = new HttpParams().set('folio', folio); if (sucursal) p = p.set('sucursal', sucursal); return p; })() });
   }
   departamentos(): Observable<Departamento[]> { return this.http.get<Departamento[]>(`${this.base}/departamentos`); }
   /** (C) folio_solicitud → estado, para el indicador en Solicitudes. */

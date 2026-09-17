@@ -76,7 +76,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
           @switch (modo()) {
             @case ('checking') { <div class="cap-muted"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> Revisando el estado de esta solicitud…</div> }
 
-            <!-- ── MOMENTO 1 · capturar la solicitud (firmada + clasificación). Sin evidencia. -->
+            <!-- ── Capturar el expediente completo: firmada + tipo + el ticket (GX.11). -->
             @case ('capturar') {
               @if (yaRechazada()) {
                 <div class="cap-val warn"><i class="pi pi-replay" aria-hidden="true"></i> Esta solicitud fue devuelta. Vuelve a capturarla.</div>
@@ -99,7 +99,7 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
                 </div>
               }
 
-              <!-- 3) Clasificación del gasto: decide si —MÁS ADELANTE, tras aprobar— lleva evidencia. -->
+              <!-- 3) Clasificación del gasto: decide si lleva ticket o motivo. -->
               <div class="cap-step">3 · ¿Qué tipo de gasto es?</div>
               <p-selectbutton [options]="clasOpts" [(ngModel)]="clasificacionV" (ngModelChange)="onClasChange()"
                               optionLabel="label" optionValue="value" [allowEmpty]="false" styleClass="cap-clas"
@@ -108,9 +108,31 @@ interface SelSolicitud { folio: string; beneficiario: string | null; importe: nu
 
               @if (clasificacion()) {
                 @if (llevaEvidencia()) {
-                  <!-- La evidencia NO va acá: se sube DESPUÉS de que aprueben la solicitud. -->
-                  <div class="cap-val info"><i class="pi pi-info-circle" aria-hidden="true"></i>
-                    La factura / evidencia se sube <strong>después de que aprueben</strong> la solicitud. Ahora sólo se registra.</div>
+                  <!-- GX.11 — la evidencia se sube ACÁ. Antes se difería hasta después de
+                       aprobar; como el expediente siempre se captura DESPUÉS de gastar, el
+                       ticket ya existe y diferirlo sólo dejaba expedientes a medias. -->
+                  <div class="cap-step">4 · Sube {{ clasificacion() === 'fiscal' ? 'la factura' : 'el ticket' }}</div>
+                  @if (!names()['comprobante_1']) {
+                    <div class="cap-drop" [class.drag]="drag()" (dragover)="over($event)" (dragleave)="leave($event)" (drop)="drop($event)">
+                      <i class="pi pi-camera cap-drop-ic" aria-hidden="true"></i>
+                      <div>Arrastra la <strong>foto o PDF</strong> de {{ clasificacion() === 'fiscal' ? 'la factura' : 'el ticket' }}</div>
+                      <label class="cap-pick"><i class="pi pi-upload" aria-hidden="true"></i> Elegir / tomar foto
+                        <input type="file" accept="image/*,application/pdf" capture="environment" (change)="onFile($event, 'comprobante_1')" hidden />
+                      </label>
+                    </div>
+                  } @else {
+                    <div class="cap-done">
+                      <i class="pi pi-check-circle cap-ok" aria-hidden="true"></i> <span class="cap-nm">{{ names()['comprobante_1'] }}</span>
+                      @if (photoLoading()) { <span class="cap-proc"><i class="pi pi-spin pi-spinner" aria-hidden="true"></i> leyendo…</span> }
+                      <button type="button" class="cap-link" (click)="clearPhoto()">cambiar</button>
+                    </div>
+                    @if (photoResult(); as pr) {
+                      @if (pr.ocr_status === 'ok' && pr.monto_match) { <div class="cap-val ok"><i class="pi pi-check-circle" aria-hidden="true"></i> El monto de la foto cuadra con el gasto.</div> }
+                      @else if (pr.ocr_status === 'ok') { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> El monto no cuadra — igual puedes enviarlo; quedará en revisión.</div> }
+                      @else if (pr.ocr_status === 'sin_key') { <div class="cap-val warn"><i class="pi pi-info-circle" aria-hidden="true"></i> Se enviará para revisión manual.</div> }
+                      @else { <div class="cap-val warn"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> No pude leer la foto — quedará en revisión.</div> }
+                    }
+                  }
                   <label class="cap-f"><span>Comentarios (opcional)</span>
                     <textarea pTextarea [(ngModel)]="comentarios" rows="2" class="w-full" placeholder="Nota para quien autoriza…"></textarea></label>
                 } @else {
@@ -369,14 +391,16 @@ export class FinanzasCapturarGastoComponent {
     if (this.modo() !== 'capturar') return false;
     if (!this.clasificacion()) return false;
     if (!this.names()['solicitud_kepler']) return false;   // la firma va en los 3 tipos
-    // Comprobable: sólo firma + clasificación (la evidencia va después de aprobar). No
-    // comprobable: además el motivo.
-    return this.llevaEvidencia() ? true : !!this.comentarios.trim();
+    // GX.11 — comprobable: además del firmado, el ticket. No comprobable: el motivo.
+    return this.llevaEvidencia()
+      ? !!this.names()['comprobante_1'] && !this.photoLoading()
+      : !!this.comentarios.trim();
   }
   enviarTitle(): string {
     if (this.modo() === 'evidencia') return this.names()['comprobante_1'] ? 'Enviar evidencia' : 'Falta subir la evidencia';
     if (!this.names()['solicitud_kepler']) return 'Falta la solicitud firmada';
     if (!this.clasificacion()) return 'Elige el tipo de gasto';
+    if (this.llevaEvidencia() && !this.names()['comprobante_1']) return 'Falta el ticket o la factura';
     if (!this.llevaEvidencia() && !this.comentarios.trim()) return 'Falta el motivo';
     return 'Enviar a aprobación';
   }
@@ -426,15 +450,17 @@ export class FinanzasCapturarGastoComponent {
     this.gasto.set({ folio: g.folio, beneficiario: g.beneficiario, importe: Number(g.importe) || 0,
       sucursal: g.sucursal, solicitante: g.solicitante, fecha: g.fecha, concepto: g.concepto });
     this.sel = null;
-    this.checkFolio(g.folio);
+    this.checkFolio(g.folio, g.sucursal ?? undefined);
   }
 
   /** Averigua en qué momento está el folio para elegir el modo de la página (capturar
    *  solicitud vs subir evidencia post-aprobación vs sin acción). */
-  private checkFolio(folio: string) {
+  private checkFolio(folio: string, sucursal?: string) {
     this.existing.set(null);
     this.checking.set(true);
-    this.svc.proofByFolio(folio).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    // La sucursal desambigua: el folio de Kepler es único por plaza, no global (373 folios
+    // viven en más de una). Viene de la solicitud elegida en el autocomplete.
+    this.svc.proofByFolio(folio, sucursal).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (p) => {
         this.existing.set(p || null);
         this.checking.set(false);
