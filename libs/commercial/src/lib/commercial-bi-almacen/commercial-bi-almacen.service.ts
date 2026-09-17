@@ -1107,7 +1107,15 @@ export class CommercialBiAlmacenService {
         .whereBetween('m.doc_date', [from, to])
         .modify((qb: any) => { if (ids !== null) qb.whereIn('m.warehouse_id', ids); });
 
-      const [{ count }] = await base().count<{ count: string }[]>('m.folio as count');
+      // [DB-MEM.15] El total se cuenta sobre la TABLA SOLA, no sobre los 7 `leftJoin` de `base()`.
+      // Verificado contra prod antes de cambiarlo: ninguno de los joins abanica — 23,711 filas
+      // por los dos caminos, con 23,711 `m.id` distintos. Siendo todos LEFT, tampoco pueden
+      // descartar filas, así que el número es el mismo y el trabajo es una fracción.
+      const soloMovs = () => trx('analytics.stock_movements as m')
+        .where('m.tenant_id', tenantId)
+        .whereBetween('m.doc_date', [from, to])
+        .modify((qb: any) => { if (ids !== null) qb.whereIn('m.warehouse_id', ids); });
+      const [{ count }] = await soloMovs().count<{ count: string }[]>('m.folio as count');
       // `k` sólo puede venir del whitelist `EXPLORE_FIELDS` (filtrado arriba con `allowed`),
       // así que es seguro usarlo como identificador de columna sin bindear — no es input libre.
       const selectExprs = cols.map((k) => trx.raw(`${fieldMap.get(k)!.sql} AS "${k}"`));
@@ -1126,9 +1134,36 @@ export class CommercialBiAlmacenService {
       // ya tenía. ⚠️ Esto SÍ cambia qué filas muestra cada página — decisión tomada a propósito:
       // la alternativa era dejarla arbitraria, y una página arbitraria hace **imposible demostrar**
       // que una optimización posterior no movió nada. Éste es el prerrequisito de ese trabajo.
-      const rows = await base().select(selectExprs)
+      //
+      // [DB-MEM.15] Y con la página ya determinista, el LIMIT se ADELANTA a las expresiones caras.
+      //
+      // Ésta era la consulta más cara de todo el API: **4,820 s en 793 llamadas, 14.5 GB
+      // derramados a disco**, 5.7 s de promedio y 17 s el peor caso. La causa no es ninguna
+      // expresión en particular: es DÓNDE se evalúan. Los campos `hora`, `canal` y `vendedor` son
+      // subconsultas correlacionadas contra `kepler_ods.kdm1 ⋈ kdm2 (⋈ kduv)` puestas en la LISTA
+      // DE SELECCIÓN, y Postgres calcula el target list en el nodo que está DEBAJO del Sort/Limit
+      // — o sea una vez por cada fila del rango de 30 días (133,933 medidas), no por las ≤200 que
+      // el usuario termina viendo.
+      //
+      // ⚠️ Se eligió A PROPÓSITO la variante que NO reescribe ninguna expresión. La alternativa
+      // —sacar los 3 campos y reusar `enrichFromKdm()`— es más elegante y hace UNA query en vez
+      // de N, pero cambia el resultado por tres vías que se verificaron leyendo el código:
+      //   1. `enrichFromKdm` decide con `clasificar(r.doc_code)`, y `doc_code` NO está en los
+      //      DEFAULTS: sin pedirlo, `clasificar(undefined)` cae en `venta:false` y **Vendedor y
+      //      Canal quedarían vacíos en el 100 % de las filas**;
+      //   2. `KDM_SUBQ_CANAL` aplica `~* '^PV '` sobre `v.c3` CRUDO y `canalFromVendedor()` sobre
+      //      el ya recortado — todo `c3` con espacio inicial cambia de canal;
+      //   3. `hora` pasa de `''` (celda vacía) a `null` (guion).
+      // Acá las expresiones son LAS MISMAS, byte por byte; lo único que cambia es cuántas filas
+      // las atraviesan. Es la diferencia entre optimizar y reescribir.
+      //
+      // La subconsulta va en SQL y no como lista de ids desde JS a propósito: el export usa
+      // `EXPORT_ROW_CAP` como pageSize, y pasar 100k ids por un `IN` sería el problema opuesto.
+      const paginaIds = soloMovs().select('m.id')
         .orderBy('m.doc_date', 'desc').orderBy('m.id', 'desc')
         .limit(pageSize).offset((page - 1) * pageSize);
+      const rows = await base().whereIn('m.id', paginaIds).select(selectExprs)
+        .orderBy('m.doc_date', 'desc').orderBy('m.id', 'desc');
       return { page, pageSize, total: Number(count), rows };
     });
   }
