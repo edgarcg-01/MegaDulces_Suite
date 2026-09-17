@@ -1,5 +1,5 @@
 /**
- * `[CV.24]` Doble de `@primeui/license-manager` para jest.
+ * `[CV.24]` Doble de `@primeui/license-manager` para las pruebas.
  *
  * El paquete real publica ESM (y arrastra `@noble/ed25519` + `@noble/hashes`, también ESM)
  * desde archivos `.js`, así que jest los lee como CommonJS y muere en "Unexpected token
@@ -8,7 +8,7 @@
  *
  * La licencia no es parte de ningún contrato de producto — sólo silencia un banner en prod
  * (`providePrimeNG({ license })`). Se apunta a este doble por `moduleNameMapper` en
- * `jest.config.ts`, y sólo en tests: el bundle de producción usa el paquete real.
+ * `vitest.config.ts`, y sólo en tests: el bundle de producción usa el paquete real.
  */
 export function registerLicense(): void { /* no-op en tests */ }
 

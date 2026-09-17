@@ -38,8 +38,8 @@ const PRODUCTO = {
   iva_pct: 16,
   ieps_pct: 0,
   // `[TDA.7]` `mayoreo` y `contenido` son obligatorios en `ProductoPrecio` y faltaban: el
-  // typecheck con `tsconfig.spec.json` daba TS2739 en 3 lugares. No se veía porque ts-jest corre
-  // con `isolatedModules` (transpila sin verificar tipos), así que la suite pasaba en verde sobre
+  // typecheck con `tsconfig.spec.json` daba TS2739 en 3 lugares. No se veía porque el transformador
+  // de los tests transpila sin verificar tipos, así que la suite pasaba en verde sobre
   // una fixture que no cumple el contrato que dice cumplir. Vacío es la afirmación correcta acá:
   // este producto NO tiene mayoreo, y es lo que hace útil el contraste con `CON_MAYOREO`.
   mayoreo: [],
@@ -482,7 +482,7 @@ describe('TiendaVerificadorComponent · lo que ve el mostrador', () => {
    * vive el mayoreo/ahorro que más espacio pide), no el string de la implementación.
    */
   it('tras un resultado, la tarjeta se desplaza sola hasta que su pie queda a la vista', async () => {
-    const spy = jest.fn();
+    const spy = vi.fn();
     // jsdom no implementa el layout real: se stubbea para AFIRMAR que se llamó, no el resultado
     // visual (eso no se puede medir sin browser — declarado, no fingido).
     const original = HTMLElement.prototype.scrollIntoView;

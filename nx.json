@@ -1,5 +1,24 @@
 {
   "$schema": "./node_modules/nx/schemas/nx-schema.json",
+  "//": [
+    "─── Corredor de pruebas: VITEST, inferido ──────────────────────────────────────────────",
+    "El plugin `@nx/vitest` DERIVA el target `test` de la existencia de un `vitest.config.ts`",
+    "en el proyecto. Eso no es cosmetico: antes el target se declaraba a mano en cada",
+    "`project.json` apuntando a un `jest.config.ts` por ruta, y MEDIDO el 2026-09-17 dos de esos",
+    "archivos NO EXISTIAN -- `apps/api` (con 3 specs dentro, que nunca corrieron) y",
+    "`libs/shared-scoring`. Ambos targets estaban en rojo con el mismo error inutil",
+    "(\"Can't find a root directory while resolving a config file path\"), y `passWithNoTests`",
+    "no lo tapaba porque el problema era el config, no la ausencia de pruebas.",
+    "",
+    "Con la inferencia esa clase de bug deja de ser posible: si no hay config, no hay target.",
+    "",
+    "⛔ `testMode: run` es OBLIGATORIO. El default del plugin es `watch`, o sea que `nx test`",
+    "levantaria vitest en modo observador y NUNCA saldria -- en CI eso es un cuelgue, no un fallo.",
+    "",
+    "El plugin ya pone `cache: true`, los `inputs` (incluidos los `tsconfig.spec.json` de las",
+    "dependencias, que Vite lee al resolver project references) y los `outputs`. Por eso NO hay",
+    "un `targetDefaults.test` aca: duplicarlo solo daria dos fuentes de verdad para lo mismo."
+  ],
   "plugins": [
     {
       "plugin": "@nx/webpack/plugin",
@@ -11,9 +30,8 @@
     },
     { "plugin": "@nx/eslint/plugin", "options": { "targetName": "lint" } },
     {
-      "plugin": "@nx/jest/plugin",
-      "options": { "targetName": "test" },
-      "exclude": ["apps/logistica-api-e2e/**/*"]
+      "plugin": "@nx/vitest",
+      "options": { "testTargetName": "test", "testMode": "run" }
     }
   ],
   "defaultProject": "api",
@@ -22,10 +40,6 @@
       "cache": true,
       "dependsOn": ["^build"],
       "inputs": ["production", "^production"]
-    },
-    "test": {
-      "cache": true,
-      "inputs": ["default", "^production", "{workspaceRoot}/jest.preset.js"]
     },
     "lint": {
       "cache": true,
@@ -48,7 +62,7 @@
     "production": [
       "default",
       "!{projectRoot}/**/*.spec.[jt]s",
-      "!{projectRoot}/jest.config.[jt]s",
+      "!{projectRoot}/vitest.config.[jt]s",
       "!{projectRoot}/.eslintrc.json",
       "!{projectRoot}/eslint.config.js",
       "!{projectRoot}/**/?(*.)+(spec|test).[jt]s?(x)?(.snap)",
@@ -67,8 +81,11 @@
       "e2eTestRunner": "playwright",
       "linter": "eslint",
       "style": "css",
-      "unitTestRunner": "jest"
+      "unitTestRunner": "vitest"
     },
+    "@nx/angular:library": { "unitTestRunner": "vitest" },
+    "@nx/js:library": { "unitTestRunner": "vitest" },
+    "@nx/nest:library": { "unitTestRunner": "vitest" },
     "@nx/angular:component": { "type": "component" },
     "@schematics/angular:component": { "type": "component" },
     "@nx/angular:directive": { "type": "directive" },

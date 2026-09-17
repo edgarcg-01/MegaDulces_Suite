@@ -221,12 +221,25 @@ function worstFreshness(list: (Freshness | null | undefined)[]): Freshness | nul
 
     /* HOTFIX tablets — varios navegadores (Safari/iPadOS, WebViews de Android) ignoran
        iframe.contentWindow.print() y mandan a imprimir el DOCUMENTO PRINCIPAL: salía toda
-       la pantalla de la app en vez de las etiquetas. Esta copia cuelga del <body>, nunca se
-       ve en pantalla, y en @media print es lo ÚNICO que queda en pie. En el camino bueno
-       (el iframe sí imprime) estas reglas ni se evalúan: el documento impreso es el otro.
+       la pantalla de la app en vez de las etiquetas. Esta copia cuelga del elemento body,
+       nunca se ve en pantalla, y en @media print es lo ÚNICO que queda en pie. En el camino
+       bueno (el iframe sí imprime) estas reglas ni se evalúan: el documento impreso es el otro.
        El tamaño de hoja NO se fija acá: estos estilos son globales (encapsulation None) y le
-       cambiarían el papel al resto de la app. Va en un <style> temporal que se inyecta al
-       imprimir y se quita al terminar (ver printIsolated). */
+       cambiarían el papel al resto de la app. Va en un elemento de estilos temporal que se
+       inyecta al imprimir y se quita al terminar (ver printIsolated).
+
+       DOS COSAS QUE ESTE COMENTARIO NO PUEDE TENER, las dos vividas acá:
+
+       1. Acentos graves. Cierran el template literal de styles y parten el archivo. Ya estaba
+          documentado y hay un candado en etiqueta-hoja.spec.ts.
+       2. Signos de menor y mayor. Decía "elemento body" y "elemento de estilos" con los signos
+          literales. Angular, al inlinear el CSS, escapa el signo de menor a la forma CSS
+          barra-3-c; ese texto termina dentro de una cadena de JavaScript, donde barra-3 es un
+          escape octal heredado, PROHIBIDO en modulos ESM. Resultado: la suite de esta pantalla
+          no cargaba, con un RollupError que hablaba de escapes octales y no de CSS.
+
+       Con jest no pasaba porque ts-jest nunca hace pasar el CSS por un parser de JavaScript.
+       Es la misma familia: un caracter dentro de un comentario que rompe lo que lo envuelve. */
     .etqp-print-fallback{ display:none; }
     @media print{
       body.etqp-printing > *:not(.etqp-print-fallback){ display:none !important; }

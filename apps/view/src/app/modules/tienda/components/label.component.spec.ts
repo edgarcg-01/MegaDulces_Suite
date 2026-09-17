@@ -102,7 +102,7 @@ describe('LabelComponent · lo que sale impreso', () => {
    */
   describe('⭐ vuelve a medir cuando cambia el insumo, y sólo entonces', () => {
     const cmp = () => fix.componentInstance as unknown as { layout(): void; programar(): void };
-    const espiar = () => jest.spyOn(cmp(), 'layout');
+    const espiar = () => vi.spyOn(cmp(), 'layout');
     const dosCuadros = async () => { await frame(); await frame(); };
 
     it('un cambio de TEXTO que no pasa por Angular (el modelo mutado en sitio) re-mide', async () => {
@@ -215,7 +215,7 @@ describe('LabelComponent · lo que sale impreso', () => {
         value: { check: () => true, load: () => Promise.resolve() }, configurable: true,
       });
       // Métricas de mentira pero COHERENTES: cada carácter ocupa 0.45 del cuerpo con que se dibuja.
-      const medidor = jest.spyOn(MEDIDOR_DE_TEXTO, 'ancho').mockImplementation((txt: string, fuente: string) => {
+      const medidor = vi.spyOn(MEDIDOR_DE_TEXTO, 'ancho').mockImplementation((txt: string, fuente: string) => {
         const px = Number(/(\d+(?:\.\d+)?)px/.exec(fuente)?.[1] ?? 0);
         return txt.length * px * 0.45;
       });

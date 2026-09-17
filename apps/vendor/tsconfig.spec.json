@@ -2,7 +2,18 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/spec",
-    "types": ["jest", "node"]
+    // ⚠️ La raiz del workspace, igual que tsconfig.app.json: esta app importa de libs/
+    // (@megadulces/contracts, @megadulces/ui-web, @megadulces/shared-scoring). Sin esto,
+    // TS6059 "is not under rootDir" en cada uno de esos imports.
+    "rootDir": "../..",
+    "types": ["vitest/globals", "node"],
+    // ⛔ `false` sólo para pruebas: con `true`, el emit de Angular se omite y los componentes
+    // llegan al TestBed sin compilar. El detalle medido está en `apps/view/tsconfig.spec.json`.
+    // El build de producción sigue con `isolatedModules: true` vía `tsconfig.app.json`.
+    "isolatedModules": false
   },
-  "include": ["src/**/*.spec.ts", "src/**/*.d.ts"]
+  // ⛔ Trae el código de la app, no sólo los `*.spec.ts`: el compilador de Angular que usa
+  // Vitest necesita el programa completo. El detalle medido está en
+  // `apps/view/tsconfig.spec.json`.
+  "include": ["src/**/*.ts", "src/**/*.d.ts"]
 }

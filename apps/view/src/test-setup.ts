@@ -1,14 +1,21 @@
-// jest-preset-angular 17: el entrypoint es `setup-env/zone` (el viejo
-// `setup-jest` se retiró). Zone-based porque la app todavía usa Zone.js.
+// Entorno de pruebas de Angular sobre Vitest (@analogjs/vitest-angular).
 //
-// ⚠️ El módulo EXPORTA `setupZoneTestEnv`, no lo ejecuta al importarse: con el
-// `import 'jest-preset-angular/setup-env/zone'` a secas el entorno nunca se
-// inicializaba y cualquier spec con TestBed moría en "Need to call
-// TestBed.initTestEnvironment() first". Nadie lo vio porque hasta ahora ningún
-// spec de esta app usaba TestBed (el único con esa forma son 3 `it.todo`).
-import { setupZoneTestEnv } from 'jest-preset-angular/setup-env/zone';
+// setup-zone carga zone.js y parcha describe/it/beforeEach para que el cuerpo de cada prueba
+// corra dentro de una ProxyZone. Eso es lo que hace funcionar fakeAsync y tick -- hoy los usa
+// tienda-etiquetas.component.spec.ts.
+//
+// setupTestBed es lo que antes hacia setupZoneTestEnv() de jest-preset-angular: inicializa el
+// TestBed. Sin esta llamada, cualquier spec con TestBed muere en
+// "Need to call TestBed.initTestEnvironment() first".
+//
+// ⚠️ zoneless: false A PROPOSITO, aunque la app corra provideZonelessChangeDetection(): esto
+// replica lo que habia (TestBed con zona) y los specs que quieren zoneless ya lo piden ellos
+// mismos en sus providers. Ponerlo en true aca se lo impondria tambien a los que NO lo piden, y
+// migrar el corredor de pruebas no es el momento de cambiar el modelo de deteccion de cambios.
+import '@analogjs/vitest-angular/setup-zone';
+import { setupTestBed } from '@analogjs/vitest-angular/setup-testbed';
 
-setupZoneTestEnv();
+setupTestBed({ zoneless: false });
 
 /**
  * `[TDA.7]` `IntersectionObserver` para jsdom, que no lo implementa.

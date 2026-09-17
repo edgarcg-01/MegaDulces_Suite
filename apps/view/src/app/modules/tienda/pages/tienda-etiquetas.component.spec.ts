@@ -173,7 +173,7 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
     cmp.setCopies(0, 3);
     await tick();
     const vistas: number[] = [];
-    jest.spyOn(cmp as any, 'printIsolated').mockImplementation(() => {
+    vi.spyOn(cmp as any, 'printIsolated').mockImplementation(() => {
       const hoja = (fix.nativeElement as HTMLElement).querySelector('.etqp-print')!;
       vistas.push(hoja.querySelectorAll('.etq-label[data-etq-settled]').length, hoja.querySelectorAll('.etq-label').length);
       (cmp as any).finishPrint();
