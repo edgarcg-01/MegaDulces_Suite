@@ -141,6 +141,23 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
   },
   {
+    key: 'surtido',
+    label: 'Surtido',
+    // Fase SU (ADR-067). Área propia y no una tab de Andén: el criterio de este sidebar es
+    // "un área = un trabajo que alguien hace en un turno", y surtir es el turno completo de
+    // una persona distinta a la que recibe en el andén. El surtido DESEMBOCA en el andén,
+    // que es otra cosa.
+    //
+    // Sin tabs: es pantalla de FOCO (como el Andén). Los dos pasos —armar el recorrido y
+    // caminarlo— viven DENTRO de la misma vista a propósito: es una sola persona (decisión
+    // 2026-09-17), y partirlos en dos tabs la obligaría a saltar de pestaña a media vuelta.
+    match: ['/almacen/surtido'],
+    tabs: [],
+    focusEntries: [
+      { label: 'Surtido', icon: 'pi pi-bolt', route: '/almacen/surtido', permission: Permission.COMMERCIAL_PICKING_VER, exact: true },
+    ],
+  },
+  {
     key: 'anden',
     label: 'Andén',
     // El Andén es pantalla de FOCO: no tiene tabs propios. Se declara como área
