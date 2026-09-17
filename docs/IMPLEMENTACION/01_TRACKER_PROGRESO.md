@@ -109,10 +109,17 @@ importers.
 
 **Capas siguientes (net-new, TODO):**
 
-- [ ] **[PU.1]** ⬜ Motor de egresos MVP: ledger de 5 estados (vigente/reserva/compromiso/ejercido/
-  disponible + pagado aparte), absorbe `budget.expense_obligations` sin romper TP, validación atómica,
-  idempotencia, bandeja de autorización + adecuaciones. Reproduce §8.2 fila por fila. Extiende
-  `/finanzas/presupuesto`.
+- [~] **[PU.1]** 🔨 Motor de egresos MVP. **Backend ✅ y verificado (DB-direct):** schema
+  `budget.budgets`/`budget_lines`/`line_movements` (mig `20260917140000`, RLS forzado, link opcional
+  `expense_obligations.budget_line_id` → NO rompe TP), `BudgetLinesService` (ledger de 5 estados:
+  vigente/reserva/compromiso/ejercido/disponible + pagado aparte, lock `FOR UPDATE`, gate de sobregiro
+  por `control_level` informativo/advertencia/bloqueo, idempotencia por (origen,documento,tipo),
+  no-autoaprobación) + controller + `FinanceBudgetModule` (wireado en app.module, separado del módulo
+  de TP). Smoke `test-newdb-budget-ledger.js` **17/17**: reproduce §8.2 EXACTO (100k→80k→80k→80k→80k→92k,
+  pagado NO resta), idempotencia e índice único, CHECK de bucket negativo. Lint 0 errores. Mig aplicada
+  a dev (`platform_test`) directo (idempotente; pendiente prod vía deploy). ⚠️ El mapeo evento→transición
+  (§16.3) queda como default configurable hasta PU.0.5.
+  **Pendiente:** UI (extender `/finanzas/presupuesto` con cabecera+partidas+ledger+bandeja) + verificación HTTP del servicio (ADR-044).
 - [ ] **[PU.2]** ⬜ Presupuesto vs real por vista ODS (Resumen ejecutivo §5.1, KPIs §10, «sin datos»≠cero).
 - [ ] **[PU.3]** ⬜ Flujo de efectivo + abastecimiento (cartera CXC − Calendario TP, bancos CB, compras RA).
 - [ ] **[PU.4]** ⬜ Escenarios/versiones/import CSV·XLSX + Marketing (campañas + atribución explícita) +
