@@ -192,11 +192,37 @@ posible SU.6.
 
 ---
 
-### SU.4 — Interfaz del surtidor
+### SU.4 — La pantalla única de surtido
 
-`ubicación → producto → cantidad → confirmar`, con la unidad siempre visible (SU.1) y el orden
-por ubicación que ya calcula `pick-suggestion`. Botones grandes, escaneo, una decisión por
-pantalla (§44).
+⭐ **Decisión de Edgar (2026-09-17): UNA sola interfaz y UNA sola persona**, no las tres del
+documento (jefe de almacén / surtidor / checadora). La misma persona arma la ola, la surte, la
+reparte por pedido y la verifica, en una sola pantalla por pasos.
+
+**Cómo se hace sin perder lo que sí importa:**
+
+- Mobile-first responsive, no dos pantallas. El trabajo es caminando, así que manda el handheld;
+  en tablet o PC la misma pantalla se abre más cómoda. Mismo criterio que `apps/vendor`.
+- El flujo es **por pasos, no por menús**: *pedidos del día → armar ola → surtir → repartir →
+  cerrar*. Una decisión por pantalla (§44 del documento sigue vigente y es correcto).
+- `ubicación → producto → cantidad → confirmar`, con la unidad siempre visible (SU.1) y el orden
+  por ubicación que ya calcula `pick-suggestion`.
+
+**⚠️ Lo que esta decisión CUESTA, y se declara en vez de disimularse:**
+
+El §21 del documento pide *"evitar que el surtidor se auto-chequee"*. Con una sola persona, **el
+chequeo deja de ser un control cruzado**: verificar lo que uno mismo acaba de levantar no atrapa
+el error propio igual que un segundo par de ojos. No se finge lo contrario —
+
+1. el paso se llama **re-verificación**, no "chequeo", y la pantalla no dice "validado por un
+   tercero" cuando no lo hubo;
+2. `wave_orders` registra **quién surtió y quién verificó** por separado, aunque hoy sean el mismo
+   usuario: el día que sean dos personas, el mismo flujo lo soporta sin migración;
+3. el sistema **puede medir** cuántas veces coincidieron surtidor y verificador — eso convierte
+   una decisión de personal en un número consultable, en vez de un supuesto.
+
+**Corolario que ahorra trabajo:** ya NO hará falta un permiso `COMMERCIAL_PICKING_SURTIR`. El par
+`VER`/`GESTIONAR` alcanza, porque separa **leer de escribir**, no roles de piso (y hoy `direccion`
+y `prevencion` tienen VER sin GESTIONAR, que es exactamente para lo que sirve).
 
 ---
 
@@ -219,17 +245,21 @@ El reverso de SU.3: la ola vuelve a partirse por pedido, cada uno con su contene
 
 ---
 
-### SU.7 — Chequeo de salida
+### SU.7 — Re-verificación de salida
 
 Pedido vs surtido vs físico (§20), con incidencia obligatoria cuando hay diferencia: tipo,
-cantidad, responsable previo, motivo, usuario, fecha.
+cantidad, responsable previo, motivo, usuario, fecha. Es un **paso más de la pantalla única**
+(SU.4), no una interfaz aparte.
 
 ⚠️ **`commercial-receiving` NO sirve para esto**: es recepción de proveedor (entrada), no
 verificación de salida. Comparte forma, no dominio.
 
-**Segregación de funciones (§21):** quien surtió no puede chequear su propia ola. Es un gate, y
-**un gate sin prueba negativa es una intención** (ADR-056): hay que romperlo a propósito una vez
-y verificar el rojo.
+**Segregación de funciones (§21): NO se implementa como gate** — decisión de Edgar: una sola
+persona hace todo el flujo. Bloquear el auto-chequeo dejaría el almacén sin poder cerrar una ola.
+En su lugar se **mide y se declara**: las dos columnas (`picked_by`, `verified_by`) se guardan por
+separado y el tablero puede decir en qué porcentaje de las olas fueron la misma persona. Un dato
+consultable vale más que un gate apagado — y el día que haya dos personas, el gate se enciende sin
+tocar el esquema.
 
 ---
 
