@@ -626,11 +626,21 @@ const CHANNEL_ORDER: Record<string, number> = {
 // `TI*` = traspaso interno entre sucursales (logística, sale de CEDIS). NO es
 // venta a cliente → se excluye del sell-out (contarlo duplica + infla).
 const NON_SALE_CHANNEL = 'traspaso';
-// Canales CRUDOS de analytics.sales_daily / sales_boxes_monthly que NO son venta
-// real. `mayoreo` = forma_pago 'TI%' = traspaso interno CEDIS→sucursal (la venta
-// de mayoreo/telemarketing real vive en el canal `credito`). Decisión 2026-08-27:
-// unificar la definición de venta con Sell-Out excluyéndolo en TODO consumidor.
-const NON_SALE_RAW_CHANNELS = ['mayoreo'];
+// [SD.3] Fuente de la venta: el twin ODS-derivado en vez de la tabla imperativa
+// `analytics.sales_daily` (3.76 GB, importer). Mismo grano/columnas; el twin YA cuenta
+// tickets por folio (SD.4b, 99.68%) y trae la taxonomía cruda de canal incl. `mayoreo`
+// (SD-CH). No tiene columna `margin` → se deriva `revenue - cost`. Constante como en
+// `commercial-profitability`/`weekly-analytics`.
+const SALES_FACT = 'analytics.mv_sales_blended';
+// Canales CRUDOS que NO son venta real. VACÍO a propósito (SD.3): `mv_sales_blended`
+// sólo contiene ventas reales — los no-venta (`traspaso`/devoluciones) ya se excluyen
+// aguas arriba en `mv_kepler_sales_daily`. `mayoreo` **es venta de telemarketing** (K.3:
+// Factura Telemarketing U-D-8, $9.56M/30d; la suposición vieja "mayoreo=TI% traspaso, la
+// venta real vive en credito" fue REFUTADA — TI001/TI002 no existen en kdud, y el
+// telemarketing aterriza en `mayoreo`, no en `credito`). SD-CH lo preservó en el blend
+// y en Sell-Out, así que incluirlo REALINEA con la definición actual de Sell-Out.
+// `whereNotIn('channel', [])` es no-op seguro → los call-sites del filtro quedan inertes.
+const NON_SALE_RAW_CHANNELS: string[] = [];
 // RS.12 — cota de tiempo para queries de sell-out (protege el pool del path en vivo pesado).
 const SELLOUT_STMT_TIMEOUT = '45s';
 
@@ -1415,9 +1425,9 @@ export class CommercialAnalyticsService {
     // exactos; `lines` = sum(tickets) (proxy de actividad, grano-producto no aditivo);
     // cost/margin = 0 hasta KV.4 (margen con kdpv_prod_util).
     return this.tk.run(async (trx) => {
-      const rows = await trx('analytics.sales_daily')
+      const rows = await trx(SALES_FACT)
         .where('tenant_id', tenantId)
-        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
         .modify((qb) => {
           if (from) qb.where('sale_date', '>=', from);
           if (to) qb.where('sale_date', '<=', to);
@@ -1459,7 +1469,7 @@ export class CommercialAnalyticsService {
         .leftJoin('catalog.categories AS cat', 'cat.id', 'p.category_id')
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
-        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
         .modify((qb) => {
           if (from) qb.where('s.sale_date', '>=', from);
           if (to) qb.where('s.sale_date', '<=', to);
@@ -1664,10 +1674,10 @@ export class CommercialAnalyticsService {
     // revenue/units exactos; tickets = sum proxy (grano-producto, no aditivo);
     // unique_customers = 0 (no derivable del fact por-producto, llega en KV.3).
     return this.tk.run(async (trx) => {
-      const rows = await trx('analytics.sales_daily AS s')
+      const rows = await trx(`${SALES_FACT} AS s`)
         .join('commercial.warehouses AS w', 'w.id', 's.warehouse_id')
         .where('s.tenant_id', tenantId)
-        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
         .modify((qb) => {
           if (from) qb.where('s.sale_date', '>=', from);
           if (to) qb.where('s.sale_date', '<=', to);
@@ -1791,7 +1801,7 @@ export class CommercialAnalyticsService {
         });
         return qb;
       };
-      const base = () => applyFilters(trx('analytics.sales_daily AS s')
+      const base = () => applyFilters(trx(`${SALES_FACT} AS s`)
         .where('s.tenant_id', tenantId)
         .andWhere('s.sale_date', '>=', lo)
         .andWhere('s.sale_date', '<=', hi));
@@ -1834,7 +1844,7 @@ export class CommercialAnalyticsService {
       }));
 
       // Total + cobertura de costo sobre el rango YA FILTRADO (para share y confianza del margen).
-      const [tot] = await applyFilters(trx('analytics.sales_daily AS s')
+      const [tot] = await applyFilters(trx(`${SALES_FACT} AS s`)
         .where('s.tenant_id', tenantId)
         .andWhere('s.sale_date', '>=', lo)
         .andWhere('s.sale_date', '<=', hi))
@@ -1867,21 +1877,21 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const since = trx.raw(`((now() AT TIME ZONE 'America/Mexico_City')::date - 89)`);
-      const channels = await trx('analytics.sales_daily AS s')
+      const channels = await trx(`${SALES_FACT} AS s`)
         .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since).whereNotNull('s.channel')
         .groupBy('s.channel').select('s.channel AS value').orderByRaw('SUM(s.revenue) DESC');
-      const warehouses = await trx('analytics.sales_daily AS s')
+      const warehouses = await trx(`${SALES_FACT} AS s`)
         .join('commercial.warehouses AS w', (j: any) => j.on('w.id', 's.warehouse_id').andOn('w.tenant_id', 's.tenant_id'))
         .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
         .groupBy('w.id', 'w.code', 'w.name').select('w.id AS value', 'w.code AS code', 'w.name AS name')
         .orderByRaw('SUM(s.revenue) DESC');
-      const brands = await trx('analytics.sales_daily AS s')
+      const brands = await trx(`${SALES_FACT} AS s`)
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .join('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
         .groupBy('b.id', 'b.nombre').select('b.id AS value', 'b.nombre AS label')
         .orderByRaw('SUM(s.revenue) DESC').limit(300);
-      const categories = await trx('analytics.sales_daily AS s')
+      const categories = await trx(`${SALES_FACT} AS s`)
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .join('catalog.categories AS c', 'c.id', 'p.category_id')
         .where('s.tenant_id', tenantId).andWhere('s.sale_date', '>=', since)
@@ -1915,7 +1925,7 @@ export class CommercialAnalyticsService {
       // del ODS + rutas + Wincaja), NO la copia sales_daily que sub-cuenta Kepler ~$8M/mes.
       const channels = await trx('analytics.mv_sales_blended')
         .where('tenant_id', tenantId)
-        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+        .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
         .andWhere('sale_date', '>=', this.since30d(trx))
         .andWhere('sale_date', '<=', this.untilToday(trx))
         .groupBy('channel')
@@ -1933,7 +1943,7 @@ export class CommercialAnalyticsService {
       // TICKETS aún de sales_daily (los matviews del ODS no cuentan folio): total + por canal, mismo
       // vocabulario de canal → se cruza con el blend. Aproximado (le falta el ticket del telemarketing,
       // que la copia no tiene) → avg_ticket queda levemente alto; el revenue SÍ es el real consolidado.
-      const ticketRows: any[] = await trx('analytics.sales_daily')
+      const ticketRows: any[] = await trx(SALES_FACT)
         .where('tenant_id', tenantId)
         .whereNotIn('channel', NON_SALE_RAW_CHANNELS)
         .andWhere('sale_date', '>=', this.since30d(trx))
@@ -2035,7 +2045,7 @@ export class CommercialAnalyticsService {
         .leftJoin('analytics.product_sales_stats AS st', (j: any) =>
           j.on('st.product_id', 's.product_id').andOn('st.tenant_id', 's.tenant_id'))
         .where('s.tenant_id', tenantId)
-        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
         .andWhere('s.sale_date', '>=', this.since30d(trx))
         .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .andWhere('p.is_promo', false)
@@ -2063,7 +2073,7 @@ export class CommercialAnalyticsService {
       if (netTotal === null && opts?.share) {
         const [tot] = await trx('analytics.mv_sales_blended')
           .where('tenant_id', tenantId)
-          .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+          .whereNotIn('channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
           .andWhere('sale_date', '>=', this.since30d(trx))
           .andWhere('sale_date', '<=', this.untilToday(trx))
           .select(trx.raw('COALESCE(SUM(revenue),0)::numeric AS revenue'));
@@ -2100,7 +2110,7 @@ export class CommercialAnalyticsService {
         .join('catalog.products AS p', (j: any) => j.on('p.id', 's.product_id').andOn('p.tenant_id', 's.tenant_id'))
         .leftJoin('catalog.brands AS b', 'b.id', 'p.brand_id')
         .where('s.tenant_id', tenantId)
-        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // mayoreo=TI% traspaso, no es venta
+        .whereNotIn('s.channel', NON_SALE_RAW_CHANNELS) // vacío (SD.3): no-op; mayoreo SÍ es venta (K.3/SD-CH)
         .andWhere('s.sale_date', '>=', this.since30d(trx))
         .andWhere('s.sale_date', '<=', this.untilToday(trx))
         .groupBy('b.id', 'b.nombre')
@@ -2152,7 +2162,7 @@ export class CommercialAnalyticsService {
         .orderBy('sale_date', 'asc');
       // Tickets aún de sales_daily (los matviews del ODS no cuentan folio) → sparkline de tickets
       // aproximado (le falta el telemarketing); revenue/units SÍ son el real consolidado.
-      const tRows: any[] = await dayFilter(trx('analytics.sales_daily'))
+      const tRows: any[] = await dayFilter(trx(SALES_FACT))
         .groupBy('sale_date')
         .select(trx.raw('sale_date::text AS day'), trx.raw('COALESCE(SUM(tickets),0)::int AS tickets'));
       const tByDay = new Map<string, number>(tRows.map((r: any) => [r.day, Number(r.tickets || 0)]));
@@ -4817,7 +4827,7 @@ export class CommercialAnalyticsService {
     let freshness: Freshness = FRESHNESS_UNKNOWN;
     const { salesRows, prodRows, prevRows, stkRows, scopeWh } = await this.tk.run(async (trx) => {
       freshness = await this.feedFreshness(trx, isRange
-        ? [['analytics.sales_daily', 'updated_at', 'Venta diaria']]
+        ? [[SALES_FACT, 'updated_at', 'Venta diaria']]
         : [['analytics.sales_boxes_monthly', 'updated_at', 'Venta en cajas (mensual)']]);
       const applyFilters = (qb: any) => {
         if (whFilter) qb.whereIn('w.code', whFilter);
@@ -4831,7 +4841,7 @@ export class CommercialAnalyticsService {
       // (piezas para pieza, kg para granel) · `boxes` = cajas con el factor canónico. Todos los canales.
       let sq: any;
       if (isRange) {
-        sq = trx('analytics.sales_daily as m')
+        sq = trx(`${SALES_FACT} as m`)
           .join('catalog.products as p', 'p.id', 'm.product_id')
           .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .leftJoin('analytics.v_product_box_factor as vbf', function (this: any) {
@@ -4859,7 +4869,7 @@ export class CommercialAnalyticsService {
       // SAL.6 — tendencia: venta del período ANTERIOR (misma duración, solo rango).
       let prevRows: any[] = [];
       if (isRange && prevFrom && prevTo) {
-        const pq = trx('analytics.sales_daily as m')
+        const pq = trx(`${SALES_FACT} as m`)
           .join('catalog.products as p', 'p.id', 'm.product_id')
           .join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', prevFrom).andWhere('m.sale_date', '<=', prevTo)
@@ -4875,7 +4885,7 @@ export class CommercialAnalyticsService {
       // cada sucursal en scope (venta 0 / exist 0 permitidos). Scope = sucursales con venta en el período.
       let scopeWh: any[];
       if (isRange) {
-        scopeWh = await trx('analytics.sales_daily as m').join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
+        scopeWh = await trx(`${SALES_FACT} as m`).join('commercial.warehouses as w', 'w.id', 'm.warehouse_id')
           .where('m.tenant_id', tenantId).andWhere('m.sale_date', '>=', from).andWhere('m.sale_date', '<=', toIncl)
           .whereNotIn('m.channel', NON_SALE_RAW_CHANNELS)
           .distinct('w.id as id', 'w.code as code', 'w.name as name');
