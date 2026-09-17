@@ -8,6 +8,24 @@
     "build": {
       "executor": "@nx/webpack:webpack",
       "outputs": ["{options.outputPath}"],
+      "//": [
+        "⛔ Los `assets` de abajo traen DOS carpetas de FUERA del proyecto (database/migrations y",
+        "database/seeds). El input por default de Nx es {projectRoot}/**/* + sharedGlobals, o sea",
+        "que esas dos NO entran al hash. MEDIDO el 2026-09-17, con la cache recien encendida:",
+        "creando un archivo nuevo en database/migrations, `nx build api` daba 2/2 hit (100%) y",
+        "[local cache] -- el build salia SIN esa migracion. Con estos inputs da 1/2 y reconstruye.",
+        "",
+        "Mientras NADA se cacheaba el hueco era inofensivo. Al encender la cache se vuelve un bug",
+        "de produccion: agregar una migracion y desplegar serviria un bundle viejo.",
+        "",
+        "Regla: si un target copia algo de fuera de su projectRoot, ese algo va en `inputs`."
+      ],
+      "inputs": [
+        "production",
+        "^production",
+        "{workspaceRoot}/database/migrations/**/*",
+        "{workspaceRoot}/database/seeds/**/*"
+      ],
       "options": {
         "target": "node",
         "compiler": "swc",
