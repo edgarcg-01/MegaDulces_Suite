@@ -360,6 +360,57 @@ viene subiendo: **55% de las recepciones de sucursal en ago-2026** ya tienen cop
 
 ---
 
+### 3.y ⭐ El EMBARQUE `U-D-41` y su cabecera logística (decodificado 2026-09-17)
+
+`U-D-41` = **Embarque**, serie **1 = Telemarketing** / **2 = Sucursal** (la etiqueta sale de
+`kdmm`, no se quema en código). Es la pantalla *Almacenes › Control de Pedidos › Salida por
+Embarque*. Cadena: **Pedido `U-D-40` → Embarque `U-D-41` → Factura `U-D-8`**, por `c37`+`c39`.
+
+**El decode no se dedujo por estadística — se ancló a una captura de la pantalla de Kepler**
+(UD4101-0000713, sucursal 06 “Canindo”, 15-sep-2026) y se comprobó campo por campo:
+
+| en la pantalla | columna | nota |
+|---|---|---|
+| Transporte Asignado | **`c83`** | → `kdm_transporte` (`c2` descripción, `c3` placas, `c4` chofer asignado) |
+| Chofer | **`c84`** | → `kdm_chofer` |
+| Guía de Embarque | **`c86`** | agrupa VARIOS embarques: es **el viaje** |
+| Resp. Surtido / Checado / Embarque | **`c80` / `c81` / `c82`** | ⛔ sus catálogos **no** están en el ODS: quedan en código |
+| Vendedor | `c12` | → `kduv.c2` |
+| Fecha de Pago · Descuento Cliente | `c18` · `c19` | ⚠️ `c18` se contradice en el 10.9% (anterior al propio embarque) |
+| Subtotal / IEPS / IMPORTE | — · `c15` · `c16` | |
+| Cliente · destino | `c10` · `c32`–`c35` | |
+
+**⭐ La GUÍA es el viaje; el EMBARQUE es la parada.** Medido 2026: ~2,500 guías agrupan ~5,700
+embarques (hasta 32 paradas en una), y de las 388 multiparada **386 llevan una sola unidad y
+388/388 un solo chofer**. Mapear 1 embarque = 1 viaje inventa más de 3,000 viajes que no
+existieron. Por eso son dos vistas: `analytics.erp_shipment_headers` (parada) y
+`analytics.erp_shipment_trips` (viaje).
+
+**⛔ El embarque NO referencia una ruta.** Se sondearon las 200+ columnas de `kdm1` contra
+`kdm_rutas` (clave y nombre): el único “match” masivo lo producía una fila **vacía** del
+catálogo de la suc 01, que empareja con toda columna vacía; y `c34` coincide porque es el
+**municipio** y las rutas se llaman como los pueblos (ZIROSTO, PENJAMO…). `ruta_declarada` va
+NULL a propósito.
+
+**⚠️ DOS TRAMPAS DE CLAVE que ya cobraron, las dos en la misma sesión:**
+
+1. **El relleno de ceros no coincide.** El documento escribe `001`/`0010`/`00017`; el catálogo
+   usa 5 dígitos en 208 de 211 filas. Con igualdad literal resuelve el **27%**; normalizando,
+   el **100%**.
+2. **…pero normalizar a ciegas atribuye mal.** El espacio de claves cortas es **local a la
+   sucursal y está reusado**: `00009` = MARIA CANDELARIA SALGADO MORALES en las 8 ramas, pero
+   `09` en la **suc 05** es **BENJAMIN ALONZO ZARAGOZA**, otra persona. Normalizar siempre
+   ponía **582 de 3,870 embarques (15%) a nombre del chofer equivocado**. Regla correcta:
+   **exacto → normalizado → NULL**, con el método expuesto en `transporte_metodo` /
+   `chofer_metodo`. Y el catálogo además tiene **altas duplicadas** de la misma unidad
+   (`00018` y `018`, ambas SUBURBAN P6X-164-D): sin un `DISTINCT ON` que las colapse, el JOIN
+   **duplica embarques**.
+
+**⛔ El embarque no es cartera.** No tiene saldo ni aplicaciones; la deuda la manda `kdue`
+(ver `analytics.erp_shipment_billing`). Excepción: en la suc 02 el embarque *sí* es el cargo.
+
+---
+
 ### 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto
 
 Medido en prod sobre `analytics.expense_requests` (X-A-15, 2026-09-17):
