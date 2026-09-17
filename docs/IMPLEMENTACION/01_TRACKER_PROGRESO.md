@@ -266,7 +266,9 @@ software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta c
   no de una lista a mano, con prueba negativa que aborta si no alcanza a nadie — el defecto de
   `[LC.6.2]`. Aplicado: **VER→10 roles, GESTIONAR→7**; `customer_b2b` excluido a propósito
   (es cliente externo). Smoke `http-picking-pool-test.js` **35/35**. `nx build api` OK.
-  **Falta: pantalla (SU.2.1), aplicar las 2 migs a Railway + redeploy + re-login.**
+  **✅ PROD 2026-09-17:** las 2 migs aplicadas a Railway (batch 449 y 450 — las tomó el
+  `migrate:latest` del arranque). Permisos repartidos en prod: **VER 9 roles · GESTIONAR 6**.
+  **Falta: redeploy de api+view + re-login** (los permisos nuevos viajan en el JWT).
 - [ ] **[SU.3]** ⬜ Motor de olas con reglas simples + consolidación por SKU **conservando** el
   desglose por pedido.
 - [x] **[SU.4]** 🧪 **EN CÓDIGO Y PROBADO 2026-09-17** — el hecho del surtido. Mig
@@ -278,7 +280,13 @@ software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta c
   una cantidad que ya nadie pidió) y **no se recalcula** después. ⚠️ **NULL ≠ 0**: un renglón sin
   tocar y uno tocado-en-cero son distintos, y cerrar con pendientes se RECHAZA — si no, un
   renglón que nadie caminó saldría indistinguible de un agotado. `faltante`/`agotado`/`danado`
-  **no se colapsan**: mandan a decisiones distintas. Smoke `http-picking-surtido-test` **29/29**
+  **no se colapsan**: mandan a decisiones distintas. **✅ PROD 2026-09-17** (batch 453, 5 s, RLS
+  forzado verificado). ⚠️ **Trampa que cobró acá:** el script ad-hoc omitió `schemaName: 'public'`
+  y, como el `search_path` de prod pone `identity` **antes** que `public`, knex registró la
+  migración en `identity.knex_migrations` (la tabla vacía) con batch 1 — corrió de verdad pero la
+  contabilidad quedó donde nadie la lee, o sea que el próximo arranque la habría re-corrido.
+  Reparado re-corriendo con el schema correcto (no-op por las guardas) + borrando la fila espuria.
+  Smoke `http-picking-surtido-test` **29/29**
   (3 pruebas negativas). **Un bug propio**: usé `'sin_unidad_declarada'` como etiqueta y terminó
   queriendo guardarse **como si fuera una unidad** (21 chars en `varchar(16)`) — justo lo que el
   código decía evitar; la ausencia va NULL.
