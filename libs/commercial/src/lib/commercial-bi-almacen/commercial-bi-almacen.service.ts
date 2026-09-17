@@ -731,6 +731,13 @@ export class CommercialBiAlmacenService {
         )
         .orderBy(sortField === 'doc_date' ? 'm.doc_date' : sortField === 'qty' ? 'm.qty' : 'm.amount', sortDir)
         .orderBy('m.folio', 'desc')
+        // [DB-MEM.14] Mismo defecto que `explore()`, y acá medido peor: `(doc_date, folio)` NO
+        // identifica una fila — un folio tiene una línea por producto. Contra prod, 30 días:
+        // **136,655 filas para 5,692 claves distintas**, o sea que 130,963 (95.8 %) comparten
+        // clave con otra y el `LIMIT` elegía entre ellas de forma arbitraria.
+        // La PK va al final, así que el orden que el usuario pidió (`sortField`/`sortDir`) manda
+        // igual que antes; esto sólo resuelve los empates, que antes resolvía el azar del plan.
+        .orderBy('m.id', 'desc')
         .limit(pageSize).offset((page - 1) * pageSize);
 
       const rows = await this.enrichFromKdm(trx, tenantId, rowsRaw);
@@ -1104,7 +1111,24 @@ export class CommercialBiAlmacenService {
       // `k` sólo puede venir del whitelist `EXPLORE_FIELDS` (filtrado arriba con `allowed`),
       // así que es seguro usarlo como identificador de columna sin bindear — no es input libre.
       const selectExprs = cols.map((k) => trx.raw(`${fieldMap.get(k)!.sql} AS "${k}"`));
-      const rows = await base().select(selectExprs).orderBy('m.doc_date', 'desc').limit(pageSize).offset((page - 1) * pageSize);
+      // [DB-MEM.14] El desempate por la PK NO es cosmético: sin él esta página era ARBITRARIA.
+      //
+      // `m.doc_date` es `date`, no `timestamp` (mig 20260710160000): son ~30 valores distintos
+      // para 133,933 filas en 30 días, así que `ORDER BY doc_date DESC` a secas deja a casi todo
+      // el conjunto empatado y el `LIMIT` se queda con lo que el plan haya producido primero.
+      //
+      // Medido contra prod el 2026-09-17: el orden de hoy es estable entre corridas seguidas
+      // (mismo plan → mismo orden físico), pero **ningún desempate lo reproduce** — `id ASC` es
+      // el más parecido y ya coincide sólo 1 de 50 filas en la página 5. O sea que la estabilidad
+      // de hoy no es una garantía: la sostiene el plan, y el plan cambia cuando cambia un índice.
+      //
+      // Se eligió `id DESC` (lo último capturado primero), coherente con el `doc_date DESC` que
+      // ya tenía. ⚠️ Esto SÍ cambia qué filas muestra cada página — decisión tomada a propósito:
+      // la alternativa era dejarla arbitraria, y una página arbitraria hace **imposible demostrar**
+      // que una optimización posterior no movió nada. Éste es el prerrequisito de ese trabajo.
+      const rows = await base().select(selectExprs)
+        .orderBy('m.doc_date', 'desc').orderBy('m.id', 'desc')
+        .limit(pageSize).offset((page - 1) * pageSize);
       return { page, pageSize, total: Number(count), rows };
     });
   }
