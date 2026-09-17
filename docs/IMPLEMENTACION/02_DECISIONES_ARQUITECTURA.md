@@ -1979,3 +1979,35 @@ Plan y schema completo en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDAR
 **Hereda:** ADR-064 (el calendario es consumidor, nunca captura obligaciones sueltas) · ADR-013 (HITL: el motor propone, el humano aprueba, nunca se auto-ejecuta) · ADR-056 (lo no construido se declara).
 
 Plan y detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md).
+
+---
+
+## ADR-066
+
+**El presupuesto es DATO PROPIO (la meta autorizada); el "real" con que se compara es DATO DERIVADO del ODS (vista, cero importers). El motor de egresos de 5 estados ABSORBE el `budget.expense_obligations` de 2 buckets que la Fase TP dejó, sin romper al Calendario de Pagos que ya lo consume.** (Fase PU — propuesto 2026-09-17)
+
+**Contexto.** Dirección entregó una spec de negocio (`Modulo_Presupuestos_ERP_Mega_Dulces.md`) para convertir Presupuestos en un motor de planeación y control (autorizar → reservar → comprometer → ejercer → pagar → conciliar, con presupuesto vs real, flujo de efectivo y campañas). La spec declaró explícitamente que **no** inspeccionó el código. La revisión técnica sí lo hizo: el módulo `budget.*` **existe y funciona**, pero se construyó en la Fase TP (ADR-064) como *alimentador* del Calendario de Pagos — cubre ≈5 % de la spec.
+
+**Lo medido antes de diseñar (verificado en código):**
+- `budget.expense_obligations` tiene **2 buckets** (`reserved_amount`, `paid_amount`) y su consumidor calcula `available = original − reserved − paid` (`budget-expense-obligations.service.ts:33`) — **resta el pagado del disponible**, justo lo que la spec §8.1 prohíbe. No hay `vigente`, `compromiso` ni `ejercido` distinto del pagado. Los 5 estados son **net-new**.
+- El Calendario de Pagos (TP) ya **escribe** `reserved_amount`/`paid_amount` vía su motor de asignación (`payment_calendar_lots`/`allocations`/`allocation_items`). La tabla no es libre: cualquier corte debe **preservar esos saldos**.
+- El "real" ya vive en el ODS y se lee por vista, nunca por copia: ventas `analytics.mv_kepler_sales_daily`, costo/margen `analytics.sales_daily.cost` (con salvedad ADR-059), gasto GX/`analytics.expense_doc_chain`, bancos `finance.bank_movements` (CB), cartera vista sobre `kepler_ods.kdue` (CXC), pagos `analytics.erp_supplier_payments` (CC).
+
+**Decisión — cuatro piezas:**
+
+1. **Plan vs Real como frontera de datos dura.** El presupuesto/meta/partida autorizada es **tabla propia** (dato HITL legítimo, como OCR/feedback). El real es **vista derivada del ODS** — **cero importers para el lado real** (regla de más peso del proyecto). Esto responde de antemano la decisión §16.7 de la spec.
+2. **Absorber, no reemplazar (fork TP = Opción A).** El nuevo ledger de 5 estados **es** `budget.expense_obligations` extendido (columnas/movimientos de `vigente`/`compromiso`/`ejercido`); `reserved_amount`/`paid_amount` quedan como **proyección mantenida por el motor** para que TP siga leyendo su `available_amount` sin cambiar. Una sola verdad del "gasto autorizado".
+3. **El motor decide el saldo; el humano autoriza; el LLM fuera del dinero** (hereda ADR-016/064): `disponible = vigente − reservas − compromisos − ejercido`, pagado por separado; cada transición **sustituye** el saldo anterior (no suma dos veces); validación atómica anti-sobregiro; idempotencia por (evento, documento).
+4. **Implementación por CAPAS entregables**, no por "Etapa 1 = medio sistema": Capa 0 (reconciliación + este ADR + diagnóstico, sin código de producto) → Capa 1 (motor de egresos, MVP, reproduce §8.2) → Capa 2 (presupuesto vs real, vistas ODS) → Capa 3 (flujo de efectivo + abastecimiento) → Capa 4 (escenarios/versiones/import + Marketing + "Tu trabajo").
+
+**Se rechaza:** (a) tratar el "real" con importers o copias — viola la regla del ODS; (b) reemplazar la tabla de TP y re-cablear su motor de asignación bajo presión (Opción B) — mayor superficie sobre código vivo; (c) multi-moneda/tipo de cambio en el beta — Mega Dulces opera MXN, es YAGNI (se difiere, no se niega el principio de separar neto e impuestos); (d) meter versiones/escenarios/metas-de-ventas/campañas en el MVP — la spec §15 los mezclaba; se mueven a capas posteriores.
+
+**Consecuencias:**
+- ✅ El Calendario de Pagos (TP) sigue funcionando sin cambios mientras el presupuesto de egresos gana su ledger real.
+- ✅ El "presupuesto vs real" se apoya en las vistas del ODS que otras fases ya construyeron — nada que re-materializar.
+- ⚠️ **Declarado, no construido aún:** todo salvo Capa 0. Las fuentes reales son *candidatas* — se verifican contra un hecho independiente antes de cablearlas (no adivinar). El costo/margen arrastra la salvedad de ADR-051/059 (el fact mezcla fuentes).
+- 🔄 Reversible: la absorción es aditiva (columnas + tabla de movimientos), no borra columnas ni filas de `budget.expense_obligations`.
+
+**Hereda:** ADR-064 (el calendario es consumidor) · ADR-016 (motor decide, LLM fuera del dinero) · ADR-056 (lo no medido se declara, nunca cero) · ADR-059 (el real se arbitra; salvedad de costo). Reconcilia el `budget.*` de la Fase TP.
+
+Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md).

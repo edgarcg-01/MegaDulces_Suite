@@ -84,6 +84,40 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase PU — Presupuestos (motor de planeación y control) · 2026-09-17 · plan en [`FASE_PU`](FASES/FASE_PU_PRESUPUESTOS.md) · ADR-066
+
+Spec de negocio de Dirección (`Modulo_Presupuestos_ERP_Mega_Dulces.md`) revisada contra el código:
+el módulo `budget.*` **existe y funciona pero es un alimentador** del Calendario de Pagos (Fase TP /
+ADR-064), de **2 buckets** (`available = original − reserved − paid`, resta el pagado contra la spec
+§8.1). Cubre ≈5 %. Plan **por capas** entregables; el "real" siempre por **vista sobre el ODS**, cero
+importers.
+
+**Capa 0 — Reconciliación, diagnóstico y decisiones (sin código de producto):**
+
+- [x] **[PU.0.1]** ✅ Corregido el documento de negocio a v1.1 (§0 con 6 correcciones + fixes inline
+  en §2/§8.1/§15). *Cerrado 2026-09-17.*
+- [x] **[PU.0.2]** ✅ ADR-066 (plan=dato propio / real=vista ODS; absorber `budget.expense_obligations`
+  Opción A; capas). Registrado en roadmap (CLAUDE.md) + este tracker. *Cerrado 2026-09-17.*
+- [x] **[PU.0.3]** ✅ Fuentes "reales" confirmadas como **artefactos de código** (mv_kepler_sales_daily,
+  sales_daily.cost, expense_doc_chain, bank_movements, erp_supplier_payments, vista kdue). ⚠️ Verificación
+  contra dato real = Capa 2, antes de cablear (regla: no adivinar). *Cerrado 2026-09-17.*
+- [x] **[PU.0.4]** ✅ Diagnóstico componente-por-componente de spec §3/§6 (existe/reparable/faltante) —
+  tabla en `FASE_PU`. Lectura: el lado *real* casi todo existe (fases previas, por vista); falta el
+  *plan* (ledger) y cablear cada fuente. Ninguna integración justifica un importer. *Cerrado 2026-09-17.*
+- [ ] **[PU.0.5]** ⬜ Contestar con negocio las decisiones bloqueantes §16.3 (evento que
+  reserva/compromete/ejerce por tipo de partida) y confirmar §16.7 (fuentes = vistas ODS).
+
+**Capas siguientes (net-new, TODO):**
+
+- [ ] **[PU.1]** ⬜ Motor de egresos MVP: ledger de 5 estados (vigente/reserva/compromiso/ejercido/
+  disponible + pagado aparte), absorbe `budget.expense_obligations` sin romper TP, validación atómica,
+  idempotencia, bandeja de autorización + adecuaciones. Reproduce §8.2 fila por fila. Extiende
+  `/finanzas/presupuesto`.
+- [ ] **[PU.2]** ⬜ Presupuesto vs real por vista ODS (Resumen ejecutivo §5.1, KPIs §10, «sin datos»≠cero).
+- [ ] **[PU.3]** ⬜ Flujo de efectivo + abastecimiento (cartera CXC − Calendario TP, bancos CB, compras RA).
+- [ ] **[PU.4]** ⬜ Escenarios/versiones/import CSV·XLSX + Marketing (campañas + atribución explícita) +
+  «Tu trabajo».
+
 ### Fase TO — Auditoría del flujo `/vendor/take-order` · 2026-09-17
 
 Revisión del flujo completo de toma de pedido del vendedor (carga → order pad → carrito →
