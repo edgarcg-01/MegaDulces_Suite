@@ -185,8 +185,15 @@ importers.
   pagar / cancelar (reserva|compromiso) / ampliar / reducir, mostrando el estado de 5 buckets. Botones que mutan se
   auto-deshabilitan (`[loading]` síncrono, DESIGN §13); el `warning` de sobregiro (control advertencia/informativo)
   se muestra como toast (agentic §18). `check:templates` ✅ · **`nx build view` ✅** (2m28s) · lint 0.
-  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); UIs de flujo (PU.3), planeación/copia/
-  import (PU.4) y campañas (PU.5); verificación HTTP de los servicios.
+  **3er slice ✅ — Flujo de efectivo (PU.3):** nueva vista del Segmented (liquidez a nivel tenant, no por ejercicio):
+  KPIs answer-first (`MetricStrip`: saldo inicial / cobros / pagos / neto / saldo mín. proyectado) + banner de
+  alerta `falta_liquidez` + tabla semanal (cobros − pagos, neto, neto acum., saldo proyectado). **«Sin datos»≠cero:**
+  bancos vacío → saldo inicial "sin datos" y saldo proyectado "—" declarados; el neto sí es real. `check:templates` ✅
+  · **`nx build view` ✅** · lint 0. **⭐ `nx build api` ✅ verificado** — los 6 servicios backend compilan (el bug de
+  inferencia `Map<any,{}>` de PU.4 lo arregló otra sesión; nada más rompió). Los WARNINGs de `export interface` son el
+  patrón benigno de siempre (idéntico al `CreateExpenseObligationDto` de TP).
+  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); UIs de planeación/copia/import (PU.4) y
+  campañas (PU.5); verificación HTTP en runtime (guards/RLS) de los servicios.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
