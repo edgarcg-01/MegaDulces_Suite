@@ -11,8 +11,9 @@
 El flujo tiene **3 capas físicas**. Ninguna corre en la PC de analítica/dev (ahí solo está la plantilla del `.cmd`, no el ejecutable real).
 
 ```
-[Camioneta de ruta]  Kepler local (md.*)  ──push cada 15 min──▶  [Runner .249]  ──feeds──▶  Plataforma / Command Center
-   laptop en la calle                                          kepler_consolidado
+[Camioneta de ruta]  Kepler local (md.*)  ──push al reconectar──▶  [Runner .222]  ──feeds──▶  Plataforma / Command Center
+   laptop en la calle                                             kepler_consolidado
+                                                                  (era .249 hasta 2026-09-11)
 ```
 
 ### 1.1 Runner consolidado (destino del push)
@@ -26,7 +27,9 @@ El flujo tiene **3 capas físicas**. Ninguna corre en la PC de analítica/dev (a
 | Función merge | `ingest.merge_route_sales('ruta_NN', <días>)` — idempotente |
 | Setup (una vez) | [`runner-ingest-setup.sql`](runner-ingest-setup.sql) |
 
-**Sucursales/rutas hoy en `mart.ventas` (runner):**
+**Sucursales/rutas en `mart.ventas` — 📷 FOTO DEL 2026-07-13, no el estado de hoy.** Para el estado
+actual se consulta el runner; esta tabla se conserva porque explica el arranque, no porque siga
+valiendo (al 2026-09-17 hay **11** rutas empujando, no 2):
 
 | sucursal | filas | rango de fechas | fuente |
 |---|---:|---|---|
@@ -64,8 +67,6 @@ Cada camioneta tiene un Kepler local **independiente** (esquema `md.*`, una o va
 Estado del inventario, medido el **2026-09-17** contra `ingest.route_push_heartbeat` y el muestreo de
 quién sigue entrando por el reenvío de `.249`:
 
-| TRUCK (empresa) | Base local | Serie local (`c63`) | Host laptop | Tarea | Estado |
-|---|---|---|---|---|---|
 | TRUCK | Plaza | **Host laptop** | **Runner** | Base local | Serie | Tarea | Alta |
 |---|---|---|---|---|---|---|---|
 | `ruta_21` | PH | `192.168.10.239` | ✅ `.222` (17-sep… *ver nota*) | `md_01-001` | `UD1001` | `Ruta21` | 2026-07-21 |
