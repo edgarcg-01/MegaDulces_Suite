@@ -97,7 +97,10 @@ export class BudgetPlanningService {
       return { totals: { a: sum(a), b: sum(b), delta: round2(sum(b) - sum(a)) }, rows };
     });
   }
-  private async linesByKey(trx: any, tenantId: string, budgetId: string) {
+  // El tipo del Map se ANOTA: `new Map(lines.map(...))` sobre un `any[]` infiere `Map<any, {}>`,
+  // y `{}` no tiene `.vigente_amount` ni `.concept` — eran los 10 errores que dejaban el build de
+  // `api` sin compilar en main. Anotación pura: no cambia comportamiento.
+  private async linesByKey(trx: any, tenantId: string, budgetId: string): Promise<Map<string, any>> {
     const b = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();
     if (!b) throw new NotFoundException(`Presupuesto ${budgetId} no encontrado`);
     const lines = await trx('budget.budget_lines').where({ tenant_id: tenantId, budget_id: budgetId });
