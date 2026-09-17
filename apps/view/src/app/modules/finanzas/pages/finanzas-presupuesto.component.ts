@@ -39,6 +39,18 @@ interface Summary {
   real: RealBlock;
   kpis: { cumplimiento_ventas_pct: number | null; desviacion_ventas: number | null; margen_real: number | null; ocupacion_presupuestaria_pct: number | null };
 }
+interface CashBucket { week: string; cobros: number; pagos: number; neto: number; neto_acumulado: number; saldo_proyectado: number | null }
+interface Cashflow {
+  period: { from: string; to: string; bucket: string };
+  opening_balance: { available: boolean; amount: number | null; as_of: string | null; source: string; reason?: string };
+  totals: { cobros: number; pagos: number; neto: number };
+  saldo_minimo_proyectado: number | null;
+  buckets: CashBucket[];
+  alerts: { week: string; saldo_proyectado: number | null; tipo: string }[];
+  sources: { cobros: { source: string; as_of: string | null } };
+}
+
+type PresView = 'ejercicios' | 'flujo' | 'capacidad' | 'gastos';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Surface Operations (quiet-luxury, answer-first). Tres vistas:
@@ -151,6 +163,53 @@ interface Summary {
             @if (b.status !== 'aprobado') {
               <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas se capturan en borrador. Los movimientos (reservar / comprometer / ejercer / pagar / adecuar) se habilitan cuando el ejercicio está <strong>aprobado</strong>.</p>
             }
+          }
+        </section>
+      }
+
+      <!-- ══════════ FLUJO DE EFECTIVO (PU.3) ══════════ -->
+      @if (view() === 'flujo') {
+        <section class="pres-section">
+          <div class="pres-section-head">
+            <h2>Flujo de efectivo previsto</h2>
+            <div class="pres-cf-period">
+              <input type="date" [(ngModel)]="cfFrom" class="pres-date" aria-label="Desde" />
+              <input type="date" [(ngModel)]="cfTo" class="pres-date" aria-label="Hasta" />
+              <button pButton type="button" class="p-button-sm" (click)="loadCashflow()" [loading]="loadingCashflow()">Actualizar</button>
+            </div>
+          </div>
+
+          @if (cashflow(); as cf) {
+            @if (cf.sources.cobros.as_of) {
+              <div class="pres-summary-head"><app-freshness-pill measures="data" [since]="cf.sources.cobros.as_of" [staleAfterSec]="86400" /></div>
+            }
+            <app-metric-strip [items]="cashflowKpis(cf)" mode="strip" ariaLabel="Resumen de flujo de efectivo" />
+
+            @if (!cf.opening_balance.available) {
+              <p class="pres-nodata"><span class="pi pi-info-circle"></span> Sin saldo inicial de bancos ({{ cf.opening_balance.reason || 'Fase CB' }}): el saldo proyectado y la alerta de insuficiencia se declaran (—). El neto por semana sí es real.</p>
+            } @else if (cf.alerts.length) {
+              <div class="pres-alert"><span class="pi pi-exclamation-triangle"></span> {{ cf.alerts.length }} semana(s) con posible falta de liquidez (saldo proyectado &lt; 0).</div>
+            }
+
+            <p-table [value]="cf.buckets" styleClass="p-datatable-sm surf-table pres-table">
+              <ng-template #header>
+                <tr><th>Semana</th><th class="ta-r">Cobros</th><th class="ta-r">Pagos</th><th class="ta-r">Neto</th><th class="ta-r">Neto acum.</th><th class="ta-r">Saldo proyectado</th></tr>
+              </ng-template>
+              <ng-template #body let-w>
+                <tr>
+                  <td class="pres-mono">{{ w.week }}</td>
+                  <td class="ta-r pres-mono">{{ dash(w.cobros) }}</td>
+                  <td class="ta-r pres-mono">{{ dash(w.pagos) }}</td>
+                  <td class="ta-r pres-mono" [class.pres-neg]="w.neto < 0">{{ money(w.neto) }}</td>
+                  <td class="ta-r pres-mono" [class.pres-neg]="w.neto_acumulado < 0">{{ money(w.neto_acumulado) }}</td>
+                  <td class="ta-r pres-mono" [class.pres-neg]="w.saldo_proyectado != null && w.saldo_proyectado < 0">{{ w.saldo_proyectado == null ? '—' : money(w.saldo_proyectado) }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin cobros ni pagos previstos en el periodo.</td></tr></ng-template>
+            </p-table>
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> Cobros: cartera por vencimiento. Pagos: obligaciones pendientes (Presupuestos + Compras + Finanzas). Liquidez a nivel empresa, no por ejercicio.</p>
+          } @else if (loadingCashflow()) {
+            <p class="pres-muted">Cargando flujo…</p>
           }
         </section>
       }
@@ -307,6 +366,8 @@ interface Summary {
     .pres-mov-state { display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.78rem; color:var(--text-muted); padding:.5rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); margin-bottom:.6rem; }
     .pres-mov-state b { color:var(--text-main); margin-left:.25rem; }
     .pres-lbl-hint { font-size:.72rem; color:var(--text-faint); margin:.3rem 0 0; }
+    .pres-cf-period { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+    .pres-alert { display:flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--warn-fg,#b45309); background:color-mix(in srgb, var(--warn-fg,#b45309) 8%, transparent); border:1px solid color-mix(in srgb, var(--warn-fg,#b45309) 25%, transparent); border-radius:var(--r-md); padding:.4rem .6rem; margin:.5rem 0; }
     .pres-nodata { font-size:.76rem; color:var(--warn-fg,#b45309); display:inline-flex; align-items:center; gap:.3rem; }
     .pres-cap-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     .pres-date { padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.85rem; }
@@ -340,13 +401,17 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private readonly base = `${environment.apiUrl}/finance/budget`;
 
   // ── Sub-navegación ──
-  view = signal<'ejercicios' | 'capacidad' | 'gastos'>('ejercicios');
+  view = signal<PresView>('ejercicios');
   viewOpts = [
     { label: 'Ejercicios', value: 'ejercicios' },
+    { label: 'Flujo de efectivo', value: 'flujo' },
     { label: 'Capacidad de pago', value: 'capacidad' },
     { label: 'Gastos autorizados', value: 'gastos' },
   ];
-  setView(v: string) { this.view.set(v as 'ejercicios' | 'capacidad' | 'gastos'); }
+  setView(v: string) {
+    this.view.set(v as PresView);
+    if (v === 'flujo' && !this.cashflow()) this.loadCashflow();
+  }
 
   // ── Ejercicios (PU) ──
   budgets = signal<BudgetHeader[]>([]);
@@ -380,6 +445,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
     { label: 'Pagar', value: 'pagar' }, { label: 'Cancelar', value: 'cancelar' }, { label: 'Ampliar (adecuación)', value: 'ampliar' }, { label: 'Reducir (adecuación)', value: 'reducir' },
   ];
   cancelTargetOpts = [{ label: 'Reserva', value: 'reserva' }, { label: 'Compromiso', value: 'compromiso' }];
+
+  // ── Flujo de efectivo (PU.3) ──
+  cashflow = signal<Cashflow | null>(null);
+  loadingCashflow = signal(false);
+  cfFrom = new Date().toISOString().slice(0, 10);
+  cfTo = (() => { const d = new Date(); d.setDate(d.getDate() + 56); return d.toISOString().slice(0, 10); })();
 
   // ── Capacidad (TP) ──
   capDate = new Date().toISOString().slice(0, 10);
@@ -482,6 +553,29 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   private reloadDetail(): void { const b = this.selected(); if (b) this.selectBudget(b); }
+
+  // ── Flujo de efectivo ──
+  loadCashflow(): void {
+    this.loadingCashflow.set(true);
+    this.http.get<Cashflow>(`${this.base}/cashflow`, { params: { from: this.cfFrom, to: this.cfTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (cf) => { this.cashflow.set(cf); this.loadingCashflow.set(false); },
+      error: (e) => { this.loadingCashflow.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar el flujo.' }); },
+    });
+  }
+  /** «Sin datos» del saldo inicial se DECLARA (texto), nunca 0 (ADR-056). */
+  cashflowKpis(cf: Cashflow): MetricStripItem[] {
+    return [
+      cf.opening_balance.available
+        ? { label: 'Saldo inicial', value: cf.opening_balance.amount as number, format: 'currency-short' }
+        : { label: 'Saldo inicial', value: 'sin datos', format: 'text', tone: 'warn' },
+      { label: 'Cobros previstos', value: cf.totals.cobros, format: 'currency-short', tone: 'ok' },
+      { label: 'Pagos previstos', value: cf.totals.pagos, format: 'currency-short' },
+      { label: 'Neto', value: cf.totals.neto, format: 'currency-short', tone: cf.totals.neto < 0 ? 'bad' : 'ok' },
+      cf.opening_balance.available && cf.saldo_minimo_proyectado != null
+        ? { label: 'Saldo mín. proyectado', value: cf.saldo_minimo_proyectado, format: 'currency-short', tone: cf.saldo_minimo_proyectado < 0 ? 'bad' : 'ok' }
+        : { label: 'Saldo mín. proyectado', value: 'sin base', format: 'text' },
+    ];
+  }
 
   /** Resumen ejecutivo → KPI strip. «Sin datos» del real se DECLARA (texto), no se dibuja 0. */
   kpiItems(s: Summary): MetricStripItem[] {
