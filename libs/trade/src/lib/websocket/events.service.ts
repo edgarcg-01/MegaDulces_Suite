@@ -586,5 +586,29 @@ export class EventsService {
       );
     }
     this.pingThrottle.set(key, state);
+    this.podarPingThrottle(now);
+  }
+
+  /**
+   * [DB-MEM.16] `pingThrottle` guardaba una entrada por cada usuario que emitió un ping **en toda
+   * la vida del proceso**, y nunca borraba ninguna. El `watched` de arriba ya tenía esta misma
+   * poda con su comentario «para que el Map no crezca sin fin»; a éste le faltaba.
+   *
+   * Está acotado por la cantidad de usuarios, así que no es una fuga grande — es una fuga
+   * MONÓTONA, que es distinto: nunca baja, ni cuando el vendedor termina su ruta y cierra la app.
+   * Con un proceso de larga vida eso es un piso que sólo sube.
+   *
+   * Borrar una entrada vieja NO cambia el comportamiento: sin entrada, el siguiente ping ve
+   * `lastEmit: 0`, o sea `elapsed` enorme, y emite de inmediato — que es exactamente lo que
+   * corresponde para alguien que no manda un ping desde hace rato. Sólo se borran las que no
+   * tienen nada pendiente ni un `setTimeout` vivo: tirar una con `timer` dejaría el trailing
+   * flush disparando contra un estado que ya no existe.
+   */
+  private podarPingThrottle(now: number): void {
+    if (this.pingThrottle.size <= 500) return;
+    const viejo = this.PING_EMIT_THROTTLE_MS * 10;
+    for (const [k, s] of this.pingThrottle) {
+      if (!s.timer && !s.pending && now - s.lastEmit > viejo) this.pingThrottle.delete(k);
+    }
   }
 }
