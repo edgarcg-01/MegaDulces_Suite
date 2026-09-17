@@ -893,6 +893,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        // Fase SU (ADR-067) — Surtido por olas. UNA pantalla para UNA persona: arma el
+        // recorrido, lo camina y lo cierra. Va dentro del shell (no es handheld puro como
+        // inventory/count): en el paso 1 hace falta ver muchos pedidos de un golpe, y el
+        // paso 2 ya es mobile-first dentro de la misma vista.
+        path: 'surtido',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtido.component').then(m => m.AlmacenSurtidoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)]
+      },
+      {
         // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)
         path: 'inventory/ubicaciones',
         loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones.component').then(m => m.AlmacenUbicacionesComponent),
