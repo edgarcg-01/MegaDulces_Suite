@@ -83,6 +83,42 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase EMB — El embarque de Kepler en la Suite (cabecera logística) · 2026-09-17
+
+El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero CxC, surtido
+`kdpord`) y **ninguna traía lo logístico**. Decode cerrado contra una captura de la pantalla
+*Salida por Embarque* de Kepler, no por estadística. Detalle en
+[`ERP_KEPLER.md` §3.y](../ERP_KEPLER.md).
+
+- [x] **[EMB.0]** ✅ `analytics.erp_shipment_headers` + `erp_shipment_trips` + resolvedores
+  `v_kepler_transporte`/`v_kepler_chofer` — **vistas derive-no-copy** sobre `kepler_ods.kdm1`
+  (regla principal: nada de importer para un dataset nuevo). ⭐ **La guía (`c86`) es el VIAJE;
+  el embarque es la PARADA** — 2,544 guías para 5,722 embarques, 386/388 de las multiparada con
+  una sola unidad. Mig `20260917120000`, prod batch 438. *Cerrado 2026-09-17.*
+- [x] **[EMB.0.1]** ✅ **exacto → normalizado → NULL**. Normalizar a ciegas atribuía **582 de
+  3,870 embarques (15%) al chofer equivocado** (suc 05 clave `09` = BENJAMIN, no la MARIA del
+  `00009`: el espacio de claves cortas es local a la sucursal y está reusado). Método expuesto
+  en `transporte_metodo`/`chofer_metodo`. Mig `20260917140000`, prod batch 440.
+  *Cerrado 2026-09-17.*
+- [x] **[EMB.1]** ✅ `logistics.{routes,vehicles,drivers}.kepler_code` — la llave de cruce
+  (antes la clave vivía como texto libre en `notes`). ⛔ Las rutas quedan sin clave a propósito:
+  el índice único destapó que **3 de 88 claves nombran cosas distintas según la sucursal**.
+  Mig `20260917130000`, prod batch 439. *Cerrado 2026-09-17.*
+- [x] **[EMB.2]** ✅ `import-logistics-dims.js` single-DB sobre el ODS. **Sí corría cada noche y
+  decía `ok`** (verificado en `cron_run_log`): lo que fallaba era leer UNA sucursal (`md_03`) en
+  vez de la unión — faltaban 4 rutas que no existen en esa rama. Upsert por `kepler_code`,
+  adopta las filas viejas sin clave, y **declara** los 6 nombres de chofer que no puede
+  resolver. *Cerrado 2026-09-17.*
+- [x] **[EMB.3]** ✅ Candado `test-newdb-erp-shipment-headers.js` en la suite (29 aserciones en
+  prod): paridad con `kdm1` sin duplicar, resolución 100% **con prueba negativa**, el ancla
+  BENJAMIN/MARIA, el decode contra la captura, y los huecos declarados. *Cerrado 2026-09-17.*
+- [ ] **[EMB.4]** ⬜ Exponerlo: `/logistica/shipments` sigue leyendo sólo `logistics.*` (1 fila
+  en prod, de prueba). Falta decidir si la pantalla **lee** el ERP o se **alimenta** de él —
+  y si un viaje de Kepler (la guía) se materializa como `logistics.shipments`.
+- [ ] **[EMB.5]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
+  histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
+  `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.
+
 ### Fase AU — Administración de usuarios desde cero · continúa la Fase OR
 
 La Fase OR cambió qué **es** un usuario (una persona que ocupa un puesto) y lo dejó entero en la

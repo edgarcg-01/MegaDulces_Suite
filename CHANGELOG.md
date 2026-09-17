@@ -10,6 +10,31 @@
 
 ## [Unreleased]
 
+### Added — el embarque de Kepler llega con su cabecera logística, en vivo (EMB.0/0.1/1/2, 2026-09-17)
+
+Pedido: *«hay que traer y mantener actualizadas esas columnas; todo respecto a embarques»*. El embarque `U-D-41` ya llegaba a la Suite por tres puertas —el detalle de artículos (`analytics.stock_movements`, Fase DM), el dinero (`erp_shipment_billing`, Fase CxC) y el surtido por SKU (`erp_shipments` sobre `kdpord`)— y **ninguna traía lo logístico**: unidad, chofer, guía de embarque ni responsables. `/logistica/shipments` lee sólo `logistics.*` y en prod tenía **1 fila** (una prueba del 24-jun).
+
+**No se hizo con un importer**, porque `kdm1` y los tres catálogos ya se replican solos al ODS: son **vistas derive-no-copy**, con la frescura del CDC (~segundos) y nada que agendar.
+
+- **`analytics.erp_shipment_headers`** — la PARADA. Transporte (`c83`), chofer (`c84`), guía (`c86`), responsables surtido/checado/embarque (`c80/c81/c82`), destino, vendedor, pedido padre y totales. La etiqueta de la serie sale de `kdmm`, no de un `CASE` quemado.
+- **`analytics.erp_shipment_trips`** — el VIAJE. ⭐ **La guía es el viaje; el embarque es la parada**: 2,544 guías para 5,722 embarques, hasta 32 paradas en una, y de las multiparada **386/388 con una sola unidad y 388/388 un solo chofer**. Mapear 1 embarque = 1 `logistics.shipments` habría inventado **3,178 viajes inexistentes**.
+- **`analytics.v_kepler_transporte` / `v_kepler_chofer`** — resolvedores del catálogo, separados a propósito: los necesita cualquier otro documento que cite una unidad.
+- **`logistics.{routes,vehicles,drivers}.kepler_code`** — la llave de cruce que faltaba (la clave vivía como texto libre dentro de `notes`).
+
+**El decode se cerró contra un hecho independiente, no por estadística:** una captura de la pantalla *Salida por Embarque* (UD4101-0000713) que el smoke comprueba campo por campo. Hacía falta: los códigos de unidad y de chofer comparten el espacio `000NN` — en esa misma captura el `00017` es a la vez la unidad FORD 450 placas NC-1134-D **y** el chofer CESAR CASAS MENDOZA.
+
+### Fixed — el código literal manda sobre el normalizado (EMB.0.1, 2026-09-17)
+
+Defecto introducido y corregido en la misma sesión, medido antes de publicarse: resolver **siempre** por la clave normalizada subía el match del 27 % al 100 %, pero el espacio de claves cortas de Kepler es **local a la sucursal y está reusado** — `00009` es MARIA CANDELARIA SALGADO MORALES en las 8 ramas, y `09` en la **suc 05** es **BENJAMIN ALONZO ZARAGOZA**, otra persona. **582 de 3,870 embarques con chofer (15 %) quedaban a nombre del equivocado.** Regla nueva: **exacto → normalizado → NULL**, con el método expuesto en `transporte_metodo`/`chofer_metodo`. El transporte no estaba afectado (0 casos), pero se le aplica igual: la garantía no puede depender de que hoy los datos sean amables.
+
+### Fixed — el catálogo de logística leía UNA sucursal, no la unión (EMB.2, 2026-09-17)
+
+`import-logistics-dims.js` **sí corría** todas las noches dentro del nocturno y reportaba `ok` (verificado en `analytics.cron_run_log`, ~5 s/día). Lo que fallaba era la fuente: abría una conexión a una réplica de sucursal (`md_03`) en vez de leer el ODS, y **lo que no existe en esa rama no existía para la Suite**. Faltaban 4 rutas —CAMELINAS, SANTA FE y VASCO DE QUIROGA (00/04/05) y ZAMORA CANINDO (05)—, ninguna dada de alta en la 03. Ahora es single-DB sobre `kepler_ods`: el importer y las vistas leen exactamente la misma fuente, así que no pueden discrepar.
+
+⛔ **Las rutas no llevan `kepler_code` y es a propósito:** el índice único reventó la primera corrida contra prod y destapó que **3 de 88 claves nombran cosas distintas según la sucursal** (`R0001` = HUANIMARO en 7 ramas y ZIROSTO en la 06; `R7` = MORELIA contra IRAPUATO). Se vincula sólo la biyección comprobada; el resto queda NULL con su motivo. Cuesta poco: **el embarque no referencia ninguna ruta** (sondeadas las 200+ columnas de `kdm1` contra `kdm_rutas`; el único "match" masivo lo producía una fila vacía del catálogo de la suc 01).
+
+⚠️ Declarado, no resuelto: **6 nombres de chofer del ODS sin fila propia**; 5 son la misma persona con el nombre abreviado y 1 es real (BENJAMIN ALONZO ZARAGOZA). No se auto-crean —son datos maestros de personal— pero el importer los imprime en cada corrida.
+
 ### Fixed — el tramo termina donde termina el DATO, y el jefe elige el grano (JZ.4, 2026-09-15)
 
 Edgar: *«hay que agregar que se seleccione por día, semana o mes»*. Al medir los tres granos contra prod salieron **dos comparaciones falsas más**, de la misma familia que el −42.2 % de JZ.3 pero en el eje del TIEMPO.
