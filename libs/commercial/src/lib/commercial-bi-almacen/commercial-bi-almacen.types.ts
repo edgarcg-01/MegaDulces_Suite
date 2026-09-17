@@ -35,7 +35,17 @@ export interface BiFiltersResponse {
   /** Alcance de sucursales del usuario en sesión (ADR-050). */
   scope: { mode: string; resolvable: boolean; warehouse_count: number | null };
   /** Frescura REAL del feed de movimientos (Kepler). null = nunca importado en este entorno. */
-  movements_as_of: { max_doc_date: string | null; max_imported_at: string | null; total_rows: number };
+  movements_as_of: {
+    max_doc_date: string | null;
+    max_imported_at: string | null;
+    total_rows: number;
+    /**
+     * [DB-MEM.12] `total_rows` viaja ESTIMADO (ADR-056: lo que no se midió exacto se declara).
+     * El `count(*)` exacto costaba 195 MB y ~1.8 s en cada carga, y ningún template lo pinta.
+     * El estimador se desvía 0.14%, pero es de la TABLA, no del tenant — no sumar con él.
+     */
+    total_rows_estimated: boolean;
+  };
   /** La existencia/costo son vistas EN VIVO sobre el ODS: no tienen "última corrida", se sirven al momento. */
   inventory_as_of: string;
 }
