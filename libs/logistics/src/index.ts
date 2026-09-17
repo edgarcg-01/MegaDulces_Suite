@@ -8,6 +8,8 @@ export * from './lib/logistics-fleet/vehicle-assignment.service';
 export * from './lib/logistics-fleet/vehicle-assignment-template';
 export * from './lib/logistics-config/logistics-config.module';
 export * from './lib/logistics-shipments/logistics-shipments.module';
+export * from './lib/logistics-erp-shipments/logistics-erp-shipments.module';
+export * from './lib/logistics-erp-shipments/erp-shipments.service';
 export * from './lib/logistics-guides/logistics-guides.module';
 export * from './lib/logistics-expenses/logistics-expenses.module';
 export * from './lib/logistics-payroll/logistics-payroll.module';

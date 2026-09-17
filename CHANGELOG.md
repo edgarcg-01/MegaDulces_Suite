@@ -27,6 +27,22 @@ Pedido: *«hay que traer y mantener actualizadas esas columnas; todo respecto a 
 
 Defecto introducido y corregido en la misma sesión, medido antes de publicarse: resolver **siempre** por la clave normalizada subía el match del 27 % al 100 %, pero el espacio de claves cortas de Kepler es **local a la sucursal y está reusado** — `00009` es MARIA CANDELARIA SALGADO MORALES en las 8 ramas, y `09` en la **suc 05** es **BENJAMIN ALONZO ZARAGOZA**, otra persona. **582 de 3,870 embarques con chofer (15 %) quedaban a nombre del equivocado.** Regla nueva: **exacto → normalizado → NULL**, con el método expuesto en `transporte_metodo`/`chofer_metodo`. El transporte no estaba afectado (0 casos), pero se le aplica igual: la garantía no puede depender de que hoy los datos sean amables.
 
+### Added — Embarques muestra los viajes reales, con mapa en vivo y qué lleva cada uno (EMB.7, 2026-09-17)
+
+Pedido: *«generar esas interfaces en Embarques y mostrar un mapa en vivo si tiene una entrega pendiente y qué pedido lleva»*.
+
+`/logistica/shipments` estrena la pestaña **Viajes del ERP** (por default, porque los embarques propios de la app son **1 registro de prueba** contra ~2,545 viajes reales): KPI del día · **mapa en vivo** con los viajes de hoy y su última posición · tabla master-detail de viajes · y al abrir una parada, **qué lleva** — los renglones con la cantidad del ERP y su equivalencia en cajas. Backend nuevo `logistics-erp-shipments` (5 endpoints, reusa `LOGISTICS_SHIPMENTS_VER`) sobre la vista `analytics.erp_shipment_lines`.
+
+⛔ **No hay semáforo entregado/pendiente, y no se dibujó uno.** Medido: `estatus` vale `EMBARCADO` en **1,782 de 1,782** documentos — Kepler registra que la mercancía salió, no que llegó, y no hay hora ni acuse. La pantalla muestra lo único que sí se sabe: **"en la calle"** (el viaje salió hoy), que es exactamente el caso donde el mapa sirve. Y el mapa **declara su cobertura**: pintar 3 de 8 camiones sin decirlo haría creer que los otros 5 no salieron.
+
+**La unidad se muestra como la ve el almacenista.** La pantalla de Kepler dice *1 CJA* y `kdm2` guarda *24 PAQ* — los dos tienen razón, y el importe ($1,350.96) cuadra con ambos. Se publican las dos, con el factor del resolvedor canónico (ADR-055).
+
+### Fixed — el resolvedor de unidad hacía que un clic costara 1.2 s (EMB.7.1, 2026-09-17)
+
+Defecto propio, medido después de publicar la vista: unir `v_unit_truth` para traer las cajas hacía que pedir **un solo documento** (14 renglones) costara **1,189 ms**, porque el resolvedor no se filtra — se materializa entero (11,246 filas) en cada llamada. El costo no era de Kepler: `kdm2` tiene su índice y responde. La vista se queda con lo barato (**157 ms**) y el factor lo resuelve el servicio aparte, sólo al expandir. ⛔ No se usó `catalog.products.factor_sale`, que habría sido instantáneo y es el atajo que ADR-055 declara refutado (73.6% de discrepancia con el ERP): un número rápido y equivocado es peor que uno lento y verificado.
+
+⚠️ **Hallazgo abierto (EMB.10):** la suma de los renglones **no reproduce** el total de la cabecera, y la diferencia no se explica ni con el descuento ni con el IEPS (5 embarques medidos, residuos de 0.11% a 0.28%, no constantes). La pantalla muestra el importe por renglón y el total desde la cabecera, sin presentar la suma como si fuera el total.
+
 ### Fixed — la misma camioneta estaba dos veces, y por eso el GPS no llegaba al embarque (EMB.5/EMB.6, 2026-09-17)
 
 Pedido: *«hay que ligar los vehículos de MagniTracking con las unidades, hay que saber qué embarques tiene asignada cada unidad»*. La cadena se cortaba en un lugar concreto: **`logistics.vehicles` tenía la misma unidad física dos veces**, porque las dos fuentes escriben la placa distinto y el único índice era `(tenant_id, plate)` **literal**:
