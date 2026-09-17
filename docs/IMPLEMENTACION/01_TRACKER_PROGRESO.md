@@ -120,7 +120,19 @@ importers.
   a dev (`platform_test`) directo (idempotente; pendiente prod vía deploy). ⚠️ El mapeo evento→transición
   (§16.3) queda como default configurable hasta PU.0.5.
   **Pendiente:** UI (extender `/finanzas/presupuesto` con cabecera+partidas+ledger+bandeja) + verificación HTTP del servicio (ADR-044).
-- [ ] **[PU.2]** ⬜ Presupuesto vs real por vista ODS (Resumen ejecutivo §5.1, KPIs §10, «sin datos»≠cero).
+- [~] **[PU.2]** 🔨 Presupuesto vs real por vista ODS. **Backend ✅ y verificado (DB-direct):**
+  `BudgetComparisonService` — resumen ejecutivo (§5.1) + varianza por tipo. DOS reales honestos:
+  (1) ejecución presupuestaria EXACTA del ledger (reservado/comprometido/ejercido/disponible/ocupación),
+  (2) real del ODS `analytics.sales_daily` (fact arbitrado ADR-059) a nivel **tenant × periodo** — NO
+  auto-cruza por partida sobre dimensiones adivinadas (sería inventar atribución, spec §6/§9). KPIs §10
+  (cumplimiento, desviación, ocupación, margen). **«Sin datos» ≠ cero (ADR-056):** periodo sin ventas →
+  `available:false` + importes `null`. **Frescura declarada:** `sales_daily` es TABLA ETL → `data_as_of` =
+  `max(updated_at)`, no "al momento". Tenant EXPLÍCITO (analytics.* sin RLS forzado). `BudgetComparisonController`
+  (`/budgets/:id/summary` + `/variance`, `PRESUPUESTOS_VER`). Smoke `test-newdb-budget-comparison.js`
+  **10/10**: fuente real ($85.1M ventas 2026 demo), «sin datos»→null, roll-up+ocupación exactos, KPI «sin base»→null.
+  Lint 0 errores.
+  **Pendiente:** UI + verificación HTTP (ADR-044). **Declarado, no construido:** cruce por partida (correspondencia
+  cuenta↔dimensión, §16.3/PU.0.5); gasto real contra Contabilidad/GX (spec §14 #13); ingresos por sucursal.
 - [ ] **[PU.3]** ⬜ Flujo de efectivo + abastecimiento (cartera CXC − Calendario TP, bancos CB, compras RA).
 - [ ] **[PU.4]** ⬜ Escenarios/versiones/import CSV·XLSX + Marketing (campañas + atribución explícita) +
   «Tu trabajo».
