@@ -27,6 +27,23 @@ Pedido: *«hay que traer y mantener actualizadas esas columnas; todo respecto a 
 
 Defecto introducido y corregido en la misma sesión, medido antes de publicarse: resolver **siempre** por la clave normalizada subía el match del 27 % al 100 %, pero el espacio de claves cortas de Kepler es **local a la sucursal y está reusado** — `00009` es MARIA CANDELARIA SALGADO MORALES en las 8 ramas, y `09` en la **suc 05** es **BENJAMIN ALONZO ZARAGOZA**, otra persona. **582 de 3,870 embarques con chofer (15 %) quedaban a nombre del equivocado.** Regla nueva: **exacto → normalizado → NULL**, con el método expuesto en `transporte_metodo`/`chofer_metodo`. El transporte no estaba afectado (0 casos), pero se le aplica igual: la garantía no puede depender de que hoy los datos sean amables.
 
+### Fixed — la misma camioneta estaba dos veces, y por eso el GPS no llegaba al embarque (EMB.5/EMB.6, 2026-09-17)
+
+Pedido: *«hay que ligar los vehículos de MagniTracking con las unidades, hay que saber qué embarques tiene asignada cada unidad»*. La cadena se cortaba en un lugar concreto: **`logistics.vehicles` tenía la misma unidad física dos veces**, porque las dos fuentes escriben la placa distinto y el único índice era `(tenant_id, plate)` **literal**:
+
+```
+'GA-2027-C'  alta desde Kepler   · kepler_code 00019 · SIN tracker
+'GA2027C'    alta desde el GPS   · 1 tracker · 16,202 posiciones · 760 paradas
+```
+
+Son **8 pares**. El rastreo colgaba de una fila y la clave de Kepler de la otra, así que de las **25 unidades que embarcan sólo 3 tenían GPS alcanzable**. Misma familia que los ceros a la izquierda de EMB.0.1: *la misma llave escrita de dos maneras*.
+
+La fusión se hizo **después de contar**: se listaron las 10 tablas que referencian `logistics.vehicles` y se verificó fila por fila que el lado de Kepler es un cascarón **sin una sola fila dependiente** — así no hubo que repuntar ninguna FK. Aun así el UPDATE vuelve a contar las 10 en tiempo de migración y **se salta el par si algo le cuelga**: perder un viaje o un costo por una fusión automática no se recupera. La baja es soft-delete, reversible.
+
+**GPS alcanzable: 3 → 11 de 25.** Y `vehicle_id`/`vehicle_plate` ya viajan en `erp_shipment_headers` y `erp_shipment_trips` (por `kepler_code`, **no** por placa), así que «qué embarques trae la unidad X» y «dónde está la unidad de este embarque» son una sola consulta. El arreglo de fondo va en el importer, que ahora empareja por placa **normalizada** y no vuelve a crear el cascarón (verificado: `+0 nuevas` tras la fusión).
+
+⚠️ Declarado, no resuelto: **14 de las 25 unidades que embarcan no tienen rastreador**, y son las pesadas — `00008` (774H6V) con **699 embarques en 30 días**, `00017` (NC-1134-D) 259, `00001` (55AB1M) 233. No se puede derivar si no traen GPS o si el suyo está dado de alta con otra placa; `vehicle_id` llega NULL crudo para que nadie confunda *no tiene rastreador* con *no se pudo resolver*.
+
 ### Fixed — el catálogo de logística leía UNA sucursal, no la unión (EMB.2, 2026-09-17)
 
 `import-logistics-dims.js` **sí corría** todas las noches dentro del nocturno y reportaba `ok` (verificado en `analytics.cron_run_log`, ~5 s/día). Lo que fallaba era la fuente: abría una conexión a una réplica de sucursal (`md_03`) en vez de leer el ODS, y **lo que no existe en esa rama no existía para la Suite**. Faltaban 4 rutas —CAMELINAS, SANTA FE y VASCO DE QUIROGA (00/04/05) y ZAMORA CANINDO (05)—, ninguna dada de alta en la 03. Ahora es single-DB sobre `kepler_ods`: el importer y las vistas leen exactamente la misma fuente, así que no pueden discrepar.

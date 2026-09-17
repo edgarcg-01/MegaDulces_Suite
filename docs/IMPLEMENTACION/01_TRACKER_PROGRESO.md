@@ -112,12 +112,28 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
 - [x] **[EMB.3]** ✅ Candado `test-newdb-erp-shipment-headers.js` en la suite (29 aserciones en
   prod): paridad con `kdm1` sin duplicar, resolución 100% **con prueba negativa**, el ancla
   BENJAMIN/MARIA, el decode contra la captura, y los huecos declarados. *Cerrado 2026-09-17.*
-- [ ] **[EMB.4]** ⬜ Exponerlo: `/logistica/shipments` sigue leyendo sólo `logistics.*` (1 fila
-  en prod, de prueba). Falta decidir si la pantalla **lee** el ERP o se **alimenta** de él —
-  y si un viaje de Kepler (la guía) se materializa como `logistics.shipments`.
-- [ ] **[EMB.5]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
+- [x] **[EMB.5]** ✅ **Una unidad física, UNA fila.** `logistics.vehicles` tenía la misma
+  camioneta dos veces porque Kepler escribe `GA-2027-C` y MagniTracking `GA2027C`, y el único
+  índice era `(tenant_id, plate)` literal: **8 pares**, con el rastreo colgando de una fila y
+  la clave de Kepler de la otra. De las 25 unidades que embarcan, **sólo 3 tenían GPS
+  alcanzable**. Se fusionó contando antes las 10 tablas que referencian `vehicles` (el lado de
+  Kepler era un cascarón sin una sola fila dependiente) y el importer pasa a emparejar por
+  placa **normalizada** para que no vuelva a pasar. **GPS alcanzable 3 → 11.**
+  Mig `20260917150000`, prod batch 442. *Cerrado 2026-09-17.*
+- [x] **[EMB.6]** ✅ Del embarque a la unidad y a su GPS en un salto: `vehicle_id` y
+  `vehicle_plate` en `erp_shipment_headers` y `erp_shipment_trips`, por `kepler_code` (NO por
+  placa — es justo lo que estaba escrito de dos maneras). Mig `20260917160000`, prod batch 443.
+  *Cerrado 2026-09-17.*
+- [ ] **[EMB.7]** ⬜ Exponerlo en pantalla: `/logistica/shipments` sigue leyendo sólo
+  `logistics.*` (1 fila en prod, de prueba). Falta decidir si **lee** el ERP o se **alimenta**
+  de él — y si un viaje de Kepler (la guía) se materializa como `logistics.shipments`.
+- [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
   `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.
+- [ ] **[EMB.9]** ⚠️ **14 de las 25 unidades que embarcan no tienen rastreador** — y son las
+  pesadas: `00008` (774H6V) con **699 embarques en 30 d**, `00017` (NC-1134-D) 259, `00001`
+  (55AB1M) 233. No se puede derivar: o no traen GPS, o el suyo está dado de alta con otra
+  placa. Pregunta para operaciones, no para una migración.
 
 ### Fase AU — Administración de usuarios desde cero · continúa la Fase OR
 
