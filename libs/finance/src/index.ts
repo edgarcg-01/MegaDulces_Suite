@@ -41,6 +41,7 @@ export * from './lib/feed-notify/finance-feed-notify.module';
 export * from './lib/feed-notify/finance-feed-scanner.service';
 export * from './lib/budget/finance-budget.module';
 export * from './lib/budget/budget-lines.service';
+export * from './lib/budget/budget-comparison.service';
 export * from './lib/payment-calendar/finance-payment-calendar.module';
 export * from './lib/payment-calendar/budget-capacity.service';
 export * from './lib/payment-calendar/budget-expense-obligations.service';
