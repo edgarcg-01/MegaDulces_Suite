@@ -9,7 +9,7 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Knex } from 'knex';
-import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeZonaPeriodo } from '@megadulces/contracts';
+import { adaptadorDe, ORDEN_VEREDICTO, veredictoDe, type MeCiclo, type MeContext, type MePendiente, type MeTarea, type MeWork, type MeWorkZona, type MeZonaPeriodo } from '@megadulces/contracts';
 import { BANDEJAS, puedeVerBandeja, type MedirCtx } from './me-work';
 import { medirZona } from './me-zona';
 import { FUENTES_VISIBLES, puedeAbrirTarea } from './me-tasks';
@@ -2395,7 +2395,7 @@ export class UsersService {
     permisos: Record<string, boolean> | null | undefined,
     esAdmin: boolean,
     periodo: MeZonaPeriodo = 'mes',
-  ): Promise<{ zona: MeWork['zona']; motivo: string | null; medido_at: string }> {
+  ): Promise<MeWorkZona> {
     const misResponsabilidades = await this.responsabilidadesDe(userId);
     try {
       const r = await medirZona(
@@ -2403,12 +2403,18 @@ export class UsersService {
         { tenantId: this.tenantId, userId, responsabilidades: misResponsabilidades, permisos, esAdmin },
         periodo,
       );
-      return { zona: r.zona, motivo: r.motivo, medido_at: new Date().toISOString() };
+      return {
+        zonas: r.zonas,
+        consolidado: r.consolidado,
+        motivo: r.motivo,
+        medido_at: new Date().toISOString(),
+      };
     } catch (e) {
       // Se DECLARA igual que en `workFor`: el refresco que falla no puede dejar en pantalla un
       // número viejo haciéndose pasar por nuevo.
       return {
-        zona: null,
+        zonas: [],
+        consolidado: null,
         motivo: `No se pudo medir la venta de tu zona: ${(e as Error).message}`,
         medido_at: new Date().toISOString(),
       };
@@ -2759,7 +2765,8 @@ export class UsersService {
      * sigue. ⚠️ Acá decía `v_route_warehouse`, la vista de `[JZ.2]`: dejó de ser la fuente de la
      * venta cuando `[JZ.6]` la reemplazó por el registro operativo.
      */
-    let zona: MeWork['zona'] = null;
+    let zonas: MeWork['zonas'] = [];
+    let consolidado: MeWork['consolidado'] = null;
     try {
       const r = await medirZona(
         this.knex,
@@ -2772,7 +2779,8 @@ export class UsersService {
         },
         periodoZona,
       );
-      zona = r.zona;
+      zonas = r.zonas;
+      consolidado = r.consolidado;
       if (r.motivo) no_medido.push({ id: 'zona', label: 'Cómo va tu zona', motivo: r.motivo });
     } catch (e) {
       no_medido.push({
@@ -2786,7 +2794,8 @@ export class UsersService {
       tareas,
       pendientes,
       ciclos,
-      zona,
+      zonas,
+      consolidado,
       no_medido,
       // `null` sólo si la consulta falló; el set vacío es una respuesta legítima ("no responde
       // de nada declarado"), distinta de "no se pudo preguntar" (ADR-056).

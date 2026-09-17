@@ -516,14 +516,20 @@ export interface MeZonaBloque {
 /**
  * `[JZ.3]` — **Cómo va la zona de esta persona.**
  *
- * ── El sujeto es la ficha, y eso tiene un límite declarado ───────────────────────────────────
- * La zona sale de `identity.users.zona_id` (la misma que publica `MeContext.zona`), no de
- * `ScopeService`. Motivo medido: de los 3 `jefe_zona` de prod, **2 son `superadmin`** y su alcance
- * de zona es `all` — mostrarles las 9 zonas convertiría *su* portada en la de la empresa.
+ * ── El sujeto sale de la RESPONSABILIDAD, no del alcance ─────────────────────────────────────
+ * Con `comercial.venta_tiendas|_rutas|_vecinal` la zona sale de `identity.users.zona_id` (la misma
+ * que publica `MeContext.zona`), **no** de `ScopeService`. Motivo medido: de los 3 `jefe_zona` de
+ * prod, **2 son `superadmin`** y su alcance de zona es `all` — mostrarles las 9 zonas convertiría
+ * *su* portada en la de la empresa. El alcance dice qué PODÉS ver; la responsabilidad, de qué
+ * respondés.
  *
- * ⚠️ **Límite conocido:** una persona = una zona. `LA PIEDAD RD` y `LA PIEDAD VECINAL` son la
- * misma plaza y hoy son dos filas de `trade.zones` sin nada arriba; hasta que exista el agrupador
- * de plaza, un jefe con dos zonas ve una. Queda dicho acá para que no se descubra por accidente.
+ * `[JZ.7]` Con `comercial.venta_zonas` (dirección) el sujeto son **todas** las zonas con canal de
+ * venta, y entonces `MeWorkZona.zonas` trae N. La clave es otra justamente para que «ver todo» no
+ * se pueda heredar de un `superadmin` distraído: hay que repartirla a un puesto.
+ *
+ * ⚠️ **Límite conocido:** un jefe = una zona. `LA PIEDAD RD` y `LA PIEDAD VECINAL` son la misma
+ * plaza y hoy son dos filas de `trade.zones` sin nada arriba; hasta que exista el agrupador de
+ * plaza, un jefe con dos zonas ve una. Queda dicho acá para que no se descubra por accidente.
  */
 export interface MeZona {
   /** Nombre de la zona (`trade.zones.name`). */
@@ -729,8 +735,41 @@ export function ventanaComparable(
  * refresco falló y quedó el de antes». Cuando falla, `zona` viaja `null` con su `motivo` — no se
  * deja en pantalla un número viejo haciéndose pasar por nuevo (ADR-056).
  */
+/**
+ * `[JZ.7]` — **El total de las zonas de las que respondés, sobre UN SOLO tramo.**
+ *
+ * ⛔ Existe por la misma trampa que `[JZ.4]` corrigió una zona más abajo, ahora entre zonas: si
+ * cada zona se midiera hasta donde llega SU fuente, el consolidado sumaría 15 días de LA PIEDAD
+ * con 14 de MORELIA ABASTOS, y las zonas no serían comparables entre sí —que es exactamente lo
+ * que un director hace con esta pantalla—. Por eso, **con más de una zona el tramo es el de la
+ * fuente más lenta de TODAS**, y el recorte se declara en `MeZona.corte` de cada una.
+ *
+ * ⚠️ Consecuencia buscada y declarada: un director puede ver de LA PIEDAD una cifra **menor** que
+ * su jefa de zona, porque ella la ve hasta donde llega su propio dato y él la ve hasta donde
+ * llegan todas. Son dos preguntas distintas: *«¿cuánto llevo?»* contra *«¿cuál va mejor?»*.
+ *
+ * `null` cuando hay una sola zona: no hay nada que consolidar y un total idéntico al único bloque
+ * sería ruido.
+ */
+export interface MeZonaConsolidado {
+  /** Cuántas zonas entraron. */
+  zonas: number;
+  /** Suma de las zonas MEDIDAS. `null` si ninguna se pudo medir (ADR-056: nunca cero). */
+  monto: number | null;
+  comparado: number | null;
+  variacion_pct: number | null;
+  /** Mismo pareo que `MeZonaBloque.no_comparado`, un nivel más arriba: zonas que salieron. */
+  no_comparado: { canales: number; monto_anterior: number } | null;
+}
+
 export interface MeWorkZona {
-  zona: MeZona | null;
+  /**
+   * `[JZ.7]` Una entrada por zona de la que responde esta persona, de mayor a menor venta.
+   * **1 para un jefe de zona; N para dirección.** Vacío = no responde de ninguna (o no se pudo
+   * medir, y entonces `motivo` lo dice).
+   */
+  zonas: MeZona[];
+  consolidado: MeZonaConsolidado | null;
   motivo: string | null;
   medido_at: string;
 }
@@ -742,11 +781,13 @@ export interface MeWork {
   /** `[SN.16]` Trabajo que se cierra mes por mes. Tercer organismo, ni tarea ni cola simple. */
   ciclos: MeCiclo[];
   /**
-   * `[JZ.3]` Cómo va la zona de esta persona. **Cuarto organismo**: no es trabajo pendiente, es
-   * resultado. `null` = esta persona no responde de ningún canal de venta, o su ficha no tiene
+   * `[JZ.3]`/`[JZ.7]` Cómo van las zonas de esta persona. **Cuarto organismo**: no es trabajo
+   * pendiente, es resultado. Vacío = no responde de ningún canal de venta, o su ficha no tiene
    * zona — las dos cosas se declaran en `no_medido` con su motivo, nunca se dibujan en cero.
    */
-  zona: MeZona | null;
+  zonas: MeZona[];
+  /** `[JZ.7]` El total sobre un solo tramo. `null` con una sola zona. */
+  consolidado: MeZonaConsolidado | null;
   no_medido: { id: string; label: string; motivo: string }[];
   /**
    * `[SN.15]` ¿Existe un mapa de responsabilidades para el puesto de esta persona?

@@ -131,8 +131,11 @@
           URL. Aca solo esta el numero y el enlace.
 
           Regla dura: una fila SIN cifra dice desde cuando no hay dato, NUNCA -100%.
+
+          [JZ.7] Y son N zonas, no una: un jefe de zona ve la suya, la direccion ve las 6 que
+          tienen canal de venta. El selector de grano y el total van UNA vez, arriba de todas.
         -->
-        @if (zona(); as z) {
+        @if (zonas().length) {
           <div class="mt-zona">
             <!--
               [JZ.4] El grano. Cada uno trae su PROPIO comparador y no son intercambiables:
@@ -153,6 +156,39 @@
               }
             </div>
 
+            <!--
+              [JZ.7] EL TOTAL DE LA EMPRESA. Solo aparece con mas de una zona; con una sola seria
+              repetir el unico bloque con otro nombre.
+
+              El tramo es UNO para todas: si cada zona se midiera hasta donde llega SU fuente, el
+              total sumaria 15 dias de LA PIEDAD con 14 de MORELIA y las zonas no serian
+              comparables entre si -- que es justo lo que se hace con esta pantalla. El recorte
+              se declara abajo, en la zona que lo provoco.
+            -->
+            @if (consolidado(); as cons) {
+              <div class="mt-titular is-zona is-total">
+                <span class="mt-titular-n">{{ formatoDinero(cons.monto) }}</span>
+                <span class="mt-titular-txt">
+                  <span class="mt-titular-l">vendieron tus {{ cons.zonas }} zonas {{ tramoTexto(zonas()[0]) }}</span>
+                  <span class="mt-titular-d">
+                    @if (formatoVariacion(cons.variacion_pct); as v) {
+                      <span class="mt-delta" [class]="claseVariacion(cons.variacion_pct)">{{ v }}</span>
+                      contra {{ formatoDinero(cons.comparado) }} del mismo tramo
+                    } @else {
+                      sin tramo comparable
+                    }
+                  </span>
+                  @if (cons.no_comparado; as nc) {
+                    <span class="mt-titular-d">
+                      ⚠ {{ nc.canales }} {{ nc.canales === 1 ? 'zona' : 'zonas' }} sin dato en el tramo
+                      ({{ formatoDinero(nc.monto_anterior) }} en el anterior) quedan fuera de la comparación
+                    </span>
+                  }
+                </span>
+              </div>
+            }
+
+            @for (z of zonas(); track z.zona) {
             <div class="mt-titular is-zona">
               <span class="mt-titular-n">{{ formatoDinero(z.monto) }}</span>
               <span class="mt-titular-txt">
@@ -272,6 +308,7 @@
                   </p>
                 }
               </div>
+            }
             }
           </div>
         }
