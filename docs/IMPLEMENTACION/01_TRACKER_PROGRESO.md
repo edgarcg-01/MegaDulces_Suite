@@ -253,7 +253,31 @@ software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta c
   **Falta: pantalla (SU.2.1), aplicar las 2 migs a Railway + redeploy + re-login.**
 - [ ] **[SU.3]** ⬜ Motor de olas con reglas simples + consolidación por SKU **conservando** el
   desglose por pedido.
-- [ ] **[SU.4]** ⬜ Interfaz del surtidor (`ubicación → producto → cantidad → confirmar`).
+- [x] **[SU.4]** 🧪 **EN CÓDIGO Y PROBADO 2026-09-17** — el hecho del surtido. Mig
+  `20260917150000`: `commercial.wave_lines` (lo pedido congelado + lo levantado, **con su
+  unidad**) + `picked_by`/`verified_by` en `picking_waves`. Endpoints `start`/`lines`/`pick`/
+  `finish`. ⭐ **Esto SÍ se materializa** aunque el consolidado sea derivado: lo levantado no se
+  deriva de nada, es un hecho del almacén que nadie más registra. ⭐⭐ Lo pedido se congela al
+  **ARRANCAR**, no al armar la ola (un pedido corregido en el medio dejaría a la persona buscando
+  una cantidad que ya nadie pidió) y **no se recalcula** después. ⚠️ **NULL ≠ 0**: un renglón sin
+  tocar y uno tocado-en-cero son distintos, y cerrar con pendientes se RECHAZA — si no, un
+  renglón que nadie caminó saldría indistinguible de un agotado. `faltante`/`agotado`/`danado`
+  **no se colapsan**: mandan a decisiones distintas. Smoke `http-picking-surtido-test` **29/29**
+  (3 pruebas negativas). **Un bug propio**: usé `'sin_unidad_declarada'` como etiqueta y terminó
+  queriendo guardarse **como si fuera una unidad** (21 chars en `varchar(16)`) — justo lo que el
+  código decía evitar; la ausencia va NULL.
+- [x] **[SU.2.1]** 🧪 **EN CÓDIGO 2026-09-17** — **UNA pantalla, UNA persona** (decisión de
+  Edgar; el documento pedía tres interfaces y tres roles). `/almacen/surtido`, área propia en el
+  sidebar, dos pasos en la MISMA vista (Pendientes → Recorrido): partirlos en tabs obligaría a
+  saltar de pestaña a media vuelta. Mobile-first (el trabajo es caminando), targets 44px, barra
+  de acción en la zona del pulgar. La unidad va **siempre** junto a la cantidad y dice "base"
+  cuando no se pudo determinar, en vez de asumir pieza. Declara el rezago de lo capturado
+  offline. `check:templates` 317 OK + `nx build view` OK. ⚠️ **Validación visual pendiente.**
+  ⚠️ Los 6 fallos de `landing-guards.spec` son **preexistentes** (medidos con el árbol limpio).
+  ⛔ **Sin permiso `COMMERCIAL_PICKING_SURTIR`**: al ser una sola persona, `VER`/`GESTIONAR`
+  alcanza — separa leer de escribir, no roles de piso.
+- [ ] **[SU.4.1]** ⬜ Ubicación en el renglón (`bin_code`) tomada de `pick-suggestion`: hoy la
+  columna existe y se captura a mano. **Bloqueado por SU.0** (no hay ubicaciones cargadas).
 - [ ] **[SU.5]** ⬜ Excepciones sin detener el surtido. La recuperación y las sustituciones son
   **Thot + RA**, no un motor nuevo.
 - [ ] **[SU.6]** ⬜ Desconsolidación + contenedores con QR.
