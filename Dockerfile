@@ -58,7 +58,17 @@ COPY --from=deps /app/node_modules ./node_modules
 # COPY granular: cualquier archivo que NO sea código fuente o build config no
 # debe invalidar el cache del bundle. Antes `COPY . .` rebuildeaba el bundle
 # completo de Angular (~1 min) por un cambio en README o tests.
-COPY nx.json package.json package-lock.json tsconfig*.json .npmrc load-compiler.mjs ./
+# ⛔ `vitest.shared.ts` NO es opcional acá, aunque la imagen nunca corra pruebas. Los 7
+# `vitest.config.ts` de `apps/`+`libs/` lo importan, y el plugin `@nx/vitest` CARGA cada uno de
+# esos archivos para construir el grafo de proyectos — en CUALQUIER comando de Nx, `build`
+# incluido. Sin el archivo: `NX Failed to process project graph. 7 errors occurred while
+# processing files for the @nx/vitest plugin` y el build ni empieza. MEDIDO reproduciendo la
+# condición del contenedor en local (`[NX.3]`).
+#
+# Regla general: un archivo de la RAÍZ del que dependa un config de proyecto tiene que estar en
+# este COPY. Es el mismo motivo por el que ya está `load-compiler.mjs`.
+# El candado es `scripts/check-docker-context.js`, que corre en `npm run check`.
+COPY nx.json package.json package-lock.json tsconfig*.json .npmrc load-compiler.mjs vitest.shared.ts ./
 COPY apps ./apps
 COPY libs ./libs
 COPY database ./database

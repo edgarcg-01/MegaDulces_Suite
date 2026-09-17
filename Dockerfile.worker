@@ -29,7 +29,10 @@ FROM node:20-bookworm-slim AS builder
 WORKDIR /app
 ENV NX_DAEMON=false CI=true
 COPY --from=deps /app/node_modules ./node_modules
-COPY nx.json package.json package-lock.json tsconfig*.json .npmrc ./
+# ⛔ `vitest.shared.ts`: lo importan los `vitest.config.ts` de `apps/`+`libs/`, y el plugin
+# `@nx/vitest` los carga para armar el grafo en CUALQUIER comando de Nx. Sin él, "Failed to
+# process project graph" y el build no arranca. Detalle en el `Dockerfile` principal.
+COPY nx.json package.json package-lock.json tsconfig*.json .npmrc vitest.shared.ts ./
 COPY apps ./apps
 COPY libs ./libs
 COPY database ./database
