@@ -1090,3 +1090,34 @@
 
 /* El recorte NO es una nota al pie: cambió el tramo sobre el que se calculó el número de arriba. */
 .mt-titular-d.is-corte { color: var(--warn-fg); font-weight: var(--fw-medium); }
+
+/*
+ * `[JZ.5]` El punto de «en vivo». Punto + texto, NO pastilla llena (DESIGN.md, Operations).
+ * Va sólo sobre el bloque de tiendas: el stream no publica un solo ticket de ruta, y una etiqueta
+ * que afirma más de lo que cubre es peor que no tenerla.
+ */
+.mt-vivo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: var(--sp-2);
+  font-size: var(--fs-nano);
+  font-weight: var(--fw-medium);
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--ok-fg);
+}
+.mt-vivo::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  flex: none;
+  border-radius: 50%;
+  background: currentColor;
+  animation: mt-latido 2.4s ease-in-out infinite;
+}
+@keyframes mt-latido { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  /* Quien pidió menos movimiento conserva el punto: lo que se apaga es el latido, no el estado. */
+  .mt-vivo::before { animation: none; }
+}

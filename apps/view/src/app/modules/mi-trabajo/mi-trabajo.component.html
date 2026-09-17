@@ -200,6 +200,18 @@
               <div class="mt-grupo">
                 <p class="mt-grupo-tag">
                   {{ b.label }}
+                  <!--
+                    [JZ.5] El punto de "en vivo" va SOLO en tiendas, y es un hecho medido: el
+                    stream de /tienda/live no trae UNA sola ruta (`RUTA%` no existe en
+                    store_live_tickets, nunca). Ponerlo sobre el bloque entero prometeria un vivo
+                    que la mitad de la portada no tiene.
+                    El numero sigue saliendo de sales_daily: el ticket solo dice "volve a
+                    preguntar". El stream NO es el mismo universo -- hoy la sucursal 06 da 49.7%
+                    del fact porque el stream es de mostrador y ella tambien vende credito.
+                  -->
+                  @if (b.grupo === 'tienda' && vivo()) {
+                    <span class="mt-vivo" [title]="tituloVivo()">en vivo</span>
+                  }
                   <span class="mt-grupo-sub">
                     @if (b.peso !== null) { — {{ (b.peso * 100).toFixed(0) }}% de tu venta }
                     @if (formatoVariacion(b.variacion_pct); as v) {

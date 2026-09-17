@@ -3,13 +3,14 @@ import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { signal } from '@angular/core';
-import { Observable, of, throwError } from 'rxjs';
+import { Observable, Subject, of, throwError } from 'rxjs';
 import type { MeContext, MePendiente, MeWork, MeZona } from '@megadulces/contracts';
 import { MiTrabajoComponent } from './mi-trabajo.component';
 import { AuthService, JwtPayload } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { MeContextService } from '../../core/services/me-context.service';
 import { DataScopeService, MyScope } from '../../core/services/data-scope.service';
+import { StoreSocketService } from '../tienda/store-socket.service';
 import { Permission } from '../../core/constants/permissions';
 
 /**
@@ -189,6 +190,10 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
    * sale verde aunque la consulta haya salido con el periodo equivocado.
    */
   let espiaWork: jest.Mock;
+  /** `[JZ.5]` El socket de tienda, con un `ticket$` que la prueba puede empujar a mano. */
+  let ticket$: Subject<{ warehouse_code: string }>;
+  let espiaConnect: jest.Mock;
+  let espiaZona: jest.Mock;
 
   async function montar(m: Montaje = {}) {
     const permisos = con(...(m.perms ?? []));
@@ -216,10 +221,22 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
               void p;
               return m.work$ ?? of(SIN_TRABAJO);
             })),
+            workZona: (espiaZona = jest.fn(() =>
+              of({ zona: ZONA_PIEDAD, motivo: null, medido_at: '2026-09-15T18:00:00.000Z' }),
+            )),
             reset: jest.fn(),
           },
         },
         { provide: DataScopeService, useValue: { mine: () => m.scope$ ?? of(SCOPE_BASE) } },
+        {
+          provide: StoreSocketService,
+          useValue: {
+            ticket$: (ticket$ = new Subject()),
+            connected: signal(true),
+            connect: (espiaConnect = jest.fn()),
+            disconnect: jest.fn(),
+          },
+        },
       ],
     }).compileComponents();
 
@@ -1211,6 +1228,58 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     botones.find((b) => b.textContent?.trim() === 'Semana')!.click();
     fix.detectChanges();
     expect(espiaWork).toHaveBeenCalledTimes(2);
+  });
+
+  /* ═══ `[JZ.5]` El WebSocket de tienda mantiene vivo el bloque ══════════════════════════ */
+
+  it('un ticket de MI zona vuelve a pedir SOLO la zona, no las 14 mediciones', async () => {
+    /*
+     * El WS se aprovecha como DISPARADOR, no como fuente. Medido en prod: el stream cubre las 8
+     * tiendas al minuto pero sus totales no son los del fact (la sucursal 06 da 49.7 %, porque el
+     * stream es de mostrador y ella tambien vende credito). Tomar el total del stream publicaria
+     * una cifra que no es ni el mostrador ni la venta.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    expect(espiaWork).toHaveBeenCalledTimes(1);
+    expect(espiaZona).not.toHaveBeenCalled();
+
+    ticket$.next({ warehouse_code: '01' });
+    expect(espiaZona).toHaveBeenCalledTimes(1);
+    expect(espiaZona).toHaveBeenCalledWith('mes');
+    // ⛔ Lo que importa: NO se volvió a pedir el reporte completo.
+    expect(espiaWork).toHaveBeenCalledTimes(1);
+  });
+
+  it('⛔ NEGATIVA — un ticket de OTRA zona no refresca nada', async () => {
+    /*
+     * No es una optimizacion: quien no tiene `warehouse_code` en su ficha entra al room del tenant
+     * COMPLETO (StoreGateway) y recibe los tickets de las 8 sucursales — dos de los tres jefes de
+     * zona estan en ese caso. Sin filtrar, la venta de Zamora refrescaria la portada de Morelia.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    ticket$.next({ warehouse_code: '05' }); // Zamora Centro: no es de LA PIEDAD
+    ticket$.next({ warehouse_code: 'MD-30' }); // Morelia Abastos: tampoco
+    expect(espiaZona).not.toHaveBeenCalled();
+  });
+
+  it('⛔ NEGATIVA — sin bloque de zona no se abre ningún socket', async () => {
+    // Son 3 personas de 122: abrir una conexión para las otras 119 sería pagar por escuchar algo
+    // que no van a mostrar.
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(SIN_TRABAJO) });
+    expect(espiaConnect).not.toHaveBeenCalled();
+  });
+
+  it('el «en vivo» va SOLO sobre tiendas: el stream no publica una sola ruta', async () => {
+    /*
+     * Medido: `warehouse_code LIKE 'RUTA%'` devuelve CERO filas en analytics.store_live_tickets,
+     * nunca. Una etiqueta que afirma más de lo que cubre es peor que no tenerla.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const tags = Array.from(q<HTMLElement>('.mt-grupo-tag'));
+    const tiendas = tags.find((t) => t.textContent?.includes('Tus tiendas'))!;
+    const rutas = tags.find((t) => t.textContent?.includes('Tus rutas'))!;
+    expect(tiendas.querySelector('.mt-vivo')).not.toBeNull();
+    expect(rutas.querySelector('.mt-vivo')).toBeNull();
   });
 
   it('el titular de la zona dice contra qué tramo se comparó', async () => {

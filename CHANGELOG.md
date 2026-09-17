@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Added — el WebSocket de tienda mantiene vivo el bloque de zona (JZ.5, 2026-09-17)
+
+Edgar: *«tienda/live usa un websocket para mostrar los resultados, también deberíamos aprovecharlo»*. Se aprovecha como **disparador, no como fuente**, y esa distinción la decidió la medición, no una preferencia.
+
+- ⛔ **El stream NO es el mismo universo que el fact.** Medido el mismo día: la sucursal `01` da **124.9 %** del fact y la `06` un **49.7 %** — el stream es de MOSTRADOR y la `06` también vende crédito y mayoreo. Y cubre **cero rutas**: `warehouse_code LIKE 'RUTA%'` no existe en `analytics.store_live_tickets`, nunca. Tomar el total del stream habría publicado una cifra que no es ni el mostrador ni la venta.
+- ⭐ Así que **el ticket sólo dice «volvé a preguntar»** y el número sigue saliendo de `analytics.sales_daily`: una sola verdad. El punto de **«en vivo»** va **sólo sobre el bloque de tiendas**, porque es lo único que el stream cubre.
+- Endpoint propio `GET /users/me/work/zona?periodo=` — `me/work` cuesta **14 mediciones** (6 bandejas + 4 fuentes de tarea + 4 ciclos) y un ticket sólo puede mover una. En una zona de tres sucursales entra un ticket cada ~45 s (18,958 en 30 días sólo en la `01`).
+- ⚠️ **El filtro por sucursal de la zona no es una optimización.** Quien no tiene `warehouse_code` en su ficha entra al room del tenant COMPLETO y recibe los tickets de las 8 sucursales — **2 de los 3 jefes de zona** están en ese caso. Sin filtrar, la venta de Zamora refrescaría la portada de Morelia. Y sólo se conecta quien tiene el bloque: 3 personas de 122.
+- ⚠️ **`auditTime` era el operador equivocado y lo dijo la prueba**, no una revisión: retrasa la PRIMERA emisión la ventana entera, así que tras un rato quieto la primera venta tardaría 20 s en verse. `throttleTime(20s, leading, trailing)` refresca en el acto y deja el techo en un refresco cada 20 s. (`debounceTime` es el error obvio: con un ticket cada 45 s vence siempre y no acota nada.)
+
+**Y un candado que se acusó a sí mismo.** El chequeo de «`me/work/zona` va antes de `@Get(':id')`» usaba `indexOf` y encontró **el comentario que explica por qué el orden importa**, no el decorador: reportó el endpoint 130 líneas después de donde está. Es la misma trampa que la cabecera de ese archivo ya documentaba para `@RequirePermissions` — se busca el decorador **anclado a su línea**, no la palabra.
+
+⚠️ El proceso de desarrollo vivo trae JZ.3/JZ.4 pero se levantó antes de JZ.5, así que `me/work/zona` responde 404 hasta el próximo arranque. Los tres granos sí se verificaron contra prod con `jz-zona-prod-report.js`, que corre el `medirZona` de producción.
+
+Pruebas: view **363 (+4)**, smoke `test-newdb-me-context` **143 OK / 0 FAIL** (con la API viva: login, `me/context` y `me/work` en verde). Dos sabotajes más ejercidos → rojo, verde al restaurar.
+
 ### Added — el embarque de Kepler llega con su cabecera logística, en vivo (EMB.0/0.1/1/2, 2026-09-17)
 
 Pedido: *«hay que traer y mantener actualizadas esas columnas; todo respecto a embarques»*. El embarque `U-D-41` ya llegaba a la Suite por tres puertas —el detalle de artículos (`analytics.stock_movements`, Fase DM), el dinero (`erp_shipment_billing`, Fase CxC) y el surtido por SKU (`erp_shipments` sobre `kdpord`)— y **ninguna traía lo logístico**: unidad, chofer, guía de embarque ni responsables. `/logistica/shipments` lee sólo `logistics.*` y en prod tenía **1 fila** (una prueba del 24-jun).

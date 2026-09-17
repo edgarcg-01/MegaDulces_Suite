@@ -706,6 +706,26 @@ export function recortarAlDato(v: VentanaComparable, hastaDato: string | null): 
   };
 }
 
+/**
+ * `[JZ.5]` — Respuesta de `GET /users/me/work/zona`: **sólo** el bloque de zona.
+ *
+ * ── Por qué existe un endpoint aparte ───────────────────────────────────────────────────────
+ * El WebSocket de tienda (`/store`, evento `ticket`) avisa cuando entra una venta. `me/work`
+ * cuesta **14 mediciones** —6 bandejas + 4 fuentes de tarea + 4 ciclos— y un ticket sólo puede
+ * mover UNA: la venta de la zona. En una zona de tres sucursales entra un ticket cada ~45 s
+ * (medido: 18,958 en 30 días sólo en la sucursal 01), así que refrescar todo sería pagar el
+ * reporte completo por cada venta.
+ *
+ * ⛔ `medido_at` no es decorativo: es lo único que distingue «el número está fresco» de «el
+ * refresco falló y quedó el de antes». Cuando falla, `zona` viaja `null` con su `motivo` — no se
+ * deja en pantalla un número viejo haciéndose pasar por nuevo (ADR-056).
+ */
+export interface MeWorkZona {
+  zona: MeZona | null;
+  motivo: string | null;
+  medido_at: string;
+}
+
 export interface MeWork {
   /** `[SN.15]` Lo que alguien te asignó. Separado de `pendientes` a propósito. */
   tareas: MeTarea[];
