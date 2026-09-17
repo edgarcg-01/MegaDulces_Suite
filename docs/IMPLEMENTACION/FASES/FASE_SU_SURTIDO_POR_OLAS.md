@@ -233,11 +233,12 @@ y verificar el rojo.
 
 ---
 
-### SU.8 — Distribución de inventario escaso
+### SU.8 — Reparto de lo efectivamente surtido
 
 Reglas parametrizables del §15, con **la regla aplicada registrada en la fila**.
 
-⛔ **Depende de una decisión de fondo abierta** (§3.2): hoy la preventa **no reserva stock**.
+Ya **no** está bloqueado (§3.2 resuelto: no se aparta). Reparte lo que el surtidor levantó, en la
+desconsolidación (SU.6), no una reserva previa. Puede construirse junto con SU.6.
 
 ---
 
@@ -255,15 +256,33 @@ El documento (§4.4, §22) pone a la cajera a facturar/timbrar. Hoy el CFDI se e
 **automáticamente al fulfillar** (FE.5, best-effort por puerto). Son dos diseños distintos y hay
 que elegir uno; el actual tiene la ventaja de que ya funciona y no depende de una persona.
 
-### 3.2 ⭐ Reservar o no reservar
+### 3.2 ✅ RESUELTO 2026-09-17 — **el sistema NO aparta**
 
-§15 (distribuir escasez con reglas) **exige reservas duras**. Hoy `place()` no toca stock cuando
-hay fecha de entrega, y eso es deliberado: `test-newdb-order-reopen` documenta que devolver "la
-cantidad de la línea" al reabrir **le suelta el apartado a otro pedido**.
+Decisión de Edgar: la preventa **no reserva stock**. Se mantiene el comportamiento actual
+(`place()` no toca inventario cuando hay fecha de entrega), que además era deliberado —
+`test-newdb-order-reopen` documenta que devolver "la cantidad de la línea" al reabrir le suelta
+el apartado a otro pedido.
 
-Es la decisión más cara de la fase. Sin reservas, la ola puede prometer mercancía que otra ola ya
-se llevó; con reservas, hay que resolver expiración, reabrir y cancelar sobre un stock que
-además **no es el system of record** (§3.3).
+**Lo que esto cambia, y simplifica:**
+
+La regla de distribución del §15 **deja de aplicarse sobre una promesa y pasa a aplicarse sobre
+un hecho**: no se reparte "lo que se apartó" sino **lo que el surtidor efectivamente levantó**.
+Si la ola pedía 43 y en el anaquel había 30, esas 30 se reparten entre los pedidos de la ola con
+las reglas del §15 (compromiso de entrega, antigüedad, pedido completo…) **en el momento de la
+desconsolidación**, no antes.
+
+Consecuencias:
+
+- ✅ **SU.8 se desbloquea** y se abarata: no hay expiración de reservas, ni liberar al cancelar,
+  ni al reabrir, ni conciliar un apartado contra un inventario que no manda.
+- ✅ No se toca `commercial.stock` — que no es el system of record (§3.3). Se evita el peor
+  escenario: apartar sobre una tabla que el almacén físico contradice.
+- ⚠️ **El costo aceptado:** dos olas pueden pedir el mismo producto y la segunda encontrarlo
+  agotado. Eso **no se previene, se resuelve** — es exactamente para lo que existe el motor de
+  excepciones (SU.5) y la recuperación (Thot + RA). El sistema no promete lo que no vio.
+- ⚠️ Por lo mismo, **la existencia que se muestre al armar la ola es informativa, nunca una
+  garantía**, y la pantalla tiene que decirlo (§7 del documento ya lo pide: *existencia teórica ≠
+  existencia físicamente confirmada*).
 
 ### 3.3 De dónde sale la existencia
 
@@ -312,12 +331,12 @@ SU.2  pool ──→ SU.3 olas ──→ SU.4 surtidor ──→ SU.5 excepcione
                                                      ↓
                                     SU.6 desconsolidación ──→ SU.7 chequeo
                                                      ↓
-                              SU.8 escasez (bloqueado por §3.2)
+                              SU.8 reparto de lo surtido
                                                      ↓
                                               SU.9 indicadores
 ```
 
-**MVP = SU.0 → SU.7.** SU.8 espera la decisión de reservas.
+**MVP = SU.0 → SU.7**, con SU.8 pegado a SU.6 (ya no espera nada).
 
 ---
 
@@ -328,7 +347,7 @@ SU.2  pool ──→ SU.3 olas ──→ SU.4 surtidor ──→ SU.5 excepcione
 | ⛔ SU.0 no se ejecuta | Es trabajo de campo, no de devs. Si no hay ubicaciones, las olas ordenan por un dato vacío y el beneficio prometido no aparece |
 | Sin línea base (SU.0.4) | El §47 queda indemostrable: se habrá construido sin poder decir si sirvió |
 | El granel (232 SKUs en KG) | No entra en `escanear → contar`. Si no se declara, el surtidor redondea y la diferencia aparece en el chequeo |
-| Reservas (§3.2) | Decidir mal cuesta doble: o la ola promete lo que no hay, o se reserva sobre una tabla que no es el SoR |
+| ~~Reservas~~ | ✅ Resuelto: no se aparta. El riesgo remanente —dos olas sobre el mismo producto— se resuelve por excepción (SU.5), no se previene |
 | Estados | Si se cede y se amplía `orders.status` a 33 valores, toca todos los consumidores del pedido |
 | Alcance | El documento son 18 etapas; 10–12 ya existen. Tomarlo literal como backlog reconstruye medio sistema |
 

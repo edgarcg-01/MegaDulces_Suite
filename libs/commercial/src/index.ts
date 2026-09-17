@@ -20,6 +20,9 @@ export * from './lib/commercial-payments/commercial-payments.module';
 export * from './lib/commercial-home-delivery/commercial-home-delivery.module';
 export * from './lib/commercial-home-delivery/commercial-home-delivery.service';
 export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.module';
+// Fase SU.2 — pool de pedidos por surtir + olas de surtido (ADR-067)
+export * from './lib/commercial-picking/commercial-picking.module';
+export * from './lib/commercial-picking/picking.service';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';
