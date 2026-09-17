@@ -133,7 +133,19 @@ importers.
   Lint 0 errores.
   **Pendiente:** UI + verificación HTTP (ADR-044). **Declarado, no construido:** cruce por partida (correspondencia
   cuenta↔dimensión, §16.3/PU.0.5); gasto real contra Contabilidad/GX (spec §14 #13); ingresos por sucursal.
-- [ ] **[PU.3]** ⬜ Flujo de efectivo + abastecimiento (cartera CXC − Calendario TP, bancos CB, compras RA).
+- [~] **[PU.3]** 🔨 Flujo de efectivo previsto. **Backend ✅ y verificado (DB-direct):**
+  `BudgetCashflowService` — proyección semanal `saldo_proyectado = saldo_inicial + Σ(cobros − pagos)`
+  (§10). Fuentes por lectura/vista (cero importers): cobros = `analytics.customer_receivables`
+  (`saldo_documento` por `vencimiento`, Fase CXC/kdue); pagos = pendiente (original − pagado) de las
+  3 obligaciones de TP por `negotiated_date ?? original_due_date` (**sin doble-conteo**: la obligación,
+  no la allocation del Calendario); saldo inicial = última `running_balance` por cuenta de
+  `finance.bank_movements` (Fase CB). **«Sin datos» ≠ cero (ADR-056):** bancos vacío en el tenant demo →
+  saldo inicial **declarado null** (no 0) + `saldo_proyectado`/alerta en null; el NETO semanal sí es real
+  (una semana sin obligaciones es 0 real, distinto de «sin datos»). Saldo mínimo proyectado + alerta
+  `falta_liquidez`. Endpoint `GET /finance/budget/cashflow` (`PRESUPUESTOS_VER`). Smoke
+  `test-newdb-budget-cashflow.js` **7/7** (baseline+delta aisló $1.19M de ambiente del seed TP). Lint 0 errores.
+  **Pendiente:** UI + verificación HTTP (ADR-044). **Declarado, no construido:** abastecimiento/desembolsos
+  de Compras-RA e inventario proyectado (spec §3); anticipos/devoluciones (§8.3) más allá del pendiente.
 - [ ] **[PU.4]** ⬜ Escenarios/versiones/import CSV·XLSX + Marketing (campañas + atribución explícita) +
   «Tu trabajo».
 
