@@ -50,7 +50,22 @@ interface Cashflow {
   sources: { cobros: { source: string; as_of: string | null } };
 }
 
-type PresView = 'ejercicios' | 'flujo' | 'capacidad' | 'gastos';
+interface Campaign {
+  id: string; name: string; campaign_type: string; status: string; objective?: string | null; responsible?: string | null;
+  channels?: string | null; start_date?: string | null; end_date?: string | null; planned_budget: number; attribution_rule?: string | null;
+}
+interface Contribution { id: string; supplier: string; amount: number; condition: string | null; status: string; evidence: string | null }
+interface CampaignEval {
+  campaign: { id: string; name: string; campaign_type: string; status: string; start_date: string | null; end_date: string | null; attribution_rule: string | null };
+  partidas: number; presupuesto: number; costo: number; costo_neto_aportacion: number;
+  aportaciones: { confirmada: number; incierta: number; nota: string };
+  ventas_vinculadas: { available: boolean; source: string; data_as_of: string | null; attribution: string; reason?: string; ventas: number | null };
+  intensidad_gasto_ventas_pct: number | null;
+  retorno: { available: boolean; roi_pct: number | null; basis?: string; reason?: string };
+  warnings: string[];
+}
+
+type PresView = 'ejercicios' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Surface Operations (quiet-luxury, answer-first). Tres vistas:
@@ -214,6 +229,87 @@ type PresView = 'ejercicios' | 'flujo' | 'capacidad' | 'gastos';
         </section>
       }
 
+      <!-- ══════════ CAMPAÑAS / MARKETING (PU.5) ══════════ -->
+      @if (view() === 'campanas') {
+        <section class="pres-section">
+          <div class="pres-section-head">
+            <h2>Campañas</h2>
+            <button pButton type="button" class="p-button-sm" (click)="openNewCamp()"><span class="pi pi-plus"></span>&nbsp;Nueva campaña</button>
+          </div>
+
+          @if (campaigns().length) {
+            <div class="pres-budget-chips">
+              @for (c of campaigns(); track c.id) {
+                <button type="button" class="pres-chip" [class.on]="selectedCampaign()?.id === c.id" (click)="selectCampaign(c)">
+                  {{ c.name }} <span class="pres-chip-yr">{{ campTypeLabel(c.campaign_type) }}</span>
+                  <p-tag [value]="c.status" [severity]="campSeverity(c.status)" styleClass="pres-tag" />
+                </button>
+              }
+            </div>
+          } @else if (loadingCampaigns()) {
+            <p class="pres-muted">Cargando campañas…</p>
+          } @else {
+            <div class="pres-empty-block">
+              <span class="pi pi-megaphone pres-empty-ico"></span>
+              <p>Aún no hay campañas.</p>
+              <button pButton type="button" class="p-button-sm" (click)="openNewCamp()"><span class="pi pi-plus"></span>&nbsp;Crear la primera</button>
+            </div>
+          }
+
+          @if (campEval(); as ev) {
+            <div class="pres-detail-bar">
+              <span class="pres-summary-title">{{ ev.campaign.name }} · {{ campTypeLabel(ev.campaign.campaign_type) }} <p-tag [value]="ev.campaign.status" [severity]="campSeverity(ev.campaign.status)" styleClass="pres-tag" /> · <span class="pres-muted">{{ ev.partidas }} partida(s)</span></span>
+              <div class="pres-detail-actions">
+                @if (ev.campaign.status === 'borrador') { <button pButton type="button" class="p-button-sm" (click)="setCampStatus('activa')" [loading]="savingCampStatus()">Activar</button> }
+                @if (ev.campaign.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="setCampStatus('cerrada')" [loading]="savingCampStatus()">Cerrar</button> }
+              </div>
+            </div>
+
+            @if (ev.ventas_vinculadas.available && ev.ventas_vinculadas.data_as_of) {
+              <div class="pres-summary-head"><app-freshness-pill measures="data" [since]="ev.ventas_vinculadas.data_as_of" [staleAfterSec]="86400" /></div>
+            }
+            <app-metric-strip [items]="campKpis(ev)" mode="strip" ariaLabel="Evaluación de campaña" />
+
+            <!-- Honestidad declarada (spec §9/§10): atribución, retorno, aportaciones, descuento -->
+            <div class="pres-eval-notes">
+              <p><span class="pi pi-link"></span> <strong>Ventas vinculadas:</strong>
+                {{ ev.ventas_vinculadas.available ? money(ev.ventas_vinculadas.ventas) : (ev.ventas_vinculadas.reason || 'sin datos') }}
+                — atribución: {{ ev.ventas_vinculadas.attribution }} <em>(no prueba efecto incremental)</em>.</p>
+              <p><span class="pi pi-chart-line"></span> <strong>Retorno:</strong>
+                @if (ev.retorno.available) { {{ ev.retorno.roi_pct }}% <span class="pres-muted">({{ ev.retorno.basis }})</span> }
+                @else {
+                  <span class="pres-muted">{{ ev.retorno.reason }}</span>
+                  <span class="pres-inline-calc">
+                    <input pInputText type="number" [(ngModel)]="margenInput" placeholder="Margen incremental" class="pres-margen" />
+                    <button pButton type="button" class="p-button-sm p-button-text" (click)="recalcRetorno()">Calcular</button>
+                  </span>
+                }
+              </p>
+              <p><span class="pi pi-gift"></span> <strong>Aportaciones:</strong>
+                confirmada <span class="pres-mono">{{ money(ev.aportaciones.confirmada) }}</span> · incierta <span class="pres-mono">{{ money(ev.aportaciones.incierta) }}</span>
+                <em class="pres-muted">({{ ev.aportaciones.nota }})</em>
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openAddContrib()"><span class="pi pi-plus"></span>&nbsp;Aportación</button></p>
+              @for (w of ev.warnings; track w) { <div class="pres-alert"><span class="pi pi-exclamation-triangle"></span> {{ w }}</div> }
+            </div>
+
+            @if (contributions().length) {
+              <p-table [value]="contributions()" styleClass="p-datatable-sm surf-table pres-table">
+                <ng-template #header><tr><th>Proveedor</th><th class="ta-r">Importe</th><th>Condición</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr></ng-template>
+                <ng-template #body let-ct>
+                  <tr>
+                    <td>{{ ct.supplier }}</td>
+                    <td class="ta-r pres-mono">{{ money(ct.amount) }}</td>
+                    <td class="pres-muted">{{ ct.condition || '—' }}</td>
+                    <td><p-tag [value]="ct.status" [severity]="contribSeverity(ct.status)" styleClass="pres-tag" /></td>
+                    <td>@if (ct.status === 'incierta') { <button pButton type="button" class="p-button-sm p-button-text" (click)="confirmContrib(ct)" title="Confirmar" aria-label="Confirmar aportación"><span class="pi pi-check"></span></button> }</td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            }
+          }
+        </section>
+      }
+
       <!-- ══════════ CAPACIDAD DE PAGO (Fase TP) ══════════ -->
       @if (view() === 'capacidad') {
         <section class="pres-section">
@@ -330,6 +426,44 @@ type PresView = 'ejercicios' | 'flujo' | 'capacidad' | 'gastos';
       }
     </p-dialog>
 
+    <!-- Nueva campaña -->
+    <p-dialog [(visible)]="newCampVisible" [modal]="true" header="Nueva campaña" [style]="{ width: '28rem' }">
+      <label class="pres-lbl">Nombre</label>
+      <input pInputText type="text" [(ngModel)]="campForm.name" class="pres-full" />
+      <label class="pres-lbl">Tipo</label>
+      <p-select [options]="campTypeOpts" [(ngModel)]="campForm.campaign_type" optionLabel="label" optionValue="value" placeholder="Tipo" styleClass="pres-full" />
+      <label class="pres-lbl">Objetivo</label>
+      <input pInputText type="text" [(ngModel)]="campForm.objective" class="pres-full" />
+      <label class="pres-lbl">Responsable</label>
+      <input pInputText type="text" [(ngModel)]="campForm.responsible" class="pres-full" />
+      <label class="pres-lbl">Canales / sucursales</label>
+      <input pInputText type="text" [(ngModel)]="campForm.channels" class="pres-full" />
+      <div class="pres-row2">
+        <div><label class="pres-lbl">Inicio</label><input type="date" [(ngModel)]="campForm.start_date" class="pres-full" /></div>
+        <div><label class="pres-lbl">Fin</label><input type="date" [(ngModel)]="campForm.end_date" class="pres-full" /></div>
+      </div>
+      <label class="pres-lbl">Inversión planeada</label>
+      <input pInputText type="number" [(ngModel)]="campForm.planned_budget" class="pres-full" />
+      <label class="pres-lbl">Regla de atribución (cómo se mide el resultado)</label>
+      <input pInputText type="text" [(ngModel)]="campForm.attribution_rule" class="pres-full" placeholder="Ej. ventas de la ventana en sus sucursales" />
+      <p class="pres-lbl-hint">Sin una regla de atribución explícita, las ventas vinculadas no prueban efecto incremental.</p>
+      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNewCamp()" [loading]="savingCamp()">Crear</button></div>
+    </p-dialog>
+
+    <!-- Nueva aportación de proveedor -->
+    <p-dialog [(visible)]="addContribVisible" [modal]="true" header="Aportación de proveedor" [style]="{ width: '26rem' }">
+      <label class="pres-lbl">Proveedor</label>
+      <input pInputText type="text" [(ngModel)]="contribForm.supplier" class="pres-full" />
+      <label class="pres-lbl">Importe</label>
+      <input pInputText type="number" [(ngModel)]="contribForm.amount" class="pres-full" />
+      <label class="pres-lbl">Condición</label>
+      <input pInputText type="text" [(ngModel)]="contribForm.condition" class="pres-full" placeholder="Ej. sujeta a exhibición" />
+      <label class="pres-lbl">Estado</label>
+      <p-select [options]="contribStatusOpts" [(ngModel)]="contribForm.status" optionLabel="label" optionValue="value" placeholder="Estado" styleClass="pres-full" />
+      <p class="pres-lbl-hint">Solo la confirmada/aplicada reduce el gasto neto — la incierta no.</p>
+      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmAddContrib()" [loading]="savingContrib()">Agregar</button></div>
+    </p-dialog>
+
     <!-- Nuevo gasto (Fase TP) -->
     <p-dialog [(visible)]="newVisible" [modal]="true" header="Nuevo gasto autorizado" [style]="{ width: '28rem' }">
       <label class="pres-lbl">Concepto</label>
@@ -367,6 +501,11 @@ type PresView = 'ejercicios' | 'flujo' | 'capacidad' | 'gastos';
     .pres-mov-state b { color:var(--text-main); margin-left:.25rem; }
     .pres-lbl-hint { font-size:.72rem; color:var(--text-faint); margin:.3rem 0 0; }
     .pres-cf-period { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
+    .pres-eval-notes { margin:.6rem 0; font-size:.82rem; }
+    .pres-eval-notes p { margin:.35rem 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+    .pres-inline-calc { display:inline-flex; align-items:center; gap:.3rem; }
+    .pres-margen { width:9rem; }
+    .pres-row2 { display:flex; gap:.6rem; } .pres-row2 > div { flex:1; }
     .pres-alert { display:flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--warn-fg,#b45309); background:color-mix(in srgb, var(--warn-fg,#b45309) 8%, transparent); border:1px solid color-mix(in srgb, var(--warn-fg,#b45309) 25%, transparent); border-radius:var(--r-md); padding:.4rem .6rem; margin:.5rem 0; }
     .pres-nodata { font-size:.76rem; color:var(--warn-fg,#b45309); display:inline-flex; align-items:center; gap:.3rem; }
     .pres-cap-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
@@ -405,12 +544,14 @@ export class FinanzasPresupuestoComponent implements OnInit {
   viewOpts = [
     { label: 'Ejercicios', value: 'ejercicios' },
     { label: 'Flujo de efectivo', value: 'flujo' },
+    { label: 'Campañas', value: 'campanas' },
     { label: 'Capacidad de pago', value: 'capacidad' },
     { label: 'Gastos autorizados', value: 'gastos' },
   ];
   setView(v: string) {
     this.view.set(v as PresView);
     if (v === 'flujo' && !this.cashflow()) this.loadCashflow();
+    if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
   }
 
   // ── Ejercicios (PU) ──
@@ -451,6 +592,26 @@ export class FinanzasPresupuestoComponent implements OnInit {
   loadingCashflow = signal(false);
   cfFrom = new Date().toISOString().slice(0, 10);
   cfTo = (() => { const d = new Date(); d.setDate(d.getDate() + 56); return d.toISOString().slice(0, 10); })();
+
+  // ── Campañas / Marketing (PU.5) ──
+  campaigns = signal<Campaign[]>([]);
+  loadingCampaigns = signal(false);
+  selectedCampaign = signal<Campaign | null>(null);
+  campEval = signal<CampaignEval | null>(null);
+  contributions = signal<Contribution[]>([]);
+  savingCampStatus = signal(false);
+  newCampVisible = false;
+  savingCamp = signal(false);
+  campForm: { name?: string; campaign_type?: string; objective?: string; responsible?: string; channels?: string; start_date?: string; end_date?: string; planned_budget?: number; attribution_rule?: string } = {};
+  campTypeOpts = [
+    { label: 'Publicidad', value: 'publicidad' }, { label: 'Materiales', value: 'materiales' }, { label: 'Eventos', value: 'eventos' },
+    { label: 'Promociones', value: 'promociones' }, { label: 'Descuento comercial', value: 'descuento_comercial' }, { label: 'Otro', value: 'otro' },
+  ];
+  addContribVisible = false;
+  savingContrib = signal(false);
+  contribForm: { supplier?: string; amount?: number; condition?: string; status?: string } = {};
+  contribStatusOpts = [{ label: 'Incierta', value: 'incierta' }, { label: 'Confirmada', value: 'confirmada' }, { label: 'Aplicada', value: 'aplicada' }];
+  margenInput: number | null = null;
 
   // ── Capacidad (TP) ──
   capDate = new Date().toISOString().slice(0, 10);
@@ -576,6 +737,86 @@ export class FinanzasPresupuestoComponent implements OnInit {
         : { label: 'Saldo mín. proyectado', value: 'sin base', format: 'text' },
     ];
   }
+
+  // ── Campañas ──
+  loadCampaigns(): void {
+    this.loadingCampaigns.set(true);
+    this.http.get<Campaign[]>(`${this.base}/campaigns`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => { this.campaigns.set(rows ?? []); this.loadingCampaigns.set(false); if (!this.selectedCampaign() && rows?.length) this.selectCampaign(rows[0]); },
+      error: () => { this.loadingCampaigns.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar las campañas.' }); },
+    });
+  }
+  selectCampaign(c: Campaign): void {
+    this.selectedCampaign.set(c); this.campEval.set(null); this.contributions.set([]); this.margenInput = null;
+    this.reloadCampaign(c.id);
+  }
+  private reloadCampaign(id: string, margen?: number | null): void {
+    const evalParams = margen != null ? { params: { margen_incremental: String(margen) } } : {};
+    forkJoin({
+      ev: this.http.get<CampaignEval>(`${this.base}/campaigns/${id}/evaluate`, evalParams),
+      contribs: this.http.get<Contribution[]>(`${this.base}/campaigns/${id}/contributions`),
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: ({ ev, contribs }) => { this.campEval.set(ev); this.contributions.set(contribs ?? []); },
+      error: () => this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo evaluar la campaña.' }),
+    });
+  }
+  openNewCamp(): void { this.campForm = { campaign_type: 'publicidad' }; this.newCampVisible = true; }
+  confirmNewCamp(): void {
+    if (!this.campForm.name?.trim()) { this.toast.add({ severity: 'warn', summary: 'Falta el nombre', detail: 'La campaña necesita un nombre.' }); return; }
+    this.savingCamp.set(true);
+    this.http.post<Campaign>(`${this.base}/campaigns`, this.campForm).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => { this.savingCamp.set(false); this.newCampVisible = false; this.loadCampaigns(); if (c) this.selectCampaign(c); this.toast.add({ severity: 'success', summary: 'Creada', detail: 'Campaña creada.' }); },
+      error: (e) => { this.savingCamp.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear.' }); },
+    });
+  }
+  setCampStatus(status: string): void {
+    const c = this.selectedCampaign(); if (!c) return;
+    this.savingCampStatus.set(true);
+    this.http.post(`${this.base}/campaigns/${c.id}/status`, { status }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingCampStatus.set(false); this.loadCampaigns(); this.reloadCampaign(c.id); this.toast.add({ severity: 'success', summary: 'Listo', detail: 'Estado actualizado.' }); },
+      error: (e) => { this.savingCampStatus.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo.' }); },
+    });
+  }
+  recalcRetorno(): void {
+    const c = this.selectedCampaign(); if (!c) return;
+    if (!(Number(this.margenInput) > 0)) { this.toast.add({ severity: 'warn', summary: 'Margen', detail: 'Captura un margen incremental > 0.' }); return; }
+    this.reloadCampaign(c.id, Number(this.margenInput));
+  }
+  openAddContrib(): void { this.contribForm = { status: 'incierta' }; this.addContribVisible = true; }
+  confirmAddContrib(): void {
+    const c = this.selectedCampaign(); if (!c) return;
+    if (!this.contribForm.supplier?.trim() || !(Number(this.contribForm.amount) > 0)) { this.toast.add({ severity: 'warn', summary: 'Faltan datos', detail: 'Proveedor e importe son requeridos.' }); return; }
+    this.savingContrib.set(true);
+    this.http.post(`${this.base}/campaigns/${c.id}/contributions`, this.contribForm).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingContrib.set(false); this.addContribVisible = false; this.reloadCampaign(c.id, this.margenInput); this.toast.add({ severity: 'success', summary: 'Agregada', detail: 'Aportación registrada.' }); },
+      error: (e) => { this.savingContrib.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo.' }); },
+    });
+  }
+  confirmContrib(ct: Contribution): void {
+    const c = this.selectedCampaign(); if (!c) return;
+    this.http.post(`${this.base}/campaigns/${c.id}/contributions/${ct.id}/status`, { status: 'confirmada' }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.reloadCampaign(c.id, this.margenInput); this.toast.add({ severity: 'success', summary: 'Confirmada', detail: 'La aportación ahora reduce el gasto neto.' }); },
+      error: (e) => this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo.' }),
+    });
+  }
+  campKpis(ev: CampaignEval): MetricStripItem[] {
+    return [
+      { label: 'Presupuesto', value: ev.presupuesto, format: 'currency-short' },
+      { label: 'Costo (ejercido)', value: ev.costo, format: 'currency-short' },
+      { label: 'Costo neto', value: ev.costo_neto_aportacion, format: 'currency-short', sub: 'menos aportación confirmada' },
+      ev.ventas_vinculadas.available
+        ? { label: 'Ventas vinculadas', value: ev.ventas_vinculadas.ventas as number, format: 'currency-short' }
+        : { label: 'Ventas vinculadas', value: 'sin datos', format: 'text', tone: 'warn' },
+      ev.intensidad_gasto_ventas_pct != null
+        ? { label: 'Gasto / ventas', value: ev.intensidad_gasto_ventas_pct, format: 'percent' }
+        : { label: 'Gasto / ventas', value: 'sin base', format: 'text' },
+    ];
+  }
+  campTypeLabel(t: string): string {
+    return ({ publicidad: 'Publicidad', materiales: 'Materiales', eventos: 'Eventos', promociones: 'Promociones', descuento_comercial: 'Descuento com.', otro: 'Otro' } as Record<string, string>)[t] || t;
+  }
+  campSeverity(s: string): 'success' | 'info' | 'secondary' { return s === 'activa' ? 'success' : s === 'cerrada' ? 'secondary' : 'info'; }
+  contribSeverity(s: string): 'success' | 'info' | 'warn' { return s === 'confirmada' || s === 'aplicada' ? 'success' : 'warn'; }
 
   /** Resumen ejecutivo → KPI strip. «Sin datos» del real se DECLARA (texto), no se dibuja 0. */
   kpiItems(s: Summary): MetricStripItem[] {
