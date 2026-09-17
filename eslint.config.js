@@ -20,7 +20,13 @@ module.exports = [
         'error',
         {
           enforceBuildableLibDependency: true,
-          allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?js$'],
+          // `[NX.3]` `vitest.shared` se suma a la excepción por el mismo motivo que la config de
+          // eslint: es HERRAMENTAL de la raíz, no código que se acople en runtime. Lo importan
+          // los 7 `vitest.config.ts` para no copiar 7 veces la resolución de alias (y su trampa
+          // de la letra de unidad en Windows). Sin esta línea, la regla marca los 7 con
+          // "External resources cannot be imported using a relative or absolute path" — y la
+          // alternativa sería justamente duplicar el detalle que la regla existe para evitar.
+          allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?js$', '^.*/vitest\\.shared$'],
           depConstraints: [
             // ── capas (type:*) ──
             { sourceTag: 'type:app', onlyDependOnLibsWithTags: ['type:feature', 'type:data', 'type:util'] },

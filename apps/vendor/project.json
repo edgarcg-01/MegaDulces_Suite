@@ -4,7 +4,10 @@
   "projectType": "application",
   "prefix": "app",
   "sourceRoot": "apps/vendor/src",
-  "tags": ["scope:vendor", "type:app"],
+  "tags": [
+    "scope:vendor",
+    "type:app"
+  ],
   "targets": {
     "build": {
       "executor": "@angular-devkit/build-angular:application",
@@ -83,17 +86,6 @@
         "buildTarget": "vendor:build",
         "staticFilePath": "dist/apps/vendor/browser",
         "spa": true
-      }
-    },
-    "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": [
-        "{workspaceRoot}/coverage/apps/vendor"
-      ],
-      "options": {
-        "jestConfig": "apps/vendor/jest.config.ts",
-        "passWithNoTests": true,
-        "tsConfig": "apps/vendor/tsconfig.spec.json"
       }
     }
   }

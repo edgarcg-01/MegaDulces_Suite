@@ -29,10 +29,10 @@ import { ComercialVentasPorRutaComponent } from './comercial-ventas-por-ruta.com
 /** Los cuatro métodos que el constructor llama. Devuelven vacío: acá se mide el ARGUMENTO. */
 function servicioStub() {
   return {
-    salesByRoute: jest.fn().mockReturnValue(of({ rows: [], months: [], totals: null })),
-    salesByRouteRoutes: jest.fn().mockReturnValue(of([])),
-    salesByRouteProducts: jest.fn().mockReturnValue(of([])),
-    salesByRouteClients: jest.fn().mockReturnValue(of([])),
+    salesByRoute: vi.fn().mockReturnValue(of({ rows: [], months: [], totals: null })),
+    salesByRouteRoutes: vi.fn().mockReturnValue(of([])),
+    salesByRouteProducts: vi.fn().mockReturnValue(of([])),
+    salesByRouteClients: vi.fn().mockReturnValue(of([])),
   };
 }
 

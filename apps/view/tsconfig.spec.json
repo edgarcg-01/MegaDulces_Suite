@@ -4,9 +4,39 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/spec",
-    "types": ["jest", "node"]
+    "types": ["vitest/globals", "node"],
+    // ⛔ `false` SÓLO para pruebas, y no es una preferencia de estilo.
+    //
+    // `emitAffectedFiles()` de `@angular/build` **omite el emit de TypeScript** cuando
+    // `isolatedModules` está en `true` y no hay sourcemaps. El plugin de Analog pide el archivo
+    // emitido y no recibe nada, así que lo reporta como
+    // "contains Angular decorators but is not in the TypeScript program" — un mensaje que manda
+    // a revisar el `include`, donde no está el problema (el programa SÍ tiene los 495 archivos;
+    // se midió). El propio plugin desactiva esta opción por el mismo motivo, pero sólo cuando
+    // NO es una corrida de pruebas (`if (!isTest)` en `angular-vite-plugin.js`).
+    //
+    // MEDIDO el 2026-09-17: con `true`, 125 de 374 pruebas en rojo — todas las de componente, y
+    // ninguna nombrando la causa (`NG0950` en un hijo, `TypeError` en el TestBed).
+    //
+    // La restricción NO se pierde: el build de producción usa `tsconfig.app.json`, que sigue
+    // heredando `isolatedModules: true` de `tsconfig.base.json`.
+    "isolatedModules": false
   },
-  "include": ["src/**/*.spec.ts", "src/**/*.d.ts"],
+  // ⛔ El `include` trae el CÓDIGO DE LA APP, no sólo los `*.spec.ts`. Es requisito del
+  // compilador de Angular que usa Vitest (`@analogjs/vite-plugin-angular`): el plugin recibe
+  // ESTE tsconfig y compila el programa que declara. Con sólo los `*.spec.ts` adentro, cada
+  // componente que un spec importa quedaba FUERA del programa — el plugin avisaba
+  // "contains Angular decorators but is not in the TypeScript program" y esos componentes se
+  // instanciaban sin su definición de Ivy.
+  //
+  // MEDIDO el 2026-09-17: 125 de 374 pruebas en rojo, y casi ninguna culpaba a la causa
+  // (`NG0950: Input is required but no value is available yet`, en un componente HIJO del que
+  // se estaba probando). Con jest no hacía falta porque ts-jest compilaba archivo por archivo,
+  // sin construir un programa.
+  //
+  // `test-setup.ts` y `src/testing/**` entran a propósito: son parte del arnés y usan los
+  // globals de Vitest, que este tsconfig declara en `types` y `tsconfig.app.json` no.
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
   "angularCompilerOptions": {
     "extendedDiagnostics": {
       "checks": {

@@ -432,7 +432,7 @@ describe('etiquetera · el tamaño de los números no se decide por accidente', 
   it('el bloque de estilos no tiene acentos graves (parten el template literal)', () => {
     // Pasó otra vez al documentar el CSS: un acento grave dentro de un comentario CSS cierra
     // el template literal y el compilador de Angular tira "Failed to resolve styles at
-    // position 1 to a string". ⚠️ ts-jest NO lo detecta (no hace el análisis estático de
+    // position 1 to a string". ⚠️ El transformador de los tests NO lo detecta (no hace el análisis estático de
     // Angular), así que los tests salían verdes con el build roto.
     const bloque = /styles:\s*\[`([\s\S]*?)`\],/.exec(LABEL)![1];
     expect(bloque).not.toContain('`');

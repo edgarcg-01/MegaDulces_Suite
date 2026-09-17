@@ -7,7 +7,7 @@ import { ORDEN_VEREDICTO, veredictoDe, type ColaMedida, type MeVeredicto } from 
  * `veredictoDe` nació en `libs/trade/src/lib/users/me-work.ts`, que **no tiene runner de pruebas**
  * (sólo `lint`). Dejarlo ahí habría sido un primitivo sin candado — exactamente lo que ADR-056
  * prohíbe, y lo que la Fase VP contó 21 veces en este repo. Se mudó a `libs/contracts`, donde vive
- * su tipo y donde `[SN.1]` ya había montado jest.
+ * su tipo y donde `[SN.1]` ya había montado el runner de pruebas.
  *
  * ── Qué se vigila ───────────────────────────────────────────────────────────────────────────
  * Las tres confusiones que esta función existe para evitar, cada una medida contra prod el

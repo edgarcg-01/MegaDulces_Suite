@@ -44,8 +44,8 @@ const ts = require('typescript');
 // esbuild a propósito y no postcss: postcss es tolerante y se traga el comentario mal cerrado sin
 // chistar, y además un veredicto distinto al del build sería un gate que discute con la verdad.
 //
-// ⚠️ Es una dependencia TRANSITIVA (la traen `@angular/build`, `@angular-devkit/build-angular` y
-// `jest-preset-angular`), y se deja así A PROPÓSITO: fijarla como dependencia directa la haría
+// ⚠️ Es una dependencia TRANSITIVA (la traen `@angular/build`, `@angular-devkit/build-angular`,
+// `vite` y `vitest`), y se deja así A PROPÓSITO: fijarla como dependencia directa la haría
 // divergir de la versión que el build usa de verdad, que es el único motivo para haberla elegido.
 // El precio es que un cambio de hoisting puede dejarla sin resolver — y por eso esto NO es un
 // `try/catch` que sigue de largo: un parser ausente tiene que ser ROJO, nunca un verde más

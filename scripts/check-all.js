@@ -53,7 +53,9 @@ const COMPUERTAS = [
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
   // Y las de Nx, que desde 2026-09-17 sí usan caché (antes corrían siempre desde cero).
   { nombre: 'lint', cmd: nx('lint'), que: 'eslint' },
-  { nombre: 'test', cmd: nx('test') + ' --passWithNoTests', que: 'las suites del workspace' },
+  // `[NX.3]` Sin `--passWithNoTests`: cada `vitest.config.ts` lo declara, y el target `test` lo
+  // infiere el plugin `@nx/vitest` de ese archivo — si no hay config, no hay target que correr.
+  { nombre: 'test', cmd: nx('test'), que: 'las suites del workspace (vitest)' },
   { nombre: 'build', cmd: nx('build'), que: 'compila' },
 ];
 

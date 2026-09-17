@@ -1,0 +1,25 @@
+{
+  "//": [
+    "Este archivo NO EXISTIA. El target `test` de `apps/api` apuntaba a un `jest.config.ts`",
+    "tambien inexistente, asi que los 3 specs de este proyecto nunca corrieron ni una vez.",
+    "Ver el comentario de `nx.json`.",
+    "",
+    "Extiende `tsconfig.base.json` directo porque `apps/api` no tiene `tsconfig.json` propio",
+    "(solo `tsconfig.app.json` y `tsconfig.build.json`)."
+  ],
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "../../dist/out-tsc",
+    // ⚠️ `../..` (la raíz del workspace), igual que `tsconfig.app.json`. Sin esto TypeScript
+    // infiere `rootDir = apps/api` y cualquier import de `@megadulces/*` —que resuelve a
+    // `libs/…`— falla con TS6059 "is not under rootDir". El síntoma no menciona `rootDir` en el
+    // import, culpa al archivo que importa.
+    "rootDir": "../..",
+    "types": ["vitest/globals", "node"],
+    "isolatedModules": false,
+    "ignoreDeprecations": "6.0",
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true
+  },
+  "include": ["src/**/*.spec.ts", "src/**/*.d.ts", "src/test-setup.ts"]
+}

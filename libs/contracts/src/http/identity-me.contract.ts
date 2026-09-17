@@ -149,7 +149,7 @@ const RITMO_MINIMO = 0.9;
  * ⛔ Vive en `libs/contracts` y NO junto al registro de bandejas, que es donde nació. Motivo: es
  * lógica PURA sobre el contrato —no toca knex ni Nest— y `libs/trade` **no tiene runner de
  * pruebas** (sólo `lint`), así que ahí habría sido un primitivo sin candado. ADR-056 es explícito:
- * un mecanismo genérico no cierra su item hasta vivir en `libs/` compartido. Acá sí corre jest.
+ * un mecanismo genérico no cierra su item hasta vivir en `libs/` compartido. Acá sí corre el runner de pruebas.
  *
  * ⛔ El orden NO es por urgencia percibida sino por **qué puede hacer la persona que está mirando**:
  *

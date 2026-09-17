@@ -3,11 +3,16 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "libs/shared-scoring",
   "projectType": "library",
-  "tags": ["scope:shared", "type:util"],
+  "tags": [
+    "scope:shared",
+    "type:util"
+  ],
   "targets": {
     "build": {
       "executor": "@nx/js:tsc",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}"
+      ],
       "options": {
         "outputPath": "dist/libs/shared-scoring",
         "main": "libs/shared-scoring/index.ts",
@@ -17,17 +22,13 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint",
-      "outputs": ["{options.outputFile}"],
+      "outputs": [
+        "{options.outputFile}"
+      ],
       "options": {
-        "lintFilePatterns": ["libs/shared-scoring/**/*.ts"]
-      }
-    },
-    "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/libs/shared-scoring"],
-      "options": {
-        "jestConfig": "libs/shared-scoring/jest.config.ts",
-        "passWithNoTests": true
+        "lintFilePatterns": [
+          "libs/shared-scoring/**/*.ts"
+        ]
       }
     }
   }

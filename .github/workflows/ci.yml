@@ -234,7 +234,10 @@ jobs:
       - name: Comment gate (comentario que se cierra solo en template/styles)
         run: npm run check:templates
 
+      # `--passWithNoTests` ya NO va acá: cada `vitest.config.ts` lo declara, y desde
+      # `[NX.3]` el target `test` lo INFIERE el plugin `@nx/vitest` de la existencia de ese
+      # archivo — un proyecto sin config simplemente no tiene target que correr.
       - name: Test (affected)
-        run: npx nx affected -t test --parallel=3 --passWithNoTests
+        run: npx nx affected -t test --parallel=3
         env:
           NX_DAEMON: 'false'

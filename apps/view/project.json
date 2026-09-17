@@ -4,22 +4,41 @@
   "projectType": "application",
   "sourceRoot": "apps/view/src",
   "prefix": "app",
-  "tags": ["scope:view", "type:app"],
+  "tags": [
+    "scope:view",
+    "type:app"
+  ],
   "targets": {
     "build": {
       "//": "Angular 22: builder `application` (esbuild + dev server Vite). Reemplazó a browser-esbuild (deprecado). outputPath aplanado (browser: '') → sale a dist/apps/view directo, que es lo que copia el Dockerfile a nginx. serviceWorker toma el PATH (no true). Entry = `browser` (no `main`). aot/buildOptimizer no aplican (application siempre AOT).",
       "executor": "@nx/angular:application",
-      "outputs": ["{options.outputPath.base}"],
+      "outputs": [
+        "{options.outputPath.base}"
+      ],
       "options": {
-        "outputPath": { "base": "dist/apps/view", "browser": "" },
+        "outputPath": {
+          "base": "dist/apps/view",
+          "browser": ""
+        },
         "index": "apps/view/src/index.html",
         "browser": "apps/view/src/main.ts",
-        "polyfills": ["apps/view/src/polyfills.ts"],
+        "polyfills": [
+          "apps/view/src/polyfills.ts"
+        ],
         "tsConfig": "apps/view/tsconfig.app.json",
-        "assets": ["apps/view/src/favicon.ico", "apps/view/src/assets"],
-        "styles": ["apps/view/src/styles.css"],
+        "assets": [
+          "apps/view/src/favicon.ico",
+          "apps/view/src/assets"
+        ],
+        "styles": [
+          "apps/view/src/styles.css"
+        ],
         "scripts": [],
-        "allowedCommonJsDependencies": ["leaflet", "jsbarcode", "exceljs"],
+        "allowedCommonJsDependencies": [
+          "leaflet",
+          "jsbarcode",
+          "exceljs"
+        ],
         "serviceWorker": "apps/view/ngsw-config.json"
       },
       "configurations": {
@@ -65,15 +84,6 @@
       "executor": "@nx/angular:extract-i18n",
       "options": {
         "buildTarget": "view:build"
-      }
-    },
-    "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/apps/view"],
-      "options": {
-        "jestConfig": "apps/view/jest.config.ts",
-        "passWithNoTests": true,
-        "tsConfig": "apps/view/tsconfig.spec.json"
       }
     }
   }

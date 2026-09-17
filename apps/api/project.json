@@ -3,11 +3,16 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/api/src",
   "projectType": "application",
-  "tags": ["scope:api", "type:app"],
+  "tags": [
+    "scope:api",
+    "type:app"
+  ],
   "targets": {
     "build": {
       "executor": "@nx/webpack:webpack",
-      "outputs": ["{options.outputPath}"],
+      "outputs": [
+        "{options.outputPath}"
+      ],
       "//": [
         "⛔ Los `assets` de abajo traen DOS carpetas de FUERA del proyecto (database/migrations y",
         "database/seeds). El input por default de Nx es {projectRoot}/**/* + sharedGlobals, o sea",
@@ -67,17 +72,13 @@
     },
     "lint": {
       "executor": "@nx/eslint:lint",
-      "outputs": ["{options.outputFile}"],
+      "outputs": [
+        "{options.outputFile}"
+      ],
       "options": {
-        "lintFilePatterns": ["apps/api/**/*.ts"]
-      }
-    },
-    "test": {
-      "executor": "@nx/jest:jest",
-      "outputs": ["{workspaceRoot}/coverage/apps/api"],
-      "options": {
-        "jestConfig": "apps/api/jest.config.ts",
-        "passWithNoTests": true
+        "lintFilePatterns": [
+          "apps/api/**/*.ts"
+        ]
       }
     }
   }

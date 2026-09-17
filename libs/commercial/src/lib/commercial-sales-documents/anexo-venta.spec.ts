@@ -1,6 +1,7 @@
-// El barrel de platform-core arrastra `queue.service` (ESM de la cola) y jest no lo parsea.
-// Acá no se prueba nada de eso: se sustituyen las tres piezas que el service importa.
-jest.mock('@megadulces/platform-core', () => ({
+// El barrel de platform-core arrastra `queue.service`. El motivo original era que jest no
+// parseaba ese ESM; Vite si lo parsea, pero la sustitucion se queda: aca no se prueba nada de
+// la cola y construir el barrel completo para tres piezas es traer una dependencia de mas.
+vi.mock('@megadulces/platform-core', () => ({
   TenantKnexService: class {},
   TenantContextService: class {},
   applySmartSearch: () => undefined,

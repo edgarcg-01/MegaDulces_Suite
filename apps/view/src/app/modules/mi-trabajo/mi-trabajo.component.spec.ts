@@ -1,3 +1,4 @@
+import type { Mock, MockInstance } from 'vitest';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
@@ -64,7 +65,8 @@ const SIN_TRABAJO: MeWork = {
   ciclos: [],
   // `[JZ.3]` Sin reparto de venta por zona no hay bloque. `null` es el caso de las 119
   // personas que no son jefe de zona: el default honesto para los fixtures.
-  zona: null,
+  zonas: [],
+  consolidado: null,
   medido_at: '2026-09-11T12:00:00.000Z',
 };
 
@@ -103,7 +105,8 @@ const TRABAJO_MIXTO: MeWork = {
   tiene_responsabilidades: false,
   delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
-  zona: null,
+  zonas: [],
+  consolidado: null,
   pendientes: [
     bandeja({ id: 'caducidades-mias', label: 'Revisiones de caducidad a tu nombre', detalle: 'sin enviar', ruta: '/tienda/caducidades', icono: 'pi pi-clock', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 2, alcance: 'mio' }),
     bandeja({ id: 'cuadre', label: 'Descuadres por revisar', detalle: 'caja e inventario', mas_viejo_at: '2026-08-01T00:00:00.000Z', total: 1865 }),
@@ -118,7 +121,8 @@ const TRABAJO_ASIGNADO: MeWork = {
   tiene_responsabilidades: false,
   delegacion: { activa: false, claves: [], ocultas: 0 },
   ciclos: [],
-  zona: null,
+  zonas: [],
+  consolidado: null,
   tareas: [
     {
       fuente: 'finance.recon_tasks', label: 'Conciliaciones a tu nombre', detalle: 'te las repartió Maat',
@@ -150,7 +154,7 @@ const con = (...p: Permission[]): Record<string, boolean> => Object.fromEntries(
 
 describe('MiTrabajoComponent · lo que ve cada persona', () => {
   let fix: ComponentFixture<MiTrabajoComponent>;
-  let navigate: jest.SpyInstance;
+  let navigate: MockInstance;
   const html = () => (fix.nativeElement as HTMLElement).textContent ?? '';
   const q = <T extends Element>(sel: string) => (fix.nativeElement as HTMLElement).querySelectorAll<T>(sel);
   /** `[SN.25]` La tarjeta apaisada pasó a ser la celda de la grilla rígida. */
@@ -189,11 +193,11 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
    * el dato y no sobre el estado final del componente — la lección de `[JZ.1]`: el estado final
    * sale verde aunque la consulta haya salido con el periodo equivocado.
    */
-  let espiaWork: jest.Mock;
+  let espiaWork: Mock;
   /** `[JZ.5]` El socket de tienda, con un `ticket$` que la prueba puede empujar a mano. */
   let ticket$: Subject<{ warehouse_code: string }>;
-  let espiaConnect: jest.Mock;
-  let espiaZona: jest.Mock;
+  let espiaConnect: Mock;
+  let espiaZona: Mock;
 
   async function montar(m: Montaje = {}) {
     const permisos = con(...(m.perms ?? []));
@@ -211,20 +215,20 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
         provideRouter([]),
         provideHttpClient(),
         provideHttpClientTesting(),
-        { provide: AuthService, useValue: { user, logout: jest.fn() } },
+        { provide: AuthService, useValue: { user, logout: vi.fn() } },
         { provide: PermissionsService, useValue: perms },
         {
           provide: MeContextService,
           useValue: {
             mine: () => m.ctx$ ?? of(CTX_BASE),
-            work: (espiaWork = jest.fn((p?: string) => {
+            work: (espiaWork = vi.fn((p?: string) => {
               void p;
               return m.work$ ?? of(SIN_TRABAJO);
             })),
-            workZona: (espiaZona = jest.fn(() =>
-              of({ zona: ZONA_PIEDAD, motivo: null, medido_at: '2026-09-15T18:00:00.000Z' }),
+            workZona: (espiaZona = vi.fn(() =>
+              of({ zonas: [ZONA_PIEDAD], consolidado: null, motivo: null, medido_at: '2026-09-15T18:00:00.000Z' }),
             )),
-            reset: jest.fn(),
+            reset: vi.fn(),
           },
         },
         { provide: DataScopeService, useValue: { mine: () => m.scope$ ?? of(SCOPE_BASE) } },
@@ -233,15 +237,15 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
           useValue: {
             ticket$: (ticket$ = new Subject()),
             connected: signal(true),
-            connect: (espiaConnect = jest.fn()),
-            disconnect: jest.fn(),
+            connect: (espiaConnect = vi.fn()),
+            disconnect: vi.fn(),
           },
         },
       ],
     }).compileComponents();
 
     const router = TestBed.inject(Router);
-    navigate = jest.spyOn(router, 'navigate').mockResolvedValue(true);
+    navigate = vi.spyOn(router, 'navigate').mockResolvedValue(true);
     fix = TestBed.createComponent(MiTrabajoComponent);
     fix.detectChanges();
     await fix.whenStable();
@@ -1129,7 +1133,7 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     ],
   };
 
-  const CON_ZONA: MeWork = { ...SIN_TRABAJO, zona: ZONA_PIEDAD };
+  const CON_ZONA: MeWork = { ...SIN_TRABAJO, zonas: [ZONA_PIEDAD] };
   const canales = () => q<HTMLElement>('.mt-canal');
 
   it('⛔ una ruta sin venta en el tramo dice DESDE CUÁNDO, y jamás −100%', async () => {
@@ -1205,13 +1209,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
      */
     const rezagada: MeWork = {
       ...SIN_TRABAJO,
-      zona: {
+      zonas: [{
         ...ZONA_PIEDAD,
         hasta: '2026-09-10',
         hasta_comparado: '2026-08-10',
         incluye_dia_en_curso: false,
         corte: { hasta_nominal: '2026-09-15', dias_sin_entregar: 5, fuentes: ['wincaja_mostrador'] },
-      },
+      }],
     };
     await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(rezagada) });
     const t = (fix.nativeElement as HTMLElement).querySelector('.mt-titular.is-zona')?.textContent ?? '';
