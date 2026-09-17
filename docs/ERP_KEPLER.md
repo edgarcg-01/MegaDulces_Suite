@@ -140,6 +140,36 @@ propia ficha al pie: *"La facturación es siempre sobre la unidad Base, Los inve
 unidad Base"*. Distinto de `c84 ∈ {0,1}`, que sí es ambiguo (§5 regla 5): ahí se mira el **factor**,
 acá el **rótulo**. Medido: 840 SKUs con una sola unidad.
 
+##### ⛔ HIPÓTESIS REFUTADA: el nombre del producto NO es testigo de la unidad
+
+Esta subsección existe porque el error se cometió acá, en esta misma investigación (2026-09-15).
+Buscando productos cuyo factor 1 "mentía", se presentaron como prueba casos con el empaque escrito
+en el nombre:
+
+```text
+96158  RIFA DENNY SUPER GRANDE C/DULCE /160   publicaba 1   "el nombre dice 160"
+96177  RIFA SURTIDA DENNY C/DULCE /50         publicaba 1   "el nombre dice 50"
+87201  BOT SABRIMINIS SOBRE /50               publicaba 1   "el nombre dice 50"
+```
+
+**La ficha del ERP dice lo contrario.** `96158` es **Base = Pieza, Factor 1**, costo $145.00,
+%Margen 23.26, PV $178.73, **sin Unidad Dos ni Tres**. El `/160` describe el contenido de la rifa
+(160 oportunidades), no un empaque. Ese `1` era el dato, y la "prueba" era ruido.
+
+Verificado después contra los testigos reales: de los 985 productos sin factor, sólo **61** traen un
+`/NN` al final del nombre, y de los **601** que el ERP declara de una sola unidad **ninguno** es
+contradicho por lo pagado al proveedor, por la escalera de unidades ni por `v_unit_truth`
+(1 sólo en Wincaja, declarado aparte).
+
+**Regla, y vale para el nombre, la descripción y el gramaje del empaque:** son *contexto*, nunca
+fuente. El factor sale de `kdii` (rótulo + factor capturado, o el costo del peldaño) y punto. Si el
+ERP está mal, **se corrige la ficha en Kepler** — no se compensa en una vista ni en una pantalla.
+
+*Auditado 2026-09-17: los ocho resolvedores de unidad (`v_product_box_factor`,
+`v_warehouse_box_factor`, `v_product_box_factor_consensus`, `v_product_unit_ladder`, `v_unit_truth`,
+`v_unit_rung_audit`, `v_wincaja_unit_audit`, `v_erp_sales_line_units`) están limpios: ninguno
+infiere unidad ni factor del nombre.*
+
 **Resolvedor canónico: `analytics.v_kepler_unit_ladder`** (vista derive-no-copy, grano
 **sucursal × sku**, sin `mode()`), con `factor_caja` + `factor_source` ∈ `capturado` ·
 `derivado_del_costo` · `unidad_unica` · `capturado_contradice_al_costo` · `rotulo_sin_factor_ni_costo`.
