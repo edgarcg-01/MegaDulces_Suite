@@ -43,7 +43,7 @@ const FILTROS: BiFilters = {
   ],
   doc_types: [],
   scope: { mode: 'all', resolvable: true, warehouse_count: null },
-  movements_as_of: { max_doc_date: '2026-09-14', max_imported_at: '2026-09-14T21:24:08Z', total_rows: 3699345 },
+  movements_as_of: { max_doc_date: '2026-09-14', max_imported_at: '2026-09-14T21:24:08Z', total_rows: 3699345, total_rows_estimated: true },
   inventory_as_of: '2026-09-14T22:00:00Z',
 };
 

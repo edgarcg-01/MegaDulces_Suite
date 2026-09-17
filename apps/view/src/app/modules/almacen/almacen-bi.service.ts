@@ -17,7 +17,11 @@ export interface BiFilters {
   zones: BiZoneGroup[];
   doc_types: BiDocType[];
   scope: { mode: string; resolvable: boolean; warehouse_count: number | null };
-  movements_as_of: { max_doc_date: string | null; max_imported_at: string | null; total_rows: number };
+  // [DB-MEM.12] `total_rows` viaja ESTIMADO (ver el contrato en commercial-bi-almacen.types.ts).
+  movements_as_of: {
+    max_doc_date: string | null; max_imported_at: string | null;
+    total_rows: number; total_rows_estimated: boolean;
+  };
   inventory_as_of: string;
 }
 export interface BiProductOpt { id: string; sku: string | null; name: string; brand_name: string | null; }

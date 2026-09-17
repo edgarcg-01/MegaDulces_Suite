@@ -232,17 +232,92 @@ export class CommercialBiAlmacenService {
         } satisfies BiWarehouseOpt);
       }
 
-      const docTypes: BiDocType[] = await trx('analytics.stock_movements as m')
-        .where('m.tenant_id', tenantId)
-        .modify((qb: any) => { if (ids !== null) qb.whereIn('m.warehouse_id', ids); })
-        .distinct('m.doc_code', 'm.movement_label', 'm.movement_kind')
-        .orderBy('m.movement_label');
+      // [DB-MEM.12] Salto de índice sobre `ix_stockmov_code (tenant_id, warehouse_id, doc_code)`.
+      //
+      // Antes era un `DISTINCT` que barría `analytics.stock_movements` entera — 3.7 M filas /
+      // 1,980 MB — para devolver **19 tipos de documento**. Medido en prod: 130,991 páginas
+      // (1,023 MB) y 12,360 ms. Ahora salta de un `doc_code` al siguiente: 1,768 páginas (14 MB),
+      // 184 ms. Mismas 19 filas, idénticas posición por posición.
+      //
+      // ⚠️ La semilla de almacenes NO puede salir de `whRows`: ése ya viene filtrado por
+      // `deleted_at IS NULL` y por `branchKeyFilterSql`, mientras que el `DISTINCT` original
+      // miraba TODOS los `warehouse_id` presentes en movimientos. Usar `whRows` achicaría el
+      // alcance en silencio. Se siembra desde `commercial.warehouses` sin esos filtros, que es
+      // equivalente porque está verificado que no hay `warehouse_id` huérfano (0 de 10).
+      //
+      // ⚠️ El desempate por `doc_code` no es cosmético: `ORDER BY movement_label` solo no
+      // garantiza orden entre empates, y hay dos (`Sale1` y `WIN_V`, ambos "Venta").
+      const filtroWh = ids !== null ? 'AND w.id = ANY(?::uuid[])' : '';
+      const bindsDoc = ids !== null
+        ? [tenantId, ids, tenantId, tenantId, tenantId]
+        : [tenantId, tenantId, tenantId, tenantId];
+      const docTypes: BiDocType[] = (await trx.raw(
+        `WITH RECURSIVE wh AS (
+           SELECT w.id FROM commercial.warehouses w
+            WHERE EXISTS (SELECT 1 FROM analytics.stock_movements m
+                           WHERE m.tenant_id = ? AND m.warehouse_id = w.id)
+              ${filtroWh}
+         ), saltos AS (
+           SELECT wh.id AS warehouse_id,
+                  (SELECT min(m.doc_code) FROM analytics.stock_movements m
+                    WHERE m.tenant_id = ? AND m.warehouse_id = wh.id) AS doc_code
+             FROM wh
+           UNION ALL
+           SELECT s.warehouse_id,
+                  (SELECT min(m.doc_code) FROM analytics.stock_movements m
+                    WHERE m.tenant_id = ? AND m.warehouse_id = s.warehouse_id
+                      AND m.doc_code > s.doc_code)
+             FROM saltos s WHERE s.doc_code IS NOT NULL
+         )
+         SELECT DISTINCT d.doc_code, d.movement_label, d.movement_kind
+           FROM (SELECT DISTINCT warehouse_id, doc_code FROM saltos WHERE doc_code IS NOT NULL) s
+           CROSS JOIN LATERAL (
+             SELECT m.doc_code, m.movement_label, m.movement_kind
+               FROM analytics.stock_movements m
+              WHERE m.tenant_id = ? AND m.warehouse_id = s.warehouse_id
+                AND m.doc_code = s.doc_code
+              LIMIT 1) d
+          ORDER BY d.movement_label ASC, d.doc_code ASC`,
+        bindsDoc,
+      )).rows;
 
-      const fresh = (await trx.raw(
-        `SELECT max(doc_date)::text AS max_doc_date, max(imported_at)::text AS max_imported_at, count(*)::int AS total_rows
-           FROM analytics.stock_movements WHERE tenant_id = ?`,
+      // [DB-MEM.12] Las tres medidas de frescura iban en UNA sola query, y salía 5× más caro que
+      // pedirlas por separado: juntas 130,975 páginas (1,023 MB) / 15,737 ms · por separado
+      // 9,052 + 17 + 24,902 = 33,971 páginas. Con las tres en el mismo SELECT, Postgres no puede
+      // usar la optimización de cada una y cae a un único escaneo que las satisface a todas.
+      // Es el mismo hallazgo que el sensor de `db-health` (923 ms → 0.049 ms al separarlas).
+      const maxDocDate = (await trx.raw(
+        // Salto por almacén: `ix_stockmov_date` es (tenant_id, warehouse_id, doc_date), así que
+        // el `max()` global no lo puede usar de una. Medido: 9,029 → 295 páginas, mismo valor.
+        `SELECT max(d.mx)::text AS v FROM commercial.warehouses w
+           CROSS JOIN LATERAL (SELECT max(m.doc_date) AS mx FROM analytics.stock_movements m
+                                WHERE m.tenant_id = ? AND m.warehouse_id = w.id) d`,
         [tenantId],
-      )).rows[0];
+      )).rows[0]?.v ?? null;
+
+      // Sale por `ix_stockmov_imported_at` (creado 2026-09-15): 17 páginas, 0.96 ms.
+      const maxImportedAt = (await trx.raw(
+        `SELECT max(imported_at)::text AS v FROM analytics.stock_movements WHERE tenant_id = ?`,
+        [tenantId],
+      )).rows[0]?.v ?? null;
+
+      // ⚠️ ESTIMADO, y por eso se declara. El `count(*)` exacto cuesta 24,902 páginas (195 MB,
+      // ~1.8 s) en CADA carga de la pantalla, y este número NO SE PINTA en ninguna parte: está
+      // en el contrato y en el tipo del frontend, pero ninguna plantilla lo muestra. El
+      // estimador de Postgres se desvía 0.14% (3,716,184 contra 3,711,041 exactas).
+      // ⚠️ `reltuples` es de la TABLA, no del tenant: hoy coincide porque prod tiene un solo
+      // tenant con movimientos. Si algún día hay más, este número deja de ser el del tenant —
+      // por eso viaja marcado como estimado y nadie debería sumar con él.
+      const totalRows = Number(
+        (await trx.raw(`SELECT reltuples::bigint AS n FROM pg_class WHERE oid = to_regclass(?)`,
+          ['analytics.stock_movements'])).rows[0]?.n ?? 0,
+      );
+      const fresh = {
+        max_doc_date: maxDocDate,
+        max_imported_at: maxImportedAt,
+        total_rows: totalRows < 0 ? 0 : totalRows,
+        total_rows_estimated: true,
+      };
 
       const sc = await this.scope.current();
       const whDim = sc.dims['warehouse'];
@@ -257,7 +332,7 @@ export class CommercialBiAlmacenService {
         },
         movements_as_of: {
           max_doc_date: fresh.max_doc_date, max_imported_at: fresh.max_imported_at,
-          total_rows: fresh.total_rows,
+          total_rows: fresh.total_rows, total_rows_estimated: fresh.total_rows_estimated,
         },
         inventory_as_of: new Date().toISOString(),
       };
