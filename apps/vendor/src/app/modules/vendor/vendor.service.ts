@@ -425,12 +425,26 @@ export class VendorService {
     );
   }
 
-  addLine(orderId: string, productId: string, quantity: number): Observable<OrderLine> {
-    return this.portal.addLine(orderId, productId, quantity);
+  /**
+   * ⚠️ Con `sello`, `quantity` va EN LA UNIDAD CAPTURADA (2 = dos cajas) y convierte el
+   * servidor; sin `sello`, en unidad base. Ver `PortalService.addLine`.
+   */
+  addLine(
+    orderId: string,
+    productId: string,
+    quantity: number,
+    sello?: { qty_unit: string; qty_factor: number },
+  ): Observable<OrderLine> {
+    return this.portal.addLine(orderId, productId, quantity, sello);
   }
 
-  updateLine(orderId: string, lineId: string, quantity: number): Observable<OrderLine> {
-    return this.portal.updateLine(orderId, lineId, quantity);
+  updateLine(
+    orderId: string,
+    lineId: string,
+    quantity: number,
+    sello?: { qty_unit: string; qty_factor: number },
+  ): Observable<OrderLine> {
+    return this.portal.updateLine(orderId, lineId, quantity, sello);
   }
 
   removeLine(orderId: string, lineId: string) {

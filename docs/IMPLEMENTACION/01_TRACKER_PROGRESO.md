@@ -84,6 +84,65 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase TO — Auditoría del flujo `/vendor/take-order` · 2026-09-17
+
+Revisión del flujo completo de toma de pedido del vendedor (carga → order pad → carrito →
+`place`), pedida sobre la pantalla ya construida. Los cinco hallazgos salieron de leer el
+flujo entero, no el archivo tocado.
+
+- [x] **[TO.1]** ✅ **El toggle "ver camioneta" decidía el almacén del PEDIDO cuando el carrito
+  estaba vacío.** `switchStockView` afirmaba en su propio comentario *"no cambia el pedido en
+  curso"* y pisaba `warehouseId`, que es lo que `createLine` le pasa a `ensureDraftForCustomer`
+  — y el draft nace en el primer "+". Mismo gesto, dos resultados según si ya habías agregado
+  algo; el pedido se surtía del camión (`kind='truck'`) sin que nadie lo pidiera, y
+  `order.warehouse_id` es de donde se consume al fulfillar. **El código ya decidía el punto
+  abierto**: el camión se carga con el ticket de carga (`ensureTruckWarehouse`) y la autoventa
+  es Fase VR, sin código → esta pantalla es preventa pura. Separado en `orderWarehouseId`
+  (surtido, lo fija la carga) vs `stockWarehouseId` (lo que se mira). La pantalla ahora lo
+  **dice**, y el aviso de "stock bajo" ya no compara contra el almacén equivocado.
+  *Cerrado 2026-09-17.*
+- [x] **[TO.2]** ✅ **El diálogo podía anunciar un monto y agendar otro.** El mensaje de
+  PrimeNG se arma UNA vez, y se armaba con `cartTotal()` en caliente: la cantidad del carrito es
+  optimista (instantánea) pero el dinero lo calcula el servidor (tiers de volumen + promos) y solo
+  llega con la recarga, 500 ms después. Tocar "+" y enseguida "Agendar" congelaba el total viejo en
+  el diálogo mientras el `place` se iba con la cantidad nueva. Ahora `submit()` vuelca y recarga
+  ANTES de preguntar. ⛔ No se recalcula el total en el front a propósito (sería inventar el
+  número): mientras no es firme, **se declara** (`totalPendiente`, total atenuado + "actualizando").
+  Arrastró un bug latente: `reloadCart` no llamaba a `after` sin pedido ni al fallar — encadenado
+  al submit, dejaba la pantalla trabada en "Calculando…". *Cerrado 2026-09-17.*
+- [x] **[TO.3]** ✅ **El sello de unidad no sobrevivía al primer toque del stepper.** El
+  protocolo VU.2/VU.3 (el servidor resuelve el factor contra el ERP y frena el desacuerdo) estaba
+  construido y **no lo llamaba nadie desde el campo**: la pantalla convertía a base y mandaba el
+  número crudo, así que la línea no decía si esas 116 piezas eran "2 cajas" o "116 sueltas". Y
+  `updateLine` —por donde pasa TODO ajuste del carrito— **borraba** el sello a propósito. Ahora
+  `UpdateLineDto` acepta `qty_unit`/`qty_factor` y re-sella; sin ellos sigue borrando (una cantidad
+  editada a mano ya no está descrita por la unidad vieja). El front manda el CONTEO en la unidad
+  activa, nunca la base ya convertida — mandar las dos cosas la multiplicaría de nuevo.
+  ⭐ **Medido antes de cablearlo** (las presentaciones salen de `analytics.product_units` y el
+  resolvedor valida contra `analytics.v_product_box_factor`: **dos fuentes distintas**): de 7,833
+  presentaciones de caja, el resolvedor afirma 7,763 y **solo 1 desacuerda** → el 400 nuevo es
+  0.013%, y ese caso hoy se pide con el factor de la pantalla sin que nadie se entere.
+  Candado nuevo `database/tests/http-vendor-qty-unit-test.js` (**21/21**, con prueba negativa del
+  400). *Cerrado 2026-09-17.*
+- [x] **[TO.4]** ✅ **Modo `instante` (autoventa) muerto, y documentado como si existiera.** El
+  docblock de la clase anunciaba *"Cobrar y entregar → deliver-now (consume stock)"*: la señal
+  nunca se seteaba, el encabezado decía "Preventa" fijo, el único CTA era Agendar y `deliverNow`
+  no se llamaba. `vendor-order-success` arrastraba lo mismo **con el default al revés**
+  (`'instante'`), así que si el query param se perdía decía "Entregado" sobre un pedido agendado.
+  Retirado de las dos pantallas. *Cerrado 2026-09-17.*
+- [x] **[TO.5]** ✅ Doble `GET /orders/:id` al corregir un pedido: venía en el `forkJoin` y se
+  volvía a pedir para leer las líneas, que ese endpoint ya trae. Un request de más por apertura,
+  sobre red de campo. *Cerrado 2026-09-17.*
+- [ ] **[TO.6]** ⚠️ **`commercial.order_lines` no tenía las columnas del sello en
+  `platform_test`** → `addLine` devolvía **500 a todo el mundo** en la base compartida de dev
+  (con sello y sin él: el código de VU.2 las escribe siempre). La migración
+  `20260912040000_qty_unit_stamp` estaba sin aplicar aunque **migraciones posteriores sí**. Se
+  aplicó SOLO esa (`migrate.up({name})`, aditiva: `ADD COLUMN` nullable con guardas) — ⛔ no
+  `migrate:latest`, que habría arrastrado **87 pendientes ajenas** contra una base compartida.
+  **Prod no se midió**: el start corre `migrate:latest` y migración y código entraron a `main` el
+  mismo día, así que el mecanismo la aplica — pero *que se haya aplicado* está sin verificar.
+  **Queda abierto: confirmar el sello en prod y por qué esa base quedó 88 migraciones atrás.**
+
 ### Fase EMB — El embarque de Kepler en la Suite (cabecera logística) · 2026-09-17
 
 El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero CxC, surtido
