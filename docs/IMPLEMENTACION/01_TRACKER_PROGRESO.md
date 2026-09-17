@@ -171,6 +171,16 @@ importers.
   status + `/lines` link + `/contributions` + `/evaluate`), reusa `PRESUPUESTOS_VER/GESTIONAR`. Smoke
   `test-newdb-budget-campaigns.js` **12/12**. Lint 0 errores. Mig aplicada a dev.
   **Pendiente:** UI + verificación HTTP (ADR-044). Queda como deuda de PU.4: «Tu trabajo»/hallazgos (reusar bandeja).
+- [~] **[PU.6]** 🔨 UI (surface Operations, DESIGN.md). **1er slice ✅:** `/finanzas/presupuesto` reescrito con
+  sub-nav `Segmented` (**Ejercicios** | Capacidad de pago | Gastos autorizados — los dos últimos = feeder TP,
+  preservados intactos). Vista **Ejercicios** answer-first (DESIGN §15): lista de ejercicios (chips) + **resumen
+  ejecutivo** con `MetricStrip` (Vigente/Disponible/Ocupación/Ventas real/Cumplimiento) desde `/summary` +
+  `FreshnessPill` del real + tabla de **partidas** (ledger de 5 estados) con `p-table`+`surf-table`. Diálogo
+  «Nuevo ejercicio». **Cumple:** tokens (cero hex nuevo salvo fallbacks), Geist mono `tabular-nums`, `p-tag`
+  severities, iconos `pi` (no emojis), **«sin datos»≠cero** (real del ODS no disponible → texto "sin datos"/"sin
+  base", nunca 0). `check:templates` ✅ 316 · **`nx build view` ✅** (1m44s) · lint 0. **Pendiente:** validación
+  visual (light/dark/móvil — dev servers de Edgar); UIs de acciones del ledger (reservar/comprometer/ejercer/
+  adecuar), flujo (PU.3), planeación (PU.4) y campañas (PU.5); verificación HTTP de los servicios.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
