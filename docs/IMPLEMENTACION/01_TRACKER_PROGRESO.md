@@ -192,8 +192,17 @@ importers.
   · **`nx build view` ✅** · lint 0. **⭐ `nx build api` ✅ verificado** — los 6 servicios backend compilan (el bug de
   inferencia `Map<any,{}>` de PU.4 lo arregló otra sesión; nada más rompió). Los WARNINGs de `export interface` son el
   patrón benigno de siempre (idéntico al `CreateExpenseObligationDto` de TP).
-  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); UIs de planeación/copia/import (PU.4) y
-  campañas (PU.5); verificación HTTP en runtime (guards/RLS) de los servicios.
+  **4o slice ✅ — Campañas (PU.5 Marketing):** nueva vista del Segmento: catálogo de campañas + crear + estado
+  (borrador→activa→cerrada) + **evaluación honesta** (`MetricStrip`: presupuesto/costo/costo neto/ventas vinculadas/
+  gasto÷ventas) con las 4 declaraciones del spec §9/§10 en pantalla — atribución por ventana **rotulada** ("no
+  prueba efecto incremental"), **retorno** solo con margen incremental capturado (si no, se declara + input para
+  calcularlo), **aportaciones** de proveedor (la incierta no reduce; botón confirmar) y **warning** de
+  `descuento_comercial`. `check:templates` ✅ (317) · lint 0 · **cero errores propios en `nx build view`**.
+  ⚠️ **El build de `view` está ROJO por WIP ajeno** — `almacen-surtido.component.ts` (fase SU, otra sesión) tiene
+  `new Set()` inline en un binding de template (`NG5002`); NO es de PU y no se toca. Los 3 errores son todos de ese
+  archivo; ninguno referencia `finanzas-presupuesto`.
+  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); UI de planeación/copia/import (PU.4);
+  vincular partida↔campaña desde la UI (el backend ya lo soporta); verificación HTTP en runtime (guards/RLS).
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
