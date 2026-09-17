@@ -14,6 +14,7 @@ export * from './lib/database/kepler-database.module';
 export * from './lib/queue/queue.module';
 export * from './lib/queue/queue.service';
 export * from './lib/queue/scheduler-owner';
+export * from './lib/queue/cron-single-flight';
 
 // ── tenant ──
 export * from './lib/tenant/tenant.module';
