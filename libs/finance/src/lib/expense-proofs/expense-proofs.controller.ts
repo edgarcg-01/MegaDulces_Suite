@@ -66,9 +66,9 @@ export class ExpenseProofsController {
 
   @Get('proof-by-folio')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
-  @ApiOperation({ summary: 'Estado del expediente de UN folio (para saber en qué momento está la captura). Accesible al capturista.' })
-  proofByFolio(@Query('folio') folio: string) {
-    return this.svc.proofByFolio(folio || '');
+  @ApiOperation({ summary: 'Estado del expediente de UN folio (para saber en qué momento está la captura). Accesible al capturista. `sucursal` desambigua: el folio de Kepler es único por plaza, no global.' })
+  proofByFolio(@Query('folio') folio: string, @Query('sucursal') sucursal?: string) {
+    return this.svc.proofByFolio(folio || '', sucursal);
   }
 
   // GX.9 — la bandeja de lo capturado en campo que todavía no se liga a un folio Kepler.

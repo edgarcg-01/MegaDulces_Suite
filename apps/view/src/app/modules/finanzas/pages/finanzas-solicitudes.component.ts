@@ -89,6 +89,16 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
               <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
             </button>
           </div>
+          <!-- Repartir links es circular: sin links no hay capturas de campo, y el botón
+               vivía SOLO dentro de la etapa «Sin folio» — escondido detrás de una tabla que
+               el día uno está vacía. Es una acción administrativa del ciclo completo, así
+               que va en el encabezado. -->
+          @if (puedeEmitirLinks()) {
+            <button pButton type="button" class="p-button-sm p-button-outlined so-links"
+                    (click)="abrirLinks()" title="Repartir links de captura por celular">
+              <span class="p-button-icon p-button-icon-left pi pi-link" aria-hidden="true"></span>
+              <span class="p-button-label">Links de captura</span></button>
+          }
           <!-- Alcance: de quién es lo que estoy viendo. Va antes del periodo porque
                cambia el universo, no lo recorta. -->
           <app-segmented [options]="alcanceOpts" [value]="mias() ? 'mias' : 'todas'"
@@ -148,7 +158,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
       @if (etapa() === 'sin_folio') {
         <!-- Otra tabla, misma bandeja. Estas filas no existen en Kepler todavía, así que
              ni el periodo ni los filtros de arriba aplican — el panel trae los suyos. -->
-        <app-capturas-sin-folio-panel (changed)="cargarSinFolio()" />
+        <app-capturas-sin-folio-panel [abrirLinks]="pedirLinks()" (changed)="cargarSinFolio()" />
       } @else {
       <div class="card-premium card-flat so-card">
         <!-- Filtros secundarios pegados a la tabla que filtran, no flotando mid-page. -->
@@ -283,6 +293,7 @@ type Etapa = 'autorizar' | 'ejercer' | 'capturar' | 'validar' | 'sin_folio' | 'c
     .so-scope { display: inline-flex; align-items: center; gap: var(--sp-1); margin: var(--sp-1) 0 0;
       font-size: var(--fs-xs); color: var(--fg-2); }
     .so-scope.is-warn { color: var(--warn-fg); }
+    :host ::ng-deep .so-links .p-button-label { white-space: nowrap; }
     .so-live { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--ok-fg); }
     .so-live i { font-size: var(--fs-nano); }
     /* Estado del dato: en vivo, qué tan fresco, y recargar. Es un grupo, y se separa de
@@ -448,11 +459,6 @@ export class FinanzasSolicitudesComponent {
   /** Primera carga = cargando y todavía sin nada en pantalla. Un refresh no vacía la vista. */
   readonly primeraCarga = computed(() => this.loading() && !this.report());
 
-  /** Estado de la evidencia de una solicitud: comprobante propio, o comprobación del gasto. */
-  private evidenciaDe(folio: string): string {
-    return this.proofStatus()[folio]?.status || this.compStatus()[folio] || 'sin';
-  }
-
   /**
    * En qué etapa está una solicitud. El orden de las reglas importa: cada fila cae en UNA
    * y sólo una. Cancelada gana sobre todo (es terminal, aunque Kepler tenga 102 canceladas
@@ -462,7 +468,7 @@ export class FinanzasSolicitudesComponent {
     if (r.estado === 'C') return 'canceladas';
     if (!r.aplicada) return r.estado === 'N' ? 'autorizar' : 'ejercer';
 
-    const p = this.proofStatus()[r.folio];
+    const p = this.proofStatus()[ComprobacionesService.key(r.sucursal, r.folio)];
     // Sin expediente todavía, o devuelto: el capturista debe (re)capturar la solicitud.
     if (!p || p.status === 'rechazada') return 'capturar';
     // Falta la solicitud firmada (obligatoria siempre): sin ella no se aprueba → sigue en
@@ -697,6 +703,20 @@ export class FinanzasSolicitudesComponent {
   readonly sinFolioKpis = signal<{ total: number; importe: number }>({ total: 0, importe: 0 });
   private readonly capturas = inject(CapturasSinFolioService);
 
+  /**
+   * Emitir un link es repartir una credencial de subida, así que pide el mismo permiso que
+   * decidir sobre el gasto — no el de capturar.
+   */
+  readonly puedeEmitirLinks = computed(() => this.perms.isAdmin()
+    || this.auth.user()?.permissions?.[Permission.FINANCE_EXPENSES_COMPROBAR] === true);
+
+  /** El encabezado pide los links: lleva a la etapa y el panel abre el diálogo al montar. */
+  readonly pedirLinks = signal(false);
+  abrirLinks(): void {
+    this.pedirLinks.set(true);
+    this.setEtapa('sin_folio');
+  }
+
   cargarSinFolio(): void {
     this.capturas.sinFolio().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
@@ -837,8 +857,8 @@ export class FinanzasSolicitudesComponent {
   readonly peekOpen = signal(false);
   readonly dlgOpen = signal(false);
   readonly selProofId = computed(() => {
-    const f = this.sel()?.folio;
-    return f ? (this.proofStatus()[f]?.id ?? null) : null;
+    const r = this.sel();
+    return r ? (this.proofStatus()[ComprobacionesService.key(r.sucursal, r.folio)]?.id ?? null) : null;
   });
   readonly selTieneComprobacion = computed(() => {
     const f = this.sel()?.folio;
@@ -854,7 +874,7 @@ export class FinanzasSolicitudesComponent {
    * la evidencia la sube el capturista en «Capturar gasto».
    */
   capturar(r: ExpenseRequestRow) {
-    const p = this.proofStatus()[r.folio];
+    const p = this.proofStatus()[ComprobacionesService.key(r.sucursal, r.folio)];
     if (p && p.status !== 'rechazada') { this.verExpediente(r); return; }
     this.adjuntar(r);
   }

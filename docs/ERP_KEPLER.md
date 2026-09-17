@@ -360,6 +360,36 @@ viene subiendo: **55% de las recepciones de sucursal en ago-2026** ya tienen cop
 
 ---
 
+### 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto
+
+Medido en prod sobre `analytics.expense_requests` (X-A-15, 2026-09-17):
+
+```
+suc 00:  9,478 solicitudes · folios 1 … 9478
+suc 02:    252 solicitudes · folios 1 …  252
+suc 03:     97 solicitudes · folios 1 …   97
+suc 04:     24 solicitudes · folios 1 …   24
+```
+
+**Cada sucursal tiene su propio contador, arranca en 1 y no deja huecos** — el último folio
+es exactamente el conteo de la sucursal. Los rangos se solapan por construcción: **252 folios
+viven en más de una plaza**.
+
+Y no son duplicados: de esos 252, **CERO son el mismo documento**. El folio `0000001` son
+cuatro gastos genuinamente distintos (fechas, importes y beneficiarios diferentes, uno por
+sucursal).
+
+⛔ **Consecuencia: `folio` solo NO identifica un documento. La llave es `(sucursal, folio)`.**
+Una búsqueda por folio suelto resuelve a una fila arbitraria entre las plazas que lo comparten
+— y si de esa fila sale un importe, el cuadre corre contra el dinero de otra tienda. Falla en
+silencio: no hay error, sólo un número que no cuadra. *Ya nos costó: GX.11 (el cuadre por
+visión del expediente de gasto leía el importe de la sucursal equivocada).*
+
+⚠️ **No intentar unificar la secuencia.** Sería reescribir Kepler —read-only para nosotros—
+y rompería la identidad de todos los documentos históricos.
+
+---
+
 ## 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods`
 
 Este es el corazón de la integración. **No leemos las DBs de sucursal directo desde la app.**
