@@ -40,6 +40,13 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         <p-select [options]="statusOpts" [(ngModel)]="fStatus" (onChange)="reload()" optionLabel="label" optionValue="value" styleClass="hz-sel" appendTo="body"></p-select>
         <p-select [options]="kindOpts" [(ngModel)]="fKind" (onChange)="reload()" optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true" styleClass="hz-sel" appendTo="body"></p-select>
         <span class="hz-count">{{ total() | number }} hallazgo(s)</span>
+        @if (total() > rows().length) {
+          <!-- [FE.1] La cabecera decia "21,726 hallazgo(s)" y la tabla listaba 500, sin una palabra
+               que lo explicara: se puede leer como que estan todos y que hay que scrollear. Medido
+               en prod 2026-09-17: 21,726 abiertos contra un tope de 500 = el 97.7% no se lista.
+               Mismo patron que ya usan otras 17 pantallas (p.ej. finanzas-cartera:168). -->
+          <span class="hz-trunc">listando {{ rows().length | number }} — afiná el filtro para ver el resto</span>
+        }
       </div>
 
       <p-table [value]="rows()" [loading]="loading()" [scrollable]="true" scrollHeight="flex"
@@ -86,6 +93,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .hz-strong { font-weight: 700; }
     .hz-bad { color: var(--bad-fg); font-weight: 600; }
     .hz-empty { color: var(--text-muted); padding: 1rem; text-align: center; }
+    .hz-trunc { color: var(--text-muted); font-size: .8125rem; font-style: italic; }
   `],
 })
 export class ComprasHallazgosComponent implements OnInit {
