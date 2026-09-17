@@ -61,19 +61,46 @@ Cada camioneta tiene un Kepler local **independiente** (esquema `md.*`, una o va
 > 🔴 **GOTCHA CLAVE:** el `NN` local **NO es** el número de ruta de la empresa.
 > Ejemplo real confirmado: base **`md_01-005` = ruta 27 de la empresa**, pero su serie local es **`UD1001`**.
 
-Estado del inventario de camionetas (lo único confirmado hoy):
+Estado del inventario, medido el **2026-09-17** contra `ingest.route_push_heartbeat` y el muestreo de
+quién sigue entrando por el reenvío de `.249`:
 
 | TRUCK (empresa) | Base local | Serie local (`c63`) | Host laptop | Tarea | Estado |
 |---|---|---|---|---|---|
-| `ruta_21` | `md_01-001` | `UD1001` | *(por documentar)* | `Ruta21` | ✅ v2 reactiva (alta 2026-07-21) |
-| `ruta_22` | `md_01-002` | `UD1001` | *(por documentar)* | `Ruta22` | ✅ v2 reactiva (alta 2026-07-13) |
-| `ruta_26` | `md_01-004` | `UD1001` | *(por documentar)* | `Ruta26` | ✅ v2 reactiva (alta 2026-07-21) |
-| `ruta_23` | `md_01-003` | `UD1001` | *(por documentar)* | `Ruta23` | ✅ v2 reactiva (alta 2026-07-13) |
-| `ruta_27` | `md_01-005` | `UD1001` | `192.168.10.241` | `Ruta27` | ✅ v2 reactiva (alta 2026-07-16) |
-| `ruta_28` | `md_01-006` | `UD1001` | *(por documentar)* | `Ruta28` | ✅ v2 reactiva (alta 2026-07-16) |
+| TRUCK | Plaza | **Host laptop** | **Runner** | Base local | Serie | Tarea | Alta |
+|---|---|---|---|---|---|---|---|
+| `ruta_21` | PH | `192.168.10.239` | ✅ `.222` (17-sep… *ver nota*) | `md_01-001` | `UD1001` | `Ruta21` | 2026-07-21 |
+| `ruta_22` | PH | `192.168.10.7` | ✅ `.222` | `md_01-002` | `UD1001` | `Ruta22` | 2026-07-13 |
+| `ruta_23` | PH | `192.168.10.249` ⚠️ | ✅ `.222` | `md_01-003` | `UD1001` | `Ruta23` | 2026-07-13 |
+| `ruta_26` | PH | *(por documentar)* | ⛔ `.249` | `md_01-004` | `UD1001` | `Ruta26` | 2026-07-21 |
+| `ruta_27` | PH | `192.168.10.16` ⚠️ | ✅ `.222` | `md_01-005` | `UD1001` | `Ruta27` | 2026-07-16 |
+| `ruta_28` | PH | `192.168.10.152` | ⛔ `.249` | `md_01-006` | `UD1001` | `Ruta28` | 2026-07-16 |
+| `ruta_501` | Canindo | *(por documentar)* | ⛔ `.249` | — | — | `Ruta501` | 2026-09-09 |
+| `ruta_502` | Canindo | `192.168.50.10` | ✅ `.222` | — | — | `Ruta502` | 2026-09-09 |
+| `ruta_503` | Canindo | `192.168.50.29` | ✅ `.222` | — | — | `Ruta503` | 2026-09-09 |
+| `ruta_504` | Canindo | `192.168.50.27` | ✅ `.222` | — | — | `Ruta504` | 2026-09-09 |
+| `ruta_505` | Canindo | *(por documentar)* | ⛔ `.249` | — | — | `Ruta505` | 2026-09-09 |
 
+⚠️ **`192.168.10.249` (la van de `ruta_23`) NO es `192.168.0.249` (el servidor viejo).** Subredes
+distintas, el mismo final. El reemplazo del CASO 4 busca `192.168.0.249` completo, así que no toca
+la IP propia de la van — pero al leer el archivo se ven dos "249" que no son lo mismo.
 
-> ✅ **FLOTA COMPLETA (2026-07-21): las 6 camionetas con Kepler local (`md_01-001`…`md_01-006`) están onboarded con tarea reactiva + heartbeat.** No hay más vans con base local; las ~35 rutas de `kdm_rutas` son definiciones de ruta, no camionetas físicas. Mapeo base→ruta NO secuencial (verificar serie siempre). Proyecto de push de ruta = cerrado.
+⚠️ **La IP de `ruta_27` estaba MAL en este documento**: decía `192.168.10.241`. El repunte del
+2026-09-15 se hizo sobre `192.168.10.16` y funcionó (latido 15:35, 2,051 filas). O la van cambió de
+IP por DHCP o el dato nunca fue correcto. **Una IP equivocada en una tabla de control es peor que un
+hueco**: manda a alguien a la máquina que no es. Si estos hosts se van a usar para algo más que
+referencia, hay que fijarlos por reserva DHCP.
+
+⛔ **Este bloque decía "FLOTA COMPLETA: las 6 camionetas… proyecto de push de ruta = cerrado"** y
+**declaraba 6 cuando en producción hay 11** — las 5 de Canindo se dieron de alta el 2026-09-09 y
+nunca volvieron a esta tabla. Un control que se declara cerrado deja de mirarse, y ahí es donde se
+acumula la diferencia. Las 11 laten (`ingest.route_push_heartbeat`), que es la fuente de verdad:
+
+```sql
+SELECT truck, last_ok, rows_last FROM ingest.route_push_heartbeat ORDER BY last_ok DESC;
+```
+
+Mapeo base→ruta **NO secuencial** (verificar serie siempre). Las ~35 rutas de `kdm_rutas` son
+definiciones de ruta, no camionetas físicas.
 
 **Notas de campo:** todas las bases de camioneta siguen `md_01-0NN` con serie local **`UD1001`** (una ruta por base). El agente correcto es la variante CSV (con filtros `d.c8 NOT IN ('00001','00002')` + no-vacíos). La tarea se instala **desde PowerShell ELEVADA** (`schtasks /Create` da "Acceso denegado" si no). El firewall de las laptops solo permite Postgres en `localhost` → el descubrimiento y el push corren en la propia laptop.
 
