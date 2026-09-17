@@ -94,10 +94,25 @@ interface Summary {
           }
 
           @if (selected(); as b) {
+            <div class="pres-detail-bar">
+              <span class="pres-summary-title">{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
+              <div class="pres-detail-actions">
+                @if (b.status === 'borrador' || b.status === 'en_revision') {
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openAddLine()"><span class="pi pi-plus"></span>&nbsp;Partida</button>
+                  <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
+                }
+                @if (b.status === 'pendiente') {
+                  <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'approve')" [loading]="savingLifecycle()">Aprobar</button>
+                }
+                @if (b.status === 'aprobado') {
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="lifecycle(b, 'close')" [loading]="savingLifecycle()">Cerrar</button>
+                }
+              </div>
+            </div>
+
             <!-- Answer-first: el resumen ejecutivo antes del grid (DESIGN §15) -->
             @if (summary(); as s) {
               <div class="pres-summary-head">
-                <span class="pres-summary-title">{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span></span>
                 @if (s.real.available && s.real.data_as_of) {
                   <app-freshness-pill measures="data" [since]="s.real.data_as_of" [staleAfterSec]="86400" />
                 } @else {
@@ -113,6 +128,7 @@ interface Summary {
                   <th>Partida</th><th>Tipo</th><th>Área</th>
                   <th class="ta-r">Vigente</th><th class="ta-r">Reservado</th><th class="ta-r">Comprometido</th>
                   <th class="ta-r">Ejercido</th><th class="ta-r">Disponible</th><th class="ta-r">Ocupación</th><th>Estado</th>
+                  <th style="width:3rem"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template #body let-l>
@@ -127,11 +143,14 @@ interface Summary {
                   <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
                   <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
                   <td><p-tag [value]="l.status" [severity]="l.status === 'activa' ? 'info' : 'secondary'" styleClass="pres-tag" /></td>
+                  <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="10" class="pres-empty">Este ejercicio no tiene partidas todavía.</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Este ejercicio no tiene partidas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Agrega la primera con «Partida». }</td></tr></ng-template>
             </p-table>
-            <p class="pres-hint"><span class="pi pi-info-circle"></span> Reservar, comprometer, ejercer y las adecuaciones se operan desde el detalle de cada partida (próxima entrega). Hoy esta vista es de lectura.</p>
+            @if (b.status !== 'aprobado') {
+              <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas se capturan en borrador. Los movimientos (reservar / comprometer / ejercer / pagar / adecuar) se habilitan cuando el ejercicio está <strong>aprobado</strong>.</p>
+            }
           }
         </section>
       }
@@ -209,6 +228,49 @@ interface Summary {
       <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNewBudget()" [loading]="savingBudget()">Crear</button></div>
     </p-dialog>
 
+    <!-- Nueva partida -->
+    <p-dialog [(visible)]="addLineVisible" [modal]="true" header="Nueva partida" [style]="{ width: '26rem' }">
+      <label class="pres-lbl">Concepto</label>
+      <input pInputText type="text" [(ngModel)]="lineForm.concept" class="pres-full" />
+      <label class="pres-lbl">Tipo</label>
+      <p-select [options]="lineTypeOpts" [(ngModel)]="lineForm.line_type" optionLabel="label" optionValue="value" placeholder="Tipo" styleClass="pres-full" />
+      <label class="pres-lbl">Área / centro de costo</label>
+      <input pInputText type="text" [(ngModel)]="lineForm.area" class="pres-full" />
+      <label class="pres-lbl">Importe autorizado (original)</label>
+      <input pInputText type="number" [(ngModel)]="lineForm.original_amount" class="pres-full" />
+      <label class="pres-lbl">Control</label>
+      <p-select [options]="controlOpts" [(ngModel)]="lineForm.control_level" optionLabel="label" optionValue="value" placeholder="Control" styleClass="pres-full" />
+      <p class="pres-lbl-hint">Bloqueo impide sobregiro; advertencia lo permite avisando; informativo no frena.</p>
+      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmAddLine()" [loading]="savingLine()">Agregar</button></div>
+    </p-dialog>
+
+    <!-- Movimiento de partida -->
+    <p-dialog [(visible)]="movVisible" [modal]="true" [header]="'Movimiento — ' + (movLine()?.concept || '')" [style]="{ width: '30rem' }">
+      @if (movLine(); as l) {
+        <div class="pres-mov-state">
+          <span>Vigente <b class="pres-mono">{{ money(l.vigente_amount) }}</b></span>
+          <span>Reservado <b class="pres-mono">{{ money(l.reserved_amount) }}</b></span>
+          <span>Comprometido <b class="pres-mono">{{ money(l.committed_amount) }}</b></span>
+          <span>Ejercido <b class="pres-mono">{{ money(l.exercised_amount) }}</b></span>
+          <span>Disponible <b class="pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</b></span>
+        </div>
+        <label class="pres-lbl">Acción</label>
+        <p-select [options]="movOpts" [(ngModel)]="movForm.action" optionLabel="label" optionValue="value" placeholder="Acción" styleClass="pres-full" />
+        <label class="pres-lbl">Importe</label>
+        <input pInputText type="number" [(ngModel)]="movForm.amount" class="pres-full" />
+        @if (movForm.action === 'comprometer') {
+          <label class="pres-check"><p-checkbox [(ngModel)]="movForm.fromReserva" [binary]="true" />Desde una reserva previa (convierte reserva → compromiso)</label>
+        }
+        @if (movForm.action === 'cancelar') {
+          <label class="pres-lbl">Cancelar de</label>
+          <p-select [options]="cancelTargetOpts" [(ngModel)]="movForm.target" optionLabel="label" optionValue="value" placeholder="Reserva o compromiso" styleClass="pres-full" />
+        }
+        <label class="pres-lbl">Nota (opcional)</label>
+        <input pInputText type="text" [(ngModel)]="movForm.note" class="pres-full" />
+        <div class="pres-dlg-actions"><button pButton type="button" (click)="applyMovement()" [loading]="savingMov()">Aplicar</button></div>
+      }
+    </p-dialog>
+
     <!-- Nuevo gasto (Fase TP) -->
     <p-dialog [(visible)]="newVisible" [modal]="true" header="Nuevo gasto autorizado" [style]="{ width: '28rem' }">
       <label class="pres-lbl">Concepto</label>
@@ -238,8 +300,13 @@ interface Summary {
     .pres-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.82rem; cursor:pointer; }
     .pres-chip.on { border-color:var(--action); box-shadow:0 0 0 1px var(--action); }
     .pres-chip-yr { color:var(--text-muted); }
-    .pres-summary-head { display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.6rem 0 .4rem; }
-    .pres-summary-title { font-size:.9rem; font-weight:600; }
+    .pres-summary-head { display:flex; justify-content:flex-end; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.6rem 0 .4rem; }
+    .pres-summary-title { font-size:.9rem; font-weight:600; display:inline-flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
+    .pres-detail-bar { display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.4rem 0 .2rem; }
+    .pres-detail-actions { display:flex; gap:.4rem; flex-wrap:wrap; }
+    .pres-mov-state { display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.78rem; color:var(--text-muted); padding:.5rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); margin-bottom:.6rem; }
+    .pres-mov-state b { color:var(--text-main); margin-left:.25rem; }
+    .pres-lbl-hint { font-size:.72rem; color:var(--text-faint); margin:.3rem 0 0; }
     .pres-nodata { font-size:.76rem; color:var(--warn-fg,#b45309); display:inline-flex; align-items:center; gap:.3rem; }
     .pres-cap-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     .pres-date { padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.85rem; }
@@ -292,6 +359,27 @@ export class FinanzasPresupuestoComponent implements OnInit {
   savingBudget = signal(false);
   budgetForm: { name?: string; fiscal_year?: number; scenario?: string } = {};
   scenarioOpts = [{ label: 'Base', value: 'base' }, { label: 'Conservador', value: 'conservador' }, { label: 'Expansión', value: 'expansion' }];
+  savingLifecycle = signal(false);
+
+  // ── Partidas / movimientos (PU.1) ──
+  addLineVisible = false;
+  savingLine = signal(false);
+  lineForm: { concept?: string; line_type?: string; area?: string; original_amount?: number; control_level?: string } = {};
+  lineTypeOpts = [
+    { label: 'Gasto', value: 'gasto' }, { label: 'Ingreso', value: 'ingreso' }, { label: 'Costo de ventas', value: 'costo_ventas' },
+    { label: 'Compra de inventario', value: 'compra_inventario' }, { label: 'Inversión', value: 'inversion' }, { label: 'Flujo', value: 'flujo' },
+  ];
+  controlOpts = [{ label: 'Bloqueo', value: 'bloqueo' }, { label: 'Advertencia', value: 'advertencia' }, { label: 'Informativo', value: 'informativo' }];
+
+  movVisible = false;
+  savingMov = signal(false);
+  movLine = signal<BudgetLine | null>(null);
+  movForm: { action?: string; amount?: number; fromReserva?: boolean; target?: string; note?: string } = {};
+  movOpts = [
+    { label: 'Reservar', value: 'reservar' }, { label: 'Comprometer', value: 'comprometer' }, { label: 'Ejercer', value: 'ejercer' },
+    { label: 'Pagar', value: 'pagar' }, { label: 'Cancelar', value: 'cancelar' }, { label: 'Ampliar (adecuación)', value: 'ampliar' }, { label: 'Reducir (adecuación)', value: 'reducir' },
+  ];
+  cancelTargetOpts = [{ label: 'Reserva', value: 'reserva' }, { label: 'Compromiso', value: 'compromiso' }];
 
   // ── Capacidad (TP) ──
   capDate = new Date().toISOString().slice(0, 10);
@@ -351,6 +439,49 @@ export class FinanzasPresupuestoComponent implements OnInit {
       error: (e) => { this.savingBudget.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo crear.' }); },
     });
   }
+
+  lifecycle(b: BudgetHeader, action: 'submit' | 'approve' | 'close'): void {
+    this.savingLifecycle.set(true);
+    this.http.post<BudgetHeader>(`${this.base}/budgets/${b.id}/${action}`, {}).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingLifecycle.set(false); this.loadBudgets(); this.reloadDetail(); this.toast.add({ severity: 'success', summary: 'Listo', detail: action === 'approve' ? 'Ejercicio aprobado / vigente.' : action === 'submit' ? 'Enviado a autorización.' : 'Ejercicio cerrado.' }); },
+      error: (e) => { this.savingLifecycle.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo', detail: e?.error?.message || 'Acción rechazada.' }); },
+    });
+  }
+
+  openAddLine(): void { this.lineForm = { line_type: 'gasto', control_level: 'bloqueo' }; this.addLineVisible = true; }
+  confirmAddLine(): void {
+    const b = this.selected(); if (!b) return;
+    if (!this.lineForm.concept?.trim() || !(Number(this.lineForm.original_amount) >= 0)) {
+      this.toast.add({ severity: 'warn', summary: 'Faltan datos', detail: 'Concepto e importe son requeridos.' }); return;
+    }
+    this.savingLine.set(true);
+    this.http.post(`${this.base}/budgets/${b.id}/lines`, this.lineForm).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingLine.set(false); this.addLineVisible = false; this.reloadDetail(); this.toast.add({ severity: 'success', summary: 'Agregada', detail: 'Partida creada.' }); },
+      error: (e) => { this.savingLine.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo agregar.' }); },
+    });
+  }
+
+  openMovement(l: BudgetLine): void { this.movLine.set(l); this.movForm = { action: 'reservar' }; this.movVisible = true; }
+  applyMovement(): void {
+    const l = this.movLine(); const action = this.movForm.action;
+    if (!l || !action) return;
+    if (!(Number(this.movForm.amount) > 0)) { this.toast.add({ severity: 'warn', summary: 'Importe', detail: 'Captura un importe > 0.' }); return; }
+    if (action === 'cancelar' && !this.movForm.target) { this.toast.add({ severity: 'warn', summary: 'Falta destino', detail: 'Elige reserva o compromiso.' }); return; }
+    const body: Record<string, unknown> = { amount: Number(this.movForm.amount), note: this.movForm.note || undefined };
+    if (action === 'comprometer') body['fromReserva'] = !!this.movForm.fromReserva;
+    if (action === 'cancelar') body['target'] = this.movForm.target;
+    this.savingMov.set(true);
+    this.http.post<{ warning?: string | null }>(`${this.base}/lines/${l.id}/${action}`, body).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (res) => {
+        this.savingMov.set(false); this.movVisible = false; this.reloadDetail();
+        if (res?.warning) this.toast.add({ severity: 'warn', summary: 'Aplicado con aviso', detail: res.warning });
+        else this.toast.add({ severity: 'success', summary: 'Aplicado', detail: 'Movimiento registrado.' });
+      },
+      error: (e) => { this.savingMov.set(false); this.toast.add({ severity: 'error', summary: 'Rechazado', detail: e?.error?.message || 'No se pudo aplicar.' }); },
+    });
+  }
+
+  private reloadDetail(): void { const b = this.selected(); if (b) this.selectBudget(b); }
 
   /** Resumen ejecutivo → KPI strip. «Sin datos» del real se DECLARA (texto), no se dibuja 0. */
   kpiItems(s: Summary): MetricStripItem[] {

@@ -178,9 +178,15 @@ importers.
   `FreshnessPill` del real + tabla de **partidas** (ledger de 5 estados) con `p-table`+`surf-table`. Diálogo
   «Nuevo ejercicio». **Cumple:** tokens (cero hex nuevo salvo fallbacks), Geist mono `tabular-nums`, `p-tag`
   severities, iconos `pi` (no emojis), **«sin datos»≠cero** (real del ODS no disponible → texto "sin datos"/"sin
-  base", nunca 0). `check:templates` ✅ 316 · **`nx build view` ✅** (1m44s) · lint 0. **Pendiente:** validación
-  visual (light/dark/móvil — dev servers de Edgar); UIs de acciones del ledger (reservar/comprometer/ejercer/
-  adecuar), flujo (PU.3), planeación (PU.4) y campañas (PU.5); verificación HTTP de los servicios.
+  base", nunca 0). `check:templates` ✅ 316 · **`nx build view` ✅** · lint 0.
+  **2o slice ✅ — acciones del ledger operables:** ciclo de vida del ejercicio (Enviar a autorización / Aprobar /
+  Cerrar, con la no-autoaprobación validada en backend → toast), **Agregar partida** (en borrador/revisión), y el
+  **diálogo Movimiento** por partida (aprobado + activa): reservar / comprometer (con «desde reserva») / ejercer /
+  pagar / cancelar (reserva|compromiso) / ampliar / reducir, mostrando el estado de 5 buckets. Botones que mutan se
+  auto-deshabilitan (`[loading]` síncrono, DESIGN §13); el `warning` de sobregiro (control advertencia/informativo)
+  se muestra como toast (agentic §18). `check:templates` ✅ · **`nx build view` ✅** (2m28s) · lint 0.
+  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); UIs de flujo (PU.3), planeación/copia/
+  import (PU.4) y campañas (PU.5); verificación HTTP de los servicios.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
