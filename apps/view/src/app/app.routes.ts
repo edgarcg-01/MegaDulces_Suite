@@ -313,6 +313,8 @@ export const routes: Routes = [
         canActivate: [finanzasHomeGuard],
         loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
       },
+      // Compat: Presupuesto se movió a su módulo propio /presupuesto (Fase PU). El viejo enlace redirige.
+      { path: 'presupuesto', redirectTo: '/presupuesto', pathMatch: 'full' },
       {
         path: 'egresos',
         loadComponent: () => import('./modules/comercial/pages/comercial-egresos.component').then(m => m.ComercialEgresosComponent),
@@ -417,6 +419,22 @@ export const routes: Routes = [
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+    ]
+  },
+  // ── Proyecto Presupuestos (Fase PU / ADR-066) ───────────────────────
+  // Módulo propio, FUERA de Finanzas (decisión usuario 2026-09-17): planeación
+  // y control de recursos. Una pantalla con sub-vistas internas (Segmented).
+  // ⚠️ La ruta faltaba: el componente/tab/authz-tree existían pero nadie la registró.
+  {
+    path: 'presupuesto',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-presupuesto.component').then(m => m.FinanzasPresupuestoComponent),
       },
     ]
   },

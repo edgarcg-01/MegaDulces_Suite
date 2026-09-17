@@ -55,12 +55,7 @@ export const FINANZAS_TABS: PageTab[] = [
     icon: 'pi pi-calendar',
     permission: Permission.FINANCE_PAYMENTS_VER,
   },
-  {
-    label: 'Presupuesto',
-    route: '/finanzas/presupuesto',
-    icon: 'pi pi-chart-pie',
-    permission: Permission.PRESUPUESTOS_VER,
-  },
+  // Presupuesto se movió a su MÓDULO propio (`/presupuesto`, Fase PU) — ya no es tab de Finanzas.
   {
     label: 'Hallazgos',
     route: '/finanzas/hallazgos',
