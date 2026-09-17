@@ -2379,6 +2379,42 @@ export class UsersService {
    * medio desplegar), esa bandeja se DECLARA en `no_medido` con su motivo y las demás siguen
    * contando. Nunca baja a cero — un cero dibujado se lee igual que "estás al día" (ADR-056).
    */
+  /**
+   * `[JZ.5]` — **Sólo el bloque de zona, para el refresco en vivo.**
+   *
+   * Mismo cuerpo que la rama de zona de `workFor`, sin las otras trece mediciones: el ticket que
+   * lo dispara no puede mover una bandeja ni un ciclo. Devuelve `medido_at` porque la pantalla
+   * necesita poder decir de cuándo es el número que está mostrando.
+   *
+   * ⛔ `responsabilidadesDe` se vuelve a preguntar y NO se cachea: el reparto puede cambiar entre
+   * dos refrescos, y `[SN.30]` hace que de eso dependa si el bloque se muestra o no. Es una
+   * consulta contra dos tablas chicas.
+   */
+  async zonaFor(
+    userId: string,
+    permisos: Record<string, boolean> | null | undefined,
+    esAdmin: boolean,
+    periodo: MeZonaPeriodo = 'mes',
+  ): Promise<{ zona: MeWork['zona']; motivo: string | null; medido_at: string }> {
+    const misResponsabilidades = await this.responsabilidadesDe(userId);
+    try {
+      const r = await medirZona(
+        this.knex,
+        { tenantId: this.tenantId, userId, responsabilidades: misResponsabilidades, permisos, esAdmin },
+        periodo,
+      );
+      return { zona: r.zona, motivo: r.motivo, medido_at: new Date().toISOString() };
+    } catch (e) {
+      // Se DECLARA igual que en `workFor`: el refresco que falla no puede dejar en pantalla un
+      // número viejo haciéndose pasar por nuevo.
+      return {
+        zona: null,
+        motivo: `No se pudo medir la venta de tu zona: ${(e as Error).message}`,
+        medido_at: new Date().toISOString(),
+      };
+    }
+  }
+
   async workFor(
     userId: string,
     permisos: Record<string, boolean> | null | undefined,

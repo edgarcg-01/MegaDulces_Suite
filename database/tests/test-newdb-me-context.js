@@ -603,6 +603,51 @@ const tieneDecoradorPermisos = (tramo) =>
     /incluye_dia_en_curso: false/.test(srcVer) && /incluye_dia_en_curso: true/.test(srcVer));
 
   /*
+   * ── `[JZ.5]` El WS de tienda REFRESCA el bloque; no es su fuente ──────────────────────────────
+   *
+   * ⛔ Medido contra prod antes de elegir: el stream de `/tienda/live` cubre las 8 tiendas al
+   * minuto y **cero rutas** (`RUTA%` no existe en `store_live_tickets`, nunca), y sus totales NO
+   * son los del fact — hoy la sucursal `01` da 124.9 % y la `06` un **49.7 %**, porque el stream
+   * es de MOSTRADOR y la `06` también vende crédito y mayoreo. Tomar el total del stream habría
+   * publicado una cifra que no es ni el mostrador ni la venta. Por eso el ticket sólo dice
+   * «volvé a preguntar» y el número sigue saliendo de `analytics.sales_daily`.
+   */
+  check('⛔ el refresco en vivo tiene endpoint PROPIO (me/work cuesta 14 mediciones)',
+    /@Get\('me\/work\/zona'\)/.test(srcCtrl) && /zonaFor\(/.test(srcCtrl));
+  /*
+   * La misma trampa que `me/scope`: si `me/work/zona` cayera DEBAJO de `@Get(':id')`, la ruta
+   * genérica se lo tragaría y el refresco devolvería un 404 o el usuario «zona».
+   */
+  /*
+   * ⚠️ El decorador se busca **como decorador**: anclado al principio de la línea y con su
+   * indentación. La primera versión usaba `indexOf("@Get(':id')")` y encontró **el comentario de
+   * arriba**, que cita esa ruta en prosa para explicar por qué el orden importa — reportó que el
+   * endpoint estaba después de `:id` cuando está 130 líneas antes. Es la misma trampa que la
+   * cabecera de este archivo ya documentaba para `@RequirePermissions`, y volvió a cobrar.
+   */
+  const lineaDe = (re) => srcCtrl.split('\n').findIndex((l) => re.test(l));
+  const lZona = lineaDe(/^\s*@Get\('me\/work\/zona'\)/);
+  const lId = lineaDe(/^\s*@Get\(':id'\)/);
+  check("⛔ y está declarado ANTES de @Get(':id'), que si no se lo traga",
+    lZona >= 0 && lId >= 0 && lZona < lId, { zona: lZona + 1, id: lId + 1 });
+
+  const srcMt = fs.readFileSync(
+    path.resolve(__dirname, '../../apps/view/src/app/modules/mi-trabajo/mi-trabajo.component.ts'),
+    'utf8');
+  check('⛔ el ticket sólo DISPARA: el monto no sale del stream',
+    /workZona\(this\.periodoZona\(\)\)/.test(srcMt) && !/ticket\.total/.test(srcMt));
+  /*
+   * ⛔ El filtro por sucursal NO es una optimización. Quien no tiene `warehouse_code` en su ficha
+   * entra al room del TENANT COMPLETO (`StoreGateway.handleConnection`) y recibe los tickets de
+   * las 8 sucursales — 2 de los 3 jefes de zona están en ese caso. Sin filtrar, la venta de Zamora
+   * refrescaría la portada de Morelia.
+   */
+  check('⛔ y sólo escucha las sucursales de SU zona',
+    /sucursalesDeMiZona\(\)\.has\(/.test(srcMt));
+  check('el refresco tiene techo (throttle), no dispara por cada ticket',
+    /throttleTime\(/.test(srcMt));
+
+  /*
    * Las dos claves tienen que existir en el catálogo, y su migración tiene que repartirlas: una
    * clave declarada y no repartida es un bloque que no ve NADIE — el defecto exacto de `[LC.6.2]`
    * («un módulo no está entregado hasta que su permiso está repartido, no sólo declarado»).

@@ -1,7 +1,7 @@
 import { HttpClient } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable, shareReplay } from 'rxjs';
-import type { MeContext, MeWork, MeZonaPeriodo } from '@megadulces/contracts';
+import type { MeContext, MeWork, MeWorkZona, MeZonaPeriodo } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 import { AuthService } from './auth.service';
 
@@ -53,6 +53,19 @@ export class MeContextService {
      */
     const q = periodoZona ? `?periodo=${periodoZona}` : '';
     return this.http.get<MeWork>(`${environment.apiUrl}/users/me/work${q}`);
+  }
+
+  /**
+   * `[JZ.5]` — Sólo el bloque de zona. Es lo que se vuelve a pedir cuando el WebSocket de tienda
+   * avisa que entró un ticket de una sucursal de esta zona.
+   *
+   * ⛔ Endpoint aparte a propósito: `me/work` cuesta 14 mediciones y el ticket sólo puede mover
+   * una. Pagar el reporte completo por cada ticket sería gastar trece consultas para nada.
+   */
+  workZona(periodoZona: MeZonaPeriodo): Observable<MeWorkZona> {
+    return this.http.get<MeWorkZona>(
+      `${environment.apiUrl}/users/me/work/zona?periodo=${periodoZona}`,
+    );
   }
 
   reset(): void {

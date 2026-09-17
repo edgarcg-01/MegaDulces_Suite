@@ -319,6 +319,35 @@ export class UsersController {
     );
   }
 
+  /**
+   * `[JZ.5]` — **Sólo el bloque de zona.** Es lo que refresca el WebSocket de tienda.
+   *
+   * ── Por qué no se reusa `me/work` ───────────────────────────────────────────────────────────
+   * Porque cuesta 14 mediciones (6 bandejas + 4 fuentes de tarea + 4 ciclos) y el ticket que
+   * dispara el refresco sólo puede mover UNA: la venta de la zona. Recalcular las otras trece por
+   * cada ticket sería pagar el reporte completo para actualizar un número — y en una zona de tres
+   * sucursales llega un ticket cada ~45 s (medido: 18,958 tickets en 30 días sólo en la 01).
+   *
+   * ⛔ Va ANTES de `@Get(':id')`, por lo mismo que `me/work`, `me/scope` y `me/context`: la ruta
+   * genérica se lo tragaría. El bloque 3 del smoke lo vigila.
+   *
+   * Mismo criterio de permisos que `me/work`: self-scoped, sin `@RequirePermissions`, y cada canal
+   * declara adentro el permiso que abre SU pantalla.
+   */
+  @Get('me/work/zona')
+  @ApiQuery({ name: 'periodo', required: false, enum: ['dia', 'semana', 'mes'] })
+  @ApiOperation({ summary: 'Sólo «Cómo va tu zona» — refresco barato para el vivo del WS de tienda' })
+  myWorkZona(@ReqUser() user: AuthUser, @Query('periodo') periodo?: string) {
+    const p: MeZonaPeriodo =
+      periodo === 'dia' || periodo === 'semana' || periodo === 'mes' ? periodo : 'mes';
+    return this.usersService.zonaFor(
+      user.sub,
+      user.permissions,
+      isPlatformAdminRole(user.role_name),
+      p,
+    );
+  }
+
   /** `[ID.2]` — Alcance de OTRO usuario, para el panel "Acceso efectivo" del admin. */
   @Get(':id/scope')
   @RequirePermissions(Permission.USUARIOS_VER)

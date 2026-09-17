@@ -11,6 +11,8 @@ import {
   viewChild,
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { filter, throttleTime } from 'rxjs/operators';
+import { asyncScheduler } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import type {
@@ -27,6 +29,7 @@ import type {
 import { AuthService } from '../../core/services/auth.service';
 import { PermissionsService } from '../../core/services/permissions.service';
 import { MeContextService } from '../../core/services/me-context.service';
+import { StoreSocketService } from '../tienda/store-socket.service';
 import { UsoService } from '../../core/services/uso.service';
 import { DataScopeService, type MyScope, type ScopeDim } from '../../core/services/data-scope.service';
 import {
@@ -229,6 +232,15 @@ export class MiTrabajoComponent {
   private readonly uso = inject(UsoService);
   private readonly scope = inject(DataScopeService);
   private readonly destroyRef = inject(DestroyRef);
+  /*
+   * `[JZ.5]` ⚠️ **Deuda con nombre, no acoplamiento de módulo.** `StoreSocketService` es
+   * `providedIn: 'root'` —un singleton de la app por declaración— pero vive físicamente en
+   * `modules/tienda/`, y hasta hoy todos sus consumidores estaban ahí adentro. Su casa correcta es
+   * `core/services/`; mudarlo toca 8 archivos que otras sesiones están editando, así que se
+   * importa desde acá y queda dicho. Lo que NO se hace es abrir un segundo socket: sería una
+   * conexión de más por persona para escuchar exactamente los mismos eventos.
+   */
+  private readonly storeSocket = inject(StoreSocketService);
 
   private readonly cajaBusqueda = viewChild<ElementRef<HTMLInputElement>>('buscador');
 
@@ -717,6 +729,7 @@ export class MiTrabajoComponent {
   constructor() {
     this.cargarContexto();
     this.cargarTrabajo();
+    this.escucharVentaEnVivo();
     this.scope
       .mine()
       .pipe(takeUntilDestroyed(this.destroyRef))
@@ -1030,6 +1043,130 @@ export class MiTrabajoComponent {
     this.periodoZona.set(p);
     this.cargarTrabajo();
   }
+
+  /**
+   * `[JZ.5]` — **El WebSocket de tienda mantiene vivo el bloque de zona.**
+   *
+   * Edgar: *«tienda/live usa un websocket para mostrar los resultados, también deberíamos
+   * aprovecharlo»*. Se aprovecha como **disparador**, no como fuente, y esa distinción la decidió
+   * la medición contra prod:
+   *
+   *   · el stream cubre las 8 tiendas al minuto (MD-30 incluida) y **cero rutas** — `RUTA%` no
+   *     existe en `analytics.store_live_tickets`, nunca;
+   *   · y sus totales **no son** los del fact: hoy la sucursal `01` da 124.9 % del fact y la `06`
+   *     un **49.7 %**, porque el stream es de MOSTRADOR y el `06` también vende crédito y mayoreo.
+   *
+   * Tomar el total del stream habría publicado una cifra que no es ni el mostrador ni la venta.
+   * Así que el ticket sólo dice **«volvé a preguntar»**, y el número sigue saliendo de
+   * `analytics.sales_daily`: una sola verdad.
+   *
+   * ⛔ **Sólo se conecta quien TIENE el bloque.** Son 3 personas de 122; abrir un socket para las
+   * otras 119 sería una conexión por sesión para escuchar algo que no van a mostrar.
+   *
+   * ⚠️ **El filtro por sucursal de la zona es obligatorio, no una optimización.** Quien no tiene
+   * `warehouse_code` en su ficha entra al room del tenant COMPLETO (`StoreGateway.handleConnection`)
+   * y recibe los tickets de las 8 sucursales — dos de los tres jefes están en ese caso. Sin
+   * filtrar, la venta de Zamora refrescaría la portada de Morelia.
+   *
+   * ⚠️ **El operador es `throttleTime` con `leading` Y `trailing`, y los tres se eligieron con
+   * motivo.** `debounceTime` es el error obvio: con un ticket cada ~45 s en una zona de tres
+   * sucursales, una espera de 20 s vence casi siempre y dispara igual por cada ticket — no acota
+   * nada. `auditTime` sí acota, pero **retrasa la PRIMERA emisión la ventana entera**: tras un
+   * rato quieto, la primera venta tardaría 20 s en verse. `throttleTime(…, leading, trailing)`
+   * junta las dos mitades: el primer ticket refresca en el acto y el techo queda en un refresco
+   * cada 20 s pase lo que pase.
+   */
+  private escucharVentaEnVivo(): void {
+    this.storeSocket.ticket$
+      .pipe(
+        filter((t) => this.sucursalesDeMiZona().has(String(t.warehouse_code).trim())),
+        throttleTime(20_000, asyncScheduler, { leading: true, trailing: true }),
+        takeUntilDestroyed(this.destroyRef),
+      )
+      .subscribe(() => this.refrescarZona());
+
+    /*
+     * Conectar/desconectar sigue al bloque, no al montaje: el reparto puede llegar en la respuesta
+     * de `me/work`, que es posterior al constructor. El `effect` también cierra el socket si la
+     * persona deja de tener el bloque (le quitaron la responsabilidad entre dos cargas).
+     */
+    effect(() => {
+      if (this.sucursalesDeMiZona().size > 0) this.storeSocket.connect();
+      else this.storeSocket.disconnect();
+    });
+    this.destroyRef.onDestroy(() => this.storeSocket.disconnect());
+  }
+
+  /**
+   * Los códigos de sucursal del bloque de TIENDAS de esta zona. Vacío = no hay nada que escuchar.
+   *
+   * ⛔ Sólo `tienda`: el stream no trae una sola ruta, así que incluirlas acá prometería un vivo
+   * que no existe. Lo que las rutas tienen es el refresco manual y la recarga de la pantalla.
+   */
+  private readonly sucursalesDeMiZona = computed<ReadonlySet<string>>(() => {
+    const z = this.zonaCruda();
+    if (!z) return new Set();
+    const tiendas = z.bloques.find((b) => b.grupo === 'tienda');
+    return new Set((tiendas?.canales ?? []).map((c) => c.id));
+  });
+
+  /** La zona SIN el filtro del buscador: para escuchar el socket no importa qué esté buscando. */
+  private readonly zonaCruda = computed<MeZona | null>(() => {
+    const t = this.trabajo();
+    return t.status === 'ok' ? t.data.zona ?? null : null;
+  });
+
+  /**
+   * `[JZ.5]` Vuelve a pedir **sólo** la zona y la parcha dentro de `trabajo()`, para que
+   * `zona()` —y su filtro de búsqueda— sigan saliendo de una sola fuente.
+   *
+   * ⛔ Si falla, el bloque se va: dejar el número viejo en pantalla después de un refresco fallido
+   * es peor que no tenerlo, porque nadie puede saber que quedó viejo (ADR-056).
+   */
+  private refrescarZona(): void {
+    this.meCtx
+      .workZona(this.periodoZona())
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r) => {
+          const t = this.trabajo();
+          if (t.status !== 'ok') return;
+          this.trabajo.set({ status: 'ok', data: { ...t.data, zona: r.zona } });
+          this.zonaMedidaAt.set(r.medido_at);
+        },
+        error: () => {
+          /* Un refresco fallido no toca lo que hay: el número sigue siendo el de la última carga
+             buena, y `zonaMedidaAt` sigue diciendo de cuándo es. Vaciar la pantalla por una falla
+             transitoria del socket sería peor que mostrar un número con su hora. */
+        },
+      });
+  }
+
+  /** `[JZ.5]` De cuándo es el número de la zona. `null` = el de la carga inicial. */
+  readonly zonaMedidaAt = signal<string | null>(null);
+
+  /**
+   * `[JZ.5]` ¿El socket está conectado Y hay sucursales que escuchar?
+   *
+   * ⛔ Las dos condiciones, no una. `connected` solo diría «en vivo» durante los segundos en que
+   * el socket sigue abierto después de que la persona perdió el bloque; y `size > 0` solo lo diría
+   * con el socket caído. La etiqueta afirma que el número se está actualizando, así que tiene que
+   * ser cierto de las dos puntas.
+   */
+  readonly vivo = computed(
+    () => this.storeSocket.connected() && this.sucursalesDeMiZona().size > 0,
+  );
+
+  /** Qué cubre exactamente ese «en vivo», dicho en el tooltip y no dejado a la imaginación. */
+  readonly tituloVivo = computed(() => {
+    const at = this.zonaMedidaAt();
+    const base =
+      'Se vuelve a medir cuando entra un ticket de tus tiendas. La cifra sale de la venta ' +
+      'consolidada, no del ticket. Las rutas no tienen vivo: su fuente no publica tickets.';
+    if (!at) return base;
+    const h = new Date(at).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+    return `Medido a las ${h}. ${base}`;
+  });
 
   cargarTrabajo(): void {
     this.trabajo.set({ status: 'loading' });
