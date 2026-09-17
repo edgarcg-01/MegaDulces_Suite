@@ -175,6 +175,46 @@ formulario de 700 líneas dentro de un drawer y el puesto como un `select` más.
       y después. Identificación por nombre completo con orden indiferente: **score mínimo 0.67,
       segundo candidato máximo 0.50**, y aborta si el margen baja de 0.15. Entre ellas, el **Jefe de
       Finanzas figuraba como `auxiliar_finanzas`**. Batch 431 · commit `335aadb0` · 2026-09-15
+- [x] **[AU.27]** ✅ **«REPARTIDOR PRUEBA» estaba activa en producción.** Se dio de baja tras medir
+      que no deja nada atrás (0 pedidos, 0 reglas de alcance). Las otras 5 cuentas-no-persona **no
+      se tocan**, cada una con su motivo. Y se corrigió un motivo escrito que **contradecía las dos
+      fuentes**: el baseline decía que Alejo y Rodríguez conservan `superadmin` «porque siguen
+      siendo Sistemas», cuando el evento real dice *«le quitaría accesos que necesita por su área»*
+      y MDTask pone a Alejo como Jefe Zona Morelia. ⭐ Corrige además un reporte mío: **no hay
+      asimetría sin explicar** entre los 3 jefes de zona; los 3 tienen desvío declarado con el mismo
+      motivo. Batch 432 · commits `c4c2753b` + `b07cb8a3` · 2026-09-15
+- [x] **[AU.28]** ✅ **No había forma de cambiarle la contraseña a nadie en toda la suite.** El campo
+      vivía tras un `@if (!persona)` —sólo en el alta— y `dashboard/admin-users` ya no tiene ruta.
+      Al medirlo aparecieron 3 huecos más del servidor: ⛔ **`USUARIOS_PASSWORDS` era un permiso
+      MUERTO** (declarado en 4 lugares, exigido en ninguno; encenderlo **no le quita acceso a
+      nadie**: vive en los mismos 2 roles que `USUARIOS_GESTIONAR`), el reset no escribía
+      `password_changed_at`, y no ponía `must_change_password` —dejando lo único que `[CH.1.10]` no
+      admite en ningún otro camino—. Commit `06d3a1b4` · 2026-09-15
+- [x] **[AU.29]** ✅ Los tres jefes de zona con **el mismo perfil** (decisión de Edgar). Ivette Cruz
+      `encargado_tienda` → `superadmin`; gana 103 permisos. Los 2 que «pierde» no se pierden:
+      `RolesGuard` resuelve los roles de plataforma **por nombre antes de mirar el mapa**. ⚠️ Y
+      `ScopeService` devuelve `all` para un rol de plataforma, así que su override de almacenes
+      **queda inerte** — no se borra (es decisión de otro y el estado al que vuelve), se declara.
+      Batch 433 · commit `5873b4d2` · 2026-09-15
+- [x] **[AU.30]** ✅ **«Carmen Rodriguez» y «María del Carmen Rodríguez Vera» eran una sola**
+      (confirmado por Edgar). ⭐ El criterio de `[ID.36]` (huella operativa) **no desempata**: medido
+      contra las **98 tablas con FK a `identity.users`**, las dos dan cero. Desempata cuál credencial
+      conoce la persona. El nombre se corrige al verificado contra `analytics.pos_cashiers`, fuente
+      **independiente del padrón**. ⚠️ Su puesto queda **declarado sin confirmar**. Batch 437 ·
+      commit `a92d9a57` · 2026-09-15
+- [x] **[AU.31]** ✅ **La ficha trataba a toda cuenta como si fuera una persona.** Reportado por
+      Edgar sobre `etiquetas.32`. (1) exigir puesto siempre dejaba **16 cuentas sin poder
+      guardarse**; (2) ⛔ el peor, que nadie había reportado: `esDispositivo()` miraba
+      `token_ttl_days` y **las 18 cuentas `kind='dispositivo'` lo tienen NULL** — guardar ahí habría
+      puesto `must_change_password` y **dejado las 8 etiqueteras afuera**. Commit `2a4736c3` ·
+      2026-09-17
+- [x] **[AU.32]** ✅ **El reset de contraseña, por la ruta — no por regex.** Edgar: *«hay que revisar
+      más a profundidad el trabajo que generas»*. ⛔ La causa: los candados de `[AU.28]`/`[AU.31]`
+      eran `regex.test(leer('archivo.ts'))`, que **se pone verde con lógica falsa** — y se puso. La
+      regla ya existía en el repo (**ADR-044**, citada en `libs/commercial/jest.config.ts`).
+      `http-admin-password-test.js` ejerce `PUT /users/:id` de verdad: **8 ok / 0 / 1 declarado**.
+      ⭐ El declarado es el hallazgo: `platform_test` **no admite el kind `dispositivo`**, o sea que
+      **contra dev este test no habría atrapado el bug**. Commit `67096a81` · 2026-09-17
 - [x] **[AU.26]** ✅ Los candados vecinos, puestos al día **con motivo, no bajando la vara**:
       `organigrama` (el diccionario `SIN_JEFE_ACEPTADOS` tenía 9 excusas y **`[AU.23]` las cerró** —
       casi todas eran *«su ancla no existe en el catálogo»*; queda `direccion`, que es la raíz) y

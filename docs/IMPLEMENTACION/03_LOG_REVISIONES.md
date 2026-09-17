@@ -83,6 +83,42 @@ Más: el arreglo propuesto omitía `m.doc_code` del select, y sin él `clasifica
 El mismo patrón apareció solo en `[DB-MEM.11]`: dos tipos de documento etiquetados «Venta» (`Sale1` y `WIN_V`) que `ORDER BY movement_label` puede voltear entre corridas. **Un `ORDER BY` ambiguo no es un detalle de presentación: es lo que hace imposible demostrar que una optimización no cambió nada.**
 
 ---
+## 2026-09-17 — `[AU.32]`: «hay que revisar más a profundidad el trabajo que generas»
+
+**Disparador:** Edgar, después de que en **dos de las tres entregas** del día anterior el defecto lo encontrara él abriendo la pantalla y no el smoke.
+
+### La causa, nombrada
+
+Todo lo que verificaba `[AU.28]` y `[AU.31]` eran **expresiones regulares sobre el código fuente**: *«el archivo contiene `assertCanChangePassword`»*, *«el archivo contiene `kind === 'dispositivo'`»*. Un candado así **se pone verde con lógica falsa**, y se puso: la primera versión de `esDispositivo()` miraba `token_ttl_days`, pasó el smoke, y habría dejado las 8 etiqueteras afuera.
+
+⛔ **Y la regla ya estaba escrita en el repo.** `libs/commercial/jest.config.ts` la cita: **ADR-044, «los servicios que tocan Postgres se prueban por HTTP»**, puesta después de que *un smoke que reimplementaba la lógica diera 17/17 con la ruta caída*. Los bloques de esta fase eran peores que reimplementar: ni siquiera ejecutaban.
+
+### Lo que se hizo
+
+`database/tests/http-admin-password-test.js`, **corrido de verdad** contra la API levantada (`dist/apps/api/main.js` en el 3334, que estaba libre; se bajó al terminar). Ejerce `PUT /users/:id`: el hash cambia · a una persona le queda `must_change_password = true` · a un dispositivo en `false` aunque el TTL sea NULL · `password_changed_at` se mueve · sin `USUARIOS_PASSWORDS` responde **403**, con **control positivo** de que ese mismo token sí puede editar otro campo. **8 ok / 0 fallos / 1 declarado.**
+
+### ⭐ El hallazgo que sólo aparece al ejercerlo
+
+**`platform_test` tiene el CHECK `users_kind_valido` SIN el kind `dispositivo`** (una de sus 66 migraciones pendientes). O sea: **aunque este test HTTP hubiera existido desde el principio, contra dev no habría atrapado el bug**. Se declara `NO MEDIDO`, no se falla (un rojo permanente enseña a ignorar el tablero) ni se saltea (lo daría por cubierto).
+
+### La razón estructural, para que no se repita
+
+**`libs/trade` no tiene target `test` ni un solo `.spec.ts`** sobre las 2,400 líneas de `users.service.ts`. Por eso todo se verificaba con grep: no había dónde poner una prueba. Las 5 libs que sí lo tienen (`commercial`, `contracts`, `reconciliation`, `shared-scoring`, `ui-web`) lo estrenaron una por una.
+
+### Auditoría de lo del día anterior
+
+Contra prod: 1 raíz · ningún puesto reportando a uno de baja · ninguna ficha apuntando a un puesto de baja · 0 internos sin puesto · toda baja con `status='terminated'` · los 3 jefes de zona con un solo perfil · ninguna ficha con rol inexistente. **Sin efectos colaterales.** Y la ficha evaluada contra **una fila real de cada `kind`**: las 4 guardan, 0 de 120 bloqueadas.
+
+### Dos errores de verificación propios, en la misma sesión
+
+1. Se dijo «sintaxis OK» sobre un `run-all-tests.js` **que no compilaba**: un `&&` encadenado a un `||` cuyo resultado se leyó mal. **Leer el exit code de cada comando por separado.**
+2. **Séptima vez** con backticks dentro de un template literal (`Cannot find name 'AU'`).
+
+### Abierto
+
+El alta **no puede crear un dispositivo** (`esPersona()` es `true` en un alta, así que exige puesto) — sin resolver a propósito, hay que saber si las etiqueteras se dan de alta desde ahí.
+
+---
 ## 2026-09-15 — `[AU.23]`–`[AU.26]`: el organigrama pasa a ser el de MDTask, y el cruce destapa un `superadmin`
 
 **Disparador:** Edgar pega el organigrama que MDTask mantiene en su propio código (89 puestos, 189 personas de la nómina de agosto) y decide: *«la verdad absoluta es mdtask. generemos el organigrama bajo esa jerarquia»*.
