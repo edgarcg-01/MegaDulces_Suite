@@ -146,8 +146,20 @@ importers.
   `test-newdb-budget-cashflow.js` **7/7** (baseline+delta aisló $1.19M de ambiente del seed TP). Lint 0 errores.
   **Pendiente:** UI + verificación HTTP (ADR-044). **Declarado, no construido:** abastecimiento/desembolsos
   de Compras-RA e inventario proyectado (spec §3); anticipos/devoluciones (§8.3) más allá del pendiente.
-- [ ] **[PU.4]** ⬜ Escenarios/versiones/import CSV·XLSX + Marketing (campañas + atribución explícita) +
-  «Tu trabajo».
+- [~] **[PU.4]** 🔨 Planeación avanzada. **Backend ✅ y verificado (DB-direct):** `BudgetPlanningService` +
+  mig `20260917150000` (`budgets.scenario` base/conservador/expansion + `copied_from_id` linaje).
+  **Copiar ejercicio** (§5.2) sin arrastrar autorizaciones: copia nace 'borrador', `vigente = original`
+  (no el ajustado), buckets en cero. **Comparar versiones** línea a línea (por concepto/área/tipo/periodo).
+  **Import** partidas con **preview** (impacto antes de aplicar) + **apply idempotente** por clave natural
+  (§14 #2: reimportar NO duplica; solo en borrador/revisión). **Proyección de cierre** (§14 #19) computada
+  (firme = ejercido+comprometido, plena = vigente) que **NO altera lo autorizado**. Endpoints
+  `/copy` `/compare` `/import/preview` `/import/apply` `/projection`. Smoke `test-newdb-budget-planning.js`
+  **12/12**. Lint 0 errores.
+  **Declarado, NO construido (deuda con nombre):** (a) **Marketing** — catálogo de campañas + evaluación con
+  atribución explícita (spec §9/§14 #12): es un sub-módulo propio, no se improvisó; (b) **«Tu trabajo»/alertas/
+  hallazgos** (spec §11): debe **reusar** la bandeja existente (SN/OR + `finance.findings`), NO crear cola
+  paralela; (c) parsing de archivo CSV/XLSX (el motor de import toma filas estructuradas; el archivo es UI/follow-up).
+  **Pendiente:** UI + verificación HTTP (ADR-044).
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
