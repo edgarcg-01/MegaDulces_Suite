@@ -66,7 +66,14 @@ El `count(*)` pasa a **estimado y declarado** (`total_rows_estimated`, ADR-056):
 
 `ix_mv_sales_blended_cover` se creó para que el Command Center leyera sin tocar el heap. Las tres consultas que lo necesitan piden una columna que no está: `#5` pide `MAX(updated_at)`, `#6` y `#7` unen por `product_id`. Resultado: **16 usos acumulados** y las tres barriendo 1,459 MB.
 
-Probado quitándole a la **misma** consulta el campo que falta: con `MAX(updated_at)` son 199,641 páginas tocando el heap; **sin él, 22,218 e `INDEX-ONLY`**. Migración `20260917120000` escrita y **no aplicada**: construir ~459 MB es escritura pesada (el `ix_stockmov_imported_at` del día anterior tardó 49 min en `CONCURRENTLY`).
+Probado quitándole a la **misma** consulta el campo que falta: con `MAX(updated_at)` son 199,641 páginas tocando el heap; **sin él, 22,218 e `INDEX-ONLY`**.
+
+**Aplicada el 2026-09-17 10:41 MX** (migración `20260917120000`, lote 441). ⚠️ **NO con `migrate:latest`**: en prod hay dos tablas `knex_migrations` y el `search_path` lleva a la vacía — se ejecutó el SQL directo y se registró la fila a mano en `public.knex_migrations`. Construir los 468 MB tardó **1.5 min**, no los 49 que hacían temer por el `ix_stockmov_imported_at` del día anterior; se hizo con `CONCURRENTLY` (no bloquea) y con **0 consultas activas** en ese momento. Resultado verificado:
+
+| | antes | después |
+|---|---|---|
+| #5 overview por canal | 199,641 pág · 1,560 MB · heap | **22,607 pág · 177 MB · `INDEX-ONLY`** |
+| agregado por `product_id` (#6/#7) | 199,599 pág · 1,559 MB · heap | **22,593 pág · 177 MB · `INDEX-ONLY`** |
 
 ### Lo que se midió sobre el estándar de 1 segundo
 
