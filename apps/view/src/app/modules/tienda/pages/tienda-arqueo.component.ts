@@ -1033,12 +1033,24 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly canCapture = computed(() =>
     this.perms.isAdmin() || this.auth.user()?.permissions?.[Permission.STORE_ARQUEO_CAPTURAR] === true);
 
+  /**
+   * Orden de las pestañas: RETIRO · CIERRE DE DÍA · RELEVO.
+   *
+   * El retiro va primero porque es lo que más se hace, y lo que se hace ANTES:
+   * una caja cierra UNA vez al día y hace tres o cuatro sangrías, y el 94.8% de
+   * los turnos que cruzan el límite de la caja tienen al menos una (SM.35). El
+   * comentario que estaba acá ya decía que el retiro es "la MÁS frecuente" y
+   * aun así lo ponía segundo: el orden contradecía a su propia justificación.
+   *
+   * Y no es cosmético. Contar la sangría TARDE es exactamente lo que hacía que
+   * ese dinero apareciera como faltante de la cajera; la primera pestaña es la
+   * que se ve sin buscar.
+   *
+   * El relevo queda al final: es el caso raro (cambio de turno a media jornada).
+   */
   readonly tipoOptions = [
-    { label: 'Cierre de día', value: 'cierre' as const },
-    // La sangría que Kepler pide al llegar al límite de la caja. Va primero
-    // después del cierre porque es la MÁS frecuente: una caja hace un cierre al
-    // día y tres o cuatro retiros.
     { label: 'Retiro', value: 'retiro' as const },
+    { label: 'Cierre de día', value: 'cierre' as const },
     { label: 'Relevo', value: 'relevo' as const },
   ];
 
