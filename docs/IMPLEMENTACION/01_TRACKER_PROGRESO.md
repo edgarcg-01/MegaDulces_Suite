@@ -118,6 +118,58 @@ importers.
 - [ ] **[PU.4]** ⬜ Escenarios/versiones/import CSV·XLSX + Marketing (campañas + atribución explícita) +
   «Tu trabajo».
 
+### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
+
+Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
+v1.0, **después de medir qué existe**. Plan completo en
+[`FASE_SU_SURTIDO_POR_OLAS.md`](FASES/FASE_SU_SURTIDO_POR_OLAS.md). Sin código.
+
+⭐ **El documento está escrito como si se partiera de cero y 10–12 de sus 18 etapas ya están en
+prod** (pedido maestro, interfaz del vendedor, CFDI por FE.5, embarques, custodia, entrega,
+liquidación con arqueo ciego, corte de caja, traspasos, Thot + recomendaciones, y hasta las
+ubicaciones físicas con backend y UI). Tomarlo literal como backlog reconstruye medio sistema.
+
+⛔ **El dato que reordena todo: `commercial.warehouse_bins` = 0 filas y `stock_lot_locations` = 0.**
+La capacidad existe desde la mig `20260817140000` —con `POST /bins`, `put-away`, `unlocated`,
+`pick-suggestion` y pantalla en `/almacen`— y **nunca se usó**. El beneficio central del documento
+("disminuir recorridos") depende por completo de un dato que no existe, y poblarlo **no es
+software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta confirmarlo en prod.)*
+
+- [ ] **[SU.0]** ⬜ ⛔ **CAMINO CRÍTICO, no es software** — mapa del almacén (nomenclatura,
+  rotulado físico, captura con la UI que ya existe, cobertura sobre el 80% de las líneas) **+
+  línea base medida de HOY** (tiempo de surtido, líneas/hora, errores). ⭐ Sin la línea base, el
+  §47 del documento ("criterio de éxito") es **indemostrable**: pide bajar tiempos y no existe el
+  número contra el cual comparar.
+- [ ] **[SU.1]** ⬜ La unidad, **antes** que las olas. Consolidar cantidades sin unidad es ADR-055
+  mudado al almacén: base PAQ 6,586 / PZA 1,906 / **KG 232** / 108 con el gramaje en el campo, y
+  **6,128 de 8,887 (69%) con más de una presentación**. El sello de `[TO.3]` se consume, no se
+  reinventa. ⚠️ El granel no entra en `escanear → contar`: se declara o sale de las olas.
+- [ ] **[SU.2]** ⬜ Pool de pedidos. ⚠️ Debe declarar el rezago de lo creado **offline** (el
+  documento no lo menciona y el vendedor trabaja sin señal).
+- [ ] **[SU.3]** ⬜ Motor de olas con reglas simples + consolidación por SKU **conservando** el
+  desglose por pedido.
+- [ ] **[SU.4]** ⬜ Interfaz del surtidor (`ubicación → producto → cantidad → confirmar`).
+- [ ] **[SU.5]** ⬜ Excepciones sin detener el surtido. La recuperación y las sustituciones son
+  **Thot + RA**, no un motor nuevo.
+- [ ] **[SU.6]** ⬜ Desconsolidación + contenedores con QR.
+- [ ] **[SU.7]** ⬜ Chequeo de salida. ⚠️ `commercial-receiving` NO sirve (es entrada de
+  proveedor). El gate de segregación se rompe a propósito una vez (ADR-056).
+- [ ] **[SU.8]** ⬜ Distribución de escasez — **BLOCKED** por la decisión de reservas.
+- [ ] **[SU.9]** ⬜ Indicadores contra la línea base de SU.0.4.
+
+**Decisiones abiertas (ninguna es de código):** (1) ¿la cajera factura o sigue el CFDI automático
+al fulfillar (FE.5)? · (2) ⭐ **¿se reserva stock en preventa?** hoy NO, y a propósito
+(`test-newdb-order-reopen`: devolver la cantidad de la línea le suelta el apartado a otro pedido)
+· (3) la existencia manda desde `v_erp_stock_on_hand`, no desde `commercial.stock` (91%): el SoR
+sigue siendo Kepler/Wincaja · (4) §30 choca con ADR-040 (ContPAQi es SoR contable, la plataforma
+jamás escribe directo) · (5) folio: **se conserva `PD-`**, no se crea `PV-`.
+
+⛔ **Se rechaza ampliar `commercial.orders.status` a los 33 estados del documento.** El CHECK vivo
+tiene 5 y de él cuelga todo el flujo comercial; se agrega un **eje de fulfillment paralelo**. Y los
+"estados extraordinarios" no son estados: son excepciones que pueden coexistir.
+
+---
+
 ### Fase TO — Auditoría del flujo `/vendor/take-order` · 2026-09-17
 
 Revisión del flujo completo de toma de pedido del vendedor (carga → order pad → carrito →
