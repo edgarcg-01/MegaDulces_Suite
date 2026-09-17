@@ -219,6 +219,17 @@ importers.
   verificación HTTP en runtime (guards/RLS); re-login (permisos `PRESUPUESTOS_*` ya existían por TP, sin cambio).
   ⚠️ **Deuda técnica declarada:** `finanzas-presupuesto.component.ts` es un god-component (~980 líneas, 5 sub-vistas) —
   candidato a partir en componentes por vista cuando se estabilice.
+- [x] **[PU.6.fix]** ✅ **Causa raíz de "no aparece" hallada y resuelta 2026-09-17.** La ruta `/finanzas/presupuesto`
+  **nunca se registró en el router** (ni en `app.routes.ts` ni en `origin/main`): el componente, el tab (`finanzas-tabs`)
+  y el nodo `authz-tree` existían, pero **ninguna ruta Angular cargaba el componente** → el tab no llevaba a nada. NO
+  era deploy, cache ni permiso (verificado: deploy 16:14 con el commit correcto, API `/budget/campaigns`→401, main.js
+  con el módulo, superadmin con permiso). Además, por pedido del usuario, **Presupuestos deja de ser tab de Finanzas y
+  pasa a MÓDULO propio**: ruta top-level `/presupuesto` (la pieza que faltaba) + nodo `presupuestos` en `authz-tree` +
+  tarjeta en el espacio «Administración y Finanzas» del `suite-map` + quitado de `finanzas-tabs` + redirect compat
+  `/finanzas/presupuesto`→`/presupuesto`. Verificado: `contracts` 76/76, `nx build view` ✅, lint 0. Commit `fa024cae`.
+  **Pendiente: push + redeploy de `view` para que quede vivo** (sin la ruta, ni el deploy actual lo mostraba).
+  ⭐ **Lección:** un componente + tab + entrada de authz-tree NO alcanzan — si nadie registra la **ruta** en el router,
+  la pantalla no existe. El tab apunta a una URL muerta y falla en silencio.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
