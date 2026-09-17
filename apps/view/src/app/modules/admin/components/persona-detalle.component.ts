@@ -153,6 +153,16 @@ type Pestana = 'persona' | 'acceso' | 'datos' | 'responde' | 'historia';
                   </span>
                 }
               </p>
+            } @else if (!fPuesto()) {
+              <!-- [AU.31] Sin puesto no se puede afirmar nada sobre su jefe: el
+                   texto de abajo decia "su puesto no cuelga de ningun otro" a
+                   cuentas que no ocupan ninguno, como las 12 de dispositivo.
+                   SIN BACKTICKS: adentro de un template literal lo cierran. -->
+              <p class="pd-hint">
+                Sin puesto no hay jefe que heredar. {{ esPersona()
+                  ? 'Elegí uno arriba y el organigrama propone el suyo.'
+                  : 'Es una cuenta de dispositivo o de sistema, así que no ocupa un puesto del organigrama.' }}
+              </p>
             } @else {
               <p class="pd-hint">
                 Su puesto no cuelga de ningún otro, así que <strong>de verdad no tiene jefe</strong>.
@@ -647,12 +657,29 @@ export class PersonaDetalleComponent implements OnChanges {
   readonly sinPropuesta = computed(() => !!this.propuesta()?.sin_perfil);
 
   /**
-   * `[AU.28]` Si la cuenta es de dispositivo, un reset NO le fuerza el cambio:
-   * la primera persona que pasa por el kiosco la cambiaría y la pantalla queda
-   * afuera. Lee el TTL del formulario, no el de la ficha, porque el aviso tiene
-   * que hablar del estado en que va a quedar al guardar.
+   * `[AU.31]` Una cuenta que NO es de una persona: dispositivo, cliente del
+   * portal o servicio. Lo dice `kind`, y un alta desde esta ficha siempre crea
+   * una persona.
    */
-  readonly esDispositivo = computed(() => this.fTtl() != null);
+  readonly esPersona = computed(() => !this.persona || this.persona.kind === 'interno');
+
+  /**
+   * `[AU.28]` Si la cuenta es de dispositivo, un reset NO le fuerza el cambio:
+   * la primera persona que pasa por la pantalla la cambiaría y el dispositivo
+   * queda afuera — `[CH.1.10]` dice que ya pasó.
+   *
+   * ⛔ `[AU.31]` Esto miraba `fTtl() != null`, y estaba mal: se midió en prod y
+   * **las 18 cuentas `kind='dispositivo'` tienen `token_ttl_days = NULL`**, las
+   * 8 etiqueteras incluidas. El TTL no es lo que hace a un dispositivo — es
+   * `kind`. Con la versión vieja, resetearle la contraseña a una etiquetera le
+   * ponía `must_change_password` y dejaba las 8 pantallas afuera.
+   *
+   * Se conserva el TTL como segundo criterio: una cuenta interna con sesión
+   * larga también es una credencial desatendida.
+   */
+  readonly esDispositivo = computed(
+    () => this.persona?.kind === 'dispositivo' || this.fTtl() != null,
+  );
 
   readonly puedeGuardar = computed(() => {
     // Los signals se leen SIEMPRE primero e incondicionales: un `&&` que corta
@@ -664,7 +691,19 @@ export class PersonaDetalleComponent implements OnChanges {
     const pass = this.fPassword();
     const motivo = this.fMotivo().trim();
     const desvio = this.hayDesvio();
-    if (!usuario || !puesto || !rol) return false;
+    const persona = this.esPersona();
+    if (!usuario || !rol) return false;
+    /*
+     * ⛔ `[AU.31]` El puesto se exige SÓLO a una persona.
+     *
+     * Antes era `if (!usuario || !puesto || !rol)`, y dejaba **16 cuentas sin
+     * poder guardarse**: 12 dispositivos, 3 clientes del portal y 1 de servicio
+     * —medido en prod—. Una etiquetera no ocupa un puesto del organigrama, y el
+     * backend nunca lo pidió: ni `CreateUserDto` ni `UpdateUserDto` declaran
+     * `position_code` como obligatorio. El requisito lo inventó esta pantalla, y
+     * el botón quedaba gris sin decir por qué.
+     */
+    if (persona && !puesto) return false;
     // `department_code` y `password` los exige el DTO del alta: sin ellos el POST
     // vuelve 400 antes de tocar el servicio.
     if (!depto) return false;

@@ -594,6 +594,46 @@ const BASE_ALCANCE = {
         `${pw[0].con_llave} rol(es) con la llave`,
     );
 
+    // ══ 15. No toda cuenta es una persona ═════════════════════════════════
+    //
+    // `[AU.31]` Edgar abrió `etiquetas.32` y el botón «Guardar cambios» estaba
+    // gris, sin decir por qué. Dos defectos con la misma raíz: la ficha trataba
+    // a toda cuenta como si fuera una persona del organigrama.
+    console.log('\n[15] Las cuentas que no son personas');
+    const { rows: nop } = await k.raw(
+      `SELECT count(*)::int AS sin_puesto,
+              count(*) FILTER (WHERE kind = 'dispositivo')::int AS dispositivos,
+              count(*) FILTER (WHERE kind = 'dispositivo' AND token_ttl_days IS NOT NULL)::int AS disp_con_ttl
+         FROM identity.users
+        WHERE tenant_id = ? AND deleted_at IS NULL AND position_code IS NULL`,
+      [TENANT],
+    );
+    check(
+      /if \(persona && !puesto\) return false;/.test(fichaPass),
+      `el puesto se exige sólo a una persona: exigirlo siempre bloqueaba ${nop[0].sin_puesto} cuenta(s) sin puesto`,
+    );
+    check(
+      !/if \(!usuario \|\| !puesto \|\| !rol\) return false;/.test(fichaPass),
+      'y la condición vieja, que las bloqueaba a todas, ya no está',
+    );
+
+    // ⭐ El dato que desmiente el criterio anterior. Si algún día los
+    // dispositivos empiezan a tener TTL, esta declaración lo dice y el criterio
+    // por `kind` sigue siendo el correcto de todas formas.
+    check(
+      /this\.persona\?\.kind === 'dispositivo' \|\| this\.fTtl\(\) != null/.test(fichaPass),
+      'un dispositivo se reconoce por `kind`, no por tener TTL',
+    );
+    check(
+      /fila\?\.kind === 'dispositivo' \|\| ttlResultante != null/.test(svcPass),
+      'y el backend usa el mismo criterio: si no, el reset le forzaría el cambio igual',
+    );
+    declarar(
+      `${nop[0].dispositivos} cuenta(s) de dispositivo sin puesto y ${nop[0].disp_con_ttl} de ellas con TTL: ` +
+        `por eso reconocerlas por \`token_ttl_days\` las daba a TODAS por personas, y un reset les ` +
+        `habría puesto must_change_password dejando las pantallas afuera ([CH.1.10])`,
+    );
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} [AU] administración de usuarios: ${ok} ok, ${fail} fallos, ${nomedido} no medido(s)`);
     process.exitCode = fail === 0 ? 0 : 1;
   } catch (e) {
