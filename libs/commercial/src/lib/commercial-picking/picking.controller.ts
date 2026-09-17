@@ -76,4 +76,43 @@ export class PickingController {
   cancel(@Param('id') id: string, @Body() body: { reason?: string }) {
     return this.service.cancelWave(id, body?.reason);
   }
+
+  // ─── Surtido (SU.4). Misma persona, misma pantalla: no hay permiso aparte de "surtidor" ───
+
+  @Post('waves/:id/start')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary: 'Arranca el surtido: congela el consolidado en renglones y pone la ola en_surtido.',
+  })
+  start(@Param('id') id: string) {
+    return this.service.startPicking(id);
+  }
+
+  @Get('waves/:id/lines')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({ summary: 'Renglones de la ola con su avance (lo pendiente primero).' })
+  lines(@Param('id') id: string) {
+    return this.service.lines(id);
+  }
+
+  @Post('waves/:id/lines/:lineId/pick')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Marca cuánto se levantó de un renglón (y por qué, si no fue todo). No detiene el surtido.',
+  })
+  pick(
+    @Param('id') id: string,
+    @Param('lineId') lineId: string,
+    @Body() body: { qty_picked: number; status?: string; note?: string; bin_code?: string },
+  ) {
+    return this.service.pickLine(id, lineId, body);
+  }
+
+  @Post('waves/:id/finish')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Cierra el surtido. Exige que ningún renglón quede sin tocar.' })
+  finish(@Param('id') id: string) {
+    return this.service.finishPicking(id);
+  }
 }

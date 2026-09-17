@@ -193,21 +193,28 @@ export class PickingService {
         porSku.set(r.product_id, g);
       }
       g.total_base += Number(r.quantity);
-      g.unidades_capturadas.add(r.qty_unit || 'sin_unidad_declarada');
+      // ⚠️ La ausencia se guarda como `null`, NO como el texto "sin_unidad_declarada". Un
+      // centinela de texto se ve igual que una unidad real y termina viajando a la base como si
+      // lo fuera (pasó: reventó el varchar(16) de `wave_lines.qty_unit`, y de haber cabido habría
+      // quedado una "unidad" inventada en la tabla). ADR-056: la ausencia se declara, no se nombra.
+      g.unidades_capturadas.add(r.qty_unit || null);
       g.por_pedido.push({ order_id: r.order_id, order_code: r.order_code, quantity: Number(r.quantity) });
     }
 
     return Array.from(porSku.values()).map((g) => {
-      const us = Array.from(g.unidades_capturadas);
+      const us = Array.from(g.unidades_capturadas) as (string | null)[];
       return {
         product_id: g.product_id,
         product_name: g.product_name,
         sku: g.sku,
         total_base: g.total_base,
-        // Una sola unidad de captura → se puede nombrar. Varias → NO se inventa un total común.
-        qty_unit: us.length === 1 ? us[0] : null,
+        // Una sola unidad de captura Y que exista → se puede nombrar. Varias, o ninguna, → null:
+        // no se inventa un total común ni se bautiza la ausencia.
+        qty_unit: us.length === 1 && us[0] != null ? us[0] : null,
         unidad_mixta: us.length > 1,
-        unidades_capturadas: us,
+        // Para mostrar: acá SÍ se rotula la ausencia, porque es texto de pantalla y no un dato
+        // que se guarde. La distinción importa — lo que se persiste es el null de arriba.
+        unidades_capturadas: us.map((u) => u ?? 'sin declarar'),
         por_pedido: g.por_pedido,
       };
     });
@@ -354,6 +361,180 @@ export class PickingService {
         .returning('*');
       return upd;
     });
+  }
+
+  /**
+   * Arranca el surtido: congela el consolidado en `wave_lines` y marca la ola `en_surtido`.
+   *
+   * ⚠️ El congelado va ACÁ y no al crear la ola: un pedido corregido entre armar y empezar dejaría
+   * a la persona buscando una cantidad que ya nadie pidió. Y una vez arrancada no se recalcula —
+   * el papel que se está recorriendo no puede cambiar debajo.
+   *
+   * Idempotente: arrancar dos veces devuelve las líneas ya congeladas sin pisar lo levantado.
+   */
+  async startPicking(waveId: string) {
+    if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');
+    const userId = this.tenantCtx.get()?.userId || null;
+
+    return this.tk.run(async (trx) => {
+      const wave = await trx('commercial.picking_waves').where({ id: waveId }).forUpdate().first();
+      if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
+      if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
+      if (wave.status === 'surtida') throw new ConflictException('La ola ya se surtió');
+
+      const yaHay = await trx('commercial.wave_lines').where({ wave_id: waveId }).first();
+      if (!yaHay) {
+        const cons = await this.consolidado(trx, waveId);
+        if (!cons.length) throw new ConflictException('La ola no tiene renglones que surtir');
+        await trx('commercial.wave_lines').insert(
+          cons.map((c: any) => ({
+            wave_id: waveId,
+            product_id: c.product_id,
+            qty_requested: c.total_base,
+            // La unidad viaja con la cantidad, o se declara ausente. Nunca 'PZA' de relleno.
+            qty_unit: c.unidad_mixta ? null : c.qty_unit,
+            unidad_mixta: !!c.unidad_mixta,
+          })),
+        );
+      }
+
+      if (wave.status !== 'en_surtido') {
+        await trx('commercial.picking_waves').where({ id: waveId }).update({
+          status: 'en_surtido',
+          started_at: wave.started_at || trx.fn.now(),
+          picked_by: wave.picked_by || userId,
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        });
+      }
+      return this.lineasDe(trx, waveId);
+    });
+  }
+
+  /**
+   * Marca un renglón: cuánto se levantó y por qué, si no fue todo.
+   *
+   * ⭐ **No detiene el surtido** (§14 del documento, y es la regla correcta): un faltante se
+   * registra y la persona sigue. Lo que se hace con ese faltante —sustituir, traspasar, avisar al
+   * vendedor— es trabajo del motor comercial, asíncrono, y no puede bloquear el recorrido.
+   */
+  async pickLine(
+    waveId: string,
+    lineId: string,
+    dto: { qty_picked: number; status?: string; note?: string; bin_code?: string },
+  ) {
+    if (!UUID_RE.test(waveId) || !UUID_RE.test(lineId)) throw new BadRequestException('id inválido');
+    const qty = Number(dto?.qty_picked);
+    if (!Number.isFinite(qty) || qty < 0) throw new BadRequestException('qty_picked debe ser >= 0');
+    const userId = this.tenantCtx.get()?.userId || null;
+
+    return this.tk.run(async (trx) => {
+      const wave = await trx('commercial.picking_waves').where({ id: waveId }).first();
+      if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
+      if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
+      if (wave.status === 'surtida') throw new ConflictException('La ola ya se cerró');
+
+      const line = await trx('commercial.wave_lines').where({ id: lineId, wave_id: waveId }).first();
+      if (!line) throw new NotFoundException(`Renglón ${lineId} no encontrado en esta ola`);
+      if (qty > Number(line.qty_requested))
+        throw new BadRequestException(
+          `No se puede levantar más de lo pedido (${line.qty_requested}). Si sobra mercancía, es un ajuste de inventario, no un surtido.`,
+        );
+
+      // El estado se DERIVA de la cantidad salvo que la persona declare una causa (agotado/dañado):
+      // "levanté 0" y "levanté 0 porque estaba dañado" son hechos distintos.
+      const declarado = String(dto?.status || '').trim();
+      let status: string;
+      if (declarado && ['agotado', 'danado', 'faltante', 'surtido'].includes(declarado)) {
+        status = declarado;
+      } else if (qty === 0) {
+        status = 'agotado';
+      } else if (qty < Number(line.qty_requested)) {
+        status = 'faltante';
+      } else {
+        status = 'surtido';
+      }
+
+      const [upd] = await trx('commercial.wave_lines')
+        .where({ id: lineId })
+        .update({
+          qty_picked: qty,
+          status,
+          note: dto?.note ?? line.note,
+          bin_code: dto?.bin_code ?? line.bin_code,
+          picked_by: userId,
+          picked_at: trx.fn.now(),
+        })
+        .returning('*');
+      return upd;
+    });
+  }
+
+  /**
+   * Cierra el surtido de la ola.
+   *
+   * ⚠️ Exige que TODOS los renglones se hayan tocado. Un renglón `pendiente` al cerrar no es "no
+   * había": es **nadie pasó por ahí**, y esa diferencia es justamente la que se pierde si se deja
+   * cerrar con pendientes (quedaría indistinguible de un agotado, y el pedido saldría corto sin
+   * que nadie lo supiera).
+   */
+  async finishPicking(waveId: string) {
+    if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');
+    const userId = this.tenantCtx.get()?.userId || null;
+
+    return this.tk.run(async (trx) => {
+      const wave = await trx('commercial.picking_waves').where({ id: waveId }).forUpdate().first();
+      if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
+      if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
+      if (wave.status === 'surtida') return wave; // idempotente
+
+      const pend = await trx('commercial.wave_lines')
+        .where({ wave_id: waveId, status: 'pendiente' })
+        .count('* as n')
+        .first();
+      const sinTocar = Number(pend?.n ?? 0);
+      if (sinTocar > 0)
+        throw new ConflictException(
+          `Faltan ${sinTocar} renglón(es) sin tocar. Marcá cada uno —aunque sea en 0— antes de cerrar: ` +
+            'un renglón sin tocar no es lo mismo que uno agotado.',
+        );
+
+      const [upd] = await trx('commercial.picking_waves')
+        .where({ id: waveId })
+        .update({
+          status: 'surtida',
+          finished_at: trx.fn.now(),
+          picked_by: wave.picked_by || userId,
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        })
+        .returning('*');
+      await trx('commercial.wave_orders').where({ wave_id: waveId }).update({
+        stage: 'surtido',
+        updated_at: trx.fn.now(),
+      });
+      return upd;
+    });
+  }
+
+  /** Renglones de la ola con su avance (lo que ve la persona mientras recorre). */
+  private async lineasDe(trx: any, waveId: string) {
+    return trx('commercial.wave_lines as wl')
+      .leftJoin('catalog.products as p', function (this: any) {
+        this.on('p.id', '=', 'wl.product_id').andOn('p.tenant_id', '=', 'wl.tenant_id');
+      })
+      .where('wl.wave_id', waveId)
+      .select('wl.*', 'p.nombre as product_name', 'p.sku')
+      .orderByRaw(
+        // Lo pendiente primero (es lo que falta caminar); dentro, por ubicación y nombre.
+        `CASE WHEN wl.status = 'pendiente' THEN 0 ELSE 1 END, wl.bin_code NULLS LAST, p.nombre`,
+      );
+  }
+
+  /** Renglones de la ola (público, para la pantalla). */
+  async lines(waveId: string) {
+    if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');
+    return this.tk.run(async (trx) => this.lineasDe(trx, waveId));
   }
 
   /** Folio `W-YYYY-NNNNN`, con el mismo UPSERT atómico de `commercial.order_sequences`. */
