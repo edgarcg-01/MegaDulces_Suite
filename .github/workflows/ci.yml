@@ -234,6 +234,15 @@ jobs:
       - name: Comment gate (comentario que se cierra solo en template/styles)
         run: npm run check:templates
 
+      # `[NX.3]` Este es el único gate cuyo defecto NO se puede ver en la máquina de quien lo
+      # introduce: el contexto de Docker sólo se ejerce al construir la imagen. Nació de un caso
+      # real — `vitest.shared.ts` en la raíz, importado por los 7 `vitest.config.ts`, y el
+      # `COPY` granular del Dockerfile no lo traía: `NX Failed to process project graph` y el
+      # build del contenedor ni arrancaba, con un error que no menciona ni Docker ni el COPY.
+      # Prueba negativa ejercida: quitando el archivo del COPY, sale 1 y lo nombra.
+      - name: Docker context gate (la raíz que los configs de proyecto necesitan)
+        run: npm run check:docker
+
       # `--passWithNoTests` ya NO va acá: cada `vitest.config.ts` lo declara, y desde
       # `[NX.3]` el target `test` lo INFIERE el plugin `@nx/vitest` de la existencia de ese
       # archivo — un proyecto sin config simplemente no tiene target que correr.

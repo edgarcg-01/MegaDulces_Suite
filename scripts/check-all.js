@@ -51,6 +51,10 @@ const COMPUERTAS = [
   { nombre: 'templates', cmd: 'node scripts/check-template-literals.js', que: 'literales de template enteros, CSS que parsea' },
   { nombre: 'boundary', cmd: 'node scripts/lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)' },
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
+  // `[NX.3]` Es la única de las cuatro que atrapa un defecto INVISIBLE en la máquina de quien lo
+  // introduce: el contexto de Docker sólo se ejerce en el contenedor, y ahí el síntoma no
+  // menciona ni Docker ni el COPY. Costó un deploy caído antes de existir.
+  { nombre: 'docker-ctx', cmd: 'node scripts/check-docker-context.js', que: 'los Dockerfiles copian lo que los configs de proyecto importan de la raíz' },
   // Y las de Nx, que desde 2026-09-17 sí usan caché (antes corrían siempre desde cero).
   { nombre: 'lint', cmd: nx('lint'), que: 'eslint' },
   // `[NX.3]` Sin `--passWithNoTests`: cada `vitest.config.ts` lo declara, y el target `test` lo
