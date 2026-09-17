@@ -38,6 +38,13 @@ async function tenantRls(knex, schema, table) {
 
 exports.up = async function (knex) {
   await knex.raw(`CREATE SCHEMA IF NOT EXISTS budget`);
+  // ⚠️ USAGE del schema + default privileges, igual que el patrón canónico
+  // (20260526100001_commercial_customers_warehouses). Sin esto los GRANT de tabla de abajo son
+  // inútiles: Postgres deniega el schema primero y el runtime tira `permission denied for schema
+  // budget` (42501). Esta línea faltaba y rompió /api/finance/payment-calendar/* en prod
+  // (2026-09-17); se repuso aquí para que un entorno fresco quede correcto de una sola pasada.
+  await knex.raw(`GRANT USAGE ON SCHEMA budget TO app_runtime`);
+  await knex.raw(`ALTER DEFAULT PRIVILEGES IN SCHEMA budget GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_runtime`);
 
   // ── budget.daily_capacity — Presupuestos fija el tope de pago por fecha ──────────────
   if (!(await knex.schema.withSchema('budget').hasTable('daily_capacity'))) {
