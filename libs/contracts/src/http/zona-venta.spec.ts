@@ -1,4 +1,4 @@
-import { recortarAlDato, variacionPct, ventanaComparable } from './identity-me.contract';
+import { variacionPct, ventanaComparable } from './identity-me.contract';
 
 /**
  * `[JZ.3]` — Los dos primitivos puros del bloque «Cómo va tu zona».
@@ -163,35 +163,72 @@ describe('JZ.4 · ventanaComparable · semana', () => {
   });
 });
 
-describe('JZ.4 · recortarAlDato', () => {
-  const base = ventanaComparable('2026-09-15', 'mes'); // 09-01…09-15 vs 08-01…08-15
-
-  it('⛔ recorta los DOS lados al mismo número de días', () => {
-    /*
-     * El caso real: MORELIA ABASTOS publicaba −26.1 % comparando 10 días de septiembre contra 15
-     * de agosto, porque su fuente (`wincaja_*`) no entregaba desde el 10. Con el tramo parejo la
-     * zona sube 17.1 %. Recortar sólo arriba cambiaría una mentira por la opuesta.
-     */
-    const v = recortarAlDato(base, '2026-09-10');
+describe('JZ.6 · el ancla: el tramo termina donde termina el DATO', () => {
+  /*
+   * ⛔ Nace de dos mentiras medidas, una por grano:
+   *
+   *  · `mes` — MORELIA ABASTOS publicaba **−26.1 %** comparando 10 días de septiembre contra 15
+   *    de agosto, porque `wincaja_*` no entregaba desde el 10. Con el tramo parejo **sube 17.1 %**.
+   *  · `dia` — el tramo era el 16-sep, la venta por ruta había entregado hasta el 15, y como la
+   *    fuente «no entregó nada del tramo» se la leía como MUERTA: los 9 canales de ruta de LA
+   *    PIEDAD salían «sin medir» por 24 horas de rezago.
+   *
+   * Por eso el ancla se resuelve ANTES de armar la ventana: con `mes` RECORTA (el mes no se puede
+   * correr) y con `dia`/`semana` CORRE el tramo entero hacia atrás, conservando el día de la
+   * semana de los dos extremos.
+   */
+  it('⛔ mes: recorta los DOS lados al mismo número de días', () => {
+    const v = ventanaComparable('2026-09-15', 'mes', '2026-09-10');
     expect(v.hasta).toBe('2026-09-10');
     expect(v.hasta_comparado).toBe('2026-08-10');
+    expect(v.desde).toBe('2026-09-01'); // el mes NO se corre: empieza el día 1
     expect(v.incluye_dia_en_curso).toBe(false);
   });
 
+  it('⛔ dia: CORRE el tramo y conserva el día de la semana', () => {
+    // Sin dato sería el martes 15; con la fuente al 14, es el lunes 14 contra el lunes 7.
+    const v = ventanaComparable('2026-09-16', 'dia', '2026-09-14');
+    expect(v.desde).toBe('2026-09-14');
+    expect(v.hasta).toBe('2026-09-14');
+    expect(v.desde_comparado).toBe('2026-09-07');
+    const dow = (i: string) => new Date(`${i}T00:00:00Z`).getUTCDay();
+    expect(dow(v.desde_comparado)).toBe(dow(v.desde));
+  });
+
+  it('⛔ semana: corre los 7 días y sigue trayendo un día de cada uno', () => {
+    const v = ventanaComparable('2026-09-16', 'semana', '2026-09-13');
+    expect(v.desde).toBe('2026-09-07');
+    expect(v.hasta).toBe('2026-09-13');
+    expect(v.desde_comparado).toBe('2026-08-31');
+    expect(v.hasta_comparado).toBe('2026-09-06');
+  });
+
   it('no hace nada cuando la fuente llegó al día', () => {
-    expect(recortarAlDato(base, '2026-09-15')).toEqual(base);
-    expect(recortarAlDato(base, null)).toEqual(base);
+    for (const p of ['dia', 'semana', 'mes'] as const) {
+      expect(ventanaComparable('2026-09-15', p, '2026-09-15')).toEqual(
+        ventanaComparable('2026-09-15', p),
+      );
+      expect(ventanaComparable('2026-09-15', p, null)).toEqual(ventanaComparable('2026-09-15', p));
+    }
   });
 
-  it('⛔ NEGATIVA — una fuente adelantada NO estira el tramo', () => {
-    // `sales_daily` tiene 4 filas fechadas el 6-dic-2026, en el futuro. Un `hastaDato` mayor no
-    // puede mover `hasta`: sólo se puede acortar.
-    expect(recortarAlDato(base, '2026-12-06')).toEqual(base);
+  it('⛔ NEGATIVA — una fuente ADELANTADA no estira el tramo', () => {
+    /*
+     * Las dos fuentes tienen filas en el futuro, medido: `analytics.sales_daily` 4 filas del
+     * 6-dic-2026 y `v_rd_route_daily` la ruta 22 llegando al mismo día. Un `hastaDato` mayor no
+     * puede mover nada: el ancla SÓLO acorta.
+     */
+    for (const p of ['dia', 'semana', 'mes'] as const) {
+      expect(ventanaComparable('2026-09-15', p, '2026-12-06')).toEqual(
+        ventanaComparable('2026-09-15', p),
+      );
+    }
   });
 
-  it('⛔ NEGATIVA — una fuente que no entregó NADA del tramo no lo recorta a cero', () => {
-    // Las rutas de ZAMORA no entregan desde el 11-ago. Eso no es un rezago del tramo: es una
-    // ausencia, y se declara fila por fila (`sin_medir`) y en `no_comparado`.
-    expect(recortarAlDato(base, '2026-08-11')).toEqual(base);
+  it('⛔ el mes corto sigue topando aunque el ancla no aplique', () => {
+    // El 31 de marzo, «los mismos 31 días de febrero» no existen: el comparador termina el 28.
+    expect(ventanaComparable('2026-03-31', 'mes', null).hasta_comparado).toBe('2026-02-28');
+    // Y con recorte, el tope del mes corto sigue mandando sobre el recorte si es más chico.
+    expect(ventanaComparable('2026-03-31', 'mes', '2026-03-20').hasta_comparado).toBe('2026-02-20');
   });
 });

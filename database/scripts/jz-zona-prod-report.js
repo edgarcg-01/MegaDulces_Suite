@@ -97,6 +97,25 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
     .where('key', 'like', 'comercial.venta%')
     .pluck('key');
   let vacias = 0;
+  let enlacesRotos = 0;
+
+  /*
+   * `[JZ.6]` Los valores que el filtro de `/comercial/ventas-por-ruta` acepta de verdad, tal cual
+   * los arma `salesByRouteRoutes()`. Existe porque `[JZ.1]` mandaba `?route=RUTA-28` y la pantalla
+   * filtra por `"<sucursal>|<route_code>"` (`01|WIN-28`): el enlace abría la tabla **vacía** y
+   * ninguna prueba lo vio, porque afirmaban sobre el argumento que viajaba y no sobre el valor que
+   * el backend reconoce. Un enlace que no filtra es peor que no tener enlace.
+   */
+  const validos = new Set(
+    (
+      await knex('analytics.sales_by_route_monthly as s')
+        .join('commercial.warehouses as w', function () {
+          this.on('w.id', '=', 's.warehouse_id').andOn('w.tenant_id', '=', 's.tenant_id');
+        })
+        .whereRaw(`s.route_code LIKE 'WIN-%'`)
+        .distinct(knex.raw(`w.code || '|' || s.route_code as v`))
+    ).map((r) => r.v),
+  );
 
   for (const j of jefes) {
     const r = await meZona.medirZona(
@@ -152,8 +171,14 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
         if (c.monto !== null) medibles++;
         const candado = c.ruta ? '' : '  🔒 sin permiso';
         const nota = c.sin_medir ? `  ⚠ ${c.sin_medir}` : '';
+        const destino = c.queryParams?.route;
+        let roto = '';
+        if (destino && !validos.has(destino)) {
+          roto = `  ⛔ ENLACE ROTO (${destino} no existe en el filtro de la pantalla)`;
+          enlacesRotos++;
+        }
         console.log(
-          `     ${c.label.padEnd(28)} ${mdp(c.monto).padStart(11)} ${pct(c.variacion_pct).padStart(10)}${nota}${candado}`,
+          `     ${c.label.padEnd(28)} ${mdp(c.monto).padStart(11)} ${pct(c.variacion_pct).padStart(10)}${nota}${candado}${roto}`,
         );
       }
       for (const x of b.excluidos) console.log(`     ⛔ ${x.label} — ${x.motivo}`);
@@ -169,8 +194,11 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
   console.log(vacias === 0
     ? 'Todos los jefes de zona reciben al menos un canal con cifra.'
     : `⛔ ${vacias} jefe(s) de zona sin una sola cifra.`);
+  console.log(enlacesRotos === 0
+    ? 'Todos los enlaces aterrizan en un filtro que la pantalla reconoce.'
+    : `⛔ ${enlacesRotos} enlace(s) llevarían a una tabla VACÍA.`);
   await knex.destroy();
-  process.exitCode = vacias === 0 ? 0 : 1;
+  process.exitCode = vacias === 0 && enlacesRotos === 0 ? 0 : 1;
 })().catch(async (e) => {
   console.error(e.stack || e.message);
   await knex.destroy();

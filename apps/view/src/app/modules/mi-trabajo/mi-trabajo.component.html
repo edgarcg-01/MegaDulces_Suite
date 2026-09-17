@@ -156,7 +156,7 @@
             <div class="mt-titular is-zona">
               <span class="mt-titular-n">{{ formatoDinero(z.monto) }}</span>
               <span class="mt-titular-txt">
-                <span class="mt-titular-l">vendió {{ z.zona }} en lo que va del mes</span>
+                <span class="mt-titular-l">vendió {{ z.zona }} {{ tramoTexto(z) }}</span>
                 <span class="mt-titular-d">
                   @if (formatoVariacion(z.variacion_pct); as v) {
                     <span class="mt-delta" [class]="claseVariacion(z.variacion_pct)">{{ v }}</span>
@@ -242,7 +242,7 @@
                     <a class="mt-canal" [class.is-nd]="c.monto === null"
                        [routerLink]="c.ruta" [queryParams]="c.queryParams"
                        [title]="detalleCanal(c)">
-                      <span class="mt-canal-ico"><i [class]="b.grupo === 'tienda' ? 'pi pi-shop' : 'pi pi-truck'" aria-hidden="true"></i></span>
+                      <span class="mt-canal-ico"><i [class]="iconoCanal(b.grupo)" aria-hidden="true"></i></span>
                       <span class="mt-canal-txt">
                         <span class="mt-canal-l">{{ c.label }}</span>
                         <span class="mt-canal-d">{{ detalleCanal(c) }}</span>

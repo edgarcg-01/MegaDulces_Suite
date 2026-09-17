@@ -17,6 +17,7 @@ import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import type {
   MeCanal,
+  MeCanalGrupo,
   MeCiclo,
   MeContext,
   MePendiente,
@@ -929,6 +930,26 @@ export class MiTrabajoComponent {
   claseVariacion(p: number | null): string {
     if (p === null) return 'is-nd';
     return p > 0 ? 'is-up' : p < 0 ? 'is-down' : 'is-plano';
+  }
+
+  /**
+   * `[JZ.6]` Un icono por canal. Los tres se leen distinto a propósito: son tres negocios —el
+   * piso de venta, la ruta directa y la vecinal— y fundirlos en un camión haría que el bloque
+   * nuevo pareciera una continuación del anterior en vez de un canal aparte.
+   */
+  /**
+   * `[JZ.4]` El tramo, dicho en palabras. ⚠️ Acá iba «en lo que va del mes» fijo, y con el selector
+   * eso pasó a ser FALSO en dos de los tres granos: un titular que dice «del mes» sobre la venta
+   * de un día es la clase de rótulo que hace que nadie vuelva a confiar en la cifra.
+   */
+  tramoTexto(z: MeZona): string {
+    if (z.periodo === 'dia') return `el ${z.hasta}`;
+    if (z.periodo === 'semana') return `del ${z.desde} al ${z.hasta}`;
+    return 'en lo que va del mes';
+  }
+
+  iconoCanal(g: MeCanalGrupo): string {
+    return g === 'tienda' ? 'pi pi-shop' : g === 'vecinal' ? 'pi pi-home' : 'pi pi-truck';
   }
 
   /** El texto de la segunda línea de un canal: la comparación, o por qué no hay cifra. */

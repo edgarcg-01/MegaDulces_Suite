@@ -2753,9 +2753,11 @@ export class UsersService {
     });
 
     /*
-     * `[JZ.3]` Cómo va la zona. Va en su propio `try`, igual que cada bandeja: si la vista
-     * `analytics.v_route_warehouse` todavía no existe en este ambiente (`[JZ.2]` a medio
-     * desplegar), el bloque se DECLARA en `no_medido` y el resto de la portada sigue.
+     * `[JZ.3]`/`[JZ.6]` Cómo va la zona. Va en su propio `try`, igual que cada bandeja: si las
+     * vistas que necesita (`analytics.v_route_zone`, `analytics.v_rd_route_daily`) todavía no
+     * existen en este ambiente, el bloque se DECLARA en `no_medido` y el resto de la portada
+     * sigue. ⚠️ Acá decía `v_route_warehouse`, la vista de `[JZ.2]`: dejó de ser la fuente de la
+     * venta cuando `[JZ.6]` la reemplazó por el registro operativo.
      */
     let zona: MeWork['zona'] = null;
     try {
