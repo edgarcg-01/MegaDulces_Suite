@@ -249,7 +249,7 @@ const tieneDecoradorPermisos = (tramo) =>
     }
   }
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 13, catalogo);
+    catalogo.length === 14, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -279,9 +279,16 @@ const tieneDecoradorPermisos = (tramo) =>
     ...[...srcT.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcC.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcZ.matchAll(/^\s*(?:tienda|ruta|vecinal): '([a-z]+\.[a-z_]+)',/gm)].map((m) => m[1]),
+    /*
+     * `[JZ.7]` La clave de dirección no vive en el mapa por canal —no ES un canal, es el sujeto:
+     * todas las zonas— así que se declara como constante y se lee aparte. Sin esta línea el
+     * candado de «ninguna clave del catálogo se quedó sin cola» la reportaría huérfana, que es
+     * exactamente lo que hizo la primera vez que corrió.
+     */
+    ...[...srcZ.matchAll(/RESPONSABILIDAD_TODAS_LAS_ZONAS = '([a-z]+\.[a-z_]+)'/g)].map((m) => m[1]),
   ];
-  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos + 3 canales)',
-    declaradas.length === 15, declaradas);
+  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 16, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -569,8 +576,14 @@ const tieneDecoradorPermisos = (tramo) =>
    * pertenencia sale del registro operativo y ahí no hay disputa— así que lo que queda por
    * declarar es la serie HISTÓRICA de una ruta, que es el otro caso de «no se puede sumar».
    */
+  /*
+   * ⚠️ `[JZ.7]` Acá decía `excluidos[r.tipo].push`. Con N zonas eso dejó de ser un `Record` por
+   * grupo y pasó a ser un `Map` por (zona, grupo) —lo excluido de LA PIEDAD no es lo excluido de
+   * ZAMORA—, así que el candado se ató al nombre nuevo. **El candado se puso rojo solo cuando
+   * cambié la estructura**, que es exactamente lo que tenía que hacer.
+   */
   check('lo que no se puede sumar se DECLARA en excluidos, con su motivo',
-    /excluidos\[r\.tipo\]\.push/.test(srcZ) && /if \(r\.historica\)/.test(srcZ));
+    /excluir\(r\.zone_id, r\.tipo, \{/.test(srcZ) && /if \(r\.historica\)/.test(srcZ));
 
   /*
    * ⛔ **El pareo de los dos lados de la comparación.** Lo destapó el reporte contra prod, no una
@@ -711,6 +724,48 @@ const tieneDecoradorPermisos = (tramo) =>
     check('⛔ la migración REPARTE las claves a un puesto, no sólo las declara',
       /position_responsibilities/.test(txtZ) && /jefe_zona/.test(txtZ));
   }
+
+  /*
+   * ── `[JZ.7]` La clave de DIRECCIÓN: todas las zonas, y un solo tramo ────────────────────────
+   *
+   * Nace de una corrección al organigrama (Edgar, 2026-09-17: «luis francisco es dirección general
+   * y guillermo lopez es dirección comercial») que destapó el hueco: medido en prod, sólo 12 de
+   * ~50 puestos tienen alguna responsabilidad y NINGUNO es de dirección → por `[SN.30]` el dueño
+   * de la empresa abría «Mi trabajo» y no veía nada.
+   *
+   * ⛔ Las tres condiciones son distintas y ninguna implica a la otra:
+   *   1. que la clave exista y se REPARTA (la lección de `[LC.6.2]`),
+   *   2. que vaya a los DOS puestos de dirección, no sólo a uno,
+   *   3. que el tramo sea UNO para todas las zonas — si cada una se midiera hasta donde llega su
+   *      fuente, el total sumaría 15 días de una contra 14 de otra y las zonas dejarían de ser
+   *      comparables entre sí, que es exactamente para lo que sirve la pantalla.
+   */
+  const migD = fs.readdirSync(dirMig).filter((f) => /responsabilidad_venta_zonas/.test(f));
+  check('existe la migración de la clave de dirección', migD.length === 1, migD);
+  if (migD.length === 1) {
+    const txtD = fs.readFileSync(path.join(dirMig, migD[0]), 'utf8');
+    check('la migración declara "comercial.venta_zonas"', txtD.includes('comercial.venta_zonas'));
+    check('me-zona.ts usa la MISMA clave', srcZ.includes('comercial.venta_zonas'));
+    check('⛔ la reparte a los DOS puestos de dirección',
+      /'direccion'/.test(txtD) && /'direccion_comercial'/.test(txtD));
+    /*
+     * ⛔ La clave de dirección va SIN dimensión a propósito: con `'zone'` anclaría en
+     * `identity.users.zona_id`, y la ficha de los dos directores dice OFICINAS — 0 almacenes y 0
+     * rutas. Les publicaría «la venta de OFICINAS», un cero con cara de cifra.
+     */
+    check('⛔ y va SIN dimensión (con "zone" publicaría la venta de OFICINAS)',
+      /'comercial\.venta_zonas',[\s\S]{0,400}?null,/.test(txtD));
+  }
+
+  /*
+   * El tramo común no se puede leer del fuente con un grep honesto, así que se verifica dónde se
+   * decide: el ancla (`ventanaComparable(hoy, periodo, masLento.ultimo)`) tiene que calcularse
+   * UNA vez, FUERA del bucle que arma las zonas. Si entrara al bucle, cada zona se recortaría sola.
+   */
+  const iAncla = srcZ.indexOf('ventanaComparable(hoy, periodo, masLento.ultimo)');
+  const iBucle = srcZ.indexOf('for (const zona of zonasObjetivo)');
+  check('⛔ el ancla del tramo se resuelve ANTES del bucle de zonas (tramo ÚNICO)',
+    iAncla >= 0 && iBucle >= 0 && iAncla < iBucle, { ancla: iAncla, bucle: iBucle });
 
   // ── 1 y 2. En vivo ────────────────────────────────────────────────────────────────────────────
   console.log('\n── 1. Login ──');

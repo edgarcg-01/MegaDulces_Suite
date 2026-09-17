@@ -480,7 +480,7 @@
  * oscuro (donde el rojo tiene que subir a `#F87171` para mantener contraste sobre zinc-950). El
  * token correcto es `--bad-fg`, que ya redefine su valor en el bloque oscuro.
  */
-.mt-task-vence.is-vencido { color: var(--bad-fg); font-weight: var(--fw-semibold); }
+.mt-task-vence.is-vencido { color: var(--bad-fg); font-weight: var(--fw-medium); }
 
 /*
  * Te asignaron la tarea y tu permiso no abre su pantalla. Se muestra igual —esconderla taparía
@@ -966,6 +966,17 @@
 /* El total de la zona no compite con el titular de pendientes: es la mitad de alto. */
 .mt-titular.is-zona { margin-bottom: var(--sp-4); }
 .mt-titular.is-zona .mt-titular-n { font-size: var(--fs-h1); font-weight: var(--fw-bold); }
+
+/*
+ * [JZ.7] El total de TODAS las zonas, cuando hay más de una. Se separa con una regla, no con un
+ * tamaño mayor: si el consolidado gritara más que las zonas, la pantalla contestaría «cuánto
+ * vendimos» cuando la pregunta del director es «cuál va mejor». Jerarquía por posición y línea.
+ */
+.mt-titular.is-zona.is-total {
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-color);
+}
+.mt-titular.is-zona.is-total .mt-titular-l { font-weight: var(--fw-medium); }
 
 .mt-grupo-sub { text-transform: none; letter-spacing: 0; }
 

@@ -7,6 +7,7 @@ import {
   type MeCanalGrupo,
   type MeZona,
   type MeZonaBloque,
+  type MeZonaConsolidado,
   type MeZonaPeriodo,
 } from '@megadulces/contracts';
 import { todayMx } from '@megadulces/platform-core';
@@ -70,6 +71,22 @@ export const RESPONSABILIDAD_CANAL: Readonly<Record<MeCanalGrupo, string>> = {
 };
 
 /**
+ * `[JZ.7]` — **La clave de dirección: todas las zonas, todos los canales.**
+ *
+ * Edgar (2026-09-17), al corregir el organigrama: *«luis francisco es dirección general y
+ * guillermo lopez es dirección comercial»*. Ninguno de los dos tenía **ninguna** responsabilidad
+ * (medido en prod: sólo **12 de ~50 puestos** tienen alguna, y toda la dirección está fuera), así
+ * que por `[SN.30]` la portada del dueño de la empresa estaba vacía.
+ *
+ * ⛔ **No se resolvió dándoles las tres claves de canal.** Ésas anclan en `identity.users.zona_id`
+ * y la ficha de los dos dice **OFICINAS**, que tiene 0 almacenes y 0 rutas: les habría publicado
+ * «la venta de OFICINAS», un cero con cara de cifra. Una clave aparte también deja decir *«el
+ * director comercial ve las zonas pero no la bandeja de finanzas»*, que con `superadmin` no se
+ * puede decir.
+ */
+export const RESPONSABILIDAD_TODAS_LAS_ZONAS = 'comercial.venta_zonas';
+
+/**
  * La pantalla que muestra el detalle de cada canal, con el permiso que la abre.
  *
  * ⛔ El permiso DEBE ser el que gatea la ruta en `app.routes.ts` — la misma regla dura que
@@ -106,6 +123,8 @@ interface CanalCrudo {
   id: string;
   label: string;
   grupo: MeCanalGrupo;
+  /** `[JZ.7]` De qué zona cuelga. Con una sola zona es constante; con dirección, agrupa. */
+  zonaId: string;
   /** Almacén (tiendas) o `route_code` (rutas). Es la llave con la que se mide. */
   clave: string;
   /** Lo que la pantalla de destino acepta como filtro. `null` en tiendas (se acota sola). */
@@ -118,9 +137,10 @@ interface Medida {
   ultima: string | null;
 }
 
-/** `null` cuando no hay nada que decir; `motivo` explica por qué (va a `no_medido`). */
+/** Vacío cuando no hay nada que decir; `motivo` explica por qué (va a `no_medido`). */
 export interface ResultadoZona {
-  zona: MeZona | null;
+  zonas: MeZona[];
+  consolidado: MeZonaConsolidado | null;
   motivo: string | null;
 }
 
@@ -175,44 +195,108 @@ export async function medirZona(
    * revés que las bandejas, éste es un bloque que NO existía — fallar abierto estrenaría una
    * pantalla nueva para 122 personas por una falla transitoria.
    */
-  const grupos = (Object.keys(RESPONSABILIDAD_CANAL) as MeCanalGrupo[]).filter((g) =>
-    responsabilidades?.has(RESPONSABILIDAD_CANAL[g]),
-  );
-  if (grupos.length === 0) return { zona: null, motivo: null };
+  const todasLasZonas = !!responsabilidades?.has(RESPONSABILIDAD_TODAS_LAS_ZONAS);
+  const grupos = todasLasZonas
+    ? (Object.keys(RESPONSABILIDAD_CANAL) as MeCanalGrupo[])
+    : (Object.keys(RESPONSABILIDAD_CANAL) as MeCanalGrupo[]).filter((g) =>
+        responsabilidades?.has(RESPONSABILIDAD_CANAL[g]),
+      );
+  if (grupos.length === 0) return { zonas: [], consolidado: null, motivo: null };
 
-  const ficha = await knex('identity.users as u')
-    .leftJoin('trade.zones as z', function () {
-      this.on('z.id', '=', 'u.zona_id').andOn('z.tenant_id', '=', 'u.tenant_id');
-    })
-    .where({ 'u.id': userId, 'u.tenant_id': tenantId })
-    .select('u.zona_id', 'z.name as zona_name')
-    .first<{ zona_id: string | null; zona_name: string | null }>();
+  /*
+   * `[JZ.7]` **Qué zonas son las tuyas.** Dirección: todas las que tienen un canal de venta —
+   * medido en prod el 2026-09-17, **6 de 9**: LA PIEDAD RD (3 almacenes + 10 rutas), CANINDO
+   * (1+5), MORELIA ABASTOS (1+0), MORELIA MADERO (1+2), YURECUARO (1+1) y ZAMORA (1+0).
+   *
+   * ⛔ Las otras tres —OFICINAS, LA PIEDAD VECINAL, ZAMORA VECINAL— **no se filtran por nombre**:
+   * caen solas porque no tienen ni un almacén ni una ruta. Son eje de PERSONAS (19, 3 y 2
+   * fichas), no de venta. Una lista negra escrita a mano se rompería con la próxima zona nueva.
+   *
+   * ⚠️ Y el conteo deja ver algo que no es mío de arreglar: **3 de esas 6 zonas no tienen jefe**
+   * (sólo hay 3 `jefe_zona`, en LA PIEDAD RD, MORELIA ABASTOS y ZAMORA). Hoy nadie responde de
+   * CANINDO, MORELIA MADERO ni YURECUARO.
+   */
+  const zonasObjetivo: { id: string; name: string }[] = [];
+  if (todasLasZonas) {
+    const filas = (await knex('trade.zones as z')
+      .where('z.tenant_id', tenantId)
+      // Agrupado a propósito: sin este `where(function)` el `orWhere` se llevaría el `tenant_id`
+      // por delante y la rama derecha leería las zonas de TODAS las tenants.
+      .where(function () {
+        this.whereExists(function () {
+          this.select(knex.raw('1'))
+            .from('commercial.warehouses as w')
+            .whereRaw('w.zone_id = z.id AND w.tenant_id = z.tenant_id AND w.deleted_at IS NULL');
+        }).orWhereExists(function () {
+          this.select(knex.raw('1'))
+            .from('analytics.v_route_zone as rz')
+            .whereRaw('rz.zone_id = z.id AND rz.tenant_id = z.tenant_id');
+        });
+      })
+      .orderBy('z.name')
+      .select('z.id', 'z.name')) as { id: string; name: string }[];
+    zonasObjetivo.push(...filas);
+    if (zonasObjetivo.length === 0) {
+      return {
+        zonas: [],
+        consolidado: null,
+        motivo: 'Respondes de la venta de todas las zonas, y ninguna tiene un canal de venta.',
+      };
+    }
+  } else {
+    const ficha = await knex('identity.users as u')
+      .leftJoin('trade.zones as z', function () {
+        this.on('z.id', '=', 'u.zona_id').andOn('z.tenant_id', '=', 'u.tenant_id');
+      })
+      .where({ 'u.id': userId, 'u.tenant_id': tenantId })
+      .select('u.zona_id', 'z.name as zona_name')
+      .first<{ zona_id: string | null; zona_name: string | null }>();
 
-  if (!ficha?.zona_id || !ficha.zona_name) {
-    return {
-      zona: null,
-      motivo: 'Respondes de la venta de tu zona, pero tu ficha no tiene zona asignada.',
-    };
+    if (!ficha?.zona_id || !ficha.zona_name) {
+      return {
+        zonas: [],
+        consolidado: null,
+        motivo: 'Respondes de la venta de tu zona, pero tu ficha no tiene zona asignada.',
+      };
+    }
+    zonasObjetivo.push({ id: ficha.zona_id, name: ficha.zona_name });
   }
+  const zonaIds = zonasObjetivo.map((z) => z.id);
 
   const hoy = todayMx();
   const nominal = ventanaComparable(hoy, periodo);
 
   // ── Los canales, de sus dos catálogos ────────────────────────────────────────────────────
   const canales: CanalCrudo[] = [];
-  const excluidos: Record<MeCanalGrupo, { label: string; motivo: string }[]> = {
-    tienda: [], ruta: [], vecinal: [],
+  /** `[JZ.7]` Por zona y por grupo: lo excluido de LA PIEDAD no es lo excluido de ZAMORA. */
+  const excluidos = new Map<string, { label: string; motivo: string }[]>();
+  const claveEx = (zonaId: string, grupo: MeCanalGrupo) => `${zonaId}|${grupo}`;
+  const excluir = (zonaId: string, grupo: MeCanalGrupo, x: { label: string; motivo: string }) => {
+    const k = claveEx(zonaId, grupo);
+    const prev = excluidos.get(k);
+    if (prev) prev.push(x);
+    else excluidos.set(k, [x]);
   };
 
   if (grupos.includes('tienda')) {
-    const tiendas = await knex('commercial.warehouses')
-      .where({ tenant_id: tenantId, zone_id: ficha.zona_id })
+    /* ⚠️ `whereIn` sobre la lista de zonas: **una** consulta para 1 zona o para 6. Repetirla por
+     * zona multiplicaría por N el costo de la portada del director sin traer nada nuevo. */
+    const tiendas = (await knex('commercial.warehouses')
+      .where('tenant_id', tenantId)
+      .whereIn('zone_id', zonaIds)
       .whereNull('deleted_at')
       .orderBy('code')
-      .select('id', 'code', 'name');
+      .select('id', 'code', 'name', 'zone_id')) as {
+      id: string; code: string; name: string; zone_id: string;
+    }[];
     for (const t of tiendas) {
       canales.push({
-        id: t.code, label: `${t.code} · ${t.name}`, grupo: 'tienda', clave: t.id, filtro: null,
+        id: t.code,
+        label: `${t.code} · ${t.name}`,
+        grupo: 'tienda',
+        zonaId: t.zone_id,
+        clave: t.id,
+        filtro: null,
       });
     }
   }
@@ -224,11 +308,13 @@ export async function medirZona(
      * catálogo: es lo que hace aparecer las vecinales y lo que disolvió las 3 claves «ambiguas».
      */
     const rutas = await knex('analytics.v_route_zone')
-      .where({ tenant_id: tenantId, zone_id: ficha.zona_id })
+      .where('tenant_id', tenantId)
+      .whereIn('zone_id', zonaIds)
       .orderBy(['tipo', 'route_code'])
-      .select('route_code', 'route_name', 'tipo', 'historica', 'parent_code');
+      .select('route_code', 'route_name', 'tipo', 'historica', 'parent_code', 'zone_id');
     for (const r of rutas as {
-      route_code: string; route_name: string; tipo: MeCanalGrupo; historica: boolean; parent_code: string;
+      route_code: string; route_name: string; tipo: MeCanalGrupo; historica: boolean;
+      parent_code: string; zone_id: string;
     }[]) {
       if (!grupos.includes(r.tipo)) continue;
       if (r.historica) {
@@ -236,7 +322,7 @@ export async function medirZona(
          * ⚠️ `VEC-PH-H` termina el 26-jun y `1V001`/`1V002` arrancan el 27: es la MISMA ruta antes
          * del corte. Sumarla con sus sucesoras duplicaría el histórico. Se declara.
          */
-        excluidos[r.tipo].push({
+        excluir(r.zone_id, r.tipo, {
           label: r.route_name,
           motivo: 'es la serie histórica de esta ruta, antes del corte: sumarla la contaría dos veces',
         });
@@ -246,6 +332,7 @@ export async function medirZona(
         id: r.route_code,
         label: r.route_name,
         grupo: r.tipo,
+        zonaId: r.zone_id,
         clave: r.route_code,
         /*
          * ⛔ El filtro que `/comercial/ventas-por-ruta` acepta es `"<sucursal>|<route_code>"`
@@ -413,12 +500,16 @@ export async function medirZona(
 
   // ── Armado ───────────────────────────────────────────────────────────────────────────────
   const permisos = ctx.permisos ?? {};
+  const zonasMedidas: MeZona[] = [];
+
+  for (const zona of zonasObjetivo) {
   const bloques: MeZonaBloque[] = [];
 
   for (const grupo of grupos) {
-    const filasCrudas = canales.filter((c) => c.grupo === grupo);
+    const filasCrudas = canales.filter((c) => c.grupo === grupo && c.zonaId === zona.id);
+    const fueraDeBloque = excluidos.get(claveEx(zona.id, grupo)) ?? [];
     // Un bloque sin canales NI excluidos no se pinta: no hay nada que decir de él.
-    if (filasCrudas.length === 0 && excluidos[grupo].length === 0) continue;
+    if (filasCrudas.length === 0 && fueraDeBloque.length === 0) continue;
 
     const d = DESTINO[grupo];
     const abre = ctx.esAdmin || permisos[d.permiso] === true;
@@ -460,7 +551,7 @@ export async function medirZona(
       no_comparado: s.no_comparado,
       peso: null,
       canales: filas.sort(ordenCanal),
-      excluidos: excluidos[grupo],
+      excluidos: fueraDeBloque,
     });
   }
 
@@ -488,24 +579,57 @@ export async function medirZona(
   // El canal de más peso primero; lo no medido, al final. Empate → el orden declarado.
   bloques.sort((a, b) => (b.monto ?? -1) - (a.monto ?? -1) || ORDEN_GRUPO[a.grupo] - ORDEN_GRUPO[b.grupo]);
 
-  return {
-    zona: {
-      zona: ficha.zona_name,
-      periodo,
-      corte,
-      incluye_dia_en_curso: v.incluye_dia_en_curso,
-      desde: v.desde,
-      hasta: v.hasta,
-      desde_comparado: v.desde_comparado,
-      hasta_comparado: v.hasta_comparado,
-      monto,
-      comparado,
-      variacion_pct: variacionPct(monto, comparado),
-      no_comparado,
-      bloques,
-    },
-    motivo: null,
-  };
+  // Una zona sin un solo bloque no se pinta (dirección: una zona que perdió sus canales).
+  if (bloques.length === 0) continue;
+
+  zonasMedidas.push({
+    zona: zona.name,
+    periodo,
+    corte,
+    incluye_dia_en_curso: v.incluye_dia_en_curso,
+    desde: v.desde,
+    hasta: v.hasta,
+    desde_comparado: v.desde_comparado,
+    hasta_comparado: v.hasta_comparado,
+    monto,
+    comparado,
+    variacion_pct: variacionPct(monto, comparado),
+    no_comparado,
+    bloques,
+  });
+  }
+
+  // La que más vende primero; la que no se pudo medir, al final. Igual criterio que los canales.
+  zonasMedidas.sort((a, b) => (b.monto ?? -1) - (a.monto ?? -1) || a.zona.localeCompare(b.zona));
+
+  /*
+   * `[JZ.7]` El consolidado hereda el MISMO pareo que ya se aplica dos niveles más abajo (canal
+   * dentro de bloque, bloque dentro de zona): una zona entra en los dos lados o en ninguno. Sin
+   * esto, el total de la empresa repetiría el −42.2 % de ZAMORA a escala de compañía.
+   *
+   * `null` con una sola zona: repetir el único bloque como «total» sólo agrega ruido.
+   */
+  let consolidado: MeZonaConsolidado | null = null;
+  if (zonasMedidas.length > 1) {
+    const dentro = zonasMedidas.filter((z) => z.monto !== null);
+    const fuera = zonasMedidas.filter((z) => z.monto === null && z.comparado !== null);
+    const tot = sumaMedida(dentro.map((z) => z.monto));
+    const totPrev = dentro.length === 0 ? null : sumaMedida(dentro.map((z) => z.comparado));
+    consolidado = {
+      zonas: zonasMedidas.length,
+      monto: tot,
+      comparado: totPrev,
+      variacion_pct: variacionPct(tot, totPrev),
+      no_comparado: fuera.length
+        ? {
+            canales: fuera.length,
+            monto_anterior: fuera.reduce((a, z) => a + (z.comparado ?? 0), 0),
+          }
+        : null,
+    };
+  }
+
+  return { zonas: zonasMedidas, consolidado, motivo: null };
 }
 
 /** Lo que no se pudo medir va al final: una fila sin cifra no compite con una que sí la tiene. */

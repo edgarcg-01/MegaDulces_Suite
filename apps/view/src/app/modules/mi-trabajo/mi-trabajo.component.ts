@@ -576,17 +576,34 @@ export class MiTrabajoComponent {
    * fila, no desaparecer el bloque entero. Un bloque que se queda sin filas por el filtro no se
    * pinta — igual que una bandeja en 0 (regla 4 de `me-work.ts`).
    */
-  readonly zona = computed<MeZona | null>(() => {
-    const t = this.trabajo();
-    const z = t.status === 'ok' ? t.data.zona ?? null : null;
-    if (!z || !this.buscando()) return z;
-    const bloques = z.bloques
-      .map((b) => ({
-        ...b,
-        canales: b.canales.filter((c) => this.casa(normalizar(`${c.label} ${c.detalle}`))),
+  readonly zonas = computed<MeZona[]>(() => {
+    const todas = this.zonasCrudas();
+    if (!this.buscando()) return todas;
+    /* `[JZ.7]` El filtro baja hasta el canal y sube vaciando: un bloque sin filas no se pinta, y
+     * una zona sin bloques tampoco. Con una sola zona se comporta igual que antes. */
+    return todas
+      .map((z) => ({
+        ...z,
+        bloques: z.bloques
+          .map((b) => ({
+            ...b,
+            canales: b.canales.filter((c) => this.casa(normalizar(`${c.label} ${c.detalle}`))),
+          }))
+          .filter((b) => b.canales.length > 0),
       }))
-      .filter((b) => b.canales.length > 0);
-    return bloques.length ? { ...z, bloques } : null;
+      .filter((z) => z.bloques.length > 0);
+  });
+
+  /**
+   * `[JZ.7]` El total de todas las zonas, sobre un mismo tramo. `null` con una sola.
+   *
+   * ⛔ NO se recalcula desde `zonas()`: el buscador filtra canales, y un total que cambia al
+   * escribir en la caja de búsqueda sería un número distinto con el mismo nombre. Viene del
+   * backend, que es quien pareó los dos lados.
+   */
+  readonly consolidado = computed(() => {
+    const t = this.trabajo();
+    return t.status === 'ok' ? t.data.consolidado ?? null : null;
   });
 
   /**
@@ -1125,16 +1142,18 @@ export class MiTrabajoComponent {
    * que no existe. Lo que las rutas tienen es el refresco manual y la recarga de la pantalla.
    */
   private readonly sucursalesDeMiZona = computed<ReadonlySet<string>>(() => {
-    const z = this.zonaCruda();
-    if (!z) return new Set();
-    const tiendas = z.bloques.find((b) => b.grupo === 'tienda');
-    return new Set((tiendas?.canales ?? []).map((c) => c.id));
+    const codigos = new Set<string>();
+    for (const z of this.zonasCrudas()) {
+      const tiendas = z.bloques.find((b) => b.grupo === 'tienda');
+      for (const c of tiendas?.canales ?? []) codigos.add(c.id);
+    }
+    return codigos;
   });
 
-  /** La zona SIN el filtro del buscador: para escuchar el socket no importa qué esté buscando. */
-  private readonly zonaCruda = computed<MeZona | null>(() => {
+  /** Las zonas SIN el filtro del buscador: para escuchar el socket no importa qué esté buscando. */
+  private readonly zonasCrudas = computed<MeZona[]>(() => {
     const t = this.trabajo();
-    return t.status === 'ok' ? t.data.zona ?? null : null;
+    return t.status === 'ok' ? t.data.zonas ?? [] : [];
   });
 
   /**
@@ -1152,7 +1171,10 @@ export class MiTrabajoComponent {
         next: (r) => {
           const t = this.trabajo();
           if (t.status !== 'ok') return;
-          this.trabajo.set({ status: 'ok', data: { ...t.data, zona: r.zona } });
+          this.trabajo.set({
+            status: 'ok',
+            data: { ...t.data, zonas: r.zonas, consolidado: r.consolidado },
+          });
           this.zonaMedidaAt.set(r.medido_at);
         },
         error: () => {

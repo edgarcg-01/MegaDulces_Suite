@@ -88,14 +88,29 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
         .where('responsibility_key', 'like', 'comercial.venta%')
         .distinct('position_code');
     })
-    .select('u.id', 'u.username', 'u.nombre', 'u.tenant_id', 'u.role_name', 'rp.permissions');
+    .select('u.id', 'u.username', 'u.nombre', 'u.tenant_id', 'u.role_name', 'u.position_code', 'rp.permissions');
 
   console.log(`\n[JZ.3] ${jefes.length} persona(s) con reparto de venta por zona\n`);
 
   const PERIODO = ['dia', 'semana', 'mes'].includes(process.argv[2]) ? process.argv[2] : 'mes';
-  const claves = await knex('identity.responsibilities')
-    .where('key', 'like', 'comercial.venta%')
-    .pluck('key');
+  /*
+   * ⛔ `[JZ.7]` Las claves REALES de cada puesto, no el catálogo entero.
+   *
+   * Hasta acá el reporte le pasaba a todo el mundo `new Set(<todas las claves comercial.venta%>)`,
+   * lo cual era inofensivo mientras las tres claves fueran del mismo puesto. Con
+   * `comercial.venta_zonas` deja de serlo: le daría a cada jefe de zona la vista de dirección y el
+   * reporte publicaría 6 zonas para quien sólo responde de una. Un arnés que le presta permisos al
+   * sujeto no mide al sujeto.
+   */
+  const reparto = new Map();
+  for (const f of await knex('identity.position_responsibilities')
+    .whereNull('deleted_at')
+    .where('responsibility_key', 'like', 'comercial.venta%')
+    .select('position_code', 'responsibility_key')) {
+    const prev = reparto.get(f.position_code);
+    if (prev) prev.add(f.responsibility_key);
+    else reparto.set(f.position_code, new Set([f.responsibility_key]));
+  }
   let vacias = 0;
   let enlacesRotos = 0;
 
@@ -123,7 +138,7 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
       {
         tenantId: j.tenant_id,
         userId: j.id,
-        responsabilidades: new Set(claves),
+        responsabilidades: reparto.get(j.position_code) ?? new Set(),
         permisos: j.permissions || {},
         esAdmin: false, // a propósito: se mide el permiso REAL, no el god-mode
       },
@@ -131,13 +146,31 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
     );
 
     console.log('═'.repeat(78));
-    console.log(`${j.nombre || j.username}  ·  ${j.role_name}`);
-    if (!r.zona) {
+    console.log(`${j.nombre || j.username}  ·  ${j.role_name}  ·  puesto ${j.position_code}`);
+    if (r.zonas.length === 0) {
       console.log(`  ⓘ sin bloque — ${r.motivo || 'no responde de ningún canal'}`);
       vacias++;
       continue;
     }
-    const z = r.zona;
+    /*
+     * `[JZ.7]` El total de TODAS las zonas, sobre un solo tramo. Sólo aparece con más de una: es
+     * lo que ve la dirección. Un jefe de zona sigue viendo exactamente lo de antes.
+     */
+    if (r.consolidado) {
+      const k = r.consolidado;
+      console.log(
+        `  ⭐ CONSOLIDADO de ${k.zonas} zonas: ${mdp(k.monto)}  ${pct(k.variacion_pct)}  (contra ${mdp(k.comparado)})`,
+      );
+      if (k.no_comparado) {
+        console.log(
+          `     ⚠ ${k.no_comparado.canales} zona(s) sin dato en el tramo ` +
+            `(${mdp(k.no_comparado.monto_anterior)} en el anterior) FUERA de la comparación`,
+        );
+      }
+      console.log('');
+    }
+    let medibles = 0;
+    for (const z of r.zonas) {
     console.log(`  ${z.zona}  ·  [${z.periodo}]  ${z.desde}…${z.hasta}  contra  ${z.desde_comparado}…${z.hasta_comparado}`);
     /*
      * ⛔ El recorte por frescura. Sin esta linea, MORELIA ABASTOS publicaba −26.1 % siendo
@@ -163,7 +196,6 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
     }
     console.log('');
 
-    let medibles = 0;
     for (const b of z.bloques) {
       const peso = b.peso === null ? '' : ` · ${(b.peso * 100).toFixed(0)}% de la zona`;
       console.log(`  ── ${b.label}  ${mdp(b.monto)}  ${pct(b.variacion_pct)}${peso}`);
@@ -184,10 +216,70 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
       for (const x of b.excluidos) console.log(`     ⛔ ${x.label} — ${x.motivo}`);
     }
     console.log('');
+    }
     if (medibles === 0) {
       console.log('  ⛔ NINGÚN canal medible: esta persona vería una portada vacía.\n');
       vacias++;
     }
+  }
+
+  /*
+   * `[JZ.7]` **Lo que va a ver la dirección, ANTES de moverle el puesto a nadie.**
+   *
+   * Es una SIMULACIÓN y se rotula como tal: corre la `medirZona` de producción con la clave
+   * `comercial.venta_zonas` en la mano, contra los datos reales. Existe porque los dos puestos de
+   * dirección están HOY vacíos (`superuser` y `guillermo_lopez` están fichados en `sistemas`), así
+   * que la migración reparte la clave y no la recibe nadie: sin esto, la primera vez que alguien
+   * viera el bloque sería en producción, con el director mirando.
+   *
+   * ⛔ El sujeto es un usuario REAL (el primero de la tenant) sólo para que `medirZona` tenga un
+   * `userId` válido: con esta clave la zona NO sale de su ficha, así que cuál sea da igual.
+   */
+  const tenant = jefes[0] && jefes[0].tenant_id;
+  if (tenant) {
+    const alguien = await knex('identity.users').where({ tenant_id: tenant }).first('id');
+    const d = await meZona.medirZona(
+      knex,
+      {
+        tenantId: tenant,
+        userId: alguien.id,
+        responsabilidades: new Set(['comercial.venta_zonas']),
+        permisos: {},
+        esAdmin: true, // dirección abre las dos pantallas de destino
+      },
+      PERIODO,
+    );
+    console.log('═'.repeat(78));
+    console.log('SIMULACIÓN — lo que verá DIRECCIÓN con comercial.venta_zonas (hoy nadie la tiene)');
+    if (d.consolidado) {
+      const k = d.consolidado;
+      console.log(
+        `  ⭐ ${k.zonas} zonas: ${mdp(k.monto)}  ${pct(k.variacion_pct)}  (contra ${mdp(k.comparado)})`,
+      );
+      if (k.no_comparado) {
+        console.log(
+          `     ⚠ ${k.no_comparado.canales} zona(s) fuera de la comparación ` +
+            `(${mdp(k.no_comparado.monto_anterior)} en el tramo anterior)`,
+        );
+      }
+    } else {
+      console.log(`  ⛔ sin consolidado — ${d.motivo || `${d.zonas.length} zona(s)`}`);
+    }
+    for (const z of d.zonas) {
+      const corte = z.corte ? `  ⛔ recortado al ${z.hasta} por ${z.corte.fuentes.join(', ')}` : '';
+      console.log(
+        `     ${z.zona.padEnd(20)} ${mdp(z.monto).padStart(11)} ${pct(z.variacion_pct).padStart(10)}` +
+          `   ${z.bloques.length} bloque(s)${corte}`,
+      );
+    }
+    /* ⛔ Todas las zonas tienen que compartir el tramo: si no, el total suma tramos distintos. */
+    const tramos = new Set(d.zonas.map((z) => `${z.desde}…${z.hasta}`));
+    console.log(
+      tramos.size <= 1
+        ? `  ✔ las ${d.zonas.length} zonas comparten el tramo ${[...tramos][0] || '—'}`
+        : `  ⛔ TRAMOS DISTINTOS entre zonas (${[...tramos].join(' | ')}): el total suma peras con manzanas`,
+    );
+    if (tramos.size > 1) enlacesRotos++;
   }
 
   console.log('═'.repeat(78));
