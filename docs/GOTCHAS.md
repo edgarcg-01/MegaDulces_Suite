@@ -2629,3 +2629,65 @@ sesión sin SSH/RDP a las máquinas on-prem que corren el shipper.
 No se reinició nada desde acá — ni acceso a los hosts, ni sentido:
 mismo criterio que §35/§39, reiniciar a mano sin entender la causa real
 sólo esconde el síntoma hasta la próxima vez.
+
+## 53. En Windows, la CAJA de la letra de unidad decide si Angular compila tus tests
+
+**Síntoma:** la misma suite, el mismo comando, dos resultados.
+
+```
+npx vitest run   (parado en apps/view) → RUN v4.1.11 C:/Users/…/apps/view →   6 fallas · 0 avisos
+npx nx test view                       → RUN v4.1.11 c:/Users/…/apps/view → 125 fallas · 32 avisos
+```
+
+El aviso que salía era éste, 32 veces:
+
+```
+[@analogjs/vite-plugin-angular]: "…/label.component.ts" contains Angular decorators
+but is not in the TypeScript program. Ensure it is included in your tsconfig.
+```
+
+**Y el tsconfig estaba bien.** Se midió: `readConfiguration()` devolvía **495 rootNames**, con
+esos archivos adentro. Lo que fallaba era la BÚSQUEDA, no el programa: Node hereda de
+`process.cwd()` la caja de la letra de unidad, Nx lanza el comando con `c:` minúscula, Vite
+normaliza los ids de módulo contra esa raíz, y el compilador de Angular indexa con la ruta que le
+devuelve TypeScript (`C:` mayúscula). Dos cadenas que apuntan al mismo archivo y no son iguales.
+
+**Fix:** `raizCanonica()` en [`vitest.shared.ts`](../vitest.shared.ts) — se fuerza la mayúscula
+antes de dársela a Vite y al plugin.
+
+⚠️ **Lo caro no fue el bug, fue la pista falsa.** Las primeras mediciones decían, de forma
+perfectamente consistente, que el problema era el paralelismo: serializado pasaba, en paralelo
+fallaba, y hasta había una explicación creíble (la compilación de Angular es un estado compartido).
+Era casualidad: **todas** las corridas directas eran en mayúscula y **todas** las de Nx en
+minúscula. La variable verdadera estaba pegada a la falsa. Se destrabó recién al cruzar las dos en
+una tabla de cuatro celdas; probando una sola variable, la respuesta equivocada se confirmaba las
+veces que quisieras.
+
+Cuando "A falla y B pasa" tenga una explicación demasiado redonda, buscá qué OTRA cosa cambió junto
+con A y B antes de creerle.
+
+## 54. Un signo de menor en un comentario CSS también rompe el archivo (hermano del §34)
+
+§34 dice que un backtick en un comentario de `styles:` parte el template literal. Hay un segundo
+carácter con el mismo efecto y otro camino: el **signo de menor**.
+
+Angular, al inlinear un bloque de CSS, escapa ese signo a su forma CSS (barra, `3`, `c`) para que
+no cierre una etiqueta de estilos en el HTML. Ese texto termina dentro de una cadena de JavaScript,
+donde `\3` es un **escape octal heredado — prohibido en módulos ESM**. Resultado:
+
+```
+RollupError: Parse failure: Legacy octal escape is not permitted in strict mode
+At file: virtual:angular:jit:style:inline;51fb13ac2f5252d0:156:56
+```
+
+El archivo señalado es **virtual**, y el mensaje habla de octales: nada apunta a que escribiste
+"un elemento de estilos" con los signos literales en un comentario.
+
+Vivido el 2026-09-17 en `tienda-etiquetas.component.ts` (`[NX.3]`): la suite entera de esa pantalla
+—7 pruebas— no cargaba. **Con jest no pasaba**, porque ts-jest nunca hace pasar el CSS por un
+parser de JavaScript; apareció al migrar a Vitest. Y se pisó DOS veces: la primera al escribir el
+comentario que documentaba el fix, que traía el mismo signo y además backticks.
+
+**Regla:** dentro de `template:` y del arreglo de `styles:` — ni backticks, ni signos de menor o
+mayor, tampoco en comentarios. Nombrá los elementos en prosa ("el elemento body", "un elemento de
+estilos"). En los JSDoc de la clase, fuera del decorador, no hay problema.
