@@ -159,7 +159,18 @@ importers.
   atribución explícita (spec §9/§14 #12): es un sub-módulo propio, no se improvisó; (b) **«Tu trabajo»/alertas/
   hallazgos** (spec §11): debe **reusar** la bandeja existente (SN/OR + `finance.findings`), NO crear cola
   paralela; (c) parsing de archivo CSV/XLSX (el motor de import toma filas estructuradas; el archivo es UI/follow-up).
-  **Pendiente:** UI + verificación HTTP (ADR-044).
+  **Pendiente:** UI + verificación HTTP (ADR-044). **(a) Marketing → construido en PU.5.**
+- [~] **[PU.5]** 🔨 Marketing (catálogo de campañas, spec §9/§6/§10). **Backend ✅ y verificado (DB-direct):**
+  `BudgetCampaignsService` + mig `20260917160000` (`budget.campaigns` + `campaign_contributions` RLS forzado +
+  `budget_lines.campaign_id`). La campaña es una **dimensión sobre las partidas** (reusa el ledger PU.1): costo =
+  ejercido de las partidas etiquetadas. **Evaluación honesta (respeta las 3 advertencias del spec §9/§10):**
+  (1) ventas vinculadas por **ventana** con **atribución DECLARADA** (no prueba efecto incremental); (2) **retorno
+  solo con `margen_incremental` explícito** (no se infiere de ventas); (3) aportaciones de proveedor **separadas**,
+  la **incierta NO reduce** el gasto (solo confirmada/aplicada); (4) `descuento_comercial` → **warning** de no
+  doble-contar (ya está en ventas netas). Intensidad gasto/ventas (§10, no ROI). Endpoints `/campaigns` (CRUD +
+  status + `/lines` link + `/contributions` + `/evaluate`), reusa `PRESUPUESTOS_VER/GESTIONAR`. Smoke
+  `test-newdb-budget-campaigns.js` **12/12**. Lint 0 errores. Mig aplicada a dev.
+  **Pendiente:** UI + verificación HTTP (ADR-044). Queda como deuda de PU.4: «Tu trabajo»/hallazgos (reusar bandeja).
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
