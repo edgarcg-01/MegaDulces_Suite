@@ -3,7 +3,7 @@ import { Router, Routes } from '@angular/router';
 import { LoginComponent } from './modules/auth/login/login.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -893,15 +893,6 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
-        // Fase SU (ADR-067) — Surtido por olas. UNA pantalla para UNA persona: arma el
-        // recorrido, lo camina y lo cierra. Va dentro del shell (no es handheld puro como
-        // inventory/count): en el paso 1 hace falta ver muchos pedidos de un golpe, y el
-        // paso 2 ya es mobile-first dentro de la misma vista.
-        path: 'surtido',
-        loadComponent: () => import('./modules/almacen/pages/almacen-surtido.component').then(m => m.AlmacenSurtidoComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)]
-      },
-      {
         // WMS-REC Pieza 3 (ADR-044) — Ubicaciones bin-level (auxiliar + put-away + FEFO)
         path: 'inventory/ubicaciones',
         loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones.component').then(m => m.AlmacenUbicacionesComponent),
@@ -1395,26 +1386,43 @@ export const routes: Routes = [
     canActivate: [repartoGuard],
     component: LayoutComponent,
     children: [
-      { path: '', redirectTo: 'asignar', pathMatch: 'full' },
+      // `[SU.2.1]` El índice ya no manda fijo a 'asignar': quien sólo tiene Surtido rebotaría.
+      { path: '', canActivate: [repartoHomeGuard], children: [] },
+      // ⚠️ Las 4 pantallas de a domicilio ganan su `permissionGuard`. No lo tenían porque el
+      // guard del proyecto exigía REPARTO_DESPACHAR para todo `/reparto` y hacía de control
+      // único; al abrir la puerta para Surtido, sin esto alguien con COMMERCIAL_PICKING_VER
+      // entraría a los cortes del repartidor.
       {
         path: 'asignar',
         loadComponent: () =>
           import('./modules/reparto/pages/home-delivery-dispatch.component').then((m) => m.HomeDeliveryDispatchComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
       },
       {
         path: 'pedidos-whatsapp',
         loadComponent: () =>
           import('./modules/reparto/pages/whatsapp-orders.component').then((m) => m.WhatsAppOrdersComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
       },
       {
         path: 'seguimiento',
         loadComponent: () =>
           import('./modules/reparto/pages/home-delivery-tracking.component').then((m) => m.HomeDeliveryTrackingComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
       },
       {
         path: 'cortes',
         loadComponent: () =>
           import('./modules/reparto/pages/rider-liquidation.component').then((m) => m.RiderLiquidationComponent),
+        canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
+      },
+      {
+        // Fase SU (ADR-067) — Surtido: UNA pantalla para UNA persona (arma el recorrido, lo
+        // camina, lo cierra). Vive en Reparto porque prepara lo que se reparte.
+        path: 'surtido',
+        loadComponent: () =>
+          import('./modules/reparto/pages/reparto-surtido.component').then((m) => m.RepartoSurtidoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)],
       },
     ],
   },

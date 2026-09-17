@@ -106,7 +106,7 @@ const wavesCreadas = [];
     if (draft.body?.id) ordersCreados.push(draft.body.id);
 
     console.log('── 3. El pool muestra lo confirmado y sin ola ──');
-    const pool1 = await req('GET', `/almacen/surtido/pool?warehouse_id=${wh.id}`, null, token);
+    const pool1 = await req('GET', `/reparto/surtido/pool?warehouse_id=${wh.id}`, null, token);
     check('pool 200', pool1.status === 200, pool1.status);
     const idsPool = (pool1.body?.data || []).map((r) => r.id);
     check('el pedido 1 está en el pool', idsPool.includes(o1.id));
@@ -121,7 +121,7 @@ const wavesCreadas = [];
     const stockAntes = await knex('commercial.stock').where({ tenant_id: T, warehouse_id: wh.id, product_id: prods[0].id }).first();
 
     console.log('── 5. Armar la ola ──');
-    const ola = await req('POST', '/almacen/surtido/waves', { warehouse_id: wh.id, delivery_date: manana(), order_ids: [o1.id, o2.id] }, token);
+    const ola = await req('POST', '/reparto/surtido/waves', { warehouse_id: wh.id, delivery_date: manana(), order_ids: [o1.id, o2.id] }, token);
     check('crear ola 200/201', ola.status < 300, { status: ola.status, body: ola.body });
     const waveId = ola.body?.id;
     if (waveId) wavesCreadas.push(waveId);
@@ -129,13 +129,13 @@ const wavesCreadas = [];
     check('la ola tiene 2 pedidos', ola.body?.orders_count === 2, ola.body?.orders_count);
 
     console.log('── 6. ⭐ Los pedidos SALEN del pool ──');
-    const pool2 = await req('GET', `/almacen/surtido/pool?warehouse_id=${wh.id}`, null, token);
+    const pool2 = await req('GET', `/reparto/surtido/pool?warehouse_id=${wh.id}`, null, token);
     const idsPool2 = (pool2.body?.data || []).map((r) => r.id);
     check('el pedido 1 ya no está en el pool', !idsPool2.includes(o1.id));
     check('el pedido 2 ya no está en el pool', !idsPool2.includes(o2.id));
 
     console.log('── 7. ⭐⭐ Consolidado por SKU: suma, unidad y desglose ──');
-    const det = await req('GET', `/almacen/surtido/waves/${waveId}`, null, token);
+    const det = await req('GET', `/reparto/surtido/waves/${waveId}`, null, token);
     check('detalle 200', det.status === 200, det.status);
     const cons = det.body?.consolidated || [];
     const compartido = cons.find((c) => c.product_id === prods[0].id);
@@ -155,7 +155,7 @@ const wavesCreadas = [];
       .whereIn('order_id', [o1.id, o2.id]).andWhere('product_id', prods[0].id).select('id', 'order_id');
     if (filas.length === 2) {
       await knex('commercial.order_lines').where({ id: filas[0].id }).update({ qty_unit: 'CJA', qty_factor: 1, qty_factor_source: 'test' });
-      const det2 = await req('GET', `/almacen/surtido/waves/${waveId}`, null, token);
+      const det2 = await req('GET', `/reparto/surtido/waves/${waveId}`, null, token);
       const mix = (det2.body?.consolidated || []).find((c) => c.product_id === prods[0].id);
       check('con dos unidades distintas se marca unidad_mixta', mix?.unidad_mixta === true, mix?.unidades_capturadas);
       check('y NO se publica una unidad común inventada', mix?.qty_unit === null, mix?.qty_unit);
@@ -166,7 +166,7 @@ const wavesCreadas = [];
     }
 
     console.log('── 9. Un pedido no entra a DOS olas vivas, y el rechazo lo nombra ──');
-    const dup = await req('POST', '/almacen/surtido/waves', { warehouse_id: wh.id, order_ids: [o1.id] }, token);
+    const dup = await req('POST', '/reparto/surtido/waves', { warehouse_id: wh.id, order_ids: [o1.id] }, token);
     check('segunda ola con el mismo pedido → 409', dup.status === 409, { status: dup.status, body: dup.body });
     check('el mensaje NOMBRA el folio del pedido', String(dup.body?.message || '').includes(o1.code), dup.body?.message);
 
@@ -180,21 +180,21 @@ const wavesCreadas = [];
     console.log('── 11. PRUEBA NEGATIVA: otro almacén se rechaza ──');
     const otroWh = await knex('commercial.warehouses').where({ tenant_id: T }).whereNot({ id: wh.id }).first();
     if (otroWh) {
-      const malo = await req('POST', '/almacen/surtido/waves', { warehouse_id: otroWh.id, order_ids: [o2.id] }, token);
+      const malo = await req('POST', '/reparto/surtido/waves', { warehouse_id: otroWh.id, order_ids: [o2.id] }, token);
       check('pedido de otro almacén → 409', malo.status === 409, { status: malo.status, body: malo.body });
     } else {
       nomedido('alcance por almacén', 'no hay un segundo almacén en esta base');
     }
 
     console.log('── 12. ⭐ Cancelar la ola DEVUELVE los pedidos al pool ──');
-    const canc = await req('POST', `/almacen/surtido/waves/${waveId}/cancel`, { reason: 'prueba' }, token);
+    const canc = await req('POST', `/reparto/surtido/waves/${waveId}/cancel`, { reason: 'prueba' }, token);
     check('cancelar 200/201', canc.status < 300, canc.status);
     check('la ola queda cancelada', canc.body?.status === 'cancelada', canc.body?.status);
-    const pool3 = await req('GET', `/almacen/surtido/pool?warehouse_id=${wh.id}`, null, token);
+    const pool3 = await req('GET', `/reparto/surtido/pool?warehouse_id=${wh.id}`, null, token);
     const idsPool3 = (pool3.body?.data || []).map((r) => r.id);
     check('el pedido 1 volvió al pool', idsPool3.includes(o1.id));
     check('el pedido 2 volvió al pool', idsPool3.includes(o2.id));
-    const reOla = await req('POST', '/almacen/surtido/waves', { warehouse_id: wh.id, order_ids: [o1.id] }, token);
+    const reOla = await req('POST', '/reparto/surtido/waves', { warehouse_id: wh.id, order_ids: [o1.id] }, token);
     check('y puede entrar a una ola NUEVA (no quedó preso)', reOla.status < 300, { status: reOla.status, body: reOla.body });
     if (reOla.body?.id) wavesCreadas.push(reOla.body.id);
 

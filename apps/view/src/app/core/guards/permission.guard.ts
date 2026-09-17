@@ -203,6 +203,21 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
 /** Landing de `/almacen`. */
 export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(ALMACEN_LANDING, '/almacen/inventory');
 
+/**
+ * `[SU.2.1]` Landing de `/reparto`. El índice mandaba fijo a `asignar`, que exige
+ * `REPARTO_DESPACHAR`: al sumarse **Surtido** (Fase SU) con su propio permiso, quien sólo tiene
+ * ése habría rebotado a `/projects` sin ver nunca su pantalla. Medido: `almacenista` tiene
+ * `REPARTO_DESPACHAR` en **false explícito**.
+ */
+export const REPARTO_LANDING: LandingCandidate[] = withTreeCandidates('reparto', [
+  { perm: Permission.REPARTO_DESPACHAR, url: '/reparto/asignar' },
+  { perm: Permission.COMMERCIAL_PICKING_VER, url: '/reparto/surtido' },
+]);
+
+/** Landing de `/reparto`. El fallback es Surtido: es la única pantalla del proyecto que hoy
+ *  alcanza el piso de almacén, y mandar a `asignar` a quien no puede abrirlo es el rebote. */
+export const repartoHomeGuard: CanActivateFn = landingRedirectGuard(REPARTO_LANDING, '/reparto/asignar');
+
 export const COMPRAS_LANDING: LandingCandidate[] = withTreeCandidates('compras', [
   { perm: Permission.COMPRAS_PEDIDO_VER, url: '/compras/pedido' },
   // Acá va DESPUÉS de Pedido a propósito: el trabajo del comprador empieza en el pedido, y

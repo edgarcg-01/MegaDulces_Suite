@@ -11,13 +11,14 @@ import { CreateWaveDto, PickingService } from './picking.service';
 /**
  * SU.2 — Pool de pedidos por surtir y olas de surtido (Fase SU, ADR-067).
  *
- * Vive bajo `almacen/` y no bajo `commercial/` a propósito: el pool y la ola son trabajo de piso.
- * El pedido —su estado comercial, su precio, su cliente— sigue siendo de `commercial/orders`.
+ * Vive bajo `reparto/` y no bajo `commercial/` a propósito: el pool y la ola son trabajo de piso
+ * —preparar lo que sale a repartir—, no de venta. El pedido (su estado comercial, su precio, su
+ * cliente) sigue siendo de `commercial/orders`.
  */
-@ApiTags('almacen-surtido')
+@ApiTags('reparto-surtido')
 @ApiBearerAuth()
 @UseGuards(RequireAuthGuard, RolesGuard)
-@Controller('almacen/surtido')
+@Controller('reparto/surtido')
 export class PickingController {
   constructor(private readonly service: PickingService) {}
 
