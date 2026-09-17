@@ -465,8 +465,18 @@ export interface MeCanal {
   sin_acceso: string | null;
 }
 
-/** `[JZ.3]` Los dos canales por los que vende una zona. Son pantallas distintas, no una vista. */
-export type MeCanalGrupo = 'tienda' | 'ruta';
+/**
+ * `[JZ.3]`/`[JZ.6]` Los canales por los que vende una zona.
+ *
+ * ⭐ `vecinal` entró por pedido de Edgar (*«hay que mostrar vecinal aparte»*) y es un canal, no
+ * una zona: las rutas vecinales cuelgan de la sucursal MADRE, así que viven dentro de la misma
+ * zona que las tiendas. Las zonas `LA PIEDAD VECINAL` / `ZAMORA VECINAL` de `trade.zones` son eje
+ * de PERSONAS —5 vendedores tienen su ficha ahí— y no tienen un solo almacén.
+ *
+ * Hasta `[JZ.6]` no aparecían en ninguna parte: no tienen almacén `RUTA-*` propio, así que
+ * `[JZ.2]` las declaraba `sin_almacen`. Son **$944,740 en LA PIEDAD** del 1 al 16 de septiembre.
+ */
+export type MeCanalGrupo = 'tienda' | 'ruta' | 'vecinal';
 
 /**
  * `[JZ.3]` — Un canal agrupado: sus filas, su subtotal, y **lo que quedó fuera de la suma**.
@@ -625,19 +635,38 @@ function diasEntre(a: string, b: string): number {
  *
  * @param hoy Fecha en hora de México (`'YYYY-MM-DD'`), tal como la devuelve `todayMx()`.
  */
-export function ventanaComparable(hoy: string, periodo: MeZonaPeriodo = 'mes'): VentanaComparable {
+export function ventanaComparable(
+  hoy: string,
+  periodo: MeZonaPeriodo = 'mes',
+  hastaDato: string | null = null,
+): VentanaComparable {
   const pad = (n: number) => String(n).padStart(2, '0');
-
   const ayer = masDias(hoy, -1);
+  /*
+   * `[JZ.6]` **El ancla: el último día CERRADO que además tiene dato.**
+   *
+   * ⛔ Antes esto era un recorte aplicado DESPUÉS de armar la ventana, y con `dia` se rompía: el
+   * tramo era el 16-sep, la venta por ruta había entregado hasta el 15, y como la fuente «no
+   * entregó nada del tramo» se la leía como MUERTA en vez de atrasada — los 9 canales de ruta de
+   * LA PIEDAD salieron «sin medir» por un día de rezago. Resolver el ancla ANTES lo arregla para
+   * los tres granos a la vez, y de paso conserva la alineación por día de la semana: si el tramo
+   * de un día se corre del martes al lunes, su comparador se corre con él.
+   *
+   * ⚠️ `hastaDato` sólo puede ACORTAR. Las dos fuentes tienen filas fechadas en el FUTURO
+   * (`sales_daily` 4 del 6-dic-2026; la ruta 22 llega al 6-dic), y una fuente adelantada no puede
+   * estirar el tramo hasta ahí.
+   */
+  const tope = (d: string) => (hastaDato && hastaDato < d ? hastaDato : d);
 
   if (periodo === 'dia') {
-    // El último día CERRADO, y contra el mismo día de la semana: martes contra martes.
+    // El último día CERRADO con dato, y contra el mismo día de la semana: martes contra martes.
+    const dia = tope(ayer);
     return {
       periodo,
-      desde: ayer,
-      hasta: ayer,
-      desde_comparado: masDias(ayer, -7),
-      hasta_comparado: masDias(ayer, -7),
+      desde: dia,
+      hasta: dia,
+      desde_comparado: masDias(dia, -7),
+      hasta_comparado: masDias(dia, -7),
       incluye_dia_en_curso: false,
     };
   }
@@ -650,59 +679,39 @@ export function ventanaComparable(hoy: string, periodo: MeZonaPeriodo = 'mes'): 
      * Los últimos 7 cerrados siempre traen **los siete días de la semana, una vez cada uno**, así
      * que el par es conmensurable por construcción: ni un sábado de más ni un domingo de menos.
      */
+    const fin = tope(ayer);
     return {
       periodo,
-      desde: masDias(ayer, -6),
-      hasta: ayer,
-      desde_comparado: masDias(ayer, -13),
-      hasta_comparado: masDias(ayer, -7),
+      desde: masDias(fin, -6),
+      hasta: fin,
+      desde_comparado: masDias(fin, -13),
+      hasta_comparado: masDias(fin, -7),
       incluye_dia_en_curso: false,
     };
   }
 
-  const [y, m, d] = hoy.split('-').map(Number);
+  /*
+   * `mes` no se puede correr hacia atrás —empieza el día 1 y punto—, así que acá el ancla sí actúa
+   * como RECORTE: `hasta` se topa en el último día con dato y el comparador se acorta al MISMO
+   * número de días. Es el caso que destapó MORELIA ABASTOS: publicaba −26.1 % comparando 10 días
+   * de septiembre contra 15 de agosto porque `wincaja_*` no entregaba desde el 10; con el tramo
+   * parejo la zona sube 17.1 %. Recortar sólo arriba cambiaría una mentira por la opuesta.
+   */
+  const hasta = tope(hoy);
+  const [y, m] = hoy.split('-').map(Number);
+  const dias = diasEntre(`${y}-${pad(m)}-01`, hasta); // 0 el día 1
   const py = m === 1 ? y - 1 : y;
   const pm = m === 1 ? 12 : m - 1;
   // Día 0 del mes siguiente = último día de `pm`. Cubre febrero y los bisiestos sin tabla.
   const ultimoPrev = new Date(Date.UTC(py, pm, 0)).getUTCDate();
+  const desde_comparado = `${py}-${pad(pm)}-01`;
   return {
     periodo,
     desde: `${y}-${pad(m)}-01`,
-    hasta: hoy,
-    desde_comparado: `${py}-${pad(pm)}-01`,
-    hasta_comparado: `${py}-${pad(pm)}-${pad(Math.min(d, ultimoPrev))}`,
-    incluye_dia_en_curso: true,
-  };
-}
-
-/**
- * `[JZ.4]` — **El tramo termina donde termina el DATO, no donde termina el reloj.**
- *
- * ⛔ Esto nació de una mentira publicada, medida el 15-sep-2026. La portada de MORELIA ABASTOS
- * decía **−26.1 %**: su almacén vende por `wincaja_*`, esa fuente **no entregaba desde el 10-sep**,
- * y el tramo comparaba **10 días de septiembre contra 15 de agosto**. Comparando 1–10 contra 1–10
- * la zona **sube 17.1 %**. Una inversión de signo completa, sobre la única cifra de esa portada.
- *
- * Es la misma falla que el pareo de canales (`sumaPareada`), corrida al eje del TIEMPO: los dos
- * lados tienen que cubrir el mismo tramo, y `hasta` salía de `now()` en vez de salir de hasta
- * dónde entregó la fuente más lenta.
- *
- * Al recortar el lado de arriba, el comparador se recorta **al mismo número de días** — si no, se
- * cambia una mentira por la opuesta.
- *
- * ⚠️ `hastaDato` sólo puede ACORTAR. Una fuente que entregó de más (filas fechadas en el futuro:
- * `sales_daily` tiene 4 del 6-dic-2026) no puede estirar el tramo.
- */
-export function recortarAlDato(v: VentanaComparable, hastaDato: string | null): VentanaComparable {
-  if (!hastaDato || hastaDato >= v.hasta) return v;
-  if (hastaDato < v.desde) return v; // la fuente no entregó NADA del tramo: eso no se recorta, se declara
-  return {
-    ...v,
-    hasta: hastaDato,
-    hasta_comparado: masDias(v.desde_comparado, diasEntre(v.desde, hastaDato)),
-    // Si el recorte dejó fuera el día de hoy, el tramo ya no lo incluye. Decir que sí sería
-    // ponerle a la pantalla una advertencia sobre un día que no está en la suma.
-    incluye_dia_en_curso: false,
+    hasta,
+    desde_comparado,
+    hasta_comparado: masDias(desde_comparado, Math.min(dias, ultimoPrev - 1)),
+    incluye_dia_en_curso: hasta === hoy,
   };
 }
 

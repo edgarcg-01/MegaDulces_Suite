@@ -10,6 +10,22 @@
 
 ## [Unreleased]
 
+### Fixed — la portada toma el número de donde lo toma la pantalla, y vecinal sale aparte (JZ.6, 2026-09-17)
+
+Edgar: *«hay que mostrar vecinal aparte»*. Al investigar dónde vive la venta vecinal se encontró que **la base del bloque de rutas estaba mal**, así que este item es la corrección y el pedido juntos.
+
+- ⛔ **El número de la portada no era el de la pantalla que abre.** `salesByRoute` lee `analytics.sales_by_route_monthly`; este bloque leía `analytics.sales_daily` por el almacén `RUTA-NN`. **Ruta 27, 1-16 de septiembre: 429,639 contra 224,025** — 1.92×, y el clic llevaba de un número al otro. Peor: ese almacén **no tiene una sola fila del canal de ruta** (son `tienda` y `credito`), o sea que nunca contuvo la venta de la ruta. Ahora sale de `analytics.v_rd_route_daily`, que es diaria (sirve para los tres granos), declara su procedencia y es la misma familia que el rollup que lee la pantalla.
+- ⛔ **El enlace profundo de `[JZ.1]` abría la tabla VACÍA.** La pantalla filtra por `"<sucursal>|<route_code>"` (`01|WIN-28`) y yo mandaba `RUTA-28`. La prueba afirmaba sobre el argumento que viajaba, no sobre el valor que el backend reconoce — **los 17 valores que arma el puente nuevo sí existen**, verificado, y el reporte contra prod ahora falla si alguno no existe.
+- ⭐ **La pertenencia sale del registro OPERATIVO, no del catálogo.** `analytics.v_route_zone` (vista nueva) resuelve ruta → sucursal madre → zona desde `wincaja.branches`. Con eso **desaparecen las 3 claves «ambiguas» de `[JZ.2]`**: `501…505` cuelgan de CANINDO (`parent_branch=50`), que es de donde cargan — **ZAMORA se queda sin ninguna ruta**, y las que yo le había atribuido eran de otro. Gana el registro operativo: el catálogo es una etiqueta que alguien teclea.
+
+**Vecinal, que era el pedido:** tercer bloque, tercera clave (`comercial.venta_vecinal`). Hasta hoy **no aparecían en ninguna parte** —no tienen almacén `RUTA-*` propio, así que `[JZ.2]` las declaraba `sin_almacen`— y son **$944,740 en LA PIEDAD** del 1 al 16 de septiembre, un **9 %** de la zona. ⚠️ **No son una zona aparte:** cuelgan de la sucursal madre, así que viven dentro de `LA PIEDAD RD`; las zonas `* VECINAL` de `trade.zones` son eje de PERSONAS (5 vendedores) y no tienen un solo almacén. Y `VEC-PH-H` —la misma ruta antes del corte del 27-jun— se **declara excluida** en vez de sumarse a sus sucesoras.
+
+**Y el ancla se movió de sitio, porque el grano `dia` la refutó.** El recorte por frescura se aplicaba DESPUÉS de armar la ventana; con `dia` el tramo es UN día, la venta por ruta iba un día atrás, y «no entregó nada del tramo» se leía como **fuente muerta**: los 9 canales de ruta de LA PIEDAD salían «sin medir» por 24 horas de rezago. Ahora el ancla se resuelve **antes**: con `mes` recorta (el mes no se puede correr) y con `dia`/`semana` **corre el tramo entero**, conservando el día de la semana de los dos extremos. La frontera entre «atrasada» y «muerta» pasa a ser un **umbral declarado de 7 días**, medido: las fuentes vivas van 1-5 días atrás, las cortadas llevaban 35.
+
+⚠️ **Y la misma trampa por tercera vez en esta fase:** el candado de «la ruta NO sale de `sales_daily`» buscaba `RUTA-` y lo encontró en **el comentario que explica por qué se dejó de usar**. Los candados de este archivo ahora leen el código **sin comentarios**. (La otra fue `@Get(':id')` citado en prosa; y un backtick dentro de un template literal rompió una migración, octava vez en el repo.)
+
+Migraciones `20260917120000` (vista) y `20260917130000` (clave + reparto) aplicadas a prod, batches 446/447. Pruebas: contracts **76**, view **78** en el spec de la pantalla, smoke **148 OK / 0 FAIL**; tres sabotajes más ejercidos. ⚠️ `analytics.v_route_warehouse` (`[JZ.2]`) **deja de ser la fuente de la venta**; se conserva como puente catálogo↔almacén.
+
 ### Added — el WebSocket de tienda mantiene vivo el bloque de zona (JZ.5, 2026-09-17)
 
 Edgar: *«tienda/live usa un websocket para mostrar los resultados, también deberíamos aprovecharlo»*. Se aprovecha como **disparador, no como fuente**, y esa distinción la decidió la medición, no una preferencia.

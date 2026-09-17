@@ -249,7 +249,7 @@ const tieneDecoradorPermisos = (tramo) =>
     }
   }
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 12, catalogo);
+    catalogo.length === 13, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -262,15 +262,26 @@ const tieneDecoradorPermisos = (tramo) =>
    * `responsabilidad:` de una definición de bandeja. La biyección igual tiene que cerrar: una
    * clave del catálogo que ningún registro use es un bloque que nadie va a ver nunca.
    */
-  const srcZ = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/me-zona.ts'), 'utf8');
+  /*
+   * ⚠️ **Un candado lee CÓDIGO, no prosa.** La cabecera de este archivo ya lo advertía para
+   * `@RequirePermissions`, y volvió a cobrar: el chequeo de «la venta de ruta NO sale de
+   * `sales_daily`» buscaba `RUTA-` y lo encontró en el COMENTARIO que explica por qué se dejó de
+   * usar. Es la tercera vez en esta fase (la otra fue `@Get(':id')` citado en prosa). Se quitan
+   * los comentarios antes de juzgar — mismo criterio que `cssDelComponente()` en el spec de la
+   * pantalla, que los quita porque CITAN las reglas retiradas.
+   */
+  const sinComentarios = (t) =>
+    t.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  const srcZraw = fs.readFileSync(path.resolve(__dirname, '../../libs/trade/src/lib/users/me-zona.ts'), 'utf8');
+  const srcZ = sinComentarios(srcZraw);
   const declaradas = [
     ...[...src.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcT.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
     ...[...srcC.matchAll(/responsabilidad: '([^']+)'/g)].map((m) => m[1]),
-    ...[...srcZ.matchAll(/^\s*(?:tienda|ruta): '([a-z]+\.[a-z_]+)',/gm)].map((m) => m[1]),
+    ...[...srcZ.matchAll(/^\s*(?:tienda|ruta|vecinal): '([a-z]+\.[a-z_]+)',/gm)].map((m) => m[1]),
   ];
-  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos + 2 canales)',
-    declaradas.length === 14, declaradas);
+  check('cada cola declara su responsabilidad (7 bandejas + 1 tarea + 4 ciclos + 3 canales)',
+    declaradas.length === 15, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
@@ -549,11 +560,17 @@ const tieneDecoradorPermisos = (tramo) =>
 
   // `monto: null` es "no hubo ninguna fila", NUNCA 0. Un `?? 0` acá borra la distinción entera.
   check('⛔ el monto preserva el null y no cae a 0',
-    /f\.mtd === null \? null : Number\(f\.mtd\)/.test(srcZ) && !/mtd.*\?\?\s*0/.test(srcZ));
+    /mtd === null \|\| mtd === undefined \? null : Number\(mtd\)/.test(srcZ)
+      && !/mtd.*\?\?\s*0/.test(srcZ));
   check('la última venta se busca con tope en hoy (sales_daily tiene filas en el FUTURO)',
     /\.where\('sale_date', '<=', v\.hasta\)/.test(srcZ));
-  check('lo ambiguo y lo que no tiene almacén se DECLARA, no se suma',
-    /excluidos\.ruta\.push/.test(srcZ) && /if \(r\.ambigua\)/.test(srcZ));
+  /*
+   * ⚠️ Acá se vigilaba que lo AMBIGUO se declarara. `[JZ.6]` disolvió la ambigüedad —la
+   * pertenencia sale del registro operativo y ahí no hay disputa— así que lo que queda por
+   * declarar es la serie HISTÓRICA de una ruta, que es el otro caso de «no se puede sumar».
+   */
+  check('lo que no se puede sumar se DECLARA en excluidos, con su motivo',
+    /excluidos\[r\.tipo\]\.push/.test(srcZ) && /if \(r\.historica\)/.test(srcZ));
 
   /*
    * ⛔ **El pareo de los dos lados de la comparación.** Lo destapó el reporte contra prod, no una
@@ -581,10 +598,16 @@ const tieneDecoradorPermisos = (tramo) =>
    * que entregó ALGO dentro del tramo en curso. Sin eso, las rutas de ZAMORA —que no entregan
    * desde el 11-ago— recortarían la zona entera cinco semanas.
    */
-  check('⛔ el tramo se recorta al último día ENTREGADO, no al reloj',
-    /recortarAlDato\(/.test(srcZ) && /max\(sale_date\) as ultimo/.test(srcZ));
-  check('⛔ la frescura se mide DENTRO del tramo en curso (un canal muerto no recorta la zona)',
-    /whereBetween\('sale_date', \[nominal\.desde, nominal\.hasta\]\)/.test(srcZ));
+  check('⛔ el tramo termina en el último día ENTREGADO, no en el reloj',
+    /ventanaComparable\(hoy, periodo, masLento\.ultimo\)/.test(srcZ));
+  /*
+   * ⚠️ La línea entre «va atrasada» y «murió» es un UMBRAL declarado, no el tramo. La primera
+   * versión preguntaba «¿entregó algo dentro del tramo?» y con el grano `dia` el tramo es UN día:
+   * la venta por ruta, un día atrás, se leía como muerta y los 9 canales de ruta salían «sin
+   * medir». Medido: las fuentes vivas van 1-5 días atrás, las cortadas llevaban 35.
+   */
+  check('⛔ la vivencia de una fuente sale de un UMBRAL declarado, no del tramo',
+    /const VIVA_DIAS = \d+;/.test(srcZ) && /limiteVivo/.test(srcZ));
   check('el recorte se DECLARA con su fuente y sus días', /corte = \{/.test(srcZ)
     && /dias_sin_entregar/.test(srcZ) && /fuentes:/.test(srcZ));
 
@@ -599,8 +622,9 @@ const tieneDecoradorPermisos = (tramo) =>
     /periodo === 'dia' \|\| periodo === 'semana' \|\| periodo === 'mes' \? periodo : 'mes'/.test(srcCtrl));
   check('los tres granos existen en el contrato',
     /'dia' \| 'semana' \| 'mes'/.test(srcVer));
-  check('⛔ dia y semana NO incluyen el día en curso; mes lo DECLARA',
-    /incluye_dia_en_curso: false/.test(srcVer) && /incluye_dia_en_curso: true/.test(srcVer));
+  check('⛔ dia y semana NO incluyen el día en curso; mes lo DECLARA cuando llega a hoy',
+    (srcVer.match(/incluye_dia_en_curso: false/g) || []).length >= 2
+      && /incluye_dia_en_curso: hasta === hoy/.test(srcVer));
 
   /*
    * ── `[JZ.5]` El WS de tienda REFRESCA el bloque; no es su fuente ──────────────────────────────
@@ -612,6 +636,30 @@ const tieneDecoradorPermisos = (tramo) =>
    * publicado una cifra que no es ni el mostrador ni la venta. Por eso el ticket sólo dice
    * «volvé a preguntar» y el número sigue saliendo de `analytics.sales_daily`.
    */
+  /*
+   * ── `[JZ.6]` La portada toma el número de donde lo toma la pantalla a la que manda ───────────
+   *
+   * ⛔ Medido el 2026-09-17: este bloque publicaba la venta de ruta desde `analytics.sales_daily`
+   * (almacén `RUTA-NN`) y la pantalla que abre lee `sales_by_route_monthly`. **Ruta 27, 1-16 de
+   * septiembre: 429,639 contra 224,025** — 1.92×, y el clic llevaba de un número al otro. El
+   * almacén `RUTA-27` ni siquiera tiene una fila del canal de ruta.
+   */
+  check('⛔ la venta de RUTA sale de la misma familia que la pantalla, no de sales_daily',
+    /v_rd_route_daily/.test(srcZ) && !/'RUTA-/.test(srcZ));
+  check('la pertenencia sale del registro OPERATIVO (v_route_zone), no del catálogo',
+    /v_route_zone/.test(srcZ) && !/v_route_warehouse/.test(srcZ));
+  /*
+   * ⛔ El filtro que `/comercial/ventas-por-ruta` acepta es `"<sucursal>|<route_code>"`. `[JZ.1]`
+   * mandaba el código de almacén y la tabla abría VACÍA — la prueba afirmaba sobre el argumento
+   * que viajaba, no sobre el valor que el backend reconoce.
+   */
+  check('⛔ el enlace arma el filtro que la pantalla RECONOCE',
+    /\$\{r\.parent_code\}\|WIN-\$\{r\.route_code\}/.test(srcZ));
+  check('la serie histórica de una ruta se DECLARA, no se suma',
+    /if \(r\.historica\)/.test(srcZ) && /la contaría dos veces/.test(srcZ));
+  check('vecinal es un canal propio, con su propia clave de responsabilidad',
+    /vecinal: 'comercial\.venta_vecinal'/.test(srcZ));
+
   check('⛔ el refresco en vivo tiene endpoint PROPIO (me/work cuesta 14 mediciones)',
     /@Get\('me\/work\/zona'\)/.test(srcCtrl) && /zonaFor\(/.test(srcCtrl));
   /*

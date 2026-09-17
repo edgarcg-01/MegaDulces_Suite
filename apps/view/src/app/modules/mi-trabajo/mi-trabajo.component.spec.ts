@@ -1095,6 +1095,18 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
         ],
       },
       {
+        grupo: 'vecinal', label: 'Tus rutas vecinales',
+        monto: 944_740, comparado: 1_021_340, variacion_pct: -0.075, peso: 0.09,
+        no_comparado: null,
+        excluidos: [{ label: 'RUTA VECINAL PH (histórico Wincaja)', motivo: 'es la serie histórica de esta ruta, antes del corte: sumarla la contaría dos veces' }],
+        canales: [
+          { id: '1V001', label: 'RUTA VECINAL PH 01', detalle: 'contra 470,232 del mismo tramo',
+            grupo: 'vecinal', monto: 402_593, comparado: 470_232, variacion_pct: -0.144,
+            ultima_venta: '2026-09-15', sin_medir: null, ruta: '/comercial/ventas-por-ruta',
+            queryParams: { route: '01|WIN-1V001' }, sin_acceso: null },
+        ],
+      },
+      {
         grupo: 'ruta', label: 'Tus rutas',
         monto: 2_148_825, comparado: 1_477_725, variacion_pct: 0.4541, peso: 0.21,
         no_comparado: { canales: 1, monto_anterior: 163_878 },
@@ -1103,11 +1115,11 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
           { id: 'RUTA-28', label: 'Ruta 28', detalle: 'contra 207,621 del mismo tramo',
             grupo: 'ruta', monto: 337_976, comparado: 207_621, variacion_pct: 0.6279,
             ultima_venta: '2026-09-14', sin_medir: null, ruta: '/comercial/ventas-por-ruta',
-            queryParams: { route: 'RUTA-28' }, sin_acceso: null },
+            queryParams: { route: '01|WIN-28' }, sin_acceso: null },
           { id: 'RUTA-501', label: 'Ruta 501', detalle: 'contra 163,878 del mismo tramo',
             grupo: 'ruta', monto: null, comparado: 163_878, variacion_pct: null,
             ultima_venta: '2026-08-12', sin_medir: 'sin venta registrada desde el 12-ago',
-            ruta: '/comercial/ventas-por-ruta', queryParams: { route: 'RUTA-501' }, sin_acceso: null },
+            ruta: '/comercial/ventas-por-ruta', queryParams: { route: '06|WIN-501' }, sin_acceso: null },
           { id: 'RUTA-22', label: 'Ruta 22', detalle: 'contra 217,413 del mismo tramo',
             grupo: 'ruta', monto: 307_537, comparado: 217_413, variacion_pct: 0.4145,
             ultima_venta: '2026-09-14', sin_medir: null, ruta: null, queryParams: null,
@@ -1148,7 +1160,13 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     // completo y el jefe tendría que volver a buscar la ruta que acaba de ver.
     await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
     const a = Array.from(q<HTMLAnchorElement>('a.mt-canal')).find((e) => e.textContent?.includes('Ruta 28'))!;
-    expect(a.getAttribute('href')).toBe('/comercial/ventas-por-ruta?route=RUTA-28');
+    /*
+     * ⛔ El valor es el que el filtro de la pantalla ACEPTA (`"<sucursal>|<route_code>"`), no el
+     * código de almacén. `[JZ.1]` mandaba `RUTA-28` y la tabla abría **vacía**: la prueba afirmaba
+     * sobre el argumento que viajaba, no sobre el valor que el backend reconoce. Verificado contra
+     * prod: los 17 valores que arma el puente existen en el filtro.
+     */
+    expect(a.getAttribute('href')).toBe('/comercial/ventas-por-ruta?route=01%7CWIN-28');
   });
 
   it('⛔ lo ambiguo o sin almacén NO se suma, y se dice por qué', async () => {
@@ -1280,6 +1298,31 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     const rutas = tags.find((t) => t.textContent?.includes('Tus rutas'))!;
     expect(tiendas.querySelector('.mt-vivo')).not.toBeNull();
     expect(rutas.querySelector('.mt-vivo')).toBeNull();
+  });
+
+  it('⛔ VECINAL se muestra APARTE, con su propio bloque y su propio subtotal', async () => {
+    /*
+     * Edgar: «hay que mostrar vecinal aparte». Hasta `[JZ.6]` no aparecían en ninguna parte —no
+     * tienen almacén `RUTA-*` propio, así que `[JZ.2]` las declaraba `sin_almacen`— y son
+     * **$944,740 en LA PIEDAD** del 1 al 16 de septiembre. Aparte es un BLOQUE dentro de la zona:
+     * cuelgan de la sucursal madre, así que su zona es la misma que la de las tiendas.
+     */
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const tags = Array.from(q<HTMLElement>('.mt-grupo-tag')).map((t) => t.textContent ?? '');
+    expect(tags.some((t) => t.includes('Tus tiendas'))).toBe(true);
+    expect(tags.some((t) => t.includes('Tus rutas vecinales'))).toBe(true);
+    // ⛔ Y NO se funde con «Tus rutas»: son dos subtotales distintos.
+    expect(tags.some((t) => t.includes('Tus rutas') && !t.includes('vecinales'))).toBe(true);
+    expect(html()).toContain('RUTA VECINAL PH 01');
+  });
+
+  it('la serie histórica de una ruta NO se suma, y se dice por qué', async () => {
+    // `VEC-PH-H` termina el 26-jun y `1V001`/`1V002` arrancan el 27: es la MISMA ruta antes del
+    // corte. Sumarla con sus sucesoras duplicaría el histórico.
+    await montar({ perms: [Permission.COMMERCIAL_ROUTE_SALES_VER], stay: true, work$: of(CON_ZONA) });
+    const t = html();
+    expect(t).toContain('histórico Wincaja');
+    expect(t).toContain('la contaría dos veces');
   });
 
   it('el titular de la zona dice contra qué tramo se comparó', async () => {
