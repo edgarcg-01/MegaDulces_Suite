@@ -207,8 +207,16 @@ importers.
   + Δ + estado igual/cambio/solo_a/solo_b), **Proyección de cierre** (firme/plena, declarada "no altera lo
   autorizado"). `check:templates` ✅ · lint 0 · **`nx build view` ✅ VERDE** (el rojo del slice anterior era estado
   concurrente del árbol + WIP ajeno de `almacen-surtido`, ya resuelto). **Con esto la UI cubre las 5 capas.**
-  **Pendiente:** validación visual (light/dark/móvil — dev servers de Edgar); vincular partida↔campaña desde la UI
-  (el backend ya lo soporta); verificación HTTP en runtime (guards/RLS); migraciones a prod (3 migs budget en dev).
+  **✅ Migraciones a prod (2026-09-17, autorizado):** las 3 migs `budget.*` completas en Railway — `20260917140000`
+  (Capa 1) ya estaba por deploy previo; `20260917150000_budget_scenarios_lineage` + `20260917160000_budget_campaigns`
+  aplicadas ahora vía `exports.up()` directo (idempotentes, sin arrastrar pendientes ajenas) + registradas en
+  `public.knex_migrations` (batch 452). Verificado en prod: `budget.campaigns`/`campaign_contributions` con RLS forzado
+  + policy + grants `app_runtime`; `budgets.scenario`/`copied_from_id` + `budget_lines.campaign_id` + 2 FKs. ⛔ NO se
+  usó `migrate:latest` (gotcha: prod tiene DOS `knex_migrations`, la real es `public`). ⚠️ Las tablas son aditivas y
+  quedan inertes hasta que el **código** despliegue.
+  **Pendiente:** **desplegar el código** (commits locales de PU sin push — no está en prod todavía); validación visual
+  (light/dark/móvil — dev servers de Edgar); vincular partida↔campaña desde la UI (el backend ya lo soporta);
+  verificación HTTP en runtime (guards/RLS); re-login (permisos `PRESUPUESTOS_*` ya existían por TP, sin cambio).
   ⚠️ **Deuda técnica declarada:** `finanzas-presupuesto.component.ts` es un god-component (~980 líneas, 5 sub-vistas) —
   candidato a partir en componentes por vista cuando se estabilice.
 
