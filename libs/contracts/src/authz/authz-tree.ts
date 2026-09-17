@@ -166,10 +166,6 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // comparten COMMERCIAL_EXPIRY_*. No hay test que impida repetir; este comentario es el
           // único freno contra un "cleanup" bienintencionado.
           { id: 'existencia', label: 'Existencia', route: '/almacen/inventory/existencia', view: [Permission.EXISTENCIA_VER], manage: [Permission.EXISTENCIA_GESTIONAR] },
-          // Fase SU (ADR-067): el pool de pedidos por surtir y las olas. La pantalla llega en
-          // SU.2.1; el nodo existe desde ya para que el permiso se pueda REPARTIR — un permiso
-          // fuera del árbol es invisible en /admin/roles y nadie lo puede otorgar ([LC.6.2]).
-          { id: 'picking', label: 'Surtido', route: '/almacen/surtido', view: [Permission.COMMERCIAL_PICKING_VER], manage: [Permission.COMMERCIAL_PICKING_GESTIONAR] },
           // Se llamaba 'Existencias' y NO lo es: lee commercial.stock, el libro transaccional
           // (acierta 91% contra el POS). Es la consola de AJUSTE y de apartado. El censo físico
           // vive arriba, en Existencia, que lee el ODS.
@@ -344,6 +340,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'reparto-despacho', label: 'Despacho (tienda)', route: '/reparto', view: [Permission.REPARTO_DESPACHAR], manage: [] },
           { id: 'reparto-entrega', label: 'Entrega (repartidor)', route: '/reparto', view: [Permission.REPARTO_ENTREGAR], manage: [] },
+          // Fase SU (ADR-067). Vive acá y no en Almacén por decisión de Edgar (2026-09-17): el
+          // surtido prepara lo que se reparte. Tiene ruta PROPIA (`/reparto/surtido`), a
+          // diferencia de los dos de arriba que apuntan los dos a `/reparto` — eso era lo que
+          // hacía rebotar a `REPARTO_ENTREGAR`.
+          { id: 'reparto-surtido', label: 'Surtido', route: '/reparto/surtido', view: [Permission.COMMERCIAL_PICKING_VER], manage: [Permission.COMMERCIAL_PICKING_GESTIONAR] },
         ],
       },
       {

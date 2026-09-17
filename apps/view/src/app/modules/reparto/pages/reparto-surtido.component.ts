@@ -36,14 +36,15 @@ type Paso = 'pool' | 'recorrido';
  *   1. **Pendientes** — qué hay por surtir hoy; se eligen y se arma la ola.
  *   2. **Recorrido** — la lista consolidada, un renglón a la vez, marcando lo que se levanta.
  *
- * Mobile-first porque el trabajo es caminando; en tablet/PC la misma pantalla se abre más cómoda
- * (§O de DESIGN.md: Almacén = full-width, totales a la vista, frescura prominente).
+ * Vive en **Reparto** y no en Almacén (decisión de Edgar, 2026-09-17): el surtido prepara lo que
+ * se reparte. Mobile-first porque el trabajo es caminando; en tablet/PC la misma pantalla se abre
+ * más cómoda (§O de DESIGN.md: full-width, totales a la vista, frescura prominente).
  *
  * ⚠️ La existencia NO se aparta (ADR-067): lo que se ve al armar la ola es informativo. Si dos
  * olas piden lo mismo, se resuelve por excepción al recorrer, no se previene.
  */
 @Component({
-  selector: 'app-almacen-surtido',
+  selector: 'app-reparto-surtido',
   standalone: true,
   imports: [
     CommonModule,
@@ -446,7 +447,7 @@ type Paso = 'pool' | 'recorrido';
     }
   `],
 })
-export class AlmacenSurtidoComponent implements OnInit {
+export class RepartoSurtidoComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly comercial = inject(ComercialService);
   private readonly toast = inject(MessageService);

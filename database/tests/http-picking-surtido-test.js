@@ -93,14 +93,14 @@ const wavesCreadas = [];
     const o1 = await armaPedido([{ product_id: prods[0].id, quantity: 5 }, { product_id: prods[1].id, quantity: 4 }]);
     const o2 = await armaPedido([{ product_id: prods[0].id, quantity: 8 }]);
 
-    const ola = await req('POST', '/almacen/surtido/waves', { warehouse_id: wh.id, delivery_date: manana(), order_ids: [o1.id, o2.id] }, token);
+    const ola = await req('POST', '/reparto/surtido/waves', { warehouse_id: wh.id, delivery_date: manana(), order_ids: [o1.id, o2.id] }, token);
     const waveId = ola.body?.id;
     if (waveId) wavesCreadas.push(waveId);
     check('ola creada', !!waveId, ola.status);
 
     console.log('── 2. Arrancar CONGELA el consolidado ──');
     const stockAntes = await knex('commercial.stock').where({ tenant_id: T, warehouse_id: wh.id, product_id: prods[0].id }).first();
-    const start = await req('POST', `/almacen/surtido/waves/${waveId}/start`, {}, token);
+    const start = await req('POST', `/reparto/surtido/waves/${waveId}/start`, {}, token);
     check('start 200/201', start.status < 300, { status: start.status, body: start.body });
     const lineas = start.body || [];
     check('se congelaron 2 renglones (2 SKU distintos)', lineas.length === 2, lineas.length);
@@ -119,7 +119,7 @@ const wavesCreadas = [];
       rCompartido?.qty_unit === null, rCompartido?.qty_unit);
 
     console.log('── 4. Arrancar dos veces NO pisa lo congelado (idempotente) ──');
-    const start2 = await req('POST', `/almacen/surtido/waves/${waveId}/start`, {}, token);
+    const start2 = await req('POST', `/reparto/surtido/waves/${waveId}/start`, {}, token);
     check('segundo start 200/201', start2.status < 300, start2.status);
     check('sigue habiendo 2 renglones', (start2.body || []).length === 2, (start2.body || []).length);
 
@@ -130,27 +130,27 @@ const wavesCreadas = [];
     // pidió: subirla sería una manipulación que el propio esquema no permite.
     const lineaDelPedido = await knex('commercial.order_lines').where({ order_id: o1.id, product_id: prods[0].id }).first();
     await knex('commercial.order_lines').where({ id: lineaDelPedido.id }).update({ quantity: 2 });
-    const trasCambio = await req('POST', `/almacen/surtido/waves/${waveId}/start`, {}, token);
+    const trasCambio = await req('POST', `/reparto/surtido/waves/${waveId}/start`, {}, token);
     const rTras = (trasCambio.body || []).find((l) => l.product_id === prods[0].id);
     check('el renglón que se está recorriendo NO cambió debajo', Number(rTras?.qty_requested) === 13, rTras?.qty_requested);
     await knex('commercial.order_lines').where({ id: lineaDelPedido.id }).update({ quantity: 5 });
 
     console.log('── 6. Marcar renglones: el estado se DERIVA de la cantidad ──');
-    const full = await req('POST', `/almacen/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 13 }, token);
+    const full = await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 13 }, token);
     check('levantar TODO → surtido', full.body?.status === 'surtido', { status: full.status, body: full.body });
     check('guarda la cantidad levantada', Number(full.body?.qty_picked) === 13, full.body?.qty_picked);
 
     const rOtro = lineas.find((l) => l.product_id === prods[1].id);
-    const parcial = await req('POST', `/almacen/surtido/waves/${waveId}/lines/${rOtro.id}/pick`, { qty_picked: 1 }, token);
+    const parcial = await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rOtro.id}/pick`, { qty_picked: 1 }, token);
     check('levantar MENOS → faltante', parcial.body?.status === 'faltante', parcial.body?.status);
 
     console.log('── 7. Una causa declarada GANA sobre la derivación ──');
-    const danado = await req('POST', `/almacen/surtido/waves/${waveId}/lines/${rOtro.id}/pick`, { qty_picked: 0, status: 'danado', note: 'caja mojada' }, token);
+    const danado = await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rOtro.id}/pick`, { qty_picked: 0, status: 'danado', note: 'caja mojada' }, token);
     check('levantar 0 con causa "dañado" NO se convierte en "agotado"', danado.body?.status === 'danado', danado.body?.status);
     check('y guarda el motivo', String(danado.body?.note || '').includes('mojada'), danado.body?.note);
 
     console.log('── 8. PRUEBA NEGATIVA: no se puede levantar MÁS de lo pedido ──');
-    const exceso = await req('POST', `/almacen/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 999 }, token);
+    const exceso = await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 999 }, token);
     check('levantar de más → 400', exceso.status === 400, { status: exceso.status, body: exceso.body });
     check('y el mensaje explica que eso es un ajuste de inventario',
       /ajuste de inventario/i.test(String(exceso.body?.message || '')), exceso.body?.message);
@@ -158,20 +158,20 @@ const wavesCreadas = [];
     console.log('── 9. ⭐ Cerrar con renglones SIN TOCAR se rechaza ──');
     // Se devuelve un renglón a pendiente para probar el freno.
     await knex('commercial.wave_lines').where({ id: rOtro.id }).update({ status: 'pendiente', qty_picked: null });
-    const cierreMalo = await req('POST', `/almacen/surtido/waves/${waveId}/finish`, {}, token);
+    const cierreMalo = await req('POST', `/reparto/surtido/waves/${waveId}/finish`, {}, token);
     check('cerrar con pendientes → 409', cierreMalo.status === 409, { status: cierreMalo.status, body: cierreMalo.body });
     check('el mensaje distingue "sin tocar" de "agotado"',
       /sin tocar/i.test(String(cierreMalo.body?.message || '')), cierreMalo.body?.message);
 
     console.log('── 10. Cerrar bien ──');
-    await req('POST', `/almacen/surtido/waves/${waveId}/lines/${rOtro.id}/pick`, { qty_picked: 0, status: 'agotado' }, token);
-    const cierre = await req('POST', `/almacen/surtido/waves/${waveId}/finish`, {}, token);
+    await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rOtro.id}/pick`, { qty_picked: 0, status: 'agotado' }, token);
+    const cierre = await req('POST', `/reparto/surtido/waves/${waveId}/finish`, {}, token);
     check('finish 200/201', cierre.status < 300, { status: cierre.status, body: cierre.body });
     check('la ola queda surtida', cierre.body?.status === 'surtida', cierre.body?.status);
     check('registra QUIÉN surtió', !!cierre.body?.picked_by, cierre.body?.picked_by);
     const wo = await knex('commercial.wave_orders').where({ wave_id: waveId }).select('stage');
     check('los pedidos de la ola avanzaron a "surtido"', wo.every((x) => x.stage === 'surtido'), wo.map((x) => x.stage));
-    const cierre2 = await req('POST', `/almacen/surtido/waves/${waveId}/finish`, {}, token);
+    const cierre2 = await req('POST', `/reparto/surtido/waves/${waveId}/finish`, {}, token);
     check('cerrar dos veces es idempotente (no 409)', cierre2.status < 300, cierre2.status);
 
     console.log('── 11. ⛔ Surtir NO movió el stock ──');
@@ -181,7 +181,7 @@ const wavesCreadas = [];
       Number(stockAntes.reserved_quantity) === Number(stockDespues.reserved_quantity));
 
     console.log('── 12. Ya cerrada, no se puede seguir marcando ──');
-    const tarde = await req('POST', `/almacen/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 1 }, token);
+    const tarde = await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 1 }, token);
     check('marcar sobre una ola cerrada → 409', tarde.status === 409, tarde.status);
 
     exitCode = fail ? 1 : 0;

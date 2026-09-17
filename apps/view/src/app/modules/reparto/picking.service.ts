@@ -86,7 +86,7 @@ export interface WaveDetail extends Wave {
 @Injectable({ providedIn: 'root' })
 export class PickingService {
   private readonly http = inject(HttpClient);
-  private readonly base = `${environment.apiUrl}/almacen/surtido`;
+  private readonly base = `${environment.apiUrl}/reparto/surtido`;
 
   pool(opts: { warehouseId?: string; deliveryDate?: string } = {}): Observable<PoolResponse> {
     let params = new HttpParams();
