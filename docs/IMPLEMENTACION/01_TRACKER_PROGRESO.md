@@ -125,9 +125,31 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   `vehicle_plate` en `erp_shipment_headers` y `erp_shipment_trips`, por `kepler_code` (NO por
   placa — es justo lo que estaba escrito de dos maneras). Mig `20260917160000`, prod batch 443.
   *Cerrado 2026-09-17.*
-- [ ] **[EMB.7]** ⬜ Exponerlo en pantalla: `/logistica/shipments` sigue leyendo sólo
-  `logistics.*` (1 fila en prod, de prueba). Falta decidir si **lee** el ERP o se **alimenta**
-  de él — y si un viaje de Kepler (la guía) se materializa como `logistics.shipments`.
+- [x] **[EMB.7]** ✅ **La pantalla.** Pestaña *Viajes del ERP* (default) en `/logistica/shipments`:
+  KPI del día · **mapa en vivo** con los viajes de hoy y su posición · tabla de viajes
+  master-detail · al abrir una parada, **qué lleva** (renglones con cantidad del ERP y su
+  equivalencia en cajas). Vista `analytics.erp_shipment_lines` (mig `20260917170000`, prod
+  batch 444) + módulo `logistics-erp-shipments` (5 endpoints, `LOGISTICS_SHIPMENTS_VER`) +
+  `ErpTripsPanelComponent`. ⛔ **Sin semáforo entregado/pendiente**: `estatus` vale `EMBARCADO`
+  en el 100% de los documentos, así que la pantalla muestra *"en la calle"* (salió hoy) y el
+  mapa **declara su cobertura**. *Cerrado 2026-09-17.*
+- [x] **[EMB.7.1]** ✅ Rendimiento: el resolvedor de unidad **sale de la vista**. Pedir un solo
+  documento costaba **1,189 ms** porque `v_warehouse_box_factor`/`v_unit_truth` se materializan
+  enteros (11,246 filas) aunque filtres un SKU. Vista sola: **157 ms**; el factor lo resuelve
+  el servicio en una segunda consulta, sólo al expandir. ⛔ NO se usó
+  `catalog.products.factor_sale` — es el atajo que ADR-055 declara refutado (73.6% de
+  discrepancia). Mig `20260917180000`, prod batch 445. *Cerrado 2026-09-17.*
+- [ ] **[EMB.10]** ⚠️ **La suma de renglones NO reproduce el total del documento** y la
+  diferencia no se explica ni con el descuento ni con el IEPS (medido en 5 embarques de la
+  suc 06: residuos de 0.11% a 0.28%, no constantes). La captura de Kepler declara además un
+  *Subtotal* que no es ninguno de los dos. La pantalla NO presenta la suma como total; falta
+  decodificar la relación.
+- [ ] **[EMB.11]** ⬜ El resolvedor de unidad cuesta ~1.5 s por llamada aunque se filtre. Es un
+  primitivo COMPARTIDO (lo usan varias pantallas), así que el arreglo va en él, no en un
+  atajo local — parchearlo acá escondería el costo para todos los demás.
+- [ ] **[EMB.12]** ⬜ Falta decidir si un viaje de Kepler (la guía) se **materializa** como
+  `logistics.shipments` para colgarle checklists, fotos y costos, o si la app sigue con su
+  propio ciclo en paralelo.
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
   `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.

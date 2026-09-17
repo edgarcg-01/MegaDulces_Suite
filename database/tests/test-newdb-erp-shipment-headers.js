@@ -228,6 +228,54 @@ correr(async () => {
         `el viaje también trae la unidad (${tr.con_unidad} de ${tr.viajes})`);
     }
 
+    // ── 7. QUÉ LLEVA: los renglones del embarque (EMB.7) ─────────────────────────────────
+    console.log('\n── 7. Qué lleva el camión (EMB.7)');
+    const hayLineas = await q(`SELECT relkind::text AS k FROM pg_class WHERE oid = to_regclass('analytics.erp_shipment_lines')`);
+    if (hayLineas.length === 0) {
+      console.log('  ⓘ analytics.erp_shipment_lines no está en este destino — no se comprueba acá');
+    } else {
+      assert(hayLineas[0].k === 'v', 'los renglones son una vista en vivo, no una copia');
+
+      // ⛔ CONTRATO DE COSTO (EMB.7.1). La vista NO debe unir el resolvedor de unidad:
+      // `v_warehouse_box_factor`/`v_unit_truth` se materializan enteros (11,246 filas) y con
+      // el join, pedir UN documento —lo que hace un clic— costaba 1,189 ms contra 157 ms sin él.
+      // Si alguien "simplifica" volviendo a meterlo en la vista, esta aserción es la que avisa.
+      const [{ tiene }] = await q(`
+        SELECT count(*)::int AS tiene FROM information_schema.columns
+         WHERE table_schema='analytics' AND table_name='erp_shipment_lines'
+           AND column_name IN ('cajas','factor_caja','unidad_veredicto')`);
+      assert(n(tiene) === 0,
+        'la vista de renglones NO une el resolvedor de unidad — lo resuelve el servicio aparte (con el join, un clic costaba 1,189 ms)');
+
+      const arb = await q(`
+        SELECT nro_linea, sku, cantidad, unidad, importe
+          FROM analytics.erp_shipment_lines
+         WHERE sucursal='06' AND serie=1 AND folio='0000713' ORDER BY nro_linea`);
+      if (arb.length === 0) {
+        console.log('  ⓘ el documento árbitro no tiene renglones en este destino');
+      } else {
+        const l1 = arb[0];
+        assert(l1.sku === '70168' && Number(l1.cantidad) === 24 && l1.unidad === 'PAQ',
+          `renglón 1 = 24 PAQ del SKU 70168 — vino ${l1.cantidad} ${l1.unidad} de ${l1.sku}`);
+        assert(Number(l1.importe) === 1350.96,
+          `y su importe es 1,350.96, el MISMO que muestra Kepler pintando "1 CJA" — vino ${l1.importe}`);
+
+        // El resolvedor canónico es el que convierte 24 PAQ en la caja que ve el almacenista.
+        const [f] = await q(`
+          SELECT box_factor, box_label FROM analytics.v_warehouse_box_factor
+           WHERE warehouse_code='06' AND sku='70168' LIMIT 1`);
+        if (!f) console.log('  ⓘ el resolvedor de unidad no cubre 70168 en la suc 06 en este destino');
+        else assert(Number(f.box_factor) === 24,
+          `24 PAQ = 1 ${f.box_label || 'CJA'} según v_warehouse_box_factor — así la pantalla dice lo mismo que Kepler`);
+
+        // ⚠️ Lo que NO se puede afirmar: la suma de renglones NO es el total del documento.
+        const suma = arb.reduce((a, r) => a + Number(r.importe || 0), 0);
+        const [h] = await q(`SELECT total FROM analytics.erp_shipment_headers WHERE sucursal='06' AND serie=1 AND folio='0000713'`);
+        assert(Math.abs(suma - Number(h.total)) > 1,
+          `la suma de renglones (${suma.toFixed(2)}) NO reproduce el total de la cabecera (${h.total}) — está medido y sin decodificar (EMB.10); la pantalla no debe presentarla como el total`);
+      }
+    }
+
     console.log(`\n✅ EMB: ${assertions} aserciones, 0 fallas.\n`);
   } finally {
     await db.end();

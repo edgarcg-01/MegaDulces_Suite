@@ -99,6 +99,7 @@ import { CommercialSupplierPaymentAccountsModule } from '@megadulces/commercial'
 import { LogisticsFleetModule } from '@megadulces/logistics';
 import { LogisticsConfigModule } from '@megadulces/logistics';
 import { LogisticsShipmentsModule } from '@megadulces/logistics';
+import { LogisticsErpShipmentsModule } from '@megadulces/logistics';
 import { LogisticsGuidesModule } from '@megadulces/logistics';
 import { LogisticsExpensesModule } from '@megadulces/logistics';
 import { LogisticsPayrollModule } from '@megadulces/logistics';
@@ -216,6 +217,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       LogisticsFleetModule,
       LogisticsConfigModule,
       LogisticsShipmentsModule,
+      LogisticsErpShipmentsModule,
       LogisticsGuidesModule,
       LogisticsExpensesModule,
       LogisticsPayrollModule,

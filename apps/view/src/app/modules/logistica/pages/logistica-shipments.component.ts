@@ -20,6 +20,7 @@ import {
   LogisticaService, PendingOrder, Shipment, ShipmentCounts, ShipmentStatus, ShipmentType, Vehicle,
 } from '../logistica.service';
 import { ShipmentFormDialogComponent } from '../components/shipment-form-dialog.component';
+import { ErpTripsPanelComponent } from '../components/erp-trips-panel.component';
 
 const STATUS_OPTIONS: { label: string; value: ShipmentStatus | '' }[] = [
   { label: 'Todos', value: '' },
@@ -57,7 +58,7 @@ function severityForStatus(s: ShipmentStatus): Severity {
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, DatePickerModule, SelectModule,
     TagModule, SkeletonModule, TooltipModule, ToastModule, ConfirmDialogModule,
-    ShipmentFormDialogComponent,
+    ShipmentFormDialogComponent, ErpTripsPanelComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -70,22 +71,28 @@ function severityForStatus(s: ShipmentStatus): Severity {
         <div class="surf-page-head-text">
           <h1>Embarques</h1>
           <p class="surf-page-sub">
-            <b>{{ page().total }}</b> registrado{{ page().total === 1 ? '' : 's' }}
-            <span class="sh-divider" aria-hidden="true">·</span>
-            <b>{{ pendingOrders().length }}</b> pedido{{ pendingOrders().length === 1 ? '' : 's' }} esperando programar
+            @if (mode() === 'erp') {
+              Viajes reales del ERP · el documento de embarque de Kepler, en vivo
+            } @else {
+              <b>{{ page().total }}</b> registrado{{ page().total === 1 ? '' : 's' }} en la app
+              <span class="sh-divider" aria-hidden="true">·</span>
+              <b>{{ pendingOrders().length }}</b> pedido{{ pendingOrders().length === 1 ? '' : 's' }} esperando programar
+            }
           </p>
         </div>
         <div class="sh-head-actions">
           <button pButton [text]="true" severity="secondary" size="small" (click)="reloadCurrent()" [loading]="loading() || loadingPending() || loadingStats()" pTooltip="Refrescar"><span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span></button>
-          <button pButton size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo embarque</span></button>
+          @if (mode() !== 'erp') {
+            <button pButton size="small" (click)="openCreate()"><span class="p-button-icon p-button-icon-left pi pi-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo embarque</span></button>
+          }
         </div>
       </header>
     
       <!-- KPI STRIP -->
-      @if (loadingStats()) {
+      @if (loadingStats() && mode() !== 'erp') {
         <p-skeleton height="120px"></p-skeleton>
       }
-      @if (!loadingStats() && stats(); as st) {
+      @if (mode() !== 'erp' && !loadingStats() && stats(); as st) {
         <div class="sheet cols-12">
           <article class="cell cell-span-3">
             <span class="cell-icon" aria-hidden="true">
@@ -129,13 +136,24 @@ function severityForStatus(s: ShipmentStatus): Severity {
             <button
               type="button"
               class="sh-mode-tab"
+              [class.active]="mode() === 'erp'"
+              role="tab"
+              [attr.aria-selected]="mode() === 'erp'"
+              (click)="setMode('erp')"
+              >
+              <i class="pi pi-send" aria-hidden="true"></i>
+              <span>Viajes del ERP</span>
+            </button>
+            <button
+              type="button"
+              class="sh-mode-tab"
               [class.active]="mode() === 'shipments'"
               role="tab"
               [attr.aria-selected]="mode() === 'shipments'"
               (click)="setMode('shipments')"
               >
               <i class="pi pi-truck" aria-hidden="true"></i>
-              <span>Embarques</span>
+              <span>Propios de la app</span>
               <span class="sh-mode-count">{{ page().total }}</span>
             </button>
             <button
@@ -158,6 +176,11 @@ function severityForStatus(s: ShipmentStatus): Severity {
         </article>
       </div>
     
+      <!-- ── MODE: ERP (viajes reales de Kepler) ── -->
+      @if (mode() === 'erp') {
+        <app-erp-trips-panel></app-erp-trips-panel>
+      }
+
       <!-- ── MODE: SHIPMENTS ── -->
       @if (mode() === 'shipments') {
         <!-- Status-chip strip (filtro 1-click + conteo por estado) -->
@@ -490,7 +513,9 @@ export class LogisticaShipmentsComponent {
   });
   readonly loading = signal(false);
   readonly saving = signal(false);
-  readonly mode = signal<'shipments' | 'pending'>('shipments');
+  // `erp` es el default: es donde está la operación real (miles de viajes de Kepler),
+  // mientras que los embarques PROPIOS de la app son 1 registro de prueba.
+  readonly mode = signal<'erp' | 'shipments' | 'pending'>('erp');
 
   // KPI strip stats + conteo por estado (J13: 1 request a /shipments/counts)
   readonly loadingStats = signal(true);
@@ -623,7 +648,7 @@ export class LogisticaShipmentsComponent {
     this.load(1);
   }
 
-  setMode(m: 'shipments' | 'pending') {
+  setMode(m: 'erp' | 'shipments' | 'pending') {
     if (this.mode() === m) return;
     this.mode.set(m);
     if (m === 'pending') this.loadPending();
@@ -631,6 +656,7 @@ export class LogisticaShipmentsComponent {
 
   /** Refresca lo visible + recalcula stats. */
   reloadCurrent() {
+    if (this.mode() === 'erp') return; // el panel del ERP tiene su propio refresco
     this.loadStats();
     if (this.mode() === 'shipments') this.load(this.page().page);
     else this.loadPending();
