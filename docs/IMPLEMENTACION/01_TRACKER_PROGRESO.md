@@ -163,8 +163,27 @@ software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta c
   mudado al almacén: base PAQ 6,586 / PZA 1,906 / **KG 232** / 108 con el gramaje en el campo, y
   **6,128 de 8,887 (69%) con más de una presentación**. El sello de `[TO.3]` se consume, no se
   reinventa. ⚠️ El granel no entra en `escanear → contar`: se declara o sale de las olas.
-- [ ] **[SU.2]** ⬜ Pool de pedidos. ⚠️ Debe declarar el rezago de lo creado **offline** (el
-  documento no lo menciona y el vendedor trabaja sin señal).
+- [x] **[SU.2]** 🧪 **EN CÓDIGO Y PROBADO 2026-09-17** — pool + olas. Migs `20260917140000`
+  (`commercial.picking_waves` + `wave_orders` + `wave_sequences`, RLS forzado) y `20260917140100`
+  (reparto de permisos). Backend `libs/commercial/commercial-picking` → `/api/almacen/surtido/*`
+  (pool · waves · detalle · crear · asignar · cancelar), permisos nuevos
+  `COMMERCIAL_PICKING_VER/_GESTIONAR` con los 5 touch-points de GOTCHAS §4.
+  ⭐ **El pool es DERIVADO, no una tabla**: confirmados sin ola viva. Materializarlo sería una
+  segunda verdad que mantener sincronizada con `commercial.orders`.
+  ⭐ **El consolidado por SKU va con la unidad al lado y conserva el desglose por pedido** — sin
+  unidad es ADR-055 mudado al almacén; sin desglose no se puede desconsolidar después. Si dos
+  pedidos capturaron el mismo SKU en unidades distintas se marca `unidad_mixta` y **no se inventa
+  un total común** (ADR-056).
+  ⚠️ El pool **declara** que no puede medir lo capturado offline (`pendiente_offline`): el
+  vendedor arma pedidos sin señal y esos pedidos no existen para el servidor hasta sincronizar.
+  ⚠️ Cancelar una ola **BORRA** sus `wave_orders` en vez de marcarlos: si se conservaran, el
+  índice único parcial dejaría al pedido preso por una ola que ya no existe.
+  ⛔ **No aparta stock** y el smoke lo vigila (si alguien mete una reserva acá, se pone rojo).
+  El reparto de permisos se **deriva del estado vivo** (hermano `COMMERCIAL_INVENTORY_AJUSTAR`),
+  no de una lista a mano, con prueba negativa que aborta si no alcanza a nadie — el defecto de
+  `[LC.6.2]`. Aplicado: **VER→10 roles, GESTIONAR→7**; `customer_b2b` excluido a propósito
+  (es cliente externo). Smoke `http-picking-pool-test.js` **35/35**. `nx build api` OK.
+  **Falta: pantalla (SU.2.1), aplicar las 2 migs a Railway + redeploy + re-login.**
 - [ ] **[SU.3]** ⬜ Motor de olas con reglas simples + consolidación por SKU **conservando** el
   desglose por pedido.
 - [ ] **[SU.4]** ⬜ Interfaz del surtidor (`ubicación → producto → cantidad → confirmar`).
@@ -173,13 +192,18 @@ software**: es gente rotulando el almacén. *(Medido en `platform_test`; falta c
 - [ ] **[SU.6]** ⬜ Desconsolidación + contenedores con QR.
 - [ ] **[SU.7]** ⬜ Chequeo de salida. ⚠️ `commercial-receiving` NO sirve (es entrada de
   proveedor). El gate de segregación se rompe a propósito una vez (ADR-056).
-- [ ] **[SU.8]** ⬜ Distribución de escasez — **BLOCKED** por la decisión de reservas.
+- [ ] **[SU.8]** ⬜ Reparto de lo **efectivamente surtido** (ya NO bloqueado — ver decisión abajo). Va pegado a SU.6.
 - [ ] **[SU.9]** ⬜ Indicadores contra la línea base de SU.0.4.
 
-**Decisiones abiertas (ninguna es de código):** (1) ¿la cajera factura o sigue el CFDI automático
-al fulfillar (FE.5)? · (2) ⭐ **¿se reserva stock en preventa?** hoy NO, y a propósito
-(`test-newdb-order-reopen`: devolver la cantidad de la línea le suelta el apartado a otro pedido)
-· (3) la existencia manda desde `v_erp_stock_on_hand`, no desde `commercial.stock` (91%): el SoR
+**✅ DECIDIDO 2026-09-17 (Edgar): el sistema NO aparta.** Se mantiene el comportamiento actual.
+La regla del §15 se aplica sobre lo que el surtidor **levantó**, no sobre una reserva → SU.8 se
+desbloquea y se abarata (sin expiración, sin liberar al cancelar/reabrir, sin tocar
+`commercial.stock`, que no es el SoR). **Costo aceptado:** dos olas pueden pedir lo mismo y la
+segunda encontrarlo agotado; eso se resuelve por excepción (SU.5), no se previene. La existencia
+al armar la ola es **informativa** y la pantalla lo declara.
+
+**Decisiones abiertas (ninguna es de código, ninguna bloquea SU.2):** (1) ¿la cajera factura o
+sigue el CFDI automático al fulfillar (FE.5)? · (3) la existencia manda desde `v_erp_stock_on_hand`, no desde `commercial.stock` (91%): el SoR
 sigue siendo Kepler/Wincaja · (4) §30 choca con ADR-040 (ContPAQi es SoR contable, la plataforma
 jamás escribe directo) · (5) folio: **se conserva `PD-`**, no se crea `PV-`.
 

@@ -130,6 +130,13 @@ export enum Permission {
   COMMERCIAL_PAYMENTS_REVERSAR = 'COMMERCIAL_PAYMENTS_REVERSAR',
   COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR = 'COMMERCIAL_RIDER_LIQUIDATION_GESTIONAR',
 
+  // Fase SU — Surtido por olas (ADR-067). Vive en el proyecto ALMACÉN, no en Comercial: el pool
+  // y la ola son trabajo de piso, no de venta. Sólo se declaran los que gatean algo HOY; el del
+  // surtidor (tomar la ola y confirmar líneas) nace con su endpoint en SU.4 — un permiso que no
+  // gatea nada es ruido en /admin/roles y nadie sabe si repartirlo ([LC.6.2]).
+  COMMERCIAL_PICKING_VER = 'COMMERCIAL_PICKING_VER',
+  COMMERCIAL_PICKING_GESTIONAR = 'COMMERCIAL_PICKING_GESTIONAR',
+
   // Módulo: Comercial — Promociones (Fase G.2)
   COMMERCIAL_PROMOTIONS_VER = 'COMMERCIAL_PROMOTIONS_VER',
   COMMERCIAL_PROMOTIONS_GESTIONAR = 'COMMERCIAL_PROMOTIONS_GESTIONAR',

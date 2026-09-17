@@ -85,6 +85,8 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.COMMERCIAL_ORDERS_CONFIRMAR]: { label: 'Confirmar Pedidos', description: 'Pasar pedidos de borrador a confirmado (reserva stock).', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_ORDERS_CANCELAR]: { label: 'Cancelar Pedidos', description: 'Cancelar pedidos y liberar el stock reservado.', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_ORDERS_FULFILL]: { label: 'Surtir Pedidos', description: 'Marcar pedidos como surtidos (consume stock).', category: 'Comercial · Pedidos' },
+  [Permission.COMMERCIAL_PICKING_VER]: { label: 'Ver Surtido', description: 'Consultar el pool de pedidos por surtir y las olas de surtido.', category: 'Almacén · Surtido' },
+  [Permission.COMMERCIAL_PICKING_GESTIONAR]: { label: 'Gestionar Surtido', description: 'Armar olas de surtido, asignarlas a un surtidor y cancelarlas.', category: 'Almacén · Surtido' },
   [Permission.COMMERCIAL_PAYMENTS_REGISTRAR]: { label: 'Registrar Cobros', description: 'Registrar pagos de pedidos (cash en beta).', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_PAYMENTS_VERIFICAR]: { label: 'Verificar Cobros', description: 'Verificar cobros de última milla contra el corte del repartidor.', category: 'Comercial · Pedidos' },
   [Permission.COMMERCIAL_PAYMENTS_REVERSAR]: { label: 'Reversar Cobros', description: 'Reversar/anular un cobro registrado por error.', category: 'Comercial · Pedidos' },
