@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,6 +9,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
+import { CatalogoLatidoService } from '../catalogo-latido.service';
 import { ComercialService, DupBarcodeRow, DupProduct } from '../../comercial/comercial.service';
 
 type Severidad = '' | 'distinto' | '5' | '25';
@@ -57,6 +58,20 @@ type Severidad = '' | 'distinto' | '5' | '25';
       </header>
 
       <app-page-tabs [tabs]="tabs" />
+
+      <!--
+        [CAT.7] El estado del canal, SIEMPRE visible. "No hay nada nuevo" y "dejé de preguntar" se
+        ven igual en pantalla y significan lo contrario; por eso se declara cuál de las dos es.
+      -->
+      <div class="cd-rail">
+        <span class="cd-dot" [class.cd-dot-off]="!enVivo()"></span>
+        <span class="cd-rail-l">{{ enVivo() ? 'Al día' : 'Sin conexión' }}</span>
+        <span class="cd-rail-m">
+          {{ enVivo()
+            ? 'se actualiza sola en cuanto corrigen algo en Kepler'
+            : 'los datos son de la última carga; recargá para ver si cambió algo' }}
+        </span>
+      </div>
 
       <!--
         [CAT.2] El defecto se detecta sin precios. Cuando el contexto de precio no está, se dice —y
@@ -327,6 +342,25 @@ type Severidad = '' | 'distinto' | '5' | '25';
     }
     .cd-seg-on .cd-seg-n { background: var(--action); color: #fff; }
 
+
+    .cd-rail {
+      display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem;
+      margin-top: .6rem; padding: .35rem .6rem;
+      border: 1px solid var(--c-divider); border-radius: 6px; background: var(--c-surface-0);
+    }
+    .cd-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--ok-fg); flex: none;
+      animation: cd-pulse 2.4s ease-out infinite;
+    }
+    .cd-dot-off { background: var(--c-text-3); animation: none; }
+    @keyframes cd-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(64,111,78,.42); }
+      70%  { box-shadow: 0 0 0 7px rgba(64,111,78,0); }
+      100% { box-shadow: 0 0 0 0 rgba(64,111,78,0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .cd-dot { animation: none; } }
+    .cd-rail-l { font-size: var(--fs-xs); font-weight: var(--fw-bold); }
+    .cd-rail-m { font-size: .72rem; color: var(--c-text-2); }
     .cd-r { text-align: right; }
     .cd-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .cd-muted { color: var(--c-text-2); }
@@ -431,10 +465,14 @@ type Severidad = '' | 'distinto' | '5' | '25';
     }
   `],
 })
-export class ComprasCatalogoCodigosComponent implements OnInit {
+export class ComprasCatalogoCodigosComponent implements OnInit, OnDestroy {
   readonly tabs = CATALOGO_TABS;
 
   private readonly api = inject(ComercialService);
+  private readonly latido = inject(CatalogoLatidoService);
+
+  /** [CAT.7] `false` = el latido no responde; la pantalla lo DICE en vez de callarlo. */
+  readonly enVivo = this.latido.enVivo;
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -494,7 +532,18 @@ export class ComprasCatalogoCodigosComponent implements OnInit {
     return this.todas().filter((g) => this.pasaSeveridad(g, v)).length;
   }
 
-  ngOnInit(): void { this.recargar(); }
+  ngOnInit(): void {
+    this.recargar();
+    this.latido.escuchar();
+  }
+
+  ngOnDestroy(): void { this.latido.dejarDeEscuchar(); }
+
+  /** [CAT.7] Cuando corrigen un codigo en Kepler, esta tabla se entera sola. Recarga directo: aca
+   *  no hay riesgo de mover algo bajo el cursor, la tabla se lee, no se edita. */
+  private readonly alCambiar = effect(() => {
+    if (this.latido.version() > 0) this.recargar();
+  });
 
   recargar(): void {
     this.cargando.set(true);

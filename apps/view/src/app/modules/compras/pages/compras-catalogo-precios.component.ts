@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -9,6 +9,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
+import { CatalogoLatidoService } from '../catalogo-latido.service';
 import { ComercialService, PriceGapRow } from '../../comercial/comercial.service';
 
 type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
@@ -60,6 +61,20 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
       </header>
 
       <app-page-tabs [tabs]="tabs" />
+
+      <!--
+        [CAT.7] El estado del canal, SIEMPRE visible. "No hay nada nuevo" y "dejé de preguntar" se
+        ven igual en pantalla y significan lo contrario; por eso se declara cuál de las dos es.
+      -->
+      <div class="pg-rail">
+        <span class="pg-dot" [class.pg-dot-off]="!enVivo()"></span>
+        <span class="pg-rail-l">{{ enVivo() ? 'Al día' : 'Sin conexión' }}</span>
+        <span class="pg-rail-m">
+          {{ enVivo()
+            ? 'se actualiza sola en cuanto corrigen algo en Kepler'
+            : 'los datos son de la última carga; recargá para ver si cambió algo' }}
+        </span>
+      </div>
 
       <!--
         Sin grano por sucursal no hay nada que comparar. Se DICE, en vez de devolver una lista
@@ -303,6 +318,25 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
     }
     .pg-seg-on .pg-seg-n { background: var(--action); color: #fff; }
 
+
+    .pg-rail {
+      display: flex; flex-wrap: wrap; align-items: center; gap: .4rem .6rem;
+      margin-top: .6rem; padding: .35rem .6rem;
+      border: 1px solid var(--c-divider); border-radius: 6px; background: var(--c-surface-0);
+    }
+    .pg-dot {
+      width: 7px; height: 7px; border-radius: 50%; background: var(--ok-fg); flex: none;
+      animation: pg-pulse 2.4s ease-out infinite;
+    }
+    .pg-dot-off { background: var(--c-text-3); animation: none; }
+    @keyframes pg-pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(64,111,78,.42); }
+      70%  { box-shadow: 0 0 0 7px rgba(64,111,78,0); }
+      100% { box-shadow: 0 0 0 0 rgba(64,111,78,0); }
+    }
+    @media (prefers-reduced-motion: reduce) { .pg-dot { animation: none; } }
+    .pg-rail-l { font-size: var(--fs-xs); font-weight: var(--fw-bold); }
+    .pg-rail-m { font-size: .72rem; color: var(--c-text-2); }
     .pg-r { text-align: right; }
     .pg-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .pg-muted { color: var(--c-text-2); }
@@ -349,10 +383,14 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
     }
   `],
 })
-export class ComprasCatalogoPreciosComponent implements OnInit {
+export class ComprasCatalogoPreciosComponent implements OnInit, OnDestroy {
   readonly tabs = CATALOGO_TABS;
 
   private readonly api = inject(ComercialService);
+  private readonly latido = inject(CatalogoLatidoService);
+
+  /** [CAT.7] `false` = el latido no responde; la pantalla lo DICE en vez de callarlo. */
+  readonly enVivo = this.latido.enVivo;
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -377,7 +415,17 @@ export class ComprasCatalogoPreciosComponent implements OnInit {
   readonly peor = computed(() =>
     this.filas().reduce((m, r) => Math.max(m, r.pieza_pct, r.mayoreo_pct), 0));
 
-  ngOnInit(): void { this.recargar(); }
+  ngOnInit(): void {
+    this.recargar();
+    this.latido.escuchar();
+  }
+
+  ngOnDestroy(): void { this.latido.dejarDeEscuchar(); }
+
+  /** [CAT.7] Cuando corrigen un precio en Kepler, esta tabla se entera sola. */
+  private readonly alCambiar = effect(() => {
+    if (this.latido.version() > 0) this.recargar();
+  });
 
   conteo(v: Vista): number { return this.todas().filter((r) => this.pasa(r, v)).length; }
 
