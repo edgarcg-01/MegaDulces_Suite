@@ -3,6 +3,8 @@ import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission, SkipTenantTx } from '@megadulces/platform-core';
 import { PolizasService } from './polizas.service';
+import { PolizaTypeAuditService } from './poliza-type-audit.service';
+import { PolizaTypeFindingsBridgeService } from './poliza-type-findings-bridge.service';
 import { MaatDetectorService } from '../maat/maat-detector.service';
 import { FinanceJobsService } from '../jobs/finance-jobs.service';
 
@@ -25,6 +27,8 @@ function wantsInline(q?: string, b?: boolean): boolean {
 export class PolizasController {
   constructor(
     private readonly svc: PolizasService,
+    private readonly tipos: PolizaTypeAuditService,
+    private readonly tiposBridge: PolizaTypeFindingsBridgeService,
     private readonly detector: MaatDetectorService,
     private readonly jobs: FinanceJobsService,
   ) {}
@@ -52,6 +56,39 @@ export class PolizasController {
       only_descuadre: only_descuadre === 'true' || only_descuadre === '1',
       page: Number(page) || 1, page_size: Number(page_size) || 50,
     });
+  }
+
+  /* ---- PV.4: auditor del TIPO de poliza (D/E/I) ---- */
+
+  @Get('tipos/summary')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiQuery({ name: 'anio', required: false, description: 'Ventana para medir el uso de cada doctype. Default: ano en curso.' })
+  @ApiOperation({ summary: 'Cabecera del auditor de tipo de poliza. Cada bloque trae su estado de medicion (ADR-056: lo que no se midio se declara, no se dibuja como cero).' })
+  tiposSummary(@Query('anio') anio?: string) {
+    return this.tipos.summary(anio ? Number(anio) : undefined);
+  }
+
+  @Get('tipos/catalogo')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiQuery({ name: 'anio', required: false })
+  @ApiOperation({ summary: 'Doctypes de Kepler cuyo tipo de poliza no concuerda con las cuentas que mueve, con su volumen del ano (separa incongruencia viva de catalogo dormido).' })
+  tiposCatalogo(@Query('anio') anio?: string) {
+    return this.tipos.catalogAudit(anio ? Number(anio) : undefined);
+  }
+
+  @Get('tipos/cruce')
+  @RequirePermissions(Permission.FISCAL_CONTAB_VER)
+  @ApiQuery({ name: 'meses', required: false, description: 'Ventana en meses (1-36). Default 6.' })
+  @ApiOperation({ summary: 'Brecha de clasificacion por tipo de poliza y mes entre Kepler y ContPAQi. Sin una de las dos fuentes devuelve not_measured con motivo, nunca una lista vacia.' })
+  tiposCruce(@Query('meses') meses?: string) {
+    return this.tipos.crossAudit(meses ? Number(meses) : 6);
+  }
+
+  @Post('tipos/sync')
+  @RequirePermissions(Permission.FISCAL_CONTAB_GESTIONAR)
+  @ApiOperation({ summary: 'Empuja los hallazgos de tipo de poliza a la bandeja de Maat y avisa por la campana. Idempotente (UPSERT por dedup_key).' })
+  tiposSync() {
+    return this.tiposBridge.syncCurrent();
   }
 
   @Get('detail')
