@@ -3635,6 +3635,12 @@ TP.6-TP.8+TP.10".
       (`AnexoVentaService.renderPdf`). · *2026-09-18*
 - [ ] **[TK.4]** ⬜ Validación visual de la pantalla y de los dos papeles impresos.
 - [ ] **[TK.5]** ⬜ Aplicar las 3 migraciones a prod + redeploy api+view + **re-login**.
+- [ ] **[TK.6]** ⬜ **Wincaja (sucursales 30 y 32)** — decidido con Edgar 2026-09-18: va como
+      SIGUIENTE PASO. Es otra fuente (`wincaja.v_sales_lines`, base aparte) y su descuento es
+      **mejor dato** que el de Kepler: un porcentaje REAL por renglón (`descuento1`: 4%, 2%, 5%,
+      3%, 20%, 2.5% — medido, 8.5% de los renglones lo traen). Su folio es `doc_ref` (`T…` ticket /
+      `F…` factura) + `consecutivo`. ⚠️ Mientras no esté, un folio de esas dos plazas **no aparece**
+      en la búsqueda.
 
 **Hallazgos que valen más que el módulo** (detalle en `docs/ERP_KEPLER.md` §3.1):
 
