@@ -30,6 +30,7 @@ interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   vigente_amount: number; reserved_amount: number; committed_amount: number; exercised_amount: number;
   paid_amount: number; available_amount: number; control_level: string; status: string;
+  expense_class: string | null; recurrence: string | null; responsible: string | null;
 }
 interface RealBlock { available: boolean; ventas: number | null; costo: number | null; margen: number | null; data_as_of: string | null; reason?: string }
 interface Summary {
@@ -70,7 +71,7 @@ interface Projection { authorized_vigente: number; proyeccion_firme: number; pro
 interface CompareRow { concept: string; area: string | null; line_type: string; vigente_a: number | null; vigente_b: number | null; delta: number | null; estado: string }
 interface CompareResult { totals: { a: number; b: number; delta: number }; rows: CompareRow[] }
 
-type PresView = 'ejercicios' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
+type PresView = 'ejercicios' | 'gasto-op' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Surface Operations (quiet-luxury, answer-first). Tres vistas:
@@ -189,6 +190,49 @@ type PresView = 'ejercicios' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
             @if (b.status !== 'aprobado') {
               <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas se capturan en borrador. Los movimientos (reservar / comprometer / ejercer / pagar / adecuar) se habilitan cuando el ejercicio está <strong>aprobado</strong>.</p>
             }
+          }
+        </section>
+      }
+
+      <!-- ══════════ GASTO OPERATIVO (PU.7) ══════════ -->
+      @if (view() === 'gasto-op') {
+        <section class="pres-section">
+          @if (selected(); as b) {
+            <div class="pres-section-head">
+              <h2>Gasto operativo · <span class="pres-muted">{{ b.name }} {{ b.fiscal_year }}</span></h2>
+              @if (b.status === 'borrador' || b.status === 'en_revision') {
+                <button pButton type="button" class="p-button-sm" (click)="openNewGasto()"><span class="pi pi-plus"></span>&nbsp;Gasto operativo</button>
+              }
+            </div>
+            <app-metric-strip [items]="gastoKpis()" mode="strip" ariaLabel="Resumen de gasto operativo" />
+            <p-table [value]="gastoLines()" [loading]="loadingDetail()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+              <ng-template #header>
+                <tr>
+                  <th>Concepto</th><th>Área / CC</th><th>Responsable</th><th>Clase</th><th>Recurrencia</th>
+                  <th class="ta-r">Vigente</th><th class="ta-r">Comprometido</th><th class="ta-r">Ejercido</th><th class="ta-r">Disponible</th><th class="ta-r">Ocupación</th>
+                  <th style="width:3rem"><span class="sr-only">Acciones</span></th>
+                </tr>
+              </ng-template>
+              <ng-template #body let-l>
+                <tr>
+                  <td>{{ l.concept }}</td>
+                  <td class="pres-muted">{{ l.area || '—' }}</td>
+                  <td class="pres-muted">{{ l.responsible || '—' }}</td>
+                  <td>{{ classLabel(l.expense_class) }}</td>
+                  <td class="pres-muted">{{ recurrenceLabel(l.recurrence) }}</td>
+                  <td class="ta-r pres-mono">{{ money(l.vigente_amount) }}</td>
+                  <td class="ta-r pres-mono">{{ dash(l.committed_amount) }}</td>
+                  <td class="ta-r pres-mono">{{ dash(l.exercised_amount) }}</td>
+                  <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
+                  <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
+                  <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin gastos operativos en este ejercicio. @if (b.status === 'borrador' || b.status === 'en_revision') { Agregá el primero con «Gasto operativo». }</td></tr></ng-template>
+            </p-table>
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> Control antes de comprometer: el disponible manda. Reservar/comprometer más que el disponible se <strong>bloquea</strong> (o avisa) según el control de cada partida. Los movimientos se operan con el ejercicio <strong>aprobado</strong>.</p>
+          } @else {
+            <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
           }
         </section>
       }
@@ -410,6 +454,26 @@ type PresView = 'ejercicios' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
       <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmAddLine()" [loading]="savingLine()">Agregar</button></div>
     </p-dialog>
 
+    <!-- Nuevo gasto operativo -->
+    <p-dialog [(visible)]="newGastoVisible" [modal]="true" header="Nuevo gasto operativo" [style]="{ width: '28rem' }">
+      <label class="pres-lbl">Concepto</label>
+      <input pInputText type="text" [(ngModel)]="gastoForm.concept" class="pres-full" placeholder="Ej. Renta CEDIS" />
+      <label class="pres-lbl">Centro de costo / área</label>
+      <input pInputText type="text" [(ngModel)]="gastoForm.area" class="pres-full" />
+      <label class="pres-lbl">Responsable</label>
+      <input pInputText type="text" [(ngModel)]="gastoForm.responsible" class="pres-full" />
+      <div class="pres-row2">
+        <div><label class="pres-lbl">Clase</label><p-select [options]="expenseClassOpts" [(ngModel)]="gastoForm.expense_class" optionLabel="label" optionValue="value" placeholder="Fijo/Variable" styleClass="pres-full" /></div>
+        <div><label class="pres-lbl">Recurrencia</label><p-select [options]="recurrenceOpts" [(ngModel)]="gastoForm.recurrence" optionLabel="label" optionValue="value" placeholder="Recurrente/No" styleClass="pres-full" /></div>
+      </div>
+      <label class="pres-lbl">Importe autorizado (original)</label>
+      <input pInputText type="number" [(ngModel)]="gastoForm.original_amount" class="pres-full" />
+      <label class="pres-lbl">Control</label>
+      <p-select [options]="controlOpts" [(ngModel)]="gastoForm.control_level" optionLabel="label" optionValue="value" placeholder="Control" styleClass="pres-full" />
+      <p class="pres-lbl-hint">Bloqueo impide sobregiro al reservar/comprometer; advertencia lo permite avisando; informativo no frena.</p>
+      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNewGasto()" [loading]="savingGasto()">Agregar</button></div>
+    </p-dialog>
+
     <!-- Movimiento de partida -->
     <p-dialog [(visible)]="movVisible" [modal]="true" [header]="'Movimiento — ' + (movLine()?.concept || '')" [style]="{ width: '30rem' }">
       @if (movLine(); as l) {
@@ -554,6 +618,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   view = signal<PresView>('ejercicios');
   viewOpts = [
     { label: 'Ejercicios', value: 'ejercicios' },
+    { label: 'Gasto operativo', value: 'gasto-op' },
     { label: 'Flujo de efectivo', value: 'flujo' },
     { label: 'Campañas', value: 'campanas' },
     { label: 'Capacidad de pago', value: 'capacidad' },
@@ -607,6 +672,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
   compareResult = signal<CompareResult | null>(null);
   projVisible = false; loadingProj = signal(false);
   projection = signal<Projection | null>(null);
+
+  // ── Gasto operativo (PU.7) — vista dedicada sobre las partidas tipo Gasto ──
+  newGastoVisible = false; savingGasto = signal(false);
+  gastoForm: { concept?: string; area?: string; responsible?: string; original_amount?: number; expense_class?: string; recurrence?: string; control_level?: string } = {};
+  expenseClassOpts = [{ label: 'Fijo', value: 'fijo' }, { label: 'Variable', value: 'variable' }];
+  recurrenceOpts = [{ label: 'Recurrente', value: 'recurrente' }, { label: 'No recurrente', value: 'no_recurrente' }];
 
   // ── Flujo de efectivo (PU.3) ──
   cashflow = signal<Cashflow | null>(null);
@@ -795,6 +866,36 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
   compareSeverity(estado: string): 'secondary' | 'info' | 'warn' { return estado === 'igual' ? 'secondary' : estado === 'cambio' ? 'warn' : 'info'; }
+
+  // ── Gasto operativo ──
+  gastoLines(): BudgetLine[] { return this.lines().filter((l) => l.line_type === 'gasto'); }
+  gastoKpis(): MetricStripItem[] {
+    const g = this.gastoLines();
+    const sum = (f: (l: BudgetLine) => number) => Math.round(g.reduce((s, l) => s + f(l), 0) * 100) / 100;
+    const vigente = sum((l) => Number(l.vigente_amount));
+    const usado = sum((l) => Number(l.reserved_amount) + Number(l.committed_amount) + Number(l.exercised_amount));
+    const disponible = Math.round((vigente - usado) * 100) / 100;
+    return [
+      { label: 'Presupuesto gasto', value: vigente, format: 'currency-short' },
+      { label: 'Comprometido + ejercido', value: sum((l) => Number(l.committed_amount) + Number(l.exercised_amount)), format: 'currency-short' },
+      { label: 'Disponible', value: disponible, format: 'currency-short', tone: disponible < 0 ? 'bad' : 'ok' },
+      { label: 'Ocupación', value: vigente > 0 ? Math.round((usado / vigente) * 1000) / 10 : 0, format: vigente > 0 ? 'percent' : 'text', sub: vigente > 0 ? undefined : 'sin base' },
+    ];
+  }
+  openNewGasto(): void { this.gastoForm = { control_level: 'bloqueo' }; this.newGastoVisible = true; }
+  confirmNewGasto(): void {
+    const b = this.selected(); if (!b) return;
+    if (!this.gastoForm.concept?.trim() || !(Number(this.gastoForm.original_amount) >= 0)) {
+      this.toast.add({ severity: 'warn', summary: 'Faltan datos', detail: 'Concepto e importe son requeridos.' }); return;
+    }
+    this.savingGasto.set(true);
+    this.http.post(`${this.base}/budgets/${b.id}/lines`, { ...this.gastoForm, line_type: 'gasto' }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingGasto.set(false); this.newGastoVisible = false; this.reloadDetail(); this.toast.add({ severity: 'success', summary: 'Agregado', detail: 'Gasto operativo registrado.' }); },
+      error: (e) => { this.savingGasto.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo agregar.' }); },
+    });
+  }
+  classLabel(c: string | null): string { return c === 'fijo' ? 'Fijo' : c === 'variable' ? 'Variable' : '—'; }
+  recurrenceLabel(r: string | null): string { return r === 'recurrente' ? 'Recurrente' : r === 'no_recurrente' ? 'No recurrente' : '—'; }
 
   // ── Flujo de efectivo ──
   loadCashflow(): void {
