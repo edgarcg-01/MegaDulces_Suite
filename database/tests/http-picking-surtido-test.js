@@ -169,8 +169,11 @@ const wavesCreadas = [];
     check('finish 200/201', cierre.status < 300, { status: cierre.status, body: cierre.body });
     check('la ola queda surtida', cierre.body?.status === 'surtida', cierre.body?.status);
     check('registra QUIÉN surtió', !!cierre.body?.picked_by, cierre.body?.picked_by);
+    // Cerrar el surtido TAMBIÉN reparte (SU.6, misma transacción), así que el pedido no se
+    // queda en 'surtido': avanza a 'desconsolidado'. Lo verifica en detalle el bloque 12.
     const wo = await knex('commercial.wave_orders').where({ wave_id: waveId }).select('stage');
-    check('los pedidos de la ola avanzaron a "surtido"', wo.every((x) => x.stage === 'surtido'), wo.map((x) => x.stage));
+    check('los pedidos avanzaron (cerrar surtido reparte en el mismo paso)',
+      wo.every((x) => x.stage === 'desconsolidado'), wo.map((x) => x.stage));
     const cierre2 = await req('POST', `/reparto/surtido/waves/${waveId}/finish`, {}, token);
     check('cerrar dos veces es idempotente (no 409)', cierre2.status < 300, cierre2.status);
 
@@ -180,7 +183,48 @@ const wavesCreadas = [];
     check('reserved_quantity intacta (no se aparta — ADR-067)',
       Number(stockAntes.reserved_quantity) === Number(stockDespues.reserved_quantity));
 
-    console.log('── 12. Ya cerrada, no se puede seguir marcando ──');
+    console.log('── 12. ⭐ SU.6: el reparto de lo que hubo, con su REGLA ──');
+    const alloc = await req('GET', `/reparto/surtido/waves/${waveId}/allocations`, null, token);
+    check('allocations 200', alloc.status === 200, alloc.status);
+    const porPedido = alloc.body || [];
+    check('hay reparto para los 2 pedidos', porPedido.length === 2, porPedido.length);
+    // prods[0]: se levantaron 13 de 13 -> los dos completos en ese SKU.
+    const todos = porPedido.flatMap((g) => g.items);
+    const delCompartido = todos.filter((i) => i.product_id === prods[0].id);
+    check('el SKU que alcanzó se reparte COMPLETO a los dos',
+      delCompartido.length === 2 && delCompartido.every((i) => i.rule_applied === 'completo'),
+      delCompartido.map((i) => `${i.qty_allocated}/${i.qty_requested} ${i.rule_applied}`));
+    check('y la suma repartida es exactamente lo levantado (13)',
+      delCompartido.reduce((s, i) => s + i.qty_allocated, 0) === 13,
+      delCompartido.map((i) => i.qty_allocated));
+    // prods[1]: se marcó agotado (0) -> nadie recibe, y la regla lo DICE.
+    const delAgotado = todos.filter((i) => i.product_id === prods[1].id);
+    check('el SKU agotado reparte 0 y declara sin_mercancia',
+      delAgotado.length > 0 && delAgotado.every((i) => i.qty_allocated === 0 && i.rule_applied === 'sin_mercancia'),
+      delAgotado.map((i) => `${i.qty_allocated} ${i.rule_applied}`));
+    check('el pedido al que le faltó algo se marca INCOMPLETO',
+      porPedido.some((g) => g.completo === false), porPedido.map((g) => `${g.order_code}:${g.completo}`));
+    check('⛔ NUNCA se reparte más de lo pedido (lo garantiza también un CHECK de la DB)',
+      todos.every((i) => i.qty_allocated <= i.qty_requested));
+    const stages = await knex('commercial.wave_orders').where({ wave_id: waveId }).select('stage');
+    check('al cerrar, los pedidos quedan DESCONSOLIDADOS', stages.every((x) => x.stage === 'desconsolidado'), stages.map((x) => x.stage));
+
+    console.log('── 13. ⭐ SU.7: re-verificar deja el pedido LISTO PARA EMBARQUE ──');
+    const ver = await req('POST', `/reparto/surtido/waves/${waveId}/orders/${o1.id}/verify`, {}, token);
+    check('verify 200/201', ver.status < 300, { status: ver.status, body: ver.body });
+    check('el pedido queda listo_embarque', ver.body?.stage === 'listo_embarque', ver.body?.stage);
+    check('registra QUIÉN verificó (aparte de quién surtió)', !!ver.body?.verified_by, ver.body?.verified_by);
+    const ver2 = await req('POST', `/reparto/surtido/waves/${waveId}/orders/${o1.id}/verify`, {}, token);
+    check('verificar dos veces es idempotente', ver2.status < 300, ver2.status);
+    // El otro pedido sigue sin verificar: se verifica de a uno, como se separa.
+    const wo2 = await knex('commercial.wave_orders').where({ wave_id: waveId, order_id: o2.id }).first();
+    check('el pedido NO verificado sigue en desconsolidado', wo2?.stage === 'desconsolidado', wo2?.stage);
+
+    console.log('── 14. PRUEBA NEGATIVA: no se verifica una ola sin terminar ──');
+    const olaAbierta = await req('POST', '/reparto/surtido/waves', { warehouse_id: wh.id, order_ids: [] }, token);
+    check('ola sin pedidos → 400 (no se arma vacía)', olaAbierta.status === 400, olaAbierta.status);
+
+    console.log('── 15. Ya cerrada, no se puede seguir marcando ──');
     const tarde = await req('POST', `/reparto/surtido/waves/${waveId}/lines/${rCompartido.id}/pick`, { qty_picked: 1 }, token);
     check('marcar sobre una ola cerrada → 409', tarde.status === 409, tarde.status);
 
@@ -189,6 +233,7 @@ const wavesCreadas = [];
     console.error('\nERROR:', e.message);
   } finally {
     for (const id of wavesCreadas) {
+      await knex('commercial.wave_allocations').where({ wave_id: id }).del().catch(() => {});
       await knex('commercial.wave_lines').where({ wave_id: id }).del().catch(() => {});
       await knex('commercial.wave_orders').where({ wave_id: id }).del().catch(() => {});
       await knex('commercial.picking_waves').where({ id }).del().catch(() => {});

@@ -12,14 +12,7 @@
     "para `paths` en `apps/view/tsconfig.json`.",
     "",
     "Y tampoco hay `module`/`moduleResolution` en CommonJS: eran para que jest leyera estos archivos.",
-    "Vite resuelve ESM de forma nativa y usa los `exports` del package.json.",
-    "",
-    "",
-    "⚠️ rootDir es la RAIZ DEL WORKSPACE (como en apps/api y apps/vendor): esta libreria",
-    "importa de otras y con ./src TypeScript responde TS6059 culpando al archivo que importa.",
-    "DECLARADO: con el rootDir correcto, tsc -p alcanza libs/platform-core y ahi aparecen",
-    "errores TS1272 PREEXISTENTES (tipos en firmas decoradas sin import type). No son de esta",
-    "libreria ni los introdujo la migracion a Vitest, y tsc -p no es una compuerta del repo."
+    "Vite resuelve ESM de forma nativa y usa los `exports` del package.json."
   ],
   "extends": "./tsconfig.json",
   "exclude": [
@@ -28,11 +21,11 @@
   ],
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
+    "rootDir": "./src",
     "types": [
       "vitest/globals",
       "node"
-    ],
-    "rootDir": "../.."
+    ]
   },
   "include": [
     "src/**/*.spec.ts",
