@@ -237,6 +237,44 @@ importers.
   nullable, solo aplican a gasto (mig `20260917200000`, aditiva e idempotente). `nx build api`+`view` verdes.
   **Pendiente: mig a prod + push/redeploy + verificación HTTP (ADR-044).**
 
+### Fase PV *(pólizas)* — Validación y cuadre de pólizas · ADR-041 · [`FASE_PV_VALIDACION_POLIZAS`](FASES/FASE_PV_VALIDACION_POLIZAS.md)
+
+> ⚠️ **`PV` está DOBLE-OCUPADO y las claves están DUPLICADAS** (como pasó con ADR-052, pero peor:
+> ahí colisionaba un número, acá colisiona la numeración entera). Hay **dos `[PV.3]` y dos `[PV.4]`**
+> en este mismo tracker, de fases distintas:
+>
+> | clave | Fase PV *(pólizas)* — ADR-041, **2026-07-31** | Fase PV *(presupuesto de ventas)* — **2026-09-17** |
+> |---|---|---|
+> | `PV.3` | UI Auditor de Pólizas (`/contabilidad/polizas`) | Modelo del presupuesto de ventas |
+> | `PV.4` | Auditor del **tipo** de póliza (este item) | Comparación meta vs real + CREC + PART |
+>
+> **Recomendación (no ejecutada — es decisión del equipo, no de una sesión):** renombrar la de
+> **presupuesto de ventas**, que es la posterior y tomó un prefijo ya en uso; la de pólizas es
+> anterior, tiene ADR propio (041) y su doc de fase. Mientras no se resuelva, **un `[PV.x]` en un
+> commit es ambiguo** — desambiguar por ADR o por el doc de fase. El commit `696bf629` salió con
+> `[PV.4]` antes de que se detectara la colisión.
+
+- [~] **[PV.4]** 🧪 Auditor del **TIPO** de póliza (D/E/I) — 2026-09-18, commit `696bf629`. Sale de
+  contrastar un TXT de pólizas de ContPAQi (tipo 2 = Egresos) con un PDF de Kepler del doctype
+  `XA1001` "Gastos" (tipo D = Diario). **La premisa de que Kepler asignaba mal el tipo NO se sostuvo:**
+  `XA1001` abona a `203`/`201` proveedores, no a efectivo → es **devengo**, y una póliza que no mueve
+  efectivo es Diario por definición; el pago sale después por `X-D-26-1`, que sí abona a banco y sí
+  está en `E`. **Lo que sí se construyó:** (A) candado de congruencia del catálogo `kdmm` —
+  si toca efectivo (**`102`/`111` bancos, `110` caja**) debe ser `E`/`I`, si no `D` → **11
+  incongruencias, 2 vivas** (`U-A-40-1` Anticipo $509,844 y `U-D-9-1` Ticket Crédito $18,139) y
+  9 dormidas; ⚠️ el criterio ingenuo "mueve `102`" marcaba **24, con 13 falsos positivos**, porque
+  un pago en efectivo mueve **caja**. (B) brecha de **modelo** Kepler↔ContPAQi (dos tiempos vs uno),
+  medida por tipo y mes sobre `analytics.gl_polizas`, **sin inventar liga 1:1**. ⭐ **`kdmm.c20`
+  depende de la SUCURSAL**: `X-A-10-1` abona a `203` en la 00 y a `201` en las otras 6.
+  **Nada nuevo inventado (ADR-056):** bandeja = `finance.findings` de Maat (la novena que no se hace),
+  pantalla = bloque dentro de `/contabilidad/polizas`, permiso = `FISCAL_CONTAB_VER`, **sin migración
+  ni tabla ni importer**. ⛔ Dos trampas del aviso: `notifyCritical()` **no le llega a nadie** hoy
+  (`FINANCE_NOTIF_ENABLED = false` descarta `finance_finding` en la campana) → tipo propio
+  `polizas_tipo`; y un tipo nuevo **sin su `if` le llega a TODOS** (el default deja pasar) → ruteo por
+  `FISCAL_CONTAB_VER`. El bloque (B) **está ciego**: `analytics.gl_polizas` tiene 0 filas y se declara
+  `not_measured` con motivo, no lista vacía. Smoke `test-newdb-poliza-type-audit` **16/16** en la suite.
+  **Pendiente: verificación HTTP (ADR-044) + validación visual + redeploy api/view (sin re-login).**
+
 ### Fase PV — Presupuesto de Ventas estructurado · 2026-09-17 · plan aprobado · (hijo de Fase PU)
 
 El workbook manual `indicadores 2018 - VENTAS.csv` como **molde de estructura** (no de datos) para armar
