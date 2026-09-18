@@ -3610,6 +3610,96 @@ Detalle en [`FASE_TP_CALENDARIO_PAGOS.md`](FASES/FASE_TP_CALENDARIO_PAGOS.md) se
 TP.6-TP.8+TP.10".
 
 ---
+## 📋 BACKLOG — Fase CG: Caja General (del Access "Control" a la plataforma)
+
+**ADR-070** · Plan completo, medición y decisiones abiertas en
+[`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
+
+> ⚠️ **Deuda documental cerrada 2026-09-18:** CG.0–CG.7 (espejo `analytics.caja_general_*` +
+> `/finanzas/caja` con 7 pestañas + `finance.caja_bank_crosswalk`) **ya están en producción desde
+> ago-2026 pero nunca tuvieron entrada aquí, ni doc, ni ADR**. Se registran como ✅ hechos.
+>
+> ⭐ **Decisión de Dirección 2026-09-18:** la plataforma pasa a ser **la fuente principal de los
+> ingresos y egresos de efectivo**, cada movimiento **vinculado a un concepto de Kepler**, y el
+> sistema **autorrellena lo que la información permita**.
+
+### Lo medido que justifica la fase (sucursal 20, 2026-09-18)
+116,480 movimientos · $1,302M · **capturado ese mismo día** · 2026 = 12,253 movs / $153,993,522.72.
+**34 folios repetidos** (`DMax+1` sin bloqueo) · **2,387 movs sin concepto por $71,958,648 = 46.7 %
+del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos lee `NivelVen` ·
+`Doctos.ConceptoD` **99.3 % vacío** · `acumula_a` medido falso.
+
+### Sprint CG.0–CG.7 — Espejo y pantalla de lectura ✅ (ago-2026, registrado 2026-09-18)
+- [x] **[CG.2]** ✅ `analytics.caja_general_movimientos` + `_cuentas` (mig `20260814120000`) +
+  `import-caja-general.js` con `extract-mdb.ps1`. Scope ene-2026 → hoy.
+- [x] **[CG.7]** ✅ `finance.caja_bank_crosswalk` (mig `20260812170000`) — cuenta de caja → cuenta de
+  banco, HITL, patrón RA-PRO.3.
+- [x] **[CG.1–6]** ✅ `libs/finance/src/lib/caja/` (15 GET + 1 POST) + `/finanzas/caja` con 7
+  pestañas (General · Cuadre · Arqueos · Resumen · Depósitos · Conciliación · Enlace de cuentas),
+  que ya triangula `.mdb` vs workbook vs Kepler. **Todo read-only, todo bajo `FINANCE_BANK_VER`.**
+
+### Sprint CG.8–CG.12 — Etapa 1: dejar de mentir (no toca la captura) ⬜
+- [ ] **[CG.8]** ⬜ Medir la frescura del espejo **en prod** (⚠️ no medida: este entorno no tiene
+  credencial) + `cron-heartbeat` `feed_caja_general` con umbral en `CRON_JOBS` **y prueba negativa**
+  + declarar el rezago en pantalla (contrato de procedencia). ⚠️ Hoy el carril **está mudo**: no está
+  en `ops/vl/crontab.feeds`, ni en `run-prod-feeds.js`, ni late (modo de falla de ADR-053).
+- [ ] **[CG.9]** ⬜ `BDatos.mdb` al carril de réplica de Fase WR (`access-adapter.js`) → retirar
+  `import-caja-general.js`; `analytics.caja_general_*` pasa a **vista `derive-no-copy`**. Alcance
+  2008→hoy (hoy se pierden 104,227 movs de historia). ⚠️ Jet 32-bit → sigue en `.249` hasta VL.5.
+- [ ] **[CG.10b]** ⬜ ⭐ **Ruta crítica.** Vista `analytics.v_kepler_conceptos` sobre `kepler_ods.kdco`
+  (molde FKJ: `security_invoker` + filtro de tenant **dentro** + gate de costo).
+  ⛔ Primer paso: **confirmar que `kdco` tiene filas en prod** — está en el carril hash pero **nadie
+  lo lee**, o sea nunca se comprobó que aterrice. Configurado ≠ poblado.
+  ➕ `finance.caja_kepler_concept_map` (HITL, molde `caja_bank_crosswalk`) + cobertura en pantalla.
+- [ ] **[CG.10]** ⬜ Vista `analytics.v_caja_cuenta` que **descompone** `1009 Matriz Viaticos` →
+  (concepto, sucursal). Lo que no se pueda descomponer, `NULL` con motivo. ⛔ `acumula_a` se marca
+  no confiable y se deja de usar en rollups.
+- [ ] **[CG.12]** ⬜ Detectores → `finance.findings` vía `FINANCE_FINDINGS_SINK_PORT`:
+  `caja_sin_concepto`, `caja_folio_duplicado`, `caja_usuario_generico`,
+  `caja_anticipo_sin_comprobar`, `caja_cuenta_sin_descomponer`. Valor el día uno, sin tocar Access.
+
+### Sprint CG.17, CG.13–CG.15 — Etapa 2: el sub-módulo (la razón de ser) ⬜
+- [ ] **[CG.17]** ⬜ ⭐ **Motor de autorrelleno, ANTES de la pantalla.** `CajaAutofillService` con la
+  cascada de 5 niveles (contexto → **ligar documento** `fiscal.cfdis` 167,135 / `erp_collections`
+  23,771 / `erp_supplier_payments` 4,010 / `bank_movements` → **aprendido de `expense_entries`** con
+  soporte `n`/% → `finance.caja_classify_rules` molde CB.6 → OCR `extractRemision`). Devuelve **por
+  campo** `value`/`source`/`confidence`/`support`/`reason`, nunca un valor pelado.
+  ⛔ Soporte bajo o empate → **no propone, deja vacío con motivo** (prueba negativa obligatoria).
+  ⚠️ Telemetría de corrección desde el día uno → auto-supresión (`precision_score`, MAAT.2/L2).
+  ⚠️ **Medición de arranque:** correr contra los 12,253 movs de 2026 ya capturados y reportar qué %
+  de campos habría acertado — dimensiona el ahorro y el N de la revisión de contabilidad.
+- [ ] **[CG.13]** ⬜ ⭐ `finance.cash_ledger` + `_denominations`. **Folio atómico**
+  (`order_sequences`) mata los duplicados · **`kepler_cuenta`/`kepler_concepto` NOT NULL** validados
+  contra catálogo vivo + snapshot del nombre · **`glosa` NOT NULL** mata los $71.96M sin concepto ·
+  `created_by` del JWT mata el usuario genérico. Sucursal y centro de costo como dimensiones
+  propias. Se conservan las 15 denominaciones y el saldo corrido.
+- [ ] **[CG.11]** ⬜ *(paralelo)* `finance.caja_expense_settlements` — comprobación de gasto con
+  adjunto + OCR + cuadre, calcado de `collection_deposits` (CC). Ataca los **$4,675,503.50** de la
+  cuenta `1010` que hoy no tienen aging.
+- [ ] **[CG.14]** ⬜ `/finanzas/caja-general`, superficie Operations, con las **mismas 6 operaciones y
+  los mismos nombres** que la gente ya usa. Permisos **propios** `FINANCE_CAJA_VER`/`_GESTIONAR`/
+  **`_AUTORIZAR`** (fuera de todo `MODULE_GROUP`, patrón TP.6) — hoy todo cuelga de
+  `FINANCE_BANK_VER`. ⚠️ **Un módulo no está entregado hasta que su permiso está REPARTIDO en
+  prod** (lección LC.6.2).
+  ⚠️ **Criterio de aceptación: un capturista real registra un gasto típico en MENOS tiempo que en
+  Access.** Krmn hace 6,981 movs/año; si se vuelve más lento, el sub-módulo fracasa aunque el dato
+  sea perfecto.
+- [ ] **[CG.15]** ⬜ Corte de caja con doble llave (capturar ≠ autorizar), estados
+  `borrador → cerrado → autorizado` molde `purchase_book_runs` + aviso WS por
+  `FINANCE_NOTIFIER_PORT`.
+
+### Sprint CG.16 — Corte del Access ⬜
+- [ ] **[CG.16]** ⬜ Doble corrida con cuadre al centavo, y apagar **sólo** los menús `Flujo` y
+  `Bancos` de `Control` (los otros 5 módulos siguen). Reversible hasta el último día, patrón CV.15.
+
+**Fuera de alcance, declarado:** los otros 5 módulos de `Control` — cobranza de ruta y guías,
+pagarés, cambio masivo de precios, pedidos y surtido. Cada uno es su propia fase.
+
+**Decisiones abiertas (§11 del doc):** quién revisa lo que el motor no resuelva · ¿sólo la sucursal
+20 o las 6? · ¿entra el centro de costo `kdc3`? · ¿también ContPAQi? · ¿el historial 2008-2025? ·
+¿se resuelve junto con VL.5?
+
+---
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

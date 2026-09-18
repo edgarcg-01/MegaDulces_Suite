@@ -2103,3 +2103,34 @@ Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fa
 **Hereda:** ADR-068 (meta al grano del Excel, real = vista sobre el sell-out) · ADR-056 (lo no medido se declara, nunca cero; un gate sin prueba negativa es una intención — el guard de rampa se probó rompiéndolo) · ADR-016 (el motor decide/propone, el humano aprueba, el LLM fuera del dinero) · regla del ODS.
 
 Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVA).
+
+---
+
+## ADR-070
+
+**La plataforma pasa a ser la FUENTE PRINCIPAL del efectivo; cada movimiento nace ligado a un concepto de Kepler, y el autorrelleno PROPONE con procedencia — lo que no puede proponer lo deja vacío, nunca lo inventa.** (Fase CG — propuesto 2026-09-18)
+
+**Contexto.** El efectivo de la empresa se captura hoy en `Control`, una aplicación Access de 2014 (`v3.4 21/08/14`) que se monta sobre `BDatos.mdb` (Kepler Dulcería) y Wincaja. **Medido 2026-09-18 en la sucursal 20: 116,480 movimientos, $1,302M, capturado ese mismo día** — no es legado, es el libro vivo. De nuestro lado ya existía el espejo de lectura (CG.0–CG.7: `analytics.caja_general_*` + `/finanzas/caja` con 7 pestañas que ya triangulan `.mdb` vs workbook vs Kepler), **pero la fase nunca tuvo documento, tracker ni ADR**.
+
+**Lo que la medición encontró, y que ningún reporte arregla porque nace al teclear:** el folio se calcula `DMax("IdDocto")+1` en el cliente, sin bloqueo, con 5 capturistas sobre el mismo `.mdb` → **34 folios repetidos**; **2,387 movimientos de 2026 (19.5 %) sin concepto, por $71,958,648 = 46.7 % del dinero del año**; 1,625 movimientos de un usuario genérico `Auxiliar`; el permiso de Bancos lee `NivelVen` (typo vivo desde ~2014); y el catálogo de 122 cuentas **funde concepto y sucursal en una sola dimensión** (`1009 Matriz Viaticos` vs `10009 PHidalgo Viaticos`), con `AcumulaACta` medido falso.
+
+**Decisión — cuatro piezas:**
+1. **La plataforma es el sistema de registro del efectivo** (camino C: migrar y cortar, patrón Fase CV/ADR-058), no un espejo. Se **prohíbe la captura en paralelo**: dos pantallas escribiendo son dos folios y dos saldos. Los tres defectos caros mueren **por construcción** — folio atómico (`commercial.order_sequences`), `glosa NOT NULL`, `created_by` = `user_id` del JWT.
+2. **Cada movimiento nace con el par contable de Kepler** (`kepler_cuenta`, `kepler_concepto`) **NOT NULL**, validado contra catálogo vigente y con snapshot del nombre. La jerarquía de Kepler son **tres** niveles (mayor `kdc126` → subcuenta → **concepto `kdc.c20` sobre `kdco(c3,c1)`**, decodificados en GX.5). Con eso el efectivo queda en el mismo lenguaje que `analytics.expense_entries` y la balanza, y la conciliación deja de cuadrar sólo por monto/fecha y cuadra **por cuenta contra la póliza**. `Doctos` ya traía el gancho (`ConceptoD`) y **está 99.3 % en cero o vacío**: el vínculo cierra un hueco de 18 años, no agrega una función.
+3. **Cero importers: el concepto se DERIVA del ODS.** `kdco`/`kdc3`/`kdc2*` ya viajan por el carril hash (`ops/vl/docker-compose.yml`) **y ningún consumidor los lee** → vista `analytics.v_kepler_conceptos` con el molde FKJ (`security_invoker`, filtro de tenant **dentro** de la vista, gate de costo medido). Del lado de la cuenta ya está: `finance.kepler_accounts` es vista viva. Y mientras Access capture, `BDatos.mdb` entra por **el carril de réplica de Fase WR** (`access-adapter.js`), retirando `import-caja-general.js`.
+4. **El autorrelleno propone por NIVELES DE CERTEZA, con procedencia.** Contexto (certeza) → **ligar el documento que ya existe** (`fiscal.cfdis` 167,135 · `erp_collections` 23,771 · `erp_supplier_payments` 4,010 · `bank_movements`) → **aprendido de lo que contabilidad ya posteó** (`expense_entries`, con soporte `n`/% visible, molde `caja_bank_crosswalk.match_count`) → reglas editables en DB (calcado de `bank_classify_rules`, CB.6) → OCR (`extractRemision`, Fase CC).
+
+**Se rechaza:** (a) capturar en los dos lados; (b) un importer nuevo o copiar `kdco` a una tabla; (c) inventar un catálogo de conceptos propio — Kepler ya tiene el suyo y es el que usa contabilidad, inventar otro es crear una segunda verdad; (d) editar el catálogo de 122 cuentas de Control (es el sistema de otro: se **deriva**); (e) usar `acumula_a` como jerarquía (medido falso); (f) reusar `Doctos.ConceptoD` (99.3 % vacío, su catálogo tiene 2 filas basura); (g) **autorrellenar en silencio** — ver abajo.
+
+**Consecuencias:**
+- ✅ El efectivo pasa a tener folio único, glosa obligatoria, autor real y **cuenta+concepto contable desde el origen**.
+- ⛔ **Un autorrelleno equivocado es PEOR que un campo vacío**, porque se acepta sin mirarlo. Por eso: nada se guarda sin que un humano lo vea (ADR-016); cada campo declara **de dónde salió y con qué confianza** (contrato de procedencia, VP.2.1); **soporte bajo o empate → no propone**, deja vacío con motivo (ADR-056); se **mide la tasa de corrección** y una regla que se corrige seguido **se suprime sola** (`precision_score`, MAAT.2/Horus L2); y la captura manual nunca desaparece. Sin estas cinco, cambiamos $71.96M *sin* concepto por $71.96M *mal clasificados*, que es peor porque parece sano.
+- ⚠️ **El criterio de aceptación de la pantalla NO es que pasen los tests:** un capturista real debe registrar un gasto típico **en menos tiempo que en Access**. Krmn mete 6,981 movimientos al año; si se vuelve más lento, el sub-módulo fracasa aunque el dato sea perfecto.
+- ⚠️ **Declarado, no medido:** la frescura del espejo **en prod** (este entorno no tiene credencial de prod); y que `kepler_ods.kdco` **tenga filas** — está configurado en el carril pero nunca se comprobó que aterrice, porque nadie lo lee. **Configurado ≠ poblado.**
+- ⚠️ **El carril que alimenta `/finanzas/caja` hoy está MUDO**: `import-caja-general.js` no está en `ops/vl/crontab.feeds`, ni en `run-prod-feeds.js`, ni llama a `cron-heartbeat` — el modo de falla exacto de ADR-053. Y como necesita `Z:` + Jet 32-bit, **no puede correr en `md`**: sigue en `.249` junto a Wincaja hasta VL.5, declarado con dueño.
+- ⚠️ **El historial 2008-2025 (104,227 movimientos) no tiene concepto y no se le puede inventar** — entra marcado `legacy_sin_concepto`.
+- 🔄 Aditivo y reversible hasta el corte: Access queda intacto, y sólo se apagan los menús `Flujo` y `Bancos` de `Control` (los otros 5 módulos siguen).
+
+**Hereda:** ADR-058 (migrar, verificar en vivo, cortar — Fase CV) · ADR-016 (el motor propone, el humano aprueba, el LLM fuera del dinero) · ADR-056 (lo no medido se declara, nunca cero; un gate sin prueba negativa es una intención) · ADR-053 (el latido mide entrega) · ADR-033 (reglas en DB, no hardcodeadas) · la regla del ODS (derivar, no copiar).
+
+Plan, medición y las 6 decisiones abiertas en [`FASE_CG_CAJA_GENERAL.md`](FASES/FASE_CG_CAJA_GENERAL.md).
