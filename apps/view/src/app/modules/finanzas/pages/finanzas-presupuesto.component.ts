@@ -115,6 +115,13 @@ interface SalesIndicators {
 interface ReconAnnualRow { channel: string; channel_label: string; year: string; sell_out: number; facturacion: number; delta: number; ratio_pct: number | null; status: string }
 interface SalesReconciliation { annual: ReconAnnualRow[]; monthly: unknown[]; notes: string[]; data_as_of: string | null }
 
+// ── PVG: presupuesto de gastos auto-propuesto desde egresos Kepler ──
+interface ExpensePlanLine { account_code: string; account_name: string | null; familia: string | null; sucursal: string; year_month: string; monto: number; method: string; growth_pct: number | null; base_amount: number | null }
+interface ExpensePlanSettings { proposal_families: string[]; default_growth_pct: number; growth_by_account: Record<string, number>; by_sucursal: boolean; control_level: string; exists?: boolean }
+interface ExpensePlan { budget: BudgetHeader; settings: ExpensePlanSettings; lines: ExpensePlanLine[] }
+interface ExpenseCoverage { historico_ajustado: number; estacional: number; no_signal: number; manual_kept: number; accounts: number }
+interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
+
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
@@ -275,6 +282,36 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin gastos operativos en este ejercicio. @if (b.status === 'borrador' || b.status === 'en_revision') { Agregá el primero con «Gasto operativo». }</td></tr></ng-template>
             </p-table>
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Control antes de comprometer: el disponible manda. Reservar/comprometer más que el disponible se <strong>bloquea</strong> (o avisa) según el control de cada partida. Los movimientos se operan con el ejercicio <strong>aprobado</strong>.</p>
+
+            <!-- ── Presupuesto de gastos PROPUESTO (automático desde egresos de Kepler · PVG) ── -->
+            <div class="pres-section-head" style="margin-top:1.4rem">
+              <h3 style="margin:0;font-size:1rem">Presupuesto propuesto <span class="pres-muted">· automático desde egresos de Kepler</span></h3>
+              @if (b.status === 'borrador' || b.status === 'en_revision') {
+                <button pButton type="button" class="p-button-sm" (click)="openExpensePropose()"><span class="pi pi-bolt"></span>&nbsp;Proponer gastos del año</button>
+              }
+            </div>
+            @if (lastExpenseCoverage(); as cov) {
+              <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.accounts }}</strong> cuentas · <strong>{{ cov.historico_ajustado }}</strong> por base histórica · <strong>{{ cov.estacional }}</strong> por recurrencia · <strong>{{ cov.no_signal }}</strong> sin señal (no se inventan) · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
+            }
+            <p-table [value]="expenseByAccount()" [loading]="loadingExpense()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+              <ng-template #header>
+                <tr><th>Cuenta mayor</th><th>Familia</th><th>Sucursal</th><th>Origen</th><th class="ta-r">Meses</th><th class="ta-r">Presupuesto anual</th></tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td>{{ r.account_code }} · <span class="pres-muted">{{ r.account_name }}</span></td>
+                  <td class="pres-muted">{{ r.familia || '—' }}</td>
+                  <td class="pres-muted">{{ r.sucursal || 'Consolidado' }}</td>
+                  <td>{{ r.method }}</td>
+                  <td class="ta-r pres-mono">{{ r.months }}</td>
+                  <td class="ta-r pres-mono">{{ money(r.anual) }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage><tr><td colspan="6" class="pres-empty">Sin presupuesto de gastos propuesto. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer gastos del año» para armarlo desde los egresos de Kepler. }</td></tr></ng-template>
+            </p-table>
+            @if (expenseByAccount().length) {
+              <p class="pres-hint"><span class="pi pi-calculator"></span> Total propuesto (año): <strong class="pres-mono">{{ money(expenseTotal()) }}</strong> · grano <strong>cuenta mayor × mes</strong> (base del año anterior × crecimiento; relleno por recurrencia). Es una <strong>propuesta</strong>; el libro mayor de 5 estados de arriba se materializa por separado.</p>
+            }
           } @else {
             <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
           }
@@ -682,6 +719,26 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       }
     </p-dialog>
 
+    <!-- Proponer presupuesto de gastos (PVG) -->
+    <p-dialog [(visible)]="expenseProposeVisible" [modal]="true" header="Proponer presupuesto de gastos" [style]="{ width: '32rem' }">
+      <p class="pres-lbl-hint">El sistema propone el gasto por <strong>cuenta mayor × mes</strong> desde los egresos de Kepler del año anterior (base × crecimiento; relleno por recurrencia). Lo que no tiene historia <strong>no se inventa</strong>.</p>
+      @if (loadingExpenseProposal()) {
+        <p class="pres-muted">Calculando la tendencia de egresos…</p>
+      } @else {
+        @if (expenseGrowthProposal(); as p) {
+          <p class="pres-lbl-hint">Tendencia global sugerida: <strong>{{ gpct(p.global.growth_pct) }}</strong> ({{ p.global.basis === 'yoy_paired' ? 'YoY histórico' : 'default' }}) · años con egresos: {{ p.years_available.join(', ') || '—' }}.</p>
+        }
+        <label class="pres-lbl">Crecimiento objetivo (%)</label>
+        <input pInputText type="number" [(ngModel)]="expenseDefaultGrowth" class="pres-full" />
+        <label class="pres-lbl">Familias Kepler (separadas por coma)</label>
+        <input pInputText type="text" [(ngModel)]="expenseFamilies" class="pres-full" placeholder="6" />
+        <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión.</p>
+        <label class="pres-lbl"><p-checkbox [(ngModel)]="expenseBySucursal" [binary]="true" /> &nbsp;Presupuestar por sucursal (si no, consolidado)</label>
+        <label class="pres-lbl"><p-checkbox [(ngModel)]="expenseOverwriteManual" [binary]="true" /> &nbsp;Sobrescribir líneas capturadas a mano</label>
+        <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmExpensePropose()" [loading]="savingExpensePropose()">Proponer gastos</button></div>
+      }
+    </p-dialog>
+
     <!-- Proponer plan del año (PVA) -->
     <p-dialog [(visible)]="proposeVisible" [modal]="true" header="Proponer plan del año" [style]="{ width: '34rem' }">
       <p class="pres-lbl-hint">El sistema propone el <strong>crecimiento por canal</strong> desde la tendencia histórica. Ajustá lo que quieras; con eso arma las 299 celdas (base real × crecimiento donde hay historia; participación + estacionalidad donde no). Lo que no tiene señal <strong>no se inventa</strong>.</p>
@@ -877,6 +934,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     if (v === 'flujo' && !this.cashflow()) this.loadCashflow();
     if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
     if (v === 'ventas') this.loadSalesComparison();
+    if (v === 'gasto-op') this.loadExpensePlan();
   }
 
   // ── Ejercicios (PU) ──
@@ -1162,6 +1220,80 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
   classLabel(c: string | null): string { return c === 'fijo' ? 'Fijo' : c === 'variable' ? 'Variable' : '—'; }
   recurrenceLabel(r: string | null): string { return r === 'recurrente' ? 'Recurrente' : r === 'no_recurrente' ? 'No recurrente' : '—'; }
+
+  // ── PVG: presupuesto de gastos auto-propuesto desde egresos de Kepler ──
+  expensePlan = signal<ExpensePlan | null>(null);
+  loadingExpense = signal(false);
+  expenseProposeVisible = false;
+  savingExpensePropose = signal(false);
+  loadingExpenseProposal = signal(false);
+  expenseGrowthProposal = signal<ExpenseGrowthProposal | null>(null);
+  lastExpenseCoverage = signal<ExpenseCoverage | null>(null);
+  expenseDefaultGrowth: number | null = 8;
+  expenseFamilies = '6';
+  expenseBySucursal = false;
+  expenseOverwriteManual = false;
+
+  gpct(x: number): string { return (Number(x || 0) * 100).toFixed(1) + '%'; }
+
+  loadExpensePlan(): void {
+    const b = this.selected(); if (!b) { this.expensePlan.set(null); return; }
+    this.loadingExpense.set(true);
+    this.http.get<ExpensePlan>(`${this.base}/budgets/${b.id}/expense-plan`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => { this.expensePlan.set(p); this.loadingExpense.set(false); },
+      error: () => { this.loadingExpense.set(false); },
+    });
+  }
+
+  /** Agrega la rejilla propuesta (cuenta × sucursal × mes) a una fila por cuenta con Σ anual. */
+  expenseByAccount(): Array<{ account_code: string; account_name: string; familia: string; sucursal: string; method: string; anual: number; months: number }> {
+    const p = this.expensePlan(); if (!p) return [];
+    const m = new Map<string, { account_code: string; account_name: string; familia: string; sucursal: string; methods: Set<string>; anual: number; months: number }>();
+    for (const l of p.lines) {
+      const key = l.account_code + '|' + (l.sucursal || '');
+      if (!m.has(key)) m.set(key, { account_code: l.account_code, account_name: l.account_name || l.account_code, familia: l.familia || '', sucursal: l.sucursal || '', methods: new Set(), anual: 0, months: 0 });
+      const g = m.get(key)!; g.anual += Number(l.monto) || 0; g.months++; g.methods.add(l.method);
+    }
+    return [...m.values()].map((g) => ({
+      account_code: g.account_code, account_name: g.account_name, familia: g.familia, sucursal: g.sucursal,
+      method: g.methods.has('manual') ? 'mixto/manual' : (g.methods.has('estacional') ? 'híbrido' : 'histórico'),
+      anual: g.anual, months: g.months,
+    })).sort((a, b) => b.anual - a.anual);
+  }
+  expenseTotal(): number { const p = this.expensePlan(); return p ? p.lines.reduce((s, l) => s + (Number(l.monto) || 0), 0) : 0; }
+
+  openExpensePropose(): void {
+    const b = this.selected(); if (!b) return;
+    this.expenseOverwriteManual = false;
+    this.loadingExpenseProposal.set(true);
+    this.expenseProposeVisible = true;
+    this.http.get<ExpenseGrowthProposal>(`${this.base}/budgets/${b.id}/expense-plan/propose-growth`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        this.expenseGrowthProposal.set(p);
+        this.expenseFamilies = (p.families || ['6']).join(',');
+        this.expenseDefaultGrowth = Math.round((p.global?.growth_pct || 0) * 1000) / 10;
+        this.loadingExpenseProposal.set(false);
+      },
+      error: (e) => { this.loadingExpenseProposal.set(false); this.expenseProposeVisible = false; this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo calcular la tendencia de gastos.' }); },
+    });
+  }
+
+  confirmExpensePropose(): void {
+    const b = this.selected(); if (!b) return;
+    const families = this.expenseFamilies.split(',').map((s) => s.trim()).filter(Boolean);
+    this.savingExpensePropose.set(true);
+    this.http.post<{ coverage: ExpenseCoverage; prior_year: number }>(`${this.base}/budgets/${b.id}/expense-plan/propose`,
+      { default_growth_pct: (Number(this.expenseDefaultGrowth) || 0) / 100, families, by_sucursal: this.expenseBySucursal, overwrite_manual: this.expenseOverwriteManual })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.savingExpensePropose.set(false); this.expenseProposeVisible = false; this.lastExpenseCoverage.set(r.coverage);
+          this.loadExpensePlan();
+          const c = r.coverage;
+          this.toast.add({ severity: 'success', summary: 'Gastos propuestos', detail: `${c.accounts} cuentas · ${c.historico_ajustado} histórico · ${c.estacional} recurrente · ${c.no_signal} sin señal · ${c.manual_kept} manual.` });
+        },
+        error: (e) => { this.savingExpensePropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer el presupuesto de gastos.' }); },
+      });
+  }
 
   // ── Presupuesto de ventas (PV) ──
   loadSalesComparison(): void {

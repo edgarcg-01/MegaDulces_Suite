@@ -404,6 +404,29 @@ Puentea el plan de ventas (entidad × periodo 13×4) con el «vs objetivo» mens
 - **Pendiente:** verificación HTTP (ADR-044) + push/redeploy (sin migración). Declarado: entidad retirada por
   completo puede dejar target obsoleto (upsert-only); Análisis pinta total+branch (channel/route para UI futura).
 
+### Fase PVG — Presupuesto de GASTOS auto-propuesto desde egresos · 2026-09-18 · ADR-073
+
+Cierra el pedido del ejercicio del lado de gastos («casi nada se llena desde acá»): el presupuesto de gastos se
+**auto-propone** desde los egresos de Kepler (`analytics.expense_entries`), análogo a PVA para ventas. Grano
+medido = **cuenta mayor** (siempre poblada; `dpto`/`concepto` ralos → descartados). Familia 6 por default.
+Cero importer (deriva del fact), cero tabla de datos nueva. La propuesta vive en una rejilla propia separada del
+libro mayor de 5 estados (ADR-073).
+
+- [~] **[PVG.1]** 🔨 `budget.expense_plan_settings` (mig `20260918200000`): familias, crecimiento por cuenta,
+  by_sucursal, control. RLS forzado, FK a budgets. Aplicada+verificada en dev.
+- [~] **[PVG.2]** 🔨 `budget.expense_plan_lines` (mig `20260918210000`): rejilla cuenta × sucursal × mes,
+  method historico_ajustado|estacional|manual, natural key. RLS forzado. Aplicada+verificada en dev.
+- [~] **[PVG.3]** 🔨 `BudgetExpensePlanService` + `BudgetExpenseController` (proposeGrowth YoY por cuenta con guard
+  de meses / proposePlan relleno híbrido / settings / upsertLine; base neta cargo−abono). `nx build api` verde.
+- [~] **[PVG.4]** 🔨 UI en `/presupuesto` vista «Gasto operativo»: sección «Presupuesto propuesto» + botón
+  «Proponer gastos del año» + diálogo (crecimiento sugerido/familias/por-sucursal/overwrite) + cobertura.
+  `nx build view`+`check:templates` verdes.
+- [~] **[PVG.5]** 🧪 smoke DB-direct `test-newdb-expense-plan.js` **10/10** (egresos sintéticos, rollback): neto
+  cargo−abono, YoY +9.17%/12 meses, guard de esporádico, cobertura 27/0/9, esporádico deja 9 meses SIN fila, manual respetado.
+- **Declarado, no construido:** materialización rejilla→`budget_lines` (puente al ledger de 5 estados y al
+  presupuesto-vs-real §16.3); overrides de crecimiento por cuenta en UI; familias 5/7/1 off por default.
+  **Pendiente prod:** migs `20260918200000`/`210000` + push + redeploy + verificación HTTP (ADR-044).
+
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
 Contrapropuesta de implementación del documento `Flujo_Integral_Pedidos_Preventa_Mega_Dulces.md`
