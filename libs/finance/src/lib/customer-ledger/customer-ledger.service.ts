@@ -2,6 +2,17 @@ import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
+ * `[CXC.SKU.1]` Lo que la búsqueda por producto NO cubre, dicho en la respuesta.
+ * Viaja al frontend para que la pantalla pueda declararlo: una cobertura parcial que
+ * no se anuncia se lee como total, y ahí el usuario concluye que el producto "no se
+ * vendió" cuando lo que pasa es que su documento no está en el universo.
+ */
+const EXCLUYE_BUSQUEDA = {
+  doctypes: ['U-D-10'],
+  motivo: 'Ticket de mostrador (venta POS): no es factura. 424,022 documentos quedan fuera.',
+} as const;
+
+/**
  * Fase CXC (ADR-048) — Cartera de clientes / Partidas vivas (Cuentas por Cobrar).
  *
  * Reproduce el `Reporte de partidas vivas` de Kepler leyendo el espejo read-only
@@ -410,6 +421,65 @@ export class CustomerLedgerService {
         abonos: abonos.map((r: any) => ({
           doc_label: r.doc_label, folio: r.folio, fecha: r.fecha || null, importe: M2(r.importe),
         })),
+      };
+    });
+  }
+
+  /**
+   * `[CXC.SKU.1]` — Qué documentos tocaron un producto: facturas Y notas de crédito o
+   * devoluciones, que es de lo que se trataba el pedido.
+   *
+   * ⛔ Lee `analytics.erp_sales_line_search`, NO `erp_sales_invoice_lines`. La segunda
+   * existe para el DETALLE de un documento y arrastra `kdii`, `catalog.products` y
+   * `v_product_box_factor`: la MISMA búsqueda por ella tarda **16,871 ms**. Por la
+   * flaca, **~400 ms** en el peor SKU (541 renglones). Medido, no estimado.
+   *
+   * Dos caminos, y el de texto NO busca sobre los 3.8 M de renglones:
+   *   · parece código → se usa tal cual (`sku = …`, por índice).
+   *   · texto → se resuelve a SKUs contra `catalog.products` (**11 ms**) y recién
+   *     entonces se buscan los renglones (**337 ms** con 25 SKUs). Un
+   *     `descripcion ILIKE '%x%'` directo sobre `kdm2` sería un seq scan de 1.9 GB y
+   *     volveríamos a los 17 s.
+   *
+   * ⚠️ `U-D-10` ("Ticket Contado Caja", 424,022 cabeceras) NO entra: es venta de
+   * mostrador, no factura. Va declarado en la respuesta (`excluye`) para que la
+   * pantalla lo diga — omitirlo callado sería dibujar una cobertura que no existe.
+   */
+  async buscarPorProducto(q: { texto?: string; limit?: number }) {
+    const texto = String(q.texto ?? '').trim();
+    const vacio = { texto, skus: [] as string[], renglones: [] as unknown[], truncado: false, excluye: EXCLUYE_BUSQUEDA };
+    if (texto.length < 2) return vacio;
+
+    const limit = Math.min(Math.max(Number(q.limit) || 200, 1), 500);
+
+    return this.tk.run(async (trx) => {
+      const skus = new Set<string>();
+      // Un código no lleva espacios; si los tiene, es texto y no vale probarlo como SKU.
+      if (/^[A-Za-z0-9._-]+$/.test(texto)) skus.add(texto);
+
+      const porNombre = await trx('catalog.products')
+        .whereNull('deleted_at')
+        .whereRaw('nombre ILIKE ?', [`%${texto}%`])
+        .select('sku')
+        .limit(25);
+      for (const p of porNombre) if (p.sku != null) skus.add(String(p.sku).trim());
+
+      if (!skus.size) return vacio;
+
+      // limit + 1 para saber si quedó cortado SIN contar el total (contar cuesta otro scan).
+      const rows = await trx('analytics.erp_sales_line_search')
+        .whereIn('sku', [...skus])
+        .orderBy('fecha', 'desc')
+        .limit(limit + 1)
+        .select('folio_digital', 'sucursal', 'folio', 'doc_prefix', 'linea', 'sku',
+                'descripcion', 'unidad', 'cantidad', 'importe', 'naturaleza', 'fecha');
+
+      return {
+        texto,
+        skus: [...skus],
+        renglones: rows.slice(0, limit),
+        truncado: rows.length > limit,
+        excluye: EXCLUYE_BUSQUEDA,
       };
     });
   }
