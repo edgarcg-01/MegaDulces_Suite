@@ -135,6 +135,11 @@ interface Medida {
   monto: number | null;
   comparado: number | null;
   ultima: string | null;
+  /** `[CDRP.1]` Costo del tramo actual. `null` = la fuente no lo trae (no es cero). */
+  costo?: number | null;
+  /** `[CDRP.1]` Venta que SI tiene costo, para poder declarar la cobertura del margen. */
+  venta_con_costo?: number | null;
+  tickets?: number | null;
 }
 
 /** Vacío cuando no hay nada que decir; `motivo` explica por qué (va a `no_medido`). */
@@ -415,12 +420,26 @@ export async function medirZona(
 
   // ── La venta ─────────────────────────────────────────────────────────────────────────────
   const medidas = new Map<string, Medida>();
-  const guardar = (k: string, mtd: unknown, prev: unknown, ultima: unknown) =>
+  const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+  const guardar = (
+    k: string,
+    mtd: unknown,
+    prev: unknown,
+    ultima: unknown,
+    // `[CDRP.1]` El costo y los tickets del MISMO tramo y la MISMA consulta. No hay fuente nueva:
+    // son dos agregados mas sobre las filas que este bloque ya estaba leyendo.
+    costo?: unknown,
+    ventaConCosto?: unknown,
+    tickets?: unknown,
+  ) =>
     medidas.set(k, {
       // `null` se preserva: «no hubo ninguna fila» NO es «vendió cero».
-      monto: mtd === null || mtd === undefined ? null : Number(mtd),
-      comparado: prev === null || prev === undefined ? null : Number(prev),
+      monto: num(mtd),
+      comparado: num(prev),
       ultima: iso(ultima as Date | string | null),
+      costo: num(costo),
+      venta_con_costo: num(ventaConCosto),
+      tickets: num(tickets),
     });
 
   if (tiendasIds.length) {
@@ -441,8 +460,19 @@ export async function medirZona(
           v.desde_comparado, v.hasta_comparado,
         ]),
         knex.raw('max(sale_date) as ultima'),
-      )) as { warehouse_id: string; mtd: string | null; prev: string | null; ultima: Date | null }[];
-    for (const f of filas) guardar(f.warehouse_id, f.mtd, f.prev, f.ultima);
+        // `[CDRP.1]` Costo y tickets del tramo ACTUAL. `venta_con_costo` es lo que hace declarable
+        // la cobertura: 689 de 109,884 filas del tramo no traen costo ($18,679 de $25.79M).
+        knex.raw('sum(cost) filter (where sale_date between ? and ?) as costo', [v.desde, v.hasta]),
+        knex.raw(
+          'sum(revenue) filter (where sale_date between ? and ? and cost is not null) as venta_cc',
+          [v.desde, v.hasta],
+        ),
+        knex.raw('sum(tickets) filter (where sale_date between ? and ?) as tk', [v.desde, v.hasta]),
+      )) as {
+        warehouse_id: string; mtd: string | null; prev: string | null; ultima: Date | null;
+        costo: string | null; venta_cc: string | null; tk: string | null;
+      }[];
+    for (const f of filas) guardar(f.warehouse_id, f.mtd, f.prev, f.ultima, f.costo, f.venta_cc, f.tk);
   }
 
   if (rutasCodes.length) {
@@ -458,8 +488,23 @@ export async function medirZona(
           v.desde_comparado, v.hasta_comparado,
         ]),
         knex.raw('max(business_date) as ultima'),
-      )) as { route_code: string; mtd: string | null; prev: string | null; ultima: Date | null }[];
-    for (const f of filas) guardar(f.route_code, f.mtd, f.prev, f.ultima);
+        /*
+         * ⛔ `costo` viene y viene VACIO: medido el 2026-09-18, `costo_status` dice
+         * `sin_dato_en_la_fuente` en el 100% de las filas del tramo ($3.16M de venta). Se lee igual
+         * que en tiendas y se deja que el `null` viaje: inventarle un cero aca haria que el margen
+         * del bloque de rutas saliera 100%.
+         */
+        knex.raw('sum(costo) filter (where business_date between ? and ?) as costo', [v.desde, v.hasta]),
+        knex.raw(
+          'sum(venta) filter (where business_date between ? and ? and costo is not null) as venta_cc',
+          [v.desde, v.hasta],
+        ),
+        knex.raw('sum(tickets) filter (where business_date between ? and ?) as tk', [v.desde, v.hasta]),
+      )) as {
+        route_code: string; mtd: string | null; prev: string | null; ultima: Date | null;
+        costo: string | null; venta_cc: string | null; tk: string | null;
+      }[];
+    for (const f of filas) guardar(f.route_code, f.mtd, f.prev, f.ultima, f.costo, f.venta_cc, f.tk);
   }
 
   /*
@@ -542,6 +587,29 @@ export async function medirZona(
     });
 
     const s = sumaPareada(filas);
+
+    /*
+     * `[CDRP.1]` **Margen y ticket del canal, de la MISMA consulta que la venta.**
+     *
+     * No hay fuente nueva: son los agregados de costo y tickets que ya viajaban en las filas que
+     * este bloque leía. Lo que sí es nuevo es la **cobertura**, y es lo que hace la cifra
+     * publicable: sin ella, un margen calculado sobre el 89 % de la venta se lee exactamente igual
+     * que uno calculado sobre el 100 %.
+     *
+     * ⛔ Medido el 2026-09-18: el bloque de RUTAS sale con `margen_pct: null` — su fuente no trae
+     * costo en ninguna fila. Eso se DECLARA, no se dibuja como 100 % de margen ni como cero.
+     */
+    const crudas = filasCrudas.map((c) => medidas.get(c.clave)).filter((m): m is Medida => !!m);
+    const costo = sumaMedida(crudas.map((m) => m.costo ?? null));
+    const ventaConCosto = sumaMedida(crudas.map((m) => m.venta_con_costo ?? null));
+    const tickets = sumaMedida(crudas.map((m) => m.tickets ?? null));
+    const margen_pct =
+      costo === null || ventaConCosto === null || ventaConCosto === 0
+        ? null
+        : (ventaConCosto - costo) / ventaConCosto;
+    const margen_cobertura =
+      ventaConCosto === null || s.monto === null || s.monto === 0 ? null : ventaConCosto / s.monto;
+
     bloques.push({
       grupo,
       label: d.label,
@@ -550,6 +618,11 @@ export async function medirZona(
       variacion_pct: variacionPct(s.monto, s.comparado),
       no_comparado: s.no_comparado,
       peso: null,
+      margen_pct,
+      margen_cobertura,
+      // ⛔ Por canal, nunca agregado: tienda $105 contra ruta $727 no son el mismo universo.
+      ticket_promedio: tickets === null || tickets === 0 || s.monto === null ? null : s.monto / tickets,
+      tickets,
       canales: filas.sort(ordenCanal),
       excluidos: fueraDeBloque,
     });

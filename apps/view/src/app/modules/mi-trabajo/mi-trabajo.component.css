@@ -87,6 +87,33 @@
   white-space: nowrap;
 }
 .mt-ctx-v.is-ausente { color: var(--text-faint); font-style: italic; }
+
+/*
+ * `[CDRP.1]` «Mi trabajo se llama…» (CDRP §1.1). Ocupa el renglón completo bajo la cabecera y no
+ * compite con el nombre: el nombre dice QUIÉN sos, esta línea dice QUÉ producís.
+ *
+ * ⚠️ `flex-basis: 100%` y no una columna más: `.mt-top` ya reparte su ancho entre identidad,
+ * buscador y salir, y meterle una cuarta celda de 70 caracteres aplastaría el alcance —que es el
+ * dato que sí cambia entre personas— exactamente como pasó en `[SN.10]`.
+ */
+.mt-proposito {
+  flex: 1 1 100%;
+  margin: var(--sp-3) 0 0;
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border-color);
+  max-width: 78ch;
+  line-height: 1.45;
+}
+.mt-proposito-k {
+  display: block;
+  font-size: var(--fs-micro);
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  font-weight: var(--fw-bold);
+  color: var(--text-faint);
+  margin-bottom: 2px;
+}
+.mt-proposito-v { font-size: var(--fs-body); color: var(--text-main); }
 .mt-ctx-err { font-size: var(--fs-xs); color: var(--text-faint); }
 
 .mt-linkbtn {
@@ -979,6 +1006,34 @@
 .mt-titular.is-zona.is-total .mt-titular-l { font-weight: var(--fw-medium); }
 
 .mt-grupo-sub { text-transform: none; letter-spacing: 0; }
+
+/*
+ * `[CDRP.1]` Margen y ticket del canal. Van DEBAJO del rótulo del bloque y encima de sus filas,
+ * porque describen al bloque entero, no a una fila. Tipografía de dato secundario: la cifra que
+ * manda en este organismo sigue siendo la venta.
+ *
+ * ⛔ Lo que no se pudo medir NO se atenúa hasta desaparecer: `.is-nd` cambia el peso, no el color
+ * del rótulo. Un «sin medir» invisible se lee igual que un cero (ADR-056).
+ */
+.mt-metricas {
+  margin: 0 0 var(--sp-2);
+  padding-left: var(--sp-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-4);
+  font-size: var(--fs-micro);
+  color: var(--text-muted);
+}
+.mt-metrica { display: inline-flex; align-items: baseline; gap: var(--sp-1); min-width: 0; }
+.mt-metrica-k { color: var(--text-faint); }
+.mt-metrica-v {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--fw-medium);
+  color: var(--text-main);
+}
+.mt-metrica.is-nd .mt-metrica-v { font-family: inherit; font-weight: var(--fw-regular); color: var(--text-faint); }
+.mt-metrica-cob { color: var(--text-faint); }
 
 .mt-canal {
   display: flex;

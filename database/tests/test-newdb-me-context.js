@@ -565,10 +565,41 @@ const tieneDecoradorPermisos = (tramo) =>
   check('tienen su propio spec con negativas',
     fs.existsSync(path.resolve(__dirname, '../../libs/contracts/src/http/zona-venta.spec.ts')));
 
-  // `monto: null` es "no hubo ninguna fila", NUNCA 0. Un `?? 0` acá borra la distinción entera.
+  /*
+   * `monto: null` es "no hubo ninguna fila", NUNCA 0. Un `?? 0` acá borra la distinción entera.
+   *
+   * ⚠️ `[CDRP.1]` Este candado estaba clavado a la EXPRESIÓN literal
+   * `mtd === null || mtd === undefined ? null : Number(mtd)`, y se puso rojo al factorizarla en el
+   * helper `num()` para reusarla con costo y tickets — con la invariante intacta. Que se ponga
+   * rojo ante un refactor está BIEN (obliga a re-apuntarlo a conciencia), pero apuntarlo a otro
+   * literal repetiría el problema: ahora vigila la SEMÁNTICA —el helper con su cuerpo exacto, que
+   * `guardar` lo use, y que no aparezca ningún `?? 0` sobre un valor medido—.
+   */
+  const NUM = /const num = \(v: unknown\) => \(v === null \|\| v === undefined \? null : Number\(v\)\)/;
   check('⛔ el monto preserva el null y no cae a 0',
-    /mtd === null \|\| mtd === undefined \? null : Number\(mtd\)/.test(srcZ)
-      && !/mtd.*\?\?\s*0/.test(srcZ));
+    NUM.test(srcZ) && /monto: num\(mtd\)/.test(srcZ)
+      && !/(mtd|costo|tickets|ventaConCosto)\s*\?\?\s*0/.test(srcZ));
+
+  /*
+   * `[CDRP.1]` El margen del canal y su COBERTURA viajan juntos o no viajan.
+   *
+   * ⛔ Medido el 2026-09-18: la venta por ruta NO tiene costo (`costo_status` dice
+   * `sin_dato_en_la_fuente` en el 100 % de las filas del tramo, $3.16 M). Un margen de zona que
+   * sumara los dos canales taparía que el 11 % de la venta no tiene con qué calcularse, y un
+   * margen sin cobertura al lado se lee igual con el 89 % que con el 100 %.
+   */
+  check('⛔ el margen se calcula sobre la venta QUE TIENE COSTO, no sobre la venta total',
+    /\(ventaConCosto - costo\) \/ ventaConCosto/.test(srcZ)
+      && /margen_cobertura/.test(srcZ));
+  /* El cuerpo de cada interfaz, para poder preguntar EN CUÁL de las dos vive el campo. */
+  const cuerpoDe = (nombre) => {
+    const i = srcVer.indexOf('export interface ' + nombre + ' {');
+    return i < 0 ? '' : srcVer.slice(i, srcVer.indexOf(String.fromCharCode(10) + '}', i));
+  };
+  check('⛔ el margen vive en el BLOQUE (por canal), no en la zona',
+    /margen_pct/.test(cuerpoDe('MeZonaBloque')) && !/margen_pct/.test(cuerpoDe('MeZona')));
+  check('⛔ el ticket promedio es por canal y nace del conteo, no de una división inventada',
+    /ticket_promedio: tickets === null \|\| tickets === 0/.test(srcZ));
   check('la última venta se busca con tope en hoy (sales_daily tiene filas en el FUTURO)',
     /\.where\('sale_date', '<=', v\.hasta\)/.test(srcZ));
   /*

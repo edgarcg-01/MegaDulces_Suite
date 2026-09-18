@@ -199,6 +199,20 @@ const pct = (p) => (p === null ? 'sin medir' : `${p > 0 ? '+' : p < 0 ? '−' : 
     for (const b of z.bloques) {
       const peso = b.peso === null ? '' : ` · ${(b.peso * 100).toFixed(0)}% de la zona`;
       console.log(`  ── ${b.label}  ${mdp(b.monto)}  ${pct(b.variacion_pct)}${peso}`);
+      /*
+       * `[CDRP.1]` Margen y ticket del canal. La COBERTURA se imprime siempre: un margen sobre el
+       * 89% de la venta se lee igual que uno sobre el 100% si nadie dice cual es cual.
+       */
+      const mg = b.margen_pct === null
+        ? 'margen sin medir (la fuente de este canal no trae costo)'
+        : `margen ${(b.margen_pct * 100).toFixed(2)}%` +
+          (b.margen_cobertura === null
+            ? ' (cobertura sin medir)'
+            : ` sobre el ${(b.margen_cobertura * 100).toFixed(1)}% de su venta`);
+      const tk = b.ticket_promedio === null
+        ? 'ticket sin medir'
+        : `ticket ${mdp(b.ticket_promedio)} en ${Number(b.tickets).toLocaleString('es-MX')} tickets`;
+      console.log(`     ${mg}  ·  ${tk}`);
       for (const c of b.canales) {
         if (c.monto !== null) medibles++;
         const candado = c.ruta ? '' : '  🔒 sin permiso';

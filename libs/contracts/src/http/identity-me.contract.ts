@@ -23,6 +23,16 @@ import type { UserKind } from './identity.contract';
 export interface MeContextRef {
   code: string;
   name: string;
+  /**
+   * `[CDRP.1]` **«Mi trabajo se llama…»** — para qué existe el puesto, en una línea, en términos de
+   * resultado de negocio (CDRP §1.1). Sólo los puestos lo traen; los departamentos, no.
+   *
+   * ⛔ Es texto **DECLARADO** por Dirección en `identity.positions.proposito`, no derivado: no se
+   * calcula ni se valida contra nada. `null`/ausente = ese puesto todavía no la tiene, y se muestra
+   * como ausencia — **nunca repitiendo el nombre del puesto**, que diría algo distinto («Gerencia
+   * de Zona» no es un resultado). Medido el 2026-09-18: 9 de 20 puestos de mando la tienen.
+   */
+  proposito?: string | null;
 }
 
 /**
@@ -508,6 +518,31 @@ export interface MeZonaBloque {
   no_comparado: { canales: number; monto_anterior: number } | null;
   /** Qué porción de la venta de la zona es este canal (`0.79`). `null` si el total no se midió. */
   peso: number | null;
+  /**
+   * `[CDRP.1]` **Margen del canal** (`0.1094` = 10.94 %), CDRP §7 KPI 2 y §3 KPI 3.
+   *
+   * ⛔ Va en el BLOQUE y no en la zona, y no es cosmético: medido el 2026-09-18 contra prod, la
+   * venta por ruta **no tiene costo** — `analytics.v_rd_route_daily.costo_status` dice
+   * `sin_dato_en_la_fuente` en el **100 %** de las filas del tramo ($3.16 M). Un «margen de la
+   * zona» que sumara los dos canales taparía que un 11 % de la venta no tiene con qué calcularlo.
+   *
+   * ⚠️ Y donde SÍ hay costo, el costo tiene dos escritores: Wincaja lo trae real y Kepler lo deriva
+   * como `ingreso / (1 + margen)`, que es ciego al precio y subdeclara ~2 pp (ADR-051 enmendado).
+   * Por eso viaja `margen_cobertura`: sin ella, un margen con el 89 % de la venta se lee igual que
+   * uno con el 100 %.
+   */
+  margen_pct: number | null;
+  /** Fracción de la venta del bloque que SÍ tiene costo (`0.999`). `null` = no se pudo medir. */
+  margen_cobertura: number | null;
+  /**
+   * `[CDRP.1]` **Ticket promedio del canal** (CDRP §3 KPI 5, §7 KPI 5) y su conteo.
+   *
+   * ⛔ Por canal, nunca agregado: medido, el ticket de tienda es **$105.04** y el de ruta
+   * **$726.90** — mostrador contra venta a detallista. El promedio de los dos ($115.99) no es el
+   * ticket de nadie.
+   */
+  ticket_promedio: number | null;
+  tickets: number | null;
   canales: MeCanal[];
   /** Lo que NO entró en el subtotal, con su motivo. Se dice, no se calla. */
   excluidos: { label: string; motivo: string }[];
