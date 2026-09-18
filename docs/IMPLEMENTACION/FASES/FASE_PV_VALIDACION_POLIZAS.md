@@ -92,3 +92,119 @@ Lección de deploy: las tablas `kdc2YYMM` de Kepler viven en el schema **`md`**,
    ajustar la query — el core header+patas entra igual).
 3. **Kepler** (feeds LAN) — `node database/importers/kepler/import-kepler-polizas.js --months 18 --apply`.
 4. **Redeploy** api + view + re-login (para tomar la nueva ruta/permiso en el token).
+
+---
+
+## PV.4 — Auditor del **TIPO** de póliza (D/E/I) · 2026-09-18 · 🧪 en código
+
+> ⚠️ **Colisión de prefijo, declarada, no resuelta acá:** el 2026-09-17 se abrió en
+> `01_TRACKER_PROGRESO.md` una **"Fase PV — Presupuesto de Ventas"** (hija de Fase PU),
+> que no tiene nada que ver con esta. `PV` quedó doble-ocupado, igual que pasó con
+> ADR-052. Este sprint sigue la numeración de **esta** fase (PV.3 → PV.4) porque es su
+> continuación literal. **Quien renombre, que renombre una sola y actualice ambos docs.**
+
+### De dónde salió
+
+De revisar dos documentos reales que trajo Dirección: un TXT de pólizas de **ContPAQi**
+(septiembre 2026, tipo **2 = Egresos**, folios 250–263) contra un PDF de **Kepler** del
+doctype **`XA1001` "Gastos"** (póliza **D = Diario**). La lectura inicial fue que Kepler
+estaba asignando mal el tipo y había que avisarle a quien sube las pólizas.
+
+### Lo que se midió, y por qué la premisa no se sostenía
+
+`XA1001` **abona a `203` / `201` (proveedores), no a efectivo** — o sea es un **devengo**,
+y una póliza que no mueve efectivo **es Diario por definición**. El pago sale después por
+`X-D-26-1` "Transferencia a proveedor", que **sí** abona a banco (`102`) y **sí** está
+declarado `E`. Kepler está bien ahí, y el smoke lo deja clavado para que nadie lo
+"arregle".
+
+**Decode de `kepler_ods.kdmm`** (el catálogo de doctypes): la llave es `c1`-`c2`-`c3`-`c4`
+(género-letra-número-subtipo), `c5` = descripción, `c17` = prefijo (`KFXA1001`),
+**`c18` = tipo de póliza** (`D`/`E`/`I`), `c19` = cuenta de cargo, `c20` = cuenta de abono.
+Kepler declara **142 doctypes en D, 22 en E y 6 en I** — la capacidad existe.
+
+⭐ **`c20` depende de la SUCURSAL, no del concepto:** `X-A-10-1` abona a `203` en la
+sucursal `00` y a `201` en las seis restantes. Cualquier consulta de gastos que filtre por
+una sola cuenta pierde la otra mitad.
+
+### (A) Incongruencias del catálogo — lo que sí está mal
+
+Criterio **derivado del propio catálogo**: si el doctype toca efectivo o equivalentes
+(**`102` y `111` bancos, `110` caja**) el tipo debe ser `E` o `I`; si no los toca, `D`.
+
+⚠️ **El criterio ingenuo "mueve `102`" marca 24 doctypes y 13 son falsos positivos**,
+porque `X-D-20-1` "Pago prov. Efectivo" mueve **caja (`110`)**, no banco. Un tablero con
+18 de 24 filas equivocadas se ignora en una semana; la prueba negativa está en el smoke.
+
+Medido con el criterio correcto: **11 incongruencias**, de las cuales **2 con uso en 2026**:
+
+| doctype | descripción | declarado | debería | docs | importe |
+|---|---|---|---|---|---|
+| `U-A-40-1` | Anticipo (carga banco `102`, abona `206`) | `D` | `I` | 4 | $509,844 |
+| `U-D-9-1` | Ticket Crédito (no mueve efectivo) | `I` | `D` | 7 | $18,139 |
+
+Las otras **9 están dormidas** (0 documentos en 2026) — entre ellas `X-A-9-3/4/5`
+"Gastos de importación / indirectos / no deducibles", declarados `E` abonando a `210`,
+que son los hermanos de `X-A-10-1` y contradicen el criterio al revés. Catálogo dormido
+**no es trabajo pendiente**, y la pantalla los separa.
+
+**66 doctypes no declaran cuentas → `no_juzgable`.** Se cuentan aparte: sumarlos a "ok"
+sería dibujar un verde sobre algo que no se miró.
+
+### (B) Brecha de modelo Kepler ↔ ContPAQi
+
+No es un error de tipo: **son dos modelos distintos del mismo hecho**. Kepler registra el
+gasto en **dos tiempos** (devengo contra proveedores → pago contra banco) y ContPAQi, en
+el TXT revisado, en **uno solo** (gasto + IVA **contra banco directo**, tipo 2 Egresos).
+$66,839,481 en 8,247 documentos `X-A-10-1` en 2026 devengados de un lado contra pólizas
+de egreso que ya traen el banco del otro: **ninguna comparación por tipo va a cuadrar**, y
+no porque alguien haya subido mal el archivo.
+
+Se mide sin inventar liga 1:1 (no existe): monto por tipo de póliza y mes sobre
+`analytics.gl_polizas`, que ya tenía `source` (`kepler`|`contpaqi`) desde PV.3.
+
+### Lo que NO se construyó, a propósito
+
+- **Bandeja nueva: no.** Se reusa `finance.findings` (Maat) con su triage, evidencia y
+  auto-supresión L2. **ADR-056**: ya van ocho bandejas inventadas; ésta es la novena que
+  no se hace. Mismo patrón que `FiscalFindingsBridgeService`.
+- **Pantalla nueva: no.** Bloque dentro de `/contabilidad/polizas`, que ya existía con su
+  permiso `FISCAL_CONTAB_VER`. **Permiso nuevo: no.**
+- **Migración / tabla / importer: no.** Todo deriva del ODS y de `analytics`.
+
+### El aviso: dos trampas que había que esquivar
+
+1. ⛔ **`notifyCritical()` no le llega a nadie hoy.** Emite alertas `finance_finding`, y la
+   campana las descarta en la puerta: `FINANCE_NOTIF_ENABLED = false` en
+   `notifications-bell.component.ts`, apagado a propósito porque "el badge traía cientos
+   de hallazgos sin triar". Se usa `notify()` con **tipo propio `polizas_tipo`**, que no
+   pasa por ese flag.
+2. ⛔ **Un tipo nuevo sin su `if` le llega a TODOS**: el ruteo de la campana es una lista
+   de `if` explícitos y el default **deja pasar**. Se cableó
+   `canSeeTipoPoliza` (`FISCAL_CONTAB_VER`) + ícono. *Un aviso mal ruteado se ignora
+   igual que uno que falta* — misma lección que LC.6.2 con el permiso declarado y no
+   repartido.
+
+### ADR-056 en los dos bloques
+
+Cada bloque devuelve `state: 'measured' | 'not_measured'` **con motivo**. En esta base
+`analytics.gl_polizas` está en **0 filas** (el importer de PV.3 nunca corrió acá), así que
+el cruce **se declara ciego** — se ve en pantalla como "Control a ciegas" y viaja como
+hallazgo propio `poliza_tipo_no_medido`. *"No encontré nada" y "no busqué" se leen igual
+en una pantalla y significan lo contrario.*
+
+### Entregado
+
+`PolizaTypeAuditService` + `PolizaTypeFindingsBridgeService` (cron 00:45 MX) ·
+4 endpoints bajo `/contabilidad/polizas/tipos/*` · bloque en la pantalla (arriba de los
+filtros: lo primero que debe verse es si el control pudo correr) · ruteo en la campana ·
+smoke `test-newdb-poliza-type-audit` **16/16** corrido contra la base, con sus negativas,
+en la suite de regresión. Builds api + view OK. Commit `696bf629`.
+
+### Pendiente
+
+1. **Verificación HTTP** (ADR-044) y **validación visual** — los dev servers los levanta Edgar.
+2. **Redeploy** api + view. **Sin migraciones ni permisos nuevos → no hace falta re-login.**
+3. El bloque (B) sigue **ciego en prod** hasta que corran los importers de PV.3
+   (`import-contpaqi-polizas.js` + `import-kepler-polizas.js`) — el pendiente que esta
+   fase ya traía.

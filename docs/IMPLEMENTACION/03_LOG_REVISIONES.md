@@ -5,6 +5,85 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-09-18 — `[PV.4]` La premisa era falsa, el error estaba en el doctype de al lado, y el aviso no habría llegado
+
+**Cómo se llegó:** Dirección trajo dos documentos — un TXT de pólizas de **ContPAQi**
+(sept-2026, tipo **2 = Egresos**) y un PDF de **Kepler** del doctype `XA1001` "Gastos"
+(póliza **D = Diario**) — con la lectura de que Kepler asignaba mal el tipo, y el pedido de
+una pantalla para ver cuáles están mal más un centro de notificaciones para avisarle a quien
+las sube.
+
+### La premisa no se sostuvo, y se midió antes de construir
+
+`XA1001` **abona a `203`/`201` (proveedores), no a efectivo**: es un **devengo**, y una póliza
+que no mueve efectivo **es Diario por definición**. El pago sale después por `X-D-26-1`
+"Transferencia a proveedor", que sí abona a banco (`102`) y sí está declarado `E`. Kepler está
+bien ahí. El smoke lo deja clavado para que nadie lo "arregle".
+
+**Lo que sí discrepa no es el tipo, es el MODELO**: Kepler registra el gasto en **dos tiempos**
+(devengo → pago) y ContPAQi en **uno** (gasto + IVA contra banco). $66.8M en 8,247 documentos de
+2026 de un lado contra pólizas de egreso que ya traen el banco del otro: ninguna comparación por
+tipo va a cuadrar nunca, y no porque alguien haya subido mal el archivo.
+
+### El detector se equivocó primero, y por eso sirve
+
+Criterio ingenuo **"mueve banco `102`" → 24 doctypes incongruentes**. Entre ellos `X-D-20-1`
+"Pago prov. Efectivo", que obviamente es egreso: **paga por caja (`110`), no por banco**. Con el
+criterio corregido (`102`/`111` bancos + `110` caja) quedan **11, de los cuales 2 tienen uso**.
+*Dieciocho de veinticuatro filas equivocadas y el tablero se ignora en una semana.* La prueba
+negativa quedó en el smoke: compara los dos criterios y exige que el correcto marque menos.
+
+Los que sí están mal, y son los **hermanos** del que se sospechaba: `X-A-9-3/4/5` "Gastos de
+importación / indirectos / no deducibles", declarados `E` abonando a `210`. Los vivos:
+`U-A-40-1` Anticipo ($509,844, carga banco y está en Diario) y `U-D-9-1` Ticket Crédito.
+
+### Tres cosas que ya existían y no se volvieron a inventar
+
+1. **La bandeja**: `finance.findings` (Maat), con triage y auto-supresión L2. ADR-056 — ya van
+   ocho bandejas inventadas, ésta es la novena que no se hizo.
+2. **La pantalla**: `/contabilidad/polizas` ya existía con su permiso. Se agregó un bloque, no
+   una pantalla; **cero permisos nuevos, cero migraciones**.
+3. **El centro de notificaciones**: la campana del header (CXP.1) ya estaba.
+
+### ⛔ Y el aviso no habría llegado: dos trampas
+
+- **`notifyCritical()` es un no-op para el usuario final.** Emite `finance_finding`, y la campana
+  lo descarta en la puerta: `FINANCE_NOTIF_ENABLED = false`, apagado a propósito porque el badge
+  traía cientos de hallazgos sin triar. Se usó `notify()` con tipo propio `polizas_tipo`.
+- **Un tipo nuevo sin su `if` le llega a TODOS**: el ruteo de la campana es una lista de `if`
+  explícitos y **el default deja pasar**. Se cableó el filtro por `FISCAL_CONTAB_VER`.
+  *Un aviso mal ruteado se ignora igual que uno que falta* — misma lección que LC.6.2.
+- **El correo sigue muerto**: `SMTP_*` = 0 variables en `.env` → `MAILER_PORT` no-op (OBS.0.2).
+  Por eso el canal acordado fue dentro de la app.
+
+### ADR-056 aplicado donde de verdad muerde
+
+`analytics.gl_polizas` tiene **0 filas** en esta base, así que el bloque del cruce **no puede
+medirse**. En vez de devolver una lista vacía —que en pantalla se lee como "todo bien"— devuelve
+`not_measured` **con motivo**, se pinta como "Control a ciegas" y viaja como hallazgo propio.
+Igual con los **66 doctypes sin cuentas declaradas**: se cuentan como `no_juzgable` en vez de
+sumarse a "ok".
+
+### Lecciones
+
+1. **Una premisa de negocio se mide contra el catálogo antes de construir la pantalla que la
+   asume.** Acá habría salido una bandeja acusando al doctype equivocado.
+2. **El primer criterio de un detector suele ser demasiado estrecho.** Hay que romperlo a
+   propósito contra un caso que uno sabe que es correcto (`X-D-20-1`) antes de creerle.
+3. **Antes de mandar un aviso, verificar que el canal esté encendido y ruteado.** Dos flags
+   distintos podían dejarlo mudo o gritándole a 118 personas.
+4. ⚠️ **`PV` quedó doble-ocupado con claves duplicadas** (dos `PV.3` y dos `PV.4`): la fase de
+   presupuesto de ventas del 17-sep tomó un prefijo que la de pólizas ya usaba desde julio.
+   Declarado en el tracker con recomendación; no se renombró trabajo ajeno.
+
+**Entregado:** `PolizaTypeAuditService` + bridge (cron 00:45 MX) + 4 endpoints + bloque de
+pantalla + ruteo de campana. Smoke `test-newdb-poliza-type-audit` **16/16** contra la base, en
+la suite. Builds api + view OK. Commit `696bf629`.
+
+**Pendiente:** verificación HTTP (ADR-044) + validación visual + redeploy api/view (sin re-login,
+no hay permisos nuevos). El bloque del cruce sigue ciego hasta que corran los importers de PV.3.
+
+---
 ## 2026-09-17 — `[DB-MEM.17]` Deuda declarada: 50 crons sin candado entre procesos, y el helper NO los cubre a todos
 
 **Cómo se llegó:** midiendo `logistics.fleet_alerts` (0.587 % de la base) concluí que **dos instancias** del API corrían el mismo cron y se bloqueaban. **Era falso** — la corrección está en `[DB-MEM.17.1]`. Pero el riesgo latente que destapó sí es real y no estaba inventariado.
