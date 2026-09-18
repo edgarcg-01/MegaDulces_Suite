@@ -84,9 +84,34 @@ function hhmm(v) {
   return m ? m[1] : null;
 }
 
+/**
+ * CG.9d — **El destino puede haber dejado de ser una tabla.**
+ *
+ * `analytics.caja_general_movimientos`, `caja_general_cuentas` y `caja_arqueos` pasaron a VISTAS
+ * derive-no-copy sobre `caja_general_ods.*` (mig 20260918240000): el `.mdb` ahora entra por la
+ * réplica cruda (`replicate-caja-general-live.js`) + el shipper (`ship-caja-general.js`), no por acá.
+ *
+ * Son vistas con JOIN y columnas calculadas, o sea **no auto-actualizables**: un INSERT contra
+ * ellas revienta con `cannot insert into view`. Y este importer NO se puede retirar entero todavía,
+ * porque sigue siendo la ÚNICA fuente de `caja_ventas_diarias` / `caja_depositos` y sus dos
+ * catálogos, que viven en otros dos `.mdb` (`Base Movimientos SI/NO`) que aún no tienen espejo.
+ *
+ * Así que el retiro es POR PARTES y se detecta en caliente: si el destino ya es vista, se salta y
+ * se DICE. No se calla (un skip mudo se lee igual que "no había nada que escribir") y no se rompe.
+ */
+async function destinoEsVista(db, table) {
+  const r = await db.query(`SELECT relkind FROM pg_class WHERE oid = to_regclass($1)`, [table]);
+  return r.rows[0]?.relkind === 'v';
+}
+
 /** UPSERT churn-free genérico: stage temp + INSERT..ON CONFLICT DO UPDATE WHERE distinct. */
 async function upsert(db, table, cols, pk, rows) {
   if (!rows.length) return 0;
+  if (await destinoEsVista(db, table)) {
+    console.log(`  ⏭  ${table} ya es VISTA derive-no-copy (CG.9d) — ${rows.length} filas NO se escriben `
+      + 'desde acá. La alimenta ship-caja-general.js desde el espejo :5433/caja_general.');
+    return 0;
+  }
   // Dedupe por PK (la fuente Access repite Control/ID) — última fila gana. Sin esto,
   // Postgres tira "ON CONFLICT no puede afectar una fila por segunda vez".
   const pkCols = pk.filter((c) => c !== 'tenant_id');

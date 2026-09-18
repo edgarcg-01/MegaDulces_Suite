@@ -22,19 +22,40 @@ const REPLICA_URL = process.env.CAJA_GENERAL_REPLICA_URL || 'postgresql://postgr
 const ADMIN_URL = process.env.CAJA_GENERAL_REPLICA_ADMIN_URL || 'postgresql://postgres:superoot@localhost:5433/postgres';
 
 /**
- * Sucursales. Hoy sólo la **20 (Comisionistas)** porque es la única que
- * `import-caja-general.js` leía y la única con la caja general VIVA (medido 2026-09-18:
- * `Doctos` con movimientos de ESE MISMO día).
+ * ⭐ RAMAS = **ARCHIVOS FUENTE**, no sucursales. Es la diferencia con WR, y no es cosmética:
+ * `import-caja-general.js` no lee UN `.mdb`, lee **CUATRO**, y cada uno alimenta tablas distintas
+ * de `analytics.*`. Medido 2026-09-18 (tamaño · último cambio · qué alimenta):
  *
- * Las otras existen y están listas para sumarse cuando se decida el alcance (§11.2 de la fase):
- *   · `7 MKT/Dulceria/BDatos.mdb`            1.9 MB · último cambio 19/05/2026
- *   · `99 CC/Dulceria/BDatos.mdb`            2.8 MB · 09/09/2026
- *   · `70 Telemarketing/LFLG/Dulceria/BDatos.mdb` 121 MB · 10/08/2026 ← la instancia MATRIZ
- * ⚠️ Sumarlas NO es sólo agregar la línea: cada una tiene su propio catálogo de 122 cuentas, así
+ *   ✅ `20 Comisionistas/Dulceria/BDatos.mdb`        41.7 MB · hoy    → caja_general_movimientos
+ *                                                                      caja_general_cuentas
+ *   ✅ `20 Comisionistas/MegaDulces/BMovimientosCajas.mdb`
+ *                                                    70.5 MB · hoy    → caja_arqueos  ⭐ la del sensor
+ *   ⬜ `Movimientos MegaDulces/SI/Base Movimientos SI.mdb`
+ *                                                   587.6 MB · 14/09  → caja_ventas_diarias
+ *                                                                      caja_depositos
+ *                                                                      caja_sucursales_catalog
+ *                                                                      caja_bancos_catalog
+ *   ⬜ `Movimientos MegaDulces/NO/Base Movimientos NO.mdb`
+ *                                                   482.8 MB · hoy    → las mismas, instancia `NO`
+ *
+ * ⛔ **Por eso el importer NO se puede retirar todavía.** Retirarlo hoy mataría los arqueos y la
+ * espina (ventas diarias → depósito bancario). Se retira POR PARTES, a medida que cada archivo
+ * tiene su espejo y su vista. Lo que falta está declarado con ⬜, no dibujado como hecho.
+ *
+ * ⚠️ Las dos instancias `SI`/`NO` suman **1.07 GB** y `NO` estaba ABIERTA (había `.ldb`) al medir.
+ * La copia-sombra las soporta, pero un full-scan hash-delta de ese tamaño en cada pasada es un
+ * costo que hay que MEDIR antes de agendarlo — no se suman "porque falta la línea".
+ *
+ * Y siguen existiendo otros `BDatos.mdb` por sucursal, que son alcance aparte (§11.2 de la fase):
+ *   · `7 MKT/Dulceria/BDatos.mdb`  1.9 MB · 19/05/2026
+ *   · `99 CC/Dulceria/BDatos.mdb`  2.8 MB · 09/09/2026
+ *   · `70 Telemarketing/LFLG/Dulceria/BDatos.mdb`  121 MB · 10/08/2026 ← la instancia MATRIZ
+ * ⚠️ Sumarlas NO es sólo agregar la línea: cada una trae su propio catálogo de 122 cuentas, así
  * que el mapa HITL de conceptos (CG.10b) se multiplica.
  */
 const BRANCHES = [
-  { code: '20', schema: 'cg20', name: 'Comisionistas (caja general)', mdb: `${MDB_BASE}/20 Comisionistas/Dulceria/BDatos.mdb` },
+  { code: '20', schema: 'cg20', name: 'Caja general viva (BDatos)', mdb: `${MDB_BASE}/20 Comisionistas/Dulceria/BDatos.mdb` },
+  { code: 'arq20', schema: 'cgarq20', name: 'Arqueos de caja 20 (BMovimientosCajas)', mdb: `${MDB_BASE}/20 Comisionistas/MegaDulces/BMovimientosCajas.mdb` },
 ];
 
 /**
@@ -99,6 +120,22 @@ const INCREMENTAL = {};
  */
 const PK_OVERRIDE = {
   Doctos: ['TipoDto', 'IdDocto', 'Fecha', 'HoraD', 'Cuenta'],
+
+  // ── `0 T Movimientos` (los ARQUEOS, en BMovimientosCajas.mdb) ──────────────────────────────
+  // Mismo caso que `Doctos` y misma trampa: Access **no declara PK** (el descubridor devuelve
+  // `pk=[]` en las 13 tablas del archivo) y la tabla **MUTA** — `Cancelado` está en `true` en
+  // **6,541 de 30,004** filas, y se prende DESPUÉS de capturar. Sin identidad declarada el espejo
+  // cae en `UNIQUE(_row_hash)` + `DO NOTHING`: al cancelarse un arqueo cambia el hash, entra una
+  // fila NUEVA y la vieja se queda → el arqueo cancelado seguiría contando.
+  //
+  // Medido sobre las 30,004 filas reales (2026-09-18), no supuesto:
+  //   `(ID)`                 ✔ **30,004 de 30,004 — ÚNICA**, y **cero** nulos.
+  //   `(Folio)`              ✖ 23,145 de 30,004 — colapsa 6,859. El folio se REUSA.
+  //   `(ID, Almacen, Caja)`  ✔ también única, pero las dos extra no aportan: sobra-llave.
+  //
+  // Coincide con la identidad que ya usaba `import-caja-general.js` (`mov_id = ID`) — o sea que
+  // acá el importer estaba BIEN; el que estaba mal era el de `Doctos`.
+  '0 T Movimientos': ['ID'],
 };
 
 const WM_INVARIANTE = 'la columna de watermark debe ser la PK completa de la tabla';

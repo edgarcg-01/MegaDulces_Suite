@@ -3787,9 +3787,36 @@ del dinero del año** · 1,625 movs de un usuario genérico · permiso de Bancos
   credencial) + `cron-heartbeat` `feed_caja_general` con umbral en `CRON_JOBS` **y prueba negativa**
   + declarar el rezago en pantalla (contrato de procedencia). ⚠️ Hoy el carril **está mudo**: no está
   en `ops/vl/crontab.feeds`, ni en `run-prod-feeds.js`, ni late (modo de falla de ADR-053).
-- [ ] **[CG.9]** ⬜ `BDatos.mdb` al carril de réplica de Fase WR (`access-adapter.js`) → retirar
-  `import-caja-general.js`; `analytics.caja_general_*` pasa a **vista `derive-no-copy`**. Alcance
-  2008→hoy (hoy se pierden 104,227 movs de historia). ⚠️ Jet 32-bit → sigue en `.249` hasta VL.5.
+- [x] **[CG.9]** ✅ 2026-09-18 · `BDatos.mdb` al carril de réplica de Fase WR — espejo crudo
+  `:5433/caja_general.cg20`, **116,503 filas**, dinero idéntico al origen vivo al centésimo.
+  Identidad **medida**: `(TipoDto, IdDocto, Fecha, HoraD, Cuenta)` como `UNIQUE NULLS NOT DISTINCT`
+  (la obvia `(TipoDto, IdDocto)` colapsa: `IdDocto = 0` es centinela con 120 filas). Probado
+  rompiéndolo: se mutó `Corte` y la pasada siguiente actualizó en su lugar, no duplicó.
+  `test-caja-general-replica-fidelidad.js` **10 OK / 0 FALLA**.
+- [x] **[CG.9b]** ✅ 2026-09-18 · Capa cruda COMPLETA — y el alcance era mayor: el importer lee
+  **cuatro** `.mdb`, no uno. Sumado `BMovimientosCajas.mdb` → `cgarq20` (13 tablas, **30,004
+  arqueos**, $2,396,646,969.048, 6,541 cancelados — idéntico al origen). Identidad `(ID)` medida
+  única en 30,004/30,004; `(Folio)` **se reusa** y colapsa 6,859.
+  ⚠️ Faltan `Base Movimientos SI/NO` (1.07 GB) → el importer **NO se retira entero**.
+- [x] **[CG.9c]** ✅ 2026-09-18 · Landing `caja_general_ods.*` (mig `20260918230000`, patrón
+  `kepler_ods`) + `ship-caja-general.js` (delta real por `_synced_at`). Cierra el hueco del shipper.
+  **Medido:** carga 146,629 filas / 46 s; 2ª pasada **127 leídas, 0 escritas**; paridad
+  espejo↔landing exacta. ⛔ Gotcha: el techo de 65,535 parámetros de bind de pg **da la vuelta**
+  (int16) y el error no menciona el límite — el lote se calcula por parámetros, no por filas.
+- [x] **[CG.9d]** ✅ 2026-09-18 · `analytics.caja_general_movimientos` / `caja_general_cuentas` /
+  `caja_arqueos` son **VISTAS derive-no-copy** (mig `20260918240000`; la tabla se RENOMBRA a
+  `*_snapshot_bak`, no se borra). Mata el congelamiento del **2026-09-11** y recupera **7
+  movimientos / $49,699.00** que la PK `(tipo_dto, mov_id)` pisaba. Ventana de negocio
+  `fecha >= 2026-01-01` **conservada** a propósito. Gate = **A/B contra el importer REAL**, que
+  encontró 2 diferencias reales (`btrim` de pg quita sólo espacios; 7 valores traen `
+`) →
+  25 OK / 0 FALLA. Prueba negativa: el importer viejo **salta** las vistas, no revienta.
+  `test-newdb-caja-general-derive.js` **18 ✓ / 0 ✗**.
+  ⬜ **Falta prod**: verificado todo contra `platform_test`; desde esta máquina no hay URL de prod.
+  ⬜ **Falta agendar** los dos carriles en `.249` (molde: el PM2 de Wincaja). Hoy el shipper está en
+  el modo `finance` de `run-prod-feeds.js`, **que no está en ninguna agenda** — que es exactamente
+  la causa del congelamiento que esta fase vino a arreglar.
+  ⚠️ Jet 32-bit → sigue en `.249` hasta VL.5.
 - [ ] **[CG.10b]** ⬜ ⭐ **Ruta crítica.** Vista `analytics.v_kepler_conceptos` sobre `kepler_ods.kdco`
   (molde FKJ: `security_invoker` + filtro de tenant **dentro** + gate de costo).
   ⛔ Primer paso: **confirmar que `kdco` tiene filas en prod** — está en el carril hash pero **nadie
