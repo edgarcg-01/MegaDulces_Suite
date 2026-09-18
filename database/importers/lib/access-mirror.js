@@ -63,7 +63,18 @@ function mirrorDDL(schema, t, { extraKeys = [], withOccurrence = false } = {}) {
   const conOcc = withOccurrence && !pk.length;
   if (conOcc) lines.push(`  ${HK_OCC} integer NOT NULL DEFAULT 1`);
   lines.push(`  ${HK_SYNC} timestamptz NOT NULL DEFAULT now()`);
-  if (pk.length) {
+  if (pk.length && t._pkDeclarada) {
+    // ⚠️ Una identidad DECLARADA por nosotros (`PK_OVERRIDE`) no puede ser PRIMARY KEY: la fuente
+    // no prometió NOT NULL en esas columnas y basta UNA fila con un nulo para que el CREATE o el
+    // INSERT revienten. Medido en CG.9: de 116,503 filas de `Doctos`, **1** trae `HoraD` e
+    // `IdDocto` en NULL, y tumbó la carga a la mitad (68,000 filas adentro).
+    //
+    // `UNIQUE NULLS NOT DISTINCT` (Postgres 15+, prod corre 18) es la respuesta exacta: admite el
+    // nulo Y lo trata como IGUAL a otro nulo, así que esa fila choca consigo misma en la siguiente
+    // pasada y se ACTUALIZA. Con el `UNIQUE` clásico los nulos son distintos entre sí → volvería a
+    // insertarse en cada corrida, que es el mismo bug de duplicación por otra puerta.
+    lines.push(`  CONSTRAINT ${q(t.table + '_uq')} UNIQUE NULLS NOT DISTINCT (${[...extraKeys, ...pk].map(q).join(', ')})`);
+  } else if (pk.length) {
     lines.push(`  CONSTRAINT ${q(t.table + '_pk')} PRIMARY KEY (${[...extraKeys, ...pk].map(q).join(', ')})`);
   } else {
     const ident = [...extraKeys, HK_HASH, ...(conOcc ? [HK_OCC] : [])];

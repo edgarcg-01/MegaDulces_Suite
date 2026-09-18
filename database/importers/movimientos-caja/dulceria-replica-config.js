@@ -62,6 +62,41 @@ const BRANCHES = [
  */
 const INCREMENTAL = {};
 
+/**
+ * ⭐ LA IDENTIDAD DE `Doctos`, que el origen NO declara — y que hay que declarar porque la tabla
+ * **MUTA** (ver `aplicarPkOverride` en `lib/access-replicate.js`).
+ *
+ * Sin esto el espejo cae en el surrogate `UNIQUE(_row_hash)` con `DO NOTHING`: al prenderse la
+ * bandera `Corte` cambia el hash, el UPSERT inserta una fila NUEVA y la vieja se queda. Cada
+ * movimiento capturado y cortado el mismo día entraría DOS VECES (~12k/año).
+ *
+ * Elegir la identidad NO fue obvio, y cada descarte está medido sobre las 116,503 filas reales
+ * (2026-09-18):
+ *
+ *   `(TipoDto, IdDocto)`                       ✖ colapsa. `IdDocto = 0` es un CENTINELA con 120
+ *                                                filas (84 gastos + 30 ingresos + 6 depósitos,
+ *                                                repartidas en 76/24/6 fechas distintas), y encima
+ *                                                el `DMax+1` del Access dejó pares repetidos de
+ *                                                verdad (§5.2 de la fase).
+ *   `(… , Fecha, HoraD)`                       ✖ **116,502 de 116,503** — queda UNA colisión:
+ *                                                `(2, 1536, 2011-11-29, 14:12:45)` son DOS gastos
+ *                                                distintos (Yessy $35 cuenta 1007 · Conchita
+ *                                                $5,906 cuenta 1005). `_ocurrencia` no los salva:
+ *                                                está particionado por hash y ellos tienen hashes
+ *                                                distintos. Un espejo que pierde una fila deja de
+ *                                                ser espejo.
+ *   `(… , Fecha, HoraD, Cuenta)`               ✔ **116,503 de 116,503 — ÚNICA.**
+ *
+ * Y ninguna de las cinco es de las que mutan: las que cambian después de capturar son `Corte`
+ * (2 valores) y `SaldoD` (15,344). Por eso la identidad aguanta la mutación.
+ *
+ * ⚠️ Si mañana se suman las otras sucursales, **esto se vuelve a medir contra SU corpus**. Que sea
+ * única en la 20 no prueba nada sobre la 99 o la 70.
+ */
+const PK_OVERRIDE = {
+  Doctos: ['TipoDto', 'IdDocto', 'Fecha', 'HoraD', 'Cuenta'],
+};
+
 const WM_INVARIANTE = 'la columna de watermark debe ser la PK completa de la tabla';
 
 /** Sin tablas incrementales no hay excepciones que declarar. Se deja por simetría con WR. */
@@ -71,6 +106,6 @@ const WM_SIN_PK = {};
 function watermarkCol(table) { return INCREMENTAL[table] || null; }
 
 module.exports = {
-  BRANCHES, INCREMENTAL, watermarkCol, REPLICA_URL, ADMIN_URL, MDB_BASE,
+  BRANCHES, INCREMENTAL, PK_OVERRIDE, watermarkCol, REPLICA_URL, ADMIN_URL, MDB_BASE,
   WM_INVARIANTE, WM_SIN_PK,
 };
