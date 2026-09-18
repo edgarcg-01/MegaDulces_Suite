@@ -92,6 +92,16 @@ export class CommercialProductsController {
     });
   }
 
+  @Get('heartbeat')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: 'El instante del último cambio de catálogo (códigos + precios). Consulta escalar: la '
+      + 'pantalla la pide cada pocos segundos y sólo recarga cuando el valor se movió.',
+  })
+  heartbeat() {
+    return this.service.catalogHeartbeat();
+  }
+
   @Get('suppliers')
   // Lookup compartido: catálogo de productos + /comercial/salidas (filtro de proveedor).
   // Independencia de permisos entre features: basta VER productos O salidas.
