@@ -120,6 +120,63 @@ export class BudgetComparisonService {
     });
   }
 
+  /**
+   * Fase PR.4 (ADR-074) — Resultado presupuestado = plan de ventas (ingresos) − plan de gastos (egresos),
+   * por mes y anual. Derivado de los dos planes (cero captura). Ingresos repartidos periodo(13×4)→mes por
+   * días (mismo reparto que PVT). «Sin plan» de un lado se DECLARA (available:false), su lado va 0.
+   */
+  async resultado(budgetId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const budget = await this.assertBudget(trx, budgetId);
+      const fy = Number(budget.fiscal_year);
+
+      // Egresos por mes (nativo: expense_plan_lines.year_month)
+      const egRows = await trx('budget.expense_plan_lines').where({ tenant_id: tenantId, budget_id: budgetId })
+        .groupBy('year_month').select('year_month').sum({ monto: 'monto' }) as unknown as Array<{ year_month: string; monto: number | string }>;
+      const egMap = new Map<string, number>(egRows.map((r) => [r.year_month, round2(Number(r.monto))]));
+
+      // Ingresos por periodo → mes (reparto por días vía v_retail_calendar)
+      const inRows = await trx('budget.sales_plan_lines').where({ tenant_id: tenantId, budget_id: budgetId })
+        .groupBy('period_no').select('period_no').sum({ meta: 'meta_amount' }) as unknown as Array<{ period_no: number | string; meta: number | string }>;
+      const calRes = await trx.raw(
+        `SELECT period_no, to_char(date,'YYYY-MM') AS ym, count(*)::int AS days
+           FROM analytics.v_retail_calendar WHERE fiscal_year = ? GROUP BY period_no, to_char(date,'YYYY-MM')`, [fy]);
+      const periodMonths = new Map<number, Array<{ ym: string; days: number }>>();
+      const periodTotal = new Map<number, number>();
+      for (const r of (calRes.rows || calRes) as Array<{ period_no: number|string; ym: string; days: number|string }>) {
+        const p = Number(r.period_no); if (!periodMonths.has(p)) periodMonths.set(p, []);
+        periodMonths.get(p)!.push({ ym: r.ym, days: Number(r.days) }); periodTotal.set(p, (periodTotal.get(p) || 0) + Number(r.days));
+      }
+      const inMap = new Map<string, number>();
+      for (const r of inRows) {
+        const p = Number(r.period_no); const meta = Number(r.meta); const months = periodMonths.get(p); const total = periodTotal.get(p) || 0;
+        if (!months || !(total > 0)) continue;
+        for (const m of months) inMap.set(m.ym, round2((inMap.get(m.ym) || 0) + meta * (m.days / total)));
+      }
+
+      const months = [];
+      for (let mm = 1; mm <= 12; mm++) {
+        const ym = `${fy}-${String(mm).padStart(2, '0')}`;
+        const ing = round2(inMap.get(ym) || 0); const eg = round2(egMap.get(ym) || 0);
+        months.push({ year_month: ym, ingresos: ing, egresos: eg, resultado: round2(ing - eg) });
+      }
+      const totIng = round2(months.reduce((s, m) => s + m.ingresos, 0));
+      const totEg = round2(months.reduce((s, m) => s + m.egresos, 0));
+
+      return {
+        budget: { id: budget.id, name: budget.name, fiscal_year: fy, status: budget.status },
+        months,
+        annual: { ingresos: totIng, egresos: totEg, resultado: round2(totIng - totEg), margen_pct: totIng > 0 ? round2(((totIng - totEg) / totIng) * 100) : null },
+        sources: {
+          ingresos: { source: 'budget.sales_plan_lines', available: inRows.length > 0, reason: inRows.length ? null : 'Sin plan de ventas propuesto' },
+          egresos: { source: 'budget.expense_plan_lines', available: egRows.length > 0, reason: egRows.length ? null : 'Sin plan de gastos propuesto' },
+        },
+        note: 'Resultado presupuestado = plan de ventas (ingresos) − plan de gastos (egresos). Derivado de los planes; ingresos repartidos periodo→mes por días.',
+      };
+    });
+  }
+
   // ── helpers ───────────────────────────────────────────────────────────────────────────
   private async assertBudget(trx: any, budgetId: string) {
     const b = await trx('budget.budgets').where({ id: budgetId }).first();

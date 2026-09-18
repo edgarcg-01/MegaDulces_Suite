@@ -39,4 +39,11 @@ export class BudgetComparisonController {
   variance(@Param('id') id: string) {
     return this.svc.varianceByType(id);
   }
+
+  @Get('budgets/:id/resultado')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Resultado presupuestado: plan de ventas (ingresos) − plan de gastos (egresos), por mes y anual. Derivado de los planes.' })
+  resultado(@Param('id') id: string) {
+    return this.svc.resultado(id);
+  }
 }

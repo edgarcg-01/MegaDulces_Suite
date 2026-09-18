@@ -108,7 +108,7 @@ export class PaymentCalendarService {
         'o.reserved_amount', 'o.paid_amount',
         trx.raw('(o.original_amount - o.reserved_amount - o.paid_amount) AS available_amount'),
         'o.is_critical', 'o.critical_reason', 'o.authorized_by', 'o.authorized_at', 'o.status', 'o.notes', 'o.created_at',
-      ).whereNotIn('o.status', ['cancelled']);
+      ).whereNotIn('o.status', ['cancelled', 'propuesta']); // propuesta = sin autorizar → fuera del Calendario (PR.3)
 
       const legCommitment = trx('finance.financial_commitments as o').select(
         trx.raw(`'financial_commitment'::text AS obligation_source`), 'o.id AS obligation_id',

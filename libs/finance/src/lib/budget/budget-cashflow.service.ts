@@ -72,7 +72,7 @@ export class BudgetCashflowService {
 
       // ── Pagos previstos (3 obligaciones) por semana ───────────────────────────
       const pagoSql = (table: string) => trx(table)
-        .where({ tenant_id: tenantId }).whereNot('status', 'cancelled')
+        .where({ tenant_id: tenantId }).whereNotIn('status', ['cancelled', 'propuesta'])
         .whereRaw('original_amount > paid_amount')
         .whereRaw('coalesce(negotiated_date, original_due_date) BETWEEN ? AND ?', [from, to])
         .select(
