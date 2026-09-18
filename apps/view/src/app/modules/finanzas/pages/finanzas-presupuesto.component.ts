@@ -71,7 +71,28 @@ interface Projection { authorized_vigente: number; proyeccion_firme: number; pro
 interface CompareRow { concept: string; area: string | null; line_type: string; vigente_a: number | null; vigente_b: number | null; delta: number | null; estado: string }
 interface CompareResult { totals: { a: number; b: number; delta: number }; rows: CompareRow[] }
 
-type PresView = 'ejercicios' | 'gasto-op' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
+// ── Presupuesto de ventas (PV) ──
+interface SalesCell {
+  entity_key: string; channel: string; channel_label: string; entity_type: string;
+  warehouse_code: string; branch_name: string | null; period_no: number;
+  meta: number | null; real: number | null; real_prior: number | null;
+  cumplimiento_pct: number | null; crec_pct: number | null; part_pct: number | null;
+}
+interface SalesComparison {
+  budget: { id: string; name: string; fiscal_year: number; status: string };
+  prior_year: number;
+  cells: SalesCell[];
+  totals: { meta: number; real: number; real_prior: number; cumplimiento_pct: number | null; crec_pct: number | null };
+  data_as_of: string | null;
+  real_available: boolean;
+}
+interface SalesEntity { entity_key: string; channel: string; channel_label: string; entity_type: string; warehouse_code: string; branch_name: string | null; route_code: string | null; route_zona: string | null }
+interface SalesRow {
+  label: string; channel_label: string; entity_key: string | null; is_rollup: boolean;
+  meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null; part_pct: number | null;
+}
+
+type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Surface Operations (quiet-luxury, answer-first). Tres vistas:
@@ -233,6 +254,63 @@ type PresView = 'ejercicios' | 'gasto-op' | 'flujo' | 'campanas' | 'capacidad' |
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Control antes de comprometer: el disponible manda. Reservar/comprometer más que el disponible se <strong>bloquea</strong> (o avisa) según el control de cada partida. Los movimientos se operan con el ejercicio <strong>aprobado</strong>.</p>
           } @else {
             <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver y capturar sus gastos operativos.</p>
+          }
+        </section>
+      }
+
+      <!-- ══════════ PRESUPUESTO DE VENTAS (PV) ══════════ -->
+      @if (view() === 'ventas') {
+        <section class="pres-section">
+          @if (selected(); as b) {
+            <div class="pres-section-head">
+              <h2>Presupuesto de ventas · <span class="pres-muted">{{ b.name }} {{ b.fiscal_year }}</span></h2>
+              @if (b.status === 'borrador' || b.status === 'en_revision') {
+                <button pButton type="button" class="p-button-sm" (click)="openGenPlan()"><span class="pi pi-bolt"></span>&nbsp;Generar desde histórico</button>
+              }
+            </div>
+            @if (salesCmp(); as c) {
+              <div class="pres-summary-head">
+                @if (c.real_available && c.data_as_of) {
+                  <app-freshness-pill measures="data" [since]="c.data_as_of" [staleAfterSec]="86400" />
+                } @else {
+                  <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
+                }
+                <span class="pres-muted">CREC = crecimiento vs {{ c.prior_year }}</span>
+              </div>
+              <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
+              <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
+                <label class="pres-muted">Periodo (13×4):</label>
+                <p-select [options]="periodOpts" [(ngModel)]="salesPeriod" optionLabel="label" optionValue="value" placeholder="Todos" styleClass="pres-inline-select" />
+              </div>
+              <p-table [value]="salesRows()" [loading]="loadingSales()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+                <ng-template #header>
+                  <tr>
+                    <th>Entidad</th><th>Canal</th>
+                    <th class="ta-r">Meta</th><th class="ta-r">Real</th><th class="ta-r">Cumpl.</th>
+                    <th class="ta-r">CREC</th><th class="ta-r">PART</th>
+                    <th style="width:3rem"><span class="sr-only">Acciones</span></th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-r>
+                  <tr [class.pres-rollup]="r.is_rollup">
+                    <td>{{ r.label }}</td>
+                    <td class="pres-muted">{{ r.channel_label }}</td>
+                    <td class="ta-r pres-mono">{{ r.meta == null ? '—' : money(r.meta) }}</td>
+                    <td class="ta-r pres-mono">{{ r.real == null ? '—' : money(r.real) }}</td>
+                    <td class="ta-r pres-mono">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
+                    <td class="ta-r pres-mono" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
+                    <td class="ta-r pres-mono">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
+                    <td>@if (!r.is_rollup && salesPeriod > 0 && (b.status === 'borrador' || b.status === 'en_revision')) { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMetaEdit(r)" title="Capturar meta" aria-label="Capturar meta"><span class="pi pi-pencil"></span></button> }</td>
+                  </tr>
+                </ng-template>
+                <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Generá desde histórico o capturá metas por periodo. }</td></tr></ng-template>
+              </p-table>
+              <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan (partida ingreso). <strong>Real</strong> = sell-out del ODS rolado al calendario 13×4. <strong>CREC</strong> = crecimiento año vs año. <strong>PART</strong> = participación en el total. «Sin datos» ≠ cero (—). Para capturar/ajustar una meta, elegí un periodo (P1–P13).</p>
+            } @else if (loadingSales()) {
+              <p class="pres-muted">Cargando presupuesto de ventas…</p>
+            }
+          } @else {
+            <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
           }
         </section>
       }
@@ -474,6 +552,25 @@ type PresView = 'ejercicios' | 'gasto-op' | 'flujo' | 'campanas' | 'capacidad' |
       <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmNewGasto()" [loading]="savingGasto()">Agregar</button></div>
     </p-dialog>
 
+    <!-- Generar plan de ventas desde histórico -->
+    <p-dialog [(visible)]="genPlanVisible" [modal]="true" header="Generar plan desde histórico" [style]="{ width: '26rem' }">
+      <p class="pres-lbl-hint">La meta se calcula como el <strong>real del año anterior</strong> (del sell-out del ODS, rolado al calendario 13×4) × (1 + crecimiento objetivo). Las entidades×periodo <strong>sin</strong> venta el año anterior NO se generan (se capturan a mano).</p>
+      <label class="pres-lbl">Crecimiento objetivo (%)</label>
+      <input pInputText type="number" [(ngModel)]="genGrowthPct" class="pres-full" placeholder="Ej. 10" />
+      <label class="pres-lbl"><p-checkbox [(ngModel)]="genOverwriteManual" [binary]="true" /> &nbsp;Sobrescribir metas capturadas a mano</label>
+      <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmGenPlan()" [loading]="savingGen()">Generar</button></div>
+    </p-dialog>
+
+    <!-- Capturar / ajustar meta de una celda -->
+    <p-dialog [(visible)]="metaEditVisible" [modal]="true" [header]="'Meta — ' + (metaEditRow()?.label || '')" [style]="{ width: '24rem' }">
+      @if (metaEditRow(); as r) {
+        <p class="pres-lbl-hint">{{ r.channel_label }} · Periodo P{{ salesPeriod }}</p>
+        <label class="pres-lbl">Meta de venta (MXN)</label>
+        <input pInputText type="number" [(ngModel)]="metaEditAmount" class="pres-full" />
+        <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmMetaEdit()" [loading]="savingMeta()">Guardar</button></div>
+      }
+    </p-dialog>
+
     <!-- Movimiento de partida -->
     <p-dialog [(visible)]="movVisible" [modal]="true" [header]="'Movimiento — ' + (movLine()?.concept || '')" [style]="{ width: '30rem' }">
       @if (movLine(); as l) {
@@ -619,6 +716,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   viewOpts = [
     { label: 'Ejercicios', value: 'ejercicios' },
     { label: 'Gasto operativo', value: 'gasto-op' },
+    { label: 'Presupuesto de ventas', value: 'ventas' },
     { label: 'Flujo de efectivo', value: 'flujo' },
     { label: 'Campañas', value: 'campanas' },
     { label: 'Capacidad de pago', value: 'capacidad' },
@@ -628,6 +726,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.view.set(v as PresView);
     if (v === 'flujo' && !this.cashflow()) this.loadCashflow();
     if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
+    if (v === 'ventas') this.loadSalesComparison();
   }
 
   // ── Ejercicios (PU) ──
@@ -678,6 +777,14 @@ export class FinanzasPresupuestoComponent implements OnInit {
   gastoForm: { concept?: string; area?: string; responsible?: string; original_amount?: number; expense_class?: string; recurrence?: string; control_level?: string } = {};
   expenseClassOpts = [{ label: 'Fijo', value: 'fijo' }, { label: 'Variable', value: 'variable' }];
   recurrenceOpts = [{ label: 'Recurrente', value: 'recurrente' }, { label: 'No recurrente', value: 'no_recurrente' }];
+
+  // ── Presupuesto de ventas (PV) ──
+  salesCmp = signal<SalesComparison | null>(null);
+  loadingSales = signal(false);
+  salesPeriod = 0; // 0 = Todos (anual); 1..13 = periodo
+  periodOpts = [{ label: 'Todos (anual)', value: 0 }, ...Array.from({ length: 13 }, (_, i) => ({ label: `P${i + 1}`, value: i + 1 }))];
+  genPlanVisible = false; savingGen = signal(false); genGrowthPct: number | null = 10; genOverwriteManual = false;
+  metaEditVisible = false; savingMeta = signal(false); metaEditRow = signal<SalesRow | null>(null); metaEditAmount: number | null = null;
 
   // ── Flujo de efectivo (PU.3) ──
   cashflow = signal<Cashflow | null>(null);
@@ -741,7 +848,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   selectBudget(b: BudgetHeader): void {
     this.selected.set(b);
-    this.summary.set(null); this.lines.set([]);
+    this.summary.set(null); this.lines.set([]); this.salesCmp.set(null);
     this.loadingDetail.set(true);
     forkJoin({
       summary: this.http.get<Summary>(`${this.base}/budgets/${b.id}/summary`),
@@ -750,6 +857,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: ({ summary, lines }) => { this.summary.set(summary); this.lines.set(lines ?? []); this.loadingDetail.set(false); },
       error: () => { this.loadingDetail.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el ejercicio.' }); },
     });
+    if (this.view() === 'ventas') this.loadSalesComparison();
   }
 
   openNewBudget(): void { this.budgetForm = { fiscal_year: new Date().getFullYear(), scenario: 'base' }; this.newBudgetVisible = true; }
@@ -896,6 +1004,93 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
   classLabel(c: string | null): string { return c === 'fijo' ? 'Fijo' : c === 'variable' ? 'Variable' : '—'; }
   recurrenceLabel(r: string | null): string { return r === 'recurrente' ? 'Recurrente' : r === 'no_recurrente' ? 'No recurrente' : '—'; }
+
+  // ── Presupuesto de ventas (PV) ──
+  loadSalesComparison(): void {
+    const b = this.selected(); if (!b) { this.salesCmp.set(null); return; }
+    this.loadingSales.set(true);
+    this.http.get<SalesComparison>(`${this.base}/budgets/${b.id}/sales-comparison`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (c) => { this.salesCmp.set(c); this.loadingSales.set(false); },
+      error: (e) => { this.loadingSales.set(false); this.salesCmp.set(null); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar el presupuesto de ventas.' }); },
+    });
+  }
+
+  salesKpis(c: SalesComparison): MetricStripItem[] {
+    return [
+      { label: 'Meta total', value: c.totals.meta, format: 'currency-short' },
+      { label: 'Real', value: c.totals.real, format: 'currency-short', sub: c.real_available ? undefined : 'sin datos' },
+      { label: 'Cumplimiento', value: c.totals.cumplimiento_pct ?? 0, format: c.totals.cumplimiento_pct == null ? 'text' : 'percent', sub: c.totals.cumplimiento_pct == null ? 's/meta' : undefined, tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined },
+      { label: `CREC vs ${c.prior_year}`, value: c.totals.crec_pct ?? 0, format: c.totals.crec_pct == null ? 'text' : 'percent', sub: c.totals.crec_pct == null ? 's/base' : undefined, tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined },
+    ];
+  }
+
+  /** Pivote entidad × periodo → filas por entidad (o del periodo elegido) + subtotales por canal + total. */
+  salesRows(): SalesRow[] {
+    const c = this.salesCmp(); if (!c) return [];
+    const period = this.salesPeriod;
+    const cells = period > 0 ? c.cells.filter((x) => x.period_no === period) : c.cells;
+    // total real del alcance mostrado (para PART)
+    const scopeReal = cells.reduce((s, x) => s + (x.real ?? 0), 0);
+    // agregar por entidad
+    const byEntity = new Map<string, { label: string; channel: string; channel_label: string; meta: number | null; real: number | null; prior: number | null }>();
+    for (const x of cells) {
+      let e = byEntity.get(x.entity_key);
+      if (!e) { e = { label: x.branch_name || x.warehouse_code, channel: x.channel, channel_label: x.channel_label, meta: null, real: null, prior: null }; byEntity.set(x.entity_key, e); }
+      if (x.meta != null) e.meta = (e.meta ?? 0) + x.meta;
+      if (x.real != null) e.real = (e.real ?? 0) + x.real;
+      if (x.real_prior != null) e.prior = (e.prior ?? 0) + x.real_prior;
+    }
+    const pct = (n: number | null, d: number | null) => (n == null || d == null || d === 0 ? null : Math.round((n / d) * 1000) / 10);
+    const crec = (r: number | null, p: number | null) => (p == null || p === 0 ? null : Math.round(((((r ?? 0) - p) / p) * 100) * 10) / 10);
+    const rows: SalesRow[] = [];
+    const channelOrder = ['mostrador', 'credito', 'ruta', 'preventa'];
+    const entries = [...byEntity.entries()];
+    for (const ch of channelOrder) {
+      const inCh = entries.filter(([, e]) => e.channel === ch);
+      if (!inCh.length) continue;
+      for (const [ek, e] of inCh) {
+        rows.push({ label: e.label, channel_label: e.channel_label, entity_key: ek, is_rollup: false,
+          meta: e.meta, real: e.real, cumplimiento_pct: pct(e.real, e.meta), crec_pct: crec(e.real, e.prior), part_pct: pct(e.real, scopeReal) });
+      }
+      // subtotal por canal
+      const sMeta = inCh.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
+      const sReal = inCh.reduce((s, [, e]) => s + (e.real ?? 0), 0);
+      const sPrior = inCh.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
+      rows.push({ label: `Subtotal ${inCh[0][1].channel_label}`, channel_label: '', entity_key: null, is_rollup: true,
+        meta: sMeta, real: sReal, cumplimiento_pct: pct(sReal, sMeta), crec_pct: crec(sReal, sPrior), part_pct: pct(sReal, scopeReal) });
+    }
+    // total general
+    const tMeta = entries.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
+    const tReal = entries.reduce((s, [, e]) => s + (e.real ?? 0), 0);
+    const tPrior = entries.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
+    rows.push({ label: 'Total Venta', channel_label: '', entity_key: null, is_rollup: true,
+      meta: tMeta, real: tReal, cumplimiento_pct: pct(tReal, tMeta), crec_pct: crec(tReal, tPrior), part_pct: tReal > 0 ? 100 : null });
+    return rows;
+  }
+
+  openGenPlan(): void { this.genGrowthPct = 10; this.genOverwriteManual = false; this.genPlanVisible = true; }
+  confirmGenPlan(): void {
+    const b = this.selected(); if (!b) return;
+    const g = Number(this.genGrowthPct);
+    if (!Number.isFinite(g)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresá el crecimiento objetivo.' }); return; }
+    this.savingGen.set(true);
+    this.http.post<{ generated: number; entities_with_base: number; prior_year: number }>(`${this.base}/budgets/${b.id}/sales-plan/generate`,
+      { growth_pct: g / 100, overwrite_manual: this.genOverwriteManual }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.savingGen.set(false); this.genPlanVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Generado', detail: `${r.generated} metas desde el real ${r.prior_year}.` }); },
+      error: (e) => { this.savingGen.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo generar.' }); },
+    });
+  }
+
+  openMetaEdit(r: SalesRow): void { this.metaEditRow.set(r); this.metaEditAmount = r.meta; this.metaEditVisible = true; }
+  confirmMetaEdit(): void {
+    const b = this.selected(); const r = this.metaEditRow(); if (!b || !r || !r.entity_key) return;
+    if (!(Number(this.metaEditAmount) >= 0)) { this.toast.add({ severity: 'warn', summary: 'Falta', detail: 'Ingresá una meta válida (≥ 0).' }); return; }
+    this.savingMeta.set(true);
+    this.http.post(`${this.base}/budgets/${b.id}/sales-plan/line`, { entity_key: r.entity_key, period_no: this.salesPeriod, meta_amount: Number(this.metaEditAmount) }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingMeta.set(false); this.metaEditVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Guardada', detail: 'Meta capturada.' }); },
+      error: (e) => { this.savingMeta.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
+    });
+  }
 
   // ── Flujo de efectivo ──
   loadCashflow(): void {
