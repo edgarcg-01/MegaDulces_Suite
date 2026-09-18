@@ -823,18 +823,6 @@ export class MiTrabajoComponent {
     return letras.toUpperCase();
   });
 
-  /**
-   * `[CDRP.1]` **«Mi trabajo se llama…»** — para qué existe tu puesto, en una línea (CDRP §1.1).
-   *
-   * ⛔ `null` cuando el puesto todavía no la tiene, y entonces la línea **no se pinta**: repetir el
-   * nombre del puesto («Gerencia de Zona») diría algo distinto de un resultado, y es justo lo que
-   * §1.1 pide traducir. Medido el 2026-09-18: 9 de 20 puestos de mando la tienen.
-   */
-  readonly proposito = computed<string | null>(() => {
-    const ctx = this.contexto();
-    return ctx.status === 'ok' ? ctx.data.position?.proposito ?? null : null;
-  });
-
   readonly celdas = computed<CeldaContexto[]>(() => {
     const ctx = this.contexto();
     if (ctx.status !== 'ok') return [];
