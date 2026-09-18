@@ -185,7 +185,7 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
     L.push(centro('SIN RENGLONES'));
     L.push('');
     L.push(...envolver('Este documento no tiene detalle de productos en el sistema.'));
-    L.push(linea());
+    // Sin regla de cierre acá: la del TOTAL viene enseguida y quedaban dos seguidas.
   }
 
   for (const l of t.lineas) {
@@ -202,14 +202,19 @@ export function cuerpoTicketVenta(t: TicketVenta): string {
     if (l.equivalencia) L.push(esc(`  (equivale a ${l.equivalencia})`));
   }
 
-  L.push(linea());
   // La cascada: cada resta cierra exacto contra la siguiente línea, que es lo único que un
   // cliente puede comprobar con una calculadora.
   //
   // El renglón "Precio de lista" se imprime SÓLO si hay algo que restarle. Sin descuento es el
   // total repetido dos veces con dos nombres distintos, que en un papel de 32 columnas se lee
   // como si el segundo corrigiera al primero.
-  const hayQueRestar = c.descuento_precio > 0 || c.descuento_documento !== 0;
+  const hayQueRestar = c.descuento_precio > 0 || c.descuento_documento !== 0
+    || (!t.impuestos_incluidos && !!c.iva);
+  // La regla de cierre de los productos sólo va si abajo viene un bloque de restas. Sin ella,
+  // la separación de productos y la de TOTAL quedaban pegadas: `-----` y `=====` seguidas, sin
+  // nada en medio, que en el papel se lee como un renglón que falta. Lo vio la muestra impresa
+  // de un ticket de marzo (sin precio de lista), no el código.
+  if (hayQueRestar) L.push(linea());
   if (hayQueRestar) L.push(fila('Precio de lista', money(c.importe_lista)));
   if (c.descuento_precio > 0) L.push(fila('Descuento en precio', `-${money(c.descuento_precio)}`));
   if (c.descuento_documento > 0) {

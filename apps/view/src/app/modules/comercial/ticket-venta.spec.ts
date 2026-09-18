@@ -169,6 +169,30 @@ describe('cuerpoTicketVenta — lo que NO se imprime', () => {
     ]));
   });
 
+  /**
+   * Lo encontro la MUESTRA IMPRESA, no el codigo: en un ticket sin descuento (los de antes del
+   * 13-ago-2026, que no tienen precio de lista) la regla de cierre de productos y la del TOTAL
+   * quedaban pegadas —`-----` y `=====` sin nada en medio— y en el papel eso se lee como un
+   * renglon que falta.
+   */
+  it('nunca imprime dos reglas seguidas', () => {
+    const esRegla = (l: string) => /^[-=]{32}$/.test(l);
+    for (const caso of [
+      {},                                                                       // sin descuento
+      { cascada: { ...BASE.cascada, descuento_precio: 5, descuento_total: 5 } }, // con descuento
+      { lineas: [] },                                                            // sin renglones
+    ]) {
+      const out = lineas(caso);
+      const pegadas = out.filter((l, i) => i > 0 && esRegla(l) && esRegla(out[i - 1]));
+      expect(pegadas).toEqual([]);
+    }
+  });
+
+  it('el candado de reglas pegadas si detecta el caso', () => {
+    const esRegla = (l: string) => /^[-=]{32}$/.test(l);
+    const falso = ['-'.repeat(32), '='.repeat(32)];
+    expect(falso.filter((l, i) => i > 0 && esRegla(l) && esRegla(falso[i - 1]))).toHaveLength(1);
+  });
   it('un documento sin renglones lo declara en vez de salir vacio', () => {
     const out = lineas({ lineas: [], cascada: { ...BASE.cascada, importe_lista: 0, subtotal: 0 } }).join('\n');
     expect(out).toContain('SIN RENGLONES');
