@@ -62,19 +62,13 @@
     </p-button>
 
     <!--
-      [CDRP.1] "Mi trabajo se llama" (CDRP 1.1): la frase que traduce el puesto a un RESULTADO.
-      Sale de identity.positions.proposito, que edita RH desde /admin/puestos -- no es una
-      constante del front, que envejeceria sin que nadie la corrija.
+      [CDRP.1] Aca vivia "Mi trabajo se llama" (CDRP 1.1): la frase del puesto, traida de
+      identity.positions.proposito. RETIRADA DE LA PANTALLA por decision de Edgar (2026-09-18).
 
-      Si el puesto no la tiene, la linea NO se pinta: repetir el nombre del puesto ("Gerencia de
-      Zona") diria algo distinto de un resultado, que es justo lo que la seccion pide traducir.
+      Lo que se retiro es SOLO este bloque. La columna, las 9 frases sembradas y el campo
+      `position.proposito` de me/context siguen ahi: el dato es catalogo organizacional y se edita
+      desde /admin/puestos. Volver a mostrarlo es reponer estas cinco lineas, no rehacer la fase.
     -->
-    @if (proposito(); as fr) {
-      <p class="mt-proposito">
-        <span class="mt-proposito-k">Mi trabajo se llama</span>
-        <span class="mt-proposito-v">{{ fr }}</span>
-      </p>
-    }
   </header>
 
   <!-- ══ Dos columnas: el trabajo manda a la izquierda, las puertas ruedan a la derecha ══════ -->

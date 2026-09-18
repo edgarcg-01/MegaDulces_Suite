@@ -138,16 +138,27 @@ exports.up = async function up(knex) {
     }
   }
 
-  const sin = await knex('identity.positions')
-    .whereNull('deleted_at')
-    .whereNull('proposito')
-    .whereIn('nivel', ['direccion', 'gerencia', 'jefatura', 'coordinacion'])
-    .count({ n: '*' })
-    .first();
-  console.log(
-    `  [CDRP.1] ${n} puesto(s) sembrado(s); ${(sin && sin.n) || 0} puesto(s) de mando siguen SIN frase ` +
-      '(el documento cubre 9 de los 9 que nombra; el resto es de fases posteriores)',
-  );
+  /*
+   * ⛔ El resumen NO puede tumbar la migración, y ya lo hizo una vez: filtraba por `nivel`, y la
+   * réplica de pruebas es tan vieja que esa columna no existe — la migración murió DESPUÉS de
+   * agregar la columna y sembrar lo que pudo, dejando el trabajo a medias y sin registrar.
+   *
+   * Una línea de bitácora no es parte del contrato de la migración: va en su propio `try` y cuenta
+   * sin depender de ninguna columna opcional.
+   */
+  try {
+    const sin = await knex('identity.positions')
+      .whereNull('deleted_at')
+      .whereNull('proposito')
+      .count({ n: '*' })
+      .first();
+    console.log(
+      `  [CDRP.1] ${n} puesto(s) sembrado(s); ${(sin && sin.n) || 0} puesto(s) siguen SIN frase ` +
+        '(el documento cubre los 9 que nombra; el resto es de fases posteriores)',
+    );
+  } catch (e) {
+    console.log(`  [CDRP.1] ${n} puesto(s) sembrado(s); el resumen no se pudo contar: ${e.message}`);
+  }
 };
 
 exports.down = async function down(knex) {
