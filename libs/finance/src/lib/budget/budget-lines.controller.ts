@@ -4,6 +4,7 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import {
   BudgetLinesService, CreateBudgetDto, CreateBudgetLineDto, MovementOpts,
 } from './budget-lines.service';
+import { BudgetMaterializeService } from './budget-materialize.service';
 
 interface AuthedRequest { user?: { username?: string } }
 interface MovementBody { amount: number; sourceKind?: string; sourceRef?: string; note?: string; fromReserva?: boolean }
@@ -20,7 +21,10 @@ const optsOf = (b: MovementBody): MovementOpts => ({ sourceKind: b.sourceKind, s
 @UseGuards(RolesGuard)
 @Controller('finance/budget')
 export class BudgetLinesController {
-  constructor(private readonly svc: BudgetLinesService) {}
+  constructor(
+    private readonly svc: BudgetLinesService,
+    private readonly materialize: BudgetMaterializeService,
+  ) {}
 
   private who(req: AuthedRequest) { return req.user?.username || 'sistema'; }
 
@@ -43,8 +47,21 @@ export class BudgetLinesController {
 
   @Post('budgets/:id/approve')
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
-  @ApiOperation({ summary: 'Aprueba/hace vigente. No se puede autoaprobar la propia captura.' })
-  approve(@Param('id') id: string, @Req() req: AuthedRequest) { return this.svc.approveBudget(id, this.who(req)); }
+  @ApiOperation({ summary: 'Aprueba/hace vigente + materializa las partidas del plan. No se puede autoaprobar la propia captura.' })
+  async approve(@Param('id') id: string, @Req() req: AuthedRequest) {
+    const who = this.who(req);
+    const budget = await this.svc.approveBudget(id, who);
+    // Materialización automática del plan → ledger (PR.1/ADR-074). Best-effort: no tumba la aprobación.
+    let materialization: unknown = null;
+    try { materialization = await this.materialize.materialize(id, who); }
+    catch (e) { materialization = { error: (e as Error)?.message || 'materialización falló' }; }
+    return { budget, materialization };
+  }
+
+  @Post('budgets/:id/materialize')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: 'Materializa (re-sincroniza) las partidas del ledger desde los planes de ventas y gastos.' })
+  materializeBudget(@Param('id') id: string, @Req() req: AuthedRequest) { return this.materialize.materialize(id, this.who(req)); }
 
   @Post('budgets/:id/close')
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
