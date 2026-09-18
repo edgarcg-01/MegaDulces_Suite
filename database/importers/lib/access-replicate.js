@@ -3,7 +3,7 @@
  * MOTOR de RÉPLICA CRUDA Access → Postgres, compartido (ADR-056).
  *
  * Nació como `wincaja/replicate-wincaja-live.js` (Fase WR.3/WR.4) y se subió acá cuando la Fase CG
- * necesitó el mismo carril para `BDatos.mdb` (la base Dulcería/Kepler-viejo del Access `Control`).
+ * necesitó el mismo carril para `BDatos.mdb` (la caja general, back-end del Access `Control`).
  * Duplicar 295 líneas de un motor que ya está probado en producción es exactamente lo que ADR-056
  * prohíbe, así que el motor vive una sola vez y cada fuente aporta su CONFIG.
  *

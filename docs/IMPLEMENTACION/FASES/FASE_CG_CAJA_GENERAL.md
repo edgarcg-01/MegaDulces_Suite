@@ -581,7 +581,11 @@ Ruta crítica: **CG.8 → CG.9 → CG.10b → CG.17 → CG.13 → CG.14**. Lo de
   **Gate del refactor:** `--dry --branch=32` contra la `.mdb` real ANTES y DESPUÉS → salida
   idéntica (`4 inc / 66 hash · read 173615`); lo único distinto fue el tiempo transcurrido.
   Más `test-wincaja-replica-fidelidad.js` **17 OK / 0 FALLA**.
-- [x] **Config de Dulcería** + destino `:5433/dulceria` con **35 tablas espejo** creadas (vacías).
+- [x] **Config de la caja general** + destino `:5433/caja_general` con **35 tablas espejo** creadas
+  (vacías). El schema por sucursal es `cg20`, con el mismo criterio que `w30`/`w32` de WR.
+  ⚠️ El `.mdb` vive en una carpeta llamada `Dulceria` —así lo dejó el Access en 2014— pero eso es
+  una RUTA, no el nombre de la cosa: lo que se replica es la caja general, y así se llama la base,
+  el schema, el watermark, el latido y las variables de entorno.
 - [x] **Plan verificado en seco**: 35 tablas, **117,018 filas**, 135 s, **0 incremental**.
 
 ⛔ **NADA VA POR CARRIL INCREMENTAL, Y ESO ESTÁ MEDIDO.** La tentación evidente —`Doctos` por
@@ -630,15 +634,15 @@ el `UNIQUE` clásico los nulos son distintos entre sí y esa fila se reinsertar�
 
 **Probado con mutación real, no por inspección:** se cambió `Corte` en una fila del espejo y la
 pasada siguiente escribió **1** y dejó **116,503** — actualizó en su lugar, no duplicó.
-`test-dulceria-replica-fidelidad.js` pasa **10 OK / 0 FALLA** y ya está en la regresión.
+`test-caja-general-replica-fidelidad.js` pasa **10 OK / 0 FALLA** y ya está en la regresión.
 
 **Pendiente, y por qué:**
 - ⬜ **El shipper a prod.** Acá está el hueco de arquitectura que faltaba nombrar: la réplica vive
-  en `:5433/dulceria` (local) y `analytics.*` en `postgres_platform` (prod). **Postgres no cruza
+  en `:5433/caja_general` (local) y `analytics.*` en `postgres_platform` (prod). **Postgres no cruza
   bases sin FDW**, y meter un FDW de prod hacia un contenedor local haría que prod dependa de que
   esa caja esté arriba. El patrón probado es el del ODS: un **shipper local → prod**
   (`replicate-ods-live.js` hace justo eso, y su fuente ya es Postgres con schema por sucursal —
-  la misma forma que `d20.*`). Falta decidir el schema destino y correrlo.
+  la misma forma que `cg20.*`). Falta decidir el schema destino y correrlo.
 - ⬜ Recién entonces: `analytics.caja_general_*` → **vistas derive-no-copy** y **retirar
   `import-caja-general.js`**.
 - ⚠️ Sigue necesitando Jet 32-bit → **vive en `.249` junto a los 3 carriles de Wincaja hasta
