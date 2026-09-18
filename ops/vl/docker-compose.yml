@@ -219,9 +219,19 @@ services:
     # que ese carril se retire o se renombre.
     # ⚠️ IGNORE_ERROR=1 porque `status='error'` de estos carriles es alarma de DATO
     # (ContPAQi caído, sesión del GPS vencida) y reiniciar no lo arregla.
+    #
+    # [LT.9.2] Se cambiaron las tres claves, y el día que se retiró un carril es justo el día
+    # que el comentario de arriba anticipaba. Las dos que salieron estaban rotas de distinta forma:
+    #   · `fleet_gps` ya NO la escribe este contenedor (el carril se retiró; ahora late el poller
+    #     del API en Railway). Dejarla sería peor que quitarla: el canario diría "sano" mirando
+    #     una llave que escribe OTRA máquina — exactamente el falso verde que este archivo combate.
+    #   · `feed_receipts` era canario muerto desde DB-MEM.2: ese carril pasó de cada minuto a
+    #     `30 4 * * *`, así que contra `MAX_MIN=10` está vencido 23 de cada 24 horas.
+    # Las tres de ahora las escribe ESTE contenedor y entregan dentro de la ventana de 10 min:
+    # `feed_contpaqi` (@1 min), `contpaqi_add_cfdis` (@5 min), `health_watchdog` (@5 min).
     environment:
       TZ: America/Mexico_City
-      ODS_HB_KEY: "fleet_gps,feed_contpaqi,feed_receipts"
+      ODS_HB_KEY: "feed_contpaqi,contpaqi_add_cfdis,health_watchdog"
       ODS_HB_MAX_MIN: "10"
       ODS_HB_IGNORE_ERROR: "1"
     healthcheck:
