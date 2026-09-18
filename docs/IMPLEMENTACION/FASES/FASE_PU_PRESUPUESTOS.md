@@ -250,3 +250,35 @@ El módulo se considera operativo cuando **una transacción completa recorre sol
 compromiso → ejecución → pago → conciliación con saldos correctos y responsables identificables**, y
 el ejemplo de aceptación §8.2 se reproduce exacto. Eso lo cubren las Capas 1→3; la Capa 4 es
 enriquecimiento.
+
+---
+
+## Fase PV — Presupuesto de Ventas estructurado (hijo de PU · ADR-068)
+
+El workbook manual `indicadores 2018 - VENTAS.csv` como **molde de estructura** (no de datos) para armar
+los presupuestos de venta **forward**. Ejes: entidad (sucursal/canal/ruta) × calendario **13×4** × meta,
+con crecimiento (CREC=YoY) y participación (PART=mezcla). El "real" se **puentea** al sell-out diario
+(`analytics.v_sellout_daily`), nunca se recalcula; cero importers. Detalle de decisiones en **ADR-068**.
+
+Estructura **medida del CSV** (no adivinada): 52 semanas S01-52 → 13 periodos de 4 semanas P1-13 →
+**Q1=P1-3 · Q2=P4-6 · Q3=P7-9 · Q4=P10-12 · QF=P13** (verificado: `QF == P13` al peso; Q4 no incluye P13).
+
+- **PV.1 ✅** `analytics.v_retail_calendar` — calendario 13×4 (vista pura sobre `generate_series`, sin
+  tenant/RLS). Ancla declarada/confirmable: semana lun-dom, S01=primer lunes on/after 1-ene, fiscal_year=año
+  calendario, bordes clampados. Smoke DB-direct 13/13.
+- **PV.2 ✅** `analytics.v_sales_entity` — 23 entidades hoja medidas del sell-out (mostrador×6, credito×6,
+  preventa×5, ruta×6). `entity_key = channel:warehouse_code`, rutas con route_code+zona. Smoke 7/7.
+- **PV.3 ✅ (backend)** `budget.sales_plan_lines` (meta entidad×periodo, RLS forzado) + `BudgetSalesPlanService`
+  (generateFromHistory: meta = real año anterior × (1+growth), sin base → no crea fila; upsert manual). Única
+  verdad de la meta. Smoke 12/12.
+- **PV.4 ✅ (backend)** `BudgetSalesComparisonService` — pivote meta vs real + CREC + PART + cumplimiento;
+  real del `v_sellout_daily` rolado por el calendario (mismo dato canónico, bucketeado a periodo). «Sin
+  datos»≠cero, frescura declarada. Smoke 8/8.
+- **PV.5 🔨** `BudgetSalesController` + vista "Presupuesto de ventas" en `/presupuesto` (answer-first,
+  metric-strip/freshness-pill, selector de periodo, pivote con subtotales por canal + Total, diálogos generar/
+  capturar). Builds+check:templates verdes. **Verificación HTTP pendiente por infra** (API :3334 stale + creds).
+
+**Pendiente global PV:** verificación HTTP (ADR-044) tras restart de la API; migraciones (`v_retail_calendar`,
+`v_sales_entity`, `budget.sales_plan_lines`) a prod; push + redeploy. Declarado no construido: vecinal a grano
+sucursal×preventa (no ruta vecinal individual); proyección plan→`commercial.sales_targets` para unificar el
+"vs objetivo" del Análisis; confirmar el ancla de semana con negocio.
