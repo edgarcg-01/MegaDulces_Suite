@@ -279,10 +279,20 @@ de 4 semanas no alinea a mes calendario. Se rola desde el **diario** (`v_sellout
   frescura declarada (`data_as_of`=último business_date). Smoke DB-direct **8/8** (Σreal celdas==roll independiente
   al centavo, PART≈100%, CREC/cumplimiento==recomputación independiente). `nx build api` verde. **Pendiente:
   controller + UI + verificación HTTP (PV.5).** *Cerrado backend 2026-09-17.*
-- [ ] **[PV.5]** ⬜ UI "Presupuesto de ventas" en `/presupuesto` (pivote entidad×periodo 13×4, meta vs real,
-  CREC/PART, totales; patrón `/ventas-generales` + metric-strip/freshness-pill; answer-first DESIGN §15).
-- [ ] **[PV.ADR]** ⬜ ADR nuevo: la meta de ventas vive en Presupuestos (partida ingreso dimensionada) y
-  **absorbe/consume** `commercial.sales_targets` (una sola verdad de la meta); real siempre por vista sobre sell-out.
+- [~] **[PV.5]** 🔨 UI "Presupuesto de ventas" en `/presupuesto` + controller. `BudgetSalesController`
+  (`finance/budget/sales-entities`, `budgets/:id/sales-plan[/generate|/line]`, `budgets/:id/sales-comparison`;
+  perms `PRESUPUESTOS_VER/GESTIONAR`). Vista nueva del Segmented en `finanzas-presupuesto.component`: answer-first
+  (freshness-pill + metric-strip: meta/real/cumplimiento/CREC), selector de periodo (Todos/P1-13), pivote entidad
+  con subtotales por canal (= TOTAL VEC/RD) + Total Venta, columnas Meta/Real/Cumpl/CREC/PART, diálogos «Generar
+  desde histórico» (growth%) y captura/override de meta por celda. `nx build view`+`api` verdes, `check:templates`
+  317 OK. **⚠️ Verificación HTTP (ADR-044) PENDIENTE por infra:** la API en :3334 está stale (tiene PU, no el
+  controller nuevo → `sales-entities` da 404) y no acepta las credenciales dev (login 401) — necesita restart +
+  credencial (dev servers de Edgar). El smoke HTTP quedó escrito (`pv5_http.js`) con cross-check de seguridad
+  (confirma DB=dev antes de escribir) + cleanup. *Cerrado UI+controller 2026-09-17.*
+- [x] **[PV.ADR]** ✅ **ADR-068** — la meta de ventas vive en Presupuestos al grano del Excel (entidad×periodo 13×4),
+  única verdad forward; real = vista sobre `v_sellout_daily` rolado por el calendario (NUNCA `mv_sellout_monthly`,
+  choque de grano); `commercial.sales_targets` no se duplica (queda para el vs-objetivo mensual del Análisis);
+  "partida ingreso" = presentación desde `sales_plan_lines`, no copia en `budget_lines`. *Cerrado 2026-09-17.*
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 

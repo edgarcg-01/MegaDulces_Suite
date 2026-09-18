@@ -10,6 +10,7 @@ import { BudgetCampaignsService } from './budget-campaigns.service';
 import { BudgetCampaignsController } from './budget-campaigns.controller';
 import { BudgetSalesPlanService } from './budget-sales-plan.service';
 import { BudgetSalesComparisonService } from './budget-sales-comparison.service';
+import { BudgetSalesController } from './budget-sales.controller';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Sistema de presupuestos: motor de egresos (PU.1, ledger de 5
@@ -21,7 +22,7 @@ import { BudgetSalesComparisonService } from './budget-sales-comparison.service'
  * calendario; éste es el sistema de presupuestos. Comparten el schema `budget.*` pero no el módulo.
  */
 @Module({
-  controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController],
+  controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController],
   providers: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService],
   exports: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService],
 })

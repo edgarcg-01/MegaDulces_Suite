@@ -2043,3 +2043,34 @@ Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md).
 **Hereda:** ADR-055 y ADR-057 (la unidad se resuelve una vez, con testigo — $866,805 de sobre-pedido ya pagados por un divisor equivocado) · ADR-016/018 (el motor decide, el LLM fuera del camino del dinero — a lo que el propio documento llega por su cuenta en §31/§33) · ADR-056 (lo que no se puede medir se declara; un gate sin prueba negativa es una intención) · ADR-040 (ContPAQi es SoR contable).
 
 Plan y detalle en [`FASE_SU_SURTIDO_POR_OLAS.md`](FASES/FASE_SU_SURTIDO_POR_OLAS.md).
+
+---
+
+## ADR-068
+
+**La meta de ventas vive en Presupuestos al grano del Excel (entidad × periodo 13×4) y es la ÚNICA verdad forward; el real es una VISTA sobre el sell-out diario rolado por el calendario, nunca `mv_sellout_monthly`.** (Fase PV — propuesto 2026-09-17)
+
+**Contexto.** El usuario entregó el workbook manual `indicadores 2018 - VENTAS.csv` con el que hoy arman y siguen las ventas, y pidió tomar su **ESTRUCTURA** (no sus datos 2010-2018) como molde para armar los presupuestos de venta **forward** dentro de Presupuestos, automatizando la comparación contra el real. Hasta ahora Presupuestos comparaba a un solo número tenant×periodo; el Excel exige entidad (sucursal/canal/ruta) × calendario 13×4 × meta, con crecimiento (CREC=YoY) y participación (PART=mezcla).
+
+**Lo medido (de la estructura del Excel y del código):**
+- El calendario 13×4 se leyó **de la propia hoja**: 52 semanas → 13 periodos de 4 semanas → **Q1=P1-3, Q2=P4-6, Q3=P7-9, Q4=P10-12, QF=P13** (verificado con los números: `QF == P13` al peso; Q4 **no** incluye P13). No existía tal calendario en la BD (los `periodo 1..14` eran de contabilidad ContPAQi; `commission_periods` son quincenas).
+- El universo real de entidades (`mv_sellout_monthly`): **23 hojas** — mostrador×6, credito×6, preventa×5, ruta×6 (RUTA-21..28). Las sucursales de HOY (01=P.Hidalgo … 06=Canindo) **no** son las del Excel 2018 (Morelia Abastos/Madero) → el molde es forward: estructura del Excel, entidades vivas de la BD.
+- `commercial.sales_targets` (BI.9) ya guarda metas pero es **mensual y gruesa** (total/branch/channel/route × YYYY-MM) — grano distinto (no channel×warehouse, no periodo 13×4).
+
+**Decisión — cuatro piezas:**
+1. **El calendario 13×4 es una dimensión de tiempo pura** (`analytics.v_retail_calendar`, vista sobre `generate_series`, sin tenant/RLS, cero importer). Ancla declarada y confirmable (semana lun-dom, S01=primer lunes on/after 1-ene, fiscal_year=año calendario, bordes clampados a S01/S52).
+2. **El real se rola desde el DIARIO** (`analytics.v_sellout_daily`, universo ÚNICO del sell-out) por el calendario, **nunca desde `mv_sellout_monthly`**: un periodo de 4 semanas no alinea a mes calendario (choque de grano). CREC (YoY) y PART (participación) se computan sobre ese mismo real canónico — el MISMO dato que `explainChange`/`salesQuery`, sólo bucketeado a periodo — **no es una segunda fuente ni una reimplementación**.
+3. **La meta es dato propio** (`budget.sales_plan_lines`, entidad × periodo 13×4, method historico_ajustado/manual). Es la **única verdad forward de la meta de ventas**. `commercial.sales_targets` **no se duplica ni se migra**: queda para el "vs objetivo" mensual del sub-módulo Análisis; la dirección es proyectar sales_targets DESDE el plan (una sola verdad), no al revés.
+4. **"Partida ingreso" se honra como PRESENTACIÓN, no como copia:** la meta se muestra como la sección de ingresos del ejercicio sacada de `sales_plan_lines`; **no** se crea una fila espejo en `budget_lines` (evita drift / dos verdades).
+
+**Se rechaza:** (a) rolar el real desde `mv_sellout_monthly` (mensual) a periodos de 4 semanas — grano incompatible; (b) reproducir el histórico 2010-2018 del Excel — la data viva arranca ~fin 2025, es forward; (c) importar el Excel o materializar el real — viola la regla del ODS; (d) reimplementar YoY/share en finanzas — se deriva del universo canónico del sell-out; (e) duplicar la meta en `budget_lines` y en `sales_targets` — una sola verdad.
+
+**Consecuencias:**
+- ✅ Se puede armar un presupuesto de ventas del próximo ejercicio con la estructura del Excel y comparar meta vs real + CREC + PART automáticamente, reemplazando el Excel de aquí en adelante.
+- ⚠️ **«Sin datos» ≠ cero:** sin real → celda NULL (no 0); sin base histórica → no se genera meta (se captura a mano). Frescura declarada (`data_as_of`).
+- ⚠️ **Declarado, no construido:** el vecinal se presupuesta a grano sucursal×preventa (no ruta vecinal individual); la proyección plan→`sales_targets` para unificar el "vs objetivo" del Análisis; el ancla de semana es confirmable con negocio.
+- 🔄 Reversible: todo es aditivo (2 vistas + 1 tabla nueva + 2 servicios); no toca `commercial.sales_targets` ni el flujo comercial.
+
+**Hereda:** ADR-066 (plan=dato propio / real=vista ODS; hijo de la Fase PU) · ADR-059 (el real se arbitra desde el universo único del sell-out) · ADR-056 (lo no medido se declara, nunca cero) · regla del ODS (cero importers para el real).
+
+Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PV, hijo de PU).
