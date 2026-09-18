@@ -592,8 +592,38 @@ tipo** (ingresos 0→23,147 · gastos 0→93,041). Un watermark escalar se parar
 motivo suficiente por sí solo: **`Doctos` MUTA** (la bandera `Corte` se prende después —
 116,470 en 1 contra 10 en 0). Todo hash-delta.
 
+**Carga real hecha (2026-09-18, autorizada contra `:5433`):** 117,018 filas en 158 s, y **cuadra
+al centavo contra el origen vivo** leído en el mismo momento — ingresos 23,176 / $654,707,494.7941
+y gastos 93,148 / $647,735,661.0812, idénticos en las dos puntas; `Cuenta` 122 = 122. Segunda
+pasada: **0 escrituras** (el hash-delta funciona). El archivo está vivo: entre la medición de la
+mañana y ésta entraron 23 movimientos y $10,657.68.
+
+### ⛔ Lo que la carga real destapó, y que el plan en seco no podía ver
+
+**La identidad del espejo de `Doctos` no soporta que la fila MUTE.** Access no le declara PK, así
+que el espejo cayó en el surrogate `UNIQUE(_row_hash)` con `DO NOTHING` — que es **correcto para
+movimientos inmutables** (el caso de Wincaja) y **está mal acá**: cuando la bandera `Corte` pasa de
+0 a 1, el hash cambia, el UPSERT inserta una fila **nueva** y la vieja se queda. El espejo
+acumularía las dos versiones del mismo movimiento.
+
+Hoy es **latente, no activo**: el carril no está agendado y sólo 10 de 116,503 filas están en
+`Corte = 0`. Pero al agendarlo, cada movimiento capturado y cortado el mismo día entraría dos
+veces (~12k/año).
+
+**Y no se arregla adivinando la identidad.** Medido:
+- `(TipoDto, IdDocto)` **no sirve**: `IdDocto = 0` es un centinela con **120 filas** (84 gastos +
+  30 ingresos + 6 depósitos, repartidas en 76/24/6 fechas distintas), y encima el `DMax+1` del
+  Access dejó pares repetidos de verdad. Colapsaría filas.
+- `(TipoDto, IdDocto, Fecha, HoraD)` da **116,502 de 116,503** — queda **una** colisión. Un espejo
+  que pierde una fila deja de ser espejo; es la misma razón por la que WR.8 tuvo que inventar
+  `_ocurrencia`.
+
+`test-dulceria-replica-fidelidad.js` **lo asserta y está en ROJO a propósito**: es la compuerta
+que impide agendar el carril con el defecto puesto. Por eso la suite **no entra todavía a
+`run-all-tests.js`** — un rojo permanente en el tablero enseña a ignorarlo (OBS.8).
+
 **Pendiente, y por qué:**
-- ⬜ **La pasada real de datos** (`--once`): 117k filas. Es escritura pesada → ventana.
+- ⛔ **Decidir la identidad del espejo de `Doctos`** (arriba). **Bloquea agendar el carril.**
 - ⬜ **El shipper a prod.** Acá está el hueco de arquitectura que faltaba nombrar: la réplica vive
   en `:5433/dulceria` (local) y `analytics.*` en `postgres_platform` (prod). **Postgres no cruza
   bases sin FDW**, y meter un FDW de prod hacia un contenedor local haría que prod dependa de que
