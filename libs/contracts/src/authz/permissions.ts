@@ -302,6 +302,15 @@ export enum Permission {
   // migración a roles de gerencia/dirección. Mismo permiso autoriza el cambio de cuenta
   // bancaria de un proveedor (TP.7) — un solo "autorizador" de Finanzas para todo el módulo.
   FINANCE_PAYMENT_CALENDAR_AUTORIZAR = 'FINANCE_PAYMENT_CALENDAR_AUTORIZAR',
+  // Fase CG (ADR-070) — Caja General: la plataforma pasa a ser la FUENTE PRINCIPAL de los
+  // ingresos y egresos de efectivo (hoy se capturan en el Access `Control`). Permisos PROPIOS:
+  // hasta ahora los 15 endpoints de /finanzas/caja colgaban de FINANCE_BANK_VER, que es de
+  // Bancos. VER = consulta; GESTIONAR = captura el movimiento; AUTORIZAR = cierra el corte.
+  // AUTORIZAR va deliberadamente FUERA de todo MODULE_GROUP (molde TP.6): capturar ≠ autorizar,
+  // y un permiso que se otorga "de paquete" no separa funciones.
+  FINANCE_CAJA_VER = 'FINANCE_CAJA_VER',
+  FINANCE_CAJA_GESTIONAR = 'FINANCE_CAJA_GESTIONAR',
+  FINANCE_CAJA_AUTORIZAR = 'FINANCE_CAJA_AUTORIZAR',
   // Cartera de clientes / Partidas vivas (CXC / ADR-048) — estado de cuenta CxC
   // read-only sobre Kepler (kdue). VER = consultar cartera + aging + drill por cliente.
   FINANCE_RECEIVABLES_VER = 'FINANCE_RECEIVABLES_VER',
