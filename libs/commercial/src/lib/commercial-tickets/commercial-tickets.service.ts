@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 
 /**
@@ -271,6 +272,33 @@ export class CommercialTicketsService {
     });
   }
 
+  /**
+   * ¿Esta instalación ya expone el precio de lista de las FACTURAS (mig `20260918160100`)?
+   *
+   * Existe por una razón concreta: esa migración **no escribe datos**, así que su ausencia no
+   * deja ninguna huella que la delate — ni una tabla vacía, ni una fila faltante. Y la consulta
+   * de renglones usa `select *`, con lo cual una columna que no existe llega `undefined` y se
+   * confunde con "el ERP no tiene el dato". El resultado sería el peor de los mundos: el papel
+   * afirmando algo falso **sobre Kepler** por culpa de un despliegue incompleto nuestro.
+   *
+   * Se resuelve preguntándole al catálogo, no adivinando por el valor. Cacheado en estático: la
+   * respuesta sólo cambia cuando corre una migración, o sea nunca dentro de la vida del proceso.
+   * Si la consulta falla se asume `false`, que es el lado seguro: declarar de más nunca hace daño.
+   */
+  private static soporteListaP: Promise<boolean> | null = null;
+  private soporteLista(trx: Knex): Promise<boolean> {
+    if (!CommercialTicketsService.soporteListaP) {
+      CommercialTicketsService.soporteListaP = trx
+        .select(trx.raw('1'))
+        .from('information_schema.columns')
+        .where({ table_schema: 'analytics', table_name: 'erp_sales_invoice_lines', column_name: 'precio_lista' })
+        .first()
+        .then((r: unknown) => !!r)
+        .catch(() => false);
+    }
+    return CommercialTicketsService.soporteListaP;
+  }
+
   /** `03UD1001-0018665` → sus partes; null si no calza el molde. */
   private partes(id: string) {
     const m = /^(\d{2})(UD\d{4})-(.+)$/.exec(String(id || '').trim().toUpperCase());
@@ -343,6 +371,9 @@ export class CommercialTicketsService {
         .orderBy('linea');
 
       const origen: TicketOrigen = cab.doc_tipo === 'credito' ? 'credito' : 'telemarketing';
+      // Sólo acá: el mostrador lee sus PROPIAS vistas, y si le faltan no existen y la consulta
+      // truena — falla ruidosa, no hace falta detectarla. La que puede estar a medias es ésta.
+      const soporteLista = await this.soporteLista(trx);
       return this.armar({
         id: cab.folio_digital, origen, doc_label: cab.doc_label,
         sucursal: cab.sucursal, sucursal_nombre: null, caja: null,
@@ -352,7 +383,7 @@ export class CommercialTicketsService {
         total: num(cab.total), iva: null, ieps: num(cab.ieps),
         descuento_pct_erp: cab.descuento_pct != null ? num(cab.descuento_pct) : null,
         impuestos_incluidos: true,
-      }, lineas);
+      }, lineas, soporteLista);
     });
   }
 
@@ -446,13 +477,26 @@ export class CommercialTicketsService {
    * "todo bien": un documento viejo, con su total correcto y su descuento en $0.00, que parece
    * decir "no hubo descuento" cuando en realidad dice "no se puede saber".
    */
-  private aviso(lineas: number, conLista: number, cuadra: boolean, gapPct: number): string | null {
+  private aviso(
+    lineas: number, conLista: number, cuadra: boolean, gapPct: number, soporteLista = true,
+  ): string | null {
     if (lineas === 0) {
       return 'Este documento no tiene renglones en el ODS: es un hueco de replicación, no una venta sin productos.';
     }
     if (!cuadra) {
       return `Los renglones no explican el total (hueco de ${r2(gapPct)}%). Falta detalle en el ERP: `
         + 'el desglose de descuento se omite para no repartir entre los renglones que sí están.';
+    }
+    // ⭐ ANTES que "el ERP no lo guarda": puede que sí lo guarde y seamos NOSOTROS los que no lo
+    // estamos leyendo. Sin esta rama, un despliegue a medias —migración 20260918160000 aplicada
+    // y 20260918160100 no— imprimía una afirmación FALSA sobre Kepler en cada factura de
+    // telemarketing, sin un solo error de por medio: la consulta usa `select *`, así que la
+    // columna ausente llega `undefined` y se confunde con "no hay dato". Es el modo de falla que
+    // tienen las migraciones que no escriben datos: no dejan una tabla vacía que las delate.
+    if (!soporteLista) {
+      return 'El módulo está desplegado a medias: falta la migración `20260918160100`, que expone el '
+        + 'precio de lista de las facturas. NO es que el ERP no lo tenga — es que esta instalación '
+        + 'todavía no lo lee. Avisar a sistemas antes de entregar este papel.';
     }
     if (conLista === 0) {
       return 'Kepler no guarda el precio de lista de este documento: empezó a registrarlo el 13 de agosto de 2026. '
@@ -477,6 +521,7 @@ export class CommercialTicketsService {
       descuento_pct_erp: number | null; impuestos_incluidos: boolean;
     },
     raw: Record<string, unknown>[],
+    soporteLista = true,
   ): TicketDetalle {
     const lineas: TicketLinea[] = raw.map((l) => {
       const cant = num(l['cantidad']);
@@ -552,7 +597,7 @@ export class CommercialTicketsService {
       atendio: h.atendio, atendio_rol: h.atendio_rol,
       impuestos_incluidos: h.impuestos_incluidos,
       lineas, cascada, cuadra,
-      aviso: this.aviso(lineas.length, conLista, cuadra, gapPct),
+      aviso: this.aviso(lineas.length, conLista, cuadra, gapPct, soporteLista),
     };
   }
 }

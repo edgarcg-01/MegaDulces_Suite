@@ -175,6 +175,27 @@ const num = (v) => Math.round(Number(v) * 100) / 100;
       + `(migracion 20260918160100 pendiente en esta DB): ${cols.length}/3 columnas.`);
   }
 
+  // ── 8. PRUEBA NEGATIVA del detector de despliegue a medias ─────────────
+  // La mig 20260918160100 NO escribe datos, asi que su ausencia no deja ninguna huella: ni una
+  // tabla vacia, ni una fila faltante. Y la consulta de renglones usa `select *`, con lo cual la
+  // columna ausente llega `undefined` y se confunde con "el ERP no tiene el dato" -- el papel
+  // terminaria afirmando algo FALSO sobre Kepler por culpa de un despliegue incompleto nuestro.
+  // `CommercialTicketsService.soporteLista()` lo detecta preguntandole al CATALOGO. Aca se
+  // comprueba que esa pregunta distingue los dos estados, porque un detector que siempre dice
+  // que si es un no-op que se lee igual que "todo bien".
+  const existeCol = async (col) => (await db.query(
+    `SELECT 1 FROM information_schema.columns
+      WHERE table_schema='analytics' AND table_name='erp_sales_invoice_lines' AND column_name=$1`,
+    [col])).rowCount > 0;
+  chk(await existeCol('importe') === true,
+    'el detector de columnas da false para una columna que SI existe: no sirve para nada');
+  chk(await existeCol('columna_que_no_existe_jamas') === false,
+    'PRUEBA NEGATIVA FALLIDA: el detector dice que existe una columna inventada, o sea que '
+    + 'nunca va a detectar un despliegue a medias');
+  const soporte = await existeCol('precio_lista');
+  console.log(`  · detector de despliegue a medias: soporte de precio de lista = ${soporte} `
+    + `(si es false, el papel avisa "falta la migracion", NO "el ERP no lo guarda")`);
+
   await db.end();
   console.log(`\n${fallos.length ? 'FALLOS' : 'OK'} — ${ok} aserciones verdes, ${fallos.length} fallidas`);
   for (const f of fallos) console.log(`  x ${f}`);
