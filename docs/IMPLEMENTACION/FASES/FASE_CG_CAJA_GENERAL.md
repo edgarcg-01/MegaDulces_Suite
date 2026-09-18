@@ -388,9 +388,19 @@ Del lado de la cuenta ya no hay que construir nada: **`finance.kepler_accounts` 
 sobre `analytics.ledger_monthly`, con `cuenta`, `cuenta_nombre`, `cuenta_mayor`, `cuenta_mayor_nombre`.
 Falta sólo el **tercer nivel**.
 
-### 7.3 Por qué hoy no está vinculado: el campo existe y nunca se llenó
+### 7.3 Por qué hoy no está vinculado: **el campo NO es lo que parece**
 
-`Doctos` **ya tiene una columna `ConceptoD`**. Medido en 2026:
+⚠️ **Corregido 2026-09-18 contra las 116,503 filas del espejo** (antes esta sección decía "el
+gancho existe y nunca se llenó", medido sólo sobre 2026). `Doctos.ConceptoD` **no es una llave al
+concepto de Kepler**: tiene **3 valores distintos en 18 años** — `1` (×14,858), `4` (×1,098) y `2`
+(×39) — contra los **2,645 conceptos** del catálogo. Es una bandera de tres estados. Su uso además
+se apagó solo: **31% de las filas en 2018 → 0.7% en 2026**.
+
+La diferencia no es académica: "el gancho existía y nunca se usó" invita a creer que hay un mapeo
+histórico recuperable. **No lo hay.** Nadie mapó nunca una cuenta de caja a un concepto de Kepler,
+y por eso ese mapa es **HITL** y no algo derivable — ver `CG.10b` más abajo.
+
+Lo que sí se midió en 2026, y sigue siendo cierto:
 
 | `ConceptoD` | Movimientos |
 |---|---|
@@ -795,6 +805,55 @@ sin esa compuerta lo habría publicado con una fila de menos y nadie se enterar�
 `search_path` lleva a la **vacía** (`identity`, 0 filas); la real es `public.knex_migrations` con 780
 filas. Correr `latest()` reaplicaría las 780. Se aplicó `up()` a mano con `lock_timeout = 10s` y se
 registró la fila.
+
+#### `CG.9h` · ✅ `import-caja-general.js` RETIRADO — borrado, no comentado
+
+Junto con su `extract-mdb.ps1`. Sus 7 destinos se repartieron y ninguno lo necesita:
+
+- `caja_general_movimientos` / `caja_general_cuentas` / `caja_arqueos` → **vistas** sobre
+  `caja_general_ods.*`, que llenan los dos carriles de PM2. El importer ya las saltaba solo.
+- `caja_ventas_diarias` / `caja_depositos` / `caja_sucursales_catalog` / `caja_bancos_catalog` →
+  su fuente está muerta (ver `CG.9g`).
+
+⛔ **Las 4 tablas NO se borran, y la razón es medida:** guardan histórico 2009→2026 y **tienen
+lectores vivos** — `finance-bank.service.ts:1996` usa `caja_depositos` como **3ª estrategia del
+matcher de conciliación bancaria**, y `caja-general.service.ts` usa `caja_sucursales_catalog` como
+catálogo **almacén→empresa**. Borrarlas rompería las dos cosas en silencio. Quedan como
+**histórico sin escritor**, que es lo que de hecho ya eran.
+
+⚠️ Consecuencia declarada: si Finanzas retomara la captura en `Base Movimientos`, esas 4 tablas no
+se actualizarían. El importer vive en la historia de git.
+
+#### `CG.10b` · ✅ El mapa de conceptos: se siembra la PREGUNTA, no una respuesta fabricada
+
+`finance.caja_kepler_concept_map` estaba en **0 filas** — nadie podía decir cuánto faltaba.
+`seed-caja-concept-map.js` la llena con las **122 cuentas** del catálogo de la caja, cada una con su
+`support` real, y `kepler_cuenta`/`kepler_concepto` en **NULL**.
+
+**Por qué NULL y no una propuesta automática** — se investigó antes de descartarlo:
+- `ConceptoD` no sirve: es una bandera de 3 valores, no una llave (§7.3, corregido).
+- El TEXTO tampoco: los más repetidos de 2026 (`G JOSE LEONARDO LOGISTICA` ×231,
+  `MORELIA DEL DIA 03-01-2026` ×110) aparecen en **12 a 19 cuentas distintas** cada uno → no
+  determina la cuenta, menos el concepto.
+
+O sea que **no hay de dónde derivarlo**, y fabricarlo pondría conceptos equivocados en la
+contabilidad — el daño exacto que ADR-070 viene a evitar.
+
+**Lo que sí aporta, y es lo que vuelve tratable el trabajo:** de las 122 cuentas, **72 tuvieron
+movimiento en 2026 y las 20 más grandes son el 97.9% del dinero**. El trabajo de Finanzas no son
+122 decisiones, son **~20**. Las cinco primeras:
+
+| cuenta | nombre | movs | monto 2026 |
+|---|---|---:|---:|
+| `1005` | Matriz Compras Mercancia | 2,703 | $51,432,287 |
+| `41000001` | VENTAS RD LA PIEDAD | 1,292 | $25,892,897 |
+| `41000000` | Ventas De Vendedor | 299 | $17,472,393 |
+| `41000002` | VENTAS RD ZAMORA | 319 | $16,003,796 |
+| `41000003` | PRESTAMO VENTAS PADRE HIDALGO | 266 | $9,367,304 |
+
+`finance.v_caja_concept_map_coverage` en prod: **122 cuentas · 0 con propuesta · 122 sin concepto ·
+0 confirmadas**. El autorrelleno propone en cuanto se confirme la primera; hoy propone **nada**, y
+eso es correcto.
 
 **Pendiente, y por qué:**
 - ⬜ **Redeploy de la API** para que los dos umbrales nuevos de `CRON_JOBS` entren en vigor. Hasta

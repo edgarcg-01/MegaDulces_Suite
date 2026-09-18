@@ -316,11 +316,24 @@ const STEPS = {
     // No lee ningún .mdb: sólo Postgres → Postgres, así que es barato y no depende de ACE.OLEDB.
     path.join(DIR, 'movimientos-caja', 'ship-caja-general.js'),
 
-    // [CG.9d] Sigue acá, pero YA NO por la caja general: sus tres destinos son vistas y el importer
-    // los SALTA solo (lo detecta en caliente y lo dice). Queda porque es la ÚNICA fuente de
-    // `caja_ventas_diarias` / `caja_depositos` + sus 2 catálogos, que viven en otros dos .mdb
-    // (`Base Movimientos SI/NO`, 1.07 GB entre ambos) todavía sin espejo. Requiere Z: (.245).
-    path.join(DIR, 'movimientos-caja', 'import-caja-general.js'),
+    // ⛔ RETIRADO 2026-09-18 [CG.9h]: `import-caja-general.js` (y su `extract-mdb.ps1`) se BORRARON.
+    //
+    // Sus 7 destinos se repartieron en dos grupos, y ninguno lo necesita:
+    //
+    //   · `caja_general_movimientos` / `caja_general_cuentas` / `caja_arqueos` → son VISTAS
+    //     derive-no-copy sobre `caja_general_ods.*` (mig 20260918240000), que llena el par
+    //     `replicate-caja-general-live.js` + `ship-caja-general.js` bajo PM2. El importer ya las
+    //     saltaba solo.
+    //   · `caja_ventas_diarias` / `caja_depositos` / `caja_sucursales_catalog` /
+    //     `caja_bancos_catalog` → su fuente (`Base Movimientos SI/NO`) está MUERTA, y está medido:
+    //     capturas por año ~3,000 hasta 2025 y **247 / 198 en 2026**; última captura `SI`
+    //     2026-07-02, `NO` 2026-02-03. Las tablas NO se borran —guardan histórico 2009→2026 y
+    //     tienen lectores vivos (`finance-bank.service.ts` las usa como 3ª estrategia del matcher
+    //     de conciliación, y `caja-general.service.ts` para el catálogo almacén→empresa)— pero
+    //     quedan como HISTÓRICO, sin escritor.
+    //
+    // ⚠️ Consecuencia declarada: si Finanzas retomara la captura en `Base Movimientos`, esas 4
+    // tablas ya no se actualizarían. El importer está en la historia de git si hiciera falta.
   ],
 };
 STEPS.all = [...STEPS.catalog, ...STEPS.stock, ...STEPS.nightly];
