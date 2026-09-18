@@ -26,6 +26,14 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_BANK_VER,
   },
   {
+    // CG.14 — la mitad que ESCRIBE. 'Caja General' (arriba) es la lectura del espejo del
+    // Access y se retira en CG.16; las dos conviven durante el traslape a propósito.
+    label: 'Caja (captura)',
+    route: '/finanzas/caja-general',
+    icon: 'pi pi-pencil',
+    permission: Permission.FINANCE_CAJA_VER,
+  },
+  {
     label: 'Cancelados',
     route: '/finanzas/cancelados',
     icon: 'pi pi-ban',
