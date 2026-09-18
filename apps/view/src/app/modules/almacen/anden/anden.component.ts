@@ -4,46 +4,53 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
+import { firstValueFrom } from 'rxjs';
 import { ErpOrderMatch, ReceivingSessionService } from '../receiving-session.service';
-import { ReceivingAuditorService } from '../receiving-auditor.service';
-import { BinLocationService } from '../bin-location.service';
-import { AndenState, AndenLinea, Seccion } from './anden.state';
+import { ReceivingAuditorService, ReceivingCapture } from '../receiving-auditor.service';
+import { BinLocationService, WarehouseBin } from '../bin-location.service';
+import { AndenState, AndenLinea, AndenLote, Seccion, claveLote } from './anden.state';
 import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
-import { AndenLlegadaComponent } from './components/anden-llegada.component';
 import { AndenSegmentedComponent, SegItem } from './components/anden-segmented.component';
 import { AndenCaducidadComponent, FechadoConfirmado } from './components/anden-caducidad.component';
-import { AndenUbicacionComponent, UbicadoConfirmado } from './components/anden-ubicacion.component';
+import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
+import { AndenUbicacionComponent, UbicacionNueva, UbicadoConfirmado } from './components/anden-ubicacion.component';
+import { AndenCartelComponent, CartelUbicacion } from './components/anden-cartel.component';
 import { ScanFieldComponent } from './components/scan-field.component';
+import { formatExpiryEcho } from '../shared/expiry-short';
 import { Buscable, coincide, normalizar } from './filtro.util';
 
 /**
- * **Andén de Entrada** — reemplaza el recorrido de cuatro pantallas de la sección
- * Entrada por una sola pasada junto al camión.
+ * **Andén de Entrada** — del folio del papel a la mercancía fechada y acomodada,
+ * en una sola pasada.
  *
- * **Dos puertas con dos relojes, y la segunda partida en dos colas hermanas:**
+ * **Dos secciones, en este orden:**
  *
- *  - **Llegada** corre contra el chofer: folio del papel, cotejo contra Kepler,
- *    acceso. La mercancía entra en lote `NA` y el camión se va. Nada lento acá.
- *  - **Caducidad** y **Ubicación** corren contra el anaquel, en paralelo. Son
- *    **secciones, no pasos**: las puede trabajar gente distinta en momentos
- *    distintos, que es exactamente como pasa en la bodega.
+ *  - **Fechas.** Con el folio aparece el vale de Kepler con sus renglones. Lo
+ *    único que se captura es lote, caducidad y cuántas piezas llegaron — y
+ *    cuando toda la entrega caduca el mismo día (el caso normal de un proveedor)
+ *    se captura **una vez para todos**. Ahí entra la mercancía a existencia.
+ *  - **Ubicación.** A cada lote ya fechado se le da su rack o su tarima. Si la
+ *    ubicación todavía no existe, se crea acá mismo y **se imprime su cartel**:
+ *    medido, `warehouse_bins` está en CERO, así que crear es el camino normal,
+ *    no la excepción.
+ *
+ * **Fechar es contar.** No hay un paso de cotejo aparte: la cantidad declarada al
+ * fechar es la recibida y se escribe en `received_qty` cuando el renglón queda
+ * cerrado. Eso es lo que mantiene vivos los reclamos de WMS-REC.8 — el faltante
+ * contra Kepler se sigue viendo, y se levanta al cerrar el vale.
  *
  * La sección activa **no vive en la ruta**: es estado de pantalla. El vale es el
  * contexto y sobrevive al salto; en la URL, el back del navegador rompería el
  * flujo a media captura.
- *
- * **El borrador se persiste en cada cambio.** Un handheld se queda sin batería o
- * Android mata la app en segundo plano; volver a entrar tiene que devolver el
- * vale donde estaba, no obligar a re-contar con el camión enfrente.
  */
 @Component({
   selector: 'app-anden',
   standalone: true,
   imports: [
     DecimalPipe, ButtonModule, ToastModule,
-    AndenFolioComponent, AndenLlegadaComponent, AndenSegmentedComponent,
-    AndenCaducidadComponent, AndenUbicacionComponent, ScanFieldComponent,
+    AndenFolioComponent, AndenSegmentedComponent, AndenCaducidadComponent,
+    AndenFechaMasivaComponent, AndenUbicacionComponent, AndenCartelComponent, ScanFieldComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -60,7 +67,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
           @if (s.origen(); as o) {
             <span class="an-pill an-org" [class.an-tr]="o.kind === 'transfer'">{{ o.label }}</span>
           }
-          <span class="an-pill" [class.an-on]="s.acceso()">{{ s.estado() }}</span>
+          <span class="an-pill" [class.an-on]="s.cerrado()">{{ s.estado() }}</span>
           @if (s.guardado()) { <span class="an-save">Guardado ✓</span> }
         </div>
       </header>
@@ -70,159 +77,165 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       }
 
       <main class="an-bd">
-        @switch (s.seccion()) {
+        @if (carteles().length) {
+          <!-- El cartel manda mientras está arriba: acabar de crear una ubicación y
+               no imprimirla es dejarla sin nombre en el mundo físico. -->
+          <app-anden-cartel [ubicaciones]="carteles()" (cerrar)="cerrarCartel()" />
+        } @else {
+          @switch (s.seccion()) {
 
-          @case ('llegada') {
-            @if (!s.abierto()) {
-              <app-anden-folio
-                [folio]="s.folio()" [buscando]="s.buscando()" [candidatos]="s.candidatos()"
-                (folioChange)="s.folio.set($event)" (buscar)="buscar()" (elegir)="abrirVale($event)" />
-            } @else if (s.acceso()) {
-              <div class="an-fin">
-                <div class="an-big">✓</div>
-                <h2>Acceso dado</h2>
-                <p>
-                  {{ s.unidades() | number }} piezas entraron en lote <b>NA</b>. El chofer se puede ir.
-                  Quedan <b>{{ s.pendientesFechar().length }}</b> por fechar y
-                  <b>{{ s.pendientesUbicar().length }}</b> por ubicar.
+            @case ('fechas') {
+              @if (!s.abierto()) {
+                <app-anden-folio
+                  [folio]="s.folio()" [buscando]="s.buscando()" [candidatos]="s.candidatos()"
+                  (folioChange)="s.folio.set($event)" (buscar)="buscar()" (elegir)="abrirVale($event)" />
+              } @else if (masiva()) {
+                <app-anden-fecha-masiva #masivo
+                  [lineas]="s.pendientesFechar()" [avance]="avance()"
+                  (aplicar)="fecharTodo($event)" (volver)="cerrarMasiva()" />
+              } @else if (s.actual(); as l) {
+                <app-anden-caducidad #fechar
+                  [linea]="l" [minShelfLife]="minShelfLife()" [existingMinExpiry]="existingMinExpiry()"
+                  [guardando]="s.guardando()"
+                  (pedirOcr)="correrOcr($event)" (confirmar)="confirmarFechado($event)"
+                  (cerrarRenglon)="cerrarRenglon($event)" (volver)="volverALista()" />
+              } @else if (!s.pendientesFechar().length) {
+                <div class="an-fin">
+                  <div class="an-big">✓</div>
+                  <h2>Todo fechado</h2>
+                  <p>
+                    {{ s.unidades() | number }} piezas entraron con lote y caducidad.
+                    @if (s.pendientesUbicar().length) {
+                      Quedan <b>{{ s.pendientesUbicar().length }}</b> lotes por acomodar.
+                    } @else if (s.cerrado()) { El vale quedó cerrado. }
+                    @else { Nada pendiente de acomodar tampoco. }
+                  </p>
+                  @if (s.pendientesUbicar().length) {
+                    <button pButton type="button" [outlined]="true" (click)="irA('ubicacion')">Ir a Ubicación →</button>
+                  } @else if (!s.cerrado()) {
+                    <button pButton type="button" [loading]="s.guardando()" (click)="cerrarVale()">
+                      Cerrar el vale
+                    </button>
+                  }
+                  <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
+                    Recibir otro camión
+                  </button>
+                </div>
+              } @else {
+                <p class="an-nota">
+                  Capturá lote y caducidad de cada renglón. La cantidad viene con lo que manda
+                  Kepler: <b>corregila si llegó de menos</b>, porque de ahí sale el reclamo.
                 </p>
-                @if (s.pendientesFechar().length) {
-                  <button pButton type="button" [outlined]="true" (click)="irA('caducidad')">Ir a Caducidad →</button>
-                }
-                <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
-                  Recibir otro camión
+
+                <!-- El caso normal de una entrega es una sola fecha para toda la tarima.
+                     Va arriba de la lista porque resuelve el vale entero de un golpe. -->
+                <button pButton type="button" class="an-masiva" [outlined]="true" (click)="masiva.set(true)">
+                  Todos caducan el mismo día →
                 </button>
-              </div>
-            } @else {
-              @if (!s.capturando()) {
+
                 <app-scan-field
-                  [valor]="consulta()" [visibles]="visLlegada().length" [total]="s.lineas().length"
+                  [valor]="consulta()" [visibles]="visFechar().length" [total]="s.pendientesFechar().length"
                   [refocoTick]="refoco()"
-                  etiqueta="Escanear o buscar en Llegada"
+                  etiqueta="Escanear o buscar"
                   placeholder="Escaneá la caja o buscá por nombre"
                   (valorChange)="consulta.set($event)" (enter)="enter()"
                   (sinCamara)="avisarCamara($event)" />
-              }
-              @if (sinCoincidencias(visLlegada())) {
-                <p class="an-vacio">
-                  Nada en este vale coincide con <b>«{{ consulta() }}»</b>. Si el producto llegó
-                  igual, no lo fuerces contra otro renglón: hay que agregarlo como renglón nuevo.
-                </p>
-              }
-              <app-anden-llegada
-                [lineas]="visLlegada()" [contadas]="s.contadas()" [unidades]="s.unidades()"
-                [diferencias]="s.diferencias()" [listo]="s.cotejoListo()"
-                [siguiente]="s.siguienteCotejar()" [capturando]="s.capturando()"
-                [guardando]="s.guardando()"
-                (abrir)="abrirCaptura($event)" (cerrarCaptura)="cerrarCaptura()"
-                (contar)="contar($event.linea, $event.cantidad)" (darAcceso)="darAcceso()" />
-            }
-          }
 
-          @case ('caducidad') {
-            @if (s.actual(); as l) {
-              <app-anden-caducidad #fechar
-                [linea]="l" [minShelfLife]="minShelfLife()" [existingMinExpiry]="existingMinExpiry()"
-                [guardando]="s.guardando()"
-                (pedirOcr)="correrOcr($event)" (confirmar)="confirmarFechado($event)"
-                (volver)="volverALista()" />
-            } @else if (!s.pendientesFechar().length) {
-              <div class="an-fin">
-                <div class="an-big">✓</div>
-                <h2>Todo fechado</h2>
-                <p>
-                  Las {{ s.lineas().length }} líneas tienen lote y caducidad.
-                  @if (s.pendientesUbicar().length) {
-                    Quedan <b>{{ s.pendientesUbicar().length }}</b> por ubicar.
-                  } @else { Nada pendiente en Ubicación tampoco. }
-                </p>
-                @if (s.pendientesUbicar().length) {
-                  <button pButton type="button" [outlined]="true" (click)="irA('ubicacion')">Ir a Ubicación →</button>
+                @if (sinCoincidencias(visFechar())) {
+                  <!-- Salida accionable: que un producto no esté en el vale no
+                       significa que no haya llegado. Se resuelve el código contra
+                       el catálogo y se fecha igual, sin renglón: la captura suelta
+                       ya es válida en el backend. -->
+                  <div class="an-vacio">
+                    <p class="an-vacio-t">
+                      Nada por fechar coincide con <b>«{{ consulta() }}»</b>. Puede que ya esté
+                      fechado, o que haya llegado sin venir en el vale.
+                    </p>
+                    <button pButton type="button" [outlined]="true" [loading]="resolviendo()"
+                      (click)="fecharSuelto()">
+                      Buscar «{{ consulta() }}» en el catálogo y fecharlo
+                    </button>
+                  </div>
                 }
-              </div>
-            } @else {
-              <p class="an-nota">
-                Estas líneas entraron en lote <b>NA</b>, sin fecha. Mientras sigan así, el vale no cierra.
-              </p>
-              <app-scan-field
-                [valor]="consulta()" [visibles]="visFechar().length" [total]="s.pendientesFechar().length"
-                [refocoTick]="refoco()"
-                etiqueta="Escanear o buscar en Caducidad"
-                placeholder="Escaneá la caja o buscá por nombre"
-                (valorChange)="consulta.set($event)" (enter)="enter()"
-                (sinCamara)="avisarCamara($event)" />
-              @if (sinCoincidencias(visFechar())) {
-                <!-- Salida accionable: que un producto no esté en el vale no
-                     significa que no haya llegado. Se resuelve el código contra
-                     el catálogo y se fecha igual, sin renglón: la captura suelta
-                     ya es válida en el backend. -->
-                <div class="an-vacio">
-                  <p class="an-vacio-t">
-                    Nada por fechar coincide con <b>«{{ consulta() }}»</b>. Puede que ya esté
-                    fechado, o que haya llegado sin venir en el vale.
+
+                <ul class="an-lista">
+                  @for (l of visFechar(); track l.id) {
+                    <li><button type="button" class="an-row" (click)="abrirFechar(l)">
+                      <span class="an-row-nm">{{ nombre(l) }}</span>
+                      <span class="an-row-sk">
+                        {{ l.sku || l.expected_sku || '—' }} ·
+                        @if (l.declarado > 0) { faltan {{ l.faltaFechar | number }} de {{ +l.expected_qty | number }} }
+                        @else { sin fecha · lote NA }
+                      </span>
+                      <span class="an-row-qt">{{ l.faltaFechar | number }}</span>
+                    </button></li>
+                  }
+                </ul>
+              }
+            }
+
+            @case ('ubicacion') {
+              @if (s.loteActual(); as l) {
+                <app-anden-ubicacion #ubicar
+                  [lote]="l" [bins]="bins()" [guardando]="s.guardando()" [creandoBusy]="creandoBin()"
+                  [codigoNuevo]="codigoNuevo()"
+                  (confirmar)="confirmarUbicado($event)" (crear)="crearUbicacion($event)"
+                  (volver)="volverALista()" (sinCamara)="avisarCamara($event)" />
+              } @else if (!s.pendientesUbicar().length) {
+                <div class="an-fin">
+                  <div class="an-big">✓</div>
+                  <h2>Todo acomodado</h2>
+                  <p>
+                    @if (s.pendientesFechar().length) {
+                      Quedan <b>{{ s.pendientesFechar().length }}</b> renglones por fechar antes de cerrar el vale.
+                    } @else if (s.cerrado()) { El vale quedó cerrado: cero pendientes. }
+                    @else { Cero pendientes en las dos secciones. }
                   </p>
-                  <button pButton type="button" [outlined]="true" [loading]="resolviendo()"
-                    (click)="fecharSuelto()">
-                    Buscar «{{ consulta() }}» en el catálogo y fecharlo
-                  </button>
-                </div>
-              }
-              <ul class="an-lista">
-                @for (l of visFechar(); track l.id) {
-                  <li><button type="button" class="an-row" (click)="abrirFechar(l)">
-                    <span class="an-row-nm">{{ nombre(l) }}</span>
-                    <span class="an-row-sk">sin fecha · lote NA</span>
-                    <span class="an-row-qt">{{ l.faltaFechar | number }}</span>
-                  </button></li>
-                }
-              </ul>
-            }
-          }
-
-          @case ('ubicacion') {
-            @if (s.actual(); as l) {
-              <app-anden-ubicacion #ubicar
-                [linea]="l" [guardando]="s.guardando()"
-                (confirmar)="confirmarUbicado($event)" (volver)="volverALista()"
-                (sinCamara)="avisarCamara($event)" />
-            } @else if (!s.pendientesUbicar().length) {
-              <div class="an-fin">
-                <div class="an-big">✓</div>
-                <h2>Todo acomodado</h2>
-                <p>
                   @if (s.pendientesFechar().length) {
-                    Quedan <b>{{ s.pendientesFechar().length }}</b> por fechar antes de cerrar el vale.
-                  } @else { Vale cerrado: cero pendientes en las tres secciones. }
+                    <button pButton type="button" [outlined]="true" (click)="irA('fechas')">Ir a Fechas →</button>
+                  } @else if (!s.cerrado()) {
+                    <button pButton type="button" [loading]="s.guardando()" (click)="cerrarVale()">
+                      Cerrar el vale
+                    </button>
+                  }
+                  @if (creadas().length) {
+                    <button pButton type="button" [text]="true" (click)="reimprimir()">
+                      Reimprimir los {{ creadas().length }} carteles de esta sesión
+                    </button>
+                  }
+                </div>
+              } @else {
+                <p class="an-nota">
+                  Mercancía ya fechada que todavía no tiene rack. El surtidor no la encuentra.
                 </p>
-              </div>
-            } @else {
-              <p class="an-nota">
-                Mercancía en existencia que todavía no tiene rack. El surtidor no la encuentra.
-              </p>
-              <!-- Acá la barra también busca por rack: teclear R04 deja a la vista todo lo que
-                   va a ese pasillo, y el bodeguero camina una sola vez en vez de cuatro. -->
-              <app-scan-field
-                [valor]="consulta()" [visibles]="visUbicar().length" [total]="s.pendientesUbicar().length"
-                [refocoTick]="refoco()"
-                etiqueta="Escanear o buscar en Ubicación"
-                placeholder="Escaneá la caja, o buscá por nombre o rack"
-                (valorChange)="consulta.set($event)" (enter)="enter()"
-                (sinCamara)="avisarCamara($event)" />
-              @if (sinCoincidencias(visUbicar())) {
-                <p class="an-vacio">
-                  Nada por ubicar coincide con <b>«{{ consulta() }}»</b>. Si buscaste por rack,
-                  puede que ese pasillo ya esté acomodado.
-                </p>
-              }
-              <ul class="an-lista">
-                @for (l of visUbicar(); track l.id) {
-                  <li><button type="button" class="an-row" (click)="abrirUbicar(l)">
-                    <span class="an-row-nm">{{ nombre(l) }}</span>
-                    <span class="an-row-sk">{{ l.binSugerido ? 'sugerido ' + l.binSugerido : 'sin ubicación previa' }}</span>
-                    <span class="an-row-qt">{{ l.contado | number }}</span>
-                  </button></li>
+                <!-- Acá la barra también busca por rack: teclear R-04 deja a la vista todo lo que
+                     va a ese pasillo, y el bodeguero camina una sola vez en vez de cuatro. -->
+                <app-scan-field
+                  [valor]="consulta()" [visibles]="visUbicar().length" [total]="s.pendientesUbicar().length"
+                  [refocoTick]="refoco()"
+                  etiqueta="Escanear o buscar"
+                  placeholder="Escaneá la caja, o buscá por nombre o rack"
+                  (valorChange)="consulta.set($event)" (enter)="enter()"
+                  (sinCamara)="avisarCamara($event)" />
+                @if (sinCoincidencias(visUbicar())) {
+                  <p class="an-vacio">
+                    Nada por acomodar coincide con <b>«{{ consulta() }}»</b>. Si buscaste por rack,
+                    puede que ese pasillo ya esté acomodado.
+                  </p>
                 }
-              </ul>
+                <ul class="an-lista">
+                  @for (l of visUbicar(); track clave(l)) {
+                    <li><button type="button" class="an-row" (click)="abrirUbicar(l)">
+                      <span class="an-row-nm">{{ l.product_name || l.sku || 'Sin nombre' }}</span>
+                      <span class="an-row-sk">
+                        lote {{ l.lot_code }}@if (l.expiry_date) { · caduca {{ fecha(l.expiry_date) }} }
+                        @if (l.binSugerido) { · sugerido {{ l.binSugerido }} }
+                      </span>
+                      <span class="an-row-qt">{{ l.porUbicar | number }}</span>
+                    </button></li>
+                  }
+                </ul>
+              }
             }
           }
         }
@@ -247,9 +260,9 @@ import { Buscable, coincide, normalizar } from './filtro.util';
     .an-pill {
       font-size: var(--fs-micro); font-weight: var(--fw-bold); letter-spacing: .07em; text-transform: uppercase;
       padding: 3px 8px; border-radius: var(--r-pill);
-      /* Chip NEUTRO para "abierto", no azul. DESIGN.md mata el azul #2563EB en la
-         paleta, y además el color aquí tiene que significar algo: neutro = en curso,
-         verde = con acceso. Dos chips de color distinto para dos estados que no son
+      /* Chip NEUTRO para "en captura", no azul. DESIGN.md mata el azul en la paleta,
+         y además el color acá tiene que significar algo: neutro = en curso,
+         verde = cerrado. Dos chips de color distinto para dos estados que no son
          opuestos era ruido. */
       background: var(--surface-ground); color: var(--text-muted);
       border: 1px solid var(--border-color);
@@ -269,6 +282,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.4;
     }
     .an-nota b { color: var(--text-main); }
+    .an-masiva { width: 100%; min-height: 50px; font-weight: var(--fw-bold); }
     /* El vacío por filtro dice qué hacer. "Sin resultados" a secas deja al
        bodeguero parado con el producto en la mano y sin salida. */
     .an-vacio {
@@ -296,13 +310,13 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       text-align: center; padding: var(--sp-8) var(--sp-3); }
     .an-big { font-size: 48px; font-weight: var(--fw-black); line-height: 1; color: var(--ok-fg); }
     .an-fin h2 { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-bold); }
-    .an-fin p { margin: 0 0 var(--sp-2); max-width: 30ch; font-size: var(--fs-sm); color: var(--text-muted); }
+    .an-fin p { margin: 0 0 var(--sp-2); max-width: 32ch; font-size: var(--fs-sm); color: var(--text-muted); }
   `],
 })
 export class AndenComponent implements OnInit {
   private readonly sessions = inject(ReceivingSessionService);
   private readonly auditor = inject(ReceivingAuditorService);
-  private readonly bins = inject(BinLocationService);
+  private readonly binsSvc = inject(BinLocationService);
   private readonly drafts = inject(AndenDraftService);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
@@ -310,6 +324,20 @@ export class AndenComponent implements OnInit {
   readonly s = new AndenState();
   readonly minShelfLife = signal<number | null>(null);
   readonly existingMinExpiry = signal<string | null>(null);
+
+  /** Ubicaciones que ya existen en el almacén del vale. Se recarga al crear una. */
+  readonly bins = signal<WarehouseBin[]>([]);
+  readonly creandoBin = signal(false);
+  /** Ubicaciones creadas en esta sesión de pantalla: las que hay que rotular. */
+  readonly creadas = signal<CartelUbicacion[]>([]);
+  /** Lo que el panel de carteles tiene arriba. Vacío = no hay cartel en pantalla. */
+  readonly carteles = signal<CartelUbicacion[]>([]);
+  /** La ubicación recién creada, para que el panel vuelva con ella puesta. */
+  readonly codigoNuevo = signal<string | null>(null);
+
+  /** Panel de "todos caducan el mismo día" abierto. */
+  readonly masiva = signal(false);
+  readonly avance = signal<AvanceMasivo | null>(null);
 
   /**
    * Lo tecleado o disparado en la barra única. **Una sola por sección**, y la
@@ -323,36 +351,35 @@ export class AndenComponent implements OnInit {
   readonly resolviendo = signal(false);
 
   private readonly fechar = viewChild<AndenCaducidadComponent>('fechar');
+  private readonly masivo = viewChild<AndenFechaMasivaComponent>('masivo');
   private readonly ubicar = viewChild<AndenUbicacionComponent>('ubicar');
-
-  /** `scan_uuid` ya enviados: reenviar tras recuperar el borrador no duplica. */
-  private scans: string[] = [];
 
   readonly segmentos = computed<SegItem[]>(() => {
     const abierto = this.s.abierto();
-    const acceso = this.s.acceso();
+    const porFechar = this.s.pendientesFechar().length;
+    const porUbicar = this.s.pendientesUbicar().length;
     return [
-      { key: 'llegada', label: 'Llegada', on: true,
-        pend: abierto && !acceso ? this.s.porCotejar() : 0, done: acceso },
-      { key: 'caducidad', label: 'Caducidad', on: acceso,
-        pend: this.s.pendientesFechar().length, done: acceso && !this.s.pendientesFechar().length },
-      { key: 'ubicacion', label: 'Ubicación', on: acceso,
-        pend: this.s.pendientesUbicar().length, done: acceso && !this.s.pendientesUbicar().length },
+      { key: 'fechas', label: 'Fechas', on: true, pend: abierto ? porFechar : 0,
+        done: abierto && porFechar === 0 },
+      // Ubicación se habilita en cuanto hay UN lote fechado: no hace falta terminar
+      // de fechar todo para que alguien empiece a acomodar lo que ya tiene fecha.
+      { key: 'ubicacion', label: 'Ubicación', on: abierto && (porUbicar > 0 || this.s.unidades() > 0),
+        pend: porUbicar, done: abierto && this.s.unidades() > 0 && porUbicar === 0 },
     ];
   });
 
   ngOnInit(): void {
     // Si este equipo dejó un vale a medias, se retoma donde estaba. Es la razón
-    // de existir del borrador: el bodeguero no vuelve a contar la tarima.
+    // de existir del borrador: el bodeguero no vuelve a capturar lo ya capturado.
     this.drafts.ultimoAbierto().then((b) => {
       if (!b) return;
-      this.scans = b.scans || [];
       this.sessions.detail(b.sessionId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (v) => {
           this.s.cargarDesdeVale(v);
-          // El server manda: el borrador sólo repone lo que el server no sabe.
-          this.s.aplicarBorrador(b);
+          this.s.seccion.set(b.seccion);
           this.s.guardado.set(true);
+          this.cargarBins();
+          this.cargarLotes();
           this.toast.add({ severity: 'info', summary: 'Vale recuperado', detail: `${v.folio} — seguí donde lo dejaste.` });
         },
         error: () => this.drafts.borrar(b.sessionId),
@@ -364,30 +391,39 @@ export class AndenComponent implements OnInit {
     return l.product_name || l.expected_name || l.sku || l.expected_sku || 'Sin nombre';
   }
 
+  clave(l: AndenLote): string { return claveLote(l); }
+  fecha(iso: string | null): string { return formatExpiryEcho(iso); }
+
   // ── Barra única ───────────────────────────────────────────────────────────
 
-  /** Qué campos de la línea ve la barra. El rack sólo importa en Ubicación. */
+  /** Qué campos de la línea ve la barra. */
   private buscable(l: AndenLinea): Buscable {
     return {
       nombre: this.nombre(l),
       sku: l.sku || l.expected_sku,
       barcode: l.barcode_scanned,
-      rack: l.ubicado || l.binSugerido,
+      rack: l.binSugerido,
     };
   }
 
-  private aplicarFiltro(ls: AndenLinea[]): AndenLinea[] {
+  readonly visFechar = computed(() => {
     const q = this.consulta();
+    const ls = this.s.pendientesFechar();
     if (!normalizar(q)) return ls;
     return ls.filter((l) => coincide(this.buscable(l), q));
-  }
+  });
 
-  readonly visLlegada = computed(() => this.aplicarFiltro(this.s.lineas()));
-  readonly visFechar = computed(() => this.aplicarFiltro(this.s.pendientesFechar()));
-  readonly visUbicar = computed(() => this.aplicarFiltro(this.s.pendientesUbicar()));
+  readonly visUbicar = computed(() => {
+    const q = this.consulta();
+    const ls = this.s.pendientesUbicar();
+    if (!normalizar(q)) return ls;
+    return ls.filter((l) =>
+      coincide({ nombre: l.product_name, sku: l.sku, barcode: null, rack: l.binSugerido }, q),
+    );
+  });
 
   /** Vacío por filtro (hay que decir algo) vs. vacío real (ya hay otra pantalla). */
-  sinCoincidencias(vis: AndenLinea[]): boolean {
+  sinCoincidencias(vis: unknown[]): boolean {
     return !!normalizar(this.consulta()) && !vis.length;
   }
 
@@ -398,23 +434,13 @@ export class AndenComponent implements OnInit {
    */
   enter(): void {
     if (!normalizar(this.consulta())) return;
-    switch (this.s.seccion()) {
-      case 'llegada': {
-        const vis = this.visLlegada();
-        if (vis.length === 1) this.abrirCaptura(vis[0]);
-        break;
-      }
-      case 'caducidad': {
-        const vis = this.visFechar();
-        if (vis.length === 1) this.abrirFechar(vis[0]);
-        break;
-      }
-      case 'ubicacion': {
-        const vis = this.visUbicar();
-        if (vis.length === 1) this.abrirUbicar(vis[0]);
-        break;
-      }
+    if (this.s.seccion() === 'fechas') {
+      const vis = this.visFechar();
+      if (vis.length === 1) this.abrirFechar(vis[0]);
+      return;
     }
+    const vis = this.visUbicar();
+    if (vis.length === 1) this.abrirUbicar(vis[0]);
   }
 
   /**
@@ -447,8 +473,11 @@ export class AndenComponent implements OnInit {
           sku: p.sku,
           product_name: p.product_name,
           expected_qty: 0,
+          declarado: 0,
+          retenido: 0,
           faltaFechar: 0,
-          suelto: true,
+          uxc: null,
+          binSugerido: null,
         } as unknown as AndenLinea;
         this.s.actual.set(suelta);
         this.limpiarBarra();
@@ -487,7 +516,7 @@ export class AndenComponent implements OnInit {
   }
 
   private guardarBorrador(): void {
-    const b = this.s.aBorrador(this.scans);
+    const b = this.s.aBorrador();
     if (!b) return;
     this.drafts.guardar(b).then((ok) => this.s.guardado.set(ok));
   }
@@ -495,14 +524,20 @@ export class AndenComponent implements OnInit {
   irA(sec: Seccion): void {
     this.s.seccion.set(sec);
     this.s.actual.set(null);
-    this.s.capturando.set(null);
+    this.s.loteActual.set(null);
+    this.masiva.set(false);
+    this.avance.set(null);
     this.volverALaBarra();
-    if (sec === 'caducidad') this.siguienteFechar();
-    if (sec === 'ubicacion') this.siguienteUbicar();
+    if (sec === 'ubicacion') {
+      this.cargarLotes(() => {
+        const l = this.s.siguienteUbicar();
+        if (l) this.abrirUbicar(l);
+      });
+    }
     this.guardarBorrador();
   }
 
-  // ── Llegada ───────────────────────────────────────────────────────────────
+  // ── Identificación del vale ───────────────────────────────────────────────
 
   buscar(): void {
     const folio = this.s.folio().trim();
@@ -531,7 +566,7 @@ export class AndenComponent implements OnInit {
     // El almacén NO se manda: lo deriva el backend del mapa sucursal→almacén.
     this.sessions.open({ source_kind: 'erp_receipt', erp_sucursal: m.sucursal, erp_folio: m.folio })
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (v) => this.cargarDetalle(v.id),
+        next: (v) => this.cargarDetalle(v.id, () => { this.cargarBins(); this.cargarLotes(); }),
         error: (e) => {
           this.s.cargando.set(false);
           const dup = /ya.*recib/i.test(e?.error?.message || '');
@@ -560,74 +595,39 @@ export class AndenComponent implements OnInit {
     });
   }
 
-  abrirCaptura(l: AndenLinea): void {
-    this.s.capturando.set(l);
-    this.limpiarBarra();
-  }
-
-  contar(l: AndenLinea, cantidad: number): void {
-    const v = this.s.vale();
-    if (!v) return;
-    this.s.guardando.set(true);
-    this.scans.push(this.nuevoScanId());
-    this.sessions.setLine(v.id, l.id, { received_qty: cantidad })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (upd) => {
-          this.s.guardando.set(false);
-          this.s.capturando.set(null);
-          this.volverALaBarra();
-          this.s.cargarDesdeVale(upd);
-          this.guardarBorrador();
-          const esp = Number(l.expected_qty) || 0;
-          this.toast.add(cantidad === esp
-            ? { severity: 'success', summary: 'Cotejado', detail: `${this.nombre(l)} — ${cantidad} pz, cuadra con Kepler.` }
-            : { severity: 'warn', summary: cantidad < esp ? 'Faltante' : 'Sobrante',
-                // WMS-REC.8 — antes decía "el proveedor lo va a ver en su scorecard" y NO
-                // era cierto: no quedaba registro de nada. Ahora se dice lo que de verdad
-                // va a pasar, y pasa al cerrar el vale (no acá).
-                detail: cantidad < esp
-                  ? `Kepler mandó ${esp} y contaste ${cantidad}. Al cerrar el vale se levanta el reclamo.`
-                  : `Kepler mandó ${esp} y contaste ${cantidad}. Un sobrante no se reclama, pero queda registrado.` });
-        },
-        error: (e) => {
-          this.s.guardando.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar la cantidad' });
-        },
-      });
-  }
-
-  darAcceso(): void {
-    const v = this.s.vale();
-    if (!v) return;
-    this.s.guardando.set(true);
-    this.sessions.close(v.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (upd) => {
-        this.s.guardando.set(false);
-        this.s.cargarDesdeVale(upd);
-        this.s.acceso.set(true);
-        this.guardarBorrador();
-        // WMS-REC.8 — el cierre devuelve qué reclamos levantó y a quién: la pantalla
-        // dice el hecho en vez de una promesa.
-        const n = upd?.claims?.raised ?? 0;
-        const aQuien = upd?.origin?.kind === 'transfer'
-          ? (upd?.origin?.name || 'la sucursal que embarcó')
-          : (upd?.origin?.name || upd?.supplier_code || 'el proveedor');
-        this.toast.add({
-          severity: 'success', summary: 'Acceso dado',
-          detail: n > 0
-            ? `La mercancía entró en lote NA. Se levantaron ${n} reclamo(s) a ${aQuien}; se siguen en Compras › Reclamos.`
-            : 'La mercancía entró en lote NA. El camión se puede ir.',
-          life: n > 0 ? 7000 : undefined,
-        });
-      },
-      error: (e) => {
-        this.s.guardando.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo dar acceso', detail: e?.error?.message || 'Error' });
-      },
+  /** Las ubicaciones que ya existen. Sin esto, el panel no puede decir si un código existe. */
+  private cargarBins(tras?: () => void): void {
+    const wh = this.s.warehouseId();
+    if (!wh) return;
+    this.binsSvc.listBins(wh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (bs) => { this.bins.set(bs || []); tras?.(); },
+      // Sin la lista, el panel no puede resolver un código: se dice, no se finge
+      // que el almacén está vacío (que invitaría a crear una ubicación duplicada).
+      error: () => this.toast.add({
+        severity: 'warn', summary: 'Ubicaciones',
+        detail: 'No se pudo leer la lista de racks. Reintentá antes de crear uno nuevo.',
+      }),
     });
   }
 
-  // ── Caducidad ─────────────────────────────────────────────────────────────
+  /**
+   * La cola de Ubicación sale del backend (`/unlocated`), no de la pantalla: el
+   * put-away exige el lote y la caducidad exactos, y recordarlos acá los desfasa
+   * en cuanto otra persona fecha desde otro equipo.
+   */
+  private cargarLotes(tras?: () => void): void {
+    const wh = this.s.warehouseId();
+    if (!wh) return;
+    this.binsSvc.unlocated(wh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (rows) => { this.s.cargarLotes(rows || []); tras?.(); },
+      error: (e) => this.toast.add({
+        severity: 'error', summary: 'Por acomodar',
+        detail: e?.error?.message || 'No se pudo leer qué falta acomodar',
+      }),
+    });
+  }
+
+  // ── Fechas ────────────────────────────────────────────────────────────────
 
   abrirFechar(l: AndenLinea): void {
     this.s.actual.set(l);
@@ -652,12 +652,12 @@ export class AndenComponent implements OnInit {
     this.existingMinExpiry.set(null);
     const wh = this.s.warehouseId();
     if (!wh || !l.product_id) return;
-    this.bins.pickSuggestion(wh, l.product_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.binsSvc.pickSuggestion(wh, l.product_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ss) => {
         const fechas = (ss || []).map((x) => x.expiry_date).filter((d): d is string => !!d).sort();
         this.existingMinExpiry.set(fechas[0] ?? null);
         const bin = (ss || []).find((x) => x.bin_code)?.bin_code ?? null;
-        if (bin) this.s.parchear(l.id, { binSugerido: bin });
+        if (bin && l.id) this.s.parchear(l.id, { binSugerido: bin });
       },
       error: () => { /* sin sugerencia: el semáforo muestra sólo los días */ },
     });
@@ -678,9 +678,49 @@ export class AndenComponent implements OnInit {
     const wh = this.s.warehouseId();
     if (!v || !wh || !f.linea.product_id) return;
     this.s.guardando.set(true);
-    this.auditor.evaluate({
+    this.guardarCaptura(f).then(
+      (cap) => {
+        this.s.guardando.set(false);
+        this.toast.add(cap.verdict === 'red'
+          ? { severity: 'error', summary: 'Retenida',
+              detail: 'Fechada, pero 🔴: un supervisor tiene que liberarla antes de cerrar el vale.' }
+          : { severity: 'success', summary: 'Fechada',
+              detail: `${this.nombre(f.linea)} — ${f.cantidad} pz, lote ${f.lote}.` });
+        this.cargarDetalle(v.id, () => {
+          this.s.actual.set(null);
+          this.volverALaBarra();
+          this.cargarLotes();
+          // Una captura suelta no destraba ningún renglón del vale: encadenar al
+          // "siguiente pendiente" mandaría al operario a otro producto sin que lo
+          // pidiera. Sólo se encadena cuando lo que se fechó era del vale.
+          if (f.linea.id) this.siguienteFechar();
+        });
+      },
+      (e) => {
+        this.s.guardando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo fechar', detail: e?.error?.message || 'Error' });
+      },
+    );
+  }
+
+  /**
+   * Una captura: evalúa + (si el renglón quedó completo) cierra el renglón con lo
+   * declarado.
+   *
+   * **Ese `setLine` es lo que mantiene vivo el reclamo.** Sin paso de cotejo, si
+   * nadie escribe `received_qty` el cierre del vale marca TODO como faltante y
+   * levanta reclamos por mercancía que sí llegó. Se escribe acá, con la cantidad
+   * que se declaró, que es la única que alguien miró de verdad.
+   *
+   * Y se escribe **al final**, no antes: mientras el renglón siga `pending` se le
+   * pueden seguir agregando lotes (llegaron 12 con una fecha y 12 con otra).
+   */
+  private async guardarCaptura(f: FechadoConfirmado): Promise<ReceivingCapture> {
+    const v = this.s.vale()!;
+    const wh = this.s.warehouseId()!;
+    const cap = await firstValueFrom(this.auditor.evaluate({
       warehouse_id: wh,
-      product_id: f.linea.product_id,
+      product_id: f.linea.product_id!,
       supplier_code: v.supplier_code || undefined,
       source_ref: v.folio,
       // Sin `id` es una captura SUELTA (el producto no venía en el vale). El
@@ -691,37 +731,94 @@ export class AndenComponent implements OnInit {
       confirmed_lot: f.lote,
       confirmed_expiry: f.caducidadIso,
       photo_data_uri: f.fotoDataUri || undefined,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (cap) => {
-        this.s.guardando.set(false);
-        this.toast.add(cap.verdict === 'red'
-          ? { severity: 'error', summary: 'Retenida',
-              detail: 'Fechada, pero 🔴: un supervisor tiene que liberarla antes de cerrar el vale.' }
-          : { severity: 'success', summary: 'Fechada',
-              detail: `${this.nombre(f.linea)} — lote ${f.lote}.` });
-        // Recarga y encadena al siguiente pendiente: sin volver a la lista.
-        this.cargarDetalle(v.id, () => {
+    }));
+    const declarado = f.linea.declarado + f.cantidad;
+    if (f.linea.id && declarado + f.linea.retenido >= Number(f.linea.expected_qty)) {
+      await firstValueFrom(this.sessions.setLine(v.id, f.linea.id, { received_qty: declarado }));
+    }
+    return cap;
+  }
+
+  /**
+   * **Llegó de menos y no va a llegar más.** Cierra el renglón con lo declarado:
+   * eso lo saca de la cola y deja el faltante FIRME, que es lo que el cierre del
+   * vale convierte en reclamo. Sin esta salida, un renglón corto quedaría
+   * pendiente para siempre y el vale no podría cerrarse.
+   */
+  cerrarRenglon(l: AndenLinea): void {
+    const v = this.s.vale();
+    if (!v || !l.id) return;
+    this.s.guardando.set(true);
+    this.sessions.setLine(v.id, l.id, { received_qty: l.declarado })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (upd) => {
+          this.s.guardando.set(false);
+          this.s.cargarDesdeVale(upd);
           this.s.actual.set(null);
           this.volverALaBarra();
-          // Una captura suelta no destraba ningún renglón del vale: encadenar al
-          // "siguiente pendiente" mandaría al operario a otro producto sin que lo
-          // pidiera. Sólo se encadena cuando lo que se fechó era del vale.
-          if (f.linea.id) this.siguienteFechar();
+          const esp = Number(l.expected_qty) || 0;
+          this.toast.add({
+            severity: 'warn', summary: 'Faltante',
+            detail: `Kepler manda ${esp} y llegaron ${l.declarado}. Al cerrar el vale se levanta el reclamo.`,
+          });
+          this.siguienteFechar();
+        },
+        error: (e) => {
+          this.s.guardando.set(false);
+          this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cerrar el renglón' });
+        },
+      });
+  }
+
+  cerrarMasiva(): void {
+    this.masiva.set(false);
+    this.avance.set(null);
+    this.volverALaBarra();
+  }
+
+  /**
+   * **Toda la entrega con la misma caducidad.**
+   *
+   * Se aplica **de a uno y en serie**, no en paralelo: cada captura escribe stock
+   * y el backend resuelve la política por producto. Mandarlas todas juntas
+   * ahorraría segundos y convertiría un error puntual en un lote de errores sin
+   * orden. Y **no se corta al primer fallo** — los que sí se pueden fechar se
+   * fechan, y los que no se listan con nombre y motivo.
+   */
+  async fecharTodo(m: FechadoMasivo): Promise<void> {
+    const v = this.s.vale();
+    if (!v || !m.lineas.length) return;
+    const total = m.lineas.length;
+    const fallas: { nombre: string; motivo: string }[] = [];
+    let retenidas = 0;
+    this.avance.set({ hechas: 0, total, fallas: [], retenidas: 0, terminado: false });
+
+    for (const l of m.lineas) {
+      try {
+        if (!l.product_id) throw new Error('el renglón no tiene producto del catálogo');
+        const cap = await this.guardarCaptura({
+          linea: l, cantidad: l.faltaFechar, lote: m.lote, caducidadIso: m.caducidadIso, fotoDataUri: null,
         });
-      },
-      error: (e) => {
-        this.s.guardando.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo fechar', detail: e?.error?.message || 'Error' });
-      },
-    });
+        if (cap.verdict === 'red') retenidas++;
+      } catch (e: unknown) {
+        const err = e as { error?: { message?: string }; message?: string };
+        fallas.push({ nombre: this.nombre(l), motivo: err?.error?.message || err?.message || 'error desconocido' });
+      }
+      this.avance.update((a) => (a ? { ...a, hechas: a.hechas + 1, fallas: [...fallas], retenidas } : a));
+    }
+
+    this.avance.update((a) => (a ? { ...a, terminado: true } : a));
+    // El detalle se recarga UNA vez al final: recargarlo por renglón son N viajes
+    // y hace parpadear la lista mientras corre.
+    this.cargarDetalle(v.id, () => this.cargarLotes());
   }
 
   // ── Ubicación ─────────────────────────────────────────────────────────────
 
-  abrirUbicar(l: AndenLinea): void {
-    this.s.actual.set(l);
+  abrirUbicar(l: AndenLote): void {
+    this.s.loteActual.set(l);
     this.limpiarBarra();
-    if (!l.binSugerido) this.cargarContexto(l);
+    if (!l.binSugerido) this.cargarSugerencia(l);
   }
 
   private siguienteUbicar(): void {
@@ -729,27 +826,106 @@ export class AndenComponent implements OnInit {
     if (l) this.abrirUbicar(l);
   }
 
+  private cargarSugerencia(l: AndenLote): void {
+    const wh = this.s.warehouseId();
+    if (!wh) return;
+    this.binsSvc.pickSuggestion(wh, l.product_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (ss) => {
+        const bin = (ss || []).find((x) => x.bin_code)?.bin_code ?? null;
+        if (bin) {
+          this.s.parchearLote(claveLote(l), { binSugerido: bin });
+          const act = this.s.loteActual();
+          if (act && claveLote(act) === claveLote(l)) this.s.loteActual.set({ ...act, binSugerido: bin });
+        }
+      },
+      error: () => { /* sin sugerencia: se escanea el rack */ },
+    });
+  }
+
+  /**
+   * **Crear la ubicación que no existe.** Es el camino normal, no la excepción:
+   * `warehouse_bins` arrancó en cero, así que la bodega se rotula a medida que se
+   * usa. Al crearla se ofrece su cartel de una — una ubicación sin cartel pegado
+   * es una ubicación que nadie vuelve a encontrar.
+   */
+  crearUbicacion(u: UbicacionNueva): void {
+    const wh = this.s.warehouseId();
+    if (!wh || this.creandoBin()) return;
+    this.creandoBin.set(true);
+    this.binsSvc.createBin({ warehouse_id: wh, code: u.code, label: u.label })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (b) => {
+          this.creandoBin.set(false);
+          const cartel: CartelUbicacion = { code: b.code, label: b.label || u.label, almacen: this.s.almacen() };
+          this.creadas.update((cs) => [...cs, cartel]);
+          this.codigoNuevo.set(b.code);
+          this.cargarBins();
+          this.carteles.set([cartel]);
+          this.toast.add({
+            severity: 'success', summary: 'Ubicación creada',
+            detail: `${b.code} — imprimí el cartel y pegalo en el rack.`,
+          });
+        },
+        error: (e) => {
+          this.creandoBin.set(false);
+          const dup = e?.status === 409;
+          this.toast.add({
+            severity: dup ? 'warn' : 'error',
+            summary: dup ? 'Ese código ya existe' : 'No se pudo crear',
+            // Un 403 acá significa que el usuario puede recibir pero no dar de alta
+            // ubicaciones: hay que decirlo, no dejar un botón que no hace nada.
+            detail: e?.status === 403
+              ? 'Tu rol puede recibir mercancía pero no dar de alta ubicaciones. Pedí que te den el permiso de asignar.'
+              : e?.error?.message || 'Error al crear la ubicación',
+          });
+          if (dup) this.cargarBins();
+        },
+      });
+  }
+
+  cerrarCartel(): void {
+    this.carteles.set([]);
+    setTimeout(() => this.ubicar()?.enfocar(), 0);
+  }
+
+  reimprimir(): void {
+    if (this.creadas().length) this.carteles.set(this.creadas());
+  }
+
+  /**
+   * **El put-away lleva el lote y la caducidad exactos.**
+   *
+   * Antes mandaba sólo producto y cantidad, así que el backend caía en el lote
+   * `NA`. Con el fechado por delante, `NA` ya no existe — fechar RECLASIFICA el
+   * lote (`assignLotToUndeclared`), y el put-away moría con "El lote no existe en
+   * stock". El lote sale de `/unlocated`, que es el que lleva la cuenta de lo que
+   * falta acomodar.
+   */
   confirmarUbicado(u: UbicadoConfirmado): void {
     const wh = this.s.warehouseId();
-    const productId = u.linea.product_id;
-    if (!wh || !productId) return;
+    if (!wh) return;
     this.s.guardando.set(true);
-    this.bins.putAway({
+    this.binsSvc.putAway({
       warehouse_id: wh,
-      product_id: productId,
+      product_id: u.lote.product_id,
+      lot_code: u.lote.lot_code,
+      expiry_date: u.lote.expiry_date || undefined,
       bin_code: u.binCode,
       quantity: u.cantidad,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
         this.s.guardando.set(false);
-        this.s.parchear(u.linea.id, { ubicado: u.binCode });
-        this.guardarBorrador();
         this.toast.add({ severity: 'success', summary: 'Acomodado',
-          detail: `${this.nombre(u.linea)} — en ${u.binCode}.` });
-        this.s.actual.set(null);
+          detail: `${u.lote.product_name || u.lote.sku} — ${u.cantidad} pz en ${u.binCode}.` });
+        this.s.loteActual.set(null);
         this.volverALaBarra();
-        this.siguienteUbicar();
-        setTimeout(() => this.ubicar()?.enfocar(), 0);
+        // El código recién creado deja de mandar en cuanto se usó: el siguiente
+        // lote merece SU sugerencia, que es dónde vive ese SKU.
+        this.codigoNuevo.set(null);
+        this.cargarLotes(() => {
+          this.siguienteUbicar();
+          setTimeout(() => this.ubicar()?.enfocar(), 0);
+        });
       },
       error: (e) => {
         this.s.guardando.set(false);
@@ -758,28 +934,55 @@ export class AndenComponent implements OnInit {
     });
   }
 
-  /** Cerrar el panel sin guardar también devuelve el foco a la barra. */
-  cerrarCaptura(): void {
-    this.s.capturando.set(null);
+  volverALista(): void {
+    this.s.actual.set(null);
+    this.s.loteActual.set(null);
     this.volverALaBarra();
   }
 
-  volverALista(): void {
-    this.s.actual.set(null);
-    this.volverALaBarra();
+  /**
+   * **Cerrar el vale.** Acá —y no antes— el faltante queda firme y se levantan los
+   * reclamos (WMS-REC.8). El backend descuenta lo que las capturas de lote ya
+   * dieron de alta, así que cerrar después de fechar **no cuenta la mercancía dos
+   * veces**.
+   */
+  cerrarVale(): void {
+    const v = this.s.vale();
+    if (!v || this.s.cerrado()) return;
+    this.s.guardando.set(true);
+    this.sessions.close(v.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (upd) => {
+        this.s.guardando.set(false);
+        this.s.cargarDesdeVale(upd);
+        this.guardarBorrador();
+        const n = upd?.claims?.raised ?? 0;
+        const aQuien = upd?.origin?.kind === 'transfer'
+          ? (upd?.origin?.name || 'la sucursal que embarcó')
+          : (upd?.origin?.name || upd?.supplier_code || 'el proveedor');
+        this.toast.add({
+          severity: 'success', summary: 'Vale cerrado',
+          detail: n > 0
+            ? `Se levantaron ${n} reclamo(s) a ${aQuien}; se siguen en Compras › Reclamos.`
+            : 'Sin diferencias contra Kepler.',
+          life: n > 0 ? 7000 : undefined,
+        });
+      },
+      error: (e) => {
+        this.s.guardando.set(false);
+        this.toast.add({ severity: 'error', summary: 'No se pudo cerrar', detail: e?.error?.message || 'Error' });
+      },
+    });
   }
 
   otroCamion(): void {
     const v = this.s.vale();
     if (v) this.drafts.borrar(v.id);
-    this.scans = [];
+    this.bins.set([]);
+    this.creadas.set([]);
+    this.carteles.set([]);
+    this.codigoNuevo.set(null);
+    this.masiva.set(false);
+    this.avance.set(null);
     this.s.reset();
-  }
-
-  /** `crypto.randomUUID` no existe en contextos no seguros (http en LAN). */
-  private nuevoScanId(): string {
-    const c = globalThis.crypto as Crypto | undefined;
-    if (c?.randomUUID) return c.randomUUID();
-    return 'scan-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
   }
 }
