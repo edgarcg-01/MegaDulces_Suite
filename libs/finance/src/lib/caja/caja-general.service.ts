@@ -1,5 +1,7 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, applySmartSearch, branchName } from '@megadulces/platform-core';
+import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
+import type { Freshness } from '@megadulces/contracts';
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -74,6 +76,43 @@ export class CajaGeneralService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * [CG.8] La frescura del ESPEJO. Esta pantalla publica $154M de movimientos copiados del
+   * Access `Control` y hasta hoy NO decía de cuándo son.
+   *
+   * No es un detalle: el carril que lo alimenta (`import-caja-general.js`) exige Windows +
+   * PowerShell + ACE + `Z:`, y desde que VL.4b (2026-09-11) mudó los feeds a `md` (Linux)
+   * sólo corre en el modo `finance`, que se lanza A MANO desde `.249`. O sea que el espejo
+   * puede llevar días congelado mientras la pantalla se ve igual de segura.
+   *
+   * Dos eslabones, y gana el PEOR (`composeFreshness`): de nada sirve que el histórico esté
+   * al día si el arqueo vivo lleva una semana parado.
+   *   · `computed_at` de los movimientos = cuándo ESCRIBIÓ el importer (entrega, no "corrió").
+   *   · `arqueo_date` de los arqueos      = el dato vivo, el que el sensor `caja_general` mide.
+   *
+   * Tolerancia 30 h = la del sensor en `db-health` (feed diario: warn al saltarse una corrida).
+   * Si la medición falla devuelve `unknown` con `stale: true` — NO silencio, que fue la falla
+   * exacta que VP.0 encontró en la etiquetera.
+   */
+  async frescura(): Promise<Freshness> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    try {
+      return await this.tk.run(async (trx) => {
+        const mov = await trx('analytics.caja_general_movimientos')
+          .where('tenant_id', tenantId).max('computed_at as at').first();
+        const arq = await trx('analytics.caja_arqueos')
+          .where('tenant_id', tenantId).max('arqueo_date as at').first();
+        return composeFreshness([
+          evalInput('caja_general_import', 'Copia del .mdb (Control)', mov?.at ?? null, 30),
+          evalInput('caja_arqueo', 'Arqueo de caja 20', arq?.at ?? null, 30),
+        ]);
+      });
+    } catch {
+      // Una medición que falla NO puede verse como un dato al día.
+      return FRESHNESS_UNKNOWN;
+    }
+  }
 
   /** Deriva [from,to] (date) desde month o from/to; default = mes en curso. */
   private range(q: CajaQuery): [string, string] {
@@ -165,8 +204,13 @@ export class CajaGeneralService {
         [`%${q.search}%`, `%${q.search}%`, `%${q.search}%`]);
       const movs = await movq;
 
+      const freshness = await this.frescura();
+
       return {
         period: { from, to },
+        // [CG.8] De cuándo son estos números. Un `generated_at` diría cuándo respondió el
+        // servidor, que es otra cosa: contesta en 200 ms sobre datos de hace seis días.
+        freshness,
         totals: {
           ingreso: r2(n(tot?.ingreso)), gasto: r2(n(tot?.gasto)), neto: r2(n(tot?.ingreso) - n(tot?.gasto)),
           n: n(tot?.n), saldo: r2(n(sal?.saldo)), saldo_fecha: sal?.fecha || null,

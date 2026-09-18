@@ -270,12 +270,31 @@ nombre largo es "MANTENIMIENTO SUCURSAL"; `50001` es "ABASTOS LA PIEDAD" con nom
 como pantalla (`CompGtos`, hija por `TipoDtoCG;IdDoctoCG`) pero **nada mide cuántos anticipos
 quedaron sin comprobar ni por cuánto**.
 
-### 5.8 ⚠️ El lector no está agendado y no late
+### 5.8 ⚠️ El lector corre A MANO, y la pantalla no decía de cuándo eran los datos
 
-`import-caja-general.js` **no aparece en `ops/vl/crontab.feeds`, ni en `run-prod-feeds.js`, ni
-llama a `cron-heartbeat`**. Es exactamente el modo de falla que fundó la Fase OBS (ADR-053): una
-pantalla publicando con confianza sobre un carril que nadie vigila. Y como necesita `Z:` (SMB) +
-`powershell` + ACE, **no puede correr en `md`** — mismo blocker que Wincaja (VL.5).
+**CORREGIDO 2026-09-18.** La primera versión de este documento afirmaba que
+`import-caja-general.js` «no aparece en `run-prod-feeds.js` ni tiene sensor». **Las dos cosas
+eran falsas**, y el error fue de método: se hizo `grep` sobre
+`database/importers/run-prod-feeds.js`, ruta que **no existe** (el archivo vive en
+`database/importers/kepler/`), y un resultado vacío se leyó como ausencia. *Un grep sobre una
+ruta equivocada no dice «no está»: no dice nada.*
+
+Lo que de verdad pasa, que es peor y más específico:
+
+- **Sí está en el runner**, en el modo `finance` ([`run-prod-feeds.js:311`](../../../database/importers/kepler/run-prod-feeds.js)).
+  Fue **retirado a propósito** de `nightly` e `intraday` por DB-MEM.8, porque esos modos corren
+  en `md` (Linux) y el importer exige Windows + PowerShell + ACE.OLEDB + `Z:`.
+- **Sí tiene sensor**: `caja_general` en `APP_SOURCES` de `db-health` (warn 30 h / crit 50 h,
+  sobre `analytics.caja_arqueos.arqueo_date`), agregado por DB-MEM.8 con el incidente ya
+  documentado: el feed **estuvo 5 días parado** tras VL.4b (2026-09-11), fallando en el 100 % de
+  los 24 intentos diarios, y el tablero decía `ok` porque el runner sólo marca `error` si fallan
+  TODOS los pasos.
+- **Lo que sí falta**: el modo `finance` **no está en `CRON_JOBS`** —y no puede estarlo: es
+  manual por diseño, «late pero se muestra `ok` sin alarmar»—, el importer **no llama a
+  `cron-heartbeat`**, y sobre todo **nadie lo agenda**. O sea que el espejo puede llevar días
+  congelado mientras `/finanzas/caja` publica $154M con total aplomo.
+- **Y la pantalla no lo decía**: cero menciones de frescura en `finanzas-caja.component.ts`
+  (medido). Ése era el hueco accionable, y es el que cierra CG.8.
 
 ### 5.9 ⚠️ Un filtro de alguien quedó guardado en la pantalla de Gastos
 
@@ -537,15 +556,21 @@ Ruta crítica: **CG.8 → CG.9 → CG.10b → CG.17 → CG.13 → CG.14**. Lo de
 
 ### Etapa 1 — Dejar de mentir (no toca la captura)
 
-#### `CG.8` · Medir la frescura y ponerle latido al carril
-- Verificar contra **prod** qué tiene hoy `analytics.caja_general_movimientos` (conteo, `max(fecha)`,
-  `max(computed_at)`) — es lo único que esta investigación **no pudo medir** y que la pantalla ya
-  está publicando.
-- `cron-heartbeat` en `import-caja-general.js` con clave `feed_caja_general`, umbral registrado en
-  `CRON_JOBS`. **Con prueba negativa**: romperlo a propósito una vez y ver el rojo (ADR-056).
-- **Declarar el rezago en pantalla** con el contrato de procedencia
-  (`libs/contracts/http/provenance.contract.ts`). Veredicto ternario: `fresh | stale | unknown`.
-- ⛔ Sin esto, todo lo demás se construye sobre una cifra que nadie sabe de cuándo es.
+#### `CG.8` · La pantalla declara de cuándo son sus datos ✅ (2026-09-18)
+- [x] **Declarado el rezago en pantalla**: `CajaGeneralService.frescura()` mide **dos** eslabones
+  y se queda con el **peor** (`composeFreshness`): `computed_at` de los movimientos (cuándo
+  ESCRIBIÓ el importer — entrega, no «corrió») y `arqueo_date` de los arqueos (el dato vivo, el
+  mismo que mide el sensor `caja_general`). Tolerancia 30 h, la del sensor. Si la medición falla
+  devuelve `FRESHNESS_UNKNOWN` con `stale: true` — **no silencio**, que fue la falla exacta de
+  VP.0 en la etiquetera. En `/finanzas/caja` va como `app-freshness-pill` con `measures="data"`;
+  sin medición se pinta *«frescura sin medir»*, nunca una píldora verde.
+- ⬜ **Lo que NO se hizo, con motivo**: `cron-heartbeat` en el importer. El sensor `caja_general`
+  ya mide la ENTREGA (la edad del dato), que es lo que ADR-053 pide; un latido de proceso encima
+  agregaría «corrió» sin agregar «entregó». Se reevalúa si alguna vez el importer puede fallar
+  dejando el dato fresco.
+- ⬜ **El problema de fondo NO es de código**: el modo `finance` es manual y nadie lo agenda. Se
+  resuelve en **CG.9** (el `.mdb` al carril de réplica) o, mientras tanto, agendándolo en `.249`.
+  Ponerle un latido a un proceso que nadie dispara sólo agrega un rojo más.
 
 #### `CG.9` · `BDatos.mdb` al carril de réplica (retirar el importer)
 - Reusar `access-adapter.js` + `access-mirror.js` de Fase WR. Carril incremental por watermark para
