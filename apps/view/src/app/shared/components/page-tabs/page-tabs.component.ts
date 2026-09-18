@@ -24,6 +24,17 @@ export interface PageTab {
   anyOf?: Permission[];
   /** routerLinkActiveOptions.exact (default true). */
   exact?: boolean;
+  /**
+   * Rutas ADICIONALES donde este tab se sigue viendo activo, aunque no sean su `route`.
+   * Para un tab que es la puerta de un submódulo con más de una vista: sin esto, estando
+   * adentro el tab se apaga y la barra deja de decir dónde estás — que es lo único que
+   * la barra hace.
+   *
+   * Nace en «Cartera», que abre en `/finanzas/cartera` y contiene además
+   * `/finanzas/cobranza`. `routerLinkActive` sólo compara contra `route`, y esas dos URLs
+   * no comparten prefijo, así que `exact: false` tampoco alcanzaba.
+   */
+  alsoActiveOn?: string[];
 }
 
 /**
@@ -60,6 +71,7 @@ export interface PageTab {
                 [routerLink]="t.route"
                 routerLinkActive="is-active"
                 [routerLinkActiveOptions]="{ exact: t.exact ?? true }"
+                [class.is-active]="activoPorAlias(t)"
               >
                 @if (t.icon) { <i [class]="t.icon" aria-hidden="true"></i> }
                 <span>{{ t.label }}</span>
@@ -75,6 +87,7 @@ export interface PageTab {
               [routerLink]="t.route"
               routerLinkActive="is-active"
               [routerLinkActiveOptions]="{ exact: t.exact ?? true }"
+              [class.is-active]="activoPorAlias(t)"
             >
               @if (t.icon) {
                 <i [class]="t.icon" aria-hidden="true"></i>
@@ -137,6 +150,18 @@ export class PageTabsComponent implements AfterViewInit {
   private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
   private readonly destroyRef = inject(DestroyRef);
+
+  /**
+   * ¿La URL viva está en `alsoActiveOn` de este tab? Se suma a `routerLinkActive`, no lo
+   * reemplaza: el caso normal (la URL ES su `route`) lo sigue resolviendo el router.
+   * Se compara sin query string — un filtro no cambia en qué sección estás.
+   */
+  activoPorAlias(t: PageTab): boolean {
+    const alias = t.alsoActiveOn;
+    if (!alias?.length) return false;
+    const url = this.router.url.split(String.fromCharCode(63))[0];
+    return alias.some((a) => url === a || url.startsWith(a + "/"));
+  }
 
   readonly tabs = input.required<PageTab[]>();
   readonly variant = input<'underline' | 'liquid'>('underline');

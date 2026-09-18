@@ -32,16 +32,27 @@ export const FINANZAS_TABS: PageTab[] = [
     permission: Permission.FINANCE_BANK_VER,
   },
   {
-    label: 'Cobranza',
-    route: '/finanzas/cobranza',
-    icon: 'pi pi-money-bill',
-    permission: Permission.FINANCE_COLLECTIONS_VER,
-  },
-  {
+    /**
+     * UNA entrada para las dos mitades del mismo oficio: **Cartera** es lo que te deben
+     * (saldo por cliente, aging, y las aplicaciones de cada factura — cobros, notas de
+     * crédito, devoluciones) y **Cobranza** es lo que te pagaron (la ficha de depósito
+     * adjunta a cada cobro de Kepler). Eran dos tabs sueltos entre los doce de Finanzas.
+     * Adentro se cambia de vista con el selector (`app-cartera-segments`).
+     *
+     * `anyOf` por el mismo motivo que «Gastos» de más abajo: las dos vistas exigen
+     * permisos DISTINTOS (`FINANCE_RECEIVABLES_VER` / `FINANCE_COLLECTIONS_VER`) y con
+     * un permiso único uno de los dos públicos perdería el tab.
+     *
+     * ⚠️ Y por eso la ruta la protege `carteraEntryGuard`, no un `permissionGuard`: el
+     * tab apunta a UNA url, así que a quien sólo tiene cobranza hay que LLEVARLO a su
+     * mitad, no rebotarlo. Un tab visible que al abrirse manda a /sin-acceso es peor
+     * que no tener tab.
+     */
     label: 'Cartera',
     route: '/finanzas/cartera',
     icon: 'pi pi-address-book',
-    permission: Permission.FINANCE_RECEIVABLES_VER,
+    anyOf: [Permission.FINANCE_RECEIVABLES_VER, Permission.FINANCE_COLLECTIONS_VER],
+    alsoActiveOn: ['/finanzas/cobranza'],
   },
   {
     label: 'Pagos a proveedor',

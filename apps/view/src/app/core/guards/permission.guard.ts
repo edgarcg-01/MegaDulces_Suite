@@ -279,6 +279,34 @@ export const FINANZAS_LANDING: LandingCandidate[] = withTreeCandidates('finanzas
 ]);
 export const finanzasHomeGuard: CanActivateFn = landingRedirectGuard(FINANZAS_LANDING, '/finanzas/egresos');
 
+/**
+ * Puerta del submódulo **Cartera**, que desde 2026-09-18 tiene DOS vistas bajo un solo tab:
+ * `/finanzas/cartera` (lo que te deben) y `/finanzas/cobranza` (lo que te pagaron).
+ *
+ * El tab tiene que apuntar a una sola URL, y las dos vistas exigen permisos DISTINTOS
+ * (`FINANCE_RECEIVABLES_VER` y `FINANCE_COLLECTIONS_VER`). Con un `permissionGuard` pelado,
+ * quien sólo tuviera cobranza vería el tab —el tab usa `anyOf`— y al abrirlo REBOTARÍA.
+ * Ese rebote ya se pagó una vez: en SN.0 mandaba a 32 cajeros a `/sin-acceso` desde un
+ * índice que sí les mostraba la entrada.
+ *
+ * Así que esto no es un `permissionGuard` más: **deja pasar a quien puede ver cartera, y
+ * al que sólo puede ver cobranza lo manda a su mitad** en vez de negarle. Al que no tiene
+ * ninguna de las dos se le niega igual que antes — no afloja nada.
+ *
+ * ⚠️ No usa `landingRedirectGuard`: ése SIEMPRE redirige, y acá el primer candidato es la
+ * ruta misma (se redirigiría a sí misma en bucle).
+ */
+export const carteraEntryGuard: CanActivateFn = (_route, state) => {
+  const authService = inject(AuthService);
+  const perms = inject(PermissionsService);
+  const router = inject(Router);
+
+  if (!authService.isAuthenticated) return router.parseUrl('/login');
+  if (perms.has(Permission.FINANCE_RECEIVABLES_VER)) return true;
+  if (perms.has(Permission.FINANCE_COLLECTIONS_VER)) return router.parseUrl('/finanzas/cobranza');
+  return denied(router, state.url, Permission.FINANCE_RECEIVABLES_VER);
+};
+
 /** `[SN.4]` Landing de `/contabilidad`. Antes: `redirectTo: 'listas-sat'` fijo (exige FISCAL_LISTAS_VER). */
 export const CONTABILIDAD_LANDING: LandingCandidate[] = withTreeCandidates('contabilidad', [
   { perm: Permission.FISCAL_LISTAS_VER, url: '/contabilidad/listas-sat' },

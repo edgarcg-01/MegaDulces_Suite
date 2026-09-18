@@ -3,7 +3,7 @@ import { Router, Routes } from '@angular/router';
 import { LoginComponent } from './modules/auth/login/login.component';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -362,7 +362,7 @@ export const routes: Routes = [
       {
         path: 'cartera',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-cartera.component').then(m => m.FinanzasCarteraComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_RECEIVABLES_VER)]
+        canActivate: [carteraEntryGuard]
       },
       {
         path: 'pagos-comprobantes',
