@@ -778,9 +778,26 @@ desde `md`, no supuesto. Calca la forma de §9 (Madero) porque es el mismo movim
 7 ramas. **Pero el patrón no es un hecho.** Acá no responde a nada, y la subred sí funciona, así que
 no es la red: o la máquina está apagada, o está en otra IP, o el firewall de Windows la tapa.
 
-Se barrió la subred entera antes de pedir ayuda: 31 hosts vivos, 9 Windows, **cero Postgres**. Si
-fuera sólo el firewall, el host igual respondería a ICMP en su IP — y `.30.30` no responde. O sea
-que **la IP es otra**.
+Se barrió la subred entera antes de pedir ayuda: 31 hosts vivos, 9 Windows, **cero Postgres**.
+
+⛔ **Y de ahí se sacó una conclusión FALSA, que queda escrita porque costó una vuelta entera:**
+
+> *"Si fuera sólo el firewall, el host igual respondería a ICMP en su IP — y `.30.30` no responde.
+> O sea que la IP es otra."*
+
+**No.** El Firewall de Windows **bloquea ICMP echo por default**. Un POS con el firewall cerrado no
+responde al ping *ni* a los puertos: se ve exactamente igual que una máquina apagada o que una IP
+equivocada. El `ipconfig` del 2026-09-18 lo zanjó: **el POS está en `192.168.30.30`**, máscara
+`255.255.255.0`, gateway `192.168.30.1` — la IP era la del patrón todo el tiempo.
+
+⚠️ Lo que hizo la inferencia tan convincente fue un dato real y mal usado: en esa subred **31 hosts
+sí responden al ping**, así que "acá el ping funciona" parecía un control válido. No lo es — sólo
+dice que *esos* 31 tienen ICMP permitido, no que el que falta esté ausente.
+
+**La regla:** desde afuera, "no hay Postgres" y "no hay máquina" son **indistinguibles** cuando hay
+un firewall de Windows de por medio. Un barrido de red **no puede** decidirlo, por prolijo que sea.
+Lo decide un `ipconfig` en el POS, y por eso ése es el paso — no como último recurso, sino como
+**primero**.
 
 ⛔ **Lo único que lo destraba: un `ipconfig` en el POS de Abastos** (y confirmar el puerto, que no es
 uniforme: `01`, `06` y `07` escuchan en **1977**, el resto en 5432). No hay forma de derivarlo desde
