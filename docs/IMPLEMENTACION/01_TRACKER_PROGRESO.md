@@ -450,8 +450,11 @@ proponen de lo ya computado (ADR-074).
   (6 diálogos), proyección a Análisis automática al aprobar. Builds api+view+check:templates verdes.
 - [~] **[PR.2/3/4]** 🧪 smoke `test-newdb-budget-automations` **14/14**.
 - **Declarado (trade-off):** retirar el «Meta» por celda quita la válvula de escape de ADR-069 (corregir una
-  celda obliga a re-proponer). Reversible. **Pendiente prod:** migs `20260918220000`/`230000` + push + redeploy
-  + verificación HTTP (ADR-044). **Migs a prod NO aplicadas aún** (esperan tu OK, como el resto del deploy).
+  celda obliga a re-proponer). Reversible.
+- **✅ PROD 2026-09-18:** migs `20260918220000` (batch 479) + `20260918230000` (batch 480) aplicadas a Railway
+  una por una (`apply-one-migration-prod.js`, NO `migrate:latest`); verificadas (source/source_ref + índice en
+  budget_lines; status CHECK con `propuesta` + authorized_by nullable + source en expense_obligations). Prod en
+  784/0. **Pendiente prod:** push + redeploy (código api+view) + verificación HTTP (ADR-044) + validación visual.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
