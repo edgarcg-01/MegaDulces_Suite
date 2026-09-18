@@ -9,6 +9,7 @@ import { BudgetPlanningController } from './budget-planning.controller';
 import { BudgetCampaignsService } from './budget-campaigns.service';
 import { BudgetCampaignsController } from './budget-campaigns.controller';
 import { BudgetSalesPlanService } from './budget-sales-plan.service';
+import { BudgetSalesComparisonService } from './budget-sales-comparison.service';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Sistema de presupuestos: motor de egresos (PU.1, ledger de 5
@@ -21,7 +22,7 @@ import { BudgetSalesPlanService } from './budget-sales-plan.service';
  */
 @Module({
   controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController],
-  providers: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService],
-  exports: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService],
+  providers: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService],
+  exports: [BudgetLinesService, BudgetComparisonService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService],
 })
 export class FinanceBudgetModule {}
