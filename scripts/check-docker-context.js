@@ -151,10 +151,41 @@ if (revisados === 0) {
   process.exit(0);
 }
 
-if (!fallas.length) {
-  console.log('✅ Cada Dockerfile que compila con Nx copia los archivos de raíz que sus configs piden.');
+// ── La OTRA mitad de la misma trampa: el hash de Nx ─────────────────────────────────────────
+// Un archivo de la raíz del que dependa un config de proyecto tiene DOS formas de fallar, y la
+// segunda es peor porque es silenciosa:
+//
+//   · no está en el COPY del Dockerfile  → el build del contenedor no arranca. RUIDOSO.
+//   · no está en `sharedGlobals`         → no entra al hash, así que cambiarlo NO invalida la
+//                                          caché y `nx test` sirve resultados viejos. MUDO.
+//
+// MEDIDO el 2026-09-17: con la caché llena, agregándole un comentario a `vitest.shared.ts`,
+// `nx test contracts` respondía "Nx read the output from the cache instead of running the
+// command". Cambiar la configuración compartida de pruebas no re-corría una sola prueba.
+//
+// Misma regla que `[NX.1]`: si un target depende de algo fuera de su `projectRoot`, ese algo va
+// en los inputs. Allá fueron los assets de `database/migrations` en `apps/api`.
+const nx = JSON.parse(fs.readFileSync(path.join(RAIZ, 'nx.json'), 'utf8'));
+const globales = (nx.namedInputs && nx.namedInputs.sharedGlobals) || [];
+const sinHash = [...necesarios.keys()].filter((f) => !globales.includes(`{workspaceRoot}/${f}`));
+
+if (!fallas.length && !sinHash.length) {
+  const n = necesarios.size;
+  console.log(`✅ Los ${n} archivo(s) de raíz que los configs piden están en el COPY de los ${revisados}`);
+  console.log('   Dockerfile(s) que compilan con Nx, y en `sharedGlobals` (entran al hash de la caché).');
   process.exit(0);
 }
+
+if (sinHash.length) {
+  console.log('⛔ Fuera del hash de Nx (`namedInputs.sharedGlobals` en nx.json):\n');
+  for (const f of sinHash) {
+    console.log(`     falta: {workspaceRoot}/${f}   ← lo importa ${necesarios.get(f).join(', ')}`);
+  }
+  console.log('\n  Sin esto, cambiar ese archivo NO invalida la caché: `nx test` sirve el resultado');
+  console.log('  viejo y se lee como verde. Es el modo de falla MUDO, y por eso es el peor.\n');
+}
+
+if (!fallas.length) process.exit(1);
 
 console.log('⛔ Falta copiar al contexto:\n');
 for (const f of fallas) {

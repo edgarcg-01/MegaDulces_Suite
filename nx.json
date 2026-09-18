@@ -17,48 +17,109 @@
     "",
     "El plugin ya pone `cache: true`, los `inputs` (incluidos los `tsconfig.spec.json` de las",
     "dependencias, que Vite lee al resolver project references) y los `outputs`. Por eso NO hay",
-    "un `targetDefaults.test` aca: duplicarlo solo daria dos fuentes de verdad para lo mismo."
+    "un `targetDefaults.test` aca: duplicarlo solo daria dos fuentes de verdad para lo mismo.",
+    "",
+    "─── Plugin de webpack: RETIRADO el 2026-09-17 ([NX.3]) ─────────────────────────────────",
+    "Estaba registrado y NADIE usaba ninguno de los 6 targets que inferia sobre apps/api:",
+    "webpack:build, webpack:serve, preview, serve-static, build-deps, watch-deps. Medido: cero",
+    "invocaciones en Dockerfiles, railway*.json, package.json, CI y scripts. El unico proyecto",
+    "con webpack es apps/api y su target `build` es EXPLICITO (executor @nx/webpack:webpack),",
+    "que no necesita el plugin registrado.",
+    "",
+    "Y tenia una trampa diferida: `buildTargetName` estaba renombrado a \"webpack:build\" --puesto",
+    "asi para no chocar con el `build` explicito de api-- de modo que una app webpack NUEVA",
+    "habria quedado FUERA de `nx run-many -t build` sin decir nada, porque su build no se",
+    "llamaria `build`. Si algun dia se quiere inferencia para webpack, el camino es quitar el",
+    "build explicito de api y dejar los nombres por default, no renombrar los targets.",
+    "",
+    "⚠️ Un comentario NO puede ir dentro del arreglo `plugins`: cada entrada tiene que ser un",
+    "string o un objeto con clave `plugin`, y uno con solo \"//\" tira",
+    "\"Failed to load 1 Nx plugin(s) - undefined: The path argument must be of type string\".",
+    "",
+    "─── sharedGlobals: por que vitest.shared.ts esta ahi ───────────────────────────────────",
+    "Los 7 targets `test` lo importan y vive en la RAIZ, fuera de todo projectRoot. Los inputs",
+    "que arma el plugin son `default` + `^production` + los tsconfig.spec de las dependencias, y",
+    "`default` es {projectRoot}/**/* + sharedGlobals: sin esta linea, el archivo NO entra al hash.",
+    "",
+    "MEDIDO el 2026-09-17: con la cache llena, agregandole un comentario a vitest.shared.ts,",
+    "`nx test contracts` servia de la CACHE -- \"Nx read the output from the cache instead of",
+    "running the command\". O sea: cambiar la configuracion compartida de pruebas no re-corria una",
+    "sola prueba. Verde rancio, que es peor que rojo.",
+    "",
+    "Es la MISMA regla de [NX.1]: si un target depende de algo fuera de su projectRoot, ese algo",
+    "va en los inputs. Ahi fueron los assets de database/migrations en apps/api.",
+    "",
+    "Compromiso asumido: en sharedGlobals tambien invalida `build` y `lint`, no solo `test`. Se",
+    "elige igual porque no hay forma de tocar los inputs del target inferido (targetDefaults solo",
+    "aplica a claves que el target NO define, y el plugin define `inputs`), y porque el archivo",
+    "casi nunca cambia: el costo es una recompilacion rara, contra la alternativa de pruebas que",
+    "se declaran verdes sin haber corrido."
   ],
   "plugins": [
     {
-      "plugin": "@nx/webpack/plugin",
+      "plugin": "@nx/eslint/plugin",
       "options": {
-        "buildTargetName": "webpack:build",
-        "serveTargetName": "webpack:serve",
-        "previewTargetName": "preview"
+        "targetName": "lint"
       }
     },
-    { "plugin": "@nx/eslint/plugin", "options": { "targetName": "lint" } },
     {
       "plugin": "@nx/vitest",
-      "options": { "testTargetName": "test", "testMode": "run" }
+      "options": {
+        "testTargetName": "test",
+        "testMode": "run"
+      }
     }
   ],
   "defaultProject": "api",
   "targetDefaults": {
     "build": {
       "cache": true,
-      "dependsOn": ["^build"],
-      "inputs": ["production", "^production"]
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "production",
+        "^production"
+      ]
     },
     "lint": {
       "cache": true,
-      "inputs": ["default", "{workspaceRoot}/eslint.config.js"]
+      "inputs": [
+        "default",
+        "{workspaceRoot}/eslint.config.js"
+      ]
     },
     "@angular-devkit/build-angular:application": {
       "cache": true,
-      "dependsOn": ["^build"],
-      "inputs": ["production", "^production"]
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "production",
+        "^production"
+      ]
     },
-    "e2e-ci--**/*": { "dependsOn": ["^build"] },
+    "e2e-ci--**/*": {
+      "dependsOn": [
+        "^build"
+      ]
+    },
     "@angular/build:application": {
       "cache": true,
-      "dependsOn": ["^build"],
-      "inputs": ["production", "^production"]
+      "dependsOn": [
+        "^build"
+      ],
+      "inputs": [
+        "production",
+        "^production"
+      ]
     }
   },
   "namedInputs": {
-    "default": ["{projectRoot}/**/*", "sharedGlobals"],
+    "default": [
+      "{projectRoot}/**/*",
+      "sharedGlobals"
+    ],
     "production": [
       "default",
       "!{projectRoot}/**/*.spec.[jt]s",
@@ -72,7 +133,8 @@
     ],
     "sharedGlobals": [
       "{workspaceRoot}/tsconfig.base.json",
-      "{workspaceRoot}/eslint.config.js"
+      "{workspaceRoot}/eslint.config.js",
+      "{workspaceRoot}/vitest.shared.ts"
     ]
   },
   "analytics": false,
@@ -83,27 +145,69 @@
       "style": "css",
       "unitTestRunner": "vitest"
     },
-    "@nx/angular:library": { "unitTestRunner": "vitest" },
-    "@nx/js:library": { "unitTestRunner": "vitest" },
-    "@nx/nest:library": { "unitTestRunner": "vitest" },
-    "@nx/angular:component": { "type": "component" },
-    "@schematics/angular:component": { "type": "component" },
-    "@nx/angular:directive": { "type": "directive" },
-    "@schematics/angular:directive": { "type": "directive" },
-    "@nx/angular:service": { "type": "service" },
-    "@schematics/angular:service": { "type": "service" },
-    "@nx/angular:scam": { "type": "component" },
-    "@nx/angular:scam-directive": { "type": "directive" },
-    "@nx/angular:guard": { "typeSeparator": "." },
-    "@schematics/angular:guard": { "typeSeparator": "." },
-    "@nx/angular:interceptor": { "typeSeparator": "." },
-    "@schematics/angular:interceptor": { "typeSeparator": "." },
-    "@nx/angular:module": { "typeSeparator": "." },
-    "@schematics/angular:module": { "typeSeparator": "." },
-    "@nx/angular:pipe": { "typeSeparator": "." },
-    "@schematics/angular:pipe": { "typeSeparator": "." },
-    "@nx/angular:resolver": { "typeSeparator": "." },
-    "@schematics/angular:resolver": { "typeSeparator": "." }
+    "@nx/angular:library": {
+      "unitTestRunner": "vitest"
+    },
+    "@nx/js:library": {
+      "unitTestRunner": "vitest"
+    },
+    "@nx/nest:library": {
+      "unitTestRunner": "vitest"
+    },
+    "@nx/angular:component": {
+      "type": "component"
+    },
+    "@schematics/angular:component": {
+      "type": "component"
+    },
+    "@nx/angular:directive": {
+      "type": "directive"
+    },
+    "@schematics/angular:directive": {
+      "type": "directive"
+    },
+    "@nx/angular:service": {
+      "type": "service"
+    },
+    "@schematics/angular:service": {
+      "type": "service"
+    },
+    "@nx/angular:scam": {
+      "type": "component"
+    },
+    "@nx/angular:scam-directive": {
+      "type": "directive"
+    },
+    "@nx/angular:guard": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:guard": {
+      "typeSeparator": "."
+    },
+    "@nx/angular:interceptor": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:interceptor": {
+      "typeSeparator": "."
+    },
+    "@nx/angular:module": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:module": {
+      "typeSeparator": "."
+    },
+    "@nx/angular:pipe": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:pipe": {
+      "typeSeparator": "."
+    },
+    "@nx/angular:resolver": {
+      "typeSeparator": "."
+    },
+    "@schematics/angular:resolver": {
+      "typeSeparator": "."
+    }
   },
   "nxCloudId": "6aac55ccaddfdc549051ee1d"
 }
