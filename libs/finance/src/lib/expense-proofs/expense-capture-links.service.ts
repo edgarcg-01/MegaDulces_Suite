@@ -69,7 +69,7 @@ export class ExpenseCaptureLinksService {
   // ══════════════════════════════════════════════════════════════════════════
 
   /** Emite el link de una persona. Devuelve la URL ya armada para copiar y mandar. */
-  async issue(dto: IssueLinkDto, actor?: string) {
+  async issue(dto: IssueLinkDto, actor?: string, origin?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     const persona = (dto.persona || '').trim().replace(/\s+/g, ' ');
     if (!persona) throw new BadRequestException('¿a nombre de quién es el link?');
@@ -87,12 +87,12 @@ export class ExpenseCaptureLinksService {
         .returning(['id', 'persona', 'sucursal', 'expires_at']);
 
       this.logger.log(`link de captura emitido para ${row.persona} por ${actor || '?'}`);
-      return { ...row, ...this.linkUrl(row.id, tenantId) };
+      return { ...row, ...this.linkUrl(row.id, tenantId, origin) };
     });
   }
 
   /** Los links emitidos, con cuántas capturas trajo cada uno. */
-  async list() {
+  async list(origin?: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const rows = await trx('finance.expense_capture_links as l')
@@ -106,7 +106,7 @@ export class ExpenseCaptureLinksService {
       return rows.map((r: any) => ({
         ...r,
         vigente: !r.revoked_at && (!r.expires_at || new Date(r.expires_at) > new Date()),
-        ...this.linkUrl(r.id, tenantId),
+        ...this.linkUrl(r.id, tenantId, origin),
       }));
     });
   }
@@ -126,15 +126,29 @@ export class ExpenseCaptureLinksService {
   }
 
   /**
-   * El token firmado + la URL para compartir. `APP_PUBLIC_URL` es el origen desde el que
-   * el trabajador abre el celular; en local cae al dev server.
+   * El token firmado + la URL para compartir.
+   *
+   * ⚠️ El origen sale de la PETICIÓN, no de una variable de entorno con respaldo a
+   * localhost. La primera versión hacía `process.env.APP_PUBLIC_URL || 'http://localhost:4200'`
+   * y esa variable **no existe en Railway**: todo link emitido desde producción nacía
+   * apuntando a `localhost:4200`, o sea roto — y en silencio, porque quien lo emite copia
+   * una URL que se ve bien y el trabajador recibe ERR_CONNECTION_REFUSED en el celular.
+   *
+   * Quien emite un link siempre lo hace por HTTP autenticado, así que el origen público
+   * verdadero viaja en las cabeceras. `APP_PUBLIC_URL` se conserva como override explícito
+   * (sirve si el dominio público no es el que ve el backend), pero ya no hay respaldo mudo:
+   * sin origen se falla ruidoso en vez de entregar un link que no lleva a ningún lado.
    */
-  private linkUrl(linkId: string, tenantId: string) {
+  private linkUrl(linkId: string, tenantId: string, origin?: string) {
     const payload: CaptureTokenPayload = { t: 'expense_capture', lid: linkId, tenant_id: tenantId };
     // Vigencia larga a propósito: la autoridad real es `revoked_at`/`expires_at` de la fila,
     // que se relee en cada uso. Un JWT corto obligaría a re-emitir el link cada semana.
     const token = this.jwt.sign(payload, { expiresIn: '365d' });
-    const base = (process.env.APP_PUBLIC_URL || 'http://localhost:4200').replace(/\/+$/, '');
+    const base = (process.env.APP_PUBLIC_URL || origin || '').replace(/\/+$/, '');
+    if (!base) {
+      this.logger.error('sin origen público para el link (ni APP_PUBLIC_URL ni cabeceras de la petición)');
+      throw new BadRequestException('no se pudo armar la URL del link: falta el origen público');
+    }
     return { token, url: `${base}/captura/${token}` };
   }
 
