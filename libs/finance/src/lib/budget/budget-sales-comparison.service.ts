@@ -32,6 +32,7 @@ export interface SalesComparisonCell {
   cumplimiento_pct: number | null; // real / meta
   crec_pct: number | null;         // YoY
   part_pct: number | null;         // real / total real del ejercicio
+  method: string | null;           // origen de la meta: historico_ajustado | estacional | manual | null
 }
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
@@ -58,10 +59,14 @@ export class BudgetSalesComparisonService {
         .where({ tenant_id: tenantId })
         .orderBy([{ column: 'channel', order: 'asc' }, { column: 'warehouse_code', order: 'asc' }]);
 
-      // meta por (entity_key, period_no)
+      // meta por (entity_key, period_no) + su origen (method)
       const planRows = await trx('budget.sales_plan_lines').where({ tenant_id: tenantId, budget_id: budgetId });
       const metaMap = new Map<string, number>();
-      for (const p of planRows) metaMap.set(`${p.entity_key}|${p.period_no}`, Number(p.meta_amount));
+      const methodMap = new Map<string, string>();
+      for (const p of planRows) {
+        metaMap.set(`${p.entity_key}|${p.period_no}`, Number(p.meta_amount));
+        methodMap.set(`${p.entity_key}|${p.period_no}`, p.method);
+      }
 
       // real (FY y FY-1) por (entity_key, period_no) — del sell-out diario por el calendario 13×4
       const realRows = await trx('analytics.v_sellout_daily as sd')
@@ -110,6 +115,7 @@ export class BudgetSalesComparisonService {
             cumplimiento_pct: pct(real, meta),
             crec_pct: realPrior == null || realPrior === 0 ? null : round2(((Number(real ?? 0) - realPrior) / realPrior) * 100),
             part_pct: real == null ? null : pct(real, totalReal),
+            method: methodMap.get(key) ?? null,
           });
         }
       }

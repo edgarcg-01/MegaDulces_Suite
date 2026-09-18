@@ -357,10 +357,17 @@ calidad de la propuesta **rampa con la historia**; se declara la cobertura, «si
   los bloques de consolidación del workbook (PV por plaza, Mayoreo, RD). Todo del `v_sellout_daily` por el
   calendario, frescura declarada. DB-direct: PART suma 100%/año, mix 2026 mostrador 76%/credito 14%/ruta 5.5%/
   preventa 5%. `nx build api` verde.
-- [ ] **[PVA.4]** ⬜ UI del flujo automático en `/presupuesto`: botón «Proponer plan del año» (crecimiento
-  propuesto por canal editable + cobertura), badges de origen por celda (Histórico/Estacional/Manual), panel de
-  indicadores, tira de cobertura de la propuesta.
-- [ ] **[PVA.5]** ⬜ Verificación HTTP (ADR-044) + ADR nuevo + docs (`FASE_PU` sección PVA).
+- [~] **[PVA.4]** 🔨 UI del flujo automático en `/presupuesto` (builds verdes). Sub-tabs Plan | Indicadores en la
+  vista de ventas. **Plan**: botón «Proponer plan del año» → diálogo con el crecimiento propuesto por canal
+  (editable, con la base/cobertura que lo respalda) + respaldo + sobrescribir-manual → arma las 299 celdas;
+  columna **Origen** con badge por celda (Histórico/Estacional/Manual/Mixto); tira de cobertura de la última
+  propuesta. **Indicadores**: tabla CREC/PART por canal + Total (histórico + meta-vs-real), frescura declarada.
+  El comparador ahora trae `method` por celda (backend). `nx build view`+`api`+`check:templates` verdes.
+  **Verificación HTTP pendiente por infra** (API :3334 sin las rutas PVA aún + credenciales — dev servers de Edgar).
+- [~] **[PVA.5]** 🔨 **ADR-069** (extiende ADR-068): crecimiento propuesto del histórico + humano ajusta; relleno
+  híbrido; guard de rampa (mató un +2951%); cero variables externas por diseño; la calidad **rampa con la
+  historia** y se declara la cobertura. Docs `FASE_PU` sección PVA. **Verificación HTTP (ADR-044) pendiente**
+  (mismo bloqueo de infra que PV). Smokes DB-direct verdes.
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
