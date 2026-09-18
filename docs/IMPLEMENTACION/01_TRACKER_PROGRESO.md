@@ -271,8 +271,14 @@ de 4 semanas no alinea a mes calendario. Se rola desde el **diario** (`v_sellout
   ingreso"). Smoke DB-direct **12/12** (FY2027←2026: 105 celdas con base, meta=base×1.10 exacto y == roll
   independiente, override respetado, CHECKs). `nx build api` verde (fix inferencia TS de `.sum()`). Aplicada a dev.
   **Pendiente: controller + UI + verificación HTTP (PV.5).** *Cerrado backend 2026-09-17.*
-- [ ] **[PV.4]** ⬜ Comparación meta vs real + CREC + PART (puente al sell-out diario por calendario; reusar
-  `explainChange` YoY / `salesQuery` share, no reimplementar). «Sin datos»≠cero, frescura declarada.
+- [~] **[PV.4]** 🔨 Comparación meta vs real + CREC + PART (backend verificado DB-direct). `BudgetSalesComparisonService`
+  (registrado en módulo): pivote ENTIDAD × PERIODO 13×4 con meta (PV.3) vs **real = `v_sellout_daily` rolado por
+  el calendario** (universo ÚNICO del sell-out, mismo dato que explainChange/salesQuery, bucketeado a periodo —
+  NO recalcula ni inventa 2ª fuente; no importa `libs/commercial`, respeta boundary), CREC=YoY (real_FY vs real_FY-1),
+  PART=participación (real celda / total real), cumplimiento=real/meta. «Sin datos»≠cero (real NULL, no 0),
+  frescura declarada (`data_as_of`=último business_date). Smoke DB-direct **8/8** (Σreal celdas==roll independiente
+  al centavo, PART≈100%, CREC/cumplimiento==recomputación independiente). `nx build api` verde. **Pendiente:
+  controller + UI + verificación HTTP (PV.5).** *Cerrado backend 2026-09-17.*
 - [ ] **[PV.5]** ⬜ UI "Presupuesto de ventas" en `/presupuesto` (pivote entidad×periodo 13×4, meta vs real,
   CREC/PART, totales; patrón `/ventas-generales` + metric-strip/freshness-pill; answer-first DESIGN §15).
 - [ ] **[PV.ADR]** ⬜ ADR nuevo: la meta de ventas vive en Presupuestos (partida ingreso dimensionada) y

@@ -46,6 +46,7 @@ export * from './lib/budget/budget-cashflow.service';
 export * from './lib/budget/budget-planning.service';
 export * from './lib/budget/budget-campaigns.service';
 export * from './lib/budget/budget-sales-plan.service';
+export * from './lib/budget/budget-sales-comparison.service';
 export * from './lib/payment-calendar/finance-payment-calendar.module';
 export * from './lib/payment-calendar/budget-capacity.service';
 export * from './lib/payment-calendar/budget-expense-obligations.service';
