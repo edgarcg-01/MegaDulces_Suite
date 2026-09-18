@@ -2347,6 +2347,9 @@ export class UsersService {
         'dp.name as department_name',
         'u.position_code',
         'ps.name as position_name',
+        // `[CDRP.1]` Para qué existe el puesto, en una línea (CDRP §1.1). Texto declarado por
+        // Dirección; `null` cuando el puesto todavía no la tiene, y se muestra como ausencia.
+        'ps.proposito as position_proposito',
       )
       .first();
     if (!u) throw new NotFoundException('Usuario en sesión no encontrado');
@@ -2362,7 +2365,11 @@ export class UsersService {
         ? { code: u.department_code, name: u.department_name ?? u.department_code }
         : null,
       position: u.position_code
-        ? { code: u.position_code, name: u.position_name ?? u.position_code }
+        ? {
+            code: u.position_code,
+            name: u.position_name ?? u.position_code,
+            proposito: u.position_proposito ?? null,
+          }
         : null,
     };
   }

@@ -60,6 +60,21 @@
       size="small"
       (click)="logout()">
     </p-button>
+
+    <!--
+      [CDRP.1] "Mi trabajo se llama" (CDRP 1.1): la frase que traduce el puesto a un RESULTADO.
+      Sale de identity.positions.proposito, que edita RH desde /admin/puestos -- no es una
+      constante del front, que envejeceria sin que nadie la corrija.
+
+      Si el puesto no la tiene, la linea NO se pinta: repetir el nombre del puesto ("Gerencia de
+      Zona") diria algo distinto de un resultado, que es justo lo que la seccion pide traducir.
+    -->
+    @if (proposito(); as fr) {
+      <p class="mt-proposito">
+        <span class="mt-proposito-k">Mi trabajo se llama</span>
+        <span class="mt-proposito-v">{{ fr }}</span>
+      </p>
+    }
   </header>
 
   <!-- ══ Dos columnas: el trabajo manda a la izquierda, las puertas ruedan a la derecha ══════ -->
@@ -254,6 +269,46 @@
                       · <span class="mt-delta" [class]="claseVariacion(b.variacion_pct)">{{ v }}</span>
                     }
                   </span>
+                </p>
+
+                <!--
+                  [CDRP.1] Margen y ticket del CANAL (CDRP 3 KPI 3 y 5, 7 KPI 2 y 5). Misma
+                  consulta que la venta: son dos agregados mas sobre las filas que este bloque ya
+                  leia, no una fuente nueva.
+
+                  Van por canal y NUNCA agregados, y es un hecho medido: el ticket de tienda es
+                  $86, el de ruta $586 y el de vecinal $1,675. El promedio de los tres no es el
+                  ticket de nadie.
+
+                  La COBERTURA se dice siempre que hay margen: un margen calculado sobre el 89% de
+                  la venta se lee igual que uno sobre el 100% si nadie aclara cual es cual.
+                -->
+                <p class="mt-metricas">
+                  @if (b.margen_pct !== null) {
+                    <span class="mt-metrica">
+                      <span class="mt-metrica-k">Margen</span>
+                      <span class="mt-metrica-v">{{ (b.margen_pct * 100).toFixed(2) }}%</span>
+                      @if (b.margen_cobertura !== null && b.margen_cobertura < 0.999) {
+                        <span class="mt-metrica-cob"
+                              title="El resto de la venta de este canal no trae costo en su fuente, así que no entra en el margen.">
+                          sobre el {{ (b.margen_cobertura * 100).toFixed(1) }}% de su venta
+                        </span>
+                      }
+                    </span>
+                  } @else {
+                    <span class="mt-metrica is-nd">
+                      <span class="mt-metrica-k">Margen</span>
+                      <span class="mt-metrica-v">sin medir</span>
+                      <span class="mt-metrica-cob">su fuente no trae costo</span>
+                    </span>
+                  }
+                  @if (b.ticket_promedio !== null) {
+                    <span class="mt-metrica">
+                      <span class="mt-metrica-k">Ticket</span>
+                      <span class="mt-metrica-v">{{ formatoDinero(b.ticket_promedio) }}</span>
+                      <span class="mt-metrica-cob">en {{ formatoTotal(b.tickets ?? 0) }} tickets</span>
+                    </span>
+                  }
                 </p>
 
                 @for (c of b.canales; track c.id) {
