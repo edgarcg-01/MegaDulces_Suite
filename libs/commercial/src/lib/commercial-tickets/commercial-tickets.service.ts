@@ -157,6 +157,83 @@ const MAX_CANDIDATOS = 50;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const num = (v: unknown) => Number(v ?? 0) || 0;
 
+/** Lo que se entendió de lo que el humano tecleó. */
+export interface FolioBuscado {
+  /** El texto normalizado (sin espacios, en mayúsculas). `''` si no tecleó nada. */
+  crudo: string;
+  /**
+   * Identidad completa reconocida: `03UD1001-0018665` **o** `03UD10010018665`. Cuando viene,
+   * la búsqueda va directo por `(sucursal, doc_prefix, folio)` — el camino indexado y sin
+   * ambigüedad. `folios` trae las variantes del folio suelto.
+   */
+  identidad: { sucursal: string; docPrefix: string; folios: string[] } | null;
+  /** Variantes del folio a probar cuando NO se reconoció una identidad completa. */
+  folios: string[];
+  /** Pedido propio de la plataforma: `PD-2026-00012`. */
+  code: string | null;
+}
+
+/**
+ * Normaliza lo que el humano tecleó.
+ *
+ * ⚠️ **Es tolerante a propósito, y lo es porque no serlo ya costó.** La primera versión exigía
+ * el guion de la identidad (`/^(\d{2})(UD\d{4})-(.+)$/`) y, al no reconocer `05UD10050006440`,
+ * caía al camino de folio suelto: le arrancaba las letras y terminaba buscando
+ * **`0510050006440`**, un número que no existe en ninguna sucursal. La pantalla respondía
+ * *"Ningún documento con ese folio · Revisa el número"* sobre un folio que estaba **bien** —
+ * echándole la culpa a quien preguntaba.
+ *
+ * Qué se acepta hoy:
+ *   `05UD1005-0006440`  identidad con guion (la que imprime la propia pantalla)
+ *   `05UD10050006440`   identidad SIN guion (lo que sale de copiar de un reporte o teclear)
+ *   `05UD1005-6440`     identidad con el folio sin los ceros a la izquierda
+ *   `0006440` / `6440`  folio suelto, con y sin ceros — busca en todas las plazas y cajas
+ *   `PD-2026-00012`     pedido propio de la plataforma
+ *
+ * `UD\d{4}` toma exactamente 4 dígitos (`doc_prefix` = `UD` + tipo(2) + caja(2)), así que el
+ * resto es el folio sin ambigüedad aunque no haya separador.
+ *
+ * Los ceros a la izquierda se prueban en las dos direcciones porque Kepler los guarda a 7
+ * posiciones y la gente dicta el número sin ellos: en la caja dicen "el seis mil cuatrocientos
+ * cuarenta" y en el sistema es `0006440`.
+ */
+export function parseFolioBuscado(termino: string): FolioBuscado {
+  // Se quitan TODOS los espacios, no sólo las puntas: un folio copiado de un PDF llega partido.
+  const crudo = String(termino || '').trim().toUpperCase().replace(/\s+/g, '');
+  if (!crudo) return { crudo: '', identidad: null, folios: [], code: null };
+
+  /** Un folio numérico y sus formas: como se tecleó, a 7 posiciones, y sin ceros de más. */
+  const variantesDeFolio = (f: string): string[] => {
+    const out = new Set<string>([f]);
+    const d = f.replace(/\D/g, '');
+    if (d) {
+      out.add(d);
+      if (d.length < 7) out.add(d.padStart(7, '0'));
+      out.add(String(Number(d)));
+    }
+    return [...out].filter(Boolean);
+  };
+
+  // Identidad completa: el guion es OPCIONAL.
+  const m = /^(\d{2})(UD\d{4})-?(\d+)$/.exec(crudo);
+  if (m) {
+    return {
+      crudo,
+      identidad: { sucursal: m[1], docPrefix: m[2], folios: variantesDeFolio(m[3]) },
+      folios: variantesDeFolio(m[3]),
+      code: null,
+    };
+  }
+
+  // Pedido propio.
+  if (/^PD-\d{4}-\d+$/.test(crudo)) return { crudo, identidad: null, folios: [crudo], code: crudo };
+
+  // Folio suelto. Sólo se le quitan las letras si el texto es enteramente numérico: si trae
+  // letras que no calzaron con ninguna forma conocida, arrancárselas fabrica un número que
+  // nadie tecleó — que es exactamente el bug que esta función existe para no repetir.
+  return { crudo, identidad: null, folios: /^\d+$/.test(crudo) ? variantesDeFolio(crudo) : [crudo], code: null };
+}
+
 @Injectable()
 export class CommercialTicketsService {
   constructor(
@@ -164,28 +241,9 @@ export class CommercialTicketsService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  /**
-   * Normaliza lo que el humano tecleó. Devuelve las variantes a buscar, no una sola:
-   * en la caja dictan "el dieciocho mil seiscientos sesenta y cinco" y en el sistema es
-   * `0018665`, así que hay que probar el número tal cual **y** rellenado a 7 dígitos.
-   */
-  private variantes(termino: string): { crudo: string; folios: string[]; folioDigital: string | null; code: string | null } {
-    const crudo = String(termino || '').trim().toUpperCase();
-    // Identidad completa pegada de otra pantalla: `03UD1001-0018665`.
-    const fd = /^(\d{2})(UD\d{4})-(.+)$/.test(crudo) ? crudo : null;
-    // Pedido propio: `PD-2026-00012`.
-    const code = /^PD-\d{4}-\d+$/.test(crudo) ? crudo : null;
-    const folios = new Set<string>();
-    const soloDigitos = crudo.replace(/\D/g, '');
-    if (crudo) folios.add(crudo);
-    if (soloDigitos) {
-      folios.add(soloDigitos);
-      // Kepler los guarda con ceros a la izquierda a 7 posiciones.
-      if (soloDigitos.length < 7) folios.add(soloDigitos.padStart(7, '0'));
-      // …y quien copia de un reporte a veces trae los ceros de más.
-      folios.add(String(Number(soloDigitos)));
-    }
-    return { crudo, folios: [...folios].filter(Boolean), folioDigital: fd, code };
+  /** Delegado en la función pura de arriba, que es la que tiene el candado. */
+  private variantes(termino: string): FolioBuscado {
+    return parseFolioBuscado(termino);
   }
 
   /**
@@ -212,8 +270,14 @@ export class CommercialTicketsService {
           't.caja', 't.folio', 't.fecha', 't.cliente_nombre', 't.total')
         .orderBy([{ column: 't.fecha', order: 'desc' }, { column: 't.sucursal', order: 'asc' }])
         .limit(MAX_CANDIDATOS + 1);
-      if (v.folioDigital) tk.andWhere('t.folio_digital', v.folioDigital);
-      else tk.whereIn('t.folio', v.folios);
+      // Con identidad reconocida se filtra por los TRES campos: es el camino indexado y no
+      // depende de que el humano haya escrito el guion. `folio_digital` es una concatenación,
+      // así que compararla como string no puede usar índice.
+      if (v.identidad) {
+        tk.andWhere('t.sucursal', v.identidad.sucursal)
+          .andWhere('t.doc_prefix', v.identidad.docPrefix)
+          .whereIn('t.folio', v.identidad.folios);
+      } else tk.whereIn('t.folio', v.folios);
       // `[]` ⇒ knex emite `1 = 0`: quien no alcanza ninguna sucursal ve cero filas, nunca todas.
       if (warehouseCodes) tk.whereIn('t.sucursal', warehouseCodes);
       for (const f of v.code ? [] : await tk) {
@@ -227,8 +291,11 @@ export class CommercialTicketsService {
           'i.cliente_nombre', 'i.total')
         .orderBy([{ column: 'i.fecha', order: 'desc' }, { column: 'i.sucursal', order: 'asc' }])
         .limit(MAX_CANDIDATOS + 1);
-      if (v.folioDigital) fa.andWhere('i.folio_digital', v.folioDigital);
-      else fa.whereIn('i.folio', v.folios);
+      if (v.identidad) {
+        fa.andWhere('i.sucursal', v.identidad.sucursal)
+          .andWhere('i.doc_prefix', v.identidad.docPrefix)
+          .whereIn('i.folio', v.identidad.folios);
+      } else fa.whereIn('i.folio', v.folios);
       if (warehouseCodes) fa.whereIn('i.sucursal', warehouseCodes);
       for (const f of v.code ? [] : await fa) {
         const origen: TicketOrigen = f.doc_tipo === 'credito' ? 'credito' : 'telemarketing';
@@ -255,7 +322,9 @@ export class CommercialTicketsService {
           trx.raw('o.created_at::date as fecha'), 'c.name as cliente_nombre', 'o.total')
         .orderBy('o.created_at', 'desc')
         .limit(MAX_CANDIDATOS + 1);
-      if (v.code) pd.andWhere('o.code', v.code);
+      // Con una identidad del ERP reconocida, ningún `PD-` puede calzar: no se lo consulta.
+      if (v.identidad) pd.whereRaw('1 = 0');
+      else if (v.code) pd.andWhere('o.code', v.code);
       // Sin prefijo `PD-`, el humano tecleó sólo el consecutivo: se busca por sufijo. `ILIKE`
       // con comodín al inicio no usa índice, pero `commercial.orders` es una tabla nuestra y
       // chica (miles), no las 3.4M líneas de Kepler.
