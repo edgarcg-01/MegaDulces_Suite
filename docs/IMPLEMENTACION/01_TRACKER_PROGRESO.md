@@ -230,6 +230,12 @@ importers.
   **Pendiente: push + redeploy de `view` para que quede vivo** (sin la ruta, ni el deploy actual lo mostraba).
   ⭐ **Lección:** un componente + tab + entrada de authz-tree NO alcanzan — si nadie registra la **ruta** en el router,
   la pantalla no existe. El tab apunta a una URL muerta y falla en silencio.
+- [~] **[PU.7]** 🧪 Gasto operativo (spec §9) — 2026-09-17, commit `72389223`. Vista dedicada «Gasto operativo»
+  en `/presupuesto` (Segmented) sobre las partidas `line_type='gasto'`: KPIs (presupuesto/comprometido+ejercido/
+  disponible/ocupación), tabla densa (clase, recurrencia, responsable, ocupación) y alta con control de sobregiro.
+  `budget.budget_lines` gana `expense_class` (fijo/variable) y `recurrence` (recurrente/no_recurrente) — columnas
+  nullable, solo aplican a gasto (mig `20260917200000`, aditiva e idempotente). `nx build api`+`view` verdes.
+  **Pendiente: mig a prod + push/redeploy + verificación HTTP (ADR-044).**
 
 ### Fase SU — Surtido por olas, desconsolidación y chequeo · 2026-09-17 · 🔨 DISEÑADO
 
