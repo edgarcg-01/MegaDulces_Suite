@@ -155,7 +155,7 @@ export class BudgetComparisonService {
         for (const m of months) inMap.set(m.ym, round2((inMap.get(m.ym) || 0) + meta * (m.days / total)));
       }
 
-      const months = [];
+      const months: Array<{ year_month: string; ingresos: number; egresos: number; resultado: number }> = [];
       for (let mm = 1; mm <= 12; mm++) {
         const ym = `${fy}-${String(mm).padStart(2, '0')}`;
         const ing = round2(inMap.get(ym) || 0); const eg = round2(egMap.get(ym) || 0);
