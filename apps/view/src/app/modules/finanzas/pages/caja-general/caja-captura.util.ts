@@ -179,3 +179,89 @@ export function textoCobertura(filas: Array<{ usables: number; filas_origen: num
   const cola = sinSub > 0 ? ` · ${sinSub} sin subcuenta, fuera del catálogo` : '';
   return `${usables.toLocaleString('es-MX')} conceptos de ${origen.toLocaleString('es-MX')}${cola}.`;
 }
+
+// ── CG.15 · El corte de caja, del lado de la pantalla ───────────────────────────────────
+//
+// ⚠️ ESTO ESPEJA a `libs/finance/src/lib/caja/cash-cut.engine.ts` A PROPÓSITO, no por
+// descuido: `apps/view` no puede importar de `@megadulces/finance` (sólo consume
+// `contracts`, `shared-scoring` y `ui-web`, y la compuerta de fronteras lo hace cumplir).
+// Existe para apagar un botón con su motivo en vez de que el usuario choque contra un 403.
+// **El candado está en la DB** (`cut_doble_llave_chk`); si esto y el servidor divergen manda
+// el servidor, y esto sólo puede ser IGUAL o MÁS ESTRICTO.
+
+export type VeredictoCorte = 'cuadra' | 'sobra' | 'falta' | 'sin_contar';
+
+export interface CorteVista {
+  id: string;
+  folio: string;
+  estado: 'borrador' | 'cerrado' | 'autorizado';
+  closed_by?: string | null;
+  closed_by_username?: string | null;
+  authorized_by_username?: string | null;
+  fondo_inicial?: number;
+  esperado?: number | null;
+  contado?: number | null;
+  diferencia?: number | null;
+}
+
+/**
+ * Veredicto del conteo. `sin_contar` es un estado propio: si devolviera `cuadra` con 0 contra
+ * 0, el día que nadie contó se vería igual que el día que cuadró al centavo.
+ */
+export function veredictoCorte(
+  esperado: number,
+  dens: DenominacionCapturada[] | null | undefined,
+  morralla = 0,
+): { veredicto: VeredictoCorte; contado: number; diferencia: number } {
+  const piezas = (dens ?? []).filter((d) => d && Number(d.piezas) > 0);
+  const hubo = piezas.length > 0 || Number(morralla) > 0;
+  const contado = sumaDesglose(dens, morralla);
+  const diferencia = redondea(contado - Number(esperado || 0));
+  if (!hubo) return { veredicto: 'sin_contar', contado: 0, diferencia: 0 };
+  if (Math.abs(diferencia) <= ARQUEO_EPSILON) return { veredicto: 'cuadra', contado, diferencia };
+  return { veredicto: diferencia > 0 ? 'sobra' : 'falta', contado, diferencia };
+}
+
+/** La doble llave, para el botón. Devuelve el motivo, no un booleano pelado. */
+export function puedeAutorizarUI(
+  c: CorteVista | null, userId: string | null | undefined,
+): { ok: boolean; texto: string } {
+  if (!c) return { ok: false, texto: 'No hay corte.' };
+  if (!userId) return { ok: false, texto: 'No se pudo identificar quién autoriza.' };
+  if (c.estado === 'autorizado') {
+    return { ok: false, texto: `Autorizado por ${c.authorized_by_username ?? 'otra persona'}.` };
+  }
+  if (c.estado !== 'cerrado') return { ok: false, texto: 'Primero hay que cerrar el corte.' };
+  if (c.closed_by && c.closed_by === userId) {
+    return { ok: false, texto: 'Vos cerraste este corte: tiene que autorizarlo otra persona.' };
+  }
+  return { ok: true, texto: `Cerrado por ${c.closed_by_username ?? 'el capturista'} — listo para autorizar.` };
+}
+
+export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): { ok: boolean; texto: string } {
+  if (!c) return { ok: false, texto: 'No hay corte abierto.' };
+  if (c.estado !== 'borrador') return { ok: false, texto: 'Este corte ya está cerrado.' };
+  if (veredicto === 'sin_contar') return { ok: false, texto: 'Contá el efectivo antes de cerrar.' };
+  // Se puede cerrar aunque NO cuadre: un faltante se registra, no se esconde.
+  return {
+    ok: true,
+    texto: veredicto === 'cuadra'
+      ? 'Cuadra — listo para cerrar.'
+      : 'No cuadra, pero se puede cerrar: la diferencia queda registrada.',
+  };
+}
+
+/**
+ * El saldo. `null` NO es cero: sin corte abierto la caja no tiene punto de partida, y
+ * dibujar $0.00 sería inventar un dato (ADR-056).
+ */
+export function textoSaldo(
+  r: { saldo: number | null; sin_corte_abierto?: boolean; corte_abierto?: { folio: string } | null } | null | undefined,
+): string {
+  if (!r) return 'Saldo: sin medir.';
+  if (r.sin_corte_abierto || r.saldo === null || r.saldo === undefined) {
+    return 'Saldo: sin corte abierto — la caja no tiene punto de partida.';
+  }
+  const m = r.saldo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
+  return `Saldo en caja: ${m} (corte ${r.corte_abierto?.folio ?? '—'}).`;
+}

@@ -39,6 +39,8 @@ export * from './lib/caja/caja-general.service';
 export * from './lib/caja/cash-ledger.service';
 export * from './lib/caja/caja-autofill.service';
 export * from './lib/caja/caja-autofill.engine';
+export * from './lib/caja/cash-cut.service';
+export * from './lib/caja/cash-cut.engine';
 export * from './lib/cancelled-docs/finance-cancelled-docs.module';
 export * from './lib/cancelled-docs/cancelled-docs.service';
 export * from './lib/feed-notify/finance-feed-notify.module';

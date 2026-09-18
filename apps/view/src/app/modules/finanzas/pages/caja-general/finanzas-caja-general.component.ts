@@ -13,10 +13,11 @@ import { MessageModule } from 'primeng/message';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
-import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento } from '../../cash-ledger.service';
+import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type AutofillResponse, type TipoMovimiento, type SaldoResponse, type CorteCaja } from '../../cash-ledger.service';
 import {
   DENOMINACIONES, estadoArqueo, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia,
-  textoCobertura, sumaDesglose, type DenominacionCapturada, type MotivoBloqueo,
+  textoCobertura, sumaDesglose, veredictoCorte, puedeAutorizarUI, puedeCerrarUI, textoSaldo,
+  type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
 
 /**
@@ -63,6 +64,18 @@ import {
         <p-message severity="warn" styleClass="w-full"
           text="No hay conceptos de Kepler disponibles. No se puede capturar sin cuenta contable — revisá el carril del ODS antes de seguir."></p-message>
       }
+
+      <div class="fin-corte-bar">
+        <span class="fin-saldo">{{ textoSaldoUI() }}</span>
+        @if (corteAbierto()) {
+          <p-tag [value]="'Corte ' + corteAbierto()!.folio" severity="info"></p-tag>
+          <p-button label="Cerrar corte" icon="pi pi-lock" size="small" severity="secondary"
+                    (onClick)="abrirCierre()"></p-button>
+        } @else {
+          <p-button label="Abrir corte" icon="pi pi-unlock" size="small" severity="secondary"
+                    (onClick)="abrirApertura()"></p-button>
+        }
+      </div>
 
       <app-metric-strip [items]="kpis()"></app-metric-strip>
 
@@ -177,6 +190,49 @@ import {
                   [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
       </ng-template>
     </p-dialog>
+
+    <p-dialog [(visible)]="aperturaAbierta" [modal]="true" [style]="{ width: '24rem' }"
+              header="Abrir corte de caja" [draggable]="false">
+      <div class="fin-form">
+        <div class="fin-row">
+          <label>Fondo inicial</label>
+          <p-inputnumber [(ngModel)]="fondoInicial" mode="currency" currency="MXN" locale="es-MX" />
+        </div>
+        <small class="fin-dim">Con qué efectivo arranca la caja. Es el punto de partida del saldo.</small>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="aperturaAbierta = false"></p-button>
+        <p-button label="Abrir" icon="pi pi-check" size="small" (onClick)="abrirCorte()"></p-button>
+      </ng-template>
+    </p-dialog>
+
+    <p-dialog [(visible)]="cierreAbierto" [modal]="true" [style]="{ width: '40rem' }"
+              header="Cerrar corte — contá el efectivo" [draggable]="false">
+      <div class="fin-form">
+        <p class="fin-dim">Esperado: <strong>{{ money(esperadoCorte()) }}</strong> ·
+          Contado: <strong>{{ money(veredicto().contado) }}</strong> ·
+          Diferencia: <strong>{{ money(veredicto().diferencia) }}</strong></p>
+        <p-tag [value]="veredicto().veredicto" [severity]="sevVeredicto(veredicto().veredicto)"></p-tag>
+        <div class="fin-denoms">
+          @for (d of denominaciones; track d) {
+            <label class="fin-denom">
+              <span class="mono">{{ money(d) }}</span>
+              <p-inputnumber [ngModel]="piezasCorteDe(d)" (ngModelChange)="setPiezasCorte(d, $event)" [min]="0" />
+            </label>
+          }
+        </div>
+        <div class="fin-row">
+          <label>Morralla</label>
+          <p-inputnumber [(ngModel)]="morrallaCorte" mode="currency" currency="MXN" locale="es-MX" />
+        </div>
+        <small [class]="gateCierre().ok ? 'fin-hint-ok' : 'fin-hint-warn'">{{ gateCierre().texto }}</small>
+      </div>
+      <ng-template pTemplate="footer">
+        <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cierreAbierto = false"></p-button>
+        <p-button label="Cerrar corte" icon="pi pi-lock" size="small"
+                  [disabled]="!gateCierre().ok" (onClick)="cerrarCorte()"></p-button>
+      </ng-template>
+    </p-dialog>
   `,
 })
 export class FinanzasCajaGeneralComponent implements OnInit {
@@ -195,6 +251,12 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number } | null>(null);
 
   capturaAbierta = false;
+  aperturaAbierta = false;
+  cierreAbierto = false;
+  fondoInicial = 0;
+  morrallaCorte = 0;
+  conteoCorte: DenominacionCapturada[] = [];
+  saldoResp = signal<SaldoResponse | null>(null);
   conceptoSel: (ConceptoKepler & { label: string }) | null = null;
   from = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10);
   to = new Date().toISOString().slice(0, 10);
@@ -218,6 +280,15 @@ export class FinanzasCajaGeneralComponent implements OnInit {
   ];
 
   coberturaTexto = computed(() => textoCobertura(this.cobertura()));
+  textoSaldoUI = computed(() => textoSaldo(this.saldoResp()));
+  corteAbierto = computed(() => this.saldoResp()?.corte_abierto ?? null);
+  esperadoCorte = computed(() => this.saldoResp()?.totales?.esperado ?? 0);
+  veredicto = computed(() => veredictoCorte(this.esperadoCorte(), this.conteoCorte, this.morrallaCorte));
+  corteVista = computed<CorteVista | null>(() => {
+    const c = this.corteAbierto();
+    return c ? { id: c.id, folio: c.folio, estado: 'borrador' } : null;
+  });
+  gateCierre = computed(() => puedeCerrarUI(this.corteVista(), this.veredicto().veredicto));
   hayConceptos = computed(() => this.cobertura().reduce((a, r) => a + Number(r.usables || 0), 0) > 0);
   bloqueos = computed<MotivoBloqueo[]>(() => motivosDeBloqueo(this.f));
   etiquetaConcepto = computed(() => etiquetaProcedencia(this.propuesta()?.concepto as never));
@@ -239,6 +310,52 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       error: () => this.cobertura.set([]),
     });
     this.cargar();
+    this.cargarSaldo();
+  }
+
+  /** Sucursal del corte. Por ahora fija; cuando haya selector, sale de ahí. */
+  private sucursalActiva = '00';
+
+  cargarSaldo(): void {
+    this.svc.saldo(this.sucursalActiva).subscribe({
+      next: (r) => this.saldoResp.set(r),
+      // Un error de red NO es "saldo 0": se declara como sin medir.
+      error: () => this.saldoResp.set(null),
+    });
+  }
+
+  abrirApertura(): void { this.fondoInicial = 0; this.aperturaAbierta = true; }
+
+  abrirCorte(): void {
+    this.svc.abrirCorte({
+      fecha: new Date().toISOString().slice(0, 10),
+      sucursal: this.sucursalActiva,
+      fondo_inicial: this.fondoInicial,
+    }).subscribe({ next: () => { this.aperturaAbierta = false; this.cargarSaldo(); } });
+  }
+
+  abrirCierre(): void { this.conteoCorte = []; this.morrallaCorte = 0; this.cierreAbierto = true; }
+
+  piezasCorteDe(d: number): number {
+    return this.conteoCorte.find((x) => x.denominacion === d)?.piezas ?? 0;
+  }
+
+  setPiezasCorte(d: number, piezas: number): void {
+    const list = this.conteoCorte.filter((x) => x.denominacion !== d);
+    if (Number(piezas) > 0) list.push({ denominacion: d, piezas: Number(piezas) });
+    this.conteoCorte = list;
+  }
+
+  sevVeredicto(v: string): 'success' | 'warn' | 'danger' | 'secondary' {
+    return v === 'cuadra' ? 'success' : v === 'sobra' ? 'warn' : v === 'falta' ? 'danger' : 'secondary';
+  }
+
+  cerrarCorte(): void {
+    const c = this.corteAbierto();
+    if (!c || !this.gateCierre().ok) return;
+    this.svc.cerrarCorte(c.id, this.conteoCorte, this.morrallaCorte).subscribe({
+      next: () => { this.cierreAbierto = false; this.cargarSaldo(); this.cargar(); },
+    });
   }
 
   private formVacio() {
@@ -342,7 +459,7 @@ export class FinanzasCajaGeneralComponent implements OnInit {
       autofill: this.propuesta()?.provenance ?? null,
       client_uuid: crypto.randomUUID(),
     }).subscribe({
-      next: () => { this.guardando.set(false); this.capturaAbierta = false; this.cargar(); },
+      next: () => { this.guardando.set(false); this.capturaAbierta = false; this.cargar(); this.cargarSaldo(); },
       error: () => { this.guardando.set(false); },
     });
   }

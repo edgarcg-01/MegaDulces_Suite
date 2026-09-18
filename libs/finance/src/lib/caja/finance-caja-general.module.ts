@@ -4,6 +4,7 @@ import { CajaGeneralController } from './caja-general.controller';
 import { CashLedgerService } from './cash-ledger.service';
 import { CashLedgerController } from './cash-ledger.controller';
 import { CajaAutofillService } from './caja-autofill.service';
+import { CashCutService } from './cash-cut.service';
 
 /**
  * Caja General. Dos mitades que conviven durante el traslape (ADR-070):
@@ -18,7 +19,7 @@ import { CajaAutofillService } from './caja-autofill.service';
  */
 @Module({
   controllers: [CajaGeneralController, CashLedgerController],
-  providers: [CajaGeneralService, CashLedgerService, CajaAutofillService],
-  exports: [CajaGeneralService, CashLedgerService, CajaAutofillService],
+  providers: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService],
+  exports: [CajaGeneralService, CashLedgerService, CajaAutofillService, CashCutService],
 })
 export class FinanceCajaGeneralModule {}
