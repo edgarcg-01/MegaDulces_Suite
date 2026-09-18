@@ -45,7 +45,7 @@ const SUB_BASE = process.env.ODS_SOURCE_BASE
 // 2026-09-07: la 03 dejó de ser la excepción (`kepler_pilot` → `kepler_md_03`).
 const { replicaDbName: localDbName } = require('../lib/kepler-branches'); // convención única de nombre de réplica
 const localUrl = (code) => { const u = new URL(SUB_BASE); u.pathname = `/${localDbName(code)}`; return u.toString(); };
-const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06').split(',').map((s) => s.trim()).filter(Boolean);
+const BRANCH_CODES = (process.env.ODS_LIVE_BRANCHES || '00,01,02,03,04,05,06,07,08').split(',').map((s) => s.trim()).filter(Boolean);
 
 /** Cuántos períodos por delante se pre-crean. 2 meses de colchón cubre un fin de semana largo. */
 const MESES_ADELANTE = Number(process.env.ODS_MONTHS_AHEAD || 2);
