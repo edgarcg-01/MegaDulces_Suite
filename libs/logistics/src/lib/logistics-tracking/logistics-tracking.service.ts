@@ -7,7 +7,12 @@ import {
 } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { FLEET_PROVIDER_PORT, FleetProviderPort, FleetObject } from './fleet-provider.port';
+import {
+  FLEET_PROVIDER_PORT,
+  FleetProviderPort,
+  FleetObject,
+  FleetAccountResult,
+} from './fleet-provider.port';
 import { FleetTrackingGateway } from './fleet-tracking.gateway';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -23,6 +28,8 @@ export interface SyncResult {
   linked: number;
   positions: number;
   ms: number;
+  /** LT.9 — qué aportó cada cuenta del proveedor (una caída no puede pasar muda). */
+  accounts?: FleetAccountResult[];
 }
 
 @Injectable()
@@ -47,7 +54,18 @@ export class LogisticsTrackingService {
    */
   async sync(tenantId: string = DEFAULT_TENANT_ID): Promise<SyncResult> {
     const started = Date.now();
-    const objects = await this.provider.fetchObjects();
+    // LT.9 — se prefiere el desglose por cuenta: si una de las dos cuentas del
+    // proveedor deja de responder, el total baja sin que nada falle, y sin este
+    // detalle eso es indistinguible de una flota más chica.
+    const fetched = this.provider.fetchObjectsDetailed
+      ? await this.provider.fetchObjectsDetailed()
+      : { objects: await this.provider.fetchObjects(), accounts: [] as FleetAccountResult[] };
+    const objects = fetched.objects;
+    const accounts = fetched.accounts;
+    for (const a of accounts) {
+      if (!a.ok) this.logger.error(`cuenta ${a.label} sin datos: ${a.error}`);
+      else if (a.count === 0) this.logger.warn(`cuenta ${a.label} respondió con 0 objetos`);
+    }
     let created = 0;
     let updated = 0;
     let linked = 0;
@@ -150,8 +168,11 @@ export class LogisticsTrackingService {
     });
 
     const ms = Date.now() - started;
+    const porCuenta = accounts.length
+      ? ` [${accounts.map((a) => `${a.label}=${a.ok ? a.count : 'FALLA'}`).join(' ')}]`
+      : '';
     this.logger.log(
-      `sync: ${objects.length} objetos → ${created} nuevos, ${updated} act, ${linked} vinculados, ${positions} posiciones (${ms}ms)`,
+      `sync: ${objects.length} objetos${porCuenta} → ${created} nuevos, ${updated} act, ${linked} vinculados, ${positions} posiciones (${ms}ms)`,
     );
 
     // LT.8 — empuja el snapshot en vivo al mapa (WS). Solo si hay clientes
@@ -163,7 +184,7 @@ export class LogisticsTrackingService {
       this.logger.warn(`emitLive falló (no crítico): ${e?.message || e}`);
     }
 
-    return { objects: objects.length, created, updated, linked, positions, ms };
+    return { objects: objects.length, created, updated, linked, positions, ms, accounts };
   }
 
   /**

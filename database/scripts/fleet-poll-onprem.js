@@ -10,6 +10,7 @@
  *
  * ENV (nunca hardcodear credenciales):
  *   MAGNI_USER, MAGNI_PASS                     — cuenta MagniTracking
+ *   MAGNI_USER2..9, MAGNI_PASS2..9             — [LT.9] cuentas ADICIONALES (opcionales)
  *   MAGNI_BASE_URL   (default magnitracking.net)
  *   FLEET_DB_URL                               — Postgres de Railway (prod)
  *   MEGADULCES_TENANT_ID (default d01c)
@@ -24,51 +25,84 @@ try { require('dotenv').config({ path: path.join(__dirname, '..', '..', '.env') 
 const { Client } = require('pg');
 
 const BASE = (process.env.MAGNI_BASE_URL || 'https://magnitracking.net').replace(/\/$/, '');
-const USER = process.env.MAGNI_USER || '';
-const PASS = process.env.MAGNI_PASS || '';
 const DB_URL = process.env.FLEET_DB_URL || process.env.RAILWAY_DB_URL || '';
 const TENANT = process.env.MEGADULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const INTERVAL = Number(process.env.FLEET_POLL_MS || 60000);
 const RUN_ONCE = process.env.FLEET_RUN_ONCE === '1';
 
-if (!USER || !PASS) { console.error('Falta MAGNI_USER / MAGNI_PASS'); process.exit(1); }
+// [LT.9] La flota no cabe en una sola cuenta del proveedor. Se leen el par base y
+// los pares numerados; SOLO los completos (media credencial suelta sería un login
+// fallido por minuto contra una cuenta compartida). Cada cuenta lleva su PROPIO
+// cookie jar: GPS-Server identifica la sesión por cookie, así que un jar único
+// haría que el login de la 2ª pisara al de la 1ª y las dos vieran la misma flota.
+const ACCOUNTS = [];
+(function readAccounts() {
+  const add = (label, user, pass) => { if (user && pass) ACCOUNTS.push({ label, user, pass, cookies: new Map(), loggedIn: false }); };
+  add('MAGNI_USER', process.env.MAGNI_USER, process.env.MAGNI_PASS);
+  for (let i = 2; i <= 9; i++) add(`MAGNI_USER${i}`, process.env[`MAGNI_USER${i}`], process.env[`MAGNI_PASS${i}`]);
+})();
+
+if (!ACCOUNTS.length) { console.error('Falta MAGNI_USER / MAGNI_PASS'); process.exit(1); }
 if (!DB_URL) { console.error('Falta FLEET_DB_URL (Postgres de Railway)'); process.exit(1); }
 
 // ── Sesión MagniTracking (legacy scraping, idéntico al adapter) ───────────────
-const cookies = new Map();
-let loggedIn = false;
-function absorb(res) {
+function absorb(acc, res) {
   const gsc = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
-  for (const c of gsc) { const [p] = c.split(';'); const i = p.indexOf('='); if (i > 0) cookies.set(p.slice(0, i).trim(), p.slice(i + 1).trim()); }
+  for (const c of gsc) { const [p] = c.split(';'); const i = p.indexOf('='); if (i > 0) acc.cookies.set(p.slice(0, i).trim(), p.slice(i + 1).trim()); }
 }
-const cookieHeader = () => [...cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
-async function post(p, body) {
+const cookieHeader = (acc) => [...acc.cookies.entries()].map(([k, v]) => `${k}=${v}`).join('; ');
+async function post(acc, p, body) {
   const res = await fetch(BASE + p, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Cookie: cookieHeader(), Origin: BASE },
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Cookie: cookieHeader(acc), Origin: BASE },
     body: new URLSearchParams(body).toString(),
   });
-  absorb(res); return res;
+  absorb(acc, res); return res;
 }
-async function ensureSession() {
-  if (loggedIn) return;
-  const seed = await fetch(`${BASE}/index.php`); absorb(seed);
-  const res = await post('/api/v1/fn_connect.php', { cmd: 'login', username: USER, password: PASS, remember_me: 'false', mobile: 'false' });
+async function ensureSession(acc) {
+  if (acc.loggedIn) return;
+  acc.cookies.clear();
+  const seed = await fetch(`${BASE}/index.php`); absorb(acc, seed);
+  const res = await post(acc, '/api/v1/fn_connect.php', { cmd: 'login', username: acc.user, password: acc.pass, remember_me: 'false', mobile: 'false' });
   const text = await res.text();
-  if (!/LOGIN_TRACKING|true/i.test(text)) throw new Error(`Login MagniTracking falló: ${text.slice(0, 120)}`);
-  loggedIn = true;
+  if (!/LOGIN_TRACKING|true/i.test(text)) throw new Error(`login rechazado: ${text.slice(0, 80)}`);
+  acc.loggedIn = true;
 }
-async function loadObjectData() {
-  const res = await post('/api/v1/main/fn_objects.php', { cmd: 'load_object_data' });
+async function loadObjectData(acc) {
+  const res = await post(acc, '/api/v1/main/fn_objects.php', { cmd: 'load_object_data' });
   const text = await res.text();
   try { return JSON.parse(text); } catch { return null; }
 }
-async function fetchObjects() {
-  await ensureSession();
-  let raw = await loadObjectData();
-  if (!raw || typeof raw !== 'object') { loggedIn = false; await ensureSession(); raw = await loadObjectData(); }
-  if (!raw || typeof raw !== 'object') return [];
+async function fetchObjectsOne(acc) {
+  await ensureSession(acc);
+  let raw = await loadObjectData(acc);
+  if (!raw || typeof raw !== 'object') { acc.loggedIn = false; await ensureSession(acc); raw = await loadObjectData(acc); }
+  if (!raw || typeof raw !== 'object') throw new Error('fn_objects no devolvió objeto tras re-login');
   return Object.entries(raw).map(([imei, v]) => normalizeLegacy(imei, v));
+}
+
+/** Unión de TODAS las cuentas, deduplicada por IMEI con el fix más fresco. */
+async function fetchObjects() {
+  const porCuenta = [];
+  const merged = new Map();
+  for (const acc of ACCOUNTS) {
+    try {
+      const objs = await fetchObjectsOne(acc);
+      porCuenta.push({ label: acc.label, ok: true, count: objs.length });
+      for (const o of objs) {
+        if (!o.imei) continue;
+        const prev = merged.get(o.imei);
+        const a = prev && prev.capturedAt ? Date.parse(prev.capturedAt) : -1;
+        const b = o.capturedAt ? Date.parse(o.capturedAt) : -1;
+        if (!prev || b > a) merged.set(o.imei, o);
+      }
+    } catch (e) {
+      acc.loggedIn = false;
+      porCuenta.push({ label: acc.label, ok: false, count: 0, error: e.message.split('\n')[0].slice(0, 120) });
+      console.error(`  cuenta ${acc.label} falló: ${e.message.split('\n')[0]}`);
+    }
+  }
+  return { objects: [...merged.values()], accounts: porCuenta };
 }
 
 // ── Normalización + helpers (calcados de magnitracking.adapter / service) ─────
@@ -78,7 +112,10 @@ function toIso(dt) {
   const m = dt.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
   return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}-06:00` : null;
 }
-function mapStatus(st) { return st === 'm' ? 'moving' : st === 's' ? 'stopped' : st === 'off' ? 'offline' : 'unknown'; }
+// `i` = RALENTÍ (motor encendido, sin desplazarse) — lo dice el propio `ststr` del
+// proveedor ("Ralenti 2 H 8 Min 57 S", speed=0, acc=1). Caía en 'unknown', que
+// significa "no sabemos"; el matiz queda en last_status_text + last_ignition.
+function mapStatus(st) { return st === 'm' ? 'moving' : (st === 's' || st === 'i') ? 'stopped' : st === 'off' ? 'offline' : 'unknown'; }
 function normalizeLegacy(imei, v) {
   const d = (v && v.d && v.d[0]) || [];
   const sensors = d[7] && typeof d[7] === 'object' ? d[7] : {};
@@ -111,7 +148,7 @@ function matchVehicle(name, vehicles) {
 // ── Un ciclo de sync (misma semántica que LogisticsTrackingService.sync) ──────
 async function syncOnce(db) {
   const started = Date.now();
-  const objects = await fetchObjects();
+  const { objects, accounts } = await fetchObjects();
   let created = 0, updated = 0, linked = 0, positions = 0;
 
   const { rows: vehicles } = await db.query(
@@ -175,8 +212,9 @@ async function syncOnce(db) {
     }
   }
   const ms = Date.now() - started;
-  console.log(`[${new Date().toISOString()}] sync: ${objects.length} objetos → ${created} nuevos, ${updated} act, ${linked} vinculados, ${positions} posiciones (${ms}ms)`);
-  return { objetos: objects.length, created, updated, linked, positions, ms };
+  const detalle = accounts.map((a) => `${a.label}=${a.ok ? a.count : 'FALLA'}`).join(' ');
+  console.log(`[${new Date().toISOString()}] sync: ${objects.length} objetos [${detalle}] → ${created} nuevos, ${updated} act, ${linked} vinculados, ${positions} posiciones (${ms}ms)`);
+  return { objetos: objects.length, created, updated, linked, positions, ms, accounts };
 }
 
 // ── LATIDO (VL.4b) ────────────────────────────────────────────────────────────
@@ -226,13 +264,22 @@ async function cycle() {
     // la sesión con MagniTracking expire o cambie el login (no hay API oficial — ADR-034, el
     // adapter replica el login de la web). Cuando eso pasa `fn_objects` devuelve vacío y el ciclo
     // termina "bien" habiendo entregado NADA. Con ~50 devices, cero nunca es un estado normal.
-    const vacio = r.objetos === 0;
+    //
+    // [LT.9] Y con DOS cuentas el umbral tiene que ser POR CUENTA, no sobre el total: si la que
+    // trae las 7 unidades pesadas se cae, el total sigue siendo 49 — un número perfectamente
+    // sano que esconde que media flota dejó de reportar. Una cuenta caída o en cero = error.
+    const caidas = r.accounts.filter((a) => !a.ok || a.count === 0);
+    const detalle = r.accounts.map((a) => `${a.label}=${a.ok ? a.count : 'FALLA'}`).join(' ');
     await latir(db, 'end', {
-      status: vacio ? 'error' : 'ok',
+      status: r.objetos === 0 || caidas.length ? 'error' : 'ok',
       rows: r.positions,
       ms: Date.now() - t0,
-      note: `${r.objetos} objetos · ${r.positions} posiciones · ${r.linked} vinculados`,
-      error: vacio ? 'el proveedor devolvió 0 objetos (sesión caída o login cambiado) — no se entregó nada' : null,
+      note: `${r.objetos} objetos [${detalle}] · ${r.positions} posiciones · ${r.linked} vinculados`,
+      error: r.objetos === 0
+        ? 'el proveedor devolvió 0 objetos (sesión caída o login cambiado) — no se entregó nada'
+        : caidas.length
+          ? `cuenta(s) sin datos: ${caidas.map((a) => `${a.label} (${a.error || '0 objetos'})`).join(' · ')}`
+          : null,
     });
   } catch (e) {
     await latir(db, 'end', { status: 'error', ms: Date.now() - t0, error: e.message.split('\n')[0] });

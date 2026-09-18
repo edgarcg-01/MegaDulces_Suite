@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as https from 'https';
 import {
+  FleetAccountResult,
+  FleetFetchResult,
   FleetObject,
   FleetObjectStatus,
   FleetHistoryPoint,
@@ -8,6 +10,22 @@ import {
   ProviderOperator,
   ProviderTravel,
 } from './fleet-provider.port';
+
+/**
+ * LT.9 — Una cuenta del proveedor con su PROPIA sesión. El cookie jar y el token
+ * NO se comparten entre cuentas: GPS-Server.net identifica la sesión por cookie,
+ * así que un jar único haría que el login de la segunda cuenta pisara el de la
+ * primera y las dos consultas devolvieran la misma flota (o ninguna).
+ */
+interface MagniAccount {
+  label: string;
+  user: string;
+  pass: string;
+  cookies: Map<string, string>;
+  loggedIn: boolean;
+  token: string;
+  tokenExpEpochMs: number;
+}
 
 /**
  * LT.7 — Adaptador MagniTracking sobre la API OFICIAL (OpenAPI v2, JWT Bearer).
@@ -23,6 +41,12 @@ import {
  *   MAGNI_BASE_URL (default https://magnitracking.net), MAGNI_API_CLIENT_ID,
  *   MAGNI_USER, MAGNI_PASS.
  *
+ * LT.9 — VARIAS CUENTAS. La flota no cabe en una sola cuenta del proveedor: se
+ * leen `MAGNI_USER`/`MAGNI_PASS` y además `MAGNI_USER2..9`/`MAGNI_PASS2..9`, y
+ * se devuelve la UNIÓN deduplicada por IMEI. Medido 2026-09-17: cuenta 1 = 49
+ * camionetas de ruta/reparto, cuenta 2 = 7 unidades pesadas (HINO, FREIGHTLINER,
+ * 3× INTERNATIONAL), 2 IMEIs en ambas → 54 dispositivos únicos.
+ *
  * Si NO hay MAGNI_API_CLIENT_ID cae al scraping de sesión legacy (fallback) para
  * no romper prod hasta que la API key esté configurada.
  */
@@ -33,45 +57,95 @@ export class MagniTrackingAdapter implements FleetProviderPort {
 
   private readonly baseUrl = (process.env.MAGNI_BASE_URL || 'https://magnitracking.net').replace(/\/$/, '');
   private readonly clientId = process.env.MAGNI_API_CLIENT_ID || '';
-  private readonly user = process.env.MAGNI_USER || '';
-  private readonly pass = process.env.MAGNI_PASS || '';
-
-  // Token OAuth cacheado.
-  private token = '';
-  private tokenExpEpochMs = 0;
-  // Sesión legacy (fallback scraping).
-  private cookies = new Map<string, string>();
-  private loggedIn = false;
+  private readonly accounts: MagniAccount[] = readAccountsFromEnv();
 
   private get useOfficialApi(): boolean {
-    return Boolean(this.clientId && this.user && this.pass);
+    return Boolean(this.clientId && this.accounts.length);
   }
 
   isConfigured(): boolean {
-    return Boolean(this.user && this.pass);
+    return this.accounts.length > 0;
+  }
+
+  /** Etiquetas de las cuentas configuradas (para logs y diagnóstico). */
+  get accountLabels(): string[] {
+    return this.accounts.map((a) => a.label);
   }
 
   // ── API oficial ──────────────────────────────────────────────────────────
 
   async fetchObjects(): Promise<FleetObject[]> {
+    return (await this.fetchObjectsDetailed()).objects;
+  }
+
+  /**
+   * LT.9 — Recorre TODAS las cuentas configuradas y devuelve la unión.
+   *
+   * Una cuenta caída NO tumba a las demás (se sigue publicando lo que sí llegó),
+   * pero queda declarada en `accounts` y el tracker que dejó de reportar envejece
+   * solo → la alerta de "sin señal" lo levanta. Si fallan TODAS sí tira: entregar
+   * cero en silencio es el modo de falla que este carril ya vivió.
+   */
+  async fetchObjectsDetailed(): Promise<FleetFetchResult> {
     if (!this.isConfigured()) {
       throw new Error('MagniTracking sin credenciales (MAGNI_USER / MAGNI_PASS)');
     }
-    if (!this.useOfficialApi) return this.fetchObjectsLegacy();
+    const accounts: FleetAccountResult[] = [];
+    const merged = new Map<string, FleetObject>();
 
-    const token = await this.ensureToken();
+    for (const acc of this.accounts) {
+      try {
+        const objs = this.useOfficialApi
+          ? await this.fetchObjectsApi(acc)
+          : await this.fetchObjectsLegacy(acc);
+        accounts.push({ label: acc.label, ok: true, count: objs.length });
+        for (const o of objs) mergeFreshest(merged, o);
+      } catch (e: any) {
+        const error = (e?.message || String(e)).split('\n')[0].slice(0, 160);
+        accounts.push({ label: acc.label, ok: false, count: 0, error });
+        this.logger.error(`cuenta ${acc.label} falló: ${error}`);
+        acc.loggedIn = false; // fuerza re-login limpio en la próxima pasada
+        acc.token = '';
+      }
+    }
+
+    if (!accounts.some((a) => a.ok)) {
+      throw new Error(
+        `todas las cuentas MagniTracking fallaron: ${accounts.map((a) => `${a.label}=${a.error}`).join(' · ')}`,
+      );
+    }
+    return { objects: Array.from(merged.values()), accounts };
+  }
+
+  /** API oficial: una cuenta. */
+  private async fetchObjectsApi(acc: MagniAccount): Promise<FleetObject[]> {
+    const token = await this.ensureToken(acc);
     const res = await fetch(`${this.baseUrl}/api/v1/endpoints/locations.php?imei=*&sensors=true`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     });
+    // Sin este chequeo un 401 (token vencido, cuenta suspendida) se leía como
+    // `data` ausente y salía como flota vacía, indistinguible de "no hay unidades".
+    if (!res.ok) throw new Error(`locations.php HTTP ${res.status}`);
     const json = await res.json().catch(() => null);
     const data = json?.data;
-    if (!data || typeof data !== 'object') return [];
-    return Object.entries(data).map(([imei, v]) => this.normalizeLocation(imei, v));
+    if (!data || typeof data !== 'object') throw new Error('locations.php sin `data` utilizable');
+    return Object.entries(data).map(([imei, v]) => ({
+      ...this.normalizeLocation(imei, v),
+      account: acc.label,
+    }));
   }
 
   async fetchOperators(): Promise<ProviderOperator[]> {
     if (!this.useOfficialApi) return [];
-    const token = await this.ensureToken();
+    const out = new Map<string, ProviderOperator>();
+    for (const acc of this.accounts) {
+      for (const o of await this.fetchOperatorsOne(acc)) if (!out.has(o.id)) out.set(o.id, o);
+    }
+    return Array.from(out.values());
+  }
+
+  private async fetchOperatorsOne(acc: MagniAccount): Promise<ProviderOperator[]> {
+    const token = await this.ensureToken(acc);
     const res = await fetch(`${this.baseUrl}/api/v1/endpoints/operators.php`, {
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
     });
@@ -84,7 +158,19 @@ export class MagniTrackingAdapter implements FleetProviderPort {
 
   async fetchTravels(): Promise<ProviderTravel[]> {
     if (!this.useOfficialApi) return [];
-    const token = await this.ensureToken();
+    const out: ProviderTravel[] = [];
+    const vistos = new Set<string>();
+    for (const acc of this.accounts) {
+      for (const t of await this.fetchTravelsOne(acc)) {
+        const k = `${t.noPlaneacion}|${t.imei ?? ''}`;
+        if (!vistos.has(k)) { vistos.add(k); out.push(t); }
+      }
+    }
+    return out;
+  }
+
+  private async fetchTravelsOne(acc: MagniAccount): Promise<ProviderTravel[]> {
+    const token = await this.ensureToken(acc);
     // travels.php pide body JSON en un GET (no estándar) → https.request lo permite.
     const today = this.todayMx();
     const from = this.addDaysMx(today, -14);
@@ -113,7 +199,24 @@ export class MagniTrackingAdapter implements FleetProviderPort {
    */
   async fetchHistory(imeis: string[], from: string, to: string): Promise<FleetHistoryPoint[]> {
     if (!this.useOfficialApi) return [];
-    const token = await this.ensureToken();
+    // Un IMEI vive en UNA cuenta; se pregunta a todas y se une (la que no lo
+    // tiene simplemente no lo devuelve). Dedupe por (imei, instante).
+    const out = new Map<string, FleetHistoryPoint>();
+    for (const acc of this.accounts) {
+      for (const p of await this.fetchHistoryOne(acc, imeis, from, to)) {
+        out.set(`${p.imei}|${p.capturedAt}`, p);
+      }
+    }
+    return Array.from(out.values());
+  }
+
+  private async fetchHistoryOne(
+    acc: MagniAccount,
+    imeis: string[],
+    from: string,
+    to: string,
+  ): Promise<FleetHistoryPoint[]> {
+    const token = await this.ensureToken(acc);
     const imei = (imeis && imeis.length ? imeis.join(',') : '*');
     const qs = new URLSearchParams({ imei, from, to, sensors: 'false' }).toString();
     const res = await fetch(`${this.baseUrl}/api/v1/endpoints/history.php?${qs}`, {
@@ -140,16 +243,16 @@ export class MagniTrackingAdapter implements FleetProviderPort {
     return out;
   }
 
-  private async ensureToken(): Promise<string> {
-    if (this.token && Date.now() < this.tokenExpEpochMs - 60_000) return this.token;
+  private async ensureToken(acc: MagniAccount): Promise<string> {
+    if (acc.token && Date.now() < acc.tokenExpEpochMs - 60_000) return acc.token;
     const res = await fetch(`${this.baseUrl}/api/v1/endpoints/auth.php`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         grant_type: 'password',
         client_id: this.clientId,
-        username: this.user,
-        password: this.pass,
+        username: acc.user,
+        password: acc.pass,
       }).toString(),
     });
     const json = await res.json().catch(() => null);
@@ -157,9 +260,9 @@ export class MagniTrackingAdapter implements FleetProviderPort {
     if (!token) throw new Error(`Auth MagniTracking falló: ${JSON.stringify(json).slice(0, 160)}`);
     // expires_in puede ser epoch absoluto (ej. 1750399443) o segundos relativos.
     const exp = Number(json?.data?.expires_in || json?.expires_in || 0);
-    this.tokenExpEpochMs = exp > 1_000_000_000 ? exp * 1000 : Date.now() + (exp || 3600) * 1000;
-    this.token = token;
-    this.logger.log('Token MagniTracking obtenido (API oficial)');
+    acc.tokenExpEpochMs = exp > 1_000_000_000 ? exp * 1000 : Date.now() + (exp || 3600) * 1000;
+    acc.token = token;
+    this.logger.log(`Token MagniTracking obtenido (API oficial, cuenta ${acc.label})`);
     return token;
   }
 
@@ -247,63 +350,72 @@ export class MagniTrackingAdapter implements FleetProviderPort {
 
   // ── Fallback: scraping de sesión legacy (mientras no haya API key) ─────────
 
-  private async fetchObjectsLegacy(): Promise<FleetObject[]> {
-    await this.ensureSession();
-    let raw = await this.loadObjectData();
+  private async fetchObjectsLegacy(acc: MagniAccount): Promise<FleetObject[]> {
+    await this.ensureSession(acc);
+    let raw = await this.loadObjectData(acc);
     if (!raw || typeof raw !== 'object') {
-      this.loggedIn = false;
-      await this.ensureSession();
-      raw = await this.loadObjectData();
+      acc.loggedIn = false;
+      await this.ensureSession(acc);
+      raw = await this.loadObjectData(acc);
     }
-    if (!raw || typeof raw !== 'object') return [];
-    return Object.entries(raw).map(([imei, v]) => this.normalizeLegacy(imei, v));
+    // Antes devolvía [] acá: una sesión rota se publicaba como "flota vacía". Con
+    // dos cuentas eso sería peor todavía (la mitad de la flota desapareciendo sin
+    // que nada falle), así que se declara como falla DE ESA cuenta.
+    if (!raw || typeof raw !== 'object') {
+      throw new Error('fn_objects no devolvió objeto tras re-login (sesión rechazada)');
+    }
+    return Object.entries(raw).map(([imei, v]) => ({
+      ...this.normalizeLegacy(imei, v),
+      account: acc.label,
+    }));
   }
 
-  private async ensureSession(): Promise<void> {
-    if (this.loggedIn) return;
+  private async ensureSession(acc: MagniAccount): Promise<void> {
+    if (acc.loggedIn) return;
+    acc.cookies.clear(); // jar limpio: una cookie vieja de otra sesión hace fallar el login
     const seed = await fetch(`${this.baseUrl}/index.php`);
-    this.absorbCookies(seed);
-    const res = await this.post('/api/v1/fn_connect.php', {
-      cmd: 'login', username: this.user, password: this.pass, remember_me: 'false', mobile: 'false',
+    this.absorbCookies(acc, seed);
+    const res = await this.post(acc, '/api/v1/fn_connect.php', {
+      cmd: 'login', username: acc.user, password: acc.pass, remember_me: 'false', mobile: 'false',
     });
     const text = await res.text();
     if (!/LOGIN_TRACKING|true/i.test(text)) throw new Error(`Login MagniTracking falló: ${text.slice(0, 120)}`);
-    this.loggedIn = true;
-    this.logger.log('Sesión MagniTracking iniciada (fallback scraping)');
+    acc.loggedIn = true;
+    this.logger.log(`Sesión MagniTracking iniciada (fallback scraping, cuenta ${acc.label})`);
   }
 
-  private async loadObjectData(): Promise<Record<string, any> | null> {
-    const res = await this.post('/api/v1/main/fn_objects.php', { cmd: 'load_object_data' });
+  private async loadObjectData(acc: MagniAccount): Promise<Record<string, any> | null> {
+    const res = await this.post(acc, '/api/v1/main/fn_objects.php', { cmd: 'load_object_data' });
     const text = await res.text();
     try { return JSON.parse(text); } catch { return null; }
   }
 
-  private async post(path: string, body: Record<string, string>): Promise<Response> {
+  private async post(acc: MagniAccount, path: string, body: Record<string, string>): Promise<Response> {
     const res = await fetch(this.baseUrl + path, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
         'X-Requested-With': 'XMLHttpRequest',
-        Cookie: this.cookieHeader(),
+        Cookie: this.cookieHeader(acc),
         Origin: this.baseUrl,
       },
       body: new URLSearchParams(body).toString(),
     });
-    this.absorbCookies(res);
+    this.absorbCookies(acc, res);
     return res;
   }
 
-  private absorbCookies(res: Response): void {
+  private absorbCookies(acc: MagniAccount, res: Response): void {
     const setCookies: string[] =
       typeof (res.headers as any).getSetCookie === 'function' ? (res.headers as any).getSetCookie() : [];
     for (const c of setCookies) {
       const [pair] = c.split(';');
       const idx = pair.indexOf('=');
-      if (idx > 0) this.cookies.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
+      if (idx > 0) acc.cookies.set(pair.slice(0, idx).trim(), pair.slice(idx + 1).trim());
     }
   }
-  private cookieHeader(): string {
-    return Array.from(this.cookies.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
+  private cookieHeader(acc: MagniAccount): string {
+    return Array.from(acc.cookies.entries()).map(([k, v]) => `${k}=${v}`).join('; ');
   }
 
   private normalizeLegacy(imei: string, v: any): FleetObject {
@@ -335,8 +447,50 @@ export class MagniTrackingAdapter implements FleetProviderPort {
     switch (st) {
       case 'm': return 'moving';
       case 's': return 'stopped';
+      // `i` = RALENTÍ (motor encendido, sin desplazarse). No estaba mapeado y caía
+      // en 'unknown', que significa "no sabemos" — y sí sabíamos: lo dice el propio
+      // proveedor en `ststr` ("Ralenti 2 H 8 Min 57 S", speed=0, acc=1), que ya
+      // veníamos guardando en `last_status_text`. Para el mapa y las alertas es una
+      // unidad detenida; el matiz sigue vivo en `last_status_text` + `last_ignition`.
+      case 'i': return 'stopped';
       case 'off': return 'offline';
       default: return 'unknown';
     }
   }
+}
+
+// ── helpers de cuentas ───────────────────────────────────────────────────────
+
+/**
+ * LT.9 — Lee las cuentas del entorno: el par base `MAGNI_USER`/`MAGNI_PASS` y
+ * después `MAGNI_USER2..9`/`MAGNI_PASS2..9`. Solo entran los pares COMPLETOS:
+ * media credencial suelta produciría un login fallido cada minuto contra el
+ * proveedor, con la cuenta compartida de por medio.
+ */
+function readAccountsFromEnv(): MagniAccount[] {
+  const out: MagniAccount[] = [];
+  const add = (label: string, user?: string, pass?: string) => {
+    if (!user || !pass) return;
+    out.push({ label, user, pass, cookies: new Map(), loggedIn: false, token: '', tokenExpEpochMs: 0 });
+  };
+  add('MAGNI_USER', process.env.MAGNI_USER, process.env.MAGNI_PASS);
+  for (let i = 2; i <= 9; i++) {
+    add(`MAGNI_USER${i}`, process.env[`MAGNI_USER${i}`], process.env[`MAGNI_PASS${i}`]);
+  }
+  return out;
+}
+
+/**
+ * Une por IMEI quedándose con la lectura MÁS FRESCA. Las cuentas se traslapan a
+ * propósito (medido: 2 de 54 dispositivos están dados de alta en ambas y devuelven
+ * el mismo fix al segundo); el desempate por `capturedAt` hace que el resultado no
+ * dependa del orden en que se leyeron las cuentas.
+ */
+function mergeFreshest(map: Map<string, FleetObject>, o: FleetObject): void {
+  if (!o.imei) return;
+  const prev = map.get(o.imei);
+  if (!prev) { map.set(o.imei, o); return; }
+  const a = prev.capturedAt ? Date.parse(prev.capturedAt) : -1;
+  const b = o.capturedAt ? Date.parse(o.capturedAt) : -1;
+  if (b > a) map.set(o.imei, o);
 }

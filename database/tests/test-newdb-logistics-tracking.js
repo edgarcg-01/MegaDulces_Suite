@@ -15,8 +15,13 @@ const { esFaltaDeAcceso, noMedido } = require('./_lib/no-medido');
 
 const TENANT = process.env.MEGADULCES_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const BASE = (process.env.MAGNI_BASE_URL || 'https://magnitracking.net').replace(/\/$/, '');
-const USER = process.env.MAGNI_USER;
-const PASS = process.env.MAGNI_PASS;
+// [LT.9] Una o varias cuentas del proveedor: par base + MAGNI_USER2..9/MAGNI_PASS2..9.
+const ACCOUNTS = [];
+(function () {
+  const add = (label, user, pass) => { if (user && pass) ACCOUNTS.push({ label, user, pass, cookies: new Map() }); };
+  add('MAGNI_USER', process.env.MAGNI_USER, process.env.MAGNI_PASS);
+  for (let i = 2; i <= 9; i++) add(`MAGNI_USER${i}`, process.env[`MAGNI_USER${i}`], process.env[`MAGNI_PASS${i}`]);
+})();
 
 let assertions = 0;
 function assert(cond, msg) {
@@ -26,17 +31,20 @@ function assert(cond, msg) {
 }
 
 // ── provider (replica del adapter) ───────────────────────────────────────────
-const cookies = new Map();
-function absorb(res) {
+// [LT.9] Un cookie jar POR CUENTA. Con uno solo el login de la 2ª cuenta pisa la
+// sesión de la 1ª y las dos consultas devuelven la misma flota — el bug que este
+// bloque tiene que poder detectar.
+function absorb(acc, res) {
   const cs = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [];
-  for (const c of cs) { const [p] = c.split(';'); const i = p.indexOf('='); if (i > 0) cookies.set(p.slice(0, i).trim(), p.slice(i + 1).trim()); }
+  for (const c of cs) { const [p] = c.split(';'); const i = p.indexOf('='); if (i > 0) acc.cookies.set(p.slice(0, i).trim(), p.slice(i + 1).trim()); }
 }
-const cookieHeader = () => [...cookies].map(([k, v]) => `${k}=${v}`).join('; ');
-async function post(path, body) {
-  const res = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Cookie: cookieHeader(), Origin: BASE }, body: new URLSearchParams(body).toString() });
-  absorb(res); return res;
+const cookieHeader = (acc) => [...acc.cookies].map(([k, v]) => `${k}=${v}`).join('; ');
+async function post(acc, path, body) {
+  const res = await fetch(BASE + path, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8', 'X-Requested-With': 'XMLHttpRequest', Cookie: cookieHeader(acc), Origin: BASE }, body: new URLSearchParams(body).toString() });
+  absorb(acc, res); return res;
 }
-const mapStatus = (s) => ({ m: 'moving', s: 'stopped', off: 'offline' }[s] || 'unknown');
+// `i` = ralentí (lo dice el `ststr` del proveedor), no "desconocido".
+const mapStatus = (s) => ({ m: 'moving', s: 'stopped', i: 'stopped', off: 'offline' }[s] || 'unknown');
 const toIso = (dt) => { const m = (dt || '').match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/); return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}-06:00` : null; };
 const parseRoute = (n) => { const m = (n || '').match(/R[\s-]?(\d{1,3})\b/i); return m ? `R-${m[1]}` : null; };
 const KNOWN_BRANDS = ['NISSAN', 'CHEVROLET', 'FORD', 'RAM', 'DODGE', 'TOYOTA', 'HONDA', 'VOLKSWAGEN', 'VW', 'AVANZA', 'ITALIKA', 'TRANSIT', 'SUBURBAN', 'SAVEIRO', 'JEEP', 'MAZDA', 'HINO', 'ISUZU', 'INTERNATIONAL', 'FREIGHTLINER', 'KENWORTH'];
@@ -71,15 +79,32 @@ function matchVehicle(name, vehicles) {
   for (const v of vehicles) if (v.plate && toks.has(v.plate.toUpperCase())) return v.id;
   return null;
 }
-async function fetchObjects() {
-  await fetch(`${BASE}/index.php`).then(absorb);
-  const lg = await (await post('/api/v1/fn_connect.php', { cmd: 'login', username: USER, password: PASS, remember_me: 'false', mobile: 'false' })).text();
-  if (!/LOGIN_TRACKING|true/i.test(lg)) throw new Error('login falló: ' + lg.slice(0, 80));
-  const raw = JSON.parse(await (await post('/api/v1/main/fn_objects.php', { cmd: 'load_object_data' })).text());
+async function fetchObjectsOne(acc) {
+  await fetch(`${BASE}/index.php`).then((r) => absorb(acc, r));
+  const lg = await (await post(acc, '/api/v1/fn_connect.php', { cmd: 'login', username: acc.user, password: acc.pass, remember_me: 'false', mobile: 'false' })).text();
+  if (!/LOGIN_TRACKING|true/i.test(lg)) throw new Error(`login falló (${acc.label}): ` + lg.slice(0, 80));
+  const raw = JSON.parse(await (await post(acc, '/api/v1/main/fn_objects.php', { cmd: 'load_object_data' })).text());
   return Object.entries(raw).map(([imei, v]) => {
     const d = (v.d && v.d[0]) || {}; const s = d[7] && typeof d[7] === 'object' ? d[7] : {};
-    return { imei, name: (v.name || '').trim(), status: mapStatus(v.st), statusText: v.ststr, simNumber: v.sim_number, protocol: v.p, odometer: Number(v.o) || null, capturedAt: toIso(d[1]), lat: Number(d[2]) || null, lng: Number(d[3]) || null, altitude: Number(d[4]) || null, heading: Number(d[5]) || null, speedKmh: Number(d[6]) || null, ignition: s.acc !== undefined ? String(s.acc) === '1' : null };
+    return { imei, account: acc.label, name: (v.name || '').trim(), status: mapStatus(v.st), statusText: v.ststr, simNumber: v.sim_number, protocol: v.p, odometer: Number(v.o) || null, capturedAt: toIso(d[1]), lat: Number(d[2]) || null, lng: Number(d[3]) || null, altitude: Number(d[4]) || null, heading: Number(d[5]) || null, speedKmh: Number(d[6]) || null, ignition: s.acc !== undefined ? String(s.acc) === '1' : null };
   });
+}
+
+/** Unión de todas las cuentas, deduplicada por IMEI con el fix más fresco. */
+async function fetchObjects() {
+  const merged = new Map();
+  const porCuenta = [];
+  for (const acc of ACCOUNTS) {
+    const objs = await fetchObjectsOne(acc);
+    porCuenta.push({ label: acc.label, count: objs.length });
+    for (const o of objs) {
+      const prev = merged.get(o.imei);
+      const a = prev && prev.capturedAt ? Date.parse(prev.capturedAt) : -1;
+      const b = o.capturedAt ? Date.parse(o.capturedAt) : -1;
+      if (!prev || b > a) merged.set(o.imei, o);
+    }
+  }
+  return { objects: [...merged.values()], accounts: porCuenta };
 }
 
 // ── sync (replica del service) ───────────────────────────────────────────────
@@ -199,7 +224,7 @@ async function offlineContract(client) {
   try {
     await offlineContract(client);
 
-    if (!USER || !PASS) {
+    if (!ACCOUNTS.length) {
       console.log('\n  ~ SKIP del bloque contra proveedor: faltan MAGNI_USER / MAGNI_PASS.');
       console.log('    (hace login real contra MagniTracking y ESCRIBE trackers/posiciones;');
       console.log('     correr a mano con las credenciales cuando se toque el adapter)');
@@ -208,8 +233,26 @@ async function offlineContract(client) {
       process.exit(0);
     }
 
-    const objects = await fetchObjects();
-    assert(objects.length > 0, `proveedor devolvió ${objects.length} objetos`);
+    const fetched = await fetchObjects();
+    const objects = fetched.objects;
+    console.log('  cuentas:', fetched.accounts.map((a) => `${a.label}=${a.count}`).join(' · '));
+    assert(objects.length > 0, `proveedor devolvió ${objects.length} objetos (unión de ${ACCOUNTS.length} cuenta(s))`);
+
+    // [LT.9] Contrato de la unión multi-cuenta.
+    const imeis = objects.map((o) => o.imei);
+    assert(new Set(imeis).size === imeis.length, `unión sin IMEIs repetidos (${imeis.length} únicos)`);
+    const maxCuenta = Math.max(...fetched.accounts.map((a) => a.count));
+    assert(objects.length >= maxCuenta, `la unión (${objects.length}) no es menor que la cuenta más grande (${maxCuenta})`);
+    if (ACCOUNTS.length > 1) {
+      const suma = fetched.accounts.reduce((s, a) => s + a.count, 0);
+      assert(objects.length <= suma, `la unión (${objects.length}) no excede la suma de cuentas (${suma}); traslape = ${suma - objects.length}`);
+      // Prueba negativa del cookie jar: si las cuentas compartieran sesión, la
+      // segunda leería la flota de la primera y los conjuntos serían idénticos.
+      assert(
+        new Set(objects.map((o) => o.account)).size > 1,
+        'la unión trae objetos de más de una cuenta (sesiones aisladas, no se pisan)',
+      );
+    }
 
     const r1 = await sync(client, objects);
     console.log('  sync #1:', JSON.stringify(r1));

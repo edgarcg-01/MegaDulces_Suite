@@ -23,6 +23,8 @@ export interface FleetObject {
   heading?: number;
   ignition?: boolean;
   altitude?: number;
+  /** LT.9 — de qué cuenta del proveedor salió (para depurar, no se persiste). */
+  account?: string;
 }
 
 /** Operador (chofer/vendedor) del proveedor. */
@@ -45,6 +47,26 @@ export interface FleetHistoryPoint {
   odometer?: number;
 }
 
+/**
+ * LT.9 — Resultado de UNA cuenta del proveedor. La flota de Mega Dulces vive en
+ * DOS cuentas MagniTracking (medido 2026-09-17: 49 camionetas en la primera, 7
+ * unidades pesadas en la segunda, 2 IMEIs compartidos → 54 únicos). Se reporta
+ * cuenta por cuenta a propósito: si una se cae y la otra responde, el total
+ * baja sin que nada falle — y eso, sin este desglose, se ve igual que "todo bien".
+ */
+export interface FleetAccountResult {
+  label: string; // nombre de la var de entorno de la cuenta (MAGNI_USER, MAGNI_USER2…)
+  ok: boolean;
+  count: number; // objetos que devolvió ESA cuenta (antes de deduplicar)
+  error?: string;
+}
+
+/** Lectura de la flota + de dónde salió cada parte. */
+export interface FleetFetchResult {
+  objects: FleetObject[]; // unión deduplicada por IMEI
+  accounts: FleetAccountResult[];
+}
+
 /** Ruta de bitácora del proveedor: amarra ruta ↔ operador ↔ camión (IMEI). */
 export interface ProviderTravel {
   noPlaneacion: string; // número de planeación (nº de ruta)
@@ -58,8 +80,14 @@ export interface ProviderTravel {
 }
 
 export interface FleetProviderPort {
-  /** Trae la última lectura de TODOS los objetos de la cuenta. */
+  /** Trae la última lectura de TODOS los objetos de TODAS las cuentas. */
   fetchObjects(): Promise<FleetObject[]>;
+  /**
+   * Igual que `fetchObjects()` pero declarando qué aportó cada cuenta. El
+   * llamador debe preferirlo cuando existe: sin el desglose, una cuenta que
+   * dejó de responder es indistinguible de una flota más chica.
+   */
+  fetchObjectsDetailed?(): Promise<FleetFetchResult>;
   /** Operadores de la cuenta (vacío si el proveedor/adaptador no lo soporta). */
   fetchOperators?(): Promise<ProviderOperator[]>;
   /** Rutas activas (para el puente ruta↔operador↔camión). Vacío si no soportado. */
