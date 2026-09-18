@@ -618,12 +618,21 @@ veces (~12k/año).
   que pierde una fila deja de ser espejo; es la misma razón por la que WR.8 tuvo que inventar
   `_ocurrencia`.
 
-`test-dulceria-replica-fidelidad.js` **lo asserta y está en ROJO a propósito**: es la compuerta
-que impide agendar el carril con el defecto puesto. Por eso la suite **no entra todavía a
-`run-all-tests.js`** — un rojo permanente en el tablero enseña a ignorarlo (OBS.8).
+**✅ RESUELTO el mismo día.** `PK_OVERRIDE` en la config declara la identidad que el origen no
+declara: **`(TipoDto, IdDocto, Fecha, HoraD, Cuenta)`**, medida **única sobre las 116,503 filas
+reales**, y ninguna de las cinco columnas está entre las que mutan.
+
+Va como **`UNIQUE NULLS NOT DISTINCT`**, no como `PRIMARY KEY`, y eso también se aprendió
+rompiéndolo: una identidad que declaramos nosotros no puede asumir `NOT NULL`, y **1 fila de
+116,503** trae `HoraD` e `IdDocto` en NULL — tumbó la carga a la mitad (68,000 filas adentro). Con
+el `UNIQUE` clásico los nulos son distintos entre sí y esa fila se reinsertaría en cada pasada;
+`NULLS NOT DISTINCT` (PG 15+) la hace chocar consigo misma y actualizarse.
+
+**Probado con mutación real, no por inspección:** se cambió `Corte` en una fila del espejo y la
+pasada siguiente escribió **1** y dejó **116,503** — actualizó en su lugar, no duplicó.
+`test-dulceria-replica-fidelidad.js` pasa **10 OK / 0 FALLA** y ya está en la regresión.
 
 **Pendiente, y por qué:**
-- ⛔ **Decidir la identidad del espejo de `Doctos`** (arriba). **Bloquea agendar el carril.**
 - ⬜ **El shipper a prod.** Acá está el hueco de arquitectura que faltaba nombrar: la réplica vive
   en `:5433/dulceria` (local) y `analytics.*` en `postgres_platform` (prod). **Postgres no cruza
   bases sin FDW**, y meter un FDW de prod hacia un contenedor local haría que prod dependa de que

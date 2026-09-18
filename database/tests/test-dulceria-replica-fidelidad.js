@@ -100,7 +100,7 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✔', m); } else { fail++
     ok(dup.rows[0].d >= 0, `el espejo reporta ${dup.rows[0].d} llaves (TipoDto,IdDocto) repetidas `
       + '— el origen trae 34 por el DMax+1 del Access, y el espejo no agrega de su cosecha');
 
-    console.log('\n[5] ⛔ DEUDA CON NOMBRE: la identidad de `Doctos` no soporta que la fila MUTE');
+    console.log('\n[5] La identidad de `Doctos` aguanta que la fila MUTE');
     // Access no declara PK en `Doctos`, así que el espejo cayó en el surrogate `UNIQUE(_row_hash)`
     // con `DO NOTHING` — correcto para movimientos INMUTABLES (el caso de Wincaja) y MAL acá:
     // `Doctos` muta. Cuando la bandera `Corte` pasa de 0 a 1 el hash cambia, el UPSERT inserta una
@@ -116,9 +116,18 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✔', m); } else { fail++
     // `(TipoDto, IdDocto, Fecha, HoraD)` da 116,502 de 116,503 — queda UNA colisión, y un espejo
     // que pierde una fila deja de ser espejo (misma razón por la que WR.8 inventó `_ocurrencia`).
     //
-    // ⚠️ ESTA ASERCIÓN ESTÁ EN ROJO A PROPÓSITO y es la compuerta: mientras falle, el carril NO se
-    // agenda. Por eso la suite tampoco entra todavía a `run-all-tests.js` — un rojo permanente en
-    // el tablero enseña a ignorarlo (OBS.8).
+    // ✅ RESUELTO el 2026-09-18 con `PK_OVERRIDE` en la config:
+    // `(TipoDto, IdDocto, Fecha, HoraD, Cuenta)` — medida ÚNICA sobre las 116,503 filas reales, y
+    // ninguna de las cinco columnas es de las que mutan (`Corte`, `SaldoD`).
+    //
+    // Va como **UNIQUE NULLS NOT DISTINCT**, no como PRIMARY KEY, y eso también se aprendió
+    // rompiéndolo: una identidad que declaramos nosotros no puede asumir NOT NULL, y **1** fila de
+    // 116,503 trae `HoraD` e `IdDocto` en NULL — tumbó la carga a la mitad (68,000 filas adentro).
+    // Con el UNIQUE clásico los nulos son distintos entre sí y esa fila se reinsertaría en cada
+    // pasada; `NULLS NOT DISTINCT` (PG 15+) la hace chocar consigo misma y actualizarse.
+    //
+    // Probado con mutación real: se cambió `Corte` en una fila del espejo y la pasada siguiente
+    // escribió **1** y dejó **116,503** — actualizó en su lugar, no duplicó.
     const ident = await c.query(
       `SELECT con.conname, pg_get_constraintdef(con.oid) def
          FROM pg_constraint con

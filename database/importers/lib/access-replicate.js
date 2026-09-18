@@ -28,6 +28,41 @@ const { conflictTarget, dataColumns, HK_HASH } = require(path.join(__dirname, 'a
 
 const q = (id) => '"' + String(id).replace(/"/g, '""') + '"';
 
+/**
+ * `PK_OVERRIDE` — declarar la identidad de una tabla que el ORIGEN no declara.
+ *
+ * Access no siempre trae PK. El espejo entonces cae en el surrogate `UNIQUE(_row_hash)` con
+ * `DO NOTHING`, que es correcto para movimientos INMUTABLES… y está MAL para una tabla que MUTA:
+ * al cambiar cualquier columna cambia el hash, el UPSERT inserta una fila NUEVA y la vieja se
+ * queda. El espejo acumula las dos versiones del mismo hecho.
+ *
+ * Lo destapó CG.9 con `Doctos`: su bandera `Corte` se prende DESPUÉS de capturar. Sin esto, cada
+ * movimiento capturado y cortado el mismo día entraría dos veces.
+ *
+ * ⚠️ REGLAS, porque una identidad mal elegida hace daño en las dos direcciones:
+ *   · Las columnas tienen que EXISTIR (se valida acá: una columna mal escrita daría una PK que
+ *     Postgres rechaza al crear la tabla, o peor, un conflict target que nunca hace match).
+ *   · Las columnas NO pueden ser de las que mutan — si lo son, vuelve el mismo bug.
+ *   · Y la combinación tiene que ser ÚNICA sobre el corpus REAL, medido, no supuesto: si colapsa
+ *     filas, el espejo deja de ser espejo.
+ */
+function aplicarPkOverride(t, cfg) {
+  const ov = (cfg.PK_OVERRIDE || {})[t.table];
+  if (!ov || !ov.length) return t;
+  const nombres = new Set((t.columns || []).map((c) => c && c.name));
+  const faltan = ov.filter((c) => !nombres.has(c));
+  if (faltan.length) {
+    // Silencio no: una identidad que no se pudo aplicar deja el surrogate puesto y el bug vivo.
+    console.warn(`  ⚠️ ${t.table}: PK_OVERRIDE menciona columnas que no existen (${faltan.join(', ')}) `
+      + '→ se ignora y queda el surrogate _row_hash. REVISAR: la tabla sigue sin soportar mutación.');
+    return t;
+  }
+  // `_pkDeclarada` avisa al generador de DDL que esta identidad la pusimos nosotros, no la
+  // fuente → va como UNIQUE NULLS NOT DISTINCT, no como PRIMARY KEY (ver access-mirror.js).
+  return { ...t, pk: ov, _pkDeclarada: true };
+}
+
+
 function parseArgs(argv) {
   const get = (p) => (argv.find((a) => a.startsWith(p)) || '').split('=')[1];
   const only = get('--only=');
@@ -88,7 +123,7 @@ function run(cfg, argv = process.argv) {
       let sc;
       try { sc = A.discoverSchema(f, { noCounts: true }); }
       catch (e) { fallas.push(`${path.basename(f)}: ${e.message}`); continue; }
-      for (const t of sc) if (t.columns.length && !seen.has(t.table)) seen.set(t.table, { ...t, _file: f });
+      for (const t of sc) if (t.columns.length && !seen.has(t.table)) seen.set(t.table, { ...aplicarPkOverride(t, cfg), _file: f });
     }
     const arr = [...seen.values()];
     // Un descubrimiento VACÍO no es un estado válido: es la fuente inalcanzable (share sin montar,
