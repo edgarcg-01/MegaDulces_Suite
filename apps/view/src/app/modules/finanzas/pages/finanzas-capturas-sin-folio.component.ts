@@ -105,6 +105,12 @@ interface SolSug { folio: string; fecha: string | null; importe: number; benefic
                 <td>
                   {{ r.solicitante }}
                   <span class="cf-meta">{{ r.sucursal_nombre || r.sucursal || '—' }} · {{ dmy(r.fecha_gasto) }}</span>
+                  <!-- GX.13 — el trabajador pudo escribir una sucursal que no está en el
+                       catálogo (plaza nueva). Sin este aviso entra como una más y nadie la
+                       da de alta: sucursal_nombre viene del join con warehouses. -->
+                  @if (!r.sucursal_nombre && r.sucursal) {
+                    <span class="cf-bad cf-nosol" title="Esta sucursal no está en el catálogo — hay que darla de alta o corregirla">sucursal nueva</span>
+                  }
                 </td>
                 <td>{{ r.proveedor }}</td>
                 <td class="muted"><span class="cf-trunc" [title]="r.comentarios || ''">{{ r.comentarios || '—' }}</span></td>
@@ -460,7 +466,7 @@ export class FinanzasCapturasSinFolioComponent {
           this.nuevaPersona = ''; this.nuevaSucursal = '';
           this.cargarLinks();
           this.copiar(l);
-          this.toast.add({ severity: 'success', summary: `Link de ${l.persona}`, detail: 'Copiado — mandáselo por WhatsApp.' });
+          this.toast.add({ severity: 'success', summary: `Link de ${l.persona}`, detail: 'Copiado — mándaselo por WhatsApp.' });
         },
         error: (e) => {
           this.emitiendo.set(false);

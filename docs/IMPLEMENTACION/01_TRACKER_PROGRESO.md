@@ -957,6 +957,40 @@ re-medir**.
 
 ---
 
+## GX.13 — El ticket se lee solo, la sucursal se puede escribir, y el texto habla mexicano 🧪 2026-09-18 (en código)
+
+Tres cosas que salieron de ver la pantalla del trabajador en uso.
+
+- [x] **[GX.13.1] Claude Vision llena «¿De cuánto fue?».** El ticket trae el importe impreso:
+      pedírselo tecleado era hacerle copiar a mano un número que la foto ya tiene — y en un
+      celular, en la calle, ahí es donde se equivoca. Endpoint público `POST
+      /finance/captura/:token/leer-ticket` + `leerTicketPreview()`. Llena importe, beneficiario
+      (`comercio`) y fecha.
+      ⚠️ **Es una PROPUESTA, no un veredicto:** no pisa lo que la persona ya escribió, **se
+      declara en pantalla** de dónde salió el número (un campo que se llena solo y no avisa
+      parece un error del sistema, y entonces nadie lo revisa) y una fecha futura se descarta.
+      El cuadre autoritativo sigue corriendo en el servidor al enviar. Degrada sin
+      `ANTHROPIC_API_KEY`: se teclea como antes.
+- [x] **[GX.13.2] La sucursal se puede escribir.** El `select` sólo ofrecía el catálogo, y una
+      plaza nueva existe en la calle antes que en `commercial.warehouses`. Opción «Otra — no
+      está en la lista» que revela un campo libre. **Y en oficina se marca:** la bandeja pinta
+      «sucursal nueva» cuando el join con warehouses no resuelve — sin eso entraba como una
+      más y nadie la daba de alta. Sin migración: `sucursal` ya era texto.
+- [x] **[GX.13.3] El texto pasa a español de México.** 17 textos en 4 archivos estaban en
+      voseo rioplatense (*«contá qué pasó»*, *«Elegí»*, *«Revisá tu señal»*, *«Pedile a tu
+      jefe»*, *«Encuadrá el papel»*). Lo lee personal en México.
+
+**Verificado:** `nx build view` verde · `tsc` del API limpio.
+
+⚠️ **Sin smoke:** el entorno local sigue caído. Lo nuevo —la lectura del ticket— **no se pudo
+ejercer ni una vez**; además necesita `ANTHROPIC_API_KEY` y el bucket, que en local tampoco
+están. Es lo primero que hay que probar cuando el entorno vuelva.
+
+⚠️ **Quinta vez** que un acento grave dentro de un comentario del template literal rompe el
+build en este repo (CLAUDE.md ya lo marcaba a la cuarta). Pasó al documentar una columna.
+
+---
+
 ## 📋 BACKLOG — Fase A: Fundaciones
 
 > Empezar por aquí. Cada ítem es un commit-able task.
