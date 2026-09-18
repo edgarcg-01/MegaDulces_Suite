@@ -381,12 +381,16 @@ max_slot_wal_keep_size = '20GB'         # tope: si el slot lo excede se invalida
 ```conf
 # pg_hba.conf — DOS renglones, y el segundo se olvida siempre.
 # La replicación lógica conecta a la DB REAL, no al pseudo-db 'replication'.
-host    md_07    ods_repl       192.168.0.249/32    scram-sha-256
-host    md_07    platform_ro    192.168.0.249/32    scram-sha-256
+host    md_07    ods_repl       192.168.0.222/32    scram-sha-256
+host    md_07    platform_ro    192.168.0.222/32    scram-sha-256
 ```
 `SELECT pg_reload_conf();` alcanza para `pg_hba` (no requiere reinicio).
 
-`192.168.0.249` es este servidor, el que hospeda las réplicas. Si tras recargar el verificador sigue
+`192.168.0.222` es el servidor `md`, el que hospeda las réplicas desde VL.2b (2026-09-11).
+⚠️ Hasta esa fecha era `192.168.0.249`, y este runbook lo decía así: si en algún POS quedó el
+renglón viejo, su rama NO conecta. Verificado el 2026-09-18: el contenedor sale con `192.168.0.222`
+(`ip route get` da `src 192.168.0.222`) y las 8 suscripciones conectan, o sea que los POS ya
+cableados fueron actualizados uno por uno. El que se dé de alta AHORA nace con `.222`. Si tras recargar el verificador sigue
 diciendo *"no pg_hba entry"*, el log del POS nombra la IP de origen real (el contenedor puede salir
 con NAT distinto): usar ésa, no ampliar a `/24` a ciegas.
 
@@ -611,9 +615,9 @@ Dos renglones. **El de `ods_repl` es el que siempre se olvida**, y sin él la su
 nunca aunque todo lo demás esté bien:
 
 ```conf
-# ODS de la plataforma (servidor 192.168.0.249)
-host    md_07    ods_repl       192.168.0.249/32    scram-sha-256
-host    md_07    platform_ro    192.168.0.249/32    scram-sha-256
+# ODS de la plataforma (servidor `md` 192.168.0.222 — era .249 hasta VL.2b)
+host    md_07    ods_repl       192.168.0.222/32    scram-sha-256
+host    md_07    platform_ro    192.168.0.222/32    scram-sha-256
 ```
 
 Tres detalles que hacen fallar esto:
@@ -665,7 +669,7 @@ Es la causa más probable de que hoy `192.168.32.32` no responda ni en 5432 ni e
 Administrador, ajustando el puerto al que de verdad use ese POS:
 
 ```bat
-netsh advfirewall firewall add rule name="PostgreSQL ODS" dir=in action=allow protocol=TCP localport=1977 remoteip=192.168.0.249
+netsh advfirewall firewall add rule name="PostgreSQL ODS" dir=in action=allow protocol=TCP localport=1977 remoteip=192.168.0.222
 ```
 
 `remoteip` deja entrar **sólo** a este servidor, que es lo que hace falta. Para ver si ya había una

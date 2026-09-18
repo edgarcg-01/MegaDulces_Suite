@@ -133,4 +133,4 @@ SELECT count(*) AS tablas_sin_identidad_de_fila
 \echo 'Si `wal_level` no dice `logical`, o `listen_addresses` no expone la LAN, falta editar'
 \echo 'postgresql.conf y pg_hba.conf y REINICIAR el servicio. Los renglones exactos y el resto'
 \echo 'del cableado (suscripcion, registro de la rama, corte del carril Wincaja) estan en:'
-\echo '  docs/RUNBOOK_ALTA_SUCURSAL_KEPLER.md'
+\echo '  docs/IMPLEMENTACION/RUNBOOK_REPLICACION_LOGICA.md'
