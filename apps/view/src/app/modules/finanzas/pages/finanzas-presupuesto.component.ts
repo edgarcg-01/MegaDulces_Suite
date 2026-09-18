@@ -77,6 +77,7 @@ interface SalesCell {
   warehouse_code: string; branch_name: string | null; period_no: number;
   meta: number | null; real: number | null; real_prior: number | null;
   cumplimiento_pct: number | null; crec_pct: number | null; part_pct: number | null;
+  method: string | null;
 }
 interface SalesComparison {
   budget: { id: string; name: string; fiscal_year: number; status: string };
@@ -90,6 +91,26 @@ interface SalesEntity { entity_key: string; channel: string; channel_label: stri
 interface SalesRow {
   label: string; channel_label: string; entity_key: string | null; is_rollup: boolean;
   meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null; part_pct: number | null;
+  method: string | null;
+}
+// PVA — propuesta automática
+interface GrowthChannel { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }
+interface GrowthProposal {
+  by_channel: Record<string, GrowthChannel>;
+  global: { growth_pct: number; basis: string; paired_periods: number };
+  years_available: number[]; fiscal_year: number; min_paired_periods?: number;
+}
+interface GrowthEditRow { channel: string; channel_label: string; growth_pct: number; basis: string; paired_periods: number }
+interface ProposeCoverage { historico_ajustado: number; estacional: number; no_signal: number; manual_kept: number }
+interface IndicatorSeries { year: number; real: number | null; crec_pct: number | null; part_pct: number | null }
+interface IndicatorCurrent { meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null }
+interface IndicatorRow { channel?: string; channel_label: string; label?: string; entity_key?: string; series: IndicatorSeries[]; current: IndicatorCurrent }
+interface SalesIndicators {
+  budget: { id: string; name: string; fiscal_year: number; status: string };
+  prior_year: number; years_available: number[];
+  company: { series: IndicatorSeries[]; current: IndicatorCurrent };
+  by_channel: IndicatorRow[]; by_entity: IndicatorRow[];
+  data_as_of: string | null; real_available: boolean;
 }
 
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
@@ -264,50 +285,108 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           @if (selected(); as b) {
             <div class="pres-section-head">
               <h2>Presupuesto de ventas · <span class="pres-muted">{{ b.name }} {{ b.fiscal_year }}</span></h2>
-              @if (b.status === 'borrador' || b.status === 'en_revision') {
-                <button pButton type="button" class="p-button-sm" (click)="openGenPlan()"><span class="pi pi-bolt"></span>&nbsp;Generar desde histórico</button>
-              }
-            </div>
-            @if (salesCmp(); as c) {
-              <div class="pres-summary-head">
-                @if (c.real_available && c.data_as_of) {
-                  <app-freshness-pill measures="data" [since]="c.data_as_of" [staleAfterSec]="86400" />
-                } @else {
-                  <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
+              <div class="pres-detail-actions">
+                <app-segmented [options]="salesTabOpts" [value]="salesTab()" (valueChange)="setSalesTab($any($event))" ariaLabel="Vista de ventas" />
+                @if (b.status === 'borrador' || b.status === 'en_revision') {
+                  <button pButton type="button" class="p-button-sm" (click)="openProposePlan()"><span class="pi pi-bolt"></span>&nbsp;Proponer plan del año</button>
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="openGenPlan()" title="Crecimiento plano único">Generar plano</button>
                 }
-                <span class="pres-muted">CREC = crecimiento vs {{ c.prior_year }}</span>
               </div>
-              <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
-              <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
-                <label class="pres-muted">Periodo (13×4):</label>
-                <p-select [options]="periodOpts" [(ngModel)]="salesPeriod" optionLabel="label" optionValue="value" placeholder="Todos" styleClass="pres-inline-select" />
-              </div>
-              <p-table [value]="salesRows()" [loading]="loadingSales()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
-                <ng-template #header>
-                  <tr>
-                    <th>Entidad</th><th>Canal</th>
-                    <th class="ta-r">Meta</th><th class="ta-r">Real</th><th class="ta-r">Cumpl.</th>
-                    <th class="ta-r">CREC</th><th class="ta-r">PART</th>
-                    <th style="width:3rem"><span class="sr-only">Acciones</span></th>
-                  </tr>
-                </ng-template>
-                <ng-template #body let-r>
-                  <tr [class.pres-rollup]="r.is_rollup">
-                    <td>{{ r.label }}</td>
-                    <td class="pres-muted">{{ r.channel_label }}</td>
-                    <td class="ta-r pres-mono">{{ r.meta == null ? '—' : money(r.meta) }}</td>
-                    <td class="ta-r pres-mono">{{ r.real == null ? '—' : money(r.real) }}</td>
-                    <td class="ta-r pres-mono">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
-                    <td class="ta-r pres-mono" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
-                    <td class="ta-r pres-mono">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
-                    <td>@if (!r.is_rollup && salesPeriod > 0 && (b.status === 'borrador' || b.status === 'en_revision')) { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMetaEdit(r)" title="Capturar meta" aria-label="Capturar meta"><span class="pi pi-pencil"></span></button> }</td>
-                  </tr>
-                </ng-template>
-                <ng-template #emptymessage><tr><td colspan="8" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Generá desde histórico o capturá metas por periodo. }</td></tr></ng-template>
-              </p-table>
-              <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan (partida ingreso). <strong>Real</strong> = sell-out del ODS rolado al calendario 13×4. <strong>CREC</strong> = crecimiento año vs año. <strong>PART</strong> = participación en el total. «Sin datos» ≠ cero (—). Para capturar/ajustar una meta, elegí un periodo (P1–P13).</p>
-            } @else if (loadingSales()) {
-              <p class="pres-muted">Cargando presupuesto de ventas…</p>
+            </div>
+
+            <!-- ── PLAN (pivote meta vs real) ── -->
+            @if (salesTab() === 'plan') {
+              @if (salesCmp(); as c) {
+                <div class="pres-summary-head">
+                  @if (c.real_available && c.data_as_of) {
+                    <app-freshness-pill measures="data" [since]="c.data_as_of" [staleAfterSec]="86400" />
+                  } @else {
+                    <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
+                  }
+                  <span class="pres-muted">CREC = crecimiento vs {{ c.prior_year }}</span>
+                </div>
+                <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
+                @if (lastCoverage(); as cov) {
+                  <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.no_signal }}</strong> sin señal (no se inventan) · <strong>{{ cov.manual_kept }}</strong> capturadas a mano.</p>
+                }
+                <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
+                  <label class="pres-muted">Periodo (13×4):</label>
+                  <p-select [options]="periodOpts" [(ngModel)]="salesPeriod" optionLabel="label" optionValue="value" placeholder="Todos" styleClass="pres-inline-select" />
+                </div>
+                <p-table [value]="salesRows()" [loading]="loadingSales()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+                  <ng-template #header>
+                    <tr>
+                      <th>Entidad</th><th>Canal</th><th>Origen</th>
+                      <th class="ta-r">Meta</th><th class="ta-r">Real</th><th class="ta-r">Cumpl.</th>
+                      <th class="ta-r">CREC</th><th class="ta-r">PART</th>
+                      <th style="width:3rem"><span class="sr-only">Acciones</span></th>
+                    </tr>
+                  </ng-template>
+                  <ng-template #body let-r>
+                    <tr [class.pres-rollup]="r.is_rollup">
+                      <td>{{ r.label }}</td>
+                      <td class="pres-muted">{{ r.channel_label }}</td>
+                      <td>@if (!r.is_rollup && r.method) { <span class="ec-src ec-src-{{ r.method }}">{{ methodLabel(r.method) }}</span> }</td>
+                      <td class="ta-r pres-mono">{{ r.meta == null ? '—' : money(r.meta) }}</td>
+                      <td class="ta-r pres-mono">{{ r.real == null ? '—' : money(r.real) }}</td>
+                      <td class="ta-r pres-mono">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
+                      <td class="ta-r pres-mono" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
+                      <td class="ta-r pres-mono">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
+                      <td>@if (!r.is_rollup && salesPeriod > 0 && (b.status === 'borrador' || b.status === 'en_revision')) { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMetaEdit(r)" title="Capturar meta" aria-label="Capturar meta"><span class="pi pi-pencil"></span></button> }</td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
+                </p-table>
+                <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad donde no hay base) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—). Para ajustar una meta a mano, elegí un periodo (P1–P13).</p>
+              } @else if (loadingSales()) {
+                <p class="pres-muted">Cargando presupuesto de ventas…</p>
+              }
+            }
+
+            <!-- ── INDICADORES (CREC/PART histórico + meta-vs-real) ── -->
+            @if (salesTab() === 'indicadores') {
+              @if (indicators(); as ind) {
+                <div class="pres-summary-head">
+                  @if (ind.real_available && ind.data_as_of) {
+                    <app-freshness-pill measures="data" [since]="ind.data_as_of" [staleAfterSec]="86400" />
+                  } @else {
+                    <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
+                  }
+                  <span class="pres-muted">Años con historia: {{ ind.years_available.join(', ') }} · CREC vs {{ ind.prior_year }}</span>
+                </div>
+                <p-table [value]="ind.by_channel" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+                  <ng-template #header>
+                    <tr>
+                      <th>Canal</th>
+                      <th class="ta-r">Real {{ ind.budget.fiscal_year }}</th><th class="ta-r">CREC</th><th class="ta-r">PART</th>
+                      <th class="ta-r">Meta</th><th class="ta-r">Cumpl.</th>
+                    </tr>
+                  </ng-template>
+                  <ng-template #body let-r>
+                    <tr>
+                      <td>{{ r.channel_label }}</td>
+                      <td class="ta-r pres-mono">{{ r.current.real == null ? '—' : money(r.current.real) }}</td>
+                      <td class="ta-r pres-mono" [class.pres-neg]="r.current.crec_pct != null && r.current.crec_pct < 0">{{ r.current.crec_pct == null ? '—' : r.current.crec_pct + '%' }}</td>
+                      <td class="ta-r pres-mono">{{ indPart(r) }}</td>
+                      <td class="ta-r pres-mono">{{ r.current.meta == null ? '—' : money(r.current.meta) }}</td>
+                      <td class="ta-r pres-mono">{{ r.current.cumplimiento_pct == null ? '—' : r.current.cumplimiento_pct + '%' }}</td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #footer>
+                    <tr class="pres-rollup">
+                      <td>Total Venta</td>
+                      <td class="ta-r pres-mono">{{ ind.company.current.real == null ? '—' : money(ind.company.current.real) }}</td>
+                      <td class="ta-r pres-mono">{{ ind.company.current.crec_pct == null ? '—' : ind.company.current.crec_pct + '%' }}</td>
+                      <td class="ta-r pres-mono">100%</td>
+                      <td class="ta-r pres-mono">{{ ind.company.current.meta == null ? '—' : money(ind.company.current.meta) }}</td>
+                      <td class="ta-r pres-mono">{{ ind.company.current.cumplimiento_pct == null ? '—' : ind.company.current.cumplimiento_pct + '%' }}</td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+                <p class="pres-hint"><span class="pi pi-info-circle"></span> Bloques de consolidación del reporte (CREC = crecimiento año vs año · PART = participación en el total), directo del sell-out del ODS. Reemplaza el seguimiento manual del Excel.</p>
+              } @else if (loadingIndicators()) {
+                <p class="pres-muted">Cargando indicadores…</p>
+              }
             }
           } @else {
             <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
@@ -571,6 +650,31 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       }
     </p-dialog>
 
+    <!-- Proponer plan del año (PVA) -->
+    <p-dialog [(visible)]="proposeVisible" [modal]="true" header="Proponer plan del año" [style]="{ width: '34rem' }">
+      <p class="pres-lbl-hint">El sistema propone el <strong>crecimiento por canal</strong> desde la tendencia histórica. Ajustá lo que quieras; con eso arma las 299 celdas (base real × crecimiento donde hay historia; participación + estacionalidad donde no). Lo que no tiene señal <strong>no se inventa</strong>.</p>
+      @if (loadingProposal()) {
+        <p class="pres-muted">Calculando la tendencia…</p>
+      } @else {
+        <table class="pres-propose-tbl">
+          <thead><tr><th>Canal</th><th class="ta-r">Crecimiento %</th><th>Base de la propuesta</th></tr></thead>
+          <tbody>
+            @for (g of growthRows(); track g.channel) {
+              <tr>
+                <td>{{ g.channel_label }}</td>
+                <td class="ta-r"><input pInputText type="number" [(ngModel)]="g.growth_pct" class="pres-growth-in" /></td>
+                <td class="pres-muted">{{ basisLabel(g.basis) }}@if (g.paired_periods > 0) { · {{ g.paired_periods }} periodos }</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+        <label class="pres-lbl">Crecimiento de respaldo (%) — canales sin tendencia</label>
+        <input pInputText type="number" [(ngModel)]="proposeDefaultGrowth" class="pres-full" />
+        <label class="pres-lbl"><p-checkbox [(ngModel)]="proposeOverwriteManual" [binary]="true" /> &nbsp;Sobrescribir metas capturadas a mano</label>
+        <div class="pres-dlg-actions"><button pButton type="button" (click)="confirmProposePlan()" [loading]="savingPropose()">Proponer plan</button></div>
+      }
+    </p-dialog>
+
     <!-- Movimiento de partida -->
     <p-dialog [(visible)]="movVisible" [modal]="true" [header]="'Movimiento — ' + (movLine()?.concept || '')" [style]="{ width: '30rem' }">
       @if (movLine(); as l) {
@@ -703,6 +807,15 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-full { width:100%; }
     .pres-check { display:flex; align-items:center; gap:.4rem; margin-top:.6rem; font-size:.82rem; }
     .pres-dlg-actions { margin-top:.8rem; }
+    /* PVA — badge de origen de la meta */
+    .ec-src { display:inline-block; font-size:.62rem; padding:.05rem .35rem; border-radius:.35rem; border:1px solid var(--border); color:var(--text-muted); white-space:nowrap; }
+    .ec-src-historico_ajustado { color:var(--good-fg,#067647); border-color:color-mix(in srgb, var(--good-fg,#067647) 40%, transparent); }
+    .ec-src-estacional { color:var(--text-muted); border-style:dashed; }
+    .ec-src-manual { color:var(--bad-fg,#b42318); border-color:color-mix(in srgb, var(--bad-fg,#b42318) 40%, transparent); }
+    .ec-src-mixto { color:var(--text-faint); }
+    .pres-propose-tbl { width:100%; border-collapse:collapse; font-size:.82rem; margin:.4rem 0 .2rem; }
+    .pres-propose-tbl th, .pres-propose-tbl td { padding:.3rem .4rem; border-bottom:1px solid var(--border); text-align:left; }
+    .pres-growth-in { width:5rem; text-align:right; }
   `],
 })
 export class FinanzasPresupuestoComponent implements OnInit {
@@ -785,6 +898,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
   periodOpts = [{ label: 'Todos (anual)', value: 0 }, ...Array.from({ length: 13 }, (_, i) => ({ label: `P${i + 1}`, value: i + 1 }))];
   genPlanVisible = false; savingGen = signal(false); genGrowthPct: number | null = 10; genOverwriteManual = false;
   metaEditVisible = false; savingMeta = signal(false); metaEditRow = signal<SalesRow | null>(null); metaEditAmount: number | null = null;
+  // PVA — automatización
+  salesTab = signal<'plan' | 'indicadores'>('plan');
+  salesTabOpts = [{ label: 'Plan', value: 'plan' }, { label: 'Indicadores', value: 'indicadores' }];
+  proposeVisible = false; savingPropose = signal(false); loadingProposal = signal(false);
+  growthRows = signal<GrowthEditRow[]>([]); proposeDefaultGrowth: number | null = 8; proposeOverwriteManual = false;
+  proposal = signal<GrowthProposal | null>(null); lastCoverage = signal<ProposeCoverage | null>(null);
+  indicators = signal<SalesIndicators | null>(null); loadingIndicators = signal(false);
 
   // ── Flujo de efectivo (PU.3) ──
   cashflow = signal<Cashflow | null>(null);
@@ -1032,14 +1152,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
     // total real del alcance mostrado (para PART)
     const scopeReal = cells.reduce((s, x) => s + (x.real ?? 0), 0);
     // agregar por entidad
-    const byEntity = new Map<string, { label: string; channel: string; channel_label: string; meta: number | null; real: number | null; prior: number | null }>();
+    const byEntity = new Map<string, { label: string; channel: string; channel_label: string; meta: number | null; real: number | null; prior: number | null; methods: Set<string> }>();
     for (const x of cells) {
       let e = byEntity.get(x.entity_key);
-      if (!e) { e = { label: x.branch_name || x.warehouse_code, channel: x.channel, channel_label: x.channel_label, meta: null, real: null, prior: null }; byEntity.set(x.entity_key, e); }
+      if (!e) { e = { label: x.branch_name || x.warehouse_code, channel: x.channel, channel_label: x.channel_label, meta: null, real: null, prior: null, methods: new Set() }; byEntity.set(x.entity_key, e); }
       if (x.meta != null) e.meta = (e.meta ?? 0) + x.meta;
       if (x.real != null) e.real = (e.real ?? 0) + x.real;
       if (x.real_prior != null) e.prior = (e.prior ?? 0) + x.real_prior;
+      if (x.method) e.methods.add(x.method);
     }
+    const rowMethod = (ms: Set<string>): string | null => (ms.size === 0 ? null : ms.size === 1 ? [...ms][0] : 'mixto');
     const pct = (n: number | null, d: number | null) => (n == null || d == null || d === 0 ? null : Math.round((n / d) * 1000) / 10);
     const crec = (r: number | null, p: number | null) => (p == null || p === 0 ? null : Math.round(((((r ?? 0) - p) / p) * 100) * 10) / 10);
     const rows: SalesRow[] = [];
@@ -1050,21 +1172,21 @@ export class FinanzasPresupuestoComponent implements OnInit {
       if (!inCh.length) continue;
       for (const [ek, e] of inCh) {
         rows.push({ label: e.label, channel_label: e.channel_label, entity_key: ek, is_rollup: false,
-          meta: e.meta, real: e.real, cumplimiento_pct: pct(e.real, e.meta), crec_pct: crec(e.real, e.prior), part_pct: pct(e.real, scopeReal) });
+          meta: e.meta, real: e.real, cumplimiento_pct: pct(e.real, e.meta), crec_pct: crec(e.real, e.prior), part_pct: pct(e.real, scopeReal), method: rowMethod(e.methods) });
       }
       // subtotal por canal
       const sMeta = inCh.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
       const sReal = inCh.reduce((s, [, e]) => s + (e.real ?? 0), 0);
       const sPrior = inCh.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
       rows.push({ label: `Subtotal ${inCh[0][1].channel_label}`, channel_label: '', entity_key: null, is_rollup: true,
-        meta: sMeta, real: sReal, cumplimiento_pct: pct(sReal, sMeta), crec_pct: crec(sReal, sPrior), part_pct: pct(sReal, scopeReal) });
+        meta: sMeta, real: sReal, cumplimiento_pct: pct(sReal, sMeta), crec_pct: crec(sReal, sPrior), part_pct: pct(sReal, scopeReal), method: null });
     }
     // total general
     const tMeta = entries.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
     const tReal = entries.reduce((s, [, e]) => s + (e.real ?? 0), 0);
     const tPrior = entries.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
     rows.push({ label: 'Total Venta', channel_label: '', entity_key: null, is_rollup: true,
-      meta: tMeta, real: tReal, cumplimiento_pct: pct(tReal, tMeta), crec_pct: crec(tReal, tPrior), part_pct: tReal > 0 ? 100 : null });
+      meta: tMeta, real: tReal, cumplimiento_pct: pct(tReal, tMeta), crec_pct: crec(tReal, tPrior), part_pct: tReal > 0 ? 100 : null, method: null });
     return rows;
   }
 
@@ -1089,6 +1211,70 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.http.post(`${this.base}/budgets/${b.id}/sales-plan/line`, { entity_key: r.entity_key, period_no: this.salesPeriod, meta_amount: Number(this.metaEditAmount) }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => { this.savingMeta.set(false); this.metaEditVisible = false; this.loadSalesComparison(); this.toast.add({ severity: 'success', summary: 'Guardada', detail: 'Meta capturada.' }); },
       error: (e) => { this.savingMeta.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar.' }); },
+    });
+  }
+
+  // ── PVA — automatización (el sistema propone, el humano ajusta) ──
+  setSalesTab(t: 'plan' | 'indicadores'): void { this.salesTab.set(t); if (t === 'indicadores' && !this.indicators()) this.loadIndicators(); }
+
+  methodLabel(m: string | null): string {
+    return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';
+  }
+  basisLabel(b: string): string {
+    return b === 'yoy_paired' ? 'tendencia histórica' : b === 'global' ? 'tendencia global' : 'default (sin tendencia confiable)';
+  }
+
+  openProposePlan(): void {
+    const b = this.selected(); if (!b) return;
+    this.proposeOverwriteManual = false;
+    this.loadingProposal.set(true);
+    this.proposeVisible = true;
+    this.http.get<GrowthProposal>(`${this.base}/budgets/${b.id}/sales-plan/propose-growth`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (p) => {
+        this.proposal.set(p);
+        const order = ['mostrador', 'credito', 'ruta', 'preventa'];
+        const labels: Record<string, string> = { mostrador: 'Mostrador', credito: 'Mayoreo / Crédito', ruta: 'Ruta directa (RD)', preventa: 'Vecinal / Preventa' };
+        this.growthRows.set(order.filter((ch) => p.by_channel[ch]).map((ch) => ({
+          channel: ch, channel_label: labels[ch] || ch,
+          growth_pct: Math.round((p.by_channel[ch].growth_pct || 0) * 1000) / 10, // fracción → %
+          basis: p.by_channel[ch].basis, paired_periods: p.by_channel[ch].paired_periods,
+        })));
+        this.proposeDefaultGrowth = Math.round((p.global.growth_pct || 0) * 1000) / 10;
+        this.loadingProposal.set(false);
+      },
+      error: (e) => { this.loadingProposal.set(false); this.proposeVisible = false; this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo calcular la propuesta de crecimiento.' }); },
+    });
+  }
+
+  confirmProposePlan(): void {
+    const b = this.selected(); if (!b) return;
+    const growthByChannel: Record<string, number> = {};
+    for (const r of this.growthRows()) growthByChannel[r.channel] = (Number(r.growth_pct) || 0) / 100; // % → fracción
+    this.savingPropose.set(true);
+    this.http.post<{ coverage: ProposeCoverage; prior_year: number }>(`${this.base}/budgets/${b.id}/sales-plan/propose`,
+      { growth_by_channel: growthByChannel, default_growth_pct: (Number(this.proposeDefaultGrowth) || 0) / 100, overwrite_manual: this.proposeOverwriteManual })
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.savingPropose.set(false); this.proposeVisible = false; this.lastCoverage.set(r.coverage);
+          this.loadSalesComparison(); this.indicators.set(null);
+          const c = r.coverage;
+          this.toast.add({ severity: 'success', summary: 'Plan propuesto', detail: `${c.historico_ajustado} histórico · ${c.estacional} estacional · ${c.no_signal} sin señal · ${c.manual_kept} manual.` });
+        },
+        error: (e) => { this.savingPropose.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer el plan.' }); },
+      });
+  }
+
+  indPart(r: IndicatorRow): string {
+    const last = r.series && r.series.length ? r.series[r.series.length - 1] : null;
+    return last && last.part_pct != null ? last.part_pct + '%' : '—';
+  }
+
+  loadIndicators(): void {
+    const b = this.selected(); if (!b) return;
+    this.loadingIndicators.set(true);
+    this.http.get<SalesIndicators>(`${this.base}/budgets/${b.id}/sales-indicators`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (i) => { this.indicators.set(i); this.loadingIndicators.set(false); },
+      error: (e) => { this.loadingIndicators.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar el tablero.' }); },
     });
   }
 

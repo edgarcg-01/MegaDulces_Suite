@@ -282,3 +282,29 @@ Estructura **medida del CSV** (no adivinada): 52 semanas S01-52 → 13 periodos 
 `v_sales_entity`, `budget.sales_plan_lines`) a prod; push + redeploy. Declarado no construido: vecinal a grano
 sucursal×preventa (no ruta vecinal individual); proyección plan→`commercial.sales_targets` para unificar el
 "vs objetivo" del Análisis; confirmar el ancla de semana con negocio.
+
+---
+
+## Fase PVA — Automatización del armado (hijo de PV · ADR-069)
+
+Automatizar el armado "bajo los dos parámetros" (CREC=crecimiento, PART=participación): el **sistema propone**
+el presupuesto completo desde la historia y el humano **solo ajusta**. Variables externas "ninguna en teoría"
+(override manual = válvula de escape). Decisiones en **ADR-069**. ⚠️ La data viva arranca ~fin 2025 → la calidad
+de la propuesta **rampa con la historia**; se declara la cobertura, «sin datos»≠cero.
+
+- **PVA.1 ✅ (backend)** `budget.sales_plan_settings` (mig `20260918140000`): crecimiento por canal + método,
+  la única perilla del humano. `proposeGrowth` = YoY del par de años más reciente sobre periodos apareados, con
+  **guard de rampa** (≥4 periodos o cae a default — mató un +2951 % por 2025 parcial) + escalera canal→global→
+  default + cobertura declarada.
+- **PVA.2 ✅ (backend)** `proposePlan` relleno híbrido de las 299 celdas: base real→`base×(1+crec)`; sin base→
+  `anual_proyectado × estacionalidad` (índice jerárquico entidad→canal→global, shrinkage, suma 1); sin señal→no
+  crea fila y lo declara. Nunca pisa `manual`. Mig `20260918150000` amplía el CHECK `method` con `estacional`.
+  Smoke DB-direct **10/10**.
+- **PVA.3 ✅ (backend)** `BudgetSalesIndicatorsService`: CREC/PART por compañía/canal/entidad × año (histórico)
+  + meta-vs-real — bloques de consolidación del workbook. DB-direct: PART 100 %/año, mix 2026 mostrador 76 %.
+- **PVA.4 🔨** UI: sub-tabs Plan | Indicadores; «Proponer plan del año» (crecimiento propuesto por canal editable
+  + cobertura); badge de origen por celda; tira de cobertura; tabla de indicadores. Builds+templates verdes.
+- **PVA.5 🔨** ADR-069 + docs. **Verificación HTTP (ADR-044) pendiente por infra** (API sin rutas PVA aún + creds).
+
+**Pendiente global PVA:** verificación HTTP; migraciones `sales_plan_settings` + CHECK `estacional` a prod;
+push + redeploy. Declarado no construido: variables externas (por decisión del usuario), proyección plan→sales_targets.

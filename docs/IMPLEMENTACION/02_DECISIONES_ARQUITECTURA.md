@@ -2074,3 +2074,32 @@ Plan y detalle en [`FASE_SU_SURTIDO_POR_OLAS.md`](FASES/FASE_SU_SURTIDO_POR_OLAS
 **Hereda:** ADR-066 (plan=dato propio / real=vista ODS; hijo de la Fase PU) · ADR-059 (el real se arbitra desde el universo único del sell-out) · ADR-056 (lo no medido se declara, nunca cero) · regla del ODS (cero importers para el real).
 
 Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PV, hijo de PU).
+
+---
+
+## ADR-069
+
+**El presupuesto de ventas se PROPONE solo desde la historia (crecimiento + relleno híbrido); el humano solo ajusta, y la calidad de la propuesta RAMPA con la historia — lo que se declara, no se esconde.** (Fase PVA — propuesto 2026-09-18)
+
+**Contexto.** Sobre la Fase PV (ADR-068), Dirección pidió **automatizar todo el proceso** "bajo los dos parámetros" — **CREC (crecimiento)** y **PART (participación)**, los dos indicadores explícitos del workbook — y dejar al humano **solo** las variables que no tenemos o que cambian año a año. PV ya tenía el esqueleto pero su "automático" era `meta = real_año_anterior × (1 + un_solo_growth_global)` con el humano tecleando el crecimiento y las celdas sin base en blanco.
+
+**Respuestas del usuario que fijan el diseño:** el crecimiento lo **propone el sistema** (el humano ajusta) · relleno **híbrido** (base×crec donde hay real; PART+estacionalidad donde no) · alcance = armado **+ tablero de indicadores** · variables externas **"ninguna en teoría"**.
+
+**Decisión — cinco piezas:**
+1. **El crecimiento se PROPONE, no se teclea.** `proposeGrowth` calcula el YoY del par de años más reciente por canal, sobre **periodos apareados** (comparables). El humano lo ve y ajusta; se persiste en `budget.sales_plan_settings` (una fila por ejercicio, la única perilla). Escalera de fallback **canal → global → default**.
+2. **Guard de rampa (medido, no teórico).** Un YoY con `< MIN_PAIRED_PERIODS` (=4) periodos apareados **no es confiable** y cae a default — la data viva arranca ~fin 2025, y sin el guard un año anterior parcial proponía **+2951 %** (medido en el smoke). La confiabilidad se **declara** (basis + periodos que la respaldan).
+3. **Relleno híbrido de las 299 celdas.** Base real → `base×(1+crec[canal])` (`historico_ajustado`); sin base pero con historia anual → `anual_proyectado × estacionalidad` (`estacional`, índice estacional jerárquico entidad→canal→global con shrinkage, suma 1 por entidad-año); **sin ninguna señal → no se crea fila y se declara en la cobertura** («sin datos» ≠ cero). Nunca pisa `manual`.
+4. **Cero variables externas por diseño.** El usuario dijo "ninguna en teoría" → no se construye superficie de captura de rutas/sucursales nuevas, precio, clientes; el **override manual por celda** (ya existía, `method='manual'`) es la única válvula de escape. Se evita la complejidad de modelar rampas/aperturas que el dato no puede anticipar.
+5. **El tablero de indicadores reemplaza el seguimiento del Excel.** `BudgetSalesIndicatorsService` publica CREC/PART por compañía/canal/entidad × año (histórico) + meta-vs-real — los bloques de consolidación del workbook — todo derivado del `v_sellout_daily`, sin recalcular ni copiar.
+
+**Se rechaza:** (a) que el humano teclee el crecimiento como input primario (el sistema lo propone; ajustar es la excepción); (b) proponer un YoY sobre pocos periodos apareados (el guard lo frena — un número absurdo es peor que un default honesto); (c) inventar metas donde no hay señal (se declara la cobertura); (d) construir captura de variables externas que el usuario no quiere; (e) recalcular CREC/PART como segunda fuente (se derivan del universo único del sell-out).
+
+**Consecuencias:**
+- ✅ Un humano abre el ejercicio, «Propone plan del año», ajusta el crecimiento si quiere, y el tablero se mantiene solo — reemplaza el Excel de punta a punta.
+- ⚠️ **La calidad de la propuesta RAMPA con la historia:** año 1 (año anterior parcial) → casi todo cae a default/estacional-parcial y el humano ajusta más; a medida que se acumulan años, el YoY apareado y la estacionalidad ganan cobertura y el ajuste tiende a cero. **La cobertura va SIEMPRE en pantalla** (cuántas celdas de base real vs estacional vs sin señal).
+- ⚠️ **Declarado, no construido:** variables externas (por decisión); proyección plan→`commercial.sales_targets`; ancla de semana confirmable (de ADR-068).
+- 🔄 Reversible/aditivo: 1 tabla (`sales_plan_settings`) + ampliar un CHECK (`estacional`) + 1 servicio de indicadores + métodos nuevos; no toca el flujo comercial ni `sales_targets`.
+
+**Hereda:** ADR-068 (meta al grano del Excel, real = vista sobre el sell-out) · ADR-056 (lo no medido se declara, nunca cero; un gate sin prueba negativa es una intención — el guard de rampa se probó rompiéndolo) · ADR-016 (el motor decide/propone, el humano aprueba, el LLM fuera del dinero) · regla del ODS.
+
+Plan y detalle en [`FASE_PU_PRESUPUESTOS.md`](FASES/FASE_PU_PRESUPUESTOS.md) (Fase PVA).
