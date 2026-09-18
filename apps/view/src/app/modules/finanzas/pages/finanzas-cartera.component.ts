@@ -15,8 +15,6 @@ import { CarteraService, CarteraResp, CarteraCliente, CarteraDetalle, CarteraFil
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { CarteraSegmentsComponent } from '../cartera-segments.component';
 
 /**
@@ -30,12 +28,11 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CarteraSegmentsComponent, PageTabsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
+  imports: [CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent],
   template: `
     <div class="surf-page in">
       <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
            ella, así que desde Cartera no había cómo volver al resto sin el sidebar. -->
-      <app-page-tabs [tabs]="tabs" />
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Cartera de clientes</h1>
@@ -493,7 +490,6 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
   `],
 })
 export class FinanzasCarteraComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
 
   // ── `[CXC.SKU.1]` Buscador por producto ─────────────────────────────────────
   readonly buscadorAbierto = signal(false);

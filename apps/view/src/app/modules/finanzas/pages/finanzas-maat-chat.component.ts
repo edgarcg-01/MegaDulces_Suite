@@ -7,8 +7,6 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ButtonModule } from 'primeng/button';
 import { ChartModule } from 'primeng/chart';
 import { MaatService, MaatChatTurn, MaatToolTrace, MaatBriefing, MaatChatResult } from '../maat.service';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { ThotAiInputComponent, ThotAsk, ThotImage } from '../../comercial/components/thot-ai-input.component';
 
 /** Mensaje en la UI: turno + (para assistant) bloques de datos de las tools. */
@@ -65,11 +63,10 @@ const SUGGESTIONS = [
 @Component({
   selector: 'app-finanzas-maat-chat',
   standalone: true,
-  imports: [FormsModule, ButtonModule, ChartModule, PageTabsComponent, ThotAiInputComponent],
+  imports: [FormsModule, ButtonModule, ChartModule, ThotAiInputComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in tc-page">
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -500,7 +497,6 @@ const SUGGESTIONS = [
   `],
 })
 export class FinanzasMaatChatComponent implements OnInit {
-  readonly tabs = FINANZAS_TABS;
   private readonly svc = inject(MaatService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly route = inject(ActivatedRoute);

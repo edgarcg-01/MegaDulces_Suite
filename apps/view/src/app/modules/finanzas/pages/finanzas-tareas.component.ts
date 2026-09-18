@@ -11,11 +11,9 @@ import { InputTextModule } from 'primeng/inputtext';
 import { TooltipModule } from 'primeng/tooltip';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MarkdownPipe } from '../../../shared/pipes/markdown.pipe';
-import { FINANZAS_TABS } from '../finanzas-tabs';
 import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceUser, ReconTaskMessage, ReconTaskDetail, ReconCausa } from '../recon-tasks.service';
@@ -30,13 +28,12 @@ import { ReconTasksService, ReconTask, ReconTaskStats, ReconTaskStatus, FinanceU
   selector: 'app-finanzas-tareas',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, DialogModule, SelectModule,
-    InputTextModule, TooltipModule, ToastModule, PageTabsComponent, MetricStripComponent, LoadStateComponent, MarkdownPipe],
+    InputTextModule, TooltipModule, ToastModule, MetricStripComponent, LoadStateComponent, MarkdownPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
     <div class="surf-page in ft-page">
       <p-toast></p-toast>
-      <app-page-tabs [tabs]="tabs" />
 
       <header class="surf-page-head">
         <div class="surf-page-head-text">
@@ -389,7 +386,6 @@ export class FinanzasTareasComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
 
-  readonly tabs = FINANZAS_TABS;
   readonly canAssign = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_RECON_ASIGNAR] === true);
   readonly canManage = computed(() => this.auth.user()?.permissions?.[Permission.FINANCE_BANK_GESTIONAR] === true);
 
